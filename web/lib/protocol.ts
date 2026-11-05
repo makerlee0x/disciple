@@ -278,5 +278,5 @@ export const PROTOCOL_META = {
   curve: CURVE,
   hookFeeBps: CURVE.tradeFeeBps,
   v4PoolFee: V4_POOL_FEE,
-  note: "You hold your own keys. Gas is paid in USDG, so no ETH is needed.",
+  note: "You hold your own keys.",
 } as const;

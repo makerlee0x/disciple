@@ -42,43 +42,15 @@ contract PaymasterCapLimit6DecTest is PaymasterCapLimitTest {
     }
 }
 
-/// @notice DeployPaymaster takes WHOLE USDG (PAYMASTER_MAX_COST_USDG), scaled by decimals, bounded to [0.1, 100] USDG.
+/// @notice Old deployment/funding instructions fail closed on every chain.
 contract DeployPaymasterEnvTest is PaymasterTestBase {
-    function setUp() public {
-        _setUp(6);
-        vm.chainId(46630);
-        vm.setEnv("USDG", vm.toString(address(usdg)));
-        vm.setEnv("PAYMASTER_OWNER", vm.toString(owner));
-        vm.setEnv("PAYMASTER_SIGNER", vm.toString(signer));
-        vm.setEnv("PAYMASTER_TREASURY", vm.toString(treasury));
-        vm.setEnv("PAYMASTER_MIN_RATE", vm.toString(rate / 10));
-        vm.setEnv("PAYMASTER_MAX_RATE", vm.toString(rate * 10));
-        vm.setEnv("PAYMASTER_MAX_COST", "0");
-        vm.setEnv("PAYMASTER_DEPOSIT_WEI", "0");
-        vm.setEnv("PAYMASTER_STAKE_WEI", "0");
-    }
-
-    /// @dev one sequential test: vm.setEnv is process-global and suites run in parallel.
-    function test_deployScript_wholeUsdg_bounds_and_rawEnvRejected() public {
+    function test_deploymentDisabledOnEveryChain() public {
         DeployPaymaster d = new DeployPaymaster();
-        vm.setEnv("PAYMASTER_MAX_COST_USDG", "2");
-        assertEq(d.run().maxCostCap(), 2 * 10 ** 6); // testnet runbook value: 2 USDG == 2000000 raw
-
-        vm.setEnv("PAYMASTER_MAX_COST_USDG", "100");
-        assertEq(d.run().maxCostCap(), 100 * 10 ** 6);
-
-        vm.setEnv("PAYMASTER_MAX_COST_USDG", "0");
-        vm.expectRevert(bytes("PAYMASTER_MAX_COST_USDG outside [0.1, 100] USDG"));
-        d.run();
-
-        vm.setEnv("PAYMASTER_MAX_COST_USDG", "101");
-        vm.expectRevert(bytes("PAYMASTER_MAX_COST_USDG outside [0.1, 100] USDG"));
-        d.run();
-
-        vm.setEnv("PAYMASTER_MAX_COST_USDG", "2");
-        vm.setEnv("PAYMASTER_MAX_COST", "2000000");
-        vm.expectRevert(bytes("PAYMASTER_MAX_COST (raw) removed: use PAYMASTER_MAX_COST_USDG"));
-        d.run();
-        vm.setEnv("PAYMASTER_MAX_COST", "0");
+        uint256[3] memory chains = [uint256(1), uint256(46630), uint256(31337)];
+        for (uint256 i; i < chains.length; i++) {
+            vm.chainId(chains[i]);
+            vm.expectRevert(bytes("gas sponsorship disabled"));
+            d.run();
+        }
     }
 }

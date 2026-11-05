@@ -2,14 +2,20 @@
 pragma solidity ^0.8.24;
 
 import {Vm} from "forge-std/Test.sol";
+import {stdStorage, StdStorage} from "forge-std/StdStorage.sol";
 import {PaymasterTestBase, MiniAccount} from "./PaymasterTestBase.sol";
 import {IEntryPoint} from "../vendor/aa-v07/interfaces/IEntryPoint.sol";
 import {PackedUserOperation as EpOp} from "../vendor/aa-v07/interfaces/PackedUserOperation.sol";
 import {DisciplePaymaster} from "../../src/paymaster/DisciplePaymaster.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
-/// @notice F-01: independent secured settlement for same-sender bundles, successes and reverts.
+/// @notice AUDIT #141 L-1: settlement of reservations rolled forward by a later op of the same sender (same bundle,
+///         escalating allowances M1 < M2 < M3, as in AUDIT's R141 PoC) and of reservations whose postOp never ran.
+///         Invariants: a paid op is charged exactly its own gas once; debt equals the real shortfall; nothing is left in
+///         reservedOf / rolledOf after the bundle; unrecovered ≤ the last op's maxTokenCost.
 contract PaymasterSettlementTest is PaymasterTestBase {
+    using stdStorage for StdStorage;
+
     address sink = makeAddr("sink");
     uint48 until;
     uint48 afterTs;
@@ -68,13 +74,16 @@ contract PaymasterSettlementTest is PaymasterTestBase {
                 (uint256 g, uint256 r,) = abi.decode(logs[i].data, (uint256, uint256, uint256));
                 t.charged += g;
                 t.repaid += r;
+            } else if (t0 == DisciplePaymaster.DebtRecorded.selector) {
+                (uint256 a,) = abi.decode(logs[i].data, (uint256, uint256));
+                t.debtGas += a;
             }
         }
     }
 
     function _assertSettled() internal view {
         assertEq(pm.reservedOf(address(acct)), 0, "no open reservation");
-        assertEq(pm.exposure(), 0, "global exposure released");
+        assertEq(pm.rolledOf(address(acct)), 0, "nothing left rolled");
     }
 
     function _one(uint256 a) internal pure returns (uint256[] memory x) {
@@ -119,7 +128,7 @@ contract PaymasterSettlementTest is PaymasterTestBase {
         assertEq(t.repaid, 0, "no phantom debt collected");
         assertLe(t.charged, pm.tokenCost(t.gasWei * 2, rate), "gas only (incl. postOp + penalty slack), no extra cap");
         assertLt(t.charged, c, "far below one cap (pre-fix: overcharged by M1)");
-        assertEq(pm.owedOf(address(acct)), 0);
+        assertEq(pm.debtOf(address(acct)), 0);
         _assertSettled();
     }
 
@@ -130,43 +139,103 @@ contract PaymasterSettlementTest is PaymasterTestBase {
         assertEq(bal0 - usdg.balanceOf(address(acct)) - 3, t.charged, "pre-fix: overcharged by M1 + M2");
         assertEq(t.repaid, 0);
         assertLt(t.charged, c);
-        assertEq(pm.owedOf(address(acct)), 0);
+        assertEq(pm.debtOf(address(acct)), 0);
         _assertSettled();
     }
 
-    // ───────── same bundle, all unpaid: F-01 precharge still pays treasury (no unpaid gas debt) ─────────
+    // ───────── same bundle, all unpaid: debt == real shortfall, ≤ last maxTokenCost ─────────
 
-    function test_sameBundle_threeUnpaid_prechargePays() public {
+    function test_sameBundle_threeUnpaid_debtIsRealLoss() public {
         Tally memory t = _run(_bundle(_arr(c, 2 * c, 3 * c), _flags(false, false, false)));
-        assertEq(t.okOps, 0, "all reverted");
-        assertGt(usdg.balanceOf(treasury), 0, "precharge settled gas");
-        assertEq(usdg.balanceOf(treasury), t.charged);
-        assertEq(pm.owedOf(address(acct)), 0, "no unpaid debt");
-        assertEq(t.debtGas, 0);
+        assertEq(t.okOps, 0, "all reverted (approve undone)");
+        assertEq(usdg.balanceOf(treasury), 0);
+        uint256 debt = pm.debtOf(address(acct));
+        assertEq(debt, t.debtGas, "debt = sum of the per-op gas shortfalls only");
+        assertLe(debt, pm.tokenCost(t.gasWei * 2, rate), "no gas caps over-recorded (pre-fix: > 4x the loss)");
+        assertLe(debt, 3 * c, "exposure bound: <= last op's maxTokenCost");
         _assertSettled();
     }
 
-    // ───────── mixed: reverted ops still prepay; paid op does not inherit unpaid gas debt ─────────
+    // ───────── mixed: op 0 unpaid, op 1 paid repays op 0's real gas, nothing more ─────────
 
-    function test_sameBundle_unpaidThenPaid_prechargeEach() public {
+    function test_sameBundle_unpaidThenPaid_repaysRealDebtOnly() public {
         uint256 bal0 = usdg.balanceOf(address(acct));
         Tally memory t = _run(_bundle(_arr(c, 2 * c), _flags(false, true)));
         assertEq(t.okOps, 1);
-        assertEq(t.debtGas, 0);
-        assertEq(t.repaid, 0);
-        assertEq(bal0 - usdg.balanceOf(address(acct)) - 1, t.charged);
-        assertEq(usdg.balanceOf(treasury), t.charged);
-        assertEq(pm.owedOf(address(acct)), 0);
+        assertGt(t.debtGas, 0, "op 0 left a shortfall");
+        assertEq(t.repaid, t.debtGas, "op 1 repaid exactly op 0's real gas");
+        assertEq(bal0 - usdg.balanceOf(address(acct)) - 1, t.charged + t.repaid);
+        assertEq(pm.debtOf(address(acct)), 0);
         _assertSettled();
     }
 
     function test_sameBundle_paidThenUnpaid() public {
         Tally memory t = _run(_bundle(_arr(c, 2 * c), _flags(true, false)));
         assertEq(t.okOps, 1);
-        assertEq(pm.owedOf(address(acct)), 0);
+        // op 1's pull may still succeed from op 0's leftover approve (allowance M1 - gas0 stays): either way no double count
+        uint256 debt = pm.debtOf(address(acct));
+        assertEq(debt, t.debtGas);
         assertEq(usdg.balanceOf(treasury), t.charged + t.repaid);
-        assertEq(t.debtGas, 0);
+        assertEq(t.repaid, 0);
         _assertSettled();
+    }
+
+    // ───────── a reservation whose postOp never ran becomes real debt, collected once ─────────
+
+    function _plantStale(uint256 amt) internal {
+        stdstore.target(address(pm)).sig("reservedOf(address)").with_key(address(acct)).checked_write(amt);
+        stdstore.target(address(pm))
+            .sig("reservedBy(address)")
+            .with_key(address(acct))
+            .checked_write(bytes32(uint256(0xdead)));
+    }
+
+    function test_staleReservation_paidOp_collectsItOnce() public {
+        uint256 stale = c / 3;
+        _plantStale(stale);
+        assertEq(pm.owedOf(address(acct)), stale);
+        uint256 bal0 = usdg.balanceOf(address(acct));
+        Tally memory t = _run(_bundle(_one(c + stale), _f1(true)));
+        assertEq(t.okOps, 1);
+        assertEq(t.repaid, stale, "stale cap collected as debt, once");
+        assertEq(bal0 - usdg.balanceOf(address(acct)) - 1, t.charged + stale);
+        assertEq(pm.debtOf(address(acct)), 0);
+        _assertSettled();
+    }
+
+    function test_staleReservation_unpaidOp_becomesDebt() public {
+        uint256 stale = c / 3;
+        _plantStale(stale);
+        Tally memory t = _run(_bundle(_one(c + stale), _f1(false)));
+        assertEq(t.okOps, 0);
+        assertEq(pm.debtOf(address(acct)), stale + (t.debtGas - stale), "stale + own gas");
+        assertLe(pm.debtOf(address(acct)), c + stale);
+        _assertSettled();
+    }
+
+    function test_staleReservation_needsCover() public {
+        _plantStale(c / 3);
+        EpOp[] memory ops = _bundle(_one(c), _f1(true));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IEntryPoint.FailedOpWithRevert.selector,
+                0,
+                "AA33 reverted",
+                abi.encodeWithSelector(DisciplePaymaster.MaxCostTooLow.selector, c, c + c / 3)
+            )
+        );
+        vm.prank(bundler, bundler);
+        ep.handleOps(ops, payable(bundler));
+    }
+
+    function test_forgiveDebt_clearsAll() public {
+        _plantStale(7);
+        stdstore.target(address(pm)).sig("rolledOf(address)").with_key(address(acct)).checked_write(uint256(5));
+        stdstore.target(address(pm)).sig("debtOf(address)").with_key(address(acct)).checked_write(uint256(3));
+        vm.prank(owner);
+        pm.forgiveDebt(address(acct));
+        assertEq(pm.owedOf(address(acct)), 0);
+        assertEq(pm.reservedBy(address(acct)), bytes32(0));
     }
 
     /// @dev Sequential ops (one per handleOps, the DISCIPLE relay path) still settle with no leftovers.
@@ -176,7 +245,7 @@ contract PaymasterSettlementTest is PaymasterTestBase {
             assertEq(t.okOps, 1);
             assertEq(t.repaid, 0);
         }
-        assertEq(pm.owedOf(address(acct)), 0);
+        assertEq(pm.debtOf(address(acct)), 0);
         _assertSettled();
     }
 }

@@ -14,7 +14,7 @@ const op = (o: Record<string, bigint | number | string | undefined> = {}) => {
   for (const [k, v] of Object.entries(o)) d[k] = v === undefined ? undefined : typeof v === "string" ? v : hex(v);
   return d;
 };
-const rejects = (o: Record<string, string | undefined>, code: "fee" | "gas", base = BASE) =>
+const rejects = (o: Record<string, string | undefined>, code: "fee" | "gas" | "paymaster", base = BASE) =>
   assert.throws(() => checkOpGas(o, base), (e: unknown) => e instanceof RelayPolicyError && e.code === code);
 
 test("fee-0 op (the drain) is rejected", () => {
@@ -38,7 +38,7 @@ test("huge callGasLimit / verification / PVG / total rejected; tiny PVG rejected
 });
 test("paymaster limits count toward the cap (v0.7 packed)", () => {
   const p = op({ paymaster: "0x1111111111111111111111111111111111111111", paymasterVerificationGasLimit: GAS_CAPS.paymasterVerificationGasLimit + BigInt(1) });
-  rejects(p, "gas");
+  rejects(p, "paymaster");
   const q = op({ paymaster: "0x1111111111111111111111111111111111111111", paymasterVerificationGasLimit: BigInt(100_000), paymasterPostOpGasLimit: BigInt(50_000) });
   assert.equal(totalGas(q), STATIC_GAS.callGasLimit + STATIC_GAS.verificationGasLimit + STATIC_GAS.preVerificationGas + BigInt(150_000));
 });
@@ -92,13 +92,13 @@ test("rate limiter: fixed window per key, retry-after, store errors fall back to
   assert.equal(clientIp(h({}), { VERCEL: "1" }), "unknown");
 });
 
-test("paymaster ops: only our paymaster, deposit must cover the max prefund at >= the relayer floor; self-pay untouched", () => {
+test("paymaster ops: disabled even for our own funded paymaster; self-pay untouched", () => {
   const PM = "0x1111111111111111111111111111111111111111";
   const o = op({ paymasterVerificationGasLimit: 120_000, paymasterPostOpGasLimit: 80_000 });
   const pmOp = { ...o, paymaster: PM };
   const need = maxPrefund(pmOp, relayerPrice(BASE));
-  checkPaymaster(o, undefined, BigInt(0), BASE); // no paymaster: no-op
-  checkPaymaster(pmOp, PM.toUpperCase().replace("0X", "0x"), need, BASE);
+  checkPaymaster(op(), undefined, BigInt(0), BASE); // self-paid: no-op
+  assert.throws(() => checkPaymaster(pmOp, PM, need, BASE), RelayPolicyError);
   const bad = (fn: () => void) => assert.throws(fn, (e: unknown) => e instanceof RelayPolicyError && e.code === "paymaster");
   bad(() => checkPaymaster(pmOp, PM, need - BigInt(1), BASE));
   bad(() => checkPaymaster(pmOp, undefined, need, BASE));

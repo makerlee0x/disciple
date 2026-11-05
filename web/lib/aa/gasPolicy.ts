@@ -268,7 +268,7 @@ export const CLIENT_FEE_HEADROOM_PCT = BigInt(150);
 export type GasFields = {
   callGasLimit?: string | bigint; verificationGasLimit?: string | bigint; preVerificationGas?: string | bigint;
   maxFeePerGas?: string | bigint; maxPriorityFeePerGas?: string | bigint;
-  paymaster?: string; paymasterVerificationGasLimit?: string | bigint; paymasterPostOpGasLimit?: string | bigint;
+  paymasterAndData?: string; paymasterData?: string; paymaster?: string; paymasterVerificationGasLimit?: string | bigint; paymasterPostOpGasLimit?: string | bigint;
 };
 const big = (x: string | bigint | undefined) => { try { return x === undefined || x === "" ? BigInt(0) : BigInt(x); } catch { return BigInt(-1); } };
 
@@ -301,6 +301,7 @@ export function maxPrefund(op: GasFields, priceFloor: bigint = BigInt(0)): bigin
 
 /** Throws RelayPolicyError if the op could make the relayer pay. Returns the op's total gas. */
 export function checkOpGas(op: GasFields, baseFee: bigint, caps: GasCaps = GAS_CAPS): bigint {
+  checkSelfPaid(op);
   const fields = [op.callGasLimit, op.verificationGasLimit, op.preVerificationGas, op.maxFeePerGas, op.maxPriorityFeePerGas, op.paymasterVerificationGasLimit, op.paymasterPostOpGasLimit];
   if (fields.some((f) => big(f) < BigInt(0))) throw new RelayPolicyError("malformed gas field", "gas");
   const maxFee = big(op.maxFeePerGas), tip = big(op.maxPriorityFeePerGas);
@@ -317,20 +318,17 @@ export function checkOpGas(op: GasFields, baseFee: bigint, caps: GasCaps = GAS_C
   return total;
 }
 
-/**
- * Paymaster ops (DisciplePaymaster, USDG gas): the EntryPoint takes the prefund from the PAYMASTER's deposit, not the
- * sender (who holds no ETH), and refunds the relayer from it. Only our own paymaster is accepted (a foreign one could
- * fail validation on-chain and leave the relayer paying), and its deposit must cover the op's max prefund priced at
- * >= the relayer floor, else handleOps reverts AA31 at the relayer's expense. No-op for self-pay ops.
- */
-export function checkPaymaster(op: GasFields, allowed: string | undefined, deposit: bigint, baseFee: bigint): void {
-  if (!op.paymaster) return;
-  // Client-visible message is plain (Lee: users never see gas wording); the reason rides in `detail` for logs.
-  if (!allowed || op.paymaster.toLowerCase() !== allowed.toLowerCase())
-    throw new RelayPolicyError(TRADING_UNAVAILABLE, "paymaster", `paymaster ${op.paymaster} not accepted (DisciplePaymaster only)`);
-  const need = maxPrefund(op, relayerPrice(baseFee));
-  if (deposit < need)
-    throw new RelayPolicyError(TRADING_UNAVAILABLE, "paymaster", `paymaster deposit too low: ${deposit} < ${need} wei (keeper top-up pending)`);
+/** Sponsorship is disabled on every chain. Accept only absent/empty paymaster fields. */
+export function checkSelfPaid(op: GasFields): void {
+  if (op.paymaster && !/^0x0{40}$/i.test(op.paymaster) ||
+      op.paymasterAndData && op.paymasterAndData !== "0x" ||
+      op.paymasterData && op.paymasterData !== "0x" ||
+      big(op.paymasterVerificationGasLimit) !== BigInt(0) || big(op.paymasterPostOpGasLimit) !== BigInt(0))
+    throw new RelayPolicyError(TRADING_UNAVAILABLE, "paymaster", "gas sponsorship disabled");
+}
+/** Legacy callers cannot enable sponsorship with an allowed address or a funded deposit. */
+export function checkPaymaster(op: GasFields, _allowed?: string, _deposit = BigInt(0), _baseFee = BigInt(0)): void {
+  checkSelfPaid(op);
 }
 
 /**

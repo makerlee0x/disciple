@@ -70,7 +70,7 @@ ok("router.usdg() == deployment USDG", !!usdg && usdg.toLowerCase() === d.usdg.t
 
 const owner = privateKeyToAccount(generatePrivateKey());
 const boot = new Mav2Account({ chain: robinhoodTestnet, pc: pc as never, bundlerUrl: `${APP}/api/bundler` }, owner); // self-pay bootstrap
-const sa = new Mav2Account({ chain: robinhoodTestnet, pc: pc as never, bundlerUrl: `${APP}/api/bundler`, usdgGas: { paymaster: d.paymaster, usdg: d.usdg, url: `${APP}/api/paymaster`, session: policyHasPaymaster() } }, owner);
+const sa = new Mav2Account({ chain: robinhoodTestnet, pc: pc as never, bundlerUrl: `${APP}/api/bundler` }, owner);
 const me = await sa.address();
 console.log("owner", owner.address, "\naccount", me);
 
@@ -111,7 +111,7 @@ ok("client clamp 20% → 5% max (4.5% used: quote headroom)", clamp.capped && cl
 const slip = clamp.bps!;
 const send = async (label: string, calls: Call[]) => {
   ok(`${label}: eligible for session key`, elig(calls));
-  try { const r = await sa.sendCalls(calls, "session"); await settle(r.txHash); const p = await pmInfo(r.txHash); ok(label, p.status === "success" && p.success, `${r.txHash} gas via ${p.paymaster}`); ok(`${label}: gas via paymaster`, p.paymaster.toLowerCase() === d.paymaster.toLowerCase()); out[label] = r.txHash; return r; }
+  try { const r = await sa.sendCalls(calls, "session"); await settle(r.txHash); const p = await pmInfo(r.txHash); ok(label, p.status === "success" && p.success, `${r.txHash} gas via ${p.paymaster}`); ok(`${label}: self-paid gas`, /^0x0{40}$/i.test(p.paymaster)); out[label] = r.txHash; return r; }
   catch (e) { ok(label, false, why(e)); return null; }
 };
 const reject = async (label: string, calls: Call[]) => {
