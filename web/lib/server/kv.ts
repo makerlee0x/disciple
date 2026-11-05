@@ -2,8 +2,9 @@ import "server-only";
 /**
  * Small durable KV for site data (usernames, trade index). Same Upstash REST pattern as lib/server/chat/store.ts
  * (UPSTASH_REDIS_REST_URL/TOKEN or KV_REST_API_URL/TOKEN, plain fetch, no SDK). Without env it falls back to an
- * in-memory store persisted best-effort to KV_LOCAL_FILE (default /tmp/disciple-kv.json): dev only, not shared
- * across Vercel lambdas.
+ * in-memory store persisted best-effort to KV_LOCAL_FILE (default /tmp/disciple-kv.json): local/dev only.
+ * Serverless/production (Vercel production|preview, or NODE_ENV=production without KV_ALLOW_LOCAL=1) FAILS
+ * CLOSED — no silent per-instance local fallback for nonces, leases, rate limits, invites, or usernames.
  */
 import { promises as fs } from "fs";
 
@@ -142,11 +143,29 @@ function upstash(url: string, token: string): Kv {
   };
 }
 
+/** True when this process must use shared Upstash/Vercel KV (no local /tmp fallback). */
+export function requiresSharedKv(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.KV_ALLOW_LOCAL === "1") return false; // explicit escape for local `next start` e2e
+  if (env.NEXT_PHASE === "phase-production-build") return false; // `next build` may compile routes without runtime secrets
+  if (env.VERCEL_ENV === "production" || env.VERCEL_ENV === "preview") return true;
+  if (env.VERCEL) return true; // on Vercel without VERCEL_ENV: fail closed
+  return env.NODE_ENV === "production";
+}
+
 let inst: Kv | null = null;
+/** Test hook: clear the cached instance (and optionally force the next kv() choice). */
+export function resetKvForTests() { inst = null; }
+
 export function kv(): Kv {
   if (inst) return inst;
   const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
   const tok = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-  inst = url && tok ? upstash(url, tok) : local();
+  if (url && tok) { inst = upstash(url, tok); return inst; }
+  if (requiresSharedKv()) {
+    throw new Error(
+      "[kv] shared Upstash/KV credentials required in serverless/production (set UPSTASH_REDIS_REST_URL/TOKEN or KV_REST_API_URL/TOKEN). Local /tmp fallback is disabled so nonces, leases, rate limits, invites and usernames stay consistent across instances.",
+    );
+  }
+  inst = local();
   return inst;
 }

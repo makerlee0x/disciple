@@ -69,8 +69,19 @@ export class HybridLimiter {
   peek(key: string) { return this.m.get(`rl:${key}`); }
 }
 
-/** Client IP: Vercel sets x-real-ip / the first x-forwarded-for entry (it overwrites client-supplied values). */
-export function clientIp(h: { get(name: string): string | null }): string {
+/**
+ * Client IP under a trusted-proxy assumption (do not invent a new proxy stack).
+ * - Vercel: platform overwrites `x-real-ip` / left-most `x-forwarded-for` — trust those headers.
+ * - Self-host: set TRUSTED_PROXY=1 only when your reverse proxy *overwrites* (not appends) forwarding
+ *   headers from the client. Without Vercel or TRUSTED_PROXY=1, forwarding headers are ignored and
+ *   this returns "unknown" so per-IP budgets cannot be spoofed by a raw client.
+ */
+export function clientIp(
+  h: { get(name: string): string | null },
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const trust = !!(env.VERCEL || env.TRUSTED_PROXY === "1");
+  if (!trust) return "unknown";
   return (h.get("x-real-ip") || (h.get("x-forwarded-for") || "").split(",")[0] || "").trim().toLowerCase() || "unknown";
 }
 

@@ -47,7 +47,7 @@ export interface Config {
 
 /**
  * Builds stacks from contracts/deployments/rh-testnet-46630.json by walking the `previous` chain:
- *  current (v4, PR #97, startBlock 137540728) -> previous (v3) -> … -> v1 (PR #4).
+ *  current (v5, startBlock 142064001) -> previous (v4, PR #97) -> … -> v1 (PR #4).
  * Also accepts contracts/deployments/web-bundle/addresses.json (its `previous` has no `contracts`, so only that stack is used).
  * STACKS=v3 restricts to a subset. All stacks are indexed (old coins keep trading on their own hook/pools). EXTRA_DEPLOYMENT adds one more json.
  */
