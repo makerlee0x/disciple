@@ -3,7 +3,9 @@ import type { Address, PublicClient } from "viem";
 import { READS } from "./abi.js";
 import type { Config, Stack } from "./config.js";
 import { dataVersion, type DB } from "./db.js";
+import { makeClient } from "./sync.js";
 import { candles, graduationPct, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, TOTAL_SUPPLY, virtualQuoteReserve, wad } from "./math.js";
+import { mcapUsdFromAnchor, readDiscipleTvl, type DiscipleTvl } from "./disciple.js";
 
 /**
  * Quote-amount sums are scaled by each coin's coins.quote_decimals (USDG 6 / 18), never a blanket 1e18; coin-token
@@ -33,7 +35,9 @@ type Live = {
   priceWad: string;
   /** $ per token = mcapUsd / total supply (full precision at any quote decimals). */
   priceUsd: number;
-  mcapUsd: number; quoteUsd: number; mcapSource: string; liquidityUsd: number; curveMcapNowUsd?: number;
+  mcapUsd: number; quoteUsd: number; mcapSource: string; liquidityUsd: number | null; curveMcapNowUsd?: number;
+  /** Set when the pool is a DiscipleHook pool. liquidityUsd is derived from this, not from getLiquidity. */
+  disciple?: DiscipleTvl;
   /** 0–100 to graduation (math.graduationPct = curve progressBps), 100 once graduated */
   graduationPct?: number | null;
 };
@@ -52,7 +56,16 @@ const supplyTokens = (coin: any) => Number(supplyOf(coin)) / 1e18;
 
 export class Api {
   private cache = new Map<string, { at: number; v: any }>();
+  private discipleClient: PublicClient | null = null;
   constructor(private db: DB, private client: PublicClient | null, private cfg: Config) {}
+
+  /** Reads for DiscipleHook. Uses the launchpad client when the hook shares its RPC (unit tests pass a mock there). */
+  private discipleRpc(): PublicClient | null {
+    const d = this.cfg.disciple;
+    if (!d || !this.client) return this.client;
+    if (d.rpcUrl === this.cfg.rpcUrl) return this.client;
+    return this.discipleClient ??= makeClient({ ...this.cfg, rpcUrl: d.rpcUrl });
+  }
 
   stackOf(id: string): Stack | undefined {
     return this.cfg.stacks.find((s) => s.id === id);
@@ -79,6 +92,22 @@ export class Api {
           const v = (await client.readContract({ address: st.quotePricer, abi: READS, functionName: "quotePriceUsd", args: [coin.quote] })) as bigint;
           if (v > 0n) qUsd = v;
         } catch {}
+      }
+      if (coin.graduated && coin.pool_id && this.cfg.disciple && this.disciplePool(coin.pool_id)) {
+        const hook = this.cfg.disciple;
+        const rpc = this.discipleRpc() ?? client;
+        const price = hook.quoteUsdWad[String(coin.quote).toLowerCase()];
+        const quoteUsdWad = price ? BigInt(price) : qUsd;
+        const tvl = await readDiscipleTvl(rpc, hook.hook, hook.poolManager, coin.pool_id, quoteUsdWad);
+        const anchor = BigInt(tvl.anchorX128);
+        const m = mcapUsdFromAnchor(supplyOf(coin), anchor, quoteUsdWad);
+        const supplyTokensN = supplyTokens(coin);
+        return {
+          priceWad: supplyTokensN > 0 && anchor > 0n ? ((anchor * 10n ** 18n) / (1n << 128n)).toString() : "0",
+          priceUsd: supplyTokensN > 0 ? m / supplyTokensN : 0,
+          mcapUsd: m, quoteUsd: wad(quoteUsdWad), mcapSource: "disciple-pool", graduationPct: 100,
+          liquidityUsd: tvl.liquidityUsd, disciple: tvl,
+        };
       }
       if (coin.graduated && coin.pool_id) {
         try {
@@ -109,6 +138,43 @@ export class Api {
         client.readContract({ address: coin.curve, abi: READS, functionName: "quoteReserve" }) as Promise<bigint>,
       ]);
       return { priceWad: p.toString(), priceUsd: wad(m) / supplyTokens(coin), mcapUsd: wad(m), quoteUsd: wad(launchQ), mcapSource: "curve", liquidityUsd: 2 * wad(r) * wad(launchQ), graduationPct: coinGraduationPct(coin, wad(m)) };
+    });
+  }
+
+  /** Indexed DiscipleHook pool (lowercase id). Absent when disciple mode is off or the pool was not created on this hook. */
+  disciplePool(poolId: string) {
+    return this.db.prepare("SELECT * FROM disciple_pools WHERE id=?").get(poolId.toLowerCase()) as any;
+  }
+
+  private quoteUsdWadFor(quote: string): bigint | null {
+    const w = this.cfg.disciple?.quoteUsdWad[quote.toLowerCase()];
+    return w ? BigInt(w) : null;
+  }
+
+  async disciplePoolDetail(poolId: string) {
+    const row = this.disciplePool(poolId);
+    if (!row || !this.cfg.disciple) return null;
+    let tvl: DiscipleTvl | null = null;
+    let tvlError: string | undefined;
+    const rpc = this.discipleRpc();
+    if (rpc) {
+      try {
+        tvl = await readDiscipleTvl(rpc, this.cfg.disciple.hook, this.cfg.disciple.poolManager, row.id, this.quoteUsdWadFor(row.quote));
+      } catch (e: any) { tvlError = e.message; }
+    }
+    const swaps = (this.db.prepare("SELECT COUNT(*) n, COALESCE(SUM(CAST(quote_amt AS REAL)),0) quote FROM disciple_swaps WHERE pool_id=?").get(row.id) as any);
+    return {
+      ...row, v4Fee: 0, tvl, tvlError,
+      swaps: swaps.n, quoteVolumeRaw: String(swaps.quote),
+      quoter: this.cfg.disciple.v4Quoter ?? null,
+    };
+  }
+
+  disciplePools() {
+    const rows = this.db.prepare("SELECT * FROM disciple_pools ORDER BY created_block, id").all() as any[];
+    return rows.map((r) => {
+      const n = this.db.prepare("SELECT COUNT(*) n FROM disciple_swaps WHERE pool_id=?").get(r.id) as any;
+      return { ...r, v4Fee: 0, swaps: n.n };
     });
   }
 
@@ -362,8 +428,10 @@ export class Api {
   }
 
   status() {
+    const disciple = this.cfg.disciple;
     return { chainId: this.cfg.chainId, stacks: this.cfg.stacks.map((x) => ({ ...x, rpc: undefined })), cursors: this.db.prepare("SELECT * FROM cursor").all(),
       coins: (this.db.prepare("SELECT COUNT(*) n FROM coins").get() as any).n, trades: (this.db.prepare("SELECT COUNT(*) n FROM trades").get() as any).n,
+      disciple: disciple ? { hook: disciple.hook, poolManager: disciple.poolManager, v4Quoter: disciple.v4Quoter ?? null, fromBlock: disciple.fromBlock.toString(), pools: (this.db.prepare("SELECT COUNT(*) n FROM disciple_pools").get() as any).n } : null,
       counts: Object.fromEntries(["orders", "tier_breaks", "keeper_tips", "referrals", "fee_events", "balances", "profit_tax", "holder_rewards", "usdg_escrow_events"].map((t) => [t, (this.db.prepare(`SELECT COUNT(*) n FROM ${t}`).get() as any).n])) };
   }
 
@@ -487,6 +555,14 @@ export class Api {
     const q = url.searchParams;
     const addr = (x?: string) => (x && /^0x[0-9a-fA-F]{40}$/.test(x) ? x : null);
     if (p.length === 0 || p[0] === "health") return [200, this.status()];
+    if (p[0] === "disciple" && p[1] === "pools") {
+      if (!this.cfg.disciple) return [404, { error: "disciple mode off" }];
+      if (p.length === 2) return [200, this.disciplePools()];
+      if (!/^0x[0-9a-fA-F]{64}$/.test(p[2] ?? "")) return [400, { error: "bad pool id" }];
+      if (p.length === 3) { const d = await this.disciplePoolDetail(p[2]); return d ? [200, d] : [404, { error: "unknown pool" }]; }
+      if (p[3] === "swaps") return [200, this.db.prepare("SELECT * FROM disciple_swaps WHERE pool_id=? ORDER BY block DESC, id DESC LIMIT ?").all(p[2].toLowerCase(), intParam(q, "limit", 100, 1, 1000))];
+      if (p[3] === "liquidity") return [200, this.db.prepare("SELECT * FROM disciple_liquidity WHERE pool_id=? ORDER BY block DESC, id DESC LIMIT ?").all(p[2].toLowerCase(), intParam(q, "limit", 100, 1, 1000))];
+    }
     if (p[0] === "coins" && p.length === 1) return [200, this.listCoins(q)];
     if (p[0] === "coins" && addr(p[1])) {
       const t = p[1];

@@ -1,6 +1,7 @@
 import { createPublicClient, http, type Address, type PublicClient } from "viem";
 import type { Config, Stack } from "./config.js";
-import { wipeStack, type DB } from "./db.js";
+import { wipeDisciple, wipeStack, type DB } from "./db.js";
+import { applyDiscipleLogs, DISCIPLE_STACK } from "./disciple.js";
 import { decodeEventLog } from "viem";
 import { EVENTS } from "./abi.js";
 import { applyLogs, type RawLog } from "./ingest.js";
@@ -41,11 +42,11 @@ export class Syncer {
       (a, b) => this.client.getLogs({ address, fromBlock: a, toBlock: b }) as Promise<RawLog[]>, from, to, this.cfg.minChunk, this.retry);
   }
 
-  private async fillTs(logs: RawLog[]) {
+  private async fillTs(logs: RawLog[], client: PublicClient = this.client) {
     const need = [...new Set(logs.map((l) => l.blockNumber!))].filter((b) => !this.tsCache.has(b));
     for (let i = 0; i < need.length; i += 10) {
       await Promise.all(need.slice(i, i + 10).map(async (b) => {
-        const blk = await this.retry(() => this.client.getBlock({ blockNumber: b }));
+        const blk = await this.retry(() => client.getBlock({ blockNumber: b }));
         this.tsCache.set(b, Number(blk.timestamp));
       }));
     }
@@ -109,10 +110,63 @@ export class Syncer {
     if (n) this.log(`quote decimals filled for ${n} coin(s)`);
   }
 
+  private discipleRpc(): PublicClient {
+    const d = this.cfg.disciple;
+    if (!d) throw new Error("disciple mode off");
+    if (d.rpcUrl === this.cfg.rpcUrl) return this.client;
+    return makeClient({ ...this.cfg, rpcUrl: d.rpcUrl });
+  }
+
+  /** DiscipleHook logs only (Created / Swapped / Deposited / Withdrawn). Launchpad stacks are unchanged. */
+  async syncDisciple(head: bigint) {
+    const d = this.cfg.disciple;
+    if (!d) return;
+    const client = this.discipleRpc();
+    const rows = this.db.prepare("SELECT block, hash FROM block_hashes WHERE stack=? ORDER BY block DESC").all(DISCIPLE_STACK) as { block: number; hash: string }[];
+    if (rows.length) {
+      const blk = await this.retry(() => client.getBlock({ blockNumber: BigInt(rows[0].block) }));
+      if (blk.hash !== rows[0].hash) {
+        this.log(`[disciple] REORG at ${rows[0].block}; rebuilding`);
+        wipeDisciple(this.db);
+      }
+    }
+    const row = this.db.prepare("SELECT block FROM cursor WHERE stack=?").get(DISCIPLE_STACK) as { block: number } | undefined;
+    let from = row ? BigInt(row.block) + 1n : d.fromBlock;
+    const logsOf = (a: bigint, b: bigint) => getLogsAdaptive<RawLog>(
+      (x, y) => client.getLogs({ address: d.hook, fromBlock: x, toBlock: y }) as Promise<RawLog[]>, a, b, this.cfg.minChunk, this.retry);
+    // Own timestamp cache: block numbers can overlap a Launchpad chain on a different RPC.
+    const tsCache = new Map<bigint, number>();
+    while (from <= head) {
+      const to = from + this.cfg.chunk - 1n > head ? head : from + this.cfg.chunk - 1n;
+      const logs = (await logsOf(from, to)).sort((x, y) => Number(x.blockNumber! - y.blockNumber!) || Number(x.logIndex! - y.logIndex!));
+      const need = [...new Set(logs.map((l) => l.blockNumber!))].filter((b) => !tsCache.has(b));
+      for (let i = 0; i < need.length; i += 10) {
+        await Promise.all(need.slice(i, i + 10).map(async (b) => {
+          const blk = await this.retry(() => client.getBlock({ blockNumber: b }));
+          tsCache.set(b, Number(blk.timestamp));
+        }));
+      }
+      const toBlk = await this.retry(() => client.getBlock({ blockNumber: to }));
+      this.db.transaction(() => {
+        applyDiscipleLogs(this.db, d.hook, logs, (b) => tsCache.get(b)!);
+        this.db.prepare("INSERT INTO cursor (stack, block) VALUES (?, ?) ON CONFLICT(stack) DO UPDATE SET block = excluded.block").run(DISCIPLE_STACK, Number(to));
+        this.db.prepare("INSERT OR REPLACE INTO block_hashes VALUES (?,?,?)").run(DISCIPLE_STACK, Number(to), toBlk.hash!);
+        this.db.prepare("DELETE FROM block_hashes WHERE stack=? AND block < ?").run(DISCIPLE_STACK, Number(to) - this.cfg.reorgDepth);
+      })();
+      if (logs.length || to - from >= 1000n) this.log(`[disciple] ${from}-${to}: ${logs.length} hook logs`);
+      from = to + 1n;
+    }
+  }
+
   async syncAll() {
     const tip = await this.retry(() => this.client.getBlockNumber());
     const head = tip - BigInt(this.cfg.confirmations);
     for (const s of this.cfg.stacks) await this.syncStack(s, head);
+    if (this.cfg.disciple) {
+      const client = this.discipleRpc();
+      const tipD = client === this.client ? tip : await this.retry(() => client.getBlockNumber());
+      await this.syncDisciple(tipD - BigInt(this.cfg.confirmations));
+    }
     return head;
   }
 }

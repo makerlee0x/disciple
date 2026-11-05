@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, use, useEffect, useMemo, useState } from "react";
 import { erc20Abi, isAddress, type Address } from "viem";
 import FlightCanvas from "@/components/FlightCanvas";
 import CrewPanel from "@/components/CrewPanel";
@@ -78,8 +78,9 @@ function FlightInner({ address }: { address: string }) {
 export default function CoinPage({
   params,
 }: {
-  params: { address: string };
+  params: Promise<{ address: string }>;
 }) {
+  const { address } = use(params);
   return (
     <Suspense
       fallback={
@@ -88,7 +89,7 @@ export default function CoinPage({
         </div>
       }
     >
-      <FlightInner address={params.address} />
+      <FlightInner address={address} />
     </Suspense>
   );
 }
