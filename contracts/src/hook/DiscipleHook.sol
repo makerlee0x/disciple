@@ -45,10 +45,11 @@ interface IV3PoolLike {
 ///         One deployment serves many pools. Permissionless: anyone creates a pool against any source.
 ///
 ///         Same chain (beside a v2, v3 or v4 source on this chain): the anchor is latched once per block from
-///         the source's spot as seen in an earlier block. Anyone may call sample() to take that sample without a
-///         trade. A 4% premium fades linearly over 30 s from the sample that moved the anchor 0.25% (the sample
-///         time, not the later swap), and only on the side that benefits from the lag. Every fill respects the
-///         live source boundary (ask >= source ask * 0.9999, bid <= source bid * 1.0001).
+///         the source's spot as seen in an earlier block. Anyone may call sample() to take that price sample
+///         without a trade; it does not settle the books or read source TVL. A 4% premium fades linearly over
+///         30 s from the sample that moved the anchor 0.25% (the sample time, not the later swap), and only on
+///         the side that benefits from the lag. Every fill respects the live source boundary
+///         (ask >= source ask * 0.9999, bid <= source bid * 1.0001).
 ///
 ///         Cross chain (new chain, anchor pushed from the home chain over LayerZero by a DisciplePushSender there
 ///         and authenticated by the DisciplePushReceiver here): the anchor is the last accepted push. Keepers push on
@@ -479,14 +480,14 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         return (IHooks.beforeSwap.selector, delta, 0);
     }
 
-    /// @notice Refresh a same-chain pool's source sample without a trade. Anyone may call. The first call in a
-    ///         block latches the previous sample as the anchor, the same way a swap does, and arms the lag premium
-    ///         from that sample's timestamp.
+    /// @notice Refresh a same-chain pool's source price sample without a trade. Anyone may call. The first call
+    ///         in a block latches the previous sample as the anchor and arms the lag premium from that sample's
+    ///         timestamp. It does not settle, observe source TVL, or move graduation.
     function sample(PoolId id) external lock {
         Pool storage p = _known(id);
         if (p.src.remoteEid != 0) revert BadParams();
         if (!p.live) revert NotLive();
-        _latchSame(p);
+        _latchSame(p, false);
     }
 
     /// @dev Settle the books if due, update the anchor state, and return the curve slopes and boundaries.
@@ -496,30 +497,23 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     }
 
     function _prepareSame(Pool storage p) internal returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps) {
-        (uint256 spot, uint24 srcFee) = _latchSame(p);
+        (uint256 spot, uint24 srcFee) = _latchSame(p, true);
         return BK.sameQuote(p.anchorX128, p.tX128, p.fee, p.premAt, p.premBuy, spot, srcFee, block.timestamp);
     }
 
-    /// @dev Same chain, first touch of a block (swap, capital change, or sample): latch the newest source sample
-    ///      taken in an earlier block as the anchor and settle the last interval at it. A 0.25% move arms the
-    ///      premium at that sample's timestamp, not at this touch. Then sample the live source for the next block.
+    /// @dev Same chain, first price touch of a block: latch the newest source sample taken in an earlier block as
+    ///      the anchor. A 0.25% move arms the premium at that sample's timestamp, not at this touch. Then record
+    ///      the live source for the next block. `settleBooks` (swaps and capital changes) also walks a v4 source,
+    ///      observes TVL, and settles the open interval. sample() passes false, so it cannot graduate a pool.
     ///      Returns the live spot and the source fee for the match boundary.
-    function _latchSame(Pool storage p) internal returns (uint256 spot, uint24 srcFee) {
+    function _latchSame(Pool storage p, bool settleBooks) internal returns (uint256 spot, uint24 srcFee) {
         uint256 s1;
         (spot, srcFee, s1) = _sourceSpot(p);
         if (spot == 0) revert NoAnchor();
         if (p.sampleBlock < block.number) {
             uint64 sampledAt = p.sampleAt;
             uint256 sampled = p.sampleX128;
-            Source storage s = p.src;
-            if (s.kind == SRC_V4) BK.walk(p.walk, poolManager, PoolId.wrap(s.v4Id), WALK_STEPS);
-            uint256 tvl = _sourceTvl(p, s1, spot);
             p.anchorX128 = sampled;
-            // a v4 source's TVL is a new reading only when the counter finished a pass in this block
-            _observe(p, tvl, s.kind != SRC_V4 || !p.walk.active);
-            (uint256 tOn, uint256 tOff, uint256 tg) = _judge(p);
-            BK.settle(p.book, p.anchorX128, tOn, tOff, tg, true);
-            p.settledBlock = uint64(block.number);
             if (SM.movedBeyond(p.premRefX128, sampled, PREMIUM_RESET_BPS)) {
                 p.premBuy = sampled > p.premRefX128;
                 p.premRefX128 = sampled;
@@ -528,6 +522,16 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             p.sampleX128 = spot;
             p.sampleBlock = uint64(block.number);
             p.sampleAt = uint64(block.timestamp);
+        }
+        if (settleBooks && p.settledBlock < block.number) {
+            Source storage s = p.src;
+            if (s.kind == SRC_V4) BK.walk(p.walk, poolManager, PoolId.wrap(s.v4Id), WALK_STEPS);
+            uint256 tvl = _sourceTvl(p, s1, spot);
+            // a v4 source's TVL is a new reading only when the counter finished a pass in this block
+            _observe(p, tvl, s.kind != SRC_V4 || !p.walk.active);
+            (uint256 tOn, uint256 tOff, uint256 tg) = _judge(p);
+            BK.settle(p.book, p.anchorX128, tOn, tOff, tg, true);
+            p.settledBlock = uint64(block.number);
         }
     }
 
@@ -780,7 +784,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
 
     function _settleForCapital(Pool storage p) internal {
         if (p.src.remoteEid == 0) {
-            _latchSame(p);
+            _latchSame(p, true);
             // trades earlier in this block: close them now, at the mark the next block would use (this block's
             // source sample), so capital joining or leaving never shares in fees earned before it (review D-01)
             if (p.book.dx != 0 || p.book.dy != 0) {

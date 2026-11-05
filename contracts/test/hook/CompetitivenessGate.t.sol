@@ -297,14 +297,14 @@ contract CompetitivenessGateTest is DiscipleTest {
         assertEq(v.anchorX128, anchor, "adopted anchor is the pre-pump sample");
         assertLt(coins, honest, "next-block buy still faces the live pumped bound");
 
-        // One dipped TVL reading does not graduate a pool that is far under 12% of the honest source.
+        // One dipped TVL reading on a real settle (not sample) does not graduate a pool far under 12%.
         pair.set(1_000_000e18, 2_000_000e18);
         (, PoolId small) = _createSame(1000e18, 2000e18);
         _advance(1 days);
-        hook.sample(small);
+        hook.withdraw(small, 1, 0, 0);
         _advance(12);
         pair.set(1000e18, 2000e18);
-        hook.sample(small);
+        hook.withdraw(small, 1, 0, 0);
         pair.set(1_000_000e18, 2_000_000e18);
         v = hook.poolState(small);
         console2.log("G5_dip_graduated", v.graduated ? uint256(1) : uint256(0));
@@ -338,8 +338,8 @@ contract CompetitivenessGateTest is DiscipleTest {
         );
     }
 
-    function test_gate6_sampleTouchesSettleAndCanGraduate() public {
-        (, PoolId id) = _deep(FEE);
+    function test_gate6_sampleIsPriceOnly() public {
+        (PoolKey memory key, PoolId id) = _deep(FEE);
         DiscipleHook.PoolView memory pre = hook.poolState(id);
         _advance(1);
         hook.sample(id);
@@ -351,21 +351,43 @@ contract CompetitivenessGateTest is DiscipleTest {
         assertEq(post.principal, pre.principal);
         assertEq(post.compounded, pre.compounded);
         assertEq(post.lots, pre.lots);
-        assertFalse(post.graduated);
-        assertGt(post.ageOrBlock, pre.ageOrBlock, "settledBlock moved");
+        assertEq(post.graduated, pre.graduated);
+        assertEq(post.creatorOn, pre.creatorOn);
+        assertEq(post.ageOrBlock, pre.ageOrBlock, "settledBlock unchanged");
+        assertEq(post.srcTvl, pre.srcTvl, "sample does not observe TVL");
+        assertGt(post.sampleAt, pre.sampleAt, "the price sample moved");
+        _swap(key, true, -int256(1e18));
+        assertGt(hook.poolState(id).ageOrBlock, pre.ageOrBlock, "a swap in the sample's block still settles");
 
-        (, PoolId big) = _createSame(300_000e18, 600_000e18);
+        (PoolKey memory bigKey, PoolId big) = _createSame(300_000e18, 600_000e18);
+        uint256 settled = hook.poolState(big).ageOrBlock;
+        uint256 tvl = hook.poolState(big).srcTvl;
         _advance(1);
         hook.sample(big);
-        assertFalse(hook.poolState(big).graduated, "still in warm-up");
         _advance(1 days);
         hook.sample(big);
         DiscipleHook.PoolView memory g = hook.poolState(big);
-        _logView("G6_after_warmup_sample", g);
+        _logView("G6_after_warmup_samples", g);
         console2.log("G6_graduated", g.graduated ? uint256(1) : uint256(0));
-        assertTrue(g.graduated, "sample() after warm-up runs graduation");
-        assertEq(g.coinReserve, 300_000e18, "no trade, reserves stay");
-        assertEq(g.quoteReserve, 600_000e18, "no trade, reserves stay");
+        assertFalse(g.graduated, "samples do not graduate");
+        assertFalse(g.creatorOn, "samples do not turn the creator cut on");
+        assertEq(g.ageOrBlock, settled, "samples do not settle");
+        assertEq(g.srcTvl, tvl, "samples do not observe TVL");
+        assertEq(g.coinReserve, 300_000e18);
+        assertEq(g.quoteReserve, 600_000e18);
+        assertEq(g.principal, 1_200_000e18);
+        assertEq(g.compounded, 0);
+        assertEq(g.lots, 1);
+        _advance(1);
+        _swap(bigKey, true, -int256(1e18));
+        assertFalse(hook.poolState(big).graduated, "one swap reading is not enough");
+        _advance(1);
+        _swap(bigKey, true, -int256(1e18));
+        g = hook.poolState(big);
+        assertTrue(g.graduated, "swaps still settle and can graduate");
+        assertTrue(g.creatorOn, "swaps still judge the creator cut");
+        console2.log("G6_after_two_swaps_graduated", g.graduated ? uint256(1) : uint256(0));
+        console2.log("G6_after_two_swaps_settled", g.ageOrBlock);
     }
 
     function _logView(string memory tag, DiscipleHook.PoolView memory v) internal pure {
