@@ -8,6 +8,17 @@
 # sourced, never printed. FORK=1 never reads it (uses anvil's default account 0 unless PRIVATE_KEY is already set).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+# Explicit mainnet path: ambient owner-supplied config only; NEVER source the testnet env/secrets or postprocessor.
+if [[ "${DISCIPLE_NETWORK:-}" == "mainnet" ]]; then
+  [[ "${DISCIPLE_CHAIN_ID:-}" == "4663" ]] || { echo "mainnet requires matching DISCIPLE_CHAIN_ID"; exit 1; }
+  : "${RPC_URL:?mainnet RPC_URL required}" "${PRIVATE_KEY:?caller-supplied signing key required}"
+  [[ "$(cast chain-id --rpc-url "$RPC_URL")" == "$DISCIPLE_CHAIN_ID" ]] || { echo "RPC chain mismatch"; exit 1; }
+  MAINNET_ARGS=()
+  if [[ "${BROADCAST:-0}" == "1" ]]; then MAINNET_ARGS+=(--broadcast --slow); fi
+  forge script script/Deploy.s.sol --tc Deploy --rpc-url "$RPC_URL" --private-key "$PRIVATE_KEY" "${MAINNET_ARGS[@]}"
+  echo "Review mainnet forge artifacts separately; testnet postprocess/fixtures are not used."
+  exit 0
+fi
 set -a
 . script/redeploy/env.testnet
 set +a

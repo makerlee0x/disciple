@@ -16,6 +16,8 @@ import { launchpadAbi, quotePricerAbi } from "@/lib/abi";
 import { kv } from "@/lib/server/kv";
 import { relayerKey, isRelayerNotConfigured, withRelayer } from "@/lib/server/relayer";
 import { activeBases } from "@/lib/pricerKeeper";
+import { serverNetworkReady } from "@/lib/networkConfig";
+import { sendWithChainNonce } from "@/lib/server/chainNonce";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +34,7 @@ export async function GET(req: Request) {
   if (!s && isProd()) return NextResponse.json({ error: "cron_not_configured" }, { status: 503 });
   if (s && !same(req.headers.get("authorization") || "", `Bearer ${s}`)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (process.env.PRICER_KEEPER_DISABLED === "1") return NextResponse.json({ ok: true, skipped: "disabled" });
+  if (!serverNetworkReady(ACTIVE_CHAIN.id, process.env)) return NextResponse.json({ error: "network_not_configured" }, { status: 503 });
   const d = deployment();
   if (d.quotePricer === ZERO || d.launchpad === ZERO) return NextResponse.json({ ok: true, skipped: "not deployed" });
   let key: `0x${string}`;
@@ -69,9 +72,9 @@ export async function GET(req: Request) {
     for (const base of order) {
       try {
         const { request } = await pc.simulateContract({ account: relayer, address: d.quotePricer, abi: quotePricerAbi, functionName: "poke", args: [base as Address] });
-        // the relayer EOA's shared nonce allocator (lib/server/fastRelay.sendWithRelayerNonce): every instance and route
+        // the internal keeper EOA's chain-aware shared nonce allocator: every instance and route
         // writing this EOA takes nonces from ONE KV counter (viem's auto nonce here raced the relay paths: "nonce too low")
-        const hash = await withRelayer(async () => (await import("@/lib/server/fastRelay")).sendWithRelayerNonce((nonce) => wc.writeContract({ ...request, nonce })), 0);
+        const hash = await withRelayer(async () => sendWithChainNonce(pc, relayer.address, (nonce) => wc.writeContract({ ...request, nonce })), 0);
         const rc = await pc.waitForTransactionReceipt({ hash, timeout: 15_000 });
         gasUsed += rc.gasUsed;
         results[base] = rc.status === "success" ? hash : `reverted ${hash}`;

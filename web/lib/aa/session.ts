@@ -12,6 +12,7 @@
 import { createPublicClient, createWalletClient, custom, keccak256, type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
+import { aaNetworkReady, oneTapNetworkReady, MAINNET_CHAIN_ID, PUBLIC_NETWORK } from "../networkConfig";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
 import type { Mav2Account, UsdgGasOpts } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
@@ -40,7 +41,7 @@ export { PRIVY_APP_ID, SIGNER_MODE };
 export const SESSION_POLICY = sessionPolicyFor(ACTIVE_CHAIN.id);
 /** Dev-only: show external-wallet options (EOA owner / plain wallet). */
 export const DEV_WALLETS = process.env.NEXT_PUBLIC_DEV_WALLETS === "1";
-export const aaAvailable = () => !!BUNDLER_URL && ACTIVE_CHAIN.id === 46630;
+export const aaAvailable = () => !!BUNDLER_URL && aaNetworkReady(ACTIVE_CHAIN.id);
 /** policy / session reads before a send (checkCalls, getCode, sessionOf): direct RPC with /api/rpc failover */
 const publicClient = () => createPublicClient({ chain: ACTIVE_CHAIN, transport: appReadTransport(ACTIVE_CHAIN.rpcUrls.default.http[0]) }) as PublicClient;
 /**
@@ -141,6 +142,7 @@ async function makeAccount(owner: LocalAccount) {
 }
 
 async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
+  if (!aaAvailable()) throw new AAError("Policy", "AA network is not explicitly configured.");
   sa = await makeAccount(owner);
   ownerAcct = owner;
   state = { kind, owner: owner.address, key, expiresAt: Date.now() + SESSION_TTL_MS, spent: {} };
@@ -497,7 +499,7 @@ export async function sweepLegacy() {
 }
 
 /* ---------- on-chain one-tap session (DiscipleSessionPolicy, PR #53) ---------- */
-export const oneTapAvailable = () => !!SESSION_POLICY && ACTIVE_CHAIN.id === 46630;
+export const oneTapAvailable = () => !!SESSION_POLICY && oneTapNetworkReady(ACTIVE_CHAIN.id);
 
 /**
  * Owner approves ONE userOp: installValidation(SingleSigner(sessionKey) + DiscipleSessionPolicy hooks).
@@ -505,7 +507,7 @@ export const oneTapAvailable = () => !!SESSION_POLICY && ACTIVE_CHAIN.id === 466
  */
 export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: number; spendLimitUsd?: number | null } = {}) {
   if (!sa || !state) throw new AAError("Policy", "Sign in first.");
-  if (!SESSION_POLICY) throw new AAError("Policy", "One-tap sessions aren't live yet (session policy not deployed).");
+  if (!SESSION_POLICY || !oneTapAvailable()) throw new AAError("Policy", "One-tap network/policy is not explicitly configured.");
   const sk = await import("@disciple/session-keys");
   const { getDefaultSingleSignerValidationModuleAddress, getDefaultTimeRangeModuleAddress } = await import("@account-kit/smart-contracts/experimental");
   const d = deployment();
@@ -519,7 +521,7 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
   const now = await sk.chainNow(publicClient());
   const s = sk.buildCreateSession({
     now,
-    modules: { policy: SESSION_POLICY, singleSigner: getDefaultSingleSignerValidationModuleAddress(ACTIVE_CHAIN), timeRange: getDefaultTimeRangeModuleAddress(ACTIVE_CHAIN) },
+    modules: { policy: SESSION_POLICY, singleSigner: ACTIVE_CHAIN.id === MAINNET_CHAIN_ID ? PUBLIC_NETWORK.singleSigner as Address : getDefaultSingleSignerValidationModuleAddress(ACTIVE_CHAIN), timeRange: ACTIVE_CHAIN.id === MAINNET_CHAIN_ID ? PUBLIC_NETWORK.timeRange as Address : getDefaultTimeRangeModuleAddress(ACTIVE_CHAIN) },
     targets: { router: d.router, launchpad: d.launchpad, anonLauncher: ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher, trampWallManager: d.trampWallManager },
     sessionSigner: privateKeyToAccount(key).address,
     caps: [{ token: caps[0].token, cap: caps[0].cap }, { token: caps[1].token, cap: caps[1].cap }],
@@ -570,7 +572,7 @@ export async function endOneTap() {
   if (!sa || !onchain || !SESSION_POLICY) return null;
   const sk = await import("@disciple/session-keys");
   const { getDefaultSingleSignerValidationModuleAddress, getDefaultTimeRangeModuleAddress } = await import("@account-kit/smart-contracts/experimental");
-  const data = sk.buildUninstallSession(onchain.entityId, { policy: SESSION_POLICY, singleSigner: getDefaultSingleSignerValidationModuleAddress(ACTIVE_CHAIN), timeRange: getDefaultTimeRangeModuleAddress(ACTIVE_CHAIN) });
+  const data = sk.buildUninstallSession(onchain.entityId, { policy: SESSION_POLICY, singleSigner: ACTIVE_CHAIN.id === MAINNET_CHAIN_ID ? PUBLIC_NETWORK.singleSigner as Address : getDefaultSingleSignerValidationModuleAddress(ACTIVE_CHAIN), timeRange: ACTIVE_CHAIN.id === MAINNET_CHAIN_ID ? PUBLIC_NETWORK.timeRange as Address : getDefaultTimeRangeModuleAddress(ACTIVE_CHAIN) });
   const r = await sa.sendCalls([{ to: await sa.address(), data }], "owner");
   onchain = null; sa.clearSession(); userEndedOneTap = true;   // the user ended it on purpose: no auto-reinstall, on this page or after a reload
   setOneTapOff(lsStore(), await sa.address(), true);

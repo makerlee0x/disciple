@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Script, console2} from "forge-std/Script.sol";
+import {NetworkConfig} from "../config/NetworkConfig.sol";
 import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
 
 /// @notice Standalone AnonLauncher v2 deploy (claims pay the post-grad launch-token creator share too).
@@ -11,9 +12,14 @@ import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
 ///      for it (the AnonLauncher simply becomes the coin creator) and DiscipleSessionPolicy takes `anonLauncher`
 ///      per session at onInstall. So there is no on-chain wiring; only off-chain config (web/indexer) changes.
 ///      forge script script/anon/DeployAnonLauncherV2.s.sol --rpc-url $RPC_URL [--broadcast]
-contract DeployAnonLauncherV2 is Script {
+contract DeployAnonLauncherV2 is NetworkConfig {
     function run() external returns (AnonLauncher v2) {
-        AnonLauncher v1 = AnonLauncher(vm.envOr("ANON_V1", address(0xE564900809746B1F2bacA9D2b8dF3224a463f359)));
+        bool mainnet = _checkNetwork();
+        AnonLauncher v1 = AnonLauncher(
+            mainnet
+                ? _requiredContract("ANON_V1")
+                : vm.envOr("ANON_V1", address(0xE564900809746B1F2bacA9D2b8dF3224a463f359))
+        );
         address owner_ = v1.owner();
         address launchpad_ = address(v1.launchpad());
         address feeRouter_ = address(v1.feeRouter());
