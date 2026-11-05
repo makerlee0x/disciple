@@ -46,9 +46,9 @@ interface IV3PoolLike {
 ///
 ///         Same chain (beside a v2, v3 or v4 source on this chain): the anchor is latched once per block from
 ///         the source's spot as seen in an earlier block. Anyone may call sample() to take that price sample
-///         without a trade; it does not settle the books or read source TVL. A 4% premium fades linearly over
-///         30 s from the sample that moved the anchor 0.25% (the sample time, not the later swap), and only on
-///         the side that benefits from the lag. Every fill respects the live source boundary
+///         without a trade; it does not settle the books or read source TVL. A 4% premium fades over 1 second
+///         of block.timestamp from the sample that moved the anchor 0.25% (the sample time, not the later swap),
+///         and only on the side that benefits from the lag. Every fill respects the live source boundary
 ///         (ask >= source ask * 0.9999, bid <= source bid * 1.0001).
 ///
 ///         Cross chain (new chain, anchor pushed from the home chain over LayerZero by a DisciplePushSender there
@@ -79,7 +79,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
 
     uint256 internal constant Q128 = 1 << 128;
     uint256 internal constant WAD = 1e18;
-    /// @dev Same-chain premium resets when the anchor moves 0.25% from the reference. The 4% / 30 s fade and the
+    /// @dev Same-chain premium resets when the anchor moves 0.25% from the reference. The 4% / 1 s fade and the
     ///      1 bp match edge live in DiscipleBooks.sameQuote, so this contract does not carry that math.
     uint256 internal constant PREMIUM_RESET_BPS = 25;
     /// @dev Pool fee bounds, in pips.

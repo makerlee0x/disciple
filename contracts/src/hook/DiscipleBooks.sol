@@ -60,8 +60,13 @@ library DiscipleBooks {
         return bk.poke(id);
     }
 
-    /// @notice Same-chain slopes and match bounds. The 4% lag premium fades from `premAt` (the sample time) and
-    ///         is applied on one side: buys when `premBuy`, otherwise sells. The other side pays the fee only.
+    /// @dev Same-chain lag premium, in seconds of `block.timestamp` measured from `premAt`. Elapsed 0 is the full
+    ///      4%. Elapsed >= 1 is off. Timestamps are whole seconds, so the linear fade has no step between those.
+    uint256 internal constant PREMIUM_TAU = 1;
+
+    /// @notice Same-chain slopes and match bounds. The 4% lag premium fades over `PREMIUM_TAU` seconds from
+    ///         `premAt` (the sample time) and is applied on one side: buys when `premBuy`, otherwise sells.
+    ///         The other side pays the fee only.
     function sameQuote(
         uint256 anchorX128,
         uint256 tX128,
@@ -72,7 +77,7 @@ library DiscipleBooks {
         uint24 srcFee,
         uint256 nowTs
     ) public pure returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps) {
-        uint256 h = SM.premium(4e16, 30, nowTs - premAt);
+        uint256 h = SM.premium(4e16, PREMIUM_TAU, nowTs - premAt);
         uint256 gOn = SM.markup(h, fee);
         uint256 gOff = h == 1e18 ? gOn : SM.markup(1e18, fee);
         (kb, ks) = SM.slopes(anchorX128, tX128, premBuy ? gOn : gOff, premBuy ? gOff : gOn);

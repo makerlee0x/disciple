@@ -39,11 +39,12 @@ contract CompetitivenessGateTest is DiscipleTest {
         return _createFee(fee, COIN, QUOTE);
     }
 
-    /// @dev Lag premium in bps. Matches DiscipleSwapMath.premium(4e16, 30, elapsed), then (H-1) in bps.
+    /// @dev Lag premium in bps. Matches DiscipleSwapMath.premium(4e16, 1, elapsed), then (H-1) in bps.
+    ///      Whole seconds: elapsed 0 is 400 bps, elapsed >= 1 is 0.
     function _lagBps(uint64 premAt) internal view returns (uint256) {
         uint256 elapsed = vm.getBlockTimestamp() - premAt;
-        if (elapsed >= 30) return 0;
-        uint256 h = 1e18 + Math.mulDiv(4e16, 30 - elapsed, 30, Math.Rounding.Ceil);
+        if (elapsed >= 1) return 0;
+        uint256 h = 1e18 + 4e16;
         return (h - 1e18) * 10_000 / 1e18;
     }
 
@@ -129,16 +130,11 @@ contract CompetitivenessGateTest is DiscipleTest {
         assertTrue(v.premBuy);
         _quote("G1_adopt_elapsed_0", key, id);
 
-        _advance(15);
+        _advance(1);
         hook.sample(id);
-        assertEq(hook.poolState(id).premAt, recorded, "15s sample does not restart");
-        assertEq(_lagBps(recorded), 200);
-        _quote("G1_15s", key, id);
-
-        _advance(15);
-        hook.sample(id);
-        assertEq(_lagBps(hook.poolState(id).premAt), 0);
-        _quote("G1_30s_faded", key, id);
+        assertEq(hook.poolState(id).premAt, recorded, "1s sample does not restart");
+        assertEq(_lagBps(recorded), 0, "off after one second");
+        _quote("G1_1s_faded", key, id);
 
         _advance(5 minutes);
         uint256 c30 = _fill(key, true, 1e18);
@@ -178,7 +174,7 @@ contract CompetitivenessGateTest is DiscipleTest {
         _quote(string.concat(tag, "_touch1_records"), key, id);
         if (useSample) hook.sample(id);
         else _swap(key, true, -int256(1e18));
-        _advance(gap > 2 ? 1 : gap);
+        vm.roll(vm.getBlockNumber() + 1); // same second: the 1s window is still the full 4%
         if (useSample) hook.sample(id);
         else _swap(key, false, -int256(0.5e18));
         _quote(string.concat(tag, "_touch2_arms"), key, id);
@@ -186,16 +182,16 @@ contract CompetitivenessGateTest is DiscipleTest {
         console2.log(string.concat(tag, "_premBuy"), v.premBuy ? uint256(1) : uint256(0));
         console2.log(string.concat(tag, "_lag"), _lagBps(v.premAt));
         assertEq(v.premBuy, expectBuy, "premium side follows the move");
-        assertGt(_lagBps(v.premAt), 300, "adopting touch is still inside the 30s window");
+        assertEq(_lagBps(v.premAt), 400, "adopting touch is the sample's own second");
         _sides(tag, key, id, true);
 
         uint64 armedAt = v.premAt;
-        _advance(30);
+        _advance(1);
         if (useSample) hook.sample(id);
         else _swap(key, true, -int256(1e18));
         v = hook.poolState(id);
-        console2.log(string.concat(tag, "_after30_lag"), _lagBps(v.premAt));
-        console2.log(string.concat(tag, "_after30_premAt"), uint256(v.premAt));
+        console2.log(string.concat(tag, "_after1s_lag"), _lagBps(v.premAt));
+        console2.log(string.concat(tag, "_after1s_premAt"), uint256(v.premAt));
         assertEq(v.premAt, armedAt, "later touches of the same price do not restart");
         assertEq(_lagBps(v.premAt), 0, "faded");
         _sides(tag, key, id, false);
@@ -226,7 +222,7 @@ contract CompetitivenessGateTest is DiscipleTest {
         (PoolKey memory key, PoolId id) = _arm(2_020_000e18);
         uint64 armed = hook.poolState(id).premAt;
         assertEq(_lagBps(armed), 400);
-        uint256[4] memory wait = [uint256(0), 10, 20, 40];
+        uint256[2] memory wait = [uint256(0), 1];
         for (uint256 i = 0; i < wait.length; i++) {
             if (wait[i] != 0) _advance(wait[i] - (i == 0 ? 0 : wait[i - 1]));
             _swap(key, true, -int256(1e18));
@@ -439,14 +435,16 @@ contract CompetitivenessGateTest is DiscipleTest {
             console2.log("G7_no_sample_idle_sec", idle[i]);
             _quote("G7_no_sample_first_touch", key, id);
             _swap(key, true, -int256(1e18));
-            _advance(1);
+            uint64 recordedAt = uint64(vm.getBlockTimestamp());
+            vm.roll(vm.getBlockNumber() + 1);
             _swap(key, false, -int256(0.5e18));
             console2.log("  second_touch_lagBps", _lagBps(hook.poolState(id).premAt));
             console2.log("  second_touch_premAt", uint256(hook.poolState(id).premAt));
             console2.log("  second_touch_ts", vm.getBlockTimestamp());
             console2.log("  second_touch_premBuy", hook.poolState(id).premBuy ? uint256(1) : uint256(0));
             _quote("G7_no_sample_second_touch", key, id);
-            assertGt(_lagBps(hook.poolState(id).premAt), 300, "no sample: the clock starts at the first swap");
+            assertEq(hook.poolState(id).premAt, recordedAt, "no sample: the clock starts at the first swap");
+            assertEq(_lagBps(recordedAt), 400, "same second is the full premium");
             assertTrue(hook.poolState(id).premBuy);
         }
     }
@@ -572,7 +570,7 @@ contract CompetitivenessGateTest is DiscipleTest {
         }
 
         _restore(snap, ts, bn);
-        _advance(30);
+        _advance(1);
         hook.sample(id);
         assertEq(_lagBps(hook.poolState(id).premAt), 0);
         _route(string.concat(tag, "_faded"), key, id);
@@ -585,14 +583,14 @@ contract CompetitivenessGateTest is DiscipleTest {
 
         _restore(snap, ts, bn);
         _pushTrade(key, premiumOnBuy, 10_000e18);
-        _advance(30);
+        _advance(1);
         hook.sample(id);
         assertEq(_lagBps(hook.poolState(id).premAt), 0, "the trade does not restart the premium");
         _route(string.concat(tag, "_faded_after_10k"), key, id);
 
         _restore(snap, ts, bn);
         _pushTrade(key, premiumOnBuy, 50_000e18);
-        _advance(30);
+        _advance(1);
         hook.sample(id);
         _route(string.concat(tag, "_faded_after_50k"), key, id);
         (buyBps, sellBps) = _dustBps(key);

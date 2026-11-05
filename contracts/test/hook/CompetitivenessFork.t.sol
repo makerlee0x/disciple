@@ -213,9 +213,8 @@ contract CompetitivenessForkTest is Test {
 
     function _lag(uint64 premAt) internal view returns (uint256) {
         uint256 elapsed = vm.getBlockTimestamp() - premAt;
-        if (elapsed >= 30) return 0;
-        uint256 h = 1e18 + Math.mulDiv(4e16, 30 - elapsed, 30, Math.Rounding.Ceil);
-        return (h - 1e18) * 10_000 / 1e18;
+        if (elapsed >= 1) return 0;
+        return 400;
     }
 
     function _over(uint256 execX128, uint256 refX128) internal pure returns (int256) {
