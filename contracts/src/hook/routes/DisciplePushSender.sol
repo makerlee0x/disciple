@@ -23,7 +23,7 @@ import {
 ///         should list only pools that will accept: same source, and older than this observation.
 ///
 ///         Delivery with DiscipleSelfExecutor: nobody is paid to execute on the destination, so after the DVNs have
-///         verified, anyone calls commitVerification and endpoint.lzReceive there (script/disciple/DeliverV0Push).
+///         verified, anyone calls commitVerification and endpoint.lzReceive there (script/hook/DeliverV0Push).
 ///         The refund always goes to the keeper who sent and paid here, whoever delivers; it is paid only on
 ///         delivery, so the sender has the incentive to deliver, and anyone else can take over if it does not.
 ///

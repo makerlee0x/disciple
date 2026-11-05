@@ -2,8 +2,8 @@
 pragma solidity 0.8.26;
 
 import {Script, console2} from "forge-std/Script.sol";
-import {Origin} from "../../src/disciple/routes/ILayerZeroEndpointV2Lite.sol";
-import {DiscipleRoutesV0 as V0} from "../../src/disciple/routes/DiscipleRoutesV0.sol";
+import {Origin} from "../../src/hook/routes/ILayerZeroEndpointV2Lite.sol";
+import {DiscipleRoutesV0 as V0} from "../../src/hook/routes/DiscipleRoutesV0.sol";
 
 interface IEndpointDeliver {
     function defaultReceiveLibrary(uint32 eid) external view returns (address);
@@ -22,7 +22,7 @@ interface IReceiveUlnCommit {
 ///         transaction has 5 confirmations and the DVNs have verified on Robinhood (each DVN's PayloadVerified event
 ///         on the ReceiveUln302), run:
 ///           PACKET=<encodedPayload from the Ethereum endpoint's PacketSent event> \\
-///           forge script script/disciple/DeliverV0Push.s.sol --rpc-url $RH_RPC --broadcast
+///           forge script script/hook/DeliverV0Push.s.sol --rpc-url $RH_RPC --broadcast
 ///         It commits the verification and executes the message through the endpoint. Anyone may run it for any
 ///         packet (takeover); the refund still goes to the keeper who sent and paid on Ethereum. Reverts, changing
 ///         nothing, if the DVNs have not verified yet or the packet was already delivered.

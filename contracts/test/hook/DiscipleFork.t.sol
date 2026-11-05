@@ -15,7 +15,7 @@ import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {DiscipleHook} from "../../src/disciple/DiscipleHook.sol";
+import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
 
 interface IPairTokens {

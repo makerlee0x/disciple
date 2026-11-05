@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {DiscipleTest} from "./Disciple.t.sol";
-import {DiscipleHook} from "../../src/disciple/DiscipleHook.sol";
+import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
 import {_noKey} from "./NoKey.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";

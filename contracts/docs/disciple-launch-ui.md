@@ -1,7 +1,7 @@
 # Disciple hook: what a launch UI needs from the contracts
 
 For the standalone hook site (landing page plus "Launch a pool"). Covers same-chain pools, the v0 launch case.
-Source: `src/disciple/DiscipleHook.sol` (contract `DiscipleHook`). Function names and argument orders below match the code at the time of writing.
+Source: `src/hook/DiscipleHook.sol` (contract `DiscipleHook`). Function names and argument orders below match the code at the time of writing.
 
 ## Deployments
 

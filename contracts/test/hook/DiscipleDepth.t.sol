@@ -14,10 +14,10 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
-import {DiscipleHook} from "../../src/disciple/DiscipleHook.sol";
-import {DiscipleDepth as DP} from "../../src/disciple/libraries/DiscipleDepth.sol";
+import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
+import {DiscipleDepth as DP} from "../../src/hook/libraries/DiscipleDepth.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
-import {DiscipleSourceReader} from "../../src/disciple/routes/DiscipleSourceReader.sol";
+import {DiscipleSourceReader} from "../../src/hook/routes/DiscipleSourceReader.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract ReaderHarness is DiscipleSourceReader {

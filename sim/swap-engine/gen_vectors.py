@@ -1,5 +1,5 @@
-"""Writes contracts/test/disciple/libraries/DiscipleSwapMathVectors.sol from the integer mirror (exact expected values)
-and the 80-digit reference (pool-favour bounds). Run: python3 gen_vectors.py <repo>/contracts/test/disciple/libraries/"""
+"""Writes contracts/test/hook/libraries/DiscipleSwapMathVectors.sol from the integer mirror (exact expected values)
+and the 80-digit reference (pool-favour bounds). Run: python3 gen_vectors.py <repo>/contracts/test/hook/libraries/"""
 import sys, random, math
 from engine import *
 out_dir = sys.argv[1]

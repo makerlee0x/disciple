@@ -7,9 +7,9 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
-import {DiscipleHook} from "../../src/disciple/DiscipleHook.sol";
+import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
-import {DisciplePoolTank, IWETH9, IDiscipleTank} from "../../src/disciple/DisciplePoolTank.sol";
+import {DisciplePoolTank, IWETH9, IDiscipleTank} from "../../src/hook/DisciplePoolTank.sol";
 
 /// @dev TJAR factory on Robinhood Chain. Its source is not verified to us; the call below was read from its bytecode
 ///      and a traced call: selector 0x63d23abd(resource, resourceRecipient, threshold, owner, address, salt)

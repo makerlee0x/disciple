@@ -14,11 +14,11 @@ import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
-import {DiscipleHook} from "../../src/disciple/DiscipleHook.sol";
+import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
-import {DisciplePushSender} from "../../src/disciple/routes/DisciplePushSender.sol";
-import {DisciplePushReceiver} from "../../src/disciple/routes/DisciplePushReceiver.sol";
-import {IDisciplePriceTarget} from "../../src/disciple/routes/DiscipleSourceReader.sol";
+import {DisciplePushSender} from "../../src/hook/routes/DisciplePushSender.sol";
+import {DisciplePushReceiver} from "../../src/hook/routes/DisciplePushReceiver.sol";
+import {IDisciplePriceTarget} from "../../src/hook/routes/DiscipleSourceReader.sol";
 import {
     ILayerZeroEndpointV2Lite,
     MessagingParams,
@@ -27,8 +27,8 @@ import {
     Origin,
     LibConfig,
     SetConfigParam
-} from "../../src/disciple/routes/ILayerZeroEndpointV2Lite.sol";
-import {DisciplePoolTank, IWETH9, IDiscipleTank} from "../../src/disciple/DisciplePoolTank.sol";
+} from "../../src/hook/routes/ILayerZeroEndpointV2Lite.sol";
+import {DisciplePoolTank, IWETH9, IDiscipleTank} from "../../src/hook/DisciplePoolTank.sol";
 
 /// @notice A v2 pair whose reserves the test sets.
 contract MockPair {

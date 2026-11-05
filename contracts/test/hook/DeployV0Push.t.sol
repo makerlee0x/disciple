@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {DeployV0Push} from "../../script/disciple/DeployV0Push.s.sol";
+import {DeployV0Push} from "../../script/hook/DeployV0Push.s.sol";
 
 /// @notice maker's rule (2026-11-04): nothing deploys on Ethereum until the audit. Both Ethereum steps refuse
 ///         without AUDITED=1.

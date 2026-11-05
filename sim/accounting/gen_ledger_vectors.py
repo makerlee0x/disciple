@@ -1,6 +1,6 @@
 """Generate Solidity replay vectors for DiscipleLedger from the integer mirror (intledger.py).
 Each history is a list of ops; the Solidity test replays them and must match every final number bit for bit.
-Run: python3 gen_ledger_vectors.py ../../contracts/test/disciple/libraries/"""
+Run: python3 gen_ledger_vectors.py ../../contracts/test/hook/libraries/"""
 import random, sys
 from fractions import Fraction as Fr
 from intledger import Ledger, Q128
@@ -115,4 +115,4 @@ def main(out):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "../../contracts/test/disciple/libraries/")
+    main(sys.argv[1] if len(sys.argv) > 1 else "../../contracts/test/hook/libraries/")

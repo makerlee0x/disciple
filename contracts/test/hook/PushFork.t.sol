@@ -10,15 +10,15 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
-import {DiscipleHook} from "../../src/disciple/DiscipleHook.sol";
+import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
-import {DisciplePushSender} from "../../src/disciple/routes/DisciplePushSender.sol";
-import {DisciplePushReceiver} from "../../src/disciple/routes/DisciplePushReceiver.sol";
-import {IDisciplePriceTarget} from "../../src/disciple/routes/DiscipleSourceReader.sol";
-import {ILayerZeroEndpointV2Lite, Origin} from "../../src/disciple/routes/ILayerZeroEndpointV2Lite.sol";
-import {DiscipleRoutesV0 as V0} from "../../src/disciple/routes/DiscipleRoutesV0.sol";
-import {DiscipleSelfExecutor} from "../../src/disciple/routes/DiscipleSelfExecutor.sol";
-import {LibConfig} from "../../src/disciple/routes/ILayerZeroEndpointV2Lite.sol";
+import {DisciplePushSender} from "../../src/hook/routes/DisciplePushSender.sol";
+import {DisciplePushReceiver} from "../../src/hook/routes/DisciplePushReceiver.sol";
+import {IDisciplePriceTarget} from "../../src/hook/routes/DiscipleSourceReader.sol";
+import {ILayerZeroEndpointV2Lite, Origin} from "../../src/hook/routes/ILayerZeroEndpointV2Lite.sol";
+import {DiscipleRoutesV0 as V0} from "../../src/hook/routes/DiscipleRoutesV0.sol";
+import {DiscipleSelfExecutor} from "../../src/hook/routes/DiscipleSelfExecutor.sol";
+import {LibConfig} from "../../src/hook/routes/ILayerZeroEndpointV2Lite.sol";
 
 interface IEndpointFull {
     function defaultSendLibrary(uint32 eid) external view returns (address);
@@ -424,7 +424,7 @@ contract PushForkTest is Test {
     receive() external payable {}
 
     /// @dev Select a fork and pin its basefee. Foundry 1.9.0 shows a forked block's basefee to the test contract and to
-    ///      view calls but gives state-changing calls a basefee of 0 unless vm.fee sets it (test/disciple/BasefeeDiag).
+    ///      view calls but gives state-changing calls a basefee of 0 unless vm.fee sets it (test/hook/BasefeeDiag).
     ///      The sender and the hook price gas at block.basefee, so without the pin their gas refunds come out 0.
     function _select(uint256 fork) internal {
         vm.selectFork(fork);

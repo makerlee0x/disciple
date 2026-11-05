@@ -5,13 +5,13 @@ import {Script, console2} from "forge-std/Script.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
-import {DiscipleHook} from "../../src/disciple/DiscipleHook.sol";
-import {DisciplePushSender} from "../../src/disciple/routes/DisciplePushSender.sol";
-import {DisciplePushReceiver} from "../../src/disciple/routes/DisciplePushReceiver.sol";
-import {IDisciplePriceTarget} from "../../src/disciple/routes/DiscipleSourceReader.sol";
-import {ILayerZeroEndpointV2Lite, LibConfig} from "../../src/disciple/routes/ILayerZeroEndpointV2Lite.sol";
-import {DiscipleRoutesV0 as V0} from "../../src/disciple/routes/DiscipleRoutesV0.sol";
-import {DiscipleSelfExecutor} from "../../src/disciple/routes/DiscipleSelfExecutor.sol";
+import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
+import {DisciplePushSender} from "../../src/hook/routes/DisciplePushSender.sol";
+import {DisciplePushReceiver} from "../../src/hook/routes/DisciplePushReceiver.sol";
+import {IDisciplePriceTarget} from "../../src/hook/routes/DiscipleSourceReader.sol";
+import {ILayerZeroEndpointV2Lite, LibConfig} from "../../src/hook/routes/ILayerZeroEndpointV2Lite.sol";
+import {DiscipleRoutesV0 as V0} from "../../src/hook/routes/DiscipleRoutesV0.sol";
+import {DiscipleSelfExecutor} from "../../src/hook/routes/DiscipleSelfExecutor.sol";
 
 interface IEndpointLibs {
     function defaultSendLibrary(uint32 eid) external view returns (address);
@@ -24,22 +24,22 @@ interface IEndpointLibs {
 ///   broadcast unless AUDITED=1 is set; a dry run (no --broadcast) works without it.
 ///   Env for both steps: DVN_SET = "live" (default; the live OApp's 2 + 2-of-3) or "lean" (2 required, none
 ///   optional: LayerZero Labs + one more, ~0.000004 ETH of DVN fees). Use the same value on both chains.
-///   1. On Ethereum:  forge script script/disciple/DeployV0Push.s.sol --sig "sender()" --rpc-url $ETH_RPC
+///   1. On Ethereum:  forge script script/hook/DeployV0Push.s.sol --sig "sender()" --rpc-url $ETH_RPC
 ///      Deploys DisciplePushSender with the v0 send config (5 confirmations) for Robinhood. SELF_EXECUTOR=1
 ///      (default) also deploys a zero-fee DiscipleSelfExecutor and points the config at it: keepers then commit and
 ///      execute on Robinhood themselves. SELF_EXECUTOR=0 keeps LayerZero's paid executor.
 ///   2. On Robinhood: PUSH_SENDER=<step 1 address>
-///      forge script script/disciple/DeployV0Push.s.sol --sig "robinhood()" --rpc-url $RH_RPC
+///      forge script script/hook/DeployV0Push.s.sol --sig "robinhood()" --rpc-url $RH_RPC
 ///      Deploys DisciplePushReceiver (peer: Ethereum -> PUSH_SENDER, ETH gas) with the matching receive config,
 ///      mines and deploys the DiscipleHook hook with that receiver (no lzRead adapter on Robinhood yet, no bridge
 ///      sender: out of v0), and binds the receiver to the hook. The deployer keeps the receiver's add-only owner
 ///      role (adds new source chains later; can renounce).
-///   3. On Robinhood: forge script script/disciple/DeployV0Push.s.sol --sig "rhSender()" --rpc-url $RH_RPC
+///   3. On Robinhood: forge script script/hook/DeployV0Push.s.sol --sig "rhSender()" --rpc-url $RH_RPC
 ///      Deploys DisciplePushSender with the Robinhood send config (20 confirmations) for Ethereum, and with
 ///      SELF_EXECUTOR=1 (default) a zero-fee DiscipleSelfExecutor on Robinhood: keepers commit and execute on
 ///      Ethereum themselves.
 ///   4. On Ethereum: AUDITED=1 PUSH_SENDER=<step 3 address>
-///      forge script script/disciple/DeployV0Push.s.sol --sig "ethereum()" --rpc-url $ETH_RPC
+///      forge script script/hook/DeployV0Push.s.sol --sig "ethereum()" --rpc-url $ETH_RPC
 ///      Deploys DisciplePushReceiver (peer: Robinhood -> PUSH_SENDER, ETH gas) with the matching receive config,
 ///      mines and deploys ONE combined DiscipleHook hook (any quote per pool, v2 + v3 + v4 same-chain sources incl. two-hop, and pushed
 ///      Robinhood prices), and binds the receiver. Overrides: POOL_MANAGER, V2_FACTORY, V3_FACTORY, WETH.

@@ -3,12 +3,12 @@ pragma solidity 0.8.26;
 
 import {Script, console2} from "forge-std/Script.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
-import {DisciplePushSender} from "../../src/disciple/routes/DisciplePushSender.sol";
-import {DisciplePushReceiver} from "../../src/disciple/routes/DisciplePushReceiver.sol";
-import {IDisciplePriceTarget} from "../../src/disciple/routes/DiscipleSourceReader.sol";
-import {ILayerZeroEndpointV2Lite} from "../../src/disciple/routes/ILayerZeroEndpointV2Lite.sol";
-import {DiscipleRoutesV0 as V0} from "../../src/disciple/routes/DiscipleRoutesV0.sol";
-import {DiscipleSelfExecutor} from "../../src/disciple/routes/DiscipleSelfExecutor.sol";
+import {DisciplePushSender} from "../../src/hook/routes/DisciplePushSender.sol";
+import {DisciplePushReceiver} from "../../src/hook/routes/DisciplePushReceiver.sol";
+import {IDisciplePriceTarget} from "../../src/hook/routes/DiscipleSourceReader.sol";
+import {ILayerZeroEndpointV2Lite} from "../../src/hook/routes/ILayerZeroEndpointV2Lite.sol";
+import {DiscipleRoutesV0 as V0} from "../../src/hook/routes/DiscipleRoutesV0.sol";
+import {DiscipleSelfExecutor} from "../../src/hook/routes/DiscipleSelfExecutor.sol";
 
 interface IEndpointRecvLib {
     function defaultSendLibrary(uint32 eid) external view returns (address);
@@ -50,9 +50,9 @@ contract PriceRecorder is IDisciplePriceTarget {
 
 /// @title Live transport test of the v0 push, both directions (lean DVNs, self-executed)
 /// @notice No hook and no pool: a PriceRecorder stands in for the hook, so only the transport is tested.
-///   1. Ethereum:  forge script script/disciple/LiveTestV0Push.s.sol --sig "ethSender()"
-///   2. Robinhood: PUSH_SENDER=<1> forge script script/disciple/LiveTestV0Push.s.sol --sig "robinhood()"
-///   3. Ethereum:  PUSH_SENDER=<1> RECEIVER=<2> forge script script/disciple/LiveTestV0Push.s.sol --sig "push()"
+///   1. Ethereum:  forge script script/hook/LiveTestV0Push.s.sol --sig "ethSender()"
+///   2. Robinhood: PUSH_SENDER=<1> forge script script/hook/LiveTestV0Push.s.sol --sig "robinhood()"
+///   3. Ethereum:  PUSH_SENDER=<1> RECEIVER=<2> forge script script/hook/LiveTestV0Push.s.sol --sig "push()"
 ///   4. wait for 5 Ethereum blocks + both DVNs, then on Robinhood: PACKET=<from 3's receipt> DeliverV0Push
 ///   5. Robinhood: cast call <recorder> "count()" -> 1, and "lastA()" / "lastB()" = the pair's reserves.
 ///   Reverse (Robinhood -> Ethereum), approved by maker for before the code lock (2026-11-04):
