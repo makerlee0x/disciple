@@ -31,8 +31,8 @@ contract DisciplePushReceiver {
     ///      receive DVN set, so it is set at construction: DiscipleRoutesV0.destMsgGas.
     uint256 public immutable msgGas;
     /// @dev This chain's keeper gas per listed pool inside lzReceive (the hook's delivery, its refund transfer and
-    ///      the pool's calldata). Ethereum fork, Foundry 1.9.0 (cold, as on chain), 2026-11-04.
-    uint256 public constant POOL_GAS = 157_000;
+    ///      the pool's calldata). Ethereum fork, Foundry 1.9.0 (cold, as on chain), recalibrated on 364a916 (2026-11-05).
+    uint256 public constant POOL_GAS = 185_000;
 
     error OnlyEndpoint();
     error NoValue();
