@@ -93,6 +93,10 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     uint256 internal constant GATE_FALL_BPS = 4000;
     uint256 internal constant BPS_ = 10_000;
     uint256 internal constant DAY = 1 days;
+    /// @dev One reading lowers the gate by at most this much elapsed time, so idle time cannot be spent at once.
+    uint256 internal constant GATE_GAP = 1 hours;
+    /// @dev After creation (same chain) or the first price (cross chain) the gate only rises and nothing graduates.
+    uint256 internal constant WARM_UP = 1 days;
     uint256 internal constant WALK_INIT_STEPS = 256;
     /// @dev A recovering pushed price may be this old on arrival.
     uint256 internal constant PUSH_RECOVERY_AGE = 20 minutes;
@@ -141,6 +145,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 srcTvl; // source TVL in quote raw (graduation); 0 = not known yet
         uint256 gateTvl; // TVL the creator cut is judged against: rises with any reading, falls at most GATE_FALL a day
         uint64 gateAt; // when gateTvl was last updated
+        uint64 warmEnd; // until then the gate only rises and the creator cut / graduation stay off
         address x; // same chain: leg 1's other token (the quote, or X for two-hop)
         DP.Walk walk; // same-chain v4 leg 1: the depth counter that measures its TVL
         uint256 tank; // ETH for refreshes
@@ -307,6 +312,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             p.srcTvl = _sourceTvl(p, s1, spot);
             p.gateTvl = p.srcTvl;
             p.gateAt = uint64(block.timestamp);
+            p.warmEnd = uint64(block.timestamp + WARM_UP);
             p.sampleX128 = spot;
             p.sampleBlock = uint64(block.number);
             p.anchorX128 = spot;
@@ -510,7 +516,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             p.anchorX128 = p.sampleX128;
             _gate(p, tvl);
             p.srcTvl = tvl;
-            BK.settle(p.book, p.anchorX128, p.gateTvl, true);
+            BK.settle(p.book, p.anchorX128, _judge(p), true);
             p.settledBlock = uint64(block.number);
             p.sampleX128 = spot;
             p.sampleBlock = uint64(block.number);
@@ -604,6 +610,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             p.srcTvl = tvl;
             p.gateTvl = tvl;
             p.gateAt = uint64(block.timestamp);
+            p.warmEnd = uint64(block.timestamp + WARM_UP);
             uint256 sx = p.seedX;
             uint256 sy = p.seedY;
             p.seedX = 0;
@@ -624,7 +631,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         if (p.book.dx == 0 && p.book.dy == 0) ageAtRequest = 0;
         // close the interval at the fresh mark (deferred mark); local-mode results stay pro rata
         _gate(p, tvl);
-        BK.settle(p.book, price, p.gateTvl, !wasLocal);
+        BK.settle(p.book, price, _judge(p), !wasLocal);
         uint256 old = p.anchorX128;
         p.anchorX128 = price;
         p.obsAt = observedAt;
@@ -662,17 +669,27 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         return sh > MAX_SHIFT || sh < -MAX_SHIFT;
     }
 
-    /// @dev The TVL the creator cut is judged against (review D-02 and its re-check): it rises at once with any
-    ///      reading but falls at most GATE_FALL_BPS of itself per day, so pulling source liquidity for a block (or a
-    ///      v4 counter visit) does not move it. Lowering it takes a source that really stays smaller; any honest
-    ///      reading in between resets it. 0 = unknown.
+    /// @dev The TVL the creator cut is judged against (review D-02 and its two re-checks). It rises at once with
+    ///      any reading. It falls only on a reading that is low and follows a low reading (one atomic dip is ignored),
+    ///      and then by at most GATE_FALL_BPS a day over at most GATE_GAP of elapsed time (idle time is not banked).
+    ///      During the warm-up it only rises. Lowering it takes a source that really stays smaller across many
+    ///      readings; any honest reading in between resets it. Call before p.srcTvl takes the new reading. 0 = unknown.
     function _gate(Pool storage p, uint256 cur) internal {
+        uint256 prev = p.srcTvl;
+        if (prev > cur) cur = prev;
         uint256 g = p.gateTvl;
-        uint256 dt = block.timestamp - p.gateAt;
-        uint256 fall = dt >= DAY * BPS_ / GATE_FALL_BPS ? g : Math.mulDiv(g, GATE_FALL_BPS * dt, BPS_ * DAY);
-        g -= fall;
+        if (block.timestamp >= p.warmEnd) {
+            uint256 dt = block.timestamp - p.gateAt;
+            if (dt > GATE_GAP) dt = GATE_GAP;
+            g -= Math.mulDiv(g, GATE_FALL_BPS * dt, BPS_ * DAY);
+        }
         p.gateTvl = cur > g ? cur : g;
         p.gateAt = uint64(block.timestamp);
+    }
+
+    /// @dev The TVL handed to the ledger: 0 (no creator cut, no graduation) during the warm-up, else the gate.
+    function _judge(Pool storage p) internal view returns (uint256) {
+        return block.timestamp < p.warmEnd ? 0 : p.gateTvl;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -742,7 +759,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             _latchSame(p);
             // trades earlier in this block: close them now, at the mark the next block would use (this block's
             // source sample), so capital joining or leaving never shares in fees earned before it (review D-01)
-            if (p.book.dx != 0 || p.book.dy != 0) BK.settle(p.book, p.sampleX128, p.gateTvl, true);
+            if (p.book.dx != 0 || p.book.dy != 0) BK.settle(p.book, p.sampleX128, _judge(p), true);
         } else if (p.book.dx != 0 || p.book.dy != 0 || p.local) {
             // cross chain: open trades are marked at the next fresh price; join after it lands
             revert PendingTrades();

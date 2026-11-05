@@ -391,6 +391,7 @@ contract DiscipleDepthTest is Test {
         s.coinIs0 = true;
         s.target = address(pair);
         (PoolKey memory key, PoolId id) = hook.createPool(_cp(s, _noKey(), 300_000e18, 600_000e18)); // 1.2M: 30%
+        vm.warp(block.timestamp + 1 days); // past the launch warm-up
         _next();
         _trade(key); // settles: 30% -> graduated, creator on
         assertTrue(hook.poolState(id).graduated);
@@ -412,7 +413,8 @@ contract DiscipleDepthTest is Test {
         (cx, cy) = hook.claimCreator(id);
         assertEq(cx + cy, 0, "no creator cut while below 12%");
 
-        // the source shrinks back: the creator-cut gate falls at most 40% a day, so the cut returns days later
+        // the source shrinks back: the creator-cut gate falls at most 40% a day, and only across readings that
+        // stay low, so the cut returns days later
         pair.set(1_000_000e18, 2_000_000e18);
         _next();
         _trade(key);
@@ -420,6 +422,15 @@ contract DiscipleDepthTest is Test {
         vm.warp(block.timestamp + 3 days);
         _next();
         _trade(key);
+        assertFalse(hook.poolState(id).creatorOn, "idle time is not banked");
+        uint256 t = block.timestamp; // a local clock (via-ir caches block.timestamp/number inside a test loop)
+        uint256 bn = block.number;
+        for (uint256 i = 0; i < 120 && !hook.poolState(id).creatorOn; i++) {
+            t += 1 hours;
+            vm.warp(t);
+            vm.roll(++bn);
+            _trade(key);
+        }
         assertTrue(hook.poolState(id).creatorOn);
         _next();
         _trade(key);
