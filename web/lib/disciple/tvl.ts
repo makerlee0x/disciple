@@ -22,15 +22,57 @@ export function quoteRawToUsd(raw: bigint, quoteUsdWad: bigint | null | undefine
 
 export type PoolReserves = { coinReserve: bigint; quoteReserve: bigint; anchorX128: bigint; quoteUsdWad?: bigint | null };
 
+type ReserveWord = bigint | number | string;
+
+/** Tuple layout matches DiscipleHook.PoolView (viem often returns this). */
+export type PoolStateTuple = readonly [
+  coin: string,
+  quote: string,
+  live: boolean,
+  local: boolean,
+  graduated: boolean,
+  creatorOn: boolean,
+  coinReserve: ReserveWord,
+  quoteReserve: ReserveWord,
+  anchorX128: ReserveWord,
+  ...rest: ReserveWord[],
+];
+
+/** Named fields, when the client returns an object instead of a tuple. */
+export type PoolStateNamed = {
+  coin: string;
+  quote: string;
+  live: boolean;
+  coinReserve: ReserveWord;
+  quoteReserve: ReserveWord;
+  anchorX128: ReserveWord;
+};
+
+export type PoolStateRead = PoolStateTuple | PoolStateNamed;
+
+function isNamedPoolState(v: PoolStateRead): v is PoolStateNamed {
+  return !Array.isArray(v);
+}
+
 /** viem returns poolState as a named object or a tuple. Indexes match DiscipleHook.PoolView. */
-export function reservesFromPoolState(v: any): { coin: string; quote: string; live: boolean; coinReserve: bigint; quoteReserve: bigint; anchorX128: bigint } {
+export function reservesFromPoolState(v: PoolStateRead): { coin: string; quote: string; live: boolean; coinReserve: bigint; quoteReserve: bigint; anchorX128: bigint } {
+  if (isNamedPoolState(v)) {
+    return {
+      coin: String(v.coin),
+      quote: String(v.quote),
+      live: Boolean(v.live),
+      coinReserve: BigInt(v.coinReserve),
+      quoteReserve: BigInt(v.quoteReserve),
+      anchorX128: BigInt(v.anchorX128),
+    };
+  }
   return {
-    coin: String(v.coin ?? v[0]),
-    quote: String(v.quote ?? v[1]),
-    live: Boolean(v.live ?? v[2]),
-    coinReserve: BigInt(v.coinReserve ?? v[6]),
-    quoteReserve: BigInt(v.quoteReserve ?? v[7]),
-    anchorX128: BigInt(v.anchorX128 ?? v[8]),
+    coin: String(v[0]),
+    quote: String(v[1]),
+    live: Boolean(v[2]),
+    coinReserve: BigInt(v[6]),
+    quoteReserve: BigInt(v[7]),
+    anchorX128: BigInt(v[8]),
   };
 }
 
