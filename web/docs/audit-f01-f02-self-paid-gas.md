@@ -1,41 +1,37 @@
-# F-01 / F-02: self-paid gas only
+# F-01 prepaid USDG gas / F-02 no public relayer
 
-## Scope and disabled paths
+Latest owner decision (2026-11-05, 4:08 PM CT): keep one-tap and let players reimburse ETH gas in **prepaid USDG**. This updates the SAME draft #246, not a stacked PR. The earlier bring-ETH-only plan is superseded; draft #245's public-relayer auth hardening is superseded by disabling that relayer.
 
-Owner decision, 2026-11-05: no sponsorship on testnet or mainnet. This supersedes the stopped prepay/circuit-breaker attempt and draft #245's relay-auth design. Legacy paymaster/session-policy contracts remain unchanged from main; no hook changes.
+## Exactly what an AA tap does
 
-- `/api/paymaster` and `/api/drip`: unconditional HTTP 410; no quote, signer, top-up, RPC, or env dependency.
-- MAv2/session: removed paymaster config, quotes, allowance caches, gas approvals, paymaster attachment, custom sync relay and server warm requests. Removed login/deploy/failure ETH refills. All chain paymasters are zero regardless of stale public env.
-- Gas policy, legacy client and proxy: reject sponsorship RPCs and packed/split paymaster fields. Browser and GAME USDG gas reserves are zero.
-- `/api/bundler`: standard external-bundler proxy only. Missing key, upstream 401, network failure and old self-relay flags never trigger protocol signing/funding. Fast/standard self-bundler and streaming public entry points reject; userOp handleOps signing/broadcast code is deleted.
-- Deleted quote/deposit/signer/wire modules and funding keeper. `DeployPaymaster.run()` always reverts before env/broadcast/deploy/deposit/stake. Future session policies use paymaster zero; redeploy postprocessing never records a new paymaster. Historical sponsored anonymous-launch smoke entry point also fails closed.
+1. Login derives the same canonical MAv2 address. Read-only warmup prepares a native owner-authorized deferred USDG approval when no standing maximum allowance exists. Nothing funds the account with ETH.
+2. Existing background one-tap setup sends one owner-signed operation: initCode deploys the account if necessary; native account validation executes the narrowly bound USDG approval; paymaster validation then collects the full signed USDG maximum; execution installs the session. The account needs USDG for gas AND trade, not ETH. Foundry also proves deploy/install/first buy combined in one operation, then a real session-key second buy.
+3. Warm taps select the browser's session key, reserve trade cash + signed USDG gas cap synchronously, allocate independent nonce keys, and build/sign locally. Cached signed sender allowances make **zero pm_* requests and zero chain reads before submission**. Factory/deferred operations never reuse operation templates; each warm template overwrites all quote fields. Cold/launch/graduation quotes may require estimates; real SDK estimates carry paymaster data before simulation, avoiding an ETH-less AA21 simulation.
+4. `/api/paymaster` signs only bounded player-paid USDG quotes, requiring balance and standing allowance or the exact native owner-validation approval shape. This shape check is NOT signature authentication; the real account verifies it and the real paymaster always collects actual USDG. A forged shape cannot obtain free gas.
+5. Browser posts standard `eth_sendUserOperation` through `/api/bundler` to the external Alchemy bundler. Alchemy submits handleOps with its own EOA; EntryPoint reimburses it from the paymaster's ETH deposit, already collateralized in player USDG. The protocol's EOA does not submit or front the userOp transaction. No working/staked external provider means fail closed, not fallback to protocol gas.
+6. postOp settles treasury and refunds unused collateral; unsuccessful token transfers become backed credits. Exceptional callback failure retains all collateral for paused, delayed, trusted owner reconciliation. See [contract design](../../contracts/docs/usdg-paymaster.md).
 
-## Exact AA tap / funding / submission trace
+There is still NO USDG-to-native-ETH converter inside the buy, and none is necessary for this ordering. The account never needs prefund ETH. The paymaster ETH float is reimbursed in USDG, not automatically swapped back to ETH. Owner-managed conversion/refill and price/markup accuracy are liquidity/economic prerequisites, not protocol sponsorship.
 
-1. `aaSend` still checks session policy and pending spend, chooses the browser-held one-tap session key and calls MAv2 `sendCalls`. Session installation/renewal is an owner-signed, **user-paid** operation.
-2. Parallel nonce cursor, warmed fee/gas caches, execution-prefix memoization and operation templates remain. A warm tap builds/signs locally and submits standard `eth_sendUserOperation`; cold/launch/graduation uses SDK estimate/send. No new gas approval, signature prompt, sponsorship request or deliberate wait is added to taps. Definite validation errors can retry once; ambiguous sends never resend.
-3. Default `/api/bundler` forwards standard ERC-4337 methods to the existing Alchemy RH-testnet endpoint using the server-only key. The **external bundler** submits EntryPoint `handleOps`, fronts its own outer transaction and receives reimbursement from the user's prefund. The protocol never submits it. A separately configured browser bundler URL remains possible but self-paid. No user-EOA fallback was added. No working external provider means AA unavailable, not protocol-funded.
-4. With no paymaster, EntryPoint validation needs the smart account's **existing native ETH and/or EntryPoint deposit**. Its account validation pays `missingAccountFunds` before calls execute; actual gas is charged and unused prefund remains/refunds to its EntryPoint deposit.
-5. Confirmation uses external bundler/chain receipt polling: SDK interval 250 ms; warm signed-op chain lookup existing 170 ms cadence. Provider queue/inclusion and extra receipt round trips replace one-response sync relay. Old latency cannot be promised; no extra wait timer/refill is introduced.
+## What stays off
 
-## Critical bootstrap mismatch
+- `/api/drip`: unconditional 410; no account deployment/login/failure ETH refill.
+- Public fast/standard self-bundlers and stream entry points: reject before fetching or signing. Custom `disciple_*` and external sponsorship RPCs remain rejected.
+- No private relayer fallback on upstream auth/network errors or stale `AA_SELF_BUNDLER` flags. No automatic paymaster funding keeper.
+- Legacy/unknown paymasters cannot be attached. Embedded accounts without explicit prepaid configuration cannot silently switch to bring-ETH gas, but read-only login/address/signature functions still work.
+- Mainnet deployment/quote support is not introduced. No v4 market hook changes.
 
-There is **no implemented native USDG-to-ETH gas replenishment inside the current buy**. `protocol-viem` emits ERC20 approval + `DiscipleRouter.buyWithUsdg`; router USDG hops buy ERC20 pair tokens and do not unwrap/pay native ETH into the sender's prefund.
+## Latency / rollout decisions / residual risks
 
-An ETH-less smart account cannot deploy/install/trade under the no-sponsorship rule until the **user** funds its counterfactual/account address with native ETH or an EntryPoint deposit. USDG holdings alone are insufficient. Even a new conversion during execution could fund only future ops: the current operation's prefund is required first. The old paymaster/drip masked this gap; both are removed. A seamless zero-ETH USDG-only first trade is **not solved by this PR**. No converter/router redesign or transaction was introduced.
+- No extra wait/prompt/approval transaction on warm taps. First deployment/session install retains the existing setup wait, now payable from USDG. External queue/inclusion and receipt polling replace the former one-response sync relayer: provider latency is not proven equivalent. Alchemy documents unstaked-account parallel-nonce limits; GAME's three in-flight operations still need provider confirmation/simulation.
+- Staked paymaster AND canonical factory, at least one-day delay, are required. Robinhood minimum stake and factory readiness must be confirmed with Alchemy. No guessed stake amount, no staking transaction. ERC-7562 validation traces/provider acceptance remain unverified live.
+- Owner must approve explicit positive markup, rate bounds/testnet price input, 10-USDG default per-op cap, exposure budget (initially one cap), conservative postOp overhead (200k default), ETH float and treasury conversion operations. New policy **1.4.2**, matching immutable paymaster, module-version config and session reinstall are required. No config changed in this PR.
+- Existing deployed legacy paymasters/deposits are NOT deactivated by source changes. No live pause/withdraw/unstake was performed. They retain the old F-01 risk if accessed directly; retirement needs a separate owner-approved action. New source must never reactivate those contracts.
+- USDG blacklist/pause/upgrade/depeg, signer/admin control, stale rate, token transfer gas changes and trusted exceptional recovery are residual risks. Unlimited standing allowance is granted only to the non-upgradeable configured paymaster through exact owner authorization, not arbitrary session calls.
+- Non-AA protocol maintenance/attestation/test-mint jobs may still spend operational gas; no userOp relay/drip is among them.
 
-## Owner decisions / residual risks
+No new product copy in this update; existing plain unavailable/insufficient-USDG messages are reused. The earlier #246 help-copy deletion remains unchanged.
 
-- Decide user-funded native-ETH onboarding and, separately, any replenishment/conversion design. Existing generic prefund/setup error copy is unchanged; owner-approved funding guidance is still needed.
-- Confirm an external bundler supports this chain, MAv2/session policy, estimates/limits and desired latency. Mocked tests prove local signing/routing, not live inclusion. No live transactions were sent. Mainnet AA availability remains unchanged (currently testnet-only).
-- Existing deployed/funded paymasters are **not deactivated on-chain by this PR**. No pause/withdraw/unstake/key/env action was authorized. Existing signed quotes may remain usable until their encoded expiry; callers can bypass web routes. The unchanged legacy F-01 contract must never be re-enabled/funded. `PaymasterDebt.t.sol` intentionally demonstrates its historical unpaid debt as non-deployed-contract coverage, not a hardening claim.
-- Draft #245 is superseded by this combined disable change; do not merge its auth-hardening approach as the relay plan.
-- Retained `sendWithRelayerNonce` is for non-AA protocol jobs (pricer maintenance, PVE attestations, test-token mint), not public userOp bundling or ETH top-ups. Their protocol transaction costs remain; this is not a claim of zero protocol operational gas expenditure.
+## Tests
 
-## User-facing copy
-
-Only removed the misleading second sentence from existing help: `You hold your own keys. Gas is paid in USDG, so no ETH is needed.` becomes `You hold your own keys.` No new product copy.
-
-## Verification intent
-
-Disabled-service tests prove no fetch/sign/quote at retired endpoints, no reactivation by old flags, no fallback on absent/auth-failed/unreachable external provider, rejection of all sponsorship encodings, and local warm session signing via standard submission. ETH-less bootstrap fails without requesting a top-up. Deployment tests reject mainnet/testnet/local alike. Historical PaymasterDebt intentionally records the legacy exploit.
+Full Foundry suites run with production solc 0.8.26 and Solar, serial isolated mode (production suite split by test directories for memory). `PaymasterDebt` now asserts a fixed pre-execution precharge, including same-batch approval and revocation/drain/revert attacks. Added real EntryPoint/canonical MAv2 first-trade proof and gas/return-data grief/exceptional recovery coverage. Web tests cover quote/hash/payment caps, native bootstrap binding, markup/stake gates, no relayer/drip fallback, warm USDG taps, synchronous reserves, bounded estimators and rapid-tap/retry. Read-only canonical address/ERC-6492 check is separate from live transaction e2e, which was NOT run.

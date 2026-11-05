@@ -98,11 +98,11 @@ console.log("— 3. cash reservation incl. gas");
   ok(E.sent.length === 1, "live: 5 ¢ short of the gas reserve ⇒ the 2nd BOOST is blocked"); }
 { const E = engine({ live: false, cash: 25, gas: 0.1 }); E.trade("buy"); E.at(300); E.trade("buy"); E.at(600); E.trade("buy");
   ok(E.sent.length === 2, "paper: Σ pending $ reserved too (no gas in paper): $25 ⇒ 2 × $10"); }
-// Native-ETH self-pay never takes a USDG cash reserve.
+// USDG prepaid gas holds the full signed cap (or a conservative cold derivation).
 const usdOf = (raw, dec = 18) => Number(raw) / 10 ** dec;
 const G = GR.gasReservePerOp();
-ok(G === 0n && GR.peekGasReservePerOp() === 0n && GR.gasReservePerOp("gradBuy") === 0n, "self-paid trade/grad gas reserves no USDG");
-ok(RT.canSpend(E18, 1) && !RT.canSpend(E18 - 1n, 1), "$1 BOOST requires exactly $1 cash, not a sponsorship reserve");
+ok(G > 0n && GR.gasReservePerOp("gradBuy") >= G, "USDG-paid trades and graduating buys reserve gas synchronously");
+ok(RT.canSpend(E18 + G, 1) && !RT.canSpend(E18 + G - 1n, 1), "$1 BOOST requires its own USDG gas collateral as well");
 // gas kind: "gradBuy" when this BOOST could graduate the curve (FLOW GasOpKind)
 { const H = (usd, graduates, mcapAfterUsd, venue = "curve") => ({ usd, graduates, mcapAfterUsd, venue });
   ok(RT.gasKindFor("sell", 50, H(10, true, 34000), 32000) === "trade", "DUMP ⇒ trade");
@@ -112,7 +112,7 @@ ok(RT.canSpend(E18, 1) && !RT.canSpend(E18 - 1n, 1), "$1 BOOST requires exactly 
   ok(RT.gasKindFor("buy", 200, H(10, false, 31000), 30500) === "gradBuy" && RT.gasKindFor("buy", 20, H(10, false, 12000), 11000) === "trade", "bigger than previewed: scaled mcap estimate (×1.25 margin) decides");
   ok(RT.gasKindFor("buy", 10, null, 31000) === "gradBuy" && RT.gasKindFor("buy", 10, null, 12000) === "trade" && RT.gasKindFor("buy", 10, null, 0) === "trade", "no preview: gradBuy only within 10 % of the grad mcap");
   RT.reservePress("gk", "buy", "0xc", 10, "gradBuy"); ok((RS.RESERVATIONS.get("gk").gasReserve ?? 0n) === GR.gasReservePerOp("gradBuy"), "a gradBuy BOOST holds the grad gas cap"); RT.releasePress("gk", "cancel");
-  ok(RT.canSpend(E18 * BigInt(10), 10, "gradBuy") && RT.canSpend(E18 * BigInt(10), 10), "both kinds use zero USDG gas reserve"); }
+  ok(RT.canSpend(E18 * BigInt(10) + GR.gasReservePerOp("gradBuy"), 10, "gradBuy") && RT.canSpend(E18 * BigInt(10) + G, 10), "both kinds reserve their own USDG gas cap"); }
 // GAME presses in SITE's registry (01b27d97): cash math in raw bigint via RESERVATIONS.reservedRaw (decimals from lib/usdg)
 { const evs = []; const off = RS.subscribe((e) => evs.push(e));
   RT.reservePress("a", "buy", "0xC0in", 10); RT.reservePress("b", "buy", "0xC0in", 5);

@@ -152,8 +152,8 @@ contract SessionPackTest is Test {
     }
 
     // ── version + selectors ──
-    function test_moduleId_1_4_1() public view {
-        assertEq(policy.moduleId(), "disciple.session-policy.1.4.1");
+    function test_moduleId_1_4_2() public view {
+        assertEq(policy.moduleId(), "disciple.session-policy.1.4.2");
     }
 
     function test_selectorStrings() public pure {

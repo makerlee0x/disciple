@@ -3,12 +3,15 @@
  * Alchemy answers 401 to browser requests (Origin header) from domains not allowlisted on the app, and this keeps the
  * key off the client. Only ERC-4337 methods are forwarded.
  */
+import type { Address } from "viem";
 import { NextResponse } from "next/server";
 import { kv } from "@/lib/server/kv";
 import { BUNDLER_LIMITS, clientIp, hitLimit, sendLimiter, type LimitResult, type SendLimiter } from "@/lib/server/limits";
-import { checkSelfPaid } from "@/lib/aa/gasPolicy";
+import { checkUserPaid } from "@/lib/aa/gasPolicy";
 import { alchemyKey } from "@/lib/server/alchemyKey";
 import { inviteRequiredRpc, requireInviteWallet } from "@/lib/server/inviteGate";
+
+import { assertPrepaidReady, configuredPrepaidPaymaster } from "@/lib/server/prepaidPaymaster";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,8 +51,18 @@ export async function POST(req: Request) {
     const op = body.params?.[0];
     if (!op || typeof op !== "object" || Array.isArray(op))
       return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32602, message: "invalid user operation" } }, { status: 400 });
-    try { checkSelfPaid(op); } catch {
+    try { checkUserPaid(op, configuredPrepaidPaymaster()); } catch {
       return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32602, message: "gas sponsorship disabled" } }, { status: 400 });
+    }
+    const paid = op as { paymaster?: Address; paymasterAndData?: string; factory?: string; initCode?: string };
+    const pm = paid.paymaster || (paid.paymasterAndData && paid.paymasterAndData !== "0x" ? paid.paymasterAndData.slice(0, 42) as Address : undefined);
+    // Quote issuance and cold estimates check deployment/stake. Do not add readiness RPC waits to warm submits;
+    // the external bundler validates every signature/stake and the contract precharges every operation.
+    if (SIM.has(body.method) && pm && !/^0x0{40}$/i.test(pm)) {
+      const factory = paid.factory || (paid.initCode && paid.initCode !== "0x" ? paid.initCode.slice(0, 42) : undefined);
+      try { await assertPrepaidReady(pm, factory); } catch {
+        return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32003, message: "prepaid USDG paymaster unavailable; protocol relay disabled" } }, { status: 503 });
+      }
     }
   }
   const key = alchemyKey();

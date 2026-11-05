@@ -8,7 +8,7 @@ import {DisciplePaymaster} from "../../src/paymaster/DisciplePaymaster.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 /// @notice Per-sender allowance: one signature (sender, chainId, paymaster, validUntil, validAfter, rate, maxTokenCost)
-///         reused by many ops, with every per-op check still on-chain and exposure ≤ maxTokenCost per sender.
+///         reused by many ops, with every per-op check and a secured precharge on-chain.
 contract PaymasterAllowanceTest is PaymasterTestBase {
     address sink = makeAddr("sink");
     uint48 until;
@@ -75,7 +75,7 @@ contract PaymasterAllowanceTest is PaymasterTestBase {
         assertEq(usdg.balanceOf(treasury), charged, "every op billed");
         assertEq(pm.getDeposit(), dep0 - gasSum);
         assertGe(charged, pm.tokenCost(gasSum, rate), "fully recovered, nothing sponsored");
-        assertEq(pm.debtOf(address(acct)), 0);
+        assertEq(pm.owedOf(address(acct)), 0);
         assertEq(pm.reservedOf(address(acct)), 0, "postOp clears the reservation");
     }
 
@@ -107,9 +107,8 @@ contract PaymasterAllowanceTest is PaymasterTestBase {
         _send(op);
     }
 
-    /// @dev Two ops of one sender in ONE bundle: op 0's reservation is still open when op 1 validates, so it counts as
-    ///      debt and op 1 can't fit inside the same maxTokenCost ⇒ the bundle is rejected.
-    function test_revert_sameSenderTwiceInOneBundle() public {
+    /// @dev Every operation in a bundle independently secures collateral before any execution.
+    function test_sameSenderTwiceInOneBundle_eachPrecharged() public {
         bytes memory pmd = _std();
         EpOp[] memory ops = new EpOp[](2);
         ops[0] = _withPm(_trade(1), pmd);
@@ -117,10 +116,11 @@ contract PaymasterAllowanceTest is PaymasterTestBase {
         o2.nonce = ops[0].nonce + 1;
         o2.paymasterAndData = pmd;
         ops[1] = _signAcct(o2);
-        uint256 required = pm.tokenCost(_maxCost(), rate) + maxTok;
-        vm.expectRevert(_maxCostTooLow(1, maxTok, required));
         vm.prank(bundler, bundler);
         ep.handleOps(ops, payable(bundler));
+        assertEq(usdg.balanceOf(sink), 3);
+        assertGt(usdg.balanceOf(treasury), 0);
+        assertEq(pm.exposure(), 0);
     }
 
     // ───────── expiry ─────────
@@ -226,35 +226,16 @@ contract PaymasterAllowanceTest is PaymasterTestBase {
         _send(op);
     }
 
-    /// @dev Sender drains its USDG inside the op: the pull fails, debt is recorded and stays ≤ maxTokenCost; the same
-    ///      allowance can't be reused until a fresh one covers the debt (bound: maxTokenCost per sender).
-    function test_drain_boundedByMaxTokenCost() public {
-        bytes memory pmd = _std();
+    /// @dev A full pre-op balance drain reverts after precharge, but gas is still paid and unused collateral refunded.
+    function test_drain_cannotAvoidPrecharge() public {
         uint256 all = usdg.balanceOf(address(acct));
-        (bool ok,,) = _sendRecord(_withPm(_approveThen(maxTok, _transferCall(sink, all)), pmd));
-        assertTrue(ok);
-        uint256 debt = pm.debtOf(address(acct));
-        assertGt(debt, 0, "pull failed -> debt");
-        assertLe(debt, maxTok, "exposure <= maxTokenCost");
+        (bool ok,, uint256 charged) = _sendRecord(_withPm(_approveThen(maxTok, _transferCall(sink, all)), _std()));
+        assertFalse(ok);
+        assertGt(charged, 0);
+        assertEq(usdg.balanceOf(treasury), charged);
+        assertEq(usdg.balanceOf(address(acct)), all - charged);
         assertEq(pm.reservedOf(address(acct)), 0);
-
-        usdg.mint(address(acct), 1_000 * 10 ** dec); // even with fresh funds the old allowance is now too small
-        EpOp memory op = _withPm(_trade(1), pmd);
-        vm.expectRevert(_maxCostTooLow(0, maxTok, pm.tokenCost(_maxCost(), rate) + debt));
-        _send(op);
-
-        // a fresh allowance that includes the debt collects it
-        uint256 m2 = maxTok + debt;
-        bytes memory pmd2 = _allowance(address(acct), until, afterTs, rate, m2, signerPk, uint128(PM_POSTOP_GAS));
-        (bool ok2,,) = _sendRecord(_withPm(_approveThen(m2, _transferCall(sink, 1)), pmd2));
-        assertTrue(ok2);
-        assertEq(pm.debtOf(address(acct)), 0, "debt collected");
-    }
-
-    function test_forgiveDebt_clearsReservation() public {
-        vm.prank(owner);
-        pm.forgiveDebt(address(acct));
-        assertEq(pm.reservedOf(address(acct)), 0);
+        assertEq(pm.exposure(), 0);
     }
 
     /// @dev Byte parity with web/lib/aa/paymaster.ts paymasterAllowanceHash (same vector in scripts/test-paymaster.mts).
@@ -263,9 +244,10 @@ contract PaymasterAllowanceTest is PaymasterTestBase {
         address at = 0x1111111111111111111111111111111111111111;
         vm.etch(at, address(pm).code);
         vm.chainId(46630);
-        bytes32 h = DisciplePaymaster(at).getHash(
-            0x3333333333333333333333333333333333333333, 1_790_000_600, 1_789_999_970, 3000e18, 123456789012345678
-        );
+        bytes32 h = DisciplePaymaster(at)
+            .getHash(
+                0x3333333333333333333333333333333333333333, 1_790_000_600, 1_789_999_970, 3000e18, 123456789012345678
+            );
         assertEq(h, 0x2712d08f58bdadb5f8d8c71b6d3b07446639b9ae4a25af59e4fd25107429c065);
     }
 }

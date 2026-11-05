@@ -24,8 +24,11 @@ test("hung nonce KV EVAL (alloc) falls back to the local cursor within ~1.5 s", 
   assert.equal(c.stats.fallbacks, 1);
 });
 
-test("removed paymaster grad estimator cannot add waits to user-paid taps", () => {
-  assert.equal((Mav2Account.prototype as any).gradGas, undefined);
+test("hung USDG graduation estimate falls back within its bound", async () => {
+  const a = new Mav2Account({ chain: { id: 46630 } as never, pc: { estimateGas: () => hang<bigint>() } as never, bundlerUrl: "http://127.0.0.1:1" }, { address: ME } as never);
+  const t = Date.now();
+  assert.deepEqual(await (a as any).gradGas(ME, []), GRAD_STATIC_GAS);
+  assert.ok(Date.now() - t < GRAD_GAS_BUDGET_MS + 400);
 });
 
 test("hung ensurePveLogin fails within the bound with the clear message", { skip: deployment().loginGate === "0x0000000000000000000000000000000000000000" ? "no loginGate in this deployment" : false }, async () => {

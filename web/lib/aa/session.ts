@@ -1,5 +1,5 @@
 /**
- * Browser session for the embedded smart account (Alchemy Modular Account v2, self-pay gas).
+ * Browser session for the embedded smart account (Alchemy Modular Account v2, prepaid USDG gas).
  *  - "privy" (default when NEXT_PUBLIC_PRIVY_APP_ID is set): the Privy embedded EOA (toViemAccount) is the MAv2 owner.
  *    Login/UI lives in components/PrivyProviders.tsx, which hands us the owner via setPrivyOwner().
  *  - "eoa" (dev, NEXT_PUBLIC_DEV_WALLETS=1): an injected wallet signs ONE message; the derived key owns the MAv2.
@@ -9,14 +9,15 @@
  * Without a deployed policy (NEXT_PUBLIC_SESSION_POLICY unset) trades fall back to owner-signed userOps
  * (Privy signs silently: showWalletUIs=false). aa/policy.ts stays as a client-side UX pre-check.
  */
-import { createPublicClient, createWalletClient, custom, keccak256, type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
+import { createPublicClient, createWalletClient, custom, keccak256, parseAbi, type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
-import type { Mav2Account } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
+import type { Mav2Account, UsdgGasOpts } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
 import { newPressId, tagPress, type SendCallsOpts, type SendOpts } from "./fastPath";
-import { type GasOpKind } from "./gasReserve";
+import { derivedGasReserve, type GasOpKind } from "./gasReserve";
+import { TRADING_UNAVAILABLE } from "./gasPolicy";
 import { policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
 import { quotePricerAbi } from "../abi";
 import { usdgPriceWadPer1e18Raw } from "../usdg";
@@ -30,6 +31,7 @@ import { appReadTransport, withinBudget } from "../rpc/readTransport";
 import { cachedHealth, createLoginSetup, isOneTapOff, onchainHealth, renewalDelayMs, setOneTapOff, storageLease, tradeSigner, type SessionHealth } from "./loginSetup";
 
 /** Bundler goes through our server proxy (/api/bundler → Alchemy, no gas policy); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
+export const PAYMASTER_URL = "/api/paymaster";
 export const BUNDLER_URL = process.env.NEXT_PUBLIC_AA_BUNDLER_URL || "/api/bundler";
 /** Privy app id + signer mode live in ./env (dependency-free, safe for the root layout); re-exported here. */
 export { PRIVY_APP_ID, SIGNER_MODE };
@@ -122,9 +124,18 @@ function loadSessionKey(account: Address): StoredSessionKey | null {
   } catch { return null; }
 }
 
+export function usdgGasConfig(): UsdgGasOpts | undefined {
+  const d = deployment();
+  const pm = d.paymaster, usdg = d.usdg;
+  if (!pm || /^0x0{40}$/i.test(pm) || !usdg || /^0x0{40}$/i.test(usdg)) return undefined;
+  return { paymaster: pm, usdg, url: PAYMASTER_URL, session: true };
+}
+
+
 async function makeAccount(owner: LocalAccount) {
   const { Mav2Account } = await import("./mav2");
-  return new Mav2Account({ chain: ACTIVE_CHAIN, pc: publicClient(), bundlerUrl: BUNDLER_URL }, owner);
+  const usdgGas = usdgGasConfig();
+  return new Mav2Account({ chain: ACTIVE_CHAIN, pc: publicClient(), bundlerUrl: BUNDLER_URL, usdgGas, requireUsdgGas: true }, owner);
 }
 
 async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
@@ -134,6 +145,8 @@ async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
   save();
   const a = await sa.address();
   curAccount = a;
+  void sa.warmGasReserve().catch(() => undefined);
+  void sa.preparePrepay().catch(() => undefined);
   userEndedOneTap = isOneTapOff(lsStore(), a);   // the player's own "one-tap off" survives reloads
   onchain = loadSessionKey(a);
   if (onchain) { await sa.useSession(onchain.entityId, privateKeyToAccount(onchain.key)); void syncSessionFromChain(); }
@@ -411,6 +424,12 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
   const d = deployment();
   const id = await publicClient().readContract({ address: SESSION_POLICY, abi: moduleIdAbi, functionName: "moduleId" }).catch(() => "");
   if (id !== SESSION_POLICY_MODULE_ID) throw new AAError("Policy", `Session policy at ${SESSION_POLICY} reports "${id || "?"}", expected ${SESSION_POLICY_MODULE_ID}.`);
+  const gas = usdgGasConfig();
+  if (gas) {
+    const policyPm = await publicClient().readContract({ address: SESSION_POLICY, abi: parseAbi(["function paymaster() view returns (address)"]), functionName: "paymaster" }).catch(() => "");
+    if (id !== "disciple.session-policy.1.4.2" || policyPm.toLowerCase() !== gas.paymaster.toLowerCase())
+      throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: "session policy must be prepaid 1.4.2 and bound to the configured paymaster" });
+  }
   const key = generatePrivateKey();
   const maxSlippageBps = clampSlippageBps(opts.maxSlippageBps ?? oneTapSlippageBps());
   const account = await sa.address();
@@ -431,6 +450,7 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
     caps: Object.fromEntries(caps.map((c) => [c.token.toLowerCase(), c.cap.toString()])), spent: {} };
   saveSessionKey(); userEndedOneTap = false; setOneTapOff(lsStore(), account, false);
   await sa.useSession(s.entityId, privateKeyToAccount(key));
+  await sa.warm(); // prepare the now-valid standing-allowance quote before setup reports ready; no wait on taps
   changed();
   return { ...r, entityId: s.entityId, validUntil: s.validUntil, maxSlippageBps };
 }
@@ -484,13 +504,13 @@ export function aaPeekGasReservePerOp(kind: GasOpKind = "trade"): bigint | null 
   if (sa) return sa.peekGasReservePerOp(kind);
   return BigInt(0);
 }
-/** Self-paid gas: no USDG reserve, even before an account is loaded. */
+/** Player-paid USDG gas reserve, including a conservative cold fallback before account warmup. */
 export function aaGasReservePerOp(kind: GasOpKind = "trade"): bigint {
   if (sa) return sa.gasReservePerOp(kind);
-  return BigInt(0);
+  return usdgGasConfig() ? derivedGasReserve({ kind, decimals: deployment().usdgDecimals }) : BigInt(0);
 }
 
-/** Warm only client-side account/fee caches; no protocol relay or sponsorship request. */
+/** Warm account/fee/paid-quote caches; never request a protocol relay or gas grant. */
 export async function aaWarm() { if (sa) await sa.warm(); }
 
 /** The cached session key is installed, unexpired (30 s margin) and loaded in the account client. */
