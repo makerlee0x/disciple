@@ -55,7 +55,8 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         uint256 maxTok = _maxTok();
         vm.prank(address(acct));
         usdg.approve(address(pm), maxTok);
-        bytes memory cd = abi.encodeCall(MiniAccount.execute, (address(usdg), 0, abi.encodeCall(ERC20.transfer, (sink, 7))));
+        bytes memory cd =
+            abi.encodeCall(MiniAccount.execute, (address(usdg), 0, abi.encodeCall(ERC20.transfer, (sink, 7))));
         (bool ok,, uint256 charged) = _sendRecord(_full(cd, rate, maxTok));
         assertTrue(ok);
         assertEq(usdg.balanceOf(treasury), charged);
@@ -157,7 +158,9 @@ contract DisciplePaymasterTest is PaymasterTestBase {
     function test_revert_maxCostAboveCap() public {
         uint256 maxTok = 101 * 10 ** dec;
         EpOp memory op_3 = _full(_approveThen(maxTok, _transferCall(sink, 1)), rate, maxTok);
-        vm.expectRevert(_aa33(abi.encodeWithSelector(DisciplePaymaster.MaxCostAboveCap.selector, maxTok, 100 * 10 ** dec)));
+        vm.expectRevert(
+            _aa33(abi.encodeWithSelector(DisciplePaymaster.MaxCostAboveCap.selector, maxTok, 100 * 10 ** dec))
+        );
         _send(op_3);
     }
 
@@ -185,7 +188,8 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         uint256 maxTok = _maxTok();
         vm.prank(address(acct));
         usdg.approve(address(pm), 0);
-        bytes memory cd = abi.encodeCall(MiniAccount.execute, (address(usdg), 0, abi.encodeCall(ERC20.transfer, (sink, 7))));
+        bytes memory cd =
+            abi.encodeCall(MiniAccount.execute, (address(usdg), 0, abi.encodeCall(ERC20.transfer, (sink, 7))));
         EpOp memory op_6 = _full(cd, rate, maxTok);
         vm.expectRevert(_aa33(abi.encodeWithSelector(DisciplePaymaster.InsufficientUsdgAllowance.selector, 0, maxTok)));
         _send(op_6);
@@ -236,9 +240,8 @@ contract DisciplePaymasterTest is PaymasterTestBase {
     function test_onlyEntryPoint() public {
         EpOp memory op;
         vm.expectRevert(DisciplePaymaster.NotEntryPoint.selector);
-        (bool s,) = address(pm).call(
-            abi.encodeWithSelector(DisciplePaymaster.validatePaymasterUserOp.selector, op, bytes32(0), 0)
-        );
+        (bool s,) = address(pm)
+            .call(abi.encodeWithSelector(DisciplePaymaster.validatePaymasterUserOp.selector, op, bytes32(0), 0));
         s;
         vm.expectRevert(DisciplePaymaster.NotEntryPoint.selector);
         pm.postOp(PostOpMode.opSucceeded, "", 0, 0);
@@ -281,6 +284,64 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         vm.prank(owner);
         pm.setExposureLimit(1);
         assertEq(pm.exposureLimit(), 1);
+    }
+
+    function test_exposureLimit_rejectsBeforeTakingTokens_andReleasesAfterPostOp() public {
+        uint256 maxTok = _maxTok();
+        uint256 balance = usdg.balanceOf(address(acct));
+        vm.prank(owner);
+        pm.setExposureLimit(maxTok - 1);
+        EpOp memory op = _full(_approveThen(maxTok, _transferCall(sink, 1)), rate, maxTok);
+        vm.expectRevert(
+            _aa33(abi.encodeWithSelector(DisciplePaymaster.ExposureLimitExceeded.selector, maxTok, maxTok - 1))
+        );
+        _send(op);
+        assertEq(usdg.balanceOf(address(acct)), balance);
+        assertEq(pm.exposure(), 0);
+        vm.prank(owner);
+        pm.setExposureLimit(maxTok);
+        _send(op);
+        assertEq(pm.exposure(), 0);
+        assertEq(pm.reservedOf(address(acct)), 0);
+    }
+
+    function test_failedPrecharge_rejectsBeforeExecution() public {
+        uint256 maxTok = _maxTok();
+        EpOp memory op = _full(_approveThen(maxTok, _transferCall(sink, 1)), rate, maxTok);
+        vm.mockCall(address(usdg), abi.encodeWithSelector(ERC20.transferFrom.selector), abi.encode(false));
+        vm.expectRevert(_aa33(abi.encodeWithSelector(DisciplePaymaster.PrechargeFailed.selector, maxTok)));
+        _send(op);
+        assertEq(usdg.balanceOf(sink), 0);
+        assertEq(pm.exposure(), 0);
+    }
+
+    function test_failedSettlementTransfers_createSecuredRecipientCredits() public {
+        uint256 maxTok = _maxTok();
+        uint256 bal0 = usdg.balanceOf(address(acct));
+        bytes memory cd = abi.encodeCall(
+            MiniAccount.execute, (address(usdg), 0, abi.encodeCall(ERC20.approve, (address(pm), type(uint256).max)))
+        );
+        vm.mockCall(address(usdg), abi.encodeWithSelector(ERC20.transfer.selector), abi.encode(false));
+        (bool ok,, uint256 charged) = _sendRecord(_full(cd, rate, maxTok));
+        assertTrue(ok);
+        assertGt(charged, 0);
+        assertEq(pm.creditOf(treasury), charged);
+        assertEq(pm.creditOf(address(acct)), maxTok - charged);
+        assertEq(usdg.balanceOf(address(pm)), maxTok, "credits fully collateralized");
+        assertEq(pm.exposure(), 0);
+        vm.expectRevert(abi.encodeWithSelector(DisciplePaymaster.PrechargeFailed.selector, charged));
+        pm.claimCredit(treasury);
+        assertEq(pm.creditOf(treasury), charged, "failed claim preserves ownership");
+        vm.clearMockedCalls();
+        vm.prank(sink); // third parties can retry but cannot redirect a credit
+        pm.claimCredit(treasury);
+        pm.claimCredit(address(acct));
+        pm.claimCredit(treasury); // no double claim
+        assertEq(usdg.balanceOf(treasury), charged);
+        assertEq(usdg.balanceOf(address(acct)), bal0 - charged);
+        assertEq(usdg.balanceOf(address(pm)), 0);
+        assertEq(pm.creditOf(treasury), 0);
+        assertEq(pm.creditOf(address(acct)), 0);
     }
 
     // ───────── owner / deposit / stake ─────────

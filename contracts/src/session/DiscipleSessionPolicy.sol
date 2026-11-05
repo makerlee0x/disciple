@@ -118,9 +118,9 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     address public immutable referralRegistry;
 
     /// @notice DISCIPLE USDG token paymaster (EntryPoint v0.7). Fixed per deployment (immutable) so the SessionConfig
-    ///         ABI is unchanged. The session key may approve it USDG only for the signed `maxTokenCost` or a persistent max allowance in the
-    ///         same userOp's paymasterAndData; the signed maxTokenCost counts against the USDG spend cap (the gas fee's upper
-    ///         bound; the paymaster pulls the actual cost ≤ it). address(0) disables paymaster approvals.
+    ///         ABI is unchanged. A session may approve the signed `maxTokenCost` or a persistent max allowance.
+    ///         The signed maxTokenCost, not the ERC20 allowance, counts against the USDG spend cap. Payment is
+    ///         precharged in validation and unused USDG refunded in postOp. address(0) disables paymaster approvals.
     address public immutable paymaster;
 
     /// @notice Install-time session configuration (abi-encoded after the uint32 entityId in onInstall data).

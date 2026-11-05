@@ -166,9 +166,8 @@ for (const dec of [18, 6]) {
 
   test(`[${dec}-dec] final refuses: no approve, under, too far over, over cap, balance, wrong chain/EP/paymaster, fee 0`, async () => {
     const d = deps();
-    const noStanding: UserOp = { ...baseOp(batch([trade], true)), paymaster: PM };
-    await rejects(finalQuote(noStanding, ENTRYPOINT_V07, 46630, cfg, deps({ allowanceOf: async () => BigInt(0) })), "approve");
-    // standing allowance alone is enough (exact first-call approve is optional for the server)
+    const noApprove: UserOp = { ...baseOp(batch([trade], true)), paymaster: PM };
+    await rejects(finalQuote(noApprove, ENTRYPOINT_V07, 46630, cfg, d), "approve");
     await rejects((await twoPhase(d, true, (x) => x - BigInt(1))).final(), "approve");
     await rejects((await twoPhase(d, true, (x) => x + (x * DEFAULT_MAX_SLACK_BPS) / BigInt(10_000) + BigInt(1))).final(), "approve");
     await (await twoPhase(d, true, (x) => x + (x * DEFAULT_MAX_SLACK_BPS) / BigInt(10_000))).final(); // at the slack edge: OK
@@ -183,6 +182,26 @@ for (const dec of [18, 6]) {
     await rejects(finalQuote({ ...op, paymaster: TOKEN }, ENTRYPOINT_V07, 46630, cfg, d), "op");
     await rejects(finalQuote({ ...op, maxFeePerGas: "0x0", maxPriorityFeePerGas: "0x0" }, ENTRYPOINT_V07, 46630, cfg, d), "gas");
     await rejects(finalQuote({ ...op, callGasLimit: hex(GAS_CAPS.callGasLimit + BigInt(1)) }, ENTRYPOINT_V07, 46630, cfg, d), "gas");
+  });
+
+  test(`[${dec}-dec] F-01: same-batch approve never replaces standing allowance (final and cached quotes)`, async () => {
+    const noStanding = deps({ allowanceOf: async () => BigInt(0) });
+    await rejects((await twoPhase(noStanding)).final(), "approve");
+    await rejects(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, noStanding), "approve");
+    const { amt } = await twoPhase();
+    await rejects((await twoPhase(deps({ allowanceOf: async () => amt - BigInt(1) }))).final(), "approve");
+    await (await twoPhase(deps({ allowanceOf: async () => amt }))).final();
+  });
+
+  test(`[${dec}-dec] persistent max approval signs only required precharge, still obeys cap/balance/standing checks`, async () => {
+    const max = (BigInt(1) << BigInt(256)) - BigInt(1);
+    const { op } = await twoPhase(deps(), true, () => max);
+    const f = await finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps());
+    const q = decodePaymasterData(f.paymasterData);
+    assert.equal(q.maxTokenCost, requiredMaxTokenCost(op, RATE, BigInt(0)));
+    await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps({ allowanceOf: async () => BigInt(0) })), "approve");
+    await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps({ balanceOf: async () => BigInt(0) })), "balance");
+    await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: RATE, maxRate: RATE, maxCostCap: BigInt(1) }) })), "approve");
   });
 
   test(`[${dec}-dec] configured rate outside the contract's bounds is refused (stub and final)`, async () => {
@@ -272,7 +291,7 @@ for (const dec of [18, 6]) {
     await rejectsA(allowanceQuote("0x1234" as Address, ENTRYPOINT_V07, 46630, cfg, deps()), "op");
   });
 
-  test(`[${dec}-dec] payGasInUsdg with a fitting allowance: 0 pm_* calls, exact approve first, allowance paymasterData`, async () => {
+  test(`[${dec}-dec] payGasInUsdg with a fitting allowance: 0 pm_* calls, persistent approve first, allowance paymasterData`, async () => {
     const a = (await allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps())) as unknown as Allowance;
     const fees = clientFees(BASE);
     const g = globalThis.fetch; let calls = 0;
@@ -285,7 +304,7 @@ for (const dec of [18, 6]) {
       });
       assert.equal(r.pmCalls, 0); assert.equal(calls, 0);
       assert.equal(r.op.paymasterData, a.paymasterData);
-      assert.equal(firstCallApproveAmount(r.op.callData, USDG, PM), BigInt(a.disciple.maxTokenCost));
+      assert.equal(firstCallApproveAmount(r.op.callData, USDG, PM), (BigInt(1) << BigInt(256)) - BigInt(1));
       assert.ok(fitsAllowance(r.op, a));
       // an op above the envelope (fee spike ×3) does NOT fit ⇒ falls back to the per-op flow (here: the mocked network)
       await assert.rejects(payGasInUsdg({
@@ -368,13 +387,14 @@ test("signed paymaster gas limits fit under the relay caps", () => {
   assert.ok(PAYMASTER_GAS.postOpGasLimit <= GAS_CAPS.paymasterPostOpGasLimit);
 });
 
-test("client payGasInUsdg: stub → exact approve first → final, against the real quote rules (mocked fetch)", async () => {
+test("client payGasInUsdg: stub → persistent approve first → final, against the real quote rules (mocked fetch)", async () => {
   const { payGasInUsdg, withPaymasterApprove } = await import("../lib/aa/paymasterClient");
   const dec = 18, RATE = BigInt(3000) * E18;
   const signer = privateKeyToAccount(generatePrivateKey());
   const cfg: QuoteConfig = { paymaster: PM, usdg: USDG, usdgDecimals: dec, rate: RATE };
   const d: QuoteDeps = {
     now: () => 1_790_000_000, debtOf: async () => BigInt(7), balanceOf: async () => E18 * BigInt(100),
+    allowanceOf: async () => (BigInt(1) << BigInt(256)) - BigInt(1),
     bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxCostCap: E18 * BigInt(5) }),
     baseFee: async () => BASE, sign: (h) => signer.signMessage({ message: { raw: h } }),
   };
@@ -399,7 +419,7 @@ test("client payGasInUsdg: stub → exact approve first → final, against the r
       }),
       sign: async () => "0x1234",
     });
-    assert.equal(firstCallApproveAmount(op.callData, USDG, PM), maxTokenCost);
+    assert.equal(firstCallApproveAmount(op.callData, USDG, PM), (BigInt(1) << BigInt(256)) - BigInt(1));
     assert.equal(maxTokenCost, tokenCost(entryPointMaxCost(op), RATE) + BigInt(7));
     assert.equal(decodePaymasterData(op.paymasterData!).maxTokenCost, maxTokenCost);
     assert.equal(op.signature, "0x1234");

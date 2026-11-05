@@ -9,7 +9,7 @@ import type { Call } from "./core";
  * Expected DiscipleSessionPolicy.moduleId(); enableOneTap refuses a policy that reports anything else.
  * Config, so the redeploy swaps it with the address: NEXT_PUBLIC_SESSION_POLICY (address) +
  * NEXT_PUBLIC_SESSION_POLICY_VERSION (default 1.4.1 = the v5 testnet policy, contracts/deployments/rh-testnet-46630.json
- * addons.DiscipleSessionPolicy; moduleId() "disciple.session-policy.1.4.2": USDG routing, USDG gas paymaster, USDG<->pair swaps).
+ * addons.DiscipleSessionPolicy; moduleId() "disciple.session-policy.1.4.1": USDG routing, USDG gas paymaster, USDG<->pair swaps).
  */
 export const SESSION_POLICY_VERSION = process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.4.1";
 /**

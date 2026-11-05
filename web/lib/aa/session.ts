@@ -546,11 +546,12 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
       selfPay = true;
     }
   }
-  const r = await sa.sendCalls(setupCalls, { as: "owner", selfPay });
+  const r = await sendWithGasRefill(setupCalls, "owner", account, { selfPay });
   onchain = { account, entityId: s.entityId, key, validUntil: s.validUntil, maxSlippageBps, policy: SESSION_POLICY,
     caps: Object.fromEntries(caps.map((c) => [c.token.toLowerCase(), c.cap.toString()])), spent: {} };
   saveSessionKey(); userEndedOneTap = false; setOneTapOff(lsStore(), account, false);
   await sa.useSession(s.entityId, privateKeyToAccount(key));
+  void sa.warm(); // issue the cached quote after bootstrap, in the background (never on a trade tap)
   changed();
   return { ...r, entityId: s.entityId, validUntil: s.validUntil, maxSlippageBps };
 }

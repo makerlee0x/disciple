@@ -9,8 +9,8 @@
  *  2. The client finalises gas/fees, then pm_getPaymasterData(op): the server re-derives every
  *     number from the op itself and signs only if the op is safe for the paymaster (AUDIT F-01):
  *       - paymaster + gas limits are ours, fees/gas within lib/aa/gasPolicy (the deposit fronts the gas);
- *       - sender has a standing USDG allowance ≥ maxTokenCost (precharge),;
- *       - optional first-call exact approve (session policy 1.4.0) still replenishes standing allowance after precharge;
+ *       - sender has a standing USDG allowance ≥ maxTokenCost for the validation precharge;
+ *       - first-call exact/max approve replenishes allowance and lets the session policy debit its signed gas cap;
  *       - signed maxTokenCost covers tokenCost(maxCost, rate) + debt and
  *         is at most MAX_SLACK above it and ≤ the on-chain maxCostCap;
  *       - the sender holds that much USDG; the rate is inside the contract's [minRate, maxRate].
@@ -69,7 +69,7 @@ export type QuoteDeps = {
   /** What the sender's next op must cover besides its gas: DisciplePaymaster.owedOf (debt + rolled + unsettled reservation). */
   debtOf(sender: Address): Promise<bigint>;
   balanceOf(sender: Address): Promise<bigint>;
-  /** IERC20.allowance(sender, paymaster) — required for F-01 precharge . */
+  /** IERC20.allowance(sender, paymaster) — required for F-01 precharge. */
   allowanceOf(sender: Address): Promise<bigint>;
   bounds(): Promise<{ minRate: bigint; maxRate: bigint; maxCostCap: bigint }>;
   baseFee(): Promise<bigint>;

@@ -8,8 +8,8 @@
  * the built op fits it (tokenCost(maxCost) + debt ≤ maxTokenCost, window still open) payGasInUsdg makes 0 pm_* calls;
  * otherwise (launch, graduating buy, cold estimate, fee spike) it falls back to the two-phase per-op quote.
  *
- * Batch shape (DiscipleSessionPolicy 1.4.0 + AUDIT F-01):
- *   [ usdg.approve(paymaster, maxTokenCost)  ← persistent allowance, FIRST (session spend-cap debit is the signed maxTokenCost)
+ * Batch shape (DiscipleSessionPolicy 1.4.2 + AUDIT F-01):
+ *   [ usdg.approve(paymaster, uint256.max)  ← persistent allowance, FIRST (session debits signed maxTokenCost)
  *   , ...trade calls ]
  * Payment is precharged in validation from a standing ERC20 allowance (not from this same-batch approve). Bootstrap
  * once with an owner-funded approval before the first trade; taps keep zero added waits.

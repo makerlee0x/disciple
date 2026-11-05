@@ -21,7 +21,7 @@ import type { Call, UserOp } from "./core";
 export const PAYMASTER_DATA_LENGTH = 141; // paymasterData (after the 52-byte paymaster + gas limits prefix)
 export const PAYMASTER_AND_DATA_LENGTH = 193;
 export const MAX_QUOTE_WINDOW_SEC = 3600;
-/** Gas limits the server signs; must stay ≤ lib/aa/gasPolicy GAS_CAPS.paymaster*. postOp is a single transferFrom. */
+/** Gas limits the server signs; must stay ≤ lib/aa/gasPolicy GAS_CAPS.paymaster*. Validation precharges; postOp settles/refunds. */
 export const PAYMASTER_GAS = {
   verificationGasLimit: BigInt(150_000), // ecrecover + balanceOf + allowance + transferFrom precharge (F-01)
   postOpGasLimit: BigInt(120_000),       // treasury transfer + sender refund (F-01 precharge)
@@ -161,7 +161,6 @@ export function firstCallApproveAmount(callData: Hex, usdg: Address, paymaster: 
     return a.args[1];
   } catch { return null; }
 }
-
 
 /** Human USDG amount (for "not enough USDG" messages) — decimals-aware, never hard-codes 1e18. */
 export function formatUsdg(amount: bigint, decimals: number, dp = 4): string {

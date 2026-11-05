@@ -29,8 +29,8 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     /// @notice Max signed validity window. Validation can't read TIMESTAMP (ERC-7562); the EntryPoint enforces it.
     uint256 public constant MAX_QUOTE_WINDOW = 1 hours;
     uint256 public constant MAX_POST_OP_GAS = 200_000;
-    /// @notice Floor on the op's paymasterPostOpGasLimit. The allowance no longer signs the gas limits, so a sender
-    ///         could otherwise starve postOp (EntryPoint then bills our deposit and skips the pull). Measured ≈ 35-45k.
+    /// @notice Floor on the op's paymasterPostOpGasLimit, covering settlement and two token transfers.
+    ///         Even if settlement cannot complete, the validation precharge stays secured and consumes exposure.
     uint256 public constant MIN_PM_POST_OP_GAS_LIMIT = 100_000; // transfer to treasury + refund (F-01 precharge)
     /// @notice Domain tag of the allowance hash (keeps it distinct from the per-op quote hash).
     bytes32 public constant ALLOWANCE_TYPEHASH = keccak256("DisciplePaymaster.Allowance(v1)");
@@ -108,7 +108,6 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     error ExposureLimitExceeded(uint256 exposure, uint256 limit);
     error PrechargeFailed(uint256 amount);
     error InvalidContext();
-    error GasApprovalMissing();
 
     constructor(
         address entryPoint_,
@@ -175,9 +174,8 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
         if (bal < maxTokenCost) revert InsufficientUsdgBalance(bal, maxTokenCost);
         uint256 al = IERC20(usdg).allowance(sender, address(this));
         if (al < maxTokenCost) revert InsufficientUsdgAllowance(al, maxTokenCost);
-        // Session policy accounts for the signed gas cap through this call. It replenishes allowance only;
-        // it is NEVER accepted as payment authorization. Also prevents cached allowances bypassing that debit.
-        if (!firstCallApproves(op.callData, maxTokenCost)) revert GasApprovalMissing();
+        // Never inspect callData for payment authorization: arbitrary owner execution may revoke approval,
+        // drain its remaining USDG, or revert. Only tokens already held here secure this operation.
         uint256 held = IERC20(usdg).balanceOf(address(this));
         if (
             !_tryTransferFrom(sender, address(this), maxTokenCost)

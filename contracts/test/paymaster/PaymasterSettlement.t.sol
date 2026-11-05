@@ -10,7 +10,6 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 
 /// @notice F-01: independent secured settlement for same-sender bundles, successes and reverts.
 contract PaymasterSettlementTest is PaymasterTestBase {
-
     address sink = makeAddr("sink");
     uint48 until;
     uint48 afterTs;

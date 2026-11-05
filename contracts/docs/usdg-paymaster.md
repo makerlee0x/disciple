@@ -2,6 +2,56 @@
 
 Status: **design + build in progress (PR draft, nothing deployed)** · approved by maker lee, Fri Oct 23 2026 · RH testnet only (chain 46630).
 
+## F-01 correction — validation prepayment (2026-11-05)
+
+**This section supersedes the historical postOp-pull/debt design and rollout notes below.** Nothing deployed.
+
+- Validation requires a **pre-existing USDG allowance**, then transfers the signed `maxTokenCost` into the
+  paymaster and verifies the full balance increase **before any account execution**. An approval in that same
+  userOp is not payment authorization. Missing allowance/balance or a failed precharge rejects the op atomically.
+- Each operation has independent collateral keyed by `userOpHash`. `reservedOf` and global `exposure` represent
+  USDG actually held, not an unsecured IOU. `owedOf` remains zero for quote-wire compatibility; old debt is not migrated.
+- postOp pays treasury from that collateral and refunds the unused part, even after reverted calls or a successful
+  drain/revocation. Failed transfers become fully funded `creditOf[recipient]`, retryable with `claimCredit(recipient)`;
+  callers cannot redirect credits. No transferFrom or debt collection is attempted after execution.
+- Defense in depth: owner-only `setPaused` stops **new validation**, not settlement/claims; `setExposureLimit` caps
+  outstanding precharges **globally**, so rotating accounts cannot bypass it. Initial limit = constructor maxCostCap.
+  The limit covers all validations in a bundle before their postOps. It is independent of subsequent maxCostCap changes.
+- Quote domains and 193-byte format are unchanged. Both final and reusable-allowance quote endpoints check standing
+  allowance. Validation enforces payment independently of the quote server and accepts arbitrary owner calldata.
+- Gas envelopes: validation 150k, postOp 120k, on-chain postOp floor 100k; deployment's flat postOp billing default 40k.
+  Re-measure against the target USDG implementation before rollout; quote gas remains within existing relay caps.
+
+### Least-disruptive onboarding / one-tap (owner decision)
+
+A first-use **owner/self-paid setup op** grants a persistent max USDG allowance and installs the session together.
+The existing background sign-in setup handles this, reusing the existing ETH-refill path if needed. No bootstrap
+operation, standing-allowance read, or extra quote request is added to a trade tap. After setup, the existing cached
+signed-allowance path still uses **zero pm_* requests**; the batch's first approval remains solely for session gas-cap
+accounting. It replenishes a persistent allowance, not payment for the current op.
+
+The small `DiscipleSessionPolicy` **1.4.2** change accepts exact or uint256.max paymaster approval but debits only the
+signed `maxTokenCost` plus trade spend, preserving the USDG cap. Other spenders and arbitrary finite approval amounts
+are still refused. No AMM hook code changes. Policy and paymaster must be rolled out together; current deployment
+addresses and the web's deployed-policy version default are intentionally unchanged in this PR.
+
+**Owner decisions before any rollout:** accept a one-time native-ETH-funded owner setup (testnet's existing drip is
+not a new mainnet funding solution), persistent/revocable max allowance to this immutable USDG-only paymaster, a fresh
+paymaster/policy deployment plus session reinstall and coordinated web configuration, and the desired global outstanding
+limit. Owner-only trading without one-tap must establish the standing approval separately before its first USDG-gas op.
+No deployment, env/key changes, approvals or on-chain transactions are performed by this change.
+
+### Residual / operational risks
+
+- Centralized USDG pause/blocklist or a token upgrade can delay treasury/refund credits. Credits stay held until transfers
+  work again. This assumes standard exact-transfer USDG behavior (not fee-on-transfer/rebasing or a malicious token).
+- If EntryPoint never completes postOp (e.g. out of gas), collateral and exposure remain locked rather than becoming
+  unsecured sender debt. There is no administrative collateral sweep/reassignment; monitor `Precharged` vs
+  `UserOperationCharged`, pause and investigate. A full exposure limit stops further validation, including other accounts.
+- Existing signed rate/fee-estimation risk remains; the flat postOp billing allowance is an estimate, not an exact final
+  gas oracle. Mainnet pricing, native funding, ERC-7562/public-bundler compatibility and real-token gas need separate
+  verification. The self-relay path remains testnet-only. Other audit findings are not addressed here.
+
 ## Locked rules
 - Users never need ETH. Gas is paid **out of the user's own USDG**. We do **not** sponsor gas.
 - Self-hosted: our own contract, our own signer, our own bundler. **No Pimlico hosted service** (their v0.7 singleton at
