@@ -3,9 +3,11 @@
  * `server-only` so it can be unit-tested with a fake client.
  * Order:
  *  1. viem verifyMessage: EOA ecrecover, ERC-1271 (deployed MAv2 / LightAccount), ERC-6492 (counterfactual MAv2).
- *  2. Only if that fails AND the account is NOT deployed: legacy owner shortcut — `owner` signed keccak(msg) raw and the
- *     factory-predicted address for that owner (MAv2 SemiModular, else LightAccount v2, salt 0) equals `addr`.
+ *  2. Only if that fails AND getCode succeeded with empty code (undeployed): legacy owner shortcut —
+ *     `owner` signed keccak(msg) raw and the factory-predicted address for that owner (MAv2 SemiModular,
+ *     else LightAccount v2, salt 0) equals `addr`.
  *     A deployed account is never accepted via the shortcut (its owner may have rotated; 1271 is the source of truth).
+ *     If getCode fails (RPC error / timeout), status is unknown → fail closed (do not take the shortcut).
  */
 import { keccak256, parseAbi, recoverMessageAddress, stringToBytes, type Address, type Hex } from "viem";
 import { LIGHT_ACCOUNT_V2_FACTORY, MAV2_FACTORY } from "./constants";
@@ -21,6 +23,11 @@ export type VerifyClient = {
   readContract(a: { address: Address; abi: unknown; functionName: string; args: readonly unknown[] }): Promise<unknown>;
 };
 
+/** Empty bytecode from a successful getCode (viem may return undefined or "0x"). */
+function isEmptyCode(code: Hex | undefined): boolean {
+  return !code || code === "0x";
+}
+
 /** Returns the lowercase address if `sig` proves `addr` signed `msg`, else null. */
 export async function verifyAccountSignature(pc: VerifyClient, addr: string, msg: string, sigIn: string, owner?: string | null): Promise<string | null> {
   const sig = sigIn as Hex;
@@ -28,8 +35,14 @@ export async function verifyAccountSignature(pc: VerifyClient, addr: string, msg
   const a = addr.toLowerCase();
   if (await pc.verifyMessage({ address: addr as Address, message: msg, signature: sig }).catch(() => false)) return a;
   if (!owner || !isAddr(owner)) return null;
-  const code = await pc.getCode({ address: addr as Address }).catch(() => "0x" as Hex);
-  if (code && code !== "0x") return null; // deployed: only a real ERC-1271 signature counts
+  // Audit F-07: only treat as undeployed when getCode succeeded with empty code. RPC failure → fail closed.
+  let code: Hex | undefined;
+  try {
+    code = await pc.getCode({ address: addr as Address });
+  } catch {
+    return null;
+  }
+  if (!isEmptyCode(code)) return null; // deployed: only a real ERC-1271 signature counts
   const rec = await recoverMessageAddress({ message: { raw: keccak256(stringToBytes(msg)) }, signature: sig }).catch(() => null);
   if (!rec || rec.toLowerCase() !== owner.toLowerCase()) return null;
   const [mav2, la] = await Promise.all([
