@@ -1,5 +1,7 @@
 # DISCIPLE mainnet plan
 
+> Historical plan: signer/threshold/delay suggestions and automatic-handover claims below are not current implementation or owner decisions. Use [SEC-04 ownership handover](../../docs/mainnet/SEC-04-ownership-handover.md) and [explicit network configuration](../../docs/mainnet/network-config.md). Paymaster/public fast relay are removed, not mainnet rollout features.
+
 Scope: the combined stack from PRs #14 (anon launch), #16 (snipe split + creatorBuyMaxBps + redeploy prep), #27 (security fixes, including SEC-01) and #24 (indexer). Testnet rehearsal: `contracts/script/redeploy/redeploy.sh` (dry run is the default).
 
 ## 1. Ownership: Safe multisig

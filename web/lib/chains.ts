@@ -5,7 +5,7 @@
  * Zero-address launchpad ⇒ isDeployed() false ⇒ UI stays on mock/replay sources.
  */
 import { defineChain, type Address } from "viem";
-import { CHAIN, STRATEGY_TOKEN } from "./config";
+import { CHAIN } from "./config";
 
 const Z = "0x0000000000000000000000000000000000000000" as Address;
 const addr = (v: string | undefined, fallback: Address = Z) => ((v && /^0x[0-9a-fA-F]{40}$/.test(v) ? v : fallback) as Address);
@@ -101,11 +101,16 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     marketLens: addr(process.env.NEXT_PUBLIC_RH_MARKET_LENS),
     loginGate: addr(process.env.NEXT_PUBLIC_RH_LOGIN_GATE),
     usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_RH_USDG_DEPOSIT_NOTIFIER),
-    ...RH_V4,
-    defaultQuote: STRATEGY_TOKEN.address,
-    usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    // Mainnet has no inherited testnet/canonical-address assumptions: owner-supplied config only.
+    poolManager: addr(process.env.NEXT_PUBLIC_RH_POOL_MANAGER),
+    v4Quoter: addr(process.env.NEXT_PUBLIC_RH_V4_QUOTER),
+    stateView: addr(process.env.NEXT_PUBLIC_RH_STATE_VIEW),
+    universalRouter: addr(process.env.NEXT_PUBLIC_RH_UNIVERSAL_ROUTER),
+    permit2: addr(process.env.NEXT_PUBLIC_RH_PERMIT2),
+    defaultQuote: addr(process.env.NEXT_PUBLIC_RH_DEFAULT_QUOTE),
+    usdg: addr(process.env.NEXT_PUBLIC_RH_USDG),
     usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_RH_USDG_DECIMALS, 6),
-    paymaster: Z, // mainnet: not deployed (testnet only for now)
+    paymaster: Z, // product lock: no paymaster or gas sponsorship
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RH_FROM_BLOCK || "0"),
   },
   // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json on main (v5 redeploy, PR #150 / deploy commit 4310665b,
@@ -171,7 +176,8 @@ export const TESTNET_COINS = {
 
 const CHAINS = { [robinhood.id]: robinhood, [robinhoodTestnet.id]: robinhoodTestnet, [anvil.id]: anvil } as const;
 const WANT = Number(process.env.NEXT_PUBLIC_CHAIN_ID || robinhoodTestnet.id);
-export const ACTIVE_CHAIN = CHAINS[WANT as keyof typeof CHAINS] ?? robinhoodTestnet;
+export const ACTIVE_CHAIN = CHAINS[WANT as keyof typeof CHAINS];
+if (!ACTIVE_CHAIN) throw new Error("Unsupported NEXT_PUBLIC_CHAIN_ID (no testnet fallback)");
 export const deployment = () => DEPLOYMENTS[ACTIVE_CHAIN.id];
 export const isDeployed = () => deployment().launchpad !== Z;
 export const hasRouter = () => deployment().router !== Z;

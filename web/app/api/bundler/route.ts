@@ -9,6 +9,8 @@ import { isRelayerNotConfigured } from "@/lib/server/relayer";
 import { kv } from "@/lib/server/kv";
 import { BUNDLER_LIMITS, clientIp, hitLimit, isSendLimitError, sendLimiter, type LimitResult, type SendLimiter } from "@/lib/server/limits";
 import { alchemyKey } from "@/lib/server/alchemyKey";
+import { ACTIVE_CHAIN } from "@/lib/chains";
+import { MAINNET_CHAIN_ID, bundlerProxyUrl, verifyBundlerChain } from "@/lib/networkConfig";
 import { RELAY_METHOD, RELAY_STREAM_ACCEPT, relayErrorData } from "@/lib/aa/relayTypes";
 import { streamRelay } from "@/lib/server/relayStream";
 import { afterResponse } from "@/lib/server/defer";
@@ -50,13 +52,21 @@ const limitedResponse = (id: unknown, method: string, retryAfterSec: number) =>
   NextResponse.json({ jsonrpc: "2.0", id: id ?? null, error: { code: -32005, message: `${method}: rate limited, retry in ${retryAfterSec}s` } }, { status: 429, headers: { "retry-after": String(retryAfterSec) } });
 const isSponsorMethod = (m: string) => m === "alchemy_requestGasAndPaymasterAndData" || m.startsWith("pm_") || m.startsWith("alchemy_requestPaymaster");
 
+// One cold endpoint-chain check per process; no added warm-trade round trip. Failure is not cached.
+const verifiedBundlers = new Map<string, Promise<void>>();
 export async function POST(req: Request) {
   const key = alchemyKey();
+  const mainnet = ACTIVE_CHAIN.id === MAINNET_CHAIN_ID;
+  let proxyUrl: string | undefined;
+  try { proxyUrl = bundlerProxyUrl(ACTIVE_CHAIN.id, process.env, key); }
+  catch { return NextResponse.json({ error: "network_or_bundler_not_configured" }, { status: 503 }); }
   let body: { method?: string; id?: unknown; params?: unknown[] };
   try { body = await req.json(); } catch { return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }, { status: 400 }); }
   if (!Array.isArray(body) && body.method && isSponsorMethod(body.method))
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: `${body.method}: not supported` } }, { status: 400 });
   const selfOnly = !!body?.method && SELF_ONLY.has(body.method);
+  // Product lock: mainnet AA is user-self-funded through an external bundler, never the public fast relay.
+  if (mainnet && selfOnly) return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: "public fast relay is not deployed" } }, { status: 400 });
   if (selfOnly && key && process.env.AA_SELF_BUNDLER !== "1" && process.env.AA_TRADE_SELF_RELAY === "0")
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: `${body.method}: self-bundler only` } });
   if (Array.isArray(body) || !body.method || (!ALLOWED.has(body.method) && !selfOnly))
@@ -66,20 +76,28 @@ export async function POST(req: Request) {
   if (rl) return limitedResponse(body.id, body.method, rl.retryAfterSec);
   // invite-only beta (lib/server/invites): sends need an invited sender; off by default ⇒ no-op
   if (SEND.has(body.method) && !(await requireInviteWallet(senderOf(body.params || []), "bundler")).ok) return inviteRequiredRpc(body.id);
-  if (key && process.env.AA_SELF_BUNDLER !== "1" && !selfOnly) {
+  if (proxyUrl && (mainnet || process.env.AA_SELF_BUNDLER !== "1") && !selfOnly) {
+    if (mainnet) {
+      try {
+        const check = verifiedBundlers.get(proxyUrl) ?? verifyBundlerChain(proxyUrl, ACTIVE_CHAIN.id);
+        verifiedBundlers.set(proxyUrl, check);
+        await check;
+      } catch { verifiedBundlers.delete(proxyUrl); return NextResponse.json({ error: "bundler_chain_mismatch" }, { status: 503 }); }
+    }
     // forwarded to Alchemy (it validates; we can't hook before its submission): refuse when the sender's validated-sends
     // bucket is already full (read-only — junk ops never fill it), and count the send only once Alchemy accepted it
     const full = sl ? await sl.peek() : null;
     if (full) return limitedResponse(body.id, body.method, full.retryAfterSec);
-    const r = await fetch(`https://robinhood-testnet.g.alchemy.com/v2/${key}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const r = await fetch(proxyUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const text = await r.text();
     // Alchemy key rejected (401 "Must be authenticated!") ⇒ fall back to the built-in self-bundler.
-    if (r.status !== 401 && !/must be authenticated/i.test(text)) {
+    if (mainnet || (r.status !== 401 && !/must be authenticated/i.test(text))) {
       // Alchemy validated + accepted the op (a result) ⇒ only then does it count toward the per-sender limit
       if (sl && r.ok && /"result"/.test(text)) await sl.beforeSend().catch(() => undefined);
       return new NextResponse(text, { status: r.status, headers: { "content-type": "application/json" } });
     }
   }
+  if (mainnet) return NextResponse.json({ error: "external_bundler_required" }, { status: 503 });
   // AUDIT Low: a strike / verification recorded while relaying must reach the shared store before the lambda freezes
   // Latency plan #4 (#140): the shared-store trust flush runs after the response (lib/server/defer afterResponse: Vercel
   // waitUntil keeps the lambda alive for it; on Vercel without waitUntil it is awaited exactly as before).

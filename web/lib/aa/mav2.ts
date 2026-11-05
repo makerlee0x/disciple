@@ -7,6 +7,8 @@
  *    (NEXT_PUBLIC_RHT_PAYMASTER set); otherwise self-pay in ETH (account prefund). Never sponsored.
  *    Bundler goes through /api/bundler.
  */
+import { getEntryPoint } from "@aa-sdk/core";
+import { MAINNET_CHAIN_ID, PUBLIC_NETWORK } from "../networkConfig";
 import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
 import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
@@ -232,6 +234,7 @@ export class Mav2Account {
   private senderAddr?: Address;
   constructor(private o: Mav2Opts, private owner: LocalAccount) {
     this.gasMode = o.usdgGas ? "usdg" : "self-pay";
+    if (o.chain.id === MAINNET_CHAIN_ID) this.syncOk = false; // removed public fast relay: external bundler only
     if (o.usdgGas) this.allowances = new AllowanceCache({ url: absUrl(o.usdgGas.url), chainId: o.chain.id });
   }
 
@@ -243,6 +246,8 @@ export class Mav2Account {
       feeEstimator: rundlerFeeEstimator, gasEstimator: cachedGasEstimator,
       chain: this.o.chain, transport: this.transport(), signer: asSigner(this.owner),
       salt: this.o.salt ?? BigInt(0), factoryAddress: MAV2_FACTORY,
+      implementationAddress: this.o.chain.id === MAINNET_CHAIN_ID ? PUBLIC_NETWORK.implementation as Address : undefined,
+      entryPoint: { ...getEntryPoint(this.o.chain, { version: "0.7.0" }), address: ENTRYPOINT_V07 },
     }).then(memoizeExecPrefix));
   }
   /** Session-key client on the same account (validation = SingleSigner entityId, non-global). */
@@ -254,6 +259,7 @@ export class Mav2Account {
         feeEstimator: rundlerFeeEstimator, gasEstimator: cachedGasEstimator,
         chain: this.o.chain, transport: this.transport(), signer: asSigner(key), accountAddress: account,
         signerEntity: { entityId, isGlobalValidation: false },
+        entryPoint: { ...getEntryPoint(this.o.chain, { version: "0.7.0" }), address: ENTRYPOINT_V07 },
       }).then((cl) => memoizeExecPrefix(cl, true)),
     };
   }

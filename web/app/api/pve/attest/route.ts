@@ -87,6 +87,8 @@ export async function POST(req: Request) {
     const signature = await signLoginAttestation(account, { wallet: w, expiry, coin, chainId: ACTIVE_CHAIN.id, loginGate: gate });
     const out: Record<string, unknown> = { wallet: w, expiry, coin, signature, loginGate: gate, chainId: ACTIVE_CHAIN.id, attester: account.address };
 
+    // Product lock: users submit/pay for their own attestation; never extend the testnet relay to mainnet.
+    if (body.relay && ACTIVE_CHAIN.id !== 46630) return NextResponse.json({ ...out, relayed: false, relayError: "user_paid_submission_required" });
     if (body.relay) {
       const until = Number(await client.readContract({ address: gate, abi: loginGateMiniAbi, functionName: "verifiedUntil", args: [w, coin] }));
       if (until > now + 3600) return NextResponse.json({ ...out, verifiedUntil: until, relayed: false, already: true });
