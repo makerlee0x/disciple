@@ -15,6 +15,8 @@ import { storeSrc, STORE_ID_RE, uriKey } from "@/lib/coinImages";
 import { pairOf, pairSymOf, shortHex } from "@/lib/home/pairs";
 import { isHiddenCoin } from "@/lib/home/hiddenCoins";
 import { chipOf, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
+import { DISCIPLE_POOL } from "@/lib/disciple/catalog";
+import { readDiscipleTvl } from "./discipleTvl";
 import { resolveKeys } from "./imageStore";
 import { indexTrades, tradesOf } from "./trades";
 
@@ -51,12 +53,18 @@ async function build(): Promise<HomeData> {
   // known test coins never reach the home (lib/home/hiddenCoins); their data is untouched
   const list = launches.filter((x) => !isHiddenCoin(x.token)).slice(0, MAX_COINS);
   const fillsBy = await Promise.all(list.map((c) => tradesOf(c.token, null, FILLS_CAP, "desc").catch(() => [])));
+  const discipleCoin = DISCIPLE_POOL.coin.toLowerCase();
+  const discipleLiq = list.some((x) => x.token.toLowerCase() === discipleCoin)
+    ? await readDiscipleTvl(DISCIPLE_POOL.id).then((t) => t?.liquidityUsd ?? null).catch(() => null)
+    : null;
   const coins: HomeCoin[] = list.map((x, i) => {
     const fills = fillsBy[i];
+    const token = x.token.toLowerCase();
     return {
-      token: x.token.toLowerCase(), name: x.name, ticker: x.ticker, pair: pairOf(x.quote), pairSym: pairSymOf(x.quote),
+      token, name: x.name, ticker: x.ticker, pair: pairOf(x.quote), pairSym: pairSymOf(x.quote),
       icon: x.imageURI, creator: shortHex(x.creator), creatorAddr: String(x.creator).toLowerCase(), mcapUsd: x.mcapUsd, graduated: x.graduated, progressBps: x.progressBps ?? undefined, block: Number(x.block),
       launchedAt: null,
+      liquidityUsd: token === discipleCoin ? discipleLiq : null,
       stats: statsFromFills(fills, now, x.mcapUsd, fills.length >= FILLS_CAP),
     };
   });

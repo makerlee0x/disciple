@@ -201,13 +201,14 @@ describe("config", () => {
     const p = new URL("../../contracts/deployments/web-bundle/addresses.json", import.meta.url).pathname;
     const c = loadConfig({ DEPLOYMENT_JSON: p, STACK_ID: "v4", RPC_URL: "http://rpc" } as any);
     expect(c.stacks).toHaveLength(1);
-    expect(c.stacks[0]).toMatchObject({ id: "v4", fromBlock: 137540728n, launchpad: "0x4f540bc1585ca36c8a49662dc642f6e28ae534da", referralRegistry: "0x0aa4dfb57deb37ada6de375da06aba5dc2099a9c",
-      usdgDepositNotifier: "0xaf5d4a15ee996140e83179952f0a0cf46c93f6d9", loginGate: "0xe900b7060895f130e866eeddec2b3efd3ff0b69f" });
-    // main json: v4 newest (PR #97) with v3 → v1 as previous stacks; START_BLOCK overrides the newest only
-    expect(loadConfig({} as any).stacks.map((x) => x.id)).toEqual(["v1", "v2", "v3", "v4"]);
-    const all = loadConfig({ STACKS: "v4", START_BLOCK: "137540800" } as any);
-    expect(all.stacks.map((x) => x.id)).toEqual(["v4"]);
-    expect(all.stacks[0].fromBlock).toBe(137540800n);
+    expect(c.stacks[0]).toMatchObject({ id: "v4", fromBlock: 142064001n, launchpad: "0x8a92e51940909424b3aacefff99b4834588c0988", referralRegistry: "0xfe529086b25c4e0724b88780e5ba9b4ace785aaf",
+      usdgDepositNotifier: "0xf7b3c09cae8c914530424c5882a24a4160013e9c", loginGate: "0xaeb8abd314d2392f0f26b664ae78d889c4a079e2" });
+    // main json walks `previous` (v5 newest, v4 → v1 behind it). START_BLOCK overrides the newest stack only.
+    expect(loadConfig({} as any).stacks.map((x) => x.id)).toEqual(["v1", "v2", "v3", "v4", "v5"]);
+    const all = loadConfig({ STACKS: "v5", START_BLOCK: "142064100" } as any);
+    expect(all.stacks.map((x) => x.id)).toEqual(["v5"]);
+    expect(all.stacks[0].fromBlock).toBe(142064100n);
+    expect(loadConfig({ STACKS: "v4" } as any).stacks[0].fromBlock).toBe(137540728n);
     expect(loadConfig({ STACKS: "v3" } as any).stacks[0].fromBlock).toBe(136187963n);
   });
 });

@@ -13,6 +13,7 @@ import { withBase } from "@/lib/base-path";
 import type { Rocket } from "@/lib/launchpad";
 import { devSample } from "@/lib/devSample";
 import type { HomeCoin, HomeData } from "@/lib/home/trending";
+import { liquidityUsdForHome } from "@/lib/disciple/tvl";
 import Launchpad from "@/components/launchpad/Launchpad";
 
 function liveRocket(x: HomeCoin): Rocket {
@@ -25,7 +26,7 @@ function liveRocket(x: HomeCoin): Rocket {
       volume24hUsd: s?.vol24 ?? 0,
       ageHours: x.launchedAt ? Math.max(0, (Date.now() - x.launchedAt) / 36e5) : 0,
       holders: s?.crew ?? 1,
-      liquidityUsd: 0,
+      liquidityUsd: liquidityUsdForHome(x),
     },
   };
 }

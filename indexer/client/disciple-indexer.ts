@@ -45,5 +45,8 @@ export function indexer(base: string, f: typeof fetch = fetch) {
     userTrades: (a: Addr) => get<Trade[]>(`/users/${a}/trades`),
     userOrders: (a: Addr) => get<Order[]>(`/users/${a}/orders`),
     rewards: () => get<any[]>("/rewards"),
+    /** DiscipleHook mode (404 when the indexer was started without it). TVL is poolState, not getLiquidity. */
+    disciplePools: () => get<any[]>("/disciple/pools"),
+    disciplePool: (poolId: string) => get<any>(`/disciple/pools/${poolId}`),
   };
 }

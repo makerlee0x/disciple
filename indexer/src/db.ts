@@ -88,6 +88,24 @@ export function openDb(path: string): DB {
   CREATE INDEX IF NOT EXISTS usdg_escrow_wallet ON usdg_escrow_events(wallet);
   -- last indexed block hash per stack, for reorg detection
   CREATE TABLE IF NOT EXISTS block_hashes (stack TEXT, block INTEGER, hash TEXT, PRIMARY KEY (stack, block));
+  -- DiscipleHook (separate from AscensionHook Trade / StateView liquidity). Reserves are NOT stored:
+  -- TVL is read live from poolState / ERC-6909. tick_spacing is the pair's creation index (PoolKey.fee is always 0).
+  CREATE TABLE IF NOT EXISTS disciple_pools (
+    id TEXT PRIMARY KEY, hook TEXT NOT NULL, coin TEXT NOT NULL, quote TEXT NOT NULL,
+    currency0 TEXT NOT NULL, currency1 TEXT NOT NULL, creator TEXT NOT NULL,
+    remote_eid INTEGER, hook_fee INTEGER, v4_fee INTEGER NOT NULL DEFAULT 0, tick_spacing INTEGER,
+    created_block INTEGER, created_at INTEGER, created_tx TEXT
+  );
+  CREATE TABLE IF NOT EXISTS disciple_swaps (
+    id TEXT PRIMARY KEY, pool_id TEXT NOT NULL, sender TEXT NOT NULL, is_buy INTEGER,
+    coin_amt TEXT, quote_amt TEXT, block INTEGER, ts INTEGER, tx TEXT
+  );
+  CREATE INDEX IF NOT EXISTS disciple_swaps_pool ON disciple_swaps(pool_id, block);
+  CREATE TABLE IF NOT EXISTS disciple_liquidity (
+    id TEXT PRIMARY KEY, pool_id TEXT NOT NULL, kind TEXT NOT NULL, owner TEXT NOT NULL,
+    lot TEXT, shares TEXT, coin_amt TEXT, quote_amt TEXT, block INTEGER, ts INTEGER, tx TEXT
+  );
+  CREATE INDEX IF NOT EXISTS disciple_liquidity_pool ON disciple_liquidity(pool_id, block);
   `);
   // additive migrations for DBs created by the v0 scaffold
   const cols = (t: string) => new Set((db.prepare(`PRAGMA table_info(${t})`).all() as any[]).map((c) => c.name));
@@ -132,6 +150,16 @@ export const dataVersion = (db: DB) => versions.get(db) ?? 0;
 export const bumpDataVersion = (db: DB) => { versions.set(db, dataVersion(db) + 1); };
 
 /** Tables holding event-derived rows keyed by stack (used for reorg rewind / rebuild). */
+/** DiscipleHook rows + their cursor (stack id "disciple"). Launchpad stacks are untouched. */
+export function wipeDisciple(db: DB) {
+  db.transaction(() => {
+    db.exec("DELETE FROM disciple_swaps; DELETE FROM disciple_liquidity; DELETE FROM disciple_pools;");
+    db.prepare("DELETE FROM cursor WHERE stack=?").run("disciple");
+    db.prepare("DELETE FROM block_hashes WHERE stack=?").run("disciple");
+  })();
+  bumpDataVersion(db);
+}
+
 export function wipeStack(db: DB, stack: string) {
   db.transaction(() => {
     db.prepare("DELETE FROM balances WHERE token IN (SELECT token FROM coins WHERE stack=?)").run(stack);
