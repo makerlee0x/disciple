@@ -4,35 +4,30 @@ pragma solidity ^0.8.24;
 import {Script, console2} from "forge-std/Script.sol";
 import {DisciplePaymaster} from "../src/paymaster/DisciplePaymaster.sol";
 
-interface IDecimals {
-    function decimals() external view returns (uint8);
-}
-
 /// @notice Deploys DisciplePaymaster (USDG token paymaster, EntryPoint v0.7). RH TESTNET ONLY until review.
 ///         NOT RUN in the PR — deploy happens after review.
 ///         env: USDG, PAYMASTER_OWNER, PAYMASTER_SIGNER (address only — never the key), PAYMASTER_TREASURY,
 ///              PAYMASTER_MIN_RATE / PAYMASTER_MAX_RATE (USDG raw units per 1 ETH),
-///              PAYMASTER_MAX_COST_USDG (WHOLE USDG, scaled by usdg.decimals(); default DEFAULT_MAX_COST_USDG;
-///              must be within [0.1, 100] USDG; the old raw-unit PAYMASTER_MAX_COST is rejected),
-///              PAYMASTER_DEPOSIT_WEI, PAYMASTER_STAKE_WEI (owner-broadcast only), PAYMASTER_POST_OP_GAS (default 200k; conservative settlement overhead, owner must calibrate)
+///              PAYMASTER_MAX_GAS_PER_OP (gas UNITS), PAYMASTER_STAKE_WEI (REQUIRED owner-supplied),
+///              PAYMASTER_DEPOSIT_WEI (optional, default 0; tiny float allowed), PAYMASTER_POST_OP_GAS.
+///         No automatic keeper. No gas-rate markup.
 ///         forge script script/DeployPaymaster.s.sol --rpc-url https://rpc.testnet.chain.robinhood.com --broadcast
 contract DeployPaymaster is Script {
     address constant ENTRYPOINT_V07 = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
-    /// @notice Per-op USDG cap default: covers a LAUNCH op at the relay's launch caps (11M gas total, PR #111) —
-    ///         11M x client maxFee 0.0317 gwei (base 0.01 gwei) x $3000/ETH ~ 1.04 USDG; 10 USDG leaves ~9.6x headroom
-    ///         for base-fee spikes / a higher rate (fits up to a ~0.1 gwei base fee at $3000, ~0.03 gwei at $10000).
-    uint256 constant DEFAULT_MAX_COST_USDG = 10;
+    // Defaults updated from real EntryPoint runtime measurements (gas UNITS, never a fixed USDG amount).
+    uint256 public constant DEFAULT_MAX_GAS_PER_OP = 7_068_712;
+    uint256 public constant DEFAULT_POST_OP_GAS = 79_552;
 
     function run() external returns (DisciplePaymaster pm) {
         require(block.chainid == 46630, "RH testnet only");
         address owner = vm.envAddress("PAYMASTER_OWNER");
         address usdg = vm.envAddress("USDG");
-        // AUDIT (2026-10-24): the old PAYMASTER_MAX_COST took RAW units, so "2" meant 2 wei of USDG and every op reverted.
-        require(vm.envOr("PAYMASTER_MAX_COST", uint256(0)) == 0, "PAYMASTER_MAX_COST (raw) removed: use PAYMASTER_MAX_COST_USDG");
-        uint256 one = 10 ** IDecimals(usdg).decimals();
-        uint256 maxCost = vm.envOr("PAYMASTER_MAX_COST_USDG", DEFAULT_MAX_COST_USDG) * one;
-        require(maxCost >= one / 10 && maxCost <= 100 * one, "PAYMASTER_MAX_COST_USDG outside [0.1, 100] USDG");
-        vm.startBroadcast();
+        require(msg.sender == owner, "owner must deploy and stake");
+        uint256 stake = vm.envUint("PAYMASTER_STAKE_WEI"); // REQUIRED: no guessed Alchemy/RH minimum
+        require(stake > 0, "owner must supply confirmed PAYMASTER_STAKE_WEI");
+        require(vm.envOr("PAYMASTER_MAX_COST", uint256(0)) == 0 && vm.envOr("PAYMASTER_MAX_COST_USDG", uint256(0)) == 0, "static USDG caps removed: use PAYMASTER_MAX_GAS_PER_OP");
+        uint256 maxGas = vm.envOr("PAYMASTER_MAX_GAS_PER_OP", DEFAULT_MAX_GAS_PER_OP);
+        vm.startBroadcast(owner);
         pm = new DisciplePaymaster(
             ENTRYPOINT_V07,
             usdg,
@@ -41,15 +36,14 @@ contract DeployPaymaster is Script {
             vm.envAddress("PAYMASTER_TREASURY"),
             vm.envUint("PAYMASTER_MIN_RATE"),
             vm.envUint("PAYMASTER_MAX_RATE"),
-            maxCost,
-            vm.envOr("PAYMASTER_POST_OP_GAS", uint256(200_000))
+            maxGas,
+            vm.envOr("PAYMASTER_POST_OP_GAS", DEFAULT_POST_OP_GAS)
         );
         uint256 dep = vm.envOr("PAYMASTER_DEPOSIT_WEI", uint256(0));
         if (dep != 0) pm.deposit{value: dep}();
-        uint256 stake = vm.envOr("PAYMASTER_STAKE_WEI", uint256(0));
-        if (stake != 0 && msg.sender == owner) pm.addStake{value: stake}(1 days); // ERC-7562: context needs a staked paymaster
+        pm.addStake{value: stake}(1 days); // ERC-7562: context needs a staked paymaster
         vm.stopBroadcast();
         console2.log("DisciplePaymaster", address(pm));
-        console2.log("maxCostCap (USDG raw, = PAYMASTER_MAX_COST_USDG * 10**decimals)", maxCost);
+        console2.log("maxGasPerOp (gas units; dynamic USDG max at signed fee and rate)", maxGas);
     }
 }

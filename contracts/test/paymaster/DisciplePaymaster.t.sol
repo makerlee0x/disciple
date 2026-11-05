@@ -61,7 +61,6 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         vm.expectRevert(_aa33(abi.encodeWithSelector(DisciplePaymaster.GasApprovalMissing.selector)));
         _send(op);
         assertEq(usdg.balanceOf(sink), 0);
-        assertEq(pm.exposure(), 0);
     }
 
     function test_singleExecuteApprove_counts() public {
@@ -143,7 +142,7 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         uint256 r = rate * 11;
         uint256 maxTok = pm.tokenCost(_maxCost(), r);
         vm.prank(owner);
-        pm.setBounds(rate / 10, rate * 10, 100 * 10 ** dec);
+        pm.setBounds(rate / 10, rate * 10, 12_000_000);
         EpOp memory op_1 = _full(_approveThen(maxTok, _transferCall(sink, 1)), r, maxTok);
         vm.expectRevert(_aa33(abi.encodeWithSelector(DisciplePaymaster.RateOutOfBounds.selector, r)));
         _send(op_1);
@@ -157,13 +156,13 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         _send(op_2);
     }
 
-    function test_revert_maxCostAboveCap() public {
+    function test_largeSignedCeiling_cannotIncreaseDynamicPrecharge() public {
         uint256 maxTok = 101 * 10 ** dec;
-        EpOp memory op_3 = _full(_approveThen(maxTok, _transferCall(sink, 1)), rate, maxTok);
-        vm.expectRevert(
-            _aa33(abi.encodeWithSelector(DisciplePaymaster.MaxCostAboveCap.selector, maxTok, 100 * 10 ** dec))
-        );
-        _send(op_3);
+        uint256 before = usdg.balanceOf(address(acct));
+        (bool ok,, uint256 charged) = _sendRecord(_full(_approveThen(maxTok, _transferCall(sink, 1)), rate, maxTok));
+        assertTrue(ok);
+        assertLe(charged, _maxTok(), "charged only operation cost, not the reusable ceiling");
+        assertEq(usdg.balanceOf(address(acct)), before - charged - 1);
     }
 
     function test_revert_maxCostBelowWorstCase() public {
@@ -278,34 +277,12 @@ contract DisciplePaymasterTest is PaymasterTestBase {
     function test_circuitBreakers_ownerOnly() public {
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
         pm.setPaused(true);
-        vm.expectRevert(Owned2Step.OnlyOwner.selector);
-        pm.setExposureLimit(1);
         vm.prank(owner);
         pm.setPaused(true);
         assertTrue(pm.paused());
-        vm.prank(owner);
-        pm.setExposureLimit(1);
-        assertEq(pm.exposureLimit(), 1);
     }
 
-    function test_exposureLimit_rejectsBeforeTakingTokens_andReleasesAfterPostOp() public {
-        uint256 maxTok = _maxTok();
-        uint256 balance = usdg.balanceOf(address(acct));
-        vm.prank(owner);
-        pm.setExposureLimit(maxTok - 1);
-        EpOp memory op = _full(_approveThen(maxTok, _transferCall(sink, 1)), rate, maxTok);
-        vm.expectRevert(
-            _aa33(abi.encodeWithSelector(DisciplePaymaster.ExposureLimitExceeded.selector, maxTok, maxTok - 1))
-        );
-        _send(op);
-        assertEq(usdg.balanceOf(address(acct)), balance);
-        assertEq(pm.exposure(), 0);
-        vm.prank(owner);
-        pm.setExposureLimit(maxTok);
-        _send(op);
-        assertEq(pm.exposure(), 0);
-        assertEq(pm.reservedOf(address(acct)), 0);
-    }
+
 
     function test_failedPrecharge_rejectsBeforeExecution() public {
         uint256 maxTok = _maxTok();
@@ -314,7 +291,6 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         vm.expectRevert(_aa33(abi.encodeWithSelector(DisciplePaymaster.PrechargeFailed.selector, maxTok)));
         _send(op);
         assertEq(usdg.balanceOf(sink), 0);
-        assertEq(pm.exposure(), 0);
     }
 
     function test_failedSettlementTransfers_createSecuredRecipientCredits() public {
@@ -330,7 +306,6 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         assertEq(pm.creditOf(treasury), charged);
         assertEq(pm.creditOf(address(acct)), maxTok - charged);
         assertEq(usdg.balanceOf(address(pm)), maxTok, "credits fully collateralized");
-        assertEq(pm.exposure(), 0);
         vm.expectRevert(abi.encodeWithSelector(DisciplePaymaster.PrechargeFailed.selector, charged));
         pm.claimCredit(treasury);
         assertEq(pm.creditOf(treasury), charged, "failed claim preserves ownership");
@@ -355,13 +330,13 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
         pm.setTreasury(n);
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
-        pm.setBounds(1, 2, 3);
+        pm.setBounds(1, 2, 3_000_000);
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
         pm.setPostOpGas(1);
         vm.startPrank(owner);
         pm.setSigner(n);
         pm.setTreasury(n);
-        pm.setBounds(1, 2, 3);
+        pm.setBounds(1, 2, 3_000_000);
         pm.setPostOpGas(60_000);
         vm.expectRevert(DisciplePaymaster.ZeroAddress.selector);
         pm.setSigner(address(0));
@@ -374,7 +349,7 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         vm.expectRevert(DisciplePaymaster.InvalidBounds.selector);
         pm.setBounds(1, 2, 0);
         vm.expectRevert(DisciplePaymaster.InvalidBounds.selector);
-        pm.setPostOpGas(200_001);
+        pm.setPostOpGas(3_000_001);
         vm.stopPrank();
         assertEq(pm.signer(), n);
         assertEq(pm.treasury(), n);

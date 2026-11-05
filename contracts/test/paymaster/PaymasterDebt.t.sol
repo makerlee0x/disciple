@@ -176,39 +176,28 @@ contract PaymasterDebtTest is PaymasterTestBase {
         assertGe(totalCharged, pm.tokenCost(totalGasCost, rate));
         assertEq(pm.getDeposit(), depositBefore - totalGasCost);
         assertEq(usdg.balanceOf(address(pm)), 0, "all collateral settled");
-        assertEq(pm.exposure(), 0);
     }
 
-    function test_F01_globalExposureLimit_cannotBeBypassedByRotatingAccounts() public {
-        uint256 maxTok = pm.tokenCost(_maxCost(), rate);
-        vm.prank(owner);
-        pm.setExposureLimit(maxTok);
+
+
+    function test_F01_noAggregateBudget_eachAccountStillSecuresItsOwnGas() public {
+        uint256 maxTok = _maxTok();
         usdg.mint(address(accts[1]), 1_000 * 10 ** dec);
+        bytes[] memory contexts = new bytes[](2);
         for (uint256 i; i < 2; ++i) {
-            vm.prank(address(accts[i]));
-            usdg.approve(address(pm), type(uint256).max);
+            vm.prank(address(accts[i])); usdg.approve(address(pm), type(uint256).max);
+            PmOp memory op = abi.decode(abi.encode(_drainOp(i, attacker, maxTok)), (PmOp));
+            vm.prank(address(ep));
+            (contexts[i],) = pm.validatePaymasterUserOp(op, keccak256(abi.encode(i)), _maxCost());
+            assertEq(pm.reservedOf(address(accts[i])), maxTok);
         }
-        PmOp memory op0 = abi.decode(abi.encode(_drainOp(0, attacker, maxTok)), (PmOp));
-        PmOp memory op1 = abi.decode(abi.encode(_drainOp(1, attacker, maxTok)), (PmOp));
-        vm.prank(address(ep));
-        (bytes memory context,) = pm.validatePaymasterUserOp(op0, keccak256("op0"), _maxCost());
-        assertEq(pm.exposure(), maxTok);
-        assertEq(usdg.balanceOf(address(pm)), maxTok, "pending exposure is secured");
-        vm.prank(address(ep));
-        vm.expectRevert(abi.encodeWithSelector(DisciplePaymaster.ExposureLimitExceeded.selector, 2 * maxTok, maxTok));
-        pm.validatePaymasterUserOp(op1, keccak256("op1"), _maxCost());
-        // Pause must not prevent settlement of already-prepaid operations.
-        vm.prank(owner);
-        pm.setPaused(true);
-        vm.prank(address(ep));
-        pm.postOp(PostOpMode.opReverted, context, 100_000 * TIP, TIP);
-        assertEq(pm.exposure(), 0);
+        assertEq(usdg.balanceOf(address(pm)), 2 * maxTok, "both operations independently secured, no shared budget");
+        vm.prank(owner); pm.setPaused(true);
+        for (uint256 i; i < 2; ++i) {
+            vm.prank(address(ep)); pm.postOp(PostOpMode.opReverted, contexts[i], 100_000 * TIP, TIP);
+            assertEq(pm.reservedOf(address(accts[i])), 0);
+        }
         assertEq(usdg.balanceOf(address(pm)), 0);
-        vm.prank(owner);
-        pm.setPaused(false);
-        vm.prank(address(ep));
-        pm.validatePaymasterUserOp(op1, keccak256("op1"), _maxCost());
-        assertEq(pm.exposure(), maxTok);
     }
 
     function test_F01_pauseStopsValidation() public {

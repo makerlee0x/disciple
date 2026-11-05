@@ -27,7 +27,7 @@ contract BootstrapBuy {
     function quote() external view returns (address) { return address(usdg); }
     function quoteExactIn(address, bool, uint256 amount) external pure returns (uint256, uint256, uint256) { return (amount, 0, 0); }
     function buyExactIn(address, uint256 amount, uint256, address recipient, uint256) external returns (uint256) {
-        require(paymaster.exposure() != 0 && usdg.balanceOf(address(paymaster)) != 0, "gas prepaid before buy");
+        require(usdg.balanceOf(address(paymaster)) != 0, "gas prepaid before buy");
         usdg.transferFrom(msg.sender, address(this), amount);
         token.mint(recipient, amount);
         return amount;
@@ -37,7 +37,7 @@ contract BootstrapBuy {
 /// @notice Real deployed Alchemy SMA/factory/SingleSigner bytecode, real EntryPoint v0.7, no RPC in tests.
 /// Owner-signed MAv2 deferred approval executes in ACCOUNT VALIDATION, before paymaster validation.
 /// No permit, replacement factory, ETH on the account, or approval in execution is needed to secure gas.
-contract PaymasterBootstrapTest is PaymasterTestBase {
+abstract contract PaymasterBootstrapFixture is PaymasterTestBase {
     address constant EP = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
     address factory;
     address singleSigner;
@@ -49,7 +49,7 @@ contract PaymasterBootstrapTest is PaymasterTestBase {
     uint32 constant ENTITY = 8;
     uint256 constant BUY = 10e6;
 
-    function setUp() public {
+    function setUp() public virtual {
         _setUp(6);
         // Preserve the actual EntryPoint implementation at its canonical address. Its constructor-created
         // SenderCreator is re-instantiated with the canonical EntryPoint as its immutable authorized caller.
@@ -59,7 +59,7 @@ contract PaymasterBootstrapTest is PaymasterTestBase {
         SenderCreator senderCreator = new SenderCreator();
         vm.etch(creator, address(senderCreator).code);
         ep = EntryPoint(payable(EP));
-        pm = new DisciplePaymaster(EP, address(usdg), owner, signer, treasury, rate / 10, rate * 10, 100e6, 100_000);
+        pm = new DisciplePaymaster(EP, address(usdg), owner, signer, treasury, rate / 10, rate * 10, 12_000_000, 79_552);
         pm.deposit{value: 1 ether}();
         string memory fixture = vm.readFile("test/fixtures/mav2-rht.json");
         factory = vm.parseJsonAddress(fixture, ".factory.address");
@@ -98,7 +98,7 @@ contract PaymasterBootstrapTest is PaymasterTestBase {
         hooks[1] = abi.encodePacked(bytes25(abi.encodePacked(address(policy), ENTITY | policy.EXEC_HOOK_FLAG(), uint8(4))), abi.encode(ENTITY | policy.EXEC_HOOK_FLAG()));
         return abi.encodeCall(BootstrapAccount.installValidation, (bytes25(abi.encodePacked(singleSigner, ENTITY, uint8(1))), selectors, abi.encode(ENTITY, vm.addr(SESSION_PK)), hooks));
     }
-    function _buyCalls(bool install) internal view returns (bytes memory) {
+    function _buyCalls(bool install) internal view virtual returns (bytes memory) {
         MiniAccount.Call[] memory calls = new MiniAccount.Call[](install ? 4 : 3);
         calls[0] = MiniAccount.Call(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(pm), type(uint256).max)));
         uint256 i = 1;
@@ -107,7 +107,7 @@ contract PaymasterBootstrapTest is PaymasterTestBase {
         calls[i] = MiniAccount.Call(address(trade), 0, abi.encodeCall(BootstrapBuy.buyExactIn, (address(bought), BUY, BUY, smart, block.timestamp + 60)));
         return abi.encodeCall(MiniAccount.executeBatch, (calls));
     }
-    function _base(bool bootstrap) internal view returns (EpOp memory op) {
+    function _base(bool bootstrap) internal view virtual returns (EpOp memory op) {
         op.sender = smart;
         op.nonce = bootstrap ? uint256(3) << 64 : uint256(ENTITY) << 72;
         if (bootstrap) op.initCode = abi.encodePacked(factory, abi.encodeCall(BootstrapFactory.createSemiModularAccount, (user, 0)));
@@ -129,6 +129,9 @@ contract PaymasterBootstrapTest is PaymasterTestBase {
         op.signature = abi.encodePacked(uint32(encoded.length), encoded, uint32(auth.length), auth, hex"ff00", _nativeSig(userPk, MessageHashUtils.toEthSignedMessageHash(ep.getUserOpHash(op))));
     }
 
+}
+
+contract PaymasterBootstrapTest is PaymasterBootstrapFixture {
     function test_USDGOnlyNewAccount_deployInstallAndFirstBuy_thenSessionTap() public {
         uint256 depositBefore = pm.getDeposit();
         (bool ok, uint256 gasCost, uint256 charged) = _sendRecord(_bootstrap(userPk));
@@ -147,7 +150,6 @@ contract PaymasterBootstrapTest is PaymasterTestBase {
         assertEq(bought.balanceOf(smart), 2 * BUY);
         assertGt(policy.sessionOf(smart, ENTITY).spent0, BUY, "policy includes gas cap");
         assertLt(pm.getDeposit(), depositBefore);
-        assertEq(pm.exposure(), 0);
         assertEq(pm.owedOf(smart), 0);
     }
     function test_noDeferredApproval_sameBatchApprovalCannotBootstrap() public {

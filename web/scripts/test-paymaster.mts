@@ -48,7 +48,7 @@ for (const dec of [18, 6]) {
   const deps = (o: Partial<QuoteDeps> = {}): QuoteDeps => ({
     now: () => 1_790_000_000, debtOf: async () => BigInt(0), balanceOf: async () => BigInt(1_000_000) * BigInt(10) ** BigInt(dec),
     allowanceOf: async () => BigInt(1_000_000) * BigInt(10) ** BigInt(dec),
-    bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxCostCap: BigInt(5) * BigInt(10) ** BigInt(dec) }),
+    bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxGasPerOp: BigInt(12_000_000) }),
     baseFee: async () => BASE, sign: (h) => signer.signMessage({ message: { raw: h } }), ...o,
   });
   const fees = clientFees(BASE);
@@ -65,10 +65,10 @@ for (const dec of [18, 6]) {
   };
   const rejects = (p: Promise<unknown>, code: PaymasterQuoteError["code"]) => assert.rejects(p, (e: unknown) => e instanceof PaymasterQuoteError && e.code === code);
 
-  test(`[${dec}-dec] launch op (10M call gas, Launchpad target) quotes under LAUNCH_GAS_CAPS and a 10 USDG maxCostCap; non-launch is capped`, async () => {
+  test(`[${dec}-dec] launch op (10M call gas, Launchpad target) quotes under LAUNCH_GAS_CAPS and a 10 USDG maxGasPerOp; non-launch is capped`, async () => {
     const one = BigInt(10) ** BigInt(dec);
     const lcfg: QuoteConfig = { ...cfg, launchers: [LAUNCHPAD] };
-    const d = deps({ bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxCostCap: BigInt(10) * one }) });
+    const d = deps({ bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxGasPerOp: BigInt(12_000_000) }) });
     const lop = (calls: { to: Address; data: Hex }[]): UserOp => ({ ...baseOp(batch(calls)), callGasLimit: hex(LAUNCH_GAS.callGasLimit), verificationGasLimit: hex(LAUNCH_GAS.verificationGasLimit), preVerificationGas: hex(LAUNCH_GAS.preVerificationGas) });
     const stub = await stubQuote(lop([launchCall]), ENTRYPOINT_V07, 46630, lcfg, d);
     const amt = BigInt(stub.disciple.maxTokenCost);
@@ -171,7 +171,7 @@ for (const dec of [18, 6]) {
     await rejects((await twoPhase(d, true, (x) => x - BigInt(1))).final(), "approve");
     await rejects((await twoPhase(d, true, (x) => x + (x * DEFAULT_MAX_SLACK_BPS) / BigInt(10_000) + BigInt(1))).final(), "approve");
     await (await twoPhase(d, true, (x) => x + (x * DEFAULT_MAX_SLACK_BPS) / BigInt(10_000))).final(); // at the slack edge: OK
-    await rejects((await twoPhase(deps({ bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxCostCap: BigInt(1) }) }))).final(), "approve");
+    await rejects((await twoPhase(deps({ bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxGasPerOp: BigInt(1) }) }))).final(), "approve");
     await rejects((await twoPhase(deps({ balanceOf: async () => BigInt(1) }))).final(), "balance");
     // the balance message reaches the client: no gas wording (mav2 matches /not enough USDG/ and shows NOT_ENOUGH_USDG)
     await assert.rejects((await twoPhase(deps({ balanceOf: async () => BigInt(1) }))).final(),
@@ -201,11 +201,11 @@ for (const dec of [18, 6]) {
     assert.equal(q.maxTokenCost, requiredMaxTokenCost(op, RATE, BigInt(0)));
     await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps({ allowanceOf: async () => BigInt(0) })), "approve");
     await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps({ balanceOf: async () => BigInt(0) })), "balance");
-    await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: RATE, maxRate: RATE, maxCostCap: BigInt(1) }) })), "approve");
+    await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: RATE, maxRate: RATE, maxGasPerOp: BigInt(1) }) })), "approve");
   });
 
   test(`[${dec}-dec] configured rate outside the contract's bounds is refused (stub and final)`, async () => {
-    const d = deps({ bounds: async () => ({ minRate: RATE * BigInt(2), maxRate: RATE * BigInt(3), maxCostCap: E18 }) });
+    const d = deps({ bounds: async () => ({ minRate: RATE * BigInt(2), maxRate: RATE * BigInt(3), maxGasPerOp: E18 }) });
     await rejects(stubQuote(baseOp(batch([trade])), ENTRYPOINT_V07, 46630, cfg, d), "rate");
   });
 
@@ -262,7 +262,7 @@ for (const dec of [18, 6]) {
   const deps = (o: Partial<QuoteDeps> = {}): QuoteDeps => ({
     now: () => 1_790_000_000, debtOf: async () => BigInt(0), balanceOf: async () => BigInt(1_000_000) * BigInt(10) ** BigInt(dec),
     allowanceOf: async () => BigInt(1_000_000) * BigInt(10) ** BigInt(dec),
-    bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxCostCap: BigInt(5) * BigInt(10) ** BigInt(dec) }),
+    bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxGasPerOp: BigInt(12_000_000) }),
     baseFee: async () => BASE, sign: (h) => signer.signMessage({ message: { raw: h } }), ...o,
   });
   const fee = clientFees(BASE).maxFeePerGas * ALLOWANCE_FEE_MULT;
@@ -284,8 +284,8 @@ for (const dec of [18, 6]) {
 
   test(`[${dec}-dec] allowanceQuote refuses: balance, above cap, rate out of bounds, wrong chain / EP, bad sender`, async () => {
     await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ balanceOf: async () => BigInt(1) })), "balance");
-    await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxCostCap: BigInt(1) }) })), "approve");
-    await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: RATE * BigInt(2), maxRate: RATE * BigInt(3), maxCostCap: E18 }) })), "rate");
+    await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxGasPerOp: BigInt(1) }) })), "approve");
+    await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: RATE * BigInt(2), maxRate: RATE * BigInt(3), maxGasPerOp: E18 }) })), "rate");
     await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 4663, cfg, deps()), "chain");
     await rejectsA(allowanceQuote(SENDER, "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789", 46630, cfg, deps()), "entrypoint");
     await rejectsA(allowanceQuote("0x1234" as Address, ENTRYPOINT_V07, 46630, cfg, deps()), "op");
@@ -395,7 +395,7 @@ test("client payGasInUsdg: stub → persistent approve first → final, against 
   const d: QuoteDeps = {
     now: () => 1_790_000_000, debtOf: async () => BigInt(7), balanceOf: async () => E18 * BigInt(100),
     allowanceOf: async () => (BigInt(1) << BigInt(256)) - BigInt(1),
-    bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxCostCap: E18 * BigInt(5) }),
+    bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxGasPerOp: BigInt(12_000_000) }),
     baseFee: async () => BASE, sign: (h) => signer.signMessage({ message: { raw: h } }),
   };
   const realFetch = globalThis.fetch;

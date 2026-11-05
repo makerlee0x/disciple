@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { concatHex, encodeFunctionData, maxUint256, parseAbi, recoverTypedDataAddress, toHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { prepayBootstrap, hasDeferredPrepayApproval, prepayApprovalCall } from "../lib/aa/prepayBootstrap";
-import { finalQuote, stubQuote, allowanceQuote, markedUpRate, type QuoteConfig, type QuoteDeps } from "../lib/server/paymasterCore";
+import { finalQuote, stubQuote, allowanceQuote, unmarkedRate, type QuoteConfig, type QuoteDeps } from "../lib/server/paymasterCore";
 import { requireStake } from "../lib/server/prepaidPaymaster";
 import { checkUserPaid, clientFees } from "../lib/aa/gasPolicy";
 import { ENTRYPOINT_V07 } from "../lib/aa/constants";
@@ -20,7 +20,7 @@ const batch = (cs: Call[]) => encodeFunctionData({ abi: exec, functionName: "exe
 const rate = 3_000_000_000n, now = Math.floor(Date.now() / 1000);
 const cfg: QuoteConfig = { paymaster: PM, usdg: USDG, usdgDecimals: 6, rate };
 const deps: QuoteDeps = { now: () => now, debtOf: async () => 0n, balanceOf: async () => 100_000_000n, allowanceOf: async () => maxUint256,
-  bounds: async () => ({ minRate: rate / 2n, maxRate: rate * 2n, maxCostCap: 100_000_000n }), baseFee: async () => 1n, sign: hash => owner.signMessage({ message: { raw: hash } }) };
+  bounds: async () => ({ minRate: rate / 2n, maxRate: rate * 2n, maxGasPerOp: 12_000_000n }), baseFee: async () => 1n, sign: hash => owner.signMessage({ message: { raw: hash } }) };
 const op: UserOp = { sender: S, nonce: toHex(1n << 64n), callData: batch([paymasterApproveCall(USDG, PM, maxUint256)]),
   callGasLimit: toHex(1_800_000n), verificationGasLimit: toHex(350_000n), preVerificationGas: toHex(60_000n),
   ...Object.fromEntries(Object.entries(clientFees(1n)).map(([k,v]) => [k,toHex(v)])),
@@ -60,10 +60,9 @@ test("same-execution approval is rejected; exact native owner-validation approva
   await assert.rejects(finalQuote({ ...op, nonce: toHex(auth.nonce), signature }, ENTRYPOINT_V07, 46630, cfg, { ...noAllowance, balanceOf: async () => 0n }), /not enough USDG/);
 });
 
-test("markup is explicit, positive, bounded and rounded upward", () => {
-  for (const bps of [undefined, "0", "-1", "NaN", "10001"]) assert.throws(() => markedUpRate(rate, bps));
-  assert.equal(markedUpRate(101n, "1"), 102n);
-  assert.equal(markedUpRate(rate, "1000"), rate * 11n / 10n);
+test("price-source rate is unchanged at 1.0x, without markup", () => {
+  assert.equal(unmarkedRate(rate), rate);
+  assert.equal(unmarkedRate(101n), 101n, "no rounding-up markup");
 });
 
 test("external bundler guard requires active paymaster AND factory stake with >=1-day delay", () => {

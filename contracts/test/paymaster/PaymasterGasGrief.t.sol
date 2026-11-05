@@ -14,7 +14,7 @@ contract PaymasterGasGriefTest is PaymasterTestBase {
     function setUp() public { _setUp(6); }
     function test_tokenBurnsBothTransferBudgets_postOpStillRecordsFullyBackedCredits() public {
         usdg = new GriefUSDG();
-        pm = new DisciplePaymaster(address(ep), address(usdg), owner, signer, treasury, rate / 10, rate * 10, 100e6, 200_000);
+        pm = new DisciplePaymaster(address(ep), address(usdg), owner, signer, treasury, rate / 10, rate * 10, 12_000_000, 200_000);
         pm.deposit{value: 1 ether}();
         usdg.mint(address(acct), 100e6);
         vm.prank(address(acct)); usdg.approve(address(pm), type(uint256).max);
@@ -26,7 +26,6 @@ contract PaymasterGasGriefTest is PaymasterTestBase {
         assertEq(pm.creditOf(treasury), charged);
         assertEq(pm.creditOf(address(acct)), cap - charged);
         assertEq(usdg.balanceOf(address(pm)), cap);
-        assertEq(pm.exposure(), 0);
         assertEq(pm.owedOf(address(acct)), 0);
     }
     function test_postOpRevertedMode_settlesFromPrecharge_notFromAccount() public {
@@ -40,7 +39,6 @@ contract PaymasterGasGriefTest is PaymasterTestBase {
         vm.prank(address(ep)); pm.postOp(PostOpMode.postOpReverted, context, 100_000 * TIP, TIP);
         assertGt(usdg.balanceOf(treasury), 0);
         assertEq(pm.prechargeOf(hash), 0);
-        assertEq(pm.exposure(), 0);
         assertEq(usdg.balanceOf(address(pm)), 0);
     }
     function test_entrypointV07NeverRetriesRevertingPostOp_maximumRemainsSecured() public {
@@ -52,7 +50,6 @@ contract PaymasterGasGriefTest is PaymasterTestBase {
         assertFalse(ok, "EntryPoint rolls back account execution, not validation");
         assertGe(usdg.balanceOf(address(pm)), pm.tokenCost(depositBefore - pm.getDeposit(), rate));
         assertEq(pm.prechargeOf(ep.getUserOpHash(op)), cap);
-        assertEq(pm.exposure(), cap, "circuit breaker bounds exceptional stuck collateral");
         assertEq(pm.owedOf(address(acct)), 0);
         uint256 actualWeiCost = depositBefore - pm.getDeposit();
         bytes memory context = abi.encode(DisciplePaymaster.Context({
@@ -66,7 +63,6 @@ contract PaymasterGasGriefTest is PaymasterTestBase {
         vm.warp(block.timestamp + 1 days + 121);
         vm.prank(owner); pm.settleStuckPrecharge(context, actualWeiCost);
         assertEq(usdg.balanceOf(treasury), pm.tokenCost(actualWeiCost, rate));
-        assertEq(pm.exposure(), 0);
         assertEq(usdg.balanceOf(address(pm)), 0);
         vm.prank(owner); vm.expectRevert(DisciplePaymaster.InvalidContext.selector);
         pm.settleStuckPrecharge(context, actualWeiCost);

@@ -24,7 +24,7 @@ export const MAX_QUOTE_WINDOW_SEC = 3600;
 /** Gas limits the server signs; must stay ≤ lib/aa/gasPolicy GAS_CAPS.paymaster*. Validation precharges; postOp settles/refunds. */
 export const PAYMASTER_GAS = {
   verificationGasLimit: BigInt(250_000), // ecrecover + balanceOf + allowance + transferFrom precharge (F-01)
-  postOpGasLimit: BigInt(250_000),       // treasury transfer + sender refund (F-01 precharge)
+  postOpGasLimit: BigInt(79_552),       // treasury transfer + sender refund (F-01 precharge)
 } as const;
 
 export const disciplePaymasterAbi = parseAbi([
@@ -35,7 +35,7 @@ export const disciplePaymasterAbi = parseAbi([
   "function usdg() view returns (address)",
   "function minRate() view returns (uint256)",
   "function maxRate() view returns (uint256)",
-  "function maxCostCap() view returns (uint256)",
+  "function maxGasPerOp() view returns (uint256)",
   "function postOpGas() view returns (uint256)",
   "function getDeposit() view returns (uint256)",
   "function reservedOf(address) view returns (uint256)",

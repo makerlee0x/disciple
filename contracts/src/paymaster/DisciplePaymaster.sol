@@ -7,20 +7,16 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Owned2Step} from "../utils/Owned2Step.sol";
 import {PackedUserOperation, PostOpMode, IPaymasterV07, IEntryPointStakeV07} from "./IPaymasterV07.sol";
 
-interface IDecimalsPm {
-    function decimals() external view returns (uint8);
-}
-
 /// @title DisciplePaymaster — USDG token paymaster for EntryPoint v0.7
 /// @notice Validation secures the signed maximum USDG charge BEFORE arbitrary account execution. A standing
 ///         allowance is required; an approval in the sponsored batch cannot authorize payment. postOp pays the
 ///         treasury and refunds unused collateral, including for reverted user calls. Failed transfers become
-///         recipient-owned credits, not unsecured user debt. Owner pause and a global pending-exposure cap bound
-///         operations whose postOp does not complete. Quotes retain the existing 193-byte wire format and domains.
+///         recipient-owned credits, not unsecured user debt. Owner pause and a gas-unit per-op limit bound operations.
+///         There is deliberately no global exposure budget. Quotes retain the existing 193-byte wire format and domains.
 /// @dev Pricing / v0.7 penalty formula adapted from Pimlico SingletonPaymasterV7 (MIT).
 contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     // ───────────────────────── constants / immutables ─────────────────────────
-    uint256 public constant PREPAY_VERSION = 2;
+    uint256 public constant PREPAY_VERSION = 3;
     uint256 internal constant TOKEN_TRANSFER_GAS = 75_000;
     uint256 internal constant PAYMASTER_DATA_OFFSET = 52;
     uint256 internal constant QUOTE_LENGTH = 76; // 6 + 6 + 32 + 32
@@ -30,10 +26,9 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     uint256 internal constant PENALTY_PERCENT = 10;
     /// @notice Max signed validity window. Validation can't read TIMESTAMP (ERC-7562); the EntryPoint enforces it.
     uint256 public constant MAX_QUOTE_WINDOW = 1 hours;
-    uint256 public constant MAX_POST_OP_GAS = 200_000;
     /// @notice Floor on the op's paymasterPostOpGasLimit, covering settlement and two token transfers.
-    ///         Even if settlement cannot complete, the validation precharge stays secured and consumes exposure.
-    uint256 public constant MIN_PM_POST_OP_GAS_LIMIT = 250_000; // transfer to treasury + refund (F-01 precharge)
+    ///         Even if settlement cannot complete, the validation precharge stays secured.
+    uint256 public constant MIN_PM_POST_OP_GAS_LIMIT = 79_552; // transfer to treasury + refund (F-01 precharge)
     /// @notice Domain tag of the allowance hash (keeps it distinct from the per-op quote hash).
     bytes32 public constant ALLOWANCE_TYPEHASH = keccak256("DisciplePaymaster.Allowance(v1)");
     /// @notice Domain tag of the op-bound per-op quote hash (getOpHash).
@@ -43,14 +38,10 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     bytes4 internal constant EXECUTE_BATCH = bytes4(keccak256("executeBatch((address,uint256,bytes)[])"));
     bytes4 internal constant EXECUTE_USER_OP = 0x8dd7712f; // IAccountExecute.executeUserOp (MAv2 prefix)
     bytes4 internal constant APPROVE = 0x095ea7b3; // approve(address,uint256)
-    /// @notice AUDIT Info (2026-10-24): sanity ceiling on maxCostCap, in whole USDG (scaled by decimals at construction).
-    uint256 public constant MAX_COST_CAP_LIMIT_USDG = 100;
 
     IEntryPointStakeV07 public immutable entryPoint;
     /// @notice The only fee token.
     address public immutable usdg;
-    /// @notice MAX_COST_CAP_LIMIT_USDG in USDG raw units (100 * 10**usdg.decimals()); enforced by setBounds.
-    uint256 public immutable maxCostCapLimit;
 
     // ───────────────────────── owner-set config ─────────────────────────
     address public signer;
@@ -58,15 +49,13 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     /// @notice Sanity bounds on the signed rate (USDG raw units per 1e18 wei).
     uint256 public minRate;
     uint256 public maxRate;
-    /// @notice Max USDG (raw) one op may be allowed to cost.
-    uint256 public maxCostCap;
+    /// @notice Per-op gas UNITS. USDG maximum floats with signed maxFeePerGas and the bounded rate.
+    uint256 public maxGasPerOp;
     /// @notice Gas billed for postOp itself (not included in postOp's actualGasCost).
     uint256 public postOpGas;
 
-    /// @notice Outstanding precharges (already held in USDG), per sender and globally.
+    /// @notice Outstanding secured collateral per sender; accounting only, not an exposure budget.
     mapping(address => uint256) public reservedOf;
-    uint256 public exposure;
-    uint256 public exposureLimit;
     bool public paused;
     /// @notice Failed treasury/refund transfers remain owned by their recipient and may be claimed later.
     mapping(address => uint256) public creditOf;
@@ -85,10 +74,9 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
 
     event SignerSet(address indexed signer);
     event TreasurySet(address indexed treasury);
-    event BoundsSet(uint256 minRate, uint256 maxRate, uint256 maxCostCap);
+    event BoundsSet(uint256 minRate, uint256 maxRate, uint256 maxGasPerOp);
     event PostOpGasSet(uint256 postOpGas);
     event PausedSet(bool paused);
-    event ExposureLimitSet(uint256 exposureLimit);
     event UserOperationCharged(
         bytes32 indexed userOpHash, address indexed sender, uint256 gasCostToken, uint256 debtRepaid, uint256 rate
     );
@@ -99,17 +87,16 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     error NotEntryPoint();
     error ZeroAddress();
     error InvalidBounds();
-    error MaxCostCapAboveLimit(uint256 maxCostCap, uint256 limit);
     error PaymasterAndDataLengthInvalid();
     error QuoteWindowInvalid();
     error RateOutOfBounds(uint256 rate);
-    error MaxCostAboveCap(uint256 maxTokenCost, uint256 cap);
+    error MaxCostAboveCap(uint256 maxWeiCost, uint256 cap);
+    error GasLimitAboveCap(uint256 gasUnits, uint256 cap);
     error MaxCostTooLow(uint256 maxTokenCost, uint256 required);
     error InsufficientUsdgBalance(uint256 balance, uint256 required);
     error InsufficientUsdgAllowance(uint256 allowance, uint256 required);
     error PostOpGasLimitTooLow(uint256 limit, uint256 min);
     error Paused();
-    error ExposureLimitExceeded(uint256 exposure, uint256 limit);
     error PrechargeFailed(uint256 amount);
     error InvalidContext();
     error GasApprovalMissing();
@@ -124,7 +111,7 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
         address treasury_,
         uint256 minRate_,
         uint256 maxRate_,
-        uint256 maxCostCap_,
+        uint256 maxGasPerOp_,
         uint256 postOpGas_
     ) Owned2Step(owner_) {
         if (entryPoint_ == address(0) || usdg_ == address(0) || owner_ == address(0)) {
@@ -132,19 +119,16 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
         }
         entryPoint = IEntryPointStakeV07(entryPoint_);
         usdg = usdg_;
-        maxCostCapLimit = MAX_COST_CAP_LIMIT_USDG * 10 ** IDecimalsPm(usdg_).decimals();
         _setSigner(signer_);
         _setTreasury(treasury_);
-        _setBounds(minRate_, maxRate_, maxCostCap_);
+        _setBounds(minRate_, maxRate_, maxGasPerOp_);
         _setPostOpGas(postOpGas_);
-        exposureLimit = maxCostCap_;
-        emit ExposureLimitSet(maxCostCap_);
     }
 
     // ───────────────────────── EntryPoint v0.7 ─────────────────────────
 
     /// @inheritdoc IPaymasterV07
-    /// @dev AUDIT F-01: pulls `maxTokenCost` USDG up front (standing allowance). Same-batch approve is ignored.
+    /// @dev AUDIT F-01: pulls the operation's maximum-cost USDG up front (standing allowance). Same-batch approve is ignored.
     function validatePaymasterUserOp(PackedUserOperation calldata op, bytes32 userOpHash, uint256 maxCost)
         external
         override
@@ -166,42 +150,44 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
 
         if (validUntil <= validAfter || validUntil - validAfter > MAX_QUOTE_WINDOW) revert QuoteWindowInvalid();
         if (rate < minRate || rate > maxRate) revert RateOutOfBounds(rate);
-        if (maxTokenCost > maxCostCap) revert MaxCostAboveCap(maxTokenCost, maxCostCap);
+        uint256 gasUnits = op.preVerificationGas + uint128(uint256(op.accountGasLimits) >> 128)
+            + uint128(uint256(op.accountGasLimits)) + _pmVerificationGasLimit(op.paymasterAndData)
+            + _pmPostOpGasLimit(op.paymasterAndData);
+        if (gasUnits > maxGasPerOp) revert GasLimitAboveCap(gasUnits, maxGasPerOp);
+        uint256 dynamicWeiCap = maxGasPerOp * uint128(uint256(op.gasFees));
+        if (maxCost > dynamicWeiCap) revert MaxCostAboveCap(maxCost, dynamicWeiCap);
 
         uint256 pmPostOp = _pmPostOpGasLimit(op.paymasterAndData);
         if (pmPostOp < MIN_PM_POST_OP_GAS_LIMIT) revert PostOpGasLimitTooLow(pmPostOp, MIN_PM_POST_OP_GAS_LIMIT);
 
         uint256 required = tokenCost(maxCost, rate);
         if (maxTokenCost < required) revert MaxCostTooLow(maxTokenCost, required);
-        uint256 nextExposure = exposure + maxTokenCost;
-        if (nextExposure > exposureLimit) revert ExposureLimitExceeded(nextExposure, exposureLimit);
         if (prechargeOf[userOpHash] != 0) revert InvalidContext();
 
         uint256 bal = IERC20(usdg).balanceOf(sender);
-        if (bal < maxTokenCost) revert InsufficientUsdgBalance(bal, maxTokenCost);
+        if (bal < required) revert InsufficientUsdgBalance(bal, required);
         uint256 al = IERC20(usdg).allowance(sender, address(this));
-        if (al < maxTokenCost) revert InsufficientUsdgAllowance(al, maxTokenCost);
+        if (al < required) revert InsufficientUsdgAllowance(al, required);
         // Preserve the first approval as the session policy's gas-cap accounting marker, NOT as payment
         // authorization. With persistent allowances, omitting it would bypass that policy's gas debit.
-        if (!firstCallApproves(op.callData, maxTokenCost)) revert GasApprovalMissing();
+        if (!firstCallApproves(op.callData, required)) revert GasApprovalMissing();
         // Later arbitrary execution may revoke approval, drain the remaining balance or revert. None can
         // undo the precharge below; only USDG already held here secures this operation.
         uint256 held = IERC20(usdg).balanceOf(address(this));
         if (
-            !_tryTransferFrom(sender, address(this), maxTokenCost)
-                || IERC20(usdg).balanceOf(address(this)) != held + maxTokenCost
-        ) revert PrechargeFailed(maxTokenCost);
-        prechargeOf[userOpHash] = maxTokenCost;
-        reservedOf[sender] += maxTokenCost;
-        exposure = nextExposure;
-        emit Precharged(userOpHash, sender, maxTokenCost);
+            !_tryTransferFrom(sender, address(this), required)
+                || IERC20(usdg).balanceOf(address(this)) != held + required
+        ) revert PrechargeFailed(required);
+        prechargeOf[userOpHash] = required;
+        reservedOf[sender] += required;
+        emit Precharged(userOpHash, sender, required);
 
         context = abi.encode(
             Context({
                 sender: sender,
                 userOpHash: userOpHash,
                 rate: rate,
-                precharged: maxTokenCost,
+                precharged: required,
                 executionGasLimit: uint128(uint256(op.accountGasLimits)) + pmPostOp,
                 preOpGas: op.preVerificationGas + uint128(uint256(op.accountGasLimits) >> 128)
                     + _pmVerificationGasLimit(op.paymasterAndData),
@@ -251,7 +237,6 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
         delete prechargeOf[c.userOpHash];
         delete contextHashOf[c.userOpHash];
         reservedOf[c.sender] -= c.precharged;
-        exposure -= c.precharged;
         _payOrCredit(treasury, gasCost);
         _payOrCredit(c.sender, c.precharged - gasCost);
         emit UserOperationCharged(c.userOpHash, c.sender, gasCost, 0, c.rate);
@@ -392,7 +377,7 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
 
     // ───────────────────────── deposit / stake ─────────────────────────
 
-    /// @notice Anyone (the keeper) may top up the EntryPoint deposit.
+    /// @notice Anyone may manually top up the EntryPoint deposit.
     function deposit() external payable {
         entryPoint.depositTo{value: msg.value}(address(this));
     }
@@ -431,9 +416,9 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
         _setTreasury(t);
     }
 
-    function setBounds(uint256 minRate_, uint256 maxRate_, uint256 maxCostCap_) external {
+    function setBounds(uint256 minRate_, uint256 maxRate_, uint256 maxGasPerOp_) external {
         _checkOwner();
-        _setBounds(minRate_, maxRate_, maxCostCap_);
+        _setBounds(minRate_, maxRate_, maxGasPerOp_);
     }
 
     function setPostOpGas(uint256 g) external {
@@ -446,16 +431,6 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
         paused = p;
         emit PausedSet(p);
     }
-
-    /// @notice Maximum outstanding, already-secured USDG precharges across ALL accounts (not per identity).
-    function setExposureLimit(uint256 limit) external {
-        _checkOwner();
-        if (limit == 0) revert InvalidBounds();
-        exposureLimit = limit;
-        emit ExposureLimitSet(limit);
-    }
-
-    // ───────────────────────── internals ─────────────────────────
 
     function _signedBySigner(bytes32 hash, bytes calldata sig) internal view returns (bool) {
         (address rec, ECDSA.RecoverError err,) = ECDSA.tryRecover(MessageHashUtils.toEthSignedMessageHash(hash), sig);
@@ -478,17 +453,16 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
         emit TreasurySet(t);
     }
 
-    function _setBounds(uint256 minRate_, uint256 maxRate_, uint256 maxCostCap_) internal {
-        if (minRate_ == 0 || minRate_ > maxRate_ || maxCostCap_ == 0) revert InvalidBounds();
-        if (maxCostCap_ > maxCostCapLimit) revert MaxCostCapAboveLimit(maxCostCap_, maxCostCapLimit);
+    function _setBounds(uint256 minRate_, uint256 maxRate_, uint256 maxGasPerOp_) internal {
+        if (minRate_ == 0 || minRate_ > maxRate_ || maxGasPerOp_ == 0) revert InvalidBounds();
         minRate = minRate_;
         maxRate = maxRate_;
-        maxCostCap = maxCostCap_;
-        emit BoundsSet(minRate_, maxRate_, maxCostCap_);
+        maxGasPerOp = maxGasPerOp_;
+        emit BoundsSet(minRate_, maxRate_, maxGasPerOp_);
     }
 
     function _setPostOpGas(uint256 g) internal {
-        if (g > MAX_POST_OP_GAS) revert InvalidBounds();
+        if (g > maxGasPerOp) revert InvalidBounds();
         postOpGas = g;
         emit PostOpGasSet(g);
     }

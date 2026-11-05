@@ -23,7 +23,7 @@ import { robinhoodTestnet, DEPLOYMENTS } from "../chains";
 import { disciplePaymasterAbi } from "../aa/paymaster";
 import { launchTargets } from "../aa/launchTargets";
 import { chainGradReads, isGradBuyOp } from "./gradBuy";
-import { assertSignerMatches, markedUpRate, PAYMASTER_CHAIN_ID, PaymasterQuoteError, paymasterSignerKey, rateFromEnv, type QuoteConfig, type QuoteDeps } from "./paymasterCore";
+import { assertSignerMatches, unmarkedRate, PAYMASTER_CHAIN_ID, PaymasterQuoteError, paymasterSignerKey, rateFromEnv, type QuoteConfig, type QuoteDeps } from "./paymasterCore";
 
 import { assertPrepaidReady } from "./prepaidPaymaster";
 
@@ -34,7 +34,7 @@ const ZERO = "0x0000000000000000000000000000000000000000";
 
 let signer: PrivateKeyAccount | undefined;
 let decimals: { usdg: Address; d: number } | undefined;
-let boundsCache: { at: number; v: { minRate: bigint; maxRate: bigint; maxCostCap: bigint } } | undefined;
+let boundsCache: { at: number; v: { minRate: bigint; maxRate: bigint; maxGasPerOp: bigint } } | undefined;
 let baseCache: { at: number; fee: bigint } | undefined;
 
 function signerAccount(): PrivateKeyAccount {
@@ -72,7 +72,7 @@ export async function quoteConfig(): Promise<QuoteConfig> {
   const slack = process.env.PAYMASTER_MAX_SLACK_BPS;
   const allowTtl = Number(process.env.PAYMASTER_ALLOWANCE_TTL_SEC || "");
   return {
-    paymaster, usdg, usdgDecimals: decimals.d, rate: markedUpRate(rateFromEnv({ PAYMASTER_RATE: process.env.PAYMASTER_RATE, PAYMASTER_USD_PER_ETH: process.env.PAYMASTER_USD_PER_ETH }, decimals.d), process.env.PAYMASTER_MARKUP_BPS),
+    paymaster, usdg, usdgDecimals: decimals.d, rate: unmarkedRate(rateFromEnv({ PAYMASTER_RATE: process.env.PAYMASTER_RATE, PAYMASTER_USD_PER_ETH: process.env.PAYMASTER_USD_PER_ETH }, decimals.d)),
     ttlSec: Number.isFinite(ttl) && ttl > 0 ? ttl : undefined,
     maxSlackBps: slack && /^\d+$/.test(slack) ? BigInt(slack) : undefined,
     allowanceTtlSec: Number.isFinite(allowTtl) && allowTtl > 0 ? allowTtl : undefined,
@@ -88,8 +88,8 @@ export function quoteDeps(cfg: QuoteConfig): QuoteDeps {
     allowanceOf: (s) => pc.readContract({ address: cfg.usdg, abi: erc20, functionName: "allowance", args: [s, cfg.paymaster] }),
     async bounds() {
       if (boundsCache && Date.now() - boundsCache.at < 60_000) return boundsCache.v;
-      const [minRate, maxRate, maxCostCap] = await Promise.all((["minRate", "maxRate", "maxCostCap"] as const).map((f) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: f })));
-      boundsCache = { at: Date.now(), v: { minRate, maxRate, maxCostCap } };
+      const [minRate, maxRate, maxGasPerOp] = await Promise.all((["minRate", "maxRate", "maxGasPerOp"] as const).map((f) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: f })));
+      boundsCache = { at: Date.now(), v: { minRate, maxRate, maxGasPerOp } };
       return boundsCache.v;
     },
     async baseFee() {

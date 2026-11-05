@@ -131,7 +131,7 @@ abstract contract PaymasterTestBase is Test {
         ep = new EntryPoint();
         usdg = new MockUSDG(d);
         pm = new DisciplePaymaster(
-            address(ep), address(usdg), owner, signer, treasury, rate / 10, rate * 10, 100 * 10 ** d, POST_OP_GAS
+            address(ep), address(usdg), owner, signer, treasury, rate / 10, rate * 10, 12_000_000, POST_OP_GAS
         );
         acct = new MiniAccount(address(ep), user);
         rev = new Reverter();
@@ -185,7 +185,7 @@ abstract contract PaymasterTestBase is Test {
         op.gasFees = bytes32((TIP << 128) | MAX_FEE);
     }
 
-    function _pmPrefix() internal view returns (bytes memory) {
+    function _pmPrefix() internal view virtual returns (bytes memory) {
         return abi.encodePacked(address(pm), uint128(PM_VERIF_GAS), uint128(PM_POSTOP_GAS));
     }
 

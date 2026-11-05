@@ -13,7 +13,7 @@ const E18 = BigInt(10) ** BigInt(18), GWEI = BigInt(1e9);
 const usd = (raw: bigint, dec = 18) => Number(raw) / 10 ** dec;
 
 test("cold derivation: gas limit × allowance maxFee(gasPrice) × rate, rounded up; no flat 10 USDG anywhere", () => {
-  assert.equal(TRADE_GAS_LIMIT, BigInt(2_710_000)); assert.equal(GRAD_GAS_LIMIT, BigInt(6_000_000));
+  assert.equal(TRADE_GAS_LIMIT, BigInt(2_539_552)); assert.equal(GRAD_GAS_LIMIT, BigInt(6_000_000));
   const gp = GWEI / BigInt(100);   // 0.01 gwei = RH testnet eth_gasPrice on Oct 24 2026
   assert.equal(allowanceMaxFee(gp), clientFees(gp).maxFeePerGas * BigInt(2), "same formula as paymasterCore.allowanceQuote");
   const rate = configRate(18);
@@ -26,7 +26,7 @@ test("cold derivation: gas limit × allowance maxFee(gasPrice) × rate, rounded 
   assert.equal(usd(derivedGasReserve({ decimals: 6 }), 6).toFixed(2), floor.toFixed(2), "decimals-aware");
   // rate: the paymaster's signed rate wins over config; cap clamps (the contract refuses more)
   assert.equal(derivedGasReserve({ gasPriceWei: gp, rate: rate * BigInt(2), decimals: 18 }), tokenCost(TRADE_GAS_LIMIT * allowanceMaxFee(gp), rate * BigInt(2)));
-  assert.equal(derivedGasReserve({ gasPriceWei: gp, decimals: 18, cap: BigInt(5) }), BigInt(5));
+  assert.equal(derivedGasReserve({ gasPriceWei: gp, decimals: 18, maxGasPerOp: BigInt(5) }), tokenCost(BigInt(5) * allowanceMaxFee(gp), rate));
   assert.equal(fallbackUsdgDecimals(46630), 6); assert.equal(fallbackUsdgDecimals(1), 6);
 });
 
@@ -40,14 +40,14 @@ test("warm: the REAL maxTokenCost as is — never min(cached, derived), so a gas
   const debt = BigInt(7);
   assert.equal(peekReserve({ usdgGas: true, kind: "gradBuy", allowance: { ...a, debt } }), tokenCost(GRAD_GAS_LIMIT * GWEI, a.rate) + debt);
   assert.equal(peekReserve({ usdgGas: true, kind: "gradBuy", allowance: a, opMaxFee: GWEI * BigInt(2) }), tokenCost(GRAD_GAS_LIMIT * GWEI * BigInt(2), a.rate));
-  assert.equal(peekReserve({ usdgGas: true, kind: "gradBuy", allowance: a, cap: BigInt(3) }), BigInt(3));
+  assert.equal(peekReserve({ usdgGas: true, kind: "gradBuy", allowance: a, maxGasPerOp: BigInt(3) }), tokenCost(BigInt(3) * GWEI, a.rate));
   // self-pay ⇒ 0n; cold ⇒ null
   assert.equal(peekReserve({ usdgGas: false, allowance: a }), BigInt(0)); assert.equal(peekReserve({ usdgGas: true }), null);
 });
 
-function fakePc(cap: bigint, decimals: number, gasPrice = GWEI / BigInt(100)) {
+function fakePc(maxGasPerOp: bigint, decimals: number, gasPrice = GWEI / BigInt(100)) {
   let reads = 0, gps = 0;
-  const pc = { readContract: async ({ functionName }: { functionName: string }) => { reads++; return functionName === "maxCostCap" ? cap : decimals; }, getGasPrice: async () => { gps++; return gasPrice; } };
+  const pc = { readContract: async ({ functionName }: { functionName: string }) => { reads++; return functionName === "maxGasPerOp" ? maxGasPerOp : decimals; }, getGasPrice: async () => { gps++; return gasPrice; } };
   return { pc, reads: () => reads, gps: () => gps };
 }
 
@@ -55,7 +55,7 @@ test("PaymasterCapCache: one deduped cap read; gas price re-read after its TTL; 
   const clock = { t: 1_000 }, c = new PaymasterCapCache(() => clock.t), f = fakePc(BigInt(7) * E18, 18);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await Promise.all([c.warm(f.pc as any, PM, USDG), c.warm(f.pc as any, PM, USDG)]);
-  assert.deepEqual(c.peek(), { cap: BigInt(7) * E18, decimals: 18 }); assert.equal(f.reads(), 2);
+  assert.deepEqual(c.peek(), { maxGasPerOp: BigInt(7) * E18, decimals: 18 }); assert.equal(f.reads(), 2);
   await c.warmGasPrice(f.pc); await c.warmGasPrice(f.pc); assert.equal(f.gps(), 1); assert.equal(c.gasPrice(), GWEI / BigInt(100));
   clock.t += GAS_PRICE_TTL_MS + 1; await c.warmGasPrice(f.pc); assert.equal(f.gps(), 2);
   clock.t += GAS_PRICE_TTL_MS + 1; await c.warmGasPrice({ getGasPrice: async () => { throw new Error("rpc down"); } }); assert.equal(c.gasPrice(), GWEI / BigInt(100));
@@ -65,9 +65,9 @@ test("PaymasterCapCache: one deduped cap read; gas price re-read after its TTL; 
   assert.equal(bad.peek(), undefined);
 });
 
-function account(o: { usdgGas: boolean; cap?: bigint; decimals?: number; chainId?: number; gasPrice?: bigint }) {
+function account(o: { usdgGas: boolean; maxGasPerOp?: bigint; decimals?: number; chainId?: number; gasPrice?: bigint }) {
   const chain = { id: o.chainId ?? 46630, name: "t", nativeCurrency: { name: "E", symbol: "E", decimals: 18 }, rpcUrls: { default: { http: ["http://127.0.0.1:1"] } } };
-  const f = fakePc(o.cap ?? BigInt(1000) * E18, o.decimals ?? 18, o.gasPrice);
+  const f = fakePc(o.maxGasPerOp ?? BigInt(1000) * E18, o.decimals ?? 18, o.gasPrice);
   const a = new Mav2Account({ chain: chain as never, pc: f.pc as never, bundlerUrl: "http://b.test", usdgGas: o.usdgGas ? { paymaster: PM, usdg: USDG, url: "http://pm.test/api/paymaster", session: true } : undefined }, { address: SENDER } as never);
   (a as unknown as { owned: () => Promise<unknown> }).owned = async () => ({ account: { address: SENDER } });
   return { a, f };
@@ -83,7 +83,7 @@ test("Mav2Account: cold (config) ⇒ warm at session start (live gas price) ⇒ 
     assert.equal(a.peekGasReservePerOp(), null);
     assert.equal(a.gasReservePerOp(), derivedGasReserve({ decimals: 6 }), "nothing read yet ⇒ config floor (0.0207 gwei)");
     await a.warmGasReserve();
-    assert.equal(a.peekGasReservePerOp(), null, "maxCostCap alone is a ceiling, not a warm value");
+    assert.equal(a.peekGasReservePerOp(), null, "maxGasPerOp alone is a ceiling, not a warm value");
     assert.equal(a.gasReservePerOp(), derivedGasReserve({ gasPriceWei: GWEI / BigInt(100), decimals: 18 }), "live gas price");
     assert.ok(usd(a.gasReservePerOp()) < 0.5);
     const rate = configRate(18) * BigInt(3) / BigInt(2), spike = BigInt(123) * E18 / BigInt(100);   // 1.23 USDG: above any derived value

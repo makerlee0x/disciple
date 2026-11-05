@@ -92,18 +92,11 @@ contract PaymasterAllowanceTest is PaymasterTestBase {
         _send(op);
     }
 
-    function test_revert_maxTokenCostAboveCap() public {
-        uint256 big = pm.maxCostCap() + 1;
-        bytes memory pmd = _allowance(address(acct), until, afterTs, rate, big, signerPk, uint128(PM_POSTOP_GAS));
-        EpOp memory op = _withPm(_approveThen(big, _transferCall(sink, 1)), pmd);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IEntryPoint.FailedOpWithRevert.selector,
-                0,
-                "AA33 reverted",
-                abi.encodeWithSelector(DisciplePaymaster.MaxCostAboveCap.selector, big, pm.maxCostCap())
-            )
-        );
+    function test_revert_opGasUnitsAboveCap() public {
+        vm.prank(owner); pm.setBounds(rate / 10, rate * 10, 1);
+        EpOp memory op = _withPm(_trade(1), _std());
+        uint256 units = CALL_GAS + VERIF_GAS + PVG + PM_VERIF_GAS + PM_POSTOP_GAS;
+        vm.expectRevert(_aa33(abi.encodeWithSelector(DisciplePaymaster.GasLimitAboveCap.selector, units, 1)));
         _send(op);
     }
 
@@ -120,7 +113,6 @@ contract PaymasterAllowanceTest is PaymasterTestBase {
         ep.handleOps(ops, payable(bundler));
         assertEq(usdg.balanceOf(sink), 3);
         assertGt(usdg.balanceOf(treasury), 0);
-        assertEq(pm.exposure(), 0);
     }
 
     // ───────── expiry ─────────
@@ -235,7 +227,6 @@ contract PaymasterAllowanceTest is PaymasterTestBase {
         assertEq(usdg.balanceOf(treasury), charged);
         assertEq(usdg.balanceOf(address(acct)), all - charged);
         assertEq(pm.reservedOf(address(acct)), 0);
-        assertEq(pm.exposure(), 0);
     }
 
     /// @dev Byte parity with web/lib/aa/paymaster.ts paymasterAllowanceHash (same vector in scripts/test-paymaster.mts).

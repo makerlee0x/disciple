@@ -12,14 +12,14 @@
  *       - sender has a standing USDG allowance or an exact native owner-validation approval for precharge;
  *       - first-call exact/max approve replenishes allowance and lets the session policy debit its signed gas cap;
  *       - signed maxTokenCost covers tokenCost(maxCost, rate) + debt and
- *         is at most MAX_SLACK above it and ≤ the on-chain maxCostCap;
+ *         is at most MAX_SLACK above it; the op's gas units must fit maxGasPerOp;
  *       - the sender holds that much USDG; the rate is inside the contract's [minRate, maxRate].
  *     The signed hash is the OP-BOUND quote hash (DisciplePaymaster.getOpHash: nonce, callData, gas, fees, window,
  *     rate, maxTokenCost), so the quote — often a larger launch / graduating-buy maxTokenCost — is single-use and these
  *     per-op checks are binding (AUDIT #141 L-2). The contract also re-checks every per-op rule on-chain.
  *  3. pm_getPaymasterAllowance(sender) (feat/trade-latency): issues that allowance AHEAD of time for the standard trade
  *     envelope (ALLOWANCE_GAS × a fee ceiling), so a warm trade makes 0 pm_* calls. Exposure per sender stays
- *     ≤ maxTokenCost ≤ maxCostCap on-chain (contracts/docs/usdg-paymaster.md §Allowance).
+ *     ≤ maxTokenCost, with a separate gas-unit bound on-chain (contracts/docs/usdg-paymaster.md §Allowance).
  * We never sponsor: the user's own USDG secures every op before execution. Legacy debt fields stay zero.
  */
 import { size, type Address, type Hex } from "viem";
@@ -67,12 +67,12 @@ export async function quoteCaps(op: UserOp, cfg: QuoteConfig, deps?: Pick<QuoteD
 }
 export type QuoteDeps = {
   now(): number; // unix seconds
-  /** What the sender's next op must cover besides its gas: legacy DisciplePaymaster.owedOf (zero in PREPAY_VERSION 2). */
+  /** What the sender's next op must cover besides its gas: legacy DisciplePaymaster.owedOf (zero in PREPAY_VERSION 3). */
   debtOf(sender: Address): Promise<bigint>;
   balanceOf(sender: Address): Promise<bigint>;
   /** IERC20.allowance(sender, paymaster) — required for F-01 precharge. */
   allowanceOf(sender: Address): Promise<bigint>;
-  bounds(): Promise<{ minRate: bigint; maxRate: bigint; maxCostCap: bigint }>;
+  bounds(): Promise<{ minRate: bigint; maxRate: bigint; maxGasPerOp: bigint }>;
   baseFee(): Promise<bigint>;
   /** EIP-191 personal_sign of the raw 32-byte hash with PAYMASTER_SIGNER_KEY. */
   sign(hash: Hex): Promise<Hex>;
@@ -142,7 +142,7 @@ export async function finalQuote(op: UserOp, entryPoint: string, chainId: string
   if (amount < required) throw new PaymasterQuoteError("approve", `USDG gas allowance ${d(amount)} below required ${d(required)} — re-quote`, data);
   const slack = cfg.maxSlackBps ?? DEFAULT_MAX_SLACK_BPS;
   if (amount !== (BigInt(1) << BigInt(256)) - BigInt(1) && amount > required + (required * slack) / BigInt(10_000)) throw new PaymasterQuoteError("approve", `USDG gas allowance ${d(amount)} too far above required ${d(required)}`, data);
-  if (required > b.maxCostCap || (amount !== (BigInt(1) << BigInt(256)) - BigInt(1) && amount > b.maxCostCap)) throw new PaymasterQuoteError("approve", `USDG gas allowance ${d(amount)} above the paymaster cap ${d(b.maxCostCap)} (lower gas limits / fees)`, data);
+  if (entryPointMaxCost(o) / BigInt(o.maxFeePerGas!) > b.maxGasPerOp) throw new PaymasterQuoteError("approve", "operation above paymaster gas-unit limit", data);
   const maxTokenCost = amount === (BigInt(1) << BigInt(256)) - BigInt(1) ? required : amount;
   // The in-batch approve replenishes allowance / counts session spend, but does NOT secure this operation.
   if (standing < maxTokenCost && !hasDeferredPrepayApproval(o, cfg.usdg, cfg.paymaster)) throw new PaymasterQuoteError("approve", `standing USDG allowance ${d(standing)} below required ${d(maxTokenCost)} — owner validation approval required`, data);
@@ -168,7 +168,7 @@ export type AllowanceResult = PaymasterFields & {
 
 /**
  * pm_getPaymasterAllowance [sender, entryPoint, chainId] → signed per-sender allowance for the standard trade
- * envelope. Refuses (like the per-op flow) when the rate is out of bounds, the amount is above maxCostCap or the sender
+ * envelope. Refuses (like the per-op flow) when the rate is out of bounds, the gas-unit envelope exceeds maxGasPerOp or the sender
  * can't hold it. Carried debt is added so the first op under the allowance repays it.
  */
 export async function allowanceQuote(sender: Address, entryPoint: string, chainId: string | number, cfg: QuoteConfig, deps: QuoteDeps): Promise<AllowanceResult> {
@@ -179,7 +179,7 @@ export async function allowanceQuote(sender: Address, entryPoint: string, chainI
   const [debt, bal, standing] = await Promise.all([deps.debtOf(sender), deps.balanceOf(sender), deps.allowanceOf(sender)]);
   const maxTokenCost = tokenCost(entryPointMaxCost({ ...hexGas(), maxFeePerGas: hex(maxFeePerGas) }), cfg.rate) + debt;
   const d = (x: bigint) => formatUsdg(x, cfg.usdgDecimals);
-  if (maxTokenCost > b.maxCostCap) throw new PaymasterQuoteError("approve", `allowance ${d(maxTokenCost)} above the paymaster cap ${d(b.maxCostCap)}`, { required: hex(maxTokenCost) });
+  if (Object.values(ALLOWANCE_GAS).reduce((a, v) => a + v, BigInt(0)) > b.maxGasPerOp) throw new PaymasterQuoteError("approve", "trade envelope above paymaster gas-unit limit", { required: hex(maxTokenCost) });
   if (bal < maxTokenCost) throw new PaymasterQuoteError("balance", `not enough USDG: need ${d(maxTokenCost)}, have ${d(bal)}`, { required: hex(maxTokenCost), balance: hex(bal) });
   if (standing < maxTokenCost) throw new PaymasterQuoteError("approve", `standing USDG allowance ${d(standing)} below required ${d(maxTokenCost)} — owner validation approval required`, { required: hex(maxTokenCost), allowance: hex(standing) });
   const now = deps.now();
@@ -247,8 +247,5 @@ export function rateFromEnv(env: { PAYMASTER_RATE?: string; PAYMASTER_USD_PER_ET
   return BigInt(m[1]) * BigInt(10) ** BigInt(usdgDecimals) + (usdgDecimals ? BigInt(frac || "0") : BigInt(0));
 }
 
-/** Existing testnet price source, with an EXPLICIT owner-selected positive markup (round up). */
-export function markedUpRate(baseRate: bigint, bps: string | undefined): bigint {
-  if (!bps || !/^\d+$/.test(bps) || BigInt(bps) <= BigInt(0) || BigInt(bps) > BigInt(10_000)) throw new PaymasterQuoteError("config", "set owner-approved PAYMASTER_MARKUP_BPS in [1,10000]");
-  return (baseRate * (BigInt(10_000) + BigInt(bps)) + BigInt(9_999)) / BigInt(10_000);
-}
+/** No gas markup: use the price-source rate unchanged (1.0x). */
+export function unmarkedRate(baseRate: bigint): bigint { return baseRate; }

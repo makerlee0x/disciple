@@ -74,7 +74,6 @@ contract PaymasterSettlementTest is PaymasterTestBase {
 
     function _assertSettled() internal view {
         assertEq(pm.reservedOf(address(acct)), 0, "no open reservation");
-        assertEq(pm.exposure(), 0, "global exposure released");
     }
 
     function _one(uint256 a) internal pure returns (uint256[] memory x) {

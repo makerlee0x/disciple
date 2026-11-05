@@ -229,7 +229,7 @@ export class Mav2Account {
   private sessionClient?: { entityId: number; c: Promise<any> };
   /** Pre-issued per-sender paymaster allowance (item 5): 0 pm_* calls on a warm USDG-gas trade. */
   readonly allowances?: AllowanceCache;
-  /** paymaster.maxCostCap() + USDG decimals, read at warm (gasReservePerOp's second tier). */
+  /** paymaster.maxGasPerOp() + USDG decimals, read at warm (gasReservePerOp's second tier). */
   readonly caps = new PaymasterCapCache();
   /** The account address once known (warm / first send): lets the SYNC gas-reserve read peek the allowance. */
   private senderAddr?: Address;
@@ -581,18 +581,18 @@ export class Mav2Account {
       allowance = { maxTokenCost: BigInt(d.maxTokenCost), rate: BigInt(d.rate), debt: BigInt(d.debt), maxFeePerGas: BigInt(d.maxFeePerGas) };
       this.lastRate = allowance.rate;
     }
-    return peekReserve({ usdgGas: !!pm, kind, allowance, opMaxFee: FEES.peek()?.maxFeePerGas, cap: this.caps.peek()?.cap });
+    return peekReserve({ usdgGas: !!pm, kind, allowance, opMaxFee: FEES.peek()?.maxFeePerGas, maxGasPerOp: this.caps.peek()?.maxGasPerOp });
   }
   /** The paymaster's signed rate from the last fresh allowance (cold derivation prefers it over the config ETH/USD). */
   private lastRate?: bigint;
   /** peekGasReservePerOp, or (cold) the derived value: gas limit × allowance-formula maxFee(live gas price) × rate. */
   gasReservePerOp(kind: GasOpKind = "trade"): bigint {
     return reserveOrDerived(this.peekGasReservePerOp(kind), {
-      kind, gasPriceWei: this.caps.gasPrice(), rate: this.lastRate, cap: this.caps.peek()?.cap,
+      kind, gasPriceWei: this.caps.gasPrice(), rate: this.lastRate, maxGasPerOp: this.caps.peek()?.maxGasPerOp,
       decimals: this.caps.peek()?.decimals ?? fallbackUsdgDecimals(this.o.chain.id),
     });
   }
-  /** Warm every reserve input off the trade path (session start + warm()): gas price, maxCostCap + decimals, the
+  /** Warm every reserve input off the trade path (session start + warm()): gas price, maxGasPerOp + decimals, the
    * allowance (its maxTokenCost is the real warm value). */
   async warmGasReserve() {
     const pm = this.o.usdgGas; if (!pm) return;

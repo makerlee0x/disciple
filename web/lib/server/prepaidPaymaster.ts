@@ -28,7 +28,7 @@ export async function assertPrepaidReady(paymaster: Address, factory?: string): 
     pc.readContract({ address: ENTRYPOINT_V07, abi: epAbi, functionName: "getDepositInfo", args: [paymaster] }),
     pc.readContract({ address: paymaster, abi: disciplePaymasterAbi, functionName: "postOpGas" }),
   ]);
-  if (version !== BigInt(2) || postOpGas < BigInt(200_000) || paused || usdg.toLowerCase() !== DEPLOYMENTS[46630].usdg.toLowerCase() || entryPoint.toLowerCase() !== ENTRYPOINT_V07.toLowerCase()) throw Error("hardened prepaid USDG paymaster unavailable");
+  if (version !== BigInt(3) || postOpGas < BigInt(79_552) || paused || usdg.toLowerCase() !== DEPLOYMENTS[46630].usdg.toLowerCase() || entryPoint.toLowerCase() !== ENTRYPOINT_V07.toLowerCase()) throw Error("hardened prepaid USDG paymaster unavailable");
   requireStake(stake, BigInt(raw));
   if (factory) {
     if (factory.toLowerCase() !== MAV2_FACTORY.toLowerCase()) throw Error("unsupported account factory");
