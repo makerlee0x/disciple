@@ -52,14 +52,16 @@ test("attester: fails closed without a key; TTL clamped under LoginGate.MAX_TTL 
   assert.ok(attestTtl({}) <= MAX_TTL_SEC && MAX_TTL_SEC < 24 * 3600);
 });
 
-test("EIP-712 LoginAttestation{wallet,uint64 expiry,coin} under DisciplePVE v1 recovers to the attester", async () => {
+test("EIP-712 LoginAttestation{wallet,uint64 expiry,coin,uint64 epoch} under DisciplePVE v1 recovers to the attester", async () => {
   const acct = attesterAccount({ PVE_ATTESTER_PRIVATE_KEY: generatePrivateKey() })!;
-  const msg = { wallet: "0x1111111111111111111111111111111111111111" as Address, expiry: now + 3600, coin: "0x0000000000000000000000000000000000000000" as Address };
+  const msg = { wallet: "0x1111111111111111111111111111111111111111" as Address, expiry: now + 3600, coin: "0x0000000000000000000000000000000000000000" as Address, epoch: 0 };
   const gate = "0xe900b7060895f130e866eeddec2b3efd3ff0b69f" as Address;
   const sig = await signLoginAttestation(acct, { ...msg, chainId: 46630, loginGate: gate });
-  const rec = await recoverTypedDataAddress({ domain: { name: "DisciplePVE", version: "1", chainId: 46630, verifyingContract: gate }, types: LOGIN_TYPES, primaryType: "LoginAttestation", message: { ...msg, expiry: BigInt(msg.expiry) }, signature: sig });
+  const rec = await recoverTypedDataAddress({ domain: { name: "DisciplePVE", version: "1", chainId: 46630, verifyingContract: gate }, types: LOGIN_TYPES, primaryType: "LoginAttestation", message: { ...msg, expiry: BigInt(msg.expiry), epoch: BigInt(msg.epoch) }, signature: sig });
   assert.equal(rec, acct.address);
-  const recWrongChain = await recoverTypedDataAddress({ domain: { name: "DisciplePVE", version: "1", chainId: 1, verifyingContract: gate }, types: LOGIN_TYPES, primaryType: "LoginAttestation", message: { ...msg, expiry: BigInt(msg.expiry) }, signature: sig });
+  const recWrongEpoch = await recoverTypedDataAddress({ domain: { name: "DisciplePVE", version: "1", chainId: 46630, verifyingContract: gate }, types: LOGIN_TYPES, primaryType: "LoginAttestation", message: { ...msg, expiry: BigInt(msg.expiry), epoch: BigInt(1) }, signature: sig });
+  assert.notEqual(recWrongEpoch, acct.address);
+  const recWrongChain = await recoverTypedDataAddress({ domain: { name: "DisciplePVE", version: "1", chainId: 1, verifyingContract: gate }, types: LOGIN_TYPES, primaryType: "LoginAttestation", message: { ...msg, expiry: BigInt(msg.expiry), epoch: BigInt(msg.epoch) }, signature: sig });
   assert.notEqual(recWrongChain, acct.address);
 });
 
