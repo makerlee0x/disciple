@@ -18,7 +18,9 @@ Status: **design + build in progress (PR draft, nothing deployed)** · approved 
   outstanding precharges **globally**, so rotating accounts cannot bypass it. Initial limit = constructor maxCostCap.
   The limit covers all validations in a bundle before their postOps. It is independent of subsequent maxCostCap changes.
 - Quote domains and 193-byte format are unchanged. Both final and reusable-allowance quote endpoints check standing
-  allowance. Validation enforces payment independently of the quote server and accepts arbitrary owner calldata.
+  allowance. Validation enforces payment independently of the quote server. The first approval is still required as the
+  session gas-cap accounting marker; arbitrary later owner calls cannot undo prepayment. Without this marker check,
+  persistent allowances would let a cached quote bypass the policy's successful-execution gas debit.
 - Gas envelopes: validation 150k, postOp 120k, on-chain postOp floor 100k; deployment's flat postOp billing default 40k.
   Re-measure against the target USDG implementation before rollout; quote gas remains within existing relay caps.
 

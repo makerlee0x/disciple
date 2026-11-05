@@ -51,15 +51,17 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         assertEq(usdg.balanceOf(treasury), charged);
     }
 
-    function test_existingAllowance_singleExecute() public {
+    function test_existingAllowance_withoutGasAccountingMarker_rejected() public {
         uint256 maxTok = _maxTok();
         vm.prank(address(acct));
         usdg.approve(address(pm), maxTok);
         bytes memory cd =
             abi.encodeCall(MiniAccount.execute, (address(usdg), 0, abi.encodeCall(ERC20.transfer, (sink, 7))));
-        (bool ok,, uint256 charged) = _sendRecord(_full(cd, rate, maxTok));
-        assertTrue(ok);
-        assertEq(usdg.balanceOf(treasury), charged);
+        EpOp memory op = _full(cd, rate, maxTok);
+        vm.expectRevert(_aa33(abi.encodeWithSelector(DisciplePaymaster.GasApprovalMissing.selector)));
+        _send(op);
+        assertEq(usdg.balanceOf(sink), 0);
+        assertEq(pm.exposure(), 0);
     }
 
     function test_singleExecuteApprove_counts() public {

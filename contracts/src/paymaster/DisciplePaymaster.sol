@@ -108,6 +108,7 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     error ExposureLimitExceeded(uint256 exposure, uint256 limit);
     error PrechargeFailed(uint256 amount);
     error InvalidContext();
+    error GasApprovalMissing();
 
     constructor(
         address entryPoint_,
@@ -174,8 +175,11 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
         if (bal < maxTokenCost) revert InsufficientUsdgBalance(bal, maxTokenCost);
         uint256 al = IERC20(usdg).allowance(sender, address(this));
         if (al < maxTokenCost) revert InsufficientUsdgAllowance(al, maxTokenCost);
-        // Never inspect callData for payment authorization: arbitrary owner execution may revoke approval,
-        // drain its remaining USDG, or revert. Only tokens already held here secure this operation.
+        // Preserve the first approval as the session policy's gas-cap accounting marker, NOT as payment
+        // authorization. With persistent allowances, omitting it would bypass that policy's gas debit.
+        if (!firstCallApproves(op.callData, maxTokenCost)) revert GasApprovalMissing();
+        // Later arbitrary execution may revoke approval, drain the remaining balance or revert. None can
+        // undo the precharge below; only USDG already held here secures this operation.
         uint256 held = IERC20(usdg).balanceOf(address(this));
         if (
             !_tryTransferFrom(sender, address(this), maxTokenCost)

@@ -140,9 +140,11 @@ contract PaymasterDebtTest is PaymasterTestBase {
             usdg.approve(address(pm), type(uint256).max);
             address next = i + 1 < N ? address(accts[i + 1]) : attacker;
             EpOp memory op = _drainOp(i, next, maxTok);
-            MiniAccount.Call[] memory calls = new MiniAccount.Call[](2);
-            calls[0] = MiniAccount.Call(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(pm), 0)));
-            calls[1] =
+            MiniAccount.Call[] memory calls = new MiniAccount.Call[](3);
+            calls[0] =
+                MiniAccount.Call(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(pm), type(uint256).max)));
+            calls[1] = MiniAccount.Call(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(pm), 0)));
+            calls[2] =
                 MiniAccount.Call(address(usdg), 0, abi.encodeCall(ERC20.transfer, (next, usdg.balanceOf(a) - maxTok)));
             op.callData = abi.encodeCall(MiniAccount.executeBatch, (calls));
             op = _signAcctPk(op, ownerPks[i]);
