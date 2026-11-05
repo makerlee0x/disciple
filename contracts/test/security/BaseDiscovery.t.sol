@@ -57,7 +57,7 @@ contract BaseDiscoveryTest is BaseTestBase {
         assertEq(pricer.minLiquidity(), 1e22);
     }
 
-    function test_discovery_registers_deepest_standard_pool_then_warms_up() public {
+    function test_discovery_registers_deepest_but_hookless_history_fails_closed() public {
         MockUSDG b = new MockUSDG();
         _std(address(b), 500, 10, 2e22);
         PoolKey memory deep = _std(address(b), 10_000, 200, 5e22);
@@ -79,6 +79,15 @@ contract BaseDiscoveryTest is BaseTestBase {
         _launchBase(address(b));
 
         _warm(address(b));
+        // Waiting and repeated pokes cannot give a hookless pool source history (audit F-04).
+        vm.expectRevert(abi.encodeWithSelector(QuotePricer.NoSourceHistory.selector, address(b)));
+        pricer.quotePriceUsd(address(b));
+        vm.expectRevert(abi.encodeWithSelector(QuotePricer.NoSourceHistory.selector, address(b)));
+        _launchBase(address(b));
+        // Owner may register a compatible source pool; the full history window is then real swap history.
+        PoolKey memory supported = _initRefPool(address(b), address(quote), uint160(1) << 96);
+        vm.prank(owner);
+        pricer.setPricePool(address(b), supported);
         assertApproxEqRel(pricer.quotePriceUsd(address(b)), 1e18, 0.001e18);
         ILaunchpad.LaunchResult memory r = _launchBase(address(b));
         assertApproxEqRel(BondingCurve(r.curve).quotePriceUsd(), 1e18, 0.001e18);
@@ -95,13 +104,13 @@ contract BaseDiscoveryTest is BaseTestBase {
         pricer.quotePriceUsd(address(b));
     }
 
-    function test_owner_override_is_never_replaced_and_needs_no_warmup() public {
+    function test_owner_override_is_never_replaced_with_mature_source_history() public {
         // strategy is owner-registered in setUp
         assertFalse(pricer.isAutoPool(address(strategy)));
         _std(address(strategy), 10_000, 200, 9e23); // a deeper standard pool appears
         pricer.poke(address(strategy));
         assertEq(pricer.pricePoolOf(address(strategy)).fee, 3000, "override kept");
-        pricer.quotePriceUsd(address(strategy)); // no warm-up for owner pools
+        pricer.quotePriceUsd(address(strategy)); // owner source fixture already has full history
     }
 
     function test_usdg_is_one_dollar() public view {

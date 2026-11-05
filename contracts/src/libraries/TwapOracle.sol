@@ -5,17 +5,11 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title Truncated, time-weighted tick oracle (ring buffer of tick accumulators)
-/// @notice Used by QuotePricer (reference pool, lagged mode). Generic: non-lagged mode suits hook-written pools.
-///         Ticks are always in "quote per token" orientation (callers convert pool ticks).
-/// @dev Manipulation resistance, Uniswap-v3 style:
-///      - at most one observation per block (the first write in a block wins);
-///      - callers write the PRE-trade tick, so a price set inside the current block has zero time weight until
-///        it survives into a later block (an add/pump/dump in one block cannot move the TWAP);
-///      - every write is clamped to `lastTick ± maxTickDelta` ("truncated oracle"), so even a price held across
-///        a block boundary can only move the recorded tick a bounded amount per block;
-///      - `lagged` writes (QuotePricer, whose reference pool does not write on its own swaps) apply the PREVIOUS
-///        recorded tick to the elapsed interval, so a permissionless poke after a flash move only affects the
-///        future and still has to be sustained across blocks.
+/// @notice Tick accumulator for swap-written source history. Ticks use the caller's chosen pool orientation.
+/// @dev Non-lagged, untruncated writes must run before EVERY source swap, with its actual pre-swap tick. This
+///      integrates the tick that really held over the elapsed interval. Same-timestamp swaps have zero time weight;
+///      the caller supplies the actual current source tick for tail extrapolation. Permissionless spot sampling,
+///      lagged writes, truncation or matching two samples alone do NOT establish persistence (audit F-04).
 library TwapOracle {
     uint16 internal constant CARDINALITY = 1024;
 
