@@ -105,9 +105,10 @@ in-range estimate, which reads high. v2 and v3 home sources need nothing.
     the last two source readings, so one dipped or spiked reading never decides it. Nothing is judged in the first
     day after launch (cross-chain: after the first price) or before two readings after launch (the launch reading
     itself never counts; a v4 source gives one reading per finished counter pass). Show "warming up" until then.
-  - `creatorOn`: the creator's 12% cut applies right now. It is judged when each interval is paid, against the same
-    two readings and a memory of the highest TVL seen twice in a row, which fades to nothing over one day of real
-    time. A source that really shrinks turns the cut back on within about a day; two spiked readings keep it off
+  - `creatorOn`: the creator's 12% cut applies right now. It is judged when each interval is paid and never flips
+    on one reading: it turns off only when two readings in a row show the pool below 12% of the source, and on only
+    when two readings in a row and a memory of the highest TVL seen twice in a row (fading to nothing over one day)
+    allow it. A source that really shrinks turns the cut back on within about a day; two spiked readings keep it off
     for at most a day.
   - `srcTvl`: the source's real TVL in quote units, the number Uniswap shows. v2: reserves. v3: the pool's token
     balances. v4: the hook counts the pool's liquidity ranges itself, 4 storage reads on the first trade of each
