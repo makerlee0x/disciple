@@ -163,8 +163,9 @@ class Ledger:
         self.dx += dx
         self.dy += dy
 
-    def settle(self, M, tvl, distribute=True, grad_tvl=None):
-        # tvl = creator-cut TVL, grad_tvl = graduation TVL (hook passes tvl >= grad_tvl); None = same as tvl
+    def settle(self, M, tvl, distribute=True, grad_tvl=None, off_tvl=None):
+        # creator cut turns on at 12% of tvl, off below 12% of off_tvl (<= tvl), else unchanged; graduation at 12% of
+        # grad_tvl (<= tvl). None = same as tvl (the single-TVL model)
         E = self.dy + (mul_div(self.dx, M, Q128) if self.dx >= 0 else -mul_div_up(-self.dx, M, Q128))
         self.dx = self.dy = 0
         if not distribute:
@@ -177,7 +178,13 @@ class Ledger:
         # creator cut judged now, before paying this interval (review D-02); LP payouts latch after
         on = self.creator_on
         if tvl > 0:
-            on = self.creator_on = V * 10_000 >= self.TARGET_BPS * tvl
+            if off_tvl is None:
+                off_tvl = tvl
+            if V * 10_000 >= self.TARGET_BPS * tvl:
+                on = True
+            elif V * 10_000 < self.TARGET_BPS * off_tvl:
+                on = False
+            self.creator_on = on
         # Spec: nothing is distributed if Q >= V. We also hold back Q > V/2 (a pathological one-interval gain) so the
         # 1/(V - D) terms stay bounded; it stays in share value pro rata.
         if 0 < Q and 2 * Q <= V:

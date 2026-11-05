@@ -512,8 +512,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             p.anchorX128 = p.sampleX128;
             // a v4 source's TVL is a new reading only when the counter finished a pass in this block
             _observe(p, tvl, s.kind != SRC_V4 || !p.walk.active);
-            (uint256 tc, uint256 tg) = _judge(p);
-            BK.settle(p.book, p.anchorX128, tc, tg, true);
+            (uint256 tOn, uint256 tOff, uint256 tg) = _judge(p);
+            BK.settle(p.book, p.anchorX128, tOn, tOff, tg, true);
             p.settledBlock = uint64(block.number);
             p.sampleX128 = spot;
             p.sampleBlock = uint64(block.number);
@@ -626,8 +626,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         if (p.book.dx == 0 && p.book.dy == 0) ageAtRequest = 0;
         // close the interval at the fresh mark (deferred mark); local-mode results stay pro rata
         _observe(p, tvl, true);
-        (uint256 tc, uint256 tg) = _judge(p);
-        BK.settle(p.book, price, tc, tg, !wasLocal);
+        (uint256 tOn, uint256 tOff, uint256 tg) = _judge(p);
+        BK.settle(p.book, price, tOn, tOff, tg, !wasLocal);
         uint256 old = p.anchorX128;
         p.anchorX128 = price;
         p.obsAt = observedAt;
@@ -668,10 +668,12 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     ///      so no single reading decides anything:
     ///      - graduation is judged against the higher of the last two readings, so a dip must be seen twice in a
     ///        row and a spike delays it by at most two readings;
-    ///      - the creator cut is judged against that and a memory: the highest reading confirmed by the next one
-    ///        (the lower of two in a row), fading linearly to 0 over TVL_MEMORY of real time. Pushing it up takes two
-    ///        spiked readings in a row and lasts at most TVL_MEMORY; pushing it down takes no honest pair of readings
-    ///        for TVL_MEMORY, then two dips in a row, and any honest reading undoes it at once.
+    ///      - the creator cut has hysteresis. It turns on only against the higher of the last two readings and a
+    ///        memory (the highest reading confirmed by the next one, the lower of two in a row, fading linearly to 0
+    ///        over TVL_MEMORY of real time). It turns off only against the lower of the last two readings. So one
+    ///        spike or one dip does nothing to it; two spikes in a row turn it off for at most TVL_MEMORY; turning it
+    ///        on by dips takes no honest pair of readings for TVL_MEMORY, then two dips in a row, and it stays on
+    ///        until two honest readings in a row.
     ///      The launch reading never counts, and nothing is judged before two later readings and the end of the
     ///      warm-up. Same chain v4: one reading per finished counter pass (the cached total is not new evidence).
     function _observe(Pool storage p, uint256 cur, bool fresh) internal {
@@ -694,12 +696,13 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         return age >= TVL_MEMORY ? 0 : Math.mulDiv(p.recTvl, TVL_MEMORY - age, TVL_MEMORY);
     }
 
-    /// @dev (creator-cut TVL, graduation TVL) for the ledger; (0, 0) = not judged yet (warm-up, too few readings).
-    function _judge(Pool storage p) internal view returns (uint256 c, uint256 g) {
-        if (block.timestamp < p.warmEnd || p.seen < 2) return (0, 0);
-        g = p.srcTvl > p.prevTvl ? p.srcTvl : p.prevTvl;
-        c = _rec(p);
-        if (g > c) c = g;
+    /// @dev TVLs for the ledger; all 0 = not judged yet (warm-up, too few readings). The creator cut turns on only
+    ///      if both of the last two readings and the memory allow it, and off only if both readings say so.
+    function _judge(Pool storage p) internal view returns (uint256 on, uint256 off, uint256 g) {
+        if (block.timestamp < p.warmEnd || p.seen < 2) return (0, 0, 0);
+        (g, off) = p.srcTvl > p.prevTvl ? (p.srcTvl, p.prevTvl) : (p.prevTvl, p.srcTvl);
+        on = _rec(p);
+        if (g > on) on = g;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -770,8 +773,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             // trades earlier in this block: close them now, at the mark the next block would use (this block's
             // source sample), so capital joining or leaving never shares in fees earned before it (review D-01)
             if (p.book.dx != 0 || p.book.dy != 0) {
-                (uint256 tc, uint256 tg) = _judge(p);
-                BK.settle(p.book, p.sampleX128, tc, tg, true);
+                (uint256 tOn, uint256 tOff, uint256 tg) = _judge(p);
+                BK.settle(p.book, p.sampleX128, tOn, tOff, tg, true);
             }
         } else if (p.book.dx != 0 || p.book.dy != 0 || p.local) {
             // cross chain: open trades are marked at the next fresh price; join after it lands

@@ -406,7 +406,10 @@ contract DiscipleDepthTest is Test {
         // the source grows 10x: the pool is now 3% of it
         pair.set(10_000_000e18, 20_000_000e18);
         _next();
-        _trade(key); // the larger TVL is seen at payout: no cut for the last block, cut off
+        _trade(key);
+        assertTrue(hook.poolState(id).creatorOn, "one reading alone never turns it off");
+        _next();
+        _trade(key); // seen twice at payout: no cut for the last block, cut off
         assertFalse(hook.poolState(id).creatorOn);
         assertTrue(hook.poolState(id).graduated, "LP payouts stay on");
         hook.claimCreator(id);

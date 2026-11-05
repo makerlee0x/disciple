@@ -216,13 +216,11 @@ contract ReviewFixesTest is DiscipleTest {
         assertTrue(hook.poolState(id).creatorOn);
         _step(12);
         _huge();
-        hook.withdraw(id, 1, 0, 0); // one spike: this reading and the next are judged high
+        hook.withdraw(id, 1, 0, 0); // one spike: does nothing to the cut
         _big();
-        assertFalse(hook.poolState(id).creatorOn);
+        assertTrue(hook.poolState(id).creatorOn);
         _read(id);
-        assertFalse(hook.poolState(id).creatorOn);
-        _read(id);
-        assertTrue(hook.poolState(id).creatorOn, "one spike is forgotten after two readings");
+        assertTrue(hook.poolState(id).creatorOn, "one spike never turns the cut off");
         // two spikes in a row: remembered, fading over a day
         for (uint256 i = 0; i < 2; i++) {
             _step(12);
@@ -269,8 +267,34 @@ contract ReviewFixesTest is DiscipleTest {
         assertTrue(hook.poolState(id).creatorOn, "two low readings a day apart");
     }
 
+    /// Re-check of 10d7437, R-01: one spiked reading while fees are waiting does not divert the creator's cut.
+    function test_review_D02_oneSpikeDoesNotDivertTheCreatorCut() public {
+        (PoolKey memory aKey, PoolId a) = _createSame(300_000e18, 600_000e18);
+        (PoolKey memory cKey, PoolId c) = _createSame(300_000e18, 600_000e18);
+        _ready(a);
+        hook.withdraw(c, 1, 0, 0);
+        _read(c);
+        _read(a);
+        hook.withdraw(c, 1, 0, 0);
+        hook.claimCreator(a);
+        hook.claimCreator(c);
+        _trade(aKey);
+        _swap(cKey, true, -int256(50e18));
+        _swap(cKey, false, -int256(20e18));
+        _step(12);
+        _huge();
+        hook.withdraw(a, 1, 0, 0); // the attacked pool settles on a spiked reading
+        _big();
+        hook.withdraw(c, 1, 0, 0); // the control on an honest one
+        uint256 pa = _creatorPaid(a);
+        uint256 pc = _creatorPaid(c);
+        assertGt(pc, 0);
+        assertEq(pa, pc, "the spike changes nothing");
+    }
+
     /// The accepted residual (AUDIT_BRIEF): after a full day with no honest pair of readings, two dips in a row turn
-    /// the cut on, but only until the next honest reading, and fees from a block an honest reading opened pay no cut.
+    /// the cut on, and it stays on until two honest readings in a row, so keeping it takes a dip at one of every
+    /// two touches.
     function test_review_D02_residualNeedsEveryTouch() public {
         (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
         _ready(id);
@@ -282,15 +306,17 @@ contract ReviewFixesTest is DiscipleTest {
             _big();
         }
         assertTrue(hook.poolState(id).creatorOn, "the residual: two dips after a quiet day");
+        _read(id); // one honest reading
+        assertTrue(hook.poolState(id).creatorOn, "one reading alone never flips it");
+        _read(id); // two in a row
+        assertFalse(hook.poolState(id).creatorOn, "two honest readings in a row end it");
         hook.claimCreator(id);
-        _step(12);
-        hook.withdraw(id, 1, 0, 0); // an honest reading opens this block
-        assertFalse(hook.poolState(id).creatorOn, "one honest reading ends it");
         _trade(key);
         _step(12);
-        _small(); // even a dip at the next touch: the honest reading is still paired in
+        _small(); // a dip at the next touch does not bring it back: the memory holds the honest pair
         hook.withdraw(id, 1, 0, 0);
         _big();
+        assertFalse(hook.poolState(id).creatorOn);
         assertEq(_creatorPaid(id), 0, "no cut on the honest block's fees");
     }
 

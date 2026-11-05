@@ -123,9 +123,10 @@ library DiscipleLedger {
     }
 
     /// @notice Close the interval: mark its flow at `markX128`, apply the loss carry, distribute, latch graduation.
-    ///         `creatorTvl` / `gradTvl` are the source TVL (quote wei) the creator cut and graduation are judged
-    ///         against (the hook passes creatorTvl >= gradTvl; 0 = not judged). Returns the distributable amount Q.
-    function settle(Book storage bk, uint256 markX128, uint256 creatorTvl, uint256 gradTvl, bool distribute)
+    ///         Source TVLs in quote wei (0 = not judged yet): the creator cut turns on when the pool is 12% of
+    ///         `onTvl` and off when it is below 12% of `offTvl` (the hook passes offTvl <= onTvl; in between it
+    ///         stays as it is); graduation latches at 12% of `gradTvl` (<= onTvl). Returns the distributable Q.
+    function settle(Book storage bk, uint256 markX128, uint256 onTvl, uint256 offTvl, uint256 gradTvl, bool distribute)
         internal
         returns (uint256 q)
     {
@@ -147,11 +148,12 @@ library DiscipleLedger {
             bk.lossCarry = uint256(int256(l) - e);
         }
         uint256 v = value(bk, markX128);
-        // The creator cut is judged NOW, before paying this interval (review D-02): a source that has recovered
-        // since the last settlement gets no cut. A zero TVL means "not known yet" and leaves it as it is.
+        // The creator cut is judged NOW, before paying this interval (review D-02), with hysteresis: one reading
+        // alone, high or low, never flips it. A zero TVL means "not known yet" and leaves it as it is.
         bool on = bk.creatorOn;
-        if (creatorTvl > 0) {
-            on = v * BPS >= TARGET_BPS * creatorTvl;
+        if (onTvl > 0) {
+            if (v * BPS >= TARGET_BPS * onTvl) on = true;
+            else if (v * BPS < TARGET_BPS * offTvl) on = false;
             bk.creatorOn = on;
         }
         bool grad = on || (gradTvl > 0 && v * BPS >= TARGET_BPS * gradTvl);
