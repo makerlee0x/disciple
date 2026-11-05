@@ -535,4 +535,154 @@ contract CompetitivenessGateTest is DiscipleTest {
         if (src >= sec) return 2;
         return 3;
     }
+
+    /// @notice Premium taxes only the side that benefits from the lag. After it fades, both sides are fee-only.
+    ///         Edges are trader output versus the named venue, in bps. Positive means the trader gets more from us.
+    ///         deep = the $4M source. twin = a $400k pool balanced at the source mid (same value as our book).
+    function test_gate9_seesaw() public {
+        _seesaw("UP", 2_020_000e18, true);
+        _seesaw("DOWN", 1_980_000e18, false);
+    }
+
+    function _seesaw(string memory tag, uint112 moved, bool premiumOnBuy) internal {
+        pair.set(1_000_000e18, 2_000_000e18);
+        (PoolKey memory key, PoolId id) = _deep(FEE);
+        _advance(60);
+        hook.sample(id);
+        pair.set(1_000_000e18, moved);
+        _advance(1);
+        hook.sample(id);
+        vm.roll(vm.getBlockNumber() + 1);
+        hook.sample(id);
+        assertEq(hook.poolState(id).premBuy, premiumOnBuy);
+        assertEq(_lagBps(hook.poolState(id).premAt), 400);
+
+        uint256 snap = vm.snapshotState();
+        uint256 ts = vm.getBlockTimestamp();
+        uint256 bn = vm.getBlockNumber();
+
+        _route(string.concat(tag, "_premium"), key, id);
+        (int256 buyBps, int256 sellBps) = _dustBps(key);
+        if (premiumOnBuy) {
+            assertGt(buyBps, 300, "up-move premium is on buys");
+            assertLt(sellBps, 80, "sells stay fee-only during the buy premium");
+        } else {
+            assertGt(sellBps, 300, "down-move premium is on sells");
+            assertLt(buyBps, 80, "buys stay fee-only during the sell premium");
+        }
+
+        _restore(snap, ts, bn);
+        _advance(30);
+        hook.sample(id);
+        assertEq(_lagBps(hook.poolState(id).premAt), 0);
+        _route(string.concat(tag, "_faded"), key, id);
+        (buyBps, sellBps) = _dustBps(key);
+        assertLt(buyBps, 80, "faded buy is fee-only");
+        assertLt(sellBps, 80, "faded sell is fee-only");
+        // A stuck 4% premium would be hundreds of bps worse than the same-fee source on a dust trade.
+        assertGt(_dustEdge(key, true, 3000), -40, "faded dust buy is not a stuck premium");
+        assertGt(_dustEdge(key, false, 3000), -40, "faded dust sell is not a stuck premium");
+
+        _restore(snap, ts, bn);
+        _pushTrade(key, premiumOnBuy, 10_000e18);
+        _advance(30);
+        hook.sample(id);
+        assertEq(_lagBps(hook.poolState(id).premAt), 0, "the trade does not restart the premium");
+        _route(string.concat(tag, "_faded_after_10k"), key, id);
+
+        _restore(snap, ts, bn);
+        _pushTrade(key, premiumOnBuy, 50_000e18);
+        _advance(30);
+        hook.sample(id);
+        _route(string.concat(tag, "_faded_after_50k"), key, id);
+        (buyBps, sellBps) = _dustBps(key);
+        if (premiumOnBuy) assertLt(sellBps, 80, "after a buy, the sell side is still fee-only once the premium fades");
+        else assertLt(buyBps, 80, "after a sell, the buy side is still fee-only once the premium fades");
+    }
+
+    function _restore(uint256 snap, uint256 ts, uint256 bn) internal {
+        vm.revertToState(snap);
+        vm.warp(ts);
+        vm.roll(bn);
+    }
+
+    /// @dev Trade the side the premium is taxing. Quote notional for a buy; the same quote value of coins for a sell.
+    function _pushTrade(PoolKey memory key, bool premiumOnBuy, uint256 quoteNotional) internal {
+        if (premiumOnBuy) _swap(key, true, -int256(quoteNotional));
+        else _swap(key, false, -int256(Math.mulDiv(quoteNotional, Q128, _srcMid())));
+    }
+
+    function _dustBps(PoolKey memory key) internal returns (int256 buyBps, int256 sellBps) {
+        uint256 mid = _srcMid();
+        uint256 coinIn = Math.mulDiv(1e18, Q128, mid);
+        uint256 cOut = _fill(key, true, 1e18);
+        uint256 qOut = _fill(key, false, coinIn);
+        buyBps = _overBps(Math.mulDiv(1e18, Q128, cOut), mid);
+        sellBps = _overBps(mid, Math.mulDiv(qOut, Q128, coinIn));
+    }
+
+    function _dustEdge(PoolKey memory key, bool buy, uint24 venueFee) internal returns (int256) {
+        uint256 mid = _srcMid();
+        uint256 amount = buy ? 1e18 : Math.mulDiv(1e18, Q128, mid);
+        uint256 us = _fill(key, buy, amount);
+        uint256 srcCoin = uint256(pair.r0());
+        uint256 srcQuote = uint256(pair.r1());
+        uint256 other = buy ? _cp(srcQuote, srcCoin, amount, venueFee) : _cp(srcCoin, srcQuote, amount, venueFee);
+        return _edgeBps(us, other);
+    }
+
+    function _route(string memory tag, PoolKey memory key, PoolId id) internal {
+        DiscipleHook.PoolView memory v = hook.poolState(id);
+        uint256 mid = _srcMid();
+        uint256 fair = Math.mulDiv(v.coinReserve, v.anchorX128, Q128);
+        console2.log(tag);
+        console2.log("  lagBps", _lagBps(v.premAt));
+        console2.log("  premBuy", v.premBuy ? uint256(1) : uint256(0));
+        console2.log("  coin", v.coinReserve);
+        console2.log("  quote", v.quoteReserve);
+        // Reserve quote versus coin marked at the anchor. A moved anchor with the seed reserves still in
+        // place prints about the size of that move. The quotes below are the execution prices, not this gap.
+        console2.log("  reserveVsAnchorBps", _edgeBps(v.quoteReserve, fair));
+        uint256 srcCoin = uint256(pair.r0());
+        uint256 srcQuote = uint256(pair.r1());
+        uint256 twinQuote = 200_000e18;
+        uint256 twinCoin = Math.mulDiv(twinQuote, Q128, mid);
+        uint256[4] memory notionals = [uint256(1e18), 100e18, 1000e18, 10_000e18];
+        for (uint256 i = 0; i < notionals.length; i++) {
+            _routeSize(key, notionals[i], mid, srcCoin, srcQuote, twinCoin, twinQuote);
+        }
+    }
+
+    function _routeSize(
+        PoolKey memory key,
+        uint256 usd,
+        uint256 mid,
+        uint256 srcCoin,
+        uint256 srcQuote,
+        uint256 twinCoin,
+        uint256 twinQuote
+    ) internal {
+        uint256 coinIn = Math.mulDiv(usd, Q128, mid);
+        uint256 usBuy = _fill(key, true, usd);
+        uint256 usSell = _fill(key, false, coinIn);
+        console2.log("  usd", usd / 1e18);
+        console2.log("  buyBpsVsMid", _overBps(Math.mulDiv(usd, Q128, usBuy), mid));
+        console2.log("  sellBpsVsMid", _overBps(mid, Math.mulDiv(usSell, Q128, coinIn)));
+        _vs("deep30", usBuy, usSell, _cp(srcQuote, srcCoin, usd, 3000), _cp(srcCoin, srcQuote, coinIn, 3000));
+        _vs("deep50", usBuy, usSell, _cp(srcQuote, srcCoin, usd, 5000), _cp(srcCoin, srcQuote, coinIn, 5000));
+        _vs("deep100", usBuy, usSell, _cp(srcQuote, srcCoin, usd, 10_000), _cp(srcCoin, srcQuote, coinIn, 10_000));
+        _vs("twin30", usBuy, usSell, _cp(twinQuote, twinCoin, usd, 3000), _cp(twinCoin, twinQuote, coinIn, 3000));
+    }
+
+    /// @dev Positive: the trader gets more output from us than from that venue.
+    function _vs(string memory venue, uint256 usBuy, uint256 usSell, uint256 oBuy, uint256 oSell) internal pure {
+        console2.log(string.concat("  buyEdge_", venue), _edgeBps(usBuy, oBuy));
+        console2.log(string.concat("  sellEdge_", venue), _edgeBps(usSell, oSell));
+    }
+
+    function _edgeBps(uint256 us, uint256 other) internal pure returns (int256) {
+        if (other == 0) return 0;
+        if (us >= other) return int256(Math.mulDiv(us - other, 10_000, other));
+        return -int256(Math.mulDiv(other - us, 10_000, other));
+    }
 }
