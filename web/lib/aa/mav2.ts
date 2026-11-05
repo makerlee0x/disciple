@@ -11,7 +11,7 @@ import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type Clien
 import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
 import { NonceCursor, GasCache, STATIC_GAS, gradSessionGas, FeeCache, callsKind, isGradBuyCalls, retryCalls, newPressId, tagPress, type GasLimits, type Fees, type SendOpts, type SendCallsOpts } from "./fastPath";
-import { clientFees, isLaunchCalls, INFRA_WORDING, TRADING_UNAVAILABLE, checkSelfPaid } from "./gasPolicy";
+import { clientFees, isLaunchCalls, INFRA_WORDING, TRADING_UNAVAILABLE } from "./gasPolicy";
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
 import { ENTRYPOINT_V07 } from "./constants";
@@ -206,6 +206,7 @@ export type UsdgGasOpts = { paymaster: Address; usdg: Address; url: string; sess
 export type Mav2Opts = { chain: Chain; pc: PublicClient; bundlerUrl: string; salt?: bigint; /** tests: always estimate on a cold preset */ noStaticGas?: boolean; usdgGas?: UsdgGasOpts; /** Embedded accounts must never fall back to ETH gas. */ requireUsdgGas?: boolean };
 /** Per-stage latency (ms) of one op. build = calldata+nonce+fees+gas, sign = signature, rpc = client→server→client,
  * server = self-bundler stages (sign tx, send, mined/receipt) when the sync method is used. */
+type PreparedPrepay = { client: Awaited<ReturnType<typeof createModularAccountV2Client>>; nonce?: bigint };
 export type OpTimings = { build: number; sign: number; rpc: number; total: number; fast: boolean; server?: Record<string, number> };
 export type SendResult = { userOpHash: Hex; txHash: Hex; receipt: UserOpReceipt; gasMode: GasMode; timings?: OpTimings; /** GAME: the press/reservation id (SendOpts.pressId) */ pressId?: string };
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
@@ -248,10 +249,10 @@ export class Mav2Account {
       salt: this.o.salt ?? BigInt(0), factoryAddress: MAV2_FACTORY,
     }).then(memoizeExecPrefix));
   }
-  private prepaidOwner?: Promise<{ client: any; nonce?: bigint }>;
+  private prepaidOwner?: Promise<PreparedPrepay>;
   private prepayReady = false;
   private prepayExpiry = 0;
-  async preparePrepay() {
+  async preparePrepay(): Promise<PreparedPrepay> {
     if (!this.o.usdgGas || this.prepayReady) return { client: await this.owned() };
     if (this.prepayExpiry > 0 && Date.now() / 1000 >= this.prepayExpiry - 30) this.prepaidOwner = undefined;
     return this.prepaidOwner ??= (async () => {
@@ -407,7 +408,7 @@ export class Mav2Account {
     const t0 = now();
     const session = as === "session" && this.sessionClient;
     if (this.o.requireUsdgGas && !this.o.usdgGas) throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: "prepaid USDG paymaster not configured" });
-    let prepared: { client: any; nonce?: bigint } | undefined;
+    let prepared: PreparedPrepay | undefined;
     try { prepared = !session && this.o.usdgGas ? await this.preparePrepay() : undefined; }
     catch { throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: "prepaid USDG approval bootstrap unavailable" }); }
     // A deferred SDK signer consumes its authorization when signing; never reuse it after an attempted send.
@@ -492,7 +493,6 @@ export class Mav2Account {
         return fail(e);
       }
       if (!gas && !launch && !grad && limits && !calls.some((c) => c.data.length < 10)) this.gas.set(kind, limits);
-      const t1 = now();
       const hash = userOpHash(wire, this.o.chain.id);
       tt?.mark("send"); opPhase({ phase: "sent", userOpHash: hash, pressId: o.pressId });
       const result = await this.sendRaw(wire, hash, kind, t0, fail, "usdg", o.pressId);

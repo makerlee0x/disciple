@@ -28,6 +28,7 @@ export class PaymasterRpcError extends Error { constructor(msg: string, public c
 
 /** Keep the standing allowance persistent; the policy debits the quote max, not this ERC20 allowance. */
 export function withPaymasterApprove(calls: Call[], usdg: Address, paymaster: Address, _maxTokenCost: bigint): Call[] {
+  void _maxTokenCost; // cap is signed in paymasterData; execution only preserves the standing allowance
   const pmWord = paymaster.slice(2).toLowerCase().padStart(64, "0");
   const isPmApprove = (c: Call) => c.to.toLowerCase() === usdg.toLowerCase() && c.data.slice(0, 10).toLowerCase() === "0x095ea7b3" && c.data.slice(10, 74).toLowerCase() === pmWord;
   const rest = calls.filter((c) => !isPmApprove(c));

@@ -15,7 +15,7 @@ import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
 import type { Mav2Account, UsdgGasOpts } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
-import { newPressId, tagPress, type SendCallsOpts, type SendOpts } from "./fastPath";
+import { newPressId, tagPress, type SendOpts } from "./fastPath";
 import { derivedGasReserve, type GasOpKind } from "./gasReserve";
 import { TRADING_UNAVAILABLE } from "./gasPolicy";
 import { policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
