@@ -41,7 +41,7 @@ contract SwapMathHarness {
     }
 
     function slopes(uint256 pRef, uint256 t, uint256 g) external pure returns (uint256, uint256) {
-        return M.slopes(pRef, t, g);
+        return M.slopes(pRef, t, g, g);
     }
 }
 
@@ -121,6 +121,19 @@ contract DiscipleSwapMathTest is Test {
         assertEq(h.markup(WAD, 3000), Math.mulDiv(WAD, 1e6, 997_000, Math.Rounding.Ceil));
         vm.expectRevert(M.BadParams.selector);
         h.markup(WAD, 1e6);
+    }
+
+    function test_slopesArePerSide() public view {
+        uint256 t = Q128;
+        uint256 gHi = h.markup(WAD + 4e16, 0);
+        uint256 gLo = h.markup(WAD, 0);
+        (uint256 kb, uint256 ks) = M.slopes(t, t, gHi, gLo);
+        (uint256 kbHi,) = M.slopes(t, t, gHi, gHi);
+        (, uint256 ksLo) = M.slopes(t, t, gLo, gLo);
+        assertEq(kb, kbHi, "buy slope follows gBuy");
+        assertEq(ks, ksLo, "sell slope follows gSell");
+        assertGt(kb, WAD);
+        assertEq(ks, WAD);
     }
 
     function test_slopesRoundTowardPool() public view {

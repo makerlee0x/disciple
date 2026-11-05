@@ -45,9 +45,10 @@ interface IV3PoolLike {
 ///         One deployment serves many pools. Permissionless: anyone creates a pool against any source.
 ///
 ///         Same chain (beside a v2, v3 or v4 source on this chain): the anchor is latched once per block from
-///         the source's spot as seen in an earlier block, a 4% premium fades linearly over 30 s after the anchor
-///         moves 0.25%, and every fill respects the live source boundary (ask >= source ask * 0.9999,
-///         bid <= source bid * 1.0001).
+///         the source's spot as seen in an earlier block. Anyone may call sample() to take that sample without a
+///         trade. A 4% premium fades linearly over 30 s from the sample that moved the anchor 0.25% (the sample
+///         time, not the later swap), and only on the side that benefits from the lag. Every fill respects the
+///         live source boundary (ask >= source ask * 0.9999, bid <= source bid * 1.0001).
 ///
 ///         Cross chain (new chain, anchor pushed from the home chain over LayerZero by a DisciplePushSender there
 ///         and authenticated by the DisciplePushReceiver here): the anchor is the last accepted push. Keepers push on
@@ -77,12 +78,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
 
     uint256 internal constant Q128 = 1 << 128;
     uint256 internal constant WAD = 1e18;
-    /// @dev Same-chain premium: 4% fading linearly over 30 s, reset when the anchor moves 0.25% from the reference.
-    uint256 internal constant PREMIUM = 4e16;
-    uint256 internal constant PREMIUM_TAU = 30;
+    /// @dev Same-chain premium resets when the anchor moves 0.25% from the reference. The 4% / 30 s fade and the
+    ///      1 bp match edge live in DiscipleBooks.sameQuote, so this contract does not carry that math.
     uint256 internal constant PREMIUM_RESET_BPS = 25;
-    /// @dev Same-chain match edge: 1 bp inside the source's quotes.
-    uint256 internal constant MATCH_EDGE_BPS = 1;
     /// @dev Pool fee bounds, in pips.
     uint24 internal constant MAX_FEE = 100_000;
     /// @dev v4 source depth counter: storage reads per block (first touch) and at createPool (creator pays).
@@ -136,8 +134,10 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint64 settledBlock; // same chain: last block the ledger settled
         uint256 sampleX128; // same chain: last source spot sampled
         uint64 sampleBlock;
+        uint64 sampleAt; // timestamp of sampleX128
         uint256 premRefX128; // same chain premium reset reference
-        uint64 premAt;
+        uint64 premAt; // sampleAt of the sample that last armed the premium
+        bool premBuy; // lag premium on buys (anchor rose); otherwise on sells
         uint256 srcTvl; // latest source TVL reading in quote raw; 0 = not known yet
         uint256 prevTvl; // the reading before it
         uint256 recTvl; // highest confirmed reading (the lower of two in a row), fading over TVL_MEMORY from recAt
@@ -311,9 +311,11 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             p.warmEnd = uint64(block.timestamp + WARM_UP);
             p.sampleX128 = spot;
             p.sampleBlock = uint64(block.number);
+            p.sampleAt = uint64(block.timestamp);
             p.anchorX128 = spot;
             p.premRefX128 = spot;
             p.premAt = uint64(block.timestamp);
+            p.premBuy = true; // no lag yet: the opening window charges the buy side
             p.settledBlock = uint64(block.number);
             _goLive(p, cp.coinIn, cp.quoteIn, spot, msg.sender);
         } else {
@@ -477,6 +479,16 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         return (IHooks.beforeSwap.selector, delta, 0);
     }
 
+    /// @notice Refresh a same-chain pool's source sample without a trade. Anyone may call. The first call in a
+    ///         block latches the previous sample as the anchor, the same way a swap does, and arms the lag premium
+    ///         from that sample's timestamp.
+    function sample(PoolId id) external lock {
+        Pool storage p = _known(id);
+        if (p.src.remoteEid != 0) revert BadParams();
+        if (!p.live) revert NotLive();
+        _latchSame(p);
+    }
+
     /// @dev Settle the books if due, update the anchor state, and return the curve slopes and boundaries.
     function _prepare(Pool storage p, PoolId id) internal returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps) {
         if (p.src.remoteEid == 0) return _prepareSame(p);
@@ -485,38 +497,37 @@ contract DiscipleHook is IHooks, IUnlockCallback {
 
     function _prepareSame(Pool storage p) internal returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps) {
         (uint256 spot, uint24 srcFee) = _latchSame(p);
-        uint256 a = p.anchorX128;
-        if (SM.movedBeyond(p.premRefX128, a, PREMIUM_RESET_BPS)) {
-            p.premRefX128 = a;
-            p.premAt = uint64(block.timestamp);
-        }
-        uint256 h = SM.premium(PREMIUM, PREMIUM_TAU, block.timestamp - p.premAt);
-        uint256 g = SM.markup(h, p.fee);
-        (kb, ks) = SM.slopes(a, p.tX128, g);
-        uint256 srcAsk = Math.mulDiv(spot, 1e6, 1e6 - srcFee, Math.Rounding.Ceil);
-        uint256 srcBid = Math.mulDiv(spot, 1e6 - srcFee, 1e6);
-        (pb, ps) = SM.matchBounds(srcAsk, srcBid, MATCH_EDGE_BPS);
+        return BK.sameQuote(p.anchorX128, p.tX128, p.fee, p.premAt, p.premBuy, spot, srcFee, block.timestamp);
     }
 
-    /// @dev Same chain, first touch of a block (swap or capital change): latch the newest source sample taken in
-    ///      an earlier block as the anchor and settle the last interval at it. Then sample the live source for the
-    ///      next block. Returns the live spot and the source fee for the match boundary.
+    /// @dev Same chain, first touch of a block (swap, capital change, or sample): latch the newest source sample
+    ///      taken in an earlier block as the anchor and settle the last interval at it. A 0.25% move arms the
+    ///      premium at that sample's timestamp, not at this touch. Then sample the live source for the next block.
+    ///      Returns the live spot and the source fee for the match boundary.
     function _latchSame(Pool storage p) internal returns (uint256 spot, uint24 srcFee) {
         uint256 s1;
         (spot, srcFee, s1) = _sourceSpot(p);
         if (spot == 0) revert NoAnchor();
         if (p.sampleBlock < block.number) {
+            uint64 sampledAt = p.sampleAt;
+            uint256 sampled = p.sampleX128;
             Source storage s = p.src;
             if (s.kind == SRC_V4) BK.walk(p.walk, poolManager, PoolId.wrap(s.v4Id), WALK_STEPS);
             uint256 tvl = _sourceTvl(p, s1, spot);
-            p.anchorX128 = p.sampleX128;
+            p.anchorX128 = sampled;
             // a v4 source's TVL is a new reading only when the counter finished a pass in this block
             _observe(p, tvl, s.kind != SRC_V4 || !p.walk.active);
             (uint256 tOn, uint256 tOff, uint256 tg) = _judge(p);
             BK.settle(p.book, p.anchorX128, tOn, tOff, tg, true);
             p.settledBlock = uint64(block.number);
+            if (SM.movedBeyond(p.premRefX128, sampled, PREMIUM_RESET_BPS)) {
+                p.premBuy = sampled > p.premRefX128;
+                p.premRefX128 = sampled;
+                p.premAt = sampledAt;
+            }
             p.sampleX128 = spot;
             p.sampleBlock = uint64(block.number);
+            p.sampleAt = uint64(block.timestamp);
         }
     }
 
@@ -530,7 +541,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             emit LocalMode(id, true);
         }
         (uint256 g, bool bandOn) = PR.markup(p.fee, age);
-        (kb, ks) = SM.slopes(a, p.tX128, g);
+        (kb, ks) = SM.slopes(a, p.tX128, g, g);
         (pb, ps) = PR.band(a, g, bandOn);
     }
 
@@ -804,6 +815,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 principal;
         uint256 compounded;
         uint256 lots;
+        uint64 premAt;
+        uint64 sampleAt;
+        bool premBuy;
     }
 
     function poolState(PoolId id) external view returns (PoolView memory v) {
@@ -824,6 +838,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         v.principal = b.sp;
         v.compounded = b.b;
         v.lots = b.count;
+        v.premAt = p.premAt;
+        v.sampleAt = p.sampleAt;
+        v.premBuy = p.premBuy;
     }
 
     /// @notice Lot info. Call from a static context for up-to-date figures (it checkpoints the lot).

@@ -3,8 +3,10 @@ pragma solidity 0.8.26;
 
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DiscipleLedger as LG} from "./libraries/DiscipleLedger.sol";
 import {DiscipleDepth as DP} from "./libraries/DiscipleDepth.sol";
+import {DiscipleSwapMath as SM} from "./libraries/DiscipleSwapMath.sol";
 
 /// @title DiscipleBooks
 /// @notice Linked (external) entry points for the LP ledger, so the hook stays under the 24 KB code limit. Each call
@@ -56,5 +58,26 @@ library DiscipleBooks {
 
     function poke(LG.Book storage bk, uint256 id) public returns (uint256, uint256, uint256, uint256) {
         return bk.poke(id);
+    }
+
+    /// @notice Same-chain slopes and match bounds. The 4% lag premium fades from `premAt` (the sample time) and
+    ///         is applied on one side: buys when `premBuy`, otherwise sells. The other side pays the fee only.
+    function sameQuote(
+        uint256 anchorX128,
+        uint256 tX128,
+        uint24 fee,
+        uint64 premAt,
+        bool premBuy,
+        uint256 spot,
+        uint24 srcFee,
+        uint256 nowTs
+    ) public pure returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps) {
+        uint256 h = SM.premium(4e16, 30, nowTs - premAt);
+        uint256 gOn = SM.markup(h, fee);
+        uint256 gOff = h == 1e18 ? gOn : SM.markup(1e18, fee);
+        (kb, ks) = SM.slopes(anchorX128, tX128, premBuy ? gOn : gOff, premBuy ? gOff : gOn);
+        uint256 srcAsk = Math.mulDiv(spot, 1e6, 1e6 - srcFee, Math.Rounding.Ceil);
+        uint256 srcBid = Math.mulDiv(spot, 1e6 - srcFee, 1e6);
+        (pb, ps) = SM.matchBounds(srcAsk, srcBid, 1);
     }
 }
