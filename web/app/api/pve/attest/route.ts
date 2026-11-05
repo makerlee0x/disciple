@@ -2,10 +2,10 @@
  * POST /api/pve/attest   Authorization: Bearer <Privy access token>   {wallet, coin?, relay?}
  *   → { wallet, expiry, coin, signature, loginGate, chainId, attester, txHash?, verifiedUntil? }
  *
- * Signs a LoginGate 'DisciplePVE' v1 LoginAttestation{wallet, expiry, coin, epoch} (lib/pveAttest) for a LOGIN-VERIFIED Privy
+ * Signs a LoginGate 'DisciplePVE' v1 LoginAttestation{wallet, expiry, coin, epoch, walletGen} (lib/pveAttest) for a LOGIN-VERIFIED Privy
  * user (email / Google / X linked) whose `wallet` is theirs (linked wallet, or the MAv2/LightAccount smart account it
- * owns). coin defaults to address(0) = every PVE coin. `epoch` is LoginGate.epoch(wallet, coin) so a revoke sticks
- * (audit F-05); expiry ≤ 24h (MAX_TTL).
+ * owns). coin defaults to address(0) = every PVE coin. Both LoginGate.epoch(wallet, coin) and walletGen(wallet) are
+ * read on-chain and signed so either level of revoke sticks (audit F-05); expiry ≤ 24h (MAX_TTL).
  * relay=true: the relayer EOA submits LoginGate.attest itself (permissionless) so session-key batches, which the
  * session policy won't let call LoginGate, still work; skipped when the wallet is already verified for > 1h.
  * Fails CLOSED: 503 when PVE_ATTESTER_PRIVATE_KEY / Privy config is missing, or the on-chain attester isn't this key.
@@ -85,9 +85,13 @@ export async function POST(req: Request) {
     const w = wallet as Address;
     const now = Math.floor(Date.now() / 1000);
     const expiry = now + attestTtl();
-    const epoch = Number(await client.readContract({ address: gate, abi: loginGateMiniAbi, functionName: "epoch", args: [w, coin] }));
-    const signature = await signLoginAttestation(account, { wallet: w, expiry, coin, epoch, chainId: ACTIVE_CHAIN.id, loginGate: gate });
-    const out: Record<string, unknown> = { wallet: w, expiry, coin, epoch, signature, loginGate: gate, chainId: ACTIVE_CHAIN.id, attester: account.address };
+    const [slotEpoch, globalEpoch] = await Promise.all([
+      client.readContract({ address: gate, abi: loginGateMiniAbi, functionName: "epoch", args: [w, coin] }),
+      client.readContract({ address: gate, abi: loginGateMiniAbi, functionName: "walletGen", args: [w] }),
+    ]);
+    const epoch = Number(slotEpoch), walletGen = Number(globalEpoch);
+    const signature = await signLoginAttestation(account, { wallet: w, expiry, coin, epoch, walletGen, chainId: ACTIVE_CHAIN.id, loginGate: gate });
+    const out: Record<string, unknown> = { wallet: w, expiry, coin, epoch, walletGen, signature, loginGate: gate, chainId: ACTIVE_CHAIN.id, attester: account.address };
 
     if (body.relay) {
       const until = Number(await client.readContract({ address: gate, abi: loginGateMiniAbi, functionName: "verifiedUntil", args: [w, coin] }));

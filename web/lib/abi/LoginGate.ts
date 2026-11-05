@@ -1,4 +1,4 @@
-// Hand-updated for audit F-05 (epoch-bound LoginAttestation). Regenerated shape from LoginGate.sol; redeploy + gen-abi before production use.
+// Production-solc ABI surface checked for audit F-05: slot + global epoch-bound attestations; redeploy required.
 export const loginGateAbi = [
   {
     "type": "constructor",
@@ -178,6 +178,45 @@ export const loginGateAbi = [
         "name": "epoch_",
         "type": "uint64",
         "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "digest",
+    "inputs": [
+      {
+        "name": "wallet",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expiry",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "coin",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "epoch_",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "walletGen_",
+        "type": "uint64"
       }
     ],
     "outputs": [

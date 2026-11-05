@@ -3,10 +3,11 @@
  * scripts/test-pve-attest.mts can unit-test it; the route is app/api/pve/attest.
  *
  * Contract facts (LoginGate, EIP712("DisciplePVE", "1")):
- *   LoginAttestation(address wallet,uint64 expiry,address coin,uint64 epoch)   coin = address(0) ⇒ every PVE coin
+ *   LoginAttestation(address wallet,uint64 expiry,address coin,uint64 epoch,uint64 walletGen)   coin = address(0) ⇒ every PVE coin
  *   attest(wallet, expiry, coin, sig): permissionless submit, requires block.timestamp < expiry ≤ now + MAX_TTL (24h),
- *   ECDSA.recover(digest(wallet,expiry,coin,epoch[wallet][coin])) == attester. Epoch is the on-chain revocation
- *   counter for that (wallet, coin); revoke increments it so an old signature cannot be replayed (audit F-05).
+ *   ECDSA.recover(digest(wallet,expiry,coin,epoch[wallet][coin],walletGen[wallet])) == attester. Epoch is the on-chain revocation
+ *   counter for that (wallet, coin); walletGen is the wallet-wide global-revocation epoch. Both are signed so
+ *   either level of revoke invalidates old coin signatures (audit F-05, owner-confirmed precedence).
  *   PVE curves read verifiedUntil(trader, coin) on the trader's next buy (trader = the token RECIPIENT, i.e. the smart
  *   account) and cache it for ≤ 10 min.
  * So the flow is a SEPARATE attest tx before the first PVE buy (not a signature passed into buy).
@@ -23,6 +24,7 @@ export const LOGIN_TYPES = {
     { name: "expiry", type: "uint64" },
     { name: "coin", type: "address" },
     { name: "epoch", type: "uint64" },
+    { name: "walletGen", type: "uint64" },
   ],
 } as const;
 /** LoginGate.MAX_TTL = 24h. Stay under it so chain/server clock skew can't trip TtlTooLong. */
@@ -37,9 +39,10 @@ export const loginGateMiniAbi = parseAbi([
   "function verifiedUntil(address wallet, address coin) view returns (uint64)",
   "function attester() view returns (address)",
   "function epoch(address wallet, address coin) view returns (uint64)",
+  "function walletGen(address wallet) view returns (uint64)",
 ]);
 
-export type Attestation = { wallet: Address; expiry: number; coin: Address; epoch: number; signature: Hex; loginGate: Address; chainId: number; attester: Address };
+export type Attestation = { wallet: Address; expiry: number; coin: Address; epoch: number; walletGen: number; signature: Hex; loginGate: Address; chainId: number; attester: Address };
 
 export function attestTtl(env: Record<string, string | undefined> = process.env): number {
   const n = Number(env.PVE_ATTEST_TTL_SEC);
@@ -55,13 +58,13 @@ export function attesterAccount(env: Record<string, string | undefined> = proces
 
 export async function signLoginAttestation(
   account: NonNullable<ReturnType<typeof attesterAccount>>,
-  a: { wallet: Address; expiry: number; coin: Address; epoch: number; chainId: number; loginGate: Address },
+  a: { wallet: Address; expiry: number; coin: Address; epoch: number; walletGen: number; chainId: number; loginGate: Address },
 ): Promise<Hex> {
   return account.signTypedData({
     domain: { name: PVE_DOMAIN_NAME, version: PVE_DOMAIN_VERSION, chainId: a.chainId, verifyingContract: a.loginGate },
     types: LOGIN_TYPES,
     primaryType: "LoginAttestation",
-    message: { wallet: a.wallet, expiry: BigInt(a.expiry), coin: a.coin, epoch: BigInt(a.epoch) },
+    message: { wallet: a.wallet, expiry: BigInt(a.expiry), coin: a.coin, epoch: BigInt(a.epoch), walletGen: BigInt(a.walletGen) },
   });
 }
 

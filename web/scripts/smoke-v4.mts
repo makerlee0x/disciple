@@ -81,13 +81,17 @@ try { encodeLaunchCall(params, 3); ok(false, "mode 3 must throw"); } catch { ok(
 // 5) LoginGate: digest parity + attest simulation with the attester slot overridden to a throwaway key
 const acct = attesterAccount({ PVE_ATTESTER_PRIVATE_KEY: generatePrivateKey() })!;
 const wallet = someone, expiry = Math.floor(Date.now() / 1000) + 3600, coin = "0x0000000000000000000000000000000000000000" as Address;
-const epoch = Number(await pc.readContract({ address: D.loginGate, abi: loginGateAbi, functionName: "epoch", args: [wallet, coin] }).catch(() => 0n));
+const [slotEpoch, globalEpoch] = await Promise.all([
+  pc.readContract({ address: D.loginGate, abi: loginGateAbi, functionName: "epoch", args: [wallet, coin] }),
+  pc.readContract({ address: D.loginGate, abi: loginGateAbi, functionName: "walletGen", args: [wallet] }),
+]);
+const epoch = Number(slotEpoch), walletGen = Number(globalEpoch);
 const onchainDigest = await pc.readContract({ address: D.loginGate, abi: loginGateAbi, functionName: "digest", args: [wallet, BigInt(expiry), coin] });
-const ours = hashTypedData({ domain: { name: "DisciplePVE", version: "1", chainId: 46630, verifyingContract: D.loginGate }, types: LOGIN_TYPES, primaryType: "LoginAttestation", message: { wallet, expiry: BigInt(expiry), coin, epoch: BigInt(epoch) } });
+const ours = hashTypedData({ domain: { name: "DisciplePVE", version: "1", chainId: 46630, verifyingContract: D.loginGate }, types: LOGIN_TYPES, primaryType: "LoginAttestation", message: { wallet, expiry: BigInt(expiry), coin, epoch: BigInt(epoch), walletGen: BigInt(walletGen) } });
 ok(onchainDigest === ours, `LoginGate.digest == our EIP-712 hash (${ours.slice(0, 18)}…)`);
 const slot2 = await pc.getStorageAt({ address: D.loginGate, slot: toHex(2, { size: 32 }) });
 ok(lc(`0x${slot2!.slice(26)}`) === lc(dep.deployer), "LoginGate storage: owner @ slot 2 (attester @ slot 3)");
-const sig = await signLoginAttestation(acct, { wallet, expiry, coin, epoch, chainId: 46630, loginGate: D.loginGate });
+const sig = await signLoginAttestation(acct, { wallet, expiry, coin, epoch, walletGen, chainId: 46630, loginGate: D.loginGate });
 const attestData = encodeFunctionData({ abi: loginGateAbi, functionName: "attest", args: [wallet, BigInt(expiry), coin, sig] });
 try { await pc.call({ account: someone, to: D.loginGate, data: attestData }); ok(false, "attest without registered attester should revert"); }
 catch (e) { ok(/BadSignature|revert/i.test(String((e as Error).message)), "attest reverts BadSignature while LoginGate.attester == 0 (owner must setAttester)"); }

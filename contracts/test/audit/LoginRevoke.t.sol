@@ -88,4 +88,39 @@ contract LoginRevokeTest is Test {
         _attest(alice, exp, coin);
         assertEq(gate.verifiedUntil(alice, coin), exp);
     }
+
+    function test_globalRevokeRejectsOldCoinSignature() public {
+        uint64 exp = uint64(block.timestamp + 12 hours);
+        bytes memory sig = _sign(alice, exp, coin, gate.epoch(alice, coin));
+        gate.attest(alice, exp, coin, sig);
+        vm.prank(owner);
+        gate.revoke(alice, address(0));
+        assertEq(gate.verifiedUntil(alice, coin), 0);
+        vm.expectRevert(LoginGate.BadSignature.selector);
+        gate.attest(alice, exp, coin, sig);
+        assertEq(gate.verifiedUntil(alice, coin), 0);
+    }
+
+    function test_freshCoinSignatureAfterGlobalRevokeDoesNotReviveOldExpiry() public {
+        _attest(alice, uint64(block.timestamp + 12 hours), coin);
+        vm.prank(owner);
+        gate.revoke(alice, address(0));
+        uint64 freshExpiry = uint64(block.timestamp + 1 hours);
+        _attest(alice, freshExpiry, coin);
+        assertEq(gate.verifiedUntil(alice, coin), freshExpiry);
+    }
+
+    function test_globalReattestCannotBypassCoinRevoke() public {
+        _attest(alice, uint64(block.timestamp + 12 hours), coin);
+        vm.prank(owner);
+        gate.revoke(alice, coin);
+        vm.prank(owner);
+        gate.revoke(alice, address(0));
+        _attest(alice, uint64(block.timestamp + 12 hours), address(0));
+        assertEq(gate.verifiedUntil(alice, coin), 0, "coin revoke still wins over a fresh global login");
+        _attest(alice, uint64(block.timestamp + 1 hours), coin);
+        assertEq(
+            gate.verifiedUntil(alice, coin), block.timestamp + 12 hours, "fresh coin login restores global fallback"
+        );
+    }
 }
