@@ -377,7 +377,7 @@ export class Mav2Account {
 
   private async sendCalls1(calls: Call[], so: SendCallsOpts & { pressId: string }): Promise<SendResult> {
     const as = so.as ?? "owner", feeRetry = so.feeRetry ?? true;
-    const o: SendOpts = { rebuild: so.rebuild, pressId: so.pressId };
+    const o: SendOpts = { rebuild: so.rebuild, pressId: so.pressId, selfPay: so.selfPay };
     const tt = so.tt;   // trade timing (lib/trade/timing): first attempt only, retries don't carry it
     const t0 = now();
     const session = as === "session" && this.sessionClient;
@@ -418,7 +418,7 @@ export class Mav2Account {
     };
 
     // ---- USDG gas (DisciplePaymaster): quote → exact approve first → signed paymasterData → relay
-    if (this.usdgGasFor(as)) {
+    if (!so.selfPay && this.usdgGasFor(as)) {
       const pm = this.o.usdgGas!;
       const f = fees ?? await withinBudget(FEES.get(() => fetchFees(client as unknown as FeeClient)), COLD_FEES_MS, "fees");
       // Frozen after the first build ⇒ every phase prices the same gas. A session op can't be estimated without its

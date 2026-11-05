@@ -47,6 +47,7 @@ for (const dec of [18, 6]) {
   const cfg: QuoteConfig = { paymaster: PM, usdg: USDG, usdgDecimals: dec, rate: RATE };
   const deps = (o: Partial<QuoteDeps> = {}): QuoteDeps => ({
     now: () => 1_790_000_000, debtOf: async () => BigInt(0), balanceOf: async () => BigInt(1_000_000) * BigInt(10) ** BigInt(dec),
+    allowanceOf: async () => BigInt(1_000_000) * BigInt(10) ** BigInt(dec),
     bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxCostCap: BigInt(5) * BigInt(10) ** BigInt(dec) }),
     baseFee: async () => BASE, sign: (h) => signer.signMessage({ message: { raw: h } }), ...o,
   });
@@ -165,8 +166,9 @@ for (const dec of [18, 6]) {
 
   test(`[${dec}-dec] final refuses: no approve, under, too far over, over cap, balance, wrong chain/EP/paymaster, fee 0`, async () => {
     const d = deps();
-    const noApprove: UserOp = { ...baseOp(batch([trade], true)), paymaster: PM };
-    await rejects(finalQuote(noApprove, ENTRYPOINT_V07, 46630, cfg, d), "approve");
+    const noStanding: UserOp = { ...baseOp(batch([trade], true)), paymaster: PM };
+    await rejects(finalQuote(noStanding, ENTRYPOINT_V07, 46630, cfg, deps({ allowanceOf: async () => BigInt(0) })), "approve");
+    // standing allowance alone is enough (exact first-call approve is optional for the server)
     await rejects((await twoPhase(d, true, (x) => x - BigInt(1))).final(), "approve");
     await rejects((await twoPhase(d, true, (x) => x + (x * DEFAULT_MAX_SLACK_BPS) / BigInt(10_000) + BigInt(1))).final(), "approve");
     await (await twoPhase(d, true, (x) => x + (x * DEFAULT_MAX_SLACK_BPS) / BigInt(10_000))).final(); // at the slack edge: OK
@@ -240,6 +242,7 @@ for (const dec of [18, 6]) {
   const cfg: QuoteConfig = { paymaster: PM, usdg: USDG, usdgDecimals: dec, rate: RATE };
   const deps = (o: Partial<QuoteDeps> = {}): QuoteDeps => ({
     now: () => 1_790_000_000, debtOf: async () => BigInt(0), balanceOf: async () => BigInt(1_000_000) * BigInt(10) ** BigInt(dec),
+    allowanceOf: async () => BigInt(1_000_000) * BigInt(10) ** BigInt(dec),
     bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxCostCap: BigInt(5) * BigInt(10) ** BigInt(dec) }),
     baseFee: async () => BASE, sign: (h) => signer.signMessage({ message: { raw: h } }), ...o,
   });

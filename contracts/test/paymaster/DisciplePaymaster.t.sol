@@ -38,7 +38,7 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         assertApproxEqRel(charged, actualTok, 0.03e18, "charge ~ actual gas");
         assertGe(charged, actualTok, "never below the real cost (no sponsorship)");
         assertLt(charged, maxTok / 2, "not charged the max");
-        assertEq(pm.debtOf(address(acct)), 0);
+        assertEq(pm.owedOf(address(acct)), 0);
     }
 
     function test_executeUserOpPrefix_MAv2Shape() public {
@@ -140,7 +140,7 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         uint256 r = rate * 11;
         uint256 maxTok = pm.tokenCost(_maxCost(), r);
         vm.prank(owner);
-        pm.setBounds(rate / 10, rate * 10, maxTok * 2);
+        pm.setBounds(rate / 10, rate * 10, 100 * 10 ** dec);
         EpOp memory op_1 = _full(_approveThen(maxTok, _transferCall(sink, 1)), r, maxTok);
         vm.expectRevert(_aa33(abi.encodeWithSelector(DisciplePaymaster.RateOutOfBounds.selector, r)));
         _send(op_1);
@@ -183,6 +183,8 @@ contract DisciplePaymasterTest is PaymasterTestBase {
 
     function test_revert_noAllowanceNoApprove() public {
         uint256 maxTok = _maxTok();
+        vm.prank(address(acct));
+        usdg.approve(address(pm), 0);
         bytes memory cd = abi.encodeCall(MiniAccount.execute, (address(usdg), 0, abi.encodeCall(ERC20.transfer, (sink, 7))));
         EpOp memory op_6 = _full(cd, rate, maxTok);
         vm.expectRevert(_aa33(abi.encodeWithSelector(DisciplePaymaster.InsufficientUsdgAllowance.selector, 0, maxTok)));
@@ -191,6 +193,8 @@ contract DisciplePaymasterTest is PaymasterTestBase {
 
     function test_revert_approveTooSmall() public {
         uint256 maxTok = _maxTok();
+        vm.prank(address(acct));
+        usdg.approve(address(pm), 0);
         EpOp memory op_7 = _full(_approveThen(maxTok - 1, _transferCall(sink, 1)), rate, maxTok);
         vm.expectRevert(_aa33(abi.encodeWithSelector(DisciplePaymaster.InsufficientUsdgAllowance.selector, 0, maxTok)));
         _send(op_7);
@@ -198,6 +202,8 @@ contract DisciplePaymasterTest is PaymasterTestBase {
 
     function test_revert_approveNotFirst() public {
         uint256 maxTok = _maxTok();
+        vm.prank(address(acct));
+        usdg.approve(address(pm), 0);
         MiniAccount.Call[] memory c = new MiniAccount.Call[](2);
         c[0] = _transferCall(sink, 1);
         c[1] = _approve(maxTok);
@@ -208,6 +214,8 @@ contract DisciplePaymasterTest is PaymasterTestBase {
 
     function test_revert_approveOtherToken() public {
         uint256 maxTok = _maxTok();
+        vm.prank(address(acct));
+        usdg.approve(address(pm), 0);
         MockUSDG fake = new MockUSDG(dec);
         MiniAccount.Call[] memory c = new MiniAccount.Call[](2);
         c[0] = MiniAccount.Call(address(fake), 0, abi.encodeCall(ERC20.approve, (address(pm), maxTok)));
@@ -236,49 +244,43 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         pm.postOp(PostOpMode.opSucceeded, "", 0, 0);
     }
 
-    // ───────── no sponsorship: failed pulls become debt, collected next op ─────────
+    // ───────── AUDIT F-01: precharge settles even when the user call reverts or tries to drain ─────────
 
-    function test_revertedBatch_recordsDebt_thenCollected() public {
+    function test_revertedBatch_stillPaysFromPrecharge() public {
         uint256 maxTok = _maxTok();
+        uint256 bal0 = usdg.balanceOf(address(acct));
         MiniAccount.Call memory boom = MiniAccount.Call(address(rev), 0, abi.encodeCall(Reverter.fail, ()));
-        (bool ok,,) = _sendRecord(_full(_approveThen(maxTok, boom), rate, maxTok));
+        (bool ok,, uint256 charged) = _sendRecord(_full(_approveThen(maxTok, boom), rate, maxTok));
         assertFalse(ok, "inner reverted");
-        uint256 debt = pm.debtOf(address(acct));
-        assertGt(debt, 0, "debt recorded");
-        assertEq(usdg.balanceOf(treasury), 0);
-
-        // next quote without the debt is refused
-        nonceKey = 1;
-        uint256 noDebt = pm.tokenCost(_maxCost(), rate);
-        EpOp memory op_10 = _full(_approveThen(noDebt, _transferCall(sink, 1)), rate, noDebt);
-        vm.expectRevert(_aa33(abi.encodeWithSelector(DisciplePaymaster.MaxCostTooLow.selector, noDebt, noDebt + debt)));
-        _send(op_10);
-
-        // with the debt included it is collected
-        uint256 withDebt = _maxTok();
-        assertEq(withDebt, noDebt + debt);
-        (bool ok2,, uint256 charged) = _sendRecord(_full(_approveThen(withDebt, _transferCall(sink, 1)), rate, withDebt));
-        assertTrue(ok2);
-        assertEq(pm.debtOf(address(acct)), 0, "debt cleared");
-        assertEq(usdg.balanceOf(treasury), charged + debt, "gas + old debt collected");
+        assertEq(pm.owedOf(address(acct)), 0, "no debt: precharge settled");
+        assertGt(charged, 0);
+        assertEq(usdg.balanceOf(treasury), charged);
+        assertEq(usdg.balanceOf(address(acct)), bal0 - charged, "unused precharge refunded");
     }
 
-    function test_userDrainsUsdgInBatch_recordsDebt() public {
+    function test_userDrainsUsdgInBatch_stillPaysFromPrecharge() public {
         uint256 maxTok = _maxTok();
         uint256 bal = usdg.balanceOf(address(acct));
-        (bool ok,,) = _sendRecord(_full(_approveThen(maxTok, _transferCall(sink, bal)), rate, maxTok));
-        assertTrue(ok, "user call itself succeeded");
-        assertGt(pm.debtOf(address(acct)), 0, "pull failed -> debt");
-        assertEq(usdg.balanceOf(treasury), 0);
+        // transfer(full pre-op bal) reverts after precharge reduced the balance; gas still paid.
+        (bool ok,, uint256 charged) = _sendRecord(_full(_approveThen(maxTok, _transferCall(sink, bal)), rate, maxTok));
+        assertFalse(ok, "drain transfer reverts after precharge");
+        assertEq(pm.owedOf(address(acct)), 0, "no debt");
+        assertGt(usdg.balanceOf(treasury), 0);
+        assertEq(usdg.balanceOf(treasury), charged);
+        assertEq(usdg.balanceOf(sink), 0);
     }
 
-    function test_forgiveDebt_ownerOnly() public {
-        test_userDrainsUsdgInBatch_recordsDebt();
+    function test_circuitBreakers_ownerOnly() public {
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
-        pm.forgiveDebt(address(acct));
+        pm.setPaused(true);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
+        pm.setExposureLimit(1);
         vm.prank(owner);
-        pm.forgiveDebt(address(acct));
-        assertEq(pm.debtOf(address(acct)), 0);
+        pm.setPaused(true);
+        assertTrue(pm.paused());
+        vm.prank(owner);
+        pm.setExposureLimit(1);
+        assertEq(pm.exposureLimit(), 1);
     }
 
     // ───────── owner / deposit / stake ─────────

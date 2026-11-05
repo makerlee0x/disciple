@@ -14,7 +14,7 @@ interface IDecimals {
 ///              PAYMASTER_MIN_RATE / PAYMASTER_MAX_RATE (USDG raw units per 1 ETH),
 ///              PAYMASTER_MAX_COST_USDG (WHOLE USDG, scaled by usdg.decimals(); default DEFAULT_MAX_COST_USDG;
 ///              must be within [0.1, 100] USDG; the old raw-unit PAYMASTER_MAX_COST is rejected),
-///              PAYMASTER_DEPOSIT_WEI, PAYMASTER_STAKE_WEI (owner-broadcast only), PAYMASTER_POST_OP_GAS (default 30k)
+///              PAYMASTER_DEPOSIT_WEI, PAYMASTER_STAKE_WEI (owner-broadcast only), PAYMASTER_POST_OP_GAS (default 40k)
 ///         forge script script/DeployPaymaster.s.sol --rpc-url https://rpc.testnet.chain.robinhood.com --broadcast
 contract DeployPaymaster is Script {
     address constant ENTRYPOINT_V07 = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
@@ -42,7 +42,7 @@ contract DeployPaymaster is Script {
             vm.envUint("PAYMASTER_MIN_RATE"),
             vm.envUint("PAYMASTER_MAX_RATE"),
             maxCost,
-            vm.envOr("PAYMASTER_POST_OP_GAS", uint256(30_000))
+            vm.envOr("PAYMASTER_POST_OP_GAS", uint256(40_000))
         );
         uint256 dep = vm.envOr("PAYMASTER_DEPOSIT_WEI", uint256(0));
         if (dep != 0) pm.deposit{value: dep}();

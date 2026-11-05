@@ -114,11 +114,11 @@ abstract contract PaymasterTestBase is Test {
     uint256 constant CALL_GAS = 300_000;
     uint256 constant VERIF_GAS = 150_000;
     uint256 constant PVG = 60_000;
-    uint256 constant PM_VERIF_GAS = 120_000;
-    uint256 constant PM_POSTOP_GAS = 80_000;
+    uint256 constant PM_VERIF_GAS = 150_000;
+    uint256 constant PM_POSTOP_GAS = 120_000;
     uint256 constant MAX_FEE = 2 gwei;
     uint256 constant TIP = 1 gwei;
-    uint256 constant POST_OP_GAS = 30_000;
+    uint256 constant POST_OP_GAS = 40_000;
 
     uint256 rate; // USDG raw per 1e18 wei
     uint8 dec;
@@ -138,6 +138,9 @@ abstract contract PaymasterTestBase is Test {
         vm.deal(address(this), 10 ether);
         pm.deposit{value: 1 ether}();
         usdg.mint(address(acct), 1_000 * 10 ** d);
+        // AUDIT F-01: payment is precharged from a standing allowance (same-batch approve is not enough).
+        vm.prank(address(acct));
+        usdg.approve(address(pm), type(uint256).max);
         vm.fee(0.5 gwei);
         vm.warp(1_790_000_000);
     }
@@ -149,7 +152,7 @@ abstract contract PaymasterTestBase is Test {
     }
 
     function _maxTok() internal view returns (uint256) {
-        return pm.tokenCost(_maxCost(), rate) + pm.debtOf(address(acct));
+        return pm.tokenCost(_maxCost(), rate) + pm.owedOf(address(acct));
     }
 
     function _approve(uint256 amt) internal view returns (MiniAccount.Call memory) {

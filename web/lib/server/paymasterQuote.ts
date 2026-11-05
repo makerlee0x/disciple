@@ -25,7 +25,7 @@ import { launchTargets } from "../aa/launchTargets";
 import { chainGradReads, isGradBuyOp } from "./gradBuy";
 import { assertSignerMatches, PAYMASTER_CHAIN_ID, PaymasterQuoteError, paymasterSignerKey, rateFromEnv, type QuoteConfig, type QuoteDeps } from "./paymasterCore";
 
-const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)", "function decimals() view returns (uint8)"]);
+const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)", "function allowance(address,address) view returns (uint256)", "function decimals() view returns (uint8)"]);
 const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { fetchOptions: { keepalive: true }, timeout: 3000, retryCount: 1 })   /* job 9: bounded pre-send (viem default 10 s × 3 retries) */ });
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
 const ZERO = "0x0000000000000000000000000000000000000000";
@@ -82,6 +82,7 @@ export function quoteDeps(cfg: QuoteConfig): QuoteDeps {
     now: () => Math.floor(Date.now() / 1000),
     debtOf: (s) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: "owedOf", args: [s] }),
     balanceOf: (s) => pc.readContract({ address: cfg.usdg, abi: erc20, functionName: "balanceOf", args: [s] }),
+    allowanceOf: (s) => pc.readContract({ address: cfg.usdg, abi: erc20, functionName: "allowance", args: [s, cfg.paymaster] }),
     async bounds() {
       if (boundsCache && Date.now() - boundsCache.at < 60_000) return boundsCache.v;
       const [minRate, maxRate, maxCostCap] = await Promise.all((["minRate", "maxRate", "maxCostCap"] as const).map((f) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: f })));

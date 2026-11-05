@@ -23,12 +23,11 @@ export const PAYMASTER_AND_DATA_LENGTH = 193;
 export const MAX_QUOTE_WINDOW_SEC = 3600;
 /** Gas limits the server signs; must stay ≤ lib/aa/gasPolicy GAS_CAPS.paymaster*. postOp is a single transferFrom. */
 export const PAYMASTER_GAS = {
-  verificationGasLimit: BigInt(120_000), // measured ≈ 45–60k (ecrecover + balanceOf + allowance/calldata walk)
-  postOpGasLimit: BigInt(80_000),        // measured ≈ 30–45k (transferFrom + event); contract's flat postOpGas = 30k
+  verificationGasLimit: BigInt(150_000), // ecrecover + balanceOf + allowance + transferFrom precharge (F-01)
+  postOpGasLimit: BigInt(120_000),       // treasury transfer + sender refund (F-01 precharge)
 } as const;
 
 export const disciplePaymasterAbi = parseAbi([
-  "function debtOf(address) view returns (uint256)",
   "function signer() view returns (address)",
   "function treasury() view returns (address)",
   "function usdg() view returns (address)",
@@ -38,14 +37,10 @@ export const disciplePaymasterAbi = parseAbi([
   "function postOpGas() view returns (uint256)",
   "function getDeposit() view returns (uint256)",
   "function reservedOf(address) view returns (uint256)",
-  "function reservedBy(address) view returns (bytes32)",
-  "function rolledOf(address) view returns (uint256)",
   "function owedOf(address) view returns (uint256)",
   "function getHash(address sender, uint48 validUntil, uint48 validAfter, uint256 rate, uint256 maxTokenCost) view returns (bytes32)",
   "function deposit() payable",
   "event UserOperationCharged(bytes32 indexed userOpHash, address indexed sender, uint256 gasCostToken, uint256 debtRepaid, uint256 rate)",
-  "event DebtRecorded(bytes32 indexed userOpHash, address indexed sender, uint256 amount, uint256 totalDebt)",
-  "event ReservationRolled(bytes32 indexed userOpHash, address indexed sender, uint256 amount, uint256 totalRolled)",
 ]);
 const erc20Abi = parseAbi(["function approve(address spender, uint256 amount) returns (bool)"]);
 const execAbi = parseAbi([
@@ -98,7 +93,7 @@ export function decodePaymasterData(data: Hex): PaymasterQuote & { signature: He
 /** keccak256("DisciplePaymaster.Allowance(v1)") — DisciplePaymaster.ALLOWANCE_TYPEHASH. */
 export const ALLOWANCE_TYPEHASH = keccak256(toHex("DisciplePaymaster.Allowance(v1)"));
 /** DisciplePaymaster.MIN_PM_POST_OP_GAS_LIMIT: the contract refuses an op whose paymasterPostOpGasLimit is lower. */
-export const MIN_PM_POST_OP_GAS_LIMIT = BigInt(60_000);
+export const MIN_PM_POST_OP_GAS_LIMIT = BigInt(100_000);
 
 /**
  * DisciplePaymaster.getHash(sender, validUntil, validAfter, rate, maxTokenCost) — the per-sender ALLOWANCE the signer
@@ -166,6 +161,7 @@ export function firstCallApproveAmount(callData: Hex, usdg: Address, paymaster: 
     return a.args[1];
   } catch { return null; }
 }
+
 
 /** Human USDG amount (for "not enough USDG" messages) — decimals-aware, never hard-codes 1e18. */
 export function formatUsdg(amount: bigint, decimals: number, dp = 4): string {

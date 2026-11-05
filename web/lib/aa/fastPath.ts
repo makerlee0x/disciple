@@ -105,6 +105,8 @@ export class FeeCache {
  * moved the curve, so re-sending them verbatim would just revert on min-out. Fee-floor retries keep the same calls.
  */
 export type SendOpts = {
+  /** Owner-funded setup only: bypass USDG paymaster to establish its standing allowance. */
+  selfPay?: boolean;
   rebuild?: () => Promise<Call[]>;
   /** One id per PRESS, kept across its retries (set by sendCalls when absent): the relay doesn't count retries of the
    * same press toward the per-sender limit (spec item 10, lib/server/limits.hitSenderSend). */

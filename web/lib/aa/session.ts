@@ -9,7 +9,7 @@
  * Without a deployed policy (NEXT_PUBLIC_SESSION_POLICY unset) trades fall back to owner-signed userOps
  * (Privy signs silently: showWalletUIs=false). aa/policy.ts stays as a client-side UX pre-check.
  */
-import { createPublicClient, createWalletClient, custom, keccak256, type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
+import { createPublicClient, createWalletClient, custom, keccak256, parseAbi, type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
@@ -526,7 +526,27 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
     ttlSec: opts.ttlSec ?? SESSION_TTL_MS / 1000, maxSlippageBps,
     permissions: sessionPermissions(sk.TRADE_PERMS), // + P_REFERRAL when NEXT_PUBLIC_REFERRAL_ATTRIBUTE=1
   });
-  const r = await sa.sendCalls([{ to: account, data: s.data }], "owner");
+  // F-01: payment must be secured in validation; bootstrap during background setup, never on a trade tap.
+  // If the standing allowance is absent/small, the SAME owner-funded setup op approves USDG and installs the session.
+  const usdgGas = usdgGasConfig();
+  let setupCalls: Call[] = [{ to: account, data: s.data }];
+  let selfPay = false;
+  if (usdgGas) {
+    const { paymasterApproveCall } = await import("./paymaster");
+    const standing = await publicClient().readContract({
+      address: usdgGas.usdg, abi: parseAbi(["function allowance(address,address) view returns (uint256)"]),
+      functionName: "allowance", args: [account, usdgGas.paymaster],
+    });
+    // Cover any supported quote tier (the existing on-chain maxCostCap), not just a standard trade.
+    const cap = await publicClient().readContract({
+      address: usdgGas.paymaster, abi: parseAbi(["function maxCostCap() view returns (uint256)"]), functionName: "maxCostCap",
+    });
+    if (standing < cap) {
+      setupCalls = [paymasterApproveCall(usdgGas.usdg, usdgGas.paymaster, (BigInt(1) << BigInt(256)) - BigInt(1)), ...setupCalls];
+      selfPay = true;
+    }
+  }
+  const r = await sa.sendCalls(setupCalls, { as: "owner", selfPay });
   onchain = { account, entityId: s.entityId, key, validUntil: s.validUntil, maxSlippageBps, policy: SESSION_POLICY,
     caps: Object.fromEntries(caps.map((c) => [c.token.toLowerCase(), c.cap.toString()])), spent: {} };
   saveSessionKey(); userEndedOneTap = false; setOneTapOff(lsStore(), account, false);
