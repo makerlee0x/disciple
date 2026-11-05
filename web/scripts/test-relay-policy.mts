@@ -84,9 +84,12 @@ test("rate limiter: fixed window per key, retry-after, store errors fall back to
   const k2 = `t2:${Math.random()}`;
   assert.equal((await hitLimit(broken, k2, 1, 60)).ok, true); assert.equal((await hitLimit(broken, k2, 1, 60)).ok, false);
   const h = (m: Record<string, string>) => ({ get: (n: string) => m[n] ?? null });
-  assert.equal(clientIp(h({ "x-forwarded-for": "1.2.3.4, 10.0.0.1" })), "1.2.3.4");
-  assert.equal(clientIp(h({ "x-real-ip": "5.6.7.8", "x-forwarded-for": "1.2.3.4" })), "5.6.7.8");
-  assert.equal(clientIp(h({})), "unknown");
+  // without a trusted proxy, client-supplied forwarding headers are ignored
+  assert.equal(clientIp(h({ "x-forwarded-for": "1.2.3.4, 10.0.0.1" }), {}), "unknown");
+  // Vercel / TRUSTED_PROXY=1: platform (or your reverse proxy) overwrites these
+  assert.equal(clientIp(h({ "x-forwarded-for": "1.2.3.4, 10.0.0.1" }), { VERCEL: "1" }), "1.2.3.4");
+  assert.equal(clientIp(h({ "x-real-ip": "5.6.7.8", "x-forwarded-for": "1.2.3.4" }), { TRUSTED_PROXY: "1" }), "5.6.7.8");
+  assert.equal(clientIp(h({}), { VERCEL: "1" }), "unknown");
 });
 
 test("paymaster ops: only our paymaster, deposit must cover the max prefund at >= the relayer floor; self-pay untouched", () => {

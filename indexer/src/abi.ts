@@ -8,7 +8,9 @@ export const HOOK_TRADE =
   "event Trade(address indexed token, address indexed trader, bool isBuy, uint256 quoteAmt, uint256 tokenAmt, uint256 fee, uint256 snipeFee, uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps, uint160 sqrtPriceAfter)";
 
 /** LPDonation (removed in PR #44) is intentionally not decoded. FeesClaimed / SnipeFeeRoutedToLP stay for older stacks.
- * Every event the indexer stores (union across stacks; old stacks simply never emit the newer ones). */
+ * Every event the indexer stores (union across stacks; old stacks simply never emit the newer ones).
+ * BACKFILL (F-08): after deploying this ABI, wipe/reindex each stack from its fromBlock (or drop fee_events for
+ * SnipeEscrow* and re-sync the curve address set) then reconcile GET /rewards and /coins/:t/fee-routing against vault balances. */
 export const EVENTS = parseAbi([
   "event Launched(address indexed token, address indexed curve, address indexed creator, address quote, string name, string ticker, uint256 creatorTaxBps)",
   "event QuotePriced(address indexed token, address indexed quote, uint256 quotePriceUsd)",
@@ -44,6 +46,9 @@ export const EVENTS = parseAbi([
   "event Claimed(address indexed token, address indexed stealthOwner, address to, address asset, uint256 amount)",
   "event StealthOwnerTransferred(address indexed token, address indexed from, address indexed to)",
   "event RewardAccrued(address indexed token, address indexed asset, uint256 amount)",
+  // current curves: plain transfer + event (no FeeRouter.routeSnipeFee / RewardAccrued) — index without double-counting legacy
+  "event SnipeEscrowReleased(address indexed token, address indexed vault, uint256 amount)",
+  "event SnipeEscrowToLP(address indexed token, uint256 amount)",
   "event Distributed(address indexed asset, address indexed to, uint256 amount)",
   // flow/jit-twap (PR #44) additions
   "event LaunchTierContext(address indexed token, uint256 startMcapUsd, uint256 graduationMcapUsd, uint256 totalSupply, uint8 decimals_)",
