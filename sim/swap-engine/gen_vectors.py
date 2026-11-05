@@ -22,9 +22,9 @@ def pool(usd_side, price, dc=18, dq=6):
     return u, v, mulDiv(v, Q128, u)
 
 # Scenario A: $2.5k a side, coin $0.001 (18 dec), USDG 6 dec, 0.3% fee, anchor at seed, premium on/off
-for prem_t, tag in ((10**6, "no premium"), (0, "fresh 4% premium"), (30, "premium 30s old")):
+for prem_t, tag in ((10**6, "no premium"), (0, "fresh 4% premium"), (1, "premium 1s old")):
     u, v, T = pool(2500, 0.001)
-    G = markup(premium(4 * 10**16, 30, prem_t), 3000)
+    G = markup(premium(4 * 10**16, 1, prem_t), 3000)
     kb, ks = slopes(T, T, G)
     for usd in (0.01, 1, 77, 1000, 10000):
         add(0, u, v, kb, 0, int(usd * 1e6), f"A buy ${usd} in, {tag}")

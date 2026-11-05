@@ -314,16 +314,125 @@ contract DiscipleTest is Test {
 
     function test_premiumFades() public {
         (PoolKey memory key,) = _createSame(1000e18, 2000e18);
-        _nextBlock();
+        vm.roll(vm.getBlockNumber() + 1); // same second: the opening premium is still the full 4%
         uint256 c0 = coin.balanceOf(address(this));
         _swap(key, true, -int256(2e18));
         uint256 early = coin.balanceOf(address(this)) - c0;
-        vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 60); // premium gone
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.warp(vm.getBlockTimestamp() + 1); // one second later the premium is off
         c0 = coin.balanceOf(address(this));
         _swap(key, true, -int256(2e18));
         uint256 late = coin.balanceOf(address(this)) - c0;
-        assertGt(late, early, "same spend buys more after the premium fades");
+        assertGt(late, early, "same spend buys more once one second has passed");
+    }
+
+    /// Quiet pool: sample() refreshes the spot with no trade, and the premium clock is that sample's time.
+    function test_quietPool_sampleRefreshesAndPremAtEqualsSampleAt() public {
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        DiscipleHook.PoolView memory v = hook.poolState(id);
+        assertEq(v.premAt, v.sampleAt, "creation arms the premium at the sample");
+        assertEq(v.premAt, uint64(vm.getBlockTimestamp()));
+
+        _nextBlock();
+        vm.warp(vm.getBlockTimestamp() + 60);
+        vm.prank(address(0xBEEF));
+        hook.sample(id); // no tokens, no trade
+        v = hook.poolState(id);
+        assertEq(v.sampleAt, uint64(vm.getBlockTimestamp()));
+        assertLt(v.premAt, v.sampleAt, "an unchanged spot does not re-arm");
+
+        pair.set(1_000_000e18, 2_020_000e18); // +1%, past the 0.25% reset
+        _nextBlock();
+        hook.sample(id);
+        uint64 sampleTime = uint64(vm.getBlockTimestamp());
+        v = hook.poolState(id);
+        assertEq(v.sampleAt, sampleTime, "sample() stored the moved spot");
+        assertLt(v.premAt, sampleTime, "the move is armed when that sample becomes the anchor");
+
+        uint256 snap = vm.snapshotState();
+        uint256 snapTs = vm.getBlockTimestamp();
+        uint256 snapBn = vm.getBlockNumber();
+        vm.roll(vm.getBlockNumber() + 1); // same second as the recording sample: full 4%
+        hook.sample(id);
+        v = hook.poolState(id);
+        assertEq(v.premAt, sampleTime, "premAt is the sample time");
+        assertTrue(v.premBuy, "up move");
+        assertEq(v.anchorX128, Math.mulDiv(2_020_000e18, Q128, 1_000_000e18), "anchor is the sampled spot");
+        uint256 freshBuy = _coinsOut(key, true, 2e18);
+
+        vm.revertToState(snap);
+        vm.warp(snapTs);
+        vm.roll(snapBn);
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
+        hook.sample(id);
+        v = hook.poolState(id);
+        assertEq(v.premAt, sampleTime, "a later adopt does not restart the clock");
+        assertGt(vm.getBlockTimestamp(), uint256(v.premAt), "one second has passed since the sample");
+        uint256 quietBuy = _coinsOut(key, true, 2e18);
+        assertGt(quietBuy, freshBuy, "the premium has faded since the sample, not since this call");
+    }
+
+    function test_lagPremiumBuyWhenAnchorRises() public {
+        (PoolKey memory key, PoolId id) = _armMove(2_020_000e18, 0);
+        assertTrue(hook.poolState(id).premBuy);
+        uint256 buyEarly = _coinsOut(key, true, 2e18);
+        uint256 sellEarly = _coinsOut(key, false, 1e18);
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
+        uint256 buyLate = _coinsOut(key, true, 2e18);
+        uint256 sellLate = _coinsOut(key, false, 1e18);
+        assertGt(buyLate, buyEarly, "buys pay the lag premium, then it fades");
+        assertApproxEqRel(sellEarly, sellLate, 0.001e18, "sells do not pay the up-move premium");
+    }
+
+    function test_lagPremiumSellWhenAnchorFalls() public {
+        (PoolKey memory key, PoolId id) = _armMove(1_980_000e18, 0);
+        assertFalse(hook.poolState(id).premBuy);
+        uint256 buyEarly = _coinsOut(key, true, 2e18);
+        uint256 sellEarly = _coinsOut(key, false, 1e18);
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
+        uint256 buyLate = _coinsOut(key, true, 2e18);
+        uint256 sellLate = _coinsOut(key, false, 1e18);
+        assertGt(sellLate, sellEarly, "sells pay the lag premium, then it fades");
+        assertApproxEqRel(buyEarly, buyLate, 0.001e18, "buys do not pay the down-move premium");
+    }
+
+    function test_sampleRejectsCrossChainAndUnknown() public {
+        (, PoolId id) = _createCross(1000e18, 2000e18, 0);
+        vm.expectRevert(DiscipleHook.BadParams.selector);
+        hook.sample(id);
+        vm.expectRevert(DiscipleHook.UnknownPool.selector);
+        hook.sample(PoolId.wrap(bytes32(uint256(1))));
+    }
+
+    /// @dev Clear the opening premium, record a spot that has moved, and adopt it `age` seconds after that sample.
+    ///      `age` 0 stays in the sample's own second, so the 1-second premium is still the full 4%.
+    function _armMove(uint112 quoteReserve, uint256 age) internal returns (PoolKey memory key, PoolId id) {
+        (key, id) = _createSame(1000e18, 2000e18);
+        _nextBlock();
+        vm.warp(vm.getBlockTimestamp() + 60);
+        hook.sample(id);
+        pair.set(1_000_000e18, quoteReserve);
+        _nextBlock();
+        hook.sample(id);
+        vm.roll(vm.getBlockNumber() + 1);
+        if (age != 0) vm.warp(vm.getBlockTimestamp() + age);
+        hook.sample(id);
+    }
+
+    function _coinsOut(PoolKey memory key, bool buy, uint256 amountIn) internal returns (uint256 out) {
+        uint256 snap = vm.snapshotState();
+        uint256 ts = vm.getBlockTimestamp();
+        uint256 bn = vm.getBlockNumber();
+        MockERC20 token = buy ? coin : usd;
+        uint256 b0 = token.balanceOf(address(this));
+        _swap(key, buy, -int256(amountIn));
+        out = token.balanceOf(address(this)) - b0;
+        vm.revertToState(snap);
+        vm.warp(ts);
+        vm.roll(bn);
     }
 
     function _cp(DiscipleHook.Source memory s, PoolKey memory k) internal view returns (DiscipleHook.CreateParams memory) {

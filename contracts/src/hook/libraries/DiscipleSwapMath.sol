@@ -8,7 +8,7 @@ import {FixedPointMathLib as FPM} from "./vendor/FixedPointMathLib.sol";
 /// @notice Pure pricing for one Disciple pool at frozen external state. No storage, no LP or payout logic.
 ///
 ///         Curve (lambda = 1). With coin reserve u and quote reserve v, the marginal price is k * v/u, where
-///             k = C * G on buys and C / G on sells,  C = P_ref / T,  G = H / (1 - f).
+///             k = C * G_buy on buys and C / G_sell on sells,  C = P_ref / T,  G = H / (1 - f).
 ///         P_ref is the anchor price, T the seed ratio v0/u0, H the price-move premium and f the per-side fee.
 ///         On a curve segment v * u^k is constant, so every fill has a closed form:
 ///             buy, quote in Q:   u1 = u0 * (v0 / (v0 + Q))^(1/k)
@@ -162,12 +162,17 @@ library DiscipleSwapMath {
         return Math.mulDiv(h, FEE_DENOM, FEE_DENOM - fee, Math.Rounding.Ceil);
     }
 
-    /// @notice Curve slopes from the anchor P_ref and seed ratio T (both X128) and markup G.
-    ///         kBuy = C * G rounded up (higher ask); kSell = C / G rounded down (lower bid).
-    function slopes(uint256 pRefX128, uint256 tX128, uint256 g) internal pure returns (uint256 kBuy, uint256 kSell) {
-        if (pRefX128 == 0 || tX128 == 0 || g < WAD) revert BadParams();
-        kBuy = Math.mulDiv(pRefX128, g, tX128, Math.Rounding.Ceil);
-        kSell = Math.mulDiv(Math.mulDiv(pRefX128, WAD, tX128), WAD, g);
+    /// @notice Curve slopes from the anchor P_ref and seed ratio T (both X128) and per-side markups.
+    ///         kBuy = C * gBuy rounded up (higher ask); kSell = C / gSell rounded down (lower bid).
+    ///         Pass the same markup twice for a symmetric spread. The hook passes the lag premium on one side only.
+    function slopes(uint256 pRefX128, uint256 tX128, uint256 gBuy, uint256 gSell)
+        internal
+        pure
+        returns (uint256 kBuy, uint256 kSell)
+    {
+        if (pRefX128 == 0 || tX128 == 0 || gBuy < WAD || gSell < WAD) revert BadParams();
+        kBuy = Math.mulDiv(pRefX128, gBuy, tX128, Math.Rounding.Ceil);
+        kSell = Math.mulDiv(Math.mulDiv(pRefX128, WAD, tX128), WAD, gSell);
         if (kSell == 0) revert BadParams();
     }
 
