@@ -1,10 +1,6 @@
 /**
- * Client side of the PVE login gate (v4). Before the first PVE curve buy (and at most once per attestation lifetime)
- * the trader needs LoginGate.verifiedUntil(trader, coin) > now. Flow:
- *   1. read verifiedUntil (global attestation, coin = 0, covers every PVE coin) — skip if valid for > 2 min;
- *   2. POST /api/pve/attest with the Privy access token, relay=true → the server verifies the login and relays
- *      LoginGate.attest from the relayer EOA (works with one-tap session keys, which may not call LoginGate);
- *   3. if the relay is unavailable, return the attest call so the caller prepends it to the (owner-signed) batch.
+ * Global PVE login: read verifiedUntil(trader), then obtain a Privy-backed signature if needed.
+ * Return the global attest call for the user's owner-signed batch; users pay gas, with no server relay.
  * The trader is the token RECIPIENT of the curve buy (the smart account), which is what the curve checks.
  */
 import { encodeFunctionData, type Address, type Hex, type PublicClient } from "viem";
@@ -22,14 +18,14 @@ async function privyAccessToken(): Promise<string | null> {
   try { const m = await import("@privy-io/react-auth"); return (await m.getAccessToken()) ?? null; } catch { return null; }
 }
 
-export async function pveVerifiedUntil(pc: PublicClient, trader: Address, coin: Address = ZERO): Promise<number> {
+export async function pveVerifiedUntil(pc: PublicClient, trader: Address): Promise<number> {
   const gate = deployment().loginGate;
   if (gate === ZERO) return 0;
-  return Number(await pc.readContract({ address: gate, abi: loginGateAbi, functionName: "verifiedUntil", args: [trader, coin] }));
+  return Number(await pc.readContract({ address: gate, abi: loginGateAbi, functionName: "verifiedUntil", args: [trader] }));
 }
 
 /**
- * Calls to prepend before a PVE buy by `trader` ([] when already verified or the server relayed the attestation).
+ * Calls to prepend before a PVE buy by `trader` ([] when already verified).
  * Throws PveError with user-facing copy when the user can't be attested (no Privy login, unverified login, …).
  */
 /** Upper bound on the whole PVE login check (on-chain read + token + attest) before a trade gives up. */
@@ -54,9 +50,9 @@ async function ensurePveLogin1(pc: PublicClient, trader: Address, opts: { fetchF
   if (!token) throw new PveError("PveLoginRequired", "Easy rockets need you signed in to BOOST. Sign in with X, email or wallet.");
   const r = await (opts.fetchFn ?? fetch)("/api/pve/attest", {
     method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify({ wallet: trader, relay: true }),
+    body: JSON.stringify({ wallet: trader }),
   });
-  const j = (await r.json().catch(() => ({}))) as { error?: string; signature?: Hex; expiry?: number; coin?: Address; relayed?: boolean; already?: boolean; verifiedUntil?: number };
+  const j = (await r.json().catch(() => ({}))) as { error?: string; signature?: Hex; expiry?: number };
   if (!r.ok || !j.signature) {
     const M: Record<string, string> = {
       login_not_verified: "Sign in with X, email or wallet to BOOST Easy rockets.",
@@ -67,9 +63,17 @@ async function ensurePveLogin1(pc: PublicClient, trader: Address, opts: { fetchF
     };
     throw new PveError("PveAttestFailed", M[j.error ?? ""] ?? `PVE login check failed (${j.error ?? r.status}).`);
   }
-  if (j.relayed || j.already) { until.set(k, j.verifiedUntil ?? j.expiry ?? 0); return []; }
-  // Relay unavailable: submit it ourselves in the same batch (owner-signed; the session policy can't call LoginGate).
-  return [{ to: gate, data: encodeFunctionData({ abi: loginGateAbi, functionName: "attest", args: [trader, BigInt(j.expiry!), j.coin ?? ZERO, j.signature] }) }];
+  // Submit in the user-paid owner-signed batch; the session policy cannot call LoginGate.
+  return [{ to: gate, data: encodeFunctionData({ abi: loginGateAbi, functionName: "attest", args: [trader, BigInt(j.expiry!), j.signature] }) }];
+}
+
+/**
+ * USDG route quotes enforce login before building the buy. Complete a separate USER-PAID owner-signed
+ * login setup first (not a server relay); send must resolve only after successful inclusion.
+ */
+export async function ensurePveLoginOnchain(pc: PublicClient, trader: Address, send: (calls: Call[]) => Promise<unknown>, opts: Parameters<typeof ensurePveLogin>[2] = {}): Promise<void> {
+  const calls = await ensurePveLogin(pc, trader, opts);
+  if (calls.length) await send(calls);
 }
 
 /** test hook */

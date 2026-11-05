@@ -458,9 +458,9 @@ test("GradHint: warm answers without RPC (no ⇒ smaller amounts no, yes ⇒ lar
 test("audit r106 round 3: grad buy may carry LoginGate.attest / ReferralRegistry.tryAttribute prefixes (protocol-viem order), exactly", async () => {
   const REG = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", GATE = "0xcccccccccccccccccccccccccccccccccccccccc", PM = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const refAbi = parseAbi(["function tryAttribute(address wallet, address referrer)", "function setAttestor(address a, bool ok)"]);
-  const gateAbi = parseAbi(["function attest(address wallet, uint64 expiry, address coin, bytes sig)", "function setAttester(address a)"]);
+  const gateAbi = parseAbi(["function attest(address wallet, uint64 expiry, bytes sig)", "function setAttester(address a)"]);
   const tryAttr = (to = REG, wallet = SENDER) => ({ to, data: encodeFunctionData({ abi: refAbi, functionName: "tryAttribute", args: [wallet as Hex, OTHER as Hex] }) });
-  const attest = (to = GATE) => ({ to, data: encodeFunctionData({ abi: gateAbi, functionName: "attest", args: [SENDER as Hex, BigInt(1_900_000_000), Z as Hex, ("0x" + "11".repeat(65)) as Hex] }) });
+  const attest = (to = GATE) => ({ to, data: encodeFunctionData({ abi: gateAbi, functionName: "attest", args: [SENDER as Hex, BigInt(1_900_000_000), ("0x" + "11".repeat(65)) as Hex] }) });
   const g = curveBuy(REMAINING), rb = routerBuy(REMAINING);
   const aC = approveTo(USDG, CURVE, REMAINING), aR = approveTo(USDG, ROUTER, REMAINING), pmA = approveTo(USDG, PM, BigInt(1_000_000));
   const cfg = { referralRegistry: REG, loginGate: GATE };

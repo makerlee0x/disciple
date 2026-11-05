@@ -78,7 +78,7 @@ export const LAUNCH_SELECTORS: ReadonlySet<string> = new Set(
 /** Calls allowed next to a launch: the exact First BOOST approve and the PVE LoginGate.attest (#99 ensurePveLogin). */
 const LAUNCH_HELPERS = new Set([
   toFunctionSelector("function approve(address,uint256)"),
-  toFunctionSelector("function attest(address wallet, uint64 expiry, address coin, bytes sig)"),
+  toFunctionSelector("function attest(address wallet, uint64 expiry, bytes sig)"),
 ].map((x) => x.toLowerCase()));
 const accountAbi = parseAbi([
   "function execute(address target, uint256 value, bytes data)",
@@ -172,7 +172,7 @@ export type InOpApproval = { token: string; spender: string; amount: bigint };
  *    must carry — set only when the op's paymaster field IS our paymaster;
  *  - `referralRegistry`: ReferralRegistry.tryAttribute(sender, referrer) (protocol-viem referralCall, first buy of a
  *    referred wallet); `sender` binds its `wallet` arg (the registry reverts NotWalletOrAttestor otherwise);
- *  - `loginGate`: LoginGate.attest(wallet, expiry, coin, sig) (lib/pve ensurePveLogin, relay-unavailable fallback).
+ *  - `loginGate`: LoginGate.attest(wallet, expiry, sig) (lib/pve ensurePveLogin, user-paid owner batch).
  */
 export type GradShapeOpts = { usdg?: string; paymaster?: string; referralRegistry?: string; loginGate?: string; sender?: string };
 /** `c` decoded as ERC-20 approve(spender, amount) on `c.to`, else null (selector AND full decode required). */
@@ -184,7 +184,7 @@ function asApprove(c: { to: string; data: string }): InOpApproval | null {
   } catch { return null; }
 }
 const referralAbi = parseAbi(["function tryAttribute(address wallet, address referrer)"]);
-const loginGateAttestAbi = parseAbi(["function attest(address wallet, uint64 expiry, address coin, bytes sig)"]);
+const loginGateAttestAbi = parseAbi(["function attest(address wallet, uint64 expiry, bytes sig)"]);
 const TRY_ATTRIBUTE_SEL = toFunctionSelector(referralAbi[0]).toLowerCase();
 const ATTEST_SEL = toFunctionSelector(loginGateAttestAbi[0]).toLowerCase();
 const sameAddr = (a: string | undefined, b: string | undefined) => !!a && !!b && !/^0x0{40}$/i.test(b) && a.toLowerCase() === b.toLowerCase();
@@ -206,13 +206,13 @@ function asExactCall(c: { to: string; data: string; value?: bigint }, target: st
  * prefix regression):
  *
  *   [ usdg.approve(paymaster, x)?          ← only for a USDG-gas op, only when `pm` names the op's paymaster + USDG
- *   , LoginGate.attest(w, exp, coin, sig)? ← at most one, target = the configured LoginGate
+ *   , LoginGate.attest(w, exp, sig)? ← at most one, target = the configured LoginGate
  *   , ReferralRegistry.tryAttribute(sender, ref)? ← at most one, target = the configured ReferralRegistry
  *   , approve(quoteToken, spender, y)*     ← zero or more, ALL on one token, spender = the buy's target (curve / router)
  *   , buy ]                                ← the literal LAST call (curve buy / buyFor, router buyWithUsdg / buyExactIn)
  *
  * This is the order protocol-viem emits: tradeOnce [...pveCalls, ...refCalls, ...approveCalls, buy], tradeViaUsdg
- * [...refCalls, approve, buyWithUsdg] (its attest path throws PveRelayUnavailable), with paymasterClient putting the
+ * [...refCalls, approve, buyWithUsdg] (its global login setup is user-paid before quoting), with paymasterClient putting the
  * paymaster approve first. The two prefix calls are value-0, fully decoded, on OUR contracts: tryAttribute only writes
  * ReferralRegistry's own pending/referrer maps, attest only LoginGate's verifiedUntil — neither calls a token or the
  * account, so neither moves funds nor changes any allowance, and the post-approve funding state below is unchanged.

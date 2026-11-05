@@ -64,18 +64,17 @@ export const launchpadModesAbi = parseAbi([
 export const modesErrorsAbi = parseAbi([
   "error BadMode()", "error LoginGateUnset()", "error NotVerified()", "error BuyTooLarge()", "error LaunchBlock()",
 ]);
-const loginGateAbi = parseAbi(["function verifiedUntil(address wallet, address coin) view returns (uint64)"]);
+const loginGateAbi = parseAbi(["function verifiedUntil(address wallet) view returns (uint64)"]);
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 /**
- * PVE: the creator's launch buy reverts NotVerified unless the creator holds a live LoginGate attestation. The coin
- * doesn't exist before the launch, so only a GLOBAL attestation (coin = address(0)) can count. Reads
- * Launchpad.loginGate() → LoginGate.verifiedUntil(wallet, 0). Needs 60 s of headroom so it can't expire mid-tx.
+ * PVE: the creator's launch buy reverts NotVerified unless the creator holds a live LoginGate attestation. All logins
+ * are global; reads Launchpad.loginGate() → LoginGate.verifiedUntil(wallet). Needs 60 s of headroom so it can't expire mid-tx.
  */
 export async function readPveLoginVerified(pc: PublicClient, launchpad: Address, wallet: Address): Promise<{ verified: boolean; until: number; gate: Address }> {
   const gate = await pc.readContract({ address: launchpad, abi: launchpadModesAbi, functionName: "loginGate" });
   if (gate === ZERO) return { verified: false, until: 0, gate };
-  const until = Number(await pc.readContract({ address: gate, abi: loginGateAbi, functionName: "verifiedUntil", args: [wallet, ZERO] }));
+  const until = Number(await pc.readContract({ address: gate, abi: loginGateAbi, functionName: "verifiedUntil", args: [wallet] }));
   return { verified: until > Math.floor(Date.now() / 1000) + 60, until, gate };
 }
 

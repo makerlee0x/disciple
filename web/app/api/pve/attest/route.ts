@@ -1,23 +1,15 @@
 /**
- * POST /api/pve/attest   Authorization: Bearer <Privy access token>   {wallet, coin?, relay?}
- *   → { wallet, expiry, coin, signature, loginGate, chainId, attester, txHash?, verifiedUntil? }
- *
- * Signs a LoginGate 'DisciplePVE' v1 LoginAttestation{wallet, expiry, coin, epoch, walletGen} (lib/pveAttest) for a LOGIN-VERIFIED Privy
- * user (email / Google / X linked) whose `wallet` is theirs (linked wallet, or the MAv2/LightAccount smart account it
- * owns). coin defaults to address(0) = every PVE coin. Both LoginGate.epoch(wallet, coin) and walletGen(wallet) are
- * read on-chain and signed so either level of revoke sticks (audit F-05); expiry ≤ 24h (MAX_TTL).
- * relay=true: the relayer EOA submits LoginGate.attest itself (permissionless) so session-key batches, which the
- * session policy won't let call LoginGate, still work; skipped when the wallet is already verified for > 1h.
- * Fails CLOSED: 503 when PVE_ATTESTER_PRIVATE_KEY / Privy config is missing, or the on-chain attester isn't this key.
- * Rate limits (shared KV): 30/10 min per IP, 20/h per Privy user, relay 6/day per wallet.
+ * POST /api/pve/attest Authorization: Bearer <Privy access token> {wallet}
+ * Returns a global LoginAttestation{wallet,expiry,epoch} signature for a login-verified, owned wallet.
+ * No coin scope, sponsorship or relay: the user submits the attestation and pays gas.
+ * Fails closed on missing Privy/attester configuration or on-chain attester mismatch.
+ * Shared rate limits: 30/10 min per IP, 20/h per Privy user.
  */
 import { NextResponse } from "next/server";
-import { createPublicClient, createWalletClient, http, isAddress, parseAbi, type Address, type Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import { deployment, robinhoodTestnet, ACTIVE_CHAIN } from "@/lib/chains";
+import { createPublicClient, http, isAddress, parseAbi, type Address } from "viem";
+import { deployment, ACTIVE_CHAIN } from "@/lib/chains";
 import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
-import { relayerKey, isRelayerNotConfigured, withRelayer } from "@/lib/server/relayer";
 import { LIGHT_ACCOUNT_V2_FACTORY, MAV2_FACTORY } from "@/lib/aa/constants";
 import { inviteRequiredResponse, requireInviteUser } from "@/lib/server/inviteGate";
 import {
@@ -29,7 +21,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const LIMITS = { ip: { limit: 30, windowSec: 600 }, user: { limit: 20, windowSec: 3600 }, relayWallet: { limit: 6, windowSec: 86_400 } } as const;
+const LIMITS = { ip: { limit: 30, windowSec: 600 }, user: { limit: 20, windowSec: 3600 } } as const;
 const appId = () => (process.env.VERCEL_ENV === "preview" && process.env.NEXT_PUBLIC_PRIVY_APP_ID_PREVIEW) || process.env.NEXT_PUBLIC_PRIVY_APP_ID || "";
 const appSecret = () => (process.env.VERCEL_ENV === "preview" && process.env.NEXT_PUBLIC_PRIVY_APP_ID_PREVIEW && process.env.PRIVY_APP_SECRET_PREVIEW) || process.env.PRIVY_APP_SECRET || "";
 const factoryAbi = parseAbi(["function getAddressSemiModular(address owner, uint256 salt) view returns (address)", "function getAddress(address owner, uint256 salt) view returns (address)"]);
@@ -51,12 +43,13 @@ export async function POST(req: Request) {
   const rl = await hitLimit(kv(), `pve:ip:${ip}`, LIMITS.ip.limit, LIMITS.ip.windowSec);
   if (!rl.ok) return err(429, "rate_limited", { retryAfterSec: rl.retryAfterSec });
 
-  let body: { wallet?: string; coin?: string; relay?: boolean };
-  try { body = await req.json(); } catch { body = {}; }
-  const wallet = String(body.wallet || ""), coinIn = body.coin ? String(body.coin) : ZERO_ADDR;
+  let body: unknown;
+  try { body = await req.json(); } catch { return err(400, "bad_wallet"); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return err(400, "bad_wallet");
+  if ("coin" in body) return err(400, "coin_scope_removed");
+  if ("relay" in body) return err(400, "relay_removed");
+  const wallet = "wallet" in body ? String(body.wallet || "") : "";
   if (!isAddress(wallet)) return err(400, "bad_wallet");
-  if (!isAddress(coinIn)) return err(400, "bad_coin");
-  const coin = coinIn as Address;
 
   const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
   if (!token) return err(401, "missing_token");
@@ -85,32 +78,9 @@ export async function POST(req: Request) {
     const w = wallet as Address;
     const now = Math.floor(Date.now() / 1000);
     const expiry = now + attestTtl();
-    const [slotEpoch, globalEpoch] = await Promise.all([
-      client.readContract({ address: gate, abi: loginGateMiniAbi, functionName: "epoch", args: [w, coin] }),
-      client.readContract({ address: gate, abi: loginGateMiniAbi, functionName: "walletGen", args: [w] }),
-    ]);
-    const epoch = Number(slotEpoch), walletGen = Number(globalEpoch);
-    const signature = await signLoginAttestation(account, { wallet: w, expiry, coin, epoch, walletGen, chainId: ACTIVE_CHAIN.id, loginGate: gate });
-    const out: Record<string, unknown> = { wallet: w, expiry, coin, epoch, walletGen, signature, loginGate: gate, chainId: ACTIVE_CHAIN.id, attester: account.address };
-
-    if (body.relay) {
-      const until = Number(await client.readContract({ address: gate, abi: loginGateMiniAbi, functionName: "verifiedUntil", args: [w, coin] }));
-      if (until > now + 3600) return NextResponse.json({ ...out, verifiedUntil: until, relayed: false, already: true });
-      const wl = await hitLimit(kv(), `pve:relay:${w.toLowerCase()}`, LIMITS.relayWallet.limit, LIMITS.relayWallet.windowSec);
-      if (!wl.ok) return NextResponse.json({ ...out, relayed: false, relayError: "rate_limited" });
-      try {
-        const relayer = privateKeyToAccount(relayerKey());
-        const wc = createWalletClient({ chain: ACTIVE_CHAIN.id === 46630 ? robinhoodTestnet : ACTIVE_CHAIN, transport: http(undefined, { retryCount: 0 }), account: relayer });   // no transport-level resend (AUDIT Info)
-        // shared relayer nonce allocator (same EOA as the relay paths; see lib/server/fastRelay.sendWithRelayerNonce)
-        const hash = await withRelayer(async () => (await import("@/lib/server/fastRelay")).sendWithRelayerNonce((nonce) => wc.writeContract({ address: gate, abi: loginGateMiniAbi, functionName: "attest", args: [w, BigInt(expiry), coin, signature as Hex], nonce })), 0);
-        const rc = await client.waitForTransactionReceipt({ hash, timeout: 20_000 });
-        if (rc.status !== "success") return NextResponse.json({ ...out, relayed: false, relayError: "reverted", txHash: hash });
-        return NextResponse.json({ ...out, relayed: true, txHash: hash, verifiedUntil: expiry });
-      } catch (e) {
-        // Relay is best-effort: the client can still submit `signature` itself (owner-signed batch).
-        return NextResponse.json({ ...out, relayed: false, relayError: isRelayerNotConfigured(e) ? "relayer_not_configured" : "relay_failed" });
-      }
-    }
+    const epoch = Number(await client.readContract({ address: gate, abi: loginGateMiniAbi, functionName: "epoch", args: [w] }));
+    const signature = await signLoginAttestation(account, { wallet: w, expiry, epoch, chainId: ACTIVE_CHAIN.id, loginGate: gate });
+    const out = { wallet: w, expiry, epoch, signature, loginGate: gate, chainId: ACTIVE_CHAIN.id, attester: account.address };
     return NextResponse.json(out);
   } catch (e) {
     if (e instanceof AuthError) {

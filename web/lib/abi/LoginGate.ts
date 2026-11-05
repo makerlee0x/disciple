@@ -1,4 +1,4 @@
-// Production-solc ABI surface checked for audit F-05: slot + global epoch-bound attestations; redeploy required.
+// Production-solc ABI: global-only epoch-bound login (audit F-05); redeploy required.
 export const loginGateAbi = [
   {
     "type": "constructor",
@@ -57,11 +57,6 @@ export const loginGateAbi = [
         "internalType": "uint64"
       },
       {
-        "name": "coin",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "sig",
         "type": "bytes",
         "internalType": "bytes"
@@ -85,49 +80,6 @@ export const loginGateAbi = [
   },
   {
     "type": "function",
-    "name": "epoch",
-    "inputs": [
-      {
-        "name": "wallet",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "coin",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "walletGen",
-    "inputs": [
-      {
-        "name": "wallet",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "digest",
     "inputs": [
       {
@@ -137,45 +89,6 @@ export const loginGateAbi = [
       },
       {
         "name": "expiry",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "coin",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "digest",
-    "inputs": [
-      {
-        "name": "wallet",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "expiry",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "coin",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "epoch_",
         "type": "uint64",
         "internalType": "uint64"
       }
@@ -204,19 +117,9 @@ export const loginGateAbi = [
         "internalType": "uint64"
       },
       {
-        "name": "coin",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "epoch_",
         "type": "uint64",
         "internalType": "uint64"
-      },
-      {
-        "internalType": "uint64",
-        "name": "walletGen_",
-        "type": "uint64"
       }
     ],
     "outputs": [
@@ -286,6 +189,25 @@ export const loginGateAbi = [
   },
   {
     "type": "function",
+    "name": "epoch",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "owner",
     "inputs": [],
     "outputs": [
@@ -303,11 +225,6 @@ export const loginGateAbi = [
     "inputs": [
       {
         "name": "wallet",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "coin",
         "type": "address",
         "internalType": "address"
       }
@@ -349,16 +266,11 @@ export const loginGateAbi = [
         "name": "wallet",
         "type": "address",
         "internalType": "address"
-      },
-      {
-        "name": "coin",
-        "type": "address",
-        "internalType": "address"
       }
     ],
     "outputs": [
       {
-        "name": "t",
+        "name": "",
         "type": "uint64",
         "internalType": "uint64"
       }
@@ -390,12 +302,6 @@ export const loginGateAbi = [
     "inputs": [
       {
         "name": "wallet",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "coin",
         "type": "address",
         "indexed": true,
         "internalType": "address"

@@ -6,10 +6,10 @@ import { generateKeyPairSync, sign as cryptoSign } from "crypto";
 import { decodeFunctionData, recoverTypedDataAddress, type Address } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import {
-  AuthError, LOGIN_TYPES, MAX_TTL_SEC, attestTtl, attesterAccount, isLoginVerified, signLoginAttestation,
+  AuthError, LOGIN_TYPES, MAX_TTL_SEC, attestTtl, attesterAccount, isLoginVerified, loginGateMiniAbi, signLoginAttestation,
   verifyPrivyAccessToken, walletBelongsTo, type PrivyUser,
 } from "../lib/pveAttest";
-import { ensurePveLogin, PveError, _resetPveCache } from "../lib/pve";
+import { ensurePveLogin, ensurePveLoginOnchain, PveError, _resetPveCache } from "../lib/pve";
 import { loginGateAbi } from "../lib/abi";
 
 const APP = "app-test-123";
@@ -52,18 +52,16 @@ test("attester: fails closed without a key; TTL clamped under LoginGate.MAX_TTL 
   assert.ok(attestTtl({}) <= MAX_TTL_SEC && MAX_TTL_SEC < 24 * 3600);
 });
 
-test("EIP-712 LoginAttestation{wallet,uint64 expiry,coin,uint64 epoch,uint64 walletGen} under DisciplePVE v1 recovers to the attester", async () => {
+test("EIP-712 LoginAttestation{wallet,uint64 expiry,uint64 epoch} under DisciplePVE v1 recovers to the attester", async () => {
   const acct = attesterAccount({ PVE_ATTESTER_PRIVATE_KEY: generatePrivateKey() })!;
-  const msg = { wallet: "0x1111111111111111111111111111111111111111" as Address, expiry: now + 3600, coin: "0x2222222222222222222222222222222222222222" as Address, epoch: 0, walletGen: 0 };
+  const msg = { wallet: "0x1111111111111111111111111111111111111111" as Address, expiry: now + 3600, epoch: 0 };
   const gate = "0xe900b7060895f130e866eeddec2b3efd3ff0b69f" as Address;
   const sig = await signLoginAttestation(acct, { ...msg, chainId: 46630, loginGate: gate });
-  const rec = await recoverTypedDataAddress({ domain: { name: "DisciplePVE", version: "1", chainId: 46630, verifyingContract: gate }, types: LOGIN_TYPES, primaryType: "LoginAttestation", message: { ...msg, expiry: BigInt(msg.expiry), epoch: BigInt(msg.epoch), walletGen: BigInt(msg.walletGen) }, signature: sig });
+  const rec = await recoverTypedDataAddress({ domain: { name: "DisciplePVE", version: "1", chainId: 46630, verifyingContract: gate }, types: LOGIN_TYPES, primaryType: "LoginAttestation", message: { ...msg, expiry: BigInt(msg.expiry), epoch: BigInt(msg.epoch) }, signature: sig });
   assert.equal(rec, acct.address);
-  const recWrongEpoch = await recoverTypedDataAddress({ domain: { name: "DisciplePVE", version: "1", chainId: 46630, verifyingContract: gate }, types: LOGIN_TYPES, primaryType: "LoginAttestation", message: { ...msg, expiry: BigInt(msg.expiry), epoch: BigInt(1), walletGen: BigInt(msg.walletGen) }, signature: sig });
+  const recWrongEpoch = await recoverTypedDataAddress({ domain: { name: "DisciplePVE", version: "1", chainId: 46630, verifyingContract: gate }, types: LOGIN_TYPES, primaryType: "LoginAttestation", message: { ...msg, expiry: BigInt(msg.expiry), epoch: BigInt(1) }, signature: sig });
   assert.notEqual(recWrongEpoch, acct.address);
-  const recWrongGen = await recoverTypedDataAddress({ domain: { name: "DisciplePVE", version: "1", chainId: 46630, verifyingContract: gate }, types: LOGIN_TYPES, primaryType: "LoginAttestation", message: { ...msg, expiry: BigInt(msg.expiry), epoch: BigInt(msg.epoch), walletGen: 1n }, signature: sig });
-  assert.notEqual(recWrongGen.toLowerCase(), acct.address.toLowerCase(), "global revoke invalidates a coin signature even with unchanged coin epoch");
-  const recWrongChain = await recoverTypedDataAddress({ domain: { name: "DisciplePVE", version: "1", chainId: 1, verifyingContract: gate }, types: LOGIN_TYPES, primaryType: "LoginAttestation", message: { ...msg, expiry: BigInt(msg.expiry), epoch: BigInt(msg.epoch), walletGen: BigInt(msg.walletGen) }, signature: sig });
+  const recWrongChain = await recoverTypedDataAddress({ domain: { name: "DisciplePVE", version: "1", chainId: 1, verifyingContract: gate }, types: LOGIN_TYPES, primaryType: "LoginAttestation", message: { ...msg, expiry: BigInt(msg.expiry), epoch: BigInt(msg.epoch) }, signature: sig });
   assert.notEqual(recWrongChain, acct.address);
 });
 
@@ -80,24 +78,54 @@ test("login-verified = email / Google / X linked; wallet ownership = linked EOA 
   assert.equal(await walletBelongsTo(u, "0x3333333333333333333333333333333333333333", predict), false);
 });
 
-test("client ensurePveLogin: verified ⇒ no calls; relayed ⇒ no calls; relay down ⇒ prepend LoginGate.attest; no login ⇒ PveError", async () => {
+test("client ensurePveLogin: verified ⇒ no calls; signature ⇒ user-paid global LoginGate.attest; no login ⇒ PveError", async () => {
   const me = "0x4444444444444444444444444444444444444444" as Address;
   const sec = () => Math.floor(Date.now() / 1000);
   const pc = (until: number) => ({ readContract: async () => BigInt(until) }) as never;
   _resetPveCache();
   assert.deepEqual(await ensurePveLogin(pc(sec() + 3600), me), []);
   _resetPveCache();
-  const fetchRelayed = (async () => new Response(JSON.stringify({ signature: "0x01", expiry: sec() + 3600, coin: "0x0000000000000000000000000000000000000000", relayed: true }))) as typeof fetch;
-  assert.deepEqual(await ensurePveLogin(pc(0), me, { fetchFn: fetchRelayed, token: async () => "t" }), []);
-  _resetPveCache();
   const sig = `0x${"ab".repeat(65)}`, exp = sec() + 3600;
-  const fetchSig = (async () => new Response(JSON.stringify({ signature: sig, expiry: exp, coin: "0x0000000000000000000000000000000000000000", relayed: false }))) as typeof fetch;
+  const fetchSig = (async (_url, init) => {
+    assert.deepEqual(JSON.parse(String(init?.body)), { wallet: me }, "no coin or relay request");
+    return new Response(JSON.stringify({ signature: sig, expiry: exp }));
+  }) as typeof fetch;
   const calls = await ensurePveLogin(pc(0), me, { fetchFn: fetchSig, token: async () => "t" });
   assert.equal(calls.length, 1);
   const d = decodeFunctionData({ abi: loginGateAbi, data: calls[0].data });
-  assert.equal(d.functionName, "attest"); assert.equal((d.args as unknown[])[0], me); assert.equal((d.args as unknown[])[1], BigInt(exp));
+  assert.equal(d.functionName, "attest"); assert.equal((d.args as unknown[])[0], me); assert.equal((d.args as unknown[])[1], BigInt(exp)); assert.equal(d.args?.length, 3); assert.equal(d.args?.[2], sig);
   _resetPveCache();
   await assert.rejects(ensurePveLogin(pc(0), me, { token: async () => null }), (e: unknown) => e instanceof PveError && e.code === "PveLoginRequired");
   const fetch403 = (async () => new Response(JSON.stringify({ error: "login_not_verified" }), { status: 403 })) as typeof fetch;
   await assert.rejects(ensurePveLogin(pc(0), me, { fetchFn: fetch403, token: async () => "t" }), (e: unknown) => e instanceof PveError && /Sign in with X, email or wallet/.test(e.message));
+});
+
+
+test("USDG first-login setup is user-paid, awaited before quoting, and failed inclusion stops the trade", async () => {
+  const me = "0x4444444444444444444444444444444444444444" as Address;
+  const pc = { readContract: async () => 0n } as never;
+  const opts = { token: async () => "t", fetchFn: (async () => new Response(JSON.stringify({ signature: `0x${"ab".repeat(65)}`, expiry: Math.floor(Date.now() / 1000) + 3600 }))) as typeof fetch };
+  _resetPveCache();
+  const events: string[] = [];
+  await ensurePveLoginOnchain(pc, me, async (calls) => {
+    assert.equal(calls.length, 1);
+    assert.equal(decodeFunctionData({ abi: loginGateAbi, data: calls[0].data }).args?.length, 3);
+    events.push("user-paid inclusion");
+  }, opts);
+  events.push("quote");
+  assert.deepEqual(events, ["user-paid inclusion", "quote"]);
+  _resetPveCache();
+  await assert.rejects(ensurePveLoginOnchain(pc, me, async () => { throw new Error("inclusion failed"); }, opts), /inclusion failed/);
+});
+
+
+test("global-only ABI and EIP-712 schema have no coin scope or second generation counter", () => {
+  assert.deepEqual(LOGIN_TYPES.LoginAttestation.map((f) => f.name), ["wallet", "expiry", "epoch"]);
+  for (const abi of [loginGateAbi, loginGateMiniAbi]) {
+    const functions = abi.filter((f) => f.type === "function");
+    assert.ok(!functions.some((f) => String(f.name) === "walletGen"));
+    assert.ok(functions.every((f) => f.inputs.every((i) => String(i.name) !== "coin")));
+    for (const [name, inputs] of [["attest", ["address", "uint64", "bytes"]], ["verifiedUntil", ["address"]], ["epoch", ["address"]]] as const)
+      assert.deepEqual(functions.find((f) => f.name === name)?.inputs.map((i) => i.type), inputs);
+  }
 });
