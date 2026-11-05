@@ -7,8 +7,9 @@ import { usernameOf, walletOf } from "@/lib/server/usernames";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest, { params }: { params: { username: string } }) {
-  const raw = decodeURIComponent(params.username || "").trim().toLowerCase().replace(/^@/, "");
+export async function GET(req: NextRequest, { params }: { params: Promise<{ username: string }> }) {
+  const { username } = await params;
+  const raw = decodeURIComponent(username || "").trim().toLowerCase().replace(/^@/, "");
   const res = NextResponse.redirect(new URL("/", req.url), 307);
   const existing = parseRef(req.cookies.get(REF_COOKIE)?.value);
   if (existing) return res; // first touch wins

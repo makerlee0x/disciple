@@ -8,6 +8,7 @@ export function generateStaticParams() {
   return process.env.STATIC_PREVIEW === "1" ? [{ username: "pilot" }] : [];
 }
 
-export default function Page({ params }: { params: { username: string } }) {
-  return <PublicProfile username={decodeURIComponent(params.username)} />;
+export default async function Page({ params }: { params: Promise<{ username: string }> }) {
+  const { username } = await params;
+  return <PublicProfile username={decodeURIComponent(username)} />;
 }

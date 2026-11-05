@@ -146,3 +146,41 @@ describe("v4 endpoints", () => {
     expect(carol.earnings.quoteUnits).toBe(E18.toString());
   });
 });
+
+describe("F-08 snipe escrow events", () => {
+  it("indexes SnipeEscrowReleased + SnipeEscrowToLP from the curve only; /rewards + fee-routing reconcile without double-counting RewardAccrued", async () => {
+    const VAULT = A(0xbeef);
+    const db = seeded();
+    applyLogs(db, stack, [
+      mk("SnipeEscrowReleased", { token: TOKEN, vault: VAULT, amount: 11n * E18 }, CURVE, 20n),
+      mk("SnipeEscrowReleased", { token: TOKEN, vault: VAULT, amount: 99n * E18 }, A(0xbad), 20n), // spoofed
+      mk("SnipeEscrowToLP", { token: TOKEN, amount: 7n * E18 }, CURVE, 21n),
+      mk("SnipeEscrowToLP", { token: TOKEN, amount: 88n * E18 }, A(0xbad), 21n), // spoofed
+      // legacy RewardAccrued stays separate (routeSnipeFee notify path) — must not be conflated with escrow release
+      mk("RewardAccrued", { token: TOKEN, asset: QUOTE, amount: 3n * E18 }, A(0xcafe), 22n), // wrong emitter ignored below unless rewardsVault set
+    ], ts);
+    // RewardAccrued requires stack.rewardsVault match — set it and emit a real one
+    const st = { ...stack, rewardsVault: A(0xcafe) };
+    applyLogs(db, st, [mk("RewardAccrued", { token: TOKEN, asset: QUOTE, amount: 3n * E18 }, A(0xcafe), 23n)], ts);
+
+    const kinds = (db.prepare("SELECT kind, a, account FROM fee_events WHERE kind IN ('SnipeEscrowReleased','SnipeEscrowToLP','RewardAccrued') ORDER BY kind, a").all() as any[]);
+    expect(kinds).toEqual([
+      { kind: "RewardAccrued", a: (3n * E18).toString(), account: "0x0000000000000000000000000000000000000000" },
+      { kind: "SnipeEscrowReleased", a: (11n * E18).toString(), account: VAULT.toLowerCase() },
+      { kind: "SnipeEscrowToLP", a: (7n * E18).toString(), account: "0x0000000000000000000000000000000000000000" },
+    ]);
+
+    const api = new Api(db, null, cfg);
+    const rewards = api.rewards() as any[];
+    const byKind = Object.fromEntries(rewards.filter((r) => r.asset === QUOTE.toLowerCase()).map((r) => [r.kind, r]));
+    expect(Number(byKind.SnipeEscrowReleased?.n ?? 0)).toBe(1);
+    expect(Number(byKind.SnipeEscrowToLP?.n ?? 0)).toBe(1);
+    expect(Number(byKind.RewardAccrued?.n ?? 0)).toBe(1);
+
+    const [stCode, fr]: any = await api.route("GET", new URL(`http://x/coins/${TOKEN}/fee-routing`));
+    expect(stCode).toBe(200);
+    expect(fr.snipeEscrowReleased).toBe((11n * E18).toString());
+    expect(fr.snipeEscrowToLP).toBe((7n * E18).toString());
+    expect(fr.rewardAccrued).toBe((3n * E18).toString());
+  });
+});

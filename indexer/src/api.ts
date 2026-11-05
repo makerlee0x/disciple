@@ -226,7 +226,7 @@ export class Api {
   rewards() {
     return this.db.prepare(
       `SELECT stack, quote asset, kind, COUNT(*) n, SUM(qd(a, (SELECT c.quote_decimals FROM coins c WHERE c.quote=fee_events.quote AND c.quote_decimals IS NOT NULL LIMIT 1))) sum_a, SUM(qd(b, (SELECT c.quote_decimals FROM coins c WHERE c.quote=fee_events.quote AND c.quote_decimals IS NOT NULL LIMIT 1))) sum_b FROM fee_events
-       WHERE kind IN ('RewardAccrued','SnipeFeeRouted','SnipeFeeRoutedToLP','Distributed') GROUP BY stack, quote, kind`,
+       WHERE kind IN ('RewardAccrued','SnipeFeeRouted','SnipeFeeRoutedToLP','Distributed','SnipeEscrowReleased','SnipeEscrowToLP') GROUP BY stack, quote, kind`,
     ).all();
   }
 
@@ -268,7 +268,7 @@ export class Api {
   feeRouting(token: string) {
     const c = this.coin(token);
     if (!c) return null;
-    const rows = this.db.prepare("SELECT kind, quote, a, b, c, d, e, fee_is_quote FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','SnipeFeeRouted','SnipeFeeRoutedToLP','CreatorFeesClaimed','RewardAccrued')").all(c.token) as any[];
+    const rows = this.db.prepare("SELECT kind, quote, a, b, c, d, e, fee_is_quote FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','SnipeFeeRouted','SnipeFeeRoutedToLP','CreatorFeesClaimed','RewardAccrued','SnipeEscrowReleased','SnipeEscrowToLP')").all(c.token) as any[];
     const sum = (xs: (string | null)[]) => xs.reduce((acc, x) => acc + BigInt(x ?? 0), 0n);
     // audit #11: quote-unit rows only (legacy rows have fee_is_quote NULL = quote); token-unit post-grad fees reported apart
     const tf = rows.filter((r) => r.kind === "TradeFeeRouted" && r.fee_is_quote !== 0);
@@ -281,6 +281,10 @@ export class Api {
       creatorTax: sum(tf.map((r) => r.e)),
       snipeToRewards: sum(sn.map((r) => r.a)), snipeToTreasury: sum(sn.map((r) => r.b)),
       snipeToLPLegacy: sum(rows.filter((r) => r.kind === "SnipeFeeRoutedToLP").map((r) => r.a)),
+      // F-08: current-curve escrow movements (not via RewardAccrued / routeSnipeFee)
+      snipeEscrowReleased: sum(rows.filter((r) => r.kind === "SnipeEscrowReleased").map((r) => r.a)),
+      snipeEscrowToLP: sum(rows.filter((r) => r.kind === "SnipeEscrowToLP").map((r) => r.a)),
+      rewardAccrued: sum(rows.filter((r) => r.kind === "RewardAccrued").map((r) => r.a)),
       creatorClaimed: sum(rows.filter((r) => r.kind === "CreatorFeesClaimed").map((r) => r.a)),
     };
     const usd: any = {};
@@ -522,14 +526,25 @@ export class Api {
 
   server() {
     return http.createServer(async (req, res) => {
-      const url = new URL(req.url ?? "/", "http://x");
+      // F-06: URL parse + all async work inside try/catch so a malformed absolute-form
+      // request target (e.g. GET http://[) returns 400 instead of rejecting the callback
+      // promise and killing the process under default unhandledRejection behavior.
       let status = 500, body: unknown = { error: "internal" };
-      try { [status, body] = await this.route(req.method ?? "GET", url); } catch (e: any) { status = 400; body = { error: e.message }; }
-      const p = url.pathname.split("/").filter(Boolean);
-      const cacheHdr: Record<string, string> = status === 200 && LIST_CACHE_MS > 0 && isListPath(p)
-        ? { "cache-control": `public, max-age=${Math.round(LIST_CACHE_MS / 1000)}, s-maxage=${Math.round(LIST_CACHE_MS / 1000)}` } : {};
-      res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*", ...cacheHdr });
-      res.end(JSON.stringify(body, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
+      let cacheHdr: Record<string, string> = {};
+      try {
+        const url = new URL(req.url ?? "/", "http://x");
+        try { [status, body] = await this.route(req.method ?? "GET", url); }
+        catch (e: any) { status = 400; body = { error: e?.message ?? "bad request" }; }
+        const p = url.pathname.split("/").filter(Boolean);
+        if (status === 200 && LIST_CACHE_MS > 0 && isListPath(p))
+          cacheHdr = { "cache-control": `public, max-age=${Math.round(LIST_CACHE_MS / 1000)}, s-maxage=${Math.round(LIST_CACHE_MS / 1000)}` };
+      } catch (e: any) {
+        status = 400; body = { error: e?.message ?? "bad request" };
+      }
+      try {
+        res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*", ...cacheHdr });
+        res.end(JSON.stringify(body, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
+      } catch { try { res.destroy(); } catch { /* ignore */ } }
     });
   }
 }
