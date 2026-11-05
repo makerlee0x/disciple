@@ -21,7 +21,7 @@ interface IEndpointLibs {
 /// @title v0 deploy: LayerZero push, Ethereum -> Robinhood and Robinhood -> Ethereum
 /// @notice Ethereum -> Robinhood is steps 1-2; Robinhood -> Ethereum is steps 3-4. Nothing broadcasts without
 ///   `--broadcast`. NOTHING DEPLOYS ON ETHEREUM UNTIL THE AUDIT (maker, 2026-11-04): steps 1 and 4 refuse to
-///   broadcast unless AUDITED=1 is set; a dry run (no --broadcast) works without it.
+///   run unless AUDITED=1 is set, even a dry run (no --broadcast); set AUDITED=1 for a dry run and omit --broadcast.
 ///   Env for both steps: DVN_SET = "live" (default; the live OApp's 2 + 2-of-3) or "lean" (2 required, none
 ///   optional: LayerZero Labs + one more, ~0.000004 ETH of DVN fees). Use the same value on both chains.
 ///   1. On Ethereum:  forge script script/hook/DeployV0Push.s.sol --sig "sender()" --rpc-url $ETH_RPC
