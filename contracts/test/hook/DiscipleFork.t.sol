@@ -159,7 +159,7 @@ contract DiscipleForkTest is Test {
     // one source
     // -----------------------------------------------------------------------------------------
 
-    /// @dev Coin = source token0, quote = token1. A fresh hook per source (the quote token is a hook immutable).
+    /// @dev Coin = source token0, quote = token1. A fresh hook per source.
     function _run(IPoolManager m, Src memory x, string memory label) internal {
         emit log_string(string.concat("---- source ", label, "  ", _sym(x.t0), " / ", _sym(x.t1)));
         address coin = _erc20(x.t0);
@@ -717,7 +717,9 @@ contract DiscipleForkTest is Test {
             address a = address(
                 uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), bytes32(i), initHash))))
             );
-            if (uint160(a) & Hooks.ALL_HOOK_MASK == FLAGS) return bytes32(i);
+            // skip addresses already used: the hook's constructor args no longer differ per source (the quote is
+            // per pool), so a second source in one test would otherwise collide with the first source's hook
+            if (uint160(a) & Hooks.ALL_HOOK_MASK == FLAGS && a.code.length == 0) return bytes32(i);
         }
         revert("no salt");
     }
