@@ -16,6 +16,7 @@ import { allowedPaymaster, debitPaymasterDeposit, paymasterDepositCached } from 
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
 import { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY, MAV2_FACTORY } from "../aa/constants";
+import { checkRelayAccount, type RelayAuthReads } from "./relayAuth";
 import { RelayBroadcastError } from "../aa/relayOp";
 import { l1Reserve, MAX_RELAY_TX_GAS } from "../aa/bundleGas";
 
@@ -108,7 +109,8 @@ export async function selfBundle(method: string, params: unknown[], o: { beforeS
       // alone sits far below it, so `gas` = floor), checked against the relay max before simulating
       let floor: bigint;
       try { floor = relayGas(op, data, l1Reserve(await l1GasOf(data))); } catch (e) { if (e instanceof RelayPolicyError) throw new BundlerRpcError(e.message); throw e; }
-      await pc.call({ account: me, to: ENTRYPOINT_V07, data }); // revert ⇒ reject before spending relayer gas
+      await Promise.all([checkRelayAccount(op, pc as unknown as RelayAuthReads),
+        pc.call({ account: me, to: ENTRYPOINT_V07, data, blockTag: "pending" })]); // F-02: both must pass before signing
       const estimated = await pc.estimateGas({ account: me, to: ENTRYPOINT_V07, data });
       const padded = estimated * BigInt(12) / BigInt(10) + BigInt(50000);
       const gas = padded > floor ? (padded > MAX_RELAY_TX_GAS ? MAX_RELAY_TX_GAS : padded) : floor;
@@ -123,8 +125,7 @@ export async function selfBundle(method: string, params: unknown[], o: { beforeS
       let relayerNonce: number | undefined;   // #141: the relayer EOA nonce of the signed handleOps (on the timeout error)
       const hash = await withRelayer(() => relayer.send(data, gas, fees, (n) => { relayerNonce = n; }), 0);
       const receipt = await waitRelayReceipt(hash, 25_000);
-      // first op of an account (deploy / test funds) went the slow, simulated path: trust it now so its first TRADE
-      // can skip simulation (anti-grief entry in fastRelay; one balance read, off the trade path)
+      // Refresh sender telemetry after success. It cannot exempt a later op from exact simulation (F-02).
       if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(base)));
       if (receipt?.status === "0x1") { const { primeSenderNow } = await import("./fastRelay"); await primeSenderNow(op.sender, { simulated: true }).catch(() => undefined); }
       // broadcast: a timeout / reverted bundle still answers with the op's ids (error.data + "[userOp …]", main #130), the

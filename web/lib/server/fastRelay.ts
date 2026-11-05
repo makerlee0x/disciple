@@ -1,11 +1,11 @@
 import "server-only";
 /**
  * disciple_sendUserOperationSync — the one-round-trip trade path (self-bundler only).
- * Client sends a fully built + signed v0.7 UserOp; we relay handleOps IMMEDIATELY and answer with the receipt:
+ * Client sends a fully built + signed v0.7 UserOp; we validate the exact op, relay handleOps and answer with the receipt:
  *  - warm module state: relayer account, keep-alive RPC client, cached base fee (background refresh)
  *  - pre-tracked relayer nonce (local cursor, resynced on nonce errors) ⇒ no getTransactionCount per op
- *  - gas = the op's own limits + overhead ⇒ no estimateGas; no per-op simulation for verified senders (relayTrust:
- *    re-simulated every RESIM_EVERY ops / RESIM_MS, escalating strikes on reverts). FAST_RELAY_SIM=1 always simulates.
+ *  - gas = the op's own limits + overhead ⇒ no estimateGas; EVERY exact signed op is simulated before signing
+ *    (audit F-02). Sender history / balance primes and FAST_RELAY_SIM can never bypass authentication.
  *  - eth_sendRawTransactionSync (EIP-7966) returns the FULL receipt with the send (lib/server/syncSend: sequencer
  *    endpoint when RHT_SEQUENCER_URL is set, public RPC otherwise / as fallback). Timeout or error after signing ⇒
  *    onPending({ txHash }) and the server waits for the receipt (the client never polls; see lib/aa/relayTypes).
@@ -34,7 +34,8 @@ import { allowedPaymaster, debitPaymasterDeposit, paymasterDepositCached } from 
 import { TRADE_SELECTORS, TRY_ATTRIBUTE } from "../aa/oneTap";
 import { packUserOp } from "./selfBundler";
 import { broadcastError } from "../aa/relayOp";
-import { FastInflight, SenderTrust } from "./relayTrust";
+import { SenderTrust } from "./relayTrust";
+import { authorizeRelayOperation, warmRelayAccountTemplates, type RelayAuthReads } from "./relayAuth";
 import { kvTrustStore } from "./relayTrustStore";
 
 const epAbi = parseAbi([
@@ -126,14 +127,8 @@ function refreshBase() {
 }
 async function baseFee(): Promise<bigint> { if (!base.at) await refreshBase(); else if (Date.now() - base.at > 2000) void refreshBase().catch(() => undefined); return base.fee; }
 
-/**
- * Anti-grief: see lib/server/relayTrust (fast path only for verified senders with a fresh balance covering the max
- * prefund; periodic re-simulation every RESIM_EVERY ops / RESIM_MS; reverted handleOps ⇒ escalating strike, then a
- * passing simulation is required before the fast path returns).
- */
+/** Sender ledger is telemetry/backoff only, NEVER authorization to spend relayer funds (audit F-02). */
 const TRUST = new SenderTrust(Date.now, kvTrustStore());   // AUDIT Low: strikes / verification shared + durable (KV)
-// AUDIT #145 L-B: one unsimulated op in flight per sender (shared SET NX lease, kv() resolved lazily)
-const FAST_INFLIGHT = new FastInflight({ setNX: (k, v, t) => kv().setNX(k, v, t), delIfEq: (k, v) => kv().delIfEq(k, v) });
 async function primeSender(sender: string) {
   await TRUST.primeShared(sender, await pc.getBalance({ address: sender as Hex }));
 }
@@ -146,6 +141,7 @@ export const primeSenderNow = async (sender: string, opts: { simulated?: boolean
 };
 const execAbi = parseAbi(["function execute(address target, uint256 value, bytes data)", "function executeBatch((address target, uint256 value, bytes data)[] calls)"]);
 /**
+ * Legacy structural hint only — NEVER authorization / a simulation bypass (audit F-02).
  * Local (no-RPC) pre-check for SESSION-key ops (non-global validation in the MAv2 nonce key): the policy rejects
  * non-trade calls in VALIDATION (AA23 → handleOps reverts → relayer pays; seen: STRATEGY.transfer, tx 0x9c29662a…),
  * so any inner call outside the trade allowlist (or carrying ETH) is simulated first instead of fast-pathed.
@@ -161,12 +157,8 @@ export function sessionOpLooksAllowed(op: UserOp): boolean {
     return calls.every((c) => c.value === BigInt(0) && (TRADE_SELECTORS.has(c.data.slice(0, 10).toLowerCase()) || c.data.slice(0, 10).toLowerCase() === TRY_ATTRIBUTE));
   } catch { return false; }
 }
-/** true ⇒ safe to skip simulation */
-export function trusted(op: UserOp): boolean {
-  if (op.factory) return false; // first op (deploy) always simulated
-  if (!sessionOpLooksAllowed(op)) return false;
-  return TRUST.check(op.sender, senderPrefund(op)) === null;   // priced at >= the relayer floor: a fee-0 op never looks covered
-}
+/** Sender-level trust cannot authorize an exact op (audit F-02). Kept for compatibility; never skip simulation. */
+export function trusted(_op: UserOp): boolean { return false; }
 /**
  * What the SENDER's ETH must cover: the max prefund for self-pay ops; 0 for paymaster ops (DisciplePaymaster's deposit
  * pays, checked by checkPaymaster before trust; the user's USDG balance/allowance is checked by the paymaster's
@@ -174,12 +166,12 @@ export function trusted(op: UserOp): boolean {
  */
 const senderPrefund = (op: UserOp) => (op.paymaster ? BigInt(0) : maxPrefund(op, relayerPrice(base.fee)));
 
-/** Warm the relay (nonce + base fee + TLS connection) and, if given, the sender's trust entry. */
+/** Warm the relay (nonce + base fee + TLS connection) and, if given, the sender balance telemetry (NOT authorization). */
 export async function warmRelay(sender?: string) {
   account(); // fail closed (production, no dedicated relayer key) before any RPC
   warmSequencer();
   const st = await ready();   // pool on ⇒ lease a key at warm
-  await Promise.all([st.nonces.warm(), baseFee(), sender ? primeSender(sender).catch(() => undefined) : 0]);
+  await Promise.all([st.nonces.warm(), baseFee(), warmRelayAccountTemplates(pc as unknown as RelayAuthReads), sender ? primeSender(sender).catch(() => undefined) : 0]);
 }
 
 /**
@@ -266,15 +258,13 @@ export type OnPending = (p: { txHash: Hex; reason: PendingReason; relayNonce?: n
 
 /**
  * `beforeSend` (AUDIT Low, sender lockout): awaited once the op passed validation — gas/paymaster policy and the
- * simulation (or the trusted fast-path decision) — and BEFORE the relayer signs anything. The route charges the
+ * exact handleOps simulation plus account-template check — and BEFORE the relayer signs anything. The route charges the
  * per-sender limit there (lib/server/limits.sendLimiter); a throw aborts with nothing sent.
  */
 export async function sendUserOperationSync(op: UserOp, onPending?: OnPending, beforeSend?: () => Promise<void>): Promise<RelayConfirmed> {
-  // AUDIT #145 L-B: the fast (unsimulated) path needs this sender's single in-flight lease; a 2nd concurrent op simulates
-  const lease = process.env.FAST_RELAY_SIM !== "1" && trusted(op) ? await FAST_INFLIGHT.acquire(op.sender) : null;
-  try { return await relayOnce(op, !!lease, onPending, beforeSend); } finally { if (lease) await lease(); }
+  return relayOnce(op, onPending, beforeSend);
 }
-async function relayOnce(op: UserOp, allowFast: boolean, onPending?: OnPending, beforeSend?: () => Promise<void>): Promise<RelayConfirmed> {
+async function relayOnce(op: UserOp, onPending?: OnPending, beforeSend?: () => Promise<void>): Promise<RelayConfirmed> {
   const T0 = Date.now(), t: Record<string, number> = {};
   const st = await ready(), me = st.account;
   // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
@@ -294,17 +284,18 @@ async function relayOnce(op: UserOp, allowFast: boolean, onPending?: OnPending, 
   // The L1 estimate runs alongside the simulation / beforeSend; the cap check without it stays before both.
   relayGas(op, data);
   const l1P = l1GasOf(data);
-  const fast = allowFast && trusted(op);
-  if (!fast) {
+  const fast = false; // audit F-02: no sender-level or cached-op bypass
+  {
     const s = Date.now();
-    await pc.call({ account: me.address, to: ENTRYPOINT_V07, data }).catch((e) => {
+    await authorizeRelayOperation(op, pc as unknown as RelayAuthReads,
+      () => pc.call({ account: me.address, to: ENTRYPOINT_V07, data, blockTag: "pending" })).catch((e) => {
       // keep the revert payload (FailedOp / FailedOpWithRevert(inner)) so the client can show the real reason (FLOW 2)
       let rd: string | undefined;
       (e as { walk?: (f: (x: unknown) => boolean) => unknown }).walk?.((x) => { const v = (x as { data?: unknown }).data; if (typeof v === "string" && /^0x[0-9a-fA-F]{8,}$/.test(v)) { rd = v; return true; } return false; });
       throw Object.assign(new Error(`simulation failed: ${(e as Error).message.split("\n")[0]}`), { data: rd, userOpHash: hash });
     });
     t.simulate = Date.now() - s; TRUST.simulated(op.sender); void primeSender(op.sender).catch(() => undefined);
-  } else t.simulate = 0;
+  }
   const gas = relayGas(op, data, l1Reserve(await l1P));
   await beforeSend?.();   // validated ⇒ now the per-sender limit (and a press's free retry) may be charged
   const txFees = relayerTxFees(op, fee);   // never above the op's fees ⇒ the EntryPoint refund covers the relayer's cost per gas

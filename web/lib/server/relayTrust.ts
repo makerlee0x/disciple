@@ -1,23 +1,6 @@
-/**
- * Anti-grief trust ledger for the fast relay path (lib/server/fastRelay). Pure (no RPC, injectable clock) so it is
- * unit-testable.
- *
- * Who pays (EntryPoint v0.7): an op whose EXECUTION reverts still lets handleOps succeed and the account reimburses the
- * relayer; an op whose VALIDATION fails (bad sig, no prefund, bad nonce, …) reverts handleOps and the RELAYER eats the
- * tx. The fast path skips the eth_call simulation, so a trusted sender could otherwise grief with one reverted tx per
- * strike window. Policy:
- *  - fast path only with a fresh (≤ TRUST_TTL) balance covering the op's max prefund, outside any strike, and
- *    VERIFIED recently: re-simulate every RESIM_EVERY fast ops or RESIM_MS since the last verification;
- *  - a reverted handleOps = strike with ESCALATING backoff (STRIKE_BASE_MS × 2^(n-1), capped at STRIKE_MAX_MS; the
- *    count decays after STRIKE_DECAY_MS clean). During a strike every op is simulated; after it, the sender gets the
- *    fast path back only once a simulation has passed again (a balance refresh alone doesn't restore trust).
- * Honest one-tap users: verified at the first prime (login warm / first deploy op), then ≤ 1 eth_call per
- * RESIM_EVERY trades or RESIM_MS — the rest stay one round trip.
- *
- * AUDIT Low (shared state): with a TrustStore (lib/server/relayTrustStore → shared KV) the verification + strike state
- * survives restarts / cold serverless instances and is shared across them: primeShared() hydrates it before the first
- * check on an instance, and the one-time "fresh sender ⇒ verified at first prime" grant is taken at most ONCE per
- * sender globally (SET NX), not once per instance. Without a store (tests, local) it behaves exactly as before.
+/** Sender telemetry / strike ledger. NOT authorization: every relay op must independently pass exact
+ * handleOps simulation and account-template checks (audit F-02). Balances and past simulations cannot
+ * authenticate a new operation. Legacy periodic metrics remain for accounting, never a signing gate.
  */
 export const TRUST_TTL = 60_000;
 export const RESIM_EVERY = 16;
@@ -29,7 +12,7 @@ const MAX_ENTRIES = 50_000;
 
 export type TrustEntry = {
   bal: bigint; at: number;           // cached balance and when it was read
-  verifiedAt: number;                // last passed simulation (or first clean prime); 0 = never
+  verifiedAt: number;                // last passed simulation; balance primes never verify; 0 = never
   fastOps: number;                   // fast-path ops since verifiedAt
   strikes: number; lastStrikeAt: number; strikeUntil: number;
 };
@@ -62,8 +45,8 @@ export class SenderTrust {
   /**
    * Balance read with shared state (use instead of prime() when a store is set). First call per sender on this instance
    * loads the persisted entry; the stricter of memory/store wins (later strike, earlier-expiring trust). A sender with no
-   * persisted record is verified at its first prime only if it wins the global SET NX — a cold instance never grants it
-   * again. Store errors ⇒ not verified (the op is simulated: fail safe).
+   * persisted record remains unverified; neither a first prime nor a KV claim is authentication (F-02).
+   * Store errors ⇒ not verified (fail safe).
    */
   async primeShared(sender: string, bal: bigint) {
     if (!this.store) return this.prime(sender, bal);
@@ -76,9 +59,6 @@ export class SenderTrust {
         e.strikes = Math.max(e.strikes, p.strikes); e.lastStrikeAt = Math.max(e.lastStrikeAt, p.lastStrikeAt);
         e.strikeUntil = Math.max(e.strikeUntil, p.strikeUntil); e.fastOps = Math.max(e.fastOps, p.fastOps);
         e.verifiedAt = had ? Math.min(e.verifiedAt, p.verifiedAt) : p.verifiedAt;
-      } else if (p === null && !had) {
-        let first = false; try { first = await this.store.claimFirstPrime(k); } catch { first = false; }
-        if (first) e.verifiedAt = this.now();
       }
       if (p !== undefined) this.hydrated.add(k);
       if (this.hydrated.size > MAX_ENTRIES) this.hydrated.delete(this.hydrated.values().next().value!);
@@ -96,14 +76,12 @@ export class SenderTrust {
       e = { bal: BigInt(0), at: 0, verifiedAt: 0, fastOps: 0, strikes: 0, lastStrikeAt: 0, strikeUntil: 0 }; this.m.set(k, e); }
     return e;
   }
-  /** Balance read. A brand-new, never-struck sender counts as verified at its first prime (login warm / deploy op). */
+  /** Balance telemetry only. Never grants verification (even on the first prime). */
   prime(sender: string, bal: bigint) {
-    const fresh = !this.m.has(sender.toLowerCase());
     const e = this.entry(sender);
     e.bal = bal; e.at = this.now();
-    if (fresh) e.verifiedAt = e.at;
   }
-  /** A simulation (eth_call of handleOps) passed: restore / renew the fast path. */
+  /** Record a passed simulation for telemetry only; never authorizes another op. */
   simulated(sender: string) { const e = this.entry(sender); e.verifiedAt = this.now(); e.fastOps = 0; this.persist(sender); }
   /** The relayer's handleOps reverted (validation failure the relayer paid for): escalating strike. Returns its length. */
   strike(sender: string): number {
@@ -122,7 +100,7 @@ export class SenderTrust {
     e.bal -= prefund;
     if (fast) this.persist(sender);
   }
-  /** null ⇒ the op may skip simulation; else why it must be simulated. */
+  /** Legacy telemetry eligibility only. null MUST NOT bypass exact operation simulation. */
   check(sender: string, prefund: bigint): TrustReason | null {
     const k = sender.toLowerCase(), e = this.m.get(k), t = this.now();
     if (!e) return "unknown";
