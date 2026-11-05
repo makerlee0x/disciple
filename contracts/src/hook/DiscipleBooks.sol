@@ -22,8 +22,10 @@ library DiscipleBooks {
         DP.step(w, pm, id, steps);
     }
 
-    function settle(LG.Book storage bk, uint256 markX128, uint256 sourceTvl, bool distribute) public {
-        bk.settle(markX128, sourceTvl, distribute);
+    function settle(LG.Book storage bk, uint256 markX128, uint256 creatorTvl, uint256 gradTvl, bool distribute)
+        public
+    {
+        bk.settle(markX128, creatorTvl, gradTvl, distribute);
     }
 
     function deposit(LG.Book storage bk, address owner, uint256 dx, uint256 dy)

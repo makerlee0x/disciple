@@ -101,12 +101,14 @@ in-range estimate, which reads high. v2 and v3 home sources need nothing.
   - Price in quote per coin: `anchorX128 / 2^128 * 10^(coinDecimals - quoteDecimals)`. The anchor is the source price
     latched in an earlier block, not the live quote.
   - `graduated`: the pool has reached 12% of the source's TVL at least once. From then on LP fees are paid out
-    (claimable); before it, everything compounds. This one does not switch back. Nothing graduates in the first
-    day after launch (cross-chain: after the first price), so show "warming up" for that day.
-  - `creatorOn`: the creator's 12% cut applies right now. It is judged when each interval is paid, against a
-    source TVL gate that rises with any reading. It falls only when two readings in a row are lower, by at most
-    40% a day, counting at most 1 hour per reading (quiet time is not saved up). Pulling source liquidity briefly
-    earns the creator nothing. A source that really shrinks and keeps being read turns the cut on within days.
+    (claimable); before it, everything compounds. This one does not switch back. It is judged against the higher of
+    the last two source readings, so one dipped or spiked reading never decides it. Nothing is judged in the first
+    day after launch (cross-chain: after the first price) or before two readings after launch (the launch reading
+    itself never counts; a v4 source gives one reading per finished counter pass). Show "warming up" until then.
+  - `creatorOn`: the creator's 12% cut applies right now. It is judged when each interval is paid, against the same
+    two readings and a memory of the highest TVL seen twice in a row, which fades to nothing over one day of real
+    time. A source that really shrinks turns the cut back on within about a day; two spiked readings keep it off
+    for at most a day.
   - `srcTvl`: the source's real TVL in quote units, the number Uniswap shows. v2: reserves. v3: the pool's token
     balances. v4: the hook counts the pool's liquidity ranges itself, 4 storage reads on the first trade of each
     block, and refreshes when a pass finishes (about 20 to 40 busy blocks for tick spacing 60 or 200; 0 means the

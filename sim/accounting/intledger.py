@@ -163,7 +163,8 @@ class Ledger:
         self.dx += dx
         self.dy += dy
 
-    def settle(self, M, tvl, distribute=True):
+    def settle(self, M, tvl, distribute=True, grad_tvl=None):
+        # tvl = creator-cut TVL, grad_tvl = graduation TVL (hook passes tvl >= grad_tvl); None = same as tvl
         E = self.dy + (mul_div(self.dx, M, Q128) if self.dx >= 0 else -mul_div_up(-self.dx, M, Q128))
         self.dx = self.dy = 0
         if not distribute:
@@ -181,7 +182,9 @@ class Ledger:
         # 1/(V - D) terms stay bounded; it stays in share value pro rata.
         if 0 < Q and 2 * Q <= V:
             self._distribute(Q, V)
-        self.graduated = self.graduated or on
+        if grad_tvl is None:
+            grad_tvl = tvl
+        self.graduated = self.graduated or on or (grad_tvl > 0 and V * 10_000 >= self.TARGET_BPS * grad_tvl)
         return Q
 
     def _distribute(self, D, V):

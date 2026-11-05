@@ -251,8 +251,8 @@ contract DiscipleTest is Test {
     }
 
     function _nextBlock() internal {
-        vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 1);
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
     }
 
     // -----------------------------------------------------------------------------------------

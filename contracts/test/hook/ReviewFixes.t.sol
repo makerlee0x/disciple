@@ -14,10 +14,10 @@ contract ReviewFixesTest is DiscipleTest {
     /// D-01: an LP who deposits after trades in the same block gets nothing from those trades.
     function test_review_D01_lateCapitalGetsNoEarlierFees() public {
         (PoolKey memory key, PoolId id) = _createSame(300_000e18, 600_000e18);
-        vm.warp(block.timestamp + 1 days); // past the launch warm-up
+        _ready(id);
         _nextBlock();
         hook.withdraw(id, 1, 0, 0);
-        vm.warp(block.timestamp + 31);
+        _later(31);
         _swap(key, true, -int256(50e18));
         _swap(key, false, -int256(20e18));
         DiscipleHook.PoolView memory v = hook.poolState(id);
@@ -36,10 +36,10 @@ contract ReviewFixesTest is DiscipleTest {
     /// D-01, the other direction: a withdrawal in a touched block settles the open trades first.
     function test_review_D01_sameBlockWithdrawSettlesFirst() public {
         (PoolKey memory key, PoolId id) = _createSame(300_000e18, 600_000e18);
-        vm.warp(block.timestamp + 1 days); // past the launch warm-up
+        _ready(id);
         _nextBlock();
         hook.withdraw(id, 1, 0, 0);
-        vm.warp(block.timestamp + 31);
+        _later(31);
         _swap(key, true, -int256(50e18));
         _swap(key, false, -int256(20e18));
         hook.withdraw(id, 1, 0, 0); // same block
@@ -47,169 +47,278 @@ contract ReviewFixesTest is DiscipleTest {
         assertGt(cx + cy, 0, "earlier trades were closed before the capital change");
     }
 
-    /// D-02: draining the source for one reading and restoring it earns the creator nothing.
-    function test_review_D02_temporaryDrainPaysNoCreatorCut() public {
-        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
-        _nextBlock();
-        pair.set(1000e18, 2000e18); // drained
+    // ---------------------------------------------------------------------------------------------
+    // D-02: source TVL pushed down or up for one transaction (review of 6b13f72 and three re-checks)
+    // ---------------------------------------------------------------------------------------------
+
+    function _later(uint256 dt) internal {
+        vm.warp(vm.getBlockTimestamp() + dt);
+    }
+
+    /// @dev a new block `dt` seconds later
+    function _step(uint256 dt) internal {
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.warp(vm.getBlockTimestamp() + dt);
+    }
+
+    /// @dev one source TVL reading: the first touch of a new block
+    function _read(PoolId id) internal {
+        _step(12);
         hook.withdraw(id, 1, 0, 0);
-        pair.set(1_000_000e18, 2_000_000e18); // restored
-        assertFalse(hook.poolState(id).creatorOn, "the previous reading still counts");
-        vm.warp(block.timestamp + 31);
+    }
+
+    /// @dev past the warm-up, with the two honest readings the hook needs before it judges anything
+    function _ready(PoolId id) internal {
+        _step(1 days);
+        hook.withdraw(id, 1, 0, 0);
+        _read(id);
+    }
+
+    function _trade(PoolKey memory key) internal {
+        _later(31);
         _swap(key, true, -int256(50e18));
         _swap(key, false, -int256(20e18));
-        _nextBlock();
-        hook.withdraw(id, 1, 0, 0);
-        (uint256 cx, uint256 cy) = hook.claimCreator(id);
-        assertEq(cx + cy, 0, "no creator cut");
     }
 
-    /// D-02 re-check: the one-transaction dip repeated on consecutive blocks still pays nothing.
+    function _creatorPaid(PoolId id) internal returns (uint256) {
+        (uint256 cx, uint256 cy) = hook.claimCreator(id);
+        return cx + cy;
+    }
+
+    function _big() internal {
+        pair.set(1_000_000e18, 2_000_000e18); // 4M: a 4k pool is 0.1% of it, a 1.2M pool 30%
+    }
+
+    function _small() internal {
+        pair.set(1000e18, 2000e18); // 4k
+    }
+
+    function _huge() internal {
+        pair.set(10_000_000e18, 20_000_000e18); // 40M
+    }
+
+    /// One atomic dip earns the creator nothing.
+    function test_review_D02_temporaryDrainPaysNoCreatorCut() public {
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        _ready(id);
+        _step(12);
+        _small();
+        hook.withdraw(id, 1, 0, 0);
+        _big();
+        assertFalse(hook.poolState(id).creatorOn);
+        _trade(key);
+        _read(id);
+        assertEq(_creatorPaid(id), 0);
+        assertFalse(hook.poolState(id).graduated);
+    }
+
+    /// The dip repeated at the first touch of consecutive blocks still pays nothing (the memory holds).
     function test_review_D02_repeatedAtomicDipsPayNothing() public {
         (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        _ready(id);
         for (uint256 i = 0; i < 5; i++) {
-            _nextBlock();
-            pair.set(1000e18, 2000e18); // pull
-            hook.withdraw(id, 1, 0, 0); // first touch of the block reads the low TVL
-            pair.set(1_000_000e18, 2_000_000e18); // put back
+            _step(12);
+            _small();
+            hook.withdraw(id, 1, 0, 0);
+            _big();
             assertFalse(hook.poolState(id).creatorOn);
-            vm.warp(block.timestamp + 31);
-            _swap(key, true, -int256(50e18));
-            _swap(key, false, -int256(20e18));
+            _trade(key);
         }
-        _nextBlock();
-        hook.withdraw(id, 1, 0, 0);
-        (uint256 cx, uint256 cy) = hook.claimCreator(id);
-        assertEq(cx + cy, 0, "no creator cut");
+        _read(id);
+        assertEq(_creatorPaid(id), 0);
     }
 
-    /// D-02: the gate follows a source that really stays smaller, read again and again over days.
-    function test_review_D02_gateFollowsALastingDrop() public {
-        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18); // 4k vs 4M source
-        vm.warp(block.timestamp + 1 days);
-        pair.set(1000e18, 2000e18); // the source really shrinks to 4k and stays
+    /// Re-check of e40bff0, case 1: idle for days, then one atomic dip. Pays nothing.
+    function test_review_D02_idleThenAtomicDipPaysNothing() public {
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        _ready(id);
+        _step(3 days);
+        _small();
+        hook.withdraw(id, 1, 0, 0);
+        _big();
+        assertFalse(hook.poolState(id).creatorOn);
+        _trade(key);
+        hook.withdraw(id, 1, 0, 0); // same block
+        _read(id);
+        assertEq(_creatorPaid(id), 0);
+        assertFalse(hook.poolState(id).graduated);
+    }
+
+    /// Re-check of e40bff0, case 2: launch during an atomic dip. The launch reading never counts.
+    function test_review_D02_launchDuringDipPaysNothing() public {
+        _small();
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        _big();
+        _trade(key);
+        hook.withdraw(id, 1, 0, 0); // creation block
+        _read(id);
+        assertFalse(hook.poolState(id).graduated, "no graduation in the warm-up");
+        assertEq(_creatorPaid(id), 0);
+        _step(1 days);
+        _trade(key);
+        _read(id);
+        _read(id);
+        assertFalse(hook.poolState(id).graduated);
+        assertEq(_creatorPaid(id), 0);
+    }
+
+    /// Re-check of 2cf8cfc, R-01: launch during a dip, leave it untouched through the warm-up, dip again for the
+    /// first touch after it. The launch reading is not one of the two readings the hook needs, so nothing happens.
+    function test_review_D02_launchDipIdleDayThenDipPaysNothing() public {
+        _small();
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        _big();
+        _step(1 days + 1);
+        _small();
+        hook.withdraw(id, 1, 0, 0);
+        _big();
+        assertFalse(hook.poolState(id).creatorOn, "two atomic lows around the launch do not count");
+        assertFalse(hook.poolState(id).graduated);
+        _trade(key);
+        hook.withdraw(id, 1, 0, 0);
+        assertEq(_creatorPaid(id), 0);
+        _read(id);
+        _read(id);
+        assertFalse(hook.poolState(id).graduated, "the honest readings that follow hold it off");
+        assertEq(_creatorPaid(id), 0);
+    }
+
+    /// Re-check of 2cf8cfc, R-02: one spiked reading delays graduation by two readings, not for weeks, and the
+    /// delay does not depend on how often the pool is touched.
+    function test_review_D02_oneHighReadingDelaysGraduationTwoReadings() public {
+        (PoolKey memory attackedKey, PoolId attacked) = _createSame(300_000e18, 600_000e18);
+        (, PoolId control) = _createSame(300_000e18, 600_000e18);
+        _ready(control);
+        _ready(attacked);
+        assertTrue(hook.poolState(control).graduated, "control graduates");
+        // the same again from a fresh pair, with the spike on the first judged reading
+        (attackedKey, attacked) = _createSame(300_000e18, 600_000e18);
+        _step(1 days);
+        hook.withdraw(attacked, 1, 0, 0); // reading 1
+        _step(12);
+        _huge();
+        _swap(attackedKey, true, -int256(1e18)); // reading 2, spiked
+        _big();
+        assertFalse(hook.poolState(attacked).graduated, "the spike holds it back");
+        _step(1 days);
+        hook.withdraw(attacked, 1, 0, 0); // still paired with the spike
+        assertFalse(hook.poolState(attacked).graduated);
+        _step(1 days);
+        hook.withdraw(attacked, 1, 0, 0); // two honest readings
+        assertTrue(hook.poolState(attacked).graduated, "graduates two readings later");
+    }
+
+    /// The mirror of the dip: two spiked readings in a row turn the creator cut off for at most a day of real
+    /// time, however rarely the pool is touched; one spike does nothing to it.
+    function test_review_D02_spikesDelayCreatorCutAtMostADay() public {
+        (PoolKey memory key, PoolId id) = _createSame(300_000e18, 600_000e18); // 1.2M vs 4M
+        _ready(id);
+        assertTrue(hook.poolState(id).creatorOn);
+        _step(12);
+        _huge();
+        hook.withdraw(id, 1, 0, 0); // one spike: this reading and the next are judged high
+        _big();
+        assertFalse(hook.poolState(id).creatorOn);
+        _read(id);
+        assertFalse(hook.poolState(id).creatorOn);
+        _read(id);
+        assertTrue(hook.poolState(id).creatorOn, "one spike is forgotten after two readings");
+        // two spikes in a row: remembered, fading over a day
+        for (uint256 i = 0; i < 2; i++) {
+            _step(12);
+            _huge();
+            hook.withdraw(id, 1, 0, 0);
+            _big();
+        }
+        _read(id);
+        _read(id);
+        assertFalse(hook.poolState(id).creatorOn, "two spikes are remembered");
+        _step(1 days);
+        _trade(key);
+        hook.withdraw(id, 1, 0, 0);
+        assertTrue(hook.poolState(id).creatorOn, "back after a day, with one touch");
+        _read(id);
+        assertGt(_creatorPaid(id), 0);
+    }
+
+    /// A source that really shrinks: on a busy pool (readings every hour) the cut comes back within about a day.
+    function test_review_D02_lastingDropBusyPool() public {
+        (, PoolId id) = _createSame(1000e18, 2000e18);
+        _ready(id);
+        _small(); // and it stays small
         uint256 n;
-        uint256 t = block.timestamp; // a local clock (via-ir caches block.timestamp/number inside a test loop)
-        uint256 bn = block.number;
-        for (; n < 24 * 30 && !hook.poolState(id).creatorOn; n++) {
-            t += 1 hours;
-            vm.warp(t);
-            vm.roll(++bn);
+        for (; n < 48 && !hook.poolState(id).creatorOn; n++) {
+            _step(1 hours);
             hook.withdraw(id, 1, 0, 0);
         }
         assertTrue(hook.poolState(id).creatorOn);
-        assertGt(n, 24 * 10, "takes many days of low readings");
-        key;
+        assertGe(n, 20, "not before the memory has faded");
+        assertLe(n, 25, "within about a day");
     }
 
-    /// D-02 second re-check (GPT on e40bff0, case 1): sit idle for days, then one atomic dip. The idle time is not
-    /// banked and a single low reading is ignored, so the creator gets nothing.
-    function test_review_D02_idleThenAtomicDipPaysNothing() public {
-        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
-        vm.warp(block.timestamp + 3 days);
-        _nextBlock();
-        pair.set(1000e18, 2000e18);
+    /// The same on a quiet pool touched once a day: real time counts, not touches.
+    function test_review_D02_lastingDropQuietPool() public {
+        (, PoolId id) = _createSame(1000e18, 2000e18);
+        _ready(id);
+        _small();
+        _step(1 days);
         hook.withdraw(id, 1, 0, 0);
-        pair.set(1_000_000e18, 2_000_000e18);
-        assertFalse(hook.poolState(id).creatorOn);
-        vm.warp(block.timestamp + 31);
-        _swap(key, true, -int256(50e18));
-        _swap(key, false, -int256(20e18));
-        hook.withdraw(id, 1, 0, 0); // same block
-        _nextBlock();
+        assertFalse(hook.poolState(id).creatorOn, "one low reading is not enough");
+        _step(1 days);
         hook.withdraw(id, 1, 0, 0);
-        (uint256 cx, uint256 cy) = hook.claimCreator(id);
-        assertEq(cx + cy, 0, "no creator cut");
-        assertFalse(hook.poolState(id).graduated);
+        assertTrue(hook.poolState(id).creatorOn, "two low readings a day apart");
     }
 
-    /// D-02 second re-check (case 1, two dips): two dips in a row after idling only lower the gate by an hour's worth.
-    function test_review_D02_idleThenTwoDipsPayNothing() public {
+    /// The accepted residual (AUDIT_BRIEF): after a full day with no honest pair of readings, two dips in a row turn
+    /// the cut on, but only until the next honest reading, and fees from a block an honest reading opened pay no cut.
+    function test_review_D02_residualNeedsEveryTouch() public {
         (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
-        vm.warp(block.timestamp + 3 days);
+        _ready(id);
+        _step(1 days);
         for (uint256 i = 0; i < 2; i++) {
-            _nextBlock();
-            pair.set(1000e18, 2000e18);
+            _step(12);
+            _small();
             hook.withdraw(id, 1, 0, 0);
-            pair.set(1_000_000e18, 2_000_000e18);
-            vm.warp(block.timestamp + 31);
-            _swap(key, true, -int256(50e18));
-            _swap(key, false, -int256(20e18));
+            _big();
         }
-        assertFalse(hook.poolState(id).creatorOn);
-        assertGt(hook.poolState(id).srcTvl, 0);
-        _nextBlock();
+        assertTrue(hook.poolState(id).creatorOn, "the residual: two dips after a quiet day");
+        hook.claimCreator(id);
+        _step(12);
+        hook.withdraw(id, 1, 0, 0); // an honest reading opens this block
+        assertFalse(hook.poolState(id).creatorOn, "one honest reading ends it");
+        _trade(key);
+        _step(12);
+        _small(); // even a dip at the next touch: the honest reading is still paired in
         hook.withdraw(id, 1, 0, 0);
-        (uint256 cx, uint256 cy) = hook.claimCreator(id);
-        assertEq(cx + cy, 0, "no creator cut");
+        _big();
+        assertEq(_creatorPaid(id), 0, "no cut on the honest block's fees");
     }
 
-    /// D-02 second re-check (GPT on e40bff0, case 2): launch during an atomic dip. The low launch reading is only a
-    /// floor during the one-day warm-up: nothing graduates and the creator gets nothing, and the first honest
-    /// reading lifts the gate.
-    function test_review_D02_launchDuringDipPaysNothing() public {
-        pair.set(1000e18, 2000e18);
-        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
-        pair.set(1_000_000e18, 2_000_000e18);
-        vm.warp(block.timestamp + 31);
-        _swap(key, true, -int256(50e18));
-        _swap(key, false, -int256(20e18));
-        hook.withdraw(id, 1, 0, 0); // creation block
-        _nextBlock();
-        hook.withdraw(id, 1, 0, 0);
-        assertFalse(hook.poolState(id).graduated, "no graduation in the warm-up");
-        assertFalse(hook.poolState(id).creatorOn);
-        (uint256 cx, uint256 cy) = hook.claimCreator(id);
-        assertEq(cx + cy, 0, "no creator cut");
-        // after the warm-up the gate holds the honest 4M reading
-        vm.warp(block.timestamp + 1 days);
-        _nextBlock();
-        _swap(key, true, -int256(50e18));
-        _nextBlock();
-        hook.withdraw(id, 1, 0, 0);
-        assertFalse(hook.poolState(id).graduated);
-        (cx, cy) = hook.claimCreator(id);
-        assertEq(cx + cy, 0, "still no creator cut");
-    }
-
-    /// The warm-up also covers a cross-chain pool's first pushed price.
+    /// The warm-up and the two-reading rule also cover a cross-chain pool's pushed prices.
     function test_review_D02_crossChainWarmUp() public {
-        pair.set(1000e18, 2000e18); // a small source: the pool is well over 12% of it
+        _small(); // a small source: the pool is well over 12% of it
         (PoolKey memory key, PoolId id) = _createPush(HOME_EID, 0.05 ether);
-        uint256 t = block.timestamp;
-        uint256 bn = block.number;
-        _lzPush(id, address(0xC0FFEE), 0, HOME_EID);
-        vm.warp(t += 31);
-        _swap(key, true, -int256(10e18));
-        vm.roll(++bn);
-        vm.warp(t += 12);
+        _lzPush(id, address(0xC0FFEE), 0, HOME_EID); // first price: never counts
+        _trade(key);
+        _step(12);
         _lzPush(id, address(0xC0FFEE), 0, HOME_EID);
         assertFalse(hook.poolState(id).graduated, "no graduation in the warm-up");
-        vm.warp(t += 1 days);
-        vm.roll(++bn);
+        _step(1 days);
         _lzPush(id, address(0xC0FFEE), 0, HOME_EID); // ends the local mode the quiet day put it in
-        vm.warp(t += 31);
-        _swap(key, true, -int256(10e18));
-        vm.roll(++bn);
-        vm.warp(t += 12);
+        _trade(key);
+        _step(12);
         _lzPush(id, address(0xC0FFEE), 0, HOME_EID);
         assertTrue(hook.poolState(id).graduated, "graduates after it");
     }
 
-    /// D-02: a real 12% pool still pays the creator.
+    /// An honest 12% pool still pays the creator.
     function test_review_D02_realTwelvePercentPaysCreator() public {
         (PoolKey memory key, PoolId id) = _createSame(300_000e18, 600_000e18); // 1.2M vs 4M source
-        vm.warp(block.timestamp + 1 days); // past the launch warm-up
-        _nextBlock();
-        hook.withdraw(id, 1, 0, 0);
-        _nextBlock();
-        vm.warp(block.timestamp + 31);
-        _swap(key, true, -int256(50e18));
-        _swap(key, false, -int256(20e18));
-        _nextBlock();
-        hook.withdraw(id, 1, 0, 0);
-        (uint256 cx, uint256 cy) = hook.claimCreator(id);
-        assertGt(cx + cy, 0);
+        _ready(id);
+        assertTrue(hook.poolState(id).graduated);
+        _trade(key);
+        _read(id);
+        assertGt(_creatorPaid(id), 0);
     }
 
     /// D-03: price and TVL take separate decimal shifts.

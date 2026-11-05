@@ -270,8 +270,8 @@ contract DiscipleDepthTest is Test {
     }
 
     function _next() internal {
-        vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 12);
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.warp(vm.getBlockTimestamp() + 12);
     }
 
     /// @dev A concentrated source: the hook's TVL is the real tokens, far below the old in-range proxy.
@@ -328,7 +328,7 @@ contract DiscipleDepthTest is Test {
         uint256 s2 = g - gasleft();
         emit log_named_uint("v2 source: first swap in block, incl. router", f2);
         emit log_named_uint("v2 source: first-in-block extra", f2 - s2);
-        emit log_named_uint("counter cost (v4 extra - v2 extra, approx)", (first - second) - (f2 - s2));
+        emit log_named_int("counter cost (v4 extra - v2 extra, approx)", (int256(first) - int256(second)) - (int256(f2) - int256(s2)));
     }
 
     // -----------------------------------------------------------------------------------------
@@ -391,9 +391,11 @@ contract DiscipleDepthTest is Test {
         s.coinIs0 = true;
         s.target = address(pair);
         (PoolKey memory key, PoolId id) = hook.createPool(_cp(s, _noKey(), 300_000e18, 600_000e18)); // 1.2M: 30%
-        vm.warp(block.timestamp + 1 days); // past the launch warm-up
+        vm.warp(vm.getBlockTimestamp() + 1 days); // past the launch warm-up
         _next();
-        _trade(key); // settles: 30% -> graduated, creator on
+        _trade(key); // reading 1
+        _next();
+        _trade(key); // reading 2: judged, 30% -> graduated, creator on
         assertTrue(hook.poolState(id).graduated);
         assertTrue(hook.poolState(id).creatorOn);
         _next();
@@ -413,24 +415,16 @@ contract DiscipleDepthTest is Test {
         (cx, cy) = hook.claimCreator(id);
         assertEq(cx + cy, 0, "no creator cut while below 12%");
 
-        // the source shrinks back: the creator-cut gate falls at most 40% a day, and only across readings that
-        // stay low, so the cut returns days later
+        // the source shrinks back: the cut returns once the remembered 40M has faded (a day of real time)
         pair.set(1_000_000e18, 2_000_000e18);
         _next();
         _trade(key);
-        assertFalse(hook.poolState(id).creatorOn, "a lower reading does not drop the gate at once");
-        vm.warp(block.timestamp + 3 days);
         _next();
         _trade(key);
-        assertFalse(hook.poolState(id).creatorOn, "idle time is not banked");
-        uint256 t = block.timestamp; // a local clock (via-ir caches block.timestamp/number inside a test loop)
-        uint256 bn = block.number;
-        for (uint256 i = 0; i < 120 && !hook.poolState(id).creatorOn; i++) {
-            t += 1 hours;
-            vm.warp(t);
-            vm.roll(++bn);
-            _trade(key);
-        }
+        assertFalse(hook.poolState(id).creatorOn, "lower readings do not drop the memory at once");
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        _next();
+        _trade(key);
         assertTrue(hook.poolState(id).creatorOn);
         _next();
         _trade(key);

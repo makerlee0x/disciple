@@ -16,7 +16,7 @@ contract LedgerHarness {
     }
 
     function op(uint8 code, int256 a, int256 b, int256 c) external {
-        if (code == 0) bk.settle(uint256(a), uint256(b), c == 1);
+        if (code == 0) bk.settle(uint256(a), uint256(b), uint256(b), c == 1);
         else if (code == 1) bk.swap(a, b);
         else if (code == 2) bk.deposit(address(uint160(uint256(a))), uint256(b), uint256(c));
         else if (code == 3) bk.withdraw(uint256(a), bk.lots[uint256(a)].owner, uint256(b), uint256(c));

@@ -123,8 +123,12 @@ library DiscipleLedger {
     }
 
     /// @notice Close the interval: mark its flow at `markX128`, apply the loss carry, distribute, latch graduation.
-    ///         `sourceTvl` is the source pool's TVL in quote wei. Returns the distributable amount Q.
-    function settle(Book storage bk, uint256 markX128, uint256 sourceTvl, bool distribute) internal returns (uint256 q) {
+    ///         `creatorTvl` / `gradTvl` are the source TVL (quote wei) the creator cut and graduation are judged
+    ///         against (the hook passes creatorTvl >= gradTvl; 0 = not judged). Returns the distributable amount Q.
+    function settle(Book storage bk, uint256 markX128, uint256 creatorTvl, uint256 gradTvl, bool distribute)
+        internal
+        returns (uint256 q)
+    {
         int256 dx = bk.dx;
         int256 e = bk.dy
             + (
@@ -146,16 +150,17 @@ library DiscipleLedger {
         // The creator cut is judged NOW, before paying this interval (review D-02): a source that has recovered
         // since the last settlement gets no cut. A zero TVL means "not known yet" and leaves it as it is.
         bool on = bk.creatorOn;
-        if (sourceTvl > 0) {
-            on = v * BPS >= TARGET_BPS * sourceTvl;
+        if (creatorTvl > 0) {
+            on = v * BPS >= TARGET_BPS * creatorTvl;
             bk.creatorOn = on;
         }
+        bool grad = on || (gradTvl > 0 && v * BPS >= TARGET_BPS * gradTvl);
         // Spec: nothing is distributed if Q >= V. Q > V/2 is also held back (it stays in share value pro rata) so
         // the 1/(V - D) terms stay bounded.
         if (q > 0 && 2 * q <= v) _distribute(bk, q, v);
         // LP payouts latch at the first crossing (from the next interval), which keeps the boost accounting exact.
         // The creator's cut is reversible (maker, 2026-11-04), checked above.
-        if (on) bk.graduated = true;
+        if (grad) bk.graduated = true;
     }
 
     function _distribute(Book storage bk, uint256 d, uint256 v) private {
