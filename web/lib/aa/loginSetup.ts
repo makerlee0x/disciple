@@ -66,6 +66,7 @@ export type LoginSetupDeps = {
   now(): number;
   /** One-tap globally available for this signer (policy configured, auto on, not a dev EOA owner, …). */
   enabled(): boolean;
+  disabledReason?(): string;
   /** The player turned one-tap off for this account (persisted). */
   oneTapOff(account: string): boolean;
   /** true / false, or undefined when the chain can't tell right now (then: no action, retry with backoff). */
@@ -79,17 +80,24 @@ export type LoginSetupDeps = {
   /** Cross-tab lease (localStorage); acquire → false when another tab holds it. */
   lease?: { acquire(account: string, ttlMs: number): boolean; release(account: string): void };
   warn(msg: string, detail?: Record<string, unknown>): void;
+  /** Safe coordinator outcomes, including non-error exits which otherwise look like setup never ran. */
+  report?(detail: { account?: string; why: string; outcome: SetupOutcome | "checking"; reason: string; retryInMs: number }): void;
   /** Re-run later (after backoff / another tab's lease). Optional: tests leave it out. */
   schedule?(ms: number, run: () => void): void;
   onChange?(): void;
 };
 
-type Acct = { inflight?: Promise<SetupOutcome>; fails: number; retryAt: number; failedAt: number; okUntil: number; lastError: string; lastDetail: string };
+type Acct = { inflight?: Promise<SetupOutcome>; fails: number; retryAt: number; failedAt: number; okUntil: number; lastError: string; lastDetail: string; outcome?: SetupOutcome | "checking"; reason: string; nextAttemptAt: number };
 
 export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; leaseMs?: number } = {}) {
   const cooldownMs = o.cooldownMs ?? 15_000, leaseMs = o.leaseMs ?? 60_000;
   const acc = new Map<string, Acct>();
-  const get = (a: string) => { const k = a.toLowerCase(); let s = acc.get(k); if (!s) { s = { fails: 0, retryAt: 0, failedAt: 0, okUntil: 0, lastError: "", lastDetail: "" }; acc.set(k, s); } return s; };
+  const get = (a: string) => { const k = a.toLowerCase(); let s = acc.get(k); if (!s) { s = { fails: 0, retryAt: 0, failedAt: 0, okUntil: 0, lastError: "", lastDetail: "", reason: "not attempted", nextAttemptAt: 0 }; acc.set(k, s); } return s; };
+  const record = (a: string | null | undefined, why: string, outcome: SetupOutcome | "checking", reason: string, retryInMs = 0) => {
+    if (a) Object.assign(get(a), { outcome, reason, nextAttemptAt: retryInMs > 0 ? d.now() + retryInMs : 0 });
+    try { d.report?.({ account: a ?? undefined, why, outcome, reason, retryInMs }); } catch { /* diagnostics must not gate setup */ }
+    return outcome;
+  };
   let retryTimer = false;
   const later = (a: string, ms: number) => {
     if (!d.schedule || retryTimer) return;
@@ -103,14 +111,24 @@ export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; le
     let health: SessionHealth | undefined;
     if (deployed) {
       health = await d.health(a);
-      if (health === "live") return "ready";
+      if (health === "live") {
+        s.fails = 0; s.retryAt = 0; s.lastError = ""; s.lastDetail = "";
+        record(a, why, "ready", "cached signer and configured policy session are live");
+        return "ready";
+      }
     }
-    if (d.lease && !d.lease.acquire(a, leaseMs)) { later(a, Math.min(leaseMs, 10_000)); return "other-tab"; }
+    if (d.lease && !d.lease.acquire(a, leaseMs)) {
+      const retryInMs = Math.min(leaseMs, 10_000);
+      record(a, why, "other-tab", "another tab holds the setup lease", retryInMs);
+      later(a, retryInMs); return "other-tab";
+    }
     try {
       if (!deployed) await d.prepare?.(a).catch(() => undefined);
       await d.install(a, { deploy: !deployed, why, health });
       s.fails = 0; s.retryAt = 0; s.lastError = ""; s.lastDetail = ""; s.okUntil = d.now() + cooldownMs;
-      return deployed ? "renewed" : "deployed+installed";
+      const outcome = deployed ? "renewed" : "deployed+installed";
+      record(a, why, outcome, "session installation confirmed");
+      return outcome;
     } finally { d.lease?.release(a); }
   }
 
@@ -120,27 +138,34 @@ export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; le
    */
   function ensure(account: string | null | undefined, why: string, opt: { urgent?: boolean } = {}): Promise<SetupOutcome> {
     try {
-      if (!account) return Promise.resolve("unknown");
-      if (!d.enabled()) return Promise.resolve("disabled");
-      if (d.oneTapOff(account)) return Promise.resolve("one-tap-off");
+      if (!account) { record(account, why, "unknown", "smart account address is not ready"); return Promise.resolve("unknown"); }
+      if (!d.enabled()) { record(account, why, "disabled", d.disabledReason?.() || "automatic setup unavailable for the configured policy, chain or owner"); return Promise.resolve("disabled"); }
+      if (d.oneTapOff(account)) { record(account, why, "one-tap-off", "player disabled one-tap for this account"); return Promise.resolve("one-tap-off"); }
       const s = get(account);
-      if (s.inflight) return s.inflight.then((r) => (r === "failed" ? r : "joined"));
+      if (s.inflight) {
+        record(account, why, "joined", "joining setup already in progress");
+        return s.inflight.then((r) => (r === "failed" ? r : "joined"));
+      }
       const now = d.now();
-      if (now < s.okUntil) return Promise.resolve("cooldown");
-      if (now < (opt.urgent ? Math.min(s.retryAt, s.failedAt + backoffMs(1)) : s.retryAt)) return Promise.resolve("backoff");
+      if (now < s.okUntil) { record(account, why, "cooldown", "recent confirmed installation; waiting for read propagation", s.okUntil - now); return Promise.resolve("cooldown"); }
+      const retryAt = opt.urgent ? Math.min(s.retryAt, s.failedAt + backoffMs(1)) : s.retryAt;
+      if (now < retryAt) { record(account, why, "backoff", "waiting before retrying failed setup", retryAt - now); return Promise.resolve("backoff"); }
       const p = run(account, why, s).catch((e) => {
         s.fails++; s.failedAt = d.now(); s.retryAt = s.failedAt + backoffMs(s.fails);
         const info = errorDiagnostic(e), msg = String(info.detail || info.message);
         s.lastDetail = msg;
         if (!(e as { soft?: boolean })?.soft) s.lastError = info.message.split("\n")[0].slice(0, 160);   // soft = couldn't read the chain: not shown anywhere
         d.warn(`[disciple] one-tap setup at sign-in failed: ${msg}`, { why, attempt: s.fails, retryInMs: backoffMs(s.fails), error: msg, ...info });
+        record(account, why, "failed", msg, backoffMs(s.fails));
         later(account, backoffMs(s.fails));
         return "failed" as SetupOutcome;
       }).finally(() => { s.inflight = undefined; try { d.onChange?.(); } catch { /* */ } });
       s.inflight = p;
+      record(account, why, "checking", "checking deployment and local/on-chain session readiness");
       try { d.onChange?.(); } catch { /* */ }
       return p;
     } catch (e) {
+      record(account, why, "failed", diagnosticText((e as Error)?.message ?? e));
       try { d.warn(`[disciple] one-tap setup at sign-in failed: ${diagnosticText((e as Error)?.message ?? e)}`, { why, ...errorDiagnostic(e) }); } catch { /* */ }
       return Promise.resolve("failed");
     }
@@ -152,6 +177,11 @@ export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; le
     lastError: (account?: string | null) => (account ? acc.get(account.toLowerCase())?.lastError ?? "" : ""),
     /** Full safe technical reason is console-only; lastError remains the existing player-facing copy. */
     lastDetail: (account?: string | null) => (account ? acc.get(account.toLowerCase())?.lastDetail ?? "" : ""),
+    /** Console/debug state only: never overload the player-facing lastError with normal deferral reasons. */
+    status: (account?: string | null) => {
+      const s = account ? acc.get(account.toLowerCase()) : undefined;
+      return { outcome: s?.outcome ?? "not-attempted", reason: s?.reason ?? "not attempted", retryInMs: Math.max(0, (s?.nextAttemptAt ?? 0) - d.now()) };
+    },
     /** Forget backoff / cool-down (e.g. the player explicitly asked for one-tap again, or logout). */
     reset: (account?: string | null) => { if (account) acc.delete(account.toLowerCase()); else acc.clear(); },
   };

@@ -14,7 +14,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 
 function harness(o: { deployed?: boolean | undefined; health?: SessionHealth; off?: boolean; failInstall?: number; enabled?: boolean; slowInstall?: boolean } = {}) {
   let t = 1_000_000;
-  const calls = { deployed: 0, health: 0, prepare: 0, install: [] as { deploy: boolean; why: string; health?: SessionHealth }[], warn: [] as string[] };
+  const calls = { deployed: 0, health: 0, prepare: 0, install: [] as { deploy: boolean; why: string; health?: SessionHealth }[], warn: [] as string[], report: [] as Parameters<NonNullable<LoginSetupDeps["report"]>>[0][] };
   let fails = o.failInstall ?? 0;
   let release: (() => void) | undefined;
   const state = { deployed: o.deployed, health: o.health ?? "missing" as SessionHealth };
@@ -32,6 +32,7 @@ function harness(o: { deployed?: boolean | undefined; health?: SessionHealth; of
       state.deployed = true; state.health = "live";
     },
     warn: (m) => { calls.warn.push(m); },
+    report: (d) => { calls.report.push(d); },
   };
   const setup = createLoginSetup(deps);
   return { setup, calls, state, adv: (ms: number) => { t += ms; }, release: () => release?.() };
@@ -194,4 +195,48 @@ test("trade signer: owner kept for decision (4) — one-tap off, uncovered calls
   assert.deepEqual(tradeSigner({ trade: true, eligible: true, live: true, headroom: false, strictMode: true, deployed: true }), { as: "owner", why: "spend limit used up" });
   assert.equal(tradeSigner({ trade: true, eligible: true, live: false, headroom: true, strictMode: true, deployed: undefined }).as, "owner", "RPC hiccup never blocks a trade");
   assert.equal(tradeSigner({ trade: false, eligible: true, live: false, headroom: true, strictMode: true, deployed: true }).as, "owner", "non-trades (withdraw, claims, installs) unaffected");
+});
+
+
+test("normal setup exits record reasons without inventing player errors; failure/backoff keep the technical error", async () => {
+  const disabled = harness({ enabled: false });
+  await disabled.setup.ensure(null, "login");
+  assert.equal(disabled.calls.report.at(-1)?.outcome, "unknown");
+  await disabled.setup.ensure(A, "login");
+  assert.equal(disabled.setup.status(A).outcome, "disabled");
+  assert.match(disabled.setup.status(A).reason, /unavailable/);
+  const off = harness({ off: true });
+  await off.setup.ensure(A, "login");
+  assert.equal(off.setup.status(A).outcome, "one-tap-off");
+  assert.equal(off.setup.lastError(A), "");
+  const live = harness({ deployed: true, health: "live" });
+  await live.setup.ensure(A, "login");
+  assert.equal(live.setup.status(A).outcome, "ready");
+  const slow = harness({ deployed: true, slowInstall: true });
+  const p = slow.setup.ensure(A, "login");
+  assert.equal(slow.setup.status(A).outcome, "checking");
+  const joined = slow.setup.ensure(A, "trade");
+  assert.equal(slow.setup.status(A).outcome, "joined");
+  await tick(); slow.release(); await Promise.all([p, joined]);
+  assert.equal(slow.setup.status(A).outcome, "renewed");
+  await slow.setup.ensure(A, "refocus");
+  assert.equal(slow.setup.status(A).outcome, "cooldown");
+  assert.equal(slow.setup.status(A).retryInMs, 15_000);
+  assert.equal(slow.setup.lastError(A), "");
+  const bad = harness({ deployed: true, failInstall: 1 });
+  await bad.setup.ensure(A, "login");
+  assert.equal(bad.setup.status(A).outcome, "failed");
+  await bad.setup.ensure(A, "trade");
+  assert.equal(bad.setup.status(A).outcome, "backoff");
+  assert.equal(bad.setup.status(A).retryInMs, 5_000);
+  assert.ok(bad.setup.lastDetail(A));
+});
+
+test("optional reporting failure cannot stop installation", async () => {
+  let installs = 0;
+  const setup = createLoginSetup({ now: () => 0, enabled: () => true, oneTapOff: () => false,
+    deployed: async () => true, health: async () => "missing", install: async () => { installs++; }, warn: () => {},
+    report: () => { throw new Error("console unavailable"); } });
+  assert.equal(await setup.ensure(A, "login"), "renewed");
+  assert.equal(installs, 1);
 });
