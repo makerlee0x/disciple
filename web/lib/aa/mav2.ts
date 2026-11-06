@@ -4,7 +4,7 @@
  *  - owner = Privy embedded EOA (fallback signer, global validation): account creation, session install/revoke, mints.
  *  - session key = browser-held key, SingleSigner entity (non-global, execute/executeBatch) + DiscipleSessionPolicy hooks.
  *  - gas: prepaid USDG gas, via an external bundler (/api/bundler).
- *    No paymaster, protocol relay, or automatic gas top-up.
+ *    The paymaster holds a hidden $2 credit. Trades top it back up inside the same batch.
  */
 import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
@@ -22,7 +22,8 @@ import { relayUnclear } from "./relayClient";
 import type { RelayErrorData, RelayTimeoutExtra, RelayUnclearInfo } from "./relayTypes";
 import { PaymasterCapCache, peekReserve, reserveOrDerived, fallbackUsdgDecimals, type GasOpKind, type WarmAllowance } from "./gasReserve";
 import { payGasInUsdg, AllowanceCache, PaymasterRpcError, type PaymasterFields } from "./paymasterClient";
-import { prepayBootstrap } from "./prepayBootstrap";
+import { withAutoTopUp } from "./prepayBootstrap";
+import { disciplePaymasterAbi } from "./paymaster";
 import { checkUserPaid } from "./gasPolicy";
 import { NOT_ENOUGH_USDG } from "./gasPolicy";
 /** A cold fee cache (first op before aaWarm answered) waits at most this long (job 9: no tap stalls on a hung RPC). */
@@ -253,25 +254,24 @@ export class Mav2Account {
   private prepayReady = false;
   private prepayExpiry = 0;
   async preparePrepay(): Promise<PreparedPrepay> {
-    if (!this.o.usdgGas || this.prepayReady) return { client: await this.owned() };
-    if (this.prepayExpiry > 0 && Date.now() / 1000 >= this.prepayExpiry - 30) this.prepaidOwner = undefined;
-    return this.prepaidOwner ??= (async () => {
-      const base = await this.owned(), pm = this.o.usdgGas!;
-      const allowance = await this.o.pc.readContract({ address: pm.usdg, abi: parseAbi(["function allowance(address,address) view returns (uint256)"]), functionName: "allowance", args: [base.account.address, pm.paymaster] });
-      if (allowance === (BigInt(1) << BigInt(256)) - BigInt(1)) { this.prepayReady = true; return { client: base }; }
-      const block = await this.o.pc.getBlock();
-      this.prepayExpiry = Number(block.timestamp) + 3600;
-      const auth = await prepayBootstrap({ account: base.account.address, chainId: this.o.chain.id,
-        nonce: this.nonces.next(0, true), deadline: Number(block.timestamp) + 3600,
-        usdg: pm.usdg, paymaster: pm.paymaster, sign: (typed) => this.owner.signTypedData(typed),
-      });
-      const client = await createModularAccountV2Client({
-        feeEstimator: rundlerFeeEstimator, gasEstimator: cachedGasEstimator,
-        chain: this.o.chain, transport: this.transport(), signer: asSigner(this.owner),
-        salt: this.o.salt ?? BigInt(0), factoryAddress: MAV2_FACTORY, deferredAction: auth.deferredAction,
-      });
-      return { client: memoizeExecPrefix(client), nonce: auth.nonce };
-    })().catch((e) => { this.prepaidOwner = undefined; throw e; });
+    return { client: await this.owned() };
+  }
+  /** Top the hidden $2 credit back up inside a trade when the wallet can spare it. Never blocks the trade. */
+  private async hiddenTopUp(calls: Call[], sender: Address): Promise<Call[]> {
+    const pm = this.o.usdgGas;
+    if (!pm) return calls;
+    try {
+      const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)"]);
+      const [credit, reserved, wallet] = await Promise.all([
+        this.o.pc.readContract({ address: pm.paymaster, abi: disciplePaymasterAbi, functionName: "creditOf", args: [sender] }),
+        this.o.pc.readContract({ address: pm.paymaster, abi: disciplePaymasterAbi, functionName: "reservedOf", args: [sender] }),
+        this.o.pc.readContract({ address: pm.usdg, abi: erc20, functionName: "balanceOf", args: [sender] }),
+      ]);
+      const available = credit > reserved ? credit - reserved : 0n;
+      return withAutoTopUp(calls, { usdg: pm.usdg, paymaster: pm.paymaster, account: sender, available, wallet });
+    } catch {
+      return calls;
+    }
   }
   /** Session-key client on the same account (validation = SingleSigner entityId, non-global). */
   async useSession(entityId: number, key: LocalAccount) {
@@ -448,7 +448,7 @@ export class Mav2Account {
       throw new AAError("Estimate", `simulation failed: ${msg.split("\n")[0].slice(0, 200)}`, { revertData });
     };
 
-    // ---- Player-paid USDG gas: validation precharge → signed quote → external bundler
+    // ---- Player-paid USDG gas: credit reservation → signed quote → external bundler
     if (this.o.usdgGas) {
       const pm = this.o.usdgGas!;
       const f = fees ?? await withinBudget(FEES.get(() => fetchFees(client as unknown as FeeClient)), COLD_FEES_MS, "fees");
@@ -475,8 +475,9 @@ export class Mav2Account {
       };
       let wire: UserOp;
       try {
+        const topped = await this.hiddenTopUp(calls, sender);
         ({ op: wire } = await payGasInUsdg({
-          url: absUrl(pm.url), chainId: this.o.chain.id, usdg: pm.usdg, paymaster: pm.paymaster, calls, build, allowance: this.allowances?.peek(sender),
+          url: absUrl(pm.url), chainId: this.o.chain.id, usdg: pm.usdg, paymaster: pm.paymaster, calls: topped, build, allowance: this.allowances?.peek(sender),
           sign: async (op) => ((await client.signUserOperation({ uoStruct: op })) as UserOp).signature,
         }));
       } catch (e) {

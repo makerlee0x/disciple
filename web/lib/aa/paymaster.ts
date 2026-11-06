@@ -12,11 +12,10 @@
  * rate = USDG base units per 1 ETH (1e18 wei). Decimals-aware by construction: 18-dec testnet USDG at $3000/ETH is
  * 3000e18, 6-dec mainnet USDG is 3000e6. tokenCost(wei) = ceil(wei * rate / 1e18).
  *
- * The FIRST inner approve is a session-accounting marker, not security for this op. Policy 1.4.2 accepts
- * persistent uint256.max allowance while debiting only the signed token ceiling. Validation collects prepaid
- * USDG from a standing allowance (or the native owner-validation bootstrap), before any execution calls.
+ * v5 admits an op from the player's own gas credit (creditOf - reservedOf). Validation never calls the token.
+ * A zero-credit account may run one setup op: approve(paymaster, amount) + deposit(account, amount).
  */
-import { concat, decodeFunctionData, encodeAbiParameters, encodeFunctionData, keccak256, pad, parseAbi, parseAbiParameters, size, slice, toHex, type Address, type Hex } from "viem";
+import { concat, decodeFunctionData, encodeAbiParameters, encodeFunctionData, keccak256, pad, parseAbi, parseAbiParameters, size, slice, toFunctionSelector, toHex, type Address, type Hex } from "viem";
 import type { Call, UserOp } from "./core";
 
 export const PAYMASTER_DATA_LENGTH = 141; // paymasterData (after the 52-byte paymaster + gas limits prefix)
@@ -24,9 +23,11 @@ export const PAYMASTER_AND_DATA_LENGTH = 193;
 export const MAX_QUOTE_WINDOW_SEC = 3600;
 /** Gas limits the server signs; must stay ≤ lib/aa/gasPolicy GAS_CAPS.paymaster*. Validation precharges; postOp settles/refunds. */
 export const PAYMASTER_GAS = {
-  verificationGasLimit: BigInt(250_000), // ecrecover + balanceOf + allowance + transferFrom precharge (F-01)
-  postOpGasLimit: BigInt(79_684),       // treasury transfer + sender refund (F-01 precharge)
+  verificationGasLimit: BigInt(250_000), // ecrecover + own-storage credit check (no token call)
+  postOpGasLimit: BigInt(160_000),       // measured postOp floor is 150_000; withdraw settles two transfers
 } as const;
+/** Default first-time gas credit. 6-decimal USDG, $2. */
+export const SETUP_DEPOSIT = BigInt(2_000_000);
 
 export const disciplePaymasterAbi = parseAbi([
   "function PREPAY_VERSION() view returns (uint256)",
@@ -42,6 +43,16 @@ export const disciplePaymasterAbi = parseAbi([
   "function getDeposit() view returns (uint256)",
   "function reservedOf(address) view returns (uint256)",
   "function owedOf(address) view returns (uint256)",
+  "function creditOf(address) view returns (uint256)",
+  "function availableCredit(address) view returns (uint256)",
+  "function bootstrapUsed(address) view returns (bool)",
+  "function withdrawPending(address) view returns (bool)",
+  "function claimOf(address) view returns (uint256)",
+  "function SETUP_DEPOSIT() view returns (uint256)",
+  "function maxBootstrapGasPerOp() view returns (uint256)",
+  "function deposit(address,uint256)",
+  "function release(uint256)",
+  "function withdraw()",
   "function getHash(address sender, uint48 validUntil, uint48 validAfter, uint256 rate, uint256 maxTokenCost) view returns (bytes32)",
   "function deposit() payable",
   "event UserOperationCharged(bytes32 indexed userOpHash, address indexed sender, uint256 gasCostToken, uint256 debtRepaid, uint256 rate)",
@@ -72,8 +83,8 @@ export function entryPointMaxCost(op: Pick<UserOp, "callGasLimit" | "verificatio
 }
 
 /** Minimum maxTokenCost the contract accepts for this op: tokenCost(maxCost, rate) + the sender's carried debt. */
-export function requiredMaxTokenCost(op: Parameters<typeof entryPointMaxCost>[0], rate: bigint, debt: bigint = BigInt(0)): bigint {
-  return tokenCost(entryPointMaxCost(op), rate) + debt;
+export function requiredMaxTokenCost(op: Parameters<typeof entryPointMaxCost>[0], rate: bigint, _debt: bigint = BigInt(0)): bigint {
+  return tokenCost(entryPointMaxCost(op), rate);
 }
 
 export function encodePaymasterData(q: PaymasterQuote, signature: Hex): Hex {
@@ -167,6 +178,68 @@ export function firstCallApproveAmount(callData: Hex, usdg: Address, paymaster: 
     if (a.functionName !== "approve" || a.args[0].toLowerCase() !== paymaster.toLowerCase()) return null;
     return a.args[1];
   } catch { return null; }
+}
+
+const UINT_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
+const DEPOSIT_SEL = toFunctionSelector("deposit(address,uint256)").toLowerCase();
+const WITHDRAW_SEL = toFunctionSelector("withdraw()").toLowerCase();
+const APPROVE_SEL = toFunctionSelector("approve(address,uint256)").toLowerCase();
+const INSTALL_SEL = toFunctionSelector("installValidation(bytes25,bytes4[],bytes,bytes[])").toLowerCase();
+
+export type CreditShape =
+  | { kind: "normal" }
+  | { kind: "withdraw" }
+  | { kind: "funding"; amount: bigint }
+  | { kind: "bad" };
+
+function innerCalls(callData: Hex): { target: Address; value: bigint; data: Hex }[] | null {
+  let cd = callData;
+  if (cd.slice(0, 10).toLowerCase() === EXECUTE_USER_OP) cd = `0x${cd.slice(10)}` as Hex;
+  try {
+    const d = decodeFunctionData({ abi: execAbi, data: cd });
+    if (d.functionName === "execute") return [{ target: d.args[0], value: d.args[1], data: d.args[2] }];
+    return [...(d.args[0] as readonly { target: Address; value: bigint; data: Hex }[])];
+  } catch { return null; }
+}
+
+/**
+ * Same shapes DisciplePaymasterV5 admits. `funding` is an exact approve+deposit (optional self install).
+ * `bad` is a credit call the contract rejects (MAX, mismatch, mixed withdraw, wrong token).
+ */
+export function classifyCreditCalldata(callData: Hex, sender: Address, usdg: Address, paymaster: Address): CreditShape {
+  const calls = innerCalls(callData || "0x");
+  if (!calls) return { kind: "normal" };
+  let approve = BigInt(0), deposit = BigInt(0), deposits = 0, withdraws = 0, other = false;
+  for (const c of calls) {
+    if (c.value !== BigInt(0)) { other = true; continue; }
+    const sel = c.data.slice(0, 10).toLowerCase();
+    const to = c.target.toLowerCase();
+    if (sel === APPROVE_SEL && to === usdg.toLowerCase()) {
+      if (size(c.data) !== 68) return { kind: "bad" };
+      const spender = `0x${c.data.slice(34, 74)}`.toLowerCase();
+      const amount = BigInt(`0x${c.data.slice(74, 138)}`);
+      if (spender !== paymaster.toLowerCase()) { other = true; continue; }
+      if (amount === BigInt(0)) continue;
+      if (amount === UINT_MAX || approve !== BigInt(0)) return { kind: "bad" };
+      approve = amount;
+    } else if (sel === DEPOSIT_SEL && to === paymaster.toLowerCase()) {
+      if (size(c.data) !== 68) return { kind: "bad" };
+      const who = `0x${c.data.slice(34, 74)}`.toLowerCase();
+      const amount = BigInt(`0x${c.data.slice(74, 138)}`);
+      if (who !== sender.toLowerCase() || amount === BigInt(0) || amount === UINT_MAX) return { kind: "bad" };
+      deposits++; deposit += amount;
+    } else if (sel === WITHDRAW_SEL && to === paymaster.toLowerCase()) {
+      if (size(c.data) !== 4) return { kind: "bad" };
+      withdraws++;
+    } else if (!(sel === INSTALL_SEL && to === sender.toLowerCase())) other = true;
+  }
+  if (withdraws > 0) return withdraws === 1 && approve === BigInt(0) && deposits === 0 && !other ? { kind: "withdraw" } : { kind: "bad" };
+  if (approve !== BigInt(0) || deposits !== 0) {
+    if (deposits !== 1 || approve !== deposit) return { kind: "bad" };
+    // A top-up beside a trade is an ordinary op: this op's reservation still comes from existing credit.
+    return other ? { kind: "normal" } : { kind: "funding", amount: deposit };
+  }
+  return { kind: "normal" };
 }
 
 /** Human USDG amount (for "not enough USDG" messages) — decimals-aware, never hard-codes 1e18. */

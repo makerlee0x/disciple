@@ -19,7 +19,7 @@ import "server-only";
  */
 import { createPublicClient, http, parseAbi, type Address } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
-import { robinhoodTestnet, DEPLOYMENTS } from "../chains";
+import { robinhood, robinhoodTestnet, DEPLOYMENTS } from "../chains";
 import { disciplePaymasterAbi } from "../aa/paymaster";
 import { launchTargets } from "../aa/launchTargets";
 import { chainGradReads, isGradBuyOp } from "./gradBuy";
@@ -28,7 +28,16 @@ import { assertSignerMatches, unmarkedRate, PAYMASTER_CHAIN_ID, PaymasterQuoteEr
 import { assertPrepaidReady } from "./prepaidPaymaster";
 
 const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)", "function allowance(address,address) view returns (uint256)", "function decimals() view returns (uint8)"]);
-const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { fetchOptions: { keepalive: true }, timeout: 3000, retryCount: 1 })   /* job 9: bounded pre-send (viem default 10 s × 3 retries) */ });
+const clients = new Map<number, ReturnType<typeof createPublicClient>>();
+function rpc(chainId: number) {
+  let c = clients.get(chainId);
+  if (!c) {
+    const chain = chainId === 4663 ? robinhood : robinhoodTestnet;
+    c = createPublicClient({ chain, transport: http(undefined, { fetchOptions: { keepalive: true }, timeout: 3000, retryCount: 1 }) });
+    clients.set(chainId, c);
+  }
+  return c;
+}
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
 const ZERO = "0x0000000000000000000000000000000000000000";
 
@@ -47,27 +56,30 @@ function signerAccount(): PrivateKeyAccount {
 
 /** Checked once per paymaster address (cached only on success): local signer == DisciplePaymaster.signer(). */
 let signerOk: Address | undefined;
-async function checkSignerOnChain(paymaster: Address): Promise<void> {
+async function checkSignerOnChain(paymaster: Address, chainId: number): Promise<void> {
   if (signerOk === paymaster) return;
-  const onchain = await pc.readContract({ address: paymaster, abi: disciplePaymasterAbi, functionName: "signer" });
+  const onchain = await rpc(chainId).readContract({ address: paymaster, abi: disciplePaymasterAbi, functionName: "signer" });
   assertSignerMatches(signerAccount().address, onchain);
   signerOk = paymaster;
 }
 
-export function paymasterAddress(): Address {
+export function paymasterAddress(chainId: number = PAYMASTER_CHAIN_ID): Address {
   const env = process.env.PAYMASTER_ADDRESS;
-  const a = env && ADDR.test(env) ? (env as Address) : DEPLOYMENTS[PAYMASTER_CHAIN_ID].paymaster;
+  const dep = DEPLOYMENTS[chainId as keyof typeof DEPLOYMENTS]?.paymaster;
+  const a = env && ADDR.test(env) ? (env as Address) : dep;
   if (!a || a === ZERO) throw new PaymasterQuoteError("config", "paymaster not deployed / configured");
   return a;
 }
 
-export async function quoteConfig(): Promise<QuoteConfig> {
-  const paymaster = paymasterAddress();
+export async function quoteConfig(chainId: string | number = PAYMASTER_CHAIN_ID): Promise<QuoteConfig> {
+  const id = Number(chainId);
+  if (id !== 4663 && id !== 46630) throw new PaymasterQuoteError("chain", `unsupported chain ${id}`);
+  const paymaster = paymasterAddress(id);
   signerAccount(); // fail closed before any RPC
-  try { await assertPrepaidReady(paymaster); } catch { throw new PaymasterQuoteError("config", "hardened prepaid USDG paymaster unavailable"); }
-  await checkSignerOnChain(paymaster);
-  const usdg = DEPLOYMENTS[PAYMASTER_CHAIN_ID].usdg;
-  if (!decimals || decimals.usdg !== usdg) decimals = { usdg, d: Number(await pc.readContract({ address: usdg, abi: erc20, functionName: "decimals" })) };
+  const usdg = DEPLOYMENTS[id as keyof typeof DEPLOYMENTS].usdg;
+  try { await assertPrepaidReady(paymaster, undefined, { chainId: id, usdg }); } catch { throw new PaymasterQuoteError("config", "hardened prepaid USDG paymaster unavailable"); }
+  await checkSignerOnChain(paymaster, id);
+  if (!decimals || decimals.usdg !== usdg) decimals = { usdg, d: Number(await rpc(id).readContract({ address: usdg, abi: erc20, functionName: "decimals" })) };
   const ttl = Number(process.env.PAYMASTER_QUOTE_TTL_SEC || "");
   const slack = process.env.PAYMASTER_MAX_SLACK_BPS;
   const allowTtl = Number(process.env.PAYMASTER_ALLOWANCE_TTL_SEC || "");
@@ -76,16 +88,25 @@ export async function quoteConfig(): Promise<QuoteConfig> {
     ttlSec: Number.isFinite(ttl) && ttl > 0 ? ttl : undefined,
     maxSlackBps: slack && /^\d+$/.test(slack) ? BigInt(slack) : undefined,
     allowanceTtlSec: Number.isFinite(allowTtl) && allowTtl > 0 ? allowTtl : undefined,
-    launchers: launchTargets(PAYMASTER_CHAIN_ID),
+    launchers: launchTargets(id),
   };
 }
 
-export function quoteDeps(cfg: QuoteConfig): QuoteDeps {
+export function quoteDeps(cfg: QuoteConfig, chainId: number = PAYMASTER_CHAIN_ID): QuoteDeps {
+  const pc = rpc(chainId);
   return {
     now: () => Math.floor(Date.now() / 1000),
     debtOf: (s) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: "owedOf", args: [s] }),
-    balanceOf: (s) => pc.readContract({ address: cfg.usdg, abi: erc20, functionName: "balanceOf", args: [s] }),
+    balanceOf: async (s) => {
+      const [credit, reserved] = await Promise.all([
+        pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: "creditOf", args: [s] }),
+        pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: "reservedOf", args: [s] }),
+      ]);
+      return credit > reserved ? credit - reserved : BigInt(0);
+    },
     allowanceOf: (s) => pc.readContract({ address: cfg.usdg, abi: erc20, functionName: "allowance", args: [s, cfg.paymaster] }),
+    reservedOf: (s) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: "reservedOf", args: [s] }),
+    bootstrapUsed: (s) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: "bootstrapUsed", args: [s] }),
     async bounds() {
       if (boundsCache && Date.now() - boundsCache.at < 60_000) return boundsCache.v;
       const [minRate, maxRate, maxGasPerOp, maxLaunchGasPerOp] = await Promise.all((["minRate", "maxRate", "maxGasPerOp", "maxLaunchGasPerOp"] as const).map((f) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: f })));
@@ -99,11 +120,11 @@ export function quoteDeps(cfg: QuoteConfig): QuoteDeps {
       return fee;
     },
     sign: (hash) => signerAccount().signMessage({ message: { raw: hash } }),
-    isGradBuy: (callData, sender) => isGradBuyOp(callData, sender, chainGradReads(pc as never, PAYMASTER_CHAIN_ID, { paymaster: cfg.paymaster, usdg: cfg.usdg }), cfg.paymaster),
+    isGradBuy: (callData, sender) => isGradBuyOp(callData, sender, chainGradReads(pc as never, chainId, { paymaster: cfg.paymaster, usdg: cfg.usdg }), cfg.paymaster),
   };
 }
 
 /** Paymaster's EntryPoint deposit (wei) — the bundler refuses paymaster ops it can't cover. */
 export async function paymasterDeposit(paymaster: Address): Promise<bigint> {
-  return pc.readContract({ address: paymaster, abi: disciplePaymasterAbi, functionName: "getDeposit" });
+  return rpc(PAYMASTER_CHAIN_ID).readContract({ address: paymaster, abi: disciplePaymasterAbi, functionName: "getDeposit" });
 }

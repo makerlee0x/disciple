@@ -20,6 +20,7 @@ import { ENTRYPOINT_V07 } from "../lib/aa/constants";
 import type { UserOp } from "../lib/aa/core";
 import { ALLOWANCE_LIMITS, BUNDLER_LIMITS, hitLimit, memoryCounter, paymasterAllowanceLimits } from "../lib/server/limits";
 import { AllowanceCache, ALLOWANCE_REFRESH_AHEAD_SEC, fitsAllowance, payGasInUsdg, type Allowance } from "../lib/aa/paymasterClient";
+import { setupCreditCalls, SETUP_DEPOSIT } from "../lib/aa/prepayBootstrap";
 
 const hex = (n: bigint | number) => `0x${BigInt(n).toString(16)}` as Hex;
 const E18 = BigInt(10) ** BigInt(18);
@@ -57,10 +58,11 @@ for (const dec of [18, 6]) {
     callGasLimit: hex(STATIC_GAS.callGasLimit), verificationGasLimit: hex(STATIC_GAS.verificationGasLimit), preVerificationGas: hex(STATIC_GAS.preVerificationGas),
     maxFeePerGas: hex(fees.maxFeePerGas), maxPriorityFeePerGas: hex(fees.maxPriorityFeePerGas),
   });
-  const twoPhase = async (d = deps(), prefix = true, tweak = (x: bigint) => x) => {
-    const stub = await stubQuote(baseOp(batch([trade], prefix)), ENTRYPOINT_V07, 46630, cfg, d);
-    const amt = tweak(BigInt(stub.disciple.maxTokenCost));
-    const op: UserOp = { ...baseOp(batch([paymasterApproveCall(USDG, PM, amt), trade], prefix)), paymaster: stub.paymaster, paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit, paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit };
+  const twoPhase = async (d = deps(), prefix = true) => {
+    const bare = baseOp(batch([trade], prefix));
+    const stub = await stubQuote(bare, ENTRYPOINT_V07, 46630, cfg, d);
+    const amt = BigInt(stub.disciple.maxTokenCost);
+    const op: UserOp = { ...bare, paymaster: stub.paymaster, paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit, paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit };
     return { stub, amt, op, final: () => finalQuote(op, ENTRYPOINT_V07, 46630, cfg, d) };
   };
   const rejects = (p: Promise<unknown>, code: PaymasterQuoteError["code"]) => assert.rejects(p, (e: unknown) => e instanceof PaymasterQuoteError && e.code === code);
@@ -73,9 +75,9 @@ for (const dec of [18, 6]) {
     const amt = BigInt(stub.disciple.maxTokenCost);
     const install = { to: SENDER, data: encodeFunctionData({ abi: parseAbi(["function installValidation(bytes25,bytes4[],bytes,bytes[])"]), functionName: "installValidation", args: [`0x${"00".repeat(25)}`, [], "0x", []] }) };
     const login = { to: TOKEN, data: encodeFunctionData({ abi: parseAbi(["function attest(address,uint64,bytes)"]), functionName: "attest", args: [SENDER, BigInt(1_900_000_000), "0x"] }) };
-    const op: UserOp = { ...lop([paymasterApproveCall(USDG, PM, amt), install, login, launchCall]), paymaster: stub.paymaster, paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit, paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit };
+    const op: UserOp = { ...lop([install, login, launchCall]), paymaster: stub.paymaster, paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit, paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit };
     const f = await finalQuote(op, ENTRYPOINT_V07, 46630, lcfg, d);
-    assert.equal(firstCallApproveAmount(op.callData, USDG, PM), amt);
+    assert.equal(firstCallApproveAmount(op.callData, USDG, PM), null);
     assert.ok(f.paymasterData.length > 2);
     const q = decodePaymasterData(f.paymasterData);
     assert.equal(await recoverMessageAddress({ message: { raw: paymasterLaunchQuoteHash({ ...op, ...f }, q, 46630, PM) }, signature: q.signature }), signer.address);
@@ -90,10 +92,10 @@ for (const dec of [18, 6]) {
     const hotStub = await stubQuote(hot, ENTRYPOINT_V07, 46630, lcfg, deps({ baseFee: async () => BASE * BigInt(2) }));
     assert.equal(BigInt(hotStub.disciple.maxTokenCost), tokenCost(entryPointMaxCost(hot), RATE));
     assert.ok(amt * BigInt(2) - BigInt(hotStub.disciple.maxTokenCost) <= BigInt(1), "ceil differs by at most one base unit");
-    await rejects(finalQuote({ ...op, callData: batch([paymasterApproveCall(USDG, PM, amt), { ...install, to: TOKEN }, launchCall]) }, ENTRYPOINT_V07, 46630, lcfg, d), "gas");
-    // same op without the launcher list (or to a non-launch target) ⇒ normal 3M cap ⇒ "gas"
+    await rejects(finalQuote({ ...op, callData: batch([{ ...install, to: TOKEN }, launchCall]) }, ENTRYPOINT_V07, 46630, lcfg, d), "gas");
+    // same op without the launcher list (or to a non-launch target) ⇒ normal trade cap ⇒ "gas"
     await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, d), "gas");
-    await rejects(finalQuote({ ...op, callData: batch([paymasterApproveCall(USDG, PM, amt), { ...launchCall, to: TOKEN }]) }, ENTRYPOINT_V07, 46630, lcfg, d), "gas");
+    await rejects(finalQuote({ ...op, callData: batch([{ ...launchCall, to: TOKEN }]) }, ENTRYPOINT_V07, 46630, lcfg, d), "gas");
   });
 
   test(`[${dec}-dec] graduating buy (3.4M call gas) quotes under GRAD_GAS_CAPS only when deps.isGradBuy confirms it`, async () => {
@@ -102,7 +104,7 @@ for (const dec of [18, 6]) {
     const yes = deps({ isGradBuy: async (_cd: string, sender: string) => { asked++; senders.add(sender); return true; } }), no = deps({ isGradBuy: async () => false });
     const stub = await stubQuote(gop(batch([trade])), ENTRYPOINT_V07, 46630, cfg, yes);
     const amt = BigInt(stub.disciple.maxTokenCost);
-    const op: UserOp = { ...gop(batch([paymasterApproveCall(USDG, PM, amt), trade])), paymaster: stub.paymaster, paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit, paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit };
+    const op: UserOp = { ...gop(batch([trade])), paymaster: stub.paymaster, paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit, paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit };
     const f = await finalQuote(op, ENTRYPOINT_V07, 46630, cfg, yes);
     assert.ok(f.paymasterData.length > 2);
     assert.ok(asked >= 2);
@@ -146,7 +148,7 @@ for (const dec of [18, 6]) {
     assert.equal(firstCallApproveAmount("0x1234", USDG, PM), null);
   });
 
-  test(`[${dec}-dec] stub → approve → final: signed by the signer over the exact op; maxTokenCost = tokenCost(maxCost) + debt`, async () => {
+  test(`[${dec}-dec] stub → final: signed over the exact op; maxTokenCost = tokenCost(maxCost)`, async () => {
     const { stub, amt, op, final } = await twoPhase();
     assert.equal(stub.paymasterVerificationGasLimit, hex(PAYMASTER_GAS.verificationGasLimit));
     assert.equal(amt, requiredMaxTokenCost(op, RATE, BigInt(0)));
@@ -165,49 +167,53 @@ for (const dec of [18, 6]) {
     assert.ok(amt < BigInt(10) ** BigInt(dec), `max gas charge ${formatUsdg(amt, dec)} USDG`);
   });
 
-  test(`[${dec}-dec] debt is added to the required allowance`, async () => {
+  test(`[${dec}-dec] carried debt is refused`, async () => {
     const debt = BigInt(42) * BigInt(10) ** BigInt(dec - 3 > 0 ? dec - 3 : 0);
-    const { amt, op, final } = await twoPhase(deps({ debtOf: async () => debt }));
-    assert.equal(amt, tokenCost(entryPointMaxCost(op), RATE) + debt);
-    await final();
+    const d = deps({ debtOf: async () => debt });
+    await rejects(stubQuote(baseOp(batch([trade])), ENTRYPOINT_V07, 46630, cfg, d), "approve");
+    await rejects(finalQuote({ ...baseOp(batch([trade])), paymaster: PM }, ENTRYPOINT_V07, 46630, cfg, d), "approve");
   });
 
-  test(`[${dec}-dec] final refuses: no approve, under, too far over, over cap, balance, wrong chain/EP/paymaster, fee 0`, async () => {
+  test(`[${dec}-dec] final admits a credited trade and refuses bad credit calls, empty credit, wrong chain/EP/paymaster, fee 0`, async () => {
     const d = deps();
-    const noApprove: UserOp = { ...baseOp(batch([trade], true)), paymaster: PM };
-    await rejects(finalQuote(noApprove, ENTRYPOINT_V07, 46630, cfg, d), "approve");
-    await rejects((await twoPhase(d, true, (x) => x - BigInt(1))).final(), "approve");
-    await rejects((await twoPhase(d, true, (x) => x + (x * DEFAULT_MAX_SLACK_BPS) / BigInt(10_000) + BigInt(1))).final(), "approve");
-    await (await twoPhase(d, true, (x) => x + (x * DEFAULT_MAX_SLACK_BPS) / BigInt(10_000))).final(); // at the slack edge: OK
+    const { op } = await twoPhase(d);
+    await (await twoPhase(d)).final();
+    const max = (BigInt(1) << BigInt(256)) - BigInt(1);
+    await rejects(finalQuote({ ...op, callData: batch([paymasterApproveCall(USDG, PM, max), trade]) }, ENTRYPOINT_V07, 46630, cfg, d), "approve");
+    await rejects(finalQuote({ ...op, callData: batch([paymasterApproveCall(USDG, PM, SETUP_DEPOSIT)]) }, ENTRYPOINT_V07, 46630, cfg, d), "approve");
     await rejects((await twoPhase(deps({ bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: BigInt(1) }) }))).final(), "approve");
     await rejects((await twoPhase(deps({ balanceOf: async () => BigInt(1) }))).final(), "balance");
-    // the balance message reaches the client: no gas wording (mav2 matches /not enough USDG/ and shows NOT_ENOUGH_USDG)
     await assert.rejects((await twoPhase(deps({ balanceOf: async () => BigInt(1) }))).final(),
       (e: unknown) => e instanceof PaymasterQuoteError && /^not enough USDG: need /.test(e.message) && !INFRA_WORDING.test(e.message));
-    const { op } = await twoPhase(d);
-    await rejects(finalQuote(op, ENTRYPOINT_V07, 4663, cfg, d), "chain");
+    const mainnet = await finalQuote(op, ENTRYPOINT_V07, 4663, cfg, d);
+    const q = decodePaymasterData(mainnet.paymasterData);
+    assert.equal(await recoverMessageAddress({ message: { raw: paymasterQuoteHash({ ...op, ...mainnet }, q, 4663, PM) }, signature: q.signature }), signer.address);
+    assert.notEqual(await recoverMessageAddress({ message: { raw: paymasterQuoteHash({ ...op, ...mainnet }, q, 46630, PM) }, signature: q.signature }), signer.address);
+    await rejects(finalQuote(op, ENTRYPOINT_V07, 1, cfg, d), "chain");
     await rejects(finalQuote(op, "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789", 46630, cfg, d), "entrypoint");
     await rejects(finalQuote({ ...op, paymaster: TOKEN }, ENTRYPOINT_V07, 46630, cfg, d), "op");
     await rejects(finalQuote({ ...op, maxFeePerGas: "0x0", maxPriorityFeePerGas: "0x0" }, ENTRYPOINT_V07, 46630, cfg, d), "gas");
     await rejects(finalQuote({ ...op, callGasLimit: hex(GAS_CAPS.callGasLimit + BigInt(1)) }, ENTRYPOINT_V07, 46630, cfg, d), "gas");
+    const need = requiredMaxTokenCost(op, RATE);
+    const fund = need > SETUP_DEPOSIT ? need : SETUP_DEPOSIT;
+    const setup = { ...op, callData: batch(setupCreditCalls(USDG, PM, SENDER, fund)) };
+    const boot = await finalQuote(setup, ENTRYPOINT_V07, 46630, cfg, deps({ balanceOf: async () => BigInt(0), bootstrapUsed: async () => false }));
+    assert.equal(decodePaymasterData(boot.paymasterData).maxTokenCost, need);
+    await rejects(finalQuote(setup, ENTRYPOINT_V07, 46630, cfg, deps({ balanceOf: async () => BigInt(0), bootstrapUsed: async () => true })), "balance");
+    if (need > SETUP_DEPOSIT) await rejects(finalQuote({ ...op, callData: batch(setupCreditCalls(USDG, PM, SENDER, SETUP_DEPOSIT)) }, ENTRYPOINT_V07, 46630, cfg, deps({ balanceOf: async () => BigInt(0) })), "approve");
   });
 
-  test(`[${dec}-dec] F-01: same-batch approve never replaces standing allowance (final and cached quotes)`, async () => {
+  test(`[${dec}-dec] credit, not a standing ERC20 allowance, admits the quote`, async () => {
     const noStanding = deps({ allowanceOf: async () => BigInt(0) });
-    await rejects((await twoPhase(noStanding)).final(), "approve");
-    await rejects(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, noStanding), "approve");
-    const { amt } = await twoPhase();
-    await rejects((await twoPhase(deps({ allowanceOf: async () => amt - BigInt(1) }))).final(), "approve");
-    await (await twoPhase(deps({ allowanceOf: async () => amt }))).final();
+    await (await twoPhase(noStanding)).final();
+    await allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, noStanding);
+    await rejects((await twoPhase(deps({ balanceOf: async () => BigInt(0) }))).final(), "balance");
   });
 
-  test(`[${dec}-dec] persistent max approval signs only required precharge, still obeys cap/balance/standing checks`, async () => {
+  test(`[${dec}-dec] uint256.max approval is rejected`, async () => {
     const max = (BigInt(1) << BigInt(256)) - BigInt(1);
-    const { op } = await twoPhase(deps(), true, () => max);
-    const f = await finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps());
-    const q = decodePaymasterData(f.paymasterData);
-    assert.equal(q.maxTokenCost, requiredMaxTokenCost(op, RATE, BigInt(0)));
-    await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps({ allowanceOf: async () => BigInt(0) })), "approve");
+    const { op } = await twoPhase();
+    await rejects(finalQuote({ ...op, callData: batch([paymasterApproveCall(USDG, PM, max)]) }, ENTRYPOINT_V07, 46630, cfg, deps()), "approve");
     await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps({ balanceOf: async () => BigInt(0) })), "balance");
     await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: RATE, maxRate: RATE, maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: BigInt(1) }) })), "approve");
   });
@@ -282,11 +288,10 @@ for (const dec of [18, 6]) {
   const fee = clientFees(BASE).maxFeePerGas * ALLOWANCE_FEE_MULT;
   const envelope = Object.values(ALLOWANCE_GAS).reduce((a, b) => a + b, BigInt(0));
 
-  test(`[${dec}-dec] allowanceQuote: signed per-sender allowance for the trade envelope (+ debt), 10-min window`, async () => {
-    const debt = BigInt(7);
-    const a = await allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ debtOf: async () => debt }));
+  test(`[${dec}-dec] allowanceQuote: signed per-sender allowance for the trade envelope, 10-min window`, async () => {
+    const a = await allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps());
     const q = decodePaymasterData(a.paymasterData);
-    assert.equal(q.maxTokenCost, tokenCost(envelope * fee, RATE) + debt);
+    assert.equal(q.maxTokenCost, tokenCost(envelope * fee, RATE));
     assert.equal(BigInt(a.disciple.maxTokenCost), q.maxTokenCost);
     assert.equal(q.validUntil, 1_790_000_000 + DEFAULT_ALLOWANCE_TTL_SEC);
     assert.ok(q.validUntil - q.validAfter <= 3600);
@@ -300,7 +305,10 @@ for (const dec of [18, 6]) {
     await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ balanceOf: async () => BigInt(1) })), "balance");
     await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: BigInt(1) }) })), "approve");
     await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: RATE * BigInt(2), maxRate: RATE * BigInt(3), maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: E18 }) })), "rate");
-    await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 4663, cfg, deps()), "chain");
+    await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 1, cfg, deps()), "chain");
+    const main = await allowanceQuote(SENDER, ENTRYPOINT_V07, 4663, cfg, deps());
+    const mq = decodePaymasterData(main.paymasterData);
+    assert.equal(await recoverMessageAddress({ message: { raw: paymasterAllowanceHash(SENDER, mq, 4663, PM) }, signature: mq.signature }), signer.address);
     await rejectsA(allowanceQuote(SENDER, "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789", 46630, cfg, deps()), "entrypoint");
     await rejectsA(allowanceQuote("0x1234" as Address, ENTRYPOINT_V07, 46630, cfg, deps()), "op");
   });
@@ -318,7 +326,7 @@ for (const dec of [18, 6]) {
       });
       assert.equal(r.pmCalls, 0); assert.equal(calls, 0);
       assert.equal(r.op.paymasterData, a.paymasterData);
-      assert.equal(firstCallApproveAmount(r.op.callData, USDG, PM), (BigInt(1) << BigInt(256)) - BigInt(1));
+      assert.equal(firstCallApproveAmount(r.op.callData, USDG, PM), null);
       assert.ok(fitsAllowance(r.op, a));
       // an op above the envelope (fee spike ×3) does NOT fit ⇒ falls back to the per-op flow (here: the mocked network)
       await assert.rejects(payGasInUsdg({
@@ -407,7 +415,7 @@ test("client payGasInUsdg: stub → persistent approve first → final, against 
   const signer = privateKeyToAccount(generatePrivateKey());
   const cfg: QuoteConfig = { paymaster: PM, usdg: USDG, usdgDecimals: dec, rate: RATE };
   const d: QuoteDeps = {
-    now: () => 1_790_000_000, debtOf: async () => BigInt(7), balanceOf: async () => E18 * BigInt(100),
+    now: () => 1_790_000_000, debtOf: async () => BigInt(0), balanceOf: async () => E18 * BigInt(100),
     allowanceOf: async () => (BigInt(1) << BigInt(256)) - BigInt(1),
     bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: BigInt(12_000_000) }),
     baseFee: async () => BASE, sign: (h) => signer.signMessage({ message: { raw: h } }),
@@ -423,7 +431,7 @@ test("client payGasInUsdg: stub → persistent approve first → final, against 
   try {
     const fees = clientFees(BASE);
     const staleApprove = paymasterApproveCall(USDG, PM, BigInt(1));
-    assert.equal(withPaymasterApprove([trade, staleApprove], USDG, PM, BigInt(9)).length, 2);
+    assert.equal(withPaymasterApprove([trade, staleApprove], USDG, PM, BigInt(9)).length, 1);
     const { op, maxTokenCost } = await payGasInUsdg({
       url: "http://x/api/paymaster", chainId: 46630, usdg: USDG, paymaster: PM, calls: [trade, staleApprove],
       build: async (calls, pm) => ({
@@ -433,8 +441,8 @@ test("client payGasInUsdg: stub → persistent approve first → final, against 
       }),
       sign: async () => "0x1234",
     });
-    assert.equal(firstCallApproveAmount(op.callData, USDG, PM), (BigInt(1) << BigInt(256)) - BigInt(1));
-    assert.equal(maxTokenCost, tokenCost(entryPointMaxCost(op), RATE) + BigInt(7));
+    assert.equal(firstCallApproveAmount(op.callData, USDG, PM), null);
+    assert.equal(maxTokenCost, tokenCost(entryPointMaxCost(op), RATE));
     assert.equal(decodePaymasterData(op.paymasterData!).maxTokenCost, maxTokenCost);
     assert.equal(op.signature, "0x1234");
   } finally { globalThis.fetch = realFetch; }

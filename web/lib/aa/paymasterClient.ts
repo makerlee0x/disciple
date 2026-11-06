@@ -8,31 +8,32 @@
  * the built op fits it (tokenCost(maxCost) + debt ≤ maxTokenCost, window still open) payGasInUsdg makes 0 pm_* calls;
  * otherwise (launch, graduating buy, cold estimate, fee spike) it falls back to the two-phase per-op quote.
  *
- * Batch shape (DiscipleSessionPolicy 1.4.2 + AUDIT F-01):
- *   [ usdg.approve(paymaster, uint256.max)  ← persistent allowance, FIRST (session debits signed maxTokenCost)
- *   , ...trade calls ]
- * Payment is precharged in validation from a standing ERC20 allowance (not from this same-batch approve). Bootstrap
- * with an owner-authorized MAv2 deferred approval during account validation (before paymaster validation); no account
- * ETH or prior transaction is required. Subsequent warm taps keep zero added waits.
+ * Warm taps do not add a token approval. A top-up is an explicit approve+deposit beside the trade
+ * (withCreditTopUp); it cannot fund the same op's reservation.
  */
 
 import type { Address, Hex } from "viem";
 import type { Call, UserOp } from "./core";
 import { ENTRYPOINT_V07 } from "./constants";
-import { paymasterApproveCall, requiredMaxTokenCost } from "./paymaster";
+import { requiredMaxTokenCost } from "./paymaster";
+import { setupCreditCalls } from "./prepayBootstrap";
 
 export type PaymasterFields = { paymaster: Address; paymasterVerificationGasLimit: Hex; paymasterPostOpGasLimit: Hex; paymasterData: Hex };
 type Stub = PaymasterFields & { disciple: { usdg: Address; rate: Hex; maxTokenCost: Hex; debt: Hex; validUntil: number; usdgDecimals: number } };
 
 export class PaymasterRpcError extends Error { constructor(msg: string, public code: number, public data?: unknown) { super(msg); } }
 
-/** Keep the standing allowance persistent; the policy debits the quote max, not this ERC20 allowance. */
-export function withPaymasterApprove(calls: Call[], usdg: Address, paymaster: Address, _maxTokenCost: bigint): Call[] {
-  void _maxTokenCost; // cap is signed in paymasterData; execution only preserves the standing allowance
+/** Drop a leftover USDG approve to the paymaster. v5 does not prepend one. */
+export function withPaymasterApprove(calls: Call[], usdg: Address, paymaster: Address, _maxTokenCost?: bigint): Call[] {
+  void _maxTokenCost;
   const pmWord = paymaster.slice(2).toLowerCase().padStart(64, "0");
   const isPmApprove = (c: Call) => c.to.toLowerCase() === usdg.toLowerCase() && c.data.slice(0, 10).toLowerCase() === "0x095ea7b3" && c.data.slice(10, 74).toLowerCase() === pmWord;
-  const rest = calls.filter((c) => !isPmApprove(c));
-  return [paymasterApproveCall(usdg, paymaster, (BigInt(1) << BigInt(256)) - BigInt(1)), ...rest];
+  return calls.filter((c) => !isPmApprove(c));
+}
+
+/** Trade plus an exact credit top-up. The top-up lands after this op's reservation, so it funds the next one. */
+export function withCreditTopUp(calls: Call[], usdg: Address, paymaster: Address, account: Address, amount: bigint): Call[] {
+  return [...withPaymasterApprove(calls, usdg, paymaster), ...setupCreditCalls(usdg, paymaster, account, amount)];
 }
 
 /** Per pm_* request (the server signs locally; a healthy round trip is ~50–150 ms). */
@@ -87,7 +88,7 @@ export class AllowanceCache {
 /** Does `op` (gas limits + maxFeePerGas already set) fit under the allowance? Mirrors the contract's MaxCostTooLow check. */
 export function fitsAllowance(op: UserOp, a: Allowance): boolean {
   const withPm = { ...op, paymasterVerificationGasLimit: a.paymasterVerificationGasLimit, paymasterPostOpGasLimit: a.paymasterPostOpGasLimit };
-  return requiredMaxTokenCost(withPm, BigInt(a.disciple.rate), BigInt(a.disciple.debt)) <= BigInt(a.disciple.maxTokenCost);
+  return requiredMaxTokenCost(withPm, BigInt(a.disciple.rate)) <= BigInt(a.disciple.maxTokenCost);
 }
 
 /**

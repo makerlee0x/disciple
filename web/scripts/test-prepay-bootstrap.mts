@@ -3,7 +3,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { concatHex, encodeFunctionData, maxUint256, parseAbi, recoverTypedDataAddress, toHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { prepayBootstrap, hasDeferredPrepayApproval, prepayApprovalCall } from "../lib/aa/prepayBootstrap";
+import { setupCreditCalls, creditWithdrawCall, creditReleaseCall, spendableUsdg, usdgSendCalls, withAutoTopUp, SETUP_DEPOSIT, SEND_CREDIT_LOCK } from "../lib/aa/prepayBootstrap";
+import { classifyCreditCalldata } from "../lib/aa/paymaster";
 import { finalQuote, stubQuote, allowanceQuote, unmarkedRate, type QuoteConfig, type QuoteDeps } from "../lib/server/paymasterCore";
 import { requireStake } from "../lib/server/prepaidPaymaster";
 import { checkUserPaid, clientFees } from "../lib/aa/gasPolicy";
@@ -26,38 +27,51 @@ const op: UserOp = { sender: S, nonce: toHex(1n << 64n), callData: batch([paymas
   ...Object.fromEntries(Object.entries(clientFees(1n)).map(([k,v]) => [k,toHex(v)])),
   paymaster: PM, paymasterVerificationGasLimit: toHex(PAYMASTER_GAS.verificationGasLimit), paymasterPostOpGasLimit: toHex(PAYMASTER_GAS.postOpGasLimit), signature: "0x" };
 
-async function bootstrap() {
-  let typed: any;
-  const auth = await prepayBootstrap({ account: S, chainId: 46630, nonce: BigInt(op.nonce!), deadline: now + 600, usdg: USDG, paymaster: PM,
-    sign: data => { typed = data; return owner.signTypedData(data); } });
-  // Native MAv2 SDK strips the hooks byte + full nonce from deferredAction, then appends the userOp signature.
-  const signature = concatHex([`0x${auth.deferredAction.slice(68)}`, "0xff00", `0x${"11".repeat(65)}`]);
-  return { auth, typed, signature };
-}
-
-test("deferred bootstrap binds owner, chain, account, full nonce, expiry and the exact USDG allowance", async () => {
-  const { auth, typed, signature } = await bootstrap();
-  assert.equal(auth.nonce, 3n << 64n);
-  assert.equal(typed.message.call, prepayApprovalCall(USDG, PM));
-  const length = Number(BigInt(`0x${signature.slice(2,10)}`));
-  const authStart = 10 + length * 2 + 8;
-  const ownerAuth = `0x${signature.slice(authStart + 2, authStart + 2 + 130)}` as Hex;
-  assert.equal((await recoverTypedDataAddress({ ...typed, signature: ownerAuth })).toLowerCase(), owner.address.toLowerCase());
-  assert.equal(hasDeferredPrepayApproval({ ...op, nonce: toHex(auth.nonce), signature }, USDG, PM), true);
-  assert.equal(hasDeferredPrepayApproval({ ...op, nonce: toHex(auth.nonce), signature }, USDG, OTHER), false);
-  assert.equal(hasDeferredPrepayApproval({ ...op, signature }, USDG, PM), false);
-  assert.equal(hasDeferredPrepayApproval({ ...op, signature: "0xdead" }, USDG, PM), false);
-  await assert.rejects(prepayBootstrap({ account: S, chainId: 46630, nonce: 0n, deadline: now + 600, usdg: USDG, paymaster: PM, sign: d => owner.signTypedData(d) }), /owner\/global/);
+test("setup calldata is approve plus deposit to self; withdraw stands alone", () => {
+  const calls = setupCreditCalls(USDG, PM, S, SETUP_DEPOSIT);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(classifyCreditCalldata(batch(calls), S, USDG, PM), { kind: "funding", amount: SETUP_DEPOSIT });
+  assert.equal(classifyCreditCalldata(batch([creditWithdrawCall(PM)]), S, USDG, PM).kind, "withdraw");
+  assert.equal(classifyCreditCalldata(batch([{ to: OTHER, data: "0x12345678" }]), S, USDG, PM).kind, "normal");
+  assert.equal(classifyCreditCalldata(batch([paymasterApproveCall(USDG, PM, maxUint256)]), S, USDG, PM).kind, "bad");
 });
 
-test("same-execution approval is rejected; exact native owner-validation approval enables the first quote", async () => {
-  const noAllowance = { ...deps, allowanceOf: async () => 0n };
-  await assert.rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, noAllowance), /standing USDG allowance/);
-  const { auth, signature } = await bootstrap();
-  const q = await finalQuote({ ...op, nonce: toHex(auth.nonce), signature }, ENTRYPOINT_V07, 46630, cfg, noAllowance);
+test("one USDG balance is wallet plus unreserved credit; a send pulls only the shortfall", () => {
+  assert.equal(spendableUsdg({ wallet: 1_000_000n, credit: 5_000_000n, reserved: 200_000n }), 5_800_000n);
+  assert.equal(spendableUsdg({ wallet: 1_000_000n, credit: 5_000_000n, reserved: 200_000n, withdrawPending: true }), 5_800_000n);
+  assert.equal(spendableUsdg({ wallet: 1_000_000n, credit: 5_000_000n, reserved: 200_000n, hold: 100_000n }), 5_700_000n);
+  const to = OTHER;
+  const plain = usdgSendCalls({ usdg: USDG, paymaster: PM, to, amount: 500_000n, wallet: 1_000_000n, available: 4_800_000n });
+  assert.equal(plain.length, 1);
+  const pulled = usdgSendCalls({ usdg: USDG, paymaster: PM, to, amount: 2_000_000n, wallet: 1_000_000n, available: 4_800_000n, gasReserve: SEND_CREDIT_LOCK });
+  assert.equal(pulled.length, 2);
+  assert.equal(pulled[0].data, creditReleaseCall(PM, 1_000_000n).data);
+  assert.throws(() => usdgSendCalls({ usdg: USDG, paymaster: PM, to, amount: 6_000_000n, wallet: 1_000_000n, available: 4_800_000n }), /not enough USDG/);
+  assert.throws(() => usdgSendCalls({ usdg: USDG, paymaster: PM, to, amount: 2_000_000n, wallet: 1_000_000n, available: 4_800_000n, withdrawPending: true }), /not enough USDG/);
+});
+
+test("a trade tops the hidden credit back up to $2 when the wallet can spare it", () => {
+  const trade = { to: OTHER, data: "0x12345678" };
+  const same = withAutoTopUp([trade], { usdg: USDG, paymaster: PM, account: S, available: SETUP_DEPOSIT, wallet: 10_000_000n });
+  assert.equal(same.length, 1);
+  const topped = withAutoTopUp([trade], { usdg: USDG, paymaster: PM, account: S, available: 500_000n, wallet: 10_000_000n });
+  assert.equal(topped.length, 3);
+  assert.deepEqual(classifyCreditCalldata(batch(topped), S, USDG, PM), { kind: "normal" });
+  const broke = withAutoTopUp([trade], { usdg: USDG, paymaster: PM, account: S, available: 500_000n, wallet: 100n });
+  assert.equal(broke.length, 1, "do not take USDG the wallet does not have");
+  const empty = withAutoTopUp([trade], { usdg: USDG, paymaster: PM, account: S, available: 0n, wallet: 10_000_000n });
+  assert.equal(empty.length, 1, "zero credit is the setup op, not a silent top-up");
+});
+
+test("zero credit admits one setup op and refuses a plain trade", async () => {
+  const trade = { ...op, callData: batch([{ to: OTHER, data: "0x12345678" }]) };
+  const none = { ...deps, balanceOf: async () => 0n, bootstrapUsed: async () => false };
+  await assert.rejects(finalQuote(trade, ENTRYPOINT_V07, 46630, cfg, none), /not enough USDG/);
+  const setup = { ...op, callData: batch(setupCreditCalls(USDG, PM, S, SETUP_DEPOSIT)) };
+  const q = await finalQuote(setup, ENTRYPOINT_V07, 46630, cfg, none);
   assert.equal(q.paymaster, PM);
-  await assert.rejects(allowanceQuote(S, ENTRYPOINT_V07, 46630, cfg, noAllowance), /standing USDG allowance/);
-  await assert.rejects(finalQuote({ ...op, nonce: toHex(auth.nonce), signature }, ENTRYPOINT_V07, 46630, cfg, { ...noAllowance, balanceOf: async () => 0n }), /not enough USDG/);
+  await assert.rejects(finalQuote(setup, ENTRYPOINT_V07, 46630, cfg, { ...none, bootstrapUsed: async () => true }), /not enough USDG/);
+  await finalQuote(trade, ENTRYPOINT_V07, 46630, cfg, deps);
 });
 
 test("price-source rate is unchanged at 1.0x, without markup", () => {
@@ -111,7 +125,8 @@ test("embedded account with missing prepaid configuration never falls back to ET
 
 
 test("cold zero-ETH bootstrap estimates WITH prepaid paymaster fields, then signs exactly once", async () => {
-  const { auth, signature } = await bootstrap();
+  const auth = { nonce: 3n << 64n };
+  const signature = "0xff00" as Hex;
   const a = new Mav2Account({ chain: robinhoodTestnet, pc: {} as never, bundlerUrl: "http://bundler.invalid", requireUsdgGas: true,
     usdgGas: { paymaster: PM, usdg: USDG, url: "http://paymaster.invalid", session: true } }, owner);
   let estimates = 0, signed = 0; const methods: string[] = [];

@@ -1,36 +1,101 @@
-/** MAv2's native, owner-authorized deferred action runs in account validation, BEFORE paymaster validation.
- * It is not an execution-batch approval and needs neither native ETH nor USDG permit/1271 support. */
-import { concatHex, encodeFunctionData, encodePacked, maxUint256, parseAbi, size, toHex, type Address, type Hex } from "viem";
-import type { UserOp } from "./core";
-const exec = parseAbi(["function execute(address,uint256,bytes)"]);
-const erc20 = parseAbi(["function approve(address,uint256)"]);
-export function prepayApprovalCall(usdg: Address, paymaster: Address): Hex {
-  return encodeFunctionData({ abi: exec, functionName: "execute", args: [usdg, BigInt(0), encodeFunctionData({ abi: erc20, functionName: "approve", args: [paymaster, maxUint256] })] });
+/**
+ * Hidden USDG gas credit (DisciplePaymaster v5). Players see one USDG balance. These helpers
+ * fund the $2 credit inside the existing setup prompt, top it back up inside a trade, and
+ * pull it back into the account when a normal send needs more than the wallet holds.
+ * No permit, no deferred token approval, no account-validation token write.
+ */
+import { encodeFunctionData, parseAbi, toFunctionSelector, type Address } from "viem";
+import type { Call } from "./core";
+import { SETUP_DEPOSIT } from "./paymaster";
+
+export { SETUP_DEPOSIT };
+/** Room a send leaves so this op's gas reservation can still settle. 6-decimal USDG, $0.10. */
+export const SEND_CREDIT_LOCK = 100_000n;
+const erc20 = parseAbi(["function approve(address,uint256)", "function transfer(address,uint256)"]);
+const pm = parseAbi(["function deposit(address,uint256)", "function release(uint256)", "function withdraw()"]);
+const USDG_IN = new Set([
+  toFunctionSelector("buyWithUsdg(address,uint256,uint256,uint256)").toLowerCase(),
+  toFunctionSelector("swapUsdgToQuote(address,uint256,uint256,address,uint256)").toLowerCase(),
+]);
+
+export function creditApproveCall(usdg: Address, paymaster: Address, amount: bigint): Call {
+  return { to: usdg, value: 0n, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [paymaster, amount] }) };
 }
-export async function prepayBootstrap(o: {
-  account: Address; chainId: number; nonce: bigint; deadline: number; usdg: Address; paymaster: Address;
-  sign: (data: { domain: { chainId: number; verifyingContract: Address }; types: { DeferredAction: readonly [{ readonly name: "nonce"; readonly type: "uint256" }, { readonly name: "deadline"; readonly type: "uint48" }, { readonly name: "call"; readonly type: "bytes" }] }; primaryType: "DeferredAction"; message: { nonce: bigint; deadline: number; call: Hex } }) => Promise<Hex>;
-}): Promise<{ deferredAction: Hex; nonce: bigint }> {
-  const nonce = o.nonce | (BigInt(2) << BigInt(64)); // owner/global nonce, with the native deferred-action bit
-  if (((nonce >> BigInt(64)) & BigInt(0xffffffffff)) !== BigInt(3)) throw Error("prepay bootstrap requires owner/global validation");
-  const call = prepayApprovalCall(o.usdg, o.paymaster);
-  const typed = { domain: { chainId: o.chainId, verifyingContract: o.account }, types: { DeferredAction: [{ name: "nonce", type: "uint256" }, { name: "deadline", type: "uint48" }, { name: "call", type: "bytes" }] as const }, primaryType: "DeferredAction" as const, message: { nonce, deadline: o.deadline, call } };
-  const auth = concatHex(["0x00", await o.sign(typed)]); // native SMA EOA signature type
-  const encoded = encodePacked(["uint168", "uint48", "bytes"], [BigInt(1), o.deadline, call]);
-  // Account Kit deferredAction format: hooks flag + nonce + length-prefixed deferred calldata + owner authorization.
-  const deferredAction = concatHex(["0x00", toHex(nonce, { size: 32 }), toHex(size(encoded), { size: 4 }), encoded, toHex(size(auth), { size: 4 }), auth]);
-  return { deferredAction, nonce };
+export function creditDepositCall(paymaster: Address, account: Address, amount: bigint): Call {
+  return { to: paymaster, value: 0n, data: encodeFunctionData({ abi: pm, functionName: "deposit", args: [account, amount] }) };
 }
-/** Quote-service shape check only. The REAL account verifies the owner signature, chain/account domain,
- * nonce and deadline in validation. Even a forged shape cannot bypass the paymaster's actual token precharge. */
-export function hasDeferredPrepayApproval(op: UserOp, usdg: Address, paymaster: Address): boolean {
-  try {
-    if (((BigInt(op.nonce ?? "0x0") >> BigInt(64)) & BigInt(0xffffffffff)) !== BigInt(3)) return false;
-    const sig = op.signature ?? "0x";
-    const len = Number(BigInt(`0x${sig.slice(2, 10)}`));
-    const data = `0x${sig.slice(10, 10 + len * 2)}` as Hex;
-    if (data.slice(2, 44) !== "1".padStart(42, "0")) return false;
-    const call = `0x${data.slice(56)}`; // uint168 locator + uint48 deadline
-    return call.toLowerCase() === prepayApprovalCall(usdg, paymaster).toLowerCase() && sig.length >= 10 + len * 2 + 8 + 132;
-  } catch { return false; }
+export function creditReleaseCall(paymaster: Address, amount: bigint): Call {
+  return { to: paymaster, value: 0n, data: encodeFunctionData({ abi: pm, functionName: "release", args: [amount] }) };
+}
+export function creditWithdrawCall(paymaster: Address): Call {
+  return { to: paymaster, value: 0n, data: encodeFunctionData({ abi: pm, functionName: "withdraw" }) };
+}
+/** Exact approve + deposit(self). An optional installValidation call may follow in the same owner op. */
+export function setupCreditCalls(usdg: Address, paymaster: Address, account: Address, amount = SETUP_DEPOSIT): Call[] {
+  return [creditApproveCall(usdg, paymaster, amount), creditDepositCall(paymaster, account, amount)];
+}
+
+export type CreditSnapshot = { wallet: bigint; credit: bigint; reserved: bigint; withdrawPending?: boolean; hold?: bigint };
+
+/** Unreserved credit still held by the paymaster. Reserved gas is excluded. Not yet in the wallet. */
+export function availableCreditOf(s: Pick<CreditSnapshot, "credit" | "reserved">): bigint {
+  return s.credit > s.reserved ? s.credit - s.reserved : 0n;
+}
+
+/**
+ * The one USDG balance: wallet USDG plus hidden credit.
+ * Reserved amounts are excluded. A pending withdraw is counted once (it has not reached the wallet yet).
+ * `hold` subtracts this operation's own gas lock; a plain read passes 0.
+ */
+export function spendableUsdg(s: CreditSnapshot): bigint {
+  const available = availableCreditOf(s);
+  const hold = s.hold ?? 0n;
+  const free = available > hold ? available - hold : 0n;
+  return s.wallet + free;
+}
+
+/** USDG a trade batch will pull from the wallet (buy / swap input, or a USDG transfer). */
+export function usdgInOf(calls: Call[], usdg: Address): bigint {
+  let n = 0n;
+  for (const c of calls) {
+    const sel = (c.data || "0x").slice(0, 10).toLowerCase();
+    if (c.data.length < 138) continue;
+    if (c.to.toLowerCase() === usdg.toLowerCase() && sel === "0xa9059cbb") n += BigInt(`0x${c.data.slice(74, 138)}`);
+    else if (USDG_IN.has(sel)) n += BigInt(`0x${c.data.slice(74, 138)}`);
+  }
+  return n;
+}
+
+/**
+ * Keep the hidden credit at $2. Appends an exact approve+deposit when the wallet can spare it
+ * after the trade's own USDG input. A zero-credit account is left alone (that is the setup op).
+ * The deposit cannot pay for this same operation.
+ */
+export function withAutoTopUp(calls: Call[], o: {
+  usdg: Address; paymaster: Address; account: Address; available: bigint; wallet: bigint; tradeSpend?: bigint; target?: bigint;
+}): Call[] {
+  const target = o.target ?? SETUP_DEPOSIT;
+  if (o.available === 0n || o.available >= target) return calls;
+  const need = target - o.available;
+  const spent = o.tradeSpend ?? usdgInOf(calls, o.usdg);
+  const spare = o.wallet > spent ? o.wallet - spent : 0n;
+  if (spare < need) return calls;
+  return [...calls, ...setupCreditCalls(o.usdg, o.paymaster, o.account, need)];
+}
+
+/**
+ * Normal USDG send. When `amount` is larger than the wallet, the batch first pulls the shortfall
+ * out of hidden credit (`release`) and then transfers. No separate action.
+ */
+export function usdgSendCalls(o: {
+  usdg: Address; paymaster: Address; to: Address; amount: bigint; wallet: bigint; available: bigint; gasReserve?: bigint; withdrawPending?: boolean;
+}): Call[] {
+  const transfer: Call = { to: o.usdg, value: 0n, data: encodeFunctionData({ abi: erc20, functionName: "transfer", args: [o.to, o.amount] }) };
+  if (o.amount <= o.wallet) return [transfer];
+  if (o.withdrawPending) throw new Error("not enough USDG");
+  const pull = o.amount - o.wallet;
+  const lock = o.gasReserve ?? SEND_CREDIT_LOCK;
+  const room = o.available > lock ? o.available - lock : 0n;
+  if (pull > room) throw new Error("not enough USDG");
+  return [creditReleaseCall(o.paymaster, pull), transfer];
 }

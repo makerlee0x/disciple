@@ -410,7 +410,7 @@ export async function sweepLegacy() {
 }
 
 /* ---------- on-chain one-tap session (DiscipleSessionPolicy, PR #53) ---------- */
-export const oneTapAvailable = () => !!SESSION_POLICY && ACTIVE_CHAIN.id === 46630;
+export const oneTapAvailable = () => !!SESSION_POLICY && (ACTIVE_CHAIN.id === 46630 || ACTIVE_CHAIN.id === 4663);
 
 /**
  * Owner approves ONE userOp: installValidation(SingleSigner(sessionKey) + DiscipleSessionPolicy hooks).
@@ -427,8 +427,9 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
   const gas = usdgGasConfig();
   if (gas) {
     const policyPm = await publicClient().readContract({ address: SESSION_POLICY, abi: parseAbi(["function paymaster() view returns (address)"]), functionName: "paymaster" }).catch(() => "");
-    if (id !== "disciple.session-policy.1.4.2" || policyPm.toLowerCase() !== gas.paymaster.toLowerCase())
-      throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: "session policy must be prepaid 1.4.2 and bound to the configured paymaster" });
+    const version = await publicClient().readContract({ address: gas.paymaster, abi: parseAbi(["function PREPAY_VERSION() view returns (uint256)"]), functionName: "PREPAY_VERSION" }).catch(() => BigInt(0));
+    if (version !== BigInt(5) || policyPm.toLowerCase() !== gas.paymaster.toLowerCase())
+      throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: "session policy must be 1.4.3 and bound to paymaster v5" });
   }
   const key = generatePrivateKey();
   const maxSlippageBps = clampSlippageBps(opts.maxSlippageBps ?? oneTapSlippageBps());
@@ -445,7 +446,20 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
     ttlSec: opts.ttlSec ?? SESSION_TTL_MS / 1000, maxSlippageBps,
     permissions: sessionPermissions(sk.TRADE_PERMS), // + P_REFERRAL when NEXT_PUBLIC_REFERRAL_ATTRIBUTE=1
   });
-  const r = await sa.sendCalls([{ to: account, data: s.data }], "owner");
+  let setup: Call[] = [{ to: account, data: s.data }];
+  if (gas) {
+    const pc = publicClient();
+    const [credit, reserved, used] = await Promise.all([
+      pc.readContract({ address: gas.paymaster, abi: parseAbi(["function creditOf(address) view returns (uint256)"]), functionName: "creditOf", args: [account] }).catch(() => BigInt(0)),
+      pc.readContract({ address: gas.paymaster, abi: parseAbi(["function reservedOf(address) view returns (uint256)"]), functionName: "reservedOf", args: [account] }).catch(() => BigInt(0)),
+      pc.readContract({ address: gas.paymaster, abi: parseAbi(["function bootstrapUsed(address) view returns (bool)"]), functionName: "bootstrapUsed", args: [account] }).catch(() => true),
+    ]);
+    if (credit <= reserved && !used) {
+      const { setupCreditCalls } = await import("./prepayBootstrap");
+      setup = [...setupCreditCalls(gas.usdg, gas.paymaster, account), ...setup];
+    }
+  }
+  const r = await sa.sendCalls(setup, "owner");
   onchain = { account, entityId: s.entityId, key, validUntil: s.validUntil, maxSlippageBps, policy: SESSION_POLICY,
     caps: Object.fromEntries(caps.map((c) => [c.token.toLowerCase(), c.cap.toString()])), spent: {} };
   saveSessionKey(); userEndedOneTap = false; setOneTapOff(lsStore(), account, false);
@@ -519,7 +533,9 @@ function sessionLive() {
 }
 /** The session policy (client mirror) would accept these calls — independent of whether a session exists right now. */
 async function sessionCallsEligible(calls: Call[]) {
-  return sessionEligible(calls, { referral: referralAttributionOn(), registry: deployment().referralRegistry, usdg: policyHasUsdg() ? deployment().usdg : undefined, router: deployment().router });
+  const gas = usdgGasConfig();
+  const account = sa ? await sa.address().catch(() => undefined) : undefined;
+  return sessionEligible(calls, { referral: referralAttributionOn(), registry: deployment().referralRegistry, usdg: policyHasUsdg() ? deployment().usdg : undefined, router: deployment().router, paymaster: gas?.paymaster, account });
 }
 
 /* ---------- session-only trades (latency plan #6) ----------

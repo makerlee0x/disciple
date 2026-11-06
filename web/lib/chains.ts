@@ -131,7 +131,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xF5eB226F7f0890c36A06Cbd0Ff843292b7b1a88C"), // test STRATEGY (18 dec, v5 tokens.STRATEGY)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D"), // test USDG (6 dec, v5 tokens.USDG)
     usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_RHT_USDG_DECIMALS, 6),
-    paymaster: addr(process.env.NEXT_PUBLIC_RHT_PAYMASTER, "0x1E7B06adb1D0A92b83AF2Dc3D70Cb4694E606822"), // wave #246 DisciplePaymaster v4 prepaid USDG
+    paymaster: addr(process.env.NEXT_PUBLIC_RHT_PAYMASTER), // v5 gas-credit paymaster is not deployed; no v4 fallback
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "142064001"),
   },
   [anvil.id]: {
