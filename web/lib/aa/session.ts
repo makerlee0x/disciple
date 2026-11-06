@@ -557,6 +557,8 @@ export const ONE_TAP_SETTING_UP_MSG = "One-tap trading is getting ready. Try aga
 // Copy approved by lee 2026-10-24
 export const ONE_TAP_REFRESH_MSG = "Refreshing one-tap trading. Try again in a few seconds.";
 const TRADE_OWNER_FALLBACK = process.env.NEXT_PUBLIC_TRADE_OWNER_FALLBACK === "1";
+/** Keep infrastructure reasons useful for diagnosis without exposing credential-bearing RPC URLs. */
+const sessionErrorDetail = (message: string) => message.replace(/https?:\/\/[^\s<>"'`]+/g, "[URL redacted]").split("\n")[0].slice(0, 300);
 let userEndedOneTap = false;
 /** Session-only mode for this signer, and the account's deployment status (undefined = can't tell right now). */
 async function strictSessionTrades(me: Address): Promise<{ strict: boolean; deployed: boolean | undefined }> {
@@ -581,6 +583,8 @@ function quoteSpend(delta: Record<string, bigint>): Record<string, bigint> {
 /** Policy reverts we can recover from by letting the owner sign instead (nothing landed: pre-flight/simulation). */
 const SPEND_CAP_REVERT = /SpendCapExceeded|b92251e1/i;
 const POLICY_RECOVERABLE = /0xa6dfc94a|0xf9be14df|0x1fd05a4a|0x74a1a72c|SpendCapExceeded|SessionInactive|SessionExpired|PreExecHookReverted|AA2[234]/i;
+// A generic hook/AA23 failure may be price/permissions, not a bad signer. Never rotate on that alone.
+const SESSION_REINSTALLABLE = /SessionInactive|SessionExpired|0xf9be14df|0x1fd05a4a|AA22|AA24/i;
 
 /**
  * Trade context without touching lib/wallet.execCalls (GAME #138 hooks those lines): asTrade() sets it, calls fn
@@ -643,15 +647,17 @@ async function aaSend1(calls: Call[], o: SendOpts, opts: TradeCtx) {
   }
   if (pick.as === "refuse") {
     const settingUp = loginSetup.busy(me), failed = !!loginSetup.lastError(me);
-    console.warn("[disciple] trade refused: one-tap session not ready (no owner fallback)", { why: pick.why, settingUp, deployed: mode.deployed });
+    const setupError = sessionErrorDetail(loginSetup.lastError(me));
+    console.warn("[disciple] trade refused: one-tap session not ready (no owner fallback)", { why: pick.why, settingUp, deployed: mode.deployed, setupError, policy: SESSION_POLICY });
     // a brand-new account (setup not finished) or a first install ⇒ "getting ready"; a dead or failed session ⇒ "refreshing"
     const msg = mode.deployed && (onchain || failed) ? ONE_TAP_REFRESH_MSG : ONE_TAP_SETTING_UP_MSG;
     renewOneTap("trade");
-    throw new AAError("Policy", msg, { sessionRequired: true });
+    throw new AAError("Policy", msg, { sessionRequired: true, setupError });
   }
   if (opts.trade && !asSession) console.info("[disciple] trade signed by the owner", { why: pick.why, strict: mode.strict });
   let r;
   const hold = asSession ? SESSION_PENDING.hold(spend) : undefined;
+  const attemptedAccount = sa, attemptedSession = asSession ? onchain : null;
   try { r = await sa.sendCalls(calls, { ...o, as: asSession ? "session" : "owner", tt: opts.timing }); }
   catch (e) {
     const ae = e as AAError;
@@ -671,9 +677,24 @@ async function aaSend1(calls: Call[], o: SendOpts, opts: TradeCtx) {
         throw new AAError("Policy", SPEND_LIMIT_MSG, { spendLimit: true, tradeError: "spend_limit", revertData: ae.extra?.revertData });
       }
       if (strict) {
-        // session-only trades: no second, owner-signed send — refresh the session and let the player tap again
-        console.warn("[disciple] trade refused: session rejected by the policy pre-flight (no owner fallback)", { revertData: ae.extra?.revertData });
-        throw new AAError("Policy", ONE_TAP_REFRESH_MSG, { sessionRequired: true, revertData: ae.extra?.revertData });
+        const detail = sessionErrorDetail(ae.message);
+        if (!SESSION_REINSTALLABLE.test(`${ae.message} ${String(ae.extra?.revertData ?? "")}`)) {
+          // Do not hide a price/permission hook error behind "refreshing", or replace a healthy signer.
+          console.warn("[disciple] trade policy pre-flight failed (session not proven invalid)", { detail, policy: SESSION_POLICY, revertData: ae.extra?.revertData });
+          throw new AAError("Estimate", detail, { revertData: ae.extra?.revertData });
+        }
+        // sessionOf.active + expiry cannot prove this signer/validation configuration works (e.g. AA24).
+        // Re-reading that still-live record alone leaves every later tap on the same rejected key forever.
+        // Invalidate ONLY the attempted signer: a late failure must not erase a replacement or another login.
+        if (sa === attemptedAccount) {
+          if (attemptedSession && onchain?.entityId === attemptedSession.entityId && onchain.key === attemptedSession.key) {
+            onchain = null; sa.clearSession(); saveSessionKey(); changed();
+          }
+          renewOneTap("preflight-rejected");
+        }
+        // No owner-signed trade / automatic resend. Setup keeps the same configured policy and player limits.
+        console.warn("[disciple] trade refused: session rejected by the policy pre-flight (no owner fallback)", { detail, policy: SESSION_POLICY, entityId: attemptedSession?.entityId, revertData: ae.extra?.revertData });
+        throw new AAError("Policy", ONE_TAP_REFRESH_MSG, { sessionRequired: true, detail, revertData: ae.extra?.revertData });
       }
       r = await sa.sendCalls(calls, { ...o, as: "owner", tt: opts.timing });   // owner signs the same calls once
     } else throw e;
