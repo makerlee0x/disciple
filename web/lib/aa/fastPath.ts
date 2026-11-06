@@ -84,12 +84,20 @@ export function deployedOwnerVerificationGas(o: {
  */
 export const PAYMASTER_MAX_GAS_PER_OP = BigInt(7_068_712);
 /**
+ * Deployed owner (send/withdraw) account verification gas. Live RH testnet probes (Nov 6 2026, Alchemy rundler,
+ * test wallet 0x8634…d72b, MAv2 single-signer owner validation): 40k fails AA26, 60k passes. Alchemy echoes any
+ * non-zero limit it is given and simulates a zero/omitted verificationGasLimit at its 7.2M max, which the v5 cap
+ * rejects (AA33 GasLimitAboveCap), so this bound is the effective estimate. 120k ≈ 2× measured need; with the
+ * stamped 250k paymaster limit and the 176.1k live used verification, the 10% headroom clamp plans 132k ⇒ 0.461.
+ */
+export const DEPLOYED_OWNER_VERIFICATION_GAS = BigInt(120_000);
+/**
  * Explicit gas fields for a deployed owner op's eth_estimateUserOperationGas request. Omitted fields are simulated at
- * the bundler's maxima (live: 34.21M total → AA33 GasLimitAboveCap). STATIC_GAS plus the stamped paymaster limits sums
- * to ~2.62M, well under the cap; the bundler's estimate then replaces the account fields.
+ * the bundler's maxima (live: 34.21M total → AA33 GasLimitAboveCap). STATIC_GAS call/PVG plus the owner verification
+ * bound and the stamped paymaster limits sum to ~2.39M, well under the cap.
  */
 export function ownerEstimateBounds(pm: { paymasterVerificationGasLimit: bigint | string; paymasterPostOpGasLimit: bigint | string }, cap: bigint = PAYMASTER_MAX_GAS_PER_OP): GasLimits {
-  const b = { ...STATIC_GAS };
+  const b = { ...STATIC_GAS, verificationGasLimit: DEPLOYED_OWNER_VERIFICATION_GAS };
   const total = b.callGasLimit + b.verificationGasLimit + b.preVerificationGas + BigInt(pm.paymasterVerificationGasLimit) + BigInt(pm.paymasterPostOpGasLimit);
   if (total > cap) throw new Error(`owner estimate bounds ${total} exceed paymaster cap ${cap}`);
   return b;

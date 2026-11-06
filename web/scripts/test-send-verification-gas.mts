@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { encodeFunctionData, maxUint256, parseAbi, toHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { PAYMASTER_GAS } from "../lib/aa/paymaster";
-import { STATIC_GAS, deployedOwnerVerificationGas, verificationEfficiencyBps, VERIFICATION_EFFICIENCY_FLOOR_BPS, ownerEstimateBounds, PAYMASTER_MAX_GAS_PER_OP } from "../lib/aa/fastPath";
+import { STATIC_GAS, deployedOwnerVerificationGas, verificationEfficiencyBps, VERIFICATION_EFFICIENCY_FLOOR_BPS, ownerEstimateBounds, PAYMASTER_MAX_GAS_PER_OP, DEPLOYED_OWNER_VERIFICATION_GAS } from "../lib/aa/fastPath";
 import { Mav2Account, FEES, cachedGasEstimator } from "../lib/aa/mav2";
 import { finalQuote, stubQuote, type QuoteConfig, type QuoteDeps } from "../lib/server/paymasterCore";
 import { clientFees } from "../lib/aa/gasPolicy";
@@ -126,6 +126,10 @@ test("deployed owner estimate request is bounded under the v5 maxGasPerOp cap (l
   const sum = b.callGasLimit + b.verificationGasLimit + b.preVerificationGas + pm.paymasterVerificationGasLimit + pm.paymasterPostOpGasLimit;
   assert.ok(sum <= PAYMASTER_MAX_GAS_PER_OP, `bounds ${sum} under cap`);
   assert.throws(() => ownerEstimateBounds(pm, sum - 1n));
+  assert.equal(b.verificationGasLimit, DEPLOYED_OWNER_VERIFICATION_GAS);
+  // Alchemy echoes the bound; the headroom clamp must still clear the 0.4 floor on the live 176.1k used.
+  const planned = deployedOwnerVerificationGas({ estimatedVerification: b.verificationGasLimit, estimatedPaymasterVerification: 0n, paymasterLimit: pm.paymasterVerificationGasLimit });
+  assert.ok(verificationEfficiencyBps(LIVE_USED, planned, pm.paymasterVerificationGasLimit) >= 4500n, `planned ${planned}`);
   let req: Record<string, string> | undefined;
   const result = await cachedGasEstimator({ sender: S, nonce: 0n, callData: "0x12345678", signature: "0x01" } as never, {
     account: { getEntryPoint: () => ({ version: "0.7.0", address: ENTRYPOINT_V07 }) },
