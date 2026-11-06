@@ -29,12 +29,55 @@ export type GasLimits = { callGasLimit: bigint; verificationGasLimit: bigint; pr
 /** Same preset ⇒ same shape of calls: targets + selectors (amounts don't change the gas class). */
 export const callsKind = (calls: Call[]) => calls.map((c) => `${c.to.toLowerCase()}:${c.data.slice(0, 10)}`).join(",");
 /**
- * Static conservative limits for a DEPLOYED account on the self-bundler (gas is charged on actualGasUsed + v0.7's 10%
- * penalty on unused execution gas — fractions of a cent on testnet), so even the first trade of a preset skips
- * eth_estimateUserOperationGas. Measured: v4 buy/sell incl. approve + hook ≈ 0.45–0.65M total; session validation
- * (signer + time-range + policy hook) ≈ 0.15M. PVG = self-bundler's fixed 60k.
+ * Static conservative limits for a DEPLOYED session trade (gas is charged on actualGasUsed + v0.7's 10%
+ * penalty on unused execution gas). The first session trade of a preset skips eth_estimateUserOperationGas.
+ * Measured: v4 buy/sell incl. approve + hook ≈ 0.45–0.65M total; session validation
+ * (signer + time-range + policy hook) ≈ 0.15M, which still clears Alchemy's 0.4 verification-efficiency floor
+ * at this 350k verification limit. A deployed owner op does not — mav2 estimates that verification gas instead.
+ * PVG = self-bundler's fixed 60k.
  */
 export const STATIC_GAS: GasLimits = { callGasLimit: BigInt(1_800_000), verificationGasLimit: BigInt(350_000), preVerificationGas: BigInt(60_000) };
+/**
+ * Rundler v0.7 (Alchemy) rejects eth_sendUserOperation when
+ * (preOpGas − preVerificationGas) / (verificationGasLimit + paymasterVerificationGasLimit)
+ * is below 0.4. Session validation is heavy enough that STATIC_GAS.verificationGasLimit
+ * clears that floor. A deployed owner (plain send, no session hook) is not: the live
+ * rejection was 350_000 + 250_000 → efficiency 0.2935.
+ * Deployed owner ops take the bundler's verification estimate, add this much headroom,
+ * then clamp so the same ratio against the estimate stays at or above the target.
+ */
+export const VERIFICATION_EFFICIENCY_FLOOR_BPS = 4000n;
+export const VERIFICATION_EFFICIENCY_TARGET_BPS = 4500n;
+export const OWNER_VERIFICATION_HEADROOM_PCT = 10n;
+
+/** Basis points (2935 = 0.2935), same rounding the bundler prints to 4 decimals. */
+export function verificationEfficiencyBps(used: bigint, accountLimit: bigint, paymasterLimit: bigint): bigint {
+  const denom = accountLimit + paymasterLimit;
+  if (denom <= BigInt(0) || used <= BigInt(0)) return BigInt(0);
+  return (used * BigInt(10000)) / denom;
+}
+
+/**
+ * Account verificationGasLimit for an already-deployed owner op.
+ * `estimatedVerification` / `estimatedPaymasterVerification` are the bundler's binary-search
+ * results (just above gas actually used). `paymasterLimit` is what will be submitted —
+ * the quote server still stamps PAYMASTER_GAS.verificationGasLimit.
+ * Headroom is OWNER_VERIFICATION_HEADROOM_PCT, clamped so
+ * (estV + estPm) / (limit + paymasterLimit) stays at the 0.45 target. Never below the estimate.
+ */
+export function deployedOwnerVerificationGas(o: {
+  estimatedVerification: bigint; estimatedPaymasterVerification: bigint; paymasterLimit: bigint; headroomPct?: bigint;
+}): bigint {
+  const estV = o.estimatedVerification;
+  if (estV <= BigInt(0)) throw new Error("verification estimate missing");
+  const headroom = o.headroomPct ?? OWNER_VERIFICATION_HEADROOM_PCT;
+  const padded = estV + (estV * headroom) / BigInt(100);
+  const used = estV + (o.estimatedPaymasterVerification > BigInt(0) ? o.estimatedPaymasterVerification : BigInt(0));
+  const maxTotal = (used * BigInt(10000)) / VERIFICATION_EFFICIENCY_TARGET_BPS;
+  const maxAccount = maxTotal > o.paymasterLimit ? maxTotal - o.paymasterLimit : estV;
+  const capped = padded < maxAccount ? padded : maxAccount;
+  return capped < estV ? estV : capped;
+}
 /**
  * Graduating buys (quote ≥ remaining to graduation): Migration + 16 floor bands ≈ 2.76M execution gas (6-dec USDG), above
  * STATIC_GAS and above what a cached normal-buy estimate allows. The trade layer flags their call data

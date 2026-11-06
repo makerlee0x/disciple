@@ -8,9 +8,9 @@
  */
 import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
-import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
+import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, toHex, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
-import { NonceCursor, GasCache, STATIC_GAS, gradSessionGas, FeeCache, callsKind, isGradBuyCalls, retryCalls, newPressId, tagPress, type GasLimits, type Fees, type SendOpts, type SendCallsOpts } from "./fastPath";
+import { NonceCursor, GasCache, STATIC_GAS, deployedOwnerVerificationGas, gradSessionGas, FeeCache, callsKind, isGradBuyCalls, retryCalls, newPressId, tagPress, type GasLimits, type Fees, type SendOpts, type SendCallsOpts } from "./fastPath";
 import { clientFees, isLaunchCalls, INFRA_WORDING, TRADING_UNAVAILABLE } from "./gasPolicy";
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
@@ -169,8 +169,21 @@ export const cachedGasEstimator: ClientMiddlewareFn = async (struct, args) => {
     Object.assign(struct, { callGasLimit: o.callGasLimit, verificationGasLimit: o.verificationGasLimit, preVerificationGas: o.preVerificationGas });
     return struct;
   }
+  // The paymaster verification override is the server's stamped limit (the quote is signed at it).
+  // Passing it through defaultGasEstimator discards the bundler's measured paymaster verification,
+  // which the deployed-owner headroom clamp needs. Estimate without that override, keep the measurement,
+  // then put the stamped limit back so the submitted op still matches the quote.
+  const overrides = { ...(args.overrides as object) } as Record<string, unknown>;
+  const stampedPm = overrides.paymasterVerificationGasLimit;
+  delete overrides.paymasterVerificationGasLimit;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return defaultGasEstimator((args as any).client)(struct, args);
+  const estimated = await defaultGasEstimator((args as any).client)(struct, { ...args, overrides });
+  if (stampedPm != null) {
+    const measured = (estimated as { paymasterVerificationGasLimit?: bigint | Hex }).paymasterVerificationGasLimit;
+    (estimated as { estimatedPaymasterVerificationGasLimit?: bigint | Hex }).estimatedPaymasterVerificationGasLimit = measured;
+    (estimated as { paymasterVerificationGasLimit?: bigint | Hex }).paymasterVerificationGasLimit = stampedPm as bigint | Hex;
+  }
+  return estimated;
 };
 
 const execAbi = parseAbi(["function execute(address target, uint256 value, bytes data)", "function executeBatch((address target, uint256 value, bytes data)[] calls)"]);
@@ -424,8 +437,12 @@ export class Mav2Account {
     // Graduating buys (flagged by the trade layer: quote ≥ remaining to graduation) ALSO always estimate: Migration +
     // 16 floor bands ≈ 2.76M execution > STATIC_GAS, and the estimate is never cached for the preset (GRAD_GAS_CAPS server-side).
     const grad = !launch && isGradBuyCalls(calls);
-    // A deployed account can reuse conservative limits without another estimate on a warm tap.
-    const gas = launch || grad ? undefined : this.gas.get(kind) ?? (this.deployed && !this.o.noStaticGas ? STATIC_GAS : undefined);
+    // Deployed owner ops (USDG send, owner fallback) must not inherit STATIC_GAS.verificationGasLimit.
+    // Alchemy rejects that preset: verification gas used / (350k + 250k) = 0.2935 < 0.4. Session trades
+    // keep it — their validation hook is large enough to clear the floor. Re-estimate every owner send;
+    // GasCache's extra 1.2× would push a tight limit back under 0.4. Undeployed setup keeps the 900k seed.
+    const deployedOwner = !session && !!this.deployed && !launch && !grad;
+    const gas = launch || grad || deployedOwner ? undefined : this.gas.get(kind) ?? (this.deployed && !this.o.noStaticGas ? STATIC_GAS : undefined);
     // latency: cold fee cache on the fast path ⇒ wait for ONE fee read (~0.1 s) instead of dropping to the multi-second
     // standard flow (estimate + eth_sendUserOperation + receipt polling). Launches keep their fresh un-doubled fees.
     const fees = launch ? await fetchFees(client as unknown as FeeClient).catch(() => undefined)
@@ -469,8 +486,18 @@ export class Mav2Account {
         const struct = placeholder
           ? await client.buildUserOperation({ uo: u.length === 1 ? u[0] : u, overrides: args })
           : await this.buildOp(client, kind, u.length === 1 ? u[0] : u, args, !!limits);
-        const w = deepHexlify(struct) as UserOp;
-        if (!placeholder) limits ??= { callGasLimit: BigInt(w.callGasLimit!), verificationGasLimit: BigInt(w.verificationGasLimit!), preVerificationGas: BigInt(w.preVerificationGas!) };
+        const measuredPm = (struct as { estimatedPaymasterVerificationGasLimit?: bigint | Hex }).estimatedPaymasterVerificationGasLimit;
+        const w = deepHexlify(struct) as UserOp & { estimatedPaymasterVerificationGasLimit?: Hex };
+        delete w.estimatedPaymasterVerificationGasLimit;
+        if (!placeholder && deployedOwner && !limits) {
+          const verificationGasLimit = deployedOwnerVerificationGas({
+            estimatedVerification: BigInt(w.verificationGasLimit!),
+            estimatedPaymasterVerification: BigInt(measuredPm ?? w.paymasterVerificationGasLimit ?? 0),
+            paymasterLimit: BigInt(pmf.paymasterVerificationGasLimit),
+          });
+          w.verificationGasLimit = toHex(verificationGasLimit);
+          limits = { callGasLimit: BigInt(w.callGasLimit!), verificationGasLimit, preVerificationGas: BigInt(w.preVerificationGas!) };
+        } else if (!placeholder) limits ??= { callGasLimit: BigInt(w.callGasLimit!), verificationGasLimit: BigInt(w.verificationGasLimit!), preVerificationGas: BigInt(w.preVerificationGas!) };
         return { ...w, ...pmf };
       };
       let wire: UserOp;
@@ -493,7 +520,7 @@ export class Mav2Account {
         if (/^paymaster|fetch failed|failed to fetch|networkerror|timeout|aborted/i.test(em)) throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: em.split("\n")[0].slice(0, 300) });
         return fail(e);
       }
-      if (!gas && !launch && !grad && limits && !calls.some((c) => c.data.length < 10)) this.gas.set(kind, limits);
+      if (!gas && !launch && !grad && !deployedOwner && limits && !calls.some((c) => c.data.length < 10)) this.gas.set(kind, limits);
       const hash = userOpHash(wire, this.o.chain.id);
       tt?.mark("send"); opPhase({ phase: "sent", userOpHash: hash, pressId: o.pressId });
       const result = await this.sendRaw(wire, hash, kind, t0, fail, "usdg", o.pressId);
