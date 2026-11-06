@@ -95,13 +95,14 @@ test("only an explicitly allowed, positive user-paid quote passes the sponsorshi
   assert.throws(() => checkUserPaid({ ...op, paymasterData: stubPaymasterData({ validUntil: now+600, validAfter: now-30, rate, maxTokenCost: 0n }) }, PM));
 });
 
-test("warm one-tap signs locally, uses a fresh USDG quote, and performs ZERO quote or chain roundtrips before standard submit", async () => {
+test("warm one-tap signs locally with one PVG estimate per op and ZERO quote roundtrips", async () => {
   const a = new Mav2Account({ chain: robinhoodTestnet, pc: {} as never, bundlerUrl: "http://bundler.invalid", requireUsdgGas: true,
     usdgGas: { paymaster: PM, usdg: USDG, url: "http://paymaster.invalid", session: true } }, owner);
   const allowance = await allowanceQuote(S, ENTRYPOINT_V07, 46630, cfg, deps);
   a.allowances!.set(allowance); a.deployed = true;
-  let signed = 0; const requests: { url: string; body: any }[] = [];
+  let signed = 0, pvgEstimates = 0; const requests: { url: string; body: any }[] = [];
   const client = { account: { address: S, encodeBatchExecute: async (cs: any[]) => batch(cs.map(c => ({ to: c.target, value: c.value, data: c.data }))), encodeExecute: async () => op.callData },
+    estimateUserOperationGas: async (q: UserOp) => { pvgEstimates++; assert.equal(BigInt(q.preVerificationGas!), 0n); return { preVerificationGas: 61_044n }; },
     buildUserOperation: async ({ uo, overrides }: any) => ({ ...op, callData: batch((Array.isArray(uo) ? uo : [uo]).map(c => ({ to: c.target, value: c.value, data: c.data }))), ...overrides }),
     signUserOperation: async ({ uoStruct }: any) => { signed++; return { ...uoStruct, signature: "0x01" }; } };
   (a as any).sessionClient = { entityId: 7, c: Promise.resolve(client) };
@@ -111,7 +112,7 @@ test("warm one-tap signs locally, uses a fresh USDG quote, and performs ZERO quo
   globalThis.fetch = async (url, opts) => { requests.push({ url: String(url), body: JSON.parse(String(opts?.body)) }); return Response.json({ result: H }); };
   try {
     for (let i = 0; i < 3; i++) assert.equal((await a.sendCalls([{ to: OTHER, data: "0x12345678" }], "session")).gasMode, "usdg");
-    assert.equal(signed, 3); assert.equal(requests.length, 3);
+    assert.equal(signed, 3); assert.equal(requests.length, 3); assert.equal(pvgEstimates, 3);
     for (const r of requests) { assert.equal(r.url, "http://bundler.invalid"); assert.equal(r.body.method, "eth_sendUserOperation"); assert.equal(r.body.params[0].paymaster, PM); assert.equal(r.body.params[0].paymasterData, allowance.paymasterData); }
     assert.equal(new Set(requests.map(r => r.body.params[0].nonce)).size, 3);
     assert.ok(a.gasReservePerOp() > 0n);

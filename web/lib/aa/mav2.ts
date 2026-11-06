@@ -1,4 +1,5 @@
 import { diagnosticText } from "./diagnostics";
+import { bufferedPvg, measurePvg } from "./preVerificationGas";
 /**
  * Alchemy Modular Account v2 (SemiModularAccountBytecode, EntryPoint v0.7) via aa-sdk — replaces the LightAccount v2
  * flow in core.ts for embedded users. MAv2 signatures carry a validation-selection prefix, so we never hand-roll them.
@@ -8,7 +9,7 @@ import { diagnosticText } from "./diagnostics";
  *    The paymaster holds a hidden $2 credit. Trades top it back up inside the same batch.
  */
 import { createModularAccountV2Client } from "@account-kit/smart-contracts";
-import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
+import { LocalAccountSigner, defaultGasEstimator, deepHexlify, resolveProperties, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
 import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, toHex, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
 import { NonceCursor, GasCache, STATIC_GAS, deployedOwnerVerificationGas, ownerEstimateBounds, gradSessionGas, FeeCache, callsKind, isGradBuyCalls, retryCalls, newPressId, tagPress, type GasLimits, type Fees, type SendOpts, type SendCallsOpts } from "./fastPath";
@@ -157,24 +158,30 @@ export const rundlerFeeEstimator: ClientMiddlewareFn = async (struct, { client, 
   struct.maxFeePerGas = f.maxFeePerGas;
   return struct;
 };
-/** Skips eth_estimateUserOperationGas when the caller supplies all three limits (cached per preset). */
+/** Cache call/verification limits, NOT PVG: measure it with zero PVG before the final quote. */
 export const cachedGasEstimator: ClientMiddlewareFn = async (struct, args) => {
-  const o = args.overrides as (Partial<Record<keyof GasLimits, bigint>> & Partial<PaymasterFields>) | undefined;
+  const o = args.overrides as (Partial<Record<keyof GasLimits, bigint>> & Partial<PaymasterFields> & { measuredPreVerificationGas?: bigint }) | undefined;
   // Account Kit's dummy-paymaster middleware copies address/data, but NOT v0.7 paymaster gas limits.
   // The estimator must see those limits before simulating the precharge (especially with zero account ETH).
   if (o?.paymaster && o.paymasterData && o.paymasterData !== "0x") Object.assign(struct, {
     paymaster: o.paymaster, paymasterData: o.paymasterData,
     paymasterVerificationGasLimit: o.paymasterVerificationGasLimit, paymasterPostOpGasLimit: o.paymasterPostOpGasLimit,
   });
-  if (o?.callGasLimit && o?.verificationGasLimit && o?.preVerificationGas) {
-    Object.assign(struct, { callGasLimit: o.callGasLimit, verificationGasLimit: o.verificationGasLimit, preVerificationGas: o.preVerificationGas });
+  if (o?.callGasLimit && o?.verificationGasLimit) {
+    Object.assign(struct, { callGasLimit: o.callGasLimit, verificationGasLimit: o.verificationGasLimit });
+    // Placeholder sizing is never signed/submitted; it has no usable PM data yet.
+    const pvg = o.measuredPreVerificationGas ?? (o.paymaster && o.paymasterData === "0x" ? o.preVerificationGas :
+      await measurePvg(deepHexlify(await resolveProperties(struct)) as UserOp,
+        (op) => args.client.estimateUserOperationGas(op as never, args.account.getEntryPoint().address)));
+    struct.preVerificationGas = pvg ?? bufferedPvg();
+    if (o.paymaster && o.paymasterData !== "0x") Object.assign(struct, { measuredPreVerificationGas: struct.preVerificationGas });
     return struct;
   }
   // Deployed owner estimate: an op that omits its gas limits is simulated by the bundler at its own maxima
   // (live: 34.21M total), which the paymaster's maxGasPerOp cap (7.07M) rejects with AA33 GasLimitAboveCap
   // before any estimate returns. Send explicit bounds that sum under the cap; the estimate still replaces them.
   const bounds = (o as { estimateBounds?: GasLimits } | undefined)?.estimateBounds;
-  if (bounds) Object.assign(struct, { callGasLimit: bounds.callGasLimit, verificationGasLimit: bounds.verificationGasLimit, preVerificationGas: bounds.preVerificationGas });
+  if (bounds) Object.assign(struct, { callGasLimit: bounds.callGasLimit, verificationGasLimit: bounds.verificationGasLimit, preVerificationGas: BigInt(0) });
   // The paymaster verification override is the server's stamped limit (the quote is signed at it).
   // Passing it through defaultGasEstimator discards the bundler's measured paymaster verification,
   // which the deployed-owner headroom clamp needs. Estimate without that override, keep the measurement,
@@ -186,12 +193,16 @@ export const cachedGasEstimator: ClientMiddlewareFn = async (struct, args) => {
   const stampedPm = overrides.paymasterVerificationGasLimit;
   delete overrides.paymasterVerificationGasLimit;
   delete overrides.estimateBounds;
+  delete overrides.preVerificationGas;
+  struct.preVerificationGas = BigInt(0);
   const estimated = await defaultGasEstimator(args.client)(struct, { ...args, overrides });
   if (stampedPm != null) {
     const measured = (estimated as { paymasterVerificationGasLimit?: bigint | Hex }).paymasterVerificationGasLimit;
     (estimated as { estimatedPaymasterVerificationGasLimit?: bigint | Hex }).estimatedPaymasterVerificationGasLimit = measured;
     (estimated as { paymasterVerificationGasLimit?: bigint | Hex }).paymasterVerificationGasLimit = stampedPm as bigint | Hex;
   }
+  estimated.preVerificationGas = bufferedPvg(await (estimated.preVerificationGas as bigint | Hex | number | Promise<bigint | Hex | number>));
+  if (o?.paymaster) Object.assign(estimated, { measuredPreVerificationGas: estimated.preVerificationGas });
   return estimated;
 };
 
@@ -381,7 +392,15 @@ export class Mav2Account {
     const key = `${kind}|${client.account.address}`;
     const encode = () => (Array.isArray(uo) ? client.account.encodeBatchExecute(uo) : client.account.encodeExecute(uo));
     const t = useTemplate ? this.tpl.get(key) : undefined;
-    if (t) return { ...t, ...overrides, callData: await encode() };
+    if (t) {
+      // A previous op's PVG measurement cannot authorize this op's changed calldata/nonce.
+      const { measuredPreVerificationGas: _oldPvg, ...base } = t;
+      void _oldPvg;
+      const rebuilt = { ...base, ...overrides, callData: await encode() };
+      const pvg = overrides.measuredPreVerificationGas as bigint | undefined ?? await measurePvg(deepHexlify(rebuilt) as UserOp,
+        (op) => client.estimateUserOperationGas(op, ENTRYPOINT_V07));
+      return { ...rebuilt, preVerificationGas: pvg, ...(this.o.usdgGas ? { measuredPreVerificationGas: pvg } : {}) };
+    }
     const struct = await client.buildUserOperation({ uo, overrides: overrides as never });
     const s = struct as unknown as Record<string, unknown>;
     if (s && !s.factory && !s.factoryData && ((BigInt(String(s.nonce ?? 0)) >> BigInt(64)) & BigInt(2)) === BigInt(0) && typeof client.account?.encodeExecute === "function") {
@@ -485,6 +504,7 @@ export class Mav2Account {
       // Graduating session buy: a REAL execution estimate (EntryPoint → account.executeBatch(calls), no signature
       // needed) padded for the policy hook + paymaster approve (gradSessionGas); GRAD_STATIC_GAS if it can't be read.
       let limits: GasLimits | undefined = gas ?? (session && !launch ? (grad ? await this.gradGas(sender, calls) : STATIC_GAS) : undefined);
+      let measuredPreVerificationGas: bigint | undefined; // frozen BEFORE per-op quote / owner or session signing
       const build = async (cs: Call[], pmf: PaymasterFields): Promise<UserOp> => {
         const u = cs.map((c) => ({ target: c.to, data: c.data, value: c.value ?? BigInt(0) }));
         const placeholder = pmf.paymasterData === "0x";
@@ -493,13 +513,20 @@ export class Mav2Account {
         const seed = placeholder ? { callGasLimit: BigInt(1_800_000), verificationGasLimit: BigInt(900_000), preVerificationGas: BigInt(150_000) } : undefined;
         // Deployed owner real estimate: bounded limits under the paymaster cap (see cachedGasEstimator).
         const bound = !placeholder && deployedOwner && !limits ? { estimateBounds: ownerEstimateBounds(pmf) } : {};
-        const args = { nonce, ...f, ...pmf, ...(limits ?? seed ?? {}), ...bound };
+        const args = { nonce, ...f, ...pmf, ...(limits ?? seed ?? {}), ...bound, ...(measuredPreVerificationGas == null ? {} : { measuredPreVerificationGas }) };
         const struct = placeholder
           ? await client.buildUserOperation({ uo: u.length === 1 ? u[0] : u, overrides: args })
           : await this.buildOp(client, kind, u.length === 1 ? u[0] : u, args, !!limits);
         const measuredPm = (struct as { estimatedPaymasterVerificationGasLimit?: bigint | Hex }).estimatedPaymasterVerificationGasLimit;
         const w = deepHexlify(struct) as UserOp & { estimatedPaymasterVerificationGasLimit?: Hex };
         delete w.estimatedPaymasterVerificationGasLimit;
+        const measuredPvg = (struct as { measuredPreVerificationGas?: bigint | Hex }).measuredPreVerificationGas;
+        delete (w as UserOp & { measuredPreVerificationGas?: Hex }).measuredPreVerificationGas;
+        if (!placeholder) {
+          measuredPreVerificationGas ??= measuredPvg == null ? await measurePvg(w,
+            (op) => client.estimateUserOperationGas(op, ENTRYPOINT_V07)) : BigInt(measuredPvg);
+          w.preVerificationGas = toHex(measuredPreVerificationGas);
+        }
         if (!placeholder && deployedOwner && !limits) {
           const verificationGasLimit = deployedOwnerVerificationGas({
             estimatedVerification: BigInt(w.verificationGasLimit!),
@@ -508,7 +535,7 @@ export class Mav2Account {
           });
           w.verificationGasLimit = toHex(verificationGasLimit);
           limits = { callGasLimit: BigInt(w.callGasLimit!), verificationGasLimit, preVerificationGas: BigInt(w.preVerificationGas!) };
-        } else if (!placeholder) limits ??= { callGasLimit: BigInt(w.callGasLimit!), verificationGasLimit: BigInt(w.verificationGasLimit!), preVerificationGas: BigInt(w.preVerificationGas!) };
+        } else if (!placeholder) limits = { callGasLimit: BigInt(w.callGasLimit!), verificationGasLimit: BigInt(w.verificationGasLimit!), preVerificationGas: BigInt(w.preVerificationGas!) };
         return { ...w, ...pmf };
       };
       let wire: UserOp;

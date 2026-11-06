@@ -17,6 +17,7 @@
  */
 import { concat, decodeFunctionData, encodeAbiParameters, encodeFunctionData, keccak256, pad, parseAbi, parseAbiParameters, size, slice, toFunctionSelector, toHex, type Address, type Hex } from "viem";
 import type { Call, UserOp } from "./core";
+import { GAS_CAPS } from "./gasPolicy";
 
 export const PAYMASTER_DATA_LENGTH = 141; // paymasterData (after the 52-byte paymaster + gas limits prefix)
 export const PAYMASTER_AND_DATA_LENGTH = 193;
@@ -149,10 +150,11 @@ export function paymasterQuoteHash(op: UserOp, q: PaymasterQuote, chainId: numbe
 
 /**
  * Gas envelope one pre-issued allowance covers: STATIC_GAS-sized trade (deployed account, session or owner) + the
- * paymaster's own limits. Ops above it (launches, graduating buys, cold estimates) use the per-op pm_* flow.
+ * paymaster's own limits. Reserve the existing PVG field cap (not a submitted gas limit), so buffered PVG does
+ * not make every warm tap outgrow its standing allowance. Ops above it (launches, graduating buys, cold estimates) use the per-op pm_* flow.
  */
 export const ALLOWANCE_GAS = {
-  callGasLimit: BigInt(1_800_000), verificationGasLimit: BigInt(350_000), preVerificationGas: BigInt(60_000),
+  callGasLimit: BigInt(1_800_000), verificationGasLimit: BigInt(350_000), preVerificationGas: GAS_CAPS.preVerificationGas,
   paymasterVerificationGasLimit: PAYMASTER_GAS.verificationGasLimit, paymasterPostOpGasLimit: PAYMASTER_GAS.postOpGasLimit,
 } as const;
 

@@ -34,7 +34,7 @@ export const callsKind = (calls: Call[]) => calls.map((c) => `${c.to.toLowerCase
  * Measured: v4 buy/sell incl. approve + hook ≈ 0.45–0.65M total; session validation
  * (signer + time-range + policy hook) ≈ 0.15M, which still clears Alchemy's 0.4 verification-efficiency floor
  * at this 350k verification limit. A deployed owner op does not — mav2 estimates that verification gas instead.
- * PVG = self-bundler's fixed 60k.
+ * PVG is a legacy sizing/fallback floor only; mav2 measures and buffers it before quoting/signing.
  */
 export const STATIC_GAS: GasLimits = { callGasLimit: BigInt(1_800_000), verificationGasLimit: BigInt(350_000), preVerificationGas: BigInt(60_000) };
 /**
@@ -93,11 +93,11 @@ export const PAYMASTER_MAX_GAS_PER_OP = BigInt(7_068_712);
 export const DEPLOYED_OWNER_VERIFICATION_GAS = BigInt(120_000);
 /**
  * Explicit gas fields for a deployed owner op's eth_estimateUserOperationGas request. Omitted fields are simulated at
- * the bundler's maxima (live: 34.21M total → AA33 GasLimitAboveCap). STATIC_GAS call/PVG plus the owner verification
- * bound and the stamped paymaster limits sum to ~2.39M, well under the cap.
+ * the bundler's maxima (live: 34.21M total → AA33 GasLimitAboveCap). STATIC_GAS call + zero PVG (request a measurement), plus the owner verification
+ * bound and the stamped paymaster limits sum to ~2.33M, well under the cap.
  */
 export function ownerEstimateBounds(pm: { paymasterVerificationGasLimit: bigint | string; paymasterPostOpGasLimit: bigint | string }, cap: bigint = PAYMASTER_MAX_GAS_PER_OP): GasLimits {
-  const b = { ...STATIC_GAS, verificationGasLimit: DEPLOYED_OWNER_VERIFICATION_GAS };
+  const b = { ...STATIC_GAS, verificationGasLimit: DEPLOYED_OWNER_VERIFICATION_GAS, preVerificationGas: BigInt(0) };
   const total = b.callGasLimit + b.verificationGasLimit + b.preVerificationGas + BigInt(pm.paymasterVerificationGasLimit) + BigInt(pm.paymasterPostOpGasLimit);
   if (total > cap) throw new Error(`owner estimate bounds ${total} exceed paymaster cap ${cap}`);
   return b;
