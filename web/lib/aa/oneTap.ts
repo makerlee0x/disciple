@@ -1,5 +1,5 @@
 /**
- * Pure helpers for on-chain one-tap sessions (DiscipleSessionPolicy 1.4.1, v5 stack). Shared by session.ts (browser),
+ * Pure helpers for on-chain one-tap sessions (DiscipleSessionPolicy 1.4.2, wave #246). Shared by session.ts (browser),
  * WalletButton, and scripts/test-session-e2e.mts (node), so tests exercise the exact logic the app uses.
  */
 import { toFunctionSelector, type Address, type Hex } from "viem";
@@ -8,18 +8,18 @@ import type { Call } from "./core";
 /**
  * Expected DiscipleSessionPolicy.moduleId(); enableOneTap refuses a policy that reports anything else.
  * Config, so the redeploy swaps it with the address: NEXT_PUBLIC_SESSION_POLICY (address) +
- * NEXT_PUBLIC_SESSION_POLICY_VERSION (default 1.4.1 = the v5 testnet policy, contracts/deployments/rh-testnet-46630.json
- * addons.DiscipleSessionPolicy; moduleId() "disciple.session-policy.1.4.1": USDG routing, USDG gas paymaster, USDG<->pair swaps).
+ * NEXT_PUBLIC_SESSION_POLICY_VERSION (default 1.4.2 = wave #246 testnet policy, contracts/deployments/rh-testnet-46630.json
+ * addons.DiscipleSessionPolicy; moduleId() "disciple.session-policy.1.4.2": USDG routing, prepaid USDG gas paymaster, USDG<->pair swaps).
  */
-export const SESSION_POLICY_VERSION = process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.4.1";
+export const SESSION_POLICY_VERSION = process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.4.2";
 /**
  * Deployed DiscipleSessionPolicy per chain — source of truth: contracts/deployments/rh-testnet-46630.json
- * (addons.DiscipleSessionPolicy.address, v5 1.4.1, constructor referralRegistry 0xfe52…5aaf). NEXT_PUBLIC_SESSION_POLICY
- * overrides. (v4's 0x3d36…6e27 / 1.3.0 and v3's 0x0399…2be2 / 1.1.1 are superseded: their sessions were installed against
- * the old routers / launchpads.) Must stay paired with SESSION_POLICY_VERSION's default.
+ * (addons.DiscipleSessionPolicy.address, wave #246 1.4.2, constructor referralRegistry 0xfe52…5aaf + paymaster 0x1E7B…).
+ * NEXT_PUBLIC_SESSION_POLICY overrides. Prior 1.4.1 / 1.3.0 / 1.1.1 policies are superseded (sessions were installed
+ * against older paymasters / routers). Must stay paired with SESSION_POLICY_VERSION's default.
  */
 export const DEFAULT_SESSION_POLICY: Record<number, Address> = {
-  46630: "0x92b38057bb7bfa7d640e836e9b3aa8c7365720ac",
+  46630: "0x61bb745881c2db24f6f61E35C7fF1de1dBFaC6b4",
 };
 export const sessionPolicyFor = (chainId: number, env = process.env.NEXT_PUBLIC_SESSION_POLICY): Address | "" =>
   (/^0x[0-9a-fA-F]{40}$/.test(env || "") ? (env as Address) : DEFAULT_SESSION_POLICY[chainId] ?? "");

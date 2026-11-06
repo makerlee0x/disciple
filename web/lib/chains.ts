@@ -108,9 +108,9 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     paymaster: addr(process.env.NEXT_PUBLIC_RH_PAYMASTER), // PREPAY_VERSION=4 + stake checked server-side; no legacy default
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RH_FROM_BLOCK || "0"),
   },
-  // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json on main (v5 redeploy, PR #150 / deploy commit 4310665b,
-  // startBlock 142064001). Prod sets every NEXT_PUBLIC_RHT_* in Vercel env; these literals are the fallbacks (and are inlined
-  // into the bundle), so they must match the live stack too.
+  // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json (v5 + wave #241/#246 LoginGate / paymaster /
+  // session policy 1.4.2; startBlock 142064001). Prod sets every NEXT_PUBLIC_RHT_* in Vercel env; these literals are the
+  // fallbacks (and are inlined into the bundle), so they must match the live stack too.
   // After a redeploy, edit these defaults or set NEXT_PUBLIC_RHT_* env. Do NOT send new launches to the old v2 stack (SEC-01).
   [robinhoodTestnet.id]: {
     launchpad: addr(process.env.NEXT_PUBLIC_RHT_LAUNCHPAD, "0x8a92e51940909424b3aacefff99b4834588c0988"),
@@ -125,13 +125,13 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     antiSnipe: addr(process.env.NEXT_PUBLIC_RHT_ANTI_SNIPE), // v5 has no AntiSnipe contract (snipe escrow lives in the curve) ⇒ zero
     trampWallManager: addr(process.env.NEXT_PUBLIC_RHT_TRAMP_WALL_MANAGER, "0xe9e98e149b43ff20dc7db665eefc387a8926e618"),
     marketLens: addr(process.env.NEXT_PUBLIC_RHT_MARKET_LENS, "0xd89da17e3aee9a7b1cba359666f0feb5382421fa"),
-    loginGate: addr(process.env.NEXT_PUBLIC_RHT_LOGIN_GATE, "0xaeb8abd314d2392f0f26b664ae78d889c4a079e2"),
+    loginGate: addr(process.env.NEXT_PUBLIC_RHT_LOGIN_GATE, "0xebDD6Ad15a6B838eE15Dc7d5871F09EFB284317D"), // wave #241 global LoginGate
     usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_RHT_USDG_DEPOSIT_NOTIFIER, "0xf7b3c09cae8c914530424c5882a24a4160013e9c"),
     ...RH_V4,
     defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xF5eB226F7f0890c36A06Cbd0Ff843292b7b1a88C"), // test STRATEGY (18 dec, v5 tokens.STRATEGY)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D"), // test USDG (6 dec, v5 tokens.USDG)
     usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_RHT_USDG_DECIMALS, 6),
-    paymaster: addr(process.env.NEXT_PUBLIC_RHT_PAYMASTER), // PREPAY_VERSION=4 + stake checked server-side; no legacy default
+    paymaster: addr(process.env.NEXT_PUBLIC_RHT_PAYMASTER, "0x1E7B06adb1D0A92b83AF2Dc3D70Cb4694E606822"), // wave #246 DisciplePaymaster v4 prepaid USDG
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "142064001"),
   },
   [anvil.id]: {
