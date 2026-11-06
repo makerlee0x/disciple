@@ -32,6 +32,7 @@ export type StandardRelayer = { address: Hex; send(...args: unknown[]): Promise<
 /** Fail closed for stale internal callers, before reading a key or contacting any RPC. */
 export async function standardRelayer(): Promise<StandardRelayer> { throw new Error("protocol relay disabled"); }
 export async function sendUserOperationSync(_op: UserOp, _onPending?: unknown, _beforeSend?: () => Promise<void>): Promise<RelayConfirmed> {
+  void _op; void _onPending; void _beforeSend;
   throw new Error("protocol relay disabled");
 }
-export async function warmRelay(_sender?: string): Promise<never> { throw new Error("protocol relay disabled"); }
+export async function warmRelay(_sender?: string): Promise<never> { void _sender; throw new Error("protocol relay disabled"); }

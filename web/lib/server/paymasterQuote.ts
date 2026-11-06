@@ -64,7 +64,7 @@ export function paymasterAddress(): Address {
 export async function quoteConfig(): Promise<QuoteConfig> {
   const paymaster = paymasterAddress();
   signerAccount(); // fail closed before any RPC
-  try { await assertPrepaidReady(paymaster); } catch (e) { throw new PaymasterQuoteError("config", (e as Error).message); }
+  try { await assertPrepaidReady(paymaster); } catch { throw new PaymasterQuoteError("config", "hardened prepaid USDG paymaster unavailable"); }
   await checkSignerOnChain(paymaster);
   const usdg = DEPLOYMENTS[PAYMASTER_CHAIN_ID].usdg;
   if (!decimals || decimals.usdg !== usdg) decimals = { usdg, d: Number(await pc.readContract({ address: usdg, abi: erc20, functionName: "decimals" })) };

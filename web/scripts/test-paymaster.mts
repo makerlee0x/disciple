@@ -72,7 +72,8 @@ for (const dec of [18, 6]) {
     const stub = await stubQuote(lop([launchCall]), ENTRYPOINT_V07, 46630, lcfg, d);
     const amt = BigInt(stub.disciple.maxTokenCost);
     const install = { to: SENDER, data: encodeFunctionData({ abi: parseAbi(["function installValidation(bytes25,bytes4[],bytes,bytes[])"]), functionName: "installValidation", args: [`0x${"00".repeat(25)}`, [], "0x", []] }) };
-    const op: UserOp = { ...lop([paymasterApproveCall(USDG, PM, amt), install, launchCall]), paymaster: stub.paymaster, paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit, paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit };
+    const login = { to: TOKEN, data: encodeFunctionData({ abi: parseAbi(["function attest(address,uint64,bytes)"]), functionName: "attest", args: [SENDER, BigInt(1_900_000_000), "0x"] }) };
+    const op: UserOp = { ...lop([paymasterApproveCall(USDG, PM, amt), install, login, launchCall]), paymaster: stub.paymaster, paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit, paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit };
     const f = await finalQuote(op, ENTRYPOINT_V07, 46630, lcfg, d);
     assert.equal(firstCallApproveAmount(op.callData, USDG, PM), amt);
     assert.ok(f.paymasterData.length > 2);

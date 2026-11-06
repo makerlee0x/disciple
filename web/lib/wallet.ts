@@ -117,7 +117,7 @@ export async function activeAddress(): Promise<Address> {
 /**
  * Rapid taps (GAME): USDG base units one pending trade may still take for network fees — SYNC, never awaits.
  *   reserve = liveCash − Σ pending (amountIn + gasReservePerOp())
- * Gas is self-paid native ETH: no USDG gas reserve is needed.
+ * USDG-paid smart-account gas reserves are computed synchronously; EOAs use native ETH.
  */
 export function gasReservePerOp(kind: GasOpKind = "trade"): bigint { return isSmartMode() ? aaGasReservePerOp(kind) : BigInt(0); }
 // SITE #144 (lib/trade/reservations, not in this base yet) — at rebase add, once at module scope here:

@@ -4,10 +4,11 @@
  *   pm_getPaymasterData     [userOp, entryPoint, chainId, context] → signed paymasterData
  *   pm_getPaymasterAllowance [sender, entryPoint, chainId] → signed per-sender allowance (reused by every op of the
  *                           sender until validUntil; the client caches it ⇒ 0 pm_* calls per warm trade)
- * Gas is paid out of the user's own USDG (validation precharge at the marked-up rate; postOp refunds unused collateral); nothing is sponsored. Quote rules:
+ * Gas is paid out of the user's own USDG (validation precharge at the unmarked rate; postOp refunds unused collateral); nothing is sponsored. Quote rules:
  * lib/server/paymasterCore. Signer key: PAYMASTER_SIGNER_KEY (server env only).
  */
 import { NextResponse } from "next/server";
+import { TRADING_UNAVAILABLE } from "@/lib/aa/gasPolicy";
 import { kv } from "@/lib/server/kv";
 import { BUNDLER_LIMITS, clientIp, hitLimit, paymasterAllowanceLimits } from "@/lib/server/limits";
 import { allowanceQuote, finalQuote, PaymasterQuoteError, stubQuote } from "@/lib/server/paymasterCore";
@@ -50,8 +51,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ jsonrpc: "2.0", id, result });
   } catch (e) {
     if (e instanceof PaymasterQuoteError) return fail(CODES[e.code], `${body.method}: ${e.message}`, e.code === "config" ? 503 : 400, e.data);
-    const m = (e as { shortMessage?: string }).shortMessage || (e as Error).message || String(e);
-    return fail(-32000, `${body.method}: ${m.split("\n")[0].slice(0, 200)}`, 500);
+    // Unexpected RPC/signer errors can contain credential-bearing URLs. Never echo them.
+    return fail(-32000, TRADING_UNAVAILABLE, 500);
   }
 }
 
@@ -72,7 +73,6 @@ async function allowance(req: Request, id: unknown, params: unknown[], fail: (co
     return NextResponse.json({ jsonrpc: "2.0", id, result: await allowanceQuote(sender as `0x${string}`, entryPoint, chainId, cfg, quoteDeps(cfg)) });
   } catch (e) {
     if (e instanceof PaymasterQuoteError) return fail(CODES[e.code], `pm_getPaymasterAllowance: ${e.message}`, e.code === "config" ? 503 : 400, e.data);
-    const m = (e as { shortMessage?: string }).shortMessage || (e as Error).message || String(e);
-    return fail(-32000, `pm_getPaymasterAllowance: ${m.split("\n")[0].slice(0, 200)}`, 500);
+    return fail(-32000, TRADING_UNAVAILABLE, 500);
   }
 }

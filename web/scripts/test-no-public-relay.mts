@@ -145,3 +145,26 @@ test("warm USDG proxy submit adds no deployment/stake RPC wait and never relays 
     assert.match(calls[0], /^https:\/\/robinhood-testnet\.g\.alchemy\.com/);
   } finally { globalThis.fetch = old; if (prev === undefined) delete process.env.PAYMASTER_ADDRESS; else process.env.PAYMASTER_ADDRESS = prev; }
 });
+
+
+test("paymaster RPC diagnostics never escape readiness checks or public error responses", async () => {
+  const keys = ["PAYMASTER_ADDRESS", "PAYMASTER_SIGNER_KEY", "PAYMASTER_MIN_STAKE_WEI"] as const;
+  const before = keys.map((k) => process.env[k]);
+  const old = globalThis.fetch;
+  process.env.PAYMASTER_ADDRESS = PM;
+  process.env.PAYMASTER_SIGNER_KEY = `0x${"02".repeat(32)}`; // synthetic unit-test signer only
+  process.env.PAYMASTER_MIN_STAKE_WEI = "1";
+  globalThis.fetch = async () => { throw Error("fixture-private-upstream-diagnostic"); };
+  try {
+    const r = await paymaster(new Request("http://localhost/api/paymaster", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "192.0.2.21" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "pm_getPaymasterAllowance", params: [sender, "0x0000000071727De22E5E9d8BAf0edAc6f37da032", "0xb626"] }) }));
+    assert.equal(r.status, 503);
+    const body = JSON.stringify(await r.json());
+    assert.match(body, /paymaster unavailable/);
+    assert.doesNotMatch(body, /fixture-private-upstream-diagnostic|https?:|stack|\/v2\//);
+    assert.doesNotMatch(src("app/api/paymaster/route.ts"), /shortMessage|String\(e\)|\(e as Error\)\.message/);
+    assert.doesNotMatch(src("lib/server/paymasterQuote.ts"), /catch \(e\).*PaymasterQuoteError\("config", \(e as Error\)\.message/);
+  } finally {
+    globalThis.fetch = old;
+    keys.forEach((k, i) => { if (before[i] === undefined) delete process.env[k]; else process.env[k] = before[i]; });
+  }
+});
