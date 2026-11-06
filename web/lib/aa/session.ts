@@ -227,9 +227,18 @@ async function sessionHealthFor(a: Address): Promise<SessionHealth> {
   }
   return h;
 }
+function autoSetupDisabledReason(): string | undefined {
+  if (!ONE_TAP_AUTO) return "automatic one-tap setup is disabled by configuration";
+  if (!SESSION_POLICY) return "no session policy configured for this chain";
+  if (!oneTapAvailable()) return `one-tap unavailable on chain ${ACTIVE_CHAIN.id}`;
+  if (!sa || !state) return "owner account is not ready";
+  if (state.kind === "eoa") return "external development signer does not auto-install sessions";
+  return undefined;
+}
 const loginSetup = createLoginSetup({
   now: () => Date.now(),
-  enabled: () => ONE_TAP_AUTO && oneTapAvailable() && !!sa && !!state && state.kind !== "eoa",
+  enabled: () => !autoSetupDisabledReason(),
+  disabledReason: () => autoSetupDisabledReason() || "automatic setup unavailable",
   oneTapOff: (a) => userEndedOneTap || isOneTapOff(lsStore(), a),
   deployed: async (a) => {
     if (!sa) return undefined;
@@ -250,17 +259,18 @@ const loginSetup = createLoginSetup({
   },
   lease: storageLease(lsStore(), TAB_ID),
   warn: (m, d) => console.warn(m, d),
+  report: (d) => console.info(`[disciple] one-tap setup: ${d.outcome} (${d.reason})`, d),
   schedule: (ms, run) => { if (typeof window !== "undefined") setTimeout(run, Math.min(ms, 2 ** 31 - 1)); },
   onChange: () => changed(),
 });
 /** Background one-tap setup / renewal for the signed-in account. Idempotent, deduped, never throws. */
 export function maybeAutoOneTap(why: string, opt: { urgent?: boolean } = {}) {
   const acct = sa;
-  if (!acct) return;
-  void acct.address().then(async (a) => {
-    if (sa !== acct) return;
-    await loginSetup.ensure(a, why, opt);
-  }).catch(() => undefined);
+  if (!acct) { console.info("[disciple] one-tap setup skipped: owner account not ready", { why }); return; }
+  return acct.address().then(async (a) => {
+    if (sa !== acct) { console.info("[disciple] one-tap setup skipped: owner account changed", { why }); return; }
+    return loginSetup.ensure(a, why, opt);
+  }).catch((e) => { console.warn(`[disciple] one-tap setup address failed: ${diagnosticText((e as Error)?.message ?? e)}`, { why }); });
 }
 /** Re-check on tab refocus (deduped) and renew ahead of expiry while the tab stays open (FLOW's scheduleRenewal shape). */
 let triggersOn = false;
@@ -289,7 +299,12 @@ export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string
 /* ---------- Privy embedded wallet owner ---------- */
 /** Called by PrivyProviders once the embedded wallet is ready (owner = toViemAccount(wallet)). */
 export async function setPrivyOwner(owner: LocalAccount): Promise<Address> {
-  if (sa && state?.kind === "privy" && state.owner.toLowerCase() === owner.address.toLowerCase()) return sa.address();
+  if (sa && state?.kind === "privy" && state.owner.toLowerCase() === owner.address.toLowerCase()) {
+    // Wallet readiness can recur without a fresh login (restored auth, provider remount). Re-check setup even when
+    // the owner is unchanged; retain the existing account/session and coordinator lease/backoff/dedupe.
+    void maybeAutoOneTap("wallet-ready");
+    return sa.address();
+  }
   return startSession("privy", owner);
 }
 type PrivyHooks = { login: () => void; logout: () => Promise<void>; getAccessToken?: () => Promise<string | null>; authenticated?: boolean };
@@ -649,7 +664,7 @@ async function aaSend1(calls: Call[], o: SendOpts, opts: TradeCtx) {
   if (pick.as === "refuse") {
     const settingUp = loginSetup.busy(me), failed = !!loginSetup.lastError(me);
     const setupError = sessionErrorDetail(loginSetup.lastDetail(me) || loginSetup.lastError(me));
-    console.warn("[disciple] trade refused: one-tap session not ready (no owner fallback)", { why: pick.why, settingUp, deployed: mode.deployed, setupError, policy: SESSION_POLICY });
+    console.warn("[disciple] trade refused: one-tap session not ready (no owner fallback)", { why: pick.why, settingUp, deployed: mode.deployed, setupError, setup: loginSetup.status(me), policy: SESSION_POLICY });
     // a brand-new account (setup not finished) or a first install ⇒ "getting ready"; a dead or failed session ⇒ "refreshing"
     const msg = mode.deployed && (onchain || failed) ? ONE_TAP_REFRESH_MSG : ONE_TAP_SETTING_UP_MSG;
     renewOneTap("trade");
