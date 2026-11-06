@@ -512,3 +512,19 @@ test("assertSignerMatches: fail closed unless the key's address is DisciplePayma
   assert.doesNotThrow(() => assertSignerMatches(a, a.toLowerCase() as Address));
   assert.throws(() => assertSignerMatches(a, b), (e: unknown) => e instanceof PaymasterQuoteError && e.code === "config");
 });
+
+test("withPaymasterApprove keeps the paired setup / top-up approve+deposit and strips only stray approvals (F-01 regression)", async () => {
+  const { withPaymasterApprove, withCreditTopUp } = await import("../lib/aa/paymasterClient");
+  const { setupCreditCalls } = await import("../lib/aa/prepayBootstrap");
+  const amt = BigInt(2_000_000);
+  const setup = setupCreditCalls(USDG, PM, SENDER, amt);
+  assert.deepEqual(withPaymasterApprove(setup, USDG, PM, BigInt(0)), setup);
+  const topUp = withCreditTopUp([trade], USDG, PM, SENDER, amt);
+  assert.deepEqual(topUp, [trade, ...setup]);
+  assert.deepEqual(withPaymasterApprove(topUp, USDG, PM, BigInt(0)), topUp);
+  const stray = paymasterApproveCall(USDG, PM, BigInt(1));
+  assert.deepEqual(withPaymasterApprove([stray, trade, ...setup], USDG, PM), [trade, ...setup]);
+  // approve whose deposit amount differs is not a pair
+  const mismatched = [paymasterApproveCall(USDG, PM, amt + BigInt(1)), setup[1]];
+  assert.deepEqual(withPaymasterApprove(mismatched, USDG, PM), [setup[1]]);
+});

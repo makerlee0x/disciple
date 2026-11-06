@@ -12,7 +12,7 @@
  * (withCreditTopUp); it cannot fund the same op's reservation.
  */
 
-import type { Address, Hex } from "viem";
+import { toFunctionSelector, type Address, type Hex } from "viem";
 import type { Call, UserOp } from "./core";
 import { ENTRYPOINT_V07 } from "./constants";
 import { requiredMaxTokenCost } from "./paymaster";
@@ -23,13 +23,22 @@ type Stub = PaymasterFields & { disciple: { usdg: Address; rate: Hex; maxTokenCo
 
 export class PaymasterRpcError extends Error { constructor(msg: string, public code: number, public data?: unknown) { super(msg); } }
 
-/** Drop a leftover USDG approve to the paymaster. v5 does not prepend one. */
+/**
+ * Drop a leftover standalone USDG approve to the paymaster. v5 does not prepend one.
+ * An exact approve immediately followed by `deposit(_, sameAmount)` on the paymaster is the
+ * setup / top-up credit pair (setupCreditCalls) and is kept unchanged; stripping it would leave a
+ * deposit with no allowance, which the quote rules reject.
+ */
 export function withPaymasterApprove(calls: Call[], usdg: Address, paymaster: Address, _maxTokenCost?: bigint): Call[] {
   void _maxTokenCost;
   const pmWord = paymaster.slice(2).toLowerCase().padStart(64, "0");
   const isPmApprove = (c: Call) => c.to.toLowerCase() === usdg.toLowerCase() && c.data.slice(0, 10).toLowerCase() === "0x095ea7b3" && c.data.slice(10, 74).toLowerCase() === pmWord;
-  return calls.filter((c) => !isPmApprove(c));
+  const isPairedDeposit = (a: Call, d: Call | undefined) =>
+    !!d && d.to.toLowerCase() === paymaster.toLowerCase() && d.data.slice(0, 10).toLowerCase() === DEPOSIT_SELECTOR &&
+    d.data.slice(74, 138).toLowerCase() === a.data.slice(74, 138).toLowerCase();
+  return calls.filter((c, i) => !isPmApprove(c) || isPairedDeposit(c, calls[i + 1]));
 }
+const DEPOSIT_SELECTOR = toFunctionSelector("deposit(address,uint256)").toLowerCase();
 
 /** Trade plus an exact credit top-up. The top-up lands after this op's reservation, so it funds the next one. */
 export function withCreditTopUp(calls: Call[], usdg: Address, paymaster: Address, account: Address, amount: bigint): Call[] {
