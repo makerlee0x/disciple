@@ -95,8 +95,8 @@ contract ModeRulesV2Test is IntegrationBase {
 
     function _verify(address w) internal {
         uint64 exp = uint64(vm.getBlockTimestamp() + 24 hours);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(w, exp, address(0)));
-        gate.attest(w, exp, address(0), abi.encodePacked(r, s, v));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(w, exp));
+        gate.attest(w, exp, abi.encodePacked(r, s, v));
     }
 
     function _fresh() internal returns (address w) {

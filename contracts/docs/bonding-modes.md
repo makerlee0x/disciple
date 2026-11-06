@@ -42,15 +42,13 @@ partial fill, sniper escrow, creator lock, crew tip). Summary:
 ### Login attestation (`src/LoginGate.sol`)
 
 * EIP-712 domain `{name: "DisciplePVE", version: "1", chainId, verifyingContract: LoginGate}`.
-* Type `LoginAttestation(address wallet,uint64 expiry,address coin)`. `coin = 0x0` → valid for all PVE coins,
-  otherwise only that token.
+* Type `LoginAttestation(address wallet,uint64 expiry,uint64 epoch)`. Every login is global; no coin-scoped API remains.
 * The protocol attester key is owner-settable (`setAttester`). The backend signs after verifying the Privy session.
-* Anyone submits it with `LoginGate.attest(wallet, expiry, coin, sig)` (the wallet itself, a relayer, or the smart
-  account batch right before its first PVE buy). The gate stores `verifiedUntil`.
+* Anyone submits it with `LoginGate.attest(wallet, expiry, sig)` (the wallet itself or its owner-signed smart-account batch right before its first PVE buy; users pay gas, no server relay). The gate stores `verifiedUntil`.
 * Cheap check: on a PVE buy the curve reads its own cache `verifiedUntilOf(wallet)` (1 warm SLOAD). Only when that is
-  stale does it call `gate.verifiedUntil(wallet, token)` once and cache the result in the same slot as the cost basis.
+  stale does it call `gate.verifiedUntil(wallet)` once and cache the result in the same slot as the cost basis.
 * Sells never require a login (holders can always exit).
-* Owner `revoke(wallet, coin)` clears the gate entry. A curve caches at most `min(expiry, now + 10 min)`
+* Owner `revoke(wallet)` increments the global `epoch(wallet)` and clears the gate entry, invalidating all prior signatures, including unsubmitted ones. A curve caches at most `min(expiry, now + 10 min)`
   (`PVE_LOGIN_CACHE_TTL`, audit round-2 L1), so a revocation bites within 10 minutes on every curve.
 * `attest` rejects `expiry > now + 24 h` (`LoginGate.MAX_TTL`, error `TtlTooLong`, audit round-2 L2).
 

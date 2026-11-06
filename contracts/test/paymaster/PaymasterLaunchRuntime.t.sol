@@ -118,9 +118,9 @@ contract PaymasterLaunchRuntimeTest is PaymasterBootstrapFixture {
         if (install) calls[i++] = MiniAccount.Call(smart, 0, _install());
         if (mode == 1 && install) {
             uint64 expiry = uint64(block.timestamp + 1 hours);
-            (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xA77E57, LoginGate(gate).digest(smart, expiry, address(0)));
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xA77E57, LoginGate(gate).digest(smart, expiry));
             calls[i++] = MiniAccount.Call(
-                gate, 0, abi.encodeCall(LoginGate.attest, (smart, expiry, address(0), abi.encodePacked(r, s, v)))
+                gate, 0, abi.encodeCall(LoginGate.attest, (smart, expiry, abi.encodePacked(r, s, v)))
             );
         }
         address spender = kind == 0 ? lp : kind == 1 ? address(trade) : anon;

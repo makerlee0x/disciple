@@ -97,6 +97,6 @@ test("launchTargets(46630) includes the v5 DiscipleRouter (deployments json) nex
 });
 
 test("helper selectors in gasPolicy (approve / LoginGate.attest / ReferralRegistry.tryAttribute) match the v5 ABIs", () => {
-  assert.equal(sel(loginGateAbi, "attest"), toFunctionSelector("function attest(address wallet, uint64 expiry, address coin, bytes sig)").toLowerCase());
+  assert.equal(sel(loginGateAbi, "attest"), toFunctionSelector("function attest(address wallet, uint64 expiry, bytes sig)").toLowerCase());
   assert.equal(sel(referralRegistryAbi, "tryAttribute"), toFunctionSelector("function tryAttribute(address wallet, address referrer)").toLowerCase());
 });
