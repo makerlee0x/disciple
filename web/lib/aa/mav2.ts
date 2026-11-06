@@ -10,7 +10,7 @@ import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
 import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, toHex, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
-import { NonceCursor, GasCache, STATIC_GAS, deployedOwnerVerificationGas, gradSessionGas, FeeCache, callsKind, isGradBuyCalls, retryCalls, newPressId, tagPress, type GasLimits, type Fees, type SendOpts, type SendCallsOpts } from "./fastPath";
+import { NonceCursor, GasCache, STATIC_GAS, deployedOwnerVerificationGas, ownerEstimateBounds, gradSessionGas, FeeCache, callsKind, isGradBuyCalls, retryCalls, newPressId, tagPress, type GasLimits, type Fees, type SendOpts, type SendCallsOpts } from "./fastPath";
 import { clientFees, isLaunchCalls, INFRA_WORDING, TRADING_UNAVAILABLE } from "./gasPolicy";
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
@@ -169,6 +169,11 @@ export const cachedGasEstimator: ClientMiddlewareFn = async (struct, args) => {
     Object.assign(struct, { callGasLimit: o.callGasLimit, verificationGasLimit: o.verificationGasLimit, preVerificationGas: o.preVerificationGas });
     return struct;
   }
+  // Deployed owner estimate: an op that omits its gas limits is simulated by the bundler at its own maxima
+  // (live: 34.21M total), which the paymaster's maxGasPerOp cap (7.07M) rejects with AA33 GasLimitAboveCap
+  // before any estimate returns. Send explicit bounds that sum under the cap; the estimate still replaces them.
+  const bounds = (o as { estimateBounds?: GasLimits } | undefined)?.estimateBounds;
+  if (bounds) Object.assign(struct, { callGasLimit: bounds.callGasLimit, verificationGasLimit: bounds.verificationGasLimit, preVerificationGas: bounds.preVerificationGas });
   // The paymaster verification override is the server's stamped limit (the quote is signed at it).
   // Passing it through defaultGasEstimator discards the bundler's measured paymaster verification,
   // which the deployed-owner headroom clamp needs. Estimate without that override, keep the measurement,
@@ -176,6 +181,7 @@ export const cachedGasEstimator: ClientMiddlewareFn = async (struct, args) => {
   const overrides = { ...(args.overrides as object) } as Record<string, unknown>;
   const stampedPm = overrides.paymasterVerificationGasLimit;
   delete overrides.paymasterVerificationGasLimit;
+  delete overrides.estimateBounds;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const estimated = await defaultGasEstimator((args as any).client)(struct, { ...args, overrides });
   if (stampedPm != null) {
@@ -482,7 +488,9 @@ export class Mav2Account {
         // Initial sizing does not simulate an ETH-self-paid op. All REAL estimates carry the USDG paymaster,
         // including its dummy signature and gas limits, so zero-ETH deployment can be estimated externally.
         const seed = placeholder ? { callGasLimit: BigInt(1_800_000), verificationGasLimit: BigInt(900_000), preVerificationGas: BigInt(150_000) } : undefined;
-        const args = { nonce, ...f, ...pmf, ...(limits ?? seed ?? {}) };
+        // Deployed owner real estimate: bounded limits under the paymaster cap (see cachedGasEstimator).
+        const bound = !placeholder && deployedOwner && !limits ? { estimateBounds: ownerEstimateBounds(pmf) } : {};
+        const args = { nonce, ...f, ...pmf, ...(limits ?? seed ?? {}), ...bound };
         const struct = placeholder
           ? await client.buildUserOperation({ uo: u.length === 1 ? u[0] : u, overrides: args })
           : await this.buildOp(client, kind, u.length === 1 ? u[0] : u, args, !!limits);

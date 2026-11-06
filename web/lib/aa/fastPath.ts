@@ -79,6 +79,22 @@ export function deployedOwnerVerificationGas(o: {
   return capped < estV ? estV : capped;
 }
 /**
+ * Live v5 paymaster maxGasPerOp (RH testnet, Nov 6 2026). validatePaymasterUserOp reverts GasLimitAboveCap when
+ * PVG + verificationGasLimit + callGasLimit + paymasterVerificationGasLimit + paymasterPostOpGasLimit exceeds it.
+ */
+export const PAYMASTER_MAX_GAS_PER_OP = BigInt(7_068_712);
+/**
+ * Explicit gas fields for a deployed owner op's eth_estimateUserOperationGas request. Omitted fields are simulated at
+ * the bundler's maxima (live: 34.21M total → AA33 GasLimitAboveCap). STATIC_GAS plus the stamped paymaster limits sums
+ * to ~2.62M, well under the cap; the bundler's estimate then replaces the account fields.
+ */
+export function ownerEstimateBounds(pm: { paymasterVerificationGasLimit: bigint | string; paymasterPostOpGasLimit: bigint | string }, cap: bigint = PAYMASTER_MAX_GAS_PER_OP): GasLimits {
+  const b = { ...STATIC_GAS };
+  const total = b.callGasLimit + b.verificationGasLimit + b.preVerificationGas + BigInt(pm.paymasterVerificationGasLimit) + BigInt(pm.paymasterPostOpGasLimit);
+  if (total > cap) throw new Error(`owner estimate bounds ${total} exceed paymaster cap ${cap}`);
+  return b;
+}
+/**
  * Graduating buys (quote ≥ remaining to graduation): Migration + 16 floor bands ≈ 2.76M execution gas (6-dec USDG), above
  * STATIC_GAS and above what a cached normal-buy estimate allows. The trade layer flags their call data
  * (markGradBuy); lib/aa/mav2 then skips STATIC_GAS and the GasCache, always estimates fresh, and never caches the

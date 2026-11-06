@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { encodeFunctionData, maxUint256, parseAbi, toHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { PAYMASTER_GAS } from "../lib/aa/paymaster";
-import { STATIC_GAS, deployedOwnerVerificationGas, verificationEfficiencyBps, VERIFICATION_EFFICIENCY_FLOOR_BPS } from "../lib/aa/fastPath";
+import { STATIC_GAS, deployedOwnerVerificationGas, verificationEfficiencyBps, VERIFICATION_EFFICIENCY_FLOOR_BPS, ownerEstimateBounds, PAYMASTER_MAX_GAS_PER_OP } from "../lib/aa/fastPath";
 import { Mav2Account, FEES, cachedGasEstimator } from "../lib/aa/mav2";
 import { finalQuote, stubQuote, type QuoteConfig, type QuoteDeps } from "../lib/server/paymasterCore";
 import { clientFees } from "../lib/aa/gasPolicy";
@@ -118,4 +118,27 @@ test("deployed owner send uses the estimate plus headroom; a session trade keeps
     assert.equal((await a.sendCalls([{ to: OTHER, data: "0x12345678" }], "session")).gasMode, "usdg");
     assert.equal(BigInt(sent[0].verificationGasLimit!), STATIC_GAS.verificationGasLimit);
   } finally { globalThis.fetch = old; FEES.invalidate(); }
+});
+
+test("deployed owner estimate request is bounded under the v5 maxGasPerOp cap (live AA33 GasLimitAboveCap 34.21M)", async () => {
+  const pm = { paymasterVerificationGasLimit: PAYMASTER_GAS.verificationGasLimit, paymasterPostOpGasLimit: PAYMASTER_GAS.postOpGasLimit };
+  const b = ownerEstimateBounds(pm);
+  const sum = b.callGasLimit + b.verificationGasLimit + b.preVerificationGas + pm.paymasterVerificationGasLimit + pm.paymasterPostOpGasLimit;
+  assert.ok(sum <= PAYMASTER_MAX_GAS_PER_OP, `bounds ${sum} under cap`);
+  assert.throws(() => ownerEstimateBounds(pm, sum - 1n));
+  let req: Record<string, string> | undefined;
+  const result = await cachedGasEstimator({ sender: S, nonce: 0n, callData: "0x12345678", signature: "0x01" } as never, {
+    account: { getEntryPoint: () => ({ version: "0.7.0", address: ENTRYPOINT_V07 }) },
+    overrides: { paymaster: PM, paymasterData: "0x1234", paymasterVerificationGasLimit: toHex(pm.paymasterVerificationGasLimit), paymasterPostOpGasLimit: toHex(pm.paymasterPostOpGasLimit), estimateBounds: b },
+    client: { estimateUserOperationGas: async (r: Record<string, string>) => {
+      req = r;
+      return { callGasLimit: 400_000n, verificationGasLimit: 110_000n, preVerificationGas: 50_000n, paymasterVerificationGasLimit: 66_100n };
+    } },
+  } as never) as Record<string, unknown>;
+  assert.ok(req, "estimate was requested");
+  const reqSum = ["callGasLimit", "verificationGasLimit", "preVerificationGas", "paymasterVerificationGasLimit", "paymasterPostOpGasLimit"].reduce((t, k) => t + BigInt(req![k]), 0n);
+  assert.ok(reqSum <= PAYMASTER_MAX_GAS_PER_OP, `estimate request sums ${reqSum}`);
+  assert.equal("estimateBounds" in req!, false);
+  assert.equal(BigInt(result.verificationGasLimit as bigint), 110_000n, "estimate replaces the bound");
+  assert.equal(BigInt(result.callGasLimit as bigint), 400_000n);
 });
