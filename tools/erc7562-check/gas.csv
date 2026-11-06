@@ -1,0 +1,7 @@
+op,admission,execution_success,account_validation,factory_validation,pm_validation,execution,postop,event_actual_gas,receipt_gas,charged_usdg_base_units,effective_wei_per_gas
+a setup $2 + session install,ADMITTED,true,17407,76875,135615,624870,56575,1107411,944741,14657,5026961
+b session boost buy,ADMITTED,true,54758,0,132863,641492,49976,1107819,881575,12871,4536091
+c buy + hidden top-up batch,ADMITTED,true,58433,0,174038,769258,40376,1259313,1009592,13122,4106580
+d session sell,ADMITTED,true,54786,0,115421,567190,49976,1023533,789883,9878,3730758
+e owner launch,ADMITTED,true,17861,0,113445,6403882,52476,7480069,6586061,59656,3401914
+f withdraw/send release,ADMITTED,true,17968,0,115317,56988,35534,514376,259421,4561,3114175
