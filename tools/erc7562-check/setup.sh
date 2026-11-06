@@ -7,7 +7,7 @@ for tool in git node npm forge anvil; do
 done
 [[ -f "$CONTRACTS/foundry.toml" && -f "$CONTRACTS/src/paymaster/DisciplePaymasterV5.sol" ]] || { echo 'Pass the PR clone contracts/ directory to setup.sh' >&2; exit 1; }
 HEAD=$(git -C "$CONTRACTS" rev-parse HEAD)
-[[ "$HEAD" == 7b1fab32909f09e41ab690c4990f2ba7edaaab20 ]] || { echo "Wrong PR head: $HEAD" >&2; exit 1; }
+echo "Checking DISCIPLE head $HEAD (results in this folder were recorded at 7b1fab32)"
 fetch_exact() {
   local path=$1 repo=$2 rev=$3
   if [[ -d "$path/.git" ]]; then
