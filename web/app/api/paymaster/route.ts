@@ -43,8 +43,8 @@ export async function POST(req: Request) {
   if (!rl.ok) return NextResponse.json({ jsonrpc: "2.0", id, error: { code: -32005, message: `rate limited, retry in ${rl.retryAfterSec}s` } }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
 
   try {
-    const cfg = await quoteConfig();
-    const deps = quoteDeps(cfg);
+    const cfg = await quoteConfig(chainId);
+    const deps = quoteDeps(cfg, Number(chainId));
     const result = body.method === "pm_getPaymasterStubData"
       ? await stubQuote(op, entryPoint, chainId, cfg, deps)
       : await finalQuote(op, entryPoint, chainId, cfg, deps);
@@ -69,8 +69,8 @@ async function allowance(req: Request, id: unknown, params: unknown[], fail: (co
     if (!rl.ok) return NextResponse.json({ jsonrpc: "2.0", id, error: { code: -32005, message: `rate limited, retry in ${rl.retryAfterSec}s` } }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   }
   try {
-    const cfg = await quoteConfig();
-    return NextResponse.json({ jsonrpc: "2.0", id, result: await allowanceQuote(sender as `0x${string}`, entryPoint, chainId, cfg, quoteDeps(cfg)) });
+    const cfg = await quoteConfig(chainId);
+    return NextResponse.json({ jsonrpc: "2.0", id, result: await allowanceQuote(sender as `0x${string}`, entryPoint, chainId, cfg, quoteDeps(cfg, Number(chainId))) });
   } catch (e) {
     if (e instanceof PaymasterQuoteError) return fail(CODES[e.code], `pm_getPaymasterAllowance: ${e.message}`, e.code === "config" ? 503 : 400, e.data);
     return fail(-32000, TRADING_UNAVAILABLE, 500);

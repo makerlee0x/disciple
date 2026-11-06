@@ -1,5 +1,5 @@
 /**
- * Pure helpers for on-chain one-tap sessions (DiscipleSessionPolicy 1.4.2, wave #246). Shared by session.ts (browser),
+ * Pure helpers for on-chain one-tap sessions (DiscipleSessionPolicy 1.4.3). Shared by session.ts (browser),
  * WalletButton, and scripts/test-session-e2e.mts (node), so tests exercise the exact logic the app uses.
  */
 import { toFunctionSelector, type Address, type Hex } from "viem";
@@ -8,19 +8,12 @@ import type { Call } from "./core";
 /**
  * Expected DiscipleSessionPolicy.moduleId(); enableOneTap refuses a policy that reports anything else.
  * Config, so the redeploy swaps it with the address: NEXT_PUBLIC_SESSION_POLICY (address) +
- * NEXT_PUBLIC_SESSION_POLICY_VERSION (default 1.4.2 = wave #246 testnet policy, contracts/deployments/rh-testnet-46630.json
- * addons.DiscipleSessionPolicy; moduleId() "disciple.session-policy.1.4.2": USDG routing, prepaid USDG gas paymaster, USDG<->pair swaps).
+ * NEXT_PUBLIC_SESSION_POLICY_VERSION (default 1.4.3, bound to paymaster v5). 1.4.2 is immutable and binds v4.
+ * No deployed address is hardcoded: set NEXT_PUBLIC_SESSION_POLICY after v5 is deployed.
  */
-export const SESSION_POLICY_VERSION = process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.4.2";
-/**
- * Deployed DiscipleSessionPolicy per chain — source of truth: contracts/deployments/rh-testnet-46630.json
- * (addons.DiscipleSessionPolicy.address, wave #246 1.4.2, constructor referralRegistry 0xfe52…5aaf + paymaster 0x1E7B…).
- * NEXT_PUBLIC_SESSION_POLICY overrides. Prior 1.4.1 / 1.3.0 / 1.1.1 policies are superseded (sessions were installed
- * against older paymasters / routers). Must stay paired with SESSION_POLICY_VERSION's default.
- */
-export const DEFAULT_SESSION_POLICY: Record<number, Address> = {
-  46630: "0x61bb745881c2db24f6f61E35C7fF1de1dBFaC6b4",
-};
+export const SESSION_POLICY_VERSION = process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.4.3";
+/** Empty until DiscipleSessionPolicy 1.4.3 is deployed. NEXT_PUBLIC_SESSION_POLICY overrides. */
+export const DEFAULT_SESSION_POLICY: Record<number, Address> = {};
 export const sessionPolicyFor = (chainId: number, env = process.env.NEXT_PUBLIC_SESSION_POLICY): Address | "" =>
   (/^0x[0-9a-fA-F]{40}$/.test(env || "") ? (env as Address) : DEFAULT_SESSION_POLICY[chainId] ?? "");
 export const SESSION_POLICY_MODULE_ID = `disciple.session-policy.${SESSION_POLICY_VERSION}`;
@@ -65,13 +58,33 @@ export const TRY_ATTRIBUTE = toFunctionSelector("tryAttribute(address,address)")
  * Should this call list be signed by the session key? Only if every call is a policy-allowed selector with no ETH.
  * tryAttribute counts only with referral on AND to the registry. Anything else ⇒ owner signer (policy would reject).
  */
-export function sessionEligible(calls: Call[], o: { referral: boolean; registry?: Address; usdg?: Address; router?: Address }): boolean {
+const DEPOSIT = toFunctionSelector("deposit(address,uint256)").toLowerCase();
+const WITHDRAW = toFunctionSelector("withdraw()").toLowerCase();
+const RELEASE = toFunctionSelector("release(uint256)").toLowerCase();
+const UINT_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
+export function sessionEligible(calls: Call[], o: { referral: boolean; registry?: Address; usdg?: Address; router?: Address; paymaster?: Address; account?: Address }): boolean {
   return calls.length > 0 && calls.every((c) => {
     if (c.value) return false;
     const sel = c.data.slice(0, 10).toLowerCase();
-    // policy ≥ 1.3.0: USDG may only be approved to the router (exact amount, paired with buyWithUsdg) — a USDG
-    // approve to a curve / tramp manager would be rejected on-chain ⇒ owner signer instead
-    if (o.usdg && sel === APPROVE && c.to.toLowerCase() === o.usdg.toLowerCase() && `0x${c.data.slice(34, 74)}`.toLowerCase() !== o.router?.toLowerCase()) return false;
+    if (o.paymaster && c.to.toLowerCase() === o.paymaster.toLowerCase()) {
+      if (sel === WITHDRAW) return calls.length === 1;
+      if (sel === RELEASE && c.data.length >= 74) {
+        const amount = BigInt(`0x${c.data.slice(10, 74)}`);
+        return amount > BigInt(0) && amount !== UINT_MAX;
+      }
+      if (sel === DEPOSIT && c.data.length >= 138) {
+        const who = `0x${c.data.slice(34, 74)}`.toLowerCase();
+        const amount = BigInt(`0x${c.data.slice(74, 138)}`);
+        return !!o.account && who === o.account.toLowerCase() && amount > BigInt(0) && amount !== UINT_MAX;
+      }
+    }
+    // USDG approve: router (trade) or the paymaster for an exact credit top-up. Never uint256.max.
+    if (o.usdg && sel === APPROVE && c.to.toLowerCase() === o.usdg.toLowerCase()) {
+      const spender = `0x${c.data.slice(34, 74)}`.toLowerCase();
+      const amount = c.data.length >= 138 ? BigInt(`0x${c.data.slice(74, 138)}`) : BigInt(0);
+      if (o.paymaster && spender === o.paymaster.toLowerCase()) return amount > BigInt(0) && amount !== UINT_MAX;
+      if (spender !== o.router?.toLowerCase()) return false;
+    }
     // router-only selectors (USDG routes / swaps) are session-signable only when sent to the router the session was
     // installed with; the policy rejects them on any other target (a curve, a token)
     if (ROUTER_ONLY.has(sel) && o.router && c.to.toLowerCase() !== o.router.toLowerCase()) return false;

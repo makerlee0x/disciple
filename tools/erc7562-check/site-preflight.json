@@ -1,0 +1,30 @@
+{
+  "scope": "Pure client call-shaping preflight, not ERC-7562 trace",
+  "results": [
+    {
+      "name": "setup",
+      "before": {
+        "kind": "funding",
+        "amount": "2000000"
+      },
+      "after": {
+        "kind": "bad"
+      },
+      "beforeCount": 2,
+      "afterCount": 1,
+      "removedApprove": true
+    },
+    {
+      "name": "topup",
+      "before": {
+        "kind": "normal"
+      },
+      "after": {
+        "kind": "bad"
+      },
+      "beforeCount": 3,
+      "afterCount": 2,
+      "removedApprove": true
+    }
+  ]
+}

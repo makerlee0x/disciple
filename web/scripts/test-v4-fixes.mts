@@ -43,8 +43,8 @@ test("#1 sessionHasHeadroom: session key only while under cap; unknown caps ⇒ 
   assert.equal(sessionHasHeadroom(full, { [STRAT]: BigInt(500) * E18 }), false);
   assert.equal(sessionHasHeadroom(full, { [STRAT]: BigInt(400) * E18 }), true);
 });
-test("wave wiring: session policy defaults to wave #246 (1.4.2) on 46630", () => {
-  assert.equal(sessionPolicyFor(46630, ""), "0x61bb745881c2db24f6f61E35C7fF1de1dBFaC6b4");
+test("session policy 1.4.3 has no hardcoded address until it is deployed", () => {
+  assert.equal(sessionPolicyFor(46630, ""), "");
   assert.equal(sessionPolicyFor(1, ""), "");
   assert.equal(sessionPolicyFor(46630, "0x0000000000000000000000000000000000000001"), "0x0000000000000000000000000000000000000001");
 });
@@ -79,11 +79,13 @@ test("portfolio: 24h price = last fill at/before now−24h, else launch price; t
   assert.ok(Math.abs(p.totalUsd - 279.46) < 1e-9 && Math.abs(p.change24hUsd - 3) < 1e-9);
 });
 
-test("wave wiring: loginGate + paymaster defaults match live RH testnet 46630", async () => {
+test("loginGate stays the live testnet gate; paymaster v5 has no hardcoded address", async () => {
   const { DEPLOYMENTS } = await import("../lib/chains");
   const d = DEPLOYMENTS[46630];
   assert.equal(d.loginGate.toLowerCase(), "0xebdd6ad15a6b838ee15dc7d5871f09efb284317d");
-  assert.equal(d.paymaster.toLowerCase(), "0x1e7b06adb1d0a92b83af2dc3d70cb4694e606822");
+  assert.equal(d.paymaster.toLowerCase(), "0x0000000000000000000000000000000000000000");
+  assert.equal(DEPLOYMENTS[4663].usdg.toLowerCase(), "0x5fc5360d0400a0fd4f2af552add042d716f1d168");
+  assert.equal(d.usdg.toLowerCase(), "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d");
 });
 
 test("legacyGate: live gate matches itself; different gate is legacy", async () => {

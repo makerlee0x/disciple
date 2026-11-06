@@ -12,7 +12,7 @@ import { DEPLOYMENTS } from "../chains";
 export type GasOpKind = "trade" | "gradBuy";
 /** Mirrors lib/server/paymasterCore ALLOWANCE_FEE_MULT (server module; not imported into client code). */
 export const ALLOWANCE_FEE_MULT = BigInt(2);
-export const TRADE_GAS_LIMIT = Object.values(ALLOWANCE_GAS).reduce((a, b) => a + b, BigInt(0));   // 2,539,596
+export const TRADE_GAS_LIMIT = Object.values(ALLOWANCE_GAS).reduce((a, b) => a + b, BigInt(0));   // 2,620,000 (postOp 160_000)
 export const GRAD_GAS_LIMIT = GRAD_GAS_CAPS.total;                                                 // 6M
 export const gasLimitFor = (k: GasOpKind) => (k === "gradBuy" ? GRAD_GAS_LIMIT : TRADE_GAS_LIMIT);
 /** Config fallbacks (lib/config GAS) used only until the first live read. */

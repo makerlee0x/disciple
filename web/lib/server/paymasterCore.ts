@@ -9,11 +9,10 @@
  *  2. The client finalises gas/fees, then pm_getPaymasterData(op): the server re-derives every
  *     number from the op itself and signs only if the op is safe for the paymaster (AUDIT F-01):
  *       - paymaster + gas limits are ours, fees/gas within lib/aa/gasPolicy (the deposit fronts the gas);
- *       - sender has a standing USDG allowance or an exact native owner-validation approval for precharge;
- *       - first-call exact/max approve replenishes allowance and lets the session policy debit its signed gas cap;
- *       - signed maxTokenCost covers tokenCost(maxCost, rate) + debt and
- *         is at most MAX_SLACK above it; the op's gas units must fit maxGasPerOp;
- *       - the sender holds that much USDG; the rate is inside the contract's [minRate, maxRate].
+ *       - available gas credit covers tokenCost(maxCost, rate); a zero-credit sender may run one setup op;
+ *       - MAX approvals, unmatched approve/deposit, and carried debt are refused;
+ *       - the op's gas units must fit maxGasPerOp (or maxLaunchGasPerOp);
+ *       - the rate is inside the contract's [minRate, maxRate].
  *     The signed hash is the OP-BOUND quote hash (DisciplePaymaster.getOpHash: nonce, callData, gas, fees, window,
  *     rate, maxTokenCost), so the quote — often a larger launch / graduating-buy maxTokenCost — is single-use and these
  *     per-op checks are binding (AUDIT #141 L-2). The contract also re-checks every per-op rule on-chain.
@@ -28,14 +27,15 @@ import { privateKeyToAccount } from "viem/accounts";
 const KEY32 = /^0x[0-9a-fA-F]{64}$/;
 import { capsForOp, checkOpGas, clientFees, exceedsCaps, GAS_CAPS, isLaunchOp, RelayPolicyError, type GasCaps } from "../aa/gasPolicy";
 import type { UserOp } from "../aa/core";
-import { hasDeferredPrepayApproval } from "../aa/prepayBootstrap";
+import { SETUP_DEPOSIT } from "../aa/prepayBootstrap";
 import { ENTRYPOINT_V07 } from "../aa/constants";
 import {
-  ALLOWANCE_GAS, encodePaymasterData, entryPointMaxCost, tokenCost, firstCallApproveAmount, formatUsdg, MAX_QUOTE_WINDOW_SEC, PAYMASTER_DATA_LENGTH, PAYMASTER_GAS,
+  ALLOWANCE_GAS, classifyCreditCalldata, encodePaymasterData, entryPointMaxCost, tokenCost, formatUsdg, MAX_QUOTE_WINDOW_SEC, PAYMASTER_DATA_LENGTH, PAYMASTER_GAS,
   paymasterAllowanceHash, paymasterQuoteHash, paymasterLaunchQuoteHash, requiredMaxTokenCost, stubPaymasterData, type PaymasterQuote,
 } from "../aa/paymaster";
 
-export const PAYMASTER_CHAIN_ID = 46630; // RH testnet only
+export const PAYMASTER_CHAIN_ID = 46630;
+const PAYMASTER_CHAINS = new Set([4663, 46630]);
 export const DEFAULT_QUOTE_TTL_SEC = 180;
 /** Pre-issued allowance lifetime (PAYMASTER_ALLOWANCE_TTL_SEC); the client refreshes ALLOWANCE_REFRESH_AHEAD_SEC before. */
 export const DEFAULT_ALLOWANCE_TTL_SEC = 600;
@@ -67,11 +67,16 @@ export async function quoteCaps(op: UserOp, cfg: QuoteConfig, deps?: Pick<QuoteD
 }
 export type QuoteDeps = {
   now(): number; // unix seconds
-  /** What the sender's next op must cover besides its gas: legacy DisciplePaymaster.owedOf (zero in PREPAY_VERSION 4). */
+  /** Legacy owedOf. v5 is always zero; a nonzero value is refused. */
   debtOf(sender: Address): Promise<bigint>;
+  /** Available gas credit (creditOf - reservedOf), not the wallet's USDG balance. */
   balanceOf(sender: Address): Promise<bigint>;
-  /** IERC20.allowance(sender, paymaster) — required for F-01 precharge. */
+  /** Unused by v5 admission. Kept so existing dep objects still type-check. */
   allowanceOf(sender: Address): Promise<bigint>;
+  /** credit reserved by ops already in this bundle. Defaults to 0. */
+  reservedOf?(sender: Address): Promise<bigint>;
+  /** True after the one-time zero-credit setup has been admitted. Defaults to false. */
+  bootstrapUsed?(sender: Address): Promise<boolean>;
   bounds(): Promise<{ minRate: bigint; maxRate: bigint; maxGasPerOp: bigint; maxLaunchGasPerOp: bigint }>;
   baseFee(): Promise<bigint>;
   /** EIP-191 personal_sign of the raw 32-byte hash with PAYMASTER_SIGNER_KEY. */
@@ -88,7 +93,7 @@ const hex = (n: bigint | number) => `0x${BigInt(n).toString(16)}` as Hex;
 
 function checkTarget(entryPoint: string, chainId: string | number) {
   if (String(entryPoint).toLowerCase() !== ENTRYPOINT_V07.toLowerCase()) throw new PaymasterQuoteError("entrypoint", `unsupported entryPoint ${entryPoint} (v0.7 only)`);
-  if (Number(chainId) !== PAYMASTER_CHAIN_ID) throw new PaymasterQuoteError("chain", `unsupported chain ${Number(chainId)} (RH testnet ${PAYMASTER_CHAIN_ID} only)`);
+  if (!PAYMASTER_CHAINS.has(Number(chainId))) throw new PaymasterQuoteError("chain", `unsupported chain ${Number(chainId)}`);
 }
 
 function withPaymaster(op: UserOp, paymaster: Address): UserOp {
@@ -114,7 +119,8 @@ export async function stubQuote(op: UserOp, entryPoint: string, chainId: string 
     maxFeePerGas: o.maxFeePerGas || hex(clientFees(await deps.baseFee()).maxFeePerGas),
   };
   const debt = await deps.debtOf(op.sender);
-  const maxTokenCost = requiredMaxTokenCost(sized, cfg.rate, debt);
+  if (debt !== BigInt(0)) throw new PaymasterQuoteError("approve", "carried debt is not part of v5 credit");
+  const maxTokenCost = requiredMaxTokenCost(sized, cfg.rate);
   const now = deps.now();
   const q: PaymasterQuote = { validUntil: now + ttl(cfg), validAfter: now - VALID_AFTER_SKEW_SEC, rate: cfg.rate, maxTokenCost };
   return {
@@ -133,26 +139,30 @@ export async function finalQuote(op: UserOp, entryPoint: string, chainId: string
   try { checkOpGas(o, await deps.baseFee(), await quoteCaps(o, cfg, deps)); } catch (e) { if (e instanceof RelayPolicyError) throw new PaymasterQuoteError("gas", e.message); throw e; }
   const b = await rateInBounds(cfg, deps);
 
-  const amount = firstCallApproveAmount(o.callData, cfg.usdg, cfg.paymaster);
-  const [debt, bal, standing] = await Promise.all([deps.debtOf(o.sender), deps.balanceOf(o.sender), deps.allowanceOf(o.sender)]);
-  const required = requiredMaxTokenCost(o, cfg.rate, debt);
+  const [debt, credit, reserved, used] = await Promise.all([
+    deps.debtOf(o.sender), deps.balanceOf(o.sender), deps.reservedOf?.(o.sender) ?? Promise.resolve(BigInt(0)), deps.bootstrapUsed?.(o.sender) ?? Promise.resolve(false),
+  ]);
+  if (debt !== BigInt(0)) throw new PaymasterQuoteError("approve", "carried debt is not part of v5 credit");
+  const available = credit > reserved ? credit - reserved : BigInt(0);
+  const required = requiredMaxTokenCost(o, cfg.rate);
   const d = (x: bigint) => formatUsdg(x, cfg.usdgDecimals);
-  const data = { required: hex(required), rate: hex(cfg.rate), debt: hex(debt), allowance: hex(standing) };
-  if (amount === null) throw new PaymasterQuoteError("approve", `first call must be USDG approve(paymaster, ${required}) (exact gas allowance)`, data);
-  if (amount < required) throw new PaymasterQuoteError("approve", `USDG gas allowance ${d(amount)} below required ${d(required)} — re-quote`, data);
-  const slack = cfg.maxSlackBps ?? DEFAULT_MAX_SLACK_BPS;
-  if (amount !== (BigInt(1) << BigInt(256)) - BigInt(1) && amount > required + (required * slack) / BigInt(10_000)) throw new PaymasterQuoteError("approve", `USDG gas allowance ${d(amount)} too far above required ${d(required)}`, data);
-  const launch = isLaunchOp(o.callData || "", cfg.launchers ?? [], o.sender);
-  const gasCap = launch ? b.maxLaunchGasPerOp : b.maxGasPerOp;
+  const data = { required: hex(required), rate: hex(cfg.rate), debt: hex(debt), balance: hex(available) };
+  const shape = classifyCreditCalldata(o.callData || "0x", o.sender, cfg.usdg, cfg.paymaster);
+  if (shape.kind === "bad") throw new PaymasterQuoteError("approve", "credit call rejected", data);
+  const launch = shape.kind === "normal" && isLaunchOp(o.callData || "", cfg.launchers ?? [], o.sender);
+  const gasCap = launch ? b.maxLaunchGasPerOp : shape.kind === "funding" && available === BigInt(0) ? (b.maxGasPerOp > BigInt(3_200_000) ? BigInt(3_200_000) : b.maxGasPerOp) : b.maxGasPerOp;
   if (entryPointMaxCost(o) / BigInt(o.maxFeePerGas!) > gasCap) throw new PaymasterQuoteError("approve", "operation above paymaster gas-unit limit", data);
-  const maxTokenCost = amount === (BigInt(1) << BigInt(256)) - BigInt(1) ? required : amount;
-  // The in-batch approve replenishes allowance / counts session spend, but does NOT secure this operation.
-  if (standing < maxTokenCost && !hasDeferredPrepayApproval(o, cfg.usdg, cfg.paymaster)) throw new PaymasterQuoteError("approve", `standing USDG allowance ${d(standing)} below required ${d(maxTokenCost)} — owner validation approval required`, data);
-  if (bal < maxTokenCost) throw new PaymasterQuoteError("balance", `not enough USDG: need ${d(maxTokenCost)}, have ${d(bal)}`, { ...data, balance: hex(bal) });
+  if (shape.kind === "funding" && available === BigInt(0) && reserved === BigInt(0)) {
+    if (used) throw new PaymasterQuoteError("balance", `not enough USDG: need ${d(required)}, have 0`, data);
+    if (shape.amount < SETUP_DEPOSIT || shape.amount < required) throw new PaymasterQuoteError("approve", `setup deposit ${d(shape.amount)} below $2 or this op's max ${d(required)}`, data);
+  } else if (available < required || (shape.kind === "withdraw" && reserved !== BigInt(0))) {
+    throw new PaymasterQuoteError("balance", `not enough USDG: need ${d(required)}, have ${d(available)}`, data);
+  }
+  const maxTokenCost = required;
 
   const now = deps.now();
   const q: PaymasterQuote = { validUntil: now + ttl(cfg), validAfter: now - VALID_AFTER_SKEW_SEC, rate: cfg.rate, maxTokenCost };
-  const sig = await deps.sign((launch ? paymasterLaunchQuoteHash : paymasterQuoteHash)(o, q, PAYMASTER_CHAIN_ID, cfg.paymaster));
+  const sig = await deps.sign((launch ? paymasterLaunchQuoteHash : paymasterQuoteHash)(o, q, Number(chainId), cfg.paymaster));
   const paymasterData = encodePaymasterData(q, sig);
   if (size(paymasterData) !== PAYMASTER_DATA_LENGTH) throw new Error("paymasterData length mismatch");
   return { paymaster: cfg.paymaster, paymasterVerificationGasLimit: o.paymasterVerificationGasLimit!, paymasterPostOpGasLimit: o.paymasterPostOpGasLimit!, paymasterData };
@@ -171,23 +181,23 @@ export type AllowanceResult = PaymasterFields & {
 /**
  * pm_getPaymasterAllowance [sender, entryPoint, chainId] → signed per-sender allowance for the standard trade
  * envelope. Refuses (like the per-op flow) when the rate is out of bounds, the gas-unit envelope exceeds maxGasPerOp or the sender
- * can't hold it. Carried debt is added so the first op under the allowance repays it.
+ * can't hold it. Credit is the admission check; carried debt is refused.
  */
 export async function allowanceQuote(sender: Address, entryPoint: string, chainId: string | number, cfg: QuoteConfig, deps: QuoteDeps): Promise<AllowanceResult> {
   checkTarget(entryPoint, chainId);
   if (!/^0x[0-9a-fA-F]{40}$/.test(String(sender))) throw new PaymasterQuoteError("op", "sender must be an address");
   const b = await rateInBounds(cfg, deps);
   const maxFeePerGas = clientFees(await deps.baseFee()).maxFeePerGas * ALLOWANCE_FEE_MULT;
-  const [debt, bal, standing] = await Promise.all([deps.debtOf(sender), deps.balanceOf(sender), deps.allowanceOf(sender)]);
-  const maxTokenCost = tokenCost(entryPointMaxCost({ ...hexGas(), maxFeePerGas: hex(maxFeePerGas) }), cfg.rate) + debt;
+  const [debt, bal] = await Promise.all([deps.debtOf(sender), deps.balanceOf(sender)]);
+  if (debt !== BigInt(0)) throw new PaymasterQuoteError("approve", "carried debt is not part of v5 credit");
+  const maxTokenCost = tokenCost(entryPointMaxCost({ ...hexGas(), maxFeePerGas: hex(maxFeePerGas) }), cfg.rate);
   const d = (x: bigint) => formatUsdg(x, cfg.usdgDecimals);
   if (Object.values(ALLOWANCE_GAS).reduce((a, v) => a + v, BigInt(0)) > b.maxGasPerOp) throw new PaymasterQuoteError("approve", "trade envelope above paymaster gas-unit limit", { required: hex(maxTokenCost) });
   if (bal < maxTokenCost) throw new PaymasterQuoteError("balance", `not enough USDG: need ${d(maxTokenCost)}, have ${d(bal)}`, { required: hex(maxTokenCost), balance: hex(bal) });
-  if (standing < maxTokenCost) throw new PaymasterQuoteError("approve", `standing USDG allowance ${d(standing)} below required ${d(maxTokenCost)} — owner validation approval required`, { required: hex(maxTokenCost), allowance: hex(standing) });
   const now = deps.now();
   const life = Math.max(60, Math.min(cfg.allowanceTtlSec ?? DEFAULT_ALLOWANCE_TTL_SEC, MAX_QUOTE_WINDOW_SEC - VALID_AFTER_SKEW_SEC - 1));
   const q: PaymasterQuote = { validUntil: now + life, validAfter: now - VALID_AFTER_SKEW_SEC, rate: cfg.rate, maxTokenCost };
-  const sig = await deps.sign(paymasterAllowanceHash(sender, q, PAYMASTER_CHAIN_ID, cfg.paymaster));
+  const sig = await deps.sign(paymasterAllowanceHash(sender, q, Number(chainId), cfg.paymaster));
   const paymasterData = encodePaymasterData(q, sig);
   if (size(paymasterData) !== PAYMASTER_DATA_LENGTH) throw new Error("paymasterData length mismatch");
   return {

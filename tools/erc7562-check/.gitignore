@@ -1,0 +1,8 @@
+node_modules/
+bundler/
+compile/
+site/
+traces/
+artifacts/
+*.log
+versions.txt

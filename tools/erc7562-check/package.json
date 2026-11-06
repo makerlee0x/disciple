@@ -1,0 +1,1 @@
+{"private":true,"type":"module","dependencies":{"@account-kit/smart-contracts":"4.88.5","@aa-sdk/core":"4.88.5","viem":"2.57.7","ethers":"5.7.2","debug":"4.4.1","esbuild":"0.25.12","tsx":"4.23.15"}}

@@ -11,7 +11,7 @@
  *   gradBuy: tokenCost(GRAD_GAS_LIMIT × max(allowance maxFee, cached op maxFee), allowance rate) + debt, bounded by gas units at the current fee/rate.
  *   Never min(cached, derived): on a gas spike that under-reserves and the paymaster fails the op with AA33.
  * COLD: tokenCost(gasLimit(kind) × allowanceMaxFee(gas price), rate), bounded by the paymaster's gas-unit limit when known —
- *   gasLimit: trade 2.41M (STATIC_GAS 1.8M + 350k + 60k + paymaster 120k + 80k), gradBuy 6M (GRAD_GAS_CAPS.total);
+ *   gasLimit: trade ~2.62M (STATIC_GAS 1.8M + 350k + 60k + paymaster 250k + 160k), gradBuy 6M (GRAD_GAS_CAPS.total);
  *   allowanceMaxFee(gp) = clientFees(gp).maxFeePerGas × 2 = (2·gp + tip·1.1) × 1.5 × 2 (the server's allowance math);
  *   gas price: live eth_gasPrice (warmGasPrice, 30 s TTL), config 0.0207 gwei until then;
  *   rate: the last allowance's signed rate, else config GAS.ethUsd at the USDG decimals.
@@ -26,10 +26,10 @@ import { isSmartMode } from "@/lib/wallet";
 /* ---- FLOW lib/aa/gasReserve.ts (e693cb5c), verbatim math. ALLOWANCE_GAS / tokenCost / GRAD_GAS_CAPS.total are inlined
  *      because lib/aa/paymaster + the grad caps aren't in this stack yet (same values as FLOW's). ---- */
 export type GasOpKind = "trade" | "gradBuy";
-/** FLOW lib/aa/paymaster ALLOWANCE_GAS (STATIC_GAS + PAYMASTER_GAS 250k / 79,684). */
+/** FLOW lib/aa/paymaster ALLOWANCE_GAS (STATIC_GAS + PAYMASTER_GAS 250k / 160k). */
 const ALLOWANCE_GAS = {
   callGasLimit: BigInt(1_800_000), verificationGasLimit: BigInt(350_000), preVerificationGas: BigInt(60_000),
-  paymasterVerificationGasLimit: BigInt(250_000), paymasterPostOpGasLimit: BigInt(79_684),
+  paymasterVerificationGasLimit: BigInt(250_000), paymasterPostOpGasLimit: BigInt(160_000),
 } as const;
 /** FLOW lib/aa/paymaster tokenCost: DisciplePaymaster's wei → USDG raw, rounded up. */
 export function tokenCost(weiAmount: bigint, rate: bigint): bigint {
@@ -38,7 +38,7 @@ export function tokenCost(weiAmount: bigint, rate: bigint): bigint {
 }
 /** Mirrors lib/server/paymasterCore ALLOWANCE_FEE_MULT (server module; not imported into client code). */
 export const ALLOWANCE_FEE_MULT = BigInt(2);
-export const TRADE_GAS_LIMIT = Object.values(ALLOWANCE_GAS).reduce((a, b) => a + b, BigInt(0));   // 2,539,552
+export const TRADE_GAS_LIMIT = Object.values(ALLOWANCE_GAS).reduce((a, b) => a + b, BigInt(0));   // 2,620,000
 export const GRAD_GAS_LIMIT = BigInt(6_000_000);                                                    // GRAD_GAS_CAPS.total
 export const gasLimitFor = (k: GasOpKind) => (k === "gradBuy" ? GRAD_GAS_LIMIT : TRADE_GAS_LIMIT);
 /** Config fallbacks (lib/config GAS) used only until the first live read. */

@@ -44,7 +44,7 @@ test("expiry label: partial hours, minutes, expired", () => {
 });
 
 import { SESSION_POLICY_MODULE_ID, cachedSessionUsable } from "../lib/aa/oneTap";
-test("policy version: defaults to wave 1.4.2", () => assert.equal(SESSION_POLICY_MODULE_ID, `disciple.session-policy.${process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.4.2"}`));
+test("policy version: defaults to 1.4.3", () => assert.equal(SESSION_POLICY_MODULE_ID, `disciple.session-policy.${process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.4.3"}`));
 test("cached session on an old policy (1.1.0) or without a policy is treated as OFF ⇒ reinstall", () => {
   const NEW = "0x0399d58C802CfEfE0A559Fe9bBC147Ad92212bE2" as const, OLD = "0x476a7ed0775f6c7720c9157e4dade639424218cc" as const;
   const now = 1_800_000_000_000;
@@ -91,7 +91,7 @@ test("router-only selectors are session-eligible only on the session's router", 
   const R = "0x688160633b22012717661545df6299d3d3174ad2" as const, X = "0x00000000000000000000000000000000000000aa" as const;
   const swap = encodeFunctionData({ abi: discipleRouterAbi, functionName: "swapUsdgToQuote", args: [X, BigInt(1), BigInt(1), X, BigInt(1)] });
   const launch = encodeFunctionData({ abi: discipleRouterAbi, functionName: "launchWithUsdg", args: [{ name: "a", ticker: "A", imageURI: "", description: "", socialsURI: "", quote: X, creatorTaxBps: BigInt(0), creatorBuyQuoteIn: BigInt(0), creatorBuyMinTokensOut: BigInt(0), deadline: BigInt(0) }, 0, BigInt(0), BigInt(0)] });
-  const v = process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.4.2";
+  const v = process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.4.3";
   if (policyHasUsdgSwaps(v)) assert.equal(sessionEligible([{ to: R, data: swap }], { referral: false, router: R }), true);
   assert.equal(sessionEligible([{ to: X, data: swap }], { referral: false, router: R }), false);
   assert.equal(sessionEligible([{ to: R, data: launch }], { referral: false, router: R }), false);
