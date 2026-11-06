@@ -5,6 +5,7 @@
  */
 import type { Address } from "viem";
 import { NextResponse } from "next/server";
+import { diagnosticText } from "@/lib/aa/diagnostics";
 import { kv } from "@/lib/server/kv";
 import { BUNDLER_LIMITS, clientIp, hitLimit, sendLimiter, type LimitResult, type SendLimiter } from "@/lib/server/limits";
 import { checkUserPaid } from "@/lib/aa/gasPolicy";
@@ -79,10 +80,20 @@ export async function POST(req: Request) {
     if (full) return limitedResponse(body.id, body.method, full.retryAfterSec);
     const r = await fetch(`https://robinhood-testnet.g.alchemy.com/v2/${key}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
     const text = await r.text();
+    if (SEND.has(body.method)) {
+      // Only public outcome fields: no raw op, signatures, paymasterData, key, or upstream URL.
+      try {
+        const answer = JSON.parse(text) as { result?: string; error?: { code?: number; message?: string } };
+        console.info("[disciple] bundler send result", { sender: senderOf(body.params || []), status: r.status,
+          userOpHash: /^0x[0-9a-fA-F]{64}$/.test(answer.result || "") ? answer.result : undefined,
+          rpcCode: answer.error?.code, message: diagnosticText(answer.error?.message || "") });
+      } catch { console.info("[disciple] bundler send result", { status: r.status, unreadable: true }); }
+    }
     // Authentication/upstream failures are returned as-is. Never sign, fund, or relay as a fallback.
     if (sl && r.ok && /"result"/.test(text)) await sl.beforeSend().catch(() => undefined);
     return new NextResponse(text, { status: r.status, headers: { "content-type": "application/json" } });
-  } catch {
+  } catch (e) {
+    console.warn("[disciple] bundler proxy error", { method: body.method, sender: senderOf(body.params || []), message: diagnosticText((e as Error)?.message ?? e) });
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32003, message: "external bundler unavailable; protocol relay disabled" } }, { status: 502 });
   }
 }

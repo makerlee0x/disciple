@@ -1,3 +1,4 @@
+import { scanEventHistory } from "./eventHistory";
 /**
  * Reads behind the combined Rewards section (profile). Every number is live: contract views for what is claimable
  * now, FeeRouter / BondingCurve / AnonLauncher logs for what was earned and claimed. No sample data here (the demo
@@ -79,8 +80,8 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
     caps.referrerFees ? referralBalances(pc, me).catch(warn("referral balances")) : null,
     anyCreator ? creatorDashboard(pc, me, caps, 1, stealth).catch(warn("creator rockets")) : null,
     caps.crew ? crewPositions(pc, me).catch(warn("crew positions")) : null,
-    pc.getContractEvents({ address: d.feeRouter, abi: feeRouterAbi, eventName: "TradeFeeRouted", fromBlock: d.fromBlock, toBlock: "latest" }).catch(warn("fee history")),
-    caps.referrerFees ? pc.getContractEvents({ address: d.feeRouter, abi: feeRouterAbi, eventName: "ReferrerFeesClaimed", args: { referrer: me }, fromBlock: d.fromBlock, toBlock: "latest" }).catch(warn("referral claims")) : null,
+    scanEventHistory(pc, (fromBlock, toBlock) => pc.getContractEvents({ address: d.feeRouter, abi: feeRouterAbi, eventName: "TradeFeeRouted", fromBlock, toBlock }), d.fromBlock).catch(warn("fee history")),
+    caps.referrerFees ? scanEventHistory(pc, (fromBlock, toBlock) => pc.getContractEvents({ address: d.feeRouter, abi: feeRouterAbi, eventName: "ReferrerFeesClaimed", args: { referrer: me }, fromBlock, toBlock }), d.fromBlock).catch(warn("referral claims")) : null,
     caps.referrerFees ? referralPaused(pc) : false,
   ]);
   const rockets = creator ?? [];
@@ -90,7 +91,7 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
   const crewCurves = (await Promise.all(crewRows.map((r) => curveOf(pc, r.token).then((c) => ({ token: r.token, curve: c, quote: r.quote })).catch(() => null))))
     .filter((x): x is NonNullable<typeof x> => !!x);
   const crewClaims = crewCurves.length
-    ? ((await pc.getContractEvents({ address: crewCurves.map((c) => c.curve), abi: bondingCurveAbi, eventName: "HolderRewardsClaimed", args: { holder: me }, fromBlock: d.fromBlock, toBlock: "latest" }).catch(warn("crew claims"))) ?? [])
+    ? ((await scanEventHistory(pc, (fromBlock, toBlock) => pc.getContractEvents({ address: crewCurves.map((c) => c.curve), abi: bondingCurveAbi, eventName: "HolderRewardsClaimed", args: { holder: me }, fromBlock, toBlock }), d.fromBlock).catch(warn("crew claims"))) ?? [])
     : [];
 
   // earnings from fee routes

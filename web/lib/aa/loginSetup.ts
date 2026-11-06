@@ -1,3 +1,4 @@
+import { diagnosticText, errorDiagnostic } from "./diagnostics";
 /**
  * One-tap setup at sign-in (SITE #140, lee's decision 3). Pure coordinator: no viem, no DOM — session.ts wires the
  * real reads / sends in, scripts/test-login-setup.mts drives it with fakes.
@@ -83,12 +84,12 @@ export type LoginSetupDeps = {
   onChange?(): void;
 };
 
-type Acct = { inflight?: Promise<SetupOutcome>; fails: number; retryAt: number; failedAt: number; okUntil: number; lastError: string };
+type Acct = { inflight?: Promise<SetupOutcome>; fails: number; retryAt: number; failedAt: number; okUntil: number; lastError: string; lastDetail: string };
 
 export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; leaseMs?: number } = {}) {
   const cooldownMs = o.cooldownMs ?? 15_000, leaseMs = o.leaseMs ?? 60_000;
   const acc = new Map<string, Acct>();
-  const get = (a: string) => { const k = a.toLowerCase(); let s = acc.get(k); if (!s) { s = { fails: 0, retryAt: 0, failedAt: 0, okUntil: 0, lastError: "" }; acc.set(k, s); } return s; };
+  const get = (a: string) => { const k = a.toLowerCase(); let s = acc.get(k); if (!s) { s = { fails: 0, retryAt: 0, failedAt: 0, okUntil: 0, lastError: "", lastDetail: "" }; acc.set(k, s); } return s; };
   let retryTimer = false;
   const later = (a: string, ms: number) => {
     if (!d.schedule || retryTimer) return;
@@ -108,7 +109,7 @@ export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; le
     try {
       if (!deployed) await d.prepare?.(a).catch(() => undefined);
       await d.install(a, { deploy: !deployed, why, health });
-      s.fails = 0; s.retryAt = 0; s.lastError = ""; s.okUntil = d.now() + cooldownMs;
+      s.fails = 0; s.retryAt = 0; s.lastError = ""; s.lastDetail = ""; s.okUntil = d.now() + cooldownMs;
       return deployed ? "renewed" : "deployed+installed";
     } finally { d.lease?.release(a); }
   }
@@ -129,9 +130,10 @@ export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; le
       if (now < (opt.urgent ? Math.min(s.retryAt, s.failedAt + backoffMs(1)) : s.retryAt)) return Promise.resolve("backoff");
       const p = run(account, why, s).catch((e) => {
         s.fails++; s.failedAt = d.now(); s.retryAt = s.failedAt + backoffMs(s.fails);
-        const msg = String((e as Error)?.message ?? e).split("\n")[0].slice(0, 160);
-        if (!(e as { soft?: boolean })?.soft) s.lastError = msg;   // soft = couldn't read the chain: not shown anywhere
-        d.warn("[disciple] one-tap setup at sign-in failed", { why, attempt: s.fails, retryInMs: backoffMs(s.fails), error: msg });
+        const info = errorDiagnostic(e), msg = String(info.detail || info.message);
+        s.lastDetail = msg;
+        if (!(e as { soft?: boolean })?.soft) s.lastError = info.message.split("\n")[0].slice(0, 160);   // soft = couldn't read the chain: not shown anywhere
+        d.warn(`[disciple] one-tap setup at sign-in failed: ${msg}`, { why, attempt: s.fails, retryInMs: backoffMs(s.fails), error: msg, ...info });
         later(account, backoffMs(s.fails));
         return "failed" as SetupOutcome;
       }).finally(() => { s.inflight = undefined; try { d.onChange?.(); } catch { /* */ } });
@@ -139,7 +141,7 @@ export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; le
       try { d.onChange?.(); } catch { /* */ }
       return p;
     } catch (e) {
-      try { d.warn("[disciple] one-tap setup at sign-in failed", { why, error: String((e as Error)?.message ?? e).slice(0, 160) }); } catch { /* */ }
+      try { d.warn(`[disciple] one-tap setup at sign-in failed: ${diagnosticText((e as Error)?.message ?? e)}`, { why, ...errorDiagnostic(e) }); } catch { /* */ }
       return Promise.resolve("failed");
     }
   }
@@ -148,6 +150,8 @@ export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; le
     busy: (account?: string | null) => !!account && !!acc.get(account.toLowerCase())?.inflight,
     anyBusy: () => [...acc.values()].some((s) => !!s.inflight),
     lastError: (account?: string | null) => (account ? acc.get(account.toLowerCase())?.lastError ?? "" : ""),
+    /** Full safe technical reason is console-only; lastError remains the existing player-facing copy. */
+    lastDetail: (account?: string | null) => (account ? acc.get(account.toLowerCase())?.lastDetail ?? "" : ""),
     /** Forget backoff / cool-down (e.g. the player explicitly asked for one-tap again, or logout). */
     reset: (account?: string | null) => { if (account) acc.delete(account.toLowerCase()); else acc.clear(); },
   };
