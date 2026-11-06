@@ -178,12 +178,14 @@ export const cachedGasEstimator: ClientMiddlewareFn = async (struct, args) => {
   // Passing it through defaultGasEstimator discards the bundler's measured paymaster verification,
   // which the deployed-owner headroom clamp needs. Estimate without that override, keep the measurement,
   // then put the stamped limit back so the submitted op still matches the quote.
-  const overrides = { ...(args.overrides as object) } as Record<string, unknown>;
+  const overrides = { ...args.overrides } as NonNullable<typeof args.overrides> & {
+    paymasterVerificationGasLimit?: bigint | Hex;
+    estimateBounds?: GasLimits;
+  };
   const stampedPm = overrides.paymasterVerificationGasLimit;
   delete overrides.paymasterVerificationGasLimit;
   delete overrides.estimateBounds;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const estimated = await defaultGasEstimator((args as any).client)(struct, { ...args, overrides });
+  const estimated = await defaultGasEstimator(args.client)(struct, { ...args, overrides });
   if (stampedPm != null) {
     const measured = (estimated as { paymasterVerificationGasLimit?: bigint | Hex }).paymasterVerificationGasLimit;
     (estimated as { estimatedPaymasterVerificationGasLimit?: bigint | Hex }).estimatedPaymasterVerificationGasLimit = measured;
