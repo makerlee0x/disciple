@@ -18,7 +18,7 @@ contract DeployPaymasterV5 is Script {
     // Same measured gas-unit defaults as the v4 deploy (2x worst real EntryPoint runs; never a fixed USDG amount).
     uint256 public constant DEFAULT_MAX_GAS_PER_OP = 7_068_712;
     uint256 public constant DEFAULT_MAX_LAUNCH_GAS_PER_OP = 21_840_770;
-    uint256 public constant DEFAULT_POST_OP_GAS = 79_684;
+    uint256 public constant DEFAULT_POST_OP_GAS = 150_000; // must match web readiness guard (>= 150k)
 
     function run() external returns (DisciplePaymasterV5 pm) {
         require(block.chainid == 46630 || block.chainid == 4663, "Robinhood Chain only");
