@@ -23,16 +23,18 @@ import { robinhoodTestnet, DEPLOYMENTS } from "../chains";
 import { disciplePaymasterAbi } from "../aa/paymaster";
 import { launchTargets } from "../aa/launchTargets";
 import { chainGradReads, isGradBuyOp } from "./gradBuy";
-import { assertSignerMatches, PAYMASTER_CHAIN_ID, PaymasterQuoteError, paymasterSignerKey, rateFromEnv, type QuoteConfig, type QuoteDeps } from "./paymasterCore";
+import { assertSignerMatches, unmarkedRate, PAYMASTER_CHAIN_ID, PaymasterQuoteError, paymasterSignerKey, rateFromEnv, type QuoteConfig, type QuoteDeps } from "./paymasterCore";
 
-const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)", "function decimals() view returns (uint8)"]);
+import { assertPrepaidReady } from "./prepaidPaymaster";
+
+const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)", "function allowance(address,address) view returns (uint256)", "function decimals() view returns (uint8)"]);
 const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { fetchOptions: { keepalive: true }, timeout: 3000, retryCount: 1 })   /* job 9: bounded pre-send (viem default 10 s × 3 retries) */ });
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
 const ZERO = "0x0000000000000000000000000000000000000000";
 
 let signer: PrivateKeyAccount | undefined;
 let decimals: { usdg: Address; d: number } | undefined;
-let boundsCache: { at: number; v: { minRate: bigint; maxRate: bigint; maxCostCap: bigint } } | undefined;
+let boundsCache: { at: number; v: { minRate: bigint; maxRate: bigint; maxGasPerOp: bigint; maxLaunchGasPerOp: bigint } } | undefined;
 let baseCache: { at: number; fee: bigint } | undefined;
 
 function signerAccount(): PrivateKeyAccount {
@@ -62,6 +64,7 @@ export function paymasterAddress(): Address {
 export async function quoteConfig(): Promise<QuoteConfig> {
   const paymaster = paymasterAddress();
   signerAccount(); // fail closed before any RPC
+  try { await assertPrepaidReady(paymaster); } catch { throw new PaymasterQuoteError("config", "hardened prepaid USDG paymaster unavailable"); }
   await checkSignerOnChain(paymaster);
   const usdg = DEPLOYMENTS[PAYMASTER_CHAIN_ID].usdg;
   if (!decimals || decimals.usdg !== usdg) decimals = { usdg, d: Number(await pc.readContract({ address: usdg, abi: erc20, functionName: "decimals" })) };
@@ -69,7 +72,7 @@ export async function quoteConfig(): Promise<QuoteConfig> {
   const slack = process.env.PAYMASTER_MAX_SLACK_BPS;
   const allowTtl = Number(process.env.PAYMASTER_ALLOWANCE_TTL_SEC || "");
   return {
-    paymaster, usdg, usdgDecimals: decimals.d, rate: rateFromEnv({ PAYMASTER_RATE: process.env.PAYMASTER_RATE, PAYMASTER_USD_PER_ETH: process.env.PAYMASTER_USD_PER_ETH }, decimals.d),
+    paymaster, usdg, usdgDecimals: decimals.d, rate: unmarkedRate(rateFromEnv({ PAYMASTER_RATE: process.env.PAYMASTER_RATE, PAYMASTER_USD_PER_ETH: process.env.PAYMASTER_USD_PER_ETH }, decimals.d)),
     ttlSec: Number.isFinite(ttl) && ttl > 0 ? ttl : undefined,
     maxSlackBps: slack && /^\d+$/.test(slack) ? BigInt(slack) : undefined,
     allowanceTtlSec: Number.isFinite(allowTtl) && allowTtl > 0 ? allowTtl : undefined,
@@ -82,10 +85,11 @@ export function quoteDeps(cfg: QuoteConfig): QuoteDeps {
     now: () => Math.floor(Date.now() / 1000),
     debtOf: (s) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: "owedOf", args: [s] }),
     balanceOf: (s) => pc.readContract({ address: cfg.usdg, abi: erc20, functionName: "balanceOf", args: [s] }),
+    allowanceOf: (s) => pc.readContract({ address: cfg.usdg, abi: erc20, functionName: "allowance", args: [s, cfg.paymaster] }),
     async bounds() {
       if (boundsCache && Date.now() - boundsCache.at < 60_000) return boundsCache.v;
-      const [minRate, maxRate, maxCostCap] = await Promise.all((["minRate", "maxRate", "maxCostCap"] as const).map((f) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: f })));
-      boundsCache = { at: Date.now(), v: { minRate, maxRate, maxCostCap } };
+      const [minRate, maxRate, maxGasPerOp, maxLaunchGasPerOp] = await Promise.all((["minRate", "maxRate", "maxGasPerOp", "maxLaunchGasPerOp"] as const).map((f) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: f })));
+      boundsCache = { at: Date.now(), v: { minRate, maxRate, maxGasPerOp, maxLaunchGasPerOp } };
       return boundsCache.v;
     },
     async baseFee() {

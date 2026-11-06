@@ -11,6 +11,7 @@ evm_version = "cancun"
 # HookMiner salt search (5 hook flags incl. BEFORE_INITIALIZE) can exceed the default 1B test gas limit
 gas_limit = "18446744073709551615"
 ffi = false
+fs_permissions = [{ access = "read", path = "./test/fixtures/mav2-rht.json" }]
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "forge-std/=lib/forge-std/src/",

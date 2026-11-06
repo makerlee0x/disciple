@@ -30,6 +30,7 @@ function fakeAccount(opts: { deployed: boolean }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const a = new Mav2Account({ chain: chain as any, pc: pc as any, bundlerUrl: "http://bundler.test/api/bundler" }, { address: SENDER } as any);
   a.deployed = opts.deployed;
+  (a as any).findOp = async (h: Hex) => ({ userOpHash: h, txHash: ("0x" + "44".repeat(32)) as Hex, success: true, logs: [] });
   const datas = (uo: { data: Hex } | { data: Hex }[]) => (Array.isArray(uo) ? uo : [uo]).map((x) => x.data);
   const client = {
     account: { address: SENDER },
@@ -67,11 +68,11 @@ test("standard path without rebuild: retries the same calls (today's behaviour),
 const CONF = { kind: "confirmed", userOpHash: "0x" + "33".repeat(32), txHash: "0x" + "44".repeat(32), success: true, logs: [], receipt: { transactionHash: "0x" + "44".repeat(32), blockHash: "0x", blockNumber: "0x1", status: "0x1", gasUsed: "0x1", logs: [] }, via: "sync", t: {} };
 function stubRelay(first: { code: number; message: string; data?: string }) {
   const orig = globalThis.fetch; let n = 0;
-  globalThis.fetch = (async () => (n++ === 0 ? Response.json({ jsonrpc: "2.0", id: 1, error: first }) : Response.json({ jsonrpc: "2.0", id: 1, result: CONF }))) as typeof fetch;
+  globalThis.fetch = (async () => (n++ === 0 ? Response.json({ jsonrpc: "2.0", id: 1, error: first }) : Response.json({ jsonrpc: "2.0", id: 1, result: CONF.userOpHash }))) as typeof fetch;
   return { restore: () => { globalThis.fetch = orig; }, posts: () => n };
 }
 
-test("fast path (sync relay): TRANSIENT_SIM pre-flight ⇒ rebuild + fresh nonce key; fee floor ⇒ same calls, no rebuild", async () => {
+test("warm self-paid standard path: TRANSIENT_SIM pre-flight ⇒ rebuild + fresh nonce key; fee floor ⇒ same calls, no rebuild", async () => {
   await FEES.get(async () => ({ maxFeePerGas: BigInt(2), maxPriorityFeePerGas: BigInt(1) }));
   {
     const { a, sent } = fakeAccount({ deployed: true });
@@ -155,12 +156,12 @@ test("bundlerSendPerSender: default unchanged (60/60 s, 2 free retries); env ove
 test("SITE shape sendCalls(calls, { rebuild }) + the retry carries the SAME pressId to the relay", async () => {
   await FEES.get(async () => ({ maxFeePerGas: BigInt(2), maxPriorityFeePerGas: BigInt(1) }));
   const { a, sent } = fakeAccount({ deployed: true });
-  const orig = globalThis.fetch, bodies: { params: unknown[] }[] = [];
-  globalThis.fetch = (async (_u: unknown, init: { body: string }) => { bodies.push(JSON.parse(init.body)); return bodies.length === 1 ? Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32500, message: "AA23 reverted" } }) : Response.json({ jsonrpc: "2.0", id: 1, result: CONF }); }) as unknown as typeof fetch;
+  const orig = globalThis.fetch, bodies: { params: unknown[]; pressId?: string }[] = [];
+  globalThis.fetch = (async (_u: unknown, init: { body: string }) => { bodies.push({ ...JSON.parse(init.body), pressId: (init as any).headers?.["x-disciple-press-id"] }); return bodies.length === 1 ? Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32500, message: "AA23 reverted" } }) : Response.json({ jsonrpc: "2.0", id: 1, result: CONF.userOpHash }); }) as unknown as typeof fetch;
   try { await a.sendCalls(CALLS, { rebuild: async () => [approve, buy(9)] }); } finally { globalThis.fetch = orig; }
   assert.deepEqual(sent[1].calls, [approve.data, buy(9).data]);
-  const ids = bodies.map((b) => (b.params[2] as { pressId: string }).pressId);
-  assert.equal(ids.length, 2); assert.match(ids[0], /^[0-9a-f]{24}$/); assert.equal(ids[0], ids[1]);
+  const ids = bodies.map((b) => b.pressId);
+  assert.equal(ids.length, 2); assert.match(ids[0]!, /^[0-9a-f]{24}$/); assert.equal(ids[0], ids[1]);
 });
 
 // ---- AUDIT L2 (client): an unclear relay error ⇒ lookup by txHash / userOpHash, never a resend ----
@@ -245,11 +246,11 @@ test("GAME pressId: caller id reused across the TRANSIENT_SIM retry; on relay me
   await FEES.get(async () => ({ maxFeePerGas: BigInt(2), maxPriorityFeePerGas: BigInt(1) }));
   const { a } = fakeAccount({ deployed: true });
   const cap = captureOps(), orig = globalThis.fetch, bodies: { params: unknown[] }[] = [];
-  globalThis.fetch = (async (_u: unknown, init: { body: string }) => { bodies.push(JSON.parse(init.body)); return bodies.length === 1 ? Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32500, message: "AA23 reverted" } }) : Response.json({ jsonrpc: "2.0", id: 1, result: CONF }); }) as unknown as typeof fetch;
+  globalThis.fetch = (async (_u: unknown, init: { body: string }) => { bodies.push({ ...JSON.parse(init.body), pressId: (init as any).headers?.["x-disciple-press-id"] }); return bodies.length === 1 ? Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32500, message: "AA23 reverted" } }) : Response.json({ jsonrpc: "2.0", id: 1, result: CONF.userOpHash }); }) as unknown as typeof fetch;
   let r;
   try { r = await a.sendCalls(CALLS, { rebuild: async () => [approve, buy(9)], pressId: "game-res-1" }); } finally { globalThis.fetch = orig; cap.restore(); }
   assert.equal(r.pressId, "game-res-1");
-  assert.deepEqual(bodies.map((b) => (b.params[2] as { pressId: string }).pressId), ["game-res-1", "game-res-1"]);
+  assert.deepEqual(bodies.map((b) => b.pressId), ["game-res-1", "game-res-1"]);
   // "sent" (SITE optimistic fill: the signed op left for the relay) fires per send attempt, with the press id
   assert.ok(cap.evs.filter((e) => e.phase === "sent").every((e) => e.pressId === cap.evs[0].pressId));
   assert.deepEqual(cap.evs.map((e) => e.phase).filter((p) => p !== "sent"), ["submitted", "confirmed"]);
@@ -278,7 +279,7 @@ test("GAME pressId: failure after a retry ⇒ ONE terminal 'error' event + AAErr
 });
 test("GAME pressId: generated when absent (24 hex) and still echoed", async () => {
   await FEES.get(async () => ({ maxFeePerGas: BigInt(2), maxPriorityFeePerGas: BigInt(1) }));
-  const { a } = fakeAccount({ deployed: true }), cap = captureOps(), s = stubRelayOnce({ result: CONF });
+  const { a } = fakeAccount({ deployed: true }), cap = captureOps(), s = stubRelayOnce({ result: CONF.userOpHash });
   let r; try { r = await a.sendCalls(CALLS, "owner"); } finally { s.restore(); cap.restore(); }
   assert.match(r.pressId!, /^[0-9a-f]{24}$/); assert.ok(cap.evs.length >= 1 && cap.evs.every((e) => e.pressId === r.pressId));
 });

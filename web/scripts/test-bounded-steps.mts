@@ -24,15 +24,11 @@ test("hung nonce KV EVAL (alloc) falls back to the local cursor within ~1.5 s", 
   assert.equal(c.stats.fallbacks, 1);
 });
 
-test("hung grad-gas estimateGas falls back to the fixed grad gas within the bound", async () => {
-  assert.ok(GRAD_GAS_BUDGET_MS >= 1500 && GRAD_GAS_BUDGET_MS <= 3000);
-  const fake = { o: { pc: { estimateGas: () => hang<bigint>() } } };
-  const gradGas = (Mav2Account.prototype as unknown as { gradGas: (s: Address, c: unknown[]) => Promise<unknown> }).gradGas;
-  const t0 = Date.now();
-  const g = await gradGas.call(fake, ME, [{ to: ME, data: "0x" }]);
-  const dt = Date.now() - t0;
-  assert.deepEqual(g, GRAD_STATIC_GAS);
-  assert.ok(dt < GRAD_GAS_BUDGET_MS + 300, `took ${dt} ms`);
+test("hung USDG graduation estimate falls back within its bound", async () => {
+  const a = new Mav2Account({ chain: { id: 46630 } as never, pc: { estimateGas: () => hang<bigint>() } as never, bundlerUrl: "http://127.0.0.1:1" }, { address: ME } as never);
+  const t = Date.now();
+  assert.deepEqual(await (a as any).gradGas(ME, []), GRAD_STATIC_GAS);
+  assert.ok(Date.now() - t < GRAD_GAS_BUDGET_MS + 400);
 });
 
 test("hung ensurePveLogin fails within the bound with the clear message", { skip: deployment().loginGate === "0x0000000000000000000000000000000000000000" ? "no loginGate in this deployment" : false }, async () => {

@@ -4,10 +4,11 @@
  *   pm_getPaymasterData     [userOp, entryPoint, chainId, context] → signed paymasterData
  *   pm_getPaymasterAllowance [sender, entryPoint, chainId] → signed per-sender allowance (reused by every op of the
  *                           sender until validUntil; the client caches it ⇒ 0 pm_* calls per warm trade)
- * Gas is paid out of the user's own USDG (postOp transferFrom at the signed rate); nothing is sponsored. Quote rules:
+ * Gas is paid out of the user's own USDG (validation precharge at the unmarked rate; postOp refunds unused collateral); nothing is sponsored. Quote rules:
  * lib/server/paymasterCore. Signer key: PAYMASTER_SIGNER_KEY (server env only).
  */
 import { NextResponse } from "next/server";
+import { TRADING_UNAVAILABLE } from "@/lib/aa/gasPolicy";
 import { kv } from "@/lib/server/kv";
 import { BUNDLER_LIMITS, clientIp, hitLimit, paymasterAllowanceLimits } from "@/lib/server/limits";
 import { allowanceQuote, finalQuote, PaymasterQuoteError, stubQuote } from "@/lib/server/paymasterCore";
@@ -26,7 +27,8 @@ export async function POST(req: Request) {
   try { body = await req.json(); } catch { return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }, { status: 400 }); }
   const id = (body as { id?: unknown })?.id ?? null;
   const fail = (code: number, message: string, status = 400, data?: unknown) => NextResponse.json({ jsonrpc: "2.0", id, error: { code, message, data } }, { status });
-  if (Array.isArray(body) || (body.method !== "pm_getPaymasterStubData" && body.method !== "pm_getPaymasterData" && body.method !== "pm_getPaymasterAllowance")) return fail(-32601, "method not allowed");
+  if (!body || typeof body !== "object" || Array.isArray(body) || (body.method !== "pm_getPaymasterStubData" && body.method !== "pm_getPaymasterData" && body.method !== "pm_getPaymasterAllowance")) return fail(-32601, "method not allowed");
+  if (body.params !== undefined && !Array.isArray(body.params)) return fail(-32602, "params must be an array");
   // invite-only beta (lib/server/invites), route entry only — the quote / signing code is untouched; off by default ⇒ no-op
   const p0 = (body.params || [])[0] as UserOp | string | undefined;
   const gateSender = String((typeof p0 === "string" ? p0 : p0?.sender) ?? "");
@@ -49,8 +51,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ jsonrpc: "2.0", id, result });
   } catch (e) {
     if (e instanceof PaymasterQuoteError) return fail(CODES[e.code], `${body.method}: ${e.message}`, e.code === "config" ? 503 : 400, e.data);
-    const m = (e as { shortMessage?: string }).shortMessage || (e as Error).message || String(e);
-    return fail(-32000, `${body.method}: ${m.split("\n")[0].slice(0, 200)}`, 500);
+    // Unexpected RPC/signer errors can contain credential-bearing URLs. Never echo them.
+    return fail(-32000, TRADING_UNAVAILABLE, 500);
   }
 }
 
@@ -71,7 +73,6 @@ async function allowance(req: Request, id: unknown, params: unknown[], fail: (co
     return NextResponse.json({ jsonrpc: "2.0", id, result: await allowanceQuote(sender as `0x${string}`, entryPoint, chainId, cfg, quoteDeps(cfg)) });
   } catch (e) {
     if (e instanceof PaymasterQuoteError) return fail(CODES[e.code], `pm_getPaymasterAllowance: ${e.message}`, e.code === "config" ? 503 : 400, e.data);
-    const m = (e as { shortMessage?: string }).shortMessage || (e as Error).message || String(e);
-    return fail(-32000, `pm_getPaymasterAllowance: ${m.split("\n")[0].slice(0, 200)}`, 500);
+    return fail(-32000, TRADING_UNAVAILABLE, 500);
   }
 }

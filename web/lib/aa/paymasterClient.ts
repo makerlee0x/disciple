@@ -8,12 +8,14 @@
  * the built op fits it (tokenCost(maxCost) + debt ≤ maxTokenCost, window still open) payGasInUsdg makes 0 pm_* calls;
  * otherwise (launch, graduating buy, cold estimate, fee spike) it falls back to the two-phase per-op quote.
  *
- * Batch shape (what DiscipleSessionPolicy 1.4.0 and DisciplePaymaster both require):
- *   [ usdg.approve(paymaster, maxTokenCost)  ← exact, FIRST
+ * Batch shape (DiscipleSessionPolicy 1.4.2 + AUDIT F-01):
+ *   [ usdg.approve(paymaster, uint256.max)  ← persistent allowance, FIRST (session debits signed maxTokenCost)
  *   , ...trade calls ]
- * The approve amount is an upper bound counted against the session's USDG cap; postOp pulls only the actual gas cost
- * (and the rest of the allowance stays unspent — the next op re-approves the exact new amount, overwriting it).
+ * Payment is precharged in validation from a standing ERC20 allowance (not from this same-batch approve). Bootstrap
+ * with an owner-authorized MAv2 deferred approval during account validation (before paymaster validation); no account
+ * ETH or prior transaction is required. Subsequent warm taps keep zero added waits.
  */
+
 import type { Address, Hex } from "viem";
 import type { Call, UserOp } from "./core";
 import { ENTRYPOINT_V07 } from "./constants";
@@ -24,11 +26,13 @@ type Stub = PaymasterFields & { disciple: { usdg: Address; rate: Hex; maxTokenCo
 
 export class PaymasterRpcError extends Error { constructor(msg: string, public code: number, public data?: unknown) { super(msg); } }
 
-/** Drop any existing approve-to-paymaster and put the exact one first. */
-export function withPaymasterApprove(calls: Call[], usdg: Address, paymaster: Address, maxTokenCost: bigint): Call[] {
+/** Keep the standing allowance persistent; the policy debits the quote max, not this ERC20 allowance. */
+export function withPaymasterApprove(calls: Call[], usdg: Address, paymaster: Address, _maxTokenCost: bigint): Call[] {
+  void _maxTokenCost; // cap is signed in paymasterData; execution only preserves the standing allowance
   const pmWord = paymaster.slice(2).toLowerCase().padStart(64, "0");
-  const rest = calls.filter((c) => !(c.to.toLowerCase() === usdg.toLowerCase() && c.data.slice(0, 10).toLowerCase() === "0x095ea7b3" && c.data.slice(10, 74).toLowerCase() === pmWord));
-  return [paymasterApproveCall(usdg, paymaster, maxTokenCost), ...rest];
+  const isPmApprove = (c: Call) => c.to.toLowerCase() === usdg.toLowerCase() && c.data.slice(0, 10).toLowerCase() === "0x095ea7b3" && c.data.slice(10, 74).toLowerCase() === pmWord;
+  const rest = calls.filter((c) => !isPmApprove(c));
+  return [paymasterApproveCall(usdg, paymaster, (BigInt(1) << BigInt(256)) - BigInt(1)), ...rest];
 }
 
 /** Per pm_* request (the server signs locally; a healthy round trip is ~50–150 ms). */

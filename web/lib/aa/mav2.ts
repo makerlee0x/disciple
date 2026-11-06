@@ -3,27 +3,28 @@
  * flow in core.ts for embedded users. MAv2 signatures carry a validation-selection prefix, so we never hand-roll them.
  *  - owner = Privy embedded EOA (fallback signer, global validation): account creation, session install/revoke, mints.
  *  - session key = browser-held key, SingleSigner entity (non-global, execute/executeBatch) + DiscipleSessionPolicy hooks.
- *  - gas: in USDG via DisciplePaymaster (/api/paymaster, lib/aa/paymasterClient) when `usdgGas` is configured
- *    (NEXT_PUBLIC_RHT_PAYMASTER set); otherwise self-pay in ETH (account prefund). Never sponsored.
- *    Bundler goes through /api/bundler.
+ *  - gas: prepaid USDG gas, via an external bundler (/api/bundler).
+ *    No paymaster, protocol relay, or automatic gas top-up.
  */
 import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
 import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
 import { NonceCursor, GasCache, STATIC_GAS, gradSessionGas, FeeCache, callsKind, isGradBuyCalls, retryCalls, newPressId, tagPress, type GasLimits, type Fees, type SendOpts, type SendCallsOpts } from "./fastPath";
-import { clientFees, isLaunchCalls, INFRA_WORDING, NOT_ENOUGH_USDG, TRADING_UNAVAILABLE } from "./gasPolicy";
+import { clientFees, isLaunchCalls, INFRA_WORDING, TRADING_UNAVAILABLE } from "./gasPolicy";
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
 import { ENTRYPOINT_V07 } from "./constants";
-import type { TradeTiming } from "../trade/timing";
 import { withBlock } from "../trade/readFloor";
 import { appReadTransport, withinBudget } from "../rpc/readTransport";
-import { BUNDLE_REVERTED, PENDING_MSG, REJECTED_MSG, keptOpRef, logRelayOp, logTradeError, relayOpRef } from "./relayOp";
-import { AllowanceCache, payGasInUsdg, PaymasterRpcError, type PaymasterFields } from "./paymasterClient";
-import { relaySend, relayUnclear } from "./relayClient";
+import { BUNDLE_REVERTED, PENDING_MSG, REJECTED_MSG, logRelayOp, logTradeError, relayOpRef } from "./relayOp";
+import { relayUnclear } from "./relayClient";
 import type { RelayErrorData, RelayTimeoutExtra, RelayUnclearInfo } from "./relayTypes";
-import { PaymasterCapCache, fallbackUsdgDecimals, peekReserve, reserveOrDerived, type GasOpKind, type WarmAllowance } from "./gasReserve";
+import { PaymasterCapCache, peekReserve, reserveOrDerived, fallbackUsdgDecimals, type GasOpKind, type WarmAllowance } from "./gasReserve";
+import { payGasInUsdg, AllowanceCache, PaymasterRpcError, type PaymasterFields } from "./paymasterClient";
+import { prepayBootstrap } from "./prepayBootstrap";
+import { checkUserPaid } from "./gasPolicy";
+import { NOT_ENOUGH_USDG } from "./gasPolicy";
 /** A cold fee cache (first op before aaWarm answered) waits at most this long (job 9: no tap stalls on a hung RPC). */
 const COLD_FEES_MS = 1500;
 /** ≈ one RH block (~165 ms): the retry cadence after a pre-flight saw a lagging node (was a fixed 700 ms sleep). */
@@ -156,7 +157,13 @@ export const rundlerFeeEstimator: ClientMiddlewareFn = async (struct, { client, 
 };
 /** Skips eth_estimateUserOperationGas when the caller supplies all three limits (cached per preset). */
 export const cachedGasEstimator: ClientMiddlewareFn = async (struct, args) => {
-  const o = args.overrides as Partial<Record<keyof GasLimits, bigint>> | undefined;
+  const o = args.overrides as (Partial<Record<keyof GasLimits, bigint>> & Partial<PaymasterFields>) | undefined;
+  // Account Kit's dummy-paymaster middleware copies address/data, but NOT v0.7 paymaster gas limits.
+  // The estimator must see those limits before simulating the precharge (especially with zero account ETH).
+  if (o?.paymaster && o.paymasterData && o.paymasterData !== "0x") Object.assign(struct, {
+    paymaster: o.paymaster, paymasterData: o.paymasterData,
+    paymasterVerificationGasLimit: o.paymasterVerificationGasLimit, paymasterPostOpGasLimit: o.paymasterPostOpGasLimit,
+  });
   if (o?.callGasLimit && o?.verificationGasLimit && o?.preVerificationGas) {
     Object.assign(struct, { callGasLimit: o.callGasLimit, verificationGasLimit: o.verificationGasLimit, preVerificationGas: o.preVerificationGas });
     return struct;
@@ -195,14 +202,11 @@ function memoizeExecPrefix(client: any, known?: boolean) {
 
 export const asSigner = (a: LocalAccount): SmartAccountSigner => new LocalAccountSigner(a);
 
-/**
- * USDG gas (DisciplePaymaster). `session: false` ⇒ only owner ops use it (session keys on a policy < 1.4.0 can't
- * approve the paymaster and keep paying in ETH).
- */
 export type UsdgGasOpts = { paymaster: Address; usdg: Address; url: string; session: boolean };
-export type Mav2Opts = { chain: Chain; pc: PublicClient; bundlerUrl: string; salt?: bigint; /** tests: always estimate on a cold preset */ noStaticGas?: boolean; usdgGas?: UsdgGasOpts };
+export type Mav2Opts = { chain: Chain; pc: PublicClient; bundlerUrl: string; salt?: bigint; /** tests: always estimate on a cold preset */ noStaticGas?: boolean; usdgGas?: UsdgGasOpts; /** Embedded accounts must never fall back to ETH gas. */ requireUsdgGas?: boolean };
 /** Per-stage latency (ms) of one op. build = calldata+nonce+fees+gas, sign = signature, rpc = client→server→client,
  * server = self-bundler stages (sign tx, send, mined/receipt) when the sync method is used. */
+type PreparedPrepay = { client: Awaited<ReturnType<typeof createModularAccountV2Client>>; nonce?: bigint };
 export type OpTimings = { build: number; sign: number; rpc: number; total: number; fast: boolean; server?: Record<string, number> };
 export type SendResult = { userOpHash: Hex; txHash: Hex; receipt: UserOpReceipt; gasMode: GasMode; timings?: OpTimings; /** GAME: the press/reservation id (SendOpts.pressId) */ pressId?: string };
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
@@ -219,14 +223,13 @@ export class Mav2Account {
   /** Parallel nonce keys: every op gets a fresh 152-bit key (seq 0) ⇒ the nonce is known locally, ops never collide. */
   readonly nonces = new NonceCursor();
   readonly gas = new GasCache();
-  private syncOk: boolean | undefined;   // server supports disciple_sendUserOperationSync (self-bundler)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private ownerClient?: Promise<any>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private sessionClient?: { entityId: number; c: Promise<any> };
   /** Pre-issued per-sender paymaster allowance (item 5): 0 pm_* calls on a warm USDG-gas trade. */
   readonly allowances?: AllowanceCache;
-  /** paymaster.maxCostCap() + USDG decimals, read at warm (gasReservePerOp's second tier). */
+  /** paymaster.maxGasPerOp() + USDG decimals, read at warm (gasReservePerOp's second tier). */
   readonly caps = new PaymasterCapCache();
   /** The account address once known (warm / first send): lets the SYNC gas-reserve read peek the allowance. */
   private senderAddr?: Address;
@@ -234,6 +237,7 @@ export class Mav2Account {
     this.gasMode = o.usdgGas ? "usdg" : "self-pay";
     if (o.usdgGas) this.allowances = new AllowanceCache({ url: absUrl(o.usdgGas.url), chainId: o.chain.id });
   }
+
 
   private transport() {
     return split({ overrides: [{ methods: BUNDLER_METHODS, transport: http(absUrl(this.o.bundlerUrl)) }], fallback: appReadTransport(this.o.chain.rpcUrls.default.http[0]) });
@@ -244,6 +248,30 @@ export class Mav2Account {
       chain: this.o.chain, transport: this.transport(), signer: asSigner(this.owner),
       salt: this.o.salt ?? BigInt(0), factoryAddress: MAV2_FACTORY,
     }).then(memoizeExecPrefix));
+  }
+  private prepaidOwner?: Promise<PreparedPrepay>;
+  private prepayReady = false;
+  private prepayExpiry = 0;
+  async preparePrepay(): Promise<PreparedPrepay> {
+    if (!this.o.usdgGas || this.prepayReady) return { client: await this.owned() };
+    if (this.prepayExpiry > 0 && Date.now() / 1000 >= this.prepayExpiry - 30) this.prepaidOwner = undefined;
+    return this.prepaidOwner ??= (async () => {
+      const base = await this.owned(), pm = this.o.usdgGas!;
+      const allowance = await this.o.pc.readContract({ address: pm.usdg, abi: parseAbi(["function allowance(address,address) view returns (uint256)"]), functionName: "allowance", args: [base.account.address, pm.paymaster] });
+      if (allowance === (BigInt(1) << BigInt(256)) - BigInt(1)) { this.prepayReady = true; return { client: base }; }
+      const block = await this.o.pc.getBlock();
+      this.prepayExpiry = Number(block.timestamp) + 3600;
+      const auth = await prepayBootstrap({ account: base.account.address, chainId: this.o.chain.id,
+        nonce: this.nonces.next(0, true), deadline: Number(block.timestamp) + 3600,
+        usdg: pm.usdg, paymaster: pm.paymaster, sign: (typed) => this.owner.signTypedData(typed),
+      });
+      const client = await createModularAccountV2Client({
+        feeEstimator: rundlerFeeEstimator, gasEstimator: cachedGasEstimator,
+        chain: this.o.chain, transport: this.transport(), signer: asSigner(this.owner),
+        salt: this.o.salt ?? BigInt(0), factoryAddress: MAV2_FACTORY, deferredAction: auth.deferredAction,
+      });
+      return { client: memoizeExecPrefix(client), nonce: auth.nonce };
+    })().catch((e) => { this.prepaidOwner = undefined; throw e; });
   }
   /** Session-key client on the same account (validation = SingleSigner entityId, non-global). */
   async useSession(entityId: number, key: LocalAccount) {
@@ -309,9 +337,9 @@ export class Mav2Account {
     this.senderAddr = c.account.address as Address;
     await Promise.all([
       this.warmGasReserve(),
+      this.preparePrepay().catch(() => undefined),
       this.deployed ? 0 : c.account.isAccountDeployed?.().then((d: boolean) => { this.deployed = d; }),
       FEES.get(() => fetchFees(c as unknown as FeeClient)),
-      this.allowances?.refresh(c.account.address as Address),
       // learn the executeUserOp-prefix answer now (memoizeExecPrefix) so the first tap encodes locally
       c.account.encodeExecute({ target: "0x0000000000000000000000000000000000000001", data: "0x", value: BigInt(0) }),
     ]).catch(() => undefined);
@@ -322,19 +350,19 @@ export class Mav2Account {
    * account, later ops of that kind copy its struct and replace only nonce, callData, gas and fees — the fields the SDK
    * would fill from our overrides anyway (aa-sdk _initUserOperation: callData = account.encodeExecute/encodeBatchExecute,
    * nonce = overrides.nonce, factory only while undeployed; our fee/gas middlewares just apply the overrides). A template
-   * is kept only if rebuilding the op it came from gives the identical struct; ops with factory/paymaster fields never
-   * template. The op is still signed by client.signUserOperation (same key, same hash) — nothing about the policy changes.
+   * is kept only if rebuilding gives the identical struct; factory/deferred-approval ops never template. Warm USDG
+   * ops replace all paymaster fields from a fresh, valid pre-issued allowance on every build. The op is still signed by client.signUserOperation (same key, same hash) — nothing about the policy changes.
    */
   private tpl = new Map<string, Record<string, unknown>>();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async buildOp(client: any, kind: string, uo: Tx | Tx[], overrides: Record<string, unknown>): Promise<any> {
+  private async buildOp(client: any, kind: string, uo: Tx | Tx[], overrides: Record<string, unknown>, useTemplate = true): Promise<any> {
     const key = `${kind}|${client.account.address}`;
     const encode = () => (Array.isArray(uo) ? client.account.encodeBatchExecute(uo) : client.account.encodeExecute(uo));
-    const t = this.tpl.get(key);
+    const t = useTemplate ? this.tpl.get(key) : undefined;
     if (t) return { ...t, ...overrides, callData: await encode() };
     const struct = await client.buildUserOperation({ uo, overrides: overrides as never });
     const s = struct as unknown as Record<string, unknown>;
-    if (s && !s.factory && !s.factoryData && !s.paymaster && !s.paymasterAndData && typeof client.account?.encodeExecute === "function") {
+    if (s && !s.factory && !s.factoryData && ((BigInt(String(s.nonce ?? 0)) >> BigInt(64)) & BigInt(2)) === BigInt(0) && typeof client.account?.encodeExecute === "function") {
       try {
         const re = { ...s, ...overrides, callData: await encode() };
         if (JSON.stringify(deepHexlify(re)) === JSON.stringify(deepHexlify(s))) this.tpl.set(key, s);
@@ -346,8 +374,8 @@ export class Mav2Account {
   /**
    * Send calls as ONE userOp. `as: "session"` signs with the session key (no Privy prompt); default owner.
    * No queue: each op takes its own nonce key, so rapid shots are in flight at once. Fast path (warm preset):
-   * nonce/fees/gas are local, the op is signed in memory and sent with ONE round trip to /api/bundler
-   * (disciple_sendUserOperationSync: the self-bundler relays handleOps immediately and answers with the receipt).
+   * nonce/fees/gas are local and the op is signed in memory. Submission uses the external bundler
+   * eth_sendUserOperation; confirmation requires receipt polling, not the removed protocol sync relay.
    * `o.rebuild` (rapid taps): the ONE transient-error retry re-quotes via rebuild() (fresh minOut) instead of re-sending
    * the stale calls; every attempt, retries included, takes a fresh 2D nonce key. The fee-floor retry keeps the calls.
    * Shapes: sendCalls(calls, { rebuild, as, feeRetry, pressId }) (SITE #144) or the positional (calls, as, feeRetry, o).
@@ -366,26 +394,29 @@ export class Mav2Account {
       throw e;
     } finally { if (top) this.pressDepth.delete(pressId); }
   }
-  private readonly pressDepth = new Set<string>();
-  /** gradSessionGas(eth_estimateGas of the calls as the EntryPoint runs them); never cached (curve state moves). */
   private async gradGas(sender: Address, calls: Call[]): Promise<GasLimits> {
     const data = encodeFunctionData({ abi: execAbi, functionName: "executeBatch", args: [calls.map((c) => ({ target: c.to, value: c.value ?? BigInt(0), data: c.data }))] });
     // bounded: a hung estimate falls back to the fixed GRAD_STATIC_GAS (gradSessionGas(null)) instead of stalling the tap
     const est = await withinBudget(this.o.pc.estimateGas({ account: ENTRYPOINT_V07, to: sender, data }), GRAD_GAS_BUDGET_MS, "grad-gas").catch(() => null);
     return gradSessionGas(est);
   }
-
+  private readonly pressDepth = new Set<string>();
   private async sendCalls1(calls: Call[], so: SendCallsOpts & { pressId: string }): Promise<SendResult> {
     const as = so.as ?? "owner", feeRetry = so.feeRetry ?? true;
     const o: SendOpts = { rebuild: so.rebuild, pressId: so.pressId };
     const tt = so.tt;   // trade timing (lib/trade/timing): first attempt only, retries don't carry it
     const t0 = now();
     const session = as === "session" && this.sessionClient;
-    const client = session ? await this.sessionClient!.c : await this.owned();
+    if (this.o.requireUsdgGas && !this.o.usdgGas) throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: "prepaid USDG paymaster not configured" });
+    let prepared: PreparedPrepay | undefined;
+    try { prepared = !session && this.o.usdgGas ? await this.preparePrepay() : undefined; }
+    catch { throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: "prepaid USDG approval bootstrap unavailable" }); }
+    // A deferred SDK signer consumes its authorization when signing; never reuse it after an attempted send.
+    if (prepared?.nonce !== undefined) this.prepaidOwner = undefined;
+    const client = session ? await this.sessionClient!.c : prepared?.client ?? await this.owned();
     const uo = calls.map((c) => ({ target: c.to, data: c.data, value: c.value ?? BigInt(0) }));
     const sender: Address = client.account.address;
-    this.senderAddr = sender;
-    const nonce = this.nonces.next(session ? this.sessionClient!.entityId : 0, !session);
+    const nonce = prepared?.nonce ?? this.nonces.next(session ? this.sessionClient!.entityId : 0, !session);
     const kind = `${as}|${callsKind(calls)}`;
     // Launches (≈ 6M+ execution gas) ALWAYS estimate: STATIC_GAS (1.8M) runs out and a cached 1.5x would exceed the
     // launch cap. Fees are fresh and un-doubled so the prefund (gas × maxFee) stays small (~0.0002 ETH at 8M gas).
@@ -393,12 +424,12 @@ export class Mav2Account {
     // Graduating buys (flagged by the trade layer: quote ≥ remaining to graduation) ALSO always estimate: Migration +
     // 16 floor bands ≈ 2.76M execution > STATIC_GAS, and the estimate is never cached for the preset (GRAD_GAS_CAPS server-side).
     const grad = !launch && isGradBuyCalls(calls);
-    // self-bundler + deployed account ⇒ static conservative limits if this preset was never estimated (cold < 500 ms)
-    const gas = launch || grad ? undefined : this.gas.get(kind) ?? (this.deployed && this.syncOk !== false && !this.o.noStaticGas ? STATIC_GAS : undefined);
+    // A deployed account can reuse conservative limits without another estimate on a warm tap.
+    const gas = launch || grad ? undefined : this.gas.get(kind) ?? (this.deployed && !this.o.noStaticGas ? STATIC_GAS : undefined);
     // latency: cold fee cache on the fast path ⇒ wait for ONE fee read (~0.1 s) instead of dropping to the multi-second
     // standard flow (estimate + eth_sendUserOperation + receipt polling). Launches keep their fresh un-doubled fees.
     const fees = launch ? await fetchFees(client as unknown as FeeClient).catch(() => undefined)
-      : FEES.peek(() => fetchFees(client as unknown as FeeClient)) ?? (gas && this.syncOk !== false ? await withinBudget(FEES.get(() => fetchFees(client as unknown as FeeClient)), COLD_FEES_MS, "fees").catch(() => undefined) : undefined);
+      : FEES.peek(() => fetchFees(client as unknown as FeeClient)) ?? (gas ? await withinBudget(FEES.get(() => fetchFees(client as unknown as FeeClient)), COLD_FEES_MS, "fees").catch(() => undefined) : undefined);
     const overrides = { nonce, ...(gas ?? {}), ...(fees ?? {}) };
     const fail = async (e: unknown): Promise<never> => {
       const m = (e as { details?: string; shortMessage?: string; message?: string });
@@ -417,22 +448,29 @@ export class Mav2Account {
       throw new AAError("Estimate", `simulation failed: ${msg.split("\n")[0].slice(0, 200)}`, { revertData });
     };
 
-    // ---- USDG gas (DisciplePaymaster): quote → exact approve first → signed paymasterData → relay
-    if (this.usdgGasFor(as)) {
+    // ---- Player-paid USDG gas: validation precharge → signed quote → external bundler
+    if (this.o.usdgGas) {
       const pm = this.o.usdgGas!;
       const f = fees ?? await withinBudget(FEES.get(() => fetchFees(client as unknown as FeeClient)), COLD_FEES_MS, "fees");
       // Frozen after the first build ⇒ every phase prices the same gas. A session op can't be estimated without its
       // signed paymasterAndData (the policy checks approve == maxTokenCost), and sessions imply a deployed account:
-      // static limits. Owner ops estimate execution once (self-bundler: no prefund check) with the placeholder approve.
+      // static limits. Owner cold estimates include paymaster data and gas limits before external simulation.
       // Launches (owner-signed) always estimate (gas undefined above) and are capped by LAUNCH_GAS_CAPS server-side.
       // Graduating session buy: a REAL execution estimate (EntryPoint → account.executeBatch(calls), no signature
       // needed) padded for the policy hook + paymaster approve (gradSessionGas); GRAD_STATIC_GAS if it can't be read.
       let limits: GasLimits | undefined = gas ?? (session && !launch ? (grad ? await this.gradGas(sender, calls) : STATIC_GAS) : undefined);
       const build = async (cs: Call[], pmf: PaymasterFields): Promise<UserOp> => {
         const u = cs.map((c) => ({ target: c.to, data: c.data, value: c.value ?? BigInt(0) }));
-        const struct = await client.buildUserOperation({ uo: u.length === 1 ? u[0] : u, overrides: { nonce, ...f, ...(limits ?? {}) } });
+        const placeholder = pmf.paymasterData === "0x";
+        // Initial sizing does not simulate an ETH-self-paid op. All REAL estimates carry the USDG paymaster,
+        // including its dummy signature and gas limits, so zero-ETH deployment can be estimated externally.
+        const seed = placeholder ? { callGasLimit: BigInt(1_800_000), verificationGasLimit: BigInt(900_000), preVerificationGas: BigInt(150_000) } : undefined;
+        const args = { nonce, ...f, ...pmf, ...(limits ?? seed ?? {}) };
+        const struct = placeholder
+          ? await client.buildUserOperation({ uo: u.length === 1 ? u[0] : u, overrides: args })
+          : await this.buildOp(client, kind, u.length === 1 ? u[0] : u, args, !!limits);
         const w = deepHexlify(struct) as UserOp;
-        limits ??= { callGasLimit: BigInt(w.callGasLimit!), verificationGasLimit: BigInt(w.verificationGasLimit!), preVerificationGas: BigInt(w.preVerificationGas!) };
+        if (!placeholder) limits ??= { callGasLimit: BigInt(w.callGasLimit!), verificationGasLimit: BigInt(w.verificationGasLimit!), preVerificationGas: BigInt(w.preVerificationGas!) };
         return { ...w, ...pmf };
       };
       let wire: UserOp;
@@ -455,28 +493,32 @@ export class Mav2Account {
         return fail(e);
       }
       if (!gas && !launch && !grad && limits && !calls.some((c) => c.data.length < 10)) this.gas.set(kind, limits);
-      const t1 = now();
       const hash = userOpHash(wire, this.o.chain.id);
-      if (this.syncOk !== false) {
-        tt?.mark("send");   // tap → send (job 9): the USDG-gas path never marked it (ms.quote was missing on prod trades)
-        const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, opts: o, fail, t0, t1, t2: t1, gasMode: "usdg", feeClient: client as unknown as FeeClient, tt });
-        if (r) return r;
-      }
-      return this.sendRaw(wire, hash, kind, t0, fail, "usdg", o.pressId);
+      tt?.mark("send"); opPhase({ phase: "sent", userOpHash: hash, pressId: o.pressId });
+      const result = await this.sendRaw(wire, hash, kind, t0, fail, "usdg", o.pressId);
+      if (prepared?.nonce !== undefined) this.prepayReady = true;
+      return result;
     }
 
-    // ---- fast path: warm preset + self-bundler sync method
-    if (gas && fees && this.syncOk !== false) {
+    // ---- warm path: local build/sign, standard self-paid bundler submission
+    if (gas && fees) {
       let struct, signed;
       try { struct = await this.buildOp(client, kind, uo.length === 1 ? uo[0] : uo, overrides); } catch (e) { return fail(e); }
-      const t1 = now();
       try { signed = await client.signUserOperation({ uoStruct: struct }); } catch (e) { return fail(e); }
-      const t2 = now();
       const wire = deepHexlify(signed) as UserOp;
-      const hash = (() => { try { return userOpHash(wire, this.o.chain.id); } catch { return undefined; } })();
+      const hash = userOpHash(wire, this.o.chain.id);
       tt?.mark("send");
-      const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, opts: o, fail, t0, t1, t2, gasMode: "self-pay", feeClient: client as unknown as FeeClient, tt });
-      if (r) return r;
+      opPhase({ phase: "sent", userOpHash: hash, pressId: o.pressId });
+      return this.sendRaw(wire, hash, kind, t0, fail, "self-pay", o.pressId, async (e) => {
+        // Only definite bundler validation rejections may rebuild/re-sign; never ambiguous sends.
+        if (feeRetry && TRANSIENT_SIM.test(`${e.message} ${String(e.data ?? "")}`)) {
+          await nextBlock(); return this.sendCalls(await retryCalls(calls, o), as, false, o);
+        }
+        if (feeRetry && /fee below relayer floor|fee too low|priority fee.*too low/i.test(e.message)) {
+          FEES.invalidate(); await FEES.get(() => fetchFees(client as unknown as FeeClient)).catch(() => undefined);
+          return this.sendCalls(calls, as, false, o);
+        }
+      });
     }
     // ---- standard path (first trade of a preset, or Alchemy): estimate once, then cache the limits
     let req;
@@ -539,18 +581,18 @@ export class Mav2Account {
       allowance = { maxTokenCost: BigInt(d.maxTokenCost), rate: BigInt(d.rate), debt: BigInt(d.debt), maxFeePerGas: BigInt(d.maxFeePerGas) };
       this.lastRate = allowance.rate;
     }
-    return peekReserve({ usdgGas: !!pm, kind, allowance, opMaxFee: FEES.peek()?.maxFeePerGas, cap: this.caps.peek()?.cap });
+    return peekReserve({ usdgGas: !!pm, kind, allowance, opMaxFee: FEES.peek()?.maxFeePerGas, maxGasPerOp: this.caps.peek()?.maxGasPerOp });
   }
   /** The paymaster's signed rate from the last fresh allowance (cold derivation prefers it over the config ETH/USD). */
   private lastRate?: bigint;
   /** peekGasReservePerOp, or (cold) the derived value: gas limit × allowance-formula maxFee(live gas price) × rate. */
   gasReservePerOp(kind: GasOpKind = "trade"): bigint {
     return reserveOrDerived(this.peekGasReservePerOp(kind), {
-      kind, gasPriceWei: this.caps.gasPrice(), rate: this.lastRate, cap: this.caps.peek()?.cap,
+      kind, gasPriceWei: this.caps.gasPrice(), rate: this.lastRate, maxGasPerOp: this.caps.peek()?.maxGasPerOp,
       decimals: this.caps.peek()?.decimals ?? fallbackUsdgDecimals(this.o.chain.id),
     });
   }
-  /** Warm every reserve input off the trade path (session start + warm()): gas price, maxCostCap + decimals, the
+  /** Warm every reserve input off the trade path (session start + warm()): gas price, maxGasPerOp + decimals, the
    * allowance (its maxTokenCost is the real warm value). */
   async warmGasReserve() {
     const pm = this.o.usdgGas; if (!pm) return;
@@ -561,122 +603,13 @@ export class Mav2Account {
     ]);
   }
 
-  private usdgGasFor(as: "owner" | "session") { const u = this.o.usdgGas; return !!u && (as === "owner" || u.session); }
 
-  /** One round trip: disciple_sendUserOperationSync. null ⇒ the server doesn't support it (Alchemy): use the standard path. */
-  private async relaySync(wire: UserOp, hash: Hex | undefined, c: {
-    sender: Address; kind: string; calls: Call[]; as: "owner" | "session"; feeRetry: boolean; opts: SendOpts; fail: (e: unknown) => Promise<never>;
-    t0: number; t1: number; t2: number; gasMode: GasMode; feeClient: FeeClient; tt?: TradeTiming;
-  }): Promise<SendResult | null> {
-    const tt = c.tt;
-      // one POST; the receipt (full, with logs) comes back on it — streamed after a RelayPending on the slow path
-      opPhase({ phase: "sent", userOpHash: hash, pressId: c.opts.pressId });   // signed + sent: the optimistic fill starts here
-      let j = await relaySend(absUrl(this.o.bundlerUrl), wire, ENTRYPOINT_V07, (p) => opPhase({ phase: "submitted", userOpHash: p.userOpHash, txHash: p.txHash, pressId: c.opts.pressId }), fetch, { pressId: c.opts.pressId });
-      const t3 = now();
-      tt?.mark("response");
-      tt?.note({ path: "fast", build: Math.round(c.t1 - c.t0), sign: Math.round(c.t2 - c.t1), roundTrip: Math.round(t3 - c.t2), server: j.result?.t });
-      // Post-broadcast relay error: the relay answers with the op's ids (error.data, lib/aa/relayOp). Keep OUR hash (the
-      // op we signed); the relay's bundle tx hash only if it reports the same op (main #130 keptOpRef).
-      const ref = j.error ? relayOpRef(j.error) : undefined;
-      const ids = keptOpRef(hash, ref);
-      if (j.error && ref && BUNDLE_REVERTED.test(j.error.message)) {
-        // handleOps itself reverted: the op was not executed (no UserOperationEvent) — not a "simulation failed"
-        this.gas.drop(c.kind); logRelayOp("rejected", ids);
-        throw new AAError("Reverted", REJECTED_MSG, { userOpHash: ids.userOpHash, txHash: ids.txHash });
-      }
-      // Ambiguous failure (lost response, receipt timeout, -32603 after acceptance, nonce already used): the op may have
-      // landed — look it up; not found ⇒ pending, never a resend (AUDIT L2 #145: a resend can trade twice).
-      if (j.error && relayErrorUnclear(j.error)) {
-        // the relay always reports the tx hash once it signed: ONE receipt read for it (receiptFor matches OUR userOpHash
-        // in the logs, so any reported tx is safe to read), then the userOpHash log scan
-        const txh = (j.error.data as { txHash?: Hex } | undefined)?.txHash;
-        const got = hash ? (txh ? await this.receiptFor(txh, hash) : null) ?? await this.findOp(hash, c.sender) : null;
-        if (got) j = { result: { kind: "confirmed", via: "rpc-wait", t: { simulate: 0, signTx: 0, send: 0, mined: 0, total: 0 }, receipt: { transactionHash: got.txHash, blockHash: "0x", blockNumber: "0x0", status: "0x1", gasUsed: "0x0", logs: got.logs }, ...got } };
-        else {
-          // #141: the unclear fields (reason, txHash, relayNonce, userOpHash, sender, EntryPoint nonce) for SITE's watcher
-          const u0 = unclearOf(j.error, hash);
-          // main #130 keptOpRef: OUR hash wins; the relay's tx hash only when it reported the same op
-          const u: RelayUnclearInfo = ids.userOpHash ? { ...u0, userOpHash: ids.userOpHash } : u0;
-          if (ids.userOpHash && u0.userOpHash && u0.userOpHash.toLowerCase() !== ids.userOpHash.toLowerCase()) delete u.txHash;
-          const detail = j.error.message.split("\n")[0].slice(0, 300);
-          // main #130: when the relay never answered with this op's ids (network failure / unreadable response), the raw
-          // relay text goes to the console + extra.relayError only (player sees PENDING_MSG); otherwise ids only
-          const relayError = ref ? undefined : detail.slice(0, 200);
-          logRelayOp("pending", { userOpHash: u.userOpHash, txHash: u.txHash }, relayError);
-          const rx = relayError ? { relayError } : {};
-          throw new AAError("Timeout", PENDING_MSG, u.userOpHash ? { ...unclearExtra(u, u.userOpHash, { sender: c.sender, nonce: wire.nonce }), detail, ...rx } : { ...u, sender: c.sender, detail, ...rx });
-        }
-      }
-      // Still no answer and the outcome is unclear (receipt timeout, lost stream, network): NEVER a definite failure and
-      // never a retry / re-sign (it may land). AAError("Timeout").extra = RelayTimeoutExtra { unclear, reason, userOpHash,
-      // txHash, relayNonce, sender, nonce (the op's EntryPoint nonce) } so SITE can keep the hold and watch the op
-      // ('pending_unknown').
-      const unclear0 = j.error && j.error.code !== -32601 ? relayUnclear(j.error, hash) : null;
-      // main #130: OUR hash wins; the relay's tx hash only when it reported the same op (keptOpRef)
-      const unclear: RelayUnclearInfo | null = unclear0 && (ids.userOpHash ? { ...unclear0, userOpHash: ids.userOpHash, ...(ids.txHash ? { txHash: ids.txHash } : {}) } : unclear0);
-      if (unclear && !ids.txHash && unclear0?.userOpHash && hash && unclear0.userOpHash.toLowerCase() !== hash.toLowerCase()) delete unclear.txHash;
-      if (unclear) {
-        const uoh = unclear.userOpHash;
-        if (uoh) opPhase({ phase: "submitted", userOpHash: uoh, txHash: unclear.txHash, pressId: c.opts.pressId });
-        logRelayOp("pending", { userOpHash: uoh, txHash: unclear.txHash });
-        throw new AAError("Timeout", PENDING_MSG, uoh ? unclearExtra(unclear, uoh, { sender: c.sender, nonce: wire.nonce }) : { ...unclear, sender: c.sender });
-      }
-      if (j.error && c.gasMode === "usdg" && /AA3[0-9]|MaxCostTooLow|signature error/i.test(`${j.error.message} ${String(j.error.data ?? "")}`)) this.allowances?.invalidate(c.sender);
-      if (j.error && c.feeRetry && TRANSIENT_SIM.test(`${j.error.message} ${j.error.data ?? ""}`)) {
-        // the relay's pre-flight ran on a node that hasn't seen our previous op yet: nothing was sent; retry once
-        await nextBlock();
-        return this.sendCalls(await retryCalls(c.calls, c.opts), c.as, false, c.opts);
-      }
-      if (j.error && c.feeRetry && relayNotSentRace(j.error)) {
-        // Oct 30 testnet repro: two relays at once raced the relayer EOA's nonce ("nonce too low: address 0xCE2B…, tx:
-        // 18730 state: 18732"); the relay reports notSent ⇒ our op was never broadcast. Retry once (fresh 2D nonce key,
-        // fresh quote via rebuild) instead of failing the tap. Root fix is relayer-side (Needs FLOW).
-        console.warn("[disciple] relay lost a relayer-nonce race (nothing sent); retrying once", { userOpHash: hash });
-        return this.sendCalls(await retryCalls(c.calls, c.opts), c.as, false, c.opts);
-      }
-      if (j.error?.code === -32601) this.syncOk = false;   // Alchemy (or old server): fall through to the standard flow
-      else if (j.error && c.feeRetry && /fee below relayer floor/i.test(j.error.message)) {
-        // cached fees went stale (base fee rose): nothing was sent; refresh fees and re-sign once
-        FEES.invalidate();
-        await FEES.get(() => fetchFees(c.feeClient)).catch(() => undefined);
-        return this.sendCalls(c.calls, c.as, false, c.opts);
-      } else if (j.error) {
-        if (/AA2[0-9]|AA3[0-9]|out of gas|gas/i.test(j.error.message)) this.gas.drop(c.kind);   // stale limits → re-estimate next time
-        // Never fall through to the standard path here: a second send of the same nonce can only fail (AA25) after the
-        // first landed. Relay-side errors that aren't a pre-flight rejection (incl. network failure / unreadable response,
-        // codes -32099 / -32098) get plain copy; the raw relay text goes to the console + extra.relayError/detail only.
-        if (!/simulation|revert|AA[0-9]{2}/i.test(j.error.message)) {
-          const relayError = j.error.message.split("\n")[0].slice(0, 200);
-          logTradeError("trade failed (relay error)", { code: j.error.code, relayError, userOpHash: hash });
-          // relay policy / paymaster / gas-cap rejections: TRADING_UNAVAILABLE (#106, no gas wording); others REJECTED_MSG (main #132)
-          throw new AAError("Bundler", INFRA_WORDING.test(relayError) ? TRADING_UNAVAILABLE : REJECTED_MSG, { userOpHash: hash, relayError, detail: relayError, rpcCode: j.error.code });
-        }
-        return c.fail(Object.assign(new Error(j.error.message), { data: j.error.data }));
-      } else if (j.result) {
-        this.syncOk = true;
-        const { userOpHash, txHash, success, logs } = j.result;
-        opPhase({ phase: "submitted", userOpHash, txHash, pressId: c.opts.pressId });
-        const timings: OpTimings = { build: Math.round(c.t1 - c.t0), sign: Math.round(c.t2 - c.t1), rpc: Math.round(t3 - c.t2), total: Math.round(t3 - c.t0), fast: true, server: j.result.t as Record<string, number> };
-        if (!success) {
-          this.gas.drop(c.kind);
-          const revertData = opRevertReason(logs, userOpHash);
-          logTradeError("trade reverted", { userOpHash, txHash, revertData });
-          throw new AAError("Reverted", REJECTED_MSG, { userOpHash, txHash, revertData, ...revertGas(logs, userOpHash, wire.callGasLimit) });
-        }
-        // SITE #137: keep the receipt block on the confirmed event (lib/fillBook pins post-fill reads at ≥ it)
-        const rb = (j.result as { receipt?: { blockNumber?: unknown } }).receipt?.blockNumber;
-        opPhase({ phase: "confirmed", userOpHash, txHash, timings, pressId: c.opts.pressId, blockNumber: blockStr(...logs.map((l) => (l as { blockNumber?: unknown }).blockNumber), rb === "0x0" ? undefined : rb) });
-        this.deployed = true;
-        return { userOpHash, txHash, gasMode: c.gasMode, receipt: { success: true, receipt: { transactionHash: txHash, logs } }, timings };
-      }
-      return null;
-  }
-
-  /** Standard eth_sendUserOperation for an already-signed op (USDG-gas ops on a bundler without the sync method). */
-  private async sendRaw(wire: UserOp, hash: Hex, kind: string, t0: number, fail: (e: unknown) => Promise<never>, gasMode: GasMode, pressId?: string): Promise<SendResult> {
+  /** Standard eth_sendUserOperation for an already-signed, self-paid op. */
+  private async sendRaw(wire: UserOp, hash: Hex, kind: string, t0: number, fail: (e: unknown) => Promise<never>, gasMode: GasMode, pressId?: string, retry?: (e: { message: string; data?: unknown }) => Promise<SendResult | undefined>): Promise<SendResult> {
+    checkUserPaid(wire, this.o.usdgGas?.paymaster);
     let r: Response;
     try {
-      r = await fetch(absUrl(this.o.bundlerUrl), { method: "POST", headers: { "content-type": "application/json" },
+      r = await fetch(absUrl(this.o.bundlerUrl), { method: "POST", headers: { "content-type": "application/json", ...(pressId ? { "x-disciple-press-id": pressId } : {}) },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendUserOperation", params: [wire, ENTRYPOINT_V07] }) });
     } catch (e) {
       // The connection dropped during the POST: the op may already be in. Look it up before saying anything; never resend.
@@ -693,7 +626,7 @@ export class Mav2Account {
       this.deployed = true;
       return { userOpHash: hash, txHash: got.txHash, gasMode, receipt: { success: true, receipt: { transactionHash: got.txHash, logs: got.logs } } };
     }
-    const j = await r.json().catch(() => ({ error: { message: `send response unreadable (HTTP ${r.status})`, unreadable: true } })) as { result?: Hex; error?: { message: string; data?: string; unreadable?: boolean } };
+    const j = await r.json().catch(() => ({ error: { message: `send response unreadable (HTTP ${r.status})`, unreadable: true } })) as { result?: Hex; error?: { code?: number; message: string; data?: unknown; unreadable?: boolean } };
     if (j.error) {
       if (/not confirmed|timeout/i.test(j.error.message)) {
         logRelayOp("pending", { userOpHash: hash });
@@ -701,7 +634,8 @@ export class Mav2Account {
       }
       // AUDIT L2 (#145): unreadable answer / internal error after the POST — the op may be in: look it up, never resend
       if (j.error.unreadable || relayErrorUnclear(j.error)) {
-        const got = await this.findOp(hash, wire.sender);
+        const txh = (j.error.data as { txHash?: Hex } | undefined)?.txHash;
+        const got = (txh ? await this.receiptFor(txh, hash) : null) ?? await this.findOp(hash, wire.sender);
         if (!got) { logRelayOp("pending", { userOpHash: hash }); throw new AAError("Timeout", PENDING_MSG, { ...unclearExtra(unclearOf(j.error, hash), hash, wire), detail: j.error.message.split("\n")[0].slice(0, 300) }); }
         if (!got.success) {
           this.gas.drop(kind);
@@ -713,7 +647,9 @@ export class Mav2Account {
         this.deployed = true;
         return { userOpHash: hash, txHash: got.txHash, gasMode, receipt: { success: true, receipt: { transactionHash: got.txHash, logs: got.logs } } };
       }
-      // unreadable response / relay policy (gas caps, paymaster deposit): plain copy; real reverts still decode via fail()
+      const retried = await retry?.(j.error);
+      if (retried) return retried;
+      // Infrastructure failures use existing plain copy; real reverts still decode via fail()
       if (j.error.unreadable || (!/simulation|revert|AA[0-9]{2}/i.test(j.error.message) && INFRA_WORDING.test(j.error.message)))
         throw new AAError("Bundler", TRADING_UNAVAILABLE, { userOpHash: hash, detail: j.error.message.split("\n")[0].slice(0, 300) });
       return fail(Object.assign(new Error(j.error.message), { data: j.error.data }));

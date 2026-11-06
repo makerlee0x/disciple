@@ -61,7 +61,7 @@ for (const k of ["signMessage", "signTypedData", "sign"] as const) {
 }
 let signMs = 0;
 const boot = new Mav2Account({ chain: robinhoodTestnet, pc: pc as never, bundlerUrl: `${APP}/api/bundler` }, owner);
-const sa = new Mav2Account({ chain: robinhoodTestnet, pc: pc as never, bundlerUrl: `${APP}/api/bundler`, usdgGas: { paymaster: d.paymaster, usdg: d.usdg, url: `${APP}/api/paymaster`, session: false } }, owner);
+const sa = new Mav2Account({ chain: robinhoodTestnet, pc: pc as never, bundlerUrl: `${APP}/api/bundler` }, owner);
 const me = await sa.address();
 console.log("APP", APP, "\ncoin", COIN, "\naccount", me);
 const drip = await realFetch(`${APP}/api/drip`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: me }) }).then((r) => r.json());
@@ -70,7 +70,7 @@ for (let i = 0; i < 100 && (await pc.getBalance({ address: me })) === BigInt(0);
 const m = await boot.sendCalls([{ to: d.usdg, data: encodeFunctionData({ abi: erc20, functionName: "mint", args: [me, parseUnits("200", 6)] }) }], "owner");
 await pc.waitForTransactionReceipt({ hash: m.txHash as Hex });
 for (let i = 0; i < 50 && !(await bal(d.usdg, me)); i++) await sleep(300);
-await sa.warm(); await sa.warmGasReserve().catch(() => undefined);
+await sa.warm();
 const dl = () => BigInt(Math.floor(Date.now() / 1000) + 300);
 
 type Row = Record<string, number | string>;

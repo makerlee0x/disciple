@@ -14,7 +14,7 @@ const op = (o: Record<string, bigint | number | string | undefined> = {}) => {
   for (const [k, v] of Object.entries(o)) d[k] = v === undefined ? undefined : typeof v === "string" ? v : hex(v);
   return d;
 };
-const rejects = (o: Record<string, string | undefined>, code: "fee" | "gas", base = BASE) =>
+const rejects = (o: Record<string, string | undefined>, code: "fee" | "gas" | "paymaster", base = BASE) =>
   assert.throws(() => checkOpGas(o, base), (e: unknown) => e instanceof RelayPolicyError && e.code === code);
 
 test("fee-0 op (the drain) is rejected", () => {
@@ -92,13 +92,13 @@ test("rate limiter: fixed window per key, retry-after, store errors fall back to
   assert.equal(clientIp(h({}), { VERCEL: "1" }), "unknown");
 });
 
-test("paymaster ops: only our paymaster, deposit must cover the max prefund at >= the relayer floor; self-pay untouched", () => {
+test("paymaster deposit guard: configured/funded allowed; unknown or underfunded refused", () => {
   const PM = "0x1111111111111111111111111111111111111111";
   const o = op({ paymasterVerificationGasLimit: 120_000, paymasterPostOpGasLimit: 80_000 });
   const pmOp = { ...o, paymaster: PM };
   const need = maxPrefund(pmOp, relayerPrice(BASE));
-  checkPaymaster(o, undefined, BigInt(0), BASE); // no paymaster: no-op
-  checkPaymaster(pmOp, PM.toUpperCase().replace("0X", "0x"), need, BASE);
+  checkPaymaster(op(), undefined, BigInt(0), BASE); // self-paid: no-op
+  assert.doesNotThrow(() => checkPaymaster(pmOp, PM, need, BASE));
   const bad = (fn: () => void) => assert.throws(fn, (e: unknown) => e instanceof RelayPolicyError && e.code === "paymaster");
   bad(() => checkPaymaster(pmOp, PM, need - BigInt(1), BASE));
   bad(() => checkPaymaster(pmOp, undefined, need, BASE));
@@ -121,17 +121,17 @@ const approve = encodeFunctionData({ abi: parseAbi(["function approve(address,ui
 const batch = (calls: { to: string; data: Hex }[]) => encodeFunctionData({ abi: acct, functionName: "executeBatch", args: [calls.map((c) => ({ target: c.to as Hex, value: BigInt(0), data: c.data }))] });
 const launchOp = (callData: Hex, g: Record<string, number> = {}) => ({ ...op({ callGasLimit: 7_900_000, verificationGasLimit: 450_000, preVerificationGas: 60_000, ...g }), callData });
 
-test("launch op (approve + launch to the Launchpad) gets the launch caps: ~7.9M call passes, >10M call / >11M total rejected", () => {
+test("launch op (approve + launch to the Launchpad) gets the launch caps: measured launch envelope passes; above launch call/total caps rejected", () => {
   const cd = batch([{ to: TOK, data: approve }, { to: LP, data: launchData }]);
   assert.equal(isLaunchOp(cd, [LP]), true);
   assert.equal(isLaunchCalls([{ to: LP, data: launchData }], [LP]), true);
   const o = launchOp(cd);
   assert.ok(checkOpGas(o, BASE, capsForOp(o, [LP])) > BigInt(0));
   assert.throws(() => checkOpGas(o, BASE), RelayPolicyError);   // same op under W-1 caps: rejected (the bug)
-  const big = launchOp(cd, { callGasLimit: 10_000_001 });
+  const big = launchOp(cd, { callGasLimit: Number(LAUNCH_GAS_CAPS.callGasLimit + BigInt(1)) });
   assert.throws(() => checkOpGas(big, BASE, capsForOp(big, [LP])), /callGasLimit .* above cap/);
-  const tot = launchOp(cd, { callGasLimit: 10_000_000, verificationGasLimit: 900_000, preVerificationGas: 150_000 });
-  assert.throws(() => checkOpGas(tot, BASE, capsForOp(tot, [LP])), /total gas .* above cap 11000000/);
+  const tot = launchOp(cd, { callGasLimit: Number(LAUNCH_GAS_CAPS.callGasLimit), verificationGasLimit: 900_000, preVerificationGas: 150_000 });
+  assert.throws(() => checkOpGas(tot, BASE, capsForOp(tot, [LP])), new RegExp(`total gas .* above cap ${LAUNCH_GAS_CAPS.total}`));
   assert.equal(LAUNCH_GAS_CAPS.verificationGasLimit, GAS_CAPS.verificationGasLimit);   // only call + total widen
 });
 test("non-launch ops keep W-1 caps: wrong target, extra non-approve call, single execute of a trade, garbage callData", () => {

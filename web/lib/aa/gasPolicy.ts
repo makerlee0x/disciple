@@ -43,17 +43,17 @@ export const GAS_CAPS = {
   total: BigInt(4_000_000),
 } as const;
 /**
- * Launch ops only (Launchpad launch / AnonLauncher launchAnon / DiscipleRouter launchWithUsdg, plus their approvals): a
- * launch deploys the token + curve and seeds state ≈ 6.06M execution gas, ≈ 7.9M after the self-bundler's 1.3x + 20k
- * estimate padding, which GAS_CAPS (3M / 4M) rejected as "above cap" ⇒ "simulation failed". Every other op keeps the
- * W-1 caps above. v5: the live smoke launch (approve + Launchpad.launch with First BOOST) used 6,780,271 gas;
- * launchWithUsdg = the same launchFor + the router's USDG pull / USDG→pair swap (+ an optional refund swap) ≈ 7.0–7.3M
- * ⇒ ≈ 9.1–9.5M estimated call gas: inside 10M, with the account / paymaster limits inside the 11M total.
+ * Launch-only budget = 2x worst measured real EntryPoint launch gas (including settlement/unused penalty).
+ * Production solc runtime: warm launchAnon + pair-denominated First BOOST + announcement = 10,920,385.
+ * The former 10M call envelope OOG'd on supported session launches with metadata; preserve its 1M
+ * non-call headroom while widening ONLY launch call/total gas. Trade/graduation budgets do not change.
+ * This is gas UNITS: the prepaid USDG ceiling scales with the signed fee and unmarked oracle rate.
  */
+export const MAX_LAUNCH_GAS_PER_OP = BigInt(21_840_770);
 export const LAUNCH_GAS_CAPS = {
   ...GAS_CAPS,
-  callGasLimit: BigInt(10_000_000),
-  total: BigInt(11_000_000),
+  callGasLimit: MAX_LAUNCH_GAS_PER_OP - BigInt(1_000_000),
+  total: MAX_LAUNCH_GAS_PER_OP,
 } as const;
 /**
  * Buys that may GRADUATE the curve (steep curve #1 + 16-band floor, feat/steep-curve-floor): the graduating buy runs
@@ -84,6 +84,7 @@ const accountAbi = parseAbi([
   "function execute(address target, uint256 value, bytes data)",
   "function executeBatch((address target, uint256 value, bytes data)[] calls)",
 ]);
+const INSTALL_VALIDATION = toFunctionSelector("function installValidation(bytes25,bytes4[],bytes,bytes[])").toLowerCase();
 const EXECUTE_USER_OP = "0x8dd7712f";
 /** Inner calls of an MAv2 / LightAccount callData (execute / executeBatch, optionally behind executeUserOp). null = unknown shape. */
 export function accountCalls(callData: string): { to: string; data: string; value: bigint }[] | null {
@@ -96,11 +97,11 @@ export function accountCalls(callData: string): { to: string; data: string; valu
   } catch { return null; }
 }
 /**
- * Is this op a launch? Every inner call must be an approve / LoginGate.attest or a launch selector, at least one launch, and every launch
+ * Is this op a launch? Every inner call must be an approve / LoginGate.attest / self-targeted session install or a launch selector, at least one launch, and every launch
  * must target one of `launchers` (Launchpad, AnonLauncher(s), DiscipleRouter: lib/aa/launchTargets). Anything else (or an undecodable callData) ⇒ false ⇒
  * normal GAS_CAPS. Selectors come from the generated Launchpad / AnonLauncher / DiscipleRouter ABIs.
  */
-export function isLaunchOp(callData: string, launchers: string[]): boolean {
+export function isLaunchOp(callData: string, launchers: string[], account?: string): boolean {
   const calls = accountCalls(callData);
   if (!calls?.length) return false;
   const ls = launchers.map((a) => a.toLowerCase());
@@ -108,6 +109,9 @@ export function isLaunchOp(callData: string, launchers: string[]): boolean {
   for (const c of calls) {
     const sel = c.data.slice(0, 10).toLowerCase();
     if (LAUNCH_HELPERS.has(sel)) continue;
+    // Native owner bootstrap may install the session alongside the first launch. Only self-targeted
+    // installValidation is a helper; the exact op is signed, and account ownership is enforced on-chain.
+    if (sel === INSTALL_VALIDATION && account && c.to.toLowerCase() === account.toLowerCase()) continue;
     if (!LAUNCH_SELECTORS.has(sel) || !ls.includes(c.to.toLowerCase())) return false;
     launches++;
   }
@@ -121,8 +125,8 @@ export const isLaunchCalls = (calls: { to: string; data: string }[], launchers: 
  * Caps for an op: LAUNCH_GAS_CAPS when it is a launch to one of `launchers`; GRAD_GAS_CAPS when the caller verified
  * it is a graduating buy (lib/server/gradBuy relayCaps: on-chain check, only for ops above GAS_CAPS); else GAS_CAPS.
  */
-export const capsForOp = (op: { callData?: string }, launchers: string[], opts?: { gradBuy?: boolean }): GasCaps =>
-  op.callData && isLaunchOp(op.callData, launchers) ? LAUNCH_GAS_CAPS : opts?.gradBuy ? GRAD_GAS_CAPS : GAS_CAPS;
+export const capsForOp = (op: { callData?: string; sender?: string }, launchers: string[], opts?: { gradBuy?: boolean }): GasCaps =>
+  op.callData && isLaunchOp(op.callData, launchers, op.sender) ? LAUNCH_GAS_CAPS : opts?.gradBuy ? GRAD_GAS_CAPS : GAS_CAPS;
 
 /**
  * Curve buys (direct, or DiscipleRouter buyWithUsdg / buyExactIn ⇒ curve.routerBuy pre-graduation), taken from the
@@ -268,7 +272,7 @@ export const CLIENT_FEE_HEADROOM_PCT = BigInt(150);
 export type GasFields = {
   callGasLimit?: string | bigint; verificationGasLimit?: string | bigint; preVerificationGas?: string | bigint;
   maxFeePerGas?: string | bigint; maxPriorityFeePerGas?: string | bigint;
-  paymaster?: string; paymasterVerificationGasLimit?: string | bigint; paymasterPostOpGasLimit?: string | bigint;
+  paymasterAndData?: string; paymasterData?: string; paymaster?: string; paymasterVerificationGasLimit?: string | bigint; paymasterPostOpGasLimit?: string | bigint;
 };
 const big = (x: string | bigint | undefined) => { try { return x === undefined || x === "" ? BigInt(0) : BigInt(x); } catch { return BigInt(-1); } };
 
@@ -317,12 +321,14 @@ export function checkOpGas(op: GasFields, baseFee: bigint, caps: GasCaps = GAS_C
   return total;
 }
 
-/**
- * Paymaster ops (DisciplePaymaster, USDG gas): the EntryPoint takes the prefund from the PAYMASTER's deposit, not the
- * sender (who holds no ETH), and refunds the relayer from it. Only our own paymaster is accepted (a foreign one could
- * fail validation on-chain and leave the relayer paying), and its deposit must cover the op's max prefund priced at
- * >= the relayer floor, else handleOps reverts AA31 at the relayer's expense. No-op for self-pay ops.
- */
+/** Sponsorship is disabled on every chain. Accept only absent/empty paymaster fields. */
+export function checkSelfPaid(op: GasFields): void {
+  if (op.paymaster && !/^0x0{40}$/i.test(op.paymaster) ||
+      op.paymasterAndData && op.paymasterAndData !== "0x" ||
+      op.paymasterData && op.paymasterData !== "0x" ||
+      big(op.paymasterVerificationGasLimit) !== BigInt(0) || big(op.paymasterPostOpGasLimit) !== BigInt(0))
+    throw new RelayPolicyError(TRADING_UNAVAILABLE, "paymaster", "gas sponsorship disabled");
+}
 export function checkPaymaster(op: GasFields, allowed: string | undefined, deposit: bigint, baseFee: bigint): void {
   if (!op.paymaster) return;
   // Client-visible message is plain (Lee: users never see gas wording); the reason rides in `detail` for logs.
@@ -330,7 +336,18 @@ export function checkPaymaster(op: GasFields, allowed: string | undefined, depos
     throw new RelayPolicyError(TRADING_UNAVAILABLE, "paymaster", `paymaster ${op.paymaster} not accepted (DisciplePaymaster only)`);
   const need = maxPrefund(op, relayerPrice(baseFee));
   if (deposit < need)
-    throw new RelayPolicyError(TRADING_UNAVAILABLE, "paymaster", `paymaster deposit too low: ${deposit} < ${need} wei (keeper top-up pending)`);
+    throw new RelayPolicyError(TRADING_UNAVAILABLE, "paymaster", `paymaster deposit too low: ${deposit} < ${need} wei (owner-managed float unavailable)`);
+}
+
+/** Only the configured prepaid USDG paymaster may be attached; arbitrary sponsorship stays disabled. */
+export function checkUserPaid(op: GasFields, allowed?: string): void {
+  const packed = op.paymasterAndData && op.paymasterAndData !== "0x" ? op.paymasterAndData : undefined;
+  const pm = packed ? packed.slice(0, 42) : op.paymaster;
+  if (!pm || /^0x0{40}$/i.test(pm)) { checkSelfPaid(op); return; }
+  if (!allowed || /^0x0{40}$/i.test(allowed) || pm.toLowerCase() !== allowed.toLowerCase()) throw new RelayPolicyError(TRADING_UNAVAILABLE, "paymaster", "gas sponsorship disabled");
+  if (packed && op.paymaster && pm.toLowerCase() !== op.paymaster.toLowerCase()) throw new RelayPolicyError("inconsistent paymaster", "paymaster");
+  const data = packed ? `0x${packed.slice(106)}` : op.paymasterData;
+  if (!data || !/^0x[0-9a-fA-F]{282}$/.test(data) || BigInt(`0x${data.slice(26, 90)}`) <= BigInt(0) || BigInt(`0x${data.slice(90, 154)}`) <= BigInt(0)) throw new RelayPolicyError("invalid prepaid quote", "paymaster");
 }
 
 /**

@@ -1,281 +1,121 @@
-# DISCIPLE USDG token paymaster (EntryPoint v0.7)
+# Prepaid USDG gas — audit F-01
 
-Status: **design + build in progress (PR draft, nothing deployed)** · approved by maker lee, Fri Oct 23 2026 · RH testnet only (chain 46630).
+Owner decision: 2026-11-05, 4:58 / 5:00 / 8:37 PM CT. This supersedes the earlier sponsorship-off implementation in draft #246. Players pay gas in USDG; the paymaster supplies a reimbursable ETH float, not a grant. No live changes were made.
 
-## Locked rules
-- Users never need ETH. Gas is paid **out of the user's own USDG**. We do **not** sponsor gas.
-- Self-hosted: our own contract, our own signer, our own bundler. **No Pimlico hosted service** (their v0.7 singleton at
-  `0x7777…834C` on 46630 is reference only).
-- Testnet only until review; no deploys in this PR; merge nothing.
+## Payment ordering and bounds
 
-## Base contract: fork Pimlico `SingletonPaymasterV7` (ERC-20 mode), trimmed → `DisciplePaymaster`
+`DisciplePaymaster.PREPAY_VERSION == 4`:
 
-| | Pimlico SingletonPaymaster (ERC-20 mode) | eth-infinitism `TokenPaymaster` |
-|---|---|---|
-| Pricing | **signed off-chain quote** (exchangeRate, validUntil/After) — exactly our "signed quote" requirement | on-chain oracle (Chainlink + Uniswap swap helper); no oracle for USDG/ETH on RH chain |
-| Charge | postOp on actual gas (+ v0.7 unused-gas penalty accounted) | pre-charge max in validation, refund in postOp (needs a standing allowance → breaks our exact-approve rule) |
-| v0.7 | yes (`SingletonPaymasterV7`), audited, MIT | yes, MIT, but sample-grade |
-| Fit | strip verifying mode, multi-signer, manager role, constantFee/recipient/preFund flags, bundler allowlist | would need oracle replacement + allowance model rewrite |
+1. EntryPoint validates/deploys the account, then calls paymaster validation.
+2. Verify the signed quote/allowance, rate bounds, maximum one-hour quote window, `maxGasPerOp`, owner pause and minimum postOp gas. The signed token ceiling must cover EntryPoint's maximum ETH prefund converted at the unchanged price-source rate (1.0x; no markup).
+3. Require account balance and a **pre-existing ERC20 allowance**. `transferFrom` the operation's required maximum cost, NOT the reusable quote's larger token ceiling, verifying the actual balance increase. Record collateral by userOp hash and sender, with an exact context commitment. Only then may execution begin.
+4. `postOp` pays treasury from collateral and returns the remainder to the account, for successful or reverted user calls. It NEVER collects from the account after execution. Revoking approval, draining remaining USDG, reverting the buy, replaying a quote or concurrent nonces cannot create unsecured gas debt.
 
-Pimlico's ERC-20 path is the closest match (signed rate + postOp billing), so we fork it and remove what we don't use.
-Kept (with attribution): paymasterAndData parsing style, the signed-hash construction over the packed userOp,
-`getCostInToken`, `_expectedPenaltyGasCost` (v0.7 charges the paymaster 10% of unused execution gas; we bill it).
-Changed / added for DISCIPLE:
-- **USDG-only**: token is an immutable; no token field in the quote.
-- **Quote = (validUntil, validAfter, rate, maxTokenCost)** signed by one owner-set `signer`. `rate` = USDG raw units per
-  1e18 wei (decimals-aware: 18-dec testnet USDG and 6-dec mainnet USDG are both just "raw units per ETH").
-  `maxTokenCost` = the exact USDG allowance the batch grants the paymaster (gas max in USDG + any outstanding debt).
-- **Rate cap / sanity bounds** (owner-set): `minRate ≤ rate ≤ maxRate`, `maxTokenCost ≤ maxCostCap`,
-  `validUntil − validAfter ≤ MAX_QUOTE_WINDOW` (validation can't read TIMESTAMP under ERC-7562; the EntryPoint enforces
-  the window), and `maxTokenCost ≥ costInToken(requiredPreFund) + debt` (the signed max must cover the worst case).
-- **Validation checks USDG balance and allowance**: `balanceOf(sender) ≥ maxTokenCost` and either the existing
-  `allowance(sender, paymaster) ≥ maxTokenCost` or the batch's **first call** is `USDG.approve(paymaster, maxTokenCost)`
-  (decoded from `execute`/`executeBatch`, with or without the MAv2 `executeUserOp` prefix).
-- **postOp never reverts** (a reverting postOp makes the EntryPoint revert the user's call *and* bill our deposit):
-  it tries `transferFrom(sender → treasury, min(actualCostInToken, maxTokenCost))`; if that fails (user moved the USDG,
-  or the batch reverted and took the approve with it) the amount is recorded as `debtOf[sender]`. Validation requires
-  the next quote's `maxTokenCost` to include the debt, so it is collected on the next op. Loss is bounded to one op per
-  abandoned account, and every quote is gated by our signer, which only signs after simulation.
-- **Owned2Step** (same as the rest of the stack): owner sets `signer`, `treasury`, rate bounds, `maxCostCap`,
-  `postOpGas`; owner-only `withdrawTo` (EntryPoint deposit), `addStake` / `unlockStake` / `withdrawStake`, `forgiveDebt`.
+The leading `approve(paymaster,uint256.max)` in execution is only a session-accounting marker and replenishment, not security for the current operation. Policy **1.4.2** debits the signed gas cap, not uint256.max. Its immutable paymaster must match the new contract. Existing policy addresses/old sessions must not be silently reused.
 
-## Flow (one userOp, session key or owner)
-1. Client builds the trade calls (unchanged) and asks `/api/paymaster` `pm_getPaymasterStubData` with the unsigned op
-   (gas limits + fees). The API returns `paymaster`, `paymasterVerificationGasLimit`, `paymasterPostOpGasLimit`, the
-   quote (`rate`, `maxTokenCost`, `validUntil`, `validAfter`) and stub `paymasterData`.
-2. Client prepends `USDG.approve(paymaster, maxTokenCost)` to the batch (exact amount), sets the paymaster fields.
-3. Client calls `pm_getPaymasterData` with the final op; the API re-derives the same quote, checks the approve, the
-   user's USDG balance (trade spend + maxTokenCost), simulates, and signs → `paymasterAndData`.
-4. Session key / owner signs the userOp (covers paymasterAndData). Self-bundler relays: **no ETH-prefund check** for
-   paymaster ops; instead it checks the paymaster's EntryPoint deposit ≥ op max cost and the paymaster gas caps.
-5. EntryPoint: account validation (policy hook) → `validatePaymasterUserOp` (sig, bounds, balance, allowance) →
-   execution: `approve(paymaster, maxTokenCost)`, the trade (policy exec hook counts `maxTokenCost` against the USDG
-   session cap) → `postOp`: pull actual USDG cost to treasury.
-6. Keeper tops up the EntryPoint deposit from the relayer/treasury (testnet) and, on mainnet, swaps collected USDG→ETH.
+Each treasury/refund transfer has a 75k gas budget and copies at most one return word. Failure records a fully backed `creditOf(recipient)`; anyone can retry `claimCredit`, but funds always go to that recipient. Credits are not unsecured debt. Fee-on-transfer precharges are rejected. Token blacklist/pause/upgrade risk remains.
 
-paymasterAndData (v0.7): `paymaster(20) | pmVerificationGas(16) | pmPostOpGas(16) | validUntil(6) | validAfter(6) |
-rate(32) | maxTokenCost(32) | signature(65)` = 193 bytes. Signed hash = `toEthSignedMessageHash(keccak256(abi.encode(
-sender, nonce, keccak(initCode), keccak(callData), accountGasLimits, pmGasLimits(bytes32 of [20:52]), preVerificationGas,
-gasFees, chainid, paymaster, validUntil, validAfter, rate, maxTokenCost)))`.
+EntryPoint v0.7 does **not** retry a failing callback with `postOpReverted`. If postOp unexpectedly reverts/OOG, validation collateral survives; user execution is rolled back and no USDG is released. After quote expiry + one day, while paused, the owner can call `settleStuckPrecharge` with the exact committed context and FINAL cost from `UserOperationEvent`. It cannot change the committed sender/rate/maximum or settle twice. This is explicitly trusted, publicly emitted administrative reconciliation, not an on-chain proof of receipt cost.
 
-## Session policy change (minimal)
-`DiscipleSessionPolicy` gets a second constructor immutable, `paymaster` (like `referralRegistry`; **SessionConfig ABI
-unchanged**). In the execution hook (which sees the full userOp through MAv2's `executeUserOp` buffer):
-- `USDG.approve(paymaster, amt)` is allowed only if the op's `paymasterAndData` names this paymaster and
-  `amt == maxTokenCost` from it (exact-amount rule); `amt == 0` (revoke) is always fine; any other path → `SpenderNotAllowed`.
-- `amt` is counted against the USDG spend slot (quote0/quote1 == USDG). It is the **upper bound** of the gas fee (the
-  hook runs before gas is known); the actual charge is ≤ it. Sessions that don't list USDG as a capped quote can't use
-  the paymaster (refused like any other uncapped outflow).
-- `moduleId` → `disciple.session-policy.1.4.0`. Requires policy redeploy + session reinstall (SITE handoff below).
+### Dynamic limit, no aggregate budget
 
-## File list
-Contracts
-- `contracts/src/paymaster/DisciplePaymaster.sol` (new) · `contracts/src/paymaster/IEntryPointV07Min.sol` (min interfaces)
-- `contracts/src/session/DiscipleSessionPolicy.sol` (paymaster spender + cap)
-- `contracts/script/DeployPaymaster.s.sol`, `contracts/script/DeploySessionPolicy.s.sol` (new arg)
-- `contracts/test/paymaster/DisciplePaymaster.t.sol` (local EntryPoint v0.7 + SimpleAccount), `contracts/test/session/SessionPaymaster.t.sol`
-- test-only dep: eth-infinitism `account-abstraction` v0.7.0 vendored under `contracts/test/vendor/aa-v07/` (EntryPoint, SimpleAccount)
-Web
-- `web/lib/aa/paymaster.ts` (pure: encode/decode paymasterAndData, hash, cost math — shared client/server)
-- `web/lib/server/paymasterQuote.ts` (rate source, signer from `PAYMASTER_SIGNER_KEY`), `web/app/api/paymaster/route.ts`
-- `web/lib/aa/gasPolicy.ts` (paymaster gas limits), `web/lib/server/selfBundler.ts` + `fastRelay.ts` (skip ETH prefund,
-  check paymaster deposit), `web/lib/aa/mav2.ts` (prepend exact approve, fetch paymasterAndData), `web/lib/server/relayTrust.ts`
-- `web/scripts/paymaster-keeper.mts` (deposit top-up), `web/scripts/test-paymaster.mts` (unit tests)
+The deploy default is **7,068,712 gas units = 2 × 3,534,356 measured gas**. Validation sums account verification + call + preVerification + paymaster verification + paymaster postOp limits and rejects above this. Its ETH ceiling is `maxGasPerOp × uint128(op.gasFees)` (the signed maxFeePerGas). USDG maximum is `ceil(ETH ceiling × signed USDG/ETH rate / 1e18)`. The actual validation precharge uses the op's own EntryPoint maximum prefund, not the whole gas-unit ceiling. PostOp uses the effective gas price supplied by EntryPoint. No static USDG cap or new gas-price sanity ceiling exists. No exposure counter, aggregate budget or aggregate-budget setter remains; `reservedOf` only accounts for each sender's secured collateral.
 
-## Pricing (`/api/paymaster`)
+A cached quote can authorize a larger token ceiling than the current dynamic limit: that ceiling is consent, never the collected amount. This preserves warm, zero-extra-RPC taps when gas prices fall. Session policy 1.4.2 conservatively debits the signed ceiling; it does not overcharge tokens.
 
-`rate` = USDG base units per 1 ETH (1e18 wei); `tokenCost(wei) = ceil(wei * rate / 1e18)`. Decimals come from
-`USDG.decimals()` on-chain (18 on testnet mUSDG, 6 on mainnet USDG `0x5fc5…d168`) — no `1e18` assumption anywhere.
+**Owner-accepted estimated settlement (8:37 PM CT):** EntryPoint v0.7 passes cost to postOp BEFORE the callback and BEFORE final unused-gas penalty calculation (`test/vendor/aa-v07/core/EntryPoint.sol:703–730`). The callback therefore uses a conservative callback/penalty estimate, not receipt-exact billing. Settlement overhead / web callback limit is **79,684 = 2 × the newly measured 39,842-gas cold callback**, not 200k. Zero markup means the signed price-source rate is unchanged; it does not remove the small estimated gas overcharge. Lee explicitly accepted this estimate and rounding **UP to one USDG base unit** (0.000001 USDG for a six-decimal token), not up to a whole dollar. The callback budget was recalibrated for the v4 dispatcher (the preceding callback baseline was 39,776). Measured launch settlement overcharge is **0.00231666–0.00316335 USDG** at the observed 0.01 gwei and EXAMPLE 3,000 USDG/ETH, before six-decimal rounding. No exact-billing activation block or general receipt-refund keeper remains. Exceptional stuck-precharge reconciliation still uses a trusted owner-provided final receipt cost.
 
-**Testnet (implemented):** fixed, configurable rate from server env — `PAYMASTER_RATE` (integer base units per ETH)
-or `PAYMASTER_USD_PER_ETH` (e.g. `3000`, scaled by the on-chain decimals). The server refuses to sign if the rate is
-outside the contract's `[minRate, maxRate]`.
+The quote's price source remains existing TESTNET-only configuration. Rate bounds protect against corrupt/stale signed prices; they add no markup and do not prove USDG peg/oracle freshness. Treasury receives USDG, NOT ETH: conversion/refill of the ETH float remains a manual owner liquidity task. No keeper or minimum-large-float guard was added. Low float or fee spikes fail closed at EntryPoint prefund; a ~$1 float cannot guarantee arbitrary concurrency or gas prices. Stake capital is separate from the spendable float.
 
-**Mainnet (design only — not implemented, not deployed):**
-1. Source: the USDG/WETH Uniswap v3 pool on RH mainnet. Read `observe([1800, 0])` → 30-minute arithmetic-mean tick
-   → TWAP price, converted to USDG base units per 1e18 wei using `USDG.decimals()` (6) and WETH decimals (18), with
-   token0/token1 ordering handled.
-2. Sanity: read `slot0` spot; refuse to quote if |spot − TWAP| > 2% (manipulation or a fast move) or if the pool's
-   in-range liquidity is below a floor; require the pool's observation cardinality to cover 30 min.
-3. Margin: quote `rate = TWAP × (1 + 1%)` so a move inside the quote TTL (≤ 3 min) can't make the paymaster pay.
-4. Clamp: the contract's `minRate`/`maxRate` (owner-set, e.g. ±25% of the launch price, reviewed weekly) are the
-   hard backstop; the server never signs outside them even if the TWAP says so.
-5. Cache the TWAP for ~15 s per server instance; the quote still re-reads the sender's debt and balance per op.
-6. Fallback: if the pool read fails or a sanity check trips, answer `-32003` (paymaster unavailable) — never fall back
-   to a stale fixed rate on mainnet.
+### Runtime measurements
 
-## Allowance (per-sender, reused across ops) — feat/trade-latency
+`PaymasterRuntime.t.sol` uses the real vendored EntryPoint v0.7, pinned canonical MAv2 factory/implementation/SingleSigner bytecode, actual DISCIPLE USDG two-hop router, curve, migration, v4 manager and unchanged hook. Only ERC20 assets/oracle price are test fixtures. It begins with an undeployed USDG-only account; first op deploys, grants validation-time allowance, installs the session and buys. The paymaster deposit is only `1 ETH / 3000` (~$1 at the example rate); the account has zero ETH throughout. Every measured op must succeed. `UserOperationEvent.actualGasUsed` includes settlement and EntryPoint's unused-gas penalty; callback gas is read from the production runtime trace.
 
-`getHash(sender, validUntil, validAfter, rate, maxTokenCost)` =
-`keccak256(abi.encode(ALLOWANCE_TYPEHASH, sender, block.chainid, address(this), validUntil, validAfter, rate, maxTokenCost))`,
-EIP-191 personal_sign by `signer`. It no longer binds nonce / initCode / callData / gas limits / gas fees, so one signature
-serves every op of `sender` inside `[validAfter, validUntil]` (window ≤ `MAX_QUOTE_WINDOW` = 1 h; the server issues 10 min).
-The 193-byte `paymasterAndData` layout is unchanged, so DiscipleSessionPolicy 1.4.0's `_paymasterMaxCost` parser and
-its "first call = `approve(paymaster, exactly maxTokenCost)`" rule still apply.
+Preceding production solc 0.8.26 **trade** calibration (retained because the owner explicitly kept the trade cap unchanged):
 
-Per-op checks, all still in `validatePaymasterUserOp`:
-quote window · `rate ∈ [minRate, maxRate]` · `maxTokenCost ≤ maxCostCap` · `maxTokenCost ≥ tokenCost(maxCost, rate) + debtOf[sender]`
-(maxCost is the EntryPoint's worst case from the op's OWN gas limits × maxFeePerGas, so inflating gas or fees is refused) ·
-USDG balance ≥ maxTokenCost · first call approves exactly enough, else standing allowance ≥ maxTokenCost ·
-**new:** `paymasterPostOpGasLimit ≥ MIN_PM_POST_OP_GAS_LIMIT (60k)` (gas limits are no longer signed, and a starved postOp
-would make the EntryPoint bill our deposit with no pull) · **new:** reservation (below).
+| Path | actualGasUsed | USDG at observed gas price and example 3,000 USDG/ETH (before base-unit rounding) |
+| --- | ---: | ---: |
+| Deploy + deferred allowance + session install + two-hop buy | 1,777,343 | 0.05332029 |
+| Warm two-hop curve buy | 1,347,741 | 0.04043223 |
+| Warm two-hop curve sell | 1,304,276 | 0.03912828 |
+| Graduating two-hop buy (migration + LP/floor seed) | 3,534,356 | 0.10603068 |
+| Warm two-hop v4 buy | 1,513,849 | 0.04541547 |
+| Warm two-hop v4 sell | 1,390,219 | 0.04170657 |
 
-**Two signature modes** (same 193-byte layout; validation tries the allowance hash, then the op hash):
-- **Allowance** — `getHash(sender, …)` above, reusable inside its window. Issued only by `pm_getPaymasterAllowance`, for
-  the standard trade envelope (`ALLOWANCE_GAS` × 2× fee ceiling).
-- **Op quote** — `getOpHash(op, validUntil, validAfter, rate, maxTokenCost)` =
-  `keccak256(abi.encode(OP_QUOTE_TYPEHASH, opPart, block.chainid, address(this), validUntil, validAfter, rate, maxTokenCost))`,
-  `opPart = keccak256(abi.encode(sender, nonce, keccak(initCode), keccak(callData), accountGasLimits, pmGasLimits, preVerificationGas, gasFees))`.
-  Every per-op `pm_getPaymasterData` quote (launches, graduating buys, cold estimates, fee spikes — the larger
-  maxTokenCost tiers) is signed over it, so it is single-use (nonce) and the server's per-op gas / policy / simulation
-  checks are binding, not advisory (AUDIT #141 L-2). Warm trades are unaffected (cached allowance, 0 `pm_*` calls).
+Observed **Robinhood testnet eth_gasPrice = 10,000,000 wei = 0.01 gwei**, read-only RPC, **2026-11-05 9:11:01 PM CT**; chainId checked as 46630. The RPC URL/credentials were never printed or stored. At that price and the explicitly hypothetical 3,000 USDG/ETH conversion rate, the dynamic 2× cap is **0.21206136 USDG** (0.212062 rounded up for six decimals). This is an example, not a fixed cap or a live ETH/USD price. The **trade** limit remains unchanged; launches have the separately measured launch limit below.
 
-**Issue-time checks (I-1).** `allowanceQuote` checks the rate bounds, `maxTokenCost ≤ maxCostCap`, the sender's USDG
-**balance** and folds in the carried debt (`owedOf`). It does **not** check the sender's ERC-20 allowance to the paymaster
-(the op's own first call approves it); the approve / standing allowance is enforced only on-chain in validation
-(`firstCallApproves` or `allowance ≥ maxTokenCost`).
+### Separate launch budget — owner approved 8:37 PM CT
 
-**Reservation and settlement** (AUDIT #141 L-1). Validation sets `reservedOf[sender] = maxTokenCost − owed` (the op's
-gas cap) and `reservedBy[sender] = userOpHash`. If a reservation is still set when the sender's next op validates — a
-second op of the same sender in the same bundle (v0.7 runs all validations before any postOp), or a postOp that never
-ran — it is moved to `rolledOf[sender]` (provisionally owed) and the new op must cover `cost + debtOf + rolledOf`.
-In postOp:
-- `reservedBy == own userOpHash` (the sender's last validated op): clear the reservation; anything still in `rolledOf`
-  belongs to an op whose postOp never ran (all earlier same-bundle postOps have already run) ⇒ moved to `debtOf`.
-- otherwise (a later op rolled ours): subtract our own gas cap from `rolledOf` — this postOp settles it itself.
-- charge `gasCost` (actual, ≤ own cap) + `min(debt cap from validation, debtOf now)`: a later op repays only REAL
-  debt, never an earlier op's cap that op already paid. A failed pull adds only `gasCost` to `debtOf`.
-Result (forge `PaymasterSettlement.t.sol`): same-bundle paid ops are charged exactly their own gas once (AUDIT's PoC had
-paid 15.59 for 2.81 of gas); unpaid ops leave `debtOf` = the real shortfall (PoC: 11.45 for a ~2.6 loss); nothing is left
-in `reservedOf`/`rolledOf`; a reservation whose postOp never ran is collected once as debt. `owedOf(sender)` =
-`debtOf + rolledOf + reservedOf` is what the server folds into the next quote.
+Default **`maxLaunchGasPerOp = 21,840,770 gas units = 2 × 10,920,385`**. The trade default stays **7,068,712**; no aggregate budget or fixed USDG cap returns. A dedicated **`DisciplePaymaster.LaunchQuote(v1)`** domain authorizes the launch tier, binding the entire operation (sender, nonce, initCode, calldata, account/paymaster gas limits, PVG, fees), quote window, rate, chain and paymaster. Ordinary op quotes and reusable trade allowances ALWAYS retain the trade limit. The quote service issues the launch domain only for configured launch targets/selectors, approvals, LoginGate attestations and optional **self-targeted** session installation. Unknown targets or extra arbitrary calls do not qualify. Classification is an explicit responsibility of the existing trusted quote signer, not a new on-chain target registry. Quote wire remains 193 bytes; v4 readiness rejects legacy paymasters. Owner can set the launch limit to zero to disable launch-tier quotes.
 
-**Exposure bound.** The paymaster's unrecovered USDG for one sender is, at any moment,
-`debtOf + rolledOf + reservedOf ≤ maxTokenCost of that sender's last validated op ≤ maxCostCap`, independent of the
-number of ops, bundles or allowances. Proof sketch: an op validates only if `tokenCost(maxCost) + debtOf + rolledOf ≤
-maxTokenCost`; its charge is capped at `gasMaxToken = maxTokenCost − (debtOf + rolledOf)`; a failed pull (or an
-unsettled reservation) adds at most `gasMaxToken`. In ETH terms: ≤ `maxCostCap / minRate` per abandoned sender. Ops
-whose pull succeeds are fully paid (no sponsorship).
-Across senders the bound is `maxCostCap × (distinct senders that default)`; each needs (a) an allowance from
-`/api/paymaster` (per-IP limit, plus a per-(IP, sender) limit — L-3 — so third parties can't exhaust a user's bucket;
-sender must hold ≥ maxTokenCost USDG at issue and at validation) and (b) to sacrifice its own USDG-holding account.
-Knobs: `setBounds(maxCostCap)` on-chain; `PAYMASTER_ALLOWANCE_TTL_SEC` and the per-IP limit off-chain; `forgiveDebt`
-clears debt + rolled + reservation.
+For either tier: `dynamicMaxUSDG = ceil(tierGasUnits × signed userOp.maxFeePerGas × unmarked rate / 1e18)`. Validation precharges only the op's required maximum prefund within that ceiling, and postOp uses EntryPoint's effective fee plus the accepted conservative settlement estimate. No new gas-price ceiling was invented. Larger launch gas is NOT a sponsorship allowance.
 
-**Same-sender ops in one bundle (I-4).** Under the SAME allowance a second same-sender op in one bundle needs
-`maxTokenCost ≥ cost₂ + gasMaxToken₁`, which is impossible, so `MaxCostTooLow` (AA33) **reverts the whole
-`handleOps`** — nothing is recorded as debt (`revert_sameSenderTwiceInOneBundle`). Only ops carrying distinct, larger
-quotes (escalating maxTokenCost) can share a bundle; they settle as above. Our relay sends one op per `handleOps`, so
-neither happens on the DISCIPLE path. Gas (measured in a forge harness vs the pre-fix contract, direct calls, cold
-slots): validation +≈ 25k on a sender's first op (new `reservedBy` slot), +≈ 7.5k after; an op quote costs ≈ 6.5k more
-than an allowance quote (op hash + second ecrecover attempt); postOp +≈ 6.5k. Fork e2e passes with
-`PAYMASTER_GAS.verificationGasLimit` 120k; re-measure on the testnet deploy.
-ERC-7562: validation writes the paymaster's own sender-keyed storage, so a public 7562 mempool needs a **staked**
-paymaster (STO-031) — we self-relay; see the redeploy runbook (LEE DECISION, I-2).
-Needs redeploy (contract not yet deployed on 46630 — the broadcast address has no code).
+`PaymasterLaunchRuntime.t.sol` measures **25 launch configurations × bootstrap/warm = 50 successful real EntryPoint operations**. It combines the canonical MAv2 runtime, actual Launchpad/AnonLauncher/USDG router/QuotePricer/curve deployment, session policy and a stateless ERC-5564 announcement-event fixture. ERC20 assets, the **EXAMPLE** price and stateless announcer are fixtures; this is not live bundler acceptance. The account always has zero ETH; public USDG-router launches need only USDG. Legacy direct/private pair-denominated First BOOST requires existing pair tokens, as the current client already does. Bootstrap includes account deployment, native allowance approval, session installation, and the launch; Easy includes its login attestation. Warm launches are genuinely session-key signed and can cost MORE because execution-policy checks also run. First BOOST is 1,000 quote/USDG units, covering mode caps/partial-fill/refund paths; metadata is a valid 31-byte name, 10-byte ticker, 96-byte image, 512-byte description, 256-byte socials, and anonymous cases include a conservative 64-byte announcement payload. These are **worst measured supported fixtures**, not a claim that arbitrarily long metadata or future contracts have a finite universal worst-case. The runtime test fails if any path exceeds the calibrated worst; future changes require review/recalibration.
 
-## Risks
-1. **Absorbed gas on reverted ops** — mitigated by validation balance/allowance checks, signer-gated quotes after
-   simulation, debt carry-forward; residual: one op per abandoned account. Monitor `DebtRecorded` events.
-2. **Rate staleness / manipulation** — testnet fixed rate; mainnet TWAP (≥30 min) from the USDG/WETH v3 pool with
-   `minRate/maxRate` on-chain clamps and short quote windows (≤ 2 min). A bad rate only mis-prices one op ≤ maxCostCap.
-3. **Signer key compromise** — signer can only issue quotes within on-chain bounds; it cannot move funds. Owner rotates
-   `signer`. Key only in env (`PAYMASTER_SIGNER_KEY`), never committed.
-4. **Deposit drain / exhaustion** — bundler checks deposit before relaying; keeper tops up; owner `withdrawTo`.
-5. **ERC-7562** — validation reads `balanceOf[sender]` (associated) and `allowance[sender][paymaster]` (associated with
-   the staked paymaster); paymaster must be **staked** (context is non-empty). Our own bundler doesn't enforce 7562 but
-   we stay compliant so a third-party bundler works later.
-6. **Policy redeploy / session reinstall** — every user must reinstall their session; old sessions keep working without
-   the paymaster (ETH path) until SITE flips the flag.
-7. **Decimals** — all amounts raw-unit; 18 on testnet, 6 on mainnet. Site has hard-coded `/1e18` for USDG display
-   (`web/lib/protocol-viem.ts` `tradeViaUsdg` "not enough cash" message, line ~538) — flagged, must use USDG decimals.
-8. **Penalty math** — v0.7 bills the paymaster 10% of unused execution gas; we bill the user for it (Pimlico's formula),
-   so over-estimated callGasLimit costs the user a little. STATIC_GAS (1.8M call) should be tightened for paymaster ops.
+Both first and warm operations use 500k account validation, 100k PVG, 250k paymaster validation, **14M call gas**, and 79,684 postOp gas. The former web 10M-call envelope OOG'd on several valid warm session launches with these metadata fields; its launch-only call/total envelope now follows the measured budget (20,840,770 call / 21,840,770 total). Trade/graduation envelopes and zero-extra-RPC warm taps are unchanged. Every operation asserts success, zero account ETH, no gas debt and a paymaster gas bill at least its final EntryPoint receipt cost. The float remains only `1 ETH / 3000` (~$1 at the EXAMPLE fixture price), without a keeper.
 
-## SITE handoff (nothing below has been done — no deploys, no env changes)
-Order matters: paymaster first (the policy bakes its address in as an immutable).
-1. **Deploy `DisciplePaymaster`** on RH testnet with `contracts/script/DeployPaymaster.s.sol` (refuses any chain but
-   46630). Env: `USDG` (testnet mUSDG `0x25030Bff74764aD72b912276a603717DB1C00644`), `PAYMASTER_OWNER` (multisig/ops),
-   `PAYMASTER_SIGNER` (ADDRESS of the quote key), `PAYMASTER_TREASURY`, `PAYMASTER_MIN_RATE` / `PAYMASTER_MAX_RATE`
-   (USDG base units per ETH — e.g. 1000 / 10000 USDG, i.e. 1000e6 / 10000e6 with the new 6-dec mock USDG, 1000e18 /
-   10000e18 with today's 18-dec mUSDG), `PAYMASTER_MAX_COST_USDG` (per-op USDG cap in **WHOLE USDG**, scaled by
-   `decimals()`; **default 10**; must be within [0.1, 100] USDG — e.g. `2` → `maxCostCap = 2000000` on 6-dec mock USDG;
-   the old raw-unit `PAYMASTER_MAX_COST` is rejected, see "Launch ops"; the contract also caps `maxCostCap` at
-   `maxCostCapLimit = 100 USDG` in `setBounds`), `PAYMASTER_POST_OP_GAS` (30000), `PAYMASTER_DEPOSIT_WEI`, `PAYMASTER_STAKE_WEI`
-   (1-day unstake delay).
-2. **Redeploy `DiscipleSessionPolicy` 1.4.1** with `contracts/script/DeploySessionPolicy.s.sol`, env `REFERRAL_REGISTRY`
-   + `PAYMASTER` = the address from step 1. Constructor is now `(referralRegistry, paymaster)`.
-3. **Every user reinstalls their session** against the new policy (moduleId `disciple.session-policy.1.4.1`). Sessions
-   must list **USDG as quote0 or quote1 with a spend cap** — the gas allowance is debited from that cap. Old 1.3.0
-   sessions keep working in ETH self-pay mode only.
-4. **Web env** — server only: `PAYMASTER_SIGNER_KEY` (dedicated key; must differ from `RELAYER_PRIVATE_KEY` and
-   `DRIP_FAUCET_KEY`; never `NEXT_PUBLIC_`), `PAYMASTER_USD_PER_ETH` (e.g. `3000`) or `PAYMASTER_RATE`, optional
-   `PAYMASTER_ADDRESS`, `PAYMASTER_QUOTE_TTL_SEC`, `PAYMASTER_MAX_SLACK_BPS`. Public: `NEXT_PUBLIC_RHT_PAYMASTER`,
-   `NEXT_PUBLIC_SESSION_POLICY_VERSION=1.4.0`, and the new policy address wherever the 1.3.0 address lives today
-   (`contracts/deployments/rh-testnet-46630.json` → web defaults). Keeper: `PAYMASTER_KEEPER_KEY`,
-   `PAYMASTER_MIN_DEPOSIT_WEI`, `PAYMASTER_TARGET_DEPOSIT_WEI`; run `pnpm paymaster:keeper --send --loop`.
-5. **ABI regen** (`web/scripts/gen-abi.mjs`): add `DisciplePaymaster`; `DiscipleSessionPolicy` changed (new ctor arg,
-   `paymaster()` getter, `PaymasterApproveNotExact(uint256,uint256)` error, moduleId string).
-6. **Decimals**: `tradeViaUsdg` "not enough cash" no longer divides by `1e18` (fixed in this PR); audit any other USDG
-   display that assumes 18 decimals before mainnet (USDG is 6 there).
-7. Client wiring (done in this PR): `Mav2Account.sendCalls` pays gas in USDG via `payGasInUsdg` whenever
-   `NEXT_PUBLIC_RHT_PAYMASTER` is non-zero (owner ops always; session-key ops only with
-   `NEXT_PUBLIC_SESSION_POLICY_VERSION` ≥ 1.4.0). Unset ⇒ unchanged ETH prefund. Optional `NEXT_PUBLIC_PAYMASTER_URL`
-   (default `/api/paymaster`). Fork e2e: `pnpm test:paymaster-e2e` (anvil fork, nothing sent to testnet).
-8. **Merge order with PR #111** (SITE launch gas caps): this PR carries #111's `gasPolicy.ts` launch-cap block
-   (`LAUNCH_GAS_CAPS`, `capsForOp`, `isLaunchOp/isLaunchCalls`), `lib/aa/launchTargets.ts` and the
-   `checkOpGas(op, fee, capsForOp(…))` relay lines **byte-identical**, so those merge cleanly either way. Expected
-   textual conflicts, resolve by keeping both sides: `web/lib/aa/mav2.ts` (this PR moved the sync-relay block into
-   `relaySync()`; #111's `opRevertReason` / `launch` edits are already applied there) and the FundAccount copy;
-   `web/scripts/test-relay-policy.mts` (take #111's added tests). When the router USDG-in launch path lands, add the
-   router to `launchTargets()` — the relay, `/api/paymaster` quotes and the keeper all read it.
+Production solc 0.8.26 `UserOperationEvent.actualGasUsed` (includes settlement and unused-gas penalty):
 
-## Launch ops (PR #111 caps)
-Launches (Launchpad `launch*` / AnonLauncher `launchAnon`, plus their approves and LoginGate.attest) get the relay's
-LAUNCH_GAS_CAPS: 10M call gas, 11M total. The paymaster path uses the same caps everywhere:
-- `/api/paymaster` (`paymasterCore.quoteCaps`) validates and sizes stubs with `capsForOp(op, launchTargets())`.
-- Relay (`fastRelay` / `selfBundler`) `checkOpGas(…capsForOp…)` then `checkPaymaster` (deposit ≥ op gas × max(maxFee,
-  relayer price)) — an 11M-gas launch needs ≈ **0.000348 ETH** of deposit at today's 0.01 gwei base fee.
-- Client: launches always estimate (no STATIC_GAS / cache) and never use the session key (wallet confirm).
+| Launch path | Deploy + approve + install + launch | Warm session launch |
+| --- | ---: | ---: |
+| `directEasyBoostPair` | 9,374,310 | 9,744,902 |
+| `directEasyBoostUsdg` | 9,217,006 | 10,505,288 |
+| `directEasyNoBoostUsdg` | 8,691,299 | 9,102,215 |
+| `directHardBoostPair` | 9,270,858 | 9,669,925 |
+| `directHardBoostUsdg` | 9,113,553 | 10,430,311 |
+| `directHardNoBoostUsdg` | 8,635,083 | 9,078,524 |
+| `directTrenchBoostPair` | 9,252,746 | 9,651,813 |
+| `directTrenchBoostUsdg` | 9,095,442 | 10,412,199 |
+| `directTrenchNoBoostUsdg` | 8,616,972 | 9,060,412 |
+| `launchAnonBoostPair` | 9,413,731 | 10,920,385 |
+| `launchAnonBoostUsdg` | 9,233,034 | 10,737,780 |
+| `launchAnonNoBoostPair` | 8,839,901 | 10,366,240 |
+| `launchAnonNoBoostUsdg` | 8,686,916 | 10,237,661 |
+| `launchWithUsdgEasyBoostTwoHop` | 9,562,589 | 9,769,402 |
+| `launchWithUsdgEasyBoostUsdg` | 9,302,690 | 9,520,294 |
+| `launchWithUsdgEasyNoBoostTwoHop` | 8,863,547 | 8,710,354 |
+| `launchWithUsdgEasyNoBoostUsdg` | 8,710,562 | 8,581,702 |
+| `launchWithUsdgHardBoostTwoHop` | 9,458,571 | 9,695,099 |
+| `launchWithUsdgHardBoostUsdg` | 9,199,236 | 9,445,316 |
+| `launchWithUsdgHardNoBoostTwoHop` | 8,807,331 | 8,686,662 |
+| `launchWithUsdgHardNoBoostUsdg` | 8,654,346 | 8,558,011 |
+| `launchWithUsdgTrenchBoostTwoHop` | 9,440,390 | 9,676,750 |
+| `launchWithUsdgTrenchBoostUsdg` | 9,181,125 | 9,427,205 |
+| `launchWithUsdgTrenchNoBoostTwoHop` | 8,789,220 | 8,668,550 |
+| `launchWithUsdgTrenchNoBoostUsdg` | 8,636,235 | 8,539,899 |
 
-Numbers at base fee 0.01 gwei (client maxFee = (2·base + 1.1·tip)·1.5 = 0.03165 gwei), $3000/ETH:
-| | gas | max cost (approve) | typical actual |
-|---|---|---|---|
-| trade at STATIC_GAS | 2.41M | ≈ 0.23 USDG | ≈ 0.002–0.003 USDG (fork e2e) |
-| launch at the caps | 11M | **≈ 1.04 USDG** (10.61M stub ≈ 1.01) | ≈ 6.1M × 0.011 gwei ≈ 0.2 USDG |
-- `maxCostCap` default **10 USDG** (`DEFAULT_MAX_COST_USDG`): ~9.6x headroom — an 11M launch fits up to ≈ 0.1 gwei
-  base fee at $3000/ETH (≈ 0.03 gwei at the $10000 max rate). Above that the quote fails closed ("above the paymaster
-  cap"), nothing is charged.
-- Set at deploy via `PAYMASTER_MAX_COST_USDG` (WHOLE USDG; script bounds [0.1, 100]; testnet runbook uses `2`).
-  `DeployPaymaster.s.sol` is **46630-only** — mainnet needs its own deploy path (start at 3–5 USDG).
-- **Sanity ceiling**: `maxCostCapLimit` (immutable, `MAX_COST_CAP_LIMIT_USDG = 100` × 10**decimals) — the constructor
-  and `setBounds` revert `MaxCostCapAboveLimit(cap, limit)` above it (exactly 100 USDG is allowed).
-- **Lowering the cap** (`setBounds`): a sender whose outstanding debt (`owedOf`) is above the new cap is blocked until
-  they repay or the owner calls `forgiveDebt` — check debts (`DebtRecorded` / `owedOf`) before tightening.
-- Keeper: MIN is raised to `PAYMASTER_LAUNCH_CONCURRENCY` (default 20) × 11M × maxFee at the current base fee,
-  TARGET to 2× that: 20 launches ≈ 0.007 ETH today (< the 0.05 ETH default MIN, which already covers ~143 concurrent
-  launches; 0.2 ETH target ≈ 570); at 10x base fee 20 launches need ≈ 0.066 ETH and MIN follows.
-- **Session caps**: a launch's paymaster approve equals its max cost (≈ 1.04 USDG at the caps). Launches are not
-  session-key ops (TRADE_PERMS has no launch selector; they always need the owner's wallet confirm), so that approve
-  is **not** debited from any session USDG cap. Only session trades' approves (≤ ≈ 0.23 USDG each at STATIC_GAS)
-  count against the session's USDG cap.
+At the read-only **Robinhood testnet** `eth_gasPrice` observation above (0.01 gwei), and explicitly **EXAMPLE 3,000 USDG/ETH**, worst launch receipt gas converts to **0.32761155 USDG** and the 2× launch ceiling to **0.65522310 USDG**, or **0.655224** with six-decimal ceil. This is NOT a live ETH/USD price or a fixed USDG cap. It assumes the signed fee equals that observed gas price; browser fee headroom can raise the maximum prefund/ceiling, while settlement uses the effective price. A ~$1 float can therefore reject a heavy launch at buffered fees or high concurrency; the code fails closed rather than assuming or silently supplying a larger float. Actual float sizing and manual conversion/refill remain owner liquidity operations. Stake is separate and cannot pay gas.
 
-## Estimate (realistic)
-| Day | Work |
-|---|---|
-| Fri Oct 23 | design doc, draft PR, contract + Foundry suite on local EntryPoint v0.7 |
-| Mon Oct 26 | session policy change + tests; deploy scripts (not run) |
-| Tue Oct 27 | `/api/paymaster` + shared encoder + unit tests; bundler changes (skip prefund, deposit check, gas caps) |
-| Wed Oct 28 | client wiring in mav2 (approve-prepend, stub/final), keeper script; testnet dry run on a fork |
-| Thu Oct 29 | review fixes; testnet deploy (after approval) + policy redeploy + session reinstall by SITE |
-| Fri Oct 30 | e2e on testnet, monitoring (DebtRecorded, deposit), buffer |
-Realistic code-complete: **Wed Oct 28**; testnet live after review: **Fri Oct 30, 2026**. Mainnet TWAP pricing: design only.
+## USDG-only first operation
 
-**Status Fri Oct 23, 3:30 PM CDT:** Mav2Account USDG-gas switch + anvil-fork e2e (owner deploy op, session install,
-session-key curve buy, ETH fallback: 12/12 ok) + launch caps landed. **#106 is code-complete (Fri Oct 23)**; open
-items are review, the 6-decimal USDG test matrix (separate PR) and SITE's deploy steps. Testnet live after review +
-SITE steps: **Thu Oct 29, 2026** (Fri Oct 30 buffer).
+Canonical Alchemy MAv2 already has native **owner-authorized deferred actions** in its validation signature. `web/lib/aa/prepayBootstrap.ts` signs exactly `account.execute(USDG,0,approve(paymaster,uint256.max))` with EIP-712 chain/account domain and full nonce/deadline/call binding. The SDK executes this in ACCOUNT VALIDATION, after initCode deployment and **before paymaster validation**. It requires neither ETH on the account, a replacement factory, a separate approval transaction nor ERC-2612/1271 permit support.
 
-Earlier status (Fri Oct 23): (a)–(e) landed ahead of plan; remaining is the `Mav2Account.sendCalls` switch to
-`payGasInUsdg` + a fork/anvil end-to-end through a real MAv2 session. Revised: code-complete **Mon Oct 26**; testnet live
-after review + SITE steps **Thu Oct 29, 2026** (Fri Oct 30 kept as buffer).
+The production web prepares this authorization off-tap during login/warm. Its existing owner-signed deploy/session-install operation uses USDG gas. Subsequent taps use the local session key and standing allowance. No additional transaction or wallet wait is added to warm taps. The Foundry `PaymasterBootstrap` test additionally combines deploy, native approval, real session installation and first buy in one operation, followed by a session-key buy. The account starts with only USDG and zero ETH throughout. A normal callData approval without the deferred authorization fails.
+
+That test uses a real vendored EntryPoint v0.7 and pinned runtime bytecode of the deployed canonical Alchemy factory, semi-modular implementation and SingleSigner module. `test/fixtures/mav2-rht.json` records the public RH testnet block/source. Trade/token are mocks; this is not a live bundler acceptance or real-USDG blacklist test.
+
+The repo's DevToken uses OpenZeppelin `ERC20Permit`, and the bootstrap mock exposes ordinary ERC20. Paxos USDG interfaces support permit (v2.1.0 adds bytes/ERC-1271 signatures), but that release does not prove the Robinhood deployment's version. An EOA permit is insufficient for smart-account-held funds; permit deadlines can also violate ERC-7562 timestamp rules. The chosen design avoids this dependency entirely.
+
+## Bundler, staking and activation decisions
+
+The code targets Alchemy Rundler on `robinhood-testnet.g.alchemy.com`; `/api/bundler` remains only a standard RPC proxy. Alchemy's external bundler fronts its own outer handleOps transaction and is reimbursed from the paymaster deposit; the player's USDG secures that deposit cost before execution. No protocol relayer, drip, custom sync method or automatic funding keeper is restored.
+
+ERC-7562 permits the external token accesses only with the appropriate entity staking/storage associations. The paymaster returns context and uses shared storage: **it must be staked**. Alchemy also requires staked factories; the account's validation-time approval during deployment makes the canonical factory stake particularly relevant. Quote issuance checks paymaster readiness; the cold-estimate readiness guard checks both entities for bootstrap, active stake, no pending withdrawal and at least a **one-day delay**. Robinhood's Alchemy stake amount is still **unconfirmed**: Robinhood is absent from Alchemy's published mainnet AND testnet tables. Amounts for other chains are NOT a Robinhood requirement.
+
+### Owner-approved starting stake: approximately $5 of ETH
+
+`DeployPaymaster.s.sol` requires a positive **`PAYMASTER_STAKE_WEI`**, with **no invented default ETH amount or ETH/USD price**. The operator calculates `ceil(5 × 10^18 / deploy-time ETH price in USD)` wei and supplies that value. This is separate from the tiny spendable ETH float (about $1 initially). No env, stake, deposit, unlock or withdrawal was performed in this PR. Set the readiness threshold `PAYMASTER_MIN_STAKE_WEI` to the owner-approved starting amount; it checks local readiness, NOT proof of Alchemy acceptance. **$5 may be rejected by the external bundler.** Confirm its requirement with Alchemy; the remedy for insufficient amount is a later owner-authorized top-up, not a protocol relay or sponsorship fallback.
+
+The owner-only paymaster wrapper `addStake(uint32)` forwards `msg.value` to EntryPoint. Vendored `StakeManager.addStake` computes **existing stake + msg.value**, so top-ups are additive, with the same or a longer delay. It also cancels any pending unlock and re-locks the total. `unlockStake()` starts the delay and immediately makes the entity unstaked (quotes fail closed). After the delay, owner-only `withdrawStake(to)` withdraws the full stake. To reduce stake, unlock, wait, withdraw, then re-stake; do not do that during normal service. These mechanics are tested against the real EntryPoint. Unit fixture amounts are NOT deployment recommendations.
+
+Remaining rollout decisions: confirm Alchemy's minimum and canonical factory readiness, choose the **deploy-time ETH price and corresponding ~$5 stake wei**, approve price source/rate bounds, treasury and manual float liquidity, and deploy/bind the new **v4** paymaster with matching immutable session policy. Markup is zero; aggregate budget is removed; estimated ceil settlement is accepted; trade and launch caps are measurement-derived. No gas-price sanity ceiling or automatic keeper was added. Mainnet oracle/provider rollout remains out of scope. Existing live legacy paymaster code/deposits were not paused, withdrawn or migrated; its original F-01 exposure remains until separately authorized retirement.
+
+Alchemy explicitly publishes a **one-day minimum unstake delay**. Robinhood's docs identify Alchemy as the primary AA provider but publish no stake amount. Alchemy's error reference documents `minimumStake` / `minimumUnstakeDelay` in applicable -32502 failures and -32505 for insufficient stake/delay; no live submission was made to discover them.
+
+Sources opened during this work:
+- https://ercs.ethereum.org/ERCS/erc-7562
+- https://www.alchemy.com/docs/wallets/reference/bundler-faqs.md
+- https://github.com/paxosglobal/usdg-contract/releases/tag/v2.1.0
+
+- https://docs.robinhood.com/chain/account-abstraction/
+- https://www.alchemy.com/docs/wallets/reference/bundler-rpc-errors.md

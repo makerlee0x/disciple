@@ -105,7 +105,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     defaultQuote: STRATEGY_TOKEN.address,
     usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_RH_USDG_DECIMALS, 6),
-    paymaster: Z, // mainnet: not deployed (testnet only for now)
+    paymaster: addr(process.env.NEXT_PUBLIC_RH_PAYMASTER), // PREPAY_VERSION=4 + stake checked server-side; no legacy default
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RH_FROM_BLOCK || "0"),
   },
   // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json on main (v5 redeploy, PR #150 / deploy commit 4310665b,
@@ -131,7 +131,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xF5eB226F7f0890c36A06Cbd0Ff843292b7b1a88C"), // test STRATEGY (18 dec, v5 tokens.STRATEGY)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D"), // test USDG (6 dec, v5 tokens.USDG)
     usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_RHT_USDG_DECIMALS, 6),
-    paymaster: addr(process.env.NEXT_PUBLIC_RHT_PAYMASTER, "0xB3DB53C1E94F146194756FF456479ea0577E7d7E"), // DisciplePaymaster (v5 addons; charges the user's USDG)
+    paymaster: addr(process.env.NEXT_PUBLIC_RHT_PAYMASTER), // PREPAY_VERSION=4 + stake checked server-side; no legacy default
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "142064001"),
   },
   [anvil.id]: {
@@ -154,7 +154,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     defaultQuote: addr(process.env.NEXT_PUBLIC_ANVIL_DEFAULT_QUOTE),
     usdg: addr(process.env.NEXT_PUBLIC_ANVIL_USDG),
     usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_ANVIL_USDG_DECIMALS, 18),
-    paymaster: addr(process.env.NEXT_PUBLIC_ANVIL_PAYMASTER),
+    paymaster: addr(process.env.NEXT_PUBLIC_ANVIL_PAYMASTER), // PREPAY_VERSION=4 + stake checked server-side; no legacy default
     fromBlock: BigInt(0),
   },
 };
