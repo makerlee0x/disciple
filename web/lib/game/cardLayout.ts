@@ -8,7 +8,7 @@
  * and growing it back restores the spot you chose. Phones ignore the layout (their drawers / sheets own the screen).
  */
 import { SLOT_IDS, type SlotId } from "@/lib/game/slots";
-export type CardId = "header" | "trades" | "controls" | "chart" | "pnl" | "chat";
+export type CardId = "header" | "trades" | "chart" | "pnl" | "chat";
 /** w / h: a RESIZED card's size (resizable cards only — today the DEX chart); absent = the card's default size */
 /** slot / order (PR #221 snap-to-grid, lib/game/slots): where a moved card lives — the slot it was dropped in and its place in
  *  that slot's stack. dx / dy: legacy raw offsets (migrated to a slot on first sight) or the live offset while dragging. */
@@ -18,7 +18,7 @@ export type Layout = Partial<Record<CardId, CardState>>;
 export type Rect = { x: number; y: number; w: number; h: number };
 
 /** canvas cards = engine.js @cards (drawn on the canvas); DOM cards apply the offset themselves */
-export const CANVAS_CARDS: CardId[] = ["header", "trades", "controls"];
+export const CANVAS_CARDS: CardId[] = ["header", "trades"];
 /** chart: the DOM DEX chart (components/flight/DexChart.tsx, lightweight-charts) since Oct 30 — was the engine's canvas chart */
 export const DOM_CARDS: CardId[] = ["chart", "pnl", "chat"];
 /** cards with a resize handle (CardState.w / h) and their size limits (px) */
@@ -27,7 +27,7 @@ export const RESIZABLE: Partial<Record<CardId, { minW: number; minH: number; def
 };
 export const CARD_IDS: CardId[] = [...CANVAS_CARDS, ...DOM_CARDS];
 export const CARD_TITLES: Record<CardId, string> = {
-  header: "Coin", trades: "Trades", controls: "Controls", chart: "Chart", pnl: "Your position", chat: "Chat",
+  header: "Coin", trades: "Trades", chart: "Chart", pnl: "Your position", chat: "Holders",
 };
 export const LAYOUT_PREFIX = "disciple.layout.v1:";
 export const layoutKey = (account: string | null | undefined) => LAYOUT_PREFIX + (account && /^0x[0-9a-fA-F]{40}$/.test(account) ? account.toLowerCase() : "guest");
