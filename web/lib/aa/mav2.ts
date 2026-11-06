@@ -1,3 +1,4 @@
+import { diagnosticText } from "./diagnostics";
 /**
  * Alchemy Modular Account v2 (SemiModularAccountBytecode, EntryPoint v0.7) via aa-sdk — replaces the LightAccount v2
  * flow in core.ts for embedded users. MAv2 signatures carry a validation-selection prefix, so we never hand-roll them.
@@ -466,11 +467,11 @@ export class Mav2Account {
         throw new AAError("FundAccount", "Your account is still getting ready. Try again in a moment.", { have, address: sender });
       }
       // AA3x = the paymaster rejected / couldn't pay (deposit, signature, postOp): infrastructure, never shown verbatim
-      if (/AA3[0-9]/.test(msg) || raw.includes("414133")) throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: msg.split("\n")[0].slice(0, 300) });
+      if (/AA3[0-9]/.test(msg) || raw.includes("414133")) throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: diagnosticText(msg) });
       // keep the revert payload (e.g. PreExecHookReverted(module, reason)) so callers/tests can decode the policy error
       let revertData: string | undefined = typeof (e as { data?: unknown }).data === "string" && /^0x[0-9a-fA-F]{8,}$/.test((e as { data: string }).data) ? (e as { data: string }).data : undefined;
       if (!revertData) (e as { walk?: (f: (x: unknown) => boolean) => unknown }).walk?.((x) => { const dd = (x as { data?: unknown }).data; if (typeof dd === "string" && /^0x[0-9a-fA-F]{8,}$/.test(dd)) { revertData = dd; return true; } return false; });
-      throw new AAError("Estimate", `simulation failed: ${msg.split("\n")[0].slice(0, 200)}`, { revertData });
+      throw new AAError("Estimate", `simulation failed: ${diagnosticText(msg).split("\n")[0].slice(0, 200)}`, { revertData, detail: diagnosticText(msg) });
     };
 
     // ---- Player-paid USDG gas: credit reservation → signed quote → external bundler
@@ -523,11 +524,11 @@ export class Mav2Account {
         if (e instanceof PaymasterRpcError) {
           if (/not enough USDG/i.test(e.message)) throw new AAError("FundAccount", NOT_ENOUGH_USDG, { address: sender, data: e.data, usdg: true, detail: e.message });
           if (feeRetry && /fee below relayer floor/i.test(e.message)) { FEES.invalidate(); return this.sendCalls(calls, as, false, o); }
-          throw new AAError("Bundler", TRADING_UNAVAILABLE, { data: e.data, detail: `paymaster: ${e.message.split("\n")[0].slice(0, 300)}` });
+          throw new AAError("Bundler", TRADING_UNAVAILABLE, { data: e.data, detail: `paymaster: ${diagnosticText(e.message)}` });
         }
         // client-side paymasterData checks (paymaster.ts) — real reverts from estimation still go through fail()
         const em = (e as Error)?.message ?? String(e);
-        if (/^paymaster|fetch failed|failed to fetch|networkerror|timeout|aborted/i.test(em)) throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: em.split("\n")[0].slice(0, 300) });
+        if (/^paymaster|fetch failed|failed to fetch|networkerror|timeout|aborted/i.test(em)) throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: diagnosticText(em) });
         return fail(e);
       }
       if (!gas && !launch && !grad && !deployedOwner && limits && !calls.some((c) => c.data.length < 10)) this.gas.set(kind, limits);
@@ -651,7 +652,7 @@ export class Mav2Account {
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendUserOperation", params: [wire, ENTRYPOINT_V07] }) });
     } catch (e) {
       // The connection dropped during the POST: the op may already be in. Look it up before saying anything; never resend.
-      const detail = String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300);
+      const detail = diagnosticText((e as Error)?.message ?? e);
       const got = await this.findOp(hash, wire.sender, 15_000);
       if (!got) { logRelayOp("pending", { userOpHash: hash }); throw new AAError("Timeout", PENDING_MSG, { ...unclearExtra({ unclear: true, reason: "network" }, hash, wire), detail }); }
       if (!got.success) {
@@ -666,6 +667,7 @@ export class Mav2Account {
     }
     const j = await r.json().catch(() => ({ error: { message: `send response unreadable (HTTP ${r.status})`, unreadable: true } })) as { result?: Hex; error?: { code?: number; message: string; data?: unknown; unreadable?: boolean } };
     if (j.error) {
+      console.warn(`[disciple] bundler send error: ${diagnosticText(j.error.message)}`, { userOpHash: hash, status: r.status, rpcCode: j.error.code });
       if (/not confirmed|timeout/i.test(j.error.message)) {
         logRelayOp("pending", { userOpHash: hash });
         throw new AAError("Timeout", PENDING_MSG, unclearExtra(relayUnclear({ message: j.error.message, data: j.error.data }, hash) ?? { unclear: true, reason: "receipt-timeout" }, hash, wire));
@@ -674,7 +676,7 @@ export class Mav2Account {
       if (j.error.unreadable || relayErrorUnclear(j.error)) {
         const txh = (j.error.data as { txHash?: Hex } | undefined)?.txHash;
         const got = (txh ? await this.receiptFor(txh, hash) : null) ?? await this.findOp(hash, wire.sender);
-        if (!got) { logRelayOp("pending", { userOpHash: hash }); throw new AAError("Timeout", PENDING_MSG, { ...unclearExtra(unclearOf(j.error, hash), hash, wire), detail: j.error.message.split("\n")[0].slice(0, 300) }); }
+        if (!got) { logRelayOp("pending", { userOpHash: hash }); throw new AAError("Timeout", PENDING_MSG, { ...unclearExtra(unclearOf(j.error, hash), hash, wire), detail: diagnosticText(j.error.message) }); }
         if (!got.success) {
           this.gas.drop(kind);
           const revertData = opRevertReason(got.logs, hash);
@@ -689,7 +691,7 @@ export class Mav2Account {
       if (retried) return retried;
       // Infrastructure failures use existing plain copy; real reverts still decode via fail()
       if (j.error.unreadable || (!/simulation|revert|AA[0-9]{2}/i.test(j.error.message) && INFRA_WORDING.test(j.error.message)))
-        throw new AAError("Bundler", TRADING_UNAVAILABLE, { userOpHash: hash, detail: j.error.message.split("\n")[0].slice(0, 300) });
+        throw new AAError("Bundler", TRADING_UNAVAILABLE, { userOpHash: hash, detail: diagnosticText(j.error.message) });
       return fail(Object.assign(new Error(j.error.message), { data: j.error.data }));
     }
     opPhase({ phase: "submitted", userOpHash: hash, pressId });

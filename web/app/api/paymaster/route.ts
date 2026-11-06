@@ -8,6 +8,7 @@
  * lib/server/paymasterCore. Signer key: PAYMASTER_SIGNER_KEY (server env only).
  */
 import { NextResponse } from "next/server";
+import { diagnosticText } from "@/lib/aa/diagnostics";
 import { TRADING_UNAVAILABLE } from "@/lib/aa/gasPolicy";
 import { kv } from "@/lib/server/kv";
 import { BUNDLER_LIMITS, clientIp, hitLimit, paymasterAllowanceLimits } from "@/lib/server/limits";
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
       : await finalQuote(op, entryPoint, chainId, cfg, deps);
     return NextResponse.json({ jsonrpc: "2.0", id, result });
   } catch (e) {
-    if (e instanceof PaymasterQuoteError) return fail(CODES[e.code], `${body.method}: ${e.message}`, e.code === "config" ? 503 : 400, e.data);
+    if (e instanceof PaymasterQuoteError) { logQuoteRejection(body.method!, op.sender, e); return fail(CODES[e.code], `${body.method}: ${diagnosticText(e.message)}`, e.code === "config" ? 503 : 400, e.data); }
     // Unexpected RPC/signer errors can contain credential-bearing URLs. Never echo them.
     return fail(-32000, TRADING_UNAVAILABLE, 500);
   }
@@ -72,7 +73,13 @@ async function allowance(req: Request, id: unknown, params: unknown[], fail: (co
     const cfg = await quoteConfig(chainId);
     return NextResponse.json({ jsonrpc: "2.0", id, result: await allowanceQuote(sender as `0x${string}`, entryPoint, chainId, cfg, quoteDeps(cfg, Number(chainId))) });
   } catch (e) {
-    if (e instanceof PaymasterQuoteError) return fail(CODES[e.code], `pm_getPaymasterAllowance: ${e.message}`, e.code === "config" ? 503 : 400, e.data);
+    if (e instanceof PaymasterQuoteError) { logQuoteRejection("pm_getPaymasterAllowance", sender, e); return fail(CODES[e.code], `pm_getPaymasterAllowance: ${diagnosticText(e.message)}`, e.code === "config" ? 503 : 400, e.data); }
     return fail(-32000, TRADING_UNAVAILABLE, 500);
   }
+}
+
+/** No raw op/request/signer dump: enough to distinguish a normal cold allowance miss from a setup rejection. */
+function logQuoteRejection(method: string, sender: string, error: PaymasterQuoteError) {
+  console.info("[disciple] paymaster quote rejected", { method, sender: ADDR.test(sender) ? sender : undefined,
+    reason: error.code, rpcCode: CODES[error.code], message: diagnosticText(error.message) });
 }

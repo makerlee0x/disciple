@@ -1,3 +1,4 @@
+import { diagnosticText } from "./diagnostics";
 /**
  * Browser session for the embedded smart account (Alchemy Modular Account v2, prepaid USDG gas).
  *  - "privy" (default when NEXT_PUBLIC_PRIVY_APP_ID is set): the Privy embedded EOA (toViemAccount) is the MAv2 owner.
@@ -558,7 +559,7 @@ export const ONE_TAP_SETTING_UP_MSG = "One-tap trading is getting ready. Try aga
 export const ONE_TAP_REFRESH_MSG = "Refreshing one-tap trading. Try again in a few seconds.";
 const TRADE_OWNER_FALLBACK = process.env.NEXT_PUBLIC_TRADE_OWNER_FALLBACK === "1";
 /** Keep infrastructure reasons useful for diagnosis without exposing credential-bearing RPC URLs. */
-const sessionErrorDetail = (message: string) => message.replace(/https?:\/\/[^\s<>"'`]+/g, "[URL redacted]").split("\n")[0].slice(0, 300);
+const sessionErrorDetail = diagnosticText;
 let userEndedOneTap = false;
 /** Session-only mode for this signer, and the account's deployment status (undefined = can't tell right now). */
 async function strictSessionTrades(me: Address): Promise<{ strict: boolean; deployed: boolean | undefined }> {
@@ -647,7 +648,7 @@ async function aaSend1(calls: Call[], o: SendOpts, opts: TradeCtx) {
   }
   if (pick.as === "refuse") {
     const settingUp = loginSetup.busy(me), failed = !!loginSetup.lastError(me);
-    const setupError = sessionErrorDetail(loginSetup.lastError(me));
+    const setupError = sessionErrorDetail(loginSetup.lastDetail(me) || loginSetup.lastError(me));
     console.warn("[disciple] trade refused: one-tap session not ready (no owner fallback)", { why: pick.why, settingUp, deployed: mode.deployed, setupError, policy: SESSION_POLICY });
     // a brand-new account (setup not finished) or a first install ⇒ "getting ready"; a dead or failed session ⇒ "refreshing"
     const msg = mode.deployed && (onchain || failed) ? ONE_TAP_REFRESH_MSG : ONE_TAP_SETTING_UP_MSG;

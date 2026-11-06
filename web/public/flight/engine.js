@@ -1105,6 +1105,7 @@ function governor(rawDt){ if(DPR_PIN||FIXED_DT) return; const ms=rawDt*1000; if(
 let scale=1;
 // Fill the whole wrap (no black bars): logical units = CSS px, backing store = CSS px × DPR (≤2).
 function resize(){ const dpr=Math.min(DPR_PIN||DPR_STEPS[dprIx],devicePixelRatio||1); const wr=document.getElementById('wrap');
+  if(!wr) return;   // route teardown / pending mount: a late resize has no live canvas host
   const cw=Math.max(320,Math.round(wr.clientWidth||innerWidth)), ch=Math.max(240,Math.round(wr.clientHeight||innerHeight));
   relayout(cw,ch); scale=1;
   cv.style.width=cw+'px'; cv.style.height=ch+'px'; cv.width=Math.round(cw*dpr); cv.height=Math.round(ch*dpr);
