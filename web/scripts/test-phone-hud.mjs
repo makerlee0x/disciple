@@ -25,7 +25,7 @@ for (const [w, h, top] of [[390, 844, 60], [360, 780, 60], [375, 667, 60]]) {
 }
 // 2) drawer: Feed / Holders / Chart / Crew / Chat / Run (mockup copy), one at a time, closes on swipe down / dim tap / Esc
 const labels = [...hud.matchAll(/\{ id: "(\w+)", label: "([^"]+)"/g)].map((m) => m[2]);
-ok(labels.join() === "Feed,Holders,Chart,Crew,Chat,Position", "six drawer tabs from the mockup (Run → Position, lee Oct 30)");
+ok(labels.join() === "Feed,Holders,Chart,Crew,Position", "five drawer tabs; Chat exists only inside the Holders card");
 ok(!/PHONE_TABS|phone-tabs|"STAT"|"T\/W"/.test(hud), "old 8 edge tabs removed");
 ok(/data-testid="phone-dim" onPointerDown=\{\(e\) => \{ e\.preventDefault\(\); setSheet\(null\); \}\}/.test(hud), "tap the dimmed sky closes");
 ok(/e\.clientY - s\.y > 36\) setSheet\(null\)/.test(hud) && /e\.key === "Escape" && sheetRef\.current\) setSheet\(null\)/.test(hud), "swipe down / Esc close");
@@ -40,14 +40,14 @@ const ph = new Function("window", `const HUD_NARROW_W=740;\n${eng.match(/functio
 const P = { on: true, sheet: null };
 ok(ph({ __phoneHud: P })(390, false) === P && ph({ __phoneHud: P })(1440, false) === null && ph({ __phoneHud: P })(390, true) === null && ph({})(390, false) == null, "phoneHud(): phone only, never CLEAN / desktop");
 for (const re of [/if \(PH\) drawPhonePill\(m,ti,PH\); else \{\n  \/\/ top-left: ONE header card[^\n]*\n[^\n]*\n[^\n]*\n  const HY=coinIdRowH\(\);\n  if \(cardBegin\('header',20,18,380,130\+HY\)\)\{   \/\* @cards \*\/\n  panel\(20,18,380,130\+HY\); ctx\.save\(\); ctx\.translate\(0,HY\);/, /if \(!PH&&STATUS_BOX\)\{\n  panel\(RX,RT,CW,92\);/,
-  /\n  pushHolders\(top,kothTitle\);   \/\*/, /else if \(cardBegin\('trades',20,H-160,310,140\)\)\{ const FX=20, FY=H, FW=310;/, /if \(S\.controlsDocked\) pushControls\(\); else if \(!PH&&cardBegin\('controls',RX,H-104,310,84\)\) \{ panel\(RX,H-104,310,84\);/,
-  /PH\.sheet==='holders'\) drawPhoneHolders\(PH,top,kothTitle\)/, /PH\.sheet==='feed'\) drawPhoneFeed\(PH\)/, /if \(PH\) AMMO_HIT\.forEach\(R=>\{ R\.x=-1e9;/,
+  /\n  pushHolders\(top,kothTitle\);   \/\*/, /else if \(cardBegin\('trades',20,H-160,310,140\)\)\{ const FX=20, FY=H, FW=310;/, /if \(S\.controlsDocked\) pushControls\(\);/,
+  /PH\.sheet==='feed'\) drawPhoneFeed\(PH\)/, /if \(PH\) AMMO_HIT\.forEach\(R=>\{ R\.x=-1e9;/,
   /return P\.sheet==='chart'&&B\?\{x:/, /if\(P\?P\.sheet!=='chart':!C\.on\) return;/, /PD&&PD\.drawer&&PD\.dTop>0\?Math\.min\(ROCKET_Y,PD\.dTop-44\):ROCKET_Y/])
   ok(re.test(eng), "engine: " + re.source.slice(0, 60));
 ok(!/cardBegin\('holders'/.test(eng), "engine: no desktop TOP HOLDERS card (lee Oct 31: the chat HOLDERS tab is the list)");
 ok(!/drawPhonePresets|drawPhoneMcap/.test(eng), "no canvas preset chips / big mcap card on phones");
 ok(/a 'SIM' tag in paper \/ simulated market \(final/.test(eng) && /const sim=source\.isSim\|\|!isLive\(\);/.test(eng) && eng.split("\n").filter((l) => /PLACEHOLDER/.test(l)).every((l) => /PLACEHOLDER copy \(pending lee \+ BRAND\)/.test(l)), "SIM tag (final) on paper / sim; only the post-grad copy is marked PLACEHOLDER (pending lee + BRAND)");
-ok(/\{ id: "run", label: "Position" \}/.test(hud) && !/label: "Run"/.test(hud) && /aria-label="Open panels \(feed, holders, chart, crew, chat, position\)"/.test(hud) && /data-ph-sheet="run"\] \.ap-bc:has\(> \[data-testid="tw-open"\]\)/.test(hud) && /data-ph-sheet="run"\] \[data-testid="tw-list"\]/.test(hud), "drawer tab label Position (was Run; id stays run), tramps & walls live under it (no T/W tab)");
+ok(/\{ id: "run", label: "Position" \}/.test(hud) && !/label: "Run"/.test(hud) && /aria-label="Open panels \(feed, holders, chart, crew, position\)"/.test(hud) && /data-ph-sheet="run"\] \.ap-bc:has\(> \[data-testid="tw-open"\]\)/.test(hud) && /data-ph-sheet="run"\] \[data-testid="tw-list"\]/.test(hud), "drawer tab label Position (was Run; id stays run), tramps & walls live under it (no T/W tab)");
 // 3b) @tier-label / @tier-progress (lee, Oct 30): "+X% to NEXT_TIER" = the mcap increase still needed, pct = (next.lo / mcap − 1) × 100;
 //     bar fill = mcap / next.lo (the same number); phone pill + desktop tier bar, ascended coins too
 {
@@ -153,7 +153,7 @@ ok(/data-testid=\{b \? "phone-amt-buy" : "phone-amt-sell"\}/.test(bar) && /\.ph-
 // 8) PnL line + panels
 ok(/\.__pnlView = detail;/.test(pnl) && /addEventListener\("disciple:phonesheet", onSheet\)/.test(pnl), "PnlHud: view mirrored for the PnL line; Run tab hook kept");
 ok(/No position yet/.test(hud) && /disciple:pnlview/.test(hud), "quiet PnL line");
-ok(/html\.ap-phone\[data-ph-sheet="run"\] \.pnl-hud/.test(hud) && /html\.ap-phone\[data-ph-sheet="chat"\] \[data-testid="chat-dock"\]/.test(hud), "Crew / Chat / Run reuse the existing panels");
+ok(/html\.ap-phone\[data-ph-sheet="run"\] \.pnl-hud/.test(hud) && /html\.ap-phone\[data-ph-sheet="holders"\] \[data-testid="chat-dock"\]/.test(hud), "Crew / Holders+Chat / Run reuse the existing panels");
 ok(/snipe-chip/.test(hud), "anti-snipe chip kept visible");
 // Settings: SITE's Sidebar item (#149) sends a plain Event (no detail) → the listener must not need a CustomEvent
 ok(/const o = \(\) => openMenu\(\); addEventListener\("disciple:settings-open", o\);/.test(sm), "SettingsMenu opens on a plain Event('disciple:settings-open') (no detail read)");

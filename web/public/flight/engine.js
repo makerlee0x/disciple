@@ -1781,7 +1781,7 @@ function drawHud(){
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle=holding?'#ffd98a':'#8ff0c0'; ctx.fillText(holding?`HOLDING · no trades ${sinceSwap.toFixed(1)}s`:'LIVE · trade flow',RX+16,RT+78); }
   const top=topFuelers(), kothTitle=S.holders?'TOP HOLDERS':source instanceof DiscipleSource?'TOP HOLDERS · reading balances…':IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top boosters (sim)':'KING OF THE HILL · top boosters (mock)';
   pushHolders(top,kothTitle);   /* the chat panel's HOLDERS tab (GameChat) is the only desktop holders list (lee Oct 31): always current, ≤2 Hz on change */
-  if (PH&&PH.drawer&&PH.body&&PH.sheet==='holders') drawPhoneHolders(PH,top,kothTitle);
+  // Holders and Chat share the DOM card, including inside the phone Holders drawer.
   // bottom-left: trade feed (compact)
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='feed') drawPhoneFeed(PH); }
   else if (cardBegin('trades',20,H-160,310,140)){ const FX=20, FY=H, FW=310;
@@ -1789,13 +1789,8 @@ function drawHud(){
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADES',FX+16,FY-138);
   S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=FY-116+i*17;
     if(r.ic){ drawIcon(r.ic,FX+16,fy-11,14,r.c); ctx.fillText(r.txt.slice(0,36),FX+16+18,fy); } else ctx.fillText(r.txt.slice(0,38),FX+16,fy); }); ctx.globalAlpha=1; ctx.restore(); }
-  // bottom-right: controls (compact) — only without the React '? CONTROLS' pill (components/ControlsPill.tsx), which shows them on demand
-  if (S.controlsDocked) pushControls(); else if (!PH&&cardBegin('controls',RX,H-104,310,84)) { panel(RX,H-104,310,84);
-  const md=MODES[S.mode]; ctx.fillStyle='#fff'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(`BUY ${fmtShot(md.usd)}/shot [${md.key}] · ${MODES[0].key}-${MODES[MODES.length-1].key} select / click`,RX+16,H-82);
-  ctx.font='11px ui-monospace,monospace'; ctx.fillStyle='#9ff3c8'; ctx.fillText('SPACE turbo',RX+16,H-64); ctx.fillStyle='#ffb0c8'; ctx.fillText('ZXCV sell',RX+100,H-64);
-  ctx.fillStyle='rgba(220,228,255,.8)'; ctx.fillText('W boost·A/D',RX+178,H-64);
-  ctx.fillText(`pending ${S.pending.filter(p=>p.state==='pending').length}/${MAX_PENDING}${source instanceof MockReplaySource?'   T turbo '+(S.turbo?'ON':'off'):''}`,RX+16,H-46);
-  if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); } ctx.restore(); }
+  // Keyboard/status box removed. Keep control events and all working trade/keyboard handlers.
+  if (S.controlsDocked) pushControls();
   let TOX=Math.round((W-300)/2), TOY=PH?PH.pillTop+(S.phoneTierLabel?76:58):136;   // achievement toasts: phone = under the MCAP pill
   if (PH) AMMO_HIT.forEach(R=>{ R.x=-1e9; R.y=-1e9; R.w=0; R.h=0; }); else {   // phone v3: no canvas preset chips (amounts live in the BOOST / DUMP sheets)
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)

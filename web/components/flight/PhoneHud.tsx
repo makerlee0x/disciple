@@ -11,24 +11,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *   middle  rocket + sky only — touch-drag on the sky steers (engine @drag-steer)
  *   bottom  grab handle + quiet PnL line (this file) and BOOST [$10 ⌄] / DUMP [25% ⌄] (TradeBridge → PhoneTradeBar)
  *   drawer  swipe up / tap the handle: ONE drawer (~62% height) with segmented tabs; BOOST / DUMP stay usable under it.
- *           FEED / HOLDERS (and CHART where the DOM DexChart is not mounted) are engine-drawn inside the drawer's transparent body rect (window.__phoneHud.body);
- *           CREW / CHAT / POSITION are the existing React panels, moved into the body by the html.ap-phone CSS below.
+ *           FEED (and CHART where the DOM DexChart is not mounted) are engine-drawn inside the drawer's transparent body rect (window.__phoneHud.body);
+ *           CREW / HOLDERS (with Chat tab) / POSITION are the existing React panels, moved into the body by the html.ap-phone CSS below.
  *           Closes on swipe down (header), tap on the dimmed sky above, or Esc.
  * Desktop (≥ PHONE_W) is untouched: no class, no global, nothing rendered.
  */
 export const PHONE_W = 740;   // = engine.js HUD_NARROW_W
-export type PhoneSheet = "feed" | "holders" | "chart" | "crew" | "chat" | "run";
+export type PhoneSheet = "feed" | "holders" | "chart" | "crew" | "run";
 type Tab = { id: PhoneSheet; label: string; engine?: boolean };
-// tab labels (lee 11:29 CT; "Run" → "Position" 2:38 PM CT): Feed / Holders / Chart / Crew / Chat / Position; tramps & walls live under Position (no T/W tab)
+// tab labels (lee 11:29 CT; "Run" → "Position" 2:38 PM CT): Feed / Holders (Chat inside) / Chart / Crew / Position; tramps & walls live under Position (no T/W tab)
 export const DRAWER_TABS: Tab[] = [
   { id: "feed", label: "Feed", engine: true },
-  { id: "holders", label: "Holders", engine: true },
+  { id: "holders", label: "Holders" },
   { id: "chart", label: "Chart", engine: true },
   { id: "crew", label: "Crew" },
-  { id: "chat", label: "Chat" },
   { id: "run", label: "Position" },   // label "Position" (lee 2:38 PM Oct 30; was "Run"); id stays "run" (internal)
 ];
-const AVAIL_SEL: Partial<Record<PhoneSheet, string>> = { crew: '[data-testid="crew-panel"]', chat: '[data-testid="chat-open"],[data-testid="chat-dock"]' };
+const AVAIL_SEL: Partial<Record<PhoneSheet, string>> = { crew: '[data-testid="crew-panel"]', holders: '[data-testid="chat-dock"]' };
 export const SIDE = 16, BTN_H = 68, BTN_H_OPEN = 60, BTN_BOTTOM = 22, PNL_H = 22, PNL_GAP = 14, HANDLE_H = 28, PILL_GAP = 14,
   DRAWER_FRAC = 0.62, D_HANDLE = 24, D_SEG = 48, D_GAP = 12, BODY_GAP = 12;
 export const DRAWER_BG = "rgba(14,16,32,.94)";   // = engine.js PH_DRAWER_BG (the canvas paints the body band in the same tint)
@@ -63,8 +62,6 @@ export default function PhoneHud() {
   const setSheet = useCallback((id: PhoneSheet | null) => {
     const prev = sheetRef.current; if (prev === id) return;
     sheetRef.current = id; setSheetS(id); if (id) lastTab.current = id;
-    if (prev === "chat") (document.querySelector('[data-testid="chat-collapse"]') as HTMLElement | null)?.click();
-    if (id === "chat" && !document.querySelector('[data-testid="chat-dock"]')) (document.querySelector('[data-testid="chat-open"]') as HTMLElement | null)?.click();
     if (id === "crew") { const t = document.querySelector('[data-testid="crew-toggle"]') as HTMLElement | null; if (t && /expand/i.test(t.title)) t.click(); }
     dispatchEvent(new CustomEvent("disciple:phonesheet", { detail: { id } }));
   }, []);
@@ -114,14 +111,13 @@ export default function PhoneHud() {
     addEventListener("disciple:pnlview", on); return () => removeEventListener("disciple:pnlview", on);
   }, []);
 
-  // keep in sync with panels that close themselves (chat ✕, PnlHud header) and Esc
+  // Keep phone sheets in sync with requests, trade actions, and Escape.
   useEffect(() => {
-    const onDock = (e: Event) => { const d = (e as CustomEvent).detail || {}; if (!d.open && sheetRef.current === "chat") setSheet(null); };
     const onReq = (e: Event) => { const d = (e as CustomEvent).detail || {}; if (d.req) setSheet(sheetRef.current === d.req ? null : d.req); };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && sheetRef.current) setSheet(null); };
     const onTw = (e: Event) => { if ((e.target as HTMLElement | null)?.closest?.('[data-testid="tw-open"]') && sheetRef.current) setSheet(null); };   // placing a tramp / wall: show the game
-    addEventListener("disciple:chatdock", onDock); addEventListener("disciple:phonesheet-req", onReq); addEventListener("keydown", onKey); document.addEventListener("click", onTw, true);
-    return () => { removeEventListener("disciple:chatdock", onDock); removeEventListener("disciple:phonesheet-req", onReq); removeEventListener("keydown", onKey); document.removeEventListener("click", onTw, true); };
+    addEventListener("disciple:phonesheet-req", onReq); addEventListener("keydown", onKey); document.addEventListener("click", onTw, true);
+    return () => { removeEventListener("disciple:phonesheet-req", onReq); removeEventListener("keydown", onKey); document.removeEventListener("click", onTw, true); };
   }, [setSheet]);
   useEffect(() => { if (!phone && sheetRef.current) setSheet(null); }, [phone, setSheet]);
   useEffect(() => { if (sheet && sheet !== "feed" && AVAIL_SEL[sheet] && avail[sheet] === false) setSheet("feed"); }, [sheet, avail, setSheet]);
@@ -153,7 +149,7 @@ export default function PhoneHud() {
         background: "linear-gradient(to bottom, rgba(8,10,22,0) 0%, rgba(8,10,22,.72) 55%, rgba(8,10,22,.9) 100%)" }} />
       <div aria-hidden style={{ position: "fixed", left: 0, right: 0, top: 0, height: 150, zIndex: 24, pointerEvents: "none",
         background: "linear-gradient(to bottom, rgba(8,10,22,.55), rgba(8,10,22,0))" }} />
-      {!sheet && <div data-testid="phone-handle" role="button" tabIndex={0} aria-label="Open panels (feed, holders, chart, crew, chat, position)"
+      {!sheet && <div data-testid="phone-handle" role="button" tabIndex={0} aria-label="Open panels (feed, holders, chart, crew, position)"
         onPointerDown={downOpen} onPointerMove={moveOpen} onPointerUp={upOpen} onPointerCancel={() => { g.current = null; }}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSheet(lastTab.current); } }}
         style={{ position: "fixed", left: 0, right: 0, top: L.hudTop, height: HANDLE_H + PNL_H + 6, zIndex: 31, touchAction: "none", cursor: "pointer", outline: "none" }}>
@@ -195,7 +191,6 @@ export default function PhoneHud() {
         html.ap-phone [data-testid="cash-card"] a { color: #9FF5C8 !important; }
         html.ap-phone [data-testid="settings-btn"],
         html.ap-phone [data-testid="crew-panel"],
-        html.ap-phone [data-testid="chat-open"],
         html.ap-phone [data-testid="chat-dock"],
         html.ap-phone .ap-bc:has(> [data-testid="tw-open"]),
         html.ap-phone [data-testid="tw-list"],
@@ -203,13 +198,13 @@ export default function PhoneHud() {
         html.ap-phone .pnl-hud { display: none !important; }
         /* drawer tabs backed by the existing React panels: moved into the drawer body */
         html.ap-phone[data-ph-sheet="crew"] [data-testid="crew-panel"],
-        html.ap-phone[data-ph-sheet="chat"] [data-testid="chat-dock"],
+        html.ap-phone[data-ph-sheet="holders"] [data-testid="chat-dock"],
         html.ap-phone[data-ph-sheet="run"] .pnl-hud {
           display: block !important; position: fixed !important; left: var(--ph-bx) !important; right: auto !important; top: var(--ph-by) !important; bottom: auto !important;
           width: var(--ph-bw) !important; max-height: var(--ph-bh) !important; overflow: auto; z-index: 32 !important; transform: none !important; box-sizing: border-box;
           background: rgba(255,255,255,.04) !important; border: 1px solid rgba(255,255,255,.08) !important; border-radius: 20px !important; box-shadow: none !important;
         }
-        html.ap-phone[data-ph-sheet="chat"] [data-testid="chat-dock"] { display: flex !important; height: var(--ph-bh) !important; overflow: hidden; }
+        html.ap-phone[data-ph-sheet="holders"] [data-testid="chat-dock"] { display: flex !important; height: var(--ph-bh) !important; overflow: hidden; }
         html.ap-phone[data-ph-sheet="run"] .pnl-hud { max-height: calc(var(--ph-bh) - 52px) !important; }   /* room for the T/W bar */
         html.ap-phone[data-ph-sheet="run"] .ap-bc:has(> [data-testid="tw-open"]) {
           display: flex !important; position: fixed !important; left: var(--ph-bx) !important; top: calc(var(--ph-by) + var(--ph-bh) - 40px) !important; bottom: auto !important;

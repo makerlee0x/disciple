@@ -7,13 +7,11 @@ import Icon, { BombTierIcons } from "@/components/ui/Icon";
 import { appendRows, bombTier, fmtUsd, nameColor, parseEmotes, shortAddr, type Row } from "@/lib/gamechat/format";
 import { holderLabelText, type HolderLabel } from "@/lib/flight/holders";
 import { GRAD_BADGE } from "@/lib/flight/tiers";
-import { updateLayout, useCanvasCards, useDomCard } from "@/lib/game/cardLayoutStore";
-import { chatPillPlace } from "@/lib/gamechat/pillPlace";
-import { restoreCard } from "@/lib/game/cardLayout";
+import { useDomCard } from "@/lib/game/cardLayoutStore";
 
 /**
  * In-game live chat overlay (Twitch-style column, right side). DOM overlay only: the canvas never reads it.
- * One tabbed panel CHAT | HOLDERS (H switches, not while typing) in the right HUD column: from the KOTH slot
+ * One tabbed panel Holders | Chat (H switches, not while typing) in the right HUD column: from the KOTH slot
  * (the canvas KOTH steps aside while it is open) down to the Crew card above the MODE panel (--ap-crew-h),
  * so it never covers the HUD or the ammo bar at any width. ≤200 rows, batched flushes, column-reverse scroller
  * (newest at the bottom with no scroll math on append).
@@ -41,7 +39,6 @@ export default function GameChat({ coin }: { coin: string }) {
   const [api, setApi] = useState<{ api: ChatApi; svg: boolean; source: string } | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [conn, setConn] = useState<ChatState | "init">("init");
-  const [openS, setOpen] = useState(false);   // closed by default: opens only from the chat toggle (stored choice is kept)
   const [width, setWidth] = useState(W_DEF);
   const [unread, setUnread] = useState(0);
   const [text, setText] = useState("");
@@ -49,10 +46,10 @@ export default function GameChat({ coin }: { coin: string }) {
   const [picker, setPicker] = useState(false);
   const [sending, setSending] = useState(false);
   const [, tick] = useState(0);
-  const [tab, setTabS] = useState<Tab>("chat");
+  const [tab, setTabS] = useState<Tab>("holders");
   const [tabUnread, setTabUnread] = useState(0);   // chat messages that arrived while HOLDERS was showing
   const [holders, setHolders] = useState<Holders | null>(null);
-  const tabRef = useRef<Tab>("chat");
+  const tabRef = useRef<Tab>("holders");
   const setTab = useCallback((t: Tab) => { tabRef.current = t; setTabS(t); if (t === "chat") setTabUnread(0); try { localStorage.setItem("disciple.gamechat.tab", t); } catch { /* */ } }, []);
   const buf = useRef<ChatMsg[]>([]);
   const seen = useRef(new Set<string>());   // send() returns the msg AND the stream delivers it: dedupe by id
@@ -60,12 +57,12 @@ export default function GameChat({ coin }: { coin: string }) {
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const dockRef = useRef<HTMLElement>(null);
-  // pass 3 #4: the dock is a movable card (lib/game/cardLayoutStore); minimized / closed from its chrome ⇒ shown as the CHAT pill
+  // One visible Holders / Chat card. Layout chrome can restore it as Holders; no standalone Chat pill.
   const card = useDomCard("chat", dockRef);
-  const open = openS && !card.hidden;
+  const open = !card.hidden;
   const c = coin.toLowerCase();
 
-  useEffect(() => { try { setOpen(localStorage.getItem("disciple.gamechat.open") === "1"); const w = +(localStorage.getItem("disciple.gamechat.w") || 0); if (w) setWidth(Math.max(W_MIN, Math.min(W_MAX, w))); const t = localStorage.getItem("disciple.gamechat.tab"); if (t === "holders") { tabRef.current = "holders"; setTabS("holders"); } } catch { /* */ } }, []);
+  useEffect(() => { try { const w = +(localStorage.getItem("disciple.gamechat.w") || 0); if (w) setWidth(Math.max(W_MIN, Math.min(W_MAX, w))); const t = localStorage.getItem("disciple.gamechat.tab"); if (t === "chat" || t === "holders") { tabRef.current = t; setTabS(t); } } catch { /* */ } }, []);
   useEffect(() => { let alive = true; resolveChat().then((r) => { if (alive && r) setApi({ api: r.api, svg: r.svgEmotes, source: r.source }); }); return () => { alive = false; }; }, []);
   // history + subscribe; incoming messages are buffered and flushed ≤ every 150 ms (one React commit per batch)
   useEffect(() => {
@@ -93,24 +90,24 @@ export default function GameChat({ coin }: { coin: string }) {
     const h = (e: Event) => { lastHolders.current = Date.now(); setHolders((e as CustomEvent<Holders>).detail); };
     addEventListener("disciple:holders", h);
     // until the first holders push: re-announce every 400 ms (was 3 s ⇒ the stacked-lists window); then every 3 s
-    const iv = window.setInterval(() => { const quiet = Date.now() - lastHolders.current; if (api && open && (lastHolders.current === 0 || quiet > 3000)) dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open, holders: true } })); }, 400);
+    const iv = window.setInterval(() => { const quiet = Date.now() - lastHolders.current; if (open && (lastHolders.current === 0 || quiet > 3000)) dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open, holders: true } })); }, 400);
     return () => { removeEventListener("disciple:holders", h); clearInterval(iv); };
-  }, [api, open]);
+  }, [open]);
   // pass 3 #5: also a window flag the engine reads every frame (worker-mirrored) ⇒ its canvas TOP HOLDERS box never draws
   // under the open dock, even before the engine has heard disciple:chatdock
-  useEffect(() => { const w = window as unknown as { __chatDockOpen?: boolean }; w.__chatDockOpen = !!(api && open); return () => { w.__chatDockOpen = false; }; }, [api, open]);
-  useEffect(() => { if (!api) return; dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open, holders: true } })); try { localStorage.setItem("disciple.gamechat.open", open ? "1" : "0"); } catch { /* */ } }, [open, api]);
+  useEffect(() => { const w = window as unknown as { __chatDockOpen?: boolean }; w.__chatDockOpen = open; return () => { w.__chatDockOpen = false; }; }, [open]);
+  useEffect(() => { dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open, holders: true } })); }, [open]);
   useEffect(() => () => { dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open: false } })); }, []);
-  // Chat never opens itself and never takes keys while you trade. Keys act ONLY when the dock is already open AND has focus
+  // The card is visible by default but never takes keys while you trade. Keys act ONLY when it has focus
   // (you clicked into it): H = CHAT ↔ HOLDERS, Enter = focus the message box. Anywhere else H / Enter are left alone.
   useEffect(() => {
-    if (!api || !open) return;
+    if (!open) return;
     const k = (e: KeyboardEvent) => { const d = dockRef.current, el = e.target as Node | null;
       if (!chatKeyApplies({ open, inDock: !!d && !!el && d.contains(el), typing: typingTarget(e.target), mod: e.ctrlKey || e.metaKey || e.altKey })) return;
       if (e.code === "KeyH" && !e.repeat) { setTab(tabRef.current === "chat" ? "holders" : "chat"); return; }
       if ((e.code === "Enter" || e.code === "NumpadEnter") && !(el instanceof HTMLButtonElement || el instanceof HTMLAnchorElement)) { e.preventDefault(); setTab("chat"); requestAnimationFrame(() => inputRef.current?.focus()); } };
     addEventListener("keydown", k); return () => removeEventListener("keydown", k);
-  }, [api, open, setTab]);
+  }, [open, setTab]);
   // rate-limit countdown
   useEffect(() => { if (!err?.until) return; const iv = window.setInterval(() => { if (Date.now() >= err.until!) setErr(null); else tick((x) => x + 1); }, 250); return () => clearInterval(iv); }, [err]);
 
@@ -140,58 +137,33 @@ export default function GameChat({ coin }: { coin: string }) {
     addEventListener("pointermove", mv); addEventListener("pointerup", up);
   };
 
-  // CHAT pill stays clear of the bottom trade bar (canvas controls card) at any content width
-  const canvasCards = useCanvasCards();
-  const pillRef = useRef<HTMLButtonElement | null>(null);
-  const [pillPos, setPillPos] = useState({ right: 344, bottom: 20 });
-  useEffect(() => {
-    const place = () => {
-      const c = canvasCards.cards.controls, wrap = document.querySelector(".flight-wrap")?.getBoundingClientRect();
-      const card = c && !c.min && !c.closed && wrap ? { x: c.x + wrap.left, y: c.y + wrap.top, w: c.w, h: c.h } : null;
-      const dom = (sel: string) => { const r = document.querySelector(sel)?.getBoundingClientRect(); return r ? { x: r.left, y: r.top, w: r.width, h: r.height } : null; };
-      const b = pillRef.current?.getBoundingClientRect();
-      const next = chatPillPlace(innerWidth, innerHeight, b?.width || 120, b?.height || 30, [card, dom('[data-testid="trade-bar"]'), dom('[data-testid="tw-open"]'), dom('[data-testid="tw-mine"]')]);
-      setPillPos((p) => (p.right === next.right && p.bottom === next.bottom ? p : next));
-    };
-    place(); const iv = setInterval(place, 1000); addEventListener("resize", place); addEventListener("apsidebar", place);
-    return () => { clearInterval(iv); removeEventListener("resize", place); removeEventListener("apsidebar", place); };
-  }, [canvasCards, open, unread]);
-  if (!api) return null;
+  if (!open) return null;
   const st = STATE[conn];
-  const pill = pillPos;
-  if (!open) return (
-    <button data-testid="chat-open" onClick={() => { if (card.hidden) updateLayout((l) => restoreCard(l, "chat")); setOpen(true); }} title="Open chat"
-      ref={pillRef} style={{ position: "fixed", right: pill.right, bottom: pill.bottom, zIndex: 33, height: 30, padding: "0 12px", borderRadius: 15, cursor: "pointer", font: `bold 12px ${mono}`,
-        color: "#e8ecff", background: "rgba(10,12,28,.72)", border: "1px solid rgba(255,231,163,.45)" }}>
-      <span style={{ color: st.c }}>●</span> CHAT{unread > 0 ? ` · ${unread > 99 ? "99+" : unread}` : ""}
-    </button>
-  );
-  const known = (code: string) => code in api.api.EMOTES || EMOTE_CODES.includes(code);
+  const known = (code: string) => code in (api?.api.EMOTES ?? {}) || EMOTE_CODES.includes(code);
   const rl = err?.until ? Math.max(0, Math.ceil((err.until - Date.now()) / 1000)) : 0;
   return (
-    <aside ref={dockRef} tabIndex={-1} data-testid="chat-dock" data-card="chat" aria-label="Live chat"
-      style={{ transform: card.transform, position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + var(--ap-status-h, 100px) + var(--ap-crew-h, 0px))", bottom: 20, width, zIndex: 32, display: "flex", flexDirection: "column",
+    <aside ref={dockRef} tabIndex={-1} data-testid="chat-dock" data-card="chat" aria-label="Holders and chat"
+      style={{ transform: card.transform, position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + var(--ap-status-h, 100px) + var(--ap-crew-h, 0px))", height: "min(360px, calc(100dvh - var(--ap-hud-rt, 58px) - var(--ap-status-h, 100px) - var(--ap-crew-h, 0px) - 36px))", minHeight: 160, width, zIndex: 32, display: "flex", flexDirection: "column",
         background: "linear-gradient(90deg, rgba(8,10,24,.38), rgba(8,10,24,.62))", border: "1px solid rgba(255,231,163,.22)", borderRadius: 12,
         font: `12.5px/1.38 ${mono}`, color: "#e8ecff", contain: "layout paint" }}>
       <div onPointerDown={drag} title="drag to resize" style={{ position: "absolute", left: -4, top: 0, bottom: 0, width: 8, cursor: "ew-resize", zIndex: 2 }} />
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderBottom: "1px solid rgba(255,255,255,.08)", fontSize: 11 }}>
-        <div role="tablist" aria-label="Chat or holders" style={{ display: "flex", gap: 2 }}>
-          {(["chat", "holders"] as Tab[]).map((t) => <button key={t} role="tab" aria-selected={tab === t} data-testid={`chat-tab-${t}`} onClick={() => setTab(t)} title={`${t === "chat" ? "Live chat" : "Top holders"} (H)`}
+        <div role="tablist" aria-label="Holders or chat" style={{ display: "flex", gap: 2 }}>
+          {(["holders", "chat"] as Tab[]).map((t) => <button key={t} role="tab" id={`community-tab-${t}`} aria-controls={`community-panel-${t}`} aria-selected={tab === t} data-testid={`chat-tab-${t}`} onClick={() => setTab(t)} title={`${t === "chat" ? "Live chat" : "Top holders"} (H)`}
             style={{ all: "unset", cursor: "pointer", padding: "3px 8px", borderRadius: 6, fontWeight: 800, letterSpacing: 1, position: "relative",
               color: tab === t ? "#151830" : "#ffe7a3", background: tab === t ? "#ffe7a3" : "rgba(255,231,163,.08)", border: "1px solid rgba(255,231,163,.35)" }}>
-            {t === "chat" ? "CHAT" : "HOLDERS"}
+            {t === "chat" ? "Chat" : "Holders"}
             {t === "chat" && tab !== "chat" && tabUnread > 0 && <span data-testid="chat-tab-unread" style={{ marginLeft: 5, padding: "0 5px", borderRadius: 8, background: "#ff5c7a", color: "#fff", fontSize: 10 }}>{tabUnread > 99 ? "99+" : tabUnread}</span>}
           </button>)}
         </div>
         <span data-testid="chat-state" style={{ color: st.c }} title={`chat ${st.t}`}>●{tab === "chat" ? " " + st.t : ""}</span>
-        {api.source === "fallback-mock" && <span style={{ opacity: 0.55 }}>mock</span>}
-        <button data-testid="chat-collapse" onClick={() => setOpen(false)} title="Collapse" style={{ marginLeft: "auto", all: "unset", cursor: "pointer", padding: "0 4px", opacity: 0.8, marginInlineStart: "auto" }}>▸</button>
+        {api?.source === "fallback-mock" && <span style={{ opacity: 0.55 }}>mock</span>}
       </div>
-      {tab === "holders" && <HoldersView h={holders} />}
-      <div style={{ display: tab === "chat" ? "contents" : "none" }}>
+      {tab === "holders" && <div role="tabpanel" id="community-panel-holders" aria-labelledby="community-tab-holders" style={{ display: "contents" }}><HoldersView h={holders} /></div>}
+      <div role="tabpanel" id="community-panel-chat" aria-labelledby="community-tab-chat" style={{ display: tab === "chat" ? "contents" : "none" }}>
       <div ref={listRef} onScroll={onScroll} data-testid="chat-list"
         style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column-reverse", padding: "4px 8px", overscrollBehavior: "contain", scrollbarWidth: "thin" }}>
-        <div>{rows.map((r) => <ChatRow key={r.key} row={r} svg={api.svg} known={known} emotes={api.api.EMOTES} />)}</div>
+        <div>{!api && <p role="status" style={{ opacity: 0.6 }}>Chat is connecting…</p>}{rows.map((r) => <ChatRow key={r.key} row={r} svg={api?.svg ?? false} known={known} emotes={api?.api.EMOTES ?? {}} />)}</div>
       </div>
       {unread > 0 && <button data-testid="chat-new" onClick={jump} style={{ position: "absolute", left: "50%", bottom: 78, transform: "translateX(-50%)", cursor: "pointer", font: `bold 11px ${mono}`,
         padding: "4px 12px", borderRadius: 12, border: "none", background: "#ffe7a3", color: "#151830", boxShadow: "0 4px 14px rgba(0,0,0,.4)" }}>↓ {unread > 99 ? "99+" : unread} new messages</button>}
@@ -202,7 +174,7 @@ export default function GameChat({ coin }: { coin: string }) {
       </div>}
       {picker && <div data-testid="chat-picker" style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 4, margin: "0 8px 4px", padding: 6, borderRadius: 8, background: "rgba(8,10,24,.9)", border: "1px solid rgba(255,255,255,.12)" }}>
         {EMOTE_CODES.map((code) => <button key={code} title={`:${code}:`} onClick={() => { setText((t) => (t + (t && !t.endsWith(" ") ? " " : "") + `:${code}: `)); inputRef.current?.focus(); }}
-          style={{ all: "unset", cursor: "pointer", textAlign: "center", fontSize: 18 }}><Emote code={code} svg={api.svg} src={api.api.EMOTES[code]} /></button>)}
+          style={{ all: "unset", cursor: "pointer", textAlign: "center", fontSize: 18 }}><Emote code={code} svg={api?.svg ?? false} src={api?.api.EMOTES[code]} /></button>)}
       </div>}
       <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "6px 8px 8px" }}>
         <button data-testid="chat-emote-btn" onClick={() => setPicker((p) => !p)} title="Emotes" style={{ all: "unset", cursor: "pointer", fontSize: 16, padding: "0 2px" }}>😇</button>
