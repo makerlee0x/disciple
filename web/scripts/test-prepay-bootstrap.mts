@@ -20,7 +20,7 @@ const batch = (cs: Call[]) => encodeFunctionData({ abi: exec, functionName: "exe
 const rate = 3_000_000_000n, now = Math.floor(Date.now() / 1000);
 const cfg: QuoteConfig = { paymaster: PM, usdg: USDG, usdgDecimals: 6, rate };
 const deps: QuoteDeps = { now: () => now, debtOf: async () => 0n, balanceOf: async () => 100_000_000n, allowanceOf: async () => maxUint256,
-  bounds: async () => ({ minRate: rate / 2n, maxRate: rate * 2n, maxGasPerOp: 12_000_000n }), baseFee: async () => 1n, sign: hash => owner.signMessage({ message: { raw: hash } }) };
+  bounds: async () => ({ minRate: rate / 2n, maxRate: rate * 2n, maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: 12_000_000n }), baseFee: async () => 1n, sign: hash => owner.signMessage({ message: { raw: hash } }) };
 const op: UserOp = { sender: S, nonce: toHex(1n << 64n), callData: batch([paymasterApproveCall(USDG, PM, maxUint256)]),
   callGasLimit: toHex(1_800_000n), verificationGasLimit: toHex(350_000n), preVerificationGas: toHex(60_000n),
   ...Object.fromEntries(Object.entries(clientFees(1n)).map(([k,v]) => [k,toHex(v)])),

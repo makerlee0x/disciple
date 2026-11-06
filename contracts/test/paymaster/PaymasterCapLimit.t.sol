@@ -5,6 +5,10 @@ import {DisciplePaymaster} from "../../src/paymaster/DisciplePaymaster.sol";
 import {DeployPaymaster} from "../../script/DeployPaymaster.s.sol";
 contract PaymasterCapLimitTest is PaymasterTestBase {
     function setUp() public virtual { _setUp(18); }
+    function test_launchDefaultIsTwiceWorstMeasuredEntryPointGas() public {
+        assertEq(new DeployPaymaster().DEFAULT_MAX_LAUNCH_GAS_PER_OP(), 2 * 10_920_385);
+    }
+
     function test_dynamicGasUnitLimit_independentOfDecimals() public {
         vm.prank(owner); pm.setBounds(rate / 10, rate * 10, 2_000_000);
         assertEq(pm.maxGasPerOp(), 2_000_000);
@@ -38,7 +42,7 @@ contract DeployPaymasterEnvTest is PaymasterTestBase {
         assertEq(deployed.maxGasPerOp(), 2_000_000);
         assertEq(deployed.getDeposit(), 0, "no minimum ETH float");
         vm.setEnv("PAYMASTER_STAKE_WEI", "0");
-        vm.expectRevert(bytes("owner must supply confirmed PAYMASTER_STAKE_WEI")); d.run();
+        vm.expectRevert(bytes("owner must supply PAYMASTER_STAKE_WEI (~$5 of ETH)")); d.run();
         vm.setEnv("PAYMASTER_STAKE_WEI", "1"); vm.setEnv("PAYMASTER_MAX_COST_USDG", "10");
         vm.expectRevert(bytes("static USDG caps removed: use PAYMASTER_MAX_GAS_PER_OP")); d.run();
         vm.setEnv("PAYMASTER_MAX_COST_USDG", "0");

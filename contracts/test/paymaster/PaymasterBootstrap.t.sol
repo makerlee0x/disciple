@@ -59,7 +59,7 @@ abstract contract PaymasterBootstrapFixture is PaymasterTestBase {
         SenderCreator senderCreator = new SenderCreator();
         vm.etch(creator, address(senderCreator).code);
         ep = EntryPoint(payable(EP));
-        pm = new DisciplePaymaster(EP, address(usdg), owner, signer, treasury, rate / 10, rate * 10, 12_000_000, 79_552);
+        pm = new DisciplePaymaster(EP, address(usdg), owner, signer, treasury, rate / 10, rate * 10, 12_000_000, 79_684);
         pm.deposit{value: 1 ether}();
         string memory fixture = vm.readFile("test/fixtures/mav2-rht.json");
         factory = vm.parseJsonAddress(fixture, ".factory.address");
@@ -82,7 +82,7 @@ abstract contract PaymasterBootstrapFixture is PaymasterTestBase {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }
-    function _install() internal view returns (bytes memory) {
+    function _install() internal view virtual returns (bytes memory) {
         Policy.SessionConfig memory cfg;
         cfg.validUntil = uint48(block.timestamp + 1 days);
         cfg.permissions = (1 << 10) - 1;

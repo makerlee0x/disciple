@@ -34,7 +34,7 @@ const ZERO = "0x0000000000000000000000000000000000000000";
 
 let signer: PrivateKeyAccount | undefined;
 let decimals: { usdg: Address; d: number } | undefined;
-let boundsCache: { at: number; v: { minRate: bigint; maxRate: bigint; maxGasPerOp: bigint } } | undefined;
+let boundsCache: { at: number; v: { minRate: bigint; maxRate: bigint; maxGasPerOp: bigint; maxLaunchGasPerOp: bigint } } | undefined;
 let baseCache: { at: number; fee: bigint } | undefined;
 
 function signerAccount(): PrivateKeyAccount {
@@ -88,8 +88,8 @@ export function quoteDeps(cfg: QuoteConfig): QuoteDeps {
     allowanceOf: (s) => pc.readContract({ address: cfg.usdg, abi: erc20, functionName: "allowance", args: [s, cfg.paymaster] }),
     async bounds() {
       if (boundsCache && Date.now() - boundsCache.at < 60_000) return boundsCache.v;
-      const [minRate, maxRate, maxGasPerOp] = await Promise.all((["minRate", "maxRate", "maxGasPerOp"] as const).map((f) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: f })));
-      boundsCache = { at: Date.now(), v: { minRate, maxRate, maxGasPerOp } };
+      const [minRate, maxRate, maxGasPerOp, maxLaunchGasPerOp] = await Promise.all((["minRate", "maxRate", "maxGasPerOp", "maxLaunchGasPerOp"] as const).map((f) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: f })));
+      boundsCache = { at: Date.now(), v: { minRate, maxRate, maxGasPerOp, maxLaunchGasPerOp } };
       return boundsCache.v;
     },
     async baseFee() {

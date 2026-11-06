@@ -9,7 +9,7 @@ import { concat, createPublicClient, keccak256 as viemKeccak, encodeFunctionData
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import {
   decodePaymasterData, encodePaymasterData, entryPointMaxCost, firstCallApproveAmount, formatUsdg, PAYMASTER_DATA_LENGTH, PAYMASTER_GAS,
-  ALLOWANCE_GAS, ALLOWANCE_TYPEHASH, OP_QUOTE_TYPEHASH, paymasterAllowanceHash, paymasterApproveCall, paymasterQuoteHash, requiredMaxTokenCost, stubPaymasterData, tokenCost,
+  ALLOWANCE_GAS, ALLOWANCE_TYPEHASH, OP_QUOTE_TYPEHASH, paymasterAllowanceHash, paymasterApproveCall, paymasterQuoteHash, paymasterLaunchQuoteHash, requiredMaxTokenCost, stubPaymasterData, tokenCost,
 } from "../lib/aa/paymaster";
 import { assertSignerMatches, paymasterSignerKey, ALLOWANCE_FEE_MULT, allowanceQuote, DEFAULT_ALLOWANCE_TTL_SEC, DEFAULT_MAX_SLACK_BPS, finalQuote, PaymasterQuoteError, rateFromEnv, stubQuote, type QuoteConfig, type QuoteDeps } from "../lib/server/paymasterCore";
 import { checkPaymaster, clientFees, GAS_CAPS, GRAD_GAS_CAPS, INFRA_WORDING, LAUNCH_GAS_CAPS, maxPrefund, NOT_ENOUGH_USDG, RelayPolicyError, relayerPrice, TRADING_UNAVAILABLE } from "../lib/aa/gasPolicy";
@@ -37,8 +37,8 @@ const trade = { to: TOKEN, data: "0xdeadbeef" as Hex };
 const LAUNCHPAD = "0x5555555555555555555555555555555555555555" as Address;
 const launchSel = toFunctionSelector((launchpadAbi as readonly { type: string; name?: string }[]).find((f) => f.type === "function" && f.name === "launch") as AbiFunction);
 const launchCall = { to: LAUNCHPAD, data: concat([launchSel, pad("0x01", { size: 32 })]) };
-/** Launch op at the launch caps: 10M call + 350k verif + 60k PVG + paymaster 120k/80k = 10.61M ≤ 11M total. */
-const LAUNCH_GAS = { callGasLimit: LAUNCH_GAS_CAPS.callGasLimit, verificationGasLimit: BigInt(350_000), preVerificationGas: BigInt(60_000) };
+/** Supported heavy launch fixture; the measured 2x launch budget is separate from the trade budget. */
+const LAUNCH_GAS = { callGasLimit: BigInt(14_000_000), verificationGasLimit: BigInt(350_000), preVerificationGas: BigInt(60_000) };
 
 for (const dec of [18, 6]) {
   const RATE = BigInt(3000) * BigInt(10) ** BigInt(dec);
@@ -48,7 +48,7 @@ for (const dec of [18, 6]) {
   const deps = (o: Partial<QuoteDeps> = {}): QuoteDeps => ({
     now: () => 1_790_000_000, debtOf: async () => BigInt(0), balanceOf: async () => BigInt(1_000_000) * BigInt(10) ** BigInt(dec),
     allowanceOf: async () => BigInt(1_000_000) * BigInt(10) ** BigInt(dec),
-    bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxGasPerOp: BigInt(12_000_000) }),
+    bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: BigInt(12_000_000) }),
     baseFee: async () => BASE, sign: (h) => signer.signMessage({ message: { raw: h } }), ...o,
   });
   const fees = clientFees(BASE);
@@ -65,24 +65,31 @@ for (const dec of [18, 6]) {
   };
   const rejects = (p: Promise<unknown>, code: PaymasterQuoteError["code"]) => assert.rejects(p, (e: unknown) => e instanceof PaymasterQuoteError && e.code === code);
 
-  test(`[${dec}-dec] launch op (10M call gas, Launchpad target) quotes under LAUNCH_GAS_CAPS and a 10 USDG maxGasPerOp; non-launch is capped`, async () => {
-    const one = BigInt(10) ** BigInt(dec);
+  test(`[${dec}-dec] launch op uses the distinct configured launch gas-unit cap and exact-op domain; non-launch is capped`, async () => {
     const lcfg: QuoteConfig = { ...cfg, launchers: [LAUNCHPAD] };
-    const d = deps({ bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxGasPerOp: BigInt(12_000_000) }) });
+    const d = deps({ bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: BigInt(7_068_712) }) });
     const lop = (calls: { to: Address; data: Hex }[]): UserOp => ({ ...baseOp(batch(calls)), callGasLimit: hex(LAUNCH_GAS.callGasLimit), verificationGasLimit: hex(LAUNCH_GAS.verificationGasLimit), preVerificationGas: hex(LAUNCH_GAS.preVerificationGas) });
     const stub = await stubQuote(lop([launchCall]), ENTRYPOINT_V07, 46630, lcfg, d);
     const amt = BigInt(stub.disciple.maxTokenCost);
-    const op: UserOp = { ...lop([paymasterApproveCall(USDG, PM, amt), launchCall]), paymaster: stub.paymaster, paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit, paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit };
+    const install = { to: SENDER, data: encodeFunctionData({ abi: parseAbi(["function installValidation(bytes25,bytes4[],bytes,bytes[])"]), functionName: "installValidation", args: [`0x${"00".repeat(25)}`, [], "0x", []] }) };
+    const op: UserOp = { ...lop([paymasterApproveCall(USDG, PM, amt), install, launchCall]), paymaster: stub.paymaster, paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit, paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit };
     const f = await finalQuote(op, ENTRYPOINT_V07, 46630, lcfg, d);
     assert.equal(firstCallApproveAmount(op.callData, USDG, PM), amt);
     assert.ok(f.paymasterData.length > 2);
-    // 10.61M gas × client maxFee (base 0.01 gwei) × $3000/ETH ≈ 1.01 USDG; well under the 10 USDG cap
+    const q = decodePaymasterData(f.paymasterData);
+    assert.equal(await recoverMessageAddress({ message: { raw: paymasterLaunchQuoteHash({ ...op, ...f }, q, 46630, PM) }, signature: q.signature }), signer.address);
+    assert.notEqual(await recoverMessageAddress({ message: { raw: paymasterQuoteHash({ ...op, ...f }, q, 46630, PM) }, signature: q.signature }), signer.address);
+    assert.notEqual(await recoverMessageAddress({ message: { raw: paymasterAllowanceHash(op.sender, q, 46630, PM) }, signature: q.signature }), signer.address);
+    await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, lcfg, deps({ bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxGasPerOp: BigInt(7_068_712), maxLaunchGasPerOp: BigInt(0) }) })), "approve");
+    // USDG max moves with the signed fee and the unmarked rate, never a static dollar cap.
     const expected = tokenCost((LAUNCH_GAS.callGasLimit + LAUNCH_GAS.verificationGasLimit + LAUNCH_GAS.preVerificationGas + PAYMASTER_GAS.verificationGasLimit + PAYMASTER_GAS.postOpGasLimit) * fees.maxFeePerGas, RATE);
     assert.equal(amt, expected);
-    assert.ok(amt > one && amt < (BigInt(11) * one) / BigInt(10), formatUsdg(amt, dec));
-    // a full 11M-gas launch at 10x today's base fee still fits a 10 USDG cap at $3000/ETH
-    const hot = clientFees(BASE * BigInt(10)).maxFeePerGas;
-    assert.ok(tokenCost(LAUNCH_GAS_CAPS.total * hot, RATE) < BigInt(10) * one);
+    assert.ok(amt > BigInt(0), formatUsdg(amt, dec));
+    const hot = { ...op, maxFeePerGas: hex(fees.maxFeePerGas * BigInt(2)), maxPriorityFeePerGas: hex(fees.maxPriorityFeePerGas * BigInt(2)) };
+    const hotStub = await stubQuote(hot, ENTRYPOINT_V07, 46630, lcfg, deps({ baseFee: async () => BASE * BigInt(2) }));
+    assert.equal(BigInt(hotStub.disciple.maxTokenCost), tokenCost(entryPointMaxCost(hot), RATE));
+    assert.ok(amt * BigInt(2) - BigInt(hotStub.disciple.maxTokenCost) <= BigInt(1), "ceil differs by at most one base unit");
+    await rejects(finalQuote({ ...op, callData: batch([paymasterApproveCall(USDG, PM, amt), { ...install, to: TOKEN }, launchCall]) }, ENTRYPOINT_V07, 46630, lcfg, d), "gas");
     // same op without the launcher list (or to a non-launch target) ⇒ normal 3M cap ⇒ "gas"
     await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, d), "gas");
     await rejects(finalQuote({ ...op, callData: batch([paymasterApproveCall(USDG, PM, amt), { ...launchCall, to: TOKEN }]) }, ENTRYPOINT_V07, 46630, lcfg, d), "gas");
@@ -171,7 +178,7 @@ for (const dec of [18, 6]) {
     await rejects((await twoPhase(d, true, (x) => x - BigInt(1))).final(), "approve");
     await rejects((await twoPhase(d, true, (x) => x + (x * DEFAULT_MAX_SLACK_BPS) / BigInt(10_000) + BigInt(1))).final(), "approve");
     await (await twoPhase(d, true, (x) => x + (x * DEFAULT_MAX_SLACK_BPS) / BigInt(10_000))).final(); // at the slack edge: OK
-    await rejects((await twoPhase(deps({ bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxGasPerOp: BigInt(1) }) }))).final(), "approve");
+    await rejects((await twoPhase(deps({ bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: BigInt(1) }) }))).final(), "approve");
     await rejects((await twoPhase(deps({ balanceOf: async () => BigInt(1) }))).final(), "balance");
     // the balance message reaches the client: no gas wording (mav2 matches /not enough USDG/ and shows NOT_ENOUGH_USDG)
     await assert.rejects((await twoPhase(deps({ balanceOf: async () => BigInt(1) }))).final(),
@@ -201,11 +208,11 @@ for (const dec of [18, 6]) {
     assert.equal(q.maxTokenCost, requiredMaxTokenCost(op, RATE, BigInt(0)));
     await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps({ allowanceOf: async () => BigInt(0) })), "approve");
     await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps({ balanceOf: async () => BigInt(0) })), "balance");
-    await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: RATE, maxRate: RATE, maxGasPerOp: BigInt(1) }) })), "approve");
+    await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: RATE, maxRate: RATE, maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: BigInt(1) }) })), "approve");
   });
 
   test(`[${dec}-dec] configured rate outside the contract's bounds is refused (stub and final)`, async () => {
-    const d = deps({ bounds: async () => ({ minRate: RATE * BigInt(2), maxRate: RATE * BigInt(3), maxGasPerOp: E18 }) });
+    const d = deps({ bounds: async () => ({ minRate: RATE * BigInt(2), maxRate: RATE * BigInt(3), maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: E18 }) });
     await rejects(stubQuote(baseOp(batch([trade])), ENTRYPOINT_V07, 46630, cfg, d), "rate");
   });
 
@@ -248,11 +255,17 @@ test("op quote hash: fixed vector (byte parity with DisciplePaymaster.getOpHash,
   assert.equal(OP_QUOTE_TYPEHASH, viemKeccak(toHex("DisciplePaymaster.OpQuote(v1)")));
   assert.equal(paymasterQuoteHash(vectorOp, vectorQ, 46630, PM), OP_VECTOR);
 });
+test("launch quote hash: distinct fixed vector, byte parity with DisciplePaymaster.getLaunchOpHash", () => {
+  assert.equal(paymasterLaunchQuoteHash(vectorOp, vectorQ, 46630, PM), "0x03cd01e2d63175aaf435ec6bda5c23a49001b25a2607bafe132d57e562ee52eb");
+  assert.notEqual(paymasterLaunchQuoteHash(vectorOp, vectorQ, 46630, PM), OP_VECTOR);
+});
 test("op quote hash binds the op: nonce / callData / gas / pm gas / fees all change it; never equals the allowance hash", () => {
-  const h0 = paymasterQuoteHash(vectorOp, vectorQ, 46630, PM);
+  for (const hash of [paymasterQuoteHash, paymasterLaunchQuoteHash]) {
+  const h0 = hash(vectorOp, vectorQ, 46630, PM);
   for (const d of [{ nonce: "0x8" }, { callData: "0xdeadbeee" }, { callGasLimit: hex(1_800_001) }, { paymasterPostOpGasLimit: hex(80_001) }, { maxFeePerGas: hex(BigInt(2e9) + BigInt(1)) }, { factory: TOKEN, factoryData: "0x01" }] as Partial<UserOp>[])
-    assert.notEqual(paymasterQuoteHash({ ...vectorOp, ...d }, vectorQ, 46630, PM), h0, JSON.stringify(d));
+    assert.notEqual(hash({ ...vectorOp, ...d }, vectorQ, 46630, PM), h0, JSON.stringify(d));
   assert.notEqual(h0, paymasterAllowanceHash(SENDER, vectorQ, 46630, PM));
+  }
 });
 
 for (const dec of [18, 6]) {
@@ -262,7 +275,7 @@ for (const dec of [18, 6]) {
   const deps = (o: Partial<QuoteDeps> = {}): QuoteDeps => ({
     now: () => 1_790_000_000, debtOf: async () => BigInt(0), balanceOf: async () => BigInt(1_000_000) * BigInt(10) ** BigInt(dec),
     allowanceOf: async () => BigInt(1_000_000) * BigInt(10) ** BigInt(dec),
-    bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxGasPerOp: BigInt(12_000_000) }),
+    bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: BigInt(12_000_000) }),
     baseFee: async () => BASE, sign: (h) => signer.signMessage({ message: { raw: h } }), ...o,
   });
   const fee = clientFees(BASE).maxFeePerGas * ALLOWANCE_FEE_MULT;
@@ -284,8 +297,8 @@ for (const dec of [18, 6]) {
 
   test(`[${dec}-dec] allowanceQuote refuses: balance, above cap, rate out of bounds, wrong chain / EP, bad sender`, async () => {
     await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ balanceOf: async () => BigInt(1) })), "balance");
-    await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxGasPerOp: BigInt(1) }) })), "approve");
-    await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: RATE * BigInt(2), maxRate: RATE * BigInt(3), maxGasPerOp: E18 }) })), "rate");
+    await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: BigInt(1) }) })), "approve");
+    await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: RATE * BigInt(2), maxRate: RATE * BigInt(3), maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: E18 }) })), "rate");
     await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 4663, cfg, deps()), "chain");
     await rejectsA(allowanceQuote(SENDER, "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789", 46630, cfg, deps()), "entrypoint");
     await rejectsA(allowanceQuote("0x1234" as Address, ENTRYPOINT_V07, 46630, cfg, deps()), "op");
@@ -395,7 +408,7 @@ test("client payGasInUsdg: stub → persistent approve first → final, against 
   const d: QuoteDeps = {
     now: () => 1_790_000_000, debtOf: async () => BigInt(7), balanceOf: async () => E18 * BigInt(100),
     allowanceOf: async () => (BigInt(1) << BigInt(256)) - BigInt(1),
-    bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxGasPerOp: BigInt(12_000_000) }),
+    bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxLaunchGasPerOp: BigInt(30_000_000), maxGasPerOp: BigInt(12_000_000) }),
     baseFee: async () => BASE, sign: (h) => signer.signMessage({ message: { raw: h } }),
   };
   const realFetch = globalThis.fetch;
@@ -426,7 +439,7 @@ test("client payGasInUsdg: stub → persistent approve first → final, against 
   } finally { globalThis.fetch = realFetch; }
 });
 
-test("deposit check covers an 11M-gas launch op; no protocol keeper", async () => {
+test("deposit check covers the measured 2x launch envelope; tiny float fails closed, no protocol keeper", async () => {
   const fees = clientFees(BASE);
   const op = { callGasLimit: hex(LAUNCH_GAS_CAPS.callGasLimit), verificationGasLimit: hex(700_000), preVerificationGas: hex(100_000), maxFeePerGas: hex(fees.maxFeePerGas), maxPriorityFeePerGas: hex(fees.maxPriorityFeePerGas), paymaster: PM, paymasterVerificationGasLimit: hex(120_000), paymasterPostOpGasLimit: hex(80_000) };
   const need = maxPrefund(op, relayerPrice(BASE));
@@ -434,6 +447,8 @@ test("deposit check covers an 11M-gas launch op; no protocol keeper", async () =
   assert.throws(() => checkPaymaster(op, PM, need - BigInt(1), BASE),
     (e: unknown) => e instanceof RelayPolicyError && e.message === TRADING_UNAVAILABLE && /deposit too low/.test(e.detail ?? ""));
   checkPaymaster(op, PM, need, BASE);
+  // The full launch envelope at buffered client fees can exceed ~$1 at an EXAMPLE $3000/ETH.
+  assert.throws(() => checkPaymaster(op, PM, E18 / BigInt(3000), BASE), RelayPolicyError);
 });
 
 

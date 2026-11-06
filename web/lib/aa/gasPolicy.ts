@@ -43,17 +43,17 @@ export const GAS_CAPS = {
   total: BigInt(4_000_000),
 } as const;
 /**
- * Launch ops only (Launchpad launch / AnonLauncher launchAnon / DiscipleRouter launchWithUsdg, plus their approvals): a
- * launch deploys the token + curve and seeds state ≈ 6.06M execution gas, ≈ 7.9M after the self-bundler's 1.3x + 20k
- * estimate padding, which GAS_CAPS (3M / 4M) rejected as "above cap" ⇒ "simulation failed". Every other op keeps the
- * W-1 caps above. v5: the live smoke launch (approve + Launchpad.launch with First BOOST) used 6,780,271 gas;
- * launchWithUsdg = the same launchFor + the router's USDG pull / USDG→pair swap (+ an optional refund swap) ≈ 7.0–7.3M
- * ⇒ ≈ 9.1–9.5M estimated call gas: inside 10M, with the account / paymaster limits inside the 11M total.
+ * Launch-only budget = 2x worst measured real EntryPoint launch gas (including settlement/unused penalty).
+ * Production solc runtime: warm launchAnon + pair-denominated First BOOST + announcement = 10,920,385.
+ * The former 10M call envelope OOG'd on supported session launches with metadata; preserve its 1M
+ * non-call headroom while widening ONLY launch call/total gas. Trade/graduation budgets do not change.
+ * This is gas UNITS: the prepaid USDG ceiling scales with the signed fee and unmarked oracle rate.
  */
+export const MAX_LAUNCH_GAS_PER_OP = BigInt(21_840_770);
 export const LAUNCH_GAS_CAPS = {
   ...GAS_CAPS,
-  callGasLimit: BigInt(10_000_000),
-  total: BigInt(11_000_000),
+  callGasLimit: MAX_LAUNCH_GAS_PER_OP - BigInt(1_000_000),
+  total: MAX_LAUNCH_GAS_PER_OP,
 } as const;
 /**
  * Buys that may GRADUATE the curve (steep curve #1 + 16-band floor, feat/steep-curve-floor): the graduating buy runs
@@ -84,6 +84,7 @@ const accountAbi = parseAbi([
   "function execute(address target, uint256 value, bytes data)",
   "function executeBatch((address target, uint256 value, bytes data)[] calls)",
 ]);
+const INSTALL_VALIDATION = toFunctionSelector("function installValidation(bytes25,bytes4[],bytes,bytes[])").toLowerCase();
 const EXECUTE_USER_OP = "0x8dd7712f";
 /** Inner calls of an MAv2 / LightAccount callData (execute / executeBatch, optionally behind executeUserOp). null = unknown shape. */
 export function accountCalls(callData: string): { to: string; data: string; value: bigint }[] | null {
@@ -96,11 +97,11 @@ export function accountCalls(callData: string): { to: string; data: string; valu
   } catch { return null; }
 }
 /**
- * Is this op a launch? Every inner call must be an approve / LoginGate.attest or a launch selector, at least one launch, and every launch
+ * Is this op a launch? Every inner call must be an approve / LoginGate.attest / self-targeted session install or a launch selector, at least one launch, and every launch
  * must target one of `launchers` (Launchpad, AnonLauncher(s), DiscipleRouter: lib/aa/launchTargets). Anything else (or an undecodable callData) ⇒ false ⇒
  * normal GAS_CAPS. Selectors come from the generated Launchpad / AnonLauncher / DiscipleRouter ABIs.
  */
-export function isLaunchOp(callData: string, launchers: string[]): boolean {
+export function isLaunchOp(callData: string, launchers: string[], account?: string): boolean {
   const calls = accountCalls(callData);
   if (!calls?.length) return false;
   const ls = launchers.map((a) => a.toLowerCase());
@@ -108,6 +109,9 @@ export function isLaunchOp(callData: string, launchers: string[]): boolean {
   for (const c of calls) {
     const sel = c.data.slice(0, 10).toLowerCase();
     if (LAUNCH_HELPERS.has(sel)) continue;
+    // Native owner bootstrap may install the session alongside the first launch. Only self-targeted
+    // installValidation is a helper; the exact op is signed, and account ownership is enforced on-chain.
+    if (sel === INSTALL_VALIDATION && account && c.to.toLowerCase() === account.toLowerCase()) continue;
     if (!LAUNCH_SELECTORS.has(sel) || !ls.includes(c.to.toLowerCase())) return false;
     launches++;
   }
@@ -121,8 +125,8 @@ export const isLaunchCalls = (calls: { to: string; data: string }[], launchers: 
  * Caps for an op: LAUNCH_GAS_CAPS when it is a launch to one of `launchers`; GRAD_GAS_CAPS when the caller verified
  * it is a graduating buy (lib/server/gradBuy relayCaps: on-chain check, only for ops above GAS_CAPS); else GAS_CAPS.
  */
-export const capsForOp = (op: { callData?: string }, launchers: string[], opts?: { gradBuy?: boolean }): GasCaps =>
-  op.callData && isLaunchOp(op.callData, launchers) ? LAUNCH_GAS_CAPS : opts?.gradBuy ? GRAD_GAS_CAPS : GAS_CAPS;
+export const capsForOp = (op: { callData?: string; sender?: string }, launchers: string[], opts?: { gradBuy?: boolean }): GasCaps =>
+  op.callData && isLaunchOp(op.callData, launchers, op.sender) ? LAUNCH_GAS_CAPS : opts?.gradBuy ? GRAD_GAS_CAPS : GAS_CAPS;
 
 /**
  * Curve buys (direct, or DiscipleRouter buyWithUsdg / buyExactIn ⇒ curve.routerBuy pre-graduation), taken from the

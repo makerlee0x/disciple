@@ -26,10 +26,10 @@ import { isSmartMode } from "@/lib/wallet";
 /* ---- FLOW lib/aa/gasReserve.ts (e693cb5c), verbatim math. ALLOWANCE_GAS / tokenCost / GRAD_GAS_CAPS.total are inlined
  *      because lib/aa/paymaster + the grad caps aren't in this stack yet (same values as FLOW's). ---- */
 export type GasOpKind = "trade" | "gradBuy";
-/** FLOW lib/aa/paymaster ALLOWANCE_GAS (STATIC_GAS + PAYMASTER_GAS 250k / 79,552). */
+/** FLOW lib/aa/paymaster ALLOWANCE_GAS (STATIC_GAS + PAYMASTER_GAS 250k / 79,684). */
 const ALLOWANCE_GAS = {
   callGasLimit: BigInt(1_800_000), verificationGasLimit: BigInt(350_000), preVerificationGas: BigInt(60_000),
-  paymasterVerificationGasLimit: BigInt(250_000), paymasterPostOpGasLimit: BigInt(79_552),
+  paymasterVerificationGasLimit: BigInt(250_000), paymasterPostOpGasLimit: BigInt(79_684),
 } as const;
 /** FLOW lib/aa/paymaster tokenCost: DisciplePaymaster's wei → USDG raw, rounded up. */
 export function tokenCost(weiAmount: bigint, rate: bigint): bigint {

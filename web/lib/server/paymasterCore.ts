@@ -26,13 +26,13 @@ import { size, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 const KEY32 = /^0x[0-9a-fA-F]{64}$/;
-import { capsForOp, checkOpGas, clientFees, exceedsCaps, GAS_CAPS, RelayPolicyError, type GasCaps } from "../aa/gasPolicy";
+import { capsForOp, checkOpGas, clientFees, exceedsCaps, GAS_CAPS, isLaunchOp, RelayPolicyError, type GasCaps } from "../aa/gasPolicy";
 import type { UserOp } from "../aa/core";
 import { hasDeferredPrepayApproval } from "../aa/prepayBootstrap";
 import { ENTRYPOINT_V07 } from "../aa/constants";
 import {
   ALLOWANCE_GAS, encodePaymasterData, entryPointMaxCost, tokenCost, firstCallApproveAmount, formatUsdg, MAX_QUOTE_WINDOW_SEC, PAYMASTER_DATA_LENGTH, PAYMASTER_GAS,
-  paymasterAllowanceHash, paymasterQuoteHash, requiredMaxTokenCost, stubPaymasterData, type PaymasterQuote,
+  paymasterAllowanceHash, paymasterQuoteHash, paymasterLaunchQuoteHash, requiredMaxTokenCost, stubPaymasterData, type PaymasterQuote,
 } from "../aa/paymaster";
 
 export const PAYMASTER_CHAIN_ID = 46630; // RH testnet only
@@ -67,12 +67,12 @@ export async function quoteCaps(op: UserOp, cfg: QuoteConfig, deps?: Pick<QuoteD
 }
 export type QuoteDeps = {
   now(): number; // unix seconds
-  /** What the sender's next op must cover besides its gas: legacy DisciplePaymaster.owedOf (zero in PREPAY_VERSION 3). */
+  /** What the sender's next op must cover besides its gas: legacy DisciplePaymaster.owedOf (zero in PREPAY_VERSION 4). */
   debtOf(sender: Address): Promise<bigint>;
   balanceOf(sender: Address): Promise<bigint>;
   /** IERC20.allowance(sender, paymaster) — required for F-01 precharge. */
   allowanceOf(sender: Address): Promise<bigint>;
-  bounds(): Promise<{ minRate: bigint; maxRate: bigint; maxGasPerOp: bigint }>;
+  bounds(): Promise<{ minRate: bigint; maxRate: bigint; maxGasPerOp: bigint; maxLaunchGasPerOp: bigint }>;
   baseFee(): Promise<bigint>;
   /** EIP-191 personal_sign of the raw 32-byte hash with PAYMASTER_SIGNER_KEY. */
   sign(hash: Hex): Promise<Hex>;
@@ -142,7 +142,9 @@ export async function finalQuote(op: UserOp, entryPoint: string, chainId: string
   if (amount < required) throw new PaymasterQuoteError("approve", `USDG gas allowance ${d(amount)} below required ${d(required)} — re-quote`, data);
   const slack = cfg.maxSlackBps ?? DEFAULT_MAX_SLACK_BPS;
   if (amount !== (BigInt(1) << BigInt(256)) - BigInt(1) && amount > required + (required * slack) / BigInt(10_000)) throw new PaymasterQuoteError("approve", `USDG gas allowance ${d(amount)} too far above required ${d(required)}`, data);
-  if (entryPointMaxCost(o) / BigInt(o.maxFeePerGas!) > b.maxGasPerOp) throw new PaymasterQuoteError("approve", "operation above paymaster gas-unit limit", data);
+  const launch = isLaunchOp(o.callData || "", cfg.launchers ?? [], o.sender);
+  const gasCap = launch ? b.maxLaunchGasPerOp : b.maxGasPerOp;
+  if (entryPointMaxCost(o) / BigInt(o.maxFeePerGas!) > gasCap) throw new PaymasterQuoteError("approve", "operation above paymaster gas-unit limit", data);
   const maxTokenCost = amount === (BigInt(1) << BigInt(256)) - BigInt(1) ? required : amount;
   // The in-batch approve replenishes allowance / counts session spend, but does NOT secure this operation.
   if (standing < maxTokenCost && !hasDeferredPrepayApproval(o, cfg.usdg, cfg.paymaster)) throw new PaymasterQuoteError("approve", `standing USDG allowance ${d(standing)} below required ${d(maxTokenCost)} — owner validation approval required`, data);
@@ -150,7 +152,7 @@ export async function finalQuote(op: UserOp, entryPoint: string, chainId: string
 
   const now = deps.now();
   const q: PaymasterQuote = { validUntil: now + ttl(cfg), validAfter: now - VALID_AFTER_SKEW_SEC, rate: cfg.rate, maxTokenCost };
-  const sig = await deps.sign(paymasterQuoteHash(o, q, PAYMASTER_CHAIN_ID, cfg.paymaster));
+  const sig = await deps.sign((launch ? paymasterLaunchQuoteHash : paymasterQuoteHash)(o, q, PAYMASTER_CHAIN_ID, cfg.paymaster));
   const paymasterData = encodePaymasterData(q, sig);
   if (size(paymasterData) !== PAYMASTER_DATA_LENGTH) throw new Error("paymasterData length mismatch");
   return { paymaster: cfg.paymaster, paymasterVerificationGasLimit: o.paymasterVerificationGasLimit!, paymasterPostOpGasLimit: o.paymasterPostOpGasLimit!, paymasterData };

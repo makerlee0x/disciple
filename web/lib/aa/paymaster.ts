@@ -12,8 +12,9 @@
  * rate = USDG base units per 1 ETH (1e18 wei). Decimals-aware by construction: 18-dec testnet USDG at $3000/ETH is
  * 3000e18, 6-dec mainnet USDG is 3000e6. tokenCost(wei) = ceil(wei * rate / 1e18).
  *
- * The op's FIRST inner call must be usdg.approve(paymaster, maxTokenCost) (exact amount: DiscipleSessionPolicy 1.4.0
- * only lets session keys approve the paymaster for exactly the signed maxTokenCost, and counts it against the cap).
+ * The FIRST inner approve is a session-accounting marker, not security for this op. Policy 1.4.2 accepts
+ * persistent uint256.max allowance while debiting only the signed token ceiling. Validation collects prepaid
+ * USDG from a standing allowance (or the native owner-validation bootstrap), before any execution calls.
  */
 import { concat, decodeFunctionData, encodeAbiParameters, encodeFunctionData, keccak256, pad, parseAbi, parseAbiParameters, size, slice, toHex, type Address, type Hex } from "viem";
 import type { Call, UserOp } from "./core";
@@ -24,7 +25,7 @@ export const MAX_QUOTE_WINDOW_SEC = 3600;
 /** Gas limits the server signs; must stay ≤ lib/aa/gasPolicy GAS_CAPS.paymaster*. Validation precharges; postOp settles/refunds. */
 export const PAYMASTER_GAS = {
   verificationGasLimit: BigInt(250_000), // ecrecover + balanceOf + allowance + transferFrom precharge (F-01)
-  postOpGasLimit: BigInt(79_552),       // treasury transfer + sender refund (F-01 precharge)
+  postOpGasLimit: BigInt(79_684),       // treasury transfer + sender refund (F-01 precharge)
 } as const;
 
 export const disciplePaymasterAbi = parseAbi([
@@ -35,6 +36,7 @@ export const disciplePaymasterAbi = parseAbi([
   "function usdg() view returns (address)",
   "function minRate() view returns (uint256)",
   "function maxRate() view returns (uint256)",
+  "function maxLaunchGasPerOp() view returns (uint256)",
   "function maxGasPerOp() view returns (uint256)",
   "function postOpGas() view returns (uint256)",
   "function getDeposit() view returns (uint256)",
@@ -95,7 +97,7 @@ export function decodePaymasterData(data: Hex): PaymasterQuote & { signature: He
 /** keccak256("DisciplePaymaster.Allowance(v1)") — DisciplePaymaster.ALLOWANCE_TYPEHASH. */
 export const ALLOWANCE_TYPEHASH = keccak256(toHex("DisciplePaymaster.Allowance(v1)"));
 /** DisciplePaymaster.MIN_PM_POST_OP_GAS_LIMIT: the contract refuses an op whose paymasterPostOpGasLimit is lower. */
-export const MIN_PM_POST_OP_GAS_LIMIT = BigInt(100_000);
+export const MIN_PM_POST_OP_GAS_LIMIT = PAYMASTER_GAS.postOpGasLimit;
 
 /**
  * DisciplePaymaster.getHash(sender, validUntil, validAfter, rate, maxTokenCost) — the per-sender ALLOWANCE the signer
@@ -116,7 +118,10 @@ export const OP_QUOTE_TYPEHASH = keccak256(toHex("DisciplePaymaster.OpQuote(v1)"
  * Single use (nonce), so a large per-op maxTokenCost (launch / graduating buy) can't be reused as an allowance
  * (AUDIT #141 L-2). Only pm_getPaymasterAllowance issues the reusable, sender-bound hash above.
  */
-export function paymasterQuoteHash(op: UserOp, q: PaymasterQuote, chainId: number, paymaster: Address): Hex {
+export const LAUNCH_QUOTE_TYPEHASH = keccak256(toHex("DisciplePaymaster.LaunchQuote(v1)"));
+export const paymasterLaunchQuoteHash = (op: UserOp, q: PaymasterQuote, chainId: number, paymaster: Address) =>
+  paymasterQuoteHash(op, q, chainId, paymaster, LAUNCH_QUOTE_TYPEHASH);
+export function paymasterQuoteHash(op: UserOp, q: PaymasterQuote, chainId: number, paymaster: Address, domain: Hex = OP_QUOTE_TYPEHASH): Hex {
   const initCode = op.factory ? concat([op.factory, op.factoryData || "0x"]) : "0x";
   const accountGasLimits = concat([p16(op.verificationGasLimit), p16(op.callGasLimit)]);
   const pmGas = concat([p16(op.paymasterVerificationGasLimit), p16(op.paymasterPostOpGasLimit)]);
@@ -127,7 +132,7 @@ export function paymasterQuoteHash(op: UserOp, q: PaymasterQuote, chainId: numbe
   ));
   return keccak256(encodeAbiParameters(
     parseAbiParameters("bytes32, bytes32, uint256, address, uint48, uint48, uint256, uint256"),
-    [OP_QUOTE_TYPEHASH, opPart, BigInt(chainId), paymaster, q.validUntil, q.validAfter, q.rate, q.maxTokenCost],
+    [domain, opPart, BigInt(chainId), paymaster, q.validUntil, q.validAfter, q.rate, q.maxTokenCost],
   ));
 }
 
@@ -140,7 +145,7 @@ export const ALLOWANCE_GAS = {
   paymasterVerificationGasLimit: PAYMASTER_GAS.verificationGasLimit, paymasterPostOpGasLimit: PAYMASTER_GAS.postOpGasLimit,
 } as const;
 
-/** The exact-amount approve that must be the op's first inner call. */
+/** First-call gas accounting marker; accepts either the quote amount or a persistent maximum allowance. */
 export function paymasterApproveCall(usdg: Address, paymaster: Address, maxTokenCost: bigint): Call {
   return { to: usdg, value: BigInt(0), data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [paymaster, maxTokenCost] }) };
 }

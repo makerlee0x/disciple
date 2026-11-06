@@ -13,7 +13,7 @@ const E18 = BigInt(10) ** BigInt(18), GWEI = BigInt(1e9);
 const usd = (raw: bigint, dec = 18) => Number(raw) / 10 ** dec;
 
 test("cold derivation: gas limit × allowance maxFee(gasPrice) × rate, rounded up; no flat 10 USDG anywhere", () => {
-  assert.equal(TRADE_GAS_LIMIT, BigInt(2_539_552)); assert.equal(GRAD_GAS_LIMIT, BigInt(6_000_000));
+  assert.equal(TRADE_GAS_LIMIT, BigInt(2_539_684)); assert.equal(GRAD_GAS_LIMIT, BigInt(6_000_000));
   const gp = GWEI / BigInt(100);   // 0.01 gwei = RH testnet eth_gasPrice on Oct 24 2026
   assert.equal(allowanceMaxFee(gp), clientFees(gp).maxFeePerGas * BigInt(2), "same formula as paymasterCore.allowanceQuote");
   const rate = configRate(18);

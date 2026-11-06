@@ -121,17 +121,17 @@ const approve = encodeFunctionData({ abi: parseAbi(["function approve(address,ui
 const batch = (calls: { to: string; data: Hex }[]) => encodeFunctionData({ abi: acct, functionName: "executeBatch", args: [calls.map((c) => ({ target: c.to as Hex, value: BigInt(0), data: c.data }))] });
 const launchOp = (callData: Hex, g: Record<string, number> = {}) => ({ ...op({ callGasLimit: 7_900_000, verificationGasLimit: 450_000, preVerificationGas: 60_000, ...g }), callData });
 
-test("launch op (approve + launch to the Launchpad) gets the launch caps: ~7.9M call passes, >10M call / >11M total rejected", () => {
+test("launch op (approve + launch to the Launchpad) gets the launch caps: measured launch envelope passes; above launch call/total caps rejected", () => {
   const cd = batch([{ to: TOK, data: approve }, { to: LP, data: launchData }]);
   assert.equal(isLaunchOp(cd, [LP]), true);
   assert.equal(isLaunchCalls([{ to: LP, data: launchData }], [LP]), true);
   const o = launchOp(cd);
   assert.ok(checkOpGas(o, BASE, capsForOp(o, [LP])) > BigInt(0));
   assert.throws(() => checkOpGas(o, BASE), RelayPolicyError);   // same op under W-1 caps: rejected (the bug)
-  const big = launchOp(cd, { callGasLimit: 10_000_001 });
+  const big = launchOp(cd, { callGasLimit: Number(LAUNCH_GAS_CAPS.callGasLimit + BigInt(1)) });
   assert.throws(() => checkOpGas(big, BASE, capsForOp(big, [LP])), /callGasLimit .* above cap/);
-  const tot = launchOp(cd, { callGasLimit: 10_000_000, verificationGasLimit: 900_000, preVerificationGas: 150_000 });
-  assert.throws(() => checkOpGas(tot, BASE, capsForOp(tot, [LP])), /total gas .* above cap 11000000/);
+  const tot = launchOp(cd, { callGasLimit: Number(LAUNCH_GAS_CAPS.callGasLimit), verificationGasLimit: 900_000, preVerificationGas: 150_000 });
+  assert.throws(() => checkOpGas(tot, BASE, capsForOp(tot, [LP])), new RegExp(`total gas .* above cap ${LAUNCH_GAS_CAPS.total}`));
   assert.equal(LAUNCH_GAS_CAPS.verificationGasLimit, GAS_CAPS.verificationGasLimit);   // only call + total widen
 });
 test("non-launch ops keep W-1 caps: wrong target, extra non-approve call, single execute of a trade, garbage callData", () => {

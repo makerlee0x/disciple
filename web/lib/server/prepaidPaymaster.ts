@@ -16,8 +16,8 @@ export function requireStake(info: { staked: boolean; stake: bigint; unstakeDela
 }
 export async function assertPrepaidReady(paymaster: Address, factory?: string): Promise<void> {
   const raw = process.env.PAYMASTER_MIN_STAKE_WEI;
-  // Alchemy does not publish a Robinhood minimum: owner must confirm it, not silently assume 0.1 ETH.
-  if (!raw || !/^\d+$/.test(raw) || BigInt(raw) <= BigInt(0)) throw Error("confirm external bundler minimum; set owner-approved PAYMASTER_MIN_STAKE_WEI");
+  // Owner-approved ~$5 starting stake is provisional: Alchemy publishes no Robinhood minimum.
+  if (!raw || !/^\d+$/.test(raw) || BigInt(raw) <= BigInt(0)) throw Error("set owner-approved PAYMASTER_MIN_STAKE_WEI; Robinhood provider minimum is unconfirmed");
   const key = `${paymaster.toLowerCase()}|${factory?.toLowerCase() || ""}|${raw}`;
   if (Date.now() - (verified.get(key) ?? 0) < 30_000) return;
   const [version, paused, usdg, entryPoint, stake, postOpGas] = await Promise.all([
@@ -28,7 +28,7 @@ export async function assertPrepaidReady(paymaster: Address, factory?: string): 
     pc.readContract({ address: ENTRYPOINT_V07, abi: epAbi, functionName: "getDepositInfo", args: [paymaster] }),
     pc.readContract({ address: paymaster, abi: disciplePaymasterAbi, functionName: "postOpGas" }),
   ]);
-  if (version !== BigInt(3) || postOpGas < BigInt(79_552) || paused || usdg.toLowerCase() !== DEPLOYMENTS[46630].usdg.toLowerCase() || entryPoint.toLowerCase() !== ENTRYPOINT_V07.toLowerCase()) throw Error("hardened prepaid USDG paymaster unavailable");
+  if (version !== BigInt(4) || postOpGas < BigInt(79_684) || paused || usdg.toLowerCase() !== DEPLOYMENTS[46630].usdg.toLowerCase() || entryPoint.toLowerCase() !== ENTRYPOINT_V07.toLowerCase()) throw Error("hardened prepaid USDG paymaster unavailable");
   requireStake(stake, BigInt(raw));
   if (factory) {
     if (factory.toLowerCase() !== MAV2_FACTORY.toLowerCase()) throw Error("unsupported account factory");

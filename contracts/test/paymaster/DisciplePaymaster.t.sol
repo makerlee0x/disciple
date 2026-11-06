@@ -282,8 +282,6 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         assertTrue(pm.paused());
     }
 
-
-
     function test_failedPrecharge_rejectsBeforeExecution() public {
         uint256 maxTok = _maxTok();
         EpOp memory op = _full(_approveThen(maxTok, _transferCall(sink, 1)), rate, maxTok);
@@ -397,11 +395,24 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         vm.startPrank(owner);
         pm.addStake{value: 0.5 ether}(1 days);
         assertEq(ep.getDepositInfo(address(pm)).stake, 0.5 ether);
+        pm.addStake{value: 0.1 ether}(1 days);
+        assertEq(ep.getDepositInfo(address(pm)).stake, 0.6 ether, "addStake tops up, not replaces");
+        pm.unlockStake();
+        assertFalse(ep.getDepositInfo(address(pm)).staked);
+        vm.expectRevert(bytes("Stake withdrawal is not due"));
+        pm.withdrawStake(to);
+        pm.addStake{value: 0.1 ether}(1 days);
+        assertEq(ep.getDepositInfo(address(pm)).stake, 0.7 ether);
+        assertTrue(ep.getDepositInfo(address(pm)).staked, "top-up re-locks a pending unlock");
+        assertEq(ep.getDepositInfo(address(pm)).withdrawTime, 0);
+        vm.expectRevert(bytes("cannot decrease unstake time"));
+        pm.addStake{value: 0}(1 days - 1);
         pm.unlockStake();
         vm.warp(block.timestamp + 1 days + 1);
         pm.withdrawStake(to);
         vm.stopPrank();
-        assertEq(to.balance, 0.5 ether);
+        assertEq(to.balance, 0.7 ether);
+        assertEq(ep.getDepositInfo(address(pm)).stake, 0);
     }
 
     // ───────── pure helpers ─────────

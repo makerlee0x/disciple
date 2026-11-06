@@ -12,11 +12,11 @@ import {PackedUserOperation, PostOpMode, IPaymasterV07, IEntryPointStakeV07} fro
 ///         allowance is required; an approval in the sponsored batch cannot authorize payment. postOp pays the
 ///         treasury and refunds unused collateral, including for reverted user calls. Failed transfers become
 ///         recipient-owned credits, not unsecured user debt. Owner pause and a gas-unit per-op limit bound operations.
-///         There is deliberately no global exposure budget. Quotes retain the existing 193-byte wire format and domains.
+///         There is deliberately no global exposure budget. Quotes retain the 193-byte wire format and trade domains; launches have a distinct op-bound domain.
 /// @dev Pricing / v0.7 penalty formula adapted from Pimlico SingletonPaymasterV7 (MIT).
 contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     // ───────────────────────── constants / immutables ─────────────────────────
-    uint256 public constant PREPAY_VERSION = 3;
+    uint256 public constant PREPAY_VERSION = 4;
     uint256 internal constant TOKEN_TRANSFER_GAS = 75_000;
     uint256 internal constant PAYMASTER_DATA_OFFSET = 52;
     uint256 internal constant QUOTE_LENGTH = 76; // 6 + 6 + 32 + 32
@@ -28,10 +28,11 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     uint256 public constant MAX_QUOTE_WINDOW = 1 hours;
     /// @notice Floor on the op's paymasterPostOpGasLimit, covering settlement and two token transfers.
     ///         Even if settlement cannot complete, the validation precharge stays secured.
-    uint256 public constant MIN_PM_POST_OP_GAS_LIMIT = 79_552; // transfer to treasury + refund (F-01 precharge)
+    uint256 public constant MIN_PM_POST_OP_GAS_LIMIT = 79_684; // transfer to treasury + refund (F-01 precharge)
     /// @notice Domain tag of the allowance hash (keeps it distinct from the per-op quote hash).
     bytes32 public constant ALLOWANCE_TYPEHASH = keccak256("DisciplePaymaster.Allowance(v1)");
     /// @notice Domain tag of the op-bound per-op quote hash (getOpHash).
+    bytes32 public constant LAUNCH_QUOTE_TYPEHASH = keccak256("DisciplePaymaster.LaunchQuote(v1)");
     bytes32 public constant OP_QUOTE_TYPEHASH = keccak256("DisciplePaymaster.OpQuote(v1)");
 
     bytes4 internal constant EXECUTE = bytes4(keccak256("execute(address,uint256,bytes)"));
@@ -51,6 +52,8 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     uint256 public maxRate;
     /// @notice Per-op gas UNITS. USDG maximum floats with signed maxFeePerGas and the bounded rate.
     uint256 public maxGasPerOp;
+    /// @notice Separate gas-unit limit, enabled only by an exact op-bound launch quote. Zero disables launch-tier quotes.
+    uint256 public maxLaunchGasPerOp;
     /// @notice Gas billed for postOp itself (not included in postOp's actualGasCost).
     uint256 public postOpGas;
 
@@ -75,6 +78,7 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     event SignerSet(address indexed signer);
     event TreasurySet(address indexed treasury);
     event BoundsSet(uint256 minRate, uint256 maxRate, uint256 maxGasPerOp);
+    event LaunchGasLimitSet(uint256 maxLaunchGasPerOp);
     event PostOpGasSet(uint256 postOpGas);
     event PausedSet(bool paused);
     event UserOperationCharged(
@@ -140,12 +144,16 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
             parsePaymasterAndData(op.paymasterAndData);
 
         address sender = op.sender;
-        if (
-            !_signedBySigner(getHash(sender, validUntil, validAfter, rate, maxTokenCost), sig)
-                && !_signedBySigner(getOpHash(op, validUntil, validAfter, rate, maxTokenCost), sig)
-        ) {
-            // ERC-4337: a bad signature returns SIG_VALIDATION_FAILED (the EntryPoint rejects with AA34), no revert.
-            return ("", _packValidationData(true, validUntil, validAfter));
+        bool standard = _signedBySigner(getHash(sender, validUntil, validAfter, rate, maxTokenCost), sig)
+            || _signedBySigner(getOpHash(op, validUntil, validAfter, rate, maxTokenCost), sig);
+        uint256 gasCap = maxGasPerOp;
+        if (!standard) {
+            if (!_signedBySigner(getLaunchOpHash(op, validUntil, validAfter, rate, maxTokenCost), sig)) {
+                return ("", _packValidationData(true, validUntil, validAfter));
+            }
+            // Only the quote service's explicit, exact-op LAUNCH domain can select this tier.
+            // Cached trade allowances and ordinary per-op signatures never get the larger limit.
+            gasCap = maxLaunchGasPerOp;
         }
 
         if (validUntil <= validAfter || validUntil - validAfter > MAX_QUOTE_WINDOW) revert QuoteWindowInvalid();
@@ -153,8 +161,8 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
         uint256 gasUnits = op.preVerificationGas + uint128(uint256(op.accountGasLimits) >> 128)
             + uint128(uint256(op.accountGasLimits)) + _pmVerificationGasLimit(op.paymasterAndData)
             + _pmPostOpGasLimit(op.paymasterAndData);
-        if (gasUnits > maxGasPerOp) revert GasLimitAboveCap(gasUnits, maxGasPerOp);
-        uint256 dynamicWeiCap = maxGasPerOp * uint128(uint256(op.gasFees));
+        if (gasUnits > gasCap) revert GasLimitAboveCap(gasUnits, gasCap);
+        uint256 dynamicWeiCap = gasCap * uint128(uint256(op.gasFees));
         if (maxCost > dynamicWeiCap) revert MaxCostAboveCap(maxCost, dynamicWeiCap);
 
         uint256 pmPostOp = _pmPostOpGasLimit(op.paymasterAndData);
@@ -230,7 +238,10 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
 
     function _checkedContext(bytes calldata context) internal view returns (Context memory c) {
         c = abi.decode(context, (Context));
-        if (prechargeOf[c.userOpHash] != c.precharged || c.precharged == 0 || contextHashOf[c.userOpHash] != keccak256(context)) revert InvalidContext();
+        if (
+            prechargeOf[c.userOpHash] != c.precharged || c.precharged == 0
+                || contextHashOf[c.userOpHash] != keccak256(context)
+        ) revert InvalidContext();
     }
 
     function _settle(Context memory c, uint256 gasCost) internal {
@@ -283,6 +294,29 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
         uint256 rate,
         uint256 maxTokenCost
     ) public view returns (bytes32) {
+        return _getOpHash(op, validUntil, validAfter, rate, maxTokenCost, OP_QUOTE_TYPEHASH);
+    }
+
+    /// @notice Dedicated launch-tier authorization; signer MUST verify configured launch target/selector/batch.
+    ///         Binds nonce, calldata, fees and all gas limits. It cannot replay as a reusable trade allowance.
+    function getLaunchOpHash(
+        PackedUserOperation calldata op,
+        uint48 validUntil,
+        uint48 validAfter,
+        uint256 rate,
+        uint256 maxTokenCost
+    ) public view returns (bytes32) {
+        return _getOpHash(op, validUntil, validAfter, rate, maxTokenCost, LAUNCH_QUOTE_TYPEHASH);
+    }
+
+    function _getOpHash(
+        PackedUserOperation calldata op,
+        uint48 validUntil,
+        uint48 validAfter,
+        uint256 rate,
+        uint256 maxTokenCost,
+        bytes32 domain
+    ) internal view returns (bytes32) {
         bytes32 pmGas = op.paymasterAndData.length >= PAYMASTER_DATA_OFFSET
             ? bytes32(op.paymasterAndData[20:PAYMASTER_DATA_OFFSET])
             : bytes32(0);
@@ -298,11 +332,10 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
                 op.gasFees
             )
         );
-        return keccak256(
-            abi.encode(
-                OP_QUOTE_TYPEHASH, opPart, block.chainid, address(this), validUntil, validAfter, rate, maxTokenCost
-            )
-        );
+        return
+            keccak256(
+                abi.encode(domain, opPart, block.chainid, address(this), validUntil, validAfter, rate, maxTokenCost)
+            );
     }
 
     /// @notice Retained for quote-service wire compatibility: secured precharges are not unsecured debt.
@@ -419,6 +452,12 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     function setBounds(uint256 minRate_, uint256 maxRate_, uint256 maxGasPerOp_) external {
         _checkOwner();
         _setBounds(minRate_, maxRate_, maxGasPerOp_);
+    }
+
+    function setLaunchGasLimit(uint256 gasUnits) external {
+        _checkOwner();
+        maxLaunchGasPerOp = gasUnits; // zero is an explicit fail-closed disable; no USDG/ETH price assumptions
+        emit LaunchGasLimitSet(gasUnits);
     }
 
     function setPostOpGas(uint256 g) external {
