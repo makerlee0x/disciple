@@ -671,6 +671,53 @@
         149505611
       ],
       "note": "USDG validation-time prepay/refund. Separate signed launch domain, dynamic gas-unit caps. EntryPoint accepted approved $5 stake/$30 float at lee ETH/USD 2300; Alchemy provider acceptance remains untested. Server rate configuration was not changed by steps (a)/(b)."
+    },
+    "DisciplePaymasterV5": {
+      "address": "0x5c3f7400ed41acd7409d213cab2909e3b1e31136",
+      "version": 5,
+      "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+      "usdg": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+      "usdgDecimals": 6,
+      "deployTx": "0xefce3e4189e2dd6a8cb1c36d99f99f1f79468ec810724568b55bb665117b0c02",
+      "setLaunchGasLimitTx": "0x94fbb1716d0c09889d156a3a597cdf6496f2bfdf31daffd460dfb2e6bed23368",
+      "depositTx": "0xa8cbe85796ab667c384bd6ceb1921e4309c03424ffc32e685d63cdeab11e8588",
+      "stakeTx": "0x935a04ddbe719942b444bade2a9e8f47285b05964d62ccb1a361501a6ed18dcd",
+      "depositWei": "13043478260869566",
+      "stakeWei": "2173913043478261",
+      "staked": true,
+      "unstakeDelaySec": 86400,
+      "withdrawTime": 0,
+      "owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+      "treasury": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+      "signer": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1",
+      "minRate": "1000000000",
+      "maxRate": "10000000000",
+      "maxGasPerOp": 7068712,
+      "maxLaunchGasPerOp": 21840770,
+      "postOpGas": 79684,
+      "maxBootstrapGasPerOp": 3200000,
+      "bootstrapCodehashEnforced": false,
+      "markupBps": 0,
+      "keeper": false,
+      "blocks": [
+        149600480,
+        149600494,
+        149600507,
+        149600521
+      ],
+      "deployedAtCT": "2026-11-06 09:58:40-09:58:53 CT",
+      "note": "#251 hidden USDG gas credit (validation reserves only; tokens move in execution/postOp). Stake $5 / float $30 at lee ETH/USD 2300. ERC-7562: 6/6 ADMITTED locally (staked). Legacy v4 not retired (needs separate OK). Broadcast record: deployments/broadcast-v5/."
+    },
+    "DiscipleSessionPolicyV143": {
+      "address": "0xd2cf85dd7cdc3c3e53ea0472bf6bf006de45e4d2",
+      "version": "1.4.3",
+      "constructor": {
+        "referralRegistry": "0xFE529086B25C4e0724b88780E5ba9B4AcE785AAf",
+        "paymaster": "0x5c3f7400ed41acd7409d213cab2909e3b1e31136"
+      },
+      "deployTx": "0xed8e08eebfdf2af95dff21425a5ad07bc423ae75e4297338ddb7609fb2523d4d",
+      "block": 149600608,
+      "moduleId": "disciple.session-policy.1.4.3"
     }
   },
   "deployTxLast": "0x5adfa55419200eef2b9f89566ca64599a4a7fe5ea4c8a15fee1d5ee86103f4ff",
