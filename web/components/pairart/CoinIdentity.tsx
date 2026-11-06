@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { erc20Abi, isAddress, type Address } from "viem";
 import { DEMO_POOL } from "@/lib/config";
 import { deployment, isDeployed } from "@/lib/chains";
-import { publicClient, readCurveState } from "@/lib/protocol-viem";
+import { curveOf, publicClient, readCurveState } from "@/lib/protocol-viem";
 import { launchpadAbi } from "@/lib/abi";
+import { isLegacyCurve } from "@/lib/legacyGate";
 import PairArt from "./PairArt";
 import { basePair } from "@/lib/pairArt";
 import { useCanvasCards } from "@/lib/game/cardLayoutStore";
@@ -33,6 +34,7 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   const icon = pickCoinIcon(stored, sp.get("icon"), demo && !sp.get("cs") ? AI_ICON : null);
   // 1e: a direct /coin/0x… link has no ?cs/?nm ⇒ read name / symbol / pair from chain so the name always shows
   const [chain, setChain] = useState<{ name: string; symbol: string; pair?: string } | null>(null);
+  const [legacy, setLegacy] = useState(false);
   const needRead = !demo && !sp.get("cs") && isDeployed() && isAddress(address);
   useEffect(() => {
     if (!needRead) return;
@@ -45,6 +47,18 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
     ]).then(([name, symbol, pair]) => { if (alive) setChain({ name: String(name), symbol: String(symbol), pair: pair ? String(pair) : undefined }); }).catch(() => undefined);
     return () => { alive = false; };
   }, [needRead, address]);
+  // Legacy / archived (lee option B): curve.loginGate() ≠ live LoginGate — badge only; gated buys blocked in protocol-viem.
+  useEffect(() => {
+    setLegacy(false);
+    if (demo || !isDeployed() || !isAddress(address)) return;
+    let alive = true;
+    const pc = publicClient();
+    curveOf(pc, address as Address)
+      .then((c) => isLegacyCurve(pc, c))
+      .then((v) => { if (alive) setLegacy(!!v); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [demo, address]);
   // ONE header card (lee, Oct 30): this row sits INSIDE the engine's canvas card (icon · name · pair on top, then the card's
   // MARKET CAP label + big mcap). Publish its height so the card grows by it (engine.js coinIdRowH; 0 on phones, where the
   // row is art only next to the menu and the mcap lives in the phone pill).
@@ -78,6 +92,7 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
       <div className="coin-id-txt">
         <b>{name}</b>
         {sub && <span data-testid="coin-id-sub">{sub}</span>}
+        {legacy && <span className="coin-id-legacy" data-testid="coin-legacy" title="Launched under an older login gate. Easy buys are off.">Legacy</span>}
       </div>
     </div>
   );

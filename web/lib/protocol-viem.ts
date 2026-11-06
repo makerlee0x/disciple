@@ -41,6 +41,7 @@ import type {
 import { ZERO_ADDRESS } from "./protocol";
 import { activeAddress, connectedAddress, execCalls, isSmartMode, type ExecResult } from "./wallet";
 import { ensurePveLogin, ensurePveLoginOnchain, PveError } from "./pve";
+import { isLegacyCurve, LEGACY_COIN_MSG } from "./legacyGate";
 import { pnlKey, seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
 import type { RelayTimeoutExtra } from "./aa/relayTypes";
@@ -973,6 +974,8 @@ export function createViemProtocol(): ProtocolClient {
       // graduation check for ANY quote: USDG-quoted ⇒ usdgIn is the curve's quoteIn; else converted on-chain (gradNeed)
       const gradCurve = usdg && side === "buy" && !graduated ? { curve, mode, quote: quoteAsset } : undefined;
       if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE, gradCurve, reads, fresh: o.fresh }, tt, tap, handoff);
+      // Legacy coins (curve.loginGate ≠ live LoginGate): no gated Easy buys — show archived, do not attest.
+      if (side === "buy" && !graduated && mode === MODE.PVE && await isLegacyCurve(pc, curve)) throw new ProtocolError("LegacyCoin", LEGACY_COIN_MSG);
       const pveCalls = side === "buy" && !graduated && mode === MODE.PVE ? await labelRead("pve-login", ensurePveLogin(pc, recipient)) : [];
       const spendAsset = side === "buy" ? quoteAsset : t.token;
       const outAsset = side === "buy" ? t.token : quoteAsset;
@@ -1075,6 +1078,11 @@ export function createViemProtocol(): ProtocolClient {
     // Router path: the curve trades for msg.sender (the account) ⇒ PVE login is checked for `me`.
     // A trader-aware USDG quote needs a live on-chain login. The user pays for this owner-signed setup,
     // waits for inclusion, then gets the normal quote/buy; no server-funded or public relay transaction.
+    // Legacy coins: block gated Easy buys before any attest / owner-signed login setup.
+    if (isBuy && c.pve) {
+      const curve = c.gradCurve?.curve ?? await curveOf(pc, t.token);
+      if (await isLegacyCurve(pc, curve)) throw new ProtocolError("LegacyCoin", LEGACY_COIN_MSG);
+    }
     if (isBuy && c.pve) await labelRead("pve-login", ensurePveLoginOnchain(pc, c.me, (calls) => execCalls(calls)));
 
     const spend = isBuy ? c.usdg : t.token, outAsset = isBuy ? t.token : c.usdg;
