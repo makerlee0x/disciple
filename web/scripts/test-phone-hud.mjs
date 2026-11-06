@@ -93,7 +93,7 @@ ok(/\{ id: "run", label: "Position" \}/.test(hud) && !/label: "Run"/.test(hud) &
     ok(capB + 60 < L.dTop && capB < L.hudTop - 200, `${w}x${h}: caption clear of the drawer and the bottom HUD`);
     ok(0.6 * 11 * "99% to SEVENTH HEAVEN".length <= w - 48, `${w}: longest label fits without truncation`); }
 }
-ok(/r=\{txt:[^\n]*at:Date\.now\(\)\}/.test(eng), "feed rows carry a time for the phone 'ago' column");
+ok(/function feedTradeRow\([^\n]*at=Date\.now\(\),received=true\)/.test(eng) && /r=\{txt:[^\n]*at,received\}/.test(eng), "feed rows preserve supplied time or default to observed time for the phone ago column");
 // 4) drag-to-steer: pure controller (STEER block)
 const steer = eng.slice(eng.indexOf("/*STEER-BEGIN*/"), eng.indexOf("/*STEER-END*/"));
 const T = new Function(`${steer}\nreturn { stepSteerAuto, steerDragDir, steerMargin };`)();

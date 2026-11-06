@@ -60,7 +60,7 @@ export function appendRows(rows: Row[], incoming: ChatMsg[], cap = ROW_CAP): Row
   }
   return out.length > cap ? out.slice(out.length - cap) : out;
 }
-export const fmtUsd = (v: number) => (v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(1)}K` : `$${Math.round(v)}`);
+export const fmtUsd = (v: number) => (v > 0 && v < 1 ? (v < 0.01 ? "<$0.01" : `$${v.toFixed(2)}`) : v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(1)}K` : `$${Math.round(v)}`);
 /** Chat name fallback for a sender/trader without a username (GameChat renders `from.name || shortAddr(from.addr)`):
  *  a 0x address → its space-themed default call sign (lib/defaultUsername, same name as every other surface);
  *  anything else keeps the old short form. Name kept for GameChat's import. */

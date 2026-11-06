@@ -345,8 +345,10 @@ const short=a=>!a?'?':/^0x[0-9a-f]{8,}$/i.test(a)? a.slice(0,6)+'…'+a.slice(-4
 const NAMES={}, DEFNAMES={};   // DEFNAMES: default call signs (no @) from the site's 'disciple:feednames' (lib/flight/holderNames)
 function nameOf(a){ const k=String(a||'').toLowerCase(), g=typeof window!=='undefined'&&window.__discipleNames, n=NAMES[k]||(g&&g[k]);
   return n?'@'+String(n).replace(/^@/,'').slice(0,11):DEFNAMES[k]?String(DEFNAMES[k]).slice(0,16):short(a); }
-function feedTradeRow(side,usd,who,trader){ const pre=`${side==='buy'?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `;
-  const own=who!=null&&/^\(you/.test(who), r={txt:pre+(who!=null?who:nameOf(trader)),c:side==='buy'?'#9ff3c8':'#ffb0c8',t:1,at:Date.now()};
+// Local clock; ~ marks receipt/observation time when no block timestamp was supplied.
+function feedTime(r){ if(!(r.at>0)||!Number.isFinite(+r.at)) return '—'; const d=new Date(+r.at); if(!Number.isFinite(d.getTime())) return '—'; return (r.received?'~':'')+[d.getHours(),d.getMinutes(),d.getSeconds()].map(v=>String(v).padStart(2,'0')).join(':'); }
+function feedTradeRow(side,usd,who,trader,at=Date.now(),received=true){ const pre=`${side==='buy'?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `;
+  const own=who!=null&&/^\(you/.test(who), r={txt:pre+(who!=null?who:nameOf(trader)),c:side==='buy'?'#9ff3c8':'#ffb0c8',t:1,at,received};
   if(trader&&(who==null||own)){ r.tr=String(trader).toLowerCase(); r.pre=pre; } if(own){ r.own=1; r.pre=pre; } return r; }
 function feedRelabel(feed){ for(const r of feed) if(r.tr&&r.pre!=null&&!r.own) r.txt=r.pre+nameOf(r.tr); }
 /* sign-out / account switch: '(you)' rows that aren't the current wallet's become plain trader rows (name / short address;
@@ -357,7 +359,7 @@ function feedUnown(feed,me){ for(const r of feed) if(r.own&&!(me&&r.tr===me)){ r
 function feedSeedFills(feed,fills,me,seen,max=6){ let n=feed.filter(r=>r.t).length; const out=[];
   for(const f of fills){ if(n>=max) break; if(!f||(seen&&(seen.has(f.tx+':'+f.logIndex)||seen.has(f.tx)))) continue;
     const u=fillUsd(f); if(!(u>0)) continue; const mine=!!me&&String(f.trader||'').toLowerCase()===me;
-    const r=feedTradeRow(f.side==='sell'?'sell':'buy',u,mine?'(you)':null,f.trader); r.hist=1; if(f.ts>0) r.at=+f.ts; feed.push(r); out.push(r); n++; }
+    const r=feedTradeRow(f.side==='sell'?'sell':'buy',u,mine?'(you)':null,f.trader,f.ts>0?+f.ts:0,false); r.hist=1; feed.push(r); out.push(r); n++; }
   feed.length=Math.min(feed.length,7); return out; }
 /* narrow screens (phones): the right HUD column (status box + TOP HOLDERS) would sit on top of the MARKET CAP panel
    (20..400 × 18..148) → start it below that panel. Desktop (W ≥ 740) unchanged. FlightCanvas applies the same floor to
@@ -584,7 +586,7 @@ const goodMcap=(m)=>typeof m==='number'&&Number.isFinite(m)&&m>0;
 function onEvent(e){
   if (e.t==='block'){ S.confirmed.block=e.block; S.confirmed.lastBlockTs=performance.now(); if(source.isSim&&source.balance) S.balance=source.balance(); }   /* SIMULATOR: cash also moves on tramp/wall place, fill, cancel */
   else if (e.t==='swap'){
-    if (e.removed){ S.feed.unshift({txt:'REORG: swap '+e.txHash.slice(0,10)+' removed',c:'#f96'}); return; }
+    if (e.removed){ S.feed.unshift({at:Date.now(),received:true,txt:'REORG: swap '+e.txHash.slice(0,10)+' removed',c:'#f96'}); return; }
     if (goodMcap(e.mcap)&&S.boostAnim&&S.boostAnim.length) baConfirm(S.boostAnim,e.txHash,!!e.mine,performance.now());   // @boostanim: the confirmed price for a fill is in
     e=ownSellSwap(e); if(!e) return;   // @sellfill: own sell $ from the decoded receipt; already drawn from the receipt ⇒ skip
     // a swap with no usable mcap (0 / null / NaN, e.g. a hook Trade priced before the quote $ is known at graduation) keeps
@@ -598,19 +600,19 @@ function onEvent(e){
     S.volEma+=e.usd; if(e.side==='buy') S.buyEma+=e.usd; else S.sellEma+=e.usd;
     if (e.usd>0&&!e.mine) SIM.realRate+=1/30;   // real flow → simulated flow backs off
     if (e.usd>0){ if(!e.mine) queueThrust(e.side, e.usd, estimateImpactPct(e)); else momNote(e.side,e.usd);
-      S.feed.unshift(feedTradeRow(e.side,e.usd,e.mine?(isLive()?'(you)':'(you·paper)'):e.trader?null:'#'+e.block,e.trader)); }   // names: nameOf (relabelled on disciple:names)
+      S.feed.unshift(feedTradeRow(e.side,e.usd,e.mine?(isLive()?'(you)':'(you·paper)'):e.trader?null:'#'+e.block,e.trader,e.ts,e.timeObserved!==false)); }   // names: nameOf (relabelled on disciple:names)
     if (e.usd>0 && !e.mine && e.trader && !CLEAN && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${nameOf(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
     S.feed.length=Math.min(S.feed.length,7);
   }
   else if (e.t==='depth'){ S.levels=e.levels; }
   else if (e.t==='mark'){ if(goodMcap(e.mcap)) S.confirmed.mcap=e.mcap; }
-  else if (e.t==='replayRestart'){ S.feed.unshift({txt:'⟲ replay restarted',c:'#ffe7a3'}); /* keep altitude + camera: the springs glide to the restart price (no snap / loading flash) */ }
+  else if (e.t==='replayRestart'){ S.feed.unshift({at:Date.now(),received:true,txt:'⟲ replay restarted',c:'#ffe7a3'}); /* keep altitude + camera: the springs glide to the restart price (no snap / loading flash) */ }
   else if (e.t==='levelFilled'){ const l=e.level; const y=altToScreenY(mcapToAlt(l.mcap));
     for(let i=0;i<40;i++) spawnShard(laneX(l)+(Math.random()-.5)*laneW(l), y, (Math.random()-.5)*300, (Math.random()-.8)*260, l.side==='ask'?'#dfe8ff':'#ffd98a');
     // lateral gameplay: being lined up with the level when it breaks scores "Breaker"/"Bounce"
     if (Math.abs(S.x-laneX(l))<laneW(l)/2){ S.score+=Math.round(10+Math.log10(1+l.usd)*10);
       S.flashes.push({txt:l.side==='ask'?'WALL BREAKER +':'TRAMPOLINE BOUNCE +', life:1.4}); award(l.side==='ask'?'wall':'tramp',l.side==='ask'?'WALL BREAKER':'TRAMPOLINE BOUNCE','lined up when a level broke'); }
-    S.feed.unshift({txt:(l.side==='ask'?'wall cleared ':'trampoline used ')+fmtUsd(altToMcap(mcapToAlt(l.mcap))),c:'#ffe7a3',ic:l.side==='ask'?'wall':'tramp'});
+    S.feed.unshift({at:Date.now(),received:true,txt:(l.side==='ask'?'wall cleared ':'trampoline used ')+fmtUsd(altToMcap(mcapToAlt(l.mcap))),c:'#ffe7a3',ic:l.side==='ask'?'wall':'tramp'});
   }
   else if (e.t==='status'){ S.status=e; }
 }
@@ -739,7 +741,7 @@ function simTrade(){
   S.volEma+=usd; if(buy) S.buyEma+=usd; else S.sellEma+=usd;
   queueThrust(buy?'buy':'sell',usd,pct);
   if(!buy) noteSell({side:'sell',usd,impactPct:pct,trader:null,mine:false});
-  S.feed.unshift({txt:`${buy?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  sim${whale?' WHALE':''}`,c:buy?'rgba(159,243,200,.65)':'rgba(255,176,200,.65)'});
+  S.feed.unshift({at:Date.now(),received:true,txt:`${buy?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  sim${whale?' WHALE':''}`,c:buy?'rgba(159,243,200,.65)':'rgba(255,176,200,.65)'});
   S.feed.length=Math.min(S.feed.length,7);
 }
 setTimeout(pushSim,0);
@@ -987,7 +989,7 @@ function submit(side,usd,force,opt,pct){
     if(r.ok&&r.warning) tradeNote(r.warning);   // sent with a non-blocking warning (e.g. high price impact): never a failure
     if(!r.ok&&r.unknown){ if(r.reason) S.flashes.push({txt:String(r.reason),life:1.8}); }   // hold ended without an outcome (logout): calm, no failure row (balances re-read)
     else if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
-      { const txt=(pre?'✕ trade failed: ':'✕ ')+why; if(!(S.feed[0]&&S.feed[0].err&&S.feed[0].txt===txt)) S.feed.unshift({txt,c:'#ff8f8f',err:1}); }   /* the same failure again doesn't stack rows */ S.flashes.push({txt:"That didn't go through.",life:1.6}); }   // final copy (lee, 11:25 CT): failure status; the reason stays in the TRADES row
+      { const txt=(pre?'✕ trade failed: ':'✕ ')+why; if(!(S.feed[0]&&S.feed[0].err&&S.feed[0].txt===txt)) S.feed.unshift({at:Date.now(),received:true,txt,c:'#ff8f8f',err:1}); }   /* the same failure again doesn't stack rows */ S.flashes.push({txt:"That didn't go through.",life:1.6}); }   // final copy (lee, 11:25 CT): failure status; the reason stays in the TRADES row
     S.pending=S.pending.filter(q=>q!==p); pushInFlight();   // frees its slot NOW (was a 450 ms linger that still counted toward the 3)
   });
 }
@@ -1659,15 +1661,16 @@ function phFit(t,w){ if(ctx.measureText(t).width<=w) return t; while(t.length>1&
 /* FEED tab: the same S.feed rows as the desktop TRADES panel, laid out like the mockup (avatar · name · BOOST/DUMP · $ · ago) */
 function drawPhoneFeed(P){ const B0=P.body, B={x:B0.x,y:B0.y+28,w:B0.w,h:B0.h-28}, rh=50, n=Math.max(1,Math.floor(B.h/rh)), x0=B.x+4, iw=B.w-8, gap=8, cAva=30, cTag=70, cUsd=66, cAgo=34, cNm=Math.max(40,iw-cAva-cTag-cUsd-cAgo-4*gap);
   ctx.save(); ctx.textBaseline='middle'; if('letterSpacing' in ctx) ctx.letterSpacing='0px';
+  ctx.font=`10px ${PH_FONT}`; ctx.fillStyle='rgba(214,222,245,.56)'; ctx.fillText('LOCAL TIME · ~RECEIVED',x0,B0.y+12);
   const rows=S.feed.slice(0,n);
   if(!rows.length){ ctx.fillStyle='rgba(214,222,245,.42)'; ctx.font=`12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText('No trades yet',B.x+B.w/2,B.y+40); ctx.textAlign='left'; }
   rows.forEach((r,i)=>{ const y=B.y+i*rh, cy=y+rh/2, mt=/^(▲ BOOST|▼ DUMP)\s+(\S+)\s+(.+)$/.exec(r.txt||'');
     if(i<rows.length-1){ ctx.fillStyle='rgba(255,255,255,.05)'; ctx.fillRect(x0,y+rh-1,iw,1); }
-    if(!mt){ ctx.font=`12px ${PH_FONT}`; ctx.fillStyle=r.c||'rgba(214,222,245,.7)'; ctx.fillText(phFit(String(r.txt||''),iw),x0,cy); return; }
+    if(!mt){ ctx.font=`12px ${PH_FONT}`; ctx.fillStyle=r.c||'rgba(214,222,245,.7)'; ctx.fillText(phFit(String(r.txt||''),iw),x0,cy-6); ctx.font=`10px ${PH_FONT}`; ctx.fillText(feedTime(r),x0,cy+12); return; }
     const buy=mt[1][0]==='▲', who=mt[3].trim(), letter=(who.replace(/^[@(#]+/,'').replace(/^0x/i,'')[0]||'?').toUpperCase();
     let cx=x0; ctx.fillStyle=phAva(who); rrect(cx,cy-15,cAva,cAva,10); ctx.fill();
     ctx.fillStyle='#0b0d18'; ctx.font=`800 13px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText(letter,cx+cAva/2,cy+.5); ctx.textAlign='left'; cx+=cAva+gap;
-    ctx.fillStyle='#EEF1FA'; ctx.font=`bold 14px ${PH_FONT}`; ctx.fillText(phFit(who,cNm),cx,cy); cx+=cNm+gap;
+    ctx.fillStyle='#EEF1FA'; ctx.font=`bold 14px ${PH_FONT}`; ctx.fillText(phFit(who,cNm),cx,cy-6); ctx.font=`10px ${PH_FONT}`; ctx.fillStyle='rgba(214,222,245,.56)'; ctx.fillText(feedTime(r),cx,cy+12); cx+=cNm+gap;
     const tw=66; ctx.fillStyle=buy?'rgba(47,217,138,.13)':'rgba(255,61,127,.14)'; rrect(cx,cy-12,tw,24,8); ctx.fill();
     ctx.fillStyle=buy?'#7FF2B9':'#FF8DB3'; ctx.font=`800 11.5px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText(buy?'BOOST':'DUMP',cx+tw/2,cy+.5); cx+=cTag+gap;
     ctx.textAlign='right'; ctx.fillStyle='#EEF1FA'; ctx.font=`bold 14px ${PH_FONT}`; ctx.fillText(mt[2],cx+cUsd,cy); cx+=cUsd+gap;
@@ -1786,9 +1789,11 @@ function drawHud(){
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='feed') drawPhoneFeed(PH); }
   else if (cardBegin('trades',20,H-160,310,140)){ const FX=20, FY=H, FW=310;
   panel(FX,FY-160,FW,140); ctx.font='12px ui-monospace,monospace';
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADES',FX+16,FY-138);
-  S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=FY-116+i*17;
-    if(r.ic){ drawIcon(r.ic,FX+16,fy-11,14,r.c); ctx.fillText(r.txt.slice(0,36),FX+16+18,fy); } else ctx.fillText(r.txt.slice(0,38),FX+16,fy); }); ctx.globalAlpha=1; ctx.restore(); }
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADES · LOCAL (~SEEN)',FX+16,FY-138);
+  S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=FY-116+i*17, icon=r.ic?18:0;
+    if(r.ic) drawIcon(r.ic,FX+16,fy-11,14,r.c);
+    ctx.fillText(phFit(String(r.txt||''),FW-32-74-icon),FX+16+icon,fy);
+    ctx.textAlign='right'; ctx.fillStyle='rgba(220,228,255,.6)'; ctx.fillText(feedTime(r),FX+FW-16,fy); ctx.textAlign='left'; }); ctx.globalAlpha=1; ctx.restore(); }
   // Keyboard/status box removed. Keep control events and all working trade/keyboard handlers.
   if (S.controlsDocked) pushControls();
   let TOX=Math.round((W-300)/2), TOY=PH?PH.pillTop+(S.phoneTierLabel?76:58):136;   // achievement toasts: phone = under the MCAP pill
@@ -2189,6 +2194,10 @@ function aimFromMotion(vy, lat, fight, v0, st){
   if (st) st.lastSide=th<-0.5?-1:th>0.5?1:side;
   return cl(90-th, AIM_MIN, AIM_MAX);
 }
+// Manual S/Down is a full attitude target, not a fixed pixel velocity (which shrank with viewport/zoom).
+function aimWithDive(aim, dive, st){ const d=Math.max(0,Math.min(1,Number.isFinite(dive)?dive:0));
+  const cur=90-st.aimDisp, side=Math.abs(cur)>120?Math.sign(cur):(st.lastSide<0?-1:1), down=side<0?AIM_MAX:AIM_MIN;
+  return aim+(down-aim)*d; }
 function stepHeading(st, wantAimDeg, bankDeg, dt){
   const cl=(v,a,b)=>v<a?a:v>b?b:v;
   if (!(dt>0)) return st.aimDisp;
@@ -2355,8 +2364,8 @@ function simStep(stepDt){
   S.lean=clamp((S.steer?S.steer.vx:0)/(STEER_VMAX*W)+Math.tanh((S.drift||0)*0.35/60)*0.3,-1,1);                 // lateral term: drift / lane change → which side, how far (follows velocity)
   // vertical velocity for attitude: the ~10 s candle window (smooth trend) blended with the live climb rate,
   // so a dump tips the nose over promptly instead of waiting for the window to turn
-  S.vyAtt=0.45*(S.momV||0)+0.55*(S.vyS||0)-260*(S.dive||0);   // S/↓ dive noses down
-  stepHeading(S, aimFromMotion(S.vyAtt, S.lean, S.fight, PX_PER_ALT*0.02, S), 0, dt);   // v0 = 2% of a tier per second (source-independent)
+  S.vyAtt=0.45*(S.momV||0)+0.55*(S.vyS||0);   // market motion stays separate from cosmetic manual dive
+  stepHeading(S, aimWithDive(aimFromMotion(S.vyAtt, S.lean, S.fight, PX_PER_ALT*0.02, S), S.dive, S), 0, dt);   // v0 = 2% of a tier per second (source-independent)
   S.heading=Math.PI/2 - S.aimDisp*Math.PI/180; S.tilt=S.heading;
   // CAMERA — locked to the price altitude (@altfollow). Was: stepCamera's lagging chase (the rocket rose / dropped on
   // screen, then slid back to the anchor as the view caught up = the sink / float-back lee saw).
@@ -2625,12 +2634,12 @@ function onFillReceipt(d){ if(!d||!d.txHash||(d.side!=='sell'&&d.side!=='buy')) 
   if(d.side==='buy'){ ownBuyReceipt(usd,k); return; }
   const m=markMcap(); if(m>0){ chartTick(m,usd,'sell'); chartMine('sell',m,k); }
   if(usd>0){ momNote('sell',usd); const fs=S.fullStackNext; S.fullStackNext=false; noteSell({side:'sell',usd,impactPct:rcptSellImpactPct(d,usd),trader:null,mine:true,fullStack:fs}); }
-  { const pre=`▼ DUMP ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `; S.feed.unshift({txt:pre+'(you)',c:'#ffb0c8',own:1,pre,tr:S.wallet||undefined}); /* own: un-tagged on sign-out / switch (feedUnown) */ } S.feed.length=Math.min(S.feed.length,7); }
+  { const pre=`▼ DUMP ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `; S.feed.unshift({at:Date.now(),received:true,txt:pre+'(you)',c:'#ffb0c8',own:1,pre,tr:S.wallet||undefined}); /* own: un-tagged on sign-out / switch (feedUnown) */ } S.feed.length=Math.min(S.feed.length,7); }
 /* own BUY at confirm (trade speed): the public feed lags the sequencer ~0.7 s, so the decoded receipt draws the own buy NOW
    (marker + candle volume + TRADES row + fueler credit); the feed swap for that tx later only moves the price. */
 function ownBuyReceipt(usd,k){ const m=markMcap(); if(m>0){ chartTick(m,usd,'buy'); chartMine('buy',m,k); }
   if(!(usd>0)) return; S.fuelers.you=(S.fuelers.you||0)+usd; award('first','FIRST FLAME','first confirmed thrust'); momNote('buy',usd); S.volEma+=usd; S.buyEma+=usd;
-  { const pre=`▲ BOOST ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `; S.feed.unshift({txt:pre+'(you)',c:'#9ff3c8',own:1,pre,tr:S.wallet||undefined}); /* own: un-tagged on sign-out / switch (feedUnown) */ } S.feed.length=Math.min(S.feed.length,7); }
+  { const pre=`▲ BOOST ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `; S.feed.unshift({at:Date.now(),received:true,txt:pre+'(you)',c:'#9ff3c8',own:1,pre,tr:S.wallet||undefined}); /* own: un-tagged on sign-out / switch (feedUnown) */ } S.feed.length=Math.min(S.feed.length,7); }
 addEventListener('disciple:fillreceipt',e=>onFillReceipt(e.detail));
 /* @sellfill-end */
 /* pool label like Uniswap: $BASE/QUOTE fee% (total fee = LP fee + hook fee) */
