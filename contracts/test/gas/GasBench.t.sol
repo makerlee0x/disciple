@@ -249,8 +249,8 @@ contract GasBenchModes is IntegrationBase {
         w = makeAddr(n);
         quote.mint(w, 100_000 ether);
         uint64 exp = uint64(block.timestamp + 12 hours);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(PK, gate.digest(w, exp, address(0)));
-        gate.attest(w, exp, address(0), abi.encodePacked(r, s, v));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(PK, gate.digest(w, exp));
+        gate.attest(w, exp, abi.encodePacked(r, s, v));
         vm.startPrank(w);
         quote.approve(address(c), type(uint256).max);
         quote.approve(address(router), type(uint256).max);
@@ -337,8 +337,8 @@ contract GasBenchModes is IntegrationBase {
     /// @dev Launch with a 5-USDG First BOOST (creator buy) per mode. Same API before/after mode rules v2.
     function _benchLaunch(uint8 m, string memory tag) internal {
         uint64 exp = uint64(block.timestamp + 12 hours);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(PK, gate.digest(creator, exp, address(0)));
-        gate.attest(creator, exp, address(0), abi.encodePacked(r, s, v));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(PK, gate.digest(creator, exp));
+        gate.attest(creator, exp, abi.encodePacked(r, s, v));
         vm.prank(creator);
         quote.approve(address(launchpad), type(uint256).max);
         ILaunchpad.LaunchParams memory p = ILaunchpad.LaunchParams({

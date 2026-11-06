@@ -69,8 +69,8 @@ contract BondingModesTest is IntegrationBase {
 
     function _verify(address w) internal {
         uint64 exp = uint64(block.timestamp + 12 hours);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(w, exp, address(0)));
-        gate.attest(w, exp, address(0), abi.encodePacked(r, s, v));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(w, exp));
+        gate.attest(w, exp, abi.encodePacked(r, s, v));
     }
 
     function _open(uint256 dt) internal {
@@ -153,32 +153,28 @@ contract BondingModesTest is IntegrationBase {
         vm.stopPrank();
         // bad signer
         uint64 exp = uint64(block.timestamp + 1 days);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xBAD, gate.digest(alice, exp, address(0)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xBAD, gate.digest(alice, exp));
         vm.expectRevert(LoginGate.BadSignature.selector);
-        gate.attest(alice, exp, address(0), abi.encodePacked(r, s, v));
+        gate.attest(alice, exp, abi.encodePacked(r, s, v));
         // expired
-        (v, r, s) = vm.sign(attesterPk, gate.digest(alice, uint64(block.timestamp), address(0)));
+        (v, r, s) = vm.sign(attesterPk, gate.digest(alice, uint64(block.timestamp)));
         vm.expectRevert(LoginGate.Expired.selector);
-        gate.attest(alice, uint64(block.timestamp), address(0), abi.encodePacked(r, s, v));
+        gate.attest(alice, uint64(block.timestamp), abi.encodePacked(r, s, v));
         // ok + cached
         _verify(alice);
         _buyQ(c, alice, 1 ether);
         assertGt(c.verifiedUntilOf(alice), block.timestamp, "cached");
     }
 
-    function test_pve_coinScopedAttestation() public {
-        (BondingCurve c, Token t) = _launchMode(Constants.MODE_PVE);
+    function test_pve_globalLoginCoversEveryCurve() public {
+        (BondingCurve c,) = _launchMode(Constants.MODE_PVE);
         (BondingCurve c2,) = _launchMode(Constants.MODE_PVE);
         _open(10 minutes);
-        uint64 exp = uint64(block.timestamp + 1 days);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(alice, exp, address(t)));
-        gate.attest(alice, exp, address(t), abi.encodePacked(r, s, v));
+        _verify(alice);
         _buyQ(c, alice, 1 ether);
-        vm.startPrank(alice);
-        quote.approve(address(c2), 1 ether);
-        vm.expectRevert(BondingCurve.NotVerified.selector);
-        c2.buy(1 ether, 0, vm.getBlockTimestamp() + 1 hours);
-        vm.stopPrank();
+        _buyQ(c2, alice, 1 ether);
+        assertGt(c.verifiedUntilOf(alice), block.timestamp);
+        assertGt(c2.verifiedUntilOf(alice), block.timestamp);
     }
 
     /// mode rules v2: no launch-block rule — anyone may buy in the launch block (paying the 99% sniper tax).
@@ -560,7 +556,7 @@ contract BondingModesTest is IntegrationBase {
         _buyQ(c, alice, 1 ether);
         assertEq(c.verifiedUntilOf(alice), vm.getBlockTimestamp() + Constants.PVE_LOGIN_CACHE_TTL, "capped cache");
         vm.prank(owner);
-        gate.revoke(alice, address(0));
+        gate.revoke(alice);
         _buyQ(c, alice, 1 ether); // still cached
         vm.warp(vm.getBlockTimestamp() + Constants.PVE_LOGIN_CACHE_TTL);
         vm.startPrank(alice);
@@ -572,12 +568,12 @@ contract BondingModesTest is IntegrationBase {
 
     function test_loginGate_maxTtl() public {
         uint64 exp = uint64(vm.getBlockTimestamp() + 24 hours + 1);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(alice, exp, address(0)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(alice, exp));
         vm.expectRevert(LoginGate.TtlTooLong.selector);
-        gate.attest(alice, exp, address(0), abi.encodePacked(r, s, v));
+        gate.attest(alice, exp, abi.encodePacked(r, s, v));
         exp = uint64(vm.getBlockTimestamp() + 24 hours);
-        (v, r, s) = vm.sign(attesterPk, gate.digest(alice, exp, address(0)));
-        gate.attest(alice, exp, address(0), abi.encodePacked(r, s, v));
+        (v, r, s) = vm.sign(attesterPk, gate.digest(alice, exp));
+        gate.attest(alice, exp, abi.encodePacked(r, s, v));
     }
 
     // ── audit L3: router prepaid amounts are balance-checked ──

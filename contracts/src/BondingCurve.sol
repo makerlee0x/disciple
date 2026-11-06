@@ -37,7 +37,7 @@ interface ILaunchpadRouters {
 }
 
 interface ILoginGate {
-    function verifiedUntil(address wallet, address coin) external view returns (uint64);
+    function verifiedUntil(address wallet) external view returns (uint64);
 }
 
 interface IPveToken {
@@ -625,7 +625,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     }
 
     function _gateUntil(address trader) internal view returns (uint64) {
-        return ILoginGate(loginGate).verifiedUntil(trader, token);
+        return ILoginGate(loginGate).verifiedUntil(trader);
     }
 
     /// @dev PVE buy bookkeeping: login check (cached), reward settlement at the CURRENT accumulator (so a new

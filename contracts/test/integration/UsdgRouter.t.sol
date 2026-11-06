@@ -392,8 +392,8 @@ contract UsdgRouterTest is IntegrationBase {
         vm.roll(block.number + 1);
         _installSession(150 ether);
         uint64 exp = uint64(vm.getBlockTimestamp() + 12 hours);
-        (uint8 v, bytes32 rr, bytes32 ss) = vm.sign(pk, gate.digest(address(acct), exp, address(0)));
-        gate.attest(address(acct), exp, address(0), abi.encodePacked(rr, ss, v));
+        (uint8 v, bytes32 rr, bytes32 ss) = vm.sign(pk, gate.digest(address(acct), exp));
+        gate.attest(address(acct), exp, abi.encodePacked(rr, ss, v));
 
         // the policy (msg.sender of the old quote path) is not verified → old behaviour reverted NotVerified
         vm.prank(address(policy));

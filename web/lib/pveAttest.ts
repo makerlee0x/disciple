@@ -1,14 +1,9 @@
 /**
- * PVE login attestations (LoginGate, contracts/src/LoginGate.sol on main). Pure + injectable (no `server-only`) so
- * scripts/test-pve-attest.mts can unit-test it; the route is app/api/pve/attest.
- *
- * Contract facts (LoginGate @ 0xe900…b69f, EIP712("DisciplePVE", "1")):
- *   LoginAttestation(address wallet,uint64 expiry,address coin)   coin = address(0) ⇒ valid for every PVE coin
- *   attest(wallet, expiry, coin, sig): permissionless submit, requires block.timestamp < expiry ≤ now + MAX_TTL (24h),
- *   ECDSA.recover(digest) == attester. There is NO nonce: replaying a signature only re-records the same expiry.
- *   PVE curves read verifiedUntil(trader, coin) on the trader's next buy (trader = the token RECIPIENT, i.e. the smart
- *   account) and cache it for ≤ 10 min.
- * So the flow is a SEPARATE attest tx before the first PVE buy (not a signature passed into buy).
+ * Global-only PVE login: LoginAttestation(address wallet,uint64 expiry,uint64 epoch), DisciplePVE v1.
+ * The current per-wallet epoch is signed so global revoke invalidates every outstanding signature (F-05).
+ * Users pay gas and submit attest(wallet, expiry, sig) themselves, e.g. in an owner-signed batch.
+ * Curves read verifiedUntil(trader) and cache it for at most 10 minutes; there is no coin scope.
+ * Pure/injectable for tests; Privy authentication and TTL limits fail closed as before.
  */
 import { createPublicKey, verify as cryptoVerify } from "crypto";
 import { parseAbi, type Address, type Hex } from "viem";
@@ -20,7 +15,7 @@ export const LOGIN_TYPES = {
   LoginAttestation: [
     { name: "wallet", type: "address" },
     { name: "expiry", type: "uint64" },
-    { name: "coin", type: "address" },
+    { name: "epoch", type: "uint64" },
   ],
 } as const;
 /** LoginGate.MAX_TTL = 24h. Stay under it so chain/server clock skew can't trip TtlTooLong. */
@@ -31,12 +26,13 @@ export const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as Address
 export const VERIFIED_LOGIN_TYPES = new Set(["email", "google_oauth", "twitter_oauth"]);
 
 export const loginGateMiniAbi = parseAbi([
-  "function attest(address wallet, uint64 expiry, address coin, bytes sig)",
-  "function verifiedUntil(address wallet, address coin) view returns (uint64)",
+  "function attest(address wallet, uint64 expiry, bytes sig)",
+  "function verifiedUntil(address wallet) view returns (uint64)",
   "function attester() view returns (address)",
+  "function epoch(address wallet) view returns (uint64)",
 ]);
 
-export type Attestation = { wallet: Address; expiry: number; coin: Address; signature: Hex; loginGate: Address; chainId: number; attester: Address };
+export type Attestation = { wallet: Address; expiry: number; epoch: number; signature: Hex; loginGate: Address; chainId: number; attester: Address };
 
 export function attestTtl(env: Record<string, string | undefined> = process.env): number {
   const n = Number(env.PVE_ATTEST_TTL_SEC);
@@ -52,13 +48,13 @@ export function attesterAccount(env: Record<string, string | undefined> = proces
 
 export async function signLoginAttestation(
   account: NonNullable<ReturnType<typeof attesterAccount>>,
-  a: { wallet: Address; expiry: number; coin: Address; chainId: number; loginGate: Address },
+  a: { wallet: Address; expiry: number; epoch: number; chainId: number; loginGate: Address },
 ): Promise<Hex> {
   return account.signTypedData({
     domain: { name: PVE_DOMAIN_NAME, version: PVE_DOMAIN_VERSION, chainId: a.chainId, verifyingContract: a.loginGate },
     types: LOGIN_TYPES,
     primaryType: "LoginAttestation",
-    message: { wallet: a.wallet, expiry: BigInt(a.expiry), coin: a.coin },
+    message: { wallet: a.wallet, expiry: BigInt(a.expiry), epoch: BigInt(a.epoch) },
   });
 }
 

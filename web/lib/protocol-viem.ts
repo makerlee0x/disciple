@@ -40,7 +40,7 @@ import type {
 } from "./protocol";
 import { ZERO_ADDRESS } from "./protocol";
 import { activeAddress, connectedAddress, execCalls, isSmartMode, type ExecResult } from "./wallet";
-import { ensurePveLogin, PveError } from "./pve";
+import { ensurePveLogin, ensurePveLoginOnchain, PveError } from "./pve";
 import { pnlKey, seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
 import type { RelayTimeoutExtra } from "./aa/relayTypes";
@@ -1073,9 +1073,10 @@ export function createViemProtocol(): ProtocolClient {
     const router = deployment().router, isBuy = side === "buy";
     const reads: TapReads = c.reads ?? {};
     // Router path: the curve trades for msg.sender (the account) ⇒ PVE login is checked for `me`.
-    const pveCalls = isBuy && c.pve ? await labelRead("pve-login", ensurePveLogin(pc, c.me)) : [];
-    // quoteUsdgRouteFor(me) reverts NotVerified until the attest is on-chain ⇒ this path needs the server relay.
-    if (pveCalls.length) throw new ProtocolError("PveRelayUnavailable", "Couldn't record your PVE login right now — try again in a moment.");
+    // A trader-aware USDG quote needs a live on-chain login. The user pays for this owner-signed setup,
+    // waits for inclusion, then gets the normal quote/buy; no server-funded or public relay transaction.
+    if (isBuy && c.pve) await labelRead("pve-login", ensurePveLoginOnchain(pc, c.me, (calls) => execCalls(calls)));
+
     const spend = isBuy ? c.usdg : t.token, outAsset = isBuy ? t.token : c.usdg;
     const g = isBuy ? c.gradCurve : undefined;
     // Graduating buy? (mav2 estimates its gas fresh.) Warmed remaining-to-graduate at any age (GRAD_NEAR_BPS margin),
@@ -1140,7 +1141,7 @@ export function createViemProtocol(): ProtocolClient {
     const routerCalls = (mo: bigint): Call[] => isBuy
       ? toCalls(routerBuyWithUsdgCalls({ router, usdg: c.usdg, token: t.token, usdgIn: t.amountIn, minTokensOut: mo, deadline: c.deadline }))
       : toCalls(routerSellToUsdgCalls({ router, token: t.token, tokensIn: t.amountIn, minUsdgOut: mo, deadline: c.deadline }));
-    const prefix: Call[] = isBuy ? [...pveCalls, ...referralNow(c.me)] : [];
+    const prefix: Call[] = isBuy ? referralNow(c.me) : [];
     const calls: Call[] = [...prefix, ...routerCalls(minOut)];
     if (grad) { const buy = calls[calls.length - 1]; markGradBuy(buy.data); GRAD.drop(c.gradCurve!.curve); GRAD_NEED.delete(c.gradCurve!.curve.toLowerCase()); }
     // no optimistic balance write (displayed balances stay real); the pending spend is held in RESERVATIONS (#144)
@@ -1223,7 +1224,7 @@ export function createViemProtocol(): ProtocolClient {
             throw new ProtocolError("BuyTooLarge", `${LAUNCH_MODE_NAME[mode]} launches allow a First BOOST of at most ${eff.bps / 100}% of the coins. Lower it.`);
           }
           // v4 PVE: the First BOOST is a curve buy by the creator ⇒ it needs a live GLOBAL LoginGate attestation.
-          // ensurePveLogin (#99) gets one from /api/pve/attest (relayed on-chain) or prepends LoginGate.attest; it throws
+          // ensurePveLogin (#99) gets one from /api/pve/attest and prepends a user-paid LoginGate.attest; it throws
           // a friendly PveError when the Privy login isn't verified.
           if (modesActive() && mode === LaunchMode.PVE) calls.unshift(...(await ensurePveLogin(pc, me)));
           params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS); // quote − 1%
