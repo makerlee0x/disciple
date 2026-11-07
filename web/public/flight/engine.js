@@ -362,18 +362,18 @@ function feedSeedFills(feed,fills,me,seen,max=6){ let n=feed.filter(r=>r.t).leng
     const r=feedTradeRow(f.side==='sell'?'sell':'buy',u,mine?'(you)':null,f.trader,f.ts>0?+f.ts:0,false); r.hist=1; feed.push(r); out.push(r); n++; }
   feed.length=Math.min(feed.length,7); return out; }
 /* narrow screens (phones): the right HUD column (status box + TOP HOLDERS) would sit on top of the MARKET CAP panel
-   (20..400 × 18..148) → start it below that panel. Desktop (W ≥ 740) unchanged. FlightCanvas applies the same floor to
-   --ap-hud-rt / __hudRT so CrewPanel (+204 / +100 docked) and GameChat stay stacked under it. */
-const HUD_NARROW_W=740, HUD_NARROW_TOP=158;
-function hudColTop(W,rt){ return W<HUD_NARROW_W?Math.max(rt,HUD_NARROW_TOP):rt; }
+   (20..400 × 18..148) → start it below that panel. Desktop (W > 760) unchanged. FlightCanvas applies the same floor to
+   --ap-hud-rt / __hudRT so CrewPanel (+204 / +100 docked) and GameChat stay stacked under it. Matches site max-width:760px. */
+const HUD_NARROW_W=760, HUD_NARROW_TOP=158;
+function hudColTop(W,rt){ return W<=HUD_NARROW_W?Math.max(rt,HUD_NARROW_TOP):rt; }
 /* @coin-id-row: height of the coin's icon · name · pair row inside the desktop header card (CoinIdentity publishes
    window.__coinIdH; 0 / unset = no row, e.g. /flight or the simulator). Clamped so a bad value can't eat the card. */
 function coinIdRowH(){ const h=typeof window!=='undefined'?+window.__coinIdH:0; return Number.isFinite(h)&&h>0?Math.round(Math.min(h,64)):0; }
-/* @phone-hud v3: phones (<HUD_NARROW_W, not CLEAN) — components/flight/PhoneHud.tsx publishes window.__phoneHud
+/* @phone-hud v3: phones (≤HUD_NARROW_W, not CLEAN) — components/flight/PhoneHud.tsx publishes window.__phoneHud
    {on, sheet, drawer, pillTop, hudTop, dTop, body:{x,y,w,h}}: the floating MCAP · TIER pill at `pillTop`, the bottom HUD
    (handle / PnL line / BOOST · DUMP, DOM) from `hudTop` down, and — while the drawer is open (dTop = its top) — the drawer's
    transparent body rect, where the engine draws the FEED / HOLDERS / CHART tab. Nothing else is drawn on the sky. */
-function phoneHud(w,clean){ const p=typeof window!=='undefined'?window.__phoneHud:null; return !clean&&w<HUD_NARROW_W&&p&&p.on?p:null; }
+function phoneHud(w,clean){ const p=typeof window!=='undefined'?window.__phoneHud:null; return !clean&&w<=HUD_NARROW_W&&p&&p.on?p:null; }
 /* @feed-names:end */
 const i256=h=>BigInt.asIntN(256,BigInt('0x'+h));
 class PoolV3Base {

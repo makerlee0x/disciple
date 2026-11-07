@@ -1,7 +1,7 @@
 // game/feed-names: TRADES feed after reload + trader names + narrow-screen HUD column (engine.js @feed-names block).
 //   1. chartBackfill seeds the feed from the newest indexed fills (newest first, ≤6 trade rows, dollars only, deduped, below live rows)
 //   2. names: "@name" from window.__discipleNames / disciple:names, "(you)" for the player, short address as fallback; late names relabel rows
-//   3. phones (W < 740): the status / TOP HOLDERS column starts below the MARKET CAP panel; desktop unchanged; FlightCanvas uses the same floor
+//   3. phones (W ≤ 760): the status / TOP HOLDERS column starts below the MARKET CAP panel; desktop unchanged; FlightCanvas uses the same floor
 //   Run: node scripts/test-feed-names.mjs
 import fs from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
 const web = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -64,10 +64,11 @@ ok(/dispatchEvent\(new CustomEvent\('disciple:names-want'/.test(eng) && !/fetch\
 ok(/"disciple:names"/.test(wb.match(/const INBOUND = \[[^\]]*\]/)[0]), "worker renderer receives disciple:names");
 // ── 3. narrow HUD column
 { const E = mk();
-  ok(E.hudColTop(1280, 58) === 58 && E.hudColTop(740, 58) === 58, "desktop: column top unchanged");
+  ok(E.hudColTop(1280, 58) === 58 && E.hudColTop(761, 58) === 58, "desktop: column top unchanged");
   ok(E.hudColTop(390, 92) === 158 && E.hudColTop(390, 200) === 200, "phone: column starts below the MARKET CAP panel (20+130+10)");
+  ok(E.hudColTop(760, 58) === 158, "≤760 matches site chrome (phone floor)");
   // status box (RT..RT+92) and TOP HOLDERS (RT+100..RT+196) never intersect the MARKET CAP panel (18..148) on a phone
-  for (const W of [320, 360, 390, 430, 600, 739]) for (const rt of [18, 58, 92, 120]) { const RT = E.hudColTop(W, rt); if (RT < 148) ok(false, `overlap W=${W} rt=${rt}`); }
+  for (const W of [320, 360, 390, 430, 600, 739, 760]) for (const rt of [18, 58, 92, 120]) { const RT = E.hudColTop(W, rt); if (RT < 148) ok(false, `overlap W=${W} rt=${rt}`); }
   ok(E.HUD_NARROW_TOP >= 18 + 130 + 1, "floor below the 130-px MARKET CAP panel");
   const m = fc.match(/const HUD_NARROW_W = (\d+), HUD_NARROW_TOP = (\d+);/);
   ok(m && +m[1] === E.HUD_NARROW_W && +m[2] === E.HUD_NARROW_TOP, "FlightCanvas --ap-hud-rt floor = engine numbers (CrewPanel/GameChat follow)");

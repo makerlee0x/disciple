@@ -4,7 +4,7 @@ import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Phone HUD v3 (viewport < PHONE_W, not ?clean=1) — lee 10:36 CT: "build it with the new phone layout".
+ * Phone HUD v3 (viewport ≤ PHONE_W / max-width:760px, not ?clean=1) — lee 10:36 CT: "build it with the new phone layout".
  * Mockups: phone-v3 frame1 (main) / frame3 (drawer). The rocket gets the screen:
  *   top     site menu + avatar (SITE) left (no ✕ since the Oct 30 cleanup: leave via the menu); under it ONE floating
  *           glass pill `$94.19M · TIER` + thin tier progress (engine-drawn, reads window.__phoneHud.pillTop)
@@ -14,9 +14,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *           FEED (and CHART where the DOM DexChart is not mounted) are engine-drawn inside the drawer's transparent body rect (window.__phoneHud.body);
  *           CREW / HOLDERS (with Chat tab) / POSITION are the existing React panels, moved into the body by the html.ap-phone CSS below.
  *           Closes on swipe down (header), tap on the dimmed sky above, or Esc.
- * Desktop (≥ PHONE_W) is untouched: no class, no global, nothing rendered.
+ * Desktop (> PHONE_W) is untouched: no class, no global, nothing rendered.
  */
-export const PHONE_W = 740;   // = engine.js HUD_NARROW_W
+export const PHONE_W = 760;   // = engine.js HUD_NARROW_W; matches site chrome max-width:760px
 export type PhoneSheet = "feed" | "holders" | "chart" | "crew" | "run";
 type Tab = { id: PhoneSheet; label: string; engine?: boolean };
 // tab labels (lee 11:29 CT; "Run" → "Position" 2:38 PM CT): Feed / Holders (Chat inside) / Chart / Crew / Position; tramps & walls live under Position (no T/W tab)
@@ -77,7 +77,7 @@ export default function PhoneHud() {
       const vv = window.visualViewport;
       const vw = Math.round(vv?.width ?? innerWidth);
       const vh = Math.round(vv?.height ?? innerHeight);
-      const on = vw < PHONE_W;
+      const on = window.matchMedia(`(max-width: ${PHONE_W}px)`).matches || vw <= PHONE_W;
       setPhone((p) => (p === on ? p : on));
       if (!on) { last = ""; return; }
       const menu = rectOf("#apReopen"), wallet = rectOf('[aria-label="wallet"]');

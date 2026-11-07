@@ -180,7 +180,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     try { await f(); setMenu(false); } catch (e) { fail(e); } finally { setBusy(""); }
   }
 
-  // Phones (< 740px): the signed-out pill ("Play" / "Sign in") is hidden from the top bar (it pushed GAME's ✕ out of
+  // Phones (≤760px): the signed-out pill ("Play" / "Sign in") is hidden from the top bar (it pushed GAME's ✕ out of
   // the corner; CSS .ap-wallet-cta in globals.css) and the same action lives in the Sidebar menu. Publish the pill's
   // label for the Sidebar and run the pill's own action when the Sidebar item is tapped.
   const ctaLabel = !isDeployed() || addr ? null : aaAvailable() && SIGNER_MODE === "local" ? "Play" : aaAvailable() ? "Sign in" : "Connect wallet";

@@ -463,9 +463,9 @@ body.home.home-top .ap-topbar { background: transparent; border-bottom-color: tr
 @media (max-width: 760px) {
   #apSide .ap-tog.ap-tog-mobile { display: grid; }
 }
-/* Phones (< 740px = PhoneHud PHONE_W): the wallet's signed-out pill ("Play") leaves the top bar so GAME's ✕ owns the
+/* Phones (≤760px = PhoneHud PHONE_W): the wallet's signed-out pill ("Play") leaves the top bar so GAME's ✕ owns the
    top-right corner; the same action is the Sidebar's Sign in card button (lib/walletCta.ts). Desktop shows both. */
-@media (max-width: 739.98px) {
+@media (max-width: 760px) {
   [aria-label="wallet"] .ap-wallet-cta { display: none !important; }
   /* the drawer's items (Play, Settings) must stay reachable on short phones */
   /* the open drawer sits above the flight HUD (coin chip / wallet z 60, phone trade bar z 40) so its items are tappable */
@@ -1300,7 +1300,7 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .lp-av img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
 .lp-av-mono { font: 700 12px var(--dsc-font-ui); color: var(--dsc-bg); }
 .lp-av-check { position: absolute; right: -5px; bottom: -5px; line-height: 0; background: var(--dsc-bg); border-radius: 50%; padding: 1px; }
-.lp-star { all: unset; cursor: pointer; width: 18px; text-align: center; color: rgba(232,234,238,.35); font-size: 14px; }
+.lp-star { all: unset; cursor: pointer; box-sizing: border-box; min-width: 44px; min-height: 44px; display: inline-grid; place-items: center; color: rgba(232,234,238,.35); font-size: 14px; -webkit-tap-highlight-color: transparent; }
 .lp-star:hover, .lp-star.on { color: var(--lp-accent); text-shadow: 0 0 8px rgba(201,206,214,.7); }
 .lp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 12px; }
 .lp-card { box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 8px; padding: 8px 8px 10px; border-radius: 14px; background: radial-gradient(120% 90% at 0% 0%, rgba(232,234,238,.10), color-mix(in srgb, var(--dsc-surface) 90%, transparent) 55%); border: 1px solid rgba(201,206,214,.22); transition: transform .12s, border-color .12s, box-shadow .12s; content-visibility: auto; contain-intrinsic-size: auto 330px; }
@@ -1503,7 +1503,7 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .pf-stat span { font-size: 12px; color: var(--dsc-muted); }
 .pf-stat strong { font: 500 16px var(--dsc-font-mono); color: var(--dsc-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pf-stat.pos strong { color: var(--dsc-up); } .pf-stat.neg strong { color: var(--dsc-down); }
-.pf-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 120; padding: 10px 16px; border-radius: var(--dsc-radius-lg); background: var(--dsc-surface-2); border: 1px solid var(--dsc-border-color-subtle); font-size: 14px; }
+.pf-toast { position: fixed; left: 50%; bottom: calc(24px + var(--ap-safe-bottom)); transform: translateX(-50%); z-index: 120; padding: 10px 16px; border-radius: var(--dsc-radius-lg); background: var(--dsc-surface-2); border: 1px solid var(--dsc-border-color-subtle); font-size: 14px; }
 
 /* Tabs */
 .pf-tabbar { display: flex; align-items: center; justify-content: space-between; scroll-margin-top: calc(var(--ap-topbar-offset) + 8px); }
