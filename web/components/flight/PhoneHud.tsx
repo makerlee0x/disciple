@@ -32,14 +32,17 @@ export const SIDE = 16, BTN_H = 68, BTN_H_OPEN = 60, BTN_BOTTOM = 22, PNL_H = 22
   DRAWER_FRAC = 0.62, D_HANDLE = 24, D_SEG = 48, D_GAP = 12, BODY_GAP = 12;
 export const DRAWER_BG = "rgba(14,16,32,.94)";   // = engine.js PH_DRAWER_BG (the canvas paints the body band in the same tint)
 
-/** Pure layout (tested in scripts/test-phone-hud.mjs): viewport + bottom of the top button row → every phone rect. */
-export function phoneLayout(o: { w: number; h: number; topBottom: number }) {
-  const btnTop = o.h - BTN_BOTTOM - BTN_H;
+/** Pure layout (tested in scripts/test-phone-hud.mjs): viewport + bottom of the top button row → every phone rect.
+ *  `safeBottom` lifts BOOST/DUMP off the home indicator / in-wallet browser chrome (defaults 0 for unit tests). */
+export function phoneLayout(o: { w: number; h: number; topBottom: number; safeBottom?: number }) {
+  const pad = o.safeBottom ?? 0;
+  const btnBottom = BTN_BOTTOM + pad;
+  const btnTop = o.h - btnBottom - BTN_H;
   const pnlTop = btnTop - PNL_GAP - PNL_H;
   const hudTop = pnlTop - HANDLE_H;                       // handle zone: grab bar + PnL line (tap / swipe up opens the drawer)
   const pillTop = Math.round(o.topBottom + PILL_GAP);
   const dTop = Math.round(o.h * (1 - DRAWER_FRAC));
-  const dBtnTop = o.h - BTN_BOTTOM - BTN_H_OPEN;
+  const dBtnTop = o.h - btnBottom - BTN_H_OPEN;
   const bodyY = dTop + D_HANDLE + D_SEG + D_GAP;
   const body = { x: SIDE, y: bodyY, w: o.w - 2 * SIDE, h: Math.max(120, dBtnTop - BODY_GAP - bodyY) };
   return { pillTop, hudTop, pnlTop, btnTop, dTop, dBtnTop, body };
@@ -71,7 +74,10 @@ export default function PhoneHud() {
     if (new URLSearchParams(location.search).get("clean") === "1") return;
     let last = "";
     const tick = () => {
-      const on = innerWidth < PHONE_W;
+      const vv = window.visualViewport;
+      const vw = Math.round(vv?.width ?? innerWidth);
+      const vh = Math.round(vv?.height ?? innerHeight);
+      const on = vw < PHONE_W;
       setPhone((p) => (p === on ? p : on));
       if (!on) { last = ""; return; }
       const menu = rectOf("#apReopen"), wallet = rectOf('[aria-label="wallet"]');
@@ -81,15 +87,24 @@ export default function PhoneHud() {
       const cash = rectOf('[aria-label="cash and portfolio"]');
       const topBottom = Math.max(64, rowBottom, cash ? cash.bottom : 0);
       // ✕ sits in the top row: flush right, or just left of the site's wallet strip (SITE "Play") while that is there
-      const xr = wallet && wallet.top < 40 ? Math.round(innerWidth - wallet.left + 8) : SIDE;
+      const xr = wallet && wallet.top < 40 ? Math.round(vw - wallet.left + 8) : SIDE;
       const a: Record<string, boolean> = {}; for (const [k, s] of Object.entries(AVAIL_SEL)) a[k] = !!document.querySelector(s as string);
-      const key = `${innerWidth}:${innerHeight}:${topBottom}:${cashTop}:${xr}:${JSON.stringify(a)}`;
+      const safeBottom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ap-safe-bottom")) || 0;
+      const key = `${vw}:${vh}:${topBottom}:${cashTop}:${xr}:${safeBottom}:${JSON.stringify(a)}`;
       if (key === last) return; last = key;
-      setL(phoneLayout({ w: innerWidth, h: innerHeight, topBottom })); setXRight(xr); setAvail(a); setCashTop(cashTop);
+      setL(phoneLayout({ w: vw, h: vh, topBottom, safeBottom })); setXRight(xr); setAvail(a); setCashTop(cashTop);
     };
     tick();
-    const id = window.setInterval(tick, 300); addEventListener("resize", tick);
-    return () => { window.clearInterval(id); removeEventListener("resize", tick); };
+    const id = window.setInterval(tick, 300);
+    addEventListener("resize", tick);
+    window.visualViewport?.addEventListener("resize", tick);
+    window.visualViewport?.addEventListener("scroll", tick);
+    return () => {
+      window.clearInterval(id);
+      removeEventListener("resize", tick);
+      window.visualViewport?.removeEventListener("resize", tick);
+      window.visualViewport?.removeEventListener("scroll", tick);
+    };
   }, []);
 
   // publish: html class + data-ph-sheet + --ph-* vars (CSS) and window.__phoneHud (engine; mirrored to the worker renderer)
@@ -217,7 +232,7 @@ export default function PhoneHud() {
         @media (max-width: 374px) { .ph-seg button { font-size: 11px !important; letter-spacing: -.02em; } }
         /* anti-snipe chip (#133): stays visible, just above the handle */
         html.ap-phone .ap-bc[data-testid="snipe-chip"],
-        html.ap-phone .ap-bc:has(> [data-testid="snipe-chip"]) { bottom: calc(100vh - var(--ph-hud-top) + 6px) !important; top: auto !important; z-index: 33 !important; }
+        html.ap-phone .ap-bc:has(> [data-testid="snipe-chip"]) { bottom: calc(100dvh - var(--ph-hud-top) + 6px) !important; top: auto !important; z-index: 33 !important; }
       `}</style>
     </>
   );

@@ -359,8 +359,9 @@ body.side-hidden #apReopen {
 /* ...and the wallet strip (right-aligned, wraps on phones) keeps clear of the menu button + Launch: before, its full-width
  * box sat over the menu button once signed in, so the drawer could not be opened by tapping it */
 @media (max-width: 760px) {
-  /* Leave room for menu + Launch on the left; safe-area on both edges for notched / in-wallet chrome. */
-  body.side-hidden:not(.game) [aria-label="wallet"] {
+  /* Leave room for menu + Launch on the left; safe-area on both edges for notched / in-wallet chrome.
+   * Also on game routes (/coin/*) so cash+portfolio never cover #apReopen. */
+  body.side-hidden [aria-label="wallet"] {
     max-width: calc(100vw - 160px - var(--ap-safe-left) - var(--ap-safe-right)) !important;
   }
 }

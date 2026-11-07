@@ -33,9 +33,29 @@ ok(/@media \(max-width: 480px\)[\s\S]*?\.wb-testnet\s*\{\s*display:\s*none/.test
 const wb = read("components/WalletButton.tsx");
 ok(/className="wb-root"/.test(wb) && /data-compact=/.test(wb), "WalletButton uses .wb-root (not hardcoded top/right px)");
 ok(!/position:\s*"fixed",\s*top:\s*compact/.test(wb), "WalletButton no longer inlines fixed top that fights safe-area");
+ok(/addEventListener\("pointerdown"/.test(wb) && !/addEventListener\("mousedown"/.test(wb), "WalletButton outside-close uses pointerdown (wallet WebViews)");
 
 const inv = read("components/invites/InviteBanner.tsx");
 ok(/className="wb-invite"/.test(inv), "InviteBanner uses .wb-invite safe-area class");
+
+const bar = read("components/flight/PhoneTradeBar.tsx");
+ok(/\.ph-bar\s*\{[^}]*bottom:\s*calc\(22px \+ var\(--ap-safe-bottom\)\)/.test(bar), "phone trade bar clears home indicator");
+ok(/\.ph-sheet\s*\{[^}]*bottom:\s*calc\(8px \+ var\(--ap-safe-bottom\)\)/.test(bar), "amount sheet clears home indicator");
+
+const claims = read("app/claims.css");
+ok(/\.cl-onboard\s*\{[^}]*bottom:\s*calc\(20px \+ var\(--ap-safe-bottom\)\)/.test(claims), "claims onboard clears home indicator");
+
+ok(/body\.side-hidden\s+\[aria-label="wallet"\]/.test(css) && !/body\.side-hidden:not\(\.game\)/.test(css), "game wallet strip max-width leaves room for menu");
+
+const hero = read("components/home/hero.module.css");
+const appHome = read("components/home/appHome.module.css");
+const hiw = read("app/how-it-works/page.module.css");
+const subnav = read("components/how-it-works/subnav.module.css");
+ok(/var\(--ap-topbar-offset/.test(hero) && /var\(--ap-topbar-offset/.test(appHome), "home heroes use topbar-offset (safe-area)");
+ok(/var\(--ap-topbar-offset/.test(hiw) && /var\(--ap-topbar-offset/.test(subnav), "how-it-works uses topbar-offset");
+
+const hud = read("components/flight/PhoneHud.tsx");
+ok(/safeBottom\?\:\s*number/.test(hud) && /visualViewport/.test(hud), "PhoneHud layout lifts for safe-bottom + visualViewport");
 
 if (bad) {
   console.error(`\n${bad} check(s) failed`);

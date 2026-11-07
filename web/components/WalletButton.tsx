@@ -209,7 +209,8 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   // must not rely on layout collapse for dismissal).
   useEffect(() => {
     if (!menu && !acct) return;
-    const onDown = (e: MouseEvent) => {
+    // pointerdown: in-wallet WebViews often skip a reliable mousedown before the next tap target
+    const onDown = (e: PointerEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
         setMenu(false);
         setAcct(false);
@@ -221,10 +222,10 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
         setAcct(false);
       }
     };
-    document.addEventListener("mousedown", onDown);
+    document.addEventListener("pointerdown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("pointerdown", onDown);
       document.removeEventListener("keydown", onKey);
     };
   }, [menu, acct]);
