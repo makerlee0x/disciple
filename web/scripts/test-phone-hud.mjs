@@ -23,6 +23,8 @@ for (const [w, h, top] of [[390, 844, 60], [360, 780, 60], [375, 667, 60]]) {
   ok(L.body.h >= 200, `${w}x${h}: body tall enough for 4+ feed rows (${L.body.h})`);
   ok(L.dTop > L.pillTop + 46 + 120, `${w}x${h}: rocket room between pill and drawer`);
 }
+{ const L = phoneLayout({ w: 390, h: 844, topBottom: 60, safeBottom: 34 });
+  ok(L.btnTop + 68 === 844 - 22 - 34, "safeBottom lifts BOOST/DUMP above the home indicator"); }
 // 2) drawer: Feed / Holders / Chart / Crew / Chat / Run (mockup copy), one at a time, closes on swipe down / dim tap / Esc
 const labels = [...hud.matchAll(/\{ id: "(\w+)", label: "([^"]+)"/g)].map((m) => m[2]);
 ok(labels.join() === "Feed,Holders,Chart,Crew,Position", "five drawer tabs; Chat exists only inside the Holders card");

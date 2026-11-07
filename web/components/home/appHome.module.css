@@ -5,7 +5,7 @@
   --hero-h: 580px;
   position: relative;
   height: var(--hero-h);
-  margin-top: calc(-1 * var(--ap-topbar-h, 56px)); /* sky runs under the transparent-at-top chrome strip */
+  margin-top: calc(-1 * var(--ap-topbar-offset, 56px)); /* sky runs under the transparent-at-top chrome strip */
   overflow: hidden;
   background: var(--dsc-sky-ink);
   isolation: isolate;
@@ -30,7 +30,7 @@
 
 /* info panel */
 .panel {
-  position: absolute; left: 40px; top: calc(var(--ap-topbar-h, 56px) + 40px); width: 420px; z-index: 4;
+  position: absolute; left: 40px; top: calc(var(--ap-topbar-offset, 56px) + 40px); width: 420px; z-index: 4;
   display: grid; grid-template-columns: 1fr; grid-template-areas: "eyebrow" "ident" "mcap" "tier" "stats" "actions";
 }
 .eyebrow, .eyebrowSm { font: 500 11px var(--dsc-font-mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dsc-muted-on-sky); }

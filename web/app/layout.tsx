@@ -42,6 +42,10 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#0B0C0E",
+  width: "device-width",
+  initialScale: 1,
+  // Notch / home-indicator inset for iOS Safari + in-wallet browsers (MetaMask, Rainbow, Coinbase).
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
