@@ -40,7 +40,11 @@ export class FlowTiming {
     const pending = stage === "paint" ? "paintPending" : "fillPending";
     if (r.emitted || r[stage] !== undefined || r[pending]) return;
     r[pending] = true;
-    this.d.frame(() => guarded(() => this.d.frame(() => guarded(() => { r[stage] = this.d.now(); r[pending] = false; this.ready(r); }))));
+    this.d.frame(() => guarded(() => this.d.frame(() => guarded(() => {
+      // A fast rollback can replace the pending DOM before it ever paints. Do not claim that paint.
+      if (!(stage === "paint" && r.ok === false)) r[stage] = this.d.now();
+      r[pending] = false; this.ready(r);
+    }))));
   }
   private ready(r: Row) {
     if (r.ok === undefined || r.emitted || r.scheduled || r.paintPending || (r.ok && (r.fillPending || r.fill === undefined))) return;

@@ -52,3 +52,9 @@ it("records receipt consumption from a mocked NDJSON response without any real s
   expect(info).toHaveBeenCalledOnce(); expect(info.mock.calls[0][0]).toBe("[disciple] flow timing");
   expect(JSON.parse(info.mock.calls[0][1])).toMatchObject({ pressId: "wire-test", tapToReceipt: 190, server: receipt.t, userOpHash: "0xop", txHash: "0xtx" });
 });
+
+it("does not invent a pending paint when rollback wins before the paint opportunity", () => {
+  const x = fixture(), s = x.f.begin("buy"); s.bind("fast-fail"); s.pendingPaint(); s.finish(false, "rollback");
+  x.at(16); x.frame(); x.at(32); x.frame(); x.flush();
+  expect(x.logs).toHaveLength(1); expect(x.logs[0]).toMatchObject({ ok: false, tapToPaint: null, tapToFill: null });
+});
