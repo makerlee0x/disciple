@@ -28,7 +28,6 @@ import {
     LibConfig,
     SetConfigParam
 } from "../../src/hook/routes/ILayerZeroEndpointV2Lite.sol";
-import {DisciplePoolTank, IWETH9, IDiscipleTank} from "../../src/hook/DisciplePoolTank.sol";
 
 /// @notice A v2 pair whose reserves the test sets.
 contract MockPair {
@@ -245,7 +244,7 @@ contract DiscipleTest is Test {
         internal
         returns (PoolKey memory key, PoolId id)
     {
-        (key, id) = hook.createPool{value: eth}(
+        (key, id) = hook.createPool(
             DiscipleHook.CreateParams({
                 coin: address(coin),
                 quote: address(usd),
@@ -257,6 +256,7 @@ contract DiscipleTest is Test {
                 srcKey2: _noKey()
             })
         );
+        if (eth > 0) hook.fundJar(id, 0, eth * 10_000);
     }
 
     function _swap(PoolKey memory key, bool buy, int256 amountSpecified) internal returns (BalanceDelta d) {
@@ -633,8 +633,9 @@ contract DiscipleTest is Test {
         return 0; // not graduated in these tests: nothing is escrowed
     }
 
-    /// A pool whose tokens cannot be valued in ETH (neither is WETH nor the reference token) pays from its tank.
-    function test_unvaluedPoolTipsFromTank() public {
+    /// A pool whose tokens cannot be valued in ETH (neither is WETH nor the reference token) pays no tips, and
+    /// its sample() still moves the centre.
+    function test_unvaluedPoolPaysNoTip() public {
         vm.fee(0.01 gwei);
         MockERC20 c2 = usd2();
         MockPair p2 = new MockPair();
@@ -658,15 +659,30 @@ contract DiscipleTest is Test {
             })
         );
         key;
-        hook.fundTank{value: 0.01 ether}(id);
+        hook.fundJar(id, 10e18, 10e18);
+        uint256 a = hook.poolState(id).anchorX128;
         p2.set(1_000_000e18, 2_100_000e18);
         _nextBlock();
         address bot = address(0xB07);
         vm.prank(bot);
         hook.sample(id);
-        assertGt(bot.balance, 0, "paid in ETH from the tank");
-        assertLe(bot.balance, 0.002 ether);
-        assertEq(hook.poolState(id).jarX + hook.poolState(id).jarY, 0, "no jar for an unvalued pool");
+        _nextBlock();
+        vm.prank(bot);
+        hook.sample(id);
+        assertEq(coin.balanceOf(bot) + c2.balanceOf(bot), 0, "no tip");
+        assertEq(hook.poolState(id).jarY, 10e18, "the jar is untouched");
+        assertGt(hook.poolState(id).anchorX128, a, "the unpaid sample still moves the centre");
+    }
+
+    function test_fundJarAndCreateTakesNoEth() public {
+        (, PoolId id) = _createSame(1000e18, 2000e18);
+        hook.fundJar(id, 1e18, 2e18);
+        DiscipleHook.PoolView memory v = hook.poolState(id);
+        assertEq(v.jarX, 1e18);
+        assertEq(v.jarY, 2e18);
+        assertEq(_claims(address(usd)), v.quoteReserve + v.jarY, "held as claims beside the book");
+        (bool ok,) = address(hook).call{value: 1}("");
+        assertFalse(ok, "the hook takes no ETH");
     }
 
     // -----------------------------------------------------------------------------------------
@@ -939,7 +955,7 @@ contract DiscipleTest is Test {
         s.remoteEid = HOME_EID;
         s.push = true;
         vm.expectRevert(DiscipleHook.BadParams.selector);
-        hook.createPool{value: 0.01 ether}(_cp(s, _noKey()));
+        hook.createPool(_cp(s, _noKey()));
     }
 
     /// @dev Native ETH in a v4 source counts as the hook's WETH.
@@ -1059,20 +1075,6 @@ contract DiscipleTest is Test {
         hook.withdraw(id, 1, 1e18, 0);
     }
 
-    function test_poolTankFlushesWethIntoTank() public {
-        (, PoolId id) = _createCross(1000e18, 2000e18, 0.001 ether);
-        MockWETH weth = new MockWETH();
-        DisciplePoolTank tank = new DisciplePoolTank(IWETH9(address(weth)), IDiscipleTank(address(hook)), id);
-        weth.deposit{value: 0.3 ether}();
-        weth.transfer(address(tank), 0.3 ether); // what a TJAR releaser does
-        (bool ok,) = address(tank).call{value: 0.1 ether}("");
-        assertTrue(ok);
-        uint256 t0 = hook.poolState(id).tank;
-        vm.prank(address(0xBEEF)); // anyone
-        assertEq(tank.flush(), 0.4 ether);
-        assertEq(hook.poolState(id).tank, t0 + 0.4 ether);
-    }
-
     // -----------------------------------------------------------------------------------------
     // LayerZero push (Robinhood -> Ethereum, and any other LayerZero pair)
     // -----------------------------------------------------------------------------------------
@@ -1083,8 +1085,9 @@ contract DiscipleTest is Test {
         s.push = true;
     }
 
+    /// @dev `eth` (as before) now sizes a quote top-up of the pool's tip jar: eth x 10,000 USD.
     function _createPush(uint32 eid, uint256 eth) internal returns (PoolKey memory key, PoolId id) {
-        (key, id) = hook.createPool{value: eth}(
+        (key, id) = hook.createPool(
             DiscipleHook.CreateParams({
                 coin: address(coin),
                 quote: address(usd),
@@ -1096,6 +1099,7 @@ contract DiscipleTest is Test {
                 srcKey2: _noKey()
             })
         );
+        if (eth > 0) hook.fundJar(id, 0, eth * 10_000);
     }
 
     function _req(address target, PoolId id) internal pure returns (DisciplePushSender.Req[] memory r) {
@@ -1124,7 +1128,7 @@ contract DiscipleTest is Test {
     function test_lzPushOpensPoolUpdatesAndRefunds() public {
         (PoolKey memory key, PoolId id) = _createPush(HOME_EID, 0.05 ether);
         assertFalse(hook.poolState(id).live);
-        assertEq(hook.poolState(id).tank, 0.05 ether, "all ETH to the tank, nothing sent");
+        assertEq(hook.poolState(id).jarY, 500e18, "the jar holds the top-up");
         _lzPush(id, address(0xC0FFEE), 40, HOME_EID);
         DiscipleHook.PoolView memory v = hook.poolState(id);
         assertTrue(v.live, "first pushed price opens the pool");
@@ -1143,7 +1147,33 @@ contract DiscipleTest is Test {
         assertLt(carried, home.FEE() + 250_000 * 5 gwei);
         uint256 cost = carried + (receiver.msgGas() + receiver.POOL_GAS()) * 5 gwei;
         if (cost > 0.002 ether) cost = 0.002 ether; // the hook's per-refund cap (MAX_PUSH_REFUND)
-        assertEq(address(k).balance, 1 ether - home.FEE() + cost * 12 / 10, "refund = cost * 1.2");
+        assertEq(address(k).balance, 1 ether - home.FEE(), "no ETH back");
+        // refund = cost * 1.2 in USD at the reference 3000 USD per ETH, from the jar, credited to the keeper
+        uint256 owedUsd = cost * 12 / 10 * 3000;
+        assertEq(hook.owed(address(k), address(usd)), owedUsd, "refund = cost * 1.2, in the pool's quote");
+        vm.prank(address(k));
+        assertEq(hook.collect(address(usd)), owedUsd);
+        assertEq(usd.balanceOf(address(k)), owedUsd, "collected");
+        assertEq(hook.owed(address(k), address(usd)), 0);
+    }
+
+    /// Cross chain: pushes close the interval, so the skim fills the jar from trading, sized by the last keeper cost.
+    function test_lzPushSkimFillsTheJar() public {
+        (PoolKey memory key, PoolId id) = _createPush(HOME_EID, 0);
+        vm.fee(1 gwei);
+        _lzPush(id, address(0xC0FFEE), 40, HOME_EID);
+        for (uint256 i = 0; i < 20; i++) {
+            uint256 c0 = coin.balanceOf(address(this));
+            _swap(key, true, -int256(100e18));
+            _swap(key, false, -int256(coin.balanceOf(address(this)) - c0));
+            pair.set(1_000_000e18, i % 2 == 0 ? 2_030_000e18 : 2_000_000e18);
+            _lzPush(id, address(0xC0FFEE), 60, HOME_EID);
+        }
+        DiscipleHook.PoolView memory v = hook.poolState(id);
+        uint256 jar = v.jarY + Math.mulDiv(v.jarX, v.anchorX128, Q128);
+        assertGt(jar, 0, "skim filled the jar");
+        assertLe(jar, 170 * v.pushCost * 12 / 10 * 3000 + 1e6, "capped at 170 pushes at the last cost");
+        assertGt(hook.owed(address(0xC0FFEE), address(usd)), 0, "and paid the keeper from it");
     }
 
     function test_lzPushRejectsForgedPeerAndWrongChain() public {
@@ -1207,8 +1237,8 @@ contract DiscipleTest is Test {
         Keeper k = new Keeper();
         _lzPush(id, address(k), 40, HYPE_EID);
         assertEq(hook.poolState(id).anchorX128, Q128 * 21 / 10);
-        assertEq(address(k).balance, 1 ether - home.FEE(), "HYPE cost is not refunded in ETH");
-        assertEq(hook.poolState(id).tank, 0.05 ether);
+        assertEq(address(k).balance, 1 ether - home.FEE(), "HYPE cost is not refunded");
+        assertEq(hook.owed(address(k), address(usd)), 0, "nor credited");
     }
 
     function test_lzPushRecoveryWindowAndNoSwapSend() public {
@@ -1283,7 +1313,7 @@ contract DiscipleTest is Test {
         (PoolKey memory k1, PoolId p1) = _createPush(HOME_EID, 0.05 ether);
         MockERC20 c2 = usd2();
         DiscipleHook.Source memory s = _pushSrc(HOME_EID);
-        (PoolKey memory k2, PoolId p2) = hook.createPool{value: 0.05 ether}(
+        (PoolKey memory k2, PoolId p2) = hook.createPool(
             DiscipleHook.CreateParams({
                 coin: address(c2),
                 quote: address(usd),
@@ -1297,7 +1327,7 @@ contract DiscipleTest is Test {
         );
         MockERC20 c3 = usd2();
         s.target = address(pair2);
-        (PoolKey memory k3, PoolId p3) = hook.createPool{value: 0.05 ether}(
+        (PoolKey memory k3, PoolId p3) = hook.createPool(
             DiscipleHook.CreateParams({
                 coin: address(c3),
                 quote: address(usd),
@@ -1309,6 +1339,8 @@ contract DiscipleTest is Test {
                 srcKey2: _noKey()
             })
         );
+        hook.fundJar(p2, 0, 500e18);
+        hook.fundJar(p3, 0, 500e18);
         DisciplePushSender.Req[] memory r = new DisciplePushSender.Req[](2);
         r[0].kind = 1;
         r[0].target = address(pair);
@@ -1335,29 +1367,28 @@ contract DiscipleTest is Test {
 
         // an idle hour: the heartbeat is accepted but refunds nothing (no trades since the last price)
         vm.warp(vm.getBlockTimestamp() + 59 minutes + 30);
-        uint256 tIdle = hook.poolState(p1).tank;
+        uint256 tIdle = hook.owed(address(k), address(usd));
         vm.prank(address(k));
         pushSender.push{value: lzFee}(30101, to, r, 300_000);
         vm.warp(vm.getBlockTimestamp() + 30);
         local.deliver(address(receiver), HOME_EID, address(pushSender), home.lastMessage());
         assertEq(hook.poolState(p1).ageOrBlock, 30, "idle heartbeat accepted");
-        assertEq(hook.poolState(p1).tank, tIdle, "idle heartbeat not refunded");
+        assertEq(hook.owed(address(k), address(usd)), tIdle, "idle heartbeat not refunded");
 
         // all three trade, then a heartbeat: each pool refunds only its quarter of the message cost (4 listings)
         _swap(k1, true, -int256(1e18));
         _swap(k2, true, -int256(1e18));
         _swap(k3, true, -int256(1e18));
         vm.warp(vm.getBlockTimestamp() + 59 minutes + 30);
-        uint256 b0 = address(k).balance;
-        uint256 t1 = hook.poolState(p1).tank;
+        uint256 t1 = hook.owed(address(k), address(usd));
         vm.prank(address(k));
         pushSender.push{value: lzFee}(30101, to, r, 300_000);
         vm.warp(vm.getBlockTimestamp() + 30);
         uint256 carried = _msgCost(home.lastMessage());
         local.deliver(address(receiver), HOME_EID, address(pushSender), home.lastMessage());
         uint256 each = (carried / 4 + (receiver.msgGas() / 4 + receiver.POOL_GAS()) * 1 gwei) * 12 / 10;
-        assertEq(t1 - hook.poolState(p1).tank, each, "p1 pays one share (its wrong-source listing is ignored)");
-        assertEq(address(k).balance, b0 - home.FEE() + 3 * each, "three accepted listings refunded");
+        // p1's wrong-source listing is ignored, so three listings are paid, one share each
+        assertEq(hook.owed(address(k), address(usd)) - t1, 3 * each * 3000, "three accepted listings refunded");
         emit log_named_uint("home cost carried for 2 sources / 4 listings (wei at 1 gwei)", carried);
     }
 
@@ -1387,15 +1418,13 @@ contract DiscipleTest is Test {
         pushSender.push{value: lzFee}(30101, to, dup, 200_000);
         uint256 carried = _msgCost(home.lastMessage());
         vm.warp(vm.getBlockTimestamp() + 30);
-        uint256 t0 = hook.poolState(id).tank;
         bytes memory m = home.lastMessage();
         // takeover: someone other than the sending keeper delivers on the destination
         vm.prank(address(0xD311));
         local.deliver(address(receiver), HOME_EID, address(pushSender), m);
         uint256 each = (carried / 2 + (receiver.msgGas() / 2 + receiver.POOL_GAS()) * 1 gwei) * 12 / 10;
-        assertEq(t0 - hook.poolState(id).tank, each, "one listing refunded");
-        assertEq(address(k).balance, 1 ether - lzFee + each, "the sending keeper is paid, not the deliverer");
-        assertEq(address(0xD311).balance, 0);
+        assertEq(hook.owed(address(k), address(usd)), each * 3000, "one listing refunded, to the sending keeper");
+        assertEq(hook.owed(address(0xD311), address(usd)), 0, "not the deliverer");
     }
 
     function test_lzReceiverAddOnlyOwner() public {
@@ -1425,7 +1454,7 @@ contract DiscipleTest is Test {
         receiver.addPeer(30184, address(other), true, cfg);
         assertEq(local.configs(), c0 + 1);
         assertEq(receiver.peers(30184), bytes32(uint256(uint160(address(other)))));
-        (, PoolId baseId) = hook.createPool{value: 0.01 ether}(
+        (, PoolId baseId) = hook.createPool(
             DiscipleHook.CreateParams({
                 coin: address(usd2()),
                 quote: address(usd),

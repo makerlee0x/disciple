@@ -22,6 +22,10 @@ interface IV3S {
     function token1() external view returns (address);
 }
 
+interface IERC20Like {
+    function balanceOf(address) external view returns (uint256);
+}
+
 interface IFactoryLike {
     function getPair(address, address) external view returns (address);
     function getPool(address, address, uint24) external view returns (address);
@@ -43,18 +47,68 @@ library DiscipleBooks {
         DP.step(w, pm, id, steps);
     }
 
-    /// @notice Close the interval. `skimRoom` (quote wei at the mark) is how much the pool's tip jar can still take;
-    ///         returns the coin/quote amounts skimmed out of the reserves for it.
-    function settle(
-        LG.Book storage bk,
-        uint256 markX128,
-        uint256 onTvl,
-        uint256 offTvl,
-        uint256 gradTvl,
-        bool dist,
-        uint256 skimRoom
-    ) public returns (uint256 jx, uint256 jy) {
-        (, jx, jy) = bk.settle(markX128, onTvl, offTvl, gradTvl, dist, skimRoom);
+    /// @dev The creator cut remembers the highest confirmed source TVL, fading linearly to nothing over this long.
+    uint256 internal constant TVL_MEMORY = 1 days;
+
+    /// @dev A pool's source TVL readings (quote raw). Slot layout matches the fields it replaced in the hook's Pool.
+    struct Tvl {
+        uint256 srcTvl; // latest reading; 0 = not known yet
+        uint256 prevTvl; // the reading before it
+        uint256 recTvl; // highest confirmed reading (the lower of two in a row), fading over TVL_MEMORY from recAt
+        uint64 recAt;
+        uint64 warmEnd; // until then the creator cut and graduation stay off
+        uint8 seen; // readings since launch / first price, up to 2 (the launch reading never counts)
+    }
+
+    /// @notice Close the interval at `markX128`, judging the creator cut and graduation from `t`. `skimRoom` (quote
+    ///         raw at the mark) is how much the pool's tip jar can still take; returns the coin/quote skimmed for it.
+    function settle(LG.Book storage bk, Tvl storage t, uint256 markX128, bool dist, uint256 skimRoom)
+        public
+        returns (uint256 jx, uint256 jy)
+    {
+        (uint256 on, uint256 off, uint256 g) = _judge(t);
+        (, jx, jy) = bk.settle(markX128, on, off, g, dist, skimRoom);
+    }
+
+    /// @dev Source TVL against manipulation (review D-02). Spot TVL can be pushed down or up for one transaction,
+    ///      so no single reading decides anything:
+    ///      - graduation is judged against the higher of the last two readings, so a dip must be seen twice in a
+    ///        row and a spike delays it by at most two readings;
+    ///      - the creator cut has hysteresis. It turns on only against the higher of the last two readings and a
+    ///        memory (the highest reading confirmed by the next one, the lower of two in a row, fading linearly to 0
+    ///        over TVL_MEMORY of real time). It turns off only against the lower of the last two readings. So one
+    ///        spike or one dip does nothing to it; two spikes in a row turn it off for at most TVL_MEMORY; turning it
+    ///        on by dips takes no honest pair of readings for TVL_MEMORY, then two dips in a row, and it stays on
+    ///        until two honest readings in a row.
+    ///      The launch reading never counts, and nothing is judged before two later readings and the end of the
+    ///      warm-up. Same chain v4: one reading per finished counter pass (the cached total is not new evidence).
+    function observe(Tvl storage p, uint256 cur, bool fresh) public {
+        if (cur == 0 || !fresh) return;
+        uint256 prev = p.srcTvl;
+        p.prevTvl = prev;
+        p.srcTvl = cur;
+        uint8 n = p.seen;
+        if (n < 2) p.seen = ++n;
+        if (n < 2) return;
+        uint256 m = cur < prev ? cur : prev;
+        if (m >= _rec(p)) {
+            p.recTvl = m;
+            p.recAt = uint64(block.timestamp);
+        }
+    }
+
+    function _rec(Tvl storage p) internal view returns (uint256) {
+        uint256 age = block.timestamp - p.recAt;
+        return age >= TVL_MEMORY ? 0 : Math.mulDiv(p.recTvl, TVL_MEMORY - age, TVL_MEMORY);
+    }
+
+    /// @dev TVLs for the ledger; all 0 = not judged yet (warm-up, too few readings). The creator cut turns on only
+    ///      if both of the last two readings and the memory allow it, and off only if both readings say so.
+    function _judge(Tvl storage p) internal view returns (uint256 on, uint256 off, uint256 g) {
+        if (block.timestamp < p.warmEnd || p.seen < 2) return (0, 0, 0);
+        (g, off) = p.srcTvl > p.prevTvl ? (p.srcTvl, p.prevTvl) : (p.prevTvl, p.srcTvl);
+        on = _rec(p);
+        if (g > on) on = g;
     }
 
     function deposit(LG.Book storage bk, address owner, uint256 dx, uint256 dy)
@@ -175,6 +229,36 @@ library DiscipleBooks {
     }
 
     /// @notice A pushed raw source state: v2 (reserve0, reserve1) or v3/v4 (sqrtPriceX96, liquidity).
+    /// @notice Same-chain source TVL in quote raw: leg 1's real tokens valued at its spot `s1`, converted at the full
+    ///         `spot` for two-hop. v2: reserves. v3: the pool's token balances. v4: the depth counter's last finished
+    ///         pass (0 until the first pass finishes).
+    function sourceTvl(
+        uint8 kind,
+        address target,
+        bool coinIs0,
+        bool twoHop,
+        address coin,
+        address x,
+        DP.Walk storage w,
+        uint256 s1,
+        uint256 spot
+    ) public view returns (uint256 tvl) {
+        uint256 b;
+        uint256 o;
+        if (kind == 1) {
+            (uint112 r0, uint112 r1,) = IV2R(target).getReserves();
+            (b, o) = coinIs0 ? (r0, r1) : (r1, r0);
+        } else if (kind == 2) {
+            b = IERC20Like(coin).balanceOf(target);
+            o = IERC20Like(x).balanceOf(target);
+        } else {
+            if (!w.done) return 0;
+            (b, o) = coinIs0 ? (w.tot0, w.tot1) : (w.tot1, w.tot0);
+        }
+        tvl = Math.mulDiv(b, s1, 1 << 128) + o;
+        if (twoHop) tvl = Math.mulDiv(tvl, spot, s1);
+    }
+
     function pushed(bool isV2, uint256 a, uint256 b, bool coinIs0) public pure returns (uint256 price, uint256 tvl) {
         return isV2 ? _v2(a, b, coinIs0) : _concentrated(uint160(a), uint128(b), coinIs0);
     }

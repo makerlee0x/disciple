@@ -140,7 +140,7 @@ contract PushForkTest is Test {
         vm.expectRevert();
         IEndpointFull(V0.RH_ENDPOINT).lzReceive(_origin(p), address(receiver), p.guid, p.message, "");
 
-        // ---- a trade, then the heartbeat: refunded from the tank (an idle pool's heartbeat pays nothing)
+        // ---- a trade, then the heartbeat: paid from the pool's tip jar (an idle pool's heartbeat pays nothing)
         bool zf = Currency.unwrap(key.currency0) == quoteToken; // buy coin with quote
         swapper.swap(
             key,
@@ -158,17 +158,21 @@ contract PushForkTest is Test {
         _select(rh);
         vm.warp(uint256(hb.observedAt) + 75);
         _verifyAndCommit(hb, 5);
-        uint256 kb = keeper.balance;
+        uint256 kb = hook.owed(keeper, quoteToken);
         address other = makeAddr("another keeper"); // takeover: delivery by someone other than the sender
         g = gasleft();
         vm.prank(other);
         IEndpointFull(V0.RH_ENDPOINT).lzReceive(_origin(hb), address(receiver), hb.guid, hb.message, "");
         emit log_named_uint("Robinhood execution gas, heartbeat", g - gasleft());
-        assertEq(other.balance, 0, "the deliverer is not paid; the sending keeper is");
+        assertEq(hook.owed(other, quoteToken), 0, "the deliverer is not paid; the sending keeper is");
         assertEq(hook.poolState(pid).ageOrBlock, 75, "heartbeat accepted");
         uint256 cost = _cost(hb.message) + (receiver.msgGas() + receiver.POOL_GAS()) * block.basefee;
         if (cost > 0.002 ether) cost = 0.002 ether;
-        assertEq(keeper.balance - kb, cost * 12 / 10, "keeper refunded (LZ fee + measured gas + RH delivery) * 1.2");
+        assertEq(
+            hook.owed(keeper, quoteToken) - kb,
+            cost * 12 / 10,
+            "keeper credited (LZ fee + measured gas + RH delivery) * 1.2"
+        );
         emit log_named_uint("cost carried (LZ fee + measured Ethereum gas)", _cost(hb.message));
         emit log_named_uint("Ethereum basefee (wei)", hb.basefee);
         emit log_named_uint("keeper push gas on Ethereum (measured by the test)", hb.gas);
@@ -194,7 +198,7 @@ contract PushForkTest is Test {
             address(receiver),
             address(0),
             address(0),
-            address(0),
+            address(quote), // the mock WETH is the chain's WETH here, so gas values 1:1 in the quote
             DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
         );
         hook = new DiscipleHook{salt: _mine(args)}(
@@ -202,7 +206,7 @@ contract PushForkTest is Test {
             address(receiver),
             address(0),
             address(0),
-            address(0),
+            address(quote), // the mock WETH is the chain's WETH here, so gas values 1:1 in the quote
             DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
         );
         receiver.bind(IDisciplePriceTarget(address(hook)));
@@ -221,7 +225,7 @@ contract PushForkTest is Test {
         coin.approve(address(swapper), type(uint256).max);
         quote.approve(address(swapper), type(uint256).max);
         quoteToken = address(quote);
-        (key, pid) = hook.createPool{value: 0.05 ether}(
+        (key, pid) = hook.createPool(
             DiscipleHook.CreateParams({
                 coin: address(coin),
                 quote: address(quote),
@@ -233,6 +237,7 @@ contract PushForkTest is Test {
                 srcKey2: _noKey()
             })
         );
+        hook.fundJar(pid, 0, 1 ether); // keeper tips come from the pool's jar
     }
 
     function _push() internal returns (Packet memory p) {

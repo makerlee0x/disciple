@@ -9,7 +9,6 @@ import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
-import {DisciplePoolTank, IWETH9, IDiscipleTank} from "../../src/hook/DisciplePoolTank.sol";
 
 /// @dev TJAR factory on Robinhood Chain. Its source is not verified to us; the call below was read from its bytecode
 ///      and a traced call: selector 0x63d23abd(resource, resourceRecipient, threshold, owner, address, salt)
@@ -86,74 +85,6 @@ contract TjarForkTest is Test {
         if (block.chainid != 4663) return; // Robinhood Chain only
         forked = true;
         emit log_named_uint("forked at block", block.number);
-    }
-
-    /// @notice A jar from the real factory, released by a searcher paying the WETH threshold, refills a pool's tank
-    ///         once the WETH is unwrapped into `fundTank`. Paid straight to the hook, the WETH is stranded.
-    function test_fork_tjarRefillsTank() public {
-        if (!forked) return;
-        (DiscipleHook hook, PoolId id, MockERC20 coin) = _pool();
-        DisciplePoolTank adapter = new DisciplePoolTank(IWETH9(RH_WETH), IDiscipleTank(address(hook)), id);
-        uint256 threshold = 0.001 ether;
-
-        uint256 g = gasleft();
-        (address jar, address rel) = Tjar.deploy(
-            TJAR_FACTORY, RH_WETH, address(adapter), threshold, address(0xdead), uint256(keccak256("disciple-jar"))
-        );
-        emit log_named_uint("jar + releaser deploy gas", g - gasleft());
-        assertEq(ITjarReleaser(rel).TOKEN_JAR(), jar);
-        assertEq(ITjarReleaser(rel).resource(), RH_WETH);
-        assertEq(ITjarReleaser(rel).resourceRecipient(), address(adapter));
-        assertEq(ITjarReleaser(rel).threshold(), threshold);
-
-        // the pool's refresh slice lands in the jar (here: coins and some native ETH)
-        coin.mint(jar, 5e18);
-        vm.deal(address(this), 1 ether);
-        (bool ok,) = jar.call{value: 0.002 ether}("");
-        assertTrue(ok, "jar takes native ETH");
-
-        // a searcher pays the threshold in WETH and takes the jar
-        address searcher = makeAddr("searcher");
-        vm.deal(searcher, 1 ether);
-        vm.startPrank(searcher);
-        IWETH(RH_WETH).deposit{value: threshold}();
-        IWETH(RH_WETH).approve(rel, threshold);
-        address[] memory assets = new address[](2);
-        assets[0] = address(coin);
-        assets[1] = address(0);
-        g = gasleft();
-        ITjarReleaser(rel).release(0, assets, searcher, threshold);
-        emit log_named_uint("release gas", g - gasleft());
-        vm.stopPrank();
-
-        assertEq(coin.balanceOf(searcher), 5e18, "searcher got the coins");
-        assertEq(searcher.balance, 1 ether - threshold + 0.002 ether, "searcher got the native ETH");
-        assertEq(IWETH(RH_WETH).balanceOf(address(adapter)), threshold, "recipient is paid in WETH, not ETH");
-        assertEq(address(adapter).balance, 0, "no native ETH arrives");
-
-        uint256 before = hook.poolState(id).tank;
-        adapter.flush();
-        assertEq(hook.poolState(id).tank, before + threshold, "tank refilled after unwrap");
-        emit log_named_decimal_uint("tank refilled by (ETH)", threshold, 18);
-        assertEq(ITjarReleaser(rel).nonce(), 1);
-    }
-
-    /// @notice Same flow with the hook itself as the recipient: the WETH arrives but the tank does not move.
-    function test_fork_tjarStraightToHookStrandsWeth() public {
-        if (!forked) return;
-        (DiscipleHook hook, PoolId id,) = _pool();
-        uint256 threshold = 0.001 ether;
-        (, address rel) = Tjar.deploy(TJAR_FACTORY, RH_WETH, address(hook), threshold, address(0xdead), 1);
-        address searcher = makeAddr("searcher");
-        vm.deal(searcher, 1 ether);
-        vm.startPrank(searcher);
-        IWETH(RH_WETH).deposit{value: threshold}();
-        IWETH(RH_WETH).approve(rel, threshold);
-        uint256 before = hook.poolState(id).tank;
-        ITjarReleaser(rel).release(0, new address[](0), searcher, threshold);
-        vm.stopPrank();
-        assertEq(IWETH(RH_WETH).balanceOf(address(hook)), threshold, "WETH sits on the hook");
-        assertEq(hook.poolState(id).tank, before, "tank unchanged: hook needs an adapter or a WETH sweep");
     }
 
     /// @notice Reports whether LayerZero lzRead can be used from Robinhood Chain: a read message library must be

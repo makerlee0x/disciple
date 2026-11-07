@@ -71,6 +71,7 @@ contract PushForkReverseTest is Test {
     PoolKey key;
     address quoteToken;
     mapping(bytes32 => address) quoteOf;
+    MockERC20 qWeth;
 
     function test_fork_pushRobinhoodToEthereumLz() public {
         string memory ethRpc = vm.envOr("FORK_RPC_ETH", string(""));
@@ -127,7 +128,7 @@ contract PushForkReverseTest is Test {
         vm.expectRevert(); // the endpoint will not execute the same packet twice
         IEndpointFull(V0.ETH_ENDPOINT).lzReceive(_origin(p), address(receiver), p.guid, p.message, "");
 
-        // ---- a trade, then the heartbeat: refunded on Ethereum from the pool's tank
+        // ---- a trade, then the heartbeat: paid on Ethereum from the pool's tip jar
         bool zf = Currency.unwrap(key.currency0) == quoteToken;
         swapper.swap(
             key,
@@ -147,17 +148,21 @@ contract PushForkReverseTest is Test {
         _select(eth);
         vm.warp(uint256(hb.observedAt) + 30);
         _verifyAndCommit(hb, CONF);
-        uint256 kb = keeper.balance;
+        uint256 kb = hook.owed(keeper, address(qWeth));
         address other = makeAddr("another keeper");
         g = gasleft();
         vm.prank(other);
         IEndpointFull(V0.ETH_ENDPOINT).lzReceive(_origin(hb), address(receiver), hb.guid, hb.message, "");
         emit log_named_uint("Ethereum execution gas, heartbeat", g - gasleft());
-        assertEq(other.balance, 0, "the deliverer is not paid; the sending keeper is");
+        assertEq(hook.owed(other, address(qWeth)), 0, "the deliverer is not paid; the sending keeper is");
         assertEq(hook.poolState(pid).ageOrBlock, 30, "heartbeat accepted");
         uint256 cost = _cost(hb.message) + (receiver.msgGas() + receiver.POOL_GAS()) * block.basefee;
         if (cost > 0.002 ether) cost = 0.002 ether;
-        assertEq(keeper.balance - kb, cost * 12 / 10, "keeper refunded (LZ fee + Robinhood gas + ETH delivery) * 1.2");
+        assertEq(
+            hook.owed(keeper, address(qWeth)) - kb,
+            cost * 12 / 10,
+            "keeper credited (LZ fee + Robinhood gas + ETH delivery) * 1.2"
+        );
         emit log_named_uint("cost carried from Robinhood (LZ fee + measured gas)", _cost(hb.message));
         emit log_named_uint("keeper push gas on Robinhood", hb.gas);
         emit log_named_uint("Ethereum basefee (wei)", block.basefee);
@@ -224,7 +229,7 @@ contract PushForkReverseTest is Test {
             _select(eth);
             vm.warp(uint256(hb.observedAt) + 30);
             _verifyAs(hb, CONF);
-            uint256 kb = keeper.balance;
+            uint256 kb = hook.owed(keeper, address(qWeth));
             bytes32 h = keccak256(abi.encodePacked(hb.guid, hb.message));
             vm.prank(keeper);
             uint256 g = gasleft();
@@ -238,7 +243,7 @@ contract PushForkReverseTest is Test {
                 + _calldataGas(
                     abi.encodeCall(IEndpointFull.lzReceive, (_origin(hb), address(receiver), hb.guid, hb.message, ""))
                 );
-            uint256 paid = keeper.balance - kb; // gas is not charged to balances in the test, only refunds land
+            uint256 paid = hook.owed(keeper, address(qWeth)) - kb; // credited from the jar, in the WETH quote
             uint256 expense = hb.fee + hb.gas * hb.basefee + (commitGas + execGas) * block.basefee;
             string memory tag = string.concat("  pools ", vm.toString(k), ": ");
             emit log_named_uint(string.concat(tag, "Robinhood push tx gas"), hb.gas);
@@ -271,21 +276,22 @@ contract PushForkReverseTest is Test {
         receiver = new DisciplePushReceiver(
             ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), eids, senders, ethGas, _ethCfg(), V0.destMsgGas(lean)
         );
+        qWeth = new MockERC20("WETH", "WETH", 18);
         bytes memory args = abi.encode(
             m,
             address(receiver),
             ETH_V2_FACTORY,
             ETH_V3_FACTORY,
-            address(0),
-            DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+            address(qWeth), // a mock WETH is every pool's quote and the chain's WETH here, so gas values 1:1
+            DiscipleHook.Config(50_000, address(0), 0, address(0), bytes32(0), false)
         );
         hook = new DiscipleHook{salt: _mine(args)}(
             m,
             address(receiver),
             ETH_V2_FACTORY,
             ETH_V3_FACTORY,
-            address(0),
-            DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+            address(qWeth), // a mock WETH is every pool's quote and the chain's WETH here, so gas values 1:1
+            DiscipleHook.Config(50_000, address(0), 0, address(0), bytes32(0), false)
         );
         receiver.bind(IDisciplePriceTarget(address(hook)));
         vm.deal(address(this), 10 ether);
@@ -297,7 +303,7 @@ contract PushForkReverseTest is Test {
     /// @dev A Disciple pool on Ethereum priced off the Robinhood source, with its own coin and quote tokens.
     function _addPool() internal returns (PoolKey memory k, PoolId id) {
         MockERC20 coin = new MockERC20("COIN", "COIN", 18);
-        MockERC20 quote = new MockERC20("USDG", "USDG", 6);
+        MockERC20 quote = qWeth;
         coin.mint(address(this), 1e40);
         quote.mint(address(this), 1e40);
         coin.approve(address(hook), type(uint256).max);
@@ -311,7 +317,7 @@ contract PushForkReverseTest is Test {
         s.v4Id = v4Id;
         s.remoteEid = V0.RH_EID;
         s.push = true;
-        (k, id) = hook.createPool{value: 0.05 ether}(
+        (k, id) = hook.createPool(
             DiscipleHook.CreateParams({
                 coin: address(coin),
                 quote: address(quote),
@@ -324,6 +330,7 @@ contract PushForkReverseTest is Test {
             })
         );
         quoteOf[PoolId.unwrap(id)] = address(quote);
+        hook.fundJar(id, 0, 1 ether); // keeper tips come from the pool's jar
     }
 
     /// @dev Buy coin with ~0.06% of the quote reserve.

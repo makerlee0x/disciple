@@ -20,10 +20,6 @@ import {DiscipleLedger as LG} from "./libraries/DiscipleLedger.sol";
 import {DiscipleDepth as DP} from "./libraries/DiscipleDepth.sol";
 import {DiscipleBooks as BK} from "./DiscipleBooks.sol";
 
-interface IV2PairLike {
-    function getReserves() external view returns (uint112, uint112, uint32);
-}
-
 /// @title Disciple
 /// @notice A Uniswap v4 hook that runs small coin/quote pools priced off an anchor from a source pool.
 ///         One deployment serves many pools. Permissionless: anyone creates a pool against any source.
@@ -40,7 +36,7 @@ interface IV2PairLike {
 ///
 ///         Cross chain (new chain, anchor pushed from the home chain over LayerZero by a DisciplePushSender there
 ///         and authenticated by the DisciplePushReceiver here): the anchor is the last accepted push. Keepers push on
-///         a 1% home move or a 59.5-min heartbeat and are refunded their cost plus 20% from the pool's ETH tank (a
+///         a 1% home move or a 59.5-min heartbeat and are paid their cost plus 20% from the pool's tip jar (a
 ///         heartbeat only if the pool traded since the last price). lzRead and the rollup-bridge route were cut
 ///         from v0 (maker, 2026-11-04). The spread widens after 60 min; after 2 h the pool enters local mode (re-centres, drops the band,
 ///         keeps trading). A fresh push under 20 min old (PUSH_RECOVERY_AGE) ends local mode and re-centres again. The pool never
@@ -70,6 +66,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     uint256 internal constant DUE_BPS = 100;
     /// @dev Jar cap: this many reference tips (TIP_GAS_REF gas at the current basefee, +20%).
     uint256 internal constant JAR_TIPS = 320;
+    /// @dev Cross-chain jar cap: this many pushes at the last keeper cost, +20% (7 days of 59.5-min heartbeats).
+    uint256 internal constant JAR_PUSHES = 170;
     uint256 internal constant TIP_GAS_REF = 150_000;
     /// @dev Gas a tipped sample() spends outside the measured span (intrinsic, calldata, the payout itself).
     uint256 internal constant TIP_OVERHEAD = 80_000;
@@ -81,14 +79,12 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     uint256 internal constant WALK_STEPS = 4;
     /// @dev Largest cross-chain decimal shift (10^36 fits any realistic price or TVL product).
     int8 internal constant MAX_SHIFT = 36;
-    /// @dev The creator cut remembers the highest confirmed source TVL, fading linearly to nothing over this long.
-    uint256 internal constant TVL_MEMORY = 1 days;
     /// @dev After creation (same chain) or the first price (cross chain) nothing graduates and the creator gets no cut.
     uint256 internal constant WARM_UP = 1 days;
     uint256 internal constant WALK_INIT_STEPS = 256;
     /// @dev A recovering pushed price may be this old on arrival.
     uint256 internal constant PUSH_RECOVERY_AGE = 20 minutes;
-    /// @dev Cap on one push refund, so a gas spike on the home chain cannot drain the tank.
+    /// @dev Cap on one push refund (wei), so a gas spike on the home chain cannot drain the jar.
     uint256 internal constant MAX_PUSH_REFUND = 0.002 ether;
 
     // ---------------------------------------------------------------------------------------------
@@ -131,15 +127,10 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint64 sampleAt; // timestamp of sampleX128
         uint256 jarX; // same chain tip jar, coin raw (held as claims, outside the book)
         uint256 jarY; // tip jar, quote raw
-        uint256 srcTvl; // latest source TVL reading in quote raw; 0 = not known yet
-        uint256 prevTvl; // the reading before it
-        uint256 recTvl; // highest confirmed reading (the lower of two in a row), fading over TVL_MEMORY from recAt
-        uint64 recAt;
-        uint64 warmEnd; // until then the creator cut and graduation stay off
-        uint8 seen; // readings since launch / first price, up to 2 (the launch reading never counts)
+        BK.Tvl tvl; // source TVL readings for graduation and the creator cut (DiscipleBooks.observe / judge)
         address x; // same chain: leg 1's other token (the quote, or X for two-hop)
         DP.Walk walk; // same-chain v4 leg 1: the depth counter that measures its TVL
-        uint256 tank; // ETH for refreshes
+        uint256 pushCost; // cross chain: last accepted keeper cost (wei), sizes the jar
         uint256 seedX; // cross chain: creator's seed, held until the first price
         uint256 seedY;
         LG.Book book;
@@ -184,7 +175,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     bool internal immutable refWethIs0;
 
     /// @dev Per-chain settings fixed at deploy. `ref*`: one WETH/refToken pool (kind 0 = none: tips then pay only
-    ///      pools quoted in WETH or refToken, others fall back to the ETH tank).
+    ///      pools with WETH or refToken as a token, or a two-hop source through WETH; other pools pay no tips).
     struct Config {
         uint24 minStep;
         address refToken;
@@ -199,6 +190,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
 
     mapping(PoolId => Pool) internal pools;
     bool internal _locked;
+    /// @notice Cross-chain keeper tips credited from pool jars, by keeper and token; taken with `collect`. Credited,
+    ///         not sent, so a token that refuses a transfer can never block a price delivery.
+    mapping(address => mapping(address => uint256)) public owed;
 
     // ---------------------------------------------------------------------------------------------
     // Events and errors
@@ -219,7 +213,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint128 hookLPfeeAmount1
     );
     event HookModifyLiquidity(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1);
-    event Tipped(PoolId indexed id, address indexed to, uint256 x, uint256 y, uint256 eth);
+    event Tipped(PoolId indexed id, address indexed to, uint256 x, uint256 y);
     event Deposited(PoolId indexed id, address indexed owner, uint256 lot, uint256 shares, uint256 x, uint256 y);
     event Withdrawn(PoolId indexed id, address indexed owner, uint256 lot, uint256 x, uint256 y);
     event Restaked(PoolId indexed id, address indexed owner, uint256 fromLot, uint256 newLot);
@@ -227,7 +221,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     event PriceAccepted(PoolId indexed id, uint256 anchorX128, uint64 observedAt, uint256 refund, bool recovered);
     event PriceRejected(PoolId indexed id, bytes32 guid);
     event LocalMode(PoolId indexed id, bool on);
-    event TankFunded(PoolId indexed id, uint256 amount);
+    event JarFunded(PoolId indexed id, address indexed from, uint256 x, uint256 y);
+    event Collected(address indexed keeper, address indexed token, uint256 amount);
     event CreatorSet(PoolId indexed id, address creator, bool compounds);
 
     error OnlyPoolManager();
@@ -236,7 +231,6 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     error BadParams();
     error NotLive();
     error NoAnchor();
-    error SameChain();
     error PendingTrades();
     error OnlyCreator();
     error LiquidityDisabled();
@@ -293,8 +287,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
 
     /// @notice Create a pool. Same chain: the seed is trimmed to 50/50 by value at the source's current spot and
     ///         the rest refunded. Cross chain: both tokens are held until the first pushed price lands (any ETH sent
-    ///         goes to the pool's tank); then the seed is trimmed the same way.
-    function createPool(CreateParams calldata cp) external payable lock returns (PoolKey memory key, PoolId id) {
+    ///         is refused); then the seed is trimmed the same way.
+    function createPool(CreateParams calldata cp) external lock returns (PoolKey memory key, PoolId id) {
         address quote = cp.quote;
         if (cp.coin == address(0) || quote == address(0) || cp.coin == quote) revert BadParams();
         if (cp.fee == 0 || cp.fee > MAX_FEE || cp.coinIn == 0 || cp.quoteIn == 0) revert BadParams();
@@ -335,7 +329,6 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         p.book.creator = msg.sender;
 
         if (s.remoteEid == 0) {
-            if (msg.value != 0) revert SameChain();
             p.x = x1;
             if (s.kind == SRC_V4) {
                 // the creator pays for a first full count; most pools finish inside it
@@ -344,8 +337,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             }
             (uint256 spot,, uint256 s1) = _sourceSpot(p);
             if (spot == 0) revert NoAnchor();
-            p.srcTvl = _sourceTvl(p, s1, spot);
-            p.warmEnd = uint64(block.timestamp + WARM_UP);
+            p.tvl.srcTvl = _sourceTvl(p, s1, spot);
+            p.tvl.warmEnd = uint64(block.timestamp + WARM_UP);
             p.sampleX128 = spot;
             p.sampleBlock = uint64(block.number);
             p.sampleAt = uint64(block.timestamp);
@@ -358,8 +351,6 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             _pull(quote, cp.quoteIn);
             p.seedX = cp.coinIn;
             p.seedY = cp.quoteIn;
-            // the first pushed price opens the pool; all ETH goes to the tank
-            p.tank = msg.value;
         }
 
         poolManager.initialize(key, uint160(1 << 96));
@@ -507,6 +498,25 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         if (quoteAmt == 0 || coinAmt == 0) revert ZeroOutput();
     }
 
+    /// @notice Top up a pool's tip jar with its own tokens (anyone).
+    function fundJar(PoolId id, uint256 x, uint256 y) external lock {
+        Pool storage p = _known(id);
+        p.jarX += x;
+        p.jarY += y;
+        _moves(_pair(p, x, y, msg.sender, true));
+        emit JarFunded(id, msg.sender, x, y);
+    }
+
+    /// @notice Take the keeper tips credited to the caller in `token` (cross-chain pushes).
+    function collect(address token) external lock returns (uint256 amt) {
+        amt = owed[msg.sender][token];
+        owed[msg.sender][token] = 0;
+        Move[] memory m = new Move[](1);
+        m[0] = Move(token, msg.sender, amt, false);
+        _moves(m);
+        emit Collected(msg.sender, token, amt);
+    }
+
     /// @notice Exact quote for a swap on pool `id`, for routers and front ends. Use it with eth_call: it runs
     ///         the same first-touch work as a real swap (the price latch and, if due, the settle), prices the
     ///         fill against the live source, then ALWAYS reverts with `Quote(amountIn, amountOut)`, so nothing
@@ -527,7 +537,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     /// @notice Refresh a same-chain pool's source price sample without a trade. Anyone may call. The first call
     ///         in a block steps the anchor toward the previous sample and records the live one. It does not settle,
     ///         observe source TVL, or move graduation. While the centre is at least 1% from the leader the caller
-    ///         is paid gas + 20% from the pool's tip jar (or, if the quote cannot be valued in ETH, its tank).
+    ///         is paid gas + 20% from the pool's tip jar (nothing if the pool's tokens cannot be valued in ETH).
     function sample(PoolId id) external lock {
         uint256 g0 = gasleft();
         Pool storage p = _known(id);
@@ -537,29 +547,13 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 a0 = p.anchorX128;
         (uint256 spot,) = _latchSame(p, false);
         if (!SM.movedBeyond(a0, spot, DUE_BPS)) return;
-        uint256 w = (g0 - gasleft() + TIP_OVERHEAD) * block.basefee * 12 / 10;
-        uint256 q = _weiToQuote(p, w);
-        uint256 cx;
-        uint256 cy;
-        uint256 eth;
-        if (q == 0) {
-            eth = w < MAX_PUSH_REFUND ? w : MAX_PUSH_REFUND;
-            if (eth > p.tank) eth = p.tank;
-            p.tank -= eth;
-        } else {
-            (cx, cy) = BK.tip(p.jarX, p.jarY, a0, q, TIP_DIV);
-            p.jarX -= cx;
-            p.jarY -= cy;
-            _moves(_pair(p, cx, cy, msg.sender, false));
-        }
-        if (eth > 0) {
-            (bool sent,) = msg.sender.call{value: eth, gas: 30_000}("");
-            if (!sent) {
-                p.tank += eth;
-                eth = 0;
-            }
-        }
-        emit Tipped(id, msg.sender, cx, cy, eth);
+        uint256 q = _weiToQuote(p, (g0 - gasleft() + TIP_OVERHEAD) * block.basefee * 12 / 10);
+        if (q == 0) return;
+        (uint256 cx, uint256 cy) = BK.tip(p.jarX, p.jarY, a0, q, TIP_DIV);
+        p.jarX -= cx;
+        p.jarY -= cy;
+        _moves(_pair(p, cx, cy, msg.sender, false));
+        emit Tipped(id, msg.sender, cx, cy);
     }
 
     /// @dev `w` wei in the pool's quote, at the pool's centre and the reference pool (0 = cannot value).
@@ -574,22 +568,27 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             w = Math.mulDiv(w, r, Q128);
             if (q == refToken) return w;
         } else if (c != weth) {
-            return 0;
+            // a two-hop source through WETH prices it: leg 2 is WETH/quote
+            Source storage s = p.src;
+            if (s.kind2 == 0 || p.x != weth) return 0;
+            (uint256 r2,) = _leg(s.kind2, s.target2, s.v4Id2, s.xIs0);
+            return Math.mulDiv(w, r2, Q128);
         }
         return Math.mulDiv(w, p.anchorX128, Q128);
     }
 
-    /// @dev Room left in the jar, in quote raw: JAR_TIPS reference tips at today's basefee, less what it holds.
+    /// @dev Room left in the jar, in quote raw, less what it holds. Same chain: JAR_TIPS reference tips at today's
+    ///      basefee. Cross chain: JAR_PUSHES pushes at the last keeper cost. Both +20%.
     function _jarRoom(Pool storage p) internal view returns (uint256) {
-        uint256 cap = _weiToQuote(p, JAR_TIPS * TIP_GAS_REF * block.basefee * 12 / 10);
+        uint256 w = p.src.remoteEid == 0 ? JAR_TIPS * TIP_GAS_REF * block.basefee : JAR_PUSHES * p.pushCost;
+        uint256 cap = _weiToQuote(p, w * 12 / 10);
         uint256 have = Math.mulDiv(p.jarX, p.anchorX128, Q128) + p.jarY;
         return cap > have ? cap - have : 0;
     }
 
-    /// @dev Close a same-chain interval at `mark`, skimming into the jar.
-    function _settleSame(Pool storage p, uint256 mark) internal {
-        (uint256 tOn, uint256 tOff, uint256 tg) = _judge(p);
-        (uint256 jx, uint256 jy) = BK.settle(p.book, mark, tOn, tOff, tg, true, _jarRoom(p));
+    /// @dev Close the open interval at `mark`, skimming into the jar (`dist` false: local mode, no payout).
+    function _settleSame(Pool storage p, uint256 mark, bool dist) internal {
+        (uint256 jx, uint256 jy) = BK.settle(p.book, p.tvl, mark, dist, _jarRoom(p));
         p.jarX += jx;
         p.jarY += jy;
     }
@@ -630,8 +629,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             if (s.kind == SRC_V4) BK.walk(p.walk, poolManager, PoolId.wrap(s.v4Id), WALK_STEPS);
             uint256 tvl = _sourceTvl(p, s1, spot);
             // a v4 source's TVL is a new reading only when the counter finished a pass in this block
-            _observe(p, tvl, s.kind != SRC_V4 || !p.walk.active);
-            _settleSame(p, p.anchorX128);
+            BK.observe(p.tvl, tvl, s.kind != SRC_V4 || !p.walk.active);
+            _settleSame(p, p.anchorX128, true);
             p.settledBlock = uint64(block.number);
         }
     }
@@ -651,13 +650,6 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         (uint256 g, bool bandOn) = PR.markup(p.fee, age);
         (kb, ks) = SM.slopes(a, p.tX128, g, g);
         (pb, ps) = PR.band(a, g, bandOn);
-    }
-
-    /// @notice Top up a pool's refresh tank (anyone; a TJAR releaser can point here through a PoolTank).
-    function fundTank(PoolId id) external payable {
-        Pool storage p = _known(id);
-        p.tank += msg.value;
-        emit TankFunded(id, msg.value);
     }
 
     /// @notice A pushed price over LayerZero (caller = pushReceiver, `srcEid` = the home chain, which must be the
@@ -723,8 +715,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             }
             p.anchorX128 = price;
             p.obsAt = observedAt;
-            p.srcTvl = tvl;
-            p.warmEnd = uint64(block.timestamp + WARM_UP);
+            p.tvl.srcTvl = tvl;
+            p.tvl.warmEnd = uint64(block.timestamp + WARM_UP);
             uint256 sx = p.seedX;
             uint256 sy = p.seedY;
             p.seedX = 0;
@@ -744,11 +736,11 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         // a heartbeat is paid only if the pool traded since the last price (maker, 2026-11-04); a 1% move always
         if (p.book.dx == 0 && p.book.dy == 0) ageAtRequest = 0;
         // close the interval at the fresh mark (deferred mark); local-mode results stay pro rata
-        _observe(p, tvl, true);
-        (uint256 tOn, uint256 tOff, uint256 tg) = _judge(p);
-        BK.settle(p.book, price, tOn, tOff, tg, !wasLocal, 0);
+        BK.observe(p.tvl, tvl, true);
+        if (cost > 0) p.pushCost = cost;
         uint256 old = p.anchorX128;
-        p.anchorX128 = price;
+        p.anchorX128 = price; // the jar is valued at the fresh price
+        _settleSame(p, price, !wasLocal);
         p.obsAt = observedAt;
         if (wasLocal) {
             p.local = false;
@@ -757,16 +749,14 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         }
         uint256 refund;
         if (keeper != address(0)) {
-            refund = PR.refund(old, price, ageAtRequest, cost);
-            if (refund > p.tank) refund = p.tank;
-            if (refund > 0) {
-                p.tank -= refund;
-                (bool sent,) = keeper.call{value: refund, gas: 30_000}("");
-                if (!sent) {
-                    p.tank += refund;
-                    refund = 0;
-                }
-            }
+            // cost + 20% if due, from the jar in the pool's tokens, credited to the keeper
+            refund = _weiToQuote(p, PR.refund(old, price, ageAtRequest, cost));
+            (uint256 cx, uint256 cy) = BK.tip(p.jarX, p.jarY, price, refund, TIP_DIV);
+            p.jarX -= cx;
+            p.jarY -= cy;
+            owed[keeper][p.coin] += cx;
+            owed[keeper][p.quote] += cy;
+            refund = cy + Math.mulDiv(cx, price, Q128);
         }
         emit PriceAccepted(id, price, observedAt, refund, wasLocal);
     }
@@ -781,47 +771,6 @@ contract DiscipleHook is IHooks, IUnlockCallback {
 
     function _badShift(int8 sh) internal pure returns (bool) {
         return sh > MAX_SHIFT || sh < -MAX_SHIFT;
-    }
-
-    /// @dev Source TVL against manipulation (review D-02). Spot TVL can be pushed down or up for one transaction,
-    ///      so no single reading decides anything:
-    ///      - graduation is judged against the higher of the last two readings, so a dip must be seen twice in a
-    ///        row and a spike delays it by at most two readings;
-    ///      - the creator cut has hysteresis. It turns on only against the higher of the last two readings and a
-    ///        memory (the highest reading confirmed by the next one, the lower of two in a row, fading linearly to 0
-    ///        over TVL_MEMORY of real time). It turns off only against the lower of the last two readings. So one
-    ///        spike or one dip does nothing to it; two spikes in a row turn it off for at most TVL_MEMORY; turning it
-    ///        on by dips takes no honest pair of readings for TVL_MEMORY, then two dips in a row, and it stays on
-    ///        until two honest readings in a row.
-    ///      The launch reading never counts, and nothing is judged before two later readings and the end of the
-    ///      warm-up. Same chain v4: one reading per finished counter pass (the cached total is not new evidence).
-    function _observe(Pool storage p, uint256 cur, bool fresh) internal {
-        if (cur == 0 || !fresh) return;
-        uint256 prev = p.srcTvl;
-        p.prevTvl = prev;
-        p.srcTvl = cur;
-        uint8 n = p.seen;
-        if (n < 2) p.seen = ++n;
-        if (n < 2) return;
-        uint256 m = cur < prev ? cur : prev;
-        if (m >= _rec(p)) {
-            p.recTvl = m;
-            p.recAt = uint64(block.timestamp);
-        }
-    }
-
-    function _rec(Pool storage p) internal view returns (uint256) {
-        uint256 age = block.timestamp - p.recAt;
-        return age >= TVL_MEMORY ? 0 : Math.mulDiv(p.recTvl, TVL_MEMORY - age, TVL_MEMORY);
-    }
-
-    /// @dev TVLs for the ledger; all 0 = not judged yet (warm-up, too few readings). The creator cut turns on only
-    ///      if both of the last two readings and the memory allow it, and off only if both readings say so.
-    function _judge(Pool storage p) internal view returns (uint256 on, uint256 off, uint256 g) {
-        if (block.timestamp < p.warmEnd || p.seen < 2) return (0, 0, 0);
-        (g, off) = p.srcTvl > p.prevTvl ? (p.srcTvl, p.prevTvl) : (p.prevTvl, p.srcTvl);
-        on = _rec(p);
-        if (g > on) on = g;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -893,7 +842,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             _latchSame(p, true);
             // trades earlier in this block: close them now, at the mark the next block would use (one step toward
             // this block's sample), so capital joining or leaving never shares in fees earned before it (review D-01)
-            if (p.book.dx != 0 || p.book.dy != 0) _settleSame(p, _stepped(p));
+            if (p.book.dx != 0 || p.book.dy != 0) _settleSame(p, _stepped(p), true);
         } else if (p.book.dx != 0 || p.book.dy != 0 || p.local) {
             // cross chain: open trades are marked at the next fresh price; join after it lands
             revert PendingTrades();
@@ -915,7 +864,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 quoteReserve;
         uint256 anchorX128;
         uint256 ageOrBlock;
-        uint256 tank;
+        uint256 pushCost;
         uint256 srcTvl;
         uint256 principal;
         uint256 compounded;
@@ -938,8 +887,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         v.quoteReserve = b.y;
         v.anchorX128 = p.anchorX128;
         v.ageOrBlock = p.src.remoteEid == 0 ? p.settledBlock : block.timestamp - p.obsAt;
-        v.tank = p.tank;
-        v.srcTvl = p.srcTvl;
+        v.pushCost = p.pushCost;
+        v.srcTvl = p.tvl.srcTvl;
         v.principal = b.sp;
         v.compounded = b.b;
         v.lots = b.count;
@@ -988,23 +937,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     ///      the quote at the full spot for two-hop. v2: its reserves. v3: the pool's token balances (what Uniswap
     ///      shows; unclaimed fees make it read slightly high). v4: the depth counter's last finished pass (0 until
     ///      the first pass finishes, which leaves graduation as it is).
-    function _sourceTvl(Pool storage p, uint256 s1, uint256 spot) internal view returns (uint256 tvl) {
+    function _sourceTvl(Pool storage p, uint256 s1, uint256 spot) internal view returns (uint256) {
         Source storage s = p.src;
-        uint256 b;
-        uint256 o;
-        if (s.kind == SRC_V2) {
-            (uint112 r0, uint112 r1,) = IV2PairLike(s.target).getReserves();
-            (b, o) = s.coinIs0 ? (r0, r1) : (r1, r0);
-        } else if (s.kind == SRC_V3) {
-            b = IERC20Minimal(p.coin).balanceOf(s.target);
-            o = IERC20Minimal(p.x).balanceOf(s.target);
-        } else {
-            DP.Walk storage w = p.walk;
-            if (!w.done) return 0;
-            (b, o) = s.coinIs0 ? (w.tot0, w.tot1) : (w.tot1, w.tot0);
-        }
-        tvl = Math.mulDiv(b, s1, Q128) + o;
-        if (s.kind2 != 0) tvl = Math.mulDiv(tvl, spot, s1);
+        return BK.sourceTvl(s.kind, s.target, s.coinIs0, s.kind2 != 0, p.coin, p.x, p.walk, s1, spot);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -1074,8 +1009,6 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     function afterDonate(address, PoolKey calldata, uint256, uint256, bytes calldata) external pure returns (bytes4) {
         revert HookNotImplemented();
     }
-
-    receive() external payable {}
 
     // ---------------------------------------------------------------------------------------------
     // Internals
