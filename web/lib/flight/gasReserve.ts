@@ -1,3 +1,5 @@
+import { browserBso } from "@/lib/aa/bso";
+import { ACTIVE_CHAIN } from "@/lib/chains";
 /**
  * GAME-side ADAPTER of FLOW's gas reserve (#145 @e693cb5c: lib/aa/gasReserve + lib/wallet gasReservePerOp(kind) /
  * peekGasReservePerOp(kind)). Same API and the SAME math, copied from FLOW so the later swap is one line:
@@ -82,7 +84,7 @@ export function warmGasPrice(pc: { getGasPrice: () => Promise<bigint> }): Promis
   if (gp && Date.now() - gp.at < GAS_PRICE_TTL_MS) return Promise.resolve();
   return pc.getGasPrice().then((w) => setGasPrice(BigInt(w)), () => undefined);
 }
-const smart = () => { try { return isSmartMode(); } catch { return false; } };
+const smart = () => { try { return !browserBso(ACTIVE_CHAIN.id) && isSmartMode(); } catch { return false; } };
 /** Warm value (fresh allowance), else null (cold); 0n when gas isn't paid in USDG. */
 export function peekGasReservePerOp(kind: GasOpKind = "trade"): bigint | null {
   try {
