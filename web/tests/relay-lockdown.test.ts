@@ -189,3 +189,26 @@ it("local before/after admission scheduling benchmark, with every mutable check 
     console.info("LOCAL_RELAY_BENCHMARK " + JSON.stringify({ rttModelMs: 80, beforeAdmission: before, afterColdAdmission: cold, afterWarmAdmission: warm, afterCold: coldSnapshot, afterWarm: warmMetrics.snapshot(), basis: "deterministic mocked read RTT; no chain ops" }));
   } finally { vi.useRealTimers(); }
 });
+
+// Safety experiment for the proposed read-only speculation: the existing actual
+// admission/lease gate remains authoritative even if a caller's eth_call finished.
+// This does NOT wire speculative simulation into production or permit result reuse.
+describe("late admission failure cannot be overridden by successful read-only speculation", () => {
+  for (const gate of ["login", "session", "target"] as const) it(`${gate} fails after simulation: notSent, no lease/budget/nonce/sign/send`, async () => {
+    let deny!: () => void;
+    if (gate === "login") h.read.mockImplementation(({ functionName }) => functionName === "verifiedUntil"
+      ? new Promise<bigint>(resolve => { deny = () => resolve(0n); })
+      : Promise.resolve(functionName === "moduleId" ? "disciple.session-policy.1.4.3" : pm));
+    if (gate === "session") h.session.mockImplementation(() => new Promise(resolve => { deny = () => resolve({ active: false, validUntil: 1000 }); }));
+    if (gate === "target") h.curveInfo.mockImplementation(() => new Promise(resolve => { deny = () => resolve({ token: sender, quote: usdg, graduated: false }); }));
+    const sim = vi.fn().mockResolvedValue("0x"), sign = vi.fn(), broadcast = vi.fn(), nonce = vi.fn();
+    const speculative = authorizeRelayOperation(op(), reads(), sim);
+    const guarded = lockedRelay(op(), async () => { await speculative; await relaySendBudget(sender); nonce(); sign(); broadcast(); });
+    const rejected = expect(guarded).rejects.toMatchObject({ notSent: true });
+    await speculative; await vi.waitFor(() => expect(deny).toBeTypeOf("function"));
+    expect(sim).toHaveBeenCalledOnce(); expect(h.set).not.toHaveBeenCalled();
+    deny(); await rejected;
+    expect(h.set).not.toHaveBeenCalled(); expect(h.incr).not.toHaveBeenCalled();
+    expect(nonce).not.toHaveBeenCalled(); expect(sign).not.toHaveBeenCalled(); expect(broadcast).not.toHaveBeenCalled();
+  });
+});

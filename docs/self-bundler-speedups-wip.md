@@ -20,3 +20,11 @@ Current lockedRelay completes admission BEFORE shared lease acquisition. Exact s
 
 ## Historical measurement finding (source, not a rerun)
 PR174 head0729d80bdee8f425ca9b732a617f8ea8c0801d02, `web/scripts/trade-latency.mts`, function one(): t0 before quote, t3 after await sa.sendCalls(owner), tapToLanded=t3-t0. The492–757ms buys/261–351ms sells are a Node script synthetic-tap→confirmed sendCalls completion, NOT browser pointerdown timing and NOT just HTTP request/response. Bundler request→response and server t.total are separate reported intervals. The324–552/103–125ms figures are server-only inner total, not whole handler admission/stream time. The~120ms optimistic display claim in PR174 is sent-time UI, not settlement, and must not be restored as done/fill.
+
+## Verification follow-up (Nov7,10:40AMCT)
+The first complete mocked suite passed100 tests with1 live test skipped, tsc passed, lint passed with the2 existing unrelated warnings. Six new tests cover read-only batching/unsupported-batch scalar fallback/AA24 fail-closed/exact quote warming and unchanged1500ms TTL. Additional late-admission safety experiments are being added: they use the actual existing lockedRelay gate with a successful external read-only simulation, then delayed LoginGate/session/target rejection, checking notSent and zero lease/budget/nonce/sign/send. They are not evidence that a safe full parallel production pipeline has been implemented. Existing regression scripts also passed: relay-policy29,sync-send20,relayer-nonce20,shared-nonce8,trade-guards8,trade-failures7,zero-wait11.
+
+Draft PR: https://github.com/makerlee0x/disciple/pull/264 (must stay draft).
+WIP7578f926 Preview dpl_CHnScwJrP28pPP773bfeAmfeoqdn reached READY in iad1 with branch alias assigned. Final test-only follow-up may trigger a newer deployment. New Preview abuse probes and live warm pairs have not yet been rerun.
+
+Final local verification for this follow-up:103passed/1live skipped across14passing files, tsc passed, lint passed with2pre-existing warnings. All3 late-admission experiments passed with notSent:true and no lease/rate/nonce/sign/send. Speedup1 remains blocked/unimplemented; no live latency gain is claimed. No new server abuse probes or paid warm pairs were run during the priority draft handoff.
