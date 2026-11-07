@@ -1,3 +1,5 @@
+> Historical preflight snapshot, superseded by [self-bundler-lockdown.md](self-bundler-lockdown.md). Balances and implementation status below are from before the restoration and consolidation.
+
 # Self-bundler lockdown — preflight results (NOT implemented / NOT release-ready)
 
 Recorded 2026-11-06 20:03:10 CT.

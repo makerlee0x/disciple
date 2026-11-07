@@ -1,5 +1,5 @@
-// Unit tests for the fast-relay anti-grief ledger (lib/server/relayTrust): periodic re-simulation of trusted senders,
-// escalating strikes on reverted handleOps, and the honest one-tap path staying simulation-free.
+// Unit tests for legacy sender telemetry / strikes, NOT relay authorization.
+// F-02: every signed op still receives exact EntryPoint simulation; null below is telemetry eligibility only.
 //   pnpm test:relay-trust   (pure: fake clock, no RPC, no live endpoint)
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -9,15 +9,17 @@ const A = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
 const BAL = BigInt(10) ** BigInt(18), PREFUND = BigInt(10) ** BigInt(14);
 function setup() { let t = 1_000_000; const tr = new SenderTrust(() => t); return { tr, adv: (ms: number) => { t += ms; }, now: () => t }; }
 
-test("unknown sender is simulated; first clean prime (login warm / deploy) enables the fast path", () => {
+test("unknown sender and fresh balance primes never grant verification", () => {
   const { tr } = setup();
   assert.equal(tr.check(A, PREFUND), "unknown");
   tr.prime(A, BAL);
+  assert.equal(tr.check(A.toLowerCase(), PREFUND), "unverified");
+  tr.simulated(A);
   assert.equal(tr.check(A.toLowerCase(), PREFUND), null);
   assert.equal(tr.check(A, BAL + BigInt(1)), "low-balance");
 });
 
-test("honest one-tap: ≤ 1 simulation per RESIM_EVERY trades / RESIM_MS, everything else fast", () => {
+test("legacy telemetry refresh counters retain time and operation thresholds", () => {
   const { tr, adv } = setup();
   tr.prime(A, BAL);
   let sims = 0;
@@ -29,15 +31,15 @@ test("honest one-tap: ≤ 1 simulation per RESIM_EVERY trades / RESIM_MS, everyt
   }
   assert.ok(sims >= Math.floor(100 / (RESIM_EVERY + 1)) && sims <= Math.ceil(100 / RESIM_EVERY) + 1, `sims=${sims}`);
   // idle longer than RESIM_MS ⇒ the next trade is re-simulated once, then fast again
-  const t2 = setup(); t2.tr.prime(A, BAL);
+  const t2 = setup(); t2.tr.prime(A, BAL); t2.tr.simulated(A);
   t2.adv(RESIM_MS - 1_000); t2.tr.prime(A, BAL); assert.equal(t2.tr.check(A, PREFUND), null);
   t2.adv(1_000); t2.tr.prime(A, BAL); assert.equal(t2.tr.check(A, PREFUND), "resim-time");
   t2.tr.simulated(A); assert.equal(t2.tr.check(A, PREFUND), null);
 });
 
-test("Nth fast op forces a re-simulation", () => {
+test("Nth telemetry fast counter requires a new telemetry sample", () => {
   const { tr } = setup();
-  tr.prime(A, BAL);
+  tr.prime(A, BAL); tr.simulated(A);
   for (let i = 0; i < RESIM_EVERY; i++) { assert.equal(tr.check(A, PREFUND), null); tr.succeeded(A, true, BigInt(0)); }
   assert.equal(tr.check(A, PREFUND), "resim-ops");
   tr.simulated(A); assert.equal(tr.check(A, PREFUND), null);
@@ -45,7 +47,7 @@ test("Nth fast op forces a re-simulation", () => {
 
 test("stale balance (> TRUST_TTL) is simulated", () => {
   const { tr, adv } = setup();
-  tr.prime(A, BAL); adv(TRUST_TTL);
+  tr.prime(A, BAL); tr.simulated(A); adv(TRUST_TTL);
   assert.equal(tr.check(A, PREFUND), "stale-balance");
 });
 
@@ -63,7 +65,7 @@ test("revert ⇒ strike shorter than the old 10 min, escalating 2x per repeat, c
   assert.equal(tr.strike(A), STRIKE_BASE_MS, "strike count decays");
 });
 
-test("after a strike the fast path needs a passing simulation (a balance refresh is not enough)", () => {
+test("after a strike telemetry needs a passing simulation (a balance refresh is not enough)", () => {
   const { tr, adv } = setup();
   tr.prime(A, BAL);
   const ms = tr.strike(A);
@@ -75,12 +77,12 @@ test("after a strike the fast path needs a passing simulation (a balance refresh
   tr.strike(B); adv(STRIKE_BASE_MS); tr.prime(B, BAL); assert.equal(tr.check(B, PREFUND), "unverified");
 });
 
-test("griefer budget: reverted fast-path txs per hour are bounded by the escalating backoff", () => {
+test("legacy strike telemetry: escalating backoff bounds recorded strikes", () => {
   const { tr, adv, now } = setup();
   tr.prime(A, BAL);
   const end = now() + 6 * 60 * 60_000; let reverts = 0;
   while (now() < end) {
-    // attacker: pass one simulation with a good op, then send a bad op on the fast path
+    // Ledger-only exercise. The real relay never authorizes another op from this telemetry.
     if (tr.check(A, PREFUND) !== null) { tr.simulated(A); tr.prime(A, BAL); }
     if (tr.check(A, PREFUND) === null) { reverts++; tr.strike(A); }
     adv(1_000);
@@ -91,7 +93,7 @@ test("griefer budget: reverted fast-path txs per hour are bounded by the escalat
 
 test("successful sends debit the cached balance until the next refresh", () => {
   const { tr } = setup();
-  tr.prime(A, PREFUND * BigInt(2));
+  tr.prime(A, PREFUND * BigInt(2)); tr.simulated(A);
   tr.succeeded(A, true, PREFUND); assert.equal(tr.check(A, PREFUND), null);
   tr.succeeded(A, true, PREFUND); assert.equal(tr.check(A, PREFUND), "low-balance");
 });
@@ -106,19 +108,20 @@ function memStore() {
   };
   return { store, rec };
 }
-test("shared store: first-prime grant happens once globally, not once per (cold) instance", async () => {
+test("shared store: balance primes never grant verification; explicit simulation telemetry persists", async () => {
   let t = 1_000_000; const now = () => t; const { store } = memStore();
   const a = new SenderTrust(now, store);
   assert.equal(a.check(A, PREFUND), "unknown");
   await a.primeShared(A, BAL);
-  assert.equal(a.check(A, PREFUND), null);                  // honest first login stays fast
+  assert.equal(a.check(A, PREFUND), "unverified");
+  a.simulated(A); // a real operation must still independently pass exact simulation
   await a.flush();
   // restart / new lambda: the verification is loaded, not re-granted from a balance read
   const b = new SenderTrust(now, store);
   assert.equal(b.check(A, PREFUND), "unknown");             // not hydrated yet ⇒ simulate
   await b.primeShared(A, BAL);
   assert.equal(b.check(A, PREFUND), null);
-  // a sender whose record was lost but whose grant was used is NOT verified again by a balance read
+  // A struck sender is not verified again by a balance read
   const B = "0xBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBb";
   await a.primeShared(B, BAL); a.strike(B); await a.flush();
   const c = new SenderTrust(now, store);
@@ -138,13 +141,13 @@ test("shared store errors fail safe (simulate), never grant trust", async () => 
   tr.simulated(A); await tr.flush();                        // write errors are swallowed
 });
 
-// ---- AUDIT #145 L-B: at most one unsimulated (fast-path) op in flight per sender ----
+// ---- Legacy lease utility: acquiring it never grants permission to skip simulation ----
 import { FastInflight } from "../lib/server/relayTrust";
 function memLease() {
   const m = new Map<string, string>();
   return { m, setNX: async (k: string, v: string) => (m.has(k) ? false : (m.set(k, v), true)), delIfEq: async (k: string, v: string) => (m.get(k) === v ? (m.delete(k), true) : false) };
 }
-test("L-B: a 2nd concurrent fast op for the same sender is refused (⇒ simulated); released ⇒ fast again", async () => {
+test("legacy lease: second concurrent hold refused; release frees slot", async () => {
   const g = new FastInflight();
   const r1 = await g.acquire(A);
   assert.ok(r1);
@@ -153,7 +156,7 @@ test("L-B: a 2nd concurrent fast op for the same sender is refused (⇒ simulate
   await r1!(); await r1!();                                  // idempotent release
   assert.ok(await g.acquire(A));
 });
-test("L-B: shared lease across instances (SET NX); store error ⇒ refuse (simulate, fail-safe)", async () => {
+test("legacy lease: shared SET NX; store error refuses acquisition", async () => {
   const st = memLease();
   const i1 = new FastInflight(st), i2 = new FastInflight(st);
   const r = await i1.acquire(A);

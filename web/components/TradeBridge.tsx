@@ -1,5 +1,6 @@
 "use client";
 
+import { tapPending } from "@/lib/trade/tapPending";
 import { TRADE_PENDING_EVENT } from "@/lib/game/exitGuard";
 import { useEffect, useRef, useState } from "react";
 import PhoneTradeBar, { chipUsd } from "./flight/PhoneTradeBar";
@@ -43,8 +44,8 @@ import { graduationStatus, liveMaxImpactBps } from "@/lib/flight/gradAdapter";
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 
 type BridgeResult = { ok: boolean; reason?: string; txHash?: string; fillUsd?: number; fillTokens?: number; ms?: TradeMs; lateFill?: true; unknown?: true;
-  /** SITE optimistic fill: resolved when the op was sent, at the quoted amount; `settled` = the real outcome (Needs GAME review) */
-  optimistic?: true; settled?: Promise<BridgeResult>;
+  /** Provisional tap acknowledgment only; late/settled resolves from the actual receipt or definite failure */
+  optimistic?: true; settled?: Promise<BridgeResult>; pending?: true; late?: Promise<BridgeResult>;
   /** the wallet-limit alert is showing instead (Buy max / Cancel); nothing was sent. Never set for price impact. */
   needsConfirm?: TradeAlert["kind"];
   /** sent, with a non-blocking note (> 10 % price impact; engine: r.ok && r.warning). Price impact never holds a trade. */
@@ -370,7 +371,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     };
     // lee, Oct 30: no price-impact / slippage popup on a trade (was the > 10 % "High price impact" note on the result).
     /**
-     * OPTIMISTIC FILL: resolve as filled (at the quoted amount) the moment the signed op is sent ("sent" / "submitted"),
+     * OPTIMISTIC PENDING: tap event fires before build/sign; engine retains its ghost until the real receipt,
      * so the next tap never waits on the receipt. The press keeps its reservation until the real outcome; the receipt
      * reconciles quietly (the row's "✓ done" line + fillreceipt). A real failure rolls back: plain ✕ line, balances re-read,
      * disciple:optimisticrollback for the engine (Needs GAME review). Timeout: SITE's watcher settles it, as before.
@@ -389,17 +390,17 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       const earlyP = new Promise<BridgeResult>((res) => { early = res; });
       const onSent = (e: Event) => {
         const d = (e as CustomEvent<{ phase?: string; pressId?: string; txHash?: string }>).detail;
-        if (pid && d?.pressId === pid && (d.phase === "sent" || d.phase === "submitted")) early({ ok: true, optimistic: true, fillUsd: usd, ...(d.txHash ? { txHash: d.txHash } : {}) });
+        if (pid && d?.pressId === pid && (d.phase === "sent" || d.phase === "submitted")) early({ ok: false, unknown: true, pending: true, optimistic: true, ...(d.txHash ? { txHash: d.txHash } : {}) });
       };
       addEventListener("disciple:op", onSent);
       if (side === "buy") pendingBuyUsd.current += usd;
-      const real = runTrade(side, usd, { ...o, onPress: (id) => { pid = id; } }).finally(() => {
+      const real = runTrade(side, usd, { ...o, onPress: (id) => { pid = id; tapPending(id, side); } }).finally(() => {
         removeEventListener("disciple:op", onSent);
         if (side === "buy") setTimeout(() => { pendingBuyUsd.current = Math.max(0, pendingBuyUsd.current - usd); }, 1600);   // after the balance re-read
       });
       const first = await Promise.race([real.then((r) => ({ r, early: false })), earlyP.then((r) => ({ r, early: true }))]);
       if (!first.early) return first.r;
-      dispatchEvent(new CustomEvent("disciple:optimisticfill", { detail: { pressId: pid, side, usd, token } }));
+      dispatchEvent(new CustomEvent("disciple:optimisticfill", { detail: { pressId: pid, side, usd, token, pending: true } }));
       const rollback = (reason?: string) => {
         console.warn("[disciple] optimistic fill rolled back", pid, reason);
         dispatchEvent(new CustomEvent("disciple:optimisticrollback", { detail: { pressId: pid, side, usd, token, reason } }));
@@ -410,7 +411,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         if (!r.ok) rollback(r.reason);
         return r;
       }, (e) => { rollback(String(e)); return { ok: false, reason: REJECTED }; });
-      return { ...first.r, settled };
+      return { ...first.r, pending: true, late: settled, settled };
     };
     return () => { delete window.__discipleTrade; removeEventListener("disciple:op", onOp); };
   }, [token, live]);
@@ -448,10 +449,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       // FLOW #145 tags disciple:op with the press id ⇒ only THAT press's line flips to "sent"; an untagged event (stack
       // without pressId) keeps the old behaviour. "error" (FLOW's terminal phase): the trade result paints the ✕ line.
       const mine = !d?.pressId || d.pressId === linePress.current;
-      // optimistic: "✓ done" the moment the op is sent; the receipt's doneLine then shows the filled $ (or ✕ on a failure)
+      // pending: never show "done" on tap, send or acceptance; the receipt's doneLine then shows the filled $ (or ✕ on a failure)
       const sent = d?.phase === "submitted" || d?.phase === "sent";
-      if (sent && mine) setLast((l) => l.replace(/· sending…|· confirm in wallet…/, "✓ done"));
-      if (sent && d.pressId) setRows((rs) => rs.map((r) => (r.id === d.pressId ? { ...r, txt: r.txt.replace(/· sending…|· confirm in wallet…/, "✓ done") } : r)));
+      if (sent && mine) setLast((l) => l.replace(/· sending…|· confirm in wallet…/, "· confirming…"));
+      if (sent && d.pressId) setRows((rs) => rs.map((r) => (r.id === d.pressId ? { ...r, txt: r.txt.replace(/· sending…|· confirm in wallet…/, "· confirming…") } : r)));
       // the trade moved the price: its route quotes were dropped — re-warm right away (after the drop runs)
       if (d?.phase === "confirmed") setTimeout(() => void tick(), 0);
     };
