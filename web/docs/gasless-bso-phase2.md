@@ -31,7 +31,7 @@ this proxy does not sponsor it. No claim that proxy denial proves onchain reject
 ## Local harness
 
 `web/scripts/gasless-phase2.mts` refuses to run without `PHASE2_TESTNET_RUN=1` and
-refuses Vercel/Production. It uses fresh RAM-only owner/session keys and directly
+refuses Vercel/Production. It uses fresh disposable owner/session keys and directly
 invokes this branch's actual `/api/bundler` handler at a fake localhost URL (no web
 server or deployment). It does not replace admission, invitation, or rate limits.
 Use `vitest run tests/bso-live.test.ts` from `/web`, with the approved donor env sourced
@@ -44,8 +44,10 @@ then gates on a zero-ETH deployment/session install **before** moving USDG. Fund
 is at most 5 transfers of 1 test USDG each; no native ETH is sent to smart accounts.
 The donor pays only its fixture funding transaction gas. At most 60 userOp sends
 are permitted. No auto mint/faucet, custom relay, blind resend or fee retry.
-A failed positive gate stops the matrix. Keys are not persisted, so never rerun an
-ambiguous accepted operation as if it were a definite rejection.
+A failed positive gate stops the matrix. Disposable fixture keys (never donor or Alchemy keys) persist mode 600 outside the
+repo so an in-scope debug rerun can reuse funded test accounts. A cumulative ledger
+preserves the 60-submit and 5-USDG limits across reruns; completed cases are not
+repeated. Never rerun an ambiguous accepted operation as if it were a definite rejection.
 
 Evidence is written outside the repo to `/workspace/gasless-phase2-evidence.json`:
 request/response times, public op hashes, receipt/block times, onchain packed gas/PM

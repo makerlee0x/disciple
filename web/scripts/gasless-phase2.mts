@@ -2,7 +2,7 @@
 /** Explicitly gated testnet harness. Fresh keys live only in RAM. Never run old v5 harnesses. */
 import { createPublicClient, createWalletClient, decodeEventLog, decodeFunctionData, encodeFunctionData, http, parseAbi, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
 if (process.env.PHASE2_TESTNET_RUN !== "1") throw Error("Explicit PHASE2_TESTNET_RUN=1 required");
@@ -21,7 +21,7 @@ const { Mav2Account } = await import("../lib/aa/mav2");
 const { userOpHash } = await import("../lib/aa/core");
 const { ENTRYPOINT_V07: EP } = await import("../lib/aa/constants");
 const { POST } = await import("../app/api/bundler/route");
-const { buildCreateSession, buildUninstallSession, TRADE_PERMS } = await import("@disciple/session-keys");
+const { buildCreateSession, buildUninstallSession, TRADE_PERMS, readSession } = await import("@disciple/session-keys");
 const { getDefaultSingleSignerValidationModuleAddress, getDefaultTimeRangeModuleAddress } = await import("@account-kit/smart-contracts/experimental");
 const d = DEPLOYMENTS[46630], USDG = d.usdg, COIN = TESTNET_COINS.graduated;
 const modules = { policy: process.env.NEXT_PUBLIC_SESSION_POLICY as Address, singleSigner: getDefaultSingleSignerValidationModuleAddress(chain), timeRange: getDefaultTimeRangeModuleAddress(chain) };
@@ -32,8 +32,15 @@ const pc = createPublicClient({ chain, transport: http(undefined, { timeout: 120
 const read = (address: Address, functionName: any, args: any[] = [], blockNumber?: bigint): Promise<any> => pc.readContract({ address, abi, functionName, args, blockNumber } as any);
 const ct = () => new Date().toLocaleString("sv-SE", { timeZone: "America/Chicago" }) + " CT";
 const clean = (x: unknown) => JSON.stringify(x, (_k, v) => typeof v === "bigint" ? v.toString() : v, 2).replace(/https?:\/\/[^\s"<>]+/g, "[RPC URL REDACTED]"); // no keys/signatures are saved
-const ev: any = { startCT: ct(), sourceSHA: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), chainId: 46630, policyId: process.env.ALCHEMY_BSO_POLICY_ID, policySnapshot: "Dashboard active/free supplied by lee; allowlist/caps not independently readable. No policy edit.", requests: [], cases: [], funds: [], submitted: 0, accepted: 0, trace: "unavailable", budgetExhausted: "not provable on testnet" };
-const save = () => writeFileSync(process.env.PHASE2_EVIDENCE || "/workspace/gasless-phase2-evidence.json", clean(ev));
+const BUDGET = "/workspace/gasless-phase2-cumulative.json", KEYS = "/workspace/gasless-phase2-disposable-fixtures.json";
+const prior: any = existsSync(BUDGET) ? JSON.parse(readFileSync(BUDGET, "utf8")) : { submitted: 1, accepted: 0, funds: [], cases: [], requests: [], runs: [] };
+const fixtureKeys: any[] = existsSync(KEYS) ? JSON.parse(readFileSync(KEYS, "utf8")) : [];
+const saveKeys = () => writeFileSync(KEYS, JSON.stringify(fixtureKeys, (_k, v) => typeof v === "bigint" ? v.toString() : v), { mode: 0o600 });
+const ev: any = { startCT: ct(), sourceSHA: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), chainId: 46630, policyId: process.env.ALCHEMY_BSO_POLICY_ID, policySnapshot: "Dashboard active/free supplied by lee; allowlist/caps not independently readable. No policy edit.", requests: prior.requests, cases: prior.cases, funds: prior.funds, submitted: prior.submitted, accepted: prior.accepted, runs: prior.runs, trace: "unavailable", budgetExhausted: "not provable on testnet" };
+const save = () => {
+  writeFileSync(process.env.PHASE2_EVIDENCE || "/workspace/gasless-phase2-evidence.json", clean(ev));
+  writeFileSync(BUDGET, clean(ev));
+};
 const safeError = (e: any) => ({ code: e?.code, message: String(e?.shortMessage || e?.message || e).split("\n")[0].slice(0, 500).replace(/https?:\/\/[^\s]+/g, "[RPC URL REDACTED]"), detail: e?.extra?.detail });
 const fixtures: any[] = [];
 let stage = "preflight";
@@ -77,7 +84,9 @@ async function snapshot(f: any, blockNumber?: bigint) {
 }
 async function run(label: string, f: any, calls: any[], as: "owner" | "session" = "session", negative = false) {
   stage = label;
-  const row: any = { label, account: f.address, actionCT: ct(), actionMs: performance.now(), before: await snapshot(f) };
+  const completed = ev.cases.find((x: any) => x.label === label && x.account === f.address && ["included", "rejected (expected)"].includes(x.outcome));
+  if (completed) return completed;
+  const row: any = { label, account: f.address, actionCT: ct(), actionMs: performance.now(), sourceSHA: ev.sourceSHA, before: await snapshot(f) };
   ev.cases.push(row); save();
   try {
     const result = await f.sa.sendCalls(calls, { as, feeRetry: false, pressId: `${label}-${crypto.randomUUID()}` });
@@ -96,18 +105,27 @@ async function run(label: string, f: any, calls: any[], as: "owner" | "session" 
     if (row.txHash) { row.error = safeError(e); throw e; }
     row.after = await snapshot(f); row.error = safeError(e); row.outcome = negative ? "rejected (expected)" : "BLOCKED";
     row.userGasChargeUsdgRaw = row.before.usdgRaw - row.after.usdgRaw; row.userGasChargeEthWei = row.before.ethWei - row.after.ethWei; row.rejectedCT = ct(); row.rejectedMs = performance.now();
-    if (!negative) { save(); throw e; }
+    if (!negative || ["Bundler", "Timeout"].includes((e as any)?.code)) { row.outcome = "BLOCKED"; save(); throw e; }
   } finally { save(); }
   console.log(clean({ label, outcome: row.outcome, txHash: row.txHash, error: row.error })); return row;
 }
 async function fresh(ttlSec = 1200) {
-  const owner = privateKeyToAccount(generatePrivateKey()), session = privateKeyToAccount(generatePrivateKey());
+  const index = fixtures.length;
+  const record = fixtureKeys[index] ?? { owner: generatePrivateKey(), session: generatePrivateKey() };
+  fixtureKeys[index] = record; saveKeys(); // disposable test keys only, never donor/Alchemy keys
+  const owner = privateKeyToAccount(record.owner), session = privateKeyToAccount(record.session);
   const sa = new Mav2Account({ chain, pc: pc as any, bundlerUrl: "http://localhost:46630/api/bundler", bso: true, requireUsdgGas: true }, owner);
   const address = await sa.address(); const now = Number((await pc.getBlock()).timestamp);
+  const live = record.entityId ? await readSession(pc as any, modules.policy, address, record.entityId).catch(() => null) : null;
+  if (live?.active && live.validUntil > now + 10 && record.setup) {
+    const f = { owner, session, sa, address, setup: record.setup }; fixtures.push(f);
+    sa.deployed = true; await sa.useSession(record.entityId, session); return f;
+  }
   const setup = buildCreateSession({ now, modules, targets: { router: d.router, launchpad: d.launchpad, trampWallManager: d.trampWallManager, anonLauncher: ANON_ADDONS[46630].anonLauncher }, sessionSigner: session.address, ttlSec,
     permissions: TRADE_PERMS, caps: [{ token: d.defaultQuote, cap: 10n ** 24n }, { token: USDG, cap: 5_000_000n }] });
+  Object.assign(record, { entityId: setup.entityId, setup }); saveKeys();
   const f = { owner, session, sa, address, setup }; fixtures.push(f);
-  await run(`setup-${fixtures.length}`, f, [{ to: address, data: setup.data }], "owner");
+  await run(`setup-${fixtures.length}-${setup.entityId}`, f, [{ to: address, data: setup.data }], "owner");
   await sa.useSession(setup.entityId, session); return f;
 }
 const approve = (token: Address, amount: bigint) => ({ to: token, data: encodeFunctionData({ abi, functionName: "approve", args: [d.router, amount] }) });
@@ -126,8 +144,9 @@ try {
   // Narrow positive admission gate BEFORE spending fixture USDG.
   const f = await fresh();
   const wc = createWalletClient({ account: donor, chain, transport: http() });
-  let funded = 0n;
+  let funded = ev.funds.reduce((n: bigint, x: any) => n + BigInt(x.usdgRaw), 0n);
   async function fund(x: any) {
+    if (ev.funds.some((t: any) => t.recipient === x.address && t.status === "success")) return;
     if (!ev.appConfirmation?.confirmed) throw Error("STOP policy/app confirmation required before funding");
     if (funded + 1_000_000n > 5_000_000n || await pc.getChainId() !== 46630) throw Error("Funding cap/chain");
     const hash = await wc.writeContract({ address: USDG, abi, functionName: "transfer", args: [x.address, 1_000_000n] });
@@ -161,6 +180,6 @@ try {
   await run("expired-session", short, await trade(short, true, 50_000n), "session", true);
   ev.status = "matrix complete (budget/traces explicit limitations)";
 } catch (e) { ev.status = "stopped at narrow gate"; ev.rootCause = safeError(e); console.log(clean({ stopped: stage, rootCause: ev.rootCause })); process.exitCode = 1; }
-finally { ev.endCT = ct(); save(); globalThis.fetch = rawFetch; }
+finally { ev.endCT = ct(); ev.runs.push({ sourceSHA: ev.sourceSHA, startCT: ev.startCT, endCT: ev.endCT, status: ev.status, rootCause: ev.rootCause }); save(); globalThis.fetch = rawFetch; }
 
 export const phase2Evidence = ev;
