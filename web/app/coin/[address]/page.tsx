@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, use, useEffect, useMemo, useState } from "react";
 import { erc20Abi, isAddress, type Address } from "viem";
@@ -75,12 +76,31 @@ function FlightInner({ address }: { address: string }) {
   );
 }
 
+function CoinLost() {
+  return (
+    <div className="ds-lost" data-testid="coin-lost">
+      <div>
+        <h1>404</h1>
+        <h2>No rocket at this address</h2>
+        <p>That path isn&apos;t a coin address — check the link, or pick a live rocket from the launchpad.</p>
+        <div className="actions">
+          <Link href="/" className="ds-btn gold">Back to the Launchpad</Link>
+          <Link href="/create" className="ds-btn">Launch a Rocket</Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CoinPage({
   params,
 }: {
   params: Promise<{ address: string }>;
 }) {
   const { address } = use(params);
+  if (!isAddress(address) && address.toLowerCase() !== DEMO_POOL.address) {
+    return <CoinLost />;
+  }
   return (
     <Suspense
       fallback={

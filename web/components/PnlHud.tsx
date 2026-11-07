@@ -25,7 +25,7 @@ const DEFAULT_KEY = "disciple.pnl.";
 const usd = fmtPnl;
 const pct = (v: number) => (v > 0 ? "▲ " : v < 0 ? "▼ " : "") + Math.abs(v).toFixed(1) + "%";
 const GREEN = "#8ff0c0", RED = "#ff9fb8", FLAT = "#e8ecff";
-/** phone-first HUD active (components/flight/PhoneHud.tsx sets html.ap-phone below 740px) */
+/** phone-first HUD active (components/flight/PhoneHud.tsx sets html.ap-phone at ≤760px) */
 const isPhone = () => typeof document !== "undefined" && document.documentElement.classList.contains("ap-phone");
 const col = (x: number) => (x > 0.005 ? GREEN : x < -0.005 ? RED : FLAT);
 
@@ -289,7 +289,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
       )}
       <style jsx>{`
         @media (max-width: 760px) {
-          .pnl-hud { left: 8px !important; top: auto !important; bottom: 60px; width: 210px !important; }
+          .pnl-hud { left: 8px !important; top: auto !important; bottom: calc(60px + var(--ap-safe-bottom)); width: 210px !important; }
         }
       `}</style>
     </aside>

@@ -56,6 +56,25 @@ ok(/var\(--ap-topbar-offset/.test(hiw) && /var\(--ap-topbar-offset/.test(subnav)
 
 const hud = read("components/flight/PhoneHud.tsx");
 ok(/safeBottom\?\:\s*number/.test(hud) && /visualViewport/.test(hud), "PhoneHud layout lifts for safe-bottom + visualViewport");
+ok(/PHONE_W = 760/.test(hud), "PhoneHud PHONE_W=760 matches site chrome");
+
+const eng = read("public/flight/engine.js");
+ok(/HUD_NARROW_W=760/.test(eng) && /w<=HUD_NARROW_W/.test(eng), "engine HUD_NARROW_W=760 (≤)");
+
+const tb = read("components/TradeBridge.tsx");
+ok(/bottom:\s*"calc\(14px \+ var\(--ap-safe-bottom\)\)"/.test(tb), "desktop trade bar clears home indicator");
+
+const tw = read("components/trampwalls/TrampWallPanel.tsx");
+ok(/sample && .*SAMPLE/.test(tw) || /· SAMPLE/.test(tw), "mock Tramp/Wall labeled SAMPLE");
+
+const coin = read("app/coin/[address]/page.tsx");
+ok(/data-testid="coin-lost"/.test(coin) && /isAddress\(address\)/.test(coin), "invalid coin address shows lost state");
+
+const home = read("components/home/HomeHero.tsx");
+ok(/home-poll-err/.test(home) && /setPollErr/.test(home), "home poll failure surfaces a banner");
+
+ok(/\.lp-star\s*\{[^}]*min-width:\s*44px/.test(css), "launchpad star has ≥44px tap target");
+ok(/\.pf-toast\s*\{[^}]*var\(--ap-safe-bottom\)/.test(css), "profile toast clears home indicator");
 
 if (bad) {
   console.error(`\n${bad} check(s) failed`);

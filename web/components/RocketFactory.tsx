@@ -135,13 +135,13 @@ export default function RocketFactory() {
           </svg>
           <div className={hs.stage}>
             <picture>
-              <source type="image/avif" srcSet={`${withBase("/hangar/plate-1280.avif")} 1280w, ${withBase("/hangar/plate.avif")} 2560w`} sizes="max(100vw, 1280px)" />
+              <source type="image/avif" srcSet={`${withBase("/hangar/plate-1280.avif")} 1280w, ${withBase("/hangar/plate.avif")} 2560w`} sizes="(max-width: 1280px) 100vw, 1280px" />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 className={hs.plate}
                 src={withBase("/hangar/plate.webp")}
                 srcSet={`${withBase("/hangar/plate-1280.webp")} 1280w, ${withBase("/hangar/plate.webp")} 2560w`}
-                sizes="max(100vw, 1280px)"
+                sizes="(max-width: 1280px) 100vw, 1280px"
                 width={2560}
                 height={1440}
                 alt=""
