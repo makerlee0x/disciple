@@ -175,7 +175,10 @@ export async function warmRelay(sender?: string) {
   account(); // fail closed (production, no dedicated relayer key) before any RPC
   warmSequencer();
   const st = await ready();   // pool on ⇒ lease a key at warm
-  await Promise.all([st.nonces.warm(), baseFee(), warmRelayAccountTemplates(pc as unknown as RelayAuthReads), sender ? primeSender(sender).catch(() => undefined) : 0]);
+  // Off-trade-path diagnostics only. No key/raw op is logged; TTL read never releases a quarantine.
+  const [, , , , senderLeaseTtlSec] = await Promise.all([st.nonces.warm(), baseFee(), warmRelayAccountTemplates(pc as unknown as RelayAuthReads), sender ? primeSender(sender).catch(() => undefined) : 0,
+    kv().ttl(`relay:pending:${sender.toLowerCase()}`).catch(() => null)]);
+  console.info("[disciple] relay warm ready", { sender, relayer: st.account.address, senderLeaseTtlSec });
 }
 
 /**

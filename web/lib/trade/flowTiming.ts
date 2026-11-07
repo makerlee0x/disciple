@@ -6,8 +6,8 @@ type Side = "buy" | "sell";
 type Receipt = { userOpHash: string; txHash: string; t?: Record<string, number> };
 type Row = { pressId: string | null; side: Side; tap: number; paint?: number; receipt?: number; fill?: number;
   paintPending?: boolean; fillPending?: boolean; ok?: boolean; reason?: string; server?: Record<string, number>;
-  userOpHash?: string; txHash?: string; emitted?: boolean; scheduled?: boolean; fallback?: boolean };
-export type FlowSpan = { bind(id: string): void; pendingPaint(): void; finish(ok: boolean, reason?: string): void };
+  userOpHash?: string; txHash?: string; emitted?: boolean; scheduled?: boolean; fallback?: boolean; watchdog?: boolean; unresolvedReported?: boolean };
+export type FlowSpan = { identify(ids: { userOpHash?: string; txHash?: string }): void; bind(id: string): void; pendingPaint(): void; finish(ok: boolean, reason?: string): void };
 type Deps = { now: () => number; frame: (cb: () => void) => void; later: (cb: () => void, ms: number) => void; log: (row: Record<string, unknown>) => void };
 const clock = () => typeof performance !== "undefined" ? performance.now() : Date.now();
 const guarded = (f: () => void) => { try { f(); } catch { /* never break a trade */ } };
@@ -17,7 +17,12 @@ export class FlowTiming {
   begin(side: Side, tap = this.d.now()): FlowSpan {
     const r: Row = { pressId: null, side, tap };
     return {
-      bind: id => guarded(() => { r.pressId = id; this.rows.set(id, r); if (this.rows.size > 128) this.rows.delete(this.rows.keys().next().value!); }),
+      identify: ids => guarded(() => { if (ids.userOpHash) r.userOpHash = ids.userOpHash; if (ids.txHash) r.txHash = ids.txHash; }),
+      bind: id => guarded(() => {
+        r.pressId = id; this.rows.set(id, r); if (this.rows.size > 128) this.rows.delete(this.rows.keys().next().value!);
+        // Measurement only: a hung fetch/ambiguous result is NOT failure, fill, or permission to retry.
+        if (!r.watchdog) { r.watchdog = true; this.d.later(() => guarded(() => this.unresolved(r)), 15_000); }
+      }),
       pendingPaint: () => guarded(() => this.paint(r, "paint")),
       finish: (ok, reason) => guarded(() => {
         if (r.emitted || r.ok === false) return;
@@ -49,6 +54,14 @@ export class FlowTiming {
   private ready(r: Row) {
     if (r.ok === undefined || r.emitted || r.scheduled || r.paintPending || (r.ok && (r.fillPending || r.fill === undefined))) return;
     r.scheduled = true; this.d.later(() => guarded(() => this.emit(r)), 0);
+  }
+  private unresolved(r: Row) {
+    if (r.emitted || r.ok !== undefined || r.unresolvedReported) return;
+    r.unresolvedReported = true;
+    const elapsed = (at?: number) => at === undefined ? null : Math.round((at - r.tap) * 100) / 100;
+    this.d.log({ pressId: r.pressId, side: r.side, ok: null, terminal: false, reason: "unresolved",
+      elapsedMs: elapsed(this.d.now()), tapToPaint: elapsed(r.paint), tapToReceipt: elapsed(r.receipt), tapToFill: elapsed(r.fill),
+      server: r.server ?? null, userOpHash: r.userOpHash ?? null, txHash: r.txHash ?? null });
   }
   private emit(r: Row) {
     if (r.emitted || r.ok === undefined) return;

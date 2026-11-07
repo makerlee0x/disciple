@@ -393,7 +393,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       let pid: string | undefined, early: (r: BridgeResult) => void = () => undefined;
       const earlyP = new Promise<BridgeResult>((res) => { early = res; });
       const onSent = (e: Event) => {
-        const d = (e as CustomEvent<{ phase?: string; pressId?: string; txHash?: string }>).detail;
+        const d = (e as CustomEvent<{ phase?: string; pressId?: string; userOpHash?: string; txHash?: string }>).detail;
+        if (pid && d?.pressId === pid) flow.identify(d); // public IDs only, no receipt/fill claim
         if (pid && d?.pressId === pid && (d.phase === "sent" || d.phase === "submitted")) early({ ok: false, unknown: true, pending: true, optimistic: true, ...(d.txHash ? { txHash: d.txHash } : {}) });
       };
       addEventListener("disciple:op", onSent);

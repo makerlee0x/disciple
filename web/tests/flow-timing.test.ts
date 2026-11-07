@@ -58,3 +58,18 @@ it("does not invent a pending paint when rollback wins before the paint opportun
   x.at(16); x.frame(); x.at(32); x.frame(); x.flush();
   expect(x.logs).toHaveLength(1); expect(x.logs[0]).toMatchObject({ ok: false, tapToPaint: null, tapToFill: null });
 });
+
+
+it("reports a hung/ambiguous press without settling it and still reports later confirmation", () => {
+  let now = 0; const tasks: { cb: () => void; ms: number }[] = [], rows: Record<string, unknown>[] = [];
+  const f = new FlowTiming({ now: () => now, frame: cb => cb(), later: (cb, ms) => { tasks.push({ cb, ms }); }, log: row => { rows.push(row); } });
+  const s = f.begin("buy", 0); s.bind("hung"); s.bind("hung"); s.pendingPaint();
+  expect(tasks.filter(t => t.ms === 15000)).toHaveLength(1);
+  s.identify({ userOpHash: "0xknown" });
+  now = 15000; tasks.find(t => t.ms === 15000)!.cb();
+  expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ pressId: "hung", ok: null, terminal: false, reason: "unresolved", elapsedMs: 15000, userOpHash: "0xknown", txHash: null, tapToFill: null });
+  tasks.find(t => t.ms === 15000)!.cb(); expect(rows).toHaveLength(1);
+  now = 16000; f.receipt("hung", receipt); f.fill("hung"); s.finish(true);
+  tasks.filter(t => t.ms === 0).forEach(t => t.cb());
+  expect(rows).toHaveLength(2); expect(rows[1]).toMatchObject({ ok: true, tapToReceipt: 16000, txHash: "0xtx" });
+});
