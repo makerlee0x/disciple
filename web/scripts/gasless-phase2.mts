@@ -51,7 +51,9 @@ globalThis.fetch = async (input: any, init?: any) => {
   if (url !== "http://localhost:46630/api/bundler") return rawFetch(input, init);
   const request = new Request(url, init);
   const body = await request.clone().json();
-  const req: any = { case: stage, method: body.method, submitCT: ct(), submitMs: performance.now() };
+  const press = request.headers.get("x-disciple-press-id");
+  const label = press?.replace(/-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "") || stage;
+  const req: any = { case: label, method: body.method, submitCT: ct(), submitEpochMs: Date.now(), submitMs: performance.now() };
   const op = body.params?.[0];
   if (op && typeof op === "object") {
     req.sender = op.sender; req.nonce = op.nonce;
@@ -66,7 +68,7 @@ globalThis.fetch = async (input: any, init?: any) => {
   ev.requests.push(req); save();
   const response = await POST(request);
   const answer = await response.clone().json();
-  req.responseCT = ct(); req.responseMs = performance.now(); req.response = answer; req.httpStatus = response.status;
+  req.responseCT = ct(); req.responseEpochMs = Date.now(); req.responseMs = performance.now(); req.response = answer; req.httpStatus = response.status;
   if (body.method === "eth_estimateUserOperationGas" && !ev.appConfirmation) {
     const message = String(answer.error?.message || "");
     ev.appConfirmation = { confirmed: response.ok && !!answer.result && !answer.error,
@@ -86,7 +88,7 @@ async function run(label: string, f: any, calls: any[], as: "owner" | "session" 
   stage = label;
   const completed = ev.cases.find((x: any) => x.label === label && x.account === f.address && ["included", "rejected (expected)"].includes(x.outcome));
   if (completed) return completed;
-  const row: any = { label, account: f.address, actionCT: ct(), actionMs: performance.now(), sourceSHA: ev.sourceSHA, before: await snapshot(f) };
+  const row: any = { label, account: f.address, actionCT: ct(), actionEpochMs: Date.now(), actionMs: performance.now(), sourceSHA: ev.sourceSHA, before: await snapshot(f) };
   ev.cases.push(row); save();
   try {
     const result = await f.sa.sendCalls(calls, { as, feeRetry: false, pressId: `${label}-${crypto.randomUUID()}` });
@@ -97,14 +99,14 @@ async function run(label: string, f: any, calls: any[], as: "owner" | "session" 
     for (const log of rc.logs) { if (log.address.toLowerCase() !== EP.toLowerCase()) continue; try { const x = decodeEventLog({ abi: uoEvents, ...log }); if (x.args.userOpHash === result.userOpHash) uo = x.args; } catch {} }
     const packed = decodeFunctionData({ abi: handleAbi, data: tx.input }).args[0].find(x => x.sender.toLowerCase() === f.address.toLowerCase() && x.nonce === uo?.nonce);
     row.after = await snapshot(f, rc.blockNumber);
-    Object.assign(row, { outcome: negative ? "UNEXPECTED INCLUSION" : "included", txHash: result.txHash, userOpHash: result.userOpHash, detectedCT: ct(), detectedMs: performance.now(), blockNumber: rc.blockNumber, blockCT: new Date(Number(block.timestamp) * 1000).toLocaleString("sv-SE", { timeZone: "America/Chicago" }) + " CT", blockTimeMs: Number(block.timestamp) * 1000,
+    Object.assign(row, { outcome: negative ? "UNEXPECTED INCLUSION" : "included", txHash: result.txHash, userOpHash: result.userOpHash, detectedCT: ct(), detectedEpochMs: Date.now(), detectedMs: performance.now(), blockNumber: rc.blockNumber, blockCT: new Date(Number(block.timestamp) * 1000).toLocaleString("sv-SE", { timeZone: "America/Chicago" }) + " CT", blockTimeMs: Number(block.timestamp) * 1000,
       userGasChargeUsdgRaw: 0n, userGasChargeEthWei: uo?.actualGasCost, usdgTradeDeltaRaw: row.after.usdgRaw - row.before.usdgRaw, actualGasUsed: uo?.actualGasUsed, outerGasUsed: rc.gasUsed, outerEffectiveGasPrice: rc.effectiveGasPrice, bundlerSender: tx.from,
       onchainEnvelope: packed ? { preVerificationGas: packed.preVerificationGas, gasFees: packed.gasFees, paymasterAndData: packed.paymasterAndData, accountGasLimits: packed.accountGasLimits } : null, providerFiatCharge: "not exposed; documented free testnet, ledger unavailable" });
     if (!uo?.success || uo.actualGasCost !== 0n || row.after.ethWei !== 0n || !packed || packed.paymasterAndData !== "0x" || negative) throw Error("Receipt/accounting invariant failed");
   } catch (e) {
     if (row.txHash) { row.error = safeError(e); throw e; }
     row.after = await snapshot(f); row.error = safeError(e); row.outcome = negative ? "rejected (expected)" : "BLOCKED";
-    row.userGasChargeUsdgRaw = row.before.usdgRaw - row.after.usdgRaw; row.userGasChargeEthWei = row.before.ethWei - row.after.ethWei; row.rejectedCT = ct(); row.rejectedMs = performance.now();
+    row.userGasChargeUsdgRaw = row.before.usdgRaw - row.after.usdgRaw; row.userGasChargeEthWei = row.before.ethWei - row.after.ethWei; row.rejectedCT = ct(); row.rejectedEpochMs = Date.now(); row.rejectedMs = performance.now();
     if (!negative || ["Bundler", "Timeout"].includes((e as any)?.code)) { row.outcome = "BLOCKED"; save(); throw e; }
   } finally { save(); }
   console.log(clean({ label, outcome: row.outcome, txHash: row.txHash, error: row.error })); return row;
