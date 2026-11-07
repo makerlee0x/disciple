@@ -52,6 +52,11 @@ export type HomeCoin = {
   /** launch time, ms (filled for the hero + strip only) */
   launchedAt: number | null;
   stats: CoinStats | null;
+  /**
+   * DiscipleHook TVL in USD from poolState (anchor-marked reserves). Set only when this token is that pool's coin.
+   * Absent for Launchpad coins — never filled from getLiquidity.
+   */
+  liquidityUsd?: number | null;
 };
 
 export type HomeData = {
@@ -67,21 +72,15 @@ export type HomeData = {
   chips: TradeChip[];
 };
 
-/** Prefer the on-chain price impact. Quote-paid notional includes fees and is NOT a mid-price. */
-export function prePriceOf(f: Pick<Fill, "usd" | "tokens" | "priceUsd"> & Partial<Pick<Fill, "impactBps" | "side" | "usdBasis">>): number | null {
-  if (!(f.priceUsd > 0)) return null;
-  if (f.side && f.impactBps != null && Number.isFinite(f.impactBps) && f.impactBps >= 0) {
-    const ratio = 1 + (f.side === "sell" ? -1 : 1) * f.impactBps / 10_000;
-    return ratio > 0 ? f.priceUsd / ratio : null;
-  }
-  if (f.usdBasis === "quote" || !(f.tokens > 0) || !(f.usd > 0)) return null;
-  // Legacy price-basis fills only: usd = tokens × mid-price ⇒ reconstruct the pre-price.
+/** Price before a fill, from the stored mid: usd = tokens × priceAfter × (pa+pb)/(2·pa) ⇒ pb/pa = 2·mid/priceAfter − 1. */
+export function prePriceOf(f: Pick<Fill, "usd" | "tokens" | "priceUsd">): number | null {
+  if (!(f.tokens > 0) || !(f.priceUsd > 0) || !(f.usd > 0)) return null;
   const r = (2 * (f.usd / f.tokens)) / f.priceUsd - 1;
   return r > 0 ? f.priceUsd * r : null;
 }
 
 /** Mcap before a fill (same basis as f.mcapUsd): pre-price × the fill's own supply (mcapUsd / priceUsd). */
-export function preMcapOf(f: Pick<Fill, "usd" | "tokens" | "priceUsd" | "mcapUsd"> & Partial<Pick<Fill, "impactBps" | "side" | "usdBasis">>): number | null {
+export function preMcapOf(f: Pick<Fill, "usd" | "tokens" | "priceUsd" | "mcapUsd">): number | null {
   const pre = prePriceOf(f);
   return pre && f.mcapUsd > 0 && f.priceUsd > 0 ? pre * (f.mcapUsd / f.priceUsd) : null;
 }

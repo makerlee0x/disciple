@@ -1,7 +1,19 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Address } from "viem";
+import { getAddress, type Address } from "viem";
 import { parseQuoteDecimals } from "./decimals.js";
+
+/** DiscipleHook indexing. Off unless DISCIPLE_HOOK is set, the deployment json has discipleHook, or the json is the 4663 catalog (kind "disciple", no Launchpad). */
+export interface DiscipleConfig {
+  hook: Address;
+  poolManager: Address;
+  v4Quoter?: Address;
+  fromBlock: bigint;
+  /** RPC for this hook. Defaults to the deployment json rpc (set DISCIPLE_RPC_URL when the hook is on a different chain than the Launchpad stacks). */
+  rpcUrl: string;
+  /** lowercase quote → USD WAD per 1e18 raw quote (USDG $1, 6 decimals → 1e30). */
+  quoteUsdWad: Record<string, string>;
+}
 
 export interface Stack {
   id: string; // "v1" | "v2" | "v3" ...
@@ -43,11 +55,13 @@ export interface Config {
   minChunk: bigint;
   /** QUOTE_DECIMALS="0xUSDG:6,0xSTRAT:18" — known quote decimals (skip the decimals() read); others are read on-chain. */
   quoteDecimals?: Record<string, number>;
+  /** DiscipleHook mode. Absent ⇒ AscensionHook indexing only. */
+  disciple?: DiscipleConfig;
 }
 
 /**
  * Builds stacks from contracts/deployments/rh-testnet-46630.json by walking the `previous` chain:
- *  current (v5, startBlock 142064001) -> previous (v4, PR #97) -> … -> v1 (PR #4).
+ *  current (v4, PR #97, startBlock 137540728) -> previous (v3) -> … -> v1 (PR #4).
  * Also accepts contracts/deployments/web-bundle/addresses.json (its `previous` has no `contracts`, so only that stack is used).
  * STACKS=v3 restricts to a subset. All stacks are indexed (old coins keep trading on their own hook/pools). EXTRA_DEPLOYMENT adds one more json.
  */
@@ -55,7 +69,8 @@ function stackOf(d: any, id: string, fromBlock: bigint): Stack {
   const c = d.contracts;
   return {
     id, fromBlock,
-    launchpad: c.Launchpad, feeRouter: c.FeeRouter, hook: c.DiscipleHook, migration: c.Migration,
+    // Deploy json still uses DiscipleHook for the Ascension graduation hook; newer catalogs may say AscensionHook.
+    launchpad: c.Launchpad, feeRouter: c.FeeRouter, hook: c.AscensionHook ?? c.DiscipleHook, migration: c.Migration,
     trampWallManager: c.TrampWallManager, quotePricer: c.QuotePricer, lockedLP: c.LockedLP,
     anonLauncher: c.AnonLauncher ?? d.addons?.AnonLauncher?.address,
     anonLauncherLegacy: d.addons?.AnonLauncherLegacy?.address,
@@ -91,9 +106,10 @@ export function loadConfig(env = process.env): Config {
   }
   const only = env.STACKS?.split(",").map((x) => x.trim()).filter(Boolean);
   const picked = only?.length ? stacks.filter((s) => only.includes(s.id)) : stacks;
+  const rpcUrl = env.RPC_URL ?? d.rpc ?? "https://rpc.testnet.chain.robinhood.com";
   return {
     chainId: d.chainId ?? 46630,
-    rpcUrl: env.RPC_URL ?? d.rpc ?? "https://rpc.testnet.chain.robinhood.com",
+    rpcUrl,
     stateView: d.uniswapV4?.StateView ?? "0xf3334192d15450cdd385c8b70e03f9a6bd9e673b",
     stacks: picked,
     dbPath: env.DB_PATH ?? "./disciple-indexer.sqlite",
@@ -105,5 +121,34 @@ export function loadConfig(env = process.env): Config {
     quoteDecimals: parseQuoteDecimals(env.QUOTE_DECIMALS),
     rpcRps: Number(env.RPC_RPS ?? 20),
     minChunk: BigInt(env.MIN_LOG_CHUNK ?? 500),
+    disciple: loadDisciple(d, env, rpcUrl),
+  };
+}
+
+const RH_POOL_MANAGER = "0x8366a39CC670B4001A1121B8F6A443A643e40951";
+
+/** Catalog json (no Launchpad) or an explicit hook turns the adapter on. The testnet stack json does not. */
+function loadDisciple(d: any, env: NodeJS.ProcessEnv, rpcUrl: string): DiscipleConfig | undefined {
+  const catalog = d?.kind === "disciple" || (d?.hook && d?.pools && !d?.contracts?.Launchpad) ? d : null;
+  const hookRaw = env.DISCIPLE_HOOK ?? d?.discipleHook?.address ?? catalog?.hook;
+  if (!hookRaw) return undefined;
+  const pools: any[] = catalog?.pools ?? d?.discipleHook?.pools ?? [];
+  const quoteUsdWad: Record<string, string> = {};
+  for (const p of pools) {
+    if (p?.quote && p?.quotePriceUsdWad) quoteUsdWad[String(p.quote).toLowerCase()] = String(p.quotePriceUsdWad);
+  }
+  for (const part of (env.DISCIPLE_QUOTE_USD ?? "").split(",").map((x) => x.trim()).filter(Boolean)) {
+    const [a, w] = part.split(":");
+    if (a && w) quoteUsdWad[a.toLowerCase()] = w;
+  }
+  const pm = env.DISCIPLE_POOL_MANAGER ?? d?.discipleHook?.poolManager ?? catalog?.poolManager ?? d?.uniswapV4?.PoolManager ?? RH_POOL_MANAGER;
+  const quoter = env.DISCIPLE_V4_QUOTER ?? d?.discipleHook?.v4Quoter ?? catalog?.v4Quoter ?? d?.uniswapV4?.V4Quoter;
+  return {
+    hook: getAddress(hookRaw),
+    poolManager: getAddress(pm),
+    v4Quoter: quoter ? getAddress(quoter) : undefined,
+    fromBlock: BigInt(env.DISCIPLE_FROM_BLOCK ?? d?.discipleHook?.fromBlock ?? catalog?.fromBlock ?? 0),
+    rpcUrl: env.DISCIPLE_RPC_URL ?? catalog?.rpc ?? d?.discipleHook?.rpc ?? rpcUrl,
+    quoteUsdWad,
   };
 }
