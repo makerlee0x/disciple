@@ -3,7 +3,9 @@ import type { Address, PublicClient } from "viem";
 import { READS } from "./abi.js";
 import type { Config, Stack } from "./config.js";
 import { dataVersion, type DB } from "./db.js";
+import { makeClient } from "./sync.js";
 import { candles, graduationPct, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, TOTAL_SUPPLY, virtualQuoteReserve, wad } from "./math.js";
+import { mcapUsdFromAnchor, readDiscipleTvl, type DiscipleTvl } from "./disciple.js";
 
 /**
  * Quote-amount sums are scaled by each coin's coins.quote_decimals (USDG 6 / 18), never a blanket 1e18; coin-token
@@ -19,8 +21,11 @@ export const CANDLE_DEFAULT_BARS = 300;
 export const CANDLE_MAX_BARS = 2000;
 /** List endpoints are cached in-process for LIST_CACHE_MS (and sent with Cache-Control s-maxage for a CDN in front). */
 export const LIST_CACHE_MS = Number(process.env.LIST_CACHE_MS ?? 5000);
-const LIST_PATHS = new Set(["coins", "leaderboard", "tier-breaks", "orders"]);
-const isListPath = (p: string[]) => LIST_PATHS.has(p[0]) && (p[0] !== "coins" || p.length === 1);
+/** Disciple pool-detail hits live RPC; cap when the indexer HTTP API is public. */
+export const DISCIPLE_HTTP_LIMIT = Number(process.env.DISCIPLE_HTTP_LIMIT ?? 60);
+export const DISCIPLE_HTTP_WINDOW_SEC = Number(process.env.DISCIPLE_HTTP_WINDOW_SEC ?? 60);
+const LIST_PATHS = new Set(["coins", "leaderboard", "tier-breaks", "orders", "disciple"]);
+const isListPath = (p: string[]) => LIST_PATHS.has(p[0]) && (p[0] !== "coins" || p.length === 1) && (p[0] !== "disciple" || p.length === 2);
 
 /** Integer query param: parseInt with a default, clamped to [min, max], never NaN. */
 export function intParam(q: URLSearchParams, name: string, def: number, min: number, max: number): number {
@@ -33,7 +38,9 @@ type Live = {
   priceWad: string;
   /** $ per token = mcapUsd / total supply (full precision at any quote decimals). */
   priceUsd: number;
-  mcapUsd: number; quoteUsd: number; mcapSource: string; liquidityUsd: number; curveMcapNowUsd?: number;
+  mcapUsd: number; quoteUsd: number; mcapSource: string; liquidityUsd: number | null; curveMcapNowUsd?: number;
+  /** Set when the pool is a DiscipleHook pool. liquidityUsd is derived from this, not from getLiquidity. */
+  disciple?: DiscipleTvl;
   /** 0–100 to graduation (math.graduationPct = curve progressBps), 100 once graduated */
   graduationPct?: number | null;
 };
@@ -52,7 +59,31 @@ const supplyTokens = (coin: any) => Number(supplyOf(coin)) / 1e18;
 
 export class Api {
   private cache = new Map<string, { at: number; v: any }>();
+  private discipleClient: PublicClient | null = null;
+  /** IP → timestamps of recent /disciple/* hits (windowed). */
+  private discipleHits = new Map<string, number[]>();
   constructor(private db: DB, private client: PublicClient | null, private cfg: Config) {}
+
+  private discipleRateOk(ip: string): boolean {
+    const now = Date.now();
+    const win = DISCIPLE_HTTP_WINDOW_SEC * 1000;
+    const prev = (this.discipleHits.get(ip) ?? []).filter((t) => now - t < win);
+    if (prev.length >= DISCIPLE_HTTP_LIMIT) { this.discipleHits.set(ip, prev); return false; }
+    prev.push(now);
+    this.discipleHits.set(ip, prev);
+    if (this.discipleHits.size > 5000) {
+      for (const [k, ts] of this.discipleHits) if (!ts.some((t) => now - t < win)) this.discipleHits.delete(k);
+    }
+    return true;
+  }
+
+  /** Reads for DiscipleHook. Uses the launchpad client when the hook shares its RPC (unit tests pass a mock there). */
+  private discipleRpc(): PublicClient | null {
+    const d = this.cfg.disciple;
+    if (!d || !this.client) return this.client;
+    if (d.rpcUrl === this.cfg.rpcUrl) return this.client;
+    return this.discipleClient ??= makeClient({ ...this.cfg, rpcUrl: d.rpcUrl });
+  }
 
   stackOf(id: string): Stack | undefined {
     return this.cfg.stacks.find((s) => s.id === id);
@@ -79,6 +110,22 @@ export class Api {
           const v = (await client.readContract({ address: st.quotePricer, abi: READS, functionName: "quotePriceUsd", args: [coin.quote] })) as bigint;
           if (v > 0n) qUsd = v;
         } catch {}
+      }
+      if (coin.graduated && coin.pool_id && this.cfg.disciple && this.disciplePool(coin.pool_id)) {
+        const hook = this.cfg.disciple;
+        const rpc = this.discipleRpc() ?? client;
+        const price = hook.quoteUsdWad[String(coin.quote).toLowerCase()];
+        const quoteUsdWad = price ? BigInt(price) : qUsd;
+        const tvl = await readDiscipleTvl(rpc, hook.hook, hook.poolManager, coin.pool_id, quoteUsdWad);
+        const anchor = BigInt(tvl.anchorX128);
+        const m = mcapUsdFromAnchor(supplyOf(coin), anchor, quoteUsdWad);
+        const supplyTokensN = supplyTokens(coin);
+        return {
+          priceWad: supplyTokensN > 0 && anchor > 0n ? ((anchor * 10n ** 18n) / (1n << 128n)).toString() : "0",
+          priceUsd: supplyTokensN > 0 ? m / supplyTokensN : 0,
+          mcapUsd: m, quoteUsd: wad(quoteUsdWad), mcapSource: "disciple-pool", graduationPct: 100,
+          liquidityUsd: tvl.liquidityUsd, disciple: tvl,
+        };
       }
       if (coin.graduated && coin.pool_id) {
         try {
@@ -109,6 +156,48 @@ export class Api {
         client.readContract({ address: coin.curve, abi: READS, functionName: "quoteReserve" }) as Promise<bigint>,
       ]);
       return { priceWad: p.toString(), priceUsd: wad(m) / supplyTokens(coin), mcapUsd: wad(m), quoteUsd: wad(launchQ), mcapSource: "curve", liquidityUsd: 2 * wad(r) * wad(launchQ), graduationPct: coinGraduationPct(coin, wad(m)) };
+    });
+  }
+
+  /** Indexed DiscipleHook pool (lowercase id). Absent when disciple mode is off or the pool was not created on this hook. */
+  disciplePool(poolId: string) {
+    return this.db.prepare("SELECT * FROM disciple_pools WHERE id=?").get(poolId.toLowerCase()) as any;
+  }
+
+  private quoteUsdWadFor(quote: string): bigint | null {
+    const w = this.cfg.disciple?.quoteUsdWad[quote.toLowerCase()];
+    return w ? BigInt(w) : null;
+  }
+
+  async disciplePoolDetail(poolId: string) {
+    const row = this.disciplePool(poolId);
+    if (!row || !this.cfg.disciple) return null;
+    let tvl: DiscipleTvl | null = null;
+    let tvlUnavailable = false;
+    const rpc = this.discipleRpc();
+    if (rpc) {
+      try {
+        // Same 10s TTL as live() — pool-detail is otherwise an uncached 3× eth_call per hit.
+        tvl = await this.cached(`disciple:tvl:${row.id}`, 10_000, () =>
+          readDiscipleTvl(rpc, this.cfg.disciple!.hook, this.cfg.disciple!.poolManager, row.id, this.quoteUsdWadFor(row.quote)));
+      } catch (e: any) {
+        tvlUnavailable = true;
+        console.warn("[disciple] poolState tvl failed", e?.message ?? e);
+      }
+    }
+    const swaps = (this.db.prepare("SELECT COUNT(*) n, COALESCE(SUM(CAST(quote_amt AS REAL)),0) quote FROM disciple_swaps WHERE pool_id=?").get(row.id) as any);
+    return {
+      ...row, v4Fee: 0, tvl, ...(tvlUnavailable ? { tvlUnavailable: true } : {}),
+      swaps: swaps.n, quoteVolumeRaw: String(swaps.quote),
+      quoter: this.cfg.disciple.v4Quoter ?? null,
+    };
+  }
+
+  disciplePools() {
+    const rows = this.db.prepare("SELECT * FROM disciple_pools ORDER BY created_block, id").all() as any[];
+    return rows.map((r) => {
+      const n = this.db.prepare("SELECT COUNT(*) n FROM disciple_swaps WHERE pool_id=?").get(r.id) as any;
+      return { ...r, v4Fee: 0, swaps: n.n };
     });
   }
 
@@ -366,8 +455,10 @@ export class Api {
   }
 
   status() {
+    const disciple = this.cfg.disciple;
     return { chainId: this.cfg.chainId, stacks: this.cfg.stacks.map((x) => ({ ...x, rpc: undefined })), cursors: this.db.prepare("SELECT * FROM cursor").all(),
       coins: (this.db.prepare("SELECT COUNT(*) n FROM coins").get() as any).n, trades: (this.db.prepare("SELECT COUNT(*) n FROM trades").get() as any).n,
+      disciple: disciple ? { hook: disciple.hook, poolManager: disciple.poolManager, v4Quoter: disciple.v4Quoter ?? null, fromBlock: disciple.fromBlock.toString(), pools: (this.db.prepare("SELECT COUNT(*) n FROM disciple_pools").get() as any).n } : null,
       counts: Object.fromEntries(["orders", "tier_breaks", "keeper_tips", "referrals", "fee_events", "balances", "profit_tax", "holder_rewards", "usdg_escrow_events"].map((t) => [t, (this.db.prepare(`SELECT COUNT(*) n FROM ${t}`).get() as any).n])) };
   }
 
@@ -491,6 +582,14 @@ export class Api {
     const q = url.searchParams;
     const addr = (x?: string) => (x && /^0x[0-9a-fA-F]{40}$/.test(x) ? x : null);
     if (p.length === 0 || p[0] === "health") return [200, this.status()];
+    if (p[0] === "disciple" && p[1] === "pools") {
+      if (!this.cfg.disciple) return [404, { error: "disciple mode off" }];
+      if (p.length === 2) return [200, this.disciplePools()];
+      if (!/^0x[0-9a-fA-F]{64}$/.test(p[2] ?? "")) return [400, { error: "bad pool id" }];
+      if (p.length === 3) { const d = await this.disciplePoolDetail(p[2]); return d ? [200, d] : [404, { error: "unknown pool" }]; }
+      if (p[3] === "swaps") return [200, this.db.prepare("SELECT * FROM disciple_swaps WHERE pool_id=? ORDER BY block DESC, id DESC LIMIT ?").all(p[2].toLowerCase(), intParam(q, "limit", 100, 1, 1000))];
+      if (p[3] === "liquidity") return [200, this.db.prepare("SELECT * FROM disciple_liquidity WHERE pool_id=? ORDER BY block DESC, id DESC LIMIT ?").all(p[2].toLowerCase(), intParam(q, "limit", 100, 1, 1000))];
+    }
     if (p[0] === "coins" && p.length === 1) return [200, this.listCoins(q)];
     if (p[0] === "coins" && addr(p[1])) {
       const t = p[1];
@@ -533,9 +632,18 @@ export class Api {
       let cacheHdr: Record<string, string> = {};
       try {
         const url = new URL(req.url ?? "/", "http://x");
+        const p = url.pathname.split("/").filter(Boolean);
+        if (p[0] === "disciple") {
+          const ip = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() || req.socket.remoteAddress || "unknown";
+          if (!this.discipleRateOk(ip)) {
+            status = 429; body = { error: "rate limited" };
+            res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*", "retry-after": String(DISCIPLE_HTTP_WINDOW_SEC) });
+            res.end(JSON.stringify(body));
+            return;
+          }
+        }
         try { [status, body] = await this.route(req.method ?? "GET", url); }
         catch (e: any) { status = 400; body = { error: e?.message ?? "bad request" }; }
-        const p = url.pathname.split("/").filter(Boolean);
         if (status === 200 && LIST_CACHE_MS > 0 && isListPath(p))
           cacheHdr = { "cache-control": `public, max-age=${Math.round(LIST_CACHE_MS / 1000)}, s-maxage=${Math.round(LIST_CACHE_MS / 1000)}` };
       } catch (e: any) {

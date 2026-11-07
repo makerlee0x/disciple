@@ -10,7 +10,7 @@ This is a lightweight indexer built on viem, SQLite (better-sqlite3) and `node:h
 |---|---|
 | Launchpad | `Launched`, `QuotePriced`, `MetadataUpdated`, `CreatorTransferred`, `LaunchTierContext`, `LaunchMode` (v4: `coins.mode` 0 TRENCH / 1 PVE / 2 PVP) |
 | BondingCurve (each coin) | `Trade` (ends in `mcapAfterUsd`), `GraduatedToV4`, `AltitudeUpdate`, `TierBreak` (PR #44), v4 PVE: `ProfitTaxCharged`, `HolderRewardsClaimed` |
-| DiscipleHook | `Trade` (post-grad; v4 emits the `IHookTradeEvents` overload ending in `uint160 sqrtPriceAfter` → mcap/price computed in `src/usd.ts` via `mcapUsdFromSqrt`/`priceWadFromSqrt`; older hooks end in `mcapAfterUsd`), `AltitudeUpdate`, `TierBreak` (PR #44). `LPDonation` was removed in PR #44 and is no longer decoded |
+| AscensionHook | `Trade` (post-grad; v4 emits the `IHookTradeEvents` overload ending in `uint160 sqrtPriceAfter` → mcap/price computed in `src/usd.ts` via `mcapUsdFromSqrt`/`priceWadFromSqrt`; older hooks end in `mcapAfterUsd`), `AltitudeUpdate`, `TierBreak` (PR #44). `LPDonation` was removed in PR #44 and is no longer decoded |
 | Migration | `Migrated` |
 | TrampWallManager | `TrampPlaced`, `WallPlaced`, `Filled`, `Cancelled`, `KeeperTipPaid` (PR #44), `FeesClaimed` (≤v3 only) |
 | FeeRouter | `TradeFeeRouted` (audit #11 ABI: feeToken, feeIsQuote, creator, referralPayee, kolPayee + kolShare; per-payee rows in `fee_credits`), `CreatorFeesClaimed`, `CreatorTokenFeesClaimed` (v4, launch-token units), `ReferrerFeesClaimed`, `SnipeFeeRoutedToLP` (≤v2), `SnipeFeeRouted` (70/30, v3) |
@@ -50,9 +50,28 @@ Events are only accepted from the addresses of the expected stack. Spoofed `Laun
 A typed fetch client for SITE/GAME lives in `client/disciple-indexer.ts` (copy into `/web` when wanted; this PR doesn't touch `/web`).
 
 **Live market (`live`):**
-- After graduation, the price comes from v4 `StateView.getSlot0(poolId)` × the live `QuotePricer`. The fallback order is launch quote price, then `MarketLens.market`. `curveMcapNowUsd` is also returned so the old curve bug stays visible.
-- Before graduation, it uses `curve.mcapNow()`.
-- `liquidityUsd` is 2 × virtual in-range quote reserve (post-grad) or 2 × curve quote reserve (pre-grad).
+- After graduation on an **AscensionHook** pool, the price comes from v4 `StateView.getSlot0(poolId)` × the launch quote price. The fallback order is `MarketLens.market`. `curveMcapNowUsd` is also returned so the old curve bug stays visible. `liquidityUsd` is 2 × virtual in-range quote reserve from `getLiquidity`.
+- After graduation on a **DiscipleHook** pool (the pool id is in `disciple_pools`), price and `liquidityUsd` come from `poolState`: coin side marked at `anchorX128`, plus `quoteReserve`. ERC-6909 `balanceOf` on PoolManager is returned as `live.disciple.claims` (hook-wide). `getSlot0` / `getLiquidity` are not called. DiscipleHook initializes slot0 to price 1 and keeps v4 liquidity at 0; those reads are not reserves.
+- Before graduation, it uses `curve.mcapNow()`. `liquidityUsd` is 2 × curve quote reserve.
+
+**DiscipleHook mode** (off unless configured). Indexes `Created`, `Swapped`, `Deposited`, `Withdrawn` from the hook address only. TVL is always a live `poolState` read, not a sum of swap logs.
+
+```bash
+# hook only, Robinhood Chain 4663 (catalog includes the STRATEGY/USDG pool key and fromBlock)
+DEPLOYMENT_JSON=../contracts/deployments/rh-4663-disciple-hook.json npm start
+# or beside the Launchpad stacks — set the hook's own RPC when it is not the stack chain
+DISCIPLE_HOOK=0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88 DISCIPLE_FROM_BLOCK=106431488 \
+  DISCIPLE_RPC_URL=https://rpc.mainnet.chain.robinhood.com npm start
+```
+
+| Path | Returns |
+|---|---|
+| `/disciple/pools` | pools from `Created` (v4 fee 0, tickSpacing = pair index) |
+| `/disciple/pools/:id` | that pool plus live `tvl` (`source: "poolState"`, reserves, anchor, claims, `liquidityUsd`) |
+| `/disciple/pools/:id/swaps` | `Swapped` |
+| `/disciple/pools/:id/liquidity` | `Deposited` / `Withdrawn` |
+
+Pool key, quoter, and the allowlist steps: `contracts/docs/disciple-pool-allowlist.md`.
 
 **Coin metric inputs (`tier`):** (display only; they no longer drive verification, which is a manual flag in `web/lib/verified.ts`) `volumeUsd`, `volume24hUsd`, `trades`, `ageSec`, `holders`, `liquidityUsd`. `holders` counts balances > 0, excluding the curve, PoolManager, Migration, hook, TrampWallManager and AnonLauncher.
 

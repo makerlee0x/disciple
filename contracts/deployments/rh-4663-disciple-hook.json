@@ -1,0 +1,32 @@
+{
+  "chainId": 4663,
+  "network": "Robinhood Chain",
+  "rpc": "https://rpc.mainnet.chain.robinhood.com",
+  "kind": "disciple",
+  "fromBlock": 106431488,
+  "hook": "0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88",
+  "poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+  "v4Quoter": "0x8dc178efb8111bb0973dd9d722ebeff267c98f94",
+  "stateView": "0xf3334192d15450cdd385c8b70e03f9a6bd9e673b",
+  "note": "Live same-chain DiscipleHook (DeploySameChainRH / SwapSameChainRH). Not a Launchpad stack. v4 PoolKey.fee is 0; Created.fee is the hook fee in pips. slot0 is initialized to 2^96 and v4 liquidity stays 0. TVL is poolState reserves / the hook's ERC-6909 claims.",
+  "pools": [
+    {
+      "id": "0xddbfa6efd15715013f50e7f1cdceaab3b69b0b8e4c9d4b47fcc28e47f6a80e8f",
+      "currency0": "0x168661C52E5922288dFb2b3f323b6Cf90eb21e18",
+      "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+      "coin": "0x168661C52E5922288dFb2b3f323b6Cf90eb21e18",
+      "quote": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+      "coinSymbol": "STRATEGY",
+      "quoteSymbol": "USDG",
+      "coinDecimals": 18,
+      "quoteDecimals": 6,
+      "fee": 0,
+      "tickSpacing": 1,
+      "hooks": "0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88",
+      "hookFeePips": 10000,
+      "quotePriceUsdWad": "1000000000000000000000000000000",
+      "createdBlock": 106431488,
+      "createdTx": "0x5d24eb93d9a40595e80394850baa5ba0ff2bd6697f9527071f09d00a006044c4"
+    }
+  ]
+}

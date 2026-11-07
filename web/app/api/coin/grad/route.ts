@@ -7,6 +7,8 @@ import { NextResponse } from "next/server";
 import type { Address } from "viem";
 import { isAddr } from "@/lib/holders";
 import { gradInfo } from "@/lib/server/grad";
+import { isDisciplePoolId } from "@/lib/disciple/catalog";
+import { readDiscipleTvl } from "@/lib/server/discipleTvl";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { kv } from "@/lib/server/kv";
 
@@ -23,7 +25,11 @@ export async function GET(req: Request) {
   try {
     const g = await gradInfo(coin as Address);
     const done = g.graduated && g.poolId && g.graduatedAt;
-    return NextResponse.json({ coin: coin.toLowerCase(), ...g }, { headers: { "Cache-Control": done ? "public, s-maxage=86400, stale-while-revalidate=86400" : "public, s-maxage=5, stale-while-revalidate=15" } });
+    // DiscipleHook pools only. AscensionHook graduation keeps tvl null (slot0 / getLiquidity are not this pool's reserves).
+    const disciple = !!(g.poolId && isDisciplePoolId(g.poolId));
+    const tvl = disciple ? await readDiscipleTvl(g.poolId!).catch(() => null) : null;
+    const cache = !disciple && done ? "public, s-maxage=86400, stale-while-revalidate=86400" : "public, s-maxage=5, stale-while-revalidate=15";
+    return NextResponse.json({ coin: coin.toLowerCase(), ...g, tvl }, { headers: { "Cache-Control": cache } });
   } catch (e) {
     const msg = (e as Error).message;
     if (msg === "unknown coin") return NextResponse.json({ error: "unknown coin" }, { status: 404 });

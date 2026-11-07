@@ -52,6 +52,11 @@ export type HomeCoin = {
   /** launch time, ms (filled for the hero + strip only) */
   launchedAt: number | null;
   stats: CoinStats | null;
+  /**
+   * DiscipleHook TVL in USD from poolState (anchor-marked reserves). Set only when this token is that pool's coin.
+   * Absent for Launchpad coins — never filled from getLiquidity.
+   */
+  liquidityUsd?: number | null;
 };
 
 export type HomeData = {
