@@ -34,8 +34,10 @@ this proxy does not sponsor it. No claim that proxy denial proves onchain reject
 refuses Vercel/Production. It uses fresh RAM-only owner/session keys and directly
 invokes this branch's actual `/api/bundler` handler at a fake localhost URL (no web
 server or deployment). It does not replace admission, invitation, or rate limits.
-Use `tsx --conditions=react-server` from `/web`, with the approved donor env sourced
-in that same shell command. Never log the donor key or upstream RPC URL.
+Use `vitest run tests/bso-live.test.ts` from `/web`, with the approved donor env sourced
+in that same shell command. The runner stubs only the `server-only` build marker;
+React 18 cannot run with the global `react-server` condition. No admission or
+provider code is mocked. Never log the donor key or upstream RPC URL.
 
 The harness validates chain/router/token decimals/module ID and donor balances,
 then gates on a zero-ETH deployment/session install **before** moving USDG. Funding

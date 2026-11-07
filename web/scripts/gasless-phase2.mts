@@ -152,3 +152,5 @@ try {
   ev.status = "matrix complete (budget/traces explicit limitations)";
 } catch (e) { ev.status = "stopped at narrow gate"; ev.rootCause = safeError(e); console.log(clean({ stopped: stage, rootCause: ev.rootCause })); process.exitCode = 1; }
 finally { ev.endCT = ct(); save(); globalThis.fetch = rawFetch; }
+
+export const phase2Evidence = ev;
