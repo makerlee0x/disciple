@@ -14,8 +14,10 @@ import { kv } from "./kv";
 const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { timeout: 5000, retryCount: 0 }) });
 const abi = parseAbi(["function verifiedUntil(address) view returns(uint64)", "function moduleId() view returns(string)", "function paymaster() view returns(address)"]);
 export function requireSelfBundlerMode() {
-  if (!selfBundlerMode() || ACTIVE_CHAIN.id !== 46630 || process.env.VERCEL_ENV || process.env.VERCEL || process.env.NODE_ENV === "production")
-    throw new Error("self-bundler disabled: local testnet only");
+  const preview = process.env.VERCEL_ENV === "preview";
+  const local = (!process.env.VERCEL_ENV || process.env.VERCEL_ENV === "development") && (!process.env.VERCEL || process.env.VERCEL_ENV === "development") && process.env.NODE_ENV !== "production";
+  if (!selfBundlerMode() || ACTIVE_CHAIN.id !== 46630 || (!preview && !local))
+    throw new Error("self-bundler disabled: local or Preview testnet only");
 }
 export function sessionEntity(op: UserOp): number {
   const key = BigInt(op.nonce) >> 64n;

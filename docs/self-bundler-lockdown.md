@@ -1,3 +1,7 @@
+> Preview enablement correction (Nov 6, 2026, CT): the branch now honors `AA_SELF_BUNDLER` and defaults to self when the introduced mode vars are absent. Explicit `bso` is preserved; `AA_SELF_BUNDLER=0` disables self. Production is still rejected. Preview is permitted with its normal Node production runtime, without bypassing exact simulation/authentication. The server publishes only `{chainId, mode}` in an inert JSON bootstrap before client hydration and at `GET /api/aa/config`; no new public env var or hot-path configuration fetch is needed. The earlier local-only/default-OFF notes below are historical, not current selector behavior. No Vercel env edit was made.
+>
+> Targeted coverage is now 56 Vitest cases, including mode precedence, bootstrap, Preview acceptance, Production rejection and Preview simulation failure. Browser timing and valid authenticated live matrix remain unmeasured; no performance or gas-neutrality approval is implied.
+
 # Self-bundler lockdown — implemented for local testnet, NOT live-matrix validated
 
 Branch: `flow/self-bundler-lockdown`, off main `9e1abc0986104988a6c14c8b43cf36a014f6bbd5`.

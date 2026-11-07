@@ -1,5 +1,6 @@
+import { clientSponsorshipMode } from "./sponsorshipMode";
 /** Explicit opt-in only. This policy is testnet-only; Production can never enable it. */
-export const browserBso = (chainId: number) => chainId === 46630 && process.env.NEXT_PUBLIC_GAS_SPONSORSHIP_MODE === "bso" && process.env.NEXT_PUBLIC_VERCEL_ENV !== "production";
+export const browserBso = (chainId: number) => chainId === 46630 && clientSponsorshipMode() === "bso";
 export const BSO_ZERO = { maxFeePerGas: 0n, maxPriorityFeePerGas: 0n, preVerificationGas: 0n };
 const PM_FIELDS = ["paymaster", "paymasterData", "paymasterVerificationGasLimit", "paymasterPostOpGasLimit", "paymasterAndData"];
 /** Apply BEFORE signing; never mutate an already signed operation. */

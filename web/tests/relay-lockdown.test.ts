@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeFunctionData, parseAbi, pad, type Address } from "viem";
 const h = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_CHAIN_ID = "46630";
@@ -29,7 +29,21 @@ beforeEach(() => {
   h.read.mockImplementation(async ({ functionName }) => functionName === "verifiedUntil" ? 1000n : functionName === "moduleId" ? "disciple.session-policy.1.4.3" : pm);
   h.session.mockResolvedValue({ active: true, validUntil: 1000 }); h.incr.mockResolvedValue(1); h.set.mockResolvedValue(true); h.del.mockResolvedValue(true);
 });
+afterEach(() => vi.unstubAllEnvs());
 describe("restored relay admission", () => {
+  it("allows Preview's production Node runtime without relaxing admission", async () => {
+    vi.stubEnv("VERCEL_ENV", "preview"); vi.stubEnv("VERCEL", "1"); vi.stubEnv("NODE_ENV", "production");
+    await expect(admitRelay(op())).resolves.toBeUndefined();
+    h.read.mockResolvedValue(0n); await expect(admitRelay(op())).rejects.toThrow("unauthenticated");
+  });
+  it("allows explicitly local vercel dev while keeping deployed Production off", async () => {
+    vi.stubEnv("VERCEL_ENV", "development"); vi.stubEnv("VERCEL", "1"); vi.stubEnv("NODE_ENV", "development");
+    await expect(admitRelay(op())).resolves.toBeUndefined();
+  });
+  it("rejects Production even with the legacy self switch enabled", async () => {
+    vi.stubEnv("VERCEL_ENV", "production"); vi.stubEnv("VERCEL", "1"); vi.stubEnv("AA_SELF_BUNDLER", "1");
+    await expect(admitRelay(op())).rejects.toThrow("disabled");
+  });
   it("admits only canonical authenticated session trades, not owner nonces", async () => {
     await expect(admitRelay(op())).resolves.toBeUndefined();
     expect(() => sessionEntity({ ...op(), nonce: "0x1" })).toThrow();
@@ -85,6 +99,12 @@ function reads(): RelayAuthReads {
   return { getCode: vi.fn().mockResolvedValue(`${ACCOUNT_PROXY_RUNTIME}${sender.slice(2)}`), getStorageAt: vi.fn().mockResolvedValue(pad(sender, { size: 32 })), readContract: vi.fn().mockResolvedValue(sender) };
 }
 describe("F-02 exact EntryPoint simulation", () => {
+  it("Preview still rejects a failed exact simulation before broadcast", async () => {
+    vi.stubEnv("VERCEL_ENV", "preview"); vi.stubEnv("VERCEL", "1"); vi.stubEnv("NODE_ENV", "production");
+    const r = reads(), broadcast = vi.fn(), sim = vi.fn().mockRejectedValue(new Error("AA24 invalid signature"));
+    await expect(lockedRelay(op(), async () => { await authorizeRelayOperation(op(), r, sim); broadcast(); })).rejects.toThrow("AA24");
+    expect(sim).toHaveBeenCalledOnce(); expect(broadcast).not.toHaveBeenCalled();
+  });
   it("simulates every identical signed op, even with warm templates", async () => {
     const r = reads(), simulate = vi.fn().mockResolvedValue("0x");
     await authorizeRelayOperation(op(), r, simulate); await authorizeRelayOperation(op(), r, simulate);
