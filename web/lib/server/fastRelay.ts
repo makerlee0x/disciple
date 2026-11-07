@@ -1,4 +1,5 @@
 import "server-only";
+import type { RelayMetrics } from "./relayMetrics";
 /**
  * disciple_sendUserOperationSync — the one-round-trip trade path (self-bundler only).
  * Client sends a fully built + signed v0.7 UserOp; we validate the exact op, relay handleOps and answer with the receipt:
@@ -268,16 +269,16 @@ export type OnPending = (p: { txHash: Hex; reason: PendingReason; relayNonce?: n
  * exact handleOps simulation plus account-template check — and BEFORE the relayer signs anything. The route charges the
  * per-sender limit there (lib/server/limits.sendLimiter); a throw aborts with nothing sent.
  */
-export async function sendUserOperationSync(op: UserOp, onPending?: OnPending, beforeSend?: () => Promise<void>): Promise<RelayConfirmed> {
-  return lockedRelay(op, () => relayOnce(op, onPending, beforeSend));
+export async function sendUserOperationSync(op: UserOp, onPending?: OnPending, beforeSend?: () => Promise<void>, metrics?: RelayMetrics, confirmed?: (r: RelayConfirmed) => void): Promise<RelayConfirmed> {
+  return lockedRelay(op, () => relayOnce(op, onPending, beforeSend, metrics), metrics, confirmed);
 }
-async function relayOnce(op: UserOp, onPending?: OnPending, beforeSend?: () => Promise<void>): Promise<RelayConfirmed> {
+async function relayOnce(op: UserOp, onPending?: OnPending, beforeSend?: () => Promise<void>, metrics?: RelayMetrics): Promise<RelayConfirmed> {
   let signed = false;
   try {
   const T0 = Date.now(), t: Record<string, number> = {};
   const st = await ready(), me = st.account;
   // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
-  const fee = await baseFee();
+  const [fee] = await Promise.all([baseFee(), st.nonces.warm()]); // #140 parallel cold nonce/base fee; no allocation/signing
   // launches ⇒ LAUNCH_GAS_CAPS; above GAS_CAPS + verified graduating buy ⇒ GRAD_GAS_CAPS (on-chain check, lib/server/gradBuy)
   checkOpGas(op, fee, await relayCaps(op, launchTargets(robinhoodTestnet.id), chainGradReads(pc as never, robinhoodTestnet.id, { paymaster: allowedPaymaster() })));
   // USDG-gas op: the prefund comes from OUR paymaster's deposit (launch ops: up to LAUNCH_GAS_CAPS.total × fee)
@@ -303,10 +304,10 @@ async function relayOnce(op: UserOp, onPending?: OnPending, beforeSend?: () => P
       (e as { walk?: (f: (x: unknown) => boolean) => unknown }).walk?.((x) => { const v = (x as { data?: unknown }).data; if (typeof v === "string" && /^0x[0-9a-fA-F]{8,}$/.test(v)) { rd = v; return true; } return false; });
       throw Object.assign(new Error(`simulation failed: ${(e as Error).message.split("\n")[0]}`), { data: rd, userOpHash: hash });
     });
-    t.simulate = Date.now() - s; TRUST.simulated(op.sender); void primeSender(op.sender).catch(() => undefined);
+    t.simulate = Date.now() - s; metrics?.add("simulate", t.simulate); TRUST.simulated(op.sender); void primeSender(op.sender).catch(() => undefined);
   }
   const gas = relayGas(op, data, l1Reserve(await l1P));
-  await relaySendBudget(op.sender);
+  await relaySendBudget(op.sender, metrics);
   await beforeSend?.();   // validated ⇒ now the per-sender limit (and a press's free retry) may be charged
   const txFees = relayerTxFees(op, fee);   // never above the op's fees ⇒ the EntryPoint refund covers the relayer's cost per gas
   let txHash: Hex | undefined, relayNonce: number | undefined;
@@ -316,7 +317,7 @@ async function relayOnce(op: UserOp, onPending?: OnPending, beforeSend?: () => P
       const s = Date.now();
       const raw = await signRelayerTx(me, { nonce, data, gas, ...txFees });
       signed = true;
-      t.signTx = Date.now() - s;
+      t.signTx = Date.now() - s; metrics?.add("signTx", t.signTx);
       const h = (txHash = keccak256(raw)), n = (relayNonce = nonce);
       // accepted: checks passed + signed ⇒ an early pending frame on the stream (NOT a final fill). The sync send below
       // still streams the receipt on the same response (RELAY_EARLY_ACCEPT=0 turns the early frame off).
@@ -335,7 +336,7 @@ async function relayOnce(op: UserOp, onPending?: OnPending, beforeSend?: () => P
     const base = tx && !notSent ? broadcastError(e, hash, tx) : (e as Error);
     throw Object.assign(base, { txHash: tx, userOpHash: hash, notSent, ...(unclear ? { unclear: true, reason: (e as { reason?: unknown }).reason } : {}), ...(relayNonce !== undefined ? { relayNonce } : {}) });
   }
-  t.send = r.sendMs; t.mined = r.minedMs; t.total = Date.now() - T0;
+  t.send = r.sendMs; t.mined = r.minedMs; t.total = Date.now() - T0; metrics?.add("syncSend", r.sendMs); metrics?.add("mined", r.minedMs); metrics?.mark("receiptReady");
   if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(fee)));
   let success = false;
   for (const l of r.rc.logs) {

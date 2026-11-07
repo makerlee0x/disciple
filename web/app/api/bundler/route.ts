@@ -1,3 +1,4 @@
+import { RelayMetrics } from "@/lib/server/relayMetrics";
 import { requireSelfBundlerMode } from "@/lib/server/relayLockdown";
 import { streamRelay } from "@/lib/server/relayStream";
 import { selfBundle } from "@/lib/server/selfBundler";
@@ -44,17 +45,18 @@ const limitedResponse = (id: unknown, method: string, retryAfterSec: number) =>
 const isSponsorMethod = (m: string) => m === "alchemy_requestGasAndPaymasterAndData" || m.startsWith("pm_") || m.startsWith("alchemy_requestPaymaster");
 
 export async function POST(req: Request) {
+  const metrics = new RelayMetrics();
   let body: { method?: string; id?: unknown; params?: unknown[] };
-  try { body = await req.json(); } catch { return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }, { status: 400 }); }
+  try { body = await metrics.span("parse", () => req.json()); } catch { return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }, { status: 400 }); }
   if (body && !Array.isArray(body) && (body.method === "disciple_sendUserOperationSync" || body.method === "disciple_warm")) {
     try {
       requireSelfBundlerMode();
       if (!Array.isArray(body.params)) throw new Error("invalid params");
-      const n = await kv().incrEx(`relay:ip:${clientIp(req.headers)}`, 60);
+      const n = await metrics.span("rateLimitStore", () => kv().incrEx(`relay:ip:${clientIp(req.headers)}`, 60));
       if (n > 120) return limitedResponse(body.id, body.method, 60);
       if (body.method === "disciple_warm") return NextResponse.json({ jsonrpc: "2.0", id: body.id, result: await selfBundle(body.method, body.params) });
       if (body.params.length < 2 || body.params.length > 3 || String(body.params[1]).toLowerCase() !== "0x0000000071727de22e5e9d8baf0edac6f37da032") throw new Error("invalid EntryPoint/params");
-      return streamRelay(body.params, async () => undefined);
+      return streamRelay(body.params, async () => undefined, undefined, undefined, metrics);
     } catch (e) {
       // Public rejection reason only: never log the raw op, signature, token, or RPC URL.
       console.error("[disciple] relay admission rejected", { method: body.method, reason: diagnosticText((e as Error).message), notSent: true });

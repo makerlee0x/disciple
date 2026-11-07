@@ -62,15 +62,15 @@ export function checkSessionManagement(data: Hex, nowSec: number): void {
   if (!eq(expected.data, data)) fail();
 }
 
-export async function checkSponsoredCalls(callData: Hex, sender: Address, reads: GradReads, nowSec = Math.floor(Date.now() / 1000)): Promise<void> {
+export async function checkSponsoredCalls(callData: Hex, sender: Address, reads: GradReads, nowSec: number | Promise<number> = Math.floor(Date.now() / 1000)): Promise<void> {
   // SDK encodes owner account management as direct calldata. It is not an arbitrary execution envelope.
   const raw = callData.startsWith("0x8dd7712f") ? `0x${callData.slice(10)}` as Hex : callData;
   const calls = accountCalls(callData);
-  if (!calls) { checkSessionManagement(raw, nowSec); return; }
+  if (!calls) { checkSessionManagement(raw, await nowSec); return; }
   const dec = decodeFunctionData({ abi: exec, data: raw });
   if (!eq(encodeFunctionData({ abi: exec, functionName: dec.functionName, args: dec.args as never }), raw)) fail();
   if (!calls.length || calls.length > 8 || calls.some((c) => c.value !== 0n)) fail();
-  if (calls.length === 1 && eq(calls[0].to, sender)) { checkSessionManagement(calls[0].data as Hex, nowSec); return; }
+  if (calls.length === 1 && eq(calls[0].to, sender)) { checkSessionManagement(calls[0].data as Hex, await nowSec); return; }
   const needs = new Map<string, bigint>();
   const approvals = new Map<string, bigint>();
   let trades = 0;
@@ -109,7 +109,8 @@ export async function checkSponsoredCalls(callData: Hex, sender: Address, reads:
       spender = to; amount = a[0] as bigint; minOut = a[1] as bigint; deadline = a[2] as bigint;
       if (a.length === 4 && !eq(a[3] as string, sender)) fail();
     }
-    if (!address(payToken) || amount <= 0n || minOut <= 0n || deadline <= BigInt(nowSec) || deadline > BigInt(nowSec + 3600)) fail();
+    const now = await nowSec;
+    if (!address(payToken) || amount <= 0n || minOut <= 0n || deadline <= BigInt(now) || deadline > BigInt(now + 3600)) fail();
     const k = `${payToken.toLowerCase()}:${spender.toLowerCase()}`;
     // Approval must precede its consuming trade; exact total checked after the whole batch.
     if (!approvals.has(k)) fail();
