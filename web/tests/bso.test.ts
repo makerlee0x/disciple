@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { encodeFunctionData, parseAbi, type Address, type Hex } from "viem";
-import { BSO_ZERO, browserBso, bsoUnsigned, checkBso } from "../lib/aa/bso";
+import { BSO_ZERO, browserBso, bsoUnsigned, checkBso, bsoGasBounds } from "../lib/aa/bso";
 import { bsoPolicyId, checkSessionManagement, checkSponsoredCalls } from "../lib/server/gasSponsorship";
 import { buildCreateSession, buildUninstallSession, TRADE_PERMS } from "@disciple/session-keys";
 import { getDefaultSingleSignerValidationModuleAddress, getDefaultTimeRangeModuleAddress } from "@account-kit/smart-contracts/experimental";
@@ -36,6 +36,15 @@ describe("default-off BSO shape", () => {
     const old = { paymaster: coin, paymasterData: "0x1234", paymasterAndData: "0x", paymasterVerificationGasLimit: 5n, paymasterPostOpGasLimit: 5n, maxFeePerGas: 7n, callGasLimit: 10n, verificationGasLimit: 20n };
     const clean = bsoUnsigned(old); expect(old.maxFeePerGas).toBe(7n); expect(clean).toMatchObject(BSO_ZERO); expect(() => checkBso(clean)).not.toThrow();
     for (const k of ["paymaster", "paymasterData", "paymasterAndData", "paymasterVerificationGasLimit", "paymasterPostOpGasLimit"]) expect(clean).not.toHaveProperty(k);
+  });
+  it("sizes both limits from measured gas at 1.3x, not the old 1M/5M seed", () => {
+    const gas = bsoGasBounds({ callGasLimit: 500_000n, verificationGasLimit: 131_910n });
+    expect(gas).toEqual({ callGasLimit: 650_000n, verificationGasLimit: 171_483n });
+    expect(Number(131_910n * 10_000n / gas.verificationGasLimit) / 10_000).toBeGreaterThanOrEqual(0.4);
+    expect(() => bsoGasBounds({ callGasLimit: 0n, verificationGasLimit: 0n })).toThrow();
+    const estimate = { ...BSO_ZERO, callGasLimit: 0n, verificationGasLimit: 0n };
+    expect(() => checkBso(estimate, true)).not.toThrow();
+    expect(() => checkBso(estimate)).toThrow();
   });
   it("rejects PM, nonzero fee/PVG and excessive gas", () => {
     const good = { ...BSO_ZERO, callGasLimit: "0x100", verificationGasLimit: "0x100" };

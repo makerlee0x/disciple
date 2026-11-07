@@ -63,7 +63,7 @@ export async function POST(req: Request) {
     try {
       if (policyId) {
         if (body.params?.length !== 2) throw new Error("BSO params");
-        await checkSponsoredOperation(op as Record<string, unknown>, body.params?.[1]);
+        await checkSponsoredOperation(op as Record<string, unknown>, body.params?.[1], SIM.has(body.method));
       } else checkUserPaid(op, configuredPrepaidPaymaster());
     } catch {
       return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32602, message: "user operation gas/admission policy rejected" } }, { status: 400 });

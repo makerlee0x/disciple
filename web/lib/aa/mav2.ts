@@ -1,4 +1,4 @@
-import { BSO_ZERO, bsoUnsigned, checkBso } from "./bso";
+import { BSO_ZERO, bsoUnsigned, checkBso, bsoGasBounds } from "./bso";
 import { diagnosticText } from "./diagnostics";
 import { bufferedPvg, measurePvg } from "./preVerificationGas";
 /**
@@ -210,8 +210,10 @@ export const cachedGasEstimator: ClientMiddlewareFn = async (struct, args) => {
 /** Separate middleware prevents legacy fee/PVG/PM logic entering a hosted build. */
 export const bsoFeeEstimator: ClientMiddlewareFn = async (struct) => Object.assign(struct, BSO_ZERO);
 export const bsoGasEstimator: ClientMiddlewareFn = async (struct, args) => {
-  Object.assign(struct, BSO_ZERO, { callGasLimit: 5_000_000n, verificationGasLimit: 1_000_000n });
+  Object.assign(struct, BSO_ZERO, { callGasLimit: 0n, verificationGasLimit: 0n });
   const estimated = await defaultGasEstimator(args.client)(struct, { ...args, overrides: { ...args.overrides, ...BSO_ZERO } as typeof args.overrides });
+  const measured = await resolveProperties(estimated);
+  Object.assign(estimated, bsoGasBounds({ callGasLimit: BigInt(measured.callGasLimit ?? 0), verificationGasLimit: BigInt(measured.verificationGasLimit ?? 0) }));
   return bsoUnsigned(estimated);
 };
 

@@ -118,8 +118,8 @@ export async function checkSponsoredCalls(callData: Hex, sender: Address, reads:
   if (!trades || approvals.size !== needs.size || [...approvals].some(([k, n]) => needs.get(k) !== n)) fail();
 }
 
-export async function checkSponsoredOperation(op: Record<string, unknown>, entryPoint: unknown): Promise<void> {
-  checkBso(op);
+export async function checkSponsoredOperation(op: Record<string, unknown>, entryPoint: unknown, estimate = false): Promise<void> {
+  checkBso(op, estimate);
   if (typeof entryPoint !== "string" || !eq(entryPoint, ENTRYPOINT_V07) || !address(op.sender) || typeof op.callData !== "string" || op.initCode !== undefined || op.eip7702Auth !== undefined) fail();
   const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { timeout: 5000, retryCount: 0 }) });
   if (await pc.getChainId() !== 46630) fail();
