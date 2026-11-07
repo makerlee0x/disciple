@@ -244,6 +244,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     error HookNotImplemented();
     error ZeroOutput();
     error OnlyBridge();
+    /// @notice The result of `quote` (always reverted with).
+    error Quote(uint256 amountIn, uint256 amountOut);
 
     modifier lock() {
         if (_locked) revert Reentrancy();
@@ -449,31 +451,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         if (spec > uint256(uint128(type(int128).max))) revert BadParams();
         // input is currency0 when zeroForOne; the input is the coin on a sell
         bool sell = params.zeroForOne == p.coinIs0;
-        uint256 u = p.book.x;
-        uint256 v = p.book.y;
-        uint256 coinAmt;
-        uint256 quoteAmt;
-        if (sell) {
-            if (exactIn) {
-                coinAmt = spec;
-                quoteAmt = SM.sellExactIn(u, v, ks, ps, spec);
-            } else {
-                quoteAmt = spec;
-                coinAmt = SM.sellExactOut(u, v, ks, ps, spec);
-            }
-            if (quoteAmt == 0 || coinAmt == 0) revert ZeroOutput();
-            p.book.swap(int256(coinAmt), -int256(quoteAmt));
-        } else {
-            if (exactIn) {
-                quoteAmt = spec;
-                coinAmt = SM.buyExactIn(u, v, kb, pb, spec);
-            } else {
-                coinAmt = spec;
-                quoteAmt = SM.buyExactOut(u, v, kb, pb, spec);
-            }
-            if (quoteAmt == 0 || coinAmt == 0) revert ZeroOutput();
-            p.book.swap(-int256(coinAmt), int256(quoteAmt));
-        }
+        (uint256 coinAmt, uint256 quoteAmt) = _fill(p, sell, exactIn, spec, kb, ks, pb, ps);
+        if (sell) p.book.swap(int256(coinAmt), -int256(quoteAmt));
+        else p.book.swap(-int256(coinAmt), int256(quoteAmt));
 
         Currency coinC = Currency.wrap(p.coin);
         Currency quoteC = Currency.wrap(p.quote);
@@ -502,6 +482,46 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             ? toBeforeSwapDelta(int128(uint128(inAmt)), -int128(uint128(outAmt)))
             : toBeforeSwapDelta(-int128(uint128(outAmt)), int128(uint128(inAmt)));
         return (IHooks.beforeSwap.selector, delta, 0);
+    }
+
+    /// @dev The curve fill against the current reserves: (coin, quote) amounts for `spec` in or out.
+    function _fill(
+        Pool storage p,
+        bool sell,
+        bool exactIn,
+        uint256 spec,
+        uint256 kb,
+        uint256 ks,
+        uint256 pb,
+        uint256 ps
+    ) internal view returns (uint256 coinAmt, uint256 quoteAmt) {
+        uint256 u = p.book.x;
+        uint256 v = p.book.y;
+        if (sell) {
+            (coinAmt, quoteAmt) =
+                exactIn ? (spec, SM.sellExactIn(u, v, ks, ps, spec)) : (SM.sellExactOut(u, v, ks, ps, spec), spec);
+        } else {
+            (quoteAmt, coinAmt) =
+                exactIn ? (spec, SM.buyExactIn(u, v, kb, pb, spec)) : (SM.buyExactOut(u, v, kb, pb, spec), spec);
+        }
+        if (quoteAmt == 0 || coinAmt == 0) revert ZeroOutput();
+    }
+
+    /// @notice Exact quote for a swap on pool `id`, for routers and front ends. Use it with eth_call: it runs
+    ///         the same first-touch work as a real swap (the price latch and, if due, the settle), prices the
+    ///         fill against the live source, then ALWAYS reverts with `Quote(amountIn, amountOut)`, so nothing
+    ///         it did is kept. `zeroForOne` and `amountSpecified` mean what they do in a v4 swap (negative =
+    ///         exact in). The result matches a swap sent in the same block against the same state.
+    function quote(PoolId id, bool zeroForOne, int256 amountSpecified) external lock {
+        Pool storage p = _live(id);
+        if (amountSpecified == 0 || amountSpecified == type(int256).min) revert BadParams();
+        (uint256 kb, uint256 ks, uint256 pb, uint256 ps) = _prepare(p, id);
+        bool exactIn = amountSpecified < 0;
+        bool sell = zeroForOne == p.coinIs0;
+        (uint256 c, uint256 q) =
+            _fill(p, sell, exactIn, uint256(exactIn ? -amountSpecified : amountSpecified), kb, ks, pb, ps);
+        (uint256 i, uint256 o) = sell ? (c, q) : (q, c);
+        revert Quote(i, o);
     }
 
     /// @notice Refresh a same-chain pool's source price sample without a trade. Anyone may call. The first call

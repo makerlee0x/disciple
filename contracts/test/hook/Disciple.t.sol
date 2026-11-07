@@ -109,9 +109,14 @@ contract MockEndpoint is ILayerZeroEndpointV2Lite {
 
     /// @dev What the executor does on the destination chain: endpoint.lzReceive -> receiver.lzReceive.
     function deliver(address receiver, uint32 srcEid, address from, bytes calldata message) external {
-        DisciplePushReceiver(receiver).lzReceive(
-            Origin(srcEid, bytes32(uint256(uint160(from))), uint64(nonce)), bytes32(nonce), message, address(this), ""
-        );
+        DisciplePushReceiver(receiver)
+            .lzReceive(
+                Origin(srcEid, bytes32(uint256(uint160(from))), uint64(nonce)),
+                bytes32(nonce),
+                message,
+                address(this),
+                ""
+            );
     }
 }
 
@@ -166,7 +171,8 @@ contract DiscipleTest is Test {
         // tip-jar reference: a WETH/USD pool at 3000 USD per ETH (WETH is token0)
         refPair = new MockPair();
         refPair.set(1_000e18, 3_000_000e18);
-        DiscipleHook.Config memory cfg = DiscipleHook.Config(10_000, address(usd), 1, address(refPair), bytes32(0), true);
+        DiscipleHook.Config memory cfg =
+            DiscipleHook.Config(10_000, address(usd), 1, address(refPair), bytes32(0), true);
         bytes memory args = abi.encode(manager, address(receiver), address(v2f), address(0), address(0), cfg);
         bytes32 salt = _mine(args);
         hook = new DiscipleHook{salt: salt}(manager, address(receiver), address(v2f), address(0), address(0), cfg);
@@ -222,7 +228,16 @@ contract DiscipleTest is Test {
 
     function _createSame(uint256 coinIn, uint256 quoteIn) internal returns (PoolKey memory key, PoolId id) {
         (key, id) = hook.createPool(
-            DiscipleHook.CreateParams({coin: address(coin), quote: address(usd), fee: FEE, src: _src(0), coinIn: coinIn, quoteIn: quoteIn, srcKey: _noKey(), srcKey2: _noKey()})
+            DiscipleHook.CreateParams({
+                coin: address(coin),
+                quote: address(usd),
+                fee: FEE,
+                src: _src(0),
+                coinIn: coinIn,
+                quoteIn: quoteIn,
+                srcKey: _noKey(),
+                srcKey2: _noKey()
+            })
         );
     }
 
@@ -231,7 +246,16 @@ contract DiscipleTest is Test {
         returns (PoolKey memory key, PoolId id)
     {
         (key, id) = hook.createPool{value: eth}(
-            DiscipleHook.CreateParams({coin: address(coin), quote: address(usd), fee: FEE, src: _src(30101), coinIn: coinIn, quoteIn: quoteIn, srcKey: _noKey(), srcKey2: _noKey()})
+            DiscipleHook.CreateParams({
+                coin: address(coin),
+                quote: address(usd),
+                fee: FEE,
+                src: _src(30101),
+                coinIn: coinIn,
+                quoteIn: quoteIn,
+                srcKey: _noKey(),
+                srcKey2: _noKey()
+            })
         );
     }
 
@@ -366,8 +390,14 @@ contract DiscipleTest is Test {
     /// With a pool fee above minStep the step is the fee.
     function test_stepIsPoolFeeWhenLarger() public {
         DiscipleHook.CreateParams memory cp = DiscipleHook.CreateParams({
-            coin: address(coin), quote: address(usd), fee: 30_000, src: _src(0), coinIn: 1000e18, quoteIn: 2000e18,
-            srcKey: _noKey(), srcKey2: _noKey()
+            coin: address(coin),
+            quote: address(usd),
+            fee: 30_000,
+            src: _src(0),
+            coinIn: 1000e18,
+            quoteIn: 2000e18,
+            srcKey: _noKey(),
+            srcKey2: _noKey()
         });
         (, PoolId id) = hook.createPool(cp);
         uint256 a = hook.poolState(id).anchorX128;
@@ -616,7 +646,16 @@ contract DiscipleTest is Test {
         s.coinIs0 = true;
         s.target = address(p2);
         (PoolKey memory key, PoolId id) = hook.createPool(
-            DiscipleHook.CreateParams({coin: address(c2), quote: address(coin), fee: FEE, src: s, coinIn: 1000e18, quoteIn: 2000e18, srcKey: _noKey(), srcKey2: _noKey()})
+            DiscipleHook.CreateParams({
+                coin: address(c2),
+                quote: address(coin),
+                fee: FEE,
+                src: s,
+                coinIn: 1000e18,
+                quoteIn: 2000e18,
+                srcKey: _noKey(),
+                srcKey2: _noKey()
+            })
         );
         key;
         hook.fundTank{value: 0.01 ether}(id);
@@ -631,11 +670,60 @@ contract DiscipleTest is Test {
     }
 
     // -----------------------------------------------------------------------------------------
+    // quote
+    // -----------------------------------------------------------------------------------------
+
+    function _quote(PoolId id, bool zeroForOne, int256 amt) internal returns (uint256 i, uint256 o) {
+        (bool ok, bytes memory r) = address(hook).call(abi.encodeCall(DiscipleHook.quote, (id, zeroForOne, amt)));
+        assertFalse(ok, "quote always reverts");
+        assertEq(bytes4(r), DiscipleHook.Quote.selector, "with the result");
+        assembly {
+            i := mload(add(r, 36))
+            o := mload(add(r, 68))
+        }
+    }
+
+    function _check(PoolKey memory key, PoolId id, bool buy, int256 amt) internal {
+        bool coinIs0 = Currency.unwrap(key.currency0) == address(coin);
+        bool z = buy ? !coinIs0 : coinIs0;
+        (uint256 qi, uint256 qo) = _quote(id, z, amt);
+        MockERC20 inT = buy ? usd : coin;
+        MockERC20 outT = buy ? coin : usd;
+        uint256 i0 = inT.balanceOf(address(this));
+        uint256 o0 = outT.balanceOf(address(this));
+        _swap(key, buy, amt);
+        assertEq(i0 - inT.balanceOf(address(this)), qi, "quoted input = paid");
+        assertEq(outT.balanceOf(address(this)) - o0, qo, "quoted output = received");
+    }
+
+    function test_quoteMatchesSwap() public {
+        vm.fee(0.01 gwei);
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        _churn(key, 3);
+        pair.set(1_000_000e18, 2_060_000e18); // a real move, so the quote has to include the latch
+        _nextBlock();
+        _nextBlock();
+        _check(key, id, true, -20e18); // first touch of the block: latch + settle
+        _check(key, id, false, -5e18); // same block
+        _check(key, id, true, 3e18); // exact out
+        _nextBlock();
+        _check(key, id, false, 4e18);
+        uint256 a = hook.poolState(id).anchorX128;
+        _quote(id, true, -1e18);
+        assertEq(hook.poolState(id).anchorX128, a, "a quote changes nothing");
+    }
+
+    // -----------------------------------------------------------------------------------------
     // standard hook events
     // -----------------------------------------------------------------------------------------
 
     event HookSwap(
-        bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint128 hookLPfeeAmount0, uint128 hookLPfeeAmount1
+        bytes32 indexed id,
+        address indexed sender,
+        int128 amount0,
+        int128 amount1,
+        uint128 hookLPfeeAmount0,
+        uint128 hookLPfeeAmount1
     );
     event HookModifyLiquidity(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1);
 
@@ -645,7 +733,8 @@ contract DiscipleTest is Test {
         _nextBlock();
         uint256 out = _coinsOut(key, true, 20e18);
         // buy: quote in, coin out; fee = 0.3% of the input
-        (int128 a0, int128 a1) = coinIs0 ? (-int128(uint128(out)), int128(20e18)) : (int128(20e18), -int128(uint128(out)));
+        (int128 a0, int128 a1) =
+            coinIs0 ? (-int128(uint128(out)), int128(20e18)) : (int128(20e18), -int128(uint128(out)));
         (uint128 f0, uint128 f1) = coinIs0 ? (uint128(0), uint128(0.06e18)) : (uint128(0.06e18), uint128(0));
         vm.expectEmit(true, true, false, true, address(hook));
         emit HookSwap(PoolId.unwrap(id), address(swapper), a0, a1, f0, f1);
@@ -690,8 +779,21 @@ contract DiscipleTest is Test {
         vm.roll(bn);
     }
 
-    function _cp(DiscipleHook.Source memory s, PoolKey memory k) internal view returns (DiscipleHook.CreateParams memory) {
-        return DiscipleHook.CreateParams({coin: address(coin), quote: address(usd), fee: FEE, src: s, coinIn: 1000e18, quoteIn: 3000e18, srcKey: k, srcKey2: _noKey()});
+    function _cp(DiscipleHook.Source memory s, PoolKey memory k)
+        internal
+        view
+        returns (DiscipleHook.CreateParams memory)
+    {
+        return DiscipleHook.CreateParams({
+            coin: address(coin),
+            quote: address(usd),
+            fee: FEE,
+            src: s,
+            coinIn: 1000e18,
+            quoteIn: 3000e18,
+            srcKey: k,
+            srcKey2: _noKey()
+        });
     }
 
     function test_sameChainSourceMustBeTheRealPairPool() public {
@@ -759,7 +861,8 @@ contract DiscipleTest is Test {
         assertEq(k1.tickSpacing, 1);
         assertEq(k2.tickSpacing, 2);
         assertTrue(PoolId.unwrap(id1) != PoolId.unwrap(id2));
-        (address a0, address a1) = address(coin) < address(usd) ? (address(coin), address(usd)) : (address(usd), address(coin));
+        (address a0, address a1) =
+            address(coin) < address(usd) ? (address(coin), address(usd)) : (address(usd), address(coin));
         assertEq(hook.poolsOf(a0, a1), 2);
         assertTrue(hook.poolState(id2).live);
         _nextBlock();
@@ -774,7 +877,11 @@ contract DiscipleTest is Test {
         v2f.add(address(q));
     }
 
-    function _twoHop(address leg1, bool coinIs0, address leg2, bool xIs0) internal pure returns (DiscipleHook.Source memory s) {
+    function _twoHop(address leg1, bool coinIs0, address leg2, bool xIs0)
+        internal
+        pure
+        returns (DiscipleHook.Source memory s)
+    {
         s.kind = 1;
         s.coinIs0 = coinIs0;
         s.target = leg1;
@@ -838,9 +945,24 @@ contract DiscipleTest is Test {
     /// @dev Native ETH in a v4 source counts as the hook's WETH.
     function test_nativeEthSourceCountsAsWeth() public {
         MockERC20 w = new MockERC20("WETH", "WETH", 18);
-        bytes memory args = abi.encode(manager, address(0), address(v2f), address(0), address(w), DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false));
-        DiscipleHook h = new DiscipleHook{salt: _mine(args)}(manager, address(0), address(v2f), address(0), address(w), DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false));
-        PoolKey memory src = PoolKey(Currency.wrap(address(0)), Currency.wrap(address(coin)), 3000, 60, IHooks(address(0)));
+        bytes memory args = abi.encode(
+            manager,
+            address(0),
+            address(v2f),
+            address(0),
+            address(w),
+            DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+        );
+        DiscipleHook h = new DiscipleHook{salt: _mine(args)}(
+            manager,
+            address(0),
+            address(v2f),
+            address(0),
+            address(w),
+            DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+        );
+        PoolKey memory src =
+            PoolKey(Currency.wrap(address(0)), Currency.wrap(address(coin)), 3000, 60, IHooks(address(0)));
         manager.initialize(src, TickMath.getSqrtPriceAtTick(-6900)); // ~2 ETH per coin... coin is currency1
         DiscipleHook.Source memory s;
         s.kind = 3;
@@ -851,7 +973,14 @@ contract DiscipleTest is Test {
         w.approve(address(h), type(uint256).max);
         coin.approve(address(h), type(uint256).max);
         DiscipleHook.CreateParams memory cp = DiscipleHook.CreateParams({
-            coin: address(coin), quote: address(w), fee: FEE, src: s, coinIn: 100e18, quoteIn: 1000e18, srcKey: src, srcKey2: _noKey()
+            coin: address(coin),
+            quote: address(w),
+            fee: FEE,
+            src: s,
+            coinIn: 100e18,
+            quoteIn: 1000e18,
+            srcKey: src,
+            srcKey2: _noKey()
         });
         (, PoolId id) = h.createPool(cp);
         assertTrue(h.poolState(id).live);
@@ -865,7 +994,14 @@ contract DiscipleTest is Test {
         DiscipleHook.Source memory s = _src(0);
         s.coinIs0 = false; // usd as the coin: it is token1 of the pair
         DiscipleHook.CreateParams memory cp = DiscipleHook.CreateParams({
-            coin: address(usd), quote: address(coin), fee: FEE, src: s, coinIn: 3000e18, quoteIn: 1000e18, srcKey: _noKey(), srcKey2: _noKey()
+            coin: address(usd),
+            quote: address(coin),
+            fee: FEE,
+            src: s,
+            coinIn: 3000e18,
+            quoteIn: 1000e18,
+            srcKey: _noKey(),
+            srcKey2: _noKey()
         });
         (PoolKey memory k1,) = hook.createPool(cp);
         (PoolKey memory k2,) = _createSame(1000e18, 2000e18);
@@ -937,7 +1073,6 @@ contract DiscipleTest is Test {
         assertEq(hook.poolState(id).tank, t0 + 0.4 ether);
     }
 
-
     // -----------------------------------------------------------------------------------------
     // LayerZero push (Robinhood -> Ethereum, and any other LayerZero pair)
     // -----------------------------------------------------------------------------------------
@@ -950,7 +1085,16 @@ contract DiscipleTest is Test {
 
     function _createPush(uint32 eid, uint256 eth) internal returns (PoolKey memory key, PoolId id) {
         (key, id) = hook.createPool{value: eth}(
-            DiscipleHook.CreateParams({coin: address(coin), quote: address(usd), fee: FEE, src: _pushSrc(eid), coinIn: 1000e18, quoteIn: 3000e18, srcKey: _noKey(), srcKey2: _noKey()})
+            DiscipleHook.CreateParams({
+                coin: address(coin),
+                quote: address(usd),
+                fee: FEE,
+                src: _pushSrc(eid),
+                coinIn: 1000e18,
+                quoteIn: 3000e18,
+                srcKey: _noKey(),
+                srcKey2: _noKey()
+            })
         );
     }
 
@@ -1009,7 +1153,9 @@ contract DiscipleTest is Test {
 
         // only the receiver may call the hook on the push route; only the endpoint may call the receiver
         vm.expectRevert(DiscipleHook.OnlyBridge.selector);
-        hook.onBridgePrice(id, HOME_EID, 1, address(pair), bytes32(0), 1e18, 9e18, uint64(block.timestamp), address(this), 0);
+        hook.onBridgePrice(
+            id, HOME_EID, 1, address(pair), bytes32(0), 1e18, 9e18, uint64(block.timestamp), address(this), 0
+        );
         Origin memory o = Origin(HOME_EID, bytes32(uint256(uint160(address(pushSender)))), 1);
         bytes memory last = home.lastMessage();
         vm.expectRevert(DisciplePushReceiver.OnlyEndpoint.selector);
@@ -1101,14 +1247,34 @@ contract DiscipleTest is Test {
     function test_createPushNeedsReceiverAndChain() public {
         DiscipleHook.Source memory s = _pushSrc(0);
         vm.expectRevert(DiscipleHook.BadParams.selector);
-        hook.createPool(DiscipleHook.CreateParams({coin: address(coin), quote: address(usd), fee: FEE, src: s, coinIn: 1e18, quoteIn: 3e18, srcKey: _noKey(), srcKey2: _noKey()}));
+        hook.createPool(
+            DiscipleHook.CreateParams({
+                coin: address(coin),
+                quote: address(usd),
+                fee: FEE,
+                src: s,
+                coinIn: 1e18,
+                quoteIn: 3e18,
+                srcKey: _noKey(),
+                srcKey2: _noKey()
+            })
+        );
         s = _pushSrc(HOME_EID);
         s.push = false; // a remote pool must be a push pool (lzRead and the rollup bridge are gone)
         vm.expectRevert(DiscipleHook.BadParams.selector);
-        hook.createPool(DiscipleHook.CreateParams({coin: address(coin), quote: address(usd), fee: FEE, src: s, coinIn: 1e18, quoteIn: 3e18, srcKey: _noKey(), srcKey2: _noKey()}));
+        hook.createPool(
+            DiscipleHook.CreateParams({
+                coin: address(coin),
+                quote: address(usd),
+                fee: FEE,
+                src: s,
+                coinIn: 1e18,
+                quoteIn: 3e18,
+                srcKey: _noKey(),
+                srcKey2: _noKey()
+            })
+        );
     }
-
-
 
     function test_lzPushBatchesSourcesAndSplitsCost() public {
         // two sources, three pools: two pools on `pair`, one on `pair2`, all in one message
@@ -1118,12 +1284,30 @@ contract DiscipleTest is Test {
         MockERC20 c2 = usd2();
         DiscipleHook.Source memory s = _pushSrc(HOME_EID);
         (PoolKey memory k2, PoolId p2) = hook.createPool{value: 0.05 ether}(
-            DiscipleHook.CreateParams({coin: address(c2), quote: address(usd), fee: 10_000, src: s, coinIn: 1000e18, quoteIn: 3000e18, srcKey: _noKey(), srcKey2: _noKey()})
+            DiscipleHook.CreateParams({
+                coin: address(c2),
+                quote: address(usd),
+                fee: 10_000,
+                src: s,
+                coinIn: 1000e18,
+                quoteIn: 3000e18,
+                srcKey: _noKey(),
+                srcKey2: _noKey()
+            })
         );
         MockERC20 c3 = usd2();
         s.target = address(pair2);
         (PoolKey memory k3, PoolId p3) = hook.createPool{value: 0.05 ether}(
-            DiscipleHook.CreateParams({coin: address(c3), quote: address(usd), fee: FEE, src: s, coinIn: 1000e18, quoteIn: 3000e18, srcKey: _noKey(), srcKey2: _noKey()})
+            DiscipleHook.CreateParams({
+                coin: address(c3),
+                quote: address(usd),
+                fee: FEE,
+                src: s,
+                coinIn: 1000e18,
+                quoteIn: 3000e18,
+                srcKey: _noKey(),
+                srcKey2: _noKey()
+            })
         );
         DisciplePushSender.Req[] memory r = new DisciplePushSender.Req[](2);
         r[0].kind = 1;
@@ -1176,7 +1360,6 @@ contract DiscipleTest is Test {
         assertEq(address(k).balance, b0 - home.FEE() + 3 * each, "three accepted listings refunded");
         emit log_named_uint("home cost carried for 2 sources / 4 listings (wei at 1 gwei)", carried);
     }
-
 
     function test_lzPushDuplicatesTooManyAndTakeover() public {
         (PoolKey memory key, PoolId id) = _createPush(HOME_EID, 0.05 ether);
@@ -1243,7 +1426,16 @@ contract DiscipleTest is Test {
         assertEq(local.configs(), c0 + 1);
         assertEq(receiver.peers(30184), bytes32(uint256(uint160(address(other)))));
         (, PoolId baseId) = hook.createPool{value: 0.01 ether}(
-            DiscipleHook.CreateParams({coin: address(usd2()), quote: address(usd), fee: FEE, src: _pushSrc(30184), coinIn: 1000e18, quoteIn: 3000e18, srcKey: _noKey(), srcKey2: _noKey()})
+            DiscipleHook.CreateParams({
+                coin: address(usd2()),
+                quote: address(usd),
+                fee: FEE,
+                src: _pushSrc(30184),
+                coinIn: 1000e18,
+                quoteIn: 3000e18,
+                srcKey: _noKey(),
+                srcKey2: _noKey()
+            })
         );
         bytes32 to = bytes32(uint256(uint160(address(receiver))));
         other.push{value: 0.01 ether}(30101, to, _req(address(pair), baseId), 200_000);

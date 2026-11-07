@@ -29,6 +29,7 @@ contract CompetitivenessForkTest is Test {
     address internal constant LIVE = 0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88;
     bytes32 internal constant LIVE_ID = 0xddbfa6efd15715013f50e7f1cdceaab3b69b0b8e4c9d4b47fcc28e47f6a80e8f;
     bytes32 internal constant LEG1 = 0xa6975f4720a95aa9cdfa9b010a065b0e941534c93f9fa708104c08f0ac029ca0;
+    bytes32 internal constant REF_ETH_USDG = 0xa791e5169faf703c0b63fd9552c33ec1128a773a00f5dc33a640da62a022cd35;
     bytes32 internal constant LEG2 = 0x319bac87e616a89e241c10aeb8afd4892a852cdd8b373cd9765ecddc40b87cfe;
 
     function test_fork_idleQuotes() public {
@@ -43,6 +44,7 @@ contract CompetitivenessForkTest is Test {
         console2.log("G7_fork_live_code", LIVE.code.length);
         _liveTouches();
         _newHookIdle();
+        _jarAndQuote();
     }
 
     function _liveKey() internal pure returns (PoolKey memory) {
@@ -112,7 +114,7 @@ contract CompetitivenessForkTest is Test {
             address(0),
             address(0),
             WETH,
-            DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+            DiscipleHook.Config(10_000, USDG, 3, address(PM), REF_ETH_USDG, true)
         );
         (address want, bytes32 salt) = HookMiner.find(address(this), flags, type(DiscipleHook).creationCode, args);
         DiscipleHook h = new DiscipleHook{salt: salt}(
@@ -121,7 +123,7 @@ contract CompetitivenessForkTest is Test {
             address(0),
             address(0),
             WETH,
-            DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+            DiscipleHook.Config(10_000, USDG, 3, address(PM), REF_ETH_USDG, true)
         );
         require(address(h) == want, "mined");
         console2.log("G7_new_hook_code", address(h).code.length);
@@ -212,6 +214,98 @@ contract CompetitivenessForkTest is Test {
             console2.log("  second_out", second);
             console2.log("  buyBpsVsAnchor", _over(Math.mulDiv(1_000e6, Q128, second), v.anchorX128));
         }
+    }
+
+    /// @dev New hook on live state: the jar fills from real round trips at the fork's basefee (valued through the
+    ///      live ETH/USDG pool), a tip is paid after a real leader move, and quote() matches the swap.
+    function _jarAndQuote() internal {
+        bytes memory args = abi.encode(
+            PM,
+            address(0),
+            address(0),
+            address(0),
+            WETH,
+            DiscipleHook.Config(10_000, USDG, 3, address(PM), REF_ETH_USDG, true)
+        );
+        uint160 flags = uint160(
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
+        );
+        (, bytes32 salt) = HookMiner.find(address(this), flags, type(DiscipleHook).creationCode, args);
+        DiscipleHook h = new DiscipleHook{salt: salt}(
+            PM,
+            address(0),
+            address(0),
+            address(0),
+            WETH,
+            DiscipleHook.Config(10_000, USDG, 3, address(PM), REF_ETH_USDG, true)
+        );
+        PoolSwapTest sw = new PoolSwapTest(PM);
+        _fund(sw);
+        IERC20(STRATEGY).approve(address(h), type(uint256).max);
+        IERC20(USDG).approve(address(h), type(uint256).max);
+        DiscipleHook.Source memory s;
+        s.kind = 3;
+        s.coinIs0 = true;
+        s.target = address(PM);
+        s.v4Id = LEG1;
+        s.kind2 = 3;
+        s.xIs0 = false;
+        s.target2 = address(PM);
+        s.v4Id2 = LEG2;
+        PoolKey memory k1 = PoolKey(
+            Currency.wrap(STRATEGY),
+            Currency.wrap(MSTR),
+            0x800000,
+            8,
+            IHooks(0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544)
+        );
+        (PoolKey memory key, PoolId id) = h.createPool(
+            DiscipleHook.CreateParams({
+                coin: STRATEGY,
+                quote: USDG,
+                fee: 10_000,
+                src: s,
+                coinIn: 30_000_000e18,
+                quoteIn: 50_000e6,
+                srcKey: k1,
+                srcKey2: _leg2Key()
+            })
+        );
+        console2.log("G8_basefee", block.basefee);
+        for (uint256 i = 0; i < 20; i++) {
+            vm.roll(vm.getBlockNumber() + 1);
+            vm.warp(vm.getBlockTimestamp() + 2);
+            uint256 got = _swap(sw, key, false, 500e6);
+            vm.roll(vm.getBlockNumber() + 1);
+            vm.warp(vm.getBlockTimestamp() + 2);
+            _swap(sw, key, true, got);
+        }
+        vm.roll(vm.getBlockNumber() + 1);
+        _swap(sw, key, false, 1e6);
+        DiscipleHook.PoolView memory v = h.poolState(id);
+        console2.log("G8_jar_strategy", v.jarX);
+        console2.log("G8_jar_usdg", v.jarY);
+        // a real 100k USDG buy on the leader's second leg moves the price; sample twice and collect the tip
+        _swap(sw, _leg2Key(), true, 100_000e6);
+        address bot = address(0xB07);
+        uint256 b0 = IERC20(USDG).balanceOf(bot);
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.prank(bot);
+        h.sample(id);
+        console2.log("G8_tip_usdg", IERC20(USDG).balanceOf(bot) - b0);
+        // quote() against the next swap
+        vm.roll(vm.getBlockNumber() + 1);
+        (bool ok, bytes memory r) = address(h).call(abi.encodeCall(DiscipleHook.quote, (id, false, -int256(100e6))));
+        require(!ok && bytes4(r) == DiscipleHook.Quote.selector, "quote reverts with result");
+        uint256 qo;
+        assembly {
+            qo := mload(add(r, 68))
+        }
+        uint256 out = _swap(sw, key, false, 100e6);
+        console2.log("G8_quote_out", qo);
+        console2.log("G8_swap_out", out);
+        require(qo == out, "quote matches swap");
     }
 
     function _spot() internal view returns (uint256) {

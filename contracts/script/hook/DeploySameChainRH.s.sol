@@ -10,6 +10,8 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
 
 /// @title Same-chain-only DiscipleHook on Robinhood Chain (internal mainnet test, maker 2026-11-05)
@@ -47,17 +49,26 @@ contract DeploySameChainRH is Script {
         console2.log("DiscipleHook (Robinhood, same chain only)", address(h));
     }
 
-    /// @dev Robinhood: 1% minimum anchor step. The tip jar values gas in USDG through one WETH/USDG reference
-    ///      pool: REF_KIND (1 v2, 2 v3, 3 v4; 0 = none, tips then fall back to the ETH tank), REF_TARGET (v2 pair /
-    ///      v3 pool; v4: the PoolManager), REF_V4ID (v4 pool id), REF_WETH_IS0 (WETH is token0 of that pool).
+    /// @dev The Uniswap v4 ETH/USDG pool on Robinhood (maker, 2026-11-07). ETH (native or WETH) sorts below USDG,
+    ///      so it is currency0.
+    bytes32 internal constant REF_ETH_USDG = 0xa791e5169faf703c0b63fd9552c33ec1128a773a00f5dc33a640da62a022cd35;
+
+    /// @dev Robinhood: 1% minimum anchor step. The tip jar values gas in USDG through the ETH/USDG reference pool
+    ///      (REF_V4ID overrides it; REF_KIND=0 turns it off, tips then fall back to the ETH tank).
     function _cfg() internal view returns (DiscipleHook.Config memory c) {
         c.minStep = 10_000;
         c.refToken = USDG;
-        c.refKind = uint8(vm.envOr("REF_KIND", uint256(0)));
-        c.refTarget = vm.envOr("REF_TARGET", address(0));
-        c.refV4Id = vm.envOr("REF_V4ID", bytes32(0));
-        c.refWethIs0 = vm.envOr("REF_WETH_IS0", false);
-        if (c.refKind == 3 && c.refTarget == address(0)) c.refTarget = address(PM);
+        c.refKind = uint8(vm.envOr("REF_KIND", uint256(3)));
+        c.refTarget = address(PM);
+        c.refV4Id = vm.envOr("REF_V4ID", REF_ETH_USDG);
+        c.refWethIs0 = true;
+        if (c.refKind == 3) {
+            // sanity: the reference reads as 100 to 100,000 USDG per ETH (USDG has 6 decimals, ETH 18)
+            (uint160 sp,,,) = StateLibrary.getSlot0(PM, PoolId.wrap(c.refV4Id));
+            uint256 usdPerEth = Math.mulDiv(Math.mulDiv(uint256(sp), uint256(sp), 1 << 96), 1e12, 1 << 96);
+            require(usdPerEth >= 100 && usdPerEth <= 100_000, "reference pool price");
+            console2.log("reference USDG per ETH", usdPerEth);
+        }
     }
 
     function pool() public {
