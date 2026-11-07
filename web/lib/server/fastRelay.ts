@@ -1,4 +1,5 @@
 import "server-only";
+import { relayReadTransport } from "./relayReadTransport";
 import type { RelayMetrics } from "./relayMetrics";
 /**
  * disciple_sendUserOperationSync — the one-round-trip trade path (self-bundler only).
@@ -15,7 +16,7 @@ import type { RelayMetrics } from "./relayMetrics";
  * nonce rejection (incl. "nonce too high") ⇒ resync + re-sign, "already known" / unclear ⇒ wait on the SAME txHash,
  * never re-sign. Both the fast path and the standard eth_sendUserOperation path (standardRelayer) follow them.
  */
-import { createPublicClient, decodeEventLog, decodeFunctionData, decodeFunctionResult, encodeFunctionData, http, keccak256, parseAbi, parseAbiItem, type Hex, type TransactionReceipt } from "viem";
+import { createPublicClient, decodeEventLog, decodeFunctionData, decodeFunctionResult, encodeFunctionData, keccak256, parseAbi, parseAbiItem, type Hex, type TransactionReceipt } from "viem";
 import type { RelayConfirmed, RelayReceipt } from "../aa/relayTypes";
 import { jsonRpc, plainSend, syncSend, waitReceipt, type PendingReason, type RpcErr } from "./syncSend";
 import { RelayerNonceCursor, SharedNonceCursor, sendWithCursor, classifySendError, type NonceCursor, type NonceStore } from "./relayerNonce";
@@ -45,7 +46,7 @@ const epAbi = parseAbi([
   "function handleOps(P[] ops, address beneficiary)",
 ]);
 const uoEvent = parseAbiItem("event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)");
-const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { fetchOptions: { keepalive: true }, timeout: 3000, retryCount: 1 })   /* job 9: bounded pre-send (viem default 10 s × 3 retries) */ });
+const pc = createPublicClient({ chain: robinhoodTestnet, transport: relayReadTransport(3000, 1)   /* job 9: bounded pre-send (viem default 10 s × 3 retries) */ });
 
 /** One relayer EOA + its nonce cursor (one per key per process). */
 type RelayerState = { account: PrivateKeyAccount; nonces: NonceCursor; /** pool lease still held (checked before every signature) */ canSign?: () => boolean };

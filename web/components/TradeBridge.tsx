@@ -461,28 +461,41 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // signs and sends with no chain reads. Optimistic UI: "sent" the moment the op is submitted (disciple:op).
   useEffect(() => {
     if (!live) return;
-    let alive = true, probeN = 0; const pc = publicClient();
-    const tick = async () => {
-      if (!alive || document.hidden) return;
-      try {
-        // the ACTIVE amount: the custom $ when filled (what BOOST / SPACE spends), else the selected preset
+    let alive = true, probeN = 0, warming: Promise<void> | undefined; const pc = publicClient();
+    const tick = (): Promise<void> => {
+      if (!alive || document.hidden) return Promise.resolve();
+      if (warming) return warming; // one bounded set of reads; no interval overlap
+      warming = (async () => {
         const usd = customRef.current || (ammo.usd[mode] ?? MODES[mode].usd);
-        const me = await activeAddress();
-        const bal = me ? await ownHint(pc, token as Address, me, 4000).catch(() => BigInt(0)) : BigInt(0);
-        const sellFrac = (cfgRef.current.sells[sellSelRef.current] ?? 25) / 100;
-        // every 3rd tick also a probe at another size per side: two sizes fit the route's depth (lib/trade/quoteModel),
-        // so a tap of ANY size — and every tap behind our own in-flight trades — prices from memory
         const probe = ++probeN % 3 === 0;
-        await Promise.all([
-          shotAmountIn(pc, token as Address, "buy", usd).then((a) => Promise.all([warmRoute(pc, token as Address, "buy", a), probe ? warmRoute(pc, token as Address, "buy", a * BigInt(2)) : null])),
-          bal > BigInt(0) ? warmRoute(pc, token as Address, "sell", sellAmount(bal, sellFrac)) : null,
-          bal > BigInt(0) && probe ? warmRoute(pc, token as Address, "sell", sellAmount(bal, sellFrac >= 0.5 ? sellFrac / 2 : Math.min(1, sellFrac * 2))) : null,
-        ]);
-      } catch { /* next tick */ }
+        // Buy quotes must not wait for the independent account/balance hint.
+        const buy = shotAmountIn(pc, token as Address, "buy", usd).then((a) => Promise.allSettled([
+          warmRoute(pc, token as Address, "buy", a),
+          ...(probe ? [warmRoute(pc, token as Address, "buy", a * BigInt(2))] : []),
+        ]));
+        const sell = (async () => {
+          const me = await activeAddress();
+          const bal = me ? await ownHint(pc, token as Address, me, 4000).catch(() => BigInt(0)) : BigInt(0);
+          if (!alive || bal <= BigInt(0)) return;
+          // Warm exact visible preset amounts, including 100%, rather than just the
+          // selected 25% and a downscaled hint. TTL/quote/minOut checks are unchanged.
+          const fractions = cfgRef.current.sells.map((pct) => pct / 100);
+          const selected = fractions[sellSelRef.current] ?? 0.25;
+          if (probe) fractions.push(selected >= 0.5 ? selected / 2 : Math.min(1, selected * 2));
+          const amounts = [...new Set(fractions.filter((f) => f > 0 && f <= 1).map((f) => sellAmount(bal, f)))];
+          await Promise.allSettled(amounts.map((a) => warmRoute(pc, token as Address, "sell", a)));
+        })();
+        await Promise.allSettled([buy, sell]);
+      })().finally(() => { warming = undefined; });
+      return warming;
     };
     warmRef.current = tick;
     void aaWarm().catch(() => undefined); void tick();
-    const iv = setInterval(tick, 1000);
+    // Refresh before the existing 1500ms quote TTL; background tabs stay quiet.
+    // Network failure/cold startup still uses the existing valid live-read fallback.
+    const iv = setInterval(() => void tick(), 750);
+    const visible = () => { if (!document.hidden) void tick(); };
+    addEventListener("focus", visible); document.addEventListener("visibilitychange", visible);
     // keep the relayer's trust entry for this sender fresh (server TTL 60 s) + fees/deploy state warm
     const iw = setInterval(() => { if (!document.hidden) void aaWarm().catch(() => undefined); }, 20_000);
     const sub = (e: Event) => {
@@ -498,7 +511,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       if (d?.phase === "confirmed") setTimeout(() => void tick(), 0);
     };
     addEventListener("disciple:op", sub);
-    return () => { alive = false; warmRef.current = async () => {}; clearInterval(iv); clearInterval(iw); removeEventListener("disciple:op", sub); };
+    return () => { alive = false; warmRef.current = async () => {}; clearInterval(iv); clearInterval(iw); removeEventListener("focus", visible); document.removeEventListener("visibilitychange", visible); removeEventListener("disciple:op", sub); };
   }, [live, token, mode, ammo.usd]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Preview for the selected ammo from on-chain views (curve quoteBuy/quoteSell, router quoteExactIn).
@@ -649,7 +662,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const customRef = useRef(customUsd); customRef.current = customUsd;
   useEffect(() => { dispatchEvent(new CustomEvent("disciple:custombuy", { detail: { usd: customUsd } })); }, [customUsd]);
   // a new custom $ is warmed right away (debounced while typing), not only on the next 1 s tick
-  useEffect(() => { if (!customUsd) return; const id = setTimeout(() => void warmRef.current(), 150); return () => clearTimeout(id); }, [customUsd]);
+  useEffect(() => { const id = setTimeout(() => void warmRef.current(), 100); return () => clearTimeout(id); }, [customUsd, sellSel]);
   // a new BOOST amount makes an earlier failure line ("✕ not enough cash…") stale: drop it (the engine drops its ✕ rows too)
   const amtKey = customUsd || (ammo.usd[mode] ?? MODES[mode].usd);
   useEffect(() => { setLast((l) => (l.startsWith("✕") ? "" : l)); setHint(""); }, [amtKey]);

@@ -1,6 +1,7 @@
 import "server-only";
+import { relayReadTransport } from "./relayReadTransport";
 /** F-02 admission. Exact signature validation/execution remains mandatory in fastRelay after these checks. */
-import { createPublicClient, http, parseAbi, type Address } from "viem";
+import { createPublicClient, parseAbi, type Address } from "viem";
 import { readSession } from "@disciple/session-keys";
 import { ACTIVE_CHAIN, DEPLOYMENTS, robinhoodTestnet } from "../chains";
 import { accountCalls } from "../aa/gasPolicy";
@@ -14,7 +15,7 @@ import { ImmutableRelayCache, type RelayMetrics } from "./relayMetrics";
 export const admissionImmutableCache = new ImmutableRelayCache();
 const timed = <T>(m: RelayMetrics | undefined, stage: string, task: () => Promise<T>) => m ? m.span(stage, task) : task();
 
-const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { fetchOptions: { keepalive: true }, timeout: 5000, retryCount: 0 }) });
+const pc = createPublicClient({ chain: robinhoodTestnet, transport: relayReadTransport(5000, 0) });
 const abi = parseAbi(["function verifiedUntil(address) view returns(uint64)", "function moduleId() view returns(string)", "function paymaster() view returns(address)"]);
 export function requireSelfBundlerMode() {
   const preview = process.env.VERCEL_ENV === "preview";

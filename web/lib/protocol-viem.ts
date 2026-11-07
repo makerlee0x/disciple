@@ -567,7 +567,7 @@ export async function warmRoute(pc: PublicClient, token: Address, side: "buy" | 
   if (await usdgRouteFor(pc, token)) {
     const f = side === "buy" ? (COIN.peek(ckey("facts", token))?.v as CoinFacts | undefined) : undefined;
     if (f && !f.graduated) bg(ckey("gradneed", token), () => warmGradNeed(pc, token));
-    await usdgRouteQuote(pc, r, token, side === "buy", amountIn, 0, connectedAddress()); return;
+    await usdgRouteQuote(pc, r, token, side === "buy", amountIn, 0, connectedAddress(), true); return;
   }
   return warmQuote(pc, token, side, amountIn);
 }
