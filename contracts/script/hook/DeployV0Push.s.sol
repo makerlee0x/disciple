@@ -70,7 +70,9 @@ contract DeployV0Push is Script {
         vm.startBroadcast();
         address ex = vm.envOr("SELF_EXECUTOR", uint256(1)) == 1 ? address(new DiscipleSelfExecutor()) : address(0);
         s = new DisciplePushSender(
-            ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), V0.ethSend(lib, ex, req, opt, th), V0.sendGas(lean, ex != address(0))
+            ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT),
+            V0.ethSend(lib, ex, req, opt, th),
+            V0.sendGas(lean, ex != address(0))
         );
         vm.stopBroadcast();
         console2.log("DiscipleSelfExecutor (Ethereum, 0 = paid executor)", ex);
@@ -94,17 +96,23 @@ contract DeployV0Push is Script {
         (address[] memory req, address[] memory opt, uint8 th) = V0.rhLiveDvns();
         if (lean) (req, opt, th) = V0.rhLeanDvns();
         LibConfig[] memory cfg = V0.rhReceive(lib, req, opt, th);
-        r = new DisciplePushReceiver(ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), eids, senders, eth, cfg, V0.destMsgGas(lean));
+        r = new DisciplePushReceiver(
+            ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), eids, senders, eth, cfg, V0.destMsgGas(lean)
+        );
         // same-chain sources on Robinhood: v4 only unless a v2 / v3 factory is given
         address v2f = vm.envOr("V2_FACTORY", address(0));
         address v3f = vm.envOr("V3_FACTORY", address(0));
-        bytes memory args = abi.encode(pm, address(r), v2f, v3f, weth);
+        bytes memory args = abi.encode(
+            pm, address(r), v2f, v3f, weth, DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+        );
         uint160 flags = uint160(
             Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
                 | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
         );
         (address want, bytes32 salt) = HookMiner.find(CREATE2_DEPLOYER, flags, type(DiscipleHook).creationCode, args);
-        hook = new DiscipleHook{salt: salt}(pm, address(r), v2f, v3f, weth);
+        hook = new DiscipleHook{salt: salt}(
+            pm, address(r), v2f, v3f, weth, DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+        );
         require(address(hook) == want, "hook address");
         r.bind(IDisciplePriceTarget(address(hook)));
         vm.stopBroadcast();
@@ -121,12 +129,24 @@ contract DeployV0Push is Script {
         vm.startBroadcast();
         address ex = vm.envOr("SELF_EXECUTOR", uint256(1)) == 1 ? address(new DiscipleSelfExecutor()) : address(0);
         s = new DisciplePushSender(
-            ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), V0.rhSend(lib, ex, req, opt, th), V0.sendGas(lean, ex != address(0))
+            ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT),
+            V0.rhSend(lib, ex, req, opt, th),
+            V0.sendGas(lean, ex != address(0))
         );
         vm.stopBroadcast();
         console2.log("DiscipleSelfExecutor (Robinhood, 0 = paid executor)", ex);
         console2.log("DisciplePushSender (Robinhood)", address(s));
         console2.log("send library", lib);
+    }
+
+    /// @dev Ethereum: 5% minimum anchor step (slower blocks). Tip-jar gas in USDC is valued through the Uniswap v3
+    ///      USDC/WETH 0.05% pool (USDC is token0). WETH-quoted pools need no reference.
+    function _ethCfg() internal pure returns (DiscipleHook.Config memory c) {
+        c.minStep = 50_000;
+        c.refToken = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+        c.refKind = 2;
+        c.refTarget = 0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640;
+        c.refWethIs0 = false;
     }
 
     function ethereum() external auditGate returns (DiscipleHook hook, DisciplePushReceiver r) {
@@ -146,11 +166,16 @@ contract DeployV0Push is Script {
 
         vm.startBroadcast();
         r = new DisciplePushReceiver(
-            ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), eids, senders, eth, V0.ethReceive(lib, req, opt, th), V0.destMsgGas(lean)
+            ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT),
+            eids,
+            senders,
+            eth,
+            V0.ethReceive(lib, req, opt, th),
+            V0.destMsgGas(lean)
         );
-        bytes memory args = abi.encode(pm, address(r), v2f, v3f, weth);
+        bytes memory args = abi.encode(pm, address(r), v2f, v3f, weth, _ethCfg());
         (address want, bytes32 salt) = HookMiner.find(CREATE2_DEPLOYER, FLAGS, type(DiscipleHook).creationCode, args);
-        hook = new DiscipleHook{salt: salt}(pm, address(r), v2f, v3f, weth);
+        hook = new DiscipleHook{salt: salt}(pm, address(r), v2f, v3f, weth, _ethCfg());
         require(address(hook) == want, "hook address");
         r.bind(IDisciplePriceTarget(address(hook)));
         vm.stopBroadcast();

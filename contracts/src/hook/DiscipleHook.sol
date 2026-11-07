@@ -22,22 +22,6 @@ import {DiscipleBooks as BK} from "./DiscipleBooks.sol";
 
 interface IV2PairLike {
     function getReserves() external view returns (uint112, uint112, uint32);
-    function token0() external view returns (address);
-    function token1() external view returns (address);
-}
-
-interface IV2FactoryLike {
-    function getPair(address, address) external view returns (address);
-}
-
-interface IV3FactoryLike {
-    function getPool(address, address, uint24) external view returns (address);
-}
-
-interface IV3PoolLike {
-    function slot0() external view returns (uint160, int24, uint16, uint16, uint16, uint8, bool);
-    function liquidity() external view returns (uint128);
-    function fee() external view returns (uint24);
 }
 
 /// @title Disciple
@@ -46,10 +30,13 @@ interface IV3PoolLike {
 ///
 ///         Same chain (beside a v2, v3 or v4 source on this chain): the anchor is latched once per block from
 ///         the source's spot as seen in an earlier block. Anyone may call sample() to take that price sample
-///         without a trade; it does not settle the books or read source TVL. A 4% premium fades over 1 second
-///         of block.timestamp from the sample that moved the anchor 0.25% (the sample time, not the later swap),
-///         and only on the side that benefits from the lag. Every fill respects the live source boundary
-///         (ask >= source ask * 0.9999, bid <= source bid * 1.0001).
+///         without a trade; it does not settle the books or read source TVL. Each latch moves the anchor toward
+///         the sample by at most one step (the pool fee, at least `minStep`), so a faked one-block sample shifts
+///         the centre by no more than the fee. There is no lag premium. Every fill respects the live source
+///         boundary (ask >= source ask * 0.9999, bid <= source bid * 1.0001), read in the same call.
+///         Tip jar: 12% of each interval's earnings goes to the pool's own jar (both tokens, pro rata) until it
+///         holds about JAR_TIPS tips. sample() pays its caller gas + 20% from the jar, but only while the centre
+///         is at least 1% from the leader, so the pool catches up after a move even with no trades.
 ///
 ///         Cross chain (new chain, anchor pushed from the home chain over LayerZero by a DisciplePushSender there
 ///         and authenticated by the DisciplePushReceiver here): the anchor is the last accepted push. Keepers push on
@@ -79,9 +66,15 @@ contract DiscipleHook is IHooks, IUnlockCallback {
 
     uint256 internal constant Q128 = 1 << 128;
     uint256 internal constant WAD = 1e18;
-    /// @dev Same-chain premium resets when the anchor moves 0.25% from the reference. The 4% / 1 s fade and the
-    ///      1 bp match edge live in DiscipleBooks.sameQuote, so this contract does not carry that math.
-    uint256 internal constant PREMIUM_RESET_BPS = 25;
+    /// @dev sample() pays a tip only while the centre is at least this far (bps) from the live leader price.
+    uint256 internal constant DUE_BPS = 100;
+    /// @dev Jar cap: this many reference tips (TIP_GAS_REF gas at the current basefee, +20%).
+    uint256 internal constant JAR_TIPS = 320;
+    uint256 internal constant TIP_GAS_REF = 150_000;
+    /// @dev Gas a tipped sample() spends outside the measured span (intrinsic, calldata, the payout itself).
+    uint256 internal constant TIP_OVERHEAD = 80_000;
+    /// @dev One tip is at most this fraction of the jar, so a basefee spike cannot empty it in a few calls.
+    uint256 internal constant TIP_DIV = 32;
     /// @dev Pool fee bounds, in pips.
     uint24 internal constant MAX_FEE = 100_000;
     /// @dev v4 source depth counter: storage reads per block (first touch) and at createPool (creator pays).
@@ -136,9 +129,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 sampleX128; // same chain: last source spot sampled
         uint64 sampleBlock;
         uint64 sampleAt; // timestamp of sampleX128
-        uint256 premRefX128; // same chain premium reset reference
-        uint64 premAt; // sampleAt of the sample that last armed the premium
-        bool premBuy; // lag premium on buys (anchor rose); otherwise on sells
+        uint256 jarX; // same chain tip jar, coin raw (held as claims, outside the book)
+        uint256 jarY; // tip jar, quote raw
         uint256 srcTvl; // latest source TVL reading in quote raw; 0 = not known yet
         uint256 prevTvl; // the reading before it
         uint256 recTvl; // highest confirmed reading (the lower of two in a row), fading over TVL_MEMORY from recAt
@@ -181,6 +173,26 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     address public immutable v3Factory;
     /// @notice Native ETH in a same-chain source pool counts as this token (the chain's WETH).
     address public immutable weth;
+    /// @notice Smallest per-reading anchor step, in pips (the step is max(pool fee, minStep)). Robinhood 1%,
+    ///         Ethereum 5% (slower blocks: a move up to ~10% is caught up in two readings).
+    uint24 public immutable minStep;
+    /// @notice The chain's reference WETH/stable pool, used only to value tip-jar gas in a non-ETH quote.
+    address public immutable refToken;
+    uint8 internal immutable refKind;
+    address internal immutable refTarget;
+    bytes32 internal immutable refV4Id;
+    bool internal immutable refWethIs0;
+
+    /// @dev Per-chain settings fixed at deploy. `ref*`: one WETH/refToken pool (kind 0 = none: tips then pay only
+    ///      pools quoted in WETH or refToken, others fall back to the ETH tank).
+    struct Config {
+        uint24 minStep;
+        address refToken;
+        uint8 refKind;
+        address refTarget;
+        bytes32 refV4Id;
+        bool refWethIs0;
+    }
     /// @notice Disciple pools per pair so far, by sorted (currency0, currency1). Pool n of a pair has tickSpacing n,
     ///         so a pair is never squatted.
     mapping(address => mapping(address => uint256)) public poolsOf;
@@ -195,7 +207,19 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     event Created(
         PoolId indexed id, address indexed coin, address quote, address indexed creator, uint32 remoteEid, uint24 fee
     );
-    event Swapped(PoolId indexed id, address indexed sender, bool buy, uint256 coinAmt, uint256 quoteAmt);
+    /// @dev Standard hook events (OpenZeppelin IHookEvents) so indexers see a custom-curve pool's flow. Amounts
+    ///      are the pool's view per currency: positive = into the pool, negative = out. Fee is the LP fee, in the
+    ///      input currency.
+    event HookSwap(
+        bytes32 indexed id,
+        address indexed sender,
+        int128 amount0,
+        int128 amount1,
+        uint128 hookLPfeeAmount0,
+        uint128 hookLPfeeAmount1
+    );
+    event HookModifyLiquidity(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1);
+    event Tipped(PoolId indexed id, address indexed to, uint256 x, uint256 y, uint256 eth);
     event Deposited(PoolId indexed id, address indexed owner, uint256 lot, uint256 shares, uint256 x, uint256 y);
     event Withdrawn(PoolId indexed id, address indexed owner, uint256 lot, uint256 x, uint256 y);
     event Restaked(PoolId indexed id, address indexed owner, uint256 fromLot, uint256 newLot);
@@ -233,14 +257,23 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         address pushReceiver_,
         address v2Factory_,
         address v3Factory_,
-        address weth_
+        address weth_,
+        Config memory cfg
     ) {
-        if (address(manager_) == address(0)) revert BadParams();
+        if (address(manager_) == address(0) || cfg.minStep == 0 || cfg.minStep >= 1e6) {
+            revert BadParams();
+        }
         poolManager = manager_;
         pushReceiver = pushReceiver_;
         v2Factory = v2Factory_;
         v3Factory = v3Factory_;
         weth = weth_;
+        minStep = cfg.minStep;
+        refToken = cfg.refToken;
+        refKind = cfg.refKind;
+        refTarget = cfg.refTarget;
+        refV4Id = cfg.refV4Id;
+        refWethIs0 = cfg.refWethIs0;
         Hooks.validateHookPermissions(IHooks(address(this)), getHookPermissions());
     }
 
@@ -269,7 +302,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             revert BadParams();
         }
         // decimal shifts: zero on the same chain, bounded on a remote one (so a pool can never be stuck unpriced)
-        if (s.remoteEid == 0 ? (s.decShift != 0 || s.tvlShift != 0) : (_badShift(s.decShift) || _badShift(s.tvlShift))) {
+        if (s.remoteEid == 0 ? (s.decShift != 0 || s.tvlShift != 0) : (_badShift(s.decShift) || _badShift(s.tvlShift)))
+        {
             revert BadParams();
         }
 
@@ -314,11 +348,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             p.sampleBlock = uint64(block.number);
             p.sampleAt = uint64(block.timestamp);
             p.anchorX128 = spot;
-            p.premRefX128 = spot;
-            p.premAt = uint64(block.timestamp);
-            p.premBuy = true; // no lag yet: the opening window charges the buy side
             p.settledBlock = uint64(block.number);
-            _goLive(p, cp.coinIn, cp.quoteIn, spot, msg.sender);
+            _goLive(id, p, cp.coinIn, cp.quoteIn, spot, msg.sender);
         } else {
             // held as plain ERC20 until the first price lands
             _pull(cp.coin, cp.coinIn);
@@ -350,34 +381,18 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         if (x != cp.quote) revert BadParams();
     }
 
-    /// @dev A verified pool's (base, other) tokens, native ETH mapped to `weth`.
     function _legTokens(uint8 kind, address target, bytes32 v4Id, PoolKey calldata k, bool baseIs0)
         internal
         view
-        returns (address base, address other)
+        returns (address, address)
     {
-        address t0;
-        address t1;
-        if (kind == SRC_V4) {
-            if (keccak256(abi.encode(k)) != v4Id || address(k.hooks) == address(this)) revert BadParams();
-            (t0, t1) = (Currency.unwrap(k.currency0), Currency.unwrap(k.currency1));
-        } else {
-            t0 = IV2PairLike(target).token0();
-            t1 = IV2PairLike(target).token1();
-            // a zero factory has no code, so the call reverts: that source kind is off
-            address real = kind == SRC_V2
-                ? IV2FactoryLike(v2Factory).getPair(t0, t1)
-                : IV3FactoryLike(v3Factory).getPool(t0, t1, IV3PoolLike(target).fee());
-            if (real != target) revert BadParams();
-        }
-        if (t0 == address(0)) t0 = weth;
-        (base, other) = baseIs0 ? (t0, t1) : (t1, t0);
+        return BK.legTokens(kind, target, v4Id, k, baseIs0, weth, kind == SRC_V2 ? v2Factory : v3Factory);
     }
 
     /// @dev Trim the seed to 50/50 by value at `spot` and open the books. `from` pays the trimmed seed into the
     ///         pool's claims: the creator (same chain, nothing extra is taken) or this contract (cross chain, the
     ///         held seed; the excess goes back to the creator).
-    function _goLive(Pool storage p, uint256 xIn, uint256 yIn, uint256 spot, address from) internal {
+    function _goLive(PoolId id, Pool storage p, uint256 xIn, uint256 yIn, uint256 spot, address from) internal {
         uint256 x = xIn;
         uint256 y = Math.mulDiv(x, spot, Q128);
         if (y > yIn) {
@@ -390,6 +405,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         p.tX128 = PR.recentre(x, y);
         p.live = true;
         _moves(_pair(p, x, y, from, true));
+        _liq(id, p, creator, x, y, true);
         if (from == address(this)) {
             if (xIn > x) _push(p.coin, creator, xIn - x);
             if (yIn > y) _push(p.quote, creator, yIn - y);
@@ -471,7 +487,15 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         inC.take(poolManager, address(this), inAmt, true);
         outC.settle(poolManager, address(this), outAmt, true);
 
-        emit Swapped(id, sender, !sell, coinAmt, quoteAmt);
+        {
+            // input is currency0 when zeroForOne
+            int128 i = int128(uint128(inAmt));
+            int128 o = -int128(uint128(outAmt));
+            uint128 f = uint128(Math.mulDiv(inAmt, p.fee, 1e6));
+            (int128 a0, int128 a1, uint128 f0, uint128 f1) =
+                params.zeroForOne ? (i, o, f, uint128(0)) : (o, i, uint128(0), f);
+            emit HookSwap(PoolId.unwrap(id), sender, a0, a1, f0, f1);
+        }
         _locked = false;
         // exact in: the specified currency is the input; exact out: it is the output
         BeforeSwapDelta delta = exactIn
@@ -481,13 +505,79 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     }
 
     /// @notice Refresh a same-chain pool's source price sample without a trade. Anyone may call. The first call
-    ///         in a block latches the previous sample as the anchor and arms the lag premium from that sample's
-    ///         timestamp. It does not settle, observe source TVL, or move graduation.
+    ///         in a block steps the anchor toward the previous sample and records the live one. It does not settle,
+    ///         observe source TVL, or move graduation. While the centre is at least 1% from the leader the caller
+    ///         is paid gas + 20% from the pool's tip jar (or, if the quote cannot be valued in ETH, its tank).
     function sample(PoolId id) external lock {
+        uint256 g0 = gasleft();
         Pool storage p = _known(id);
         if (p.src.remoteEid != 0) revert BadParams();
         if (!p.live) revert NotLive();
-        _latchSame(p, false);
+        if (p.sampleBlock >= block.number) return;
+        uint256 a0 = p.anchorX128;
+        (uint256 spot,) = _latchSame(p, false);
+        if (!SM.movedBeyond(a0, spot, DUE_BPS)) return;
+        uint256 w = (g0 - gasleft() + TIP_OVERHEAD) * block.basefee * 12 / 10;
+        uint256 q = _weiToQuote(p, w);
+        uint256 cx;
+        uint256 cy;
+        uint256 eth;
+        if (q == 0) {
+            eth = w < MAX_PUSH_REFUND ? w : MAX_PUSH_REFUND;
+            if (eth > p.tank) eth = p.tank;
+            p.tank -= eth;
+        } else {
+            (cx, cy) = BK.tip(p.jarX, p.jarY, a0, q, TIP_DIV);
+            p.jarX -= cx;
+            p.jarY -= cy;
+            _moves(_pair(p, cx, cy, msg.sender, false));
+        }
+        if (eth > 0) {
+            (bool sent,) = msg.sender.call{value: eth, gas: 30_000}("");
+            if (!sent) {
+                p.tank += eth;
+                eth = 0;
+            }
+        }
+        emit Tipped(id, msg.sender, cx, cy, eth);
+    }
+
+    /// @dev `w` wei in the pool's quote, at the pool's centre and the reference pool (0 = cannot value).
+    function _weiToQuote(Pool storage p, uint256 w) internal view returns (uint256) {
+        address q = p.quote;
+        address c = p.coin;
+        if (q == weth) return w;
+        bool viaRef = q == refToken || c == refToken;
+        if (viaRef) {
+            if (refKind == 0) return 0;
+            (uint256 r,) = _leg(refKind, refTarget, refV4Id, refWethIs0);
+            w = Math.mulDiv(w, r, Q128);
+            if (q == refToken) return w;
+        } else if (c != weth) {
+            return 0;
+        }
+        return Math.mulDiv(w, p.anchorX128, Q128);
+    }
+
+    /// @dev Room left in the jar, in quote raw: JAR_TIPS reference tips at today's basefee, less what it holds.
+    function _jarRoom(Pool storage p) internal view returns (uint256) {
+        uint256 cap = _weiToQuote(p, JAR_TIPS * TIP_GAS_REF * block.basefee * 12 / 10);
+        uint256 have = Math.mulDiv(p.jarX, p.anchorX128, Q128) + p.jarY;
+        return cap > have ? cap - have : 0;
+    }
+
+    /// @dev Close a same-chain interval at `mark`, skimming into the jar.
+    function _settleSame(Pool storage p, uint256 mark) internal {
+        (uint256 tOn, uint256 tOff, uint256 tg) = _judge(p);
+        (uint256 jx, uint256 jy) = BK.settle(p.book, mark, tOn, tOff, tg, true, _jarRoom(p));
+        p.jarX += jx;
+        p.jarY += jy;
+    }
+
+    /// @dev The anchor the next latch would set: one step from the anchor toward the newest sample.
+    function _stepped(Pool storage p) internal view returns (uint256) {
+        uint24 st = p.fee > minStep ? p.fee : minStep;
+        return SM.stepToward(p.anchorX128, p.sampleX128, st);
     }
 
     /// @dev Settle the books if due, update the anchor state, and return the curve slopes and boundaries.
@@ -498,12 +588,11 @@ contract DiscipleHook is IHooks, IUnlockCallback {
 
     function _prepareSame(Pool storage p) internal returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps) {
         (uint256 spot, uint24 srcFee) = _latchSame(p, true);
-        return BK.sameQuote(p.anchorX128, p.tX128, p.fee, p.premAt, p.premBuy, spot, srcFee, block.timestamp);
+        return BK.sameQuote(p.anchorX128, p.tX128, p.fee, spot, srcFee);
     }
 
-    /// @dev Same chain, first price touch of a block: latch the newest source sample taken in an earlier block as
-    ///      the anchor. A 0.25% move arms the premium at that sample's timestamp, not at this touch. Then record
-    ///      the live source for the next block. `settleBooks` (swaps and capital changes) also walks a v4 source,
+    /// @dev Same chain, first price touch of a block: step the anchor toward the newest source sample taken in an
+    ///      earlier block (at most max(fee, minStep) per reading). Then record the live source for the next block. `settleBooks` (swaps and capital changes) also walks a v4 source,
     ///      observes TVL, and settles the open interval. sample() passes false, so it cannot graduate a pool.
     ///      Returns the live spot and the source fee for the match boundary.
     function _latchSame(Pool storage p, bool settleBooks) internal returns (uint256 spot, uint24 srcFee) {
@@ -511,14 +600,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         (spot, srcFee, s1) = _sourceSpot(p);
         if (spot == 0) revert NoAnchor();
         if (p.sampleBlock < block.number) {
-            uint64 sampledAt = p.sampleAt;
-            uint256 sampled = p.sampleX128;
-            p.anchorX128 = sampled;
-            if (SM.movedBeyond(p.premRefX128, sampled, PREMIUM_RESET_BPS)) {
-                p.premBuy = sampled > p.premRefX128;
-                p.premRefX128 = sampled;
-                p.premAt = sampledAt;
-            }
+            p.anchorX128 = _stepped(p);
             p.sampleX128 = spot;
             p.sampleBlock = uint64(block.number);
             p.sampleAt = uint64(block.timestamp);
@@ -529,13 +611,15 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             uint256 tvl = _sourceTvl(p, s1, spot);
             // a v4 source's TVL is a new reading only when the counter finished a pass in this block
             _observe(p, tvl, s.kind != SRC_V4 || !p.walk.active);
-            (uint256 tOn, uint256 tOff, uint256 tg) = _judge(p);
-            BK.settle(p.book, p.anchorX128, tOn, tOff, tg, true);
+            _settleSame(p, p.anchorX128);
             p.settledBlock = uint64(block.number);
         }
     }
 
-    function _prepareCross(Pool storage p, PoolId id) internal returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps) {
+    function _prepareCross(Pool storage p, PoolId id)
+        internal
+        returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps)
+    {
         uint256 a = p.anchorX128;
         uint256 age = block.timestamp - p.obsAt;
         if (age >= PR.LOCAL_AFTER && !p.local) {
@@ -585,7 +669,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         // a pushed v3/v4 state must fit (sqrtPriceX96, liquidity); anything larger is refused, never truncated
         bool fits = kind == SRC_V2 || (a <= type(uint160).max && b <= type(uint128).max);
         if (p.exists && route && fits && s.kind == kind && s.target == target && s.v4Id == v4Id) {
-            (price, tvl) = s.kind == SRC_V2 ? _v2(a, b, s.coinIs0) : _concentrated(uint160(a), uint128(b), s.coinIs0);
+            (price, tvl) = BK.pushed(s.kind == SRC_V2, a, b, s.coinIs0);
             price = _shift(s.decShift, price);
             tvl = _shift(s.tvlShift, tvl);
         }
@@ -625,7 +709,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             uint256 sy = p.seedY;
             p.seedX = 0;
             p.seedY = 0;
-            _goLive(p, sx, sy, price, address(this));
+            _goLive(id, p, sx, sy, price, address(this));
             emit PriceAccepted(id, price, observedAt, 0, false);
             return;
         }
@@ -642,7 +726,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         // close the interval at the fresh mark (deferred mark); local-mode results stay pro rata
         _observe(p, tvl, true);
         (uint256 tOn, uint256 tOff, uint256 tg) = _judge(p);
-        BK.settle(p.book, price, tOn, tOff, tg, !wasLocal);
+        BK.settle(p.book, price, tOn, tOff, tg, !wasLocal, 0);
         uint256 old = p.anchorX128;
         p.anchorX128 = price;
         p.obsAt = observedAt;
@@ -734,6 +818,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         (lot, shares, tx_, ty_) = BK.deposit(p.book, msg.sender, maxX, maxY);
         if (shares == 0) revert ZeroOutput();
         _moves(_pair(p, tx_, ty_, msg.sender, true));
+        _liq(id, p, msg.sender, tx_, ty_, true);
         emit Deposited(id, msg.sender, lot, shares, tx_, ty_);
     }
 
@@ -754,6 +839,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             p.book.dy = p.book.dy * int256(left) / int256(st);
         }
         _moves(_pair(p, x, y, msg.sender, false));
+        _liq(id, p, msg.sender, x, y, false);
         emit Withdrawn(id, msg.sender, lot, x, y);
     }
 
@@ -785,19 +871,14 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     function _settleForCapital(Pool storage p) internal {
         if (p.src.remoteEid == 0) {
             _latchSame(p, true);
-            // trades earlier in this block: close them now, at the mark the next block would use (this block's
-            // source sample), so capital joining or leaving never shares in fees earned before it (review D-01)
-            if (p.book.dx != 0 || p.book.dy != 0) {
-                (uint256 tOn, uint256 tOff, uint256 tg) = _judge(p);
-                BK.settle(p.book, p.sampleX128, tOn, tOff, tg, true);
-            }
+            // trades earlier in this block: close them now, at the mark the next block would use (one step toward
+            // this block's sample), so capital joining or leaving never shares in fees earned before it (review D-01)
+            if (p.book.dx != 0 || p.book.dy != 0) _settleSame(p, _stepped(p));
         } else if (p.book.dx != 0 || p.book.dy != 0 || p.local) {
             // cross chain: open trades are marked at the next fresh price; join after it lands
             revert PendingTrades();
         }
     }
-
-
 
     // ---------------------------------------------------------------------------------------------
     // Views
@@ -819,9 +900,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 principal;
         uint256 compounded;
         uint256 lots;
-        uint64 premAt;
         uint64 sampleAt;
-        bool premBuy;
+        uint256 jarX;
+        uint256 jarY;
     }
 
     function poolState(PoolId id) external view returns (PoolView memory v) {
@@ -842,9 +923,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         v.principal = b.sp;
         v.compounded = b.b;
         v.lots = b.count;
-        v.premAt = p.premAt;
         v.sampleAt = p.sampleAt;
-        v.premBuy = p.premBuy;
+        v.jarX = p.jarX;
+        v.jarY = p.jarY;
     }
 
     /// @notice Lot info. Call from a static context for up-to-date figures (it checkpoints the lot).
@@ -875,26 +956,12 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         }
     }
 
-    /// @dev One pool's spot (X128 other raw per base raw) and fee in pips (v2: Uniswap's 0.3%).
     function _leg(uint8 kind, address target, bytes32 v4Id, bool baseIs0)
         internal
         view
         returns (uint256 spot, uint24 fee)
     {
-        if (kind == SRC_V2) {
-            (uint112 r0, uint112 r1,) = IV2PairLike(target).getReserves();
-            (spot,) = _v2(r0, r1, baseIs0);
-            fee = 3000;
-        } else if (kind == SRC_V3) {
-            (uint160 sqrtP,,,,,,) = IV3PoolLike(target).slot0();
-            (spot,) = _concentrated(sqrtP, 0, baseIs0);
-            fee = IV3PoolLike(target).fee();
-        } else {
-            (uint160 sqrtP,,, uint24 lpFee) = StateLibrary.getSlot0(poolManager, PoolId.wrap(v4Id));
-            (spot,) = _concentrated(sqrtP, 0, baseIs0);
-            fee = lpFee;
-        }
-        if (fee >= 1e6) fee = 999_999;
+        return BK.leg(poolManager, kind, target, v4Id, baseIs0);
     }
 
     /// @dev Same-chain source TVL in quote raw: the real tokens in leg 1, valued at leg 1's spot `s1`, converted to
@@ -918,27 +985,6 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         }
         tvl = Math.mulDiv(b, s1, Q128) + o;
         if (s.kind2 != 0) tvl = Math.mulDiv(tvl, spot, s1);
-    }
-
-    function _v2(uint256 r0, uint256 r1, bool coinIs0) internal pure returns (uint256 spot, uint256 tvl) {
-        (uint256 rc, uint256 rq) = coinIs0 ? (r0, r1) : (r1, r0);
-        if (rc == 0 || rq == 0) return (0, 0);
-        spot = Math.mulDiv(rq, Q128, rc);
-        tvl = 2 * rq;
-    }
-
-    /// @dev Spot from sqrtPriceX96 and a TVL proxy (virtual reserves at the current price, both sides in quote).
-    function _concentrated(uint160 sqrtP, uint128 liq, bool coinIs0) internal pure returns (uint256 spot, uint256 tvl) {
-        if (sqrtP == 0) return (0, 0);
-        uint256 sp = uint256(sqrtP);
-        uint256 q96 = 1 << 96;
-        if (coinIs0) {
-            spot = Math.mulDiv(sp, sp, 1 << 64); // sqrtP^2 / 2^192 * 2^128
-            tvl = 2 * Math.mulDiv(uint256(liq), sp, q96);
-        } else {
-            spot = Math.mulDiv(Math.mulDiv(Q128, q96, sp), q96, sp); // 2^192 / sqrtP^2 * 2^128
-            tvl = 2 * Math.mulDiv(uint256(liq), q96, sp);
-        }
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -1023,6 +1069,15 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     function _live(PoolId id) internal view returns (Pool storage p) {
         p = _known(id);
         if (!p.live) revert NotLive();
+    }
+
+    /// @dev HookModifyLiquidity in currency order; `add` = into the pool.
+    function _liq(PoolId id, Pool storage p, address who, uint256 x, uint256 y, bool add) internal {
+        int128 a = int128(uint128(x));
+        int128 b = int128(uint128(y));
+        if (!add) (a, b) = (-a, -b);
+        if (!p.coinIs0) (a, b) = (b, a);
+        emit HookModifyLiquidity(PoolId.unwrap(id), who, a, b);
     }
 
     function _pair(Pool storage p, uint256 x, uint256 y, address who, bool into)

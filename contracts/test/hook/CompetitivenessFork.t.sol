@@ -106,9 +106,23 @@ contract CompetitivenessForkTest is Test {
             Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
                 | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
         );
-        bytes memory args = abi.encode(PM, address(0), address(0), address(0), WETH);
+        bytes memory args = abi.encode(
+            PM,
+            address(0),
+            address(0),
+            address(0),
+            WETH,
+            DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+        );
         (address want, bytes32 salt) = HookMiner.find(address(this), flags, type(DiscipleHook).creationCode, args);
-        DiscipleHook h = new DiscipleHook{salt: salt}(PM, address(0), address(0), address(0), WETH);
+        DiscipleHook h = new DiscipleHook{salt: salt}(
+            PM,
+            address(0),
+            address(0),
+            address(0),
+            WETH,
+            DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+        );
         require(address(h) == want, "mined");
         console2.log("G7_new_hook_code", address(h).code.length);
 
@@ -178,9 +192,8 @@ contract CompetitivenessForkTest is Test {
             v = h.poolState(id);
             console2.log("G7_new_with_sample_idle", idle[i]);
             console2.log("  strategy_out_per_1000usdg", out);
-            console2.log("  premAt", uint256(v.premAt));
+            console2.log("  sampleAt", uint256(v.sampleAt));
             console2.log("  recorded", uint256(recorded));
-            console2.log("  lagBps", _lag(v.premAt));
             console2.log("  buyBpsVsAnchor", _over(Math.mulDiv(1_000e6, Q128, out), v.anchorX128));
         }
         for (uint256 i = 0; i < idle.length; i++) {
@@ -197,8 +210,7 @@ contract CompetitivenessForkTest is Test {
             console2.log("G7_new_no_sample_idle", idle[i]);
             console2.log("  first_out", first);
             console2.log("  second_out", second);
-            console2.log("  lagBps", _lag(v.premAt));
-            console2.log("  premBuy", v.premBuy ? uint256(1) : uint256(0));
+            console2.log("  buyBpsVsAnchor", _over(Math.mulDiv(1_000e6, Q128, second), v.anchorX128));
         }
     }
 
@@ -209,12 +221,6 @@ contract CompetitivenessForkTest is Test {
         uint256 raw = Math.mulDiv(uint256(b) * uint256(b), Q128, uint256(1) << 192);
         uint256 s2 = Math.mulDiv(Q128, Q128, raw);
         return Math.mulDiv(s1, s2, Q128);
-    }
-
-    function _lag(uint64 premAt) internal view returns (uint256) {
-        uint256 elapsed = vm.getBlockTimestamp() - premAt;
-        if (elapsed >= 1) return 0;
-        return 400;
     }
 
     function _over(uint256 execX128, uint256 refX128) internal pure returns (int256) {

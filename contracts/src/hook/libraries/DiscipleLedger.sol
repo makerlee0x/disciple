@@ -34,6 +34,8 @@ library DiscipleLedger {
     uint256 internal constant BPS = 10_000;
     uint256 internal constant TARGET_BPS = 1200;
     uint256 internal constant CREATOR_BPS = 1200;
+    /// @dev Share of each interval's earnings that goes to the pool's tip jar while the jar is below its cap.
+    uint256 internal constant JAR_SKIM_BPS = 1200;
     /// @dev Shares that can never be withdrawn, so the pool never drains to rounding dust.
     uint256 internal constant MIN_SHARES = 1e6;
 
@@ -95,7 +97,10 @@ library DiscipleLedger {
     // ---------------------------------------------------------------------------------------------
 
     /// @notice Seed the pool. The creator's lot takes shares equal to the seed's value at mark M (quote wei).
-    function init(Book storage bk, address creator, uint256 x, uint256 y, uint256 markX128) internal returns (uint256 id) {
+    function init(Book storage bk, address creator, uint256 x, uint256 y, uint256 markX128)
+        internal
+        returns (uint256 id)
+    {
         bk.x = x;
         bk.y = y;
         bk.creator = creator;
@@ -130,16 +135,29 @@ library DiscipleLedger {
         internal
         returns (uint256 q)
     {
+        (q,,) = settle(bk, markX128, onTvl, offTvl, gradTvl, distribute, 0);
+    }
+
+    /// @notice As above, and first skims `JAR_SKIM_BPS` of the interval's earnings Q (at most `skimRoom`, quote
+    ///         wei at the mark) out of the reserves, pro rata in both tokens, for the pool's tip jar. Returns the
+    ///         distributable Q after the skim and the coin/quote amounts taken (the caller adds them to the jar).
+    function settle(
+        Book storage bk,
+        uint256 markX128,
+        uint256 onTvl,
+        uint256 offTvl,
+        uint256 gradTvl,
+        bool distribute,
+        uint256 skimRoom
+    ) internal returns (uint256 q, uint256 jx, uint256 jy) {
         int256 dx = bk.dx;
         int256 e = bk.dy
-            + (
-                dx >= 0
+            + (dx >= 0
                     ? int256(Math.mulDiv(uint256(dx), markX128, Q128))
-                    : -int256(Math.mulDiv(uint256(-dx), markX128, Q128, Math.Rounding.Ceil))
-            );
+                    : -int256(Math.mulDiv(uint256(-dx), markX128, Q128, Math.Rounding.Ceil)));
         bk.dx = 0;
         bk.dy = 0;
-        if (!distribute) return 0;
+        if (!distribute) return (0, 0, 0);
         uint256 l = bk.lossCarry;
         if (e >= int256(l)) {
             q = uint256(e) - l;
@@ -159,7 +177,21 @@ library DiscipleLedger {
         bool grad = on || (gradTvl > 0 && v * BPS >= TARGET_BPS * gradTvl);
         // Spec: nothing is distributed if Q >= V. Q > V/2 is also held back (it stays in share value pro rata) so
         // the 1/(V - D) terms stay bounded.
-        if (q > 0 && 2 * q <= v) _distribute(bk, q, v);
+        if (q > 0 && 2 * q <= v) {
+            if (skimRoom > 0) {
+                uint256 sk = Math.mulDiv(q, JAR_SKIM_BPS, BPS);
+                if (sk > skimRoom) sk = skimRoom;
+                jx = Math.mulDiv(bk.x, sk, v);
+                jy = Math.mulDiv(bk.y, sk, v);
+                bk.x -= jx;
+                bk.y -= jy;
+                uint256 v2 = value(bk, markX128);
+                uint256 taken = v - v2;
+                q = q > taken ? q - taken : 0;
+                v = v2;
+            }
+            if (q > 0) _distribute(bk, q, v);
+        }
         // LP payouts latch at the first crossing (from the next interval), which keeps the boost accounting exact.
         // The creator's cut is reversible (maker, 2026-11-04), checked above.
         if (grad) bk.graduated = true;

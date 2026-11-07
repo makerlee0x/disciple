@@ -52,11 +52,7 @@ library DiscipleSwapMath {
     // ---------------------------------------------------------------------------------------------
 
     /// @notice Quote in -> coin out, rounded down.
-    function buyExactIn(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 quoteIn)
-        internal
-        pure
-        returns (uint256)
-    {
+    function buyExactIn(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 quoteIn) internal pure returns (uint256) {
         if (quoteIn == 0) return 0;
         uint256 ub = u0;
         uint256 vb = v0;
@@ -94,11 +90,7 @@ library DiscipleSwapMath {
     }
 
     /// @notice Coin in -> quote out, rounded down.
-    function sellExactIn(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 coinIn)
-        internal
-        pure
-        returns (uint256)
-    {
+    function sellExactIn(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 coinIn) internal pure returns (uint256) {
         if (coinIn == 0) return 0;
         uint256 ub = u0;
         uint256 vb = v0;
@@ -189,6 +181,18 @@ library DiscipleSwapMath {
     }
 
     /// @notice True when `price` has moved at least `bps` from `ref` (the premium reset trigger).
+    /// @notice Move `from` toward `to` by at most `stepPips` (of 1e6) of `from`. Used for the same-chain centre: one
+    ///         reading, honest or not, can shift the curve by at most one step.
+    function stepToward(uint256 from, uint256 to, uint256 stepPips) internal pure returns (uint256) {
+        if (from == 0) return to;
+        if (to > from) {
+            uint256 hi = Math.mulDiv(from, FEE_DENOM + stepPips, FEE_DENOM);
+            return to < hi ? to : hi;
+        }
+        uint256 lo = stepPips >= FEE_DENOM ? 0 : Math.mulDiv(from, FEE_DENOM - stepPips, FEE_DENOM, Math.Rounding.Ceil);
+        return to > lo ? to : lo;
+    }
+
     function movedBeyond(uint256 ref, uint256 price, uint256 bps) internal pure returns (bool) {
         if (ref == 0) return true;
         uint256 d = price > ref ? price - ref : ref - price;

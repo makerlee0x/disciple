@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {_noKey} from "./NoKey.sol";
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
@@ -143,6 +143,7 @@ contract DiscipleTest is Test {
     uint32 internal constant HOME_EID = 30416; // Robinhood
     uint32 internal constant HYPE_EID = 30367; // HyperEVM: gas is HYPE, so no refund
     address lp = address(0xA11CE);
+    MockPair refPair;
 
     receive() external payable {}
 
@@ -162,10 +163,13 @@ contract DiscipleTest is Test {
         pair.setTokens(address(coin), address(usd));
         v2f = new MockV2Factory();
         v2f.add(address(pair));
-        bytes memory args =
-            abi.encode(manager, address(receiver), address(v2f), address(0), address(0));
+        // tip-jar reference: a WETH/USD pool at 3000 USD per ETH (WETH is token0)
+        refPair = new MockPair();
+        refPair.set(1_000e18, 3_000_000e18);
+        DiscipleHook.Config memory cfg = DiscipleHook.Config(10_000, address(usd), 1, address(refPair), bytes32(0), true);
+        bytes memory args = abi.encode(manager, address(receiver), address(v2f), address(0), address(0), cfg);
         bytes32 salt = _mine(args);
-        hook = new DiscipleHook{salt: salt}(manager, address(receiver), address(v2f), address(0), address(0));
+        hook = new DiscipleHook{salt: salt}(manager, address(receiver), address(v2f), address(0), address(0), cfg);
         receiver.bind(IDisciplePriceTarget(address(hook)));
         swapper = new PoolSwapTest(manager);
         _fund(address(this), 1e30);
@@ -279,7 +283,7 @@ contract DiscipleTest is Test {
         uint256 c0 = coin.balanceOf(address(this));
         _swap(key, true, -int256(20e18)); // spend 20 quote
         uint256 got = coin.balanceOf(address(this)) - c0;
-        // price 2 plus fee and the opening 4% premium: fewer than 10 coins, but not absurdly few
+        // price 2 plus the fee: fewer than 10 coins, but not absurdly few
         assertLt(got, 10e18, "buy pays at least the anchor");
         assertGt(got, 9e18, "buy within ~10% of the anchor");
         DiscipleHook.PoolView memory v = hook.poolState(id);
@@ -312,91 +316,357 @@ contract DiscipleTest is Test {
         assertEq(usd.balanceOf(address(this)) - q1, 4e18, "exact quote out");
     }
 
-    function test_premiumFades() public {
-        (PoolKey memory key,) = _createSame(1000e18, 2000e18);
-        vm.roll(vm.getBlockNumber() + 1); // same second: the opening premium is still the full 4%
-        uint256 c0 = coin.balanceOf(address(this));
-        _swap(key, true, -int256(2e18));
-        uint256 early = coin.balanceOf(address(this)) - c0;
-        vm.roll(vm.getBlockNumber() + 1);
-        vm.warp(vm.getBlockTimestamp() + 1); // one second later the premium is off
-        c0 = coin.balanceOf(address(this));
-        _swap(key, true, -int256(2e18));
-        uint256 late = coin.balanceOf(address(this)) - c0;
-        assertGt(late, early, "same spend buys more once one second has passed");
+    // -----------------------------------------------------------------------------------------
+    // price step (replaces the lag premium)
+    // -----------------------------------------------------------------------------------------
+
+    function _px(uint256 quoteReserve) internal pure returns (uint256) {
+        return Math.mulDiv(quoteReserve, Q128, 1_000_000e18);
     }
 
-    /// Quiet pool: sample() refreshes the spot with no trade, and the premium clock is that sample's time.
-    function test_quietPool_sampleRefreshesAndPremAtEqualsSampleAt() public {
+    /// A 10% real move: each reading moves the centre at most the step (max(fee 0.3%, minStep 1%) = 1%).
+    function test_stepCapsEachReading() public {
+        (, PoolId id) = _createSame(1000e18, 2000e18);
+        uint256 a = hook.poolState(id).anchorX128;
+        pair.set(1_000_000e18, 2_200_000e18);
+        _nextBlock();
+        hook.sample(id); // latches the old sample, records the moved one
+        assertEq(hook.poolState(id).anchorX128, a, "the first reading of a move only records it");
+        for (uint256 i = 0; i < 5; i++) {
+            _nextBlock();
+            hook.sample(id);
+            uint256 n = hook.poolState(id).anchorX128;
+            assertEq(n, Math.mulDiv(a, 1_010_000, 1_000_000), "one 1% step per reading");
+            a = n;
+        }
+        for (uint256 i = 0; i < 6; i++) {
+            _nextBlock();
+            hook.sample(id);
+        }
+        assertEq(hook.poolState(id).anchorX128, _px(2_200_000e18), "caught up after ~10 readings");
+    }
+
+    function test_stepDownAndSmallMoveInOneReading() public {
+        (, PoolId id) = _createSame(1000e18, 2000e18);
+        pair.set(1_000_000e18, 2_010_000e18); // +0.5%: inside one step
+        _nextBlock();
+        hook.sample(id);
+        _nextBlock();
+        hook.sample(id);
+        assertEq(hook.poolState(id).anchorX128, _px(2_010_000e18), "a small move lands in one reading");
+        uint256 a = hook.poolState(id).anchorX128;
+        pair.set(1_000_000e18, 1_800_000e18); // -10%
+        _nextBlock();
+        hook.sample(id);
+        _nextBlock();
+        hook.sample(id);
+        assertEq(hook.poolState(id).anchorX128, Math.mulDiv(a, 990_000, 1_000_000, Math.Rounding.Ceil), "down 1%");
+    }
+
+    /// With a pool fee above minStep the step is the fee.
+    function test_stepIsPoolFeeWhenLarger() public {
+        DiscipleHook.CreateParams memory cp = DiscipleHook.CreateParams({
+            coin: address(coin), quote: address(usd), fee: 30_000, src: _src(0), coinIn: 1000e18, quoteIn: 2000e18,
+            srcKey: _noKey(), srcKey2: _noKey()
+        });
+        (, PoolId id) = hook.createPool(cp);
+        uint256 a = hook.poolState(id).anchorX128;
+        pair.set(1_000_000e18, 2_200_000e18);
+        _nextBlock();
+        hook.sample(id);
+        _nextBlock();
+        hook.sample(id);
+        assertEq(hook.poolState(id).anchorX128, Math.mulDiv(a, 1_030_000, 1_000_000), "3% step at a 3% fee");
+    }
+
+    /// Quiet pool: no premium, so after any idle time both sides quote the centre plus the fee only.
+    function test_quietPoolQuotesFeeOnlyBothSides() public {
         (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        vm.roll(vm.getBlockNumber() + 1); // same second as creation: there is no opening premium either
+        hook.sample(id);
+        uint256 a = hook.poolState(id).anchorX128;
+        uint256 buyOut = _coinsOut(key, true, 2e18);
+        uint256 sellOut = _coinsOut(key, false, 1e18);
+        uint256 buyPx = Math.mulDiv(2e18, Q128, buyOut);
+        uint256 sellPx = Math.mulDiv(sellOut, Q128, 1e18);
+        assertLe(buyPx, Math.mulDiv(a, 1_005_000, 1_000_000), "buy within fee + 0.2% of the centre");
+        assertGe(sellPx, Math.mulDiv(a, 995_000, 1_000_000), "sell within fee + 0.2% of the centre");
+        assertGt(buyPx, a, "buy above the centre");
+        assertLt(sellPx, a, "sell below the centre");
+        // idle 30 minutes: same quotes
+        vm.warp(vm.getBlockTimestamp() + 30 minutes);
+        _nextBlock();
+        assertEq(_coinsOut(key, true, 2e18), buyOut, "idle time changes nothing");
+    }
+
+    function test_sampleDoesNotSettle() public {
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        _nextBlock();
+        _swap(key, true, -int256(20e18));
+        uint256 settled = hook.poolState(id).ageOrBlock;
+        _nextBlock();
+        hook.sample(id);
+        assertEq(hook.poolState(id).ageOrBlock, settled, "sample() leaves the books open");
+        assertEq(hook.poolState(id).sampleAt, uint64(vm.getBlockTimestamp()));
+    }
+
+    function _sell(PoolKey memory key, uint256 amt) internal returns (uint256 got) {
+        uint256 u0 = usd.balanceOf(address(this));
+        _swap(key, false, -int256(amt));
+        got = usd.balanceOf(address(this)) - u0;
+    }
+
+    /// Sample-then-trade (review of #243): block A pumps the leader, touches the pool so it records the fake
+    /// sample, unwinds; block B pumps again and sells into the faked centre. The step caps the fake reading's
+    /// effect on the centre at 1%, so the attacker's edge over an honest seller stays under it at any pump size.
+    function test_sampleThenTradeCappedByStep() public {
+        uint112[3] memory q = [uint112(2_040_000e18), 2_100_000e18, 2_200_000e18];
+        for (uint256 i; i < 3; i++) {
+            uint256 snap0 = vm.snapshotState();
+            (PoolKey memory key,) = _createSame(1000e18, 2000e18);
+            _nextBlock();
+            _swap(key, true, -int256(1e12));
+            _nextBlock();
+            uint256 snap = vm.snapshotState();
+            _swap(key, true, -int256(1e12));
+            _nextBlock();
+            uint256 honest = _sell(key, 50e18);
+            vm.revertToState(snap);
+            pair.set(1_000_000e18, q[i]);
+            _swap(key, true, -int256(1e12));
+            pair.set(1_000_000e18, 2_000_000e18);
+            _nextBlock();
+            pair.set(1_000_000e18, q[i]);
+            uint256 attacked = _sell(key, 50e18);
+            pair.set(1_000_000e18, 2_000_000e18);
+            uint256 gainBps = attacked > honest ? (attacked - honest) * 10_000 / honest : 0;
+            emit log_named_uint("pump bps", (uint256(q[i]) - 2_000_000e18) * 10_000 / 2_000_000e18);
+            emit log_named_uint("  attacker gain bps", gainBps);
+            assertLe(gainBps, 100, "edge capped by the 1% step");
+            vm.revertToState(snap0);
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // tip jar
+    // -----------------------------------------------------------------------------------------
+
+    /// Round trips in fresh blocks, so each interval settles with earnings.
+    function _churn(PoolKey memory key, uint256 n) internal {
+        for (uint256 i = 0; i < n; i++) {
+            _nextBlock();
+            uint256 c0 = coin.balanceOf(address(this));
+            _swap(key, true, -int256(100e18));
+            _nextBlock();
+            _swap(key, false, -int256(coin.balanceOf(address(this)) - c0 + 0));
+        }
+        _nextBlock();
+        _swap(key, true, -int256(1e12)); // settle the last interval
+    }
+
+    function _jarValue(PoolId id) internal view returns (uint256) {
         DiscipleHook.PoolView memory v = hook.poolState(id);
-        assertEq(v.premAt, v.sampleAt, "creation arms the premium at the sample");
-        assertEq(v.premAt, uint64(vm.getBlockTimestamp()));
-
-        _nextBlock();
-        vm.warp(vm.getBlockTimestamp() + 60);
-        vm.prank(address(0xBEEF));
-        hook.sample(id); // no tokens, no trade
-        v = hook.poolState(id);
-        assertEq(v.sampleAt, uint64(vm.getBlockTimestamp()));
-        assertLt(v.premAt, v.sampleAt, "an unchanged spot does not re-arm");
-
-        pair.set(1_000_000e18, 2_020_000e18); // +1%, past the 0.25% reset
-        _nextBlock();
-        hook.sample(id);
-        uint64 sampleTime = uint64(vm.getBlockTimestamp());
-        v = hook.poolState(id);
-        assertEq(v.sampleAt, sampleTime, "sample() stored the moved spot");
-        assertLt(v.premAt, sampleTime, "the move is armed when that sample becomes the anchor");
-
-        uint256 snap = vm.snapshotState();
-        uint256 snapTs = vm.getBlockTimestamp();
-        uint256 snapBn = vm.getBlockNumber();
-        vm.roll(vm.getBlockNumber() + 1); // same second as the recording sample: full 4%
-        hook.sample(id);
-        v = hook.poolState(id);
-        assertEq(v.premAt, sampleTime, "premAt is the sample time");
-        assertTrue(v.premBuy, "up move");
-        assertEq(v.anchorX128, Math.mulDiv(2_020_000e18, Q128, 1_000_000e18), "anchor is the sampled spot");
-        uint256 freshBuy = _coinsOut(key, true, 2e18);
-
-        vm.revertToState(snap);
-        vm.warp(snapTs);
-        vm.roll(snapBn);
-        vm.roll(vm.getBlockNumber() + 1);
-        vm.warp(vm.getBlockTimestamp() + 1);
-        hook.sample(id);
-        v = hook.poolState(id);
-        assertEq(v.premAt, sampleTime, "a later adopt does not restart the clock");
-        assertGt(vm.getBlockTimestamp(), uint256(v.premAt), "one second has passed since the sample");
-        uint256 quietBuy = _coinsOut(key, true, 2e18);
-        assertGt(quietBuy, freshBuy, "the premium has faded since the sample, not since this call");
+        return Math.mulDiv(v.jarX, v.anchorX128, Q128) + v.jarY;
     }
 
-    function test_lagPremiumBuyWhenAnchorRises() public {
-        (PoolKey memory key, PoolId id) = _armMove(2_020_000e18, 0);
-        assertTrue(hook.poolState(id).premBuy);
-        uint256 buyEarly = _coinsOut(key, true, 2e18);
-        uint256 sellEarly = _coinsOut(key, false, 1e18);
-        vm.roll(vm.getBlockNumber() + 1);
-        vm.warp(vm.getBlockTimestamp() + 1);
-        uint256 buyLate = _coinsOut(key, true, 2e18);
-        uint256 sellLate = _coinsOut(key, false, 1e18);
-        assertGt(buyLate, buyEarly, "buys pay the lag premium, then it fades");
-        assertApproxEqRel(sellEarly, sellLate, 0.001e18, "sells do not pay the up-move premium");
+    /// cap = 320 tips x 150k gas x basefee x 1.2, in USD at 3000 per ETH.
+    function _cap() internal view returns (uint256) {
+        return 320 * 150_000 * block.basefee * 12 / 10 * 3000;
     }
 
-    function test_lagPremiumSellWhenAnchorFalls() public {
-        (PoolKey memory key, PoolId id) = _armMove(1_980_000e18, 0);
-        assertFalse(hook.poolState(id).premBuy);
-        uint256 buyEarly = _coinsOut(key, true, 2e18);
-        uint256 sellEarly = _coinsOut(key, false, 1e18);
-        vm.roll(vm.getBlockNumber() + 1);
-        vm.warp(vm.getBlockTimestamp() + 1);
-        uint256 buyLate = _coinsOut(key, true, 2e18);
-        uint256 sellLate = _coinsOut(key, false, 1e18);
-        assertGt(sellLate, sellEarly, "sells pay the lag premium, then it fades");
-        assertApproxEqRel(buyEarly, buyLate, 0.001e18, "buys do not pay the down-move premium");
+    function test_jarFillsFromSkimAndStopsAtCap() public {
+        vm.fee(0.01 gwei);
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        assertEq(_jarValue(id), 0);
+        _churn(key, 3);
+        uint256 j = _jarValue(id);
+        assertGt(j, 0, "the skim fills the jar");
+        assertLe(j, _cap(), "never above the cap");
+        DiscipleHook.PoolView memory v = hook.poolState(id);
+        assertEq(_claims(address(coin)), v.coinReserve + v.jarX, "jar coin is held as claims beside the book");
+        assertEq(_claims(address(usd)), v.quoteReserve + v.jarY, "jar quote is held as claims beside the book");
+        _churn(key, 40);
+        assertApproxEqRel(_jarValue(id), _cap(), 0.02e18, "full");
+        assertLe(_jarValue(id), _cap() + 1e6, "and stops there");
+    }
+
+    function test_noBasefeeNoSkim() public {
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        _churn(key, 3);
+        assertEq(_jarValue(id), 0, "a zero basefee values the cap at zero");
+    }
+
+    function test_tipPaidOnlyWhenBehindAndOncePerBlock() public {
+        vm.fee(0.01 gwei);
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        _churn(key, 40);
+        uint256 j0 = _jarValue(id);
+        address bot = address(0xB07);
+        // centre on the leader: no tip
+        _nextBlock();
+        vm.prank(bot);
+        hook.sample(id);
+        assertEq(usd.balanceOf(bot) + coin.balanceOf(bot), 0, "nothing paid while caught up");
+        // leader +5%: due
+        pair.set(1_000_000e18, 2_100_000e18);
+        _nextBlock();
+        vm.prank(bot);
+        hook.sample(id);
+        uint256 t1 = usd.balanceOf(bot);
+        assertGt(t1, 0, "tip paid while 1% or more behind");
+        assertLe(t1, j0 / 32, "at most 1/32 of the jar");
+        // roughly (measured gas + overhead) x basefee x 1.2 at 3000 USD per ETH: well under a cent here
+        assertLt(t1, 0.02e18, "about gas + 20%");
+        vm.prank(bot);
+        hook.sample(id); // same block again
+        assertEq(usd.balanceOf(bot), t1, "one tip per block");
+        // keep sampling until caught up; then tips stop
+        for (uint256 i = 0; i < 8; i++) {
+            _nextBlock();
+            vm.prank(bot);
+            hook.sample(id);
+        }
+        uint256 t2 = usd.balanceOf(bot);
+        _nextBlock();
+        vm.prank(bot);
+        hook.sample(id);
+        assertEq(usd.balanceOf(bot), t2, "caught up: no more tips");
+    }
+
+    function test_gasTippedSample() public {
+        vm.fee(0.01 gwei);
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        _churn(key, 40);
+        pair.set(1_000_000e18, 2_100_000e18);
+        _nextBlock();
+        uint256 g = gasleft();
+        hook.sample(id);
+        emit log_named_uint("sample(), tipped, v2 source (excl. 21k intrinsic)", g - gasleft());
+        _nextBlock();
+        pair.set(1_000_000e18, 2_000_000e18);
+        g = gasleft();
+        hook.sample(id);
+        emit log_named_uint("sample(), next block, leader back near the centre", g - gasleft());
+    }
+
+    function test_jarRunsDryWithoutReverting() public {
+        vm.fee(0.01 gwei);
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        _churn(key, 1);
+        address bot = address(0xB07);
+        uint256 lastX = type(uint256).max;
+        uint256 lastY = type(uint256).max;
+        // alternate the leader by 5% each block so every sample is due; each tip takes at most 1/32 of the jar
+        for (uint256 i = 0; i < 1500; i++) {
+            pair.set(1_000_000e18, i % 2 == 0 ? 2_100_000e18 : 2_000_000e18);
+            _nextBlock();
+            vm.prank(bot);
+            hook.sample(id);
+            DiscipleHook.PoolView memory v = hook.poolState(id);
+            assertLe(v.jarX, lastX, "the jar only drains without trades");
+            assertLe(v.jarY, lastY, "the jar only drains without trades");
+            (lastX, lastY) = (v.jarX, v.jarY);
+        }
+        assertLt(_jarValue(id), 1e15, "nearly dry");
+        pair.set(1_000_000e18, 2_200_000e18);
+        _nextBlock();
+        hook.sample(id); // still works, pays what is left
+    }
+
+    function test_seedWithdrawalLeavesTheJar() public {
+        vm.fee(0.01 gwei);
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        vm.prank(lp);
+        hook.deposit(id, 100e18, 1000e18);
+        _churn(key, 10);
+        DiscipleHook.PoolView memory v = hook.poolState(id);
+        uint256 jx = v.jarX;
+        uint256 jy = v.jarY;
+        assertGt(jx + jy, 0);
+        (address owner, uint256 principal,,,) = hook.lotState(id, 1);
+        assertEq(owner, address(this));
+        _nextBlock();
+        hook.withdraw(id, 1, principal, 0); // creator pulls the seed lot
+        v = hook.poolState(id);
+        assertEq(v.jarX, jx, "jar coin untouched");
+        assertEq(v.jarY, jy, "jar quote untouched");
+        assertEq(_claims(address(usd)), v.quoteReserve + v.jarY + _escrowY(id), "claims = book + jar (+ escrow)");
+        // the jar still pays with the seed gone
+        pair.set(1_000_000e18, 2_100_000e18);
+        _nextBlock();
+        vm.prank(address(0xB07));
+        hook.sample(id);
+        assertGt(usd.balanceOf(address(0xB07)), 0, "tips continue from the pool's jar");
+    }
+
+    function _escrowY(PoolId) internal pure returns (uint256) {
+        return 0; // not graduated in these tests: nothing is escrowed
+    }
+
+    /// A pool whose tokens cannot be valued in ETH (neither is WETH nor the reference token) pays from its tank.
+    function test_unvaluedPoolTipsFromTank() public {
+        vm.fee(0.01 gwei);
+        MockERC20 c2 = usd2();
+        MockPair p2 = new MockPair();
+        p2.set(1_000_000e18, 2_000_000e18);
+        p2.setTokens(address(c2), address(coin));
+        v2f.add(address(p2));
+        DiscipleHook.Source memory s;
+        s.kind = 1;
+        s.coinIs0 = true;
+        s.target = address(p2);
+        (PoolKey memory key, PoolId id) = hook.createPool(
+            DiscipleHook.CreateParams({coin: address(c2), quote: address(coin), fee: FEE, src: s, coinIn: 1000e18, quoteIn: 2000e18, srcKey: _noKey(), srcKey2: _noKey()})
+        );
+        key;
+        hook.fundTank{value: 0.01 ether}(id);
+        p2.set(1_000_000e18, 2_100_000e18);
+        _nextBlock();
+        address bot = address(0xB07);
+        vm.prank(bot);
+        hook.sample(id);
+        assertGt(bot.balance, 0, "paid in ETH from the tank");
+        assertLe(bot.balance, 0.002 ether);
+        assertEq(hook.poolState(id).jarX + hook.poolState(id).jarY, 0, "no jar for an unvalued pool");
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // standard hook events
+    // -----------------------------------------------------------------------------------------
+
+    event HookSwap(
+        bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint128 hookLPfeeAmount0, uint128 hookLPfeeAmount1
+    );
+    event HookModifyLiquidity(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1);
+
+    function test_hookSwapAndModifyLiquidityEvents() public {
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        bool coinIs0 = Currency.unwrap(key.currency0) == address(coin);
+        _nextBlock();
+        uint256 out = _coinsOut(key, true, 20e18);
+        // buy: quote in, coin out; fee = 0.3% of the input
+        (int128 a0, int128 a1) = coinIs0 ? (-int128(uint128(out)), int128(20e18)) : (int128(20e18), -int128(uint128(out)));
+        (uint128 f0, uint128 f1) = coinIs0 ? (uint128(0), uint128(0.06e18)) : (uint128(0.06e18), uint128(0));
+        vm.expectEmit(true, true, false, true, address(hook));
+        emit HookSwap(PoolId.unwrap(id), address(swapper), a0, a1, f0, f1);
+        _swap(key, true, -int256(20e18));
+
+        _nextBlock();
+        vm.prank(lp);
+        vm.recordLogs();
+        hook.deposit(id, 10e18, 1000e18);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool seen;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] == HookModifyLiquidity.selector) {
+                (int128 m0, int128 m1) = abi.decode(logs[i].data, (int128, int128));
+                assertGt(m0, 0);
+                assertGt(m1, 0);
+                assertEq(logs[i].topics[2], bytes32(uint256(uint160(lp))));
+                seen = true;
+            }
+        }
+        assertTrue(seen, "HookModifyLiquidity on deposit");
     }
 
     function test_sampleRejectsCrossChainAndUnknown() public {
@@ -405,21 +675,6 @@ contract DiscipleTest is Test {
         hook.sample(id);
         vm.expectRevert(DiscipleHook.UnknownPool.selector);
         hook.sample(PoolId.wrap(bytes32(uint256(1))));
-    }
-
-    /// @dev Clear the opening premium, record a spot that has moved, and adopt it `age` seconds after that sample.
-    ///      `age` 0 stays in the sample's own second, so the 1-second premium is still the full 4%.
-    function _armMove(uint112 quoteReserve, uint256 age) internal returns (PoolKey memory key, PoolId id) {
-        (key, id) = _createSame(1000e18, 2000e18);
-        _nextBlock();
-        vm.warp(vm.getBlockTimestamp() + 60);
-        hook.sample(id);
-        pair.set(1_000_000e18, quoteReserve);
-        _nextBlock();
-        hook.sample(id);
-        vm.roll(vm.getBlockNumber() + 1);
-        if (age != 0) vm.warp(vm.getBlockTimestamp() + age);
-        hook.sample(id);
     }
 
     function _coinsOut(PoolKey memory key, bool buy, uint256 amountIn) internal returns (uint256 out) {
@@ -583,8 +838,8 @@ contract DiscipleTest is Test {
     /// @dev Native ETH in a v4 source counts as the hook's WETH.
     function test_nativeEthSourceCountsAsWeth() public {
         MockERC20 w = new MockERC20("WETH", "WETH", 18);
-        bytes memory args = abi.encode(manager, address(0), address(v2f), address(0), address(w));
-        DiscipleHook h = new DiscipleHook{salt: _mine(args)}(manager, address(0), address(v2f), address(0), address(w));
+        bytes memory args = abi.encode(manager, address(0), address(v2f), address(0), address(w), DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false));
+        DiscipleHook h = new DiscipleHook{salt: _mine(args)}(manager, address(0), address(v2f), address(0), address(w), DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false));
         PoolKey memory src = PoolKey(Currency.wrap(address(0)), Currency.wrap(address(coin)), 3000, 60, IHooks(address(0)));
         manager.initialize(src, TickMath.getSqrtPriceAtTick(-6900)); // ~2 ETH per coin... coin is currency1
         DiscipleHook.Source memory s;
@@ -621,7 +876,6 @@ contract DiscipleTest is Test {
     function test_sameChainBuyNeverBelowLiveSourceAsk() public {
         (PoolKey memory key,) = _createSame(1000e18, 2000e18);
         _nextBlock();
-        vm.warp(block.timestamp + 60); // no premium
         // the source jumps 10% inside the block: our ask must follow the live source, not the latched anchor
         pair.set(1_000_000e18, 2_200_000e18);
         uint256 c0 = coin.balanceOf(address(this));

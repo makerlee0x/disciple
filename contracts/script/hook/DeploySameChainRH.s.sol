@@ -36,14 +36,28 @@ contract DeploySameChainRH is Script {
             Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
                 | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
         );
-        bytes memory args = abi.encode(PM, address(0), address(0), address(0), WETH);
+        DiscipleHook.Config memory cfg = _cfg();
+        bytes memory args = abi.encode(PM, address(0), address(0), address(0), WETH, cfg);
         (address want, bytes32 salt) = HookMiner.find(CREATE2_DEPLOYER, flags, type(DiscipleHook).creationCode, args);
         vm.startBroadcast();
-        h = new DiscipleHook{salt: salt}(PM, address(0), address(0), address(0), WETH);
+        h = new DiscipleHook{salt: salt}(PM, address(0), address(0), address(0), WETH, cfg);
         vm.stopBroadcast();
         require(address(h) == want, "hook address");
         require(address(h).code.length <= 24_576, "over EIP-170");
         console2.log("DiscipleHook (Robinhood, same chain only)", address(h));
+    }
+
+    /// @dev Robinhood: 1% minimum anchor step. The tip jar values gas in USDG through one WETH/USDG reference
+    ///      pool: REF_KIND (1 v2, 2 v3, 3 v4; 0 = none, tips then fall back to the ETH tank), REF_TARGET (v2 pair /
+    ///      v3 pool; v4: the PoolManager), REF_V4ID (v4 pool id), REF_WETH_IS0 (WETH is token0 of that pool).
+    function _cfg() internal view returns (DiscipleHook.Config memory c) {
+        c.minStep = 10_000;
+        c.refToken = USDG;
+        c.refKind = uint8(vm.envOr("REF_KIND", uint256(0)));
+        c.refTarget = vm.envOr("REF_TARGET", address(0));
+        c.refV4Id = vm.envOr("REF_V4ID", bytes32(0));
+        c.refWethIs0 = vm.envOr("REF_WETH_IS0", false);
+        if (c.refKind == 3 && c.refTarget == address(0)) c.refTarget = address(PM);
     }
 
     function pool() public {

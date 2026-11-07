@@ -112,8 +112,22 @@ contract DiscipleDepthTest is Test {
         coin = new MockERC20("COIN", "COIN", 18);
         usd = new MockERC20("USD", "USD", 18);
         v2f = new Factory2();
-        bytes memory args = abi.encode(manager, address(0), address(v2f), address(0), address(0));
-        hook = new DiscipleHook{salt: _mine(args)}(manager, address(0), address(v2f), address(0), address(0));
+        bytes memory args = abi.encode(
+            manager,
+            address(0),
+            address(v2f),
+            address(0),
+            address(0),
+            DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+        );
+        hook = new DiscipleHook{salt: _mine(args)}(
+            manager,
+            address(0),
+            address(v2f),
+            address(0),
+            address(0),
+            DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+        );
         coin.mint(address(this), 1e40);
         usd.mint(address(this), 1e40);
         coin.approve(address(liq), type(uint256).max);
@@ -136,7 +150,8 @@ contract DiscipleDepthTest is Test {
     }
 
     function _srcKey(int24 spacing) internal view returns (PoolKey memory k) {
-        (address a, address b) = address(coin) < address(usd) ? (address(coin), address(usd)) : (address(usd), address(coin));
+        (address a, address b) =
+            address(coin) < address(usd) ? (address(coin), address(usd)) : (address(usd), address(coin));
         k = PoolKey(Currency.wrap(a), Currency.wrap(b), 3000, spacing, IHooks(address(0)));
     }
 
@@ -254,7 +269,14 @@ contract DiscipleDepthTest is Test {
         returns (DiscipleHook.CreateParams memory)
     {
         return DiscipleHook.CreateParams({
-            coin: address(coin), quote: address(usd), fee: 3000, src: s, coinIn: c, quoteIn: q, srcKey: k, srcKey2: _noKey()
+            coin: address(coin),
+            quote: address(usd),
+            fee: 3000,
+            src: s,
+            coinIn: c,
+            quoteIn: q,
+            srcKey: k,
+            srcKey2: _noKey()
         });
     }
 
@@ -328,7 +350,9 @@ contract DiscipleDepthTest is Test {
         uint256 s2 = g - gasleft();
         emit log_named_uint("v2 source: first swap in block, incl. router", f2);
         emit log_named_uint("v2 source: first-in-block extra", f2 - s2);
-        emit log_named_int("counter cost (v4 extra - v2 extra, approx)", (int256(first) - int256(second)) - (int256(f2) - int256(s2)));
+        emit log_named_int(
+            "counter cost (v4 extra - v2 extra, approx)", (int256(first) - int256(second)) - (int256(f2) - int256(s2))
+        );
     }
 
     // -----------------------------------------------------------------------------------------

@@ -268,12 +268,25 @@ contract PushForkReverseTest is Test {
         address[] memory senders = new address[](1);
         bool[] memory ethGas = new bool[](1);
         (eids[0], senders[0], ethGas[0]) = (V0.RH_EID, address(sender), true);
-        receiver =
-            new DisciplePushReceiver(
+        receiver = new DisciplePushReceiver(
             ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), eids, senders, ethGas, _ethCfg(), V0.destMsgGas(lean)
         );
-        bytes memory args = abi.encode(m, address(receiver), ETH_V2_FACTORY, ETH_V3_FACTORY, address(0));
-        hook = new DiscipleHook{salt: _mine(args)}(m, address(receiver), ETH_V2_FACTORY, ETH_V3_FACTORY, address(0));
+        bytes memory args = abi.encode(
+            m,
+            address(receiver),
+            ETH_V2_FACTORY,
+            ETH_V3_FACTORY,
+            address(0),
+            DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+        );
+        hook = new DiscipleHook{salt: _mine(args)}(
+            m,
+            address(receiver),
+            ETH_V2_FACTORY,
+            ETH_V3_FACTORY,
+            address(0),
+            DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+        );
         receiver.bind(IDisciplePriceTarget(address(hook)));
         vm.deal(address(this), 10 ether);
         swapper = new PoolSwapTest(m);
@@ -299,7 +312,16 @@ contract PushForkReverseTest is Test {
         s.remoteEid = V0.RH_EID;
         s.push = true;
         (k, id) = hook.createPool{value: 0.05 ether}(
-            DiscipleHook.CreateParams({coin: address(coin), quote: address(quote), fee: 3000, src: s, coinIn: 1e24, quoteIn: 1e20, srcKey: _noKey(), srcKey2: _noKey()})
+            DiscipleHook.CreateParams({
+                coin: address(coin),
+                quote: address(quote),
+                fee: 3000,
+                src: s,
+                coinIn: 1e24,
+                quoteIn: 1e20,
+                srcKey: _noKey(),
+                srcKey2: _noKey()
+            })
         );
         quoteOf[PoolId.unwrap(id)] = address(quote);
     }
@@ -338,7 +360,8 @@ contract PushForkReverseTest is Test {
         vm.prank(keeper);
         uint256 g = gasleft();
         sender.push{value: p.fee}(V0.ETH_EID, to, r, RECEIVE_GAS);
-        p.gas = g - gasleft() + 21_000 + _calldataGas(abi.encodeCall(DisciplePushSender.push, (V0.ETH_EID, to, r, RECEIVE_GAS)));
+        p.gas = g - gasleft() + 21_000
+            + _calldataGas(abi.encodeCall(DisciplePushSender.push, (V0.ETH_EID, to, r, RECEIVE_GAS)));
         p.basefee = block.basefee;
         p.observedAt = uint64(vm.getBlockTimestamp());
         Vm.Log[] memory logs = vm.getRecordedLogs();

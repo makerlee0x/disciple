@@ -174,14 +174,27 @@ contract DiscipleForkTest is Test {
         s.v4Id = x.kind == 3 ? PoolId.unwrap(x.v4Key.toId()) : bytes32(0);
 
         (address f2, address f3) = _factories();
-        bytes memory args = abi.encode(m, address(0), f2, f3, _weth());
-        DiscipleHook hook = new DiscipleHook{salt: _mine(args)}(m, address(0), f2, f3, _weth());
+        bytes memory args = abi.encode(
+            m, address(0), f2, f3, _weth(), DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+        );
+        DiscipleHook hook = new DiscipleHook{salt: _mine(args)}(
+            m, address(0), f2, f3, _weth(), DiscipleHook.Config(10_000, address(0), 0, address(0), bytes32(0), false)
+        );
         PoolSwapTest swapper = new PoolSwapTest(m);
         _fund(coin, quote, address(hook), address(swapper));
 
         uint256 coinSeed = 1000 * 10 ** cd;
         (PoolKey memory key, PoolId id) = hook.createPool(
-            DiscipleHook.CreateParams({coin: coin, quote: quote, fee: 3000, src: s, coinIn: coinSeed, quoteIn: _bal(quote) / 4, srcKey: x.v4Key, srcKey2: _noKey()})
+            DiscipleHook.CreateParams({
+                coin: coin,
+                quote: quote,
+                fee: 3000,
+                src: s,
+                coinIn: coinSeed,
+                quoteIn: _bal(quote) / 4,
+                srcKey: x.v4Key,
+                srcKey2: _noKey()
+            })
         );
         DiscipleHook.PoolView memory v = hook.poolState(id);
         emit log_named_decimal_uint("  source spot (quote per coin)", _human(v.anchorX128, cd, qd), 18);
@@ -252,7 +265,6 @@ contract DiscipleForkTest is Test {
         if (ok && out > 0) (q.srcSellOk, q.srcSell) = (true, Math.mulDiv(out, Q128, cIn));
         vm.revertToState(snap);
     }
-
 
     // -----------------------------------------------------------------------------------------
     // two-leg arbitrage
@@ -420,17 +432,21 @@ contract DiscipleForkTest is Test {
             // The creator takes 12%, LPs get 88% boost-weighted as escrowed claims; shares keep the principal.
             uint256 claimV = Math.mulDiv(cx, v.anchorX128, Q128) + cy;
             uint256 wantClaim = Math.mulDiv(earn * 88 / 100, wLp, wAll);
-            emit log_named_decimal_uint("  graduated: LP claim / expected (1e18 = exact)", claimV * 1e18 / wantClaim, 18);
-            assertApproxEqAbs(entitled, Math.mulDiv(vNow, sh, total + b), 4 + entitled / 1e12, "graduated: shares = principal");
+            emit log_named_decimal_uint(
+                "  graduated: LP claim / expected (1e18 = exact)", claimV * 1e18 / wantClaim, 18
+            );
+            assertApproxEqAbs(
+                entitled, Math.mulDiv(vNow, sh, total + b), 4 + entitled / 1e12, "graduated: shares = principal"
+            );
             assertApproxEqRel(claimV, wantClaim, 1e15, "graduated: LP claim = 88% of its weighted earning");
             assertLe(claimV, wantClaim + 2, "rounding never favours the LP");
             return; // the drain-and-reconcile below assumes a pool that graduates later
         }
         emit log_named_decimal_uint("  LP entitlement / expected (1e18 = exact)", entitled * 1e18 / expected, 18);
-        emit log_named_decimal_uint(
-            "  LP share of the earning (boost-weighted)", Math.mulDiv(1e18, wLp, wAll), 18
+        emit log_named_decimal_uint("  LP share of the earning (boost-weighted)", Math.mulDiv(1e18, wLp, wAll), 18);
+        assertApproxEqAbs(
+            entitled, expected, 4 + expected / 1e12, "LP entitlement = pro-rata principal + weighted earning"
         );
-        assertApproxEqAbs(entitled, expected, 4 + expected / 1e12, "LP entitlement = pro-rata principal + weighted earning");
         assertLe(entitled, expected + 1, "rounding never favours the LP");
         c0 = IERC20Lite(coin).balanceOf(lp);
         q0 = IERC20Lite(quote).balanceOf(lp);
@@ -504,8 +520,8 @@ contract DiscipleForkTest is Test {
         assertGe(hq2, v.quoteReserve, "after draining: quote claims cover the reserve");
         // Dust is counted in value: a share unit is one raw quote unit of value, so one share unit of rounding can
         // be many coin wei. Unowned value left must be a few raw quote units per payout.
-        uint256 dustValue = Math.mulDiv(hc2 - v.coinReserve, v.anchorX128, Q128, Math.Rounding.Ceil)
-            + (hq2 - v.quoteReserve);
+        uint256 dustValue =
+            Math.mulDiv(hc2 - v.coinReserve, v.anchorX128, Q128, Math.Rounding.Ceil) + (hq2 - v.quoteReserve);
         emit log_named_uint("  drained: unowned value (raw quote units)", dustValue);
         assertLe(dustValue, 2 * lots + 8, "only rounding dust unaccounted");
         emit log_named_uint("  drained: unowned coin dust (raw)", hc2 - v.coinReserve);
@@ -551,13 +567,16 @@ contract DiscipleForkTest is Test {
     }
 
     function _v3Swap(Src memory x, bool zeroForOne, uint256 amtIn) internal returns (bool, uint256) {
-        try IV3Swap(x.target).swap(
-            address(this),
-            zeroForOne,
-            int256(amtIn),
-            zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1,
-            ""
-        ) returns (int256 d0, int256 d1) {
+        try IV3Swap(x.target)
+            .swap(
+                address(this),
+                zeroForOne,
+                int256(amtIn),
+                zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1,
+                ""
+            ) returns (
+            int256 d0, int256 d1
+        ) {
             return (true, uint256(-(zeroForOne ? d1 : d0)));
         } catch {
             return (false, 0);
@@ -584,7 +603,9 @@ contract DiscipleForkTest is Test {
             }),
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
             ""
-        ) returns (BalanceDelta d) {
+        ) returns (
+            BalanceDelta d
+        ) {
             int128 o = zeroForOne ? d.amount1() : d.amount0();
             return (o > 0, o > 0 ? uint256(uint128(o)) : 0);
         } catch {
