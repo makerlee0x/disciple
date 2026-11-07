@@ -159,5 +159,10 @@ describe("disciple config mode", () => {
     expect(beside.disciple?.hook).toBe(HOOK);
     expect(beside.disciple?.rpcUrl).toBe("http://rh");
     expect(beside.stacks[0].hook).not.toBe(HOOK); // AscensionHook path is untouched
+    // Known live RH hook defaults fromBlock when DISCIPLE_FROM_BLOCK is omitted (never 0).
+    const known = loadConfig({ DISCIPLE_HOOK: HOOK, DISCIPLE_RPC_URL: "http://rh" } as any);
+    expect(known.disciple?.fromBlock).toBe(106431488n);
+    // Unknown hook without fromBlock stays off (would otherwise scan from genesis).
+    expect(loadConfig({ DISCIPLE_HOOK: A(9), DISCIPLE_RPC_URL: "http://rh" } as any).disciple).toBeUndefined();
   });
 });

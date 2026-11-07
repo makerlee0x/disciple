@@ -21,8 +21,11 @@ export const CANDLE_DEFAULT_BARS = 300;
 export const CANDLE_MAX_BARS = 2000;
 /** List endpoints are cached in-process for LIST_CACHE_MS (and sent with Cache-Control s-maxage for a CDN in front). */
 export const LIST_CACHE_MS = Number(process.env.LIST_CACHE_MS ?? 5000);
-const LIST_PATHS = new Set(["coins", "leaderboard", "tier-breaks", "orders"]);
-const isListPath = (p: string[]) => LIST_PATHS.has(p[0]) && (p[0] !== "coins" || p.length === 1);
+/** Disciple pool-detail hits live RPC; cap when the indexer HTTP API is public. */
+export const DISCIPLE_HTTP_LIMIT = Number(process.env.DISCIPLE_HTTP_LIMIT ?? 60);
+export const DISCIPLE_HTTP_WINDOW_SEC = Number(process.env.DISCIPLE_HTTP_WINDOW_SEC ?? 60);
+const LIST_PATHS = new Set(["coins", "leaderboard", "tier-breaks", "orders", "disciple"]);
+const isListPath = (p: string[]) => LIST_PATHS.has(p[0]) && (p[0] !== "coins" || p.length === 1) && (p[0] !== "disciple" || p.length === 2);
 
 /** Integer query param: parseInt with a default, clamped to [min, max], never NaN. */
 export function intParam(q: URLSearchParams, name: string, def: number, min: number, max: number): number {
@@ -57,7 +60,22 @@ const supplyTokens = (coin: any) => Number(supplyOf(coin)) / 1e18;
 export class Api {
   private cache = new Map<string, { at: number; v: any }>();
   private discipleClient: PublicClient | null = null;
+  /** IP → timestamps of recent /disciple/* hits (windowed). */
+  private discipleHits = new Map<string, number[]>();
   constructor(private db: DB, private client: PublicClient | null, private cfg: Config) {}
+
+  private discipleRateOk(ip: string): boolean {
+    const now = Date.now();
+    const win = DISCIPLE_HTTP_WINDOW_SEC * 1000;
+    const prev = (this.discipleHits.get(ip) ?? []).filter((t) => now - t < win);
+    if (prev.length >= DISCIPLE_HTTP_LIMIT) { this.discipleHits.set(ip, prev); return false; }
+    prev.push(now);
+    this.discipleHits.set(ip, prev);
+    if (this.discipleHits.size > 5000) {
+      for (const [k, ts] of this.discipleHits) if (!ts.some((t) => now - t < win)) this.discipleHits.delete(k);
+    }
+    return true;
+  }
 
   /** Reads for DiscipleHook. Uses the launchpad client when the hook shares its RPC (unit tests pass a mock there). */
   private discipleRpc(): PublicClient | null {
@@ -155,16 +173,21 @@ export class Api {
     const row = this.disciplePool(poolId);
     if (!row || !this.cfg.disciple) return null;
     let tvl: DiscipleTvl | null = null;
-    let tvlError: string | undefined;
+    let tvlUnavailable = false;
     const rpc = this.discipleRpc();
     if (rpc) {
       try {
-        tvl = await readDiscipleTvl(rpc, this.cfg.disciple.hook, this.cfg.disciple.poolManager, row.id, this.quoteUsdWadFor(row.quote));
-      } catch (e: any) { tvlError = e.message; }
+        // Same 10s TTL as live() — pool-detail is otherwise an uncached 3× eth_call per hit.
+        tvl = await this.cached(`disciple:tvl:${row.id}`, 10_000, () =>
+          readDiscipleTvl(rpc, this.cfg.disciple!.hook, this.cfg.disciple!.poolManager, row.id, this.quoteUsdWadFor(row.quote)));
+      } catch (e: any) {
+        tvlUnavailable = true;
+        console.warn("[disciple] poolState tvl failed", e?.message ?? e);
+      }
     }
     const swaps = (this.db.prepare("SELECT COUNT(*) n, COALESCE(SUM(CAST(quote_amt AS REAL)),0) quote FROM disciple_swaps WHERE pool_id=?").get(row.id) as any);
     return {
-      ...row, v4Fee: 0, tvl, tvlError,
+      ...row, v4Fee: 0, tvl, ...(tvlUnavailable ? { tvlUnavailable: true } : {}),
       swaps: swaps.n, quoteVolumeRaw: String(swaps.quote),
       quoter: this.cfg.disciple.v4Quoter ?? null,
     };
@@ -609,9 +632,18 @@ export class Api {
       let cacheHdr: Record<string, string> = {};
       try {
         const url = new URL(req.url ?? "/", "http://x");
+        const p = url.pathname.split("/").filter(Boolean);
+        if (p[0] === "disciple") {
+          const ip = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() || req.socket.remoteAddress || "unknown";
+          if (!this.discipleRateOk(ip)) {
+            status = 429; body = { error: "rate limited" };
+            res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*", "retry-after": String(DISCIPLE_HTTP_WINDOW_SEC) });
+            res.end(JSON.stringify(body));
+            return;
+          }
+        }
         try { [status, body] = await this.route(req.method ?? "GET", url); }
         catch (e: any) { status = 400; body = { error: e?.message ?? "bad request" }; }
-        const p = url.pathname.split("/").filter(Boolean);
         if (status === 200 && LIST_CACHE_MS > 0 && isListPath(p))
           cacheHdr = { "cache-control": `public, max-age=${Math.round(LIST_CACHE_MS / 1000)}, s-maxage=${Math.round(LIST_CACHE_MS / 1000)}` };
       } catch (e: any) {

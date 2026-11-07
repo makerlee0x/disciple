@@ -126,12 +126,16 @@ export function loadConfig(env = process.env): Config {
 }
 
 const RH_POOL_MANAGER = "0x8366a39CC670B4001A1121B8F6A443A643e40951";
+/** Live same-chain STRATEGY/USDG DiscipleHook on Robinhood 4663 (contracts/deployments/rh-4663-disciple-hook.json). */
+const RH_DISCIPLE_HOOK = "0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88";
+const RH_DISCIPLE_FROM_BLOCK = 106431488n;
 
 /** Catalog json (no Launchpad) or an explicit hook turns the adapter on. The testnet stack json does not. */
 function loadDisciple(d: any, env: NodeJS.ProcessEnv, rpcUrl: string): DiscipleConfig | undefined {
   const catalog = d?.kind === "disciple" || (d?.hook && d?.pools && !d?.contracts?.Launchpad) ? d : null;
   const hookRaw = env.DISCIPLE_HOOK ?? d?.discipleHook?.address ?? catalog?.hook;
   if (!hookRaw) return undefined;
+  const hook = getAddress(hookRaw);
   const pools: any[] = catalog?.pools ?? d?.discipleHook?.pools ?? [];
   const quoteUsdWad: Record<string, string> = {};
   for (const p of pools) {
@@ -143,11 +147,17 @@ function loadDisciple(d: any, env: NodeJS.ProcessEnv, rpcUrl: string): DiscipleC
   }
   const pm = env.DISCIPLE_POOL_MANAGER ?? d?.discipleHook?.poolManager ?? catalog?.poolManager ?? d?.uniswapV4?.PoolManager ?? RH_POOL_MANAGER;
   const quoter = env.DISCIPLE_V4_QUOTER ?? d?.discipleHook?.v4Quoter ?? catalog?.v4Quoter ?? d?.uniswapV4?.V4Quoter;
+  const fromRaw = env.DISCIPLE_FROM_BLOCK ?? d?.discipleHook?.fromBlock ?? catalog?.fromBlock;
+  // Never default to block 0 beside Launchpad stacks — that would replay the whole chain.
+  const fromBlock = fromRaw != null && String(fromRaw) !== ""
+    ? BigInt(fromRaw)
+    : hook === getAddress(RH_DISCIPLE_HOOK) ? RH_DISCIPLE_FROM_BLOCK : undefined;
+  if (fromBlock == null) return undefined;
   return {
-    hook: getAddress(hookRaw),
+    hook,
     poolManager: getAddress(pm),
     v4Quoter: quoter ? getAddress(quoter) : undefined,
-    fromBlock: BigInt(env.DISCIPLE_FROM_BLOCK ?? d?.discipleHook?.fromBlock ?? catalog?.fromBlock ?? 0),
+    fromBlock,
     rpcUrl: env.DISCIPLE_RPC_URL ?? catalog?.rpc ?? d?.discipleHook?.rpc ?? rpcUrl,
     quoteUsdWad,
   };
