@@ -11,25 +11,22 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
-import {TwapOracle} from "./libraries/TwapOracle.sol";
 import {BasePools} from "./libraries/BasePools.sol";
 
-/// @title Quote/USD oracle (USDG = $1, others via a TRUNCATED TWAP of a registered quote/USDG v4 pool)
-/// @notice Curve mcap targets ($7,777 / $33,333) are USD. At launch the Launchpad asks this contract for the
-///         quote's USD price exactly once and bakes it into the curve geometry (immutable thereafter).
-/// @dev Trust assumptions (documented in README):
-///      - USDG is treated as exactly $1 (no depeg handling).
-///      - Non-USDG quotes are priced from a time-weighted mean tick (SEC-03 fix) of an owner-registered
-///        quote/USDG v4 pool. Observations are written by the permissionless `poke(quote)` (also called by
-///        Launchpad.launch) in LAGGED mode: a poke records the current spot only for the FUTURE, clamped to
-///        ±maxTickDelta of the previous observation, so a flash move + poke + read in one tx has zero effect and a
-///        move must be held across blocks (and keepers' pokes) to shift the TWAP. Spot is available separately
-///        via `spotPriceUsd` for display. `minLiquidity` still applies to the reference pool.
-///      - Permissionless base discovery: `poke(base)` (also called by every launch) auto-registers the deepest
-///        hookless (base, USDG) v4 pool at the standard tiers (BasePools) if its liquidity >= minLiquidity. An
-///        auto-discovered pool prices only after `autoWarmup` seconds of TWAP history (its first observation is the
-///        discovery-time spot, which a flash move could skew; truncated keeper/launch pokes wash that out).
-///      - Owner registration (`setPricePool`) stays as an override and is never replaced by discovery.
+interface IQuoteSourceOracle {
+    function poolManager() external view returns (IPoolManager);
+    function consult(PoolKey calldata key, uint32 window) external view returns (int24 tick, uint32 actualWindow);
+}
+
+
+/// @title Quote/USD oracle: USDG = $1, others via authenticated source-pool history.
+/// @notice Launchpad bakes this price into immutable curve geometry. A registered v4 pool must use a compatible
+///         source oracle hook that records every swap (QuoteSourceOracle); hookless pools have no history and
+///         FAIL CLOSED. `poke` may discover a pool but never promotes a sampled spot into persisted history.
+/// @dev Source history must cover the complete configured window. Owner registration selects the trusted hook;
+///      registration and permissionless discovery are not proof of a safe oracle implementation. USDG depeg
+///      handling remains out of scope. Existing hookless liquidity needs a compatible pool/source before pricing.
+
 contract QuotePricer is IQuotePricer, Owned2Step {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -53,11 +50,11 @@ contract QuotePricer is IQuotePricer, Owned2Step {
 
     /// @notice TWAP window, seconds (owner-settable). Default 30 minutes.
     uint32 public twapWindow = 1800;
-    /// @notice Max |tick move| recorded per poke. Default 2000 ticks ≈ ±22% per observation.
+    /// @notice Legacy ABI setting; source history is exact and is NOT truncated by poke.
     int24 public maxTickDelta = 2000;
-    mapping(address => TwapOracle.State) internal _oracle;
 
     error NoPricePool(address quote);
+    error NoSourceHistory(address quote);
     error TwapWarmingUp(uint256 readyAt);
     error BadPool();
     error ThinPool(uint128 liquidity);
@@ -113,8 +110,6 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         _poolOf[quote] = key;
         hasPricePool[quote] = true;
         isAutoPool[quote] = false;
-        // (Re)start the oracle at the owner-registration spot.
-        TwapOracle.initialize(_oracle[quote], _usdTick(quote, key));
         emit PricePoolSet(quote, PoolId.unwrap(key.toId()), key.fee, key.tickSpacing, address(key.hooks));
     }
 
@@ -125,8 +120,8 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         emit PricePoolCleared(quote);
     }
 
-    /// @notice Permissionless: record a (lagged, truncated) observation for `quote`. If `quote` has no pool yet,
-    ///         discover and auto-register the deepest standard (quote, USDG) v4 pool meeting minLiquidity.
+    /// @notice Permissionless pool discovery only. NEVER sample a spot as persisted history (audit F-04).
+    ///         Hookless discovered pools remain unavailable for safety pricing until a compatible source is registered.
     function poke(address quote) public {
         if (quote == usdg) return;
         // Discover if unset, or re-discover if the AUTO pool fell below the floor (e.g. a thin/narrow-range pool
@@ -138,26 +133,22 @@ contract QuotePricer is IQuotePricer, Owned2Step {
             hasPricePool[quote] = true;
             isAutoPool[quote] = true;
             autoSince[quote] = uint40(block.timestamp);
-            TwapOracle.initialize(_oracle[quote], _usdTick(quote, k));
             emit PricePoolDiscovered(quote, PoolId.unwrap(k.toId()), k.fee, k.tickSpacing, liq);
             return;
         }
-        int24 spot = _usdTick(quote, _poolOf[quote]);
-        TwapOracle.State storage o = _oracle[quote];
-        if (TwapOracle.write(o, spot, maxTickDelta, true)) emit Poked(quote, spot, TwapOracle.last(o).tick);
     }
 
-    /// @dev Reference pool tick in "USDG per quote" orientation.
-    function _usdTick(address quote, PoolKey memory key) internal view returns (int24) {
-        (, int24 tick,,) = poolManager.getSlot0(key.toId());
-        return Currency.unwrap(key.currency0) == quote ? tick : -tick;
-    }
-
-    /// @notice TWAP tick (USDG raw per quote raw) and the seconds covered.
+    /// @notice Source time-weighted tick in USDG-per-quote orientation, over the FULL configured window.
     function twapTick(address quote) public view returns (int24 tick, uint32 actualWindow) {
         if (!hasPricePool[quote]) revert NoPricePool(quote);
-        TwapOracle.State storage o = _oracle[quote];
-        return TwapOracle.consult(o, twapWindow, TwapOracle.last(o).tick);
+        PoolKey memory key = _poolOf[quote];
+        address source = address(key.hooks);
+        if (source == address(0) || IQuoteSourceOracle(source).poolManager() != poolManager) {
+            revert NoSourceHistory(quote);
+        }
+        (tick, actualWindow) = IQuoteSourceOracle(source).consult(key, twapWindow);
+        if (actualWindow < twapWindow) revert TwapWarmingUp(block.timestamp + twapWindow - actualWindow);
+        if (Currency.unwrap(key.currency0) != quote) tick = -tick;
     }
 
     function pricePoolOf(address quote) external view returns (PoolKey memory) {

@@ -232,24 +232,15 @@ contract JitTwapTest is IntegrationBase {
         assertEq(c2.quotePriceUsd(), p0, "curve baked manipulated price");
     }
 
-    function test_pricer_sustained_move_is_rate_limited_then_tracks() public {
+    function test_pricer_sustained_move_tracks_source_history() public {
         _next(3600);
+        uint256 p0 = pricer.quotePriceUsd(address(strategy));
+        _refSwap(false, 100_000 ether);
         pricer.poke(address(strategy));
-        (int24 t0,) = pricer.twapTick(address(strategy));
-        _refSwap(false, 100_000 ether); // held
-        pricer.poke(address(strategy));
-        _next(60);
-        pricer.poke(address(strategy));
-        (int24 t1,) = pricer.twapTick(address(strategy));
-        // one 60s interval at ≤ +2000 ticks out of a 1800s window → ≤ 2000*60/1800 ≈ 67 ticks
-        assertLe(t1 - t0, 68);
-        for (uint256 i; i < 40; i++) {
-            _next(60);
-            pricer.poke(address(strategy));
-        }
-        uint256 p = pricer.quotePriceUsd(address(strategy));
-        uint256 s = pricer.spotPriceUsd(address(strategy));
-        assertApproxEqRel(p, s, 0.01e18, "TWAP tracks a sustained move");
+        assertEq(pricer.quotePriceUsd(address(strategy)), p0, "same-timestamp move has zero duration");
+        _next(1800);
+        assertApproxEqRel(pricer.quotePriceUsd(address(strategy)), pricer.spotPriceUsd(address(strategy)),
+            0.001e18, "full window at actual source tick tracks without keeper pokes");
     }
 
     function test_pricer_params_owner_only() public {

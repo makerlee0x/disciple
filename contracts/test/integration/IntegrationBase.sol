@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {QuoteSourceOracle} from "../../src/QuoteSourceOracle.sol";
+import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
+import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
+
 import {CurveDeployer} from "../../src/CurveDeployer.sol";
 import {QuotePricer} from "../../src/QuotePricer.sol";
 import {Test} from "forge-std/Test.sol";
@@ -278,12 +282,17 @@ abstract contract IntegrationBase is Test {
 
     function _initRefPool(address a, address b, uint160 sqrtP) internal returns (PoolKey memory key) {
         (address c0, address c1) = uint160(a) < uint160(b) ? (a, b) : (b, a);
+        (address expected, bytes32 salt) = HookMiner.find(address(this),
+            uint160(Hooks.AFTER_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG),
+            type(QuoteSourceOracle).creationCode, abi.encode(manager));
+        QuoteSourceOracle source = new QuoteSourceOracle{salt: salt}(manager);
+        require(address(source) == expected, "source address");
         key = PoolKey({
             currency0: Currency.wrap(c0),
             currency1: Currency.wrap(c1),
             fee: 3000,
             tickSpacing: 60,
-            hooks: IHooks(address(0))
+            hooks: IHooks(address(source))
         });
         manager.initialize(key, sqrtP);
         PoolModifyLiquidityTest lp = new PoolModifyLiquidityTest(manager);
@@ -298,6 +307,8 @@ abstract contract IntegrationBase is Test {
             }),
             ""
         );
+        vm.warp(vm.getBlockTimestamp() + 1800);
+        vm.roll(vm.getBlockNumber() + 1);
     }
 
     function _poolKey(Token tok) internal view returns (PoolKey memory) {
