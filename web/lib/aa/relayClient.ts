@@ -5,6 +5,7 @@
  * (old deploy) answers plain JSON-RPC, which is passed through unchanged.
  */
 import type { Hex } from "viem";
+import { flowReceipt } from "../trade/flowTiming";
 import { RELAY_METHOD, RELAY_STREAM_ACCEPT, UNCLEAR_RELAY, type RelayConfirmed, type RelayErrorData, type RelayFrame, type RelayPending, type RelayUnclearInfo, type RelayUnclearReason } from "./relayTypes";
 
 export type RelayAnswer = { result?: RelayConfirmed; error?: { code: number; message: string; data?: unknown } };
@@ -32,7 +33,7 @@ export async function relaySend(url: string, wire: unknown, entryPoint: Hex, onP
       let f: RelayFrame;
       try { f = JSON.parse(line) as RelayFrame; } catch { continue; }
       if (f.kind === "pending") { pending = f; onPending?.(f); continue; }
-      if (f.kind === "confirmed") { void reader.cancel().catch(() => undefined); return { result: f }; }
+      if (f.kind === "confirmed") { flowReceipt(meta?.pressId, f); void reader.cancel().catch(() => undefined); return { result: f }; }
       void reader.cancel().catch(() => undefined);
       // unclear (receipt timeout) ⇒ the whole RelayErrorData (txHash / userOpHash / relayNonce / reason); else revert as before
       return { error: { code: f.code, message: f.message, data: f.data?.unclear ? f.data : f.data?.revert ?? (f.data?.txHash ? f.data : undefined) } };

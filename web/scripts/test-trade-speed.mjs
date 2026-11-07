@@ -180,7 +180,7 @@ console.log("— wallet.ts noteReceipt hand-off: no-throw, synchronous, no extra
   delete globalThis.__throw; delete globalThis.__sa; delete globalThis.__send; delete globalThis.__calls; delete globalThis.__rpc;
   fs.rmSync(tmp, { recursive: true, force: true }); }
 
-// ───────────── click mark hook for SITE #140 (lib/trade/timing.ts markTradeClick), not imported until #140 lands ─────────────
+// ───────────── active, guarded click mark hook ─────────────
 console.log("— #140 click-mark hook point (guarded, no-throw)");
 { let n = 0; TS.setTradeClickMark(null);
   let threw = false; try { TS.tradeClick(); TS.tradeStart(); } catch { threw = true; } ok(!threw, "no hook registered (today) ⇒ tradeClick/tradeStart are silent no-ops");
@@ -191,8 +191,8 @@ console.log("— #140 click-mark hook point (guarded, no-throw)");
   try { TS.tradeClick(); TS.tradeStart(); TS.tradeStart(); } catch { threw = true; } ok(!threw, "a throwing markTradeClick never breaks the click or the trade");
   TS.setTradeClickMark("nope"); threw = false; try { TS.tradeClick(); } catch { threw = true; } ok(!threw, "a non-function hook is ignored");
   TS.setTradeClickMark(null);
-  ok(![tb, rd("lib/flight/tradeSpeed.ts")].some((f) => /^\s*import[^\n]*lib\/trade\/timing|import\(\s*["'][^"']*trade\/timing/m.test(f)), "lib/trade/timing (SITE #140) is NOT imported (not on the base yet): TODO only");
-  ok(/TODO\(#140\)[^\n]*\n\/\/\s+import \{ markTradeClick \} from "@\/lib\/trade\/timing";\s+setTradeClickMark\(markTradeClick\)/.test(tb), "TradeBridge carries the one-line #140 wiring TODO");
+  ok(/import \{ markTradeClick \} from "@\/lib\/trade\/timing"/.test(tb), "the existing trade-click timing hook is now imported");
+  ok(/setTradeClickMark\(\(\) => \{ markTradeClick\(\); flowClick\(\); \}\)/.test(tb) && /setTradeClickMark\(null\)/.test(tb), "TradeBridge registers the real click hook and cleans it up");
   ok(/const shoot = [^\n]*\n\s+\(tradeClick\(\), window\.dispatchEvent\(new CustomEvent\("disciple:shoot"/.test(tb), "every trade-bar click / key (shoot: BOOST, DUMP, custom $ Enter / SPACE) calls tradeClick()");
   ok(/window\.__discipleTrade = async[^\n]*\n[^\n]*\n\s+tradeStart\(\);/.test(tb), "the bridge entry calls tradeStart() (engine SPACE / Shift hotkeys)");
   const wi = tb.indexOf("setTimeout(() => void warmRef.current(), 0)"); const pre = tb.slice(Math.max(0, wi - 400), wi);
@@ -252,7 +252,7 @@ console.log("— own balances from the receipt logs at confirm; stale reads neve
   ok(!/setTimeout\(res, 1200\)\)\.then\(async \(\) => tokenBalance/.test(tb) && !/bumpBalance\(token as Address, await activeAddress\(\), r\.amountOut\)/.test(tb), "no post-trade balanceOf (1.2 s sell re-read) and no amountOut bump (both replaced by the logs)");
   ok(/addEventListener\("disciple:ownbalance", soon\)/.test(tb) && /const soon = \(\) => \{ void fromLedger\(\); later\(1100\); \}/.test(tb), "HUD position: pushed from the ledger at confirm, reconciled ≥ 1 s later");
   ok(/addEventListener\("disciple:ownbalance", own\)/.test(tb) && /const own = \(\) => \{ void fromLedger\(\); at\(1100\); \}/.test(tb), "cash: pushed from the ledger at confirm, reconciled ≥ 1 s later");
-  ok((tb.match(/ownBalance\(pc, /g) || []).length >= 3 && /ownHint\(pc, token as Address, me, 4000\)/.test(tb), "sell sizing, holdings and cash reads all go through the ledger (warm tick too)"); }
+  ok((tb.match(/ownBalance\(pc, /g) || []).length >= 2 && (tb.match(/ownHint\(pc, /g) || []).length >= 3 && /=> OWN\.get\(erc20, me\) \?\? balanceHint/.test(tb) && /ownHint\(pc, token as Address, me, 4000\)/.test(tb), "sell sizing, holdings and cash reads all go through the ledger (warm tick too)"); }
 
 // engine: the own BUY's feed row / marker come from the decoded receipt at confirm (feed swap later only moves the price)
 console.log("— engine: own BUY drawn from the receipt at confirm");
