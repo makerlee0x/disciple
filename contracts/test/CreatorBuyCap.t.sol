@@ -10,17 +10,17 @@ contract CreatorBuyCapTest is IntegrationBase {
 
     function test_default_77bps() public {
         assertEq(launchpad.creatorBuyMaxBps(), 77);
-        (BondingCurve c, Token t) = _launch(0, 10 ether);
+        (BondingCurve c, Token t) = _launch(0, 10 * U);
         assertEq(launchpad.creatorBuyMaxBpsOf(address(t)), 77);
         c;
         // above 0.77%: flagged by the quote, and (mode rules v2) partially filled instead of reverting
-        (uint256 qOut,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 200 ether, 0);
+        (uint256 qOut,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 200 * U, 0);
         assertTrue(ex);
         assertEq(qOut, FeeMath.creatorBuyMax(), "quote clamps to the max");
         uint256 b0 = quote.balanceOf(creator);
-        (, Token t2) = _launch(0, 200 ether);
+        (, Token t2) = _launch(0, 200 * U);
         assertEq(t2.balanceOf(creator), FeeMath.creatorBuyMax(), "partial fill to the max");
-        assertLt(b0 - quote.balanceOf(creator), 200 ether, "refund");
+        assertLt(b0 - quote.balanceOf(creator), 200 * U, "refund");
     }
 
     function launchExt(uint256 buy) external {
@@ -33,9 +33,9 @@ contract CreatorBuyCapTest is IntegrationBase {
         vm.prank(owner);
         launchpad.setCreatorBuyMaxBps(500);
         // steep curve ($3,333 start): 100 USDG buys ~2.8% — above the 0.77% default, inside the 5% cap
-        (uint256 out,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 100 ether, 0);
+        (uint256 out,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 100 * U, 0);
         assertFalse(ex);
-        (, Token t) = _launch(0, 100 ether);
+        (, Token t) = _launch(0, 100 * U);
         assertEq(t.balanceOf(creator), out);
         assertGt(out, FeeMath.creatorBuyMax());
         assertEq(launchpad.creatorBuyMaxBpsOf(address(t)), 500);
@@ -61,25 +61,25 @@ contract CreatorBuyCapTest is IntegrationBase {
     }
 
     function test_existing_coins_keep_snapshot() public {
-        (, Token old) = _launch(0, 10 ether);
+        (, Token old) = _launch(0, 10 * U);
         vm.prank(owner);
         launchpad.setCreatorBuyMaxBps(10);
         assertEq(launchpad.creatorBuyMaxBpsOf(address(old)), 77);
         (, Token nu) = _launch(0, 0);
         assertEq(launchpad.creatorBuyMaxBpsOf(address(nu)), 10);
-        (, Token nu2) = _launch(0, 10 ether);
+        (, Token nu2) = _launch(0, 10 * U);
         assertEq(nu2.balanceOf(creator), FeeMath.creatorBuyMax(10), "partial fill to the new 0.1% max");
         vm.prank(owner);
         launchpad.setCreatorBuyMaxBps(0);
         vm.expectRevert(Launchpad.CreatorBuyTooLarge.selector); // max 0 = First BOOST disabled
-        this.launchExt(10 ether);
+        this.launchExt(10 * U);
     }
 
     function test_anonLauncher_respects_owner_cap() public {
         AnonLauncher anon =
             new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), 0);
         address payer = makeAddr("payer");
-        quote.mint(payer, 1_000 ether);
+        quote.mint(payer, 1_000 * U);
         ILaunchpad.LaunchParams memory p = ILaunchpad.LaunchParams({
             name: "A",
             ticker: "A",
@@ -88,7 +88,7 @@ contract CreatorBuyCapTest is IntegrationBase {
             socialsURI: "",
             quote: address(quote),
             creatorTaxBps: 0,
-            creatorBuyQuoteIn: 200 ether,
+            creatorBuyQuoteIn: 200 * U,
             creatorBuyMinTokensOut: 0,
             deadline: block.timestamp + 1 hours
         });
@@ -106,5 +106,12 @@ contract CreatorBuyCapTest is IntegrationBase {
         ILaunchpad.LaunchResult memory r = anon.launchAnon(p, makeAddr("st"), makeAddr("fr"), "", 0x00, type(uint256).max);
         assertEq(IERC20(r.token).balanceOf(makeAddr("fr")), r.creatorTokensBought);
         assertEq(launchpad.creatorBuyMaxBpsOf(r.token), 500);
+    }
+}
+
+/// @notice 6-decimal USDG run of CreatorBuyCapTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract CreatorBuyCap6DecTest is CreatorBuyCapTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
     }
 }
