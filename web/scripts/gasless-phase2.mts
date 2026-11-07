@@ -51,6 +51,7 @@ globalThis.fetch = async (input: any, init?: any) => {
     req.shape = Object.fromEntries(["callGasLimit", "verificationGasLimit", "preVerificationGas", "maxFeePerGas", "maxPriorityFeePerGas", "factory", "paymaster"].filter(k => op[k] !== undefined).map(k => [k, op[k]]));
   }
   if (body.method === "eth_sendUserOperation") {
+    if (!ev.appConfirmation?.confirmed) throw Error("STOP policy/app confirmation required before send");
     if (ev.submitted >= 60 || await pc.getChainId() !== 46630 || !fixtures.some(x => x.address.toLowerCase() === op.sender.toLowerCase())) throw Error("Send budget/chain/sender guard");
     if (await pc.getBalance({ address: op.sender }) !== 0n) throw Error("Smart account must remain zero ETH");
     req.localHash = userOpHash(op, 46630); ev.submitted++;
@@ -59,6 +60,14 @@ globalThis.fetch = async (input: any, init?: any) => {
   const response = await POST(request);
   const answer = await response.clone().json();
   req.responseCT = ct(); req.responseMs = performance.now(); req.response = answer; req.httpStatus = response.status;
+  if (body.method === "eth_estimateUserOperationGas" && !ev.appConfirmation) {
+    const message = String(answer.error?.message || "");
+    ev.appConfirmation = { confirmed: response.ok && !!answer.result && !answer.error,
+      evidenceType: "Lee-authorized policy-header estimate criterion, not an independently read appId",
+      policyId: process.env.ALCHEMY_BSO_POLICY_ID, keySource: "disciple Vercel Development ALCHEMY_API_KEY only",
+      timeCT: ct(), httpStatus: response.status, rpcError: answer.error,
+      result: answer.result, explicitMismatch: /policy.*(not found|invalid|app)|(?:invalid|unknown).*policy/i.test(message) };
+  }
   if (body.method === "eth_sendUserOperation" && answer.result) ev.accepted++;
   save(); return response;
 };
@@ -119,6 +128,7 @@ try {
   const wc = createWalletClient({ account: donor, chain, transport: http() });
   let funded = 0n;
   async function fund(x: any) {
+    if (!ev.appConfirmation?.confirmed) throw Error("STOP policy/app confirmation required before funding");
     if (funded + 1_000_000n > 5_000_000n || await pc.getChainId() !== 46630) throw Error("Funding cap/chain");
     const hash = await wc.writeContract({ address: USDG, abi, functionName: "transfer", args: [x.address, 1_000_000n] });
     ev.funds.push({ hash, recipient: x.address, usdgRaw: 1_000_000n, submitCT: ct() }); save();
