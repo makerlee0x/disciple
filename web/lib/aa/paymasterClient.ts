@@ -1,3 +1,4 @@
+import { flowCache } from "../trade/flowTiming";
 /**
  * Client side of the USDG-gas flow (DisciplePaymaster via /api/paymaster, ERC-7677). Account-agnostic: the caller
  * supplies `build` (calls + paymaster fields → unsigned v0.7 UserOp with gas limits + fees) and `sign`, so the same
@@ -109,17 +110,19 @@ export async function payGasInUsdg(o: {
   build: (calls: Call[], pm: PaymasterFields) => Promise<UserOp>;
   sign: (op: UserOp) => Promise<Hex>;
   /** pre-issued allowance (AllowanceCache.peek): used when the op fits ⇒ no pm_* round trip */
-  allowance?: Allowance;
+  allowance?: Allowance; pressId?: string;
 }): Promise<{ op: UserOp; maxTokenCost: bigint; rate: bigint; pmCalls: number }> {
   if (o.allowance && o.allowance.paymaster.toLowerCase() === o.paymaster.toLowerCase()) {
     const a = o.allowance, amount = BigInt(a.disciple.maxTokenCost);
     const op = await o.build(withPaymasterApprove(o.calls, o.usdg, o.paymaster, amount), a);
     if (fitsAllowance(op, a)) {
+      flowCache(o.pressId, "allowance", true);
       const final: UserOp = { ...op, paymaster: a.paymaster, paymasterVerificationGasLimit: a.paymasterVerificationGasLimit, paymasterPostOpGasLimit: a.paymasterPostOpGasLimit, paymasterData: a.paymasterData };
       final.signature = await o.sign(final);
       return { op: final, maxTokenCost: amount, rate: BigInt(a.disciple.rate), pmCalls: 0 };
     }
   }
+  flowCache(o.pressId, "allowance", false);
   // phase 1: size with a placeholder approve of the same calldata length
   const placeholder = withPaymasterApprove(o.calls, o.usdg, o.paymaster, BigInt(0));
   const stubOp = await o.build(placeholder, { paymaster: o.paymaster, paymasterVerificationGasLimit: "0x0", paymasterPostOpGasLimit: "0x0", paymasterData: "0x" });

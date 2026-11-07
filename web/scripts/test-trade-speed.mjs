@@ -59,7 +59,7 @@ ok(/fillUsd: fill\.usd/.test(tb), "bridge result carries the fill $ (fillUsd) to
 console.log("— 2. rocket reacts only on the confirmed fill");
 const trBlock = block("/* @trade (sliced", "// Pre-flight failures");
 ok(!/S\.buyBoost=1/.test(block("function trade(side,opt){", "/* @trade-end */")) && !/applyThrust\(/.test(block("function trade(side,opt){", "/* @trade-end */")), "engine trade(): no turbo flare / thrust at the click");
-function engine({ live = true, result, sell = false }) {
+function engine({ live = true }) {
   const E = { thrust: [], events: [] };
   const S = { fuelers: { you: 0 }, hold: { tokens: 1e6, valueUsd: 50 }, liveBag: live ? { tokens: 1e6 } : null, flashes: [], feed: [], mode: 0, balance: 1e3, liveCash: 1e3,
     confirmed: { mcap: 7e4 }, pending: [], cooldownUntil: 0, buyBoost: 0 };
@@ -246,9 +246,9 @@ console.log("— own balances from the receipt logs at confirm; stale reads neve
     t = 4500; let thr = false; let v; try { v = await OL.ownRead(Lr, pc, TOKEN, ME, plain, () => t); } catch { thr = true; }
     ok(!thr && v === E(17000) + 3n, "RPC error during reconcile ⇒ keeps the fill value, never throws"); }
   // wiring
-  const ai = tb.indexOf("if (r.ok && r.txHash && logs) await applyOwn(r.txHash, logs)"), bi = tb.indexOf("await bookReceipt(r.txHash, side, rp, bag, logs)");
+  const ai = tb.indexOf("if (r.ok && r.txHash && logs) applyOwn(r.txHash, logs,"), bi = tb.indexOf("await bookReceipt(r.txHash, side, rp, bag, logs)");
   ok(ai > 0 && bi > ai, "TradeBridge: the ledger is updated from the logs BEFORE fillreceipt (HUD / PnL / engine see the same fill)");
-  ok(/await applyOwn\(hash, rl, rc\.blockNumber\)/.test(tb), "slow path: balances from the polled receipt (its block noted)");
+  ok(/applyOwn\(hash, rl, rc\.blockNumber, pressId\)/.test(tb), "slow path: balances from the polled receipt (its block noted)");
   ok(!/setTimeout\(res, 1200\)\)\.then\(async \(\) => tokenBalance/.test(tb) && !/bumpBalance\(token as Address, await activeAddress\(\), r\.amountOut\)/.test(tb), "no post-trade balanceOf (1.2 s sell re-read) and no amountOut bump (both replaced by the logs)");
   ok(/addEventListener\("disciple:ownbalance", soon\)/.test(tb) && /const soon = \(\) => \{ void fromLedger\(\); later\(1100\); \}/.test(tb), "HUD position: pushed from the ledger at confirm, reconciled ≥ 1 s later");
   ok(/addEventListener\("disciple:ownbalance", own\)/.test(tb) && /const own = \(\) => \{ void fromLedger\(\); at\(1100\); \}/.test(tb), "cash: pushed from the ledger at confirm, reconciled ≥ 1 s later");

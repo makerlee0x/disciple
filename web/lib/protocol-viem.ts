@@ -1,3 +1,4 @@
+import { flowCache } from "./trade/flowTiming";
 import { logPreSendNetwork } from "./aa/diagnostics";
 /**
  * viem implementation of ProtocolClient against DISCIPLE FLOW PR #4 (flow/contracts-api).
@@ -493,12 +494,13 @@ export async function readGradNeedForToken(pc: PublicClient, token: Address): Pr
  * amountOut for (token, side, amountIn): the background-warmed value if ≤ maxAge ms old, else a live quote.
  * exact = true (trade minOut): skip the linear down-scale of a bigger warmed quote (see usdgRouteQuote).
  */
-export async function quoteOut(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint, maxAge = 1500, exact = false): Promise<bigint> {
+export async function quoteOut(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint, maxAge = 1500, exact = false, pressId?: string): Promise<bigint> {
   const k = ckey(token, side, amountIn), lk = ckey(token, side);
   const read = async () => ({ amountOut: await readAmountOut(pc, token, side, amountIn) });
   REQUOTE.remember(k, read, { lk, amountIn });
-  const hit = QUOTES.fresh(k, maxAge); if (hit) return hit.amountOut;
-  if (!exact) { const sc = scaledQuote(LAST_QUOTE.get(lk), amountIn, maxAge); if (sc !== undefined) return sc; } // e.g. sell % after balance shrank
+  const hit = QUOTES.fresh(k, maxAge); if (hit) { flowCache(pressId, "quote", true); return hit.amountOut; }
+  if (!exact) { const sc = scaledQuote(LAST_QUOTE.get(lk), amountIn, maxAge); if (sc !== undefined) { flowCache(pressId, "quote", true); return sc; } } // e.g. sell % after balance shrank
+  flowCache(pressId, "quote", false);
   return (await QUOTES.get(k, read, maxAge)).amountOut;
 }
 /**
@@ -506,11 +508,12 @@ export async function quoteOut(pc: PublicClient, token: Address, side: "buy" | "
  * amount) key, ≤ maxAge (1.5 s) old, never down-scaled; warmed by warmQuote for the connected trader, re-read right
  * after our own trade. The contract still enforces minOut (= quote − slippage) on-chain.
  */
-export async function traderQuote(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint, trader?: Address | null, maxAge = 1500): Promise<bigint> {
+export async function traderQuote(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint, trader?: Address | null, maxAge = 1500, pressId?: string): Promise<bigint> {
   const who = quoteTrader(trader);
   const k = ckey("pvq", token, side, who ?? "-", amountIn);
   const read = async () => ({ amountOut: await readAmountOut(pc, token, side, amountIn, who) });
   REQUOTE.remember(k, read, undefined, TRADER_QUOTES);
+  flowCache(pressId, "quote", TRADER_QUOTES.fresh(k, maxAge) !== undefined);
   return (await TRADER_QUOTES.get(k, read, maxAge)).amountOut;
 }
 /** amountOut only — ONE eth_call (router quoteExactIn post-grad, curve quoteBuy/quoteSell pre-grad); readQuote also
@@ -682,6 +685,12 @@ export async function tokenBalance(pc: PublicClient, erc20: Address, owner: Addr
 export function bumpBalance(erc20: Address, owner: Address, delta: bigint) {
   const k = ckey(erc20, owner), cur = BALANCES.peek(k)?.v;   // any age: zero-wait taps read it at any age (balanceNow)
   if (cur !== undefined) BALANCES.setOwn(k, cur + delta > B(0) ? cur + delta : B(0)); else if (delta > B(0)) BALANCES.setOwn(k, delta);
+}
+/** Receipt path only: memory peek and compare-and-set. Never schedules or performs a read. */
+export const peekReceiptBalance = (erc20: Address, owner: Address) => BALANCES.peek(ckey(erc20, owner))?.v;
+export function syncReceiptBalance(erc20: Address, owner: Address, observed: bigint | undefined, value: bigint) {
+  const current = peekReceiptBalance(erc20, owner);
+  if (observed !== undefined && current === observed && current !== value) BALANCES.setOwn(ckey(erc20, owner), value);
 }
 /** Balance hint ≤ maxAge ms old (polled / refreshed after trades), else a live read. */
 export async function balanceHint(pc: PublicClient, erc20: Address, owner: Address, maxAge = 5000) {
@@ -987,10 +996,11 @@ export function createViemProtocol(): ProtocolClient {
       const gradP = side === "buy" && !graduated ? labelRead("graduation", buyMayGraduate(pc, curve, mode, t.amountIn, recipient)) : Promise.resolve(false);
       // PVE/PVP curve: always a live, trader-specific quote (mode caps; PVE sells net of the profit tax)
       // PVE/PVP curve: trader-specific quote (mode caps; PVE sells net of the profit tax), exact-key cache ≤ 1.5 s (traderQuote)
-      const quoteNow = () => !graduated && mode !== MODE.TRENCH ? quoteRange(ckey("coin", t.token, side), t.amountIn, (a, age) => traderQuote(pc, t.token, side, a, side === "buy" ? recipient : me, age))
-        : quoteRange(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age, true));
+      const quoteNow = () => !graduated && mode !== MODE.TRENCH ? quoteRange(ckey("coin", t.token, side), t.amountIn, (a, age) => traderQuote(pc, t.token, side, a, side === "buy" ? recipient : me, age, t.pressId))
+        : quoteRange(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age, true, t.pressId));
       // minOut inside the session policy's window (favorable moves pass too): lib/trade/queuePricing tradeMinOut
       const minOutOf = (r: { lo: bigint; hi: bigint }) => tradeMinOut(r, t.slippageBps, sessionMaxSlippageBps(), DEFAULT_SLIPPAGE_BPS);
+      flowCache(t.pressId, "balance", BALANCES.fresh(ckey(spendAsset, me), 5000) !== undefined);
       const [qOut, have, refCalls, approve] = await Promise.all([
         t.minAmountOut > B(0) ? Promise.resolve({ lo: B(0), hi: B(0) }) : labelRead("quote", quoteNow()),
         labelRead("balance", balanceHint(pc, spendAsset, me)),
@@ -1113,10 +1123,12 @@ export function createViemProtocol(): ProtocolClient {
     const quoteNow = async (fresh = false): Promise<{ lo: bigint; hi: bigint }> => {
       const m = fresh ? undefined : MODEL.quote(route, side, t.amountIn);
       if (m && m.ageMs <= STALE_QUOTE_MS) {
+        flowCache(t.pressId, "quote", true);
         reads.quote = { src: m.src, ageMs: m.ageMs };
         if (m.src !== "exact" || m.ageMs > 1000) bg(ckey("q", route, side, t.amountIn), () => readUsdgRoute(pc, router, t.token, isBuy, t.amountIn, c.me));
         return m;
       }
+      flowCache(t.pressId, "quote", false);
       try {
         const v = m ? await tapRead(reads, "quote", () => readUsdgRoute(fastClient(), router, t.token, isBuy, t.amountIn, c.me))
           : await tapRead(reads, "quote", () => readUsdgRoute(coldClient(), router, t.token, isBuy, t.amountIn, c.me), COLD_READ_BUDGET_MS);
@@ -1132,8 +1144,10 @@ export function createViemProtocol(): ProtocolClient {
     // Balance preflight from memory (receipt-booked / polled, any age). Unknown ⇒ skipped (TradeBridge checked cash /
     // sized the sell from the tracked balance). Looks short ⇒ one budgeted live read; unreadable ⇒ send (the chain decides).
     const have = balanceNow(pc, spend, c.me);
+    flowCache(t.pressId, "balance", !!have);
     reads.balance = have ? { src: "cache", ageMs: have.ageMs } : { src: "skip" };
     if (have && spendable(have.v, held.others()) < held.need) {
+      flowCache(t.pressId, "balance", false);
       const t0 = BALANCES.now();
       const live = await tapRead(reads, "balance-live", () => fastClient().readContract({ address: spend, abi: tokenAbi, functionName: "balanceOf", args: [c.me] })).catch(() => undefined);
       if (live !== undefined) {

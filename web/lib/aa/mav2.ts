@@ -572,7 +572,7 @@ export class Mav2Account {
       try {
         const topped = await this.hiddenTopUp(calls, sender);
         ({ op: wire } = await payGasInUsdg({
-          url: absUrl(pm.url), chainId: this.o.chain.id, usdg: pm.usdg, paymaster: pm.paymaster, calls: topped, build, allowance: this.allowances?.peek(sender),
+          url: absUrl(pm.url), chainId: this.o.chain.id, usdg: pm.usdg, paymaster: pm.paymaster, calls: topped, build, pressId: o.pressId, allowance: this.allowances?.peek(sender),
           sign: async (op) => ((await client.signUserOperation({ uoStruct: op })) as UserOp).signature,
         }));
       } catch (e) {

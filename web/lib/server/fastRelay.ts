@@ -270,21 +270,32 @@ export type OnPending = (p: { txHash: Hex; reason: PendingReason; relayNonce?: n
  * per-sender limit there (lib/server/limits.sendLimiter); a throw aborts with nothing sent.
  */
 export async function sendUserOperationSync(op: UserOp, onPending?: OnPending, beforeSend?: () => Promise<void>, metrics?: RelayMetrics, confirmed?: (r: RelayConfirmed) => void): Promise<RelayConfirmed> {
-  return lockedRelay(op, () => relayOnce(op, onPending, beforeSend, metrics), metrics, confirmed);
+  requireSelfBundlerMode();
+  // Read-only prefetch overlaps admission. It is NEVER authority: the existing TTL/debit-aware
+  // getter is re-read under the sender lease before checkPaymaster/signing, including queued waits.
+  const pm = allowedPaymaster();
+  const deposit = op.paymaster && pm && op.paymaster.toLowerCase() === pm.toLowerCase()
+    ? stage(metrics, "paymasterDepositPrefetch", () => paymasterDepositCached(pm)) : undefined;
+  void deposit?.catch(() => undefined); // admission may fail first; no unhandled rejection
+  return lockedRelay(op, () => relayOnce(op, onPending, beforeSend, metrics, deposit), metrics, confirmed);
 }
-async function relayOnce(op: UserOp, onPending?: OnPending, beforeSend?: () => Promise<void>, metrics?: RelayMetrics): Promise<RelayConfirmed> {
+const stage = <T>(metrics: RelayMetrics | undefined, name: string, task: () => Promise<T>) => metrics ? metrics.span(name, task) : task();
+async function relayOnce(op: UserOp, onPending?: OnPending, beforeSend?: () => Promise<void>, metrics?: RelayMetrics, deposit?: Promise<bigint>): Promise<RelayConfirmed> {
   let signed = false;
   try {
   const T0 = Date.now(), t: Record<string, number> = {};
   const st = await ready(), me = st.account;
   // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
-  const [fee] = await Promise.all([baseFee(), st.nonces.warm()]); // #140 parallel cold nonce/base fee; no allocation/signing
+  const [fee] = await Promise.all([stage(metrics, "baseFee", baseFee), stage(metrics, "nonceWarm", () => st.nonces.warm())]); // #140 parallel cold nonce/base fee; no allocation/signing
   // launches ⇒ LAUNCH_GAS_CAPS; above GAS_CAPS + verified graduating buy ⇒ GRAD_GAS_CAPS (on-chain check, lib/server/gradBuy)
   checkOpGas(op, fee, await relayCaps(op, launchTargets(robinhoodTestnet.id), chainGradReads(pc as never, robinhoodTestnet.id, { paymaster: allowedPaymaster() })));
   // USDG-gas op: the prefund comes from OUR paymaster's deposit (launch ops: up to LAUNCH_GAS_CAPS.total × fee)
   if (op.paymaster) {
     const pm = allowedPaymaster();
-    try { checkPaymaster(op, pm, pm ? await paymasterDepositCached(pm) : BigInt(0), fee); }
+    try {
+      await deposit; // failure remains fail-closed; never trust the prefetched numeric value
+      checkPaymaster(op, pm, pm ? await stage(metrics, "paymasterDeposit", () => paymasterDepositCached(pm)) : BigInt(0), fee);
+    }
     catch (e) { if (e instanceof RelayPolicyError) console.warn("[fastRelay] paymaster check:", e.detail ?? e.message); throw e; }
   }
   const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[packUserOp(op)], me.address] });
@@ -293,7 +304,7 @@ async function relayOnce(op: UserOp, onPending?: OnPending, beforeSend?: () => P
   // + the Arbitrum L1 calldata gas (lib/aa/bundleGas l1Gas; its absence ⇒ AA95 on setups 2026-10-30 07:31–07:36 CDT).
   // The L1 estimate runs alongside the simulation / beforeSend; the cap check without it stays before both.
   relayGas(op, data);
-  const l1P = l1GasOf(data);
+  const l1P = stage(metrics, "l1Check", () => l1GasOf(data));
   const fast = false; // audit F-02: no sender-level or cached-op bypass
   {
     const s = Date.now();
@@ -306,14 +317,19 @@ async function relayOnce(op: UserOp, onPending?: OnPending, beforeSend?: () => P
     });
     t.simulate = Date.now() - s; metrics?.add("simulate", t.simulate); TRUST.simulated(op.sender); void primeSender(op.sender).catch(() => undefined);
   }
-  const gas = relayGas(op, data, l1Reserve(await l1P));
+  const gas = relayGas(op, data, l1Reserve(await stage(metrics, "l1ResidualWait", () => l1P)));
   await relaySendBudget(op.sender, metrics);
   await beforeSend?.();   // validated ⇒ now the per-sender limit (and a press's free retry) may be charged
   const txFees = relayerTxFees(op, fee);   // never above the op's fees ⇒ the EntryPoint refund covers the relayer's cost per gas
   let txHash: Hex | undefined, relayNonce: number | undefined;
   let r: Awaited<ReturnType<typeof sendSync>>;
   try {
-    r = await sendWithCursor(st.nonces, async (nonce) => {
+    r = await sendWithCursor(metrics ? {
+      warm: () => st.nonces.warm(),
+      take: () => metrics.span("nonceAllocate", () => st.nonces.take()),
+      release: n => st.nonces.release(n), invalidate: () => st.nonces.invalidate(),
+      recover: (e, n, final) => metrics.span("nonceRecover", () => st.nonces.recover(e, n, final)),
+    } : st.nonces, async (nonce) => {
       const s = Date.now();
       const raw = await signRelayerTx(me, { nonce, data, gas, ...txFees });
       signed = true;

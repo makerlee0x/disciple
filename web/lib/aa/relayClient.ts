@@ -5,7 +5,7 @@
  * (old deploy) answers plain JSON-RPC, which is passed through unchanged.
  */
 import type { Hex } from "viem";
-import { flowReceipt } from "../trade/flowTiming";
+import { flowMark, flowReceipt } from "../trade/flowTiming";
 import { RELAY_METHOD, RELAY_STREAM_ACCEPT, UNCLEAR_RELAY, type RelayConfirmed, type RelayErrorData, type RelayFrame, type RelayPending, type RelayUnclearInfo, type RelayUnclearReason } from "./relayTypes";
 
 export type RelayAnswer = { result?: RelayConfirmed; error?: { code: number; message: string; data?: unknown } };
@@ -15,9 +15,11 @@ export type RelayAnswer = { result?: RelayConfirmed; error?: { code: number; mes
 export async function relaySend(url: string, wire: unknown, entryPoint: Hex, onPending?: (p: RelayPending) => void, fetchImpl: typeof fetch = fetch, meta?: { pressId?: string }): Promise<RelayAnswer> {
   let r: Response;
   try {
+    flowMark(meta?.pressId, "requestStart");
     r = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json", accept: `${RELAY_STREAM_ACCEPT}, application/json` }, keepalive: true,
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: RELAY_METHOD, params: meta?.pressId ? [wire, entryPoint, { pressId: meta.pressId }] : [wire, entryPoint] }) });
   } catch (e) { return { error: { code: -32099, message: `network: ${(e as Error).message}`, data: { unclear: true, reason: "network" } satisfies RelayErrorData } }; }
+  flowMark(meta?.pressId, "firstByte"); // fetch resolved: response headers / TTFB proxy
   if (!(r.headers.get("content-type") || "").includes(RELAY_STREAM_ACCEPT) || !r.body)
     return (await r.json().catch(() => ({ error: { code: -32098, message: `relay response unreadable (HTTP ${r.status})`, data: { unclear: true, reason: "network" } satisfies RelayErrorData } }))) as RelayAnswer;
   const reader = r.body.getReader(), dec = new TextDecoder();
@@ -32,8 +34,8 @@ export async function relaySend(url: string, wire: unknown, entryPoint: Hex, onP
       if (!line) continue;
       let f: RelayFrame;
       try { f = JSON.parse(line) as RelayFrame; } catch { continue; }
-      if (f.kind === "pending") { pending = f; onPending?.(f); continue; }
-      if (f.kind === "confirmed") { flowReceipt(meta?.pressId, f); void reader.cancel().catch(() => undefined); return { result: f }; }
+      if (f.kind === "pending") { flowMark(meta?.pressId, "pendingFrame"); pending = f; onPending?.(f); continue; }
+      if (f.kind === "confirmed") { flowMark(meta?.pressId, "confirmedFrame"); flowReceipt(meta?.pressId, f); void reader.cancel().catch(() => undefined); return { result: f }; }
       void reader.cancel().catch(() => undefined);
       // unclear (receipt timeout) ⇒ the whole RelayErrorData (txHash / userOpHash / relayNonce / reason); else revert as before
       return { error: { code: f.code, message: f.message, data: f.data?.unclear ? f.data : f.data?.revert ?? (f.data?.txHash ? f.data : undefined) } };

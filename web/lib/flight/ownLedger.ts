@@ -39,6 +39,7 @@ export interface LedgerEntry { value: bigint; readBlock?: bigint; fillTx?: strin
 export class OwnLedger {
   private m = new Map<string, LedgerEntry>();
   private txBlock = new Map<string, bigint>();
+  private applied = new Set<string>(); // per-token receipt identity survives later fills/reconciliation
   get(token: string, owner: string) { return this.m.get(key(token, owner))?.value; }
   entry(token: string, owner: string): Readonly<LedgerEntry> | undefined { return this.m.get(key(token, owner)); }
   /** Apply a fill's Transfer deltas at confirm. base(token) = the cached balance before it (used when the ledger has none).
@@ -46,9 +47,12 @@ export class OwnLedger {
   applyFill(owner: string, tokens: readonly string[], logs: readonly LogLike[], txHash: string, base: (token: string) => bigint | undefined, now: number) {
     const ds = transferDeltas(logs, owner, tokens), changed: { token: string; value: bigint; delta: bigint }[] = [];
     for (const [t, d] of ds) {
+      const receiptKey = key(t, owner) + "|" + lc(txHash);
+      if (this.applied.has(receiptKey)) continue;
       const k = key(t, owner), e = this.m.get(k), b = e?.value ?? base(t);
-      if (b === undefined && d < BigInt(0)) continue;   // unknown base for a debit: leave it to the reconcile read
+      if (b === undefined && d < BigInt(0)) { this.applied.add(receiptKey); continue; }   // unknown base for a debit: leave it to the reconcile read
       const value = (b ?? BigInt(0)) + d > BigInt(0) ? (b ?? BigInt(0)) + d : BigInt(0);
+      this.applied.add(receiptKey);
       this.m.set(k, { value, readBlock: e?.readBlock, fillTx: lc(txHash), fillAt: now });
       changed.push({ token: t, value, delta: d });
     }

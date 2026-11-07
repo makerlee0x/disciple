@@ -16,7 +16,7 @@ describe("passive flow timing", () => {
     x.at(16); x.frame(); expect(x.logs).toEqual([]); x.at(32); x.frame();
     x.at(100); x.f.receipt("p", receipt); x.f.fill("p"); s.finish(true); x.flush(); expect(x.logs).toEqual([]);
     x.at(112); x.frame(); x.at(128); x.frame(); expect(x.logs).toEqual([]); x.flush();
-    expect(x.logs).toEqual([{ pressId: "p", side: "buy", ok: true, tapToPaint: 31, tapToReceipt: 99, tapToFill: 127, server: receipt.t, userOpHash: "0xop", txHash: "0xtx" }]);
+    expect(x.logs).toHaveLength(1); expect(x.logs[0]).toMatchObject({ pressId: "p", side: "buy", ok: true, tapToPaint: 31, tapToReceipt: 99, tapToFill: 127, server: receipt.t, userOpHash: "0xop", txHash: "0xtx" });
     s.finish(false, "rollback"); x.timeout(); expect(x.logs).toHaveLength(1);
   });
   it("isolates concurrent taps and keeps the first terminal receipt", () => {
