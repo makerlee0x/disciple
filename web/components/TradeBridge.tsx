@@ -13,7 +13,7 @@ import { withinBudget, COLD_READ_BUDGET_MS } from "@/lib/rpc/readTransport";
 import { decodeTradeFill, units, type LogLike } from "@/lib/flight/fills";
 import { OpMarks, blockOfLogs, boostHoverMs, doneLine, ownReceipt, takeReceipt, tradeClick, tradeMs, tradeStart, setTradeClickMark, type TradeMs } from "@/lib/flight/tradeSpeed";
 import { markTradeClick } from "@/lib/trade/timing";
-import { beginFlowTiming, flowClick, flowFill, takeFlowClick } from "@/lib/trade/flowTiming";
+import { beginFlowTiming, flowClick, flowFill, takeFlowClick, flowTimingReady } from "@/lib/trade/flowTiming";
 import { freshSellBalance, sellAmount, sellAmountFor, tapSellBalance } from "@/lib/flight/liveSell";
 import { OWN, RECONCILE_MIN_MS, ownRead } from "@/lib/flight/ownLedger";
 import { DEFAULT_SUPPLY } from "@/lib/pnl";
@@ -423,6 +423,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       }, (e) => { rollback(String(e)); return { ok: false, reason: REJECTED }; });
       return { ...first.r, pending: true, late: settled, settled };
     };
+    flowTimingReady(); // once on bridge installation; no trade or network request
     return () => { setTradeClickMark(null); delete window.__discipleTrade; removeEventListener("disciple:op", onOp); };
   }, [token, live]);
 

@@ -77,7 +77,7 @@ export class FlowTiming {
 const flow = new FlowTiming({ now: clock,
   frame: cb => { if (typeof requestAnimationFrame === "function") requestAnimationFrame(cb); },
   later: (cb, ms) => { setTimeout(cb, ms); },
-  log: row => { if (typeof console !== "undefined") console.error("[disciple] flow timing", JSON.stringify(row)); },
+  log: row => { if (typeof console !== "undefined") console.error("[disciple] flow timing " + JSON.stringify(row)); },
 });
 let click: number | undefined;
 export function flowClick() { guarded(() => { click = clock(); }); }
@@ -85,3 +85,8 @@ export function takeFlowClick() { const at = click; click = undefined; return at
 export const beginFlowTiming = (side: Side, at?: number) => flow.begin(side, at);
 export const flowReceipt = (id: string | undefined, receipt: Receipt) => flow.receipt(id, receipt);
 export const flowFill = (id: string | undefined) => flow.fill(id);
+
+/** Read-only mount probe: distinguishes a missing bridge/console collector from missing trade settlement. */
+export function flowTimingReady() {
+  guarded(() => { if (typeof console !== "undefined") console.error('[disciple] flow timing ready {"version":2,"bridge":"installed"}'); });
+}

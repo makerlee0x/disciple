@@ -1,3 +1,4 @@
+import { logPreSendNetwork } from "./aa/diagnostics";
 /**
  * viem implementation of ProtocolClient against DISCIPLE FLOW PR #4 (flow/contracts-api).
  *  - No custody/vault: the Privy embedded wallet (lib/wallet.ts) signs every tx.
@@ -207,11 +208,13 @@ export function tradeNetworkError(e: unknown): ProtocolError | null {
   const isAA = e instanceof AAError || (e as { constructor?: { name?: string } })?.constructor?.name === "AAError";
   if (isAA && (e as AAError).code === "Estimate" && INCOMPLETE_OP.test(String((e as Error).message ?? ""))) {
     logTradeError("trade op built incomplete before sending (retryable)", { message: String((e as Error).message).slice(0, 300) });
+    logPreSendNetwork("sdk-incomplete", "build", e);
     return new ProtocolError("Network", NETWORK_MSG);
   }
   if (isAA || e instanceof ProtocolError || !isTransportError(e)) return null;
   // which pre-send read (labelRead in tradeOnce / tradeViaUsdg), the URL(s) tried and each attempt's error
   const f = readFailure(e);
+  logPreSendNetwork("transport", f.read ?? "unlabeled", e);
   logTradeError("trade failed before sending (network)", { read: f.read ?? "unlabeled", name: (e as Error)?.name, message: String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300), url: f.url, attempts: f.attempts });
   return new ProtocolError("Network", NETWORK_MSG);
 }

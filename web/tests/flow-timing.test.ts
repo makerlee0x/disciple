@@ -1,5 +1,6 @@
+import { logPreSendNetwork } from "../lib/aa/diagnostics";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FlowTiming, beginFlowTiming } from "../lib/trade/flowTiming";
+import { FlowTiming, beginFlowTiming, flowTimingReady } from "../lib/trade/flowTiming";
 import { relaySend } from "../lib/aa/relayClient";
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 function fixture() {
@@ -49,8 +50,8 @@ it("records receipt consumption from a mocked NDJSON response without any real s
   const answer = await relaySend("https://example.invalid/api/bundler", {}, "0x01", undefined, fakeFetch as typeof fetch, { pressId: "wire-test" });
   expect(answer.result?.txHash).toBe("0xtx"); expect(fakeFetch).toHaveBeenCalledOnce();
   s.finish(false); vi.advanceTimersByTime(0);
-  expect(info).toHaveBeenCalledOnce(); expect(info.mock.calls[0][0]).toBe("[disciple] flow timing");
-  expect(JSON.parse(info.mock.calls[0][1])).toMatchObject({ pressId: "wire-test", tapToReceipt: 190, server: receipt.t, userOpHash: "0xop", txHash: "0xtx" });
+  expect(info).toHaveBeenCalledOnce(); expect(info.mock.calls[0]).toHaveLength(1); expect(info.mock.calls[0][0]).toMatch(/^\[disciple\] flow timing /);
+  expect(JSON.parse(String(info.mock.calls[0][0]).slice("[disciple] flow timing ".length))).toMatchObject({ pressId: "wire-test", tapToReceipt: 190, server: receipt.t, userOpHash: "0xop", txHash: "0xtx" });
 });
 
 it("does not invent a pending paint when rollback wins before the paint opportunity", () => {
@@ -72,4 +73,19 @@ it("reports a hung/ambiguous press without settling it and still reports later c
   now = 16000; f.receipt("hung", receipt); f.fill("hung"); s.finish(true);
   tasks.filter(t => t.ms === 0).forEach(t => t.cb());
   expect(rows).toHaveLength(2); expect(rows[1]).toMatchObject({ ok: true, tapToReceipt: 16000, txHash: "0xtx" });
+});
+
+it("offers a one-string error-console mount probe without creating or sending a trade", () => {
+  const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  flowTimingReady(); expect(log).toHaveBeenCalledWith('[disciple] flow timing ready {"version":2,"bridge":"installed"}');
+});
+
+it("keeps pre-send diagnostics redacted and cannot alter retries if console fails", () => {
+  const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  logPreSendNetwork("transport", "quote", new Error("HTTP request failed https://example.invalid/secret-path Bearer fake-auth"));
+  expect(log.mock.calls[0]).toHaveLength(1);
+  const line = String(log.mock.calls[0][0]); expect(line).toContain('"notSent":true'); expect(line).toContain('"read":"quote"');
+  expect(line).not.toContain("example.invalid"); expect(line).not.toContain("fake-auth");
+  log.mockImplementation(() => { throw Error("collector failed"); });
+  expect(() => logPreSendNetwork("sdk-incomplete", "build", Error("missing fields"))).not.toThrow();
 });

@@ -22,3 +22,10 @@ export function errorDiagnostic(error: unknown): Record<string, string | number>
   if (rpc?.message) out.rpcMessage = diagnosticText(rpc.message);
   return out;
 }
+
+/** Definite pre-send diagnosis for collectors that only retain error-level single-string messages. */
+export function logPreSendNetwork(kind: "sdk-incomplete" | "transport", read: string, error: unknown): void {
+  try {
+    if (typeof console !== "undefined") console.error("[disciple] pre-send network " + JSON.stringify({ kind, read: diagnosticText(read), notSent: true, ...errorDiagnostic(error) }));
+  } catch { /* measurement must not alter classification or retry decisions */ }
+}

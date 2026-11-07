@@ -1,3 +1,4 @@
+import { diagnosticText } from "../aa/diagnostics";
 import "server-only";
 /**
  * NDJSON receipt push for disciple_sendUserOperationSync (wire contract: lib/aa/relayTypes). Kept out of
@@ -28,6 +29,8 @@ export function streamRelay(params: unknown[], settle: () => Promise<unknown>, o
       try {
         const { sendUserOperationSync } = await import("./fastRelay");
         const r = await sendUserOperationSync(op, (p) => { if (hash) push({ kind: "pending", pending: true, userOpHash: hash, txHash: p.txHash, reason: p.reason, ...(p.relayNonce !== undefined ? { relayNonce: p.relayNonce } : {}) }); }, beforeSend);
+        // Receipt already exists: record public stage metrics even if the browser loses the stream.
+        queueMicrotask(() => { try { console.info("[disciple] relay timing " + JSON.stringify({ pressId, userOpHash: r.userOpHash, txHash: r.txHash, ok: r.success, server: r.t })); } catch { /* telemetry never affects delivery */ } });
         await settle().catch(() => undefined);
         push(r);
       } catch (e) {
@@ -39,7 +42,9 @@ export function streamRelay(params: unknown[], settle: () => Promise<unknown>, o
         const m = nc ? "relayer not configured" : (x.shortMessage || x.message || String(e)).split("\n")[0].slice(0, 300);
         // terminal frame: txHash / userOpHash / relayNonce / notSent (AUDIT L2: true only for a definite rejection); on a
         // receipt timeout also unclear + reason (never a failure, never notSent)
-        push({ kind: "error", code: nc ? -32003 : -32000, message: `${RELAY_METHOD}: ${m}`, data: relayErrorData(e, hash) });
+        const publicError = relayErrorData(e, hash);
+        queueMicrotask(() => { try { console.info("[disciple] relay rejected " + JSON.stringify({ pressId, userOpHash: hash, txHash: publicError?.txHash, notSent: publicError?.notSent, unclear: publicError?.unclear, reason: diagnosticText(m) })); } catch { /* telemetry only */ } });
+        push({ kind: "error", code: nc ? -32003 : -32000, message: `${RELAY_METHOD}: ${m}`, data: publicError });
       }
       ctl.close();
     },
