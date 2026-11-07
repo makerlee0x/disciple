@@ -64,7 +64,7 @@ export class FlowTiming {
 const flow = new FlowTiming({ now: clock,
   frame: cb => { if (typeof requestAnimationFrame === "function") requestAnimationFrame(cb); },
   later: (cb, ms) => { setTimeout(cb, ms); },
-  log: row => { if (typeof console !== "undefined") console.info("[disciple] flow timing", JSON.stringify(row)); },
+  log: row => { if (typeof console !== "undefined") console.error("[disciple] flow timing", JSON.stringify(row)); },
 });
 let click: number | undefined;
 export function flowClick() { guarded(() => { click = clock(); }); }

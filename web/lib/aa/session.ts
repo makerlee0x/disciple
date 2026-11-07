@@ -1,5 +1,8 @@
+import { createRelayLoginJoin } from "./relayReadiness";
+import { ensurePveLoginOnchain } from "../pve";
+import { clientSelfBundlerMode } from "./sponsorshipMode";
 import { browserBso } from "./bso";
-import { diagnosticText } from "./diagnostics";
+import { diagnosticText, errorDiagnostic } from "./diagnostics";
 /**
  * Browser session for the embedded smart account (Alchemy Modular Account v2, prepaid USDG gas).
  *  - "privy" (default when NEXT_PUBLIC_PRIVY_APP_ID is set): the Privy embedded EOA (toViemAccount) is the MAv2 owner.
@@ -255,6 +258,7 @@ const loginSetup = createLoginSetup({
   schedule: (ms, run) => { if (typeof window !== "undefined") setTimeout(run, Math.min(ms, 2 ** 31 - 1)); },
   onChange: () => changed(),
 });
+const joinRelayLogin = createRelayLoginJoin();
 /** Background one-tap setup / renewal for the signed-in account. Idempotent, deduped, never throws. */
 export function maybeAutoOneTap(why: string, opt: { urgent?: boolean } = {}) {
   const acct = sa;
@@ -262,6 +266,18 @@ export function maybeAutoOneTap(why: string, opt: { urgent?: boolean } = {}) {
   void acct.address().then(async (a) => {
     if (sa !== acct) return;
     await loginSetup.ensure(a, why, opt);
+    // Self relay requires global LoginGate even for non-PVE coins. Reuse NORMAL Privy verification
+    // and the owner-paid on-chain attest, AFTER the existing v5/account bootstrap is included.
+    // Background only: no new auth reads or waits on a warm trade, and no owner call via self relay.
+    if (clientSelfBundlerMode() && ONE_TAP_AUTO && oneTapAvailable() && !userEndedOneTap && !isOneTapOff(lsStore(), a) && sa === acct && acct.deployed) {
+      await joinRelayLogin(a, async () => {
+        await ensurePveLoginOnchain(publicClient(), a, calls => {
+          if (sa !== acct) throw new Error("signed out meanwhile");
+          return acct.sendCalls(calls, "owner");
+        });
+        if (sa === acct) { await acct.warm(); console.error("[disciple] relay LoginGate ready", { account: a }); }
+      }).catch(e => console.error("[disciple] relay LoginGate setup failed", { account: a, detail: errorDiagnostic(e) }));
+    }
   }).catch(() => undefined);
 }
 /** Re-check on tab refocus (deduped) and renew ahead of expiry while the tab stays open (FLOW's scheduleRenewal shape). */

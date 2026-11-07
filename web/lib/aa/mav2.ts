@@ -1,3 +1,4 @@
+import { installedRelaySession } from "./relayReadiness";
 import { BSO_ZERO, bsoUnsigned, checkBso, bsoGasBounds } from "./bso";
 import { diagnosticText } from "./diagnostics";
 import { bufferedPvg, measurePvg } from "./preVerificationGas";
@@ -703,7 +704,7 @@ export class Mav2Account {
   private async sendRaw(wire: UserOp, hash: Hex, kind: string, t0: number, fail: (e: unknown) => Promise<never>, gasMode: GasMode, pressId?: string, retry?: (e: { message: string; data?: unknown }) => Promise<SendResult | undefined>): Promise<SendResult> {
     if (this.o.bso) checkBso(wire as unknown as Record<string, unknown>);
     else checkUserPaid(wire, this.o.usdgGas?.paymaster);
-    if (clientSelfBundlerMode() && !this.o.bso && ((BigInt(wire.nonce) >> 64n) & 255n) === 0n) {
+    if (clientSelfBundlerMode() && !this.o.bso && installedRelaySession(wire)) {
       const answer = await relaySend(absUrl(this.o.bundlerUrl), wire, ENTRYPOINT_V07,
         p => opPhase({ phase: "submitted", userOpHash: hash, txHash: p.txHash, pressId }), fetch, { pressId });
       if (answer.error) {

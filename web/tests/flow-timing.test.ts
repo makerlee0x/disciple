@@ -43,7 +43,7 @@ describe("passive flow timing", () => {
 
 it("records receipt consumption from a mocked NDJSON response without any real send", async () => {
   vi.useFakeTimers(); vi.spyOn(performance, "now").mockReturnValue(200);
-  const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+  const info = vi.spyOn(console, "error").mockImplementation(() => undefined);
   const s = beginFlowTiming("buy", 10); s.bind("wire-test");
   const fakeFetch = vi.fn(async () => new Response(JSON.stringify({ kind: "confirmed", success: true, ...receipt }) + "\n", { headers: { "content-type": "application/x-ndjson" } }));
   const answer = await relaySend("https://example.invalid/api/bundler", {}, "0x01", undefined, fakeFetch as typeof fetch, { pressId: "wire-test" });

@@ -56,6 +56,8 @@ export async function POST(req: Request) {
       if (body.params.length < 2 || body.params.length > 3 || String(body.params[1]).toLowerCase() !== "0x0000000071727de22e5e9d8baf0edac6f37da032") throw new Error("invalid EntryPoint/params");
       return streamRelay(body.params, async () => undefined);
     } catch (e) {
+      // Public rejection reason only: never log the raw op, signature, token, or RPC URL.
+      console.error("[disciple] relay admission rejected", { method: body.method, reason: diagnosticText((e as Error).message), notSent: true });
       return NextResponse.json({ jsonrpc: "2.0", id: body.id, error: { code: -32003, message: diagnosticText((e as Error).message), data: { notSent: true } } }, { status: 403 });
     }
   }
