@@ -244,8 +244,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     boxShadow: "0 8px 24px rgba(0,0,0,.45)",
   };
   return (
-    <div ref={rootRef} aria-label="wallet" style={{ position: "fixed", top: compact ? 12 : 10, right: 16, maxWidth: "calc(100vw - 32px)", zIndex: 60, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4,
-      fontFamily: "ui-monospace,monospace", color: "#E8EAEE" }}>
+    <div ref={rootRef} aria-label="wallet" className="wb-root" data-compact={compact ? "true" : "false"}>
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         {/* .wb-row: one line on desktop; on phones (≤480px) it wraps right-aligned instead of running off the left edge (GAME 390×844) */}
         <div className="wb-row" style={{ display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap" }}>
