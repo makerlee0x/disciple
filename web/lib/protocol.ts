@@ -59,6 +59,9 @@ export interface TradeParams {
   /** GAME reservation id for this press (smart-account sends): reused on every retry, echoed on disciple:op events,
    * TradeResult.pressId and thrown errors (.pressId). Absent ⇒ generated. */
   pressId?: string;
+  /** Buys over the wallet's room (fill-to-limit): minOut ceiling in token wei (room − a small margin). The curve
+   * partial-fills to the cap and refunds the rest; minOut is priced on min(quote, maxOut). Absent ⇒ no ceiling. */
+  maxOut?: bigint;
 }
 
 /** Pre-trade preview from on-chain views (curve quoteBuy/quoteSell, or router quoteExactIn post-grad). */
