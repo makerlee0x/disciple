@@ -85,7 +85,7 @@
       {
         "name": "",
         "type": "address",
-        "internalType": "contract DiscipleHook"
+        "internalType": "contract AscensionHook"
       }
     ],
     "stateMutability": "view"

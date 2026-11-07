@@ -22,7 +22,7 @@ Findings and fixes are tracked openly in the repository. [CONFIRM: FLOW — link
 | **Launchpad** | Creates rockets and their curves. Holds launch settings. |
 | **BondingCurve** | One per rocket. The pre-ascension market. |
 | **Migration** | Moves an ascending rocket to Uniswap v4, in the same transaction. |
-| **DiscipleHook** | Uniswap v4 hook on every ascended pool. Charges the 1% fee and reports trades and altitude. |
+| **AscensionHook** | Uniswap v4 hook on every ascended pool. Charges the 1% fee and reports trades and altitude. |
 | **DiscipleRouter** | The app's router for ascended trades. Adds slippage and price-impact checks. |
 | **LockedLP** | Owns every ascended liquidity position. No remove function. |
 | **FeeRouter** | Splits every fee 33 / 33 / 33 / 1. Holds claimable balances. The anti-snipe fee doesn't pass through it: the curve escrows it. |

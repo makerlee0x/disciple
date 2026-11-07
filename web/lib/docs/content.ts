@@ -18,7 +18,7 @@ const ADDR_RE = /0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/;
 /**
  * The ONLY addresses allowed to render. Verified on Robinhood Chain testnet (46630, rpc.testnet.chain.robinhood.com)
  * on 2026-10-17: code present, same address as lib/chains.ts RH_V4 + contracts/deployments/rh-testnet-46630.json, and:
- *  - PoolManager: DiscipleRouter/DiscipleHook/LockedLP .poolManager() all return it; owner() responds.
+ *  - PoolManager: DiscipleRouter/AscensionHook/LockedLP .poolManager() all return it; owner() responds.
  *  - StateView: poolManager() = PoolManager; getSlot0 on the smoke coin's v4 pool returns live state (used by the indexer).
  *  - UniversalRouter: poolManager() = PoolManager (canonical RH router; the app no longer routes through it).
  *  - Permit2: canonical address; DOMAIN_SEPARATOR() matches EIP-712 for chain 46630.
