@@ -5,7 +5,7 @@ import { encodeAbiParameters, keccak256, type Hex, type PublicClient } from "vie
 import { hookAbi } from "./abi.ts";
 
 export const POOLS_SLOT = 1n;
-export const OFF = { head: 0n, src0: 2n, srcV4Id: 3n, src2: 4n, obsAt: 8n, bookDx: 26n, bookDy: 27n } as const;
+export const OFF = { head: 0n, src0: 2n, srcV4Id: 3n, src2: 4n, obsAt: 8n, bookDx: 25n, bookDy: 25n } as const;
 
 export interface PoolSource {
   kind: number; // 1 v2, 2 v3, 3 v4
