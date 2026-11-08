@@ -18,15 +18,19 @@ import {DiscipleTest} from "./Disciple.t.sol";
 ///           - every side, every size:  shortfall <= (our fee - source fee) + SLACK_SMALL (or SLACK_BIG at $20)
 ///           - after our inventory leans (people bought from us), the side we want (sells) is better than buys
 ///             (v0.1 wording "at least as good as the source" only holds for a steep curve; the flat curve leans less)
+///           - after a big one-way run (the 20-trade run nets ~27% of the pool one way): the favoured side keeps the
+///             normal limit, the starved side <= 20% worse ($20: 35%) (maker 2026-11-08)
 ///         All checks run, every failure is logged, then the test fails once with the count.
-///         Result on the deployed v0.1 curve (2026-11-08): FAILS 26 checks, e.g. after one $2 buy the $1 buy is 5.5%
-///         worse than the source; after 20 random $1-$20 trades buys are ~47% worse.
+///         Result on the deployed v0.1 curve (2026-11-08): FAILS 25 checks, e.g. after one $2 buy the $1 buy is 5.5%
+///         worse than the source; after 20 random $1-$20 trades buys are ~47% worse. v0.2 flat curve: PASSES.
 contract LaunchGateTest is DiscipleTest {
     uint24 internal constant OUR_FEE = 10_000; // 1%
     uint256 internal constant SRC_FEE_BP = 30; // MockPair priced as a v2 0.3% pool
     uint256 internal constant GAP_BP = 70; // our fee - source fee
     uint256 internal constant SLACK_SMALL_BP = 50; // $1 and $5
     uint256 internal constant SLACK_BIG_BP = 200; // $20 = 10% of the pool
+    uint256 internal constant STARVED_BP = 2000; // after a one-way run of ~25% of the pool
+    uint256 internal constant STARVED_BIG_EXTRA_BP = 1500; // $20 on top of that run
     // source: 100k coin / 200k usd at 2 usd per coin = $400k
     uint112 internal constant SRC_COIN = 100_000e18;
     uint112 internal constant SRC_USD = 200_000e18;
@@ -74,6 +78,14 @@ contract LaunchGateTest is DiscipleTest {
     }
 
     function _checkAll(PoolKey memory key, PoolId id, string memory step, bool wantSellAtLeastSource) internal {
+        _checkAll(key, id, step, wantSellAtLeastSource, false);
+    }
+
+    /// @dev oneWay: after a big one-way run (maker 2026-11-08): the favoured side must stay within the normal limit,
+    ///      the starved side within STARVED_BP (plus STARVED_BIG_EXTRA_BP at $20).
+    function _checkAll(PoolKey memory key, PoolId id, string memory step, bool wantSellAtLeastSource, bool oneWay)
+        internal
+    {
         uint256[3] memory sizes = [uint256(1e18), 5e18, 20e18];
         DiscipleHook.PoolView memory v = hook.poolState(id);
         console2.log(string.concat("GATE ", step, " reserves coin/usd (1e15)"), v.coinReserve / 1e15, v.quoteReserve / 1e15);
@@ -85,8 +97,14 @@ contract LaunchGateTest is DiscipleTest {
             console2.log(string.concat("GATE ", step, " $", vm.toString(sizes[i] / 1e18)));
             console2.log("  buy shortfall bp", b);
             console2.log("  sell shortfall bp", s);
-            _rec(b, lim, step, "buy");
-            _rec(s, lim, step, "sell");
+            if (oneWay) {
+                (int256 fav, int256 st) = b < s ? (b, s) : (s, b);
+                _rec(fav, lim, step, "favoured side");
+                _rec(st, STARVED_BP + (i == 2 ? STARVED_BIG_EXTRA_BP : 0), step, "starved side");
+            } else {
+                _rec(b, lim, step, "buy");
+                _rec(s, lim, step, "sell");
+            }
             if (wantSellAtLeastSource && s > b) {
                 fails++;
                 console2.log(string.concat("  FAIL ", step, ": leaning side (sell) not better than buys"));
@@ -169,13 +187,13 @@ contract LaunchGateTest is DiscipleTest {
         }
         _nextBlock();
         hook.sample(id);
-        _checkAll(key, id, "after 20 random trades", false);
+        _checkAll(key, id, "after 20 random trades", false, true);
 
         // quiet hour: no trades, one sample
         vm.roll(vm.getBlockNumber() + 3600);
         vm.warp(vm.getBlockTimestamp() + 3600);
         hook.sample(id);
-        _checkAll(key, id, "after a quiet hour", false);
+        _checkAll(key, id, "after a quiet hour", false, true);
 
         // source jumps +3%, two samples in two blocks (catch-up), then check
         _moveSource(300);
@@ -187,7 +205,7 @@ contract LaunchGateTest is DiscipleTest {
         hook.sample(id);
         _nextBlock();
         hook.sample(id);
-        _checkAll(key, id, "3% source jump + 4 samples", false);
+        _checkAll(key, id, "3% source jump + 4 samples", false, true);
 
         console2.log("GATE worst shortfall bp", worstBp);
         console2.log("GATE failures", fails);
