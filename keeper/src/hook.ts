@@ -1,6 +1,7 @@
 // Reads a Disciple pool's push source straight from the hook's storage. The hook has no getter for the source,
 // so the keeper reads the slots. Layout from `forge inspect DiscipleHook storageLayout`: `pools` is mapping(PoolId => Pool) at slot 1; inside Pool, `src` starts at +2, `obsAt` is +8 (low 8
-// bytes), `book.dx` / `book.dy` are +26 / +27. test/layout.test.ts re-checks this against forge when available.
+// bytes), `book.dx` / `book.dy` share +25 (int128 each, v0.2). test/unit.test.ts ("storage layout matches the hook")
+// re-checks this against forge when available.
 import { encodeAbiParameters, keccak256, type Hex, type PublicClient } from "viem";
 import { hookAbi } from "./abi.ts";
 

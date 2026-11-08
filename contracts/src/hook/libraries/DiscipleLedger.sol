@@ -128,13 +128,14 @@ library DiscipleLedger {
         bk.dy = SafeCast.toInt128(int256(bk.dy) + dy);
     }
 
-    /// @notice The (coin, quote) jar skim that `settle(.., distribute = true, skimRoom)` would take now. View.
-    function skimPreview(Book storage bk, uint256 markX128, uint256 skimRoom)
+    /// @notice The (coin, quote) amounts that `settle(.., onTvl, offTvl, gradTvl, true, skimRoom)` would move out of
+    ///         the tradable reserves now: the jar skim, and on a graduated pool the LP escrow and (if the creator does
+    ///         not compound) the creator claim. View; same arithmetic as settle and _distribute.
+    function settlePreview(Book storage bk, uint256 markX128, uint256 skimRoom, uint256 onTvl, uint256 offTvl)
         internal
         view
-        returns (uint256 jx, uint256 jy)
+        returns (uint256 ox, uint256 oy)
     {
-        if (skimRoom == 0) return (0, 0);
         int256 dx = bk.dx;
         int256 e = int256(bk.dy)
             + (dx >= 0
@@ -143,12 +144,35 @@ library DiscipleLedger {
         uint256 l = bk.lossCarry;
         if (e <= int256(l)) return (0, 0);
         uint256 q = uint256(e) - l;
-        uint256 v = value(bk, markX128);
+        uint256 x = bk.x;
+        uint256 y = bk.y;
+        uint256 v = Math.mulDiv(x, markX128, Q128) + y;
+        bool on = bk.creatorOn;
+        if (onTvl > 0) {
+            if (v * BPS >= TARGET_BPS * onTvl) on = true;
+            else if (v * BPS < TARGET_BPS * offTvl) on = false;
+        }
         if (2 * q > v) return (0, 0);
-        uint256 sk = Math.mulDiv(q, JAR_SKIM_BPS, BPS);
-        if (sk > skimRoom) sk = skimRoom;
-        jx = Math.mulDiv(bk.x, sk, v);
-        jy = Math.mulDiv(bk.y, sk, v);
+        if (skimRoom > 0) {
+            uint256 sk = Math.mulDiv(q, JAR_SKIM_BPS, BPS);
+            if (sk > skimRoom) sk = skimRoom;
+            ox = Math.mulDiv(x, sk, v);
+            oy = Math.mulDiv(y, sk, v);
+            x -= ox;
+            y -= oy;
+            uint256 v2 = Math.mulDiv(x, markX128, Q128) + y;
+            uint256 taken = v - v2;
+            q = q > taken ? q - taken : 0;
+            v = v2;
+        }
+        if (q == 0 || !bk.graduated || 41 * bk.sp + 12 * bk.b == 0) return (ox, oy);
+        uint256 cd = on ? Math.mulDiv(q, CREATOR_BPS, BPS, Math.Rounding.Ceil) : 0;
+        ox += Math.mulDiv(x, q - cd, v, Math.Rounding.Ceil);
+        oy += Math.mulDiv(y, q - cd, v, Math.Rounding.Ceil);
+        if (cd > 0 && !bk.creatorCompounds) {
+            ox += Math.mulDiv(x, cd, v);
+            oy += Math.mulDiv(y, cd, v);
+        }
     }
 
     /// @notice Close the interval: mark its flow at `markX128`, apply the loss carry, distribute, latch graduation.

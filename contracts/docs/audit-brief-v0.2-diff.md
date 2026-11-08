@@ -73,3 +73,22 @@ Accepted for v0.2: small pools get almost no router share for orders under ~$100
 ## Format
 For each finding: severity, the function(s), a concrete reproduction (ideally a Foundry test using
 `test/hook/Disciple.t.sol`'s setup), the loss in numbers, and a minimal fix.
+
+---
+
+## Fixes after the v0.2 review (muse, 2026-11-08)
+Report: `/mnt/project-files/disciple-review/AUDIT_PR265_v0.2_muse.md` (1 High, 1 Medium, 6 Low, 3 Info).
+
+| Finding | Outcome |
+|---|---|
+| H-1 `_rho` floors to 0 on low-price pools (all band sells revert, buys pay 0) | Fixed: ratio taken in X128 first, then scaled (`_rho`). `test_flat_lowPricePoolTrades`, `testFuzz_flat_lowPrice` (both fail on the old code). |
+| M-1 quoteView ignores the graduated payout taken in the first-touch settle | Fixed: `BK.settlePreview` / `LG.settlePreview` model skim + LP escrow + creator claim, with the creator-cut judgement after the new TVL reading (`_judgeAfter`). `test_quoteView_graduatedCreatorPaid/Compounds` (fail on the old preview). Residual: a v4 source's TVL reading is taken as not new in the view, so on the one touch where its depth pass ends AND that flips the creator cut, the view can differ slightly. |
+| L-1 split beats whole on low-price pools | Fixed by the H-1 change (dominant term). |
+| L-2 `_distribute` raw products overflow above ~5e37 raw pool value | Not changed: unreachable for real token supplies (largest ~1e30 raw); changing audited payout rounding is the larger risk. |
+| L-3 first (cold) tipped sample pays ~91% of cost | Accepted: one-time per keeper per token; repeats ~119%, batch of 8 ~119%. |
+| L-4 int128 `dx/dy` overflow near int128.max | Not changed: needs > 1.7e38 raw tokens in one interval. |
+| L-5 cross-chain withdraw scaling overflow | Fixed: `_scaleFlow` (512-bit, same rounding toward zero). |
+| L-6 quoteView unknown pool → NotLive | Fixed: uses `_live` (UnknownPool / NotLive like quote()). `test_quoteView_unknownPool`. |
+| I-1 jar cap valued at the unstepped anchor in quoteView | Fixed: `_jarRoom`/`_weiToQuote` take the anchor explicitly; the view passes the stepped one. |
+| I-2 exact-out quantization ≤ ~1e-7 | Accepted (inherent). |
+| I-3 stale keeper comment | Fixed. |

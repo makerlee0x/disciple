@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Test, console2} from "forge-std/Test.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DiscipleFlatMath as F} from "../../../src/hook/libraries/DiscipleFlatMath.sol";
 import {FixedPointMathLib as FPM} from "../../../src/hook/libraries/vendor/FixedPointMathLib.sol";
 import {DiscipleFlatMathVectors as V} from "./DiscipleFlatMathVectors.sol";
@@ -112,6 +113,42 @@ contract DiscipleFlatMathTest is Test {
         if (c == 0) return;
         uint256 back = h.fill(2, u - c, v + a, ks, 0, t, c);
         assertLe(back, a, "buy then sell never profits");
+    }
+
+    /// @dev audit v0.2 H-1: v*WAD/u floored to 0 on a pool priced below 1e-18 quote raw per coin raw (e.g. an
+    ///      18-decimal coin under $1e-6 in a 6-decimal quote), which made every band sell revert and buys pay 0.
+    function test_flat_lowPricePoolTrades() public view {
+        uint256 u = 1.005e24;
+        uint256 v = 995_052;
+        uint256 t = Q128 / 1e18;
+        uint256 got = h.fill(2, u, v, 0.99e18, 0, t, 1e21);
+        assertGt(got, 0, "band sell pays");
+        uint256 out = h.fill(0, u, v, 1010101010101010102, 0, t, 100_000);
+        // ~ quote / price / 1.0101, price ~ v/u
+        uint256 fair = 100_000 * u / v;
+        assertGt(out, fair * 97 / 100, "band buy pays about fair less fee");
+        assertLt(out, fair, "and never more than fair");
+    }
+
+    /// @dev Low prices (ratio 1e-24 .. 1e-12 raw): fills never revert inside the band, round trips lose, splits
+    ///      do not beat the whole by more than rounding.
+    function testFuzz_flat_lowPrice(uint256 seed) public view {
+        uint256 s = uint256(keccak256(abi.encode(seed, "low")));
+        uint256 u = 1e24 + (s % 1e30);
+        uint256 ratioE = 12 + ((s >> 64) % 13); // price 1e-12 .. 1e-24
+        uint256 t = Q128 / (10 ** ratioE) + 1;
+        uint256 lean = 500 + ((s >> 96) % 1500); // /1000, inside the band
+        uint256 v = Math.mulDiv(u, t, Q128) * lean / 1000 + 1;
+        if (v < 1e3) return; // a quote side of a few raw units cannot price anything
+        uint256 a = v * (1 + ((s >> 128) % 2000)) / 10_000 + 1;
+        uint256 c = h.fill(0, u, v, KB, 0, t, a);
+        if (c == 0) return;
+        uint256 back = h.fill(2, u - c, v + a, KS, 0, t, c);
+        assertLe(back, a, "round trip loses");
+        uint256 a1 = a / 3;
+        uint256 o1 = h.fill(0, u, v, KB, 0, t, a1);
+        uint256 o2 = h.fill(0, u - o1, v + a1, KB, 0, t, a - a1);
+        assertLe(o1 + o2, c + c / 1e6 + 1, "split ~ whole");
     }
 
     function _state(uint256 seed, bool buy)

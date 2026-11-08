@@ -514,6 +514,12 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         if (coinAmt > uint128(type(int128).max) || quoteAmt > uint128(type(int128).max)) revert BadParams();
     }
 
+    /// @dev f * left / st, rounded toward zero, in 512-bit (audit v0.2 L-5); |result| <= |f| as left <= st.
+    function _scaleFlow(int128 f, uint256 left, uint256 st) internal pure returns (int128) {
+        uint256 m = Math.mulDiv(uint256(f < 0 ? -int256(f) : int256(f)), left, st);
+        return f < 0 ? -int128(uint128(m)) : int128(uint128(m));
+    }
+
     /// @notice Top up a pool's tip jar with its own tokens (anyone).
     function fundJar(PoolId id, uint256 x, uint256 y) external lock {
         Pool storage p = _known(id);
@@ -569,8 +575,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         view
         returns (uint256 amountIn, uint256 amountOut)
     {
-        Pool storage p = pools[id];
-        if (!p.live) revert NotLive();
+        Pool storage p = _live(id); // UnknownPool / NotLive, as quote() (audit v0.2 L-6)
         if (amountSpecified == 0 || amountSpecified == type(int256).min) revert BadParams();
         uint256 u = p.book.x;
         uint256 v = p.book.y;
@@ -580,13 +585,16 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 pb;
         uint256 ps;
         if (p.src.remoteEid == 0) {
-            (uint256 spot, uint24 srcFee,) = _sourceSpot(p);
+            (uint256 spot, uint24 srcFee, uint256 s1) = _sourceSpot(p);
             if (spot == 0) revert NoAnchor();
             uint256 a = p.sampleBlock < block.number ? _stepped(p) : p.anchorX128;
             if (p.settledBlock < block.number) {
-                (uint256 jx, uint256 jy) = BK.skimPreview(p.book, a, _jarRoom(p, a));
-                u -= jx;
-                v -= jy;
+                // the settle's skim and, on a graduated pool, its payout leave the reserves (audit v0.2 M-1). A v4
+                // source's TVL reading is taken as not new here (it is new only when its depth pass ends this touch).
+                (uint256 ox, uint256 oy) =
+                    BK.settlePreview(p.book, p.tvl, a, _jarRoom(p, a, a), _sourceTvl(p, s1, spot), p.src.kind != SRC_V4);
+                u -= ox;
+                v -= oy;
             }
             (kb, ks, pb, ps) = BK.sameQuote(a, t, p.fee, spot, srcFee);
         } else {
@@ -630,7 +638,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
                 tstore(slot, 1)
             }
         }
-        uint256 q = _weiToQuote(p, (g0 - gasleft() + o) * block.basefee * 12 / 10);
+        uint256 q = _weiToQuote(p, (g0 - gasleft() + o) * block.basefee * 12 / 10, p.anchorX128);
         if (q == 0) return;
         (uint256 cx, uint256 cy) = BK.tip(p.jarX, p.jarY, a0, q, TIP_DIV);
         p.jarX -= cx;
@@ -649,7 +657,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     }
 
     /// @dev `w` wei in the pool's quote, at the pool's centre and the reference pool (0 = cannot value).
-    function _weiToQuote(Pool storage p, uint256 w) internal view returns (uint256) {
+    /// @dev `a`: the pool's centre to value at (the stored anchor, or the stepped one in quoteView: audit v0.2 I-1).
+    function _weiToQuote(Pool storage p, uint256 w, uint256 a) internal view returns (uint256) {
         address q = p.quote;
         address c = p.coin;
         if (q == weth) return w;
@@ -667,21 +676,21 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             (uint256 r2,) = _leg(s.kind2, s.target2, s.v4Id2, s.xIs0);
             return Math.mulDiv(w, r2, Q128);
         }
-        return Math.mulDiv(w, p.anchorX128, Q128);
+        return Math.mulDiv(w, a, Q128);
     }
 
     /// @dev Room left in the jar, in quote raw, less what it holds. Same chain: JAR_TIPS reference tips at today's
     ///      basefee. Cross chain: JAR_PUSHES pushes at the last keeper cost. Both +20%.
-    function _jarRoom(Pool storage p, uint256 mark) internal view returns (uint256) {
+    function _jarRoom(Pool storage p, uint256 mark, uint256 a) internal view returns (uint256) {
         uint256 w = p.src.remoteEid == 0 ? JAR_TIPS * TIP_GAS_REF * block.basefee : JAR_PUSHES * p.pushCost;
-        uint256 cap = _weiToQuote(p, w * 12 / 10);
+        uint256 cap = _weiToQuote(p, w * 12 / 10, a);
         uint256 have = Math.mulDiv(p.jarX, mark, Q128) + p.jarY; // at the settle mark (audit L-1)
         return cap > have ? cap - have : 0;
     }
 
     /// @dev Close the open interval at `mark`, skimming into the jar (`dist` false: local mode, no payout).
     function _settleSame(Pool storage p, uint256 mark, bool dist) internal {
-        (uint256 jx, uint256 jy) = BK.settle(p.book, p.tvl, mark, dist, _jarRoom(p, mark));
+        (uint256 jx, uint256 jy) = BK.settle(p.book, p.tvl, mark, dist, _jarRoom(p, mark, p.anchorX128));
         p.jarX += jx;
         p.jarY += jy;
     }
@@ -839,7 +848,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 refund;
         if (keeper != address(0)) {
             // cost + 20% if due, from the jar in the pool's tokens, credited to the keeper
-            refund = _weiToQuote(p, PR.refund(old, price, ageAtRequest, cost));
+            refund = _weiToQuote(p, PR.refund(old, price, ageAtRequest, cost), p.anchorX128);
             (uint256 cx, uint256 cy) = BK.tip(p.jarX, p.jarY, price, refund, TIP_DIV);
             p.jarX -= cx;
             p.jarY -= cy;
@@ -893,8 +902,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             uint256 st = p.book.sp + p.book.b;
             (x, y) = BK.withdraw(p.book, lot, msg.sender, s, bal);
             uint256 left = p.book.sp + p.book.b;
-            p.book.dx = int128(int256(p.book.dx) * int256(left) / int256(st));
-            p.book.dy = int128(int256(p.book.dy) * int256(left) / int256(st));
+            p.book.dx = _scaleFlow(p.book.dx, left, st);
+            p.book.dy = _scaleFlow(p.book.dy, left, st);
         }
         _moves(_pair(p, x, y, msg.sender, false));
         _liq(id, p, msg.sender, x, y, false);

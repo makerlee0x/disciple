@@ -114,7 +114,53 @@ contract QuoteViewTest is DiscipleTest {
         hook.quoteView(id, true, 0);
         vm.expectRevert(DiscipleHook.BadParams.selector);
         hook.quoteView(id, true, type(int256).min);
-        vm.expectRevert(DiscipleHook.NotLive.selector);
+    }
+
+    // ---- graduated pools: the first-touch settle pays LPs / the creator out of the reserves (audit v0.2 M-1) ----
+
+    /// @dev A pool at ~15% of a small source, warmed up and graduated.
+    function _graduated(bool compounds) internal returns (PoolKey memory key, PoolId id) {
+        vm.fee(0.01 gwei);
+        pair.set(1000e18, 2000e18); // source TVL 4000 quote
+        (key, id) = _createSame(150e18, 300e18); // ~600 quote = 15%
+        hook.setCreator(id, address(this), compounds);
+        for (uint256 i; i < 40 && !hook.poolState(id).graduated; i++) {
+            vm.roll(vm.getBlockNumber() + 1);
+            vm.warp(vm.getBlockTimestamp() + 1 hours);
+            uint256 c0 = coin.balanceOf(address(this));
+            _swap(key, true, -int256(5e18));
+            _swap(key, false, -int256(coin.balanceOf(address(this)) - c0));
+        }
+        assertTrue(hook.poolState(id).graduated, "graduated");
+    }
+
+    function _gradCase(bool compounds) internal {
+        (PoolKey memory key, PoolId id) = _graduated(compounds);
+        // load the interval one way, then the next block's first touch settles it (skim + payout)
+        _nextBlock();
+        _three(key, id, true, -60e18);
+        _nextBlock();
+        _three(key, id, true, -50e18);
+        _three(key, id, false, 3e18);
+        _nextBlock();
+        _three(key, id, true, 20e18); // exact out after a buy-loaded interval
+        _nextBlock();
+        _three(key, id, false, -int256(10e18));
+        _nextBlock();
+        _three(key, id, false, -int256(10e18)); // sell after a sell-loaded interval
+        emit log_named_uint("creator cut on (1/0)", hook.poolState(id).creatorOn ? 1 : 0);
+    }
+
+    function test_quoteView_graduatedCreatorPaid() public {
+        _gradCase(false);
+    }
+
+    function test_quoteView_graduatedCreatorCompounds() public {
+        _gradCase(true);
+    }
+
+    function test_quoteView_unknownPool() public {
+        vm.expectRevert(DiscipleHook.UnknownPool.selector);
         hook.quoteView(PoolId.wrap(bytes32(uint256(1))), true, -1e18);
     }
 }

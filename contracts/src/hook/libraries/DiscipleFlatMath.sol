@@ -340,9 +340,11 @@ library DiscipleFlatMath {
 
     /// @dev rho = (r/T)^BETA / k, WAD.
     function _rho(Curve memory c, uint256 u, uint256 v, bool up) private pure returns (uint256) {
-        uint256 z = Math.mulDiv(v, WAD, u);
-        z = Math.mulDiv(z, Q128, c.t, up ? Math.Rounding.Ceil : Math.Rounding.Floor);
-        return Math.mulDiv(_pow(z, BETA, up), WAD, c.k, up ? Math.Rounding.Ceil : Math.Rounding.Floor);
+        Math.Rounding rd = up ? Math.Rounding.Ceil : Math.Rounding.Floor;
+        // ratio in X128 first, then scale: v*WAD/u floors to 0 on low-price pools (audit v0.2 H-1). In the band
+        // r is within e of T, so it fits wherever T does.
+        uint256 z = Math.mulDiv(Math.mulDiv(v, Q128, u, rd), WAD, c.t, rd);
+        return Math.mulDiv(_pow(z, BETA, up), WAD, c.k, rd);
     }
 
     // ---------------------------------------------------------------------------------------------

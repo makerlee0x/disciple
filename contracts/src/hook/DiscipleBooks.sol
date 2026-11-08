@@ -168,14 +168,36 @@ library DiscipleBooks {
         (pb, ps) = SM.matchBounds(srcAsk, srcBid, 1);
     }
 
-    /// @notice What `settle(bk, .., markX128, true, skimRoom)` would skim out of the reserves now, without settling
-    ///         (for the hook's read-only quote). Same arithmetic as DiscipleLedger.settle.
-    function skimPreview(LG.Book storage bk, uint256 markX128, uint256 skimRoom)
-        public
-        view
-        returns (uint256 jx, uint256 jy)
-    {
-        return bk.skimPreview(markX128, skimRoom);
+    /// @notice What the next same-chain settle (`observe(t, cur, fresh)` then `settle(bk, t, markX128, true,
+    ///         skimRoom)`) would take out of the tradable reserves, without doing it: the jar skim and, on a graduated
+    ///         pool, the LP escrow and creator claim (for the hook's read-only quote; audit v0.2 M-1).
+    function settlePreview(
+        LG.Book storage bk,
+        Tvl storage t,
+        uint256 markX128,
+        uint256 skimRoom,
+        uint256 cur,
+        bool fresh
+    ) public view returns (uint256 ox, uint256 oy) {
+        (uint256 on, uint256 off) = _judgeAfter(t, cur, fresh);
+        return bk.settlePreview(markX128, skimRoom, on, off);
+    }
+
+    /// @dev `_judge` after `observe(t, cur, fresh)`, without writing (the creator-cut TVLs only).
+    function _judgeAfter(Tvl storage p, uint256 cur, bool fresh) internal view returns (uint256 on, uint256 off) {
+        if (cur == 0 || !fresh) {
+            (on, off,) = _judge(p);
+            return (on, off);
+        }
+        uint256 prev = p.srcTvl;
+        uint8 n = p.seen < 2 ? p.seen + 1 : p.seen;
+        if (block.timestamp < p.warmEnd || n < 2) return (0, 0);
+        uint256 rec = _rec(p);
+        uint256 m = cur < prev ? cur : prev;
+        if (p.seen >= 1 && m >= rec) rec = m; // observe records the pair's lower reading (from the 2nd reading on)
+        (uint256 g, uint256 lo) = cur > prev ? (cur, prev) : (prev, cur);
+        on = g > rec ? g : rec;
+        off = lo;
     }
 
     /// @notice Cross chain: slopes and band edges for a pushed anchor of age `age` (DisciplePrice markup and band).
