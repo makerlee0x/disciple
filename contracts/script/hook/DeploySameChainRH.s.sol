@@ -54,7 +54,7 @@ contract DeploySameChainRH is Script {
     bytes32 internal constant REF_ETH_USDG = 0xa791e5169faf703c0b63fd9552c33ec1128a773a00f5dc33a640da62a022cd35;
 
     /// @dev Robinhood: 1% minimum anchor step. The tip jar values gas in USDG through the ETH/USDG reference pool
-    ///      (REF_V4ID overrides it; REF_KIND=0 turns it off, tips then fall back to the ETH tank).
+    ///      (REF_V4ID overrides it; REF_KIND=0 turns it off: USDG pools then pay no tips).
     function _cfg() internal view returns (DiscipleHook.Config memory c) {
         c.minStep = 10_000;
         c.refToken = USDG;
