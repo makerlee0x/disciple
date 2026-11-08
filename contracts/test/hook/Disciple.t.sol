@@ -621,8 +621,10 @@ contract DiscipleTest is Test {
         _nextBlock();
         hook.withdraw(id, 1, principal, 0); // creator pulls the seed lot
         v = hook.poolState(id);
-        assertEq(v.jarX, jx, "jar coin untouched");
-        assertEq(v.jarY, jy, "jar quote untouched");
+        // the withdrawal's settle may skim the last interval's fees in (v0.2 curve: the last tiny churn swap
+        // earns), but nothing leaves the jar
+        assertGe(v.jarX, jx, "jar coin not taken");
+        assertGe(v.jarY, jy, "jar quote not taken");
         assertEq(_claims(address(usd)), v.quoteReserve + v.jarY + _escrowY(id), "claims = book + jar (+ escrow)");
         // the jar still pays with the seed gone
         pair.set(1_000_000e18, 2_100_000e18);
@@ -926,7 +928,8 @@ contract DiscipleTest is Test {
         _swap(key, true, -int256(30e18));
         uint256 got = coin.balanceOf(address(this)) - c0;
         uint256 routeAsk = Math.mulDiv(Q128 * 3 / 2, 1e12, 997_000 * 997_000);
-        assertLe(got, Math.mulDiv(30e18, Q128, routeAsk) * 10_001 / 10_000, "not better than the two-hop ask");
+        // the match boundary lets us sit 1bp inside the route's ask, no further (the flat curve reaches it)
+        assertLe(got, Math.mulDiv(Math.mulDiv(30e18, Q128, routeAsk), 10_000, 9_999) + 1, "not better than the two-hop ask - 1bp");
         // the TVL counts leg 1 converted to USD: 2 x 500 WETH x 3000
         assertApproxEqRel(hook.poolState(id).srcTvl, 3_000_000e18, 1e12);
     }

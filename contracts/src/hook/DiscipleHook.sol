@@ -42,7 +42,7 @@ import {DiscipleBooks as BK} from "./DiscipleBooks.sol";
 ///         keeps trading). A fresh push under 20 min old (PUSH_RECOVERY_AGE) ends local mode and re-centres again. The pool never
 ///         stops trading.
 ///
-///         Curve and fills: DiscipleSwapMath. Price rules: DisciplePrice. LP books: DiscipleLedger.
+///         Curve and fills: DiscipleFlatMath (v0.2 flat centre; via DiscipleBooks), slopes: DiscipleSwapMath. Price rules: DisciplePrice. LP books: DiscipleLedger.
 ///         v4 concentrated liquidity is disabled; every swap is quoted in `beforeSwap`.
 ///         Custody: pool liquidity is held as the hook's ERC-6909 claims inside the PoolManager, so a swap only
 ///         mints and burns claims. Deposits, withdrawals and claims convert to and from ERC20 in one unlock.
@@ -493,15 +493,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     ) internal view returns (uint256 coinAmt, uint256 quoteAmt) {
         // the request and both sides must fit the int128 swap delta (scanner 2026-11-04; quote() too: audit I-1)
         if (spec > uint128(type(int128).max)) revert BadParams();
-        uint256 u = p.book.x;
-        uint256 v = p.book.y;
-        if (sell) {
-            (coinAmt, quoteAmt) =
-                exactIn ? (spec, SM.sellExactIn(u, v, ks, ps, spec)) : (SM.sellExactOut(u, v, ks, ps, spec), spec);
-        } else {
-            (quoteAmt, coinAmt) =
-                exactIn ? (spec, SM.buyExactIn(u, v, kb, pb, spec)) : (SM.buyExactOut(u, v, kb, pb, spec), spec);
-        }
+        (coinAmt, quoteAmt) =
+            BK.fill(p.book.x, p.book.y, p.tX128, sell ? ks : kb, sell ? ps : pb, sell, exactIn, spec);
         if (quoteAmt == 0 || coinAmt == 0) revert ZeroOutput();
         if (coinAmt > uint128(type(int128).max) || quoteAmt > uint128(type(int128).max)) revert BadParams();
     }

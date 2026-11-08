@@ -10,6 +10,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DiscipleLedger as LG} from "./libraries/DiscipleLedger.sol";
 import {DiscipleDepth as DP} from "./libraries/DiscipleDepth.sol";
 import {DiscipleSwapMath as SM} from "./libraries/DiscipleSwapMath.sol";
+import {DiscipleFlatMath as FM} from "./libraries/DiscipleFlatMath.sol";
 
 interface IV2R {
     function getReserves() external view returns (uint112, uint112, uint32);
@@ -164,6 +165,21 @@ library DiscipleBooks {
         uint256 srcAsk = Math.mulDiv(spot, 1e6, 1e6 - srcFee, Math.Rounding.Ceil);
         uint256 srcBid = Math.mulDiv(spot, 1e6 - srcFee, 1e6);
         (pb, ps) = SM.matchBounds(srcAsk, srcBid, 1);
+    }
+
+    /// @notice One fill on the v0.2 flat-centre curve (DiscipleFlatMath). Returns (coin, quote) amounts.
+    function fill(uint256 u, uint256 v, uint256 t, uint256 k, uint256 b, bool sell, bool exactIn, uint256 spec)
+        public
+        pure
+        returns (uint256 coinAmt, uint256 quoteAmt)
+    {
+        if (sell) {
+            (coinAmt, quoteAmt) =
+                exactIn ? (spec, FM.sellExactIn(u, v, k, b, t, spec)) : (FM.sellExactOut(u, v, k, b, t, spec), spec);
+        } else {
+            (quoteAmt, coinAmt) =
+                exactIn ? (spec, FM.buyExactIn(u, v, k, b, t, spec)) : (FM.buyExactOut(u, v, k, b, t, spec), spec);
+        }
     }
 
     /// @notice Split a tip worth `q` quote raw out of a jar of (`jx` coin, `jy` quote), valued at `aX128`: quote
