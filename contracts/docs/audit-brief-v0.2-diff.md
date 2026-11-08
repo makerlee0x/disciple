@@ -77,7 +77,7 @@ For each finding: severity, the function(s), a concrete reproduction (ideally a 
 ---
 
 ## Fixes after the v0.2 review (muse, 2026-11-08)
-Report: `/mnt/project-files/disciple-review/AUDIT_PR265_v0.2_muse.md` (1 High, 1 Medium, 6 Low, 3 Info).
+Report: pasted by maker in the PR #265 thread, 2026-11-08 17:33Z (1 High, 1 Medium, 6 Low, 3 Info; PoCs in muse's worktree).
 
 | Finding | Outcome |
 |---|---|
