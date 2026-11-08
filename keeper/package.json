@@ -5,7 +5,9 @@
   "description": "Open-source keeper for Disciple pools: samples same-chain pools for jar tips, and pushes cross-chain prices over LayerZero and self-delivers them.",
   "type": "module",
   "license": "MIT",
-  "engines": { "node": ">=22.18" },
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "start": "node src/main.ts",
     "once": "node src/main.ts --once",
@@ -15,7 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "viem": "2.38.0"
+    "viem": "2.57.17"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
