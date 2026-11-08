@@ -8,6 +8,8 @@ transaction. Run them one at a time, from `contracts/`, with `FORK_RPC_RH` set t
 - Audit done and fixed (b40b914; nothing above Medium, all Mediums fixed).
 - Old pool emptied (done 2026-11-08; lot 3 dust stays).
 - `git pull origin claude/project-thread-c2uvpb` (commit b40b914 or later).
+- LAUNCH GATE must pass at the planned seed and fee (added 2026-11-08 after the v0.1 curve went uncompetitive
+  after one $2 trade; v0.1 itself FAILS it): `LAUNCH_GATE=1 FOUNDRY_PROFILE=solar forge test --isolate --match-path test/hook/LaunchGate.t.sol --match-test test_gate -vv`
 
 ## 1. Check balances
 Your deployer address:
