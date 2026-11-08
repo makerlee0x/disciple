@@ -10,6 +10,10 @@ transaction. Run them one at a time, from `contracts/`, with `FORK_RPC_RH` set t
 - `git pull origin claude/project-thread-c2uvpb` (commit b40b914 or later).
 - LAUNCH GATE must pass at the planned seed and fee (added 2026-11-08 after the v0.1 curve went uncompetitive
   after one $2 trade; v0.1 itself FAILS it): `LAUNCH_GATE=1 FOUNDRY_PROFILE=solar forge test --isolate --match-path test/hook/LaunchGate.t.sol --match-test test_gate -vv`
+- FORK LAUNCH GATE must pass against the real Uniswap route (STRATEGY/MSTR x MSTR/USDG, executed on a fork):
+  `FORK_RPC_RH=<your RH RPC> FOUNDRY_PROFILE=solar forge test --match-test test_fork_launchGate -vv`
+- After the pool is created, BEFORE adding more money, the canary must pass on the live pool:
+  `FORK_RPC_RH=<your RH RPC> CANARY_HOOK=<hook> CANARY_POOL=<pool id> FOUNDRY_PROFILE=solar forge test --match-test test_fork_canaryLivePool -vv`
 
 ## 1. Check balances
 Your deployer address:
