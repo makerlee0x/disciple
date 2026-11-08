@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /// @title Disciple LP ledger
 /// @notice LP accounting for one Disciple pool: shares, the whole-line boost, the compound class, graduation, the
@@ -65,8 +66,8 @@ library DiscipleLedger {
     struct Book {
         uint256 x; // tradable coin reserve
         uint256 y; // tradable quote reserve
-        int256 dx; // net coin into the pool since the last settlement
-        int256 dy;
+        int128 dx; // net coin into the pool since the last settlement (one slot with dy: gas)
+        int128 dy;
         uint256 lossCarry;
         bool graduated;
         bool creatorCompounds;
@@ -123,8 +124,31 @@ library DiscipleLedger {
     function swap(Book storage bk, int256 dx, int256 dy) internal {
         bk.x = _addSigned(bk.x, dx);
         bk.y = _addSigned(bk.y, dy);
-        bk.dx += dx;
-        bk.dy += dy;
+        bk.dx = SafeCast.toInt128(int256(bk.dx) + dx);
+        bk.dy = SafeCast.toInt128(int256(bk.dy) + dy);
+    }
+
+    /// @notice The (coin, quote) jar skim that `settle(.., distribute = true, skimRoom)` would take now. View.
+    function skimPreview(Book storage bk, uint256 markX128, uint256 skimRoom)
+        internal
+        view
+        returns (uint256 jx, uint256 jy)
+    {
+        if (skimRoom == 0) return (0, 0);
+        int256 dx = bk.dx;
+        int256 e = int256(bk.dy)
+            + (dx >= 0
+                    ? int256(Math.mulDiv(uint256(dx), markX128, Q128))
+                    : -int256(Math.mulDiv(uint256(-dx), markX128, Q128, Math.Rounding.Ceil)));
+        uint256 l = bk.lossCarry;
+        if (e <= int256(l)) return (0, 0);
+        uint256 q = uint256(e) - l;
+        uint256 v = value(bk, markX128);
+        if (2 * q > v) return (0, 0);
+        uint256 sk = Math.mulDiv(q, JAR_SKIM_BPS, BPS);
+        if (sk > skimRoom) sk = skimRoom;
+        jx = Math.mulDiv(bk.x, sk, v);
+        jy = Math.mulDiv(bk.y, sk, v);
     }
 
     /// @notice Close the interval: mark its flow at `markX128`, apply the loss carry, distribute, latch graduation.
@@ -151,7 +175,7 @@ library DiscipleLedger {
         uint256 skimRoom
     ) internal returns (uint256 q, uint256 jx, uint256 jy) {
         int256 dx = bk.dx;
-        int256 e = bk.dy
+        int256 e = int256(bk.dy)
             + (dx >= 0
                     ? int256(Math.mulDiv(uint256(dx), markX128, Q128))
                     : -int256(Math.mulDiv(uint256(-dx), markX128, Q128, Math.Rounding.Ceil)));

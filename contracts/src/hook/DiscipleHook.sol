@@ -72,9 +72,10 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     /// @dev Gas a tipped sample() spends outside the measured span (calldata, the payout itself), plus the 21k
     ///      transaction intrinsic counted once per transaction, so a batch of samples is not paid it N times
     ///      (audit L-2 / GPT batching). Measured on anvil (keeper/test/local, real per-transaction accounting): a
-    ///      repeat tipped sample is ~116k gas with ~84k outside the span, so it is paid ~120%; a keeper's first
-    ///      tip in a token (~133k, its new balance slot) ~105%.
-    uint256 internal constant TIP_OVERHEAD = 63_000;
+    ///      repeat tipped sample was ~116k gas with ~84k outside the span. v0.2 moved the reentrancy flag to
+    ///      transient storage (~2k less outside the span), and a batch of 8 in one transaction then measured 124%
+    ///      at 63k, so it is 58k: a batch is paid <= 120%, a single repeat sample ~117%, a first tip ~103%.
+    uint256 internal constant TIP_OVERHEAD = 58_000;
     uint256 internal constant TIP_INTRINSIC = 21_000;
     /// @dev Transient flag: the intrinsic was already paid to a sample() in this transaction.
     uint256 internal constant TIP_TX_SLOT = uint256(keccak256("disciple.tip.tx"));
@@ -130,9 +131,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 anchorX128; // A
         uint64 obsAt; // cross: source observation time of A
         uint64 settledBlock; // same chain: last block the ledger settled
-        uint256 sampleX128; // same chain: last source spot sampled
-        uint64 sampleBlock;
+        uint64 sampleBlock; // (the four block/time fields share one slot: one read per swap)
         uint64 sampleAt; // timestamp of sampleX128
+        uint256 sampleX128; // same chain: last source spot sampled
         uint256 jarX; // same chain tip jar, coin raw (held as claims, outside the book)
         uint256 jarY; // tip jar, quote raw
         BK.Tvl tvl; // source TVL readings for graduation and the creator cut (DiscipleBooks.observe / judge)
@@ -197,7 +198,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     mapping(address => mapping(address => uint256)) public poolsOf;
 
     mapping(PoolId => Pool) internal pools;
-    bool internal _locked;
+    /// @dev Reentrancy flag, in transient storage (cleared at the end of each call; a reverted call clears it too).
+    uint256 internal constant LOCK_SLOT = uint256(keccak256("disciple.lock"));
     /// @notice Cross-chain keeper tips credited from pool jars, by keeper and token; taken with `collect`. Credited,
     ///         not sent, so a token that refuses a transfer can never block a price delivery.
     mapping(address => mapping(address => uint256)) public owed;
@@ -250,10 +252,28 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     error Quote(uint256 amountIn, uint256 amountOut);
 
     modifier lock() {
-        if (_locked) revert Reentrancy();
-        _locked = true;
+        _enter();
         _;
-        _locked = false;
+        _exit();
+    }
+
+    function _enter() internal {
+        uint256 slot = LOCK_SLOT;
+        uint256 l;
+        assembly {
+            l := tload(slot)
+        }
+        if (l != 0) revert Reentrancy();
+        assembly {
+            tstore(slot, 1)
+        }
+    }
+
+    function _exit() internal {
+        uint256 slot = LOCK_SLOT;
+        assembly {
+            tstore(slot, 0)
+        }
     }
 
     constructor(
@@ -435,8 +455,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         returns (bytes4, BeforeSwapDelta, uint24)
     {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
-        if (_locked) revert Reentrancy();
-        _locked = true;
+        _enter();
         PoolId id = key.toId();
         Pool storage p = pools[id];
         if (!p.exists) revert UnknownPool();
@@ -449,7 +468,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 spec = exactIn ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
         // input is currency0 when zeroForOne; the input is the coin on a sell
         bool sell = params.zeroForOne == p.coinIs0;
-        (uint256 coinAmt, uint256 quoteAmt) = _fill(p, sell, exactIn, spec, kb, ks, pb, ps);
+        (uint256 coinAmt, uint256 quoteAmt) =
+            _fill(p.book.x, p.book.y, p.tX128, sell ? ks : kb, sell ? ps : pb, sell, exactIn, spec);
         if (sell) p.book.swap(int256(coinAmt), -int256(quoteAmt));
         else p.book.swap(-int256(coinAmt), int256(quoteAmt));
 
@@ -472,7 +492,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
                 params.zeroForOne ? (i, o, f, uint128(0)) : (o, i, uint128(0), f);
             emit HookSwap(PoolId.unwrap(id), sender, a0, a1, f0, f1);
         }
-        _locked = false;
+        _exit();
         // exact in: the specified currency is the input; exact out: it is the output
         BeforeSwapDelta delta = exactIn
             ? toBeforeSwapDelta(int128(uint128(inAmt)), -int128(uint128(outAmt)))
@@ -480,21 +500,16 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         return (IHooks.beforeSwap.selector, delta, 0);
     }
 
-    /// @dev The curve fill against the current reserves: (coin, quote) amounts for `spec` in or out.
-    function _fill(
-        Pool storage p,
-        bool sell,
-        bool exactIn,
-        uint256 spec,
-        uint256 kb,
-        uint256 ks,
-        uint256 pb,
-        uint256 ps
-    ) internal view returns (uint256 coinAmt, uint256 quoteAmt) {
+    /// @dev The curve fill against reserves (u coin, v quote) and seed ratio t: (coin, quote) amounts for `spec`
+    ///      in or out. k and b are the side's slope and match boundary.
+    function _fill(uint256 u, uint256 v, uint256 t, uint256 k, uint256 b, bool sell, bool exactIn, uint256 spec)
+        internal
+        pure
+        returns (uint256 coinAmt, uint256 quoteAmt)
+    {
         // the request and both sides must fit the int128 swap delta (scanner 2026-11-04; quote() too: audit I-1)
         if (spec > uint128(type(int128).max)) revert BadParams();
-        (coinAmt, quoteAmt) =
-            BK.fill(p.book.x, p.book.y, p.tX128, sell ? ks : kb, sell ? ps : pb, sell, exactIn, spec);
+        (coinAmt, quoteAmt) = BK.fill(u, v, t, k, b, sell, exactIn, spec);
         if (quoteAmt == 0 || coinAmt == 0) revert ZeroOutput();
         if (coinAmt > uint128(type(int128).max) || quoteAmt > uint128(type(int128).max)) revert BadParams();
     }
@@ -523,16 +538,75 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     ///         fill against the live source, then ALWAYS reverts with `Quote(amountIn, amountOut)`, so nothing
     ///         it did is kept. `zeroForOne` and `amountSpecified` mean what they do in a v4 swap (negative =
     ///         exact in). The result matches a swap sent in the same block against the same state.
+    ///         `quoteView` gives the same numbers from a plain view call.
     function quote(PoolId id, bool zeroForOne, int256 amountSpecified) external lock {
         Pool storage p = _live(id);
         if (amountSpecified == 0 || amountSpecified == type(int256).min) revert BadParams();
         (uint256 kb, uint256 ks, uint256 pb, uint256 ps) = _prepare(p, id);
         bool exactIn = amountSpecified < 0;
         bool sell = zeroForOne == p.coinIs0;
-        (uint256 c, uint256 q) =
-            _fill(p, sell, exactIn, uint256(exactIn ? -amountSpecified : amountSpecified), kb, ks, pb, ps);
+        (uint256 c, uint256 q) = _fill(
+            p.book.x,
+            p.book.y,
+            p.tX128,
+            sell ? ks : kb,
+            sell ? ps : pb,
+            sell,
+            exactIn,
+            uint256(exactIn ? -amountSpecified : amountSpecified)
+        );
         (uint256 i, uint256 o) = sell ? (c, q) : (q, c);
         revert Quote(i, o);
+    }
+
+    /// @notice Read-only quote: the same (amountIn, amountOut) as `quote` and as a swap sent in this block against
+    ///         this state, from a plain view call (no revert to decode, usable from other contracts and quoters). It
+    ///         works out what the swap's first touch would change without writing it: the anchor step, and on the
+    ///         first swap of a block the jar skim the settle takes out of the reserves (or, cross chain, entering
+    ///         local mode). Graduation and TVL readings do not move the price, so they are not needed here.
+    function quoteView(PoolId id, bool zeroForOne, int256 amountSpecified)
+        external
+        view
+        returns (uint256 amountIn, uint256 amountOut)
+    {
+        Pool storage p = pools[id];
+        if (!p.live) revert NotLive();
+        if (amountSpecified == 0 || amountSpecified == type(int256).min) revert BadParams();
+        uint256 u = p.book.x;
+        uint256 v = p.book.y;
+        uint256 t = p.tX128;
+        uint256 kb;
+        uint256 ks;
+        uint256 pb;
+        uint256 ps;
+        if (p.src.remoteEid == 0) {
+            (uint256 spot, uint24 srcFee,) = _sourceSpot(p);
+            if (spot == 0) revert NoAnchor();
+            uint256 a = p.sampleBlock < block.number ? _stepped(p) : p.anchorX128;
+            if (p.settledBlock < block.number) {
+                (uint256 jx, uint256 jy) = BK.skimPreview(p.book, a, _jarRoom(p, a));
+                u -= jx;
+                v -= jy;
+            }
+            (kb, ks, pb, ps) = BK.sameQuote(a, t, p.fee, spot, srcFee);
+        } else {
+            uint256 age = block.timestamp - p.obsAt;
+            if (age >= PR.LOCAL_AFTER && !p.local) t = PR.recentre(u, v);
+            (kb, ks, pb, ps) = BK.crossQuote(p.anchorX128, t, p.fee, age);
+        }
+        bool exactIn = amountSpecified < 0;
+        bool sell = zeroForOne == p.coinIs0;
+        (uint256 c, uint256 q) = _fill(
+            u,
+            v,
+            t,
+            sell ? ks : kb,
+            sell ? ps : pb,
+            sell,
+            exactIn,
+            uint256(exactIn ? -amountSpecified : amountSpecified)
+        );
+        (amountIn, amountOut) = sell ? (c, q) : (q, c);
     }
 
     /// @notice Refresh a same-chain pool's source price sample without a trade. Anyone may call. The first call
@@ -665,9 +739,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             p.tX128 = PR.recentre(p.book.x, p.book.y);
             emit LocalMode(id, true);
         }
-        (uint256 g, bool bandOn) = PR.markup(p.fee, age);
-        (kb, ks) = SM.slopes(a, p.tX128, g, g);
-        (pb, ps) = PR.band(a, g, bandOn);
+        return BK.crossQuote(a, p.tX128, p.fee, age);
     }
 
     /// @notice A pushed price over LayerZero (caller = pushReceiver, `srcEid` = the home chain, which must be the
@@ -689,8 +761,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 keeperCost
     ) external {
         if (pushReceiver == address(0) || msg.sender != pushReceiver) revert OnlyBridge();
-        if (_locked) revert Reentrancy();
-        _locked = true;
+        _enter();
         Pool storage p = pools[id];
         Source storage s = p.src;
         uint256 price;
@@ -706,7 +777,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 ageAtSend = p.live && observedAt > p.obsAt ? observedAt - p.obsAt : 0;
         if (keeperCost > MAX_PUSH_REFUND) keeperCost = MAX_PUSH_REFUND;
         _accept(p, id, price, tvl, observedAt, keeper, keeperCost, ageAtSend, PUSH_RECOVERY_AGE);
-        _locked = false;
+        _exit();
     }
 
     /// @dev Take a delivered observation: first price opens the pool; otherwise the update or recovery gate, the
@@ -822,8 +893,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             uint256 st = p.book.sp + p.book.b;
             (x, y) = BK.withdraw(p.book, lot, msg.sender, s, bal);
             uint256 left = p.book.sp + p.book.b;
-            p.book.dx = p.book.dx * int256(left) / int256(st);
-            p.book.dy = p.book.dy * int256(left) / int256(st);
+            p.book.dx = int128(int256(p.book.dx) * int256(left) / int256(st));
+            p.book.dy = int128(int256(p.book.dy) * int256(left) / int256(st));
         }
         _moves(_pair(p, x, y, msg.sender, false));
         _liq(id, p, msg.sender, x, y, false);

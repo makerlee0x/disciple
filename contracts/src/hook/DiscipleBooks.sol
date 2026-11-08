@@ -11,6 +11,7 @@ import {DiscipleLedger as LG} from "./libraries/DiscipleLedger.sol";
 import {DiscipleDepth as DP} from "./libraries/DiscipleDepth.sol";
 import {DiscipleSwapMath as SM} from "./libraries/DiscipleSwapMath.sol";
 import {DiscipleFlatMath as FM} from "./libraries/DiscipleFlatMath.sol";
+import {DisciplePrice as PR} from "./libraries/DisciplePrice.sol";
 
 interface IV2R {
     function getReserves() external view returns (uint112, uint112, uint32);
@@ -165,6 +166,27 @@ library DiscipleBooks {
         uint256 srcAsk = Math.mulDiv(spot, 1e6, 1e6 - srcFee, Math.Rounding.Ceil);
         uint256 srcBid = Math.mulDiv(spot, 1e6 - srcFee, 1e6);
         (pb, ps) = SM.matchBounds(srcAsk, srcBid, 1);
+    }
+
+    /// @notice What `settle(bk, .., markX128, true, skimRoom)` would skim out of the reserves now, without settling
+    ///         (for the hook's read-only quote). Same arithmetic as DiscipleLedger.settle.
+    function skimPreview(LG.Book storage bk, uint256 markX128, uint256 skimRoom)
+        public
+        view
+        returns (uint256 jx, uint256 jy)
+    {
+        return bk.skimPreview(markX128, skimRoom);
+    }
+
+    /// @notice Cross chain: slopes and band edges for a pushed anchor of age `age` (DisciplePrice markup and band).
+    function crossQuote(uint256 anchorX128, uint256 tX128, uint24 fee, uint256 age)
+        public
+        pure
+        returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps)
+    {
+        (uint256 g, bool bandOn) = PR.markup(fee, age);
+        (kb, ks) = SM.slopes(anchorX128, tX128, g, g);
+        (pb, ps) = PR.band(anchorX128, g, bandOn);
     }
 
     /// @notice One fill on the v0.2 flat-centre curve (DiscipleFlatMath). Returns (coin, quote) amounts.

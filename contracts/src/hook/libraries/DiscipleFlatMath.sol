@@ -34,6 +34,9 @@ library DiscipleFlatMath {
     uint256 internal constant W = 1e18;
     /// @dev Relative safety margin on every pow (covers Solady ln/exp error and the exponent rounding).
     uint256 internal constant REL = 1e12;
+    /// @dev expWad(W) and expWad(W * BETA / WAD), precomputed (gas); DiscipleFlatMath.t.sol checks them.
+    uint256 internal constant EW = 2718281828459045235;
+    uint256 internal constant EWB = 2585709659315846199;
 
     uint8 internal constant LOW = 0;
     uint8 internal constant BAND = 1;
@@ -51,8 +54,8 @@ library DiscipleFlatMath {
     }
 
     function curve(uint256 tX128, uint256 k) internal pure returns (Curve memory c) {
-        uint256 eW = uint256(FPM.expWad(int256(W)));
-        uint256 eWB = uint256(FPM.expWad(int256(W * BETA / WAD)));
+        uint256 eW = EW;
+        uint256 eWB = EWB;
         c.t = tX128;
         c.k = k;
         c.kLow = Math.mulDiv(k, eWB, WAD);
@@ -304,7 +307,8 @@ library DiscipleFlatMath {
         uint256 rho = _rho(c, u, v, false);
         uint256 h = _pow(Math.mulDiv(u - out, WAD, u), BETA, false);
         uint256 y = WAD + Math.mulDiv(h < WAD ? WAD - h : 0, WAD, rho, Math.Rounding.Ceil);
-        uint256 v1 = Math.mulDiv(v, _pow(y, Math.mulDiv(WAD, WAD, BETA, Math.Rounding.Ceil), true), WAD, Math.Rounding.Ceil);
+        uint256 v1 =
+            Math.mulDiv(v, _pow(y, Math.mulDiv(WAD, WAD, BETA, Math.Rounding.Ceil), true), WAD, Math.Rounding.Ceil);
         return v1 - v;
     }
 
@@ -329,7 +333,8 @@ library DiscipleFlatMath {
         uint256 rho = _rho(c, u, v, true);
         uint256 h = _pow(Math.mulDiv(v - out, WAD, v), BETA, false);
         uint256 y = WAD + Math.mulDiv(rho, h < WAD ? WAD - h : 0, WAD, Math.Rounding.Ceil);
-        uint256 u1 = Math.mulDiv(u, _pow(y, Math.mulDiv(WAD, WAD, BETA, Math.Rounding.Ceil), true), WAD, Math.Rounding.Ceil);
+        uint256 u1 =
+            Math.mulDiv(u, _pow(y, Math.mulDiv(WAD, WAD, BETA, Math.Rounding.Ceil), true), WAD, Math.Rounding.Ceil);
         return u1 - u;
     }
 

@@ -54,11 +54,19 @@ contract LaunchGateTest is DiscipleTest {
         );
     }
 
-    // ---- source (v2, 0.3%) quotes from the mock pair's reserves ----
+    // ---- source quotes: (virtual) coin / usd reserves and fee; default the v2 0.3% mock pair ----
+    function _srcRes() internal view virtual returns (uint256 c, uint256 u) {
+        (c, u) = (pair.r0(), pair.r1());
+    }
+
+    function _srcFeeBp() internal view virtual returns (uint256) {
+        return SRC_FEE_BP;
+    }
+
     function _srcOut(bool buy, uint256 amtIn) internal view returns (uint256) {
-        (uint256 c, uint256 u) = (pair.r0(), pair.r1());
+        (uint256 c, uint256 u) = _srcRes();
         (uint256 rin, uint256 rout) = buy ? (u, c) : (c, u);
-        uint256 x = amtIn * (10_000 - SRC_FEE_BP);
+        uint256 x = amtIn * (10_000 - _srcFeeBp());
         return x * rout / (rin * 10_000 + x);
     }
 
@@ -70,7 +78,8 @@ contract LaunchGateTest is DiscipleTest {
 
     /// @dev usd amount -> coin amount at the source mid, for same-size sells
     function _coinFor(uint256 usdAmt) internal view returns (uint256) {
-        return usdAmt * uint256(pair.r0()) / uint256(pair.r1());
+        (uint256 c, uint256 u) = _srcRes();
+        return usdAmt * c / u;
     }
 
     function _shortBp(uint256 ours, uint256 src) internal pure returns (int256) {
@@ -88,7 +97,9 @@ contract LaunchGateTest is DiscipleTest {
     {
         uint256[3] memory sizes = [uint256(1e18), 5e18, 20e18];
         DiscipleHook.PoolView memory v = hook.poolState(id);
-        console2.log(string.concat("GATE ", step, " reserves coin/usd (1e15)"), v.coinReserve / 1e15, v.quoteReserve / 1e15);
+        console2.log(
+            string.concat("GATE ", step, " reserves coin/usd (1e15)"), v.coinReserve / 1e15, v.quoteReserve / 1e15
+        );
         for (uint256 i; i < 3; i++) {
             uint256 lim = GAP_BP + (i == 2 ? SLACK_BIG_BP : SLACK_SMALL_BP);
             int256 b = _shortBp(_ourOut(key, id, true, sizes[i]), _srcOut(true, sizes[i]));
@@ -150,7 +161,7 @@ contract LaunchGateTest is DiscipleTest {
 
     /// @dev Opt-in while the deployed v0.1 curve is known to fail (LAUNCH_GATE=1 forge test --match-test test_gate).
     ///      Make it unconditional once a hook passes it; every deploy must pass it first.
-    function test_gate_launchSizeStaysUseful() public {
+    function test_gate_launchSizeStaysUseful() public virtual {
         if (!vm.envOr("LAUNCH_GATE", false)) {
             console2.log("launch gate skipped, set LAUNCH_GATE=1");
             return;

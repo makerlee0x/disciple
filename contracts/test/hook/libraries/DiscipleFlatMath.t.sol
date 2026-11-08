@@ -3,6 +3,7 @@ pragma solidity 0.8.26;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {DiscipleFlatMath as F} from "../../../src/hook/libraries/DiscipleFlatMath.sol";
+import {FixedPointMathLib as FPM} from "../../../src/hook/libraries/vendor/FixedPointMathLib.sol";
 import {DiscipleFlatMathVectors as V} from "./DiscipleFlatMathVectors.sol";
 
 contract FlatHarness {
@@ -52,6 +53,11 @@ contract DiscipleFlatMathTest is Test {
             else assertGe(got + noise + x.exp / 1e10, x.exp, "exact out: pool side");
         }
         console2.log("worst relative diff (1e-18)", worst);
+    }
+
+    function test_flat_expConstants() public pure {
+        assertEq(F.EW, uint256(FPM.expWad(int256(F.W))));
+        assertEq(F.EWB, uint256(FPM.expWad(int256(F.W * F.BETA / WAD))));
     }
 
     // a balanced $100/$100 pool, price 1, 1% fee
