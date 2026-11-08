@@ -46,10 +46,10 @@ library DiscipleRoutesV0 {
     ///      carried gas is at or just above the measured gas for 1 source (test_fork_quoteMatrix).
     /// @dev DisciplePushReceiver.msgGas per receive DVN set: the keeper's commitVerification transaction (grows with
     ///      the DVNs checked) plus the fixed part of its lzReceive transaction. Ethereum fork, Foundry 1.9.0,
-    ///      2026-11-04 (test_fork_destinationCost). +40k on 2026-11-08: with the tip jar the refund is a credit to
-    ///      owed[keeper][token], and the first credit after a collect writes a fresh slot (1 pool paid 119.34%).
+    ///      2026-11-04 (test_fork_destinationCost). +20k on 2026-11-08 (tip-jar hook; fitted with POOL_GAS from the
+    ///      1/5/10-pool fork run: ~22.6k more per pool, the fixed part about where it was).
     function destMsgGas(bool lean) internal pure returns (uint256) {
-        return lean ? 265_000 : 289_000;
+        return lean ? 245_000 : 269_000;
     }
 
     function sendGas(bool lean, bool selfExecutor) internal pure returns (uint256) {
