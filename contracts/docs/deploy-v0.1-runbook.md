@@ -5,9 +5,9 @@ creates the pool (`disciple` keystore) becomes its creator. Every step after the
 transaction. Run them one at a time, from `contracts/`, with `FORK_RPC_RH` set to your Robinhood mainnet RPC.
 
 ## 0. Before you start
-- GPT audit back and triaged (no open finding above Low).
+- Audit done and fixed (b40b914; nothing above Medium, all Mediums fixed).
 - Old pool emptied (done 2026-11-08; lot 3 dust stays).
-- `git pull origin claude/project-thread-c2uvpb` (commit 958a18d or later).
+- `git pull origin claude/project-thread-c2uvpb` (commit b40b914 or later).
 
 ## 1. Check balances
 Your deployer address:
