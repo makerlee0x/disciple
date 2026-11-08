@@ -1,19 +1,21 @@
-# Disciple v0.1 deploy runbook (Robinhood, same-chain STRATEGY/USDG)
+# Disciple v0.2 deploy runbook (Robinhood, same-chain STRATEGY/USDG)
+
+(File name kept from v0.1. v0.2 = flat-centre curve, read-only `quoteView`, swap gas cuts.)
 
 Pool: STRATEGY/USDG, **1% fee**, seed **$200, 50/50** (about $100 USDG + $100 of STRATEGY). The wallet that
 creates the pool (`disciple` keystore) becomes its creator. Every step after the dry runs is a real mainnet
 transaction. Run them one at a time, from `contracts/`, with `FORK_RPC_RH` set to your Robinhood mainnet RPC.
 
 ## 0. Before you start
-- Audit done and fixed (b40b914; nothing above Medium, all Mediums fixed).
+- v0.1 audit done and fixed (b40b914; nothing above Medium). The v0.2 changes since then (flat curve, quoteView,
+  gas/storage packing) have their own brief: `docs/audit-brief-v0.2-diff.md`. Decide whether to re-audit first.
 - Old pool emptied (done 2026-11-08; lot 3 dust stays).
-- `git pull origin claude/project-thread-c2uvpb` (commit b40b914 or later).
+- `git pull origin claude/project-thread-c2uvpb` (latest commit).
+- All tests: `FOUNDRY_PROFILE=solar forge test --isolate` (1088 pass at 3134db0).
 - LAUNCH GATE must pass at the planned seed and fee (added 2026-11-08 after the v0.1 curve went uncompetitive
   after one $2 trade; v0.1 itself FAILS it): `LAUNCH_GATE=1 FOUNDRY_PROFILE=solar forge test --isolate --match-path test/hook/LaunchGate.t.sol --match-test test_gate -vv`
 - FORK LAUNCH GATE must pass against the real Uniswap route (STRATEGY/MSTR x MSTR/USDG, executed on a fork):
   `FORK_RPC_RH=<your RH RPC> FOUNDRY_PROFILE=solar forge test --match-test test_fork_launchGate -vv`
-- After the pool is created, BEFORE adding more money, the canary must pass on the live pool:
-  `FORK_RPC_RH=<your RH RPC> CANARY_HOOK=<hook> CANARY_POOL=<pool id> FOUNDRY_PROFILE=solar forge test --match-test test_fork_canaryLivePool -vv`
 
 ## 1. Check balances
 Your deployer address:
@@ -61,6 +63,12 @@ HOOK=<HOOK address> COIN_IN=60000000000000000000000 QUOTE_IN=100000000 FEE=10000
 ```
 Save the pool id.
 
+## 5b. Canary on the live pool (read-only) — must pass before adding money or telling anyone
+```
+CANARY_HOOK=<HOOK address> CANARY_POOL=<POOL ID> FOUNDRY_PROFILE=solar forge test --match-test test_fork_canaryLivePool -vv
+```
+(It forks from `FORK_RPC_RH`.) It compares our quotes with the real Uniswap route at $1/$5/$20 both ways.
+
 ## 6. First checks with the test page
 From the folder holding `pool-test-v01.html`:
 ```
@@ -75,4 +83,6 @@ Open `http://localhost:8000/pool-test-v01.html?hook=<HOOK>&pool=<POOL ID>` and c
 ## 7. After
 - Merge #265, close #243 and #239.
 - Uniswap allowlist request (custom-accounting hooks are allowlisted by hand) with the new hook address.
+  Draft text: `docs/uniswap-allowlist-request.md`. Routers can price us with `quoteView(id, zeroForOne, amountSpecified)`.
+- Keeper: if you run it, use the keeper from this branch (v0.2 storage offsets changed).
 - Keeper: optional; same-chain pools also update on every trade and on free `sample()` calls.

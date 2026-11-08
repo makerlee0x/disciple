@@ -18,7 +18,7 @@ import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
 /// @notice The hook is deployed with NO push receiver, so it takes same-chain pools only and is not tied to any
 ///   cross-chain sender. Cross-chain pools go on a later hook deployed with the final receiver.
 ///   hook():  deploys the hook via the CREATE2 deployer.
-///   pool():  HOOK=<hook> COIN_IN=<raw STRATEGY> QUOTE_IN=<raw USDG> FEE=<pips, default 5000 = 0.5%>
+///   pool():  HOOK=<hook> COIN_IN=<raw STRATEGY> QUOTE_IN=<raw USDG> FEE=<pips, default 10000 = 1%>
 ///            creates STRATEGY/USDG priced through STRATEGY/MSTR (v4) and MSTR/USDG (v4 0.25%).
 ///   both():  hook() then pool() in one run (for a dry run on a fork).
 contract DeploySameChainRH is Script {
@@ -83,7 +83,7 @@ contract DeploySameChainRH is Script {
         require(block.chainid == 4663, "run on Robinhood Chain");
         uint256 coinIn = vm.envUint("COIN_IN");
         uint256 quoteIn = vm.envUint("QUOTE_IN");
-        uint24 fee = uint24(vm.envOr("FEE", uint256(5000)));
+        uint24 fee = uint24(vm.envOr("FEE", uint256(10_000)));
         DiscipleHook.Source memory s;
         s.kind = 3; // v4
         s.coinIs0 = true; // STRATEGY is currency0 of STRATEGY/MSTR

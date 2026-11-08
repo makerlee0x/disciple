@@ -60,6 +60,14 @@ contract QuoteViewTest is DiscipleTest {
         hook.sample(id);
         _nextBlock();
         _three(key, id, true, -50e18);
+        // a sample, then a swap in the SAME block: no second step, but the settle is still due
+        _three(key, id, false, -int256(coin.balanceOf(address(this)) - c0));
+        pair.set(1_000_000e18, 2_090_000e18);
+        _nextBlock();
+        hook.sample(id);
+        uint256 j1 = _jar(id);
+        _three(key, id, true, -20e18);
+        emit log_named_uint("jar grew on sample-then-swap (0 = no skim due)", _jar(id) - j1);
         // many blocks of one-way flow, each first touch checked both ways
         for (uint256 i; i < 6; i++) {
             _nextBlock();
@@ -78,6 +86,7 @@ contract QuoteViewTest is DiscipleTest {
             seed = uint256(keccak256(abi.encode(seed)));
             if (seed & 1 == 0) _nextBlock();
             if ((seed >> 1) & 3 == 0) pair.set(1_000_000e18, uint112(1_900_000e18 + (seed >> 8) % 200_000e18));
+            if ((seed >> 6) & 3 == 0) hook.sample(id);
             bool buy = (seed >> 3) & 1 == 0;
             bool exactIn = (seed >> 4) & 1 == 0;
             uint256 amt = 1e17 + (seed >> 16) % (exactIn ? 200e18 : 60e18);
