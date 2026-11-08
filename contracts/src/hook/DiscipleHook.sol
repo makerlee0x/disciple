@@ -70,7 +70,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     uint256 internal constant JAR_PUSHES = 170;
     uint256 internal constant TIP_GAS_REF = 150_000;
     /// @dev Gas a tipped sample() spends outside the measured span (intrinsic, calldata, the payout itself).
-    uint256 internal constant TIP_OVERHEAD = 80_000;
+    ///      Measured on anvil with plain ERC20s (keeper/test/local): ~84k outside the span; 90k leaves room for
+    ///      heavier proxy tokens. A keeper's first tip in a token costs ~17k more once (its new balance slot).
+    uint256 internal constant TIP_OVERHEAD = 90_000;
     /// @dev One tip is at most this fraction of the jar, so a basefee spike cannot empty it in a few calls.
     uint256 internal constant TIP_DIV = 32;
     /// @dev Pool fee bounds, in pips.
@@ -554,6 +556,15 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         p.jarY -= cy;
         _moves(_pair(p, cx, cy, msg.sender, false));
         emit Tipped(id, msg.sender, cx, cy);
+    }
+
+    /// @notice Whether sample() would pay a tip now: a live same-chain pool, not sampled yet this block, centre at
+    ///         least 1% from the live leader, and something in the jar. For keepers (call it before sending).
+    function sampleDue(PoolId id) external view returns (bool) {
+        Pool storage p = pools[id];
+        if (!p.live || p.src.remoteEid != 0 || p.sampleBlock >= block.number || p.jarX + p.jarY == 0) return false;
+        (uint256 spot,,) = _sourceSpot(p);
+        return SM.movedBeyond(p.anchorX128, spot, DUE_BPS);
     }
 
     /// @dev `w` wei in the pool's quote, at the pool's centre and the reference pool (0 = cannot value).

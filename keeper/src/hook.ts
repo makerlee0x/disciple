@@ -1,6 +1,5 @@
-// Reads a Disciple pool's push source straight from the hook's storage. The hook (frozen code) has no getter for
-// the source, so the keeper reads the slots. Layout from `forge inspect DiscipleHook storageLayout` at the frozen
-// commit: `pools` is mapping(PoolId => Pool) at slot 1; inside Pool, `src` starts at +2, `obsAt` is +8 (low 8
+// Reads a Disciple pool's push source straight from the hook's storage. The hook has no getter for the source,
+// so the keeper reads the slots. Layout from `forge inspect DiscipleHook storageLayout`: `pools` is mapping(PoolId => Pool) at slot 1; inside Pool, `src` starts at +2, `obsAt` is +8 (low 8
 // bytes), `book.dx` / `book.dy` are +26 / +27. test/layout.test.ts re-checks this against forge when available.
 import { encodeAbiParameters, keccak256, type Hex, type PublicClient } from "viem";
 import { hookAbi } from "./abi.ts";
@@ -11,7 +10,7 @@ export const OFF = { head: 0n, src0: 2n, srcV4Id: 3n, src2: 4n, obsAt: 8n, bookD
 export interface PoolSource {
   kind: number; // 1 v2, 2 v3, 3 v4
   coinIs0: boolean; // coin is token0 of the home source
-  remoteEid: number; // home chain eid (0 = same chain: not a keeper pool)
+  remoteEid: number; // home chain eid (0 = same chain: served by the sampler, not pushed)
   target: Hex; // home v2 pair / v3 pool / v4 PoolManager
   v4Id: Hex;
   decShift: number;
@@ -24,9 +23,15 @@ export interface PoolDyn {
   local: boolean;
   anchorX128: bigint;
   obsAt: bigint; // home-chain timestamp of the anchor's observation
-  tank: bigint;
+  coin: Hex;
+  quote: Hex;
+  /** the pool's tip jar valued in quote raw units at the centre (jarY + jarX * anchor); tips come only from it */
+  jar: bigint;
   traded: boolean; // the pool traded since its last accepted price (book.dx or dy nonzero)
 }
+
+/** Jar value in quote raw units at the centre price. */
+export const jarValue = (jarX: bigint, jarY: bigint, anchorX128: bigint): bigint => jarY + (jarX * anchorX128) / (1n << 128n);
 
 export function poolBase(id: Hex): bigint {
   return BigInt(keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [id, POOLS_SLOT])));
@@ -82,7 +87,9 @@ export async function readDyn(c: PublicClient, hook: Hex, id: Hex): Promise<Pool
     local: byteAt(head, 3) !== 0,
     anchorX128: view?.anchorX128 ?? 0n,
     obsAt: obs & ((1n << 64n) - 1n),
-    tank: view?.tank ?? 0n,
+    coin: view?.coin ?? "0x0000000000000000000000000000000000000000",
+    quote: view?.quote ?? "0x0000000000000000000000000000000000000000",
+    jar: view ? jarValue(view.jarX, view.jarY, view.anchorX128) : 0n,
     traded: dx !== 0n || dy !== 0n,
   };
 }

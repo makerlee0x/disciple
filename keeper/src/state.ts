@@ -29,8 +29,10 @@ export interface RouteState {
 }
 
 export interface State {
-  routes: Record<string, RouteState>;
+  routes: Record<string, RouteState>; // cross-chain routes and same-chain sets, by name
   packets: Packet[];
+  /** unix seconds of the last collect() sweep, by "chain:hook" */
+  collectedAt?: Record<string, number>;
 }
 
 const replacer = (_k: string, v: unknown) => (typeof v === "bigint" ? `${v}n` : v);

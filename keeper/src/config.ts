@@ -29,6 +29,24 @@ export interface RouteCfg {
   scanPushes: boolean;
 }
 
+/** Same-chain Disciple pools on one chain: the keeper calls sample() when the hook says a tip is due. */
+export interface SameChainCfg {
+  name: string;
+  chain: ChainCfg;
+  hook: Hex;
+  fromBlock: bigint; // scan Created events from here (the hook's deploy block); 0 = from now
+  pools: Hex[]; // pools to serve even if the Created scan has not reached them
+  scanPools: boolean;
+}
+
+export interface Sampling {
+  /** How often to check same-chain pools, seconds (each check is one sampleDue eth_call per pool). */
+  everySec: number;
+  /** After this many sample() calls in a row that paid no tip (unvalued pool, or lost the block), rest the pool. */
+  missesBeforeRest: number;
+  restSec: number;
+}
+
 export interface Policy {
   /** Move trigger in bps. The hook pays from 100 bps; a little above avoids pushing a move that drifts back. */
   moveBps: bigint;
@@ -36,8 +54,11 @@ export interface Policy {
   firstPrice: boolean;
   /** Also send heartbeats for pools that did not trade (the hook does not refund these). */
   unpaidHeartbeats: boolean;
-  /** Skip pools whose tank holds less than this (a refund is paid only from the tank). */
-  minTank: bigint;
+  /** Skip pools whose tip jar is worth less than this, in the pool's quote raw units (0 = serve every pool:
+   *  pushes to an empty jar still move the price, and trades refill the jar from the 12% skim). */
+  minJar: bigint;
+  /** How often to take the jar credits the hook keeps for this keeper (owed -> collect), seconds. */
+  collectEverySec: number;
   /** Deliver other keepers' packets that are still undelivered after this many seconds. */
   takeoverAfterSec: number;
   maxPoolsPerPush: number;
@@ -53,6 +74,8 @@ export interface Config {
   pollSeconds: number;
   chains: Record<string, ChainCfg>;
   routes: RouteCfg[];
+  sameChain: SameChainCfg[];
+  sampling: Sampling;
   policy: Policy;
 }
 
@@ -112,6 +135,19 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       scanPushes: r.scanPushes !== false,
     };
   });
+  const sameChain: SameChainCfg[] = (raw.sameChain ?? []).map((r: Record<string, unknown>) => {
+    const chain = chains[r.chain as string];
+    if (!chain) throw new Error(`sameChain ${r.name ?? r.chain}: set the RPC for ${r.chain}`);
+    return {
+      name: (r.name as string) ?? `${r.chain}-same`,
+      chain,
+      hook: getAddress(r.hook as string),
+      fromBlock: b(r.fromBlock, 0n),
+      pools: ((r.pools as string[]) ?? []).map((p) => p.toLowerCase() as Hex),
+      scanPools: r.scanPools !== false,
+    };
+  });
+  const sm = raw.sampling ?? {};
   const p = raw.policy ?? {};
   return {
     account: env.KEEPER_ACCOUNT ?? raw.account ?? "disciple",
@@ -119,11 +155,18 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
     pollSeconds: Number(raw.pollSeconds ?? 12),
     chains,
     routes,
+    sameChain,
+    sampling: {
+      everySec: Number(sm.everySec ?? 2),
+      missesBeforeRest: Number(sm.missesBeforeRest ?? 3),
+      restSec: Number(sm.restSec ?? 3600),
+    },
     policy: {
       moveBps: b(p.moveBps, 102n),
       firstPrice: p.firstPrice !== false,
       unpaidHeartbeats: p.unpaidHeartbeats === true,
-      minTank: b(p.minTankWei, 1n),
+      minJar: b(p.minJar, 0n),
+      collectEverySec: Number(p.collectEverySec ?? 86_400),
       takeoverAfterSec: Number(p.takeoverAfterSec ?? 900),
       maxPoolsPerPush: Math.min(64, Number(p.maxPoolsPerPush ?? 64)),
       maxPushCost: parseEther(String(p.maxPushCostEth ?? "0.003")),

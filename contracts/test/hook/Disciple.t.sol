@@ -534,14 +534,17 @@ contract DiscipleTest is Test {
         address bot = address(0xB07);
         // centre on the leader: no tip
         _nextBlock();
+        assertFalse(hook.sampleDue(id), "not due while caught up");
         vm.prank(bot);
         hook.sample(id);
         assertEq(usd.balanceOf(bot) + coin.balanceOf(bot), 0, "nothing paid while caught up");
         // leader +5%: due
         pair.set(1_000_000e18, 2_100_000e18);
         _nextBlock();
+        assertTrue(hook.sampleDue(id), "due 5% behind");
         vm.prank(bot);
         hook.sample(id);
+        assertFalse(hook.sampleDue(id), "not again this block");
         uint256 t1 = usd.balanceOf(bot);
         assertGt(t1, 0, "tip paid while 1% or more behind");
         assertLe(t1, j0 / 32, "at most 1/32 of the jar");

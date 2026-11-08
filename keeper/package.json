@@ -2,7 +2,7 @@
   "name": "@disciple/keeper",
   "version": "0.1.0",
   "private": true,
-  "description": "Open-source keeper for Disciple cross-chain pools: pushes home-chain source prices over LayerZero and self-delivers them on the destination.",
+  "description": "Open-source keeper for Disciple pools: samples same-chain pools for jar tips, and pushes cross-chain prices over LayerZero and self-delivers them.",
   "type": "module",
   "license": "MIT",
   "engines": { "node": ">=22.18" },
@@ -10,6 +10,7 @@
     "start": "node src/main.ts",
     "once": "node src/main.ts --once",
     "status": "node src/main.ts --status",
+    "collect": "node src/main.ts --collect",
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

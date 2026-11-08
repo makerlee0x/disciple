@@ -17,12 +17,23 @@ export const receiverAbi = parseAbi([
 ]);
 
 export const hookAbi = parseAbi([
-  "struct PoolView { address coin; address quote; bool live; bool local; bool graduated; bool creatorOn; uint256 coinReserve; uint256 quoteReserve; uint256 anchorX128; uint256 ageOrBlock; uint256 tank; uint256 srcTvl; uint256 principal; uint256 compounded; uint256 lots; }",
+  "struct PoolView { address coin; address quote; bool live; bool local; bool graduated; bool creatorOn; uint256 coinReserve; uint256 quoteReserve; uint256 anchorX128; uint256 ageOrBlock; uint256 pushCost; uint256 srcTvl; uint256 principal; uint256 compounded; uint256 lots; uint64 sampleAt; uint256 jarX; uint256 jarY; }",
   "function poolState(bytes32 id) view returns (PoolView)",
   "function pushReceiver() view returns (address)",
+  "function owed(address keeper, address token) view returns (uint256)",
+  "function collect(address token) returns (uint256)",
+  "function sample(bytes32 id)",
+  "function sampleDue(bytes32 id) view returns (bool)",
   "event Created(bytes32 indexed id, address indexed coin, address quote, address indexed creator, uint32 remoteEid, uint24 fee)",
   "event PriceAccepted(bytes32 indexed id, uint256 anchorX128, uint64 observedAt, uint256 refund, bool recovered)",
   "event PriceRejected(bytes32 indexed id, bytes32 guid)",
+  "event Tipped(bytes32 indexed id, address indexed to, uint256 x, uint256 y)",
+  "event Collected(address indexed keeper, address indexed token, uint256 amount)",
+]);
+
+export const erc20Abi = parseAbi([
+  "function decimals() view returns (uint8)",
+  "function symbol() view returns (string)",
 ]);
 
 export const endpointAbi = parseAbi([

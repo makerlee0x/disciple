@@ -1,11 +1,13 @@
-// The keeper loop: find cross-chain Disciple pools, push their home source price when the hook will pay for it,
-// and finish delivery on the destination (DiscipleSelfExecutor: nobody else is paid to deliver).
+// The keeper loop. Cross-chain pools: push the home source price when the hook will pay for it, finish delivery on
+// the destination (DiscipleSelfExecutor: nobody else is paid to deliver), and collect the jar credits the hook keeps
+// for us. Same-chain pools: call sample() when the hook says a tip is due (centre 1%+ from the leader).
 import {
   createPublicClient,
   createWalletClient,
   decodeEventLog,
   defineChain,
   formatEther,
+  formatUnits,
   http,
   pad,
   type Account,
@@ -14,9 +16,9 @@ import {
   type PublicClient,
   type WalletClient,
 } from "viem";
-import { endpointAbi, hookAbi, receiverAbi, senderAbi, ulnAbi } from "./abi.ts";
-import type { ChainCfg, Config, RouteCfg } from "./config.ts";
-import { readDyn, readSource, type PoolDyn, type PoolSource } from "./hook.ts";
+import { endpointAbi, erc20Abi, hookAbi, receiverAbi, senderAbi, ulnAbi } from "./abi.ts";
+import type { ChainCfg, Config, RouteCfg, SameChainCfg } from "./config.ts";
+import { jarValue, readDyn, readSource, type PoolDyn, type PoolSource } from "./hook.ts";
 import { decodeMessage, messageLength, packetsFromLogs, payloadHash } from "./packet.ts";
 import { HEARTBEAT, moveBps, moved, shift, spotX128 } from "./price.ts";
 import { routeState, saveState, type Packet, type State } from "./state.ts";
@@ -68,7 +70,7 @@ export function judge(
   cfg: Config["policy"],
 ): Due | null {
   if (!dyn.exists || price === 0n) return null;
-  if (dyn.tank < cfg.minTank) return null;
+  if (dyn.live && dyn.jar < cfg.minJar) return null;
   if (!dyn.live) {
     if (!cfg.firstPrice || inflight !== undefined) return null;
     return { id, src, price, reason: "first", note: "opening price" };
@@ -131,6 +133,14 @@ export class Keeper {
   private hooks = new Map<string, Hex>();
   private libs = new Map<string, Hex>();
   private badPools = new Set<string>();
+  /** per chain: the last send, so sends from the two loops never race for a nonce */
+  private sendLock = new Map<string, Promise<unknown>>();
+  private tokens = new Map<string, { symbol: string; decimals: number }>();
+  /** pool id -> [coin, quote] (immutable) */
+  private poolTokens = new Map<string, [Hex, Hex]>();
+  /** same-chain: consecutive unpaid samples and rest-until, by pool id */
+  private misses = new Map<string, number>();
+  private restUntil = new Map<string, number>();
 
   private cfg: Config;
   private state: State;
@@ -164,6 +174,44 @@ export class Keeper {
     return this.clients.get(chain.name)!;
   }
 
+  /** Run `fn` (send a tx and wait for it) after any earlier send on the same chain has finished. */
+  private serial<T>(chain: ChainCfg, fn: () => Promise<T>): Promise<T> {
+    const prev = this.sendLock.get(chain.name) ?? Promise.resolve();
+    const next = prev.catch(() => undefined).then(fn);
+    this.sendLock.set(chain.name, next.catch(() => undefined));
+    return next;
+  }
+
+  private async token(pub: PublicClient, t: Hex): Promise<{ symbol: string; decimals: number }> {
+    const k = t.toLowerCase();
+    const hit = this.tokens.get(k);
+    if (hit) return hit;
+    const [symbol, decimals] = await Promise.all([
+      pub.readContract({ address: t, abi: erc20Abi, functionName: "symbol" }).catch(() => t.slice(0, 8)),
+      pub.readContract({ address: t, abi: erc20Abi, functionName: "decimals" }).catch(() => 18),
+    ]);
+    const info = { symbol, decimals: Number(decimals) };
+    this.tokens.set(k, info);
+    return info;
+  }
+
+  /** "1.25 USDG" for `amt` raw units of `t`. */
+  private async fmt(pub: PublicClient, t: Hex, amt: bigint): Promise<string> {
+    const i = await this.token(pub, t);
+    return `${formatUnits(amt, i.decimals)} ${i.symbol}`;
+  }
+
+  private async tokensOf(pub: PublicClient, hook: Hex, id: Hex): Promise<[Hex, Hex] | null> {
+    const k = id.toLowerCase();
+    const hit = this.poolTokens.get(k);
+    if (hit) return hit;
+    const v = await pub.readContract({ address: hook, abi: hookAbi, functionName: "poolState", args: [id] }).catch(() => null);
+    if (!v) return null;
+    const pair: [Hex, Hex] = [v.coin, v.quote];
+    this.poolTokens.set(k, pair);
+    return pair;
+  }
+
   async checkChains(): Promise<void> {
     for (const c of Object.values(this.cfg.chains)) {
       const id = await this.c(c).pub.getChainId();
@@ -183,6 +231,7 @@ export class Keeper {
     return hook;
   }
 
+  /** One cross-chain round: every route, then the collect sweep. */
   async tick(): Promise<void> {
     for (const r of this.cfg.routes) {
       try {
@@ -190,8 +239,23 @@ export class Keeper {
         await this.scanPushes(r);
         await this.pushDue(r);
         await this.deliver(r);
+        await this.collectDue(r);
       } catch (e) {
         this.log.warn(`${r.name}: ${(e as Error).message?.split("\n")[0] ?? e}`);
+      } finally {
+        saveState(this.cfg.stateFile, this.state);
+      }
+    }
+  }
+
+  /** One same-chain round: every same-chain set. */
+  async sampleTick(): Promise<void> {
+    for (const s of this.cfg.sameChain) {
+      try {
+        await this.discoverSame(s);
+        await this.sampleDue(s);
+      } catch (e) {
+        this.log.warn(`${s.name}: ${(e as Error).message?.split("\n")[0] ?? e}`);
       } finally {
         saveState(this.cfg.stateFile, this.state);
       }
@@ -331,12 +395,13 @@ export class Keeper {
         continue;
       }
       const dyn = await readDyn(dest, hook, id);
+      if (dyn.exists) this.poolTokens.set(id.toLowerCase(), [dyn.coin, dyn.quote]);
       const price = shift(s.decShift, spotX128(s.kind, ab[0], ab[1], s.coinIs0));
       const d = judge(id, s, dyn, price, blk.timestamp, inflight.get(id.toLowerCase()), this.cfg.policy);
       const age = dyn.live ? `${blk.timestamp - dyn.obsAt}s` : "-";
       report.push(
         `${id}: live=${dyn.live} local=${dyn.local} age=${age} move=${moveBps(dyn.anchorX128, price).toFixed(2)}bps ` +
-          `traded=${dyn.traded} tank=${formatEther(dyn.tank)} -> ${d ? d.reason : "nothing"}`,
+          `traded=${dyn.traded} jar=${dyn.exists ? await this.fmt(dest, dyn.quote, dyn.jar) : "-"} -> ${d ? d.reason : "nothing"}`,
       );
       if (d) due.push(d);
     }
@@ -377,19 +442,21 @@ export class Keeper {
       this.log.warn(`${r.name}: push of ${ds.length} pools would cost ${formatEther(expected)} ETH, above maxPushCost`);
       return null;
     }
-    const hash = await wal.writeContract({
-      chain,
-      account: this.account,
-      address: r.sender,
-      abi: senderAbi,
-      functionName: "push",
-      args: [r.dest.eid, to, reqs, gas],
-      value,
-      gas: (est * 6n) / 5n,
-      maxFeePerGas: maxFee,
-      maxPriorityFeePerGas: tip,
+    const { hash, rc } = await this.serial(r.home, async () => {
+      const hash = await wal.writeContract({
+        chain,
+        account: this.account,
+        address: r.sender,
+        abi: senderAbi,
+        functionName: "push",
+        args: [r.dest.eid, to, reqs, gas],
+        value,
+        gas: (est * 6n) / 5n,
+        maxFeePerGas: maxFee,
+        maxPriorityFeePerGas: tip,
+      });
+      return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
     });
-    const rc = await pub.waitForTransactionReceipt({ hash });
     if (rc.status !== "success") throw new Error(`push ${hash} reverted`);
     const pk = packetsFromLogs(rc.logs, r.home.endpoint).find((p) => p.receiver.toLowerCase() === r.receiver.toLowerCase());
     if (!pk) throw new Error(`push ${hash}: no PacketSent in receipt`);
@@ -484,16 +551,18 @@ export class Keeper {
       } catch {
         continue; // DVNs not done yet (or confirmations not reached)
       }
-      const hash = await wal.writeContract({
-        chain,
-        account: this.account,
-        address: lib,
-        abi: ulnAbi,
-        functionName: "commitVerification",
-        args: [p.header, ph],
-        ...this.fees(r.dest),
+      const { hash, rc } = await this.serial(r.dest, async () => {
+        const hash = await wal.writeContract({
+          chain,
+          account: this.account,
+          address: lib,
+          abi: ulnAbi,
+          functionName: "commitVerification",
+          args: [p.header, ph],
+          ...this.fees(r.dest),
+        });
+        return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
       });
-      const rc = await pub.waitForTransactionReceipt({ hash });
       if (rc.status !== "success") throw new Error(`commit ${hash} reverted`);
       p.committed = true;
       p.spent = (BigInt(p.spent ?? "0") + rc.gasUsed * rc.effectiveGasPrice).toString();
@@ -516,28 +585,32 @@ export class Keeper {
         this.log.warn(`${r.name}: nonce ${p.nonce} cannot execute yet${blocked ? `: waiting for nonce ${blocked[1]}` : `: ${m.split("\n")[0]}`}`);
         break;
       }
-      const hash = await wal.writeContract({
-        chain,
-        account: this.account,
-        address: r.dest.endpoint,
-        abi: endpointAbi,
-        functionName: "lzReceive",
-        args,
-        gas: lzReceiveGas(n, est),
-        ...this.fees(r.dest),
+      const { hash, rc } = await this.serial(r.dest, async () => {
+        const hash = await wal.writeContract({
+          chain,
+          account: this.account,
+          address: r.dest.endpoint,
+          abi: endpointAbi,
+          functionName: "lzReceive",
+          args,
+          gas: lzReceiveGas(n, est),
+          ...this.fees(r.dest),
+        });
+        return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
       });
-      const rc = await pub.waitForTransactionReceipt({ hash });
       if (rc.status !== "success") throw new Error(`lzReceive ${hash} reverted`);
       drop.add(p);
       const spent = BigInt(p.spent ?? "0") + rc.gasUsed * rc.effectiveGasPrice;
-      let refund = 0n;
+      const hook = await this.hookOf(r);
       const notes: string[] = [];
       for (const l of rc.logs) {
         try {
           const ev = decodeEventLog({ abi: [...hookAbi, ...receiverAbi], data: l.data, topics: l.topics });
           if (ev.eventName === "PriceAccepted") {
-            refund += ev.args.refund;
-            notes.push(`${ev.args.id.slice(0, 10)} accepted, refund ${formatEther(ev.args.refund)}`);
+            // the refund is credited to the pushing keeper in the pool's quote token (collect() takes it)
+            const tk = await this.tokensOf(pub, hook, ev.args.id);
+            const credit = tk ? await this.fmt(pub, tk[1], ev.args.refund) : `${ev.args.refund} quote raw`;
+            notes.push(`${ev.args.id.slice(0, 10)} accepted, credit ${credit}`);
           } else if (ev.eventName === "PriceRejected") notes.push(`${ev.args.id.slice(0, 10)} rejected`);
           else if (ev.eventName === "Undelivered") notes.push(`${ev.args.id.slice(0, 10)} UNDELIVERED`);
         } catch {
@@ -546,12 +619,181 @@ export class Keeper {
       }
       this.log.info(
         `${r.name}: delivered nonce ${p.nonce} (${t - p.sentAt}s after push) tx ${hash}; ${notes.join("; ") || "no pool events"}` +
-          (p.ours
-            ? `; refunds ${formatEther(refund)} ETH, spent ${formatEther(spent)} ETH, net ${refund >= spent ? "+" : "-"}${formatEther(refund >= spent ? refund - spent : spent - refund)} ETH`
-            : `; takeover for ${msg.keeper}`),
+          (p.ours ? `; spent ${formatEther(spent)} ETH (credits are in each pool's quote token)` : `; takeover for ${msg.keeper}`),
       );
     }
     this.state.packets = this.state.packets.filter((p) => !drop.has(p));
+  }
+
+  // ------------------------------------------------------------------ collecting jar credits
+
+  /** Take what the hook owes this keeper (cross-chain tips are credited, not sent), once per collectEverySec. */
+  async collectDue(r: RouteCfg, force = false): Promise<void> {
+    const hook = await this.hookOf(r);
+    const key = `${r.dest.name}:${hook.toLowerCase()}`;
+    const at = (this.state.collectedAt ??= {});
+    const t = now();
+    if (!force && t - (at[key] ?? 0) < this.cfg.policy.collectEverySec) return;
+    const { pub, wal, chain } = this.c(r.dest);
+    const ids = Object.keys(routeState(this.state, r.name).pools) as Hex[];
+    const toks = new Set<Hex>();
+    for (const id of ids) {
+      const tk = await this.tokensOf(pub, hook, id);
+      if (tk) for (const x of tk) toks.add(x.toLowerCase() as Hex);
+    }
+    for (const tk of toks) {
+      const amt = await pub.readContract({ address: hook, abi: hookAbi, functionName: "owed", args: [this.account.address, tk] });
+      if (amt === 0n) continue;
+      const { hash, rc } = await this.serial(r.dest, async () => {
+        const hash = await wal.writeContract({
+          chain,
+          account: this.account,
+          address: hook,
+          abi: hookAbi,
+          functionName: "collect",
+          args: [tk],
+          ...this.fees(r.dest),
+        });
+        return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
+      });
+      if (rc.status !== "success") {
+        this.log.warn(`${r.name}: collect ${tk} reverted (tx ${hash}); will retry next sweep`);
+        continue;
+      }
+      this.log.info(
+        `${r.name}: collected ${await this.fmt(pub, tk, amt)} tx ${hash}, gas ${formatEther(rc.gasUsed * rc.effectiveGasPrice)} ETH`,
+      );
+    }
+    at[key] = t;
+  }
+
+  // ------------------------------------------------------------------ same-chain sampling
+
+  /** Created events with remoteEid 0 on a same-chain hook, plus pools listed in the config. */
+  async discoverSame(s: SameChainCfg): Promise<void> {
+    const rs = routeState(this.state, s.name);
+    const { pub } = this.c(s.chain);
+    const found: Hex[] = [...s.pools];
+    if (s.scanPools) {
+      const latest = await pub.getBlockNumber();
+      let from = rs.poolCursor ?? (s.fromBlock > 0n ? s.fromBlock : latest);
+      if (rs.poolCursor === undefined && s.fromBlock === 0n) {
+        this.log.warn(`${s.name}: no fromBlock set, scanning pools from block ${latest} on`);
+      }
+      for (let i = 0; i < s.chain.logCallsPerTick && from <= latest; i++) {
+        const to = from + s.chain.logChunk - 1n < latest ? from + s.chain.logChunk - 1n : latest;
+        const logs = await pub.getContractEvents({ address: s.hook, abi: hookAbi, eventName: "Created", fromBlock: from, toBlock: to });
+        for (const l of logs) if (Number(l.args.remoteEid) === 0) found.push(l.args.id!.toLowerCase() as Hex);
+        from = to + 1n;
+        rs.poolCursor = from;
+      }
+    }
+    for (const id of found) {
+      if (rs.pools[id] || this.badPools.has(id)) continue;
+      const src = await readSource(pub, s.hook, id);
+      if (!src.exists || src.remoteEid !== 0) {
+        this.badPools.add(id);
+        if (s.pools.includes(id)) this.log.warn(`${s.name}: pool ${id} is not a same-chain pool on this hook, skipped`);
+        continue;
+      }
+      const { exists: _e, ...rest } = src;
+      rs.pools[id] = rest;
+      this.log.info(`${s.name}: sampling pool ${id}`);
+    }
+  }
+
+  /** Ask the hook which pools would pay a tip now, and call sample() on those. */
+  async sampleDue(s: SameChainCfg): Promise<void> {
+    const ids = Object.keys(routeState(this.state, s.name).pools) as Hex[];
+    if (ids.length === 0) return;
+    const { pub } = this.c(s.chain);
+    const t = now();
+    const open = ids.filter((id) => (this.restUntil.get(id) ?? 0) <= t);
+    const due = await Promise.all(
+      open.map((id) =>
+        pub.readContract({ address: s.hook, abi: hookAbi, functionName: "sampleDue", args: [id] }).catch(() => false),
+      ),
+    );
+    for (let i = 0; i < open.length; i++) if (due[i]) await this.sample(s, open[i]);
+  }
+
+  async sample(s: SameChainCfg, id: Hex): Promise<void> {
+    const { pub, wal, chain } = this.c(s.chain);
+    const blk = await pub.getBlock({ blockTag: "latest" });
+    const base = blk.baseFeePerGas ?? 0n;
+    if (base > s.chain.maxFee) {
+      this.log.warn(`${s.name}: ${s.chain.name} basefee ${base} above maxFee, waiting`);
+      return;
+    }
+    let est: bigint;
+    try {
+      est = await pub.estimateContractGas({ address: s.hook, abi: hookAbi, functionName: "sample", args: [id], account: this.account });
+    } catch (e) {
+      this.log.warn(`${s.name}: sample ${id.slice(0, 10)} would revert: ${(e as Error).message?.split("\n")[0]}`);
+      this.rest(id, now());
+      return;
+    }
+    const tip = s.chain.priorityFee;
+    const maxFee = base * 2n + tip < s.chain.maxFee ? base * 2n + tip : s.chain.maxFee;
+    const { hash, rc } = await this.serial(s.chain, async () => {
+      const hash = await wal.writeContract({
+        chain,
+        account: this.account,
+        address: s.hook,
+        abi: hookAbi,
+        functionName: "sample",
+        args: [id],
+        gas: (est * 13n) / 10n,
+        maxFeePerGas: maxFee,
+        maxPriorityFeePerGas: tip,
+      });
+      return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
+    });
+    const spent = rc.gasUsed * rc.effectiveGasPrice;
+    if (rc.status !== "success") {
+      this.log.warn(`${s.name}: sample ${id.slice(0, 10)} reverted, tx ${hash}, spent ${formatEther(spent)} ETH`);
+      this.miss(s, id);
+      return;
+    }
+    let paid: { x: bigint; y: bigint } | null = null;
+    for (const l of rc.logs) {
+      try {
+        const ev = decodeEventLog({ abi: hookAbi, data: l.data, topics: l.topics });
+        if (ev.eventName === "Tipped" && ev.args.id.toLowerCase() === id.toLowerCase()) paid = { x: ev.args.x, y: ev.args.y };
+      } catch {
+        /* other logs */
+      }
+    }
+    if (!paid) {
+      // someone traded or sampled first in that block, or the hook cannot value this pool's tokens in ETH
+      this.log.info(`${s.name}: sampled ${id.slice(0, 10)} tx ${hash}, no tip, spent ${formatEther(spent)} ETH`);
+      this.miss(s, id);
+      return;
+    }
+    this.misses.delete(id);
+    const tk = await this.tokensOf(pub, s.hook, id);
+    const v = await pub.readContract({ address: s.hook, abi: hookAbi, functionName: "poolState", args: [id] }).catch(() => null);
+    const worth = tk && v ? await this.fmt(pub, tk[1], jarValue(paid.x, paid.y, v.anchorX128)) : "?";
+    const parts = tk
+      ? [paid.x > 0n ? await this.fmt(pub, tk[0], paid.x) : "", paid.y > 0n ? await this.fmt(pub, tk[1], paid.y) : ""].filter(Boolean)
+      : [`${paid.x}/${paid.y} raw`];
+    this.log.info(
+      `${s.name}: sampled ${id.slice(0, 10)} tx ${hash}, tip ${parts.join(" + ")} (worth ${worth}), spent ${formatEther(spent)} ETH (gas ${rc.gasUsed})`,
+    );
+  }
+
+  private miss(s: SameChainCfg, id: Hex): void {
+    const m = (this.misses.get(id) ?? 0) + 1;
+    this.misses.set(id, m);
+    if (m >= this.cfg.sampling.missesBeforeRest) {
+      this.misses.delete(id);
+      this.rest(id, now());
+      this.log.warn(`${s.name}: ${m} unpaid samples in a row on ${id.slice(0, 10)}, resting it ${this.cfg.sampling.restSec}s`);
+    }
+  }
+
+  private rest(id: Hex, t: number): void {
+    this.restUntil.set(id, t + this.cfg.sampling.restSec);
   }
 
   private fees(c: ChainCfg) {
@@ -569,6 +811,25 @@ export class Keeper {
       out.push(...report.map((x) => `  ${x}`));
       for (const p of this.state.packets.filter((p) => p.route === r.name)) {
         out.push(`  packet nonce ${p.nonce} ${p.ours ? "ours" : "foreign"} sent ${now() - p.sentAt}s ago committed=${!!p.committed}`);
+      }
+      const hook = await this.hookOf(r);
+      const dest = this.c(r.dest).pub;
+      for (const tk of new Set([...this.poolTokens.values()].flat())) {
+        const amt = await dest.readContract({ address: hook, abi: hookAbi, functionName: "owed", args: [this.account.address, tk] }).catch(() => 0n);
+        if (amt > 0n) out.push(`  owed to us: ${await this.fmt(dest, tk, amt)}`);
+      }
+    }
+    for (const s of this.cfg.sameChain) {
+      await this.discoverSame(s);
+      const pub = this.c(s.chain).pub;
+      const ids = Object.keys(routeState(this.state, s.name).pools) as Hex[];
+      out.push(`== ${s.name} (same chain on ${s.chain.name}), ${ids.length} pools`);
+      for (const id of ids) {
+        const [dyn, due] = await Promise.all([
+          readDyn(pub, s.hook, id),
+          pub.readContract({ address: s.hook, abi: hookAbi, functionName: "sampleDue", args: [id] }).catch(() => false),
+        ]);
+        out.push(`  ${id}: live=${dyn.live} jar=${dyn.exists ? await this.fmt(pub, dyn.quote, dyn.jar) : "-"} -> ${due ? "sample (tip due)" : "nothing"}`);
       }
     }
     return out;

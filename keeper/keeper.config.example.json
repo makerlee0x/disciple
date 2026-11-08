@@ -28,11 +28,26 @@
       "pools": []
     }
   ],
+  "sameChain": [
+    {
+      "name": "rh-same",
+      "chain": "robinhood",
+      "hook": "0x<DiscipleHook on Robinhood>",
+      "fromBlock": 0,
+      "pools": []
+    }
+  ],
+  "sampling": {
+    "everySec": 2,
+    "missesBeforeRest": 3,
+    "restSec": 3600
+  },
   "policy": {
     "moveBps": 102,
     "firstPrice": true,
     "unpaidHeartbeats": false,
-    "minTankWei": "1",
+    "minJar": "0",
+    "collectEverySec": 86400,
     "takeoverAfterSec": 900,
     "maxPoolsPerPush": 64,
     "maxPushCostEth": "0.003",

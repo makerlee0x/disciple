@@ -5,7 +5,11 @@ import { test } from "node:test";
 import { privateKeyToAccount } from "viem/accounts";
 import { concat, pad, toHex, type Hex } from "viem";
 import { batch, judge, type Due } from "../src/keeper.ts";
-import { decodeSource, OFF, POOLS_SLOT, type PoolDyn, type PoolSource } from "../src/hook.ts";
+import { decodeSource, jarValue, OFF, POOLS_SLOT, type PoolDyn, type PoolSource } from "../src/hook.ts";
+import { loadConfig } from "../src/config.ts";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { decryptKeystore } from "../src/keystore.ts";
 import { messageLength, parsePacket } from "../src/packet.ts";
 import { moved, Q128, shift, spotX128 } from "../src/price.ts";
@@ -14,7 +18,8 @@ const policy = {
   moveBps: 102n,
   firstPrice: true,
   unpaidHeartbeats: false,
-  minTank: 1n,
+  minJar: 0n,
+  collectEverySec: 86_400,
   takeoverAfterSec: 900,
   maxPoolsPerPush: 64,
   maxPushCost: 10n ** 16n,
@@ -35,7 +40,9 @@ const dyn = (o: Partial<PoolDyn> = {}): PoolDyn => ({
   local: false,
   anchorX128: 1000n * Q128,
   obsAt: 1_000_000n,
-  tank: 10n ** 15n,
+  coin: "0x0000000000000000000000000000000000000001",
+  quote: "0x0000000000000000000000000000000000000002",
+  jar: 10n ** 15n,
   traded: false,
   ...o,
 });
@@ -64,7 +71,7 @@ test("moved threshold", () => {
   assert.equal(moved(0n, 1n), true);
 });
 
-test("judge: first price, move, paid and unpaid heartbeats, tank, inflight", () => {
+test("judge: first price, move, paid and unpaid heartbeats, jar floor, inflight", () => {
   const p = 1000n * Q128;
   const up = (p * 10_110n) / 10_000n; // +1.10%
   const now = 1_000_000n + 100n;
@@ -72,7 +79,11 @@ test("judge: first price, move, paid and unpaid heartbeats, tank, inflight", () 
   assert.equal(judge(ID, src, dyn(), p, now, undefined, policy), null);
   assert.equal(judge(ID, src, dyn(), up, now, undefined, policy)?.reason, "move");
   assert.equal(judge(ID, src, dyn(), (p * 10_101n) / 10_000n, now, undefined, policy), null); // 1.01% < 1.02% trigger
-  assert.equal(judge(ID, src, dyn({ tank: 0n }), up, now, undefined, policy), null);
+  // an empty jar is still served by default (pushes move the price; trades refill the jar) ...
+  assert.equal(judge(ID, src, dyn({ jar: 0n }), up, now, undefined, policy)?.reason, "move");
+  // ... unless the operator sets a floor; the opening price ignores the floor (a new pool's jar starts empty)
+  assert.equal(judge(ID, src, dyn({ jar: 5n }), up, now, undefined, { ...policy, minJar: 6n }), null);
+  assert.equal(judge(ID, src, dyn({ live: false, jar: 0n }), p, now, undefined, { ...policy, minJar: 6n })?.reason, "first");
   const late = 1_000_000n + 3570n;
   assert.equal(judge(ID, src, dyn(), p, late, undefined, policy), null); // untraded: hook would not pay
   assert.equal(judge(ID, src, dyn({ traded: true }), p, late, undefined, policy)?.reason, "heartbeat");
@@ -81,6 +92,35 @@ test("judge: first price, move, paid and unpaid heartbeats, tank, inflight", () 
   // in flight: compare with the price on its way, no heartbeat
   assert.equal(judge(ID, src, dyn({ traded: true }), up, late, up, policy), null);
   assert.equal(judge(ID, src, dyn(), (up * 10_200n) / 10_000n, now, up, policy)?.reason, "move");
+});
+
+test("jar value: quote side plus coin side at the centre", () => {
+  assert.equal(jarValue(0n, 7n, 1000n * Q128), 7n);
+  assert.equal(jarValue(3n, 7n, 1000n * Q128), 3007n);
+  assert.equal(jarValue(5n, 0n, Q128 / 2n), 2n); // rounds down
+});
+
+test("config: same-chain sets, sampling and jar policy defaults", () => {
+  const dir = mkdtempSync(join(tmpdir(), "keeper-cfg-"));
+  const f = join(dir, "c.json");
+  writeFileSync(
+    f,
+    JSON.stringify({
+      sameChain: [{ chain: "robinhood", hook: "0xcedc3c312c5b3c4310f0fba0323ddec797e4aa88", pools: ["0xABCD"] }],
+    }),
+  );
+  const c = loadConfig(f, { RH_RPC: "http://x" });
+  assert.equal(c.routes.length, 0);
+  assert.equal(c.sameChain.length, 1);
+  assert.equal(c.sameChain[0].name, "robinhood-same");
+  assert.equal(c.sameChain[0].hook, "0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88");
+  assert.deepEqual(c.sameChain[0].pools, ["0xabcd"]);
+  assert.equal(c.sameChain[0].scanPools, true);
+  assert.deepEqual(c.sampling, { everySec: 2, missesBeforeRest: 3, restSec: 3600 });
+  assert.equal(c.policy.minJar, 0n);
+  assert.equal(c.policy.collectEverySec, 86_400);
+  writeFileSync(f, JSON.stringify({ sameChain: [{ chain: "ethereum", hook: "0xcedc3c312c5b3c4310f0fba0323ddec797e4aa88" }] }));
+  assert.throws(() => loadConfig(f, { RH_RPC: "http://x" }), /set the RPC for ethereum/);
 });
 
 test("batch: 64 pools per message and the 10 kB message cap", () => {
