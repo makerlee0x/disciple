@@ -387,8 +387,8 @@ contract DiscipleTest is Test {
         assertEq(hook.poolState(id).anchorX128, Math.mulDiv(a, 990_000, 1_000_000, Math.Rounding.Ceil), "down 1%");
     }
 
-    /// With a pool fee above minStep the step is the fee.
-    function test_stepIsPoolFeeWhenLarger() public {
+    /// The step is minStep whatever the pool fee (audit M-3): a 3% fee pool still moves 1% per reading.
+    function test_stepIgnoresPoolFee() public {
         DiscipleHook.CreateParams memory cp = DiscipleHook.CreateParams({
             coin: address(coin),
             quote: address(usd),
@@ -406,7 +406,7 @@ contract DiscipleTest is Test {
         hook.sample(id);
         _nextBlock();
         hook.sample(id);
-        assertEq(hook.poolState(id).anchorX128, Math.mulDiv(a, 1_030_000, 1_000_000), "3% step at a 3% fee");
+        assertEq(hook.poolState(id).anchorX128, Math.mulDiv(a, 1_010_000, 1_000_000), "1% step at a 3% fee");
     }
 
     /// Quiet pool: no premium, so after any idle time both sides quote the centre plus the fee only.
@@ -1149,7 +1149,7 @@ contract DiscipleTest is Test {
         assertGt(carried, home.FEE() + 50_000 * 5 gwei, "home gas is counted");
         assertLt(carried, home.FEE() + 250_000 * 5 gwei);
         uint256 cost = carried + (receiver.msgGas() + receiver.POOL_GAS()) * 5 gwei;
-        if (cost > 0.002 ether) cost = 0.002 ether; // the hook's per-refund cap (MAX_PUSH_REFUND)
+        if (cost > 0.01 ether) cost = 0.01 ether; // the hook's per-refund cap (MAX_PUSH_REFUND)
         assertEq(address(k).balance, 1 ether - home.FEE(), "no ETH back");
         // refund = cost * 1.2 in USD at the reference 3000 USD per ETH, from the jar, credited to the keeper
         uint256 owedUsd = cost * 12 / 10 * 3000;
@@ -1537,4 +1537,124 @@ contract DiscipleTest is Test {
         hook.claim(id, lot);
         emit log_named_uint("claim", g - gasleft());
     }
+
+    // -----------------------------------------------------------------------------------------
+    // audit fixes (GPT + muse review of 958a18d)
+    // -----------------------------------------------------------------------------------------
+
+    /// I-2: a reference pool that starts reverting never blocks swaps, LP actions or samples; it only stops tips.
+    function test_audit_refRevertIsFailSoft() public {
+        vm.fee(0.01 gwei);
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        _churn(key, 3);
+        vm.mockCallRevert(address(refPair), abi.encodeWithSignature("getReserves()"), "broken");
+        _nextBlock();
+        _swap(key, true, -int256(10e18));
+        _nextBlock();
+        vm.prank(lp);
+        (uint256 lot, uint256 sh) = hook.deposit(id, 100e18, 200e18);
+        _nextBlock();
+        vm.prank(lp);
+        hook.withdraw(id, lot, sh, 0);
+        pair.set(1_000_000e18, 2_100_000e18);
+        _nextBlock();
+        vm.prank(address(0xB07));
+        hook.sample(id);
+        assertEq(usd.balanceOf(address(0xB07)) + coin.balanceOf(address(0xB07)), 0, "no tip, no revert");
+        // garbage return data (too short) also reads as 0
+        vm.mockCall(address(refPair), abi.encodeWithSignature("getReserves()"), abi.encode(uint256(1)));
+        _nextBlock();
+        _swap(key, false, -int256(1e18));
+    }
+
+    /// I-2: a reference pool that cannot be read is refused at deploy.
+    function test_audit_constructorRejectsUnreadableRef() public {
+        DiscipleHook.Config memory cfg = DiscipleHook.Config(10_000, address(usd), 1, address(0xDEAD), bytes32(0), true);
+        vm.expectRevert(DiscipleHook.BadParams.selector);
+        new DiscipleHook(manager, address(receiver), address(v2f), address(0), address(0), cfg);
+    }
+
+    /// I-1: quote() refuses the sizes beforeSwap refuses.
+    function test_audit_quoteRejectsWhatSwapRejects() public {
+        (, PoolId id) = _createSame(1000e18, 2000e18);
+        _nextBlock();
+        (bool ok, bytes memory r) =
+            address(hook).call(abi.encodeCall(DiscipleHook.quote, (id, true, -int256(uint256(1) << 127))));
+        assertFalse(ok);
+        assertEq(bytes4(r), DiscipleHook.BadParams.selector, "too large for a swap delta");
+    }
+
+    /// L-1: a trade and a deposit in one block settle at the stepped mark; a jar full at that mark takes no more.
+    function test_audit_jarCapAtSteppedMark() public {
+        vm.fee(0.01 gwei);
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        _churn(key, 40); // jar full
+        pair.set(1_000_000e18, 2_200_000e18);
+        _nextBlock();
+        _swap(key, true, -int256(1e12)); // record the +10% sample
+        for (uint256 i = 0; i < 3; i++) {
+            _nextBlock();
+            _swap(key, true, -int256(50e18));
+            _swap(key, false, -int256(20e18));
+            DiscipleHook.PoolView memory v = hook.poolState(id);
+            uint256 mark = Math.mulDiv(v.anchorX128, 1_010_000, 1_000_000);
+            assertGe(Math.mulDiv(v.jarX, mark, Q128) + v.jarY, _cap(), "full at the stepped mark");
+            vm.prank(lp);
+            hook.deposit(id, 10e18, 20e18); // settles this block's trades at one step past the anchor
+            DiscipleHook.PoolView memory w = hook.poolState(id);
+            assertEq(w.jarX, v.jarX, "no skim into a full jar");
+            assertEq(w.jarY, v.jarY, "no skim into a full jar");
+        }
+    }
+
+    /// L-3: a compounding creator gets their lot when they opt in, not inside a later price delivery.
+    function test_audit_creatorLotMadeAtOptIn() public {
+        (, PoolId id) = _createSame(1000e18, 2000e18);
+        uint256 n0 = hook.poolState(id).lots;
+        hook.setCreator(id, address(this), true);
+        assertEq(hook.poolState(id).lots, n0 + 1, "lot made now");
+        (address owner, uint256 principal, uint256 compounded,,) = hook.lotState(id, n0 + 1);
+        assertEq(owner, address(this));
+        assertEq(principal + compounded, 0, "an empty lot");
+        hook.setCreator(id, address(0xC0FFEE), true);
+        assertEq(hook.poolState(id).lots, n0 + 1, "only once");
+        (owner,,,,) = hook.lotState(id, n0 + 1);
+        assertEq(owner, address(0xC0FFEE), "moves with the role");
+    }
+
+    /// M-2: the keeper cannot ask for unbounded lzReceive gas (it sets the carried LayerZero fee).
+    function test_audit_pushGasBounded() public {
+        (, PoolId id) = _createCross(1000e18, 2000e18, 0);
+        bytes32 to = bytes32(uint256(uint160(address(receiver))));
+        uint128 max = uint128(pushSender.MAX_MSG_GAS() + pushSender.MAX_POOL_GAS());
+        vm.expectRevert(DisciplePushSender.TooMuchGas.selector);
+        pushSender.push{value: 1 ether}(30101, to, _req(address(pair), id), max + 1);
+        pushSender.push{value: 1 ether}(30101, to, _req(address(pair), id), max);
+    }
+
+    /// L-2: a batch of samples in one transaction stays under gas + 20% per sample.
+    function test_audit_batchedSamplesUnderMarkup() public {
+        vm.fee(1 gwei);
+        uint256 n = 8;
+        PoolId[] memory ids = new PoolId[](n);
+        for (uint256 i = 0; i < n; i++) {
+            (, ids[i]) = _createSame(1000e18, 2000e18);
+            hook.fundJar(ids[i], 0, 5000e18);
+        }
+        pair.set(1_000_000e18, 2_100_000e18);
+        _nextBlock();
+        address bot = address(0xB07);
+        uint256 g = gasleft();
+        vm.startPrank(bot);
+        for (uint256 i = 0; i < n; i++) {
+            hook.sample(ids[i]);
+        }
+        vm.stopPrank();
+        uint256 used = g - gasleft() + 21_000;
+        uint256 costUsd = used * block.basefee * 3000;
+        uint256 paid = usd.balanceOf(bot);
+        emit log_named_uint("batch of 8: tip as % of cost (x100)", paid * 10_000 / costUsd);
+        assertLt(paid * 100, costUsd * 120, "under gas + 20% even batched");
+    }
 }
+

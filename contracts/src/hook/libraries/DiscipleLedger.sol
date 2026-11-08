@@ -157,7 +157,7 @@ library DiscipleLedger {
                     : -int256(Math.mulDiv(uint256(-dx), markX128, Q128, Math.Rounding.Ceil)));
         bk.dx = 0;
         bk.dy = 0;
-        if (!distribute) return (0, 0, 0);
+        // the loss carry runs through local-mode intervals too (audit M-1): only the payout is withheld
         uint256 l = bk.lossCarry;
         if (e >= int256(l)) {
             q = uint256(e) - l;
@@ -165,6 +165,7 @@ library DiscipleLedger {
         } else {
             bk.lossCarry = uint256(int256(l) - e);
         }
+        if (!distribute) return (0, 0, 0);
         uint256 v = value(bk, markX128);
         // The creator cut is judged NOW, before paying this interval (review D-02), with hysteresis: one reading
         // alone, high or low, never flips it. A zero TVL means "not known yet" and leaves it as it is.
@@ -225,7 +226,7 @@ library DiscipleLedger {
         bk.escrowY += ey;
         if (cd == 0) return;
         if (bk.creatorCompounds) {
-            if (bk.creatorLot == 0) bk.creatorLot = _newLot(bk, bk.creator);
+            makeCreatorLot(bk);
             uint256 cl = bk.creatorLot;
             _checkpoint(bk, cl);
             uint256 add = Math.mulDiv(cd, st, v - d);
@@ -343,6 +344,12 @@ library DiscipleLedger {
         if (id == 0 || id > bk.count) revert UnknownLot();
         lot = bk.lots[id];
         if (lot.owner != owner) revert NotOwner();
+    }
+
+    /// @notice Create the creator's compounding lot if it does not exist yet (a zero-share lot: its place in the
+    ///         line carries no weight, so making it early changes nothing but who pays the gas).
+    function makeCreatorLot(Book storage bk) internal {
+        if (bk.creatorLot == 0) bk.creatorLot = _newLot(bk, bk.creator);
     }
 
     function _newLot(Book storage bk, address owner) private returns (uint256 id) {

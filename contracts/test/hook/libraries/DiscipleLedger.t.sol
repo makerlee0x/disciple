@@ -126,4 +126,17 @@ contract DiscipleLedgerTest is Test {
         h.withdrawAs(address(100), 2, 5e17, 0);
         emit log_named_uint("withdraw gas (front of line, 302 lots)", g - gasleft());
     }
+
+    /// Audit M-1: a local-mode (not distributed) loss still carries into the next distributed interval.
+    function test_audit_localLossCarries() public {
+        LedgerHarness h = new LedgerHarness();
+        h.init(address(this), 1000e18, 2000e18, 2 << 128, false);
+        h.op(1, -50e18, 100e18, 0); // sold 50 coin for 100 quote
+        h.op(0, int256(uint256(3 << 128)), 0, 0); // marked at 3, local mode: e = -50
+        assertEq(h.book()[9], 50e18, "loss carried");
+        h.op(1, 50e18, -100e18, 0);
+        h.op(0, int256(uint256(3 << 128)), 0, 1); // e = +50, distributed: repays the carry only
+        assertEq(h.book()[9], 0, "carry repaid");
+    }
 }
+

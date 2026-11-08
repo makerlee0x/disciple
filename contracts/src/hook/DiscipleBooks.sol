@@ -133,6 +133,16 @@ library DiscipleBooks {
         return bk.claim(id, owner);
     }
 
+    /// @notice Hand the creator role on. A compounding creator's lot is made here, paid by the creator, not inside
+    ///         a later price delivery (audit L-3).
+    function setCreator(LG.Book storage bk, address creator, bool compounds) public {
+        bk.creator = creator;
+        bk.creatorCompounds = compounds;
+        uint256 cl = bk.creatorLot;
+        if (cl != 0) bk.lots[cl].owner = creator;
+        else if (compounds) LG.makeCreatorLot(bk);
+    }
+
     function claimCreator(LG.Book storage bk) public returns (uint256, uint256) {
         return bk.claimCreator();
     }
@@ -205,6 +215,30 @@ library DiscipleBooks {
         }
         if (t0 == address(0)) t0 = weth;
         (base, other) = baseIs0 ? (t0, t1) : (t1, t0);
+    }
+
+    /// @notice The reference leg's spot, or 0 if it cannot be read (no code, wrong interface, out-of-range data).
+    function refSpot(IPoolManager pm, uint8 kind, address target, bytes32 v4Id, bool baseIs0)
+        public
+        view
+        returns (uint256 spot)
+    {
+        if (kind == 3) {
+            (spot,) = leg(pm, kind, target, v4Id, baseIs0);
+            return spot;
+        }
+        bool v2 = kind == 1;
+        (bool ok, bytes memory r) =
+            target.staticcall(abi.encodeWithSelector(v2 ? IV2R.getReserves.selector : IV3S.slot0.selector));
+        if (!ok || r.length < (v2 ? 96 : 224)) return 0;
+        (uint256 a, uint256 b) = abi.decode(r, (uint256, uint256));
+        if (v2) {
+            if (a > type(uint112).max || b > type(uint112).max) return 0;
+            (spot,) = _v2(a, b, baseIs0);
+        } else {
+            if (a > type(uint160).max) return 0;
+            (spot,) = _concentrated(uint160(a), 0, baseIs0);
+        }
     }
 
     function leg(IPoolManager pm, uint8 kind, address target, bytes32 v4Id, bool baseIs0)

@@ -27,7 +27,7 @@ import {DiscipleBooks as BK} from "./DiscipleBooks.sol";
 ///         Same chain (beside a v2, v3 or v4 source on this chain): the anchor is latched once per block from
 ///         the source's spot as seen in an earlier block. Anyone may call sample() to take that price sample
 ///         without a trade; it does not settle the books or read source TVL. Each latch moves the anchor toward
-///         the sample by at most one step (the pool fee, at least `minStep`), so a faked one-block sample shifts
+///         the sample by at most one step (`minStep`), so a faked one-block sample shifts
 ///         the centre by no more than the fee. There is no lag premium. Every fill respects the live source
 ///         boundary (ask >= source ask * 0.9999, bid <= source bid * 1.0001), read in the same call.
 ///         Tip jar: 12% of each interval's earnings goes to the pool's own jar (both tokens, pro rata) until it
@@ -69,10 +69,15 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     /// @dev Cross-chain jar cap: this many pushes at the last keeper cost, +20% (7 days of 59.5-min heartbeats).
     uint256 internal constant JAR_PUSHES = 170;
     uint256 internal constant TIP_GAS_REF = 150_000;
-    /// @dev Gas a tipped sample() spends outside the measured span (intrinsic, calldata, the payout itself).
-    ///      Measured on anvil with plain ERC20s (keeper/test/local): ~84k outside the span; 90k leaves room for
-    ///      heavier proxy tokens. A keeper's first tip in a token costs ~17k more once (its new balance slot).
-    uint256 internal constant TIP_OVERHEAD = 90_000;
+    /// @dev Gas a tipped sample() spends outside the measured span (calldata, the payout itself), plus the 21k
+    ///      transaction intrinsic counted once per transaction, so a batch of samples is not paid it N times
+    ///      (audit L-2 / GPT batching). Measured on anvil (keeper/test/local, real per-transaction accounting): a
+    ///      repeat tipped sample is ~116k gas with ~84k outside the span, so it is paid ~120%; a keeper's first
+    ///      tip in a token (~133k, its new balance slot) ~105%.
+    uint256 internal constant TIP_OVERHEAD = 63_000;
+    uint256 internal constant TIP_INTRINSIC = 21_000;
+    /// @dev Transient flag: the intrinsic was already paid to a sample() in this transaction.
+    uint256 internal constant TIP_TX_SLOT = uint256(keccak256("disciple.tip.tx"));
     /// @dev One tip is at most this fraction of the jar, so a basefee spike cannot empty it in a few calls.
     uint256 internal constant TIP_DIV = 32;
     /// @dev Pool fee bounds, in pips.
@@ -86,8 +91,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     uint256 internal constant WALK_INIT_STEPS = 256;
     /// @dev A recovering pushed price may be this old on arrival.
     uint256 internal constant PUSH_RECOVERY_AGE = 20 minutes;
-    /// @dev Cap on one push refund (wei), so a gas spike on the home chain cannot drain the jar.
-    uint256 internal constant MAX_PUSH_REFUND = 0.002 ether;
+    /// @dev Cap on one push refund (wei), so a gas spike cannot drain the jar. 0.01 ETH covers one-pool delivery
+    ///      on Ethereum at ~20 gwei (audit M-2); the sender bounds the keeper's lzReceive gas, which bounds the fee.
+    uint256 internal constant MAX_PUSH_REFUND = 0.01 ether;
 
     // ---------------------------------------------------------------------------------------------
     // Storage
@@ -166,7 +172,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     address public immutable v3Factory;
     /// @notice Native ETH in a same-chain source pool counts as this token (the chain's WETH).
     address public immutable weth;
-    /// @notice Smallest per-reading anchor step, in pips (the step is max(pool fee, minStep)). Robinhood 1%,
+    /// @notice Smallest per-reading anchor step, in pips (the step is minStep, whatever the pool fee: audit M-3). Robinhood 1%,
     ///         Ethereum 5% (slower blocks: a move up to ~10% is caught up in two readings).
     uint24 public immutable minStep;
     /// @notice The chain's reference WETH/stable pool, used only to value tip-jar gas in a non-ETH quote.
@@ -272,6 +278,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         refTarget = cfg.refTarget;
         refV4Id = cfg.refV4Id;
         refWethIs0 = cfg.refWethIs0;
+        if (cfg.refKind != 0 && BK.refSpot(manager_, cfg.refKind, cfg.refTarget, cfg.refV4Id, cfg.refWethIs0) == 0) {
+            revert BadParams();
+        }
         Hooks.validateHookPermissions(IHooks(address(this)), getHookPermissions());
     }
 
@@ -413,10 +422,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         Pool storage p = _live(id);
         if (msg.sender != p.book.creator) revert OnlyCreator();
         if (creator == address(0)) revert BadParams();
-        p.book.creator = creator;
-        p.book.creatorCompounds = compounds;
-        uint256 cl = p.book.creatorLot;
-        if (cl != 0) p.book.lots[cl].owner = creator;
+        BK.setCreator(p.book, creator, compounds);
         emit CreatorSet(id, creator, compounds);
     }
 
@@ -441,7 +447,6 @@ contract DiscipleHook is IHooks, IUnlockCallback {
 
         bool exactIn = params.amountSpecified < 0;
         uint256 spec = exactIn ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
-        if (spec > uint256(uint128(type(int128).max))) revert BadParams();
         // input is currency0 when zeroForOne; the input is the coin on a sell
         bool sell = params.zeroForOne == p.coinIs0;
         (uint256 coinAmt, uint256 quoteAmt) = _fill(p, sell, exactIn, spec, kb, ks, pb, ps);
@@ -454,8 +459,6 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         Currency outC = sell ? quoteC : coinC;
         uint256 inAmt = sell ? coinAmt : quoteAmt;
         uint256 outAmt = sell ? quoteAmt : coinAmt;
-        // both sides must fit the int128 swap delta (scanner finding, 2026-11-04)
-        if (inAmt > uint128(type(int128).max) || outAmt > uint128(type(int128).max)) revert BadParams();
         // claims only: the PoolManager need not hold the input token yet (the swapper pays after the hook runs)
         inC.take(poolManager, address(this), inAmt, true);
         outC.settle(poolManager, address(this), outAmt, true);
@@ -488,6 +491,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 pb,
         uint256 ps
     ) internal view returns (uint256 coinAmt, uint256 quoteAmt) {
+        // the request and both sides must fit the int128 swap delta (scanner 2026-11-04; quote() too: audit I-1)
+        if (spec > uint128(type(int128).max)) revert BadParams();
         uint256 u = p.book.x;
         uint256 v = p.book.y;
         if (sell) {
@@ -498,6 +503,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
                 exactIn ? (spec, SM.buyExactIn(u, v, kb, pb, spec)) : (SM.buyExactOut(u, v, kb, pb, spec), spec);
         }
         if (quoteAmt == 0 || coinAmt == 0) revert ZeroOutput();
+        if (coinAmt > uint128(type(int128).max) || quoteAmt > uint128(type(int128).max)) revert BadParams();
     }
 
     /// @notice Top up a pool's tip jar with its own tokens (anyone).
@@ -549,7 +555,15 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 a0 = p.anchorX128;
         (uint256 spot,) = _latchSame(p, false);
         if (!SM.movedBeyond(a0, spot, DUE_BPS)) return;
-        uint256 q = _weiToQuote(p, (g0 - gasleft() + TIP_OVERHEAD) * block.basefee * 12 / 10);
+        uint256 o = TIP_OVERHEAD;
+        uint256 slot = TIP_TX_SLOT;
+        assembly {
+            if iszero(tload(slot)) {
+                o := add(o, TIP_INTRINSIC)
+                tstore(slot, 1)
+            }
+        }
+        uint256 q = _weiToQuote(p, (g0 - gasleft() + o) * block.basefee * 12 / 10);
         if (q == 0) return;
         (uint256 cx, uint256 cy) = BK.tip(p.jarX, p.jarY, a0, q, TIP_DIV);
         p.jarX -= cx;
@@ -575,7 +589,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         bool viaRef = q == refToken || c == refToken;
         if (viaRef) {
             if (refKind == 0) return 0;
-            (uint256 r,) = _leg(refKind, refTarget, refV4Id, refWethIs0);
+            // fail-soft: a reference pool that cannot be read pays no tip and never reverts a swap (audit I-2)
+            uint256 r = BK.refSpot(poolManager, refKind, refTarget, refV4Id, refWethIs0);
             w = Math.mulDiv(w, r, Q128);
             if (q == refToken) return w;
         } else if (c != weth) {
@@ -590,24 +605,23 @@ contract DiscipleHook is IHooks, IUnlockCallback {
 
     /// @dev Room left in the jar, in quote raw, less what it holds. Same chain: JAR_TIPS reference tips at today's
     ///      basefee. Cross chain: JAR_PUSHES pushes at the last keeper cost. Both +20%.
-    function _jarRoom(Pool storage p) internal view returns (uint256) {
+    function _jarRoom(Pool storage p, uint256 mark) internal view returns (uint256) {
         uint256 w = p.src.remoteEid == 0 ? JAR_TIPS * TIP_GAS_REF * block.basefee : JAR_PUSHES * p.pushCost;
         uint256 cap = _weiToQuote(p, w * 12 / 10);
-        uint256 have = Math.mulDiv(p.jarX, p.anchorX128, Q128) + p.jarY;
+        uint256 have = Math.mulDiv(p.jarX, mark, Q128) + p.jarY; // at the settle mark (audit L-1)
         return cap > have ? cap - have : 0;
     }
 
     /// @dev Close the open interval at `mark`, skimming into the jar (`dist` false: local mode, no payout).
     function _settleSame(Pool storage p, uint256 mark, bool dist) internal {
-        (uint256 jx, uint256 jy) = BK.settle(p.book, p.tvl, mark, dist, _jarRoom(p));
+        (uint256 jx, uint256 jy) = BK.settle(p.book, p.tvl, mark, dist, _jarRoom(p, mark));
         p.jarX += jx;
         p.jarY += jy;
     }
 
     /// @dev The anchor the next latch would set: one step from the anchor toward the newest sample.
     function _stepped(Pool storage p) internal view returns (uint256) {
-        uint24 st = p.fee > minStep ? p.fee : minStep;
-        return SM.stepToward(p.anchorX128, p.sampleX128, st);
+        return SM.stepToward(p.anchorX128, p.sampleX128, minStep);
     }
 
     /// @dev Settle the books if due, update the anchor state, and return the curve slopes and boundaries.
@@ -622,7 +636,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     }
 
     /// @dev Same chain, first price touch of a block: step the anchor toward the newest source sample taken in an
-    ///      earlier block (at most max(fee, minStep) per reading). Then record the live source for the next block. `settleBooks` (swaps and capital changes) also walks a v4 source,
+    ///      earlier block (at most minStep per reading). Then record the live source for the next block. `settleBooks` (swaps and capital changes) also walks a v4 source,
     ///      observes TVL, and settles the open interval. sample() passes false, so it cannot graduate a pool.
     ///      Returns the live spot and the source fee for the match boundary.
     function _latchSame(Pool storage p, bool settleBooks) internal returns (uint256 spot, uint24 srcFee) {
