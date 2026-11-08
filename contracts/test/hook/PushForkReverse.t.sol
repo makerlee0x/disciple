@@ -218,6 +218,8 @@ contract PushForkReverseTest is Test {
         uint256 snap = vm.snapshotState();
 
         uint8[3] memory sizes = [uint8(1), 5, 10];
+        uint256[3] memory paids;
+        uint256[3] memory expenses;
         for (uint256 r = 0; r < 3; r++) {
             vm.revertToState(snap);
             uint256 k = sizes[r];
@@ -252,10 +254,14 @@ contract PushForkReverseTest is Test {
             emit log_named_uint(string.concat(tag, "keeper expense (wei)"), expense);
             emit log_named_uint(string.concat(tag, "paid back to keeper (wei)"), paid);
             emit log_named_uint(string.concat(tag, "payout / expense (bps)"), paid * 10_000 / expense);
-            assertGe(paid * 10, expense * 12, "keeper paid its whole expense + 20%");
-            assertLe(paid * 1000, expense * 1236, "and at most 3% more than that");
+            (paids[r], expenses[r]) = (paid, expense);
         }
         emit log_named_uint("Ethereum basefee (wei)", block.basefee);
+        // assert after logging all three sizes, so one failing run shows the whole curve
+        for (uint256 r = 0; r < 3; r++) {
+            assertGe(paids[r] * 10, expenses[r] * 12, "keeper paid its whole expense + 20%");
+            assertLe(paids[r] * 1000, expenses[r] * 1236, "and at most 3% more than that");
+        }
     }
 
     function _calldataGas(bytes memory data) internal pure returns (uint256 g) {
