@@ -335,3 +335,32 @@ contract RoutingSource1pc is RoutingGateTest {
         _scan(25_000e18, "src $50k 1%");
     }
 }
+
+/// @notice $200 pool vs the $400k 0.3% v2 source at our fees 0.1% .. 1%: routed share by order size. Report only.
+contract RoutingFeeScan200 is RoutingGateTest {
+    function test_gate_feeScan200() public {
+        if (!vm.envOr("LAUNCH_GATE", false)) return;
+        vm.fee(0.01 gwei);
+        uint24[6] memory fees = [uint24(1000), 2000, 2500, 3000, 5000, 10_000];
+        uint256[6] memory sizes = [uint256(1e18), 5e18, 20e18, 100e18, 500e18, 2000e18];
+        for (uint256 f; f < 6; f++) {
+            (PoolKey memory key, PoolId id) = _createFee(fees[f]);
+            _nextBlock();
+            for (uint256 i; i < 6; i++) {
+                (uint256 sb, int256 gb,) = _bestSplit(key, id, true, sizes[i], GAS_RH);
+                console2.log(
+                    string.concat(
+                        "FEE200 fee ",
+                        vm.toString(uint256(fees[f])),
+                        " order $",
+                        vm.toString(sizes[i] / 1e18),
+                        " share bp ",
+                        vm.toString(sb),
+                        " gain 0.01bp ",
+                        vm.toString(uint256(gb))
+                    )
+                );
+            }
+        }
+    }
+}
