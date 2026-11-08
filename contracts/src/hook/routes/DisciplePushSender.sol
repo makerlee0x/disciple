@@ -38,6 +38,10 @@ contract DisciplePushSender is DiscipleSourceReader {
     uint256 public constant SEND_GAS_PER_SOURCE = 9_500;
     /// @dev Pool listings per message: bounds the receiver's loop and the message size.
     uint256 public constant MAX_POOLS = 64;
+    /// @dev Bound on the lzReceive gas a keeper may ask for: per message plus per pool listing (receiver needs
+    ///      DiscipleRoutesV0.destMsgGas + n * POOL_GAS, about 269k + 212k n).
+    uint256 public constant MAX_MSG_GAS = 400_000;
+    uint256 public constant MAX_POOL_GAS = 300_000;
 
     struct Req {
         uint8 kind;
@@ -66,6 +70,7 @@ contract DisciplePushSender is DiscipleSourceReader {
 
     error Empty();
     error TooMany();
+    error TooMuchGas();
 
     constructor(ILayerZeroEndpointV2Lite endpoint_, LibConfig[] memory config, uint256 sendGas_) {
         endpoint = endpoint_;
@@ -91,6 +96,8 @@ contract DisciplePushSender is DiscipleSourceReader {
             _walk(reqs[i].kind, reqs[i].target, reqs[i].v4Id);
         }
         (Obs[] memory obs, uint256 n) = _read(reqs);
+        // the keeper's lzReceive gas sets the LayerZero fee carried as cost: bound it (audit M-2)
+        if (gas > MAX_MSG_GAS + MAX_POOL_GAS * n) revert TooMuchGas();
         // the fee does not depend on the cost field (fixed-size word), so quote with 0 and fill it in after
         MessagingParams memory mp = _params(dstEid, receiver, _message(obs, 0), gas);
         uint256 fee = endpoint.quote(mp, address(this)).nativeFee;

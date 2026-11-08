@@ -20,15 +20,19 @@ contract SwapSameChainRH is Script {
     IPoolManager internal constant PM = IPoolManager(0x8366a39CC670B4001A1121B8F6A443A643e40951);
     address internal constant STRATEGY = 0x168661C52E5922288dFb2b3f323b6Cf90eb21e18;
     address internal constant USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
-    address internal constant HOOK = 0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88;
-    bytes32 internal constant POOL_ID = 0xddbfa6efd15715013f50e7f1cdceaab3b69b0b8e4c9d4b47fcc28e47f6a80e8f;
+    /// @dev v0.2 hook and pool (deployed 2026-11-08); override with HOOK= / POOL_ID= / TICK_SPACING=.
+    address internal constant HOOK_V02 = 0xC0E513735F35df6A82523744E2aE8a601C772a88;
+    bytes32 internal constant POOL_V02 = 0x8a1d5f363db9d4a7b874abc858a8fdc86786a9208835aa8360b953cad223b8cd;
 
     function run() external {
         require(block.chainid == 4663, "run on Robinhood Chain");
         bool buy = vm.envOr("BUY", uint256(1)) == 1;
         uint256 amt = vm.envUint("AMOUNT");
-        PoolKey memory key = PoolKey(Currency.wrap(STRATEGY), Currency.wrap(USDG), 0, 1, IHooks(HOOK));
-        require(PoolId.unwrap(key.toId()) == POOL_ID, "pool key");
+        address hook = vm.envOr("HOOK", HOOK_V02);
+        bytes32 poolId = vm.envOr("POOL_ID", POOL_V02);
+        int24 spacing = int24(int256(vm.envOr("TICK_SPACING", uint256(1))));
+        PoolKey memory key = PoolKey(Currency.wrap(STRATEGY), Currency.wrap(USDG), 0, spacing, IHooks(hook));
+        require(PoolId.unwrap(key.toId()) == poolId, "pool key");
         address inT = buy ? USDG : STRATEGY;
         address outT = buy ? STRATEGY : USDG;
         bool zeroForOne = !buy; // STRATEGY is currency0

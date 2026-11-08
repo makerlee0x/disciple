@@ -31,8 +31,10 @@ contract DisciplePushReceiver {
     ///      receive DVN set, so it is set at construction: DiscipleRoutesV0.destMsgGas.
     uint256 public immutable msgGas;
     /// @dev This chain's keeper gas per listed pool inside lzReceive (the hook's delivery, its refund transfer and
-    ///      the pool's calldata). Ethereum fork, Foundry 1.9.0 (cold, as on chain), recalibrated on 364a916 (2026-11-05).
-    uint256 public constant POOL_GAS = 185_000;
+    ///      the pool's calldata). Ethereum fork, Foundry 1.9.0 (cold, as on chain), recalibrated on 364a916 (2026-11-05)
+    ///      and again for the tip jar (2026-11-08: settle with the skim + jar credit, ~22.6k more per pool; fork run
+    ///      paid 120.6% / 117.7% / 115.4% for 1 / 5 / 10 pools at 185k, so 212k with msgGas +20k gives ~121% each).
+    uint256 public constant POOL_GAS = 212_000;
 
     error OnlyEndpoint();
     error NoValue();

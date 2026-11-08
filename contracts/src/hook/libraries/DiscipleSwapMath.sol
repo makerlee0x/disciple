@@ -8,7 +8,7 @@ import {FixedPointMathLib as FPM} from "./vendor/FixedPointMathLib.sol";
 /// @notice Pure pricing for one Disciple pool at frozen external state. No storage, no LP or payout logic.
 ///
 ///         Curve (lambda = 1). With coin reserve u and quote reserve v, the marginal price is k * v/u, where
-///             k = C * G on buys and C / G on sells,  C = P_ref / T,  G = H / (1 - f).
+///             k = C * G_buy on buys and C / G_sell on sells,  C = P_ref / T,  G = H / (1 - f).
 ///         P_ref is the anchor price, T the seed ratio v0/u0, H the price-move premium and f the per-side fee.
 ///         On a curve segment v * u^k is constant, so every fill has a closed form:
 ///             buy, quote in Q:   u1 = u0 * (v0 / (v0 + Q))^(1/k)
@@ -52,11 +52,7 @@ library DiscipleSwapMath {
     // ---------------------------------------------------------------------------------------------
 
     /// @notice Quote in -> coin out, rounded down.
-    function buyExactIn(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 quoteIn)
-        internal
-        pure
-        returns (uint256)
-    {
+    function buyExactIn(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 quoteIn) internal pure returns (uint256) {
         if (quoteIn == 0) return 0;
         uint256 ub = u0;
         uint256 vb = v0;
@@ -94,11 +90,7 @@ library DiscipleSwapMath {
     }
 
     /// @notice Coin in -> quote out, rounded down.
-    function sellExactIn(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 coinIn)
-        internal
-        pure
-        returns (uint256)
-    {
+    function sellExactIn(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 coinIn) internal pure returns (uint256) {
         if (coinIn == 0) return 0;
         uint256 ub = u0;
         uint256 vb = v0;
@@ -162,12 +154,17 @@ library DiscipleSwapMath {
         return Math.mulDiv(h, FEE_DENOM, FEE_DENOM - fee, Math.Rounding.Ceil);
     }
 
-    /// @notice Curve slopes from the anchor P_ref and seed ratio T (both X128) and markup G.
-    ///         kBuy = C * G rounded up (higher ask); kSell = C / G rounded down (lower bid).
-    function slopes(uint256 pRefX128, uint256 tX128, uint256 g) internal pure returns (uint256 kBuy, uint256 kSell) {
-        if (pRefX128 == 0 || tX128 == 0 || g < WAD) revert BadParams();
-        kBuy = Math.mulDiv(pRefX128, g, tX128, Math.Rounding.Ceil);
-        kSell = Math.mulDiv(Math.mulDiv(pRefX128, WAD, tX128), WAD, g);
+    /// @notice Curve slopes from the anchor P_ref and seed ratio T (both X128) and per-side markups.
+    ///         kBuy = C * gBuy rounded up (higher ask); kSell = C / gSell rounded down (lower bid).
+    ///         Pass the same markup twice for a symmetric spread. The hook passes the lag premium on one side only.
+    function slopes(uint256 pRefX128, uint256 tX128, uint256 gBuy, uint256 gSell)
+        internal
+        pure
+        returns (uint256 kBuy, uint256 kSell)
+    {
+        if (pRefX128 == 0 || tX128 == 0 || gBuy < WAD || gSell < WAD) revert BadParams();
+        kBuy = Math.mulDiv(pRefX128, gBuy, tX128, Math.Rounding.Ceil);
+        kSell = Math.mulDiv(Math.mulDiv(pRefX128, WAD, tX128), WAD, gSell);
         if (kSell == 0) revert BadParams();
     }
 
@@ -184,6 +181,18 @@ library DiscipleSwapMath {
     }
 
     /// @notice True when `price` has moved at least `bps` from `ref` (the premium reset trigger).
+    /// @notice Move `from` toward `to` by at most `stepPips` (of 1e6) of `from`. Used for the same-chain centre: one
+    ///         reading, honest or not, can shift the curve by at most one step.
+    function stepToward(uint256 from, uint256 to, uint256 stepPips) internal pure returns (uint256) {
+        if (from == 0) return to;
+        if (to > from) {
+            uint256 hi = Math.mulDiv(from, FEE_DENOM + stepPips, FEE_DENOM);
+            return to < hi ? to : hi;
+        }
+        uint256 lo = stepPips >= FEE_DENOM ? 0 : Math.mulDiv(from, FEE_DENOM - stepPips, FEE_DENOM, Math.Rounding.Ceil);
+        return to > lo ? to : lo;
+    }
+
     function movedBeyond(uint256 ref, uint256 price, uint256 bps) internal pure returns (bool) {
         if (ref == 0) return true;
         uint256 d = price > ref ? price - ref : ref - price;

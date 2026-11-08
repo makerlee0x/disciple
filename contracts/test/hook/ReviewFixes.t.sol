@@ -357,8 +357,14 @@ contract ReviewFixesTest is DiscipleTest {
         s.tvlShift = 0;
         (, PoolId id) = hook.createPool(
             DiscipleHook.CreateParams({
-                coin: address(localCoin), quote: address(usd), fee: FEE, src: s,
-                coinIn: 1000e6, quoteIn: 2000e18, srcKey: _noKey(), srcKey2: _noKey()
+                coin: address(localCoin),
+                quote: address(usd),
+                fee: FEE,
+                src: s,
+                coinIn: 1000e6,
+                quoteIn: 2000e18,
+                srcKey: _noKey(),
+                srcKey2: _noKey()
             })
         );
         _lzPush(id, address(0xC0FFEE), 0, HOME_EID);
@@ -372,11 +378,11 @@ contract ReviewFixesTest is DiscipleTest {
         DiscipleHook.Source memory s = _pushSrc(HOME_EID);
         s.tvlShift = -128;
         vm.expectRevert(DiscipleHook.BadParams.selector);
-        hook.createPool{value: 0.01 ether}(_cp(s, _noKey()));
+        hook.createPool(_cp(s, _noKey()));
         s.tvlShift = 0;
         s.decShift = 37;
         vm.expectRevert(DiscipleHook.BadParams.selector);
-        hook.createPool{value: 0.01 ether}(_cp(s, _noKey()));
+        hook.createPool(_cp(s, _noKey()));
         DiscipleHook.Source memory same = _src(0);
         same.decShift = 1;
         vm.expectRevert(DiscipleHook.BadParams.selector);

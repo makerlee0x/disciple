@@ -124,8 +124,9 @@ in-range estimate, which reads high. v2 and v3 home sources need nothing.
 
 Swaps are normal Uniswap v4 swaps on the Disciple pool key, through the Universal Router or any v4 router.
 Quotes come from the v4 Quoter. The hook prices everything in `beforeSwap`, and a quote is never better than the
-live source's own price (it stays within 1 bp of the source's ask or bid). For the first 30 s after the source moves
-0.25%, a premium of up to 4% applies and fades. Adding v4 liquidity to a Disciple pool directly is disabled.
+live source's own price (it stays within 1 bp of the source's ask or bid). For 1 second of block.timestamp after
+the source moves 0.25%, a premium of 4% applies on the side that benefits from the lag, then it is off. Adding v4
+liquidity to a Disciple pool directly is disabled.
 
 ## LP actions (approve the hook for both tokens first)
 

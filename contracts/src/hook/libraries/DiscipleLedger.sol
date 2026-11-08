@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /// @title Disciple LP ledger
 /// @notice LP accounting for one Disciple pool: shares, the whole-line boost, the compound class, graduation, the
@@ -34,6 +35,8 @@ library DiscipleLedger {
     uint256 internal constant BPS = 10_000;
     uint256 internal constant TARGET_BPS = 1200;
     uint256 internal constant CREATOR_BPS = 1200;
+    /// @dev Share of each interval's earnings that goes to the pool's tip jar while the jar is below its cap.
+    uint256 internal constant JAR_SKIM_BPS = 1200;
     /// @dev Shares that can never be withdrawn, so the pool never drains to rounding dust.
     uint256 internal constant MIN_SHARES = 1e6;
 
@@ -63,8 +66,8 @@ library DiscipleLedger {
     struct Book {
         uint256 x; // tradable coin reserve
         uint256 y; // tradable quote reserve
-        int256 dx; // net coin into the pool since the last settlement
-        int256 dy;
+        int128 dx; // net coin into the pool since the last settlement (one slot with dy: gas)
+        int128 dy;
         uint256 lossCarry;
         bool graduated;
         bool creatorCompounds;
@@ -95,7 +98,10 @@ library DiscipleLedger {
     // ---------------------------------------------------------------------------------------------
 
     /// @notice Seed the pool. The creator's lot takes shares equal to the seed's value at mark M (quote wei).
-    function init(Book storage bk, address creator, uint256 x, uint256 y, uint256 markX128) internal returns (uint256 id) {
+    function init(Book storage bk, address creator, uint256 x, uint256 y, uint256 markX128)
+        internal
+        returns (uint256 id)
+    {
         bk.x = x;
         bk.y = y;
         bk.creator = creator;
@@ -118,8 +124,55 @@ library DiscipleLedger {
     function swap(Book storage bk, int256 dx, int256 dy) internal {
         bk.x = _addSigned(bk.x, dx);
         bk.y = _addSigned(bk.y, dy);
-        bk.dx += dx;
-        bk.dy += dy;
+        bk.dx = SafeCast.toInt128(int256(bk.dx) + dx);
+        bk.dy = SafeCast.toInt128(int256(bk.dy) + dy);
+    }
+
+    /// @notice The (coin, quote) amounts that `settle(.., onTvl, offTvl, gradTvl, true, skimRoom)` would move out of
+    ///         the tradable reserves now: the jar skim, and on a graduated pool the LP escrow and (if the creator does
+    ///         not compound) the creator claim. View; same arithmetic as settle and _distribute.
+    function settlePreview(Book storage bk, uint256 markX128, uint256 skimRoom, uint256 onTvl, uint256 offTvl)
+        internal
+        view
+        returns (uint256 ox, uint256 oy)
+    {
+        int256 dx = bk.dx;
+        int256 e = int256(bk.dy)
+            + (dx >= 0
+                    ? int256(Math.mulDiv(uint256(dx), markX128, Q128))
+                    : -int256(Math.mulDiv(uint256(-dx), markX128, Q128, Math.Rounding.Ceil)));
+        uint256 l = bk.lossCarry;
+        if (e <= int256(l)) return (0, 0);
+        uint256 q = uint256(e) - l;
+        uint256 x = bk.x;
+        uint256 y = bk.y;
+        uint256 v = Math.mulDiv(x, markX128, Q128) + y;
+        bool on = bk.creatorOn;
+        if (onTvl > 0) {
+            if (v * BPS >= TARGET_BPS * onTvl) on = true;
+            else if (v * BPS < TARGET_BPS * offTvl) on = false;
+        }
+        if (2 * q > v) return (0, 0);
+        if (skimRoom > 0) {
+            uint256 sk = Math.mulDiv(q, JAR_SKIM_BPS, BPS);
+            if (sk > skimRoom) sk = skimRoom;
+            ox = Math.mulDiv(x, sk, v);
+            oy = Math.mulDiv(y, sk, v);
+            x -= ox;
+            y -= oy;
+            uint256 v2 = Math.mulDiv(x, markX128, Q128) + y;
+            uint256 taken = v - v2;
+            q = q > taken ? q - taken : 0;
+            v = v2;
+        }
+        if (q == 0 || !bk.graduated || 41 * bk.sp + 12 * bk.b == 0) return (ox, oy);
+        uint256 cd = on ? Math.mulDiv(q, CREATOR_BPS, BPS, Math.Rounding.Ceil) : 0;
+        ox += Math.mulDiv(x, q - cd, v, Math.Rounding.Ceil);
+        oy += Math.mulDiv(y, q - cd, v, Math.Rounding.Ceil);
+        if (cd > 0 && !bk.creatorCompounds) {
+            ox += Math.mulDiv(x, cd, v);
+            oy += Math.mulDiv(y, cd, v);
+        }
     }
 
     /// @notice Close the interval: mark its flow at `markX128`, apply the loss carry, distribute, latch graduation.
@@ -130,16 +183,29 @@ library DiscipleLedger {
         internal
         returns (uint256 q)
     {
+        (q,,) = settle(bk, markX128, onTvl, offTvl, gradTvl, distribute, 0);
+    }
+
+    /// @notice As above, and first skims `JAR_SKIM_BPS` of the interval's earnings Q (at most `skimRoom`, quote
+    ///         wei at the mark) out of the reserves, pro rata in both tokens, for the pool's tip jar. Returns the
+    ///         distributable Q after the skim and the coin/quote amounts taken (the caller adds them to the jar).
+    function settle(
+        Book storage bk,
+        uint256 markX128,
+        uint256 onTvl,
+        uint256 offTvl,
+        uint256 gradTvl,
+        bool distribute,
+        uint256 skimRoom
+    ) internal returns (uint256 q, uint256 jx, uint256 jy) {
         int256 dx = bk.dx;
-        int256 e = bk.dy
-            + (
-                dx >= 0
+        int256 e = int256(bk.dy)
+            + (dx >= 0
                     ? int256(Math.mulDiv(uint256(dx), markX128, Q128))
-                    : -int256(Math.mulDiv(uint256(-dx), markX128, Q128, Math.Rounding.Ceil))
-            );
+                    : -int256(Math.mulDiv(uint256(-dx), markX128, Q128, Math.Rounding.Ceil)));
         bk.dx = 0;
         bk.dy = 0;
-        if (!distribute) return 0;
+        // the loss carry runs through local-mode intervals too (audit M-1): only the payout is withheld
         uint256 l = bk.lossCarry;
         if (e >= int256(l)) {
             q = uint256(e) - l;
@@ -147,6 +213,7 @@ library DiscipleLedger {
         } else {
             bk.lossCarry = uint256(int256(l) - e);
         }
+        if (!distribute) return (0, 0, 0);
         uint256 v = value(bk, markX128);
         // The creator cut is judged NOW, before paying this interval (review D-02), with hysteresis: one reading
         // alone, high or low, never flips it. A zero TVL means "not known yet" and leaves it as it is.
@@ -159,7 +226,21 @@ library DiscipleLedger {
         bool grad = on || (gradTvl > 0 && v * BPS >= TARGET_BPS * gradTvl);
         // Spec: nothing is distributed if Q >= V. Q > V/2 is also held back (it stays in share value pro rata) so
         // the 1/(V - D) terms stay bounded.
-        if (q > 0 && 2 * q <= v) _distribute(bk, q, v);
+        if (q > 0 && 2 * q <= v) {
+            if (skimRoom > 0) {
+                uint256 sk = Math.mulDiv(q, JAR_SKIM_BPS, BPS);
+                if (sk > skimRoom) sk = skimRoom;
+                jx = Math.mulDiv(bk.x, sk, v);
+                jy = Math.mulDiv(bk.y, sk, v);
+                bk.x -= jx;
+                bk.y -= jy;
+                uint256 v2 = value(bk, markX128);
+                uint256 taken = v - v2;
+                q = q > taken ? q - taken : 0;
+                v = v2;
+            }
+            if (q > 0) _distribute(bk, q, v);
+        }
         // LP payouts latch at the first crossing (from the next interval), which keeps the boost accounting exact.
         // The creator's cut is reversible (maker, 2026-11-04), checked above.
         if (grad) bk.graduated = true;
@@ -193,7 +274,7 @@ library DiscipleLedger {
         bk.escrowY += ey;
         if (cd == 0) return;
         if (bk.creatorCompounds) {
-            if (bk.creatorLot == 0) bk.creatorLot = _newLot(bk, bk.creator);
+            makeCreatorLot(bk);
             uint256 cl = bk.creatorLot;
             _checkpoint(bk, cl);
             uint256 add = Math.mulDiv(cd, st, v - d);
@@ -311,6 +392,12 @@ library DiscipleLedger {
         if (id == 0 || id > bk.count) revert UnknownLot();
         lot = bk.lots[id];
         if (lot.owner != owner) revert NotOwner();
+    }
+
+    /// @notice Create the creator's compounding lot if it does not exist yet (a zero-share lot: its place in the
+    ///         line carries no weight, so making it early changes nothing but who pays the gas).
+    function makeCreatorLot(Book storage bk) internal {
+        if (bk.creatorLot == 0) bk.creatorLot = _newLot(bk, bk.creator);
     }
 
     function _newLot(Book storage bk, address owner) private returns (uint256 id) {

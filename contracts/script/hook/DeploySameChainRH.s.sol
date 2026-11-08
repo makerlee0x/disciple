@@ -10,13 +10,15 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
 
 /// @title Same-chain-only DiscipleHook on Robinhood Chain (internal mainnet test, maker 2026-11-05)
 /// @notice The hook is deployed with NO push receiver, so it takes same-chain pools only and is not tied to any
 ///   cross-chain sender. Cross-chain pools go on a later hook deployed with the final receiver.
 ///   hook():  deploys the hook via the CREATE2 deployer.
-///   pool():  HOOK=<hook> COIN_IN=<raw STRATEGY> QUOTE_IN=<raw USDG> FEE=<pips, default 5000 = 0.5%>
+///   pool():  HOOK=<hook> COIN_IN=<raw STRATEGY> QUOTE_IN=<raw USDG> FEE=<pips, default 10000 = 1%>
 ///            creates STRATEGY/USDG priced through STRATEGY/MSTR (v4) and MSTR/USDG (v4 0.25%).
 ///   both():  hook() then pool() in one run (for a dry run on a fork).
 contract DeploySameChainRH is Script {
@@ -36,14 +38,37 @@ contract DeploySameChainRH is Script {
             Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
                 | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
         );
-        bytes memory args = abi.encode(PM, address(0), address(0), address(0), WETH);
+        DiscipleHook.Config memory cfg = _cfg();
+        bytes memory args = abi.encode(PM, address(0), address(0), address(0), WETH, cfg);
         (address want, bytes32 salt) = HookMiner.find(CREATE2_DEPLOYER, flags, type(DiscipleHook).creationCode, args);
         vm.startBroadcast();
-        h = new DiscipleHook{salt: salt}(PM, address(0), address(0), address(0), WETH);
+        h = new DiscipleHook{salt: salt}(PM, address(0), address(0), address(0), WETH, cfg);
         vm.stopBroadcast();
         require(address(h) == want, "hook address");
         require(address(h).code.length <= 24_576, "over EIP-170");
         console2.log("DiscipleHook (Robinhood, same chain only)", address(h));
+    }
+
+    /// @dev The Uniswap v4 ETH/USDG pool on Robinhood (maker, 2026-11-07). ETH (native or WETH) sorts below USDG,
+    ///      so it is currency0.
+    bytes32 internal constant REF_ETH_USDG = 0xa791e5169faf703c0b63fd9552c33ec1128a773a00f5dc33a640da62a022cd35;
+
+    /// @dev Robinhood: 1% minimum anchor step. The tip jar values gas in USDG through the ETH/USDG reference pool
+    ///      (REF_V4ID overrides it; REF_KIND=0 turns it off: USDG pools then pay no tips).
+    function _cfg() internal view returns (DiscipleHook.Config memory c) {
+        c.minStep = 10_000;
+        c.refToken = USDG;
+        c.refKind = uint8(vm.envOr("REF_KIND", uint256(3)));
+        c.refTarget = address(PM);
+        c.refV4Id = vm.envOr("REF_V4ID", REF_ETH_USDG);
+        c.refWethIs0 = true;
+        if (c.refKind == 3) {
+            // sanity: the reference reads as 100 to 100,000 USDG per ETH (USDG has 6 decimals, ETH 18)
+            (uint160 sp,,,) = StateLibrary.getSlot0(PM, PoolId.wrap(c.refV4Id));
+            uint256 usdPerEth = Math.mulDiv(Math.mulDiv(uint256(sp), uint256(sp), 1 << 96), 1e12, 1 << 96);
+            require(usdPerEth >= 100 && usdPerEth <= 100_000, "reference pool price");
+            console2.log("reference USDG per ETH", usdPerEth);
+        }
     }
 
     function pool() public {
@@ -58,7 +83,7 @@ contract DeploySameChainRH is Script {
         require(block.chainid == 4663, "run on Robinhood Chain");
         uint256 coinIn = vm.envUint("COIN_IN");
         uint256 quoteIn = vm.envUint("QUOTE_IN");
-        uint24 fee = uint24(vm.envOr("FEE", uint256(5000)));
+        uint24 fee = uint24(vm.envOr("FEE", uint256(10_000)));
         DiscipleHook.Source memory s;
         s.kind = 3; // v4
         s.coinIs0 = true; // STRATEGY is currency0 of STRATEGY/MSTR

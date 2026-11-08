@@ -1,7 +1,7 @@
 """Integer mirror of the Solidity DiscipleSwapMath library, plus an 80-digit Decimal reference.
 
-Curve (lambda = 1): marginal price = k * v/u, with k = C*G on buys and C/G on sells,
-C = P_ref / T, G = H / (1 - f). Invariant on a curve segment: v * u^k = const.
+Curve (lambda = 1): marginal price = k * v/u, with k = C*G_buy on buys and C/G_sell on sells,
+C = P_ref / T, G = H / (1 - f). G_sell defaults to G_buy. Invariant on a curve segment: v * u^k = const.
 Match boundary p (X128 price): buys never below p (linear segment v + p u = const while k v < p u),
 sells never above p (linear while k v > p u). p == 0 means no boundary.
 Reserves are raw token units, prices are X128 (raw quote per raw coin * 2^128), k/G/H are WAD."""
@@ -116,9 +116,12 @@ def markup(H, fee):
     """G = H / (1 - f), fee in pips (1e6 = 100%), rounded up."""
     return mulDivUp(H, FEE_DEN, FEE_DEN - fee)
 
-def slopes(pref, T, G):
-    """(k_buy rounded up, k_sell rounded down); pref and T are X128."""
-    return mulDivUp(pref, G, T), mulDiv(mulDiv(pref, WAD, T), WAD, G)
+def slopes(pref, T, G, G_sell=None):
+    """(k_buy rounded up, k_sell rounded down); pref and T are X128.
+    G_sell defaults to G. The hook passes a fee-only markup on the side that does not benefit from the lag."""
+    if G_sell is None:
+        G_sell = G
+    return mulDivUp(pref, G, T), mulDiv(mulDiv(pref, WAD, T), WAD, G_sell)
 
 def moved_beyond(ref, price, bps):
     if ref == 0: return True
