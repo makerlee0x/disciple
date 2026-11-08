@@ -1,0 +1,41 @@
+{
+  "account": "disciple",
+  "stateFile": "keeper-state.json",
+  "pollSeconds": 12,
+  "chains": {
+    "ethereum": { "rpcEnv": "ETH_RPC", "logChunk": 10, "logCallsPerTick": 5, "priorityFeeGwei": "0.003", "maxFeeGwei": "30" },
+    "robinhood": { "rpcEnv": "RH_RPC", "logChunk": 10, "logCallsPerTick": 20, "priorityFeeGwei": "0", "maxFeeGwei": "1" }
+  },
+  "routes": [
+    {
+      "name": "eth-to-rh",
+      "home": "ethereum",
+      "dest": "robinhood",
+      "sender": "0x<DisciplePushSender on Ethereum>",
+      "receiver": "0x<DisciplePushReceiver on Robinhood>",
+      "hookFromBlock": 0,
+      "senderFromBlock": 0,
+      "pools": []
+    },
+    {
+      "name": "rh-to-eth",
+      "home": "robinhood",
+      "dest": "ethereum",
+      "sender": "0x<DisciplePushSender on Robinhood>",
+      "receiver": "0x<DisciplePushReceiver on Ethereum>",
+      "hookFromBlock": 0,
+      "senderFromBlock": 0,
+      "pools": []
+    }
+  ],
+  "policy": {
+    "moveBps": 102,
+    "firstPrice": true,
+    "unpaidHeartbeats": false,
+    "minTankWei": "1",
+    "takeoverAfterSec": 900,
+    "maxPoolsPerPush": 64,
+    "maxPushCostEth": "0.003",
+    "packetTtlSec": 21600
+  }
+}
