@@ -18,3 +18,4 @@ disciple-shots
 .idea
 tracker/
 __pycache__/
+keeper/trades.csv
