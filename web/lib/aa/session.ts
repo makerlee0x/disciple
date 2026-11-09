@@ -307,7 +307,12 @@ export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string
 /* ---------- Privy embedded wallet owner ---------- */
 /** Called by PrivyProviders once the embedded wallet is ready (owner = toViemAccount(wallet)). */
 export async function setPrivyOwner(owner: LocalAccount): Promise<Address> {
-  if (sa && state?.kind === "privy" && state.owner.toLowerCase() === owner.address.toLowerCase()) return sa.address();
+  if (sa && state?.kind === "privy" && state.owner.toLowerCase() === owner.address.toLowerCase()) {
+    // #259: wallet readiness recurs without a fresh login (restored auth, provider remount). Re-check setup for the SAME
+    // owner (account, session key and the coordinator's dedupe / lease / backoff all kept).
+    void maybeAutoOneTap("wallet-ready");
+    return sa.address();
+  }
   return startSession("privy", owner);
 }
 type PrivyHooks = { login: () => void; logout: () => Promise<void>; getAccessToken?: () => Promise<string | null>; authenticated?: boolean };
