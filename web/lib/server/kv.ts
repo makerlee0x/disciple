@@ -44,6 +44,8 @@ export interface Kv {
   getDel(k: string): Promise<string | null>;
   /** Atomic INCR; the key expires ttlSec after the FIRST increment (fixed-window counter). Returns the new count. */
   incrEx(k: string, ttlSec: number): Promise<number>;
+  /** Atomic INCRBY by `by`; the key expires ttlSec after the FIRST increment (fixed window). Returns the new total. */
+  incrByEx(k: string, by: number, ttlSec: number): Promise<number>;
   /** Seconds until k expires (-1 no ttl, -2 missing). */
   ttl(k: string): Promise<number>;
   /** Atomic compare-and-expire: reset k's TTL to ttlSec only while k == v (lease renewal). true if refreshed. */
@@ -100,6 +102,7 @@ function local(): Kv {
     async smembers(k) { await ready; return st.s[k] ?? []; },
     async getDel(k) { await ready; const e = live(k); if (!e) return null; delete st.kv[k]; save(); return e.v; },
     async incrEx(k, ttl) { await ready; const e = live(k); const n = (e ? Number(e.v) || 0 : 0) + 1; st.kv[k] = { v: String(n), exp: e?.exp || Date.now() + ttl * 1000 }; save(); return n; },
+    async incrByEx(k, by, ttl) { await ready; const e = live(k); const n = (e ? Number(e.v) || 0 : 0) + Math.floor(by); st.kv[k] = { v: String(n), exp: e?.exp || Date.now() + ttl * 1000 }; save(); return n; },
     async ttl(k) { await ready; const e = live(k); return !e ? -2 : e.exp ? Math.ceil((e.exp - Date.now()) / 1000) : -1; },
     async expireIfEq(k, v, ttl) { await ready; const e = live(k); if (!e || e.v !== v) return false; e.exp = Date.now() + ttl * 1000; save(); return true; },
     async delIfEq(k, v) { await ready; const e = live(k); if (!e || e.v !== v) return false; delete st.kv[k]; save(); return true; },
@@ -137,6 +140,7 @@ function local(): Kv {
 const EXPIRE_IF_EQ_LUA = "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('EXPIRE',KEYS[1],ARGV[2]) else return 0 end";
 const DEL_IF_EQ_LUA = "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end";
 const INCR_EX_LUA = "local c=redis.call('INCR',KEYS[1]) if c==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end return c";
+const INCRBY_EX_LUA = "local c=redis.call('INCRBY',KEYS[1],ARGV[1]) if c==tonumber(ARGV[1]) then redis.call('EXPIRE',KEYS[1],ARGV[2]) end return c";
 const NONCE_ALLOC_LUA = "local f=tonumber(ARGV[1]) while true do local h=redis.call('ZPOPMIN',KEYS[2]) if #h==0 then break end local n=tonumber(h[2]) if n>=f then return n end end local c=tonumber(redis.call('GET',KEYS[1]) or '0') if c<f then c=f end redis.call('SET',KEYS[1],c+1,'EX',ARGV[2]) return c";
 const NONCE_RELEASE_LUA = "local n=tonumber(ARGV[1]) local c=tonumber(redis.call('GET',KEYS[1]) or '-1') if c==n+1 then redis.call('SET',KEYS[1],n,'EX',ARGV[2]) return 1 end if c>n+1 then redis.call('ZADD',KEYS[2],n,ARGV[1]) redis.call('EXPIRE',KEYS[2],ARGV[2]) return 2 end return 0";
 /** Vercel Security finding 1 (see Kv.relayBudget). */
@@ -181,6 +185,7 @@ function upstash(url: string, token: string): Kv {
     async smembers(k) { return (await cmd<string[]>("SMEMBERS", k)) ?? []; },
     getDel: (k) => cmd<string | null>("GETDEL", k),
     async incrEx(k, ttl) { return Number(await cmd<number>("EVAL", INCR_EX_LUA, 1, k, ttl)); },
+    async incrByEx(k, by, ttl) { return Number(await cmd<number>("EVAL", INCRBY_EX_LUA, 1, k, Math.floor(by), ttl)); },
     async ttl(k) { return Number(await cmd<number>("TTL", k)); },
     async expireIfEq(k, v, ttl) { return Number(await cmd<number>("EVAL", EXPIRE_IF_EQ_LUA, 1, k, v, ttl)) === 1; },
     async delIfEq(k, v) { return Number(await cmd<number>("EVAL", DEL_IF_EQ_LUA, 1, k, v)) === 1; },

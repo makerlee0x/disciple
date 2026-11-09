@@ -39,6 +39,7 @@ import { broadcastError } from "../aa/relayOp";
 import { SenderTrust } from "./relayTrust";
 import { authorizeRelayOperation, checkRelayAccount, warmRelayAccountTemplates, type RelayAuthReads } from "./relayAuth";
 import { kvTrustStore } from "./relayTrustStore";
+import { relayBreaker, relayerNetWei } from "./relayBreaker";
 import { lockedRelay, recheckUnderLease, relaySendBudget, requireExpiryMargin, requireLogin, requireSelfBundlerMode, strikeSource, type FreshFacts } from "./relayLockdown";
 
 const epAbi = parseAbi([
@@ -401,6 +402,10 @@ async function commitOp(op: UserOp, v: Validated, fresh: Promise<void>, onPendin
   for (const l of r.rc.logs) {
     if (l.address.toLowerCase() !== ENTRYPOINT_V07.toLowerCase()) continue;
     try { const ev = decodeEventLog({ abi: [uoEvent], data: l.data, topics: l.topics as [Hex, ...Hex[]] }); if ((ev.args as { userOpHash: Hex }).userOpHash === hash) success = (ev.args as { success: boolean }).success; } catch { /* other event */ }
+  }
+  { // item a: an included revert or a net-negative reimbursement feeds the loss breaker (KV only on that path)
+    const net = relayerNetWei(r.rc, ENTRYPOINT_V07), reverted = r.rc.status !== "0x1";
+    if (reverted || (net !== undefined && net < BigInt(0))) await relayBreaker.record({ reverted, lossWei: net !== undefined && net < BigInt(0) ? -net : BigInt(0) }).catch(() => false);
   }
   if (r.rc.status !== "0x1") TRUST.strike(op.sender);   // escalating backoff; fast path returns only after a passing simulation
   else if (TRUST.get(op.sender)) { TRUST.succeeded(op.sender, fast, senderPrefund(op)); void primeSender(op.sender).catch(() => undefined); } // conservative until refresh

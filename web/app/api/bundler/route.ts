@@ -1,5 +1,6 @@
 import { RelayMetrics } from "@/lib/server/relayMetrics";
 import { requireSelfBundlerMode } from "@/lib/server/relayLockdown";
+import { relayBreaker } from "@/lib/server/relayBreaker";
 import { streamRelay } from "@/lib/server/relayStream";
 import { selfBundle } from "@/lib/server/selfBundler";
 import { bsoPolicyId, checkSponsoredOperation } from "@/lib/server/gasSponsorship";
@@ -55,6 +56,7 @@ export async function POST(req: Request) {
       const n = await metrics.span("rateLimitStore", () => kv().incrEx(`relay:ip:${clientIp(req.headers)}`, 60));
       if (n > 120) return limitedResponse(body.id, body.method, 60);
       if (body.method === "disciple_warm") return NextResponse.json({ jsonrpc: "2.0", id: body.id, result: await selfBundle(body.method, body.params) });
+      relayBreaker.assertClosed();   // item a: in-process mirror, no I/O here; open ⇒ notSent (nothing leased/signed)
       if (body.params.length < 2 || body.params.length > 3 || String(body.params[1]).toLowerCase() !== "0x0000000071727de22e5e9d8baf0edac6f37da032") throw new Error("invalid EntryPoint/params");
       return streamRelay(body.params, async () => undefined, undefined, undefined, metrics);
     } catch (e) {
