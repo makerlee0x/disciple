@@ -84,12 +84,21 @@ export type LoginSetupDeps = {
   onChange?(): void;
 };
 
-type Acct = { inflight?: Promise<SetupOutcome>; fails: number; retryAt: number; failedAt: number; okUntil: number; lastError: string; lastDetail: string };
+type Acct = { inflight?: Promise<SetupOutcome>; startedAt: number; gen: number; fails: number; retryAt: number; failedAt: number; okUntil: number; lastError: string; lastDetail: string };
 
-export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; leaseMs?: number } = {}) {
-  const cooldownMs = o.cooldownMs ?? 15_000, leaseMs = o.leaseMs ?? 60_000;
+/**
+ * A setup run that hasn't settled after this long is abandoned (#259 follow-up, Nov 9 11:55 CT): the owner-signed
+ * install has no bound of its own before the bundler send (e.g. an embedded-wallet signature that never returns after
+ * the login expired), and every later trigger used to JOIN that dead promise, so trades said "getting ready" until
+ * sign-out reset the coordinator. Longer than a healthy install (owner op ≤ ~30 s receipt wait + quote/sign).
+ */
+export const SETUP_STALE_MS = 120_000;
+
+export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; leaseMs?: number; staleMs?: number } = {}) {
+  const cooldownMs = o.cooldownMs ?? 15_000, leaseMs = o.leaseMs ?? 60_000, staleMs = o.staleMs ?? SETUP_STALE_MS;
   const acc = new Map<string, Acct>();
-  const get = (a: string) => { const k = a.toLowerCase(); let s = acc.get(k); if (!s) { s = { fails: 0, retryAt: 0, failedAt: 0, okUntil: 0, lastError: "", lastDetail: "" }; acc.set(k, s); } return s; };
+  const get = (a: string) => { const k = a.toLowerCase(); let s = acc.get(k); if (!s) { s = { startedAt: 0, gen: 0, fails: 0, retryAt: 0, failedAt: 0, okUntil: 0, lastError: "", lastDetail: "" }; acc.set(k, s); } return s; };
+  const live = (s: Acct | undefined) => !!s?.inflight && d.now() - s.startedAt < staleMs;
   let retryTimer = false;
   const later = (a: string, ms: number) => {
     if (!d.schedule || retryTimer) return;
@@ -103,7 +112,7 @@ export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; le
     let health: SessionHealth | undefined;
     if (deployed) {
       health = await d.health(a);
-      if (health === "live") return "ready";
+      if (health === "live") { s.fails = 0; s.retryAt = 0; s.lastError = ""; s.lastDetail = ""; return "ready"; }   // e.g. another tab finished it
     }
     if (d.lease && !d.lease.acquire(a, leaseMs)) { later(a, Math.min(leaseMs, 10_000)); return "other-tab"; }
     try {
@@ -124,11 +133,18 @@ export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; le
       if (!d.enabled()) return Promise.resolve("disabled");
       if (d.oneTapOff(account)) return Promise.resolve("one-tap-off");
       const s = get(account);
-      if (s.inflight) return s.inflight.then((r) => (r === "failed" ? r : "joined"));
+      if (live(s)) return s.inflight!.then((r) => (r === "failed" ? r : "joined"));
+      if (s.inflight) {
+        // stale run: abandon it (its late result is ignored by the generation check) and start a fresh check below
+        d.warn("[disciple] one-tap setup did not settle; starting it again", { why, staleMs: d.now() - s.startedAt });
+        s.inflight = undefined;
+      }
       const now = d.now();
       if (now < s.okUntil) return Promise.resolve("cooldown");
       if (now < (opt.urgent ? Math.min(s.retryAt, s.failedAt + backoffMs(1)) : s.retryAt)) return Promise.resolve("backoff");
+      const gen = ++s.gen;
       const p = run(account, why, s).catch((e) => {
+        if (gen !== s.gen) return "failed" as SetupOutcome;   // abandoned run: no state changes
         s.fails++; s.failedAt = d.now(); s.retryAt = s.failedAt + backoffMs(s.fails);
         const info = errorDiagnostic(e), msg = String(info.detail || info.message);
         s.lastDetail = msg;
@@ -136,8 +152,10 @@ export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; le
         d.warn(`[disciple] one-tap setup at sign-in failed: ${msg}`, { why, attempt: s.fails, retryInMs: backoffMs(s.fails), error: msg, ...info });
         later(account, backoffMs(s.fails));
         return "failed" as SetupOutcome;
-      }).finally(() => { s.inflight = undefined; try { d.onChange?.(); } catch { /* */ } });
-      s.inflight = p;
+      }).finally(() => { if (gen !== s.gen) return; s.inflight = undefined; try { d.onChange?.(); } catch { /* */ } });
+      s.inflight = p; s.startedAt = now;
+      // automatic re-kick if this run never settles (no tap / refocus needed)
+      d.schedule?.(staleMs, () => { if (s.gen === gen && s.inflight === p) void ensure(account, "stale-retry"); });
       try { d.onChange?.(); } catch { /* */ }
       return p;
     } catch (e) {
@@ -147,8 +165,8 @@ export function createLoginSetup(d: LoginSetupDeps, o: { cooldownMs?: number; le
   }
   return {
     ensure,
-    busy: (account?: string | null) => !!account && !!acc.get(account.toLowerCase())?.inflight,
-    anyBusy: () => [...acc.values()].some((s) => !!s.inflight),
+    busy: (account?: string | null) => !!account && live(acc.get(account.toLowerCase())),
+    anyBusy: () => [...acc.values()].some((s) => live(s)),
     lastError: (account?: string | null) => (account ? acc.get(account.toLowerCase())?.lastError ?? "" : ""),
     /** Full safe technical reason is console-only; lastError remains the existing player-facing copy. */
     lastDetail: (account?: string | null) => (account ? acc.get(account.toLowerCase())?.lastDetail ?? "" : ""),
