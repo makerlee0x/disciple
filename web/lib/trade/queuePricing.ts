@@ -44,6 +44,21 @@ export function tradeMinOut(r: { lo: bigint; hi: bigint }, slippageBps: number |
   return own > w ? own : w;
 }
 
+/** Fill-to-limit (lee, Oct 31): an over-room buy sends more than the room costs and the curve partial-fills to the
+ *  wallet cap. A quote that doesn't know the cap (model-scaled from other sizes, TRENCH quoteBuy, own in-flight buys
+ *  applied uncapped) can promise more coins than the cap lets through ⇒ minOut is priced on min(quote, room) — never
+ *  above the room ceiling (TradeBridge passes room × (1 − 0.5 %)). No ceiling ⇒ the range unchanged. */
+export function roomCappedRange(r: { lo: bigint; hi: bigint }, maxOut?: bigint | null): { lo: bigint; hi: bigint } {
+  if (maxOut == null || maxOut <= B(0)) return r;
+  return { lo: r.lo < maxOut ? r.lo : maxOut, hi: r.hi < maxOut ? r.hi : maxOut };
+}
+/** Token units (float, as TradeBridge tracks holdings) → wei, floored (6 decimals of precision, never rounds up). */
+export function tokensToWei(tokens: number, decimals = 18): bigint {
+  if (!(tokens > 0) || !Number.isFinite(tokens)) return B(0);
+  const micro = B(Math.floor(tokens * 1e6));
+  return decimals >= 6 ? micro * B(10) ** B(decimals - 6) : micro / B(10) ** B(6 - decimals);
+}
+
 /** Release an in-flight amount once the RPC's head is ≥ the block the trade landed in (≤ maxMs; unknown block ⇒ lagMs). */
 export async function holdInflightUntilSeen(done: () => void, block: bigint | number | undefined | null, head: () => Promise<bigint>,
   o: { lagMs?: number; maxMs?: number; everyMs?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<void> {
