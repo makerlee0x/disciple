@@ -73,23 +73,30 @@ test("non-production keeps the faucet fallback with a one-time warning", () => {
   quiet(() => notConfigured(() => relayerKey({ ...DEV })));
 });
 
-test("/api/bundler: production without a dedicated relayer key answers 503 'relayer not configured' (no RPC, no signing)", async () => {
+test("/api/bundler: production never reaches the relayer key: protocol relay / self-bundler fail closed (no RPC, no signing)", async () => {
+  // Since #246 Production has no protocol relay: eth_sendUserOperation is external-bundler only (503 when that bundler
+  // isn't configured) and the self-bundler methods are refused outright (Preview/local testnet only). Either way the
+  // relayer key (or the faucet key) is never read for signing and nothing touches the network.
   const saved = { ...process.env };
   const fetchSaved = globalThis.fetch;
   let fetched = 0; globalThis.fetch = (async () => { fetched++; throw new Error("network disabled in test"); }) as typeof fetch;
   try {
     for (const k of ["ALCHEMY_API_KEY", "NEXT_PUBLIC_ALCHEMY_API_KEY", "UPSTASH_REDIS_REST_URL", "KV_REST_API_URL", "RELAYER_PRIVATE_KEY"]) delete process.env[k];
-    Object.assign(process.env, { VERCEL_ENV: "production", NODE_ENV: "production", DRIP_FAUCET_KEY: FAUCET, KV_LOCAL_FILE: `/tmp/disciple-kv-test-${process.pid}.json` });
+    Object.assign(process.env, { VERCEL_ENV: "production", NODE_ENV: "production", DRIP_FAUCET_KEY: FAUCET, KV_LOCAL_FILE: `/tmp/disciple-kv-test-${process.pid}.json`, KV_ALLOW_LOCAL: "1" });
     const { POST } = await import("../app/api/bundler/route");
     const op = { sender: "0x1111111111111111111111111111111111111111", nonce: "0x0", callData: "0x", signature: "0x" };
-    for (const [method, params] of [["eth_sendUserOperation", [op, "0x0000000071727De22E5E9d8BAf0edAc6f37da032"]], ["disciple_sendUserOperationSync", [op]], ["disciple_warm", []]] as const) {
-      for (const relayer of [undefined, FAUCET]) {
+    const expect = { eth_sendUserOperation: [503, /protocol relay disabled/], disciple_sendUserOperationSync: [403, /self-bundler disabled/], disciple_warm: [403, /self-bundler disabled/] } as const;
+    for (const [method, params] of [["eth_sendUserOperation", [op, "0x0000000071727De22E5E9d8BAf0edAc6f37da032"]], ["disciple_sendUserOperationSync", [op, "0x0000000071727De22E5E9d8BAf0edAc6f37da032"]], ["disciple_warm", [op.sender]]] as const) {
+      for (const relayer of [undefined, FAUCET, RELAYER]) {
         if (relayer) process.env.RELAYER_PRIVATE_KEY = relayer; else delete process.env.RELAYER_PRIVATE_KEY;
         const res = await quietAsync(() => POST(new Request("http://localhost/api/bundler", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 7, method, params }) })));
-        assert.equal(res.status, 503, `${method} relayer=${relayer ? "faucet" : "unset"}`);
-        const j = await res.json() as { id: number; error: { message: string } };
+        const tag = `${method} relayer=${relayer === FAUCET ? "faucet" : relayer ? "dedicated" : "unset"}`;
+        assert.equal(res.status, expect[method][0], tag);
+        const j = await res.json() as { id: number; result?: unknown; error: { message: string; data?: { notSent?: boolean } } };
         assert.equal(j.id, 7);
-        assert.match(j.error.message, /relayer not configured/);
+        assert.equal(j.result, undefined, tag);
+        assert.match(j.error.message, expect[method][1], tag);
+        if (method !== "eth_sendUserOperation") assert.equal(j.error.data?.notSent, true, tag);
       }
     }
     assert.equal(fetched, 0, "no RPC before failing closed");
