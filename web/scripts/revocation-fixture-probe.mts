@@ -28,16 +28,21 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createModularAccountV2 } from "@account-kit/smart-contracts";
 import { LocalAccountSigner } from "@aa-sdk/core";
-import { buildCreateSession, buildUninstallSession, TRADE_PERMS } from "@disciple/session-keys";
+import { buildCreateSession, buildUninstallSession, TRADE_PERMS, readSession } from "@disciple/session-keys";
 import { getDefaultSingleSignerValidationModuleAddress, getDefaultTimeRangeModuleAddress } from "@account-kit/smart-contracts/experimental";
 
-const RUN = process.argv.includes("--run");
+const RUN = process.argv.includes("--run"), CHECK = process.argv.includes("--check");
 const EP = "0x0000000071727De22E5E9d8BAf0edAc6f37da032" as Address, FIX = "0x64a9904b9Dc4835C4a68B3Fde7C84ED081aFd941" as Address;
 const REAL = "0xf4C6B87aDBf4D762dfD104415B537b2cf5551109" as Address, RELAYER = "0xa589d5d1cD0D52f547AF4Ee3dF05383cdee26C64" as Address;
 const LOGIN = "0xebDD6Ad15a6B838eE15Dc7d5871F09EFB284317D" as Address, POLICY = "0xD2cF85dd7cDC3c3e53EA0472BF6Bf006de45E4d2" as Address;
 const USDG = "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d" as Address, ROUTER = "0x688160633b22012717661545df6299d3d3174ad2" as Address, COIN = "0xab9e86498c9b32743e31b0fca02d6b254bcddd4e" as Address;
 const FACTORY = "0x00000000000017c61b5bEe81050EC8eFc9c6fecd" as Address, GAS_TEMPLATE = "0x3a9664d9c02e3693368a2bdf04e19a8a6a634ebedd6e08bf9a1c876e1b15c759" as Hex;
-const OUT = "/workspace/self-bundler-revocation/fixture-probe-evidence.json";
+const { DEPLOYMENTS } = await import("../lib/chains");
+const { ANON_ADDONS } = await import("../lib/anon");
+const D = DEPLOYMENTS[46630];
+const TARGETS = { router: D.router, launchpad: D.launchpad, trampWallManager: D.trampWallManager, anonLauncher: ANON_ADDONS[46630].anonLauncher };
+const CAPS = [{ token: D.defaultQuote, cap: 10n ** 24n }, { token: USDG, cap: 1_000_000n }];
+const OUT = `/workspace/self-bundler-revocation/fixture-probe-${process.argv.slice(2).join("_").replace(/[^a-z_-]/g, "") || "preflight"}-${Date.now()}.json`; // never overwrite a prior run
 const ct = () => new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }) + " CT";
 const js = (x: unknown) => JSON.stringify(x, (_, y) => (typeof y === "bigint" ? String(y) : y), 2);
 const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -57,11 +62,12 @@ const abi = parseAbi([
 ]);
 const sessAbi = parseAbi(["function sessionOf(address,uint32) view returns ((bool active, uint64 spent0, uint64 spent1, (uint48 validUntil, uint16 maxSlippageBps) cfg))"]);
 const read = (address: Address, functionName: string, args: unknown[] = []) => pc.readContract({ address, abi, functionName, args } as any) as Promise<any>;
-const sessionOf = (e: number) => pc.readContract({ address: POLICY, abi: sessAbi, functionName: "sessionOf", args: [FIX, e] }).catch(() => null);
+const sessionOf = async (e: number) => { const r = await readSession(pc as any, POLICY, FIX, e); return { active: r.active, validUntil: r.validUntil, permissions: r.permissions }; }; // throws on read failure (no silent null)
+void sessAbi;
 const p16 = (x: bigint) => pad(numberToHex(x), { size: 16 });
 type Packed = { sender: Address; nonce: bigint; initCode: Hex; callData: Hex; accountGasLimits: Hex; preVerificationGas: bigint; gasFees: Hex; paymasterAndData: Hex; signature: Hex };
-async function simulate(op: Packed, from: Address) {
-  try { await pc.call({ account: from, to: EP, data: encodeFunctionData({ abi, functionName: "handleOps", args: [[op], from] }) }); return { ok: true }; }
+async function simulate(op: Packed, from: Address, fundOverride = false) {
+  try { await pc.call({ account: from, to: EP, data: encodeFunctionData({ abi, functionName: "handleOps", args: [[op], from] }), ...(fundOverride ? { stateOverride: [{ address: FIX, balance: 10n ** 18n }] } : {}) }); return { ok: true }; }
   catch (e: any) { let d: Hex | undefined; e.walk?.((x: any) => { if (typeof x?.data === "string" && /^0x[0-9a-f]{8,}$/i.test(x.data)) { d = x.data; return true; } return false; });
     if (!d) return { ok: false, reason: "undecodable" }; const r = decodeErrorResult({ abi, data: d }); return { ok: false, error: r.errorName, reason: String((r.args as any)[1]) }; }
 }
@@ -84,6 +90,44 @@ try {
     exactOpCost: { ownerUserOps: 2, tradeUserOps: 0, rejectedPreviewPosts: 1, nativeTxs: "2 handleOps + (1 depositTo only if shortfall > 0)" },
     caveat: "LoginGate verifiedUntil is 0 for the fixture, so the hosted rejection will be the LoginGate gate (first in admission), not the session gate. On-chain revocation is proven by sessionOf + exact eth_call; the session gate itself is covered by unit tests." });
   save();
+  const RESUME = process.argv.includes("--resume-uninstall") || process.argv.includes("--check-uninstall");
+  if (RESUME) { // finishes the 12:05 run whose op 1 landed (entity from its SessionInstalled log); op cap 1 here
+    const entity = Number(process.env.RESUME_ENTITY); const send = process.argv.includes("--resume-uninstall");
+    if (!entity) throw Error("STOP RESUME_ENTITY required");
+    const acct1 = await createModularAccountV2({ chain: chain as any, transport: custom(pc) as any, signer: LocalAccountSigner.privateKeyToAccountSigner(rec.owner as Hex), accountAddress: FIX });
+    const before = await sessionOf(entity); ev.resume = { entity, before, ct: ct() }; save();
+    if (!before.active) throw Error("STOP resumed session not active");
+    const callData = await acct1.encodeExecute({ target: FIX, data: buildUninstallSession(entity, modules as any) as Hex }) as Hex;
+    const op: Packed = { sender: FIX, nonce: await acct1.getAccountNonce(), initCode: "0x", callData, accountGasLimits: concat([p16(VGL), p16(CGL)]), preVerificationGas: PVG, gasFees: concat([p16(tip), p16(maxFee)]), paymasterAndData: "0x", signature: "0x" };
+    const hash = await read(EP, "getUserOpHash", [op]) as Hex; op.signature = await acct1.signUserOperationHash(hash) as Hex;
+    const from = (process.env.DEPLOYER_ADDRESS ?? "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5") as Address;
+    const sim = await simulate(op, from); Object.assign(ev.resume, { userOpHash: hash, nonce: op.nonce, simulation: sim }); save();
+    if (!sim.ok) throw Error("STOP uninstall exact simulation failed");
+    if (!send) { console.log(js(ev.resume)); process.exit(0); }
+    if (process.env.REVOCATION_APPROVED !== "1") throw Error("STOP REVOCATION_APPROVED=1 required");
+    const deployer = privateKeyToAccount(process.env.PRIVATE_KEY as Hex);
+    if (!eq(deployer.address, process.env.DEPLOYER_ADDRESS ?? "") || eq(deployer.address, owner.address)) throw Error("STOP deployer mismatch");
+    const wc = createWalletClient({ account: deployer, chain, transport: http(rpc, { retryCount: 0 }) });
+    ev.ownerOpsSent = 1; save();
+    const h = await wc.writeContract({ address: EP, abi, functionName: "handleOps", args: [[op], deployer.address], gas: 1_500_000n });
+    const r = await pc.waitForTransactionReceipt({ hash: h }); Object.assign(ev.resume, { txHash: h, status: r.status, block: r.blockNumber }); save();
+    if (r.status !== "success") throw Error("STOP uninstall reverted; no retry");
+    const single = getDefaultSingleSignerValidationModuleAddress(chain as any);
+    const after = await sessionOf(entity); const signer = await pc.readContract({ address: single, abi: parseAbi(["function signers(uint32,address) view returns (address)"]), functionName: "signers", args: [entity, FIX] });
+    Object.assign(ev.resume, { after, signerAfter: signer, endCT: ct() }); save(); console.log(js(ev.resume));
+    if (after.active || !eq(signer, "0x0000000000000000000000000000000000000000")) { console.error("CRITICAL session still present after uninstall"); process.exitCode = 2; }
+    process.exit();
+  }
+  if (CHECK) { // zero-send: build + sign op 1 with a throwaway session key, exact-simulate with a balance-only eth_call override
+    const acct0 = await createModularAccountV2({ chain: chain as any, transport: custom(pc) as any, signer: LocalAccountSigner.privateKeyToAccountSigner(rec.owner as Hex), accountAddress: FIX });
+    const sk0 = privateKeyToAccount(generatePrivateKey()); const now0 = Number(block.timestamp);
+    const setup0 = buildCreateSession({ now: now0, modules, targets: TARGETS, sessionSigner: sk0.address, ttlSec: 900, permissions: TRADE_PERMS, caps: CAPS } as any);
+    const cd0 = await acct0.encodeExecute({ target: FIX, data: setup0.data as Hex }) as Hex;
+    const op0: Packed = { sender: FIX, nonce: await acct0.getAccountNonce(), initCode: "0x", callData: cd0, accountGasLimits: concat([p16(VGL), p16(CGL)]), preVerificationGas: PVG, gasFees: concat([p16(tip), p16(maxFee)]), paymasterAndData: "0x", signature: "0x" };
+    const h0 = await read(EP, "getUserOpHash", [op0]) as Hex; op0.signature = await acct0.signUserOperationHash(h0) as Hex;
+    ev.check = { nonce: op0.nonce, entityId: setup0.entityId, simulationWithBalanceOverride: await simulate(op0, "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5", true), simulationNoOverride: await simulate(op0, "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5") };
+    save(); console.log(js(ev.check)); process.exit(0);
+  }
   if (!RUN) { console.log(js({ preflight: "ok", ...ev })); process.exit(0); }
 
   // ---------- RUN (approval required) ----------
@@ -101,7 +145,7 @@ try {
   }
   async function ownerOp(label: string, data: Hex) {
     if (ev.ownerOpsSent >= 2) throw Error("STOP owner-op cap");
-    const callData = await acct.encodeCalls([{ target: FIX, data }]) as Hex;
+    const callData = await acct.encodeExecute({ target: FIX, data }) as Hex;
     const op: Packed = { sender: FIX, nonce: await acct.getAccountNonce(), initCode: "0x", callData, accountGasLimits: concat([p16(VGL), p16(CGL)]), preVerificationGas: PVG, gasFees: concat([p16(tip), p16(maxFee)]), paymasterAndData: "0x", signature: "0x" };
     const hash = await read(EP, "getUserOpHash", [op]) as Hex; op.signature = await acct.signUserOperationHash(hash) as Hex;
     const sim = await simulate(op, deployer.address); ev[label] = { userOpHash: hash, simulation: sim, ct: ct() }; save();
@@ -113,7 +157,8 @@ try {
   }
   const sessionKey = privateKeyToAccount(generatePrivateKey()); // in RAM only; discarded at exit
   const now = Number((await pc.getBlock()).timestamp);
-  const setup = buildCreateSession({ now, modules, targets: { router: ROUTER } as any, sessionSigner: sessionKey.address, ttlSec: 900, permissions: TRADE_PERMS, caps: [{ token: USDG, cap: 1_000_000n }] } as any);
+  const setup = buildCreateSession({ now, modules, targets: TARGETS, sessionSigner: sessionKey.address, ttlSec: 900, permissions: TRADE_PERMS, caps: CAPS } as any);
+  ev.entityId = setup.entityId; save();
   await ownerOp("op1_installSession", setup.data as Hex);
   const live = await sessionOf(setup.entityId); ev.afterInstall = live; save(); if (!live?.active) throw Error("STOP install did not activate");
   await ownerOp("op2_uninstallSession", buildUninstallSession(setup.entityId, modules as any) as Hex);
