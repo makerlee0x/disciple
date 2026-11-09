@@ -21,6 +21,8 @@
  * in the same command (never echoed) and the Preview share token on stdin. Hard cap: 2 owner ops, 1 POST.
  * Every owner op is exact-simulated first (eth_call handleOps). Any surprise => STOP, no retry.
  * Never prints keys, the RPC URL or the share token.
+ * AUDIT r264 hardening 5 (M4): before EVERY uninstall send, the relay revoke marker (lib/relayRevokeMarker) is written to
+ * the shared KV (UPSTASH_REDIS_REST_* / KV_REST_API_* env, never printed). No KV env or a failed write ⇒ STOP, nothing sent.
  */
 import { createPublicClient, createWalletClient, custom, http, encodeFunctionData, parseAbi, concat, pad, numberToHex, decodeErrorResult, type Address, type Hex } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
@@ -90,6 +92,12 @@ try {
     exactOpCost: { ownerUserOps: 2, tradeUserOps: 0, rejectedPreviewPosts: 1, nativeTxs: "2 handleOps + (1 depositTo only if shortfall > 0)" },
     caveat: "LoginGate verifiedUntil is 0 for the fixture, so the hosted rejection will be the LoginGate gate (first in admission), not the session gate. On-chain revocation is proven by sessionOf + exact eth_call; the session gate itself is covered by unit tests." });
   save();
+  /** M4: relay revoke marker BEFORE the on-chain revoke; any failure ⇒ STOP (nothing sent). */
+  async function markRevoked(sender: Address) {
+    const { writeRevokeMarker, REVOKE_MARKER_TTL_SEC } = await import("../lib/relayRevokeMarker");
+    try { await writeRevokeMarker(sender); } catch (e) { throw Error(`STOP ${(e as Error).message}`); }
+    ev.revokeMarker = { sender, ttlSec: REVOKE_MARKER_TTL_SEC, ct: ct() }; save();
+  }
   const RESUME = process.argv.includes("--resume-uninstall") || process.argv.includes("--check-uninstall");
   if (RESUME) { // finishes the 12:05 run whose op 1 landed (entity from its SessionInstalled log); op cap 1 here
     const entity = Number(process.env.RESUME_ENTITY); const send = process.argv.includes("--resume-uninstall");
@@ -108,6 +116,7 @@ try {
     const deployer = privateKeyToAccount(process.env.PRIVATE_KEY as Hex);
     if (!eq(deployer.address, process.env.DEPLOYER_ADDRESS ?? "") || eq(deployer.address, owner.address)) throw Error("STOP deployer mismatch");
     const wc = createWalletClient({ account: deployer, chain, transport: http(rpc, { retryCount: 0 }) });
+    await markRevoked(FIX);
     ev.ownerOpsSent = 1; save();
     const h = await wc.writeContract({ address: EP, abi, functionName: "handleOps", args: [[op], deployer.address], gas: 1_500_000n });
     const r = await pc.waitForTransactionReceipt({ hash: h }); Object.assign(ev.resume, { txHash: h, status: r.status, block: r.blockNumber }); save();
@@ -161,6 +170,7 @@ try {
   ev.entityId = setup.entityId; save();
   await ownerOp("op1_installSession", setup.data as Hex);
   const live = await sessionOf(setup.entityId); ev.afterInstall = live; save(); if (!live?.active) throw Error("STOP install did not activate");
+  await markRevoked(FIX);
   await ownerOp("op2_uninstallSession", buildUninstallSession(setup.entityId, modules as any) as Hex);
   const dead = await sessionOf(setup.entityId); ev.afterRevoke = dead; save(); if (dead?.active) throw Error("STOP revoke left session active");
 

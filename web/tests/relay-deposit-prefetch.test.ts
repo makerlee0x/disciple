@@ -36,6 +36,8 @@ it("preserves freshness recheck and late nonce allocation in actual relay wiring
   const at = (needle: string) => { const i = send.indexOf(needle); expect(i, needle).toBeGreaterThan(0); return i; };
   expect(at("authorizeRelayOperation(op")).toBeLessThan(at("r = await sendWithCursor"));
   expect(at("await Promise.all([relaySendBudget(op.sender, metrics), fresh]);")).toBeLessThan(at("r = await sendWithCursor"));
-  expect(at("recheckUnderLease(op, metrics)")).toBeGreaterThan(at("async function recheckOp"));
+  expect(at("recheckUnderLease(op, metrics)")).toBeGreaterThan(at("async function freshReadsOp"));
+  // AUDIT M1: the deposit guard always runs under the lease (underLeaseOp), alongside the expiry margin (M2).
+  expect(at("requireExpiryMargin(f); await depositGuard(op, v.fee, metrics);")).toBeGreaterThan(at("async function underLeaseOp"));
   expect(send).toContain('"nonceAllocate"'); expect(send).toContain('"l1ResidualWait"');
 });

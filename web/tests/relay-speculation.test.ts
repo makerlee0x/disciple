@@ -3,7 +3,7 @@
  * the state it relied on is re-checked UNDER the lease before any relayer nonce, signature or send.
  * Real fastRelay + relayLockdown wiring; every RPC/KV/send is mocked. No chain operations.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeFunctionData, pad, parseAbi, type Address, type Hex } from "viem";
 import { generatePrivateKey } from "viem/accounts";
 const h = vi.hoisted(() => {
@@ -11,7 +11,7 @@ const h = vi.hoisted(() => {
   return {
     chain: vi.fn(), block: vi.fn(), read: vi.fn(), call: vi.fn(), code: vi.fn(), slot: vi.fn(), txCount: vi.fn(), balance: vi.fn(),
     session: vi.fn(), curveOf: vi.fn(), curveInfo: vi.fn(),
-    mget: vi.fn(), gen: vi.fn(), set: vi.fn(), del: vi.fn(), incr: vi.fn(),
+    mget: vi.fn(), gate: vi.fn(), gen: vi.fn(), set: vi.fn(), del: vi.fn(), incr: vi.fn(),
     deposit: vi.fn(), send: vi.fn(), events: [] as string[],
   };
 });
@@ -20,7 +20,8 @@ vi.mock("viem", async original => ({ ...await original<typeof import("viem")>(),
   getTransactionCount: h.txCount, getBalance: h.balance,
 }) }));
 vi.mock("@disciple/session-keys", async original => ({ ...await original<typeof import("@disciple/session-keys")>(), readSession: h.session }));
-vi.mock("../lib/server/kv", () => ({ kv: () => ({ mget: h.mget, nonceAlloc: h.gen, setNX: h.set, delIfEq: h.del, incrEx: h.incr, ttl: async () => -2 }) }));
+// Fence snapshot MGET [leasegen, pending] → h.mget; revoke-marker / strike-ledger MGETs → h.gate.
+vi.mock("../lib/server/kv", () => ({ kv: () => ({ mget: (ks: string[]) => ks[0].startsWith("relay:leasegen:") ? h.mget(ks) : h.gate(ks), nonceAlloc: h.gen, setNX: h.set, delIfEq: h.del, incrEx: h.incr, ttl: async () => -2 }) }));
 vi.mock("../lib/server/gradBuy", async original => ({ ...await original<typeof import("../lib/server/gradBuy")>(), chainGradReads: () => ({ router: "0x688160633b22012717661545df6299d3d3174ad2", usdg: "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d", curveOf: h.curveOf, curveInfo: h.curveInfo }) }));
 vi.mock("../lib/server/paymasterDeposit", () => ({ allowedPaymaster: () => "0x5C3f7400ED41aCd7409D213caB2909e3b1E31136", paymasterDepositCached: h.deposit, debitPaymasterDeposit: vi.fn() }));
 vi.mock("../lib/server/relayer", () => ({ relayerKey: () => KEY, relayerIsFaucet: () => false }));
@@ -29,6 +30,7 @@ vi.mock("../lib/server/syncSend", async original => ({ ...await original<typeof 
 const KEY = generatePrivateKey();
 process.env.RELAYER_NONCE_SHARED = "0";
 import { sendUserOperationSync } from "../lib/server/fastRelay";
+import { admissionImmutableCache, EXPIRY_MARGIN_SEC, PRE_LEASE_MAX_AGE_MS, requireExpiryMargin, strikeSource } from "../lib/server/relayLockdown";
 import { ACCOUNT_PROXY_RUNTIME } from "../lib/server/relayAuth";
 import { RelayMetrics } from "../lib/server/relayMetrics";
 import type { UserOp } from "../lib/aa/core";
@@ -55,15 +57,20 @@ const op = (): UserOp => ({
 const receipt = { transactionHash: `0x${"ab".repeat(32)}` as Hex, blockHash: `0x${"cd".repeat(32)}` as Hex, blockNumber: "0x1", status: "0x1", gasUsed: "0x1", logs: [] };
 let chainNonce = NONCE, sessionState = { active: true, validUntil: 1000 }, depositWei = 10n ** 18n, verifiedUntil = 1000n;
 const SIM_REVERT = "AA25 invalid account nonce";
+let marker: string | null = null, trust: string | null = null, skew = 0;
+// Local clock offset for the M3 age-cap tests (never touches the mocked chain timestamp).
+const realNow = Date.now.bind(Date);
+vi.spyOn(Date, "now").mockImplementation(() => realNow() + skew);
+afterEach(() => { skew = 0; });
 beforeEach(() => {
-  vi.clearAllMocks(); h.events.length = 0;
+  vi.clearAllMocks(); h.events.length = 0; admissionImmutableCache.clear();
   process.env.GAS_SPONSORSHIP_MODE = "self"; process.env.NEXT_PUBLIC_SESSION_POLICY = "0xD2cF85dd7cDC3c3e53EA0472BF6Bf006de45E4d2";
   delete process.env.VERCEL_ENV; delete process.env.VERCEL;
   chainNonce = NONCE; sessionState = { active: true, validUntil: 1000 }; depositWei = 10n ** 18n; verifiedUntil = 1000n;
   h.chain.mockResolvedValue(46630); h.block.mockResolvedValue({ timestamp: 100n, baseFeePerGas: 1n });
   h.read.mockImplementation(async ({ functionName }: { functionName: string }) => {
-    if (functionName === "getNonce") { h.events.push("recheck:nonce"); return chainNonce; }
-    if (functionName === "verifiedUntil") return verifiedUntil;
+    if (functionName === "getNonce") { h.events.push(`recheck:nonce:${h.set.mock.calls.length ? "underLease" : "beforeLease"}`); return chainNonce; }
+    if (functionName === "verifiedUntil") { h.events.push(`login:${h.set.mock.calls.length ? "underLease" : "beforeLease"}`); return verifiedUntil; }
     if (functionName === "moduleId") return "disciple.session-policy.1.4.3";
     if (functionName === "SEMI_MODULAR_ACCOUNT_IMPL" || functionName === "ACCOUNT_IMPLEMENTATION") return impl;
     return pm;
@@ -80,26 +87,33 @@ beforeEach(() => {
   h.session.mockImplementation(async () => sessionState);
   h.curveOf.mockResolvedValue("0x0000000000000000000000000000000000000033"); h.curveInfo.mockResolvedValue({ token, quote: usdg, graduated: false });
   h.mget.mockResolvedValue(["4", null]);            // generation 4, no lease holder
+  marker = null; trust = null; skew = 0; strikeSource.local = () => 0;
+  h.gate.mockImplementation(async (ks: string[]) => { h.events.push(`gate:${h.set.mock.calls.length ? "underLease" : "beforeLease"}`); return ks.map(k => k.startsWith("relay:revoked:") ? marker : trust); });
   h.gen.mockResolvedValue(4);                       // nobody else held the lease in between
   h.set.mockImplementation(async () => { h.events.push("lease"); return true; }); h.del.mockResolvedValue(true); h.incr.mockResolvedValue(1);
-  h.deposit.mockImplementation(async () => depositWei);
+  h.deposit.mockImplementation(async () => { h.events.push(`deposit:${h.set.mock.calls.length ? "underLease" : "beforeLease"}`); return depositWei; });
   h.send.mockImplementation(async () => { h.events.push("send"); return { rc: receipt, via: "sync", sendMs: 1, minedMs: 0, pending: false }; });
 });
 const noSend = () => { expect(h.send).not.toHaveBeenCalled(); expect(h.events).not.toContain("send"); };
 
 describe("speedup 1: simulate before the lease, re-check under the lease", () => {
-  it("fresh speculation: simulation before the lease, nonce re-check under it, then exactly one send", async () => {
+  it("fresh speculation (speedup (a)): simulation + fresh reads before the lease; under it only fence, marker, deposit guard, expiry margin; then exactly one send", async () => {
     const m = new RelayMetrics();
     const r = await sendUserOperationSync(op(), undefined, undefined, m);
     expect(r.kind).toBe("confirmed");
     expect(h.events.filter(e => e.startsWith("simulate"))).toEqual(["simulate:beforeLease"]);
     expect(h.events.indexOf("simulate:beforeLease")).toBeLessThan(h.events.indexOf("lease"));
-    expect(h.events.indexOf("lease")).toBeLessThan(h.events.indexOf("recheck:nonce"));
-    expect(h.events.indexOf("recheck:nonce")).toBeLessThan(h.events.indexOf("send"));
+    // lee 12:21 CT Nov 9 (full (a)): the nonce / LoginGate re-read moved before the lease; no RPC freshness read under it.
+    expect(h.events).toContain("recheck:nonce:beforeLease");
+    expect(h.events.filter(e => e.endsWith(":underLease") && !e.startsWith("simulate"))).toEqual(expect.arrayContaining(["gate:underLease", "deposit:underLease"]));
+    expect(h.events).not.toContain("recheck:nonce:underLease"); expect(h.events).not.toContain("login:underLease");
+    expect(h.events.indexOf("deposit:underLease")).toBeLessThan(h.events.indexOf("send"));
+    expect(h.events.indexOf("gate:underLease")).toBeLessThan(h.events.indexOf("send"));
     expect(h.send).toHaveBeenCalledOnce();
     const snap = m.snapshot();
     expect(snap.speculationStale).toBe(0); expect(snap.resimulateUnderLease).toBe(0);
-    for (const k of ["freshnessSnapshot", "speculativePreflight", "admissionSimulationWall", "leaseGeneration", "leaseRecheck", "leaseRecheckReads", "admissionWall", "leaseAcquire", "simulate"]) expect(k in snap).toBe(true);
+    for (const k of ["freshnessSnapshot", "speculativePreflight", "preLeaseRecheck", "admissionSimulationWall", "leaseGeneration", "leaseRecheck", "leaseRecheckReads", "admissionWall", "leaseAcquire", "simulate", "revokeStrikeGate"]) expect(k in snap).toBe(true);
+    expect(snap.preLeaseAgeCap).toBe(0);
   });
   it("stale-simulation race: another same-sender op held the lease in between ⇒ re-simulated under the lease; its nonce moved ⇒ notSent, nothing signed or sent", async () => {
     h.gen.mockImplementation(async () => { chainNonce = NONCE + 1n; return 5; });   // the other op landed (same key) and bumped the generation
@@ -120,29 +134,92 @@ describe("speedup 1: simulate before the lease, re-check under the lease", () =>
     await sendUserOperationSync(op());
     expect(h.events.filter(e => e.startsWith("simulate"))).toEqual(["simulate:beforeLease", "simulate:underLease"]);
   });
-  it("same-key nonce changes between simulation and lease (generation unchanged) ⇒ under-lease nonce re-check: notSent, retryable, nothing sent", async () => {
-    h.set.mockImplementation(async () => { h.events.push("lease"); chainNonce = NONCE + 1n; return true; });
-    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, retryable: true, message: expect.stringContaining("nonce changed") });
+  // Reworked per lee 12:21 CT Nov 9 (was :123 same-key nonce change ⇒ under-lease re-read): now the M3 age-cap path.
+  it("age cap (M3): pre-lease reads older than the cap ⇒ fresh read wave again under the lease; nonce moved ⇒ notSent, retryable, nothing sent", async () => {
+    h.set.mockImplementation(async () => { h.events.push("lease"); chainNonce = NONCE + 1n; skew = PRE_LEASE_MAX_AGE_MS + 50; return true; });
+    const m = new RelayMetrics();
+    await expect(sendUserOperationSync(op(), undefined, undefined, m)).rejects.toMatchObject({ notSent: true, retryable: true, message: expect.stringContaining("nonce changed") });
+    expect(m.snapshot().preLeaseAgeCap).toBe(1); expect(h.events).toContain("recheck:nonce:underLease");
     noSend(); expect(h.del).toHaveBeenCalledOnce();
   });
-  it("session revoked between simulation and lease ⇒ notSent, nothing signed or sent", async () => {
-    h.set.mockImplementation(async () => { h.events.push("lease"); sessionState = { active: false, validUntil: 1000 }; return true; });
-    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("inactive") });
+  // Reworked per lee 12:21 CT Nov 9 (was :128 session revoked ⇒ under-lease re-read): now the M4 revoke-marker path.
+  it("revoke marker (M4) written after admission ⇒ read with the fence under the lease ⇒ notSent, no budget, nothing signed or sent", async () => {
+    h.set.mockImplementation(async () => { h.events.push("lease"); marker = String(Date.now()); sessionState = { active: false, validUntil: 1000 }; return true; });
+    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("revoked") });
+    expect(h.events).toContain("gate:underLease"); expect(h.incr).not.toHaveBeenCalled(); noSend(); expect(h.del).toHaveBeenCalledOnce();
+  });
+  // Reworked per lee 12:21 CT Nov 9 (was :133 LoginGate cleared ⇒ under-lease re-read): now the M3 age-cap path.
+  it("age cap (M3): LoginGate cleared and pre-lease reads past the cap ⇒ under-lease LoginGate re-read ⇒ notSent", async () => {
+    h.set.mockImplementation(async () => { h.events.push("lease"); verifiedUntil = 0n; skew = PRE_LEASE_MAX_AGE_MS + 1; return true; });
+    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("unauthenticated") });
+    expect(h.events).toContain("login:underLease"); noSend();
+  });
+  // Reworked per lee 12:21 CT Nov 9 (was :143 implementation changed ⇒ under-lease re-read): now the stale-fence path.
+  it("stale fence: implementation changed and the generation moved ⇒ full stale path (re-admission + re-validation) ⇒ notSent", async () => {
+    h.set.mockImplementation(async () => { h.events.push("lease"); h.slot.mockResolvedValue(pad(router, { size: 32 })); return true; });
+    h.gen.mockResolvedValue(5);
+    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("implementation") });
+    expect(h.events).toContain("login:underLease");   // re-admission ran under the lease even though nothing queued
     noSend();
   });
-  it("LoginGate cleared between simulation and lease ⇒ notSent", async () => {
-    h.set.mockImplementation(async () => { h.events.push("lease"); verifiedUntil = 0n; return true; });
-    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("unauthenticated") });
-    noSend();
+  it("ACCEPTED WINDOW (lee 12:21 CT Nov 9): an external revoke after the pre-lease read, fence unchanged, inside the age cap and without a marker, is NOT caught off-chain (on-chain validation decides)", async () => {
+    h.set.mockImplementation(async () => { h.events.push("lease"); sessionState = { active: false, validUntil: 1000 }; return true; });
+    await expect(sendUserOperationSync(op())).resolves.toMatchObject({ kind: "confirmed" });
+    expect(h.send).toHaveBeenCalledOnce();
+  });
+  it("unreadable revoke marker under the lease ⇒ stale path: full re-admission (marker re-read, fail closed) + re-simulation", async () => {
+    let n = 0;
+    h.gate.mockImplementation(async (ks: string[]) => { if (h.set.mock.calls.length && n++ === 0) throw new Error("store blip"); return ks.map(() => null); });
+    const m = new RelayMetrics();
+    await expect(sendUserOperationSync(op(), undefined, undefined, m)).resolves.toMatchObject({ kind: "confirmed" });
+    expect(m.snapshot().speculationStale).toBe(1);
+    expect(h.events.filter(e => e.startsWith("simulate"))).toEqual(["simulate:beforeLease", "simulate:underLease"]);
+    h.gate.mockRejectedValue(new Error("store offline")); vi.clearAllMocks(); h.events.length = 0;
+    h.gate.mockRejectedValue(new Error("store offline"));
+    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true }); noSend();
+  });
+  it("revoke marker present at admission ⇒ notSent before any lease", async () => {
+    marker = "1";
+    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("revoked") });
+    expect(h.set).not.toHaveBeenCalled(); noSend();
+  });
+  it("strike window (hardening 6): local ledger, KV ledger, corrupt ledger and unreadable store all refuse before any lease; an expired strike passes", async () => {
+    strikeSource.local = () => Date.now() + 60_000;
+    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("strike") });
+    strikeSource.local = () => 0; trust = JSON.stringify({ strikeUntil: Date.now() + 60_000 });
+    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("strike") });
+    trust = "{not json";
+    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("strike") });
+    trust = null; h.gate.mockRejectedValueOnce(new Error("store offline"));
+    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("store unavailable") });
+    expect(h.set).not.toHaveBeenCalled(); noSend();
+    trust = JSON.stringify({ strikeUntil: Date.now() - 1 });
+    await expect(sendUserOperationSync(op())).resolves.toMatchObject({ kind: "confirmed" });
+  });
+  it("expiry margin (M2): a session expiring within the margin is refused before the lease", async () => {
+    sessionState = { active: true, validUntil: 100 + EXPIRY_MARGIN_SEC };   // block timestamp 100
+    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("expiry margin") });
+    expect(h.set).not.toHaveBeenCalled(); noSend();
+  });
+  it("expiry margin (M2) is chain-time based and advances with local elapsed time since the read", () => {
+    const f = { blockTs: 100, verifiedUntil: 110, validUntil: 110, readAtMs: 1_000 };
+    expect(() => requireExpiryMargin(f, 1_000)).not.toThrow();
+    expect(() => requireExpiryMargin(f, 1_000 + 6_500)).toThrow(/expiry margin/);   // 100 + 7 + 3 ≥ 110
+    expect(() => requireExpiryMargin({ ...f, verifiedUntil: 103 }, 1_000)).toThrow(/LoginGate/);
+  });
+  it("fence nonceAlloc failure under the lease ⇒ notSent (AUDIT Info), lease released, no budget, nothing signed or sent", async () => {
+    h.gen.mockRejectedValue(new Error("store offline"));
+    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: "store offline" });
+    expect(h.incr).not.toHaveBeenCalled(); noSend(); expect(h.del).toHaveBeenCalledOnce();
+  });
+  it("pre-lease fresh read failure (implementation changed before the lease) ⇒ notSent before any lease", async () => {
+    h.slot.mockResolvedValue(pad(router, { size: 32 }));
+    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("implementation") });
+    expect(h.set).not.toHaveBeenCalled(); noSend();
   });
   it("paymaster deposit drained between simulation and lease ⇒ deposit guard rejects under the lease: notSent", async () => {
     h.set.mockImplementation(async () => { h.events.push("lease"); depositWei = 0n; return true; });
     await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true });
-    noSend();
-  });
-  it("account implementation changed between simulation and lease ⇒ notSent", async () => {
-    h.set.mockImplementation(async () => { h.events.push("lease"); h.slot.mockResolvedValue(pad(router, { size: 32 })); return true; });
-    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("implementation") });
     noSend();
   });
   for (const gate of ["login", "session", "target"] as const) it(`admission (${gate}) fails after a successful simulation ⇒ notSent, no lease, budget, sign or send`, async () => {

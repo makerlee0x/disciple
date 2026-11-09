@@ -39,7 +39,7 @@ import { broadcastError } from "../aa/relayOp";
 import { SenderTrust } from "./relayTrust";
 import { authorizeRelayOperation, checkRelayAccount, warmRelayAccountTemplates, type RelayAuthReads } from "./relayAuth";
 import { kvTrustStore } from "./relayTrustStore";
-import { lockedRelay, recheckUnderLease, relaySendBudget, requireLogin, requireSelfBundlerMode } from "./relayLockdown";
+import { lockedRelay, recheckUnderLease, relaySendBudget, requireExpiryMargin, requireLogin, requireSelfBundlerMode, strikeSource, type FreshFacts } from "./relayLockdown";
 
 const epAbi = parseAbi([
   "struct P { address sender; uint256 nonce; bytes initCode; bytes callData; bytes32 accountGasLimits; uint256 preVerificationGas; bytes32 gasFees; bytes paymasterAndData; bytes signature; }",
@@ -132,6 +132,8 @@ async function baseFee(): Promise<bigint> { if (!base.at) await refreshBase(); e
 
 /** Sender ledger is telemetry/backoff only, NEVER authorization to spend relayer funds (audit F-02). */
 const TRUST = new SenderTrust(Date.now, kvTrustStore());   // AUDIT Low: strikes / verification shared + durable (KV)
+// AUDIT r264 hardening 6: admission refuses a sender inside its strike window (this instance's ledger ∪ the KV copy).
+strikeSource.local = (sender) => TRUST.get(sender)?.strikeUntil ?? 0;
 async function primeSender(sender: string) {
   await TRUST.primeShared(sender, await pc.getBalance({ address: sender as Hex }));
 }
@@ -284,7 +286,8 @@ export async function sendUserOperationSync(op: UserOp, onPending?: OnPending, b
   void deposit?.catch(() => undefined); // admission may fail first; no unhandled rejection
   return lockedRelay<RelayConfirmed, Validated>(op, {
     validate: () => validateOp(op, metrics, deposit),
-    recheck: (v) => recheckOp(op, v, metrics),
+    freshReads: () => freshReadsOp(op, metrics),
+    underLease: (v, f) => underLeaseOp(op, v, f, metrics),
     commit: (v, fresh) => commitOp(op, v, fresh, onPending, beforeSend, metrics),
   }, metrics, confirmed);
 }
@@ -335,12 +338,17 @@ async function validateOp(op: UserOp, metrics?: RelayMetrics, deposit?: Promise<
   return { st, me, fee, data, hash, gas, simulate, t0 };
   } catch (e) { throw preSign(e); }
 }
-/** Under the lease, before signing: fresh nonce-for-this-key / LoginGate / session (relayLockdown), the deposit guard
- * exactly as today, and the current account runtime + implementation slot. One concurrent read wave. */
-async function recheckOp(op: UserOp, v: Validated, metrics?: RelayMetrics): Promise<void> {
+/** Fresh read wave (pre-lease after the fence snapshot, or again under the lease past the age cap): nonce for this
+ * key / LoginGate / session (relayLockdown) and the current account runtime + implementation slot. */
+async function freshReadsOp(op: UserOp, metrics?: RelayMetrics): Promise<FreshFacts> {
   try {
-    await Promise.all([recheckUnderLease(op, metrics), depositGuard(op, v.fee, metrics), checkRelayAccount(op, pc as unknown as RelayAuthReads)]);
+    const [facts] = await Promise.all([recheckUnderLease(op, metrics), checkRelayAccount(op, pc as unknown as RelayAuthReads)]);
+    return facts;
   } catch (e) { throw preSign(e); }
+}
+/** Always under the lease, before signing (AUDIT M1/M2): the deposit guard exactly as today + the expiry margin. */
+async function underLeaseOp(op: UserOp, v: Validated, f: FreshFacts, metrics?: RelayMetrics): Promise<void> {
+  try { requireExpiryMargin(f); await depositGuard(op, v.fee, metrics); } catch (e) { throw preSign(e); }
 }
 async function commitOp(op: UserOp, v: Validated, fresh: Promise<void>, onPending?: OnPending, beforeSend?: () => Promise<void>, metrics?: RelayMetrics): Promise<RelayConfirmed> {
   let signed = false;

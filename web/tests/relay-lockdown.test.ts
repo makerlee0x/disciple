@@ -2,18 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeFunctionData, parseAbi, pad, type Address } from "viem";
 const h = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_CHAIN_ID = "46630";
-  return { chain: vi.fn(), block: vi.fn(), read: vi.fn(), session: vi.fn(), curveOf: vi.fn(), curveInfo: vi.fn(), incr: vi.fn(), set: vi.fn(), del: vi.fn() };
+  return { chain: vi.fn(), block: vi.fn(), read: vi.fn(), session: vi.fn(), curveOf: vi.fn(), curveInfo: vi.fn(), incr: vi.fn(), set: vi.fn(), del: vi.fn(), mget: vi.fn() };
 });
 vi.mock("viem", async original => ({ ...await original<typeof import("viem")>(), createPublicClient: () => ({ getChainId: h.chain, getBlock: h.block, readContract: h.read }) }));
 vi.mock("@disciple/session-keys", async original => ({ ...await original<typeof import("@disciple/session-keys")>(), readSession: h.session }));
-vi.mock("../lib/server/kv", () => ({ kv: () => ({ incrEx: h.incr, setNX: h.set, delIfEq: h.del }) }));
+vi.mock("../lib/server/kv", () => ({ kv: () => ({ incrEx: h.incr, setNX: h.set, delIfEq: h.del, mget: h.mget }) }));
 vi.mock("../lib/server/gradBuy", () => ({ chainGradReads: () => ({ router: "0x688160633b22012717661545df6299d3d3174ad2", usdg: "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d", curveOf: h.curveOf, curveInfo: h.curveInfo }) }));
-import { admissionImmutableCache, admitRelay, lockedRelay, relaySendBudget, requireLogin, sessionEntity } from "../lib/server/relayLockdown";
+import { ADMISSION_CACHE_TTL_MS, admissionImmutableCache, admitRelay, lockedRelay, relaySendBudget, requireLogin, sessionEntity } from "../lib/server/relayLockdown";
 import { ACCOUNT_PROXY_RUNTIME, authorizeRelayOperation, type RelayAuthReads } from "../lib/server/relayAuth";
 import type { UserOp } from "../lib/aa/core";
 import { checkSponsoredCalls } from "../lib/server/gasSponsorship";
 import { chainGradReads } from "../lib/server/gradBuy";
-import { RelayMetrics } from "../lib/server/relayMetrics";
+import { ImmutableRelayCache, RelayMetrics } from "../lib/server/relayMetrics";
+import { DEPLOYMENTS } from "../lib/chains";
 import { SenderTrust } from "../lib/server/relayTrust";
 const sender = "0x0000000000000000000000000000000000000011" as Address;
 const pm = "0x5C3f7400ED41aCd7409D213caB2909e3b1E31136";
@@ -31,7 +32,7 @@ beforeEach(() => {
   h.chain.mockResolvedValue(46630); h.block.mockResolvedValue({ timestamp: 100n });
   h.read.mockImplementation(async ({ functionName }) => functionName === "verifiedUntil" ? 1000n : functionName === "moduleId" ? "disciple.session-policy.1.4.3" : pm);
   h.curveOf.mockResolvedValue("0x0000000000000000000000000000000000000033"); h.curveInfo.mockResolvedValue({ token, quote: usdg, graduated: false });
-  h.session.mockResolvedValue({ active: true, validUntil: 1000 }); h.incr.mockResolvedValue(1); h.set.mockResolvedValue(true); h.del.mockResolvedValue(true);
+  h.session.mockResolvedValue({ active: true, validUntil: 1000 }); h.incr.mockResolvedValue(1); h.set.mockResolvedValue(true); h.del.mockResolvedValue(true); h.mget.mockImplementation(async (ks: string[]) => ks.map(() => null));
 });
 afterEach(() => vi.unstubAllEnvs());
 describe("restored relay admission", () => {
@@ -65,9 +66,58 @@ describe("restored relay admission", () => {
     await expect(admitRelay({ ...op(), callData: encodeFunctionData({ abi: exec, functionName: "executeBatch", args: [cs] }) })).rejects.toThrow();
     await expect(admitRelay({ ...op(), callData: encodeFunctionData({ abi: exec, functionName: "executeBatch", args: [[calls()[0]]] }) })).rejects.toThrow();
   });
-  it("does not cache current curve metadata or broaden the registered target", async () => {
-    await admitRelay(op()); h.curveInfo.mockResolvedValue({ token: sender, quote: usdg, graduated: false });
+  // Speedup (c), AUDIT r264 conditions: only immutable token/quote + positive write-once curveOf are cached.
+  it("caches only a curve's immutable token/quote (never graduated) and never broadens the registered target", async () => {
+    const m = new RelayMetrics();
+    await admitRelay(op(), m); await admitRelay(op(), m);
+    expect(h.curveInfo).toHaveBeenCalledTimes(1); expect(h.curveOf).toHaveBeenCalledTimes(1);
+    expect(h.session).toHaveBeenCalledTimes(2); expect(h.chain).toHaveBeenCalledTimes(2);   // mutable state stays fresh
+    const snap = m.snapshot();
+    expect(snap.targetCurveOfMiss).toBe(1); expect(snap.targetCurveMetaMiss).toBe(1);
+    expect("targetCurveOf" in snap && "targetCurveMeta" in snap).toBe(true);
+    // a DIFFERENT registered curve for the token is read fresh and still has to match the token
+    admissionImmutableCache.clear(); h.curveOf.mockResolvedValue("0x0000000000000000000000000000000000000044");
+    h.curveInfo.mockResolvedValue({ token: sender, quote: usdg, graduated: false });
     await expect(admitRelay(op())).rejects.toThrow(); expect(h.curveInfo).toHaveBeenCalledTimes(2);
+  });
+  it("never caches zero/invalid registry or metadata results, or failed reads", async () => {
+    h.curveOf.mockResolvedValueOnce("0x0000000000000000000000000000000000000000");
+    await expect(admitRelay(op())).rejects.toThrow(); await admitRelay(op());
+    expect(h.curveOf).toHaveBeenCalledTimes(2);
+    admissionImmutableCache.clear(); vi.clearAllMocks();
+    h.curveInfo.mockResolvedValueOnce({ token: "0x0000000000000000000000000000000000000000", quote: usdg, graduated: false });
+    await expect(admitRelay(op())).rejects.toThrow(); await admitRelay(op()); expect(h.curveInfo).toHaveBeenCalledTimes(2);
+    admissionImmutableCache.clear(); vi.clearAllMocks();
+    h.curveInfo.mockRejectedValueOnce(new Error("rpc down"));
+    await expect(admitRelay(op())).rejects.toThrow("rpc down"); await admitRelay(op()); expect(h.curveInfo).toHaveBeenCalledTimes(2);
+  });
+  it("the cached projection never carries graduated, and the cache is per-instance with a 1 h TTL / 256 cap", async () => {
+    h.curveInfo.mockResolvedValue({ token, quote: usdg, graduated: true });
+    await admitRelay(op());
+    const meta = await admissionImmutableCache.get(`46630:curvemeta:${DEPLOYMENTS[46630].launchpad.toLowerCase()}:0x0000000000000000000000000000000000000033`, async () => { throw new Error("must be cached"); }, () => true);
+    expect(meta).toEqual({ token, quote: usdg });
+    expect(ADMISSION_CACHE_TTL_MS).toBe(3_600_000);
+    let now = 0; const c = new ImmutableRelayCache(ADMISSION_CACHE_TTL_MS, () => now), read = vi.fn().mockResolvedValue("x");
+    await c.get("k", read, () => true); now = ADMISSION_CACHE_TTL_MS - 1; await c.get("k", read, () => true); expect(read).toHaveBeenCalledTimes(1);
+    now = ADMISSION_CACHE_TTL_MS; await c.get("k", read, () => true); expect(read).toHaveBeenCalledTimes(2);
+    for (let i = 0; i < 300; i++) await c.get(`e${i}`, async () => i, () => true);
+    const first = vi.fn().mockResolvedValue("again"); await c.get("e0", first, () => true); expect(first).toHaveBeenCalledOnce();
+  });
+  it("relayCaps keeps its own fresh reads: chainGradReads.curveInfo (graduated) is uncached; curveMeta reads only token/quote", async () => {
+    const multicall = vi.fn().mockResolvedValue([token, usdg]);
+    const r = (await vi.importActual<typeof import("../lib/server/gradBuy")>("../lib/server/gradBuy")).chainGradReads({ multicall } as never, 46630);
+    expect(await r.curveMeta!("0x0000000000000000000000000000000000000033")).toEqual({ token, quote: usdg });
+    expect((multicall.mock.calls[0][0] as { contracts: { functionName: string }[] }).contracts.map(c => c.functionName)).toEqual(["token", "quote"]);
+    multicall.mockResolvedValue([token, usdg, true]);
+    await r.curveInfo("0x0000000000000000000000000000000000000033"); await r.curveInfo("0x0000000000000000000000000000000000000033");
+    expect(multicall).toHaveBeenCalledTimes(3);   // graduated path re-reads every time
+  });
+  it("re-encoding and selector checks still run on cached metadata", async () => {
+    await admitRelay(op());   // warm cache
+    const bad = { ...op(), callData: encodeFunctionData({ abi: exec, functionName: "executeBatch", args: [[{ target: usdg, value: 0n, data: encodeFunctionData({ abi: erc20, functionName: "transfer", args: [sender, 1n] }) }]] }) };
+    await expect(admitRelay(bad)).rejects.toThrow();
+    const cs = calls(); cs[0].data = encodeFunctionData({ abi: erc20, functionName: "approve", args: [router, 11n] });   // unpaired amount
+    await expect(admitRelay({ ...op(), callData: encodeFunctionData({ abi: exec, functionName: "executeBatch", args: [cs] }) })).rejects.toThrow();
   });
   it("rejects expired and revoked sessions", async () => {
     h.session.mockResolvedValue({ active: false, validUntil: 1000 }); await expect(admitRelay(op())).rejects.toThrow("inactive");
@@ -185,7 +235,8 @@ it("local before/after admission scheduling benchmark, with every mutable check 
     const cold = await run(() => admitRelay(op(), coldMetrics)), coldSnapshot = coldMetrics.snapshot(), warmMetrics = new RelayMetrics(Date.now);
     const warm = await run(() => admitRelay(op(), warmMetrics));
     expect(before).toBe(320); expect(cold).toBe(160); expect(warm).toBe(80);
-    expect(h.chain).toHaveBeenCalledTimes(3); expect(h.session).toHaveBeenCalledTimes(3); expect(h.curveInfo).toHaveBeenCalledTimes(3);
+    expect(h.chain).toHaveBeenCalledTimes(3); expect(h.session).toHaveBeenCalledTimes(3);
+    expect(h.curveInfo).toHaveBeenCalledTimes(2);   // (c): baseline + cold; warm serves immutable token/quote from the per-instance cache
     console.info("LOCAL_RELAY_BENCHMARK " + JSON.stringify({ rttModelMs: 80, beforeAdmission: before, afterColdAdmission: cold, afterWarmAdmission: warm, afterCold: coldSnapshot, afterWarm: warmMetrics.snapshot(), basis: "deterministic mocked read RTT; no chain ops" }));
   } finally { vi.useRealTimers(); }
 });

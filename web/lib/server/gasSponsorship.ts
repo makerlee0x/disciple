@@ -74,6 +74,8 @@ export async function checkSponsoredCalls(callData: Hex, sender: Address, reads:
   const needs = new Map<string, bigint>();
   const approvals = new Map<string, bigint>();
   let trades = 0;
+  // Only the immutable token/quote are used here (never graduated): curveMeta when the reads provide it.
+  const meta = (curve: string) => reads.curveMeta ? reads.curveMeta(curve) : reads.curveInfo(curve);
   for (const c of calls) {
     const to = c.to as Address, data = c.data as Hex;
     if (data.slice(0, 10) === "0x095ea7b3") {
@@ -94,7 +96,7 @@ export async function checkSponsoredCalls(callData: Hex, sender: Address, reads:
       const token = a[0] as Address;
       if (!address(token)) fail();
       const curve = await reads.curveOf(token); if (!address(curve)) fail();
-      const info = await reads.curveInfo(curve);
+      const info = await meta(curve);
       if (!eq(info.token, token)) fail();
       payToken = t.functionName === "buyWithUsdg" ? reads.usdg! : t.functionName === "buyExactIn" ? info.quote : token;
       amount = a[1] as bigint; minOut = a[2] as bigint;
@@ -103,7 +105,7 @@ export async function checkSponsoredCalls(callData: Hex, sender: Address, reads:
       spender = to;
     } else {
       if (t.functionName !== "buy" && t.functionName !== "sell") fail();
-      const info = await reads.curveInfo(to);
+      const info = await meta(to);
       if (!address(info.token) || !eq(await reads.curveOf(info.token), to)) fail();
       payToken = t.functionName === "buy" ? info.quote : info.token;
       spender = to; amount = a[0] as bigint; minOut = a[1] as bigint; deadline = a[2] as bigint;
