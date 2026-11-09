@@ -76,7 +76,7 @@ export const ceilCents = (usd: number) => (usd > 0 ? Math.ceil(usd * 100 - 1e-7)
  * included). Rounded UP to the cent so a real need never reads $0. null / 0 / unroutable ⇒ null (engine keeps its estimate).
  * (IRON on testnet 2026-10-24: usdgIn ≈ 0.2846 USDG ⇒ $0.29.)
  */
-export function needUsdFromUsdg(usdgRaw: bigint | null | undefined, usdgDecimals = 6): number | null {
+export function needUsdFromUsdg(usdgRaw: bigint | null | undefined, usdgDecimals: number): number | null {   // decimals required: no 6 / 18 default
   if (usdgRaw == null || usdgRaw <= BigInt(0)) return null;
   const usd = Number(usdgRaw) / 10 ** usdgDecimals;
   return usd > 0 && Number.isFinite(usd) ? ceilCents(usd) : null;

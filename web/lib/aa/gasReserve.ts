@@ -8,6 +8,7 @@ import { clientFees, GRAD_GAS_CAPS } from "./gasPolicy";
 import { ALLOWANCE_GAS, tokenCost } from "./paymaster";
 import { GAS } from "../config";
 import { DEPLOYMENTS } from "../chains";
+import { setUsdgDecimalsOnchain } from "../usdg";
 
 export type GasOpKind = "trade" | "gradBuy";
 /** Mirrors lib/server/paymasterCore ALLOWANCE_FEE_MULT (server module; not imported into client code). */
@@ -74,7 +75,7 @@ export class PaymasterCapCache {
     return (this.inflight ??= Promise.all([
       pc.readContract({ address: paymaster, abi: maxGasPerOpAbi, functionName: "maxGasPerOp" }) as Promise<bigint>,
       pc.readContract({ address: usdg, abi: erc20DecimalsAbi, functionName: "decimals" }) as Promise<number>,
-    ]).then(([maxGasPerOp, decimals]) => (this.v = { maxGasPerOp: BigInt(maxGasPerOp), decimals: Number(decimals) }))
+    ]).then(([maxGasPerOp, decimals]) => { setUsdgDecimalsOnchain(usdg, Number(decimals)); return (this.v = { maxGasPerOp: BigInt(maxGasPerOp), decimals: Number(decimals) }); })
       .catch(() => undefined)
       .finally(() => { this.inflight = undefined; }));
   }
