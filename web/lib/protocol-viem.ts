@@ -947,7 +947,8 @@ export function createViemProtocol(): ProtocolClient {
   function holdSpend(rid: string, side: "buy" | "sell", token: Address, asset: Address, amountIn: bigint, route: string) {
     const usdg = deployment().usdg;
     const r = RESERVATIONS.reserve(rid, { side: side === "buy" ? "boost" : "dump", coin: token, spend: { asset, raw: amountIn, route } });
-    const ownGas = asset.toLowerCase() === usdg.toLowerCase() ? r.gasReserve ?? B(0) : B(0);
+    // own gas counts against cash only for the part the hidden v5 gas credit can't cover (it is charged from credit)
+    const ownGas = asset.toLowerCase() === usdg.toLowerCase() ? RESERVATIONS.marginalWalletGas(r.gasReserve ?? B(0), rid) : B(0);
     return { others: () => RESERVATIONS.reservedRaw(asset, { exceptId: rid, usdg }), need: amountIn + ownGas };
   }
   /** Copy for a spend that only fails because other pending trades hold the money (plain words, no ids; lee 2026-10-24). */

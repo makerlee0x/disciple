@@ -10,13 +10,15 @@
  */
 import { deployment } from "@/lib/chains";
 import { usdToUsdgRaw, usdgDecimals, usdgRawToUsd } from "@/lib/usdg";
-import { RESERVATIONS, release, reserve, reservedTokens, setGasReserveSource, subscribe, type ReleaseReason, type ReservationEvent } from "./reservationsShim";
-import { gasReservePerOp, type GasOpKind } from "./gasReserve";
+import { RESERVATIONS, release, reserve, reservedTokens, setGasCreditSource, setGasReserveSource, subscribe, type ReleaseReason, type ReservationEvent } from "./reservationsShim";
+import { gasCredit, gasReservePerOp, type GasOpKind } from "./gasReserve";
 import { CURVE } from "@/lib/config";
 
 // FLOW's per-op gas reserve (raw USDG base units) is SITE's gas reserve source: every BOOST the trade layer reserves
 // (ours by press id, or an auto id) holds one op's gas. TODO(#144/#145): keep this line when both shims become re-exports.
 setGasReserveSource(() => gasReservePerOp("trade"));   // SITE gasSource(): every press (BOOST + DUMP) holds one trade op's gas
+// v5 charges that gas from the hidden credit, not cash: only the part the credit can't cover is held from cash
+setGasCreditSource(gasCredit);
 
 /** Copy. FINAL (lee, 11:25 CT): inFlight "3 IN FLIGHT", confirming "Still confirming your last trade…" (= SITE's
  *  PENDING_UNKNOWN_MSG, lib/aa/relayOp, #144). Still placeholder: slowDown, spendLimit, allSelling. */
@@ -70,9 +72,12 @@ export function releasePress(id: string, reason: ReleaseReason): boolean { retur
 const usdg = () => deployment().usdg;
 /** Raw USDG held by every pending trade (SITE: Σ BOOST $ / exact spend + Σ gas caps), optionally except one press. */
 export const pendingCashRaw = (exceptId?: string): bigint => RESERVATIONS.reservedRaw(usdg(), { usdg: usdg(), exceptId });
-/** Raw USDG spendable now = raw cash − everything pending − (a new press) its own gas reserve. < 0 = short. */
+/** Gas a NEW press would hold from cash: its gas cap minus what the hidden gas credit still covers (0 when it covers it). */
+export const ownWalletGasRaw = (kind: GasOpKind = "trade"): bigint => RESERVATIONS.marginalWalletGas(gasReservePerOp(kind));
+/** Raw USDG spendable now = raw cash − everything pending − (a new press) its own gas, where gas the hidden credit
+ *  covers is not cash (DisciplePaymaster v5 never takes gas from the wallet). < 0 = short. */
 export function spendableRaw(cashRaw: bigint, withOwnGas = true, kind: GasOpKind = "trade"): bigint {
-  return cashRaw - pendingCashRaw() - (withOwnGas ? gasReservePerOp(kind) : BigInt(0));
+  return cashRaw - pendingCashRaw() - (withOwnGas ? ownWalletGasRaw(kind) : BigInt(0));
 }
 /** Can this BOOST go out on top of what is pending? (raw compare, before its own reservation) */
 export const canSpend = (cashRaw: bigint, usd: number, kind: GasOpKind = "trade") => spendableRaw(cashRaw, true, kind) >= usdToRaw(usd);

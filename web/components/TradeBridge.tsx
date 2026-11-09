@@ -31,11 +31,11 @@ import { DEFAULT_BUY, SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettin
 import { keyLabel, useGameSettings } from "@/lib/game/settings";
 import { useT } from "@/lib/game/i18n";
 import { readCoinRules } from "@/lib/flight/coinRules";
-import { COPY, REJECTED, ROW_LINGER_MS, rowLive, upsertRow, type PressRow, awaitResolution, gasKindFor, isPendingUnknown, nextPressId, type GradHint, releasePress, reservePress, reservePressTokens, canSpend, rawToUsd, spendableRaw, tradeErrorCopy, unreservedTokens } from "@/lib/flight/rapidTap";
+import { COPY, REJECTED, ROW_LINGER_MS, rowLive, upsertRow, type PressRow, awaitResolution, gasKindFor, isPendingUnknown, nextPressId, type GradHint, releasePress, reservePress, reservePressTokens, canSpend, ownWalletGasRaw, rawToUsd, spendableRaw, tradeErrorCopy, unreservedTokens } from "@/lib/flight/rapidTap";
 import { reservedTokens, subscribe as onReservations } from "@/lib/flight/reservationsShim";
-import { gasReservePerOp, warmGasPrice } from "@/lib/flight/gasReserve";
+import { warmGasCredit, warmGasPrice } from "@/lib/flight/gasReserve";
 /** per-op gas reserve in $ (FLOW's accessor, adapted) — pushed to the engine with disciple:cash for its reservation check */
-const gasUsd = () => { try { return rawToUsd(gasReservePerOp()); } catch { return 0; } };   // display / engine pre-check only
+const gasUsd = () => { try { return rawToUsd(ownWalletGasRaw()); } catch { return 0; } };   // display / engine pre-check only: gas the hidden credit can't cover
 /** the last real USDG balance, RAW (reservation math stays bigint; decimals from config) */
 const CASH_RAW: { v: bigint | null } = { v: null };
 import { activeWarning, chipTag, moveWarnings, plainTradeMessage, type MoveWarn, type TradeSide } from "@/lib/flight/tradeGate";
@@ -595,7 +595,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     let alive = true; const pc = publicClient();
     const poll = async () => { try { const me = await activeAddress(); if (!me) return; const usdg = deployment().usdg;
       void warmGasPrice(pc);   // gas reserve: live gas price, off the trade path
-      const [raw, dec] = await Promise.all([ownBalance(pc, usdg, me, () => balanceHint(pc, usdg, me, 4000)), decimalsOf(pc, usdg)]);
+      const [raw, dec] = await Promise.all([ownBalance(pc, usdg, me, () => balanceHint(pc, usdg, me, 4000)), decimalsOf(pc, usdg), warmGasCredit(pc, me)]);
       const usd = Number(raw) / 10 ** dec;
       if (alive && Number.isFinite(usd)) { CASH_RAW.v = raw; setLiveCash(usd); dispatchEvent(new CustomEvent("disciple:cash", { detail: { usd, gasPerOpUsd: gasUsd() } })); } } catch { /* keep last */ } };
     // cash at confirm from the receipt's USDG Transfer (ledger, no RPC); reconcile ≥ 1 s later (block-checked)
