@@ -105,11 +105,11 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     defaultQuote: STRATEGY_TOKEN.address,
     usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_RH_USDG_DECIMALS, 6),
-    paymaster: addr(process.env.NEXT_PUBLIC_RH_PAYMASTER), // PREPAY_VERSION=4 + stake checked server-side; no legacy default
+    paymaster: addr(process.env.NEXT_PUBLIC_RH_PAYMASTER), // PREPAY_VERSION=5 + stake checked server-side; no legacy default
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RH_FROM_BLOCK || "0"),
   },
-  // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json (v5 + wave #241/#246 LoginGate / paymaster /
-  // session policy 1.4.2; startBlock 142064001). Prod sets every NEXT_PUBLIC_RHT_* in Vercel env; these literals are the
+  // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json (v5 + wave #241 LoginGate, paymaster v5
+  // 0x5C3f…1136 / session policy 1.4.3 0xD2cF…E4d2 (v4 + 1.4.2 retired Nov 9); startBlock 142064001). Prod sets every NEXT_PUBLIC_RHT_* in Vercel env; these literals are the
   // fallbacks (and are inlined into the bundle), so they must match the live stack too.
   // After a redeploy, edit these defaults or set NEXT_PUBLIC_RHT_* env. Do NOT send new launches to the old v2 stack (SEC-01).
   [robinhoodTestnet.id]: {
@@ -131,7 +131,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xF5eB226F7f0890c36A06Cbd0Ff843292b7b1a88C"), // test STRATEGY (18 dec, v5 tokens.STRATEGY)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D"), // test USDG (6 dec, v5 tokens.USDG)
     usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_RHT_USDG_DECIMALS, 6),
-    paymaster: addr(process.env.NEXT_PUBLIC_RHT_PAYMASTER), // v5 gas-credit paymaster is not deployed; no v4 fallback
+    paymaster: addr(process.env.NEXT_PUBLIC_RHT_PAYMASTER), // v5 gas-credit paymaster via env (0x5C3f…1136); no v4 fallback
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "142064001"),
   },
   [anvil.id]: {
@@ -154,7 +154,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     defaultQuote: addr(process.env.NEXT_PUBLIC_ANVIL_DEFAULT_QUOTE),
     usdg: addr(process.env.NEXT_PUBLIC_ANVIL_USDG),
     usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_ANVIL_USDG_DECIMALS, 18),
-    paymaster: addr(process.env.NEXT_PUBLIC_ANVIL_PAYMASTER), // PREPAY_VERSION=4 + stake checked server-side; no legacy default
+    paymaster: addr(process.env.NEXT_PUBLIC_ANVIL_PAYMASTER), // PREPAY_VERSION=5 + stake checked server-side; no legacy default
     fromBlock: BigInt(0),
   },
 };
