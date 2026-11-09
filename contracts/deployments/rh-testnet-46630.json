@@ -636,7 +636,11 @@
       },
       "deployTx": "0xeb1c3cab9fb0c0e33533519d8003c4c31835a3fd1a1f0d73897a318a5d882340",
       "block": 149505632,
-      "moduleId": "disciple.session-policy.1.4.2"
+      "moduleId": "disciple.session-policy.1.4.2",
+      "status": "retired",
+      "retiredAtCT": "2026-11-09",
+      "supersededBy": "DiscipleSessionPolicyV143",
+      "retiredNote": "Config/manifest retirement only (lee Nov 9): site requires policy 1.4.3 bound to paymaster v5. Immutable contract left on-chain; no on-chain action."
     },
     "DisciplePaymaster": {
       "address": "0x1e7b06adb1d0a92b83af2dc3d70cb4694e606822",
@@ -670,7 +674,11 @@
         149505588,
         149505611
       ],
-      "note": "USDG validation-time prepay/refund. Separate signed launch domain, dynamic gas-unit caps. EntryPoint accepted approved $5 stake/$30 float at lee ETH/USD 2300; Alchemy provider acceptance remains untested. Server rate configuration was not changed by steps (a)/(b)."
+      "note": "USDG validation-time prepay/refund. Separate signed launch domain, dynamic gas-unit caps. EntryPoint accepted approved $5 stake/$30 float at lee ETH/USD 2300; Alchemy provider acceptance remains untested. Server rate configuration was not changed by steps (a)/(b).",
+      "status": "retired",
+      "retiredAtCT": "2026-11-09",
+      "supersededBy": "DisciplePaymasterV5",
+      "retiredNote": "Config/manifest retirement only (lee Nov 9): site readiness requires PREPAY_VERSION 5. No on-chain action: stake/deposit/unstake/withdraw untouched; any unlock or withdrawal needs a separate OK."
     },
     "DisciplePaymasterV5": {
       "address": "0x5c3f7400ed41acd7409d213cab2909e3b1e31136",
@@ -694,7 +702,7 @@
       "maxRate": "10000000000",
       "maxGasPerOp": 7068712,
       "maxLaunchGasPerOp": 21840770,
-      "postOpGas": 79684,
+      "postOpGas": 150000,
       "maxBootstrapGasPerOp": 3200000,
       "bootstrapCodehashEnforced": false,
       "markupBps": 0,
@@ -706,7 +714,7 @@
         149600521
       ],
       "deployedAtCT": "2026-11-06 09:58:40-09:58:53 CT",
-      "note": "#251 hidden USDG gas credit (validation reserves only; tokens move in execution/postOp). Stake $5 / float $30 at lee ETH/USD 2300. ERC-7562: 6/6 ADMITTED locally (staked). Legacy v4 not retired (needs separate OK). Broadcast record: deployments/broadcast-v5/."
+      "note": "#251 hidden USDG gas credit (validation reserves only; tokens move in execution/postOp). Stake $5 / float $30 at lee ETH/USD 2300. ERC-7562: 6/6 ADMITTED locally (staked). Legacy v4 not retired (needs separate OK). Broadcast record: deployments/broadcast-v5/. Live paymaster as of 2026-11-09 (v4 retired in config/manifest by lee; no on-chain action). postOpGas 150000 read on-chain 2026-11-09 (draft #252 recorded 79684)."
     },
     "DiscipleSessionPolicyV143": {
       "address": "0xd2cf85dd7cdc3c3e53ea0472bf6bf006de45e4d2",
@@ -717,7 +725,8 @@
       },
       "deployTx": "0xed8e08eebfdf2af95dff21425a5ad07bc423ae75e4297338ddb7609fb2523d4d",
       "block": 149600608,
-      "moduleId": "disciple.session-policy.1.4.3"
+      "moduleId": "disciple.session-policy.1.4.3",
+      "status": "live"
     }
   },
   "deployTxLast": "0x5adfa55419200eef2b9f89566ca64599a4a7fe5ea4c8a15fee1d5ee86103f4ff",
