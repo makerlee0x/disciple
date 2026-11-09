@@ -108,12 +108,22 @@ export async function admitRelay(op: UserOp, metrics?: RelayMetrics) {
   if (op.paymaster && op.paymaster.toLowerCase() !== pm.toLowerCase()) throw new Error("wrong session paymaster");
 }
 /** Strict shared caps: store failure rejects, never a local fallback. Charged only after full exact simulation. */
-export async function relaySendBudget(sender: string, metrics?: RelayMetrics) {
+export const RELAY_SENDER_CAP = 20, RELAY_GLOBAL_CAP = 60, RELAY_BUDGET_WINDOW_SEC = 60;
+export const RELAY_GLOBAL_KEY = "relay:paid:global";
+/**
+ * Paid-send budget (caps unchanged: 20/sender/min, 60 global/min; a store error throws ⇒ fail closed).
+ * Vercel Security finding 1: one atomic EVAL checks the sender cap FIRST and charges the global counter only when the
+ * sender is under its cap (and refunds it when the global cap is hit), so one sender's over-cap replays can't burn
+ * everyone's global quota. Returns a refund for the global unit: the caller calls it when the op is rejected before
+ * anything is signed (only an admitted send/broadcast keeps the global charge).
+ */
+export async function relaySendBudget(sender: string, metrics?: RelayMetrics): Promise<() => Promise<void>> {
   const store = kv();
-  const [senderCount, globalCount] = await timed(metrics, "rateLimitStore", () => Promise.all([
-    store.incrEx(`relay:paid:sender:${sender.toLowerCase()}`, 60), store.incrEx("relay:paid:global", 60),
-  ]));
-  if (senderCount > 20 || globalCount > 60) throw new Error("relay rate limited");
+  const r = await timed(metrics, "rateLimitStore", () => store.relayBudget(`relay:paid:sender:${sender.toLowerCase()}`, RELAY_GLOBAL_KEY,
+    RELAY_SENDER_CAP, RELAY_GLOBAL_CAP, RELAY_BUDGET_WINDOW_SEC));
+  if (r !== 0) throw new Error("relay rate limited");
+  let refunded = false;
+  return async () => { if (refunded) return; refunded = true; await store.decrIfPositive(RELAY_GLOBAL_KEY); };
 }
 /** Facts the fresh read wave established (block timestamp, LoginGate expiry, session expiry). */
 export type FreshFacts = { blockTs: number; verifiedUntil: number; validUntil: number; /** local Date.now() when the wave was issued */ readAtMs: number };

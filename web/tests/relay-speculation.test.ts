@@ -11,7 +11,7 @@ const h = vi.hoisted(() => {
   return {
     chain: vi.fn(), block: vi.fn(), read: vi.fn(), call: vi.fn(), code: vi.fn(), slot: vi.fn(), txCount: vi.fn(), balance: vi.fn(),
     session: vi.fn(), curveOf: vi.fn(), curveInfo: vi.fn(),
-    mget: vi.fn(), gate: vi.fn(), gen: vi.fn(), set: vi.fn(), del: vi.fn(), incr: vi.fn(),
+    mget: vi.fn(), gate: vi.fn(), gen: vi.fn(), set: vi.fn(), del: vi.fn(), incr: vi.fn(), refund: vi.fn(),
     deposit: vi.fn(), send: vi.fn(), events: [] as string[],
   };
 });
@@ -21,7 +21,9 @@ vi.mock("viem", async original => ({ ...await original<typeof import("viem")>(),
 }) }));
 vi.mock("@disciple/session-keys", async original => ({ ...await original<typeof import("@disciple/session-keys")>(), readSession: h.session }));
 // Fence snapshot MGET [leasegen, pending] → h.mget; revoke-marker / strike-ledger MGETs → h.gate.
-vi.mock("../lib/server/kv", () => ({ kv: () => ({ mget: (ks: string[]) => ks[0].startsWith("relay:leasegen:") ? h.mget(ks) : h.gate(ks), nonceAlloc: h.gen, setNX: h.set, delIfEq: h.del, incrEx: h.incr, ttl: async () => -2 }) }));
+vi.mock("../lib/server/kv", () => ({ kv: () => ({ mget: (ks: string[]) => ks[0].startsWith("relay:leasegen:") ? h.mget(ks) : h.gate(ks), nonceAlloc: h.gen, setNX: h.set, delIfEq: h.del, incrEx: h.incr, ttl: async () => -2,
+  // finding 1: the atomic budget call; h.incr still records "the paid budget was charged"
+  relayBudget: async (...a: unknown[]) => { await h.incr(...a); return 0; }, decrIfPositive: async (k: string) => { await h.refund(k); return 0; } }) }));
 vi.mock("../lib/server/gradBuy", async original => ({ ...await original<typeof import("../lib/server/gradBuy")>(), chainGradReads: () => ({ router: "0x688160633b22012717661545df6299d3d3174ad2", usdg: "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d", curveOf: h.curveOf, curveInfo: h.curveInfo }) }));
 vi.mock("../lib/server/paymasterDeposit", () => ({ allowedPaymaster: () => "0x5C3f7400ED41aCd7409D213caB2909e3b1E31136", paymasterDepositCached: h.deposit, debitPaymasterDeposit: vi.fn() }));
 vi.mock("../lib/server/relayer", () => ({ relayerKey: () => KEY, relayerIsFaucet: () => false }));
@@ -243,5 +245,28 @@ describe("speedup 1: simulate before the lease, re-check under the lease", () =>
     h.mget.mockRejectedValue(new Error("store offline"));
     await sendUserOperationSync(op());
     expect(h.events.filter(e => e.startsWith("simulate"))).toEqual(["simulate:beforeLease", "simulate:underLease"]);
+  });
+});
+
+describe("Vercel Security findings on the self-relay path", () => {
+  it("finding 1: a rejection after the budget but before signing refunds the global unit; a send keeps it", async () => {
+    await expect(sendUserOperationSync(op(), undefined, async () => { throw new Error("press limit"); })).rejects.toMatchObject({ notSent: true, message: "press limit" });
+    expect(h.incr).toHaveBeenCalledOnce(); expect(h.refund).toHaveBeenCalledExactlyOnceWith("relay:paid:global"); noSend();
+    h.incr.mockClear(); h.refund.mockClear();
+    await expect(sendUserOperationSync(op())).resolves.toMatchObject({ kind: "confirmed" });
+    expect(h.incr).toHaveBeenCalledOnce(); expect(h.refund).not.toHaveBeenCalled(); expect(h.send).toHaveBeenCalledOnce();
+  });
+  it("finding 1: an over-cap (rate-limited) attempt charges nothing to refund and sends nothing", async () => {
+    h.incr.mockRejectedValue(new Error("relay rate limited"));
+    await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: "relay rate limited" });
+    expect(h.refund).not.toHaveBeenCalled(); noSend();
+  });
+  it("finding 2: a custom-code or foreign-implementation sender is rejected before any budget, lease or send", async () => {
+    for (const arrange of [() => h.code.mockResolvedValue("0x6080604052348015600f57600080fd5b50"), () => h.code.mockResolvedValue(ACCOUNT_PROXY_RUNTIME),
+      () => h.slot.mockResolvedValue(pad("0x00000000000000000000000000000000000000bb", { size: 32 }))]) {
+      h.code.mockResolvedValue(`${ACCOUNT_PROXY_RUNTIME}${sender.slice(2)}`); h.slot.mockResolvedValue(pad(impl, { size: 32 })); arrange();
+      await expect(sendUserOperationSync(op())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("relay authorization") });
+      expect(h.incr).not.toHaveBeenCalled(); noSend();
+    }
   });
 });

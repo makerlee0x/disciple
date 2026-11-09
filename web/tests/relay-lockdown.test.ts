@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeFunctionData, parseAbi, pad, type Address } from "viem";
 const h = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_CHAIN_ID = "46630";
-  return { chain: vi.fn(), block: vi.fn(), read: vi.fn(), session: vi.fn(), curveOf: vi.fn(), curveInfo: vi.fn(), incr: vi.fn(), set: vi.fn(), del: vi.fn(), mget: vi.fn() };
+  return { chain: vi.fn(), block: vi.fn(), read: vi.fn(), session: vi.fn(), curveOf: vi.fn(), curveInfo: vi.fn(), incr: vi.fn(), set: vi.fn(), del: vi.fn(), mget: vi.fn(), budget: vi.fn(), refund: vi.fn() };
 });
 vi.mock("viem", async original => ({ ...await original<typeof import("viem")>(), createPublicClient: () => ({ getChainId: h.chain, getBlock: h.block, readContract: h.read }) }));
 vi.mock("@disciple/session-keys", async original => ({ ...await original<typeof import("@disciple/session-keys")>(), readSession: h.session }));
-vi.mock("../lib/server/kv", () => ({ kv: () => ({ incrEx: h.incr, setNX: h.set, delIfEq: h.del, mget: h.mget }) }));
+vi.mock("../lib/server/kv", () => ({ kv: () => ({ incrEx: h.incr, setNX: h.set, delIfEq: h.del, mget: h.mget, relayBudget: h.budget, decrIfPositive: h.refund }) }));
 vi.mock("../lib/server/gradBuy", () => ({ chainGradReads: () => ({ router: "0x688160633b22012717661545df6299d3d3174ad2", usdg: "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d", curveOf: h.curveOf, curveInfo: h.curveInfo }) }));
 import { ADMISSION_CACHE_TTL_MS, admissionImmutableCache, admitRelay, lockedRelay, relaySendBudget, requireLogin, sessionEntity } from "../lib/server/relayLockdown";
 import { ACCOUNT_PROXY_RUNTIME, authorizeRelayOperation, type RelayAuthReads } from "../lib/server/relayAuth";
@@ -32,7 +32,7 @@ beforeEach(() => {
   h.chain.mockResolvedValue(46630); h.block.mockResolvedValue({ timestamp: 100n });
   h.read.mockImplementation(async ({ functionName }) => functionName === "verifiedUntil" ? 1000n : functionName === "moduleId" ? "disciple.session-policy.1.4.3" : pm);
   h.curveOf.mockResolvedValue("0x0000000000000000000000000000000000000033"); h.curveInfo.mockResolvedValue({ token, quote: usdg, graduated: false });
-  h.session.mockResolvedValue({ active: true, validUntil: 1000 }); h.incr.mockResolvedValue(1); h.set.mockResolvedValue(true); h.del.mockResolvedValue(true); h.mget.mockImplementation(async (ks: string[]) => ks.map(() => null));
+  h.session.mockResolvedValue({ active: true, validUntil: 1000 }); h.incr.mockResolvedValue(1); h.budget.mockResolvedValue(0); h.refund.mockResolvedValue(0); h.set.mockResolvedValue(true); h.del.mockResolvedValue(true); h.mget.mockImplementation(async (ks: string[]) => ks.map(() => null));
 });
 afterEach(() => vi.unstubAllEnvs());
 describe("restored relay admission", () => {
@@ -129,8 +129,11 @@ describe("restored relay admission", () => {
     delete process.env.VERCEL_ENV; h.chain.mockResolvedValue(4663); await expect(admitRelay(op())).rejects.toThrow("unauthenticated");
   });
   it("shared limits fail closed on exhaustion and store failure", async () => {
-    h.incr.mockResolvedValue(61); await expect(relaySendBudget(sender)).rejects.toThrow("rate limited");
-    h.incr.mockRejectedValue(new Error("store offline")); await expect(relaySendBudget(sender)).rejects.toThrow("store offline");
+    // Vercel Security finding 1: one atomic budget call (sender cap checked first); 1 = sender over cap, 2 = global over cap
+    h.budget.mockResolvedValue(1); await expect(relaySendBudget(sender)).rejects.toThrow("rate limited");
+    h.budget.mockResolvedValue(2); await expect(relaySendBudget(sender)).rejects.toThrow("rate limited");
+    expect(h.budget).toHaveBeenLastCalledWith(`relay:paid:sender:${sender.toLowerCase()}`, "relay:paid:global", 20, 60, 60);
+    h.budget.mockRejectedValue(new Error("store offline")); await expect(relaySendBudget(sender)).rejects.toThrow("store offline");
   });
   it("queues a rapid tap without submitting while another sender lease is held", async () => {
     vi.useFakeTimers();
@@ -259,7 +262,7 @@ describe("late admission failure cannot be overridden by successful read-only sp
     await speculative; await vi.waitFor(() => expect(deny).toBeTypeOf("function"));
     expect(sim).toHaveBeenCalledOnce(); expect(h.set).not.toHaveBeenCalled();
     deny(); await rejected;
-    expect(h.set).not.toHaveBeenCalled(); expect(h.incr).not.toHaveBeenCalled();
+    expect(h.set).not.toHaveBeenCalled(); expect(h.incr).not.toHaveBeenCalled(); expect(h.budget).not.toHaveBeenCalled();
     expect(nonce).not.toHaveBeenCalled(); expect(sign).not.toHaveBeenCalled(); expect(broadcast).not.toHaveBeenCalled();
   });
 });

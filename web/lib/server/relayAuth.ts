@@ -46,24 +46,29 @@ export async function warmRelayAccountTemplates(pc: RelayAuthReads): Promise<voi
   await Promise.allSettled([expectedImplementation(pc, true), expectedImplementation(pc, false)]);
 }
 
-export async function checkRelayAccount(op: UserOp, pc: RelayAuthReads): Promise<void> {
+/**
+ * Vercel Security finding 2: the ONLY account the relay paths admit is our MAv2 SemiModularAccount, because both
+ * admissions parse callData as an MAv2 execution envelope (executeUserOp / executeBatch). Shared by self-relay
+ * (validateOp via authorizeRelayOperation, and every fresh read wave) and hosted BSO (gasSponsorship
+ * checkSponsoredOperation). Deployed: runtime must be the Solady ERC-1967 proxy + 20-byte owner (MAv2 SMA layout) AND
+ * the CURRENT ERC-1967 implementation slot (read fresh every op; never cached) must equal the MAv2 factory's immutable
+ * SEMI_MODULAR_ACCOUNT_IMPL (cached per client: immutable factory config). Undeployed: the MAv2 factory only.
+ * Anything else (custom code, LightAccount, an upgraded/foreign implementation, unreadable code/slot) is rejected.
+ */
+export async function checkRelayAccount(op: Pick<UserOp, "sender" | "factory">, pc: RelayAuthReads): Promise<void> {
   const [code, slot] = await Promise.all([
-    pc.getCode({ address: op.sender, blockTag: "pending" }),
-    pc.getStorageAt({ address: op.sender, slot: IMPLEMENTATION_SLOT, blockTag: "pending" }),
+    pc.getCode({ address: op.sender as Address, blockTag: "pending" }),
+    pc.getStorageAt({ address: op.sender as Address, slot: IMPLEMENTATION_SLOT, blockTag: "pending" }),
   ]);
   if (!code || code === "0x") {
-    // A counterfactual account is authorized only through a supported factory AND a successful exact handleOps.
-    if (!op.factory || (![MAV2_FACTORY, LIGHT_ACCOUNT_V2_FACTORY].some((f) => same(f, op.factory!)))) {
-      throw new Error("relay authorization: undeployed account or unsupported factory");
-    }
+    // A counterfactual account is authorized only through our MAv2 factory AND a successful exact handleOps.
+    if (!op.factory || !same(MAV2_FACTORY, op.factory)) throw new Error("relay authorization: undeployed account or unsupported factory");
     return;
   }
   if (op.factory) throw new Error("relay authorization: deployed account cannot include a factory");
   const runtime = code.toLowerCase(), template = ACCOUNT_PROXY_RUNTIME.toLowerCase();
-  const sma = runtime.startsWith(template) && runtime.length === template.length + 40;
-  const light = runtime === template;
-  if (!sma && !light) throw new Error("relay authorization: unsupported account runtime");
-  const expected = await expectedImplementation(pc, sma);
+  if (!(runtime.startsWith(template) && runtime.length === template.length + 40)) throw new Error("relay authorization: unsupported account runtime");
+  const expected = await expectedImplementation(pc, true);
   if (!slot || !/^0x[0-9a-fA-F]{64}$/.test(slot) || !/^0x0{24}/i.test(slot)
     || !/^0x[0-9a-fA-F]{40}$/.test(expected) || /^0x0{40}$/i.test(expected)
     || !same(`0x${slot.slice(26)}`, expected)) {

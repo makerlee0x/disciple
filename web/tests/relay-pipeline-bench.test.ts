@@ -26,7 +26,9 @@ vi.mock("@disciple/session-keys", async original => ({ ...await original<typeof 
 vi.mock("../lib/server/kv", () => ({ kv: () => ({
   mget: async (ks: string[]) => { await wait(ks[0].startsWith("relay:leasegen:") ? "kvSnap" : "kvGate"); return ks[0].startsWith("relay:leasegen:") ? ["4", null] : ks.map(() => null); },
   nonceAlloc: async () => { await wait("kvGen"); return 4; }, setNX: async () => { await wait("kvSet"); return true; },
-  delIfEq: async () => { await wait("kvDel"); return true; }, incrEx: async () => { await wait("kvIncr"); return 1; }, ttl: async () => -2,
+  delIfEq: async () => { await wait("kvDel"); return true; }, incrEx: async () => { await wait("kvIncr"); return 1; },
+  // one EVAL replacing the two parallel INCRs; modeled conservatively as the max of two kvIncr draws (same RNG use)
+  relayBudget: async () => { await Promise.all([wait("kvIncr"), wait("kvIncr")]); return 0; }, decrIfPositive: async () => { await wait("kvIncr"); return 0; }, ttl: async () => -2,
 }) }));
 vi.mock("../lib/server/gradBuy", async original => ({ ...await original<typeof import("../lib/server/gradBuy")>(), chainGradReads: () => ({
   router: "0x688160633b22012717661545df6299d3d3174ad2", usdg: "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d",

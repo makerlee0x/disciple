@@ -351,14 +351,17 @@ async function underLeaseOp(op: UserOp, v: Validated, f: FreshFacts, metrics?: R
   try { requireExpiryMargin(f); await depositGuard(op, v.fee, metrics); } catch (e) { throw preSign(e); }
 }
 async function commitOp(op: UserOp, v: Validated, fresh: Promise<void>, onPending?: OnPending, beforeSend?: () => Promise<void>, metrics?: RelayMetrics): Promise<RelayConfirmed> {
-  let signed = false;
+  let signed = false, budgetP: Promise<() => Promise<void>> | undefined;
   try {
   const T0 = v.t0, t: Record<string, number> = { simulate: v.simulate };
   const { st, me, fee, data, hash, gas } = v;
   const fast = false; // audit F-02: no sender-level or cached-op bypass
   // Paid budget is charged only after a passing exact simulation; the fresh re-check runs alongside it and BOTH must
   // pass before beforeSend, nonce allocation or signing.
-  await Promise.all([relaySendBudget(op.sender, metrics), fresh]);
+  // Vercel Security finding 1: the budget promise is kept so any rejection before signing (including a fresh-check
+  // failure that wins this race) can refund the global unit once the budget call settles. Success path unchanged.
+  budgetP = relaySendBudget(op.sender, metrics);
+  await Promise.all([budgetP, fresh]);
   await beforeSend?.();   // validated ⇒ now the per-sender limit (and a press's free retry) may be charged
   const txFees = relayerTxFees(op, fee);   // never above the op's fees ⇒ the EntryPoint refund covers the relayer's cost per gas
   let txHash: Hex | undefined, relayNonce: number | undefined;
@@ -406,7 +409,8 @@ async function commitOp(op: UserOp, v: Validated, fresh: Promise<void>, onPendin
   const receipt = normalizeReceipt(r.rc);
   return { kind: "confirmed", userOpHash: hash, txHash: receipt.transactionHash, success, receipt, logs: receipt.logs, via: r.via, t: { simulate: t.simulate, signTx: t.signTx, send: t.send, mined: t.mined, total: t.total, mode: r.via === "rpc-wait" ? 0 : 1 } };
   } catch (e) {
-    if (!signed) throw Object.assign(e as Error, { notSent: true });
+    // nothing signed ⇒ not a send: give the global unit back (the sender's own counter keeps the attempt)
+    if (!signed) { await budgetP?.then(refund => refund(), () => undefined).catch(() => undefined); throw Object.assign(e as Error, { notSent: true }); }
     throw e;
   }
 }

@@ -11,6 +11,7 @@ import { sessionPolicyFor } from "../aa/oneTap";
 import { ACTIVE_CHAIN, DEPLOYMENTS, robinhoodTestnet, ZERO } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { chainGradReads, type GradReads } from "./gradBuy";
+import { checkRelayAccount, type RelayAuthReads } from "./relayAuth";
 
 const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 function fail(): never { throw new Error("BSO sponsorship admission denied"); }
@@ -124,7 +125,7 @@ export async function checkSponsoredCalls(callData: Hex, sender: Address, reads:
 export async function checkSponsoredOperation(op: Record<string, unknown>, entryPoint: unknown, estimate = false): Promise<void> {
   checkBso(op, estimate);
   if (typeof entryPoint !== "string" || !eq(entryPoint, ENTRYPOINT_V07) || !address(op.sender) || typeof op.callData !== "string" || op.initCode !== undefined || op.eip7702Auth !== undefined) fail();
-  const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { timeout: 5000, retryCount: 0 }) });
+  const pc = bsoClient();
   if (await pc.getChainId() !== 46630) fail();
   if (op.factory !== undefined || op.factoryData !== undefined) {
     if (typeof op.factory !== "string" || !eq(op.factory, MAV2_FACTORY) || typeof op.factoryData !== "string") fail();
@@ -133,6 +134,19 @@ export async function checkSponsoredOperation(op: Record<string, unknown>, entry
     if (f.functionName !== "createSemiModularAccount" || !eq(encodeFunctionData({ abi: accountFactoryAbi, functionName: f.functionName, args: f.args }), data)) fail();
     const expected = await pc.readContract({ address: MAV2_FACTORY, abi: accountFactoryAbi, functionName: "getAddressSemiModular", args: f.args });
     if (!eq(expected, op.sender)) fail();
-  } else if (!(await pc.getCode({ address: op.sender }))) fail();
-  await checkSponsoredCalls(op.callData as Hex, op.sender, chainGradReads(pc, 46630));
+    await checkSponsoredCalls(op.callData as Hex, op.sender, chainGradReads(pc, 46630));
+    return;
+  }
+  // Vercel Security finding 2: a deployed sender must be OUR MAv2 account (runtime template + current ERC-1967 slot ==
+  // MAv2 impl), the same check self-relay runs; any other bytecode would make the MAv2-envelope parse below meaningless.
+  // Runs concurrently with the call-allowlist parse (was a sequential getCode before it); both must pass.
+  await Promise.all([
+    checkRelayAccount({ sender: op.sender as Address, factory: undefined }, pc as unknown as RelayAuthReads).catch(() => fail()),
+    checkSponsoredCalls(op.callData as Hex, op.sender, chainGradReads(pc, 46630)),
+  ]);
 }
+// One client per instance (same transport/options as before) so the MAv2 factory's immutable implementation getter is
+// read once per instance (relayAuth caches it per client); the sender's code + implementation slot stay fresh per op.
+const makeBsoClient = () => createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { timeout: 5000, retryCount: 0 }) });
+let bso: ReturnType<typeof makeBsoClient> | undefined;
+function bsoClient() { return (bso ??= makeBsoClient()); }
