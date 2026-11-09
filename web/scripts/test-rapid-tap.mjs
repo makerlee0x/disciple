@@ -23,7 +23,8 @@ const block = (a, b) => { const i = eng.indexOf(a), j = eng.indexOf(b, i); if (!
 // lib modules, transpiled; "@/lib/chains" / "@/lib/wallet" / "@/lib/config" → stubs (USDG decimals settable); lib/usdg is the REAL one
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rapidtap-"));
 const USDG = "0x25030Bff74764aD72b912276a603717DB1C00644";
-fs.writeFileSync(path.join(tmp, "chains.mjs"), `export const D = { dec: 18 }; export const deployment = () => ({ usdgDecimals: D.dec, usdg: "${USDG}", defaultQuote: "0x0000000000000000000000000000000000000001" });`);
+fs.writeFileSync(path.join(tmp, "bso.mjs"), "export const browserBso = () => false;");   // self-pay / self-relay gas path (no BSO)
+fs.writeFileSync(path.join(tmp, "chains.mjs"), `export const D = { dec: 18 }; export const ACTIVE_CHAIN = { id: 46630 }; export const deployment = () => ({ usdgDecimals: D.dec, usdg: "${USDG}", defaultQuote: "0x0000000000000000000000000000000000000001" });`);
 fs.writeFileSync(path.join(tmp, "wallet.mjs"), "export const W = { smart: true }; export const isSmartMode = () => W.smart; export const gasReservePerOp = () => 0n; export const peekGasReservePerOp = () => 0n;");
 fs.writeFileSync(path.join(tmp, "config.mjs"), `export const GAS = ${JSON.stringify({ execGas: 200000, ethUsd: 2372, robinhoodGwei: 0.0207, maxOverhead: 0.05 })}; export const CURVE = { decimals: 18, graduationMcap: 33000 }; export const STRATEGY_TOKEN = { address: "0x0000000000000000000000000000000000000002", decimals: 18 };`);
 fs.writeFileSync(path.join(tmp, "abi.mjs"), "export const tokenAbi = [];");
@@ -32,7 +33,7 @@ fs.writeFileSync(path.join(tmp, "abi.mjs"), "export const tokenAbi = [];");
   fs.writeFileSync(path.join(tmp, "gasPolicy.ts"), [pick(/export const RELAYER_TIP = [^\n]+/), pick(/export const CLIENT_FEE_HEADROOM_PCT = [^\n]+/), pick(/export function clientFees\([\s\S]*?\n\}/)].join("\n")); }
 const viemUrl = import.meta.resolve("viem");
 ok(/robinhoodGwei: 0\.0207/.test(rd("lib/config.ts")) && /ethUsd: 2372/.test(rd("lib/config.ts")), "config stub = lib/config GAS (gwei / ETH-USD)");
-const rew = (src) => src.replace(/from "@\/lib\/(chains|wallet|config|usdg)"/g, 'from "./$1"').replace(/from "@\/lib\/aa\/gasPolicy"/g, 'from "./gasPolicy"').replace(/from "\.\.\/usdg"/g, 'from "./usdg"').replace(/from "viem"/g, `from "${viemUrl}"`).replace(/from "(\.\/[^"]+)"/g, 'from "$1.mjs"');
+const rew = (src) => src.replace(/from "@\/lib\/(chains|wallet|config|usdg)"/g, 'from "./$1"').replace(/from "@\/lib\/aa\/gasPolicy"/g, 'from "./gasPolicy"').replace(/from "@\/lib\/aa\/bso"/g, 'from "./bso"').replace(/from "\.\.\/usdg"/g, 'from "./usdg"').replace(/from "viem"/g, `from "${viemUrl}"`).replace(/from "(\.\/[^"]+)"/g, 'from "$1.mjs"');
 for (const [m, f] of [["gasPolicy", path.relative(web, path.join(tmp, "gasPolicy.ts"))], ["rapidTap", "lib/flight/rapidTap.ts"], ["reservationsShim", "lib/trade/reservations.ts"], ["gasReserve", "lib/flight/gasReserve.ts"], ["usdg", "lib/usdg.ts"]])
   fs.writeFileSync(path.join(tmp, m + ".mjs"), ts.transpileModule(rew(rd(f)), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText);
 const imp = (m) => import(pathToFileURL(path.join(tmp, m + ".mjs")).href);

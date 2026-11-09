@@ -41,7 +41,7 @@ export function tokenCost(weiAmount: bigint, rate: bigint): bigint {
 }
 /** Mirrors lib/server/paymasterCore ALLOWANCE_FEE_MULT (server module; not imported into client code). */
 export const ALLOWANCE_FEE_MULT = BigInt(2);
-export const TRADE_GAS_LIMIT = Object.values(ALLOWANCE_GAS).reduce((a, b) => a + b, BigInt(0));   // 2,620,000
+export const TRADE_GAS_LIMIT = Object.values(ALLOWANCE_GAS).reduce((a, b) => a + b, BigInt(0));   // 2,760,000 (PVG 200_000 since #260)
 export const GRAD_GAS_LIMIT = BigInt(6_000_000);                                                    // GRAD_GAS_CAPS.total
 export const gasLimitFor = (k: GasOpKind) => (k === "gradBuy" ? GRAD_GAS_LIMIT : TRADE_GAS_LIMIT);
 /** Config fallbacks (lib/config GAS) used only until the first live read. */
@@ -115,10 +115,11 @@ export function gasCredit(): bigint | undefined {
 }
 /** Read availableCredit(account) in the background (cash poll). Never on the trade path, never throws; a failed read
  *  (no v5 paymaster, RPC error) clears it to unknown. */
-export async function warmGasCredit(pc: Pick<PublicClient, "readContract">, account: Address): Promise<void> {
-  if (!smart()) { setGasCredit(null); return; }
+export function warmGasCredit(pc: Pick<PublicClient, "readContract">, account: Address): Promise<void> {
+  // promise chain, not async/await: this module stays synchronous for the trade path (scripts/test-rapid-tap)
+  if (!smart()) { setGasCredit(null); return Promise.resolve(); }
   const pm = deployment().paymaster as Address | undefined;
-  if (!pm || /^0x0{40}$/i.test(pm)) { setGasCredit(null); return; }
-  try { setGasCredit(BigInt(await pc.readContract({ address: pm, abi: availableCreditAbi, functionName: "availableCredit", args: [account] }))); }
-  catch { setGasCredit(null); }
+  if (!pm || /^0x0{40}$/i.test(pm)) { setGasCredit(null); return Promise.resolve(); }
+  return Promise.resolve().then(() => pc.readContract({ address: pm, abi: availableCreditAbi, functionName: "availableCredit", args: [account] }))
+    .then((raw) => setGasCredit(BigInt(raw as bigint)), () => setGasCredit(null));
 }
