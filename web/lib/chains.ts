@@ -119,7 +119,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     launchpad: addr(process.env.NEXT_PUBLIC_RHT_LAUNCHPAD, "0x8a92e51940909424b3aacefff99b4834588c0988"),
     hook: addr(process.env.NEXT_PUBLIC_RHT_HOOK, "0x2ac264a620edd05ba78381c51539650c40e2e8c4"),
     router: addr(process.env.NEXT_PUBLIC_RHT_ROUTER, "0x688160633b22012717661545df6299d3d3174ad2"),
-    gaslessRouter: addr(process.env.NEXT_PUBLIC_RHT_GASLESS_ROUTER),
+    gaslessRouter: addr(process.env.NEXT_PUBLIC_RHT_GASLESS_ROUTER, "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e"), // gasless DiscipleRouter (Permit2 witness), Launchpad-trusted Nov 9
     feeRouter: addr(process.env.NEXT_PUBLIC_RHT_FEE_ROUTER, "0xa5aaddd75f1bc3b8fb3ecc8845eab0cfa5faed8c"),
     referralRegistry: addr(process.env.NEXT_PUBLIC_RHT_REFERRAL_REGISTRY, "0xfe529086b25c4e0724b88780e5ba9b4ace785aaf"),
     lockedLP: addr(process.env.NEXT_PUBLIC_RHT_LOCKED_LP, "0x61efff9f0dbdd818317858074bcf80e4dcc39646"),
