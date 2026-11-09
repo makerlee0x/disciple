@@ -8,6 +8,21 @@ import "server-only";
  */
 import { promises as fs } from "fs";
 
+export type TrustMergeFields = { verifiedAt: number; fastOps: number; strikes: number; lastStrikeAt: number; strikeUntil: number };
+const TRUST_FIELDS = ["verifiedAt", "fastOps", "strikes", "lastStrikeAt", "strikeUntil"] as const;
+/** Same rule as TRUST_MERGE_LUA (kept identical; tests run both): null when the stored value can't be parsed. */
+export function mergeTrust(stored: string | null, p: TrustMergeFields): TrustMergeFields | null {
+  let o: Partial<Record<string, unknown>> = {};
+  if (stored !== null) {
+    try { o = JSON.parse(stored) as Record<string, unknown>; } catch { return null; }
+    if (!o || typeof o !== "object" || TRUST_FIELDS.some(f => typeof o[f] !== "number" || !Number.isFinite(o[f] as number))) return null;
+  }
+  const old = (f: (typeof TRUST_FIELDS)[number]) => (stored === null ? 0 : (o[f] as number));
+  return {
+    verifiedAt: p.verifiedAt, fastOps: p.fastOps, strikes: Math.max(p.strikes, old("strikes")),
+    lastStrikeAt: Math.max(p.lastStrikeAt, old("lastStrikeAt")), strikeUntil: Math.max(p.strikeUntil, old("strikeUntil")),
+  };
+}
 export interface Kv {
   kind: "upstash" | "local";
   get(k: string): Promise<string | null>;
@@ -41,6 +56,11 @@ export interface Kv {
    * counter becomes n + 1. Both keys expire ttlSec after the last write.
    */
   nonceAlloc(counter: string, holes: string, floor: number, ttlSec: number): Promise<number>;
+  /** AUDIT r264 step 6: ATOMIC merge-save of a relay trust ledger entry (one round trip). strikes, lastStrikeAt and
+   *  strikeUntil never decrease through a save (max with the stored entry); verifiedAt/fastOps are the caller's
+   *  (telemetry only, unchanged semantics). TTL refreshed. Returns 1 when written, 0 when the stored entry is unparseable (left as is, so
+   *  the relay's admission gate keeps failing closed on it). */
+  trustMerge(k: string, p: TrustMergeFields, ttlSec: number): Promise<number>;
   /**
    * Nonce n was handed out but never accepted. Atomic: counter == n + 1 ⇒ roll back (1); counter > n + 1 ⇒ n joins
    * `holes` for the next alloc (2); else nothing (0: already below the counter's view).
@@ -84,6 +104,11 @@ function local(): Kv {
       const n = Math.max(Number(live(c)?.v ?? 0) || 0, floor);
       st.kv[c] = { v: String(n + 1), exp }; save(); return n;
     },
+    async trustMerge(k, p, ttl) {
+      await ready;
+      const m = mergeTrust(live(k)?.v ?? null, p); if (!m) return 0;
+      st.kv[k] = { v: JSON.stringify(m), exp: Date.now() + ttl * 1000 }; save(); return 1;
+    },
     async nonceRelease(c, h, n, ttl) {
       await ready;
       const e = live(c), cur = e ? Number(e.v) : -1;
@@ -100,6 +125,10 @@ const DEL_IF_EQ_LUA = "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.c
 const INCR_EX_LUA = "local c=redis.call('INCR',KEYS[1]) if c==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end return c";
 const NONCE_ALLOC_LUA = "local f=tonumber(ARGV[1]) while true do local h=redis.call('ZPOPMIN',KEYS[2]) if #h==0 then break end local n=tonumber(h[2]) if n>=f then return n end end local c=tonumber(redis.call('GET',KEYS[1]) or '0') if c<f then c=f end redis.call('SET',KEYS[1],c+1,'EX',ARGV[2]) return c";
 const NONCE_RELEASE_LUA = "local n=tonumber(ARGV[1]) local c=tonumber(redis.call('GET',KEYS[1]) or '-1') if c==n+1 then redis.call('SET',KEYS[1],n,'EX',ARGV[2]) return 1 end if c>n+1 then redis.call('ZADD',KEYS[2],n,ARGV[1]) redis.call('EXPIRE',KEYS[2],ARGV[2]) return 2 end return 0";
+/** AUDIT r264 step 6. Lua 5.1 (no cjson dependency): reads the 5 numeric fields of the stored JSON; any missing/unparseable
+ * ⇒ return 0 and leave the entry (fail closed). Writes max() of strikes/lastStrikeAt/strikeUntil, the caller's
+ * verifiedAt/fastOps, SET EX ttl — atomically, so no reader ever sees the key missing or a strike lowered. Mirrors mergeTrust. */
+export const TRUST_MERGE_LUA = "local c=redis.call('GET',KEYS[1]) local f={'verifiedAt','fastOps','strikes','lastStrikeAt','strikeUntil'} local o={} for i=1,5 do local n=tonumber(ARGV[i]) if not n then return redis.error_reply('bad arg') end o[i]=n end if c then local old={} for i=1,5 do local v=tonumber(string.match(c,'\"'..f[i]..'\":(%-?[%d%.eE%+%-]+)')) if not v then return 0 end old[i]=v end for i=3,5 do if old[i]>o[i] then o[i]=old[i] end end end redis.call('SET',KEYS[1],string.format('{\"verifiedAt\":%.0f,\"fastOps\":%.0f,\"strikes\":%.0f,\"lastStrikeAt\":%.0f,\"strikeUntil\":%.0f}',o[1],o[2],o[3],o[4],o[5]),'EX',ARGV[6]) return 1";
 /** Per Upstash REST command (a healthy one is ~5–30 ms from Vercel). */
 export const KV_TIMEOUT_MS = 1500;
 function upstash(url: string, token: string): Kv {
@@ -139,6 +168,7 @@ function upstash(url: string, token: string): Kv {
     async expireIfEq(k, v, ttl) { return Number(await cmd<number>("EVAL", EXPIRE_IF_EQ_LUA, 1, k, v, ttl)) === 1; },
     async delIfEq(k, v) { return Number(await cmd<number>("EVAL", DEL_IF_EQ_LUA, 1, k, v)) === 1; },
     async nonceAlloc(c, h, floor, ttl) { return Number(await cmdNonce<number>("EVAL", NONCE_ALLOC_LUA, 2, c, h, floor, ttl)); },
+    async trustMerge(k, p, ttl) { return Number(await cmd<number>("EVAL", TRUST_MERGE_LUA, 1, k, p.verifiedAt, p.fastOps, p.strikes, p.lastStrikeAt, p.strikeUntil, ttl)); },
     async nonceRelease(c, h, n, ttl) { return Number(await cmdNonce<number>("EVAL", NONCE_RELEASE_LUA, 2, c, h, n, ttl)); },
   };
 }
