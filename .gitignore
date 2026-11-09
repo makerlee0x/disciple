@@ -17,3 +17,4 @@ disciple-shots
 .vscode
 .idea
 tracker/
+__pycache__/
