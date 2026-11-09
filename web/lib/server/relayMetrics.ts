@@ -4,7 +4,7 @@ export class RelayMetrics {
   readonly startedAtUnixMs = Date.now();
   private start: number;
   private intervals: [number, number][] = [];
-  private stages: Record<string, number> = Object.fromEntries(["parse", "authLogin", "sessionRead", "targetSelector", "rateLimitStore", "leaseAcquire", "paymasterDepositPrefetch", "paymasterDeposit", "baseFee", "nonceWarm", "nonceAllocate", "nonceRecover", "l1Check", "l1ResidualWait", "simulate", "signTx", "syncSend", "mined", "leaseRelease", "reconciliation", "responseFlushEnqueue"].map(k => [k, 0]));
+  private stages: Record<string, number> = Object.fromEntries(["parse", "authLogin", "sessionRead", "targetSelector", "rateLimitStore", "leaseAcquire", "paymasterDepositPrefetch", "paymasterDeposit", "baseFee", "nonceWarm", "nonceAllocate", "nonceRecover", "l1Check", "l1ResidualWait", "simulate", "signTx", "syncSend", "mined", "leaseRelease", "reconciliation", "responseFlushEnqueue", "freshnessSnapshot", "speculativePreflight", "admissionSimulationWall", "leaseGeneration", "leaseRecheck", "leaseRecheckReads", "resimulateUnderLease", "speculationStale"].map(k => [k, 0]));
   constructor(private clock = () => performance.now()) { this.start = clock(); }
   elapsed() { return Math.round((this.clock() - this.start) * 100) / 100; }
   mark(name: string) { this.stages[name] = this.elapsed(); }

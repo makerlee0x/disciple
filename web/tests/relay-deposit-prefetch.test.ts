@@ -32,7 +32,10 @@ it("preserves freshness recheck and late nonce allocation in actual relay wiring
   const send = source.slice(source.indexOf("export async function sendUserOperationSync"));
   expect(send.indexOf("requireSelfBundlerMode()")).toBeLessThan(send.indexOf("const deposit"));
   expect(send).toContain("await deposit;"); expect(send).toContain('"paymasterDeposit", () => paymasterDepositCached(pm)');
-  expect(send.indexOf("await authorizeRelayOperation")).toBeLessThan(send.indexOf("r = await sendWithCursor"));
-  expect(send.indexOf("await relaySendBudget")).toBeLessThan(send.indexOf("r = await sendWithCursor"));
+  // indexOf(-1) must not pass vacuously: every anchor has to exist.
+  const at = (needle: string) => { const i = send.indexOf(needle); expect(i, needle).toBeGreaterThan(0); return i; };
+  expect(at("authorizeRelayOperation(op")).toBeLessThan(at("r = await sendWithCursor"));
+  expect(at("await Promise.all([relaySendBudget(op.sender, metrics), fresh]);")).toBeLessThan(at("r = await sendWithCursor"));
+  expect(at("recheckUnderLease(op, metrics)")).toBeGreaterThan(at("async function recheckOp"));
   expect(send).toContain('"nonceAllocate"'); expect(send).toContain('"l1ResidualWait"');
 });
