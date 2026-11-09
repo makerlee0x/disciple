@@ -386,6 +386,9 @@ export async function aaSignMessage(message: string): Promise<{ owner: Address; 
   return sa ? { owner: sa.ownerAddress, sig: await sa.signMessage(message) } : null;
 }
 export async function aaAddress() { return sa ? sa.address() : null; }
+/** Gasless mode (flow/gasless-permit2): the signed-in owner EOA (Privy embedded wallet) — it holds funds and signs
+ *  Permit2 trades itself. null when signed out. The MAv2 account stays untouched (migration plan only). */
+export function aaOwnerAccount(): LocalAccount | null { return sa ? ownerAcct : null; }
 
 /* ---------- TEMP (testnet): sweep the pre-Privy LightAccount v2 of the SAME owner key into the new MAv2 ---------- */
 // Remove once testnet users have migrated. Only "local"/"eoa" owners can match: Turnkey-owned accounts have a different key.

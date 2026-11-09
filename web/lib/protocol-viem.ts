@@ -41,7 +41,7 @@ import type {
   Address, CurveState, LaunchCoinParams, LaunchCoinResult, ProtocolClient, TradeParams, TradeQuote, TradeResult,
 } from "./protocol";
 import { ZERO_ADDRESS } from "./protocol";
-import { activeAddress, connectedAddress, execCalls, isSmartMode, type ExecResult } from "./wallet";
+import { activeAddress, connectedAddress, ensureGaslessLogin, execCalls, execGasless, gaslessSigner, isSmartMode, type ExecResult } from "./wallet";
 import { ensurePveLogin, ensurePveLoginOnchain, PveError } from "./pve";
 import { isLegacyCurve, LEGACY_COIN_MSG } from "./legacyGate";
 import { pnlKey, seedCreatorBuyPosition } from "./pnl";
@@ -1097,7 +1097,11 @@ export function createViemProtocol(): ProtocolClient {
       const curve = c.gradCurve?.curve ?? await curveOf(pc, t.token);
       if (await isLegacyCurve(pc, curve)) throw new ProtocolError("LegacyCoin", LEGACY_COIN_MSG);
     }
-    if (isBuy && c.pve) await labelRead("pve-login", ensurePveLoginOnchain(pc, c.me, (calls) => execCalls(calls)));
+    // Gasless mode (flow/gasless-permit2): the owner EOA trades; LoginGate must verify IT for relay admission (every
+    // trade, not only PVE) ⇒ relayed attest, no ETH. Otherwise today's owner-paid PVE login, unchanged.
+    const gasless = !!gaslessSigner();
+    if (gasless) await labelRead("gasless-login", ensureGaslessLogin());
+    else if (isBuy && c.pve) await labelRead("pve-login", ensurePveLoginOnchain(pc, c.me, (calls) => execCalls(calls)));
 
     const spend = isBuy ? c.usdg : t.token, outAsset = isBuy ? t.token : c.usdg;
     const g = isBuy ? c.gradCurve : undefined;
@@ -1194,7 +1198,12 @@ export function createViemProtocol(): ProtocolClient {
     let logs: ExecResult["logs"] | undefined;
     const sentAt = Date.now();   // its block is produced after this (READ_FLOOR clock bounds)
     try {
-      const r = await asTrade(tt, () => labelRead("send-prep", execCalls(calls, { rebuild, pressId })));
+      // Gasless: ONE signed Permit2 witness → our relayer → the gasless router (no referral prefix: tryAttribute needs
+      // the trader as caller; no rebuild: a stale minOut is refused by the exact simulation, notSent, and trade()
+      // re-quotes once as today).
+      const r = await asTrade(tt, () => labelRead("send-prep", gasless
+        ? execGasless({ coin: t.token, isBuy, amountIn: t.amountIn, minOut, pressId })
+        : execCalls(calls, { rebuild, pressId })));
       logs = r.logs; landed = logsBlock(r.logs);
       const out = received(r.logs, outAsset, c.me);
       if (mid) { MODEL.land(route, mid, out); mid = 0; }   // the receipt's amounts, applied to every quote read before now

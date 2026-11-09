@@ -97,7 +97,8 @@ const SIM_BASE_USD=5;   // simulated-flow / candle-volume reference (was MODES[2
    the engine books no modelled per-trade network fee anywhere (not in paper cash, not in the PnL cost basis) and the HUD
    shows no fee line. (Was: a modelled ~$0.01 per-swap fee from gas units × gwei × an ETH price, charged to paper cash
    and the cost basis and printed in the BUY panel; the minimum was derived from it.) */
-const MIN_SHOT=0.20;                               // [PARAM] minimum buy $ (sells are never size-filtered)
+const MIN_SHOT=3;                                  // [PARAM] minimum buy $ (sells are never size-filtered). lee Nov 9 2026: $3 (was $0.20); same number as lib/trade/gaslessPermit2 MIN_TRADE_USD (server-enforced on gasless buys)
+const DUST_USD=0.20;                               // the old $0.20 floor, kept ONLY for sim-flow sizing and paper-stack dust checks (unchanged behavior)
 // auto label: shot* ≈ 0.1% of quote depth x (≈0.2% price per press), snapped to nearest mode (log distance)
 /* AMMO TIERS — preset $ sizes scale with the rocket's mcap tier so each preset is a similar % impact.
    Single source of truth: web/lib/flight/ammoTiers.ts (documented in docs/ammo-tiers.md), handed to the engine as
@@ -732,10 +733,10 @@ function simMarketStep(dt){
   if(Math.random()<rate*dt) simTrade();
 }
 function simTrade(){
-  const buy=Math.random()<0.5+SIM.bias-Math.log(S.simT||1)*2, base=Math.max(MIN_SHOT,SIM_BASE_USD);
+  const buy=Math.random()<0.5+SIM.bias-Math.log(S.simT||1)*2, base=Math.max(DUST_USD,SIM_BASE_USD);
   let usd=base*Math.exp((Math.random()+Math.random()+Math.random()-1.5)*1.6), whale=false;
   if(Math.random()<0.025){ usd*=20+Math.random()*40; whale=true; }
-  usd=+Math.max(MIN_SHOT,usd).toPrecision(3);
+  usd=+Math.max(DUST_USD,usd).toPrecision(3);
   const pct=clamp(0.3*usd/base,0.03,whale?9:2.5);
   S.simT=clamp((S.simT||1)*(buy?1+pct/100:1/(1+pct/100)),0.75,1.3);
   S.volEma+=usd; if(buy) S.buyEma+=usd; else S.sellEma+=usd;
@@ -867,8 +868,8 @@ function trade(side,opt){
   if (side==='sell'&&opt&&opt.all) opt={...opt,frac:1};
   const liveFrac=side==='sell'&&isLive()&&opt&&opt.frac>0;
   if (liveFrac&&S.liveBag&&S.liveBag.tokens>0){ const v=S.liveBag.tokens*(markMcap()||0)/(source.supply||1e6); if(v>0) md={...md,usd:+(v*Math.min(1,opt.frac)).toFixed(2)}; }
-  if (side==='sell'&&opt&&opt.all&&!isLive()){ if(!(S.hold.tokens>0)&&stack<MIN_SHOT){ S.flashes.push({txt:'NO PAPER STACK TO DUMP',life:1.4}); return; } if(S.hold.valueUsd>0) md={...md,usd:S.hold.valueUsd}; else md={...md,usd:stack}; }
-  if (side==='sell') S.fullStackNext = !!(opt&&opt.frac>=0.98) || (stack>=MIN_SHOT && md.usd>=stack*0.98);
+  if (side==='sell'&&opt&&opt.all&&!isLive()){ if(!(S.hold.tokens>0)&&stack<DUST_USD){ S.flashes.push({txt:'NO PAPER STACK TO DUMP',life:1.4}); return; } if(S.hold.valueUsd>0) md={...md,usd:S.hold.valueUsd}; else md={...md,usd:stack}; }
+  if (side==='sell') S.fullStackNext = !!(opt&&opt.frac>=0.98) || (stack>=DUST_USD && md.usd>=stack*0.98);
   // MIN_SHOT gates BUYS only (the smallest buy). A sell is never dropped by it: the bag is real (live: TradeBridge sizes
   // it from balanceOf and sends a $0.01 placeholder when it can't price the bag yet), and the confirmed fill is drawn on the
   // chart from the real USDG received (feed swap / decoded receipt, @sellfill). (Was: a live % sell of a bag the ledger
@@ -2340,7 +2341,7 @@ function simStep(stepDt){
   /* FORWARD SPEED from volume + momentum: rolling USD/s (volEma τ6 s) normalised by the tier's FLARE
      preset, plus |buy−sell| imbalance. Second-order smoothed (ω=1.4) so it never jumps.
      Quiet ≈ 60 px/s drift, heavy flow → ~520 px/s blast. */
-  { const ref=Math.max(MIN_SHOT,SIM_BASE_USD), x=(MOM.vol/TF.sec)/ref + Math.abs(MOM.buy-MOM.sell)/TF.sec/ref*0.6;   // candle-window volume
+  { const ref=Math.max(DUST_USD,SIM_BASE_USD), x=(MOM.vol/TF.sec)/ref + Math.abs(MOM.buy-MOM.sell)/TF.sec/ref*0.6;   // candle-window volume
     const tgt=60+460*(1-Math.exp(-x*0.8)), w=1.4; S.fwdV=(S.fwdV||0)+(w*w*(tgt-(S.fwd||60))-2*w*(S.fwdV||0))*dt; S.fwd=(S.fwd||60)+S.fwdV*dt;
     S.fwdN=clamp((S.fwd-60)/460,0,1); }
   /* AIRSPEED (vertical scroller): the rocket is always flying up through the air, so cosmetic layers

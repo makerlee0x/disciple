@@ -41,6 +41,11 @@ export function sessionEntity(op: UserOp): number {
 }
 export async function requireLogin(sender: Address, metrics?: RelayMetrics) {
   requireSelfBundlerMode();
+  return loginTimestamp(sender, metrics);
+}
+/** The LoginGate admission read shared by the self-bundler (requireLogin, mode-checked above) and the gasless relay
+ *  (lib/server/gaslessRelay, which runs its own mode check first): fresh chain id + block + verifiedUntil, never cached. */
+export async function loginTimestamp(sender: Address, metrics?: RelayMetrics) {
   const [chainId, block, until] = await timed(metrics, "authLogin", () => Promise.all([pc.getChainId(), pc.getBlock(), pc.readContract({ address: DEPLOYMENTS[46630].loginGate, abi, functionName: "verifiedUntil", args: [sender] })]));
   if (chainId !== 46630 || until <= block.timestamp) throw new Error("unauthenticated LoginGate session");
   return Number(block.timestamp);

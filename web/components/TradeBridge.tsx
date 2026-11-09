@@ -731,7 +731,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       return shoot("sell", { usd: +customSellUsd.toFixed(2), frac: Math.min(1, customSellUsd / pos.valueUsd) }); }
     sell(selSellPreset);
   };
-  const fmtShot = fmtMoney;   // shared shorthand: $0.20 · $129.12 · $129.12K · $1.50M
+  const fmtShot = fmtMoney;   // shared shorthand: $3.00 · $129.12 · $129.12K · $1.50M
   // Space is a game hotkey (engine: Space = BOOST). A focused BOOST/DUMP button would ALSO fire its click on the
   // same key (native button activation, not prevented from the engine worker) ⇒ two trades per press. Keyboard → engine only.
   const noKeyActivate = { onKeyDown: (e: React.KeyboardEvent) => { if (e.key === " ") e.preventDefault(); },

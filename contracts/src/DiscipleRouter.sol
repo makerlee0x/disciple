@@ -32,6 +32,34 @@ interface IFeeRouterClaimFor {
     function claimCreatorFeesFor(address token, address creator) external returns (uint256);
 }
 
+/// @dev Canonical Uniswap Permit2 (ISignatureTransfer subset). Same address on every chain incl. Robinhood 4663/46630.
+interface IPermit2Witness {
+    struct TokenPermissions {
+        address token;
+        uint256 amount;
+    }
+
+    struct PermitTransferFrom {
+        TokenPermissions permitted;
+        uint256 nonce;
+        uint256 deadline;
+    }
+
+    struct SignatureTransferDetails {
+        address to;
+        uint256 requestedAmount;
+    }
+
+    function permitWitnessTransferFrom(
+        PermitTransferFrom calldata permit,
+        SignatureTransferDetails calldata transferDetails,
+        address owner,
+        bytes32 witness,
+        string calldata witnessTypeString,
+        bytes calldata signature
+    ) external;
+}
+
 interface IUsdgCurve {
     struct BuyQuoteLite {
         uint256 tokensOut;
@@ -102,6 +130,8 @@ contract DiscipleRouter is IUnlockCallback {
     error BadPool();
     error UnknownToken(address token);
     error Reentrancy();
+    error BadSigner();
+    error BadPermit();
 
     // ───────────────────────── USDG routing (buyWithUsdg / sellToUsdg) ─────────────────────────
     /// @notice USDG (the frontend's only payment asset). Owner-set together with `launchpad`.
@@ -563,6 +593,213 @@ contract DiscipleRouter is IUnlockCallback {
 
     function quoteSellToUsdg(address token, uint256 tokensIn) external returns (uint256 usdgOut, uint256 impactBps) {
         return quoteUsdgRoute(token, false, tokensIn);
+    }
+
+    // ───────────────────────── Gasless (Permit2 witness) entry points ─────────────────────────
+    // Pattern copied from 0x Gasless (0x-settler SettlerMetaTxn.executeMetaTxn): the trader signs ONE EIP-712
+    // Permit2 PermitWitnessTransferFrom whose witness is the whole trade; any relayer EOA submits it and pays the ETH.
+    // The relayer cannot change a single field: token/amount/spender/nonce/deadline are in the permit, and coin,
+    // side, amountIn, minOut, recipient and deadline are in the witness. Funds only ever leave the SIGNER and the
+    // output only ever goes to the SIGNER (signer == trade.recipient is enforced). Permit2's unordered nonce bitmap
+    // + deadline give replay protection. Curve / v4 legs are exactly buyWithUsdg / sellToUsdg with trader = signer.
+
+    /// @notice Canonical Permit2 (same address on Robinhood Chain 4663 and testnet 46630).
+    address public constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+
+    /// @notice The signed trade (Permit2 witness). `amountIn` must equal the permit amount.
+    struct Trade {
+        address coin;
+        bool isBuy;
+        uint256 amountIn;
+        uint256 minOut;
+        address recipient;
+        uint256 deadline;
+    }
+
+    /// @notice One-time EIP-2612 approval of PERMIT2 bundled into a trade (value 0 ⇒ skipped). USDG and every DISCIPLE
+    ///         coin (Token.sol ERC20Permit) support it, so the user never needs ETH for an approve.
+    struct Erc2612 {
+        uint256 value;
+        uint256 deadline;
+        uint8 v;
+        bytes32 r;
+        bytes32 s;
+    }
+
+    bytes32 public constant TRADE_TYPEHASH = keccak256(
+        "Trade(address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline)"
+    );
+    /// @dev Permit2 appends this to "PermitWitnessTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline,".
+    ///      EIP-712 orders referenced types by name: TokenPermissions < Trade.
+    string public constant TRADE_WITNESS_TYPE = "Trade witness)TokenPermissions(address token,uint256 amount)"
+        "Trade(address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline)";
+
+    event GaslessTrade(address indexed signer, address indexed relayer, address indexed coin, bool isBuy, uint256 nonce);
+
+    /// @notice Gasless buy: `signer` pays `trade.amountIn` USDG (via its Permit2 signature), coins go to `signer`.
+    function buyWithPermit2(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        Trade calldata trade,
+        bytes calldata signature
+    ) external returns (uint256 tokensOut) {
+        _enter();
+        tokensOut = _gaslessBuy(signer, permit, trade, signature);
+        _exit();
+    }
+
+    /// @notice buyWithPermit2 + a one-time USDG.permit(signer → PERMIT2) in the same tx (first trade, no ETH approve).
+    function buyWithPermit2AndApprove(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        Trade calldata trade,
+        bytes calldata signature,
+        Erc2612 calldata approval
+    ) external returns (uint256 tokensOut) {
+        _enter();
+        _approvePermit2(usdg, signer, approval);
+        tokensOut = _gaslessBuy(signer, permit, trade, signature);
+        _exit();
+    }
+
+    /// @notice Gasless sell: `signer` sells `trade.amountIn` of `trade.coin` (via Permit2), USDG goes to `signer`.
+    function sellWithPermit2(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        Trade calldata trade,
+        bytes calldata signature
+    ) external returns (uint256 usdgOut) {
+        _enter();
+        usdgOut = _gaslessSell(signer, permit, trade, signature);
+        _exit();
+    }
+
+    /// @notice sellWithPermit2 + a one-time coin.permit(signer → PERMIT2) (first sell of each coin).
+    function sellWithPermit2AndApprove(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        Trade calldata trade,
+        bytes calldata signature,
+        Erc2612 calldata approval
+    ) external returns (uint256 usdgOut) {
+        _enter();
+        _approvePermit2(trade.coin, signer, approval);
+        usdgOut = _gaslessSell(signer, permit, trade, signature);
+        _exit();
+    }
+
+    /// @notice EIP-712 struct hash of `trade` (the Permit2 witness). Off-chain signers can cross-check against it.
+    function tradeWitnessHash(Trade calldata trade) public pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                TRADE_TYPEHASH, trade.coin, trade.isBuy, trade.amountIn, trade.minOut, trade.recipient, trade.deadline
+            )
+        );
+    }
+
+    /// @dev try/catch: a front-run permit (same signature) must not brick the trade; Permit2 then just needs the allowance.
+    function _approvePermit2(address asset, address signer, Erc2612 calldata a) private {
+        if (a.value == 0) return;
+        try IERC20Permit(asset).permit(signer, PERMIT2, a.value, a.deadline, a.v, a.r, a.s) {} catch {}
+    }
+
+    /// @dev Shared checks + the Permit2 pull from `signer` to `to`.
+    function _pull(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        Trade calldata trade,
+        bytes calldata signature,
+        address asset,
+        address to
+    ) private {
+        if (signer == address(0) || trade.recipient != signer) revert BadSigner();
+        if (permit.permitted.token != asset || permit.permitted.amount != trade.amountIn) revert BadPermit();
+        _preflight(trade.amountIn, trade.minOut, trade.deadline);
+        IPermit2Witness(PERMIT2).permitWitnessTransferFrom(
+            permit,
+            IPermit2Witness.SignatureTransferDetails({to: to, requestedAmount: trade.amountIn}),
+            signer,
+            tradeWitnessHash(trade),
+            TRADE_WITNESS_TYPE,
+            signature
+        );
+        emit GaslessTrade(signer, msg.sender, trade.coin, trade.isBuy, permit.nonce);
+    }
+
+    function _gaslessBuy(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        Trade calldata trade,
+        bytes calldata signature
+    ) private returns (uint256 tokensOut) {
+        if (!trade.isBuy) revert BadParam();
+        address u = usdg;
+        address token = trade.coin;
+        (address curve, address q, bool grad, PoolKey memory dkey) = _market(token);
+        uint256 usdgIn = trade.amountIn;
+        if (grad) {
+            _pull(signer, permit, trade, signature, u, address(this));
+            uint256 b = IERC20(u).balanceOf(address(this)) - usdgIn;
+            tokensOut = _route(address(this), signer, _buyHops(u, q, token, dkey), usdgIn);
+            _sweep(u, b, signer); // a partial first-hop fill never strands the signer's USDG here
+        } else {
+            uint256 quoteAmt = usdgIn;
+            if (q != u) {
+                _pull(signer, permit, trade, signature, u, address(this));
+                uint256 b = IERC20(u).balanceOf(address(this)) - usdgIn;
+                Hop[] memory h = new Hop[](1);
+                h[0] = _usdgHop(u, q, true);
+                quoteAmt = _route(address(this), curve, h, usdgIn);
+                _sweep(u, b, signer);
+            } else {
+                // USDG-quoted: Permit2 delivers straight to the curve (no router hop, one transfer)
+                _pull(signer, permit, trade, signature, u, curve);
+            }
+            uint256 refund;
+            (tokensOut, refund) =
+                IUsdgCurve(curve).routerBuy(signer, quoteAmt, trade.minOut, trade.deadline, maxImpactBps);
+            if (refund != 0) emit UsdgRefund(signer, token, refund, _toUsdg(u, q, refund, signer));
+        }
+        if (tokensOut < trade.minOut) revert Slippage();
+        emit UsdgTrade(signer, token, true, usdgIn, tokensOut, !grad);
+    }
+
+    function _gaslessSell(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        Trade calldata trade,
+        bytes calldata signature
+    ) private returns (uint256 usdgOut) {
+        if (trade.isBuy) revert BadParam();
+        address u = usdg;
+        address token = trade.coin;
+        (address curve, address q, bool grad, PoolKey memory dkey) = _market(token);
+        uint256 tokensIn = trade.amountIn;
+        if (grad) {
+            _pull(signer, permit, trade, signature, token, address(this));
+            uint256 b = IERC20(token).balanceOf(address(this)) - tokensIn;
+            usdgOut = _route(address(this), signer, _sellHops(u, q, token, dkey), tokensIn);
+            _sweep(token, b, signer);
+        } else {
+            _pull(signer, permit, trade, signature, token, curve);
+            uint256 cap = maxImpactBps;
+            if (q == u) {
+                usdgOut = IUsdgCurve(curve).routerSell(signer, tokensIn, 1, trade.deadline, signer, cap);
+            } else {
+                uint256 quoteAmt = IUsdgCurve(curve).routerSell(signer, tokensIn, 1, trade.deadline, address(this), cap);
+                Hop[] memory h = new Hop[](1);
+                h[0] = _usdgHop(u, q, false);
+                usdgOut = _route(address(this), signer, h, quoteAmt);
+            }
+        }
+        if (usdgOut < trade.minOut) revert Slippage();
+        emit UsdgTrade(signer, token, false, tokensIn, usdgOut, !grad);
+    }
+
+    /// @dev Return anything of `asset` above the pre-trade balance `before` to `to` (unused router-held input).
+    function _sweep(address asset, uint256 before, address to) private {
+        uint256 left = IERC20(asset).balanceOf(address(this)) - before;
+        if (left != 0) IERC20(asset).safeTransfer(to, left);
     }
 
     // ───────────────────────── USDG routing internals ─────────────────────────
