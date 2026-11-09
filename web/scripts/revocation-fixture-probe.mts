@@ -1,0 +1,197 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- one-off ops script, mirrors scripts/gasless-phase2.mts */
+/**
+ * PREPARED, NOT RUN. Closest legitimate revocation test for the self-bundler (PR #264).
+ *
+ * Why not the real account 0xf4C6…1109: its owner (code tail) is the Privy embedded wallet 0x72f6…969a.
+ * No key we legitimately control owns it, so its owner-side revoke is out of scope by rule.
+ *
+ * Instead: Phase-2 disposable fixture #2 (0x64a9…d941). Its owner key is a disposable testnet key created by
+ * the Phase-2 harness, so we do control it. Exact cost: 2 owner UserOps, 0 trade UserOps, 1 rejected POST.
+ *   op 1 (owner): install a FRESH session (in-RAM key, short validUntil), the same SDK calldata the app uses.
+ *   op 2 (owner): uninstall it (buildUninstallSession, the app's End-session calldata).
+ *   then: zero-op read-only checks (sessionOf cleared, exact handleOps eth_call with the revoked key reverts)
+ *   and ONE disciple_sendUserOperationSync POST to the Preview alias that must return notSent with the relayer
+ *   nonce unchanged.
+ * Gas: the fixture has 0 ETH, 0 USDG and 0 credit, and Preview runs self mode (no BSO). So the two owner ops are
+ * paid from the fixture's EntryPoint deposit. The deployer acts only as funder and bundler: one optional native
+ * depositTo of existing testnet ETH, plus two native handleOps txs carrying the owner-signed ops. The deployer
+ * never signs as the owner. That depositTo needs approval, since it moves existing test funds.
+ *
+ * Gates: default = read-only preflight. --run additionally needs REVOCATION_APPROVED=1, the deployer env sourced
+ * in the same command (never echoed) and the Preview share token on stdin. Hard cap: 2 owner ops, 1 POST.
+ * Every owner op is exact-simulated first (eth_call handleOps). Any surprise => STOP, no retry.
+ * Never prints keys, the RPC URL or the share token.
+ * AUDIT r264 hardening 5 (M4): before EVERY uninstall send, the relay revoke marker (lib/relayRevokeMarker) is written to
+ * the shared KV (UPSTASH_REDIS_REST_* / KV_REST_API_* env, never printed). No KV env or a failed write ⇒ STOP, nothing sent.
+ */
+import { createPublicClient, createWalletClient, custom, http, encodeFunctionData, parseAbi, concat, pad, numberToHex, decodeErrorResult, type Address, type Hex } from "viem";
+import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
+import { readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createModularAccountV2 } from "@account-kit/smart-contracts";
+import { LocalAccountSigner } from "@aa-sdk/core";
+import { buildCreateSession, buildUninstallSession, TRADE_PERMS, readSession } from "@disciple/session-keys";
+import { getDefaultSingleSignerValidationModuleAddress, getDefaultTimeRangeModuleAddress } from "@account-kit/smart-contracts/experimental";
+
+const RUN = process.argv.includes("--run"), CHECK = process.argv.includes("--check");
+const EP = "0x0000000071727De22E5E9d8BAf0edAc6f37da032" as Address, FIX = "0x64a9904b9Dc4835C4a68B3Fde7C84ED081aFd941" as Address;
+const REAL = "0xf4C6B87aDBf4D762dfD104415B537b2cf5551109" as Address, RELAYER = "0xa589d5d1cD0D52f547AF4Ee3dF05383cdee26C64" as Address;
+const LOGIN = "0xebDD6Ad15a6B838eE15Dc7d5871F09EFB284317D" as Address, POLICY = "0xD2cF85dd7cDC3c3e53EA0472BF6Bf006de45E4d2" as Address;
+const USDG = "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d" as Address, ROUTER = "0x688160633b22012717661545df6299d3d3174ad2" as Address, COIN = "0xab9e86498c9b32743e31b0fca02d6b254bcddd4e" as Address;
+const FACTORY = "0x00000000000017c61b5bEe81050EC8eFc9c6fecd" as Address, GAS_TEMPLATE = "0x3a9664d9c02e3693368a2bdf04e19a8a6a634ebedd6e08bf9a1c876e1b15c759" as Hex;
+const { DEPLOYMENTS } = await import("../lib/chains");
+const { ANON_ADDONS } = await import("../lib/anon");
+const D = DEPLOYMENTS[46630];
+const TARGETS = { router: D.router, launchpad: D.launchpad, trampWallManager: D.trampWallManager, anonLauncher: ANON_ADDONS[46630].anonLauncher };
+const CAPS = [{ token: D.defaultQuote, cap: 10n ** 24n }, { token: USDG, cap: 1_000_000n }];
+const OUT = `/workspace/self-bundler-revocation/fixture-probe-${process.argv.slice(2).join("_").replace(/[^a-z_-]/g, "") || "preflight"}-${Date.now()}.json`; // never overwrite a prior run
+const ct = () => new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }) + " CT";
+const js = (x: unknown) => JSON.stringify(x, (_, y) => (typeof y === "bigint" ? String(y) : y), 2);
+const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+const ev: any = { type: "fixture revocation probe", mode: RUN ? "run" : "preflight", startCT: ct(), rpc: "[REDACTED]", share: "[REDACTED]", ownerOpsSent: 0, posts: 0 };
+const save = () => writeFileSync(OUT, js(ev) + "\n", { mode: 0o600 });
+
+const rpc = readFileSync(new URL("../lib/chains.ts", import.meta.url), "utf8").match(/"([^"\n]*rpc\.testnet[^"\n]*)"/)![1];
+const chain = { id: 46630, name: "rh-testnet", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [rpc] } } } as const;
+const pc = createPublicClient({ chain, transport: http(rpc, { retryCount: 0, timeout: 15000 }), cacheTime: 0 });
+const abi = parseAbi([
+  "function verifiedUntil(address) view returns (uint64)", "function getNonce(address,uint192) view returns (uint256)", "function balanceOf(address) view returns (uint256)",
+  "function getAddressSemiModular(address,uint256) view returns (address)", "function depositTo(address) payable", "function quoteUsdgRouteFor(address,address,bool,uint256) view returns (uint256,uint256)",
+  "function getUserOpHash((address sender,uint256 nonce,bytes initCode,bytes callData,bytes32 accountGasLimits,uint256 preVerificationGas,bytes32 gasFees,bytes paymasterAndData,bytes signature)) view returns (bytes32)",
+  "function handleOps((address sender,uint256 nonce,bytes initCode,bytes callData,bytes32 accountGasLimits,uint256 preVerificationGas,bytes32 gasFees,bytes paymasterAndData,bytes signature)[] ops, address beneficiary)",
+  "error FailedOp(uint256 opIndex, string reason)", "error FailedOpWithRevert(uint256 opIndex, string reason, bytes inner)",
+  "function executeBatch((address target,uint256 value,bytes data)[])", "function approve(address,uint256)", "function buyWithUsdg(address,uint256,uint256,uint256)",
+]);
+const sessAbi = parseAbi(["function sessionOf(address,uint32) view returns ((bool active, uint64 spent0, uint64 spent1, (uint48 validUntil, uint16 maxSlippageBps) cfg))"]);
+const read = (address: Address, functionName: string, args: unknown[] = []) => pc.readContract({ address, abi, functionName, args } as any) as Promise<any>;
+const sessionOf = async (e: number) => { const r = await readSession(pc as any, POLICY, FIX, e); return { active: r.active, validUntil: r.validUntil, permissions: r.permissions }; }; // throws on read failure (no silent null)
+void sessAbi;
+const p16 = (x: bigint) => pad(numberToHex(x), { size: 16 });
+type Packed = { sender: Address; nonce: bigint; initCode: Hex; callData: Hex; accountGasLimits: Hex; preVerificationGas: bigint; gasFees: Hex; paymasterAndData: Hex; signature: Hex };
+async function simulate(op: Packed, from: Address, fundOverride = false) {
+  try { await pc.call({ account: from, to: EP, data: encodeFunctionData({ abi, functionName: "handleOps", args: [[op], from] }), ...(fundOverride ? { stateOverride: [{ address: FIX, balance: 10n ** 18n }] } : {}) }); return { ok: true }; }
+  catch (e: any) { let d: Hex | undefined; e.walk?.((x: any) => { if (typeof x?.data === "string" && /^0x[0-9a-f]{8,}$/i.test(x.data)) { d = x.data; return true; } return false; });
+    if (!d) return { ok: false, reason: "undecodable" }; const r = decodeErrorResult({ abi, data: d }); return { ok: false, error: r.errorName, reason: String((r.args as any)[1]) }; }
+}
+const relayerNonces = async () => ({ latest: await pc.getTransactionCount({ address: RELAYER, blockTag: "latest" }), pending: await pc.getTransactionCount({ address: RELAYER, blockTag: "pending" }) });
+
+try {
+  save();
+  if ((await pc.getChainId()) !== 46630) throw Error("STOP wrong chain");
+  const rec = JSON.parse(readFileSync("/workspace/gasless-phase2-disposable-fixtures.json", "utf8"))[1];
+  const owner = privateKeyToAccount(rec.owner as Hex); // disposable fixture owner key we created; never printed
+  if (!eq(await read(FACTORY, "getAddressSemiModular", [owner.address, 0n]), FIX)) throw Error("STOP fixture owner binding mismatch");
+  const code = await pc.getCode({ address: FIX }); if (!code || !eq("0x" + code.slice(-40), owner.address)) throw Error("STOP fixture code-tail owner mismatch");
+  const modules = { policy: POLICY, singleSigner: getDefaultSingleSignerValidationModuleAddress(chain as any), timeRange: getDefaultTimeRangeModuleAddress(chain as any) };
+  const [block, depositWei, ethWei, loginUntil, fees, tx] = await Promise.all([pc.getBlock(), pc.getBalance({ address: FIX }).then(() => read(EP, "balanceOf", [FIX])), pc.getBalance({ address: FIX }), read(LOGIN, "verifiedUntil", [FIX]), pc.estimateFeesPerGas(), pc.getTransaction({ hash: GAS_TEMPLATE })]);
+  const maxFee = fees.maxFeePerGas! * 2n, tip = fees.maxPriorityFeePerGas ?? 1n;
+  const VGL = 400_000n, CGL = 700_000n, PVG = 80_000n, perOpMaxWei = (VGL + CGL + PVG) * maxFee;
+  Object.assign(ev, { preflightCT: ct(), block: block.number, fixture: FIX, owner: owner.address, ownerControlledDisposable: true, realAccountOwnerControlled: false,
+    fixtureEthWei: ethWei, fixtureEntryPointDepositWei: depositWei, fixtureLoginGateVerifiedUntil: loginUntil, maxFeePerGasWei: maxFee, perOwnerOpMaxPrefundWei: perOpMaxWei,
+    requiredDepositForTwoOpsWei: 2n * perOpMaxWei, depositShortfallWei: depositWei >= 2n * perOpMaxWei ? 0n : 2n * perOpMaxWei - depositWei,
+    exactOpCost: { ownerUserOps: 2, tradeUserOps: 0, rejectedPreviewPosts: 1, nativeTxs: "2 handleOps + (1 depositTo only if shortfall > 0)" },
+    caveat: "LoginGate verifiedUntil is 0 for the fixture, so the hosted rejection will be the LoginGate gate (first in admission), not the session gate. On-chain revocation is proven by sessionOf + exact eth_call; the session gate itself is covered by unit tests." });
+  save();
+  /** M4: relay revoke marker BEFORE the on-chain revoke; any failure ⇒ STOP (nothing sent). */
+  async function markRevoked(sender: Address) {
+    const { writeRevokeMarker, REVOKE_MARKER_TTL_SEC } = await import("../lib/relayRevokeMarker");
+    try { await writeRevokeMarker(sender); } catch (e) { throw Error(`STOP ${(e as Error).message}`); }
+    ev.revokeMarker = { sender, ttlSec: REVOKE_MARKER_TTL_SEC, ct: ct() }; save();
+  }
+  const RESUME = process.argv.includes("--resume-uninstall") || process.argv.includes("--check-uninstall");
+  if (RESUME) { // finishes the 12:05 run whose op 1 landed (entity from its SessionInstalled log); op cap 1 here
+    const entity = Number(process.env.RESUME_ENTITY); const send = process.argv.includes("--resume-uninstall");
+    if (!entity) throw Error("STOP RESUME_ENTITY required");
+    const acct1 = await createModularAccountV2({ chain: chain as any, transport: custom(pc) as any, signer: LocalAccountSigner.privateKeyToAccountSigner(rec.owner as Hex), accountAddress: FIX });
+    const before = await sessionOf(entity); ev.resume = { entity, before, ct: ct() }; save();
+    if (!before.active) throw Error("STOP resumed session not active");
+    const callData = await acct1.encodeExecute({ target: FIX, data: buildUninstallSession(entity, modules as any) as Hex }) as Hex;
+    const op: Packed = { sender: FIX, nonce: await acct1.getAccountNonce(), initCode: "0x", callData, accountGasLimits: concat([p16(VGL), p16(CGL)]), preVerificationGas: PVG, gasFees: concat([p16(tip), p16(maxFee)]), paymasterAndData: "0x", signature: "0x" };
+    const hash = await read(EP, "getUserOpHash", [op]) as Hex; op.signature = await acct1.signUserOperationHash(hash) as Hex;
+    const from = (process.env.DEPLOYER_ADDRESS ?? "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5") as Address;
+    const sim = await simulate(op, from); Object.assign(ev.resume, { userOpHash: hash, nonce: op.nonce, simulation: sim }); save();
+    if (!sim.ok) throw Error("STOP uninstall exact simulation failed");
+    if (!send) { console.log(js(ev.resume)); process.exit(0); }
+    if (process.env.REVOCATION_APPROVED !== "1") throw Error("STOP REVOCATION_APPROVED=1 required");
+    const deployer = privateKeyToAccount(process.env.PRIVATE_KEY as Hex);
+    if (!eq(deployer.address, process.env.DEPLOYER_ADDRESS ?? "") || eq(deployer.address, owner.address)) throw Error("STOP deployer mismatch");
+    const wc = createWalletClient({ account: deployer, chain, transport: http(rpc, { retryCount: 0 }) });
+    await markRevoked(FIX);
+    ev.ownerOpsSent = 1; save();
+    const h = await wc.writeContract({ address: EP, abi, functionName: "handleOps", args: [[op], deployer.address], gas: 1_500_000n });
+    const r = await pc.waitForTransactionReceipt({ hash: h }); Object.assign(ev.resume, { txHash: h, status: r.status, block: r.blockNumber }); save();
+    if (r.status !== "success") throw Error("STOP uninstall reverted; no retry");
+    const single = getDefaultSingleSignerValidationModuleAddress(chain as any);
+    const after = await sessionOf(entity); const signer = await pc.readContract({ address: single, abi: parseAbi(["function signers(uint32,address) view returns (address)"]), functionName: "signers", args: [entity, FIX] });
+    Object.assign(ev.resume, { after, signerAfter: signer, endCT: ct() }); save(); console.log(js(ev.resume));
+    if (after.active || !eq(signer, "0x0000000000000000000000000000000000000000")) { console.error("CRITICAL session still present after uninstall"); process.exitCode = 2; }
+    process.exit();
+  }
+  if (CHECK) { // zero-send: build + sign op 1 with a throwaway session key, exact-simulate with a balance-only eth_call override
+    const acct0 = await createModularAccountV2({ chain: chain as any, transport: custom(pc) as any, signer: LocalAccountSigner.privateKeyToAccountSigner(rec.owner as Hex), accountAddress: FIX });
+    const sk0 = privateKeyToAccount(generatePrivateKey()); const now0 = Number(block.timestamp);
+    const setup0 = buildCreateSession({ now: now0, modules, targets: TARGETS, sessionSigner: sk0.address, ttlSec: 900, permissions: TRADE_PERMS, caps: CAPS } as any);
+    const cd0 = await acct0.encodeExecute({ target: FIX, data: setup0.data as Hex }) as Hex;
+    const op0: Packed = { sender: FIX, nonce: await acct0.getAccountNonce(), initCode: "0x", callData: cd0, accountGasLimits: concat([p16(VGL), p16(CGL)]), preVerificationGas: PVG, gasFees: concat([p16(tip), p16(maxFee)]), paymasterAndData: "0x", signature: "0x" };
+    const h0 = await read(EP, "getUserOpHash", [op0]) as Hex; op0.signature = await acct0.signUserOperationHash(h0) as Hex;
+    ev.check = { nonce: op0.nonce, entityId: setup0.entityId, simulationWithBalanceOverride: await simulate(op0, "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5", true), simulationNoOverride: await simulate(op0, "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5") };
+    save(); console.log(js(ev.check)); process.exit(0);
+  }
+  if (!RUN) { console.log(js({ preflight: "ok", ...ev })); process.exit(0); }
+
+  // ---------- RUN (approval required) ----------
+  if (process.env.REVOCATION_APPROVED !== "1") throw Error("STOP REVOCATION_APPROVED=1 required");
+  const share = readFileSync(0, "utf8").trim(); if (!/^[a-zA-Z0-9]+$/.test(share)) throw Error("STOP share token must arrive on stdin");
+  const deployer = privateKeyToAccount(process.env.PRIVATE_KEY as Hex);
+  if (!eq(deployer.address, process.env.DEPLOYER_ADDRESS ?? "") || eq(deployer.address, owner.address)) throw Error("STOP deployer mismatch");
+  const wc = createWalletClient({ account: deployer, chain, transport: http(rpc, { retryCount: 0 }) });
+  const acct = await createModularAccountV2({ chain: chain as any, transport: custom(pc) as any, signer: LocalAccountSigner.privateKeyToAccountSigner(rec.owner as Hex), accountAddress: FIX });
+  if (!eq(acct.address, FIX)) throw Error("STOP SDK account mismatch");
+  if (ev.depositShortfallWei > 0n) {
+    if (ev.depositShortfallWei > 100_000_000_000_000n) throw Error("STOP shortfall above 0.0001 ETH cap");
+    const h = await wc.writeContract({ address: EP, abi, functionName: "depositTo", args: [FIX], value: ev.depositShortfallWei });
+    const r = await pc.waitForTransactionReceipt({ hash: h }); ev.depositTx = { hash: h, status: r.status, ct: ct() }; save(); if (r.status !== "success") throw Error("STOP depositTo reverted");
+  }
+  async function ownerOp(label: string, data: Hex) {
+    if (ev.ownerOpsSent >= 2) throw Error("STOP owner-op cap");
+    const callData = await acct.encodeExecute({ target: FIX, data }) as Hex;
+    const op: Packed = { sender: FIX, nonce: await acct.getAccountNonce(), initCode: "0x", callData, accountGasLimits: concat([p16(VGL), p16(CGL)]), preVerificationGas: PVG, gasFees: concat([p16(tip), p16(maxFee)]), paymasterAndData: "0x", signature: "0x" };
+    const hash = await read(EP, "getUserOpHash", [op]) as Hex; op.signature = await acct.signUserOperationHash(hash) as Hex;
+    const sim = await simulate(op, deployer.address); ev[label] = { userOpHash: hash, simulation: sim, ct: ct() }; save();
+    if (!sim.ok) throw Error(`STOP ${label} exact simulation failed`);
+    ev.ownerOpsSent++; save();
+    const h = await wc.writeContract({ address: EP, abi, functionName: "handleOps", args: [[op], deployer.address], gas: 1_500_000n });
+    const r = await pc.waitForTransactionReceipt({ hash: h }); Object.assign(ev[label], { txHash: h, status: r.status, block: r.blockNumber }); save();
+    if (r.status !== "success") throw Error(`STOP ${label} reverted; no retry`);
+  }
+  const sessionKey = privateKeyToAccount(generatePrivateKey()); // in RAM only; discarded at exit
+  const now = Number((await pc.getBlock()).timestamp);
+  const setup = buildCreateSession({ now, modules, targets: TARGETS, sessionSigner: sessionKey.address, ttlSec: 900, permissions: TRADE_PERMS, caps: CAPS } as any);
+  ev.entityId = setup.entityId; save();
+  await ownerOp("op1_installSession", setup.data as Hex);
+  const live = await sessionOf(setup.entityId); ev.afterInstall = live; save(); if (!live?.active) throw Error("STOP install did not activate");
+  await markRevoked(FIX);
+  await ownerOp("op2_uninstallSession", buildUninstallSession(setup.entityId, modules as any) as Hex);
+  const dead = await sessionOf(setup.entityId); ev.afterRevoke = dead; save(); if (dead?.active) throw Error("STOP revoke left session active");
+
+  // Zero-op: a canonical trade signed by the revoked key, exact-simulated read-only, then ONE Preview POST.
+  const tpl = (await import("viem")).decodeFunctionData({ abi, data: (await pc.getTransaction({ hash: GAS_TEMPLATE })).input }).args![0] as any[];
+  const t = tpl[0] as Packed; const key = (BigInt(setup.entityId) << 8n);
+  const q = await read(ROUTER, "quoteUsdgRouteFor", [FIX, COIN, true, 200_000n]);
+  const calls = encodeFunctionData({ abi, functionName: "executeBatch", args: [[{ target: USDG, value: 0n, data: encodeFunctionData({ abi, functionName: "approve", args: [ROUTER, 200_000n] }) }, { target: ROUTER, value: 0n, data: encodeFunctionData({ abi, functionName: "buyWithUsdg", args: [COIN, 200_000n, (q[0] * 99n) / 100n || 1n, BigInt(now + 600)] }) }]] });
+  const probe: Packed = { ...t, sender: FIX, nonce: await read(EP, "getNonce", [FIX, key]), callData: ("0x8dd7712f" + calls.slice(2)) as Hex, signature: "0x" };
+  const ph = await read(EP, "getUserOpHash", [probe]) as Hex; probe.signature = concat(["0xff00", await sessionKey.signMessage({ message: { raw: ph } })]);
+  ev.probeSimulation = await simulate(probe, RELAYER); save(); if (ev.probeSimulation.ok) throw Error("STOP revoked key still simulates OK; no POST");
+  const before = await relayerNonces(); const nonceBefore = probe.nonce;
+  const unpack = (p: Packed) => ({ sender: p.sender, nonce: numberToHex(p.nonce), callData: p.callData, verificationGasLimit: numberToHex(BigInt(p.accountGasLimits.slice(0, 34))), callGasLimit: numberToHex(BigInt("0x" + p.accountGasLimits.slice(34))), preVerificationGas: numberToHex(p.preVerificationGas), maxPriorityFeePerGas: numberToHex(BigInt(p.gasFees.slice(0, 34))), maxFeePerGas: numberToHex(BigInt("0x" + p.gasFees.slice(34))), paymaster: p.paymasterAndData.slice(0, 42), paymasterVerificationGasLimit: numberToHex(BigInt("0x" + p.paymasterAndData.slice(42, 74))), paymasterPostOpGasLimit: numberToHex(BigInt("0x" + p.paymasterAndData.slice(74, 106))), paymasterData: ("0x" + p.paymasterAndData.slice(106)) as Hex, signature: p.signature });
+  ev.posts++; save();
+  const res = spawnSync("python3", ["/workspace/self-bundler-abuse-http.py"], { input: JSON.stringify({ share, body: { jsonrpc: "2.0", id: 1, method: "disciple_sendUserOperationSync", params: [unpack(probe), EP, { pressId: "revoked-" + crypto.randomUUID() }] } }), encoding: "utf8", timeout: 65000 });
+  ev.response = JSON.parse(res.stdout); await new Promise((r) => setTimeout(r, 2000));
+  const after = await relayerNonces(); const nonceAfter = await read(EP, "getNonce", [FIX, key]);
+  const f = ev.response.frames ?? []; ev.result = { notSent: f.length === 1 && f[0].kind === "error" && f[0].data?.notSent === true && !f[0].data?.txHash, error: f[0]?.message, relayerBefore: before, relayerAfter: after, senderNonceUnchanged: nonceAfter === nonceBefore };
+  ev.endCT = ct(); save(); console.log(js(ev.result));
+  if (!ev.result.notSent || before.latest !== after.latest || before.pending !== after.pending || !ev.result.senderNonceUnchanged) { console.error("CRITICAL revoked-session probe not rejected cleanly"); process.exitCode = 2; }
+} catch (e: any) {
+  ev.stop = { ct: ct(), message: String(e?.shortMessage ?? e?.message ?? e).split("\n")[0].replace(/https?:\/\/\S+/g, "[URL REDACTED]") };
+  save(); console.error(js({ STOP: ev.stop })); process.exitCode = 1;
+}

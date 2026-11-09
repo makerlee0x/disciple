@@ -1,3 +1,8 @@
+import { RelayMetrics } from "@/lib/server/relayMetrics";
+import { requireSelfBundlerMode } from "@/lib/server/relayLockdown";
+import { streamRelay } from "@/lib/server/relayStream";
+import { selfBundle } from "@/lib/server/selfBundler";
+import { bsoPolicyId, checkSponsoredOperation } from "@/lib/server/gasSponsorship";
 /**
  * POST /api/bundler — server-side proxy to the Alchemy RH-testnet bundler.
  * Alchemy answers 401 to browser requests (Origin header) from domains not allowlisted on the app, and this keeps the
@@ -40,26 +45,54 @@ const limitedResponse = (id: unknown, method: string, retryAfterSec: number) =>
 const isSponsorMethod = (m: string) => m === "alchemy_requestGasAndPaymasterAndData" || m.startsWith("pm_") || m.startsWith("alchemy_requestPaymaster");
 
 export async function POST(req: Request) {
+  const metrics = new RelayMetrics();
   let body: { method?: string; id?: unknown; params?: unknown[] };
-  try { body = await req.json(); } catch { return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }, { status: 400 }); }
+  try { body = await metrics.span("parse", () => req.json()); } catch { return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }, { status: 400 }); }
+  if (body && !Array.isArray(body) && (body.method === "disciple_sendUserOperationSync" || body.method === "disciple_warm")) {
+    try {
+      requireSelfBundlerMode();
+      if (!Array.isArray(body.params)) throw new Error("invalid params");
+      const n = await metrics.span("rateLimitStore", () => kv().incrEx(`relay:ip:${clientIp(req.headers)}`, 60));
+      if (n > 120) return limitedResponse(body.id, body.method, 60);
+      if (body.method === "disciple_warm") return NextResponse.json({ jsonrpc: "2.0", id: body.id, result: await selfBundle(body.method, body.params) });
+      if (body.params.length < 2 || body.params.length > 3 || String(body.params[1]).toLowerCase() !== "0x0000000071727de22e5e9d8baf0edac6f37da032") throw new Error("invalid EntryPoint/params");
+      return streamRelay(body.params, async () => undefined, undefined, undefined, metrics);
+    } catch (e) {
+      // Public rejection reason only: never log the raw op, signature, token, or RPC URL.
+      console.error("[disciple] relay admission rejected", { method: body.method, reason: diagnosticText((e as Error).message), notSent: true });
+      return NextResponse.json({ jsonrpc: "2.0", id: body.id, error: { code: -32003, message: diagnosticText((e as Error).message), data: { notSent: true } } }, { status: 403 });
+    }
+  }
   if (body && !Array.isArray(body) && typeof body.method === "string" && isSponsorMethod(body.method))
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: `${body.method}: gas sponsorship disabled` } }, { status: 400 });
   if (!body || Array.isArray(body) || typeof body.method !== "string" || !ALLOWED.has(body.method))
     return NextResponse.json({ jsonrpc: "2.0", id: body?.id ?? null, error: { code: -32601, message: "protocol relay disabled; method not allowed" } }, { status: 400 });
   if (body.params !== undefined && !Array.isArray(body.params))
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32602, message: "invalid params" } }, { status: 400 });
+  const sl = senderLimiter(req, body.method, body.params || []);
+  const rl = await limited(req, body.method, sl);
+  if (rl) return limitedResponse(body.id, body.method, rl.retryAfterSec);
+  let policyId: string | undefined;
+  try { policyId = bsoPolicyId(); } catch {
+    return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32003, message: "BSO configuration unavailable" } }, { status: 503 });
+  }
   if (SEND.has(body.method) || SIM.has(body.method)) {
     const op = body.params?.[0];
     if (!op || typeof op !== "object" || Array.isArray(op))
       return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32602, message: "invalid user operation" } }, { status: 400 });
-    try { checkUserPaid(op, configuredPrepaidPaymaster()); } catch {
-      return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32602, message: "gas sponsorship disabled" } }, { status: 400 });
+    try {
+      if (policyId) {
+        if (body.params?.length !== 2) throw new Error("BSO params");
+        await checkSponsoredOperation(op as Record<string, unknown>, body.params?.[1], SIM.has(body.method));
+      } else checkUserPaid(op, configuredPrepaidPaymaster());
+    } catch {
+      return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32602, message: "user operation gas/admission policy rejected" } }, { status: 400 });
     }
     const paid = op as { paymaster?: Address; paymasterAndData?: string; factory?: string; initCode?: string };
     const pm = paid.paymaster || (paid.paymasterAndData && paid.paymasterAndData !== "0x" ? paid.paymasterAndData.slice(0, 42) as Address : undefined);
     // Quote issuance and cold estimates check deployment/stake. Do not add readiness RPC waits to warm submits;
     // the external bundler validates every signature/stake and the contract precharges every operation.
-    if (SIM.has(body.method) && pm && !/^0x0{40}$/i.test(pm)) {
+    if (!policyId && SIM.has(body.method) && pm && !/^0x0{40}$/i.test(pm)) {
       const factory = paid.factory || (paid.initCode && paid.initCode !== "0x" ? paid.initCode.slice(0, 42) : undefined);
       try { await assertPrepaidReady(pm, factory); } catch {
         return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32003, message: "prepaid USDG paymaster unavailable; protocol relay disabled" } }, { status: 503 });
@@ -68,9 +101,6 @@ export async function POST(req: Request) {
   }
   const key = alchemyKey();
   if (!key) return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32003, message: "external bundler not configured; protocol relay disabled" } }, { status: 503 });
-  const sl = senderLimiter(req, body.method, body.params || []);
-  const rl = await limited(req, body.method, sl);
-  if (rl) return limitedResponse(body.id, body.method, rl.retryAfterSec);
   // invite-only beta (lib/server/invites): sends need an invited sender; off by default ⇒ no-op
   if (SEND.has(body.method) && !(await requireInviteWallet(senderOf(body.params || []), "bundler")).ok) return inviteRequiredRpc(body.id);
   try {
@@ -78,7 +108,7 @@ export async function POST(req: Request) {
     // bucket is already full (read-only — junk ops never fill it), and count the send only once Alchemy accepted it
     const full = sl ? await sl.peek() : null;
     if (full) return limitedResponse(body.id, body.method, full.retryAfterSec);
-    const r = await fetch(`https://robinhood-testnet.g.alchemy.com/v2/${key}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
+    const r = await fetch(`https://robinhood-testnet.g.alchemy.com/v2/${key}`, { method: "POST", headers: { "content-type": "application/json", ...(policyId ? { "x-alchemy-policy-id": policyId } : {}) }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
     const text = await r.text();
     if (SEND.has(body.method)) {
       // Only public outcome fields: no raw op, signatures, paymasterData, key, or upstream URL.

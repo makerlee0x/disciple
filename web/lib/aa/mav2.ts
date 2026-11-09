@@ -1,3 +1,5 @@
+import { installedRelaySession } from "./relayReadiness";
+import { BSO_ZERO, bsoUnsigned, checkBso, bsoGasBounds } from "./bso";
 import { diagnosticText } from "./diagnostics";
 import { bufferedPvg, measurePvg } from "./preVerificationGas";
 /**
@@ -20,7 +22,8 @@ import { ENTRYPOINT_V07 } from "./constants";
 import { withBlock } from "../trade/readFloor";
 import { appReadTransport, withinBudget } from "../rpc/readTransport";
 import { BUNDLE_REVERTED, PENDING_MSG, REJECTED_MSG, logRelayOp, logTradeError, relayOpRef } from "./relayOp";
-import { relayUnclear } from "./relayClient";
+import { relaySend, relayUnclear } from "./relayClient";
+import { clientSelfBundlerMode } from "./sponsorshipMode";
 import type { RelayErrorData, RelayTimeoutExtra, RelayUnclearInfo } from "./relayTypes";
 import { PaymasterCapCache, peekReserve, reserveOrDerived, fallbackUsdgDecimals, type GasOpKind, type WarmAllowance } from "./gasReserve";
 import { payGasInUsdg, AllowanceCache, PaymasterRpcError, type PaymasterFields } from "./paymasterClient";
@@ -206,6 +209,16 @@ export const cachedGasEstimator: ClientMiddlewareFn = async (struct, args) => {
   return estimated;
 };
 
+/** Separate middleware prevents legacy fee/PVG/PM logic entering a hosted build. */
+export const bsoFeeEstimator: ClientMiddlewareFn = async (struct) => Object.assign(struct, BSO_ZERO);
+export const bsoGasEstimator: ClientMiddlewareFn = async (struct, args) => {
+  Object.assign(struct, BSO_ZERO, { callGasLimit: 0n, verificationGasLimit: 0n });
+  const estimated = await defaultGasEstimator(args.client)(struct, { ...args, overrides: { ...args.overrides, ...BSO_ZERO } as typeof args.overrides });
+  const measured = await resolveProperties(estimated);
+  Object.assign(estimated, bsoGasBounds({ callGasLimit: BigInt(measured.callGasLimit ?? 0), verificationGasLimit: BigInt(measured.verificationGasLimit ?? 0) }));
+  return bsoUnsigned(estimated);
+};
+
 const execAbi = parseAbi(["function execute(address target, uint256 value, bytes data)", "function executeBatch((address target, uint256 value, bytes data)[] calls)"]);
 const EXECUTE_USER_OP = "0x8dd7712f";
 type Tx = { target: Address; data: Hex; value?: bigint };
@@ -237,7 +250,7 @@ function memoizeExecPrefix(client: any, known?: boolean) {
 export const asSigner = (a: LocalAccount): SmartAccountSigner => new LocalAccountSigner(a);
 
 export type UsdgGasOpts = { paymaster: Address; usdg: Address; url: string; session: boolean };
-export type Mav2Opts = { chain: Chain; pc: PublicClient; bundlerUrl: string; salt?: bigint; /** tests: always estimate on a cold preset */ noStaticGas?: boolean; usdgGas?: UsdgGasOpts; /** Embedded accounts must never fall back to ETH gas. */ requireUsdgGas?: boolean };
+export type Mav2Opts = { chain: Chain; pc: PublicClient; bundlerUrl: string; salt?: bigint; /** tests: always estimate on a cold preset */ noStaticGas?: boolean; bso?: boolean; usdgGas?: UsdgGasOpts; /** Embedded accounts must never fall back to ETH gas. */ requireUsdgGas?: boolean };
 /** Per-stage latency (ms) of one op. build = calldata+nonce+fees+gas, sign = signature, rpc = client→server→client,
  * server = self-bundler stages (sign tx, send, mined/receipt) when the sync method is used. */
 type PreparedPrepay = { client: Awaited<ReturnType<typeof createModularAccountV2Client>>; nonce?: bigint };
@@ -268,7 +281,8 @@ export class Mav2Account {
   /** The account address once known (warm / first send): lets the SYNC gas-reserve read peek the allowance. */
   private senderAddr?: Address;
   constructor(private o: Mav2Opts, private owner: LocalAccount) {
-    this.gasMode = o.usdgGas ? "usdg" : "self-pay";
+    if (o.bso && (o.chain.id !== 46630 || o.usdgGas)) throw new Error("BSO requires isolated testnet mode");
+    this.gasMode = o.bso ? "bso" : o.usdgGas ? "usdg" : "self-pay";
     if (o.usdgGas) this.allowances = new AllowanceCache({ url: absUrl(o.usdgGas.url), chainId: o.chain.id });
   }
 
@@ -278,7 +292,7 @@ export class Mav2Account {
   }
   private owned() {
     return (this.ownerClient ??= createModularAccountV2Client({
-      feeEstimator: rundlerFeeEstimator, gasEstimator: cachedGasEstimator,
+      feeEstimator: this.o.bso ? bsoFeeEstimator : rundlerFeeEstimator, gasEstimator: this.o.bso ? bsoGasEstimator : cachedGasEstimator,
       chain: this.o.chain, transport: this.transport(), signer: asSigner(this.owner),
       salt: this.o.salt ?? BigInt(0), factoryAddress: MAV2_FACTORY,
     }).then(memoizeExecPrefix));
@@ -292,7 +306,7 @@ export class Mav2Account {
   /** Top the hidden $2 credit back up inside a trade when the wallet can spare it. Never blocks the trade. */
   private async hiddenTopUp(calls: Call[], sender: Address): Promise<Call[]> {
     const pm = this.o.usdgGas;
-    if (!pm) return calls;
+    if (!pm || clientSelfBundlerMode()) return calls;
     try {
       const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)"]);
       const [credit, reserved, wallet] = await Promise.all([
@@ -312,7 +326,7 @@ export class Mav2Account {
     this.sessionClient = {
       entityId,
       c: createModularAccountV2Client({
-        feeEstimator: rundlerFeeEstimator, gasEstimator: cachedGasEstimator,
+        feeEstimator: this.o.bso ? bsoFeeEstimator : rundlerFeeEstimator, gasEstimator: this.o.bso ? bsoGasEstimator : cachedGasEstimator,
         chain: this.o.chain, transport: this.transport(), signer: asSigner(key), accountAddress: account,
         signerEntity: { entityId, isGlobalValidation: false },
       }).then((cl) => memoizeExecPrefix(cl, true)),
@@ -369,10 +383,11 @@ export class Mav2Account {
     const c = await (this.sessionClient ? this.sessionClient.c : this.owned());
     this.senderAddr = c.account.address as Address;
     await Promise.all([
+      clientSelfBundlerMode() && !this.o.bso ? fetch(absUrl(this.o.bundlerUrl), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_warm", params: [this.senderAddr] }) }) : 0,
       this.warmGasReserve(),
       this.preparePrepay().catch(() => undefined),
       this.deployed ? 0 : c.account.isAccountDeployed?.().then((d: boolean) => { this.deployed = d; }),
-      FEES.get(() => fetchFees(c as unknown as FeeClient)),
+      this.o.bso ? 0 : FEES.get(() => fetchFees(c as unknown as FeeClient)),
       // learn the executeUserOp-prefix answer now (memoizeExecPrefix) so the first tap encodes locally
       c.account.encodeExecute({ target: "0x0000000000000000000000000000000000000001", data: "0x", value: BigInt(0) }),
     ]).catch(() => undefined);
@@ -448,7 +463,7 @@ export class Mav2Account {
     const tt = so.tt;   // trade timing (lib/trade/timing): first attempt only, retries don't carry it
     const t0 = now();
     const session = as === "session" && this.sessionClient;
-    if (this.o.requireUsdgGas && !this.o.usdgGas) throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: "prepaid USDG paymaster not configured" });
+    if (this.o.requireUsdgGas && !this.o.usdgGas && !this.o.bso) throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: "prepaid USDG paymaster not configured" });
     let prepared: PreparedPrepay | undefined;
     try { prepared = !session && this.o.usdgGas ? await this.preparePrepay() : undefined; }
     catch { throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: "prepaid USDG approval bootstrap unavailable" }); }
@@ -473,7 +488,7 @@ export class Mav2Account {
     const gas = launch || grad || deployedOwner ? undefined : this.gas.get(kind) ?? (this.deployed && !this.o.noStaticGas ? STATIC_GAS : undefined);
     // latency: cold fee cache on the fast path ⇒ wait for ONE fee read (~0.1 s) instead of dropping to the multi-second
     // standard flow (estimate + eth_sendUserOperation + receipt polling). Launches keep their fresh un-doubled fees.
-    const fees = launch ? await fetchFees(client as unknown as FeeClient).catch(() => undefined)
+    const fees = this.o.bso ? BSO_ZERO : launch ? await fetchFees(client as unknown as FeeClient).catch(() => undefined)
       : FEES.peek(() => fetchFees(client as unknown as FeeClient)) ?? (gas ? await withinBudget(FEES.get(() => fetchFees(client as unknown as FeeClient)), COLD_FEES_MS, "fees").catch(() => undefined) : undefined);
     const overrides = { nonce, ...(gas ?? {}), ...(fees ?? {}) };
     const fail = async (e: unknown): Promise<never> => {
@@ -493,6 +508,21 @@ export class Mav2Account {
       throw new AAError("Estimate", `simulation failed: ${diagnosticText(msg).split("\n")[0].slice(0, 200)}`, { revertData, detail: diagnosticText(msg) });
     };
 
+    // Hosted mode never touches credit, custom quotes, PM caps, templates or positive-fee retries.
+    if (this.o.bso) {
+      if (as === "session" && !session) throw new AAError("Policy", "Session not active");
+      let wire: UserOp;
+      try {
+        const struct = await client.buildUserOperation({ uo: uo.length === 1 ? uo[0] : uo, overrides: { nonce, ...BSO_ZERO } });
+        const unsigned = bsoUnsigned(struct);
+        wire = deepHexlify(await client.signUserOperation({ uoStruct: unsigned })) as UserOp;
+        checkBso(wire as unknown as Record<string, unknown>);
+      } catch (e) { return fail(e); }
+      const hash = userOpHash(wire, this.o.chain.id);
+      tt?.mark("send"); opPhase({ phase: "sent", userOpHash: hash, pressId: o.pressId });
+      return this.sendRaw(wire, hash, kind, t0, fail, "bso", o.pressId);
+    }
+
     // ---- Player-paid USDG gas: credit reservation → signed quote → external bundler
     if (this.o.usdgGas) {
       const pm = this.o.usdgGas!;
@@ -504,7 +534,7 @@ export class Mav2Account {
       // Graduating session buy: a REAL execution estimate (EntryPoint → account.executeBatch(calls), no signature
       // needed) padded for the policy hook + paymaster approve (gradSessionGas); GRAD_STATIC_GAS if it can't be read.
       let limits: GasLimits | undefined = gas ?? (session && !launch ? (grad ? await this.gradGas(sender, calls) : STATIC_GAS) : undefined);
-      let measuredPreVerificationGas: bigint | undefined; // frozen BEFORE per-op quote / owner or session signing
+      let measuredPreVerificationGas: bigint | undefined = clientSelfBundlerMode() && session ? (limits?.preVerificationGas ?? STATIC_GAS.preVerificationGas) : undefined; // frozen BEFORE per-op quote / owner or session signing
       const build = async (cs: Call[], pmf: PaymasterFields): Promise<UserOp> => {
         const u = cs.map((c) => ({ target: c.to, data: c.data, value: c.value ?? BigInt(0) }));
         const placeholder = pmf.paymasterData === "0x";
@@ -542,7 +572,7 @@ export class Mav2Account {
       try {
         const topped = await this.hiddenTopUp(calls, sender);
         ({ op: wire } = await payGasInUsdg({
-          url: absUrl(pm.url), chainId: this.o.chain.id, usdg: pm.usdg, paymaster: pm.paymaster, calls: topped, build, allowance: this.allowances?.peek(sender),
+          url: absUrl(pm.url), chainId: this.o.chain.id, usdg: pm.usdg, paymaster: pm.paymaster, calls: topped, build, pressId: o.pressId, allowance: this.allowances?.peek(sender),
           sign: async (op) => ((await client.signUserOperation({ uoStruct: op })) as UserOp).signature,
         }));
       } catch (e) {
@@ -672,7 +702,24 @@ export class Mav2Account {
 
   /** Standard eth_sendUserOperation for an already-signed, self-paid op. */
   private async sendRaw(wire: UserOp, hash: Hex, kind: string, t0: number, fail: (e: unknown) => Promise<never>, gasMode: GasMode, pressId?: string, retry?: (e: { message: string; data?: unknown }) => Promise<SendResult | undefined>): Promise<SendResult> {
-    checkUserPaid(wire, this.o.usdgGas?.paymaster);
+    if (this.o.bso) checkBso(wire as unknown as Record<string, unknown>);
+    else checkUserPaid(wire, this.o.usdgGas?.paymaster);
+    if (clientSelfBundlerMode() && !this.o.bso && installedRelaySession(wire)) {
+      const answer = await relaySend(absUrl(this.o.bundlerUrl), wire, ENTRYPOINT_V07,
+        p => opPhase({ phase: "submitted", userOpHash: hash, txHash: p.txHash, pressId }), fetch, { pressId });
+      if (answer.error) {
+        const u = relayUnclear(answer.error, hash);
+        if (u || relayErrorUnclear(answer.error)) throw new AAError("Timeout", PENDING_MSG, unclearExtra(u ?? unclearOf(answer.error, hash), hash, wire));
+        return fail(Object.assign(new Error(answer.error.message), { data: answer.error.data }));
+      }
+      const got = answer.result;
+      if (!got || got.userOpHash.toLowerCase() !== hash.toLowerCase()) throw new AAError("Timeout", PENDING_MSG, unclearExtra({ unclear: true, reason: "network" }, hash, wire));
+      if (!got.success) throw new AAError("Reverted", REJECTED_MSG, { userOpHash: hash, txHash: got.txHash, revertData: opRevertReason(got.logs, hash) });
+      const timings: OpTimings = { build: 0, sign: 0, rpc: Math.round(now() - t0), total: Math.round(now() - t0), fast: true, server: got.t as Record<string, number> };
+      opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash, pressId, timings, blockNumber: got.receipt.blockNumber });
+      this.deployed = true;
+      return { userOpHash: hash, txHash: got.txHash, gasMode, receipt: { success: true, receipt: { transactionHash: got.txHash, logs: got.logs } }, timings };
+    }
     let r: Response;
     try {
       r = await fetch(absUrl(this.o.bundlerUrl), { method: "POST", headers: { "content-type": "application/json", ...(pressId ? { "x-disciple-press-id": pressId } : {}) },
@@ -720,6 +767,9 @@ export class Mav2Account {
       if (j.error.unreadable || (!/simulation|revert|AA[0-9]{2}/i.test(j.error.message) && INFRA_WORDING.test(j.error.message)))
         throw new AAError("Bundler", TRADING_UNAVAILABLE, { userOpHash: hash, detail: diagnosticText(j.error.message) });
       return fail(Object.assign(new Error(j.error.message), { data: j.error.data }));
+    }
+    if (!j.result || j.result.toLowerCase() !== hash.toLowerCase()) {
+      throw new AAError("Timeout", PENDING_MSG, { ...unclearExtra({ unclear: true, reason: "network" }, hash, wire), detail: "bundler hash mismatch; no retry", returnedHash: j.result });
     }
     opPhase({ phase: "submitted", userOpHash: hash, pressId });
     const got = await this.findOp(hash, wire.sender, 30_000);

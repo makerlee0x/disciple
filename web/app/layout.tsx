@@ -8,6 +8,8 @@ import AppShell from "@/components/AppShell";
 import ChatBridge from "@/components/chat/ChatBridge";
 import PrivyProviders from "@/components/PrivyProviders";
 import IconSprite from "@/components/icons/IconSprite";
+import { sponsorshipConfig } from "@/lib/server/sponsorshipConfig";
+import { SPONSORSHIP_CONFIG_ID } from "@/lib/aa/sponsorshipMode";
 
 export const metadata: Metadata = {
   title: "DISCIPLE — Every coin is a rocket",
@@ -56,6 +58,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geist.variable} ${instrumentSerif.variable}`}>
       <body className="antialiased">
+        <script id={SPONSORSHIP_CONFIG_ID} type="application/json" dangerouslySetInnerHTML={{ __html: JSON.stringify(sponsorshipConfig()) }} />
         <IconSprite />
         <PrivyProviders>
           <AppShell>{children}</AppShell>

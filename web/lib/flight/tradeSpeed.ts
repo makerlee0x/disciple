@@ -44,10 +44,8 @@ export function refundLine(refundUsd: number | undefined, spentUsd: number, fmt:
 }
 
 /* ---------------- click mark hook (SITE #140 lib/trade/timing.ts markTradeClick) ---------------- */
-// TODO(#140): SITE's draft #140 (site/trade-latency) adds lib/trade/timing.ts markTradeClick(). It isn't on this base yet, so
-// it is NOT imported here. Once #140 lands, wire it with ONE line in components/TradeBridge.tsx:
-//   import { markTradeClick } from "@/lib/trade/timing";  setTradeClickMark(markTradeClick);
-// Until then tradeClick()/tradeStart() are no-ops (no hook registered).
+// TradeBridge registers the existing markTradeClick plus press-keyed flow telemetry.
+// The callback stays optional and guarded so measurement cannot break a trade.
 let clickHook: (() => void) | null = null;
 let pendingClickAt: number | undefined;
 const clickNow = () => (typeof performance !== "undefined" ? performance.now() : Date.now());

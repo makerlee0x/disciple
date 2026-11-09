@@ -56,6 +56,8 @@ export class Reservations {
   private subs = new Set<(e: ReservationEvent) => void>();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private gasSource: () => bigint | undefined = () => undefined;
+  /** DisciplePaymaster v5 availableCredit (raw USDG), or undefined when unknown / not v5. */
+  private gasCredit: () => bigint | undefined = () => undefined;
   constructor(private clock: () => number = Date.now, public ttlMs = 60_000, private useTimers = true, private decimals: () => number = () => activeUsdgDecimals()) {}
   /** USDG decimals used for $ ⇄ raw (tests inject 18 / 6; the app uses lib/usdg usdgDecimals()). */
   usdgDec(): number { return this.decimals(); }
@@ -120,7 +122,8 @@ export class Reservations {
   reservedCash(): number {
     const dec = this.decimals();
     let usd = 0, gas = B0;
-    for (const r of this.list()) { if (r.side === "boost") usd += r.usd ?? (r.spend && isUsdgRaw(r) ? usdgRawToUsd(r.spend.raw, dec) : 0); if (r.gasReserve) gas += r.gasReserve; }
+    for (const r of this.list()) { if (r.side === "boost") usd += r.usd ?? (r.spend && isUsdgRaw(r) ? usdgRawToUsd(r.spend.raw, dec) : 0); }
+    gas = this.walletGas();
     return usd + usdgRawToUsd(gas, dec);
   }
   /** Raw coin held by pending DUMPs of `coin` (their gas caps are cash: reservedCash / reservedRaw(usdg), not here). */
@@ -140,10 +143,23 @@ export class Reservations {
       if (r.spend) { if (r.spend.asset === a) t += r.spend.raw; }
       else if (r.side === "boost" && usdg === a && r.usd) t += usdToUsdgRaw(r.usd, dec);
       else if (r.side === "dump" && r.coin === a && r.tokenAmt) t += r.tokenAmt;
-      if (usdg === a && r.gasReserve) t += r.gasReserve;
     }
+    if (usdg === a) t += this.walletGas(B0, o.exceptId);
     return t;
   }
+  /**
+   * Raw USDG gas the WALLET still has to cover: Σ pending gas caps (except `exceptId`) + `extra`, minus what the hidden
+   * gas credit covers. DisciplePaymaster v5 reserves and charges gas from that credit only (never from wallet USDG), so
+   * with enough credit this is 0. Unknown credit ⇒ nothing covered: every gas cap counts as cash (the old math).
+   */
+  walletGas(extra: bigint = B0, exceptId?: string): bigint {
+    let total = extra;
+    for (const r of this.list()) if (r.id !== exceptId && r.gasReserve) total += r.gasReserve;
+    const credit = this.gasCredit() ?? B0;
+    return total > credit ? total - credit : B0;
+  }
+  /** What ONE more op with gas cap `gas` adds to walletGas (on top of every pending op except `exceptId`). */
+  marginalWalletGas(gas: bigint, exceptId?: string): bigint { return this.walletGas(gas, exceptId) - this.walletGas(B0, exceptId); }
   /** Raw amountIn in flight on a quote route (same side), except `exceptId`: the marginal-quote base. */
   routePending(route: string, exceptId?: string): bigint {
     const k = lc(route); let t = B0;
@@ -162,6 +178,8 @@ export class Reservations {
   subscribe(cb: (e: ReservationEvent) => void): () => void { this.subs.add(cb); return () => { this.subs.delete(cb); }; }
   /** FLOW (#141): per-op gas cap in raw USDG (wallet.gasReservePerOp / DisciplePaymaster maxTokenCost); 0 / undefined when gas isn't paid in USDG. */
   setGasReserveSource(f: () => bigint | undefined) { this.gasSource = f; }
+  /** FLOW: hidden gas credit (v5 availableCredit, raw USDG) that pays gas instead of cash; undefined = unknown. */
+  setGasCreditSource(f: () => bigint | undefined) { this.gasCredit = f; }
   clear() { for (const id of [...this.m.keys()]) this.release(id, "cancel", { force: true }); }
 
   private arm(id: string) {
@@ -190,6 +208,8 @@ export const pendingNet = (coin: string) => RESERVATIONS.pendingNet(coin);
 export const subscribe = (cb: (e: ReservationEvent) => void): (() => void) => RESERVATIONS.subscribe(cb);
 /** FLOW: per-op gas cap in RAW USDG base units (whatever the chain's USDG decimals are: 18 today, 6 after the redeploy). */
 export const setGasReserveSource = (f: () => bigint | undefined) => RESERVATIONS.setGasReserveSource(f);
+/** FLOW: hidden gas credit source (raw USDG, DisciplePaymaster v5 availableCredit); undefined ⇒ gas counts as cash. */
+export const setGasCreditSource = (f: () => bigint | undefined) => RESERVATIONS.setGasCreditSource(f);
 /** GAME: is this press pending_unknown (sent, still confirming)? Don't resend it; wait for its "resolved" event. */
 export const isPendingUnknown = (id: string): boolean => RESERVATIONS.isUnknown(id);
 export const unknownCount = (): number => RESERVATIONS.unknownCount();

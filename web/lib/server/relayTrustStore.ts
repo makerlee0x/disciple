@@ -21,9 +21,9 @@ export function kvTrustStore(): TrustStore {
       return { verifiedAt: num(j.verifiedAt), fastOps: num(j.fastOps), strikes: num(j.strikes), lastStrikeAt: num(j.lastStrikeAt), strikeUntil: num(j.strikeUntil) };
     },
     async save(sender, p) {
-      const s = kv(), k = `relay:trust:${sender}`;
-      // Kv has no SET EX; del + setNX(ttl) keeps the TTL (a lost race only drops one write: the in-memory state is still authoritative here)
-      await s.del(k); await s.setNX(k, JSON.stringify(p), TTL_SEC);
+      // AUDIT r264 step 6: one atomic merge (EVAL), never DEL + SET: a save from an instance that has not seen the sender
+      // (e.g. TRUST.simulated on a cold instance) can't lower strikes/strikeUntil, and no reader sees the key missing.
+      if (!await kv().trustMerge(`relay:trust:${sender}`, p, TTL_SEC)) throw new Error("relay trust entry unparseable; left in place (fail closed)");
     },
     async claimFirstPrime(sender) { return kv().setNX(`relay:trust:first:${sender}`, "1"); },
   };

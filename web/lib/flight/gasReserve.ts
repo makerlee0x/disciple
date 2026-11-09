@@ -1,3 +1,6 @@
+import { browserBso } from "@/lib/aa/bso";
+import { ACTIVE_CHAIN, deployment } from "@/lib/chains";
+import type { Address, PublicClient } from "viem";
 /**
  * GAME-side ADAPTER of FLOW's gas reserve (#145 @e693cb5c: lib/aa/gasReserve + lib/wallet gasReservePerOp(kind) /
  * peekGasReservePerOp(kind)). Same API and the SAME math, copied from FLOW so the later swap is one line:
@@ -82,7 +85,7 @@ export function warmGasPrice(pc: { getGasPrice: () => Promise<bigint> }): Promis
   if (gp && Date.now() - gp.at < GAS_PRICE_TTL_MS) return Promise.resolve();
   return pc.getGasPrice().then((w) => setGasPrice(BigInt(w)), () => undefined);
 }
-const smart = () => { try { return isSmartMode(); } catch { return false; } };
+const smart = () => { try { return !browserBso(ACTIVE_CHAIN.id) && isSmartMode(); } catch { return false; } };
 /** Warm value (fresh allowance), else null (cold); 0n when gas isn't paid in USDG. */
 export function peekGasReservePerOp(kind: GasOpKind = "trade"): bigint | null {
   try {
@@ -96,4 +99,26 @@ export function gasReservePerOp(kind: GasOpKind = "trade"): bigint {
   if (!smart()) return BigInt(0);
   try { return reserveOrDerived(peekGasReservePerOp(kind), { kind, gasPriceWei: gp?.wei, rate: lastRate, maxGasPerOp: capRaw, decimals: usdgDecimals() }); }
   catch { return BigInt(0); }
+}
+
+/* ---- hidden gas credit (DisciplePaymaster v5): gas is reserved/charged from it, never from wallet USDG ---- */
+let credit: { raw: bigint; at: number } | undefined;
+/** A credit read older than this is treated as unknown (gas counts as cash again). */
+export const GAS_CREDIT_TTL_MS = 60_000;
+const availableCreditAbi = [{ type: "function", name: "availableCredit", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }] }] as const;
+/** Test hook / poll result: raw USDG availableCredit; null = unknown. */
+export function setGasCredit(raw: bigint | null) { credit = typeof raw === "bigint" && raw >= BigInt(0) ? { raw, at: Date.now() } : undefined; }
+/** Fresh v5 availableCredit (raw USDG) in USDG-gas mode, else undefined (unknown ⇒ callers keep the conservative math). */
+export function gasCredit(): bigint | undefined {
+  if (!smart() || !credit || Date.now() - credit.at > GAS_CREDIT_TTL_MS) return undefined;
+  return credit.raw;
+}
+/** Read availableCredit(account) in the background (cash poll). Never on the trade path, never throws; a failed read
+ *  (no v5 paymaster, RPC error) clears it to unknown. */
+export async function warmGasCredit(pc: Pick<PublicClient, "readContract">, account: Address): Promise<void> {
+  if (!smart()) { setGasCredit(null); return; }
+  const pm = deployment().paymaster as Address | undefined;
+  if (!pm || /^0x0{40}$/i.test(pm)) { setGasCredit(null); return; }
+  try { setGasCredit(BigInt(await pc.readContract({ address: pm, abi: availableCreditAbi, functionName: "availableCredit", args: [account] }))); }
+  catch { setGasCredit(null); }
 }

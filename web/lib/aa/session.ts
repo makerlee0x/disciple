@@ -1,4 +1,8 @@
-import { diagnosticText } from "./diagnostics";
+import { createRelayLoginJoin } from "./relayReadiness";
+import { ensurePveLoginOnchain } from "../pve";
+import { clientSelfBundlerMode } from "./sponsorshipMode";
+import { browserBso } from "./bso";
+import { diagnosticText, errorDiagnostic } from "./diagnostics";
 /**
  * Browser session for the embedded smart account (Alchemy Modular Account v2, prepaid USDG gas).
  *  - "privy" (default when NEXT_PUBLIC_PRIVY_APP_ID is set): the Privy embedded EOA (toViemAccount) is the MAv2 owner.
@@ -126,6 +130,7 @@ function loadSessionKey(account: Address): StoredSessionKey | null {
 }
 
 export function usdgGasConfig(): UsdgGasOpts | undefined {
+  if (browserBso(ACTIVE_CHAIN.id)) return undefined;
   const d = deployment();
   const pm = d.paymaster, usdg = d.usdg;
   if (!pm || /^0x0{40}$/i.test(pm) || !usdg || /^0x0{40}$/i.test(usdg)) return undefined;
@@ -136,7 +141,7 @@ export function usdgGasConfig(): UsdgGasOpts | undefined {
 async function makeAccount(owner: LocalAccount) {
   const { Mav2Account } = await import("./mav2");
   const usdgGas = usdgGasConfig();
-  return new Mav2Account({ chain: ACTIVE_CHAIN, pc: publicClient(), bundlerUrl: BUNDLER_URL, usdgGas, requireUsdgGas: true }, owner);
+  return new Mav2Account({ chain: ACTIVE_CHAIN, pc: publicClient(), bundlerUrl: BUNDLER_URL, bso: browserBso(ACTIVE_CHAIN.id), usdgGas, requireUsdgGas: true }, owner);
 }
 
 async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
@@ -253,6 +258,7 @@ const loginSetup = createLoginSetup({
   schedule: (ms, run) => { if (typeof window !== "undefined") setTimeout(run, Math.min(ms, 2 ** 31 - 1)); },
   onChange: () => changed(),
 });
+const joinRelayLogin = createRelayLoginJoin();
 /** Background one-tap setup / renewal for the signed-in account. Idempotent, deduped, never throws. */
 export function maybeAutoOneTap(why: string, opt: { urgent?: boolean } = {}) {
   const acct = sa;
@@ -260,6 +266,18 @@ export function maybeAutoOneTap(why: string, opt: { urgent?: boolean } = {}) {
   void acct.address().then(async (a) => {
     if (sa !== acct) return;
     await loginSetup.ensure(a, why, opt);
+    // Self relay requires global LoginGate even for non-PVE coins. Reuse NORMAL Privy verification
+    // and the owner-paid on-chain attest, AFTER the existing v5/account bootstrap is included.
+    // Background only: no new auth reads or waits on a warm trade, and no owner call via self relay.
+    if (clientSelfBundlerMode() && ONE_TAP_AUTO && oneTapAvailable() && !userEndedOneTap && !isOneTapOff(lsStore(), a) && sa === acct && acct.deployed) {
+      await joinRelayLogin(a, async () => {
+        await ensurePveLoginOnchain(publicClient(), a, calls => {
+          if (sa !== acct) throw new Error("signed out meanwhile");
+          return acct.sendCalls(calls, "owner");
+        });
+        if (sa === acct) { await acct.warm(); console.error("[disciple] relay LoginGate ready", { account: a }); }
+      }).catch(e => console.error("[disciple] relay LoginGate setup failed", { account: a, detail: errorDiagnostic(e) }));
+    }
   }).catch(() => undefined);
 }
 /** Re-check on tab refocus (deduped) and renew ahead of expiry while the tab stays open (FLOW's scheduleRenewal shape). */
@@ -640,8 +658,9 @@ async function aaSend1(calls: Call[], o: SendOpts, opts: TradeCtx) {
   // with NO await in between, so two concurrent taps can't both pass on the same headroom.
   const headroom = sessionHasHeadroom(onchain, spend, SESSION_PENDING.total());
   const capRace = !headroom && SESSION_PENDING.size > 0 && sessionHasHeadroom(onchain, spend);
+  if (browserBso(ACTIVE_CHAIN.id) && opts.trade && (!eligible || !live || !headroom)) throw new AAError("Policy", "An active trading session with available limits is required.");
   const pick = tradeSigner({ trade: !!opts.trade, eligible, live, headroom, strictMode: mode.strict, deployed: mode.deployed, capRace });
-  const asSession = pick.as === "session";
+  const asSession = (browserBso(ACTIVE_CHAIN.id) && !!opts.trade) || pick.as === "session";
   if (pick.as === "refuse" && capRace) {
     console.warn("[disciple] trade refused: session spend limit reached with trades in flight", { inFlight: SESSION_PENDING.size, why: pick.why });
     throw new AAError("Policy", SPEND_LIMIT_MSG, { spendLimit: true, tradeError: "spend_limit" });
@@ -659,7 +678,7 @@ async function aaSend1(calls: Call[], o: SendOpts, opts: TradeCtx) {
   let r;
   const hold = asSession ? SESSION_PENDING.hold(spend) : undefined;
   const attemptedAccount = sa, attemptedSession = asSession ? onchain : null;
-  try { r = await sa.sendCalls(calls, { ...o, as: asSession ? "session" : "owner", tt: opts.timing }); }
+  try { r = await sa.sendCalls(calls, { ...o, as: browserBso(ACTIVE_CHAIN.id) && opts.trade ? "session" : asSession ? "session" : "owner", tt: opts.timing }); }
   catch (e) {
     const ae = e as AAError;
     if (hold && ae?.code === "Timeout") {
@@ -697,6 +716,7 @@ async function aaSend1(calls: Call[], o: SendOpts, opts: TradeCtx) {
         console.warn("[disciple] trade refused: session rejected by the policy pre-flight (no owner fallback)", { detail, policy: SESSION_POLICY, entityId: attemptedSession?.entityId, revertData: ae.extra?.revertData });
         throw new AAError("Policy", ONE_TAP_REFRESH_MSG, { sessionRequired: true, detail, revertData: ae.extra?.revertData });
       }
+      if (browserBso(ACTIVE_CHAIN.id)) throw e;
       r = await sa.sendCalls(calls, { ...o, as: "owner", tt: opts.timing });   // owner signs the same calls once
     } else throw e;
   }
