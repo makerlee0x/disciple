@@ -9,11 +9,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { Address, Hex } from "viem";
 import { coinFacts } from "@/lib/protocol-viem";
-import { creatorClaimable, creatorClaimCalls, creatorTokenClaimable, isCreatorOf, sendCreatorClaims } from "@/lib/claims/creatorFees";
+import { creatorClaimable, creatorClaimCalls, creatorTokenClaimable, isCreatorOf, sendCreatorClaims, signedAnonClaimCalls } from "@/lib/claims/creatorFees";
 import { claimCrew, coinMode, crewClaimCall, crewFeed, crewPending, isPve, type CrewFeedRow } from "@/lib/claims/crew";
 import { assetMeta, claimErrorText, fmtAmount, preflight, type Asset } from "@/lib/claims/common";
 import { demoFeed, demoRedeploy } from "@/lib/claims/demo";
 import { ConfirmSheet, TxLink, pc, useCaps, useWalletAddr } from "./ui";
+import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
+import { blockedActionMessage } from "@/lib/trade/gaslessAction";
+import { formatActionFeeNote, quoteGaslessAction } from "@/lib/trade/gaslessActionClient";
 
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
 
@@ -29,6 +32,7 @@ export default function CoinClaims({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<Hex | null>(null);
+  const [feeNote, setFeeNote] = useState<string | null>(null);
   const valid = ADDR.test(token);
 
   const load = useCallback(async () => {
@@ -64,7 +68,9 @@ export default function CoinClaims({ token }: { token: string }) {
     try {
       if (demo) { await new Promise((r) => setTimeout(r, 500)); setDone(`0x${"ef".repeat(32)}` as Hex); return; }
       if (sheet === "creator" && mine != null) {
-        const calls = creatorClaimCalls([{ token: token as Address, claimable: mine, tokenSide: mineTok ? { asset: mineTok.asset, claimable: mineTok.raw, claimed: BigInt(0) } : null }], caps, me ?? undefined);
+        const row = { token: token as Address, claimable: mine, tokenSide: mineTok ? { asset: mineTok.asset, claimable: mineTok.raw, claimed: BigInt(0) } : null };
+        const calls = creatorClaimCalls([row], caps, me ?? undefined);
+        if (me) calls.push(...(await signedAnonClaimCalls(pc(), [row], me)));
         if (me) await preflight(pc(), calls, me);
         setDone((await sendCreatorClaims(calls)).txHash);
       }
@@ -85,14 +91,14 @@ export default function CoinClaims({ token }: { token: string }) {
             <span className="lbl">Your fees</span>
             <strong>{fmtAmount(mine, quote, 2)}</strong>
             {mineTok && <strong>+ {fmtAmount(mineTok.raw, mineTok.asset, 2)}</strong>}
-            {mine > BigInt(0) || mineTok ? <button type="button" onClick={() => { setErr(null); setDone(null); setSheet("creator"); }}>Claim</button> : <Link href="/creator">Dashboard</Link>}
+            {mine > BigInt(0) || mineTok ? <button type="button" onClick={() => { setErr(null); setDone(null); setFeeNote(clientGaslessMode() ? blockedActionMessage("FeeRouter.claimCreatorFees(address) / claimCreatorTokenFees(address)") : null); setSheet("creator"); }}>Claim</button> : <Link href="/creator">Dashboard</Link>}
           </div>
         )}
         {claims && quote && crew != null && (
           <div className="cl-coin-pill crew" data-testid="crew-pill">
             <span className="lbl">Crew rewards</span>
             <strong>{fmtAmount(crew, quote, 2)}</strong>
-            {crew > BigInt(0) && <button type="button" onClick={() => { setErr(null); setDone(null); setSheet("crew"); }}>Claim</button>}
+            {crew > BigInt(0) && <button type="button" onClick={() => { setErr(null); setDone(null); setFeeNote(clientGaslessMode() ? blockedActionMessage("Launchpad.claim(address)") : null); setSheet("crew"); }}>Claim</button>}
           </div>
         )}
         {claims && quote && feed.slice(0, 3).map((r) => (
@@ -105,7 +111,7 @@ export default function CoinClaims({ token }: { token: string }) {
         <ConfirmSheet title={sheet === "creator" ? "Claim creator fees" : "Claim crew rewards"}
           lines={[{ label: sheet === "creator" ? "Creator fees" : "Crew rewards", raw: (sheet === "creator" ? mine : crew) ?? BigInt(0), asset: quote },
             ...(sheet === "creator" && mineTok ? [{ label: "Token share", raw: mineTok.raw, asset: mineTok.asset }] : [])]}
-          to={me} busy={busy} error={err} done={done} onConfirm={confirm} onClose={() => setSheet(null)} />
+          to={me} feeNote={feeNote} busy={busy} error={err} done={done} onConfirm={confirm} onClose={() => setSheet(null)} />
       )}
     </>
   );

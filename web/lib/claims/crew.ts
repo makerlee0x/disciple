@@ -14,6 +14,8 @@ import { bondingCurveAbi, launchpadAbi } from "../abi";
 import { deployment } from "../chains";
 import type { Call } from "../aa/core";
 import { execCalls } from "../wallet";
+import { clientGaslessMode } from "../aa/sponsorshipMode";
+import { blockedActionMessage } from "../trade/gaslessAction";
 import { assetMeta, indexerGet, lc, type Asset } from "./common";
 import { coinFacts, curveOf, MODE } from "../protocol-viem";
 
@@ -56,6 +58,7 @@ export async function crewPositions(pc: PublicClient, holder: Address): Promise<
 export const crewClaimCall = (token: Address): Call => ({ to: deployment().launchpad, data: encodeFunctionData({ abi: launchpadAbi, functionName: "claim", args: [token] }) });
 export async function claimCrew(tokens: Address[]) {
   if (!tokens.length) throw new Error("Nothing to claim yet.");
+  if (clientGaslessMode()) throw new Error(blockedActionMessage("Launchpad.claim(address)"));
   return execCalls(tokens.map(crewClaimCall));
 }
 
