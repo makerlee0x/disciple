@@ -12,7 +12,7 @@ let bad = 0; const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if
 const line = (re) => { const m = eng.match(re); if (!m) throw new Error("engine: " + re); return m[0]; };
 const blk = eng.match(/\/\* @feed-names:start[\s\S]*?\*\/([\s\S]*?)\/\* @feed-names:end \*\//); if (!blk) throw new Error("@feed-names markers missing");
 const src = [line(/^const short=.*$/m), line(/^function fillUsd\(f\).*$/m), line(/^const fmtUsd=.*$/m),
-  "const fmtShot=v=>'$'+v.toFixed(2);", blk[1], "return {NAMES,nameOf,feedTradeRow,feedRelabel,feedSeedFills,hudColTop,HUD_NARROW_W,HUD_NARROW_TOP};"].join("\n");
+  "const fmtShot=v=>'$'+v.toFixed(2);", blk[1], "return {NAMES,DEFNAMES,nameOf,feedTradeRow,feedRelabel,feedSeedFills,hudColTop,HUD_NARROW_W,HUD_NARROW_TOP};"].join("\n");
 const mk = (win = {}) => new Function("window", src)(win);
 
 const A = "0x3dfe00000000000000000000000000000000bede", ME = "0xaaaa00000000000000000000000000000000cafe";
@@ -50,7 +50,19 @@ const B40 = "0xef21000000000000000000000000000000008e30";
 { const win = {}; const E = mk(win);
   ok(E.nameOf(A) === "0x3dfe…bede", "fallback: short address");
   ok(E.nameOf("bot_alice") === "bot_alice", "sim bot names pass through");
-  win.__discipleNames = { [A]: "@verylongusername99" }; ok(E.nameOf(A.toUpperCase().replace("0X", "0x")) === "@verylonguse", "site map, case-insensitive, one @, ≤11 chars: " + E.nameOf(A));
+  win.__discipleNames = { [A]: "@verylongusername99" };
+  ok(E.nameOf(A.toUpperCase().replace("0X", "0x")) === "@verylongusername99", "no cap: claimed names are not truncated: " + E.nameOf(A));
+  win.__usernameDisplayCap = 22;
+  ok(E.nameOf(A) === "@verylongusername99", "cap = longest default (22): 20-char @name stays whole");
+  win.__usernameDisplayCap = 11;
+  ok(E.nameOf(A) === "@verylongus" && E.nameOf(A).length === 11, "cap includes the @: 11 clips @verylongusername99 → @verylongus");
+  delete win.__discipleNames[A];
+  E.DEFNAMES[A] = "Pathfinder Afterburner"; // 22 chars, the cap
+  win.__usernameDisplayCap = 22;
+  ok(E.nameOf(A) === "Pathfinder Afterburner", "default at the cap is not truncated");
+  E.DEFNAMES[A] = "Pathfinder AfterburnerX";
+  ok(E.nameOf(A) === "Pathfinder Afterburner", "one char over the cap is clipped");
+  delete win.__usernameDisplayCap; delete E.DEFNAMES[A];
   const r = E.feedTradeRow("buy", 25, null, B40); ok(r.txt.endsWith("0xef21…8e30") && r.tr === B40, "live row keeps its trader for relabel");
   const you = E.feedTradeRow("sell", 4, "(you)", ME); ok(you.txt.endsWith("(you)") && you.own === 1 && you.tr === ME, "player row: '(you)', keeps its wallet (un-tagged on sign-out / switch)");
   E.feedRelabel([you]); ok(you.txt.endsWith("(you)"), "player row never relabelled by names");
@@ -62,6 +74,8 @@ ok(/txt:`\$\{up\?'▲':'▼'\} \$\{nameOf\(e\.trader\)\}/.test(eng), "trade floa
 ok(/chartSeedK\(C\.k,fs,keep\); C\.hist=2;\s*\n\s*feedHistNames\(feedSeedFills\(S\.feed,fills,/.test(eng), "chartBackfill seeds the TRADES feed");
 ok(/dispatchEvent\(new CustomEvent\('disciple:names-want'/.test(eng) && !/fetch\('\/api\/profile\/username/.test(eng), "seeded rows ask the site for names (lib/nameLookup cache via 'disciple:names-want'), no direct fetch");
 ok(/"disciple:names"/.test(wb.match(/const INBOUND = \[[^\]]*\]/)[0]), "worker renderer receives disciple:names");
+ok(/__usernameDisplayCap/.test(wb.match(/const GLOBALS = \[[^\]]*\]/)[0]), "worker globals include __usernameDisplayCap");
+ok(/publishUsernameDisplayCap/.test(fc) && /USERNAME_DISPLAY_CAP = DEFAULT_USERNAME_MAX_LEN/.test(fs.readFileSync(path.join(web, "lib/defaultUsername.ts"), "utf8")), "FlightCanvas publishes USERNAME_DISPLAY_CAP (single constant = longest default)");
 // ── 3. narrow HUD column
 { const E = mk();
   ok(E.hudColTop(1280, 58) === 58 && E.hudColTop(761, 58) === 58, "desktop: column top unchanged");

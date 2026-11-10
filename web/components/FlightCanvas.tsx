@@ -16,6 +16,9 @@ import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
 import HoldersBridge from "@/components/flight/HoldersBridge";
 import PhoneHud from "@/components/flight/PhoneHud";
+import { publishUsernameDisplayCap } from "@/lib/defaultUsername";
+
+if (typeof window !== "undefined") publishUsernameDisplayCap();
 
 declare global {
   interface Window {

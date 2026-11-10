@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { holderDisplayName, resolveHolderNames, holderNameNow, _resetHolderNames } from "../lib/flight/holderNames";
 import { clearNameCache } from "../lib/nameLookup";
-import { defaultUsername } from "../lib/defaultUsername";
+import { defaultUsername, USERNAME_DISPLAY_CAP } from "../lib/defaultUsername";
 
 const web = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8");
@@ -60,11 +60,11 @@ test("TRADES names: @username → default call sign → short address; engine as
   const line = (re: RegExp) => eng.match(re)![0];
   const src = [line(/^const short=.*$/m), line(/^function fillUsd\(f\).*$/m), line(/^const fmtUsd=.*$/m), "const fmtShot=v=>'$'+v.toFixed(2);", blk[1],
     "return {NAMES,DEFNAMES,nameOf,feedTradeRow,feedRelabel};"].join("\n");
-  const E = new Function("window", src)({});
+  const E = new Function("window", src)({ __usernameDisplayCap: USERNAME_DISPLAY_CAP });
   const feed = [E.feedTradeRow("buy", 3, null, A), E.feedTradeRow("sell", 2, null, B), E.feedTradeRow("buy", 1, "(you)", A)];
   assert.match(feed[0].txt, /0x3dfe…bede$/);
   E.NAMES[A] = "maker"; E.DEFNAMES[B] = defaultUsername(B); E.feedRelabel(feed);
-  assert.match(feed[0].txt, /@maker$/); assert.ok(feed[1].txt.endsWith(defaultUsername(B).slice(0, 16))); assert.match(feed[2].txt, /\(you\)$/);
+  assert.match(feed[0].txt, /@maker$/); assert.ok(feed[1].txt.endsWith(defaultUsername(B))); assert.ok(defaultUsername(B).length <= USERNAME_DISPLAY_CAP); assert.match(feed[2].txt, /\(you\)$/);
   assert.match(eng, /addEventListener\('disciple:feednames'/);
   assert.ok(!/fetch\('\/api\/profile\/username/.test(eng), "engine must not fetch usernames itself");
   assert.match(fs.readFileSync(path.join(web, "lib/flight/workerBridge.ts"), "utf8"), /"disciple:feednames"/);

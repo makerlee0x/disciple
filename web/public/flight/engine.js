@@ -341,10 +341,14 @@ const short=a=>!a?'?':/^0x[0-9a-f]{8,}$/i.test(a)? a.slice(0,6)+'…'+a.slice(-4
 /* @feed-names:start — TRADES feed names + history seed + narrow HUD column (test: scripts/test-feed-names.mjs).
    Names: the SITE publishes window.__discipleNames[lc] + "disciple:names" (lib/nameLookup); NAMES is the engine's copy (the
    event also reaches the worker renderer). "@name" when claimed, the short address otherwise. Feed rows keep tr/pre so a name
-   that arrives after the row was drawn relabels it. */
+   that arrives after the row was drawn relabels it.
+   Display cap: window.__usernameDisplayCap (USERNAME_DISPLAY_CAP from lib/defaultUsername, the longest default call sign).
+   If the cap is missing or ≤0, claimed / default names are not truncated. short() addresses / sim bots are unchanged. */
 const NAMES={}, DEFNAMES={};   // DEFNAMES: default call signs (no @) from the site's 'disciple:feednames' (lib/flight/holderNames)
+function nameCap(){ const c=typeof window!=='undefined'?window.__usernameDisplayCap:0; return typeof c==='number'&&c>0?c>>>0:0; }
+function clipName(s){ s=String(s); const c=nameCap(); return c&&s.length>c?s.slice(0,c):s; }
 function nameOf(a){ const k=String(a||'').toLowerCase(), g=typeof window!=='undefined'&&window.__discipleNames, n=NAMES[k]||(g&&g[k]);
-  return n?'@'+String(n).replace(/^@/,'').slice(0,11):DEFNAMES[k]?String(DEFNAMES[k]).slice(0,16):short(a); }
+  return n?clipName('@'+String(n).replace(/^@/,'')):DEFNAMES[k]?clipName(String(DEFNAMES[k])):short(a); }
 // Local clock; ~ marks receipt/observation time when no block timestamp was supplied.
 function feedTime(r){ if(!(r.at>0)||!Number.isFinite(+r.at)) return '—'; const d=new Date(+r.at); if(!Number.isFinite(d.getTime())) return '—'; return (r.received?'~':'')+[d.getHours(),d.getMinutes(),d.getSeconds()].map(v=>String(v).padStart(2,'0')).join(':'); }
 function feedTradeRow(side,usd,who,trader,at=Date.now(),received=true){ const pre=`${side==='buy'?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `;
