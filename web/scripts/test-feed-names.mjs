@@ -12,7 +12,7 @@ let bad = 0; const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if
 const line = (re) => { const m = eng.match(re); if (!m) throw new Error("engine: " + re); return m[0]; };
 const blk = eng.match(/\/\* @feed-names:start[\s\S]*?\*\/([\s\S]*?)\/\* @feed-names:end \*\//); if (!blk) throw new Error("@feed-names markers missing");
 const src = [line(/^const short=.*$/m), line(/^function fillUsd\(f\).*$/m), line(/^const fmtUsd=.*$/m),
-  "const fmtShot=v=>'$'+v.toFixed(2);", blk[1], "return {NAMES,DEFNAMES,nameOf,feedTradeRow,feedRelabel,feedSeedFills,hudColTop,HUD_NARROW_W,HUD_NARROW_TOP};"].join("\n");
+  "const fmtShot=v=>'$'+v.toFixed(2);", blk[1], "return {NAMES,DEFNAMES,nameOf,feedTradeRow,feedRelabel,feedSeedFills,hudColTop,HUD_NARROW_W,HUD_NARROW_TOP,TRADE_NAME_FONT_FLOOR,TRADE_NAME_FONT_DESK,TRADE_NAME_FONT_PHONE,tradeNameInitial,fitTradeName,tradeRowParts};"].join("\n");
 const mk = (win = {}) => new Function("window", src)(win);
 
 const A = "0x3dfe00000000000000000000000000000000bede", ME = "0xaaaa00000000000000000000000000000000cafe";
@@ -89,4 +89,47 @@ ok(/publishUsernameDisplayCap/.test(fc) && /USERNAME_DISPLAY_CAP = DEFAULT_USERN
   ok(/hudColTop\(W,Math\.round\(S\.hudRT\)\), RX=W-330/.test(eng), "HUD uses hudColTop");
   // crew (SITE #137): +204 below the column while the canvas draws TOP HOLDERS; the holders box ends at +196
   ok(100 + 96 <= 204, "CrewPanel +204 stays below the TOP HOLDERS box on the floored column"); }
+
+// ── 4. TRADES name column: shrink font to 9px, then first-word initial (card width + phone columns unchanged)
+{ const { createCanvas } = await import("@napi-rs/canvas");
+  const E = mk();
+  ok(E.TRADE_NAME_FONT_FLOOR === 9 && E.TRADE_NAME_FONT_DESK === 12 && E.TRADE_NAME_FONT_PHONE === 14, "font floor is 9px; start 12px desktop / 14px phone");
+  ok(E.tradeNameInitial("Pathfinder Afterburner") === "P. Afterburner", "first word → initial");
+  ok(E.tradeNameInitial("@verylongusername99") === "@verylongusername99", "claimed @handle with no space is not abbreviated");
+  ok(/cardBegin\('trades',20,H-160,310,140\)/.test(eng) && /const FX=20, FY=H, FW=310;/.test(eng), "desktop TRADES card stays 310×140");
+  ok(/cAva=30, cTag=70, cUsd=66, cAgo=34, cNm=Math\.max\(40,iw-cAva-cTag-cUsd-cAgo-4\*gap\)/.test(eng), "phone FEED column widths unchanged");
+  const ctx = createCanvas(400, 40).getContext("2d");
+  const tools = (family, weight) => ({
+    family, weight,
+    setFont: (px) => { ctx.font = (weight ? weight + " " : "") + px + "px " + family; },
+    measure: (t) => ctx.measureText(t).width,
+  });
+  const desk = tools("ui-monospace,monospace", "");
+  const phone = tools('ui-monospace,Menlo,"DejaVu Sans Mono",monospace', "bold");
+  const phoneCol = (vw) => { const iw = (vw - 2 * 16) - 8; return Math.max(40, iw - 30 - 70 - 66 - 34 - 4 * 8); };
+  const deskCol = (pre) => { desk.setFont(E.TRADE_NAME_FONT_DESK); return (310 - 32 - 74) - desk.measure(pre); };
+  const row = E.feedTradeRow("buy", 10, "@maker", "0x" + "11".repeat(20));
+  const parts = E.tradeRowParts(row);
+  ok(parts && parts.name === "@maker" && parts.pre.includes("BOOST"), "tradeRowParts splits prefix / name");
+  const wDesk = deskCol(parts.pre);
+  const full = E.fitTradeName("@maker", wDesk, { start: 12, floor: 9, ...desk });
+  ok(full.mode === "full" && full.size === 12 && full.text === "@maker", "fits at full size (@maker @ 12px desktop): " + full.mode + " " + full.size);
+  const shrinkName = "Starfarer Ion";
+  const shr = E.fitTradeName(shrinkName, wDesk, { start: 12, floor: 9, ...desk });
+  ok(shr.mode === "shrink" && shr.size < 12 && shr.size >= 9 && shr.text === shrinkName, "fits after shrink (Starfarer Ion desktop): " + shr.mode + " " + shr.size);
+  const long = "Pathfinder Afterburner";
+  const ini = E.fitTradeName(long, wDesk, { start: 12, floor: 9, ...desk });
+  ok(ini.mode === "initial" && ini.text === "P. Afterburner" && ini.size >= 9 && ini.size <= 12, "22-char desktop falls back to initial: " + ini.mode + " " + ini.size + " " + ini.text);
+  desk.setFont(ini.size); ok(desk.measure(ini.text) <= wDesk, "desktop initial actually fits the name column");
+  const handle = E.fitTradeName("@verylongusername99", wDesk, { start: 12, floor: 9, ...desk });
+  ok(handle.mode === "ellipsis" && handle.text.startsWith("@") && handle.text.endsWith("…") && !/^[A-Z]\. /.test(handle.text), "claimed @handle with no space keeps @ and uses phFit ellipsis");
+  const ph430 = E.fitTradeName(long, phoneCol(430), { start: 14, floor: 9, ...phone });
+  ok(ph430.mode === "shrink" && ph430.text === long && ph430.size < 14 && ph430.size >= 9, "22-char phone 430px width fits after shrink: " + ph430.mode + " " + ph430.size);
+  const ph390 = E.fitTradeName(long, phoneCol(390), { start: 14, floor: 9, ...phone });
+  ok(ph390.mode === "initial" && ph390.text === "P. Afterburner" && ph390.size >= 9, "22-char phone 390px width falls back to initial: " + ph390.mode + " " + ph390.size);
+  const ph760 = E.fitTradeName(long, phoneCol(760), { start: 14, floor: 9, ...phone });
+  ok(ph760.mode === "full" && ph760.size === 14 && ph760.text === long, "22-char phone 760px width fits at full 14px");
+  const ph320 = E.fitTradeName(long, phoneCol(320), { start: 14, floor: 9, ...phone });
+  ok(ph320.size === 9 && ph320.text !== long && (ph320.mode === "initial" || ph320.mode === "ellipsis"), "22-char phone 320px: initial then ellipsis if still tight: " + ph320.mode + " " + ph320.text);
+}
 console.log(bad ? `FAIL · ${bad}` : "PASS · feed names / history seed / narrow HUD"); process.exit(bad ? 1 : 0);
