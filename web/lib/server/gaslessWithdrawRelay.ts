@@ -5,7 +5,7 @@ import "server-only";
  * relayer pool / exact simulation / budget-after-sim / breaker. Does not touch the trade path.
  *
  * Fee: estimated gas × live base fee (what Robinhood Chain bills) × the old USDG paymaster rate (rateFromEnv +
- * unmarkedRate, 1.0x). Quoted fee is kept. feeTo is the configured relayer EOA (stable across the pool: a pool key
+ * unmarkedRate from usdgEthRate, 1.0x; same helpers formerly in paymasterCore). Quoted fee is kept. feeTo is the configured relayer EOA (stable across the pool: a pool key
  * may broadcast, the fee still lands on the relayer address the player was shown).
  */
 import { createPublicClient, parseAbi, recoverTypedDataAddress, type Address, type Hex } from "viem";
@@ -18,7 +18,7 @@ import {
   type GaslessWithdrawRequest,
 } from "../trade/gaslessWithdraw";
 import { PERMIT2 } from "../trade/gaslessPermit2";
-import { rateFromEnv, unmarkedRate } from "./paymasterCore";
+import { rateFromEnv, unmarkedRate } from "./usdgEthRate";
 import { requireGaslessMode, type GaslessConfirmed, type GaslessDeps } from "./gaslessRelay";
 import { shouldStrikeIncludedRevert } from "./gaslessStrike";
 import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";

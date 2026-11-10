@@ -48,7 +48,7 @@ const ceilTo = (n: bigint, d: bigint) => ((n + d - BigInt(1)) / d) * d;
 
 /**
  * Fee in USDG base units: ceil(gas × gasPrice × rate / 1e18) to 0.000001 USDG.
- * `rate` is USDG base units per 1 ETH, already unmarked (paymasterCore.unmarkedRate / rateFromEnv).
+ * `rate` is USDG base units per 1 ETH, already unmarked (usdgEthRate.unmarkedRate / rateFromEnv).
  */
 export function withdrawFeeRaw(gas: bigint, gasPrice: bigint, rate: bigint, usdgDecimals: number): bigint {
   if (gas < BigInt(0) || gasPrice < BigInt(0) || rate < BigInt(0)) throw new GaslessReject("bad fee inputs");

@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { decodeFunctionData, hashTypedData, recoverTypedDataAddress, type Address } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { rateFromEnv, unmarkedRate } from "../lib/server/paymasterCore";
+import { rateFromEnv, unmarkedRate } from "../lib/server/usdgEthRate";
 import { GaslessReject, jsonSafe, PERMIT2 } from "../lib/trade/gaslessPermit2";
 import {
   checkGaslessWithdrawRequest, encodeWithdrawCall, erc2612PermitAbi, minWithdrawAmount, microUsdg,
