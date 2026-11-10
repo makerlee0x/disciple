@@ -40,9 +40,9 @@ contract CarryFollowerRouteForkTest is Test {
     /// @dev Uniswap v4 MSTR/USDG 0.25% (the leader) and 0.24%, both hookless.
     bytes32 internal constant UNI25 = 0x319bac87e616a89e241c10aeb8afd4892a852cdd8b373cd9765ecddc40b87cfe;
 
-    uint24[3] FEES = [uint24(2_500), 5_000, 10_000];
-    uint256[2] TVL = [uint256(50_000), 500_000];
-    uint256[5] SIZES = [uint256(100), 1_000, 5_000, 25_000, 100_000];
+    uint24[6] FEES = [uint24(1_000), 1_500, 2_000, 2_500, 3_000, 4_000];
+    uint256[3] TVL = [uint256(5_000), 50_000, 500_000];
+    uint256[5] SIZES = [uint256(50), 250, 1_000, 5_000, 25_000];
     /// Off-balance states: share of the pool's starting MSTR that one-sided flow has bought (+) or sold into it (-).
     int256[3] SKEW = [int256(0), 20, -20];
 
@@ -94,10 +94,10 @@ contract CarryFollowerRouteForkTest is Test {
 
         uint256 base = vm.snapshotState();
         uint256 rows;
-        uint256[3] memory wins;
+        uint256[6] memory wins;
         for (uint256 t; t < TVL.length; ++t) {
             vm.revertToState(base);
-            PoolKey[3] memory ours;
+            PoolKey[6] memory ours;
             for (uint256 f; f < FEES.length; ++f) {
                 ours[f] = _create(FEES[f], TVL[t]);
             }
@@ -116,9 +116,9 @@ contract CarryFollowerRouteForkTest is Test {
                     for (uint256 d; d < 2; ++d) {
                         vm.revertToState(fresh);
                         bool buy = d == 0;
-                        bool[3] memory won = _row(ours, TVL[t], SKEW[k], SIZES[s], buy);
+                        bool[6] memory won = _row(ours, TVL[t], SKEW[k], SIZES[s], buy);
                         rows++;
-                        for (uint256 f; f < 3; ++f) {
+                        for (uint256 f; f < 6; ++f) {
                             if (won[f]) wins[f]++;
                         }
                     }
@@ -126,7 +126,7 @@ contract CarryFollowerRouteForkTest is Test {
             }
         }
         console2.log("");
-        for (uint256 f; f < 3; ++f) {
+        for (uint256 f; f < 6; ++f) {
             console2.log(
                 string.concat(
                     "Disciple fee ", vm.toString(FEES[f]), " beat both Uniswap pools in ", vm.toString(wins[f]), " of ",
@@ -158,14 +158,14 @@ contract CarryFollowerRouteForkTest is Test {
     }
 
     /// @dev One size and direction at one skew. Buy = USDG in, MSTR out.
-    function _row(PoolKey[3] memory ours, uint256 tvl, int256 skew, uint256 dollars, bool buy)
+    function _row(PoolKey[6] memory ours, uint256 tvl, int256 skew, uint256 dollars, bool buy)
         internal
-        returns (bool[3] memory won)
+        returns (bool[6] memory won)
     {
         // Push each Disciple pool off balance with one-sided flow first (a separate earlier block).
         if (skew != 0) {
             uint256 push = tvl * 1e6 / 2 * uint256(skew > 0 ? skew : -skew) / 100;
-            for (uint256 f; f < 3; ++f) {
+            for (uint256 f; f < 6; ++f) {
                 if (skew > 0) _swap(ours[f], USDG, push); // traders bought MSTR from the pool: it is short MSTR
                 else _swap(ours[f], MSTR, _mstrFor(push)); // traders sold MSTR into it: it is long MSTR
             }
@@ -183,7 +183,7 @@ contract CarryFollowerRouteForkTest is Test {
             if (out > best) best = out;
             line = string.concat(line, " uni", vm.toString(uni[i].fee), " ", vm.toString(_usd(out, buy)));
         }
-        for (uint256 f; f < 3; ++f) {
+        for (uint256 f; f < 6; ++f) {
             (uint256 out, uint256 g) = _quote(ours[f], tokenIn, amountIn);
             int256 gap = best == 0 ? int256(0) : (int256(out) - int256(best)) * 10_000 / int256(best);
             won[f] = out > best;
