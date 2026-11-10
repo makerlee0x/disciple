@@ -162,6 +162,11 @@ Record the acceptance tx hash in the deployments json `note`. Fork rehearsal 202
 `EXPECT_REWARDS_VAULT_OWNER` = #1 PASS 25/25, and with a wrong expected owner it FAILs (exit 1) as intended.
 
 ### 5b. Other wiring
+
+- Snipe-escrow timeout (lee 2026-11-10 "yes do the snipe escrow"): a fresh Deploy.s.sol Launchpad starts at 12 days
+  (`Constants.SNIPE_ESCROW_TIMEOUT`, no env). The current testnet Launchpad still stores 30 days; on lee's GO the owner sends
+  `cast send $LAUNCHPAD "setSnipeEscrowTimeout(uint256)" 1036800` (future launches only; existing curves keep their
+  snapshot). Smoke checks `Launchpad.snipeEscrowTimeout() == 1036800` (`EXPECT_SNIPE_ESCROW_TIMEOUT`).
 - `FeeRouter.isClaimRouter(DiscipleRouter)` = true (set in Deploy.s.sol). `claimCreatorFeesFor` no longer trusts every
   `Launchpad.isTrustedRouter`; add/revoke with `setClaimRouter(address,bool)` (owner).
 - `FeeRouter.referralSink()` = 0x0 (today's routing). **lee's rule:** when set, the sink takes the WHOLE referral 1%, including the
