@@ -4,16 +4,28 @@ import { kv } from "@/lib/server/kv";
 import { clientIp } from "@/lib/server/limits";
 import { RelayMetrics } from "@/lib/server/relayMetrics";
 import { flushRelayTrust } from "@/lib/server/fastRelay";
-import { bearer } from "@/lib/server/privyAuth";
 import { relayGaslessLogin, relayGaslessTrade, requireGaslessMode, warmGasless } from "@/lib/server/gaslessRelay";
 /**
  * POST /api/gasless — gasless swaps (flow/gasless-permit2). Only when GAS_SPONSORSHIP_MODE=gasless on testnet
  * Preview/local; otherwise every method is refused notSent and /api/bundler (self-bundler / BSO / hosted) is unchanged.
- * Methods: disciple_gaslessTrade [request] (needs `Authorization: Bearer <Privy access token>`; the session's wallet must
+ * Methods: disciple_gaslessTrade [request] (needs `privy-id-token`, the Privy identity token; the session's wallet must
  * be the signer) · disciple_gaslessLogin [{wallet, expiry, signature}] (OFF unless GASLESS_LOGIN_RELAY=1; TODO delete) ·
  * disciple_gaslessWarm [wallet].
  * One JSON answer with the full receipt (eth_sendRawTransactionSync). Never logs signatures, keys or RPC URLs.
  */
+const ID_TOKEN_RE = /^[A-Za-z0-9_\-.]+$/;
+/** Privy identity token: `privy-id-token` header, else the same-name cookie (docs.privy.io identity-tokens). */
+function identityToken(req: Request): string | null {
+  const h = req.headers.get("privy-id-token");
+  if (h && ID_TOKEN_RE.test(h)) return h;
+  const m = (req.headers.get("cookie") || "").match(/(?:^|;\s*)privy-id-token=([^;]+)/);
+  if (!m) return null;
+  try {
+    const v = decodeURIComponent(m[1]);
+    return ID_TOKEN_RE.test(v) ? v : null;
+  } catch { return null; }
+}
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const METHODS = new Set(["disciple_gaslessTrade", "disciple_gaslessLogin", "disciple_gaslessWarm"]);
@@ -37,7 +49,7 @@ export async function POST(req: Request) {
     if (body.method === "disciple_gaslessWarm") { await ipGate; return NextResponse.json({ jsonrpc: "2.0", id, result: await warmGasless(body.params[0], metrics) }); }
     const result = body.method === "disciple_gaslessLogin"
       ? await relayGaslessLogin(body.params[0], { ipGate, metrics })
-      : await relayGaslessTrade(body.params[0], { ipGate, metrics, authToken: bearer(req.headers) });
+      : await relayGaslessTrade(body.params[0], { ipGate, metrics, idToken: identityToken(req) });
     await flushRelayTrust().catch(() => undefined);
     console.info("[disciple] gasless relay " + JSON.stringify({ method: body.method, txHash: result.txHash, ok: result.success, gasUsed: result.gasUsed, t: result.t, request: metrics.snapshot() }));
     return NextResponse.json({ jsonrpc: "2.0", id, result: { ...result, server: metrics.snapshot() } });

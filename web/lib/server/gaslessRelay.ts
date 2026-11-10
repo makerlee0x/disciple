@@ -6,33 +6,37 @@ import "server-only";
  *
  * Login (lee, Nov 9 7:37 PM CT — "why do we have to record onchain that theyre verified? … get rid of it"): app-level
  * gating as pump.fun / FOMO do it. NO on-chain LoginGate requirement and no LoginGate.attest per session on this path:
- * the request must carry a valid Privy session (Authorization: Bearer <access token>, verified server-side by
- * lib/server/gaslessSession → lib/server/privyAuth) whose linked wallet == the Permit2 signer.
- * Existing (pre-redeploy) PvE curves still check LoginGate on-chain in routerBuy (BondingCurve._pveOnBuy): that is
- * detected by the exact eth_call simulation (it reverts NotVerified), surfaced as a clear notSent error — no extra RPC on
- * the hot path, and new curves (no on-chain check) just pass. PvP curves, sells and graduated (v4) coins never checked.
+ * the request must carry a valid Privy *identity token* (`privy-id-token`, verified locally by lib/server/gaslessSession
+ * → verifyIdentityToken) whose linked wallet == the Permit2 signer. No GET api.privy.io/v1/users hop (AUDIT M2;
+ * https://docs.privy.io/user-management/users/identity-tokens). Missing / invalid identity token ⇒ clean refusal.
  *
- * Kept from the self-bundler (same modules, same keys): revoke marker + strike window (requireNotRevokedOrStruck),
- * per-IP limit (relay:ip), per-sender cap + global quota (Kv.relayBudget, charged only after a passing exact
- * simulation, global unit refunded if nothing was signed), exact eth_call simulation of the relayer tx before signing,
- * relayer pool lease + nonce rules, and the relayer-loss breaker (lib/server/relayBreaker, from flow/queue-a-e):
- * included reverts trip it ⇒ sends pause, notSent.
+ * M3 (lee 8:25 PM CT: "accept that the old Easy test coins can't be bought gasless"): ungraduated Easy/PvE curves
+ * that still check LoginGate on-chain (curve.loginGate() ≠ 0 or mode() == PVE) are refused BEFORE simulation, with
+ * code LegacyLoginGate. Sells and graduated (v4) coins never checked; the loginGate()/mode values are immutable and
+ * cached so the check adds no RTT to normal trades. The exact-sim NotVerified path stays as a backstop only.
+ *
+ * Kept from the self-bundler (same modules, same keys): permanent ban (relay:banned:<wallet|did>) + 600 s revoke
+ * marker + strike window (wallet and Privy DID; requireNotRevokedOrStruck), per-IP limit (relay:ip), per-sender cap +
+ * global quota (Kv.relayBudget, charged only after a passing exact simulation, global unit refunded if nothing was
+ * signed), exact eth_call simulation of the relayer tx before signing, relayer pool lease + nonce rules, and the
+ * relayer-loss breaker (lib/server/relayBreaker, from flow/queue-a-e): included reverts trip it ⇒ sends pause, notSent.
  *
  * Order (lee, 7:52 PM CT: "Run them in parallel, 384 ms"): [shape + $3 minimum + local signature recovery, no RPC] →
- * [Privy token (local crypto) ∥ revoke/strike/blocklist gate ∥ per-IP limit ∥ relayer warm ∥ exact simulation (starts
- * once the token and relayer are ready) ∥ Privy user/wallet match (60 s cache)] → budget → sign + sync send.
+ * [Privy identity token (local crypto) ∥ revoke/ban/strike gate (after did, ~1 ms) ∥ per-IP limit ∥ relayer warm ∥
+ * exact simulation (starts once the token and relayer are ready; skipped if a cached legacy-PVE buy) ∥ wallet/invite
+ * match ∥ curve loginGate/mode (cached / parallel)] → budget → sign + sync send.
  * Pattern: speculative parallel validation, commit only after all gates pass (0x Gasless / Settler meta-tx relayers
- * validating off-chain before submit). A revoked / struck / blocklisted player is still refused BEFORE any budget
- * charge, cap reservation, breaker accounting or send — a completed simulation is discarded. The token check (local
- * crypto) still gates the eth_call so a missing/forged session never spends an RPC. Nothing is charged or signed
+ * validating off-chain before submit). A banned / revoked / struck player is still refused BEFORE any budget charge,
+ * cap reservation, breaker accounting or send — a completed simulation is discarded. Nothing is charged or signed
  * unless every admission check passed.
  */
-import { encodeFunctionData, parseAbi, toFunctionSelector, recoverTypedDataAddress, type Address, type Hex } from "viem";
+import { createPublicClient, encodeFunctionData, parseAbi, toFunctionSelector, recoverTypedDataAddress, type Address, type Hex } from "viem";
 import { ACTIVE_CHAIN, DEPLOYMENTS, robinhoodTestnet } from "../chains";
 import { gaslessMode } from "../aa/sponsorshipMode";
 import type { RelayReceipt } from "../aa/relayTypes";
 import { checkGaslessRequest, encodeGaslessCall, GASLESS_GAS_LIMIT, GaslessReject, parseGaslessRequest, tradeTypedData, type GaslessRequest } from "../trade/gaslessPermit2";
 import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
+import { relayReadTransport } from "./relayReadTransport";
 import { requireSessionWallet, verifySessionToken } from "./gaslessSession";
 import { directRelayer, sendDirect, simulateDirect, strikeSender, type DirectRelayer, type OnPending } from "./fastRelay";
 import { relayBreaker } from "./relayBreaker";
@@ -53,39 +57,89 @@ export function requireGaslessMode() {
 export type GaslessConfirmed = { kind: "confirmed"; txHash: Hex; success: boolean; receipt: RelayReceipt; gasUsed: number; via: string;
   t: { admission: number; budget: number; send: number; total: number } };
 export type GaslessDeps = { ipGate?: Promise<void>; onPending?: OnPending; metrics?: RelayMetrics; nowSec?: number;
-  /** Privy access token from `Authorization: Bearer …` (route). Required for trades. */
-  authToken?: string | null };
+  /** Privy identity token from the `privy-id-token` header (or cookie). Required for trades. */
+  idToken?: string | null };
 
-/** BondingCurve.NotVerified() — only existing PvE curves still check LoginGate on-chain (buys). */
+/** BondingCurve.NotVerified() — backstop only; ungraduated Easy/PvE buys are refused before simulation (M3). */
 export const NOT_VERIFIED_SELECTOR = toFunctionSelector("error NotVerified()");
-export const LEGACY_LOGIN_MESSAGE = "this coin's curve still requires an on-chain LoginGate login (pre-redeploy Easy curve); nothing sent";
+export const LEGACY_PVE_CODE = "LegacyLoginGate";
+export const LEGACY_LOGIN_MESSAGE = "this coin's curve still requires an on-chain LoginGate login (pre-redeploy Easy curve); gasless buys aren't available";
+const legacyPve = () => Object.assign(new Error(LEGACY_LOGIN_MESSAGE), { notSent: true, code: LEGACY_PVE_CODE, legacyLogin: true });
 const legacyLogin = (e: unknown) => {
   const x = e as { data?: unknown; message?: string };
   if ((typeof x.data === "string" && x.data.toLowerCase().startsWith(NOT_VERIFIED_SELECTOR)) || /NotVerified/.test(x.message ?? ""))
-    return Object.assign(new Error(LEGACY_LOGIN_MESSAGE), { notSent: true, data: x.data, legacyLogin: true });
+    return Object.assign(new Error(LEGACY_LOGIN_MESSAGE), { notSent: true, code: LEGACY_PVE_CODE, data: x.data, legacyLogin: true });
   return e;
 };
 
-/** Admission + exact simulation of ONE relayer tx; throws (notSent) in priority order session → gate → sim. */
-async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, extra: Promise<unknown>[] = []): Promise<DirectRelayer> {
+/** Cached immutable market hint (loginGate/mode / no-curve). Graduation is folded into a short-lived "legacy" memo. */
+type MarketHint = "legacy" | "ok";
+const marketMemo = new Map<string, { v: MarketHint; until: number }>();
+export const gaslessMarketCache = { clear() { marketMemo.clear(); } };
+export const peekGaslessMarket = (coin: string, isBuy: boolean): MarketHint | undefined => {
+  if (!isBuy) return "ok";
+  const hit = marketMemo.get(coin.toLowerCase());
+  return hit && hit.until > Date.now() ? hit.v : undefined;
+};
+const remember = (coin: string, v: MarketHint, ttlMs: number) => { marketMemo.set(coin.toLowerCase(), { v, until: Date.now() + ttlMs }); };
+const marketPc = createPublicClient({ chain: robinhoodTestnet, transport: relayReadTransport(5000, 0) });
+const marketAbi = parseAbi(["function curveOf(address) view returns (address)", "function loginGate() view returns (address)", "function mode() view returns (uint8)", "function graduated() view returns (bool)"]);
+const isZeroAddr = (a: unknown) => typeof a === "string" && /^0x0{40}$/i.test(a);
+/** Refuse an ungraduated Easy/PvE buy (curve still checks LoginGate on-chain). Cached so normal trades add no RTT. */
+export async function assertGaslessMarket(coin: Address, isBuy: boolean): Promise<void> {
+  const peek = peekGaslessMarket(coin, isBuy);
+  if (peek === "ok") return;
+  if (peek === "legacy") throw legacyPve();
+  if (!isBuy) return;
+  const lp = DEPLOYMENTS[46630].launchpad;
+  let curve: Address;
+  try { curve = await marketPc.readContract({ address: lp, abi: marketAbi, functionName: "curveOf", args: [coin] }); }
+  catch { return; }   // unreadable registry: let the exact sim / router decide
+  if (!curve || isZeroAddr(curve)) { remember(coin, "ok", 3_600_000); return; }
+  let gate: Address | undefined, mode = 0;
+  try {
+    const [g, m] = await Promise.all([
+      marketPc.readContract({ address: curve, abi: marketAbi, functionName: "loginGate" }),
+      marketPc.readContract({ address: curve, abi: marketAbi, functionName: "mode" }).catch(() => 0),
+    ]);
+    gate = g; mode = Number(m);
+  } catch { return; }
+  const checksLogin = !isZeroAddr(gate) || mode === 1;   // BondingCurve: mode 1 = PVE/Easy, loginGate set ⇒ _pveOnBuy
+  if (!checksLogin) { remember(coin, "ok", 3_600_000); return; }
+  let grad = false;
+  try { grad = Boolean(await marketPc.readContract({ address: curve, abi: marketAbi, functionName: "graduated" })); }
+  catch { throw legacyPve(); }   // a LoginGate-checking curve we can't classify: fail closed
+  if (grad) { remember(coin, "ok", 3_600_000); return; }   // graduation is one-way
+  remember(coin, "legacy", 15_000);
+  throw legacyPve();
+}
+
+/** Admission + exact simulation of ONE relayer tx; throws (notSent) in priority order session → gate → market → sim. */
+async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: Address, isBuy: boolean, extra: Promise<unknown>[] = []): Promise<{ relayer: DirectRelayer; did: string }> {
   const m = d.metrics;
   const relayer = directRelayer(m);
-  const did = timed(m, "authSession", () => verifySessionToken(d.authToken));
-  const owner = did.then(x => timed(m, "authSessionWallet", () => requireSessionWallet(x, signer)));
-  const gate = timed(m, "revokeStrikeGate", () => requireNotRevokedOrStruck(signer));
-  // Speculative sim ∥ revoke/strike/blocklist read. The eth_call starts once the token (local crypto) and the relayer
-  // (needed for `from`) are ready — it does not wait for the gate. admit() still joins every gate before returning, so
-  // commit (budget / cap / breaker / send) cannot run if the gate (or token, or wallet match) failed; a finished
-  // simulation is then discarded. Gate is listed before sim in `all` so a revoke/strike error wins the throw if both fail.
-  const sim = Promise.all([relayer, did]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data).catch(e => { throw legacyLogin(e); })));
-  const all = [did, owner, gate, d.ipGate ?? Promise.resolve(), ...extra, sim, relayer];
+  const session = timed(m, "authSession", () => verifySessionToken(d.idToken));
+  const owner = session.then(x => timed(m, "authSessionWallet", () => requireSessionWallet(x, signer)));
+  // Gate starts after the identity token (~1 ms, local) so it can key ban/revoke/strike on the Privy DID (AUDIT M1).
+  const gate = session.then(x => timed(m, "revokeStrikeGate", () => requireNotRevokedOrStruck(signer, Date.now(), x.did)));
+  const peek = peekGaslessMarket(coin, isBuy);
+  if (peek === "legacy") throw legacyPve();
+  const market = peek === "ok" ? Promise.resolve() : timed(m, "legacyMarketGate", () => assertGaslessMarket(coin, isBuy));
+  // Speculative sim ∥ revoke/ban/strike + market reads. The eth_call starts once the token (local crypto) and the
+  // relayer (needed for `from`) are ready — it does not wait for the gate. A cached legacy-PVE buy never starts it.
+  // admit() still joins every gate before returning, so commit cannot run if a gate failed; a finished simulation is
+  // then discarded. Gate / market are listed before sim in `all` so those errors win the throw if both fail.
+  const sim = peek === "legacy" ? Promise.reject(legacyPve())
+    : Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data).catch(e => { throw legacyLogin(e); })));
+  const all = [session, owner, gate, market, d.ipGate ?? Promise.resolve(), ...extra, sim, relayer];
   const res = await timed(m, "admissionSimulationWall", () => Promise.allSettled(all));
   for (const x of res) if (x.status === "rejected") throw notSent(x.reason);
-  return (res[res.length - 1] as PromiseFulfilledResult<DirectRelayer>).value;
+  return { relayer: (res[res.length - 1] as PromiseFulfilledResult<DirectRelayer>).value,
+    did: (res[0] as PromiseFulfilledResult<{ did: string }>).value.did };
 }
 
 /** Budget (after the exact simulation passed) → sign + sync send → strike / breaker on an included revert. */
-async function commit(signer: Address, to: Hex, data: Hex, gas: bigint, r: DirectRelayer, d: GaslessDeps, t0: number, tAdm: number): Promise<GaslessConfirmed> {
+async function commit(signer: Address, to: Hex, data: Hex, gas: bigint, r: DirectRelayer, d: GaslessDeps, t0: number, tAdm: number, did?: string): Promise<GaslessConfirmed> {
   const m = d.metrics;
   const tb = Date.now();
   const refund = await relaySendBudget(signer, m).catch(e => { throw notSent(e); });
@@ -96,7 +150,7 @@ async function commit(signer: Address, to: Hex, data: Hex, gas: bigint, r: Direc
   const success = res.rc.status === "0x1";
   const gasUsed = Number(BigInt(res.rc.gasUsed));
   if (!success) {
-    strikeSender(signer);
+    strikeSender(signer, did);
     const price = res.rc.effectiveGasPrice ? BigInt(res.rc.effectiveGasPrice) : BigInt(0);
     await relayBreaker.record({ reverted: true, lossWei: BigInt(res.rc.gasUsed) * price }).catch(() => false);
   }
@@ -120,8 +174,8 @@ export async function relayGaslessTrade(raw: unknown, d: GaslessDeps = {}): Prom
     if (who.toLowerCase() !== q.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
   } catch (e) { throw notSent(e); }
   const data = encodeGaslessCall(q);
-  const r = await admit(q.signer, router, data, d);
-  return commit(q.signer, router, data, GASLESS_GAS_LIMIT, r, d, t0, Date.now() - t0);
+  const { relayer, did } = await admit(q.signer, router, data, d, q.trade.coin, q.trade.isBuy);
+  return commit(q.signer, router, data, GASLESS_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
 }
 
 const loginGateAbi = parseAbi(["function attest(address wallet, uint64 expiry, bytes sig)"]);

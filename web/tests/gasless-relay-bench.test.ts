@@ -4,9 +4,8 @@
  * Runs the REAL relayGaslessTrade: parse → check → local signature recovery → parallel admission (Privy session ∥
  * revoke/strike ∥ relayer state ∥ exact eth_call; sim starts with the relayer, not after the gate) → budget →
  * direct sync send. Opt-in: RELAY_BENCH=1.
- * Off-chain login (lee 7:37 PM CT): a real ES256 Privy token is verified each request (local crypto); the Privy users
- * API lookup (60 s per-did cache in privyAuth) is modelled as a MISS on every cold-instance trial (new did) with the
- * `privy` latency range (assumption: api.privy.io from Vercel iad1 ≈ an RPC hop) and a hit on warm trials.
+ * Off-chain login (AUDIT M2): a real ES256 Privy *identity token* (linked_accounts in the JWT) is verified each request
+ * (local crypto only — no api.privy.io users hop). Cold/warm still flips admissionImmutableCache + gaslessMarketCache.
  */
 import { describe, expect, it, vi } from "vitest";
 import { writeFileSync } from "node:fs";
@@ -34,14 +33,15 @@ vi.mock("../lib/server/syncSend", async original => ({ ...await original<typeof 
   syncSend: async () => { await wait("send"); return { rc: receipt, via: "sync", sendMs: 1, minedMs: 0, pending: false }; }, jsonRpc: () => async () => null }));
 const KEY = generatePrivateKey();
 process.env.RELAYER_NONCE_SHARED = "0";
-import { relayGaslessTrade } from "../lib/server/gaslessRelay";
+import { relayGaslessTrade, gaslessMarketCache } from "../lib/server/gaslessRelay";
 import { admissionImmutableCache } from "../lib/server/relayLockdown";
 import { tradeTypedData } from "../lib/trade/gaslessPermit2";
 import { gaslessSessionDeps } from "../lib/server/gaslessSession";
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 const { privateKey: SK, publicKey: PK } = generateKeyPairSync("ec", { namedCurve: "P-256" });
 const jwt = (sub: string) => { const n = Math.floor(Date.now() / 1000), e = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
-  const hb = `${e({ alg: "ES256", typ: "JWT" })}.${e({ iss: "privy.io", aud: "benchapp01", sub, iat: n, exp: n + 3600 })}`;
+  const accounts = JSON.stringify([{ type: "email", address: "a@b.co" }, { type: "wallet", chain_type: "ethereum", address: user.address, wallet_client_type: "privy" }]);
+  const hb = `${e({ alg: "ES256", typ: "JWT" })}.${e({ iss: "privy.io", aud: "benchapp01", sub, iat: n, exp: n + 3600, linked_accounts: accounts })}`;
   return `${hb}.${cryptoSign("sha256", Buffer.from(hb), { key: SK, dsaEncoding: "ieee-p1363" }).toString("base64url")}`; };
 
 const user = privateKeyToAccount(generatePrivateKey()), router = "0x00000000000000000000000000000000000000bb" as Address;
@@ -71,10 +71,10 @@ describe.skipIf(!process.env.RELAY_BENCH)("gasless relay benchmark (mocked RPC l
       return { ok: true, status: 200, json: async () => ({ id, linked_accounts: [{ type: "email", address: "a@b.co" }, { type: "wallet", chain_type: "ethereum", address: user.address }] }) }; }) as never;
     let did = "did:privy:bench00000000";
     for (let i = 0; i < N + 3; i++) {
-      const isCold = cold() < 0.6; if (isCold) { admissionImmutableCache.clear(); did = `did:privy:bench${String(i).padStart(8, "0")}`; }
+      const isCold = cold() < 0.6; if (isCold) { admissionImmutableCache.clear(); gaslessMarketCache.clear(); did = `did:privy:bench${String(i).padStart(8, "0")}`; }
       const body = await signed(BigInt(i));   // client-side signing is not server wall
-      const authToken = jwt(did);
-      const t = performance.now(); const r = await relayGaslessTrade(body, { authToken }); const ms = performance.now() - t;
+      const idToken = jwt(did);
+      const t = performance.now(); const r = await relayGaslessTrade(body, { idToken }); const ms = performance.now() - t;
       expect(r.kind).toBe("confirmed");
       if (i >= 3) rows.push({ ms, cold: isCold });
     }

@@ -310,7 +310,7 @@ export async function setPrivyOwner(owner: LocalAccount): Promise<Address> {
   if (sa && state?.kind === "privy" && state.owner.toLowerCase() === owner.address.toLowerCase()) return sa.address();
   return startSession("privy", owner);
 }
-type PrivyHooks = { login: () => void; logout: () => Promise<void>; getAccessToken?: () => Promise<string | null>; authenticated?: boolean };
+type PrivyHooks = { login: () => void; logout: () => Promise<void>; getAccessToken?: () => Promise<string | null>; getIdentityToken?: () => Promise<string | null>; authenticated?: boolean };
 let privyHooks: PrivyHooks | null = null;
 const privySubs = new Set<() => void>();
 export function registerPrivy(h: PrivyHooks | null) { privyHooks = h; privySubs.forEach((f) => f()); }
@@ -321,6 +321,10 @@ export const privyAuthenticated = () => !!privyHooks?.authenticated;
 /** Current Privy access token (auto-refreshed by Privy) for our own API routes; null when logged out / no Privy. */
 export async function privyAccessToken(): Promise<string | null> {
   try { return (await privyHooks?.getAccessToken?.()) ?? null; } catch { return null; }
+}
+/** Privy identity token (linked_accounts, verified locally by the gasless relay). Null when logged out / not enabled. */
+export async function privyIdentityToken(): Promise<string | null> {
+  try { return (await privyHooks?.getIdentityToken?.()) ?? null; } catch { return null; }
 }
 /** Opens the Privy login modal (email / Google). The address arrives via setPrivyOwner when the wallet is ready. */
 export function privyLogin() {

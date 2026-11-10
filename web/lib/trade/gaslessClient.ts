@@ -62,9 +62,10 @@ export async function signGaslessTrade(pc: PublicClient, owner: LocalAccount, a:
 
 const json = (q: GaslessRequest) => JSON.stringify(q, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
 /** POST one signed request; resolves with the receipt (success) or throws GaslessError (data.notSent ⇒ nothing sent). */
-export async function submitGasless(q: GaslessRequest, url = "/api/gasless", fetchFn: typeof fetch = fetch, authToken?: string | null): Promise<GaslessSendResult> {
-  // Off-chain login (app-level gating): the relay requires the Privy session whose wallet is the signer.
-  const headers: Record<string, string> = { "content-type": "application/json", ...(authToken ? { authorization: `Bearer ${authToken}` } : {}) };
+export async function submitGasless(q: GaslessRequest, url = "/api/gasless", fetchFn: typeof fetch = fetch, idToken?: string | null): Promise<GaslessSendResult> {
+  // Off-chain login: the relay requires the Privy identity token (https://docs.privy.io/user-management/users/identity-tokens)
+  // whose linked wallet is the signer. Sent as `privy-id-token` (Privy's documented header); no users-API lookup on the server.
+  const headers: Record<string, string> = { "content-type": "application/json", ...(idToken ? { "privy-id-token": idToken } : {}) };
   const r = await fetchFn(url, { method: "POST", headers, body: `{"jsonrpc":"2.0","id":1,"method":"disciple_gaslessTrade","params":[${json(q)}]}` });
   const j = await r.json().catch(() => ({})) as { result?: { txHash: Hex; success: boolean; receipt: { logs: GaslessSendResult["logs"] }; gasUsed: number; server?: unknown }; error?: { message?: string; data?: GaslessError["data"] } };
   if (!j.result) throw new GaslessError(j.error?.message ?? `gasless relay HTTP ${r.status}`, j.error?.data ?? {}, r.status);

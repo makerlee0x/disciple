@@ -12,7 +12,7 @@ import { selfBundlerMode } from "../aa/sponsorshipMode";
 import { chainGradReads, type CurveMeta, type GradReads } from "./gradBuy";
 import { checkSponsoredCalls } from "./gasSponsorship";
 import { kv } from "./kv";
-import { REVOKE_MARKER_TTL_SEC, revokeMarkerKey } from "../relayRevokeMarker";
+import { REVOKE_MARKER_TTL_SEC, revokeMarkerKey, banKey } from "../relayRevokeMarker";
 import { ImmutableRelayCache, type RelayMetrics } from "./relayMetrics";
 /** Per-instance only (never KV), 1 h TTL, 256 entries. Holds ONLY: pure policy moduleId, its immutable paymaster, positive
  * write-once Launchpad.curveOf(token) (Launchpad.sol: assigned once at launch, no setter) and a curve's immutable
@@ -61,20 +61,32 @@ export function admissionShape(op: UserOp) {
   return { entity, policy };
 }
 // AUDIT hardening 5 (M4): see lib/relayRevokeMarker (written by the revocation tooling before its on-chain revoke).
-export { REVOKE_MARKER_TTL_SEC, revokeMarkerKey };
+export { REVOKE_MARKER_TTL_SEC, revokeMarkerKey, banKey };
 /** AUDIT hardening 6: the strike ledger (fastRelay TRUST, persisted at relay:trust:<sender>) becomes a gate. */
 export const strikeSource: { local: (sender: string) => number } = { local: () => 0 };
 const trustKey = (sender: string) => `relay:trust:${sender.toLowerCase()}`;
 const revoked = () => Object.assign(new Error("session revoked; no submission"), { notSent: true });
-export async function requireNotRevokedOrStruck(sender: string, now = Date.now()) {
-  let marker: string | null, trust: string | null;
-  try { [marker, trust] = await kv().mget([revokeMarkerKey(sender), trustKey(sender)]); }
+const banned = () => Object.assign(new Error("session banned; no submission"), { notSent: true });
+const strikeUntilOf = (raw: string | null | undefined): number => {
+  if (!raw) return 0;
+  try { const v = Number((JSON.parse(raw) as { strikeUntil?: unknown }).strikeUntil ?? 0); return Number.isFinite(v) ? v : Infinity; }
+  catch { return Infinity; }   // unreadable ledger entry ⇒ fail closed
+};
+/** Wallet (+ optional Privy DID) revoke marker, permanent ban, and strike window, one MGET. Fail closed.
+ *  did is the Privy user id (`did:privy:…`); when set, a ban/revoke/strike on the did also blocks any of that
+ *  user's wallets (H1 / M1). Self-bundler calls without a did still check the wallet keys (incl. the ban). */
+export async function requireNotRevokedOrStruck(sender: string, now = Date.now(), did?: string | null) {
+  const ids = did ? [sender, did] : [sender];
+  const keys = ids.flatMap(id => [banKey(id), revokeMarkerKey(id), trustKey(id)]);
+  let vals: (string | null)[];
+  try { vals = await kv().mget(keys); }
   catch { throw Object.assign(new Error("relay gate store unavailable; no submission"), { notSent: true }); }
-  if (marker !== null && marker !== undefined) throw revoked();
-  let until = strikeSource.local(sender);
-  if (trust) {
-    try { const v = Number((JSON.parse(trust) as { strikeUntil?: unknown }).strikeUntil ?? 0); until = Math.max(until, Number.isFinite(v) ? v : Infinity); }
-    catch { until = Infinity; }   // unreadable ledger entry ⇒ fail closed
+  let until = ids.reduce((u, id) => Math.max(u, strikeSource.local(id)), 0);
+  for (let i = 0; i < ids.length; i++) {
+    const [ban, marker, trust] = vals.slice(i * 3, i * 3 + 3);
+    if (ban !== null && ban !== undefined) throw banned();
+    if (marker !== null && marker !== undefined) throw revoked();
+    until = Math.max(until, strikeUntilOf(trust));
   }
   if (now < until) throw Object.assign(new Error("sender in relay strike backoff; no submission"), { notSent: true });
 }
@@ -237,7 +249,7 @@ export async function lockedRelay<T, V = unknown>(op: UserOp, relay: (() => Prom
       // Fence (generation fetch-add; a store failure is before any nonce/sign/send ⇒ notSent) ∥ revoke marker read.
       const [before, marker] = await timed(metrics, "leaseGeneration", () => Promise.all([
         store.nonceAlloc(gkey, `${gkey}:holes`, 0, GEN_TTL_SEC).catch(e => { throw notSent(e); }),
-        store.mget([revokeMarkerKey(op.sender)]).then(([m]) => m !== null && m !== undefined, () => undefined),
+        store.mget([revokeMarkerKey(op.sender), banKey(op.sender)]).then(([m, b]) => (m !== null && m !== undefined) || (b !== null && b !== undefined), () => undefined),
       ]));
       if (marker === true) throw revoked();
       const stale = waited || g0 === undefined || !early || before !== g0 || marker === undefined;

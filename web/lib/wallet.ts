@@ -183,8 +183,8 @@ export async function execGasless(a: { coin: Address; isBuy: boolean; amountIn: 
   const { AAError } = await import("./aa/core");
   const d = deployment();
   const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
-  // Privy access token (cached/auto-refreshed by Privy) fetched in parallel with signing: the relay's login check.
-  const tokenP = import("./aa/session").then(m => m.privyAccessToken()).catch(() => null);
+  // Privy identity token (linked accounts; cached/auto-refreshed by Privy) fetched in parallel with signing.
+  const tokenP = import("./aa/session").then(m => m.privyIdentityToken()).catch(() => null);
   const q = await signGaslessTrade(pc as never, owner, { router: d.gaslessRouter, usdg: d.usdg, coin: a.coin, isBuy: a.isBuy, amountIn: a.amountIn, minOut: a.minOut });
   try {
     const r = await submitGasless(q, "/api/gasless", fetch, await tokenP);

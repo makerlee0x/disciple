@@ -480,4 +480,5 @@ export async function sendDirect(r: DirectRelayer, to: Hex, data: Hex, gas: bigi
   }
 }
 /** Strike the sender's trust ledger (escalating backoff; admission's strike window refuses it). */
-export const strikeSender = (sender: string) => TRUST.strike(sender);
+/** Strike the wallet, and when `did` is set also the Privy user, so a new linked wallet can't skip the window (M1). */
+export const strikeSender = (sender: string, did?: string | null) => { TRUST.strike(sender); if (did) TRUST.strike(did); };
