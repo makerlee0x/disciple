@@ -15,6 +15,7 @@ import SnipeCountdown from "@/components/flight/SnipeCountdown";
 import CoinIdentity from "@/components/pairart/CoinIdentity";
 import CoinClaims from "@/components/claims/CoinClaims";
 import CardChrome from "@/components/flight/CardChrome";
+import NameLockCopyBanner from "@/components/NameLockCopyBanner";
 import DexChart from "@/components/flight/DexChart";
 import { isDeployed } from "@/lib/chains";
 import { DEMO_POOL, STRATEGY_TOKEN } from "@/lib/config";
@@ -57,6 +58,7 @@ function FlightInner({ address }: { address: string }) {
 
   return (
     <>
+      {isDeployed() && !demo0 && isAddress(address) && <NameLockCopyBanner coin={address} />}
       <FlightCanvas search={search} />
       {/* CREW card: off by default since the Oct 30 cleanup (NEXT_PUBLIC_FEATURE_CREW_CARD=1 brings it back); its buy presets + orb-rain unlock are gone even then (pass 2) */}
       {CREW_CARD_ENABLED && <CrewPanel coin={address} />}

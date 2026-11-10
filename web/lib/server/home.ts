@@ -14,6 +14,7 @@ import { publicClient } from "@/lib/protocol-viem";
 import { storeSrc, STORE_ID_RE, uriKey } from "@/lib/coinImages";
 import { pairOf, pairSymOf, shortHex } from "@/lib/home/pairs";
 import { isHiddenCoin } from "@/lib/home/hiddenCoins";
+import { flaggedCopySet } from "@/lib/server/nameLock";
 import { chipOf, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
 import { resolveKeys } from "./imageStore";
 import { indexTrades, tradesOf } from "./trades";
@@ -49,7 +50,9 @@ async function build(): Promise<HomeData> {
     indexTrades(4_000).catch(() => null), // short catch-up, like /api/trades
   ]);
   // known test coins never reach the home (lib/home/hiddenCoins); their data is untouched
-  const list = launches.filter((x) => !isHiddenCoin(x.token)).slice(0, MAX_COINS);
+  // slipped-in name+ticker copies (lib/server/nameLock) are hidden from the feed / lists / search; data is not deleted
+  const copies = await flaggedCopySet(launches.map((x) => x.token)).catch(() => new Set<string>());
+  const list = launches.filter((x) => !isHiddenCoin(x.token) && !copies.has(x.token.toLowerCase())).slice(0, MAX_COINS);
   const fillsBy = await Promise.all(list.map((c) => tradesOf(c.token, null, FILLS_CAP, "desc").catch(() => [])));
   const coins: HomeCoin[] = list.map((x, i) => {
     const fills = fillsBy[i];
