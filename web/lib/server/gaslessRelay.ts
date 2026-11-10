@@ -13,7 +13,8 @@ import "server-only";
  * M3 (lee 8:25 PM CT: "accept that the old Easy test coins can't be bought gasless"): ungraduated Easy/PvE curves
  * that still check LoginGate on-chain (curve.loginGate() ≠ 0 or mode() == PVE) are refused BEFORE simulation, with
  * code LegacyLoginGate. Sells and graduated (v4) coins never checked; the loginGate()/mode values are immutable and
- * cached so the check adds no RTT to normal trades. The exact-sim NotVerified path stays as a backstop only.
+ * cached in the shared KV and read in the SAME MGET as the ban/strike/revoke keys (no extra RTT). A KV miss
+ * reads on-chain in parallel with simulate and writes back. The exact-sim NotVerified path stays as a backstop only.
  *
  * Kept from the self-bundler (same modules, same keys): permanent ban (relay:banned:<wallet|did>) + 600 s revoke
  * marker + strike window (wallet and Privy DID; requireNotRevokedOrStruck), per-IP limit (relay:ip), per-sender cap +
@@ -72,7 +73,23 @@ const legacyLogin = (e: unknown) => {
   return e;
 };
 
-/** Cached immutable market hint (loginGate/mode / no-curve). Graduation is folded into a short-lived "legacy" memo. */
+/**
+ * Immutable market status, shared KV, one key per coin (curveOf is write-once; loginGate/mode are immutable).
+ *   none              — no curve, or the curve does not check LoginGate (TRENCH/PVP): gasless buys OK, no chain read
+ *   login:0x<curve>   — Easy/PvE curve that checks LoginGate on ungraduated buys: only a fresh graduated() read
+ *   grad:0x<curve>    — same curve, observed graduated (one-way): gasless buys OK, no chain read
+ * Read in the SAME MGET as ban/strike/revoke (no extra RTT). Written back on an on-chain miss (no TTL).
+ */
+export const marketStatusKey = (coin: string) => `relay:market:${coin.toLowerCase()}`;
+export const MARKET_NONE = "none";
+export const MARKET_LOGIN = "login";
+export const MARKET_GRAD = "grad";
+const parseMarket = (raw: string | null | undefined): { kind: "none" | "login" | "grad"; curve?: Address } | undefined => {
+  if (!raw) return undefined;
+  if (raw === MARKET_NONE) return { kind: "none" };
+  const m = /^(login|grad):(0x[0-9a-fA-F]{40})$/.exec(raw);
+  return m ? { kind: m[1] as "login" | "grad", curve: m[2] as Address } : undefined;
+};
 type MarketHint = "legacy" | "ok";
 const marketMemo = new Map<string, { v: MarketHint; until: number }>();
 export const gaslessMarketCache = { clear() { marketMemo.clear(); } };
@@ -82,20 +99,35 @@ export const peekGaslessMarket = (coin: string, isBuy: boolean): MarketHint | un
   return hit && hit.until > Date.now() ? hit.v : undefined;
 };
 const remember = (coin: string, v: MarketHint, ttlMs: number) => { marketMemo.set(coin.toLowerCase(), { v, until: Date.now() + ttlMs }); };
+const persistMarket = (coin: string, value: string) => { void kv().set(marketStatusKey(coin), value).catch(() => undefined); };
 const marketPc = createPublicClient({ chain: robinhoodTestnet, transport: relayReadTransport(5000, 0) });
 const marketAbi = parseAbi(["function curveOf(address) view returns (address)", "function loginGate() view returns (address)", "function mode() view returns (uint8)", "function graduated() view returns (bool)"]);
 const isZeroAddr = (a: unknown) => typeof a === "string" && /^0x0{40}$/i.test(a);
-/** Refuse an ungraduated Easy/PvE buy (curve still checks LoginGate on-chain). Cached so normal trades add no RTT. */
-export async function assertGaslessMarket(coin: Address, isBuy: boolean): Promise<void> {
+
+/** Fresh graduated() only — loginGate/mode already known. Graduation is one-way; persist `grad:` when we see it. */
+async function assertUngraduatedPve(coin: Address, curve: Address): Promise<void> {
+  let grad = false;
+  try { grad = Boolean(await marketPc.readContract({ address: curve, abi: marketAbi, functionName: "graduated" })); }
+  catch { throw legacyPve(); }
+  if (grad) { remember(coin, "ok", 3_600_000); persistMarket(coin, `${MARKET_GRAD}:${curve.toLowerCase()}`); return; }
+  remember(coin, "legacy", 15_000);
+  throw legacyPve();
+}
+
+/** Refuse an ungraduated Easy/PvE buy. `kvStatus` is the value from the gate MGET (undefined ⇒ not fetched). */
+export async function assertGaslessMarket(coin: Address, isBuy: boolean, kvStatus?: string | null): Promise<void> {
   const peek = peekGaslessMarket(coin, isBuy);
   if (peek === "ok") return;
   if (peek === "legacy") throw legacyPve();
   if (!isBuy) return;
+  const hit = parseMarket(kvStatus);
+  if (hit?.kind === "none" || hit?.kind === "grad") { remember(coin, "ok", 3_600_000); return; }
+  if (hit?.kind === "login" && hit.curve) return assertUngraduatedPve(coin, hit.curve);
   const lp = DEPLOYMENTS[46630].launchpad;
   let curve: Address;
   try { curve = await marketPc.readContract({ address: lp, abi: marketAbi, functionName: "curveOf", args: [coin] }); }
   catch { return; }   // unreadable registry: let the exact sim / router decide
-  if (!curve || isZeroAddr(curve)) { remember(coin, "ok", 3_600_000); return; }
+  if (!curve || isZeroAddr(curve)) { remember(coin, "ok", 3_600_000); persistMarket(coin, MARKET_NONE); return; }
   let gate: Address | undefined, mode = 0;
   try {
     const [g, m] = await Promise.all([
@@ -105,13 +137,9 @@ export async function assertGaslessMarket(coin: Address, isBuy: boolean): Promis
     gate = g; mode = Number(m);
   } catch { return; }
   const checksLogin = !isZeroAddr(gate) || mode === 1;   // BondingCurve: mode 1 = PVE/Easy, loginGate set ⇒ _pveOnBuy
-  if (!checksLogin) { remember(coin, "ok", 3_600_000); return; }
-  let grad = false;
-  try { grad = Boolean(await marketPc.readContract({ address: curve, abi: marketAbi, functionName: "graduated" })); }
-  catch { throw legacyPve(); }   // a LoginGate-checking curve we can't classify: fail closed
-  if (grad) { remember(coin, "ok", 3_600_000); return; }   // graduation is one-way
-  remember(coin, "legacy", 15_000);
-  throw legacyPve();
+  if (!checksLogin) { remember(coin, "ok", 3_600_000); persistMarket(coin, MARKET_NONE); return; }
+  persistMarket(coin, `${MARKET_LOGIN}:${curve.toLowerCase()}`);
+  await assertUngraduatedPve(coin, curve);
 }
 
 /** Admission + exact simulation of ONE relayer tx; throws (notSent) in priority order session → gate → market → sim. */
@@ -121,10 +149,12 @@ async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: 
   const session = timed(m, "authSession", () => verifySessionToken(d.idToken));
   const owner = session.then(x => timed(m, "authSessionWallet", () => requireSessionWallet(x, signer)));
   // Gate starts after the identity token (~1 ms, local) so it can key ban/revoke/strike on the Privy DID (AUDIT M1).
-  const gate = session.then(x => timed(m, "revokeStrikeGate", () => requireNotRevokedOrStruck(signer, Date.now(), x.did)));
+  // The immutable market-status key is in the SAME MGET (no extra RTT). On a hit, no curveOf/loginGate/mode RPC.
   const peek = peekGaslessMarket(coin, isBuy);
   if (peek === "legacy") throw legacyPve();
-  const market = peek === "ok" ? Promise.resolve() : timed(m, "legacyMarketGate", () => assertGaslessMarket(coin, isBuy));
+  const mkey = isBuy && peek !== "ok" ? marketStatusKey(coin) : undefined;
+  const gate = session.then(x => timed(m, "revokeStrikeGate", () => requireNotRevokedOrStruck(signer, Date.now(), x.did, mkey)));
+  const market = peek === "ok" ? Promise.resolve() : gate.then(status => timed(m, "legacyMarketGate", () => assertGaslessMarket(coin, isBuy, status)));
   // Speculative sim ∥ revoke/ban/strike + market reads. The eth_call starts once the token (local crypto) and the
   // relayer (needed for `from`) are ready — it does not wait for the gate. A cached legacy-PVE buy never starts it.
   // admit() still joins every gate before returning, so commit cannot run if a gate failed; a finished simulation is

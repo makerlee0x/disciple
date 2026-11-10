@@ -6,16 +6,16 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 const h = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_CHAIN_ID = "46630";
   process.env.NEXT_PUBLIC_RHT_GASLESS_ROUTER = "0x00000000000000000000000000000000000000bb";
-  return { chain: vi.fn(), block: vi.fn(), read: vi.fn(), call: vi.fn(), count: vi.fn(), balance: vi.fn(), incr: vi.fn(), mget: vi.fn(), budget: vi.fn(), refund: vi.fn(), send: vi.fn(), setNX: vi.fn(), get: vi.fn(), incrBy: vi.fn() };
+  return { chain: vi.fn(), block: vi.fn(), read: vi.fn(), call: vi.fn(), count: vi.fn(), balance: vi.fn(), incr: vi.fn(), mget: vi.fn(), budget: vi.fn(), refund: vi.fn(), send: vi.fn(), setNX: vi.fn(), set: vi.fn(), get: vi.fn(), incrBy: vi.fn() };
 });
 vi.mock("viem", async original => ({ ...await original<typeof import("viem")>(), createPublicClient: () => ({ getChainId: h.chain, getBlock: h.block, readContract: h.read, call: h.call, getTransactionCount: h.count, getBalance: h.balance }) }));
-vi.mock("../lib/server/kv", () => ({ kv: () => ({ incrEx: h.incr, mget: h.mget, relayBudget: h.budget, decrIfPositive: h.refund, setNX: h.setNX, get: h.get, incrByEx: h.incrBy, ttl: async () => -2 }) }));
+vi.mock("../lib/server/kv", () => ({ kv: () => ({ incrEx: h.incr, mget: h.mget, relayBudget: h.budget, decrIfPositive: h.refund, setNX: h.setNX, set: h.set, get: h.get, incrByEx: h.incrBy, ttl: async () => -2 }) }));
 vi.mock("../lib/server/relayer", () => ({ relayerKey: () => KEY, relayerIsFaucet: () => false }));
 vi.mock("../lib/server/relayTrustStore", () => ({ kvTrustStore: () => ({ load: async () => null, save: async () => undefined, claimFirstPrime: async () => false }) }));
 vi.mock("../lib/server/syncSend", async original => ({ ...await original<typeof import("../lib/server/syncSend")>(), syncSend: h.send, jsonRpc: () => async () => null }));
 const KEY = generatePrivateKey();
 process.env.RELAYER_NONCE_SHARED = "0";
-import { relayGaslessLogin, relayGaslessTrade as relayTrade, requireGaslessMode, LEGACY_LOGIN_MESSAGE, LEGACY_PVE_CODE, NOT_VERIFIED_SELECTOR, assertGaslessMarket, gaslessMarketCache, type GaslessDeps } from "../lib/server/gaslessRelay";
+import { relayGaslessLogin, relayGaslessTrade as relayTrade, requireGaslessMode, LEGACY_LOGIN_MESSAGE, LEGACY_PVE_CODE, NOT_VERIFIED_SELECTOR, MARKET_LOGIN, assertGaslessMarket, gaslessMarketCache, marketStatusKey, type GaslessDeps } from "../lib/server/gaslessRelay";
 import { gaslessSessionDeps } from "../lib/server/gaslessSession";
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { requireSelfBundlerMode } from "../lib/server/relayLockdown";
@@ -68,7 +68,7 @@ beforeEach(() => {
   h.read.mockImplementation(async ({ functionName }) => functionName === "verifiedUntil" ? BigInt(NOW + 3600) : 0n);
   h.call.mockResolvedValue({ data: "0x" }); h.count.mockResolvedValue(5); h.balance.mockResolvedValue(0n);
   h.incr.mockResolvedValue(1); h.mget.mockImplementation(async (ks: string[]) => ks.map(() => null)); h.budget.mockResolvedValue(0); h.refund.mockResolvedValue(0);
-  h.send.mockResolvedValue(okRc()); h.setNX.mockResolvedValue(true); h.get.mockResolvedValue(null); h.incrBy.mockResolvedValue(1);
+  h.send.mockResolvedValue(okRc()); h.setNX.mockResolvedValue(true); h.set.mockResolvedValue(undefined); h.get.mockResolvedValue(null); h.incrBy.mockResolvedValue(1);
   privyFetch.mockClear();
   gaslessSessionDeps.env = () => ({ appId: APP, appSecret: "test-secret", verificationKey: PRIVY_PK.export({ type: "spki", format: "pem" }).toString() });
   gaslessSessionDeps.fetch = privyFetch as never;
@@ -282,6 +282,22 @@ describe("H1/M1/M2/M3: permanent ban, DID keys, identity token, legacy Easy curv
   it("happy path does not call the Privy users API", async () => {
     await expect(relayGaslessTrade(await wire())).resolves.toMatchObject({ success: true });
     expect(privyFetch).not.toHaveBeenCalled();
+  });
+  it("KV-cached legacy status refuses with no on-chain curveOf/loginGate/mode read", async () => {
+    const curve = "0x00000000000000000000000000000000000000c1";
+    h.mget.mockImplementation(async (ks: string[]) => ks.map(k => k === marketStatusKey(coin) ? `${MARKET_LOGIN}:${curve}` : null));
+    const forbidden = new Set(["curveOf", "loginGate", "mode"]);
+    h.read.mockImplementation(async ({ functionName }: { functionName: string }) => {
+      if (forbidden.has(functionName)) throw new Error(`should not read ${functionName} when market status is in KV`);
+      if (functionName === "graduated") return false;   // still fresh: graduation is not immutable
+      return 0n;
+    });
+    gaslessMarketCache.clear();
+    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, code: LEGACY_PVE_CODE, message: LEGACY_LOGIN_MESSAGE });
+    expect(h.read).not.toHaveBeenCalledWith(expect.objectContaining({ functionName: "curveOf" }));
+    expect(h.read).not.toHaveBeenCalledWith(expect.objectContaining({ functionName: "loginGate" }));
+    expect(h.read).not.toHaveBeenCalledWith(expect.objectContaining({ functionName: "mode" }));
+    expect(h.budget).not.toHaveBeenCalled(); expect(h.send).not.toHaveBeenCalled();
   });
   it("legacy Easy/PvE curve is refused before simulation with no budget/send", async () => {
     const curve = "0x00000000000000000000000000000000000000c1", gate = DEPLOYMENTS[46630].loginGate;

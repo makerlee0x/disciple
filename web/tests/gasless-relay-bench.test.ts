@@ -5,14 +5,15 @@
  * revoke/strike ∥ relayer state ∥ exact eth_call; sim starts with the relayer, not after the gate) → budget →
  * direct sync send. Opt-in: RELAY_BENCH=1.
  * Off-chain login (AUDIT M2): a real ES256 Privy *identity token* (linked_accounts in the JWT) is verified each request
- * (local crypto only — no api.privy.io users hop). Cold/warm still flips admissionImmutableCache + gaslessMarketCache.
+ * (local crypto only — no api.privy.io users hop). Cold/warm flips in-memory caches; the immutable market status
+ * lives in the shared KV (same MGET as the ban/strike gate), so a cold instance does not re-read curveOf.
  */
 import { describe, expect, it, vi } from "vitest";
 import { writeFileSync } from "node:fs";
 import type { Address } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 const h = vi.hoisted(() => { process.env.NEXT_PUBLIC_CHAIN_ID = "46630"; process.env.NEXT_PUBLIC_RHT_GASLESS_ROUTER = "0x00000000000000000000000000000000000000bb";
-  return { lat: (_k: string) => Promise.resolve() } as { lat: (k: string) => Promise<void> }; });
+  return { lat: (_k: string) => Promise.resolve() as Promise<void>, market: new Map<string, string>() }; });
 const wait = (k: string) => h.lat(k);
 vi.mock("viem", async original => ({ ...await original<typeof import("viem")>(), createPublicClient: () => ({
   getChainId: async () => { await wait("rpc"); return 46630; },
@@ -22,7 +23,8 @@ vi.mock("viem", async original => ({ ...await original<typeof import("viem")>(),
   getTransactionCount: async () => { await wait("rpc"); return 5; }, getBalance: async () => { await wait("rpc"); return 0n; },
 }) }));
 vi.mock("../lib/server/kv", () => ({ kv: () => ({
-  mget: async (ks: string[]) => { await wait(ks[0].startsWith("relay:leasegen:") ? "kvSnap" : "kvGate"); return ks[0].startsWith("relay:leasegen:") ? ["4", null] : ks.map(() => null); },
+  mget: async (ks: string[]) => { await wait(ks[0].startsWith("relay:leasegen:") ? "kvSnap" : "kvGate"); return ks[0].startsWith("relay:leasegen:") ? ["4", null] : ks.map(k => h.market.get(k) ?? null); },
+  set: async (k: string, v: string) => { h.market.set(k, v); },
   nonceAlloc: async () => { await wait("kvGen"); return 4; }, setNX: async () => { await wait("kvSet"); return true; }, get: async () => null,
   delIfEq: async () => { await wait("kvDel"); return true; }, incrEx: async () => { await wait("kvIncr"); return 1; }, incrByEx: async () => 0,
   relayBudget: async () => { await Promise.all([wait("kvIncr"), wait("kvIncr")]); return 0; }, decrIfPositive: async () => { await wait("kvIncr"); return 0; }, ttl: async () => -2,
