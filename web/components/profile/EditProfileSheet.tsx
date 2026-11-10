@@ -14,6 +14,7 @@ import Sheet from "./Sheet";
 import FlagPicker from "./FlagPicker";
 import GuildPicker from "@/components/guilds/GuildPicker";
 import { COUNTRY_FLAGS_ENABLED } from "@/lib/guilds";
+import { GUILDS_ENABLED } from "@/lib/features";
 
 const same = (a: ProfileMeta, b: ProfileMeta) => a.pfp === b.pfp && a.flag === b.flag && sanitizeBio(a.bio) === sanitizeBio(b.bio) && (a.title || "") === (b.title || "");
 
@@ -172,7 +173,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
             </span>
           </label>
 
-          <GuildPicker wallet={wallet} hasUsername={!!me} />
+          {GUILDS_ENABLED && <GuildPicker wallet={wallet} hasUsername={!!me} />}
 
           {COUNTRY_FLAGS_ENABLED && <div className="pf-field" role="group" aria-label={C["edit.flag.label"]}>
             <span className="pf-field-label">{C["edit.flag.label"]}</span>
