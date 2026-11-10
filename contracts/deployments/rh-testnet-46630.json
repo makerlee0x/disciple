@@ -904,5 +904,19 @@
     "deployerBalanceWeiAfterAB": "155696874085652173",
     "legacyRule": "Archive/mark legacy if curve.loginGate() != new LoginGate; no new gated site buys. Existing legacy contracts remain untouched.",
     "scope": "Steps (a)/(b) only. No PR merge, site/Vercel/env switch, smoke/userOp/coin launch, legacy retirement/pause/unlock/withdrawal, or mainnet action."
+  },
+  "community": {
+    "wallet": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
+    "kind": "EOA (temporary testnet community rewards wallet)",
+    "note": "Set 2026-11-10 by lee-approved FeeRouter owner txs (setRewardsVault, setReferralSink, setKolCreatorShareBps(0)); the old RewardsVault contract (contracts.RewardsVault) stays deployed but is no longer FeeRouter.rewardsVault(). smoke.mjs / the indexer read this block; a redeploy (postprocess.mjs) moves it under previous.",
+    "kolCreatorShareBps": 0,
+    "readback": {
+      "block": 151518807,
+      "FeeRouter.rewardsVault": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
+      "FeeRouter.referralSink": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
+      "FeeRouter.kolCreatorShareBps": 0,
+      "RewardsVault.owner": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
+      "RewardsVault.pendingOwner": "0x0000000000000000000000000000000000000000"
+    }
   }
 }
