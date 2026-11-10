@@ -5,7 +5,7 @@ import { TRADE_PENDING_EVENT } from "@/lib/game/exitGuard";
 import { useEffect, useRef, useState } from "react";
 import PhoneTradeBar, { chipUsd } from "./flight/PhoneTradeBar";
 import { useIsPhoneHud } from "./flight/PhoneHud";
-import { deployment, isDeployed } from "@/lib/chains";
+import { deployment, isDeployed, usdgRouters } from "@/lib/chains";
 import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
 import { tradeErrorKind, balanceHint, balanceNow, coldClient, createViemProtocol, decimalsOf, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, shotAmountNow, bumpBalance, peekReceiptBalance, syncReceiptBalance } from "@/lib/protocol-viem";
@@ -255,7 +255,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         }).catch(() => undefined), RECONCILE_MIN_MS);   // off the critical path, ≥ 1 s (the public RPC lags ~0.7 s)
         const m = markRef.current;
         const x = decodeTradeFill(rl as unknown as { address: string; topics: string[]; data: string }[],
-          { token, trader: me, router: deployment().router, usdgDecimals: usdgDec, markPriceUsd: m.mcap > 0 ? m.mcap / m.supply : undefined, supply: m.supply });
+          { token, trader: me, router: usdgRouters(deployment()), usdgDecimals: usdgDec, markPriceUsd: m.mcap > 0 ? m.mcap / m.supply : undefined, supply: m.supply });
         if (x && x.side === side) { dispatchEvent(new CustomEvent("disciple:fillreceipt", { detail: { txHash: hash, side, ...(pressId ? { pressId } : {}), usd: x.usd, tokens: x.tokens, feeUsd: x.feeUsd, source: x.source, ...(bag !== undefined ? { bag } : {}), blockNumber: rcpt.blockNumber, trader: me, token, logs: rl } })); flowFill(pressId); return x; }
         return null;
       } catch { return null; /* the estimate stays booked */ }

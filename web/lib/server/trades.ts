@@ -18,7 +18,8 @@ import "server-only";
  */
 import { decodeEventLog, getAbiItem, type Address, type Hex, type Log, type PublicClient } from "viem";
 import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "@/lib/abi";
-import { deployment, ZERO } from "@/lib/chains";
+import { deployment, ZERO, usdgRouters } from "@/lib/chains";
+export { usdgRouters };
 import { serverPc } from "./chat/identity";
 import { kv, type Kv } from "./kv";
 import { ACH } from "./achKeys";
@@ -32,24 +33,6 @@ const HOOK_TRADE = getAbiItem({ abi: discipleHookAbi, name: "Trade" });
 const TRADE_EVENTS = [CURVE_TRADE, HOOK_TRADE] as const;
 const USDG_TRADE = getAbiItem({ abi: discipleRouterAbi, name: "UsdgTrade" });
 const USDG_REFUND = getAbiItem({ abi: discipleRouterAbi, name: "UsdgRefund" });
-/**
- * Routers whose UsdgTrade / UsdgRefund the indexer watches. Same address-filtered
- * getLogs path historically used for `d.router`, plus `deployment().gaslessRouter`
- * (Permit2 gasless fills emit there, not on the regular USDG router). Zero / unset
- * addresses are omitted; order is regular router then gasless.
- */
-export function usdgRouters(d: { router: string; gaslessRouter?: string } = deployment()): Address[] {
-  const out: Address[] = [];
-  const seen = new Set<string>();
-  for (const a of [d.router, d.gaslessRouter]) {
-    if (!a) continue;
-    const k = a.toLowerCase();
-    if (k === ZERO.toLowerCase() || seen.has(k)) continue;
-    seen.add(k);
-    out.push(a as Address);
-  }
-  return out;
-}
 export const cursorKey = (launchpad: string) => `trades:cur:${launchpad.toLowerCase()}`;
 const curveCache = new Map<string, string>();
 const qpCache = new Map<string, bigint>();

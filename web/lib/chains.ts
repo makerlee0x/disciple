@@ -182,6 +182,24 @@ export const isDeployed = () => deployment().launchpad !== Z;
 export const hasRouter = () => deployment().router !== Z;
 export const hasLens = () => deployment().marketLens !== Z;
 export const ZERO = Z;
+/**
+ * Routers whose UsdgTrade / UsdgRefund the indexer and the live HUD watch. Same
+ * address-filtered path historically used for `d.router`, plus `d.gaslessRouter`
+ * (Permit2 gasless fills emit there, not on the regular USDG router). Zero / unset
+ * addresses are omitted; order is regular router then gasless.
+ */
+export function usdgRouters(d: { router: string; gaslessRouter?: string } = deployment()): Address[] {
+  const out: Address[] = [];
+  const seen = new Set<string>();
+  for (const a of [d.router, d.gaslessRouter]) {
+    if (!a) continue;
+    const k = a.toLowerCase();
+    if (k === ZERO.toLowerCase() || seen.has(k)) continue;
+    seen.add(k);
+    out.push(a as Address);
+  }
+  return out;
+}
 /** Testnet gas faucet (ETH). */
 export const GAS_FAUCET = "https://faucet.testnet.chain.robinhood.com/";
 /** Test quote tokens with a public mint(address,uint256) — testnet only. */
