@@ -15,14 +15,14 @@ import {
 } from "../lib/quickLaunch";
 import { badgeLetters } from "../lib/decalDefault";
 
-test("whitelist has 12 coins, STRATEGY first and default, no USDG", () => {
-  assert.equal(LAUNCH_WHITELIST.length, 12);
+test("whitelist has 11 coins, STRATEGY first and default, no USDG", () => {
+  assert.equal(LAUNCH_WHITELIST.length, 11);
   assert.equal(DEFAULT_LAUNCH_PAIR_SYMBOL, "STRATEGY");
   assert.equal(LAUNCH_WHITELIST[0].symbol, "STRATEGY");
   assert.equal(defaultLaunchPair().symbol, "STRATEGY");
   assert.equal(defaultLaunchPair().address, "0x168661C52E5922288dFb2b3f323b6Cf90eb21e18");
   assert.deepEqual(LAUNCH_WHITELIST.map((c) => c.symbol), [
-    "STRATEGY", "AI", "SCHIFFY", "BONER", "MEME", "MOO", "PONS", "ORBIO", "HOOKR", "CASHCAT", "PRIORS", "BUN",
+    "STRATEGY", "AI", "SCHIFFY", "BONER", "MEME", "MOO", "PONS", "ORBIO", "HOOKR", "CASHCAT", "PRIORS",
   ]);
   assert.equal(whitelistIncludesUsdg(), false);
   assert.equal(LAUNCH_WHITELIST.some((c) => isUsdgSymbol(c.symbol)), false);
