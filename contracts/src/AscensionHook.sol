@@ -46,7 +46,7 @@ interface ILPCompounder {
 ///      beforeAddLiquidity (SEC-02): only allowlisted liquidity managers (LockedLP, TrampWallManager) may add,
 ///      so nobody can JIT raw v4 positions around a swap. TrampWallManager positions are strictly single-sided
 ///      one-tick-spacing bands placed out of range; there is no minimum hold period.
-contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
+contract AscensionHook is IHooks, IHookTradeEvents, IAltitudeEvents {
     using PoolIdLibrary for PoolKey;
     using SafeCast for uint256;
     using SafeERC20 for IERC20;
@@ -104,6 +104,7 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
     // ── SEC-02 LP gate / altitude ───────────────────────────────────────────
     /// @notice Contracts allowed to add liquidity to DISCIPLE pools (LockedLP, TrampWallManager).
     mapping(address => bool) public isLiquidityManager;
+
     /// @dev One packed slot per pool (DISCIPLE audit High-1 follow-up), written once per pool per block:
     ///      - tier: last altitude tier
     ///      - anchorBlock / anchorTick: BLOCK-START tick (pre-swap tick of the first swap in `anchorBlock`)
@@ -195,7 +196,7 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
     ///         set in the constructor) so it cannot be front-run between hook deploy and wiring.
     function setMigration(address m) external {
         if (msg.sender != admin) revert OnlyAdmin();
-        require(migration == address(0) && m != address(0), "DiscipleHook: mig");
+        require(migration == address(0) && m != address(0), "AscensionHook: mig");
         migration = m;
     }
 
@@ -237,7 +238,7 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
 
     function setCompounder(address c, uint32 gasLimit) external {
         if (msg.sender != admin) revert OnlyAdmin();
-        require(gasLimit >= 50_000 && gasLimit <= 1_000_000, "DiscipleHook: gas");
+        require(gasLimit >= 50_000 && gasLimit <= 1_000_000, "AscensionHook: gas");
         compounder = ILPCompounder(c);
         compoundGasLimit = gasLimit;
         emit CompounderSet(c, gasLimit);

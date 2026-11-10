@@ -12,7 +12,7 @@ Read this alongside `web/docs/wire-protocol.md`. Events are final for v0: **`Lau
 | Launchpad | `MetadataUpdated`, `CreatorTransferred`, `DefaultQuoteUpdated`, `QuoteProbeUpdated`, `PricerUpdated` | admin / metadata |
 | BondingCurve | `Trade(...)` (below) | every pre-grad buy/sell |
 | BondingCurve | `GraduatedToV4(address indexed token, bytes32 poolId, uint256 tokenLiq, uint256 quoteLiq)` | same tx as the graduating buy |
-| DiscipleHook | `Trade(...)` (hook variant: last field `uint160 sqrtPriceAfter`, different topic0) | every post-grad v4 swap, whatever router is used |
+| AscensionHook | `Trade(...)` (hook variant: last field `uint160 sqrtPriceAfter`, different topic0) | every post-grad v4 swap, whatever router is used |
 
 ```solidity
 event Trade(
@@ -20,7 +20,7 @@ event Trade(
     uint256 quoteAmt, uint256 tokenAmt, uint256 fee, uint256 snipeFee,
     uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps, uint256 mcapAfterUsd
 );
-// DiscipleHook (post-grad), gas G-1. topic0 = keccak256("Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint160)")
+// AscensionHook (post-grad), gas G-1. topic0 = keccak256("Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint160)")
 event Trade(
     address indexed token, address indexed trader, bool isBuy,
     uint256 quoteAmt, uint256 tokenAmt, uint256 fee, uint256 snipeFee,
@@ -35,8 +35,8 @@ event Trade(
 - `mcapAfterUsd` (curve only) is in USD WAD and uses the quote/USD price fixed at launch.
 - `sqrtPriceAfter` (hook only) is the v4 pool's `sqrtPriceX96` after the swap. The hook no longer computes a USD mcap
   on-chain (it used to call the QuotePricer TWAP on every swap). USD mcap off-chain:
-  `DiscipleHook.mcapUsdFromSqrt(sqrtPriceAfter, tokenIsC0, quoteUsd)` (pure), or
-  `totalSupply × price × quoteUsd`, with `quoteUsd` = `DiscipleHook.quoteUsdOf(poolId)` (live, what
+  `AscensionHook.mcapUsdFromSqrt(sqrtPriceAfter, tokenIsC0, quoteUsd)` (pure), or
+  `totalSupply × price × quoteUsd`, with `quoteUsd` = `AscensionHook.quoteUsdOf(poolId)` (live, what
   `DiscipleRouter.quoteExactIn` uses) or the coin's launch-time `QuotePriced` value (what the hook's
   `AltitudeUpdate.mcapUsd` uses).
 
@@ -157,17 +157,17 @@ Errors: `NotGraduated`, `Expired`, `BadRange`, `NotSingleSided`, `LiquidityTooLo
 LP adds to DISCIPLE pools from anything other than LockedLP or TrampWallManager are rejected by the hook (`OnlyLiquidityManager`).
 
 ## Altitude events (spot)
-After every `Trade`, BondingCurve (pre-grad) and DiscipleHook (post-grad) emit:
+After every `Trade`, BondingCurve (pre-grad) and AscensionHook (post-grad) emit:
 - `AltitudeUpdate(address indexed token, uint256 mcapUsd, uint8 tier)`. `mcapUsd` equals `Trade.mcapAfterUsd`, which is the spot price after the trade.
 - `TierBreak(address indexed token, uint8 fromTier, uint8 toTier, uint256 mcapUsd)`, emitted only when the tier changes (either direction).
 - `tier` is the index into the 18-tier `TIERS` ladder (0 = LAUNCH PAD … 17 = SEVENTH HEAVEN).
 - At graduation the hook emits one `AltitudeUpdate` at the curve-end mcap, and the hook's stream takes over.
-- Getters: `BondingCurve.altitudeTier()` and `DiscipleHook.altitudeTierOf(poolId)`.
+- Getters: `BondingCurve.altitudeTier()` and `AscensionHook.altitudeTierOf(poolId)`.
 
 ## QuotePricer
 `quotePriceUsd(quote)` is a truncated TWAP (default 30 min window, ±2000 ticks per poke). It is used to bake the curve's USD targets at launch, and it is also the live mcap quote price. Use `spotPriceUsd(quote)` for display. `poke(quote)` is permissionless.
 
-**No yield (2026-10-16).** Tramps and walls are pure limit orders: the pool LP fee is 0 and the hook no longer donates to in-range liquidity. **`LPDonation` and `donationOf` have been removed** from DiscipleHook; `TrampWallManager.claimFees`, `pendingFees` and `FeesClaimed` are gone too. The full 33% LP share of the 1% hook fee goes to LockedLP (`TradeFeeRouted.lpShare` = 33%). Indexers should drop any `LPDonation` handlers.
+**No yield (2026-10-16).** Tramps and walls are pure limit orders: the pool LP fee is 0 and the hook no longer donates to in-range liquidity. **`LPDonation` and `donationOf` have been removed** from AscensionHook; `TrampWallManager.claimFees`, `pendingFees` and `FeesClaimed` are gone too. The full 33% LP share of the 1% hook fee goes to LockedLP (`TradeFeeRouted.lpShare` = 33%). Indexers should drop any `LPDonation` handlers.
 
 Other contract changes: `Launchpad.curveDeployer()` / `CurveDeployer` deploys curves, which keeps Launchpad under the size limit. `FeeRouter.routeHookFee(token, feeToken, trader, creator, feeAmount)` is called by the hook (the `donated` argument has been removed).
 
@@ -178,7 +178,7 @@ Other contract changes: `Launchpad.curveDeployer()` / `CurveDeployer` deploys cu
 
 ## LP auto-compound (post-graduation)
 - The 33% LP share of the 1% hook fee is bucketed every trade and compounded in batches into the coin's locked full-range position. Pending amounts: `LockedLP.compoundBucket(token) → (tokenAmount, quoteAmount)` (buys add token, sells add quote).
-- On each swap the hook calls `LockedLP.compoundFromHook`; the matched amount is added when it is at least `minCompoundPpm` (default 1,000 = 0.1%) of the position's liquidity, capped at `maxCompoundPpm` (default 5,000 = 0.5%) per 60 s window with at most one add per block, and skipped unless spot is within `maxCompoundDeviationBps` (default 300) of the swap's pre-price, the block-start price and the EMA. A failed add never reverts the swap (`DiscipleHook.CompoundFailed(token)`).
+- On each swap the hook calls `LockedLP.compoundFromHook`; the matched amount is added when it is at least `minCompoundPpm` (default 1,000 = 0.1%) of the position's liquidity, capped at `maxCompoundPpm` (default 5,000 = 0.5%) per 60 s window with at most one add per block, and skipped unless spot is within `maxCompoundDeviationBps` (default 300) of the swap's pre-price, the block-start price and the EMA. A failed add never reverts the swap (`AscensionHook.CompoundFailed(token)`).
 - Event: `LockedLP.LiquidityCompounded(token indexed, uint128 liquidity, tokenUsed, quoteUsed, tokenCarry, quoteCarry)`; `positions(token).liquidity` is the live locked liquidity. Indexer: `GET /coins/:token/lp-compounds`.
 - At graduation the quote the full-range seed cannot pair (≈15.6% of the raise) starts the quote bucket (`GraduationLeftover(token, quoteToCompoundBucket, tokenBurned)`), so buy-side token fees compound against it from the first trades.
 - `LockedLP.flush(token)` (permissionless) applies the same min/cap; it reverts `SwappedInTx` if the pool was already swapped in the same transaction.

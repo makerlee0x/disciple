@@ -19,7 +19,7 @@ import {ILaunchpad} from "../src/interfaces/ILaunchpad.sol";
 import {Token} from "../src/Token.sol";
 import {BondingCurve} from "../src/BondingCurve.sol";
 import {V4Deploy} from "./helpers/V4Deploy.sol";
-import {DiscipleHook} from "../src/DiscipleHook.sol";
+import {AscensionHook} from "../src/AscensionHook.sol";
 
 import {RewardsVault} from "../src/RewardsVault.sol";
 
@@ -64,7 +64,7 @@ contract CurveTest is Test {
     uint256 internal constant MCAP_50_MAX = 7_250 ether;
     uint256 internal constant MCAP_72 = 33_333 ether;
 
-    DiscipleHook internal hook;
+    AscensionHook internal hook;
 
     function setUp() public {
         quote = new MockQuote();

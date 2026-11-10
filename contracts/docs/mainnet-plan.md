@@ -4,7 +4,7 @@ Scope: the combined stack from PRs #14 (anon launch), #16 (snipe split + creator
 
 ## 1. Ownership: Safe multisig
 - Deploy from a fresh deployer EOA, then transfer **every** owner role to a Safe (suggested 3-of-5; signers on hardware wallets, at least 2 people/orgs).
-- Owned contracts: Launchpad, FeeRouter, DiscipleHook, LockedLP, QuotePricer, ReferralRegistry, RewardsVault, AnonLauncher (`setOwner`), TrampWallManager, Migration. The deploy script ends with an ownership-transfer step. Verify each `owner()` == Safe and that the deployer holds no roles (also check `FeeRouter.setAuthorized` entries).
+- Owned contracts: Launchpad, FeeRouter, AscensionHook, LockedLP, QuotePricer, ReferralRegistry, RewardsVault, AnonLauncher (`setOwner`), TrampWallManager, Migration. The deploy script ends with an ownership-transfer step. Verify each `owner()` == Safe and that the deployer holds no roles (also check `FeeRouter.setAuthorized` entries).
 - Optional TimelockController (24–48h) between the Safe and the protocol for parameter changes. This mitigates SEC-04 (admin centralization). Keep emergency-only actions on the Safe directly.
 
 ## 2. Treasury and RewardsVault payout ops
@@ -70,9 +70,9 @@ Scope: the combined stack from PRs #14 (anon launch), #16 (snipe split + creator
 
 ## TODO: ownership / multisig checklist (**blocking for mainnet**, SEC-04; full list in security-review.md "SEC-04 pre-mainnet requirement")
 
-- [ ] Transfer `owner` / `admin` of FeeRouter, Launchpad, LockedLP, Migration, ReferralRegistry, UsdgDepositNotifier, QuotePricer, QuoteProbe, DiscipleRouter, TrampWallManager, RewardsVault, AnonLauncher, and DiscipleHook (`transferAdmin`) to the Safe multisig.
+- [ ] Transfer `owner` / `admin` of FeeRouter, Launchpad, LockedLP, Migration, ReferralRegistry, UsdgDepositNotifier, QuotePricer, QuoteProbe, DiscipleRouter, TrampWallManager, RewardsVault, AnonLauncher, and AscensionHook (`transferAdmin`) to the Safe multisig.
 - [ ] Put a timelock on the wiring setters (`setLockedLP`, `setTreasury`, `setTrustedRouter`, `setPricer`, `setDepositHook`, `setAttestor`, `setLiquidityManager`).
-- [ ] Check that one-shot setters are consumed at deploy: `DiscipleHook.setMigration`, `Migration.setLaunchpad`.
+- [ ] Check that one-shot setters are consumed at deploy: `AscensionHook.setMigration`, `Migration.setLaunchpad`.
 - [ ] Check that `isTrustedRouter` is true only for DiscipleRouter (never UniversalRouter).
 - [ ] Set the `UsdgDepositNotifier` attestors (on-ramp watcher) and any `ReferralRegistry` attestors, or leave them empty on purpose.
 - [ ] Redeploy (hook flags changed: BEFORE_INITIALIZE added; the salt is re-mined by Deploy.s.sol).

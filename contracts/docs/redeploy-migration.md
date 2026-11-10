@@ -3,7 +3,7 @@
 **Status (2026-10-17):** broadcast as stack **v4** from main @ fdd436b5 (start block 137540728); see `deployments/rh-testnet-46630.json` and `deployments/broadcast-v4/`. v3 is superseded. The web app still points at v3 until the site migration below is done.
 
 ## Contents
-- Core changes: FeeRouter (anti-snipe 70% RewardsVault / 30% treasury at the time; superseded by mode rules v2, where the sniper escrow goes to LockedLP's compound bucket), Launchpad (`creatorBuyMaxBps`), BondingCurve and CurveDeployer (post-grad `mcapNow` reads the v4 pool and the live QuotePricer), and DiscipleHook (`setPricer`; since G-1 the pricer is only read by the `quoteUsdOf` view, never on the swap path).
+- Core changes: FeeRouter (anti-snipe 70% RewardsVault / 30% treasury at the time; superseded by mode rules v2, where the sniper escrow goes to LockedLP's compound bucket), Launchpad (`creatorBuyMaxBps`), BondingCurve and CurveDeployer (post-grad `mcapNow` reads the v4 pool and the live QuotePricer), and AscensionHook (`setPricer`; since G-1 the pricer is only read by the `quoteUsdOf` view, never on the swap path).
 - New contracts: RewardsVault, AnonLauncher, MarketLens.
 - Everything else is redeployed because FeeRouter and Launchpad addresses are immutable in hook, curves, Launchpad, AntiSnipe and Migration.
 - Reused: v4 PoolManager / Quoter / StateView / UniversalRouter / Permit2, mUSDG, test STRATEGY, and the STRATEGY/mUSDG reference pool (3000/60/no hook).
@@ -69,13 +69,13 @@ BROADCAST=1 ./script/redeploy/redeploy.sh   # real deploy
 - ABI: `web-bundle/abi/DiscipleRouter.json`, `web-bundle/index.ts` and `web/lib/abi/DiscipleRouter.ts` were regenerated. Clients that send `minOut = 0` must change.
 
 ## Why the scope grows
-- `DiscipleHook` now needs `BEFORE_ADD_LIQUIDITY_FLAG` for the SEC-02 LP-add gate. Hook permissions are encoded in the hook **address**, so a new salt must be mined and the hook redeployed. Every contract that stores the hook immutably follows.
+- `AscensionHook` now needs `BEFORE_ADD_LIQUIDITY_FLAG` for the SEC-02 LP-add gate. Hook permissions are encoded in the hook **address**, so a new salt must be mined and the hook redeployed. Every contract that stores the hook immutably follows.
 - `LockedLP` cannot be shared between the old and new stacks. It has a single `migration` slot, so re-pointing it would make every **pre-grad v3 coin's graduation revert** (`Unauthorized`). Deploy a fresh one.
 
 ## Redeploy list
 | Contract | Redeploy? | Reason |
 |---|---|---|
-| DiscipleHook | **yes**; re-mine the salt for `BEFORE_ADD_LIQUIDITY \| BEFORE_SWAP \| AFTER_SWAP \| AFTER_SWAP_RETURNS_DELTA` | new flags, LP gate, altitude events |
+| AscensionHook | **yes**; re-mine the salt for `BEFORE_ADD_LIQUIDITY \| BEFORE_SWAP \| AFTER_SWAP \| AFTER_SWAP_RETURNS_DELTA` | new flags, LP gate, altitude events |
 | Migration | **yes** | immutable `hook` |
 | LockedLP | **yes** | single migration slot (see above) |
 | TrampWallManager | **yes** | immutable `hook`/`lockedLP`; keeper tip, new `owner`, no fees/hold |
@@ -109,7 +109,7 @@ Sizes (runtime, all < 24,576 B):
 ## New owner/admin parameters (defaults)
 | Where | Setter | Default | Meaning |
 |---|---|---|---|
-| DiscipleHook (admin) | `setLiquidityManager(addr,bool)` | LockedLP + TWM | LP add allowlist |
+| AscensionHook (admin) | `setLiquidityManager(addr,bool)` | LockedLP + TWM | LP add allowlist |
 | QuotePricer (owner) | `setTwapParams(window, maxTickDelta)` | 1800 s, 2000 | quote/USD TWAP for launch price |
 | TrampWallManager (owner) | `setKeeperTipBps(uint16)` ≤ 100 (1%) | 10 (0.1%) | keeper tip on pull |
 | Launchpad (owner) | `setWalletCapBps` (#35) | 0 | per-wallet curve cap |
@@ -117,7 +117,7 @@ Sizes (runtime, all < 24,576 B):
 ## ABI / event changes for SITE / GAME
 **The `Trade` event is unchanged**, and all pre-existing events keep their shapes.
 
-New `IAltitudeEvents`, emitted by **BondingCurve (pre-grad)** and **DiscipleHook (post-grad)** right after every `Trade` from the same contract:
+New `IAltitudeEvents`, emitted by **BondingCurve (pre-grad)** and **AscensionHook (post-grad)** right after every `Trade` from the same contract:
 ```solidity
 event AltitudeUpdate(address indexed token, uint256 mcapUsd, uint8 tier);
 event TierBreak(address indexed token, uint8 fromTier, uint8 toTier, uint256 mcapUsd);
@@ -125,11 +125,11 @@ event TierBreak(address indexed token, uint8 fromTier, uint8 toTier, uint256 mca
 - Altitude is **spot**: on the curve `mcapUsd` == the `Trade.mcapAfterUsd` just emitted; on the hook (G-1) it is the spot mcap from the hook `Trade.sqrtPriceAfter` at the pool's launch-time quote/USD price. `tier` is the 0..17 index of `web/lib/config.ts` `TIERS`, using the same breakpoints as `Altitude.tierOf`.
 - `TierBreak` fires on any spot tier change, up or down, on the trade that caused it. GAME can use it directly or derive tiers from the Trade (curve: `mcapAfterUsd`; hook: `sqrtPriceAfter` × launch-time quote/USD); both give the same result.
 - At graduation the hook emits one `AltitudeUpdate` at the seeded curve-end mcap (normally tier 4, OUTER SPACE), with no `TierBreak`. From then on the hook's stream replaces the curve's.
-- Getters: `BondingCurve.altitudeTier()` and `DiscipleHook.altitudeTierOf(PoolId)`.
+- Getters: `BondingCurve.altitudeTier()` and `AscensionHook.altitudeTierOf(PoolId)`.
 - Old (v3) coins don't emit these events.
 
 Function changes:
-- **DiscipleHook:** removed `LPDonation` event and `donationOf`; added `isLiquidityManager(address)`, `setLiquidityManager`, `altitudeTierOf(PoolId)`; event `LiquidityManagerSet`; error `OnlyLiquidityManager`. Raw v4 LP adds to DISCIPLE pools (any router other than LockedLP/TWM) now revert.
+- **AscensionHook:** removed `LPDonation` event and `donationOf`; added `isLiquidityManager(address)`, `setLiquidityManager`, `altitudeTierOf(PoolId)`; event `LiquidityManagerSet`; error `OnlyLiquidityManager`. Raw v4 LP adds to DISCIPLE pools (any router other than LockedLP/TWM) now revert.
 - **BondingCurve:** `altitudeTier()`.
 - **Launchpad:** #35's `walletCapBps`, `walletCapBpsOf`, `setWalletCapBps`, `WalletCapSet`, `WalletCapTooHigh`. `launch` now pokes the pricer (no ABI change).
 - **QuotePricer:** `poke(address)`, `twapTick(address)`, `spotPriceUsd(address)`, `twapWindow()`, `maxTickDelta()`, `setTwapParams`; events `TwapParamsSet`, `Poked`; error `BadParam`. **Behaviour change:** `quotePriceUsd` is now the TWAP (use `spotPriceUsd` for display).

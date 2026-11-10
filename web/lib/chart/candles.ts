@@ -1,7 +1,7 @@
 /**
  * DEX-style market-cap candles (lee, Oct 30: "make the coin chart work like DEX Screener"). Pure — tested by
  * scripts/test-dex-candles.mts. The coin page chart (components/flight/DexChart.tsx) builds every timeframe from the
- * indexed on-chain fills (/api/trades: curve Trades pre-ascension, DiscipleHook Trades after — both carry mcapUsd on the same
+ * indexed on-chain fills (/api/trades: curve Trades pre-ascension, AscensionHook Trades after — both carry mcapUsd on the same
  * basis, lib/mcap) and then folds live ticks (window "disciple:event" Trade / State) into the last candle.
  *
  * Rules:

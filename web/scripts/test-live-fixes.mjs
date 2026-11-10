@@ -13,9 +13,9 @@ let bad = 0; const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps * Math.max(1, Math.abs(b));
 const eng = fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8");
 const block = (a, b) => { const i = eng.indexOf(a), j = eng.indexOf(b); if (!(i > 0 && j > i)) throw new Error("engine block " + a); return eng.slice(i, j); };
-const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "holders", "flight/holders", "flight/liveSell", "abi/DiscipleRouter", "abi/BondingCurve", "abi/DiscipleHook"], "livefix-");
+const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "holders", "flight/holders", "flight/liveSell", "abi/DiscipleRouter", "abi/BondingCurve", "abi/AscensionHook"], "livefix-");
 const pnl = mods.pnl, fills = mods["flight/fills"], H = mods["flight/holders"], LS = mods["flight/liveSell"];
-const { discipleRouterAbi } = mods["abi/DiscipleRouter"], { bondingCurveAbi } = mods["abi/BondingCurve"], { discipleHookAbi } = mods["abi/DiscipleHook"];
+const { discipleRouterAbi } = mods["abi/DiscipleRouter"], { bondingCurveAbi } = mods["abi/BondingCurve"], { ascensionHookAbi } = mods["abi/AscensionHook"];
 
 // ───────────── Fix 1: simulated market ─────────────
 class DiscipleSource {} class PoolLiveSource {} class MockReplaySource {}
@@ -96,7 +96,7 @@ const ev = (abi, name, args, address) => {
   const data = encodeAbiParameters(e.inputs.filter((i) => !i.indexed), e.inputs.filter((i) => !i.indexed).map((i) => args[i.name]));
   return { address, topics, data };
 };
-ok(Object.entries({ usdgTrade: [discipleRouterAbi, "UsdgTrade"], usdgRefund: [discipleRouterAbi, "UsdgRefund"], curveTrade: [bondingCurveAbi, "Trade"], hookTrade: [discipleHookAbi, "Trade"] })
+ok(Object.entries({ usdgTrade: [discipleRouterAbi, "UsdgTrade"], usdgRefund: [discipleRouterAbi, "UsdgRefund"], curveTrade: [bondingCurveAbi, "Trade"], hookTrade: [ascensionHookAbi, "Trade"] })
   .every(([k, [abi, n]]) => encodeEventTopics({ abi: abi.filter((x) => x.type === "event" && x.name === n), eventName: n })[0] === fills.TOPIC[k]), "decoder topic0s match the deployed ABIs");
 // BUY $50 USDG → 4.9M tokens via the curve (fee $0.5), one refund-free fill; noise: someone else's UsdgTrade in the same receipt
 const OTHER = "0x" + "99".repeat(20);
@@ -124,13 +124,13 @@ ok(sell.side === "sell" && near(sell.usd, 27) && near(sell.tokens, 2.45e6) && ne
 const nat = fills.decodeTradeFill([sellRc[0]], { token: TOKEN, trader: ME, router: ROUTER, supply: 7e9, usdgDecimals: 18 });
 ok(nat && nat.source === "curve" && near(nat.tokens, 2.45e6) && near(nat.usd, 27, 1e-6), "no UsdgTrade → curve Trade (quoteAmt × $/quote from mcapAfterUsd)");
 // hook-only fill priced at the caller's mark
-const hk = ev(discipleHookAbi, "Trade", { token: TOKEN, trader: ME, isBuy: false, quoteAmt: e18(27), tokenAmt: e18(2.45e6), fee: e18(0.27), snipeFee: 0n, priceBeforeX18: e18(1.12e-5), priceAfterX18: e18(1.1e-5), impactBps: 100n, sqrtPriceAfter: BigInt(Math.round(Math.sqrt(1.1e-5) * 2 ** 48)) << 48n }, "0x" + "16".repeat(20));
+const hk = ev(ascensionHookAbi, "Trade", { token: TOKEN, trader: ME, isBuy: false, quoteAmt: e18(27), tokenAmt: e18(2.45e6), fee: e18(0.27), snipeFee: 0n, priceBeforeX18: e18(1.12e-5), priceAfterX18: e18(1.1e-5), impactBps: 100n, sqrtPriceAfter: BigInt(Math.round(Math.sqrt(1.1e-5) * 2 ** 48)) << 48n }, "0x" + "16".repeat(20));
 ok(near(fills.decodeTradeFill([hk], { token: TOKEN, trader: ME, markPriceUsd: 1.1e-5, usdgDecimals: 18 }).usd, 27, 1e-6), "hook Trade (sqrtPriceAfter variant) decoded at the mark");
 ok(fills.decodeTradeFill([hk], { token: "0x" + "01".repeat(20), trader: ME, markPriceUsd: 1e-5, usdgDecimals: 18 }) === null, "other token's logs → null");
 // 6-dec USDG (FLOW #115): priceAfterX18 floors to single digits. Hook: quote/token from sqrtPriceAfter; curve: no native $.
 { const e6 = (x) => BigInt(Math.round(x * 1e6));
   const px = 1.1e-5 * 1e6 / 1e18;                                    // quote raw per token raw at $1.1e-5/token, 6-dec quote
-  const hk6 = ev(discipleHookAbi, "Trade", { token: TOKEN, trader: ME, isBuy: false, quoteAmt: e6(27), tokenAmt: e18(2.45e6), fee: e6(0.27), snipeFee: 0n, priceBeforeX18: 11n, priceAfterX18: 11n, impactBps: 100n, sqrtPriceAfter: BigInt(Math.round(Math.sqrt(1 / px) * 2 ** 48)) << 48n }, "0x" + "16".repeat(20));
+  const hk6 = ev(ascensionHookAbi, "Trade", { token: TOKEN, trader: ME, isBuy: false, quoteAmt: e6(27), tokenAmt: e18(2.45e6), fee: e6(0.27), snipeFee: 0n, priceBeforeX18: 11n, priceAfterX18: 11n, impactBps: 100n, sqrtPriceAfter: BigInt(Math.round(Math.sqrt(1 / px) * 2 ** 48)) << 48n }, "0x" + "16".repeat(20));
   const h = fills.decodeTradeFill([hk6], { token: TOKEN, trader: ME, markPriceUsd: 1.1e-5, usdgDecimals: 6 });
   ok(h && near(h.usd, 27, 1e-6) && near(h.feeUsd, 0.27, 1e-6), "6-dec hook Trade: $ from sqrtPriceAfter (currency order inferred), not the floored priceAfterX18");
   const cv6 = ev(bondingCurveAbi, "Trade", { token: TOKEN, trader: ME, isBuy: false, quoteAmt: e6(27), tokenAmt: e18(2.45e6), fee: e6(0.27), snipeFee: 0n, priceBeforeX18: 11n, priceAfterX18: 11n, impactBps: 100n, mcapAfterUsd: e18(77000) }, CURVE);
