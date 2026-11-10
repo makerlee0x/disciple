@@ -13,13 +13,13 @@ const lc = (a: string) => a.toLowerCase();
  * USDG's own decimals() read ONCE per page/process and cached (item e / #115): set from the paymaster cap warm-up that
  * already reads usdg.decimals() (no extra RPC, never per trade). Until then — or for another token address — config.
  */
-let onchainDec: { usdg: string; dec: number } | undefined;
+let onchainDec: { usdg: string; raw: string; dec: number } | undefined;
 export function setUsdgDecimalsOnchain(usdg: string, dec: number) {
   if (!Number.isInteger(dec) || dec < 0 || dec > 36 || !usdg) return;
   const d = deployment();
   if (lc(usdg) !== lc(d.usdg)) return;
   if (dec !== d.usdgDecimals && onchainDec?.dec !== dec) console.warn("[disciple] USDG decimals: config differs from the token; using the token", { config: d.usdgDecimals, onchain: dec });
-  onchainDec = { usdg: lc(usdg), dec };
+  onchainDec = { usdg: lc(usdg), raw: d.usdg, dec };
 }
 /** Test hook. */
 export function resetUsdgDecimalsCache() { onchainDec = undefined; }
@@ -27,7 +27,9 @@ export function resetUsdgDecimalsCache() { onchainDec = undefined; }
 export function usdgDecimals(d?: Pick<Deployment, "usdgDecimals">): number {
   if (d) return d.usdgDecimals;
   const dep = deployment();
-  return onchainDec && onchainDec.usdg === lc(dep.usdg) ? onchainDec.dec : dep.usdgDecimals;
+  if (!onchainDec) return dep.usdgDecimals;
+  // hot path: same deployment string as when set ⇒ no lower-casing per call
+  return onchainDec.raw === dep.usdg || onchainDec.usdg === lc(dep.usdg) ? onchainDec.dec : dep.usdgDecimals;
 }
 export const isUsdg = (a: string | null | undefined, d: Pick<Deployment, "usdg"> = deployment()) => !!a && lc(a) === lc(d.usdg);
 

@@ -18,7 +18,8 @@ export const BUY_MAX_HEADROOM = 0.97;
  *  the creator tax and the curve's price impact across the room, so the curve fills the WHOLE room and refunds the
  *  rest. Bounded (not the typed $) because a one-tap session's spend cap counts the gross amount sent. */
 export const FILL_OVERSHOOT = 1.25;
-/** minOut is priced on (room − 0.5 %): a stale balance / cap read can't make minOut ask for more than the chain's room. */
+/** roomOut = cached room − 0.5 %: marks an over-cap buy. minOut is priced on the trader's capped CHAIN quote (protocol-viem
+ *  cappedRange / queuePricing cappedBuyRange); roomOut is only the fallback (chain quote unreadable) / own-in-flight ceiling. */
 export const ROOM_MARGIN_BPS = 50;
 
 export type TradeAlert =
@@ -48,13 +49,13 @@ export type CapInput = {
 };
 /** The buy's room under the wallet limit, in $ at the mark with BUY_MAX_HEADROOM (floored to the cent); null = no cap /
  *  not enough data (never limits on a guess). */
-function capRoom(c: CapInput): { maxUsd: number; capPct: string; room: number } | null {
+function capRoom(c: CapInput): { maxUsd: number; room: number } | null {
   if (c.capBps == null || !(c.capBps > 0) || !(c.supply > 0) || !(c.priceUsd > 0)) return null;
   const capTokens = (c.capBps / 10_000) * c.supply;
   const room = capTokens - c.holding - (c.pendingBuyTokens ?? 0);
   const maxUsd = Math.max(0, Math.floor(room * c.priceUsd * BUY_MAX_HEADROOM * 100) / 100);
   // usd ≤ maxUsd ⇒ usd / mark (an upper bound on the coins: avg fill price ≥ mark) is ≤ 97 % of the room
-  return { maxUsd, capPct: pct(c.capBps), room: Math.max(0, room) };
+  return { maxUsd, room: Math.max(0, room) };   // no string work on the tap (capPct only when a hold is shown)
 }
 /** Wallet-limit HOLD for a buy of `usd`: only when the wallet is already at the limit (room < 1¢ — the curve would revert
  *  WalletCap). An over-room buy is not held: buyFill sends it at the room. null = fine (or not enough data to tell). */
@@ -62,7 +63,8 @@ export function walletCapAlert(usd: number, c: CapInput): Extract<TradeAlert, { 
   if (!(usd > 0)) return null;
   const r = capRoom(c);
   if (!r || usd <= r.maxUsd || r.maxUsd >= 0.01) return null;
-  return { kind: "walletcap", capPct: r.capPct, maxUsd: 0, text: COPY_PENDING_LEE.walletFull(r.capPct), actionLabel: "", dismissLabel: COPY_PENDING_LEE.cancel };
+  const capPct = pct(c.capBps!);
+  return { kind: "walletcap", capPct, maxUsd: 0, text: COPY_PENDING_LEE.walletFull(capPct), actionLabel: "", dismissLabel: COPY_PENDING_LEE.cancel };
 }
 export type BuyFill = {
   /** $ to send */

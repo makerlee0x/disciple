@@ -7,7 +7,8 @@
  *     null ⇒ read failed (the engine keeps its last state).
  */
 import type { Address } from "viem";
-import { hasRouter, deployment } from "@/lib/chains";
+import { hasRouter } from "@/lib/chains";
+import { usdgDecimals } from "@/lib/usdg";
 import { publicClient, readGradNeedForToken, readRouterMaxImpactBps } from "@/lib/protocol-viem";
 import { needUsdFromUsdg } from "./tradeGate";
 
@@ -21,6 +22,6 @@ export async function graduationStatus(token: string): Promise<{ graduated: bool
   try {
     const n = await readGradNeedForToken(publicClient(), token as Address);
     if (n.graduated) return { graduated: true, usd: null };
-    return { graduated: false, usd: n.usdgIn == null || n.usdgIn <= BigInt(0) ? null : needUsdFromUsdg(n.usdgIn, deployment().usdgDecimals) };
+    return { graduated: false, usd: n.usdgIn == null || n.usdgIn <= BigInt(0) ? null : needUsdFromUsdg(n.usdgIn, usdgDecimals()) };
   } catch { return null; }
 }

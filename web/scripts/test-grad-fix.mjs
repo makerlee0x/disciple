@@ -72,9 +72,10 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   // 4) tier-bar need = SITE's GradNeed.usdgIn (router-quoted USDG, SITE's +0.1% included) rounded up to the cent; label only
   const need = G.needUsdFromUsdg(284_600n, 6);   // IRON testnet 2026-10-24: usdgIn ≈ 0.2846 USDG
   ok(need === 0.29, `IRON need $ (${need})`);
-  ok(G.needUsdFromUsdg(null) === null && G.needUsdFromUsdg(0n) === null, "usdgIn null / 0 ⇒ engine keeps its estimate");
-  ok(G.needUsdFromUsdg(1000n) === 0.01 && G.needUsdFromUsdg(1_234_567n) === 1.24, "rounds UP to the cent (no buy floor: it's a label)");
-  ok(/readGradNeedForToken\(publicClient\(\), token as Address\)/.test(ad) && /needUsdFromUsdg\(n\.usdgIn, /.test(ad) && /n\.usdgIn == null/.test(ad), "adapter: SITE readGradNeedForToken usdgIn as-is");
+  ok(G.needUsdFromUsdg(null, 6) === null && G.needUsdFromUsdg(0n, 6) === null, "usdgIn null / 0 ⇒ engine keeps its estimate");
+  ok(G.needUsdFromUsdg(1000n, 6) === 0.01 && G.needUsdFromUsdg(1_234_567n, 6) === 1.24, "rounds UP to the cent (no buy floor: it's a label)");
+  ok(G.needUsdFromUsdg(284_600n * 10n ** 12n, 18) === 0.29, "18-decimal USDG: same $ (decimals passed, never assumed)");
+  ok(/readGradNeedForToken\(publicClient\(\), token as Address\)/.test(ad) && /needUsdFromUsdg\(n\.usdgIn, usdgDecimals\(\)\)/.test(ad) && /n\.usdgIn == null/.test(ad), "adapter: SITE readGradNeedForToken usdgIn as-is, decimals from the cached usdgDecimals()");
   ok(!/withGradMargin|GRAD_QUOTE_MARGIN_BPS|graduationFromProbe|GRAD_MARGIN_BPS|quotePriceUsd/.test(ad.replace(/\/\*[\s\S]*?\*\//g, "") + gate.replace(/\/\*[\s\S]*?\*\//g, "")), "no margins / launch-price maths");
   // GRADUATE button removed everywhere (lee 7:56 PM CT)
   ok(!/grad-btn|ph-grad|graduateLabel|showGraduate|GRAD_MIN_USD|graduateUsdFromUsdg|graduateBuyUsd|usd: grad\b|GRADUATE ·/.test(tb + bar + eng + gate + ad), "no GRADUATE button / chip / amount logic");
