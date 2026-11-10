@@ -102,8 +102,10 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     CurveMath.Params private _params;
 
     /// @notice Sniper tax (mode rules v2, all modes) held in the pair coin. NOT part of quoteReserve / price math and
-    ///         not withdrawable: at graduation it goes to LockedLP's locked compound bucket (excluded from the floor), or (if not graduated `snipeEscrowTimeout`
-    ///         after launch) sent to RewardsVault by anyone via releaseSnipeEscrow().
+    ///         not withdrawable: at a graduation within `snipeEscrowTimeout` it goes to LockedLP's locked compound bucket
+    ///         (excluded from the floor). If not graduated `snipeEscrowTimeout` after launch it goes to RewardsVault:
+    ///         sent by anyone via releaseSnipeEscrow(), or, if still escrowed when the coin graduates late, by
+    ///         _graduate (lee 2026-11-10 7:44 AM CT: "the sniper tax should go to community rewards").
     uint256 public sniperTaxEscrow;
     /// @notice lp-accrue (lee 2026-11-09 "lets have the lp fee share do the same setup"): the 33% LP share of settled
     ///         curve-phase fees, held exactly like the sniper tax: outside quoteReserve, → LockedLP's locked compound
@@ -972,17 +974,21 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         _settleFees();
         graduated = true;
         // lee 2026-11-09 10:17 PM CT: "if the coin graduates at a later date for whatever reason after the 12 days, they
-        // just wont get those lp fees at all. it'll just go to the creator rewards." Decided here (graduating buy only,
-        // never per trade): past the timeout the LP fee escrow goes to RewardsVault, not the compound bucket. The
-        // sniper tax keeps its existing rule (→ compound bucket unless already released).
+        // just wont get those lp fees at all. it'll just go to the creator rewards." + 2026-11-10 7:44 AM CT: "the sniper
+        // tax should go to community rewards". Decided here (graduating buy only, never per trade): past the timeout
+        // the remaining sniper tax AND LP fee escrow go to RewardsVault (same transfer + events as releaseSnipeEscrow),
+        // not the compound bucket.
         if (block.timestamp >= launchTime + snipeEscrowTimeout) {
+            uint256 sn = sniperTaxEscrow;
             uint256 lpE = lpFeeEscrow;
-            address v = lpE != 0 ? IFeeRouterCurve(address(feeRouter)).rewardsVault() : address(0);
-            // no vault configured: keep the old destination rather than revert the graduating trade
+            address v = sn + lpE != 0 ? IFeeRouterCurve(address(feeRouter)).rewardsVault() : address(0);
+            // no vault configured: keep the old destination (compound bucket) rather than revert the graduating trade
             if (v != address(0)) {
+                sniperTaxEscrow = 0;
                 lpFeeEscrow = 0;
-                IERC20(quote).safeTransfer(v, lpE);
-                emit LpFeeEscrowReleased(token, v, lpE);
+                IERC20(quote).safeTransfer(v, sn + lpE);
+                if (sn != 0) emit SnipeEscrowReleased(token, v, sn);
+                if (lpE != 0) emit LpFeeEscrowReleased(token, v, lpE);
             }
         }
 

@@ -14,6 +14,8 @@ import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 import {FeeMath} from "../../src/libraries/FeeMath.sol";
+import {RewardsVault} from "../../src/RewardsVault.sol";
+import {DeployRewardsVault} from "../../script/rewards/DeployRewardsVault.s.sol";
 
 /// @notice lp-accrue follow-ups (lee 2026-11-09 9:16 PM CT): H1 stealth-owner vault claim, M1 router claim covers the
 ///         vault; LP rule (10:17 PM CT): a coin not graduated by day 12 sends ALL its curve LP fees to RewardsVault.
@@ -338,6 +340,7 @@ contract LpAccrueFollowupsTest is IntegrationBase {
     }
 
     // ───────── LP rule (lee 2026-11-09 10:17 PM CT): not graduated by day 12 ⇒ ALL curve LP fees → RewardsVault ─────────
+    // ───────── sniper tax (lee 2026-11-10 7:44 AM CT): "the sniper tax should go to community rewards" (late graduation too) ─────────
 
     bytes32 internal constant LP_REL = keccak256("LpFeeEscrowReleased(address,address,uint256)");
     bytes32 internal constant SN_REL = keccak256("SnipeEscrowReleased(address,address,uint256)");
@@ -420,7 +423,7 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         assertEq(quote.balanceOf(address(c)), c.rewardsHeld(), "everything migrated");
     }
 
-    function test_LP_graduatesLate_noRelease_allLpToVault_sniperToBucket() public {
+    function test_LP_graduatesLate_noRelease_lpAndSniperToVault() public {
         (BondingCurve c, Token t) = _launchWallet(0);
         _b(c, _w(), 10 ether);
         _warpPastSnipe();
@@ -432,13 +435,19 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         vm.warp(c.launchTime() + c.snipeEscrowTimeout() + 1 days); // nobody released
         uint256 v0 = quote.balanceOf(address(rewardsVault));
         vm.recordLogs();
-        _graduate(c); // the graduating buy decides: past day 12 → LP to RewardsVault
+        (, uint256 bucket0) = lockedLP.compoundBucket(address(t));
+        _graduate(c); // the graduating buy decides: past day 12 → LP + sniper tax to RewardsVault
         (uint256 lpRel, uint256 snRel, uint256 toLp) = _escrowEvents(c);
+        assertGt(sn, 0);
         assertGt(lpRel, lpPre, "all LP: before day 12, after it, and the graduating buy's share");
-        assertEq(snRel, 0);
-        assertEq(quote.balanceOf(address(rewardsVault)) - v0, lpRel, "vault got exactly the LP fees");
-        assertEq(toLp, sn, "sniper tax keeps its rule: compound bucket (not released before graduation)");
+        assertEq(snRel, sn, "sniper tax to community rewards too (lee 2026-11-10)");
+        assertEq(quote.balanceOf(address(rewardsVault)) - v0, lpRel + sn, "vault got exactly LP fees + sniper tax");
+        assertEq(toLp, 0, "nothing to the compound bucket");
+        (, uint256 bucket1) = lockedLP.compoundBucket(address(t));
+        // only the full-range add's unpaired rounding leftover (GraduationLeftover) can reach the bucket
+        assertLt(bucket1 - bucket0, sn / 1e6, "neither escrow went to the compound bucket");
         assertEq(c.lpFeeEscrow(), 0);
+        assertEq(c.sniperTaxEscrow(), 0);
         assertEq(quote.balanceOf(address(c)), c.rewardsHeld(), "everything moved, nothing paid twice");
         vm.expectRevert(BondingCurve.Graduated.selector);
         c.releaseSnipeEscrow();
@@ -466,10 +475,31 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         assertEq(quote.balanceOf(address(c)), c.rewardsHeld());
     }
 
+    /// @dev Kept on purpose (COO): with FeeRouter.rewardsVault() unset, a late graduation still sends both escrows to the
+    ///      compound bucket instead of reverting the graduating buy.
+    function test_LP_graduatesLate_noVault_fallbackToBucket() public {
+        (BondingCurve c,) = _launchWallet(0);
+        _b(c, _w(), 10 ether);
+        _warpPastSnipe();
+        _b(c, _w(), 150 ether);
+        vm.prank(owner);
+        feeRouter.setRewardsVault(address(0));
+        vm.warp(c.launchTime() + c.snipeEscrowTimeout() + 1 days);
+        uint256 sn = c.sniperTaxEscrow();
+        vm.recordLogs();
+        _graduate(c);
+        (uint256 lpRel, uint256 snRel, uint256 toLp) = _escrowEvents(c);
+        assertEq(lpRel + snRel, 0, "no vault: nothing released");
+        assertGt(toLp, sn, "sniper tax + LP to the bucket (old destination)");
+        assertEq(quote.balanceOf(address(c)), c.rewardsHeld());
+    }
+
     /// @dev Conservation over random sequences: every LP share ends in exactly one place (vault or bucket), the vault
     ///      only gets LP when the coin is past day 12, and the bucket only when it graduated within day 12.
-    function testFuzz_LP_rule(uint96 a, uint96 b, uint96 x, bool releaseMid, bool late, bool grad) public {
+    function testFuzz_LP_rule(uint96 a, uint96 b, uint96 x, bool releaseMid, bool late, bool grad, bool sniped) public {
         (BondingCurve c, Token t) = _launchWallet(0);
+        if (sniped) _b(c, _w(), 10 ether); // sniper window → sniper tax
+        uint256 sn = c.sniperTaxEscrow();
         _warpPastSnipe();
         address w = _w();
         _b(c, w, bound(uint256(a), 1 ether, 300 ether));
@@ -482,13 +512,81 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         if (grad) _graduate(c);
         else if (late) c.releaseSnipeEscrow();
         (uint256 lpRel, uint256 snRel, uint256 toLp) = _escrowEvents(c);
-        assertEq(snRel, 0, "no sniper tax in this sequence");
-        if (!late && grad) assertEq(lpRel, 0, "within day 12: nothing to the vault");
-        if (late) assertEq(toLp, 0, "past day 12: nothing to the bucket");
+        if (!late && grad) {
+            assertEq(lpRel + snRel, 0, "within day 12: nothing to the vault");
+            assertGe(toLp, sn, "within day 12: sniper tax + LP to the bucket");
+        }
+        if (late) {
+            assertEq(toLp, 0, "past day 12: nothing to the bucket");
+            assertEq(snRel, sn, "past day 12: sniper tax to the vault exactly once");
+        }
         if (grad || late) {
             assertEq(c.lpFeeEscrow(), 0, "nothing stranded");
             assertEq(quote.balanceOf(address(c)), c.quoteReserve() + c.rewardsHeld(), "every share moved once");
         }
+    }
+
+    // ───────── RewardsVault (lee 2026-11-10 7:44 AM CT): "a temporary wallet for now, but it should go to a multisig for mainnet" ─────────
+
+    /// @dev script/rewards/DeployRewardsVault.s.sol (NOT run live): vault nominated to a temp wallet, wired by the
+    ///      FeeRouter owner, receives a late graduation's escrows, then moves to a multisig with the Owned2Step steps.
+    function test_RV_deployScript_tempOwner_thenMultisig() public {
+        address temp = makeAddr("tempRewardsOwner");
+        address multisig = makeAddr("multisigSafe");
+        vm.etch(multisig, hex"00"); // stand-in for a Safe (has code)
+        vm.setEnv("REWARDS_VAULT_OWNER", vm.toString(temp));
+        vm.setEnv("LAUNCHPAD", vm.toString(address(launchpad)));
+        vm.setEnv("WIRE", "false");
+        RewardsVault old = rewardsVault;
+        RewardsVault v = new DeployRewardsVault().run();
+        assertEq(v.feeRouter(), address(feeRouter));
+        assertEq(v.pendingOwner(), temp, "deploy only nominates the temp wallet");
+        assertEq(feeRouter.rewardsVault(), address(old), "WIRE=false: FeeRouter untouched");
+        vm.prank(temp);
+        v.acceptOwnership();
+        assertEq(v.owner(), temp);
+        vm.prank(owner); // FeeRouter owner wires it
+        feeRouter.setRewardsVault(address(v));
+
+        (BondingCurve c,) = _launchWallet(0);
+        _b(c, _w(), 10 ether);
+        _warpPastSnipe();
+        _b(c, _w(), 150 ether);
+        vm.warp(c.launchTime() + c.snipeEscrowTimeout() + 1 days);
+        uint256 sn = c.sniperTaxEscrow();
+        uint256 oldBal = quote.balanceOf(address(old));
+        _graduate(c);
+        assertGt(quote.balanceOf(address(v)), sn, "late graduation: sniper tax + LP to the new vault");
+        assertEq(quote.balanceOf(address(old)), oldBal, "old vault untouched");
+
+        // later: temp wallet → multisig (two-step; temp keeps control until the multisig accepts)
+        vm.prank(temp);
+        v.transferOwnership(multisig);
+        assertEq(v.owner(), temp);
+        vm.prank(multisig);
+        v.acceptOwnership();
+        assertEq(v.owner(), multisig);
+        address[] memory to = new address[](1);
+        uint256[] memory amt = new uint256[](1);
+        to[0] = makeAddr("recipient");
+        amt[0] = 1 ether;
+        vm.prank(multisig);
+        v.distribute(address(quote), to, amt);
+        assertEq(quote.balanceOf(to[0]), 1 ether);
+    }
+
+    function test_RV_deployScript_offTestnet_requiresMultisigOwner() public {
+        DeployRewardsVault script = new DeployRewardsVault();
+        vm.setEnv("LAUNCHPAD", vm.toString(address(launchpad)));
+        vm.setEnv("WIRE", "false");
+        vm.setEnv("REWARDS_VAULT_OWNER", vm.toString(makeAddr("eoaOwner")));
+        vm.chainId(1);
+        vm.expectRevert(bytes("mainnet: REWARDS_VAULT_OWNER must be the multisig (has code)"));
+        script.run();
+        address safe = makeAddr("safeOwner");
+        vm.etch(safe, hex"00");
+        vm.setEnv("REWARDS_VAULT_OWNER", vm.toString(safe));
+        assertEq(script.run().pendingOwner(), safe);
     }
 
     // ───────── gas (new paths) ─────────

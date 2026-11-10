@@ -40,9 +40,10 @@ function seeded() {
     mk("LpFeeEscrowReleased", { token: TOKEN, vault: stack.rewardsVault!, amount: 6n * E18 }, CURVE, 7n),
     mk("LpFeeEscrowReleased", { token: TOKEN, vault: stack.rewardsVault!, amount: 50n * E18 }, A(0xbad), 7n), // not the curve
     settled(A(0), 4n * E18, 2n * E18, VAULT, 8n),        // after the release: LP share accrues again
-    // late graduation (after day 12, lee Nov 9 10:17 PM CT): the remaining LP goes to RewardsVault, the bucket gets sniper tax only
+    // late graduation (after day 12; lee Nov 9 10:17 PM CT + Nov 10 7:44 AM CT): the remaining sniper tax and LP go to
+    // RewardsVault (same events as a release), nothing to the compound bucket (no SnipeEscrowToLP)
+    mk("SnipeEscrowReleased", { token: TOKEN, vault: stack.rewardsVault!, amount: 5n * E18 }, CURVE, 9n),
     mk("LpFeeEscrowReleased", { token: TOKEN, vault: stack.rewardsVault!, amount: 2n * E18 }, CURVE, 9n),
-    mk("SnipeEscrowToLP", { token: TOKEN, amount: 5n * E18 }, CURVE, 9n),
     // second coin graduating within 12 days: its LP share goes to the compound bucket with the sniper tax
     settled(A(0), 4n * E18, 3n * E18, VAULT, 8n, TOKEN2),
     mk("SnipeEscrowToLP", { token: TOKEN2, amount: 4n * E18 }, CURVE2, 9n), // 1 sniper tax + 3 LP
@@ -72,10 +73,10 @@ describe("lp-accrue follow-ups: CurveFeeVault + LP escrow events", () => {
     expect(f.lp).toBe((8n * E18).toString());
     expect(f.referral).toBe(E18.toString()); // only the referred in-trade settle
     expect(f.lpFeeEscrowReleased).toBe((8n * E18).toString());     // 6 at the release + 2 at the late graduation
-    expect(f.snipeEscrowReleased).toBe((10n * E18).toString());
-    expect(f.snipeEscrowToLP).toBe((5n * E18).toString());
-    expect(f.snipeEscrowToLPLpFee).toBe("0");                         // 8 kept − 8 released
-    expect(f.snipeEscrowToLPSniperTax).toBe((5n * E18).toString());
+    expect(f.snipeEscrowReleased).toBe((15n * E18).toString());     // 10 at the release + 5 at the late graduation
+    expect(f.snipeEscrowToLP).toBe("0");
+    expect(f.snipeEscrowToLPLpFee).toBe("0");
+    expect(f.snipeEscrowToLPSniperTax).toBe("0");
     const g = await get(api, `/coins/${TOKEN2}/fee-routing`);
     expect(g.snipeEscrowToLPLpFee).toBe((3n * E18).toString());     // graduated within 12 days
     expect(g.snipeEscrowToLPSniperTax).toBe(E18.toString());
@@ -85,9 +86,10 @@ describe("lp-accrue follow-ups: CurveFeeVault + LP escrow events", () => {
     const api = new Api(seeded(), null, cfg);
     const r = api.rewards() as any[];
     const k = (kind: string) => r.find((x) => x.kind === kind);
-    expect(k("SnipeEscrowToLP").sum_a).toBe(9);
+    expect(k("SnipeEscrowToLP").sum_a).toBe(4);                      // only the coin graduating within 12 days
     expect(k("SnipeEscrowToLP.lpFee").sum_a).toBe(3);
-    expect(k("SnipeEscrowToLP.sniperTax").sum_a).toBe(6);
+    expect(k("SnipeEscrowToLP.sniperTax").sum_a).toBe(1);
+    expect(k("SnipeEscrowReleased").sum_a).toBe(15);
     expect(k("LpFeeEscrowReleased").sum_a).toBe(8);
   });
   it("payee credits and claim rows come from the vault", () => {

@@ -334,7 +334,7 @@ export class Api {
       // F-08: current-curve escrow movements (not via RewardAccrued / routeSnipeFee)
       snipeEscrowReleased: sum(rows.filter((r) => r.kind === "SnipeEscrowReleased").map((r) => r.a)),
       snipeEscrowToLP: sum(rows.filter((r) => r.kind === "SnipeEscrowToLP").map((r) => r.a)),
-      // lp-accrue: LP fee share sent to RewardsVault (releases + a late graduation), and the SnipeEscrowToLP split
+      // lp-accrue: LP fee share sent to RewardsVault (releases + a late graduation, which also emits SnipeEscrowReleased), and the SnipeEscrowToLP split
       lpFeeEscrowReleased: sum(rows.filter((r) => r.kind === "LpFeeEscrowReleased").map((r) => r.a)),
       snipeEscrowToLPSniperTax: split.sniperTax,
       snipeEscrowToLPLpFee: split.lpFee,
