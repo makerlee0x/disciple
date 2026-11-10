@@ -49,8 +49,16 @@ if (D.displayName("", a) !== n1 || D.displayName(null, a) !== n1 || D.displayNam
 if (D.displayName(null, a, { at: true }) !== n1) bad("defaults never get an @");
 if (D.displayName(null, null, { fallback: "?" }) !== "?") bad("no username + no address → fallback");
 if (D.displayName(null, null) !== "") bad("no fallback → ''");
-if (/^@|_/.test(n1) || /^[a-z0-9_]{3,20}$/.test(n1)) bad("default must not look like a claimed username");
+if (/^@|_/.test(n1) || /^[a-z0-9_]+$/.test(n1)) bad("default must not look like a claimed username");
 if (!D.isAddressLike(a) || D.isAddressLike("0x123") || D.isAddressLike("maker")) bad("isAddressLike");
+
+
+// longest default call sign (title + space + noun, no suffix digits) is the claimed-username cap
+let mx = 0, ex = "";
+for (const t of T) for (const n of N) { const s = `${t} ${n}`; if (s.length > mx) { mx = s.length; ex = s; } }
+if (mx !== 22) bad(`enumerated max default length is ${mx} (${ex}), expected 22`);
+if (D.DEFAULT_USERNAME_MAX_LENGTH !== mx) bad(`DEFAULT_USERNAME_MAX_LENGTH ${D.DEFAULT_USERNAME_MAX_LENGTH} !== enumerated ${mx}`);
+console.log(`longest default: ${ex} (${mx})`);
 
 // chat (GameChat renders from.name || shortAddr(from.addr)): address → same default; non-address unchanged
 if (F.shortAddr(a) !== n1) bad(`chat fallback ${F.shortAddr(a)} ≠ ${n1}`);

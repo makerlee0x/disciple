@@ -29,6 +29,13 @@ export const CALLSIGN_NOUNS = [
   "Redshift", "Aurora", "Kaboom", "Zoom", "Turbo", "Sparky", "Rocketfuel", "Skyrocket",
 ] as const;
 
+
+/** Longest possible default call sign: max(title length) + 1 space + max(noun length). No suffix digits.
+ *  Enumerated over the frozen 32×64 lists; currently 22 ("Pathfinder Afterburner" / "Lieutenant Afterburner").
+ *  New claimed usernames use this as USERNAME_MAX (lib/profile) so every default name fits the same width. */
+export const DEFAULT_USERNAME_MAX_LENGTH: number =
+  Math.max(...CALLSIGN_TITLES.map((w) => w.length)) + 1 + Math.max(...CALLSIGN_NOUNS.map((w) => w.length));
+
 const isAddr = (a: string) => /^0x[0-9a-f]{40}$/.test(a);
 
 /** 32-bit FNV-1a + murmur3 finalizer (good spread on hex addresses that share prefixes). */

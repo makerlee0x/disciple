@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { identityRuleText, type IdentityId } from "@/lib/identity";
 import { earnedTitlesFor, profileStatsSeed, shownTitle, titleDef } from "@/lib/titles";
 import { withBase } from "@/lib/base-path";
-import { checkUsername, claimUsername, fetchUsernameStatus, localUsername, normalizeUsername, validateUsername } from "@/lib/profile";
+import { checkUsername, claimUsername, fetchUsernameStatus, localUsername, normalizeUsername, USERNAME_MAX, validateUsername } from "@/lib/profile";
 import { formatLocalWhen } from "@/lib/usernameCooldown";
 import { BIO_MAX, BIO_RAW_MAX, EMPTY_META, bioLength, pfpUrl, sanitizeBio, type ProfileMeta } from "@/lib/profileMeta";
 import { saveProfileMeta, uploadPfp } from "@/lib/profileMetaClient";
@@ -148,7 +148,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
           <label className="pf-field">
             <span className="pf-field-label">{C["edit.username.label"]}</span>
             <span className="pf-input-wrap"><span className="muted">@</span>
-              <input className="pf-input" value={name} maxLength={20} placeholder="your_name" autoComplete="off" spellCheck={false}
+              <input className="pf-input" value={name} maxLength={USERNAME_MAX} placeholder="your_name" autoComplete="off" spellCheck={false}
                 disabled={nameLocked} aria-describedby="pf-name-cooldown" onChange={(e) => setName(e.target.value.toLowerCase())} />
             </span>
             <span className="pf-help" id="pf-name-cooldown" data-testid="username-cooldown">
@@ -158,7 +158,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
               {nameStatus ? <span className={nameStatus.ok ? "pf-ok" : nameStatus.bad ? "pf-bad" : "pf-help"} role={nameStatus.ok ? "status" : undefined}
                   data-testid="username-status">{nameStatus.text}</span>
                 : name && !nameChanged ? <span className="pf-help">That&apos;s you.</span> : <span />}
-              <span className="pf-help pf-mono">{name.length}/20</span>
+              <span className="pf-help pf-mono">{name.length}/{USERNAME_MAX}</span>
             </span>
           </label>
 
