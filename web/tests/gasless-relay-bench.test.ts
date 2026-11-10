@@ -1,8 +1,9 @@
 /**
  * LOCAL gasless (Permit2 witness) relay benchmark: same seeded latency model, RANGES and cold/warm sequence as
  * relay-pipeline-bench.test.ts (815af744), so `RELAY_BENCH=1` compares old (4337 self-bundler) and new like for like.
- * Runs the REAL relayGaslessTrade: parse → check → local signature recovery → parallel admission (LoginGate ∥
- * revoke/strike ∥ relayer state ∥ exact eth_call) → budget → direct sync send. Opt-in: RELAY_BENCH=1.
+ * Runs the REAL relayGaslessTrade: parse → check → local signature recovery → parallel admission (Privy session ∥
+ * revoke/strike ∥ relayer state ∥ exact eth_call; sim starts with the relayer, not after the gate) → budget →
+ * direct sync send. Opt-in: RELAY_BENCH=1.
  * Off-chain login (lee 7:37 PM CT): a real ES256 Privy token is verified each request (local crypto); the Privy users
  * API lookup (60 s per-did cache in privyAuth) is modelled as a MISS on every cold-instance trial (new did) with the
  * `privy` latency range (assumption: api.privy.io from Vercel iad1 ≈ an RPC hop) and a hit on warm trials.

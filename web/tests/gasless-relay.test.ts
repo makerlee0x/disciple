@@ -93,7 +93,7 @@ describe("switch: GAS_SPONSORSHIP_MODE", () => {
 });
 
 describe("admission + exact simulation", () => {
-  it("happy path: Privy session ∥ gate ⇒ sim, budget AFTER sim, one relayer tx to the gasless router with the signed call", async () => {
+  it("happy path: Privy session ∥ gate ∥ sim (parallel), budget AFTER all gates, one relayer tx to the gasless router with the signed call", async () => {
     const order: string[] = [];
     h.call.mockImplementation(async () => { order.push("sim"); return { data: "0x" }; });
     h.budget.mockImplementation(async () => { order.push("budget"); return 0; });
@@ -185,22 +185,69 @@ describe("off-chain login (Privy session) — rejected before simulation, budget
     await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("isn't configured") });
     none();
   });
-  it("revoked (KV revoke marker) signer with a valid session ⇒ notSent before simulation", async () => {
-    h.mget.mockImplementation(async (ks: string[]) => ks.map(k => k.startsWith("relay:trust:") ? null : "revoked"));
+});
+
+describe("speculative parallel simulation (sim ∥ revoke/strike/blocklist read)", () => {
+  /** Delay only the revoke/strike MGET (not leasegen / other mgets). `release` lets a succeeding sim finish first. */
+  const holdGate = (result: (ks: string[]) => (string | null)[]) => {
+    let release!: () => void;
+    const held = new Promise<void>(r => { release = r; });
+    h.mget.mockImplementation(async (ks: string[]) => {
+      if (ks.some(k => k.startsWith("relay:revoked:") || k.startsWith("relay:trust:"))) await held;
+      return result(ks);
+    });
+    return { release: () => release(), held };
+  };
+  const noChargeOrSend = () => { expect(h.budget).not.toHaveBeenCalled(); expect(h.send).not.toHaveBeenCalled(); };
+
+  it("revoked player is refused and no budget/send happens, even when simulation resolves first and succeeds", async () => {
+    const order: string[] = [];
+    const { release } = holdGate(ks => ks.map(k => k.startsWith("relay:revoked:") ? "revoked" : null));
+    h.call.mockImplementation(async () => { order.push("sim"); queueMicrotask(release); return { data: "0x" }; });
+    h.budget.mockImplementation(async () => { order.push("budget"); return 0; });
+    h.send.mockImplementation(async () => { order.push("send"); return okRc(); });
     await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("revoked") });
-    none();
+    expect(order[0]).toBe("sim"); expect(order).not.toContain("budget"); expect(order).not.toContain("send");
+    expect(h.call).toHaveBeenCalled(); noChargeOrSend();
   });
-  it("struck / blocklisted (strike ledger, incl. unreadable entry ⇒ fail closed) ⇒ notSent before simulation", async () => {
-    h.mget.mockImplementation(async (ks: string[]) => ks.map(k => k.startsWith("relay:trust:") ? JSON.stringify({ strikeUntil: Date.now() + 60_000 }) : null));
+  it("struck / blocklisted player is refused and no budget/send happens, even when simulation resolves first and succeeds", async () => {
+    const order: string[] = [];
+    const { release } = holdGate(ks => ks.map(k => k.startsWith("relay:trust:") ? JSON.stringify({ strikeUntil: Date.now() + 60_000 }) : null));
+    h.call.mockImplementation(async () => { order.push("sim"); queueMicrotask(release); return { data: "0x" }; });
+    h.budget.mockImplementation(async () => { order.push("budget"); return 0; });
+    h.send.mockImplementation(async () => { order.push("send"); return okRc(); });
     await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("strike") });
-    h.mget.mockImplementation(async (ks: string[]) => ks.map(k => k.startsWith("relay:trust:") ? "{not json" : null));
-    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("strike") });
-    none();
+    expect(order[0]).toBe("sim"); expect(order).not.toContain("budget"); expect(order).not.toContain("send");
+    expect(h.call).toHaveBeenCalled(); noChargeOrSend();
   });
-  it("revoke/strike store down ⇒ fail closed before simulation", async () => {
-    h.mget.mockRejectedValue(new Error("kv down"));
+  it("unreadable strike ledger entry ⇒ fail closed, no budget/send (simulation result discarded)", async () => {
+    const { release } = holdGate(ks => ks.map(k => k.startsWith("relay:trust:") ? "{not json" : null));
+    h.call.mockImplementation(async () => { queueMicrotask(release); return { data: "0x" }; });
+    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("strike") });
+    noChargeOrSend();
+  });
+  it("happy path still sends (sim ∥ gate, budget after both pass)", async () => {
+    const order: string[] = [];
+    h.call.mockImplementation(async () => { order.push("sim"); return { data: "0x" }; });
+    h.budget.mockImplementation(async () => { order.push("budget"); return 0; });
+    h.send.mockImplementation(async () => { order.push("send"); return okRc(); });
+    await expect(relayGaslessTrade(await wire())).resolves.toMatchObject({ kind: "confirmed", success: true });
+    expect(order).toEqual(["sim", "budget", "send"]);
+  });
+  it("revoke/strike store error ⇒ fail closed (no charge or send), even when simulation resolves first and succeeds", async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    const held = new Promise<void>(r => { release = r; });
+    h.mget.mockImplementation(async (ks: string[]) => {
+      if (ks.some(k => k.startsWith("relay:revoked:") || k.startsWith("relay:trust:"))) { await held; throw new Error("kv down"); }
+      return ks.map(() => null);
+    });
+    h.call.mockImplementation(async () => { order.push("sim"); queueMicrotask(release); return { data: "0x" }; });
+    h.budget.mockImplementation(async () => { order.push("budget"); return 0; });
+    h.send.mockImplementation(async () => { order.push("send"); return okRc(); });
     await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("gate store unavailable") });
-    none();
+    expect(order[0]).toBe("sim"); expect(order).not.toContain("budget"); expect(order).not.toContain("send");
+    noChargeOrSend();
   });
 });
 

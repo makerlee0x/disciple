@@ -18,10 +18,14 @@ import "server-only";
  * relayer pool lease + nonce rules, and the relayer-loss breaker (lib/server/relayBreaker, from flow/queue-a-e):
  * included reverts trip it ⇒ sends pause, notSent.
  *
- * Order (lee: parallel where safe): [shape + $3 minimum + local signature recovery, no RPC] → [Privy token (local
- * crypto) ∥ revoke/strike gate ∥ per-IP limit ∥ relayer warm] → exact simulation ∥ Privy user/wallet match (60 s cache)
- * → budget → sign + sync send. The simulation starts only after the token and revoke/strike gate passed; nothing is
- * charged or signed unless every admission check passed.
+ * Order (lee, 7:52 PM CT: "Run them in parallel, 384 ms"): [shape + $3 minimum + local signature recovery, no RPC] →
+ * [Privy token (local crypto) ∥ revoke/strike/blocklist gate ∥ per-IP limit ∥ relayer warm ∥ exact simulation (starts
+ * once the token and relayer are ready) ∥ Privy user/wallet match (60 s cache)] → budget → sign + sync send.
+ * Pattern: speculative parallel validation, commit only after all gates pass (0x Gasless / Settler meta-tx relayers
+ * validating off-chain before submit). A revoked / struck / blocklisted player is still refused BEFORE any budget
+ * charge, cap reservation, breaker accounting or send — a completed simulation is discarded. The token check (local
+ * crypto) still gates the eth_call so a missing/forged session never spends an RPC. Nothing is charged or signed
+ * unless every admission check passed.
  */
 import { encodeFunctionData, parseAbi, toFunctionSelector, recoverTypedDataAddress, type Address, type Hex } from "viem";
 import { ACTIVE_CHAIN, DEPLOYMENTS, robinhoodTestnet } from "../chains";
@@ -69,9 +73,11 @@ async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, extra:
   const did = timed(m, "authSession", () => verifySessionToken(d.authToken));
   const owner = did.then(x => timed(m, "authSessionWallet", () => requireSessionWallet(x, signer)));
   const gate = timed(m, "revokeStrikeGate", () => requireNotRevokedOrStruck(signer));
-  // Revoked / struck / token-less signers never reach the eth_call: it starts once the token (local crypto) and the
-  // revoke/strike MGET passed — both run concurrently with the relayer warm, which the simulation needs anyway.
-  const sim = Promise.all([relayer, gate, did]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data).catch(e => { throw legacyLogin(e); })));
+  // Speculative sim ∥ revoke/strike/blocklist read. The eth_call starts once the token (local crypto) and the relayer
+  // (needed for `from`) are ready — it does not wait for the gate. admit() still joins every gate before returning, so
+  // commit (budget / cap / breaker / send) cannot run if the gate (or token, or wallet match) failed; a finished
+  // simulation is then discarded. Gate is listed before sim in `all` so a revoke/strike error wins the throw if both fail.
+  const sim = Promise.all([relayer, did]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data).catch(e => { throw legacyLogin(e); })));
   const all = [did, owner, gate, d.ipGate ?? Promise.resolve(), ...extra, sim, relayer];
   const res = await timed(m, "admissionSimulationWall", () => Promise.allSettled(all));
   for (const x of res) if (x.status === "rejected") throw notSent(x.reason);
