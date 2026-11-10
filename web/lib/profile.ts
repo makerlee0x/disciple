@@ -7,6 +7,7 @@ import { IS_STATIC_PREVIEW } from "./base-path";
 import { refLink } from "./referral";
 import { claimMessage } from "./usernameClaim";
 import { PROFILE_COPY } from "./copy/profile";
+import { profileIdentityAddress } from "./profileIdentity";
 
 export const USERNAME_MIN = 3;
 export const USERNAME_MAX = 20;
@@ -65,11 +66,24 @@ export async function checkUsername(u: string): Promise<{ available: boolean; re
   } catch { return { available: false, reason: "Could not reach username service." }; }
 }
 
+/** Signed-in identity for usernames / profile meta: the MAv2 address when a smart session exists, else `address`. */
+export async function resolveProfileAddress(address: string | null | undefined): Promise<string | null> {
+  if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) return null;
+  try {
+    const s = await import("./aa/session");
+    const smart = await s.aaAddress().catch(() => null);
+    return profileIdentityAddress({ connected: address, smartAccount: smart, owner: s.aaSession()?.owner ?? null });
+  } catch {
+    return address.toLowerCase();
+  }
+}
+
 /** The wallet's claimed username and, during the 24h rename cooldown, when the next change is allowed (ms epoch). */
 export async function fetchUsernameStatus(address: string | null | undefined): Promise<{ username: string | null; nextAllowedAt: number | null }> {
-  if (IS_STATIC_PREVIEW || !address || !/^0x[0-9a-fA-F]{40}$/.test(address)) return { username: null, nextAllowedAt: null };
+  const id = await resolveProfileAddress(address);
+  if (IS_STATIC_PREVIEW || !id) return { username: null, nextAllowedAt: null };
   try {
-    const j = (await (await fetch(`/api/profile/username?address=${address.toLowerCase()}`, { cache: "no-store" })).json()) as { username?: string | null; nextAllowedAt?: number | null };
+    const j = (await (await fetch(`/api/profile/username?address=${id}`, { cache: "no-store" })).json()) as { username?: string | null; nextAllowedAt?: number | null };
     const t = typeof j.nextAllowedAt === "number" && j.nextAllowedAt > Date.now() ? j.nextAllowedAt : null;
     return { username: j.username ?? null, nextAllowedAt: t };
   } catch { return { username: null, nextAllowedAt: null }; }
@@ -77,10 +91,11 @@ export async function fetchUsernameStatus(address: string | null | undefined): P
 
 /** Signed in as `account`: drop another account's cached name, then cache this account's claimed name from the server. */
 export async function syncLocalIdentity(account: string | null | undefined): Promise<void> {
-  clearLocalIdentity(account);
-  if (!account) return;
-  const { username } = await fetchUsernameStatus(account);
-  if (username && get(K.username) !== username) { set(K.username, username); set(K.usernameFor, account.toLowerCase()); notifyProfileChanged(); }
+  const id = await resolveProfileAddress(account);
+  clearLocalIdentity(id);
+  if (!id) return;
+  const { username } = await fetchUsernameStatus(id);
+  if (username && get(K.username) !== username) { set(K.username, username); set(K.usernameFor, id); notifyProfileChanged(); }
 }
 
 export async function claimUsername(u: string, address: string | null): Promise<{ ok: boolean; reason?: string; nextAllowedAt?: number }> {
@@ -90,7 +105,7 @@ export async function claimUsername(u: string, address: string | null): Promise<
   if (!address) return { ok: false, reason: "Sign in first — usernames are bound to your wallet." };
   if (!IS_STATIC_PREVIEW) {
     try {
-      const a = address.toLowerCase();
+      const a = (await resolveProfileAddress(address)) ?? address.toLowerCase();
       const nr = await fetch(`/api/profile/username?nonce=1&address=${a}`, { cache: "no-store" });
       const { nonce } = (await nr.json()) as { nonce?: string };
       if (!nonce) return { ok: false, reason: "Could not start the claim." };
@@ -104,7 +119,7 @@ export async function claimUsername(u: string, address: string | null): Promise<
       if (!r.ok || !j.ok) return { ok: false, reason: j.reason || "Username taken.", nextAllowedAt: typeof j.nextAllowedAt === "number" ? j.nextAllowedAt : undefined };
     } catch { return { ok: false, reason: "Could not reach username service." }; }
   }
-  set(K.username, n); set(K.usernameFor, address.toLowerCase());
+  set(K.username, n); set(K.usernameFor, ((await resolveProfileAddress(address)) ?? address).toLowerCase());
   notifyProfileChanged();
   return { ok: true };
 }

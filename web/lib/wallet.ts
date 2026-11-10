@@ -73,6 +73,7 @@ import type { SendOpts } from "./aa/fastPath";
 import type { GasOpKind } from "./aa/gasReserve";
 import { aaAddress, aaAvailable, aaGasReservePerOp, aaLogout, aaOwnerAccount, aaPeekGasReservePerOp, aaSend, aaSession, eoaLogin, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
 import { clientGaslessMode } from "./aa/sponsorshipMode";
+import { profileIdentityAddress } from "./profileIdentity";
 import type { Hex, LocalAccount } from "viem";
 
 export type ExecResult = { txHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[]; userOp?: Hex; gasMode?: string; /** GAME reservation id (SendOpts.pressId) */ pressId?: string };
@@ -117,6 +118,11 @@ export async function activeAddress(): Promise<Address> {
   if (a) return a;
   if (plainWallet) return (await getSigner()).account.address;
   throw new SignInRequired();
+}
+/** Username / profile identity: the MAv2 address when a smart session exists, even in gasless mode (where activeAddress is the owner EOA). */
+export async function identityAddress(): Promise<Address | null> {
+  const smart = await aaAddress().catch(() => null);
+  return profileIdentityAddress({ connected: current, smartAccount: smart, owner: aaSession()?.owner ?? null }) as Address | null;
 }
 
 /**

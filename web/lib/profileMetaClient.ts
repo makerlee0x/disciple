@@ -4,7 +4,7 @@
  * Static preview (no API): kept in this browser only, like usernames.
  */
 import { IS_STATIC_PREVIEW } from "./base-path";
-import { notifyProfileChanged, signWalletMessage } from "./profile";
+import { notifyProfileChanged, resolveProfileAddress, signWalletMessage } from "./profile";
 import { PFP_ERROR, pfpFailure, pfpPrecheck, shrinkForUpload } from "./pfpUpload";
 import { EMPTY_META, normalizeFlag, PFP_ID_RE, profileMetaMessage, sanitizeBio, validateMeta, type ProfileMeta } from "./profileMeta";
 
@@ -19,7 +19,8 @@ export async function fetchProfileMeta(address: string | null | undefined): Prom
   if (IS_STATIC_PREVIEW) return localMeta();
   if (!isAddr(address)) return { ...EMPTY_META };
   try {
-    const j = (await (await fetch(`/api/profile/meta?address=${address.toLowerCase()}`, { cache: "no-store" })).json()) as Partial<ProfileMeta>;
+    const id = (await resolveProfileAddress(address)) ?? address.toLowerCase();
+    const j = (await (await fetch(`/api/profile/meta?address=${id}`, { cache: "no-store" })).json()) as Partial<ProfileMeta>;
     return { pfp: j.pfp || "", bio: j.bio || "", flag: j.flag || "", title: j.title || "" };
   } catch { return { ...EMPTY_META }; }
 }
@@ -30,7 +31,7 @@ export async function saveProfileMeta(input: ProfileMeta, address: string | null
   if (bad) return { ok: false, reason: bad };
   if (IS_STATIC_PREVIEW) { try { localStorage.setItem(LOCAL_KEY, JSON.stringify(m)); } catch { /* ignore */ } notifyProfileChanged(); return { ok: true }; }
   if (!isAddr(address)) return { ok: false, reason: "Sign in to see this." };
-  const a = address.toLowerCase();
+  const a = (await resolveProfileAddress(address)) ?? address.toLowerCase();
   try {
     const { nonce } = (await (await fetch(`/api/profile/meta?nonce=1&address=${a}`, { cache: "no-store" })).json()) as { nonce?: string };
     if (!nonce) return { ok: false, reason: "Could not reach the profile service." };

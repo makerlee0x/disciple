@@ -156,7 +156,13 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   useEffect(() => {
     if (!addr) { setUname(null); return; }
     let alive = true;
-    const load = () => { lookupFirstName([addr, ownerAddr]).then((n) => { if (alive) setUname(n); }); };
+    const load = () => {
+      // Prefer the smart account (where production stored the @name), then the displayed address / owner EOA.
+      void import("@/lib/aa/session").then((s) => s.aaAddress().catch(() => null)).then((smart) => {
+        if (!alive) return;
+        return lookupFirstName([smart, addr, ownerAddr]).then((n) => { if (alive) setUname(n); });
+      });
+    };
     const changed = () => { clearNameCache(); load(); };
     load();
     addEventListener(PROFILE_CHANGED_EVENT, changed);
