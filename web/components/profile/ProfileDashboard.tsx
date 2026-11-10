@@ -9,7 +9,7 @@ import { fetchProfileMeta } from "@/lib/profileMetaClient";
 import { evaluateAchievements } from "@/lib/achievements";
 import { lootFromAchievements, LOOT_SLOTS, type LootSlot } from "@/lib/profileLoot";
 import { useProfileUrlState } from "@/lib/profileUrlState";
-import { LOOT_ENABLED, REAL_PROGRESS_ENABLED } from "@/lib/features";
+import { GUILDS_ENABLED, LOOT_ENABLED, REAL_PROGRESS_ENABLED } from "@/lib/features";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
 import { SAMPLE_DATA_LABEL } from "@/lib/mock/sample-trades";
 import { earnedTitlesFor, profileStatsFor, profileStatsSeed, shownTitle, titleDef, titleTooltip } from "@/lib/titles";
@@ -262,7 +262,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         </button>
 
         <div className="pf-id">
-          <h1 className="pf-name"><span>{handle}</span><GuildTagFor address={wallet} size="lg" />{COUNTRY_FLAGS_ENABLED && meta.flag && <Flag cc={meta.flag} size={20} />}</h1>
+          <h1 className="pf-name"><span>{handle}</span>{GUILDS_ENABLED && <GuildTagFor address={wallet} size="lg" />}{COUNTRY_FLAGS_ENABLED && meta.flag && <Flag cc={meta.flag} size={20} />}</h1>
           {real && <div className="pf-rankrow" data-testid="profile-rankrow">
             <span className="pf-rank" style={{ color: ring, borderColor: ring }} aria-label={C["profile.rank.aria"](data.rank.label)}>{data.rank.label}</span>
             <span className="pf-lvl" aria-label={C["profile.level.aria"](prestige.level)}>{C["profile.level"](prestige.level)}</span>
