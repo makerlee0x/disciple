@@ -188,7 +188,8 @@ contract ModeRulesV2Test is IntegrationBase {
             c.loginGate(),
             c.trustedRouter(),
             c.crewTipThresholdBps(),
-            c.snipeEscrowTimeout()
+            c.snipeEscrowTimeout(),
+            address(c.feeVault())
         );
         assertEq(keccak256(address(c).code), keccak256(address(ref).code), "same runtime incl. immutables");
         assertLe(address(c).code.length, 24_576, "EIP-170");

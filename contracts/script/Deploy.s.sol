@@ -13,6 +13,7 @@ import {Migration} from "../src/Migration.sol";
 import {LoginGate} from "../src/LoginGate.sol";
 import {Launchpad} from "../src/Launchpad.sol";
 import {CurveDeployer} from "../src/CurveDeployer.sol";
+import {CurveFeeVault} from "../src/CurveFeeVault.sol";
 import {TrampWallManager} from "../src/TrampWallManager.sol";
 import {QuoteProbe} from "../src/QuoteProbe.sol";
 import {QuotePricer} from "../src/QuotePricer.sol";
@@ -238,7 +239,7 @@ contract Deploy is Script {
         );
 
         launchpad.setPricer(address(pricer));
-        o.curveDeployer = address(new CurveDeployer());
+        o.curveDeployer = address(new CurveDeployer(address(new CurveFeeVault(address(feeRouter)))));
         launchpad.setCurveDeployer(o.curveDeployer);
         launchpad.setQuoteProbe(address(probe));
         launchpad.setDefaultQuote(o.defaultQuote);

@@ -106,9 +106,11 @@ library Constants {
     ///      [9900, 2500, 300, 100, 30, 10, 3] for e = 0..6 (≈ Pons V2: 99% → ~25% at 1s → ~3% at 2s → ~0).
     ///      One shift + mask: block.timestamp has 1s resolution, so a per-second table is exact and fully tunable.
     uint256 internal constant ANTI_SNIPE_TABLE = 0x0003000a001e0064012c09c426ac;
-    /// @dev Unclaimed-escrow timeout DEFAULT. Maker lee 2026-10-23: 30 days → RewardsVault. Tunable by the protocol
-    ///      owner for FUTURE launches (`Launchpad.setSnipeEscrowTimeout`, bounds below), snapshotted per curve.
-    uint256 internal constant SNIPE_ESCROW_TIMEOUT = 30 days;
+    /// @dev Unclaimed-escrow timeout DEFAULT. Maker lee 2026-11-09: 12 days (was 30, 2026-10-23) → RewardsVault, for
+    ///      the sniper tax AND (lp-accrue curves) the bundled LP fee share. Tunable by the protocol owner for FUTURE
+    ///      launches (`Launchpad.setSnipeEscrowTimeout`, bounds below), snapshotted per curve. An already-deployed
+    ///      Launchpad keeps its stored value until the owner calls setSnipeEscrowTimeout(12 days).
+    uint256 internal constant SNIPE_ESCROW_TIMEOUT = 12 days;
     uint256 internal constant SNIPE_ESCROW_TIMEOUT_MIN = 1 days;
     uint256 internal constant SNIPE_ESCROW_TIMEOUT_MAX = 365 days;
     /// @dev Legacy 70/30 FeeRouter snipe split (pre-v2 curves). v2 curves never route a snipe fee through FeeRouter.

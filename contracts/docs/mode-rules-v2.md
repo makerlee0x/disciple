@@ -25,7 +25,7 @@ Curve facts: 1M supply (no burn, LOCKED #7 rev. 2026-10-23), 72% sold on the cur
 Constants: `src/libraries/Constants.sol` (`PVE_CAP_START_BPS=100`, `PVE_CAP_END_BPS=333`, `PVP_CAP_START_BPS=333`,
 `PVP_CAP_END_BPS=777`, `FIRST_BOOST_MAX_BPS_PVE=120`, `FIRST_BOOST_MAX_BPS_PVP=333`, `PVE_CREW_TIP_PPM=7770`,
 `CREW_TIP_THRESHOLD_BPS_DEFAULT=50` (bounds 10–500), `ANTI_SNIPE_START_BPS=9900`, `ANTI_SNIPE_DURATION=7`, `ANTI_SNIPE_TABLE=[9900,2500,300,100,30,10,3]`,
-`SNIPE_ESCROW_TIMEOUT=30 days` (bounds 1–365 days)).
+`SNIPE_ESCROW_TIMEOUT=12 days` since 2026-11-09, was 30 days (bounds 1–365 days)).
 
 ## Holding cap (Easy and Hard)
 
@@ -84,7 +84,7 @@ Constants: `src/libraries/Constants.sol` (`PVE_CAP_START_BPS=100`, `PVE_CAP_END_
 * At graduation it is passed to migration (event `SnipeEscrowToLP`). Migration marks it non-floor, so it is **not**
   used for the graduation floor: LockedLP credits it to the coin's locked **compound bucket** (as with the curve-phase
   fee LP escrow), which compounds into the locked full-range position over time.
-* If the coin has not graduated `curve.snipeEscrowTimeout()` (default 30 days) after launch, **anyone** can call
+* If the coin has not graduated `curve.snipeEscrowTimeout()` (default 12 days since 2026-11-09, was 30 days) after launch, **anyone** can call
   `releaseSnipeEscrow()` to send it to `FeeRouter.rewardsVault()` (event `SnipeEscrowReleased`). It reverts
   `EscrowLocked` before the timeout, `Graduated` after graduation, `ZeroRecipient` if no vault is set. Graduation
   and release race: whichever happens first takes the escrow. The timeout is owner-tunable for future launches
