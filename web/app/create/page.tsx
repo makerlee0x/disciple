@@ -209,7 +209,7 @@ export default function LaunchRocketPage() {
     }
     const quoteAddr = quote.address;
     if (!quoteAddr) {
-      setMsg("Pick a pair coin.");
+      setMsg("Pick the coin your rocket is bought and sold in.");
       return;
     }
     const fr = feeReceiver.trim();
@@ -352,10 +352,10 @@ export default function LaunchRocketPage() {
                     </div>
                   )}
                   {usingUpload && (
-                    <button type="button" className={s.link} onClick={clearUpload}>Use the generated badge</button>
+                    <button type="button" className={s.link} onClick={clearUpload}>Use the badge we made</button>
                   )}
                   {mod.state === "checking" && <p className={s.msg}>Checking image…</p>}
-                  {mod.state === "allow" && file && <p className={`${s.msg} ${s.msgOk}`}><Icon name="check" size={12} /> Icon approved{mod.note ? ` · ${mod.note}` : ""}</p>}
+                  {mod.state === "allow" && file && <p className={`${s.msg} ${s.msgOk}`}><Icon name="check" size={12} /> Image approved{mod.note ? ` · ${mod.note}` : ""}</p>}
                   {blocked && <p role="alert" className={`${s.msg} ${s.msgBad}`}>{mod.note || C.imageReverted}</p>}
                   {contrast && <p className={`${s.msg} ${s.msgBad}`}><Icon name="warning" size={12} /> {contrast}</p>}
                 </div>

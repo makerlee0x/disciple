@@ -18,7 +18,7 @@ export const QUICK_LAUNCH_COPY = {
   pickMode: "Pick your mode",
   name: "Name",
   ticker: "Ticker",
-  icon: "Icon",
+  icon: "Badge",
   useOwnImage: "Use your own image",
   firstBoost: "First BOOST",
   firstBoostTip: "This is your first buy, at launch. You get first dibs on your own rocket.",
