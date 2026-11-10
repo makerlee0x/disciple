@@ -153,3 +153,24 @@ test("chart title: exactly one $ whether or not the ticker carries one (desktop 
   assert.match(src, /const label = chartTicker\(ticker\)/); assert.doesNotMatch(src, /`\$\$\{label\}`/);
   assert.equal((src.match(/data-testid="dex-title-dollar"/g) || []).length, 1, "one $ glyph in the single (desktop + phone) title");
 });
+
+test("DexChart header: Price / Market cap toggle replaces static MCAP; default is market cap; price = mcap / supply", async () => {
+  const { fmtMcap } = await import("../lib/chart/candles");
+  const { DEFAULT_SUPPLY } = await import("../lib/pnl");
+  const src = readFileSync(new URL("../components/flight/DexChart.tsx", import.meta.url), "utf8");
+  assert.equal(DEFAULT_SUPPLY, 1_000_000);
+  assert.equal(7200 / DEFAULT_SUPPLY, 0.0072);
+  assert.equal(fmtMcap(7200 / DEFAULT_SUPPLY), "$0.00720");
+  assert.match(src, /useState<"mcap" \| "price">\("mcap"\)/, "default stays market cap");
+  assert.match(src, /\["price", "Price"\], \["mcap", "Market cap"\]/);
+  assert.doesNotMatch(src, /· MCAP/);
+  assert.match(src, /DEFAULT_SUPPLY/, "price = mcap / DEFAULT_SUPPLY (or the live mark's supply)");
+  assert.match(src, /supplyRef\.current = sup/, "same supply already on disciple:mark — no new API");
+  assert.match(src, /unitRef\.current === "price" \? 1 \/ \(supplyRef\.current > 0 \? supplyRef\.current : DEFAULT_SUPPLY\) : 1/);
+  // #211 pan / zoom / reset unchanged
+  assert.match(src, /axisPressedMouseMove: \{ time: true, price: true \}, axisDoubleClickReset: \{ time: true, price: true \}/);
+  assert.match(src, /handleScroll: \{ mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true/);
+  assert.match(src, /pinch: true/);
+  assert.match(src, /leave the time scale \(pan \/ zoom \/ reset\) alone/);
+  assert.match(src, /paint\(false\)/);
+});
