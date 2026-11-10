@@ -48,7 +48,7 @@ import { pnlKey, seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
 import type { RelayTimeoutExtra } from "./aa/relayTypes";
 import { markGradBuy, newPressId, tagPress } from "./aa/fastPath";
-import { holdInflightUntilSeen, roomCappedRange, tradeMinOut } from "./trade/queuePricing";
+import { cappedBuyRange, holdInflightUntilSeen, roomCappedRange, tradeMinOut } from "./trade/queuePricing";
 import { GradHint } from "./trade/gradHint";
 import { readGradNeed, usdgBuyGraduates, type GradNeed } from "./trade/gradNeed";
 export { readRouterMaxImpactBps, readGradNeed, type GradNeed } from "./trade/gradNeed";
@@ -1165,9 +1165,21 @@ export function createViemProtocol(): ProtocolClient {
         }
       }
     }
-    // fill-to-limit: an over-room buy (t.maxOut = the wallet's room − 0.5 %) is priced on min(quote, room) — a
-    // model-scaled quote doesn't know the cap; the curve partial-fills and the router refunds the rest (UsdgRefund)
-    let minOut = t.minAmountOut > B(0) ? t.minAmountOut : minOutOf(roomCappedRange(q, t.maxOut));
+    // fill-to-limit (over-cap buy, t.maxOut set): the curve partial-fills to the cap and the router refunds the rest
+    // (UsdgRefund); the buy must never revert for going over. A memory / model-scaled quote doesn't know the cap, so
+    // under a one-tap session (policy floor = the CAPPED live quote × (1 − max)) minOut is priced on the trader's
+    // cap-aware chain quote (quoteUsdgRouteFor: the partial-fill output) — one budgeted read, over-cap buys only.
+    // Owner-signed: minOut is a dust floor anyway ⇒ no read. Unreadable ⇒ the cached-room ceiling (as before).
+    const capped = isBuy && t.minAmountOut <= B(0) && t.maxOut != null && t.maxOut > B(0);
+    const cappedRange = async (r: { lo: bigint; hi: bigint }): Promise<{ lo: bigint; hi: bigint }> => {
+      // the tap quote was itself a fresh quoteUsdgRouteFor(me) read of this amount ⇒ already the capped chain quote
+      if (reads.quote?.src === "read" && !reads.quote.err) return cappedBuyRange(r, r.lo, t.maxOut, MODEL.inflight(route) > 0);
+      const v = sessionMaxSlippageBps() != null
+        ? await tapRead(reads, "capQuote", () => readUsdgRoute(fastClient(), router, t.token, true, t.amountIn, c.me)).catch(() => undefined)
+        : undefined;
+      return cappedBuyRange(r, v, t.maxOut, MODEL.inflight(route) > 0);
+    };
+    let minOut = t.minAmountOut > B(0) ? t.minAmountOut : minOutOf(capped ? await cappedRange(q) : q);   // not over-cap: no extra await
     if (minOut <= B(0)) throw new ProtocolError("ZeroQuote", "Route quote is zero — amount too small.");
     const routerCalls = (mo: bigint): Call[] => isBuy
       ? toCalls(routerBuyWithUsdgCalls({ router, usdg: c.usdg, token: t.token, usdgIn: t.amountIn, minTokensOut: mo, deadline: c.deadline }))
@@ -1187,7 +1199,7 @@ export function createViemProtocol(): ProtocolClient {
     const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {
       dropRouteQuotes(t.token); done(); if (mid) MODEL.end(route, mid);   // our own op hasn't landed: don't price it against itself
       try {
-        const mo = freshMinOut(minOut0, minOutOf(roomCappedRange(await quoteNow(), t.maxOut)));   // memory quote may be cap-unaware
+        const r0 = await quoteNow(), mo = freshMinOut(minOut0, minOutOf(capped ? await cappedRange(r0) : r0));   // over-cap: priced on the capped chain quote
         if (mo <= B(0)) throw new Error("re-quote is zero");
         const next = [...prefix, ...routerCalls(mo)];
         if (grad) markGradBuy(next[next.length - 1].data);

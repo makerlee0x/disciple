@@ -361,7 +361,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         // instead of adding its own (else the press is counted twice). pressId = the same id (FLOW #145 TradeParams.pressId):
         // the AA layer tags its disciple:op events / errors / result with it. Both optional + ignored by a stack without them.
         // TODO(#144/#145): plain fields once TradeParams has them.
-        // fill-to-limit: maxOut = the wallet's room − 0.5 % (buyFill roomOut) ⇒ minOut is never above what the cap lets fill
+        // fill-to-limit: maxOut = the cached room (buyFill roomOut) marks the buy as over-cap; the protocol prices minOut on the
+        // trader's capped chain quote (the partial-fill output) and uses this only as a fallback / in-flight ceiling
         const maxOut = side === "buy" && o?.roomOut ? tokensToWei(o.roomOut, COIN_DECIMALS) : BigInt(0);
         const params = { token: token as Address, side, amountIn, minAmountOut: BigInt(0), deadline: 0, slippageBps: slip.bps, reservationId: pressId, pressId, ...(maxOut > BigInt(0) ? { maxOut } : {}) };
         const baseline = new Map([token as Address, deployment().usdg].map(asset => [asset.toLowerCase(), OWN.get(asset, addr as Address) ?? peekReceiptBalance(asset, addr as Address)]));

@@ -52,6 +52,21 @@ export function roomCappedRange(r: { lo: bigint; hi: bigint }, maxOut?: bigint |
   if (maxOut == null || maxOut <= B(0)) return r;
   return { lo: r.lo < maxOut ? r.lo : maxOut, hi: r.hi < maxOut ? r.hi : maxOut };
 }
+/**
+ * Over-cap buy minOut range (lee, Nov 9 21:24 CT: "if their buy goes over, whatever just refund them back on that"): an
+ * over-cap buy must never revert for going over. The curve partial-fills to the holding cap and refunds the unused
+ * input (BondingCurve._quoteBuy / BuyRefunded; router: UsdgRefund), so the fill is EXACTLY the trader's on-chain room.
+ * `chainCapped` = the trader's cap-aware chain quote for this amount (router quoteUsdgRouteFor / curve quoteBuyFor:
+ * the partial-fill output itself) ⇒ the range is priced on it, never on the client's cached room estimate. The cached
+ * room (`maxOut`) is only a further ceiling while own buys are still in flight (the chain read can't see them yet), or
+ * the fallback when the chain quote is unknown. Every ceiling only LOWERS minOut.
+ */
+export function cappedBuyRange(r: { lo: bigint; hi: bigint }, chainCapped: bigint | null | undefined, maxOut: bigint | null | undefined,
+  ownInflight = false): { lo: bigint; hi: bigint } {
+  if (chainCapped == null || chainCapped <= B(0)) return roomCappedRange(r, maxOut);
+  const c = roomCappedRange(r, chainCapped);
+  return ownInflight ? roomCappedRange(c, maxOut) : c;
+}
 /** Token units (float, as TradeBridge tracks holdings) → wei, floored (6 decimals of precision, never rounds up). */
 export function tokensToWei(tokens: number, decimals = 18): bigint {
   if (!(tokens > 0) || !Number.isFinite(tokens)) return B(0);
