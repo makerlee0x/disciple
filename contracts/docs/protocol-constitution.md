@@ -40,7 +40,7 @@ This document is the source of truth for locked product and protocol decisions. 
 | 24 | Metadata (launch) | Like Flaunch: **image + name + ticker required**; description + socials optional | LOCKED |
 | 25 | Metadata (post-launch) | Creator can update **image, description, socials** — **NOT** name or ticker | LOCKED |
 | 26 | Ownership | Transferable anytime, multi-hop OK; full pack: metadata + fee claim + creator tax rights | LOCKED |
-| 27 | Creator buy (First BOOST) | Optional creator buy in the launch tx. Max per mode: **Easy 1.2%**, **Hard 3.33%**, **TRENCH `Launchpad.creatorBuyMaxBps`** (default 0.77%, owner-settable, ceiling 7%, snapshotted). A larger amount partial-fills to the max. Exempt from the holding cap **for that buy only** (counts in NET afterwards) and from the sniper tax. **Easy:** First BOOST tokens are **locked until graduation** (`Token._update`); later buys are free. Easy still requires login | LOCKED 2026-10-23 (rev.) |
+| 27 | Creator buy (First BOOST) | Optional creator buy in the launch tx. Max per mode: **Easy 1.2%**, **Hard 3.33%**, **TRENCH `Launchpad.creatorBuyMaxBps`** (default **7.77%**, owner-settable, ceiling **7.77%**, snapshotted; lee 2026-11-10, was default 0.77% / ceiling 7%). A larger amount partial-fills to the max. Exempt from the holding cap **for that buy only** (counts in NET afterwards) and from the sniper tax. **Easy:** First BOOST tokens are **locked until graduation** (`Token._update`); later buys are free. Easy still requires login | LOCKED 2026-10-23 (rev.) |
 | 28 | Deposits / gas | One deposit approval; user pays gas; **no gas sponsorship** | LOCKED |
 | 29 | MEV protection | **Deadline + non-zero minAmountOut**, plus a per-swap **price-impact cap on DiscipleRouter** (`maxImpactBps`, default 50%, owner-settable 1%–1000%; router only, direct PoolManager swaps unaffected) | LOCKED |
 | 30 | Pause | **No pause** — curves and graduated pools always live | LOCKED |
@@ -207,7 +207,7 @@ Style target: Flaunch-like required set (image + name + ticker).
 
 ### Optional creator buy
 - Allowed in the **same launch transaction**.
-- Cap ("First BOOST max", `Launchpad.firstBoostMaxBps(mode)`): **Easy 1.2%**, **Hard 3.33%**, **TRENCH `creatorBuyMaxBps`** — default 0.77%, set by the protocol owner via `Launchpad.setCreatorBuyMaxBps` (emits `CreatorBuyMaxSet`), ceiling 7%; per-coin snapshot `creatorBuyMaxBpsOf(token)`. Larger amounts partial-fill.
+- Cap ("First BOOST max", `Launchpad.firstBoostMaxBps(mode)`): **Easy 1.2%**, **Hard 3.33%**, **TRENCH `creatorBuyMaxBps`** — default 7.77%, set by the protocol owner via `Launchpad.setCreatorBuyMaxBps` (emits `CreatorBuyMaxSet`), ceiling 7.77% (lee 2026-11-10; was 0.77% / 7%); per-coin snapshot `creatorBuyMaxBpsOf(token)`. Larger amounts partial-fill.
 - Exempt from the holding cap for that buy only (counts in NET afterwards) and from the sniper tax.
 - **Easy:** the First BOOST tokens are locked until graduation (enforced in `Token._update` for the original creator); later buys are free.
 - Can be paid in USDG via `DiscipleRouter.launchWithUsdg` (router-only `Launchpad.launchFor`); not a session-key action.
@@ -365,4 +365,5 @@ The following are explicitly **out of scope** for v0. Do not implement against t
 - **Revisions 2026-10-15 (snipe split):** LOCKED #9 — anti-snipe tax now 70% community RewardsVault / 30% treasury (was 100% LP lock). Requires FeeRouter redeploy (core).
 - **Revisions 2026-10-15 (wallet cap):** LOCKED #8 — the fixed 7% curve wallet cap becomes protocol-owner-settable `walletCapBps` (default 0 = no cap, range 0–10000), snapshotted per coin. Creator-buy cap (#27) unchanged. Requires Launchpad + CurveDeployer (+ AntiSnipe, add-ons) redeploy.
 - **Revisions 2026-10-15 (creator buy cap):** LOCKED #27 — creator-buy cap is now protocol-owner-settable `creatorBuyMaxBps` (default 0.77%, ceiling 7%), snapshotted per coin. Requires Launchpad redeploy (core).
+- **Revision 2026-11-10 (lee, First BOOST):** TRENCH First BOOST max 7.77% of supply: `CREATOR_BUY_MAX_BPS_DEFAULT` 77 → 777 and `CREATOR_BUY_MAX_BPS_CEILING` 700 → 777 (778 reverts). New Launchpad deploys only; the live testnet Launchpad keeps its stored 700 (owner setting, untouched).
 - **Revision 2026-11-10 (lee, name/ticker lock, MAINNET only):** after a rocket ascends and claims, no new launch may reuse its normalized name+ticker until it has been below Outer Space for 24h (`NameRegistry`, see `docs/name-lock.md`). Image not locked. Testnet: off (no registry). Requires Launchpad deploy (constructor arg).

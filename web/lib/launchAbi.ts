@@ -44,7 +44,7 @@ export const DEFAULT_LAUNCH_MODE: LaunchModeId = modesActive() ? envMode() : Lau
 /**
  * First BOOST (creator launch buy) cap in bps of supply, exactly Launchpad.firstBoostMaxBps(mode) (mode rules v2):
  * Easy 1.2% and Hard 3.33% are fixed per mode (lib/modeRules FIRST_BOOST_MAX_BPS); Trench uses the live, owner-settable
- * creatorBuyMaxBps (default 0.77%). The mode cap REPLACES creatorBuyMaxBps, it does not stack. On the pre-modes ABI it is
+ * creatorBuyMaxBps (contracts default 7.77%). The mode cap REPLACES creatorBuyMaxBps, it does not stack. On the pre-modes ABI it is
  * always creatorBuyMaxBps. Quote with the mode-aware quoteCreatorBuy overload so exceedsCap uses the same cap.
  */
 export function effectiveCreatorBuyCapBps(creatorBuyMaxBps: number, mode: number, shape: LaunchAbiShape = LAUNCH_ABI_SHAPE) {
