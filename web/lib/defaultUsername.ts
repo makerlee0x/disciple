@@ -29,12 +29,30 @@ export const CALLSIGN_NOUNS = [
   "Redshift", "Aurora", "Kaboom", "Zoom", "Turbo", "Sparky", "Rocketfuel", "Skyrocket",
 ] as const;
 
-
 /** Longest possible default call sign: max(title length) + 1 space + max(noun length). No suffix digits.
  *  Enumerated over the frozen 32×64 lists; currently 22 ("Pathfinder Afterburner" / "Lieutenant Afterburner").
  *  New claimed usernames use this as USERNAME_MAX (lib/profile) so every default name fits the same width. */
 export const DEFAULT_USERNAME_MAX_LENGTH: number =
   Math.max(...CALLSIGN_TITLES.map((w) => w.length)) + 1 + Math.max(...CALLSIGN_NOUNS.map((w) => w.length));
+
+/** Longest generated default call sign (title + space + noun), computed from the frozen lists. */
+export const DEFAULT_USERNAME_MAX_LEN = Math.max(
+  ...CALLSIGN_TITLES.flatMap((t) => CALLSIGN_NOUNS.map((n) => t.length + 1 + n.length)),
+);
+
+/**
+ * Character cap for displayed usernames (TRADES feed, holders, floaters via engine `nameOf`).
+ * Equals the longest default call sign so those names are never cut. SITE can later replace
+ * this single constant with their number; do not add a second cap elsewhere.
+ */
+export const USERNAME_DISPLAY_CAP = DEFAULT_USERNAME_MAX_LEN;
+
+/** Publish the cap for engine.js (`window.__usernameDisplayCap`). Missing cap ⇒ nameOf does not truncate. */
+export function publishUsernameDisplayCap(w?: { __usernameDisplayCap?: number }): void {
+  const g = w ?? (typeof window !== "undefined" ? (window as Window & { __usernameDisplayCap?: number }) : undefined);
+  if (g) g.__usernameDisplayCap = USERNAME_DISPLAY_CAP;
+}
+
 
 const isAddr = (a: string) => /^0x[0-9a-f]{40}$/.test(a);
 
