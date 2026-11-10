@@ -351,10 +351,12 @@ contract LpAccrueTest is IntegrationBase {
         vm.expectRevert(BondingCurve.ZeroAmount.selector);
         c.releaseSnipeEscrow();
 
-        // later LP shares keep accruing and are releasable again (documented rule)
+        // L2 (lee 2026-11-09): later LP shares stay in the curve for the compound bucket; never released
         _buyC(ca, w, 50 ether);
-        uint256 again = c.releaseSnipeEscrow();
-        assertEq(again, (FeeMath.protocolFee(50 ether) * 33) / 100, "post-release LP share released again");
+        vm.expectRevert(BondingCurve.ZeroAmount.selector);
+        c.releaseSnipeEscrow();
+        c.settleFees();
+        assertEq(c.lpFeeEscrow(), (FeeMath.protocolFee(50 ether) * 33) / 100, "post-release LP share kept");
     }
 
     function test_graduationBefore12d_goesToCompoundBucket_notVault() public {

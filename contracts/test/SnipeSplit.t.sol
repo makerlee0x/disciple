@@ -12,6 +12,7 @@ import {Vm} from "forge-std/Vm.sol";
 contract SnipeSplitTest is IntegrationBase {
     event SnipeEscrowToLP(address indexed token, uint256 amount);
     event SnipeEscrowReleased(address indexed token, address indexed vault, uint256 amount);
+    event LpFeeEscrowReleased(address indexed token, address indexed vault, uint256 amount);
 
     function testFuzz_exact_escrow_on_curve(uint256 qIn, uint8 dt) public {
         qIn = bound(qIn, 1 ether, 300 ether);
@@ -26,15 +27,19 @@ contract SnipeSplitTest is IntegrationBase {
         (,,,, uint256 e0,,) = lockedLP.positions(address(tok));
         BondingCurve.BuyQuote memory q = curve.quoteBuy(qIn);
         _buy(curve, sniper, qIn, 0);
-        (,,,, uint256 e1,,) = lockedLP.positions(address(tok));
         uint256 proto = FeeMath.protocolFee(qIn - snipe);
+        assertEq(curve.protoFeesOwed(), proto, "lp-accrue: 1% owed on the curve");
+        curve.settleFees();
+        (,,,, uint256 e1,,) = lockedLP.positions(address(tok));
         (, uint256 lps, uint256 tsh, uint256 rsh) = FeeMath.splitTradeFee(proto);
         assertEq(q.snipeFee, snipe, "quote == executed");
-        assertEq(curve.snipeEscrow(), snipe, "all of it escrowed");
+        assertEq(curve.sniperTaxEscrow(), snipe, "all of it escrowed");
+        assertEq(curve.snipeEscrow(), snipe + lps, "sniper tax + LP share held on the curve");
         assertEq(quote.balanceOf(address(rewardsVault)), 0, "nothing to the vault on buys");
-        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - t0, tsh + rsh, "proto only");
-        assertEq(e1 - e0, lps, "LP gets only proto LP share");
-        assertEq(quote.balanceOf(address(curve)), curve.quoteReserve() + snipe, "escrow outside the reserve");
+        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))), t0, "FeeRouter untouched");
+        assertEq(feeVault.treasuryAccrued(address(quote)), tsh + rsh, "proto only (vault)");
+        assertEq(e1, e0, "nothing to LockedLP before graduation");
+        assertEq(quote.balanceOf(address(curve)), curve.quoteReserve() + snipe + lps, "escrows outside the reserve");
     }
 
     function test_escrow_excluded_from_price() public {
@@ -76,16 +81,27 @@ contract SnipeSplitTest is IntegrationBase {
     function test_escrow_to_locked_lp_at_graduation() public {
         (BondingCurve curve, Token tok) = _launch(0, 0);
         _buy(curve, sniper, 200 ether, 0);
-        uint256 esc = curve.snipeEscrow();
+        uint256 esc = curve.sniperTaxEscrow();
         assertGt(esc, 0);
+        // lp-accrue: SnipeEscrowToLP = sniper tax + the LP share of every curve-phase fee (settled once at ascension)
+        uint256 fees = curve.protoFeesOwed();
         vm.recordLogs();
         _graduate(curve);
         Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 tradeSig =
+            keccak256("Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)");
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter == address(curve) && logs[i].topics[0] == tradeSig) {
+                (,,, uint256 fee) = abi.decode(logs[i].data, (bool, uint256, uint256, uint256));
+                fees += fee; // creator tax 0: fee = protocol fee
+            }
+        }
+        uint256 lp = (fees * Constants.FEE_SHARE_LP_LOCK) / Constants.FEE_SHARE_DENOM;
         bool seen;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter == address(curve) && logs[i].topics[0] == SnipeEscrowToLP.selector) {
                 assertEq(logs[i].topics[1], bytes32(uint256(uint160(address(tok)))));
-                assertEq(abi.decode(logs[i].data, (uint256)), esc, "escrow amount into the LP");
+                assertEq(abi.decode(logs[i].data, (uint256)), esc + lp, "escrow amount into the LP");
                 seen = true;
             }
         }
@@ -101,16 +117,21 @@ contract SnipeSplitTest is IntegrationBase {
     function test_escrow_to_vault_after_timeout_not_before() public {
         (BondingCurve curve, Token tok) = _launch(0, 0);
         _buy(curve, sniper, 20 ether, 0);
-        uint256 esc = curve.snipeEscrow();
+        uint256 esc = curve.sniperTaxEscrow();
+        // lp-accrue: the LP share (33% of the 1%) is held beside the sniper tax and released with it (L2: what
+        // accrued by the timeout; no trade after it here, so all of it)
+        uint256 lp = (uint256(curve.protoFeesOwed()) * Constants.FEE_SHARE_LP_LOCK) / Constants.FEE_SHARE_DENOM;
         vm.warp(curve.launchTime() + Constants.SNIPE_ESCROW_TIMEOUT - 1);
         vm.expectRevert(BondingCurve.EscrowLocked.selector);
         curve.releaseSnipeEscrow();
         vm.warp(curve.launchTime() + Constants.SNIPE_ESCROW_TIMEOUT);
         vm.expectEmit(true, true, false, true, address(curve));
         emit SnipeEscrowReleased(address(tok), address(rewardsVault), esc);
+        vm.expectEmit(true, true, false, true, address(curve));
+        emit LpFeeEscrowReleased(address(tok), address(rewardsVault), lp);
         vm.prank(makeAddr("anyone"));
-        assertEq(curve.releaseSnipeEscrow(), esc);
-        assertEq(quote.balanceOf(address(rewardsVault)), esc);
+        assertEq(curve.releaseSnipeEscrow(), esc + lp);
+        assertEq(quote.balanceOf(address(rewardsVault)), esc + lp);
         assertEq(curve.snipeEscrow(), 0);
         assertEq(quote.balanceOf(address(curve)), curve.quoteReserve(), "reserve untouched");
         vm.expectRevert(BondingCurve.ZeroAmount.selector);

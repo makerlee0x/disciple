@@ -101,3 +101,53 @@ test("anon: claims route per launcher; legacy token share and stealth rows never
   const stealthRow = { ...row, launcher: v2, claimable: BigInt(1), stealth: { owner: A(7), ephemeralPubKey: "0x02" as const } };
   assert.equal(creatorClaimCalls([stealthRow], caps, ME).length, 0);               // signed path (anonSigClaimCalls)
 });
+
+test("lp-accrue: creator / private / referral claims hit the CurveFeeVault side that holds the balance", async () => {
+  const { creatorClaimCalls, referralClaimCalls, anonSigClaimCalls } = await import("../lib/claims/creatorFees");
+  const { anonLauncherAddr } = await import("../lib/claims/capabilities");
+  const { curveFeeVaultAbi, vaultClaimDomain } = await import("../lib/claims/vault");
+  const { decodeFunctionData } = await import("viem");
+  const { privateKeyToAccount } = await import("viem/accounts");
+  const { deployment } = await import("../lib/chains");
+  const v2 = anonLauncherAddr()!, VAULT = A(0xfee), fr = deployment().feeRouter;
+  const caps = { creatorFees: true, referrerFees: true, creatorTokenFees: false, crew: false, referralGate: false, anonClaims: true };
+  const fn = (c: { data: Hex }, abi: readonly unknown[]) => decodeFunctionData({ abi: abi as never, data: c.data }) as { functionName: string; args: readonly unknown[] };
+  // wallet rocket: vault-only balance → only the vault call; both sides → FeeRouter + vault; no vault → FeeRouter as before
+  const w = { token: A(9), claimable: BigInt(5), tokenSide: null, vault: VAULT, vaultClaimable: BigInt(5), baseClaimable: BigInt(0) };
+  assert.deepEqual(creatorClaimCalls([w], caps, ME).map((c) => c.to), [VAULT]);
+  assert.equal(fn(creatorClaimCalls([w], caps, ME)[0], curveFeeVaultAbi).functionName, "claimCreatorFees");
+  assert.deepEqual(creatorClaimCalls([{ ...w, claimable: BigInt(7), baseClaimable: BigInt(2) }], caps, ME).map((c) => c.to), [fr, VAULT]);
+  assert.deepEqual(creatorClaimCalls([{ token: A(9), claimable: BigInt(1), tokenSide: null }], caps, ME).map((c) => c.to), [fr]);
+  // private rocket owned by this account: launcher holds nothing → no AnonLauncher call; vault → claimCreatorFeesAsStealth(token, me)
+  const p = { ...w, anon: true, launcher: v2 };
+  const pc1 = creatorClaimCalls([p], caps, ME);
+  assert.deepEqual(pc1.map((c) => c.to), [VAULT]);
+  const d1 = fn(pc1[0], curveFeeVaultAbi);
+  assert.equal(d1.functionName, "claimCreatorFeesAsStealth");
+  assert.deepEqual(d1.args, [A(9), ME]);
+  assert.deepEqual(creatorClaimCalls([{ ...p, baseClaimable: BigInt(1), claimable: BigInt(6) }], caps, ME).map((c) => c.to), [VAULT, v2]);
+  // stealth-owned: signed by the stealth key, vault domain + sigNonces, recovers to the owner
+  const key = "0x00000000000000000000000000000000000000000000000000000000005ea17f" as Hex;
+  const owner = privateKeyToAccount(key).address;
+  const pcSig = { readContract: async ({ functionName }: { functionName: string }) => { assert.equal(functionName, "sigNonces"); return BigInt(3); } } as never;
+  const sc = await anonSigClaimCalls(pcSig, [{ ...p, stealth: { owner, ephemeralPubKey: "0x02" as Hex } }], ME, () => key);
+  assert.equal(sc.length, 1);
+  assert.equal(sc[0].to, VAULT);
+  const d2 = fn(sc[0], curveFeeVaultAbi);
+  assert.equal(d2.functionName, "claimManyAsStealthBySig");
+  const req = d2.args[0] as { owner: Address; tokens: Address[]; to: Address; relayerFeeBps: bigint; deadline: bigint; sig: Hex };
+  const { recoverTypedDataAddress } = await import("viem");
+  const { CLAIM_TYPES } = await import("../lib/anon");
+  const { ACTIVE_CHAIN } = await import("../lib/chains");
+  const rec = await recoverTypedDataAddress({ domain: vaultClaimDomain(ACTIVE_CHAIN.id, VAULT), types: CLAIM_TYPES, primaryType: "Claim",
+    message: { owner: req.owner, tokens: req.tokens, to: req.to, relayerFeeBps: req.relayerFeeBps, nonce: BigInt(3), deadline: req.deadline }, signature: req.sig });
+  assert.equal(rec, owner);
+  assert.equal(req.to, ME);
+  // referral: FeeRouter part and vault part each get their own claim (vault settles nothing extra: [])
+  const asset = { address: USDG, symbol: "USDG", decimals: 6, usd: 1 };
+  const rc = referralClaimCalls([{ asset, claimable: BigInt(9), vault: VAULT, vaultClaimable: BigInt(4) }]);
+  assert.deepEqual(rc.map((c) => c.to), [fr, VAULT]);
+  assert.deepEqual(fn(rc[1], curveFeeVaultAbi).args, [USDG, []]);
+  assert.deepEqual(referralClaimCalls([{ asset, claimable: BigInt(4), vault: VAULT, vaultClaimable: BigInt(4) }]).map((c) => c.to), [VAULT]);
+  assert.deepEqual(referralClaimCalls([{ asset, claimable: BigInt(4) }]).map((c) => c.to), [fr]);
+});

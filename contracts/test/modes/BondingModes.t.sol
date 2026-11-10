@@ -12,6 +12,7 @@ import {Constants} from "../../src/libraries/Constants.sol";
 import {FeeMath} from "../../src/libraries/FeeMath.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {stdStorage, StdStorage} from "forge-std/StdStorage.sol";
+import {CurveDeployerV1} from "../lpaccrue/legacy/CurveDeployerV1.sol";
 
 /// @notice Bonding-curve game modes (contracts/docs/bonding-modes.md): PVE / PVP / TRENCH WARFARE.
 contract BondingModesTest is IntegrationBase {
@@ -29,6 +30,14 @@ contract BondingModesTest is IntegrationBase {
     event ProfitTaxCharged(
         address indexed token, address indexed seller, uint256 tax, uint256 grossQuote, uint256 costBasis
     );
+
+    /// @dev lp-accrue curves have no on-chain login (lee 2026-11-09, app-level gating). The PVE login tests run on the
+    ///      pre-lp-accrue curve (same pattern as AnonLauncher.t.sol) so deployed older curves keep their coverage.
+    function _useLegacyCurves() internal {
+        address d = address(new CurveDeployerV1());
+        vm.prank(owner);
+        launchpad.setCurveDeployer(d);
+    }
 
     function setUp() public override {
         super.setUp();
@@ -144,6 +153,7 @@ contract BondingModesTest is IntegrationBase {
     // ── PVE ──
 
     function test_pve_loginRequired() public {
+        _useLegacyCurves(); // on-chain login check: pre-lp-accrue curve
         (BondingCurve c,) = _launchMode(Constants.MODE_PVE);
         _open(10 minutes);
         vm.startPrank(alice);
@@ -167,6 +177,7 @@ contract BondingModesTest is IntegrationBase {
     }
 
     function test_pve_globalLoginCoversEveryCurve() public {
+        _useLegacyCurves(); // on-chain login check: pre-lp-accrue curve
         (BondingCurve c,) = _launchMode(Constants.MODE_PVE);
         (BondingCurve c2,) = _launchMode(Constants.MODE_PVE);
         _open(10 minutes);
@@ -405,6 +416,7 @@ contract BondingModesTest is IntegrationBase {
     // ── router pass-through ──
 
     function test_router_passThroughPve() public {
+        _useLegacyCurves(); // on-chain login check: pre-lp-accrue curve
         (BondingCurve c, Token t) = _launchMode(Constants.MODE_PVE);
         _open(8 minutes);
         _verify(alice);
@@ -520,7 +532,17 @@ contract BondingModesTest is IntegrationBase {
         t.transfer(dave, half);
         assertEq(c.pendingRewards(carol), cp, "sender's earned rewards kept");
         assertEq(c.pendingRewards(dave), dp, "receiver gets none of the past");
+        c.settleFees(); // lp-accrue: owed fees sit in the curve until settled
         assertEq(c.rewardsHeld(), quote.balanceOf(address(c)) - c.quoteReserve() - c.snipeEscrow(), "reward pool fully backed");
+    }
+
+    /// @dev lp-accrue curves: no on-chain login check (app-level gating); an unverified wallet trades a PVE coin.
+    function test_pve_lpAccrue_noOnchainLogin() public {
+        (BondingCurve c,) = _launchMode(Constants.MODE_PVE);
+        _open(10 minutes);
+        _buyQ(c, alice, 1 ether);
+        assertGt(c.balanceOnCurve(alice), 0);
+        assertEq(c.verifiedUntilOf(alice), 0, "never written");
     }
 
     function test_pve_transferReceiverNetCap() public {
@@ -552,6 +574,7 @@ contract BondingModesTest is IntegrationBase {
     // ── audit L1 / L2: login cache TTL + max attestation TTL ──
 
     function test_pve_revokeBitesAfterCacheTtl() public {
+        _useLegacyCurves(); // on-chain login check: pre-lp-accrue curve
         (BondingCurve c,) = _pveSetup();
         _buyQ(c, alice, 1 ether);
         assertEq(c.verifiedUntilOf(alice), vm.getBlockTimestamp() + Constants.PVE_LOGIN_CACHE_TTL, "capped cache");

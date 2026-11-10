@@ -88,7 +88,7 @@ contract MigrationTest is Test {
         QuotePricer pricer_ = new QuotePricer(owner, IPoolManager(address(0)), address(quote));
         vm.prank(owner);
         launchpad.setPricer(address(pricer_));
-        CurveDeployer cd_ = new CurveDeployer(address(new CurveFeeVault(address(feeRouter))));
+        CurveDeployer cd_ = new CurveDeployer(address(new CurveFeeVault(address(feeRouter), address(0))));
         vm.prank(owner);
         launchpad.setCurveDeployer(address(cd_));
 

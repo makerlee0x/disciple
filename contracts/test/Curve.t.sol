@@ -51,6 +51,7 @@ contract CurveTest is Test {
     AntiSnipe internal antiSnipe;
     Migration internal migration;
     Launchpad internal launchpad;
+    CurveFeeVault internal feeVault; // lp-accrue: curve-phase creator / treasury / 1% (settled from the curve)
 
     CurveMath.Params internal params;
 
@@ -91,7 +92,8 @@ contract CurveTest is Test {
         QuotePricer pricer_ = new QuotePricer(owner, IPoolManager(address(0)), address(quote));
         vm.prank(owner);
         launchpad.setPricer(address(pricer_));
-        CurveDeployer cd_ = new CurveDeployer(address(new CurveFeeVault(address(feeRouter))));
+        feeVault = new CurveFeeVault(address(feeRouter), address(0));
+        CurveDeployer cd_ = new CurveDeployer(address(feeVault));
         vm.prank(owner);
         launchpad.setCurveDeployer(address(cd_));
 
@@ -322,7 +324,9 @@ contract CurveTest is Test {
         curve.buy(50 ether, 0, vm.getBlockTimestamp() + 1);
         vm.stopPrank();
 
-        assertGt((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))), tre0);
+        assertGt(curve.protoFeesOwed(), 0, "fee owed on the curve");
+        curve.settleFees();
+        assertGt((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)) + feeVault.treasuryAccrued(address(quote))), tre0);
     }
 
     function testFuzz_integration_buySell_noProfit(uint256 qSeed) public {
@@ -389,19 +393,25 @@ contract CurveTest is Test {
         curve.buy(quoteIn, 0, ts + 1 hours);
         vm.stopPrank();
 
-        (,,,, uint256 escrowAfter,,) = lockedLP.positions(tok);
-
         uint256 afterSnipe = quoteIn - expectedSnipe;
         uint256 protoFee = (afterSnipe * 100) / 10_000;
         (uint256 cs, uint256 lps, uint256 ts_, uint256 rs) = FeeMath.splitTradeFee(protoFee);
+        // lp-accrue: the 1% is owed on the curve until settled (no per-trade FeeRouter / LockedLP push)
+        assertEq(curve.protoFeesOwed(), protoFee, "fee owed on the curve");
+        curve.settleFees();
+        (,,,, uint256 escrowAfter,,) = lockedLP.positions(tok);
 
-        // mode rules v2: the sniper tax stays in the curve's snipeEscrow (→ locked LP at graduation, or RewardsVault
-        // after the 30-day timeout); LP only gets the proto LP share now
-        assertEq(curve.snipeEscrow(), expectedSnipe, "escrowed");
+        // mode rules v2: the sniper tax stays in the curve's sniperTaxEscrow (→ locked LP at graduation, or
+        // RewardsVault after the 12-day timeout); the LP share is kept beside it (lpFeeEscrow), nothing to LockedLP yet
+        assertEq(curve.sniperTaxEscrow(), expectedSnipe, "escrowed");
+        assertEq(curve.lpFeeEscrow(), lps, "LP share kept on the curve");
+        assertEq(curve.snipeEscrow(), expectedSnipe + lps, "snipeEscrow() = sniper tax + LP share (Migration input)");
         assertEq(quote.balanceOf(address(rewardsVault)), 0, "nothing to the vault on the buy");
-        assertEq(escrowAfter - escrowBefore, lps, "no snipe to LP yet");
-        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - treBefore, ts_ + rs, "proto treasury only");
-        assertEq(feeRouter.creatorAccrued(tok, alice) - creatorBefore, cs);
+        assertEq(escrowAfter - escrowBefore, 0, "no snipe or LP share to LockedLP before graduation");
+        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))), treBefore, "FeeRouter untouched");
+        assertEq(feeVault.treasuryAccrued(address(quote)), ts_ + rs, "proto treasury only (vault)");
+        assertEq(feeVault.creatorAccrued(tok, alice), cs);
+        assertEq(feeRouter.creatorAccrued(tok, alice), creatorBefore);
     }
 
     function test_afterSnipeWindow_noSnipeFee_onlyProtocol1pct() public {
@@ -416,11 +426,15 @@ contract CurveTest is Test {
         curve.buy(50 ether, 0, vm.getBlockTimestamp() + 1);
         vm.stopPrank();
 
+        curve.settleFees(); // lp-accrue: owed → LP share kept on the curve, the rest to the vault
         (,,,, uint256 escrowAfter,,) = lockedLP.positions(address(tok));
-        // Only LP share of protocol 1% (33% of 1% of 50e18) goes to escrow — not a snipe dump
+        // Only the LP share of protocol 1% (33% of 1% of 50e18) is escrowed (on the curve) — not a snipe dump
         uint256 protoFee = (50 ether * 100) / 10_000;
         uint256 lpShare = (protoFee * 33) / 100;
-        assertEq(escrowAfter - escrowBefore, lpShare);
-        assertGt((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))), treBefore);
+        assertEq(curve.lpFeeEscrow(), lpShare);
+        assertEq(curve.sniperTaxEscrow(), 0);
+        assertEq(escrowAfter, escrowBefore, "nothing to LockedLP before graduation");
+        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))), treBefore);
+        assertGt(feeVault.treasuryAccrued(address(quote)), 0, "treasury share in the vault");
     }
 }

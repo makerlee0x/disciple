@@ -75,7 +75,7 @@ contract FeeMathTest is Test {
         assertEq(Constants.ANTI_SNIPE_START_BPS, 9900);
         assertEq(Constants.ANTI_SNIPE_END_BPS, 0);
         assertEq(Constants.ANTI_SNIPE_DURATION, 7);
-        assertEq(Constants.SNIPE_ESCROW_TIMEOUT, 30 days);
+        assertEq(Constants.SNIPE_ESCROW_TIMEOUT, 12 days); // lee 2026-11-09 7:32 PM: 12-day rule (was 30)
     }
 
     /// lee 2026-10-24: 7s window, fast per-second decay (≈ Pons V2), hard 0 from 7s.

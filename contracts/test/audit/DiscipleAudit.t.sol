@@ -484,11 +484,12 @@ contract DiscipleAuditTest is IntegrationBase {
         quote.approve(address(router), type(uint256).max);
         tok.approve(address(router), type(uint256).max);
         uint256 out = router.buyWithUsdg(address(tok), 100 ether, 1, block.timestamp + 1);
-        uint256 r0 = feeRouter.referrerAccrued(kol, address(quote));
+        // lp-accrue: a referred trader's fee settles in the same trade, to CurveFeeVault (exact 1% attribution)
+        uint256 r0 = feeVault.referrerAccrued(kol, address(quote));
         vm.recordLogs();
         router.sellToUsdg(address(tok), out, 1, block.timestamp + 1);
         vm.stopPrank();
-        assertGt(feeRouter.referrerAccrued(kol, address(quote)), r0, "trader's referrer paid on the sell");
+        assertGt(feeVault.referrerAccrued(kol, address(quote)), r0, "trader's referrer paid on the sell");
         assertEq(c.balanceOnCurve(alice), 0);
         assertEq(c.balanceOnCurve(address(router)), 0);
         Vm.Log[] memory logs = vm.getRecordedLogs();

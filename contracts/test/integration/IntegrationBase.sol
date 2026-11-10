@@ -144,7 +144,7 @@ abstract contract IntegrationBase is Test {
         quoteProbe = new QuoteProbe(owner, manager, address(quote), address(pricer), 1e18);
         launchpad.setQuoteProbe(address(quoteProbe));
         launchpad.setPricer(address(pricer));
-        feeVault = new CurveFeeVault(address(feeRouter));
+        feeVault = new CurveFeeVault(address(feeRouter), address(0)); // AnonLauncher tests deploy their own vault
         launchpad.setCurveDeployer(address(new CurveDeployer(address(feeVault))));
         launchpad.setTrustedRouter(address(router), true);
         feeRouter.setClaimRouter(address(router), true);

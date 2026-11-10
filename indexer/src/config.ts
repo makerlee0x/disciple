@@ -23,6 +23,9 @@ export interface Stack {
   /** v4: UsdgDepositNotifier (Deposited / Escrowed / Withdrawn / Attested) and LoginGate (PVE). */
   usdgDepositNotifier?: Address;
   loginGate?: Address;
+  /** lp-accrue CurveFeeVault (CurveFeeSettled / LpFeeEscrowReleased era): deployment json contracts.CurveFeeVault, or
+   *  CURVE_FEE_VAULT for the newest stack until the json carries it. */
+  curveFeeVault?: Address;
 }
 
 export interface Config {
@@ -64,6 +67,7 @@ function stackOf(d: any, id: string, fromBlock: bigint): Stack {
     marketLens: c.MarketLens ?? d.addons?.MarketLens?.address,
     usdgDepositNotifier: c.UsdgDepositNotifier,
     loginGate: c.LoginGate,
+    curveFeeVault: c.CurveFeeVault,
   };
 }
 
@@ -85,6 +89,8 @@ export function loadConfig(env = process.env): Config {
   });
   // The newest stack's start block can be forced via START_BLOCK (e.g. after a redeploy whose json lacks startBlock).
   if (env.START_BLOCK && stacks.length) stacks[stacks.length - 1].fromBlock = BigInt(env.START_BLOCK);
+  if (env.CURVE_FEE_VAULT && /^0x[0-9a-fA-F]{40}$/.test(env.CURVE_FEE_VAULT) && stacks.length)
+    stacks[stacks.length - 1].curveFeeVault = env.CURVE_FEE_VAULT as Address;
   if (env.EXTRA_DEPLOYMENT) {
     const x = JSON.parse(fs.readFileSync(env.EXTRA_DEPLOYMENT, "utf8"));
     stacks.push(stackOf(x, env.EXTRA_STACK_ID ?? `v${stacks.length + 1}`, BigInt(x.startBlock ?? 0)));

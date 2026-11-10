@@ -54,10 +54,11 @@ contract LifecycleIntegrationTest is IntegrationBase {
         (BondingCurve curve,) = _launch(700, 0);
         assertEq(curve.creatorTaxBps(), 700);
         _warpPastSnipe();
-        uint256 before = feeRouter.creatorAccrued(address(curve.token()), creator);
+        uint256 before = feeVault.creatorAccrued(address(curve.token()), creator);
         _buy(curve, trader1, 50 ether, 0);
+        curve.settleFees(); // lp-accrue: settle the curve's owed fees into CurveFeeVault
         // tax + 33% of proto fee accrue to creator
-        assertGt(feeRouter.creatorAccrued(address(curve.token()), creator), before);
+        assertGt(feeVault.creatorAccrued(address(curve.token()), creator), before);
     }
 
     /// mode rules v2: sniper tax 99% → 0 over 7 s (per-second table), held in the curve's snipeEscrow (not routed to vault/treasury).
@@ -66,26 +67,27 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertEq(curve.currentSnipeFeeBps(), 9900);
 
         (,,,, uint256 escrow0,,) = lockedLP.positions(address(tok));
-        uint256 tre0 = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
-        uint256 creator0 = feeRouter.creatorAccrued(address(tok), creator);
+        uint256 tre0 = (quote.balanceOf(treasury) + feeVault.treasuryAccrued(address(quote)));
+        uint256 creator0 = feeVault.creatorAccrued(address(tok), creator);
 
         uint256 qIn = 50 ether;
         uint256 expectedSnipe = (qIn * 9900) / 10_000;
         _buy(curve, sniper, qIn, 0);
+        curve.settleFees(); // lp-accrue: owed fees -> CurveFeeVault; the 33% LP share stays in the curve's lpFeeEscrow
 
         (,,,, uint256 escrow1,,) = lockedLP.positions(address(tok));
         uint256 afterSnipe = qIn - expectedSnipe;
         uint256 proto = (afterSnipe * 100) / 10_000;
         uint256 lpFromProto = (proto * 33) / 100;
-        assertEq(escrow1 - escrow0, lpFromProto, "only the proto LP share to LockedLP");
-        assertEq(curve.snipeEscrow(), expectedSnipe, "sniper tax held in escrow");
+        assertEq(escrow1 - escrow0, 0, "lp-accrue: nothing pushed to LockedLP during the curve");
+        assertEq(curve.snipeEscrow(), expectedSnipe + lpFromProto, "sniper tax + proto LP share held in escrow");
         assertEq(quote.balanceOf(address(rewardsVault)), 0, "no 70/30 routing on curve buys");
         (,, uint256 tsh, uint256 rsh) = FeeMath.splitTradeFee(proto);
-        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - tre0, tsh + rsh, "treasury: proto only");
+        assertEq((quote.balanceOf(treasury) + feeVault.treasuryAccrued(address(quote))) - tre0, tsh + rsh, "treasury: proto only");
         assertEq(quote.balanceOf(address(curve)), curve.quoteReserve() + curve.snipeEscrow(), "escrow outside reserves");
 
         // Creator only gets protocol-fee slice, not snipe
-        assertEq(feeRouter.creatorAccrued(address(tok), creator) - creator0, (proto * 33) / 100);
+        assertEq(feeVault.creatorAccrued(address(tok), creator) - creator0, (proto * 33) / 100);
 
         // Mid decay (per-second table): 3% at 2s
         vm.warp(block.timestamp + 2);

@@ -172,16 +172,21 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
         case "LaunchFeePaid":
           if (isAnon) db.prepare("UPDATE coins SET launch_fee=? WHERE token=?").run(s(a.amount), lc(a.token));
           break;
-        case "TradeFeeRouted": {
+        case "TradeFeeRouted":
+        case "CurveFeeSettled": {
           // audit #11: explicit columns (a=creator b=lp c=treasury d=referral e=creatorTax) + unit flag, plus payee credits.
-          if (!isCore(stack.feeRouter)) break;
-          const fq = a.feeIsQuote ? 1 : 0;
+          // lp-accrue: CurveFeeSettled (stack CurveFeeVault only) has the same fields, always quote side; b = lpShareKept
+          // (stays on the curve as lpFeeEscrow, see LpFeeEscrowReleased / SnipeEscrowToLP).
+          const settled = ev.eventName === "CurveFeeSettled";
+          if (!isCore(settled ? stack.curveFeeVault : stack.feeRouter)) break;
+          const fq = settled || a.feeIsQuote ? 1 : 0;
+          const feeToken = settled ? a.quote : a.feeToken;
           db.prepare("INSERT OR IGNORE INTO fee_events (id, stack, kind, token, account, quote, a, b, c, d, e, block, ts, tx, fee_is_quote) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
-            id, stack.id, "TradeFeeRouted", lc(a.token), lc(a.trader), lc(a.feeToken), s(a.creatorShare), s(a.lpShare), s(a.treasuryShare),
+            id, stack.id, ev.eventName, lc(a.token), lc(a.trader), lc(feeToken), s(a.creatorShare), s(settled ? a.lpShareKept : a.lpShare), s(a.treasuryShare),
             s(a.referralShare), s(a.creatorTaxAmount), block, ts, l.transactionHash, fq);
           const credit = db.prepare("INSERT OR IGNORE INTO fee_credits VALUES (?,?,?,?,?,?,?,?,?,?,?)");
           const put = (payee: string, role: string, amt: bigint) => {
-            if (amt > 0n && lc(payee) !== ZERO) credit.run(id, stack.id, lc(a.token), lc(a.feeToken), fq, lc(payee), role, amt.toString(), block, ts, l.transactionHash);
+            if (amt > 0n && lc(payee) !== ZERO) credit.run(id, stack.id, lc(a.token), lc(feeToken), fq, lc(payee), role, amt.toString(), block, ts, l.transactionHash);
           };
           put(a.creator, "creator", BigInt(a.creatorShare) + BigInt(a.creatorTaxAmount));
           put(a.referralPayee, "referral", BigInt(a.referralShare));
@@ -210,6 +215,7 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
             a.id !== undefined ? Number(a.id) : null, a.unlockAt !== undefined ? Number(a.unlockAt) : null, block, ts, l.transactionHash);
           break;
         case "SnipeEscrowReleased":
+        case "LpFeeEscrowReleased":
         case "SnipeEscrowToLP": {
           // F-08: only the coin's own curve may emit these (plain transfer; RewardsVault does NOT notifyReward)
           const coin: any = coinBy.get(lc(a.token));
@@ -223,6 +229,8 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
         case "ReferrerFeesClaimed":
         case "UsdgDepositRecorded":
         case "CreatorFeesClaimed":
+        case "StealthCreatorFeesClaimed":
+        case "TreasuryFeesClaimed":
         case "CreatorTokenFeesClaimed":
         case "SnipeFeeRoutedToLP":
         case "SnipeFeeRouted":
@@ -230,11 +238,14 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
         case "RewardAccrued":
         case "Distributed": {
           const ok = { UsdgDepositRecorded: stack.referralRegistry, Claimed: stack.anonLauncher, RewardAccrued: stack.rewardsVault, Distributed: stack.rewardsVault }[ev.eventName as string] ?? stack.feeRouter;
-          if (!(isCore(ok) || (ev.eventName === "Claimed" && isAnon))) break;
+          // lp-accrue: the stack CurveFeeVault emits the same claim events (+ StealthCreatorFeesClaimed / TreasuryFeesClaimed)
+          const fromVault = isCore(stack.curveFeeVault) &&
+            ["CreatorFeesClaimed", "ReferrerFeesClaimed", "StealthCreatorFeesClaimed", "TreasuryFeesClaimed"].includes(ev.eventName as string);
+          if (!(isCore(ok) || fromVault || (ev.eventName === "Claimed" && isAnon))) break;
           const vals = Object.values(a).filter((v) => typeof v === "bigint").map(s); // numeric args only, in ABI order
           db.prepare("INSERT OR IGNORE INTO fee_events (id, stack, kind, token, account, quote, a, b, c, d, e, block, ts, tx) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
             id, stack.id, ev.eventName, a.token ? lc(a.token) : null,
-            lc(a.creator ?? a.trader ?? a.referrer ?? a.wallet ?? a.stealthOwner ?? a.to ?? ZERO), a.quote ? lc(a.quote) : a.asset ? lc(a.asset) : null,
+            lc(a.creator ?? a.trader ?? a.referrer ?? a.wallet ?? a.stealthOwner ?? a.treasury ?? a.to ?? ZERO), a.quote ? lc(a.quote) : a.asset ? lc(a.asset) : null,
             vals[0] ?? null, vals[1] ?? null, vals[2] ?? null, vals[3] ?? null, vals.slice(4).join(",") || null, block, ts, l.transactionHash);
           break;
         }

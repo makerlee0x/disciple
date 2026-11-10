@@ -18,17 +18,17 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
         (BondingCurve curve, Token tok) = _launch(0, 0);
         _warpPastSnipe();
 
-        uint256 refBefore = feeRouter.referrerAccrued(kol, address(quote));
-        _buy(curve, referred, 100 ether, 0);
-        uint256 refAfter = feeRouter.referrerAccrued(kol, address(quote));
+        uint256 refBefore = feeVault.referrerAccrued(kol, address(quote));
+        _buy(curve, referred, 100 ether, 0); curve.settleFees(); // lp-accrue: settle into CurveFeeVault
+        uint256 refAfter = feeVault.referrerAccrued(kol, address(quote));
         assertGt(refAfter, refBefore, "KOL gets 1% of trade fee leftover");
 
         // Claim anytime
-        uint256 claimable = feeRouter.referrerAccrued(kol, address(quote));
+        uint256 claimable = feeVault.referrerAccrued(kol, address(quote));
         uint256 bal0 = quote.balanceOf(kol);
         vm.prank(kol);
-        feeRouter.claimReferrerFees(address(quote));
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)), 0);
+        feeVault.claimReferrerFees(address(quote), new address[](0));
+        assertEq(feeVault.referrerAccrued(kol, address(quote)), 0);
         assertEq(quote.balanceOf(kol), bal0 + claimable);
         tok;
     }
@@ -54,22 +54,22 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
     function test_treasury_autoPush_on_trade() public {
         (BondingCurve curve,) = _launch(0, 0);
         _warpPastSnipe();
-        uint256 tre0 = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
-        _buy(curve, trader1, 100 ether, 0);
-        assertGt((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))), tre0, "treasury auto-push");
+        uint256 tre0 = (quote.balanceOf(treasury) + feeVault.treasuryAccrued(address(quote)));
+        _buy(curve, trader1, 100 ether, 0); curve.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertGt((quote.balanceOf(treasury) + feeVault.treasuryAccrued(address(quote))), tre0, "treasury auto-push");
     }
 
     function test_creator_claim_anytime() public {
         (BondingCurve curve, Token tok) = _launch(0, 0);
         _warpPastSnipe();
-        _buy(curve, trader1, 100 ether, 0);
-        uint256 accrued = feeRouter.creatorAccrued(address(tok), creator);
+        _buy(curve, trader1, 100 ether, 0); curve.settleFees(); // lp-accrue: settle into CurveFeeVault
+        uint256 accrued = feeVault.creatorAccrued(address(tok), creator);
         assertGt(accrued, 0);
         uint256 bal0 = quote.balanceOf(creator);
         vm.prank(creator);
-        feeRouter.claimCreatorFees(address(tok));
+        feeVault.claimCreatorFees(address(tok));
         assertEq(quote.balanceOf(creator) - bal0, accrued);
-        assertEq(feeRouter.creatorAccrued(address(tok), creator), 0);
+        assertEq(feeVault.creatorAccrued(address(tok), creator), 0);
         curve;
     }
 
@@ -101,8 +101,8 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
         _warpPastSnipe();
 
         // Accrue some fees to original creator first
-        _buy(curve, trader1, 40 ether, 0);
-        uint256 oldAccrued = feeRouter.creatorAccrued(address(tok), creator);
+        _buy(curve, trader1, 40 ether, 0); curve.settleFees(); // lp-accrue: settle into CurveFeeVault
+        uint256 oldAccrued = feeVault.creatorAccrued(address(tok), creator);
         assertGt(oldAccrued, 0, "pre-transfer accrual");
 
         address hop1 = makeAddr("hop1");
@@ -112,23 +112,41 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
         assertEq(launchpad.creatorOf(address(tok)), hop1);
 
         // Post-transfer fees → hop1; old accrual unchanged under creator
-        _buy(curve, trader2, 50 ether, 0);
-        assertEq(feeRouter.creatorAccrued(address(tok), creator), oldAccrued, "pre-transfer accrual stays with old");
-        assertGt(feeRouter.creatorAccrued(address(tok), hop1), 0, "new creator accrues after transfer");
+        _buy(curve, trader2, 50 ether, 0); curve.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertEq(feeVault.creatorAccrued(address(tok), creator), oldAccrued, "pre-transfer accrual stays with old");
+        assertGt(feeVault.creatorAccrued(address(tok), hop1), 0, "new creator accrues after transfer");
 
         // Multi-hop
         vm.prank(hop1);
         launchpad.transferCreator(address(tok), hop2);
-        uint256 hop1Accrued = feeRouter.creatorAccrued(address(tok), hop1);
-        _buy(curve, sniper, 30 ether, 0);
-        assertEq(feeRouter.creatorAccrued(address(tok), hop1), hop1Accrued, "hop1 pre-transfer stays");
-        assertGt(feeRouter.creatorAccrued(address(tok), hop2), 0, "hop2 accrues");
+        uint256 hop1Accrued = feeVault.creatorAccrued(address(tok), hop1);
+        _buy(curve, sniper, 30 ether, 0); curve.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertEq(feeVault.creatorAccrued(address(tok), hop1), hop1Accrued, "hop1 pre-transfer stays");
+        assertGt(feeVault.creatorAccrued(address(tok), hop2), 0, "hop2 accrues");
 
         // Claims work for each owner of their own accrual
         uint256 bal0 = quote.balanceOf(creator);
         vm.prank(creator);
-        feeRouter.claimCreatorFees(address(tok));
+        feeVault.claimCreatorFees(address(tok));
         assertEq(quote.balanceOf(creator), bal0 + oldAccrued);
+    }
+
+    /// @notice L1 (lee, Nov 9 2026: "Leave it, the new creator gets unsettled fees."): fees still owed on the curve at a
+    ///         creatorship transfer are booked to the creator of record at settle time; settling first keeps them.
+    function test_ownership_transfer_unsettled_fees_follow_new_creator() public {
+        (BondingCurve curve, Token tok) = _launch(0, 0);
+        _warpPastSnipe();
+        address hop1 = makeAddr("hop1");
+        _buy(curve, trader1, 40 ether, 0); // unreferred: owed on the curve, not settled
+        uint256 owed = feeVault.creatorClaimable(address(tok), creator);
+        assertGt(owed, 0);
+        vm.prank(creator);
+        launchpad.transferCreator(address(tok), hop1);
+        assertEq(feeVault.creatorClaimable(address(tok), creator), 0, "old creator: nothing booked");
+        assertEq(feeVault.creatorClaimable(address(tok), hop1), owed, "unsettled fees follow the new creator");
+        curve.settleFees();
+        assertEq(feeVault.creatorAccrued(address(tok), hop1), owed);
+        assertEq(feeVault.creatorAccrued(address(tok), creator), 0);
     }
 
     /// @notice LOCKED #21: coins created by referred wallet → KOL gets leftover 1% + 2% of creator's 33%.
@@ -157,10 +175,10 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
 
         BondingCurve curve = BondingCurve(r.curve);
         _warpPastSnipe();
-        _buy(curve, trader1, 100 ether, 0);
+        _buy(curve, trader1, 100 ether, 0); curve.settleFees(); // lp-accrue: settle into CurveFeeVault
 
-        uint256 creatorFees = feeRouter.creatorAccrued(r.token, referred);
-        uint256 kolShare = feeRouter.referrerAccrued(kol, address(quote));
+        uint256 creatorFees = feeVault.creatorAccrued(r.token, referred);
+        uint256 kolShare = feeVault.referrerAccrued(kol, address(quote));
         assertGt(creatorFees, 0);
         assertGt(kolShare, 0, "KOL must get leftover 1% + 2% of creator share");
 

@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { Address, Hex } from "viem";
 import { coinFacts } from "@/lib/protocol-viem";
-import { creatorClaimable, creatorClaimCalls, creatorTokenClaimable, isCreatorOf, sendCreatorClaims } from "@/lib/claims/creatorFees";
+import { creatorClaimCalls, creatorQuoteSplit, creatorTokenClaimable, isCreatorOf, sendCreatorClaims, type CreatorSplit } from "@/lib/claims/creatorFees";
 import { claimCrew, coinMode, crewClaimCall, crewFeed, crewPending, isPve, type CrewFeedRow } from "@/lib/claims/crew";
 import { assetMeta, claimErrorText, fmtAmount, preflight, type Asset } from "@/lib/claims/common";
 import { demoFeed, demoRedeploy } from "@/lib/claims/demo";
@@ -22,6 +22,8 @@ export default function CoinClaims({ token }: { token: string }) {
   const { caps, ready, demo } = useCaps();
   const [quote, setQuote] = useState<Asset | null>(null);
   const [mine, setMine] = useState<bigint | null>(null);
+  /** where `mine` sits: FeeRouter vs the coin's CurveFeeVault (lp-accrue), so the claim hits each side */
+  const [split, setSplit] = useState<CreatorSplit | null>(null);
   const [mineTok, setMineTok] = useState<{ raw: bigint; asset: Asset } | null>(null);
   const [crew, setCrew] = useState<bigint | null>(null);
   const [feed, setFeed] = useState<CrewFeedRow[]>([]);
@@ -48,9 +50,10 @@ export default function CoinClaims({ token }: { token: string }) {
       const q = await assetMeta(c, f.quote as Address);
       setQuote(q);
       if (me && caps.creatorFees && (await isCreatorOf(c, t, me))) {
-        setMine(await creatorClaimable(c, t, me));
+        const sp = await creatorQuoteSplit(c, t, me);
+        setSplit(sp); setMine(sp.claimable);
         if (caps.creatorTokenFees) { const [raw, asset] = await Promise.all([creatorTokenClaimable(c, t, me), assetMeta(c, t)]); setMineTok(raw > BigInt(0) ? { raw, asset } : null); }
-      } else { setMine(null); setMineTok(null); }
+      } else { setMine(null); setMineTok(null); setSplit(null); }
       if (caps.crew && isPve(await coinMode(c, t))) {
         if (me) setCrew((await crewPending(c, t, me))?.pending ?? null);
         setFeed(await crewFeed(c, t, 5));
@@ -64,7 +67,7 @@ export default function CoinClaims({ token }: { token: string }) {
     try {
       if (demo) { await new Promise((r) => setTimeout(r, 500)); setDone(`0x${"ef".repeat(32)}` as Hex); return; }
       if (sheet === "creator" && mine != null) {
-        const calls = creatorClaimCalls([{ token: token as Address, claimable: mine, tokenSide: mineTok ? { asset: mineTok.asset, claimable: mineTok.raw, claimed: BigInt(0) } : null }], caps, me ?? undefined);
+        const calls = creatorClaimCalls([{ token: token as Address, claimable: mine, ...(split ?? {}), tokenSide: mineTok ? { asset: mineTok.asset, claimable: mineTok.raw, claimed: BigInt(0) } : null }], caps, me ?? undefined);
         if (me) await preflight(pc(), calls, me);
         setDone((await sendCreatorClaims(calls)).txHash);
       }

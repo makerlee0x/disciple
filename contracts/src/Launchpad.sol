@@ -403,7 +403,11 @@ contract Launchpad is ILaunchpad, Owned2Step {
     }
 
     /// @notice Transfer creator ownership pack (§5 / #26): metadata + fee claim + tax rights.
-    /// @dev Accrued fees already booked to the previous creator stay with them (claim anytime).
+    /// @dev Fees already booked to the previous creator (FeeRouter.creatorAccrued, and CurveFeeVault.creatorAccrued
+    ///      for fees settled before the transfer) stay with them (claim anytime). lp-accrue curves (L1, lee
+    ///      2026-11-09 "Leave it, the new creator gets unsettled fees"): curve-phase fees that are still owed on the
+    ///      curve (not yet settled) are booked at settle time to the creator of record THEN, so they go to the new
+    ///      creator. To keep them, call BondingCurve.settleFees() (permissionless) before transferring.
     function transferCreator(address token, address newCreator) external {
         LaunchMeta storage m = metaOf[token];
         if (msg.sender != m.creator) revert OnlyCreator();

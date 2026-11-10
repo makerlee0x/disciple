@@ -89,10 +89,12 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @notice Easy crew-tip threshold in bps of the coin's mcap at the time of sale (snapshotted from Launchpad).
     uint256 public immutable crewTipThresholdBps;
     /// @notice Seconds after launch when a not-graduated curve's snipeEscrow becomes releasable to RewardsVault
-    ///         (snapshotted from Launchpad.snipeEscrowTimeout; default 30 days).
+    ///         (snapshotted from Launchpad.snipeEscrowTimeout; default 12 days).
     uint256 public immutable snipeEscrowTimeout;
     /// @notice lp-accrue: receives the creator / treasury / referral part of curve-phase fees on settle.
     ICurveFeeVault public immutable feeVault;
+    /// @dev launchTime + snipeEscrowTimeout, precomputed (L2 check on every fee without an add).
+    uint256 internal immutable _escrowUnlockAt;
     /// @notice FeeRouter's ReferralRegistry (snapshotted): a referred trader's fee is settled in the same trade so
     ///         their referrer's 1% is attributed exactly as today (the referrer only exists at trade time).
     IReferrerOf public immutable referrals;
@@ -106,8 +108,14 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @notice lp-accrue (lee 2026-11-09 "lets have the lp fee share do the same setup"): the 33% LP share of settled
     ///         curve-phase fees, held exactly like the sniper tax: outside quoteReserve, → LockedLP's locked compound
     ///         bucket at graduation (non-floor), or → RewardsVault via releaseSnipeEscrow() if not graduated
-    ///         `snipeEscrowTimeout` after launch. LP shares of later trades keep accruing here (releasable again).
+    ///         `snipeEscrowTimeout` after launch. Only the LP share accrued by the timeout is releasable
+    ///         (lpReleaseCap, once); LP shares of later trades stay here for the compound bucket at graduation.
     uint256 public lpFeeEscrow;
+    /// @notice L2 (lee 2026-11-09 "Only the LP fees accrued by day 12 go to the rewards vault; later ones go to the
+    ///         compound bucket"): the part of lpFeeEscrow that releaseSnipeEscrow may send to RewardsVault = the LP
+    ///         share of every fee accrued before launchTime + snipeEscrowTimeout. Snapshotted once, by the first trade
+    ///         or release after the timeout (lpEscrowCapped); zeroed by the release, so a second release can't move LP.
+    uint256 internal lpReleaseCap;
 
     uint256 public override quoteReserve;
     uint256 public override tokensSold;
@@ -122,6 +130,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     ///         it) keeps the LP 33% in lpFeeEscrow and sends the rest to `feeVault` for the creator/treasury/1% split.
     uint112 public protoFeesOwed;
     uint112 public creatorTaxOwed;
+    /// @notice L2: lpReleaseCap has been snapshotted (packed with the owed slot every unreferred trade already touches).
+    bool internal lpEscrowCapped;
 
     mapping(address => uint256) public balanceOnCurve; // for wallet cap tracking
 
@@ -241,6 +251,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         trustedRouter = trustedRouter_;
         crewTipThresholdBps = crewTipThresholdBps_;
         snipeEscrowTimeout = snipeEscrowTimeout_;
+        _escrowUnlockAt = block.timestamp + snipeEscrowTimeout_;
         feeVault = ICurveFeeVault(feeVault_);
         referrals = IReferrerOf(IFeeRouterCurve(feeRouter_).referrals());
 
@@ -820,6 +831,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
 
     /// @dev `fee` = protoFee + creator tax, already in this curve's quote balance (outside quoteReserve).
     function _takeFee(address trader, uint256 protoFee, uint256 fee) internal {
+        // L2: the first fee after the timeout freezes what the release may take, before this fee is added
+        if (block.timestamp >= _escrowUnlockAt && !lpEscrowCapped) _capLpRelease();
         if (referrals.referrerOf(trader) != address(0)) {
             _settle(trader, protoFee, fee - protoFee); // referred: settle now with the trader (exact 1% attribution)
         } else {
@@ -834,6 +847,26 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         lpFeeEscrow += lp;
         IERC20(quote).safeTransfer(address(feeVault), protoFee - lp + tax);
         feeVault.settle(token, quote, trader, protoFee, tax);
+    }
+
+    /// @dev L2 snapshot: settled LP share + the LP share the owed fees will add on settle (settle splits the same
+    ///      aggregate with the same formula, so lpFeeEscrow can only end up >= this; the release takes min of both).
+    function _capLpRelease() internal {
+        lpEscrowCapped = true;
+        lpReleaseCap =
+            lpFeeEscrow + (uint256(protoFeesOwed) * Constants.FEE_SHARE_LP_LOCK) / Constants.FEE_SHARE_DENOM;
+    }
+
+    /// @notice What releaseSnipeEscrow() would send to RewardsVault if called now (ignores the time lock; 0, 0 once
+    ///         graduated): the sniper tax, and the LP share accrued by the timeout (L2). Before any fee after the
+    ///         timeout this is the whole LP share, settled + owed.
+    function releasableEscrow() external view returns (uint256 sniperTax, uint256 lpShare) {
+        if (graduated) return (0, 0);
+        sniperTax = sniperTaxEscrow;
+        uint256 owedLp = (uint256(protoFeesOwed) * Constants.FEE_SHARE_LP_LOCK) / Constants.FEE_SHARE_DENOM;
+        lpShare = lpEscrowCapped ? lpReleaseCap : lpFeeEscrow + owedLp;
+        uint256 held = lpFeeEscrow + owedLp; // aggregate settle rounding can only add
+        if (lpShare > held) lpShare = held;
     }
 
     /// @notice "collect()": settle every owed curve-phase fee now. Permissionless; 0 owed = no-op.
@@ -921,24 +954,31 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
 
     // ── sniper escrow timeout ──
 
-    /// @notice Anyone, once `snipeEscrowTimeout` (default 30 days) has passed since launch without graduation: send the
+    /// @notice Anyone, once `snipeEscrowTimeout` (default 12 days) has passed since launch without graduation: send the
     ///         sniper escrow to the protocol RewardsVault (FeeRouter.rewardsVault). Reverts before the timeout,
     ///         after graduation (the escrow is in the LP), or when there is nothing to release.
     /// @dev lp-accrue: settles owed fees first (creator / treasury / 1% → feeVault, unaffected), then releases the
-    ///      sniper tax AND the LP fee share. Only these escrows move, never quoteReserve / rewardsHeld / inventory.
-    ///      Later LP shares keep accruing in lpFeeEscrow (→ compound bucket if it graduates, or released again).
+    ///      sniper tax AND the LP fee share accrued by the timeout (lpReleaseCap). Only these escrows move, never
+    ///      quoteReserve / rewardsHeld / inventory. L2 (lee 2026-11-09): LP shares of trades after the timeout stay
+    ///      in lpFeeEscrow and go to the compound bucket at graduation; they are never released. One release only:
+    ///      the cap is zeroed and never re-snapshotted, and no sniper tax accrues after the 7 s window, so any later
+    ///      call reverts ZeroAmount.
     function releaseSnipeEscrow() external returns (uint256 amount) {
         if (graduated) revert Graduated();
-        if (block.timestamp < launchTime + snipeEscrowTimeout) revert EscrowLocked();
+        if (block.timestamp < _escrowUnlockAt) revert EscrowLocked();
+        if (!lpEscrowCapped) _capLpRelease(); // no fee since the timeout: everything owed/escrowed accrued before it
         _settleFees();
         uint256 sn = sniperTaxEscrow;
-        uint256 lpE = lpFeeEscrow;
+        uint256 esc = lpFeeEscrow;
+        uint256 lpE = lpReleaseCap;
+        if (lpE > esc) lpE = esc;
         amount = sn + lpE;
         if (amount == 0) revert ZeroAmount();
         address v = IFeeRouterCurve(address(feeRouter)).rewardsVault();
         if (v == address(0)) revert ZeroRecipient();
         sniperTaxEscrow = 0;
-        lpFeeEscrow = 0;
+        lpFeeEscrow = esc - lpE;
+        lpReleaseCap = 0;
         IERC20(quote).safeTransfer(v, amount);
         emit SnipeEscrowReleased(token, v, sn);
         if (lpE != 0) emit LpFeeEscrowReleased(token, v, lpE);

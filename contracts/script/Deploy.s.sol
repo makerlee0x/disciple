@@ -239,15 +239,15 @@ contract Deploy is Script {
         );
 
         launchpad.setPricer(address(pricer));
-        o.curveDeployer = address(new CurveDeployer(address(new CurveFeeVault(address(feeRouter)))));
+        // ── Combined redeploy additions (flow/anon-launch + flow/snipe-split) ──
+        // Mode rules v2: sniper tax → curve snipeEscrow → LockedLP compound bucket at graduation (RewardsVault after timeout).
+        // Deployed before the CurveDeployer: the CurveFeeVault takes the AnonLauncher (AUDIT H1 stealth-owner claim).
+        (o.rewardsVault, o.anonLauncher, o.marketLens) =
+            _addons(deployer, treasury, feeRouter, hook, launchpad, migration, pricer, o.usdg, usdgDec);
+        o.curveDeployer = address(new CurveDeployer(address(new CurveFeeVault(address(feeRouter), o.anonLauncher))));
         launchpad.setCurveDeployer(o.curveDeployer);
         launchpad.setQuoteProbe(address(probe));
         launchpad.setDefaultQuote(o.defaultQuote);
-
-        // ── Combined redeploy additions (flow/anon-launch + flow/snipe-split) ──
-        // Mode rules v2: sniper tax → curve snipeEscrow → LockedLP compound bucket at graduation (RewardsVault after timeout).
-        (o.rewardsVault, o.anonLauncher, o.marketLens) =
-            _addons(deployer, treasury, feeRouter, hook, launchpad, migration, pricer, o.usdg, usdgDec);
         // referralSink: address(0) = today's routing (default). Non-zero takes the whole referral 1% incl. launch KOL.
         {
             address sink = vm.envOr("REFERRAL_SINK", address(0));

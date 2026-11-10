@@ -143,6 +143,11 @@ export class Api {
     const st = this.stackOf(c.stack)!;
     const creator = (await this.client.readContract({ address: st.launchpad, abi: READS, functionName: "creatorOf", args: [c.token] })) as Address;
     const accrued = (await this.client.readContract({ address: st.feeRouter, abi: READS, functionName: "creatorAccrued", args: [c.token, creator] })) as bigint;
+    // lp-accrue: curve-phase fees sit in the coin's CurveFeeVault (accrued + still owed on the curve); older curves have no feeVault()
+    const vault = (await this.client.readContract({ address: c.curve as Address, abi: READS, functionName: "feeVault" }).catch(() => null)) as Address | null;
+    const inVault = vault && !/^0x0{40}$/i.test(vault)
+      ? ((await this.client.readContract({ address: vault, abi: READS, functionName: "creatorClaimable", args: [c.token, creator] }).catch(() => 0n)) as bigint)
+      : 0n;
     let anon: any = null;
     // the coin's launcher = its Launchpad creator: v2, or v1 legacy (whose post-grad token share is unclaimable)
     const al = [st.anonLauncher, st.anonLauncherLegacy].find((x) => x && creator.toLowerCase() === x.toLowerCase());
@@ -151,8 +156,16 @@ export class Api {
       const owner = await this.client.readContract({ address: al, abi: READS, functionName: "stealthOwnerOf", args: [c.token] });
       anon = { launcher: al, legacy: al === st.anonLauncherLegacy, stealthOwner: owner, quote: q, quotePending: qa.toString(), tokenPending: ta.toString() };
     }
-    const claimed = this.db.prepare("SELECT COUNT(*) n FROM fee_events WHERE token=? AND kind IN ('CreatorFeesClaimed','Claimed')").get(c.token) as any;
-    return { token: c.token, creator, quote: c.quote, pending: accrued.toString(), pendingUsd: wad(accrued) * wad(BigInt(c.quote_price_usd ?? 0)), anon, claims: claimed.n };
+    // lp-accrue: a vault stealth claim emits CreatorFeesClaimed(token, launcher) + StealthCreatorFeesClaimed in one tx: count it once
+    const claimed = this.db.prepare(
+      `SELECT COUNT(*) n FROM fee_events f WHERE f.token=? AND (f.kind IN ('Claimed','StealthCreatorFeesClaimed') OR (f.kind='CreatorFeesClaimed'
+         AND NOT EXISTS (SELECT 1 FROM fee_events g WHERE g.token=f.token AND g.tx=f.tx AND g.kind='StealthCreatorFeesClaimed')))`,
+    ).get(c.token) as any;
+    const pending = accrued + inVault;
+    return {
+      token: c.token, creator, quote: c.quote, pending: pending.toString(), pendingUsd: wad(pending) * wad(BigInt(c.quote_price_usd ?? 0)), anon, claims: claimed.n,
+      feeRouterPending: accrued.toString(), vault: vault && !/^0x0{40}$/i.test(vault) ? vault : null, vaultPending: inVault.toString(),
+    };
   }
 
   listCoins(q: URLSearchParams) {
@@ -224,10 +237,45 @@ export class Api {
   }
 
   rewards() {
-    return this.db.prepare(
+    const rows = this.db.prepare(
       `SELECT stack, quote asset, kind, COUNT(*) n, SUM(qd(a, (SELECT c.quote_decimals FROM coins c WHERE c.quote=fee_events.quote AND c.quote_decimals IS NOT NULL LIMIT 1))) sum_a, SUM(qd(b, (SELECT c.quote_decimals FROM coins c WHERE c.quote=fee_events.quote AND c.quote_decimals IS NOT NULL LIMIT 1))) sum_b FROM fee_events
-       WHERE kind IN ('RewardAccrued','SnipeFeeRouted','SnipeFeeRoutedToLP','Distributed','SnipeEscrowReleased','SnipeEscrowToLP') GROUP BY stack, quote, kind`,
-    ).all();
+       WHERE kind IN ('RewardAccrued','SnipeFeeRouted','SnipeFeeRoutedToLP','Distributed','SnipeEscrowReleased','LpFeeEscrowReleased','SnipeEscrowToLP') GROUP BY stack, quote, kind`,
+    ).all() as any[];
+    // lp-accrue: SnipeEscrowToLP = sniper tax + LP fee share on curves that settle into a CurveFeeVault. Add the split as
+    // two derived rows per (stack, quote) so the old row keeps its meaning (total handed to Migration).
+    const coins = this.db.prepare("SELECT DISTINCT f.stack, f.token, f.quote, c.quote_decimals qdec FROM fee_events f LEFT JOIN coins c ON c.token=f.token WHERE f.kind='SnipeEscrowToLP'").all() as any[];
+    const agg = new Map<string, { stack: string; asset: string; n: number; sn: number; lp: number }>();
+    for (const x of coins) {
+      const sp = this.escrowSplit(x.token);
+      if (!sp.lpAccrue) continue;
+      const k = `${x.stack}|${x.quote}`;
+      const g = agg.get(k) ?? { stack: x.stack, asset: x.quote, n: 0, sn: 0, lp: 0 };
+      const d = 10 ** Number(x.qdec ?? 18);
+      g.n++; g.sn += Number(sp.sniperTax) / d; g.lp += Number(sp.lpFee) / d;
+      agg.set(k, g);
+    }
+    for (const g of agg.values()) {
+      rows.push({ stack: g.stack, asset: g.asset, kind: "SnipeEscrowToLP.sniperTax", n: g.n, sum_a: g.sn, sum_b: null });
+      rows.push({ stack: g.stack, asset: g.asset, kind: "SnipeEscrowToLP.lpFee", n: g.n, sum_a: g.lp, sum_b: null });
+    }
+    return rows;
+  }
+
+  /**
+   * lp-accrue split of a coin's SnipeEscrowToLP (raw quote): LP fee share still escrowed at graduation =
+   * Σ CurveFeeSettled.lpShareKept − Σ LpFeeEscrowReleased (capped at the total); the rest is sniper tax.
+   * lpAccrue=false (no CurveFeeSettled for the coin) ⇒ the whole amount is sniper tax (pre-lp-accrue meaning).
+   */
+  escrowSplit(token: string): { lpAccrue: boolean; toLP: bigint; sniperTax: bigint; lpFee: bigint } {
+    const rows = this.db.prepare("SELECT kind, a, b FROM fee_events WHERE token=? AND kind IN ('SnipeEscrowToLP','CurveFeeSettled','LpFeeEscrowReleased')").all(token.toLowerCase()) as any[];
+    const sum = (k: string, col: "a" | "b"): bigint => rows.filter((r) => r.kind === k).reduce((acc, r) => acc + BigInt(r[col] ?? 0), 0n);
+    const toLP = sum("SnipeEscrowToLP", "a");
+    const lpAccrue = rows.some((r) => r.kind === "CurveFeeSettled");
+    if (!lpAccrue) return { lpAccrue, toLP, sniperTax: toLP, lpFee: 0n };
+    let lp = sum("CurveFeeSettled", "b") - sum("LpFeeEscrowReleased", "a");
+    if (lp < 0n) lp = 0n;
+    if (lp > toLP) lp = toLP;
+    return { lpAccrue, toLP, sniperTax: toLP - lp, lpFee: lp };
   }
 
   holders(token: string, q: URLSearchParams) {
@@ -268,12 +316,14 @@ export class Api {
   feeRouting(token: string) {
     const c = this.coin(token);
     if (!c) return null;
-    const rows = this.db.prepare("SELECT kind, quote, a, b, c, d, e, fee_is_quote FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','SnipeFeeRouted','SnipeFeeRoutedToLP','CreatorFeesClaimed','RewardAccrued','SnipeEscrowReleased','SnipeEscrowToLP')").all(c.token) as any[];
+    const rows = this.db.prepare("SELECT kind, quote, a, b, c, d, e, fee_is_quote FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','CurveFeeSettled','SnipeFeeRouted','SnipeFeeRoutedToLP','CreatorFeesClaimed','RewardAccrued','SnipeEscrowReleased','LpFeeEscrowReleased','SnipeEscrowToLP')").all(c.token) as any[];
     const sum = (xs: (string | null)[]) => xs.reduce((acc, x) => acc + BigInt(x ?? 0), 0n);
     // audit #11: quote-unit rows only (legacy rows have fee_is_quote NULL = quote); token-unit post-grad fees reported apart
-    const tf = rows.filter((r) => r.kind === "TradeFeeRouted" && r.fee_is_quote !== 0);
+    // lp-accrue: CurveFeeSettled (vault) is the curve-phase TradeFeeRouted; lp = the share the curve kept (lpFeeEscrow)
+    const tf = rows.filter((r) => (r.kind === "TradeFeeRouted" || r.kind === "CurveFeeSettled") && r.fee_is_quote !== 0);
     const tt = rows.filter((r) => r.kind === "TradeFeeRouted" && r.fee_is_quote === 0);
     const sn = rows.filter((r) => r.kind === "SnipeFeeRouted");
+    const split = this.escrowSplit(c.token);
     const q = wad(BigInt(c.quote_price_usd ?? 0));
     const out: any = {
       token: c.token, quote: c.quote, trades: tf.length,
@@ -284,7 +334,13 @@ export class Api {
       // F-08: current-curve escrow movements (not via RewardAccrued / routeSnipeFee)
       snipeEscrowReleased: sum(rows.filter((r) => r.kind === "SnipeEscrowReleased").map((r) => r.a)),
       snipeEscrowToLP: sum(rows.filter((r) => r.kind === "SnipeEscrowToLP").map((r) => r.a)),
+      // lp-accrue: LP fee share released to RewardsVault (accrued by the escrow timeout), and the SnipeEscrowToLP split
+      lpFeeEscrowReleased: sum(rows.filter((r) => r.kind === "LpFeeEscrowReleased").map((r) => r.a)),
+      snipeEscrowToLPSniperTax: split.sniperTax,
+      snipeEscrowToLPLpFee: split.lpFee,
       rewardAccrued: sum(rows.filter((r) => r.kind === "RewardAccrued").map((r) => r.a)),
+      // creator fees paid out: FeeRouter + CurveFeeVault CreatorFeesClaimed (a vault stealth claim's CreatorFeesClaimed is
+      // the gross before any relayer fee; StealthCreatorFeesClaimed is not added on top, so each claim counts once)
       creatorClaimed: sum(rows.filter((r) => r.kind === "CreatorFeesClaimed").map((r) => r.a)),
     };
     const usd: any = {};

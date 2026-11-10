@@ -11,6 +11,10 @@
  *   crew      BondingCurve.HolderRewardsClaimed holder = me (no per-     BondingCurve.pendingRewards(me)          Launchpad.claim(token)
  *             holder accrual event exists, so crew shows up when claimed)
  *
+ * lp-accrue curves (BondingCurve.feeVault() ≠ 0): the same three rows come from CurveFeeVault instead: CurveFeeSettled
+ * (same fields as TradeFeeRouted, quote side) for history, creatorClaimable / referrerAccrued for claimable now, and
+ * vault.claimCreatorFees / claimReferrerFees / claimCreatorFeesAsStealth(BySig) to claim (lib/claims/vault.ts).
+ *
  * Total earned = claimed so far (claim events) + claimable now. "This week" = history entries in the last 7 days.
  * Dollar values use the live price of each asset (QuotePricer, launch tokens via the market read).
  */
@@ -116,7 +120,7 @@ export const MAX_CLAIM_CALLS = 20;
 export type CrewClaimable = { token: Address; pending: bigint };
 export type ClaimAllInput = {
   referral: ReferralBalance[];
-  creator: Pick<CreatorRocket, "token" | "claimable" | "tokenSide" | "anon" | "launcher" | "stealth">[];
+  creator: Pick<CreatorRocket, "token" | "claimable" | "tokenSide" | "anon" | "launcher" | "stealth" | "vault" | "vaultClaimable" | "baseClaimable">[];
   crew: CrewClaimable[];
 };
 export type TaggedCall = Call & { kind: RewardKind };
