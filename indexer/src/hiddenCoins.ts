@@ -23,3 +23,9 @@ export const HIDDEN_TEST_COINS: ReadonlySet<string> = new Set([
 ]);
 
 export const isHiddenCoin = (token: string | null | undefined): boolean => !!token && HIDDEN_TEST_COINS.has(token.toLowerCase());
+
+/** Same set as web/lib/home/hiddenCoins.ts. Indexer ingest is unchanged (trades stay recorded). */
+export const HIDDEN_TRADERS: ReadonlySet<string> = new Set([
+  "0x0c21c3b9bb01a8245cd6b9659c727affacc46d7e", // gasless DiscipleRouter (Permit2), RH testnet 46630
+]);
+export const isHiddenTrader = (address: string | null | undefined): boolean => !!address && HIDDEN_TRADERS.has(address.toLowerCase());

@@ -13,6 +13,7 @@ import { fetchHolders, overlayOwn, type BuildOpts, type HolderLabel, type Holder
 import { OWN, ownRead } from "@/lib/flight/ownLedger";
 import { holderNameNow, resolveHolderNames } from "@/lib/flight/holderNames";
 import { feedNameMap } from "@/lib/flight/feedNames";
+import { isHiddenTrader } from "@/lib/home/hiddenCoins";
 
 /**
  * Live coin pages: feeds the engine REAL holders (window 'disciple:holders-real' → engine S.holders → KOTH panel + the chat
@@ -77,7 +78,7 @@ export default function HoldersBridge({ coin }: { coin: string }) {
     const soon = (ms: number) => { if (timer) clearTimeout(timer); timer = setTimeout(() => { timer = null; void run(); }, ms); };
     const onEvent = (e: Event) => { const x = (e as CustomEvent<{ type?: string; token?: string; trader?: string }>).detail;
       if (x?.type !== "Trade" || (x.token && x.token.toLowerCase() !== coin.toLowerCase())) return;
-      if (x.trader && isAddr(x.trader)) { seen.add(x.trader.toLowerCase()); wantNames([x.trader]); }
+      if (x.trader && isAddr(x.trader) && !isHiddenTrader(x.trader)) { seen.add(x.trader.toLowerCase()); wantNames([x.trader]); }
       soon(2000); };
     const onMark = (e: Event) => { const m = (e as CustomEvent<{ mcap: number; supply?: number }>).detail; if (m?.mcap > 0) { supply = m.supply || supply; price = m.mcap / supply; } };
     const onTrade = () => soon(2500);

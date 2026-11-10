@@ -28,3 +28,15 @@ export const HIDDEN_TEST_COINS: ReadonlySet<string> = new Set([
 ]);
 
 export const isHiddenCoin = (token: string | null | undefined): boolean => !!token && HIDDEN_TEST_COINS.has(token.toLowerCase());
+
+/**
+ * Addresses hidden from the TRADES feed and the Holders list (not deleted from the trade index or chart).
+ * The gasless DiscipleRouter is recorded as Trade.trader on post-grad hook fills because the hook does not
+ * trust it (isTrustedRouter=false), so hookData with the signer is ignored and trader=msg.sender=router.
+ * That address hashes to "Maverick Skyrocket". Do not add the regular USDG router (0x6881…4ad2): the hook
+ * trusts it, so Trade.trader is the end user.
+ */
+export const HIDDEN_TRADERS: ReadonlySet<string> = new Set([
+  "0x0c21c3b9bb01a8245cd6b9659c727affacc46d7e", // gasless DiscipleRouter (Permit2), RH testnet 46630
+]);
+export const isHiddenTrader = (address: string | null | undefined): boolean => !!address && HIDDEN_TRADERS.has(address.toLowerCase());

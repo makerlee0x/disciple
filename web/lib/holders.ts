@@ -3,6 +3,8 @@
  * Balances are a running sum of Transfer deltas from the coin's first Transfer (mint), so they equal balanceOf for a
  * plain ERC-20 (the rocket token has no rebasing / fee-on-transfer).
  */
+import { isHiddenTrader } from "./home/hiddenCoins";
+
 export type HolderLabel = "pool" | "curve" | "locker" | null;
 /**
  * GAME contract (SITE job 7): what a holder row IS, for the HOLDERS list. "pool" = v4 PoolManager + the DISCIPLE hook
@@ -39,7 +41,7 @@ export function rankHolders(bal: Record<string, string>, o: { totalSupply: bigin
   const sup = o.totalSupply > BigInt(0) ? o.totalSupply : BigInt(1);
   return Object.entries(bal)
     .map(([a, b]) => [a, BigInt(b)] as const)
-    .filter(([, b]) => b > BigInt(0))
+    .filter(([a, b]) => b > BigInt(0) && !isHiddenTrader(a))
     .sort((x, y) => (x[1] === y[1] ? (x[0] < y[0] ? -1 : 1) : x[1] > y[1] ? -1 : 1))
     .slice(0, o.limit)
     .map(([address, b]) => {
