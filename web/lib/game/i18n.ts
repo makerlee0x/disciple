@@ -79,6 +79,7 @@ const en = {
   "pnl.hintUp": "▲ more uPnL → bigger points multiplier · hold to ramp",
   "pnl.hintFlat": "stay green to earn a bigger points multiplier",
   "pnl.inclBuyFees": "incl. {fee} buy fees",
+  "pnl.excludesBuyFees": "Excludes {fee} buy fees",
   "pnl.pctTitle": "uPnL ÷ cost basis (incl. buy fee) = MCAP ÷ AVG ENTRY MC − 1. Marked at the current price, before exit fee and price impact.",
   "pnl.live": "LIVE",
   "pnl.untracked": "held before tracking · no PnL",

@@ -22,23 +22,23 @@ const P = mods.pnl, R = mods["flight/coinRulesLabel"];
 // ───────────── 1. no phantom gas in the cost basis ─────────────
 console.log("— 1. no phantom gas");
 { const b = P.applyFill(P.emptyPosition(), "buy", 100, 1e-5);
-  ok(near(b.costBasis, 100), `a $100 BUY books a $100 cost basis (got ${b.costBasis}; was $100 + ~$0.01 modelled gas)`);
-  const x = P.applyExactFill(P.emptyPosition(), "buy", { usd: 100, tokens: 9.9e6 });
-  ok(near(x.costBasis, 100), `exact (receipt) BUY: cost basis = USDG spent, no gas (got ${x.costBasis})`);
+  ok(near(b.costBasis, 99) && near(b.buyFees, 1), `a $100 BUY books a $99 cost basis + $1 buyFees, no gas (got basis ${b.costBasis})`);
+  const x = P.applyExactFill(P.emptyPosition(), "buy", { usd: 100, tokens: 9.9e6, feeUsd: 1 });
+  ok(near(x.costBasis, 99) && near(x.buyFees, 1), `exact (receipt) BUY: cost basis = USDG spent minus fee, no gas (got ${x.costBasis})`);
   const s = P.seedCreatorBuyPosition("fixbatch:seed", 7e6, 50, 7e9, 1);
-  ok(s && near(s.costBasis, 50), `creator First BOOST seed: cost basis = $ spent (got ${s && s.costBasis}; was $50 + gas)`);
+  ok(s && near(s.costBasis, 49.5) && near(s.buyFees, 0.5), `creator First BOOST seed: cost basis = $ spent minus fee (got ${s && s.costBasis})`);
   ok(!("gasUsd" in P) && !/from "\.\/config";[^\n]*\bGAS\b/.test(rd("lib/pnl.ts")) && !/import\s*\{[^}]*\bGAS\b[^}]*\}\s*from "\.\/config"/.test(rd("lib/pnl.ts")), "lib/pnl has no gas model (gasUsd / GAS import gone)");
   const hud = rd("components/PnlHud.tsx");
   ok(!/f\.gas/.test(hud), "PnL HUD books fills with gas 0 (never the fill's gas field)");
   ok(/gas:0,/.test(eng) && !/gas:GAS_USD|gas:r\.gas/.test(eng), "engine paper fills carry gas:0");
   ok(!/\bGAS_USD\b/.test(eng) && !/S\.balance\s*\+=[^;\n]*GAS/.test(eng), "paper cash is not charged a modelled gas (GAS_USD gone)");
-  // red only because of the buy fee → "incl. $X buy fees"
+  // fee is out of avg entry: a fresh buy at the fill price is flat, not red; tooltip on AVG ENTRY
   const pos = P.applyFill(P.emptyPosition(), "buy", 100, 1e-5), v = P.view(pos, 1e-5, 7e9, Date.now());
-  const fee = P.redFromBuyFees(pos, v);
-  ok(v.uPnl < 0 && near(fee, 100 * P.FEE), `flat price right after a buy: uPnL ${v.uPnl.toFixed(2)} red only from the buy fee → note ${fee.toFixed(2)}`);
+  ok(Math.abs(v.uPnl) < 1e-9 && near(v.buyFees, 1) && P.redFromBuyFees(pos, v) === 0, `flat price right after a buy: uPnL ${v.uPnl.toFixed(4)} (fee not in basis), buyFees ${v.buyFees}`);
   const v2 = P.view(pos, 0.5e-5, 7e9, Date.now());
-  ok(P.redFromBuyFees(pos, v2) === 0, "price really down: no buy-fee note (the loss is not just fees)");
-  ok(/pnl-buy-fees/.test(hud) && /redFromBuyFees\((pos, v|\{ \.\.\.pos, costBasis: basis \}, \{ size: tracked \? v\.size : 0, uPnl: v\.uPnl \})\)/.test(hud) && /"pnl\.inclBuyFees": "incl\. \{fee\} buy fees"/.test(rd("lib/game/i18n.ts")), "PnL HUD labels it 'incl. $X buy fees'"); }
+  ok(P.redFromBuyFees(pos, v2) === 0, "price down: no inline buy-fee note (fees are a tooltip, not a red label)");
+  ok(/pnl.excludesBuyFees/.test(hud) && /title=\{buyFees > 0.005 \? t\("pnl.excludesBuyFees"/.test(hud) && /"pnl\.excludesBuyFees": "Excludes \{fee\} buy fees"/.test(rd("lib/game/i18n.ts")), "PnL HUD: buy fees only as AVG ENTRY tooltip 'Excludes $X buy fees'");
+  ok(!/pnl-buy-fees/.test(hud) && !/feeNote/.test(hud), "no visible buy-fee line on the position card"); }
 
 // ───────────── 2. BOOST vs cash ─────────────
 console.log("— 2. BOOST cash check");

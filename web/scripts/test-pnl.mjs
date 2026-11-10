@@ -91,24 +91,25 @@ if (fail) process.exit(1); else console.log("PASS");
   ok(S7 === 1e6, "default supply is DISCIPLE's 1M");
   let p = applyFill(emptyPosition(), "buy", 100, px(10_000), 0, 0);
   let v = view(p, px(10_000), S7, 0);
-  ok(near(v.entryMcap, 10_000 / 0.99, 1), `buy $100 @ $10K: entry mcap ${v.entryMcap.toFixed(0)} (= $10K grossed up by the 1% buy fee)`);
+  ok(near(v.entryMcap, 10_000, 1), `buy $100 @ $10K: entry mcap ${v.entryMcap.toFixed(0)} (= fill mcap; 1% buy fee excluded)`);
+  ok(near(p.buyFees, 1, 1e-9) && near(p.costBasis, 99, 1e-9), "… cost basis $99, buyFees $1");
   v = view(p, px(20_000), S7, 0);
-  ok(near(v.pnlPct, 98, 0.5) && near(v.uPnl, 98, 0.5), `mcap $10K → $20K: uPnL ${fmtPnl(v.uPnl)} ${fmtPct(v.pnlPct)} (≈ +100% less the 1% fee)`);
+  ok(near(v.pnlPct, 100, 0.5) && near(v.uPnl, 99, 0.5), `mcap $10K → $20K: uPnL ${fmtPnl(v.uPnl)} ${fmtPct(v.pnlPct)} (≈ +100%; fee is not in the basis)`);
   const gain = v.uPnl;
   p = applyFill(p, "sell", v.valueUsd * 0.5, px(20_000), 0, 0, 0.5); v = view(p, px(20_000), S7, 0);
   ok(near(p.realized, gain / 2, 0.01), `sell 50% @ $20K: realized ${fmtPnl(p.realized)} = half the gain`);
   ok(near(v.uPnl, gain / 2, 0.01), `… remaining uPnL ${fmtPnl(v.uPnl)} = the other half`);
-  ok(near(v.entryMcap, 10_000 / 0.99, 1), "… entry mcap unchanged by a sell");
+  ok(near(v.entryMcap, 10_000, 1) && near(p.buyFees, 0.5, 1e-9), "… entry mcap unchanged by a sell; buyFees scale to $0.50");
   ok(near(p.fees, 99 * 0.01, 0.01) && p.realized + v.uPnl === p.realized + v.uPnl, `… exit fee ${fmtMoney(p.fees)} booked separately (not in realized)`);
   v = view(p, px(15_000), S7, 0);
-  ok(near(v.uPnl, p.size * (px(15_000) - p.costBasis / p.size), 1e-9) && near(v.pnlPct, 48.5, 0.5), `mcap drops to $15K: uPnL ${fmtPnl(v.uPnl)} ${fmtPct(v.pnlPct)}`);
+  ok(near(v.uPnl, p.size * (px(15_000) - p.costBasis / p.size), 1e-9) && near(v.pnlPct, 50, 0.5), `mcap drops to $15K: uPnL ${fmtPnl(v.uPnl)} ${fmtPct(v.pnlPct)}`);
   const realizedBefore = p.realized, closing = v.uPnl;
   p = applyFill(p, "sell", 1e9, px(15_000), 0, 0, 1); v = view(p, px(15_000), S7, 0);
   ok(p.size === 0 && v.uPnl === 0 && v.valueUsd === 0, "full sell: holdings 0, uPnL 0, value 0");
   ok(near(p.realized, realizedBefore + closing, 1e-6), `… realized total ${fmtPnl(p.realized)} = earlier realized + closed uPnL`);
   // weighted average entry
   let q = applyFill(emptyPosition(), "buy", 100, px(10_000), 0, 0); q = applyFill(q, "buy", 100, px(20_000), 0, 0);
-  ok(near(view(q, px(20_000), S7, 0).entryMcap, 200 / (99 / 10_000 + 99 / 20_000), 1), `two buys $10K + $20K: weighted entry ${fmtMoney(view(q, px(20_000), S7, 0).entryMcap)} (token-weighted)`);
+  ok(near(view(q, px(20_000), S7, 0).entryMcap, 198 / (99 / 10_000 + 99 / 20_000), 1), `two buys $10K + $20K: weighted entry ${fmtMoney(view(q, px(20_000), S7, 0).entryMcap)} (token-weighted, fee-free)`);
   // guards
   ok(JSON.stringify(applyFill(emptyPosition(), "sell", 50, px(10_000), 0, 0)) === JSON.stringify(emptyPosition()), "sell with no holdings is a no-op");
   const r = applyFill(applyFill(emptyPosition(), "buy", 10, px(10_000), 0, 0), "sell", 1000, px(10_000), 0, 0);
@@ -123,7 +124,7 @@ if (fail) process.exit(1); else console.log("PASS");
   console.log("ok  audit scenarios"); }
 
 // ---- #3 (maker lee, 2026-10): "I own $1.35K of an $8.8K mcap but I'm only up 21%?" — holdings value vs PnL % ----------
-// PnL % = uPnL ÷ cost basis = mark ÷ avg-entry price − 1 (fees in the basis): it measures how far the mcap moved since YOUR
+// PnL % = uPnL ÷ cost basis = mark ÷ avg-entry price − 1: it measures how far the mcap moved since YOUR
 // entry, not your share of supply. The DISCIPLE curve starts at $3,333 (not $0), so even the very first buyer is entering at ≥$3,333.
 { let bad = 0; const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) bad++; };
   const S7 = DEFAULT_SUPPLY, px = (m) => m / S7;
@@ -184,9 +185,9 @@ if (fail) process.exit(1); else console.log("PASS");
   // curve buys, a curve sell, then post-grad Uniswap (hook) swaps; usdIn/usdOut (real USDG) win over usd; out-of-order input
   const F = [
     { side: "sell", tokens: 50, usd: 9, usdOut: 10, block: 12, logIndex: 0, ts: 3000 },         // curve sell 50 for $10
-    { side: "buy", tokens: 100, usd: 99, usdIn: 10, block: 10, logIndex: 1, ts: 1000 },          // curve buy 100 for $10
-    { side: "buy", tokens: 100, usd: 30, block: 11, logIndex: 0, ts: 2000 },                     // curve buy 100 for $30 (no usdIn)
-    { side: "buy", tokens: 50, usd: 0, usdIn: 20, block: 20, logIndex: 3, venue: "hook", ts: 4000 }, // post-grad swap buy
+    { side: "buy", tokens: 100, usd: 99, usdIn: 10, feeUsd: 0, block: 10, logIndex: 1, ts: 1000 },          // curve buy 100 for $10
+    { side: "buy", tokens: 100, usd: 30, feeUsd: 0, block: 11, logIndex: 0, ts: 2000 },                     // curve buy 100 for $30 (no usdIn)
+    { side: "buy", tokens: 50, usd: 0, usdIn: 20, feeUsd: 0, block: 20, logIndex: 3, venue: "hook", ts: 4000 }, // post-grad swap buy
     { side: "sell", tokens: 0, usd: 5, block: 21, logIndex: 0 },                                // zero-size: ignored
   ];
   const p = positionFromFills(F, DEFAULT_SUPPLY);
@@ -197,10 +198,10 @@ if (fail) process.exit(1); else console.log("PASS");
   ok(near(v.avgEntryUsd, 0.25) && near(v.entryMcap, 0.25 * DEFAULT_SUPPLY), `avg entry = $50 / 200 = $0.25 (${v.avgEntryUsd})`);
   ok(near(v.uPnl, 200 * 0.5 - 50) && near(v.realized, 0), `uPnL at $0.5 = ${v.uPnl} (= 200 × 0.5 − 50)`);
   // a profitable round trip: realized books the proceeds minus the closed basis
-  const q = positionFromFills([{ side: "buy", tokens: 10, usd: 1, block: 1 }, { side: "sell", tokens: 10, usd: 3, block: 2 }]);
+  const q = positionFromFills([{ side: "buy", tokens: 10, usd: 1, feeUsd: 0, block: 1 }, { side: "sell", tokens: 10, usd: 3, block: 2 }]);
   ok(near(q.size, 0) && near(q.costBasis, 0) && near(q.realized, 2), `buy $1 → sell $3: realized ${q.realized} (= +2), flat`);
   // a sell bigger than the known bag (a transfer the history missed) only closes the bag it knows
-  const t = positionFromFills([{ side: "buy", tokens: 100, usd: 10, block: 1 }, { side: "sell", tokens: 150, usd: 30, block: 2 }]);
+  const t = positionFromFills([{ side: "buy", tokens: 100, usd: 10, feeUsd: 0, block: 1 }, { side: "sell", tokens: 150, usd: 30, block: 2 }]);
   ok(near(t.size, 0) && near(t.realized, 30 * (100 / 150) - 10), `oversell with no transfer seen: realized ${t.realized} = the known 100's proceeds − basis`);
   // TRANSFERS (lee, Oct 30: "coins someone sent you should count in pnl, but at the market cap at the time of transfer")
   // a) transfer-in priced at the block price: a buy at that price → in avg entry + uPnL
@@ -214,7 +215,7 @@ if (fail) process.exit(1); else console.log("PASS");
   ok(near(b1.size, 600) && near(b1.realized, 3 - 1.6) && near(b1.costBasis, 2.4), `transfer-in 1000 @ $0.004, sell 400 for $3: realized ${b1.realized} (= 3 − 1.6), 600 left at $2.40`);
   // c) mix with buys (+ a transfer out at average cost, nothing realized)
   const c1 = positionFromFills([
-    { side: "buy", tokens: 100, usd: 10, block: 10 },                          // $0.10
+    { side: "buy", tokens: 100, usd: 10, feeUsd: 0, block: 10 },                          // $0.10
     { side: "sell", tokens: 150, usd: 45, block: 40 },                         // closes 150 of 300 at avg $0.20 → +15
   ], DEFAULT_SUPPLY, [
     { dir: "in", tokens: 200, block: 20, priceUsd: 0.25 },                    // +$50 basis → 300 @ $60 (avg $0.20)
@@ -248,6 +249,10 @@ if (fail) process.exit(1); else console.log("PASS");
   // no fills, no transfers → empty
   const e = positionFromFills([]);
   ok(e.size === 0 && e.costBasis === 0 && e.realized === 0, "no history → empty ledger");
+  // live /api/trades fills omit feeUsd: a buy still excludes the 1% fee from avg entry
+  const feeBuy = positionFromFills([{ side: "buy", tokens: 295.650083, usd: 9.952274, block: 1 }]);
+  ok(near(feeBuy.costBasis, 9.952274 * 0.99) && near(feeBuy.buyFees, 9.952274 * 0.01) && near(feeBuy.costBasis / feeBuy.size * DEFAULT_SUPPLY, 9.952274 * 0.99 / 295.650083 * DEFAULT_SUPPLY, 1e-6),
+    `indexed buy without feeUsd: basis ${feeBuy.costBasis.toFixed(4)} excludes 1% fee ${feeBuy.buyFees.toFixed(4)}, entry MC at the fill`);
   // PnlHud wiring: rebuild from /api/trades for the signed-in account; no 'held before tracking' line; POINTS behind its flag
   const hud = fs.readFileSync(path.join(dir, "../components/PnlHud.tsx"), "utf8");
   ok(/\/api\/trades\?coin=\$\{coin\}&wallet=\$\{account\}&limit=5000/.test(hud) && /const fills = j\.fills;/.test(hud), "PnlHud rebuilds the ledger from the account's indexed on-chain fills");

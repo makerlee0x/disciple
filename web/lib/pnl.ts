@@ -3,11 +3,11 @@
  * ProtocolClient.getPosition).
  *
  * Invariants (maker lee):
- *   uPnL     = holdings × (mark − avgEntry)            avgEntry = costBasis / size (buy fee included)
+ *   uPnL     = holdings × (mark − avgEntry)            avgEntry = costBasis / size (buy fee EXCLUDED; held in buyFees)
  *   realized += exactly the uPnL portion closed by a sell  = tokens × (fillPrice − avgEntry)
  *   the exit fee is booked separately in `fees` (a cost of the exit, not price PnL),
  *   so a rising mark with size > 0 always means rising uPnL, and a sell at the mark moves PnL from
- *   uPnL into realized one-for-one.
+ *   uPnL into realized one-for-one. A fresh buy marks at ~0 vs entry (Robinhood-style average cost).
  */
 import { CURVE, holdBonus } from "./config";
 // No network-fee line in the ledger: there is no flat per-trade "gas" charge to book. The cost basis is exactly the $ the
@@ -20,12 +20,14 @@ export const FEE = CURVE.tradeFeeBps / 10_000;
 export interface Position {
   /** token units */
   size: number;
-  /** $ paid (buy fee included) for the current size */
+  /** $ paid for the current size, excluding the buy fee (the fee is in `buyFees`) */
   costBasis: number;
   /** $ realized on sells (closed uPnL; the exit fee is in `fees`) */
   realized: number;
   /** $ exit fees paid (kept out of realized so realized == closed uPnL) */
   fees?: number;
+  /** $ buy fees paid on the current open size (excluded from costBasis / avg entry; scales down on a sell) */
+  buyFees?: number;
   /** ms timestamp continuous holding started (0 = flat) */
   holdStart: number;
   /** partial sells scale the hold bonus down proportionally */
@@ -46,7 +48,7 @@ export function rebase(p: Position, supply: number): Position {
   return { ...p, size: p.size * (supply / s0), supply };
 }
 
-export const emptyPosition = (): Position => ({ size: 0, costBasis: 0, realized: 0, fees: 0, holdStart: 0, sellScale: 1 });
+export const emptyPosition = (): Position => ({ size: 0, costBasis: 0, realized: 0, fees: 0, buyFees: 0, holdStart: 0, sellScale: 1 });
 
 /**
  * The PnL ledger's storage key: ONE signed-in account per coin (lee, Oct 30: "Other rockets −$84.32K" summed old paper /
@@ -59,7 +61,7 @@ export function pnlKey(prefix: string, account: string | null | undefined, coin:
 
 /**
  * Book a First BOOST (creator buy inside the launch tx) into the coin's PnL ledger with its EXACT fill: tokens received
- * and $ paid (fees included). Bug #4: it was never booked, so the creator's HUD showed nothing (or a stale/paper bag)
+ * and $ paid (buy fee split into buyFees, same as applyExactFill). Bug #4: it was never booked, so the creator's HUD showed nothing (or a stale/paper bag)
  * while the tokens sat in another wallet. Only seeds an empty ledger (never double-books).
  */
 export function seedCreatorBuyPosition(storageKey: string, tokens: number, usd: number, supply = DEFAULT_SUPPLY, at = Date.now()): Position | null {
@@ -67,7 +69,8 @@ export function seedCreatorBuyPosition(storageKey: string, tokens: number, usd: 
   try {
     const cur = JSON.parse(localStorage.getItem(storageKey) || "null") as Position | null;
     if (cur && cur.size > 0) return null;
-    const p: Position = { ...emptyPosition(), size: tokens, costBasis: usd, holdStart: at, supply };
+    const fee = usd * FEE;
+    const p: Position = { ...emptyPosition(), size: tokens, costBasis: usd - fee, buyFees: fee, holdStart: at, supply };
     localStorage.setItem(storageKey, JSON.stringify({ ...p, session: null }));
     return p;
   } catch { return null; }
@@ -83,7 +86,9 @@ export function applyFill(p: Position, side: "buy" | "sell", usd: number, price:
     const tokens = (usd * (1 - FEE)) / price;
     if (q.size <= 0) { q.holdStart = at; q.sellScale = 1; }
     q.size += tokens;
-    q.costBasis += usd + gas;
+    const fee = usd * FEE;
+    q.costBasis += usd - fee + gas;
+    q.buyFees = (q.buyFees || 0) + fee;
   } else {
     if (q.size <= 0) return q;
     if (bag !== undefined && bag >= 0 && bag < q.size) Object.assign(q, shrinkToWallet(q, bag));   // stale ledger: settle to the wallet first
@@ -96,9 +101,10 @@ export function applyFill(p: Position, side: "buy" | "sell", usd: number, price:
     q.realized += tokens * price - basisOut;                 // = closed uPnL at this price
     q.fees = (q.fees || 0) + tokens * price * FEE + gas;     // exit cost, shown separately
     q.costBasis -= basisOut;
+    q.buyFees = (q.buyFees || 0) * (1 - frac);
     q.size -= tokens;
     q.sellScale *= 1 - frac;
-    if (q.size <= 1e-12) { q.size = 0; q.costBasis = 0; q.holdStart = 0; q.sellScale = 1; }
+    if (q.size <= 1e-12) { q.size = 0; q.costBasis = 0; q.buyFees = 0; q.holdStart = 0; q.sellScale = 1; }
   }
   return q;
 }
@@ -106,7 +112,7 @@ export function applyFill(p: Position, side: "buy" | "sell", usd: number, price:
 /**
  * EXACT fill from the tx receipt (lib/flight/fills.ts decodes UsdgTrade / Trade logs): real USDG in/out and real token amounts,
  * so cost basis, avg entry and realized use what actually moved instead of the curve-average estimate applyFill books.
- *   buy : size += tokens received; costBasis += USDG spent (fee inside)
+ *   buy : size += tokens received; costBasis += USDG spent minus the buy fee; buyFees += the fee
  *   sell: closes `tokens` of the bag; realized += (usdOut + feeUsd) − basisOut (gross of the exit fee, same convention as
  *         applyFill), fees += feeUsd. A sell larger than the ledger bag (tokens bought outside this ledger) books
  *         only the ledger's share of the proceeds.
@@ -117,7 +123,7 @@ export interface ExactFill {
   usd: number;
   /** tokens received (buy) or sold (sell), whole tokens */
   tokens: number;
-  /** trade fee in $ (sell: inside the gross; buy: informational, already inside `usd`) */
+  /** trade fee in $ (sell: inside the gross, added back into realized; buy: subtracted from costBasis into buyFees) */
   feeUsd?: number;
   /** live sells: the wallet balance (whole tokens) the sell was sized from, i.e. right before it (TradeBridge) */
   bag?: number;
@@ -136,7 +142,9 @@ export function applyExactFill(p: Position, side: "buy" | "sell", x: ExactFill, 
   if (side === "buy") {
     if (q.size <= 0) { q.holdStart = at; q.sellScale = 1; }
     q.size += x.tokens;
-    q.costBasis += x.usd + gas;
+    const fee = Math.max(0, x.feeUsd !== undefined ? x.feeUsd : 0);
+    q.costBasis += x.usd - fee + gas;
+    q.buyFees = (q.buyFees || 0) + fee;
     return q;
   }
   if (q.size <= 0) return q;
@@ -150,9 +158,10 @@ export function applyExactFill(p: Position, side: "buy" | "sell", x: ExactFill, 
   q.realized += x.usd * share + fee - basisOut;
   q.fees = (q.fees || 0) + fee + gas;
   q.costBasis -= basisOut;
+  q.buyFees = (q.buyFees || 0) * (1 - frac);
   q.size -= tokens;
   q.sellScale *= 1 - frac;
-  if (q.size <= Math.max(1e-12, tokens * 1e-9)) { q.size = 0; q.costBasis = 0; q.holdStart = 0; q.sellScale = 1; }
+  if (q.size <= Math.max(1e-12, tokens * 1e-9)) { q.size = 0; q.costBasis = 0; q.buyFees = 0; q.holdStart = 0; q.sellScale = 1; }
   return q;
 }
 
@@ -215,6 +224,8 @@ export interface PositionView {
   uPnl: number;
   realized: number;
   fees: number;
+  /** $ buy fees on the open (tracked) size; excluded from avg entry */
+  buyFees: number;
   bonus: number;
 }
 
@@ -227,7 +238,7 @@ export function view(p: Position, price: number, supply: number, now = Date.now(
   return {
     size: p.size, valueUsd, avgEntryUsd: avg, entryMcap: avg * supply,
     pnlPct: p.costBasis > 0 ? (uPnl / p.costBasis) * 100 : 0,
-    uPnl, realized: p.realized, fees: p.fees || 0,
+    uPnl, realized: p.realized, fees: p.fees || 0, buyFees: p.buyFees || 0,
     bonus: holdBonus(uPnl, held, p.sellScale, valueUsd),
   };
 }
@@ -280,7 +291,7 @@ export function walletView(p: Position, walletTokens: number, price: number, sup
   return {
     size: wallet, valueUsd: wallet * price, avgEntryUsd: avg, entryMcap: avg * supply,
     pnlPct: basis > 0 ? (uPnl / basis) * 100 : 0,
-    uPnl, realized: p.realized, fees: p.fees || 0,
+    uPnl, realized: p.realized, fees: p.fees || 0, buyFees: (p.buyFees || 0) * scale,
     bonus: holdBonus(uPnl, held, p.sellScale, trackedUsd),
     tracked, trackedUsd, untracked, untrackedUsd: untracked * price, costBasis: basis,
   };
@@ -293,16 +304,16 @@ export function walletView(p: Position, walletTokens: number, price: number, sup
  */
 export function shrinkToWallet(p: Position, walletTokens: number): Position {
   if (!(p.size > 0) || !(walletTokens >= 0) || walletTokens >= p.size * (1 - 1e-9)) return p;
-  if (walletTokens <= p.size * 1e-9) return { ...p, size: 0, costBasis: 0, holdStart: 0, sellScale: 1 };
+  if (walletTokens <= p.size * 1e-9) return { ...p, size: 0, costBasis: 0, buyFees: 0, holdStart: 0, sellScale: 1 };
   const k = walletTokens / p.size;
-  return { ...p, size: walletTokens, costBasis: p.costBasis * k, sellScale: p.sellScale * k };
+  return { ...p, size: walletTokens, costBasis: p.costBasis * k, buyFees: (p.buyFees || 0) * k, sellScale: p.sellScale * k };
 }
 
 /**
  * One indexed on-chain fill of THIS account in THIS coin (lib/trades Fill, the /api/trades?coin=&wallet= rows): bonding-curve
  * buys / sells and, after graduation, the coin's v4 pool swaps (DiscipleHook Trade events, venue "hook").
  */
-export type ChainFill = { side: "buy" | "sell"; tokens: number; usd: number; usdIn?: number; usdOut?: number; ts?: number; block?: number; logIndex?: number };
+export type ChainFill = { side: "buy" | "sell"; tokens: number; usd: number; usdIn?: number; usdOut?: number; feeUsd?: number; ts?: number; block?: number; logIndex?: number };
 const chainUsd = (f: ChainFill) => { const v = f.side === "sell" ? (f.usdOut ?? f.usd) : (f.usdIn ?? f.usd); return Number.isFinite(v) && v > 0 ? v : 0; };   // = lib/trades playerUsd (kept import-free)
 
 /**
@@ -374,7 +385,10 @@ export function positionFromFills(fills: ChainFill[], supply = DEFAULT_SUPPLY, t
     }
     const f = e.f as ChainFill, tokens = Number(f.tokens), usd = chainUsd(f);
     if (!(tokens > 0)) continue;
-    p = f.side === "sell" && tokens > p.size ? applyExactFill(p, "sell", { tokens, usd }, 0, at, tokens) : applyExactFill(p, f.side, { tokens, usd }, 0, at);
+    // trades: buy fee is inside usd (1% unless the fill already carries feeUsd). Transfers pass feeUsd 0 via applyExactFill above.
+    const feeUsd = f.side === "buy" ? (f.feeUsd !== undefined ? f.feeUsd : usd * FEE) : f.feeUsd;
+    const x = { tokens, usd, feeUsd };
+    p = f.side === "sell" && tokens > p.size ? applyExactFill(p, "sell", x, 0, at, tokens) : applyExactFill(p, f.side, x, 0, at);
   }
   return p;
 }

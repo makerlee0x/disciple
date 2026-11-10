@@ -141,11 +141,11 @@ ok(fills.decodeTradeFill([hk], { token: "0x" + "01".repeat(20), trader: ME, mark
 // ledger: exact booking
 const gas = 0.01;
 let p = pnl.applyExactFill(pnl.emptyPosition(), "buy", buy, gas, 1);
-ok(near(p.size, 4.9e6) && near(p.costBasis, 50.01), "exact buy: size = tokens received, basis = USDG spent + gas");
+ok(near(p.size, 4.9e6) && near(p.costBasis, 49.51) && near(p.buyFees, 0.5), "exact buy: size = tokens received, basis = USDG spent minus fee + gas");
 const avg = p.costBasis / p.size;
 p = pnl.applyExactFill(p, "sell", sell, gas, 2);
-ok(near(p.size, 2.45e6) && near(p.costBasis, 25.005), "exact sell closes exactly the tokens sold (half)");
-ok(near(p.realized, 27 + 0.27 - 25.005, 1e-9) && near(p.fees, 0.27 + gas, 1e-9), "realized = (USDG out + fee) − basis out; fees = fee + gas");
+ok(near(p.size, 2.45e6) && near(p.costBasis, 24.755) && near(p.buyFees, 0.25), "exact sell closes exactly the tokens sold (half); buyFees scale");
+ok(near(p.realized, 27 + 0.27 - 24.755, 1e-9) && near(p.fees, 0.27 + gas, 1e-9), "realized = (USDG out + fee) − fee-free basis out; exit fees = fee + gas");
 ok(near(p.costBasis / p.size, avg), "avg entry unchanged by a sell");
 // optimistic → reconcile: the estimate (applyFill at a wrong mark) is replaced by the receipt
 { const est = { usd: 50, price: 50 / 3e6, gas, at: 1 };   // optimistic mark way off (3M tokens instead of 4.9M)
@@ -155,7 +155,7 @@ ok(near(p.costBasis / p.size, avg), "avg entry unchanged by a sell");
   const r2 = pnl.reconcileFill(r.pending, "0xbuy", buy);
   ok(r2 && near(r2.pending[0].before.size, 4.9e6) && r2.pending.length === 1, "buy receipt: rebuilt from its `before`, later pending sell replayed on top");
   const r3 = pnl.reconcileFill(r2.pending, "0xsell", sell);
-  ok(r3 && r3.pending.length === 0 && near(r3.pos.size, 2.45e6) && near(r3.pos.realized, 27 + 0.27 - 25.005, 1e-9), "both receipts in: ledger == exact booking, pending empty");
+  ok(r3 && r3.pending.length === 0 && near(r3.pos.size, 2.45e6) && near(r3.pos.realized, 27 + 0.27 - 24.755, 1e-9), "both receipts in: ledger == exact booking, pending empty");
   ok(pnl.reconcileFill([], "0xnope", buy) === null, "unknown txHash → null (HUD keeps it as an early receipt)"); }
 // paper keeps curve-average booking
 { const q = pnl.applyFill(pnl.emptyPosition(), "buy", 50, 1e-5, gas, 1); ok(near(q.size, 50 * (1 - pnl.FEE) / 1e-5), "paper/sim: applyFill (curve-average) unchanged"); }

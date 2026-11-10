@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fmtUsd, HOLD_BONUS } from "@/lib/config";
-import { applyExactFill, applyFill, bookPending, emptyPosition, pnlKey, positionFromFills, type ChainFill, type ChainTransfer, reconcileFill, shrinkToWallet, view, walletView, type ExactFill, type PendingFill, type Position, type PositionView, type WalletView, fmtMoney, fmtPct, fmtPnl, fmtTokens, DEFAULT_SUPPLY, rebase, redFromBuyFees } from "@/lib/pnl";
+import { applyExactFill, applyFill, bookPending, emptyPosition, pnlKey, positionFromFills, type ChainFill, type ChainTransfer, reconcileFill, shrinkToWallet, view, walletView, type ExactFill, type PendingFill, type Position, type PositionView, type WalletView, fmtMoney, fmtPct, fmtPnl, fmtTokens, DEFAULT_SUPPLY, rebase } from "@/lib/pnl";
 import { useT } from "@/lib/game/i18n";
 import { onWallet } from "@/lib/wallet";
 import { isDeployed } from "@/lib/chains";
@@ -232,8 +232,8 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   }, [v.size, v.valueUsd, v.entryMcap, v.uPnl, v.pnlPct, v.realized]);
 
   const holding = v.size > 0;
-  // red only because of the buy fee inside the cost basis (price hasn't moved enough to cover it): say so, in dollars
-  const feeNote = redFromBuyFees({ ...pos, costBasis: basis }, { size: tracked ? v.size : 0, uPnl: v.uPnl });
+  // buy fees are excluded from avg entry (Robinhood-style); a short hover on AVG ENTRY, never a fee line
+  const buyFees = v.buyFees || 0;
   const maxMult = 1 + HOLD_BONUS.maxBoost;
   const share = Math.max(0, Math.min(1, (v.bonus - 1) / HOLD_BONUS.maxBoost));
   const label = { color: "rgba(220,228,255,.62)", fontSize: 10, letterSpacing: ".06em" } as const;
@@ -251,7 +251,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
         <span style={{ color: "rgba(255,231,163,.7)" }}>{open ? "−" : "+"}</span>
       </button>
 
-      {/* hero: unrealized PnL + %. % = uPnL ÷ cost basis = MCAP ÷ AVG ENTRY MC − 1 (fees in the basis): it depends on how far the
+      {/* hero: unrealized PnL + %. % = uPnL ÷ cost basis = MCAP ÷ AVG ENTRY MC − 1: it depends on how far the
           mcap moved since YOUR entry, not on the share of supply held. E.g. holdings $1.35K at $8.8K MCAP with avg entry MC
           ≈$7.27K (curve starts at $3,333) ⇒ +21%; see docs in lib/pnl.ts. */}
       <div style={{ ...row, marginTop: 4 }} title={t("pnl.pctTitle")}>
@@ -259,7 +259,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
         <Num value={v.pnlPct} fmt={pct} style={{ fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 7, color: col(v.pnlPct),
           background: v.pnlPct > 0.005 ? "rgba(143,240,192,.13)" : v.pnlPct < -0.005 ? "rgba(255,159,184,.13)" : "rgba(255,255,255,.07)" }} />
       </div>
-      <div style={label}>{t("pnl.unrealized")}{feeNote > 0 && <span data-testid="pnl-buy-fees" style={{ opacity: 0.8 }}> · {t("pnl.inclBuyFees", { fee: fmtMoney(feeNote) })}</span>}</div>
+      <div style={label}>{t("pnl.unrealized")}</div>
 
       {open && (
         <div style={{ marginTop: 7, lineHeight: 1.6 }}>
@@ -267,7 +267,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
               (live: the wallet's real balance × mark = exactly what DUMP 100% sells) */}
           <div style={row}><span style={label}>{t("pnl.holdings")}</span>
             <span data-testid="pnl-holdings"><span data-testid="pnl-holdings-tokens">{fmtTokens(v.size)}</span><span style={{ opacity: 0.55 }}> · </span><Num value={v.valueUsd} fmt={fmtMoney} /></span></div>
-          <div style={row}><span style={label}>{t("pnl.avgEntry")}</span><span>{tracked ? `MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
+          <div style={row} title={buyFees > 0.005 ? t("pnl.excludesBuyFees", { fee: fmtMoney(buyFees) }) : undefined}><span style={label}>{t("pnl.avgEntry")}</span><span>{tracked ? `MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
           <div style={row}><span style={label}>{t("pnl.realized")}</span><Num value={v.realized} fmt={usd} style={{ color: col(v.realized), fontWeight: 700 }} /></div>
           {v.fees > 0 && <div style={row} title="exit fee (kept out of realized so realized = closed uPnL)"><span style={label}>{t("pnl.exitFees")}</span><span style={{ opacity: 0.75 }}>{usd(-v.fees)}</span></div>}
 
