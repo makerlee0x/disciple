@@ -356,6 +356,36 @@ describe("login relay (LoginGate.attest for a no-ETH EOA) — OFF by default, TO
 });
 
 
+describe("included revert strike policy (trader-caused only)", () => {
+  it("a revert that is not the trader's fault (Slippage) does not strike; the next trade is admitted", async () => {
+    h.call.mockImplementation(async () => {
+      if (h.call.mock.calls.length <= 1) return { data: "0x" };
+      throw Object.assign(new Error("execution reverted: Slippage()"), { walk: (f: (x: unknown) => boolean) => f({ data: errSel("Slippage()") }) });
+    });
+    h.send.mockResolvedValue(okRc("0x0"));
+    const r = await relayGaslessTrade(await wire());
+    expect(r.success).toBe(false);
+    h.call.mockResolvedValue({ data: "0x" });
+    h.send.mockResolvedValue(okRc());
+    await expect(relayGaslessTrade(await wire())).resolves.toMatchObject({ success: true });
+  });
+
+  it("a trader-caused included revert (reused nonce) still strikes; the next trade is refused", async () => {
+    const abuser = privateKeyToAccount(generatePrivateKey());
+    TOKEN = session([abuser.address]).token;
+    h.call.mockImplementation(async () => {
+      if (h.call.mock.calls.length <= 1) return { data: "0x" };
+      throw Object.assign(new Error("execution reverted: InvalidNonce()"), { walk: (f: (x: unknown) => boolean) => f({ data: errSel("InvalidNonce()") }) });
+    });
+    h.send.mockResolvedValue(okRc("0x0"));
+    const r = await relayGaslessTrade(await wire({ signer: abuser }));
+    expect(r.success).toBe(false);
+    h.call.mockResolvedValue({ data: "0x" });
+    h.send.mockResolvedValue(okRc());
+    await expect(relayGaslessTrade(await wire({ signer: abuser }))).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("strike") });
+  });
+});
+
 describe("gasless gas cap: graduating buy only", () => {
   it("ordinary buys keep the 900k cap", async () => {
     let raw: Hex | undefined;
@@ -384,7 +414,7 @@ describe("gasless gas cap: graduating buy only", () => {
 });
 
 describe("loss breaker (runs last: it stays open for this module)", () => {
-  it("included revert ⇒ strike + loss breaker record; 2 reverts open the breaker ⇒ next request refused notSent", async () => {
+  it("included revert ⇒ loss breaker record; 2 reverts open the breaker ⇒ next request refused notSent", async () => {
     h.send.mockResolvedValue(okRc("0x0"));
     const r = await relayGaslessTrade(await wire()); expect(r.success).toBe(false);
     h.incr.mockResolvedValue(2);   // window revert count

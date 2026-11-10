@@ -38,6 +38,7 @@ import type { RelayReceipt } from "../aa/relayTypes";
 import { checkGaslessRequest, encodeGaslessCall, gaslessTxGasLimit, GaslessReject, parseGaslessRequest, tradeTypedData, type GaslessRequest } from "../trade/gaslessPermit2";
 import { usdgBuyFillsCurve, usdgBuyGraduates } from "../trade/gradNeed";
 import { bondingCurveAbi } from "../abi/BondingCurve";
+import { shouldStrikeIncludedRevert } from "./gaslessStrike";
 import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
 import { relayReadTransport } from "./relayReadTransport";
 import { requireSessionWallet, verifySessionToken } from "./gaslessSession";
@@ -246,7 +247,11 @@ async function commit(signer: Address, to: Hex, data: Hex, gas: bigint, r: Direc
   const success = res.rc.status === "0x1";
   const gasUsed = Number(BigInt(res.rc.gasUsed));
   if (!success) {
-    strikeSender(signer, did);
+    // Failure-path only: re-simulate to read the revert selector. Never delays a successful send.
+    let revertData: string | undefined;
+    try { await simulateDirect(r.address, to, data); }
+    catch (e) { revertData = (e as { data?: string }).data; }
+    if (shouldStrikeIncludedRevert({ revertData, gasUsed: BigInt(res.rc.gasUsed), gasLimit: gas })) strikeSender(signer, did);
     const price = res.rc.effectiveGasPrice ? BigInt(res.rc.effectiveGasPrice) : BigInt(0);
     await relayBreaker.record({ reverted: true, lossWei: BigInt(res.rc.gasUsed) * price }).catch(() => false);
   }
