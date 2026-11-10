@@ -19,7 +19,7 @@ const NAMES = [
   "Launchpad",
   "BondingCurve",
   "QuoteProbe",
-  "DiscipleHook",
+  "AscensionHook",
   "DiscipleRouter",
   "TrampWallManager",
   "Token",

@@ -19,7 +19,7 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {DiscipleHook} from "../../src/DiscipleHook.sol";
+import {AscensionHook} from "../../src/AscensionHook.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
@@ -38,7 +38,7 @@ abstract contract FrontendApiBase is IntegrationBase {
 
     bytes32 constant TRADE_TOPIC =
         keccak256("Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)");
-    /// @dev DiscipleHook (post-grad) variant: last field is uint160 sqrtPriceAfter instead of uint256 mcapAfterUsd (G-1).
+    /// @dev AscensionHook (post-grad) variant: last field is uint160 sqrtPriceAfter instead of uint256 mcapAfterUsd (G-1).
     bytes32 constant HOOK_TRADE_TOPIC =
         keccak256("Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint160)");
 
@@ -409,7 +409,7 @@ contract FrontendApiFollowupTest is FrontendApiBase {
         assertEq(t.trader, address(swapRouter));
 
         vm.prank(trader1);
-        vm.expectRevert(DiscipleHook.OnlyAdmin.selector);
+        vm.expectRevert(AscensionHook.OnlyAdmin.selector);
         hook.setTrustedRouter(address(swapRouter), true);
         hook.setTrustedRouter(address(swapRouter), true); // admin = test (V4Deploy)
         assertTrue(hook.isTrustedRouter(address(router)));
