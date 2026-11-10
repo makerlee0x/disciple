@@ -112,6 +112,10 @@ export class NonceBook {
 /* ───────── Request validation (server, before ANY RPC) ───────── */
 export class GaslessReject extends Error { notSent = true; constructor(public reason: string) { super(`gasless rejected: ${reason}`); } }
 const ADDR = /^0x[0-9a-fA-F]{40}$/, HEX = /^0x[0-9a-fA-F]*$/;
+/** Decimal-string bigints so JSON.stringify (POST /api/gasless, Privy eth_signTypedData_v4 signRequest) does not throw. */
+export const bigintToDecimal = (_k: string, v: unknown) => (typeof v === "bigint" ? v.toString() : v);
+export const jsonSafe = <T,>(v: T): T => JSON.parse(JSON.stringify(v, bigintToDecimal)) as T;
+
 const big = (v: unknown, what: string): bigint => {
   if (typeof v === "bigint") return v;
   if ((typeof v === "string" && /^(0x[0-9a-fA-F]{1,64}|[0-9]{1,78})$/.test(v)) || (typeof v === "number" && Number.isSafeInteger(v) && v >= 0)) return BigInt(v);

@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { decodeFunctionData, hashTypedData, keccak256, recoverTypedDataAddress, toBytes, encodeAbiParameters, type Address } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { checkGaslessRequest, encodeGaslessCall, gaslessRouterAbi, GaslessReject, lowestFreeBit, MIN_TRADE_USD, minTradeRaw, NonceBook, parseGaslessRequest, PERMIT2, TRADE_TYPEHASH, TRADE_WITNESS_TYPE, tradeTypedData, tradeWitnessHash, type GaslessRequest } from "../lib/trade/gaslessPermit2";
+import { checkGaslessRequest, encodeGaslessCall, gaslessRouterAbi, GaslessReject, jsonSafe, lowestFreeBit, MIN_TRADE_USD, minTradeRaw, NonceBook, parseGaslessRequest, PERMIT2, TRADE_TYPEHASH, TRADE_WITNESS_TYPE, tradeTypedData, tradeWitnessHash, type GaslessRequest } from "../lib/trade/gaslessPermit2";
+import { signGaslessTrade, submitGasless } from "../lib/trade/gaslessClient";
+import type { LocalAccount, PublicClient } from "viem";
 import { MIN_TRADE_USD as CONFIG_MIN, minShotUsd } from "../lib/config";
 
 const usdg = "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D" as Address, coin = "0xab9e86498c9b32743e31b0fca02d6b254bcddd4e" as Address;
@@ -105,5 +107,70 @@ describe("Permit2 unordered nonces", () => {
     expect(ns).toEqual([254n, 255n, 256n]);
     expect(new Set(ns).size).toBe(3);
     expect(reads).toEqual([0n, 1n]);
+  });
+});
+
+/** Privy toViemAccount → eth_signTypedData_v4 → signRequest body is JSON (js-sdk-core Qn/P). A bigint in the message throws. */
+function privyLike(inner: LocalAccount): LocalAccount {
+  return new Proxy(inner, {
+    get(t, p, r) {
+      if (p === "signTypedData") {
+        return (td: Parameters<LocalAccount["signTypedData"]>[0]) => {
+          JSON.stringify(td);
+          return inner.signTypedData(td);
+        };
+      }
+      return Reflect.get(t, p, r);
+    },
+  }) as LocalAccount;
+}
+function mockPc(allowance = 0n): PublicClient {
+  return { readContract: async ({ functionName }: { functionName: string }) => {
+    if (functionName === "nonceBitmap") return 0n;
+    if (functionName === "allowance") return allowance;
+    if (functionName === "nonces") return 0n;
+    if (functionName === "name") return "MockUSD";
+    if (functionName === "eip712Domain") return ["0x0f", "MockUSD", "1", 46630n, usdg, `0x${"00".repeat(32)}`, []];
+    throw new Error(`unexpected read ${functionName}`);
+  } } as unknown as PublicClient;
+}
+
+describe("client JSON (Privy signTypedData + POST /api/gasless)", () => {
+  it("raw typed data and request still contain bigints; jsonSafe preserves the EIP-712 digest on buy and sell", async () => {
+    for (const isBuy of [true, false]) {
+      const q = await req({ isBuy, amountIn: isBuy ? 3_000_000n : 1n });
+      const td = tradeTypedData(46630, router, q.permit, q.trade);
+      expect(() => JSON.stringify(td)).toThrow(/BigInt/);
+      expect(() => JSON.stringify(q)).toThrow(/BigInt/);
+      const safe = jsonSafe(td);
+      expect(() => JSON.stringify(safe)).not.toThrow();
+      expect(hashTypedData(safe)).toBe(hashTypedData(td));
+    }
+  });
+  it("signGaslessTrade (buy + sell, including the first-trade EIP-2612 permit) works when the signer JSON.stringifies the typed data (fails before the jsonSafe wrap)", async () => {
+    const owner = privyLike(user);
+    const args = { router, usdg, coin, amountIn: 3_000_000n, minOut: 1n, nowSec: NOW };
+    // allowance 0 ⇒ EIP-2612 permit (value is 2n**256-1n) also goes through signTypedData
+    const buy = await signGaslessTrade(mockPc(0n), owner, { ...args, isBuy: true });
+    expect(buy.trade.isBuy).toBe(true);
+    expect(buy.approval?.value).toBe(2n ** 256n - 1n);
+    expect(await recoverTypedDataAddress({ ...tradeTypedData(46630, router, buy.permit, buy.trade), signature: buy.signature })).toBe(user.address);
+    const sell = await signGaslessTrade(mockPc(0n), owner, { ...args, isBuy: false, amountIn: 1n });
+    expect(sell.trade.isBuy).toBe(false);
+    expect(await recoverTypedDataAddress({ ...tradeTypedData(46630, router, sell.permit, sell.trade), signature: sell.signature })).toBe(user.address);
+  });
+  it("submitGasless POST body is valid JSON when the request holds bigints, and parseGaslessRequest recovers them", async () => {
+    const q = await req();
+    expect(() => JSON.stringify(q)).toThrow(/BigInt/);
+    let body = "";
+    const f = (async (_u: string, init?: { body?: string }) => {
+      body = String(init?.body ?? "");
+      JSON.parse(body); // would throw if a bigint slipped into the wire
+      return { status: 200, json: async () => ({ result: { txHash: "0x1", success: true, receipt: { logs: [] }, gasUsed: 1 } }) };
+    }) as unknown as typeof fetch;
+    await submitGasless(q, "/api/gasless", f, null);
+    const params = JSON.parse(body).params[0];
+    expect(parseGaslessRequest(params)).toEqual(q);
+    expect(body).not.toMatch(/bigint/i);
   });
 });

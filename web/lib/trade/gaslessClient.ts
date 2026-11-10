@@ -6,7 +6,7 @@
  */
 import { parseAbi, parseSignature, type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { ACTIVE_CHAIN } from "../chains";
-import { GASLESS_MAX_DEADLINE_SEC, NonceBook, PERMIT2, tradeTypedData, type Erc2612, type GaslessRequest, type Permit, type Trade } from "./gaslessPermit2";
+import { bigintToDecimal, GASLESS_MAX_DEADLINE_SEC, jsonSafe, NonceBook, PERMIT2, tradeTypedData, type Erc2612, type GaslessRequest, type Permit, type Trade } from "./gaslessPermit2";
 
 const erc20 = parseAbi([
   "function allowance(address owner, address spender) view returns (uint256)",
@@ -38,11 +38,11 @@ async function permitFor(pc: PublicClient, owner: LocalAccount, asset: Address, 
     pc.readContract({ address: asset, abi: erc20, functionName: "eip712Domain" }).catch(async () => [undefined, await pc.readContract({ address: asset, abi: erc20, functionName: "name" }), "1"] as const),
   ]);
   if (allowance >= ENOUGH) { approved.set(k, true); return undefined; }
-  const sig = await owner.signTypedData({
+  const sig = await owner.signTypedData(jsonSafe({
     domain: { name: dom[1] as string, version: (dom[2] as string) || "1", chainId: ACTIVE_CHAIN.id, verifyingContract: asset },
     types: { Permit: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }, { name: "value", type: "uint256" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] },
-    primaryType: "Permit", message: { owner: owner.address, spender: PERMIT2, value: MAX, nonce, deadline },
-  });
+    primaryType: "Permit" as const, message: { owner: owner.address, spender: PERMIT2, value: MAX, nonce, deadline },
+  }));
   const { v, r, s, yParity } = parseSignature(sig);
   return { value: MAX, deadline, v: Number(v ?? BigInt(27 + (yParity ?? 0))), r, s };
 }
@@ -56,11 +56,11 @@ export async function signGaslessTrade(pc: PublicClient, owner: LocalAccount, a:
   const [nonce, approval] = await Promise.all([book.next(owner.address), permitFor(pc, owner, asset, deadline)]);
   const trade: Trade = { coin: a.coin, isBuy: a.isBuy, amountIn: a.amountIn, minOut: a.minOut, recipient: owner.address, deadline };
   const permit: Permit = { permitted: { token: asset, amount: a.amountIn }, nonce, deadline };
-  const signature = await owner.signTypedData(tradeTypedData(ACTIVE_CHAIN.id, a.router, permit, trade));
+  const signature = await owner.signTypedData(jsonSafe(tradeTypedData(ACTIVE_CHAIN.id, a.router, permit, trade)));
   return { signer: owner.address, permit, trade, signature, ...(approval ? { approval } : {}) };
 }
 
-const json = (q: GaslessRequest) => JSON.stringify(q, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
+const json = (q: GaslessRequest) => JSON.stringify(q, bigintToDecimal);
 /** POST one signed request; resolves with the receipt (success) or throws GaslessError (data.notSent ⇒ nothing sent). */
 export async function submitGasless(q: GaslessRequest, url = "/api/gasless", fetchFn: typeof fetch = fetch, idToken?: string | null): Promise<GaslessSendResult> {
   // Off-chain login: the relay requires the Privy identity token (https://docs.privy.io/user-management/users/identity-tokens)
