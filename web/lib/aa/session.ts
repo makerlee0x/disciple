@@ -1,6 +1,6 @@
 import { createRelayLoginJoin } from "./relayReadiness";
 import { ensurePveLoginOnchain } from "../pve";
-import { clientSelfBundlerMode } from "./sponsorshipMode";
+import { clientSelfBundlerMode, shouldWarmAaOnSessionStart } from "./sponsorshipMode";
 import { browserBso } from "./bso";
 import { diagnosticText, errorDiagnostic } from "./diagnostics";
 /**
@@ -151,13 +151,15 @@ async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
   save();
   const a = await sa.address();
   curAccount = a;
-  void sa.warmGasReserve().catch(() => undefined);
-  void sa.preparePrepay().catch(() => undefined);
+  if (shouldWarmAaOnSessionStart()) {
+    void sa.warmGasReserve().catch(() => undefined);
+    void sa.preparePrepay().catch(() => undefined);
+  }
   userEndedOneTap = isOneTapOff(lsStore(), a);   // the player's own "one-tap off" survives reloads
   onchain = loadSessionKey(a);
   if (onchain) { await sa.useSession(onchain.entityId, privateKeyToAccount(onchain.key)); void syncSessionFromChain(); }
   // decision 3: deploy + one-tap (new account) or renew (deployed) at sign-in, in the background — never awaited here
-  void maybeAutoOneTap("login");
+  if (shouldWarmAaOnSessionStart()) void maybeAutoOneTap("login");
   watchSetupTriggers();
   changed();
   return a;

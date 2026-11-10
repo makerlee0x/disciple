@@ -32,3 +32,7 @@ export function clientSponsorshipMode(): SponsorshipMode {
 }
 export const clientSelfBundlerMode = () => clientSponsorshipMode() === "self";
 export const clientGaslessMode = () => clientSponsorshipMode() === "gasless";
+/** 4337 sign-in warm-ups (gas reserve, paymaster prepay, auto one-tap). False in gasless mode so /api/paymaster is not called. */
+export function shouldWarmAaOnSessionStart(mode: SponsorshipMode = clientSponsorshipMode()): boolean {
+  return mode !== "gasless";
+}
