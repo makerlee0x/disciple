@@ -11,6 +11,7 @@ import {Constants} from "../../src/libraries/Constants.sol";
 import {FeeMath} from "../../src/libraries/FeeMath.sol";
 import {CurveMath} from "../../src/libraries/CurveMath.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
+import {NameRegistry} from "../../src/NameRegistry.sol";
 import {FeeRouter} from "../../src/FeeRouter.sol";
 import {ReferralRegistry} from "../../src/ReferralRegistry.sol";
 import {LockedLP} from "../../src/LockedLP.sol";
@@ -94,6 +95,13 @@ abstract contract IntegrationBase is Test {
     // Accounting trackers (quote wei paid by users into the system)
     uint256 internal totalQuoteIn;
 
+    /// @dev Name/ticker lock for this suite (Deploy.s.sol: NameRegistry on mainnet only). Testnet-like by default.
+    function _nameLock() internal pure virtual returns (bool) {
+        return false;
+    }
+
+    NameRegistry internal nameRegistry;
+
     function setUp() public virtual {
         quote = new MockUSDG();
         referrals = new ReferralRegistry(owner, address(quote));
@@ -116,7 +124,9 @@ abstract contract IntegrationBase is Test {
         vm.stopPrank();
 
         // redeploy pack item 8: no legacy AntiSnipe (v2 curves compute the sniper tax inline), as in Deploy.s.sol
-        launchpad = new Launchpad(owner, address(feeRouter), address(0), address(migration));
+        if (_nameLock()) nameRegistry = new NameRegistry();
+        launchpad = new Launchpad(owner, address(feeRouter), address(0), address(migration), address(nameRegistry));
+        if (_nameLock()) nameRegistry.setLaunchpad(address(launchpad));
 
         strategy = new MockUSDG(); // treat as STRATEGY
         // Rename via nothing — MockUSDG is fine as STRATEGY stand-in

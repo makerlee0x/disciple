@@ -82,7 +82,7 @@ contract MigrationTest is Test {
         uint64 n = uint64(vm.getNonce(address(this)));
         address launchpadAddr = vm.computeCreateAddress(address(this), n + 1);
         antiSnipe = new AntiSnipe(launchpadAddr);
-        launchpad = new Launchpad(owner, address(feeRouter), address(antiSnipe), address(migration));
+        launchpad = new Launchpad(owner, address(feeRouter), address(antiSnipe), address(migration), address(0));
         require(address(launchpad) == launchpadAddr, "predict");
         QuotePricer pricer_ = new QuotePricer(owner, IPoolManager(address(0)), address(quote));
         vm.prank(owner);

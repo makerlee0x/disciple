@@ -251,6 +251,8 @@ export function friendlyError(e: unknown): ProtocolError {
       NoPricePool: "That pair has no USD price pool registered, so it can't be used yet.",
       TaxTooHigh: `Creator tax must be ≤ ${CURVE.creatorTaxMaxPct}%.`,
       InvalidMetadata: "Name, call sign and image are required.",
+      // mainnet name/ticker lock (NameRegistry, bubbled by Launchpad): DRAFT copy, pending lee
+      NameLocked: "An ASCENDED rocket already uses this name and call sign. Change the name or the call sign.",
       CreatorBuyTooLarge: CREATOR_BUY_MSG(),
       Slippage: PRICE_MOVED_MSG,
       Expired: "The trade took too long and expired. Try again.",

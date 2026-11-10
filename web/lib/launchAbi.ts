@@ -63,6 +63,7 @@ export const launchpadModesAbi = parseAbi([
 /** Errors the modes redeploy can raise on a launch / launch buy (Launchpad + BondingCurve). */
 export const modesErrorsAbi = parseAbi([
   "error BadMode()", "error LoginGateUnset()", "error NotVerified()", "error BuyTooLarge()", "error LaunchBlock()",
+  "error NameLocked()", // NameRegistry (mainnet name/ticker lock), bubbled by Launchpad launch
 ]);
 const loginGateAbi = parseAbi(["function verifiedUntil(address wallet) view returns (uint64)"]);
 

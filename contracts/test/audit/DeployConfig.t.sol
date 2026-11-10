@@ -33,5 +33,8 @@ contract DeployConfigTest is Test {
         // #2 hook address carries the beforeInitialize flag
         assertTrue(uint160(o.hook) & Hooks.BEFORE_INITIALIZE_FLAG != 0);
         assertTrue(uint160(o.hook) & Hooks.BEFORE_ADD_LIQUIDITY_FLAG != 0);
+
+        // name/ticker lock is mainnet only: the local/testnet deploy has no NameRegistry (launch behaves as before)
+        assertEq(o.nameRegistry, address(0));
     }
 }

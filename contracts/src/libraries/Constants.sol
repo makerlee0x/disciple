@@ -27,6 +27,9 @@ library Constants {
     uint256 internal constant CURVE_TAIL_EXP = 30;
     /// @dev Alias for GRADUATION_MCAP_USD.
     uint256 internal constant OUTER_SPACE_MCAP_USD = GRADUATION_MCAP_USD;
+    /// @dev Name/ticker lock (NameRegistry, mainnet only, lee 2026-11-10): an ascended coin's slot frees only after its
+    ///      mcap has been marked below OUTER_SPACE_MCAP_USD (tier < 4) for this long, and is still below at release.
+    uint256 internal constant NAME_RELEASE_DELAY = 24 hours;
 
     // Tier ladder ranges (USD, whole dollars). Official ladder (disciple-brand/LEXICON.md §4, web/lib/flight/tiers.ts),
     // renamed 2026-10-17; ranges unchanged since LOCKED 2026-10-15. Pre-grad $3,333→$33,333 (OUTER SPACE =

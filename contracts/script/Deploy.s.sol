@@ -13,6 +13,7 @@ import {FeeRouter} from "../src/FeeRouter.sol";
 import {Migration} from "../src/Migration.sol";
 import {LoginGate} from "../src/LoginGate.sol";
 import {Launchpad} from "../src/Launchpad.sol";
+import {NameRegistry} from "../src/NameRegistry.sol";
 import {CurveDeployer} from "../src/CurveDeployer.sol";
 import {TrampWallManager} from "../src/TrampWallManager.sol";
 import {QuoteProbe} from "../src/QuoteProbe.sol";
@@ -107,11 +108,14 @@ contract Deploy is NetworkConfig {
         address rewardsVault;
         address anonLauncher;
         address marketLens;
+        address nameRegistry; // mainnet only (name/ticker lock); address(0) on testnet/local
         address loginGate;
     }
 
     function run() external returns (Out memory o) {
-        _checkCoreConfig(); // fail closed before broadcast, including all mainnet address/config placeholders
+        // fail closed before broadcast, including all mainnet address/config placeholders. `mainnet` also turns on the
+        // Launchpad name/ticker lock (lee 2026-11-10); testnet/local deploy it OFF (Launchpad behaves as before).
+        bool mainnet = _checkCoreConfig();
         address treasury = vm.envOr("TREASURY", address(0));
         o.manager = vm.envOr("POOL_MANAGER", address(0));
         o.quoter = vm.envOr("V4_QUOTER", address(0));
@@ -170,8 +174,12 @@ contract Deploy is NetworkConfig {
 
         // Redeploy pack item 8: the legacy AntiSnipe is no longer deployed. Launchpad.antiSnipe is a never-read
         // immutable (v2 curves compute the sniper tax inline via FeeMath.snipeBps), so it is address(0).
-        Launchpad launchpad = new Launchpad(deployer, address(feeRouter), address(0), address(migration));
+        // Name/ticker lock (lee 2026-11-10): NameRegistry on MAINNET only; testnet/local pass address(0) (no check).
+        if (mainnet) o.nameRegistry = address(new NameRegistry());
+        Launchpad launchpad =
+            new Launchpad(deployer, address(feeRouter), address(0), address(migration), o.nameRegistry);
         migration.setLaunchpad(address(launchpad)); // audit #1: migrate() only from launchpad.curveOf(token)
+        if (mainnet) NameRegistry(o.nameRegistry).setLaunchpad(address(launchpad)); // one-shot, then ownerless
 
         feeRouter.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
@@ -285,6 +293,7 @@ contract Deploy is NetworkConfig {
         console2.log("FeeRouter", o.feeRouter);
         console2.log("Migration", o.migration);
         console2.log("Launchpad", o.launchpad);
+        console2.log("NameRegistry", o.nameRegistry);
         console2.log("QuoteProbe", o.probe);
         console2.log("QuotePricer", o.pricer);
         console2.log("UsdgDepositNotifier", o.depositNotifier);

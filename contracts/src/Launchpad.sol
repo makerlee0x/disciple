@@ -33,6 +33,10 @@ contract Launchpad is ILaunchpad, Owned2Step {
     /// @notice Legacy (pre mode rules v2). v2 curves compute the sniper tax inline; never called.
     address public immutable antiSnipe;
     address public immutable migration;
+    /// @notice Name/ticker lock (lee 2026-11-10): the NameRegistry on the MAINNET deploy only (Deploy.s.sol, from the
+    ///         NetworkConfig mainnet flag); address(0) on testnet/local = no check, launch behaves as before. The lock
+    ///         logic lives in NameRegistry to keep Launchpad under EIP-170 (same reason as CurveDeployer).
+    address internal immutable nameRegistry;
 
     /// @notice Default quote (STRATEGY on RH chain). Used when launch/launchCoin passes quote=address(0).
     address public defaultQuote;
@@ -137,10 +141,13 @@ contract Launchpad is ILaunchpad, Owned2Step {
         address indexed token, uint256 startMcapUsd, uint256 graduationMcapUsd, uint256 totalSupply, uint8 decimals_
     );
 
-    constructor(address owner_, address feeRouter_, address antiSnipe_, address migration_) Owned2Step(owner_) {
+    constructor(address owner_, address feeRouter_, address antiSnipe_, address migration_, address nameRegistry_)
+        Owned2Step(owner_)
+    {
         feeRouter = feeRouter_;
         antiSnipe = antiSnipe_;
         migration = migration_;
+        nameRegistry = nameRegistry_;
     }
 
     /// @notice Owner/multisig sets STRATEGY (or replacement) as the default launch quote.
@@ -311,6 +318,19 @@ contract Launchpad is ILaunchpad, Owned2Step {
         Token t = new Token(
             params.name, params.ticker, creator, address(this), address(this), mode == Constants.MODE_PVE
         );
+        // Name/ticker lock (mainnet only): NameRegistry.checkLaunch(token) (view) reverts NameLocked if an ascended
+        // coin holds this name+ticker; the revert data is bubbled. Inline staticcall keeps Launchpad under EIP-170.
+        address reg = nameRegistry;
+        if (reg != address(0)) {
+            assembly ("memory-safe") {
+                mstore(0, 0xc64f7389) // NameRegistry.checkLaunch.selector (asserted in NameLock.t.sol)
+                mstore(0x20, t)
+                if iszero(staticcall(gas(), reg, 0x1c, 0x24, 0, 0)) {
+                    returndatacopy(0, 0, returndatasize())
+                    revert(0, returndatasize())
+                }
+            }
+        }
 
         // USD price is derived on-chain (never caller-supplied); reverts if no USDG reference pool.
         if (address(pricer) == address(0)) revert PricerUnset();
