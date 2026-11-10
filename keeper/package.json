@@ -14,7 +14,9 @@
     "status": "node src/main.ts --status",
     "collect": "node src/main.ts --collect",
     "test": "node --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "trades": "node src/trades.ts",
+    "trades:summary": "node src/trades.ts --summary"
   },
   "dependencies": {
     "viem": "2.57.17"

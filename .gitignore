@@ -16,3 +16,6 @@ coverage
 disciple-shots
 .vscode
 .idea
+tracker/
+__pycache__/
+keeper/trades.csv
