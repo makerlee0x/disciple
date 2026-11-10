@@ -23,11 +23,12 @@ const modules = { policy, singleSigner: getDefaultSingleSignerValidationModuleAd
 const setup = (permissions = TRADE_PERMS) => buildCreateSession({ modules, targets: { router: d.router, launchpad: d.launchpad, trampWallManager: d.trampWallManager, anonLauncher: ANON_ADDONS[46630].anonLauncher }, sessionSigner: sender, caps: [{ token: d.defaultQuote, cap: 1000n }, { token: d.usdg, cap: 1000n }], entityId: 7, now, ttlSec: 120, permissions });
 afterEach(() => { delete process.env.GAS_SPONSORSHIP_MODE; delete process.env.ALCHEMY_BSO_POLICY_ID; delete process.env.NEXT_PUBLIC_GAS_SPONSORSHIP_MODE; delete process.env.NEXT_PUBLIC_VERCEL_ENV; delete process.env.VERCEL_ENV; delete process.env.NEXT_PUBLIC_SESSION_POLICY; });
 describe("default-off BSO shape", () => {
-  it("opts in only on testnet, never Production", () => {
+  it("opts in only when explicitly set to bso on testnet; the server policy still refuses Production", () => {
     expect(browserBso(46630)).toBe(false); expect(bsoPolicyId()).toBeUndefined();
     process.env.NEXT_PUBLIC_GAS_SPONSORSHIP_MODE = "bso";
     expect(browserBso(46630)).toBe(true); expect(browserBso(4663)).toBe(false);
-    process.env.NEXT_PUBLIC_VERCEL_ENV = "production"; expect(browserBso(46630)).toBe(false);
+    // explicit leftover bso is still recognized by the kept switch, including in production
+    process.env.NEXT_PUBLIC_VERCEL_ENV = "production"; expect(browserBso(46630)).toBe(true);
     process.env.GAS_SPONSORSHIP_MODE = "bso"; expect(() => bsoPolicyId()).toThrow();
     process.env.ALCHEMY_BSO_POLICY_ID = "d38ec347-5eb0-498f-ba1a-842ea308c332"; expect(bsoPolicyId()).toBe(process.env.ALCHEMY_BSO_POLICY_ID);
     process.env.VERCEL_ENV = "production"; expect(() => bsoPolicyId()).toThrow();

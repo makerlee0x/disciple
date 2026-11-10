@@ -80,7 +80,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("switch: GAS_SPONSORSHIP_MODE", () => {
-  it("off (default self) ⇒ gasless refused notSent, nothing read or sent; the old self-bundler stays selectable", async () => {
+  it("explicit leftover self ⇒ gasless refused notSent, nothing read or sent; the old self-bundler stays selectable", async () => {
     process.env.GAS_SPONSORSHIP_MODE = "self";
     await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("gasless relay disabled") });
     expect(h.call).not.toHaveBeenCalled(); expect(h.send).not.toHaveBeenCalled();
@@ -90,9 +90,9 @@ describe("switch: GAS_SPONSORSHIP_MODE", () => {
     expect(() => requireGaslessMode()).not.toThrow();
     expect(() => requireSelfBundlerMode()).toThrow("self-bundler disabled");
   });
-  it("never in Production", async () => {
-    vi.stubEnv("VERCEL_ENV", "production"); vi.stubEnv("VERCEL", "1");
-    expect(() => requireGaslessMode()).toThrow("disabled");
+  it("admitted in Production when the resolved mode is gasless", () => {
+    vi.stubEnv("VERCEL_ENV", "production"); vi.stubEnv("VERCEL", "1"); vi.stubEnv("NODE_ENV", "production");
+    expect(() => requireGaslessMode()).not.toThrow();
   });
 });
 

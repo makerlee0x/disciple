@@ -6,8 +6,8 @@ import { RelayMetrics } from "@/lib/server/relayMetrics";
 import { flushRelayTrust } from "@/lib/server/fastRelay";
 import { relayGaslessLogin, relayGaslessTrade, requireGaslessMode, warmGasless } from "@/lib/server/gaslessRelay";
 /**
- * POST /api/gasless — gasless swaps (flow/gasless-permit2). Only when GAS_SPONSORSHIP_MODE=gasless on testnet
- * Preview/local; otherwise every method is refused notSent and /api/bundler (self-bundler / BSO / hosted) is unchanged.
+ * POST /api/gasless — gasless swaps (flow/gasless-permit2). Admitted when the resolved mode is gasless
+ * (the default in every environment, including production); otherwise every method is refused notSent.
  * Methods: disciple_gaslessTrade [request] (needs `privy-id-token`, the Privy identity token; the session's wallet must
  * be the signer) · disciple_gaslessLogin [{wallet, expiry, signature}] (OFF unless GASLESS_LOGIN_RELAY=1; TODO delete) ·
  * disciple_gaslessWarm [wallet].

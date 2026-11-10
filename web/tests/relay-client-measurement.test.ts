@@ -27,10 +27,11 @@ describe("post-render beacon", () => {
     const span = f.begin("sell"); span.bind("press-hung-1"); tasks.splice(0).forEach(cb => cb()); expect(beacon).not.toHaveBeenCalled();
     span.finish(false); f.doneRendered("press-hung-1"); tasks.splice(0).forEach(cb => cb()); expect(beacon).not.toHaveBeenCalled();
   });
-  it("blocks Production and never retries a refused beacon or throws", () => {
+  it("only beacons on the leftover self-bundler path, never on the gasless default, and never retries a refused beacon or throws", () => {
     const sendBeacon = vi.fn().mockReturnValue(false); vi.stubGlobal("navigator", { sendBeacon });
     vi.stubEnv("NEXT_PUBLIC_VERCEL_ENV", "production"); sendFlowBeacon({}); expect(sendBeacon).not.toHaveBeenCalled();
-    vi.stubEnv("NEXT_PUBLIC_VERCEL_ENV", "preview"); sendFlowBeacon({}); expect(sendBeacon).toHaveBeenCalledOnce();
+    vi.stubEnv("NEXT_PUBLIC_VERCEL_ENV", "preview"); sendFlowBeacon({}); expect(sendBeacon).not.toHaveBeenCalled();
+    vi.stubEnv("NEXT_PUBLIC_GAS_SPONSORSHIP_MODE", "self"); sendFlowBeacon({}); expect(sendBeacon).toHaveBeenCalledOnce();
     sendBeacon.mockImplementation(() => { throw Error("disabled"); }); expect(() => sendFlowBeacon({})).not.toThrow(); expect(sendBeacon).toHaveBeenCalledTimes(2);
   });
 });
