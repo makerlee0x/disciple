@@ -16,7 +16,12 @@ export const minTradeRaw = (decimals: number) => BigInt(MIN_TRADE_USD) * BigInt(
 
 /** Server bounds on what a relayer will submit. */
 export const GASLESS_MAX_DEADLINE_SEC = 300;   // signed deadline at most 5 min ahead
-export const GASLESS_GAS_LIMIT = BigInt(900_000);   // cap only (Arbitrum bills gasUsed); buy+approve+grad ≈ 0.45M measured
+/** Default cap for ordinary gasless trades (RH/Orbit bills gasUsed, not the cap). */
+export const GASLESS_GAS_LIMIT = BigInt(900_000);
+/** Cap for a buy that fills (graduates) the curve. A graduating smoke buy used 2,365,644 gas; 3M is the existing AA call cap. */
+export const GASLESS_GRAD_GAS_LIMIT = BigInt(3_000_000);
+/** Higher cap only when the buy fills the curve: a bigger gasLimit reserves relayer ETH (balance must cover gasLimit×maxFeePerGas) even though unused gas is not billed. */
+export const gaslessTxGasLimit = (fillsCurve: boolean) => (fillsCurve ? GASLESS_GRAD_GAS_LIMIT : GASLESS_GAS_LIMIT);
 
 export type Trade = { coin: Address; isBuy: boolean; amountIn: bigint; minOut: bigint; recipient: Address; deadline: bigint };
 export type Permit = { permitted: { token: Address; amount: bigint }; nonce: bigint; deadline: bigint };

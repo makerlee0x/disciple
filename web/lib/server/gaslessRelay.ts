@@ -35,7 +35,9 @@ import { createPublicClient, encodeFunctionData, parseAbi, toFunctionSelector, r
 import { ACTIVE_CHAIN, DEPLOYMENTS, robinhoodTestnet } from "../chains";
 import { gaslessMode } from "../aa/sponsorshipMode";
 import type { RelayReceipt } from "../aa/relayTypes";
-import { checkGaslessRequest, encodeGaslessCall, GASLESS_GAS_LIMIT, GaslessReject, parseGaslessRequest, tradeTypedData, type GaslessRequest } from "../trade/gaslessPermit2";
+import { checkGaslessRequest, encodeGaslessCall, gaslessTxGasLimit, GaslessReject, parseGaslessRequest, tradeTypedData, type GaslessRequest } from "../trade/gaslessPermit2";
+import { usdgBuyFillsCurve, usdgBuyGraduates } from "../trade/gradNeed";
+import { bondingCurveAbi } from "../abi/BondingCurve";
 import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
 import { relayReadTransport } from "./relayReadTransport";
 import { requireSessionWallet, verifySessionToken } from "./gaslessSession";
@@ -82,23 +84,33 @@ const legacyLogin = (e: unknown) => {
  */
 export const marketStatusKey = (coin: string) => `relay:market:${coin.toLowerCase()}`;
 export const MARKET_NONE = "none";
+export const MARKET_NOCURVE = "nocurve";
 export const MARKET_LOGIN = "login";
 export const MARKET_GRAD = "grad";
-const parseMarket = (raw: string | null | undefined): { kind: "none" | "login" | "grad"; curve?: Address } | undefined => {
+const parseMarket = (raw: string | null | undefined): { kind: "none" | "login" | "grad"; curve?: Address; empty?: boolean } | undefined => {
   if (!raw) return undefined;
-  if (raw === MARKET_NONE) return { kind: "none" };
-  const m = /^(login|grad):(0x[0-9a-fA-F]{40})$/.exec(raw);
-  return m ? { kind: m[1] as "login" | "grad", curve: m[2] as Address } : undefined;
+  if (raw === MARKET_NOCURVE) return { kind: "none", empty: true };
+  if (raw === MARKET_NONE) return { kind: "none" }; // legacy: may be a TRENCH/PVP curve (upgrade on the fill check)
+  const m = /^(none|login|grad):(0x[0-9a-fA-F]{40})$/.exec(raw);
+  return m ? { kind: m[1] as "none" | "login" | "grad", curve: m[2] as Address } : undefined;
 };
 type MarketHint = "legacy" | "ok";
-const marketMemo = new Map<string, { v: MarketHint; until: number }>();
+const marketMemo = new Map<string, { v: MarketHint; until: number; status?: string }>();
 export const gaslessMarketCache = { clear() { marketMemo.clear(); } };
 export const peekGaslessMarket = (coin: string, isBuy: boolean): MarketHint | undefined => {
   if (!isBuy) return "ok";
   const hit = marketMemo.get(coin.toLowerCase());
   return hit && hit.until > Date.now() ? hit.v : undefined;
 };
-const remember = (coin: string, v: MarketHint, ttlMs: number) => { marketMemo.set(coin.toLowerCase(), { v, until: Date.now() + ttlMs }); };
+const peekMarketStatus = (coin: string): string | undefined => {
+  const hit = marketMemo.get(coin.toLowerCase());
+  return hit && hit.until > Date.now() ? hit.status : undefined;
+};
+const remember = (coin: string, v: MarketHint, ttlMs: number, status?: string) => {
+  const k = coin.toLowerCase();
+  const prev = marketMemo.get(k);
+  marketMemo.set(k, { v, until: Date.now() + ttlMs, status: status ?? prev?.status });
+};
 const persistMarket = (coin: string, value: string) => { void kv().set(marketStatusKey(coin), value).catch(() => undefined); };
 const marketPc = createPublicClient({ chain: robinhoodTestnet, transport: relayReadTransport(5000, 0) });
 const marketAbi = parseAbi(["function curveOf(address) view returns (address)", "function loginGate() view returns (address)", "function mode() view returns (uint8)", "function graduated() view returns (bool)"]);
@@ -109,7 +121,7 @@ async function assertUngraduatedPve(coin: Address, curve: Address): Promise<void
   let grad = false;
   try { grad = Boolean(await marketPc.readContract({ address: curve, abi: marketAbi, functionName: "graduated" })); }
   catch { throw legacyPve(); }
-  if (grad) { remember(coin, "ok", 3_600_000); persistMarket(coin, `${MARKET_GRAD}:${curve.toLowerCase()}`); return; }
+  if (grad) { remember(coin, "ok", 3_600_000, `${MARKET_GRAD}:${curve.toLowerCase()}`); persistMarket(coin, `${MARKET_GRAD}:${curve.toLowerCase()}`); return; }
   remember(coin, "legacy", 15_000);
   throw legacyPve();
 }
@@ -121,13 +133,13 @@ export async function assertGaslessMarket(coin: Address, isBuy: boolean, kvStatu
   if (peek === "legacy") throw legacyPve();
   if (!isBuy) return;
   const hit = parseMarket(kvStatus);
-  if (hit?.kind === "none" || hit?.kind === "grad") { remember(coin, "ok", 3_600_000); return; }
+  if (hit?.kind === "none" || hit?.kind === "grad") { remember(coin, "ok", 3_600_000, kvStatus ?? undefined); return; }
   if (hit?.kind === "login" && hit.curve) return assertUngraduatedPve(coin, hit.curve);
   const lp = DEPLOYMENTS[46630].launchpad;
   let curve: Address;
   try { curve = await marketPc.readContract({ address: lp, abi: marketAbi, functionName: "curveOf", args: [coin] }); }
   catch { return; }   // unreadable registry: let the exact sim / router decide
-  if (!curve || isZeroAddr(curve)) { remember(coin, "ok", 3_600_000); persistMarket(coin, MARKET_NONE); return; }
+  if (!curve || isZeroAddr(curve)) { remember(coin, "ok", 3_600_000, MARKET_NOCURVE); persistMarket(coin, MARKET_NOCURVE); return; }
   let gate: Address | undefined, mode = 0;
   try {
     const [g, m] = await Promise.all([
@@ -137,13 +149,56 @@ export async function assertGaslessMarket(coin: Address, isBuy: boolean, kvStatu
     gate = g; mode = Number(m);
   } catch { return; }
   const checksLogin = !isZeroAddr(gate) || mode === 1;   // BondingCurve: mode 1 = PVE/Easy, loginGate set ⇒ _pveOnBuy
-  if (!checksLogin) { remember(coin, "ok", 3_600_000); persistMarket(coin, MARKET_NONE); return; }
+  if (!checksLogin) {
+    const status = `${MARKET_NONE}:${(curve as string).toLowerCase()}`;
+    remember(coin, "ok", 3_600_000, status); persistMarket(coin, status); return;
+  }
   persistMarket(coin, `${MARKET_LOGIN}:${curve.toLowerCase()}`);
   await assertUngraduatedPve(coin, curve);
 }
 
 /** Admission + exact simulation of ONE relayer tx; throws (notSent) in priority order session → gate → market → sim. */
-async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: Address, isBuy: boolean, extra: Promise<unknown>[] = []): Promise<{ relayer: DirectRelayer; did: string }> {
+
+/** Whether a USDG-paid buy fills the curve. Reuses memo / gate MGET so a known no-curve or graduated market does no extra RPC. */
+async function fillFromCurve(curve: Address, usdgIn: bigint): Promise<boolean> {
+  const dep = DEPLOYMENTS[46630];
+  try {
+    const [graduated, quote] = await Promise.all([
+      marketPc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "graduated" }),
+      marketPc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quote" }),
+    ]);
+    if (graduated) return false;
+    if (typeof quote === "string" && quote.toLowerCase() === dep.usdg.toLowerCase()) {
+      const r = await marketPc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quoteBuy", args: [usdgIn] });
+      return Boolean((r as { graduates?: boolean }).graduates);
+    }
+    return await usdgBuyGraduates(marketPc, { router: dep.gaslessRouter, curve, quote: quote as Address, usdgIn });
+  } catch { return false; }
+}
+
+async function gaslessFillsCurve(coin: Address, usdgIn: bigint, kvStatus?: string | null): Promise<boolean> {
+  const dep = DEPLOYMENTS[46630];
+  const hit = parseMarket(kvStatus);
+  if (hit?.kind === "grad" || hit?.kind === "login" || hit?.empty) return false;
+  if (hit?.kind === "none" && hit.curve) return fillFromCurve(hit.curve, usdgIn);
+  // No status, or a legacy bare "none" that may hide a TRENCH/PVP curve: one curveOf, then persist the precise key.
+  try {
+    const curve = await marketPc.readContract({ address: dep.launchpad, abi: marketAbi, functionName: "curveOf", args: [coin] });
+    if (typeof curve !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(curve) || isZeroAddr(curve)) {
+      remember(coin, "ok", 3_600_000, MARKET_NOCURVE);
+      persistMarket(coin, MARKET_NOCURVE);
+      return false;
+    }
+    const status = `${MARKET_NONE}:${curve.toLowerCase()}`;
+    remember(coin, "ok", 3_600_000, status);
+    persistMarket(coin, status);
+    return fillFromCurve(curve as Address, usdgIn);
+  } catch {
+    return usdgBuyFillsCurve(marketPc, { launchpad: dep.launchpad, router: dep.gaslessRouter, usdg: dep.usdg, token: coin, usdgIn });
+  }
+}
+
+async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: Address, isBuy: boolean, amountIn: bigint, extra: Promise<unknown>[] = []): Promise<{ relayer: DirectRelayer; did: string; fillsCurve: boolean }> {
   const m = d.metrics;
   const relayer = directRelayer(m);
   const session = timed(m, "authSession", () => verifySessionToken(d.idToken));
@@ -160,11 +215,23 @@ async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: 
   // admit() still joins every gate before returning, so commit cannot run if a gate failed; a finished simulation is
   // then discarded. Gate / market are listed before sim in `all` so those errors win the throw if both fail.
   const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data).catch(e => { throw legacyLogin(e); })));
-  const all = [session, owner, gate, market, d.ipGate ?? Promise.resolve(), ...extra, sim, relayer];
+  // Graduation-fill check in parallel with sim (readContract only on the happy path; never fails admission).
+  // Graduation-fill check ∥ sim. Starts after the gate MGET so a cached login:curve is reused (no extra curveOf).
+  // Never fails admission. Sells and already-graduated markets skip the reads.
+  const fillsP = !isBuy ? Promise.resolve(false)
+    : timed(m, "gradFillCheck", () => {
+      const memo = peekMarketStatus(coin);
+      if (memo !== undefined) return gaslessFillsCurve(coin, amountIn, memo);
+      return gate.then(status => gaslessFillsCurve(coin, amountIn, status as string | null | undefined)).catch(() => false);
+    }).catch(() => false);
+  const all = [session, owner, gate, market, d.ipGate ?? Promise.resolve(), ...extra, sim, relayer, fillsP];
   const res = await timed(m, "admissionSimulationWall", () => Promise.allSettled(all));
   for (const x of res) if (x.status === "rejected") throw notSent(x.reason);
-  return { relayer: (res[res.length - 1] as PromiseFulfilledResult<DirectRelayer>).value,
-    did: (res[0] as PromiseFulfilledResult<{ did: string }>).value.did };
+  return {
+    relayer: (res[all.indexOf(relayer)] as PromiseFulfilledResult<DirectRelayer>).value,
+    did: (res[all.indexOf(session)] as PromiseFulfilledResult<{ did: string }>).value.did,
+    fillsCurve: (res[all.indexOf(fillsP)] as PromiseFulfilledResult<boolean>).value,
+  };
 }
 
 /** Budget (after the exact simulation passed) → sign + sync send → strike / breaker on an included revert. */
@@ -203,8 +270,8 @@ export async function relayGaslessTrade(raw: unknown, d: GaslessDeps = {}): Prom
     if (who.toLowerCase() !== q.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
   } catch (e) { throw notSent(e); }
   const data = encodeGaslessCall(q);
-  const { relayer, did } = await admit(q.signer, router, data, d, q.trade.coin, q.trade.isBuy);
-  return commit(q.signer, router, data, GASLESS_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
+  const { relayer, did, fillsCurve } = await admit(q.signer, router, data, d, q.trade.coin, q.trade.isBuy, q.trade.amountIn);
+  return commit(q.signer, router, data, gaslessTxGasLimit(fillsCurve), relayer, d, t0, Date.now() - t0, did);
 }
 
 const loginGateAbi = parseAbi(["function attest(address wallet, uint64 expiry, bytes sig)"]);

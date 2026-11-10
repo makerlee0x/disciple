@@ -1,7 +1,7 @@
 /** flow/gasless-permit2 relay: the switch, admission (off-chain Privy session, revoke/strike, IP), exact simulation before signing,
  *  budget after simulation, replay refusal, strike + breaker on an included revert. RPC / KV / send are mocked. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { decodeFunctionData, type Address, type Hex } from "viem";
+import { decodeFunctionData, parseTransaction, toBytes, keccak256, slice, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 const h = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_CHAIN_ID = "46630";
@@ -20,7 +20,7 @@ import { gaslessSessionDeps } from "../lib/server/gaslessSession";
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { requireSelfBundlerMode } from "../lib/server/relayLockdown";
 import { relayBreaker } from "../lib/server/relayBreaker";
-import { gaslessRouterAbi, tradeTypedData } from "../lib/trade/gaslessPermit2";
+import { gaslessRouterAbi, tradeTypedData, GASLESS_GAS_LIMIT, GASLESS_GRAD_GAS_LIMIT } from "../lib/trade/gaslessPermit2";
 import { DEPLOYMENTS } from "../lib/chains";
 
 const user = privateKeyToAccount(generatePrivateKey()), other = privateKeyToAccount(generatePrivateKey());
@@ -54,6 +54,7 @@ const relayGaslessTrade = (b: unknown, d: GaslessDeps = {}) => relayTrade(b, { i
 const router = DEPLOYMENTS[46630].gaslessRouter, usdg = DEPLOYMENTS[46630].usdg;
 const coin = "0x00000000000000000000000000000000000000c0" as Address;
 const NOW = Math.floor(Date.now() / 1000);
+const errSel = (sig: string) => slice(keccak256(toBytes(sig)), 0, 4);
 const okRc = (status = "0x1") => ({ rc: { transactionHash: `0x${"ab".repeat(32)}` as Hex, blockHash: `0x${"cd".repeat(32)}`, blockNumber: "0x1", status, gasUsed: "0x30d40", effectiveGasPrice: "0x1312d00", logs: [] }, via: "sync", sendMs: 5, minedMs: 0, pending: false });
 async function wire(o: { signer?: typeof user; recipient?: Address; amountIn?: bigint; isBuy?: boolean } = {}) {
   const s = o.signer ?? user, isBuy = o.isBuy ?? true, amountIn = o.amountIn ?? 3_000_000n, deadline = BigInt(NOW + 120);
@@ -351,6 +352,34 @@ describe("login relay (LoginGate.attest for a no-ETH EOA) — OFF by default, TO
       h.incr.mockResolvedValue(4);
       await expect(relayGaslessLogin({ wallet: user.address, expiry: NOW + 7200, signature: `0x${"11".repeat(65)}` })).rejects.toMatchObject({ notSent: true });
       expect(h.send).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("gasless gas cap: graduating buy only", () => {
+  it("ordinary buys keep the 900k cap", async () => {
+    let raw: Hex | undefined;
+    h.send.mockImplementation(async (r: Hex) => { raw = r; return okRc(); });
+    await relayGaslessTrade(await wire());
+    expect(parseTransaction(raw!).gas).toBe(GASLESS_GAS_LIMIT);
+  });
+
+  it("a buy that fills the curve uses the 3M cap", async () => {
+    const curve = "0x00000000000000000000000000000000000000c1";
+    h.read.mockImplementation(async ({ functionName }: { functionName: string }) => {
+      if (functionName === "verifiedUntil") return BigInt(NOW + 3600);
+      if (functionName === "curveOf") return curve;
+      if (functionName === "graduated") return false;
+      if (functionName === "loginGate") return "0x0000000000000000000000000000000000000000";
+      if (functionName === "mode") return 0;
+      if (functionName === "quote") return usdg;
+      if (functionName === "quoteBuy") return { graduates: true };
+      return 0n;
+    });
+    let raw: Hex | undefined;
+    h.send.mockImplementation(async (r: Hex) => { raw = r; return okRc(); });
+    await relayGaslessTrade(await wire());
+    expect(parseTransaction(raw!).gas).toBe(GASLESS_GRAD_GAS_LIMIT);
   });
 });
 

@@ -53,8 +53,9 @@ const receipt = { transactionHash: `0x${"ab".repeat(32)}`, blockHash: `0x${"cd".
 async function signed(nonce: bigint) {
   LAT.trial(Number(nonce));   // trial index == permit nonce == loop index
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 250);
-  const trade = { coin, isBuy: true, amountIn: 3_000_000n, minOut: 1n, recipient: user.address, deadline };
-  const permit = { permitted: { token: usdg, amount: 3_000_000n }, nonce, deadline };
+  const isBuy = process.env.RELAY_BENCH_SIDE !== "sell";
+  const trade = { coin, isBuy, amountIn: 3_000_000n, minOut: 1n, recipient: user.address, deadline };
+  const permit = { permitted: { token: isBuy ? usdg : coin, amount: 3_000_000n }, nonce, deadline };
   const signature = await user.signTypedData(tradeTypedData(46630, router, permit, trade));
   return JSON.parse(JSON.stringify({ signer: user.address, permit, trade, signature }, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
 }
