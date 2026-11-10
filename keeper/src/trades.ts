@@ -55,7 +55,7 @@ export function readRows(csv: string): Row[] {
     });
 }
 
-/** Totals and fee APY. APY = fees / pool value now, annualised since launch (simple, no compounding). */
+/** Totals, fee APY and turnover. APY = fees / pool value now, annualised since launch (simple, no compounding). */
 export function summarise(rows: Row[], poolUsd: number, nowMs: number, launchMs: number): string[] {
   const trades = rows.filter((r) => r.kind === "BUY" || r.kind === "SELL");
   const sum = (rs: Row[], k: "usdg" | "fee") => rs.reduce((a, r) => a + r[k], 0);
@@ -64,11 +64,14 @@ export function summarise(rows: Row[], poolUsd: number, nowMs: number, launchMs:
   const apy = poolUsd > 0 && days > 0 ? (fees / poolUsd) * (365 / days) * 100 : 0;
   const day = trades.filter((r) => nowMs - Date.parse(r.time) <= 86_400_000);
   const buys = trades.filter((r) => r.kind === "BUY").length;
+  const turn = poolUsd > 0 ? sum(trades, "usdg") / poolUsd : 0; // how hard each dollar of depth works
   return [
     `${trades.length} trades (${buys} buys, ${trades.length - buys} sells) in ${days.toFixed(2)} days since launch`,
     `volume $${sum(trades, "usdg").toFixed(2)} total, $${sum(day, "usdg").toFixed(2)} in the last 24 h (${day.length} trades)`,
     `LP fees $${fees.toFixed(4)} total (12% of fees fill the tip jar until it is full)`,
     `pool value $${poolUsd.toFixed(2)}, fee APY ${apy.toFixed(1)}% (fees only; price moves are in the tracker's pnl vs hold)`,
+    `turnover ${turn.toFixed(2)}x (volume / pool value), ${(days > 0 ? turn / days : 0).toFixed(2)}x per day, ` +
+      `${(poolUsd > 0 ? sum(day, "usdg") / poolUsd : 0).toFixed(2)}x in the last 24 h`,
   ];
 }
 

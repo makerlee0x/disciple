@@ -52,4 +52,5 @@ test("summary: counts, volume, fee APY", async () => {
   assert.match(out[1], /volume \$19\.50 total/);
   assert.match(out[2], /LP fees \$0\.1950/);
   assert.match(out[3], /fee APY 17\.8%/); // 0.195 / 200 * 365 / 2
+  assert.match(out[4], /^turnover 0\.10x \(volume \/ pool value\), 0\.05x per day, 0\.10x in the last 24 h$/); // 19.5 / 200, both trades inside the last day
 });
