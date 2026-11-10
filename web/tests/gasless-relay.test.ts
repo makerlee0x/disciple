@@ -18,7 +18,6 @@ process.env.RELAYER_NONCE_SHARED = "0";
 import { relayGaslessLogin, relayGaslessTrade as relayTrade, requireGaslessMode, LEGACY_LOGIN_MESSAGE, LEGACY_PVE_CODE, NOT_VERIFIED_SELECTOR, MARKET_LOGIN, assertGaslessMarket, gaslessMarketCache, marketStatusKey, type GaslessDeps } from "../lib/server/gaslessRelay";
 import { gaslessSessionDeps } from "../lib/server/gaslessSession";
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
-import { requireSelfBundlerMode } from "../lib/server/relayLockdown";
 import { relayBreaker } from "../lib/server/relayBreaker";
 import { gaslessRouterAbi, tradeTypedData, GASLESS_GAS_LIMIT, GASLESS_GRAD_GAS_LIMIT } from "../lib/trade/gaslessPermit2";
 import { DEPLOYMENTS } from "../lib/chains";
@@ -44,6 +43,7 @@ function session(wallets: string[], logins: string[] = ["email"], o: Parameters<
   ]);
   return { did, token: jwt(did, { ...o, accounts }) };
 }
+const users = new Map<string, unknown>();
 const privyFetch = vi.fn(async (url: string) => {
   const did = decodeURIComponent(url.split("/users/")[1] ?? "");
   const u = users.get(did);
@@ -80,15 +80,14 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("switch: GAS_SPONSORSHIP_MODE", () => {
-  it("explicit leftover self ⇒ gasless refused notSent, nothing read or sent; the old self-bundler stays selectable", async () => {
-    process.env.GAS_SPONSORSHIP_MODE = "self";
-    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("gasless relay disabled") });
-    expect(h.call).not.toHaveBeenCalled(); expect(h.send).not.toHaveBeenCalled();
-    expect(() => requireSelfBundlerMode()).not.toThrow();
+  it("leftover explicit self/bso/hosted map to gasless and are admitted", async () => {
+    for (const mode of ["self", "bso", "hosted", "gasless"]) {
+      process.env.GAS_SPONSORSHIP_MODE = mode;
+      expect(() => requireGaslessMode()).not.toThrow();
+    }
   });
-  it("on ⇒ gasless admitted; the old self-bundler is refused (one transport at a time)", () => {
+  it("on ⇒ gasless admitted", () => {
     expect(() => requireGaslessMode()).not.toThrow();
-    expect(() => requireSelfBundlerMode()).toThrow("self-bundler disabled");
   });
   it("admitted in Production when the resolved mode is gasless", () => {
     vi.stubEnv("VERCEL_ENV", "production"); vi.stubEnv("VERCEL", "1"); vi.stubEnv("NODE_ENV", "production");

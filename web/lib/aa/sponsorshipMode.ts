@@ -4,11 +4,9 @@
  *  self/bso/hosted values are still recognized by the switch until those paths are removed. */
 export type SponsorshipMode = "self" | "bso" | "hosted" | "gasless";
 type ModeEnv = { [key: string]: string | undefined; GAS_SPONSORSHIP_MODE?: string; NEXT_PUBLIC_GAS_SPONSORSHIP_MODE?: string; AA_SELF_BUNDLER?: string; VERCEL_ENV?: string; NEXT_PUBLIC_VERCEL_ENV?: string };
-export function resolveSponsorshipMode(env: ModeEnv): SponsorshipMode {
-  const mode = env.GAS_SPONSORSHIP_MODE || env.NEXT_PUBLIC_GAS_SPONSORSHIP_MODE;
-  if (mode === "bso") return "bso";
-  if (mode === "self") return "self";
-  if (mode === "hosted") return "hosted";
+export function resolveSponsorshipMode(_env: ModeEnv): SponsorshipMode {
+  // Leftover explicit self/bso/hosted values map to gasless so a stale env cannot select a deleted 4337 path.
+  // The switch is kept; gasless is the only resolved mode in every environment, including production.
   return "gasless";
 }
 export const serverSponsorshipMode = () => resolveSponsorshipMode(process.env);
@@ -21,7 +19,7 @@ export function clientSponsorshipMode(): SponsorshipMode {
     try {
       const raw = document.getElementById(SPONSORSHIP_CONFIG_ID)?.textContent;
       const config = raw ? JSON.parse(raw) as { chainId?: unknown; mode?: unknown } : undefined;
-      if (typeof config?.chainId === "number" && (config.mode === "self" || config.mode === "bso" || config.mode === "hosted" || config.mode === "gasless")) return config.mode;
+      if (typeof config?.chainId === "number" && (config.mode === "self" || config.mode === "bso" || config.mode === "hosted" || config.mode === "gasless")) return "gasless";
     } catch { /* malformed / absent bootstrap → default gasless */ }
     return "gasless";
   }

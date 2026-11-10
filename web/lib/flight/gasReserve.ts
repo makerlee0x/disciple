@@ -1,5 +1,4 @@
-import { browserBso } from "@/lib/aa/bso";
-import { ACTIVE_CHAIN, deployment } from "@/lib/chains";
+import { deployment } from "@/lib/chains";
 import type { Address, PublicClient } from "viem";
 /**
  * GAME-side ADAPTER of FLOW's gas reserve (#145 @e693cb5c: lib/aa/gasReserve + lib/wallet gasReservePerOp(kind) /
@@ -85,7 +84,8 @@ export function warmGasPrice(pc: { getGasPrice: () => Promise<bigint> }): Promis
   if (gp && Date.now() - gp.at < GAS_PRICE_TTL_MS) return Promise.resolve();
   return pc.getGasPrice().then((w) => setGasPrice(BigInt(w)), () => undefined);
 }
-const smart = () => { try { return !browserBso(ACTIVE_CHAIN.id) && isSmartMode(); } catch { return false; } };
+/* 4337 USDG-paymaster reserve is gone; gasless trades reserve $0 from cash (relayer pays ETH). */
+const smart = () => false;
 /** Warm value (fresh allowance), else null (cold); 0n when gas isn't paid in USDG. */
 export function peekGasReservePerOp(kind: GasOpKind = "trade"): bigint | null {
   try {
