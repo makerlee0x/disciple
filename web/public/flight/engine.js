@@ -1692,7 +1692,7 @@ function phFit(t,w){ if(ctx.measureText(t).width<=w) return t; while(t.length>1&
 /* FEED tab: the same S.feed rows as the desktop TRADES panel, laid out like the mockup (avatar · name · BOOST/DUMP · $ · ago) */
 function drawPhoneFeed(P){ const B0=P.body, B={x:B0.x,y:B0.y+28,w:B0.w,h:B0.h-28}, rh=50, n=Math.max(1,Math.floor(B.h/rh)), x0=B.x+4, iw=B.w-8, gap=8, cAva=30, cTag=70, cUsd=66, cAgo=34, cNm=Math.max(40,iw-cAva-cTag-cUsd-cAgo-4*gap);
   ctx.save(); ctx.textBaseline='middle'; if('letterSpacing' in ctx) ctx.letterSpacing='0px';
-  ctx.font=`10px ${PH_FONT}`; ctx.fillStyle='rgba(214,222,245,.56)'; ctx.fillText('LOCAL TIME · ~RECEIVED',x0,B0.y+12);
+  ctx.font=`10px ${PH_FONT}`; ctx.fillStyle='rgba(214,222,245,.56)'; ctx.fillText('TRADE HISTORY',x0,B0.y+12);
   const rows=S.feed.slice(0,n);
   if(!rows.length){ ctx.fillStyle='rgba(214,222,245,.42)'; ctx.font=`12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText('No trades yet',B.x+B.w/2,B.y+40); ctx.textAlign='left'; }
   rows.forEach((r,i)=>{ const y=B.y+i*rh, cy=y+rh/2, mt=/^(▲ BOOST|▼ DUMP)\s+(\S+)\s+(.+)$/.exec(r.txt||'');
@@ -1822,7 +1822,7 @@ function drawHud(){
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='feed') drawPhoneFeed(PH); }
   else if (cardBegin('trades',20,H-160,310,140)){ const FX=20, FY=H, FW=310;
   panel(FX,FY-160,FW,140); ctx.font='12px ui-monospace,monospace';
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADES · LOCAL (~SEEN)',FX+16,FY-138);
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADE HISTORY',FX+16,FY-138);
   S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=FY-116+i*17, icon=r.ic?18:0, maxW=FW-32-74-icon;
     if(r.ic) drawIcon(r.ic,FX+16,fy-11,14,r.c);
     const parts=tradeRowParts(r);
@@ -2879,7 +2879,7 @@ function drawPnlTag(){ const v=S.pnlTag; if(!S.pnlTagOn||CLEAN_TAG()||!v||!(v.si
   const T=v.txt||{pnl:fmtPnlUsd(v.uPnl),pct:(v.pnlPct<0?'−':'+')+Math.abs(v.pnlPct).toFixed(1)+'%',pos:fmtMoney(v.valueUsd),realized:fmtPnlUsd(v.realized)};   // txt = lib/pnl.ts fmtPnl/fmtPct/fmtMoney
   ctx.fillText(`${T.pnl} ${T.pct}`,x+10,y+16);
   ctx.font='10px ui-monospace,monospace'; ctx.fillStyle='rgba(230,236,255,.85)';
-  ctx.fillText(`POS ${T.pos} · ${fmtTok(v.size)} tok`,x+10,y+31);
+  ctx.fillText(`POS ${T.pos} · ${fmtTok(v.size)}${coinTicker()?' '+coinTicker():''}`,x+10,y+31);
   ctx.fillText(`ENTRY MC ${fmtUsd(v.entryMcap)}`,x+10,y+44);
   ctx.fillStyle=v.realized>=0?'#8ff0c0':'#ff9fb8'; ctx.fillText(`REALIZED ${T.realized}`,x+10,y+55);
   ctx.restore(); }
