@@ -24,10 +24,11 @@ const strikeUntilOf = (raw: string | null | undefined): number => {
  *  user's wallets (H1 / M1). Self-bundler calls without a did still check the wallet keys (incl. the ban).
  *  `extraKey` (gasless: the immutable market-status key) is fetched in the SAME MGET — no extra RTT — and
  *  returned so the caller can use it after the gate passes. A store error still fails closed (trade refused). */
-export async function requireNotRevokedOrStruck(sender: string, now = Date.now(), did?: string | null, extraKey?: string | null): Promise<string | null> {
+export async function requireNotRevokedOrStruck(sender: string, now = Date.now(), did?: string | null, extraKey?: string | readonly (string | null | undefined)[] | null): Promise<string | (string | null)[] | null> {
   const ids = did ? [sender, did] : [sender];
+  const extras = (extraKey == null ? [] : Array.isArray(extraKey) ? extraKey : [extraKey]).filter((k): k is string => typeof k === "string" && k.length > 0);
   const keys = ids.flatMap(id => [banKey(id), revokeMarkerKey(id), trustKey(id)]);
-  if (extraKey) keys.push(extraKey);
+  keys.push(...extras);
   let vals: (string | null)[];
   try { vals = await kv().mget(keys); }
   catch { throw Object.assign(new Error("relay gate store unavailable; no submission"), { notSent: true }); }
@@ -39,8 +40,9 @@ export async function requireNotRevokedOrStruck(sender: string, now = Date.now()
     until = Math.max(until, strikeUntilOf(trust));
   }
   if (now < until) throw Object.assign(new Error("sender in relay strike backoff; no submission"), { notSent: true });
-  if (!extraKey) return null;
-  return vals[ids.length * 3] ?? null;
+  if (extras.length === 0) return null;
+  const ev = extras.map((_, i) => vals[ids.length * 3 + i] ?? null);
+  return Array.isArray(extraKey) ? ev : ev[0] ?? null;
 }
 export const RELAY_SENDER_CAP = 20, RELAY_GLOBAL_CAP = 60, RELAY_BUDGET_WINDOW_SEC = 60;
 export const RELAY_GLOBAL_KEY = "relay:paid:global";
