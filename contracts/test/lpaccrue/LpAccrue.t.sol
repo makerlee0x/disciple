@@ -242,7 +242,7 @@ contract LpAccrueTest is IntegrationBase {
         (address ca, Token t) = _launchOn(false, Constants.MODE_TRENCH, 0);
         ca;
         vm.expectRevert(CurveFeeVault.OnlyCurve.selector);
-        feeVault.settle(address(t), address(quote), address(0), 1 ether, 0);
+        feeVault.settleCurveFee(address(t), address(quote), address(0), 1 ether, 0);
     }
 
     // ───────── 4. totals invariant vs the old split ─────────
@@ -351,12 +351,10 @@ contract LpAccrueTest is IntegrationBase {
         vm.expectRevert(BondingCurve.ZeroAmount.selector);
         c.releaseSnipeEscrow();
 
-        // L2 (lee 2026-11-09): later LP shares stay in the curve for the compound bucket; never released
+        // later LP shares keep accruing and are releasable again (documented rule)
         _buyC(ca, w, 50 ether);
-        vm.expectRevert(BondingCurve.ZeroAmount.selector);
-        c.releaseSnipeEscrow();
-        c.settleFees();
-        assertEq(c.lpFeeEscrow(), (FeeMath.protocolFee(50 ether) * 33) / 100, "post-release LP share kept");
+        uint256 again = c.releaseSnipeEscrow();
+        assertEq(again, (FeeMath.protocolFee(50 ether) * 33) / 100, "post-release LP share released again");
     }
 
     function test_graduationBefore12d_goesToCompoundBucket_notVault() public {

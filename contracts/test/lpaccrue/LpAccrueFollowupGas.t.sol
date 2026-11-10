@@ -123,6 +123,12 @@ contract LpAccrueFollowupGasTest is IntegrationBase {
         _log("release", g - gasleft());
         _log("buy_after_release", _gBuy(c, t, w, 10 ether));
         _log("sell_after_release", _gSell(c, t, w));
+        // repeat release: the LP share of the trades since the first release
+        _cool(c, t);
+        vm.cool(address(rewardsVault));
+        g = gasleft();
+        c.releaseSnipeEscrow();
+        _log("repeat_release", g - gasleft());
     }
 
     function test_gas_followups_claimAndSettle() public {
@@ -179,6 +185,17 @@ contract LpAccrueFollowupGasTest is IntegrationBase {
         c.releaseSnipeEscrow();
         _gBuy(c, t, w, 10 ether); // post-release LP share accrues
         _log("graduating_buy_after_release", _gradGas(c));
+    }
+
+    /// @dev Graduating after day 12 with LP fees still escrowed (never released).
+    function test_gas_followups_graduatingBuy_afterTimeout_noRelease() public {
+        (BondingCurve c, Token t) = _launch(Constants.MODE_TRENCH);
+        _warpPastSnipe();
+        address w = _w();
+        _gBuy(c, t, w, 50 ether);
+        vm.warp(c.launchTime() + c.snipeEscrowTimeout() + 1);
+        _gBuy(c, t, w, 10 ether);
+        _log("graduating_buy_after_timeout_no_release", _gradGas(c));
     }
 
     /// @dev DiscipleRouter.claimCreatorFeesToUsdg on a pre-lp-accrue (legacy) USDG-paired curve: FeeRouter only.

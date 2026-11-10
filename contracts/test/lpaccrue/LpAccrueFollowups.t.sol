@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {IntegrationBase} from "../integration/IntegrationBase.sol";
 import {console2} from "forge-std/console2.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {CurveFeeVault} from "../../src/CurveFeeVault.sol";
@@ -15,7 +16,7 @@ import {Constants} from "../../src/libraries/Constants.sol";
 import {FeeMath} from "../../src/libraries/FeeMath.sol";
 
 /// @notice lp-accrue follow-ups (lee 2026-11-09 9:16 PM CT): H1 stealth-owner vault claim, M1 router claim covers the
-///         vault, L2 release capped at the LP share accrued by the timeout (one release only).
+///         vault; LP rule (10:17 PM CT): a coin not graduated by day 12 sends ALL its curve LP fees to RewardsVault.
 contract LpAccrueFollowupsTest is IntegrationBase {
     AnonLauncher internal anon;
     uint256 internal stealthPk = 0x5EA17;
@@ -336,109 +337,158 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         assertEq(feeRouter.creatorAccrued(address(t), creator), 0);
     }
 
-    // ───────── L2: release capped at the LP share accrued by the timeout; one release only ─────────
+    // ───────── LP rule (lee 2026-11-09 10:17 PM CT): not graduated by day 12 ⇒ ALL curve LP fees → RewardsVault ─────────
 
-    function test_L2_release_onlyPreTimeoutLp_laterLpToCompoundBucket() public {
+    bytes32 internal constant LP_REL = keccak256("LpFeeEscrowReleased(address,address,uint256)");
+    bytes32 internal constant SN_REL = keccak256("SnipeEscrowReleased(address,address,uint256)");
+    bytes32 internal constant TO_LP = keccak256("SnipeEscrowToLP(address,uint256)");
+
+    /// @dev LP fee share held by the curve right now (settled + the LP part of what is still owed).
+    function _lpHeld(BondingCurve c) internal view returns (uint256) {
+        return c.lpFeeEscrow() + (uint256(c.protoFeesOwed()) * Constants.FEE_SHARE_LP_LOCK) / Constants.FEE_SHARE_DENOM;
+    }
+
+    /// @dev Sums of the escrow events `c` emitted in the recorded logs: LP → vault, sniper → vault, escrow → bucket.
+    function _escrowEvents(BondingCurve c) internal returns (uint256 lpRel, uint256 snRel, uint256 toLp) {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(c)) continue;
+            bytes32 t0 = logs[i].topics[0];
+            if (t0 == LP_REL) lpRel += abi.decode(logs[i].data, (uint256));
+            else if (t0 == SN_REL) snRel += abi.decode(logs[i].data, (uint256));
+            else if (t0 == TO_LP) toLp += abi.decode(logs[i].data, (uint256));
+        }
+    }
+
+    function test_LP_neverGraduates_repeatedReleases_allLpToVault_noDoublePay() public {
         (BondingCurve c, Token t) = _launchWallet(0);
-        address s = _w();
-        _b(c, s, 10 ether); // sniper window → sniper tax
+        _b(c, _w(), 10 ether); // sniper window → sniper tax
         _warpPastSnipe();
         address w = _w();
         _b(c, w, 200 ether);
-        c.settleFees();
         _s(c, t, w, t.balanceOf(w) / 4);
         _bindReferral(referred, kol, 100 ether);
         quote.mint(referred, 1_000 ether);
         _b(c, referred, 30 ether); // referred: settles in-trade
         uint256 sn = c.sniperTaxEscrow();
-        // LP share accrued by the timeout: settled LP + LP part of what is still owed
-        uint256 preLp = c.lpFeeEscrow() + (uint256(c.protoFeesOwed()) * 33) / 100;
-        assertGt(preLp, 0);
+        assertGt(sn, 0);
 
-        vm.warp(c.launchTime() + c.snipeEscrowTimeout()); // day 12: releasable
-        _b(c, w, 80 ether); // post-timeout unreferred trade
-        (, uint256 capNow) = c.releasableEscrow();
-        assertEq(capNow, preLp, "first fee after the timeout freezes the releasable LP at what accrued by then");
-        _b(c, referred, 20 ether); // post-timeout referred trade
-        _s(c, t, w, t.balanceOf(w) / 5);
-        uint256 postLp = (FeeMath.protocolFee(80 ether) * 33) / 100 + (FeeMath.protocolFee(20 ether) * 33) / 100;
+        vm.warp(c.launchTime() + c.snipeEscrowTimeout() - 1);
+        vm.expectRevert(BondingCurve.EscrowLocked.selector);
+        c.releaseSnipeEscrow();
+        vm.warp(c.launchTime() + c.snipeEscrowTimeout());
+        _b(c, w, 80 ether); // after day 12: still to the vault (lee: "those lp fees should always go to the creator rewards")
+        _b(c, referred, 20 ether);
+        uint256 lp1 = _lpHeld(c);
 
         uint256 v0 = quote.balanceOf(address(rewardsVault));
-        uint256 got = c.releaseSnipeEscrow();
-        assertEq(got, sn + preLp, "sniper tax + pre-timeout LP only");
-        assertEq(quote.balanceOf(address(rewardsVault)) - v0, got);
-        assertGe(c.lpFeeEscrow(), postLp, "post-timeout LP shares stay in the curve");
-        (uint256 snLeft, uint256 lpLeft) = c.releasableEscrow();
-        assertEq(snLeft + lpLeft, 0, "nothing releasable after the release");
+        uint256 got1 = c.releaseSnipeEscrow();
+        assertEq(got1, sn + lp1, "1st release: sniper tax + ALL LP so far (before and after day 12)");
+        assertEq(c.lpFeeEscrow(), 0);
         assertEq(c.sniperTaxEscrow(), 0);
-
-        // releasing twice is impossible, also after more trades
-        vm.expectRevert(BondingCurve.ZeroAmount.selector);
+        assertEq(c.protoFeesOwed(), 0, "release settles everything owed");
+        vm.expectRevert(BondingCurve.ZeroAmount.selector); // nothing new: no double pay
         c.releaseSnipeEscrow();
+
+        // later trades on the never-graduated coin: released again, nothing stranded
+        _s(c, t, w, t.balanceOf(w) / 5);
         _b(c, w, 50 ether);
-        c.settleFees();
+        uint256 lp2 = _lpHeld(c);
+        assertGt(lp2, 0);
+        uint256 got2 = c.releaseSnipeEscrow();
+        assertEq(got2, lp2, "repeat release: exactly the LP accrued since");
         vm.expectRevert(BondingCurve.ZeroAmount.selector);
         c.releaseSnipeEscrow();
-
-        // graduation: everything still escrowed (post-timeout LP) → compound bucket, nothing more to RewardsVault
-        uint256 v1 = quote.balanceOf(address(rewardsVault));
-        _graduate(c);
-        (, uint256 bucket) = lockedLP.compoundBucket(address(t));
-        assertGt(bucket, postLp, "post-timeout LP shares in the compound bucket");
-        assertEq(quote.balanceOf(address(rewardsVault)), v1);
-        vm.expectRevert(BondingCurve.Graduated.selector);
-        c.releaseSnipeEscrow();
+        assertEq(quote.balanceOf(address(rewardsVault)) - v0, sn + lp1 + lp2, "vault got each share once");
+        assertEq(quote.balanceOf(address(c)), c.quoteReserve() + c.rewardsHeld(), "only the reserve is left");
     }
 
-    function test_L2_release_noTradeSinceTimeout_takesAllAccrued() public {
+    function test_LP_graduatesWithin12d_lpAndSniperToCompoundBucket() public {
+        (BondingCurve c, Token t) = _launchWallet(0);
+        _b(c, _w(), 10 ether);
+        uint256 sn = c.sniperTaxEscrow();
+        uint256 v0 = quote.balanceOf(address(rewardsVault));
+        vm.recordLogs();
+        _graduate(c);
+        assertLt(block.timestamp, c.launchTime() + c.snipeEscrowTimeout());
+        (uint256 lpRel, uint256 snRel, uint256 toLp) = _escrowEvents(c);
+        assertEq(lpRel + snRel, 0, "nothing released");
+        assertGt(toLp, sn, "sniper tax + LP fees to the compound bucket");
+        assertEq(quote.balanceOf(address(rewardsVault)), v0);
+        (, uint256 bucket) = lockedLP.compoundBucket(address(t));
+        assertGe(bucket, toLp);
+        assertEq(quote.balanceOf(address(c)), c.rewardsHeld(), "everything migrated");
+    }
+
+    function test_LP_graduatesLate_noRelease_allLpToVault_sniperToBucket() public {
         (BondingCurve c, Token t) = _launchWallet(0);
         _b(c, _w(), 10 ether);
         _warpPastSnipe();
         address w = _w();
-        _b(c, w, 120 ether);
-        _s(c, t, w, t.balanceOf(w) / 3);
-        uint256 all = c.sniperTaxEscrow() + c.lpFeeEscrow() + (uint256(c.protoFeesOwed()) * 33) / 100;
-        vm.warp(c.launchTime() + c.snipeEscrowTimeout() + 3 days);
-        (uint256 a1, uint256 a2) = c.releasableEscrow();
-        assertEq(a1 + a2, all, "preview");
-        assertEq(c.releaseSnipeEscrow(), all, "no fee after the timeout: all of it accrued by then");
+        _b(c, w, 200 ether);
+        _s(c, t, w, t.balanceOf(w) / 4);
+        uint256 sn = c.sniperTaxEscrow();
+        uint256 lpPre = _lpHeld(c);
+        vm.warp(c.launchTime() + c.snipeEscrowTimeout() + 1 days); // nobody released
+        uint256 v0 = quote.balanceOf(address(rewardsVault));
+        vm.recordLogs();
+        _graduate(c); // the graduating buy decides: past day 12 → LP to RewardsVault
+        (uint256 lpRel, uint256 snRel, uint256 toLp) = _escrowEvents(c);
+        assertGt(lpRel, lpPre, "all LP: before day 12, after it, and the graduating buy's share");
+        assertEq(snRel, 0);
+        assertEq(quote.balanceOf(address(rewardsVault)) - v0, lpRel, "vault got exactly the LP fees");
+        assertEq(toLp, sn, "sniper tax keeps its rule: compound bucket (not released before graduation)");
         assertEq(c.lpFeeEscrow(), 0);
-        _b(c, w, 40 ether);
-        vm.expectRevert(BondingCurve.ZeroAmount.selector);
+        assertEq(quote.balanceOf(address(c)), c.rewardsHeld(), "everything moved, nothing paid twice");
+        vm.expectRevert(BondingCurve.Graduated.selector);
         c.releaseSnipeEscrow();
-        c.settleFees();
-        assertEq(c.lpFeeEscrow(), (FeeMath.protocolFee(40 ether) * 33) / 100, "later LP kept for the bucket");
     }
 
-    function test_L2_release_nothingAccrued_thenTrades_stillZero() public {
-        (BondingCurve c,) = _launchWallet(0);
+    function test_LP_graduatesLate_afterRelease_restToVault_noDoublePay() public {
+        (BondingCurve c, Token t) = _launchWallet(0);
+        _b(c, _w(), 10 ether);
+        _warpPastSnipe();
+        address w = _w();
+        _b(c, w, 150 ether);
         vm.warp(c.launchTime() + c.snipeEscrowTimeout());
-        vm.expectRevert(BondingCurve.ZeroAmount.selector); // nothing accrued by day 12 (reverts, no state change)
-        c.releaseSnipeEscrow();
-        _b(c, _w(), 60 ether); // first fee after the timeout: snapshots cap = 0
-        (, uint256 lpCap) = c.releasableEscrow();
-        assertEq(lpCap, 0, "cap snapshotted at 0");
-        vm.expectRevert(BondingCurve.ZeroAmount.selector);
-        c.releaseSnipeEscrow();
+        uint256 sn = c.sniperTaxEscrow();
+        uint256 lp1 = _lpHeld(c);
+        uint256 v0 = quote.balanceOf(address(rewardsVault));
+        vm.recordLogs();
+        assertEq(c.releaseSnipeEscrow(), sn + lp1);
+        _s(c, t, w, t.balanceOf(w) / 3);
+        _graduate(c);
+        (uint256 lpRel, uint256 snRel, uint256 toLp) = _escrowEvents(c);
+        assertEq(snRel, sn);
+        assertGt(lpRel, lp1, "release + graduation: every LP share");
+        assertEq(toLp, 0, "nothing left for the bucket");
+        assertEq(quote.balanceOf(address(rewardsVault)) - v0, sn + lpRel, "each share paid once");
+        assertEq(quote.balanceOf(address(c)), c.rewardsHeld());
     }
 
-    function testFuzz_L2_releaseEqualsPreTimeoutLp(uint96 a, uint96 b, uint96 x, uint96 y) public {
+    /// @dev Conservation over random sequences: every LP share ends in exactly one place (vault or bucket), the vault
+    ///      only gets LP when the coin is past day 12, and the bucket only when it graduated within day 12.
+    function testFuzz_LP_rule(uint96 a, uint96 b, uint96 x, bool releaseMid, bool late, bool grad) public {
         (BondingCurve c, Token t) = _launchWallet(0);
         _warpPastSnipe();
         address w = _w();
         _b(c, w, bound(uint256(a), 1 ether, 300 ether));
         _s(c, t, w, t.balanceOf(w) / 4);
+        if (late) vm.warp(c.launchTime() + c.snipeEscrowTimeout());
         _b(c, w, bound(uint256(b), 1 ether, 200 ether));
-        uint256 preLp = c.lpFeeEscrow() + (uint256(c.protoFeesOwed()) * 33) / 100;
-        vm.warp(c.launchTime() + c.snipeEscrowTimeout() + 1);
-        _b(c, w, bound(uint256(x), 1 ether, 200 ether));
-        _s(c, t, w, t.balanceOf(w) / 6);
-        _b(c, w, bound(uint256(y), 1 ether, 100 ether));
-        uint256 heldBefore = c.lpFeeEscrow() + (uint256(c.protoFeesOwed()) * 33) / 100;
-        assertEq(c.releaseSnipeEscrow(), preLp, "release == LP share accrued by the timeout");
-        assertGe(c.lpFeeEscrow() + preLp, heldBefore, "nothing lost (aggregate rounding only adds)");
-        vm.expectRevert(BondingCurve.ZeroAmount.selector);
-        c.releaseSnipeEscrow();
+        vm.recordLogs();
+        if (late && releaseMid) c.releaseSnipeEscrow();
+        _b(c, w, bound(uint256(x), 1 ether, 100 ether));
+        if (grad) _graduate(c);
+        else if (late) c.releaseSnipeEscrow();
+        (uint256 lpRel, uint256 snRel, uint256 toLp) = _escrowEvents(c);
+        assertEq(snRel, 0, "no sniper tax in this sequence");
+        if (!late && grad) assertEq(lpRel, 0, "within day 12: nothing to the vault");
+        if (late) assertEq(toLp, 0, "past day 12: nothing to the bucket");
+        if (grad || late) {
+            assertEq(c.lpFeeEscrow(), 0, "nothing stranded");
+            assertEq(quote.balanceOf(address(c)), c.quoteReserve() + c.rewardsHeld(), "every share moved once");
+        }
     }
 
     // ───────── gas (new paths) ─────────

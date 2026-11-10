@@ -44,7 +44,7 @@ interface ISettleCurve {
 /// @notice Pattern: Uniswap v3 accrue-then-collect (Position.tokensOwed0/1 grow per swap; collect() pays out). An
 ///         lp-accrue BondingCurve keeps its 1% fee owed in one packed slot and keeps the 33% LP share itself (with the
 ///         sniper tax: → LockedLP compound bucket at graduation, → RewardsVault if not graduated within the curve's
-///         snipeEscrowTimeout). On settle it sends THIS vault the other 67% (+ creator tax) and calls settle(), which
+///         snipeEscrowTimeout). On settle it sends THIS vault the other 67% (+ creator tax) and calls settleCurveFee(), which
 ///         applies exactly FeeRouter._route's split minus the LP push: creator 33% (minus the launch KOL's
 ///         kolCreatorShareBps cut) + creator tax; treasury 33%; the 1% to the launch KOL / referral sink / trader's
 ///         referrer, else treasury. Every input (creatorOf, KOL, sink, KOL bps, treasury) is read live from the deployed
@@ -73,8 +73,9 @@ contract CurveFeeVault is EIP712 {
     uint256 internal constant MAX_RELAYER_FEE_BPS = 500;
 
     /// @notice Stealth owner => next by-sig claim nonce (this vault's own; AnonLauncher.nonces are separate).
-    /// @dev Names of the functions added for H1/M1 are picked so their selectors sort after settle() (0xbd98b5d0):
-    ///      the dispatcher checks selectors in order, and settle() runs inside referred trades.
+    /// @dev settleCurveFee() (selector 0x038b09d3) runs inside referred trades; it is named so its selector sorts
+    ///      first in the dispatcher (selectors are checked in order), so the claim functions added for H1/M1 cost
+    ///      the trade path nothing.
     mapping(address => uint256) public sigNonces;
 
     /// @notice Same fields as AnonLauncher.ClaimReq.
@@ -134,7 +135,7 @@ contract CurveFeeVault is EIP712 {
 
     /// @notice Called by the coin's registered curve right after it transferred
     ///         `protoFee - lpShare + creatorTax` of `quote` here (lpShare = FeeMath split LP part, kept by the curve).
-    function settle(address token, address quote, address trader, uint256 protoFee, uint256 creatorTax) external {
+    function settleCurveFee(address token, address quote, address trader, uint256 protoFee, uint256 creatorTax) external {
         IFeeRouterConfig fr = feeRouter;
         ILaunchpadView lp = ILaunchpadView(fr.launchpad());
         if (msg.sender != lp.curveOf(token)) revert OnlyCurve();
@@ -327,7 +328,7 @@ contract CurveFeeVault is EIP712 {
     // ── readers ──
 
     /// @notice What `creator` could claim for `token` right now: accrued here + their share of the curve's unsettled
-    ///         owed fees (the same split settle() applies, on the same aggregate, so it is exact). 0 for old curves.
+    ///         owed fees (the same split settleCurveFee() applies, on the same aggregate, so it is exact). 0 for old curves.
     ///         A private coin: pass creator = anonLauncher.
     function creatorClaimable(address token, address creator) external view returns (uint256 amount) {
         amount = creatorAccrued[token][creator];

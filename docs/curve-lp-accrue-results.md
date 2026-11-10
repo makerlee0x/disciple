@@ -11,18 +11,18 @@ Copied pattern: **Uniswap v3 accrue-then-collect**. In v3, Position.tokensOwed0/
 - **settleFees()** (the "collect"; permissionless, a no-op when nothing is owed) does three things:
   - keeps the LP 33% (same FeeMath rounding) in `lpFeeEscrow`;
   - transfers creator, treasury and the 1% (plus creator tax) to **CurveFeeVault**;
-  - calls `vault.settle`, which copies FeeRouter._route's split exactly, minus the LP push. That covers creatorOf, the launch-KOL 1% plus the kolCreatorShareBps cut, the referral sink, and treasury, all read live from the deployed FeeRouter and Launchpad.
+  - calls `vault.settleCurveFee` (named `settle` on flow/curve-lp-accrue; renamed on the follow-ups branch so its selector sorts first in the vault's dispatcher), which copies FeeRouter._route's split exactly, minus the LP push. That covers creatorOf, the launch-KOL 1% plus the kolCreatorShareBps cut, the referral sink, and treasury, all read live from the deployed FeeRouter and Launchpad.
 - **Graduation:** `_graduate` settles first. `snipeEscrow()` now returns `sniperTaxEscrow + lpFeeEscrow`, and Migration already reads that selector as non-floor quote, so the LP share lands in LockedLP's **locked compound bucket**. Tested: the bucket is byte-identical to the old curve's on the same trade sequence (31415180580718714992 = 31415180580718714992).
 - **12-day rule:**
   - `Constants.SNIPE_ESCROW_TIMEOUT` is now 12 days (was 30). It stays owner-tunable at 1–365 days and is snapshotted per curve.
   - `releaseSnipeEscrow()` settles first, then sends the sniper tax **and** `lpFeeEscrow` to `FeeRouter.rewardsVault()`. It emits `SnipeEscrowReleased` (sniper part) and `LpFeeEscrowReleased` (LP part).
   - Only the escrows move, never `quoteReserve`, `rewardsHeld` or the token inventory.
-  - **Post-release rule (lee, Nov 9 2026, L2; replaces my earlier pick):** "Only the LP fees accrued by day 12 go to the rewards vault; later ones go to the compound bucket." The release sends the LP share accrued by the timeout, once; later LP shares stay in `lpFeeEscrow` for the compound bucket at graduation. See "Follow-ups" below.
-  - A second release with nothing new reverts `ZeroAmount` (no state change), same as today.
+  - **LP rule (lee, Nov 9 2026, 10:17 PM CT; replaces the L2 cap):** "if the coin never graduates, those lp fees should always go to the creator rewards. if the coin graduates at a later date for whatever reason after the 12 days, they just wont get those lp fees at all. it'll just go to the creator rewards." Not graduated by launch + 12 days ⇒ **all** curve LP fees (before and after day 12) go to RewardsVault; only a graduation within 12 days sends them to the compound bucket. The release is repeatable (each call settles and sends everything owed since the last one) and a graduation after day 12 sends the remaining `lpFeeEscrow` to RewardsVault. Decided only at release or graduation, never per trade. See "Follow-ups" below.
+  - A release with nothing new reverts `ZeroAmount` (no state change), same as today.
 - **Claims mid-curve:** these are CurveFeeVault functions, and each settles first, then pays:
   - `claimCreatorFees(token)` settles that coin first. The quote is read from the curve, never supplied by the caller.
   - `claimReferrerFees(quote, tokens[])` and `claimTreasury(quote, tokens[])` settle the listed coins first. `claimTreasury` is permissionless and pays FeeRouter.treasury().
-  - Only the coin's registered curve can call `vault.settle`.
+  - Only the coin's registered curve can call `vault.settleCurveFee`.
 - **Why a new contract:** the deployed FeeRouter is immutable in Launchpad and always pushes 33% to LockedLP inside `_route`. It cannot credit creator, treasury or referral without also moving the LP share, and that would break "LP fees go to the vault if the coin doesn't bond".
 - **Login:** new curves drop the on-chain PvE LoginGate check (the `verifiedUntil` read and the 10-min cache). This is app-level gating, as pump.fun and FOMO do it: login is enforced off-chain at the app and relay, and the contracts are permissionless. `loginGate` stays as an immutable so web/lib/legacyGate.ts doesn't mark new coins as legacy. `verifiedUntilOf` always returns 0. The constructor no longer requires a gate for PvE.
 - Fee split (33/33/33/1, Constants.sol:119-124) unchanged. Code size: BondingCurve runtime 23,631 B (was 24,159; limit 24,576). CurveFeeVault 3,774 B. CurveDeployer now takes `feeVault` in its constructor; Launchpad's deploy call is unchanged.
@@ -55,7 +55,7 @@ LpAccrue.t.sol (11):
 - fuzz totals match the old split (total identical, per-bucket ≤ a few wei dust);
 - old curve unchanged (per-trade FeeRouter/LockedLP);
 - old PvE curve reverts NotVerified while the new one trades without login;
-- 12-day release: reverts at 12d−1s; at 12d sends sniper tax + LP to RewardsVault; reserve, tokensSold and inventory unchanged; creator and treasury unaffected; second release reverts ZeroAmount; post-release LP stays for the compound bucket (L2, follow-ups branch);
+- 12-day release: reverts at 12d−1s; at 12d sends sniper tax + LP to RewardsVault; reserve, tokensSold and inventory unchanged; creator and treasury unaffected; second release reverts ZeroAmount; post-release LP is released again (follow-ups branch: repeated releases, late graduation → RewardsVault);
 - graduation before 12d goes to the bucket, not the vault, and release after graduation reverts;
 - gas.
 
@@ -95,7 +95,7 @@ Web: vitest **177 passed / 5 skipped** (25 files, +1 new `tests/ammo-tiers-min.t
 3. Settle-time reads: unreferred fees owed at settle use the creatorOf, kolCreatorShareBps, referralSink and treasury values at settle time, not trade time. A creator who calls transferCreator before a settle hands the unsettled share to the new creator. An owner change to KOL bps or the sink applies to unsettled fees. **Decided (lee, Nov 9, L1): "Leave it, the new creator gets unsettled fees."** Documented at Launchpad.transferCreator; no code change.
 4. DiscipleRouter.claimCreatorFeesToUsdg (FeeRouter.claimCreatorFeesFor) does not cover vault balances.
 5. FeeRouter.TradeFeeRouted is no longer emitted for new-curve curve-phase fees. CurveFeeVault.CurveFeeSettled replaces it (trader = 0 for a batch), so the indexer and the recentAccruals feed need it.
-6. The post-release accrual rule: decided by lee (L2, Nov 9): only LP fees accrued by the timeout are released, once; later ones go to the compound bucket. Implemented on hook/curve-lp-accrue-followups.
+6. The post-release accrual rule: decided by lee (Nov 9, 10:17 PM CT, replacing the 9:16 PM L2 cap): a coin not graduated by day 12 sends all its curve LP fees to RewardsVault (repeatable release + late graduation); only a graduation within 12 days sends them to the compound bucket. Implemented on hook/curve-lp-accrue-followups.
 7. Rounding: per-bucket dust differs from per-trade splitting by ≤ a few wei per trade. The total is exact (referral residual).
 8. With no on-chain login, a direct contract caller can trade PvE new coins without login (by design, per lee).
 
@@ -114,5 +114,11 @@ Web: vitest **177 passed / 5 skipped** (25 files, +1 new `tests/ammo-tiers-min.t
 - **H1, private coins (AnonLauncher):** CurveFeeVault takes an immutable `anonLauncher` (constructor). `claimCreatorFeesAsStealth(token, to)` pays `creatorAccrued[token][anonLauncher]` (settled first) when `Launchpad.creatorOf(token) == anonLauncher` and `msg.sender == AnonLauncher.stealthOwnerOf(token)`. `claimManyAsStealthBySig(ClaimReq)` is the gasless form the web already uses for AnonLauncher (stealth keys never hold gas; the user's smart account submits): same `Claim` struct, relayer fee cap (500 bps), deadline and per-owner nonce as AnonLauncher.claimManyBySig, with the vault's own EIP-712 domain ("DISCIPLE CurveFeeVault", "1") and `sigNonces`. Fee claim only; no login or trade path.
 - **M1, readers:** `DiscipleRouter.claimCreatorFeesToUsdg` now pays vault balances too (`CurveFeeVault.claimCreatorFeesToRouter`, gated on `FeeRouter.isClaimRouter`, same as `FeeRouter.claimCreatorFeesFor`). Web claims (lib/claims/vault.ts, creatorFees.ts, capabilities.ts, rewardsData.ts) read `curve.feeVault()` per coin and `creatorClaimable` (accrued + still owed), and claim on the side that holds the balance. The indexer stores `CurveFeeSettled` (stack vault only) and `LpFeeEscrowReleased` (coin's curve only), and splits `SnipeEscrowToLP` into sniper tax and LP fee share.
 - **L1:** docs only (above, Launchpad.transferCreator NatSpec, constitution #13).
-- **L2:** the first trade or release at or after the timeout records the release cap once (`lpFeeEscrow` + the LP part of still-owed fees). `releaseSnipeEscrow` sends `min(cap, lpFeeEscrow)` with the sniper tax, then zeroes the cap, so a second release of LP fees is impossible (reverts `ZeroAmount` when no sniper tax is left either). Later LP shares stay in `lpFeeEscrow` and go to the compound bucket at graduation. A coin that never graduates keeps those later LP shares in the curve.
+- **LP rule (lee, Nov 9 2026, 10:17 PM CT; replaces the 9:16 PM L2 cap, which is removed):** not graduated by launch + `snipeEscrowTimeout` (12 days) ⇒ all curve LP fees go to RewardsVault, whether the coin never graduates or graduates later; only a graduation within 12 days sends them to the compound bucket.
+  - Trade path: no timestamp check and no extra storage write in buy/sell (byte-for-byte the flow/curve-lp-accrue trade path). The decision happens only at `releaseSnipeEscrow` or in `_graduate`.
+  - `releaseSnipeEscrow` (unchanged from flow/curve-lp-accrue): settles, sends the sniper tax + all of `lpFeeEscrow`, zeroes both. Repeatable: each call sends what accrued since the last one; nothing new ⇒ `ZeroAmount`.
+  - `_graduate` after the timeout: sends the remaining `lpFeeEscrow` to RewardsVault (`LpFeeEscrowReleased`) before the compound bucket is read, so `SnipeEscrowToLP` carries the sniper tax only. If `FeeRouter.rewardsVault()` is unset, the LP stays and goes to the bucket (old destination) rather than reverting the graduating buy.
+  - No double pay: every path zeroes what it sends; graduation blocks further releases.
+  - Sniper tax: unchanged. After day 12 it goes to RewardsVault only if someone calls the release before graduation; a late graduation without a release still sends it to the compound bucket (as on flow/curve-lp-accrue). lee's rule names only LP fees, so this was left as is.
+  - CurveFeeVault `settle` → `settleCurveFee` (selector 0x038b09d3 sorts first in the dispatcher, so the H1/M1 claim functions add no gas to referred trades or settles).
 - Gas and test results: in the PR body for this branch.
