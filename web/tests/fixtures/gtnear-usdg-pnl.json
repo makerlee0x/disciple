@@ -1,0 +1,242 @@
+{
+  "wallet": "0x92922e99f086240f86af77236038893385acd028",
+  "coin": "0x443Cbf068a02809CbCbD76D91A898E423a8eb1E9",
+  "hook": "0x2ac264a620edd05ba78381c51539650c40e2e8c4",
+  "curve": "0x2CF0d72Ccd0cE0135b44b1710134b42f175a5C18",
+  "regularRouter": "0x688160633b22012717661545df6299d3d3174ad2",
+  "gaslessRouter": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+  "usdgDecimals": 6,
+  "quotePriceUsd": "2458131024488206",
+  "fills": [
+    {
+      "venue": "curve",
+      "tx": "0xd189286d53cbd8b99fc7fb689f171de46f580ee1bfeb9e3ff00255c2ada1d4b7",
+      "tradeLogIndex": 12,
+      "block": 151443250,
+      "isBuy": true,
+      "quoteAmt": "3596157219571514708758",
+      "tokenAmt": "263263661795205360958",
+      "usdgTrade": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 54,
+        "amountIn": "25000000",
+        "amountOut": "263263661795205360958",
+        "isBuy": true
+      },
+      "usdgRefund": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 53,
+        "quoteRefund": "6525640500877865563538",
+        "usdgRefund": "16021370"
+      }
+    },
+    {
+      "venue": "hook",
+      "tx": "0xdae0cc52fdf592a3613a71776b4b6bc2114d5a7cabace9957edf206d13a6d2c3",
+      "tradeLogIndex": 9,
+      "block": 151443300,
+      "isBuy": true,
+      "quoteAmt": "20242732622944359347675",
+      "tokenAmt": "1463998610069090444706",
+      "usdgTrade": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 14,
+        "amountIn": "50000000",
+        "amountOut": "1463998610069090444706",
+        "isBuy": true
+      }
+    },
+    {
+      "venue": "hook",
+      "tx": "0x699834575179b7637a7a0ebbc91f55bc05ed8831ee46493d37677174648be912",
+      "tradeLogIndex": 12,
+      "block": 151443308,
+      "isBuy": true,
+      "quoteAmt": "20240719747335701064049",
+      "tokenAmt": "1436638589511642114894",
+      "usdgTrade": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 16,
+        "amountIn": "50000000",
+        "amountOut": "1436638589511642114894",
+        "isBuy": true
+      }
+    },
+    {
+      "venue": "hook",
+      "tx": "0x0adef8e17c2f73e567267d5d84a802a5d4f491c7b4bb857e33f597199b628de7",
+      "tradeLogIndex": 8,
+      "block": 151443323,
+      "isBuy": true,
+      "quoteAmt": "40475402068651300451882",
+      "tokenAmt": "2794208750004003424294",
+      "usdgTrade": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 12,
+        "amountIn": "100000000",
+        "amountOut": "2794208750004003424294",
+        "isBuy": true
+      }
+    },
+    {
+      "venue": "hook",
+      "tx": "0x562a7f0c5a926d7461e67de889418bc9cb6e62b814c0b9345f8774838d86b32e",
+      "tradeLogIndex": 8,
+      "block": 151443348,
+      "isBuy": true,
+      "quoteAmt": "40467354168037383177035",
+      "tokenAmt": "2693532289907445422098",
+      "usdgTrade": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 12,
+        "amountIn": "100000000",
+        "amountOut": "2693532289907445422098",
+        "isBuy": true
+      }
+    },
+    {
+      "venue": "hook",
+      "tx": "0x341212cedd0dfc9ad30ef07df6ad5b395459e489adcf392dbabf49636214088a",
+      "tradeLogIndex": 8,
+      "block": 151443353,
+      "isBuy": true,
+      "quoteAmt": "4046292874680555495777",
+      "tokenAmt": "264025130086593549772",
+      "usdgTrade": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 12,
+        "amountIn": "10000000",
+        "amountOut": "264025130086593549772",
+        "isBuy": true
+      }
+    },
+    {
+      "venue": "hook",
+      "tx": "0x1214d0a57e0d16915bd93bbabc825581d2ba4e633ae2c2806c879f5cfb37d29c",
+      "tradeLogIndex": 8,
+      "block": 151443359,
+      "isBuy": true,
+      "quoteAmt": "10115380211802319514383",
+      "tokenAmt": "655926995565545069912",
+      "usdgTrade": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 12,
+        "amountIn": "25000000",
+        "amountOut": "655926995565545069912",
+        "isBuy": true
+      }
+    },
+    {
+      "venue": "hook",
+      "tx": "0x2bd082556e089f62bdf11f07b6bd82fad0c40d1c56657d5ca9ef7b0bff9b9c57",
+      "tradeLogIndex": 8,
+      "block": 151443361,
+      "isBuy": true,
+      "quoteAmt": "4046011301059641642735",
+      "tokenAmt": "260729769919909240070",
+      "usdgTrade": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 12,
+        "amountIn": "10000000",
+        "amountOut": "260729769919909240070",
+        "isBuy": true
+      }
+    },
+    {
+      "venue": "hook",
+      "tx": "0xc173af03490084649159fb58d5ca5cb5bcf5e3a586823ec6cb0d9d22027fc39b",
+      "tradeLogIndex": 8,
+      "block": 151443443,
+      "isBuy": false,
+      "quoteAmt": "140471834123382959914536",
+      "tokenAmt": "9832323796859434626704",
+      "usdgTrade": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 14,
+        "amountIn": "9832323796859434626704",
+        "amountOut": "344990689",
+        "isBuy": false
+      }
+    },
+    {
+      "venue": "hook",
+      "tx": "0xcd949d91b2afb45519fd6d1711efaf7457c035dbfb4e91a6ab8161e45b77575f",
+      "tradeLogIndex": 8,
+      "block": 151443538,
+      "isBuy": true,
+      "quoteAmt": "4048715853362045607641",
+      "tokenAmt": "295650083066491948970",
+      "usdgTrade": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 13,
+        "amountIn": "10000000",
+        "amountOut": "295650083066491948970",
+        "isBuy": true
+      }
+    },
+    {
+      "venue": "hook",
+      "tx": "0xfaf05eadadf87872b0b9d782da1b740e21ad4d8986987fd650302c84e55d7de1",
+      "tradeLogIndex": 8,
+      "block": 151443583,
+      "isBuy": true,
+      "quoteAmt": "4048635328482097503660",
+      "tokenAmt": "294527078611136403522",
+      "usdgTrade": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 12,
+        "amountIn": "10000000",
+        "amountOut": "294527078611136403522",
+        "isBuy": true
+      }
+    },
+    {
+      "venue": "hook",
+      "tx": "0xf3cf554955124f50dfec3e7294c56248d76fc91826f5e7061b1611efaa448161",
+      "tradeLogIndex": 8,
+      "block": 151443616,
+      "isBuy": true,
+      "quoteAmt": "4048554806004463630961",
+      "tokenAmt": "293410460497855371939",
+      "usdgTrade": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 12,
+        "amountIn": "10000000",
+        "amountOut": "293410460497855371939",
+        "isBuy": true
+      }
+    },
+    {
+      "venue": "hook",
+      "tx": "0x833f0a2f07cfcd3e3c5d13ad0c804d98934c3bb7ca03b79af1a2f4549e928cac",
+      "tradeLogIndex": 11,
+      "block": 151443630,
+      "isBuy": true,
+      "quoteAmt": "4048474285929048432225",
+      "tokenAmt": "292300180394162489019",
+      "usdgTrade": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 15,
+        "amountIn": "10000000",
+        "amountOut": "292300180394162489019",
+        "isBuy": true
+      }
+    },
+    {
+      "venue": "hook",
+      "tx": "0x7002726b00070c60a0dd9aebead63b26081ae9ebdc3b6f37c27baafc1b473b59",
+      "tradeLogIndex": 8,
+      "block": 151443645,
+      "isBuy": true,
+      "quoteAmt": "4048393768255756354884",
+      "tokenAmt": "291196190423939395492",
+      "usdgTrade": {
+        "address": "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e",
+        "logIndex": 12,
+        "amountIn": "10000000",
+        "amountOut": "291196190423939395492",
+        "isBuy": true
+      }
+    }
+  ]
+}
