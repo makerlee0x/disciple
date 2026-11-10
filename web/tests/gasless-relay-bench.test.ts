@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import { writeFileSync } from "node:fs";
 import type { Address } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { stageLatency } from "./benchLatency";
 const h = vi.hoisted(() => { process.env.NEXT_PUBLIC_CHAIN_ID = "46630"; process.env.NEXT_PUBLIC_RHT_GASLESS_ROUTER = "0x00000000000000000000000000000000000000bb";
   return { lat: (_k: string) => Promise.resolve() as Promise<void>, market: new Map<string, string>() }; });
 const wait = (k: string) => h.lat(k);
@@ -50,6 +51,7 @@ const user = privateKeyToAccount(generatePrivateKey()), router = "0x000000000000
 const usdg = "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d" as Address, coin = "0x0000000000000000000000000000000000000022" as Address;
 const receipt = { transactionHash: `0x${"ab".repeat(32)}`, blockHash: `0x${"cd".repeat(32)}`, blockNumber: "0x1", status: "0x1", gasUsed: "0x1", effectiveGasPrice: "0x1", logs: [] };
 async function signed(nonce: bigint) {
+  LAT.trial(Number(nonce));   // trial index == permit nonce == loop index
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 250);
   const trade = { coin, isBuy: true, amountIn: 3_000_000n, minOut: 1n, recipient: user.address, deadline };
   const permit = { permitted: { token: usdg, amount: 3_000_000n }, nonce, deadline };
@@ -61,12 +63,13 @@ const RANGES: Record<string, [number, number, number?, number?]> = {   // identi
   privy: [98, 125, 0.15, 160],
   rpc: [98, 125, 0.15, 160], sim: [102, 125, 0.17, 195], send: [159, 305], kvSnap: [15, 18], kvSet: [3, 12], kvGen: [3, 10], kvIncr: [10, 40], kvDel: [3, 6], kvGate: [8, 16],
 };
+const LAT = stageLatency(RANGES);
 const pct = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)]; };
 describe.skipIf(!process.env.RELAY_BENCH)("gasless relay benchmark (mocked RPC latencies)", () => {
   it("request→receipt server wall, N trials", async () => {
     process.env.GAS_SPONSORSHIP_MODE = "gasless"; delete process.env.VERCEL_ENV; delete process.env.VERCEL;
-    const N = Number(process.env.RELAY_BENCH_N ?? 60), rand = rng(20261109), cold = rng(4663), rows: { ms: number; cold: boolean }[] = [];
-    h.lat = (k: string) => { const [lo, hi, tp, th] = RANGES[k]; const ms = tp && rand() < tp ? hi + rand() * ((th ?? hi) - hi) : lo + rand() * (hi - lo); return new Promise(r => setTimeout(r, ms)); };
+    const N = Number(process.env.RELAY_BENCH_N ?? 60), cold = rng(4663), rows: { ms: number; cold: boolean; plan: ReturnType<(typeof LAT)["snapshot"]> }[] = [];
+    h.lat = LAT.wait;   // per-(stage, trial, occurrence) streams: removing a stage can't shift the others' draws
     gaslessSessionDeps.env = () => ({ appId: "benchapp01", appSecret: "x", verificationKey: PK.export({ type: "spki", format: "pem" }).toString() });
     gaslessSessionDeps.invite = async () => ({ ok: true });
     gaslessSessionDeps.fetch = (async (url: string) => { await wait("privy"); const id = decodeURIComponent(url.split("/users/")[1]);
@@ -78,10 +81,15 @@ describe.skipIf(!process.env.RELAY_BENCH)("gasless relay benchmark (mocked RPC l
       const idToken = jwt(did);
       const t = performance.now(); const r = await relayGaslessTrade(body, { idToken }); const ms = performance.now() - t;
       expect(r.kind).toBe("confirmed");
-      if (i >= 3) rows.push({ ms, cold: isCold });
+      if (i >= 3) rows.push({ ms, cold: isCold, plan: LAT.snapshot() });
     }
     const sum = (xs: number[]) => ({ n: xs.length, median: Math.round(pct(xs, 0.5)), p95: Math.round(pct(xs, 0.95)), min: Math.round(Math.min(...xs)), max: Math.round(Math.max(...xs)) });
     const out = { tree: process.env.RELAY_BENCH_TREE ?? "gasless", all: sum(rows.map(r => r.ms)), coldInstance: sum(rows.filter(r => r.cold).map(r => r.ms)), warmInstance: sum(rows.filter(r => !r.cold).map(r => r.ms)) };
+    const plan = (xs: typeof rows) => ({
+      plannedPath: sum(xs.map(r => r.plan.path)), jsSlop: sum(xs.map(r => r.ms - r.plan.path)),
+      stages: Object.fromEntries((["sim", "kvGate", "privy", "rpc", "kvIncr", "send"] as const).map(k => [k, sum(xs.map(r => r.plan[k]))])),
+    });
+    Object.assign(out, { plan: { all: plan(rows), coldInstance: plan(rows.filter(r => r.cold)), warmInstance: plan(rows.filter(r => !r.cold)) } });
     console.info("RELAY_BENCH " + JSON.stringify(out));
     if (process.env.RELAY_BENCH_OUT) writeFileSync(process.env.RELAY_BENCH_OUT, JSON.stringify(out, null, 1));
   }, 600_000);
