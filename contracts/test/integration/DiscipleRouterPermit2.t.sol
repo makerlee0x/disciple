@@ -122,13 +122,14 @@ contract DiscipleRouterPermit2Test is IntegrationBase {
         bytes memory sig = _sign(aliceKey, p, tr, address(router));
         DiscipleRouter.Erc2612 memory a = withApprove ? _erc2612(address(quote), aliceKey) : DiscipleRouter.Erc2612(0, 0, 0, 0, 0);
         uint256 u0 = quote.balanceOf(alice);
+        uint256 c0 = t.balanceOf(alice);
         uint256 rEth = relayer.balance;
         vm.prank(relayer, relayer);
         uint256 g = gasleft();
         out = withApprove ? router.buyWithPermit2AndApprove(alice, p, tr, sig, a) : router.buyWithPermit2(alice, p, tr, sig);
         gasUsed = g - gasleft();
         assertEq(u0 - quote.balanceOf(alice), amt, "usdg from signer");
-        assertEq(t.balanceOf(alice), out, "coins to signer");
+        assertEq(t.balanceOf(alice) - c0, out, "coins to signer");
         assertEq(t.balanceOf(relayer), 0, "relayer gets nothing");
         assertEq(relayer.balance, rEth);
         _noDust();
