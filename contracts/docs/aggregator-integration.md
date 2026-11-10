@@ -70,7 +70,7 @@ About 250k gas for the first swap of a block on the pool, and about 180k for lat
 ## Behaviour worth knowing
 
 - **Price:** the centre steps toward the source by at most 1% per block. Around the centre the curve is flat, then constant-product outside a band. Every fill also respects the live source price: our ask is never more than 1bp below the source's ask, and our bid never more than 1bp above its bid.
-- **Size:** depth is the pool's own inventory. The pool never drains, because quotes get worse as one side runs low and very large orders revert with `TradeTooLarge`.
+- **Size:** depth is the pool's own inventory. On the live ~$200 pool (2026-11-10), about $22 per side fills within 1% of the $1 price, and about $60 within 5%. The pool never drains, because quotes get worse as one side runs low and very large orders revert with `TradeTooLarge`.
 - **No admin switch.** Parameters are fixed per pool. Cross-chain pools keep trading in local mode if the price feed stops for 2 hours, and same-chain pools read their source directly.
 
 ## Turnover
