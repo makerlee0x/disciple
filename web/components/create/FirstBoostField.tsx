@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { deployment, isDeployed } from "@/lib/chains";
 import { TOTAL_SUPPLY_WEI as SUPPLY_WEI, launchBuyTokensOut, paramsFromQuotePrice } from "@/lib/curveMath";
 import {
@@ -12,6 +12,8 @@ import type { Address } from "@/lib/protocol";
 import { launchUsdg, publicClient, quoteUsdgPairSwap, readCreatorBuyQuote } from "@/lib/protocol-viem";
 import { usdgDecimals, usdgRawToUsd } from "@/lib/usdg";
 import { onWallet } from "@/lib/wallet";
+import { maxBoostChipLabel, QUICK_LAUNCH_COPY } from "@/lib/quickLaunch";
+import s from "./quickLaunch.module.css";
 
 /** raw = pair-coin amount (legacy path); usdgIn = USDG the player pays (launchWithUsdg), null on the legacy path. */
 export type FirstBoostState = { raw: bigint; usdgIn: bigint | null; error: string | null; ready: boolean };
@@ -29,9 +31,11 @@ const pctOfSupply = (tokens: bigint) => `${(Number((tokens * BigInt(1000000)) / 
  * The legacy pair-token pull only runs on a network whose router has no USDG routing. Private launches use the same
  * dollar field; the cap is the Trench cap. The field blocks amounts over the cap, and MAX never exceeds it.
  */
-export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker, value, onChange, onState, mode = DEFAULT_LAUNCH_MODE, privateLaunch = false }: {
+export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker, value, onChange, onState, mode = DEFAULT_LAUNCH_MODE, privateLaunch = false, variant = "field" }: {
   pair: Address | null; pairLabel: string; creatorTaxBps: number; ticker: string;
   value: string; onChange: (v: string) => void; onState: (s: FirstBoostState) => void; mode?: number; privateLaunch?: boolean;
+  /** "chips" = r4 First BOOST control ($0 / $5 / $20 / Max / Custom). */
+  variant?: "field" | "chips";
 }) {
   // USDG router (launchWithUsdg) on this network? undefined = still checking, null = legacy pair-token path.
   const [usdg, setUsdg] = useState<Address | null | undefined>(undefined);
@@ -45,6 +49,9 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
   const [pveVerified, setPveVerified] = useState<boolean | null>(null);
   const deployed = isDeployed();
   const pve = modesActive() && mode === LaunchMode.PVE;
+  const [customOpen, setCustomOpen] = useState(false);
+  const [tipOpen, setTipOpen] = useState(true);
+  const autoDefaulted = useRef(false);
 
   useEffect(() => onWallet((a) => setMe(a)), []);
   useEffect(() => { let alive = true; launchUsdg(publicClient()).then((u) => { if (alive) setUsdg(u); }).catch(() => { if (alive) setUsdg(null); }); return () => { alive = false; }; }, []);
@@ -100,6 +107,17 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
   const raw = usdg && usdgIn != null && pairOut && pairOut.usdgIn === usdgIn ? pairOut.raw : estRaw;
   const usd = (r: bigint) => (limits ? fmtUsdWad(quoteRawToUsdWad(r, limits.quotePriceUsd)) : "…");
   const cash = (r: bigint) => `$${usdgRawToUsd(r).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const cashUsd = usdg && balance != null ? usdgRawToUsd(balance) : null;
+  const capUsd = usdg ? (maxUsdg != null ? usdgRawToUsd(maxUsdg) : null) : (limits ? Number(fmtUsdWad(quoteRawToUsdWad(limits.maxQuoteIn, limits.quotePriceUsd)).replace(/[^0-9.]/g, "")) : null);
+  const maxUsd = cashUsd != null && capUsd != null ? Math.min(cashUsd, capUsd) : capUsd ?? cashUsd;
+
+  // r4: default $5 when the player has at least $5, otherwise $0. Only fills an untouched field.
+  useEffect(() => {
+    if (autoDefaulted.current || privateLaunch || value !== "") return;
+    if (cashUsd == null) return;
+    autoDefaulted.current = true;
+    onChange(cashUsd >= 5 ? "5" : "0");
+  }, [cashUsd, privateLaunch, value, onChange]);
 
   // USDG path: swap quote (debounced) so the estimate and the cap check include the swap.
   useEffect(() => {
@@ -152,6 +170,57 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
   useEffect(() => { onState({ raw: raw ?? BigInt(0), usdgIn: usdg ? usdgIn ?? BigInt(0) : null, error, ready }); }, [raw, usdgIn, usdg, error, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showEstimate = !error && tokens != null && raw != null && raw > BigInt(0);
+  const fillMax = () => {
+    if (!limits) return;
+    if (usdg) onChange(maxUsdg ? toInputString(maxUsdg, usdgDecimals(), 2) : "");
+    else onChange(toInputString(quoteRawToUsdWad((limits.maxQuoteIn * BigInt(995)) / BigInt(1000), limits.quotePriceUsd), 18, 2));
+  };
+  const amount = Number.parseFloat(value.trim().replace(/,/g, "."));
+  const isAmt = (n: number) => Number.isFinite(amount) && Math.abs(amount - n) < 1e-9;
+  const isMaxSel = maxUsd != null && Number.isFinite(amount) && amount > 0 && !isAmt(5) && !isAmt(20) && !isAmt(0)
+    && Math.abs(amount - maxUsd) < 0.015;
+  const isCustom = customOpen || (value !== "" && Number.isFinite(amount) && !isAmt(0) && !isAmt(5) && !isAmt(20) && !isMaxSel);
+
+  if (variant === "chips") {
+    return (
+      <div className={`${s.fl} ${tipOpen ? s.hasTip : ""}`} data-testid="first-boost-chips">
+        <div className={s.labRow}>
+          <div className={s.lab}>{QUICK_LAUNCH_COPY.firstBoost}</div>
+          <button type="button" className={s.tipBtn} aria-label="About First BOOST" aria-expanded={tipOpen} onClick={() => setTipOpen((v) => !v)}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.25"/><circle cx="12" cy="7.85" r="1" fill="currentColor" stroke="none"/></svg>
+          </button>
+          {tipOpen && <div className={s.tip}>{QUICK_LAUNCH_COPY.firstBoostTip}</div>}
+        </div>
+        {privateLaunch ? (
+          <p className={s.boostNote}>{COPY.privateOff}</p>
+        ) : (
+          <>
+            <div className={s.chips} role="group" aria-label="First BOOST">
+              <button type="button" className={`${s.bchip} ${isAmt(0) || value === "" ? s.on : ""}`} onClick={() => { setCustomOpen(false); onChange("0"); }}>{QUICK_LAUNCH_COPY.chip0}</button>
+              <button type="button" className={`${s.bchip} ${isAmt(5) ? s.on : ""}`} disabled={maxUsd != null && maxUsd < 5} onClick={() => { setCustomOpen(false); onChange("5"); }}>{QUICK_LAUNCH_COPY.chip5}</button>
+              <button type="button" className={`${s.bchip} ${isAmt(20) ? s.on : ""}`} disabled={maxUsd != null && maxUsd < 20} onClick={() => { setCustomOpen(false); onChange("20"); }}>{QUICK_LAUNCH_COPY.chip20}</button>
+              <button type="button" className={`${s.bchip} ${isMaxSel ? s.on : ""}`} disabled={!limits || (!!usdg && !maxUsdg)} onClick={() => { setCustomOpen(false); fillMax(); }}>{maxBoostChipLabel(maxUsd)}</button>
+              <button type="button" className={`${s.bchip} ${isCustom ? s.on : ""}`} onClick={() => setCustomOpen(true)}>{QUICK_LAUNCH_COPY.custom}</button>
+            </div>
+            {isCustom && (
+              <div className={s.customRow}>
+                <span className={s.pre} aria-hidden>$</span>
+                <input className={s.inp} inputMode="decimal" autoComplete="off" aria-label="Custom First BOOST"
+                  value={value} onChange={(e) => onChange(e.target.value.replace(/,/g, "."))} />
+              </div>
+            )}
+            {limits?.capBy === "mode" && pct && <p className={s.boostNote}>{COPY.modeCap(modeName(limits.mode), pct)}</p>}
+            {pve && raw != null && raw > BigInt(0) && <p className={s.boostNote}>{COPY.easyLock}</p>}
+            {pve && raw != null && raw > BigInt(0) && (
+              <p className={s.boostNote}>{!me ? COPY.pveLoginUnknown : pveVerified === false ? COPY.pveLoginAttest : COPY.pveLogin}</p>
+            )}
+            {error && <p role="alert" className={s.boostErr}>{error}</p>}
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className={`first-boost${error ? " has-error" : ""}`}>
       <label className="first-boost-label" htmlFor="first-boost-input">{COPY.label}</label>
