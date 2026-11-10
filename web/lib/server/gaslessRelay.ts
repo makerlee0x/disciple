@@ -159,8 +159,7 @@ async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: 
   // relayer (needed for `from`) are ready — it does not wait for the gate. A cached legacy-PVE buy never starts it.
   // admit() still joins every gate before returning, so commit cannot run if a gate failed; a finished simulation is
   // then discarded. Gate / market are listed before sim in `all` so those errors win the throw if both fail.
-  const sim = peek === "legacy" ? Promise.reject(legacyPve())
-    : Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data).catch(e => { throw legacyLogin(e); })));
+  const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data).catch(e => { throw legacyLogin(e); })));
   const all = [session, owner, gate, market, d.ipGate ?? Promise.resolve(), ...extra, sim, relayer];
   const res = await timed(m, "admissionSimulationWall", () => Promise.allSettled(all));
   for (const x of res) if (x.status === "rejected") throw notSent(x.reason);
