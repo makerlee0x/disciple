@@ -2,7 +2,7 @@
 // Read-only check of the SDK against the live v0.2 pool on Robinhood. Sends nothing, needs no key.
 //   RH_RPC=https://... npm run live
 import { createPublicClient, http } from "viem";
-import { depthLadder, maxFillIn, readPoolInfo, ROBINHOOD, watchSet } from "../src/index.ts";
+import { depthLadder, maxSizeWithinImpact, readPoolInfo, ROBINHOOD, watchSet } from "../src/index.ts";
 
 const rpc = process.env.RH_RPC;
 if (!rpc) throw new Error("set RH_RPC");
@@ -30,5 +30,9 @@ if (perUsd > 0) {
     console.log(`sell ${Number(r.amountIn / 10n ** 18n)} STRATEGY: ${r.quote ? `$${(Number(r.quote.amountOut) / 1e6).toFixed(4)}` : "no fill"}`);
   }
 }
-const maxBuy = await maxFillIn(c, hook, pool.id, false, 1_000_000n, 50_000_000n, { blockNumber });
-console.log(`largest buy that fills: ~$${(Number(maxBuy) / 1e6).toFixed(2)}`);
+for (const bps of [100, 500]) {
+  const buy = await maxSizeWithinImpact(c, hook, pool.id, false, 1_000_000n, bps, { blockNumber });
+  const sell =
+    perUsd > 0 ? await maxSizeWithinImpact(c, hook, pool.id, true, BigInt(Math.round(perUsd)) * 10n ** 18n, bps, { blockNumber }) : 0n;
+  console.log(`within ${bps / 100}% of the $1 price: buy up to ~$${(Number(buy) / 1e6).toFixed(2)}, sell up to ~${sell / 10n ** 18n} STRATEGY`);
+}

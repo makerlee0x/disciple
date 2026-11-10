@@ -41,7 +41,7 @@ function quoteView(bytes32 id, bool zeroForOne, int256 amountSpecified)
 - Signs follow v4: a negative `amountSpecified` means exact input, a positive one means exact output.
 - It is a plain view (no revert to decode), so you can call it from a contract or batch it with multicall.
 - It returns exactly what a swap would give against the same state, including the per-block centre step and the first-swap-in-block bookkeeping. Tests: `contracts/test/hook/QuoteView.t.sol`.
-- These reverts mean "can't fill this size here": `UnknownPool`, `NotLive`, `NoAnchor`, `BadParams`, `ZeroOutput`, `TradeTooLarge`, `InsufficientReserve`. Treat them as zero depth, not as errors (SDK: `tryQuoteExactIn`, `maxFillIn`).
+- These reverts mean "can't fill this size here": `UnknownPool`, `NotLive`, `NoAnchor`, `BadParams`, `ZeroOutput`, `TradeTooLarge`, `InsufficientReserve`. Treat them as zero depth, not as errors (SDK: `tryQuoteExactIn`). Exact-input orders rarely hit them, because the curve's constant-product tail always pays something, so measure depth by price impact instead (SDK: `maxSizeWithinImpact`).
 - `quote()` (same arguments, always reverts with `Quote(amountIn, amountOut)`) still exists for older tooling. Use `quoteView`.
 
 ### When a cached quote goes stale

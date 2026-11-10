@@ -68,29 +68,38 @@ export const maxIn = (amountIn: bigint, slippageBps: number): bigint =>
   (amountIn * BigInt(10_000 + slippageBps) + 9_999n) / 10_000n;
 
 /**
- * Largest exact-input size the pool fills, by binary search on quoteView (about 2 * log2(hi/lo) calls; pin
- * `blockNumber` so every call sees the same state). Returns 0n if even `lo` doesn't fill.
+ * Largest exact-input size whose average price is at most `impactBps` worse than a `ref`-sized quote (a small
+ * size, e.g. $1). Exact-input fills rarely revert, because the curve's constant-product tail always pays something,
+ * so depth is measured by price impact, not by reverts. Binary search on quoteView, about 2 * log2(hi/ref) calls;
+ * pin `blockNumber` so every call sees the same state. Returns 0n if `ref` itself doesn't fill.
  */
-export async function maxFillIn(
+export async function maxSizeWithinImpact(
   c: PublicClient,
   hook: Hex,
   id: Hex,
   zeroForOne: boolean,
-  lo: bigint,
-  hi: bigint,
+  ref: bigint,
+  impactBps: number,
   o: QuoteOpts = {},
-  steps = 40,
+  steps = 60,
 ): Promise<bigint> {
-  const fills = async (a: bigint) => (await tryQuoteExactIn(c, hook, id, zeroForOne, a, o)) !== null;
-  if (!(await fills(lo))) return 0n;
-  while (await fills(hi)) {
+  const r = await tryQuoteExactIn(c, hook, id, zeroForOne, ref, o);
+  if (!r || r.amountOut === 0n) return 0n;
+  // within impact: out / in >= (r.out / r.in) * (1 - impact), compared without division
+  const ok = async (a: bigint) => {
+    const q = await tryQuoteExactIn(c, hook, id, zeroForOne, a, o);
+    return q !== null && q.amountOut * ref * 10_000n >= r.amountOut * a * BigInt(10_000 - impactBps);
+  };
+  let lo = ref;
+  let hi = ref * 2n;
+  while (await ok(hi)) {
     lo = hi;
     hi *= 2n;
     if (--steps <= 0) return lo;
   }
   for (let i = 0; i < steps && hi - lo > lo / 1000n + 1n; i++) {
     const mid = (lo + hi) / 2n;
-    if (await fills(mid)) lo = mid;
+    if (await ok(mid)) lo = mid;
     else hi = mid;
   }
   return lo;

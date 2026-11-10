@@ -16,7 +16,7 @@ import {
   depthLadder,
   discipleHookAbi,
   discipleKey,
-  maxFillIn,
+  maxSizeWithinImpact,
   maxIn,
   minOut,
   poolId,
@@ -81,8 +81,8 @@ test("decodeSwap reads HookSwap and ignores other events", () => {
   assert.equal(decodeSwap({ data: encodeAbiParameters([{ type: "bool" }], [true]), topics: other as Hex[] }), null);
 });
 
-/** A fake RPC: quoteView fills up to `cap` input at a flat 2 out per 1 in, then reverts TradeTooLarge. */
-function fakeClient(cap: bigint, pairs = 1n) {
+/** A fake RPC: quoteView fills up to `cap` input (default `out`: 2 per 1 in), then reverts TradeTooLarge. */
+function fakeClient(cap: bigint, pairs = 1n, out = (a: bigint) => a * 2n) {
   return createPublicClient({
     transport: custom({
       async request({ method, params }: { method: string; params: unknown[] }) {
@@ -96,7 +96,7 @@ function fakeClient(cap: bigint, pairs = 1n) {
         if (amt > cap) {
           throw { code: 3, message: "execution reverted", data: encodeErrorResult({ abi: discipleHookAbi, errorName: "TradeTooLarge" }) };
         }
-        return encodeFunctionResult({ abi: discipleHookAbi, functionName: "quoteView", result: [amt, amt * 2n] });
+        return encodeFunctionResult({ abi: discipleHookAbi, functionName: "quoteView", result: [amt, out(amt)] });
       },
     }, { retryCount: 0 }),
   });
@@ -108,9 +108,18 @@ test("tryQuoteExactIn returns null on a NO_FILL revert", async () => {
   assert.equal(await tryQuoteExactIn(c, hook, strategyUsdg.id, false, 1_001n), null);
 });
 
-test("maxFillIn finds the fill limit within 0.1%", async () => {
-  const got = await maxFillIn(fakeClient(123_456n), hook, strategyUsdg.id, false, 1n, 10n);
+test("maxSizeWithinImpact: stops at the revert on a flat curve", async () => {
+  const got = await maxSizeWithinImpact(fakeClient(123_456n), hook, strategyUsdg.id, false, 1n, 100);
   assert.ok(got <= 123_456n && got >= 123_333n, String(got));
+});
+
+test("maxSizeWithinImpact: 1% impact on a constant-product curve", async () => {
+  // out = R * a / (R + a): 1% worse than the ref trade at a ~= (R + ref) / 0.99 - R ~= 1.0101e10
+  // (ref is large enough that rounding its own output doesn't loosen the limit)
+  const R = 10n ** 12n;
+  const c = fakeClient(10n ** 30n, 1n, (a) => (R * a) / (R + a));
+  const got = await maxSizeWithinImpact(c, hook, strategyUsdg.id, false, 10n ** 6n, 100);
+  assert.ok(got >= 10_090_000_000n && got <= 10_101_100_000n, String(got));
 });
 
 test("depthLadder marks unfillable sizes", async () => {

@@ -21,7 +21,7 @@ const watch = watchSet(hook, info);                        // re-quote when thes
 | `poolsForPair`, `discipleKey`, `poolId` | Pool keys and ids from the hook's `poolsOf` counter, with no log scan |
 | `readPoolInfo`, `watchSet` | Fee, live/local flags, coin side and source legs, read from storage (the hook has no getter for these) |
 | `quoteExactIn`, `quoteExactOut`, `tryQuoteExactIn` | `quoteView`. The `try` form returns null on "can't fill" reverts |
-| `maxFillIn`, `depthLadder` | Largest size that fills, and quotes at several sizes in one block |
+| `maxSizeWithinImpact`, `depthLadder` | Largest size within a price-impact limit of a small trade, and quotes at several sizes in one block |
 | `minOut`, `maxIn` | Slippage limits, rounded against the trader |
 | `decodeSwap`, `turnover` | `HookSwap` decoding and volume / pool value |
 
