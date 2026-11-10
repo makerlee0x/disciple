@@ -22,6 +22,11 @@ const ENOUGH = BigInt(2) ** BigInt(255);
 
 let book: NonceBook | undefined;
 const approved = new Map<string, boolean>();   // `${asset}:${owner}` ⇒ allowance to PERMIT2 known sufficient
+/** Shared unordered-nonce book (trades and withdrawals must not pick the same bit). */
+export function permit2NonceBook(pc: PublicClient): NonceBook {
+  book ??= new NonceBook((o, w) => pc.readContract({ address: PERMIT2, abi: p2, functionName: "nonceBitmap", args: [o, w] }));
+  return book;
+}
 
 export type GaslessSendResult = { txHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[]; gasUsed: number; server?: unknown };
 export class GaslessError extends Error {
@@ -29,7 +34,7 @@ export class GaslessError extends Error {
 }
 
 /** EIP-2612 permit(owner → PERMIT2, max) signature, or undefined when the allowance is already there. */
-async function permitFor(pc: PublicClient, owner: LocalAccount, asset: Address, deadline: bigint): Promise<Erc2612 | undefined> {
+export async function permitFor(pc: PublicClient, owner: LocalAccount, asset: Address, deadline: bigint): Promise<Erc2612 | undefined> {
   const k = `${asset.toLowerCase()}:${owner.address.toLowerCase()}`;
   if (approved.get(k)) return undefined;
   const [allowance, nonce, dom] = await Promise.all([
@@ -52,8 +57,7 @@ export async function signGaslessTrade(pc: PublicClient, owner: LocalAccount, a:
   const now = BigInt(a.nowSec ?? Math.floor(Date.now() / 1000));
   const deadline = now + BigInt(GASLESS_MAX_DEADLINE_SEC - 30);
   const asset = a.isBuy ? a.usdg : a.coin;
-  book ??= new NonceBook((o, w) => pc.readContract({ address: PERMIT2, abi: p2, functionName: "nonceBitmap", args: [o, w] }));
-  const [nonce, approval] = await Promise.all([book.next(owner.address), permitFor(pc, owner, asset, deadline)]);
+  const [nonce, approval] = await Promise.all([permit2NonceBook(pc).next(owner.address), permitFor(pc, owner, asset, deadline)]);
   const trade: Trade = { coin: a.coin, isBuy: a.isBuy, amountIn: a.amountIn, minOut: a.minOut, recipient: owner.address, deadline };
   const permit: Permit = { permitted: { token: asset, amount: a.amountIn }, nonce, deadline };
   const signature = await owner.signTypedData(jsonSafe(tradeTypedData(ACTIVE_CHAIN.id, a.router, permit, trade)));

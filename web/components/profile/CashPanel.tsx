@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { encodeFunctionData, formatUnits, isAddress, parseAbi, parseUnits } from "viem";
 import { deployment, isDeployed } from "@/lib/chains";
 import { decimalsOf, publicClient, tokenBalance } from "@/lib/protocol-viem";
-import { execCalls, onWallet } from "@/lib/wallet";
+import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
+import { execCalls, gaslessSigner, onWallet } from "@/lib/wallet";
 import { playerError } from "@/lib/playerError";
 import type { Address } from "@/lib/protocol";
 import TestCashButton from "@/components/TestCashButton";
@@ -19,6 +20,7 @@ export const CASH_COPY = {
   sub: "Only visible to you",
   depositHow: "Send USDG to your account address:",
   confirm: (amt: string, to: string) => `Send $${amt} to ${to}? This can't be undone.`,
+  confirmGasless: (recv: string, fee: string) => `You receive $${recv}, network fee $${fee}`,
   sent: (amt: string) => `Sent $${amt}.`,
 };
 
@@ -36,6 +38,8 @@ export default function CashPanel() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [quote, setQuote] = useState<{ fee: bigint; minAmount: bigint; feeTo: string; usdgDecimals: number } | null>(null);
+  const [quoteErr, setQuoteErr] = useState<string | null>(null);
   useEffect(() => onWallet(setAddr), []);
 
   async function refresh(a: Address) {
@@ -63,6 +67,25 @@ export default function CashPanel() {
     return () => window.removeEventListener(OPEN_CASH_EVENT, dep);
   }, []);
 
+
+  const gasless = clientGaslessMode();
+  const fmtUsd = (b: bigint, d: number) => {
+    const s = formatUnits(b, d);
+    const [i, f = ""] = s.split(".");
+    const frac = f.replace(/0+$/, "");
+    return `${i}${frac ? "." + frac : ""}`;
+  };
+  const refreshQuote = useCallback(async (signer?: Address | null) => {
+    if (!gasless) return;
+    setQuoteErr(null);
+    try {
+      const { quoteGaslessWithdraw } = await import("@/lib/trade/gaslessWithdrawClient");
+      const q = await quoteGaslessWithdraw({ signer: signer ?? undefined });
+      setQuote({ fee: q.fee, minAmount: q.minAmount, feeTo: q.feeTo, usdgDecimals: q.usdgDecimals });
+    } catch (e) { setQuote(null); setQuoteErr((e as Error).message ?? "Could not quote the network fee."); }
+  }, [gasless]);
+  useEffect(() => { if (gasless && tab === "withdraw" && addr) void refreshQuote(addr); }, [gasless, tab, addr, refreshQuote]);
+
   const sel = rows.find((r) => r.symbol === sym);
   async function withdraw() {
     setMsg(null);
@@ -71,6 +94,28 @@ export default function CashPanel() {
     let amount: bigint;
     try { amount = parseUnits(amt || "0", sel.dec); } catch { return setMsg({ ok: false, text: "Invalid amount." }); }
     if (amount <= BigInt(0) || amount > sel.bal) return setMsg({ ok: false, text: "Amount must be > 0 and ≤ your balance." });
+    if (gasless) {
+      const owner = gaslessSigner();
+      if (!owner) return setMsg({ ok: false, text: "Sign in to withdraw." });
+      try {
+        const { quoteGaslessWithdraw, signGaslessWithdraw, submitGaslessWithdraw } = await import("@/lib/trade/gaslessWithdrawClient");
+        const { privyIdentityToken } = await import("@/lib/aa/session");
+        const q = await quoteGaslessWithdraw({ amount, signer: owner.address });
+        setQuote({ fee: q.fee, minAmount: q.minAmount, feeTo: q.feeTo, usdgDecimals: q.usdgDecimals });
+        if (amount < q.minAmount) return setMsg({ ok: false, text: `Amount must exceed the network fee ($${fmtUsd(q.fee, q.usdgDecimals)}).` });
+        const recv = amount - q.fee;
+        if (!confirm(CASH_COPY.confirmGasless(fmtUsd(recv, q.usdgDecimals), fmtUsd(q.fee, q.usdgDecimals)))) return;
+        setBusy(true);
+        try {
+          const tokenP = privyIdentityToken().catch(() => null);
+          const req = await signGaslessWithdraw(publicClient() as never, owner, { amount, destination: to as Address, quote: q });
+          await submitGaslessWithdraw(req, "/api/gasless", fetch, await tokenP);
+          setMsg({ ok: true, text: CASH_COPY.sent(fmtUsd(recv, q.usdgDecimals)) }); setAmt("");
+          await refresh(addr);
+        } finally { setBusy(false); }
+      } catch (e) { setMsg({ ok: false, text: playerError(e) }); setBusy(false); }
+      return;
+    }
     if (!confirm(CASH_COPY.confirm(amt, to))) return;
     setBusy(true);
     try {
@@ -106,6 +151,13 @@ export default function CashPanel() {
             <input className="ds-input" placeholder="Amount" inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} />
             {sel && <button type="button" className="ds-btn" onClick={() => setAmt(formatUnits(sel.bal, sel.dec))}>Max</button>}
             <input className="ds-input wide" placeholder="Destination 0x…" value={to} onChange={(e) => setTo(e.target.value.trim())} />
+            {gasless && quote && (() => {
+              let amount = BigInt(0);
+              try { amount = parseUnits(amt || "0", sel?.dec ?? quote.usdgDecimals); } catch { /* ignore */ }
+              const recv = amount > quote.fee ? amount - quote.fee : BigInt(0);
+              return <p className="muted tiny">You receive ${fmtUsd(recv, quote.usdgDecimals)}, network fee ${fmtUsd(quote.fee, quote.usdgDecimals)}</p>;
+            })()}
+            {gasless && quoteErr && <p className="muted tiny" role="alert">{quoteErr}</p>}
             <button type="button" className="ds-btn gold" disabled={busy} onClick={withdraw}>{busy ? "Sending…" : "Withdraw"}</button>
           </div>
         )}
