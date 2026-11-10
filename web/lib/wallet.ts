@@ -183,9 +183,11 @@ export async function execGasless(a: { coin: Address; isBuy: boolean; amountIn: 
   const { AAError } = await import("./aa/core");
   const d = deployment();
   const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
+  // Privy access token (cached/auto-refreshed by Privy) fetched in parallel with signing: the relay's login check.
+  const tokenP = import("./aa/session").then(m => m.privyAccessToken()).catch(() => null);
   const q = await signGaslessTrade(pc as never, owner, { router: d.gaslessRouter, usdg: d.usdg, coin: a.coin, isBuy: a.isBuy, amountIn: a.amountIn, minOut: a.minOut });
   try {
-    const r = await submitGasless(q);
+    const r = await submitGasless(q, "/api/gasless", fetch, await tokenP);
     handOffLogs(r.txHash, r.logs);
     return { txHash: r.txHash, logs: r.logs, gasMode: "gasless", pressId: a.pressId };
   } catch (e) {
@@ -196,7 +198,8 @@ export async function execGasless(a: { coin: Address; isBuy: boolean; amountIn: 
     throw new AAError("Estimate", e.message, { revertData: e.data.revert, notSent: true });
   }
 }
-/** Gasless mode login: LoginGate must verify the owner EOA (relay admission). Attestation from /api/pve/attest (Privy
+/** TODO(lee): DELETE with disciple_gaslessLogin (server relay is OFF; login is checked off-chain from the Privy session).
+ *  No longer called by the trade path. Gasless mode login: LoginGate must verify the owner EOA (relay admission). Attestation from /api/pve/attest (Privy
  *  auth), relayed by disciple_gaslessLogin (no ETH needed). No-op while verified. */
 export async function ensureGaslessLogin(): Promise<void> {
   const owner = gaslessSigner();

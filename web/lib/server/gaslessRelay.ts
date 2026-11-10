@@ -4,22 +4,32 @@ import "server-only";
  * Copied pattern: 0x Gasless (0x-settler SettlerMetaTxn) — the Privy EOA signs a Permit2 witness, our relayer EOA pool
  * submits DiscipleRouter.buyWithPermit2 / sellWithPermit2 with eth_sendRawTransactionSync and pays the ETH.
  *
- * Kept from the self-bundler (same modules, same keys): LoginGate admission (fresh verifiedUntil), revoke marker +
- * strike window (requireNotRevokedOrStruck), per-IP limit (relay:ip), per-sender cap + global quota (Kv.relayBudget,
- * charged only after a passing exact simulation, global unit refunded if nothing was signed), exact eth_call
- * simulation of the relayer tx before signing, relayer pool lease + nonce rules, and the relayer-loss breaker
- * (lib/server/relayBreaker, from flow/queue-a-e): included reverts trip it ⇒ sends pause, notSent.
+ * Login (lee, Nov 9 7:37 PM CT — "why do we have to record onchain that theyre verified? … get rid of it"): app-level
+ * gating as pump.fun / FOMO do it. NO on-chain LoginGate requirement and no LoginGate.attest per session on this path:
+ * the request must carry a valid Privy session (Authorization: Bearer <access token>, verified server-side by
+ * lib/server/gaslessSession → lib/server/privyAuth) whose linked wallet == the Permit2 signer.
+ * Existing (pre-redeploy) PvE curves still check LoginGate on-chain in routerBuy (BondingCurve._pveOnBuy): that is
+ * detected by the exact eth_call simulation (it reverts NotVerified), surfaced as a clear notSent error — no extra RPC on
+ * the hot path, and new curves (no on-chain check) just pass. PvP curves, sells and graduated (v4) coins never checked.
  *
- * Order (lee: parallel where safe): [shape + $3 minimum + local signature recovery, no RPC] → [LoginGate ∥ revoke/
- * strike gate ∥ per-IP limit ∥ exact simulation ∥ relayer warm] → budget → sign + sync send. Nothing is signed unless
- * every admission check passed.
+ * Kept from the self-bundler (same modules, same keys): revoke marker + strike window (requireNotRevokedOrStruck),
+ * per-IP limit (relay:ip), per-sender cap + global quota (Kv.relayBudget, charged only after a passing exact
+ * simulation, global unit refunded if nothing was signed), exact eth_call simulation of the relayer tx before signing,
+ * relayer pool lease + nonce rules, and the relayer-loss breaker (lib/server/relayBreaker, from flow/queue-a-e):
+ * included reverts trip it ⇒ sends pause, notSent.
+ *
+ * Order (lee: parallel where safe): [shape + $3 minimum + local signature recovery, no RPC] → [Privy token (local
+ * crypto) ∥ revoke/strike gate ∥ per-IP limit ∥ relayer warm] → exact simulation ∥ Privy user/wallet match (60 s cache)
+ * → budget → sign + sync send. The simulation starts only after the token and revoke/strike gate passed; nothing is
+ * charged or signed unless every admission check passed.
  */
-import { encodeFunctionData, parseAbi, recoverTypedDataAddress, type Address, type Hex } from "viem";
+import { encodeFunctionData, parseAbi, toFunctionSelector, recoverTypedDataAddress, type Address, type Hex } from "viem";
 import { ACTIVE_CHAIN, DEPLOYMENTS, robinhoodTestnet } from "../chains";
 import { gaslessMode } from "../aa/sponsorshipMode";
 import type { RelayReceipt } from "../aa/relayTypes";
 import { checkGaslessRequest, encodeGaslessCall, GASLESS_GAS_LIMIT, GaslessReject, parseGaslessRequest, tradeTypedData, type GaslessRequest } from "../trade/gaslessPermit2";
-import { loginTimestamp, relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
+import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
+import { requireSessionWallet, verifySessionToken } from "./gaslessSession";
 import { directRelayer, sendDirect, simulateDirect, strikeSender, type DirectRelayer, type OnPending } from "./fastRelay";
 import { relayBreaker } from "./relayBreaker";
 import type { RelayMetrics } from "./relayMetrics";
@@ -38,16 +48,31 @@ export function requireGaslessMode() {
 
 export type GaslessConfirmed = { kind: "confirmed"; txHash: Hex; success: boolean; receipt: RelayReceipt; gasUsed: number; via: string;
   t: { admission: number; budget: number; send: number; total: number } };
-export type GaslessDeps = { ipGate?: Promise<void>; onPending?: OnPending; metrics?: RelayMetrics; nowSec?: number };
+export type GaslessDeps = { ipGate?: Promise<void>; onPending?: OnPending; metrics?: RelayMetrics; nowSec?: number;
+  /** Privy access token from `Authorization: Bearer …` (route). Required for trades. */
+  authToken?: string | null };
 
-/** Admission + exact simulation of ONE relayer tx, all in parallel; throws (notSent) in priority order auth → gate → sim. */
+/** BondingCurve.NotVerified() — only existing PvE curves still check LoginGate on-chain (buys). */
+export const NOT_VERIFIED_SELECTOR = toFunctionSelector("error NotVerified()");
+export const LEGACY_LOGIN_MESSAGE = "this coin's curve still requires an on-chain LoginGate login (pre-redeploy Easy curve); nothing sent";
+const legacyLogin = (e: unknown) => {
+  const x = e as { data?: unknown; message?: string };
+  if ((typeof x.data === "string" && x.data.toLowerCase().startsWith(NOT_VERIFIED_SELECTOR)) || /NotVerified/.test(x.message ?? ""))
+    return Object.assign(new Error(LEGACY_LOGIN_MESSAGE), { notSent: true, data: x.data, legacyLogin: true });
+  return e;
+};
+
+/** Admission + exact simulation of ONE relayer tx; throws (notSent) in priority order session → gate → sim. */
 async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, extra: Promise<unknown>[] = []): Promise<DirectRelayer> {
   const m = d.metrics;
   const relayer = directRelayer(m);
-  const login = loginTimestamp(signer, m);
+  const did = timed(m, "authSession", () => verifySessionToken(d.authToken));
+  const owner = did.then(x => timed(m, "authSessionWallet", () => requireSessionWallet(x, signer)));
   const gate = timed(m, "revokeStrikeGate", () => requireNotRevokedOrStruck(signer));
-  const sim = relayer.then(r => timed(m, "simulate", () => simulateDirect(r.address, to, data)));
-  const all = [login, gate, d.ipGate ?? Promise.resolve(), ...extra, sim, relayer];
+  // Revoked / struck / token-less signers never reach the eth_call: it starts once the token (local crypto) and the
+  // revoke/strike MGET passed — both run concurrently with the relayer warm, which the simulation needs anyway.
+  const sim = Promise.all([relayer, gate, did]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data).catch(e => { throw legacyLogin(e); })));
+  const all = [did, owner, gate, d.ipGate ?? Promise.resolve(), ...extra, sim, relayer];
   const res = await timed(m, "admissionSimulationWall", () => Promise.allSettled(all));
   for (const x of res) if (x.status === "rejected") throw notSent(x.reason);
   return (res[res.length - 1] as PromiseFulfilledResult<DirectRelayer>).value;
@@ -95,6 +120,10 @@ export async function relayGaslessTrade(raw: unknown, d: GaslessDeps = {}): Prom
 
 const loginGateAbi = parseAbi(["function attest(address wallet, uint64 expiry, bytes sig)"]);
 export const GASLESS_LOGIN_PER_WALLET = { limit: 3, windowSec: 3600 } as const;
+/** OFF (lee 7:37 PM CT: no on-chain login record; AUDIT never signed off on server-paid attest gas). Only
+ *  GASLESS_LOGIN_RELAY=1 re-enables it (no env sets it). TODO(lee): delete disciple_gaslessLogin + relayGaslessLogin +
+ *  wallet.ensureGaslessLogin once the off-chain session gate ships. */
+export const gaslessLoginRelayEnabled = () => process.env.GASLESS_LOGIN_RELAY === "1";
 /**
  * disciple_gaslessLogin: relay LoginGate.attest(wallet, expiry, sig) for a Privy EOA with no ETH. The attestation is
  * only ever issued by /api/pve/attest after Privy auth (attester key server-side); relaying it changes nothing about who
@@ -107,6 +136,7 @@ export async function relayGaslessLogin(raw: unknown, d: GaslessDeps = {}): Prom
   const gate = DEPLOYMENTS[46630].loginGate;
   try {
     requireGaslessMode();
+    if (!gaslessLoginRelayEnabled()) throw new Error("gasless login relay is off (login is checked off-chain)");
     relayBreaker.assertClosed();
     const o = (raw ?? {}) as { wallet?: unknown; expiry?: unknown; signature?: unknown };
     if (typeof o.wallet !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(o.wallet)) throw new GaslessReject("bad wallet");

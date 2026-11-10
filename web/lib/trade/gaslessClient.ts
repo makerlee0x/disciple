@@ -62,8 +62,10 @@ export async function signGaslessTrade(pc: PublicClient, owner: LocalAccount, a:
 
 const json = (q: GaslessRequest) => JSON.stringify(q, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
 /** POST one signed request; resolves with the receipt (success) or throws GaslessError (data.notSent ⇒ nothing sent). */
-export async function submitGasless(q: GaslessRequest, url = "/api/gasless", fetchFn: typeof fetch = fetch): Promise<GaslessSendResult> {
-  const r = await fetchFn(url, { method: "POST", headers: { "content-type": "application/json" }, body: `{"jsonrpc":"2.0","id":1,"method":"disciple_gaslessTrade","params":[${json(q)}]}` });
+export async function submitGasless(q: GaslessRequest, url = "/api/gasless", fetchFn: typeof fetch = fetch, authToken?: string | null): Promise<GaslessSendResult> {
+  // Off-chain login (app-level gating): the relay requires the Privy session whose wallet is the signer.
+  const headers: Record<string, string> = { "content-type": "application/json", ...(authToken ? { authorization: `Bearer ${authToken}` } : {}) };
+  const r = await fetchFn(url, { method: "POST", headers, body: `{"jsonrpc":"2.0","id":1,"method":"disciple_gaslessTrade","params":[${json(q)}]}` });
   const j = await r.json().catch(() => ({})) as { result?: { txHash: Hex; success: boolean; receipt: { logs: GaslessSendResult["logs"] }; gasUsed: number; server?: unknown }; error?: { message?: string; data?: GaslessError["data"] } };
   if (!j.result) throw new GaslessError(j.error?.message ?? `gasless relay HTTP ${r.status}`, j.error?.data ?? {}, r.status);
   if (!j.result.success) throw new GaslessError("trade reverted on-chain", { notSent: false, txHash: j.result.txHash }, r.status);

@@ -4,11 +4,14 @@ import { kv } from "@/lib/server/kv";
 import { clientIp } from "@/lib/server/limits";
 import { RelayMetrics } from "@/lib/server/relayMetrics";
 import { flushRelayTrust } from "@/lib/server/fastRelay";
+import { bearer } from "@/lib/server/privyAuth";
 import { relayGaslessLogin, relayGaslessTrade, requireGaslessMode, warmGasless } from "@/lib/server/gaslessRelay";
 /**
  * POST /api/gasless — gasless swaps (flow/gasless-permit2). Only when GAS_SPONSORSHIP_MODE=gasless on testnet
  * Preview/local; otherwise every method is refused notSent and /api/bundler (self-bundler / BSO / hosted) is unchanged.
- * Methods: disciple_gaslessTrade [request] · disciple_gaslessLogin [{wallet, expiry, signature}] · disciple_gaslessWarm [wallet].
+ * Methods: disciple_gaslessTrade [request] (needs `Authorization: Bearer <Privy access token>`; the session's wallet must
+ * be the signer) · disciple_gaslessLogin [{wallet, expiry, signature}] (OFF unless GASLESS_LOGIN_RELAY=1; TODO delete) ·
+ * disciple_gaslessWarm [wallet].
  * One JSON answer with the full receipt (eth_sendRawTransactionSync). Never logs signatures, keys or RPC URLs.
  */
 export const runtime = "nodejs";
@@ -34,7 +37,7 @@ export async function POST(req: Request) {
     if (body.method === "disciple_gaslessWarm") { await ipGate; return NextResponse.json({ jsonrpc: "2.0", id, result: await warmGasless(body.params[0], metrics) }); }
     const result = body.method === "disciple_gaslessLogin"
       ? await relayGaslessLogin(body.params[0], { ipGate, metrics })
-      : await relayGaslessTrade(body.params[0], { ipGate, metrics });
+      : await relayGaslessTrade(body.params[0], { ipGate, metrics, authToken: bearer(req.headers) });
     await flushRelayTrust().catch(() => undefined);
     console.info("[disciple] gasless relay " + JSON.stringify({ method: body.method, txHash: result.txHash, ok: result.success, gasUsed: result.gasUsed, t: result.t, request: metrics.snapshot() }));
     return NextResponse.json({ jsonrpc: "2.0", id, result: { ...result, server: metrics.snapshot() } });

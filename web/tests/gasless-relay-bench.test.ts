@@ -3,6 +3,9 @@
  * relay-pipeline-bench.test.ts (815af744), so `RELAY_BENCH=1` compares old (4337 self-bundler) and new like for like.
  * Runs the REAL relayGaslessTrade: parse → check → local signature recovery → parallel admission (LoginGate ∥
  * revoke/strike ∥ relayer state ∥ exact eth_call) → budget → direct sync send. Opt-in: RELAY_BENCH=1.
+ * Off-chain login (lee 7:37 PM CT): a real ES256 Privy token is verified each request (local crypto); the Privy users
+ * API lookup (60 s per-did cache in privyAuth) is modelled as a MISS on every cold-instance trial (new did) with the
+ * `privy` latency range (assumption: api.privy.io from Vercel iad1 ≈ an RPC hop) and a hit on warm trials.
  */
 import { describe, expect, it, vi } from "vitest";
 import { writeFileSync } from "node:fs";
@@ -33,6 +36,12 @@ process.env.RELAYER_NONCE_SHARED = "0";
 import { relayGaslessTrade } from "../lib/server/gaslessRelay";
 import { admissionImmutableCache } from "../lib/server/relayLockdown";
 import { tradeTypedData } from "../lib/trade/gaslessPermit2";
+import { gaslessSessionDeps } from "../lib/server/gaslessSession";
+import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
+const { privateKey: SK, publicKey: PK } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+const jwt = (sub: string) => { const n = Math.floor(Date.now() / 1000), e = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const hb = `${e({ alg: "ES256", typ: "JWT" })}.${e({ iss: "privy.io", aud: "benchapp01", sub, iat: n, exp: n + 3600 })}`;
+  return `${hb}.${cryptoSign("sha256", Buffer.from(hb), { key: SK, dsaEncoding: "ieee-p1363" }).toString("base64url")}`; };
 
 const user = privateKeyToAccount(generatePrivateKey()), router = "0x00000000000000000000000000000000000000bb" as Address;
 const usdg = "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d" as Address, coin = "0x0000000000000000000000000000000000000022" as Address;
@@ -46,6 +55,7 @@ async function signed(nonce: bigint) {
 }
 const rng = (seed: number) => () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 const RANGES: Record<string, [number, number, number?, number?]> = {   // identical to relay-pipeline-bench.test.ts
+  privy: [98, 125, 0.15, 160],
   rpc: [98, 125, 0.15, 160], sim: [102, 125, 0.17, 195], send: [159, 305], kvSnap: [15, 18], kvSet: [3, 12], kvGen: [3, 10], kvIncr: [10, 40], kvDel: [3, 6], kvGate: [8, 16],
 };
 const pct = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)]; };
@@ -54,10 +64,16 @@ describe.skipIf(!process.env.RELAY_BENCH)("gasless relay benchmark (mocked RPC l
     process.env.GAS_SPONSORSHIP_MODE = "gasless"; delete process.env.VERCEL_ENV; delete process.env.VERCEL;
     const N = Number(process.env.RELAY_BENCH_N ?? 60), rand = rng(20261109), cold = rng(4663), rows: { ms: number; cold: boolean }[] = [];
     h.lat = (k: string) => { const [lo, hi, tp, th] = RANGES[k]; const ms = tp && rand() < tp ? hi + rand() * ((th ?? hi) - hi) : lo + rand() * (hi - lo); return new Promise(r => setTimeout(r, ms)); };
+    gaslessSessionDeps.env = () => ({ appId: "benchapp01", appSecret: "x", verificationKey: PK.export({ type: "spki", format: "pem" }).toString() });
+    gaslessSessionDeps.invite = async () => ({ ok: true });
+    gaslessSessionDeps.fetch = (async (url: string) => { await wait("privy"); const id = decodeURIComponent(url.split("/users/")[1]);
+      return { ok: true, status: 200, json: async () => ({ id, linked_accounts: [{ type: "email", address: "a@b.co" }, { type: "wallet", chain_type: "ethereum", address: user.address }] }) }; }) as never;
+    let did = "did:privy:bench00000000";
     for (let i = 0; i < N + 3; i++) {
-      const isCold = cold() < 0.6; if (isCold) admissionImmutableCache.clear();
+      const isCold = cold() < 0.6; if (isCold) { admissionImmutableCache.clear(); did = `did:privy:bench${String(i).padStart(8, "0")}`; }
       const body = await signed(BigInt(i));   // client-side signing is not server wall
-      const t = performance.now(); const r = await relayGaslessTrade(body); const ms = performance.now() - t;
+      const authToken = jwt(did);
+      const t = performance.now(); const r = await relayGaslessTrade(body, { authToken }); const ms = performance.now() - t;
       expect(r.kind).toBe("confirmed");
       if (i >= 3) rows.push({ ms, cold: isCold });
     }

@@ -41,7 +41,7 @@ import type {
   Address, CurveState, LaunchCoinParams, LaunchCoinResult, ProtocolClient, TradeParams, TradeQuote, TradeResult,
 } from "./protocol";
 import { ZERO_ADDRESS } from "./protocol";
-import { activeAddress, connectedAddress, ensureGaslessLogin, execCalls, execGasless, gaslessSigner, isSmartMode, type ExecResult } from "./wallet";
+import { activeAddress, connectedAddress, execCalls, execGasless, gaslessSigner, isSmartMode, type ExecResult } from "./wallet";
 import { ensurePveLogin, ensurePveLoginOnchain, PveError } from "./pve";
 import { isLegacyCurve, LEGACY_COIN_MSG } from "./legacyGate";
 import { pnlKey, seedCreatorBuyPosition } from "./pnl";
@@ -1097,11 +1097,11 @@ export function createViemProtocol(): ProtocolClient {
       const curve = c.gradCurve?.curve ?? await curveOf(pc, t.token);
       if (await isLegacyCurve(pc, curve)) throw new ProtocolError("LegacyCoin", LEGACY_COIN_MSG);
     }
-    // Gasless mode (flow/gasless-permit2): the owner EOA trades; LoginGate must verify IT for relay admission (every
-    // trade, not only PVE) ⇒ relayed attest, no ETH. Otherwise today's owner-paid PVE login, unchanged.
+    // Gasless mode (flow/gasless-permit2): login is checked OFF-CHAIN by the relay from the Privy session (lee 7:37 PM
+    // CT: no on-chain login record) ⇒ no LoginGate.attest here. An existing Easy curve that still checks LoginGate
+    // on-chain is caught by the relay's exact simulation (NotVerified, nothing sent). Otherwise today's PVE login.
     const gasless = !!gaslessSigner();
-    if (gasless) await labelRead("gasless-login", ensureGaslessLogin());
-    else if (isBuy && c.pve) await labelRead("pve-login", ensurePveLoginOnchain(pc, c.me, (calls) => execCalls(calls)));
+    if (!gasless && isBuy && c.pve) await labelRead("pve-login", ensurePveLoginOnchain(pc, c.me, (calls) => execCalls(calls)));
 
     const spend = isBuy ? c.usdg : t.token, outAsset = isBuy ? t.token : c.usdg;
     const g = isBuy ? c.gradCurve : undefined;

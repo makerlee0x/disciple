@@ -12,7 +12,7 @@
 import { createPublicKey, verify as cryptoVerify, type KeyObject } from "crypto";
 
 export type PrivyClaims = { sub: string; sid?: string; exp: number; iat?: number };
-export type PrivyUser = { id: string; emails: string[]; wallets: string[] };
+export type PrivyUser = { id: string; emails: string[]; wallets: string[]; /** linked account types (email, google_oauth, twitter_oauth, wallet, …) */ logins?: string[] };
 export type PrivyEnv = { appId: string; appSecret?: string; verificationKey?: string };
 export type FetchLike = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
@@ -84,13 +84,14 @@ export async function fetchPrivyUser(did: string, pe: PrivyEnv, f: FetchLike = f
     if (!r.ok) return null;
     const j = (await r.json()) as { id?: string; linked_accounts?: Record<string, unknown>[] };
     if (j.id !== did) return null;
-    const emails = new Set<string>(), wallets = new Set<string>();
+    const emails = new Set<string>(), wallets = new Set<string>(), logins = new Set<string>();
     for (const a of j.linked_accounts ?? []) {
+      if (typeof a.type === "string") logins.add(a.type);
       if (a.type === "email" && typeof a.address === "string") emails.add(a.address.trim().toLowerCase());
       if (a.type === "google_oauth" && typeof a.email === "string") emails.add(a.email.trim().toLowerCase());
       if (a.type === "wallet" && a.chain_type === "ethereum" && typeof a.address === "string" && /^0x[0-9a-fA-F]{40}$/.test(a.address)) wallets.add(a.address.toLowerCase());
     }
-    const u = { id: did, emails: Array.from(emails), wallets: Array.from(wallets) };
+    const u = { id: did, emails: Array.from(emails), wallets: Array.from(wallets), logins: Array.from(logins) };
     if (userCache.size > 5000) userCache.clear();
     userCache.set(did, { at: now, u });
     return u;

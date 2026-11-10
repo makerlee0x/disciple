@@ -1,4 +1,4 @@
-/** flow/gasless-permit2 relay: the switch, admission (LoginGate, revoke/strike, IP), exact simulation before signing,
+/** flow/gasless-permit2 relay: the switch, admission (off-chain Privy session, revoke/strike, IP), exact simulation before signing,
  *  budget after simulation, replay refusal, strike + breaker on an included revert. RPC / KV / send are mocked. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeFunctionData, type Address, type Hex } from "viem";
@@ -15,13 +15,40 @@ vi.mock("../lib/server/relayTrustStore", () => ({ kvTrustStore: () => ({ load: a
 vi.mock("../lib/server/syncSend", async original => ({ ...await original<typeof import("../lib/server/syncSend")>(), syncSend: h.send, jsonRpc: () => async () => null }));
 const KEY = generatePrivateKey();
 process.env.RELAYER_NONCE_SHARED = "0";
-import { relayGaslessLogin, relayGaslessTrade, requireGaslessMode } from "../lib/server/gaslessRelay";
+import { relayGaslessLogin, relayGaslessTrade as relayTrade, requireGaslessMode, LEGACY_LOGIN_MESSAGE, NOT_VERIFIED_SELECTOR, type GaslessDeps } from "../lib/server/gaslessRelay";
+import { gaslessSessionDeps } from "../lib/server/gaslessSession";
+import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { requireSelfBundlerMode } from "../lib/server/relayLockdown";
 import { relayBreaker } from "../lib/server/relayBreaker";
 import { gaslessRouterAbi, tradeTypedData } from "../lib/trade/gaslessPermit2";
 import { DEPLOYMENTS } from "../lib/chains";
 
 const user = privateKeyToAccount(generatePrivateKey()), other = privateKeyToAccount(generatePrivateKey());
+// Off-chain login: a test ES256 key stands in for the Privy app key; the Privy users API is a fake fetch.
+const APP = "testapp0001";
+const { privateKey: PRIVY_SK, publicKey: PRIVY_PK } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+const b64u = (x: Buffer | string) => Buffer.from(x).toString("base64url");
+let didSeq = 0;
+function jwt(sub: string, o: { exp?: number; aud?: string; key?: typeof PRIVY_SK } = {}) {
+  const head = b64u(JSON.stringify({ alg: "ES256", typ: "JWT" }));
+  const body = b64u(JSON.stringify({ iss: "privy.io", aud: o.aud ?? APP, sub, sid: "s1", iat: NOW - 10, exp: o.exp ?? NOW + 3600 }));
+  const sig = cryptoSign("sha256", Buffer.from(`${head}.${body}`), { key: o.key ?? PRIVY_SK, dsaEncoding: "ieee-p1363" });
+  return `${head}.${body}.${b64u(sig)}`;
+}
+const users = new Map<string, { id: string; linked_accounts: Record<string, unknown>[] }>();
+/** A fresh Privy user (fresh did ⇒ no 60 s user-cache carry-over) owning `wallets`; returns its access token. */
+function session(wallets: string[], logins: string[] = ["email"], o: Parameters<typeof jwt>[1] = {}) {
+  const did = `did:privy:tester${String(++didSeq).padStart(6, "0")}`;
+  users.set(did, { id: did, linked_accounts: [...logins.map(type => ({ type, address: "a@b.co" })), ...wallets.map(address => ({ type: "wallet", chain_type: "ethereum", address, wallet_client_type: "privy" }))] });
+  return jwt(did, o);
+}
+const privyFetch = vi.fn(async (url: string) => {
+  const did = decodeURIComponent(url.split("/users/")[1] ?? "");
+  const u = users.get(did);
+  return { ok: !!u, status: u ? 200 : 404, json: async () => u };
+});
+let TOKEN = "";
+const relayGaslessTrade = (b: unknown, d: GaslessDeps = {}) => relayTrade(b, { authToken: TOKEN, ...d });
 const router = DEPLOYMENTS[46630].gaslessRouter, usdg = DEPLOYMENTS[46630].usdg;
 const coin = "0x00000000000000000000000000000000000000c0" as Address;
 const NOW = Math.floor(Date.now() / 1000);
@@ -40,6 +67,11 @@ beforeEach(() => {
   h.call.mockResolvedValue({ data: "0x" }); h.count.mockResolvedValue(5); h.balance.mockResolvedValue(0n);
   h.incr.mockResolvedValue(1); h.mget.mockImplementation(async (ks: string[]) => ks.map(() => null)); h.budget.mockResolvedValue(0); h.refund.mockResolvedValue(0);
   h.send.mockResolvedValue(okRc()); h.setNX.mockResolvedValue(true); h.get.mockResolvedValue(null); h.incrBy.mockResolvedValue(1);
+  privyFetch.mockClear();
+  gaslessSessionDeps.env = () => ({ appId: APP, appSecret: "test-secret", verificationKey: PRIVY_PK.export({ type: "spki", format: "pem" }).toString() });
+  gaslessSessionDeps.fetch = privyFetch as never;
+  gaslessSessionDeps.invite = async () => ({ ok: true });
+  TOKEN = session([user.address, other.address]);
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -61,7 +93,7 @@ describe("switch: GAS_SPONSORSHIP_MODE", () => {
 });
 
 describe("admission + exact simulation", () => {
-  it("happy path: LoginGate ∥ gate ∥ sim, budget AFTER sim, one relayer tx to the gasless router with the signed call", async () => {
+  it("happy path: Privy session ∥ gate ⇒ sim, budget AFTER sim, one relayer tx to the gasless router with the signed call", async () => {
     const order: string[] = [];
     h.call.mockImplementation(async () => { order.push("sim"); return { data: "0x" }; });
     h.budget.mockImplementation(async () => { order.push("budget"); return 0; });
@@ -73,12 +105,12 @@ describe("admission + exact simulation", () => {
     expect(simArgs.to.toLowerCase()).toBe(router.toLowerCase());
     const d = decodeFunctionData({ abi: gaslessRouterAbi, data: simArgs.data });
     expect(d.functionName).toBe("buyWithPermit2"); expect((d.args[0] as string).toLowerCase()).toBe(user.address.toLowerCase());
-    expect(h.read).toHaveBeenCalledWith(expect.objectContaining({ functionName: "verifiedUntil", args: [user.address] }));
+    // No on-chain login record: LoginGate is never read on this path.
+    expect(h.read).not.toHaveBeenCalledWith(expect.objectContaining({ functionName: "verifiedUntil" }));
   });
-  it("not logged in on LoginGate ⇒ notSent, no budget, no send", async () => {
+  it("no LoginGate attestation (verifiedUntil = 0) but a valid Privy session ⇒ admitted", async () => {
     h.read.mockResolvedValue(0n);
-    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("unauthenticated") });
-    expect(h.budget).not.toHaveBeenCalled(); expect(h.send).not.toHaveBeenCalled();
+    await expect(relayGaslessTrade(await wire())).resolves.toMatchObject({ success: true });
   });
   it("revoked or in the strike window ⇒ notSent", async () => {
     h.mget.mockImplementation(async (ks: string[]) => ks.map(k => k.startsWith("relay:trust:") ? JSON.stringify({ strikeUntil: Date.now() + 60_000 }) : null));
@@ -113,8 +145,96 @@ describe("admission + exact simulation", () => {
   });
 });
 
-describe("login relay (LoginGate.attest for a no-ETH EOA)", () => {
-  it("bad attestation shape refused before RPC; per-wallet limit applies", async () => {
+describe("off-chain login (Privy session) — rejected before simulation, budget and send", () => {
+  const none = () => { expect(h.call).not.toHaveBeenCalled(); expect(h.budget).not.toHaveBeenCalled(); expect(h.send).not.toHaveBeenCalled(); };
+  it("valid session whose linked wallet == signer ⇒ passes (one Privy user lookup)", async () => {
+    await expect(relayGaslessTrade(await wire())).resolves.toMatchObject({ success: true });
+    expect(privyFetch).toHaveBeenCalledTimes(1);
+    expect(String(privyFetch.mock.calls[0][0])).toMatch(/^https:\/\/api\.privy\.io\/v1\/users\/did%3Aprivy%3A/);
+  });
+  it("valid session for ANOTHER wallet (signer not linked) ⇒ notSent 'not this Privy session's wallet', nothing budgeted/sent", async () => {
+    const stranger = privateKeyToAccount(generatePrivateKey());
+    await expect(relayGaslessTrade(await wire(), { authToken: session([stranger.address]) })).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("not this Privy session's wallet") });
+    expect(h.budget).not.toHaveBeenCalled(); expect(h.send).not.toHaveBeenCalled();
+  });
+  it("missing session ⇒ notSent before simulation", async () => {
+    await expect(relayGaslessTrade(await wire(), { authToken: null })).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("no Privy session") });
+    none(); expect(privyFetch).not.toHaveBeenCalled();
+  });
+  it("expired session ⇒ notSent before simulation", async () => {
+    await expect(relayGaslessTrade(await wire(), { authToken: session([user.address], ["email"], { exp: NOW - 3600 }) })).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("expired") });
+    none();
+  });
+  it("forged token (wrong key) / wrong audience / garbage ⇒ notSent before simulation", async () => {
+    const { privateKey: evil } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    for (const t of [session([user.address], ["email"], { key: evil }), session([user.address], ["email"], { aud: "otherapp001" }), "a.b.c"])
+      await expect(relayGaslessTrade(await wire(), { authToken: t })).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("invalid or expired") });
+    none();
+  });
+  it("wallet-only Privy user (no verified email / Google / X login) ⇒ notSent", async () => {
+    await expect(relayGaslessTrade(await wire(), { authToken: session([user.address], ["wallet"]) })).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("login not verified") });
+    expect(h.send).not.toHaveBeenCalled();
+  });
+  it("invite gate refusal ⇒ notSent", async () => {
+    gaslessSessionDeps.invite = async () => ({ ok: false });
+    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("invite") });
+    expect(h.send).not.toHaveBeenCalled();
+  });
+  it("Privy not configured ⇒ fail closed", async () => {
+    gaslessSessionDeps.env = () => ({ appId: "" });
+    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("isn't configured") });
+    none();
+  });
+  it("revoked (KV revoke marker) signer with a valid session ⇒ notSent before simulation", async () => {
+    h.mget.mockImplementation(async (ks: string[]) => ks.map(k => k.startsWith("relay:trust:") ? null : "revoked"));
+    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("revoked") });
+    none();
+  });
+  it("struck / blocklisted (strike ledger, incl. unreadable entry ⇒ fail closed) ⇒ notSent before simulation", async () => {
+    h.mget.mockImplementation(async (ks: string[]) => ks.map(k => k.startsWith("relay:trust:") ? JSON.stringify({ strikeUntil: Date.now() + 60_000 }) : null));
+    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("strike") });
+    h.mget.mockImplementation(async (ks: string[]) => ks.map(k => k.startsWith("relay:trust:") ? "{not json" : null));
+    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("strike") });
+    none();
+  });
+  it("revoke/strike store down ⇒ fail closed before simulation", async () => {
+    h.mget.mockRejectedValue(new Error("kv down"));
+    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("gate store unavailable") });
+    none();
+  });
+});
+
+describe("existing curves (still check LoginGate on-chain)", () => {
+  it("existing Easy curve, wallet without a LoginGate attestation ⇒ exact sim reverts NotVerified ⇒ clear notSent, no budget/send", async () => {
+    h.call.mockRejectedValue(Object.assign(new Error("execution reverted"), { walk: (f: (x: unknown) => boolean) => f({ data: NOT_VERIFIED_SELECTOR }) }));
+    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: LEGACY_LOGIN_MESSAGE, data: NOT_VERIFIED_SELECTOR });
+    expect(h.budget).not.toHaveBeenCalled(); expect(h.send).not.toHaveBeenCalled();
+  });
+  it("existing curve + attested wallet (sim passes) ⇒ sent; the Privy session is still required", async () => {
+    await expect(relayGaslessTrade(await wire())).resolves.toMatchObject({ success: true });
+    await expect(relayGaslessTrade(await wire(), { authToken: null })).rejects.toMatchObject({ notSent: true });
+  });
+  it("NotVerified selector is BondingCurve's error NotVerified()", () => { expect(NOT_VERIFIED_SELECTOR).toBe("0x83932d18"); });
+});
+
+describe("client sends the Privy session", () => {
+  it("submitGasless puts the access token in Authorization: Bearer (and omits it when logged out)", async () => {
+    const { submitGasless } = await import("../lib/trade/gaslessClient");
+    const seen: (Record<string, string> | undefined)[] = [];
+    const f = (async (_u: string, init?: { headers?: Record<string, string> }) => { seen.push(init?.headers); return { status: 200, json: async () => ({ result: { txHash: "0x1", success: true, receipt: { logs: [] }, gasUsed: 1 } }) }; }) as never;
+    const q = await wire();
+    await submitGasless(q, "/api/gasless", f, "tok.en.x"); await submitGasless(q, "/api/gasless", f, null);
+    expect(seen[0]?.authorization).toBe("Bearer tok.en.x"); expect(seen[1]?.authorization).toBeUndefined();
+  });
+});
+
+describe("login relay (LoginGate.attest for a no-ETH EOA) — OFF by default, TODO delete", () => {
+  it("off unless GASLESS_LOGIN_RELAY=1 ⇒ refused notSent, nothing read or sent", async () => {
+    await expect(relayGaslessLogin({ wallet: user.address, expiry: NOW + 7200, signature: `0x${"11".repeat(65)}` })).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("login relay is off") });
+    expect(h.call).not.toHaveBeenCalled(); expect(h.send).not.toHaveBeenCalled();
+  });
+  it("bad attestation shape refused before RPC; per-wallet limit applies (when explicitly enabled)", async () => {
+      vi.stubEnv("GASLESS_LOGIN_RELAY", "1");
       await expect(relayGaslessLogin({ wallet: user.address, expiry: NOW + 999_999_999, signature: `0x${"11".repeat(65)}` })).rejects.toThrow("bad expiry");
       h.incr.mockResolvedValue(4);
       await expect(relayGaslessLogin({ wallet: user.address, expiry: NOW + 7200, signature: `0x${"11".repeat(65)}` })).rejects.toMatchObject({ notSent: true });
