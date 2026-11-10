@@ -35,3 +35,15 @@ export const POINTS_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_POINTS ==
  * Pass 2: its BUY PRESETS list and "Next unlock … orb rain" loot line were removed from the card itself, so the flag never brings them back.
  */
 export const CREW_CARD_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_CREW_CARD === "1" || process.env.NEXT_PUBLIC_FEATURE_CREW_CARD === "true";
+
+/**
+ * Guilds and their short tags next to usernames (lee called these clans/tags; renamed to guilds on Oct 26 2026).
+ * Hidden until v2 (lee, 2026-11-10): hide only — components, routes, APIs and contract wiring stay so this can
+ * come back. Off: no guild chip/tag in the feed, leaderboard, profile, sidebar or wallet pill, and no guild
+ * picker in Edit profile. /api/guilds, /api/holders `guild`, chat `from.guild` and window.__discipleGuilds are
+ * unchanged. Override: NEXT_PUBLIC_FEATURE_GUILDS=1 (build-time; not set anywhere today).
+ */
+export const GUILDS_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_GUILDS === "1" || process.env.NEXT_PUBLIC_FEATURE_GUILDS === "true";
+/** Alias: product docs and lee still say "clans"; same flag as GUILDS_ENABLED. */
+export const CLANS_ENABLED: boolean = GUILDS_ENABLED;
+
