@@ -1,7 +1,7 @@
 // Guilds V1: pure rules + store over an in-memory KV.   npm run test:guilds
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
   COUNTRY_FLAGS_ENABLED, GUILDS_PER_PLAYER, GUILD_COPY, GUILD_SWITCH_COOLDOWN_MS, GUILD_TAG_MAX, GUILD_TAG_MIN, isGuildId, normalizeTag,
   seedGuildByTag, seedGuilds, validateTag,
@@ -9,6 +9,9 @@ import {
 import { GUILD_CATEGORIES, GUILD_LOGOS_COMMITTED, GUILD_SEED, guildLogoPath } from "../lib/guildSeed.ts";
 import { createGuildStore, type GuildKv } from "../lib/server/guildStore.ts";
 import { clearOldFlag } from "../lib/guildMigration.ts";
+import { CLANS_ENABLED, GUILDS_ENABLED } from "../lib/features.ts";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 function memKv(): GuildKv {
   const kv = new Map<string, string>(); const z = new Map<string, Map<string, number>>();
@@ -92,4 +95,34 @@ test("migration clears every old flag silently and is idempotent", () => {
   assert.equal(clearOldFlag(JSON.stringify({ bio: "x" })), null);
   assert.equal(clearOldFlag("not json"), null);
   assert.equal(clearOldFlag(null), null);
+});
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const rd = (rel: string) => readFileSync(path.join(here, "..", rel), "utf8");
+
+test("guilds / clan tags are hidden until v2 (GUILDS_ENABLED off; code kept)", () => {
+  assert.equal(GUILDS_ENABLED, false);
+  assert.equal(CLANS_ENABLED, GUILDS_ENABLED);
+  const feat = rd("lib/features.ts");
+  assert.ok(/GUILDS_ENABLED: boolean = process\.env\.NEXT_PUBLIC_FEATURE_GUILDS === "1"/.test(feat), "flag off unless NEXT_PUBLIC_FEATURE_GUILDS=1");
+  const chip = rd("components/guilds/GuildChip.tsx");
+  assert.ok(/if \(!GUILDS_ENABLED \|\| !guild\) return null;/.test(chip), "GuildChip hidden when flag is off");
+  assert.ok(/if \(!GUILDS_ENABLED\) return null;/.test(chip), "GuildTagFor hidden when flag is off");
+  const picker = rd("components/guilds/GuildPicker.tsx");
+  assert.ok(/if \(!GUILDS_ENABLED\) return null;/.test(picker), "GuildPicker hidden when flag is off");
+  // every SITE render point is also gated at the call site (same pattern as LOOT_ENABLED / CREW_CARD_ENABLED)
+  const sites: [string, RegExp][] = [
+    ["components/launchpad/Launchpad.tsx", /GUILDS_ENABLED && c\.live && c\.creatorAddr/],
+    ["components/leaderboard/LeaderboardView.tsx", /GUILDS_ENABLED && <GuildTagFor address=\{row\.address\} \/>/],
+    ["components/Sidebar.tsx", /GUILDS_ENABLED && <GuildTagFor address=\{me\.address\} markOnly \/>/],
+    ["components/WalletButton.tsx", /GUILDS_ENABLED && <> <GuildTagFor address=\{addr\} markOnly \/>/],
+    ["components/profile/ProfileDashboard.tsx", /GUILDS_ENABLED && <GuildTagFor address=\{wallet\} size="lg" \/>/],
+    ["components/profile/EditProfileSheet.tsx", /GUILDS_ENABLED && <GuildPicker /],
+  ];
+  for (const [rel, re] of sites) assert.ok(re.test(rd(rel)), `gated: ${rel}`);
+  // APIs still carry guild data — hide UI only, do not strip
+  const holders = rd("app/api/holders/route.ts");
+  assert.ok(/guildTagsOf/.test(holders) && /guild: tags\[/.test(holders), "/api/holders still attaches guild");
+  const chatSrc = rd("lib/server/chat/identity.ts");
+  assert.ok(/guildTagsOf/.test(chatSrc) && /guild \? \{ guild \}/.test(chatSrc), "chat identity still attaches guild");
 });

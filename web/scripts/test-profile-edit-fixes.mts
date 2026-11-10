@@ -4,9 +4,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { FLAG_ALIASES, flagMatchRank, foldSearch, searchFlags } from "../lib/flags/search.ts";
 import { COUNTRY_CODES } from "../lib/profileMeta.ts";
-import { USERNAME_SHORT, validateUsername } from "../lib/profile.ts";
+import { USERNAME_MAX, USERNAME_RE, USERNAME_SHORT, USERNAME_STORED_RE, usernameRuleText, validateUsername } from "../lib/profile.ts";
 import { PFP_ERROR, fitInside, pfpFailure, pfpPrecheck } from "../lib/pfpUpload.ts";
-import { defaultUsername } from "../lib/defaultUsername.ts";
+import { CALLSIGN_NOUNS, CALLSIGN_TITLES, DEFAULT_USERNAME_MAX_LENGTH, defaultUsername } from "../lib/defaultUsername.ts";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 const names = new Intl.DisplayNames(["en"], { type: "region" });
 const countries = COUNTRY_CODES.map((c) => ({ id: c, label: names.of(c) || c })).sort((a, b) => a.label.localeCompare(b.label));
@@ -43,16 +46,44 @@ test("flag aliases only point at real country codes", () => {
   for (const cc of Object.keys(FLAG_ALIASES)) assert.ok(COUNTRY_CODES.includes(cc), cc);
 });
 
-test("usernames need at least 3 characters (plain message); 3–20 valid", () => {
+test("usernames need at least 3 characters (plain message); 3–USERNAME_MAX valid", () => {
   assert.equal(validateUsername("a"), USERNAME_SHORT);
   assert.equal(validateUsername("ab"), USERNAME_SHORT);
   assert.equal(validateUsername("@ab "), USERNAME_SHORT);
   assert.equal(USERNAME_SHORT, "Usernames need at least 3 characters.");
   assert.equal(validateUsername("abc"), null);
-  assert.equal(validateUsername("a".repeat(20)), null);
-  assert.match(validateUsername("a".repeat(21)) ?? "", /3–20/);
-  assert.match(validateUsername("ab-c") ?? "", /3–20/);
+  assert.equal(validateUsername("a".repeat(20)), null, "previous 20-char cap still valid");
+  assert.equal(validateUsername("a".repeat(USERNAME_MAX)), null);
+  assert.equal(validateUsername("a".repeat(USERNAME_MAX + 1)), usernameRuleText());
+  assert.equal(validateUsername("ab-c"), usernameRuleText());
   assert.equal(validateUsername("admin"), "That name is reserved.");
+});
+
+test("claimed username cap equals the longest default call sign (22); existing longer names still resolve", () => {
+  // Formula: max(CALLSIGN_TITLES length) + 1 space + max(CALLSIGN_NOUNS length). No suffix digits.
+  let mx = 0, ex = "";
+  for (const t of CALLSIGN_TITLES) for (const n of CALLSIGN_NOUNS) {
+    const s = `${t} ${n}`;
+    if (s.length > mx) { mx = s.length; ex = s; }
+  }
+  assert.equal(mx, 22, `enumerated ${ex}`);
+  assert.equal(DEFAULT_USERNAME_MAX_LENGTH, 22);
+  assert.equal(USERNAME_MAX, DEFAULT_USERNAME_MAX_LENGTH);
+  assert.equal(usernameRuleText(), "3–22 chars: a–z, 0–9, underscore.");
+  assert.ok(USERNAME_RE.test("a".repeat(22)));
+  assert.ok(!USERNAME_RE.test("a".repeat(23)));
+  // read/resolve paths use USERNAME_STORED_RE (no max) so a pre-existing longer claim still works
+  assert.ok(USERNAME_STORED_RE.test("a".repeat(30)));
+  assert.ok(!USERNAME_STORED_RE.test("ab-c"));
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const route = readFileSync(path.join(here, "../app/api/profile/username/route.ts"), "utf8");
+  assert.ok(/USERNAME_STORED_RE\.test\(r\)/.test(route), "GET ?resolve uses stored-name regex, not the new-claim cap");
+  const ref = readFileSync(path.join(here, "../app/r/[username]/route.ts"), "utf8");
+  assert.ok(/USERNAME_STORED_RE\.test\(raw\)/.test(ref), "/r/ looks up stored names without the new-claim cap");
+  const sheet = readFileSync(path.join(here, "../components/profile/EditProfileSheet.tsx"), "utf8");
+  assert.ok(/maxLength=\{USERNAME_MAX\}/.test(sheet) && /name\.length\}\/\{USERNAME_MAX\}/.test(sheet), "edit form uses shared cap");
+  const ident = readFileSync(path.join(here, "../components/profile/ProfileIdentity.tsx"), "utf8");
+  assert.ok(/maxLength=\{USERNAME_MAX\}/.test(ident), "identity input uses shared cap");
 });
 
 test("default call signs are display-only and long enough anyway", () => {

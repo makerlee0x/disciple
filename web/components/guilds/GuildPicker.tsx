@@ -6,6 +6,7 @@ import { GUILD_CATEGORIES } from "@/lib/guildSeed";
 import { createGuild, fetchMyGuild, findGuildByTag, joinGuild, leaveGuild, listGuilds, type GuildActionResult } from "@/lib/guildClient";
 import { formatLocalWhen } from "@/lib/usernameCooldown";
 import GuildChip, { GuildMark } from "./GuildChip";
+import { GUILDS_ENABLED } from "@/lib/features";
 
 /**
  * Guild row in Edit profile (replaces the community part of the old flag picker). Acts right away (its own signed
@@ -13,6 +14,11 @@ import GuildChip, { GuildMark } from "./GuildChip";
  * Starter guilds are lib/guildSeed (lee's 12 in 3 categories, swappable), grouped by category; player-made guilds after. "Start a guild" needs a claimed username.
  */
 export default function GuildPicker({ wallet, hasUsername }: { wallet: string | null; hasUsername: boolean }) {
+  if (!GUILDS_ENABLED) return null;
+  return <GuildPickerInner wallet={wallet} hasUsername={hasUsername} />;
+}
+
+function GuildPickerInner({ wallet, hasUsername }: { wallet: string | null; hasUsername: boolean }) {
   const [mine, setMine] = useState<Guild | null>(null);
   const [nextAt, setNextAt] = useState<number | null>(null);
   const [all, setAll] = useState<Guild[]>([]);

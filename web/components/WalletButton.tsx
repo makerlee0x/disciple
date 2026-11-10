@@ -29,6 +29,7 @@ import Icon from "@/components/icons/Icon";
 import { playerError } from "@/lib/playerError";
 import { chipLabel, clearNameCache, lookupFirstName } from "@/lib/nameLookup";
 import { GuildTagFor } from "@/components/guilds/GuildChip";
+import { GUILDS_ENABLED } from "@/lib/features";
 import { PROFILE_CHANGED_EVENT } from "@/lib/profile";
 import { DEPOSIT_HREF, SETTINGS_HREF, onDepositClick, onSettingsClick } from "@/lib/cashLink";
 import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
@@ -180,7 +181,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     try { await f(); setMenu(false); } catch (e) { fail(e); } finally { setBusy(""); }
   }
 
-  // Phones (< 740px): the signed-out pill ("Play" / "Sign in") is hidden from the top bar (it pushed GAME's ✕ out of
+  // Phones (≤760px): the signed-out pill ("Play" / "Sign in") is hidden from the top bar (it pushed GAME's ✕ out of
   // the corner; CSS .ap-wallet-cta in globals.css) and the same action lives in the Sidebar menu. Publish the pill's
   // label for the Sidebar and run the pill's own action when the Sidebar item is tapped.
   const ctaLabel = !isDeployed() || addr ? null : aaAvailable() && SIGNER_MODE === "local" ? "Play" : aaAvailable() ? "Sign in" : "Connect wallet";
@@ -209,7 +210,8 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   // must not rely on layout collapse for dismissal).
   useEffect(() => {
     if (!menu && !acct) return;
-    const onDown = (e: MouseEvent) => {
+    // pointerdown: in-wallet WebViews often skip a reliable mousedown before the next tap target
+    const onDown = (e: PointerEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
         setMenu(false);
         setAcct(false);
@@ -221,10 +223,10 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
         setAcct(false);
       }
     };
-    document.addEventListener("mousedown", onDown);
+    document.addEventListener("pointerdown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("pointerdown", onDown);
       document.removeEventListener("keydown", onKey);
     };
   }, [menu, acct]);
@@ -244,8 +246,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     boxShadow: "0 8px 24px rgba(0,0,0,.45)",
   };
   return (
-    <div ref={rootRef} aria-label="wallet" style={{ position: "fixed", top: compact ? 12 : 10, right: 16, maxWidth: "calc(100vw - 32px)", zIndex: 60, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4,
-      fontFamily: "ui-monospace,monospace", color: "#E8EAEE" }}>
+    <div ref={rootRef} aria-label="wallet" className="wb-root" data-compact={compact ? "true" : "false"}>
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         {/* .wb-row: one line on desktop; on phones (≤480px) it wraps right-aligned instead of running off the left edge (GAME 390×844) */}
         <div className="wb-row" style={{ display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap" }}>
@@ -269,7 +270,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
               )}
               <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
                 style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
-                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}{!copied && <> <GuildTagFor address={addr} markOnly /></>}
+                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}{!copied && GUILDS_ENABLED && <> <GuildTagFor address={addr} markOnly /></>}
               </button>
               {/* coin page cleanup (lee, Oct 30): no ✕ next to the chip; Sign out lives in the account menu + Sidebar */}
             </>

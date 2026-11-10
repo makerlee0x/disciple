@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Script, console2} from "forge-std/Script.sol";
+import {NetworkConfig} from "./config/NetworkConfig.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -85,8 +86,8 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       TEST_STRATEGY_PRICE_WAD (USDG raw per STRATEGY raw, WAD; default $0.00245 scaled to USDG's
 ///                       decimals: 2.45e15 for 18-dec, 2450 for 6-dec) with REF_POOL_LIQUIDITY full-range liquidity
 ///                       (default ≈ REF_POOL_USD per side, REF_POOL_USD default 1,000,000)
-///   Chain guard: only chainid 46630 (RH testnet or an anvil fork of it) or 31337 (plain anvil / forge test).
-contract Deploy is Script {
+///   Chain guard: testnet/local, or explicitly confirmed mainnet with complete owner-supplied config (NetworkConfig).
+contract Deploy is NetworkConfig {
     /// @dev forge script routes `new X{salt: s}` through this deterministic CREATE2 factory.
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
@@ -114,12 +115,12 @@ contract Deploy is Script {
     }
 
     function run() external returns (Out memory o) {
+        _checkCoreConfig(); // fail closed before broadcast, including all mainnet address/config placeholders
         address treasury = vm.envOr("TREASURY", address(0));
         o.manager = vm.envOr("POOL_MANAGER", address(0));
         o.quoter = vm.envOr("V4_QUOTER", address(0));
         o.usdg = vm.envOr("USDG", address(0));
         o.defaultQuote = vm.envOr("DEFAULT_QUOTE", address(0));
-        require(block.chainid == 46630 || block.chainid == 31337, "Deploy: testnet/local only");
 
         vm.startBroadcast();
         // The broadcasting account (== msg.sender under `forge script`; also correct when run() is called from a test).
@@ -145,8 +146,8 @@ contract Deploy is Script {
 
         // Hook salt is mined against the CREATE2 factory that actually deploys it (not the EOA).
         uint160 flags = uint160(
-            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
-                | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG
+                | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
         bytes memory ctorArgs = abi.encode(manager, feeRouter, address(0), deployer);
         (address hookAddr, bytes32 salt) =
@@ -194,7 +195,11 @@ contract Deploy is Script {
         if (o.defaultQuote == address(0) && vm.envOr("DEPLOY_TEST_STRATEGY", false)) {
             o.defaultQuote = address(new DevToken("Strategy Coin (test)", "STRATEGY", 18, deployer, 1e27));
             refKey = _seedRefPool(
-                manager, o.defaultQuote, o.usdg, vm.envOr("TEST_STRATEGY_PRICE_WAD", _strategyPriceWad(usdgDec)), usdgDec
+                manager,
+                o.defaultQuote,
+                o.usdg,
+                vm.envOr("TEST_STRATEGY_PRICE_WAD", _strategyPriceWad(usdgDec)),
+                usdgDec
             );
             hasRef = true;
         }
@@ -238,7 +243,11 @@ contract Deploy is Script {
 
         // Real round-trip probe through the pricer's base/USDG pool; probes the default base too (no allowlist).
         QuoteProbe probe = new QuoteProbe(
-            deployer, manager, o.usdg, address(pricer), uint256(vm.envOr("PROBE_USDG", 10 ** uint256(pricer.usdgDecimals())))
+            deployer,
+            manager,
+            o.usdg,
+            address(pricer),
+            uint256(vm.envOr("PROBE_USDG", 10 ** uint256(pricer.usdgDecimals())))
         );
 
         launchpad.setPricer(address(pricer));

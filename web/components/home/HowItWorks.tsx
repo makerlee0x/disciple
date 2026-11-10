@@ -40,7 +40,7 @@ export default function HowItWorks({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   return (
-    <div className={s.ov} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className={s.ov} onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={box} className={s.card} role="dialog" aria-modal="true" tabIndex={-1} aria-labelledby="hiw-title" aria-describedby="hiw-steps">
         <div className={s.hd} style={{ backgroundImage: `url(${withBase("/home/hiw-header.webp")})` }}>
           <button type="button" className={s.close} onClick={onClose} aria-label="Close How DISCIPLE works"><Icon name="close" size={16} /></button>

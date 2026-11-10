@@ -8,11 +8,11 @@ import type { Call } from "./core";
 /**
  * Expected DiscipleSessionPolicy.moduleId(); enableOneTap refuses a policy that reports anything else.
  * Config, so the redeploy swaps it with the address: NEXT_PUBLIC_SESSION_POLICY (address) +
- * NEXT_PUBLIC_SESSION_POLICY_VERSION (default 1.4.3, bound to paymaster v5). 1.4.2 is immutable and binds v4.
- * No deployed address is hardcoded: set NEXT_PUBLIC_SESSION_POLICY after v5 is deployed.
+ * NEXT_PUBLIC_SESSION_POLICY_VERSION (default 1.4.3, bound to paymaster v5). 1.4.2 (bound to v4) is retired.
+ * No deployed address is hardcoded: NEXT_PUBLIC_SESSION_POLICY = 1.4.3 at 0xD2cF85dd7cDC3c3e53EA0472BF6Bf006de45E4d2 (RH testnet).
  */
 export const SESSION_POLICY_VERSION = process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.4.3";
-/** Empty until DiscipleSessionPolicy 1.4.3 is deployed. NEXT_PUBLIC_SESSION_POLICY overrides. */
+/** Intentionally empty: the policy address comes from NEXT_PUBLIC_SESSION_POLICY. */
 export const DEFAULT_SESSION_POLICY: Record<number, Address> = {};
 export const sessionPolicyFor = (chainId: number, env = process.env.NEXT_PUBLIC_SESSION_POLICY): Address | "" =>
   (/^0x[0-9a-fA-F]{40}$/.test(env || "") ? (env as Address) : DEFAULT_SESSION_POLICY[chainId] ?? "");

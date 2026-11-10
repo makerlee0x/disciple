@@ -1,6 +1,7 @@
 "use client";
 
 import { GuildTagFor } from "@/components/guilds/GuildChip";
+import { GUILDS_ENABLED } from "@/lib/features";
 import { COUNTRY_FLAGS_ENABLED } from "@/lib/guilds";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -90,7 +91,7 @@ function Row({ row }: { row: LeaderboardRow }) {
           <Link href={href} className="lb-name-link" title={`Open ${name}'s profile · ${row.address}`}>
             {name}
           </Link>
-          <GuildTagFor address={row.address} />
+          {GUILDS_ENABLED && <GuildTagFor address={row.address} />}
           {COUNTRY_FLAGS_ENABLED && <span className="lb-flag" title={row.country}>
             {flagEmoji(row.country)}
           </span>}

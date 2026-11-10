@@ -18,7 +18,7 @@ Curve facts: 1M supply (no burn, LOCKED #7 rev. 2026-10-23), 72% sold on the cur
 | Max single buy / sell | none | none | none |
 | 7-min window / launch-block rule | **removed** | — | — |
 | Profit tax | **crew tip**: 0.777% of sell proceeds, only if realized profit > threshold (default 0.5% of mcap) → holders claim pool | none | none |
-| First BOOST (creator launch buy) max | **1.2%** of supply | **3.33%** | `creatorBuyMaxBps` (default 0.77%) |
+| First BOOST (creator launch buy) max | **1.2%** of supply | **3.33%** | `creatorBuyMaxBps` (default 7.77%, ceiling 7.77%) |
 | Creator lock | First BOOST tokens locked until graduation (later buys free) | none | none |
 | Sniper tax | 99% → 0 over 7 s (per-second table), First BOOST exempt, escrowed | same | same |
 

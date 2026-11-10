@@ -89,10 +89,10 @@ contract FeeMathTest is Test {
         for (uint256 e = 1; e < 8; ++e) assertLt(FeeMath.snipeBps(e), FeeMath.snipeBps(e - 1)); // strictly decreasing
     }
 
-    function test_creatorBuyMax_0_77pct() public pure {
-        assertEq(Constants.CREATOR_BUY_MAX_BPS_DEFAULT, 77);
-        assertEq(Constants.CREATOR_BUY_MAX_BPS_CEILING, 700);
-        assertEq(FeeMath.creatorBuyMax(), (Constants.TOTAL_SUPPLY * 77) / 10_000);
+    function test_creatorBuyMax_7_77pct() public pure {
+        assertEq(Constants.CREATOR_BUY_MAX_BPS_DEFAULT, 777);
+        assertEq(Constants.CREATOR_BUY_MAX_BPS_CEILING, 777);
+        assertEq(FeeMath.creatorBuyMax(), (Constants.TOTAL_SUPPLY * 777) / 10_000);
     }
 
     function test_referralGate_10USDG() public pure {

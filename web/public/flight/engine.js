@@ -342,10 +342,14 @@ const short=a=>!a?'?':/^0x[0-9a-f]{8,}$/i.test(a)? a.slice(0,6)+'…'+a.slice(-4
 /* @feed-names:start — TRADES feed names + history seed + narrow HUD column (test: scripts/test-feed-names.mjs).
    Names: the SITE publishes window.__discipleNames[lc] + "disciple:names" (lib/nameLookup); NAMES is the engine's copy (the
    event also reaches the worker renderer). "@name" when claimed, the short address otherwise. Feed rows keep tr/pre so a name
-   that arrives after the row was drawn relabels it. */
+   that arrives after the row was drawn relabels it.
+   Display cap: window.__usernameDisplayCap (USERNAME_DISPLAY_CAP from lib/defaultUsername, the longest default call sign).
+   If the cap is missing or ≤0, claimed / default names are not truncated. short() addresses / sim bots are unchanged. */
 const NAMES={}, DEFNAMES={};   // DEFNAMES: default call signs (no @) from the site's 'disciple:feednames' (lib/flight/holderNames)
+function nameCap(){ const c=typeof window!=='undefined'?window.__usernameDisplayCap:0; return typeof c==='number'&&c>0?c>>>0:0; }
+function clipName(s){ s=String(s); const c=nameCap(); return c&&s.length>c?s.slice(0,c):s; }
 function nameOf(a){ const k=String(a||'').toLowerCase(), g=typeof window!=='undefined'&&window.__discipleNames, n=NAMES[k]||(g&&g[k]);
-  return n?'@'+String(n).replace(/^@/,'').slice(0,11):DEFNAMES[k]?String(DEFNAMES[k]).slice(0,16):short(a); }
+  return n?clipName('@'+String(n).replace(/^@/,'')):DEFNAMES[k]?clipName(String(DEFNAMES[k])):short(a); }
 // Local clock; ~ marks receipt/observation time when no block timestamp was supplied.
 function feedTime(r){ if(!(r.at>0)||!Number.isFinite(+r.at)) return '—'; const d=new Date(+r.at); if(!Number.isFinite(d.getTime())) return '—'; return (r.received?'~':'')+[d.getHours(),d.getMinutes(),d.getSeconds()].map(v=>String(v).padStart(2,'0')).join(':'); }
 function feedTradeRow(side,usd,who,trader,at=Date.now(),received=true){ const pre=`${side==='buy'?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `;
@@ -363,18 +367,44 @@ function feedSeedFills(feed,fills,me,seen,max=6){ let n=feed.filter(r=>r.t).leng
     const r=feedTradeRow(f.side==='sell'?'sell':'buy',u,mine?'(you)':null,f.trader,f.ts>0?+f.ts:0,false); r.hist=1; feed.push(r); out.push(r); n++; }
   feed.length=Math.min(feed.length,7); return out; }
 /* narrow screens (phones): the right HUD column (status box + TOP HOLDERS) would sit on top of the MARKET CAP panel
-   (20..400 × 18..148) → start it below that panel. Desktop (W ≥ 740) unchanged. FlightCanvas applies the same floor to
-   --ap-hud-rt / __hudRT so CrewPanel (+204 / +100 docked) and GameChat stay stacked under it. */
-const HUD_NARROW_W=740, HUD_NARROW_TOP=158;
-function hudColTop(W,rt){ return W<HUD_NARROW_W?Math.max(rt,HUD_NARROW_TOP):rt; }
+   (20..400 × 18..148) → start it below that panel. Desktop (W > 760) unchanged. FlightCanvas applies the same floor to
+   --ap-hud-rt / __hudRT so CrewPanel (+204 / +100 docked) and GameChat stay stacked under it. Matches site max-width:760px. */
+const HUD_NARROW_W=760, HUD_NARROW_TOP=158;
+function hudColTop(W,rt){ return W<=HUD_NARROW_W?Math.max(rt,HUD_NARROW_TOP):rt; }
 /* @coin-id-row: height of the coin's icon · name · pair row inside the desktop header card (CoinIdentity publishes
    window.__coinIdH; 0 / unset = no row, e.g. /flight or the simulator). Clamped so a bad value can't eat the card. */
 function coinIdRowH(){ const h=typeof window!=='undefined'?+window.__coinIdH:0; return Number.isFinite(h)&&h>0?Math.round(Math.min(h,64)):0; }
-/* @phone-hud v3: phones (<HUD_NARROW_W, not CLEAN) — components/flight/PhoneHud.tsx publishes window.__phoneHud
+/* @phone-hud v3: phones (≤HUD_NARROW_W, not CLEAN) — components/flight/PhoneHud.tsx publishes window.__phoneHud
    {on, sheet, drawer, pillTop, hudTop, dTop, body:{x,y,w,h}}: the floating MCAP · TIER pill at `pillTop`, the bottom HUD
    (handle / PnL line / BOOST · DUMP, DOM) from `hudTop` down, and — while the drawer is open (dTop = its top) — the drawer's
    transparent body rect, where the engine draws the FEED / HOLDERS / CHART tab. Nothing else is drawn on the sky. */
-function phoneHud(w,clean){ const p=typeof window!=='undefined'?window.__phoneHud:null; return !clean&&w<HUD_NARROW_W&&p&&p.on?p:null; }
+function phoneHud(w,clean){ const p=typeof window!=='undefined'?window.__phoneHud:null; return !clean&&w<=HUD_NARROW_W&&p&&p.on?p:null; }
+
+/* TRADES / phone FEED name fit: shrink the name font stepwise to TRADE_NAME_FONT_FLOOR (9px) so the full name
+   fits the existing name column (desktop card stays 310px; phone columns unchanged). If it still doesn't fit,
+   abbreviate the first word to an initial ("Pathfinder Afterburner" → "P. Afterburner"). A claimed @handle
+   with no space is not abbreviated; existing phFit ellipsis applies at the floor. */
+const TRADE_NAME_FONT_FLOOR=9, TRADE_NAME_FONT_DESK=12, TRADE_NAME_FONT_PHONE=14;
+function tradeNameInitial(name){ const s=String(name??''); if(!s||(s[0]==='@'&&!/\s/.test(s))) return s;
+  const i=s.search(/\s/); if(i<=0) return s; const rest=s.slice(i+1).trim(); if(!rest) return s;
+  return s[0].toUpperCase()+'. '+rest; }
+function tradeNameEllipsis(meas,t,w){ t=String(t); if(meas(t)<=w) return t; while(t.length>1&&meas(t+'…')>w) t=t.slice(0,-1); return t+'…'; }
+function fitTradeName(name,width,o){
+  const start=o&&o.start>0?o.start:TRADE_NAME_FONT_DESK, floor=o&&o.floor>0?o.floor:TRADE_NAME_FONT_FLOOR;
+  const fam=(o&&o.family)||'ui-monospace,monospace', weight=(o&&o.weight)||'';
+  const set=o&&typeof o.setFont==='function'?o.setFont:(px=>{ ctx.font=(weight?weight+' ':'')+px+'px '+fam; });
+  const meas=o&&typeof o.measure==='function'?o.measure:(t=>ctx.measureText(t).width);
+  const n=String(name??'');
+  if(!(width>0)){ set(start); return {text:n,size:start,mode:'full'}; }
+  for(let px=start;px>=floor;px--){ set(px); if(meas(n)<=width) return {text:n,size:px,mode:px===start?'full':'shrink'}; }
+  const ini=tradeNameInitial(n);
+  if(ini!==n){ for(let px=start;px>=floor;px--){ set(px); if(meas(ini)<=width) return {text:ini,size:px,mode:'initial'}; }
+    set(floor); return {text:tradeNameEllipsis(meas,ini,width),size:floor,mode:'ellipsis'}; }
+  set(floor); return {text:tradeNameEllipsis(meas,n,width),size:floor,mode:'ellipsis'}; }
+function tradeRowParts(r){ const txt=String(r&&r.txt||'');
+  if(r&&r.pre!=null&&txt.startsWith(String(r.pre))) return {pre:String(r.pre),name:txt.slice(String(r.pre).length)};
+  const mt=/^(▲ BOOST|▼ DUMP)\s+(\S+)\s+(.+)$/.exec(txt); if(!mt) return null;
+  return {pre:txt.slice(0,txt.length-mt[3].length),name:mt[3]}; }
 /* @feed-names:end */
 const i256=h=>BigInt.asIntN(256,BigInt('0x'+h));
 class PoolV3Base {
@@ -1672,7 +1702,9 @@ function drawPhoneFeed(P){ const B0=P.body, B={x:B0.x,y:B0.y+28,w:B0.w,h:B0.h-28
     const buy=mt[1][0]==='▲', who=mt[3].trim(), letter=(who.replace(/^[@(#]+/,'').replace(/^0x/i,'')[0]||'?').toUpperCase();
     let cx=x0; ctx.fillStyle=phAva(who); rrect(cx,cy-15,cAva,cAva,10); ctx.fill();
     ctx.fillStyle='#0b0d18'; ctx.font=`800 13px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText(letter,cx+cAva/2,cy+.5); ctx.textAlign='left'; cx+=cAva+gap;
-    ctx.fillStyle='#EEF1FA'; ctx.font=`bold 14px ${PH_FONT}`; ctx.fillText(phFit(who,cNm),cx,cy-6); ctx.font=`10px ${PH_FONT}`; ctx.fillStyle='rgba(214,222,245,.56)'; ctx.fillText(feedTime(r),cx,cy+12); cx+=cNm+gap;
+    ctx.fillStyle='#EEF1FA';
+    const fit=fitTradeName(who,cNm,{start:TRADE_NAME_FONT_PHONE,floor:TRADE_NAME_FONT_FLOOR,family:PH_FONT,weight:'bold'});
+    ctx.fillText(fit.text,cx,cy-6); ctx.font=`10px ${PH_FONT}`; ctx.fillStyle='rgba(214,222,245,.56)'; ctx.fillText(feedTime(r),cx,cy+12); cx+=cNm+gap;
     const tw=66; ctx.fillStyle=buy?'rgba(47,217,138,.13)':'rgba(255,61,127,.14)'; rrect(cx,cy-12,tw,24,8); ctx.fill();
     ctx.fillStyle=buy?'#7FF2B9':'#FF8DB3'; ctx.font=`800 11.5px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText(buy?'BOOST':'DUMP',cx+tw/2,cy+.5); cx+=cTag+gap;
     ctx.textAlign='right'; ctx.fillStyle='#EEF1FA'; ctx.font=`bold 14px ${PH_FONT}`; ctx.fillText(mt[2],cx+cUsd,cy); cx+=cUsd+gap;
@@ -1792,9 +1824,15 @@ function drawHud(){
   else if (cardBegin('trades',20,H-160,310,140)){ const FX=20, FY=H, FW=310;
   panel(FX,FY-160,FW,140); ctx.font='12px ui-monospace,monospace';
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADES · LOCAL (~SEEN)',FX+16,FY-138);
-  S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=FY-116+i*17, icon=r.ic?18:0;
+  S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=FY-116+i*17, icon=r.ic?18:0, maxW=FW-32-74-icon;
     if(r.ic) drawIcon(r.ic,FX+16,fy-11,14,r.c);
-    ctx.fillText(phFit(String(r.txt||''),FW-32-74-icon),FX+16+icon,fy);
+    const parts=tradeRowParts(r);
+    if(parts){ ctx.font=TRADE_NAME_FONT_DESK+'px ui-monospace,monospace'; const preW=ctx.measureText(parts.pre).width;
+      ctx.fillText(parts.pre,FX+16+icon,fy);
+      const fit=fitTradeName(parts.name,maxW-preW,{start:TRADE_NAME_FONT_DESK,floor:TRADE_NAME_FONT_FLOOR,family:'ui-monospace,monospace'});
+      ctx.fillText(fit.text,FX+16+icon+preW,fy); }
+    else { ctx.font=TRADE_NAME_FONT_DESK+'px ui-monospace,monospace'; ctx.fillText(phFit(String(r.txt||''),maxW),FX+16+icon,fy); }
+    ctx.font=TRADE_NAME_FONT_DESK+'px ui-monospace,monospace';
     ctx.textAlign='right'; ctx.fillStyle='rgba(220,228,255,.6)'; ctx.fillText(feedTime(r),FX+FW-16,fy); ctx.textAlign='left'; }); ctx.globalAlpha=1; ctx.restore(); }
   // Keyboard/status box removed. Keep control events and all working trade/keyboard handlers.
   if (S.controlsDocked) pushControls();

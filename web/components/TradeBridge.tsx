@@ -691,7 +691,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const customSellPct = sellUnit === "%" && sellCustomN ? Math.min(100, sellCustomN) : 0;
   const customSellUsd = sellUnit === "$" && sellCustomN ? (pos.valueUsd > 0 ? Math.min(sellCustomN, pos.valueUsd) : sellCustomN) : 0;
   const dumpLabel = customSellPct ? `${+customSellPct.toFixed(2)}%` : customSellUsd ? fmtMoney(customSellUsd) : selSellPreset.label;
-  // Expected price move per amount (buy presets + custom $, sell presets + custom %) from on-chain quotes, vs the BIG_MOVE_BPS
+  const customSellFrac = customSellPct ? Math.min(1, customSellPct / 100)
+    : (customSellUsd && pos.valueUsd > 0 ? Math.min(1, customSellUsd / pos.valueUsd) : 0);
+  // Expected price move per amount (buy presets + custom $, sell presets + custom % / $) from on-chain quotes, vs the BIG_MOVE_BPS
   // threshold and the router's live max impact (SITE readRouterMaxImpactBps via gradAdapter; 0 = no cap ⇒ no "too big" warning). Live only,
   // off the trade hot path (own 4 s loop + after trades). Warnings only: nothing here can block a tap.
   const buySig = ammo.usd.slice(0, 4).join(), sellFracSig = cfg.sells.join();
@@ -705,21 +707,21 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         const max = await liveMaxImpactBps();
         const me = await activeAddress().catch(() => null);
         const bal = me ? await ownHint(pc, tk, me, 4000).catch(() => BigInt(0)) : BigInt(0);
-        const buyUsd = [...ammo.usd.slice(0, 4), customUsd], fracs = [...cfg.sells.map((v) => v / 100), customSellPct / 100];
+        const buyUsd = [...ammo.usd.slice(0, 4), customUsd], fracs = [...cfg.sells.map((v) => v / 100), customSellFrac];
         const [b, s] = await Promise.all([
           Promise.all(buyUsd.map((u) => (u > 0 ? imp("buy", usdToAmountIn(pc, tk, "buy", u)) : Promise.resolve(null)))),
           Promise.all(fracs.map((f) => (bal > BigInt(0) && f > 0 ? imp("sell", Promise.resolve(sellAmount(bal, Math.min(1, f)))) : Promise.resolve(null)))),
         ]);
         if (alive) impRef.current = { buyUsd, b, fracs, s, bal };
         const wb = moveWarnings("buy", b.map((x) => x?.signed ?? null), max), wsl = moveWarnings("sell", s.map((x) => x?.signed ?? null), max);
-        if (alive) setWarns({ max, buy: wb.slice(0, 4), sell: wsl.slice(0, 4), customBuy: customUsd ? wb[4] : null, customSell: customSellPct ? wsl[4] : null });
+        if (alive) setWarns({ max, buy: wb.slice(0, 4), sell: wsl.slice(0, 4), customBuy: customUsd ? wb[4] : null, customSell: customSellFrac ? wsl[4] : null });
       } catch { /* keep last */ }
     };
     const id = setTimeout(run, 150); const iv = setInterval(run, 4000);
     const soon = () => setTimeout(() => void run(), 300);
     addEventListener("disciple:livetrade", soon); addEventListener("disciple:ownbalance", soon);
     return () => { alive = false; clearTimeout(id); clearInterval(iv); removeEventListener("disciple:livetrade", soon); removeEventListener("disciple:ownbalance", soon); };
-  }, [live, token, buySig, sellFracSig, customUsd, customSellPct]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [live, token, buySig, sellFracSig, customUsd, customSellFrac]);   // eslint-disable-line react-hooks/exhaustive-deps
   // buy chips' warning tags → engine ammo panel (desktop canvas chips)
   const buyWarnSig = warns.buy.map((w) => chipTag("buy", w) + w.text).join("|");
   useEffect(() => { dispatchEvent(new CustomEvent("disciple:buywarn", { detail: { tags: warns.buy.map((w) => chipTag("buy", w)), texts: warns.buy.map((w) => w.text), over: warns.buy.map((w) => w.level === "over") } })); }, [buyWarnSig]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -755,7 +757,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const boostTitle = full ? COPY.inFlight : short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`;
   // the ACTIVE amount's price-move warning (custom wins over the preset, like BOOST / DUMP themselves)
   const buyWarn = customUsd ? warns.customBuy : warns.buy[mode] ?? null;
-  const sellWarn = customSellPct ? warns.customSell : customSellUsd ? null : warns.sell[sellSel] ?? null;
+  const sellWarn = customSellFrac ? warns.customSell : warns.sell[sellSel] ?? null;
   // only the side being tapped / previewed (post-grad fix 3): phone = last touched side, desktop = hovered / focused side, else none
   const { text: warnText, over: warnOver } = activeWarning(phone ? phoneSide : deskSide, buyWarn, sellWarn, has);
   const hoverSide = (side: TradeSide) => ({ onMouseEnter: () => setDeskSide(side), onMouseLeave: () => setDeskSide((x) => (x === side ? null : x)),
@@ -775,7 +777,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   };
   const alertStrip = alert && alert.a.kind === "walletcap" ? (
     <div role="alertdialog" aria-label="trade alert" data-testid="trade-alert" data-kind={alert.a.kind}
-      style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: phone ? 132 : 96, zIndex: 40, display: "flex", gap: 8, alignItems: "center",
+      style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: `calc(${phone ? 132 : 96}px + var(--ap-safe-bottom))`, zIndex: 40, display: "flex", gap: 8, alignItems: "center",
         maxWidth: "min(92vw, 520px)", padding: "8px 10px", borderRadius: 12, background: "rgba(28,10,18,.94)", border: "1px solid #ffb0c8", color: "#ffe7ef", fontSize: 12, fontFamily: "ui-monospace,monospace" }}>
       <span style={{ flex: 1 }}>{alert.a.text}</span>
       {alert.a.actionLabel && <button type="button" data-testid="trade-alert-max" onClick={buyMax} style={{ ...btn, padding: "6px 10px", background: "#1f6b4a", color: "#d9ffe9" }}>{alert.a.actionLabel}</button>}
@@ -807,7 +809,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     <>
     <AmmoTierNotice />
     {alertStrip}
-    <div aria-label="trade bar" data-testid="trade-bar" className="ap-bc" style={{ bottom: 14, zIndex: 31, display: "flex", flexDirection: "column", gap: 3,
+    <div aria-label="trade bar" data-testid="trade-bar" className="ap-bc" style={{ bottom: "calc(14px + var(--ap-safe-bottom))", zIndex: 31, display: "flex", flexDirection: "column", gap: 3,
       padding: "6px 8px", borderRadius: 14, background: "rgba(8,10,28,.85)", border: "1px solid rgba(255,231,163,.3)", color: "#eef0ff", fontFamily: "ui-monospace,monospace" }}>
       <div style={{ display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
         <input aria-label="custom amount" {...hoverSide("buy")} inputMode="decimal" placeholder={fmtMoney(ammo.usd[mode] ?? MODES[mode].usd)} value={custom} title="custom $: when filled it overrides the selected BUY preset for BOOST / Space (clear it to use the preset)"
@@ -820,6 +822,20 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} {...hoverSide("buy")} title={full ? COPY.inFlight : short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`} aria-disabled={short || full} disabled={short} data-inflight={full ? "1" : "0"} onClick={() => shoot("buy")} style={{ ...btn, minWidth: 116, background: "#1f6f4a", color: "#c8ffe4", opacity: short || full ? 0.4 : 1, cursor: short || full ? "not-allowed" : "pointer" }}>{full ? COPY.inFlight : <>▲ {t("tb.boost")} {fmtShot(shotUsd)}{customUsd ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</>}</button>
         <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} {...hoverSide("sell")} title={has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET"} aria-disabled={!has || full} disabled={!has} data-inflight={full ? "1" : "0"} onClick={() => dumpRef.current?.()}
           style={{ ...btn, minWidth: 104, background: "#7a2236", color: "#ffd0dc", opacity: has && !full ? 1 : 0.4, cursor: has && !full ? "pointer" : "not-allowed" }}>{full && has ? COPY.inFlight : <>▼ {t("tb.dump")} {dumpLabel}{sellCustomN ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</>}</button>
+        <div style={{ display: "grid", gap: 1, fontSize: 10, lineHeight: 1.2, minWidth: 64 }}>
+          <span title={live ? "wallet signs each shot" : "paper trades — connect wallet to trade"} style={{ justifySelf: "start", padding: "1px 6px", borderRadius: 5,
+            background: live ? "rgba(159,243,200,.14)" : "rgba(255,231,163,.14)", color: live ? "#9ff3c8" : "#ffe7a3" }}>{live ? "LIVE" : valid ? "PAPER" : token === "SIMULATOR" ? "SIM" : "PAPER"}</span>
+          <span style={{ opacity: 0.65 }}>{pos.valueUsd > 0 ? `${t("tb.pos")} ${fmtMoney(pos.valueUsd)}` : t("tb.noPos")}</span>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", minHeight: 18 }}>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 10 }}>
+          {(hint || shortLine) && <div data-testid="trade-hint" style={{ color: "#ffb0c8" }}>{hint || shortLine}</div>}
+          {!hint && !shortLine && warnText && <div data-testid="trade-warn" style={{ color: warnOver ? "#ffb0c8" : "#ffe7a3" }}>{warnText}</div>}
+          {!hint && !shortLine && !warnText && rows.length > 1 && <div data-testid="press-rows" style={{ opacity: 0.85, color: "#ffe7a3", display: "flex", flexDirection: "column", gap: 1 }}>
+            {rows.map((r) => <div key={r.id} data-press={r.id} data-done={r.done ? "1" : "0"} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", opacity: r.done ? 0.75 : 1 }}>{r.txt}</div>)}</div>}
+          {!hint && !shortLine && !warnText && rows.length <= 1 && (last || preview) && <div style={{ opacity: 0.8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? "#ffe7a3" : undefined }}>{last || preview}</div>}
+        </div>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
           <input aria-label="custom sell amount" data-testid="custom-sell" {...hoverSide("sell")} inputMode="decimal" placeholder={sellUnit === "%" ? selSellPreset.label : "$ value"} value={sellCustom}
             title={`custom sell: ${sellUnit === "%" ? "% of holdings" : "$ value, capped at your position value"}. When filled it overrides the selected SELL preset for DUMP / Shift (clear it to use the preset)`}
@@ -830,17 +846,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
           <button type="button" data-testid="sell-unit" {...hoverSide("sell")} aria-label={`custom sell unit: ${sellUnit}`} title="toggle: % of holdings ↔ $ value" onClick={() => pickUnit(sellUnit === "%" ? "$" : "%")}
             style={{ ...btn, padding: "6px 7px", fontSize: 11, background: "rgba(255,176,200,.14)", color: "#ffd0dc" }}>{sellUnit}</button>
         </span>
-        <div style={{ display: "grid", gap: 1, fontSize: 10, lineHeight: 1.2, minWidth: 64 }}>
-          <span title={live ? "wallet signs each shot" : "paper trades — connect wallet to trade"} style={{ justifySelf: "start", padding: "1px 6px", borderRadius: 5,
-            background: live ? "rgba(159,243,200,.14)" : "rgba(255,231,163,.14)", color: live ? "#9ff3c8" : "#ffe7a3" }}>{live ? "LIVE" : valid ? "PAPER" : token === "SIMULATOR" ? "SIM" : "PAPER"}</span>
-          <span style={{ opacity: 0.65 }}>{pos.valueUsd > 0 ? `${t("tb.pos")} ${fmtMoney(pos.valueUsd)}` : t("tb.noPos")}</span>
-        </div>
       </div>
-      {(hint || shortLine) && <div data-testid="trade-hint" style={{ fontSize: 10, color: "#ffb0c8" }}>{hint || shortLine}</div>}
-      {!hint && !shortLine && warnText && <div data-testid="trade-warn" style={{ fontSize: 10, color: warnOver ? "#ffb0c8" : "#ffe7a3" }}>{warnText}</div>}
-      {!hint && !shortLine && !warnText && rows.length > 1 && <div data-testid="press-rows" style={{ fontSize: 10, opacity: 0.85, maxWidth: 380, color: "#ffe7a3", display: "flex", flexDirection: "column", gap: 1 }}>
-        {rows.map((r) => <div key={r.id} data-press={r.id} data-done={r.done ? "1" : "0"} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", opacity: r.done ? 0.75 : 1 }}>{r.txt}</div>)}</div>}
-      {!hint && !shortLine && !warnText && rows.length <= 1 && (last || preview) && <div style={{ fontSize: 10, opacity: 0.8, maxWidth: 380, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? "#ffe7a3" : undefined }}>{last || preview}</div>}
     </div>
     {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
       onClose={() => setShowCfg(false)}

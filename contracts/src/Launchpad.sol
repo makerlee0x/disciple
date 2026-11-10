@@ -157,7 +157,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
         curveDeployer = CurveDeployer(d);
     }
 
-    /// @notice Protocol owner sets the creator-buy cap for FUTURE launches (ceiling 7%).
+    /// @notice Protocol owner sets the creator-buy cap for FUTURE launches (ceiling 7.77%).
     function setCreatorBuyMaxBps(uint256 bps) external {
         if (msg.sender != owner) revert OnlyOwner();
         if (bps > Constants.CREATOR_BUY_MAX_BPS_CEILING) revert CreatorBuyMaxTooHigh();
@@ -220,7 +220,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
     }
 
     /// @notice First BOOST (creator launch buy) max for `mode`, bps of supply: Easy 1.2%, Hard 3.33%, TRENCH the
-    ///         owner-settable creatorBuyMaxBps (default 0.77%, ceiling 7%). Above it the buy partially fills.
+    ///         owner-settable creatorBuyMaxBps (default and ceiling 7.77%). Above it the buy partially fills.
     function firstBoostMaxBps(uint8 mode) public view returns (uint256) {
         if (mode == Constants.MODE_PVE) return Constants.FIRST_BOOST_MAX_BPS_PVE;
         if (mode == Constants.MODE_PVP) return Constants.FIRST_BOOST_MAX_BPS_PVP;
