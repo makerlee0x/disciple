@@ -16,7 +16,6 @@ import { demoFeed, demoRedeploy } from "@/lib/claims/demo";
 import { ConfirmSheet, TxLink, pc, useCaps, useWalletAddr } from "./ui";
 import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
 import { blockedActionMessage } from "@/lib/trade/gaslessAction";
-import { formatActionFeeNote, quoteGaslessAction } from "@/lib/trade/gaslessActionClient";
 
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
 

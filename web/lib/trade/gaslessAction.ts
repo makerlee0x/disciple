@@ -10,8 +10,8 @@ import { decodeFunctionData, encodeFunctionData, toFunctionSelector, type Addres
 import { deployment } from "../chains";
 import { GaslessReject, PERMIT2, type Erc2612, type Permit } from "./gaslessPermit2";
 import {
-  MULTICALL3, erc2612PermitAbi, microUsdg, minWithdrawAmount, multicall3Abi, permit2TransferAbi,
-  transferTypedData, withdrawFeeRaw, WITHDRAW_GAS_PAD, WITHDRAW_GAS_PERMIT,
+  erc2612PermitAbi, microUsdg, multicall3Abi, permit2TransferAbi,
+  WITHDRAW_GAS_PAD, WITHDRAW_GAS_PERMIT,
 } from "./gaslessWithdraw";
 
 export { MULTICALL3, transferTypedData, withdrawFeeRaw, minWithdrawAmount } from "./gaslessWithdraw";

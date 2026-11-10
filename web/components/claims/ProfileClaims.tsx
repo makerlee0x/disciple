@@ -90,18 +90,6 @@ export default function ProfileClaims() {
     return () => { alive = false; };
   }, [me]);
 
-  if (!me && !demo) return null;
-
-  const s = data?.summary;
-  const kinds = REWARD_KINDS.filter((k) => (k === "referral" ? caps.referrerFees : k === "crew" ? caps.crew : caps.creatorFees || caps.creatorTokenFees || caps.anonClaims));
-  const canClaim = !!data && hasClaimable(data.claim);
-  const claimUsd = s?.claimableUsd ?? 0;
-  const link = me ? referralUrl(username || null, me) : null;
-  const copy = async () => {
-    if (!link) return;
-    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); }
-    catch (e) { console.warn("[disciple] rewards: copy failed", (e as Error)?.message ?? e); }
-  };
 
   useEffect(() => {
     if (!claimOpen || !data || !me || !clientGaslessMode() || done) return;
@@ -119,6 +107,19 @@ export default function ProfileClaims() {
     })();
     return () => { cancelled = true; };
   }, [claimOpen, data, me, caps, done]);
+
+  if (!me && !demo) return null;
+
+  const s = data?.summary;
+  const kinds = REWARD_KINDS.filter((k) => (k === "referral" ? caps.referrerFees : k === "crew" ? caps.crew : caps.creatorFees || caps.creatorTokenFees || caps.anonClaims));
+  const canClaim = !!data && hasClaimable(data.claim);
+  const claimUsd = s?.claimableUsd ?? 0;
+  const link = me ? referralUrl(username || null, me) : null;
+  const copy = async () => {
+    if (!link) return;
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    catch (e) { console.warn("[disciple] rewards: copy failed", (e as Error)?.message ?? e); }
+  };
 
   const confirmClaim = async () => {
     if (!data || !me && !demo) return;
