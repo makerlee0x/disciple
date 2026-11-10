@@ -1692,7 +1692,7 @@ function phFit(t,w){ if(ctx.measureText(t).width<=w) return t; while(t.length>1&
 /* FEED tab: the same S.feed rows as the desktop TRADES panel, laid out like the mockup (avatar · name · BOOST/DUMP · $ · ago) */
 function drawPhoneFeed(P){ const B0=P.body, B={x:B0.x,y:B0.y+28,w:B0.w,h:B0.h-28}, rh=50, n=Math.max(1,Math.floor(B.h/rh)), x0=B.x+4, iw=B.w-8, gap=8, cAva=30, cTag=70, cUsd=66, cAgo=34, cNm=Math.max(40,iw-cAva-cTag-cUsd-cAgo-4*gap);
   ctx.save(); ctx.textBaseline='middle'; if('letterSpacing' in ctx) ctx.letterSpacing='0px';
-  ctx.font=`10px ${PH_FONT}`; ctx.fillStyle='rgba(214,222,245,.56)'; ctx.fillText('TRADE HISTORY',x0,B0.y+12);
+  /* phone-feedhead (PhoneHud) already says TRADE HISTORY in this band — do not draw a second one */
   const rows=S.feed.slice(0,n);
   if(!rows.length){ ctx.fillStyle='rgba(214,222,245,.42)'; ctx.font=`12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText('No trades yet',B.x+B.w/2,B.y+40); ctx.textAlign='left'; }
   rows.forEach((r,i)=>{ const y=B.y+i*rh, cy=y+rh/2, mt=/^(▲ BOOST|▼ DUMP)\s+(\S+)\s+(.+)$/.exec(r.txt||'');
