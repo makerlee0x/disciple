@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fmtUsd, HOLD_BONUS } from "@/lib/config";
-import { applyExactFill, applyFill, bookPending, emptyPosition, pnlKey, positionFromFills, type ChainFill, type ChainTransfer, reconcileFill, shrinkToWallet, view, walletView, type ExactFill, type PendingFill, type Position, type PositionView, type WalletView, fmtMoney, fmtPct, fmtPnl, fmtTokens, DEFAULT_SUPPLY, rebase } from "@/lib/pnl";
+import { applyExactFill, applyFill, bookPending, emptyPosition, normalizeBuyFees, pnlKey, positionFromFills, type ChainFill, type ChainTransfer, reconcileFill, shrinkToWallet, view, walletView, type ExactFill, type PendingFill, type Position, type PositionView, type WalletView, fmtMoney, fmtPct, fmtPnl, fmtTokens, DEFAULT_SUPPLY, rebase } from "@/lib/pnl";
 import { useT } from "@/lib/game/i18n";
 import { onWallet } from "@/lib/wallet";
 import { isDeployed } from "@/lib/chains";
@@ -87,7 +87,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   // this account's ledger for this coin; another account / signed out ⇒ its own (often empty) ledger, never the last one's
   useEffect(() => {
     let next = emptyPosition();
-    try { const s = localStorage.getItem(KEY); if (s) next = JSON.parse(s); } catch { /* ignore */ }
+    try { const s = localStorage.getItem(KEY); if (s) { const raw = JSON.parse(s); next = normalizeBuyFees(raw); if (raw.buyFees === undefined) localStorage.setItem(KEY, JSON.stringify(next)); } } catch { /* ignore */ }
     posRef.current = next; setPos(next);
   }, [KEY]);
   useEffect(() => {
@@ -267,7 +267,11 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
               (live: the wallet's real balance × mark = exactly what DUMP 100% sells) */}
           <div style={row}><span style={label}>{t("pnl.holdings")}</span>
             <span data-testid="pnl-holdings"><span data-testid="pnl-holdings-tokens">{fmtTokens(v.size)}</span><span style={{ opacity: 0.55 }}> · </span><Num value={v.valueUsd} fmt={fmtMoney} /></span></div>
-          <div style={row} title={buyFees > 0.005 ? t("pnl.excludesBuyFees", { fee: fmtMoney(buyFees) }) : undefined}><span style={label}>{t("pnl.avgEntry")}</span><span>{tracked ? `MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
+          {/* Instant CSS tooltip (styled like components/ui/Tooltip .ds-tip): native title takes ~1s and hid the fee note. */}
+          <div className={buyFees > 0.005 ? "pnl-avg-tip" : undefined} data-testid="pnl-avg-entry"
+            data-tip={buyFees > 0.005 ? t("pnl.excludesBuyFees", { fee: fmtMoney(buyFees) }) : undefined}
+            tabIndex={buyFees > 0.005 ? 0 : undefined}
+            style={{ ...row, position: "relative", cursor: buyFees > 0.005 ? "help" : undefined }}><span style={label}>{t("pnl.avgEntry")}</span><span>{tracked ? `MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
           <div style={row}><span style={label}>{t("pnl.realized")}</span><Num value={v.realized} fmt={usd} style={{ color: col(v.realized), fontWeight: 700 }} /></div>
           {v.fees > 0 && <div style={row} title="exit fee (kept out of realized so realized = closed uPnL)"><span style={label}>{t("pnl.exitFees")}</span><span style={{ opacity: 0.75 }}>{usd(-v.fees)}</span></div>}
 
@@ -288,6 +292,19 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
         </div>
       )}
       <style jsx>{`
+        /* AVG ENTRY fee tip: same surface as .ds-tip (components/ui/Tooltip), but pure CSS so hover is instant. */
+        .pnl-avg-tip { outline: none; }
+        .pnl-avg-tip::after {
+          content: attr(data-tip);
+          position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 40;
+          display: none; max-width: 240px; padding: 6px 8px;
+          background: var(--dsc-surface-2, #1c1d22); color: var(--dsc-text, #E8EAEE);
+          border: 1px solid var(--dsc-border, rgba(201,206,214,.35)); border-radius: var(--dsc-radius-sm, 8px);
+          box-shadow: var(--dsc-shadow-md, 0 8px 24px rgba(0,0,0,.45));
+          font: 400 var(--dsc-font-size-xs, 11px)/1.4 var(--dsc-font-ui, ui-monospace, monospace);
+          letter-spacing: 0; text-transform: none; white-space: nowrap; pointer-events: none;
+        }
+        .pnl-avg-tip:hover::after, .pnl-avg-tip:focus-visible::after, .pnl-avg-tip:focus::after { display: block; }
         @media (max-width: 760px) {
           .pnl-hud { left: 8px !important; top: auto !important; bottom: calc(60px + var(--ap-safe-bottom)); width: 210px !important; }
         }

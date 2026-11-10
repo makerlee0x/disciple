@@ -14,7 +14,7 @@ for (const f of ["pnl", "config"]) {
   const src = fs.readFileSync(path.join(dir, `../lib/${f}.ts`), "utf8").replace(/from "\.\/config"/g, 'from "./config.mjs"');
   fs.writeFileSync(path.join(tmp, f + ".mjs"), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText);
 }
-const { applyFill, emptyPosition, view, fmtMoney, fmtPnl, fmtPct, rebase, DEFAULT_SUPPLY, pnlKey, positionFromFills, walletView, transfersFromLogs, transferPrice } = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
+const { applyFill, emptyPosition, view, fmtMoney, fmtPnl, fmtPct, rebase, DEFAULT_SUPPLY, pnlKey, positionFromFills, walletView, transfersFromLogs, transferPrice, normalizeBuyFees, FEE } = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
 const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8");
 const cls = eng.slice(eng.indexOf("class PoolV3Base {"), eng.indexOf("class ReplaySource"));
 const markSrc = eng.slice(eng.indexOf("const isLive="), eng.indexOf("function pushMark(){"));
@@ -253,9 +253,23 @@ if (fail) process.exit(1); else console.log("PASS");
   const feeBuy = positionFromFills([{ side: "buy", tokens: 295.650083, usd: 9.952274, block: 1 }]);
   ok(near(feeBuy.costBasis, 9.952274 * 0.99) && near(feeBuy.buyFees, 9.952274 * 0.01) && near(feeBuy.costBasis / feeBuy.size * DEFAULT_SUPPLY, 9.952274 * 0.99 / 295.650083 * DEFAULT_SUPPLY, 1e-6),
     `indexed buy without feeUsd: basis ${feeBuy.costBasis.toFixed(4)} excludes 1% fee ${feeBuy.buyFees.toFixed(4)}, entry MC at the fill`);
+  // paper $10 buy books buyFees so the AVG ENTRY tooltip can show (same path as disciple:paperfill → applyFill)
+  const S7 = DEFAULT_SUPPLY, px = (m) => m / S7;
+  const paper = applyFill(emptyPosition(), "buy", 10, px(10_000), 0, 0), pv = view(paper, px(10_000), S7, 0);
+  ok(near(paper.buyFees, 0.10) && pv.buyFees > 0.005 && fmtMoney(pv.buyFees) === "$0.10",
+    `paper $10 buy: buyFees ${fmtMoney(pv.buyFees)} (tooltip "Excludes $0.10 buy fees")`);
+  // persisted pre-change ledger: fee still inside costBasis, no buyFees field
+  const legacy = { size: paper.size, costBasis: 10, realized: 0, fees: 0, holdStart: 0, sellScale: 1 };
+  const split = normalizeBuyFees(legacy);
+  ok(legacy.buyFees === undefined && near(split.buyFees, 10 * FEE) && near(split.costBasis, 10 * (1 - FEE)) && view(legacy, px(10_000), S7, 0).buyFees > 0.005,
+    `legacy paper ledger (fee in basis, no buyFees): split to basis ${split.costBasis.toFixed(2)} + buyFees ${fmtMoney(split.buyFees)}`);
+  ok(normalizeBuyFees({ ...emptyPosition(), buyFees: 0 }).buyFees === 0, "explicit buyFees 0 (flatten / transfer) is not invented");
   // PnlHud wiring: rebuild from /api/trades for the signed-in account; no 'held before tracking' line; POINTS behind its flag
   const hud = fs.readFileSync(path.join(dir, "../components/PnlHud.tsx"), "utf8");
   ok(/\/api\/trades\?coin=\$\{coin\}&wallet=\$\{account\}&limit=5000/.test(hud) && /const fills = j\.fills;/.test(hud), "PnlHud rebuilds the ledger from the account's indexed on-chain fills");
+  ok(/pnl-avg-tip/.test(hud) && /data-tip=\{buyFees > 0.005 \? t\("pnl.excludesBuyFees"/.test(hud) && /:hover::after/.test(hud) && /:focus-visible::after/.test(hud) && !/title=\{buyFees/.test(hud),
+    "PnlHud: AVG ENTRY uses a CSS hover/focus tooltip (not native title) with pnl.excludesBuyFees");
+  ok(/normalizeBuyFees\(raw\)/.test(hud), "PnlHud hydrates a persisted ledger missing buyFees");
   ok(/if \(syncEvent \|\| !account \|\| !isDeployed\(\)\) return;/.test(hud), "chain rebuild only for a signed-in account on a deployed chain (paper / sim keep the local ledger)");
   ok(/mine\.add\(/.test(hud) && /pending\.length/.test(hud), "waits for the indexer to see this tab's own fills (and no pending) before replacing the ledger");
   ok(!/pnl-untracked/.test(hud) && !/held before tracking/i.test(hud) && !/transferTitle/.test(hud), "no 'held before tracking · no PnL' row, no 'cost unknown' tooltip");

@@ -37,7 +37,7 @@ console.log("— 1. no phantom gas");
   ok(Math.abs(v.uPnl) < 1e-9 && near(v.buyFees, 1) && P.redFromBuyFees(pos, v) === 0, `flat price right after a buy: uPnL ${v.uPnl.toFixed(4)} (fee not in basis), buyFees ${v.buyFees}`);
   const v2 = P.view(pos, 0.5e-5, 7e9, Date.now());
   ok(P.redFromBuyFees(pos, v2) === 0, "price down: no inline buy-fee note (fees are a tooltip, not a red label)");
-  ok(/pnl.excludesBuyFees/.test(hud) && /title=\{buyFees > 0.005 \? t\("pnl.excludesBuyFees"/.test(hud) && /"pnl\.excludesBuyFees": "Excludes \{fee\} buy fees"/.test(rd("lib/game/i18n.ts")), "PnL HUD: buy fees only as AVG ENTRY tooltip 'Excludes $X buy fees'");
+  ok(/pnl.excludesBuyFees/.test(hud) && /data-tip=\{buyFees > 0.005 \? t\("pnl.excludesBuyFees"/.test(hud) && /pnl-avg-tip/.test(hud) && /:hover::after/.test(hud) && !/title=\{buyFees/.test(hud) && /"pnl\.excludesBuyFees": "Excludes \{fee\} buy fees"/.test(rd("lib/game/i18n.ts")), "PnL HUD: buy fees only as AVG ENTRY CSS tooltip 'Excludes $X buy fees'");
   ok(!/pnl-buy-fees/.test(hud) && !/feeNote/.test(hud), "no visible buy-fee line on the position card"); }
 
 // ───────────── 2. BOOST vs cash ─────────────

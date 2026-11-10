@@ -50,6 +50,18 @@ export function rebase(p: Position, supply: number): Position {
 
 export const emptyPosition = (): Position => ({ size: 0, costBasis: 0, realized: 0, fees: 0, buyFees: 0, holdStart: 0, sellScale: 1 });
 
+
+/** Old ledgers (before buy fees were split out of avg entry) booked the 1% fee inside costBasis and have no `buyFees`
+ *  field. Split it out once so AVG ENTRY stays fee-free and the tooltip can show. `buyFees: 0` (new flatten / fee-free
+ *  transfer) is left alone; only a missing field is derived. */
+export function normalizeBuyFees(p: Position): Position {
+  if (p.buyFees !== undefined) return p;
+  if (!(p.size > 0) || !(p.costBasis > 0)) return { ...p, buyFees: 0 };
+  const buyFees = p.costBasis * FEE;
+  return { ...p, costBasis: p.costBasis - buyFees, buyFees };
+}
+
+
 /**
  * The PnL ledger's storage key: ONE signed-in account per coin (lee, Oct 30: "Other rockets −$84.32K" summed old paper /
  * sim ledgers and other accounts from this browser). account null ⇒ "paper" (no wallet / the simulator). A sign-out or an
@@ -80,7 +92,7 @@ export function seedCreatorBuyPosition(storageKey: string, tokens: number, usd: 
  *  frac (sells): close exactly that fraction of the bag (a "50%" button sells half the TOKENS, whatever the fill price);
  *  otherwise tokens = usd / price. A sell never exceeds holdings; selling with no holdings is a no-op. */
 export function applyFill(p: Position, side: "buy" | "sell", usd: number, price: number, gas = 0, at = Date.now(), sellFrac?: number, bag?: number): Position {
-  const q = { ...p };
+  const q = { ...normalizeBuyFees(p) };
   if (price <= 0 || usd <= 0) return q;
   if (side === "buy") {
     const tokens = (usd * (1 - FEE)) / price;
@@ -136,7 +148,7 @@ export const trackedShare = (size: number, bag?: number) => (bag !== undefined &
  *  so a 50% DUMP closes 50% of the tracked bag (not all of it), and only the tracked part's proceeds go into realized.
  *  Without bag (paper / sim / old callers): a sell larger than the ledger closes the whole ledger (unchanged). */
 export function applyExactFill(p: Position, side: "buy" | "sell", x: ExactFill, gas = 0, at = Date.now(), bag?: number): Position {
-  const q = { ...p };
+  const q = { ...normalizeBuyFees(p) };
   if (!(x.tokens > 0) || !(x.usd >= 0)) return q;
   if (bag === undefined && x.bag !== undefined && x.bag >= 0) bag = x.bag;
   if (side === "buy") {
@@ -231,6 +243,7 @@ export interface PositionView {
 
 /** Mark-to-market: uPnL = size × (mark − avgEntry). valueUsd = size × mark (gross, before the exit fee). */
 export function view(p: Position, price: number, supply: number, now = Date.now()): PositionView {
+  p = normalizeBuyFees(p);
   const valueUsd = p.size * price;
   const avg = p.size > 0 ? p.costBasis / p.size : 0;
   const uPnl = p.size > 0 ? p.size * (price - avg) : 0;
@@ -280,6 +293,7 @@ export interface WalletView extends PositionView {
   costBasis: number;
 }
 export function walletView(p: Position, walletTokens: number, price: number, supply: number, now = Date.now()): WalletView {
+  p = normalizeBuyFees(p);
   const wallet = walletTokens > 0 ? walletTokens : 0;
   const tracked = Math.min(Math.max(0, p.size), wallet);
   const scale = p.size > 0 ? tracked / p.size : 0;
@@ -303,6 +317,7 @@ export function walletView(p: Position, walletTokens: number, price: number, sup
  * unknown). Never grows the ledger (untracked tokens stay untracked). Returns the same object when nothing changes.
  */
 export function shrinkToWallet(p: Position, walletTokens: number): Position {
+  p = normalizeBuyFees(p);
   if (!(p.size > 0) || !(walletTokens >= 0) || walletTokens >= p.size * (1 - 1e-9)) return p;
   if (walletTokens <= p.size * 1e-9) return { ...p, size: 0, costBasis: 0, buyFees: 0, holdStart: 0, sellScale: 1 };
   const k = walletTokens / p.size;
