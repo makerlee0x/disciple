@@ -46,7 +46,7 @@ describe("trust store save = atomic merge (AUDIT step 6)", () => {
     // B hydrated the strike into its own ledger too (stricter wins)
     expect(B.get(sender)?.strikeUntil).toBe(struck.strikeUntil);
     // after the window, ops are admitted again (no permanent lockout from the merge)
-    await expect(gateOn(C, struck.strikeUntil + 1)).resolves.toBeUndefined();
+    await expect(gateOn(C, struck.strikeUntil + 1)).resolves.toBeNull();
   });
 
   it("the pre-fix replace store (DEL + SET NX) wipes the strike: the scenario above is the AUDIT bug", async () => {
@@ -55,7 +55,7 @@ describe("trust store save = atomic merge (AUDIT step 6)", () => {
     const A = new SenderTrust(clock, replace), B = new SenderTrust(clock, replace);
     A.strike(sender); await A.flush(); now += 1000;
     B.simulated(sender); await B.flush();
-    await expect(gateOn(B, now)).resolves.toBeUndefined();   // the bug: op 3 would go through
+    await expect(gateOn(B, now)).resolves.toBeNull();   // the bug: op 3 would go through
   });
 
   it("strikes never decrease through any save; a later stricter strike wins; verifiedAt/fastOps stay the caller's", async () => {

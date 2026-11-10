@@ -77,7 +77,7 @@ const strikeUntilOf = (raw: string | null | undefined): number => {
  *  user's wallets (H1 / M1). Self-bundler calls without a did still check the wallet keys (incl. the ban).
  *  `extraKey` (gasless: the immutable market-status key) is fetched in the SAME MGET — no extra RTT — and
  *  returned so the caller can use it after the gate passes. A store error still fails closed (trade refused). */
-export async function requireNotRevokedOrStruck(sender: string, now = Date.now(), did?: string | null, extraKey?: string | null): Promise<string | null | void> {
+export async function requireNotRevokedOrStruck(sender: string, now = Date.now(), did?: string | null, extraKey?: string | null): Promise<string | null> {
   const ids = did ? [sender, did] : [sender];
   const keys = ids.flatMap(id => [banKey(id), revokeMarkerKey(id), trustKey(id)]);
   if (extraKey) keys.push(extraKey);
@@ -92,7 +92,7 @@ export async function requireNotRevokedOrStruck(sender: string, now = Date.now()
     until = Math.max(until, strikeUntilOf(trust));
   }
   if (now < until) throw Object.assign(new Error("sender in relay strike backoff; no submission"), { notSent: true });
-  if (!extraKey) return;
+  if (!extraKey) return null;
   return vals[ids.length * 3] ?? null;
 }
 export async function admitRelay(op: UserOp, metrics?: RelayMetrics) {
