@@ -6,6 +6,7 @@
  */
 import { parseAbi, parseSignature, type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { ACTIVE_CHAIN } from "../chains";
+import { referrerWallet } from "../referral";
 import { bigintToDecimal, GASLESS_MAX_DEADLINE_SEC, jsonSafe, NonceBook, PERMIT2, tradeTypedData, type Erc2612, type GaslessRequest, type Permit, type Trade } from "./gaslessPermit2";
 
 const erc20 = parseAbi([
@@ -70,7 +71,9 @@ export async function submitGasless(q: GaslessRequest, url = "/api/gasless", fet
   // Off-chain login: the relay requires the Privy identity token (https://docs.privy.io/user-management/users/identity-tokens)
   // whose linked wallet is the signer. Sent as `privy-id-token` (Privy's documented header); no users-API lookup on the server.
   const headers: Record<string, string> = { "content-type": "application/json", ...(idToken ? { "privy-id-token": idToken } : {}) };
-  const r = await fetchFn(url, { method: "POST", headers, body: `{"jsonrpc":"2.0","id":1,"method":"disciple_gaslessTrade","params":[${json(q)}]}` });
+  const ref = referrerWallet(q.signer);
+  const payload = ref ? { ...q, referrer: ref } : q;
+  const r = await fetchFn(url, { method: "POST", headers, body: `{"jsonrpc":"2.0","id":1,"method":"disciple_gaslessTrade","params":[${JSON.stringify(payload, bigintToDecimal)}]}` });
   const j = await r.json().catch(() => ({})) as { result?: { txHash: Hex; success: boolean; receipt: { logs: GaslessSendResult["logs"] }; gasUsed: number; server?: unknown }; error?: { message?: string; data?: GaslessError["data"] } };
   if (!j.result) throw new GaslessError(j.error?.message ?? `gasless relay HTTP ${r.status}`, j.error?.data ?? {}, r.status);
   if (!j.result.success) throw new GaslessError("trade reverted on-chain", { notSent: false, txHash: j.result.txHash }, r.status);
