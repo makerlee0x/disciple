@@ -4,6 +4,7 @@ import TouchGrass from "./flight/TouchGrass";
 import SettingsMenu from "./flight/SettingsMenu";
 import ExitConfirm from "./flight/ExitConfirm";
 import { useT } from "@/lib/game/i18n";
+import { exitConfirmArms } from "@/lib/game/exitGuard";
 import { LOADOUT_KEY } from "@/lib/rocketSkin";
 import { useEffect, useRef, useState } from "react";
 import { brandedRocket } from "@/lib/decal";
@@ -244,9 +245,10 @@ export default function FlightCanvas({ search }: Props) {
     if (q.get("source") === "sim" && q.get("chatmock") !== "1") return null;
     return coin || "0x000000000000000000000000000000000000c0de"; })();
   const q0 = new URLSearchParams(search);
-  // EXIT CONFIRM is armed only while a flight is actually running (engine booted, no error) and not on a replay
+  // EXIT CONFIRM is armed only on a timed / simulated practice run (?source=sim), while the engine is Live with no error
+  // and not a replay — not on a regular live rocket (lee, Nov 10).
   const isReplay = q0.get("replay") === "1" || q0.get("source") === "replay";
-  const flightActive = status === "Live" && !err && !isReplay;
+  const flightActive = exitConfirmArms({ status, err: !!err, replay: isReplay, sim: isSimulator });
 
   return (
     <>
