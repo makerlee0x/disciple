@@ -1,17 +1,19 @@
 /**
- * Launch pair whitelist (lee, Nov 10 2026, 3:47 PM CT).
+ * Launch pair whitelist (lee, Nov 10 2026).
  *
  * ONE config the Quick Launch "Pair coin" chips read from. FLOW can later fill or
  * replace this file (addresses, names, or `image` paths) when a backend list is
  * wired; keep this shape: symbol, name, address, image, decimals.
  *
- * Order is lee's order. STRATEGY is the default. USDG is intentionally not listed.
+ * Order is lee's order. Twelve coins (BUN was removed; SPACEHOOD was added).
+ * STRATEGY is the default. USDG is intentionally not listed.
  * Addresses and names come from /workspace/notes/launch-whitelist-2026-11-10.md and
  * FLOW's /workspace/whitelist-images/manifest.json (mainnet, Robinhood Chain 4663).
  * Images are the 256px copies under /pairs/launch/.
  *
- * On testnet (46630), `addressOn()` uses the chain's defaultQuote for STRATEGY.
- * The other eleven addresses are mainnet-only until FLOW fills testnet values.
+ * On testnet (46630), only STRATEGY works: `addressOn()` uses the chain's
+ * defaultQuote. The other eleven addresses are mainnet-only until FLOW fills
+ * testnet values. There are no mock testnet coins.
  */
 import type { Address } from "./protocol";
 import { MAINNET_CHAIN_ID } from "./networkConfig";
