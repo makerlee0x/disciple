@@ -37,7 +37,6 @@ vi.mock("../lib/server/syncSend", async original => ({ ...await original<typeof 
 const KEY = generatePrivateKey();
 process.env.RELAYER_NONCE_SHARED = "0";
 import { relayGaslessTrade, gaslessMarketCache } from "../lib/server/gaslessRelay";
-import { admissionImmutableCache } from "../lib/server/relayLockdown";
 import { tradeTypedData } from "../lib/trade/gaslessPermit2";
 import { gaslessSessionDeps } from "../lib/server/gaslessSession";
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
@@ -77,7 +76,7 @@ describe.skipIf(!process.env.RELAY_BENCH)("gasless relay benchmark (mocked RPC l
       return { ok: true, status: 200, json: async () => ({ id, linked_accounts: [{ type: "email", address: "a@b.co" }, { type: "wallet", chain_type: "ethereum", address: user.address }] }) }; }) as never;
     let did = "did:privy:bench00000000";
     for (let i = 0; i < N + 3; i++) {
-      const isCold = cold() < 0.6; if (isCold) { admissionImmutableCache.clear(); gaslessMarketCache.clear(); did = `did:privy:bench${String(i).padStart(8, "0")}`; }
+      const isCold = cold() < 0.6; if (isCold) { gaslessMarketCache.clear(); did = `did:privy:bench${String(i).padStart(8, "0")}`; }
       const body = await signed(BigInt(i));   // client-side signing is not server wall
       const idToken = jwt(did);
       const t = performance.now(); const r = await relayGaslessTrade(body, { idToken }); const ms = performance.now() - t;

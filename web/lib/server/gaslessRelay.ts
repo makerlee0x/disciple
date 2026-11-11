@@ -1,6 +1,6 @@
 import "server-only";
 /**
- * Gasless swap relay (flow/gasless-permit2; GAS_SPONSORSHIP_MODE=gasless, testnet Preview/local only).
+ * Gasless swap relay (flow/gasless-permit2). Default mode in every environment, including production.
  * Copied pattern: 0x Gasless (0x-settler SettlerMetaTxn) — the Privy EOA signs a Permit2 witness, our relayer EOA pool
  * submits DiscipleRouter.buyWithPermit2 / sellWithPermit2 with eth_sendRawTransactionSync and pays the ETH.
  *
@@ -32,7 +32,7 @@ import "server-only";
  * unless every admission check passed.
  */
 import { createPublicClient, encodeFunctionData, parseAbi, toFunctionSelector, recoverTypedDataAddress, type Address, type Hex } from "viem";
-import { ACTIVE_CHAIN, DEPLOYMENTS, robinhoodTestnet } from "../chains";
+import { deployment, robinhoodTestnet } from "../chains";
 import { gaslessMode } from "../aa/sponsorshipMode";
 import type { RelayReceipt } from "../aa/relayTypes";
 import { checkGaslessRequest, encodeGaslessCall, gaslessTxGasLimit, GaslessReject, parseGaslessRequest, tradeTypedData, type GaslessRequest } from "../trade/gaslessPermit2";
@@ -40,6 +40,7 @@ import { usdgBuyFillsCurve, usdgBuyGraduates } from "../trade/gradNeed";
 import { bondingCurveAbi } from "../abi/BondingCurve";
 import { shouldStrikeIncludedRevert } from "./gaslessStrike";
 import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
+import { gaslessReferralHooks, referralDoneKey, referrerFromRaw, REFERRAL_DONE } from "./gaslessReferral";
 import { relayReadTransport } from "./relayReadTransport";
 import { requireSessionWallet, verifySessionToken } from "./gaslessSession";
 import { directRelayer, sendDirect, simulateDirect, strikeSender, type DirectRelayer, type OnPending } from "./fastRelay";
@@ -50,12 +51,10 @@ import { kv } from "./kv";
 const timed = <T>(m: RelayMetrics | undefined, stage: string, task: () => Promise<T>) => m ? m.span(stage, task) : task();
 const notSent = (e: unknown) => Object.assign(e as Error, { notSent: true });
 
-/** Same environment fence as the self-bundler (requireSelfBundlerMode): testnet 46630, Preview or local, mode=gasless. */
+/** Admit the gasless relay when the resolved mode is gasless and a gasless router is configured. */
 export function requireGaslessMode() {
-  const preview = process.env.VERCEL_ENV === "preview";
-  const local = (!process.env.VERCEL_ENV || process.env.VERCEL_ENV === "development") && (!process.env.VERCEL || process.env.VERCEL_ENV === "development") && process.env.NODE_ENV !== "production";
-  if (!gaslessMode() || ACTIVE_CHAIN.id !== 46630 || (!preview && !local)) throw notSent(new Error("gasless relay disabled: local or Preview testnet only"));
-  if (/^0x0{40}$/i.test(DEPLOYMENTS[46630].gaslessRouter)) throw notSent(new Error("gasless router not configured"));
+  if (!gaslessMode()) throw notSent(new Error("gasless relay disabled"));
+  if (/^0x0{40}$/i.test(deployment().gaslessRouter)) throw notSent(new Error("gasless router not configured"));
 }
 
 export type GaslessConfirmed = { kind: "confirmed"; txHash: Hex; success: boolean; receipt: RelayReceipt; gasUsed: number; via: string;
@@ -136,7 +135,7 @@ export async function assertGaslessMarket(coin: Address, isBuy: boolean, kvStatu
   const hit = parseMarket(kvStatus);
   if (hit?.kind === "none" || hit?.kind === "grad") { remember(coin, "ok", 3_600_000, kvStatus ?? undefined); return; }
   if (hit?.kind === "login" && hit.curve) return assertUngraduatedPve(coin, hit.curve);
-  const lp = DEPLOYMENTS[46630].launchpad;
+  const lp = deployment().launchpad;
   let curve: Address;
   try { curve = await marketPc.readContract({ address: lp, abi: marketAbi, functionName: "curveOf", args: [coin] }); }
   catch { return; }   // unreadable registry: let the exact sim / router decide
@@ -162,7 +161,7 @@ export async function assertGaslessMarket(coin: Address, isBuy: boolean, kvStatu
 
 /** Whether a USDG-paid buy fills the curve. Reuses memo / gate MGET so a known no-curve or graduated market does no extra RPC. */
 async function fillFromCurve(curve: Address, usdgIn: bigint): Promise<boolean> {
-  const dep = DEPLOYMENTS[46630];
+  const dep = deployment();
   try {
     const [graduated, quote] = await Promise.all([
       marketPc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "graduated" }),
@@ -178,7 +177,7 @@ async function fillFromCurve(curve: Address, usdgIn: bigint): Promise<boolean> {
 }
 
 async function gaslessFillsCurve(coin: Address, usdgIn: bigint, kvStatus?: string | null): Promise<boolean> {
-  const dep = DEPLOYMENTS[46630];
+  const dep = deployment();
   const hit = parseMarket(kvStatus);
   if (hit?.kind === "grad" || hit?.kind === "login" || hit?.empty) return false;
   if (hit?.kind === "none" && hit.curve) return fillFromCurve(hit.curve, usdgIn);
@@ -199,18 +198,21 @@ async function gaslessFillsCurve(coin: Address, usdgIn: bigint, kvStatus?: strin
   }
 }
 
-async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: Address, isBuy: boolean, amountIn: bigint, extra: Promise<unknown>[] = []): Promise<{ relayer: DirectRelayer; did: string; fillsCurve: boolean }> {
+async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: Address, isBuy: boolean, amountIn: bigint, extra: Promise<unknown>[] = []): Promise<{ relayer: DirectRelayer; did: string; fillsCurve: boolean; refDone: string | null }> {
   const m = d.metrics;
   const relayer = directRelayer(m);
   const session = timed(m, "authSession", () => verifySessionToken(d.idToken));
   const owner = session.then(x => timed(m, "authSessionWallet", () => requireSessionWallet(x, signer)));
   // Gate starts after the identity token (~1 ms, local) so it can key ban/revoke/strike on the Privy DID (AUDIT M1).
-  // The immutable market-status key is in the SAME MGET (no extra RTT). On a hit, no curveOf/loginGate/mode RPC.
+  // The immutable market-status key AND relay:ref:{wallet} are in the SAME MGET (no extra RTT).
   const peek = peekGaslessMarket(coin, isBuy);
   if (peek === "legacy") throw legacyPve();
   const mkey = isBuy && peek !== "ok" ? marketStatusKey(coin) : undefined;
-  const gate = session.then(x => timed(m, "revokeStrikeGate", () => requireNotRevokedOrStruck(signer, Date.now(), x.did, mkey)));
-  const market = peek === "ok" ? Promise.resolve() : gate.then(status => timed(m, "legacyMarketGate", () => assertGaslessMarket(coin, isBuy, status)));
+  const extras = (mkey ? [mkey, referralDoneKey(signer)] : [referralDoneKey(signer)]);
+  const gate = session.then(x => timed(m, "revokeStrikeGate", () => requireNotRevokedOrStruck(signer, Date.now(), x.did, extras)));
+  const marketVal = (vals: string | (string | null)[] | null) => (Array.isArray(vals) ? vals[0] : vals) ?? null;
+  const refVal = (vals: string | (string | null)[] | null) => (Array.isArray(vals) ? (mkey ? vals[1] : vals[0]) : null) ?? null;
+  const market = peek === "ok" ? Promise.resolve() : gate.then(vals => timed(m, "legacyMarketGate", () => assertGaslessMarket(coin, isBuy, marketVal(vals))));
   // Speculative sim ∥ revoke/ban/strike + market reads. The eth_call starts once the token (local crypto) and the
   // relayer (needed for `from`) are ready — it does not wait for the gate. A cached legacy-PVE buy never starts it.
   // admit() still joins every gate before returning, so commit cannot run if a gate failed; a finished simulation is
@@ -223,15 +225,17 @@ async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: 
     : timed(m, "gradFillCheck", () => {
       const memo = peekMarketStatus(coin);
       if (memo !== undefined) return gaslessFillsCurve(coin, amountIn, memo);
-      return gate.then(status => gaslessFillsCurve(coin, amountIn, status as string | null | undefined)).catch(() => false);
+      return gate.then(vals => gaslessFillsCurve(coin, amountIn, marketVal(vals))).catch(() => false);
     }).catch(() => false);
   const all = [session, owner, gate, market, d.ipGate ?? Promise.resolve(), ...extra, sim, relayer, fillsP];
   const res = await timed(m, "admissionSimulationWall", () => Promise.allSettled(all));
   for (const x of res) if (x.status === "rejected") throw notSent(x.reason);
+  const gateVals = (res[all.indexOf(gate)] as PromiseFulfilledResult<string | (string | null)[] | null>).value;
   return {
     relayer: (res[all.indexOf(relayer)] as PromiseFulfilledResult<DirectRelayer>).value,
     did: (res[all.indexOf(session)] as PromiseFulfilledResult<{ did: string }>).value.did,
     fillsCurve: (res[all.indexOf(fillsP)] as PromiseFulfilledResult<boolean>).value,
+    refDone: refVal(gateVals),
   };
 }
 
@@ -266,7 +270,7 @@ export async function relayGaslessTrade(raw: unknown, d: GaslessDeps = {}): Prom
   try {
     requireGaslessMode();
     relayBreaker.assertClosed();
-    const dep = DEPLOYMENTS[46630];
+    const dep = deployment();
     router = dep.gaslessRouter;
     q = parseGaslessRequest(raw);
     checkGaslessRequest(q, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec: d.nowSec ?? Math.floor(Date.now() / 1000) });
@@ -275,8 +279,14 @@ export async function relayGaslessTrade(raw: unknown, d: GaslessDeps = {}): Prom
     if (who.toLowerCase() !== q.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
   } catch (e) { throw notSent(e); }
   const data = encodeGaslessCall(q);
-  const { relayer, did, fillsCurve } = await admit(q.signer, router, data, d, q.trade.coin, q.trade.isBuy, q.trade.amountIn);
-  return commit(q.signer, router, data, gaslessTxGasLimit(fillsCurve), relayer, d, t0, Date.now() - t0, did);
+  const { relayer, did, fillsCurve, refDone } = await admit(q.signer, router, data, d, q.trade.coin, q.trade.isBuy, q.trade.amountIn);
+  const result = await commit(q.signer, router, data, gaslessTxGasLimit(fillsCurve), relayer, d, t0, Date.now() - t0, did);
+  // After the trade result is ready (route then sends it): fire-and-forget attach, never awaited, never strikes.
+  const ref = referrerFromRaw(raw);
+  if (result.success && ref && refDone !== REFERRAL_DONE) {
+    gaslessReferralHooks.after(() => gaslessReferralHooks.attach({ trader: q.signer, referrer: ref, alreadyDone: refDone }));
+  }
+  return result;
 }
 
 const loginGateAbi = parseAbi(["function attest(address wallet, uint64 expiry, bytes sig)"]);
@@ -294,7 +304,7 @@ export const gaslessLoginRelayEnabled = () => process.env.GASLESS_LOGIN_RELAY ==
 export async function relayGaslessLogin(raw: unknown, d: GaslessDeps = {}): Promise<GaslessConfirmed> {
   const t0 = Date.now();
   let wallet: Address, data: Hex;
-  const gate = DEPLOYMENTS[46630].loginGate;
+  const gate = deployment().loginGate;
   try {
     requireGaslessMode();
     if (!gaslessLoginRelayEnabled()) throw new Error("gasless login relay is off (login is checked off-chain)");

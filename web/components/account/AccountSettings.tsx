@@ -4,10 +4,9 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { disconnect, importLocal, isSmartMode, onWallet, resetLocal } from "@/lib/wallet";
 import {
   aaSession, enableOneTap, endOneTap, localExport, onSessionChange, oneTapAvailable, restartOneTap,
-  oneTapSlippageBps, oneTapStatus, oneTapSpendLimitUsd, setOneTapSpendLimitUsd,
+  oneTapSlippageBps, oneTapStatus, oneTapSpendLimitUsd, setOneTapSpendLimitUsd, fmtSessionExpiry,
 } from "@/lib/aa/session";
 import OneTapSlippagePicker from "@/components/trade/OneTapSlippagePicker";
-import { fmtSessionExpiry } from "@/lib/aa/oneTap";
 import type { Address } from "@/lib/protocol";
 import { playerError } from "@/lib/playerError";
 import { DEPOSIT_HREF, onDepositClick } from "@/lib/cashLink";

@@ -5,7 +5,15 @@
  */
 import type { Address, PublicClient } from "viem";
 import { clientFees, GRAD_GAS_CAPS } from "./gasPolicy";
-import { ALLOWANCE_GAS, tokenCost } from "./paymaster";
+/** Inlined from the deleted 4337 paymaster (STATIC_GAS + PAYMASTER_GAS). Kept so reserve math stays available to graduation helpers. */
+const ALLOWANCE_GAS = {
+  callGasLimit: BigInt(1_800_000), verificationGasLimit: BigInt(350_000), preVerificationGas: BigInt(60_000),
+  paymasterVerificationGasLimit: BigInt(250_000), paymasterPostOpGasLimit: BigInt(160_000),
+} as const;
+export function tokenCost(weiAmount: bigint, rate: bigint): bigint {
+  const E = BigInt(10) ** BigInt(18);
+  return (weiAmount * rate + E - BigInt(1)) / E;
+}
 import { GAS } from "../config";
 import { DEPLOYMENTS } from "../chains";
 

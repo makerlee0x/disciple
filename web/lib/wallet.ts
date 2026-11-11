@@ -41,7 +41,7 @@ export async function ensureChain(w: WalletClient) {
 let plainWallet: Address | null = null;
 export class SignInRequired extends Error { code = "SignIn"; constructor(m = "Sign in to trade or launch (Email / Google) — your DISCIPLE wallet signs for you.") { super(m); } }
 /** May writes go through right now? Smart session (signed in), or an explicitly connected plain wallet. */
-export function canTransact(): boolean { return isSmartMode() || !!plainWallet; }
+export function canTransact(): boolean { return isSmartMode() || !!plainWallet || !!gaslessSigner(); }
 
 /** Explicit connect (wallet button). Returns the address. */
 export async function connectWallet(): Promise<Address> {
@@ -71,7 +71,7 @@ export async function getSigner(): Promise<Signer> {
 import type { Call } from "./aa/core";
 import type { SendOpts } from "./aa/fastPath";
 import type { GasOpKind } from "./aa/gasReserve";
-import { aaAddress, aaAvailable, aaGasReservePerOp, aaLogout, aaOwnerAccount, aaPeekGasReservePerOp, aaSend, aaSession, eoaLogin, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
+import { aaAddress, aaAvailable, aaGasReservePerOp, aaLogout, aaOwnerAccount, aaPeekGasReservePerOp, aaSession, eoaLogin, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
 import { clientGaslessMode } from "./aa/sponsorshipMode";
 import type { Hex, LocalAccount } from "viem";
 
@@ -142,22 +142,37 @@ function handOffLogs(txHash: Hex | undefined, logs: readonly { address: Address;
   try { noteReceipt(txHash, logs); } catch { /* never break the trade */ }
 }
 export async function execCalls(calls: Call[], o: SendOpts = {}): Promise<ExecResult> {
-  if (!isSmartMode() && !plainWallet) throw new SignInRequired();
-  if (isSmartMode()) {
-    const r = await aaSend(calls, o);
-    // GAME trade speed: the send already returned the receipt logs ⇒ TradeBridge decodes the fill from them (no 2nd receipt poll)
-    handOffLogs(r.txHash, r.receipt?.receipt?.logs);
-    return { txHash: r.txHash, logs: r.receipt.receipt.logs, userOp: r.userOpHash, gasMode: r.gasMode, pressId: r.pressId };
-  }
-  const w = await getSigner();
-  const { createPublicClient, http } = await import("viem");
+  const owner = gaslessSigner();
+  /**
+   * WITHDRAW / CLAIMS / SEND FLAG: Cash withdraw (and claims, tramp walls, creator transfer) is a plain USDG (or
+   * contract) send via execCalls. It previously used the 4337 userOp/paymaster path (aaSend) so the player needed no
+   * ETH. That path is deleted. This now sends from the Privy owner EOA (the address that holds funds in gasless mode)
+   * with a normal EIP-1559 tx — it REQUIRES ETH on that EOA for gas. No new gasless withdraw was built.
+   * The injected-wallet fallback (getSigner / MetaMask) is only used for an explicitly connected plainWallet.
+   */
+  if (!owner && !plainWallet) throw new SignInRequired();
+  const { createWalletClient, createPublicClient, http } = await import("viem");
   const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
   let last: ExecResult | null = null;
+  if (owner) {
+    const w = createWalletClient({ chain: ACTIVE_CHAIN, account: owner, transport: http() });
+    for (const c of calls) {
+      const hash = await w.sendTransaction({ chain: ACTIVE_CHAIN, account: owner, to: c.to, data: c.data, value: c.value ?? BigInt(0) });
+      const rc = await pc.waitForTransactionReceipt({ hash });
+      if (rc.status !== "success") {
+        console.warn("[disciple] send reverted", { txHash: hash });
+        throw Object.assign(new Error(REJECTED_MSG), { txHash: hash });
+      }
+      last = { txHash: hash, logs: rc.logs as ExecResult["logs"] };
+      handOffLogs(hash, last.logs);
+    }
+    return last!;
+  }
+  const w = await getSigner();
   for (const c of calls) {
     const hash = await w.sendTransaction({ chain: ACTIVE_CHAIN, account: w.account.address, to: c.to, data: c.data, value: c.value });
     const rc = await pc.waitForTransactionReceipt({ hash });
     if (rc.status !== "success") {
-      // players see the plain line; the hash stays on the error (txHash) and in the console
       console.warn("[disciple] trade reverted", { txHash: hash });
       throw Object.assign(new Error(REJECTED_MSG), { txHash: hash });
     }
