@@ -43,7 +43,7 @@ Every number in one place. Values are for the current testnet deploy unless mark
 
 | Parameter | Value |
 |---|---|
-| Creator launch buy cap | 0.77% of supply (team-settable, max 7%) |
+| Creator launch buy cap | 7.77% of supply (team-settable, max 7.77%) |
 | Protocol wallet cap (curve) | None by default (team-settable 0–100%) |
 | Router max price impact | 50% per swap (team-settable 1–1,000%) |
 | Keeper tip (tramps and walls) | 0.1% (max 1%) |
@@ -66,7 +66,7 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | Over-cap BOOST | Partial fill + refund | Partial fill + refund | — |
 | Max BOOST / DUMP | None | None | None |
 | Crew tip | 0.777% when profit > 0.5% of market cap | None | None |
-| First BOOST max | 1.2%, locked to ascension | 3.33% | 0.77% |
+| First BOOST max | 1.2%, locked to ascension | 3.33% | 7.77% |
 | Login to BOOST | Yes | No | No |
 | Sniper tax | 99% → 0 over 7 s (per-second table), escrowed: locked LP at ascension, RewardsVault after 30 days if not | same | same |
 

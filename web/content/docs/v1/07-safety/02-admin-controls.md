@@ -13,7 +13,7 @@ We list them here so you know exactly what the team can and can't do.
 
 | Area | Settings |
 |---|---|
-| Launch settings | Default base, base pricer and probe, curve deployer, creator-buy cap (up to 7%), protocol wallet cap. **New rockets only.** |
+| Launch settings | Default base, base pricer and probe, curve deployer, creator-buy cap (up to 7.77%), protocol wallet cap. **New rockets only.** |
 | Fee routing | Treasury address, rewards vault address, which contracts may route fees |
 | Ascended pools | Which routers the hook trusts, the hook's pricer |
 | LockedLP wiring | Links to the pool manager, migration, fee router, hook and treasury |

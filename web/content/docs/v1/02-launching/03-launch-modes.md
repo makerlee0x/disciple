@@ -16,7 +16,7 @@ A launch mode sets the rules on the bonding curve. The creator picks it at launc
 | Max single BOOST / DUMP | No limit | No limit | No limit |
 | Sign-in required to BOOST | Yes | No | No |
 | Crew tip | 0.777% of a DUMP's proceeds, only when your profit on it is above 0.5% of the market cap; goes to the other holders | None | None |
-| Creator's First BOOST | Up to 1.2% of supply, locked until ascension | Up to 3.33% | Up to 0.77% |
+| Creator's First BOOST | Up to 1.2% of supply, locked until ascension | Up to 3.33% | Up to 7.77% |
 | Sniper tax (all modes) | 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s | Same | Same |
 
 Launches without a mode are Trench Warfare.
