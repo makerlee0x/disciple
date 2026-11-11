@@ -876,8 +876,11 @@ function spendableCash(cash){ const g=window.__discipleTrade&&S.gasPerOpUsd>0?S.
 function inFlightPulse(){ const f=S.flashes.find(x=>x.inflight); if(f){ f.life=0.7; return; }   // final copy (lee, 11:25 CT)
   S.flashes.push({txt:'3 IN FLIGHT',life:0.7,inflight:1}); }
 /** pending_unknown (SITE): this press stays pending (cap + reservation), its rocket keeps hovering, calm status */
-function stillConfirming(p,ba,txt){ p.unknown=1; if(ba) ba.unk=1; txt=String(txt||'Still confirming your last trade…');   // SITE PENDING_UNKNOWN_MSG (final copy, lee 11:25 CT)
-  const f=S.flashes.find(x=>x.confirming); if(f){ f.life=1.8; f.txt=txt; } else S.flashes.push({txt,life:1.8,confirming:1}); }
+/* In-flight wait (lee Nov 10): no on-screen "Still confirming your last trade…" alert.
+   State is unchanged (unknown + hover). The wait is the existing PENDING ghost + a subtle
+   thruster shimmer / trail pulse (tradePendingFx), reused from exhaustParams.pend and the contrail. */
+function tradePendingFx(){ return S.pending.some(p=>p.state==='pending'); }
+function stillConfirming(p,ba,txt){ p.unknown=1; if(ba) ba.unk=1; }
 function pushInFlight(){ try{ dispatchEvent(new CustomEvent('disciple:inflight',{detail:{n:pendingCount(),max:MAX_PENDING}})); }catch(_){} }
 /* @rapidtap-end */
 function trade(side,opt){
@@ -1399,12 +1402,13 @@ function drawTickTrail(){   // (name kept for callers) — vertical contrail fro
   { const q=pts[n++]; q.x=tailX; q.y=tailY; q.thrust=true; }
   if(n<2) return;
   const sc=S.scorch||0, fl=clamp(exhaustParams().flame,0,1.6), am=fxMul('aura');   // aura stat: contrail opacity + width (1 at stat 5)
+  const pulse=tradePendingFx()?1+0.16*Math.abs(Math.sin(S.t*10)):1;
   ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round';
   // 1) soft contrail body: widens and fades with age (source-over smoke)
   for (let i=1;i<n;i++){ const u=i/(n-1);                 // 0 = oldest, 1 = at the nozzle
     const a=am===1?Math.pow(u,0.9)*(0.32+0.2*fl):Math.min(1,Math.pow(u,0.9)*(0.32+0.2*fl)*am);
     ctx.strokeStyle=`rgba(${Math.round(lerp(236,60,sc))},${Math.round(lerp(238,45,sc))},${Math.round(lerp(255,40,sc))},${a})`;
-    ctx.lineWidth=(5+22*Math.pow(1-u,0.8))*am;
+    ctx.lineWidth=(5+22*Math.pow(1-u,0.8))*am*pulse;
     ctx.beginPath(); ctx.moveTo(pts[i-1].x,pts[i-1].y); ctx.lineTo(pts[i].x,pts[i].y); ctx.stroke(); }
   // 2) hot core just behind the nozzle (additive), length/brightness from the plume
   ctx.globalCompositeOperation='lighter'; const hotN=Math.max(2,Math.round(n*0.18));
@@ -1449,7 +1453,7 @@ function drawRocket(dt){
   const TS=thrusterSprites(), HOT=TS.hot, COLD=TS.cold, FIRE_SPR=TS.fire, CORE_SPR=TS.core;   /* loadout thruster (stock = original sprites) */
   { const P=S.particles; for (let i=0;i<P.n;i++){ const p=P.a[i]; ctx.globalAlpha=clamp(0.32*p.life,0,1); blit(p.hot?HOT:COLD,p.x,p.y,p.s*(1.3-p.life*0.3)); } }
   // FLAME CONE — stretched hot sprites along the engine axis; length = volume / speed / climb, flickers, sputters
-  { ctx.save(); ctx.translate(x,y); ctx.rotate(ang); const L=(34+170*flame)*(0.85+0.3*flick)*TS.l*FXT, Wf=(20+12*flame)*TS.w;
+  { ctx.save(); ctx.translate(x,y); ctx.rotate(ang); const pendPulse=tradePendingFx()?1+0.12*Math.abs(Math.sin(S.t*10)):1; const L=(34+170*flame)*(0.85+0.3*flick)*TS.l*FXT*pendPulse, Wf=(20+12*flame)*TS.w*pendPulse;
     ctx.globalAlpha=clamp(0.55+0.4*flame,0,0.95); ctx.drawImage(FIRE_SPR,-Wf/2,-Wf*0.25,Wf,L);
     ctx.globalAlpha=clamp(0.5+0.5*flame,0,1); ctx.drawImage(CORE_SPR,-Wf*0.28,-Wf*0.15,Wf*0.56,L*0.55);
     // shock diamonds on a strong burn
@@ -2449,7 +2453,7 @@ function simStep(stepDt){
   if (!S._trailAcc) S._trailAcc=0; S._trailAcc+=dt;
   const lt=S.trail[S.trail.length-1], moved=!lt || Math.hypot(lt.x-nozX, trailY(lt)-nozY)>1.8;
   if (S._trailAcc>0.05 || moved){ S._trailAcc=0;
-    S.trail.push({x:nozX, alt:nozAlt, air:S.airPx||0, thrust:sinceThrust<0.25});
+    S.trail.push({x:nozX, alt:nozAlt, air:S.airPx||0, thrust:sinceThrust<0.25||tradePendingFx()});
     S._trailEmitErr=Math.max(S._trailEmitErr||0, Math.abs(trailY(S.trail[S.trail.length-1])-nozY));   // test hook: ≈0 by construction
     if (S.trail.length>TRAIL_MAX){ const T=S.trail, half=T.length>>1; let j=1;   // decimate the older half (fine detail only near the nozzle)
       for(let i=1;i<half;i++){ if(i&1) continue; T[j++]=T[i]; } for(let i=half;i<T.length;i++) T[j++]=T[i]; T.length=j; }
