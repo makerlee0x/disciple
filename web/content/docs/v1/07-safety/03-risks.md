@@ -28,8 +28,8 @@ Admin controls are held by the team during testnet, with no timelock. See [Admin
 
 ## Oracle and data risk
 
-- The base's dollar price is set once at launch. The rocket's dollar value moves with the base after that. Altitude is that value, shown as named tiers.
-- Altitude, tiers and bombs are part of the display. Altitude is how high a rocket's value has climbed, shown as named tiers. A single trade can move them.
+- The base's dollar price is set once at launch. The rocket's dollar market cap moves with the base after that.
+- Altitude, tiers and bombs are display signals. Altitude is how high a rocket's value has climbed, shown as named tiers. A single trade can move them.
 - Some screens use sample data during testnet.
 
 ## Account risk

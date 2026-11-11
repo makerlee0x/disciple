@@ -33,10 +33,10 @@ Your rocket is priced and traded in its base coin. When the rocket reaches orbit
 ## Reaching orbit
 
 **When does a rocket reach orbit?**
-When its value reaches $33,333 and 84% of it has been bought on the starting price path. People also call that path a bonding curve, which means each buy costs a little more than the last. The rocket moves to the open market on Uniswap in that same trade. That moment is the Outer Space tier.
+When its value reaches $33,333 and about 84% of it has been bought on the starting price path. People also call that path a bonding curve, which means each buy costs a little more than the last. The rocket moves to the open market on Uniswap in that same trade. That moment is the Outer Space tier.
 
 **Is the liquidity really locked?**
-Yes. When the rocket reaches orbit, its liquidity is locked forever in the Uniswap v4 LP. Nobody can withdraw it.
+Yes. When the rocket reaches orbit, its liquidity is locked forever in a full-range Uniswap v4 position owned by the LockedLP contract, which has no function to remove it. Reaching orbit means the starting price path is finished and the rocket moves to the open market on Uniswap. Contracts are non-upgradeable; admin controls are held by the team during testnet.
 
 **Can a creator rug?**
 There's no further mint, the name and call sign are locked at launch, and once the rocket reaches orbit its liquidity is locked forever in the Uniswap v4 LP. Creators can still sell their own rockets, like anyone else. [CONFIRM: lee — keep this question?]

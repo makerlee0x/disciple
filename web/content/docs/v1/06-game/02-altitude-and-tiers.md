@@ -43,5 +43,3 @@ Altitude is a game display. A single large trade can cross a tier, and the next 
 ## Tiers are display only
 
 Tiers don't change fees, prices or who can trade. They mark how high a rocket's value has climbed.
-
-> [CONFIRM: FLOW — the constitution (§9) and Constants.sol still use the old tier names; FLOW is renaming them. The names here match the app (`tiers.ts`) and LEXICON.]

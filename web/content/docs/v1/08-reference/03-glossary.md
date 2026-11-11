@@ -32,7 +32,7 @@ section: Reference
 | **Launch mode** | PvE, PvP or Trench Warfare: a rocket's curve rules, picked at launch. Coming. |
 | **LockedLP** | The contract that holds the liquidity after a rocket reaches orbit. It has no way to remove that liquidity. Liquidity is locked forever in the Uniswap v4 LP. |
 | **Near orbit** | A Launchpad filter for rockets at least 60% of the way to orbit. |
-| **Orbit** | The moment the starting price path is finished and the rocket moves to the open market on Uniswap. That is a value of $33,333 with 84% of the rocket bought. Liquidity is locked forever in the Uniswap v4 LP. |
+| **Orbit** | The moment the starting price path is finished and the rocket moves to the open market on Uniswap. That is a value of $33,333 with about 84% of the rocket bought. Liquidity is locked forever in the Uniswap v4 LP. |
 | **NUKE** | A bomb with 25–50% price impact. |
 | **Outer Space** | The named tier where a rocket reaches orbit, starting at $33,333. |
 | **Pair** | A rocket and its base. |

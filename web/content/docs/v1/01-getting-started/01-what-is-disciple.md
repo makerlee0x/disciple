@@ -15,7 +15,7 @@ The chart is the sky. **Altitude** is how high a rocket's value has climbed. The
 
 1. **Launch.** Anyone can launch a rocket. Pick a base, a name, a call sign and an image.
 2. **Climb the starting price path.** The rocket starts at a value of $3,333. People also call this path a bonding curve, which means each buy costs a little more than the last. Every BOOST and DUMP trades against that path.
-3. **Reach orbit.** When 84% of the rocket has been bought, at a value of $33,333, the rocket reaches orbit. That means the starting price path is finished. In the same trade, its liquidity moves to the open market on Uniswap and is locked forever in the Uniswap v4 LP.
+3. **Reach orbit.** When about 84% of the rocket has been bought, at a value of $33,333, the rocket reaches orbit. That means the starting price path is finished. In the same trade, its liquidity moves to the open market on Uniswap and is locked forever in the Uniswap v4 LP.
 4. **Keep flying.** After orbit the rocket trades on the open market on Uniswap. The climb continues through 18 named tiers, up to Seventh Heaven. Altitude is that climb.
 
 ## What makes it different

@@ -27,8 +27,8 @@ Before you launch, **What am I launching?** names the coin you're creating, its 
 
 One transaction:
 
-1. A new rocket is created: **1,000,000** supply, and no more can be minted.
-2. A starting price path is created for it. People also call this a bonding curve, which means each buy costs a little more than the last. It starts at a value of **$3,333**.
+1. A new ERC-20 is created: **1,000,000** supply, 18 decimals, no further mint. Its address is a standard address (no vanity).
+2. A bonding curve is created for it, starting at a **$3,333** market cap.
 3. The anti-snipe clock starts: the first 7 seconds carry a sniper tax on buys (99% at launch, 25% at 1s, 3% at 2s, 0 from 7s). See [Anti-snipe](/docs/trading/anti-snipe).
 
 You pay the gas.

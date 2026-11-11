@@ -5,7 +5,7 @@ section: The starting price path
 ---
 # Reaching orbit
 
-A rocket reaches orbit when 84% of it has been bought on its starting price path and its value reaches $33,333. That is the Outer Space tier. Reaching orbit means that path is finished and the rocket moves to the open market on Uniswap. People also call the starting path a bonding curve, which means each buy costs a little more than the last.
+A rocket reaches orbit when about 84% of it has been bought on its starting price path and its value reaches $33,333. That is the Outer Space tier. Reaching orbit means that path is finished and the rocket moves to the open market on Uniswap. People also call the starting path a bonding curve, which means each buy costs a little more than the last.
 
 ## What happens
 
@@ -23,7 +23,7 @@ The BOOST that crosses the line makes the rocket reach orbit in the same trade. 
 | Price | Set by the starting price path | Set by what people have put into the Uniswap pool |
 | You trade with | The starting price path | The open market on Uniswap |
 | Value | $3,333 → $33,333 | $33,333 and up |
-| Supply | 84% sells on the starting price path | The remaining 15.76% is locked forever in the Uniswap v4 LP |
+| Supply | about 84% sells on the starting price path | The remaining 15.76% is locked forever in the Uniswap v4 LP |
 | Liquidity | The base builds up on the starting price path | Locked forever in the Uniswap v4 LP |
 | Fee | 1% + optional creator tax | 1% |
 | Sniper tax | First 7 seconds | None |

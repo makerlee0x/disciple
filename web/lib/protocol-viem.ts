@@ -254,7 +254,7 @@ export function friendlyError(e: unknown): ProtocolError {
       CreatorBuyTooLarge: CREATOR_BUY_MSG(),
       Slippage: PRICE_MOVED_MSG,
       Expired: "The trade took too long and expired. Try again.",
-      WalletCap: "One wallet can hold at most 7% of this rocket before it reaches orbit. Reaching orbit means the path its price follows at the start is finished, and the rocket moves to the open market on Uniswap.",
+      WalletCap: "Wallet cap reached: one wallet can hold at most 7% before orbit.",
       Graduated: "This rocket has reached orbit. The path its price follows at the start is finished, and buying and selling now happen on the open market on Uniswap.",
       NotGraduated: "This rocket has not reached orbit yet. It still trades on the path its price follows at the start, before the open market on Uniswap.",
       InsufficientLiquidity: "Not enough left on the curve for that size.",

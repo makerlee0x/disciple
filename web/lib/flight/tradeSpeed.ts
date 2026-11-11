@@ -37,7 +37,8 @@ export function doneLine(side: "buy" | "sell", estUsd: number, r: { ok: boolean;
   const back = ok && side === "buy" ? refundLine(fill!.refundUsd, usd, fmt) : "";
   return `${arrow} ${fmt(usd)} ✓ done${back ? ` · ${back}` : ""}`;
 }
-/** BOOST that finishes the starting price path (receipt UsdgRefund): "$80 back. Only $6,520 was needed for this rocket to reach orbit." "" when none / dust. */
+/** BOOST that finishes the starting price path (receipt UsdgRefund): "$80 back. Only $6,520 was needed for this rocket to reach orbit." "" when none / dust.
+ *  PLACEHOLDER COPY (BRAND to finalise). */
 export function refundLine(refundUsd: number | undefined, spentUsd: number, fmt: (v: number) => string) {
   return refundUsd !== undefined && Number.isFinite(refundUsd) && refundUsd >= 0.01 ? `${fmt(refundUsd)} back. Only ${fmt(spentUsd)} was needed for this rocket to reach orbit.` : "";
 }
