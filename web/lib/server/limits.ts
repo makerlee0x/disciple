@@ -267,4 +267,6 @@ export const PUBLIC_GET_LIMITS = {
   chatReadPerIp: { limit: 60, windowSec: 60 },
   /** GET /api/profile/username lookup (?u= / ?resolve= / ?address=) */
   usernameLookupPerIp: { limit: 60, windowSec: 60 },
+  /** GET /api/name-lock (launch-form check + coin-page copy flag) */
+  nameLockPerIp: { limit: 60, windowSec: 60 },
 } as const;

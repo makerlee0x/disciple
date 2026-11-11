@@ -19,6 +19,13 @@ for (const w of [...T, ...N]) if (!/^[A-Z][a-z]+$/.test(w)) bad(`word not a sing
 const banned = /^(nuke|atom|bunker|cruise|grenade|dump|moon|ozone|uranus|limbo|seraphim|cherubim|aether|halo|rug|scam|kill|dead|drunk|sexy)$/i;
 for (const w of [...T, ...N]) if (banned.test(w)) bad(`word clashes with a game term / not family-friendly: ${w}`);
 console.log(`lists: ${T.length} titles × ${N.length} nouns = ${T.length * N.length} combos`);
+const maxCombo = Math.max(...T.flatMap((t) => N.map((n) => t.length + 1 + n.length)));
+if (D.DEFAULT_USERNAME_MAX_LEN !== maxCombo) bad(`DEFAULT_USERNAME_MAX_LEN is ${D.DEFAULT_USERNAME_MAX_LEN}, not the longest title+noun (${maxCombo})`);
+if (D.USERNAME_DISPLAY_CAP !== D.DEFAULT_USERNAME_MAX_LEN) bad("USERNAME_DISPLAY_CAP must equal DEFAULT_USERNAME_MAX_LEN (one place for SITE to change)");
+if (D.USERNAME_DISPLAY_CAP !== 22) bad(`expected longest default "Pathfinder Afterburner" / "Lieutenant Afterburner" = 22, got ${D.USERNAME_DISPLAY_CAP}`);
+const pub = {}; D.publishUsernameDisplayCap(pub);
+if (pub.__usernameDisplayCap !== D.USERNAME_DISPLAY_CAP) bad("publishUsernameDisplayCap did not set __usernameDisplayCap");
+console.log(`username cap: USERNAME_DISPLAY_CAP = ${D.USERNAME_DISPLAY_CAP}`);
 
 // frozen: pin a few outputs so a list edit (which re-rolls everyone) is a deliberate test change
 const pin = { "0x0000000000000000000000000000000000000000": "Major Vortex", "0xabc0000000000000000000000000000000000001": "Major Rocket" };
@@ -49,8 +56,16 @@ if (D.displayName("", a) !== n1 || D.displayName(null, a) !== n1 || D.displayNam
 if (D.displayName(null, a, { at: true }) !== n1) bad("defaults never get an @");
 if (D.displayName(null, null, { fallback: "?" }) !== "?") bad("no username + no address → fallback");
 if (D.displayName(null, null) !== "") bad("no fallback → ''");
-if (/^@|_/.test(n1) || /^[a-z0-9_]{3,20}$/.test(n1)) bad("default must not look like a claimed username");
+if (/^@|_/.test(n1) || /^[a-z0-9_]+$/.test(n1)) bad("default must not look like a claimed username");
 if (!D.isAddressLike(a) || D.isAddressLike("0x123") || D.isAddressLike("maker")) bad("isAddressLike");
+
+
+// longest default call sign (title + space + noun, no suffix digits) is the claimed-username cap
+let mx = 0, ex = "";
+for (const t of T) for (const n of N) { const s = `${t} ${n}`; if (s.length > mx) { mx = s.length; ex = s; } }
+if (mx !== 22) bad(`enumerated max default length is ${mx} (${ex}), expected 22`);
+if (D.DEFAULT_USERNAME_MAX_LENGTH !== mx) bad(`DEFAULT_USERNAME_MAX_LENGTH ${D.DEFAULT_USERNAME_MAX_LENGTH} !== enumerated ${mx}`);
+console.log(`longest default: ${ex} (${mx})`);
 
 // chat (GameChat renders from.name || shortAddr(from.addr)): address → same default; non-address unchanged
 if (F.shortAddr(a) !== n1) bad(`chat fallback ${F.shortAddr(a)} ≠ ${n1}`);
