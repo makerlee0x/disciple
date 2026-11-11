@@ -69,7 +69,7 @@ export const GRAD_GAS_CAPS = {
 export type GasCaps = { [K in keyof typeof GAS_CAPS]: bigint };
 
 /** User-callable launch entry points (Launchpad.launchFor is router-only, not listed). Exported for tests. */
-export const LAUNCH_FUNCTIONS = ["launch", "launchCoin", "launchWithMode", "launchAnon", "launchWithUsdg"] as const;
+export const LAUNCH_FUNCTIONS = ["launch", "launchCoin", "launchWithMode", "launchAnon", "launchAnonWithUsdg", "launchWithUsdg"] as const;
 export const LAUNCH_SELECTORS: ReadonlySet<string> = new Set(
   ([...launchpadAbi, ...anonLauncherAbi, ...discipleRouterAbi] as readonly AbiItem[])
     .filter((f): f is AbiFunction => f.type === "function" && (LAUNCH_FUNCTIONS as readonly string[]).includes(f.name))

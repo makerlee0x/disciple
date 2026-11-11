@@ -1223,8 +1223,10 @@ export function createViemProtocol(): ProtocolClient {
       // lee 2026-10-26: no default rocket art; every launch needs an uploaded picture.
       if (!lp.imageUri || !lp.imageUri.trim()) throw new ProtocolError("NoImage", "Upload a picture to launch your rocket.");
       // First BOOST in USDG (lee 2026-10-26: every buy is paid in USDG; the router buys the pair coin): public launches
-      // go through DiscipleRouter.launchWithUsdg. creatorBuyQuoteIn (pair-token pull) is the legacy / no-router path only.
-      const usdgIn = !lp.private ? lp.creatorBuyUsdgIn ?? B(0) : B(0);
+      // go through DiscipleRouter.launchWithUsdg. Private launches with a dollar First BOOST go through
+      // AnonLauncher.launchAnonWithUsdg, which calls the same router path so AnonLauncher stays the on-chain creator.
+      // creatorBuyQuoteIn (pair-token pull) is the legacy / no-router path only.
+      const usdgIn = lp.creatorBuyUsdgIn ?? B(0);
       const usdg = usdgIn > B(0) ? await launchUsdg(pc) : null;
       if (usdgIn > B(0) && !usdg) throw new ProtocolError("NoRouter", "Paying the First BOOST in dollars isn't available on this network yet.");
       const creatorBuy = usdg ? B(0) : lp.creatorBuyQuoteIn ?? B(0);
@@ -1276,17 +1278,17 @@ export function createViemProtocol(): ProtocolClient {
           }
         }
         let launchCall: Call | null = null;
+        let privateBoostTo: Address | undefined;
         if (usdg) {
           const router = deployment().router;
           const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken
             : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });
-          // Balance check in dollars (USDG), never in the pair coin: the router buys the pair coin for you.
+          // Balance check in dollars (USDG), never in the pair coin: the router (or AnonLauncher) buys the pair coin.
           const [have, quoteAmt, launchpadCapBps] = await Promise.all([
             pc.readContract({ address: usdg, abi: tokenAbi, functionName: "balanceOf", args: [me] }),
             quoteUsdgPairSwap(pc, q, true, usdgIn),
             readCreatorBuyMaxBps(pc),
           ]);
-          if (have < usdgIn) throw new ProtocolError("InsufficientBalance", FIRST_BOOST_CASH_MSG(usdgRawToUsd(usdgIn), usdgRawToUsd(have)));
           if (quoteAmt <= B(0)) throw new ProtocolError("ZeroQuote", "That First BOOST is too small. Try a bigger amount.");
           const cq = await readCreatorBuyQuote(pc, q, quoteAmt, Number(params.creatorTaxBps), mode);
           const eff = effectiveCreatorBuyCapBps(launchpadCapBps, mode);
@@ -1298,9 +1300,27 @@ export function createViemProtocol(): ProtocolClient {
           const slip = lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS;
           params.quote = q;
           params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, slip);
-          // Exact USDG approve to the router (it pulls exactly usdgIn); the swap leg is guarded by minQuoteIn.
-          calls.push({ to: usdg, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [router, usdgIn] }) });
-          launchCall = { to: router, data: encodeFunctionData({ abi: discipleRouterAbi, functionName: "launchWithUsdg", args: [params, mode, usdgIn, applySlippage(quoteAmt, slip)] }) };
+          const minQuoteIn = applySlippage(quoteAmt, slip);
+          if (anonL && lp.private) {
+            // AnonLauncher pulls the launch fee and the First BOOST USDG, then calls DiscipleRouter.launchWithUsdg
+            // so AnonLauncher stays the on-chain creator. Coins go to the stealth owner (lee's privacy lock).
+            const [feeToken, fee] = await Promise.all([
+              pc.readContract({ address: anonL, abi: anonLauncherAbi, functionName: "feeToken" }) as Promise<Address>,
+              pc.readContract({ address: anonL, abi: anonLauncherAbi, functionName: "launchFee" }) as Promise<bigint>,
+            ]);
+            const need = fee + usdgIn;
+            if (have < need) throw new ProtocolError("InsufficientBalance", FIRST_BOOST_CASH_MSG(usdgRawToUsd(need), usdgRawToUsd(have)));
+            if (feeToken.toLowerCase() !== usdg.toLowerCase()) throw new ProtocolError("NoRouter", "Private First BOOST expects the launch fee to be charged in USDG.");
+            calls.push({ to: usdg, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [anonL, need] }) });
+            const { stealthOwner, ephemeralPubKey, viewTag } = lp.private;
+            privateBoostTo = stealthOwner;
+            launchCall = { to: anonL, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "launchAnonWithUsdg", args: [params, stealthOwner, stealthOwner, ephemeralPubKey, viewTag, fee, usdgIn, minQuoteIn] }) };
+          } else {
+            if (have < usdgIn) throw new ProtocolError("InsufficientBalance", FIRST_BOOST_CASH_MSG(usdgRawToUsd(usdgIn), usdgRawToUsd(have)));
+            // Exact USDG approve to the router (it pulls exactly usdgIn); the swap leg is guarded by minQuoteIn.
+            calls.push({ to: usdg, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [router, usdgIn] }) });
+            launchCall = { to: router, data: encodeFunctionData({ abi: discipleRouterAbi, functionName: "launchWithUsdg", args: [params, mode, usdgIn, minQuoteIn] }) };
+          }
         }
         if (launchCall) {
           calls.push(launchCall);
@@ -1350,12 +1370,14 @@ export function createViemProtocol(): ProtocolClient {
             const ev = decodeEventLog({ abi: bondingCurveAbi, data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as { eventName: string; args: Record<string, unknown> };
             if (ev.eventName !== "Trade" || !ev.args.isBuy) continue;
             const quoteIn = ev.args.quoteAmt as bigint, tokens = ev.args.tokenAmt as bigint;
-            // private launch: the curve's trader is the AnonLauncher; it forwards the tokens to buyRecipient = this account
-            // launchWithUsdg: Launchpad.launchFor(me, …) buys for the creator (this account)
-            const recipient = anonL || usdg ? me : (ev.args.trader as Address);
+            // private First BOOST: AnonLauncher forwards the coins to the stealth owner, not this account.
+            // public launchWithUsdg: Launchpad.launchFor(me, …) buys for the creator (this account).
+            const recipient = privateBoostTo ?? (anonL || usdg ? me : (ev.args.trader as Address));
             launched.creatorBuy = { recipient, tokens, quoteIn, usd: quoteRawToUsd(quoteIn, qp) };
-            seedCreatorBuyPosition(pnlKey("disciple.pnl.", me, launched.token), Number(tokens) / 1e18, launched.creatorBuy.usd, supply || undefined);
-            bumpBalance(launched.token, recipient, tokens);
+            if (recipient.toLowerCase() === me.toLowerCase()) {
+              seedCreatorBuyPosition(pnlKey("disciple.pnl.", me, launched.token), Number(tokens) / 1e18, launched.creatorBuy.usd, supply || undefined);
+              bumpBalance(launched.token, recipient, tokens);
+            }
           } catch { /* other event */ }
         }
         return launched;

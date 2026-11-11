@@ -88,7 +88,7 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
   }, [limits, usdg]);
 
   // 1b: the input is a $ amount; the pair-token amount the Launchpad pulls is derived from the live pair price
-  const usdWad = privateLaunch ? BigInt(0) : parseAmount(value, 18);
+  const usdWad = parseAmount(value, 18);
   const usdgIn = usdg && usdWad != null ? parseAmount(value, usdgDecimals()) : null;   // dollars → USDG raw ($1 = 1 USDG)
   // pair coin the router would buy: the live USDG → pair swap quote when fresh, else the launch-price estimate
   const estRaw = usdWad == null ? null : usdWad === BigInt(0) ? BigInt(0) : limits ? usdToQuoteRaw(usdWad, limits.quotePriceUsd) ?? BigInt(0) : BigInt(0);
@@ -144,18 +144,12 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
 
   useEffect(() => { onState({ raw: raw ?? BigInt(0), usdgIn: usdg ? usdgIn ?? BigInt(0) : null, error, ready }); }, [raw, usdgIn, usdg, error, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (privateLaunch) return (
-    <div className="first-boost">
-      <label className="first-boost-label" htmlFor="first-boost-input">{COPY.label}</label>
-      <p className="first-boost-helper">{COPY.privateOff}</p>
-    </div>
-  );
-
   const showEstimate = !error && tokens != null && raw != null && raw > BigInt(0);
   return (
     <div className={`first-boost${error ? " has-error" : ""}`}>
       <label className="first-boost-label" htmlFor="first-boost-input">{COPY.label}</label>
       <p className="first-boost-helper">{COPY.helper(pct ?? "…")}</p>
+      {privateLaunch && <p className="first-boost-note first-boost-mode">{COPY.privateNote}</p>}
       <div className="first-boost-row">
         <span className="first-boost-unit" aria-hidden>$</span>
         <input

@@ -33,6 +33,7 @@ export const FIRST_BOOST_COPY = {
   cashBalance: (haveUsd: string) => `Cash ${haveUsd}`,
   paysCash: "Paid from your cash. We buy the pair coin for you in the same step.",
   privateOff: "First BOOST isn't available on private launches yet. Launch first, then BOOST like anyone else.",
+  privateNote: "On a private launch, the First BOOST is paid from your cash and the new coins go to your private address, not your main wallet.",
   invalid: "Enter a $ amount like 25 or 12.5.",
   // SITE new-player cash (DRAFT, pending lee): the First BOOST spends the pair token (STRATEGY), not the USDG cash shown
   // top right, so the balance is labelled by its token and a note says where the money comes from.
