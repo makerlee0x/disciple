@@ -1,0 +1,139 @@
+{
+  "note": "Owner wiring only. Do not broadcast. BUN was removed Nov 10 2026 and replaced with SPACEHOOD (USDG -> SPCX -> SPACEHOOD). Both SPACEHOOD legs are hooked dynamic-fee v4 pools (fee 0x800000). Pass PoolKeys as-is. Alternative unhooked 1% USDG/SPCX (tickSpacing 200, id 0xcb6ffbcc...) is documented if the deepest hooked leg 1 fails a fork test.",
+  "usdg": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+  "quotes": [
+    {
+      "symbol": "STRATEGY",
+      "address": "0x168661C52E5922288dFb2b3f323b6Cf90eb21e18",
+      "decimals": 18,
+      "hops": 2,
+      "via": "MSTR",
+      "viaAddress": "0xec262a75e413fAfD0dF80480274532C79D42da09",
+      "keys": "see fork verification"
+    },
+    {
+      "symbol": "AI",
+      "address": "0x2E8c31162b855A2ffa90F6F8634643Ad6F111e18",
+      "decimals": 18,
+      "hops": 2,
+      "via": "NVDA",
+      "viaAddress": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+      "keys": "see fork verification"
+    },
+    {
+      "symbol": "SCHIFFY",
+      "address": "0x42aFA2124ca5a2B83898E46B2dA9a190995b1E18",
+      "decimals": 18,
+      "hops": 2,
+      "via": "GLD",
+      "viaAddress": "0xC9a981FEE1F9DEc688bb123ccDeCc63D0deBFC4e",
+      "keys": "see fork verification"
+    },
+    {
+      "symbol": "BONER",
+      "address": "0x98096d17e191B3dA1d5f99a6D7b3584351b11E18",
+      "decimals": 18,
+      "hops": 2,
+      "via": "HIMS",
+      "viaAddress": "0xCceE82fE024c36fA15E1005edE3E9e4787e23D09",
+      "keys": "see fork verification"
+    },
+    {
+      "symbol": "MEME",
+      "address": "0x385F4f8ae47651ce5F58F5265395a669f8281e18",
+      "decimals": 18,
+      "hops": 2,
+      "via": "AMC",
+      "viaAddress": "0x05a3d1Cd21d0C88145E82600E62e7E496e0F222B",
+      "keys": "see fork verification"
+    },
+    {
+      "symbol": "MOO",
+      "address": "0xD9dB30BB0D2b8d2eae3826A1372117E058791e18",
+      "decimals": 18,
+      "hops": 2,
+      "via": "MU",
+      "viaAddress": "0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD",
+      "keys": "see fork verification"
+    },
+    {
+      "symbol": "PONS",
+      "address": "0x39dBED3a2bd333467115dE45665cC57F813C4571",
+      "decimals": 18,
+      "hops": 1,
+      "via": null,
+      "keys": "see fork verification"
+    },
+    {
+      "symbol": "ORBIO",
+      "address": "0xAa07A0e9209e16aC99708C3EC70159c6eF3128A3",
+      "decimals": 18,
+      "hops": 1,
+      "via": null,
+      "keys": "see fork verification"
+    },
+    {
+      "symbol": "HOOKR",
+      "address": "0x18E674231A58c239Dc7DaeDcffE15Ec3A24cff5c",
+      "decimals": 18,
+      "hops": 1,
+      "via": null,
+      "note": "1% or 5.5% USDG v4, not the 3.04% pool",
+      "keys": "see fork verification"
+    },
+    {
+      "symbol": "CASHCAT",
+      "address": "0x020bfC650A365f8BB26819deAAbF3E21291018b4",
+      "decimals": 18,
+      "hops": 1,
+      "via": null,
+      "keys": "see fork verification"
+    },
+    {
+      "symbol": "PRIORS",
+      "address": "0xeDBf91223639800BCd5756815CAf908Df3b890bE",
+      "decimals": 18,
+      "hops": 1,
+      "via": null,
+      "keys": "see fork verification"
+    },
+    {
+      "symbol": "SPACEHOOD",
+      "address": "0xFe7E19CbCe2f896C6C528BC355bAF5a768291E18",
+      "decimals": 18,
+      "hops": 2,
+      "via": "SPCX",
+      "viaAddress": "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa",
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0x1f5bf0b4df6d26da68a30535727acaf41634443b6421bcecd8ac1d455b2f91d6",
+          "currency0": "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa",
+          "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "fee": "0x800000",
+          "tickSpacing": 60,
+          "hooks": "0xC15b155a3094934171A15625d1a80Aba267B6080",
+          "hookName": "SessionFeeHook",
+          "note": "deepest v4 USDG/SPCX, ~$777k; both fee and hook passed as-is"
+        },
+        {
+          "leg": 2,
+          "poolId": "0x225cc98f7d66b29fef96377becc7bf89582e2ab7b923a09aee9719fd80eb94ca",
+          "currency0": "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa",
+          "currency1": "0xFe7E19CbCe2f896C6C528BC355bAF5a768291E18",
+          "fee": "0x800000",
+          "tickSpacing": 8,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
+          "note": "stock pool; afterSwap-returns-delta; ~$77k/side"
+        }
+      ],
+      "alternativeLeg1": {
+        "poolId": "0xcb6ffbcc84359535c2cc0a5688c0a76520ea6e0a4820fddd3ac8d7880e576370",
+        "fee": 10000,
+        "tickSpacing": 200,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "note": "unhooked 1% ~$648k; only if deepest hooked leg 1 fails the fork test"
+      }
+    }
+  ]
+}
