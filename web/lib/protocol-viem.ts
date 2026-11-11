@@ -254,9 +254,9 @@ export function friendlyError(e: unknown): ProtocolError {
       CreatorBuyTooLarge: CREATOR_BUY_MSG(),
       Slippage: PRICE_MOVED_MSG,
       Expired: "The trade took too long and expired. Try again.",
-      WalletCap: "Wallet cap reached: one wallet can hold at most 7% before orbit.",
-      Graduated: "This rocket has ASCENDED, so trading moved to its pool.",
-      NotGraduated: "This rocket is still on the curve.",
+      WalletCap: "One wallet can hold at most 7% of this rocket before it reaches orbit. Reaching orbit means the path its price follows at the start is finished, and the rocket moves to the open market on Uniswap.",
+      Graduated: "This rocket has reached orbit. The path its price follows at the start is finished, and buying and selling now happen on the open market on Uniswap.",
+      NotGraduated: "This rocket has not reached orbit yet. It still trades on the path its price follows at the start, before the open market on Uniswap.",
       InsufficientLiquidity: "Not enough left on the curve for that size.",
       ZeroAmount: "Amount is too small.",
       ZeroRecipient: "Missing recipient wallet.",
@@ -593,7 +593,7 @@ export async function readQuote(pc: PublicClient, token: Address, side: "buy" | 
   const base = { side, amountIn, quoteDecimals, snipeFee: B(0), graduates: false, mode } as const;
 
   if (graduated) {
-    if (!hasRouter()) throw new ProtocolError("NoRouter", "This rocket reached orbit; the router isn't configured on this network yet.");
+    if (!hasRouter()) throw new ProtocolError("NoRouter", "This rocket has reached orbit, so it trades on the open market on Uniswap. That market is not set up on this network yet.");
     // Not a view (v4 has no view swaps): eth_call via simulateContract. Includes the hook's 1%.
     const { result: [amountOut, impactBps, mcapAfterUsd] } = await pc.simulateContract({
       address: deployment().router, abi: discipleRouterAbi, functionName: "quoteExactIn", args: [token, side === "buy", amountIn],
@@ -1009,7 +1009,7 @@ export function createViemProtocol(): ProtocolClient {
         smart ? Promise.resolve(null) : labelRead("allowance", approveCall(me, spendAsset, graduated ? deployment().router : curve, t.amountIn)),
       ]);
       let minOut = t.minAmountOut > B(0) ? t.minAmountOut : minOutOf(qOut);
-      if (graduated && !hasRouter()) throw new ProtocolError("NoRouter", "This rocket reached orbit; the router isn't configured on this network yet.");
+      if (graduated && !hasRouter()) throw new ProtocolError("NoRouter", "This rocket has reached orbit, so it trades on the open market on Uniswap. That market is not set up on this network yet.");
       const target: Address = graduated ? deployment().router : curve;
       const encodeTrade = (mo: bigint): Hex => graduated
         ? encodeFunctionData({ abi: discipleRouterAbi, functionName: side === "buy" ? "buyExactIn" : "sellExactIn", args: [t.token, t.amountIn, mo, recipient, deadline] })

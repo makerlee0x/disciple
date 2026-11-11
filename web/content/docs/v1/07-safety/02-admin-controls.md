@@ -15,7 +15,7 @@ We list them here so you know exactly what the team can and can't do.
 |---|---|
 | Launch settings | Default base, base pricer and probe, curve deployer, creator-buy cap (up to 7%), protocol wallet cap. **New rockets only.** |
 | Fee routing | Treasury address, rewards vault address, which contracts may route fees |
-| Ascended pools | Which routers the hook trusts, the hook's pricer |
+| Pools after orbit | Which routers are trusted after a rocket reaches orbit, and the price reader those pools use |
 | LockedLP wiring | Links to the pool manager, migration, fee router, hook and treasury |
 | Router | Max price impact per swap (between 1% and 1,000%, default 50%) |
 | Tramps and walls | Keeper tip (up to 1%) |
@@ -26,7 +26,7 @@ There is no timelock on these today.
 
 ## What the team can't do
 
-- Remove ascended liquidity.
+- Remove liquidity after a rocket reaches orbit. That liquidity is locked forever in the Uniswap v4 LP.
 - Mint more of any rocket.
 - Change a rocket's name, call sign, creator tax or launch mode.
 - Change the curve of a rocket that's already launched.

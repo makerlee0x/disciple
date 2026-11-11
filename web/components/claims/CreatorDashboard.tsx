@@ -127,7 +127,7 @@ export default function CreatorDashboard() {
                   )}
                   {r.anon && r.tokenUnclaimable && (
                     <div className="cl-token-side cl-pending-upgrade" data-testid="unclaimable-legacy"
-                      title="This coin launched on the legacy AnonLauncher (v1), which can't claim its post-ascension token share."
+                      title="This rocket launched on the older private launcher. Fees paid in the rocket itself, after it reaches orbit, cannot be claimed from that launcher. Reaching orbit means the starting price path is finished and the rocket moves to the open market on Uniswap."
                       aria-label="Token share unclaimable: legacy launcher.">
                       <span className="muted">Token share <span className="cl-pill">Unclaimable (legacy launcher)</span></span>
                       <Money raw={r.tokenUnclaimable.raw} asset={r.tokenUnclaimable.asset} />

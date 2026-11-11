@@ -389,13 +389,11 @@ export default function LaunchRocketPage() {
         )}
 
         <p className="note">
-          Rockets lift off at ${CURVE.startMcap.toLocaleString()} and reach orbit at $
-          {CURVE.graduationMcap.toLocaleString()}. Name and call sign are permanent after launch.
+          A rocket reaches orbit when the path its price follows at the start is finished, and the rocket moves to the open market on Uniswap. The name and call sign cannot be changed after launch.
         </p>
         <details className="text-xs text-[rgba(232,234,238,.7)]">
           <summary className="cursor-pointer">What am I launching?</summary>
-          Your rocket is an ERC-20 token on Robinhood Chain, traded on a bonding curve
-          {quote.address ? ` paired with ${quote.label} (${quote.address})` : ""}. BOOST to buy. DUMP to sell, and drop a bomb.
+          Your rocket trades against {quote.label || "the coin you pair it with"}. It follows a set price path until it reaches orbit, which means that path is finished and the rocket moves to the open market on Uniswap. BOOST means buy. DUMP means sell.
         </details>
         {needsSignIn ? (
           <button

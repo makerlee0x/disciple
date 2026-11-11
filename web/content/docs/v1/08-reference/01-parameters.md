@@ -16,16 +16,16 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | Name and call sign | Locked at launch |
 | Address | Standard (no vanity) |
 
-## Bonding curve
+## The starting price path
 
 | Parameter | Value |
 |---|---|
-| Curve type | Constant product, virtual reserves, steep finish |
-| Start market cap | $3,333 |
-| Ascension market cap | $33,333 (Outer Space) |
-| Sold on the curve | 84.24% (842,400) |
+| How the price moves | Each buy costs a little more than the last, with a steep finish near orbit |
+| Value at the start | $3,333 |
+| Value when the rocket reaches orbit | $33,333 (the Outer Space tier) |
+| Sold on the starting price path | 84.24% (842,400) |
 | Locked forever in the Uniswap v4 LP | 15.76% (157,600) + base raised (pool ≈ $5.25K) |
-| Base raised at ascension (USDG base) | ≈ $6,455, net of fees |
+| Base raised when the rocket reaches orbit (USDG base) | ≈ $6,455, net of fees |
 
 ## Fees
 
@@ -33,10 +33,10 @@ Every number in one place. Values are for the current testnet deploy unless mark
 |---|---|
 | Trade fee | 1% of every BOOST and DUMP |
 | Split of the trade fee | 33% creator · 33% locked liquidity · 33% treasury · 1% referrer |
-| Ascended pool LP fee | 0% |
+| Extra fee charged by the Uniswap pool after orbit | 0% (the 1% fee still applies) |
 | Creator tax | 0–7%, set at launch, curve trades only |
 | Sniper tax | 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s (one step per second), BOOSTs only, curve only |
-| Sniper tax destination | Locked liquidity at ascension (compound bucket) · rewards vault if not ascended in 30 days |
+| Sniper tax destination | Locked liquidity when the rocket reaches orbit · the rewards vault if it has not reached orbit in 30 days |
 | Creator launch buy | Exempt from anti-snipe |
 
 ## Limits
@@ -62,17 +62,17 @@ Every number in one place. Values are for the current testnet deploy unless mark
 
 | | Easy (PvE) | Hard (PvP) | Trench Warfare |
 |---|---|---|---|
-| Wallet cap | 1% → 3.33% with market cap | 3.33% → 7.77% | None |
+| Wallet cap | 1% → 3.33% as the rocket's value climbs | 3.33% → 7.77% | None |
 | Over-cap BOOST | Partial fill + refund | Partial fill + refund | — |
 | Max BOOST / DUMP | None | None | None |
-| Crew tip | 0.777% when profit > 0.5% of market cap | None | None |
-| First BOOST max | 1.2%, locked to ascension | 3.33% | 0.77% |
+| Crew tip | 0.777% when profit is above 0.5% of the rocket's value | None | None |
+| First BOOST max | 1.2%, locked until the rocket reaches orbit | 3.33% | 0.77% |
 | Login to BOOST | Yes | No | No |
-| Sniper tax | 99% → 0 over 7 s (per-second table), escrowed: locked LP at ascension, RewardsVault after 30 days if not | same | same |
+| Sniper tax | 99% → 0 over 7 s (per-second table), held aside: locked liquidity when the rocket reaches orbit, rewards vault after 30 days if it has not | same | same |
 
 ## Altitude
 
-18 tiers from $3.3K to $7.77B. See [Altitude and tiers](/docs/game/tiers).
+Altitude is how high a rocket's value has climbed, shown as 18 named tiers from $3,333 to $7.77 billion. See [Altitude and tiers](/docs/game/tiers).
 
 ## Bombs
 

@@ -14,7 +14,7 @@ import { SPONSORSHIP_CONFIG_ID } from "@/lib/aa/sponsorshipMode";
 export const metadata: Metadata = {
   title: "DISCIPLE — Every coin is a rocket",
   description:
-    "DISCIPLE launchpad: pair any coin with any ERC-20. Altitude = price. Robinhood Chain.",
+    "DISCIPLE is a launchpad on Robinhood Chain. You launch a rocket and pair it with a coin you believe in. Altitude is how high that rocket's value has climbed, shown as named tiers.",
   metadataBase: new URL("https://disciple.vip"),
   icons: {
     icon: [
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "DISCIPLE — Every coin is a rocket",
     description:
-      "DISCIPLE launchpad: pair any coin with any ERC-20. Altitude = price. Robinhood Chain.",
+      "DISCIPLE is a launchpad on Robinhood Chain. You launch a rocket and pair it with a coin you believe in. Altitude is how high that rocket's value has climbed, shown as named tiers.",
     url: "/",
     siteName: "DISCIPLE",
     type: "website",
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "DISCIPLE — Every coin is a rocket",
     description:
-      "DISCIPLE launchpad: pair any coin with any ERC-20. Altitude = price. Robinhood Chain.",
+      "DISCIPLE is a launchpad on Robinhood Chain. You launch a rocket and pair it with a coin you believe in. Altitude is how high that rocket's value has climbed, shown as named tiers.",
     images: ["/brand/og-1200x630.png"],
   },
 };

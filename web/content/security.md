@@ -7,9 +7,9 @@ Found a bug? Tell us first, and we'll pay for it. This page explains what's in s
 ## Scope
 
 **In scope**
-- DISCIPLE smart contracts deployed by the team on Robinhood Chain (testnet now, mainnet later): the launchpad, bonding curves, the Uniswap v4 hook, the liquidity lock, the router, the gas paymaster and the session-key and login contracts. [CONFIRM: final list; we list contract names, not addresses]
+- DISCIPLE smart contracts deployed by the team on Robinhood Chain (testnet now, mainnet later): the launchpad, each rocket's starting price path, the Uniswap v4 hook, the liquidity lock, the router, the gas paymaster and the session-key and login contracts. [CONFIRM: final list; we list contract names, not addresses]
 - The DISCIPLE web app and its API routes on [CONFIRM: domain].
-- Anything that lets someone take funds, mint or move tokens they don't own, unlock graduated liquidity, bypass mode caps or the sniper tax, take over another pilot's account, embedded wallet or session, abuse how DISCIPLE handles an external wallet connection (signature checks, replayed or spoofed sign-in messages, session hijacking), or take creator fees that aren't theirs.
+- Anything that lets someone take funds, mint or move rockets they don't own, unlock liquidity that was locked when a rocket reached orbit, bypass mode caps or the sniper tax, take over another pilot's account, embedded wallet or session, abuse how DISCIPLE handles an external wallet connection (signature checks, replayed or spoofed sign-in messages, session hijacking), or take creator fees that aren't theirs. Reaching orbit means the starting price path is finished and the rocket moves to the open market on Uniswap.
 
 **Out of scope**
 - Third-party systems: Uniswap, Robinhood Chain, Privy, Google, X, Alchemy and other providers. (Bugs in how DISCIPLE handles an email, Google, X or external wallet login are in scope; bugs inside the wallet apps themselves are not.) Report those to their owners.
@@ -29,7 +29,7 @@ Found a bug? Tell us first, and we'll pay for it. This page explains what's in s
 
 | Severity | Example | Reward |
 |---|---|---|
-| Critical | Direct loss of user funds, unlocking graduated liquidity | TBD by lee |
+| Critical | Direct loss of user funds, unlocking liquidity that was locked when a rocket reached orbit | TBD by lee |
 | High | Freezing funds, bypassing caps or taxes for profit, account takeover | TBD by lee |
 | Medium | Griefing that costs users money, or leaking private data | TBD by lee |
 | Low | Minor issues with real, limited impact | TBD by lee |

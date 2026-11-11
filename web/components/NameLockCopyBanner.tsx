@@ -16,7 +16,7 @@ export default function NameLockCopyBanner({ coin }: { coin: string }) {
   if (!show) return null;
   return (
     <p role="status" data-testid="name-lock-copy-flag" className="pointer-events-none fixed left-1/2 top-3 z-[40] w-[min(36rem,calc(100%-1.5rem))] -translate-x-1/2 rounded-lg border border-[#5a3a1a] bg-[#1a140c]/90 px-3 py-2 text-center text-xs text-[#FFD7A8] shadow-lg">
-      Flagged copy: an ASCENDED rocket already uses this name and call sign. This one launched after that lock. It can still be traded.
+      Flagged copy: a rocket that has reached orbit already uses this name and call sign. Reaching orbit means its starting price path finished and it moved to the open market on Uniswap. This one launched after that lock. It can still be traded.
     </p>
   );
 }

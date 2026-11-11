@@ -28,18 +28,18 @@ Sign in with X, email or a wallet. Then get test funds and a little test ETH for
 Pick a supported base: STRATEGY by default, USDG always. Other coins work once they have an on-chain USDG price pool.
 
 **What does pairing do for my coin?**
-Your rocket is priced and traded in its base. At ascension, the base is locked permanently in the rocket's Uniswap v4 LP.
+Your rocket is priced and traded in its base coin. When the rocket reaches orbit, the base is locked forever in the Uniswap v4 LP. Reaching orbit means the starting price path is finished and the rocket moves to the open market on Uniswap.
 
-## Curve and ascension
+## Reaching orbit
 
-**When does a rocket ascend?**
-At a $33,333 market cap, when 84% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction.
+**When does a rocket reach orbit?**
+When its value reaches $33,333 and 84% of it has been bought on the starting price path. People also call that path a bonding curve, which means each buy costs a little more than the last. The rocket moves to the open market on Uniswap in that same trade. That moment is the Outer Space tier.
 
 **Is the liquidity really locked?**
-Yes. At ascension, the liquidity is locked forever in a full-range Uniswap v4 position owned by the LockedLP contract, which has no function to remove it. Contracts are non-upgradeable; admin controls are held by the team during testnet.
+Yes. When the rocket reaches orbit, its liquidity is locked forever in the Uniswap v4 LP. Nobody can withdraw it.
 
 **Can a creator rug?**
-There's no further mint, the name and call sign are locked at launch, and ascended liquidity has no withdraw function. Creators can still sell their own coins, like anyone else. [CONFIRM: lee — keep this question?]
+There's no further mint, the name and call sign are locked at launch, and once the rocket reaches orbit its liquidity is locked forever in the Uniswap v4 LP. Creators can still sell their own rockets, like anyone else. [CONFIRM: lee — keep this question?]
 
 ## Fees
 
@@ -58,7 +58,7 @@ When a wallet opens your link and deposits $10+ in USDG, it's yours for life. Yo
 Every DUMP drops one. Its size is set by price impact, from PUFF (under 2%) to ATOM (50%+). See [Bombs](/docs/trading/bombs).
 
 **Do upgrades or tiers change my trades?**
-No. Rocket upgrades, tiers, bombs and points are cosmetic or display only. They never change price, fills or odds.
+No. Rocket upgrades, tiers, bombs and points are cosmetic or display only. A tier is a named step for how high a rocket's value has climbed. They never change the price, the trade, or the odds.
 
 **What is the Simulator?**
 Free paper trading against bots on a private market, with no wallet and no transactions. Pick PvE, PvP or Trench Warfare. Open it at `/flight/sim`. See [Simulator](/docs/game/simulator).
@@ -69,7 +69,7 @@ Free paper trading against bots on a private market, with no wallet and no trans
 Not yet. The contracts have had internal security reviews only, no third-party audit. A professional audit is required before mainnet.
 
 **Can the team pause trading?**
-No. There's no pause. Curves and ascended pools are always live.
+No. There's no pause. The starting price path and the open market on Uniswap are always live.
 
 **What can the team change?**
 Some settings for new launches, fee routing addresses and router limits. See [Admin controls](/docs/safety/admin).
