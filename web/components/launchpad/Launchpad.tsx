@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 import { CURVE, fmtUsd } from "@/lib/config";
 import { curveProgress } from "@/lib/curveProgress";
 import { isRocketVerified } from "@/lib/verified";
@@ -11,14 +11,15 @@ import { BASE_PAIRS, basePair } from "@/lib/pairArt";
 import DsSelect from "@/components/ui/DsSelect";
 import { GuildTagFor } from "@/components/guilds/GuildChip";
 import { GUILDS_ENABLED } from "@/lib/features";
-import { fmtAge, sparkPoints, type Rocket } from "@/lib/launchpad";
+import { fmtAge, pairGroupLabel, pairSortKey, sparkPoints, type Rocket } from "@/lib/launchpad";
 import Icon from "@/components/icons/Icon";
 
-type Tab = "altitude" | "new" | "active" | "near" | "graduated";
+type Tab = "altitude" | "new" | "active" | "pair" | "near" | "graduated";
 const TABS: { k: Tab; label: string; hint: string }[] = [
+  { k: "new", label: "Newest", hint: "The most recently launched rockets first." },
+  { k: "active", label: "Top volume", hint: "Rockets with the most trading in the last 24 hours." },
+  { k: "pair", label: "Pair", hint: "Grouped by the coin each rocket trades against." },
   { k: "altitude", label: "Altitude", hint: "Highest value first. Altitude is how high a rocket's value has climbed, shown as named tiers." },
-  { k: "new", label: "New", hint: "Freshest launches" },
-  { k: "active", label: "Active", hint: "Most 24h volume" },
   { k: "near", label: "Near orbit", hint: "These rockets are at least 60% of the way to orbit. Orbit means the path the price follows at the start is finished, and the rocket moves to the open market on Uniswap." },
   { k: "graduated", label: "Ascended", hint: "These rockets have reached orbit and trade on the open market on Uniswap. Outer Space is the named tier where that happens." },
 ];
@@ -221,6 +222,12 @@ export default function Launchpad({ coins, onPick, defaultVerified, defaultTab =
     r = [...r];
     if (tab === "new") r.sort((a, b) => (b.born ?? 0) - (a.born ?? 0));
     else if (tab === "active") r.sort((a, b) => b.stats.volume24hUsd - a.stats.volume24hUsd);
+    else if (tab === "pair") {
+      // Group by the coin each rocket trades against, then by 24h trading (live first inside a group).
+      // Global "live on top" is skipped here so a group is not split apart.
+      r.sort((a, b) => pairSortKey(a).localeCompare(pairSortKey(b)) || (a.live === b.live ? 0 : a.live ? -1 : 1) || b.stats.volume24hUsd - a.stats.volume24hUsd || (b.born ?? 0) - (a.born ?? 0));
+      return r;
+    }
     else r.sort((a, b) => mc(b) - mc(a));
     // LIVE rockets stay pinned on top of every sort.
     return [...r.filter((c) => c.live), ...r.filter((c) => !c.live)];
@@ -244,7 +251,8 @@ export default function Launchpad({ coins, onPick, defaultVerified, defaultTab =
       <div className="lp-body">
         <div className="lp-main">
           <div className="lp-bar-top">
-            <div className="lp-tabs" role="tablist" aria-label="Sort rockets">
+            <div className="lp-tabs" role="tablist" aria-label="Sort by">
+              <span className="lp-sort-lbl">Sort by</span>
               {TABS.map((t) => (
                 <button key={t.k} role="tab" type="button" aria-selected={tab === t.k} title={t.hint} className={tab === t.k ? "on" : ""} onClick={() => setTab(t.k)}>{t.label}</button>
               ))}
@@ -268,11 +276,27 @@ export default function Launchpad({ coins, onPick, defaultVerified, defaultTab =
                 <span className="lp-c-rank">#</span><span className="lp-c-token">Rocket</span><span className="lp-c-pair">Pair</span>
                 <span className="lp-c-graph">24h</span><span className="lp-c-mc" title="Altitude is how high a rocket's value has climbed, shown as named tiers.">Altitude</span><span className="lp-c-chg">Change</span><span className="lp-c-crew">Crew</span>
               </div>
-              {page.map((c, i) => <Row key={c.id} c={c} rank={i + 1} starred={watch.has(c.id)} onStar={toggleWatch} onPick={onPick} />)}
+              {page.map((c, i) => {
+                const showGroup = tab === "pair" && (i === 0 || pairSortKey(c) !== pairSortKey(page[i - 1]));
+                return (
+                  <Fragment key={c.id}>
+                    {showGroup && <div className="lp-group" role="rowheader">{pairGroupLabel(c)}</div>}
+                    <Row c={c} rank={i + 1} starred={watch.has(c.id)} onStar={toggleWatch} onPick={onPick} />
+                  </Fragment>
+                );
+              })}
             </div>
           ) : (
             <div className="lp-grid">
-              {page.map((c) => <Card key={c.id} c={c} starred={watch.has(c.id)} onStar={toggleWatch} onPick={onPick} />)}
+              {page.map((c, i) => {
+                const showGroup = tab === "pair" && (i === 0 || pairSortKey(c) !== pairSortKey(page[i - 1]));
+                return (
+                  <Fragment key={c.id}>
+                    {showGroup && <div className="lp-group lp-grid-group">{pairGroupLabel(c)}</div>}
+                    <Card c={c} starred={watch.has(c.id)} onStar={toggleWatch} onPick={onPick} />
+                  </Fragment>
+                );
+              })}
             </div>
           )}
           {rows.length === 0 && <p className="lp-empty">No rockets match. Try another pair or clear the search.</p>}

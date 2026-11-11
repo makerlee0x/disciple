@@ -61,3 +61,17 @@ export function fmtAge(h: number): string {
   if (d < 30) return `${Math.round(d)}d`;
   return `${Math.round(d / 30)}mo`;
 }
+
+/** The coin a rocket trades against, used to group and sort the Pair tab. */
+export function pairSortKey(c: Pick<Rocket, "pair" | "pairSym">): string {
+  return (c.pairSym ?? (c.pair === "USDG" ? "USDG" : c.pair === "OTHER" ? "OTHER" : "STRATEGY")).toUpperCase();
+}
+
+/** Plain section title for the Pair sort: "Trades against STRATEGY". */
+export function pairGroupLabel(c: Pick<Rocket, "pair" | "pairSym">): string {
+  if (c.pairSym) return `Trades against ${c.pairSym}`;
+  if (c.pair === "USDG") return "Trades against USDG";
+  if (c.pair === "OTHER") return "Trades against another coin";
+  return "Trades against STRATEGY";
+}
+
