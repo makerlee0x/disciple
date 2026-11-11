@@ -1,6 +1,7 @@
 {
-  "note": "Owner wiring only. Do not broadcast. BUN was removed Nov 10 2026 and replaced with SPACEHOOD (USDG -> SPCX -> SPACEHOOD). Both SPACEHOOD legs are hooked dynamic-fee v4 pools (fee 0x800000). Pass PoolKeys as-is. Alternative unhooked 1% USDG/SPCX (tickSpacing 200, id 0xcb6ffbcc...) is documented if the deepest hooked leg 1 fails a fork test.",
+  "note": "Owner wiring only. Do not broadcast. BUN was removed Nov 10 2026 and replaced with SPACEHOOD (USDG -> SPCX -> SPACEHOOD). Every PoolKey below was confirmed from the Uniswap v4 PoolManager 0x8366a39CC670B4001A1121B8F6A443A643e40951 Initialize event (topic0 0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438) and by ABI-hashing the key to the pool id. Fee flag 0x800000 means dynamic fee; hooks other than the DISCIPLE hook are passed through as-is. Per-side virtual depths are from StateView liquidity and sqrtPrice (same formula as PoolDepth / QuotePricer), measured on mainnet around block 111298000 on Nov 10, 2026. Alternative unhooked 1% USDG/SPCX (tickSpacing 200, id 0xcb6ffbcc...) remains documented only if the deepest hooked SPACEHOOD leg 1 fails a fork test.",
   "usdg": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+  "poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
   "quotes": [
     {
       "symbol": "STRATEGY",
@@ -9,7 +10,30 @@
       "hops": 2,
       "via": "MSTR",
       "viaAddress": "0xec262a75e413fAfD0dF80480274532C79D42da09",
-      "keys": "see fork verification"
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0x319bac87e616a89e241c10aeb8afd4892a852cdd8b373cd9765ecddc40b87cfe",
+          "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "currency1": "0xec262a75e413fAfD0dF80480274532C79D42da09",
+          "fee": 2500,
+          "tickSpacing": 25,
+          "hooks": "0x0000000000000000000000000000000000000000",
+          "hookName": "none",
+          "note": "deepest v4 USDG/MSTR (0.25%); virtual depth ~$5,817,096 per side"
+        },
+        {
+          "leg": 2,
+          "poolId": "0xa6975f4720a95aa9cdfa9b010a065b0e941534c93f9fa708104c08f0ac029ca0",
+          "currency0": "0x168661C52E5922288dFb2b3f323b6Cf90eb21e18",
+          "currency1": "0xec262a75e413fAfD0dF80480274532C79D42da09",
+          "fee": "0x800000",
+          "tickSpacing": 8,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
+          "hookName": "long.xyz",
+          "note": "stock pool; virtual depth ~$201,368 per side"
+        }
+      ]
     },
     {
       "symbol": "AI",
@@ -18,7 +42,30 @@
       "hops": 2,
       "via": "NVDA",
       "viaAddress": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
-      "keys": "see fork verification"
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0x3bb34a44f1b2b5f32c034c38a53065a521a47b199700fa9bd19d60985ff24bf1",
+          "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "currency1": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+          "fee": 3000,
+          "tickSpacing": 60,
+          "hooks": "0x0000000000000000000000000000000000000000",
+          "hookName": "none",
+          "note": "deepest v4 USDG/NVDA (0.3%); a deeper NVDA/USDG 0.05% pool exists on Uniswap v3 only and is not used; virtual depth ~$734,945 per side"
+        },
+        {
+          "leg": 2,
+          "poolId": "0xcbdfea90430a30ee4469c9902e120a77e7c7e4711d5643671c1d1957f2f1ce27",
+          "currency0": "0x2E8c31162b855A2ffa90F6F8634643Ad6F111e18",
+          "currency1": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+          "fee": "0x800000",
+          "tickSpacing": 8,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
+          "hookName": "long.xyz",
+          "note": "stock pool; virtual depth ~$745,020 per side"
+        }
+      ]
     },
     {
       "symbol": "SCHIFFY",
@@ -27,7 +74,30 @@
       "hops": 2,
       "via": "GLD",
       "viaAddress": "0xC9a981FEE1F9DEc688bb123ccDeCc63D0deBFC4e",
-      "keys": "see fork verification"
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0xfe281bbfa9aa658c1aa9c2ad1b0c62c4286f96c7cb1074296b54e869935a7a3a",
+          "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "currency1": "0xC9a981FEE1F9DEc688bb123ccDeCc63D0deBFC4e",
+          "fee": "0x800000",
+          "tickSpacing": 10,
+          "hooks": "0xB608a78761f179f7C56f15E7D13921B92F00a080",
+          "hookName": "non-DISCIPLE hook (pass as-is)",
+          "note": "deepest v4 USDG/GLD, dynamic fee; virtual depth ~$12,808,598 per side"
+        },
+        {
+          "leg": 2,
+          "poolId": "0xc749412e31087a6e6f9210af575bc9100159fbc9f45da3ca8b26b31f3bf5777e",
+          "currency0": "0x42aFA2124ca5a2B83898E46B2dA9a190995b1E18",
+          "currency1": "0xC9a981FEE1F9DEc688bb123ccDeCc63D0deBFC4e",
+          "fee": "0x800000",
+          "tickSpacing": 8,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
+          "hookName": "long.xyz",
+          "note": "stock pool; virtual depth ~$194,597 per side"
+        }
+      ]
     },
     {
       "symbol": "BONER",
@@ -36,7 +106,30 @@
       "hops": 2,
       "via": "HIMS",
       "viaAddress": "0xCceE82fE024c36fA15E1005edE3E9e4787e23D09",
-      "keys": "see fork verification"
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0x68d4f28f1432e0ad714658853edb2e6b0b1ac4060355ff3d169fea656b1d1c52",
+          "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "currency1": "0xCceE82fE024c36fA15E1005edE3E9e4787e23D09",
+          "fee": 9000,
+          "tickSpacing": 90,
+          "hooks": "0x0000000000000000000000000000000000000000",
+          "hookName": "none",
+          "note": "deepest v4 USDG/HIMS (0.9%); virtual depth ~$1,137,707 per side"
+        },
+        {
+          "leg": 2,
+          "poolId": "0x9c89b04303dfa76f3f6fb02c2b77be0e8a00ab8fa00d507119acd54ab3e8640d",
+          "currency0": "0x98096d17e191B3dA1d5f99a6D7b3584351b11E18",
+          "currency1": "0xCceE82fE024c36fA15E1005edE3E9e4787e23D09",
+          "fee": "0x800000",
+          "tickSpacing": 8,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
+          "hookName": "long.xyz",
+          "note": "stock pool; virtual depth ~$280,788 per side"
+        }
+      ]
     },
     {
       "symbol": "MEME",
@@ -45,7 +138,30 @@
       "hops": 2,
       "via": "AMC",
       "viaAddress": "0x05a3d1Cd21d0C88145E82600E62e7E496e0F222B",
-      "keys": "see fork verification"
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0x7499938c352d5b5b8f0c648722aca5ee964ef9b85c3a3041f1ec379726291d9d",
+          "currency0": "0x05a3d1Cd21d0C88145E82600E62e7E496e0F222B",
+          "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "fee": 1000,
+          "tickSpacing": 10,
+          "hooks": "0x0000000000000000000000000000000000000000",
+          "hookName": "none",
+          "note": "deepest v4 USDG/AMC (0.1%); virtual depth ~$1,107,808 per side"
+        },
+        {
+          "leg": 2,
+          "poolId": "0x27ccf0a6d1ee74840220715bcca7d3b01e0d33aa30d0259b47ae1585b3f4c071",
+          "currency0": "0x05a3d1Cd21d0C88145E82600E62e7E496e0F222B",
+          "currency1": "0x385F4f8ae47651ce5F58F5265395a669f8281e18",
+          "fee": "0x800000",
+          "tickSpacing": 8,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
+          "hookName": "long.xyz",
+          "note": "stock pool; virtual depth ~$415,097 per side"
+        }
+      ]
     },
     {
       "symbol": "MOO",
@@ -54,7 +170,30 @@
       "hops": 2,
       "via": "MU",
       "viaAddress": "0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD",
-      "keys": "see fork verification"
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0x6fa3ee0048e78bf0a513eb0ab56f482944a767c21db990fcf555605e69f05659",
+          "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "currency1": "0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD",
+          "fee": 10000,
+          "tickSpacing": 200,
+          "hooks": "0x0000000000000000000000000000000000000000",
+          "hookName": "none",
+          "note": "deepest v4 USDG/MU (1%); virtual depth ~$1,148,112 per side"
+        },
+        {
+          "leg": 2,
+          "poolId": "0xc3cc877a8a7d28efdb5dbec9ae71724652431e6411aa1a9fc8928028da554aa1",
+          "currency0": "0xD9dB30BB0D2b8d2eae3826A1372117E058791e18",
+          "currency1": "0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD",
+          "fee": "0x800000",
+          "tickSpacing": 8,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
+          "hookName": "long.xyz",
+          "note": "stock pool; virtual depth ~$110,039 per side"
+        }
+      ]
     },
     {
       "symbol": "PONS",
@@ -62,7 +201,28 @@
       "decimals": 18,
       "hops": 1,
       "via": null,
-      "keys": "see fork verification"
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0x486435a1f76cd58193f854c6e6213cd05fd58d637865d02065ff558b387fa6ea",
+          "currency0": "0x39dBED3a2bd333467115dE45665cC57F813C4571",
+          "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "fee": "0x800000",
+          "tickSpacing": 60,
+          "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080",
+          "hookName": "non-DISCIPLE hook (pass as-is)",
+          "note": "deepest v4 USDG/PONS, dynamic fee; virtual depth ~$1,158,627 per side"
+        }
+      ],
+      "alternative": {
+        "poolId": "0x4be9657ec9002e528f4f17a5c43edc525a07f888f7b180c2afbf75e096c4f38a",
+        "currency0": "0x39dBED3a2bd333467115dE45665cC57F813C4571",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 3000,
+        "tickSpacing": 60,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "note": "unhooked 0.3% USDG pool, virtual depth ~$316,928 per side; USDG-only fallback if the deeper hooked pool fails the fork, floor, or probe"
+      }
     },
     {
       "symbol": "ORBIO",
@@ -70,7 +230,19 @@
       "decimals": 18,
       "hops": 1,
       "via": null,
-      "keys": "see fork verification"
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0xea9f200e13055b82f175f44f592c4c13dd8c9d9320a66487d3c5cd90d68550ef",
+          "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "currency1": "0xAa07A0e9209e16aC99708C3EC70159c6eF3128A3",
+          "fee": 8000,
+          "tickSpacing": 80,
+          "hooks": "0x0000000000000000000000000000000000000000",
+          "hookName": "none",
+          "note": "deepest v4 USDG/ORBIO (0.8%); virtual depth ~$703,912 per side"
+        }
+      ]
     },
     {
       "symbol": "HOOKR",
@@ -78,8 +250,36 @@
       "decimals": 18,
       "hops": 1,
       "via": null,
-      "note": "1% or 5.5% USDG v4, not the 3.04% pool",
-      "keys": "see fork verification"
+      "note": "1% or 5.5% USDG v4, not the 3.04% pool. Official per-side virtual depth is higher on the 1% pool ($102,666 vs $43,278), so the 1% pool is the route. The 3.04% pool (id 0xe9e93bd1..., fee 30400, tickSpacing 100, hooks 0) is recorded only so it is not used.",
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0x0b362d89fcae933d150e735d28c70e13469a4e14d3b3a36ac05eb5a1a77f2474",
+          "currency0": "0x18E674231A58c239Dc7DaeDcffE15Ec3A24cff5c",
+          "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "fee": 10000,
+          "tickSpacing": 100,
+          "hooks": "0x0000000000000000000000000000000000000000",
+          "hookName": "none",
+          "note": "1% USDG v4; virtual depth ~$102,666 per side"
+        }
+      ],
+      "notUsed_3_04pct": {
+        "poolId": "0xe9e93bd1fa0f05fcce035e0f4b456f7f8079e8da9a3dceefb0cc89607dfdaa6a",
+        "fee": 30400,
+        "tickSpacing": 100,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "note": "do not use; 3.04% USDG v4"
+      },
+      "alternative_5_5pct": {
+        "poolId": "0x9d30491d9a8baeb587b847ea20aa4013e8664d21e30c5bbd624b6c10d44daf32",
+        "currency0": "0x18E674231A58c239Dc7DaeDcffE15Ec3A24cff5c",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 55000,
+        "tickSpacing": 550,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "note": "5.5% USDG v4, also above the floor (~$43,278 per side) but thinner than the 1% pool on official virtual depth"
+      }
     },
     {
       "symbol": "CASHCAT",
@@ -87,7 +287,19 @@
       "decimals": 18,
       "hops": 1,
       "via": null,
-      "keys": "see fork verification"
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0xa92a3df27a00a276183ff7265fd8affa11df1fe8bb23ddfaf13f6c879a3f818b",
+          "currency0": "0x020bfC650A365f8BB26819deAAbF3E21291018b4",
+          "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "fee": 2690,
+          "tickSpacing": 54,
+          "hooks": "0x0000000000000000000000000000000000000000",
+          "hookName": "none",
+          "note": "deepest v4 USDG/CASHCAT (0.269%); virtual depth ~$323,007 per side"
+        }
+      ]
     },
     {
       "symbol": "PRIORS",
@@ -95,7 +307,19 @@
       "decimals": 18,
       "hops": 1,
       "via": null,
-      "keys": "see fork verification"
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0xff7b3bd2db34d9ed8160e6dedf1d448777abaa1fa6fc8a31144930a1a656fd92",
+          "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "currency1": "0xeDBf91223639800BCd5756815CAf908Df3b890bE",
+          "fee": 0,
+          "tickSpacing": 200,
+          "hooks": "0xE5e702641Ea86F4ae6cC3cDaeD2B886f976Be044",
+          "hookName": "non-DISCIPLE hook (pass as-is)",
+          "note": "Uniswap v4 USDG/PRIORS on the official PoolManager (Initialize confirmed; some indexers label this pons-v2). Static fee 0 with hook. Virtual depth ~$124,816 per side."
+        }
+      ]
     },
     {
       "symbol": "SPACEHOOD",
@@ -114,7 +338,7 @@
           "tickSpacing": 60,
           "hooks": "0xC15b155a3094934171A15625d1a80Aba267B6080",
           "hookName": "SessionFeeHook",
-          "note": "deepest v4 USDG/SPCX, ~$777k; both fee and hook passed as-is"
+          "note": "deepest v4 USDG/SPCX, ~$777k GeckoTerminal total; official virtual depth ~$533,978 per side; both fee and hook passed as-is"
         },
         {
           "leg": 2,
@@ -124,7 +348,8 @@
           "fee": "0x800000",
           "tickSpacing": 8,
           "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
-          "note": "stock pool; afterSwap-returns-delta; ~$77k/side"
+          "hookName": "long.xyz",
+          "note": "stock pool; afterSwap-returns-delta; official virtual depth ~$86,736 per side"
         }
       ],
       "alternativeLeg1": {
