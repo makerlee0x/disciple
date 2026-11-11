@@ -72,8 +72,8 @@ stopped, including packets that still need delivering.
 
 - Same chain: tip = (gas of the call) × basefee × 1.2, valued in the pool's tokens, at most 1/32 of the jar per tip,
   and only one tip per pool per block.
-- Carry pools (`"abi": "carry"`): tip = cost × 1.05, where cost includes the Robinhood L1 data fee once per
-  transaction, paid in USDG (the jar skims quote only). The margin is about 5% by design, so a Carry keeper roughly
+- Carry pools (`"abi": "carry"`): tip = cost × `tipBps`/10,000 (1.05 at launch, settable 1.00–1.50 by the admin), where cost includes the Robinhood L1 data fee once per
+  transaction, paid in USDG (the jar skims quote only). At launch the margin is about 5% by design, so a Carry keeper roughly
   breaks even; it exists to keep the price fresh, not to profit.
 - Cross chain: refund per accepted pool = 1.2 × (its share of the home transaction and LayerZero fee + its share of
   the destination delivery gas), capped at 0.002 ETH of cost, valued in the pool's quote token and credited from
