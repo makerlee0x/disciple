@@ -59,7 +59,7 @@ const op = (): UserOp => ({
 const receipt = { transactionHash: `0x${"ab".repeat(32)}` as Hex, blockHash: `0x${"cd".repeat(32)}` as Hex, blockNumber: "0x1", status: "0x1", gasUsed: "0x1", logs: [] };
 let chainNonce = NONCE, sessionState = { active: true, validUntil: 1000 }, depositWei = 10n ** 18n, verifiedUntil = 1000n;
 const SIM_REVERT = "AA25 invalid account nonce";
-let marker: string | null = null, trust: string | null = null, skew = 0;
+let marker: string | null = null, banned: string | null = null, trust: string | null = null, skew = 0;
 // Local clock offset for the M3 age-cap tests (never touches the mocked chain timestamp).
 const realNow = Date.now.bind(Date);
 vi.spyOn(Date, "now").mockImplementation(() => realNow() + skew);
@@ -89,8 +89,8 @@ beforeEach(() => {
   h.session.mockImplementation(async () => sessionState);
   h.curveOf.mockResolvedValue("0x0000000000000000000000000000000000000033"); h.curveInfo.mockResolvedValue({ token, quote: usdg, graduated: false });
   h.mget.mockResolvedValue(["4", null]);            // generation 4, no lease holder
-  marker = null; trust = null; skew = 0; strikeSource.local = () => 0;
-  h.gate.mockImplementation(async (ks: string[]) => { h.events.push(`gate:${h.set.mock.calls.length ? "underLease" : "beforeLease"}`); return ks.map(k => k.startsWith("relay:revoked:") ? marker : trust); });
+  marker = null; banned = null; trust = null; skew = 0; strikeSource.local = () => 0;
+  h.gate.mockImplementation(async (ks: string[]) => { h.events.push(`gate:${h.set.mock.calls.length ? "underLease" : "beforeLease"}`); return ks.map(k => k.startsWith("relay:revoked:") ? marker : k.startsWith("relay:banned:") ? banned : k.startsWith("relay:trust:") ? trust : null); });
   h.gen.mockResolvedValue(4);                       // nobody else held the lease in between
   h.set.mockImplementation(async () => { h.events.push("lease"); return true; }); h.del.mockResolvedValue(true); h.incr.mockResolvedValue(1);
   h.deposit.mockImplementation(async () => { h.events.push(`deposit:${h.set.mock.calls.length ? "underLease" : "beforeLease"}`); return depositWei; });

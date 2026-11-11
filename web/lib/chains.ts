@@ -49,6 +49,8 @@ export interface Deployment {
   hook: Address;
   /** DiscipleRouter (post-grad buyExactIn/sellExactIn/quoteExactIn). Zero ⇒ graduated trading disabled. */
   router: Address;
+  /** Gasless router (DiscipleRouter with buyWithPermit2/sellWithPermit2, flow/gasless-permit2). Zero ⇒ gasless off. */
+  gaslessRouter: Address;
   feeRouter: Address;
   referralRegistry: Address;
   lockedLP: Address;
@@ -90,6 +92,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     launchpad: addr(process.env.NEXT_PUBLIC_RH_LAUNCHPAD),
     hook: addr(process.env.NEXT_PUBLIC_RH_HOOK),
     router: addr(process.env.NEXT_PUBLIC_RH_ROUTER),
+    gaslessRouter: addr(process.env.NEXT_PUBLIC_RH_GASLESS_ROUTER),
     feeRouter: addr(process.env.NEXT_PUBLIC_RH_FEE_ROUTER),
     referralRegistry: addr(process.env.NEXT_PUBLIC_RH_REFERRAL_REGISTRY),
     lockedLP: addr(process.env.NEXT_PUBLIC_RH_LOCKED_LP),
@@ -116,6 +119,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     launchpad: addr(process.env.NEXT_PUBLIC_RHT_LAUNCHPAD, "0x8a92e51940909424b3aacefff99b4834588c0988"),
     hook: addr(process.env.NEXT_PUBLIC_RHT_HOOK, "0x2ac264a620edd05ba78381c51539650c40e2e8c4"),
     router: addr(process.env.NEXT_PUBLIC_RHT_ROUTER, "0x688160633b22012717661545df6299d3d3174ad2"),
+    gaslessRouter: addr(process.env.NEXT_PUBLIC_RHT_GASLESS_ROUTER, "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e"), // gasless DiscipleRouter (Permit2 witness), Launchpad-trusted Nov 9
     feeRouter: addr(process.env.NEXT_PUBLIC_RHT_FEE_ROUTER, "0xa5aaddd75f1bc3b8fb3ecc8845eab0cfa5faed8c"),
     referralRegistry: addr(process.env.NEXT_PUBLIC_RHT_REFERRAL_REGISTRY, "0xfe529086b25c4e0724b88780e5ba9b4ace785aaf"),
     lockedLP: addr(process.env.NEXT_PUBLIC_RHT_LOCKED_LP, "0x61efff9f0dbdd818317858074bcf80e4dcc39646"),
@@ -138,6 +142,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     launchpad: addr(process.env.NEXT_PUBLIC_ANVIL_LAUNCHPAD),
     hook: addr(process.env.NEXT_PUBLIC_ANVIL_HOOK),
     router: addr(process.env.NEXT_PUBLIC_ANVIL_ROUTER),
+    gaslessRouter: addr(process.env.NEXT_PUBLIC_ANVIL_GASLESS_ROUTER),
     feeRouter: addr(process.env.NEXT_PUBLIC_ANVIL_FEE_ROUTER),
     referralRegistry: addr(process.env.NEXT_PUBLIC_ANVIL_REFERRAL_REGISTRY),
     lockedLP: addr(process.env.NEXT_PUBLIC_ANVIL_LOCKED_LP),
@@ -177,6 +182,24 @@ export const isDeployed = () => deployment().launchpad !== Z;
 export const hasRouter = () => deployment().router !== Z;
 export const hasLens = () => deployment().marketLens !== Z;
 export const ZERO = Z;
+/**
+ * Routers whose UsdgTrade / UsdgRefund the indexer and the live HUD watch. Same
+ * address-filtered path historically used for `d.router`, plus `d.gaslessRouter`
+ * (Permit2 gasless fills emit there, not on the regular USDG router). Zero / unset
+ * addresses are omitted; order is regular router then gasless.
+ */
+export function usdgRouters(d: { router: string; gaslessRouter?: string } = deployment()): Address[] {
+  const out: Address[] = [];
+  const seen = new Set<string>();
+  for (const a of [d.router, d.gaslessRouter]) {
+    if (!a) continue;
+    const k = a.toLowerCase();
+    if (k === ZERO.toLowerCase() || seen.has(k)) continue;
+    seen.add(k);
+    out.push(a as Address);
+  }
+  return out;
+}
 /** Testnet gas faucet (ETH). */
 export const GAS_FAUCET = "https://faucet.testnet.chain.robinhood.com/";
 /** Test quote tokens with a public mint(address,uint256) — testnet only. */

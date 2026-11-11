@@ -1,6 +1,6 @@
 import { createRelayLoginJoin } from "./relayReadiness";
 import { ensurePveLoginOnchain } from "../pve";
-import { clientSelfBundlerMode } from "./sponsorshipMode";
+import { clientSelfBundlerMode, shouldWarmAaOnSessionStart } from "./sponsorshipMode";
 import { browserBso } from "./bso";
 import { diagnosticText, errorDiagnostic } from "./diagnostics";
 /**
@@ -151,13 +151,15 @@ async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
   save();
   const a = await sa.address();
   curAccount = a;
-  void sa.warmGasReserve().catch(() => undefined);
-  void sa.preparePrepay().catch(() => undefined);
+  if (shouldWarmAaOnSessionStart()) {
+    void sa.warmGasReserve().catch(() => undefined);
+    void sa.preparePrepay().catch(() => undefined);
+  }
   userEndedOneTap = isOneTapOff(lsStore(), a);   // the player's own "one-tap off" survives reloads
   onchain = loadSessionKey(a);
   if (onchain) { await sa.useSession(onchain.entityId, privateKeyToAccount(onchain.key)); void syncSessionFromChain(); }
   // decision 3: deploy + one-tap (new account) or renew (deployed) at sign-in, in the background — never awaited here
-  void maybeAutoOneTap("login");
+  if (shouldWarmAaOnSessionStart()) void maybeAutoOneTap("login");
   watchSetupTriggers();
   changed();
   return a;
@@ -310,7 +312,7 @@ export async function setPrivyOwner(owner: LocalAccount): Promise<Address> {
   if (sa && state?.kind === "privy" && state.owner.toLowerCase() === owner.address.toLowerCase()) return sa.address();
   return startSession("privy", owner);
 }
-type PrivyHooks = { login: () => void; logout: () => Promise<void>; getAccessToken?: () => Promise<string | null>; authenticated?: boolean };
+type PrivyHooks = { login: () => void; logout: () => Promise<void>; getAccessToken?: () => Promise<string | null>; getIdentityToken?: () => Promise<string | null>; authenticated?: boolean };
 let privyHooks: PrivyHooks | null = null;
 const privySubs = new Set<() => void>();
 export function registerPrivy(h: PrivyHooks | null) { privyHooks = h; privySubs.forEach((f) => f()); }
@@ -321,6 +323,10 @@ export const privyAuthenticated = () => !!privyHooks?.authenticated;
 /** Current Privy access token (auto-refreshed by Privy) for our own API routes; null when logged out / no Privy. */
 export async function privyAccessToken(): Promise<string | null> {
   try { return (await privyHooks?.getAccessToken?.()) ?? null; } catch { return null; }
+}
+/** Privy identity token (linked_accounts, verified locally by the gasless relay). Null when logged out / not enabled. */
+export async function privyIdentityToken(): Promise<string | null> {
+  try { return (await privyHooks?.getIdentityToken?.()) ?? null; } catch { return null; }
 }
 /** Opens the Privy login modal (email / Google). The address arrives via setPrivyOwner when the wallet is ready. */
 export function privyLogin() {
@@ -386,6 +392,9 @@ export async function aaSignMessage(message: string): Promise<{ owner: Address; 
   return sa ? { owner: sa.ownerAddress, sig: await sa.signMessage(message) } : null;
 }
 export async function aaAddress() { return sa ? sa.address() : null; }
+/** Gasless mode (flow/gasless-permit2): the signed-in owner EOA (Privy embedded wallet) — it holds funds and signs
+ *  Permit2 trades itself. null when signed out. The MAv2 account stays untouched (migration plan only). */
+export function aaOwnerAccount(): LocalAccount | null { return sa ? ownerAcct : null; }
 
 /* ---------- TEMP (testnet): sweep the pre-Privy LightAccount v2 of the SAME owner key into the new MAv2 ---------- */
 // Remove once testnet users have migrated. Only "local"/"eoa" owners can match: Turnkey-owned accounts have a different key.

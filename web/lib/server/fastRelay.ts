@@ -423,3 +423,62 @@ function normalizeReceipt(rc: RelayReceipt): RelayReceipt {
     logs: (rc.logs ?? []).map((l) => ({ address: l.address, topics: l.topics, data: l.data, ...(l.logIndex ? { logIndex: l.logIndex } : {}), ...(l.blockNumber ? { blockNumber: l.blockNumber } : {}), ...(l.transactionHash ? { transactionHash: l.transactionHash } : {}) })),
   };
 }
+
+/* ───────── Gasless direct relay (lib/server/gaslessRelay; GAS_SPONSORSHIP_MODE=gasless) ─────────
+ * Additive: the SAME relayer pool / lease / nonce cursor / sequencer sync send as the self-bundler above, but the
+ * relayer tx calls the gasless router (DiscipleRouter.buyWithPermit2 / sellWithPermit2, LoginGate.attest) directly:
+ * no handleOps, no UserOp, no paymaster. Nothing above changed. */
+export type DirectRelayer = { address: Hex; fee: bigint; st: RelayerState };
+/** Relayer EOA (pool lease when on) + warm base fee + warm nonce, in parallel. Read-only (nothing allocated/signed). */
+export async function directRelayer(metrics?: RelayMetrics): Promise<DirectRelayer> {
+  const st = await stage(metrics, "relayerReady", ready);
+  const [fee] = await Promise.all([stage(metrics, "baseFee", baseFee), stage(metrics, "nonceWarm", () => st.nonces.warm())]);
+  warmSequencer();
+  return { address: st.account.address, fee, st };
+}
+/** Exact eth_call of the relayer tx from the relayer address (pending block). Throws with the revert data kept. */
+export async function simulateDirect(from: Hex, to: Hex, data: Hex): Promise<void> {
+  try { await pc.call({ account: from, to, data, blockTag: "pending" }); }
+  catch (e) {
+    let rd: string | undefined;
+    (e as { walk?: (f: (x: unknown) => boolean) => unknown }).walk?.((x) => { const v = (x as { data?: unknown }).data; if (typeof v === "string" && /^0x[0-9a-fA-F]{8,}$/.test(v)) { rd = v; return true; } return false; });
+    throw Object.assign(new Error(`simulation failed: ${(e as Error).message.split("\n")[0]}`), { data: rd, notSent: true });
+  }
+}
+/** Relayer tx fees: 2 × base fee cap (Arbitrum charges the actual base fee), no tip (FCFS sequencer). */
+export const directTxFees = (fee: bigint) => ({ maxFeePerGas: fee * BigInt(2) > BigInt(0) ? fee * BigInt(2) : BigInt(20_000_000), maxPriorityFeePerGas: BigInt(0) });
+export type DirectSendResult = { rc: RelayReceipt; via: RelayConfirmed["via"]; sendMs: number; minedMs: number; txHash: Hex; relayNonce?: number };
+/**
+ * Sign + eth_sendRawTransactionSync ONE relayer tx to `to` under the existing nonce rules (lib/server/relayerNonce
+ * sendWithCursor: definite rejection ⇒ release/resync, unclear ⇒ wait on the SAME hash, never re-sign) and the pool
+ * lease check before every signature. Errors carry { txHash, notSent, unclear } exactly like commitOp.
+ */
+export async function sendDirect(r: DirectRelayer, to: Hex, data: Hex, gas: bigint, onPending?: OnPending, metrics?: RelayMetrics): Promise<DirectSendResult> {
+  const { st } = r, fees = directTxFees(r.fee);
+  let txHash: Hex | undefined, relayNonce: number | undefined, signed = false;
+  try {
+    const res = await sendWithCursor(metrics ? {
+      warm: () => st.nonces.warm(),
+      take: () => metrics.span("nonceAllocate", () => st.nonces.take()),
+      release: n => st.nonces.release(n), invalidate: () => st.nonces.invalidate(),
+      recover: (e, n, final) => metrics.span("nonceRecover", () => st.nonces.recover(e, n, final)),
+    } : st.nonces, async (nonce) => {
+      const s = Date.now();
+      let raw: Hex;
+      try { raw = await st.account.signTransaction({ chainId: robinhoodTestnet.id, type: "eip1559", to, data, gas, nonce, ...fees }); }
+      catch (e) { throw Object.assign(e as Error, { definitive: true }); }
+      signed = true; metrics?.add("signTx", Date.now() - s);
+      const h = (txHash = keccak256(raw)), n = (relayNonce = nonce);
+      return sendSync(raw, onPending && ((p) => onPending({ ...p, txHash: h, relayNonce: n })));
+    }, 2, st.canSign);
+    metrics?.add("syncSend", res.sendMs); metrics?.add("mined", res.minedMs); metrics?.mark("receiptReady");
+    return { rc: normalizeReceipt(res.rc), via: res.via, sendMs: res.sendMs, minedMs: res.minedMs, txHash: res.rc.transactionHash as Hex, relayNonce };
+  } catch (e) {
+    const unclear = (e as { unclear?: unknown }).unclear === true;
+    const notSent = !signed || (!unclear && classifySendError(e) !== "unclear");
+    throw Object.assign(e as Error, { txHash: (e as RpcErr).txHash ?? txHash, notSent, ...(unclear ? { unclear: true } : {}), ...(relayNonce !== undefined ? { relayNonce } : {}) });
+  }
+}
+/** Strike the sender's trust ledger (escalating backoff; admission's strike window refuses it). */
+/** Strike the wallet, and when `did` is set also the Privy user, so a new linked wallet can't skip the window (M1). */
+export const strikeSender = (sender: string, did?: string | null) => { TRUST.strike(sender); if (did) TRUST.strike(did); };

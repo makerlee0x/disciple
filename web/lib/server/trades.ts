@@ -18,7 +18,8 @@ import "server-only";
  */
 import { decodeEventLog, getAbiItem, type Address, type Hex, type Log, type PublicClient } from "viem";
 import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "@/lib/abi";
-import { deployment, ZERO } from "@/lib/chains";
+import { deployment, ZERO, usdgRouters } from "@/lib/chains";
+export { usdgRouters };
 import { serverPc } from "./chat/identity";
 import { kv, type Kv } from "./kv";
 import { ACH } from "./achKeys";
@@ -131,11 +132,12 @@ export async function indexTrades(budgetMs = 20_000): Promise<{ indexed: number;
         if (chunk > BigInt(50)) { chunk = chunk / BigInt(4); continue; } // RPC result/range cap: shrink and retry
         throw e;
       }
-      // DiscipleRouter UsdgTrade in the same range (address-filtered: the RH RPC serves those over any range) ⇒ real USDG in/out
-      const router = d.router;
-      const usdgLogs = router === ZERO ? [] : ((await pc.getLogs({ address: router, event: USDG_TRADE, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: UsdgTradeArgs }[]);
-      // …and its UsdgRefund (graduating buy / First BOOST over the cap) ⇒ usdIn is the NET paid. Router address only.
-      const refundLogs = router === ZERO || !usdgLogs.length ? [] : ((await pc.getLogs({ address: router, event: USDG_REFUND, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: UsdgRefundArgs }[]);
+      // DiscipleRouter UsdgTrade in the same range (address-filtered: the RH RPC serves those over any range) ⇒ real USDG in/out.
+      // Same pattern as d.router, also watching deployment().gaslessRouter (gasless Permit2 fills emit there).
+      const routers = usdgRouters(d);
+      const usdgLogs = routers.length === 0 ? [] : ((await pc.getLogs({ address: routers, event: USDG_TRADE, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: UsdgTradeArgs }[]);
+      // …and UsdgRefund on the same routers (graduating buy / First BOOST over the cap) ⇒ usdIn is the NET paid.
+      const refundLogs = routers.length === 0 || !usdgLogs.length ? [] : ((await pc.getLogs({ address: routers, event: USDG_REFUND, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: UsdgRefundArgs }[]);
       const usdg = usdgIndex(attachRefunds(usdgLogs.map((x) => ({ tx: x.transactionHash, args: x.args })), refundLogs.map((x) => ({ tx: x.transactionHash, args: x.args }))));
       const fills: Fill[] = [];
       for (const l of logs) {
@@ -206,15 +208,17 @@ type RLog = { address: string; topics: readonly string[]; data: string; logIndex
 /**
  * Pure (tests): the router UsdgTrade (with its UsdgRefund attached) for the Trade log at `logIndex` in a receipt. Matched
  * like the indexer: the n-th Trade of (token, side) in the tx takes the n-th UsdgTrade of (token, side), by log order.
+ * `router` is one address or the list from usdgRouters() (regular + gasless).
  */
-export function usdgFromReceiptLogs(logs: readonly RLog[], router: string, logIndex: number, a: { token: string; isBuy: boolean }): UsdgTradeArgs | undefined {
-  const r = router.toLowerCase(), tok = a.token.toLowerCase();
+export function usdgFromReceiptLogs(logs: readonly RLog[], router: string | readonly string[], logIndex: number, a: { token: string; isBuy: boolean }): UsdgTradeArgs | undefined {
+  const routers = new Set((typeof router === "string" ? [router] : router).map((x) => x.toLowerCase()).filter((x) => x && x !== ZERO.toLowerCase()));
+  const tok = a.token.toLowerCase();
   const sorted = [...logs].sort((x, y) => Number(x.logIndex) - Number(y.logIndex));
   const trades: { tx: string; args: UsdgTradeArgs }[] = [], refunds: { tx: string; args: UsdgRefundArgs }[] = [];
   let nth = 0;
   for (const l of sorted) {
     const t = { data: l.data as Hex, topics: l.topics as [Hex, ...Hex[]] };
-    if (l.address.toLowerCase() === r) {
+    if (routers.has(l.address.toLowerCase())) {
       try {
         const ev = decodeEventLog({ abi: [USDG_TRADE, USDG_REFUND], ...t }) as unknown as { eventName: string; args: Record<string, unknown> };
         if (ev.eventName === "UsdgTrade") trades.push({ tx: "r", args: ev.args as unknown as UsdgTradeArgs });
@@ -296,7 +300,8 @@ export async function reindexFills(scope: { coin: string } | "all", o: { dryRun?
         catch { out.missing++; continue; }
         const venue = await prepareTrade(pc, a, src, hook);
         if (!venue) { out.missing++; continue; }
-        const usdg = d.router === ZERO ? undefined : usdgFromReceiptLogs(r!.logs as unknown as RLog[], d.router, f.logIndex, a);
+        const routers = usdgRouters(d);
+        const usdg = routers.length === 0 ? undefined : usdgFromReceiptLogs(r!.logs as unknown as RLog[], routers, f.logIndex, a);
         const nf = revalueFill(f, venue, a, usdg);
         const nm = JSON.stringify(nf);
         if (nm === m) { out.skipped++; continue; }

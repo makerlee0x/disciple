@@ -10,7 +10,7 @@
  * Robinhood Chain testnet (46630) is a custom viem defineChain (lib/chains.ts) passed as default/supported chain.
  */
 import { useEffect, useRef } from "react";
-import { PrivyProvider, toViemAccount, useCreateWallet, usePrivy, useWallets } from "@privy-io/react-auth";
+import { PrivyProvider, getIdentityToken, toViemAccount, useCreateWallet, usePrivy, useWallets } from "@privy-io/react-auth";
 import { needsEmbeddedWallet, ownerWalletAddress, type LinkedLike } from "@/lib/privyOwner";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { PRIVY_APP_ID, aaSession, registerPrivy } from "@/lib/aa/session";
@@ -26,7 +26,7 @@ function PrivyBridge() {
   const linkedAccounts = (user?.linkedAccounts ?? null) as ReadonlyArray<LinkedLike> | null;
 
   // getAccessToken: Privy session for our API routes (verification requests / admin review), no wallet signature
-  useEffect(() => { registerPrivy({ login, logout, getAccessToken, authenticated: ready && authenticated }); return () => registerPrivy(null); }, [login, logout, getAccessToken, ready, authenticated]);
+  useEffect(() => { registerPrivy({ login, logout, getAccessToken, getIdentityToken, authenticated: ready && authenticated }); return () => registerPrivy(null); }, [login, logout, getAccessToken, ready, authenticated]);
 
   useEffect(() => {
     if (!ready || !walletsReady) return;

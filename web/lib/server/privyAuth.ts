@@ -5,14 +5,21 @@
  *    "\n"-escaped is fine). Unset ⇒ the app's JWKS from the FIXED host auth.privy.io (app id validated, never a
  *    caller-supplied URL ⇒ no SSRF). Neither available ⇒ every request is rejected (fail closed).
  *  - claims: alg ES256, iss "privy.io", aud = our app id, exp in the future (60 s skew), sub = did:privy:…
- *  - user: GET https://api.privy.io/v1/users/{did} (Basic appId:PRIVY_APP_SECRET), cached 60 s. Emails are taken from
- *    `email` and `google_oauth` linked accounts only; wallets from linked ethereum wallets.
+ *  - user (non-gasless routes): GET https://api.privy.io/v1/users/{did} (Basic appId:PRIVY_APP_SECRET), cached 60 s.
+ *    Emails are taken from `email` and `google_oauth` linked accounts only; wallets from linked ethereum wallets.
+ *  - identity token (gasless relay): ES256 JWT with a stringified `linked_accounts` claim, verified locally with the
+ *    same app verification key. Privy guidance: "Lookups by user ID are subject to rate limits. When accessing an
+ *    authenticated user, use identity tokens"
+ *    (https://docs.privy.io/user-management/users/managing-users/querying-users,
+ *     https://docs.privy.io/user-management/users/identity-tokens). Must be enabled in the Privy Dashboard
+ *    (User management → Authentication → Advanced → "Return user data in an identity token") — this file never
+ *    changes that setting.
  * Pure node (no server-only, fetch/clock injectable): unit-tested by scripts/test-verify-api.mts.
  */
 import { createPublicKey, verify as cryptoVerify, type KeyObject } from "crypto";
 
 export type PrivyClaims = { sub: string; sid?: string; exp: number; iat?: number };
-export type PrivyUser = { id: string; emails: string[]; wallets: string[] };
+export type PrivyUser = { id: string; emails: string[]; wallets: string[]; /** linked account types (email, google_oauth, twitter_oauth, wallet, …) */ logins?: string[] };
 export type PrivyEnv = { appId: string; appSecret?: string; verificationKey?: string };
 export type FetchLike = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
@@ -70,6 +77,56 @@ export function verifyAccessToken(token: string, keys: KeyObject[], appId: strin
   return { sub, sid: claims.sid ? String(claims.sid) : undefined, exp, iat: claims.iat ? Number(claims.iat) : undefined };
 }
 
+/** Parse Privy `linked_accounts` (identity-token claim or users-API field) into a PrivyUser. */
+export function userFromLinkedAccounts(did: string, accounts: unknown): PrivyUser | null {
+  if (!Array.isArray(accounts)) return null;
+  const emails = new Set<string>(), wallets = new Set<string>(), logins = new Set<string>();
+  for (const raw of accounts) {
+    if (!raw || typeof raw !== "object") continue;
+    const a = raw as Record<string, unknown>;
+    if (typeof a.type === "string") logins.add(a.type);
+    if (a.type === "email" && typeof a.address === "string") emails.add(a.address.trim().toLowerCase());
+    if (a.type === "google_oauth" && typeof a.email === "string") emails.add(a.email.trim().toLowerCase());
+    if (a.type === "wallet" && (a.chain_type === "ethereum" || a.chainType === "ethereum") && typeof a.address === "string" && /^0x[0-9a-fA-F]{40}$/.test(a.address))
+      wallets.add(a.address.toLowerCase());
+  }
+  return { id: did, emails: Array.from(emails), wallets: Array.from(wallets), logins: Array.from(logins) };
+}
+
+/**
+ * Verify a Privy identity token (https://docs.privy.io/user-management/users/identity-tokens): ES256, iss privy.io,
+ * aud = our app id, exp/nbf (60 s skew), sub = did:privy:…, and a stringified `linked_accounts` claim. Local crypto
+ * only — no users-API hop. Returns the user, or null (bad / expired / missing claim).
+ * `verifyAccessToken` is for access tokens and will not accept these (different claims).
+ */
+export function verifyIdentityToken(token: string, keys: KeyObject[], appId: string, nowSec = Math.floor(Date.now() / 1000)): { sub: string; exp: number; user: PrivyUser } | null {
+  if (!keys.length || !appId || typeof token !== "string" || token.length > 24_576) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  let header: { alg?: string }, claims: Record<string, unknown>;
+  try { header = JSON.parse(b64u(parts[0]).toString("utf8")); claims = JSON.parse(b64u(parts[1]).toString("utf8")); } catch { return null; }
+  if (header.alg !== "ES256") return null;
+  const sig = b64u(parts[2]);
+  if (sig.length !== 64) return null;
+  const data = Buffer.from(`${parts[0]}.${parts[1]}`);
+  if (!keys.some((k) => { try { return cryptoVerify("sha256", data, { key: k, dsaEncoding: "ieee-p1363" }, sig); } catch { return false; } })) return null;
+  const aud = claims.aud;
+  if (claims.iss !== "privy.io") return null;
+  if (!(aud === appId || (Array.isArray(aud) && aud.includes(appId)))) return null;
+  const exp = Number(claims.exp);
+  if (!Number.isFinite(exp) || exp + 60 < nowSec) return null;
+  if (claims.nbf != null && Number(claims.nbf) - 60 > nowSec) return null;
+  const sub = String(claims.sub ?? "");
+  if (!DID_RE.test(sub)) return null;
+  let accounts: unknown;
+  if (typeof claims.linked_accounts === "string") {
+    try { accounts = JSON.parse(claims.linked_accounts); } catch { return null; }
+  } else return null;   // identity tokens carry a stringified array (Privy docs)
+  const user = userFromLinkedAccounts(sub, accounts);
+  if (!user) return null;
+  return { sub, exp, user };
+}
+
 const userCache = new Map<string, { at: number; u: PrivyUser }>();
 /** Linked emails (lowercased) + ethereum wallets of a Privy user, from the Privy REST API. null on any failure. */
 export async function fetchPrivyUser(did: string, pe: PrivyEnv, f: FetchLike = fetch as unknown as FetchLike, now = Date.now()): Promise<PrivyUser | null> {
@@ -84,13 +141,8 @@ export async function fetchPrivyUser(did: string, pe: PrivyEnv, f: FetchLike = f
     if (!r.ok) return null;
     const j = (await r.json()) as { id?: string; linked_accounts?: Record<string, unknown>[] };
     if (j.id !== did) return null;
-    const emails = new Set<string>(), wallets = new Set<string>();
-    for (const a of j.linked_accounts ?? []) {
-      if (a.type === "email" && typeof a.address === "string") emails.add(a.address.trim().toLowerCase());
-      if (a.type === "google_oauth" && typeof a.email === "string") emails.add(a.email.trim().toLowerCase());
-      if (a.type === "wallet" && a.chain_type === "ethereum" && typeof a.address === "string" && /^0x[0-9a-fA-F]{40}$/.test(a.address)) wallets.add(a.address.toLowerCase());
-    }
-    const u = { id: did, emails: Array.from(emails), wallets: Array.from(wallets) };
+    const u = userFromLinkedAccounts(did, j.linked_accounts ?? []);
+    if (!u) return null;
     if (userCache.size > 5000) userCache.clear();
     userCache.set(did, { at: now, u });
     return u;
