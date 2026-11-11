@@ -9,7 +9,7 @@
   --pad-x: 72.57%; --pad-y: 94.64%; /* padline top edge (mock: 530 / 560) */
   position: relative;
   height: clamp(520px, 38.9vw, 720px);
-  margin-top: calc(-1 * var(--ap-topbar-h, 56px)); /* scene runs under the (transparent-at-top) chrome strip */
+  margin-top: calc(-1 * var(--ap-topbar-offset, 56px)); /* scene runs under the (transparent-at-top) chrome strip */
   overflow: hidden;
   background: #2a2c36;
   container-type: size;

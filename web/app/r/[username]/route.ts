@@ -1,7 +1,7 @@
 /** Ref link landing: /r/<username> or /r/<0xwallet>. Sets first-touch cookie (30d) and redirects home. */
 import { NextResponse, type NextRequest } from "next/server";
 import { REF_COOKIE, REF_TTL_MS, parseRef } from "@/lib/referral";
-import { USERNAME_RE } from "@/lib/profile";
+import { USERNAME_STORED_RE } from "@/lib/profile";
 import { usernameOf, walletOf } from "@/lib/server/usernames";
 
 export const runtime = "nodejs";
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ user
   let u: string | null = null, a: string | null = null;
   try {
     if (/^0x[0-9a-f]{40}$/.test(raw)) { a = raw; u = await usernameOf(raw); }
-    else if (USERNAME_RE.test(raw)) { u = raw; a = await walletOf(raw); }
+    else if (USERNAME_STORED_RE.test(raw)) { u = raw; a = await walletOf(raw); }
   } catch { /* store down: still record the username */ }
   if (!u && !a) return res;
   res.cookies.set(REF_COOKIE, JSON.stringify({ u, a, t: Date.now() }), {

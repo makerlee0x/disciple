@@ -6,7 +6,7 @@ import { onWallet } from "@/lib/wallet";
 import type { Address } from "@/lib/protocol";
 import {
   checkUsername, claimUsername, fetchUsernameStatus, localUsername, localXHandle, normalizeUsername,
-  profileUrl, referralUrl, setLocalXHandle, validateUsername,
+  profileUrl, referralUrl, setLocalXHandle, USERNAME_MAX, validateUsername,
 } from "@/lib/profile";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 import { refLabel } from "@/lib/referral";
@@ -82,7 +82,7 @@ export default function ProfileIdentity({ hideUsername = false, usernameOnly = f
           {editing ? (
             <div className="pid-edit">
               <span className="muted">@</span>
-              <input className="ds-input" autoFocus value={draft} maxLength={20} placeholder="your_name"
+              <input className="ds-input" autoFocus value={draft} maxLength={USERNAME_MAX} placeholder="your_name"
                 onChange={(e) => setDraft(e.target.value.toLowerCase())}
                 onKeyDown={(e) => { if (e.key === "Enter" && status?.ok) void save(); if (e.key === "Escape") setEditing(false); }} />
               <button type="button" className="ds-btn gold" disabled={!status?.ok} onClick={save}>Save</button>

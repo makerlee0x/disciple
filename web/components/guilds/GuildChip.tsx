@@ -6,6 +6,7 @@ import { GUILD_COPY, type GuildTag } from "@/lib/guilds";
 import { GUILDS_EVENT, cachedGuild, lookupGuild } from "@/lib/guildClient";
 import { GUILD_FRAME_SRC } from "@/lib/guildSeed";
 import { PROFILE_CHANGED_EVENT } from "@/lib/profile";
+import { GUILDS_ENABLED } from "@/lib/features";
 
 /**
  * 24×24 mark slot (BRAND guilds-r1). Two layers, both swappable:
@@ -36,7 +37,7 @@ export function GuildMark({ guild, size = 24 }: { guild: Pick<GuildTag, "tag" | 
  * Marks render at 12px+ only; below that, the text alone.
  */
 export default function GuildChip({ guild, size = "inline", markOnly = false }: { guild: Pick<GuildTag, "tag" | "mark"> | null | undefined; size?: "inline" | "md" | "lg"; markOnly?: boolean }) {
-  if (!guild) return null;
+  if (!GUILDS_ENABLED || !guild) return null;
   const px = size === "lg" ? 16 : size === "md" ? 14 : 12;
   // markOnly (account pill): the mark alone, the tag stays in the tooltip + for screen readers. A tag that matches the
   // username ("@jesus" + "J JESUS") read as the name shown twice (lee, Oct 30).
@@ -51,8 +52,9 @@ export default function GuildChip({ guild, size = "inline", markOnly = false }: 
 
 /** The guild tag of `address`, live: refreshes when this browser changes guilds or GAME/SITE publish new tags. */
 export function useGuildTag(address: string | null | undefined): GuildTag | null {
-  const [tag, setTag] = useState<GuildTag | null>(() => cachedGuild(address) ?? null);
+  const [tag, setTag] = useState<GuildTag | null>(() => (GUILDS_ENABLED ? cachedGuild(address) ?? null : null));
   useEffect(() => {
+    if (!GUILDS_ENABLED) { setTag(null); return; }
     let alive = true;
     const load = () => void lookupGuild(address).then((t) => { if (alive) setTag(t); });
     setTag(cachedGuild(address) ?? null); load();
@@ -64,11 +66,12 @@ export function useGuildTag(address: string | null | undefined): GuildTag | null
     window.addEventListener(PROFILE_CHANGED_EVENT, load);
     return () => { alive = false; window.removeEventListener(GUILDS_EVENT, onGuilds); window.removeEventListener(PROFILE_CHANGED_EVENT, load); };
   }, [address]);
-  return tag;
+  return GUILDS_ENABLED ? tag : null;
 }
 
-/** Inline chip for a wallet (looks the tag up). Renders nothing when the wallet has no guild. */
+/** Inline chip for a wallet (looks the tag up). Renders nothing when guilds are hidden or the wallet has no guild. */
 export function GuildTagFor({ address, size = "inline", markOnly = false }: { address: string | null | undefined; size?: "inline" | "md" | "lg"; markOnly?: boolean }) {
   const tag = useGuildTag(address);
+  if (!GUILDS_ENABLED) return null;
   return <GuildChip guild={tag} size={size} markOnly={markOnly} />;
 }
