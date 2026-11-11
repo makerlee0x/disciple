@@ -84,6 +84,7 @@
     "test:invites": "tsx --test scripts/test-invites.mts",
     "test:claims": "tsx --test scripts/test-claims.mts",
     "test:hide-season-ui": "tsx scripts/test-hide-season-ui.mjs",
+    "test:rockets-empty-instant": "tsx scripts/test-rockets-empty-instant.mjs",
     "test:rewards": "tsx --test scripts/test-rewards.mts",
     "test:ssrf": "tsx --test scripts/test-ssrf.mts",
     "test:coin-images": "tsx --test scripts/test-coin-images.mts",
