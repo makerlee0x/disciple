@@ -151,7 +151,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     addEventListener("disciple:livetrade", t); addEventListener("disciple:fillreceipt", r); addEventListener("disciple:op", op); addEventListener(CASH_ARRIVED_EVENT, cash);
     return () => { clearInterval(i); removeEventListener("disciple:livetrade", t); removeEventListener("disciple:fillreceipt", r); removeEventListener("disciple:op", op); removeEventListener(CASH_ARRIVED_EVENT, cash); }; }, [addr, coin]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  // live retest #5: the chip shows the claimed @name (the account's, else its owner's), not only the short address
+  // claimed @name is looked up for the sidebar avatar initial only; the chip shows the short address (username lives on the profile)
   const [uname, setUname] = useState<string | null>(null);
   const ownerAddr = addr ? aaSession()?.owner : undefined;
   useEffect(() => {
@@ -270,7 +270,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
               )}
               <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
                 style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
-                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}{!copied && GUILDS_ENABLED && <> <GuildTagFor address={addr} markOnly /></>}
+                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(null, addr)}{!copied && GUILDS_ENABLED && <> <GuildTagFor address={addr} markOnly /></>}
               </button>
               {/* coin page cleanup (lee, Oct 30): no ✕ next to the chip; Sign out lives in the account menu + Sidebar */}
             </>

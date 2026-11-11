@@ -195,6 +195,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
     </Link>
   );
   const name = me ? (me.name ? me.name.replace(/^@/, "") : defaultUsername(me.address)) : "";
+  const shortAddr = me ? `${me.address.slice(0, 6)}…${me.address.slice(-4)}` : "";
   // Settings: on game routes GAME's settings menu (SETTINGS_OPEN_EVENT, #149: sound etc., also signed out); elsewhere the
   // account Settings popup (/profile#settings, #216), which holds Sign out, so it shows signed in only.
   const showSettings = isGame || you;
@@ -263,11 +264,11 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
 
         {me && hasMe ? (
           <div className="ap-me" data-testid="side-account">
-            <Link href="/profile" className="ap-me-id" title={name} onClick={closeIfMobile}>
+            <Link href="/profile" className="ap-me-id" title={shortAddr} onClick={closeIfMobile}>
               <Avatar address={me.address} name={name} size={36} />
-              {/* the name once (lee): no text guild chip here, just the small guild mark like the wallet pill (#219) */}
+              {/* username is shown on the profile only; this card labels the wallet with the short address */}
               <span className="ap-me-who">
-                <span className="ap-me-nm">{name}{GUILDS_ENABLED && <GuildTagFor address={me.address} markOnly />}</span>
+                <span className="ap-me-nm">{shortAddr}{GUILDS_ENABLED && <GuildTagFor address={me.address} markOnly />}</span>
               </span>
             </Link>
             {settingsProps
