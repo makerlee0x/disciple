@@ -3,7 +3,8 @@
 // bytes), `book.dx` / `book.dy` share +25 (int128 each, v0.2). test/unit.test.ts ("storage layout matches the hook")
 // re-checks this against forge when available.
 import { encodeAbiParameters, keccak256, type Hex, type PublicClient } from "viem";
-import { hookAbi } from "./abi.ts";
+import { carryHookAbi, hookAbi, leaderAbi } from "./abi.ts";
+import { SRC_V2, SRC_V3, SRC_V4, shift, spotX128 } from "./price.ts";
 
 export const POOLS_SLOT = 1n;
 export const OFF = { head: 0n, src0: 2n, srcV4Id: 3n, src2: 4n, obsAt: 8n, bookDx: 25n, bookDy: 25n } as const;
@@ -16,6 +17,7 @@ export interface PoolSource {
   v4Id: Hex;
   decShift: number;
   push: boolean;
+  kind2?: number; // second leg kind (0 or absent = single-leg source)
 }
 
 export interface PoolDyn {
@@ -59,6 +61,7 @@ export function decodeSource(w0: bigint, v4Id: bigint, w2: bigint): PoolSource {
     v4Id: slotHex(v4Id),
     decShift: int8(byteAt(w2, 0)),
     push: byteAt(w2, 2) !== 0,
+    kind2: byteAt(w2, 3),
   };
 }
 
@@ -73,14 +76,14 @@ export async function readSource(c: PublicClient, hook: Hex, id: Hex): Promise<P
   return { exists: (head & 0xffn) !== 0n, ...decodeSource(w0, v4, w2) };
 }
 
-export async function readDyn(c: PublicClient, hook: Hex, id: Hex): Promise<PoolDyn> {
+export async function readDyn(c: PublicClient, hook: Hex, id: Hex, abi: typeof hookAbi | typeof carryHookAbi = hookAbi): Promise<PoolDyn> {
   const b = poolBase(id);
   const [head, obs, dx, dy, view] = await Promise.all([
     slot(c, hook, b + OFF.head),
     slot(c, hook, b + OFF.obsAt),
     slot(c, hook, b + OFF.bookDx),
     slot(c, hook, b + OFF.bookDy),
-    c.readContract({ address: hook, abi: hookAbi, functionName: "poolState", args: [id] }).catch(() => null),
+    (c.readContract({ address: hook, abi, functionName: "poolState", args: [id] }) as Promise<{ coin: Hex; quote: Hex; anchorX128: bigint; jarX: bigint; jarY: bigint }>).catch(() => null),
   ]);
   return {
     exists: (head & 0xffn) !== 0n,
@@ -93,4 +96,31 @@ export async function readDyn(c: PublicClient, hook: Hex, id: Hex): Promise<Pool
     jar: view ? jarValue(view.jarX, view.jarY, view.anchorX128) : 0n,
     traded: dx !== 0n || dy !== 0n,
   };
+}
+
+/** v4 PoolManager storage slot of a pool's Slot0 (StateLibrary: keccak256(poolId, POOLS_SLOT = 6)). */
+export const v4Slot0 = (v4Id: Hex): Hex => keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [v4Id, 6n]));
+
+/** A same-chain leader's live spot (X128, raw quote per raw coin), as the hook's single-leg read. 0 = unreadable.
+ *  Two-leg sources are not read here (0). */
+export async function readLeaderSpot(c: PublicClient, s: PoolSource): Promise<bigint> {
+  try {
+    if (s.kind2) return 0n;
+    if (s.kind === SRC_V2) {
+      const r = await c.readContract({ address: s.target, abi: leaderAbi, functionName: "getReserves" });
+      return shift(s.decShift, spotX128(SRC_V2, r[0], r[1], s.coinIs0));
+    }
+    if (s.kind === SRC_V3) {
+      const r = await c.readContract({ address: s.target, abi: leaderAbi, functionName: "slot0" });
+      return shift(s.decShift, spotX128(SRC_V3, r[0], 0n, s.coinIs0));
+    }
+    if (s.kind === SRC_V4) {
+      const w = await c.readContract({ address: s.target, abi: leaderAbi, functionName: "extsload", args: [v4Slot0(s.v4Id)] });
+      const sqrtP = BigInt(w) & ((1n << 160n) - 1n);
+      return shift(s.decShift, spotX128(SRC_V4, sqrtP, 0n, s.coinIs0));
+    }
+  } catch {
+    /* unreadable leader */
+  }
+  return 0n;
 }

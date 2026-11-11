@@ -16,9 +16,9 @@ import {
   type PublicClient,
   type WalletClient,
 } from "viem";
-import { endpointAbi, erc20Abi, hookAbi, receiverAbi, senderAbi, ulnAbi } from "./abi.ts";
+import { carryHookAbi, endpointAbi, erc20Abi, hookAbi, receiverAbi, senderAbi, ulnAbi } from "./abi.ts";
 import type { ChainCfg, Config, RouteCfg, SameChainCfg } from "./config.ts";
-import { jarValue, readDyn, readSource, type PoolDyn, type PoolSource } from "./hook.ts";
+import { jarValue, readDyn, readLeaderSpot, readSource, type PoolDyn, type PoolSource } from "./hook.ts";
 import { decodeMessage, messageLength, packetsFromLogs, payloadHash } from "./packet.ts";
 import { HEARTBEAT, moveBps, moved, shift, spotX128 } from "./price.ts";
 import { routeState, saveState, type Packet, type State } from "./state.ts";
@@ -88,6 +88,14 @@ export function judge(
   return null;
 }
 
+/** Whether pool `id` may take another unpaid sample now: fewer than `maxPerHour` in the last hour. Prunes old
+ *  entries, otherwise pure, so tests can drive it. */
+export function selfPayRoom(log: Map<string, number[]>, id: string, t: number, maxPerHour: number): boolean {
+  const recent = (log.get(id) ?? []).filter((x) => x > t - 3600);
+  log.set(id, recent);
+  return recent.length < maxPerHour;
+}
+
 /** Split due pools into messages: at most `maxPools` listings and MAX_MESSAGE_SIZE bytes each. */
 export function batch(due: Due[], maxPools: number): Due[][] {
   const bySrc = new Map<string, Due[]>();
@@ -135,12 +143,18 @@ export class Keeper {
   private badPools = new Set<string>();
   /** per chain: the last send, so sends from the two loops never race for a nonce */
   private sendLock = new Map<string, Promise<unknown>>();
+  /** per chain: the next nonce to send with (see serial), and the lowest one the chain could still accept */
+  private nonces = new Map<string, number>();
+  private nonceFloor = new Map<string, number>();
   private tokens = new Map<string, { symbol: string; decimals: number }>();
   /** pool id -> [coin, quote] (immutable) */
   private poolTokens = new Map<string, [Hex, Hex]>();
   /** same-chain: consecutive unpaid samples and rest-until, by pool id */
   private misses = new Map<string, number>();
   private restUntil = new Map<string, number>();
+  /** same-chain: when we last sampled each pool, and our recent unpaid (selfPayBps) samples, by pool id */
+  private lastSample = new Map<string, number>();
+  private selfPaid = new Map<string, number[]>();
 
   private cfg: Config;
   private state: State;
@@ -174,10 +188,31 @@ export class Keeper {
     return this.clients.get(chain.name)!;
   }
 
-  /** Run `fn` (send a tx and wait for it) after any earlier send on the same chain has finished. */
-  private serial<T>(chain: ChainCfg, fn: () => Promise<T>): Promise<T> {
+  /** Run `fn` (send a tx and wait for it) after any earlier send on the same chain has finished. `fn` gets the
+   *  nonce to send with: tracked here, not re-read from the RPC, because a node behind a load balancer can still
+   *  report the old pending count just after our last receipt ("nonce too low"). Any failure drops the cached
+   *  nonce, so the next send reads it fresh. */
+  private serial<T>(chain: ChainCfg, fn: (nonce: number) => Promise<T>): Promise<T> {
     const prev = this.sendLock.get(chain.name) ?? Promise.resolve();
-    const next = prev.catch(() => undefined).then(fn);
+    const next = prev
+      .catch(() => undefined)
+      .then(async () => {
+        let n = this.nonces.get(chain.name);
+        if (n === undefined) {
+          const pending = await this.c(chain).pub.getTransactionCount({ address: this.account.address, blockTag: "pending" });
+          n = Math.max(pending, this.nonceFloor.get(chain.name) ?? 0);
+        }
+        try {
+          const out = await fn(n);
+          this.nonces.set(chain.name, n + 1);
+          this.nonceFloor.set(chain.name, n + 1);
+          return out;
+        } catch (e) {
+          this.nonces.delete(chain.name);
+          if (/nonce too low/i.test((e as Error).message ?? "")) this.nonceFloor.set(chain.name, n + 1);
+          throw e;
+        }
+      });
     this.sendLock.set(chain.name, next.catch(() => undefined));
     return next;
   }
@@ -442,10 +477,11 @@ export class Keeper {
       this.log.warn(`${r.name}: push of ${ds.length} pools would cost ${formatEther(expected)} ETH, above maxPushCost`);
       return null;
     }
-    const { hash, rc } = await this.serial(r.home, async () => {
+    const { hash, rc } = await this.serial(r.home, async (nonce) => {
       const hash = await wal.writeContract({
         chain,
         account: this.account,
+        nonce,
         address: r.sender,
         abi: senderAbi,
         functionName: "push",
@@ -551,10 +587,11 @@ export class Keeper {
       } catch {
         continue; // DVNs not done yet (or confirmations not reached)
       }
-      const { hash, rc } = await this.serial(r.dest, async () => {
+      const { hash, rc } = await this.serial(r.dest, async (nonce) => {
         const hash = await wal.writeContract({
           chain,
           account: this.account,
+          nonce,
           address: lib,
           abi: ulnAbi,
           functionName: "commitVerification",
@@ -585,10 +622,11 @@ export class Keeper {
         this.log.warn(`${r.name}: nonce ${p.nonce} cannot execute yet${blocked ? `: waiting for nonce ${blocked[1]}` : `: ${m.split("\n")[0]}`}`);
         break;
       }
-      const { hash, rc } = await this.serial(r.dest, async () => {
+      const { hash, rc } = await this.serial(r.dest, async (nonce) => {
         const hash = await wal.writeContract({
           chain,
           account: this.account,
+          nonce,
           address: r.dest.endpoint,
           abi: endpointAbi,
           functionName: "lzReceive",
@@ -644,10 +682,11 @@ export class Keeper {
     for (const tk of toks) {
       const amt = await pub.readContract({ address: hook, abi: hookAbi, functionName: "owed", args: [this.account.address, tk] });
       if (amt === 0n) continue;
-      const { hash, rc } = await this.serial(r.dest, async () => {
+      const { hash, rc } = await this.serial(r.dest, async (nonce) => {
         const hash = await wal.writeContract({
           chain,
           account: this.account,
+          nonce,
           address: hook,
           abi: hookAbi,
           functionName: "collect",
@@ -682,7 +721,7 @@ export class Keeper {
       }
       for (let i = 0; i < s.chain.logCallsPerTick && from <= latest; i++) {
         const to = from + s.chain.logChunk - 1n < latest ? from + s.chain.logChunk - 1n : latest;
-        const logs = await pub.getContractEvents({ address: s.hook, abi: hookAbi, eventName: "Created", fromBlock: from, toBlock: to });
+        const logs = await pub.getContractEvents({ address: s.hook, abi: this.hAbi(s), eventName: "Created", fromBlock: from, toBlock: to });
         for (const l of logs) if (Number(l.args.remoteEid) === 0) found.push(l.args.id!.toLowerCase() as Hex);
         from = to + 1n;
         rs.poolCursor = from;
@@ -702,22 +741,56 @@ export class Keeper {
     }
   }
 
-  /** Ask the hook which pools would pay a tip now, and call sample() on those. */
+  /** Ask the hook which pools would pay a tip now, and call sample() on those. With `selfPayBps`, also sample
+   *  (unpaid) the pools whose centre is that far from the leader but below the hook's 1% tip line. No pool is
+   *  sampled twice within `minGapSec` (one reading per L1 block on Robinhood). */
   async sampleDue(s: SameChainCfg): Promise<void> {
-    const ids = Object.keys(routeState(this.state, s.name).pools) as Hex[];
+    const rs = routeState(this.state, s.name);
+    const ids = Object.keys(rs.pools) as Hex[];
     if (ids.length === 0) return;
     const { pub } = this.c(s.chain);
     const t = now();
-    const open = ids.filter((id) => (this.restUntil.get(id) ?? 0) <= t);
+    const sm = this.cfg.sampling;
+    const open = ids.filter((id) => (this.restUntil.get(id) ?? 0) <= t && (this.lastSample.get(id) ?? 0) + sm.minGapSec <= t);
     const due = await Promise.all(
       open.map((id) =>
-        pub.readContract({ address: s.hook, abi: hookAbi, functionName: "sampleDue", args: [id] }).catch(() => false),
+        pub.readContract({ address: s.hook, abi: this.hAbi(s), functionName: "sampleDue", args: [id] }).catch(() => false),
       ),
     );
-    for (let i = 0; i < open.length; i++) if (due[i]) await this.sample(s, open[i]);
+    for (let i = 0; i < open.length; i++) {
+      const id = open[i];
+      if (due[i]) {
+        await this.sample(s, id);
+        continue;
+      }
+      if (sm.selfPayBps <= 0 || !selfPayRoom(this.selfPaid, id, t, sm.selfPayMaxPerHour)) continue;
+      const gap = await this.leaderGapBps(s, id, rs.pools[id] as PoolSource);
+      if (gap >= sm.selfPayBps) {
+        if (!this.selfPaid.has(id)) this.selfPaid.set(id, []);
+        this.selfPaid.get(id)!.push(t);
+        await this.sample(s, id, false);
+      }
+    }
   }
 
-  async sample(s: SameChainCfg, id: Hex): Promise<void> {
+  /** How far (bps) a pool's centre is from its leader's live spot; 0 when either cannot be read. */
+  private async leaderGapBps(s: SameChainCfg, id: Hex, src: PoolSource): Promise<number> {
+    const { pub } = this.c(s.chain);
+    const [v, spot] = await Promise.all([
+      (pub.readContract({ address: s.hook, abi: this.hAbi(s), functionName: "poolState", args: [id] }) as Promise<{ live: boolean; anchorX128: bigint }>).catch(() => null),
+      readLeaderSpot(pub, src),
+    ]);
+    if (!v || !v.live || v.anchorX128 === 0n || spot === 0n) return 0;
+    return moveBps(v.anchorX128, spot);
+  }
+
+  private hAbi(s: SameChainCfg) {
+    return s.abi === "carry" ? carryHookAbi : hookAbi;
+  }
+
+  /** `paid`: the hook said a tip is due (sampleDue). false: a selfPayBps sample at our own gas, expected unpaid. */
+  async sample(s: SameChainCfg, id: Hex, paid = true): Promise<void> {
+    this.lastSample.set(id, now());
     const { pub, wal, chain } = this.c(s.chain);
     const blk = await pub.getBlock({ blockTag: "latest" });
     const base = blk.baseFeePerGas ?? 0n;
@@ -727,7 +800,7 @@ export class Keeper {
     }
     let est: bigint;
     try {
-      est = await pub.estimateContractGas({ address: s.hook, abi: hookAbi, functionName: "sample", args: [id], account: this.account });
+      est = await pub.estimateContractGas({ address: s.hook, abi: this.hAbi(s), functionName: "sample", args: [id], account: this.account });
     } catch (e) {
       this.log.warn(`${s.name}: sample ${id.slice(0, 10)} would revert: ${(e as Error).message?.split("\n")[0]}`);
       this.rest(id, now());
@@ -735,12 +808,13 @@ export class Keeper {
     }
     const tip = s.chain.priorityFee;
     const maxFee = base * 2n + tip < s.chain.maxFee ? base * 2n + tip : s.chain.maxFee;
-    const { hash, rc } = await this.serial(s.chain, async () => {
+    const { hash, rc } = await this.serial(s.chain, async (nonce) => {
       const hash = await wal.writeContract({
         chain,
         account: this.account,
+        nonce,
         address: s.hook,
-        abi: hookAbi,
+        abi: this.hAbi(s),
         functionName: "sample",
         args: [id],
         gas: (est * 13n) / 10n,
@@ -755,16 +829,20 @@ export class Keeper {
       this.miss(s, id);
       return;
     }
-    let paid: { x: bigint; y: bigint } | null = null;
+    let tipped: { x: bigint; y: bigint } | null = null;
     for (const l of rc.logs) {
       try {
-        const ev = decodeEventLog({ abi: hookAbi, data: l.data, topics: l.topics });
-        if (ev.eventName === "Tipped" && ev.args.id.toLowerCase() === id.toLowerCase()) paid = { x: ev.args.x, y: ev.args.y };
+        const ev = decodeEventLog({ abi: this.hAbi(s), data: l.data, topics: l.topics });
+        if (ev.eventName === "Tipped" && ev.args.id.toLowerCase() === id.toLowerCase()) tipped = { x: ev.args.x, y: ev.args.y };
       } catch {
         /* other logs */
       }
     }
-    if (!paid) {
+    if (!tipped && !paid) {
+      this.log.info(`${s.name}: self-paid sample ${id.slice(0, 10)} tx ${hash} (below the tip line), spent ${formatEther(spent)} ETH (gas ${rc.gasUsed})`);
+      return;
+    }
+    if (!tipped) {
       // someone traded or sampled first in that block, or the hook cannot value this pool's tokens in ETH
       this.log.info(`${s.name}: sampled ${id.slice(0, 10)} tx ${hash}, no tip, spent ${formatEther(spent)} ETH`);
       this.miss(s, id);
@@ -772,11 +850,11 @@ export class Keeper {
     }
     this.misses.delete(id);
     const tk = await this.tokensOf(pub, s.hook, id);
-    const v = await pub.readContract({ address: s.hook, abi: hookAbi, functionName: "poolState", args: [id] }).catch(() => null);
-    const worth = tk && v ? await this.fmt(pub, tk[1], jarValue(paid.x, paid.y, v.anchorX128)) : "?";
+    const v = await pub.readContract({ address: s.hook, abi: this.hAbi(s), functionName: "poolState", args: [id] }).catch(() => null);
+    const worth = tk && v ? await this.fmt(pub, tk[1], jarValue(tipped.x, tipped.y, v.anchorX128)) : "?";
     const parts = tk
-      ? [paid.x > 0n ? await this.fmt(pub, tk[0], paid.x) : "", paid.y > 0n ? await this.fmt(pub, tk[1], paid.y) : ""].filter(Boolean)
-      : [`${paid.x}/${paid.y} raw`];
+      ? [tipped.x > 0n ? await this.fmt(pub, tk[0], tipped.x) : "", tipped.y > 0n ? await this.fmt(pub, tk[1], tipped.y) : ""].filter(Boolean)
+      : [`${tipped.x}/${tipped.y} raw`];
     this.log.info(
       `${s.name}: sampled ${id.slice(0, 10)} tx ${hash}, tip ${parts.join(" + ")} (worth ${worth}), spent ${formatEther(spent)} ETH (gas ${rc.gasUsed})`,
     );
@@ -826,8 +904,8 @@ export class Keeper {
       out.push(`== ${s.name} (same chain on ${s.chain.name}), ${ids.length} pools`);
       for (const id of ids) {
         const [dyn, due] = await Promise.all([
-          readDyn(pub, s.hook, id),
-          pub.readContract({ address: s.hook, abi: hookAbi, functionName: "sampleDue", args: [id] }).catch(() => false),
+          readDyn(pub, s.hook, id, this.hAbi(s)),
+          pub.readContract({ address: s.hook, abi: this.hAbi(s), functionName: "sampleDue", args: [id] }).catch(() => false),
         ]);
         out.push(`  ${id}: live=${dyn.live} jar=${dyn.exists ? await this.fmt(pub, dyn.quote, dyn.jar) : "-"} -> ${due ? "sample (tip due)" : "nothing"}`);
       }

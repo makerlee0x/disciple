@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { privateKeyToAccount } from "viem/accounts";
 import { concat, pad, toHex, type Hex } from "viem";
-import { batch, judge, type Due } from "../src/keeper.ts";
-import { decodeSource, jarValue, OFF, POOLS_SLOT, type PoolDyn, type PoolSource } from "../src/hook.ts";
+import { batch, judge, selfPayRoom, type Due } from "../src/keeper.ts";
+import { decodeSource, jarValue, OFF, POOLS_SLOT, readLeaderSpot, type PoolDyn, type PoolSource } from "../src/hook.ts";
 import { loadConfig } from "../src/config.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -116,7 +116,8 @@ test("config: same-chain sets, sampling and jar policy defaults", () => {
   assert.equal(c.sameChain[0].hook, "0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88");
   assert.deepEqual(c.sameChain[0].pools, ["0xabcd"]);
   assert.equal(c.sameChain[0].scanPools, true);
-  assert.deepEqual(c.sampling, { everySec: 2, missesBeforeRest: 3, restSec: 3600 });
+  assert.deepEqual(c.sampling, { everySec: 2, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayMaxPerHour: 60 });
+  assert.equal(c.sameChain[0].abi, "disciple");
   assert.equal(c.policy.minJar, 0n);
   assert.equal(c.policy.collectEverySec, 86_400);
   writeFileSync(f, JSON.stringify({ sameChain: [{ chain: "ethereum", hook: "0xcedc3c312c5b3c4310f0fba0323ddec797e4aa88" }] }));
@@ -152,6 +153,8 @@ test("source decode from packed slots", () => {
   assert.equal(s.target, "0x8f1b19622a888c53c8ee4f7d7b4dc8f574ff9068");
   assert.equal(s.decShift, -2);
   assert.equal(s.push, true);
+  assert.equal(s.kind2, 0);
+  assert.equal(decodeSource(w0, 0x1234n, w2 | (3n << 24n)).kind2, 3);
 });
 
 test("packet parse", () => {
@@ -212,3 +215,47 @@ test("storage layout matches the hook (needs forge; skipped otherwise)", (t) => 
   assert.deepEqual([m(S, "decShift").offset, m(S, "push").offset], [0, 2]);
   assert.deepEqual(["exists", "live", "local"].map((x) => m(P, x).offset), [0, 1, 3]);
 });
+
+test("selfPayRoom: at most N unpaid samples per pool per rolling hour", () => {
+  const log = new Map<string, number[]>();
+  for (let i = 0; i < 3; i++) {
+    assert.equal(selfPayRoom(log, "p", 1000 + i, 3), true);
+    log.get("p")!.push(1000 + i);
+  }
+  assert.equal(selfPayRoom(log, "p", 1003, 3), false);
+  assert.equal(selfPayRoom(log, "q", 1003, 3), true); // per pool
+  assert.equal(selfPayRoom(log, "p", 1000 + 3600, 3), true); // the first one aged out
+  assert.equal(log.get("p")!.length, 2);
+});
+
+test("config: carry hook build and sampling options", () => {
+  const dir = mkdtempSync(join(tmpdir(), "keeper-cfg-"));
+  const f = join(dir, "c.json");
+  writeFileSync(
+    f,
+    JSON.stringify({
+      sameChain: [{ chain: "robinhood", hook: "0xcedc3c312c5b3c4310f0fba0323ddec797e4aa88", abi: "carry" }],
+      sampling: { minGapSec: 20, selfPayBps: 25, selfPayMaxPerHour: 10 },
+    }),
+  );
+  const c = loadConfig(f, { RH_RPC: "http://x" });
+  assert.equal(c.sameChain[0].abi, "carry");
+  assert.equal(c.sampling.minGapSec, 20);
+  assert.equal(c.sampling.selfPayBps, 25);
+  assert.equal(c.sampling.selfPayMaxPerHour, 10);
+});
+
+test("leader spot: v4 Slot0 from extsload, v3 slot0, v2 reserves", async () => {
+  const fake = (out: unknown) => ({ readContract: async () => out }) as never;
+  const base = { remoteEid: 0, target: "0x0000000000000000000000000000000000000001" as const, v4Id: pad("0x01"), decShift: 0, push: false };
+  // sqrtP = 2^96 is price 1 (X128 = 2^128) in either orientation
+  const w = pad(`0x${(1n << 96n).toString(16)}`);
+  assert.equal(await readLeaderSpot(fake(w), { ...base, kind: 3, coinIs0: true }), Q128);
+  assert.equal(await readLeaderSpot(fake([1n << 96n, 0, 0, 0, 0, 0, true]), { ...base, kind: 2, coinIs0: false }), Q128);
+  // v2: 2 coin, 6 quote -> 3 quote per coin
+  assert.equal(await readLeaderSpot(fake([2n, 6n, 0]), { ...base, kind: 1, coinIs0: true }), 3n * Q128);
+  // two-leg sources and failing reads give 0
+  assert.equal(await readLeaderSpot(fake(w), { ...base, kind: 3, coinIs0: true, kind2: 3 }), 0n);
+  assert.equal(await readLeaderSpot({ readContract: async () => { throw new Error("x"); } } as never, { ...base, kind: 3, coinIs0: true }), 0n);
+});
+
