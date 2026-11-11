@@ -28,9 +28,9 @@ ok(/\.wb-invite\s*\{[\s\S]*?var\(--ap-safe-bottom\)/.test(css), "invite banner c
 ok(/#apReopen\s*\{[\s\S]*?var\(--ap-safe-top\)/.test(css), "menu reopen clears notch");
 ok(/ap-phone-launch[\s\S]*?var\(--ap-safe-top\)/.test(css), "phone Launch clears notch");
 ok(/max-height:\s*calc\(100dvh/.test(css) || /min\(92dvh/.test(css), "sheets/modals use dvh (mobile browser chrome)");
-ok(/@media \(max-width: 480px\)[\s\S]*?\.wb-testnet\s*\{\s*display:\s*none/.test(css), "≤480px hides Test network tag to free strip");
 
 const wb = read("components/WalletButton.tsx");
+ok(!/Test network/.test(wb) && !/wb-testnet/.test(wb) && !/\.wb-testnet/.test(css), "Test network pill is gone from the wallet strip and its CSS");
 ok(/className="wb-root"/.test(wb) && /data-compact=/.test(wb), "WalletButton uses .wb-root (not hardcoded top/right px)");
 ok(!/position:\s*"fixed",\s*top:\s*compact/.test(wb), "WalletButton no longer inlines fixed top that fights safe-area");
 ok(/addEventListener\("pointerdown"/.test(wb) && !/addEventListener\("mousedown"/.test(wb), "WalletButton outside-close uses pointerdown (wallet WebViews)");
