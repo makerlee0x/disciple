@@ -26,6 +26,19 @@ Cross-chain routes in v0: Ethereum → Robinhood Chain and Robinhood Chain → E
    step (1% on Robinhood) per block, so a 5% move takes about five tipped samples, then the tips stop.
 4. If a pool pays nothing `missesBeforeRest` times in a row (someone else sampled first, or the hook cannot value
    its tokens), it rests that pool for `restSec`.
+5. **One sample per L1 block.** It never samples the same pool twice within `minGapSec` (default 13 s). On
+   Arbitrum-stack chains such as Robinhood, the hook's `block.number` is the Ethereum L1 block (about 12 s), so a
+   second sample sooner does nothing but spend gas.
+6. **Optional: keep a low-fee pool at the market** (`selfPayBps`, off by default). The hook only tips from 1%, which
+   is fine for a 1% pool but leaves a 0.25% pool quoting off the market between 0.25% and 1%. With `selfPayBps: 25`
+   the keeper also samples, at its own gas, any pool whose centre is 0.25%+ from its leader's live price (single-leg
+   v2 / v3 / v4 leaders), at most `selfPayMaxPerHour` (default 60) times per pool per hour.
+
+Sends on one chain go one at a time, and the keeper tracks the next nonce itself instead of re-reading it from the
+RPC after each receipt, which a lagging node behind a load balancer can answer with the old count ("nonce too low").
+
+**Carry pools.** Carry's follower hook (makerlee0x/carry `contracts/follower`) has the same `sample()` /
+`sampleDue()` and pool storage head, but a shorter `poolState`. Set `"abi": "carry"` on its `sameChain` entry.
 
 On the local anvil test, with plain tokens, a tip came to about gas + 26% (the hook adds a fixed 90k for the gas
 it cannot measure, sized for heavier real tokens). The first tip in a token pays about gas + 10%, because the
