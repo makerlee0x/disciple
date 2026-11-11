@@ -1,4 +1,4 @@
-// Phone HUD v3 (<740px, lee 10:36 CT): layout math, engine gating, drag-to-steer (unit + handler harness), worker forwarding,
+// Phone HUD v3 (≤760px, lee 10:36 CT): layout math, engine gating, drag-to-steer (unit + handler harness), worker forwarding,
 // trade-bar / amount-sheet wiring, tier label. Desktop paths must stay untouched.
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
@@ -23,6 +23,8 @@ for (const [w, h, top] of [[390, 844, 60], [360, 780, 60], [375, 667, 60]]) {
   ok(L.body.h >= 200, `${w}x${h}: body tall enough for 4+ feed rows (${L.body.h})`);
   ok(L.dTop > L.pillTop + 46 + 120, `${w}x${h}: rocket room between pill and drawer`);
 }
+{ const L = phoneLayout({ w: 390, h: 844, topBottom: 60, safeBottom: 34 });
+  ok(L.btnTop + 68 === 844 - 22 - 34, "safeBottom lifts BOOST/DUMP above the home indicator"); }
 // 2) drawer: Feed / Holders / Chart / Crew / Chat / Run (mockup copy), one at a time, closes on swipe down / dim tap / Esc
 const labels = [...hud.matchAll(/\{ id: "(\w+)", label: "([^"]+)"/g)].map((m) => m[2]);
 ok(labels.join() === "Feed,Holders,Chart,Crew,Position", "five drawer tabs; Chat exists only inside the Holders card");
@@ -36,9 +38,10 @@ ok(hud.match(/DRAWER_BG = "([^"]+)"/)[1] === eng.match(/const PH_DRAWER_BG='([^'
 ok(/html\.ap-phone \[data-testid="settings-btn"\]/.test(hud) && !/phone-settings/.test(hud), "gear hidden on phone; no interim Run-tab Settings button (SITE Sidebar 'Settings' item, #149)");
 ok(!/#exitX/.test(hud), "no ✕ in the top row any more (coin-screen cleanup, lee Oct 30): no dead #exitX styling left");
 // 3) engine gating: desktop branches unchanged, phone draws pill + the open drawer tab only
-const ph = new Function("window", `const HUD_NARROW_W=740;\n${eng.match(/function phoneHud\(w,clean\)\{[^\n]+/)[0]}\nreturn phoneHud;`);
+const ph = new Function("window", `const HUD_NARROW_W=${PHONE_W};\n${eng.match(/function phoneHud\(w,clean\)\{[^\n]+/)[0]}\nreturn phoneHud;`);
 const P = { on: true, sheet: null };
-ok(ph({ __phoneHud: P })(390, false) === P && ph({ __phoneHud: P })(1440, false) === null && ph({ __phoneHud: P })(390, true) === null && ph({})(390, false) == null, "phoneHud(): phone only, never CLEAN / desktop");
+ok(PHONE_W === 760, "PHONE_W matches site chrome max-width:760px");
+ok(ph({ __phoneHud: P })(390, false) === P && ph({ __phoneHud: P })(760, false) === P && ph({ __phoneHud: P })(1440, false) === null && ph({ __phoneHud: P })(390, true) === null && ph({})(390, false) == null, "phoneHud(): ≤760 only, never CLEAN / desktop");
 for (const re of [/if \(PH\) drawPhonePill\(m,ti,PH\); else \{\n  \/\/ top-left: ONE header card[^\n]*\n[^\n]*\n[^\n]*\n  const HY=coinIdRowH\(\);\n  if \(cardBegin\('header',20,18,380,130\+HY\)\)\{   \/\* @cards \*\/\n  panel\(20,18,380,130\+HY\); ctx\.save\(\); ctx\.translate\(0,HY\);/, /if \(!PH&&STATUS_BOX\)\{\n  panel\(RX,RT,CW,92\);/,
   /\n  pushHolders\(top,kothTitle\);   \/\*/, /else if \(cardBegin\('trades',20,H-160,310,140\)\)\{ const FX=20, FY=H, FW=310;/, /if \(S\.controlsDocked\) pushControls\(\);/,
   /PH\.sheet==='feed'\) drawPhoneFeed\(PH\)/, /if \(PH\) AMMO_HIT\.forEach\(R=>\{ R\.x=-1e9;/,

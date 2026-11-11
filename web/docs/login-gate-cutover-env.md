@@ -7,10 +7,10 @@ Apply on prod (and preview if used) **together with** merge of #241 → #246 →
 | Var | Value | Notes |
 |---|---|---|
 | `NEXT_PUBLIC_RHT_LOGIN_GATE` | `0xebDD6Ad15a6B838eE15Dc7d5871F09EFB284317D` | Wave #241 global LoginGate (also baked into `lib/chains.ts`) |
-| `NEXT_PUBLIC_RHT_PAYMASTER` | `0x1E7B06adb1D0A92b83AF2Dc3D70Cb4694E606822` | Wave #246 DisciplePaymaster v4 |
-| `PAYMASTER_ADDRESS` | `0x1E7B06adb1D0A92b83AF2Dc3D70Cb4694E606822` | Server override; same address |
-| `NEXT_PUBLIC_SESSION_POLICY` | `0x61bb745881c2db24f6f61E35C7fF1de1dBFaC6b4` | Policy 1.4.2 |
-| `NEXT_PUBLIC_SESSION_POLICY_VERSION` | `1.4.2` | Must match `moduleId` |
+| `NEXT_PUBLIC_RHT_PAYMASTER` | `0x5C3f7400ED41aCd7409D213caB2909e3b1E31136` | DisciplePaymasterV5 (v4 `0x1E7B…6822` retired Nov 9) |
+| `PAYMASTER_ADDRESS` | `0x5C3f7400ED41aCd7409D213caB2909e3b1E31136` | Server override; same address |
+| `NEXT_PUBLIC_SESSION_POLICY` | `0xD2cF85dd7cDC3c3e53EA0472BF6Bf006de45E4d2` | Policy 1.4.3, bound to v5 (1.4.2 `0x61bb…c6b4` retired Nov 9) |
+| `NEXT_PUBLIC_SESSION_POLICY_VERSION` | `1.4.3` | Must match `moduleId` |
 | `PAYMASTER_MIN_STAKE_WEI` | `2173913043478261` | Deployed stake |
 | `PAYMASTER_USD_PER_ETH` | `2300` | Lee locked Nov 6. Alt: `PAYMASTER_RATE=2300000000` (6-dec USDG). Set **one** only (`PAYMASTER_RATE` wins if both). |
 

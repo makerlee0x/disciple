@@ -9,6 +9,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { Marked, type Tokens } from "marked";
 import { withBase } from "@/lib/base-path";
+import { REAL_PROGRESS_ENABLED } from "@/lib/features";
+import { hideSeasonInDocs } from "@/lib/docs/hideSeason";
 
 const ROOT = path.join(process.cwd(), "content/docs/v1");
 const VERIFY = "%%DV_VERIFY%%";
@@ -89,7 +91,8 @@ const plain = (s: string) => s.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").re
 const slugify = (s: string) => plain(s).toLowerCase().replace(/[`*_~]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "section";
 
 export function renderDoc(meta: DocMeta): DocPage {
-  const { body } = frontMatter(fs.readFileSync(path.join(ROOT, meta.file), "utf8"));
+  const { body: rawBody } = frontMatter(fs.readFileSync(path.join(ROOT, meta.file), "utf8"));
+  const body = REAL_PROGRESS_ENABLED ? rawBody : hideSeasonInDocs(rawBody);
   let verifyCount = 0;
   let addrCount = 0;
   const src = body

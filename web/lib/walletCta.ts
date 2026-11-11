@@ -1,6 +1,6 @@
 /**
  * Bridge between the wallet pill (components/WalletButton.tsx, lazy chunk) and the Sidebar menu.
- * On phones (< 740px) the signed-out pill ("Play") is hidden from the top bar so GAME's ✕ owns the corner;
+ * On phones (≤760px) the signed-out pill ("Play") is hidden from the top bar so GAME's ✕ owns the corner;
  * the Sidebar shows the same action instead. Plain window events keep the wallet chunk out of the Sidebar's bundle.
  */
 /** CustomEvent<{ label: string | null }>: the pill's current signed-out label, or null when signed in / not shown. */

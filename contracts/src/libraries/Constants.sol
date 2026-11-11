@@ -142,10 +142,11 @@ library Constants {
     uint256 internal constant REFERRAL_GATE_USD = 10; // $10 USDG deposit
 
     // ── Creator buy at launch (§5 / LOCKED #27) ───────────────────────────────
-    /// @dev Default protocol-owner-settable creator-buy cap (Launchpad.creatorBuyMaxBps) — 0.77% of supply.
-    uint256 internal constant CREATOR_BUY_MAX_BPS_DEFAULT = 77;
-    /// @dev Hard ceiling for Launchpad.creatorBuyMaxBps — 7% of supply.
-    uint256 internal constant CREATOR_BUY_MAX_BPS_CEILING = 700;
+    /// @dev Default protocol-owner-settable creator-buy cap (Launchpad.creatorBuyMaxBps, TRENCH First BOOST max) —
+    ///      7.77% of supply (lee 2026-11-10; was 0.77%).
+    uint256 internal constant CREATOR_BUY_MAX_BPS_DEFAULT = 777;
+    /// @dev Hard ceiling for Launchpad.creatorBuyMaxBps — 7.77% of supply (lee 2026-11-10; was 7%).
+    uint256 internal constant CREATOR_BUY_MAX_BPS_CEILING = 777;
 
     // ── Graduation floor (phase 3a, Maker lee 2026-10-24) ─────────────────────
     /// @dev The curve's leftover USDG (curve reserve − full-range pairing; the sniper escrow and the curve-phase
