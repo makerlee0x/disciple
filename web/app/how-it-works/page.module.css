@@ -4,14 +4,14 @@
   --dsc-font-mono: var(--font-geist-mono), 'Geist Mono', ui-monospace, monospace;
   --line: rgba(201, 206, 214, .12);
   --chart-h: 300px;
-  position: relative; margin-top: calc(-1 * var(--ap-topbar-h, 56px)); /* hero sky runs under the chrome strip */
+  position: relative; margin-top: calc(-1 * var(--ap-topbar-offset, 56px)); /* hero sky runs under the chrome strip */
   background: var(--dsc-bg); color: var(--dsc-text); font-family: var(--dsc-font-ui); -webkit-font-smoothing: antialiased;
   overflow-x: clip;
 }
 @media (prefers-reduced-motion: no-preference) { :global(html):has(.page) { scroll-behavior: smooth; } }
 :where(.page) :where(p, h1, h2, h3, ul, li, figure, figcaption) { margin: 0; padding: 0; } /* zero-specificity reset */
 :where(.page) :where(ul) { list-style: none; }
-.sec { padding-top: 104px; scroll-margin-top: calc(var(--ap-topbar-h, 56px) + 44px); }
+.sec { padding-top: 104px; scroll-margin-top: calc(var(--ap-topbar-offset, 56px) + 44px); }
 /* Below-the-fold sections skip style/layout/paint until they near the viewport (keeps the first paint light). */
 .sec, .final { content-visibility: auto; contain-intrinsic-size: auto 1100px; }
 .wrap { max-width: 1040px; margin: 0 auto; padding: 0 40px; }
@@ -175,7 +175,8 @@
 .finalC h2 { font: 400 84px/1 var(--dsc-font-display); }
 .finalSub { margin-top: 14px; font-size: 18px; color: var(--dsc-muted-on-sky); text-wrap: balance; }
 .docs { margin-top: 22px; font: 12px var(--dsc-font-mono); color: var(--dsc-muted); }
-.footer { display: flex; align-items: center; gap: 16px; padding: 28px 40px 40px; border-top: 1px solid var(--line); font: 12px var(--dsc-font-mono); color: var(--dsc-muted); }
+.footer { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 28px 40px 40px; border-top: 1px solid var(--line); font: 12px var(--dsc-font-mono); color: var(--dsc-muted); }
+.footLinks { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
 .footLink { color: var(--dsc-muted); text-decoration: underline; text-underline-offset: 3px; }
 .footLink:hover { color: var(--dsc-text); }
 .lockup { display: block; width: 120px; height: auto; }

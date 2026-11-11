@@ -15,6 +15,7 @@ import { SETTINGS_KEYS } from "@/lib/config";
 import { aaSession, onPrivy, onSessionChange, privyAuthenticated } from "@/lib/aa/session";
 import Icon, { type IconName } from "@/components/icons/Icon";
 import { GuildTagFor } from "@/components/guilds/GuildChip";
+import { GUILDS_ENABLED } from "@/lib/features";
 import { withBase } from "@/lib/base-path";
 import { SETTINGS_HREF, onSettingsClick } from "@/lib/cashLink";
 import { defaultUsername } from "@/lib/defaultUsername";
@@ -266,7 +267,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
               <Avatar address={me.address} name={name} size={36} />
               {/* the name once (lee): no text guild chip here, just the small guild mark like the wallet pill (#219) */}
               <span className="ap-me-who">
-                <span className="ap-me-nm">{name}<GuildTagFor address={me.address} markOnly /></span>
+                <span className="ap-me-nm">{name}{GUILDS_ENABLED && <GuildTagFor address={me.address} markOnly />}</span>
               </span>
             </Link>
             {settingsProps

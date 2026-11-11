@@ -62,6 +62,7 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
   const [data, setData] = useState(initial);
   const [go, setGo] = useState(false);
   const [now, setNow] = useState(initial.at || 0);
+  const [pollErr, setPollErr] = useState(false);
   const heroToken = useRef(initial.hero).current; // fixed for the visit
   const ref = useRef<HTMLElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
@@ -102,15 +103,17 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
       if (document.hidden) return;
       try {
         const r = await fetch(`/api/home?coin=${heroToken}`);
-        if (!r.ok) return;
+        if (!r.ok) { if (alive) setPollErr(true); return; }
         const d = (await r.json()) as HomeData;
         if (!alive) return;
+        setPollErr(false);
         setNow(Date.now());
         setData(d);
         window.dispatchEvent(new CustomEvent("dsc:home-data", { detail: d }));
-      } catch { /* keep the last numbers */ }
+      } catch { if (alive) setPollErr(true); /* keep the last numbers */ }
     };
     const iv = setInterval(tick, POLL_MS);
+    void tick();
     return () => { alive = false; clearInterval(iv); };
   }, [go, heroToken]);
 
@@ -144,6 +147,11 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
       <link rel="preload" as="image" type="image/avif" media={SKY_DESKTOP_MQ} imageSrcSet={baseSet(SKY.desktopAvif)} imageSizes={SKY_SIZES} fetchPriority="high" />
       <link rel="preload" as="image" type="image/avif" media={SKY_MOBILE_MQ} imageSrcSet={baseSet(SKY.mobileAvif)} imageSizes={SKY_SIZES} fetchPriority="high" />
       <link rel="preload" as="image" type="image/webp" href={withBase(ROCKET_SRC)} />
+      {pollErr && (
+        <div className={s.pollErr} role="status" data-testid="home-poll-err">
+          Live numbers paused — showing the last good snapshot. Retrying…
+        </div>
+      )}
       <section ref={ref} className={`${s.hero}${go ? " " + s.go : ""}${launching ? " " + s.launching : ""}`} aria-label={hero ? `#1 trending rocket: ${hero.name}` : "Trending rocket"}>
         <div className={s.stage}>
           {/* plate frame: sky (pad baked in) + stars + moon + pad + rocket + exhaust + smog, all registered to the sky */}

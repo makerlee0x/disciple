@@ -1,5 +1,5 @@
 .nav {
-  position: sticky; top: var(--ap-topbar-h, 56px); z-index: 6; display: flex; gap: 12px; align-items: center;
+  position: sticky; top: var(--ap-topbar-offset, 56px); z-index: 6; display: flex; gap: 12px; align-items: center;
   padding: 14px 40px; border-bottom: 1px solid rgba(201, 206, 214, .12); background: rgba(11, 12, 14, .96);
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }

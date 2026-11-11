@@ -13,9 +13,11 @@ import { creatorClaimCalls, creatorDashboard, sendCreatorClaims, signedAnonClaim
 import { myStealthCoins, myStealthKeys } from "@/lib/privateLaunch";
 import { claimErrorText, fmtUsd, preflight, toUsd } from "@/lib/claims/common";
 import { demoRockets, demoRedeploy } from "@/lib/claims/demo";
-import { connectPrivy } from "@/lib/wallet";
+import { rocketsListView, walletPending, type WalletPhase } from "@/lib/claims/rocketsListView";
+import { connectedAddress, connectPrivy, onWallet, restoreSmart } from "@/lib/wallet";
+import { aaSession, onPrivy, privyAuthenticated, privyReady } from "@/lib/aa/session";
 import VerifiedBadge from "@/components/VerifiedBadge";
-import { ConfirmSheet, Money, SampleTag, TxLink, pc, shortA, useCaps, useWalletAddr, type ConfirmLine } from "./ui";
+import { ConfirmSheet, Money, SampleTag, TxLink, pc, shortA, useCaps, type ConfirmLine } from "./ui";
 import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
 import { partitionRelayableCalls, blockedCallsMessage } from "@/lib/trade/gaslessAction";
 import { formatActionFeeNote, quoteGaslessAction } from "@/lib/trade/gaslessActionClient";
@@ -23,9 +25,21 @@ import VerifyRequest from "./VerifyRequest";
 
 type Pending = { rows: CreatorRocket[]; title: string } | null;
 
+function useSettledWallet(): { me: ReturnType<typeof connectedAddress>; phase: WalletPhase } {
+  const [me, setMe] = useState(() => connectedAddress());
+  const [restored, setRestored] = useState(false);
+  const [privy, setPrivy] = useState(() => privyReady());
+  useEffect(() => onWallet(setMe), []);
+  useEffect(() => onPrivy(() => setPrivy(true)), []);
+  useEffect(() => { void restoreSmart().finally(() => setRestored(true)); }, []);
+  const pending = walletPending(me, privy, privyAuthenticated() || !!aaSession(), restored);
+  const phase: WalletPhase = me ? "in" : pending ? "unknown" : "none";
+  return { me, phase };
+}
+
 export default function CreatorDashboard() {
-  const me = useWalletAddr();
-  const { caps, ready, demo } = useCaps();
+  const { me, phase } = useSettledWallet();
+  const { caps, demo } = useCaps();
   const [rows, setRows] = useState<CreatorRocket[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);
@@ -36,12 +50,12 @@ export default function CreatorDashboard() {
 
   const load = useCallback(async () => {
     if (demo) { setRows(demoRockets(demoRedeploy())); return; }
-    if (!me || !ready) return;
+    if (!me) return;
     setErr(null);
     // private launches: coins announced to this account's stealth keys (one silent owner signature; none on the EOA path)
     const stealth = caps.anonClaims ? await myStealthKeys().then((k) => myStealthCoins(pc(), k)).catch(() => []) : [];
     try { setRows(await creatorDashboard(pc(), me, caps, 6, stealth)); } catch (e) { setErr(claimErrorText(e)); setRows([]); }
-  }, [me, ready, demo, caps]);
+  }, [me, demo, caps]);
   useEffect(() => { void load(); }, [load]);
 
   const totals = useMemo(() => {
@@ -87,9 +101,10 @@ export default function CreatorDashboard() {
   const hasTok = (r: CreatorRocket) => (r.anon || caps.creatorTokenFees) && (r.tokenSide?.claimable ?? BigInt(0)) > BigInt(0);
   const canClaim = (r: CreatorRocket) => r.claimable > BigInt(0) || hasTok(r);
   const claimable = (rows ?? []).filter(canClaim);
+  const view = rocketsListView(phase, rows, demo);
 
   return (
-    <div className="cl-page" data-testid="creator-dashboard">
+    <div className="cl-page" data-testid="creator-dashboard" data-list={view}>
       <header className="cl-head">
         <div>
           <div className="cl-eyebrow">Creator</div>
@@ -99,15 +114,15 @@ export default function CreatorDashboard() {
         <SampleTag show={demo} />
       </header>
 
-      {!me && !demo ? (
-        <section className="cl-card cl-empty">
+      {view === "signin" ? (
+        <section className="cl-card cl-empty" data-testid="rockets-signin">
           <h3 className="cl-display sm">Sign in to see your rockets</h3>
           <button type="button" className="cl-btn primary" onClick={() => connectPrivy()}>Sign in</button>
         </section>
-      ) : rows == null ? (
-        <section className="cl-card cl-empty"><div className="cl-skel" /><div className="cl-skel short" /></section>
-      ) : !rows.length ? (
-        <section className="cl-card cl-empty">
+      ) : view === "loading" ? (
+        <section className="cl-card cl-empty" data-testid="rockets-loading" aria-busy="true"><div className="cl-skel" /><div className="cl-skel short" /></section>
+      ) : view === "empty" ? (
+        <section className="cl-card cl-empty" data-testid="rockets-empty">
           <h3 className="cl-display sm">No rockets yet</h3>
           <p className="muted">Launch one and its fees show up here.</p>
           <Link className="cl-btn primary" href="/create">Launch a rocket</Link>
@@ -126,7 +141,7 @@ export default function CreatorDashboard() {
           <p className="cl-fine muted">USD uses the live quote price. One transaction for Claim all.</p>
 
           <div className="cl-grid">
-            {rows.map((r) => (
+            {(rows ?? []).map((r) => (
               <article key={r.token} className="cl-card cl-rocket" data-testid="creator-rocket">
                 <div className="cl-rocket-top">
                   <div>

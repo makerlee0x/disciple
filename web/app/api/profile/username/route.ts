@@ -13,7 +13,7 @@ export const runtime = "nodejs";
  *   (lastUsernameChangeAt) lives in KV with the wallet's profile meta (lib/server/profileMeta).
  */
 import { NextResponse } from "next/server";
-import { USERNAME_RE, validateUsername } from "@/lib/profile";
+import { USERNAME_STORED_RE, validateUsername } from "@/lib/profile";
 import { claim, usernameOf, walletOf } from "@/lib/server/usernames";
 import { kv } from "@/lib/server/kv";
 import { consumeNonce, issueNonce, nonceValid } from "@/lib/server/nonces";
@@ -56,7 +56,7 @@ export async function GET(req: Request) {
   const resolve = url.searchParams.get("resolve");
   if (resolve !== null) {
     const r = norm(resolve);
-    return NextResponse.json({ address: USERNAME_RE.test(r) ? await walletOf(r) : null });
+    return NextResponse.json({ address: USERNAME_STORED_RE.test(r) ? await walletOf(r) : null });
   }
   const u = norm(url.searchParams.get("u"));
   const badU = validateUsername(u);
@@ -70,8 +70,8 @@ export async function POST(req: Request) {
   try { body = await req.json(); } catch { return NextResponse.json({ ok: false, reason: "Bad JSON" }, { status: 400 }); }
   const u = norm(body.username);
   const addr = String(body.address ?? "").toLowerCase();
-  // Same rules as the edit form (lib/profile.validateUsername): 3–20 chars a–z 0–9 _, not reserved. Only a NEW claim is
-  // checked here; an existing name is never re-validated, so nobody's current profile breaks.
+  // Same rules as the edit form (lib/profile.validateUsername): 3–USERNAME_MAX chars a–z 0–9 _, not reserved.
+  // Only a NEW claim is checked here; an existing name is never re-validated, so nobody's current profile breaks.
   const badU = validateUsername(u);
   if (badU) return NextResponse.json({ ok: false, reason: badU }, { status: 400 });
   if (!isAddr(addr)) return NextResponse.json({ ok: false, reason: "Invalid address." }, { status: 400 });

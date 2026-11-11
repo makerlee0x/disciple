@@ -16,7 +16,7 @@ This is a lightweight indexer built on viem, SQLite (better-sqlite3) and `node:h
 | FeeRouter | `TradeFeeRouted` (audit #11 ABI: feeToken, feeIsQuote, creator, referralPayee, kolPayee + kolShare; per-payee rows in `fee_credits`), `CreatorFeesClaimed`, `CreatorTokenFeesClaimed` (v4, launch-token units), `ReferrerFeesClaimed`, `SnipeFeeRoutedToLP` (≤v2), `SnipeFeeRouted` (70/30, v3) |
 | AnonLauncher | `AnonLaunched`, `Claimed`, `StealthOwnerTransferred`, `LaunchFeePaid` |
 | ReferralRegistry | `ReferrerPending`, `ReferrerAttributed` (sticky), `UsdgDepositRecorded` |
-| RewardsVault | `RewardAccrued`, `Distributed` |
+| RewardsVault | `RewardAccrued`, `Distributed` (the RewardsVault contract; after the community-wallet wiring FeeRouter pays an EOA, which emits nothing: see `/rewards/community`) |
 | UsdgDepositNotifier (v4) | `Deposited`, `Escrowed` (7-day lock per entry), `Withdrawn`, `Attested` |
 | Token (each coin) | `Transfer` (holder balances) |
 
@@ -35,6 +35,7 @@ Events are only accepted from the addresses of the expected stack. Spoofed `Laun
 | `/users/:addr/orders` · `/users/:addr/trades` · `/users/:addr/coins` | per-user data |
 | `/users/:addr/counters` | `trampsPlaced/wallsPlaced/trampsFilled/wallsFilled/bigTrampsFilled` (tramp ≥ **$1K** at placement), trades, volumeUsd, coinsLaunched |
 | `/rewards` | anti-snipe routing + RewardsVault totals |
+| `/rewards/community` | per stack with a community rewards wallet (deployment json `community.wallet`, or `COMMUNITY_WALLET` for the newest stack; the post-deploy `FeeRouter.rewardsVault` / `referralSink`, an EOA on testnet): referral credits routed to it (`TradeFeeRouted` referral payee rows, quote and launch-token units apart), its `ReferrerFeesClaimed`, and `SnipeEscrowReleased` to it. The old RewardsVault contract's `RewardAccrued` / `Distributed` stay on `/rewards` |
 | `/coins/:token/holders?limit=` (1–1000, default 100) | balances desc, `pct` of supply, `protocol` flag (curve/PoolManager/hook/TWM…) |
 | `/coins/:token/altitude` | current `tier` + spot `mcapUsd` (from `AltitudeUpdate`), `LaunchTierContext`, every `TierBreak` |
 | `/coins/:token/fee-routing` | summed `TradeFeeRouted` creator / lp / treasury / referral / creatorTax / kol shares in quote units, plus `tokenUnits` for post-grad fees charged in the launch token (never mixed), snipe 70/30, claims (wei + USD) |

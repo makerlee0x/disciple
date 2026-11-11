@@ -12,7 +12,6 @@ These are wired against `flow/contracts-v0` (PR #1). `/contracts` is used read-o
   - `getCurveState` reads mcap, % sold of supply, % progress to the 72% graduation point, the next tier, graduated, reserves and creator tax.
   - `impactPct` gives a pre-trade estimate from curve math.
 - `web/lib/events.ts`: watches `Launched`, `LaunchTierContext` and `CreatorTransferred` on the Launchpad, plus `Buy`/`Sell`/`GraduatedToV4` per curve. Trades become a `Trade` event with `impactPct`, which goes to the engine (`window "disciple:event"` → `DiscipleSource`, used for bombs) and to the launchpad cards. The AI/WETH v3 demo is unchanged.
-- Custody: by default trades go to `/api/execute/{trade,launch}` (platform executor, one approval at deposit, no per-trade signing). Those routes return **501** until FLOW ships a vault.
 
 ## Local anvil
 `CONTRACTS_DIR=../contracts web/scripts/dev-anvil.sh` starts anvil, runs `Deploy.s.sol`, deploys a mock quote as `defaultQuote` and writes `web/.env.local`. It is **currently blocked by a hook-salt bug in Deploy.s.sol** (see gaps).

@@ -25,7 +25,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="ds-modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="ds-modal-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="ds-modal" role="dialog" aria-modal="true" aria-label="Settings" data-testid="settings-modal">
         <header className="ds-modal-head">
           <div>

@@ -83,11 +83,12 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   // the chip is the coin's own art + name. Other pairs keep their badge.
   const ethPair = bp?.tk === "eth" || /^w?eth$/i.test(pair);
   const pairSym = ethPair ? "" : bp?.sym ?? pair;
-  // the ticker shows once: "$TK" only when the name isn't already the ticker
-  // (the market cap is the card's big number right under this row, so it is not repeated here)
-  const sub = [name.trim().toUpperCase() !== tk.trim().toUpperCase() ? `$${tk}` : "", pairSym].filter(Boolean).join(" · ");
+  // ticker/quote from the real coin data, written as TICKER/QUOTE (lee Nov 10: "GTNEAR/STRATEGY")
+  const ticker = String(tk || "").replace(/^\$/, "").trim().toUpperCase();
+  const quote = String(pairSym || "").replace(/^\$/, "").trim().toUpperCase();
+  const sub = ticker && quote ? `${ticker}/${quote}` : ticker;
   return (
-    <div ref={ref} className="coin-id" data-testid="coin-name" style={hc ? { transform: hc.dx || hc.dy ? `translate(${hc.dx}px, ${hc.dy}px)` : undefined, display: hc.min || hc.closed ? "none" : undefined } : undefined} title={pairSym ? `${name} · $${tk} · ${pairSym}` : `${name} · $${tk}`} aria-label={pairSym ? `${name} paired with ${pairSym}` : name}>
+    <div ref={ref} className="coin-id" data-testid="coin-name" style={hc ? { transform: hc.dx || hc.dy ? `translate(${hc.dx}px, ${hc.dy}px)` : undefined, display: hc.min || hc.closed ? "none" : undefined } : undefined} title={sub ? `${name} · ${sub}` : name} aria-label={pairSym ? `${name} paired with ${pairSym}` : name}>
       <PairArt src={icon} pair={ethPair ? null : pair} tk={tk} size="list" px={38} eager />
       <div className="coin-id-txt">
         <b>{name}</b>
