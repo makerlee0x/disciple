@@ -32,7 +32,7 @@ contract ReenteringFeeToken is MockUSDG {
                 creatorBuyMinTokensOut: 0,
                 deadline: block.timestamp + 1 hours
             });
-            target.launchAnonWithUsdg(p, address(1), address(1), "", 0x00, type(uint256).max, 0, 0);
+            target.launchAnonWithUsdg(p, address(1), address(1), "", 0x00, type(uint256).max, 0, 0, address(0));
         }
         return true;
     }
@@ -90,9 +90,20 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
         internal
         returns (ILaunchpad.LaunchResult memory r, uint256 refund)
     {
+        return _launchUsdgTo(stealth, recipient, q, usdgIn, minQuoteIn, address(0));
+    }
+
+    function _launchUsdgTo(
+        address stealth,
+        address recipient,
+        address q,
+        uint256 usdgIn,
+        uint256 minQuoteIn,
+        address refundTo
+    ) internal returns (ILaunchpad.LaunchResult memory r, uint256 refund) {
         vm.prank(payer);
         return anon.launchAnonWithUsdg(
-            _paramsQ(q, 0, block.timestamp + 1 hours), stealth, recipient, "", 0x00, FEE, usdgIn, minQuoteIn
+            _paramsQ(q, 0, block.timestamp + 1 hours), stealth, recipient, "", 0x00, FEE, usdgIn, minQuoteIn, refundTo
         );
     }
 
@@ -167,11 +178,12 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
             0x00,
             FEE,
             10 ether,
-            11 ether
+            11 ether,
+            address(0)
         );
         ILaunchpad.LaunchParams memory p = _paramsQ(address(quote), 1_000_000 ether, block.timestamp + 1 hours);
         vm.expectRevert(); // curve min-out
-        anon.launchAnonWithUsdg(p, stealthA, stealthA, "", 0x00, FEE, 10 ether, 1);
+        anon.launchAnonWithUsdg(p, stealthA, stealthA, "", 0x00, FEE, 10 ether, 1, address(0));
         vm.stopPrank();
     }
 
@@ -198,7 +210,7 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
         vm.prank(payer);
         vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
         victim.launchAnonWithUsdg(
-            _paramsQ(address(quote), 0, block.timestamp + 1 hours), stealthA, stealthA, "", 0x00, FEE, 0, 0
+            _paramsQ(address(quote), 0, block.timestamp + 1 hours), stealthA, stealthA, "", 0x00, FEE, 0, 0, address(0)
         );
     }
 
@@ -234,7 +246,7 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
         vm.prank(payer);
         vm.expectRevert(AnonLauncher.RouterUnset.selector);
         anon.launchAnonWithUsdg(
-            _paramsQ(address(quote), 0, block.timestamp + 1 hours), stealthA, stealthA, "", 0x00, FEE, 10 ether, 1
+            _paramsQ(address(quote), 0, block.timestamp + 1 hours), stealthA, stealthA, "", 0x00, FEE, 10 ether, 1, address(0)
         );
     }
 
@@ -251,5 +263,105 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
 
         emit log_named_uint("gas_private_launch_no_first_buy", gasNoBuy);
         emit log_named_uint("gas_private_launch_with_first_buy", gasWithBuy);
+    }
+
+    function test_overCap_refundTo_gets_leftover_not_payer() public {
+        address refundTo = makeAddr("refundTo");
+        uint256 cap = FeeMath.creatorBuyMax(launchpad.firstBoostMaxBps(Constants.MODE_TRENCH));
+        uint256 u0 = quote.balanceOf(payer);
+        (ILaunchpad.LaunchResult memory r, uint256 refund) =
+            _launchUsdgTo(stealthA, stealthA, address(quote), 500 ether, 1, refundTo);
+        assertEq(r.creatorTokensBought, cap, "Trench First BOOST cap, partial fill");
+        assertGt(refund, 0, "unused USDG refunded");
+        // payer is down the fee + the full 500; leftover is sent to refundTo, not back to the payer
+        assertEq(u0 - quote.balanceOf(payer), FEE + 500 ether);
+        assertEq(quote.balanceOf(refundTo), refund);
+        assertEq(quote.balanceOf(address(anon)), 0);
+        assertEq(Token(r.token).balanceOf(stealthA), cap);
+    }
+
+    function test_overCap_strategyPair_refundTo_gets_usdg() public {
+        address refundTo = makeAddr("refundTo");
+        uint256 u0 = quote.balanceOf(payer);
+        (ILaunchpad.LaunchResult memory r, uint256 refund) =
+            _launchUsdgTo(stealthA, stealthA, address(strategy), 500 ether, 1, refundTo);
+        assertGt(refund, 0, "unused USDG after the pair-token leftover is swapped back");
+        assertGt(r.creatorTokensBought, 0);
+        assertEq(u0 - quote.balanceOf(payer), FEE + 500 ether);
+        assertEq(quote.balanceOf(refundTo), refund);
+        assertEq(quote.balanceOf(address(anon)), 0);
+        assertEq(strategy.balanceOf(address(anon)), 0);
+        assertEq(strategy.balanceOf(refundTo), 0, "leftover is USDG, not the pair token");
+        assertEq(quote.balanceOf(address(router)), 0);
+        assertEq(strategy.balanceOf(address(router)), 0);
+    }
+
+    function test_underCap_refundTo_gets_nothing() public {
+        address refundTo = makeAddr("refundTo");
+        uint256 u0 = quote.balanceOf(payer);
+        (ILaunchpad.LaunchResult memory r, uint256 refund) =
+            _launchUsdgTo(stealthA, stealthA, address(quote), 10 ether, 10 ether, refundTo);
+        assertEq(refund, 0);
+        assertGt(r.creatorTokensBought, 0);
+        assertEq(quote.balanceOf(refundTo), 0);
+        assertEq(u0 - quote.balanceOf(payer), FEE + 10 ether);
+        assertEq(quote.balanceOf(address(anon)), 0);
+    }
+
+    function test_refundTo_zero_defaults_to_msgSender() public {
+        uint256 u0 = quote.balanceOf(payer);
+        (ILaunchpad.LaunchResult memory r, uint256 refund) =
+            _launchUsdgTo(stealthA, stealthA, address(quote), 500 ether, 1, address(0));
+        assertGt(refund, 0);
+        assertGt(r.creatorTokensBought, 0);
+        // address(0) means msg.sender (the payer), same as the pre-refundTo behavior
+        assertEq(u0 - quote.balanceOf(payer), FEE + 500 ether - refund);
+        assertEq(quote.balanceOf(address(anon)), 0);
+    }
+
+    function test_refundTo_cannot_be_launcher() public {
+        vm.prank(payer);
+        vm.expectRevert(AnonLauncher.BadRefundTo.selector);
+        anon.launchAnonWithUsdg(
+            _paramsQ(address(quote), 0, block.timestamp + 1 hours),
+            stealthA,
+            stealthA,
+            "",
+            0x00,
+            FEE,
+            10 ether,
+            1,
+            address(anon)
+        );
+    }
+
+    function test_multicall_caller_refunds_to_player_not_caller() public {
+        address mc = makeAddr("multicall3");
+        address player = makeAddr("player");
+        uint256 cap = FeeMath.creatorBuyMax(launchpad.firstBoostMaxBps(Constants.MODE_TRENCH));
+        quote.mint(mc, 1_000_000 ether);
+        vm.startPrank(mc);
+        quote.approve(address(anon), type(uint256).max);
+        (ILaunchpad.LaunchResult memory r, uint256 refund) = anon.launchAnonWithUsdg(
+            _paramsQ(address(quote), 0, block.timestamp + 1 hours),
+            stealthA,
+            stealthA,
+            "",
+            0x00,
+            FEE,
+            500 ether,
+            1,
+            player
+        );
+        vm.stopPrank();
+        assertEq(r.creatorTokensBought, cap);
+        assertGt(refund, 0);
+        // caller (Multicall3) is down fee + 500, leftover went to the named player, nothing stuck on the caller or launcher
+        assertEq(quote.balanceOf(player), refund);
+        assertEq(quote.balanceOf(address(anon)), 0);
+        assertEq(quote.balanceOf(mc), 1_000_000 ether - FEE - 500 ether);
+        assertEq(Token(r.token).balanceOf(stealthA), cap);
+        assertEq(Token(r.token).balanceOf(mc), 0);
+        assertEq(Token(r.token).balanceOf(player), 0);
     }
 }

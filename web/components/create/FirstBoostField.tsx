@@ -26,8 +26,8 @@ const pctOfSupply = (tokens: bigint) => `${(Number((tokens * BigInt(1000000)) / 
  * and a PVE First BOOST needs a login-verified wallet (note + check).
  * Paid in USDG (lee 2026-10-26): the player enters dollars, pays from their USDG cash, and DiscipleRouter.launchWithUsdg
  * swaps it into the pair coin in the same tx. Balance, max and errors are all in dollars; the pair coin is never asked for.
- * The legacy pair-token pull only runs on a network whose router has no USDG routing. Private launches: no First BOOST
- * (AnonLauncher pulls the pair coin; a USDG swap in the same op needs a gas-policy change, FLOW).
+ * The legacy pair-token pull only runs on a network whose router has no USDG routing. Private launches use the same
+ * dollar field; the cap is the Trench cap. The field blocks amounts over the cap, and MAX never exceeds it.
  */
 export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker, value, onChange, onState, mode = DEFAULT_LAUNCH_MODE, privateLaunch = false }: {
   pair: Address | null; pairLabel: string; creatorTaxBps: number; ticker: string;
@@ -77,10 +77,15 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
     return () => { alive = false; };
   }, [limits, me, usdg]);
 
-  // USDG path: the max in dollars = the USDG the pair-coin max swaps back to, minus 1% for the swap fee both ways.
+  // USDG path: the max in dollars is exact when the pair is USDG (1:1). On a swapped pair, take the
+  // USDG the pair-coin max swaps back to, minus 1% for the swap fee both ways, so MAX never exceeds the cap.
   useEffect(() => {
     if (!limits || !usdg) { setMaxUsdg(null); return; }
     let alive = true;
+    if (limits.quote.toLowerCase() === deployment().usdg.toLowerCase()) {
+      setMaxUsdg(limits.maxQuoteIn);
+      return;
+    }
     quoteUsdgPairSwap(publicClient(), limits.quote, false, limits.maxQuoteIn)
       .then((u) => { if (alive) setMaxUsdg((u * BigInt(99)) / BigInt(100)); })
       .catch(() => { if (alive) setMaxUsdg(null); });
@@ -129,7 +134,9 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
   const fresh = viewOut && raw != null && viewOut.raw === raw ? viewOut : null;
   const tokens = fresh ? fresh.tokens : localTokens;
   // exceedsCap only knows creatorBuyMaxBps; the mode clamp (capTokens) is checked here too.
-  const overCap = !!limits && raw != null && raw > BigInt(0) && (fresh ? fresh.exceedsCap || fresh.tokens > limits.capTokens : raw > limits.maxQuoteIn);
+  // Also block a typed USDG amount that is already one microdollar over the USDG max (that amount refunds on-chain).
+  const overUsdgMax = !!usdg && usdgIn != null && maxUsdg != null && usdgIn > maxUsdg;
+  const overCap = overUsdgMax || (!!limits && raw != null && raw > BigInt(0) && (fresh ? fresh.exceedsCap || fresh.tokens > limits.capTokens : raw > limits.maxQuoteIn));
   const maxStr = limits ? (usdg ? (maxUsdg != null ? cash(maxUsdg) : "…") : usd(limits.maxQuoteIn)) : "";
   const spend = usdg ? usdgIn : raw;   // what the player pays from their balance (USDG on the dollar path)
 
@@ -158,7 +165,7 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
           value={value} onChange={(e) => onChange(e.target.value.replace(/,/g, "."))}
         />
         <button type="button" className="first-boost-max" disabled={!limits || limits.maxQuoteIn <= BigInt(0) || (!!usdg && !maxUsdg)}
-          title="Fills just under the max, in case the price moves before your launch lands"
+          title="Fills the First BOOST cap, and never more than that"
           onClick={() => limits && onChange(usdg ? (maxUsdg ? toInputString(maxUsdg, usdgDecimals(), 2) : "")
             : toInputString(quoteRawToUsdWad((limits.maxQuoteIn * BigInt(995)) / BigInt(1000), limits.quotePriceUsd), 18, 2))}>MAX</button>
       </div>
