@@ -30,7 +30,7 @@ Copied pattern: **Uniswap v3 accrue-then-collect**. In v3, Position.tokensOwed0/
 
 ## Current results (Nov 10 2026, CT)
 
-This section replaces the earlier gas and test notes. The numbers below are for the branch `hook/curve-lp-accrue-followups` after main (commit 62ac2245) was merged into it. "Main" in the tables means main at 62ac2245, which still uses the old curve. All gas numbers come from local forge tests with the same inputs on both sides. They are execution gas and leave out the fixed 21,000 gas that every transaction pays.
+This section replaces the earlier gas and test notes. The numbers below are for the branch `hook/curve-lp-accrue-followups` after main (commit d03173b7) was merged into it on Nov 10 2026. "Main" in the tables means main at d03173b7, which still uses the old curve. The merge brought in main's pull requests #279 to #285. None of them change contract code or contract tests, and every number below was measured again after the merge. All gas numbers come from local forge tests with the same inputs on both sides. They are execution gas and leave out the fixed 21,000 gas that every transaction pays.
 
 ### Trading gas
 
@@ -51,7 +51,7 @@ The first sell on the v4 pool after graduation costs 51,300 more gas. The calls 
 
 ### The graduating buy (audit item G1)
 
-The graduating buy is the buy that moves a coin from the curve to the v4 pool. It costs more on this branch than on main. It was measured again on Nov 10 2026 with a temporary test that was deleted afterwards. Both sides ran the same 17 buys of a TRENCH coin, and the 17th buy (400 USDG) graduated the coin.
+The graduating buy is the buy that moves a coin from the curve to the v4 pool. It costs more on this branch than on main. It was measured again on Nov 10 2026, after the merge, with a temporary test that was deleted afterwards. Both sides ran the same 17 buys of a TRENCH coin, and the 17th buy (400 USDG) graduated the coin.
 
 | Case | Main | This branch | Difference |
 |---|---|---|---|
@@ -60,7 +60,7 @@ The graduating buy is the buy that moves a coin from the curve to the v4 pool. I
 | A coin that graduates after another coin already graduated, gas used by the call | 2,558,279 | 2,610,524 | 52,245 more |
 | The same, after gas refunds | 2,394,979 | 2,432,124 | 37,145 more |
 
-The repository's own gas snapshot files agree with these numbers. `contracts/snapshots/floor.json` records a graduating buy of 2,662,645 on this branch and 2,559,084 on main, and `contracts/snapshots/curve-steep.json` records 2,637,901 on this branch and 2,534,362 on main. Both files were updated by the test run and are committed with this change.
+The repository's own gas snapshot files agree with these numbers. `contracts/snapshots/floor.json` records a graduating buy of 2,662,645 on this branch and 2,559,084 on main, and `contracts/snapshots/curve-steep.json` records 2,637,901 on this branch and 2,534,362 on main. Both files were updated by an earlier test run and are committed on this branch. The latest test run did not change them.
 
 "After gas refunds" subtracts the refund that Ethereum gives back at the end of a transaction when storage is cleared. That refund is part of what the trader really pays. The second case is closer to normal use, because on a live network other coins will already have graduated.
 
@@ -73,7 +73,7 @@ Where the extra gas goes, for a coin that graduates after another coin already g
 
 For the first coin that ever graduates, two shared balances are also written for the first time: CurveFeeVault's USDG balance (about 17,100 gas) and LockedLP's USDG balance (about 21,900 gas). This happens only once per deployment.
 
-No change was made. The only large item, the LockedLP record, belongs to LockedLP, which is a core contract that this branch does not change. Making it cheaper would mean changing LockedLP or making every curve trade write that record again, and both would remove or slow existing behavior. The small savings left inside the curve are about 100 gas each and were not worth a change. lee decides whether the graduating buy cost is acceptable.
+No change was made. The only large item, the LockedLP record, belongs to LockedLP, which is a core contract that this branch does not change. Making it cheaper would mean changing LockedLP or making every curve trade write that record again, and both would remove or slow existing behavior. The small savings left inside the curve are about 100 gas each and were not worth a change. lee accepted the extra graduating buy cost on Nov 10 2026.
 
 ### Contract sizes
 
@@ -89,20 +89,24 @@ The limit for a contract's deployed code is 24,576 bytes.
 
 ### Tests
 
-All 69 contract test files were run one at a time with `FOUNDRY_FUZZ_RUNS=16 forge test -j1`. All 778 tests pass. One test file needed a fix: in `DiscipleRouterPermit2.t.sol`, a helper compared the whole coin balance with the amount from the last buy, so the second buy in a test failed. It now compares the change in balance. This fix already existed on the branch `fix/permit2-first-trade-test` and was copied over.
+All 69 contract test files were run one at a time with `FOUNDRY_FUZZ_RUNS=16 forge test -j1`, after the merge with main d03173b7. All 778 tests pass. One test file needed a fix: in `DiscipleRouterPermit2.t.sol`, a helper compared the whole coin balance with the amount from the last buy, so the second buy in a test failed. It now compares the change in balance. This fix already existed on the branch `fix/permit2-first-trade-test` and was copied over.
 
 One test file, `LockedLPForkPoC.t.sol`, only runs when `RH_FORK=1` is set. It was run without that setting, so it passed without doing anything.
 
 ### Web tests
 
-The web checks were run on this branch and on main (62ac2245) with the same installed packages.
+The web checks were run on this branch and on main (d03173b7) with the same installed packages.
 
 - The vitest suite passes on both. On this branch, 177 tests pass and 5 are skipped, in 25 files. On main, 151 pass and 4 are skipped, in 21 files. The extra files on this branch are its own new tests.
 - The TypeScript check (`tsc --noEmit`) passes on both.
-- Lint (`next lint`) has no errors on either side and the same 2 warnings.
-- The repository has 118 script tests (`npm run test:...`). On both sides the same 23 fail, with the same failure messages, so the branch does not cause them. Several of them need a running local server or network access. Others look for code patterns that have changed since the test was written.
+- Lint (`next lint`) has no errors on either side and the same 7 warnings. The 5 new warnings came from main.
+- On both sides the same 24 script tests (`npm run test:...`) fail, with the same failure messages, so the branch does not cause them. One of them, `test:boost-anim`, is new on main and fails there too. Several of them need a running local server or network access. Others look for code patterns that have changed since the test was written.
 
 Four test scripts failed on this branch but passed on main, or failed for a different reason there. The cause was in the tests, not in the site code. The game engine on this branch has a constant named `DUST_USD`, and the site's wallet code now imports a module that decides whether gasless mode is on. The tests copy those parts of the code into a sandbox and did not provide either one. The fix gives the tests the same value the engine uses, read from the engine file, and a stand-in that keeps gasless mode off, which is the default. The files changed are `test-live-fixes.mjs`, `test-trade-ui.mjs`, `test-fix-batch.mjs` and `test-trade-speed.mjs`. After the fix, `test-live-fixes.mjs` passes, and the other three fail in exactly the same way as on main.
+
+One more script test, `test:relayer-nonce-shared`, failed once on this branch. It sends random hostile traffic, so its result changes from run to run. Run 10 times on each side, it passed 8 times on this branch and 7 times on main. The branch does not cause it.
+
+The indexer tests pass on both sides: 64 tests in 9 files on this branch and 60 tests in 8 files on main. The extra tests are this branch's own. The indexer's TypeScript check passes on both.
 
 ## Web
 - SPARK `[0.2,0.5,1,2,5,20]` → `[3,3,3,3,5,20]`; KINDLE `[0.5,2,5,10,25,100]` → `[3,3,5,10,25,100]` (ammoTiers.ts, docs/ammo-tiers.md). Note: engine.js ignores tiers today (`AMMO_TIERS=null`, fixed $10/$25/$50/$100), and `MIN_SHOT=3` is already set.
