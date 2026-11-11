@@ -2496,6 +2496,33 @@ function simStep(stepDt){
   { const P=S.particles; for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*(p.dk||2.2); if(p.life<=0) P.kill(i); } }   // dk: launch stat (plume lifetime)
   { const P=S.shards; for (let i=P.n-1;i>=0;i--){ const s=P.a[i]; s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=500*dt; s.life-=dt*0.9; if(s.life<=0||s.y>H+20) P.kill(i); } }
   for (const f of S.flashes) f.life-=dt*0.8; keepIf(S.flashes,ALIVE);
+
+/* @orb-hit — any part of the drawn rocket (tip, wings, body, tail) counts as a hit, not a box at the nozzle.
+   Local sprite space matches drawRocket: nozzle at (0,0), tip at (0, -pivotY), sprite w×h, rotated by the same angle. */
+function rocketGeom(){
+  const im=typeof IMG!=='undefined'&&IMG.rocket, h=150, w=(im&&im.naturalWidth)?h*im.naturalWidth/im.naturalHeight:55;
+  const pivotY=h*0.96, pos=typeof nozzleXY==='function'?nozzleXY():[(S.camX!=null?S.camX:S.x),S.ry];
+  const ang=typeof rocketVisAngle==='function'?rocketVisAngle():(S.heading||0);
+  return {nx:pos[0],ny:pos[1],w,h,pivotY,ang,ca:Math.cos(ang),sa:Math.sin(ang)};
+}
+function hitPoly(x,y,poly,r){
+  let inside=false, minD2=Infinity;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const xi=poly[i][0], yi=poly[i][1], xj=poly[j][0], yj=poly[j][1];
+    if(((yi>y)!==(yj>y)) && (x<(xj-xi)*(y-yi)/(yj-yi)+xi)) inside=!inside;
+    const vx=xj-xi, vy=yj-yi, len=vx*vx+vy*vy, t=len>0?Math.max(0,Math.min(1,((x-xi)*vx+(y-yi)*vy)/len)):0;
+    const dx=x-(xi+t*vx), dy=y-(yi+t*vy); const d2=dx*dx+dy*dy; if(d2<minD2) minD2=d2;
+  }
+  return inside || minD2<=(r+0.25)*(r+0.25);   // 0.25px slop so a vertex at a rotated angle still counts (cos(π/2) is not 0)
+}
+function rocketHits(px,py,rad){
+  const g=rocketGeom();
+  const dx=px-g.nx, dy=py-g.ny, lx=dx*g.ca+dy*g.sa, ly=-dx*g.sa+dy*g.ca, r=rad>0?rad:0;
+  const hw=g.w/2, tipY=-g.pivotY, tailY=g.h-g.pivotY, midY=tipY+g.h*0.42, foreY=tipY+g.h*0.18;
+  return hitPoly(lx,ly,[[0,tipY],[-hw*0.28,foreY],[-hw,midY],[-hw*0.35,tailY],[hw*0.35,tailY],[hw,midY],[hw*0.28,foreY]],r);
+}
+function orbHitsRocket(o){ return rocketHits(o.x,o.y,(ORB[o.k]&&ORB[o.k].r)||14); }
+/* @orb-hit-end */
   // motes drift down (speed ∝ trade flow), collect by steering
   const flow=1+Math.log10(1+S.buyEma)*0.5;
   // OFF-CHAIN ORB LAYER: reward spawn ∝ buy flow, penalty spawn ∝ sell flow (server-seeded in prod)
@@ -2503,12 +2530,12 @@ function simStep(stepDt){
   const P=ORB_SPAWN, room=S.orbsOn&&S.motes.length+S.obstacles.length<P.maxOnScreen&&S.t-S.lastOrbT>=P.minGap;
   if (room&&Math.random()<dt*Math.min(P.rewardMax,P.rewardBase+P.rewardFlow*Math.log10(1+S.buyEma))){ const r=Math.random(); S.motes.push({k:r<0.85?'halo':'mult',x:lane(),y:-20,v:90+Math.random()*40}); S.lastOrbT=S.t; }
   else if (room&&Math.random()<dt*Math.min(P.penaltyMax,P.penaltyBase+P.penaltyFlow*Math.log10(1+S.sellEma))){ S.obstacles.push({k:Math.random()<0.7?'storm':'void',x:lane(),y:-40,v:100}); S.lastOrbT=S.t; }
-  for (const m of S.motes){ m.y+=m.v*dt*flow; if (Math.abs(m.x-S.x)<50&&Math.abs(m.y-S.ry)<40){ m.dead=true; const T=ORB[m.k];
+  for (const m of S.motes){ m.y+=m.v*dt*flow; if (orbHitsRocket(m)){ m.dead=true; const T=ORB[m.k];
       if (m.k==='mult'){ S.mult=2; S.multUntil=S.t+10; }
       const pts=T.pts*S.mult*(1+Math.floor(S.streak/10)); S.score+=pts; S.streak++; S.collected++;
       S.floaters.push({x:m.x,y:m.y-20,txt:m.k==='mult'?'×2 POINTS 10s':'+'+pts,c:T.rim||'#ffe7a3',life:1.2});
       if(S.streak===10) award('streak10','PERFECT LANE ×10','10 reward orbs in a row'); if(S.collected===25) award('c25','HALO HOARDER','25 reward orbs collected'); } }
-  for (const o of S.obstacles){ o.y+=o.v*dt*flow; if (!o.hit&&Math.abs(o.x-S.x)<50&&Math.abs(o.y-S.ry)<40){ o.hit=true; o.dead=true; const T=ORB[o.k];
+  for (const o of S.obstacles){ o.y+=o.v*dt*flow; if (!o.hit&&orbHitsRocket(o)){ o.hit=true; o.dead=true; const T=ORB[o.k];
       const loss=Math.min(S.score,T.pts); S.score-=loss; S.streak=0; if(o.k==='void') S.slowUntil=S.t+3;
       S.floaters.push({x:o.x,y:o.y-20,txt:'−'+loss+(o.k==='void'?' · SLOWED 3s':' · streak lost'),c:'#ff5a6a',life:1.4});
       S.flashes.push({txt:o.k==='void'?'VOID ORB · steering slowed':'STORM ORB · −'+loss+' pts',life:1.2,c:'#ff7a85'});
