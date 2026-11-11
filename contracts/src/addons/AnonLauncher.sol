@@ -21,8 +21,17 @@ interface IFeeRouterClaims {
 
 interface ILaunchpadAdmin {
     function defaultQuote() external view returns (address);
+    function curveRouter() external view returns (address);
     function updateMetadata(address token, string calldata img, string calldata desc, string calldata socials) external;
     function transferCreator(address token, address newCreator) external;
+}
+
+/// @dev The public First BOOST path (DiscipleRouter.launchWithUsdg). AnonLauncher calls this so it stays the
+///      on-chain creator; a player calling the router directly would become Token.creator.
+interface IRouterLaunchWithUsdg {
+    function launchWithUsdg(ILaunchpad.LaunchParams calldata p, uint8 mode, uint256 usdgIn, uint256 minQuoteIn)
+        external
+        returns (ILaunchpad.LaunchResult memory r, uint256 usdgRefund);
 }
 
 /// @notice ERC-5564 singleton announcer (deployed at 0x55649E01B5Df198D18D95b5cc5051630cfD45564).
@@ -87,6 +96,7 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     }
 
     error ZeroAddress();
+    error RouterUnset();
     error FeeTooHigh();
     error NotStealthOwner();
     error Expired();
@@ -180,6 +190,53 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
             uint256 left = IERC20(q).balanceOf(address(this)) - b0;
             if (left != 0) IERC20(q).safeTransfer(msg.sender, left);
         }
+        stealthOwnerOf[r.token] = stealthOwner;
+        if (r.creatorTokensBought > 0) IERC20(r.token).safeTransfer(buyRecipient, r.creatorTokensBought);
+
+        if (ephemeralPubKey.length > 0 && address(announcer) != address(0)) {
+            announcer.announce(SCHEME_ID, stealthOwner, ephemeralPubKey, abi.encodePacked(viewTag, r.token));
+        }
+        emit LaunchFeePaid(r.token, fee);
+        emit AnonLaunched(r.token, r.curve, stealthOwner, r.creatorTokensBought);
+    }
+
+    /// @notice Same as `launchAnon`, but the optional First BOOST is paid in USDG (`feeToken`) through
+    ///         DiscipleRouter.launchWithUsdg: USDG is swapped to the pair token when needed, the curve buy
+    ///         runs in the same transaction, and any leftover is refunded in USDG to the payer. Always Trench
+    ///         mode, like `launchAnon`. `p.creatorBuyQuoteIn` is ignored (the router overwrites it). Tokens
+    ///         bought go to `buyRecipient` (the stealth owner when that is empty).
+    function launchAnonWithUsdg(
+        ILaunchpad.LaunchParams calldata p,
+        address stealthOwner,
+        address buyRecipient,
+        bytes calldata ephemeralPubKey,
+        bytes1 viewTag,
+        uint256 maxFee,
+        uint256 usdgIn,
+        uint256 minQuoteIn
+    ) external nonReentrant returns (ILaunchpad.LaunchResult memory r, uint256 usdgRefund) {
+        if (stealthOwner == address(0)) revert ZeroAddress();
+        if (buyRecipient == address(0)) buyRecipient = stealthOwner;
+
+        uint256 fee = launchFee;
+        if (fee > maxFee) revert FeeTooHigh();
+        if (fee > 0) feeToken.safeTransferFrom(msg.sender, treasury, fee);
+
+        address router = ILaunchpadAdmin(address(launchpad)).curveRouter();
+        if (router == address(0)) revert RouterUnset();
+
+        uint256 u0 = feeToken.balanceOf(address(this));
+        if (usdgIn > 0) {
+            feeToken.safeTransferFrom(msg.sender, address(this), usdgIn);
+            feeToken.forceApprove(router, usdgIn);
+        }
+
+        // mode 0 = TRENCH, the same mode `launchAnon` gets by calling Launchpad.launch.
+        (r, usdgRefund) = IRouterLaunchWithUsdg(router).launchWithUsdg(p, 0, usdgIn, minQuoteIn);
+
+        uint256 left = feeToken.balanceOf(address(this)) - u0;
+        if (left != 0) feeToken.safeTransfer(msg.sender, left);
+
         stealthOwnerOf[r.token] = stealthOwner;
         if (r.creatorTokensBought > 0) IERC20(r.token).safeTransfer(buyRecipient, r.creatorTokensBought);
 
