@@ -594,6 +594,11 @@ export const anonLauncherAbi = [
         "name": "minQuoteIn",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "refundTo",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [
@@ -1064,7 +1069,12 @@ export const anonLauncherAbi = [
     ],
     "anonymous": false
   },
-  {
+    {
+    "type": "error",
+    "name": "BadRefundTo",
+    "inputs": []
+  },
+{
     "type": "error",
     "name": "BadSignature",
     "inputs": []

@@ -96,6 +96,7 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     }
 
     error ZeroAddress();
+    error BadRefundTo();
     error RouterUnset();
     error FeeTooHigh();
     error NotStealthOwner();
@@ -202,9 +203,12 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
 
     /// @notice Same as `launchAnon`, but the optional First BOOST is paid in USDG (`feeToken`) through
     ///         DiscipleRouter.launchWithUsdg: USDG is swapped to the pair token when needed, the curve buy
-    ///         runs in the same transaction, and any leftover is refunded in USDG to the payer. Always Trench
+    ///         runs in the same transaction, and any leftover is refunded in USDG to `refundTo`. Always Trench
     ///         mode, like `launchAnon`. `p.creatorBuyQuoteIn` is ignored (the router overwrites it). Tokens
     ///         bought go to `buyRecipient` (the stealth owner when that is empty).
+    /// @param refundTo recipient of leftover USDG (the unused First BOOST after a partial fill, including
+    ///        pair-token leftovers the router already swapped back to USDG). address(0) means msg.sender.
+    ///        Cannot be this launcher. The launch fee and First BOOST USDG are still pulled from msg.sender.
     function launchAnonWithUsdg(
         ILaunchpad.LaunchParams calldata p,
         address stealthOwner,
@@ -213,10 +217,13 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         bytes1 viewTag,
         uint256 maxFee,
         uint256 usdgIn,
-        uint256 minQuoteIn
+        uint256 minQuoteIn,
+        address refundTo
     ) external nonReentrant returns (ILaunchpad.LaunchResult memory r, uint256 usdgRefund) {
         if (stealthOwner == address(0)) revert ZeroAddress();
         if (buyRecipient == address(0)) buyRecipient = stealthOwner;
+        address refund = refundTo == address(0) ? msg.sender : refundTo;
+        if (refund == address(this)) revert BadRefundTo();
 
         uint256 fee = launchFee;
         if (fee > maxFee) revert FeeTooHigh();
@@ -235,7 +242,7 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         (r, usdgRefund) = IRouterLaunchWithUsdg(router).launchWithUsdg(p, 0, usdgIn, minQuoteIn);
 
         uint256 left = feeToken.balanceOf(address(this)) - u0;
-        if (left != 0) feeToken.safeTransfer(msg.sender, left);
+        if (left != 0) feeToken.safeTransfer(refund, left);
 
         stealthOwnerOf[r.token] = stealthOwner;
         if (r.creatorTokensBought > 0) IERC20(r.token).safeTransfer(buyRecipient, r.creatorTokensBought);
