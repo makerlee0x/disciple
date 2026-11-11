@@ -57,6 +57,10 @@ export const SHOW_EXIT_NOTES = false;
 export const TRADE_PENDING_EVENT = "disciple:tradepending";
 export type PendingTrades = { buy: number; sell: number };
 export type ExitMode = "live" | "sim";
+/** Arm the "Leave the mission?" dialog only on a timed / simulated practice run (?source=sim), not on a regular live rocket. */
+export function exitConfirmArms(o: { status: string; err: boolean; replay: boolean; sim: boolean }): boolean {
+  return o.status === "Live" && !o.err && !o.replay && o.sim;
+}
 /** the dialog's smaller secondary lines (i18n keys): sim → practice line; live → coins line + one per pending side */
 export function secondaryKeys(mode: ExitMode, pending?: Partial<PendingTrades> | null, show: boolean = SHOW_EXIT_NOTES): ("exitc.note.live" | "exitc.note.sim" | "exitc.note.boost" | "exitc.note.dump")[] {
   if (!show) return [];

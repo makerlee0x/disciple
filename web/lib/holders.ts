@@ -21,6 +21,19 @@ export const BURN_ADDRESS = "0x000000000000000000000000000000000000dead";
 /** Addresses whose balance is burned: LockedLP.BURN + the zero address. */
 export const BURN_ADDRESSES = [BURN_ADDRESS, ZERO] as const;
 
+/**
+ * Never shown on the holders list (case-insensitive). The community rewards wallet and the
+ * RewardsVault still hold tokens, and percentages stay of total supply, so the list will not
+ * add up to 100%. Burned tokens and the bonding curve are not in this set: they stay as the
+ * labelled "Burned" and "Bonding curve" rows.
+ */
+export const EXCLUDED_HOLDER_ADDRESSES = [
+  "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E", // community rewards wallet
+  "0xf1a2784de1ded172f4b10b242f124f60a6ab38c0", // RewardsVault
+] as const;
+const excludedHolderSet = new Set(EXCLUDED_HOLDER_ADDRESSES.map((a) => a.toLowerCase()));
+export const isExcludedHolder = (address: string) => excludedHolderSet.has(address.toLowerCase());
+
 /** Apply Transfer logs (in chain order) to a balance map (lowercase address → raw balance string). Mints/burns skip 0x0. */
 export function applyTransfers(bal: Record<string, string>, xs: TransferDelta[]): Record<string, string> {
   const add = (a: string, d: bigint) => {
@@ -34,14 +47,16 @@ export function applyTransfers(bal: Record<string, string>, xs: TransferDelta[])
 }
 
 /**
- * Top `limit` holders by balance (desc; ties by address). pct = balance / totalSupply × 100. usd = share of the current
- * market cap (balance / totalSupply × mcapUsd), null when the mcap is unknown. labels: lowercase address → label.
+ * Top `limit` holders by balance (desc; ties by address). Addresses in EXCLUDED_HOLDER_ADDRESSES are dropped before
+ * the sort and the limit, so later rows move up. pct = balance / totalSupply × 100 (the denominator is unchanged).
+ * usd = share of the current market cap (balance / totalSupply × mcapUsd), null when the mcap is unknown.
+ * labels: lowercase address → label.
  */
 export function rankHolders(bal: Record<string, string>, o: { totalSupply: bigint; mcapUsd: number | null; labels: Record<string, Exclude<HolderLabel, null>>; limit: number; kinds?: Record<string, Exclude<HolderKind, "holder">> }): Holder[] {
   const sup = o.totalSupply > BigInt(0) ? o.totalSupply : BigInt(1);
   return Object.entries(bal)
     .map(([a, b]) => [a, BigInt(b)] as const)
-    .filter(([a, b]) => b > BigInt(0) && !isHiddenTrader(a))
+    .filter(([a, b]) => b > BigInt(0) && !isHiddenTrader(a) && !isExcludedHolder(a))
     .sort((x, y) => (x[1] === y[1] ? (x[0] < y[0] ? -1 : 1) : x[1] > y[1] ? -1 : 1))
     .slice(0, o.limit)
     .map(([address, b]) => {

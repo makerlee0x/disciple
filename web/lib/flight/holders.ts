@@ -8,7 +8,7 @@
  * `mine` marks the user's own row (the trading account = window.__flightWallet / the smart account).
  * Pure apart from the injected deps (fetch / balance reader) ⇒ unit-tested in scripts/test-live-fixes.mjs.
  */
-import { kindOf, type HolderKind } from "../holders";
+import { isExcludedHolder, kindOf, type HolderKind } from "../holders";
 export type HolderLabel = "pool" | "curve" | "locker" | "burn" | null;
 /** Post-grad fix 5: friendly names for tagged (non-ranked) rows, shown on top of the list (lee 9:19 PM CT). PLACEHOLDER copy — pending lee + BRAND. */
 export const HOLDER_LABEL_TEXT: Record<Exclude<HolderLabel, null>, string> = { pool: "Pool", locker: "Locked LP", burn: "Burned", curve: "Bonding curve" };
@@ -40,7 +40,7 @@ export function buildHolders(bal: { address: string; balance: bigint | string }[
   const me = o.me ? lc(o.me) : "", labels = o.labels || {}, seen = new Set<string>(), out: HolderRow[] = [];
   const sup = o.totalSupplyRaw > BigInt(0) ? o.totalSupplyRaw : BigInt(1);
   for (const b of bal) {
-    const a = lc(b.address); if (!isAddr(a) || seen.has(a)) continue; seen.add(a);
+    const a = lc(b.address); if (!isAddr(a) || seen.has(a) || isExcludedHolder(a)) continue; seen.add(a);
     const raw = toBig(b.balance); if (raw <= BigInt(0)) continue;
     const tokens = tok(raw, o.decimals ?? 18);
     out.push({ address: a, balance: raw.toString(), tokens, pct: Number((raw * BigInt(1_000_000)) / sup) / 10_000,

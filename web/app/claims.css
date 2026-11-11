@@ -130,7 +130,7 @@
 .cl-coin-feed { font: 500 12px var(--dsc-font-ui); color: var(--dsc-muted); padding: 4px 12px; border-radius: 999px; background: rgba(11, 12, 14, .7); border: 1px solid var(--dsc-border); }
 .cl-coin-feed strong { color: var(--dsc-up); }
 
-.cl-onboard { position: fixed; z-index: 70; right: 20px; bottom: 20px; width: min(380px, calc(100vw - 40px)); display: flex; flex-direction: column; gap: 12px;
+.cl-onboard { position: fixed; z-index: 70; right: 20px; bottom: calc(20px + var(--ap-safe-bottom)); width: min(380px, calc(100vw - 40px)); display: flex; flex-direction: column; gap: 12px;
   padding: 16px 18px; border-radius: 18px; background: linear-gradient(180deg, #1F2228, #16181C); border: 1px solid rgba(255, 122, 61, .45);
   box-shadow: 0 24px 50px -20px rgba(0, 0, 0, .9), 0 0 24px -10px rgba(255, 122, 61, .5); font-family: var(--dsc-font-ui); color: var(--dsc-text); }
 .cl-onboard strong { display: block; font: 400 21px/1.15 var(--dsc-font-display); margin-top: 6px; }

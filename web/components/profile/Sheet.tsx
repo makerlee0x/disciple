@@ -36,7 +36,7 @@ export default function Sheet({ open, onClose, label, className = "", children, 
   }, [open]);
   if (!open) return null;
   return (
-    <div className="ds-modal-backdrop pf-sheet-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) closeRef.current(); }}>
+    <div className="ds-modal-backdrop pf-sheet-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) closeRef.current(); }}>
       <div ref={box} className={`ds-modal pf-sheet ${className}`} role="dialog" aria-modal="true" aria-label={label} data-testid={testId}>
         <span className="pf-sheet-handle" aria-hidden />
         {children}

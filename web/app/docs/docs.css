@@ -5,7 +5,7 @@
   --dv-soft: var(--dsc-muted-on-sky, #BCC0CA);
   --dv-body: #D6D9DF;
   --dv-accent: var(--dsc-secondary, #FF7A3D);
-  --dv-sticky: var(--ap-topbar-h, 56px);
+  --dv-sticky: var(--ap-topbar-offset, 56px);
   --dv-banner-h: 36px;
   color: var(--dsc-text);
   font-family: var(--dsc-font-ui);
@@ -28,7 +28,6 @@
   border: 1px solid color-mix(in srgb, var(--dv-accent) 55%, transparent);
   color: var(--dv-accent); font: 600 10.5px/1.6 var(--dsc-font-mono); letter-spacing: .12em; text-transform: uppercase;
 }
-
 /* Mobile/tablet bar with the sections toggle (hidden on desktop) */
 .dv-mbar { display: none; }
 

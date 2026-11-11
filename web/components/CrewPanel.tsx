@@ -58,7 +58,7 @@ export default function CrewPanel({ coin, verified }: { coin?: string; verified?
     <aside
       ref={ref} aria-label="Crew" data-testid="crew-panel"
       style={{
-        position: "fixed", right: 20, top: `calc(var(--ap-hud-rt, 58px) + ${offset}px)`, maxHeight: `max(120px, calc(100vh - var(--ap-hud-rt, 58px) - ${260 + offset}px))`, overflowY: "auto", zIndex: 30, width: "min(310px, calc(100vw - 40px))", boxSizing: "border-box",
+        position: "fixed", right: 20, top: `calc(var(--ap-hud-rt, 58px) + ${offset}px)`, maxHeight: `max(120px, calc(100dvh - var(--ap-hud-rt, 58px) - ${260 + offset}px))`, overflowY: "auto", zIndex: 30, width: "min(310px, calc(100vw - 40px - var(--ap-safe-left, 0px) - var(--ap-safe-right, 0px)))", boxSizing: "border-box",
         padding: "8px 12px", borderRadius: 12, background: "rgba(22,24,28,.82)",
         border: "1px solid rgba(255,231,163,.45)", color: "#E8EAEE",
         font: "11px ui-monospace,monospace",

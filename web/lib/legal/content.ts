@@ -1,0 +1,89 @@
+/**
+ * /terms, /privacy, /risk. Copy lives in web/content/legal/*.md and is rendered at build time, the same way
+ * /security is (lib/security/content.ts): neither fs nor `marked` ships to the browser. Raw HTML is escaped.
+ * A leftover placeholder or draft note fails the build instead of reaching a visitor.
+ */
+import "server-only";
+import fs from "node:fs";
+import path from "node:path";
+import { Marked, type Tokens } from "marked";
+import { withBase } from "@/lib/base-path";
+import type { DocMeta, DocPage, TocItem } from "@/lib/docs/content";
+
+const DIR = path.join(process.cwd(), "content/legal");
+const ORDER = ["terms", "privacy", "risk"] as const;
+export type LegalId = (typeof ORDER)[number];
+
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const plain = (s: string) => s.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+const slugify = (s: string) => plain(s).toLowerCase().replace(/[`*_~]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "section";
+
+/** Markdown links are real links. Anything else in square brackets is a leftover to-do. */
+const leftover = (body: string) => /\[|\bCONFIRM\b|to be added|No lawyer/i.test(body.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1"));
+
+/** Markdown → page. Exported for tests (scripts/test-legal-pages.mts). */
+export function renderLegal(src: string, id: LegalId): DocPage {
+  const body = src.replace(/<!--[\s\S]*?-->\s*/g, "");
+  if (leftover(body)) throw new Error(`legal/${id}: placeholder or draft note left in the page`);
+  const toc: TocItem[] = [];
+  const used = new Map<string, number>();
+  const md = new Marked({ gfm: true });
+  md.use({
+    renderer: {
+      html(t: Tokens.HTML | Tokens.Tag) { return esc(t.text); },
+      heading(t: Tokens.Heading) {
+        const inner = this.parser.parseInline(t.tokens);
+        if (t.depth === 1) return `<h1 class="dv-h1">${inner}</h1>\n`;
+        const base = slugify(inner);
+        const n = used.get(base) ?? 0; used.set(base, n + 1);
+        const hid = n ? `${base}-${n}` : base;
+        if (t.depth === 2 || t.depth === 3) toc.push({ id: hid, text: plain(inner).trim(), depth: t.depth });
+        return `<h${t.depth} id="${hid}"><a class="dv-anchor" href="#${hid}" aria-hidden="true" tabindex="-1">#</a>${inner}</h${t.depth}>\n`;
+      },
+      link(t: Tokens.Link) {
+        const inner = this.parser.parseInline(t.tokens);
+        const ext = /^(https?:|mailto:)/.test(t.href);
+        return `<a href="${esc(ext ? t.href : withBase(t.href))}"${/^https?:/.test(t.href) ? ' target="_blank" rel="noopener noreferrer"' : ""}>${inner}</a>`;
+      },
+    },
+  });
+  let html = md.parse(body, { async: false }) as string;
+  html = html.replace(/<table>/g, '<div class="dv-table"><table>').replace(/<\/table>/g, "</table></div>");
+  if (leftover(html)) throw new Error(`legal/${id}: placeholder reached the rendered page`);
+  let titleHtml: string = id;
+  html = html.replace(/^\s*<h1 class="dv-h1">([\s\S]*?)<\/h1>\n?/, (_, h: string) => { titleHtml = h; return ""; });
+  return {
+    title: plain(titleHtml),
+    slug: `/${id}`,
+    section: "Legal",
+    file: `${id}.md`,
+    titleHtml,
+    html,
+    toc,
+    verifyCount: 0,
+    addrCount: 0,
+  };
+}
+
+const cache = new Map<LegalId, ReturnType<typeof renderLegal>>();
+export function legalPage(id: LegalId) {
+  const hit = cache.get(id);
+  if (hit) return hit;
+  const page = renderLegal(fs.readFileSync(path.join(DIR, `${id}.md`), "utf8"), id);
+  cache.set(id, page);
+  return page;
+}
+
+function metaOf(id: LegalId): DocMeta {
+  const p = legalPage(id);
+  return { title: p.title, slug: p.slug, section: p.section, file: p.file };
+}
+
+export function legalView(id: LegalId) {
+  const i = ORDER.indexOf(id);
+  return {
+    page: legalPage(id),
+    prev: i > 0 ? metaOf(ORDER[i - 1]) : null,
+    next: i < ORDER.length - 1 ? metaOf(ORDER[i + 1]) : null,
+  };
+}
