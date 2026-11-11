@@ -39,6 +39,7 @@ export const LAUNCH_WHITELIST: readonly LaunchWhitelistCoin[] = [
   { symbol: "HOOKR", name: "Hookr.fun", address: "0x18E674231A58c239Dc7DaeDcffE15Ec3A24cff5c", image: img("HOOKR"), decimals: 18 },
   { symbol: "CASHCAT", name: "Cash Cat", address: "0x020bfC650A365f8BB26819deAAbF3E21291018b4", image: img("CASHCAT"), decimals: 18 },
   { symbol: "PRIORS", name: "Priors Agents", address: "0xeDBf91223639800BCd5756815CAf908Df3b890bE", image: img("PRIORS"), decimals: 18 },
+  { symbol: "SPACEHOOD", name: "SPACEHOOD", address: "0xFe7E19CbCe2f896C6C528BC355bAF5a768291E18", image: img("SPACEHOOD"), decimals: 18 },
 ];
 
 /** The chip selected when the form opens. */
