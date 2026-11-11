@@ -22,6 +22,10 @@ import { myStealthCoins, myStealthKeys } from "@/lib/privateLaunch";
 import { fetchUsernameStatus, localUsername, referralUrl } from "@/lib/profile";
 import { refLabel } from "@/lib/referral";
 import { SampleTag, pc, useCaps, useWalletAddr } from "./ui";
+import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
+import { creatorClaimCalls, signedAnonClaimCalls } from "@/lib/claims/creatorFees";
+import { partitionRelayableCalls, blockedCallsMessage } from "@/lib/trade/gaslessAction";
+import { formatActionFeeNote, quoteGaslessAction } from "@/lib/trade/gaslessActionClient";
 
 /* Copy (new strings are listed verbatim in the PR body under "Copy pending lee approval"). */
 const T = {
@@ -56,6 +60,7 @@ export default function ProfileClaims() {
   const [copied, setCopied] = useState(false);
   // combined claim
   const [claimOpen, setClaimOpen] = useState(false);
+  const [feeNote, setFeeNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<{ usd: number; deferred: number } | null>(null);
@@ -84,6 +89,24 @@ export default function ProfileClaims() {
     void fetchUsernameStatus(me).then((s) => { if (alive && s.username && !localUsername()) setUsername(s.username); }).catch(() => {});
     return () => { alive = false; };
   }, [me]);
+
+
+  useEffect(() => {
+    if (!claimOpen || !data || !me || !clientGaslessMode() || done) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const calls = [...creatorClaimCalls(data.claim.creator, caps, me), ...(await signedAnonClaimCalls(pc(), data.claim.creator, me))];
+        const { relayable, blocked } = partitionRelayableCalls("anonClaim", calls.map((c) => ({ to: c.to, data: c.data })));
+        // referral + crew are not in creatorClaimCalls; they are also blocked
+        const extraBlocked = (data.claim.referral.length + data.claim.crew.length) > 0;
+        if (!relayable.length) { if (!cancelled) setFeeNote(blockedCallsMessage(blocked.length ? blocked : calls.map((c) => ({ to: c.to, data: c.data })))); return; }
+        const q = await quoteGaslessAction({ kind: "anonClaim", signer: me, callCount: relayable.length });
+        if (!cancelled) setFeeNote(formatActionFeeNote(q) + (blocked.length || extraBlocked ? " Some wallet, referral, or crew claims can't be relayed yet." : ""));
+      } catch (e) { if (!cancelled) setFeeNote((e as Error).message ?? "Could not quote the network fee."); }
+    })();
+    return () => { cancelled = true; };
+  }, [claimOpen, data, me, caps, done]);
 
   if (!me && !demo) return null;
 
@@ -130,7 +153,7 @@ export default function ProfileClaims() {
             <span className="cl-rw-week" data-testid="rewards-week"><b>+{fmtUsd(s.weekUsd)}</b> {T.week}</span>
           </> : <><div className="cl-skel" /><div className="cl-skel short" /></>}
           <button type="button" className="cl-btn gold lg" data-testid="claim-all-rewards" disabled={!canClaim}
-            onClick={() => { setErr(null); setDone(null); setClaimOpen(true); }}>
+            onClick={() => { setErr(null); setDone(null); setFeeNote(null); setClaimOpen(true); }}>
             Claim{canClaim && claimUsd > 0 ? ` ${fmtUsd(claimUsd)}` : ""}
           </button>
           {data && !canClaim && <p className="muted cl-fine">{T.nothing}</p>}
@@ -217,6 +240,7 @@ export default function ProfileClaims() {
             </ul>
             {done && <p className="cl-ok">{fmtUsd(done.usd)} · {T.landed}</p>}
             {done && done.deferred > 0 && <p className="cl-note">{T.later}</p>}
+            {feeNote && !done && <p className="cl-note" data-testid="claim-fee-note">{feeNote}</p>}
             {err && <p className="cl-err" role="alert">{err}</p>}
             <div className="cl-actions">
               <button type="button" className="cl-btn ghost" onClick={() => setClaimOpen(false)}>{done ? "Close" : "Cancel"}</button>

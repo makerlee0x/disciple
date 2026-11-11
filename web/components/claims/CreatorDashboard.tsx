@@ -9,8 +9,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Hex } from "viem";
-import { anonSigClaimCalls, creatorClaimCalls, creatorDashboard, sendCreatorClaims, type CreatorRocket } from "@/lib/claims/creatorFees";
-import { myStealthCoins, myStealthKeys, stealthKeyFor } from "@/lib/privateLaunch";
+import { creatorClaimCalls, creatorDashboard, sendCreatorClaims, signedAnonClaimCalls, type CreatorRocket } from "@/lib/claims/creatorFees";
+import { myStealthCoins, myStealthKeys } from "@/lib/privateLaunch";
 import { claimErrorText, fmtUsd, preflight, toUsd } from "@/lib/claims/common";
 import { demoRockets, demoRedeploy } from "@/lib/claims/demo";
 import { rocketsListView, walletPending, type WalletPhase } from "@/lib/claims/rocketsListView";
@@ -18,6 +18,9 @@ import { connectedAddress, connectPrivy, onWallet, restoreSmart } from "@/lib/wa
 import { aaSession, onPrivy, privyAuthenticated, privyReady } from "@/lib/aa/session";
 import VerifiedBadge from "@/components/VerifiedBadge";
 import { ConfirmSheet, Money, SampleTag, TxLink, pc, shortA, useCaps, type ConfirmLine } from "./ui";
+import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
+import { partitionRelayableCalls, blockedCallsMessage } from "@/lib/trade/gaslessAction";
+import { formatActionFeeNote, quoteGaslessAction } from "@/lib/trade/gaslessActionClient";
 import VerifyRequest from "./VerifyRequest";
 
 type Pending = { rows: CreatorRocket[]; title: string } | null;
@@ -42,6 +45,7 @@ export default function CreatorDashboard() {
   const [pending, setPending] = useState<Pending>(null);
   const [busy, setBusy] = useState(false);
   const [sheetErr, setSheetErr] = useState<string | null>(null);
+  const [feeNote, setFeeNote] = useState<string | null>(null);
   const [done, setDone] = useState<Hex | null>(null);
 
   const load = useCallback(async () => {
@@ -67,14 +71,27 @@ export default function CreatorDashboard() {
     ...(r.claimable > BigInt(0) ? [{ label: `$${r.ticker} fees`, raw: r.claimable, asset: r.quote }] : []),
     ...((r.anon || caps.creatorTokenFees) && r.tokenSide && r.tokenSide.claimable > BigInt(0) ? [{ label: `$${r.ticker} token share`, raw: r.tokenSide.claimable, asset: r.tokenSide.asset }] : []),
   ]);
-  const open = (rs: CreatorRocket[], title: string) => { setSheetErr(null); setDone(null); setPending({ rows: rs, title }); };
+  const open = (rs: CreatorRocket[], title: string) => {
+    setSheetErr(null); setDone(null); setFeeNote(null); setPending({ rows: rs, title });
+    if (clientGaslessMode() && me) {
+      void (async () => {
+        try {
+          const calls = [...creatorClaimCalls(rs, caps, me), ...(await signedAnonClaimCalls(pc(), rs, me))];
+          const { relayable, blocked } = partitionRelayableCalls("anonClaim", calls.map((c) => ({ to: c.to, data: c.data })));
+          if (!relayable.length) { setFeeNote(blockedCallsMessage(blocked.length ? blocked : calls.map((c) => ({ to: c.to, data: c.data })))); return; }
+          const q = await quoteGaslessAction({ kind: "anonClaim", signer: me, callCount: relayable.length });
+          setFeeNote(formatActionFeeNote(q) + (blocked.length ? " Some wallet/crew/referral claims can't be relayed yet." : ""));
+        } catch (e) { setFeeNote((e as Error).message ?? "Could not quote the network fee."); }
+      })();
+    }
+  };
   const confirm = async () => {
     if (!pending) return;
     setBusy(true); setSheetErr(null);
     try {
       if (demo) { await new Promise((r) => setTimeout(r, 600)); setDone(`0x${"ab".repeat(32)}` as Hex); return; }
       const calls = creatorClaimCalls(pending.rows, caps, me ?? undefined);
-      if (me && pending.rows.some((r) => r.stealth)) { const k = await myStealthKeys(); calls.push(...(await anonSigClaimCalls(pc(), pending.rows, me, (eph) => stealthKeyFor(k, eph)))); }
+      if (me) calls.push(...(await signedAnonClaimCalls(pc(), pending.rows, me)));
       if (me) await preflight(pc(), calls, me);
       const r = await sendCreatorClaims(calls);
       setDone(r.txHash);
@@ -173,7 +190,7 @@ export default function CreatorDashboard() {
       {pending && (
         <ConfirmSheet title={pending.title} lines={linesOf(pending.rows)} to={me ?? (demo ? "0x5a3c7743d365f770710fe15f4bbf1cec7bc41006" : null)}
           note={pending.rows.length > 1 ? `${pending.rows.length} rockets in one transaction.` : pending.rows[0]?.anon ? "Claimed privately, paid to this account." : "Fees go to the wallet that launched the rocket."}
-          busy={busy} error={sheetErr} done={done} onConfirm={confirm} onClose={() => setPending(null)} />
+          feeNote={feeNote} busy={busy} error={sheetErr} done={done} onConfirm={confirm} onClose={() => setPending(null)} />
       )}
     </div>
   );

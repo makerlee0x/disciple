@@ -20,6 +20,8 @@ import { ACTIVE_CHAIN, deployment, isDeployed } from "@/lib/chains";
 import { recommendedPairs } from "@/lib/pairs";
 import { nextTicker, randomRocketName, tickerVariants } from "@/lib/rocketNames";
 import { activeAddress, aaAvailable, canTransact, connectPrivy, connectWallet, execCalls, onWallet } from "@/lib/wallet";
+import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
+import { blockedActionMessage } from "@/lib/trade/gaslessAction";
 import { launchpadAbi } from "@/lib/abi";
 import { encodeFunctionData } from "viem";
 import { useRouter } from "next/navigation";
@@ -240,6 +242,7 @@ export default function LaunchRocketPage() {
         if (fr.toLowerCase() !== me.toLowerCase()) {
           setLaunched("Launched. Assigning the fee receiver (one more confirmation)…");
           try {
+            if (clientGaslessMode()) throw new Error(blockedActionMessage("Launchpad.transferCreator(address,address)"));
             await execCalls([{ to: deployment().launchpad, data: encodeFunctionData({ abi: launchpadAbi, functionName: "transferCreator", args: [res.token, fr as Address] }) }]);
           } catch (err) {
             console.warn("[disciple] fee receiver assignment failed", { token: res.token, feeReceiver: fr, message: String((err as Error)?.message ?? err).slice(0, 300) });

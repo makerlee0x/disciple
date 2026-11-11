@@ -15,7 +15,12 @@ import { decodeEventLog, encodeFunctionData, type Address, type Hex, type Public
 import { anonLauncherAbi, bondingCurveAbi, feeRouterAbi, launchpadAbi, tokenAbi } from "../abi";
 import { deployment } from "../chains";
 import type { Call } from "../aa/core";
-import { execCalls } from "../wallet";
+import { execCalls, gaslessSigner } from "../wallet";
+import { clientGaslessMode } from "../aa/sponsorshipMode";
+import { publicClient } from "../protocol-viem";
+import type { LocalAccount } from "viem";
+import { blockedCallsMessage, partitionRelayableCalls } from "../trade/gaslessAction";
+import { sendGaslessAction } from "../trade/gaslessActionClient";
 import { type Caps } from "./capabilities";
 import { ACTIVE_CHAIN } from "../chains";
 import { anonLaunchers, CLAIM_TYPES, claimDomain, isLegacyLauncher } from "../anon";
@@ -169,7 +174,7 @@ export function creatorClaimCalls(rows: ClaimRow[], caps: Caps, me?: Address): C
   const byLauncher = new Map<Address, Address[]>();
   for (const r of rows) {
     const hasTok = !!r.tokenSide && r.tokenSide.claimable > ZERO;
-    if (r.anon) { if (!r.stealth && r.launcher && anonHasSomething(r)) byLauncher.set(r.launcher, [...(byLauncher.get(r.launcher) ?? []), r.token]); continue; }
+    if (r.anon) continue; // AnonLauncher claims go through claimManyBySig (anonSigClaimCalls), which the gasless relayer can submit
     if (caps.creatorFees && r.claimable > ZERO) calls.push({ to: fr, data: encodeFunctionData({ abi: feeRouterAbi, functionName: "claimCreatorFees", args: [r.token] }) });
     if (caps.creatorTokenFees && hasTok) calls.push({ to: fr, data: encodeFunctionData({ abi: feeRouterAbi, functionName: "claimCreatorTokenFees", args: [r.token] }) });
   }
@@ -183,19 +188,26 @@ export function creatorClaimCalls(rows: ClaimRow[], caps: Caps, me?: Address): C
  * (EIP-712 "DISCIPLE AnonLauncher" v1, verifyingContract = the coin's launcher), relayerFeeBps 0, paid to `me`.
  * `keyFor(ephemeralPubKey)` returns the stealth private key (lib/privateLaunch.stealthKeyFor).
  */
-export async function anonSigClaimCalls(pc: PublicClient, rows: ClaimRow[], me: Address, keyFor: (eph: Hex) => Hex): Promise<Call[]> {
+export async function anonSigClaimCalls(pc: PublicClient, rows: ClaimRow[], me: Address, keyFor?: (eph: Hex) => Hex, walletOwner?: LocalAccount | null): Promise<Call[]> {
   const { privateKeyToAccount } = await import("viem/accounts");
-  const groups = new Map<string, { launcher: Address; owner: Address; eph: Hex; tokens: Address[] }>();
+  const groups = new Map<string, { launcher: Address; owner: Address; eph: Hex | null; tokens: Address[] }>();
   for (const r of rows) {
-    if (!r.anon || !r.stealth || !r.launcher || !anonHasSomething(r)) continue;
-    const k = `${lc(r.launcher)}:${lc(r.stealth.owner)}`;
-    const g = groups.get(k) ?? { launcher: r.launcher, owner: r.stealth.owner, eph: r.stealth.ephemeralPubKey, tokens: [] };
-    g.tokens.push(r.token); groups.set(k, g);
+    if (!r.anon || !r.launcher || !anonHasSomething(r)) continue;
+    if (r.stealth) {
+      if (!keyFor) continue;
+      const k = `${lc(r.launcher)}:${lc(r.stealth.owner)}`;
+      const g = groups.get(k) ?? { launcher: r.launcher, owner: r.stealth.owner, eph: r.stealth.ephemeralPubKey, tokens: [] };
+      g.tokens.push(r.token); groups.set(k, g);
+    } else if (walletOwner) {
+      const k = `${lc(r.launcher)}:${lc(me)}`;
+      const g = groups.get(k) ?? { launcher: r.launcher, owner: me, eph: null, tokens: [] };
+      g.tokens.push(r.token); groups.set(k, g);
+    }
   }
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
   const calls: Call[] = [];
   for (const g of Array.from(groups.values())) {
-    const acct = privateKeyToAccount(keyFor(g.eph));
+    const acct = g.eph ? privateKeyToAccount(keyFor!(g.eph)) : walletOwner!;
     if (lc(acct.address) !== lc(g.owner)) continue;   // wrong key: never send a claim that would revert
     const nonce = await pc.readContract({ address: g.launcher, abi: anonLauncherAbi, functionName: "nonces", args: [g.owner] }) as bigint;
     const sig = await acct.signTypedData({ domain: claimDomain(ACTIVE_CHAIN.id, g.launcher), types: CLAIM_TYPES, primaryType: "Claim",
@@ -205,11 +217,32 @@ export async function anonSigClaimCalls(pc: PublicClient, rows: ClaimRow[], me: 
   return calls;
 }
 
+
+/** Sign every AnonLauncher claim (wallet-owned and stealth-owned) as claimManyBySig so the gasless relayer can submit it. */
+export async function signedAnonClaimCalls(pc: PublicClient, rows: ClaimRow[], me: Address): Promise<Call[]> {
+  let keyFor: ((eph: Hex) => Hex) | undefined;
+  if (rows.some((r) => r.anon && r.stealth)) {
+    const { myStealthKeys, stealthKeyFor } = await import("../privateLaunch");
+    const k = await myStealthKeys();
+    keyFor = (eph) => stealthKeyFor(k, eph);
+  }
+  return anonSigClaimCalls(pc, rows, me, keyFor, gaslessSigner());
+}
+
 export type ClaimReceipt = { txHash: Hex; claimed: { token: Address; amount: bigint; side: "quote" | "token" }[] };
 /** Send claims (one userOp for Claim all) and read the amounts back from the claim events (FeeRouter + both launchers). */
 export async function sendCreatorClaims(calls: Call[]): Promise<ClaimReceipt> {
   if (!calls.length) throw new Error("Nothing to claim yet.");
-  const r = await execCalls(calls);
+  let r: { txHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[] };
+  if (clientGaslessMode()) {
+    const { relayable, blocked } = partitionRelayableCalls("anonClaim", calls.map((c) => ({ to: c.to, data: c.data })));
+    if (!relayable.length) throw new Error(blockedCallsMessage(blocked.length ? blocked : calls.map((c) => ({ to: c.to, data: c.data }))));
+    if (blocked.length) console.warn("[disciple] claims: skipped msg.sender-only calls (no on-behalf variant)", blocked.length);
+    const g = await sendGaslessAction("anonClaim", relayable, publicClient() as never);
+    r = { txHash: g.txHash, logs: g.logs };
+  } else {
+    r = await execCalls(calls);
+  }
   const fr = lc(deployment().feeRouter), als = anonLaunchers(ACTIVE_CHAIN.id).map(lc);
   const claimed: ClaimReceipt["claimed"] = [];
   for (const l of r.logs) {
