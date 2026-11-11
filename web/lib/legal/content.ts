@@ -1,7 +1,7 @@
 /**
  * /terms, /privacy, /risk. Copy lives in web/content/legal/*.md and is rendered at build time, the same way
  * /security is (lib/security/content.ts): neither fs nor `marked` ships to the browser. Raw HTML is escaped.
- * Every [CONFIRM: visible blank] stays visible, highlighted, in square brackets. The source note is the blank itself.
+ * A leftover placeholder or draft note fails the build instead of reaching a visitor.
  */
 import "server-only";
 import fs from "node:fs";
@@ -18,19 +18,13 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 const plain = (s: string) => s.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
 const slugify = (s: string) => plain(s).toLowerCase().replace(/[`*_~]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "section";
 
-const blankHtml = (text: string) => `<span class="dv-blank">[${esc(text)}]</span>`;
+/** Markdown links are real links. Anything else in square brackets is a leftover to-do. */
+const leftover = (body: string) => /\[|\bCONFIRM\b|to be added|No lawyer/i.test(body.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1"));
 
 /** Markdown → page. Exported for tests (scripts/test-legal-pages.mts). */
-export function renderLegal(src: string, id: LegalId): DocPage & { pending: number } {
-  const blanks: string[] = [];
-  const body = src
-    .replace(/<!--[\s\S]*?-->\s*/g, "")
-    .replace(/[ \t]*\[CONFIRM:\s*([^\]]+)\]/g, (_, text: string) => {
-      const label = text.trim();
-      if (!label) throw new Error(`legal/${id}: empty [CONFIRM]`);
-      blanks.push(label);
-      return ` %%LEGAL_BLANK_${blanks.length - 1}%%`;
-    });
+export function renderLegal(src: string, id: LegalId): DocPage {
+  const body = src.replace(/<!--[\s\S]*?-->\s*/g, "");
+  if (leftover(body)) throw new Error(`legal/${id}: placeholder or draft note left in the page`);
   const toc: TocItem[] = [];
   const used = new Map<string, number>();
   const md = new Marked({ gfm: true });
@@ -40,10 +34,10 @@ export function renderLegal(src: string, id: LegalId): DocPage & { pending: numb
       heading(t: Tokens.Heading) {
         const inner = this.parser.parseInline(t.tokens);
         if (t.depth === 1) return `<h1 class="dv-h1">${inner}</h1>\n`;
-        const base = slugify(inner.replace(/%%LEGAL_BLANK_\d+%%/g, ""));
+        const base = slugify(inner);
         const n = used.get(base) ?? 0; used.set(base, n + 1);
         const hid = n ? `${base}-${n}` : base;
-        if (t.depth === 2 || t.depth === 3) toc.push({ id: hid, text: plain(inner.replace(/%%LEGAL_BLANK_\d+%%/g, "")).trim(), depth: t.depth });
+        if (t.depth === 2 || t.depth === 3) toc.push({ id: hid, text: plain(inner).trim(), depth: t.depth });
         return `<h${t.depth} id="${hid}"><a class="dv-anchor" href="#${hid}" aria-hidden="true" tabindex="-1">#</a>${inner}</h${t.depth}>\n`;
       },
       link(t: Tokens.Link) {
@@ -55,8 +49,7 @@ export function renderLegal(src: string, id: LegalId): DocPage & { pending: numb
   });
   let html = md.parse(body, { async: false }) as string;
   html = html.replace(/<table>/g, '<div class="dv-table"><table>').replace(/<\/table>/g, "</table></div>");
-  html = html.replace(/%%LEGAL_BLANK_(\d+)%%/g, (_, i: string) => blankHtml(blanks[Number(i)] ?? ""));
-  if (/CONFIRM:|%%LEGAL_BLANK_/.test(html)) throw new Error(`legal/${id}: unrendered review marker`);
+  if (leftover(html)) throw new Error(`legal/${id}: placeholder reached the rendered page`);
   let titleHtml: string = id;
   html = html.replace(/^\s*<h1 class="dv-h1">([\s\S]*?)<\/h1>\n?/, (_, h: string) => { titleHtml = h; return ""; });
   return {
@@ -67,9 +60,8 @@ export function renderLegal(src: string, id: LegalId): DocPage & { pending: numb
     titleHtml,
     html,
     toc,
-    verifyCount: blanks.length,
+    verifyCount: 0,
     addrCount: 0,
-    pending: blanks.length,
   };
 }
 

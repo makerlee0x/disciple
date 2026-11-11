@@ -1,18 +1,16 @@
-<!-- /risk. Draft. No lawyer has read this. Each [CONFIRM: ...] blank is shown on the page in brackets. -->
-
 # Read this before you trade
-
-No lawyer has read this. Please treat this page as a draft. It is not legal advice, and it is not financial advice.
-
-**Last updated:** [CONFIRM: Date to be added]
 
 DISCIPLE is a game, and the trades are real transactions on a blockchain. A blockchain is a public ledger. Robinhood Chain is the one these trades use. A rocket is a new coin. Buying is called BOOST. Selling is called DUMP.
 
 The other pages are the [Terms of Use](/terms) and the [Privacy Policy](/privacy).
 
+## You use DISCIPLE at your own risk
+
+You use DISCIPLE at your own risk. There are no guarantees of any kind, and using it is not safe. You can lose everything you put in. Nothing here is financial, legal, or tax advice. You are responsible for your own wallet, your login, and your own choices. The team behind DISCIPLE is not liable for losses or problems that come from using it.
+
 ## You can lose everything you put in
 
-Rockets are new coins. Many new coins lose value, and a rocket can fall until it is worth nothing. Only use money you can afford to lose completely. Nothing on DISCIPLE is investment advice. Nobody on the team will tell you what to buy.
+Rockets are new coins. Many new coins lose value, and a rocket can fall until it is worth nothing. Only use money you can afford to lose completely. Nobody on the team will tell you what to buy.
 
 ## Prices move fast
 
@@ -57,5 +55,3 @@ Every BOOST and every DUMP pays a 1% fee, plus any creator tax the launcher set.
 ## Look after yourself
 
 We will not send you a private message that contains a contract address, ask you for your seed phrase, or promise you a return. Anyone who does that is not us. Check the address in your browser before you sign anything, and make sure it is the DISCIPLE site you meant to open.
-
-Nothing on this page is financial advice.

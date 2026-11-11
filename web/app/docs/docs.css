@@ -28,13 +28,6 @@
   border: 1px solid color-mix(in srgb, var(--dv-accent) 55%, transparent);
   color: var(--dv-accent); font: 600 10.5px/1.6 var(--dsc-font-mono); letter-spacing: .12em; text-transform: uppercase;
 }
-/* Legal pages: the draft line has to stay readable, so it wraps instead of clipping. */
-.dv-banner.dv-banner-legal {
-  height: auto; min-height: var(--dv-banner-h); padding-top: 8px; padding-bottom: 8px;
-  white-space: normal; overflow: visible;
-}
-.dv-banner.dv-banner-legal .dv-banner-txt { overflow: visible; text-overflow: unset; white-space: normal; }
-
 /* Mobile/tablet bar with the sections toggle (hidden on desktop) */
 .dv-mbar { display: none; }
 
@@ -118,15 +111,6 @@
 .dv-verify-dot { width: 5px; height: 5px; border-radius: 50%; background: color-mix(in srgb, var(--dv-accent) 70%, var(--dsc-muted)); }
 .dv-verify-solo { margin: 8px 0 14px; }
 .dv-verify-solo .dv-verify { margin-left: 0; }
-/* Legal blanks lee still has to fill. Flat 1px, wraps on a phone, no glow. */
-.dv-blank {
-  display: inline; padding: 0 4px; margin: 0 1px;
-  border: 1px solid color-mix(in srgb, var(--dsc-secondary) 55%, var(--dsc-border));
-  border-radius: var(--dsc-radius-xs, 4px);
-  background: color-mix(in srgb, var(--dsc-secondary) 14%, transparent);
-  box-decoration-break: clone; -webkit-box-decoration-break: clone;
-  color: var(--dsc-text); font-weight: 600;
-}
 
 /* Docs home: all sections */
 .dv-index { margin-top: 48px; padding-top: 8px; border-top: 1px solid var(--dsc-border); }

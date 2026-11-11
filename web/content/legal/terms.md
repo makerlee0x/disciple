@@ -1,12 +1,4 @@
-<!-- /terms. Draft. No lawyer has read this. Each [CONFIRM: ...] blank is shown on the page in brackets. -->
-
 # Terms of Use
-
-No lawyer has read this. Please treat this page as a draft. It is not legal advice.
-
-**Last updated:** [CONFIRM: Date to be added]
-
-**Operator:** [CONFIRM: Operator name and address to be added]
 
 These terms sit with two other pages: the [Privacy Policy](/privacy) and the [Risk](/risk) page. Read the Risk page before you trade.
 
@@ -22,7 +14,7 @@ By signing in, or by using DISCIPLE, you agree to these terms. If you do not agr
 
 Sign in with email, Google, X or wallet. Sign-in is handled by Privy.
 
-If you sign in with email, Google, or X, Privy creates a wallet inside the app for you. If you sign in with a wallet you already have, that wallet is only how you log in, and Privy still creates one wallet inside the app for you. That in-app wallet controls an account built with Alchemy's tools. The account pays the network fee in USDG, the token DISCIPLE uses for trades, so a normal trade does not ask you for ETH.
+If you sign in with email, Google, or X, Privy creates a wallet inside the app for you. If you sign in with a wallet you already have, that wallet is only how you log in, and Privy still creates one wallet inside the app for you. That in-app wallet controls an account built with Alchemy's tools. The account pays the network fee in USDG, the token DISCIPLE uses for trades, so a normal trade does not ask you for ETH. ETH is the coin many other apps charge for the network fee.
 
 One-tap trading keeps an expiring permission in your browser, so a later BOOST or DUMP can be sent without asking you to approve every tap.
 
@@ -40,9 +32,9 @@ If you launch a rocket, you are responsible for what it is called, what it says,
 
 We may hide a rocket, a picture, or a profile on the website, for example if it is illegal, copies someone else's work, or is hateful or sexually explicit. We cannot change or delete a record that Robinhood Chain has already confirmed. That chain is a public ledger. Anyone can read it, and a confirmed record stays as it was written.
 
-## This is not advice
+## The game is not a recommendation
 
-Nothing on DISCIPLE, on our X account, or anywhere we publish is investment advice, financial advice, legal advice, or tax advice. The height on the screen is the rocket's market cap, which is its price multiplied by its supply. Tiers, leaderboards, and achievements are part of the game. They are not a recommendation. You decide what to do, and you are responsible for the decision.
+The height on the screen is the rocket's market cap, which is its price multiplied by its supply. Tiers, leaderboards, and achievements are part of the game. They are not a recommendation. You decide what to do, and you are responsible for the decision.
 
 ## A confirmed trade stays confirmed
 
@@ -64,7 +56,7 @@ Network fees on trades are paid in USDG, from a balance kept for that purpose. A
 
 ## Who can use DISCIPLE
 
-You must be at least 18, or the age of adulthood where you live, whichever is higher. The law where you live also has to allow you to use DISCIPLE. You may not use it if you are on a sanctions list. The list of places that are blocked, if any, is not set yet. [CONFIRM: Restricted places to be added] Meeting this rule is up to you.
+You must be at least 18, or the age of adulthood where you live, whichever is higher. The law where you live also has to allow you to use DISCIPLE. You may not use it if you are on a sanctions list. Meeting this rule is up to you.
 
 ## What you must not do
 
@@ -76,24 +68,14 @@ Do not launch a rocket that copies a trademark or someone else's work, or that i
 
 Do not attack the site, overload it, copy large parts of it in order to harm it, or take it apart in order to harm it. If you find a bug, report it on the [Security](/security) page instead of taking advantage of it.
 
-Do not open extra accounts to get around a limit or a game rule. Whether programs that trade for you are allowed is not set yet. [CONFIRM: Whether automated trading is allowed to be added]
+Do not open extra accounts to get around a limit or a game rule.
 
-## What we do not promise
+## You use DISCIPLE at your own risk
 
-DISCIPLE is offered as it is, and only while it is available. We do not promise that it will be free of mistakes, that it will stay online, or that any rocket will rise, keep its price, or leave its first market. Contracts, Robinhood Chain, wallets, Uniswap, and the other services the site relies on can fail. You use DISCIPLE at your own risk.
+You use DISCIPLE at your own risk. There are no guarantees of any kind, and using it is not safe. You can lose everything you put in. Nothing here is financial, legal, or tax advice. You are responsible for your own wallet, your login, and your own choices. The team behind DISCIPLE is not liable for losses or problems that come from using it.
 
-## How far our responsibility goes
-
-If the law lets us cap this, we are not responsible for indirect losses, lost profits, or lost tokens. [CONFIRM: Liability cap to be added] Some places do not allow limits like these, so parts of this section may not apply to you.
+We do not promise that the site will be free of mistakes, that it will stay online, or that any rocket will rise, keep its price, or leave its first market. Contracts, Robinhood Chain, wallets, Uniswap, and the other services the site relies on can fail.
 
 ## Changes, and when access ends
 
-We may change DISCIPLE, and we may change these terms. If a change matters, we will post the new terms on the site with a new date. We may suspend or close access to the website for someone who breaks these terms. Closing that access does not move your tokens. They stay in the account that holds them.
-
-## Law and disputes
-
-The law that governs these terms, and how a dispute is handled, is not filled in yet. [CONFIRM: Governing law and how disputes are handled to be added]
-
-## Contact
-
-Email us at [CONFIRM: Contact email to be added].
+We may change DISCIPLE, and we may change these terms. If a change matters, we will post the new terms on this page. We may suspend or close access to the website for someone who breaks these terms. Closing that access does not move your tokens. They stay in the account that holds them.

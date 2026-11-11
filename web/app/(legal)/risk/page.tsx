@@ -2,14 +2,10 @@ import type { Metadata } from "next";
 import DocsArticle from "@/components/docs/DocsArticle";
 import { legalView } from "@/lib/legal/content";
 
-export function generateMetadata(): Metadata {
-  const { page } = legalView("risk");
-  return {
-    title: "Risk · DISCIPLE",
-    description: "Read this before you trade on DISCIPLE. No lawyer has read this.",
-    ...(page.pending ? { robots: { index: false, follow: true } } : {}),
-  };
-}
+export const metadata: Metadata = {
+  title: "Risk · DISCIPLE",
+  description: "Read this before you trade on DISCIPLE. You can lose everything you put in.",
+};
 
 export default function RiskPage() {
   const { page, prev, next } = legalView("risk");
