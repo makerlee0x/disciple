@@ -72,6 +72,9 @@ stopped, including packets that still need delivering.
 
 - Same chain: tip = (gas of the call) × basefee × 1.2, valued in the pool's tokens, at most 1/32 of the jar per tip,
   and only one tip per pool per block.
+- Carry pools (`"abi": "carry"`): tip = cost × 1.05, where cost includes the Robinhood L1 data fee once per
+  transaction, paid in USDG (the jar skims quote only). The margin is about 5% by design, so a Carry keeper roughly
+  breaks even; it exists to keep the price fresh, not to profit.
 - Cross chain: refund per accepted pool = 1.2 × (its share of the home transaction and LayerZero fee + its share of
   the destination delivery gas), capped at 0.002 ETH of cost, valued in the pool's quote token and credited from
   the jar (at most 1/32 of it per refund). Credits wait in the hook until the keeper collects them.
@@ -79,7 +82,7 @@ stopped, including packets that still need delivering.
   On the forked test at ~0.04 gwei Ethereum basefee, a 0.003 gwei tip left the keeper about 11% up on a paid push
   (refund 0.0000087 ETH against 0.0000078 ETH spent on all three transactions). A 0.02 gwei tip lost money.
 - Unpaid: opening prices, unpaid heartbeats if you turn them on, delivering someone else's packet, and the
-  Robinhood L1 data fee (not counted by the contracts).
+  Robinhood L1 data fee on Disciple v0.2 pools (Carry pools count it).
 - Tips and credits are paid in the pool's tokens (USDG, WETH, the coin...), not ETH, so the wallet's ETH slowly
   turns into tokens. Top up ETH now and then, or swap the tips back.
 - Fund the keeper wallet with a little ETH on each chain it sends on (cross-chain routes send on both). For
