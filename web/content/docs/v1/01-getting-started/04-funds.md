@@ -13,11 +13,11 @@ On testnet you use **mUSDG**, a test version with no value.
 
 ## Deposit
 
-Open your profile, then **Cash → Deposit**. Copy your account address and send tokens to it on Robinhood Chain.
+Open **Wallet** and tap **Deposit**. Copy your account address and send money to it on Robinhood Chain.
 
 - You can deposit any token. A deposit is a plain transfer to your account address.
 - Deposit minimums are in USDG. For example, a referral locks with a deposit of $10 or more in USDG.
-- The Cash panel shows ETH (for gas), test STRATEGY and mUSDG. Use **Get test funds** to top up the test tokens.
+- On the test network, the Deposit screen includes **Get free test money**. That money is only for trying the site and has no real value.
 - You trade each rocket with its base: test STRATEGY by default, or USDG for USDG-paired rockets.
 
 Send only on Robinhood Chain. Tokens sent on another network will not arrive.
@@ -28,7 +28,7 @@ Open **Cash → Withdraw**. Pick a token, enter an amount (or **Max**) and a des
 
 ## Gas
 
-Every action is a transaction on Robinhood Chain, and you pay its gas in ETH. On testnet, use the ETH faucet linked in the Cash panel.
+Network fees are handled for you in the app, so you do not have to add a separate fee balance.
 
 Gas sponsorship is not enabled today. [CONFIRM: FLOW — whether testnet tops up gas automatically on first use.]
 

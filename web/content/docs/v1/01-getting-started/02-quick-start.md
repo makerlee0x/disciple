@@ -11,12 +11,11 @@ Five minutes from zero to your first BOOST.
 
 Tap **Sign in** (top right). Sign in with X, email or a wallet. Sign in once and DISCIPLE creates your account and wallet. After that, every trade is one tap, with no wallet pop-ups. See [Sign in and your account](/docs/account).
 
-## 2. Get test funds
+## 2. Deposit
 
-DISCIPLE is on testnet, so funds are test tokens with no value.
+Open **Wallet** and tap **Deposit**. Copy your account address and send money to it.
 
-- **Gas:** you need a little test ETH on Robinhood Chain Testnet. Use the faucet link in your profile's Cash panel.
-- **Tokens:** use **Get test funds** (top right) for test STRATEGY and test USDG (mUSDG).
+On the test network, the Deposit screen also has **Get free test money**. That money is only for trying the site and has no real value.
 
 See [Deposits, withdrawals and gas](/docs/funds).
 

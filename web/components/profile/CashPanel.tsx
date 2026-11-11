@@ -11,6 +11,7 @@ import type { Address } from "@/lib/protocol";
 import TestCashButton from "@/components/TestCashButton";
 import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
 import { OPEN_CASH_EVENT } from "@/lib/cashLink";
+import { SHOT_ACCOUNT, SHOT_MOCK } from "@/lib/shotMock";
 
 const erc20 = parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]);
 type Row = { symbol: string; address: Address; bal: bigint; dec: number };
@@ -29,7 +30,7 @@ export const CASH_COPY = {
  * address) + Withdraw (USDG transfer out). Dollars only: players never see the pair token's balance or the network name.
  */
 export default function CashPanel() {
-  const [addr, setAddr] = useState<Address | null>(null);
+  const [addr, setAddr] = useState<Address | null>(SHOT_MOCK ? SHOT_ACCOUNT.address as Address : null);
   const [rows, setRows] = useState<Row[]>([]);
   const [tab, setTab] = useState<"deposit" | "withdraw">("deposit");
   const [sym, setSym] = useState("");
@@ -40,7 +41,7 @@ export default function CashPanel() {
   const [copied, setCopied] = useState(false);
   const [quote, setQuote] = useState<{ fee: bigint; minAmount: bigint; feeTo: string; usdgDecimals: number } | null>(null);
   const [quoteErr, setQuoteErr] = useState<string | null>(null);
-  useEffect(() => onWallet(setAddr), []);
+  useEffect(() => { if (SHOT_MOCK) return; return onWallet(setAddr); }, []);
 
   async function refresh(a: Address) {
     if (!isDeployed()) return;
@@ -56,7 +57,7 @@ export default function CashPanel() {
     if (!addr) return;
     void refresh(addr);
     const i = setInterval(() => refresh(addr), 20000);
-    const cash = () => { void refresh(addr); };   // "Get test cash" landed
+    const cash = () => { void refresh(addr); };   // free test money landed
     window.addEventListener(CASH_ARRIVED_EVENT, cash);
     return () => { clearInterval(i); window.removeEventListener(CASH_ARRIVED_EVENT, cash); };
   }, [addr]);

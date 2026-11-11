@@ -1,5 +1,5 @@
 /**
- * Testnet-only "Get test cash" (SITE new-player cash). The button renders ONLY when the active chain is RH testnet
+ * Testnet-only free test money (SITE new-player cash). Shown only inside the Deposit screen, and only when the active chain is RH testnet
  * 46630 (TEST_CASH_ENABLED); mainnet config never shows it. The server route (/api/test-cash) mints test USDG (cash
  * only, no pair coin) to the player's smart account, rate-limited to once an hour per account.
  * After the mints land we fire CASH_ARRIVED_EVENT: the one-tap watcher (lib/aa/session) retries the setup and the
@@ -19,12 +19,12 @@ export const TEST_CASH_COOLDOWN_SEC = 3600;
 export const CASH_ARRIVED_EVENT = "disciple:cash";
 
 export const TEST_CASH_COPY = {
-  button: "Get test cash",
-  busy: "Adding test cash…",
-  done: (usd: number, strategyUsd = 0) => `Added $${usd.toLocaleString("en-US")} in test cash${strategyUsd > 0 ? ` and $${strategyUsd.toLocaleString("en-US")} in STRATEGY` : ""}.`,
-  note: "Test cash is free and only works here while we test. It has no real value.",
-  wait: (mins: number) => `You already got test cash. Try again in ${mins} min.`,
-  off: "Test cash isn't available right now. Try again later.",
+  button: "Get free test money",
+  busy: "Adding free test money…",
+  done: (usd: number, strategyUsd = 0) => `Added $${usd.toLocaleString("en-US")} in free test money${strategyUsd > 0 ? ` and $${strategyUsd.toLocaleString("en-US")} in STRATEGY` : ""}.`,
+  note: "This is free money for trying the site. It has no real value.",
+  wait: (mins: number) => `You already got free test money. Try again in ${mins} min.`,
+  off: "Free test money isn't available right now. Try again later.",
   needsCash: "Add cash first to turn on one-tap.",
   deposit: "Deposit",
 } as const;

@@ -1,4 +1,4 @@
-// SITE new-player cash: Get test cash gating (testnet only), plain copy, Deposit link hashes, /api/test-cash guards.
+// SITE new-player cash: free test money gating (testnet only, Deposit screen), plain copy, Deposit link hashes, /api/test-cash guards.
 // pnpm test:new-player-cash
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 
 const JARGON = /on-?chain|\btx\b|transaction|relay|gas|paymaster|mint|wallet|USDG|ERC-?20|testnet|network/i;
 
-test("Get test cash: on for RH testnet 46630 (default chain)", async () => {
+test("Free test money: on for RH testnet 46630 (default chain)", async () => {
   delete process.env.NEXT_PUBLIC_CHAIN_ID;
   const m = await import("../lib/testCash");
   assert.equal(m.TEST_CASH_CHAIN_ID, 46630);
@@ -14,7 +14,7 @@ test("Get test cash: on for RH testnet 46630 (default chain)", async () => {
   assert.equal(m.TEST_CASH_USD, 500);
 });
 
-test("Get test cash: never enabled on mainnet config", async () => {
+test("Free test money: never enabled on mainnet config", async () => {
   const { CHAIN } = await import("../lib/config");
   assert.notEqual(CHAIN.id, 46630);
   const out = execFileSync(process.execPath, ["--import", "tsx", "-e",
@@ -32,8 +32,9 @@ test("new copy is plain (dollars, no jargon)", async () => {
     TEST_CASH_COPY.needsCash, TEST_CASH_COPY.deposit, FIRST_BOOST_COPY.balanceOf("$245.00", "STRATEGY"), FIRST_BOOST_COPY.paidFrom("STRATEGY")];
   for (const s of strings) assert.doesNotMatch(s, JARGON, s);
   assert.equal(TEST_CASH_COPY.needsCash, "Add cash first to turn on one-tap.");
-  assert.equal(TEST_CASH_COPY.done(500), "Added $500 in test cash.");
-  assert.equal(TEST_CASH_COPY.done(500, 250), "Added $500 in test cash and $250 in STRATEGY.");
+  assert.equal(TEST_CASH_COPY.done(500), "Added $500 in free test money.");
+  assert.equal(TEST_CASH_COPY.done(500, 250), "Added $500 in free test money and $250 in STRATEGY.");
+  assert.equal(TEST_CASH_COPY.button, "Get free test money");
 });
 
 test("Deposit link goes to Cash on /wallet (not the Settings popup)", async () => {

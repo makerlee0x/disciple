@@ -17,14 +17,15 @@ import Icon, { type IconName } from "@/components/icons/Icon";
 import { GuildTagFor } from "@/components/guilds/GuildChip";
 import { GUILDS_ENABLED } from "@/lib/features";
 import { withBase } from "@/lib/base-path";
-import { SETTINGS_HREF, onSettingsClick } from "@/lib/cashLink";
-import { defaultUsername } from "@/lib/defaultUsername";
+import { DEPOSIT_HREF, SETTINGS_HREF, onDepositClick, onSettingsClick } from "@/lib/cashLink";
 import { PROFILE_CHANGED_EVENT } from "@/lib/profile";
 import { pfpUrl } from "@/lib/profileMeta";
 import { fetchProfileMeta } from "@/lib/profileMetaClient";
 import {
-  SETTINGS_OPEN_EVENT, WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, walletCtaLabel, walletId, type WalletId,
+  SETTINGS_OPEN_EVENT, WALLET_CASH_EVENT, WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT,
+  walletCash, walletCtaLabel, walletId, type WalletCash, type WalletId,
 } from "@/lib/walletCta";
+import { SHOT_ACCOUNT, SHOT_MOCK } from "@/lib/shotMock";
 
 type NavItem = { href: string; key: string; label: string; icon: IconName };
 
@@ -109,12 +110,21 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
     return () => window.removeEventListener(WALLET_CTA_EVENT, f);
   }, []);
   // Who you are (address + claimed name), published by the wallet pill.
-  const [me, setMe] = useState<WalletId | null>(null);
+  const [me, setMe] = useState<WalletId | null>(SHOT_MOCK ? { address: SHOT_ACCOUNT.address, name: SHOT_ACCOUNT.name } : null);
   useEffect(() => {
+    if (SHOT_MOCK) return;
     setMe(walletId());
     const f = (e: Event) => setMe((e as CustomEvent<WalletId | null>).detail ?? null);
     window.addEventListener(WALLET_ID_EVENT, f);
     return () => window.removeEventListener(WALLET_ID_EVENT, f);
+  }, []);
+  const [cash, setCash] = useState<WalletCash | null>(SHOT_MOCK ? { cashUsd: SHOT_ACCOUNT.cashUsd, totalUsd: SHOT_ACCOUNT.totalUsd, change24hUsd: SHOT_ACCOUNT.change24hUsd } : null);
+  useEffect(() => {
+    if (SHOT_MOCK) return;
+    setCash(walletCash());
+    const f = (e: Event) => setCash((e as CustomEvent<WalletCash | null>).detail ?? null);
+    window.addEventListener(WALLET_CASH_EVENT, f);
+    return () => window.removeEventListener(WALLET_CASH_EVENT, f);
   }, []);
   const hasMe = !!me?.address;
   const you = signedIn || hasMe;
@@ -194,7 +204,11 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
       <span className="lb">{item.label}</span>
     </Link>
   );
-  const name = me ? (me.name ? me.name.replace(/^@/, "") : defaultUsername(me.address)) : "";
+  const claimed = me?.name ? me.name.replace(/^@/, "") : "";
+  const shortAddr = me ? `${me.address.slice(0, 6)}…${me.address.slice(-4)}` : "";
+  const name = claimed || shortAddr;
+  const handle = claimed ? `@${claimed}` : shortAddr;
+  const usd2 = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   // Settings: on game routes GAME's settings menu (SETTINGS_OPEN_EVENT, #149: sound etc., also signed out); elsewhere the
   // account Settings popup (/profile#settings, #216), which holds Sign out, so it shows signed in only.
   const showSettings = isGame || you;
@@ -263,13 +277,21 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
 
         {me && hasMe ? (
           <div className="ap-me" data-testid="side-account">
-            <Link href="/profile" className="ap-me-id" title={name} onClick={closeIfMobile}>
+            <div className="ap-me-main">
+            <Link href="/profile" className="ap-me-id" title={handle} onClick={closeIfMobile}>
               <Avatar address={me.address} name={name} size={36} />
-              {/* the name once (lee): no text guild chip here, just the small guild mark like the wallet pill (#219) */}
+              {/* Mini profile: picture + username (or short address if none). Clicking the name opens your profile. */}
               <span className="ap-me-who">
-                <span className="ap-me-nm">{name}{GUILDS_ENABLED && <GuildTagFor address={me.address} markOnly />}</span>
+                <span className="ap-me-nm">{handle}{GUILDS_ENABLED && <GuildTagFor address={me.address} markOnly />}</span>
               </span>
             </Link>
+            {cash && (
+              <div className="ap-me-bal" data-testid="side-cash">
+                <span className="ap-me-cash">{usd2(cash.cashUsd)} <span className="ap-me-cash-lbl">cash</span></span>
+                <a href={DEPOSIT_HREF} className="ap-me-dep" data-testid="side-deposit" onClick={(e) => { closeIfMobile(); onDepositClick(e); }}>Deposit</a>
+              </div>
+            )}
+            </div>
             {settingsProps
               ? <button type="button" className="ap-me-gear" title="Settings" aria-label="Settings" aria-haspopup="dialog" {...settingsProps}>
                   <Icon name="settings" size={18} />

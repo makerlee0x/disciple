@@ -4,41 +4,33 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { formatUnits, parseAbi } from "viem";
-import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
-
-/** Robinhood Chain testnet: a plain "Test network" tag sits first in the wallet strip there (GAME play-test, Oct 26 2026). */
-const TEST_NETWORK_ID = 46630;
+import { MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
 import { decimalsOf, publicClient, readCurveState, usdgRouteFor } from "@/lib/protocol-viem";
-import { cashLine, type BalancePart } from "@/lib/balanceLine";
+import { type BalancePart } from "@/lib/balanceLine";
 import { payUsdg, routerUsdg } from "@/lib/trade/usdgRouter";
 import {
   aaAvailable, connectLocal, connectPrivy, connectSmartWithWallet, connectWallet, disconnect,
-  hasWallet, isSmartMode, onWallet, restoreSmart,
+  hasWallet, onWallet, restoreSmart,
 } from "@/lib/wallet";
 import {
   DEV_WALLETS, SIGNER_MODE, aaSession,
   legacyBalances, onSessionChange, sweepLegacy, restartOneTap,
 } from "@/lib/aa/session";
 import { bookedPortfolio, loadPortfolio, type Portfolio } from "@/lib/portfolio";
-import { WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, type WalletId } from "@/lib/walletCta";
+import { WALLET_CASH_EVENT, WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, type WalletCash, type WalletId } from "@/lib/walletCta";
+import { SHOT_ACCOUNT, SHOT_MOCK } from "@/lib/shotMock";
 import { COIN_DECIMALS, knownDecimals, usdgDecimals } from "@/lib/usdg";
 import { BOOKED_EVENT, blockOf, bookFill, fillBook, readAtOrAfter, txBlock, type FillReceiptDetail } from "@/lib/fillBook";
 import { pct } from "@/lib/aa/slippage";
 import type { Address } from "@/lib/protocol";
 import Icon from "@/components/icons/Icon";
 import { playerError } from "@/lib/playerError";
-import { chipLabel, clearNameCache, lookupFirstName } from "@/lib/nameLookup";
+import { clearNameCache, lookupFirstName } from "@/lib/nameLookup";
 import { GuildTagFor } from "@/components/guilds/GuildChip";
 import { GUILDS_ENABLED } from "@/lib/features";
 import { PROFILE_CHANGED_EVENT } from "@/lib/profile";
-import { DEPOSIT_HREF, SETTINGS_HREF, onDepositClick, onSettingsClick } from "@/lib/cashLink";
+import { SETTINGS_HREF, onSettingsClick } from "@/lib/cashLink";
 import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
-
-/** $1,234.56 (cash / portfolio cards). */
-const usd2 = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const signedUsd = (n: number) => `${n > 0.005 ? "+" : n < -0.005 ? "-" : ""}${usd2(Math.abs(n))}`;
-const GREEN = "#8ff0c0", RED = "#ff9fb8";
-/** Where "Deposit more" goes: the existing deposit / withdraw flow (private profile → Settings → Cash panel; lib/cashLink). */
 
 const symAbi = parseAbi(["function symbol() view returns (string)"]);
 const balAbi = parseAbi(["function balanceOf(address) view returns (uint256)"]);
@@ -57,19 +49,16 @@ function metaOf(coin: Address) {
  * Legacy "plain wallet" path kept as fallback (one tx per action).
  */
 export default function WalletButton({ compact = false }: { compact?: boolean } = {}) {
-  const [addr, setAddr] = useState<Address | null>(null);
+  const [addr, setAddr] = useState<Address | null>(SHOT_MOCK ? SHOT_ACCOUNT.address as Address : null);
   const [busy, setBusy] = useState("");
   const [, setEth] = useState<bigint | null>(null);
-  const [cashText, setCashText] = useState("");
   const path = usePathname() || "";
   const coin = (/^\/coin\/(0x[0-9a-fA-F]{40})/.exec(path)?.[1] ?? null) as Address | null;
   const [err, setErr] = useState("");
   const [menu, setMenu] = useState(false);
   const [, bump] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const [acct, setAcct] = useState(false);
   const [pf, setPf] = useState<Portfolio | null>(null);
-  useEffect(() => onWallet(setAddr), []);
+  useEffect(() => { if (SHOT_MOCK) return; return onWallet(setAddr); }, []);
   useEffect(() => { restoreSmart().catch(() => {}); }, []);
   useEffect(() => onSessionChange(() => bump((n) => n + 1)), []);
   // TEMP (testnet): old LightAccount of the same owner still holding funds ⇒ offer a one-click sweep. Remove after migration.
@@ -90,8 +79,6 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   function show(a: Address) {
     const r = lastRead.current;
     if (!r) return;
-    const parts = r.parts.map(({ address, ...p }) => ({ ...p, amount: fillBook.display(a, address) ?? p.amount }));
-    setCashText(cashLine(parts));
     if (r.pf) setPf(bookedPortfolio(r.pf, a, deployment().usdg, fillPx.current));
   }
 
@@ -135,7 +122,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       show(a);
     } catch { /* ignore: keep the last (booked) values */ }
   }
-  useEffect(() => { if (!addr) return; refresh(addr); const i = setInterval(() => refresh(addr), 15000); const t = () => setTimeout(() => refresh(addr), 1500);
+  useEffect(() => { if (SHOT_MOCK || !addr) return; refresh(addr); const i = setInterval(() => refresh(addr), 15000); const t = () => setTimeout(() => refresh(addr), 1500);
     // SITE #137: our relay's receipt block ('disciple:op' confirmed) ⇒ later reads are pinned at/after it
     const op = (e: Event) => { const d = (e as CustomEvent<{ phase?: string; blockNumber?: string }>).detail; const b = blockOf(d?.blockNumber); if (d?.phase === "confirmed" && b !== undefined) fillBook.raiseFloor(addr, b); };
     // the fill decoded from the receipt logs: book it and show it now (no RPC), then one read pinned at/after its block
@@ -147,7 +134,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       if (booked.length) { show(addr); dispatchEvent(new CustomEvent(BOOKED_EVENT, { detail: { holder: addr, tokens: booked, txHash: d?.txHash } })); }
       refresh(addr);
     };
-    const cash = () => refresh(addr);   // "Get test cash" landed (lib/testCash)
+    const cash = () => refresh(addr);   // free test money landed (lib/testCash)
     addEventListener("disciple:livetrade", t); addEventListener("disciple:fillreceipt", r); addEventListener("disciple:op", op); addEventListener(CASH_ARRIVED_EVENT, cash);
     return () => { clearInterval(i); removeEventListener("disciple:livetrade", t); removeEventListener("disciple:fillreceipt", r); removeEventListener("disciple:op", op); removeEventListener(CASH_ARRIVED_EVENT, cash); }; }, [addr, coin]);   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -164,12 +151,22 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     return () => { alive = false; removeEventListener(PROFILE_CHANGED_EVENT, changed); };
   }, [addr, ownerAddr]);
 
-  // premium sidebar: the Sidebar's account card shows the same address + name (display only; lib/walletCta.ts)
+  // Sidebar account card: address + claimed name (display only; lib/walletCta.ts)
   useEffect(() => {
-    const id: WalletId | null = addr ? { address: addr, name: uname } : null;
+    const id: WalletId | null = addr ? { address: addr, name: SHOT_MOCK ? SHOT_ACCOUNT.name : uname } : null;
     (window as unknown as { __walletId?: WalletId | null }).__walletId = id;
     dispatchEvent(new CustomEvent(WALLET_ID_EVENT, { detail: id }));
   }, [addr, uname]);
+  // Sidebar mini profile: the same combined USDG cash figure the header used to show (no gas).
+  useEffect(() => {
+    const cash: WalletCash | null = addr && (SHOT_MOCK || pf)
+      ? (SHOT_MOCK
+        ? { cashUsd: SHOT_ACCOUNT.cashUsd, totalUsd: SHOT_ACCOUNT.totalUsd, change24hUsd: SHOT_ACCOUNT.change24hUsd }
+        : { cashUsd: pf!.cashUsd, totalUsd: pf!.totalUsd, change24hUsd: pf!.change24hUsd })
+      : null;
+    (window as unknown as { __walletCash?: WalletCash | null }).__walletCash = cash;
+    dispatchEvent(new CustomEvent(WALLET_CASH_EVENT, { detail: cash }));
+  }, [addr, pf]);
   useEffect(() => () => {
     (window as unknown as { __walletId?: WalletId | null }).__walletId = null;
     dispatchEvent(new CustomEvent(WALLET_ID_EVENT, { detail: null }));
@@ -209,18 +206,16 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   // Close sign-in / account popovers on outside click or Escape (menus are absolute so they
   // must not rely on layout collapse for dismissal).
   useEffect(() => {
-    if (!menu && !acct) return;
+    if (!menu) return;
     // pointerdown: in-wallet WebViews often skip a reliable mousedown before the next tap target
     const onDown = (e: PointerEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
         setMenu(false);
-        setAcct(false);
       }
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setMenu(false);
-        setAcct(false);
       }
     };
     document.addEventListener("pointerdown", onDown);
@@ -229,13 +224,10 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       document.removeEventListener("pointerdown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [menu, acct]);
+  }, [menu]);
 
-  if (!isDeployed()) return null;
-  const smart = isSmartMode();
+  if (!isDeployed() && !SHOT_MOCK) return null;
   const sess = aaSession();
-  const cardStyle: CSSProperties = { display: "flex", flexDirection: "column", justifyContent: "center", gap: 1, padding: compact ? "3px 9px" : "5px 11px",
-    borderRadius: 12, background: "rgba(22,24,28,.88)", border: "1px solid rgba(201,206,214,.22)", lineHeight: 1.15 };
   const pill = { all: "unset" as const, cursor: "pointer", padding: "5px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, letterSpacing: ".04em" };
   // Popover panel: out of flow so [aria-label=wallet] layout height stays the trigger strip
   // (GAME / FlightCanvas measures that bottom edge to stack Share/Exit).
@@ -250,30 +242,10 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         {/* .wb-row: one line on desktop; on phones (≤480px) it wraps right-aligned instead of running off the left edge (GAME 390×844) */}
         <div className="wb-row" style={{ display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap" }}>
-          {/* coin / game screen cleanup (lee, Oct 30): no "Test network" tag on a coin page */}
-          {ACTIVE_CHAIN.id === TEST_NETWORK_ID && !coin && <span className="wb-testnet" role="note">Test network</span>}
           {addr ? (
-            <>
-              {pf && smart && (
-                <div aria-label="cash and portfolio" className="wb-cards" style={{ display: "flex", gap: 6, alignItems: "stretch", minWidth: 0 }}>
-                  <div data-testid="cash-card" style={cardStyle} title="Your cash: what BOOST spends and DUMP pays out in.">
-                    <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.cashUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>cash</span></span>
-                    <a href={DEPOSIT_HREF} onClick={onDepositClick} style={{ fontSize: 10, fontWeight: 700, color: "#C9CED6", textDecoration: "none" }}>Deposit more</a>
-                  </div>
-                  {/* total holdings bubble next to cash (back on lee's request, Oct 30 coin-screen cleanup) */}
-                  <a href="/profile" data-testid="portfolio-card" style={{ ...cardStyle, textDecoration: "none", color: "inherit" }}
-                    title={`Total = cash ${usd2(pf.cashUsd)} + coins ${usd2(pf.holdingsUsd)} at current prices.\n24h: current holdings priced now vs 24h ago (no stored portfolio history; coins younger than 24h use their launch price).`}>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.totalUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>total</span></span>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: pf.change24hUsd > 0.005 ? GREEN : pf.change24hUsd < -0.005 ? RED : "#C9CED6" }}>{signedUsd(pf.change24hUsd)} <span style={{ opacity: 0.6, color: "#C9CED6" }}>24h</span></span>
-                  </a>
-                </div>
-              )}
-              <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
-                style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
-                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}{!copied && GUILDS_ENABLED && <> <GuildTagFor address={addr} markOnly /></>}
-              </button>
-              {/* coin page cleanup (lee, Oct 30): no ✕ next to the chip; Sign out lives in the account menu + Sidebar */}
-            </>
+            <Link href={SETTINGS_HREF} scroll={false} onClick={onSettingsClick} className="wb-gear" data-testid="header-settings" title="Settings" aria-label="Settings">
+              <Icon name="gear" size={18} />
+            </Link>
           ) : (
             aaAvailable() && SIGNER_MODE === "local" ? (
               <button type="button" className="ap-wallet-cta" onClick={() => run("creating account", connectLocal)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
@@ -302,18 +274,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             )}
           </div>
         )}
-        {/* account settings (one-tap session, max price move, Advanced, sign out) moved to Profile → Settings
-            (components/account/AccountSettings, SITE Oct 30); the chip opens this slim menu */}
-        {addr && acct && smart && (
-          <div aria-label="account" role="menu" style={{ ...popover, minWidth: 160, fontSize: 11 }}>
-            <a role="menuitem" href="/profile" onClick={() => setAcct(false)} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Profile</a>
-            <Link role="menuitem" href={SETTINGS_HREF} scroll={false} onClick={(e) => { setAcct(false); onSettingsClick(e); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Settings</Link>
-            <button role="menuitem" type="button" onClick={() => { setAcct(false); run("", disconnect); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Sign out</button>
-          </div>
-        )}
       </div>
-      {/* top right stays minimal (lee, Oct 30): one cash figure + the account chip; no token / STRATEGY balance line */}
-      {addr && !pf && cashText && !compact && <span title="Your cash: what BOOST spends and DUMP pays out in." style={{ fontSize: 10, opacity: 0.8 }}>{cashText}</span>}
       {addr && legacy && (
         <span role="status" aria-label="sweep old account" style={{ fontSize: 10, color: "#C9CED6", maxWidth: 320, textAlign: "right" }}>
           Your old account {legacy.account.slice(0, 8)}… still holds {[legacy.eth > BigInt(0) ? `${Number(formatUnits(legacy.eth, 18)).toFixed(5)} ETH` : "", ...legacy.tokens.map((t) => t.symbol)].filter(Boolean).join(", ")}.{" "}

@@ -20,3 +20,10 @@ export const WALLET_ID_EVENT = "disciple:wallet-id";
 /** Last published identity (for a Sidebar that mounts after the pill). */
 export const walletId = (): WalletId | null =>
   typeof window === "undefined" ? null : ((window as unknown as { __walletId?: WalletId | null }).__walletId ?? null);
+
+/** Cash figure for the sidebar mini profile, published by the wallet pill (same USDG cash the header used to show). */
+export type WalletCash = { cashUsd: number; totalUsd: number; change24hUsd: number };
+export const WALLET_CASH_EVENT = "disciple:wallet-cash";
+export const walletCash = (): WalletCash | null =>
+  typeof window === "undefined" ? null : ((window as unknown as { __walletCash?: WalletCash | null }).__walletCash ?? null);
+

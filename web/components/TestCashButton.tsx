@@ -5,8 +5,8 @@ import { TEST_CASH_COPY as COPY, TEST_CASH_ENABLED, getTestCash } from "@/lib/te
 import type { Address } from "@/lib/protocol";
 
 /**
- * Testnet-only "Get test cash" (renders nothing unless the active chain is RH testnet 46630). Mints test cash to the
- * signed-in player's account via /api/test-cash; the one-tap watcher and balance cards pick it up from CASH_ARRIVED_EVENT.
+ * Testnet-only "Get free test money" control for the Deposit screen (renders nothing unless the active chain is RH
+ * testnet 46630). Never shown on mainnet. Mints test USDG via /api/test-cash; balances refresh on CASH_ARRIVED_EVENT.
  */
 export default function TestCashButton({ account, className, style, showNote = true }: {
   account: Address | null; className?: string; style?: CSSProperties; showNote?: boolean;

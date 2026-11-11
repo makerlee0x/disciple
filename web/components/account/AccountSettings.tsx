@@ -11,7 +11,6 @@ import type { Address } from "@/lib/protocol";
 import { playerError } from "@/lib/playerError";
 import { DEPOSIT_HREF, onDepositClick } from "@/lib/cashLink";
 import { TEST_CASH_COPY } from "@/lib/testCash";
-import TestCashButton from "@/components/TestCashButton";
 
 /** COPY PENDING LEE APPROVAL (new strings only; everything else moved as-is from the old account dropdown). */
 export const ACCOUNT_SETTINGS_COPY = {
@@ -70,7 +69,6 @@ export default function AccountSettings({ onClose }: { onClose?: () => void } = 
       <span role="status" data-testid="onetap-needs-cash">{TEST_CASH_COPY.needsCash}{" "}
         <a href={DEPOSIT_HREF} onClick={(e) => { close(); onDepositClick(e); }} style={{ fontWeight: 700 }}>{TEST_CASH_COPY.deposit}</a>
       </span>
-      {addr && <TestCashButton account={addr} className="ds-btn gold" />}
     </>
   );
 
