@@ -883,6 +883,18 @@ function tradePendingFx(){ return S.pending.some(p=>p.state==='pending'); }
 function stillConfirming(p,ba,txt){ p.unknown=1; if(ba) ba.unk=1; }
 function pushInFlight(){ try{ dispatchEvent(new CustomEvent('disciple:inflight',{detail:{n:pendingCount(),max:MAX_PENDING}})); }catch(_){} }
 /* @rapidtap-end */
+/* @ascension-warp — visual only (lee Nov 10 notes #21). An ascension buy (the existing graduates /
+   gradNeedUsd / graduation-mcap flag) gets a warp-speed look while it is still pending, so the longer
+   confirm wait reads as a jump. Reuses drawSpeedLines stroke + the existing hash() (no extra Math.random
+   in the sim, same lesson as the in-flight shimmer). Trade / send path is unchanged. */
+function isAscensionBuy(side,usd,from,proj){
+  if(side!=='buy'||S.graduated) return false;
+  if(S.gradNeedUsd!=null&&usd+1e-9>=S.gradNeedUsd) return true;
+  const lo=from>0?from:(S.confirmed&&S.confirmed.mcap);
+  const hi=proj>0?proj:lo;
+  return lo>0&&lo<GRADUATION_MCAP&&hi>=GRADUATION_MCAP;
+}
+function warpFxOn(){ return (S.pending||[]).some(p=>p.state==='pending'&&p.gradBuy); }
 function trade(side,opt){
   // REAL FILL ONLY (maker lee 2026-10-24): no turbo flare / thrust at the click. The pending ghost (submit) shows where the
   // shot will go; the rocket reacts in submit() when the trade result comes back ok (fillThrust). Failed trades: no thrust.
@@ -979,7 +991,7 @@ function submit(side,usd,force,opt,pct){
   // STACKED (up to MAX_PENDING in flight): each ghost is projected from the previous PENDING ghost, so 3 quick taps = 3 steps
   const prevP=pendingTip(), from=prevP?prevP.proj:S.confirmed.mcap;
   const proj = source.impact? from*srcImpact(S.tradeUsd,side) : from;
-  const p={id:Math.random(),side,usd:S.tradeUsd,proj,from,t0:now,state:'pending'}; S.pending.push(p); pushInFlight();
+  const p={id:Math.random(),side,usd:S.tradeUsd,proj,from,t0:now,state:'pending',gradBuy:isAscensionBuy(side,S.tradeUsd,from,proj)}; S.pending.push(p); pushInFlight();
   // the rocket heads for the ghost NOW (visual only, ≤ BA_CAP before the receipt; @boostanim). Its own segment: previous ghost → this one
   const sf=isLive()?1:(S.simF||1);
   const ba=baStart(S.boostAnim||(S.boostAnim=[]), mcapToAlt(from*sf), mcapToAlt(proj*sf), now); p.ba=ba;
@@ -1382,12 +1394,28 @@ function drawClouds(front){
   ctx.globalAlpha=1;
 }
 function drawSpeedLines(){
-  if (!S.speedBits.length) return;
-  ctx.save(); ctx.lineCap='round';
-  const vx=-(S.vxS||0)*0.3, vy=(S.vyS||0)+(S.air||0);   // streaks run vertically (air rushing down past a climb)
-  for (const b of S.speedBits){
-    ctx.globalAlpha=clamp(b.life,0,1)*0.5; ctx.strokeStyle=b.up?'rgba(235,240,255,.9)':'rgba(255,220,235,.85)'; ctx.lineWidth=b.w;
-    ctx.beginPath(); ctx.moveTo(b.x,b.y); ctx.lineTo(b.x+vx*0.14*b.k,b.y-vy*0.14*b.k); ctx.stroke();
+  if (S.speedBits.length){
+    ctx.save(); ctx.lineCap='round';
+    const vx=-(S.vxS||0)*0.3, vy=(S.vyS||0)+(S.air||0);   // streaks run vertically (air rushing down past a climb)
+    for (const b of S.speedBits){
+      ctx.globalAlpha=clamp(b.life,0,1)*0.5; ctx.strokeStyle=b.up?'rgba(235,240,255,.9)':'rgba(255,220,235,.85)'; ctx.lineWidth=b.w;
+      ctx.beginPath(); ctx.moveTo(b.x,b.y); ctx.lineTo(b.x+vx*0.14*b.k,b.y-vy*0.14*b.k); ctx.stroke();
+    }
+    ctx.restore(); ctx.globalAlpha=1;
+  }
+  drawWarpSpeed();
+}
+function drawWarpSpeed(){
+  if(!warpFxOn()) return;
+  // warp-speed streaks (radial, from a point ahead of the rocket). Deterministic: hash() + S.t, no Math.random.
+  const cx=(S.camX!=null?S.camX:S.x), cy=(S.ry||H*0.58)-40, n=28;
+  ctx.save(); ctx.lineCap='round'; ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<n;i++){
+    const u=hash(i*19.17), a=(u+S.t*0.15)%1*Math.PI*2, pulse=0.55+0.45*Math.abs(Math.sin(S.t*10+i));
+    const r0=18+hash(i*4.3)*30, r1=r0+140+hash(i*7.1)*280*pulse;
+    const x0=cx+Math.cos(a)*r0, y0=cy+Math.sin(a)*r0, x1=cx+Math.cos(a)*r1, y1=cy+Math.sin(a)*r1;
+    ctx.globalAlpha=0.18+0.28*pulse; ctx.strokeStyle='rgba(235,240,255,.9)'; ctx.lineWidth=0.8+1.6*hash(i*2.9);
+    ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
   }
   ctx.restore(); ctx.globalAlpha=1;
 }
