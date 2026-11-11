@@ -56,7 +56,7 @@ test("usernames need at least 3 characters (plain message); 3–USERNAME_MAX val
   assert.equal(validateUsername("a".repeat(USERNAME_MAX)), null);
   assert.equal(validateUsername("a".repeat(USERNAME_MAX + 1)), usernameRuleText());
   assert.equal(validateUsername("ab-c"), usernameRuleText());
-  assert.equal(validateUsername("admin"), "That name is reserved.");
+  assert.equal(validateUsername("admin"), "That username is reserved. Try a different one.");
 });
 
 test("claimed username cap equals the longest default call sign (22); existing longer names still resolve", () => {
@@ -69,7 +69,7 @@ test("claimed username cap equals the longest default call sign (22); existing l
   assert.equal(mx, 22, `enumerated ${ex}`);
   assert.equal(DEFAULT_USERNAME_MAX_LENGTH, 22);
   assert.equal(USERNAME_MAX, DEFAULT_USERNAME_MAX_LENGTH);
-  assert.equal(usernameRuleText(), "3–22 chars: a–z, 0–9, underscore.");
+  assert.equal(usernameRuleText(), "Usernames are 3 to 22 characters: letters, numbers, and underscores.");
   assert.ok(USERNAME_RE.test("a".repeat(22)));
   assert.ok(!USERNAME_RE.test("a".repeat(23)));
   // read/resolve paths use USERNAME_STORED_RE (no max) so a pre-existing longer claim still works

@@ -120,14 +120,14 @@ export default function GameChat({ coin }: { coin: string }) {
     try {
       const r = await api.api.send(c, text.trim());
       if (r.ok) { setText(""); setErr(null); buf.current.push(r.msg); jump(); }
-      else if (r.error === "rate_limited") setErr({ kind: "rate", msg: "slow down", until: Date.now() + (r.retryAfterMs || 2000) });
-      else if (r.error === "filtered") setErr({ kind: "filtered", msg: "message blocked by the filter" });
-      else if (r.error === "too_long") setErr({ kind: "long", msg: `max ${MAX_LEN} characters` });
-      else setErr({ kind: "identity", msg: "sign in to chat" });
-    } catch { setErr({ kind: "net", msg: "send failed, try again" }); }
+      else if (r.error === "rate_limited") setErr({ kind: "rate", msg: "You're sending messages too quickly. Wait a moment, then try again.", until: Date.now() + (r.retryAfterMs || 2000) });
+      else if (r.error === "filtered") setErr({ kind: "filtered", msg: "That message was blocked. Try wording it differently." });
+      else if (r.error === "too_long") setErr({ kind: "long", msg: `Messages can be up to ${MAX_LEN} characters. Shorten yours and try again.` });
+      else setErr({ kind: "identity", msg: "Sign in to send a message." });
+    } catch { setErr({ kind: "net", msg: "That message didn't send. Try again." }); }
     setSending(false);
   };
-  const doLogin = async () => { if (!api) return; const t = await api.api.login().catch(() => null); setErr(t ? null : { kind: "identity", msg: "no wallet connected or signature declined" }); if (t) inputRef.current?.focus(); };
+  const doLogin = async () => { if (!api) return; const t = await api.api.login().catch(() => null); setErr(t ? null : { kind: "identity", msg: "We couldn't sign you in. Connect a wallet or approve the signature, then try again." }); if (t) inputRef.current?.focus(); };
   // left-edge drag → width (pointer capture; state set at most once per frame)
   const drag = (e: React.PointerEvent) => {
     e.preventDefault(); const x0 = e.clientX, w0 = width; let raf = 0, w = w0;

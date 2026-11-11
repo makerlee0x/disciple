@@ -5,6 +5,12 @@ import { NeedLogin, loginPrivy, myVerification, requestVerification, type MyRequ
 import { onPrivy } from "@/lib/aa/session";
 import { plainText } from "@/lib/aa/relayOp";
 
+function apiErr(e: unknown, what: string): string {
+  const m = (e as Error)?.message ?? "";
+  if (m === "rate_limited") return "You've tried too many times. Wait a moment and try again.";
+  return plainText(m, what);
+}
+
 const LABEL: Record<string, string> = { pending: "In review", approved: "Verified", rejected: "Not approved", revoked: "Revoked" };
 
 export default function VerifyRequest({ token, demo }: { token: string; demo?: boolean }) {
@@ -32,7 +38,7 @@ export default function VerifyRequest({ token, demo }: { token: string; demo?: b
       setMine({ status: "pending", ...f }); setOpen(false); setMsg({ ok: true, t: "Sent. We review requests by hand." });
     } catch (e) {
       if (e instanceof NeedLogin) { setNeedLogin(true); loginPrivy(); }
-      setMsg({ ok: false, t: plainText((e as Error).message, "verify request") });
+      setMsg({ ok: false, t: apiErr(e, "verify request") });
     } finally { setBusy(false); }
   };
 

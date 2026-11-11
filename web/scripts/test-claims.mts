@@ -72,12 +72,12 @@ test("unlock countdown and unlocked()", () => {
 test("revert decoding: Locked / BelowMinimum / NothingToClaim → plain copy", () => {
   const wrap = (data: Hex) => new AAError("Reverted", "reverted", { revertData: data });
   const locked = encodeErrorResult({ abi: depositNotifierAbi, errorName: "Locked", args: [BigInt(3), BigInt(1_800_000_000)] });
-  assert.match(claimErrorText(wrap(locked)), /^Deposit still locked until /);
+  assert.match(claimErrorText(wrap(locked)), /^This deposit is locked until /);
   const below = encodeErrorResult({ abi: depositNotifierAbi, errorName: "BelowMinimum", args: [BigInt(10)] });
-  assert.equal(claimErrorText(wrap(below)), "Deposit is below the minimum.");
+  assert.equal(claimErrorText(wrap(below)), "That deposit is below the minimum. Try a larger amount.");
   const none = encodeErrorResult({ abi: feeRouterAbi, errorName: "NothingToClaim" });
-  assert.equal(claimErrorText(wrap(none)), "Nothing to claim yet.");
-  assert.equal(claimErrorText(new Error("User rejected the request")), "Cancelled.");
+  assert.equal(claimErrorText(wrap(none)), "There's nothing to claim yet. Check back later.");
+  assert.equal(claimErrorText(new Error("User rejected the request")), "You cancelled that step. Nothing was sent.");
 });
 test("USD helpers", () => {
   const a = { address: USDG, symbol: "USDG", decimals: 6, usd: 1 };

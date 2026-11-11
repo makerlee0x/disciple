@@ -26,21 +26,21 @@ export const FIRST_BOOST_COPY = {
   // #99: /api/pve/attest verifies the Privy login; your owner-signed batch submits the global LoginGate.attest.
   pveLoginAttest: "Easy needs a verified email, Google or X login to BOOST. We'll check yours when you launch.",
   pveLoginUnknown: "Easy needs a verified email, Google or X login to BOOST. Sign in to check yours before your First BOOST.",
-  overCap: (pct: string, maxUsd: string) => `Over the First BOOST cap: you can buy at most ${pct} of supply. Lower it to ${maxUsd} or less.`,
-  balance: (haveUsd: string, symbol: string) => `Not enough ${symbol} for that First BOOST: you have ${haveUsd}.`, // legacy path only (no USDG router)
+  overCap: (pct: string, maxUsd: string) => `That's over the First BOOST cap. You can buy at most ${pct} of supply. Lower it to ${maxUsd} or less.`,
+  balance: (haveUsd: string, symbol: string) => `You don't have enough ${symbol} for that First BOOST. You have ${haveUsd}.`, // legacy path only (no USDG router)
   // USDG-funded First BOOST (DiscipleRouter.launchWithUsdg): dollars only, the pair coin is never asked for.
-  cash: (haveUsd: string) => `Not enough cash for that First BOOST: you have ${haveUsd}. Lower it or deposit more.`,
+  cash: (haveUsd: string) => `You don't have enough cash for that First BOOST. You have ${haveUsd}. Lower it, or deposit more.`,
   cashBalance: (haveUsd: string) => `Cash ${haveUsd}`,
   paysCash: "Paid from your cash. We buy the pair coin for you in the same step.",
   privateOff: "First BOOST isn't available on private launches yet. Launch first, then BOOST like anyone else.",
-  invalid: "Enter a $ amount like 25 or 12.5.",
+  invalid: "Enter a dollar amount, like 25 or 12.5.",
   // SITE new-player cash (DRAFT, pending lee): the First BOOST spends the pair token (STRATEGY), not the USDG cash shown
   // top right, so the balance is labelled by its token and a note says where the money comes from.
   balanceOf: (usd: string, symbol: string) => `${symbol} balance ${usd}`,
   paidFrom: (symbol: string) => `Your First BOOST is paid from your ${symbol} balance, not your cash.`,
   connect: "Connect your wallet to check your balance.",
   loading: "Reading the live cap…",
-  unavailable: "Couldn't read the live cap from the Launchpad. Leave this at 0 or try again.",
+  unavailable: "We couldn't read the live cap. Leave this at 0, or try again.",
 } as const;
 
 /** First BOOST is entered in $ (USD WAD, 18 dp) and converted with the live QuotePricer price (USD WAD per 1e18 raw). */

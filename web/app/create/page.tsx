@@ -118,14 +118,13 @@ export default function LaunchRocketPage() {
   async function onPickFile(f: File | null) {
     setFile(f); setIconSrc(null); setContrast(null); setMod({ state: "idle" });
     if (!f) return;
-    if (!(MODERATION.mimeTypes as readonly string[]).includes(f.type)) return setMod({ state: "block", note: "Only PNG, JPG, WEBP or GIF." });
-    if (f.size > MODERATION.maxBytes) return setMod({ state: "block", note: "Max 2 MB." });
+    if (!(MODERATION.mimeTypes as readonly string[]).includes(f.type)) return setMod({ state: "block", note: "Try a PNG, JPG, WEBP, or GIF." });
+    if (f.size > MODERATION.maxBytes) return setMod({ state: "block", note: "Try a picture under 2 MB." });
     setMod({ state: "checking" });
-    const t0 = performance.now();
     const url = URL.createObjectURL(f);
     const img = new Image();
     img.src = url;
-    try { await img.decode(); } catch { return setMod({ state: "block", note: "Not a readable image." }); }
+    try { await img.decode(); } catch { return setMod({ state: "block", note: "Try a different file." }); }
     setCrop({ x: 0.5, y: 0.5 });
     setIconSrc(img);
     setContrast(contrastWarning(img));
@@ -133,20 +132,19 @@ export default function LaunchRocketPage() {
     // Timeout/error → fail OPEN on testnet with "pending server review" (never hang the form).
     let pre: Awaited<ReturnType<typeof precheckWithin>> | null = null;
     try { pre = await precheckWithin(img, 3000); } catch { pre = null; }
-    const ms = Math.round(performance.now() - t0);
     if (pre && pre !== "timeout" && pre.verdict === "block") {
       setIconSrc(null); setContrast(null);
-      return setMod({ state: "block", note: `Rejected by image check (${ms} ms).` });
+      return setMod({ state: "block", note: "Try a different picture." });
     }
     const uri = cropSquare(img, { x: 0.5, y: 0.5 });
     const pending = !pre || pre === "timeout" || pre.verdict === "review";
-    setMod({ state: "allow", uri, note: pending ? `pending server review (${ms} ms)` : `approved in ${ms} ms` });
+    setMod({ state: "allow", uri, ...(pending ? { note: "A final check is still running." } : {}) });
     // Async authoritative server check; only an explicit server block revokes approval.
     if (!IS_STATIC_PREVIEW) {
       const fd = new FormData(); fd.append("file", f);
       fetch("/api/moderate-image", { method: "POST", body: fd })
         .then((r) => r.json())
-        .then((r) => { if (r?.verdict === "block") { setIconSrc(null); setContrast(null); setMod({ state: "block", note: "Rejected by server review." }); } })
+        .then((r) => { if (r?.verdict === "block") { setIconSrc(null); setContrast(null); setMod({ state: "block" }); } })
         .catch(() => { /* server unavailable: keep client verdict (testnet) */ });
     }
   }
@@ -162,7 +160,7 @@ export default function LaunchRocketPage() {
     if (!IS_STATIC_PREVIEW && nameLockEnforced(ACTIVE_CHAIN.id)) {
       const taken = await fetchNameLock(name, callSign);
       if (!taken) {
-        setMsg("Couldn't check this name and call sign. Try again in a moment.");
+        setMsg("We couldn't check this name and call sign. Try again in a moment.");
         return;
       }
       if (taken.enforced && taken.available === false) {
@@ -173,29 +171,29 @@ export default function LaunchRocketPage() {
       }
     }
     if (mod.state !== "allow" || !mod.uri) {
-      setMsg(mod.state === "block" ? "This image can't be used. Please pick a different one." : "Your icon is still being checked (or held for review).");
+      setMsg(mod.state === "block" ? "This image can't be used. Please pick a different one." : "Your picture is still being checked. Wait a moment, or pick a different one.");
       return;
     }
     const effTax = advanced ? tax : 0;
     if (effTax < 0 || effTax > CURVE.creatorTaxMaxPct) {
-      setMsg(`Creator tax must be 0–${CURVE.creatorTaxMaxPct}%.`);
+      setMsg(`Creator tax has to be between 0 and ${CURVE.creatorTaxMaxPct}%. Enter a number in that range.`);
       return;
     }
     const quoteAddr = quote.address;
     if (!quoteAddr) {
-      setMsg("Pick a pair or paste a valid ERC-20 address.");
+      setMsg("Pick a pair, or paste a token address we can use.");
       return;
     }
     const fr = feeReceiver.trim();
     if (fr && !isAddr(fr)) {
-      setMsg("Fee receiver must be a 0x wallet address (or leave it empty to use your own).");
+      setMsg("The fee receiver has to be a wallet address. Leave it empty to use your own.");
       return;
     }
     // 1g: "mysite.com" ⇒ "https://mysite.com" (http:// kept as typed); still must look like a host
     const web = withHttps(website);
     if (web !== website.trim()) setWebsite(web);
     if (web && !/^https?:\/\/\S+\.\S+/.test(web)) {
-      setMsg("Enter a website like mysite.com");
+      setMsg("Enter a website like mysite.com.");
       return;
     }
     // Moderated at center; launch with the user's chosen square crop of the same approved image. The crop is moderated
@@ -421,7 +419,7 @@ export default function LaunchRocketPage() {
           </>
         )}
         {status && (
-          <p role="status" className={`ds-msg ${status.ok ? "ok" : "bad"}`}>{status.ok && <><Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> </>}{status.text}</p>
+          <p role={status.ok ? "status" : "alert"} className={`ds-msg ${status.ok ? "ok" : "bad"}`}>{status.ok && <><Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> </>}{status.text}</p>
         )}
       </form>
     </div>

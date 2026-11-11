@@ -55,7 +55,7 @@ test("validation: earned ok, locked and unknown refused, empty = default", () =>
   for (const t of earned) assert.equal(validateTitle(t, earned), null);
   assert.equal(validateTitle(locked, earned), TITLE_ERRORS.locked);
   assert.equal(validateTitle("emperor", earned), TITLE_ERRORS.unknown);
-  assert.equal(validateMeta({ pfp: "", bio: "", flag: "", title: "Bad Title!" }), "That title doesn't exist.");
+  assert.equal(validateMeta({ pfp: "", bio: "", flag: "", title: "Bad Title!" }), "That title doesn't exist. Pick one from the list.");
 });
 
 test("server and page compute the same earned set for an address (seed = username, else wallet)", () => {
@@ -105,10 +105,10 @@ test("server (hidden): /api/profile/meta refuses every title pick, even one the 
   const picks = [...new Set([wouldEarn[0] ?? TITLE_IDS[0], TITLE_IDS.find((t) => !wouldEarn.includes(t)) ?? TITLE_IDS[1]])];
   for (const t of picks) {
     r = await save(t);
-    assert.equal(r.status, 400, t); assert.deepEqual(await r.json(), { ok: false, reason: "You haven't earned that title yet." });
+    assert.equal(r.status, 400, t); assert.deepEqual(await r.json(), { ok: false, reason: "You haven't earned that title yet. Pick one you have earned." });
   }
   r = await save("emperor");
-  assert.equal(r.status, 400); assert.deepEqual(await r.json(), { ok: false, reason: "That title doesn't exist." });
+  assert.equal(r.status, 400); assert.deepEqual(await r.json(), { ok: false, reason: "That title doesn't exist. Pick one from the list." });
   const g = await (await GET(new Request(`http://x/api/profile/meta?address=${a}`))).json();
   assert.ok(!g.title, "nothing saved");
   r = await save("");

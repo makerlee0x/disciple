@@ -1,17 +1,15 @@
 import Link from "next/link";
+import LostSky from "@/components/LostSky";
 
 export default function NotFound() {
   return (
-    <div className="ds-lost">
-      <div>
-        <h1>404</h1>
-        <h2>Lost beyond the firmament</h2>
-        <p>This rocket drifted out of orbit — the page you&apos;re looking for doesn&apos;t exist.</p>
-        <div className="actions">
-          <Link href="/" className="ds-btn gold">Back to the Launchpad</Link>
-          <Link href="/create" className="ds-btn">Launch a Rocket</Link>
-        </div>
-      </div>
-    </div>
+    <LostSky
+      kicker="404"
+      title="This rocket is off course."
+      body="We couldn't find that page. Head back to the launchpad, or launch a rocket of your own."
+    >
+      <Link href="/" className="ds-btn gold">Launchpad</Link>
+      <Link href="/create" className="ds-btn">Launch a Rocket</Link>
+    </LostSky>
   );
 }

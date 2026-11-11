@@ -1029,6 +1029,7 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
   white-space: nowrap; text-align: center;
 }
 .ds-btn:hover { background: rgba(201, 206, 214, 0.14); }
+.ds-btn:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
 .ds-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .ds-btn.gold { background: var(--dsc-primary); color: var(--dsc-bg); border-color: var(--dsc-primary); }
 .ds-btn.x { background: #0b0b0f; color: #fff; border-color: rgba(255, 255, 255, 0.3); }
@@ -1151,33 +1152,47 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .pp-custom.on { border-style: solid; border-color: #C9CED6; }
 .pp-custom .ds-input { flex: 1; }
 
-/* —— Themed 404 / error —— */
-.ds-lost { min-height: calc(100dvh - var(--ap-topbar-offset)); display: grid; place-items: center; text-align: center; padding: 40px 20px; background: radial-gradient(ellipse at 50% 20%, rgba(201, 206, 214, 0.12), transparent 60%); }
-.ds-lost h1 { font: 400 72px var(--dsc-font-display); margin: 0; color: #E8EAEE; text-shadow: 0 0 30px rgba(201, 206, 214, 0.6); }
-.ds-lost h2 { font: 400 22px var(--dsc-font-display); color: #C9CED6; margin: 6px 0 10px; }
-.ds-lost p { color: rgba(232,234,238,0.7); max-width: 420px; margin: 0 auto 18px; }
-.ds-lost .actions { display: flex; gap: 10px; justify-content: center; }
+/* —— Themed 404 / error (flat card on the ozone sky) —— */
+.ds-lost { position: relative; isolation: isolate; min-height: calc(100dvh - var(--ap-topbar-offset)); display: grid; place-items: center; padding: 24px 16px; background: var(--dsc-bg); overflow: hidden; }
+.ds-lost-sky { position: absolute; inset: 0; z-index: 0; }
+.ds-lost-sky img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ds-lost-card { position: relative; z-index: 1; width: min(440px, 100%); padding: 28px 24px 24px; text-align: center; background: var(--dsc-surface); border: 1px solid var(--dsc-border); border-radius: var(--dsc-radius-xl); color: var(--dsc-text); }
+.ds-lost-rocket { display: block; width: auto; height: 120px; margin: 0 auto 8px; transform: rotate(18deg); }
+.ds-lost-kicker { margin: 0; font: 400 56px/1 var(--dsc-font-display); color: var(--dsc-text); }
+.ds-lost-card h1 { margin: 8px 0 10px; font: 400 28px/1.2 var(--dsc-font-display); color: var(--dsc-text); }
+.ds-lost-body { margin: 0 auto 18px; max-width: 36ch; font: 16px/1.45 var(--dsc-font-ui); color: var(--dsc-text); }
+.ds-lost .actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.ds-lost .actions .ds-btn { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 10px 16px; font: 600 14px/1 var(--dsc-font-ui); text-decoration: none; }
+@media (max-width: 560px) {
+  .ds-lost { padding: 16px 12px calc(16px + env(safe-area-inset-bottom)); }
+  .ds-lost-card { padding: 22px 16px 16px; }
+  .ds-lost-rocket { height: 96px; }
+  .ds-lost-kicker { font-size: 44px; }
+  .ds-lost-card h1 { font-size: 24px; }
+  .ds-lost .actions { flex-direction: column; }
+  .ds-lost .actions .ds-btn { width: 100%; }
+}
 #settings .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px dashed rgba(201, 206, 214, 0.12); font-size: 13px; }
 #settings .card { background: transparent; border: 0; padding: 0; }
 
-/* —— UX polish: themed dropdown —— */
-.ds-select { position: relative; display: inline-flex; min-width: 180px; }
-.ds-select-btn { display: flex; align-items: center; gap: 10px; width: 100%; cursor: pointer; text-align: left; }
-.ds-select.open .ds-select-btn { border-color: rgba(201, 206, 214, 0.8); box-shadow: 0 0 0 3px rgba(201, 206, 214, 0.12); }
-.ds-select-label { font-weight: 600; color: #E8EAEE; letter-spacing: .02em; }
-.ds-select-hint { margin-left: auto; color: rgba(232,234,238,0.55); font-family: ui-monospace, monospace; font-size: 12px; }
-.ds-select-caret { color: #C9CED6; font-size: 11px; transition: transform var(--dsc-duration-fast) var(--dsc-easing-standard); }
+/* —— UX polish: themed dropdown (flat 1px, brand tokens) —— */
+.ds-select { position: relative; display: inline-flex; min-width: 0; width: min(220px, 100%); }
+.ds-select-btn { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; cursor: pointer; text-align: left; font-family: var(--dsc-font-ui); }
+.ds-select.open .ds-select-btn { border-color: var(--dsc-border-color-focus); box-shadow: var(--dsc-glow-focus-ring); }
+.ds-select-label { font-weight: 600; color: var(--dsc-text); letter-spacing: .02em; }
+.ds-select-hint { margin-left: auto; color: var(--dsc-muted); font-family: var(--dsc-font-mono); font-size: 12px; }
+.ds-select-caret { color: var(--dsc-primary); display: inline-flex; transition: transform var(--dsc-duration-fast) var(--dsc-easing-standard); }
 .ds-select.open .ds-select-caret { transform: rotate(180deg); }
 .ds-select-menu {
-  position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; min-width: 100%; margin: 0; padding: 6px; list-style: none;
-  border-radius: 12px; border: 1px solid rgba(201, 206, 214, 0.45);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--dsc-surface-2) 98%, transparent), color-mix(in srgb, var(--dsc-surface) 98%, transparent));
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(201, 206, 214, 0.06) inset;
+  position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; min-width: 100%; max-width: min(320px, calc(100vw - 32px));
+  max-height: min(320px, 50dvh); overflow: auto; margin: 0; padding: 4px; list-style: none;
+  border-radius: var(--dsc-radius-lg); border: 1px solid var(--dsc-border); background: var(--dsc-surface);
 }
-.ds-select-menu li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: #dfe3ff; white-space: nowrap; }
-.ds-select-menu li.hi { background: rgba(201, 206, 214, 0.1); }
-.ds-select-menu li.sel { background: rgba(201, 206, 214, 0.16); box-shadow: inset 2px 0 0 #C9CED6; }
-.ds-select-check { width: 12px; color: #C9CED6; font-weight: 700; }
+.ds-select-menu li { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 10px; border-radius: var(--dsc-radius-sm); cursor: pointer; font: 600 14px/1.3 var(--dsc-font-ui); color: var(--dsc-text); }
+.ds-select-menu li.hi { background: var(--dsc-surface-2); }
+.ds-select-menu li.sel { background: var(--dsc-surface-2); box-shadow: inset 2px 0 0 var(--dsc-primary); }
+.ds-select-check { width: 16px; color: var(--dsc-primary); display: inline-flex; }
+@media (max-width: 560px) { .ds-select { width: 100%; } }
 
 /* —— Settings modal —— */
 .ds-modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px; background: color-mix(in srgb, var(--dsc-bg) 72%, transparent); backdrop-filter: blur(6px); overflow-y: auto; }

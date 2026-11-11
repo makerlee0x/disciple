@@ -246,35 +246,35 @@ export function friendlyError(e: unknown): ProtocolError {
   {
     const M: Record<string, string> = {
       QuoteRejected: "That pair token can't be used. Pick another quote token.",   // token address → console (below)
-      DefaultQuoteUnset: "Launches are paused: the default pair isn't configured yet.",
-      PricerUnset: "Launches are paused: the quote price feed isn't configured yet.",
-      NoPricePool: "That pair has no USD price pool registered, so it can't be used yet.",
-      TaxTooHigh: `Creator tax must be ≤ ${CURVE.creatorTaxMaxPct}%.`,
-      InvalidMetadata: "Name, call sign and image are required.",
+      DefaultQuoteUnset: "New launches are paused right now. Try again later.",
+      PricerUnset: "New launches are paused right now. Try again later.",
+      NoPricePool: "That pair doesn't have a dollar price yet, so it can't be used. Pick another pair.",
+      TaxTooHigh: `Creator tax has to be ${CURVE.creatorTaxMaxPct}% or less. Enter a lower number.`,
+      InvalidMetadata: "Add a name, a call sign, and a picture before you launch.",
       CreatorBuyTooLarge: CREATOR_BUY_MSG(),
       Slippage: PRICE_MOVED_MSG,
       Expired: "The trade took too long and expired. Try again.",
-      WalletCap: "Wallet cap reached: one wallet can hold at most 7% before orbit.",
+      WalletCap: "This wallet can hold at most 7% of a rocket before orbit. Try a smaller buy.",
       Graduated: "This rocket has ASCENDED, so trading moved to its pool.",
-      NotGraduated: "This rocket is still on the curve.",
-      InsufficientLiquidity: "Not enough left on the curve for that size.",
-      ZeroAmount: "Amount is too small.",
-      ZeroRecipient: "Missing recipient wallet.",
+      NotGraduated: "This rocket is still climbing, so that step isn't open yet.",
+      InsufficientLiquidity: "There isn't enough left on the curve for that size. Try a smaller amount.",
+      ZeroAmount: "That amount is too small. Try a larger one.",
+      ZeroRecipient: "Add the wallet that should receive this, then try again.",
       // v4 bonding modes (Constants.MODE_*: 0 TRENCH WARFARE, 1 PVE, 2 PVP)
-      NotVerified: "Easy rocket: sign in with X, email or wallet to BOOST.",
+      NotVerified: "Sign in with X, email, or a wallet before you can boost on this rocket.",
       BuyTooLarge: "That buy is above this rocket's per-buy cap right now. Try a smaller shot.",
-      SellTooLarge: "That sell is above this PVE rocket's per-sell cap (0.5% of supply). Sell in smaller chunks.",
-      LaunchBlock: "PVE rocket just launched: buys open from the next block.",
-      PriceImpactTooHigh: "Price impact too high for the router cap. Try a smaller shot.",
-      LoginGateUnset: "PVE launches are paused: the login gate isn't configured.",
-      BadMode: "Unknown game mode.",
+      SellTooLarge: "That sell is above this rocket's limit of 0.5% of supply. Sell a smaller amount.",
+      LaunchBlock: "This rocket just launched. Buys open in a moment. Try again shortly.",
+      PriceImpactTooHigh: "That buy would move the price too far. Try a smaller amount.",
+      LoginGateUnset: "These launches are paused right now. Try again later.",
+      BadMode: "That game mode isn't available. Pick another one and try again.",
       ERC20InsufficientBalance: "Not enough balance for that shot size — deposit more or pick a smaller ammo.",
-      SpendCapExceeded: "One-tap budget for this session is used up — this trade will be signed by your wallet instead. Try again.",
+      SpendCapExceeded: "This session's one-tap budget is used up. Your wallet will sign this trade instead. Try again.",
       MinOutTooLow: PRICE_MOVED_MSG,
       QuoteFailed: NO_PRICE_MSG,   // approved by lee 2026-10-24; the target address goes to the console (below)
-      SessionInactive: "One-tap session isn't active any more — retrying with your wallet.",
-      SessionExpired: "One-tap session expired — retrying with your wallet.",
-      ERC20InsufficientAllowance: "Approval too small for that shot size.",
+      SessionInactive: "Your one-tap session isn't active anymore. We'll ask your wallet to sign this trade. Try again.",
+      SessionExpired: "Your one-tap session has expired. We'll ask your wallet to sign this trade. Try again.",
+      ERC20InsufficientAllowance: "The approval is too small for that amount. Try again.",
       V4TooLittleReceived: PRICE_MOVED_MSG,
       V4TooMuchRequested: PRICE_MOVED_MSG,
       // raw reasons ("AA23 reverted", revert strings) → console only (below)
@@ -368,7 +368,7 @@ async function curveOfLive(pc: PublicClient, token: Address): Promise<Address> {
   const hit = curveCache.get(token.toLowerCase());
   if (hit) return hit;
   const c = await pc.readContract({ address: deployment().launchpad, abi: launchpadAbi, functionName: "curveOf", args: [token] });
-  if (c === ZERO_ADDRESS) throw new ProtocolError("NotLaunched", "Not a DISCIPLE rocket.");
+  if (c === ZERO_ADDRESS) throw new ProtocolError("NotLaunched", "We couldn't find that rocket. Check the address and try again.");
   curveCache.set(token.toLowerCase(), c);
   return c;
 }

@@ -298,7 +298,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                 </>}
               </>
             ) : (
-              <button type="button" disabled={!!busy} onClick={() => hasWallet() ? run("connecting", connectWallet) : setErr("No browser wallet found. Install MetaMask/Rabby.")} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }}>Connect wallet</button>
+              <button type="button" disabled={!!busy} onClick={() => hasWallet() ? run("connecting", connectWallet) : setErr("We couldn't find a wallet in this browser. Install one, then try connecting again.")} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }}>Connect wallet</button>
             )}
           </div>
         )}

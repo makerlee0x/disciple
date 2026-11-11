@@ -7,6 +7,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { onPrivy } from "@/lib/aa/session";
 import { adminInviteDo, adminInvites, inviteLink, loginPrivy, NeedLogin, type AdminData } from "@/lib/invitesClient";
+import { INVITE_COPY, inviteErrorText } from "@/lib/copy/invites";
+import { plainText } from "@/lib/aa/relayOp";
+
+function adminErr(e: unknown): string {
+  const m = (e as Error)?.message ?? "";
+  if (m === "rate_limited") return "You've tried too many times. Wait a moment and try again.";
+  if (m && (`error.${m}` as const) in INVITE_COPY) return inviteErrorText(m);
+  return plainText(m, "admin invites");
+}
 
 const when = (t: number) => new Date(t).toLocaleString();
 
@@ -30,7 +39,7 @@ export default function AdminInvites({ configured = false }: { configured?: bool
       if (e instanceof NeedLogin || s === 401) setGate("login");
       else if (s === 403) setGate("denied");
       else if (s === 503) setGate("off");
-      else setErr((e as Error).message);
+      else setErr(adminErr(e));
     }
   }, [configured]);
   useEffect(() => { void load(); if (configured) return onPrivy(() => void load()); }, [load, configured]);
@@ -38,7 +47,7 @@ export default function AdminInvites({ configured = false }: { configured?: bool
   const act = async (body: Record<string, unknown>, done: string) => {
     setBusy(true); setErr(null); setMsg(null);
     try { const r = await adminInviteDo(body); setMsg(r.codes ? `${done}: ${r.codes.join(", ")}` : done); await load(); }
-    catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+    catch (e) { setErr(adminErr(e)); } finally { setBusy(false); }
   };
 
   return (

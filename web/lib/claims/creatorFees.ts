@@ -17,6 +17,7 @@ import { deployment } from "../chains";
 import type { Call } from "../aa/core";
 import { execCalls } from "../wallet";
 import { type Caps } from "./capabilities";
+import { NOTHING_TO_CLAIM_MSG } from "../copy/playerLines";
 import { ACTIVE_CHAIN } from "../chains";
 import { anonLaunchers, CLAIM_TYPES, claimDomain, isLegacyLauncher } from "../anon";
 import { assetMeta, lc, type Asset } from "./common";
@@ -208,7 +209,7 @@ export async function anonSigClaimCalls(pc: PublicClient, rows: ClaimRow[], me: 
 export type ClaimReceipt = { txHash: Hex; claimed: { token: Address; amount: bigint; side: "quote" | "token" }[] };
 /** Send claims (one userOp for Claim all) and read the amounts back from the claim events (FeeRouter + both launchers). */
 export async function sendCreatorClaims(calls: Call[]): Promise<ClaimReceipt> {
-  if (!calls.length) throw new Error("Nothing to claim yet.");
+  if (!calls.length) throw new Error(NOTHING_TO_CLAIM_MSG);
   const r = await execCalls(calls);
   const fr = lc(deployment().feeRouter), als = anonLaunchers(ACTIVE_CHAIN.id).map(lc);
   const claimed: ClaimReceipt["claimed"] = [];

@@ -87,7 +87,7 @@ test("QuoteRejected keeps its copy but drops the raw detail (detail/address → 
 test("mapped errors keep their specific copy (WalletCap, Slippage, balance, MinOutTooLow)", () => {
   const E = parseAbi(["error WalletCap()", "error Slippage()", "error MinOutTooLow(uint256,uint256)", "error ERC20InsufficientBalance(address,uint256,uint256)"]);
   const cases: [Hex, string][] = [
-    [encodeErrorResult({ abi: E, errorName: "WalletCap" }), "Wallet cap reached: one wallet can hold at most 7% before orbit."],
+    [encodeErrorResult({ abi: E, errorName: "WalletCap" }), "This wallet can hold at most 7% of a rocket before orbit. Try a smaller buy."],
     [encodeErrorResult({ abi: E, errorName: "Slippage" }), "Price moved, trade not sent. Try again."],
     [encodeErrorResult({ abi: E, errorName: "MinOutTooLow", args: [BigInt(1), BigInt(2)] }), "Price moved, trade not sent. Try again."],
     [encodeErrorResult({ abi: E, errorName: "ERC20InsufficientBalance", args: [ADDR, BigInt(0), BigInt(1)] }), "Not enough balance for that shot size — deposit more or pick a smaller ammo."],
@@ -154,11 +154,11 @@ test("protocol-viem: launch with no Launched event → plain line, tx hash to co
   assert.match(src, /logTradeError\("launch had no Launched event", \{ txHash: r\.txHash \}\); throw new ProtocolError\("NoLaunchEvent", REJECTED_MSG\)/);
 });
 
-test("playerError (CashPanel withdraw, WalletButton, create page): plain passes, raw → plain line, rejection → Cancelled.", () => {
+test("playerError (CashPanel withdraw, WalletButton, create page): plain passes, raw → plain line, rejection → a full sentence.", () => {
   warned.length = 0;
   assert.equal(playerError(new Error("Sign in first.")), "Sign in first.");
   assert.equal(playerError(new AAError("FundAccount", "Your account is still getting ready. Try again in a moment.")), "Your account is still getting ready. Try again in a moment.");
-  assert.equal(playerError(new Error("User rejected the request.")), "Cancelled.");
+  assert.equal(playerError(new Error("User rejected the request.")), "You cancelled that step. Nothing was sent.");
   for (const raw of ["simulation failed: execution reverted (0xdeadbeef)", "relayer not configured", "HTTP request failed. URL: https://rpc… eth_call", "ContractFunctionExecutionError: transfer(address,uint256) reverted", "Transfer(): nonce too low", "ERC20InsufficientBalance"]) {
     const m = playerError(new Error(raw)); assert.equal(m, REJECTED, raw); plain(m);
   }
@@ -166,7 +166,7 @@ test("playerError (CashPanel withdraw, WalletButton, create page): plain passes,
 });
 
 test("claims (claimErrorText): mapped copy kept; raw revert strings / messages → plain line", () => {
-  assert.equal(claimErrorText(new Error("User rejected the request")), "Cancelled.");
+  assert.equal(claimErrorText(new Error("User rejected the request")), "You cancelled that step. Nothing was sent.");
   assert.equal(claimErrorText(est(undefined, "simulation failed: AA23 reverted 0x1234abcd")), REJECTED);
   const rd = encodeErrorResult({ abi: parseAbi(["error Error(string)"]), errorName: "Error", args: ["Ownable: caller 0x12ab is not the owner"] });
   assert.equal(claimErrorText(est(rd)), REJECTED);

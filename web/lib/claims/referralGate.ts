@@ -12,6 +12,7 @@ import { deployment } from "../chains";
 import type { Call } from "../aa/core";
 import { execCalls } from "../wallet";
 import { assetMeta, ZERO_ADDR, type Asset } from "./common";
+import { DEPOSIT_BELOW_MIN_MSG } from "../copy/playerLines";
 
 export type Escrow = { id: number; amount: bigint; unlockAt: number };
 export type GateState = {
@@ -89,7 +90,7 @@ export async function depositCalls(pc: PublicClient, wallet: Address, amount: bi
 }
 export async function deposit(pc: PublicClient, wallet: Address, amount: bigint) {
   const min = await depositMinimum(pc);
-  if (min != null && amount < min) throw new Error("Deposit is below the minimum.");
+  if (min != null && amount < min) throw new Error(DEPOSIT_BELOW_MIN_MSG);
   const calls = await depositCalls(pc, wallet, amount);
   // exact approve: the allowance equals this deposit, nothing left over
   return execCalls(calls);

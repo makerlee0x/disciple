@@ -30,7 +30,7 @@ const T = {
   link: "Your referral link",
   history: "History",
   empty: "Nothing yet. Share your link to earn from friends' trades.",
-  nothing: "Nothing to claim yet.",
+  nothing: "There's nothing to claim yet. Check back later.",
   paused: "Referral earnings have stopped growing for now. Anything already here stays yours to claim.",
   sheetTitle: "Claim rewards",
   claimed: "Claimed",

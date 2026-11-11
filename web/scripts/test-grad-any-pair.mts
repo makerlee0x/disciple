@@ -29,7 +29,7 @@ test("PriceImpactTooHigh selector is the router's (0x1afa833a)", () => {
 test("kinds: PRICE_IMPACT / MIN_OUT (also wrapped in PreExecHookReverted) / OTHER; messages unchanged", () => {
   const pi = friendlyError(new AAError("Reverted", "x", { revertData: impact }));
   assert.equal(pi.code, "PriceImpactTooHigh"); assert.equal(pi.kind, "PRICE_IMPACT");
-  assert.equal(pi.message, "Price impact too high for the router cap. Try a smaller shot.");
+  assert.equal(pi.message, "That buy would move the price too far. Try a smaller amount.");
   const mo = friendlyError(new AAError("Reverted", "x", { revertData: hooked }));
   assert.equal(mo.code, "MinOutTooLow"); assert.equal(mo.kind, "MIN_OUT");
   assert.equal(mo.message, "Price moved, trade not sent. Try again.");

@@ -67,10 +67,10 @@ export default function CashPanel() {
   async function withdraw() {
     setMsg(null);
     if (!sel || !addr) return;
-    if (!isAddress(to)) return setMsg({ ok: false, text: "Enter a valid 0x destination address." });
+    if (!isAddress(to)) return setMsg({ ok: false, text: "Enter a wallet address to send to." });
     let amount: bigint;
-    try { amount = parseUnits(amt || "0", sel.dec); } catch { return setMsg({ ok: false, text: "Invalid amount." }); }
-    if (amount <= BigInt(0) || amount > sel.bal) return setMsg({ ok: false, text: "Amount must be > 0 and ≤ your balance." });
+    try { amount = parseUnits(amt || "0", sel.dec); } catch { return setMsg({ ok: false, text: "That amount isn't a number we can send. Enter an amount and try again." }); }
+    if (amount <= BigInt(0) || amount > sel.bal) return setMsg({ ok: false, text: "Enter an amount greater than zero that fits in your balance." });
     if (!confirm(CASH_COPY.confirm(amt, to))) return;
     setBusy(true);
     try {

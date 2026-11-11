@@ -15,6 +15,7 @@
  * Dollar values use the live price of each asset (QuotePricer, launch tokens via the market read).
  */
 import type { Address, Hex } from "viem";
+import { NOTHING_TO_CLAIM_MSG } from "../copy/playerLines";
 import type { Call } from "../aa/core";
 import type { Caps } from "./capabilities";
 import { crewClaimCall } from "./crew";
@@ -146,7 +147,7 @@ export function selectClaimCalls<T extends Call>(calls: T[], ok: boolean[], max 
 
 /** Sends the claim list as ONE call to the wallet (smart account ⇒ one op, one confirmation). */
 export async function sendClaimAll<R>(calls: Call[], exec: (calls: Call[]) => Promise<R>): Promise<R> {
-  if (!calls.length) throw new Error("Nothing to claim yet.");
+  if (!calls.length) throw new Error(NOTHING_TO_CLAIM_MSG);
   return exec(calls.map(({ to, data, value }) => ({ to, data, ...(value != null ? { value } : {}) })));
 }
 

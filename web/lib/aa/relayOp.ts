@@ -72,10 +72,10 @@ export const BUNDLE_REVERTED = /relayer tx 0x[0-9a-fA-F]{64} reverted/i;
  */
 export const PENDING_MSG = "Still confirming. Check back in a moment.";
 /** Session spend limit reached, counting trades still in flight (#144; approved by lee 2026-10-24). */
-export const SPEND_LIMIT_MSG = "Spend limit reached";
+export const SPEND_LIMIT_MSG = "You've reached this session's spend limit. Raise the limit in settings, or try a smaller buy.";
 export const REJECTED_MSG = "That didn't go through. Try again.";
 /** A connection problem before anything was sent (viem HttpRequestError / TimeoutError / fetch failure on a read). */
-export const NETWORK_MSG = "Connection hiccup, nothing was sent. Try again.";
+export const NETWORK_MSG = "The connection dropped before anything was sent. Try again.";
 /** viem / fetch transport failures ("HTTP request failed.", "The request took too long to respond.", "Failed to fetch"). */
 export const TRANSPORT_ERR = /HTTP request failed|request took too long|failed to fetch|fetch failed|networkerror|load failed|ERR_\w+|socket hang up|ECONNRESET/i;
 export function isTransportError(e: unknown): boolean {

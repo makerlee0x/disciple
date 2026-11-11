@@ -126,8 +126,8 @@ export class Pool {
   /** placement rule of TrampWallManager._place (strictly single-sided) */
   canPlace(kind: OrderKind, a: number, b: number): string | null {
     if (!(a > 0 && b > a)) return "bad range";
-    if (kind === "tramp" && this.s < b) return "Tramp must sit fully BELOW the current price";
-    if (kind === "wall" && this.s >= a) return "Wall must sit fully ABOVE the current price";
+    if (kind === "tramp" && this.s < b) return "A tramp has to sit fully below the current altitude. Move it down and try again.";
+    if (kind === "wall" && this.s >= a) return "A wall has to sit fully above the current altitude. Move it up and try again.";
     return null;
   }
   /** add a range order; deposit = quote (tramp) or tokens (wall) */
