@@ -47,8 +47,8 @@ export const QUICK_LAUNCH_COPY = {
   anon: "Anon launch",
   pseudo: "Pseudo launch",
   beta: "beta",
-  anonHelp: "Your name isn't shown as the creator. This isn't fully private — the account that pays for the launch can still be seen.",
-  pseudoHelp: "Your name isn't shown as the creator. Because you're buying in at launch, this isn't fully private — the account that pays can still be seen.",
+  anonHelp: "Your name isn't shown as the creator. But the account that pays the launch fee is still visible in the public record of transactions, so someone who looks hard enough could work out it was you.",
+  pseudoHelp: "Your name isn't shown as the creator. But the account that pays the launch fee and makes your first buy is still visible in the public record of transactions, so someone who looks hard enough could work out it was you.",
   // Image rejected after a generated badge is in use (Oct 17 Quick Launch spec; not on the r4 boards).
   imageReverted: "That image can't be used. We've put your rocket's badge back.",
 } as const;
