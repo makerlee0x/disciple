@@ -1,6 +1,7 @@
 /** Holders list system rows (GAME VFIVE graduation test): one row per label, no dust. Run: npm run test:holder-rows */
 import assert from "node:assert/strict";
 import { normalizeApiHolders } from "../lib/flight/holders";
+import { EXCLUDED_HOLDER_ADDRESSES } from "../lib/holders";
 const E = BigInt(10) ** BigInt(18);
 const j = { holders: [
   { address: "0x8366a39cc670b4001a1121b8f6a443a643e40951", balance: (BigInt(525148730) * E / BigInt(1000)).toString(), pct: 52.515, usd: 2306.96, label: "pool", kind: "pool" },
@@ -23,3 +24,33 @@ const k = normalizeApiHolders({ holders: [
 console.log(k.rows.map((r) => `${r.label ?? "player"} ${r.usd} ${r.pct}%`).join(" | "));
 assert.equal(k.rows.filter((r) => r.label === "locker").length, 1); assert.equal(k.rows[0].usd, 75);
 console.log("ok");
+
+// community rewards wallet + RewardsVault: hidden, even if the API still returns them (mixed case too)
+const COMMUNITY = EXCLUDED_HOLDER_ADDRESSES[0];
+const VAULT = EXCLUDED_HOLDER_ADDRESSES[1];
+const PLAYER_A = "0x" + "aa".repeat(20);
+const PLAYER_B = "0x" + "bb".repeat(20);
+const PLAYER_C = "0x" + "cc".repeat(20);
+const hidden = normalizeApiHolders({ holders: [
+  { address: COMMUNITY.toUpperCase().replace("0X", "0x"), balance: (BigInt(300) * E).toString(), usd: 300, pct: 30, kind: "holder" },
+  { address: VAULT, balance: (BigInt(50) * E).toString(), usd: 50, pct: 5, kind: "locker" },
+  { address: PLAYER_A, balance: (BigInt(400) * E).toString(), usd: 400, pct: 40, kind: "holder" },
+  { address: PLAYER_B, balance: (BigInt(150) * E).toString(), usd: 150, pct: 15, kind: "holder" },
+  { address: PLAYER_C, balance: (BigInt(50) * E).toString(), usd: 50, pct: 5, kind: "holder" },
+  { address: "0x" + "1".repeat(40), balance: (BigInt(30) * E).toString(), usd: 30, pct: 3, kind: "locker" },
+  { address: "0x" + "2".repeat(40), balance: (BigInt(20) * E).toString(), usd: 20, pct: 2, kind: "locker" },
+] }, { totalSupplyRaw: BigInt(1000) * E, priceUsd: 1 })!;
+const addrs = hidden.rows.map((r) => r.address);
+assert.ok(!addrs.includes(COMMUNITY.toLowerCase()) && !addrs.includes(VAULT.toLowerCase()));
+// other lockers still merge into one Locked LP row (vault is not in that sum)
+assert.equal(hidden.rows.filter((r) => r.label === "locker").length, 1);
+const locked = hidden.rows.find((r) => r.label === "locker")!;
+assert.equal(locked.usd, 50);
+assert.equal(locked.pct, 5);
+// player ranks move up; percentages stay of total supply (1000), not of the shown rows
+const players = hidden.rows.filter((r) => !r.label);
+assert.deepEqual(players.map((r) => r.address), [PLAYER_A, PLAYER_B, PLAYER_C]);
+assert.equal(players[0].pct, 40);
+assert.equal(players[1].pct, 15);
+assert.equal(players[2].pct, 5);
+console.log("excluded", hidden.rows.map((r) => `${r.label ?? "player"} ${r.usd} ${r.pct}%`).join(" | "));

@@ -26,10 +26,14 @@ for (const t of run.transactions) {
 // CREATE2 hook deployments are recorded as CREATE2 via the deterministic deployer
 for (const n of NAMES) if (!contracts[n]) console.warn("missing", n);
 let cur = JSON.parse(fs.readFileSync(path.join(root, "deployments/rh-testnet-46630.json"), "utf8"));
+// `community` (post-deploy owner wiring: FeeRouter.rewardsVault / referralSink → community wallet) belongs to the stack it
+// was set on: a fresh deploy starts without it (Deploy.s.sol wiring), a re-run keeps the current stack's.
+let community;
 // Re-run after a broadcast (e.g. to add SESSION_POLICY): rebuild from the stack we superseded, not ourselves.
 if (cur.contracts?.Launchpad?.toLowerCase() === contracts.Launchpad?.toLowerCase() && cur.previous?.contracts) {
   const p = cur.previous;
-  cur = { ...cur, id: p.id, startBlock: p.startBlock, contracts: p.contracts, addons: p.addons, smoke: p.smoke, previous: p.previous, tokens: cur.previousTokens ?? cur.tokens };
+  community = cur.community;
+  cur = { ...cur, id: p.id, startBlock: p.startBlock, contracts: p.contracts, addons: p.addons, smoke: p.smoke, community: p.community, previous: p.previous, tokens: cur.previousTokens ?? cur.tokens };
 }
 const gasUsed = (run.receipts ?? []).reduce((a, r) => a + BigInt(r.gasUsed ?? 0), 0n);
 // Tokens: the run's DevTokens (fresh 6-dec mock USDG + test STRATEGY) or USDG / DEFAULT_QUOTE from env.
@@ -53,11 +57,12 @@ const next = {
   deployCommit: process.env.DEPLOY_COMMIT ?? null,
   contracts: Object.fromEntries(NAMES.filter((n) => contracts[n]).map((n) => [n, contracts[n]])),
   hookTrustedRouters: [contracts.DiscipleRouter], // UR not trusted (audit #10 / SEC-05)
-  previous: { id: cur.id ?? "v2", status: "superseded", supersededBy: "v" + (Number(String(cur.id ?? "v2").slice(1)) + 1), supersededAt: new Date().toISOString().slice(0, 10), note: "previous stack — superseded by combined redeploy", startBlock: cur.startBlock, contracts: cur.contracts, addons: cur.addons, smoke: cur.smoke, previous: cur.previous },
+  previous: { id: cur.id ?? "v2", status: "superseded", supersededBy: "v" + (Number(String(cur.id ?? "v2").slice(1)) + 1), supersededAt: new Date().toISOString().slice(0, 10), note: "previous stack — superseded by combined redeploy", startBlock: cur.startBlock, contracts: cur.contracts, addons: cur.addons, smoke: cur.smoke, community: cur.community, previous: cur.previous },
   estimatedGas: gas.toString(),
   gasUsed: mode === "dry-run" ? null : gasUsed.toString(),
 };
-delete next.addons; delete next.smoke;
+delete next.addons; delete next.smoke; delete next.community;
+if (community) next.community = community;
 // Post-core deploys (runbook step 4): SESSION_POLICY=0x… node postprocess.mjs <mode> records them as addons
 // (web/lib/aa/oneTap.ts reads addons.DiscipleSessionPolicy). Re-running postprocess is idempotent for the core stack.
 const addons = {};
@@ -87,6 +92,6 @@ for (const n of abiNames) {
 // the redeploy pack), so the regenerated web-bundle can't reference a dropped contract. Older addresses stay only under
 // previous / PREVIOUS_ADDRESSES (history).
 for (const f of fs.readdirSync(path.join(bdir, "abi"))) if (f.endsWith(".json") && !abiNames.includes(f.slice(0, -5))) { fs.rmSync(path.join(bdir, "abi", f)); console.log(`removed stale ${path.relative(root, path.join(bdir, "abi", f))}`); }
-fs.writeFileSync(path.join(bdir, "addresses.json"), JSON.stringify({ chainId: 46630, mode, startBlock: next.startBlock, contracts: next.contracts, previous: cur.contracts, uniswapV4: cur.uniswapV4, tokens: next.tokens }, null, 2) + "\n");
+fs.writeFileSync(path.join(bdir, "addresses.json"), JSON.stringify({ chainId: 46630, mode, startBlock: next.startBlock, contracts: next.contracts, previous: cur.contracts, uniswapV4: cur.uniswapV4, tokens: next.tokens, ...(next.community ? { community: next.community } : {}) }, null, 2) + "\n");
 fs.writeFileSync(path.join(bdir, "index.ts"), ts);
 console.log(`wrote ${path.relative(root, outJson)} + ${path.relative(root, bdir)} (${Object.keys(next.contracts).length} contracts, est gas ${gas}${mode === "dry-run" ? "" : `, gas used ${gasUsed}`})`);

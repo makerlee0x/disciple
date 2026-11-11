@@ -86,7 +86,7 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
         </div>
       </>}
       <style jsx global>{`
-        .ph-bar { position: fixed; left: 16px; right: 16px; bottom: 22px; z-index: 40; font-family: ui-monospace, Menlo, "DejaVu Sans Mono", monospace; }
+        .ph-bar { position: fixed; left: 16px; right: 16px; bottom: calc(22px + var(--ap-safe-bottom)); z-index: 40; font-family: ui-monospace, Menlo, "DejaVu Sans Mono", monospace; }
         .ph-btns { display: flex; gap: 12px; }
         .ph-tb { flex: 1 1 0; min-width: 0; height: 68px; border-radius: 22px; position: relative; display: flex; align-items: center; justify-content: flex-end; padding: 0 8px; box-sizing: border-box; transition: height .2s, opacity .2s; }
         html.ap-phone:not([data-ph-sheet=""]) .ph-tb { height: 60px; border-radius: 20px; }
@@ -111,7 +111,7 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
         .ph-opt-warn { position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: #FFE7A3; }
         .ph-opt-warn.over { color: #FFB0C8; }
         .ph-dim { position: fixed; inset: 0; z-index: 60; background: rgba(5,6,14,.5); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
-        .ph-sheet { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 61; border-radius: 30px; padding: 0 18px 20px; box-sizing: border-box; color: #EEF1FA;
+        .ph-sheet { position: fixed; left: 8px; right: 8px; bottom: calc(8px + var(--ap-safe-bottom)); z-index: 61; border-radius: 30px; padding: 0 18px 20px; box-sizing: border-box; color: #EEF1FA;
           font-family: ui-monospace, Menlo, "DejaVu Sans Mono", monospace; background: rgba(18,20,38,.78); -webkit-backdrop-filter: blur(28px) saturate(1.3); backdrop-filter: blur(28px) saturate(1.3);
           border: 1px solid rgba(255,255,255,.10); box-shadow: 0 -10px 50px -10px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.08); }
         .ph-sh-grab { height: 26px; display: grid; place-items: center; }
