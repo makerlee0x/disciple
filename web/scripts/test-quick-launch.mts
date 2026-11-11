@@ -10,10 +10,11 @@ import {
 } from "../lib/launchWhitelist";
 import {
   buildLaunchSocials, boostHasAmount, launchButtonLabel, launchNeedsSignIn, maxBoostChipLabel,
-  privateLaunchHelp, privateLaunchTitle, readStoredCreatorTax, socialsURI, storeCreatorTax, withHttps,
+  isPseudoLaunch, privateLaunchHelp, privateLaunchTitle, readStoredCreatorTax, socialsURI, storeCreatorTax, withHttps,
   QUICK_LAUNCH_COPY, CREATOR_TAX_STORE_KEY,
 } from "../lib/quickLaunch";
 import { badgeLetters } from "../lib/decalDefault";
+import { MODE } from "../lib/modeRules";
 
 test("whitelist has 12 coins, STRATEGY first and default, no USDG", () => {
   assert.equal(LAUNCH_WHITELIST.length, 12);
@@ -43,18 +44,30 @@ test("STRATEGY uses the chain defaultQuote on testnet, listed address on mainnet
   assert.equal(addressOn(ai, TESTNET_CHAIN_ID, testQuote), ai.address);
 });
 
-test("Anon launch vs Pseudo launch follows First BOOST amount", () => {
-  assert.equal(privateLaunchTitle(""), "Anon launch");
-  assert.equal(privateLaunchTitle("0"), "Anon launch");
-  assert.equal(privateLaunchTitle("0.0"), "Anon launch");
-  assert.equal(privateLaunchTitle("5"), "Pseudo launch");
-  assert.equal(privateLaunchTitle("5.00"), "Pseudo launch");
-  assert.equal(privateLaunchTitle("0.01"), "Pseudo launch");
+test("Anon vs Pseudo follows mode and First BOOST amount", () => {
+  assert.equal(QUICK_LAUNCH_COPY.anon, "Anon");
+  assert.equal(QUICK_LAUNCH_COPY.pseudo, "Pseudo");
+  assert.equal(privateLaunchTitle("", MODE.EASY), "Anon");
+  assert.equal(privateLaunchTitle("0", MODE.EASY), "Anon");
+  assert.equal(privateLaunchTitle("0.0", MODE.HARD), "Anon");
+  assert.equal(privateLaunchTitle("0", MODE.TRENCH), "Anon");
+  // Easy stays Anon even with a First BOOST (coins stay locked until the rocket moves to the open market).
+  assert.equal(privateLaunchTitle("5", MODE.EASY), "Anon");
+  assert.equal(privateLaunchTitle("5.00", MODE.EASY), "Anon");
+  assert.equal(isPseudoLaunch("5", MODE.EASY), false);
+  // Pseudo only on Hard or Trench when First BOOST has an amount.
+  assert.equal(privateLaunchTitle("5", MODE.HARD), "Pseudo");
+  assert.equal(privateLaunchTitle("5.00", MODE.HARD), "Pseudo");
+  assert.equal(privateLaunchTitle("0.01", MODE.TRENCH), "Pseudo");
+  assert.equal(isPseudoLaunch("5", MODE.HARD), true);
+  assert.equal(isPseudoLaunch("5", MODE.TRENCH), true);
   assert.equal(boostHasAmount(""), false);
   assert.equal(boostHasAmount("0"), false);
   assert.equal(boostHasAmount("5"), true);
-  assert.equal(privateLaunchHelp("0"), QUICK_LAUNCH_COPY.anonHelp);
-  assert.equal(privateLaunchHelp("5"), QUICK_LAUNCH_COPY.pseudoHelp);
+  assert.equal(privateLaunchHelp("0", MODE.EASY), QUICK_LAUNCH_COPY.anonHelp);
+  assert.equal(privateLaunchHelp("5", MODE.EASY), QUICK_LAUNCH_COPY.anonEasyBoostHelp);
+  assert.equal(privateLaunchHelp("5", MODE.HARD), QUICK_LAUNCH_COPY.pseudoHelp);
+  assert.equal(privateLaunchHelp("5", MODE.TRENCH), QUICK_LAUNCH_COPY.pseudoHelp);
   assert.equal(QUICK_LAUNCH_COPY.signInLine, "Sign in with email, Google, X or wallet");
 });
 

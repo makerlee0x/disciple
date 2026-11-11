@@ -384,8 +384,8 @@ export default function LaunchRocketPage() {
                       <i />
                     </button>
                     <div className={s.copy}>
-                      <div className={s.name}>{privateLaunchTitle(boost)} <span className={s.beta}>{C.beta}</span></div>
-                      <div className={s.help}>{privateLaunchHelp(boost)}</div>
+                      <div className={s.name}>{privateLaunchTitle(boost, gameMode)} <span className={s.beta}>{C.beta}</span></div>
+                      <div className={s.help}>{privateLaunchHelp(boost, gameMode)}</div>
                     </div>
                   </div>
                   <button type="button" className={s.advLink} onClick={() => setAdvanced(true)}>{C.advanced}</button>

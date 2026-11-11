@@ -3,6 +3,7 @@
  * Visible strings are the r4 board text, used exactly. Logic is unit-tested in
  * scripts/test-quick-launch.mts.
  */
+import { MODE } from "./modeRules";
 import type { LaunchCoinParams } from "./protocol";
 
 /** r4 Screen 2 mode cards, in the same order as the boards (Easy, Hard, Trench). */
@@ -44,10 +45,11 @@ export const QUICK_LAUNCH_COPY = {
   ready: (name: string) => `${name || "Your rocket"} · READY FOR LAUNCH`,
   liftoff: "3 · 2 · 1 · LIFTOFF",
   signInLine: "Sign in with email, Google, X or wallet",
-  anon: "Anon launch",
-  pseudo: "Pseudo launch",
+  anon: "Anon",
+  pseudo: "Pseudo",
   beta: "beta",
   anonHelp: "Your name isn't shown as the creator. But the account that pays the launch fee is still visible in the public record of transactions, so someone who looks hard enough could work out it was you.",
+  anonEasyBoostHelp: "Your name isn't shown as the creator. On Easy, the coins you buy at launch stay locked until the rocket moves to the open market. The account that pays is still visible in the public record of transactions, so someone who looks hard enough could work out it was you.",
   pseudoHelp: "Your name isn't shown as the creator. But the account that pays the launch fee and makes your first buy is still visible in the public record of transactions, so someone who looks hard enough could work out it was you.",
   // Image rejected after a generated badge is in use (Oct 17 Quick Launch spec; not on the r4 boards).
   imageReverted: "That image can't be used. We've put your rocket's badge back.",
@@ -80,13 +82,23 @@ export function boostHasAmount(value: string): boolean {
   return Number.isFinite(n) && n > 0;
 }
 
-/** r4: $0 (or empty) → "Anon launch"; any First BOOST amount → "Pseudo launch". */
-export function privateLaunchTitle(boostValue: string): "Anon launch" | "Pseudo launch" {
-  return boostHasAmount(boostValue) ? "Pseudo launch" : "Anon launch";
+/**
+ * The switch reads "Pseudo" only on Hard or Trench when First BOOST has an amount.
+ * It stays "Anon" when there is no First BOOST, and on Easy even with a First BOOST
+ * (on Easy, the creator's coins stay locked until the rocket moves to the open market).
+ */
+export function isPseudoLaunch(boostValue: string, mode: number): boolean {
+  return boostHasAmount(boostValue) && mode !== MODE.EASY;
 }
 
-export function privateLaunchHelp(boostValue: string): string {
-  return boostHasAmount(boostValue) ? QUICK_LAUNCH_COPY.pseudoHelp : QUICK_LAUNCH_COPY.anonHelp;
+export function privateLaunchTitle(boostValue: string, mode: number): "Anon" | "Pseudo" {
+  return isPseudoLaunch(boostValue, mode) ? QUICK_LAUNCH_COPY.pseudo : QUICK_LAUNCH_COPY.anon;
+}
+
+export function privateLaunchHelp(boostValue: string, mode: number): string {
+  if (isPseudoLaunch(boostValue, mode)) return QUICK_LAUNCH_COPY.pseudoHelp;
+  if (boostHasAmount(boostValue)) return QUICK_LAUNCH_COPY.anonEasyBoostHelp;
+  return QUICK_LAUNCH_COPY.anonHelp;
 }
 
 /** Gold launch button: "Launch" at $0, "Launch + BOOST $5" when there's an amount. */
