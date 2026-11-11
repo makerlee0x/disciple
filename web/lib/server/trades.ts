@@ -15,14 +15,19 @@ import "server-only";
  *                              `trades:cur` (≤ v3, unscoped) is ignored.
  *   trades:lock                10s run lock
  *   trades:reindex:lock        reindexFills run lock (60s)
+ * After storeFills, the off-chain referral ledger (lib/server/referralLedger) records the 1% fee
+ * slice for any fill whose trader has a locked ReferralRegistry referrer — same after-the-fact
+ * path, never on the relay / admission path. See referralLedger.ts for keys and FeeMath reuse.
  */
 import { decodeEventLog, getAbiItem, type Address, type Hex, type Log, type PublicClient } from "viem";
-import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "@/lib/abi";
+import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, feeRouterAbi, launchpadAbi } from "@/lib/abi";
 import { deployment, ZERO, usdgRouters } from "@/lib/chains";
 export { usdgRouters };
 import { serverPc } from "./chat/identity";
 import { kv, type Kv } from "./kv";
 import { ACH } from "./achKeys";
+import { feeIndex, markReferralDirty, recordReferralSlices, type TradeFeeRoutedArgs } from "./referralLedger";
+
 import { coinBasis } from "@/lib/mcap";
 import { attachRefunds, fillUsd, FILL_V, usdgAmounts, usdgIndex, usdgKey, type Fill, type UsdgRefundArgs, type UsdgTradeArgs } from "@/lib/trades";
 import { usdgDecimals } from "@/lib/usdg";
@@ -33,6 +38,8 @@ const HOOK_TRADE = getAbiItem({ abi: discipleHookAbi, name: "Trade" });
 const TRADE_EVENTS = [CURVE_TRADE, HOOK_TRADE] as const;
 const USDG_TRADE = getAbiItem({ abi: discipleRouterAbi, name: "UsdgTrade" });
 const USDG_REFUND = getAbiItem({ abi: discipleRouterAbi, name: "UsdgRefund" });
+const FEE_ROUTED = getAbiItem({ abi: feeRouterAbi, name: "TradeFeeRouted" });
+
 export const cursorKey = (launchpad: string) => `trades:cur:${launchpad.toLowerCase()}`;
 const curveCache = new Map<string, string>();
 const qpCache = new Map<string, bigint>();
@@ -139,6 +146,11 @@ export async function indexTrades(budgetMs = 20_000): Promise<{ indexed: number;
       // …and UsdgRefund on the same routers (graduating buy / First BOOST over the cap) ⇒ usdIn is the NET paid.
       const refundLogs = routers.length === 0 || !usdgLogs.length ? [] : ((await pc.getLogs({ address: routers, event: USDG_REFUND, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: UsdgRefundArgs }[]);
       const usdg = usdgIndex(attachRefunds(usdgLogs.map((x) => ({ tx: x.transactionHash, args: x.args })), refundLogs.map((x) => ({ tx: x.transactionHash, args: x.args }))));
+      // FeeRouter.TradeFeeRouted in the same range: exact 33/33/33/1 split (referralLedger prefers this over fill math).
+      const feeLogs = d.feeRouter && d.feeRouter.toLowerCase() !== ZERO.toLowerCase()
+        ? ((await pc.getLogs({ address: d.feeRouter, event: FEE_ROUTED, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: TradeFeeRoutedArgs }[])
+        : [];
+      const fees = feeIndex(feeLogs.map((x) => ({ tx: x.transactionHash, args: x.args })));
       const fills: Fill[] = [];
       for (const l of logs) {
         let dec: { args: Record<string, unknown> };
@@ -154,6 +166,8 @@ export async function indexTrades(budgetMs = 20_000): Promise<{ indexed: number;
         fills.push(toFill({ transactionHash: tx, logIndex: li, blockNumber: l.blockNumber ?? BigInt(0) }, venue, a, await tsOf(l.blockNumber ?? BigInt(0)), usdg.get(usdgKey(tx, a.token, a.isBuy))?.shift()));
       }
       await storeFills(fills);
+      // After-the-fact only. A ledger failure must not fail the trade index; dirty fills are drained by the CSV/cron path.
+      if (fills.length) await recordReferralSlices(fills, fees).catch((e) => console.warn("[referral-ledger]", (e as Error).message));
       n += fills.length;
       cur = to;
       await s.set(ck, cur.toString());
@@ -174,7 +188,10 @@ export async function storeFills(fills: Fill[]) {
   for (const f of fills) (coinsBy.get(f.trader) ?? coinsBy.set(f.trader, new Set()).get(f.trader)!).add(f.coin);
   for (const [w, cs] of Array.from(coinsBy.entries())) await s.sadd(`trades:w:${w}`, ...Array.from(cs));
   // achievements engine: re-score these wallets on the next /api/cron/achievements (one member per fill ⇒ never lost)
-  if (fills.length) await s.zadd(ACH.dirty(), fills.map((f) => ({ score: Date.now(), member: `${f.trader}|${f.id}` })));
+  if (fills.length) {
+    await s.zadd(ACH.dirty(), fills.map((f) => ({ score: Date.now(), member: `${f.trader}|${f.id}` })));
+    await markReferralDirty(fills);
+  }
 }
 
 const byOrder = (a: Fill, b: Fill) => a.block - b.block || a.logIndex - b.logIndex;
