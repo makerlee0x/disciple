@@ -169,5 +169,5 @@ test("cap refusal: a cap race in session-only mode is refused before sending; ot
 });
 
 test("cap refusal copy: plain words, no ids", () => {
-  assert.equal(SPEND_LIMIT_MSG, "You've reached this session's spend limit. Raise the limit in settings, or try a smaller buy.");
+  assert.equal(SPEND_LIMIT_MSG, "Spend limit reached");
 });

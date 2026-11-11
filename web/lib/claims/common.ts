@@ -4,9 +4,6 @@ import { anonLauncherAbi, bondingCurveAbi, feeRouterAbi, launchpadAbi, referralR
 import { deployment } from "../chains";
 import { tokenDecimals } from "../usdg";
 import { plainText } from "../aa/relayOp";
-import { CANCELLED_MSG, DEPOSIT_BELOW_MIN_MSG, NO_APPROVAL_MSG, NO_BALANCE_MSG, NOTHING_TO_CLAIM_MSG, NOTHING_TO_WITHDRAW_MSG } from "../copy/playerLines";
-
-export { DEPOSIT_BELOW_MIN_MSG, NOTHING_TO_CLAIM_MSG, NOTHING_TO_WITHDRAW_MSG } from "../copy/playerLines";
 
 const pricerAbi = parseAbi(["function quotePriceUsd(address quote) view returns (uint256)"]);
 export type Asset = { address: Address; symbol: string; decimals: number; /** USD per 1 whole unit (live QuotePricer, else null) */ usd: number | null };
@@ -75,20 +72,20 @@ export function revertOf(e: unknown): { name: string; args: readonly unknown[] }
 export function claimErrorText(e: unknown): string {
   const r = revertOf(e);
   switch (r?.name) {
-    case "NothingToClaim": case "ZeroAmount": return NOTHING_TO_CLAIM_MSG;
-    case "NothingEscrowed": return NOTHING_TO_WITHDRAW_MSG;
-    case "Locked": return `This deposit is locked until ${new Date(Number(r.args[1]) * 1000).toLocaleString()}. Try again after it unlocks.`;
-    case "BelowMinimum": return DEPOSIT_BELOW_MIN_MSG;
+    case "NothingToClaim": case "ZeroAmount": return "Nothing to claim yet.";
+    case "NothingEscrowed": return "Nothing to withdraw yet.";
+    case "Locked": return `Deposit still locked until ${new Date(Number(r.args[1]) * 1000).toLocaleString()}. Try again after it unlocks.`;
+    case "BelowMinimum": return "Deposit is below the minimum.";
     case "NotStealthOwner": return "This wallet isn't the creator of that rocket.";
     case "InvalidMetadata": return "We couldn't find that rocket. Check the link and try again.";
     case "ZeroAddress": return "Connect a wallet, then try again.";
-    case "ERC20InsufficientBalance": return NO_BALANCE_MSG;
-    case "ERC20InsufficientAllowance": return NO_APPROVAL_MSG;
-    case "Panic": return NOTHING_TO_WITHDRAW_MSG;
-    case "Error": return /ALLOW/i.test(String(r.args[0])) ? NO_APPROVAL_MSG : /BAL/i.test(String(r.args[0])) ? NO_BALANCE_MSG : plainText(String(r.args[0]).slice(0, 120), "claim error");
+    case "ERC20InsufficientBalance": return "You don't have enough for that. Add funds, or try a smaller amount.";
+    case "ERC20InsufficientAllowance": return "The approval didn't go through. Try again.";
+    case "Panic": return "Nothing to withdraw yet.";
+    case "Error": return /ALLOW/i.test(String(r.args[0])) ? "The approval didn't go through. Try again." : /BAL/i.test(String(r.args[0])) ? "You don't have enough for that. Add funds, or try a smaller amount." : plainText(String(r.args[0]).slice(0, 120), "claim error");
   }
   const m = (e as Error)?.message ?? String(e);
-  if (/user rejected|denied/i.test(m)) return CANCELLED_MSG;
+  if (/user rejected|denied/i.test(m)) return "Cancelled.";
   // unmapped: plain text passes; ids / hex / raw contract or relay text → the plain line (detail to console)
   return plainText(m.split("\n")[0].slice(0, 120), "claim error", r ? { name: r.name } : {});
 }

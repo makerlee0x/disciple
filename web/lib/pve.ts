@@ -61,7 +61,6 @@ async function ensurePveLogin1(pc: PublicClient, trader: Address, opts: { fetchF
       attester_not_registered: "Easy login checks aren't available yet. Try again later.",
       pve_attester_not_configured: "Easy login checks aren't available yet. Try again later.",
     };
-    if (!M[j.error ?? ""]) console.warn("[disciple] pve attest", { error: j.error, status: r.status });
     throw new PveError("PveAttestFailed", M[j.error ?? ""] ?? "We couldn't check your login. Try again.");
   }
   // Submit in the user-paid owner-signed batch; the session policy cannot call LoginGate.

@@ -167,7 +167,7 @@ test("sendClaimAll: one wallet call for the whole list (one op), refuses an empt
   assert.equal(seen.length, 1);
   assert.deepEqual(seen[0], [{ to: A(1), data: "0x01" }, { to: A(2), data: "0x02" }]);
   assert.deepEqual(r, { txHash: "0xabc" });
-  await assert.rejects(sendClaimAll([], async () => ({})), /There's nothing to claim yet\. Check back later\./);
+  await assert.rejects(sendClaimAll([], async () => ({})), /Nothing to claim yet\./);
 });
 
 test("one op: the claim list encodes into a single executeBatch with every call in order", () => {

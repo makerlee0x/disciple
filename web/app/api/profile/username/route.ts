@@ -33,7 +33,7 @@ export const dynamic = "force-dynamic";
 const norm = (u: unknown) => String(u ?? "").trim().toLowerCase().replace(/^@/, "");
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
 const tooMany = (retry: number) =>
-  NextResponse.json({ ok: false, reason: "You've tried too many times. Wait a moment and try again." }, { status: 429, headers: { "retry-after": String(retry) } });
+  NextResponse.json({ ok: false, reason: "Too many requests, try again shortly." }, { status: 429, headers: { "retry-after": String(retry) } });
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -62,19 +62,19 @@ export async function GET(req: Request) {
   const badU = validateUsername(u);
   if (badU) return NextResponse.json({ available: false, reason: badU });
   const taken = !!(await walletOf(u));
-  return NextResponse.json({ available: !taken, reason: taken ? "That username is already taken. Try a different one." : undefined });
+  return NextResponse.json({ available: !taken, reason: taken ? "Username taken." : undefined });
 }
 
 export async function POST(req: Request) {
   let body: { username?: string; address?: string; nonce?: string; signature?: string; owner?: string };
-  try { body = await req.json(); } catch { return NextResponse.json({ ok: false, reason: "We couldn't read that request. Try again." }, { status: 400 }); }
+  try { body = await req.json(); } catch { return NextResponse.json({ ok: false, reason: "Bad JSON" }, { status: 400 }); }
   const u = norm(body.username);
   const addr = String(body.address ?? "").toLowerCase();
   // Same rules as the edit form (lib/profile.validateUsername): 3–USERNAME_MAX chars a–z 0–9 _, not reserved.
   // Only a NEW claim is checked here; an existing name is never re-validated, so nobody's current profile breaks.
   const badU = validateUsername(u);
   if (badU) return NextResponse.json({ ok: false, reason: badU }, { status: 400 });
-  if (!isAddr(addr)) return NextResponse.json({ ok: false, reason: "That wallet address doesn't look right. Check it and try again." }, { status: 400 });
+  if (!isAddr(addr)) return NextResponse.json({ ok: false, reason: "Invalid address." }, { status: 400 });
   // Wallet-signed claim: single-use server nonce + signature over claimMessage.
   const nonce = String(body.nonce ?? "");
   if (!(await nonceValid(kv(), NONCE_PREFIX, nonce, addr))) return NextResponse.json({ ok: false, reason: "Sign-in expired. Try again." }, { status: 401 });

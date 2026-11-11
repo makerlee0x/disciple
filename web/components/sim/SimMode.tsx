@@ -252,7 +252,7 @@ function TunePanel({ cfg, difficulty, onApply, onReset, onExport, live, onClose 
         </div>); })}
       <details style={{ marginTop: 6 }}><summary style={{ cursor: "pointer" }}>full config JSON</summary>
         <textarea value={json} onChange={(e) => setJson(e.target.value)} style={{ ...mono, width: "100%", height: 160, background: "#0d1030", color: "#e8ecff", fontSize: 10 }} />
-        <button style={btn()} onClick={() => { try { onApply(JSON.parse(json)); setErr(""); } catch (e) { console.warn("[disciple] sim config", e); setErr("That JSON isn't valid. Check it and try again."); } }}>apply JSON</button> {err && <span style={{ color: "#ff9fb8" }}>{err}</span>}
+        <button style={btn()} onClick={() => { try { onApply(JSON.parse(json)); setErr(""); } catch (e) { setErr(String(e)); } }}>apply JSON</button> {err && <span style={{ color: "#ff9fb8" }}>{err}</span>}
       </details>
       <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
         <button style={btn(false, "#ffb0c8")} onClick={onReset}>reset defaults</button>

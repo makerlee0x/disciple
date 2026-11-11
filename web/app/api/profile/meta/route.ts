@@ -26,7 +26,7 @@ const NONCE_TTL = 600;
 const NONCE_PREFIX = "meta:nonce";
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
 const tooMany = (retry: number) =>
-  NextResponse.json({ ok: false, reason: "You've tried too many times. Wait a moment and try again." }, { status: 429, headers: { "retry-after": String(retry) } });
+  NextResponse.json({ ok: false, reason: "Too many requests, try again shortly." }, { status: 429, headers: { "retry-after": String(retry) } });
 
 export const dynamic = "force-dynamic";
 
@@ -48,10 +48,10 @@ export async function POST(req: Request) {
   const rl = await hitLimit(kv(), `meta:ip:${clientIp(req.headers)}`, 20, 60);
   if (!rl.ok) return tooMany(rl.retryAfterSec);
   let body: { address?: unknown; pfp?: unknown; bio?: unknown; flag?: unknown; title?: unknown; nonce?: unknown; signature?: unknown; owner?: unknown };
-  try { body = await req.json(); } catch { return NextResponse.json({ ok: false, reason: "We couldn't read that request. Try again." }, { status: 400 }); }
-  if (!body || typeof body !== "object") return NextResponse.json({ ok: false, reason: "We couldn't read that request. Try again." }, { status: 400 });
+  try { body = await req.json(); } catch { return NextResponse.json({ ok: false, reason: "Bad JSON" }, { status: 400 }); }
+  if (!body || typeof body !== "object") return NextResponse.json({ ok: false, reason: "Bad JSON" }, { status: 400 });
   const addr = String(body.address ?? "").toLowerCase();
-  if (!isAddr(addr)) return NextResponse.json({ ok: false, reason: "That wallet address doesn't look right. Check it and try again." }, { status: 400 });
+  if (!isAddr(addr)) return NextResponse.json({ ok: false, reason: "Invalid address." }, { status: 400 });
   const rlA = await hitLimit(kv(), `meta:addr:${addr}`, 10, 60);
   if (!rlA.ok) return tooMany(rlA.retryAfterSec);
 
@@ -64,7 +64,7 @@ export async function POST(req: Request) {
     title: typeof body.title === "string" ? body.title.trim().toLowerCase() : "",
   };
   // The signed message covers the exact posted bio, so it must already be canonical (no silent rewrite after signing).
-  if (m.bio !== rawBio) return NextResponse.json({ ok: false, reason: "That bio has something we can't save. Edit it and try again." }, { status: 400 });
+  if (m.bio !== rawBio) return NextResponse.json({ ok: false, reason: "Invalid bio." }, { status: 400 });
   const bad = validateMeta(m);
   if (bad) return NextResponse.json({ ok: false, reason: bad }, { status: 400 });
   // Title must be earned by THIS address (lib/titles, same computation as the profile page; never the client's word).

@@ -17,9 +17,9 @@ export async function usernameOf(wallet: string): Promise<string | null> { retur
 export async function claim(username: string, wallet: string): Promise<{ ok: true } | { ok: false; reason: string }> {
   const a = wallet.toLowerCase(), s = kv();
   const owner = await s.get(nameKey(username));
-  if (owner && owner !== a) return { ok: false, reason: "That username is already taken. Try a different one." };
+  if (owner && owner !== a) return { ok: false, reason: "Username taken." };
   if (!owner && !(await s.setNX(nameKey(username), a))) {
-    if ((await s.get(nameKey(username))) !== a) return { ok: false, reason: "That username is already taken. Try a different one." };
+    if ((await s.get(nameKey(username))) !== a) return { ok: false, reason: "Username taken." };
   }
   const prev = await s.get(addrKey(a));
   if (prev && prev !== username && (await s.get(nameKey(prev))) === a) await s.del(nameKey(prev));

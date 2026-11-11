@@ -166,7 +166,7 @@ export class SimRun {
   playerCancel(id: number): { ok: boolean; reason?: string } {
     this.inputs.push({ blk: this.blk, op: "cancel", id });
     const o = this.m.pool?.active.find((x) => x.id === id && x.owner === YOU);
-    if (!o) return { ok: false, reason: "That order isn't active anymore. Refresh and try again." };
+    if (!o) return { ok: false, reason: "Not active" };
     this.close(o, "cancel", YOU); return { ok: true };
   }
   /** re-run a recorded player log: identical (cfg, difficulty, seed, inputs) ⇒ identical run */

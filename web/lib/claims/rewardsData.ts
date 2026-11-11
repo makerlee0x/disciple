@@ -10,7 +10,6 @@ import { deployment } from "../chains";
 import { curveOf, readMarket } from "../protocol-viem";
 import type { Caps } from "./capabilities";
 import { assetMeta, lc, type Asset } from "./common";
-import { NOTHING_TO_CLAIM_MSG } from "../copy/playerLines";
 import { anonSigClaimCalls, creatorDashboard, referralBalances, type CreatorRocket, type ReferralBalance } from "./creatorFees";
 import { myStealthKeys, stealthKeyFor } from "../privateLaunch";
 import { execCalls } from "../wallet";
@@ -173,7 +172,7 @@ export async function claimEverything(pc: PublicClient, me: Address, caps: Caps,
     return false;
   })));
   const pick = selectClaimCalls(calls, ok);
-  if (!pick.send.length) throw firstErr ?? new Error(NOTHING_TO_CLAIM_MSG);
+  if (!pick.send.length) throw firstErr ?? new Error("Nothing to claim yet.");
   if (pick.deferred) console.warn("[disciple] rewards: claim list capped", { sent: pick.send.length, deferred: pick.deferred });
   const r = await sendClaimAll(pick.send, execCalls);
   return { txHash: r.txHash, deferred: pick.deferred, skipped: pick.skipped };

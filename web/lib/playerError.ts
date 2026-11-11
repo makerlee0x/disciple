@@ -7,9 +7,8 @@
  */
 import { friendlyError } from "./protocol-viem";
 import { plainText } from "./aa/relayOp";
-import { CANCELLED_MSG } from "./copy/playerLines";
 
-export { CANCELLED_MSG };
+export const CANCELLED_MSG = "Cancelled.";
 
 export function playerError(e: unknown): string {
   const raw = (e as Error)?.message ?? String(e);

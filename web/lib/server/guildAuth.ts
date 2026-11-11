@@ -14,7 +14,7 @@ import type { GuildResult } from "./guildStore";
 export const GUILD_NONCE_TTL = 600;
 const PREFIX = "guild:nonce";
 export const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
-const tooMany = (retry: number) => NextResponse.json({ ok: false, reason: "You've tried too many times. Wait a moment and try again." }, { status: 429, headers: { "retry-after": String(retry) } });
+const tooMany = (retry: number) => NextResponse.json({ ok: false, reason: "Too many requests, try again shortly." }, { status: 429, headers: { "retry-after": String(retry) } });
 
 export async function guildNonce(req: Request, address: string) {
   const rl = await hitLimit(kv(), `guild:nonce:ip:${clientIp(req.headers)}`, 30, 60);
@@ -31,10 +31,10 @@ export async function verifiedGuildAction(req: Request, action: GuildAction, fie
   const rl = await hitLimit(kv(), `guild:ip:${clientIp(req.headers)}`, 20, 60);
   if (!rl.ok) return { ok: false, res: tooMany(rl.retryAfterSec) };
   let body: GuildBody;
-  try { body = await req.json(); } catch { return { ok: false, res: NextResponse.json({ ok: false, reason: "We couldn't read that request. Try again." }, { status: 400 }) }; }
-  if (!body || typeof body !== "object") return { ok: false, res: NextResponse.json({ ok: false, reason: "We couldn't read that request. Try again." }, { status: 400 }) };
+  try { body = await req.json(); } catch { return { ok: false, res: NextResponse.json({ ok: false, reason: "Bad JSON" }, { status: 400 }) }; }
+  if (!body || typeof body !== "object") return { ok: false, res: NextResponse.json({ ok: false, reason: "Bad JSON" }, { status: 400 }) };
   const addr = String(body.address ?? "").toLowerCase();
-  if (!isAddr(addr)) return { ok: false, res: NextResponse.json({ ok: false, reason: "That wallet address doesn't look right. Check it and try again." }, { status: 400 }) };
+  if (!isAddr(addr)) return { ok: false, res: NextResponse.json({ ok: false, reason: "Invalid address." }, { status: 400 }) };
   const rlA = await hitLimit(kv(), `guild:addr:${addr}`, 10, 60);
   if (!rlA.ok) return { ok: false, res: tooMany(rlA.retryAfterSec) };
   const nonce = String(body.nonce ?? "");

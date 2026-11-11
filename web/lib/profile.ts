@@ -18,7 +18,7 @@ export const USERNAME_MAX = DEFAULT_USERNAME_MAX_LENGTH;
 export const USERNAME_RE = new RegExp(`^[a-z0-9_]{${USERNAME_MIN},${USERNAME_MAX}}$`);
 /** Stored-username shape for read/resolve paths: charset only, no max, so a name claimed under an older cap still works. */
 export const USERNAME_STORED_RE = /^[a-z0-9_]+$/;
-export const usernameRuleText = () => `Usernames are ${USERNAME_MIN} to ${USERNAME_MAX} characters: letters, numbers, and underscores.`;
+export const usernameRuleText = () => `${USERNAME_MIN}–${USERNAME_MAX} chars: a–z, 0–9, underscore.`;
 /** Plain reason shown inline and returned by /api/profile/username for a name under USERNAME_MIN. */
 export const USERNAME_SHORT: string = PROFILE_COPY["edit.username.error.short"];
 export const RESERVED = new Set(["admin", "disciple", "support", "root", "api", "you", "settings", "profile"]);
@@ -30,7 +30,7 @@ export function validateUsername(u: string): string | null {
   // Length first, so a short name gets the specific message. Existing names are never re-validated (only a change is).
   if (n.length < USERNAME_MIN) return USERNAME_SHORT;
   if (!USERNAME_RE.test(n)) return usernameRuleText();
-  if (RESERVED.has(n)) return "That username is reserved. Try a different one.";
+  if (RESERVED.has(n)) return "That name is reserved.";
   return null;
 }
 
@@ -66,11 +66,11 @@ export function referralUrl(username: string | null, wallet?: string | null) {
 export async function checkUsername(u: string): Promise<{ available: boolean; reason?: string }> {
   const bad = validateUsername(u);
   if (bad) return { available: false, reason: bad };
-  if (IS_STATIC_PREVIEW) return { available: true, reason: "Usernames aren't checked in this preview." };
+  if (IS_STATIC_PREVIEW) return { available: true, reason: "preview: not checked server-side" };
   try {
     const r = await fetch(`/api/profile/username?u=${encodeURIComponent(normalizeUsername(u))}`);
     return await r.json();
-  } catch { return { available: false, reason: "We couldn't check that username. Try again." }; }
+  } catch { return { available: false, reason: "Could not reach username service." }; }
 }
 
 /** The wallet's claimed username and, during the 24h rename cooldown, when the next change is allowed (ms epoch). */
@@ -101,7 +101,7 @@ export async function claimUsername(u: string, address: string | null): Promise<
       const a = address.toLowerCase();
       const nr = await fetch(`/api/profile/username?nonce=1&address=${a}`, { cache: "no-store" });
       const { nonce } = (await nr.json()) as { nonce?: string };
-      if (!nonce) return { ok: false, reason: "We couldn't start saving your username. Try again." };
+      if (!nonce) return { ok: false, reason: "Could not start the claim." };
       const signed = await signClaim(n, a, nonce);
       if (!signed) return { ok: false, reason: "Signature declined. Your wallet has to sign to claim a name." };
       const r = await fetch("/api/profile/username", {
@@ -109,8 +109,8 @@ export async function claimUsername(u: string, address: string | null): Promise<
         body: JSON.stringify({ username: n, address: a, nonce, ...signed }),
       });
       const j = await r.json();
-      if (!r.ok || !j.ok) return { ok: false, reason: j.reason || "That username is already taken. Try a different one.", nextAllowedAt: typeof j.nextAllowedAt === "number" ? j.nextAllowedAt : undefined };
-    } catch { return { ok: false, reason: "We couldn't save your username. Try again." }; }
+      if (!r.ok || !j.ok) return { ok: false, reason: j.reason || "Username taken.", nextAllowedAt: typeof j.nextAllowedAt === "number" ? j.nextAllowedAt : undefined };
+    } catch { return { ok: false, reason: "Could not reach username service." }; }
   }
   set(K.username, n); set(K.usernameFor, address.toLowerCase());
   notifyProfileChanged();
