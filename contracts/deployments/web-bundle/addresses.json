@@ -59,5 +59,19 @@
       "decimals": 18,
       "note": "test STRATEGY; STRATEGY/USDG pricer pool fee 3000 / tickSpacing 60 / no hooks"
     }
+  },
+  "community": {
+    "wallet": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
+    "kind": "EOA (temporary testnet community rewards wallet)",
+    "note": "Set 2026-11-10 by lee-approved FeeRouter owner txs (setRewardsVault, setReferralSink, setKolCreatorShareBps(0)); the old RewardsVault contract (contracts.RewardsVault) stays deployed but is no longer FeeRouter.rewardsVault(). smoke.mjs / the indexer read this block; a redeploy (postprocess.mjs) moves it under previous.",
+    "kolCreatorShareBps": 0,
+    "readback": {
+      "block": 151518807,
+      "FeeRouter.rewardsVault": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
+      "FeeRouter.referralSink": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
+      "FeeRouter.kolCreatorShareBps": 0,
+      "RewardsVault.owner": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
+      "RewardsVault.pendingOwner": "0x0000000000000000000000000000000000000000"
+    }
   }
 }

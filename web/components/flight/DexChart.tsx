@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AutoscaleInfo, IChartApi, IPriceLine, ISeriesApi, MouseEventParams, Time, UTCTimestamp } from "lightweight-charts";
 import { addTick, bucketOf, buildCandles, cleanTicks, defaultTf, chartTicker, fmtMcap, fmtVol, isTf, markLast, TFS, type Candle, type Tf, type Tick } from "@/lib/chart/candles";
+import { DEFAULT_SUPPLY } from "@/lib/pnl";
 import { fetchHistory } from "@/lib/chart/history";
 import { clampOffset, clampSize, RESIZABLE, setCard } from "@/lib/game/cardLayout";
 import { chartCap, type Box } from "@/lib/game/slots";
@@ -65,6 +66,10 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
   const chartRef = useRef<{ lc: Lc; chart: IChartApi; candle: ISeriesApi<"Candlestick">; vol: ISeriesApi<"Histogram">; paper: IPriceLine | null } | null>(null);
   const ticksRef = useRef<Tick[]>([]), candlesRef = useRef<Candle[]>([]), byTime = useRef(new Map<number, Candle>());
   const [tf, setTfState] = useState<Tf | null>(null), tfRef = useRef<Tf>(300);
+  // default stays market cap (today's chart). Price is the same candles ÷ supply (DEFAULT_SUPPLY, or the live mark's supply — no new API).
+  const [unit, setUnit] = useState<"mcap" | "price">("mcap");
+  const unitRef = useRef<"mcap" | "price">("mcap"); unitRef.current = unit;
+  const supplyRef = useRef(DEFAULT_SUPPLY);
   const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
   const [hover, setHover] = useState<Candle | null>(null), [last, setLast] = useState<Candle | null>(null), [mark, setMark] = useState<number | null>(null);
   const [phone, setPhone] = useState(false), [ready, setReady] = useState(false), roRef = useRef<ResizeObserver | null>(null);
@@ -104,6 +109,9 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
     addEventListener("disciple:chartmap", h); return () => removeEventListener("disciple:chartmap", h); }, []);
 
   // ---- draw the current timeframe
+  const plotScale = () => unitRef.current === "price" ? 1 / (supplyRef.current > 0 ? supplyRef.current : DEFAULT_SUPPLY) : 1;
+  const plotOf = (v: number) => v * plotScale();
+  const plotCandle = (c: Candle) => { const s = plotScale(); return { time: c.time as UTCTimestamp, open: c.open * s, high: c.high * s, low: c.low * s, close: c.close * s }; };
   /** the latest ≤150 candles (≤60 on a phone), right-aligned; a short history keeps normal candle widths (no 3 giant bars) */
   const fitView = useCallback(() => {
     const h = chartRef.current, n = candlesRef.current.length; if (!h || !n) return;
@@ -114,7 +122,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
     const h = chartRef.current; if (!h) return;
     const cs = buildCandles(ticksRef.current, tfRef.current);
     candlesRef.current = cs; byTime.current = new Map(cs.map((c) => [c.time, c]));
-    h.candle.setData(cs.map((c) => ({ time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close })));
+    h.candle.setData(cs.map(plotCandle));
     h.vol.setData(cs.map((c) => ({ time: c.time as UTCTimestamp, value: c.volume, color: c.buyVol >= c.sellVol ? C.volUp : C.volDown })));
     h.chart.applyOptions({ timeScale: { secondsVisible: false, timeVisible: tfRef.current < 86400 } });
     if (fit) fitView();
@@ -124,7 +132,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
   const pushLast = useCallback(() => {
     const h = chartRef.current, c = candlesRef.current[candlesRef.current.length - 1]; if (!h || !c) return;
     byTime.current.set(c.time, c);
-    h.candle.update({ time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close });
+    h.candle.update(plotCandle(c));
     h.vol.update({ time: c.time as UTCTimestamp, value: c.volume, color: c.buyVol >= c.sellVol ? C.volUp : C.volDown });
     setLast({ ...c }); setStatus("ready");
   }, []);
@@ -205,7 +213,9 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
         if (markLast(candlesRef.current, Number(d.mcapUsd), Date.now(), tfRef.current)) pushLast();
       }
     };
-    const onMark = (e: Event) => { const m = Number((e as CustomEvent<{ mcap?: number }>).detail?.mcap); if (!(m > 0)) return;
+    const onMark = (e: Event) => { const d = (e as CustomEvent<{ mcap?: number; supply?: number }>).detail; const m = Number(d?.mcap); const sup = Number(d?.supply);
+      if (sup > 0) supplyRef.current = sup;   // same supply the engine already puts on disciple:mark (fallback DEFAULT_SUPPLY)
+      if (!(m > 0)) return;
       if ((window as unknown as W).__discipleTrade) { if (markLast(candlesRef.current, m, Date.now(), tfRef.current)) pushLast(); setMark(null); } else setMark(m); };
     addEventListener("disciple:event", onEv); addEventListener("disciple:mark", onMark);
     return () => { removeEventListener("disciple:event", onEv); removeEventListener("disciple:mark", onMark); };
@@ -215,9 +225,9 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
   useEffect(() => {
     const h = chartRef.current, L = liveRef.current; if (!h) return;
     if (!last) { if (L.line) { h.candle.removePriceLine(L.line); L.line = null; } return; }
-    const o = { price: last.close, color: C.cross, lineWidth: 1 as const, lineStyle: h.lc.LineStyle.Dashed, axisLabelVisible: true, title: "", axisLabelColor: C.gold, axisLabelTextColor: C.tagFg };
+    const o = { price: plotOf(last.close), color: C.cross, lineWidth: 1 as const, lineStyle: h.lc.LineStyle.Dashed, axisLabelVisible: true, title: "", axisLabelColor: C.gold, axisLabelTextColor: C.tagFg };
     if (L.line) L.line.applyOptions(o); else L.line = h.candle.createPriceLine(o);
-  }, [last, ready]);
+  }, [last, ready, unit]);
 
   // ---- per frame: the pulsing ring + vertical line on the live candle, the dark price-axis strip, the pane clip
   useEffect(() => {
@@ -226,7 +236,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
     const f = () => { id = requestAnimationFrame(f);
       const h = chartRef.current, pane = paneRef.current, ring = ringRef.current, vl = vlineRef.current, strip = stripRef.current; if (!h || !pane || !ring || !vl || !strip) return;
       const c = candlesRef.current[candlesRef.current.length - 1], aw = h.chart.priceScale("right").width(), th = h.chart.timeScale().height();
-      const x = c ? h.chart.timeScale().timeToCoordinate(c.time as UTCTimestamp) : null, y = c ? h.candle.priceToCoordinate(c.close) : null;
+      const x = c ? h.chart.timeScale().timeToCoordinate(c.time as UTCTimestamp) : null, y = c ? h.candle.priceToCoordinate(plotOf(c.close)) : null;
       const k = `${aw}|${th}|${x}|${y}`; if (k === prev) return; prev = k;
       strip.style.width = `${aw}px`; strip.style.bottom = `${th}px`; pane.style.right = `${aw}px`; pane.style.bottom = `${th}px`;
       const on = x != null && y != null; ring.style.display = vl.style.display = on ? "block" : "none";
@@ -239,9 +249,9 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
     const h = chartRef.current; if (!h) return;
     const lc = last?.close, show = mark != null && lc != null && Math.abs(mark / lc - 1) > 0.001;
     if (!show) { if (h.paper) { h.candle.removePriceLine(h.paper); h.paper = null; } return; }
-    const o = { price: mark!, color: "rgba(255,231,163,.7)", lineWidth: 1 as const, lineStyle: h.lc.LineStyle.Dotted, axisLabelVisible: true, title: "PAPER", axisLabelColor: C.frameMid, axisLabelTextColor: C.gold };
+    const o = { price: plotOf(mark!), color: "rgba(255,231,163,.7)", lineWidth: 1 as const, lineStyle: h.lc.LineStyle.Dotted, axisLabelVisible: true, title: "PAPER", axisLabelColor: C.frameMid, axisLabelTextColor: C.gold };
     if (h.paper) h.paper.applyOptions(o); else h.paper = h.candle.createPriceLine(o);
-  }, [mark, last]);
+  }, [mark, last, unit]);
 
   // ---- resize handle (desktop): live while dragging, the clamped size committed on release
   const rs = useRef<{ x0: number; y0: number; w0: number; h0: number; pid: number } | null>(null);
@@ -257,6 +267,13 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
 
   useLayoutEffect(() => { const h = chartRef.current; if (!h) return;
     h.chart.timeScale().applyOptions({ rightOffset: phone ? 2 : 4 }); h.chart.applyOptions({ layout: { fontSize: phone ? 10 : 9 } }); }, [phone, ready]);
+  // unit toggle: rewrite the series in the new units; leave the time scale (pan / zoom / reset) alone
+  useLayoutEffect(() => { if (!ready) return; paint(false);
+    const h = chartRef.current; if (!h) return;
+    const minMove = unit === "price" ? 0.000001 : 0.01;
+    h.chart.applyOptions({ localization: { priceFormatter: axisMcap } });
+    h.candle.applyOptions({ priceFormat: { type: "custom", formatter: axisMcap, minMove } });
+  }, [unit, ready, paint]);
 
   const shown = hover ?? last, chg = shown ? (shown.close / shown.open - 1) * 100 : 0, up = shown ? shown.close >= shown.open : true;
   const col = up ? C.up : C.down;
@@ -274,7 +291,13 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
       <div className="dex-head" style={{ display: "flex", alignItems: "center", gap: 6, padding: phone ? "4px 8px" : "2px 6px", minHeight: phone ? 26 : 20, background: C.titleBg,
         borderBottom: `2px solid ${C.frameMid}` }}>
         <span style={{ color: C.title, font: `bold ${phone ? 13 : 11}px ${serif}`, letterSpacing: ".02em", textShadow: "0 0 6px rgba(255,231,163,.35)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {label ? <><span data-testid="dex-title-dollar" style={{ marginRight: 1.5 }}>$</span><span data-testid="dex-title">{label}</span></> : <span data-testid="dex-title">PRICE</span>} <span style={{ color: C.dim, font: `${phone ? 10 : 8.5}px ${mono}`, letterSpacing: 0, textShadow: "none" }}>· MCAP</span></span>
+          {label ? <><span data-testid="dex-title-dollar" style={{ marginRight: 1.5 }}>$</span><span data-testid="dex-title">{label}</span></> : <span data-testid="dex-title">PRICE</span>}</span>
+        <div role="group" aria-label="Price or market cap" data-testid="dex-unit" style={{ display: "flex", gap: 2, marginLeft: 2 }}>
+          {([["price", "Price"], ["mcap", "Market cap"]] as const).map(([id, lab]) => { const on = unit === id; return <button key={id} type="button" data-testid={`dex-unit-${id}`} aria-pressed={on} onClick={() => setUnit(id)}
+            style={{ all: "unset", cursor: "pointer", padding: phone ? "3px 7px" : "1px 5px", borderRadius: 1, font: `${on ? "bold " : ""}${phone ? 11 : 8.5}px ${mono}`,
+              color: on ? C.gold : C.btn, background: on ? C.frameMid : "transparent", textShadow: on ? "0 0 6px rgba(255,231,163,.55)" : "none",
+              boxShadow: on ? `inset 1px 1px 0 rgba(0,0,0,.6), inset -1px -1px 0 rgba(255,255,255,.18)` : "none" }}>{lab}</button>; })}
+        </div>
         <span style={{ flex: 1 }} />
         <div role="group" aria-label="Timeframe" style={{ display: "flex", gap: 2 }}>
           {TFS.map((t) => { const on = tf === t.s; return <button key={t.s} type="button" data-testid={`dex-tf-${t.l}`} aria-pressed={on} onClick={() => setTf(t.s)}
@@ -298,15 +321,15 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
         </div>
         {shown && <div data-testid="dex-ohlc" style={{ position: "absolute", left: 4, top: 3, zIndex: 3, pointerEvents: "none", display: "flex", flexWrap: "wrap", gap: "0 6px",
           fontSize: phone ? 10.5 : 9, lineHeight: phone ? "14px" : "12px", padding: "0 4px", borderRadius: 2, background: "rgba(8,10,20,.55)", maxWidth: "calc(100% - 70px)" }}>
-          {!phone && <><span style={{ color: C.edge }}>O <b style={{ color: col, fontWeight: 400 }}>{fmtMcap(shown.open)}</b></span>
-            <span style={{ color: C.edge }}>H <b style={{ color: col, fontWeight: 400 }}>{fmtMcap(shown.high)}</b></span>
-            <span style={{ color: C.edge }}>L <b style={{ color: col, fontWeight: 400 }}>{fmtMcap(shown.low)}</b></span></>}
-          <span style={{ color: C.edge }}>C <b style={{ color: col, fontWeight: 400 }}>{fmtMcap(shown.close)}</b></span>
+          {!phone && <><span style={{ color: C.edge }}>O <b style={{ color: col, fontWeight: 400 }}>{fmtMcap(plotOf(shown.open))}</b></span>
+            <span style={{ color: C.edge }}>H <b style={{ color: col, fontWeight: 400 }}>{fmtMcap(plotOf(shown.high))}</b></span>
+            <span style={{ color: C.edge }}>L <b style={{ color: col, fontWeight: 400 }}>{fmtMcap(plotOf(shown.low))}</b></span></>}
+          <span style={{ color: C.edge }}>C <b style={{ color: col, fontWeight: 400 }}>{fmtMcap(plotOf(shown.close))}</b></span>
           <span style={{ color: col }}>{(chg >= 0 ? "+" : "") + chg.toFixed(2)}%</span>
           <span style={{ color: C.edge }}>Vol <b style={{ color: C.fg, fontWeight: 400 }}>{fmtVol(shown.volume)}</b></span>
         </div>}
         {status !== "ready" && <div data-testid="dex-empty" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: C.dim, pointerEvents: "none", zIndex: 2 }}>
-          {status === "loading" ? "loading trades…" : status === "error" ? "chart unavailable" : `no trades yet${mark ? ` · mcap ${fmtMcap(mark)}` : ""}`}</div>}
+          {status === "loading" ? "loading trades…" : status === "error" ? "chart unavailable" : `no trades yet${mark ? ` · ${fmtMcap(plotOf(mark))}` : ""}`}</div>}
       </div>
       {!phone && <div data-testid="card-resize-chart" title="Drag to resize (double-click: default size)" onPointerDown={rsDown} onPointerMove={rsMove} onPointerUp={rsUp} onPointerCancel={rsUp}
         onDoubleClick={rsReset} style={{ position: "absolute", right: 0, bottom: 0, width: 14, height: 14, cursor: "nwse-resize", zIndex: 5, touchAction: "none",

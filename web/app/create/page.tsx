@@ -16,7 +16,7 @@ import FirstBoostField, { type FirstBoostState } from "@/components/create/First
 import { protocolStub, type Address } from "@/lib/protocol";
 import { LAUNCH_ABI_SHAPE, LaunchMode } from "@/lib/launchAbi";
 import { DEFAULT_MODE, MODE_COPY, MODE_DEFAULT_CHIP, MODE_HELPER, MODE_LABEL, MODE_ORDER, MODE_SELECTED_COPY, MODE_TOOLTIP, holdingCapRange } from "@/lib/modeRules";
-import { deployment, isDeployed } from "@/lib/chains";
+import { ACTIVE_CHAIN, deployment, isDeployed } from "@/lib/chains";
 import { recommendedPairs } from "@/lib/pairs";
 import { nextTicker, randomRocketName, tickerVariants } from "@/lib/rocketNames";
 import { activeAddress, aaAvailable, canTransact, connectPrivy, connectWallet, execCalls, onWallet } from "@/lib/wallet";
@@ -30,6 +30,7 @@ import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 import Icon from "@/components/icons/Icon";
 import { CANCELLED_MSG, playerError } from "@/lib/playerError";
 import { IMAGE_COPY, LAUNCH_FAILED_MSG, launchImageFrom, type ModerateResponse } from "@/lib/launchImage";
+import { NAME_LOCK_TAKEN_MSG, fetchNameLock, nameLockEnforced } from "@/lib/nameLock";
 
 const inputCls =
   "w-full rounded-xl border border-[rgba(201,206,214,.35)] bg-[rgba(22,24,28,.8)] px-3 py-2 text-[#E8EAEE] outline-none focus:border-[rgba(201,206,214,.7)]";
@@ -74,6 +75,20 @@ export default function LaunchRocketPage() {
   const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
   const setMsg = (text: string | null) => setStatus(text == null ? null : { text, ok: false });
   const setLaunched = (text: string) => setStatus({ text, ok: true });
+  // Mainnet name+ticker lock (lib/nameLock): show the taken message while typing; the submit path checks again.
+  const [nameLockMsg, setNameLockMsg] = useState<string | null>(null);
+  useEffect(() => {
+    if (IS_STATIC_PREVIEW || !nameLockEnforced(ACTIVE_CHAIN.id) || !name.trim() || !callSign.trim()) {
+      setNameLockMsg(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      fetchNameLock(name, callSign).then((r) => {
+        setNameLockMsg(r && r.enforced && r.available === false ? (r.reason || NAME_LOCK_TAKEN_MSG) : null);
+      }).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [name, callSign]);
   // #103 follow-up: sign in BEFORE launching (the launch, First BOOST and fees must land on the DISCIPLE account).
   // Signed out ⇒ the submit button opens sign-in instead of failing at launch time with SignInRequired.
   const [signedIn, setSignedIn] = useState(false);
@@ -145,6 +160,19 @@ export default function LaunchRocketPage() {
     if (!name.trim() || !callSign.trim() || !file) {
       setMsg("Add a rocket name, a call sign, and a picture to launch.");
       return;
+    }
+    if (!IS_STATIC_PREVIEW && nameLockEnforced(ACTIVE_CHAIN.id)) {
+      const taken = await fetchNameLock(name, callSign);
+      if (!taken) {
+        setMsg("Couldn't check this name and call sign. Try again in a moment.");
+        return;
+      }
+      if (taken.enforced && taken.available === false) {
+        const why = taken.reason || NAME_LOCK_TAKEN_MSG;
+        setNameLockMsg(why);
+        setMsg(why);
+        return;
+      }
     }
     if (mod.state !== "allow" || !mod.uri) {
       setMsg(mod.state === "block" ? "This image can't be used. Please pick a different one." : "Your icon is still being checked (or held for review).");
@@ -257,6 +285,7 @@ export default function LaunchRocketPage() {
                   aria-label="Shuffle call sign" onClick={() => setCallSign(nextTicker(name, callSign))}><Icon name="shuffle" size={16} /> Shuffle</button>
               </div>
             </label>
+            {nameLockMsg && <p role="status" data-testid="name-lock-taken" className="text-xs text-[#FF7A3D]">{nameLockMsg}</p>}
             <div className="block">
               <span className={labelCls}>ROCKET ICON * <span className="normal-case opacity-70">square · PNG/JPG/WEBP/GIF · ≤2 MB</span></span>
               <label className="upload-drop">

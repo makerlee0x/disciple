@@ -646,7 +646,7 @@ export async function launchUsdg(pc: PublicClient): Promise<Address | null> {
 export const FIRST_BOOST_CASH_MSG = (needUsd: number, haveUsd: number) =>
   `Not enough cash for a $${needUsd.toFixed(2)} First BOOST: you have $${haveUsd.toFixed(2)}. Lower it or deposit more.`;
 
-/** On-chain creator-buy supply cap in bps (v3 default 77 = 0.77%). Prefer this over any hardcoded UI limit. */
+/** On-chain creator-buy supply cap in bps (contracts default and ceiling 777 = 7.77%; older deployments 77 / 700). Prefer this over any hardcoded UI limit. */
 export async function readCreatorBuyMaxBps(pc: PublicClient) {
   return Number(await pc.readContract({ address: deployment().launchpad, abi: launchpadAbi, functionName: "creatorBuyMaxBps" }));
 }
@@ -1251,7 +1251,7 @@ export function createViemProtocol(): ProtocolClient {
           // First BOOST cap = Launchpad.firstBoostMaxBps(mode) (lib/modeRules: Easy 1.2%, Hard 3.33%, Trench creatorBuyMaxBps).
           const eff = effectiveCreatorBuyCapBps(launchpadCapBps, mode);
           if (cq.exceedsCap) {
-            const pct = Math.min(eff.bps, 700) / 100;   // 700 bps = the creatorBuyMaxBps ceiling
+            const pct = Math.min(eff.bps, 777) / 100;   // 777 bps = the creatorBuyMaxBps ceiling (7.77%)
             logTradeError("launch buy over cap", { launchpadCapBps, effectiveBps: eff.bps, by: eff.by });
             throw new ProtocolError("CreatorBuyTooLarge", CREATOR_BUY_MSG(pct > 0 ? pct : undefined));
           }
