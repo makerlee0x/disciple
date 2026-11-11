@@ -73,7 +73,7 @@ export const HIW_PAIR = {
     { icon: "base-pair", title: "A supported base", body: "Pick a supported base: STRATEGY by default, USDG always. Other coins work once they have an on-chain USDG price pool." },
     { icon: "rocket", title: "A call sign", body: "Your $TICKER: 1–10 letters or numbers, in capitals. A name, call sign and image are required. Call signs aren’t unique, so check the rocket’s address. The name and call sign are set for good at launch." },
     { icon: "plus", title: "Four steps to the pad", body: "Name and call sign → image → pair with → launch. Anyone can launch. No permission needed." },
-    { icon: "boost", title: "First BOOST is yours", body: "You can BOOST your own rocket in the launch transaction. The most you can buy depends on the launch mode: up to 1.2% of supply on Easy, 3.33% on Hard and 7.77% on Trench Warfare.", openItem: "C5" },
+    { icon: "boost", title: "First BOOST is yours", body: "You can BOOST your own rocket in the launch transaction. The most you can buy is 1.2% of supply on Easy, 3.33% on Hard and 7.77% on Trench Warfare. On Easy, those coins stay locked until the rocket ascends. This is separate from the holding limit, which caps how much one wallet can hold until the rocket ascends: 1% of supply rising to 3.33% as the market cap climbs on Easy, 3.33% rising to 7.77% on Hard, and no limit on Trench Warfare.", openItem: "C5" },
   ] as HiwItem[],
 };
 

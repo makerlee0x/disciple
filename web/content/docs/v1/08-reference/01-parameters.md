@@ -43,7 +43,7 @@ Every number in one place. Values are for the current testnet deploy unless mark
 
 | Parameter | Value |
 |---|---|
-| Creator launch buy cap | 7.77% of supply (team-settable, max 7.77%) |
+| Creator launch buy cap (First BOOST) | Trench Warfare: 7.77% of supply (team-settable, max 7.77%). Easy is fixed at 1.2% and Hard at 3.33%. |
 | Protocol wallet cap (curve) | None by default (team-settable 0–100%) |
 | Router max price impact | 50% per swap (team-settable 1–1,000%) |
 | Keeper tip (tramps and walls) | 0.1% (max 1%) |
