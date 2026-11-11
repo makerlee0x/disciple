@@ -278,6 +278,31 @@ export class Api {
     return { lpAccrue, toLP, sniperTax: toLP - lp, lpFee: lp };
   }
 
+  /** Community rewards wallet per stack (FeeRouter.rewardsVault / referralSink after the post-deploy wiring): referral credits
+   *  routed to it (TradeFeeRouted referral payee rows, quote and launch-token units kept apart), its referrer claims, and sniper
+   *  escrow released to it. The old RewardsVault contract's RewardAccrued / Distributed stay in /rewards. */
+  communityRewards() {
+    const qdec = "(SELECT c.quote_decimals FROM coins c WHERE c.token=f.token)";
+    return this.cfg.stacks.filter((s) => s.communityWallet).map((s) => {
+      const w = String(s.communityWallet).toLowerCase();
+      const ref = this.db.prepare(
+        `SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN fee_is_quote=1 THEN qd(amount, ${qdec}) END),0) quote,
+           COALESCE(SUM(CASE WHEN fee_is_quote=0 THEN CAST(amount AS REAL) END),0)/1e18 token
+         FROM fee_credits f WHERE stack=? AND payee=? AND role='referral'`).get(s.id, w) as any;
+      const ev = (kind: string) => this.db.prepare(
+        `SELECT COUNT(*) n, COALESCE(SUM(qd(a, ${qdec})),0) sum FROM fee_events f WHERE stack=? AND kind=? AND account=?`).get(s.id, kind, w) as any;
+      const claims = this.db.prepare(
+        `SELECT COUNT(*) n, COALESCE(SUM(qd(a, (SELECT c.quote_decimals FROM coins c WHERE c.quote=f.quote AND c.quote_decimals IS NOT NULL LIMIT 1))),0) sum
+         FROM fee_events f WHERE stack=? AND kind='ReferrerFeesClaimed' AND account=?`).get(s.id, w) as any;
+      return {
+        stack: s.id, wallet: w, rewardsVaultContract: s.rewardsVault ? String(s.rewardsVault).toLowerCase() : null,
+        referralCredits: { n: ref.n, quote: ref.quote, tokenUnits: ref.token },
+        referrerClaims: claims,
+        snipeEscrowReleased: ev("SnipeEscrowReleased"),
+      };
+    });
+  }
+
   holders(token: string, q: URLSearchParams) {
     const c = this.coin(token);
     if (!c) return null;
@@ -573,6 +598,7 @@ export class Api {
       if (p[2] === "trades") return [200, this.trades("trader", p[1], q)];
       if (p[2] === "coins") return [200, this.listCoins(new URLSearchParams({ creator: p[1] }))];
     }
+    if (p[0] === "rewards" && p[1] === "community") return [200, this.communityRewards()];
     if (p[0] === "rewards") return [200, this.rewards()];
     if (p[0] === "orders") return [200, this.allOrders(q)];
     if (p[0] === "tier-breaks") return [200, this.tierBreaks(q)];

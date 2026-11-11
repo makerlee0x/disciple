@@ -877,10 +877,25 @@ function spendableCash(cash){ const g=window.__discipleTrade&&S.gasPerOpUsd>0?S.
 function inFlightPulse(){ const f=S.flashes.find(x=>x.inflight); if(f){ f.life=0.7; return; }   // final copy (lee, 11:25 CT)
   S.flashes.push({txt:'3 IN FLIGHT',life:0.7,inflight:1}); }
 /** pending_unknown (SITE): this press stays pending (cap + reservation), its rocket keeps hovering, calm status */
-function stillConfirming(p,ba,txt){ p.unknown=1; if(ba) ba.unk=1; txt=String(txt||'Still confirming your last trade…');   // SITE PENDING_UNKNOWN_MSG (final copy, lee 11:25 CT)
-  const f=S.flashes.find(x=>x.confirming); if(f){ f.life=1.8; f.txt=txt; } else S.flashes.push({txt,life:1.8,confirming:1}); }
+/* In-flight wait (lee Nov 10): no on-screen "Still confirming your last trade…" alert.
+   State is unchanged (unknown + hover). The wait is the existing PENDING ghost + a subtle
+   thruster shimmer / trail pulse (tradePendingFx), reused from exhaustParams.pend and the contrail. */
+function tradePendingFx(){ return S.pending.some(p=>p.state==='pending'); }
+function stillConfirming(p,ba,txt){ p.unknown=1; if(ba) ba.unk=1; }
 function pushInFlight(){ try{ dispatchEvent(new CustomEvent('disciple:inflight',{detail:{n:pendingCount(),max:MAX_PENDING}})); }catch(_){} }
 /* @rapidtap-end */
+/* @ascension-warp — visual only (lee Nov 10 notes #21). An ascension buy (the existing graduates /
+   gradNeedUsd / graduation-mcap flag) gets a warp-speed look while it is still pending, so the longer
+   confirm wait reads as a jump. Reuses drawSpeedLines stroke + the existing hash() (no extra Math.random
+   in the sim, same lesson as the in-flight shimmer). Trade / send path is unchanged. */
+function isAscensionBuy(side,usd,from,proj){
+  if(side!=='buy'||S.graduated) return false;
+  if(S.gradNeedUsd!=null&&usd+1e-9>=S.gradNeedUsd) return true;
+  const lo=from>0?from:(S.confirmed&&S.confirmed.mcap);
+  const hi=proj>0?proj:lo;
+  return lo>0&&lo<GRADUATION_MCAP&&hi>=GRADUATION_MCAP;
+}
+function warpFxOn(){ return (S.pending||[]).some(p=>p.state==='pending'&&p.gradBuy); }
 function trade(side,opt){
   // REAL FILL ONLY (maker lee 2026-10-24): no turbo flare / thrust at the click. The pending ghost (submit) shows where the
   // shot will go; the rocket reacts in submit() when the trade result comes back ok (fillThrust). Failed trades: no thrust.
@@ -977,7 +992,7 @@ function submit(side,usd,force,opt,pct){
   // STACKED (up to MAX_PENDING in flight): each ghost is projected from the previous PENDING ghost, so 3 quick taps = 3 steps
   const prevP=pendingTip(), from=prevP?prevP.proj:S.confirmed.mcap;
   const proj = source.impact? from*srcImpact(S.tradeUsd,side) : from;
-  const p={id:Math.random(),side,usd:S.tradeUsd,proj,from,t0:now,state:'pending'}; S.pending.push(p); pushInFlight();
+  const p={id:Math.random(),side,usd:S.tradeUsd,proj,from,t0:now,state:'pending',gradBuy:isAscensionBuy(side,S.tradeUsd,from,proj)}; S.pending.push(p); pushInFlight();
   // the rocket heads for the ghost NOW (visual only, ≤ BA_CAP before the receipt; @boostanim). Its own segment: previous ghost → this one
   const sf=isLive()?1:(S.simF||1);
   const ba=baStart(S.boostAnim||(S.boostAnim=[]), mcapToAlt(from*sf), mcapToAlt(proj*sf), now); p.ba=ba;
@@ -1380,12 +1395,28 @@ function drawClouds(front){
   ctx.globalAlpha=1;
 }
 function drawSpeedLines(){
-  if (!S.speedBits.length) return;
-  ctx.save(); ctx.lineCap='round';
-  const vx=-(S.vxS||0)*0.3, vy=(S.vyS||0)+(S.air||0);   // streaks run vertically (air rushing down past a climb)
-  for (const b of S.speedBits){
-    ctx.globalAlpha=clamp(b.life,0,1)*0.5; ctx.strokeStyle=b.up?'rgba(235,240,255,.9)':'rgba(255,220,235,.85)'; ctx.lineWidth=b.w;
-    ctx.beginPath(); ctx.moveTo(b.x,b.y); ctx.lineTo(b.x+vx*0.14*b.k,b.y-vy*0.14*b.k); ctx.stroke();
+  if (S.speedBits.length){
+    ctx.save(); ctx.lineCap='round';
+    const vx=-(S.vxS||0)*0.3, vy=(S.vyS||0)+(S.air||0);   // streaks run vertically (air rushing down past a climb)
+    for (const b of S.speedBits){
+      ctx.globalAlpha=clamp(b.life,0,1)*0.5; ctx.strokeStyle=b.up?'rgba(235,240,255,.9)':'rgba(255,220,235,.85)'; ctx.lineWidth=b.w;
+      ctx.beginPath(); ctx.moveTo(b.x,b.y); ctx.lineTo(b.x+vx*0.14*b.k,b.y-vy*0.14*b.k); ctx.stroke();
+    }
+    ctx.restore(); ctx.globalAlpha=1;
+  }
+  drawWarpSpeed();
+}
+function drawWarpSpeed(){
+  if(!warpFxOn()) return;
+  // warp-speed streaks (radial, from a point ahead of the rocket). Deterministic: hash() + S.t, no Math.random.
+  const cx=(S.camX!=null?S.camX:S.x), cy=(S.ry||H*0.58)-40, n=28;
+  ctx.save(); ctx.lineCap='round'; ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<n;i++){
+    const u=hash(i*19.17), a=(u+S.t*0.15)%1*Math.PI*2, pulse=0.55+0.45*Math.abs(Math.sin(S.t*10+i));
+    const r0=18+hash(i*4.3)*30, r1=r0+140+hash(i*7.1)*280*pulse;
+    const x0=cx+Math.cos(a)*r0, y0=cy+Math.sin(a)*r0, x1=cx+Math.cos(a)*r1, y1=cy+Math.sin(a)*r1;
+    ctx.globalAlpha=0.18+0.28*pulse; ctx.strokeStyle='rgba(235,240,255,.9)'; ctx.lineWidth=0.8+1.6*hash(i*2.9);
+    ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
   }
   ctx.restore(); ctx.globalAlpha=1;
 }
@@ -1400,12 +1431,13 @@ function drawTickTrail(){   // (name kept for callers) — vertical contrail fro
   { const q=pts[n++]; q.x=tailX; q.y=tailY; q.thrust=true; }
   if(n<2) return;
   const sc=S.scorch||0, fl=clamp(exhaustParams().flame,0,1.6), am=fxMul('aura');   // aura stat: contrail opacity + width (1 at stat 5)
+  const pulse=tradePendingFx()?1+0.16*Math.abs(Math.sin(S.t*10)):1;
   ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round';
   // 1) soft contrail body: widens and fades with age (source-over smoke)
   for (let i=1;i<n;i++){ const u=i/(n-1);                 // 0 = oldest, 1 = at the nozzle
     const a=am===1?Math.pow(u,0.9)*(0.32+0.2*fl):Math.min(1,Math.pow(u,0.9)*(0.32+0.2*fl)*am);
     ctx.strokeStyle=`rgba(${Math.round(lerp(236,60,sc))},${Math.round(lerp(238,45,sc))},${Math.round(lerp(255,40,sc))},${a})`;
-    ctx.lineWidth=(5+22*Math.pow(1-u,0.8))*am;
+    ctx.lineWidth=(5+22*Math.pow(1-u,0.8))*am*pulse;
     ctx.beginPath(); ctx.moveTo(pts[i-1].x,pts[i-1].y); ctx.lineTo(pts[i].x,pts[i].y); ctx.stroke(); }
   // 2) hot core just behind the nozzle (additive), length/brightness from the plume
   ctx.globalCompositeOperation='lighter'; const hotN=Math.max(2,Math.round(n*0.18));
@@ -1450,7 +1482,7 @@ function drawRocket(dt){
   const TS=thrusterSprites(), HOT=TS.hot, COLD=TS.cold, FIRE_SPR=TS.fire, CORE_SPR=TS.core;   /* loadout thruster (stock = original sprites) */
   { const P=S.particles; for (let i=0;i<P.n;i++){ const p=P.a[i]; ctx.globalAlpha=clamp(0.32*p.life,0,1); blit(p.hot?HOT:COLD,p.x,p.y,p.s*(1.3-p.life*0.3)); } }
   // FLAME CONE — stretched hot sprites along the engine axis; length = volume / speed / climb, flickers, sputters
-  { ctx.save(); ctx.translate(x,y); ctx.rotate(ang); const L=(34+170*flame)*(0.85+0.3*flick)*TS.l*FXT, Wf=(20+12*flame)*TS.w;
+  { ctx.save(); ctx.translate(x,y); ctx.rotate(ang); const pendPulse=tradePendingFx()?1+0.12*Math.abs(Math.sin(S.t*10)):1; const L=(34+170*flame)*(0.85+0.3*flick)*TS.l*FXT*pendPulse, Wf=(20+12*flame)*TS.w*pendPulse;
     ctx.globalAlpha=clamp(0.55+0.4*flame,0,0.95); ctx.drawImage(FIRE_SPR,-Wf/2,-Wf*0.25,Wf,L);
     ctx.globalAlpha=clamp(0.5+0.5*flame,0,1); ctx.drawImage(CORE_SPR,-Wf*0.28,-Wf*0.15,Wf*0.56,L*0.55);
     // shock diamonds on a strong burn
@@ -1693,7 +1725,7 @@ function phFit(t,w){ if(ctx.measureText(t).width<=w) return t; while(t.length>1&
 /* FEED tab: the same S.feed rows as the desktop TRADES panel, laid out like the mockup (avatar · name · BOOST/DUMP · $ · ago) */
 function drawPhoneFeed(P){ const B0=P.body, B={x:B0.x,y:B0.y+28,w:B0.w,h:B0.h-28}, rh=50, n=Math.max(1,Math.floor(B.h/rh)), x0=B.x+4, iw=B.w-8, gap=8, cAva=30, cTag=70, cUsd=66, cAgo=34, cNm=Math.max(40,iw-cAva-cTag-cUsd-cAgo-4*gap);
   ctx.save(); ctx.textBaseline='middle'; if('letterSpacing' in ctx) ctx.letterSpacing='0px';
-  ctx.font=`10px ${PH_FONT}`; ctx.fillStyle='rgba(214,222,245,.56)'; ctx.fillText('LOCAL TIME · ~RECEIVED',x0,B0.y+12);
+  /* phone-feedhead (PhoneHud) already says TRADE HISTORY in this band — do not draw a second one */
   const rows=S.feed.slice(0,n);
   if(!rows.length){ ctx.fillStyle='rgba(214,222,245,.42)'; ctx.font=`12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText('No trades yet',B.x+B.w/2,B.y+40); ctx.textAlign='left'; }
   rows.forEach((r,i)=>{ const y=B.y+i*rh, cy=y+rh/2, mt=/^(▲ BOOST|▼ DUMP)\s+(\S+)\s+(.+)$/.exec(r.txt||'');
@@ -1823,7 +1855,7 @@ function drawHud(){
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='feed') drawPhoneFeed(PH); }
   else if (cardBegin('trades',20,H-160,310,140)){ const FX=20, FY=H, FW=310;
   panel(FX,FY-160,FW,140); ctx.font='12px ui-monospace,monospace';
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADES · LOCAL (~SEEN)',FX+16,FY-138);
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADE HISTORY',FX+16,FY-138);
   S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=FY-116+i*17, icon=r.ic?18:0, maxW=FW-32-74-icon;
     if(r.ic) drawIcon(r.ic,FX+16,fy-11,14,r.c);
     const parts=tradeRowParts(r);
@@ -2450,7 +2482,7 @@ function simStep(stepDt){
   if (!S._trailAcc) S._trailAcc=0; S._trailAcc+=dt;
   const lt=S.trail[S.trail.length-1], moved=!lt || Math.hypot(lt.x-nozX, trailY(lt)-nozY)>1.8;
   if (S._trailAcc>0.05 || moved){ S._trailAcc=0;
-    S.trail.push({x:nozX, alt:nozAlt, air:S.airPx||0, thrust:sinceThrust<0.25});
+    S.trail.push({x:nozX, alt:nozAlt, air:S.airPx||0, thrust:sinceThrust<0.25||tradePendingFx()});
     S._trailEmitErr=Math.max(S._trailEmitErr||0, Math.abs(trailY(S.trail[S.trail.length-1])-nozY));   // test hook: ≈0 by construction
     if (S.trail.length>TRAIL_MAX){ const T=S.trail, half=T.length>>1; let j=1;   // decimate the older half (fine detail only near the nozzle)
       for(let i=1;i<half;i++){ if(i&1) continue; T[j++]=T[i]; } for(let i=half;i<T.length;i++) T[j++]=T[i]; T.length=j; }
@@ -2465,6 +2497,33 @@ function simStep(stepDt){
   { const P=S.particles; for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*(p.dk||2.2); if(p.life<=0) P.kill(i); } }   // dk: launch stat (plume lifetime)
   { const P=S.shards; for (let i=P.n-1;i>=0;i--){ const s=P.a[i]; s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=500*dt; s.life-=dt*0.9; if(s.life<=0||s.y>H+20) P.kill(i); } }
   for (const f of S.flashes) f.life-=dt*0.8; keepIf(S.flashes,ALIVE);
+
+/* @orb-hit — any part of the drawn rocket (tip, wings, body, tail) counts as a hit, not a box at the nozzle.
+   Local sprite space matches drawRocket: nozzle at (0,0), tip at (0, -pivotY), sprite w×h, rotated by the same angle. */
+function rocketGeom(){
+  const im=typeof IMG!=='undefined'&&IMG.rocket, h=150, w=(im&&im.naturalWidth)?h*im.naturalWidth/im.naturalHeight:55;
+  const pivotY=h*0.96, pos=typeof nozzleXY==='function'?nozzleXY():[(S.camX!=null?S.camX:S.x),S.ry];
+  const ang=typeof rocketVisAngle==='function'?rocketVisAngle():(S.heading||0);
+  return {nx:pos[0],ny:pos[1],w,h,pivotY,ang,ca:Math.cos(ang),sa:Math.sin(ang)};
+}
+function hitPoly(x,y,poly,r){
+  let inside=false, minD2=Infinity;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const xi=poly[i][0], yi=poly[i][1], xj=poly[j][0], yj=poly[j][1];
+    if(((yi>y)!==(yj>y)) && (x<(xj-xi)*(y-yi)/(yj-yi)+xi)) inside=!inside;
+    const vx=xj-xi, vy=yj-yi, len=vx*vx+vy*vy, t=len>0?Math.max(0,Math.min(1,((x-xi)*vx+(y-yi)*vy)/len)):0;
+    const dx=x-(xi+t*vx), dy=y-(yi+t*vy); const d2=dx*dx+dy*dy; if(d2<minD2) minD2=d2;
+  }
+  return inside || minD2<=(r+0.25)*(r+0.25);   // 0.25px slop so a vertex at a rotated angle still counts (cos(π/2) is not 0)
+}
+function rocketHits(px,py,rad){
+  const g=rocketGeom();
+  const dx=px-g.nx, dy=py-g.ny, lx=dx*g.ca+dy*g.sa, ly=-dx*g.sa+dy*g.ca, r=rad>0?rad:0;
+  const hw=g.w/2, tipY=-g.pivotY, tailY=g.h-g.pivotY, midY=tipY+g.h*0.42, foreY=tipY+g.h*0.18;
+  return hitPoly(lx,ly,[[0,tipY],[-hw*0.28,foreY],[-hw,midY],[-hw*0.35,tailY],[hw*0.35,tailY],[hw,midY],[hw*0.28,foreY]],r);
+}
+function orbHitsRocket(o){ return rocketHits(o.x,o.y,(ORB[o.k]&&ORB[o.k].r)||14); }
+/* @orb-hit-end */
   // motes drift down (speed ∝ trade flow), collect by steering
   const flow=1+Math.log10(1+S.buyEma)*0.5;
   // OFF-CHAIN ORB LAYER: reward spawn ∝ buy flow, penalty spawn ∝ sell flow (server-seeded in prod)
@@ -2472,12 +2531,12 @@ function simStep(stepDt){
   const P=ORB_SPAWN, room=S.orbsOn&&S.motes.length+S.obstacles.length<P.maxOnScreen&&S.t-S.lastOrbT>=P.minGap;
   if (room&&Math.random()<dt*Math.min(P.rewardMax,P.rewardBase+P.rewardFlow*Math.log10(1+S.buyEma))){ const r=Math.random(); S.motes.push({k:r<0.85?'halo':'mult',x:lane(),y:-20,v:90+Math.random()*40}); S.lastOrbT=S.t; }
   else if (room&&Math.random()<dt*Math.min(P.penaltyMax,P.penaltyBase+P.penaltyFlow*Math.log10(1+S.sellEma))){ S.obstacles.push({k:Math.random()<0.7?'storm':'void',x:lane(),y:-40,v:100}); S.lastOrbT=S.t; }
-  for (const m of S.motes){ m.y+=m.v*dt*flow; if (Math.abs(m.x-S.x)<50&&Math.abs(m.y-S.ry)<40){ m.dead=true; const T=ORB[m.k];
+  for (const m of S.motes){ m.y+=m.v*dt*flow; if (orbHitsRocket(m)){ m.dead=true; const T=ORB[m.k];
       if (m.k==='mult'){ S.mult=2; S.multUntil=S.t+10; }
       const pts=T.pts*S.mult*(1+Math.floor(S.streak/10)); S.score+=pts; S.streak++; S.collected++;
       S.floaters.push({x:m.x,y:m.y-20,txt:m.k==='mult'?'×2 POINTS 10s':'+'+pts,c:T.rim||'#ffe7a3',life:1.2});
       if(S.streak===10) award('streak10','PERFECT LANE ×10','10 reward orbs in a row'); if(S.collected===25) award('c25','HALO HOARDER','25 reward orbs collected'); } }
-  for (const o of S.obstacles){ o.y+=o.v*dt*flow; if (!o.hit&&Math.abs(o.x-S.x)<50&&Math.abs(o.y-S.ry)<40){ o.hit=true; o.dead=true; const T=ORB[o.k];
+  for (const o of S.obstacles){ o.y+=o.v*dt*flow; if (!o.hit&&orbHitsRocket(o)){ o.hit=true; o.dead=true; const T=ORB[o.k];
       const loss=Math.min(S.score,T.pts); S.score-=loss; S.streak=0; if(o.k==='void') S.slowUntil=S.t+3;
       S.floaters.push({x:o.x,y:o.y-20,txt:'−'+loss+(o.k==='void'?' · SLOWED 3s':' · streak lost'),c:'#ff5a6a',life:1.4});
       S.flashes.push({txt:o.k==='void'?'VOID ORB · steering slowed':'STORM ORB · −'+loss+' pts',life:1.2,c:'#ff7a85'});
@@ -2880,7 +2939,7 @@ function drawPnlTag(){ const v=S.pnlTag; if(!S.pnlTagOn||CLEAN_TAG()||!v||!(v.si
   const T=v.txt||{pnl:fmtPnlUsd(v.uPnl),pct:(v.pnlPct<0?'−':'+')+Math.abs(v.pnlPct).toFixed(1)+'%',pos:fmtMoney(v.valueUsd),realized:fmtPnlUsd(v.realized)};   // txt = lib/pnl.ts fmtPnl/fmtPct/fmtMoney
   ctx.fillText(`${T.pnl} ${T.pct}`,x+10,y+16);
   ctx.font='10px ui-monospace,monospace'; ctx.fillStyle='rgba(230,236,255,.85)';
-  ctx.fillText(`POS ${T.pos} · ${fmtTok(v.size)} tok`,x+10,y+31);
+  ctx.fillText(`POS ${T.pos} · ${fmtTok(v.size)}${coinTicker()?' '+coinTicker():''}`,x+10,y+31);
   ctx.fillText(`ENTRY MC ${fmtUsd(v.entryMcap)}`,x+10,y+44);
   ctx.fillStyle=v.realized>=0?'#8ff0c0':'#ff9fb8'; ctx.fillText(`REALIZED ${T.realized}`,x+10,y+55);
   ctx.restore(); }

@@ -188,7 +188,7 @@ export default function PhoneHud() {
         </div>
         {sheet === "feed" && <div data-testid="phone-feedhead" style={{ position: "absolute", left: SIDE + 4, right: SIDE + 4, top: by, height: 24, display: "flex", alignItems: "center",
           justifyContent: "space-between", font: "11.5px ui-monospace,Menlo,monospace", letterSpacing: ".14em", color: "rgba(214,222,245,.56)" }}>
-          <span><span style={{ color: "#2FD98A" }}>●</span> LIVE TRADES</span>
+          <span><span style={{ color: "#2FD98A" }}>●</span> TRADE HISTORY</span>
           <span style={{ letterSpacing: ".04em" }}>{pnlLine}</span></div>}
       </section>}
       <style jsx global>{`

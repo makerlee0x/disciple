@@ -152,7 +152,9 @@ console.log("— phone trade bar (#139 PhoneTradeBar) keeps the rapid-tap states
   ok(/boostDisabled=\{short\} dumpDisabled=\{!has\} inFlightFull=\{full\}/.test(ph), "phone: BOOST disabled when short, DUMP when no tokens; 3 in flight = greyed + '3 IN FLIGHT' label (still tappable → pulse)");
   ok(/const boostTitle = full \? COPY\.inFlight : short \? shortMsg :/.test(tb) && /boostTitle=\{boostTitle\}/.test(ph), "phone: BOOST title = '3 IN FLIGHT' while full (same as desktop)");
   ok(/const phoneHint = hint \|\| \(full \? COPY\.inFlight : ""\) \|\| shortLine \|\| rowsLine \|\| \(inFlight\.n > 0 \|\| last\.includes\(COPY\.confirming\) \? last : ""\);/.test(tb) && /hint=\{phoneHint\}/.test(ph),
-    "phone hint bubble: 3 IN FLIGHT / pending-hold short msg / per-press rows (2+) / the trade line while pending or 'Still confirming your last trade…'");
+    "phone hint bubble: 3 IN FLIGHT / pending-hold short msg / per-press rows (2+) / the trade line while pending");
+  ok(!/say\(`\$\{side === "buy" \? "▲" : "▼"\} \$\{fmtMoney\(usd\)\} · \$\{COPY\.confirming\}`\)/.test(tb) && /reason: COPY\.confirming, late/.test(tb),
+    "pending_unknown: no 'Still confirming your last trade…' alert; reason/state unchanged");
   ok(/const short = rawLive \? !canSpend\(CASH_RAW\.v!, shotUsd, gasKindFor/.test(tb) && (tb.match(/const short = /g) || []).length === 1, "one short (rapid-tap raw + gas kind), #139's float short dropped"); }
 console.log("— pressId (FLOW #145)");
 ok(/reservationId: pressId, pressId \}/.test(tb), "client.buy/sell params carry pressId (same value as reservationId)");
@@ -238,7 +240,7 @@ for (const lateOk of [true, false]) { const E = engine({ live: true, cash: 1000 
   let resolveLate; const late = new Promise((r) => { resolveLate = r; });
   await E.settle(0, { ok: false, pending: true, reason: "Still confirming your last trade…", late });
   ok(E.S.pending.length === 1 && p.state === "pending" && p.unknown === 1 && ba.st !== "fail" && E.thrust.length === 0, `pending_unknown${lateOk ? " (→ resolved fill)" : " (→ resolved fail)"}: still pending, rocket still hovering, no thrust`);
-  ok(E.S.flashes.some((f) => f.txt === "Still confirming your last trade…") && !E.S.flashes.some((f) => /didn't go through/.test(f.txt)) && !E.S.feed.some((r) => r.err), "pending_unknown: calm \"Still confirming your last trade…\", no failure copy / row");
+  ok(!E.S.flashes.some((f) => f.txt === "Still confirming your last trade…" || f.confirming) && !E.S.flashes.some((f) => /didn't go through/.test(f.txt)) && !E.S.feed.some((r) => r.err), "pending_unknown: no 'Still confirming your last trade…' alert, no failure copy / row");
   E.at(31000); E.trade("buy"); ok(E.inflight().at(-1).n >= 1 && E.S.pending.includes(p), "pending_unknown: the press keeps its slot (counts toward the 3)");
   resolveLate(lateOk ? { ok: true, txHash: "0xlate", lateFill: true, fillUsd: 9.9 } : { ok: false, reason: "That didn't go through. Try again." }); for (let i = 0; i < 4; i++) await tick();
   if (lateOk) ok(p.state === "confirmed" && ba.st === "ok" && E.thrust.length === 1 && E.events.some((e) => e.type === "disciple:paperfill" && e.detail.txHash === "0xlate") && !E.S.pending.includes(p), "resolved fill: a normal fill (completes, thrust, booked by txHash)");
@@ -249,6 +251,8 @@ for (const lateOk of [true, false]) { const E = engine({ live: true, cash: 1000 
 { const BA = new Function("clamp", "S", block("/* @boostanim", "/* @boostanim-end */") + "\nreturn {baStart,baOffset};")(clamp, { pending: [] });
   const L = []; const e = BA.baStart(L, 0, 1, 0); e.unk = 1;
   ok(BA.baOffset(L, 0, 45000) > 0.69 && e.st !== "fail", "@boostanim: a pending_unknown send keeps hovering past the 30 s stale guard (SITE watches ≤ 2 min)"); }
+ok(/function tradePendingFx\(\)\{ return S\.pending\.some\(p=>p\.state==='pending'\); \}/.test(eng) && /pendPulse=tradePendingFx\(\)\?1\+0\.12\*Math\.abs\(Math\.sin\(S\.t\*10\)\)/.test(eng) && /thrust:sinceThrust<0\.25\|\|tradePendingFx\(\)/.test(eng) && /lineWidth=\(5\+22\*Math\.pow\(1-u,0\.8\)\)\*am\*pulse/.test(eng) && /const pulse=tradePendingFx\(\)\?1\+0\.16\*Math\.abs\(Math\.sin\(S\.t\*10\)\):1/.test(eng), "in-flight effect reuses the drawn thruster cone + contrail (drawTickTrail): shimmer/pulse while any trade is pending, ends when none are; exhaust emission unchanged");
+ok(/function stillConfirming\(p,ba,txt\)\{ p\.unknown=1; if\(ba\) ba\.unk=1; \}/.test(eng) && !/S\.flashes\.push\(\{txt,life:1\.8,confirming:1\}\)/.test(eng), "stillConfirming keeps unknown/hover state and does not push the confirming flash");
 ok(/if \(isPendingUnknown\(e\)\) return pendingUnknown\(\);/.test(tb) && /if \(!r\.ok && isPendingUnknown\(r\)\) return pendingUnknown\(\);/.test(tb), "TradeBridge: a thrown / returned pending_unknown goes to the hover path, not the failure copy");
 ok(/awaitResolution\(pressId\)/.test(tb) && /if \(!keep\) \{/.test(tb) && /out\.outcome === "filled"[\s\S]{0,600}bookReceipt\(out\.txHash, side, pressId, bag\)/.test(tb) && /out\.outcome === "error"\) \{ say\(`✕ \$\{REJECTED\}`\)/.test(tb),
   "TradeBridge: no release on pending_unknown; resolved fill booked from its receipt, resolved error = REJECTED");

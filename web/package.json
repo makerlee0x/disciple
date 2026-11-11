@@ -41,6 +41,7 @@
     "test:sim-parity": "node scripts/test-sim-parity.mjs",
     "test:icon-gate": "node scripts/test-icon-gate.mjs",
     "test:loadout-fx": "node scripts/test-loadout-fx.mjs",
+    "test:orb-hit": "node scripts/test-orb-hit.mjs",
     "test:hotkeys": "node scripts/test-hotkeys.mjs",
     "test:live-fixes": "node scripts/test-live-fixes.mjs",
     "test:wallet-position": "node scripts/test-wallet-position.mjs",
@@ -126,6 +127,8 @@
     "test:bounded-steps": "tsx --conditions=react-server --test scripts/test-bounded-steps.mts",
     "test:tooltip": "TSX_TSCONFIG_PATH=scripts/tsconfig.dom-test.json tsx --test scripts/test-tooltip.mts",
     "test:coin-fixes4": "tsx --test scripts/test-coin-fixes4.mts",
+    "test:coin-labels": "node scripts/test-coin-labels.mjs",
+    "test:ascension-warp": "node scripts/test-ascension-warp.mjs",
     "test:hud-layout": "node scripts/test-hud-layout.mjs && tsx scripts/test-chat-pill.mts && tsx scripts/test-slots.mts",
     "test:mainnet-guards": "tsx --conditions=react-server --test scripts/test-mainnet-guards.mts"
   },

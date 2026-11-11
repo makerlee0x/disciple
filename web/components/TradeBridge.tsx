@@ -288,7 +288,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       // GAME keeps the exit-confirm count + tells the engine to keep hovering, and resolves on SITE's events only.
       const pendingUnknown = () => {
         keep = true;
-        say(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} · ${COPY.confirming}`);
+        // no on-screen "Still confirming your last trade…" alert (lee Nov 10): the wait is the in-flight effect.
+        // leave the existing sending / confirm-in-wallet row; state (keep, reason, late) is unchanged.
         const late: Promise<BridgeResult> = awaitResolution(pressId).then(async (out): Promise<BridgeResult> => {
           if (out.outcome === "filled") {   // a late landing = a normal fill
             lastOwnTradeAt.current = Date.now();

@@ -12,7 +12,11 @@
 //   BUNDLE        web-bundle dir (default deployments/web-bundle, or deployments/fork/web-bundle with FORK=1)
 //   QUOTE         quote token for the smoke coin (default the bundle's USDG; the floor is USDG-only)
 //   GRADUATE=1    buy through graduation (default on with FORK=1)
-//   EXPECT_REFERRAL_SINK  default 0x000…000 (today's routing)
+//   EXPECT_REFERRAL_SINK  default the bundle's community.wallet when set, else 0x000…000 (referrer / launch-KOL routing)
+//   EXPECT_REWARDS_VAULT  default the bundle's community.wallet when set, else contracts.RewardsVault
+//   EXPECT_KOL_CREATOR_SHARE_BPS  default the bundle's community.kolCreatorShareBps when set, else 200
+//   (bundle `community` = post-deploy owner wiring of FeeRouter.rewardsVault / referralSink to the community wallet, an EOA on
+//   testnet; a fresh redeploy's bundle has no `community`, so the defaults are Deploy.s.sol's wiring)
 //   EXPECT_REWARDS_VAULT_OWNER  set after REWARDS_VAULT_OWNER ran acceptOwnership() (runbook §5): checks owner() == it and
 //                 pendingOwner() == 0. Unset ⇒ owner / pendingOwner are printed only (the acceptance may not have happened yet).
 //   EXPECT_SNIPE_ESCROW_TIMEOUT  seconds, default 1036800 (12 days, Constants.SNIPE_ESCROW_TIMEOUT)
@@ -28,6 +32,7 @@ const FORK = process.env.FORK === "1";
 const BUNDLE = path.resolve(root, process.env.BUNDLE ?? (FORK ? "deployments/fork/web-bundle" : "deployments/web-bundle"));
 const bundle = JSON.parse(fs.readFileSync(path.join(BUNDLE, "addresses.json"), "utf8"));
 const B = bundle.contracts;
+const COMMUNITY = bundle.community?.wallet ? getAddress(bundle.community.wallet) : null;
 const abi = (n) => JSON.parse(fs.readFileSync(path.join(BUNDLE, "abi", `${n}.json`), "utf8"));
 const [lpAbi, curveAbi, llAbi, frAbi] = ["Launchpad", "BondingCurve", "LockedLP", "FeeRouter"].map(abi);
 const RPC = process.env.RPC_URL ?? (FORK ? "http://127.0.0.1:8545" : "https://rpc.testnet.chain.robinhood.com");
@@ -85,16 +90,16 @@ check("USDG decimals == 6", dec === 6, `USDG ${USDG} decimals ${dec}`);
 const qDec = await rd(Q, erc20, "decimals");
 const U = (x) => BigInt(Math.round(x * 1e6)) * 10n ** BigInt(qDec) / 1_000_000n; // human → quote raw
 const fmt = (x) => formatUnits(x, qDec);
-const sinkWant = getAddress(process.env.EXPECT_REFERRAL_SINK ?? zeroAddress);
+const sinkWant = getAddress(process.env.EXPECT_REFERRAL_SINK ?? COMMUNITY ?? zeroAddress);
 const sink = await rd(B.FeeRouter, frAbi, "referralSink");
-check("FeeRouter.referralSink default", sink === sinkWant, `${sink} (expected ${sinkWant}; 0 = referrer/launch-KOL routing)`);
+check(`FeeRouter.referralSink == ${COMMUNITY && sinkWant === COMMUNITY ? "community wallet" : "expected"}`, sink === sinkWant, `${sink} (expected ${sinkWant}; 0 = referrer/launch-KOL routing)`);
 // redeploy pack (lee 2026-10-24): no legacy AntiSnipe; owner-settable KOL creator-share cut; launchAnon maxFee; Token.burn
 check("Launchpad.antiSnipe() == 0 (legacy AntiSnipe not deployed)", (await rd(B.Launchpad, lpAbi, "antiSnipe")) === zeroAddress, "pack item 8");
 check("no AntiSnipe in the bundle", !("AntiSnipe" in B), Object.keys(B).length + " contracts");
 check("no stale AntiSnipe ABI in the bundle", !fs.existsSync(path.join(BUNDLE, "abi", "AntiSnipe.json")), "AUDIT stale ABIs");
-const kolWant = BigInt(process.env.EXPECT_KOL_CREATOR_SHARE_BPS ?? 200);
+const kolWant = BigInt(process.env.EXPECT_KOL_CREATOR_SHARE_BPS ?? bundle.community?.kolCreatorShareBps ?? 200);
 const kolBps = BigInt(await rd(B.FeeRouter, frAbi, "kolCreatorShareBps"));
-check("FeeRouter.kolCreatorShareBps default", kolBps === kolWant, `${kolBps} bps of the creator share (want ${kolWant}; range 0-500)`);
+check(`FeeRouter.kolCreatorShareBps == ${kolWant}`, kolBps === kolWant, `${kolBps} bps of the creator share (want ${kolWant}; range 0-500)`);
 check("AnonLauncher.launchAnon has maxFee (v2 ABI)", abi("AnonLauncher").some((x) => x.type === "function" && x.name === "launchAnon" && x.inputs.length === 6 && x.inputs[5].name === "maxFee"), "launchAnon(p, stealthOwner, buyRecipient, eph, viewTag, maxFee)");
 const mmWant = Number(process.env.EXPECT_MAX_MODE ?? 2);
 const mm = Number(await rd(B.Launchpad, lpAbi, "maxMode"));
@@ -109,7 +114,10 @@ const rtAbiNames = new Set(abi("DiscipleRouter").filter((x) => x.type === "funct
 check("DiscipleRouter has swapUsdgToQuote / swapQuoteToUsdg / quoteUsdgQuoteSwap", ["swapUsdgToQuote", "swapQuoteToUsdg", "quoteUsdgQuoteSwap", "launchWithUsdg"].every((n) => rtAbiNames.has(n)), "pack item 2");
 check("Token ABI has burn / burnFrom", fs.existsSync(path.join(BUNDLE, "abi", "Token.json")) ? ["burn", "burnFrom"].every((n) => abi("Token").some((x) => x.type === "function" && x.name === n)) : true, fs.existsSync(path.join(BUNDLE, "abi", "Token.json")) ? "pack item 5" : "Token ABI not in bundle (skipped)");
 const rv = await rd(B.FeeRouter, frAbi, "rewardsVault");
-check("FeeRouter.rewardsVault set", rv !== zeroAddress && (!B.RewardsVault || rv === getAddress(B.RewardsVault)), rv);
+const rvWant = process.env.EXPECT_REWARDS_VAULT ? getAddress(process.env.EXPECT_REWARDS_VAULT) : COMMUNITY ?? (B.RewardsVault ? getAddress(B.RewardsVault) : null);
+check(`FeeRouter.rewardsVault ${rvWant ? `== ${COMMUNITY && rvWant === COMMUNITY ? "community wallet" : "expected"}` : "set"}`, rv !== zeroAddress && (!rvWant || rv === rvWant), `${rv}${rvWant ? ` (expected ${rvWant})` : ""}`);
+const rvCode = await pc.getCode({ address: rv });
+if (!rvCode || rvCode === "0x") info("FeeRouter.rewardsVault has no code", `${rv}: EOA / wallet (plain transfers only; legacy notifyReward callers would revert)`);
 // AUDIT fixes (contracts/docs/redeploy-runbook.md §11)
 const alAbi = abi("AnonLauncher");
 const maxFee = await rd(B.AnonLauncher, alAbi, "MAX_LAUNCH_FEE");
@@ -118,7 +126,9 @@ const lf = await rd(B.AnonLauncher, alAbi, "launchFee");
 check("AnonLauncher.launchFee <= MAX_LAUNCH_FEE", lf <= maxFee, `${formatUnits(lf, dec)} USDG`);
 check("FeeRouter.isClaimRouter(DiscipleRouter)", (await rd(B.FeeRouter, frAbi, "isClaimRouter", [B.DiscipleRouter])) === true, B.DiscipleRouter);
 const rvAbi = abi("RewardsVault");
-const [rvOwner, rvPending] = [await rd(rv, rvAbi, "owner"), await rd(rv, rvAbi, "pendingOwner")];
+// Owned2Step reads go to the RewardsVault contract (the bundle's, when FeeRouter now points at an EOA community wallet)
+const rvC = B.RewardsVault ? getAddress(B.RewardsVault) : rv;
+const [rvOwner, rvPending] = [await rd(rvC, rvAbi, "owner"), await rd(rvC, rvAbi, "pendingOwner")];
 info("RewardsVault owner / pendingOwner", `${rvOwner} / ${rvPending} (Owned2Step: REWARDS_VAULT_OWNER must acceptOwnership)`);
 if (process.env.EXPECT_REWARDS_VAULT_OWNER) {
   const want = getAddress(process.env.EXPECT_REWARDS_VAULT_OWNER);

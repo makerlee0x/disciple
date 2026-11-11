@@ -15,6 +15,10 @@ export interface Stack {
   /** AnonLauncher v1 (legacy): still the Launchpad creator of private coins launched before v2. */
   anonLauncherLegacy?: Address;
   rewardsVault?: Address;
+  /** Community rewards wallet (deployment json `community.wallet`; COMMUNITY_WALLET overrides the newest stack): the
+   *  post-deploy FeeRouter.rewardsVault / referralSink. An EOA on testnet, so it emits nothing itself — its credits are the
+   *  FeeRouter `TradeFeeRouted` referral payee rows, `ReferrerFeesClaimed`, and the curves' `SnipeEscrowReleased` to it. */
+  communityWallet?: Address;
   referralRegistry?: Address;
   marketLens?: Address;
   quotePricer?: Address;
@@ -63,6 +67,7 @@ function stackOf(d: any, id: string, fromBlock: bigint): Stack {
     anonLauncher: c.AnonLauncher ?? d.addons?.AnonLauncher?.address,
     anonLauncherLegacy: d.addons?.AnonLauncherLegacy?.address,
     rewardsVault: c.RewardsVault,
+    communityWallet: d.community?.wallet,
     referralRegistry: c.ReferralRegistry,
     marketLens: c.MarketLens ?? d.addons?.MarketLens?.address,
     usdgDepositNotifier: c.UsdgDepositNotifier,
@@ -89,6 +94,7 @@ export function loadConfig(env = process.env): Config {
   });
   // The newest stack's start block can be forced via START_BLOCK (e.g. after a redeploy whose json lacks startBlock).
   if (env.START_BLOCK && stacks.length) stacks[stacks.length - 1].fromBlock = BigInt(env.START_BLOCK);
+  if (env.COMMUNITY_WALLET && stacks.length) stacks[stacks.length - 1].communityWallet = env.COMMUNITY_WALLET as Address;
   if (env.CURVE_FEE_VAULT && /^0x[0-9a-fA-F]{40}$/.test(env.CURVE_FEE_VAULT) && stacks.length)
     stacks[stacks.length - 1].curveFeeVault = env.CURVE_FEE_VAULT as Address;
   if (env.EXTRA_DEPLOYMENT) {
