@@ -1388,7 +1388,8 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .coin-id-txt { display: flex; flex-direction: column; min-width: 0; font-size: 10.5px; line-height: 1.25; color: #E8EAEE; white-space: nowrap; }
 .coin-id-txt b { font: 700 13px var(--dsc-font-ui); color: #E8EAEE; overflow: hidden; text-overflow: ellipsis; }
 .coin-id-txt span { color: var(--dsc-muted-on-sky); font-weight: 600; }
-.coin-id-legacy { display: inline-block; margin-top: 2px; padding: 1px 6px; border-radius: 999px; font: 600 9px var(--dsc-font-ui); letter-spacing: 0.04em; text-transform: uppercase; color: #0B0C0E; background: #C9CED6; width: fit-content; }
+/* contrast: .coin-id-txt span { color: var(--dsc-muted-on-sky, #BCC0CA) } used to override this color (1.15:1 on #C9CED6). Higher specificity keeps ink #0B0C0E on #C9CED6 (12.38:1, WCAG AA). */
+.coin-id-txt .coin-id-legacy { display: inline-block; margin-top: 2px; padding: 1px 6px; border-radius: 999px; font: 600 9px var(--dsc-font-ui); letter-spacing: 0.04em; text-transform: uppercase; color: #0B0C0E; background: #C9CED6; width: fit-content; }
 @media (max-width: 760px) { .coin-id { left: 66px; top: 10px; bottom: auto; padding: 3px; max-width: 200px; } .coin-id-txt { display: none; } }
 
 /* —— Rocket factory v2: full-bleed hangar scene above the part pickers —— */
