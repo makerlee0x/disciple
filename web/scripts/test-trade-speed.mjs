@@ -65,7 +65,7 @@ function engine({ live = true }) {
     confirmed: { mcap: 7e4 }, pending: [], cooldownUntil: 0, buyBoost: 0 };
   let resolve; const pend = new Promise((r) => { resolve = r; });
   class CE { constructor(t, o) { this.type = t; this.detail = o && o.detail; } }
-  const env = { S, MODES: [{ usd: 10 }], hasTokens: () => true, noTokens() {}, isLive: () => live, markMcap: () => 7e4, MIN_SHOT: 0.2, fmtShot: String,
+  const env = { S, MODES: [{ usd: 10 }], hasTokens: () => true, noTokens() {}, isLive: () => live, markMcap: () => 7e4, MIN_SHOT: 0.2, DUST_USD: Number(eng.match(/const DUST_USD=([\d.]+)/)[1]), fmtShot: String,
     window: live ? { __discipleTrade() {} } : {}, applyThrust: (side, usd, pct) => E.thrust.push({ side, usd, pct, boost: S.buyBoost }),
     source: { supply: 7e9, impact: () => 1.02, submitTrade: () => pend }, srcImpact: () => 1.02, fillMcapEst: () => 7e4, MAX_PENDING: 4, COOLDOWN_MS: 0,
     performance: { now: () => 1 }, mcapToAlt: (m) => Math.log10(m), shownMcap: () => S.confirmed.mcap, clamp: (x, a, b) => Math.max(a, Math.min(b, x)), pushPaperCash() {}, dispatchEvent: (e) => E.events.push(e), CustomEvent: CE, SESSION: null, isOnchainRevert: () => true, setTimeout: () => 0 };
@@ -143,7 +143,8 @@ console.log("— wallet.ts noteReceipt hand-off: no-throw, synchronous, no extra
   const os = await import("node:os"), ts = (await import("typescript")).default, { pathToFileURL } = await import("node:url");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wallet-handoff-"));
   const src = wl.replace(/from "viem"/g, 'from "./stub-viem.mjs"').replace(/import\("viem"\)/g, 'import("./stub-viem.mjs")').replace(/from "\.\/chains"/, 'from "./stub-chains.mjs"').replace(/from "\.\/aa\/relayOp"/, 'from "./stub-relayOp.mjs"')
-    .replace(/from "\.\/flight\/tradeSpeed"/, 'from "./stub-tradeSpeed.mjs"').replace(/from "\.\/aa\/session"/, 'from "./stub-session.mjs"');
+    .replace(/from "\.\/flight\/tradeSpeed"/, 'from "./stub-tradeSpeed.mjs"').replace(/from "\.\/aa\/session"/, 'from "./stub-session.mjs"')
+    .replace(/from "\.\/aa\/sponsorshipMode"/, 'from "./stub-sponsorshipMode.mjs"');
   fs.writeFileSync(path.join(tmp, "wallet.mjs"), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText);
   const RC_LOGS = [{ address: ROUTER, topics: ["0x01"], data: "0x" }];
   fs.writeFileSync(path.join(tmp, "stub-viem.mjs"), `export const custom = (e) => e;
@@ -156,8 +157,9 @@ console.log("— wallet.ts noteReceipt hand-off: no-throw, synchronous, no extra
   fs.writeFileSync(path.join(tmp, "stub-session.mjs"), `export const aaSession = () => globalThis.__sa;
     export const aaGasReservePerOp = () => 0n; export const aaPeekGasReservePerOp = () => 0n;
     export const aaSend = async () => globalThis.__send;
-    export const aaAddress = async () => null; export const aaAvailable = () => true; export const aaLogout = async () => {}; export const eoaLogin = async () => null;
+    export const aaAddress = async () => null; export const aaAvailable = () => true; export const aaOwnerAccount = () => null; export const aaLogout = async () => {}; export const eoaLogin = async () => null;
     export const localImport = async () => null; export const localReset = async () => {}; export const localStart = async () => null; export const privyLogin = () => {}; export const restore = async () => null; export const setPrivyOwner = async () => null;`);
+  fs.writeFileSync(path.join(tmp, "stub-sponsorshipMode.mjs"), `export const clientGaslessMode = () => false;`); // default (non-gasless) path, as before
   const W = await import(pathToFileURL(path.join(tmp, "wallet.mjs")).href);
   const SA_LOGS = [{ address: ROUTER, topics: ["0x02"], data: "0x" }];
   globalThis.__throw = true; globalThis.__sa = { a: 1 }; globalThis.__rpc = 0;

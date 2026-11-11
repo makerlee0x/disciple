@@ -28,41 +28,81 @@ Copied pattern: **Uniswap v3 accrue-then-collect**. In v3, Position.tokensOwed0/
 - Fee split (33/33/33/1, Constants.sol:119-124) unchanged. Code size: BondingCurve runtime 23,631 B (was 24,159; limit 24,576). CurveFeeVault 3,774 B. CurveDeployer now takes `feeVault` in its constructor; Launchpad's deploy call is unchanged.
 - Deploy script (NOT run): `contracts/script/lpaccrue/DeployLpAccrue.s.sol` deploys the vault and the deployer. With WIRE=true (owner only) it also runs `Launchpad.setCurveDeployer(new)` and, if needed, `setSnipeEscrowTimeout(12 days)`. Rollback is setCurveDeployer(previous). The testnet Launchpad still stores 30 days until that owner call.
 
-## Gas (forge, cold access via vm.cool, steady state, execution gas; tx total ≈ +21k intrinsic + calldata)
-¢ at 0.02 gwei × $2,130 = gas × 4.26e-6 ¢.
-| path | old curve | new curve | Δ | tx total new (est.) | ¢ new |
-|---|---|---|---|---|---|
-| direct curve buy (TRENCH/PvP) | 229,735 | 159,418 | −70,317 | ~182k | 0.78¢ |
-| direct curve sell | 221,095 | 150,829 | −70,266 | ~173k | 0.74¢ |
-| **gasless buyWithPermit2** (USDG coin, $3) | 285,800 | 223,894 | −61,906 | ~249k (old ~311k) | **1.06¢** (old 1.33¢) |
-| **gasless sellWithPermit2** | 273,859 | 206,497 | −67,362 | ~232k (old ~299k) | **0.99¢** (old 1.28¢) |
-| PvE buy, login cache hit | 338,843 | 268,373 | −70,470 | | |
-| PvE buy, login cache expired (old re-reads LoginGate) | 348,084 | 271,763 | −76,321 | | |
-| PvE sell | 237,060 | 166,797 | −70,263 | | |
-| referred trader buy / sell (new curve settles in-trade) | 229.7k / 221.1k | 216,973 / 208,385 | −12.7k | | |
-- LoginGate drop: worth about 9.2k on a cache-miss buy (old miss 348.1k vs hit 338.8k) and 0 on a cache hit. The ~13k estimate included the first-buy cache SSTORE.
-- Testnet STRATEGY coin (2 hops), on-chain 379.1k / 351.2k: minus the deltas, about 317k / 284k (estimate, not re-simulated).
-- Still over 1¢: a gasless buy at ~1.06¢. PvE trades add ~109k of PvE bookkeeping (cost basis, rewards). Referred traders keep most of the old cost.
+## Current results (Nov 10 2026, CT)
 
-## Tests (targeted only, FOUNDRY_FUZZ_RUNS=16; no full regression or fuzz suites)
-`forge test --match-path "test/lpaccrue/*.t.sol"`: **12/12 pass**.
-LpAccrue.t.sol (11):
-- per-trade accrual;
-- referred trader settles in the trade, exact;
-- settle-at-ascension gives a compound bucket identical to the old curve;
-- claim mid-curve: creator (−KOL cut +tax), treasury and KOL exact, the vault ends at 0, and a re-accrue then claim works;
-- only a registered curve can settle;
-- fuzz totals match the old split (total identical, per-bucket ≤ a few wei dust);
-- old curve unchanged (per-trade FeeRouter/LockedLP);
-- old PvE curve reverts NotVerified while the new one trades without login;
-- 12-day release: reverts at 12d−1s; at 12d sends sniper tax + LP to RewardsVault; reserve, tokensSold and inventory unchanged; creator and treasury unaffected; second release reverts ZeroAmount; post-release LP is released again (follow-ups branch: repeated releases, late graduation → RewardsVault);
-- graduation before 12d goes to the bucket, not the vault, and release after graduation reverts;
-- gas.
+This section replaces the earlier gas and test notes. The numbers below are for the branch `hook/curve-lp-accrue-followups` after main (commit 62ac2245) was merged into it. "Main" in the tables means main at 62ac2245, which still uses the old curve. All gas numbers come from local forge tests with the same inputs on both sides. They are execution gas and leave out the fixed 21,000 gas that every transaction pays.
 
-LpAccrueGasless.t.sol (1): router gas, old vs new.
-The old curve is a verbatim copy of a8154368 BondingCurve (`test/lpaccrue/legacy/`).
-**Existing tests NOT run.** These will need updates for new-curve semantics in lee's local run (snipeEscrow split, vault claims, no NotVerified on new curves, 12-day default): FeeClaims, Lifecycle, ModeRulesV2, BondingModes, SnipeSplit, ReferralOwnership, ReferralSink, KolCreatorShare, AuditRegression, DiscipleAudit, GraduationFloor, UsdgRouter, Curve, Migration, Launchpad, AnonLauncher, security/*. All touched tests and scripts compile.
-Web: vitest **177 passed / 5 skipped** (25 files, +1 new `tests/ammo-tiers-min.test.ts`, which needed adding `tests/ammo-*.test.ts` to the vitest include list). tsc clean.
+### Trading gas
+
+| What is measured | Main (old curve) | This branch (new curve) | Difference |
+|---|---|---|---|
+| A buy on the curve, 10 USDG | 226,638 | 156,321 | 70,317 less |
+| A sell on the curve | 218,660 | 148,394 | 70,266 less |
+| A buy through the router (DiscipleRouter.buyWithUsdg) | 253,383 | 188,686 | 64,697 less |
+| A sell through the router (DiscipleRouter.sellToUsdg) | 240,450 | 173,236 | 67,214 less |
+| A gasless buy (buyWithPermit2), old curve compared with new curve on this branch | 285,800 | 223,894 | 61,906 less |
+| A gasless sell (sellWithPermit2), old curve compared with new curve on this branch | 273,859 | 206,497 | 67,362 less |
+| A buy on the v4 pool after graduation | 348,724 | 348,724 | the same |
+| The first sell on the v4 pool after graduation | 311,511 | 362,811 | 51,300 more |
+| Later sells on the v4 pool after graduation | 313,687 and 313,612 | 313,687 and 313,612 | the same |
+| Launching a coin | 6,379,585 | 6,380,643 | 1,058 more |
+
+The first sell on the v4 pool after graduation costs 51,300 more gas. The calls in that sell are the same on both sides. The extra cost comes from storage that is written for the first time: the FeeRouter's USDG balance (about 17,100 gas) and the FeeRouter's fee records for the coin (about 34,200 gas). On main, earlier curve trades had already written that storage. lee accepted this extra cost on Nov 10 2026.
+
+### The graduating buy (audit item G1)
+
+The graduating buy is the buy that moves a coin from the curve to the v4 pool. It costs more on this branch than on main. It was measured again on Nov 10 2026 with a temporary test that was deleted afterwards. Both sides ran the same 17 buys of a TRENCH coin, and the 17th buy (400 USDG) graduated the coin.
+
+| Case | Main | This branch | Difference |
+|---|---|---|---|
+| The first coin that ever graduates, gas used by the call | 2,559,084 | 2,662,645 | 103,561 more |
+| The same, after gas refunds | 2,395,784 | 2,484,245 | 88,461 more |
+| A coin that graduates after another coin already graduated, gas used by the call | 2,558,279 | 2,610,524 | 52,245 more |
+| The same, after gas refunds | 2,394,979 | 2,432,124 | 37,145 more |
+
+The repository's own gas snapshot files agree with these numbers. `contracts/snapshots/floor.json` records a graduating buy of 2,662,645 on this branch and 2,559,084 on main, and `contracts/snapshots/curve-steep.json` records 2,637,901 on this branch and 2,534,362 on main. Both files were updated by the test run and are committed with this change.
+
+"After gas refunds" subtracts the refund that Ethereum gives back at the end of a transaction when storage is cleared. That refund is part of what the trader really pays. The second case is closer to normal use, because on a live network other coins will already have graduated.
+
+Where the extra gas goes, for a coin that graduates after another coin already graduated:
+
+- LockedLP stores a record for each coin. On main, the coin's first curve trade creates that record, because every curve trade on main sends the LP share to LockedLP. On this branch, curve trades no longer touch LockedLP, so the record is created during the graduating buy instead. This costs about 48,300 gas. The cost has moved from the first trade to the graduating buy; it has not been added.
+- LockedLP's USDG balance is read for the first time in the graduating buy. This costs about 4,800 gas.
+- The curve's own code costs about 10,900 more, mostly because it writes the LP fee share into storage before graduating. Most of this comes back as a refund when that storage is cleared after graduation.
+- Paying out the fees owed at graduation costs about 14,500 less than main's routing of the same fees.
+
+For the first coin that ever graduates, two shared balances are also written for the first time: CurveFeeVault's USDG balance (about 17,100 gas) and LockedLP's USDG balance (about 21,900 gas). This happens only once per deployment.
+
+No change was made. The only large item, the LockedLP record, belongs to LockedLP, which is a core contract that this branch does not change. Making it cheaper would mean changing LockedLP or making every curve trade write that record again, and both would remove or slow existing behavior. The small savings left inside the curve are about 100 gas each and were not worth a change. lee decides whether the graduating buy cost is acceptable.
+
+### Contract sizes
+
+The limit for a contract's deployed code is 24,576 bytes.
+
+| Contract | Main | This branch |
+|---|---|---|
+| BondingCurve | 24,159 bytes | 24,156 bytes |
+| Launchpad | 24,399 bytes | 24,399 bytes (177 bytes below the limit) |
+| CurveDeployer | 696 bytes | 826 bytes |
+| CurveFeeVault | not on main | 8,349 bytes |
+| DiscipleRouter | 17,933 bytes | 22,021 bytes |
+
+### Tests
+
+All 69 contract test files were run one at a time with `FOUNDRY_FUZZ_RUNS=16 forge test -j1`. All 778 tests pass. One test file needed a fix: in `DiscipleRouterPermit2.t.sol`, a helper compared the whole coin balance with the amount from the last buy, so the second buy in a test failed. It now compares the change in balance. This fix already existed on the branch `fix/permit2-first-trade-test` and was copied over.
+
+One test file, `LockedLPForkPoC.t.sol`, only runs when `RH_FORK=1` is set. It was run without that setting, so it passed without doing anything.
+
+### Web tests
+
+The web checks were run on this branch and on main (62ac2245) with the same installed packages.
+
+- The vitest suite passes on both. On this branch, 177 tests pass and 5 are skipped, in 25 files. On main, 151 pass and 4 are skipped, in 21 files. The extra files on this branch are its own new tests.
+- The TypeScript check (`tsc --noEmit`) passes on both.
+- Lint (`next lint`) has no errors on either side and the same 2 warnings.
+- The repository has 118 script tests (`npm run test:...`). On both sides the same 23 fail, with the same failure messages, so the branch does not cause them. Several of them need a running local server or network access. Others look for code patterns that have changed since the test was written.
+
+Four test scripts failed on this branch but passed on main, or failed for a different reason there. The cause was in the tests, not in the site code. The game engine on this branch has a constant named `DUST_USD`, and the site's wallet code now imports a module that decides whether gasless mode is on. The tests copy those parts of the code into a sandbox and did not provide either one. The fix gives the tests the same value the engine uses, read from the engine file, and a stand-in that keeps gasless mode off, which is the default. The files changed are `test-live-fixes.mjs`, `test-trade-ui.mjs`, `test-fix-batch.mjs` and `test-trade-speed.mjs`. After the fix, `test-live-fixes.mjs` passes, and the other three fail in exactly the same way as on main.
 
 ## Web
 - SPARK `[0.2,0.5,1,2,5,20]` → `[3,3,3,3,5,20]`; KINDLE `[0.5,2,5,10,25,100]` → `[3,3,5,10,25,100]` (ammoTiers.ts, docs/ammo-tiers.md). Note: engine.js ignores tiers today (`AMMO_TIERS=null`, fixed $10/$25/$50/$100), and `MIN_SHOT=3` is already set.
@@ -122,4 +162,4 @@ Web: vitest **177 passed / 5 skipped** (25 files, +1 new `tests/ammo-tiers-min.t
   - **Sniper tax (lee, Nov 10 2026, 7:44 AM CT: "the sniper tax should go to community rewards"):** follows the same split. A late graduation sends any unreleased sniper tax to RewardsVault too (was: compound bucket). Graduation within 12 days and `releaseSnipeEscrow` unchanged.
 - **RewardsVault (lee, Nov 10 2026, 7:44 AM CT):** the existing Owned2Step `RewardsVault` is reused. `script/rewards/DeployRewardsVault.s.sol` (not run) makes one for an existing stack with a required `REWARDS_VAULT_OWNER` (TEMP wallet on testnet, Safe on mainnet); steps in `contracts/docs/rewards-vault-runbook.md`.
   - CurveFeeVault `settle` → `settleCurveFee` (selector 0x038b09d3 sorts first in the dispatcher, so the H1/M1 claim functions add no gas to referred trades or settles).
-- Gas and test results: in the PR body for this branch.
+- Gas and test results: see "Current results" above.
