@@ -5,6 +5,7 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
@@ -18,6 +19,7 @@ import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ILaunchpad} from "./interfaces/ILaunchpad.sol";
+import {UsdgRouteLib} from "./libraries/UsdgRouteLib.sol";
 
 interface ILaunchpadCurveOf {
     function curveOf(address token) external view returns (address);
@@ -138,12 +140,18 @@ contract DiscipleRouter is IUnlockCallback {
     address public usdg;
     /// @notice Launchpad used as the curve registry (`curveOf(token)`) for pre-graduation routing.
     address public launchpad;
-    /// @dev quote asset => registered USDG/quote v4 pool (owner-managed allowlist).
-    mapping(address => PoolKey) internal _usdgPool;
+    /// @dev quote asset => USDG-first v4 route of 1 or 2 pools (owner-managed allowlist).
+    ///      1 hop: USDG/quote. 2 hops: USDG/mid, mid/quote. Mid may be native ETH (address(0)).
+    ///      Each PoolKey is stored and swapped as-is (hook address and fee, including the 0x800000
+    ///      dynamic-fee flag). Only the DISCIPLE hook is rejected; other hooks are allowed.
+    ///      afterSwap deltas are already folded into the BalanceDelta swap() returns, so settle/take
+    ///      and the caller min-out use the real hook-adjusted output. No extra settlement path.
+    mapping(address => PoolKey[]) internal _usdgRoute;
 
     event UsdgRoutingSet(address indexed usdg, address indexed launchpad);
     event UsdgPoolSet(address indexed quote, PoolKey key);
     event UsdgPoolRemoved(address indexed quote);
+    event UsdgRouteSet(address indexed quote, PoolKey[] keys);
     /// @notice Graduating curve buy refund: `quoteRefund` of the coin's quote returned as `usdgRefund` USDG.
     event UsdgRefund(address indexed trader, address indexed token, uint256 quoteRefund, uint256 usdgRefund);
     /// @notice launchWithUsdg: `usdgIn` USDG → `quoteIn` pair coin used as the First BOOST (`tokensBought`).
@@ -213,31 +221,52 @@ contract DiscipleRouter is IUnlockCallback {
         emit UsdgRoutingSet(usdg_, launchpad_);
     }
 
-    /// @notice Register the USDG/`quote` v4 pool used for the USDG hop (owner allowlist).
+    /// @notice Register the USDG/`quote` v4 pool used for a single USDG hop (owner allowlist).
     /// @dev The pool must pair exactly USDG and `quote`, and must not be a DISCIPLE (hooked) pool.
     function setUsdgPool(address quote, PoolKey calldata key) external {
+        PoolKey[] memory keys = new PoolKey[](1);
+        keys[0] = key;
+        _setUsdgRoute(quote, keys);
+        emit UsdgPoolSet(quote, key);
+    }
+
+    /// @notice Register a 1- or 2-hop USDG-first v4 route for `quote` (owner allowlist).
+    /// @dev 1 hop must pair USDG and `quote`. 2 hops must be USDG/mid then mid/quote. Mid may be
+    ///      address(0) (native ETH) so that route can be added later without a redeploy. No hop may
+    ///      use the DISCIPLE hook. Hook address and fee (including dynamic-fee 0x800000) are kept as-is.
+    function setUsdgRoute(address quote, PoolKey[] calldata keys) external {
+        _setUsdgRoute(quote, keys);
+        emit UsdgRouteSet(quote, keys);
+        if (keys.length == 1) emit UsdgPoolSet(quote, keys[0]);
+    }
+
+    function _setUsdgRoute(address quote, PoolKey[] memory keys) private {
         if (msg.sender != owner) revert OnlyOwner();
         address u = usdg;
         if (u == address(0)) revert UsdgNotConfigured();
         if (quote == address(0) || quote == u) revert BadParam();
-        address c0 = Currency.unwrap(key.currency0);
-        address c1 = Currency.unwrap(key.currency1);
-        if (!((c0 == u && c1 == quote) || (c0 == quote && c1 == u))) revert BadPool();
-        if (address(key.hooks) == hook) revert BadPool();
-        (uint160 sp,,,) = poolManager.getSlot0(key.toId());
-        if (sp == 0) revert BadPool(); // must be initialized
-        _usdgPool[quote] = key;
-        emit UsdgPoolSet(quote, key);
+        if (!UsdgRouteLib.check(poolManager, u, quote, keys, hook)) revert BadPool();
+        delete _usdgRoute[quote];
+        for (uint256 i; i < keys.length; ++i) {
+            _usdgRoute[quote].push(keys[i]);
+        }
     }
 
     function removeUsdgPool(address quote) external {
         if (msg.sender != owner) revert OnlyOwner();
-        delete _usdgPool[quote];
+        delete _usdgRoute[quote];
         emit UsdgPoolRemoved(quote);
     }
 
+    /// @notice First hop of the registered USDG route (the USDG-touching pool), or an empty key if unset.
     function usdgPoolOf(address quote) external view returns (PoolKey memory) {
-        return _usdgPool[quote];
+        PoolKey[] storage r = _usdgRoute[quote];
+        if (r.length == 0) return PoolKey(Currency.wrap(address(0)), Currency.wrap(address(0)), 0, 0, IHooks(address(0)));
+        return r[0];
+    }
+
+    function usdgRouteOf(address quote) external view returns (PoolKey[] memory) {
+        return _usdgRoute[quote];
     }
 
     function transferOwnership(address o) external {
@@ -369,8 +398,7 @@ contract DiscipleRouter is IUnlockCallback {
             // no approvals; the curve enforces the router impact cap on its exact quote; refunds go to the trader.
             uint256 quoteAmt = usdgIn;
             if (q != u) {
-                Hop[] memory h = new Hop[](1);
-                h[0] = _usdgHop(u, q, true);
+                Hop[] memory h = _quoteHops(u, q, true);
                 quoteAmt = _route(msg.sender, curve, h, usdgIn);
             } else {
                 IERC20(u).safeTransferFrom(msg.sender, curve, usdgIn);
@@ -411,8 +439,7 @@ contract DiscipleRouter is IUnlockCallback {
                 usdgOut = IUsdgCurve(curve).routerSell(msg.sender, tokensIn, 1, deadline, msg.sender, cap);
             } else {
                 uint256 quoteAmt = IUsdgCurve(curve).routerSell(msg.sender, tokensIn, 1, deadline, address(this), cap);
-                Hop[] memory h = new Hop[](1);
-                h[0] = _usdgHop(u, q, false);
+                Hop[] memory h = _quoteHops(u, q, false);
                 usdgOut = _route(address(this), msg.sender, h, quoteAmt);
             }
         }
@@ -448,8 +475,7 @@ contract DiscipleRouter is IUnlockCallback {
                 IERC20(u).safeTransferFrom(msg.sender, address(this), usdgIn);
                 quoteAmt = usdgIn;
             } else {
-                Hop[] memory h = new Hop[](1);
-                h[0] = _usdgHop(u, q, true);
+                Hop[] memory h = _quoteHops(u, q, true);
                 quoteAmt = _route(msg.sender, address(this), h, usdgIn);
             }
             if (quoteAmt < minQuoteIn) revert Slippage();
@@ -512,8 +538,7 @@ contract DiscipleRouter is IUnlockCallback {
         address u = usdg;
         if (u == address(0)) revert UsdgNotConfigured();
         if (quote == u) revert BadParam();
-        Hop[] memory h = new Hop[](1);
-        h[0] = _usdgHop(u, quote, toQuote);
+        Hop[] memory h = _quoteHops(u, quote, toQuote);
         return _simulate(msg.sender, h, amountIn, address(0));
     }
 
@@ -530,8 +555,7 @@ contract DiscipleRouter is IUnlockCallback {
         if (recipient == address(0)) revert ZeroRecipient();
         address u = usdg;
         if (quote == u) revert BadParam();
-        Hop[] memory h = new Hop[](1);
-        h[0] = _usdgHop(u, quote, toQuote);
+        Hop[] memory h = _quoteHops(u, quote, toQuote);
         out = _route(msg.sender, recipient, h, amountIn);
         if (out < minOut) revert Slippage();
         emit UsdgQuoteSwap(msg.sender, quote, toQuote, amountIn, out, recipient);
@@ -544,8 +568,7 @@ contract DiscipleRouter is IUnlockCallback {
             IERC20(u).safeTransfer(to, amount);
             return amount;
         }
-        Hop[] memory hb = new Hop[](1);
-        hb[0] = _usdgHop(u, q, false);
+        Hop[] memory hb = _quoteHops(u, q, false);
         return _route(address(this), to, hb, amount);
     }
 
@@ -575,14 +598,12 @@ contract DiscipleRouter is IUnlockCallback {
         // Curve quotes are for `trader`: mode caps, PVE login and the PVE profit tax apply.
         if (isBuy) {
             if (q == u) return _curveBuyQuote(curve, trader, amountIn);
-            Hop[] memory h = new Hop[](1);
-            h[0] = _usdgHop(u, q, true);
+            Hop[] memory h = _quoteHops(u, q, true);
             return _simulate(trader, h, amountIn, curve);
         }
         (uint256 qOut, uint256 cImp) = _curveSellQuote(curve, trader, amountIn);
         if (q == u) return (qOut, cImp);
-        Hop[] memory h2 = new Hop[](1);
-        h2[0] = _usdgHop(u, q, false);
+        Hop[] memory h2 = _quoteHops(u, q, false);
         (amountOut, maxHopImpactBps) = _simulate(trader, h2, qOut, address(0));
         if (cImp > maxHopImpactBps) maxHopImpactBps = cImp;
     }
@@ -747,8 +768,7 @@ contract DiscipleRouter is IUnlockCallback {
             if (q != u) {
                 _pull(signer, permit, trade, signature, u, address(this));
                 uint256 b = IERC20(u).balanceOf(address(this)) - usdgIn;
-                Hop[] memory h = new Hop[](1);
-                h[0] = _usdgHop(u, q, true);
+                Hop[] memory h = _quoteHops(u, q, true);
                 quoteAmt = _route(address(this), curve, h, usdgIn);
                 _sweep(u, b, signer);
             } else {
@@ -787,8 +807,7 @@ contract DiscipleRouter is IUnlockCallback {
                 usdgOut = IUsdgCurve(curve).routerSell(signer, tokensIn, 1, trade.deadline, signer, cap);
             } else {
                 uint256 quoteAmt = IUsdgCurve(curve).routerSell(signer, tokensIn, 1, trade.deadline, address(this), cap);
-                Hop[] memory h = new Hop[](1);
-                h[0] = _usdgHop(u, q, false);
+                Hop[] memory h = _quoteHops(u, q, false);
                 usdgOut = _route(address(this), signer, h, quoteAmt);
             }
         }
@@ -843,12 +862,32 @@ contract DiscipleRouter is IUnlockCallback {
         if (grad) key = poolKeyOf(token);
     }
 
-    function _usdgHop(address u, address q, bool usdgToQuote) private view returns (Hop memory h) {
-        h.key = _usdgPool[q];
-        if (h.key.tickSpacing == 0) revert NoUsdgPool(q);
-        bool usdgIsC0 = Currency.unwrap(h.key.currency0) == u;
-        h.zeroForOne = usdgToQuote ? usdgIsC0 : !usdgIsC0;
+    /// @dev USDG-side hops for `q`. `usdgToQuote` true walks the stored route forward, false reverses it.
+    function _quoteHops(address u, address q, bool usdgToQuote) private view returns (Hop[] memory h) {
+        PoolKey[] storage r = _usdgRoute[q];
+        uint256 n = r.length;
+        if (n == 0) revert NoUsdgPool(q);
+        h = new Hop[](n);
+        address cur = usdgToQuote ? u : q;
+        for (uint256 i; i < n; ++i) {
+            PoolKey memory k = usdgToQuote ? r[i] : r[n - 1 - i];
+            address c0 = Currency.unwrap(k.currency0);
+            address c1 = Currency.unwrap(k.currency1);
+            bool zfo;
+            if (cur == c0) {
+                zfo = true;
+                cur = c1;
+            } else if (cur == c1) {
+                zfo = false;
+                cur = c0;
+            } else {
+                revert NoUsdgPool(q);
+            }
+            h[i] = Hop({key: k, zeroForOne: zfo, disciple: false});
+        }
     }
+
+    
 
     function _buyHops(address u, address q, address token, PoolKey memory dkey) private view returns (Hop[] memory h) {
         bool tokenIsC0 = Currency.unwrap(dkey.currency0) == token;
@@ -857,9 +896,10 @@ contract DiscipleRouter is IUnlockCallback {
             h = new Hop[](1);
             h[0] = d;
         } else {
-            h = new Hop[](2);
-            h[0] = _usdgHop(u, q, true);
-            h[1] = d;
+            Hop[] memory qh = _quoteHops(u, q, true);
+            h = new Hop[](qh.length + 1);
+            for (uint256 i; i < qh.length; ++i) h[i] = qh[i];
+            h[qh.length] = d;
         }
     }
 
@@ -870,9 +910,10 @@ contract DiscipleRouter is IUnlockCallback {
             h = new Hop[](1);
             h[0] = d;
         } else {
-            h = new Hop[](2);
+            Hop[] memory qh = _quoteHops(u, q, false);
+            h = new Hop[](qh.length + 1);
             h[0] = d;
-            h[1] = _usdgHop(u, q, false);
+            for (uint256 i; i < qh.length; ++i) h[i + 1] = qh[i];
         }
     }
 
@@ -1004,6 +1045,7 @@ contract DiscipleRouter is IUnlockCallback {
             if (i == 0) firstPaid = paid;
             else if (paid != amt) revert BadPool(); // partial fill of an intermediate hop: never strand deltas
             amt = uint256(uint128(dOut));
+            if (amt == 0) revert ZeroMinOut();
             uint256 imp = _hopImpact(h, sb);
             if (imp > maxImp) maxImp = imp;
             if (!d.simulate && imp > cap) revert PriceImpactTooHigh(imp, cap);
