@@ -85,3 +85,64 @@ test("holderKinds (GAME contract): PoolManager + hook = pool; LockedLP + Migrati
   assert.deepEqual(h.map((x) => x.kind), ["pool", "locker", "burn", "holder"]);
   assert.equal(rankHolders({ [A(42)]: "1" }, { totalSupply: BigInt(1), mcapUsd: null, labels: {}, limit: 1 })[0].kind, "holder", "no kinds map ⇒ holder");
 });
+
+test("rankHolders: community rewards wallet and RewardsVault are left off the list (case-insensitive)", async () => {
+  const { protocolLabels, holderKinds, rankHolders, isExcludedHolder, EXCLUDED_HOLDER_ADDRESSES } = await import("../lib/holders");
+  const community = "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E";
+  const vault = "0xf1a2784de1ded172f4b10b242f124f60a6ab38c0";
+  assert.deepEqual([...EXCLUDED_HOLDER_ADDRESSES], [community, vault]);
+  assert.ok(isExcludedHolder(community));
+  assert.ok(isExcludedHolder(community.toUpperCase().replace("0X", "0x")));
+  assert.ok(isExcludedHolder(vault.toUpperCase().replace("0X", "0x")));
+  assert.ok(!isExcludedHolder(A(2)));
+
+  // Revert of the locker-label idea: these two are not tagged locker (unless some other locker list also contains them).
+  const l = protocolLabels({});
+  const k = holderKinds({});
+  assert.equal(l[community.toLowerCase()], undefined);
+  assert.equal(l[vault.toLowerCase()], undefined);
+  assert.equal(k[community.toLowerCase()], undefined);
+  assert.equal(k[vault.toLowerCase()], undefined);
+
+  const playerA = A(2); // 400 — first
+  const playerB = A(3); // 150 — was third while the community wallet sat in second; becomes second after the drop
+  const playerC = A(4); // 50
+  const lockedLP = A(5);
+  const labels = { [lockedLP]: "locker" as const };
+  const kinds = { [lockedLP]: "locker" as const };
+  // mixed-case keys still match
+  const communityKey = community.toUpperCase().replace("0X", "0x");
+  const vaultKey = vault;
+  const bal = {
+    [playerA]: "400",
+    [communityKey]: "300",
+    [playerB]: "150",
+    [vaultKey]: "50",
+    [playerC]: "50",
+    [lockedLP]: "50",
+  };
+  const shown = rankHolders(bal, { totalSupply: BigInt(1000), mcapUsd: 1000, labels, kinds, limit: 10 });
+  assert.deepEqual(shown.map((x) => x.address), [playerA, playerB, playerC, lockedLP]);
+  assert.ok(!shown.some((x) => isExcludedHolder(x.address)));
+  // percentages stay of total supply (1000), not of the 650 still on the list
+  assert.equal(shown[0].pct, 40);
+  assert.equal(shown[0].usd, 400);
+  assert.equal(shown[1].pct, 15);
+  assert.equal(shown[2].pct, 5);
+  assert.equal(shown[3].pct, 5);
+  assert.equal(shown[0].label, null); assert.equal(shown[0].kind, "holder");
+  assert.equal(shown[1].label, null); assert.equal(shown[1].kind, "holder");
+  assert.equal(shown[2].label, null); assert.equal(shown[2].kind, "holder");
+  assert.equal(shown[3].label, "locker"); assert.equal(shown[3].kind, "locker");
+  // ranks move up: with the two addresses still in the list, playerB would be third
+  const including = rankHolders(
+    { [playerA]: "400", [A(9)]: "300", [playerB]: "150", [playerC]: "50", [lockedLP]: "50" },
+    { totalSupply: BigInt(1000), mcapUsd: 1000, labels, kinds, limit: 10 },
+  );
+  assert.deepEqual(including.map((x) => x.address), [playerA, A(9), playerB, playerC, lockedLP]);
+  assert.equal(including.findIndex((x) => x.address === playerB), 2);
+  assert.equal(shown.findIndex((x) => x.address === playerB), 1);
+  // a later holder still fills the limit after a dropped row (filter before slice)
+  const capped = rankHolders(bal, { totalSupply: BigInt(1000), mcapUsd: 1000, labels, kinds, limit: 3 });
+  assert.deepEqual(capped.map((x) => x.address), [playerA, playerB, playerC]);
+});
