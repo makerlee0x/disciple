@@ -7,7 +7,7 @@ section: Game
 
 ## Achievements: the Choir of Deeds
 
-There are **43 achievements** in **8 categories**:
+There are **37 achievements** in **7 categories**:
 
 | Category | For |
 |---|---|
@@ -17,8 +17,9 @@ There are **43 achievements** in **8 categories**:
 | Conviction | Holding through drawdowns |
 | Launcher | Rockets you've launched |
 | Trencher | Fast, active trading |
-| Seasonal | Season goals |
 | Tramps & Walls | Filled limit orders |
+
+Seasonal achievements will be listed here when Season 1 starts.
 
 Each one is locked, in progress or unlocked. Every achievement has a rarity: **Common, Rare, Epic, Legendary or Mythic**. Rarer achievements carry rarer frames. Rocket parts use the same scale.
 
