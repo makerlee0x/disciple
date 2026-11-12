@@ -113,6 +113,8 @@ export async function startView3D(wrap: HTMLElement, search: string): Promise<()
     // BRAND review stills only: ?f3dcam=front|three-quarter|underside (&f3droll=deg). Play never sets this.
     const qs = new URLSearchParams(search), cam = qs.get("f3dcam");
     if (cam) view.review = { view: cam, roll: ((+(qs.get("f3droll") ?? (cam === "three-quarter" ? 35 : 0)) || 0) * Math.PI) / 180 };
+    // Launch Pad as a real 3D world (launchpad.ts); ?f3dworld=plate keeps the painted plate (A/B, or a fallback)
+    if (qs.get("f3dworld") !== "plate") view.enableLaunchPad();
     // the world for the tier the flight is in, on the hull before the 3D layer shows (until then the 2D flight draws)
     const fl = (window as unknown as { __flight?: { S?: { bgU?: number } } }).__flight;
     await view.wantWorld(fl?.S?.bgU ?? 0);
@@ -123,7 +125,7 @@ export async function startView3D(wrap: HTMLElement, search: string): Promise<()
       const { makePost, pickPost } = await import("./post");
       const R = view.rocket;
       view.post = await makePost({ renderer, backend, kind: pickPost(search, quality), scene: view.scene, camera: view.camera,
-        ship: [R.hull], width: innerWidth, height: innerHeight,
+        ship: [R.hull], width: innerWidth, height: innerHeight, world: view.lp ? { scene: view.lp.scene, camera: view.lp.camera } : null,
         ratio: (renderer as { getPixelRatio?: () => number }).getPixelRatio?.() || 1 });
       view.post?.setPunch(view.world.punch);
     } catch (e) { console.warn("[flight 3d] post stack off:", e); view.post = null; }

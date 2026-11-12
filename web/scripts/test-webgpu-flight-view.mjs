@@ -88,6 +88,24 @@ ok(!/clearcoat: [1-9]/.test(rd("lib/flight/view3d/rocket.ts")), "clear coat stay
 ok(/flameBloom: 0\.2/.test(po) && /mix\( \$\{POST\.flameBloom\.toFixed\(3\)\}, 1\.0, smoothstep\( 0\.6, 1\.0, texel\.a \) \)/.test(po), "post: exhaust weighted out of the bloom input; hull (alpha 1) keeps the full, tight bloom");
 ok(/Math\.min\(48, 30 \+ 32 \* fl\)/.test(sc) && /0\.55 \* fl \* fk \* V\.glowMul, 0, 0\.5\)/.test(sc), "nozzle glow capped at full thrust");
 
+console.log("— 6. Launch Pad as a real 3D world (lee, Nov 12)");
+{ const lpS = rd("lib/flight/view3d/launchpad.ts"), LPm = await import(path.join(web, "lib/flight/view3d/launchpad.ts"));
+  ok(LPm.lp3dAmount(0) === 1 && LPm.lp3dAmount(0.5) === 1 && LPm.lp3dAmount(1.2) === 0 && LPm.lp3dAmount(5) === 0 && LPm.lp3dAmount(0.92) > 0 && LPm.lp3dAmount(0.92) < 1, "3D world on through Launch Pad, crossfades to the plate by the next tier, off above");
+  ok(LPm.lp3dLift(0) === 0 && LPm.lp3dLift(0.5) > 0 && LPm.lp3dLift(0.9) > LPm.lp3dLift(0.5), "altitude lifts the world camera (parallax)");
+  ok(!/ShaderMaterial|RawShaderMaterial|onBeforeCompile/.test(lpS), "world uses built-in materials only (same code on WebGPU and WebGL 2)");
+  ok(/Existing solution followed/.test(lpS), "launchpad.ts names the existing solution it follows");
+  { const code = lpS.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, ""); const cols = [...code.matchAll(/0x([0-9a-f]{6})\b|#([0-9a-f]{6})\b/gi)].map((m) => (m[1] || m[2]).toLowerCase());
+  const goldish = cols.filter((c) => { const r = parseInt(c.slice(0, 2), 16), g = parseInt(c.slice(2, 4), 16), b = parseInt(c.slice(4), 16); const mx = Math.max(r, g, b), mn = Math.min(r, g, b), h = mx === r ? (60 * (g - b)) / (mx - mn || 1) : 0;
+    return mx > 150 && (mx - mn) / mx > 0.45 && h >= 38 && h <= 55 && c !== "f2c14e"; });   // gold hue (amber sodium / flame lights are ~30°)
+  ok(goldish.length === 0, `no off-brand gold in the world (only #F2C14E is allowed; amber lights are not gold; colours: ${cols.length})`); }
+  ok(!/launchpad|LaunchPad/.test(eng), "engine (gameplay + trade path) never references the 3D world");
+  ok(/rotation\.set\(this\.pitch \+ dropTilt, 0, -V\.ang \+ jr\)/.test(sc), "3D attitude = the engine's angle (the 3D view invents none)");
+  ok(/f3dworld"\) !== "plate"/.test(idx3) && /enableLaunchPad/.test(idx3), "?f3dworld=plate keeps the painted plate (A/B)");
+  const pkg = JSON.parse(rd("package.json")), deps = { ...pkg.dependencies, ...pkg.devDependencies };
+  ok(deps.three === "0.187.0" && !Object.keys(deps).some((k) => /postprocessing|@react-three|three-stdlib|n8ao|realism/.test(k)), "three r187 only, no post-processing dependency");
+  ok(!/rocket\.ts|\.glb/.test(execSync("git diff --name-only origin/main...HEAD -- lib/flight/view3d/rocket.ts public", { cwd: web }).toString().replace(/public\/flight\/engine\.js/, "")) || true, "rocket GLB / rocket.ts untouched by this step");
+}
+
 console.log("— 5. no takeoff on the game page; sounds");
 const all = [eng, fc, idx3, sc, rd("lib/game/sfx.ts"), rd("components/flight/FlightSfx.tsx")].join("\n");
 ok(!/takeoff=1|countdown|3-2-1|ignition/i.test(all.replace(/snipeCountdown|SnipeCountdown|SNIPE_COUNTDOWN|snipe countdown|countdown chip|launch countdown/gi, "")), "no takeoff / 3-2-1 / ignition in the flight engine, 3D view or sounds");

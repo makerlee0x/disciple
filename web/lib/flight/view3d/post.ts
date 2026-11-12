@@ -23,10 +23,14 @@
  * the official passes above cover SSR / AO / bloom / tone mapping without a second effect framework). Reference for
  * the stack and the quality bar: abhayexe/three.js-unreal (UnrealBloom + SSR + AO + ACES on official passes).
  *
+ * LAUNCH PAD 3D world (launchpad.ts): rendered as its own scene into a render target and composited UNDER this stack's
+ *   final output (after OutputPass / renderOutput): out = ship + world·k·(1 − ship.a). So the world never passes through
+ *   the ship's punch, bloom or ACES (it is authored in display range), and the ship's look is exactly as signed off.
+ *
  * Cost control: the heavy passes (SSR, AO) are the first thing the frame governor drops when a frame is over budget,
  * before it lowers resolution or skips frames. Nothing here ever waits on, or delays, the engine or a trade.
  */
-import type { Object3D, PerspectiveCamera, Scene } from "three";
+import type { Object3D, PerspectiveCamera, Scene, Texture } from "three";
 import type { View3DBackend, View3DQuality } from "./detect";
 
 export type PostKind = "full" | "lite" | "off";
@@ -40,6 +44,8 @@ export type FlightPost = {
   setPixelRatio: (r: number) => void;
   /** filmic contrast on the ship layer for this world (1 = none) */
   setPunch: (k: number) => void;
+  /** the Launch Pad 3D world under the ship (WebGL: its render target's texture; WebGPU: the pass is built in), k = 0..1 */
+  setWorld: (tex: Texture | null, k: number) => void;
   dispose: () => void;
 };
 
@@ -73,9 +79,21 @@ void main() {
   gl_FragColor = vec4( mix( t.rgb, g, w ), t.a );
 }`;
 
+/** world under the ship, after the ship's output transform: world is linear (render target) → sRGB, premultiplied by k */
+const UNDER_FRAG = `
+uniform sampler2D tDiffuse; uniform sampler2D tWorld; uniform float k; varying vec2 vUv;
+vec3 oetf( vec3 c ) { c = max( c, vec3( 0.0 ) ); return mix( c * 12.92, 1.055 * pow( c, vec3( 1.0 / 2.4 ) ) - 0.055, step( vec3( 0.0031308 ), c ) ); }
+void main() {
+  vec4 s = texture2D( tDiffuse, vUv ); float a = clamp( s.a, 0.0, 1.0 );
+  vec3 w = oetf( texture2D( tWorld, vUv ).rgb );
+  gl_FragColor = vec4( s.rgb + w * k * ( 1.0 - a ), a + k * ( 1.0 - a ) );
+}`;
+
 export async function makePost(o: {
   renderer: unknown; backend: View3DBackend; kind: PostKind; scene: Scene; camera: PerspectiveCamera;
   ship: Object3D[]; width: number; height: number; ratio: number;
+  /** the Launch Pad 3D world (WebGPU builds its pass into the pipeline; WebGL gets its texture per frame) */
+  world?: { scene: Scene; camera: PerspectiveCamera } | null;
 }): Promise<FlightPost | null> {
   if (o.kind === "off") return null;
   return o.backend === "webgpu" ? makeGPU(o) : makeGL(o);
@@ -136,6 +154,10 @@ async function makeGL(o: Parameters<typeof makePost>[0]): Promise<FlightPost> {
   bp.materialHighPassFilter.needsUpdate = true;
   composer.addPass(bp);
   composer.addPass(new OutputPass());
+  const VS = "varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }";
+  const under = new ShaderPass({ uniforms: { tDiffuse: { value: null }, tWorld: { value: null }, k: { value: 0 } }, vertexShader: VS, fragmentShader: UNDER_FRAG });
+  under.enabled = false;   // off = OutputPass is the last pass, exactly as before
+  composer.addPass(under);
 
   const post: FlightPost = {
     kind: o.kind, heavy: full,
@@ -147,6 +169,7 @@ async function makeGL(o: Parameters<typeof makePost>[0]): Promise<FlightPost> {
     setSize: (w, h) => composer.setSize(w, h),
     setPixelRatio: (r) => composer.setPixelRatio(r),
     setPunch: (k) => { punch.uniforms.k.value = k; },
+    setWorld: (tex, k) => { const on = !!tex && k > 0; under.enabled = on; under.uniforms.tWorld.value = on ? tex : null; under.uniforms.k.value = on ? k : 0; },
     dispose: () => { composer.dispose(); ssr?.dispose(); gtao?.dispose(); bp.dispose(); },
   };
   return post;
@@ -183,13 +206,35 @@ async function makeGPU(o: Parameters<typeof makePost>[0]): Promise<FlightPost> {
   const cap = POST.cap;
   const bIn = TSL.vec4(punched.rgb.mul(TSL.mix(TSL.float(POST.flameBloom), TSL.float(1), w)), punched.a);
   const b = bloom(bIn.min(TSL.vec4(cap, cap, cap, 1)), full ? POST.bloom.full : POST.bloom.lite, POST.radius, POST.threshold);
-  pipeline.outputNode = punched.add(TSL.vec4(b.rgb, 0));
+  const shipOut = punched.add(TSL.vec4(b.rgb, 0));
+  pipeline.outputNode = shipOut;
+  // Launch Pad 3D world under the ship (built only when asked for; the pipeline switches between the two outputs)
+  const worldK = TSL.uniform(0);
+  let withWorld: unknown = null, worldOn = false;
+  if (o.world) {
+    try {
+      const THREE = await import("three");
+      const wp = TSL.pass(o.world.scene, o.world.camera);
+      const ws = TSL.renderOutput(wp.getTextureNode("output"), THREE.NoToneMapping, THREE.SRGBColorSpace);
+      const so = TSL.renderOutput(shipOut);
+      const ia = TSL.float(1).sub(so.a.clamp(0, 1));
+      withWorld = TSL.vec4(so.rgb.add(ws.rgb.mul(worldK).mul(ia)), so.a.clamp(0, 1).add(worldK.mul(ia)));
+    } catch (e) { console.warn("[flight 3d] Launch Pad world unavailable on WebGPU:", e); withWorld = null; }
+  }
   const post: FlightPost = {
     kind: o.kind, heavy: full && !!ssrNode,
     setHeavy: (on) => { if (!ssrNode) return; post.heavy = on; ssrU.value = on ? 1 : 0; },
     render: () => pipeline.render(),
     setSize: () => {}, setPixelRatio: () => {},
     setPunch: (k) => { kU.value = k; },
+    setWorld: (_tex, k) => {
+      const on = !!withWorld && k > 0; worldK.value = on ? k : 0;
+      if (on === worldOn) return;
+      worldOn = on;
+      pipeline.outputNode = (on ? withWorld : shipOut) as typeof pipeline.outputNode;
+      pipeline.outputColorTransform = !on;   // the world variant applies the ship's ACES + sRGB itself (renderOutput)
+      pipeline.needsUpdate = true;
+    },
     dispose: () => { try { ssrNode?.dispose?.(); pipeline.dispose(); } catch { /* ignore */ } },
   };
   return post;

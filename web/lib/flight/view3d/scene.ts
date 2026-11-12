@@ -13,11 +13,16 @@
  * plate → PMREM → scene.environment, rotated so it agrees with the visible sky plate, plus the plate's own moon / sun /
  * city lights as real lights. The flame (engineLight) and blasts (blastLight) are real lights too, so they light and
  * reflect in the chrome. No studio strips, no light behind the camera.
+ *
+ * Launch Pad 3D world (launchpad.ts, lee Nov 12): in Launch Pad the painted plate behind the ship is replaced by a real
+ * 3D world (sky dome + moon, city, street lights, fog decks, the launch roof and gantry) rendered as its own scene
+ * under this one; it fades back to the plate near the top of the tier. ?f3dworld=plate turns it off (A/B).
  */
 import {
   Scene, PerspectiveCamera, HemisphereLight, PointLight, Group, Mesh, MeshBasicMaterial,
   PlaneGeometry, DoubleSide, InstancedMesh, IcosahedronGeometry, MeshStandardMaterial, Object3D,
   Vector3, Color, ACESFilmicToneMapping, InstancedBufferAttribute, DynamicDrawUsage, type Texture,
+  WebGLRenderTarget, RenderTarget, HalfFloatType, OrthographicCamera, Vector2,
 } from "three";
 import { buildRocket, BODY_R, ROCKET_H, type RocketParts } from "./rocket";
 import { ENV_ROT_Y, WorldLights, worldFor, loadWorldHDR, type WorldTier } from "./world";
@@ -25,6 +30,7 @@ import { Quads, SmokeQuads, PPool, lightBlend } from "./particles";
 import { radialTex, puffTex, cloudTex, flameTex, streakTex } from "./textures";
 import { govInit, govStep, type Gov, type Preset, type View3DBackend } from "./detect";
 import type { FlightPost } from "./post";
+import { LaunchPadWorld } from "./launchpad";
 
 export type Snap = {
   W: number; H: number; t: number; dt: number; ts: number;
@@ -43,7 +49,12 @@ export type Snap = {
 export type Ev = { k: "boom"; tier: number; x: number; y: number } | { k: "puff"; x: number; y: number } | { k: "tier"; tier: number } | { k: "hyper" };
 
 type RendererLike = {
-  render: (s: Scene, c: PerspectiveCamera) => unknown;
+  render: (s: Scene, c: PerspectiveCamera | OrthographicCamera) => unknown;
+  setRenderTarget?: (t: RenderTarget | null) => void;
+  clear?: (color?: boolean, depth?: boolean, stencil?: boolean) => void;
+  getDrawingBufferSize?: (v: Vector2) => Vector2;
+  compileAsync?: (s: Scene, c: PerspectiveCamera) => Promise<unknown>;
+  autoClear?: boolean;
   setSize: (w: number, h: number, style?: boolean) => void;
   setPixelRatio: (r: number) => void;
   setClearColor: (c: number, a: number) => void;
@@ -99,7 +110,11 @@ export class FlightView3D {
   /** the governor switched the post stack off (over budget at the lowest resolution) */
   private postOff = false;
   visible = true;
-  stats = { frames: 0, drawn: 0, skipped: 0, lastMs: 0, ema: 0, ratio: 1, post: "off", heavy: false };
+  stats = { frames: 0, drawn: 0, skipped: 0, lastMs: 0, ema: 0, ratio: 1, post: "off", heavy: false, lp3d: 0 };
+  /** the Launch Pad 3D world (null = plate everywhere: ?f3dworld=plate, or it failed to build) */
+  lp: LaunchPadWorld | null = null;
+  private lpRT: RenderTarget | null = null; private lpQuad: { scene: Scene; cam: OrthographicCamera; mat: MeshBasicMaterial } | null = null;
+  private lpSize = new Vector2(); private lpNoz = new Vector3();
 
   constructor(public renderer: RendererLike, public backend: View3DBackend, public preset: Preset, dpr: number, pmrem: PmremLike | null, ship: Object3D) {
     const p = preset;
@@ -179,6 +194,33 @@ export class FlightView3D {
       S.add(m);
     }
     for (let i = 0; i < p.stars; i++) this.starsA.push({ x: 0, y: 0, z: -2600 + Math.random() * 2300, s: 1.2 + Math.random() * 2.2, tw: Math.random() * 6.28 });
+  }
+
+  /** Launch Pad 3D world on (index.ts, unless ?f3dworld=plate). Built a few ms per frame; never fails the flight. */
+  enableLaunchPad() {
+    try {
+      const r = this.renderer;
+      this.lp = new LaunchPadWorld(this.preset.quality === "lite", r.compileAsync ? (s, c) => r.compileAsync!(s, c) : undefined);
+      const rt = this.backend === "webgl"
+        ? new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: this.preset.antialias ? 4 : 0 })
+        : new RenderTarget(1, 1, { type: HalfFloatType });
+      this.lpRT = rt;
+      // no-post path: the world's target drawn as a full-screen quad (premultiplied by k), the ship scene over it
+      const cam = new OrthographicCamera(-1, 1, 1, -1, 0, 1), sc = new Scene();
+      const mat = new MeshBasicMaterial({ map: rt.texture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
+      sc.add(new Mesh(new PlaneGeometry(2, 2), mat));
+      this.lpQuad = { scene: sc, cam, mat };
+    } catch (e) { console.warn("[flight 3d] Launch Pad world off:", e); this.lp = null; }
+  }
+  /** draw the Launch Pad world into its target (WebGL post and the no-post path); false = not shown this frame */
+  private lpDraw(k: number): boolean {
+    const r = this.renderer, rt = this.lpRT, lp = this.lp;
+    if (!lp || !rt || !(k > 0) || !r.setRenderTarget) return false;
+    if (r.getDrawingBufferSize) { r.getDrawingBufferSize(this.lpSize); if (rt.width !== this.lpSize.x || rt.height !== this.lpSize.y) rt.setSize(this.lpSize.x, this.lpSize.y); }
+    r.setRenderTarget(rt); r.setClearColor(0x000000, 1); r.clear?.(true, true, false);
+    r.render(lp.scene, lp.camera);
+    r.setRenderTarget(null); r.setClearColor(0x000000, 0);
+    return true;
   }
 
   /** Put a tier's world on the hull: its HDR plate through PMREM, its lights. Runs between frames (promise callback). */
@@ -389,6 +431,15 @@ export class FlightView3D {
     this.flashT += dt;
     this.blastLight.intensity = this.flashMax * 4000 * Math.exp(-this.flashT / 0.18);
 
+    // ---- Launch Pad 3D world: altitude lifts the camera over the city; fades to the plate near the top of the tier
+    let lpK = 0;
+    if (this.lp) {
+      this.lpNoz.set(R.group.position.x, R.group.position.y, 0);
+      this.lp.update({ band: V.band, t: this.t, W: this.W, H: this.H, camX: V.camX, flame: V.flame, nozzle: this.lpNoz, cam: this.camera });
+      lpK = this.lp.amount;
+    }
+    this.stats.lp3d = +lpK.toFixed(3);
+
     // ---- clouds: parallax by depth, thin out in space, stretched and rushing during hyperspeed
     const cloudAmt = 1 - 0.7 * smooth(3.4, 4.6, V.band);
     const tint = 0.22, nightK = smooth(4, 7, V.band);
@@ -411,6 +462,7 @@ export class FlightView3D {
       let a = c.a * cloudAmt / stretch;
       if (c.z > 0) { const d = Math.hypot(c.x - rx, (c.y - ry - 70) * 0.8); if (d < c.w * 0.6 + 60) a *= 0.3; }
       if (this.review && c.z > -250) a = 0;   // review stills: nothing between the close camera and the ship
+      if (lpK > 0 && c.z < -150) a *= 1 - lpK;   // Launch Pad 3D: the far cards would draw over the 3D world (its own fog decks replace them)
       const mat = c.m.material as MeshBasicMaterial;
       mat.opacity = clamp(a, 0, 1);
       this.col.setRGB(1 - tint + (tint * sr) / 255, 1 - tint + (tint * sg) / 255, 1 - tint + (tint * sb) / 255);
@@ -519,7 +571,18 @@ export class FlightView3D {
     const g = this.gov, skip = g.skip > 0 && (this.fc++ % (g.skip + 1)) !== 0;
     if (skip) { this.stats.skipped++; return; }
     if (this.review) this.reviewCam();
-    if (this.post && !this.postOff) this.post.render(); else this.renderer.render(this.scene, this.camera);
+    if (this.lp && lpK > 0) this.lp.sync(this.camera);   // after the review camera moved
+    if (this.post && !this.postOff) {
+      // WebGPU builds the world pass into its pipeline; WebGL renders the world target here
+      const on = lpK > 0 && (this.backend === "webgpu" ? !!this.lp : this.lpDraw(lpK));
+      this.post.setWorld(on && this.lpRT ? this.lpRT.texture : null, on ? lpK : 0);
+      this.post.render();
+    } else if (lpK > 0 && this.lpDraw(lpK) && this.lpQuad) {
+      const r = this.renderer, q = this.lpQuad; q.mat.opacity = lpK;
+      r.render(q.scene, q.cam);
+      const ac = r.autoClear; r.autoClear = false; r.clear?.(false, true, false);
+      r.render(this.scene, this.camera); r.autoClear = ac ?? true;
+    } else this.renderer.render(this.scene, this.camera);
     const ms = performance.now() - t0;
     this.stats.drawn++; this.stats.lastMs = ms;
     const slowFrame = V.dt * 1000 > 26 ? this.preset.budgetMs * 1.3 : 0;
@@ -546,6 +609,7 @@ export class FlightView3D {
       if (mat) for (const x of Array.isArray(mat) ? mat : [mat]) { x.map?.dispose(); x.dispose(); }
     });
     try { this.post?.dispose(); } catch { /* ignore */ }
+    try { this.lp?.dispose(); this.lpRT?.dispose(); this.lpQuad?.mat.dispose(); } catch { /* ignore */ }
     this.envRT?.dispose(); try { this.pmrem?.dispose(); } catch { /* ignore */ }
     this.renderer.dispose();
   }

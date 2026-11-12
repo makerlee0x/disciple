@@ -30,7 +30,7 @@ export function puffTex(seed: number, size = 128): Texture {
 }
 
 // ---- tiny value-noise fbm for the procedural textures (seeded, no deps)
-function noise2(seed: number) {
+export function noise2(seed: number) {
   const P = new Uint8Array(512); let s = (seed * 2654435761) >>> 0;
   for (let i = 0; i < 256; i++) P[i] = i;
   for (let i = 255; i > 0; i--) { s = (s * 1664525 + 1013904223) >>> 0; const j = s % (i + 1); const t = P[i]; P[i] = P[j]; P[j] = t; }
