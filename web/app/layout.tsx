@@ -6,6 +6,7 @@ import "./xp-v3.css";
 import "./globals.css";
 import "./claims.css";
 import "./profile-r5.css";
+import "./hangar-v3.css";
 import { barlowCondensed, geist, instrumentSerif } from "./fonts";
 import AppShell from "@/components/AppShell";
 import ChatBridge from "@/components/chat/ChatBridge";

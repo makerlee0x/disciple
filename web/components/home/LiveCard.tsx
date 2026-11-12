@@ -11,7 +11,8 @@ import { withBase } from "@/lib/base-path";
 import { altShort, crewFaces, flightHref, lit, Mark, orbitPct, pct } from "./rocketBits";
 import s from "./liveCard.module.css";
 
-export default function LiveCard({ c, testId }: { c: HomeCoin; testId?: string }) {
+/** `seat` (Hangar fleet): the pilot's holding in dollars, shown in place of altitude. */
+export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: string; seat?: string }) {
   const t = tierProgress(c.mcapUsd);
   const chg = c.stats?.chg24 ?? null;
   const crew = c.stats?.crew ?? null;
@@ -47,7 +48,7 @@ export default function LiveCard({ c, testId }: { c: HomeCoin; testId?: string }
         {/* the bar's row is kept when progress is unknown so names line up across a shelf */}
         <span className={`${s.bar}${orbit == null ? " " + s.barOff : ""}`}><i style={{ width: `${orbit ?? 0}%` }} /></span>
         <span className={s.row}>
-          <span>{altShort(c.mcapUsd)} altitude</span>
+          {seat != null ? <span className={s.seat}>Your seat <b>{seat}</b></span> : <span>{altShort(c.mcapUsd)} altitude</span>}
           {d && <span className={`${s.diff} ${s[d.key]}`}>{d.label}</span>}
         </span>
       </span>

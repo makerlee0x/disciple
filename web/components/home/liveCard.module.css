@@ -46,6 +46,7 @@
 .bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--dsc3-light-gold), var(--dsc3-light-champagne)); }
 .barOff { visibility: hidden; }
 .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--dsc-muted-on-sky); }
+.seat b { margin-left: 4px; font: 800 18px / 1 var(--dsc-font-game); color: #FFFFFF; }
 .diff { font-weight: 700; text-transform: uppercase; letter-spacing: .02em; }
 .easy { color: var(--dsc3-diff-easy); }
 .hard { color: var(--dsc3-diff-hard); }

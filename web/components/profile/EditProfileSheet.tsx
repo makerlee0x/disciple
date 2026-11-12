@@ -10,7 +10,7 @@ import Icon from "@/components/icons/Icon";
 import Sheet from "./Sheet";
 import IdentitySigil from "./IdentitySigil";
 import { NO_IDENTITY } from "@/lib/identity";
-import { PencilGlyph, TrashGlyph, XGlyph } from "./Glyphs";
+import { PencilGlyph, XGlyph } from "./Glyphs";
 import { UsernameField, useUsernameDraft } from "./UsernameRow";
 
 /** Edit profile copy (profile r3 README copy list). */
@@ -88,7 +88,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
     onClose(true);
   }
 
-  const img = pfpUrl(draft.pfp), banner = pfpUrl(draft.banner ?? "");
+  const img = pfpUrl(draft.pfp);
   return (
     <Sheet open={open} onClose={tryClose} label={EDIT_COPY.title} className="p5-modal p5-edit" testId="edit-profile">
       <header className="p5-mhead">
@@ -107,25 +107,16 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
       ) : (
         <form className="p5-edit-body" onSubmit={(e) => { e.preventDefault(); if (dirty && valid && !busy) void save(); }}>
           <input ref={pfpFile} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => void pick("pfp", e.target.files?.[0])} data-testid="pfp-file" />
-          <input ref={bannerFile} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => void pick("banner", e.target.files?.[0])} data-testid="banner-file" />
-          <div className="p5-ebanner-wrap">
-            {banner ? (
-              <div className="p5-ebanner" style={{ backgroundImage: `url(${withBase(banner)})` }} data-testid="edit-banner">
-                <div className="p5-ebtns">
-                  <button type="button" className="p5-icon dark" aria-label={EDIT_COPY.removeBanner} disabled={!!busy} onClick={() => setDraft((d) => ({ ...d, banner: "" }))}><TrashGlyph size={16} /></button>
-                  <button type="button" className="p5-icon dark" aria-label={EDIT_COPY.changeBanner} disabled={!!busy} onClick={() => bannerFile.current?.click()}><PencilGlyph size={16} /></button>
-                </div>
-              </div>
-            ) : (
-              <button type="button" className="p5-ebanner none" disabled={!!busy} onClick={() => bannerFile.current?.click()} data-testid="add-banner">
-                {busy === "banner" ? C["edit.saving"] : <><Icon name="plus" size={16} /> {EDIT_COPY.addBanner}</>}
-              </button>
-            )}
-            <button type="button" className="p5-epfp" aria-label={EDIT_COPY.changePicture} disabled={!!busy} onClick={() => pfpFile.current?.click()} data-testid="edit-pfp">
+          <div className="hg-epic">
+            <button type="button" className="p5-epfp hg-epfp" aria-label={EDIT_COPY.changePicture} disabled={!!busy} onClick={() => pfpFile.current?.click()} data-testid="edit-pfp">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              {img ? <img src={withBase(img)} alt="" width={64} height={64} /> : <IdentitySigil id={NO_IDENTITY.primary.id} size={40} tip={false} />}
+              {img ? <img src={withBase(img)} alt="" width={80} height={80} /> : <IdentitySigil id={NO_IDENTITY.primary.id} size={44} tip={false} />}
               <span className="pen">{busy === "pfp" ? "…" : <PencilGlyph size={16} />}</span>
             </button>
+            <div className="hg-epic-tx">
+              <button type="button" className="p5-btn sm" disabled={!!busy} onClick={() => pfpFile.current?.click()}>{EDIT_COPY.changePicture}</button>
+              <span>{C["edit.pfp.helper"]}</span>
+            </div>
           </div>
 
           <UsernameField u={uname} disabled={!!busy} />

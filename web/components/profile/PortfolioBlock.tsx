@@ -69,7 +69,8 @@ function Ranges({ value, onChange, className }: { value: PfRange; onChange: (r: 
   );
 }
 
-export default function PortfolioBlock({ pf, isPrivate }: { pf: LivePortfolio | null; isPrivate: boolean }) {
+/** With `title` (the Hangar): a panel of just the chart, its change and the ranges; the totals live in the service record. */
+export default function PortfolioBlock({ pf, isPrivate, title }: { pf: LivePortfolio | null; isPrivate: boolean; title?: string }) {
   const [range, setRange] = useState<PfRange>("24H");
   const [fills, setFills] = useState<Record<string, PricePoint[]> | null>(null);
   const coins = pf?.rows.map((r) => r.coin.toLowerCase()).join(",") ?? "";
@@ -94,6 +95,20 @@ export default function PortfolioBlock({ pf, isPrivate }: { pf: LivePortfolio | 
   const { whole, cents } = moneyParts(total ?? 0);
   const rangeLabel = range === "ALL" ? "all time" : range.toLowerCase();
 
+  const chart = zero ? (
+    <div className="p5-chart p5-flat">
+      {isPrivate && <span className="p5-note">Your chart starts with your first BOOST.</span>}
+    </div>
+  ) : series ? <Chart vals={series.map((p) => p.v)} up={chg >= 0} H={150} /> : <div className="p5-chart" />;
+  if (title) return (
+    <section className="dsc3-panel hg-panel hg-alt" aria-label={title}>
+      <header className="hg-panelh">
+        <div><h2>{title}</h2><span data-testid="portfolio-change">{series ? <b className={cls}>{signedUsd2(chg)}</b> : null} {rangeLabel === "all time" ? "all time" : `over ${rangeLabel}`}</span></div>
+        <Ranges value={range} onChange={setRange} className="hg-ranges" />
+      </header>
+      {chart}
+    </section>
+  );
   return (
     <section className="p5-pf" aria-label="Portfolio" data-testid="profile-portfolio">
       <div className="p5-pf-top">
