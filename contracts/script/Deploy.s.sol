@@ -23,6 +23,7 @@ import {DiscipleHook} from "../src/DiscipleHook.sol";
 import {RewardsVault} from "../src/RewardsVault.sol";
 import {UsdgDepositNotifier} from "../src/UsdgDepositNotifier.sol";
 import {AnonLauncher} from "../src/addons/AnonLauncher.sol";
+import {CreatorFeeHarvest} from "../src/addons/CreatorFeeHarvest.sol";
 import {MarketLens} from "../src/addons/MarketLens.sol";
 import {Constants} from "../src/libraries/Constants.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
@@ -112,6 +113,7 @@ contract Deploy is NetworkConfig {
         address anonLauncher;
         address marketLens;
         address loginGate;
+        address creatorFeeHarvest;
     }
 
     function run() external returns (Out memory o) {
@@ -141,7 +143,8 @@ contract Deploy is NetworkConfig {
         uint8 usdgDec = ERC20(o.usdg).decimals();
         require(usdgDec == vm.envOr("EXPECT_USDG_DECIMALS", uint256(6)), "Deploy: unexpected USDG decimals");
         ReferralRegistry referrals = new ReferralRegistry(deployer, o.usdg);
-        LockedLP lockedLP = new LockedLP(deployer, treasury);
+        CreatorFeeHarvest harvest = new CreatorFeeHarvest(deployer);
+        LockedLP lockedLP = new LockedLP(deployer, treasury, address(harvest));
         FeeRouter feeRouter = new FeeRouter(deployer, treasury, address(referrals));
 
         // Hook salt is mined against the CREATE2 factory that actually deploys it (not the EOA).
@@ -230,6 +233,17 @@ contract Deploy is NetworkConfig {
         // Curve trades via the router act for the real trader (bonding modes: caps / cost basis / attribution).
         launchpad.setTrustedRouter(address(router), true);
         feeRouter.setClaimRouter(address(router), true); // claimCreatorFeesToUsdg (separate allowlist, audit r121 Low)
+        // Later send for creator-fee destinations 1 and 2. Trades do not call this. Destination 0 does not use it.
+        harvest.wire(
+            address(launchpad), address(feeRouter), address(lockedLP), address(router), address(hook), address(manager)
+        );
+        launchpad.setTrustedRouter(address(harvest), true);
+        // setTrustedRouter also stores curveRouter. DiscipleRouter must remain that pointer.
+        launchpad.setTrustedRouter(address(router), true);
+        feeRouter.setClaimRouter(address(harvest), true);
+        // Self-claims read this pointer. Trades do not. Destination 1 or 2 then cannot be claimed by the launcher.
+        feeRouter.setCreatorFeeHarvest_51(address(harvest));
+        o.creatorFeeHarvest = address(harvest);
         // PVE login gate: attester = backend key that signs Privy-login attestations (public address only).
         {
             address attester = vm.envOr("PVE_ATTESTER", address(0));
@@ -256,10 +270,14 @@ contract Deploy is NetworkConfig {
         // Deployed before the CurveDeployer: the CurveFeeVault takes the AnonLauncher (AUDIT H1 stealth-owner claim).
         (o.rewardsVault, o.anonLauncher, o.marketLens) =
             _addons(deployer, treasury, feeRouter, hook, launchpad, migration, pricer, o.usdg, usdgDec);
-        o.curveDeployer = address(new CurveDeployer(address(new CurveFeeVault(address(feeRouter), o.anonLauncher))));
+        CurveFeeVault feeVault = new CurveFeeVault(address(feeRouter), o.anonLauncher);
+        o.curveDeployer = address(new CurveDeployer(address(feeVault)));
         launchpad.setCurveDeployer(o.curveDeployer);
         launchpad.setQuoteProbe(address(probe));
         launchpad.setDefaultQuote(o.defaultQuote);
+        AnonLauncher(o.anonLauncher).setCreatorFeeHarvest(address(harvest));
+        // Curve-phase creator fees settle here. route() pulls them. Trades do not call the harvest.
+        harvest.setFeeVault(address(feeVault));
         // referralSink: address(0) = today's routing (default). Non-zero takes the whole referral 1% incl. launch KOL.
         {
             address sink = vm.envOr("REFERRAL_SINK", address(0));
@@ -296,6 +314,7 @@ contract Deploy is NetworkConfig {
         console2.log("DefaultQuote", o.defaultQuote);
         console2.log("DefaultQuoteUsdWad", pricer.quotePriceUsd(o.defaultQuote));
         console2.log("LoginGate", o.loginGate);
+        console2.log("CreatorFeeHarvest", o.creatorFeeHarvest);
         // Config echo (checked by the runbook pre-flight / smoke): steep curve #1, floor, sniper tax, referral sink.
         console2.log("cfg USDG decimals", usdgDec);
         console2.log("cfg CURVE_SOLD_BPS", Constants.CURVE_SOLD_BPS);

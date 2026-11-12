@@ -7,7 +7,7 @@ section: Game
 
 ## Achievements: the Choir of Deeds
 
-There are **43 achievements** in **8 categories**:
+There are **37 achievements** in **7 categories**:
 
 | Category | For |
 |---|---|
@@ -17,7 +17,6 @@ There are **43 achievements** in **8 categories**:
 | Conviction | Holding through drawdowns |
 | Launcher | Rockets you've launched |
 | Trencher | Fast, active trading |
-| Seasonal | Season goals |
 | Tramps & Walls | Filled limit orders |
 
 Each one is locked, in progress or unlocked. Every achievement has a rarity: **Common, Rare, Epic, Legendary or Mythic**. Rarer achievements carry rarer frames. Rocket parts use the same scale.
@@ -54,7 +53,7 @@ Your season rank comes from your rHALO points for the season:
 | Glorified | 25,000 |
 | Divine | 80,000 |
 
-Your profile shows your season rank. Season length and reset rules are TBD and will be announced before Season 1 starts.
+Your profile shows your season rank. Season length and reset rules will be announced later.
 
 ## Level and prestige
 

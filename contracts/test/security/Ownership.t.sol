@@ -25,7 +25,7 @@ contract OwnershipTest is Test {
     function _all() internal returns (Owned2Step[6] memory c) {
         MockUSDG usdg = new MockUSDG();
         QuotePricer pricer = new QuotePricer(owner, IPoolManager(address(0xBEEF)), address(usdg));
-        c[0] = new LockedLP(owner, makeAddr("treasury"));
+        c[0] = new LockedLP(owner, makeAddr("treasury"), address(0));
         c[1] = new FeeRouter(owner, makeAddr("treasury"), makeAddr("referrals"));
         c[2] = new Launchpad(owner, makeAddr("fr"), makeAddr("as"), makeAddr("mig"));
         c[3] = new Migration(owner, makeAddr("llp"), makeAddr("pm"), makeAddr("hook"));

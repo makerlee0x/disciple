@@ -17,7 +17,7 @@ contract DeployPaymaster is Script {
     address constant ENTRYPOINT_V07 = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
     // Defaults updated from real EntryPoint runtime measurements (gas UNITS, never a fixed USDG amount).
     uint256 public constant DEFAULT_MAX_GAS_PER_OP = 7_068_712;
-    uint256 public constant DEFAULT_MAX_LAUNCH_GAS_PER_OP = 21_840_770; // 2x worst real EntryPoint launch actualGasUsed: 10,920,385
+    uint256 public constant DEFAULT_MAX_LAUNCH_GAS_PER_OP = 21_855_958; // 2x worst real EntryPoint launch actualGasUsed: 10,927,979
     uint256 public constant DEFAULT_POST_OP_GAS = 79_684;
 
     function run() external returns (DisciplePaymaster pm) {

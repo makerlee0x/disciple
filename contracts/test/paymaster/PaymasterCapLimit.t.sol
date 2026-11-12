@@ -6,7 +6,7 @@ import {DeployPaymaster} from "../../script/DeployPaymaster.s.sol";
 contract PaymasterCapLimitTest is PaymasterTestBase {
     function setUp() public virtual { _setUp(18); }
     function test_launchDefaultIsTwiceWorstMeasuredEntryPointGas() public {
-        assertEq(new DeployPaymaster().DEFAULT_MAX_LAUNCH_GAS_PER_OP(), 2 * 10_920_385);
+        assertEq(new DeployPaymaster().DEFAULT_MAX_LAUNCH_GAS_PER_OP(), 2 * 10_927_979);
     }
 
     function test_dynamicGasUnitLimit_independentOfDecimals() public {

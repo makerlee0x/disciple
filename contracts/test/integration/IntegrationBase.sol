@@ -34,6 +34,7 @@ import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiqui
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {RewardsVault} from "../../src/RewardsVault.sol";
+import {CreatorFeeHarvest} from "../../src/addons/CreatorFeeHarvest.sol";
 
 contract MockUSDG is ERC20, ERC20Permit {
     uint8 internal _dec = 18;
@@ -98,6 +99,8 @@ abstract contract IntegrationBase is Test {
     MockUSDG internal strategy; // mock STRATEGY default quote
     QuotePricer internal pricer;
     DiscipleRouter internal router;
+    /// @notice Later-send contract. Trades do not call it. Routing tests wire it; the gas bench does not.
+    CreatorFeeHarvest internal harvest;
     CurveFeeVault internal feeVault; // lp-accrue: curve-phase creator / treasury / referral fees
     PoolKey internal strategyUsdgKey; // reference STRATEGY/USDG pool priced 1:1 ($1)
     uint256 internal refPoolQuoteSeed; // USDG seeded into the reference pool (excluded from accounting)
@@ -116,9 +119,8 @@ abstract contract IntegrationBase is Test {
     /// @dev sqrtPriceX96 for an 18-dec `base` worth $1 per whole token vs USDG (raw price 10^(usdgDec-18)).
     function _parSqrtP(address base) internal view returns (uint160) {
         uint256 f = 10 ** ((18 - uint256(quote.decimals())) / 2); // sqrt(10^(18-d)); d is 18 or 6 here
-        return uint160(base) < uint160(address(quote))
-            ? uint160((uint256(1) << 96) / f)
-            : uint160((uint256(1) << 96) * f);
+        return
+            uint160(base) < uint160(address(quote)) ? uint160((uint256(1) << 96) / f) : uint160((uint256(1) << 96) * f);
     }
 
     /// @dev v4 liquidity for an 18-dec-base/USDG pool with the same USD depth as `liq18` at 18-dec USDG
@@ -136,7 +138,11 @@ abstract contract IntegrationBase is Test {
         quote = new MockUSDGDec(_usdgDecimals());
         U = 10 ** uint256(_usdgDecimals());
         referrals = new ReferralRegistry(owner, address(quote));
-        lockedLP = new LockedLP(owner, treasury);
+        // The harvest address is known before it is deployed so this create does not shift the nonce of
+        // LockedLP or anything after it. The gas bench compares those addresses with main.
+        bytes32 harvestSalt = keccak256("disciple.creator-fee-harvest");
+        address harvestAddr = _harvestAddress(harvestSalt);
+        lockedLP = new LockedLP(owner, treasury, harvestAddr);
         feeRouter = new FeeRouter(owner, treasury, address(referrals));
 
         V4Deploy.Stack memory stack = V4Deploy.deploy(owner, lockedLP, feeRouter);
@@ -194,11 +200,29 @@ abstract contract IntegrationBase is Test {
 
         swapRouter = new PoolSwapTest(manager);
 
+        harvest = new CreatorFeeHarvest{salt: harvestSalt}(owner);
         // Fund actors
         address[7] memory actors = [creator, sniper, trader1, trader2, kol, referred, address(this)];
         for (uint256 i = 0; i < actors.length; i++) {
             quote.mint(actors[i], 50_000_000 * U);
         }
+    }
+
+    function _harvestAddress(bytes32 salt) internal view returns (address) {
+        return address(
+            uint160(
+                uint256(
+                    keccak256(
+                        abi.encodePacked(
+                            bytes1(0xff),
+                            address(this),
+                            salt,
+                            keccak256(abi.encodePacked(type(CreatorFeeHarvest).creationCode, abi.encode(owner)))
+                        )
+                    )
+                )
+            )
+        );
     }
 
     function _bindReferral(address wallet, address referrer, uint256 usdgDeposit) internal {

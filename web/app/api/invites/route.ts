@@ -19,7 +19,7 @@ export async function GET(req: Request) {
 }
 export async function POST(req: Request) {
   let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return out([400, { error: "Bad JSON" }]); }
-  if (!body || typeof body !== "object") return out([400, { error: "Bad JSON" }]);
+  try { body = await req.json(); } catch { return out([400, { error: "We couldn't read that request. Try again." }]); }
+  if (!body || typeof body !== "object") return out([400, { error: "We couldn't read that request. Try again." }]);
   return out(await playerAction(inviteDeps(), bearer(req.headers), body, clientIp(req.headers)));
 }

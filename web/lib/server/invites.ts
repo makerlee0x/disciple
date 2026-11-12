@@ -283,7 +283,7 @@ export async function adminList(d: Deps, token: string | null, ip: string): Prom
 export async function adminAction(d: Deps, token: string | null, body: Record<string, unknown>, ip: string): Promise<Res> {
   const a = await adminAuth(d, token, ip); if (a.res) return a.res;
   const action = String(body.action ?? "");
-  if (!["create", "admit", "topup", "revoke", "mode"].includes(action)) return [400, { error: "Bad action." }];
+  if (!["create", "admit", "topup", "revoke", "mode"].includes(action)) return [400, { error: "That action isn't available. Reload the page and try again." }];
   if (!(await consumeNonce(d.store, P_ADMIN, body.nonce, a.user!.id))) return [401, { error: "Action expired. Reload and try again." }];
   const now = (d.now ?? Date.now)(), by = a.user!.emails[0] ?? a.user!.id, n = Math.floor(Number(body.n));
   const pid = String(body.privyId ?? "").trim();
@@ -297,13 +297,13 @@ export async function adminAction(d: Deps, token: string | null, body: Record<st
       return [200, { ok: true, codes: out }];
     }
     case "admit": {
-      if (!DID_RE.test(pid)) return [400, { error: "Bad player id." }];
+      if (!DID_RE.test(pid)) return [400, { error: "That player id doesn't look right. Check it and try again." }];
       const ok = await admit(d.store, pid, "admin", now);
       await log(d.store, now, { a: "admit", who: pid, by });
       return [200, { ok: true, already: !ok }];
     }
     case "topup": {
-      if (!DID_RE.test(pid)) return [400, { error: "Bad player id." }];
+      if (!DID_RE.test(pid)) return [400, { error: "That player id doesn't look right. Check it and try again." }];
       if (!(n >= 1 && n <= ADMIN_MAX_TOPUP)) return [400, { error: `Add 1 to ${ADMIN_MAX_TOPUP} invites at a time.` }];
       const u = await userRecord(d.store, pid);
       if (!u) return [404, { error: "That player isn't in yet." }];
@@ -314,7 +314,7 @@ export async function adminAction(d: Deps, token: string | null, body: Record<st
     case "revoke": {
       const code = normCode(body.code);
       const rec = code ? await codeRecord(d.store, code) : null;
-      if (!code || !rec) return [404, { error: "No such code." }];
+      if (!code || !rec) return [404, { error: "We couldn't find that code. Check it and try again." }];
       if (rec.usedBy || !(await d.store.setNX(K.used(code), "revoked"))) return [409, { error: "That code was already used." }];
       await d.store.set(K.code(code), JSON.stringify({ ...rec, revoked: true }));
       await log(d.store, now, { a: "revoke", code, by });
@@ -324,7 +324,7 @@ export async function adminAction(d: Deps, token: string | null, body: Record<st
       const m = String(body.mode ?? "");
       if (m === "on" || m === "off") await d.store.set(K.mode, m);
       else if (m === "default") await d.store.del(K.mode);
-      else return [400, { error: "Mode must be on, off or default." }];
+      else return [400, { error: "Mode has to be on, off, or default." }];
       await log(d.store, now, { a: "mode", mode: m, by });
       return [200, { ok: true, mode: (await readMode(d.store, d.envMode)).on }];
     }

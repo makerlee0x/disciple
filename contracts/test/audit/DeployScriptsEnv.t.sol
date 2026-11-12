@@ -11,6 +11,11 @@ import {DiscipleHook} from "../../src/DiscipleHook.sol";
 import {Migration} from "../../src/Migration.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {NetworkConfig} from "../../script/config/NetworkConfig.sol";
+import {FeeRouter} from "../../src/FeeRouter.sol";
+import {Launchpad} from "../../src/Launchpad.sol";
+import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
+import {CreatorFeeHarvest} from "../../src/addons/CreatorFeeHarvest.sol";
+import {CurveDeployer} from "../../src/CurveDeployer.sol";
 
 contract NetworkGuardHarness is NetworkConfig {
     function check() external view returns (bool) {
@@ -67,6 +72,16 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         // #2 hook address carries the beforeInitialize flag
         assertTrue(uint160(o.hook) & Hooks.BEFORE_INITIALIZE_FLAG != 0);
         assertTrue(uint160(o.hook) & Hooks.BEFORE_ADD_LIQUIDITY_FLAG != 0);
+
+        // Creator-fee harvest is the claim router for destinations 1 and 2, and it pulls the curve vault.
+        assertTrue(o.creatorFeeHarvest != address(0));
+        assertEq(FeeRouter(o.feeRouter).creatorFeeHarvest_16(), o.creatorFeeHarvest);
+        assertTrue(FeeRouter(o.feeRouter).isClaimRouter(o.creatorFeeHarvest));
+        assertTrue(Launchpad(o.launchpad).isTrustedRouter(o.creatorFeeHarvest));
+        assertEq(AnonLauncher(o.anonLauncher).creatorFeeHarvest(), o.creatorFeeHarvest);
+        assertEq(address(CreatorFeeHarvest(o.creatorFeeHarvest).launchpad()), o.launchpad);
+        assertEq(address(CreatorFeeHarvest(o.creatorFeeHarvest).lockedLP()), o.lockedLP);
+        assertEq(address(CreatorFeeHarvest(o.creatorFeeHarvest).feeVault()), CurveDeployer(o.curveDeployer).feeVault());
     }
 
     /// @dev DeployPaymaster uses dynamic gas units (PAYMASTER_MAX_GAS_PER_OP), requires an owner-supplied stake,

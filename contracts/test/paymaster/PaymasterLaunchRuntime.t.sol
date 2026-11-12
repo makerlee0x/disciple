@@ -50,7 +50,7 @@ contract PaymasterLaunchRuntimeTest is PaymasterBootstrapFixture {
     address quoteAsset;
     uint256 minQuoteIn;
     uint256 constant FEE = 10_000_000; // RH fixture gas price, not a live USD/ETH price
-    uint256 constant MAX_LAUNCH_GAS = 21_840_770; // 2x worst measured launch: 10,920,385 gas
+    uint256 constant MAX_LAUNCH_GAS = 21_855_958; // 2x worst measured launch: 10,927,979 gas
 
     function setUp() public override {
         super.setUp();

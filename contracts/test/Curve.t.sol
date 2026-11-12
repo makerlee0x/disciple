@@ -71,7 +71,7 @@ contract CurveTest is Test {
     function setUp() public {
         quote = new MockQuote();
         referrals = new ReferralRegistry(owner, address(quote));
-        lockedLP = new LockedLP(owner, treasury);
+        lockedLP = new LockedLP(owner, treasury, address(0));
         feeRouter = new FeeRouter(owner, treasury, address(referrals));
 
         // PoolManager + mined hook + Migration (3 CREATE/CREATE2)

@@ -39,7 +39,7 @@ contract PaymasterV5RuntimeTest is PaymasterBootstrapFixture {
         rate = 3000 ether;
         v5 = new PM(EP, address(usdg), owner, signer, treasury, rate / 10, rate * 10, 7_068_712, 150_000);
         vm.prank(owner);
-        v5.setLaunchGasLimit(21_840_770);
+        v5.setLaunchGasLimit(21_855_958);
         v5.deposit{value: 1 ether}();
         vm.fee(0);
         trade = BootstrapBuy(market.routerAddress());

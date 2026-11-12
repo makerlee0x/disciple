@@ -103,6 +103,8 @@ contract CurveFeeVault is EIP712 {
     error FeeTooHigh();
     error Expired();
     error BadSignature();
+    /// @notice Destination 1 or 2. The later-send contract pulls these fees. The launcher cannot claim them.
+    error CreatorFeesRouted();
 
     /// @notice Same fields as FeeRouter.TradeFeeRouted (lpShare = the share the curve kept; trader 0 = batch settle).
     event CurveFeeSettled(
@@ -135,7 +137,9 @@ contract CurveFeeVault is EIP712 {
 
     /// @notice Called by the coin's registered curve right after it transferred
     ///         `protoFee - lpShare + creatorTax` of `quote` here (lpShare = FeeMath split LP part, kept by the curve).
-    function settleCurveFee(address token, address quote, address trader, uint256 protoFee, uint256 creatorTax) external {
+    function settleCurveFee(address token, address quote, address trader, uint256 protoFee, uint256 creatorTax)
+        external
+    {
         IFeeRouterConfig fr = feeRouter;
         ILaunchpadView lp = ILaunchpadView(fr.launchpad());
         if (msg.sender != lp.curveOf(token)) revert OnlyCurve();
@@ -189,7 +193,9 @@ contract CurveFeeVault is EIP712 {
     function _settle(address token) internal returns (address c) {
         c = ILaunchpadView(feeRouter.launchpad()).curveOf(token);
         // "collect": owed → accrued first. try: a pre-lp-accrue curve has no settleFees (and nothing here).
-        if (c != address(0)) try ISettleCurve(c).settleFees() {} catch {}
+        if (c != address(0)) {
+            try ISettleCurve(c).settleFees() {} catch {}
+        }
     }
 
     function _settleAll(address[] calldata tokens) internal {
@@ -200,6 +206,7 @@ contract CurveFeeVault is EIP712 {
 
     /// @notice Creator claim: settles the coin's owed fees first, then pays msg.sender's accrued share.
     function claimCreatorFees(address token) external returns (uint256 amount) {
+        _revertIfRouted(token);
         address c = _settle(token);
         if (c == address(0)) revert NothingToClaim();
         address quote = ISettleCurve(c).quote(); // never caller-supplied
@@ -239,6 +246,8 @@ contract CurveFeeVault is EIP712 {
     ///         fall back to / combine with the FeeRouter balance.
     function claimCreatorFeesToRouter(address token, address creator) external returns (uint256 amount) {
         if (!feeRouter.isClaimRouter(msg.sender)) revert OnlyClaimRouter();
+        // Destination 1 or 2 is pulled only by the later-send contract, the same rule as FeeRouter.
+        if (_destination(token) > 0 && msg.sender != _harvest()) revert CreatorFeesRouted();
         address c = _settle(token);
         if (c == address(0)) return 0;
         amount = creatorAccrued[token][creator];
@@ -254,6 +263,7 @@ contract CurveFeeVault is EIP712 {
     function claimCreatorFeesAsStealth(address token, address to) external returns (uint256 amount) {
         if (to == address(0)) revert ZeroAddress();
         _checkStealthOwner(token, msg.sender);
+        _revertIfRouted(token);
         address quote;
         (quote, amount) = _takeAnon(token);
         if (amount == 0) revert NothingToClaim();
@@ -277,6 +287,7 @@ contract CurveFeeVault is EIP712 {
         for (uint256 i; i < c.tokens.length; ++i) {
             address token = c.tokens[i];
             _checkStealthOwner(token, c.owner);
+            _revertIfRouted(token);
             (address quote, uint256 amount) = _takeAnon(token);
             if (amount == 0) revert NothingToClaim();
             uint256 rf = (amount * c.relayerFeeBps) / Constants.BPS_DENOM;
@@ -352,4 +363,27 @@ contract CurveFeeVault is EIP712 {
         }
         amount += cs + tax;
     }
+
+    /// @dev Same gate as FeeRouter.CreatorFeesRouted. Unset harvest, or destination 0, keeps today's claim.
+    function _revertIfRouted(address token) internal view {
+        if (_destination(token) > 0) revert CreatorFeesRouted();
+    }
+
+    function _destination(address token) internal view returns (uint8) {
+        address harvest = _harvest();
+        if (harvest == address(0)) return 0;
+        return ICreatorFeeDestination(harvest).creatorFeeDestinationOf(token);
+    }
+
+    function _harvest() internal view returns (address) {
+        return IHarvestPointer(address(feeRouter)).creatorFeeHarvest_16();
+    }
+}
+
+interface IHarvestPointer {
+    function creatorFeeHarvest_16() external view returns (address);
+}
+
+interface ICreatorFeeDestination {
+    function creatorFeeDestinationOf(address token) external view returns (uint8);
 }
