@@ -61,6 +61,8 @@
 .modeLink b { color: var(--dsc-text); font-weight: 500; }
 .advLink { color: var(--dsc-muted); }
 .footLinks { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; width: 100%; }
+.advRow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
+.feeChip { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border: 1px solid var(--dsc-border); border-radius: 9999px; background: var(--dsc-surface-2); font-size: 13px; line-height: 18px; color: var(--dsc-text); white-space: nowrap; }
 
 /* Cinematic pad preview (HeroPad idle: pad, exhaust, smog) */
 .stage { position: relative; height: min(460px, calc(100dvh - 148px)); min-height: 280px; border-radius: 12px; border: 1px solid var(--dsc-border); background: #0B0C0E; overflow: hidden; container-type: size; }
@@ -100,12 +102,27 @@
 .sw.on i { left: 18px; background: #0B0C0E; }
 .help { font-size: 12px; line-height: 16px; color: var(--dsc-muted); }
 
+
+/* r7: creator fees as three square illustrated cards. Silver only — no gold, no orange. */
+.feeCards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.feeCard { --card-bg: var(--dsc-surface); position: relative; aspect-ratio: 1 / 1; border: 1px solid var(--dsc-border); border-radius: 12px; background: var(--card-bg); padding: 14px 16px 16px; display: flex; flex-direction: column; min-width: 0; box-sizing: border-box; color: #6F7581; cursor: pointer; font: inherit; text-align: left; }
+.feeCard.on { --card-bg: var(--dsc-surface-2); border-color: rgba(201, 206, 214, .6); box-shadow: inset 0 0 0 1px rgba(201, 206, 214, .18); color: var(--dsc-primary); }
+.feeRadio { position: absolute; top: 12px; left: 12px; width: 18px; height: 18px; border-radius: 9999px; border: 1.5px solid #4E535D; display: grid; place-items: center; box-sizing: border-box; background: var(--card-bg); }
+.feeCard.on .feeRadio { border-color: var(--dsc-primary); }
+.feeCard.on .feeRadio i { width: 8px; height: 8px; border-radius: 9999px; background: var(--dsc-primary); display: block; }
+.feeArt { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 18px 4px 8px; color: inherit; }
+.feeArt svg { width: 100%; height: 100%; max-height: 118px; display: block; overflow: visible; }
+.feeLab { font-size: 14px; line-height: 19px; color: #A3A8B2; font-weight: 500; text-wrap: balance; }
+.feeCard.on .feeLab { color: var(--dsc-text); }
+.feePerm { margin-top: 2px; }
+
 /* Centered popup modal (mode + Advanced). Only an X — no drag/minimize bar. */
 .scrim { position: fixed; inset: 0; background: rgba(11, 12, 14, .56); z-index: 40; }
 .modal { position: fixed; inset: 0; z-index: 41; display: grid; place-items: center; padding: 16px; pointer-events: none; }
 .modalPanel { pointer-events: auto; width: 100%; max-width: 440px; background: var(--dsc-surface); border: 1px solid var(--dsc-border); border-radius: 12px; padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 12px; max-height: min(640px, 92dvh); overflow: hidden; box-sizing: border-box; }
-.modalPanel.wide { max-width: 480px; }
-.drawerHd { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.modalPanel.wide { max-width: 720px; max-height: min(720px, 92dvh); padding: 16px 20px 20px; }
+.modalBody { overflow-y: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 14px; }
+.drawerHd { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; }
 .drawerHd h2 { font-family: var(--dsc-font-display, "Instrument Serif", serif); font-size: 22px; line-height: 1; font-weight: 400; margin: 0; }
 .iconBtn { width: 32px; height: 32px; border: 0; color: var(--dsc-muted); background: none; cursor: pointer; display: inline-grid; place-items: center; }
 .pchips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -157,6 +174,12 @@
   .foot { gap: 8px; }
   .modal { padding: 12px; }
   .modalPanel { max-width: none; padding: 14px 14px 16px; }
+  .feeCards { gap: 8px; }
+  .feeCard { padding: 7px 7px 8px; border-radius: 10px; }
+  .feeRadio { top: 7px; left: 7px; width: 14px; height: 14px; border-width: 1.25px; }
+  .feeCard.on .feeRadio i { width: 6px; height: 6px; }
+  .feeArt { padding: 14px 0 3px; }
+  .feeLab { font-size: 11.5px; line-height: 14px; letter-spacing: -.01em; }
   .inp, .dice { height: 34px; }
   .launch { height: 40px; }
   .modeCard { height: 48px; font-size: 14px; padding: 0 22px 0 8px; }
