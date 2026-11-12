@@ -62,7 +62,7 @@ contract PaymasterV5Test is Test {
     uint256 constant TIP = 1 gwei;
     uint256 constant RATE = 2_300_000_000; // 2300 USDG per ETH, 6 decimals
     uint256 constant TRADE_CAP = 7_068_712;
-    uint256 constant LAUNCH_CAP = 21_840_770;
+    uint256 constant LAUNCH_CAP = 21_855_958;
     bytes4 internal constant DEPOSIT_SEL = bytes4(keccak256("deposit(address,uint256)"));
 
     function _asPm(EpOp memory op) internal pure returns (PmOp memory out) {

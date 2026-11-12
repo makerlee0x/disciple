@@ -48,7 +48,7 @@ contract LaunchpadTest is Test {
     function setUp() public {
         quote = new MockQuote();
         referrals = new ReferralRegistry(owner, address(quote));
-        lockedLP = new LockedLP(owner, treasury);
+        lockedLP = new LockedLP(owner, treasury, address(0));
         feeRouter = new FeeRouter(owner, treasury, address(referrals));
 
         V4Deploy.Stack memory stack = V4Deploy.deploy(owner, lockedLP, feeRouter);

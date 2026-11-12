@@ -351,7 +351,7 @@ async function main() {
   const polData = encodeDeployData({ abi: polArt.abi as never, bytecode: polArt.bytecode.object, args: [zeroAddress, paymaster] });
   const polRc = await send(polData);
   const policy = polRc.contractAddress!;
-  await send(encodeFunctionData({ abi: pmAbi, functionName: "setLaunchGasLimit", args: [21_840_770n] }), paymaster);
+  await send(encodeFunctionData({ abi: pmAbi, functionName: "setLaunchGasLimit", args: [21_855_958n] }), paymaster);
   await send(encodeFunctionData({ abi: epAbi, functionName: "addStake", args: [UNSTAKE_DELAY] }), paymaster, LIVE_STAKE);
   await send(encodeFunctionData({ abi: epAbi, functionName: "depositTo", args: [paymaster] }), ENTRYPOINT_V07, 13_043_478_260_869_566n);
   const st = await stakeOf(paymaster);

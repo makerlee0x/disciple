@@ -50,7 +50,7 @@ contract SpacehoodRouteForkTest is Test {
         assertEq(block.chainid, 4663, "not robinhood mainnet");
         pm = IPoolManager(PM);
         trader = makeAddr("trader");
-        LockedLP lp = new LockedLP(address(this), address(this));
+        LockedLP lp = new LockedLP(address(this), address(this), address(0));
         // hook = address(0): UsdgRouteLib only rejects the DISCIPLE hook; these hops use other hooks.
         router = new DiscipleRouter(pm, lp, address(0));
         router.setUsdgRouting(USDG, address(1)); // launchpad unused by swapUsdgToQuote

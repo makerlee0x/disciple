@@ -58,6 +58,8 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     error ZeroAddress();
     error NothingToClaim();
     error KolShareTooHigh();
+    /// @notice Destination 1 or 2. The later-send contract pulls these fees. The launcher cannot claim them.
+    error CreatorFeesRouted();
 
     /// @notice Audit #11: full fee breakdown with payees. Amounts are in `feeToken` units: the curve quote
     ///         pre-graduation, and post-graduation whichever pool side the hook charged (quote OR launch token —
@@ -292,7 +294,6 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     }
 
     function _routeSnipe(address token, address quote, uint256 snipeFeeAmount) internal {
-
         address vault = rewardsVault;
         uint256 toRewards =
             vault == address(0) ? 0 : (snipeFeeAmount * Constants.SNIPE_REWARDS_BPS) / Constants.BPS_DENOM;
@@ -315,6 +316,7 @@ contract FeeRouter is IFeeRouter, Owned2Step {
 
     /// @inheritdoc IFeeRouter
     function claimCreatorFees(address token) external override returns (uint256 amount) {
+        _revertIfSelfClaimRouted(token);
         amount = creatorAccrued[token][msg.sender];
         if (amount == 0) revert NothingToClaim();
         creatorAccrued[token][msg.sender] = 0;
@@ -331,6 +333,7 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     ///         passes its own msg.sender as `creator`.
     function claimCreatorFeesFor(address token, address creator) external returns (uint256 amount) {
         if (!isClaimRouter[msg.sender]) revert OnlyAuthorized();
+        _revertIfPullNotHarvest(token);
         amount = creatorAccrued[token][creator];
         if (amount == 0) revert NothingToClaim();
         creatorAccrued[token][creator] = 0;
@@ -340,6 +343,7 @@ contract FeeRouter is IFeeRouter, Owned2Step {
 
     /// @notice Creator share accrued in the launch token itself (post-graduation buys pay the hook fee in token).
     function claimCreatorTokenFees(address token) external returns (uint256 amount) {
+        _revertIfSelfClaimRouted(token);
         amount = creatorTokenAccrued[token][msg.sender];
         if (amount == 0) revert NothingToClaim();
         creatorTokenAccrued[token][msg.sender] = 0;
@@ -392,6 +396,10 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     mapping(address => address) public tokenQuote;
     /// @dev Referrer of the launching wallet at launch (KOL on creates — LOCKED #21). Immutable per token.
     mapping(address => address) public tokenLaunchKol;
+    /// @notice Later-send contract. Trades never read this. Address 0 keeps today's self-claim.
+    ///         Destination 1 or 2 (read from this contract) cannot be self-claimed.
+    ///         Not `public`: the auto-getter selector sorts before `routeTradeFee` and would add gas to every trade.
+    address internal creatorFeeHarvest;
 
     function registerTokenQuote(address token, address quote) external {
         if (msg.sender != launchpad && msg.sender != owner) revert OnlyOwner();
@@ -406,9 +414,55 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         if (kol != address(0)) tokenLaunchKol[token] = kol;
     }
 
+    /// @notice Claim-router pull of rocket-token fees, mirroring `claimCreatorFeesFor`.
+    ///         The `_15` suffix keeps this selector after every function that already existed, so a trade does not
+    ///         walk an extra dispatcher comparison. Destination 1 or 2 may be pulled only by `creatorFeeHarvest`.
+    function claimCreatorTokenFeesFor_15(address token, address creator) external returns (uint256 amount) {
+        if (!isClaimRouter[msg.sender]) revert OnlyAuthorized();
+        _revertIfPullNotHarvest(token);
+        amount = creatorTokenAccrued[token][creator];
+        if (amount == 0) revert NothingToClaim();
+        creatorTokenAccrued[token][creator] = 0;
+        IERC20(token).safeTransfer(msg.sender, amount);
+        emit CreatorTokenFeesClaimed(token, creator, amount);
+    }
+
+    /// @notice Owner sets the later-send contract self-claims read. Address 0 restores today's claim.
+    ///         The `_51` suffix keeps this selector after every function that already existed, so a trade does not
+    ///         walk an extra dispatcher comparison.
+    function setCreatorFeeHarvest_51(address harvest) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        creatorFeeHarvest = harvest;
+    }
+
+    /// @notice The later-send contract, if the owner has set one. The `_16` suffix keeps this selector last.
+    function creatorFeeHarvest_16() external view returns (address) {
+        return creatorFeeHarvest;
+    }
+
     function _quoteOf(address token) internal view returns (address) {
         address q = tokenQuote[token];
         require(q != address(0), "FeeRouter: no quote");
         return q;
     }
+
+    /// @dev Same gate as AnonLauncher.CreatorFeesRouted. Unset harvest, or destination 0, keeps today's claim.
+    function _revertIfSelfClaimRouted(address token) internal view {
+        if (_destination(token) > 0) revert CreatorFeesRouted();
+    }
+
+    /// @dev Destination 1 or 2 quote and rocket-token pulls belong to the later-send contract only.
+    function _revertIfPullNotHarvest(address token) internal view {
+        if (_destination(token) > 0 && msg.sender != creatorFeeHarvest) revert CreatorFeesRouted();
+    }
+
+    function _destination(address token) internal view returns (uint8) {
+        address harvest = creatorFeeHarvest;
+        if (harvest == address(0)) return 0;
+        return ICreatorFeeDestination(harvest).creatorFeeDestinationOf(token);
+    }
+}
+
+interface ICreatorFeeDestination {
+    function creatorFeeDestinationOf(address token) external view returns (uint8);
 }
