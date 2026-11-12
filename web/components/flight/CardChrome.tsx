@@ -9,10 +9,11 @@
  * (useDomCard / DexChart; the chart also has its own resize handle, size saved in the same layout)
  * and are located by [data-card]. Radio is a DOM card too, but it is a FLOAT_CARD: same ⠿ / – / × chrome and saved offsets, not in the snap-to-grid flow. All pointer input here lands on DOM elements, so it never reaches the game (no steering).
  */
+import { useHudMode } from "@/lib/game/hudMode";
 import { useEffect, useRef, useState } from "react";
 import { CARD_IDS, CARD_TITLES, CANVAS_CARDS, FLOAT_CARDS, clampOffset, hiddenCards, resetLayout, restoreCard, setCard, type CardId, type Layout } from "@/lib/game/cardLayout";
 import { getLayout, getSavedLayout, isPhoneUI, setFlowOffsets, updateLayout, useCanvasCards, useCardLayout, type FlowOffsets } from "@/lib/game/cardLayoutStore";
-import { centerLane, chartCap, COMPACT_W, computeSlots, layoutCards, nearestSlot, type Box, type FlowCard, type Slot, type SlotEnv, type SlotId } from "@/lib/game/slots";
+import { centerLane, COMPACT_W, computeSlots, layoutCards, nearestSlot, type Box, type FlowCard, type Slot, type SlotEnv, type SlotId } from "@/lib/game/slots";
 import { overlayBlocked, startSidebarOverlay } from "@/lib/game/sidebarOverlay";
 
 type R = { x: number; y: number; w: number; h: number };
@@ -23,6 +24,7 @@ const DOM_HOME: Partial<Record<CardId, R>> = { chart: { x: 84, y: 470, w: 440, h
 
 export default function CardChrome() {
   const layout = useCardLayout(), canvas = useCanvasCards();
+  const hud = useHudMode();
   const [phone, setPhone] = useState(true), [hover, setHover] = useState<CardId | null>(null), [menu, setMenu] = useState(false), [, tick] = useState(0);
   const lastDom = useRef<Partial<Record<CardId, R>>>({});
   const drag = useRef<{ id: CardId; x0: number; y0: number; dx: number; dy: number; pid: number } | null>(null);
@@ -56,15 +58,18 @@ export default function CardChrome() {
       (window as unknown as { __hudLane?: Box }).__hudLane = lane;
       envRef.current = env;
       const saved = getSavedLayout(), d = drag.current, cards: FlowCard[] = [], cur = getLayout();
+      const colFixed: Box[] = [];
       for (const id of CARD_IDS) {
         if (FLOAT_CARDS.includes(id)) continue;   // radio: drag / minimize / saved dx,dy, but stay out of the snap-to-grid flow
+        // approved mockup (Nov 12): the right column is fixed, chart on top (Pro) and the crew feed under it. They hold their
+        // spots; the flow only keeps the other cards clear of them.
+        if (id === "chart" || id === "chat") { const r = rectOf(id); if (r) colFixed.push(r); continue; }
         const sv = saved[id]; if (sv?.min || sv?.closed || (d && d.id === id)) continue;
         const r = rectOf(id);
         let base: Box;
         if (r) { const e = effOffset(id); base = { x: Math.round(r.x - e.dx), y: Math.round(r.y - e.dy), w: Math.round(r.w), h: Math.round(r.h) }; bases.current[id] = base; }
         else if (cur[id]?.closed && bases.current[id]) base = bases.current[id]!;   // folded into a tab by the flow: keep it in the flow
         else continue;
-        if (id === "chart") { const cap = chartCap(wrap.width, wrap.height, left + 20, lane, innerWidth); base = { ...base, w: Math.min(base.w, cap.w), h: Math.min(base.h, cap.h) }; }   // DexChart applies the same cap
         if (sv && !sv.slot && (sv.dx || sv.dy)) {   // migrate a legacy raw x / y to the nearest slot (saved once)
           const sl = computeSlots(env), at = { x: base.x + sv.dx, y: base.y + sv.dy };
           const slot = nearestSlot(sl, at.x + base.w / 2, at.y + base.h / 2);
@@ -73,7 +78,7 @@ export default function CardChrome() {
         }
         cards.push({ id, base, slot: sv?.slot, order: sv?.order });
       }
-      const fixed = [wallet, bar, ammo.current].filter((b): b is Box => !!b);
+      const fixed = [wallet, bar, ammo.current, ...colFixed].filter((b): b is Box => !!b);
       if (d) { const r = rectOf(d.id); if (r) fixed.push(r); }   // the card in your hand is not flowed (others avoid it)
       const compact = innerWidth - left < COMPACT_W, pinned = CARD_IDS.filter((id) => saved[id]?.pin);
       const res = layoutCards(env, cards, fixed, { compact, pinned }), out = res.pos, offs: FlowOffsets = {};
@@ -187,7 +192,8 @@ export default function CardChrome() {
           onClick={radioPill ? undefined : () => updateLayout((l) => restoreCard(l, id))}
           style={{ ...btn, position: "fixed", left: x, top: y, pointerEvents: "auto", padding: "2px 8px", borderRadius: 8, background: "rgba(8,10,28,.86)", border: "1px solid rgba(255,231,163,.45)", fontWeight: 700, letterSpacing: ".06em", cursor: radioPill ? "grab" : "pointer", touchAction: radioPill ? "none" : undefined }}>
           ▸ {CARD_TITLES[id].toUpperCase()}</button>; })}
-      <div style={{ position: "fixed", left: wrapXY().x + 20, bottom: 3, pointerEvents: "auto" }}>
+      {/* Pilot (approved mockup): no LAYOUT label unless a card is hidden; Pro keeps it */}
+      <div style={{ position: "fixed", left: wrapXY().x + 20, bottom: 3, pointerEvents: "auto", display: hud === "pro" || menu || hidden.length ? "block" : "none" }}>
         <button data-testid="layout-menu" onClick={() => setMenu((m) => !m)} title="Cards: restore closed ones or reset the layout"
           style={{ ...btn, fontSize: 9.5, opacity: menu || hidden.length ? 0.95 : 0.55, letterSpacing: ".08em" }}>⧉ LAYOUT{hidden.length ? ` · ${hidden.length} hidden` : ""}</button>
         {menu && <LayoutMenu layout={layout} close={() => setMenu(false)} />}

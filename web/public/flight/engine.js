@@ -855,6 +855,9 @@ addEventListener('disciple:gradneed',e=>{ const d=e.detail||{}, u=d.usd; S.gradN
    tier progress bar, no "buys needed" / "to ascend" text, an ASCENDED badge instead (desktop tier bar). User-facing word since
    lee's Oct 30 rename: ASCENDED (identifiers / contract + API names keep "graduated"). */
 S.graduated=false; S.gradInfo=null;
+/* approved mockup (Nov 12): Pro's LOADOUT is a DOM card (TradeBridge), so the canvas ammo panel stays off; the source /
+   replay status box is not in the mockup either (?status=1 brings it back for debugging). */
+const AMMO_CANVAS=false, SHOW_STATUS=Q.get('status')==='1';
 const GRAD_BADGE='IN ORBIT';   // brand v3 (Nov 2026): graduated = IN ORBIT (was ASCENDED); the word only, no 'trading on Uniswap'
 const ASCENDED='IN ORBIT';   // the graduated state, as players read it (tier line: 'IN ORBIT · LAUNCH PAD'); name kept for callers
 function setGraduated(on,d){ const was=!!S.graduated; S.graduated=!!on; if(on&&!was&&S.t>4&&S.confirmed&&S.confirmed.mcap>0) startOrbitFx(); if(on){ S.gradNeedUsd=null; const g=S.gradInfo||{};
@@ -1889,7 +1892,7 @@ function drawHud(){
   const PROH=S.pro&&!PH&&!S.graduated&&!IS_POOL?28:0;   /* Pro: + the orbit / holders line (curve coins; a DEX pool has no orbit) */
   if (cardBegin('header',20,18,380,130+HY+PROH)){   /* @cards */
   panel(20,18,380,130+HY+PROH); ctx.save(); ctx.translate(0,HY);
-  { const lbl=IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}`:(coinTicker()&&!(source instanceof DiscipleSource)?'$'+coinTicker()+' · ':'')+'ALTITUDE';
+  { const lbl=IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}`:(coinTicker()&&!(source instanceof DiscipleSource)?'$'+coinTicker()+' · ':'')+(S.pro?'MARKET CAP':'ALTITUDE');   /* mockup: Pilot reads altitude, Pro reads market cap */
     if(lbl){ ctx.fillStyle='rgba(215,217,228,.72)'; ctx.font=GF(14,600); if('letterSpacing' in ctx) ctx.letterSpacing='2px'; ctx.fillText(lbl,36,40); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; } }
   drawBadge(diffBadge(),384,36);   /* brand v3 difficulty badge: EASY / HARD / EXPERT, IN ORBIT after graduation */
   ctx.fillStyle='#fff'; ctx.font=GF(46,800); glowText(fmtUsd(m),34,86,'rgb(243,223,168)',8,0.22);
@@ -1911,7 +1914,7 @@ function drawHud(){
   // DISCIPLE status box ('curve events / block # / HOLDING · no trades'): not on a coin page (lee, Oct 30 cleanup) —
   // TOP HOLDERS moves up into its slot (STATUS_DY = 0; FlightCanvas --ap-status-h keeps GameChat in step)
   const STATUS_BOX=!(source instanceof DiscipleSource), STATUS_DY=STATUS_BOX?100:0;
-  if (!PH&&STATUS_BOX&&S.pro){
+  if (!PH&&STATUS_BOX&&S.pro&&SHOW_STATUS){
   panel(RX,RT,CW,92);
   const sinceSwap=(performance.now()-S.confirmed.lastSwapTs)/1000, holding=sinceSwap>1.5;
   ctx.fillStyle=S.status.ok?'#8ff0c0':'#ff8f8f'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText('● '+(S.status.source||source.name),RX+16,RT+24);
@@ -1942,7 +1945,7 @@ function drawHud(){
   // Keyboard/status box removed. Keep control events and all working trade/keyboard handlers.
   if (S.controlsDocked) pushControls();
   let TOX=Math.round((W-300)/2), TOY=PH?PH.pillTop+(S.phoneTierLabel?76:58):136;   // achievement toasts: phone = under the MCAP pill
-  if (PH||!S.pro) AMMO_HIT.forEach(R=>{ R.x=-1e9; R.y=-1e9; R.w=0; R.h=0; }); else {   // phone v3 + desktop Pilot: no canvas preset chips (amounts live in the bottom bar / BOOST + DUMP sheets); Pro keeps the panel
+  if (PH||!S.pro||!AMMO_CANVAS) AMMO_HIT.forEach(R=>{ R.x=-1e9; R.y=-1e9; R.w=0; R.h=0; }); else {   // phone v3 + desktop Pilot: no canvas preset chips (amounts live in the bottom bar / BOOST + DUMP sheets); Pro keeps the panel
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
   const ax=LY.ax, ay=LY.ay; panel(ax,ay,AW,AH);   // @hud-layout (hudTopLayout)
   ctx.fillStyle='#F3DFA8'; ctx.font=GF(15,700); if('letterSpacing' in ctx) ctx.letterSpacing='1.5px'; ctx.fillText('LOADOUT',ax+12,ay+17); if('letterSpacing' in ctx) ctx.letterSpacing='0px';
@@ -2737,7 +2740,7 @@ function drawTierBar(m,ti,leftEnd){
    interval and makes it the default (replay/share videos with ?clean=1 default to 5 s so a short clip shows candles). */
 const CHART_TFS=[{s:60,l:'1m'},{s:300,l:'5m'},{s:3600,l:'1h'},{s:14400,l:'4h'},{s:86400,l:'D'}];
 const CHART_STYLE={
-  w:300, h:196, alpha:0.86, title:22, axis:46, gutter:14, top:12, xaxis:9, volFrac:.2, candles:36, keep:160, hz:8,
+  w:300, h:196, alpha:1, title:30, axis:46, gutter:14, top:12, xaxis:9, volFrac:.2, candles:36, keep:160, hz:8,
   candleSec:+(Q.get('candleSec')||0)||(CLEAN?5:0),
   frameOuter:'#0b0a12', frameBevelHi:'rgba(255,255,255,.18)', frameBevelLo:'rgba(0,0,0,.6)', frameMid:'#2a2638',
   titleBg:'rgba(24,20,36,.92)', titleFg:'#f3e6c2', bg:'rgba(8,10,20,.62)', grid:'rgba(190,200,255,.10)', edgeFg:'rgba(220,228,255,.55)',
@@ -2860,8 +2863,8 @@ const CHART_PNL_BOTTOM=456, CHART_PNL_GAP=8, CHART_MIN_H=100;
 function chartRect(){ const st=CHART_STYLE; if(CLEAN) return {x:20,y:H-20-st.h,h:st.h};
   if(domChart()){ delete CARD_RECTS.chart; return {x:-1e4,y:-1e4,w:st.w,h:st.h,off:1}; }
   { const P=phoneHud(W,CLEAN); if(P){ const B=P.body; return P.sheet==='chart'&&B?{x:Math.round(B.x),y:Math.round(B.y+4),w:Math.round(Math.max(st.w*0.8,B.w)),h:Math.round(Math.max(132,B.h-8))}:{x:-1e4,y:-1e4,w:st.w,h:st.h}; } }   /* post-grad fix 4: the CHART tab fills the drawer body */   /* @phone-hud: chart only inside the drawer's CHART tab */
-  if (source.isSim){ const top=hudColTop(W,S.hudRT||18), y=Math.round(kothDockedNow()?top+100+420+12:top+204), room=H-116-y; if(room<132) return {x:-1e4,y:-1e4,h:132,off:1};
-    return {x:W-320,y,h:Math.round(Math.min(room,st.h))}; }   /* /flight/sim: SimMode panel owns bottom-left; right column: the crew feed (GameChat, ≤420 px) then the chart */
+  /* Pro (approved mockup): the ALTITUDE CHART is the top card of the right column (420 × 270), the crew feed (GameChat) right under it */
+  { const top=hudColTop(W,S.hudRT||18); delete CARD_RECTS.chart; return {x:W-440,y:Math.round(top+34),w:420,h:270}; }   /* /flight/sim: SimMode panel owns bottom-left; right column: the crew feed (GameChat, ≤420 px) then the chart */
   { const b=chartDeskRect(H,st.h,typeof window!=='undefined'?window.__pnlBottom:null); if(b.off){ delete CARD_RECTS.chart; return b; }   /* @cards: movable / minimizable */
     const o=cardPlace('chart',b.x,b.y,st.w,b.h); return o?{x:b.x+o.dx,y:b.y+o.dy,h:b.h}:{x:-1e4,y:-1e4,h:b.h,off:1}; } }
 /* @chart-desk: desktop live chart box under the PnL card (pb = its bottom, wrap px) and above the trades feed (floor).
@@ -2879,23 +2882,21 @@ function redrawChart(dt){
   const st=CHART_STYLE, C=chartState(), R0=chartRect(), h=R0.h, w=R0.w||st.w; if(!C.cv){ C.cv=document.createElement('canvas'); C.cv.width=w; } if(C.cv.width!==w) C.cv.width=w; if(C.cv.height!==h) C.cv.height=h;
   const g=C.cv.getContext('2d'); g.clearRect(0,0,w,h); g.textBaseline='alphabetic';
   // Guild Wars window: dark outer frame, bevel, title bar
-  g.fillStyle=st.frameOuter; g.fillRect(0,0,w,h); g.fillStyle=st.frameMid; g.fillRect(3,3,w-6,h-6);
-  g.strokeStyle=st.frameBevelHi; g.lineWidth=1; g.beginPath(); g.moveTo(1.5,h-1.5); g.lineTo(1.5,1.5); g.lineTo(w-1.5,1.5); g.stroke();
-  g.strokeStyle=st.frameBevelLo; g.beginPath(); g.moveTo(w-1.5,1.5); g.lineTo(w-1.5,h-1.5); g.lineTo(1.5,h-1.5); g.stroke();
-  g.fillStyle=st.titleBg; g.fillRect(5,5,w-10,st.title-4);
-  const tyM=5+(st.title-4)/2+3.5;
-  g.font='bold 11px Georgia,serif'; g.fillStyle=st.titleFg; g.fillText(chartPoolLabel(),11,tyM);
+  /* brand v3 (approved mockup "Desktop · Pro HUD"): HUD glass card, 16 px radius, ALTITUDE CHART in the game face */
+  g.beginPath(); g.roundRect? g.roundRect(.5,.5,w-1,h-1,16) : g.rect(.5,.5,w-1,h-1); g.fillStyle='rgba(18,19,39,.86)'; g.fill(); g.strokeStyle='#2E323A'; g.lineWidth=1; g.stroke();
+  const tyM=5+(st.title-4)/2+5;
+  g.font=GF(16,700); g.fillStyle='#F3DFA8'; if('letterSpacing' in g) g.letterSpacing='1.5px'; g.fillText(CLEAN?chartPoolLabel():'ALTITUDE CHART',14,tyM); if('letterSpacing' in g) g.letterSpacing='0px';
   // interval toggles (+ [M]) right-aligned in the title bar
   C.btn.length=0;
-  if(!CLEAN){ g.font='9px ui-monospace,monospace'; g.textAlign='right'; g.fillStyle='rgba(243,230,194,.6)'; g.fillText('[M]',w-10,tyM);
-    let x=w-30; const tfs=chartTfs();
+  if(!CLEAN){ g.font=GF(13,700); g.textAlign='right';
+    let x=w-12; const tfs=chartTfs();
     for(let i=tfs.length-1;i>=0;i--){ const t=tfs[i], on=t.s===C.tf, bw=Math.max(14,g.measureText(t.l).width+6); x-=bw;
-      if(on){ g.fillStyle=st.frameMid; g.fillRect(x,7,bw,st.title-8); g.strokeStyle=st.frameBevelLo; g.lineWidth=1; g.strokeRect(x+.5,7.5,bw-1,st.title-9); g.strokeStyle=st.frameBevelHi; g.beginPath(); g.moveTo(x+bw-.5,7.5); g.lineTo(x+bw-.5,st.title-1.5); g.lineTo(x+.5,st.title-1.5); g.stroke(); }   /* pressed bevel */
-      g.fillStyle=on?st.btnOn:st.btn; g.textAlign='center'; g.fillText(t.l,x+bw/2,tyM); C.btn.push({s:t.s,x,y:5,w:bw,h:st.title-4}); x-=2; }
+      if(on){ g.fillStyle='#F2F3F7'; g.beginPath(); g.roundRect? g.roundRect(x,7,bw,st.title-6,6) : g.rect(x,7,bw,st.title-6); g.fill(); }   /* selected = white pill (mockup) */
+      g.fillStyle=on?'#121327':'rgba(215,217,228,.78)'; g.textAlign='center'; g.fillText(t.l,x+bw/2,tyM); C.btn.push({s:t.s,x,y:5,w:bw,h:st.title-4}); x-=2; }
     g.textAlign='left'; }
   // plot area (faint grid; the A–H / 1–5 spreadsheet edge labels are gone, Oct 30); bottom strip = time axis, bottom band = volume
   const px=5+st.gutter, py=st.title+3+st.top, pw=w-5-st.axis-px, xh=st.xaxis, ph=h-6-xh-py, vh=Math.round(ph*st.volFrac), pph=ph-vh-2;
-  g.fillStyle=st.bg; g.fillRect(5,st.title+3,w-10,h-st.title-8);
+  /* plot sits straight on the card glass (no inner panel) */
   const NC=8, NR=5;
   g.strokeStyle=st.grid; g.lineWidth=1; g.beginPath();
   for(let i=0;i<=NC;i++){ const x=Math.round(px+pw*i/NC)+.5; g.moveTo(x,py); g.lineTo(x,py+ph); }

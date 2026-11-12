@@ -29,7 +29,7 @@ const BADGE: Record<string, { i: React.ReactNode; t: string; c: string }> = {
 const STATE: Record<ChatState | "init", { c: string; t: string }> = {
   init: { c: "#888", t: "…" }, connecting: { c: "#ffd24a", t: "connecting" }, live: { c: "#5df29a", t: "live" }, reconnecting: { c: "#ffa04a", t: "reconnecting" }, closed: { c: "#ff6b7d", t: "offline" },
 };
-const W_MIN = 260, W_DEF = 340, W_MAX = 560, FLUSH_MS = 200;
+const W_MIN = 300, W_DEF = 420, W_MAX = 560, FLUSH_MS = 200;
 const typingTarget = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)); };
 type Tab = "all" | "trades" | "chat" | "holders";
 const TABS: Tab[] = ["all", "trades", "chat", "holders"];
@@ -53,6 +53,14 @@ export function momentum(rows: FeedRow[], now = Date.now()) {
   let up = 0, down = 0; for (const r of rows) { if (!r.side || !(r.usd! > 0) || now - (r.seen ?? r.at) > MOMENTUM_MS) continue; if (r.side === "buy") up += r.usd!; else down += r.usd!; }
   return { up, down, share: up + down > 0 ? up / (up + down) : 0.5 };
 }
+/** one of your presses still in flight (TradeBridge): shown at the top of the feed as "You … sent" until its receipt lands */
+export type PendingRow = { id: string; side: "buy" | "sell"; amt: string };
+/** "0:12" since a row arrived (m:ss, then "5m+") */
+export function feedAge(ms: number) { const s = Math.max(0, Math.floor(ms / 1000)); return s >= 300 ? "5m+" : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }
+/** two-letter avatar from a name / address ("WhaleMoby" → WM, "0x51…6f72" → 51) */
+export function initials(name: string) { const n = name.replace(/^0x/i, "").replace(/[^A-Za-z0-9 ·.-]/g, ""); const caps = n.match(/[A-Z]/g);
+  if (caps && caps.length >= 2) return (caps[0] + caps[1]); const w = n.split(/[\s·.-]+/).filter(Boolean); return (w.length >= 2 ? w[0][0] + w[1][0] : n.slice(0, 2)).toUpperCase(); }
+const PILOT_ROWS = 8;
 type HolderItem = { who: string; address: string; usd: number; pct: number; label: HolderLabel; mine: boolean };
 /** rows: legacy [name, $] (session boosters on mock / sim / pool); items: REAL holders from on-chain balances (live coins:
  *  engine realHolders ← components/flight/HoldersBridge) — ranked rows first, labelled pool / curve / locker / burn rows after (friendly names: lib/flight/holders holderLabelText). */
@@ -78,6 +86,7 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
   const [tabUnread, setTabUnread] = useState(0);   // chat messages that arrived while Trades / Holders was showing
   const [holders, setHolders] = useState<Holders | null>(null);
   const [feed, setFeed] = useState<FeedRow[]>([]);
+  const [pending, setPending] = useState<PendingRow[]>([]);   // your own presses still in flight (TradeBridge disciple:pending)
   const hud = useHudMode();
   const tabRef = useRef<Tab>(tradesOnly ? "trades" : "all");
   const setTab = useCallback((t: Tab) => { tabRef.current = t; setTabS(t); if (t === "chat" || t === "all") setTabUnread(0); try { localStorage.setItem("disciple.gamechat.tab", t); } catch { /* */ } }, []);
@@ -96,6 +105,11 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
   // trade rows from the engine (public/flight/engine.js @crewfeed)
   useEffect(() => { const h = (e: Event) => { const d = (e as CustomEvent<{ rows?: FeedRow[] }>).detail; if (d && Array.isArray(d.rows)) setFeed((k) => mergeFeed(k, d.rows!)); };
     addEventListener("disciple:feed", h); return () => removeEventListener("disciple:feed", h); }, []);
+  useEffect(() => { const h = (e: Event) => { const d = (e as CustomEvent<{ rows?: PendingRow[] }>).detail; setPending(Array.isArray(d?.rows) ? d.rows : []); };
+    addEventListener("disciple:pending", h); return () => removeEventListener("disciple:pending", h); }, []);
+  // a 1 s clock for the Pro feed's "0:12" ages
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const iv = window.setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
   useEffect(() => { if (tradesOnly) return; let alive = true; resolveChat().then((r) => { if (alive && r) setApi({ api: r.api, svg: r.svgEmotes, source: r.source }); }); return () => { alive = false; }; }, [tradesOnly]);
   // history + subscribe; incoming messages are buffered and flushed ≤ every 150 ms (one React commit per batch)
   useEffect(() => {
@@ -183,9 +197,61 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
   items.sort((a, b) => a.t - b.t);
   const mo = hud === "pro" ? momentum(feed) : null;
   const typing = !tradesOnly && (tab === "all" || tab === "chat");
+  const onBoard = holders?.items ? holders.items.filter((r) => !r.label).length : holders?.rows.length ?? 0;
+  const errBox = err && <div data-testid="chat-error" style={{ margin: "0 8px 4px", padding: "5px 8px", borderRadius: 8, fontSize: 12, background: "rgba(240,48,127,.14)", border: "1px solid rgba(240,48,127,.45)", color: "#FFC2DA", display: "flex", gap: 8, alignItems: "center" }}>
+        <span><Icon name={err.kind === "rate" ? "pending" : err.kind === "filtered" ? "blocked" : err.kind === "identity" ? "key" : "warning"} size={12} /> {err.kind === "rate" ? `${err.msg} · retry in ${rl}s` : err.msg}</span>
+        {err.kind === "identity" && <button data-testid="chat-login" onClick={doLogin} style={{ marginLeft: "auto", cursor: "pointer", font: `700 13px ${HUD.game}`, borderRadius: 6, border: `1px solid ${HUD.champagne}`, background: "transparent", color: HUD.champagne, padding: "2px 8px" }}>Sign in</button>}
+        {err.kind !== "rate" && err.kind !== "identity" && <button onClick={() => setErr(null)} style={{ marginLeft: "auto", all: "unset", cursor: "pointer", marginInlineStart: "auto" }}>×</button>}
+      </div>;
+  const pickerBox = picker && <div data-testid="chat-picker" style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 4, margin: "0 8px 4px", padding: 6, borderRadius: 10, background: "rgba(18,19,39,.95)", border: `1px solid ${HUD.border}` }}>
+        {EMOTE_CODES.map((code) => <button key={code} title={`:${code}:`} onClick={() => { setText((t) => (t + (t && !t.endsWith(" ") ? " " : "") + `:${code}: `)); inputRef.current?.focus(); }}
+          style={{ all: "unset", cursor: "pointer", textAlign: "center", fontSize: 18 }}><Emote code={code} svg={api?.svg ?? false} src={api?.api.EMOTES[code]} /></button>)}
+      </div>;
+  const inputBox = (pilot: boolean) => <div style={{ display: "flex", gap: 8, alignItems: "center", margin: pilot ? "4px 0 0" : "4px 8px 8px", padding: "0 6px 0 12px", minHeight: 38, borderRadius: HUD.control, background: pilot ? HUD.glass : "rgba(11,12,14,.55)", border: `1px solid ${len > MAX_LEN ? HUD.down : HUD.border}` }}>
+        <input ref={inputRef} data-testid="chat-input" value={text} aria-label="Chat with the crew" placeholder={conn === "live" ? "Say something to the crew" : "chat " + st.t + "…"} maxLength={MAX_LEN * 2}
+          onChange={(e) => { setText(e.target.value); if (err && err.kind !== "rate") setErr(null); }}
+          onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") { e.preventDefault(); send(); } else if (e.key === "Escape") { setPicker(false); e.currentTarget.blur(); } }}
+          onKeyUp={(e) => e.stopPropagation()}
+          style={{ flex: 1, minWidth: 0, font: `13px ${HUD.ui}`, color: HUD.text, background: "transparent", border: 0, padding: "8px 0", outline: "none" }} />
+        {len > MAX_LEN * 0.85 && <span data-testid="chat-count" style={{ fontSize: 10, color: len > MAX_LEN ? HUD.down : "#ffd24a" }}>{len}/{MAX_LEN}</span>}
+        <button data-testid="chat-emote-btn" onClick={() => setPicker((p) => !p)} title="Emotes" aria-label="Emotes" style={{ all: "unset", cursor: "pointer", fontSize: 16, padding: "0 2px" }}>🚀</button>
+        <span aria-hidden="true" style={{ padding: "2px 7px", borderRadius: 6, background: "rgba(255,255,255,.1)", font: `700 12px ${HUD.game}`, color: HUD.dim }}>ENTER</span>
+      </div>;
+  if (hud !== "pro") {
+    // PILOT (approved mockup "Desktop · Pilot HUD"): no box, no tabs. A header (CREW · N on board · Holders), then the newest
+    // rows first, fading with age: trades as small cards (avatar, name, ▲ BOOST $X / ▼ DUMP $X), chat as plain lines between them.
+    const list = items.filter((it) => !it.chat || it.chat.msg.kind !== "system").slice(-PILOT_ROWS).reverse();
+    const showHolders = tab === "holders";
+    return (
+      <aside ref={dockRef} tabIndex={-1} data-testid="chat-dock" data-card="chat" data-hud="pilot" aria-label="Crew feed"
+        style={{ transform: card.transform, position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 34px)", width: 300, zIndex: 32, display: "flex", flexDirection: "column", gap: 6,
+          font: `13px/1.4 ${HUD.ui}`, color: HUD.text, outline: "none" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 4px 2px" }}>
+          <span data-testid="chat-state" title={tradesOnly ? "trades" : `chat ${st.t}`} style={{ width: 7, height: 7, borderRadius: "50%", background: tradesOnly ? HUD.up : st.c, flex: "none" }} />
+          <span style={{ font: `700 16px/1 ${HUD.game}`, letterSpacing: "1.5px", color: HUD.champagne }}>CREW</span>
+          <span style={{ fontSize: 12, color: "rgba(215,217,228,.7)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{onBoard > 0 ? `${onBoard >= 50 ? "50+" : onBoard} on board · ` : ""}{tradesOnly ? "trades" : "chat and trades"}</span>
+          <span style={{ flex: 1 }} />
+          <button type="button" data-testid={showHolders ? "chat-tab-all" : "chat-tab-holders"} onClick={() => setTab(showHolders ? (tradesOnly ? "trades" : "all") : "holders")}
+            style={{ all: "unset", cursor: "pointer", fontSize: 12, color: HUD.champagne }}>{showHolders ? "Feed" : "Holders"}</button>
+        </div>
+        {showHolders ? <div role="tabpanel" id="community-panel-holders" style={{ maxHeight: 360, display: "flex", flexDirection: "column", borderRadius: 12, background: HUD.glass, border: `1px solid ${HUD.border}` }}><HoldersView h={holders} /></div>
+          : <div data-testid="chat-list" role="log" aria-live="polite" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {!api && !tradesOnly && <p role="status" style={{ opacity: 0.6, margin: "4px 6px" }}>Chat is connecting…</p>}
+            {pending.map((p) => <PilotTrade key={"p" + p.id} buy={p.side === "buy"} who="You" own amt={p.amt} op={1} sent />)}
+            {!list.length && !pending.length && (api || tradesOnly) && <p style={{ opacity: 0.6, margin: "4px 6px" }}>Quiet up here. Be the first boost.</p>}
+            {list.map((it, i) => { const op = Math.max(0.55, 1 - i * 0.06);
+              if (it.chat) return <div key={it.k} style={{ opacity: op }}><ChatRow row={it.chat} svg={api?.svg ?? false} known={known} emotes={api?.api.EMOTES ?? {}} /></div>;
+              const r = it.trade!; if (!r.side) return <div key={it.k} style={{ opacity: op }}><TradeRow r={r} /></div>;
+              return <PilotTrade key={it.k} buy={r.side === "buy"} who={r.own ? "You" : r.who || "?"} own={!!r.own} amt={r.amt || ""} ic={r.ic} op={op} />; })}
+          </div>}
+        {errBox}{pickerBox}
+        {!tradesOnly && !showHolders && inputBox(true)}
+      </aside>
+    );
+  }
   return (
     <aside ref={dockRef} tabIndex={-1} data-testid="chat-dock" data-card="chat" aria-label="Holders and chat"
-      style={{ transform: card.transform, position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + var(--ap-status-h, 100px) + var(--ap-crew-h, 0px))", height: "min(420px, calc(100dvh - var(--ap-hud-rt, 58px) - var(--ap-status-h, 100px) - var(--ap-crew-h, 0px) - 36px))", minHeight: 160, width, zIndex: 32, display: "flex", flexDirection: "column",
+      style={{ transform: card.transform, position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 34px + var(--ap-pro-chart-h, 290px))", height: "min(350px, calc(100dvh - var(--ap-hud-rt, 58px) - 34px - var(--ap-pro-chart-h, 290px) - 20px))", minHeight: 160, width, zIndex: 32, display: "flex", flexDirection: "column",
         background: HUD.glass, border: `1px solid ${HUD.border}`, borderRadius: HUD.radius,
         font: `13px/1.4 ${HUD.ui}`, color: HUD.text, contain: "layout paint" }}>
       <div onPointerDown={drag} title="drag to resize" style={{ position: "absolute", left: -4, top: 0, bottom: 0, width: 8, cursor: "ew-resize", zIndex: 2 }} />
@@ -212,36 +278,20 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
         style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column-reverse", padding: "2px 6px", overscrollBehavior: "contain", scrollbarWidth: "thin" }}>
         <div>{!api && tab !== "trades" && <p role="status" style={{ opacity: 0.6, margin: "4px 6px" }}>Chat is connecting…</p>}
           {!items.length && (api || tradesOnly) && <p style={{ opacity: 0.6, margin: "4px 6px" }}>{tab === "trades" ? "No trades yet. Be the first boost." : "Quiet up here. Say hi to the crew."}</p>}
-          {items.map((it) => it.chat ? <ChatRow key={it.k} row={it.chat} svg={api?.svg ?? false} known={known} emotes={api?.api.EMOTES ?? {}} /> : <TradeRow key={it.k} r={it.trade!} />)}</div>
+          {items.map((it) => it.chat ? <ChatRow key={it.k} row={it.chat} svg={api?.svg ?? false} known={known} emotes={api?.api.EMOTES ?? {}} /> : <TradeRow key={it.k} r={it.trade!} age={feedAge(now - (it.trade!.seen ?? it.trade!.at))} />)}
+          {tab !== "chat" && pending.map((p) => <TradeRow key={"p" + p.id} r={{ id: 0, at: now, side: p.side, amt: p.amt, own: true }} sent />)}</div>
       </div>
       {unread > 0 && <button data-testid="chat-new" onClick={jump} style={{ position: "absolute", left: "50%", bottom: 64, transform: "translateX(-50%)", cursor: "pointer", font: `700 13px ${HUD.game}`,
         padding: "4px 12px", borderRadius: 12, border: "none", background: HUD.champagne, color: HUD.ink, boxShadow: "0 4px 14px rgba(0,0,0,.4)" }}>↓ {unread > 99 ? "99+" : unread} new messages</button>}
-      {err && <div data-testid="chat-error" style={{ margin: "0 8px 4px", padding: "5px 8px", borderRadius: 8, fontSize: 12, background: "rgba(240,48,127,.14)", border: "1px solid rgba(240,48,127,.45)", color: "#FFC2DA", display: "flex", gap: 8, alignItems: "center" }}>
-        <span><Icon name={err.kind === "rate" ? "pending" : err.kind === "filtered" ? "blocked" : err.kind === "identity" ? "key" : "warning"} size={12} /> {err.kind === "rate" ? `${err.msg} · retry in ${rl}s` : err.msg}</span>
-        {err.kind === "identity" && <button data-testid="chat-login" onClick={doLogin} style={{ marginLeft: "auto", cursor: "pointer", font: `700 13px ${HUD.game}`, borderRadius: 6, border: `1px solid ${HUD.champagne}`, background: "transparent", color: HUD.champagne, padding: "2px 8px" }}>Sign in</button>}
-        {err.kind !== "rate" && err.kind !== "identity" && <button onClick={() => setErr(null)} style={{ marginLeft: "auto", all: "unset", cursor: "pointer", marginInlineStart: "auto" }}>×</button>}
-      </div>}
-      {picker && <div data-testid="chat-picker" style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 4, margin: "0 8px 4px", padding: 6, borderRadius: 10, background: "rgba(18,19,39,.95)", border: `1px solid ${HUD.border}` }}>
-        {EMOTE_CODES.map((code) => <button key={code} title={`:${code}:`} onClick={() => { setText((t) => (t + (t && !t.endsWith(" ") ? " " : "") + `:${code}: `)); inputRef.current?.focus(); }}
-          style={{ all: "unset", cursor: "pointer", textAlign: "center", fontSize: 18 }}><Emote code={code} svg={api?.svg ?? false} src={api?.api.EMOTES[code]} /></button>)}
-      </div>}
-      {typing && <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "4px 8px 8px", padding: "0 6px 0 10px", minHeight: 38, borderRadius: HUD.control, background: "rgba(11,12,14,.55)", border: `1px solid ${len > MAX_LEN ? HUD.down : HUD.border}` }}>
-        <input ref={inputRef} data-testid="chat-input" value={text} aria-label="Chat with the crew" placeholder={conn === "live" ? "Say something to the crew" : "chat " + st.t + "…"} maxLength={MAX_LEN * 2}
-          onChange={(e) => { setText(e.target.value); if (err && err.kind !== "rate") setErr(null); }}
-          onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") { e.preventDefault(); send(); } else if (e.key === "Escape") { setPicker(false); e.currentTarget.blur(); } }}
-          onKeyUp={(e) => e.stopPropagation()}
-          style={{ flex: 1, minWidth: 0, font: `13px ${HUD.ui}`, color: HUD.text, background: "transparent", border: 0, padding: "8px 0", outline: "none" }} />
-        {len > MAX_LEN * 0.85 && <span data-testid="chat-count" style={{ fontSize: 10, color: len > MAX_LEN ? HUD.down : "#ffd24a" }}>{len}/{MAX_LEN}</span>}
-        <button data-testid="chat-emote-btn" onClick={() => setPicker((p) => !p)} title="Emotes" aria-label="Emotes" style={{ all: "unset", cursor: "pointer", fontSize: 16, padding: "0 2px" }}>😇</button>
-        <span aria-hidden="true" style={{ padding: "2px 7px", borderRadius: 6, background: "rgba(255,255,255,.1)", font: `700 12px ${HUD.game}`, color: HUD.dim }}>ENTER</span>
-      </div>}
+      {errBox}{pickerBox}
+      {typing && inputBox(false)}
       </div>
     </aside>
   );
 }
 
 /** one trade from the engine feed, kill-feed style: side, who, amount, bomb icon for big dumps */
-const TradeRow = memo(function TradeRow({ r }: { r: FeedRow }) {
+const TradeRow = memo(function TradeRow({ r, age, sent }: { r: FeedRow; age?: string; sent?: boolean }) {
   if (!r.side) return <div data-kind="note" style={{ padding: "4px 6px", fontSize: 12, color: r.err ? "#FFC2DA" : HUD.dim, fontStyle: "italic" }}>{r.ic && <Icon name={r.ic} size={12} />} {r.note}</div>;
   const buy = r.side === "buy", col = buy ? HUD.up : "#FF7FB3";
   return <div data-kind={r.side} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 6px", borderRadius: 8, background: r.own ? "rgba(242,193,78,.1)" : undefined }}>
@@ -249,8 +299,22 @@ const TradeRow = memo(function TradeRow({ r }: { r: FeedRow }) {
     <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13, color: r.own ? HUD.gold : HUD.text, fontWeight: r.own ? 600 : 400 }}>{r.own ? "You" : r.who}</span>
     {r.ic && <Icon name={r.ic} size={14} style={{ color: HUD.down }} />}
     <span style={{ font: `700 15px/1 ${HUD.game}`, color: HUD.text }}>{r.amt}</span>
+    {(sent || age) && <span data-testid={sent ? "feed-sent" : undefined} style={{ minWidth: 34, textAlign: "right", fontSize: 12, color: sent ? HUD.gold : HUD.dim, fontWeight: sent ? 600 : 400 }}>{sent ? "sent" : age}</span>}
   </div>;
 });
+const AV_BG = ["#2F6B52", "#3D4A79", "#5A3D79", "#6B5A2F", "#2F5A6B"];
+/** Pilot feed trade card (mockup): avatar · name · ▲ BOOST $X / ▼ DUMP $X, green / pink edge; yours gets the gold YOU avatar */
+function PilotTrade({ buy, who, own, amt, ic, op, sent }: { buy: boolean; who: string; own?: boolean; amt: string; ic?: string | null; op: number; sent?: boolean }) {
+  const h = Array.from(who).reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
+  const edge = op > 0.95 ? (buy ? "rgba(95,240,160,.35)" : "rgba(240,48,127,.4)") : HUD.border;
+  return <div data-kind={buy ? "buy" : "sell"} data-own={own ? "1" : undefined} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 12, background: op > 0.95 ? "rgba(18,19,39,.72)" : "rgba(18,19,39,.6)", border: `1px solid ${edge}`, opacity: op }}>
+    <span aria-hidden style={{ width: 26, height: 26, flex: "none", borderRadius: "50%", background: own ? HUD.gold : buy ? AV_BG[h % AV_BG.length] : "#6B2A47", color: own ? HUD.ink : HUD.text, display: "flex", alignItems: "center", justifyContent: "center", font: `${own ? 800 : 700} 13px/1 ${HUD.game}` }}>{own ? "YOU" : initials(who)}</span>
+    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13, fontWeight: own ? 600 : 500 }}>{who}</span>
+    {ic && <Icon name={ic} size={16} style={{ color: HUD.down }} />}
+    <span style={{ font: `700 16px/1 ${HUD.game}`, color: buy ? HUD.up : "#FF7FB3", whiteSpace: "nowrap" }}>{buy ? "▲ BOOST" : "DUMP"} {amt.trim()}</span>
+    {sent && <span data-testid="feed-sent" style={{ fontSize: 12, color: HUD.gold, fontWeight: 600 }}>sent</span>}
+  </div>;
+}
 
 function Emote({ code, svg, src }: { code: string; svg: boolean; src?: string }) {
   // eslint-disable-next-line @next/next/no-img-element -- tiny static svg emotes, inline in text

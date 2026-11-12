@@ -1,5 +1,6 @@
 "use client";
 
+import { useHudMode } from "@/lib/game/hudMode";
 import Icon from "@/components/ui/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Address } from "@/lib/protocol";
@@ -35,6 +36,8 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
   const [graduated, setGraduated] = useState(false);
   const [cur, setCur] = useState(0);
   const [open, setOpen] = useState(false);
+  const hud = useHudMode();
+
   const [listOpen, setListOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const [kind, setKind] = useState<TrampWallKind>("tramp");
@@ -119,7 +122,8 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
   if (!graduated) return null;
   return (
     <>
-      <div className="ap-bc z-30 flex gap-2" style={{ bottom: "calc(var(--ap-tb-h, 80px) + 16px + var(--ap-safe-bottom))" }}>
+      {/* Pilot (approved mockup): no tramp / wall pills over the trade bar; they live in Pro */}
+      <div className="ap-bc z-30 flex gap-2" style={{ bottom: "calc(var(--ap-tb-h, 80px) + 16px + var(--ap-safe-bottom))", }} data-pilot-hide={hud === "pro" ? undefined : "1"}>
         <button data-testid="tw-open" onClick={openFlow}
           className="rounded-full border border-[#ffe7a3]/70 bg-gradient-to-b from-[#3a2a07]/90 to-[#120d02]/90 px-5 py-2 font-display text-sm font-bold tracking-wider text-[#ffe7a3] shadow-[0_0_24px_rgba(255,215,110,.45)] transition hover:scale-105">
           <Icon name="tramp" size={16} /> TRAMP / <Icon name="wall" size={16} /> WALL{sample && <span style={{ color: "#ffb0c8" }}> · SAMPLE</span>}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useHudMode } from "@/lib/game/hudMode";
 import TouchGrass from "./flight/TouchGrass";
 import SettingsMenu from "./flight/SettingsMenu";
 import GameRadio from "./flight/GameRadio";
@@ -18,6 +19,7 @@ import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
 import HudModeToggle from "@/components/flight/HudModeToggle";
 import FlightSfx from "@/components/flight/FlightSfx";
+import FlightPath from "@/components/flight/FlightPath";
 import HoldersBridge from "@/components/flight/HoldersBridge";
 import PhoneHud from "@/components/flight/PhoneHud";
 import { publishUsernameDisplayCap } from "@/lib/defaultUsername";
@@ -238,6 +240,7 @@ export default function FlightCanvas({ search }: Props) {
 
   // Simulated-market toggle (engine owns the state; this just mirrors + flips it).
   // `available` is false on a live market (real coin / live pool / wallet attached): the pill is hidden there (engine decides).
+  const hud = useHudMode();
   const [sim, setSim] = useState<{ on: boolean; mode: string; available?: boolean }>({ on: false, mode: "off", available: false });
   useEffect(() => {
     const on = (e: Event) => setSim((e as CustomEvent).detail);
@@ -287,13 +290,15 @@ export default function FlightCanvas({ search }: Props) {
       {/* PILOT / PRO (desktop, left of the wallet strip): lib/game/hudMode */}
       <HudModeToggle />
       <FlightSfx />
+      <FlightPath />
       <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />
       {/* the crew feed: trades + chat + holders on a coin; trades + holders where there is no coin chat (simulator, mock) */}
       <GameChat coin={chatCoin || ""} tradesOnly={!chatCoin} />
       {/* phones (≤760px): v3 HUD — mcap pill, handle + PnL line, one swipe-up drawer (Feed/Holders/Chart/Crew/Chat/Position); desktop renders nothing */}
       <PhoneHud />
       {/^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") && q0.get("source") !== "sim" && <HoldersBridge coin={q0.get("coin") as string} />}
-      <div className="ap-bc" data-testid="flight-pills" style={{ bottom: "calc(var(--ap-tb-h, 80px) + 62px + var(--ap-safe-bottom))", zIndex: 25, display: "flex", gap: 8 }}>
+      {/* Pilot (approved mockup): no simulated-market pill over the trade bar; Pro keeps it */}
+      <div className="ap-bc" data-testid="flight-pills" style={{ bottom: "calc(var(--ap-tb-h, 80px) + 62px + var(--ap-safe-bottom))", zIndex: 25, display: "flex", gap: 8 }} data-pilot-hide={hud === "pro" ? undefined : "1"}>
         {!isSimulator && sim.available === true && <button
           type="button"
           data-testid="sim-toggle"

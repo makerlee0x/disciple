@@ -131,10 +131,17 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   }, []);
   const [addr, setAddr] = useState<string | null>(null);
   const [preview, setPreview] = useState("");
+  const [buyImpact, setBuyImpact] = useState<number | null>(null);   // the selected BOOST's price move (%), Pro loadout info line
   const [last, setLast] = useState("");
   // RAPID TAP status (SITE diag 9:29 CT): one row PER PRESS (pressId), so close-together fills don't overwrite each other in
   // the single `last` line (8 taps → 6 ops on chain, the UI showed 4). Finished rows linger ROW_LINGER_MS, newest last.
   const [rows, setRows] = useState<PressRow[]>([]);
+  const pressMeta = useRef(new Map<string, { side: TradeSide; amt: string }>());   // pressId → side + amount, for the crew feed's "sent" rows
+  useEffect(() => {   // your presses still in flight → GameChat (crew feed) shows "You · ▲ BOOST $25 · sent" until the receipt lands
+    const live = rows.filter((r) => !r.done && rowLive(r.txt) && pressMeta.current.has(r.id)).map((r) => ({ id: r.id, ...pressMeta.current.get(r.id)! }));
+    for (const id of Array.from(pressMeta.current.keys())) if (!rows.some((r) => r.id === id)) pressMeta.current.delete(id);
+    dispatchEvent(new CustomEvent("disciple:pending", { detail: { rows: live } }));
+  }, [rows]);
   const receiptCacheWork = useRef(new Map<string, () => void>());
   useEffect(() => {
     for (const row of rows) if (row.done) {
@@ -288,6 +295,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       // RAPID TAP: this press's reservation, SYNC at entry (no await): buy $ + one op's gas now; a sell's tokens once sized.
       // Released on the result (slow path: once its receipt is booked) ⇒ the next press sizes from what is really left.
       const pressId = nextPressId(); reservePress(pressId, side, token, side === "buy" ? usd : undefined, kind);
+      pressMeta.current.set(pressId, { side, amt: usd > 0 ? fmtShot(usd) : "" });
       o?.onPress?.(pressId);
       // this press's status: its own row (rapid tap) + the legacy single line (phone hint / one-press case)
       const say = (txt: string) => {
@@ -539,8 +547,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         const b = await readQuote(pc, token as Address, "buy", await usdToAmountIn(pc, token as Address, "buy", usd));
         if (alive) gradRef.current = { usd, graduates: b.graduates, mcapAfterUsd: b.mcapAfterUsd, venue: b.venue };   // gas kind
         const s = await readQuote(pc, token as Address, "sell", await usdToAmountIn(pc, token as Address, "sell", usd));
+        if (alive) setBuyImpact(b.impactPct);
         if (alive) setPreview(`price move: buy ▲${b.impactPct.toFixed(2)}% · sell ▼${Math.abs(s.impactPct).toFixed(2)}%${b.snipeFee > BigInt(0) ? " · anti-snipe fee" : ""}`);
-      } catch { if (alive) setPreview(""); }
+      } catch { if (alive) { setPreview(""); setBuyImpact(null); } }
     })();
     return () => { alive = false; };
   }, [mode, token, valid, ammo.usd]);
@@ -819,8 +828,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   );
   // desktop trade bar (brand v3, approved mockup Nov 12): two sides, ONE rule each — pick an amount, then fire.
   // BOOST side: the 4 buy presets (keys 1–4, select only) + custom $, fired by BOOST / Space. DUMP side: the 4 sell sizes
-  // (Z/X/C/V, select only) + custom % / $, fired by DUMP / Shift. Pro moves the preset chips to the canvas LOADOUT panel
-  // (engine.js ammo panel), so its bar keeps only the custom fields beside the two buttons.
+  // (Z/X/C/V, select only) + custom % / $, fired by DUMP / Shift. Pro moves the preset chips and custom fields to the LOADOUT card
+  // (a DOM card top centre, mockup "Desktop · Pro HUD"), so its bar keeps only the two buttons.
   const pro = hud === "pro";
   const sellFracNow = customSellPct ? customSellPct / 100 : customSellUsd ? (pos.valueUsd > 0 ? Math.min(1, customSellUsd / pos.valueUsd) : 0) : selSellPreset.frac;
   const dumpBack = pos.valueUsd > 0 && sellFracNow > 0 ? pos.valueUsd * sellFracNow * (1 - TRADE_FEE) : 0;   // ≈ what this DUMP pays back after the 1% fee (price move not included)
@@ -832,6 +841,14 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const cap = (k: string, dark?: boolean) => <span aria-hidden="true" style={{ padding: "2px 7px", borderRadius: 6, background: dark ? "rgba(18,19,39,.18)" : "rgba(255,255,255,.1)", font: `700 13px/1 ${HUD.game}` }}>{k}</span>;
   const field = (on: boolean, side: TradeSide): React.CSSProperties => ({ width: 76, minHeight: 32, boxSizing: "border-box", font: `600 15px ${HUD.game}`, padding: "0 8px", borderRadius: 10, outline: "none",
     border: `1px ${on ? "solid" : "dashed"} ${on ? (side === "buy" ? HUD.up : HUD.down) : side === "buy" ? "rgba(243,223,168,.4)" : "rgba(240,48,127,.45)"}`, background: "rgba(11,12,14,.5)", color: HUD.text });
+  const boostChips = [0, 1, 2, 3].map((i) => <button key={i} type="button" role="radio" aria-checked={!customUsd && mode === i} data-testid={`boost-chip-${i}`} {...noKeyActivate} {...hoverSide("buy")}
+    title={`select ${chipUsd(ammo.usd[i] ?? MODES[i].usd)} (${keyLabel(gs.keys.buy[i] || "")}), then BOOST / Space`}
+    onClick={() => { setCustom(""); setMode(i); window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: i } })); }}
+    style={chip(!customUsd && mode === i, "buy")}>{chipUsd(ammo.usd[i] ?? MODES[i].usd)}{keyTag(keyLabel(gs.keys.buy[i] || ""))}</button>);
+  const dumpChips = SELLS.slice(0, 4).map((x, i) => <button key={x.id} type="button" role="radio" aria-checked={!sellCustomN && sellSel === i} data-testid={`dump-chip-${i}`} {...noKeyActivate} {...hoverSide("sell")}
+    title={`select ${x.label} (${keyLabel(gs.keys.sell[i] || x.key)}), then DUMP / Shift`}
+    onClick={() => { setSellCustom(""); selSell.current(i); }}
+    style={chip(!sellCustomN && sellSel === i, "sell")}>{x.frac >= 1 ? "ALL" : x.frac === 0.5 ? "HALF" : x.label}{keyTag(keyLabel(gs.keys.sell[i] || x.key))}</button>);
   const customBuyInput = <input aria-label="custom amount" {...hoverSide("buy")} inputMode="decimal" placeholder="$ custom" value={custom} title="custom $: when filled it overrides the selected BUY preset for BOOST / Space (clear it to use the preset)"
     onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ""))}
     onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.repeat) { e.preventDefault(); }   // held Enter / SPACE never auto-fires
@@ -859,20 +876,29 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     <>
     <AmmoTierNotice />
     {alertStrip}
-    <div ref={barRef} aria-label="trade bar" data-testid="trade-bar" data-hud={hud} className="ap-bc" style={{ bottom: 16, zIndex: 31, width: pro ? 660 : 700, maxWidth: "calc(100vw - var(--ap-rail-w, 64px) - 40px)", boxSizing: "border-box",
+    {pro && <div aria-label="loadout" data-testid="loadout" style={{ position: "fixed", left: "calc(var(--ap-rail-w, 64px) + 420px)", top: 18, width: 500, zIndex: 31, boxSizing: "border-box", padding: "14px 16px 12px",
+      borderRadius: HUD.radius, background: HUD.glass, border: `1px solid ${HUD.border}`, color: HUD.text, fontFamily: HUD.ui, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}><span style={{ font: `700 16px/1 ${HUD.game}`, letterSpacing: "1.5px", color: HUD.champagne }}>LOADOUT</span><span style={{ fontSize: 12, color: HUD.dim }}>Pick an amount, then fire</span></div>
+      <div role="radiogroup" aria-label="boost amount" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <span style={{ width: 52, font: `700 13px ${HUD.game}`, letterSpacing: "1px", color: HUD.up }}>BOOST</span>
+        {boostChips}{customBuyInput}
+      </div>
+      <div role="radiogroup" aria-label="dump amount" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <span style={{ width: 52, font: `700 13px ${HUD.game}`, letterSpacing: "1px", color: "#FF7FB3" }}>DUMP</span>
+        {dumpChips}{customSellInput}
+      </div>
+      <div data-testid="loadout-info" style={{ display: "flex", gap: 8, fontSize: 12, color: HUD.dim, whiteSpace: "nowrap" }}>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>Fee 1%{buyImpact != null && isFinite(buyImpact) ? ` · ${fmtShot(shotUsd)} boost moves altitude +${buyImpact.toFixed(1)}%` : ""}{cashUsd != null ? ` · Cash ${fmtShot(Math.max(0, cashUsd))}` : ""}</span>
+        <button type="button" data-testid="loadout-settings" onClick={() => setShowCfg(true)} style={{ all: "unset", cursor: "pointer", color: HUD.champagne }}>Settings</button>
+      </div>
+    </div>}
+    <div ref={barRef} aria-label="trade bar" data-testid="trade-bar" data-hud={hud} className="ap-bc" style={{ bottom: 16, zIndex: 31, width: pro ? 560 : 700, maxWidth: "calc(100vw - var(--ap-rail-w, 64px) - 40px)", boxSizing: "border-box",
       display: "flex", flexDirection: "column", gap: 8, padding: 12, borderRadius: 20, background: "rgba(18,19,39,.82)", border: `1px solid ${HUD.borderGold}`, color: HUD.text, fontFamily: HUD.ui }}>
       <div style={{ display: "flex", gap: 12 }}>
-        <div style={{ flex: 1.25, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ flex: pro ? 1.2 : 1.25, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
           {!pro && <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}><span style={hudLabel}>Boost amount</span><span style={{ fontSize: 12, color: HUD.dim }}>{modeTag} {cashUsd != null ? `Cash ${fmtShot(Math.max(0, cashUsd))}` : ""}</span></div>}
-          {!pro && <div role="radiogroup" aria-label="boost amount" style={{ display: "flex", gap: 5 }}>
-            {[0, 1, 2, 3].map((i) => <button key={i} type="button" role="radio" aria-checked={!customUsd && mode === i} data-testid={`boost-chip-${i}`} {...noKeyActivate} {...hoverSide("buy")}
-              title={`select ${chipUsd(ammo.usd[i] ?? MODES[i].usd)} (${keyLabel(gs.keys.buy[i] || "")}), then BOOST / Space`}
-              onClick={() => { setCustom(""); setMode(i); window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: i } })); }}
-              style={chip(!customUsd && mode === i, "buy")}>{chipUsd(ammo.usd[i] ?? MODES[i].usd)}{keyTag(keyLabel(gs.keys.buy[i] || ""))}</button>)}
-            {customBuyInput}
-          </div>}
+          {!pro && <div role="radiogroup" aria-label="boost amount" style={{ display: "flex", gap: 5 }}>{boostChips}{customBuyInput}</div>}
           <div style={{ display: "flex", gap: 8 }}>
-            {pro && customBuyInput}
             <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} {...hoverSide("buy")} title={boostTitle} aria-disabled={short || full} disabled={short} data-inflight={full ? "1" : "0"} onClick={() => shoot("buy")}
               style={{ all: "unset", flex: 1, minHeight: 56, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, whiteSpace: "nowrap", background: HUD.gold, color: HUD.ink,
                 font: `800 27px/1 ${HUD.game}`, letterSpacing: ".02em", opacity: short || full ? 0.45 : 1, cursor: short || full ? "not-allowed" : "pointer" }}>
@@ -882,18 +908,12 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         <div aria-hidden="true" style={{ width: 1, background: HUD.border }} />
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
           {!pro && <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}><span style={hudLabel}>Dump amount</span><span style={{ fontSize: 12, color: HUD.dim }}>{has ? "of your bag" : "no bag yet"}</span></div>}
-          {!pro && <div role="radiogroup" aria-label="dump amount" style={{ display: "flex", gap: 5 }}>
-            {SELLS.slice(0, 4).map((x, i) => <button key={x.id} type="button" role="radio" aria-checked={!sellCustomN && sellSel === i} data-testid={`dump-chip-${i}`} {...noKeyActivate} {...hoverSide("sell")}
-              title={`select ${x.label} (${keyLabel(gs.keys.sell[i] || x.key)}), then DUMP / Shift`}
-              onClick={() => { setSellCustom(""); selSell.current(i); }}
-              style={chip(!sellCustomN && sellSel === i, "sell")}>{x.frac >= 1 ? "ALL" : x.frac === 0.5 ? "HALF" : x.label}{keyTag(keyLabel(gs.keys.sell[i] || x.key))}</button>)}
-          </div>}
+          {!pro && <div role="radiogroup" aria-label="dump amount" style={{ display: "flex", gap: 5 }}>{dumpChips}</div>}
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} {...hoverSide("sell")} title={dumpTitle} aria-disabled={!has || full} disabled={!has} data-inflight={full ? "1" : "0"} onClick={() => dumpRef.current?.()}
               style={{ all: "unset", flex: 1, minHeight: 56, boxSizing: "border-box", borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, whiteSpace: "nowrap", border: `1.5px solid ${HUD.down}`, background: "rgba(240,48,127,.12)", color: HUD.downSoft,
                 font: `800 25px/1 ${HUD.game}`, opacity: has && !full ? 1 : 0.45, cursor: has && !full ? "pointer" : "not-allowed" }}>
               {full && has ? COPY.inFlight : <>{t("tb.dump")} {dumpLabel}{dumpBack > 0 && <span data-testid="dump-back" title="about what this dump pays back after the 1% fee" style={{ font: `600 15px ${HUD.game}`, opacity: 0.85 }}>≈ {fmtShot(dumpBack)}</span>}{cap("SHIFT")}</>}</button>
-            {pro && customSellInput}
           </div>
         </div>
       </div>

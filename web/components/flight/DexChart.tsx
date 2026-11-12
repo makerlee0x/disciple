@@ -23,7 +23,7 @@ import type { AutoscaleInfo, IChartApi, IPriceLine, ISeriesApi, MouseEventParams
 import { addTick, bucketOf, buildCandles, cleanTicks, defaultTf, chartTicker, fmtMcap, fmtVol, isTf, markLast, TFS, type Candle, type Tf, type Tick } from "@/lib/chart/candles";
 import { DEFAULT_SUPPLY } from "@/lib/pnl";
 import { fetchHistory } from "@/lib/chart/history";
-import { clampOffset, clampSize, RESIZABLE, setCard } from "@/lib/game/cardLayout";
+import { clampOffset, clampSize, setCard } from "@/lib/game/cardLayout";
 import { chartCap, type Box } from "@/lib/game/slots";
 import { overlayBlocked } from "@/lib/game/sidebarOverlay";
 
@@ -49,7 +49,7 @@ const C = {
 };
 const mono = "ui-monospace, Menlo, monospace";
 const TF_KEY = "disciple.dexchart.tf";
-const GAP = 8, FEED_ROOM = 172, PNL_FALLBACK = 456;   // = engine chartDeskRect (top under the PnL card, above the trades feed)
+const PRO_W = 420, PRO_H = 270;   // Pro: top of the right column (mockup); the crew feed reads --ap-pro-chart-h
 type Lc = typeof import("lightweight-charts");
 type W = { __domChart?: boolean; __pnlBottom?: number | null; __discipleTrade?: unknown };
 /** price-axis / crosshair label: $ mcap, blank below $0 (never a "-$20K" tick) */
@@ -87,23 +87,26 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
     return () => { removeEventListener("resize", f); mo.disconnect(); }; }, []);
 
   // ---- desktop placement: base spot under the PnL card (like the old chart), saved size / offset clamped to the viewport
-  const [vp, setVp] = useState({ vw: 1280, vh: 800, x: 20, y: PNL_FALLBACK + GAP, floor: 628 });
+  const [vp, setVp] = useState({ vw: 1280, vh: 800, x: 840, y: 92, floor: 92 + PRO_H });
   useEffect(() => {
-    const f = () => { const r = document.getElementById("wrap")?.getBoundingClientRect(), w = window as unknown as W, pb = Number(w.__pnlBottom);
-      const ox = r?.left ?? 0, oy = r?.top ?? 0, H = r?.height ?? innerHeight;
-      const n = { vw: innerWidth, vh: innerHeight, x: Math.round(ox + 20), y: Math.round(oy + (pb > 0 ? pb : PNL_FALLBACK) + GAP), floor: Math.round(oy + H - FEED_ROOM) };
+    const f = () => {
+      // approved mockup "Desktop · Pro HUD": the chart is the top card of the right column (420 × 270), the crew feed under it
+      const rt = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ap-hud-rt")) || 58;
+      const n = { vw: innerWidth, vh: innerHeight, x: Math.round(innerWidth - 20 - PRO_W), y: Math.round(rt + 34), floor: Math.round(rt + 34 + PRO_H) };
       setVp((o) => (o.vw === n.vw && o.vh === n.vh && o.x === n.x && o.y === n.y && o.floor === n.floor ? o : n)); };
     f(); const id = window.setInterval(f, 500); addEventListener("resize", f);
     return () => { window.clearInterval(id); removeEventListener("resize", f); };
   }, []);
-  const rz = RESIZABLE.chart!;
+
   const size = useMemo(() => {
     if (card?.w && card?.h) return capChart(clampSize("chart", card, vp.vw, vp.vh), vp.x + (card.dx || 0));   // saved sizes clamped on load / resize
-    const room = vp.floor - vp.y;   // default: fit between the PnL card and the trades feed (min height when there is no room)
-    return capChart(clampSize("chart", { w: rz.defW, h: Math.min(rz.defH, Math.max(rz.minH, room)) }, vp.vw, vp.vh), vp.x);
-  }, [card, vp, rz]);
+    return clampSize("chart", { w: PRO_W, h: PRO_H }, vp.vw, vp.vh);   // default: the mockup's 420 × 270 card
+  }, [card, vp]);
   const off = useMemo(() => (card ? clampOffset({ x: vp.x, y: vp.y, ...size }, card, vp.vw, vp.vh) : { dx: 0, dy: 0 }), [card, vp, size]);
   const hidden = !phone && !!(card?.min || card?.closed);
+  // the crew feed (GameChat, Pro) starts under this card: its height + 20 while shown, 0 when closed
+  useEffect(() => { if (phone) return; const root = document.documentElement; root.style.setProperty("--ap-pro-chart-h", hidden || hud === "pilot" ? "0px" : `${size.h + 20}px`);
+    return () => { root.style.removeProperty("--ap-pro-chart-h"); }; }, [phone, hidden, hud, size.h]);
 
   // ---- M key (engine forwards it while the DOM chart is mounted): toggle the card
   useEffect(() => { const h = (e: Event) => { const d = (e as CustomEvent<{ toggle?: boolean; on?: boolean | null }>).detail || {};
@@ -292,8 +295,8 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
         border: `1px solid ${HUD.border}`, boxShadow: "0 8px 28px rgba(0,0,0,.35)", font: `9px ${mono}`, color: C.fg, userSelect: "none" }}>
       <div className="dex-head" style={{ display: "flex", alignItems: "center", gap: 6, padding: phone ? "6px 10px" : "8px 12px 4px", minHeight: phone ? 26 : 22 }}>
         <span style={{ color: HUD.champagne, font: `700 15px ${HUD.game}`, letterSpacing: ".08em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {label ? <><span data-testid="dex-title-dollar" style={{ marginRight: 1.5 }}>$</span><span data-testid="dex-title">{label}</span></> : <span data-testid="dex-title">ALTITUDE CHART</span>}</span>
-        <div role="group" aria-label="Price or market cap" data-testid="dex-unit" style={{ display: "flex", gap: 2, marginLeft: 2 }}>
+          {label && phone ? <><span data-testid="dex-title-dollar" style={{ marginRight: 1.5 }}>$</span><span data-testid="dex-title">{label}</span></> : <span data-testid="dex-title" title={label ? "$" + label : undefined}>ALTITUDE CHART</span>}</span>
+        <div role="group" aria-label="Price or market cap" data-testid="dex-unit" style={{ display: phone ? "flex" : "none", gap: 2, marginLeft: 2 }}>
           {([["price", "Price"], ["mcap", "Market cap"]] as const).map(([id, lab]) => { const on = unit === id; return <button key={id} type="button" data-testid={`dex-unit-${id}`} aria-pressed={on} onClick={() => setUnit(id)}
             style={{ all: "unset", cursor: "pointer", padding: phone ? "3px 7px" : "1px 5px", borderRadius: 1, font: `${on ? "bold " : ""}${phone ? 11 : 8.5}px ${mono}`,
               color: on ? C.gold : C.btn, background: on ? C.frameMid : "transparent", textShadow: on ? "0 0 6px rgba(255,231,163,.55)" : "none",
@@ -302,12 +305,9 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
         <span style={{ flex: 1 }} />
         <div role="group" aria-label="Timeframe" style={{ display: "flex", gap: 2 }}>
           {TFS.map((t) => { const on = tf === t.s; return <button key={t.s} type="button" data-testid={`dex-tf-${t.l}`} aria-pressed={on} onClick={() => setTf(t.s)}
-            style={{ all: "unset", cursor: "pointer", padding: phone ? "3px 9px" : "1px 5px", borderRadius: 1, font: `${on ? "bold " : ""}${phone ? 12 : 9}px ${mono}`, minWidth: phone ? 0 : 8, textAlign: "center",
-              color: on ? C.gold : C.btn, background: on ? C.frameMid : "transparent", textShadow: on ? "0 0 6px rgba(255,231,163,.55)" : "none",
-              // pressed bevel on the active interval (old title-bar toggles)
-              boxShadow: on ? `inset 1px 1px 0 rgba(0,0,0,.6), inset -1px -1px 0 rgba(255,255,255,.18)` : "none" }}>{t.l}</button>; })}
+            style={{ all: "unset", cursor: "pointer", padding: phone ? "3px 9px" : "3px 6px", borderRadius: 6, font: `700 ${phone ? 13 : 13}px/1 ${HUD.game}`, minWidth: phone ? 0 : 10, textAlign: "center",
+              color: on ? HUD.ink : "rgba(215,217,228,.78)", background: on ? "#F2F3F7" : "transparent" }}>{t.l}</button>; })}   {/* selected = white pill (mockup) */}
         </div>
-        {!phone && <span title="M toggles the chart" style={{ color: C.btn, font: `9px ${mono}`, marginLeft: 2 }}>[M]</span>}
       </div>
       <div className="dex-body" style={{ position: "relative", flex: "1 1 auto", minHeight: 0, background: C.plot,
         backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)" /* sky still shows through; the rocket / feed text behind a big card stay quiet */ }}>

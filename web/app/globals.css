@@ -1818,3 +1818,6 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .guild-opt-sub { font-size: 11px; color: rgba(232,234,238,.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .guild-new { display: grid; grid-template-columns: 96px 1fr auto; gap: 6px; align-items: start; }
 .guild-new .pf-input { min-width: 0; }
+
+/* desktop Pilot HUD (approved mockup, Nov 12): Pro-only controls (simulated-market pill, tramp / wall pills) step aside; phones keep them */
+@media (min-width: 761px) { [data-pilot-hide="1"] { display: none !important; } }
