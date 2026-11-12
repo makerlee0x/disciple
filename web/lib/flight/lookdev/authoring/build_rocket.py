@@ -88,7 +88,15 @@ def hull_eps(row, a):
     # max tilt per term ~3 deg. Not even flutes: the lobes are unequal and wander.
     hi = (0.0045 * math.cos(11 * a + 1.3 + 0.006 * row) + 0.0032 * math.cos(13 * a + 3.7 - 0.004 * row)
           + 0.0018 * math.cos(19 * a + 0.2 + 0.009 * row))
-    return fade * (low + hi)
+    # r5: long root fairings. A smooth ridge on the hull in line with each fin, starting narrow around mid-body (row ~250)
+    # and widening/rising down to the fin root, so the fin blends into the body over a long vertical span. Its flanks bend
+    # the reflections into long V-sweeps that run down and out into the fins; its crest is the bright edge-on ridge.
+    da = ((a + math.pi / 4) % (math.pi / 2)) - math.pi / 4
+    sm = lambda x: 0.0 if x <= 0 else (1.0 if x >= 1 else x * x * (3 - 2 * x))
+    ramp_r = sm((row - 215) / 200.0) * (1 - sm((row - 532) / 14.0))
+    sig = math.radians(4.0 + 13.0 * sm((row - 215) / 315.0))
+    ridge = 0.15 * ramp_r * math.exp(-(da / sig) ** 2)
+    return fade * (low + hi) + ridge
 
 def lathe_eps(name, prof, segs):
     me = bpy.data.meshes.new(name); bm = bmesh.new(); rings = []
@@ -113,7 +121,7 @@ for (r0, h0), (r1, h1) in zip(body_prof, body_prof[1:]):
     n = max(1, int(abs(r1 - r0) / 6))
     for k in range(n): dense.append((r0 + (r1 - r0) * k / n, h0 + (h1 - h0) * k / n))
 dense.append(body_prof[-1])
-hull = lathe_eps("Hull", dense, 256)
+hull = lathe_eps("Hull", dense, 384)
 
 # ---------------- the two shoulder rings (round, raised)
 def band(row, rad, h, name):
@@ -141,9 +149,9 @@ def fin(angle, name, NS=56, NT=72):
             t = 0.5 - 0.5 * math.cos(math.pi * j / NT)                        # cosine spacing: fine at both edges
             row = lr + (tr - lr) * t
             th0 = 6.0 * (1 - 0.5 * s)                                          # px: thick at the root, thinner outboard
-            edge = math.sin(math.pi * t) ** 0.5 * (1 - s ** 8) ** 0.5          # rounded leading/trailing/outer edges
+            edge = math.sin(math.pi * t) ** 0.4 * (1 - s ** 8) ** 0.4          # r5: rounder leading/trailing/outer edges
             # a soft, rounded rim along the leading and outer edges (the official fins read thick-edged); smooth, not a groove
-            rim = 2.4 * math.exp(-((t - 0.07) / 0.06) ** 2) + 2.0 * math.exp(-((s - 0.93) / 0.05) ** 2) * math.sin(math.pi * t) ** 0.3
+            rim = 4.6 * math.exp(-((t - 0.06) / 0.065) ** 2) + 4.0 * math.exp(-((s - 0.94) / 0.05) ** 2) * math.sin(math.pi * t) ** 0.3
             half = 0.5 * (th0 + rim) * edge
             # r4: a generous smooth fillet where the fin meets the hull (flares the root out into the body, tapering toward
             # the leading/trailing edges), so the body's reflections bend and sweep out into each fin
@@ -153,15 +161,17 @@ def fin(angle, name, NS=56, NT=72):
             # so the fin is doubly curved everywhere and the reflections break into many thin streaks
             # r4: the curve lives INSIDE the fin (bow + S, both zero at the leading/trailing edges), so the edges stay in one
             # plane and the edge-on silhouette is a clean straight line; no curl/twist of the edges.
-            camber = (4.2 * math.sin(math.pi * t) * s ** 1.1 * (1 - 0.35 * s)
-                      - 1.5 * math.sin(2 * math.pi * t) * s * (1 - 0.5 * s))
+            # r5: the curve runs the full span (nearly constant root -> tip) instead of a dome in mid-fin, so highlights form
+            # long continuous lines down the sweep (no mid-fin blob). Still zero at the leading/trailing edges.
+            gs = min(1.0, s / 0.18) ** 2 * (3 - 2 * min(1.0, s / 0.18)) * (1 - 0.45 * s)
+            camber = 4.4 * math.sin(math.pi * t) * gs - 1.2 * math.sin(2 * math.pi * t) * gs
             # r3: a slight, smooth, irregular undulation across the chord whose crests run root -> tip along the sweep (like the
             # official streaks). Zero at the root and at the edges. Not grooves: amplitude <= ~1.6 px over 25-65 px wavelengths.
             # ridges run along lines of constant chord fraction, i.e. root -> tip parallel to the swept leading edge
-            u = 0.88 * t + 0.12 * s
+            u = t
             # r4: pulled back and faded truly to zero at the leading, trailing and outer edges and toward the tip (the edge-on
             # silhouette stays a clean line; no crumpled-foil look). The top/bottom shells get the same offset.
-            env = math.sin(math.pi * t) ** 2.5 * s ** 0.6 * (1 - s) ** 1.5 * 3.4
+            env = math.sin(math.pi * t) ** 2.5 * gs * (1 - s ** 4) * 1.1
             camber += env * (0.55 * math.sin(2 * math.pi * 3.1 * u + 0.7) + 0.35 * math.sin(2 * math.pi * 5.3 * u + 2.2 + 1.5 * t)
                              + 0.2 * math.sin(2 * math.pi * 7.7 * u + 4.4))
             x, z = R(h), Z(row)
