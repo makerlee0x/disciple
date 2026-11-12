@@ -549,10 +549,11 @@ class HookSource {
   impact(usd,side){ const m=this.mcap||1; const f=usd/(m*0.25); return side==='buy'?1+f:Math.max(0.01,1-f); }
   submitTrade(){ return Promise.resolve({ok:false,reason:'replay'}); }
 }
-/* TURBO source (?source=turbo, hidden /turbo page — components/turbo/TurboFlight.tsx). Altitude is the open Turbo
-   position's PnL AFTER FEES, not a coin price: the page maps it to an mcap (lib/turbo/flight.ts) and pushes
-   {t:'swap'|'mark', mcap} through window.__turboFeed(e). The engine never trades here (BOOST / DUMP / CLOSE live on the
-   Turbo ticket), no wallet, no network. Cosmetic state comes from window.__turboFx (see turboFx() below). */
+/* TURBO source (?source=turbo, hidden /turbo page — components/turbo/TurboFlight.tsx). Altitude is the live BTC/ETH
+   market cap (page maps mid × circulating supply and pushes {t:'swap'|'mark', mcap} through window.__turboFeed). Live
+   market buys/sells also arrive as {t:'swap', side, usd, mcap} and use this engine's existing boost / bomb path. The
+   engine never trades here (BOOST / DUMP / CLOSE live on the Turbo ticket), no wallet, no network. Cosmetic state comes
+   from window.__turboFx (see turboFx() below). Height is never PnL. */
 class TurboSource extends HookSource {
   constructor(){ super(); this.name='TURBO'; this.isTurbo=true; }
   start(emit){ this.emit=emit; window.__turboFeed=e=>{ if(e&&(e.t==='swap'||e.t==='mark')&&e.mcap>0) this.mcap=e.mcap; emit(e); }; emit({t:'status',source:this.name,ok:true,msg:'turbo'}); }

@@ -17,6 +17,33 @@ export type PositionStatus = "pending" | "open" | "closed" | "liquidated" | "fai
 export type PriceTick = { price: number; ts: number };
 export type ClosePct = 25 | 50 | 100;
 
+/** A completed market print (buy or sell) for flight boosts / bombs. Not a bid/ask. */
+export interface MarketTrade {
+  market: Market;
+  side: "buy" | "sell";
+  /** Notional in dollars. */
+  usd: number;
+  /** Fill price ($ per coin). */
+  price: number;
+  /** Optional size in coin units. */
+  size?: number;
+  ts: number;
+  id?: string;
+  /** Previous print / mid, when known — the engine uses pre/post for impact %. */
+  prePrice?: number;
+}
+
+/** Stand-in or Nova trade stream. start() returns stop(). */
+export interface TradeFeed {
+  start(onTrade: (t: MarketTrade) => void): () => void;
+}
+
+/** Stand-in or Nova mid stream. start() returns stop(). */
+export interface PriceFeed {
+  start(onPrice: (m: Market, price: number) => void): () => void;
+}
+
+
 export interface Position {
   id: string;
   market: Market;
@@ -118,6 +145,8 @@ export type Unsub = () => void;
 export interface TurboAdapter {
   /** Live price stream. Calls cb with the latest tick right away when one exists. */
   subscribePrice(m: Market, cb: (p: PriceTick) => void): Unsub;
+  /** SITE extra: completed market buys/sells for flight boosts and bombs. Stand-in = Hyperliquid public trades; a Nova stream can replace it. */
+  subscribeTrades?(m: Market, cb: (t: MarketTrade) => void): Unsub;
 
   /** Turbo fuel ($). Completely separate from game cash. */
   getFuel(): Promise<{ usd: number }>;

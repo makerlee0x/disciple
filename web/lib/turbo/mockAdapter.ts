@@ -18,7 +18,8 @@
  */
 import { closeSlice, feeUsd, fundingDeltaUsd, isLiquidated, liquidationPrice, notionalAt, pnlBreakdown, prng, walkStep } from "./math";
 import { createFuelStore, type FuelStore } from "./fuel";
-import type { PriceFeed } from "./priceFeed";
+import type { PriceFeed } from "./types";
+import type { MarketTrade, TradeFeed } from "./types";
 import type {
   ClosePct, Market, MarketInfo, OpenParams, Position, PriceTick, Quote, QuoteParams, TurboAdapter, TurboEvent, TurboEventReason, Unsub,
 } from "./types";
@@ -45,6 +46,8 @@ export interface MockAdapterOptions {
   fuel?: FuelStore;
   /** Live price source. When set, the random walk is off and prices only come from the feed. */
   priceFeed?: PriceFeed;
+  /** Completed market buys/sells for flight boosts/bombs. Swap this for a Nova stream later. */
+  tradeFeed?: TradeFeed;
   /** Starts the price timer on first subscribe. Default true. */
   autoStart?: boolean;
   now?: () => number;
@@ -220,6 +223,12 @@ export function createMockAdapter(o: MockAdapterOptions = {}): MockTurboAdapter 
       if (last) cb(last);
       startTimer();
       return () => { priceSubs.delete(s); stopTimerIfIdle(); };
+    },
+
+    // Hook for a later Nova trade stream: today the stand-in is Hyperliquid's public trades channel.
+    subscribeTrades(m, cb): Unsub {
+      if (!o.tradeFeed) return () => {};
+      return o.tradeFeed.start((t: MarketTrade) => { if (t.market === m) cb(t); });
     },
 
     getFuel: async () => ({ usd: fuel.get() }),

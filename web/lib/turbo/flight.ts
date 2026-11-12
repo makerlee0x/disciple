@@ -1,9 +1,23 @@
 /**
  * Turbo → flight engine mapping (pure; unit-tested in scripts/test-turbo.mts).
- * Altitude is PnL AFTER FEES as a share of fuel in, not the asset price. A long climbs as PnL grows and the liquidation
- * line sits below it; a short is a dive run, so it goes DOWN as PnL grows and the liquidation line is a ceiling above.
+ *
+ * OVERRIDE (lee, Nov 12 2026 10:40 AM CT): altitude is the actual BTC or ETH market cap, the same path a live
+ * DISCIPLE rocket already follows, whether or not a position is open. It is never profit / PnL. A short does not
+ * flip or invert the sky. Profit after fees is a dollar figure on the ticket and HUD only.
+ *
+ * The liquidation line still sits in the sky at the market cap of the liquidation price (below a long, a ceiling
+ * above a short) and pins to the edge when off-screen (engine drawTurboLines).
  */
-import type { Position, Side } from "./types";
+import type { Market, Position, Side } from "./types";
+
+/** Circulating supply used to turn a mid into market cap for the flight path (stand-in constants; supply changes slowly). */
+export const CIRCULATING: Record<Market, number> = { BTC: 19_900_000, ETH: 120_700_000 };
+
+/** Actual market cap ($) = mid price × circulating supply. */
+export function marketCapUsd(market: Market, price: number): number {
+  if (!(price > 0) || !Number.isFinite(price)) return NaN;
+  return price * CIRCULATING[market];
+}
 
 /** Altitude with no open position (mid-sky; engine alt = tier index + position inside the tier). */
 export const FLIGHT_BASE_ALT = 4.5;

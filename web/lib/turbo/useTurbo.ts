@@ -21,6 +21,8 @@ export function useTurbo() {
     const offs = MARKETS.map((m) => a.subscribePrice(m, ({ price, ts }) => {
       const h = history.current[m]; h.push({ t: ts, p: price }); if (h.length > 600) h.splice(0, h.length - 600);
       setPrices((prev) => (prev[m] === price ? prev : { ...prev, [m]: price }));
+      // Ticket / HUD / open-position marks must move with the tick, not a 500 ms poll.
+      a.getPositions().then(setPositions).catch(() => {});
     }));
     return () => offs.forEach((o) => o());
   }, [a]);

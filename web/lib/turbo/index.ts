@@ -9,7 +9,7 @@
  */
 import type { TurboAdapter } from "./types";
 import { createMockAdapter } from "./mockAdapter";
-import { createHyperliquidPriceFeed } from "./priceFeed";
+import { createHyperliquidPriceFeed, createHyperliquidStream, createHyperliquidTradeFeed } from "./priceFeed";
 
 export * from "./types";
 export { isTurboEnabled, syncTurboFlagFromUrl, TURBO_FLAG_KEY } from "./flag";
@@ -19,7 +19,15 @@ let adapter: TurboAdapter | null = null;
 export function getTurboAdapter(): TurboAdapter {
   if (!adapter) {
     // TODO(SITE, after Nova hands over access): adapter = createNovaApiAdapter({...}) or createNovaSdkAdapter({...}).
-    adapter = createMockAdapter(typeof window !== "undefined" ? { priceFeed: createHyperliquidPriceFeed() } : {});
+    if (typeof window !== "undefined") {
+      const stream = createHyperliquidStream();
+      adapter = createMockAdapter({
+        priceFeed: createHyperliquidPriceFeed({ stream }),
+        tradeFeed: createHyperliquidTradeFeed({ stream }),
+      });
+    } else {
+      adapter = createMockAdapter();
+    }
     // `next dev` only: lets local screenshot / QA scripts drive the stand-in (setPrice). Never in a production build.
     if (process.env.NODE_ENV === "development" && typeof window !== "undefined") (window as unknown as { __turboDev?: TurboAdapter }).__turboDev = adapter;
   }

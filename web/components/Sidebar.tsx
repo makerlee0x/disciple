@@ -57,7 +57,7 @@ const PHONE_LAUNCH = "Launch";
 /** Only chart / flight (game) routes may collapse the sidebar. Launchpad, create, profile,
  * leaderboard, achievements etc. are always expanded on desktop (mobile keeps a drawer). */
 export function isCollapsibleRoute(pathname: string) {
-  return pathname.startsWith("/coin/") || pathname.startsWith("/flight");
+  return pathname.startsWith("/coin/") || pathname.startsWith("/flight") || pathname === "/turbo" || pathname.startsWith("/turbo/");
 }
 
 /** Game-route overlay signal for GAME (#221): window event, detail { open: boolean, width: 248 }. */

@@ -6,8 +6,8 @@ import { createFuelStore } from "../lib/turbo/fuel";
 import { createMockAdapter } from "../lib/turbo/mockAdapter";
 import { getTurboAdapter, isTurboEnabled, resetTurboAdapter } from "../lib/turbo/index";
 import type { TurboEvent } from "../lib/turbo/types";
-import { parseAllMids } from "../lib/turbo/priceFeed";
-import { dangerLevel, dangerOf, isBigWin, jetstreamL, liqAltOf, pnlToAlt, FLIGHT_ALT_PER_FUEL, FLIGHT_BASE_ALT } from "../lib/turbo/flight";
+import { parseAllMids, parseAllMidsMessage, parseTradesMessage, createHyperliquidStream } from "../lib/turbo/priceFeed";
+import { dangerLevel, dangerOf, isBigWin, jetstreamL, marketCapUsd, CIRCULATING } from "../lib/turbo/flight";
 import { DEFAULT_PREFS, FUEL_PRESETS, LEVERAGE_PRESETS, fuelOf, leverageOf, loadPrefs, savePrefs } from "../lib/turbo/prefs";
 import { TURBO_COPY } from "../lib/turbo/copy";
 
@@ -206,24 +206,37 @@ test("price feed: with a feed and no price yet, quote is NaN and open refuses; t
 });
 
 test("parseAllMids keeps BTC / ETH only and drops junk", () => {
-  assert.deepEqual(parseAllMids({ BTC: "71382.5", ETH: "1998.55", HYPE: "40" }), { BTC: 71382.5, ETH: 1998.55 });
   assert.deepEqual(parseAllMids({ BTC: "nope", ETH: -1 }), {});
   assert.deepEqual(parseAllMids(null), {});
 });
 
-test("flight: altitude = PnL after fees; long climbs, short dives; liquidation line on the losing side", () => {
-  near(pnlToAlt("long", 0, 10), FLIGHT_BASE_ALT);
-  assert.ok(pnlToAlt("long", 5, 10) > FLIGHT_BASE_ALT);
-  assert.ok(pnlToAlt("short", 5, 10) < FLIGHT_BASE_ALT, "a winning short dives deeper");
-  const base = { entry: 100, sizeUsd: 1000, collateralUsd: 10, openFeeUsd: 0.1, closeFeeUsdEst: 0.1, fundingUsd: 0 };
-  const long = { ...base, side: "long" as const, liqPrice: liquidationPrice({ side: "long", collateralUsd: 10, sizeUsd: 1000, entry: 100, openFeeUsd: 0.1, fundingUsd: 0, feeBps: 1, liqLossFrac: 0.8 }) };
-  const short = { ...base, side: "short" as const, liqPrice: liquidationPrice({ side: "short", collateralUsd: 10, sizeUsd: 1000, entry: 100, openFeeUsd: 0.1, fundingUsd: 0, feeBps: 1, liqLossFrac: 0.8 }) };
-  assert.ok(liqAltOf(long) < FLIGHT_BASE_ALT, "long: line below the rocket");
-  assert.ok(liqAltOf(short) > FLIGHT_BASE_ALT, "short: line is a ceiling");
-  const r = long.liqPrice / long.entry - 1;
-  const paidFeesOnlyAtLiq = long.sizeUsd * r - long.openFeeUsd + long.fundingUsd;
-  near(liqAltOf(long), pnlToAlt("long", paidFeesOnlyAtLiq, long.collateralUsd), 1e-9);
-  assert.ok(liqAltOf(long) > FLIGHT_BASE_ALT - 0.8 * FLIGHT_ALT_PER_FUEL - 1e-9, "paid-fees-only line sits above realized −80%");
+test("flight height is BTC/ETH market cap, not PnL; liq line uses the cap at the liquidation price", () => {
+  near(marketCapUsd("BTC", 100_000), 100_000 * CIRCULATING.BTC);
+  near(marketCapUsd("ETH", 3_000), 3_000 * CIRCULATING.ETH);
+  assert.ok(!(marketCapUsd("BTC", 0) > 0));
+  const mid = 100_000, liq = 99_400;
+  const rocket = marketCapUsd("BTC", mid), line = marketCapUsd("BTC", liq);
+  assert.ok(line < rocket, "a long's liquidation cap sits below the live cap — the sky is not flipped");
+  const shortLiq = marketCapUsd("BTC", 100_600);
+  assert.ok(shortLiq > rocket, "a short's liquidation cap sits above the live cap");
+});
+
+test("price feed parses HTTP allMids and the WebSocket allMids / trades envelopes", () => {
+  assert.deepEqual(parseAllMids({ BTC: "71382.5", ETH: "1998.55", HYPE: "40" }), { BTC: 71382.5, ETH: 1998.55 });
+  assert.deepEqual(parseAllMidsMessage({ channel: "allMids", data: { mids: { BTC: "97000.25", ETH: "3300.5" } } }), { BTC: 97000.25, ETH: 3300.5 });
+  const trades = parseTradesMessage({ channel: "trades", data: [
+    { coin: "BTC", side: "B", px: "97000", sz: "0.5", time: 1, tid: 11 },
+    { coin: "ETH", side: "A", px: "3300", sz: "2", time: 2, hash: "0xabc" },
+    { coin: "SOL", side: "B", px: "200", sz: "1", time: 3 },
+  ] });
+  assert.equal(trades.length, 2);
+  assert.equal(trades[0].market, "BTC"); assert.equal(trades[0].side, "buy"); near(trades[0].usd, 48500);
+  assert.equal(trades[1].market, "ETH"); assert.equal(trades[1].side, "sell"); near(trades[1].usd, 6600);
+  // Existing bomb ladder is price-impact % (puff < 2%, grenade ≥ 2%). A typical BTC print vs ~$2T cap is a puff.
+  // Do not invent a new size ladder for Turbo (lee, Nov 12 10:42 AM CT).
+  const cap = marketCapUsd("BTC", 100_000);
+  const impactPct = (50_000 / (cap * 0.25)) * 100;
+  assert.ok(impactPct < 2, "a $50k BTC print is far below the grenade threshold on actual BTC cap");
 });
 
 test("danger: share of the way from entry to liquidation; 50 / 80 / 95 levels", () => {
@@ -242,6 +255,37 @@ test("jetstream L = log10(lev)/3", () => {
 test("big win share card: any profit after fees", () => {
   assert.ok(isBigWin(10)); assert.ok(isBigWin(100)); assert.ok(isBigWin(5)); assert.ok(isBigWin(0.01));
   assert.ok(!isBigWin(0)); assert.ok(!isBigWin(-5));
+});
+
+test("Hyperliquid stream subscribes to allMids + trades, never l2Book, and dispatches ticks and prints", async () => {
+  const sent: string[] = [];
+  type Sock = FakeWS;
+  let opened: Sock | null = null;
+  class FakeWS {
+    readyState = 0;
+    onopen: null | (() => void) = null;
+    onmessage: null | ((e: { data: string }) => void) = null;
+    onclose: null | (() => void) = null;
+    onerror: null | (() => void) = null;
+    constructor(_url: string) { opened = this; queueMicrotask(() => { this.readyState = 1; this.onopen?.(); }); }
+    send(s: string) { sent.push(s); }
+    close() { this.readyState = 3; this.onclose?.(); }
+  }
+  const prices: Array<[string, number]> = [];
+  const sides: string[] = [];
+  const stream = createHyperliquidStream({ WebSocketImpl: FakeWS as unknown as typeof WebSocket, pollIntervalMs: 60_000 });
+  const off = stream.start({ onPrice: (m, p) => prices.push([m, p]), onTrade: (t) => sides.push(`${t.market}:${t.side}`) });
+  await new Promise((r) => setTimeout(r, 20));
+  const payload = sent.join(" ");
+  assert.ok(payload.includes("allMids"), "subscribes to allMids");
+  assert.ok(payload.includes("trades") && payload.includes("BTC") && payload.includes("ETH"), "subscribes to BTC and ETH trades");
+  assert.ok(!payload.includes("l2Book"), "does not subscribe to the order book");
+  assert.ok(opened);
+  opened!.onmessage?.({ data: JSON.stringify({ channel: "allMids", data: { mids: { BTC: "101000.5", ETH: "3500" } } }) });
+  opened!.onmessage?.({ data: JSON.stringify({ channel: "trades", data: [{ coin: "BTC", side: "B", px: "101000.5", sz: "0.01", time: 9, tid: 1 }] }) });
+  assert.deepEqual(prices, [["BTC", 101000.5], ["ETH", 3500]]);
+  assert.deepEqual(sides, ["BTC:buy"]);
+  off();
 });
 
 test("prefs: presets are 100/250/500/1000× and $10/$25/$50/$100; default 100× and $10; custom wins", () => {

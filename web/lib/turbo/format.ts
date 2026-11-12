@@ -5,7 +5,7 @@ export const usd = (v: number, digits?: number): string => {
   return `${v < 0 ? "−" : ""}$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d })}`;
 };
 /** Asset price: BTC whole dollars with cents under $10k, ETH with cents. */
-export const price = (v: number): string => (!Number.isFinite(v) || v <= 0 ? "—" : usd(v, v >= 10_000 ? 0 : 2));
+export const price = (v: number): string => (!Number.isFinite(v) || v <= 0 ? "—" : usd(v, 2));
 export const signedUsd = (v: number): string => (!Number.isFinite(v) ? "—" : Math.abs(v) < 0.005 ? "$0.00" : `${v > 0 ? "+" : "−"}${usd(Math.abs(v))}`);
 export const pct = (v: number, d = 2): string => (!Number.isFinite(v) ? "—" : `${v.toFixed(d)}%`);
 /** Chip money like today's buy bar: $10 · $2.50 · $1.2K */
