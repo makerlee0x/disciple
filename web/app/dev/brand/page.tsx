@@ -129,7 +129,7 @@ export default function BrandV3Page() {
             <div style={{ padding: 48, maxWidth: 420, display: "flex", flexDirection: "column", gap: 20 }}>
               <h3 className="dsc3-hero">Launch a rocket</h3>
               <p style={{ font: "var(--dsc3-type-body)", color: "var(--dsc3-text-on-sky)", margin: 0 }}>
-                Make it yours, then send it to orbit.
+                You light the engines. The crew does the climbing.
               </p>
               <div><button className="dsc3-btn dsc3-btn-primary dsc3-btn-lg">Start a launch</button></div>
             </div>
