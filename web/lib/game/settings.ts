@@ -6,8 +6,8 @@
  * Amounts are NOT stored here: the $ per buy preset and the % per sell size stay in Swap settings
  * (lib/trade/swapSettings.ts, per scope paper/live/sim) so the trade bar, the ammo panel and the settings menu share one book.
  *
- * Audio: the game has no audio engine yet. `sfx` / `music` are persisted and exposed via audioLevel() + the
- * `disciple:audio` event so a future sound system can plug in without new UI (see lib/game/audio.ts).
+ * Audio: `sfx` / `music` are persisted and exposed via audioLevel() + the `disciple:audio` event.
+ * Music drives the house radio (lib/game/radio.ts). SFX still only have the settings preview blip.
  */
 import { useSyncExternalStore } from "react";
 
