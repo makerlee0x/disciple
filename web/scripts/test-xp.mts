@@ -135,3 +135,29 @@ test("ledger totals: spending never lowers total XP", () => {
   ]);
   assert.deepEqual(t, { total: 500, spendable: 200, prestige: 1 });
 });
+
+test("a boost counts only after its wash window has passed", () => {
+  const coins = new Map([["c", coin(OTHER, T0 - H)]]);
+  const fills = [f("c", T0, "buy", 60)];
+  let r = evaluateMissions({ wallet: W, fills, coins, now: T0 + MIN, asOf: T0 + MIN }, day, only("d_boost50"));
+  assert.equal(r.results.d_boost50.progress, 0, "window still open");
+  assert.ok(r.recheckAt !== undefined && r.recheckAt > T0 + 2 * MIN, "re-scored after the window");
+  r = evaluateMissions({ wallet: W, fills, coins, now: T0 + 3 * MIN, asOf: T0 + 3 * MIN }, day, only("d_boost50"));
+  assert.equal(r.results.d_boost50.doneAt, T0);
+  // a transfer away inside the window voids it
+  const sent = [...fills, f("c", T0 + MIN, "out", 60)];
+  r = evaluateMissions({ wallet: W, fills: sent, coins, now: T0 + 3 * MIN, asOf: T0 + 3 * MIN }, day, only("d_boost50"));
+  assert.equal(r.results.d_boost50.progress, 0);
+});
+
+test("tokens sent away end a hold, a tier ride and an orbit seat", () => {
+  const start = week.start + H;
+  const coins = new Map([["c", coin(OTHER, start - H, 1, { ts: start + 30 * H, block: 1_000_000_000, logIndex: 0 })]]);
+  const fills = [f("c", start, "buy", 30, { mcapUsd: 5_000 }), f("c", start + H, "out", 30)];
+  const path = new Map([["c", [{ ts: start, mcapUsd: 5_000 }, { ts: start + 2 * H, mcapUsd: 13_000 }]]]);
+  const r = evaluateMissions({ wallet: W, fills, coins, coinFills: path, now: start + 40 * H }, week, only("w_hold").concat(only("w_orbit")));
+  assert.equal(r.results.w_hold.progress, 0);
+  assert.equal(r.results.w_orbit.progress, 0);
+  const d = dayPeriod(start);
+  assert.equal(evaluateMissions({ wallet: W, fills, coins, coinFills: path, now: start + 3 * H }, d, only("d_tier")).results.d_tier.progress, 0);
+});

@@ -10,7 +10,8 @@ const DUST = 1e-9;
 
 export interface MissionFill {
   coin: string; ts: number; block: number; logIndex: number;
-  side: "buy" | "sell"; tokens: number;
+  /** "out" = tokens sent away by a plain transfer (not a trade): counts as leaving the position, never as a dump or bomb */
+  side: "buy" | "sell" | "out"; tokens: number;
   /** player $ */
   usd: number;
   impactBps?: number;
@@ -31,12 +32,15 @@ export interface MissionInput {
   coins: ReadonlyMap<string, MissionCoin>;
   /** every trader's fills per coin (ride_tier reads the coin's mcap path); coins without an entry use the wallet's fills */
   coinFills?: ReadonlyMap<string, readonly { ts: number; mcapUsd?: number }[]>;
+  /** evaluation cutoff for this period (events after it don't count) */
   now: number;
+  /** wall-clock time of this run (default `now`): a boost only counts once its wash window has fully passed by then */
+  asOf?: number;
 }
 export interface MissionResult { progress: number; target: number; doneAt?: number }
 export interface MissionsEval {
   results: Record<string, MissionResult>;
-  /** earliest future time a mission could complete with no new trade (hold_24h); the cron re-scores then */
+  /** earliest future time a mission could change with no new trade (a 24h hold, a boost leaving its wash window); the cron re-scores then */
   recheckAt?: number;
 }
 
@@ -53,14 +57,21 @@ export function evaluateMissions(inp: MissionInput, period: Period, missions: re
   const coin = (c: string) => inp.coins.get(c.toLowerCase());
   const mineLaunch = (c: string) => { const m = coin(c); return !!m && !m.anon && m.creator.toLowerCase() === wallet; };
 
-  // Qualifying boosts in the period: ≥ $5, not on a rocket you launched, not sold again within the wash window.
+  const asOf = inp.asOf ?? inp.now;
+  let recheckAt: number | undefined;
+  const recheck = (t: number) => { if (t > asOf && (recheckAt === undefined || t < recheckAt)) recheckAt = t; };
+
+  // Qualifying boosts in the period: ≥ $5, not on a rocket you launched, and not sold or sent away within the wash
+  // window. A boost whose window is still open doesn't count yet (XP is written once, so it must be final when paid).
   const boosts: MissionFill[] = [];
   for (let i = 0; i < fills.length; i++) {
     const f = fills[i];
     if (f.side !== "buy" || !inP(f.ts) || !(f.usd >= FAIR.minBoostUsd) || !coin(f.coin) || mineLaunch(f.coin)) continue;
     let washed = false;
-    for (let j = i + 1; j < fills.length && fills[j].ts - f.ts <= FAIR.washMs; j++) if (fills[j].coin === f.coin && fills[j].side === "sell") { washed = true; break; }
-    if (!washed) boosts.push(f);
+    for (let j = i + 1; j < fills.length && fills[j].ts - f.ts <= FAIR.washMs; j++) if (fills[j].coin === f.coin && fills[j].side !== "buy") { washed = true; break; }
+    if (washed) continue;
+    if (f.ts + FAIR.washMs > asOf) { recheck(f.ts + FAIR.washMs + 1); continue; }
+    boosts.push(f);
   }
 
   // Positions: holding intervals, the bomb hold clock and the 24h stay-aboard streak, per coin.
@@ -68,7 +79,6 @@ export function evaluateMissions(inp: MissionInput, period: Period, missions: re
   const pos = new Map<string, Pos>();
   const bombs: number[] = [];
   const holds: number[] = [];     // times a 24h streak completed
-  let recheckAt: number | undefined;
   for (const f of fills) {
     const p = pos.get(f.coin) ?? pos.set(f.coin, { tokens: 0, basis: 0, holdStart: null, streak: null, intervals: [] }).get(f.coin)!;
     const usd = Number.isFinite(f.usd) && f.usd > 0 ? f.usd : 0;
@@ -79,11 +89,11 @@ export function evaluateMissions(inp: MissionInput, period: Period, missions: re
       p.tokens += f.tokens; p.basis += usd;
       if (p.streak === null && p.basis >= FAIR.holdMinUsd) p.streak = f.ts;
     } else {
-      if (inP(f.ts) && (f.impactBps ?? 0) >= FAIR.bombMinImpactBps && usd >= FAIR.bombMinUsd && p.holdStart !== null && f.ts - p.holdStart >= FAIR.bombMinHoldMs) bombs.push(f.ts);
+      if (f.side === "sell" && inP(f.ts) && (f.impactBps ?? 0) >= FAIR.bombMinImpactBps && usd >= FAIR.bombMinUsd && p.holdStart !== null && f.ts - p.holdStart >= FAIR.bombMinHoldMs) bombs.push(f.ts);
       const q = Math.min(f.tokens, Math.max(0, p.tokens));
       if (p.tokens > DUST) { p.basis -= p.basis * (q / p.tokens); p.tokens -= q; }
       if (p.tokens <= DUST) { p.tokens = 0; p.basis = 0; p.holdStart = null; const last = p.intervals[p.intervals.length - 1]; if (last && last.end === Infinity) last.end = f.ts; }
-      // any dump resets the clock
+      // any dump or transfer away resets the clock
       p.streak = p.basis >= FAIR.holdMinUsd ? f.ts : null;
     }
   }
@@ -91,7 +101,7 @@ export function evaluateMissions(inp: MissionInput, period: Period, missions: re
     if (p.streak === null) continue;
     const due = p.streak + FAIR.holdMs;
     if (due <= inp.now) holds.push(due);
-    else if (due < period.end && (recheckAt === undefined || due < recheckAt)) recheckAt = due;
+    else if (due < period.end) recheck(due);
   }
 
   const results: Record<string, MissionResult> = {};

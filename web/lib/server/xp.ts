@@ -31,6 +31,8 @@ export const XPK = {
   once: (src: string, w: string) => `${ns()}:once:${src}:${w.toLowerCase()}`,
   missions: (w: string) => `${ns()}:m:${w.toLowerCase()}`,
   owned: (w: string) => `${ns()}:owned:${w.toLowerCase()}`,
+  /** JSON { cursor, outs: TransferOut[] }: plain token transfers away from the wallet, scanned so far */
+  transfers: (w: string, coin: string) => `${ns()}:tx:${w.toLowerCase()}:${coin.toLowerCase()}`,
   lock: (w: string) => `${ns()}:lock:${w.toLowerCase()}`,
   timers: () => `${ns()}:timers`,
 };
@@ -68,12 +70,18 @@ export function totals(rows: readonly LedgerRow[]) {
 
 /* ------------------------------------------------------ scoring ------------------------------------------------------- */
 
+/** Tokens a wallet sent away by plain transfer (not a trade). */
+export interface TransferOut { coin: string; tx: string; block: number; logIndex: number; ts: number; tokens: number }
+
 export interface XpCoinMeta { creator: string; anon: boolean; mode?: number; launch: { ts: number }; grad?: { ts: number; block: number; logIndex: number } }
 
 const toMissionFill = (f: Fill): MissionFill => ({
   coin: f.coin.toLowerCase(), ts: f.ts, block: f.block, logIndex: f.logIndex, side: f.side, tokens: f.tokens, usd: playerUsd(f),
   impactBps: typeof f.impactBps === "number" ? Math.abs(f.impactBps) : undefined, mcapUsd: f.mcapUsd,
 });
+
+/** Missions that depend on still holding the tokens: not paid while transfers out couldn't be checked. */
+const HOLDING_KINDS = new Set(["hold_24h", "ride_tier", "orbit_aboard", "drop_bomb"]);
 
 /** The periods a cron pass settles: this day and week, plus the previous ones (a pass that runs just after a reset). */
 export const periodsAt = (now: number): Period[] => [dayPeriod(now), dayPeriod(now - 86_400_000), weekPeriod(now), weekPeriod(now - 7 * 86_400_000)];
@@ -85,7 +93,7 @@ export const periodsAt = (now: number): Period[] => [dayPeriod(now), dayPeriod(n
  */
 export async function scoreXp(
   walletIn: string,
-  ctx: { fills: readonly Fill[]; metas: ReadonlyMap<string, XpCoinMeta>; unlocks: readonly AchievementUnlockRecord[]; coinFills?: ReadonlyMap<string, readonly Fill[]> },
+  ctx: { fills: readonly Fill[]; outs?: readonly TransferOut[]; holdsUnverified?: boolean; metas: ReadonlyMap<string, XpCoinMeta>; unlocks: readonly AchievementUnlockRecord[]; coinFills?: ReadonlyMap<string, readonly Fill[]> },
   o: { now?: number; s?: Kv; dryRun?: boolean } = {},
 ): Promise<{ awarded: { src: string; xp: number }[] }> {
   const s = o.s ?? kv(), w = walletIn.toLowerCase(), now = o.now ?? Date.now();
@@ -101,18 +109,22 @@ export async function scoreXp(
   for (const [c, m] of Array.from(ctx.metas.entries())) coins.set(c.toLowerCase(), { creator: m.creator, anon: m.anon, mode: m.mode, launchTs: m.launch.ts, grad: m.grad });
   const coinFills = new Map<string, { ts: number; mcapUsd?: number }[]>();
   for (const [c, fs] of Array.from(ctx.coinFills?.entries() ?? [])) coinFills.set(c.toLowerCase(), fs.map((f) => ({ ts: f.ts, mcapUsd: f.mcapUsd })));
-  const input = { wallet: w, fills: ctx.fills.map(toMissionFill), coins, coinFills, now };
+  const fills: MissionFill[] = [
+    ...ctx.fills.map(toMissionFill),
+    ...(ctx.outs ?? []).map((t): MissionFill => ({ coin: t.coin.toLowerCase(), ts: t.ts, block: t.block, logIndex: t.logIndex, side: "out", tokens: t.tokens, usd: 0 })),
+  ];
+  const input = { wallet: w, fills, coins, coinFills, now, asOf: now };
 
   const stored: Record<string, Record<string, { progress: number; target: number; doneAt?: number }>> = {};
   let recheck: number | undefined;
   for (const p of periodsAt(now)) {
     const ms = missionsFor(p);
-    const r = evaluateMissions({ ...input, now: Math.min(now, p.end - 1) }, p, ms);
+    const r = evaluateMissions({ ...input, now: Math.min(now, p.end - 1), asOf: now }, p, ms);
     stored[p.id] = r.results;
     if (r.recheckAt !== undefined && (recheck === undefined || r.recheckAt < recheck)) recheck = r.recheckAt;
     for (const m of ms) {
       const res = r.results[m.id];
-      if (res?.doneAt !== undefined) await pay({ src: `m:${p.id}:${m.id}`, kind: "mission", xp: m.xp, label: m.title, ts: res.doneAt });
+      if (res?.doneAt !== undefined && !(ctx.holdsUnverified && HOLDING_KINDS.has(m.kind))) await pay({ src: `m:${p.id}:${m.id}`, kind: "mission", xp: m.xp, label: m.title, ts: res.doneAt });
     }
   }
   if (!o.dryRun) {
