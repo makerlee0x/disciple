@@ -85,6 +85,9 @@ ok(/act === "skip" && P && !this\.postOff[\s\S]*this\.postOff = true/.test(sc), 
 ok(/post stack off/.test(idx3), "post stack failing never fails the flight (plain render)");
 ok(!/clearcoat: [1-9]/.test(rd("lib/flight/view3d/rocket.ts")), "clear coat stays off");
 
+ok(/flameBloom: 0\.2/.test(po) && /mix\( \$\{POST\.flameBloom\.toFixed\(3\)\}, 1\.0, smoothstep\( 0\.6, 1\.0, texel\.a \) \)/.test(po), "post: exhaust weighted out of the bloom input; hull (alpha 1) keeps the full, tight bloom");
+ok(/Math\.min\(48, 30 \+ 32 \* fl\)/.test(sc) && /0\.55 \* fl \* fk \* V\.glowMul, 0, 0\.5\)/.test(sc), "nozzle glow capped at full thrust");
+
 console.log("— 5. no takeoff on the game page; sounds");
 const all = [eng, fc, idx3, sc, rd("lib/game/sfx.ts"), rd("components/flight/FlightSfx.tsx")].join("\n");
 ok(!/takeoff=1|countdown|3-2-1|ignition/i.test(all.replace(/snipeCountdown|SnipeCountdown|SNIPE_COUNTDOWN|snipe countdown|countdown chip|launch countdown/gi, "")), "no takeoff / 3-2-1 / ignition in the flight engine, 3D view or sounds");

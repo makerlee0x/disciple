@@ -366,9 +366,10 @@ export class FlightView3D {
     (this.flameOuter.material as MeshBasicMaterial).opacity = clamp(0.45 + 0.35 * fl, 0, 0.9);
     this.flameCore.scale.set(Wf * 0.6, L * 0.48, 1); this.flameCore.position.set(0, -2, 2);
     (this.flameCore.material as MeshBasicMaterial).opacity = clamp(0.55 + 0.4 * fl, 0, 1);
-    const gs = Math.min(70, 30 + 32 * fl) * fk * Math.sqrt(V.glowMul) * 1.3;
+    // nozzle glow capped (step 3b): at full thrust it no longer spreads a wide soft disc over the lower hull; cruise is unchanged
+    const gs = Math.min(48, 30 + 32 * fl) * fk * Math.sqrt(V.glowMul) * 1.3;
     this.nozzleGlow.scale.set(gs, gs, 1); this.nozzleGlow.position.set(0, -4, 14);
-    (this.nozzleGlow.material as MeshBasicMaterial).opacity = clamp(0.55 * fl * fk * V.glowMul, 0, 1);
+    (this.nozzleGlow.material as MeshBasicMaterial).opacity = clamp(0.55 * fl * fk * V.glowMul, 0, 0.5);
     this.engineLight.intensity = 900 * clamp(fl, 0, 1.6) * fk;
 
     // ---- world scroll (climb, hyperspeed and big-sell fall all come in through cloudY)
