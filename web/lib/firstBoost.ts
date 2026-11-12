@@ -32,7 +32,7 @@ export const FIRST_BOOST_COPY = {
   cash: (haveUsd: string) => `Not enough cash for that First BOOST: you have ${haveUsd}. Lower it or deposit more.`,
   cashBalance: (haveUsd: string) => `Cash ${haveUsd}`,
   paysCash: "Paid from your cash. We buy the pair coin for you in the same step.",
-  privateOff: "First BOOST isn't available on private launches yet. Launch first, then BOOST like anyone else.",
+  privateOff: "On a private launch, the First BOOST is paid from your cash.",
   privateNote: "On a private launch, the First BOOST is paid from your cash and the new coins go to your private address, not your main wallet.",
   invalid: "Enter a $ amount like 25 or 12.5.",
   // SITE new-player cash (DRAFT, pending lee): the First BOOST spends the pair token (STRATEGY), not the USDG cash shown
@@ -94,6 +94,19 @@ export const modeName = (m: number) => LAUNCH_MODE_NAME[m] ?? `mode ${m}`;
 
 export async function readQuoteBalance(pc: PublicClient, token: Address, owner: Address) {
   return pc.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [owner] });
+}
+
+/**
+ * True when a USDG First BOOST is even one smallest unit over the live cap.
+ * Equal to the cap is allowed. Nulls are not over (the cap is still loading).
+ */
+export function exceedsUsdgFirstBoostCap(usdgIn: bigint | null | undefined, maxUsdg: bigint | null | undefined): boolean {
+  return usdgIn != null && maxUsdg != null && usdgIn > maxUsdg;
+}
+
+/** True when a pair-token First BOOST is even one smallest unit over the live cap. Equal to the cap is allowed. */
+export function exceedsQuoteFirstBoostCap(raw: bigint | null | undefined, maxQuoteIn: bigint | null | undefined): boolean {
+  return raw != null && raw > BigInt(0) && maxQuoteIn != null && raw > maxQuoteIn;
 }
 
 /** Human amount → raw units; null if malformed or too many decimals. */

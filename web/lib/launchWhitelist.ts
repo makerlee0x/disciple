@@ -1,22 +1,20 @@
 /**
- * Launch pair whitelist (lee, Nov 10 2026).
+ * Launch pair whitelist for the Quick Launch pair picker.
  *
- * ONE config the Quick Launch "Pair coin" chips read from. FLOW can later fill or
- * replace this file (addresses, names, or `image` paths) when a backend list is
- * wired; keep this shape: symbol, name, address, image, decimals.
+ * Coins, names, addresses, decimals, and images come from main's
+ * `web/lib/whitelistQuotes.ts` (the 12-coin list FLOW shipped). The router
+ * already knows the quote route for each coin (a two-swap route for the seven
+ * LONG coins STRATEGY, AI, SCHIFFY, BONER, MEME, MOO, and SPACEHOOD, and a
+ * single USDG swap for the other five). This file does not invent a second
+ * quote path.
  *
- * Order is lee's order. Twelve coins (BUN was removed; SPACEHOOD was added).
  * STRATEGY is the default. USDG is intentionally not listed.
- * Addresses and names come from /workspace/notes/launch-whitelist-2026-11-10.md and
- * FLOW's /workspace/whitelist-images/manifest.json (mainnet, Robinhood Chain 4663).
- * Images are the 256px copies under /pairs/launch/.
- *
- * On testnet (46630), only STRATEGY works: `addressOn()` uses the chain's
- * defaultQuote. The other eleven addresses are mainnet-only until FLOW fills
- * testnet values. There are no mock testnet coins.
+ * On testnet, only STRATEGY works: `addressOn()` uses the chain's defaultQuote,
+ * and `launchPairsForChain()` offers only STRATEGY. There are no mock testnet coins.
  */
 import type { Address } from "./protocol";
 import { MAINNET_CHAIN_ID } from "./networkConfig";
+import { WHITELIST_QUOTES } from "./whitelistQuotes";
 
 export type LaunchWhitelistCoin = {
   symbol: string;
@@ -27,22 +25,13 @@ export type LaunchWhitelistCoin = {
   decimals: number;
 };
 
-const img = (symbol: string) => `/pairs/launch/${symbol.toLowerCase()}.png`;
-
-export const LAUNCH_WHITELIST: readonly LaunchWhitelistCoin[] = [
-  { symbol: "STRATEGY", name: "Strategy Coin", address: "0x168661C52E5922288dFb2b3f323b6Cf90eb21e18", image: img("STRATEGY"), decimals: 18 },
-  { symbol: "AI", name: "Artificial Inu", address: "0x2E8c31162b855A2ffa90F6F8634643Ad6F111e18", image: img("AI"), decimals: 18 },
-  { symbol: "SCHIFFY", name: "SCHIFFY", address: "0x42aFA2124ca5a2B83898E46B2dA9a190995b1E18", image: img("SCHIFFY"), decimals: 18 },
-  { symbol: "BONER", name: "Boner Coin", address: "0x98096d17e191B3dA1d5f99a6D7b3584351b11E18", image: img("BONER"), decimals: 18 },
-  { symbol: "MEME", name: "A Meme Coin", address: "0x385F4f8ae47651ce5F58F5265395a669f8281e18", image: img("MEME"), decimals: 18 },
-  { symbol: "MOO", name: "Memory cow Moo", address: "0xD9dB30BB0D2b8d2eae3826A1372117E058791e18", image: img("MOO"), decimals: 18 },
-  { symbol: "PONS", name: "Pons", address: "0x39dBED3a2bd333467115dE45665cC57F813C4571", image: img("PONS"), decimals: 18 },
-  { symbol: "ORBIO", name: "Orbio.so", address: "0xAa07A0e9209e16aC99708C3EC70159c6eF3128A3", image: img("ORBIO"), decimals: 18 },
-  { symbol: "HOOKR", name: "Hookr.fun", address: "0x18E674231A58c239Dc7DaeDcffE15Ec3A24cff5c", image: img("HOOKR"), decimals: 18 },
-  { symbol: "CASHCAT", name: "Cash Cat", address: "0x020bfC650A365f8BB26819deAAbF3E21291018b4", image: img("CASHCAT"), decimals: 18 },
-  { symbol: "PRIORS", name: "Priors Agents", address: "0xeDBf91223639800BCd5756815CAf908Df3b890bE", image: img("PRIORS"), decimals: 18 },
-  { symbol: "SPACEHOOD", name: "SPACEHOOD", address: "0xFe7E19CbCe2f896C6C528BC355bAF5a768291E18", image: img("SPACEHOOD"), decimals: 18 },
-];
+export const LAUNCH_WHITELIST: readonly LaunchWhitelistCoin[] = WHITELIST_QUOTES.map((q) => ({
+  symbol: q.symbol,
+  name: q.name,
+  address: q.address,
+  image: q.imagePath,
+  decimals: q.decimals,
+}));
 
 /** The chip selected when the form opens. */
 export const DEFAULT_LAUNCH_PAIR_SYMBOL = "STRATEGY" as const;
@@ -52,6 +41,12 @@ export const defaultLaunchPair = (): LaunchWhitelistCoin => {
   if (!found) throw new Error("launch whitelist is missing the default pair");
   return found;
 };
+
+/** Pairs the picker should offer on this chain. Testnet: STRATEGY only. */
+export function launchPairsForChain(chainId: number): readonly LaunchWhitelistCoin[] {
+  if (chainId === MAINNET_CHAIN_ID) return LAUNCH_WHITELIST;
+  return LAUNCH_WHITELIST.filter((c) => c.symbol === DEFAULT_LAUNCH_PAIR_SYMBOL);
+}
 
 export const isUsdgSymbol = (symbol: string) => /^m?usdg$/i.test(symbol.trim());
 

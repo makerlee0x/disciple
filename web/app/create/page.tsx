@@ -9,6 +9,7 @@ import { precheckWithin, preloadModeration } from "@/lib/moderation-client";
 import BrandedRocket from "@/components/BrandedRocket";
 import SquareCrop, { cropSquare } from "@/components/create/SquareCrop";
 import FirstBoostField, { type FirstBoostState } from "@/components/create/FirstBoostField";
+import { exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap } from "@/lib/firstBoost";
 import LiftoffOverlay, { LIFTOFF_MS } from "@/components/create/LiftoffOverlay";
 import { protocolStub, type Address } from "@/lib/protocol";
 import { LAUNCH_ABI_SHAPE, LaunchMode } from "@/lib/launchAbi";
@@ -28,7 +29,7 @@ import { CANCELLED_MSG, playerError } from "@/lib/playerError";
 import { IMAGE_COPY, LAUNCH_FAILED_MSG, launchImageFrom, type ModerateResponse } from "@/lib/launchImage";
 import { NAME_LOCK_TAKEN_MSG, fetchNameLock, nameLockEnforced } from "@/lib/nameLock";
 import {
-  addressOn, defaultLaunchPair, LAUNCH_WHITELIST,
+  addressOn, defaultLaunchPair, launchPairsForChain,
 } from "@/lib/launchWhitelist";
 import {
   QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_COPY, buildLaunchSocials, launchButtonLabel,
@@ -65,7 +66,7 @@ export default function LaunchRocketPage() {
   const [tax, setTax] = useState(0);
   const [privateLaunch, setPrivateLaunch] = useState(false);
   const [boost, setBoost] = useState("");
-  const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), usdgIn: null, error: null, ready: true });
+  const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), usdgIn: null, maxUsdg: null, maxQuoteIn: null, error: null, ready: true, overCap: false });
   const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
   const [liftoff, setLiftoff] = useState<string | null>(null);
   const setMsg = (text: string | null) => setStatus(text == null ? null : { text, ok: false });
@@ -233,6 +234,10 @@ export default function LaunchRocketPage() {
       imageUri = await storeImage(crop256);
     }
     if (!imageUri) return;
+    if (boostState.overCap || exceedsUsdgFirstBoostCap(boostState.usdgIn, boostState.maxUsdg) || exceedsQuoteFirstBoostCap(boostState.raw, boostState.maxQuoteIn)) {
+      setMsg(boostState.error || "That's over the First BOOST cap. Lower the amount and try again.");
+      return;
+    }
     if (boostState.error) { setMsg(boostState.error); return; }
     if (!boostState.ready) { setMsg("Still reading the First BOOST cap. Try again in a moment."); return; }
     try {
@@ -244,8 +249,8 @@ export default function LaunchRocketPage() {
         imageUri,
         quoteToken: quoteAddr,
         creatorTaxPct: effTax,
-        creatorBuyUsdgIn: !priv && boostState.usdgIn != null && boostState.usdgIn > BigInt(0) ? boostState.usdgIn : undefined,
-        creatorBuyQuoteIn: !priv && boostState.usdgIn == null && boostState.raw > BigInt(0) ? boostState.raw : undefined,
+        creatorBuyUsdgIn: boostState.usdgIn != null && boostState.usdgIn > BigInt(0) ? boostState.usdgIn : undefined,
+        creatorBuyQuoteIn: boostState.usdgIn == null && boostState.raw > BigInt(0) ? boostState.raw : undefined,
         socials: buildLaunchSocials({ twitter, telegram, website: web }),
         mode: priv ? LaunchMode.TRENCH_WARFARE : LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
         private: priv,
@@ -420,7 +425,7 @@ export default function LaunchRocketPage() {
               <div className={s.fl}>
                 <div className={s.lab}>{C.pairCoin}</div>
                 <div className={s.pchips} role="listbox" aria-label={C.pairCoin}>
-                  {LAUNCH_WHITELIST.map((coin) => {
+                  {launchPairsForChain(ACTIVE_CHAIN.id).map((coin) => {
                     const addr = addressOn(coin, ACTIVE_CHAIN.id, deployment().defaultQuote);
                     const on = quote.address?.toLowerCase() === addr.toLowerCase();
                     return (

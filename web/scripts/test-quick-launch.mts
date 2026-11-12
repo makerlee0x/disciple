@@ -6,8 +6,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MAINNET_CHAIN_ID, TESTNET_CHAIN_ID } from "../lib/networkConfig";
 import {
-  DEFAULT_LAUNCH_PAIR_SYMBOL, LAUNCH_WHITELIST, addressOn, defaultLaunchPair, isUsdgSymbol, whitelistIncludesUsdg,
+  DEFAULT_LAUNCH_PAIR_SYMBOL, LAUNCH_WHITELIST, addressOn, defaultLaunchPair, isUsdgSymbol, launchPairsForChain, whitelistIncludesUsdg,
 } from "../lib/launchWhitelist";
+import { exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap, parseAmount } from "../lib/firstBoost";
+import { WHITELIST_QUOTES, whitelistQuoteBySymbol } from "../lib/whitelistQuotes";
 import {
   buildLaunchSocials, boostHasAmount, launchButtonLabel, launchNeedsSignIn, maxBoostChipLabel,
   isPseudoLaunch, privateLaunchHelp, privateLaunchTitle, readStoredCreatorTax, socialsURI, storeCreatorTax, withHttps,
@@ -29,7 +31,8 @@ test("whitelist has 12 coins, STRATEGY first and default, no USDG", () => {
   assert.equal(LAUNCH_WHITELIST.some((c) => isUsdgSymbol(c.symbol)), false);
   for (const c of LAUNCH_WHITELIST) {
     assert.match(c.address, /^0x[0-9a-fA-F]{40}$/);
-    assert.ok(c.image.startsWith("/pairs/launch/"));
+    assert.equal(c.image, whitelistQuoteBySymbol(c.symbol)?.imagePath);
+    assert.ok(c.image.startsWith("/whitelist/"));
     assert.ok(c.name.length > 0);
     assert.equal(c.decimals, 18);
   }
@@ -42,6 +45,25 @@ test("STRATEGY uses the chain defaultQuote on testnet, listed address on mainnet
   assert.equal(addressOn(strat, TESTNET_CHAIN_ID, testQuote), testQuote);
   const ai = LAUNCH_WHITELIST.find((c) => c.symbol === "AI")!;
   assert.equal(addressOn(ai, TESTNET_CHAIN_ID, testQuote), ai.address);
+  assert.equal(LAUNCH_WHITELIST.length, WHITELIST_QUOTES.length);
+  assert.deepEqual(launchPairsForChain(MAINNET_CHAIN_ID).map((c) => c.symbol), LAUNCH_WHITELIST.map((c) => c.symbol));
+  assert.deepEqual(launchPairsForChain(TESTNET_CHAIN_ID).map((c) => c.symbol), ["STRATEGY"]);
+});
+
+test("First BOOST cap rejects even one microdollar over the live cap", () => {
+  const dec = 18;
+  const cap = parseAmount("40.18", dec)!;
+  assert.equal(exceedsUsdgFirstBoostCap(cap, cap), false);
+  assert.equal(exceedsUsdgFirstBoostCap(cap - BigInt(1), cap), false);
+  assert.equal(exceedsUsdgFirstBoostCap(cap + BigInt(1), cap), true); // one raw unit over
+  const micro = BigInt(10) ** BigInt(dec - 6); // $0.000001
+  assert.equal(exceedsUsdgFirstBoostCap(cap + micro, cap), true);
+  assert.equal(exceedsUsdgFirstBoostCap(null, cap), false);
+  assert.equal(exceedsUsdgFirstBoostCap(cap + BigInt(1), null), false);
+  const quoteCap = parseAmount("100", dec)!;
+  assert.equal(exceedsQuoteFirstBoostCap(quoteCap, quoteCap), false);
+  assert.equal(exceedsQuoteFirstBoostCap(quoteCap + BigInt(1), quoteCap), true);
+  assert.equal(exceedsQuoteFirstBoostCap(BigInt(0), quoteCap), false);
 });
 
 test("Anon vs Pseudo follows mode and First BOOST amount", () => {
