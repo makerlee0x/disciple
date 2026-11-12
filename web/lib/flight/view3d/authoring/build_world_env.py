@@ -11,7 +11,8 @@ ground in 3D: each back-half pixel below the plate's horizon is ray-cast onto a 
 (what three.js's PMREMGenerator.fromScene would capture of a real ground, done once offline so the game loads one .hdr):
   - launch-pad:   the plate's sodium city continues behind the camera: point lights on the ground plane (colour = median
                   of the plate's city-light pixels, #cc976d, with some of its #F2D7A0), clustered in towns, perspective-
-                  correct (they bunch up toward the horizon).
+                  correct (they bunch up toward the horizon), over the plate's own lit ground fog (its colour from the
+                  plate's fog rows), which dims the near city.
   - the-moon:     the plate's cloud floor continues all around under the ship: BRAND's wrap colour there, with cloud
                   texture laid on the floor plane in perspective.
   - ozone:        same for the plate's cloud deck.
@@ -94,7 +95,7 @@ def ground(EL, AZ, h=1.0):
     t = np.where(EL < -1e-4, h / np.tan(np.maximum(-EL, 1e-4)), np.inf)
     return t * np.cos(AZ), t * np.sin(AZ), t
 
-def city(img, el0=0.0):
+def city(img, el0=0.0, fog_el=None):
     """Launch Pad: the plate's sodium city continues on the ground behind the camera. Lights are points on a ground plane
     (clustered in towns by an fbm density), projected into the wrap, so they bunch up toward the horizon like the plate's."""
     H, W, _ = img.shape; EL, AZ, back = geometry(H, W)
@@ -115,9 +116,12 @@ def city(img, el0=0.0):
             yi = np.clip(np.floor(ys).astype(int) + dy, 0, H - 1); xi = (np.floor(xs).astype(int) + dx) % W
             np.add.at(acc, (yi, xi), col * (inten * w)[:, None])
     gm = sm(np.radians(el0 + 0.5), np.radians(el0 - 1.0), EL) * back
+    if fog_el is not None:   # the near city is under the plate's lit ground fog: dimmed there, the far city stays clear
+        acc *= (1 - 0.7 * sm(np.radians(fog_el + 0.5), np.radians(fog_el - 2.0), EL))[..., None]
+        return img + acc * gm[..., None]
     return img * (1 - 0.25 * gm[..., None]) + acc * gm[..., None]
 
-def floor_world(img, el_plate, el_back=-6.0, scale=5.0, contrast=0.5, seed=4):
+def floor_world(img, el_plate, el_back=-6.0, scale=5.0, contrast=0.5, seed=4, rows=(610, 710), gain=1.0):
     """the plate's cloud floor continues all around under the ship: BRAND's wrap colour there, with cloud texture laid on
     the floor plane in perspective (so it compresses toward the horizon). The plate's own horizon sits low (the plate looks
     up at its sky); behind the camera the floor's horizon rises to el_back (a flat floor seen from just above it), easing
@@ -131,7 +135,7 @@ def floor_world(img, el_plate, el_back=-6.0, scale=5.0, contrast=0.5, seed=4):
     fog = np.exp(-t / 30.0)
     # floor colour: the plate's own floor (median of its bottom rows, central 60%), so behind the camera it is as bright
     # as the floor you see in the plate; the wrap's edge-blend there is darker only because of the plate's lens vignette
-    floorc = np.median(img[1000 - 110:1000 - 10, 640 + 256:1920 - 256].reshape(-1, 3), 0)
+    floorc = gain * np.median(img[280 + rows[0]:280 + rows[1], 640 + 256:1920 - 256].reshape(-1, 3), 0)
     horiz = np.stack([img[np.clip(((0.5 - el0[0] / np.pi) * H).astype(int) - 4, 0, H - 1), np.arange(W)]], 0)
     tex = floorc[None, None, :] * (1 + contrast * (0.75 * n + 0.25 * n2))[..., None]
     base = tex * fog[..., None] + horiz * (1 - fog[..., None])
@@ -154,7 +158,9 @@ if __name__ == "__main__":
         img = read_hdr(os.path.join(SRC, f"{tier}.boost.hdr"))
         note = ""
         # horizon elevations read off each plate in the wrap (plate row -> elevation: (0.5 - (280 + row) / 1280) * 180)
-        if tier == "launch-pad": img = city(img, 0.0); note = "city ground"
+        # launch-pad: city lights along the plate's horizon (~0 deg), its sodium-lit ground fog just below (plate rows
+        # 390-450, el ~ -4 to -13): behind the camera the fog floor continues, with the far city above it
+        if tier == "launch-pad": img = city(floor_world(img, -4.0, -4.0, contrast=0.35, rows=(390, 450), gain=0.7), 0.0, fog_el=-4.0); note = "city + fog floor"
         elif tier == "the-moon": img = stars(floor_world(img, -27.0), el_min=-20); note = "cloud floor + stars"
         elif tier == "ozone": img = floor_world(img, -29.0); note = "cloud deck"
         elif tier == "outer-space": img = stars(img, gain=1.2); note = "stars"
