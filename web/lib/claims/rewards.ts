@@ -114,6 +114,29 @@ export function groupHistory(entries: RewardEntry[], dayOf: (ts: number) => stri
   return Array.from(m.values()).sort((a, b) => b.to - a.to || a.kind.localeCompare(b.kind)).slice(0, limit);
 }
 
+/* ---------------- Rocket rewards (profile r3 Rewards popup, "Rocket rewards" tab) ---------------- */
+/** One rocket's rewards for this account: Creator (a rocket you launched) or Crew (a rocket you hold), in dollars. */
+export type RocketReward = { token: string; name: string; ticker: string; kind: "creator" | "crew"; usd: number };
+/**
+ * Rows for the Rocket rewards list: same rocket + type merged, unpriced or zero rows dropped, biggest first.
+ * Each row is that rocket's earned total (claimed so far + claimable now), the same parts the summary counts.
+ */
+export function rocketRewardRows(rows: { token: string; name?: string; ticker?: string; kind: "creator" | "crew"; usd: number | null }[]): RocketReward[] {
+  const m = new Map<string, RocketReward>();
+  for (const r of rows) {
+    if (r.usd == null || !Number.isFinite(r.usd) || r.usd <= 0) continue;
+    const k = `${r.kind}|${lc(r.token)}`;
+    const have = m.get(k);
+    if (have) { have.usd += r.usd; if (!have.name && r.name) have.name = r.name; if (!have.ticker && r.ticker) have.ticker = r.ticker; }
+    else m.set(k, { token: lc(r.token), name: r.name ?? "", ticker: r.ticker ?? "", kind: r.kind, usd: r.usd });
+  }
+  return Array.from(m.values()).sort((a, b) => b.usd - a.usd || a.kind.localeCompare(b.kind));
+}
+/** Friends invited: distinct wallets whose referrer was set to this account (ReferralRegistry.ReferrerAttributed). */
+export function countFriends(wallets: string[]): number {
+  return new Set(wallets.filter((w) => /^0x[0-9a-fA-F]{40}$/.test(w)).map(lc)).size;
+}
+
 /* ---------------- Claim everything ---------------- */
 /** Calls per smart-account op: claims cost roughly 50–110k gas each; 20 stays well inside the 3M per-op call cap. */
 export const MAX_CLAIM_CALLS = 20;

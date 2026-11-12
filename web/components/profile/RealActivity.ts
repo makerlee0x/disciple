@@ -8,7 +8,7 @@ import { IS_STATIC_PREVIEW, withBase } from "@/lib/base-path";
 import { playerUsd, type Fill } from "@/lib/trades";
 import type { ActivityItem } from "@/lib/stats";
 
-const erc20 = parseAbi(["function symbol() view returns (string)"]);
+const erc20 = parseAbi(["function symbol() view returns (string)", "function name() view returns (string)"]);
 const isAddr = (a: string | null | undefined): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.test(a);
 /** Coins read per profile (most players trade a handful); fills per coin (newest first). */
 const MAX_COINS = 40, PER_COIN = 100;
@@ -35,8 +35,14 @@ export function useRealActivity(wallet: string | null): ActivityItem[] | null {
         const r = await fetch(withBase(`/api/trades?coin=${coin}&wallet=${w}&order=desc&limit=${PER_COIN}`)).then((x) => (x.ok ? x.json() : {})).catch(() => ({})) as { fills?: Fill[] };
         const fills = (r.fills ?? []).filter((f) => f.block >= from && String(f.trader).toLowerCase() === w);
         if (!fills.length) return [];
-        const sym = String(await pc.readContract({ address: coin as Address, abi: erc20, functionName: "symbol" }).catch(() => "") || coin.slice(2, 6).toUpperCase()).slice(0, 12);
-        return fills.map((f): ActivityItem => ({ id: f.id, ts: f.ts, kind: f.side, text: `$${sym}`, usd: playerUsd(f), ticker: sym, coin }));
+        const [symRaw, nameRaw] = await Promise.all([
+          pc.readContract({ address: coin as Address, abi: erc20, functionName: "symbol" }).catch(() => ""),
+          pc.readContract({ address: coin as Address, abi: erc20, functionName: "name" }).catch(() => ""),
+        ]);
+        const sym = String(symRaw || coin.slice(2, 6).toUpperCase()).slice(0, 12);
+        // profile r5 rows read "Hollow Bell": the rocket's name, else its $TICKER
+        const name = String(nameRaw || "").trim().slice(0, 32);
+        return fills.map((f): ActivityItem => ({ id: f.id, ts: f.ts, kind: f.side, text: name || `$${sym}`, usd: playerUsd(f), ticker: sym, coin }));
       }));
       return per.flat().sort((a, b) => b.ts - a.ts);
     })().then((out) => { if (alive) setRows(out); }).catch(() => { if (alive) setRows([]); });

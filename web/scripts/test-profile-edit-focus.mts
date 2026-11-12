@@ -64,16 +64,6 @@ async function typeInto(el: HTMLInputElement | HTMLTextAreaElement, text: string
   }
 }
 
-test("username: several keystrokes in a row keep focus and value", async () => {
-  const { root, host } = await mount();
-  const input = host.querySelector<HTMLInputElement>("input.pf-input:not([type])")!;
-  assert.ok(input, "username input rendered");
-  await typeInto(input, "rocketman");
-  assert.equal(document.activeElement, input, "focus stays in the username field");
-  assert.equal(input.value, "rocketman");
-  await act(async () => { root.unmount(); });
-});
-
 test("bio: several keystrokes in a row keep focus and value", async () => {
   const { root, host } = await mount();
   const bio = host.querySelector<HTMLTextAreaElement>("textarea")!;
@@ -84,28 +74,48 @@ test("bio: several keystrokes in a row keep focus and value", async () => {
   await act(async () => { root.unmount(); });
 });
 
-test("username under 3 characters: inline message and Save disabled", async () => {
+test("Edit profile (r3): picture, banner, bio and X only, one Save; no username or title fields", async () => {
   const { root, host } = await mount();
-  const input = host.querySelector<HTMLInputElement>("input.pf-input:not([type])")!;
-  await typeInto(input, "ab");
-  await act(async () => { await tick(); });
-  const status = host.querySelector('[data-testid="username-status"]');
-  assert.equal(status?.textContent, "Usernames need at least 3 characters.");
-  const save = host.querySelector<HTMLButtonElement>('button[type="submit"]')!;
-  assert.equal(save.disabled, true, "Save disabled for a 2-character name");
-  await typeInto(input, "c");
-  await act(async () => { await new Promise((r) => setTimeout(r, 350)); }); // availability check debounce
-  assert.equal(save.disabled, false, "Save enabled once the name has 3 characters");
+  for (const id of ["edit-pfp", "add-banner", "edit-bio", "edit-x"]) assert.ok(host.querySelector(`[data-testid="${id}"]`), `${id} rendered`);
+  assert.equal(host.querySelector('[data-testid="title-picker"]'), null, "no title picker");
+  assert.equal(host.querySelector('[data-testid="username-status"]'), null, "username lives in Settings");
+  assert.equal(host.querySelectorAll("input:not([type=file])").length, 0, "no text inputs besides the bio textarea");
+  assert.equal(host.querySelectorAll('button[type="submit"]').length, 1, "one Save");
+  // Connect X: no Privy link flow is wired, so the button says so instead of starting a new login
+  const cx = host.querySelector<HTMLButtonElement>('[data-testid="connect-x"]')!;
+  assert.equal(cx.getAttribute("aria-disabled"), "true");
+  await act(async () => { cx.click(); await tick(); });
+  assert.match(host.textContent ?? "", /Linking accounts is coming soon\./);
   await act(async () => { root.unmount(); });
 });
 
-test("title picker while progress is hidden: empty state, no radios, Save stays off", async () => {
+test("Save stays off until something changes, then turns on", async () => {
   const { root, host } = await mount();
-  const picker = host.querySelector('[data-testid="title-picker"]');
-  assert.ok(picker, "picker rendered");
-  assert.equal(picker!.querySelectorAll('input[type="radio"]').length, 0, "no titles offered");
-  assert.match(picker!.textContent ?? "", /No titles yet\. Fly a few rockets to earn one\./);
-  assert.equal(host.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled, true);
+  const save = host.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  assert.equal(save.disabled, true, "nothing changed yet");
+  await typeInto(host.querySelector<HTMLTextAreaElement>("textarea")!, "hi");
+  assert.equal(save.disabled, false, "bio changed");
+  assert.match(host.textContent ?? "", /2\/160/);
+  await act(async () => { root.unmount(); });
+});
+
+test("Settings username under 3 characters: inline message and Save disabled", async () => {
+  const { default: UsernameRow } = await import("../components/profile/UsernameRow.tsx");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host as unknown as Element);
+  await act(async () => { root.render(React.createElement(UsernameRow, { wallet: "0x" + "1".repeat(40) })); });
+  await act(async () => { await tick(); });
+  const input = host.querySelector<HTMLInputElement>("input")!;
+  assert.ok(input, "username input rendered");
+  await typeInto(input, "ab");
+  await act(async () => { await tick(); });
+  assert.equal(host.querySelector('[data-testid="username-status"]')?.textContent, "Usernames need at least 3 characters.");
+  const save = host.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  assert.equal(save.disabled, true, "Save disabled for a 2-character name");
+  await typeInto(input, "c");
+  await act(async () => { await new Promise((r) => setTimeout(r, 350)); });
+  assert.equal(save.disabled, false, "Save enabled once the name has 3 characters");
   await act(async () => { root.unmount(); });
 });
 

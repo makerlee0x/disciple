@@ -100,7 +100,9 @@ export async function restartOneTap(maxSlippageBps: number) { await setOneTapSli
 export function maybeAutoOneTap(_why: string, _opt: { urgent?: boolean } = {}) { /* 4337 one-tap setup removed */ }
 export async function syncSessionFromChain() { /* no on-chain session */ }
 
-type PrivyHooks = { login: () => void; logout: () => Promise<void>; getAccessToken?: () => Promise<string | null>; getIdentityToken?: () => Promise<string | null>; authenticated?: boolean };
+/** Read-only facts about the signed-in Privy user (profile Settings "Signed in with", Edit profile X row). Never a token. */
+export type PrivyAccountInfo = { method: "Email" | "Google" | "X" | "a wallet" | null; email: string | null; xUsername: string | null };
+type PrivyHooks = { login: () => void; logout: () => Promise<void>; getAccessToken?: () => Promise<string | null>; getIdentityToken?: () => Promise<string | null>; authenticated?: boolean; account?: PrivyAccountInfo | null };
 let privyHooks: PrivyHooks | null = null;
 const privySubs = new Set<() => void>();
 export async function setPrivyOwner(owner: LocalAccount): Promise<Address> {
@@ -111,6 +113,8 @@ export function registerPrivy(h: PrivyHooks | null) { privyHooks = h; privySubs.
 export function privyReady() { return !!privyHooks; }
 export function onPrivy(f: () => void) { privySubs.add(f); return () => { privySubs.delete(f); }; }
 export const privyAuthenticated = () => !!privyHooks?.authenticated;
+/** The signed-in Privy user's login method / email / linked X username, or null (signed out, or not a Privy login). */
+export const privyAccount = (): PrivyAccountInfo | null => (privyHooks?.authenticated ? privyHooks.account ?? null : null);
 export async function privyAccessToken(): Promise<string | null> {
   try { return (await privyHooks?.getAccessToken?.()) ?? null; } catch { return null; }
 }
