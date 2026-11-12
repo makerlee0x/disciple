@@ -26,6 +26,19 @@ Cross-chain routes in v0: Ethereum → Robinhood Chain and Robinhood Chain → E
    step (1% on Robinhood) per block, so a 5% move takes about five tipped samples, then the tips stop.
 4. If a pool pays nothing `missesBeforeRest` times in a row (someone else sampled first, or the hook cannot value
    its tokens), it rests that pool for `restSec`.
+5. **One sample per L1 block.** It never samples the same pool twice within `minGapSec` (default 13 s). On
+   Arbitrum-stack chains such as Robinhood, the hook's `block.number` is the Ethereum L1 block (about 12 s), so a
+   second sample sooner does nothing but spend gas.
+6. **Optional: keep a low-fee pool at the market** (`selfPayBps`, off by default). The hook only tips from 1%, which
+   is fine for a 1% pool but leaves a 0.25% pool quoting off the market between 0.25% and 1%. With `selfPayBps: 25`
+   the keeper also samples, at its own gas, any pool whose centre is 0.25%+ from its leader's live price (single-leg
+   v2 / v3 / v4 leaders), at most `selfPayMaxPerHour` (default 60) times per pool per hour.
+
+Sends on one chain go one at a time, and the keeper tracks the next nonce itself instead of re-reading it from the
+RPC after each receipt, which a lagging node behind a load balancer can answer with the old count ("nonce too low").
+
+**Carry pools.** Carry's follower hook (makerlee0x/carry `contracts/follower`) has the same `sample()` /
+`sampleDue()` and pool storage head, but a shorter `poolState`. Set `"abi": "carry"` on its `sameChain` entry.
 
 On the local anvil test, with plain tokens, a tip came to about gas + 26% (the hook adds a fixed 90k for the gas
 it cannot measure, sized for heavier real tokens). The first tip in a token pays about gas + 10%, because the
@@ -59,6 +72,9 @@ stopped, including packets that still need delivering.
 
 - Same chain: tip = (gas of the call) × basefee × 1.2, valued in the pool's tokens, at most 1/32 of the jar per tip,
   and only one tip per pool per block.
+- Carry pools (`"abi": "carry"`): tip = cost × `tipBps`/10,000 (1.05 at launch, settable 1.00–1.50 by the admin), where cost includes the Robinhood L1 data fee once per
+  transaction, paid in USDG (the jar skims quote only). At launch the margin is about 5% by design, so a Carry keeper roughly
+  breaks even; it exists to keep the price fresh, not to profit.
 - Cross chain: refund per accepted pool = 1.2 × (its share of the home transaction and LayerZero fee + its share of
   the destination delivery gas), capped at 0.002 ETH of cost, valued in the pool's quote token and credited from
   the jar (at most 1/32 of it per refund). Credits wait in the hook until the keeper collects them.
@@ -66,7 +82,7 @@ stopped, including packets that still need delivering.
   On the forked test at ~0.04 gwei Ethereum basefee, a 0.003 gwei tip left the keeper about 11% up on a paid push
   (refund 0.0000087 ETH against 0.0000078 ETH spent on all three transactions). A 0.02 gwei tip lost money.
 - Unpaid: opening prices, unpaid heartbeats if you turn them on, delivering someone else's packet, and the
-  Robinhood L1 data fee (not counted by the contracts).
+  Robinhood L1 data fee on Disciple v0.2 pools (Carry pools count it).
 - Tips and credits are paid in the pool's tokens (USDG, WETH, the coin...), not ETH, so the wallet's ETH slowly
   turns into tokens. Top up ETH now and then, or swap the tips back.
 - Fund the keeper wallet with a little ETH on each chain it sends on (cross-chain routes send on both). For

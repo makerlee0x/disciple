@@ -37,6 +37,9 @@ export interface SameChainCfg {
   fromBlock: bigint; // scan Created events from here (the hook's deploy block); 0 = from now
   pools: Hex[]; // pools to serve even if the Created scan has not reached them
   scanPools: boolean;
+  /** Which hook build: "disciple" (default) or "carry" (Carry's follower hook: same sample()/sampleDue() and pool
+   *  storage head, but a shorter poolState view with no cross-chain fields). */
+  abi: "disciple" | "carry";
 }
 
 export interface Sampling {
@@ -45,6 +48,14 @@ export interface Sampling {
   /** After this many sample() calls in a row that paid no tip (unvalued pool, or lost the block), rest the pool. */
   missesBeforeRest: number;
   restSec: number;
+  /** Least seconds between two samples of one pool. The hook takes one reading per block, and on Arbitrum-stack
+   *  chains (Robinhood) block.number is the L1 block, about 12 s, so a second sample sooner does nothing but cost gas. */
+  minGapSec: number;
+  /** 0 = off. Otherwise also sample, unpaid and at our own gas, when a pool's centre is at least this many bps from
+   *  its leader's live price, below the hook's 1% tip line. Keeps a low-fee pool quoting at the market. */
+  selfPayBps: number;
+  /** Most unpaid (selfPayBps) samples per pool per hour, a cost ceiling. */
+  selfPayMaxPerHour: number;
 }
 
 export interface Policy {
@@ -145,6 +156,7 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       fromBlock: b(r.fromBlock, 0n),
       pools: ((r.pools as string[]) ?? []).map((p) => p.toLowerCase() as Hex),
       scanPools: r.scanPools !== false,
+      abi: r.abi === "carry" ? "carry" : "disciple",
     };
   });
   const sm = raw.sampling ?? {};
@@ -160,6 +172,9 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       everySec: Number(sm.everySec ?? 2),
       missesBeforeRest: Number(sm.missesBeforeRest ?? 3),
       restSec: Number(sm.restSec ?? 3600),
+      minGapSec: Number(sm.minGapSec ?? 13),
+      selfPayBps: Number(sm.selfPayBps ?? 0),
+      selfPayMaxPerHour: Number(sm.selfPayMaxPerHour ?? 60),
     },
     policy: {
       moveBps: b(p.moveBps, 102n),

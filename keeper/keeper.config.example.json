@@ -40,7 +40,10 @@
   "sampling": {
     "everySec": 2,
     "missesBeforeRest": 3,
-    "restSec": 3600
+    "restSec": 3600,
+    "minGapSec": 13,
+    "selfPayBps": 0,
+    "selfPayMaxPerHour": 60
   },
   "policy": {
     "moveBps": 102,

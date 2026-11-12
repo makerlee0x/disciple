@@ -54,3 +54,21 @@ export const ulnAbi = parseAbi([
 
 /** keccak256("PacketSent(bytes,bytes,address)") */
 export const PACKET_SENT_TOPIC = "0x1ab700d4ced0c005b164c0f789fd09fcbb0156d4c2041b8a3bfbcd961cd1567f";
+
+/** Carry's follower hook (makerlee0x/carry contracts/follower): the same keeper calls, with Carry's PoolView (no
+ *  cross-chain fields). */
+export const carryHookAbi = parseAbi([
+  "struct PoolView { address coin; address quote; bool live; bool graduated; bool creatorOn; uint256 coinReserve; uint256 quoteReserve; uint256 anchorX128; uint256 ageOrBlock; uint256 tX128; uint256 principal; uint256 compounded; uint256 lots; uint64 sampleAt; uint256 jarX; uint256 jarY; }",
+  "function poolState(bytes32 id) view returns (PoolView)",
+  "function sample(bytes32 id)",
+  "function sampleDue(bytes32 id) view returns (bool)",
+  "event Created(bytes32 indexed id, address indexed coin, address quote, address indexed creator, uint32 remoteEid, uint24 fee)",
+  "event Tipped(bytes32 indexed id, address indexed to, uint256 x, uint256 y)",
+]);
+
+/** Leader (same-chain source) reads: v2 pair, v3 pool, v4 PoolManager. */
+export const leaderAbi = parseAbi([
+  "function getReserves() view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)",
+  "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)",
+  "function extsload(bytes32 slot) view returns (bytes32)",
+]);
