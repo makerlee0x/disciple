@@ -4,7 +4,7 @@ import "server-only";
  * client (Basic auth on the token call). Only the `users.read tweet.read` scopes: we read who you are, never post.
  *
  * KV keys:
- *   x:state:<state>    → JSON { wallet, verifier, returnTo }   single use (getDel), 10 min
+ *   x:state:<state>    → JSON { wallet, verifier, returnTo }   single use (getDel), 10 min, bound to the browser by cookie
  *   user:x:<wallet>    → JSON XLink
  *   x:id:<x user id>   → wallet                                reverse index: one X account ↔ one wallet
  * The access token is used once to read /2/users/me and is never stored.
@@ -42,8 +42,23 @@ export function safeReturnTo(v: unknown): string {
   return typeof v === "string" && /^\/(?![/\\])[A-Za-z0-9/_\-?=&#.%]*$/.test(v) && v.length <= 200 ? v : "/profile";
 }
 
+/**
+ * The state is also set as an httpOnly cookie on the browser that signed the connect request, and the callback only
+ * finishes when the cookie matches. Without it, someone could start a link for their own wallet and get another person
+ * to approve the X screen, linking that person's X account to the wrong wallet.
+ */
+export const X_STATE_COOKIE = "dsc_x_state";
+
+/** Pure (tests): the callback's state must equal the cookie the connect request set. Constant time. */
+export function stateMatchesCookie(state: string, cookie: string | null | undefined): boolean {
+  if (!state || !cookie || state.length !== cookie.length) return false;
+  let d = 0;
+  for (let i = 0; i < state.length; i++) d |= state.charCodeAt(i) ^ cookie.charCodeAt(i);
+  return d === 0;
+}
+
 /** Step 1: a fresh state + PKCE pair for this wallet, and the X authorize URL to send the browser to. */
-export async function beginLink(wallet: string, origin: string, returnTo: string): Promise<string> {
+export async function beginLink(wallet: string, origin: string, returnTo: string): Promise<{ url: string; state: string }> {
   const state = b64url(randomBytes(24));
   const verifier = b64url(randomBytes(48));
   const ok = await kv().setNX(stateKey(state), JSON.stringify({ wallet: wallet.toLowerCase(), verifier, returnTo: safeReturnTo(returnTo) }), STATE_TTL);
@@ -57,7 +72,7 @@ export async function beginLink(wallet: string, origin: string, returnTo: string
     code_challenge: pkceChallenge(verifier),
     code_challenge_method: "S256",
   });
-  return `${AUTHORIZE_URL}?${q.toString()}`;
+  return { url: `${AUTHORIZE_URL}?${q.toString()}`, state };
 }
 
 export type FinishResult =

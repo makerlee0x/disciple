@@ -2,7 +2,7 @@
 // Run: tsx --conditions=react-server --test scripts/test-x-link.mts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pkceChallenge, safeReturnTo } from "../lib/server/xLink";
+import { pkceChallenge, safeReturnTo, stateMatchesCookie } from "../lib/server/xLink";
 import { isXResult, isXUsername, xConnectMessage } from "../lib/xLink";
 
 test("PKCE S256 matches the RFC 7636 example", () => {
@@ -23,4 +23,12 @@ test("handles and results", () => {
   assert.ok(!isXUsername("bad-handle"));
   assert.ok(isXResult("linked") && !isXResult("nope"));
   assert.match(xConnectMessage("0xABC", "n1"), /Wallet: 0xabc\nNonce: n1/);
+});
+
+test("the callback state must match the browser's cookie", () => {
+  assert.equal(stateMatchesCookie("abc123", "abc123"), true);
+  assert.equal(stateMatchesCookie("abc123", "abc124"), false);
+  assert.equal(stateMatchesCookie("abc123", null), false);
+  assert.equal(stateMatchesCookie("", ""), false);
+  assert.equal(stateMatchesCookie("abc123", "abc1234"), false);
 });

@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
-import { finishLink, safeReturnTo } from "@/lib/server/xLink";
+import { X_STATE_COOKIE, finishLink, safeReturnTo, stateMatchesCookie } from "@/lib/server/xLink";
 import { X_RESULT_PARAM, type XResult } from "@/lib/xLink";
 
 export const dynamic = "force-dynamic";
@@ -11,8 +11,18 @@ export const dynamic = "force-dynamic";
 function back(origin: string, returnTo: string, result: XResult) {
   const u = new URL(safeReturnTo(returnTo), origin);
   u.searchParams.set(X_RESULT_PARAM, result);
-  return NextResponse.redirect(u, { status: 303 });
+  const res = NextResponse.redirect(u, { status: 303 });
+  res.cookies.set(X_STATE_COOKIE, "", { httpOnly: true, sameSite: "lax", path: "/api/x", maxAge: 0 });
+  return res;
 }
+
+const cookieOf = (req: Request, name: string) => {
+  for (const part of (req.headers.get("cookie") || "").split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0 && part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return null;
+};
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -27,6 +37,11 @@ export async function GET(req: Request) {
     return back(origin, "/profile", "denied");
   }
   if (!state || !code) return back(origin, "/profile", "expired");
+  // Only the browser that signed the connect request can finish it.
+  if (!stateMatchesCookie(state, cookieOf(req, X_STATE_COOKIE))) {
+    await kv().getDel(`x:state:${state}`).catch(() => null);
+    return back(origin, "/profile", "expired");
+  }
   const r = await finishLink(state, code, origin);
   return back(origin, r.returnTo, r.ok ? "linked" : r.reason);
 }

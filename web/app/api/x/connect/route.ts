@@ -8,7 +8,7 @@ import { kv } from "@/lib/server/kv";
 import { consumeNonce, nonceValid } from "@/lib/server/nonces";
 import { verifyWalletSignature } from "@/lib/server/chat/identity";
 import { clientIp, hitLimit } from "@/lib/server/limits";
-import { X_NONCE_PREFIX, beginLink, xConfigured } from "@/lib/server/xLink";
+import { X_NONCE_PREFIX, X_STATE_COOKIE, beginLink, xConfigured } from "@/lib/server/xLink";
 import { xConnectMessage } from "@/lib/xLink";
 
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
@@ -28,6 +28,10 @@ export async function POST(req: Request) {
   const who = await verifyWalletSignature(addr, xConnectMessage(addr, nonce), String(body.signature ?? ""), owner);
   if (who !== addr) return NextResponse.json({ ok: false, reason: "Signature didn't match this wallet." }, { status: 401 });
   if (!(await consumeNonce(kv(), X_NONCE_PREFIX, nonce, addr))) return NextResponse.json({ ok: false, reason: "Sign-in expired. Try again." }, { status: 401 });
-  const url = await beginLink(addr, new URL(req.url).origin, typeof body.returnTo === "string" ? body.returnTo : "/profile");
-  return NextResponse.json({ ok: true, url }, { headers: { "cache-control": "no-store" } });
+  const origin = new URL(req.url).origin;
+  const { url, state } = await beginLink(addr, origin, typeof body.returnTo === "string" ? body.returnTo : "/profile");
+  const res = NextResponse.json({ ok: true, url }, { headers: { "cache-control": "no-store" } });
+  // Lax so it rides along on X's top-level redirect back to the callback.
+  res.cookies.set(X_STATE_COOKIE, state, { httpOnly: true, secure: origin.startsWith("https:"), sameSite: "lax", path: "/api/x", maxAge: 600 });
+  return res;
 }
