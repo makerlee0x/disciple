@@ -20,19 +20,18 @@ Findings and fixes are tracked openly in the repository. [CONFIRM: FLOW — link
 | Contract | Job |
 |---|---|
 | **Launchpad** | Creates rockets and their curves. Holds launch settings. |
-| **BondingCurve** | One per rocket. The pre-ascension market. |
-| **Migration** | Moves an ascending rocket to Uniswap v4, in the same transaction. |
-| **DiscipleHook** | Uniswap v4 hook on every ascended pool. Charges the 1% fee and reports trades and altitude. Altitude is how high a rocket's value has climbed. |
-| **DiscipleRouter** | The app's router for ascended trades. Adds slippage and price-impact checks. |
-| **LockedLP** | Owns every ascended liquidity position. No remove function. |
-| **FeeRouter** | Splits every fee 33 / 33 / 33 / 1. Holds claimable balances. The anti-snipe fee doesn't pass through it: the curve escrows it. |
+| **BondingCurve** | One per rocket. The starting price path, before orbit. |
+| **Migration** | Moves a rocket to Uniswap v4 when it reaches orbit, in the same trade. |
+| **DiscipleHook** | Attached to every rocket's Uniswap pool after orbit. Charges the 1% fee and reports trades and altitude. |
+| **DiscipleRouter** | Carries the app's trades, including one-tap trades paid in USDG. Adds slippage and price-impact checks. |
+| **LockedLP** | Owns the locked liquidity of every rocket that has reached orbit. It has no way to remove it. |
+| **FeeRouter** | Splits every fee 33 / 33 / 33 / 1 and holds what creators can claim. The sniper tax doesn't pass through it: each rocket holds its own. |
 | **ReferralRegistry** | Records who referred whom. |
-| **RewardsVault** | Gets the escrowed anti-snipe fee of rockets that haven't ascended 30 days after launch. |
+| **RewardsVault** | The original community rewards contract. Community rewards now go to a community rewards wallet instead. See [Community rewards](/docs/fees/rewards-vault). |
 | **QuotePricer** | Prices a base in dollars at launch. |
 | **QuoteProbe** | Checks a base before launch. |
-| **TrampWallManager** | Tramps and walls on ascended pools. |
-| **AntiSnipe** | Legacy launch fee schedule. The curve now applies the 7-second sniper tax itself. |
-| **AnonLauncher** | Pseudonymous launches. |
+| **TrampWallManager** | Tramps and walls on rockets that have reached orbit. |
+| **AnonLauncher** | Private launches. |
 | **MarketLens** | Read-only market data. |
 
 Addresses: [Contract addresses](/docs/reference/contracts).
@@ -42,7 +41,7 @@ Addresses: [Contract addresses](/docs/reference/contracts).
 - **Fixed supply.** 1M per rocket, no mint after launch.
 - **Name and call sign are locked.**
 - **No pause.** Curves and pools are always live.
-- **Ascended liquidity has no remove function.** Tested by fuzzing: locked liquidity can never be removed.
+- **Locked liquidity has no remove function.** Tested with large numbers of random inputs: locked liquidity can never be removed.
 - **Fees always add up.** Tested: the fee router always holds at least what it owes creators and referrers.
 - **Non-upgradeable.** Deployed code can't be replaced.
 

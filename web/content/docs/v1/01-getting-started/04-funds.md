@@ -5,33 +5,28 @@ section: Getting started
 ---
 # Deposits, withdrawals and gas
 
-## USDG
+## Dollars on DISCIPLE
 
-USDG is a dollar stablecoin on Robinhood Chain. DISCIPLE treats 1 USDG as $1. It is always available as a base, and it is the deposit that activates referrals.
+DISCIPLE counts your money in dollars. Under the hood that's USDG, a dollar stablecoin on Robinhood Chain. One USDG is one dollar. You BOOST with USDG, and a DUMP pays you back in USDG.
 
-On testnet you use **mUSDG**, a test version with no value.
+On testnet, the USDG is test money with no value. Press **Get test cash** to get some for free.
 
 ## Deposit
 
-Open your profile, then **Cash → Deposit**. Copy your account address and send tokens to it on Robinhood Chain.
+Open **Wallet → Deposit**. The page shows your wallet's address, with the line "Send USDG to your account address". Copy the address and send USDG to it on Robinhood Chain.
 
-- You can deposit any token. A deposit is a plain transfer to your account address.
-- Deposit minimums are in USDG. For example, a referral locks with a deposit of $10 or more in USDG.
-- The Cash panel shows ETH (for gas), test STRATEGY and mUSDG. Use **Get test funds** to top up the test tokens.
-- You trade each rocket with its base: test STRATEGY by default, or USDG for USDG-paired rockets.
-
-Send only on Robinhood Chain. Tokens sent on another network will not arrive.
+Send only USDG, and send it only on Robinhood Chain. Money sent on another network will not arrive.
 
 ## Withdraw
 
-Open **Cash → Withdraw**. Pick a token, enter an amount (or **Max**) and a destination address, then press **Withdraw**. Withdrawals go out on Robinhood Chain only.
+Open **Wallet → Withdraw**. Enter an amount (or press **Max**) and the address you're sending to, then press **Withdraw**.
+
+Before you confirm, the page shows how much will arrive and the small network fee, both in dollars. The fee is taken from the amount you send, so you never need ETH. Withdrawals go out on Robinhood Chain only, and they can't be undone.
 
 ## Gas
 
-Every action is a transaction on Robinhood Chain, and you pay its gas in ETH. On testnet, use the ETH faucet linked in the Cash panel.
+You don't pay gas to trade. Your wallet signs each BOOST and DUMP, and DISCIPLE sends it to the chain for you. The network cost is covered by the 1% trade fee. You never need to hold ETH.
 
-Gas sponsorship is not enabled today. [CONFIRM: FLOW — whether testnet tops up gas automatically on first use.]
+## Smallest trade
 
-## Approvals
-
-You approve each asset once. After that, every trade is a single transaction.
+The smallest BOOST is $3.

@@ -79,6 +79,8 @@
 .dv-anchor { position: absolute; left: -1.1em; width: 1em; color: var(--dsc-muted); text-decoration: none !important; opacity: 0; transition: opacity .15s; }
 .dv-body h2:hover .dv-anchor, .dv-body h3:hover .dv-anchor { opacity: .7; }
 .dv-body p, .dv-body ul, .dv-body ol { margin: 0 0 14px; }
+/* Docs illustrations (simple SVGs in public/illustrations/docs; they carry their own dark panel). */
+.dv-body img.dv-figure { display: block; width: 100%; height: auto; margin: 18px 0 22px; border-radius: 12px; }
 .dv-body ul, .dv-body ol { padding-left: 1.3em; }
 .dv-body ul { list-style: disc; }
 .dv-body ol { list-style: decimal; }

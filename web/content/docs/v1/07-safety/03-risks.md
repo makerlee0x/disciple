@@ -34,7 +34,7 @@ Admin controls are held by the team during testnet, with no timelock. See [Admin
 
 ## Account risk
 
-Your account is a smart account controlled by your login. Keep your login secure. Anyone with access to it can trade and withdraw.
+Your account is a wallet controlled by your login. Keep your login secure, and turn on two-factor authentication in Settings. Anyone who gets into your login, or who has your exported key, can trade and withdraw.
 
 ## Testnet
 

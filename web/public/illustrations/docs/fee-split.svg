@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 236" width="720" height="236" role="img" aria-label="The 1% trade fee split: 33% creator, 33% locked liquidity, 33% treasury, 1% referrals">
+<title>The 1% trade fee split: 33% creator, 33% locked liquidity, 33% treasury, 1% referrals</title>
+<rect x="0.5" y="0.5" width="719" height="235" rx="12" fill="#121318" stroke="rgba(201,206,214,.14)"/>
+<g font-family="Geist, 'Geist Sans', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">
+<text x="40" y="44" font-size="11" letter-spacing="1.4" fill="#BCC0CA">THE 1% TRADE FEE, SPLIT FOUR WAYS</text>
+<rect x="40.0" y="78" width="209.2" height="34" rx="3" fill="rgba(232,234,238,.85)"/>
+<rect x="251.2" y="78" width="209.2" height="34" rx="3" fill="rgba(232,234,238,.55)"/>
+<rect x="462.4" y="78" width="209.2" height="34" rx="3" fill="rgba(232,234,238,.30)"/>
+<rect x="673.6" y="78" width="4.4" height="34" rx="3" fill="#F2C14E"/>
+<text x="145.6" y="148" text-anchor="middle" font-size="20" font-weight="600" fill="#E8EAEE">33%</text>
+<text x="145.6" y="170" text-anchor="middle" font-size="13" fill="#9095A0">Creator</text>
+<text x="356.8" y="148" text-anchor="middle" font-size="20" font-weight="600" fill="#E8EAEE">33%</text>
+<text x="356.8" y="170" text-anchor="middle" font-size="13" fill="#9095A0">Locked liquidity</text>
+<text x="568.0" y="148" text-anchor="middle" font-size="20" font-weight="600" fill="#E8EAEE">33%</text>
+<text x="568.0" y="170" text-anchor="middle" font-size="13" fill="#9095A0">Treasury</text>
+<line x1="676.8" y1="116" x2="676.8" y2="128" stroke="#F2C14E"/>
+<text x="678" y="148" text-anchor="end" font-size="20" font-weight="600" fill="#E8EAEE">1%</text>
+<text x="678" y="170" text-anchor="end" font-size="13" fill="#9095A0">Referrals</text>
+<text x="40" y="214" font-size="12" fill="#9095A0">On a $100 BOOST the fee is $1.00: $0.33 · $0.33 · $0.33 · $0.01</text>
+</g>
+</svg>

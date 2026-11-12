@@ -1,26 +1,28 @@
 ---
-title: Pseudonymous launches
+title: Private launches
 slug: /docs/launch/pseudonymous
 section: Launching
 ---
-# Pseudonymous launches (beta)
+# Private launches (beta)
 
-You can launch without your account showing as the creator. Find it under **Advanced → Pseudonymous creator (beta)**.
+You can launch a rocket without your name showing as the creator. Turn on the **Anon** switch on the launch form, under First BOOST.
+
+The switch is called **Anon** when you launch with no First BOOST. If you add a First BOOST, it's called **Pseudo**, because your first buy can also be seen.
 
 ## How it works
 
-- A launcher contract (AnonLauncher) launches the rocket for you and is the on-chain creator.
-- The real creator role is assigned to a one-time **stealth address** that only you can control.
-- Your creator buy goes to a fresh address.
-- A small launch fee in USDG goes to the treasury: $0.25 on testnet, capped at $5. [CONFIRM: FLOW — mainnet fee.]
-- You claim fees and update metadata by signature. The stealth owner doesn't need gas.
+- A launcher contract launches the rocket for you, so the contract shows as the creator, not you.
+- The creator role goes to a one-time address that only you control. DISCIPLE works it out from your wallet, so you can find your private rockets again from any device you sign in on.
+- Your creator fees are yours alone to claim. You can claim them from **Rewards** on your profile.
+- A small launch fee goes to the treasury: $0.25 in USDG on testnet.
+- A private launch always uses the Trench mode.
 
-The fee split, creator tax and caps are the same as a normal launch.
+The fee split and creator tax work the same as on any other launch.
 
 ## What it doesn't hide
 
-Pseudonymous is not anonymous.
+Private is not invisible.
 
-- The wallet that pays the launch fee and the creator buy is linked to the rocket in the same transaction.
-- The bundler, the gas sponsor and DISCIPLE's backend can see metadata.
-- Timing and reusing payout addresses can link rockets to each other.
+- The wallet that pays the launch fee and any First BOOST can be seen on the public record.
+- DISCIPLE's servers can see who launched what.
+- Launching at telling times, or sending earnings to the same place each time, can link your rockets to each other.

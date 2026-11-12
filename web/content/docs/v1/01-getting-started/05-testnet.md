@@ -14,12 +14,12 @@ DISCIPLE runs on Robinhood Chain Testnet today, with test tokens. Mainnet isn't 
 | RPC | `https://rpc.testnet.chain.robinhood.com` |
 | Explorer | `https://explorer.testnet.chain.robinhood.com` |
 | Default base | test STRATEGY |
-| Dollar token | mUSDG (test USDG) |
+| Dollar token | test USDG |
 
 ## What testnet means
 
 - **Test tokens have no value.** Balances, PnL and fees are real on-chain numbers, in test tokens.
-- **Contracts can be redeployed.** A redeploy with launch modes is pending. When it happens, the contract addresses change and older test rockets may stay on the old contracts. [CONFIRM: FLOW — what happens to existing test rockets and balances at the redeploy.]
+- **Contracts can be redeployed.** Some contract changes are built but not on testnet yet. These docs describe what you can do on testnet today. If the contracts are redeployed, their addresses change. [CONFIRM: FLOW — what happens to existing test rockets and balances at the next redeploy.]
 - **Admin controls are held by the team during testnet.** See [Admin controls](/docs/safety/admin).
 - **Some screens use sample data.** See Sample data below.
 

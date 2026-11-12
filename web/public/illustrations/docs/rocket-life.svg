@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 230" width="720" height="230" role="img" aria-label="A rocket's life: launch at $3,333, reach orbit at $33,333, then trade on the open market with liquidity locked forever">
+<title>A rocket's life: launch at $3,333, reach orbit at $33,333, then trade on the open market with liquidity locked forever</title>
+<rect x="0.5" y="0.5" width="719" height="229" rx="12" fill="#121318" stroke="rgba(201,206,214,.14)"/>
+<g font-family="Geist, 'Geist Sans', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">
+<line x1="110" y1="120" x2="338" y2="120" stroke="rgba(201,206,214,.22)" stroke-width="2"/>
+<line x1="382" y1="120" x2="610" y2="120" stroke="rgba(201,206,214,.22)" stroke-width="2" stroke-dasharray="6 6"/>
+<circle cx="110" cy="120" r="7" fill="#121318" stroke="#E8EAEE" stroke-width="2"/>
+<circle cx="360" cy="120" r="9" fill="#F2C14E"/><circle cx="360" cy="120" r="18" fill="none" stroke="#F2C14E" stroke-opacity=".45"/>
+<g transform="translate(610,120) scale(1.15)" fill="none" stroke="#E8EAEE" stroke-width="1.6" stroke-linejoin="round">
+<path d="M0,-16 C6,-10 7,-2 6,8 L-6,8 C-7,-2 -6,-10 0,-16 Z"/>
+<circle cx="0" cy="-3" r="2.4"/>
+<path d="M-6,3 L-10,10 L-6,9 M6,3 L10,10 L6,9"/>
+<path d="M-3,11 L0,16 L3,11" stroke-width="1.3"/>
+</g>
+<text x="110" y="66" text-anchor="middle" font-size="11" letter-spacing="1.6" fill="#BCC0CA">LAUNCH</text>
+<text x="110" y="172" text-anchor="middle" font-size="20" font-weight="600" fill="#E8EAEE">$3,333</text>
+<text x="110" y="196" text-anchor="middle" font-size="13" fill="#9095A0">Starting price path opens</text>
+<text x="360" y="66" text-anchor="middle" font-size="11" letter-spacing="1.6" fill="#F2C14E">REACHES ORBIT</text>
+<text x="360" y="172" text-anchor="middle" font-size="20" font-weight="600" fill="#E8EAEE">$33,333</text>
+<text x="360" y="196" text-anchor="middle" font-size="13" fill="#9095A0">About 84% bought</text>
+<text x="610" y="66" text-anchor="middle" font-size="11" letter-spacing="1.6" fill="#BCC0CA">OPEN MARKET</text>
+<text x="610" y="172" text-anchor="middle" font-size="20" font-weight="600" fill="#E8EAEE">Uniswap</text>
+<text x="610" y="196" text-anchor="middle" font-size="13" fill="#9095A0">Liquidity locked forever</text>
+<text x="235.0" y="108" text-anchor="middle" font-size="12" fill="#9095A0">BOOST to climb</text>
+<text x="485.0" y="108" text-anchor="middle" font-size="12" fill="#9095A0">keeps flying</text>
+</g>
+</svg>

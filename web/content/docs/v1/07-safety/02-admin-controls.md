@@ -13,20 +13,20 @@ We list them here so you know exactly what the team can and can't do.
 
 | Area | Settings |
 |---|---|
-| Launch settings | Default base, base pricer and probe, curve deployer, Trench Warfare First BOOST cap (up to 7.77%), protocol wallet cap. **New rockets only.** |
-| Fee routing | Treasury address, rewards vault address, which contracts may route fees |
+| Launch settings | Default base, base pricer and probe, curve deployer, Trench First BOOST cap (up to 7% today), protocol wallet cap. **New rockets only.** |
+| Fee routing | Treasury address, community rewards address, where the referral share goes, which contracts may route fees |
 | Ascended pools | Which routers the hook trusts, the hook's pricer |
 | LockedLP wiring | Links to the pool manager, migration, fee router, hook and treasury |
 | Router | Max price impact per swap (between 1% and 1,000%, default 50%) |
 | Tramps and walls | Keeper tip (up to 1%) |
 | Pseudonymous launches | Launch fee (up to $5) and its treasury |
-| Rewards vault | Payouts |
+| Community rewards | Payouts |
 
 There is no timelock on these today.
 
 ## What the team can't do
 
-- Remove ascended liquidity.
+- Remove the locked liquidity of a rocket that has reached orbit.
 - Mint more of any rocket.
 - Change a rocket's name, call sign, creator tax or launch mode.
 - Change the curve of a rocket that's already launched.

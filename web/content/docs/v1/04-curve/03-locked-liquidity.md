@@ -17,8 +17,8 @@ The base coin is locked forever in the Uniswap v4 LP when the rocket reaches orb
 
 ## How it's locked
 
-- **No remove path.** LockedLP has no function to withdraw the position. Its remove-liquidity function always reverts.
-- **Full range.** The position covers every price, so the pool can always trade.
+- **No way out.** LockedLP has no function to withdraw the position. Any attempt to remove liquidity is refused.
+- **Every price covered.** The position covers every price, so the pool can always trade.
 - **Only two contracts can add liquidity** to DISCIPLE pools: LockedLP and the tramps-and-walls manager. Anyone else's add is rejected.
 - **Non-upgradeable.** The contracts can't be swapped out for new code.
 

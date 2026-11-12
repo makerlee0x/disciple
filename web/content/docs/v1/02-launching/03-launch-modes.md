@@ -5,41 +5,40 @@ section: Launching
 ---
 # Launch modes
 
-> **Coming with the next testnet redeploy** (mode rules v2, approved 2026-10-23). Built but not deployed. [CONFIRM: FLOW + lee — release timing.]
+A launch mode sets the rules while a rocket is on its starting price path. People also call this path a bonding curve. The creator picks the mode at launch, and it can't be changed. The rules only apply before orbit. After a rocket reaches orbit, every rocket trades the same way on the open market on Uniswap.
 
-A launch mode sets the rules on the starting price path. People also call this a bonding curve. The creator picks it at launch, and it can't be changed. The rules apply only before orbit. After the rocket reaches orbit, every rocket trades the same way on the open market on Uniswap.
+There are three modes: **Easy**, **Hard** and **Trench**. Easy is picked for you on the launch form.
 
-| | **Easy** (PvE) | **Hard** (PvP) | **Trench Warfare** |
+![Holding caps by mode. On Easy, one wallet can hold 1% of a rocket at $3,333, rising to 3.33% at $33,333. On Hard, 3.33% rising to 7.77%. Trench has no cap.](/illustrations/docs/holding-caps.svg)
+
+| | **Easy** | **Hard** | **Trench** |
 |---|---|---|---|
-| Per-wallet holding cap | 1% of supply at $3,333, rising with the rocket's value to 3.33% at $33,333 | 3.33% at $3,333, rising to 7.77% at $33,333 | None by default |
-| BOOST over your cap | Fills up to your cap, the rest is refunded | Same | Same (if a cap is set) |
-| Max single BOOST / DUMP | No limit | No limit | No limit |
-| Sign-in required to BOOST | Yes | No | No |
-| Crew tip | 0.777% of a DUMP's proceeds, only when your profit on it is above 0.5% of the rocket's value; goes to the other holders | None | None |
-| Creator's First BOOST | Up to 1.2% of supply, locked until the rocket reaches orbit | Up to 3.33% | Up to 7.77% |
-| Sniper tax (all modes) | 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s | Same | Same |
-
-Launches without a mode are Trench Warfare.
-
-## Sniper tax: every mode
-
-For the first 7 seconds after launch, BOOSTs pay a sniper tax: 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s. The creator's First BOOST is exempt. The tax is held aside, outside the price. When the rocket reaches orbit, it goes into the rocket's locked liquidity. It is added to that locked position over time. It is not part of the liquidity locked at the moment the rocket reaches orbit. If the rocket has not reached orbit after 30 days, anyone can send it to the community rewards vault.
+| Most one wallet can hold | 1% of the rocket at $3,333, rising to 3.33% at $33,333 | 3.33%, rising to 7.77% | No limit |
+| A BOOST over your limit | Fills up to your limit, and the rest of your money comes back | Same | No limit to hit |
+| Sign-in needed to BOOST | Yes | No | No |
+| Crew tip | Yes (see below) | No | No |
+| Most the creator can buy at launch | 1.2%, locked until orbit | 3.33% | 7% |
+| Sniper tax in the first 7 seconds | Yes | Yes | Yes |
 
 ## Easy: crew first
 
-- **Holding cap that grows.** A wallet can hold 1% of supply at launch, rising to 3.33% as the rocket's value climbs to $33,333. The cap follows transfers, so moving the rocket to a fresh wallet doesn't get around it. A BOOST over your cap fills up to the cap and refunds the rest.
-- **Signed-in buyers only.** To BOOST, a wallet needs a verified login. Selling never needs one, so holders can always exit.
-- **Crew tip.** When you DUMP at a profit above 0.5% of the rocket's value, 0.777% of the proceeds goes to the other holders still on the starting price path. You don't share in your own tip. Holders can claim their share after the rocket reaches orbit too.
-- **Creator lock.** The creator's First BOOST (max 1.2%) stays locked until the rocket reaches orbit. Anything the creator buys later is free to sell.
+- **A holding limit that grows.** One wallet can hold 1% of the rocket at launch. That rises to 3.33% as the rocket's value climbs to $33,333. The limit follows the coins, so moving them to a fresh wallet doesn't get around it. A BOOST over your limit fills up to it and sends the rest of your money back.
+- **Signed-in buyers only.** To BOOST, you need to be signed in with a verified email, Google or X account. Selling never needs a sign-in, so holders can always get out.
+- **Crew tip.** When you DUMP at a profit bigger than 0.5% of the rocket's value, 0.777% of what you get goes to the other holders. You don't share in your own tip. Each holder's share stays saved for them, even after the rocket reaches orbit.
+- **The creator's coins are locked.** The creator's First BOOST (up to 1.2%) stays locked until the rocket reaches orbit. Anything the creator buys later can be sold like anyone else's.
 
 ## Hard: dog eat dog
 
-Bigger positions, bigger swings. The holding cap grows from 3.33% to 7.77% as the rocket's value climbs. No sign-in, no max BOOST, no crew tip. The creator's First BOOST can be up to 3.33%.
+Bigger positions and bigger swings. The holding limit grows from 3.33% to 7.77% as the rocket's value climbs. No sign-in check, no crew tip. The creator's First BOOST can be up to 3.33%.
 
-## Trench Warfare: no guardrails
+## Trench: no guardrails
 
-No mode caps, only the sniper tax. A protocol-wide wallet cap can apply, but it defaults to none. See [Wallet cap and trade limits](/docs/trading/limits).
+No holding limit and no sign-in check. Only the sniper tax applies. A private launch always uses Trench.
+
+## Sniper tax: every mode
+
+For the first 7 seconds after launch, BOOSTs pay a sniper tax: 99% at launch, 25% at 1 second, 3% at 2 seconds, and nothing from 7 seconds on. The creator's First BOOST doesn't pay it. The tax is held aside and doesn't move the price. When the rocket reaches orbit, it's added to the rocket's locked liquidity over time. If the rocket hasn't reached orbit 30 days after launch, anyone can send it to the community rewards wallet. See [Anti-snipe](/docs/trading/anti-snipe).
 
 ## Practice first
 
-The [Simulator](/docs/game/simulator) uses the same names as difficulty levels. There, the name sets who you're trading against (the bots), not the curve's rules. The Simulator doesn't apply the Easy or Hard caps or the crew tip. It's free paper trading with no wallet.
+The [Simulator](/docs/game/simulator) has difficulty levels with similar names: PvE, PvP and Trench Warfare. There, the level sets who you're trading against (the bots), not the rocket's rules. The Simulator doesn't use the Easy or Hard limits or the crew tip. It's free practice with no wallet.

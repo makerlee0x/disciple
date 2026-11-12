@@ -11,6 +11,8 @@ Every rocket starts on its own price path. People also call this a bonding curve
 
 The rocket starts at a value of **$3,333**. Each bit you buy costs a little more than the last. When **about 84%** of it has been bought, the value is **$33,333** and the rocket reaches orbit. That means the starting price path is finished and the rocket moves to the open market on Uniswap. A DUMP moves it back down the same path.
 
+![The starting price path: the value starts at $3,333, climbs slowly at first, then steeply near the end, and reaches orbit at $33,333 when about 84% of the rocket has been bought.](/illustrations/docs/price-path.svg)
+
 ## The numbers
 
 | | |
@@ -34,9 +36,9 @@ The rocket starts at a value of **$3,333**. Each bit you buy costs a little more
 
 Values assume a $1 base (USDG). With another base, the same shape applies in that base, converted at launch. The amount you pay to reach orbit is higher once fees are included.
 
-## The formula
+## For the curious: the formula
 
-The path is a constant-product market with virtual reserves, like pump.fun's, plus a steep finish near orbit. Orbit is when this path is finished and the rocket moves to the open market on Uniswap.
+You don't need this to play. It's here so anyone can check the math. The path works like pump.fun's, with a steeper finish near orbit.
 
 - Reserves: base `x`, rocket `y`, with `x · y = k`, starting at `x₀ · y₀`.
 - Share of the curve sold: `g = s / s_curve`, with `s_curve = 84.24%` of supply.
