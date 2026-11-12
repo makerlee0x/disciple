@@ -158,6 +158,19 @@ export function missionsFor(p: Period): MissionDef[] {
 export const MILESTONE_XP_BY_RARITY: Record<string, number> = { COMMON: 100, RARE: 250, EPIC: 600, LEGENDARY: 1500, MYTHIC: 4000 };
 /** Per-milestone overrides: First boost 100, First launch 500. */
 export const MILESTONE_XP_OVERRIDE: Record<string, number> = { first_blessing: 100, pad_ignition: 500 };
+/** Player-facing name + one line per live milestone (the achievement rules the server scores, lib/achievements V1_RULES). */
+export const MILESTONE_COPY: Record<string, { name: string; desc: string }> = {
+  first_blessing: { name: "First boost", desc: "Boost any rocket." },
+  pad_ignition: { name: "First launch", desc: "Launch your first rocket." },
+  graduated_dev: { name: "Blessed Dev", desc: "Launch a rocket that reaches orbit." },
+  through_pearly_gates: { name: "Outer Space", desc: "Be aboard with $10 or more when a rocket reaches orbit." },
+  final_boost: { name: "Final Push", desc: "Make the boost that sends a rocket to orbit." },
+  first_grenade: { name: "Pin Pulled", desc: "Drop a grenade: a $10+ dump that moves the price 2%." },
+  cruise_missile_ach: { name: "Cruise Control", desc: "Drop a cruise missile: a $25+ dump that moves the price 12%." },
+  nuke_ach: { name: "Nuke", desc: "Drop a nuke: a $50+ dump that moves the price 25%." },
+  unfumbled: { name: "Unfumbled", desc: "Take $500 profit in one sale." },
+  best_x_10: { name: "Tenfold Halo", desc: "Sell at 10× what you paid, on $10 or more." },
+};
 export const milestoneXp = (id: string, rarity: string) => MILESTONE_XP_OVERRIDE[id] ?? MILESTONE_XP_BY_RARITY[rarity.toUpperCase()] ?? 100;
 
 /* --------------------------------------------------------- API ---------------------------------------------------------- */

@@ -11,6 +11,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { aaSession, onPrivy, onSessionChange, privyAuthenticated } from "@/lib/aa/session";
 import { WALLET_ID_EVENT, walletId } from "@/lib/walletCta";
+import LevelChip from "@/components/xp/LevelChip";
 
 type Tab = { href: string; key: string; label: string; you?: boolean };
 
@@ -60,6 +61,7 @@ export default function LobbyTopBar() {
           How to play
         </button>
       </nav>
+      <LevelChip />
     </header>
   );
 }

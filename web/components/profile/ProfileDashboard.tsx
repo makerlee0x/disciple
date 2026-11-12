@@ -1,5 +1,7 @@
 "use client";
 
+import PilotCard from "@/components/xp/PilotCard";
+import { useXp } from "@/lib/xpClient";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PROFILE_CHANGED_EVENT, localUsername } from "@/lib/profile";
@@ -268,6 +270,8 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         </div>
       </header>
 
+      <HangarPilot wallet={wallet} isPrivate={isPrivate} />
+
       {isPrivate && <InvitesCard />}
 
       <PortfolioBlock pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} isPrivate={isPrivate} />
@@ -278,4 +282,10 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       </div>
     </div>
   );
+}
+
+/** Hangar pilot card (level, prestige, XP). Anyone can see a pilot's level; only the owner gets the prestige button. */
+function HangarPilot({ wallet, isPrivate }: { wallet: string | null; isPrivate: boolean }) {
+  const { xp } = useXp(wallet);
+  return <PilotCard xp={xp} wallet={isPrivate ? wallet : null} />;
 }

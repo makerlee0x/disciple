@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./brand-tokens.css";
 import "./brand-tokens-v2.css";
 import "./brand-tokens-v3.css";
+import "./xp-v3.css";
 import "./globals.css";
 import "./claims.css";
 import "./profile-r5.css";

@@ -13,13 +13,14 @@ import "server-only";
  *   xp:<chain>:timers              zset  member `${wallet}|${dueMs}`: re-score then (a 24h hold finishes with no trade)
  * Total XP = sum of positive rows. XP to spend = sum of all rows (purchases are negative). Prestige = prestige rows.
  */
+import { randomUUID } from "node:crypto";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { evaluateMissions, type MissionCoin, type MissionFill } from "@/lib/missionsEval";
 import { partById } from "@/lib/parts";
 import { playerUsd, type Fill } from "@/lib/trades";
 import { V1_RULES, type AchievementUnlockRecord } from "@/lib/achievements";
 import {
-  dayPeriod, levelInfo, milestoneXp, missionsFor, weekPeriod, MAX_PRESTIGE,
+  dayPeriod, levelInfo, milestoneXp, MILESTONE_COPY, missionsFor, weekPeriod, MAX_PRESTIGE,
   type MissionStatus, type Period, type XpSummary,
 } from "@/lib/xp";
 import { kv, type Kv } from "./kv";
@@ -90,7 +91,7 @@ export async function scoreXp(
 
   for (const u of ctx.unlocks) {
     const rule = V1_RULES.find((r) => r.id === u.id);
-    if (rule) await pay({ src: `a:${u.id}`, kind: "milestone", xp: milestoneXp(u.id, rule.rarity), label: rule.name, ts: u.ts });
+    if (rule) await pay({ src: `a:${u.id}`, kind: "milestone", xp: milestoneXp(u.id, rule.rarity), label: MILESTONE_COPY[u.id]?.name ?? rule.name, ts: u.ts });
   }
 
   const coins = new Map<string, MissionCoin>();
@@ -155,7 +156,7 @@ export async function xpSummary(walletIn: string, now = Date.now(), s: Kv = kv()
 /* ------------------------------------------------------ writes -------------------------------------------------------- */
 
 async function withLock<T>(w: string, s: Kv, f: () => Promise<T>): Promise<T | { ok: false; reason: string }> {
-  const token = `${Date.now()}:${Math.random()}`;
+  const token = randomUUID();
   if (!(await s.setNX(XPK.lock(w), token, 10))) return { ok: false, reason: "Busy, try again." };
   try { return await f(); } finally { await s.delIfEq(XPK.lock(w), token).catch(() => {}); }
 }
