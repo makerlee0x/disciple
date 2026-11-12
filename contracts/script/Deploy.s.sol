@@ -276,6 +276,8 @@ contract Deploy is NetworkConfig {
         launchpad.setQuoteProbe(address(probe));
         launchpad.setDefaultQuote(o.defaultQuote);
         AnonLauncher(o.anonLauncher).setCreatorFeeHarvest(address(harvest));
+        // Private dest 1/2 launches go through the harvest and need this pointer. The tests already set it.
+        harvest.setAnonLauncher(o.anonLauncher);
         // Curve-phase creator fees settle here. route() pulls them. Trades do not call the harvest.
         harvest.setFeeVault(address(feeVault));
         // referralSink: address(0) = today's routing (default). Non-zero takes the whole referral 1% incl. launch KOL.
