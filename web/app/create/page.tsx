@@ -26,8 +26,9 @@ import { createViemProtocol } from "@/lib/protocol-viem";
 import { trackFunnel } from "@/lib/funnelClient";
 import { IS_STATIC_PREVIEW, withBase } from "@/lib/base-path";
 import Icon from "@/components/icons/Icon";
-import { CANCELLED_MSG, playerError } from "@/lib/playerError";
-import { IMAGE_COPY, LAUNCH_FAILED_MSG, launchImageFrom, type ModerateResponse } from "@/lib/launchImage";
+import { playerError } from "@/lib/playerError";
+import { IMAGE_COPY, launchImageFrom, type ModerateResponse } from "@/lib/launchImage";
+import { LAUNCHED_LABEL, LAUNCHING_LABEL, launchErrorMessage, launchStillConfirming } from "@/lib/launchError";
 import { NAME_LOCK_TAKEN_MSG, fetchNameLock, nameLockEnforced } from "@/lib/nameLock";
 import {
   addressOn, defaultLaunchPair, launchPairsForChain,
@@ -80,6 +81,14 @@ export default function LaunchRocketPage() {
   const setLaunched = (text: string) => setStatus({ text, ok: true });
   const [nameLockMsg, setNameLockMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // One click = one launch (#231, rebuilt on Quick Launch): the ref blocks re-entry synchronously (state alone lags a
+  // render, so rapid clicks / Enter presses got through and one Easy launch fired 4 times). Held from the click until the
+  // launch clearly fails. keepLockedRef: the launch went through (the page is leaving for the rocket) or is still
+  // confirming (it may still land, so a re-click could launch twice), so the lock is never released.
+  const launchingRef = useRef(false);
+  const keepLockedRef = useRef(false);
+  const [launching, setLaunching] = useState(false);
+  const [launchDone, setLaunchDone] = useState(false);
   const modeRowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -229,6 +238,17 @@ export default function LaunchRocketPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (launchingRef.current || keepLockedRef.current) return;
+    launchingRef.current = true;
+    setLaunching(true);
+    try {
+      await launch();
+    } finally {
+      if (!keepLockedRef.current) { launchingRef.current = false; setLaunching(false); }
+    }
+  }
+
+  async function launch() {
     setMsg(null);
     if (needsSignIn) { signIn(); return; }
     if (!name.trim() || !callSign.trim()) {
@@ -310,6 +330,8 @@ export default function LaunchRocketPage() {
         mode: priv ? LaunchMode.TRENCH_WARFARE : LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
         private: priv,
       });
+      keepLockedRef.current = true;   // the coin exists: never launch it again from this page
+      setLaunchDone(true);
       trackFunnel("first_launch"); // funnel counter: once per browser, fails silently
       if (fr && isDeployed() && !priv) {
         const me = await activeAddress();
@@ -330,9 +352,9 @@ export default function LaunchRocketPage() {
       window.setTimeout(() => router.push(dest), LIFTOFF_MS + 200);
     } catch (err) {
       if (!isDeployed()) { setMsg("Launches aren't open on this network yet."); return; }
-      const shown = playerError(err);
       console.warn("[disciple] launch failed", { private: privateLaunch, imageUri, message: String((err as Error)?.message ?? err).slice(0, 500), code: (err as { code?: unknown })?.code });
-      setMsg(shown === CANCELLED_MSG ? shown : LAUNCH_FAILED_MSG);
+      if (launchStillConfirming(err)) keepLockedRef.current = true;   // unknown outcome: stay locked
+      setMsg(launchErrorMessage(err));
     }
   }
 
@@ -469,10 +491,12 @@ export default function LaunchRocketPage() {
             <div className={s.foot}>
               <button
                 type="submit"
+                disabled={launching}
+                aria-busy={launching}
                 data-testid={needsSignIn ? "create-sign-in" : "create-launch"}
                 className={s.launch}
               >
-                {launchButtonLabel(boost)}
+                {launching ? (launchDone ? LAUNCHED_LABEL : LAUNCHING_LABEL) : launchButtonLabel(boost)}
               </button>
               <div className={s.help} data-testid="creator-fee-split">{C.creatorFeeSplit}</div>
               <div className={s.footLinks}>
