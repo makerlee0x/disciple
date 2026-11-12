@@ -16,9 +16,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ user
   let u: string | null = null, a: string | null = null;
   try {
     if (/^0x[0-9a-f]{40}$/.test(raw)) { a = raw; u = await usernameOf(raw); }
-    else if (USERNAME_STORED_RE.test(raw)) { u = raw; a = await walletOf(raw); }
-  } catch { /* store down: still record the username */ }
-  if (!u && !a) return res;
+    else if (USERNAME_STORED_RE.test(raw)) { a = await walletOf(raw); if (a) u = raw; }
+  } catch { /* store down: do not write a no-wallet cookie */ }
+  if (!a) return res;
   res.cookies.set(REF_COOKIE, JSON.stringify({ u, a, t: Date.now() }), {
     maxAge: Math.floor(REF_TTL_MS / 1000), path: "/", sameSite: "lax", secure: new URL(req.url).protocol === "https:", httpOnly: false,
   });

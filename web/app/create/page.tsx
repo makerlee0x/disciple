@@ -26,6 +26,7 @@ import { launchpadAbi } from "@/lib/abi";
 import { encodeFunctionData } from "viem";
 import { useRouter } from "next/navigation";
 import { createViemProtocol } from "@/lib/protocol-viem";
+import { trackFunnel } from "@/lib/funnelClient";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 import Icon from "@/components/icons/Icon";
 import { CANCELLED_MSG, playerError } from "@/lib/playerError";
@@ -237,6 +238,7 @@ export default function LaunchRocketPage() {
         mode: priv ? LaunchMode.TRENCH_WARFARE : LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
         private: priv,
       });
+      trackFunnel("first_launch"); // funnel counter: once per browser, fails silently
       if (fr && isDeployed() && !priv) {
         const me = await activeAddress();
         if (fr.toLowerCase() !== me.toLowerCase()) {
