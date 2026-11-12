@@ -248,3 +248,23 @@
   .p5-srow-name { align-items: flex-start; }
   .p5-inp.sm { width: 160px; }
 }
+
+/* Edit profile → Username (moved from Settings, lee Nov 11) */
+.p5-inp.p5-inp-name { display: flex; align-items: center; gap: 2px; height: 44px; padding: 0 14px; }
+.p5-inp-name .pre { color: var(--dsc-muted); }
+.p5-inp-name input { all: unset; flex: 1; min-width: 0; font-size: 15px; color: var(--dsc-text); }
+.p5-fine.ok { color: var(--dsc-up); }
+.p5-fine.bad { color: var(--dsc-down); }
+
+/* Settings → Security: Export key, Two-factor authentication (Privy) */
+.p5-srow.p5-srow-link { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 16px; width: 100%; padding: 14px 16px; min-height: 64px; cursor: pointer; border-top: 1px solid rgba(201,206,214,.10); color: var(--dsc-text); }
+.p5-srow.p5-srow-link:hover { background: rgba(201,206,214,.04); }
+.p5-srow.p5-srow-link:focus-visible { outline: 2px solid rgba(201,206,214,.55); outline-offset: -2px; }
+.p5-srow-link > svg { color: var(--dsc-muted); flex: none; }
+.p5-subhead h2 { flex: 1; text-align: center; }
+.p5-switch { all: unset; cursor: pointer; flex: none; width: 52px; height: 30px; border-radius: 999px; background: rgba(201,206,214,.14); position: relative; transition: background .15s; }
+.p5-switch span { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #F2F3F5; transition: transform .15s; }
+.p5-switch.on { background: var(--dsc-up); }
+.p5-switch.on span { transform: translateX(22px); }
+.p5-switch:disabled { cursor: default; opacity: .45; }
+.p5-switch:focus-visible { outline: 2px solid rgba(201,206,214,.55); outline-offset: 2px; }

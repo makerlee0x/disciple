@@ -11,6 +11,7 @@ import Sheet from "./Sheet";
 import IdentitySigil from "./IdentitySigil";
 import { NO_IDENTITY } from "@/lib/identity";
 import { PencilGlyph, TrashGlyph, XGlyph } from "./Glyphs";
+import { UsernameField, useUsernameDraft } from "./UsernameRow";
 
 /** Edit profile copy (profile r3 README copy list). */
 export const EDIT_COPY = {
@@ -33,7 +34,8 @@ const same = (a: ProfileMeta, b: ProfileMeta) =>
 
 /**
  * Edit profile (profile r3): picture (pencil over the avatar), banner (add / change / remove), bio (160 characters) and
- * X. One Save. Username, display name, title and guild are not here (the username lives in Settings).
+ * username, X. One Save (claims a changed username first, then writes picture / banner / bio). Display name, title and
+ * guild are not here. Username moved back here from Settings (lee, Nov 11).
  * Picture and banner both go through /api/moderate-image (same store, same checks); picture / banner / bio are one
  * signed write (/api/profile/meta). Desktop modal / phone bottom sheet (Sheet).
  * X: shows the X account linked to your sign-in (Privy) when there is one. Linking a new X account from here is not
@@ -59,9 +61,11 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
   }, [open, meta, focus]);
   useEffect(() => { const read = () => setXUser(privyAccount()?.xUsername ?? null); read(); return onPrivy(read); }, []);
 
+  const uname = useUsernameDraft(wallet, open);
   const bioLen = bioLength(sanitizeBio(draft.bio));
-  const dirty = !same(draft, meta);
-  const valid = bioLen <= BIO_MAX;
+  const metaDirty = !same(draft, meta);
+  const dirty = metaDirty || uname.changed;
+  const valid = bioLen <= BIO_MAX && (!uname.changed || !!uname.status?.ok);
   const tryClose = () => { if (dirty && !busy) setConfirm(true); else onClose(); };
 
   async function pick(kind: "pfp" | "banner", f: File | undefined) {
@@ -77,6 +81,11 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
 
   async function save() {
     setBusy("save"); setErr("");
+    if (uname.changed) {
+      const u = await uname.claim();
+      if (!u.ok) { setBusy(""); setErr(u.reason || C["edit.error.save"]); return; }
+      if (!metaDirty) { setBusy(""); onClose(true); return; }
+    }
     // titles are out of v1: a save never sets one; the flag (off in V1) is passed through untouched
     const r = await saveProfileMeta({ ...draft, bio: sanitizeBio(draft.bio), title: "" }, wallet);
     setBusy("");
@@ -123,6 +132,8 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
               <span className="pen">{busy === "pfp" ? "…" : <PencilGlyph size={16} />}</span>
             </button>
           </div>
+
+          <UsernameField u={uname} disabled={!!busy} />
 
           <label className="p5-fld">
             <span className="lab">{EDIT_COPY.bio}</span>

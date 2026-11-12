@@ -74,12 +74,11 @@ test("bio: several keystrokes in a row keep focus and value", async () => {
   await act(async () => { root.unmount(); });
 });
 
-test("Edit profile (r3): picture, banner, bio and X only, one Save; no username or title fields", async () => {
+test("Edit profile: picture, banner, username, bio and X, one Save; no title field", async () => {
   const { root, host } = await mount();
-  for (const id of ["edit-pfp", "add-banner", "edit-bio", "edit-x"]) assert.ok(host.querySelector(`[data-testid="${id}"]`), `${id} rendered`);
+  for (const id of ["edit-pfp", "add-banner", "edit-username", "edit-bio", "edit-x"]) assert.ok(host.querySelector(`[data-testid="${id}"]`), `${id} rendered`);
   assert.equal(host.querySelector('[data-testid="title-picker"]'), null, "no title picker");
-  assert.equal(host.querySelector('[data-testid="username-status"]'), null, "username lives in Settings");
-  assert.equal(host.querySelectorAll("input:not([type=file])").length, 0, "no text inputs besides the bio textarea");
+  assert.equal(host.querySelectorAll("input:not([type=file])").length, 1, "one text input: the username");
   assert.equal(host.querySelectorAll('button[type="submit"]').length, 1, "one Save");
   // Connect X: no Privy link flow is wired, so the button says so instead of starting a new login
   const cx = host.querySelector<HTMLButtonElement>('[data-testid="connect-x"]')!;
@@ -99,24 +98,36 @@ test("Save stays off until something changes, then turns on", async () => {
   await act(async () => { root.unmount(); });
 });
 
-test("Settings username under 3 characters: inline message and Save disabled", async () => {
-  const { default: UsernameRow } = await import("../components/profile/UsernameRow.tsx");
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host as unknown as Element);
-  await act(async () => { root.render(React.createElement(UsernameRow, { wallet: "0x" + "1".repeat(40) })); });
-  await act(async () => { await tick(); });
-  const input = host.querySelector<HTMLInputElement>("input")!;
-  assert.ok(input, "username input rendered");
+test("username (in Edit profile): keystrokes keep focus; under 3 characters shows the message and Save stays off", async () => {
+  const { root, host } = await mount();
+  const input = host.querySelector<HTMLInputElement>('[data-testid="edit-username"] input')!;
+  assert.ok(input, "username input rendered in Edit profile");
   await typeInto(input, "ab");
   await act(async () => { await tick(); });
+  assert.equal(document.activeElement, input, "focus stays in the username field");
   assert.equal(host.querySelector('[data-testid="username-status"]')?.textContent, "Usernames need at least 3 characters.");
   const save = host.querySelector<HTMLButtonElement>('button[type="submit"]')!;
   assert.equal(save.disabled, true, "Save disabled for a 2-character name");
   await typeInto(input, "c");
   await act(async () => { await new Promise((r) => setTimeout(r, 350)); });
-  assert.equal(save.disabled, false, "Save enabled once the name has 3 characters");
+  assert.equal(input.value, "abc");
+  assert.equal(save.disabled, false, "Save enabled once the name has 3 characters and is available");
   await act(async () => { root.unmount(); });
+});
+
+test("Settings: no username; Export key and 2FA go through Privy's own hooks (authenticator app + passkey, no PIN)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const rd = (f: string) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+  const settings = rd("components/profile/SettingsModal.tsx");
+  assert.ok(!/UsernameRow|UsernameField|settings-username/.test(settings), "username is not in Settings");
+  for (const id of ["export-key", "settings-2fa", "twofa-${m}"]) assert.ok(settings.includes(id), `${id} in Settings`);
+  const code = settings.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  assert.ok(!/\bpin\b/i.test(code), "no PIN option (Privy has none)");
+  const mount = rd("components/PrivyMount.tsx");
+  assert.match(mount, /useExportWallet\(\)/);
+  assert.match(mount, /exportWallet\(\{ address: owner \}\)/, "export targets the owner embedded wallet");
+  assert.match(mount, /useMfaEnrollment\(\)/);
+  assert.match(mount, /showMfaEnrollmentModal\(\)/);
 });
 
 test.after(() => { void win.happyDOM.close(); });

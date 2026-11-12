@@ -3,10 +3,9 @@
 import { useEffect, useState } from "react";
 import { disconnect, onWallet } from "@/lib/wallet";
 import type { Address } from "@/lib/protocol";
-import { ONE_TAP_SLIPPAGE_CHOICES_BPS, onPrivy, onSessionChange, oneTapSlippageBps, privyAccount, setOneTapSlippageBps, type PrivyAccountInfo } from "@/lib/aa/session";
+import { ONE_TAP_SLIPPAGE_CHOICES_BPS, onPrivy, onSessionChange, oneTapSlippageBps, privyAccount, privySecurity, setOneTapSlippageBps, type PrivyAccountInfo, type PrivyMfaMethod, type PrivySecurity } from "@/lib/aa/session";
 import { playerError } from "@/lib/playerError";
 import Icon from "@/components/icons/Icon";
-import UsernameRow from "./UsernameRow";
 
 /** Settings copy (profile r3 README copy list). */
 export const SETTINGS_COPY = {
@@ -22,6 +21,16 @@ export const SETTINGS_COPY = {
   maxMove: "Max price move per trade",
   maxMoveHelp: "If the price moves more than this, the trade is cancelled.",
   choice: (bps: number) => (bps >= 5000 ? "50% (most allowed)" : `${bps / 100}%`),
+  security: "Security",
+  exportKey: "Export key",
+  exportKeyHelp: "See your wallet's private key. Anyone who has it controls your money.",
+  exportBtn: "Export",
+  twoFa: "Two-factor authentication",
+  twoFaOff: "Off",
+  totp: "Authenticator app",
+  passkey: "Passkey",
+  passkeyHelp: "Sign in with your device's biometrics",
+  privyOnly: "Available when you sign in with email, Google, X or a wallet.",
   logout: "Log out",
   copy: "Copy", copied: "Copied",
   signedOut: "Sign in to see your account settings.",
@@ -36,8 +45,10 @@ export function maskEmail(e: string): string {
 }
 
 /**
- * Settings popup (profile r3), opened by the sidebar gear (/profile#settings): Username · Signed in with · Your wallet +
- * Copy · One-tap trading · Max price move per trade · Log out at the bottom. Log out and the username live here only.
+ * Settings popup (profile r3), opened by the sidebar gear (/profile#settings): Signed in with · Your wallet + Copy ·
+ * Security (Export key, Two-factor authentication) · One-tap trading · Max price move per trade · Log out at the bottom.
+ * The username moved to Edit profile (lee, Nov 11). Export key and 2FA are Privy's own flows (useExportWallet: the key
+ * shows inside Privy's iframe; useMfaEnrollment: authenticator app or passkey). Privy has no PIN method.
  * Desktop: centred modal. Phone: full screen with a back arrow.
  * One-tap trading has no off switch any more (session keys were removed; every trade is a gasless signature from your
  * wallet with no pop-up), so the row shows its state without a toggle.
@@ -49,8 +60,13 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   const [bps, setBps] = useState(1500);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [sec, setSec] = useState<PrivySecurity | null>(null);
+  const [view, setView] = useState<"main" | "2fa">("main");
+  const [secBusy, setSecBusy] = useState("");
+  const [secErr, setSecErr] = useState("");
   useEffect(() => onWallet(setAddr), []);
-  useEffect(() => { const read = () => setAcct(privyAccount()); read(); return onPrivy(read); }, []);
+  useEffect(() => { const read = () => { setAcct(privyAccount()); setSec(privySecurity()); }; read(); return onPrivy(read); }, []);
+  useEffect(() => { if (!open) { setView("main"); setSecErr(""); } }, [open]);
   useEffect(() => { setBps(oneTapSlippageBps()); return onSessionChange(() => setBps(oneTapSlippageBps())); }, []);
   useEffect(() => {
     if (!open) return;
@@ -67,11 +83,44 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
     setBps(b); setBusy(true); setErr("");
     try { await setOneTapSlippageBps(b); } catch (e) { setErr(playerError(e).slice(0, 120)); } finally { setBusy(false); }
   };
+  const exportKey = async () => {
+    if (!sec?.exportWallet || secBusy) return;
+    setSecBusy("export"); setSecErr("");
+    try { await sec.exportWallet(); } catch (e) { setSecErr(playerError(e).slice(0, 120)); } finally { setSecBusy(""); }
+  };
+  const has = (m: PrivyMfaMethod) => !!sec?.mfaEnrolled.includes(m);
+  const toggleMfa = async (m: PrivyMfaMethod) => {
+    if (!sec || secBusy) return;
+    setSecErr("");
+    if (!has(m)) { sec.enrollMfa(); return; }   // Privy's enrollment modal (QR code / passkey prompt)
+    setSecBusy(m);
+    try { await sec.unenrollMfa(m); } catch (e) { setSecErr(playerError(e).slice(0, 120)); } finally { setSecBusy(""); }
+  };
+  const twoFaState = !sec ? SETTINGS_COPY.twoFaOff
+    : [has("totp") && SETTINGS_COPY.totp, has("passkey") && SETTINGS_COPY.passkey].filter(Boolean).join(" · ") || SETTINGS_COPY.twoFaOff;
   const copy = () => { if (!addr) return; navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); };
 
   return (
     <div className="ds-modal-backdrop p5-settings-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="p5-modal p5-settings" role="dialog" aria-modal="true" aria-label={SETTINGS_COPY.title} data-testid="settings-modal">
+        {view === "2fa" ? <>
+          <header className="p5-mhead p5-subhead">
+            <button type="button" className="p5-icon" aria-label="Back" onClick={() => { setView("main"); setSecErr(""); }} data-testid="twofa-back"><Icon name="chevron-left" size={20} /></button>
+            <h2>{SETTINGS_COPY.twoFa}</h2>
+            <button type="button" className="p5-icon p5-desk" aria-label="Close settings" onClick={onClose}><Icon name="close" size={18} /></button>
+          </header>
+          <div className="p5-sbox" data-testid="twofa-view">
+            {([["totp", SETTINGS_COPY.totp, null], ["passkey", SETTINGS_COPY.passkey, SETTINGS_COPY.passkeyHelp]] as const).map(([m, label, help]) => (
+              <div className="p5-srow" key={m}>
+                <div className="tx"><b>{label}</b>{help && <span>{help}</span>}</div>
+                <button type="button" role="switch" aria-checked={has(m)} aria-label={label} className={`p5-switch${has(m) ? " on" : ""}`}
+                  disabled={!sec || !!secBusy} onClick={() => void toggleMfa(m)} data-testid={`twofa-${m}`}><span /></button>
+              </div>
+            ))}
+          </div>
+          {!sec && <p className="p5-fine">{SETTINGS_COPY.privyOnly}</p>}
+          {secErr && <p className="p5-err" role="alert">{secErr}</p>}
+        </> : <>
         <header className="p5-mhead">
           <button type="button" className="p5-icon p5-phone" aria-label="Back" onClick={onClose}><Icon name="chevron-left" size={20} /></button>
           <h2>{SETTINGS_COPY.title}</h2>
@@ -81,7 +130,6 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
           <section className="p5-sgrp" aria-label={SETTINGS_COPY.account}>
             <span className="gh">{SETTINGS_COPY.account}</span>
             <div className="p5-sbox">
-              <UsernameRow wallet={addr} />
               {acct?.method && (
                 <div className="p5-srow" data-testid="settings-signin">
                   <div className="tx"><b>{SETTINGS_COPY.signedIn(acct.method)}</b>{acct.email && <span>{maskEmail(acct.email)}</span>}</div>
@@ -94,6 +142,22 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                 </div>
               </div>
             </div>
+          </section>
+          <section className="p5-sgrp" aria-label={SETTINGS_COPY.security} data-testid="settings-security">
+            <span className="gh">{SETTINGS_COPY.security}</span>
+            <div className="p5-sbox">
+              <div className="p5-srow" data-testid="settings-export">
+                <div className="tx"><b>{SETTINGS_COPY.exportKey}</b><span>{sec ? SETTINGS_COPY.exportKeyHelp : SETTINGS_COPY.privyOnly}</span></div>
+                <button type="button" className="p5-btn sm" disabled={!sec?.exportWallet || !!secBusy} onClick={() => void exportKey()} data-testid="export-key">
+                  <Icon name="lock" size={16} /> {SETTINGS_COPY.exportBtn}
+                </button>
+              </div>
+              <button type="button" className="p5-srow p5-srow-link" onClick={() => { setView("2fa"); setSecErr(""); }} data-testid="settings-2fa">
+                <div className="tx"><b>{SETTINGS_COPY.twoFa}</b><span>{twoFaState}</span></div>
+                <Icon name="chevron-right" size={18} />
+              </button>
+            </div>
+            {secErr && <span className="p5-err" role="alert">{secErr}</span>}
           </section>
           <section className="p5-sgrp" aria-label={SETTINGS_COPY.trading} data-testid="settings-trading">
             <span className="gh">{SETTINGS_COPY.trading}</span>
@@ -117,6 +181,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
           <button type="button" className="p5-logout" data-testid="settings-signout" onClick={() => { onClose(); void disconnect(); }}>
             <Icon name="log-out" size={18} /> {SETTINGS_COPY.logout}
           </button>
+        </>}
         </>}
       </div>
     </div>
