@@ -40,6 +40,9 @@ export interface SameChainCfg {
   /** Which hook build: "disciple" (default) or "carry" (Carry's follower hook: same sample()/sampleDue() and pool
    *  storage head, but a shorter poolState view with no cross-chain fields). */
   abi: "disciple" | "carry";
+  /** Carry only: the CarryStockQueue, where stock waits for lender USDG (unset = no matching). The keeper matches
+   *  its lines (matchOrders) whenever a dry run says USDG is free for the stock at their front. */
+  stockQueue?: Hex;
 }
 
 export interface Sampling {
@@ -62,6 +65,11 @@ export interface Sampling {
   /** Sweep once a pool's hot quote is above this multiple of its hot target, in bps (20000 = 2x: at the default
    *  20% target, sweep when hot passes 40%, back down to 20%). */
   sweepBandBps: number;
+  /** Carry stock queue: how often to check each market's line, seconds (0 = never match). Each check is a dry run
+   *  of matchOrders per market with stock waiting; a transaction is sent only when it would match something. */
+  matchEverySec: number;
+  /** Orders one matchOrders call works through at most. */
+  matchSteps: number;
 }
 
 export interface Policy {
@@ -163,6 +171,7 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       pools: ((r.pools as string[]) ?? []).map((p) => p.toLowerCase() as Hex),
       scanPools: r.scanPools !== false,
       abi: r.abi === "carry" ? "carry" : "disciple",
+      stockQueue: r.stockQueue ? getAddress(r.stockQueue as string) : undefined,
     };
   });
   const sm = raw.sampling ?? {};
@@ -183,6 +192,8 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       selfPayMaxPerHour: Number(sm.selfPayMaxPerHour ?? 60),
       sweepEverySec: Number(sm.sweepEverySec ?? 900),
       sweepBandBps: Number(sm.sweepBandBps ?? 20_000),
+      matchEverySec: Number(sm.matchEverySec ?? 60),
+      matchSteps: Number(sm.matchSteps ?? 20),
     },
     policy: {
       moveBps: b(p.moveBps, 102n),

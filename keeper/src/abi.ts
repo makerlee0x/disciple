@@ -70,6 +70,16 @@ export const carryHookAbi = parseAbi([
   "event TailMoved(address indexed vault, uint256 toVault, uint256 toHot)",
 ]);
 
+/** Carry's stock queue (CarryStockQueue) and the bits of its vault the keeper reads. */
+export const carryQueueAbi = parseAbi([
+  "function vault() view returns (address)",
+  "function waiting(uint256 market) view returns (uint256)",
+  "function lineLength(uint256 market) view returns (uint256)",
+  "function matchOrders(uint256 market, uint256 maxSteps) returns (uint256 matched)",
+  "event Matched(uint256 indexed orderId, uint256 indexed positionId, uint256 used, uint256 left)",
+  "function marketCount() view returns (uint256)",
+]);
+
 /** Leader (same-chain source) reads: v2 pair, v3 pool, v4 PoolManager. */
 export const leaderAbi = parseAbi([
   "function getReserves() view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)",

@@ -16,7 +16,7 @@ import {
   type PublicClient,
   type WalletClient,
 } from "viem";
-import { carryHookAbi, endpointAbi, erc20Abi, hookAbi, receiverAbi, senderAbi, ulnAbi } from "./abi.ts";
+import { carryHookAbi, carryQueueAbi, endpointAbi, erc20Abi, hookAbi, receiverAbi, senderAbi, ulnAbi } from "./abi.ts";
 import type { ChainCfg, Config, RouteCfg, SameChainCfg } from "./config.ts";
 import { jarValue, readDyn, readLeaderSpot, readSource, type PoolDyn, type PoolSource } from "./hook.ts";
 import { decodeMessage, messageLength, packetsFromLogs, payloadHash } from "./packet.ts";
@@ -163,6 +163,8 @@ export class Keeper {
   private lastSample = new Map<string, number>();
   /** Carry: last tail check per pool (unix s) */
   private lastSweepCheck = new Map<string, number>();
+  /** Carry: last stock queue check per set (unix s) */
+  private lastMatchCheck = new Map<string, number>();
   private selfPaid = new Map<string, number[]>();
 
   private cfg: Config;
@@ -299,6 +301,7 @@ export class Keeper {
         await this.discoverSame(s);
         await this.sampleDue(s);
         if (s.abi === "carry") await this.sweepDue(s);
+        if (s.abi === "carry" && s.stockQueue) await this.matchDue(s);
       } catch (e) {
         this.log.warn(`${s.name}: ${(e as Error).message?.split("\n")[0] ?? e}`);
       } finally {
@@ -857,6 +860,87 @@ export class Keeper {
     this.log.info(
       `${s.name}: swept ${id.slice(0, 10)} (hot ${y - principal} of ${y}) tx ${hash}, ${moved || "nothing moved"}, spent ${formatEther(spent)} ETH (gas ${rc.gasUsed})`,
     );
+  }
+
+  /** Carry: match stock waiting in the stock queue with lender USDG. Every `matchEverySec`, for each market with stock
+   *  waiting, a dry run of matchOrders says whether lender USDG is free for the front of its line; only then is a
+   *  transaction sent, at our own gas. A dry run that matches nothing (no free USDG, market at its cap, vault paused,
+   *  pool rebalancing) costs nothing and is tried again next round. */
+  async matchDue(s: SameChainCfg): Promise<void> {
+    const sm = this.cfg.sampling, q = s.stockQueue;
+    if (!q || sm.matchEverySec <= 0) return;
+    const t = now();
+    if ((this.lastMatchCheck.get(s.name) ?? 0) + sm.matchEverySec > t) return;
+    this.lastMatchCheck.set(s.name, t);
+    const { pub } = this.c(s.chain);
+    const vault = await pub.readContract({ address: q, abi: carryQueueAbi, functionName: "vault" });
+    const n = await pub.readContract({ address: vault, abi: carryQueueAbi, functionName: "marketCount" });
+    for (let m = 0n; m < n; m++) {
+      const waiting = await pub.readContract({ address: q, abi: carryQueueAbi, functionName: "waiting", args: [m] });
+      if (waiting === 0n) continue;
+      let would = 0n;
+      try {
+        const r = await pub.simulateContract({ address: q, abi: carryQueueAbi, functionName: "matchOrders", args: [m, BigInt(sm.matchSteps)], account: this.account });
+        would = r.result;
+      } catch (e) {
+        this.log.warn(`${s.name}: matchOrders(${m}) dry run failed: ${(e as Error).message?.split("\n")[0]}`);
+        continue;
+      }
+      if (would === 0n) continue;
+      await this.matchOrders(s, q, m, BigInt(sm.matchSteps), would);
+    }
+  }
+
+  async matchOrders(s: SameChainCfg, q: Hex, market: bigint, steps: bigint, would: bigint): Promise<void> {
+    const { pub, wal, chain } = this.c(s.chain);
+    const blk = await pub.getBlock({ blockTag: "latest" });
+    const base = blk.baseFeePerGas ?? 0n;
+    if (base > s.chain.maxFee) {
+      this.log.warn(`${s.name}: ${s.chain.name} basefee ${base} above maxFee, matching waits`);
+      this.lastMatchCheck.delete(s.name);
+      return;
+    }
+    let est: bigint;
+    try {
+      est = await pub.estimateContractGas({ address: q, abi: carryQueueAbi, functionName: "matchOrders", args: [market, steps], account: this.account });
+    } catch (e) {
+      this.log.warn(`${s.name}: matchOrders(${market}) would revert: ${(e as Error).message?.split("\n")[0]}`);
+      return;
+    }
+    const tip = s.chain.priorityFee;
+    const maxFee = base * 2n + tip < s.chain.maxFee ? base * 2n + tip : s.chain.maxFee;
+    const { hash, rc } = await this.serial(s.chain, async (nonce) => {
+      const hash = await wal.writeContract({
+        chain,
+        account: this.account,
+        nonce,
+        address: q,
+        abi: carryQueueAbi,
+        functionName: "matchOrders",
+        args: [market, steps],
+        gas: (est * 13n) / 10n,
+        maxFeePerGas: maxFee,
+        maxPriorityFeePerGas: tip,
+      });
+      return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
+    });
+    const spent = rc.gasUsed * rc.effectiveGasPrice;
+    if (rc.status !== "success") {
+      this.log.warn(`${s.name}: matchOrders(${market}) reverted, tx ${hash}, spent ${formatEther(spent)} ETH`);
+      return;
+    }
+    let opened = 0;
+    for (const l of rc.logs) {
+      try {
+        const ev = decodeEventLog({ abi: carryQueueAbi, data: l.data, topics: l.topics });
+        if (ev.eventName === "Matched") opened++;
+      } catch {
+        /* other logs */
+      }
+    }
+    this.log.info(`${s.name}: matched market ${market} (dry run ${would} raw stock), ${opened} position(s), tx ${hash}, spent ${formatEther(spent)} ETH (gas ${rc.gasUsed})`);
+    // more may be matchable (a long line): check again next round
+    this.lastMatchCheck.delete(s.name);
   }
 
   /** How far (bps) a pool's centre is from its leader's live spot; 0 when either cannot be read. */
