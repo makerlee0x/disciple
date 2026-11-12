@@ -7,10 +7,10 @@
  * Canvas cards (header, trades, controls) are drawn by engine.js @cards from the layout and report their
  * drawn rects (disciple:cardrects, canvas px from #wrap); DOM cards (chart = DexChart, pnl, chat) apply their offset themselves
  * (useDomCard / DexChart; the chart also has its own resize handle, size saved in the same layout)
- * and are located by [data-card]. All pointer input here lands on DOM elements, so it never reaches the game (no steering).
+ * and are located by [data-card]. Radio is a DOM card too, but it is a FLOAT_CARD: same ⠿ / – / × chrome and saved offsets, not in the snap-to-grid flow. All pointer input here lands on DOM elements, so it never reaches the game (no steering).
  */
 import { useEffect, useRef, useState } from "react";
-import { CARD_IDS, CARD_TITLES, CANVAS_CARDS, hiddenCards, resetLayout, restoreCard, setCard, type CardId, type Layout } from "@/lib/game/cardLayout";
+import { CARD_IDS, CARD_TITLES, CANVAS_CARDS, FLOAT_CARDS, hiddenCards, resetLayout, restoreCard, setCard, type CardId, type Layout } from "@/lib/game/cardLayout";
 import { getLayout, getSavedLayout, isPhoneUI, setFlowOffsets, updateLayout, useCanvasCards, useCardLayout, type FlowOffsets } from "@/lib/game/cardLayoutStore";
 import { centerLane, chartCap, COMPACT_W, computeSlots, layoutCards, nearestSlot, type Box, type FlowCard, type Slot, type SlotEnv, type SlotId } from "@/lib/game/slots";
 import { overlayBlocked, startSidebarOverlay } from "@/lib/game/sidebarOverlay";
@@ -18,8 +18,8 @@ import { overlayBlocked, startSidebarOverlay } from "@/lib/game/sidebarOverlay";
 type R = { x: number; y: number; w: number; h: number };
 const mono = "ui-monospace, monospace";
 const btn: React.CSSProperties = { all: "unset", cursor: "pointer", padding: "0 5px", lineHeight: "16px", fontSize: 11, color: "#ffe7a3", fontFamily: mono };
-const DOM_SEL: Partial<Record<CardId, string>> = { chart: '[data-card="chart"]', pnl: '[data-card="pnl"]', chat: '[data-card="chat"]' };
-const DOM_HOME: Partial<Record<CardId, R>> = { chart: { x: 84, y: 470, w: 440, h: 40 }, pnl: { x: 86, y: 212, w: 272, h: 40 }, chat: { x: 0, y: 160, w: 300, h: 40 } };   // pill spot if never seen
+const DOM_SEL: Partial<Record<CardId, string>> = { chart: '[data-card="chart"]', pnl: '[data-card="pnl"]', chat: '[data-card="chat"]', radio: '[data-card="radio"]' };
+const DOM_HOME: Partial<Record<CardId, R>> = { chart: { x: 84, y: 470, w: 440, h: 40 }, pnl: { x: 86, y: 212, w: 272, h: 40 }, chat: { x: 0, y: 160, w: 300, h: 40 }, radio: { x: 0, y: 0, w: 280, h: 40 } };   // pill spot if never seen; radio uses the bottom-right fallback below
 
 export default function CardChrome() {
   const layout = useCardLayout(), canvas = useCanvasCards();
@@ -56,6 +56,7 @@ export default function CardChrome() {
       envRef.current = env;
       const saved = getSavedLayout(), d = drag.current, cards: FlowCard[] = [], cur = getLayout();
       for (const id of CARD_IDS) {
+        if (FLOAT_CARDS.includes(id)) continue;   // radio: drag / minimize / saved dx,dy, but stay out of the snap-to-grid flow
         const sv = saved[id]; if (sv?.min || sv?.closed || (d && d.id === id)) continue;
         const r = rectOf(id);
         let base: Box;
@@ -125,13 +126,18 @@ export default function CardChrome() {
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* */ }
   };
   // drag = live offset (no slot) in memory; the drop snaps to the nearest slot and saves {slot, order}
-  const targetSlot = (id: CardId): Slot | null => { const env = envRef.current, r = rectOf(id); if (!env || !r) return null;
+  const targetSlot = (id: CardId): Slot | null => { if (FLOAT_CARDS.includes(id)) return null; const env = envRef.current, r = rectOf(id); if (!env || !r) return null;
     const sl = computeSlots(env); return sl[nearestSlot(sl, r.x + r.w / 2, r.y + r.h / 2)]; };
   const onMove = (e: React.PointerEvent) => { const d = drag.current; if (!d || e.pointerId !== d.pid) return;
     updateLayout((l) => setCard(l, d.id, { dx: d.dx + e.clientX - d.x0, dy: d.dy + e.clientY - d.y0, slot: undefined }), false); tick((x) => x + 1);
     const t = targetSlot(d.id); setPreview((p) => (p?.id === t?.id && p?.y === t?.y ? p : t)); };
   const onUp = (e: React.PointerEvent) => { const d = drag.current; if (!d || e.pointerId !== d.pid) return;
     const t = targetSlot(d.id), r = rectOf(d.id); drag.current = null; setPreview(null);
+    if (FLOAT_CARDS.includes(d.id)) {
+      const dx = d.dx + e.clientX - d.x0, dy = d.dy + e.clientY - d.y0;
+      updateLayout((l) => setCard(l, d.id, { dx, dy, slot: undefined, order: undefined }));
+      return;
+    }
     const slot: SlotId = t?.id ?? "tl", order = Math.round(r?.y ?? 0);
     updateLayout((l) => setCard(l, d.id, { dx: 0, dy: 0, slot, order })); };
   const act = (id: CardId, patch: { min?: boolean; closed?: boolean }) => { updateLayout((l) => setCard(l, id, patch)); setHover(null); };
@@ -160,9 +166,10 @@ export default function CardChrome() {
         </div>)}
       {pills.map((id) => { const c = CANVAS_CARDS.includes(id) ? canvas.cards[id] : null, o = wrapXY();
         const r = c ? { x: c.x + o.x, y: c.y + o.y } : lastDom.current[id] || DOM_HOME[id] || { x: 80, y: 80 };
-        const x = id === "chat" && !lastDom.current.chat ? window.innerWidth - 140 : r.x;
+        const x = id === "radio" && !lastDom.current.radio ? window.innerWidth - 140 : id === "chat" && !lastDom.current.chat ? window.innerWidth - 140 : r.x;
+        const y = id === "radio" && !lastDom.current.radio ? window.innerHeight - 48 : r.y;
         return <button key={id} data-testid={`card-pill-${id}`} title={`Restore ${CARD_TITLES[id]}`} onClick={() => updateLayout((l) => restoreCard(l, id))}
-          style={{ ...btn, position: "fixed", left: x, top: r.y, pointerEvents: "auto", padding: "2px 8px", borderRadius: 8, background: "rgba(8,10,28,.86)", border: "1px solid rgba(255,231,163,.45)", fontWeight: 700, letterSpacing: ".06em" }}>
+          style={{ ...btn, position: "fixed", left: x, top: y, pointerEvents: "auto", padding: "2px 8px", borderRadius: 8, background: "rgba(8,10,28,.86)", border: "1px solid rgba(255,231,163,.45)", fontWeight: 700, letterSpacing: ".06em" }}>
           ▸ {CARD_TITLES[id].toUpperCase()}</button>; })}
       <div style={{ position: "fixed", left: wrapXY().x + 20, bottom: 3, pointerEvents: "auto" }}>
         <button data-testid="layout-menu" onClick={() => setMenu((m) => !m)} title="Cards: restore closed ones or reset the layout"

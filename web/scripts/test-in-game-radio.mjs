@@ -17,7 +17,17 @@ ok(canvas.includes("<GameRadio"), "FlightCanvas mounts GameRadio (coin + sim fli
 ok(!/app\/page\.tsx/.test(canvas), "radio is not wired through the landing page component");
 ok(/audioLevel\("music"\)/.test(hook) && /disciple:audio/.test(hook), "GameRadio follows the existing music channel");
 ok(/resumeAudio/.test(hook) && /pointerdown/.test(hook), "playback waits for a user gesture (or an already-running context)");
-ok(!/setGameSettings/.test(hook), "radio does not add its own mute or volume control");
+ok(/setGameSettings/.test(hook) && /music: \{ \.\.\.g\.music, vol:/.test(hook) && /music: \{ \.\.\.g\.music, on:/.test(hook),
+  "player volume and mute write the existing Music channel, not a second volume");
+ok(!/SETTINGS_KEY|disciple:audio-radio|sfx:/.test(hook), "player does not introduce a separate audio storage key");
+ok(/useDomCard\("radio"/.test(hook) && /data-card="radio"/.test(hook), "mini player is a DOM card (useDomCard + data-card=radio)");
+ok(/right: 16/.test(hook) && /bottom: 16/.test(hook), "default position is bottom right of the screen");
+ok(/title="Minimize"/.test(hook) && /Show Music/.test(hook), "phone minimize / restore uses the same Minimize and Show Music wording as the card chrome pills");
+ok(/Previous track/.test(hook) && /Next track/.test(hook) && /Music volume/.test(hook), "control labels are plain English");
+const layout = readFileSync(join(web, "lib/game/cardLayout.ts"), "utf8");
+const chrome = readFileSync(join(web, "components/flight/CardChrome.tsx"), "utf8");
+ok(/FLOAT_CARDS[\s\S]*radio/.test(layout) && /radio: "Music"/.test(layout), "radio is a FLOAT_CARD titled Music in cardLayout.ts");
+ok(/FLOAT_CARDS\.includes/.test(chrome) && /radio: '\[data-card="radio"\]'/.test(chrome), "CardChrome reuses ⠿ / – / × for radio and keeps it out of the slot snap flow");
 ok(menu.includes("audio-${ch}-toggle") && menu.includes("audio.music") && menu.includes("audio-${ch}-vol"), "settings still use the existing Music toggle and slider");
 ok(i18n.includes("Music plays during a flight. Sound effects aren't in yet."), "EN audio.note no longer says sounds don't ship");
 
@@ -51,6 +61,7 @@ class FakeAudio {
   set src(v) { this._src = v; }
   get src() { return this._src; }
   getAttribute(n) { return n === "src" ? this._src : null; }
+  setAttribute() {}
   play() { this.paused = false; return Promise.resolve(); }
   pause() { this.paused = true; }
   load() {}
@@ -132,6 +143,82 @@ ok(loop.status().index === 0, "seventh advance wraps to the first track");
 const again = getGameRadio();
 ok(again === loop, "after a loop the singleton is still a single instance");
 ok(made.length === 2, "still only two audio elements after looping (no extra instances)");
+
+resetGameRadioForTests();
+made.length = 0;
+
+// ---- skip / pause / shuffle / repeat / station picker --------------------------------
+const { shuffledOrder, identityOrder, stepTrack, stationList } = await import("../lib/game/stations.ts");
+ok(stationList().length === 1 && stationList()[0].id === "house" && stationList()[0].label === "House",
+  "the station picker reads STATIONS: one station today, labeled House");
+ok(HOUSE_STATION.tracks.every((tr) => typeof tr.title === "string" && tr.title.length > 0), "every house track has a title");
+
+const shuf = shuffledOrder(7, () => 0.99, 2);
+ok(shuf.length === 7 && new Set(shuf).size === 7 && shuf[0] === 2, "shuffle is a permutation and can keep the current track first");
+ok(JSON.stringify(identityOrder(3)) === "[0,1,2]", "identity order is 0..n-1");
+ok(stepTrack([2, 0, 1], 2, 1) === 0 && stepTrack([2, 0, 1], 2, -1) === 1, "prev/next walk the current (possibly shuffled) order and wrap");
+
+const { sanitizeGameSettings, DEFAULT_GAME_SETTINGS } = await import("../lib/game/settings.ts");
+ok(DEFAULT_GAME_SETTINGS.radio.shuffle === false && DEFAULT_GAME_SETTINGS.radio.repeat === "station" && DEFAULT_GAME_SETTINGS.radio.station === "house",
+  "shuffle and repeat persist with the existing game settings (default: no shuffle, station loop)");
+const dirty = sanitizeGameSettings({ radio: { station: "nope", shuffle: 1, repeat: "off" } });
+ok(dirty.radio.station === "house" && dirty.radio.shuffle === false && dirty.radio.repeat === "station",
+  "unknown station / bad shuffle / a repeat-off mode fall back to house, off, and the station loop");
+ok(sanitizeGameSettings({ radio: { shuffle: true, repeat: "one" } }).radio.shuffle === true
+  && sanitizeGameSettings({ radio: { shuffle: true, repeat: "one" } }).radio.repeat === "one",
+  "saved shuffle on and Repeat one are kept");
+
+const p = getGameRadio();
+p.setLevel(0.5);
+p.start();
+ok(p.status().trackIndex === 0 && p.status().trackTitle === "Candlelit Nocturne", "fresh player starts on the first house track");
+p.skip(1);
+ok(p.status().trackIndex === 1 && p.status().trackTitle === "Cavernous Reverb" && made.some((el) => !el.paused),
+  "next skips to the following track in the station and keeps playing");
+p.skip(-1);
+ok(p.status().trackIndex === 0, "previous goes back one track");
+p.skip(-1);
+ok(p.status().trackIndex === 6, "previous wraps from the first track to the last");
+
+p.pause();
+ok(p.status().paused === true && p.status().playing === false && made.every((el) => el.paused),
+  "pause stops both decks without needing the Music setting flipped off");
+ok(p.status().level === 0.5, "pause leaves the music level untouched");
+p.start();
+ok(p.status().playing === false && p.isPaused() === true, "start() is a no-op while the session is paused");
+p.clearPause();
+p.start();
+ok(p.status().playing === true && p.status().paused === false && made.some((el) => !el.paused),
+  "clearPause + start resumes playback (the hook does this when Music is turned on)");
+
+p.setShuffle(true);
+ok(p.status().shuffle === true && p.status().trackIndex === 6, "turning shuffle on keeps the current track (last, after wrap) and randomizes the rest");
+resetGameRadioForTests();
+made.length = 0;
+const s = getGameRadio();
+s.setLevel(1);
+s.start();
+s.setShuffle(true);
+const first = s.status().trackIndex;
+const walk = [first];
+for (let i = 0; i < 6; i++) { s.skip(1); walk.push(s.status().trackIndex); }
+s.skip(1);
+ok(new Set(walk).size === 7, "one shuffle pass visits all 7 house tracks");
+ok(s.status().trackIndex === first, "after every track has played, shuffle wraps and still loops");
+
+s.setRepeat("one");
+ok(s.status().repeat === "one" && made.some((el) => el.loop === true), "Repeat one sets the current deck to loop this track");
+const held = s.status().trackIndex;
+(made.find((x) => !x.paused) || made[0]).emit("ended");
+ok(s.status().trackIndex === held, "when Repeat one is on, the track does not advance at the end");
+s.skip(1);
+ok(s.status().trackIndex !== held, "previous/next still skip to another track while Repeat one is on");
+s.setRepeat("station");
+ok(s.status().repeat === "station", "repeat control toggles back to the default station loop");
+
+// Minimize must not stop playback: the hook only calls stop() on unmount, not when the card is hidden.
+ok(/radio\.stop\(\)/.test(hook) && /removeEventListener\("touchstart"/.test(hook), "stop() is only in the unmount cleanup (minimize hides the panel, music keeps playing)");
+ok(/hidePanel \? "none"/.test(hook) && !/if \(min\)[\s\S]{0,40}stop\(/.test(hook), "minimizing sets display:none and does not call stop");
 
 resetGameRadioForTests();
 

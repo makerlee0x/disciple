@@ -8,7 +8,7 @@
  * and growing it back restores the spot you chose. Phones ignore the layout (their drawers / sheets own the screen).
  */
 import { SLOT_IDS, type SlotId } from "@/lib/game/slots";
-export type CardId = "header" | "trades" | "chart" | "pnl" | "chat";
+export type CardId = "header" | "trades" | "chart" | "pnl" | "chat" | "radio";
 /** w / h: a RESIZED card's size (resizable cards only — today the DEX chart); absent = the card's default size */
 /** slot / order (PR #221 snap-to-grid, lib/game/slots): where a moved card lives — the slot it was dropped in and its place in
  *  that slot's stack. dx / dy: legacy raw offsets (migrated to a slot on first sight) or the live offset while dragging. */
@@ -20,14 +20,16 @@ export type Rect = { x: number; y: number; w: number; h: number };
 /** canvas cards = engine.js @cards (drawn on the canvas); DOM cards apply the offset themselves */
 export const CANVAS_CARDS: CardId[] = ["header", "trades"];
 /** chart: the DOM DEX chart (components/flight/DexChart.tsx, lightweight-charts) since Oct 30 — was the engine's canvas chart */
-export const DOM_CARDS: CardId[] = ["chart", "pnl", "chat"];
+export const DOM_CARDS: CardId[] = ["chart", "pnl", "chat", "radio"];
+/** Cards that reuse chrome (drag, minimize, saved offsets) but stay out of the snap-to-grid slot flow. */
+export const FLOAT_CARDS: CardId[] = ["radio"];
 /** cards with a resize handle (CardState.w / h) and their size limits (px) */
 export const RESIZABLE: Partial<Record<CardId, { minW: number; minH: number; defW: number; defH: number }>> = {
   chart: { minW: 260, minH: 180, defW: 440, defH: 280 },   // + the canvas-relative cap in lib/game/slots chartCap
 };
 export const CARD_IDS: CardId[] = [...CANVAS_CARDS, ...DOM_CARDS];
 export const CARD_TITLES: Record<CardId, string> = {
-  header: "Coin", trades: "Trades", chart: "Chart", pnl: "Your position", chat: "Holders",
+  header: "Coin", trades: "Trades", chart: "Chart", pnl: "Your position", chat: "Holders", radio: "Music",
 };
 export const LAYOUT_PREFIX = "disciple.layout.v1:";
 export const layoutKey = (account: string | null | undefined) => LAYOUT_PREFIX + (account && /^0x[0-9a-fA-F]{40}$/.test(account) ? account.toLowerCase() : "guest");

@@ -10,24 +10,29 @@
  * Music drives the house radio (lib/game/radio.ts). SFX still only have the settings preview blip.
  */
 import { useSyncExternalStore } from "react";
+import { STATIONS, DEFAULT_STATION_ID, type RepeatMode } from "./stations";
 
 export const SETTINGS_KEY = "disciple.game.settings.v1";
 export type Locale = "en" | "zh" | "ko" | "ja" | "es";
 export const LOCALE_IDS: Locale[] = ["en", "zh", "ko", "ja", "es"];
 export interface AudioChannel { on: boolean; vol: number }
+/** Shuffle / Repeat for the in-game radio. Pause itself is session-local and is not saved. */
+export interface RadioPrefs { station: string; shuffle: boolean; repeat: RepeatMode }
 export interface GameSettings {
   v: 1;
   /** KeyboardEvent.code per slot: 4 buy presets (select only) + 4 sell sizes (select only) */
   keys: { buy: string[]; sell: string[] };
   sfx: AudioChannel;
   music: AudioChannel;
+  radio: RadioPrefs;
   lang: Locale;
 }
 export const DEFAULT_BUY_KEYS = ["Digit1", "Digit2", "Digit3", "Digit4"];   // 4 buy presets (was 6: an older 6-key save keeps its first 4)
 export const DEFAULT_SELL_KEYS = ["KeyZ", "KeyX", "KeyC", "KeyV"];
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
   v: 1, keys: { buy: DEFAULT_BUY_KEYS, sell: DEFAULT_SELL_KEYS },
-  sfx: { on: true, vol: 0.7 }, music: { on: true, vol: 0.5 }, lang: "en",
+  sfx: { on: true, vol: 0.7 }, music: { on: true, vol: 0.5 },
+  radio: { station: DEFAULT_STATION_ID, shuffle: false, repeat: "station" }, lang: "en",
 };
 /** Keys the game already uses for something else (SPACE boost, SHIFT dump, steering, toggles, chat, menu). Not bindable. */
 export const RESERVED_CODES = new Set([
@@ -66,9 +71,13 @@ export function sanitizeGameSettings(x: unknown): GameSettings {
   const k = (o.keys && typeof o.keys === "object" ? o.keys : {}) as Partial<GameSettings["keys"]>;
   const taken = new Set<string>();
   const buy = keyList(k.buy, DEFAULT_BUY_KEYS, taken), sell = keyList(k.sell, DEFAULT_SELL_KEYS, taken);
+  const r = (o.radio && typeof o.radio === "object" ? o.radio : {}) as Partial<RadioPrefs>;
+  const station = typeof r.station === "string" && STATIONS[r.station] ? r.station : DEFAULT_STATION_ID;
+  const radio: RadioPrefs = { station, shuffle: r.shuffle === true, repeat: r.repeat === "one" ? "one" : "station" };
   return {
     v: 1, keys: { buy, sell },
     sfx: chan(o.sfx, DEFAULT_GAME_SETTINGS.sfx), music: chan(o.music, DEFAULT_GAME_SETTINGS.music),
+    radio,
     lang: LOCALE_IDS.includes(o.lang as Locale) ? (o.lang as Locale) : "en",
   };
 }
