@@ -16,16 +16,13 @@ A coin launched on DISCIPLE. 1M fixed supply, priced and traded in its base.
 **What does BOOST mean? DUMP?**
 BOOST is buy. DUMP is sell.
 
-**Is it live?**
-DISCIPLE runs on Robinhood Chain Testnet today, with test tokens. Mainnet isn't live yet, and there's no date.
-
 **What do I need to start?**
 Sign in with email, Google, X or a wallet. Then press **Get test cash** for free test dollars. You don't need ETH for gas. See [Quick start](/docs/quick-start).
 
 ## Pairing
 
 **What coins can I pair with?**
-Right now, new rockets are paired with STRATEGY. Other pair coins aren't open on testnet yet. See [Pairing](/docs/launch/pairing).
+Right now, the launch form pairs new rockets with STRATEGY. Other pair coins are not available on the form yet. See [Pairing](/docs/launch/pairing).
 
 **What does pairing do for my coin?**
 Your rocket is priced and traded in its base coin. When the rocket reaches orbit, the base is locked forever in the Uniswap v4 LP. Reaching orbit means the starting price path is finished and the rocket moves to the open market on Uniswap.
@@ -36,7 +33,7 @@ Your rocket is priced and traded in its base coin. When the rocket reaches orbit
 When its value reaches $33,333 and about 84% of it has been bought on the starting price path. People also call that path a bonding curve, which means each buy costs a little more than the last. The rocket moves to the open market on Uniswap in that same trade. That moment is the Outer Space tier.
 
 **Is the liquidity really locked?**
-Yes. When the rocket reaches orbit, its liquidity is locked forever in the Uniswap v4 LP. The contract that holds it has no way to remove it, and the contracts can't be swapped for new code. During testnet, the team holds some admin settings. See [Admin controls](/docs/safety/admin).
+Yes. When the rocket reaches orbit, its liquidity is locked forever in the Uniswap v4 LP. The contract that holds it has no way to remove it, and the contracts can't be swapped for new code. The team holds some admin settings. See [Admin controls](/docs/safety/admin).
 
 **Can a creator rug?**
 There's no further mint, the name and call sign are locked at launch, and once the rocket reaches orbit its liquidity is locked forever in the Uniswap v4 LP. Creators can still sell their own rockets, like anyone else. [CONFIRM: lee — keep this question?]
@@ -50,7 +47,7 @@ There's no further mint, the name and call sign are locked at launch, and once t
 The sniper tax. It's 99% at launch, 25% at 1 second, 3% at 2 seconds, and nothing from 7 seconds on. See [Anti-snipe](/docs/trading/anti-snipe).
 
 **How do referrals work?**
-Share your invite link from Rewards (the chest on your profile). When a friend opens it and signs in, you earn 1% of the trade fee on their trades. For now, referral earnings are paid by hand, and there's nothing to claim in the app. See [Referrals](/docs/fees/referrals).
+Share your invite link from Rewards (the chest on your profile). When a friend opens it and signs in, you earn 1% of the trade fee on their trades. Your share builds up in Rewards, and you claim it there. See [Referrals](/docs/fees/referrals).
 
 ## Game
 

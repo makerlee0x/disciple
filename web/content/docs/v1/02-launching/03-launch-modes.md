@@ -17,7 +17,7 @@ There are three modes: **Easy**, **Hard** and **Trench**. Easy is picked for you
 | A BOOST over your limit | Fills up to your limit, and the rest of your money comes back | Same | No limit to hit |
 | Sign-in needed to BOOST | Yes | No | No |
 | Crew tip | Yes (see below) | No | No |
-| Most the creator can buy at launch | 1.2%, locked until orbit | 3.33% | 7% |
+| Most the creator can buy at launch | 1.2%, locked until orbit | 3.33% | 7.77% |
 | Sniper tax in the first 7 seconds | Yes | Yes | Yes |
 
 ## Easy: crew first
@@ -37,7 +37,7 @@ No holding limit and no sign-in check. Only the sniper tax applies. A private la
 
 ## Sniper tax: every mode
 
-For the first 7 seconds after launch, BOOSTs pay a sniper tax: 99% at launch, 25% at 1 second, 3% at 2 seconds, and nothing from 7 seconds on. The creator's First BOOST doesn't pay it. The tax is held aside and doesn't move the price. When the rocket reaches orbit, it's added to the rocket's locked liquidity over time. If the rocket hasn't reached orbit 30 days after launch, anyone can send it to the community rewards wallet. See [Anti-snipe](/docs/trading/anti-snipe).
+For the first 7 seconds after launch, BOOSTs pay a sniper tax: 99% at launch, 25% at 1 second, 3% at 2 seconds, and nothing from 7 seconds on. The creator's First BOOST doesn't pay it. The tax is held aside and doesn't move the price. If the rocket reaches orbit within 12 days of launch, the tax is added to the rocket's locked liquidity over time. If it hasn't reached orbit 12 days after launch, the tax goes to community rewards instead. See [Anti-snipe](/docs/trading/anti-snipe).
 
 ## Practice first
 

@@ -22,8 +22,10 @@ The first link a friend opens is the one that counts. Opening someone else's lin
 
 You earn 1% of the trade fee on your friends' trades. The trade fee is 1% of each trade, so your share is 0.01% of the trade. On a $100 trade, that's $0.01. On a $1,000 trade, it's $0.10.
 
+If a friend you referred launches a rocket, you get that share on every trade of their rocket, no matter who makes the trade. This rule comes first: when your friend trades a rocket whose creator joined through someone else's link, the share goes to that person, not to you.
+
 ## Getting paid
 
-For now, referral earnings are paid out by hand. There's nothing to claim in the app.
+Your share builds up for you on every trade and waits until you claim it. Open **Rewards** (the chest on your profile) and press **Claim**, the same way creators claim their earnings.
 
-Your **Rewards** popup shows your totals: what you've earned from friends, and how many friends you've invited.
+Rewards also shows your totals: what you've earned from friends, and how many friends you've invited. What you've earned counts your share of trades on the chain, plus any payouts the team has sent you by hand outside the chain.

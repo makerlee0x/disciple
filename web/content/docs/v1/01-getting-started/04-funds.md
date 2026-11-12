@@ -9,7 +9,7 @@ section: Getting started
 
 DISCIPLE counts your money in dollars. Under the hood that's USDG, a dollar stablecoin on Robinhood Chain. One USDG is one dollar. You BOOST with USDG, and a DUMP pays you back in USDG.
 
-On testnet, the USDG is test money with no value. Press **Get test cash** to get some for free.
+Press **Get test cash** to get some USDG for free.
 
 ## Deposit
 

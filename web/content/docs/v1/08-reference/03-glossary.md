@@ -24,6 +24,7 @@ section: Reference
 | **Crew tip** | On Easy rockets: 0.777% of a profitable DUMP, shared with the other holders. |
 | **CRUISE** | A bomb with 12–25% price impact. |
 | **DUMP** | Sell. It drops a bomb. |
+| **Fee vault** | Where the creator, treasury and referral shares of fees paid before orbit wait until they're claimed. |
 | **First BOOST** | The creator's own buy, made as part of the launch. |
 | **GRENADE** | A bomb with 2–5% price impact. |
 | **Hold bonus** | A points multiplier, up to ×2.5, for holding a rocket in profit. Points only, never money. Coming soon: not yet applied to points. |
@@ -47,7 +48,7 @@ section: Reference
 | **PvE / PvP** | Simulator difficulties: the crew climbing together, or every trader for themselves. |
 | **Rarity** | Common, Rare, Epic, Legendary or Mythic. One scale for achievements and rocket parts. |
 | **Referral** | A friend who signed in through your invite link. You earn 1% of the trade fee on their trades. |
-| **Rewards** | The chest on your profile. It shows what you've earned, and your invite link. |
+| **Rewards** | The chest on your profile. It shows what you've earned, including payouts made by hand, lets you claim, and has your invite link. |
 | **rHALO** | Off-chain points from achievements and play. Not a token. |
 | **Rocket** | The thing you launch on DISCIPLE. |
 | **Season rank** | Unranked to Divine, by rHALO points in the season. |
@@ -57,6 +58,6 @@ section: Reference
 | **Tramp** | A buy waiting below the price, on a rocket that has reached orbit. |
 | **Trench** | The launch mode with no guardrails. In the Simulator, the hardest difficulty is called Trench Warfare. |
 | **Trencher** | A fast in-and-out trader. |
-| **USDG** | A dollar stablecoin on Robinhood Chain. You BOOST with it, and DUMPs pay you in it. Testnet uses test USDG. |
+| **USDG** | A dollar stablecoin on Robinhood Chain. You BOOST with it, and DUMPs pay you in it. |
 | **Verified** | A checkmark the team grants after reviewing a rocket. |
 | **Wall** | A sell waiting above the price, on a rocket that has reached orbit. |

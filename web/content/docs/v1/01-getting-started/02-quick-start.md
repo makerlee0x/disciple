@@ -13,8 +13,6 @@ Tap **Sign in** (top right). You can sign in with email, Google, X or a wallet. 
 
 ## 2. Get test cash
 
-DISCIPLE is on testnet, so the money here is test money with no value.
-
 Press **Get test cash**. It adds free test dollars (USDG) to your wallet. You don't need any ETH: trades don't ask you to pay for gas.
 
 See [Deposits, withdrawals and gas](/docs/funds).
@@ -34,5 +32,3 @@ Pick a share of your bag (10%, 25%, 50% or 100%) and press **DUMP** (or `Shift`)
 ## Or launch your own
 
 Press **Launch a Rocket**. Give it a name, a ticker and a picture, pick a mode, and launch. See [Launch a rocket](/docs/launch).
-
-> Everything on testnet is for testing. Don't send real funds to a testnet address.

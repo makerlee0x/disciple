@@ -11,7 +11,7 @@ Not yet. The contracts have had internal security reviews only, no third-party a
 
 ## What the internal reviews covered
 
-The latest internal review (Oct 15, 2026) covered every core contract: the bonding curve, Launchpad, fee router, hook, router, LockedLP, migration, pricer, rewards vault, tramps-and-walls manager and the pseudonymous launcher. It used manual review, fuzz and invariant tests, static analysis and a fork test against the live testnet.
+The latest internal review (Oct 15, 2026) covered every core contract: the bonding curve, Launchpad, fee router, hook, router, LockedLP, migration, pricer, rewards vault, tramps-and-walls manager and the pseudonymous launcher. It used manual review, fuzz and invariant tests, static analysis and a fork test against the live contracts.
 
 Findings and fixes are tracked openly in the repository. [CONFIRM: FLOW — link the public security-review page, and whether the findings table is published as-is.]
 
@@ -25,9 +25,10 @@ Findings and fixes are tracked openly in the repository. [CONFIRM: FLOW — link
 | **DiscipleHook** | Attached to every rocket's Uniswap pool after orbit. Charges the 1% fee and reports trades and altitude. |
 | **DiscipleRouter** | Carries the app's trades, including one-tap trades paid in USDG. Adds slippage and price-impact checks. |
 | **LockedLP** | Owns the locked liquidity of every rocket that has reached orbit. It has no way to remove it. |
-| **FeeRouter** | Splits every fee 33 / 33 / 33 / 1 and holds what creators can claim. The sniper tax doesn't pass through it: each rocket holds its own. |
+| **FeeRouter** | Splits every fee 33 / 33 / 33 / 1 after orbit and holds what creators and referrers can claim from those fees. The sniper tax doesn't pass through it: each rocket holds its own. |
+| **CurveFeeVault** | The fee vault. Holds the creator, treasury and referral shares of fees paid before orbit, until they're claimed. |
 | **ReferralRegistry** | Records who referred whom. |
-| **RewardsVault** | The original community rewards contract. Community rewards now go to a community rewards wallet instead. See [Community rewards](/docs/fees/rewards-vault). |
+| **RewardsVault** | The community rewards vault. Holds the sniper tax and the liquidity share of fees from rockets that didn't reach orbit within 12 days. See [Community rewards](/docs/fees/rewards-vault). |
 | **QuotePricer** | Prices a base in dollars at launch. |
 | **QuoteProbe** | Checks a base before launch. |
 | **TrampWallManager** | Tramps and walls on rockets that have reached orbit. |

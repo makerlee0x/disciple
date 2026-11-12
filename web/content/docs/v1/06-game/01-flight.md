@@ -34,7 +34,7 @@ Open any rocket to fly it. The chart becomes the sky.
 
 The Launchpad is the home page. It lists rockets, with filters such as trending, new, near orbit (at least 60% of the way to the open market on Uniswap), reached orbit, and verified.
 
-**Verified** rockets show a checkmark. The team reviews a rocket before granting the mark. On testnet, the checkmark is a preview and uses sample stats. [CONFIRM: lee — the code names the Verified tiers Blessed, Anointed and Glorified, which clash with the season ranks (Blessed, Anointed, Glorified, Divine). Pick new tier names or drop tiers.]
+**Verified** rockets show a checkmark. The team reviews a rocket before granting the mark. For now, the checkmark is a preview and uses sample stats. [CONFIRM: lee — the code names the Verified tiers Blessed, Anointed and Glorified, which clash with the season ranks (Blessed, Anointed, Glorified, Divine). Pick new tier names or drop tiers.]
 
 ## The game never touches the market
 

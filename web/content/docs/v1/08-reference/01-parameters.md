@@ -5,7 +5,7 @@ section: Reference
 ---
 # Parameters
 
-Every number in one place. Values are what's on testnet today.
+Every number in one place.
 
 ## Rocket
 
@@ -36,7 +36,9 @@ Every number in one place. Values are what's on testnet today.
 | Extra fee charged by the Uniswap pool after orbit | 0% (the 1% fee still applies) |
 | Creator tax | 0–7%, set at launch, before orbit only |
 | Sniper tax | 99% at launch, 25% at 1 second, 3% at 2 seconds, nothing from 7 seconds (one step per second). BOOSTs only, before orbit only. |
-| Where the sniper tax goes | Locked liquidity when the rocket reaches orbit · the community rewards wallet if it hasn't reached orbit in 30 days |
+| Sniper-tax window | 12 days after launch |
+| Where the sniper tax goes | Locked liquidity if the rocket reaches orbit within 12 days · community rewards if it doesn't |
+| Where the liquidity share of fees before orbit goes | Locked liquidity if the rocket reaches orbit within 12 days · community rewards if it doesn't |
 | Creator launch buy | Doesn't pay the sniper tax |
 
 ## Limits
@@ -44,11 +46,11 @@ Every number in one place. Values are what's on testnet today.
 | Parameter | Value |
 |---|---|
 | Smallest BOOST | $3 |
-| Creator launch buy (First BOOST) | Easy 1.2% · Hard 3.33% · Trench 7% (the team can lower the Trench limit, not raise it) |
+| Creator launch buy (First BOOST) | Easy 1.2% · Hard 3.33% · Trench 7.77% (the team can lower the Trench limit, not raise it) |
 | Extra holding limit on every new rocket | None (the team can set one, 0–100%) |
 | Router max price impact | 50% per trade (team can set 1–1,000%) |
 | Keeper tip (tramps and walls) | 0.1% (max 1%) |
-| Private launch fee | $0.25 in USDG on testnet (max $5) |
+| Private launch fee | Set by the team, paid in USDG, up to $5 |
 
 ## Referrals
 
@@ -56,7 +58,7 @@ Every number in one place. Values are what's on testnet today.
 |---|---|
 | How a friend becomes yours | They open your link and sign in. The first link wins. |
 | What you earn | 1% of the trade fee on your friends' trades (0.01% of the trade) |
-| How it's paid | By hand, for now. Rewards shows your totals. |
+| How it's paid | Builds up for you to claim in Rewards. Your totals there also count payouts made by hand. |
 | Referring yourself | Not allowed |
 
 ## Launch modes
@@ -67,7 +69,7 @@ Every number in one place. Values are what's on testnet today.
 | BOOST over the limit | Partly filled, the rest refunded | Partly filled, the rest refunded | — |
 | Biggest single BOOST or DUMP | No limit | No limit | No limit |
 | Crew tip | 0.777% when profit is above 0.5% of the rocket's value | None | None |
-| First BOOST max | 1.2%, locked until the rocket reaches orbit | 3.33% | 7% |
+| First BOOST max | 1.2%, locked until the rocket reaches orbit | 3.33% | 7.77% |
 | Sign-in to BOOST | Yes | No | No |
 | Sniper tax | Same in every mode: 99% falling to 0 over 7 seconds | Same | Same |
 

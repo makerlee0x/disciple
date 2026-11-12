@@ -18,9 +18,11 @@ On a $100 trade, that's $0.33 from the fee, plus your creator tax while the rock
 
 Your earnings build up on every trade. There's no deadline and no minimum, and they stay yours until you claim them.
 
-Open **Rewards** (the chest on your profile) to see your total. When something is ready to claim, a gold **Claim** button shows the amount. Before you confirm, Rewards shows the small network fee, in dollars.
+Before your rocket reaches orbit, your share is kept for you in DISCIPLE's fee vault. After orbit, the fee router keeps it. You claim from both in the same place.
 
-Today, claiming in the app works for rockets you launched privately. For other rockets, the app can't claim yet, and your earnings keep building up until it can. [CONFIRM: FLOW — in-app claiming for public rockets on the gasless path.]
+Open **Rewards** (the chest on your profile) to see your total. The total counts what you've earned from trades on the chain, plus any payouts the team has sent you by hand outside the chain.
+
+When something is ready to claim, a gold **Claim** button shows the amount. Press it to claim. This works for every rocket you launched, whether you launched it publicly or privately. Before you confirm, Rewards shows the small network fee, in dollars.
 
 ## Choosing where your fees go
 

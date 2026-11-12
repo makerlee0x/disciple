@@ -27,8 +27,6 @@ The chart is the sky. **Altitude** is how high a rocket's value has climbed. The
 - **Liquidity locked forever.** Once a rocket reaches orbit, its liquidity is locked forever in the Uniswap v4 LP. Nobody can withdraw it.
 - **A game on top of the market.** Flight is the screen for one rocket. Bombs, crews, achievements and identities are part of that screen. Game features never change the price, the trade, or the odds.
 
-> **Status.** DISCIPLE runs on Robinhood Chain Testnet today, with test tokens. Mainnet isn't live yet, and there's no date. See [Testnet](/docs/testnet).
-
 ## Where to go next
 
 - New here: [Quick start](/docs/quick-start)

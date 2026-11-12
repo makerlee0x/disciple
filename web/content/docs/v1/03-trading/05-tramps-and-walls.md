@@ -5,7 +5,7 @@ section: Trading
 ---
 # Tramps and walls
 
-> **Only rockets that have reached orbit. Practice mode for now.** On testnet, the tramp/wall panel places practice orders in your browser, not on-chain. On-chain tramps and walls are coming. The rules below are how the contract works.
+> **Only rockets that have reached orbit. Practice mode for now.** The tramp/wall panel places practice orders in your browser, not on-chain. On-chain tramps and walls are coming. The rules below are how the contract works.
 
 Tramps and walls are orders on a rocket that has reached orbit, waiting on the open market on Uniswap. Reaching orbit means the starting price path is finished.
 

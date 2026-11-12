@@ -30,8 +30,10 @@ The tax steps down once per second, counted in whole seconds from launch, so a B
 
 ## Where it goes
 
-The tax is held aside, outside the price. When the rocket reaches orbit, it goes into the rocket's locked liquidity. It is added to that locked position over time. It is not part of the liquidity locked at the moment the rocket reaches orbit. If the rocket has not reached orbit 30 days after launch, anyone can send it to the community rewards wallet. See [Community rewards](/docs/fees/rewards-vault).
+The tax is held aside, outside the price. If the rocket reaches orbit within 12 days of launch, the tax goes into the rocket's locked liquidity. It is added to that locked position over time. It is not part of the liquidity locked at the moment the rocket reaches orbit.
+
+If the rocket has not reached orbit 12 days after launch, the tax goes to community rewards instead. Anyone can send it there once the 12 days are up. If the rocket reaches orbit later than that, the tax still goes to community rewards. See [Community rewards](/docs/fees/rewards-vault).
 
 ## Why it exists
 
-Bots that buy in the very first moment take coins before people can react. The anti-snipe fee makes that expensive, and puts what it collects back into the rocket's pool or the community rewards wallet.
+Bots that buy in the very first moment take coins before people can react. The anti-snipe fee makes that expensive, and puts what it collects back into the rocket's pool or into community rewards.

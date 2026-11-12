@@ -14,7 +14,7 @@ The switch is called **Anon** when you launch with no First BOOST. If you add a 
 - A launcher contract launches the rocket for you, so the contract shows as the creator, not you.
 - The creator role goes to a one-time address that only you control. DISCIPLE works it out from your wallet, so you can find your private rockets again from any device you sign in on.
 - Your creator fees are yours alone to claim. You can claim them from **Rewards** on your profile.
-- A small launch fee goes to the treasury: $0.25 in USDG on testnet.
+- A small launch fee, paid in USDG, goes to the treasury. The team sets it, and it can't be more than $5.
 - A private launch always uses the Trench mode.
 
 The fee split and creator tax work the same as on any other launch.
