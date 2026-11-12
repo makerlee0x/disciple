@@ -36,7 +36,7 @@ export { MULTICALL3 };
 export const ANON_LAUNCH_TX_GAS_LIMIT = BigInt(8_500_000);
 
 export const ANON_LAUNCH_TYPE =
-  "AnonLaunch(string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline,address stealthOwner,address buyRecipient,bytes ephemeralPubKey,bytes1 viewTag,uint256 maxFee,uint256 usdgIn,uint256 minQuoteIn,address refundTo,address launcher)";
+  "AnonLaunch(string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline,uint8 creatorFeeDestination,address stealthOwner,address buyRecipient,bytes ephemeralPubKey,bytes1 viewTag,uint256 maxFee,uint256 usdgIn,uint256 minQuoteIn,address refundTo,address launcher)";
 export const ANON_LAUNCH_WITNESS_TYPE =
   `AnonLaunch witness)TokenPermissions(address token,uint256 amount)${ANON_LAUNCH_TYPE}`;
 export const ANON_LAUNCH_TYPEHASH = keccak256(toBytes(ANON_LAUNCH_TYPE));
@@ -52,6 +52,8 @@ export type LaunchParams = {
   creatorBuyQuoteIn: bigint;
   creatorBuyMinTokensOut: bigint;
   deadline: bigint;
+  /** 0 keeps the creator fees. 1 deposits them into the rocket's locked liquidity pool. 2 buys and burns the quote token. */
+  creatorFeeDestination: bigint;
 };
 
 export type AnonLaunch = LaunchParams & {
@@ -81,7 +83,7 @@ export const erc20ApproveAbi = parseAbi([
   "function approve(address spender, uint256 amount) returns (bool)",
 ]);
 export const launchAnonWithUsdgAbi = parseAbi([
-  "function launchAnonWithUsdg((string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline) p, address stealthOwner, address buyRecipient, bytes ephemeralPubKey, bytes1 viewTag, uint256 maxFee, uint256 usdgIn, uint256 minQuoteIn, address refundTo) returns ((address token,address curve,uint256 creatorTokensBought) r, uint256 usdgRefund)",
+  "function launchAnonWithUsdg((string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline,uint8 creatorFeeDestination) p, address stealthOwner, address buyRecipient, bytes ephemeralPubKey, bytes1 viewTag, uint256 maxFee, uint256 usdgIn, uint256 minQuoteIn, address refundTo) returns ((address token,address curve,uint256 creatorTokensBought) r, uint256 usdgRefund)",
 ]);
 
 export const anonLaunchTypes = {
@@ -104,6 +106,7 @@ export const anonLaunchTypes = {
     { name: "creatorBuyQuoteIn", type: "uint256" },
     { name: "creatorBuyMinTokensOut", type: "uint256" },
     { name: "deadline", type: "uint256" },
+    { name: "creatorFeeDestination", type: "uint8" },
     { name: "stealthOwner", type: "address" },
     { name: "buyRecipient", type: "address" },
     { name: "ephemeralPubKey", type: "bytes" },
@@ -134,13 +137,13 @@ export function anonLaunchWitnessHash(l: AnonLaunch): Hex {
   return keccak256(encodeAbiParameters(
     [
       { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" },
-      { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" },
+      { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint8" },
       { type: "address" }, { type: "address" }, { type: "bytes32" }, { type: "bytes1" },
       { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "address" }, { type: "address" },
     ],
     [
       ANON_LAUNCH_TYPEHASH, hashStr(l.name), hashStr(l.ticker), hashStr(l.imageURI), hashStr(l.description), hashStr(l.socialsURI),
-      l.quote, l.creatorTaxBps, l.creatorBuyQuoteIn, l.creatorBuyMinTokensOut, l.deadline,
+      l.quote, l.creatorTaxBps, l.creatorBuyQuoteIn, l.creatorBuyMinTokensOut, l.deadline, l.creatorFeeDestination,
       l.stealthOwner, l.buyRecipient, hashBytes(l.ephemeralPubKey), l.viewTag,
       l.maxFee, l.usdgIn, l.minQuoteIn, l.refundTo, l.launcher,
     ],
@@ -185,6 +188,7 @@ export function encodeAnonLaunchCall(q: GaslessAnonLaunchRequest, usdg: Address)
         name: l.name, ticker: l.ticker, imageURI: l.imageURI, description: l.description, socialsURI: l.socialsURI,
         quote: l.quote, creatorTaxBps: l.creatorTaxBps, creatorBuyQuoteIn: l.creatorBuyQuoteIn,
         creatorBuyMinTokensOut: l.creatorBuyMinTokensOut, deadline: l.deadline,
+        creatorFeeDestination: l.creatorFeeDestination,
       },
       l.stealthOwner, l.buyRecipient, l.ephemeralPubKey, l.viewTag, l.maxFee, l.usdgIn, l.minQuoteIn, l.refundTo,
     ],
@@ -211,6 +215,13 @@ const hex = (v: unknown, what: string): Hex => {
 const str = (v: unknown, what: string): string => {
   if (typeof v !== "string") throw new GaslessReject(`bad ${what}`);
   return v;
+};
+/** Omitted means the creator keeps the creator fees. 1 locks them into the rocket's pool. 2 buys and burns the quote token. */
+const feeDestination = (v: unknown): bigint => {
+  if (v === undefined || v === null) return 0n;
+  const d = big(v, "creatorFeeDestination");
+  if (d > 2n) throw new GaslessReject("bad creatorFeeDestination");
+  return d;
 };
 
 /** JSON (bigints as decimal/hex strings) → typed request. Shape only. */
@@ -239,6 +250,7 @@ export function parseGaslessAnonLaunchRequest(x: unknown): GaslessAnonLaunchRequ
       creatorBuyQuoteIn: big(l.creatorBuyQuoteIn ?? 0, "creatorBuyQuoteIn"),
       creatorBuyMinTokensOut: big(l.creatorBuyMinTokensOut, "creatorBuyMinTokensOut"),
       deadline: big(l.deadline, "deadline"),
+      creatorFeeDestination: feeDestination(l.creatorFeeDestination),
       stealthOwner: addr(l.stealthOwner, "stealthOwner"),
       buyRecipient: addr(l.buyRecipient, "buyRecipient"),
       ephemeralPubKey: hex(l.ephemeralPubKey ?? "0x", "ephemeralPubKey"),
@@ -271,6 +283,7 @@ export function checkGaslessAnonLaunchRequest(q: GaslessAnonLaunchRequest, o: {
   usdg: Address; launcher: Address; nowSec: number; launchFee: bigint;
 }): void {
   const l = q.launch;
+  if (l.creatorFeeDestination > 2n) throw new GaslessReject("bad creatorFeeDestination");
   if (!eq(l.launcher, o.launcher)) throw new GaslessReject("launcher mismatch");
   if (!eq(q.permit.permitted.token, o.usdg)) throw new GaslessReject("permit token mismatch");
   if (q.permit.permitted.amount !== permitAmount(l)) throw new GaslessReject("permit amount mismatch");

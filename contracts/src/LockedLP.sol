@@ -49,6 +49,11 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     address public migration;
     /// @notice FeeRouter allowed to lock LP shares / snipe escrow (SEC-01: addLockedLiquidity is caller-restricted).
     address public feeRouter;
+    /// @notice Creator-fee manager allowed to deposit a coin's own creator fees into that coin's locked position
+    ///         (destination 1). Same SEC-01 rule: not a general depositor. Replacing this address stops the previous
+    ///         manager from depositing; coins already pointing at it keep their fees in that manager until this is
+    ///         set back. It does not make locked liquidity withdrawable.
+    address public creatorFeeManager;
     IPoolManager public poolManager;
 
     int24 public constant TICK_SPACING = 60;
@@ -168,6 +173,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     );
     event CompoundParamsSet(uint32 minPpm, uint32 maxPpm, uint16 maxDeviationBps);
     event HookSet(address indexed hook);
+    event CreatorFeeManagerSet(address indexed manager);
 
     constructor(address owner_, address treasury_) Owned2Step(owner_) {
         treasury = treasury_;
@@ -205,6 +211,14 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         feeRouter = r;
     }
 
+    /// @notice Owner allows `m` to deposit creator fees via addLockedLiquidity. Not the trade path.
+    function setCreatorFeeManager(address m) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (m == address(0)) revert BadParams();
+        creatorFeeManager = m;
+        emit CreatorFeeManagerSet(m);
+    }
+
     function setMigration(address m) external {
         if (msg.sender != owner) revert OnlyOwner();
         migration = m;
@@ -221,9 +235,11 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         override
         returns (uint256 lpShares)
     {
-        // SEC-01: only FeeRouter (fee LP share) and Migration (graduation) may add; otherwise anyone could
-        // overflow escrowQuote with a worthless token and brick all fee routing for a coin.
-        if (msg.sender != feeRouter && msg.sender != migration) revert Unauthorized();
+        // SEC-01: only FeeRouter (fee LP share), Migration (graduation), and the creator-fee manager (destination 1)
+        // may add. Otherwise anyone could overflow escrowQuote with a worthless token and brick fee routing.
+        if (msg.sender != feeRouter && msg.sender != migration && msg.sender != creatorFeeManager) {
+            revert Unauthorized();
+        }
         if (quoteAmount > 0) {
             IERC20(quote).safeTransferFrom(msg.sender, address(this), quoteAmount);
         }
@@ -346,9 +362,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         p.liquidity = liquidity;
         if (r.floorBands != 0) {
             _floors[token] = Floor({base: r.floorBase, bands: r.floorBands, seeded: SafeCast.toUint128(r.floorUsed)});
-            emit FloorSeeded(
-                token, p.poolId, r.floorBase, r.floorBands, r.floorUsed, r.floorBudget - r.floorUsed
-            );
+            emit FloorSeeded(token, p.poolId, r.floorBase, r.floorBands, r.floorUsed, r.floorBudget - r.floorUsed);
         }
 
         // Audit #4: liquidity is the max matched amount at the curve-end price; whatever one side could not
@@ -409,7 +423,11 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
 
     /// @notice Compound budget state: current window start (timestamp mod 2^32), ppm of liquidity added in it, and
     ///         the low 16 bits of the last add's block.
-    function compoundBudget(address token) external view returns (uint32 windowStart, uint24 usedPpm, uint16 lastBlock) {
+    function compoundBudget(address token)
+        external
+        view
+        returns (uint32 windowStart, uint24 usedPpm, uint16 lastBlock)
+    {
         Position storage p = _positions[token];
         return (p.cWindowStart, p.cWindowPpm, p.cBlock);
     }
@@ -566,7 +584,9 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         (, int24 cur,,) = poolManager.getSlot0(key.toId());
         base = FloorBands.baseTick(cur, tokenIsC0);
         int24 span = int24(uint24(Constants.FLOOR_BOTTOM_SPACINGS)) * FloorBands.SPACING;
-        if (tokenIsC0 ? base - span < TickMath.minUsableTick(TICK_SPACING) : base + span > TickMath.maxUsableTick(TICK_SPACING)) {
+        if (tokenIsC0
+                ? base - span < TickMath.minUsableTick(TICK_SPACING)
+                : base + span > TickMath.maxUsableTick(TICK_SPACING)) {
             return (0, 0, 0);
         }
         int256 owed;
@@ -659,11 +679,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
             (uint256 a0, uint256 a1) =
                 _amountsForLiquidity(sp, TickMath.getSqrtPriceAtTick(tl), TickMath.getSqrtPriceAtTick(tu), l);
             out[i] = FloorBand({
-                tickLower: tl,
-                tickUpper: tu,
-                liquidity: l,
-                quoteAmount: c0 ? a1 : a0,
-                tokenAmount: c0 ? a0 : a1
+                tickLower: tl, tickUpper: tu, liquidity: l, quoteAmount: c0 ? a1 : a0, tokenAmount: c0 ? a0 : a1
             });
         }
     }

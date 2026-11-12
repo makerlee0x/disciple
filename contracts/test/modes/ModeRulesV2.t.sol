@@ -73,7 +73,8 @@ contract ModeRulesV2Test is IntegrationBase {
             creatorTaxBps: 0,
             creatorBuyQuoteIn: creatorBuy,
             creatorBuyMinTokensOut: 0,
-            deadline: vm.getBlockTimestamp() + 1 days
+            deadline: vm.getBlockTimestamp() + 1 days,
+            creatorFeeDestination: 0
         });
     }
 
@@ -156,10 +157,10 @@ contract ModeRulesV2Test is IntegrationBase {
         if (mc >= Constants.GRADUATION_MCAP_USD) return s * b / 10_000;
         return s * a / 10_000
             + Math.mulDiv(
-                s * (b - a),
-                mc - Constants.START_MCAP_USD,
-                10_000 * (Constants.GRADUATION_MCAP_USD - Constants.START_MCAP_USD)
-            );
+            s * (b - a),
+            mc - Constants.START_MCAP_USD,
+            10_000 * (Constants.GRADUATION_MCAP_USD - Constants.START_MCAP_USD)
+        );
     }
 
     function _mode(uint256 seed) internal pure returns (uint8) {
@@ -223,7 +224,9 @@ contract ModeRulesV2Test is IntegrationBase {
         }
         assertEq(lens.capRoom(address(t), alice), c.capRoom(alice));
         (, uint256 sCurve,,) = c.curveParams();
-        assertEq(c.capRoom(alice), Math.min(c.netCapNow(), sCurve - c.tokensSold()), "fresh wallet: full cap (or curve left)");
+        assertEq(
+            c.capRoom(alice), Math.min(c.netCapNow(), sCurve - c.tokensSold()), "fresh wallet: full cap (or curve left)"
+        );
     }
 
     /// forge-config: default.fuzz.runs = 32
@@ -870,7 +873,8 @@ contract ModeRulesV2Test is IntegrationBase {
     function test_claimCreatorFeesFor_separateClaimRouterAllowlist() public {
         vm.startPrank(alice);
         quote.approve(address(router), type(uint256).max);
-        (ILaunchpad.LaunchResult memory ru,) = router.launchWithUsdg(_params(address(quote), 0), Constants.MODE_TRENCH, 0, 0);
+        (ILaunchpad.LaunchResult memory ru,) =
+            router.launchWithUsdg(_params(address(quote), 0), Constants.MODE_TRENCH, 0, 0);
         vm.stopPrank();
         vm.warp(vm.getBlockTimestamp() + 78);
         _buyQ(BondingCurve(ru.curve), bob, 100 ether);

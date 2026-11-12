@@ -44,12 +44,12 @@ export const GAS_CAPS = {
 } as const;
 /**
  * Launch-only budget = 2x worst measured real EntryPoint launch gas (including settlement/unused penalty).
- * Production solc runtime: warm launchAnon + pair-denominated First BOOST + announcement = 10,920,385.
+ * Production solc runtime: warm launchAnon + pair-denominated First BOOST + announcement = 10,970,174.
  * The former 10M call envelope OOG'd on supported session launches with metadata; preserve its 1M
  * non-call headroom while widening ONLY launch call/total gas. Trade/graduation budgets do not change.
  * This is gas UNITS: the prepaid USDG ceiling scales with the signed fee and unmarked oracle rate.
  */
-export const MAX_LAUNCH_GAS_PER_OP = BigInt(21_840_770);
+export const MAX_LAUNCH_GAS_PER_OP = BigInt(21_940_348);
 export const LAUNCH_GAS_CAPS = {
   ...GAS_CAPS,
   callGasLimit: MAX_LAUNCH_GAS_PER_OP - BigInt(1_000_000),

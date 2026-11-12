@@ -54,7 +54,7 @@ export function effectiveCreatorBuyCapBps(creatorBuyMaxBps: number, mode: number
 
 /** launchWithMode + loginGate from sdk/session-keys/src/modes.ts (feat/modes-gas). */
 export const launchpadModesAbi = parseAbi([
-  "struct LaunchParams { string name; string ticker; string imageURI; string description; string socialsURI; address quote; uint256 creatorTaxBps; uint256 creatorBuyQuoteIn; uint256 creatorBuyMinTokensOut; uint256 deadline; }",
+  "struct LaunchParams { string name; string ticker; string imageURI; string description; string socialsURI; address quote; uint256 creatorTaxBps; uint256 creatorBuyQuoteIn; uint256 creatorBuyMinTokensOut; uint256 deadline; uint8 creatorFeeDestination; }",
   "struct LaunchResult { address token; address curve; uint256 creatorTokensBought; }",
   "function launchWithMode(LaunchParams params, uint8 mode) returns (LaunchResult)",
   "function loginGate() view returns (address)",
@@ -85,17 +85,25 @@ export interface LaunchParamsArg {
   creatorBuyQuoteIn: bigint;
   creatorBuyMinTokensOut: bigint;
   deadline: bigint;
+  /**
+   * Where this rocket's creator fees go. Fixed at launch.
+   * 0 means the creator keeps the creator fees. Omit this field and the launch is encoded as 0.
+   * 1 deposits the creator fees into this rocket's locked liquidity pool, and that liquidity is renounced.
+   * 2 uses the creator fees to buy and burn the quote token.
+   */
+  creatorFeeDestination?: 0 | 1 | 2;
 }
 
 export function encodeLaunchCall(params: LaunchParamsArg, mode: number = LaunchMode.TRENCH_WARFARE, shape: LaunchAbiShape = LAUNCH_ABI_SHAPE): Hex {
   // #99: validate against the on-chain enum (0 TRENCH, 1 PVE, 2 PVP) and encode with the generated v4 Launchpad ABI.
   if (!Number.isInteger(mode) || !(mode in LAUNCH_MODE_NAME)) throw new Error(`Bad launch mode ${mode} (0 TRENCH, 1 PVE, 2 PVP).`);
+  const encoded = { ...params, creatorFeeDestination: params.creatorFeeDestination ?? 0 };
   if (shape === "modes") {
     return ABI_HAS_MODES
-      ? encodeFunctionData({ abi: launchpadAbi, functionName: "launchWithMode", args: [params, mode] } as never)
-      : encodeFunctionData({ abi: launchpadModesAbi, functionName: "launchWithMode", args: [params, mode] });
+      ? encodeFunctionData({ abi: launchpadAbi, functionName: "launchWithMode", args: [encoded, mode] } as never)
+      : encodeFunctionData({ abi: launchpadModesAbi, functionName: "launchWithMode", args: [encoded, mode] });
   }
   // Current ABI: launchCoin only. Refuse a non-TRENCH mode rather than silently launching TRENCH.
   if (mode !== LaunchMode.TRENCH_WARFARE) throw new Error("This Launchpad has no modes yet (launchCoin = TRENCH WARFARE only).");
-  return encodeFunctionData({ abi: launchpadAbi, functionName: "launchCoin", args: [params] });
+  return encodeFunctionData({ abi: launchpadAbi, functionName: "launchCoin", args: [encoded] });
 }

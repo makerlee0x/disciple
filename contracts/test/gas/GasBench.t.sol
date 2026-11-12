@@ -237,7 +237,8 @@ contract GasBenchModes is IntegrationBase {
                 creatorTaxBps: 100,
                 creatorBuyQuoteIn: 0,
                 creatorBuyMinTokensOut: 0,
-                deadline: block.timestamp + 1 days
+                deadline: block.timestamp + 1 days,
+                creatorFeeDestination: 0
             }),
             m
         );
@@ -351,7 +352,8 @@ contract GasBenchModes is IntegrationBase {
             creatorTaxBps: 100,
             creatorBuyQuoteIn: 5 ether,
             creatorBuyMinTokensOut: 0,
-            deadline: block.timestamp + 1 days
+            deadline: block.timestamp + 1 days,
+            creatorFeeDestination: 0
         });
         vm.prank(creator);
         launchpad.launchWithMode(p, m);

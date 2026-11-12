@@ -14,6 +14,13 @@ interface ILaunchpad {
         uint256 creatorBuyQuoteIn; // optional same-tx buy; 0 = skip
         uint256 creatorBuyMinTokensOut;
         uint256 deadline;
+        /// @notice Where this coin's creator fee goes. Fixed at launch. Omitted or zero keeps today's behavior.
+        ///         0 = the creator keeps the creator fees.
+        ///         1 = creator fees are deposited into the rocket's locked liquidity pool, and that liquidity is renounced.
+        ///         2 = creator fees buy and burn the quote token. On the bonding curve the fee is already the quote
+        ///             token, so it is burned. After orbit, the quote half is burned and the rocket-token half is
+        ///             sold for more of the quote token, which is burned.
+        uint8 creatorFeeDestination;
     }
 
     struct LaunchResult {

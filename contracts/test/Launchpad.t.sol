@@ -92,7 +92,8 @@ contract LaunchpadTest is Test {
             creatorTaxBps: 0,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: 0,
-            deadline: block.timestamp + 1 hours
+            deadline: block.timestamp + 1 hours,
+            creatorFeeDestination: 0
         });
         ILaunchpad.LaunchResult memory r = launchpad.launch(p);
         vm.stopPrank();
@@ -119,7 +120,8 @@ contract LaunchpadTest is Test {
             creatorTaxBps: 0,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: 0,
-            deadline: block.timestamp + 1
+            deadline: block.timestamp + 1,
+            creatorFeeDestination: 0
         });
         vm.expectRevert(Launchpad.InvalidMetadata.selector);
         launchpad.launch(p);
@@ -137,7 +139,8 @@ contract LaunchpadTest is Test {
             creatorTaxBps: 701,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: 0,
-            deadline: block.timestamp + 1
+            deadline: block.timestamp + 1,
+            creatorFeeDestination: 0
         });
         vm.expectRevert(Launchpad.TaxTooHigh.selector);
         launchpad.launch(p);

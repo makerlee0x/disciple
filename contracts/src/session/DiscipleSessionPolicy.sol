@@ -83,7 +83,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     // calls (claimCreatorFeesToUsdg, FeeRouter claims, crew tips, referral, transferCreator need a wallet confirm).
     bytes4 internal constant ROUTER_LAUNCH_USDG = bytes4(
         keccak256(
-            "launchWithUsdg((string,string,string,string,string,address,uint256,uint256,uint256,uint256),uint8,uint256,uint256)"
+            "launchWithUsdg((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8),uint8,uint256,uint256)"
         )
     );
     bytes4 internal constant ROUTER_SWAP_TO_QUOTE =
@@ -98,15 +98,18 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     bytes4 internal constant WALL = bytes4(keccak256("placeWall(address,int24,int24,uint256,uint128,uint256)"));
     bytes4 internal constant CANCEL = bytes4(keccak256("cancel(uint256)"));
     bytes4 internal constant LAUNCH =
-        bytes4(keccak256("launch((string,string,string,string,string,address,uint256,uint256,uint256,uint256))"));
-    bytes4 internal constant LAUNCH_COIN =
-        bytes4(keccak256("launchCoin((string,string,string,string,string,address,uint256,uint256,uint256,uint256))"));
+        bytes4(keccak256("launch((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8))"));
+    bytes4 internal constant LAUNCH_COIN = bytes4(
+        keccak256("launchCoin((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8))")
+    );
     bytes4 internal constant LAUNCH_MODE = bytes4(
-        keccak256("launchWithMode((string,string,string,string,string,address,uint256,uint256,uint256,uint256),uint8)")
+        keccak256(
+            "launchWithMode((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8),uint8)"
+        )
     );
     bytes4 internal constant ANON_LAUNCH = bytes4(
         keccak256(
-            "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1,uint256)"
+            "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8),address,address,bytes,bytes1,uint256)"
         )
     );
     bytes4 internal constant APPROVE = bytes4(keccak256("approve(address,uint256)"));
@@ -584,6 +587,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         uint256 creatorBuyQuoteIn;
         uint256 creatorBuyMinTokensOut;
         uint256 deadline;
+        uint8 creatorFeeDestination;
     }
 
     function _usdgQuoteSwapQuote(address router, address q, bool toQuote, uint256 amountIn)

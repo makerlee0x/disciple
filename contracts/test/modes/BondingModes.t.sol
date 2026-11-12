@@ -41,7 +41,9 @@ contract BondingModesTest is IntegrationBase {
         launchpad.setCrewTipThresholdBps(Constants.CREW_TIP_THRESHOLD_BPS_MIN);
         router.setUsdgRouting(address(quote), address(launchpad));
         address[4] memory ws = [alice, bob, carol, dave];
-        for (uint256 i; i < 4; ++i) quote.mint(ws[i], 10_000_000 ether);
+        for (uint256 i; i < 4; ++i) {
+            quote.mint(ws[i], 10_000_000 ether);
+        }
     }
 
     // ── helpers ──
@@ -56,7 +58,8 @@ contract BondingModesTest is IntegrationBase {
             creatorTaxBps: 0,
             creatorBuyQuoteIn: creatorBuy,
             creatorBuyMinTokensOut: 0,
-            deadline: block.timestamp + 1 days
+            deadline: block.timestamp + 1 days,
+            creatorFeeDestination: 0
         });
     }
 
@@ -391,10 +394,8 @@ contract BondingModesTest is IntegrationBase {
             _buyQ(c, w, _quoteFor(c, ONE_PCT * 3));
         }
         uint256 mc = c.marketCapUsd();
-        uint256 expectCap = cap0
-            + Constants.TOTAL_SUPPLY * (Constants.PVP_CAP_END_BPS - Constants.PVP_CAP_START_BPS)
-                * (mc - Constants.START_MCAP_USD)
-                / (10_000 * (Constants.GRADUATION_MCAP_USD - Constants.START_MCAP_USD));
+        uint256 expectCap = cap0 + Constants.TOTAL_SUPPLY * (Constants.PVP_CAP_END_BPS - Constants.PVP_CAP_START_BPS)
+            * (mc - Constants.START_MCAP_USD) / (10_000 * (Constants.GRADUATION_MCAP_USD - Constants.START_MCAP_USD));
         assertApproxEqAbs(c.netCapNow(), expectCap, 1e6);
         assertGt(c.netCapNow(), cap0);
         assertEq(c.capRoom(alice), c.netCapNow() - out);
@@ -520,7 +521,11 @@ contract BondingModesTest is IntegrationBase {
         t.transfer(dave, half);
         assertEq(c.pendingRewards(carol), cp, "sender's earned rewards kept");
         assertEq(c.pendingRewards(dave), dp, "receiver gets none of the past");
-        assertEq(c.rewardsHeld(), quote.balanceOf(address(c)) - c.quoteReserve() - c.snipeEscrow(), "reward pool fully backed");
+        assertEq(
+            c.rewardsHeld(),
+            quote.balanceOf(address(c)) - c.quoteReserve() - c.snipeEscrow(),
+            "reward pool fully backed"
+        );
     }
 
     function test_pve_transferReceiverNetCap() public {
@@ -671,7 +676,9 @@ contract BondingModesTest is IntegrationBase {
         }
         address[] memory all = _pveHolders(c);
         uint256 sum;
-        for (uint256 j; j < all.length; ++j) sum += c.pendingRewards(all[j]);
+        for (uint256 j; j < all.length; ++j) {
+            sum += c.pendingRewards(all[j]);
+        }
         assertLe(sum, c.rewardsHeld() + all.length, "pending backed by rewardsHeld");
         for (uint256 j; j < all.length; ++j) {
             if (c.pendingRewards(all[j]) == 0) continue;

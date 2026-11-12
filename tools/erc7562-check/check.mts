@@ -99,7 +99,7 @@ const routerAbi = parseAbi([
   "function sellToUsdg(address token, uint256 tokensIn, uint256 minUsdgOut, uint256 deadline)",
 ]);
 const launchAbi = parseAbi([
-  "function launchWithMode((string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline) params, uint8 mode)",
+  "function launchWithMode((string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline,uint8 creatorFeeDestination) params, uint8 mode)",
 ]);
 const VALIDATE_USER_OP = toFunctionSelector("validateUserOp((address,uint256,bytes,bytes,bytes32,uint256,bytes32,bytes,bytes),bytes32,uint256)");
 const VALIDATE_PM = toFunctionSelector("validatePaymasterUserOp((address,uint256,bytes,bytes,bytes32,uint256,bytes32,bytes,bytes),bytes32,uint256)");
@@ -351,7 +351,7 @@ async function main() {
   const polData = encodeDeployData({ abi: polArt.abi as never, bytecode: polArt.bytecode.object, args: [zeroAddress, paymaster] });
   const polRc = await send(polData);
   const policy = polRc.contractAddress!;
-  await send(encodeFunctionData({ abi: pmAbi, functionName: "setLaunchGasLimit", args: [21_840_770n] }), paymaster);
+  await send(encodeFunctionData({ abi: pmAbi, functionName: "setLaunchGasLimit", args: [21_940_348n] }), paymaster);
   await send(encodeFunctionData({ abi: epAbi, functionName: "addStake", args: [UNSTAKE_DELAY] }), paymaster, LIVE_STAKE);
   await send(encodeFunctionData({ abi: epAbi, functionName: "depositTo", args: [paymaster] }), ENTRYPOINT_V07, 13_043_478_260_869_566n);
   const st = await stakeOf(paymaster);

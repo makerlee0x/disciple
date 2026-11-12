@@ -1247,6 +1247,7 @@ export function createViemProtocol(): ProtocolClient {
         creatorBuyQuoteIn: creatorBuy,
         creatorBuyMinTokensOut: B(0), // filled from Launchpad.quoteCreatorBuy below
         deadline: B(now() + 300),
+        creatorFeeDestination: lp.creatorFeeDestination ?? 0,
       };
       try {
         const me = await activeAddress();
@@ -1382,6 +1383,7 @@ export function createViemProtocol(): ProtocolClient {
               creatorBuyQuoteIn: params.creatorBuyQuoteIn,
               creatorBuyMinTokensOut: params.creatorBuyMinTokensOut,
               deadline: params.deadline,
+              creatorFeeDestination: BigInt(params.creatorFeeDestination),
               stealthOwner,
               buyRecipient: stealthOwner,
               ephemeralPubKey,

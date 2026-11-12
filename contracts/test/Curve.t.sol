@@ -123,7 +123,8 @@ contract CurveTest is Test {
             creatorTaxBps: 0,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: 0,
-            deadline: ts + 1 hours
+            deadline: ts + 1 hours,
+            creatorFeeDestination: 0
         });
         ILaunchpad.LaunchResult memory r = launchpad.launch(p);
         vm.stopPrank();
@@ -364,7 +365,8 @@ contract CurveTest is Test {
             creatorTaxBps: 0,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: 0,
-            deadline: ts + 1 hours
+            deadline: ts + 1 hours,
+            creatorFeeDestination: 0
         });
         ILaunchpad.LaunchResult memory r = launchpad.launch(p);
         vm.stopPrank();
@@ -399,7 +401,11 @@ contract CurveTest is Test {
         assertEq(curve.snipeEscrow(), expectedSnipe, "escrowed");
         assertEq(quote.balanceOf(address(rewardsVault)), 0, "nothing to the vault on the buy");
         assertEq(escrowAfter - escrowBefore, lps, "no snipe to LP yet");
-        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - treBefore, ts_ + rs, "proto treasury only");
+        assertEq(
+            (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - treBefore,
+            ts_ + rs,
+            "proto treasury only"
+        );
         assertEq(feeRouter.creatorAccrued(tok, alice) - creatorBefore, cs);
     }
 

@@ -22,6 +22,7 @@ import {DiscipleHook} from "../src/DiscipleHook.sol";
 import {RewardsVault} from "../src/RewardsVault.sol";
 import {UsdgDepositNotifier} from "../src/UsdgDepositNotifier.sol";
 import {AnonLauncher} from "../src/addons/AnonLauncher.sol";
+import {CreatorFeeManager} from "../src/addons/CreatorFeeManager.sol";
 import {MarketLens} from "../src/addons/MarketLens.sol";
 import {Constants} from "../src/libraries/Constants.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
@@ -108,6 +109,7 @@ contract Deploy is NetworkConfig {
         address anonLauncher;
         address marketLens;
         address loginGate;
+        address creatorFeeManager;
     }
 
     function run() external returns (Out memory o) {
@@ -226,6 +228,13 @@ contract Deploy is NetworkConfig {
         // Curve trades via the router act for the real trader (bonding modes: caps / cost basis / attribution).
         launchpad.setTrustedRouter(address(router), true);
         feeRouter.setClaimRouter(address(router), true); // claimCreatorFeesToUsdg (separate allowlist, audit r121 Low)
+        // Creator-fee destinations 1 and 2. Trades do not call this. Destination 0 does not use it.
+        CreatorFeeManager feeMgr = new CreatorFeeManager(
+            address(launchpad), address(feeRouter), address(lockedLP), address(router), address(hook), address(manager)
+        );
+        launchpad.setCreatorFeeManager(address(feeMgr));
+        lockedLP.setCreatorFeeManager(address(feeMgr));
+        o.creatorFeeManager = address(feeMgr);
         // PVE login gate: attester = backend key that signs Privy-login attestations (public address only).
         {
             address attester = vm.envOr("PVE_ATTESTER", address(0));
@@ -292,6 +301,7 @@ contract Deploy is NetworkConfig {
         console2.log("DefaultQuote", o.defaultQuote);
         console2.log("DefaultQuoteUsdWad", pricer.quotePriceUsd(o.defaultQuote));
         console2.log("LoginGate", o.loginGate);
+        console2.log("CreatorFeeManager", o.creatorFeeManager);
         // Config echo (checked by the runbook pre-flight / smoke): steep curve #1, floor, sniper tax, referral sink.
         console2.log("cfg USDG decimals", usdgDec);
         console2.log("cfg CURVE_SOLD_BPS", Constants.CURVE_SOLD_BPS);

@@ -94,7 +94,9 @@ contract ReferralSinkTest is IntegrationBase {
         assertEq(feeRouter.referrerAccrued(oldT, address(quote)), 0, "old treasury is not a referrer");
         assertEq(feeRouter.referrerAccrued(newT, address(quote)), 0, "new treasury not as a referrer either");
         assertEq(feeRouter.referrerAccrued(kol, address(quote)), 0);
-        assertEq(feeRouter.treasuryAccrued(address(quote)) - t0, 0.33 ether + REF, "33% + the 1% to the treasury bucket");
+        assertEq(
+            feeRouter.treasuryAccrued(address(quote)) - t0, 0.33 ether + REF, "33% + the 1% to the treasury bucket"
+        );
     }
 
     /// A sink at another address, or off, is untouched by setTreasury.
@@ -136,7 +138,8 @@ contract ReferralSinkTest is IntegrationBase {
                 creatorTaxBps: 0,
                 creatorBuyQuoteIn: 0,
                 creatorBuyMinTokensOut: 0,
-                deadline: block.timestamp + 1 hours
+                deadline: block.timestamp + 1 hours,
+                creatorFeeDestination: 0
             })
         );
         vm.stopPrank();

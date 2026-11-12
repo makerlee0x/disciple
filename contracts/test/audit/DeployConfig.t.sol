@@ -7,6 +7,8 @@ import {ReferralRegistry} from "../../src/ReferralRegistry.sol";
 import {UsdgDepositNotifier} from "../../src/UsdgDepositNotifier.sol";
 import {DiscipleHook} from "../../src/DiscipleHook.sol";
 import {Migration} from "../../src/Migration.sol";
+import {Launchpad} from "../../src/Launchpad.sol";
+import {LockedLP} from "../../src/LockedLP.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 
 /// @notice Audit #5 / #10 / #1 / #2 / #12: the local deploy script output is wired correctly.
@@ -29,6 +31,11 @@ contract DeployConfigTest is Test {
         // #1 migrate gated by Launchpad registry; #12 hook wired to Migration
         assertEq(Migration(o.migration).launchpad(), o.launchpad);
         assertEq(DiscipleHook(o.hook).migration(), o.migration);
+
+        // Creator-fee manager is wired into Launchpad and LockedLP. Destination 0 does not use it.
+        assertTrue(o.creatorFeeManager != address(0));
+        assertEq(Launchpad(o.launchpad).creatorFeeManager(), o.creatorFeeManager);
+        assertEq(LockedLP(o.lockedLP).creatorFeeManager(), o.creatorFeeManager);
 
         // #2 hook address carries the beforeInitialize flag
         assertTrue(uint160(o.hook) & Hooks.BEFORE_INITIALIZE_FLAG != 0);

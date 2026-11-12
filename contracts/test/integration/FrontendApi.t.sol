@@ -383,7 +383,8 @@ contract FrontendApiFollowupTest is FrontendApiBase {
                 creatorTaxBps: 0,
                 creatorBuyQuoteIn: qIn,
                 creatorBuyMinTokensOut: tOut,
-                deadline: block.timestamp + 1
+                deadline: block.timestamp + 1,
+                creatorFeeDestination: 0
             })
         );
         assertEq(r.creatorTokensBought, tOut, "preview exact");

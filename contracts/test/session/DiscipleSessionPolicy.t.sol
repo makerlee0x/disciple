@@ -38,13 +38,19 @@ contract MockRouter {
         quote = q;
     }
 
-    function buyExactIn(address token, uint256 quoteIn, uint256, address recipient, uint256) external returns (uint256) {
+    function buyExactIn(address token, uint256 quoteIn, uint256, address recipient, uint256)
+        external
+        returns (uint256)
+    {
         quote.transferFrom(msg.sender, address(this), quoteIn);
         TKN(token).mint(recipient, quoteIn);
         return quoteIn;
     }
 
-    function sellExactIn(address token, uint256 tokensIn, uint256, address recipient, uint256) external returns (uint256) {
+    function sellExactIn(address token, uint256 tokensIn, uint256, address recipient, uint256)
+        external
+        returns (uint256)
+    {
         TKN(token).transferFrom(msg.sender, address(this), tokensIn);
         quote.mint(recipient, tokensIn);
         return tokensIn;
@@ -188,7 +194,9 @@ contract MockMAv2 {
         policy.preUserOpValidationHook(entity, userOp, userOpHash); // EntryPoint validation phase (simplified)
         policy.preExecutionHook(entity | policy.EXEC_HOOK_FLAG(), msg.sender, 0, msg.data);
         (bool ok, bytes memory r) = address(this).call(userOp.callData[4:]);
-        if (!ok) assembly { revert(add(r, 32), mload(r)) }
+        if (!ok) {
+            assembly { revert(add(r, 32), mload(r)) }
+        }
     }
 
     function _auth() internal {
@@ -201,14 +209,18 @@ contract MockMAv2 {
     function execute(address t, uint256 v, bytes calldata d) external payable {
         _auth();
         (bool ok, bytes memory r) = t.call{value: v}(d);
-        if (!ok) assembly { revert(add(r, 32), mload(r)) }
+        if (!ok) {
+            assembly { revert(add(r, 32), mload(r)) }
+        }
     }
 
     function executeBatch(Call[] calldata calls) external payable {
         _auth();
         for (uint256 i; i < calls.length; ++i) {
             (bool ok, bytes memory r) = calls[i].target.call{value: calls[i].value}(calls[i].data);
-            if (!ok) assembly { revert(add(r, 32), mload(r)) }
+            if (!ok) {
+                assembly { revert(add(r, 32), mload(r)) }
+            }
         }
     }
 
@@ -224,7 +236,7 @@ contract MockMAv2 {
 ///      feat/redeploy-pack; this branch pins the policy to the v2 selector.
 bytes4 constant ANON_LAUNCH_V2 = bytes4(
     keccak256(
-        "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1,uint256)"
+        "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8),address,address,bytes,bytes1,uint256)"
     )
 );
 
@@ -285,7 +297,9 @@ contract DiscipleSessionPolicyTest is Test {
 
     function _buy(uint256 a, address recipient) internal view returns (MockMAv2.Call memory) {
         return MockMAv2.Call(
-            address(router), 0, abi.encodeCall(MockRouter.buyExactIn, (address(rocket), a, a, recipient, block.timestamp))
+            address(router),
+            0,
+            abi.encodeCall(MockRouter.buyExactIn, (address(rocket), a, a, recipient, block.timestamp))
         );
     }
 
@@ -327,7 +341,9 @@ contract DiscipleSessionPolicyTest is Test {
         _batch(
             _approve(address(usdg), address(curve), 3e18),
             MockMAv2.Call(
-                address(curve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 3e18, 3e18, 0, address(acct))
+                address(curve),
+                0,
+                abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 3e18, 3e18, 0, address(acct))
             )
         );
         assertEq(rocket2.balanceOf(address(acct)), 3e18);
@@ -351,9 +367,7 @@ contract DiscipleSessionPolicyTest is Test {
         vm.etch(evil, address(router).code);
         _expectBatchRevert("", _approve(address(usdg), evil, 1), _buy(1, address(acct)));
         vm.prank(key);
-        vm.expectRevert(
-            abi.encodeWithSelector(P.NotAllowed.selector, evil, MockRouter.buyExactIn.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, evil, MockRouter.buyExactIn.selector));
         acct.execute(evil, 0, abi.encodeCall(MockRouter.buyExactIn, (address(rocket), 1, 0, address(acct), 0)));
     }
 
@@ -370,7 +384,7 @@ contract DiscipleSessionPolicyTest is Test {
     function test_v2_usdgLaunchAndCreatorClaimNotSessionSelectors() public {
         bytes4 lw = bytes4(
             keccak256(
-                "launchWithUsdg((string,string,string,string,string,address,uint256,uint256,uint256,uint256),uint8,uint256,uint256)"
+                "launchWithUsdg((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8),uint8,uint256,uint256)"
             )
         );
         bytes4 cc = bytes4(keccak256("claimCreatorFeesToUsdg(address,uint256)"));
@@ -393,9 +407,7 @@ contract DiscipleSessionPolicyTest is Test {
     function test_rejectsUnregisteredCurve() public {
         vm.prank(key);
         vm.expectRevert(abi.encodeWithSelector(P.NotCurve.selector, address(fakeCurve)));
-        acct.execute(
-            address(fakeCurve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256)", 1, 1, 0)
-        );
+        acct.execute(address(fakeCurve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256)", 1, 1, 0));
     }
 
     function test_permissionBitmaskRespected() public {
@@ -500,7 +512,8 @@ contract DiscipleSessionPolicyTest is Test {
         vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 101e18, CAP));
         acct.executeBatch(cs);
         // tramps also count
-        cs[0] = MockMAv2.Call(address(twm), 0, abi.encodeCall(MockTWM.placeTramp, (address(rocket), 0, 60, 41e18, 0, 0)));
+        cs[0] =
+            MockMAv2.Call(address(twm), 0, abi.encodeCall(MockTWM.placeTramp, (address(rocket), 0, 60, 41e18, 0, 0)));
         vm.prank(owner);
         acct.execute(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(twm), type(uint256).max)));
         vm.prank(key);
@@ -551,13 +564,17 @@ contract DiscipleSessionPolicyTest is Test {
 
     function _routerBuy(uint256 a, uint256 minOut) internal view returns (MockMAv2.Call memory) {
         return MockMAv2.Call(
-            address(router), 0, abi.encodeCall(MockRouter.buyExactIn, (address(rocket), a, minOut, address(acct), block.timestamp))
+            address(router),
+            0,
+            abi.encodeCall(MockRouter.buyExactIn, (address(rocket), a, minOut, address(acct), block.timestamp))
         );
     }
 
     function test_zeroMinOutRejected() public {
         _expectBatchRevert(
-            abi.encodeWithSelector(P.ZeroMinOut.selector), _approve(address(usdg), address(router), 1e18), _routerBuy(1e18, 0)
+            abi.encodeWithSelector(P.ZeroMinOut.selector),
+            _approve(address(usdg), address(router), 1e18),
+            _routerBuy(1e18, 0)
         );
         vm.prank(key);
         vm.expectRevert(P.ZeroMinOut.selector);
@@ -594,7 +611,9 @@ contract DiscipleSessionPolicyTest is Test {
         vm.prank(key);
         vm.expectRevert(abi.encodeWithSelector(P.MinOutTooLow.selector, 1, 2.85e18));
         acct.execute(
-            address(curve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 3e18, 1, 0, address(acct))
+            address(curve),
+            0,
+            abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 3e18, 1, 0, address(acct))
         );
     }
 
@@ -630,14 +649,16 @@ contract DiscipleSessionPolicyTest is Test {
     }
 
     function test_userOpValidationDataCarriesExpiry() public {
-        bytes memory cd = abi.encodeCall(MockMAv2.execute, (address(usdg), 0, abi.encodeCall(ERC20.approve, (address(router), 1))));
+        bytes memory cd =
+            abi.encodeCall(MockMAv2.execute, (address(usdg), 0, abi.encodeCall(ERC20.approve, (address(router), 1))));
         uint256 vd = acct.userOpHook(cd);
         assertEq(uint48(vd >> 160), uint48(block.timestamp + 24 hours));
         assertEq(uint160(vd), 0); // no sig failure / aggregator
         // executeUserOp-prefixed callData is unwrapped
         assertEq(acct.userOpHook(abi.encodePacked(bytes4(0x8dd7712f), cd)), vd);
         // static checks run at validation time
-        bytes memory bad = abi.encodeCall(MockMAv2.execute, (address(usdg), 0, abi.encodeCall(ERC20.transfer, (attacker, 1))));
+        bytes memory bad =
+            abi.encodeCall(MockMAv2.execute, (address(usdg), 0, abi.encodeCall(ERC20.transfer, (attacker, 1))));
         vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(usdg), ERC20.transfer.selector));
         acct.userOpHook(bad);
     }
@@ -689,7 +710,8 @@ contract DiscipleSessionPolicyTest is Test {
     }
 
     function test_regression_executeUserOpPrefixedSessionOp() public {
-        bytes memory inner = abi.encodeCall(MockMAv2.execute, (address(usdg), 0, abi.encodeCall(ERC20.approve, (address(router), 1))));
+        bytes memory inner =
+            abi.encodeCall(MockMAv2.execute, (address(usdg), 0, abi.encodeCall(ERC20.approve, (address(router), 1))));
         vm.prank(acct.ENTRY_POINT());
         acct.executeUserOp(_uo(inner), keccak256("uo"));
         assertEq(usdg.allowance(address(acct), address(router)), 1);
@@ -702,7 +724,8 @@ contract DiscipleSessionPolicyTest is Test {
         acct.executeUserOp(_uo(abi.encodeCall(MockMAv2.executeBatch, (cs))), bytes32(0));
         assertEq(usdg.allowance(address(acct), address(router)), 2);
         // disallowed inner call still rejected by the exec hook (bypass validation hook to isolate it)
-        PackedUserOperation memory op = _uo(abi.encodeCall(MockMAv2.execute, (address(usdg), 0, abi.encodeCall(ERC20.transfer, (attacker, 1)))));
+        PackedUserOperation memory op =
+            _uo(abi.encodeCall(MockMAv2.execute, (address(usdg), 0, abi.encodeCall(ERC20.transfer, (attacker, 1)))));
         uint32 hE = E | policy.EXEC_HOOK_FLAG();
         address ep = acct.ENTRY_POINT();
         vm.prank(address(acct));
@@ -730,19 +753,14 @@ contract DiscipleSessionPolicyTest is Test {
     }
 
     // ── audit R-2: launchAnon stealthOwner pinned to the account (or the install-time stealth address) ──
-    function _anonCall(address anon, address stealthOwner, address buyRecipient)
-        internal
-        view
-        returns (bytes memory)
-    {
+    function _anonCall(address anon, address stealthOwner, address buyRecipient) internal view returns (bytes memory) {
         ILaunchpad.LaunchParams memory lpp;
         lpp.name = "A";
         lpp.ticker = "A";
         lpp.quote = address(usdg);
         lpp.deadline = block.timestamp + 1 hours;
-        return abi.encodeWithSelector(
-            ANON_LAUNCH_V2, lpp, stealthOwner, buyRecipient, bytes(""), bytes1(0), uint256(5e6)
-        );
+        return
+            abi.encodeWithSelector(ANON_LAUNCH_V2, lpp, stealthOwner, buyRecipient, bytes(""), bytes1(0), uint256(5e6));
     }
 
     function test_anonLaunch_stealthOwnerPinned() public {

@@ -195,7 +195,8 @@ abstract contract IntegrationBase is Test {
                 creatorTaxBps: taxBps,
                 creatorBuyQuoteIn: creatorBuyQuote,
                 creatorBuyMinTokensOut: 0,
-                deadline: ts + 1 days
+                deadline: ts + 1 days,
+                creatorFeeDestination: 0
             })
         );
         vm.stopPrank();

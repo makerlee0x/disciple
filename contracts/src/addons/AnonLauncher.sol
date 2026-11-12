@@ -24,6 +24,17 @@ interface ILaunchpadAdmin {
     function curveRouter() external view returns (address);
     function updateMetadata(address token, string calldata img, string calldata desc, string calldata socials) external;
     function transferCreator(address token, address newCreator) external;
+    function creatorFeeDestinationOf(address token) external view returns (uint8);
+    function creatorFeeManager() external view returns (address);
+}
+
+interface ICreatorFeeMetadata {
+    function updateMetadata(
+        address token,
+        string calldata imageURI,
+        string calldata description,
+        string calldata socialsURI
+    ) external;
 }
 
 /// @dev The public First BOOST path (DiscipleRouter.launchWithUsdg). AnonLauncher calls this so it stays the
@@ -126,7 +137,8 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
             revert ZeroAddress();
         }
         // feeToken may be unset only for a fee-less deployment (cap 0 ⇒ launchFee must stay 0).
-        uint256 maxFee = feeToken_ == address(0) ? 0 : MAX_LAUNCH_FEE_USD * 10 ** uint256(IERC20Metadata(feeToken_).decimals());
+        uint256 maxFee =
+            feeToken_ == address(0) ? 0 : MAX_LAUNCH_FEE_USD * 10 ** uint256(IERC20Metadata(feeToken_).decimals());
         MAX_LAUNCH_FEE = maxFee;
         if (launchFee_ > maxFee) revert FeeTooHigh();
         launchpad = ILaunchpad(launchpad_);
@@ -277,7 +289,14 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
             )
         );
         _useSig(so, h, deadline, sig);
-        ILaunchpadAdmin(address(launchpad)).updateMetadata(token, imageURI, description, socialsURI);
+        // Destination 0: this launcher is still the Launchpad creator. Destinations 1 and 2: the creator-fee
+        // manager is the Launchpad creator and relays the edit. The stealth owner is unchanged either way.
+        ILaunchpadAdmin pad = ILaunchpadAdmin(address(launchpad));
+        if (pad.creatorFeeDestinationOf(token) == 0) {
+            pad.updateMetadata(token, imageURI, description, socialsURI);
+        } else {
+            ICreatorFeeMetadata(pad.creatorFeeManager()).updateMetadata(token, imageURI, description, socialsURI);
+        }
     }
 
     /// @notice Move the stealth owner role. `newOwner` = address(0) is rejected. Unclaimed fees move with it.

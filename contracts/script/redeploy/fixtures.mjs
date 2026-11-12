@@ -20,7 +20,7 @@ const st = fs.existsSync(OUT) ? JSON.parse(fs.readFileSync(OUT)) : { coins: {} }
 const save = () => fs.writeFileSync(OUT, JSON.stringify(st, (k, v) => (typeof v === "bigint" ? v.toString() : v), 2));
 const erc20 = parseAbi(["function approve(address,uint256) returns (bool)", "function balanceOf(address) view returns (uint256)", "function allowance(address,address) view returns (uint256)"]);
 const lp = parseAbi([
-  "struct P { string name; string ticker; string imageURI; string description; string socialsURI; address quote; uint256 creatorTaxBps; uint256 creatorBuyQuoteIn; uint256 creatorBuyMinTokensOut; uint256 deadline; }",
+  "struct P { string name; string ticker; string imageURI; string description; string socialsURI; address quote; uint256 creatorTaxBps; uint256 creatorBuyQuoteIn; uint256 creatorBuyMinTokensOut; uint256 deadline; uint8 creatorFeeDestination; }",
   "struct R { address token; address curve; uint256 creatorTokensBought; }",
   "error BadMode()", "function launchWithMode(P,uint8) returns (R)", "function quoteCreatorBuy(address,uint256) view returns (uint256,uint256,uint256,uint256,bool)"]);
 const cv = parseAbi([
@@ -33,7 +33,7 @@ const rt = parseAbi(["function buyExactIn(address,uint256,uint256,address,uint25
   // redeploy pack: USDG <-> pair-coin swaps + dollar First BOOST launch
   "function swapUsdgToQuote(address,uint256,uint256,address,uint256) returns (uint256)", "function swapQuoteToUsdg(address,uint256,uint256,address,uint256) returns (uint256)",
   "function quoteUsdgQuoteSwap(address,bool,uint256) returns (uint256,uint256)",
-  "struct P { string name; string ticker; string imageURI; string description; string socialsURI; address quote; uint256 creatorTaxBps; uint256 creatorBuyQuoteIn; uint256 creatorBuyMinTokensOut; uint256 deadline; }",
+  "struct P { string name; string ticker; string imageURI; string description; string socialsURI; address quote; uint256 creatorTaxBps; uint256 creatorBuyQuoteIn; uint256 creatorBuyMinTokensOut; uint256 deadline; uint8 creatorFeeDestination; }",
   "struct R { address token; address curve; uint256 creatorTokensBought; }",
   "function launchWithUsdg(P,uint8,uint256,uint256) returns (R,uint256)"]);
 const send = async (tag, p) => { const h = await wc.writeContract(p); const r = await pc.waitForTransactionReceipt({ hash: h }); console.log(tag, r.status, h, "gas", r.gasUsed); if (r.status !== "success") throw new Error(tag + " reverted " + h); return r; };
@@ -46,7 +46,7 @@ if ((await pc.readContract({ address: U, abi: erc20, functionName: "allowance", 
 
 async function launch(key, name, ticker, creatorBuy, mode = 0) {
   if (st.coins[key]?.token) return st.coins[key];
-  const P = { name, ticker, imageURI: "ipfs://replay-fixture", description: "testnet replay fixture (" + key + ")", socialsURI: "", quote: S, creatorTaxBps: 0n, creatorBuyQuoteIn: creatorBuy, creatorBuyMinTokensOut: 0n, deadline: dl() };
+  const P = { name, ticker, imageURI: "ipfs://replay-fixture", description: "testnet replay fixture (" + key + ")", socialsURI: "", quote: S, creatorTaxBps: 0n, creatorBuyQuoteIn: creatorBuy, creatorBuyMinTokensOut: 0n, deadline: dl(), creatorFeeDestination: 0 };
   const sim = await pc.simulateContract({ account: me, address: LP, abi: lp, functionName: "launchWithMode", args: [P, mode], gas: 8_000_000n });
   const r = await send("launch " + ticker, { ...sim.request, gas: 8_000_000n });
   const c = { name, symbol: ticker, mode, token: sim.result.token, curve: sim.result.curve, launchTx: r.transactionHash, launchGas: r.gasUsed, creatorBuyStrategy: formatEther(creatorBuy), creatorTokens: formatEther(sim.result.creatorTokensBought), buys: [] };
@@ -92,7 +92,7 @@ if (which === "pack") {
   const r2 = await send("router swapQuoteToUsdg", { address: ROUTER, abi: rt, functionName: "swapQuoteToUsdg", args: [S, sGot, q2.result[0] * 95n / 100n, me.address, dl()], gas: 1_500_000n });
   const uGot = (await bU(me.address)) - u0;
   if (uGot !== q2.result[0]) throw new Error(`swapQuoteToUsdg out ${uGot} != quote ${q2.result[0]}`);
-  const P = { name: "Pack Usdg Launch", ticker: "PKUL", imageURI: "ipfs://replay-fixture", description: "launchWithUsdg fixture", socialsURI: "", quote: S, creatorTaxBps: 0n, creatorBuyQuoteIn: 0n, creatorBuyMinTokensOut: 0n, deadline: dl() };
+  const P = { name: "Pack Usdg Launch", ticker: "PKUL", imageURI: "ipfs://replay-fixture", description: "launchWithUsdg fixture", socialsURI: "", quote: S, creatorTaxBps: 0n, creatorBuyQuoteIn: 0n, creatorBuyMinTokensOut: 0n, deadline: dl(), creatorFeeDestination: 0 };
   const lu = parseUnits("20", UD);
   const q3 = await pc.simulateContract({ account: me, address: ROUTER, abi: rt, functionName: "quoteUsdgQuoteSwap", args: [S, true, lu] });
   const sim = await pc.simulateContract({ account: me, address: ROUTER, abi: rt, functionName: "launchWithUsdg", args: [P, 0, lu, q3.result[0] * 95n / 100n], gas: 9_000_000n });

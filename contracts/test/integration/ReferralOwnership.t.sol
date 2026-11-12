@@ -149,7 +149,8 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
                 creatorTaxBps: 0,
                 creatorBuyQuoteIn: 0,
                 creatorBuyMinTokensOut: 0,
-                deadline: ts + 1 hours
+                deadline: ts + 1 hours,
+                creatorFeeDestination: 0
             })
         );
         vm.stopPrank();

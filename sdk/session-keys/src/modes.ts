@@ -15,7 +15,7 @@ export const ModeDefaults = {
 } as const;
 
 export const launchpadModesAbi = parseAbi([
-  "struct LaunchParams { string name; string ticker; string imageURI; string description; string socialsURI; address quote; uint256 creatorTaxBps; uint256 creatorBuyQuoteIn; uint256 creatorBuyMinTokensOut; uint256 deadline; }",
+  "struct LaunchParams { string name; string ticker; string imageURI; string description; string socialsURI; address quote; uint256 creatorTaxBps; uint256 creatorBuyQuoteIn; uint256 creatorBuyMinTokensOut; uint256 deadline; uint8 creatorFeeDestination; }",
   "struct LaunchResult { address token; address curve; uint256 creatorTokensBought; }",
   "function launchWithMode(LaunchParams params, uint8 mode) returns (LaunchResult)",
   "function modeOf(address token) view returns (uint8)",

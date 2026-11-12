@@ -116,7 +116,8 @@ contract MigrationTest is Test {
                 creatorTaxBps: 0,
                 creatorBuyQuoteIn: 0,
                 creatorBuyMinTokensOut: 0,
-                deadline: ts + 1 days
+                deadline: ts + 1 days,
+                creatorFeeDestination: 0
             })
         );
         vm.stopPrank();
@@ -207,7 +208,8 @@ contract MigrationTest is Test {
 
         // Hook took 1% of output and routed — treasury and/or creator accrued should rise
         assertTrue(
-            (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) > treBefore || feeRouter.creatorAccrued(address(tok), alice) > creatorBefore
+            (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) > treBefore
+                || feeRouter.creatorAccrued(address(tok), alice) > creatorBefore
                 || (tok.balanceOf(treasury) + feeRouter.treasuryAccrued(address(tok))) > 0,
             "fees should route"
         );
