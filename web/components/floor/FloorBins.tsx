@@ -29,7 +29,7 @@ export function FloorBinsChart({ view, nowMcap, compact = false }: { view: Floor
   const nowIn = nowMcap != null && Number.isFinite(nowMcap) && nowMcap > 0;
   const nx = nowIn ? Math.min(W - R, Math.max(L, X(nowMcap!))) : 0;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className={s.svg} role="img" aria-label="Floor support by market cap">
+    <svg viewBox={`0 0 ${W} ${H}`} className={s.svg} role="img" aria-label="Support levels by the rocket's value">
       <line x1={L} x2={W - R} y1={f1(y0)} y2={f1(y0)} stroke="var(--dsc-border)" />
       {view.bins.map((b, k) => {
         const x1 = X(b.mcapLo), x2 = X(b.mcapHi), w = Math.max(0.5, x2 - x1 - 0.6);
@@ -69,9 +69,9 @@ export function FloorBinsCard({ view, nowMcap, onClose, compact }: { view: Floor
       <div className={s.legend}>
         <span><i className={`${s.sw} ${s.swTop}`} />Top layer <b>{fmtUsd(view.topUsd)}</b></span>
         <span><i className={`${s.sw} ${s.swBottom}`} />Bottom layer <b>{fmtUsd(view.bottomUsd)}</b></span>
-        <span><i className={`${s.sw} ${s.swGhost}`} />When ascended</span>
+        <span><i className={`${s.sw} ${s.swGhost}`} />After orbit</span>
       </div>
-      <p className={s.note}>Locked when the coin ascended. It buys the coin if the price falls into it.</p>
+      <p className={s.note}>This support was locked in when the rocket reached orbit. That means its starting price path finished and it moved to the open market on Uniswap. If the price falls into this support, it buys the rocket.</p>
     </section>
   );
 }

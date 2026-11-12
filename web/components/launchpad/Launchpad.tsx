@@ -19,9 +19,9 @@ const TABS: { k: Tab; label: string; hint: string }[] = [
   { k: "new", label: "Newest", hint: "The most recently launched rockets first." },
   { k: "active", label: "Top volume", hint: "Rockets with the most trading in the last 24 hours." },
   { k: "pair", label: "Pair", hint: "Grouped by the coin each rocket trades against." },
-  { k: "altitude", label: "Altitude", hint: "Highest market cap first" },
-  { k: "near", label: "Near orbit", hint: "≥60% of the way to ascension" },
-  { k: "graduated", label: "Ascended", hint: "Past Outer Space" },
+  { k: "altitude", label: "Altitude", hint: "Highest value first. Altitude is how high a rocket's value has climbed, shown as named tiers." },
+  { k: "near", label: "Near orbit", hint: "These rockets are at least 60% of the way to orbit. Orbit means the path the price follows at the start is finished, and the rocket moves to the open market on Uniswap." },
+  { k: "graduated", label: "Ascended", hint: "These rockets have reached orbit and trade on the open market on Uniswap. Outer Space is the named tier where that happens." },
 ];
 const PAIRS = [
   { value: "any", label: "Any pair" },
@@ -147,7 +147,7 @@ const Card = memo(function Card({ c, starred, onStar, onPick }: { c: Rocket; sta
         <div className="lp-card-sub">${c.tk} · {c.pairSym ?? "STRATEGY"} · {c.stats.holders} crew</div>
         <div className="lp-card-mc">{c.mcap ? fmtUsd(c.mcap) : "…"} <Chg v={c.chg} /></div>
         <i className="lp-bar"><i style={{ width: `${grad ? 100 : p || 0}%` }} /></i>
-        <div className="lp-card-sub">{grad ? "ASCENDED · past Outer Space" : p == null ? "…" : `${p.toFixed(0)}% to orbit`}</div>
+        <div className="lp-card-sub" title={grad ? "This rocket has reached orbit. The path its price follows at the start is finished, and it now trades on the open market on Uniswap. Outer Space is the named tier where that happens." : "Orbit is when the path this rocket's price follows at the start is finished, and the rocket moves to the open market on Uniswap."}>{grad ? "This rocket has reached orbit, past the Outer Space tier." : p == null ? "…" : `${p.toFixed(0)}% of the way to orbit.`}</div>
       </div>
     </div>
   );
@@ -274,7 +274,7 @@ export default function Launchpad({ coins, onPick, defaultVerified, defaultTab =
             <div className="lp-table" role="table">
               <div className="lp-row lp-head" role="row">
                 <span className="lp-c-rank">#</span><span className="lp-c-token">Rocket</span><span className="lp-c-pair">Pair</span>
-                <span className="lp-c-graph">24h</span><span className="lp-c-mc">Altitude</span><span className="lp-c-chg">Change</span><span className="lp-c-crew">Crew</span>
+                <span className="lp-c-graph">24h</span><span className="lp-c-mc" title="Altitude is how high a rocket's value has climbed, shown as named tiers.">Altitude</span><span className="lp-c-chg">Change</span><span className="lp-c-crew">Crew</span>
               </div>
               {page.map((c, i) => {
                 const showGroup = tab === "pair" && (i === 0 || pairSortKey(c) !== pairSortKey(page[i - 1]));

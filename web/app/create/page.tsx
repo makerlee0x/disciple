@@ -322,7 +322,7 @@ export default function LaunchRocketPage() {
         <div className="block">
           <span className={labelCls}>PAIR WITH *</span>
           <PairPicker value={quote.address} onChange={(address, label) => setQuote({ address, label })} />
-          {quote.address && <p className="muted tiny">Paired with <strong className="text-[#E8EAEE]">{quote.label}</strong> · {quote.address}</p>}
+          {quote.address && <p className="muted tiny">Paired with <strong className="text-[#E8EAEE]">{quote.label}</strong></p>}
         </div>
 
         <FirstBoostField
@@ -393,12 +393,12 @@ export default function LaunchRocketPage() {
 
         <p className="note">
           Rockets lift off at ${CURVE.startMcap.toLocaleString()} and reach orbit at $
-          {CURVE.graduationMcap.toLocaleString()}. Name and call sign are permanent after launch.
+          {CURVE.graduationMcap.toLocaleString()}. Name and call sign are permanent after launch. Reaching orbit means the path the price follows at the start is finished, and the rocket moves to the open market on Uniswap.
         </p>
         <details className="text-xs text-[rgba(232,234,238,.7)]">
           <summary className="cursor-pointer">What am I launching?</summary>
           Your rocket is an ERC-20 token on Robinhood Chain, traded on a bonding curve
-          {quote.address ? ` paired with ${quote.label} (${quote.address})` : ""}. BOOST to buy. DUMP to sell, and drop a bomb.
+          {quote.label ? ` paired with ${quote.label}` : ""}. BOOST to buy. DUMP to sell, and drop a bomb.
         </details>
         {needsSignIn ? (
           <button
