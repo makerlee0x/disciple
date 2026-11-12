@@ -84,8 +84,8 @@ export function computePreview(p: PlaceTrampWallParams, cur: number): TrampWallP
   const mcapLoUsd = p.mcapUsd * (1 - w / 2), mcapHiUsd = p.mcapUsd * (1 + w / 2);
   const distancePct = cur > 0 ? ((p.mcapUsd - cur) / cur) * 100 : 0;
   let valid = p.sizeUsd > 0, reason: string | undefined;
-  if (p.kind === "tramp" && mcapHiUsd >= cur) { valid = false; reason = "Tramp must sit fully BELOW current price"; }
-  if (p.kind === "wall" && mcapLoUsd <= cur) { valid = false; reason = "Wall must sit fully ABOVE current price"; }
-  if (!(p.sizeUsd > 0)) reason = reason ?? "Enter an amount";
+  if (p.kind === "tramp" && mcapHiUsd >= cur) { valid = false; reason = "A tramp has to sit fully below the current altitude. Move it down and try again."; }
+  if (p.kind === "wall" && mcapLoUsd <= cur) { valid = false; reason = "A wall has to sit fully above the current altitude. Move it up and try again."; }
+  if (!(p.sizeUsd > 0)) reason = reason ?? "Enter an amount greater than zero.";
   return { distancePct, mcapLoUsd, mcapHiUsd, pointsIfFilled: pointsFor(p.sizeUsd), valid, reason };
 }

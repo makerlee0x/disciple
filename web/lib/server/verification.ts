@@ -98,7 +98,7 @@ export async function creatorNonce(d: Deps, token: string | null, ip: string): P
 export async function creatorStatus(d: Deps, token: string | null, rocket: string, ip: string): Promise<Res> {
   const rl = await hitLimit(d.store, `verify:req:ip:${ip}`, LIMITS.requestPerIp.limit, LIMITS.requestPerIp.windowSec);
   if (!rl.ok) return [429, { error: "rate_limited", retryAfterSec: rl.retryAfterSec }];
-  if (!isAddr(rocket)) return [400, { error: "Bad rocket address." }];
+  if (!isAddr(rocket)) return [400, { error: "That rocket address doesn't look right. Check it and try again." }];
   const a = await authenticate(token, d.privy, d.fetch, d.now?.());
   if (!a.ok) return [a.status, { error: a.reason }];
   const r = await read(d.store, rocket.toLowerCase());
@@ -114,21 +114,21 @@ export async function submitRequest(d: Deps, token: string | null, body: Record<
   const ru = await hitLimit(d.store, `verify:req:user:${a.user.id}`, LIMITS.requestPerUser.limit, LIMITS.requestPerUser.windowSec);
   if (!ru.ok) return [429, { error: "rate_limited", retryAfterSec: ru.retryAfterSec }];
   const rocket = String(body.token ?? "").toLowerCase();
-  if (!isAddr(rocket)) return [400, { error: "Bad rocket address." }];
+  if (!isAddr(rocket)) return [400, { error: "That rocket address doesn't look right. Check it and try again." }];
   const x = normX(body.x), website = normWebsite(body.website), note = normNote(body.note);
-  if (x === false) return [400, { error: "X handle looks wrong." }];
-  if (website === false) return [400, { error: "Website must be a public http(s) link." }];
-  if (note === false) return [400, { error: "Note is too long (280 max)." }];
+  if (x === false) return [400, { error: "That X handle doesn't look right. Check it and try again." }];
+  if (website === false) return [400, { error: "Enter a public website, like example.com." }];
+  if (note === false) return [400, { error: "Notes can be up to 280 characters. Shorten yours and try again." }];
   if (!x && !website) return [400, { error: "Add your X handle or website." }];
   if (!(await nonceValid(d.store, P_REQ, body.nonce, a.user.id))) return [401, { error: "Request expired. Try again." }];
   const creator = await d.creatorOf(rocket);
-  if (!creator) return [404, { error: "Not a DISCIPLE rocket." }];
+  if (!creator) return [404, { error: "We couldn't find that rocket. Check the address and try again." }];
   const mine = new Set((await d.accountsOf(a.user)).map((s) => s.toLowerCase()));
-  if (!mine.has(creator)) return [403, { error: "Only the rocket's creator can ask." }];
+  if (!mine.has(creator)) return [403, { error: "Only the person who launched this rocket can request verification." }];
   // single use: consumed before writing; a parallel replay loses the GETDEL race
   if (!(await consumeNonce(d.store, P_REQ, body.nonce, a.user.id))) return [401, { error: "Request expired. Try again." }];
   const prev = await read(d.store, rocket);
-  if (prev?.status === "approved") return [409, { error: "Already verified." }];
+  if (prev?.status === "approved") return [409, { error: "This rocket is already verified." }];
   const now = (d.now ?? Date.now)();
   const rec: VerifyRecord = { token: rocket, creator, privyId: a.user.id, x: x || null, website: website || null, note: note || "",
     status: "pending", requestedAt: prev?.requestedAt ?? now, updatedAt: now };
@@ -165,13 +165,13 @@ export async function adminList(d: Deps, token: string | null, status: string | 
 export async function adminAction(d: Deps, token: string | null, body: Record<string, unknown>, ip: string): Promise<Res> {
   const a = await admin(d, token, ip); if (a.res) return a.res;
   const rocket = String(body.token ?? "").toLowerCase(), action = String(body.action ?? "");
-  if (!isAddr(rocket)) return [400, { error: "Bad rocket address." }];
-  if (!["approve", "reject", "revoke"].includes(action)) return [400, { error: "Bad action." }];
+  if (!isAddr(rocket)) return [400, { error: "That rocket address doesn't look right. Check it and try again." }];
+  if (!["approve", "reject", "revoke"].includes(action)) return [400, { error: "That action isn't available. Reload the page and try again." }];
   const reason = normNote(body.reason);
-  if (reason === false) return [400, { error: "Reason is too long." }];
+  if (reason === false) return [400, { error: "That note is too long. Shorten it and try again." }];
   if (!(await consumeNonce(d.store, P_ADMIN, body.nonce, a.user!.id))) return [401, { error: "Action expired. Reload and try again." }];
   const r = await read(d.store, rocket);
-  if (!r) return [404, { error: "No request for that rocket." }];
+  if (!r) return [404, { error: "There's no verification request for that rocket." }];
   if (action === "revoke" && r.status !== "approved") return [409, { error: "Only approved rockets can be revoked." }];
   const now = (d.now ?? Date.now)();
   const next: VerifyRecord = { ...r, status: action === "approve" ? "approved" : action === "reject" ? "rejected" : "revoked",

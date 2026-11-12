@@ -78,12 +78,12 @@ export function claimErrorText(e: unknown): string {
     case "Locked": return `Deposit still locked until ${new Date(Number(r.args[1]) * 1000).toLocaleString()}. Try again after it unlocks.`;
     case "BelowMinimum": return "Deposit is below the minimum.";
     case "NotStealthOwner": return "This wallet isn't the creator of that rocket.";
-    case "InvalidMetadata": return "Rocket not found on this launchpad.";
-    case "ZeroAddress": return "Missing wallet address.";
-    case "ERC20InsufficientBalance": return "Not enough balance.";
-    case "ERC20InsufficientAllowance": return "Approval missing. Try again.";
+    case "InvalidMetadata": return "We couldn't find that rocket. Check the link and try again.";
+    case "ZeroAddress": return "Connect a wallet, then try again.";
+    case "ERC20InsufficientBalance": return "You don't have enough for that. Add funds, or try a smaller amount.";
+    case "ERC20InsufficientAllowance": return "The approval didn't go through. Try again.";
     case "Panic": return "Nothing to withdraw yet.";
-    case "Error": return /ALLOW/i.test(String(r.args[0])) ? "Approval missing. Try again." : /BAL/i.test(String(r.args[0])) ? "Not enough balance." : plainText(String(r.args[0]).slice(0, 120), "claim error");
+    case "Error": return /ALLOW/i.test(String(r.args[0])) ? "The approval didn't go through. Try again." : /BAL/i.test(String(r.args[0])) ? "You don't have enough for that. Add funds, or try a smaller amount." : plainText(String(r.args[0]).slice(0, 120), "claim error");
   }
   const m = (e as Error)?.message ?? String(e);
   if (/user rejected|denied/i.test(m)) return "Cancelled.";
