@@ -68,7 +68,7 @@ export async function startLookdev(canvas: HTMLCanvasElement, search: string): P
   const q = new URLSearchParams(search);
   const hdri = (q.get("hdri") as HdriId) in HDRIS ? (q.get("hdri") as HdriId) : DEFAULT_HDRI;
   const H0 = HDRIS[hdri];
-  const exposure = num(q, "exposure", H0.exposure), bloomStrength = num(q, "bloom", 0.035), bloomThreshold = num(q, "bthresh", 4.0), bloomCap = num(q, "bcap", 6), bloomRadius = num(q, "bradius", 0.0), envI = num(q, "env", 1.0);
+  const exposure = num(q, "exposure", H0.exposure), bloomStrength = num(q, "bloom", 0.01), bloomThreshold = num(q, "bthresh", 2.5), bloomCap = num(q, "bcap", 3), bloomRadius = num(q, "bradius", 0.0), envI = num(q, "env", 1.0);
   const bgMode = q.get("bg") || H0.bg, view = q.get("view") || "front", spin = q.get("spin") === "1";
   const handle: LookdevHandle = { ready: false, backend: null, hdri, frames: 0, setRotation: () => {}, render: async () => {} };
   window.__lookdev = handle;
