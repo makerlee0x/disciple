@@ -56,8 +56,8 @@ interface Clients {
   chain: Chain;
 }
 
-/** Least gas a matchOrders transaction is sent with (one vault deposit through the queue is ~1.2-1.5M). */
-const MATCH_GAS_FLOOR = 3_000_000n;
+/** Least gas a matchOrders transaction is sent with: the queue needs 3M left before each match (one match is ~1.9M on mainnet). */
+const MATCH_GAS_FLOOR = 5_000_000n;
 
 const now = () => Math.floor(Date.now() / 1000);
 const srcKey = (s: PoolSource) => `${s.kind}:${s.target.toLowerCase()}:${s.v4Id.toLowerCase()}`;
@@ -921,7 +921,7 @@ export class Keeper {
         abi: carryQueueAbi,
         functionName: "matchOrders",
         args: [market, steps],
-        // never below MATCH_GAS_FLOOR: a vault deposit is ~1.2-1.5M gas, and a limit that starves it must not
+        // never below MATCH_GAS_FLOOR: one match is ~1.9M gas and the queue wants 3M before each, and a limit that starves it must not
         // be mistaken for an empty match (round-3 audit; the queue also reverts LowGas when a deposit runs dry)
         gas: (est * 13n) / 10n > MATCH_GAS_FLOOR ? (est * 13n) / 10n : MATCH_GAS_FLOOR,
         maxFeePerGas: maxFee,
