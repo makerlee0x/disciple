@@ -62,7 +62,8 @@ export const QUICK_LAUNCH_COPY = {
   anonEasyBoostHelp: "Your name won't be shown as the creator. The account that pays can still be seen on the public record.",
   pseudoHelp: "Your name won't be shown as the creator. The account that pays, and the first buy, can still be seen on the public record.",
   creatorFees: "Creator fees",
-  creatorFeesHelp: "You pick this when you launch, and it applies to that rocket only, including private launches. It covers all creator fees, including any creator tax.",
+  creatorFeesHelp: "You pick this when you launch. It applies only to this rocket, including private launches, and it cannot be changed later. It covers all creator fees, including any extra creator tax.",
+  creatorFeesPending: "This choice will be available once the new contracts are live.",
   // Image rejected after a generated badge is in use (Oct 17 Quick Launch spec; not on the r4 boards).
   imageReverted: "That image can't be used. We've put your rocket's badge back.",
 } as const;
@@ -145,14 +146,17 @@ export const CREATOR_FEE_COPY: Record<CreatorFeeDestination, { sentence: string;
     chip: "You keep the fees",
   },
   1: {
-    sentence: "The creator fees go into this rocket's trading pool, and that money can never be pulled out.",
+    sentence: "The creator fees are deposited into this rocket's trading pool, and that liquidity can never be pulled out.",
     chip: "Fees stay in the pool",
   },
   2: {
-    sentence: "The creator fees are used to permanently remove the coin this rocket is traded in. The half that is already that coin is removed. The half that is this rocket's coins is used to buy more of that coin and remove it too.",
-    chip: "Fees remove the pair coin",
+    sentence: "The creator fees are used to permanently destroy the pair coin this rocket is traded in. When the fee arrives as that pair coin, it is destroyed. When the fee arrives as this rocket's own coins, those coins are used to buy more of the pair coin, and that is destroyed too.",
+    chip: "Fees destroy the pair coin",
   },
 };
+
+/** False until HOOK's contracts are live and lee says they can be used. The menu is shown; 1 and 2 are not sent on a live launch. */
+export const CREATOR_FEE_DESTINATION_LIVE = false;
 
 export function isCreatorFeeDestination(value: number): value is CreatorFeeDestination {
   return value === 0 || value === 1 || value === 2;

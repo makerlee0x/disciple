@@ -32,7 +32,7 @@ import {
   addressOn, defaultLaunchPair, launchPairsForChain,
 } from "@/lib/launchWhitelist";
 import {
-  QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATIONS,
+  QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATIONS, CREATOR_FEE_DESTINATION_LIVE,
   DEFAULT_CREATOR_FEE_DESTINATION, buildLaunchSocials, launchButtonLabel,
   launchNeedsSignIn, normalizeTelegram, normalizeTwitter, normalizeWebsite, privateLaunchHelp, privateLaunchTitle,
   readStoredCreatorFeeDestination, readStoredCreatorTax, readStoredUpload, snapCreatorTax,
@@ -429,6 +429,9 @@ export default function LaunchRocketPage() {
                   {!privateLaunch && feeReceiver.trim() && <span className={s.sumChip}>Rewards: {feeReceiver.trim()}</span>}
                 </div>
               )}
+              {!CREATOR_FEE_DESTINATION_LIVE && feeDestination !== DEFAULT_CREATOR_FEE_DESTINATION && (
+                <div className={s.help} data-testid="fee-destination-pending-summary">{C.creatorFeesPending}</div>
+              )}
             </div>
             {status && <p role="status" className={`${s.msg} ${status.ok ? s.msgOk : s.msgBad}`}>{status.text}</p>}
           </div>
@@ -548,6 +551,9 @@ export default function LaunchRocketPage() {
                     );
                   })}
                 </div>
+                {!CREATOR_FEE_DESTINATION_LIVE && feeDestination !== DEFAULT_CREATOR_FEE_DESTINATION && (
+                  <div className={s.help} data-testid="fee-destination-pending">{C.creatorFeesPending}</div>
+                )}
               </div>
             </div>
           </div>

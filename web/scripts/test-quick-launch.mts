@@ -14,7 +14,7 @@ import {
   buildLaunchSocials, boostHasAmount, creatorTaxSteps, launchButtonLabel, launchNeedsSignIn, maxBoostChipLabel,
   isPseudoLaunch, normalizeTelegram, normalizeTwitter, normalizeWebsite, parseCreatorFeeDestination, privateLaunchHelp, privateLaunchTitle,
   readStoredCreatorFeeDestination, readStoredCreatorTax, readStoredUpload, snapCreatorTax, socialsURI, storeCreatorFeeDestination, storeCreatorTax, storeUpload, withHttps,
-  QUICK_LAUNCH_COPY, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION, CREATOR_FEE_DESTINATIONS, CREATOR_FEE_FIELD, CREATOR_FEE_STORE_KEY, CREATOR_TAX_STORE_KEY, DEFAULT_CREATOR_FEE_DESTINATION, UPLOAD_STORE_KEY,
+  QUICK_LAUNCH_COPY, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION, CREATOR_FEE_DESTINATIONS, CREATOR_FEE_DESTINATION_LIVE, CREATOR_FEE_FIELD, CREATOR_FEE_STORE_KEY, CREATOR_TAX_STORE_KEY, DEFAULT_CREATOR_FEE_DESTINATION, UPLOAD_STORE_KEY,
 } from "../lib/quickLaunch";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -243,18 +243,22 @@ test("creator fee destination is a three-way exclusive choice, default is the cr
   assert.equal(readStoredCreatorFeeDestination(storage), 0);
 });
 
-test("creator fee copy keeps HOOK's meaning in plain sentences, with no jargon", () => {
+test("creator fee copy matches the shared PM lines, with no jargon", () => {
+  assert.equal(QUICK_LAUNCH_COPY.creatorFees, "Creator fees");
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeesHelp, "You pick this when you launch. It applies only to this rocket, including private launches, and it cannot be changed later. It covers all creator fees, including any extra creator tax.");
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeesPending, "This choice will be available once the new contracts are live.");
+  assert.equal(CREATOR_FEE_DESTINATION_LIVE, false);
   assert.equal(CREATOR_FEE_COPY[0].sentence, "You keep the creator fees.");
   assert.equal(CREATOR_FEE_COPY[0].chip, "You keep the fees");
-  assert.equal(CREATOR_FEE_COPY[1].sentence, "The creator fees go into this rocket's trading pool, and that money can never be pulled out.");
+  assert.equal(CREATOR_FEE_COPY[1].sentence, "The creator fees are deposited into this rocket's trading pool, and that liquidity can never be pulled out.");
   assert.equal(CREATOR_FEE_COPY[1].chip, "Fees stay in the pool");
-  assert.equal(CREATOR_FEE_COPY[2].sentence, "The creator fees are used to permanently remove the coin this rocket is traded in. The half that is already that coin is removed. The half that is this rocket's coins is used to buy more of that coin and remove it too.");
-  assert.equal(CREATOR_FEE_COPY[2].chip, "Fees remove the pair coin");
+  assert.equal(CREATOR_FEE_COPY[2].sentence, "The creator fees are used to permanently destroy the pair coin this rocket is traded in. When the fee arrives as that pair coin, it is destroyed. When the fee arrives as this rocket's own coins, those coins are used to buy more of the pair coin, and that is destroyed too.");
+  assert.equal(CREATOR_FEE_COPY[2].chip, "Fees destroy the pair coin");
   const visible = [
-    QUICK_LAUNCH_COPY.creatorFees, QUICK_LAUNCH_COPY.creatorFeesHelp,
+    QUICK_LAUNCH_COPY.creatorFees, QUICK_LAUNCH_COPY.creatorFeesHelp, QUICK_LAUNCH_COPY.creatorFeesPending,
     ...CREATOR_FEE_DESTINATIONS.flatMap((id) => [CREATOR_FEE_COPY[id].sentence, CREATOR_FEE_COPY[id].chip]),
   ].join("\n");
-  assert.doesNotMatch(visible, /\bLP\b|quote token|renounced/i);
+  assert.doesNotMatch(visible, /\bLP\b|quote token|renounced|\buint\b|\bhalf\b/i);
 });
 
 test("the Mode control hugs its content and is not a full-width bar", () => {
