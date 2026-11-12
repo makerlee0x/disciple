@@ -22,12 +22,10 @@ const nextConfig = {
         images: { unoptimized: true },
       }
     : {}),
-  experimental: {
-    // server-side moderation fallback (pure-JS tfjs + nsfwjs) and image normalisation; undici = /api/img pinned-IP fetch
-    serverComponentsExternalPackages: ["sharp", "nsfwjs", "@tensorflow/tfjs", "@napi-rs/canvas", "undici"],
-    // share card reads the static Geist fonts + tier plates at runtime
-    outputFileTracingIncludes: { "/api/share/card": ["./public/fonts/share/**", "./public/assets/**"] },
-  },
+  // Next 15: serverComponentsExternalPackages → serverExternalPackages;
+  // outputFileTracingIncludes moved out of experimental.
+  serverExternalPackages: ["sharp", "nsfwjs", "@tensorflow/tfjs", "@napi-rs/canvas", "undici"],
+  outputFileTracingIncludes: { "/api/share/card": ["./public/fonts/share/**", "./public/assets/**"] },
   env: {
     // lets the client pick NEXT_PUBLIC_PRIVY_APP_ID_PREVIEW on Vercel preview deployments
     NEXT_PUBLIC_VERCEL_ENV: process.env.VERCEL_ENV || "",

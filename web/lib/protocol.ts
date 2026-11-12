@@ -20,7 +20,7 @@ export interface LaunchCoinParams {
   creatorTaxPct: number; // 0–7, immutable at launch
   description?: string;
   socials?: { twitter?: string; telegram?: string; website?: string };
-  creatorBuyPct?: number; // UI hint; on-chain limit is Launchpad.creatorBuyMaxBps() (v3 default 77 = 0.77% of supply)
+  creatorBuyPct?: number; // UI hint; on-chain limit is Launchpad.creatorBuyMaxBps() (contracts default 777 = 7.77% of supply)
   /** Bonding mode (0 TRENCH WARFARE, 1 PVE, 2 PVP); only honoured once NEXT_PUBLIC_LAUNCH_ABI=modes (lib/launchAbi.ts). */
   mode?: number;
   /** Optional same-tx creator buy, in quote raw units (decimals per quote token). Legacy path (no USDG router). */
@@ -278,5 +278,5 @@ export const PROTOCOL_META = {
   curve: CURVE,
   hookFeeBps: CURVE.tradeFeeBps,
   v4PoolFee: V4_POOL_FEE,
-  note: "You hold your own keys. Gas is paid in USDG, so no ETH is needed.",
+  note: "You hold your own keys.",
 } as const;

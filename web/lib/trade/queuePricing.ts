@@ -14,6 +14,7 @@
  * re-quoted and sent ONCE more. Timeouts / unknown outcomes are never resent (pendingWatch settles them).
  */
 import { applySlippage } from "../curveMath";
+import { sessionWindowMinOut } from "../aa/slippage";
 
 const B = BigInt;
 /** Requested slippage for "never refuse": clampSlippage caps it to the session max − headroom when a session is on. */
@@ -23,6 +24,24 @@ export function noRefuseMinOut(quote: bigint, slippageBps: number | null | undef
   const bps = slippageBps == null ? NO_REFUSE_SLIPPAGE_BPS : Math.min(NO_REFUSE_SLIPPAGE_BPS, Math.max(0, slippageBps));
   const mo = applySlippage(quote, bps);
   return mo > B(0) ? mo : B(1);
+}
+
+/**
+ * minOut for a derived (minAmountOut 0) trade from the expected live range [lo, hi] (hotCache quoteRange).
+ *  - No one-tap session: lo × (1 − slippage) (the caller's "never refuse" 99.99 % ⇒ a dust floor), as before.
+ *  - One-tap session (policy floor minOut ≥ live × (1 − max)): the centered window (aa/slippage sessionWindowMinOut),
+ *    so a move in the player's favor passes too; a caller asking for a TIGHTER floor (lo × (1 − slippage) above it)
+ *    keeps it. The window minOut is ≤ lo whenever the range fits the window (lo ≥ hi × (1 − max)); a wider range is
+ *    priced for the likelier order (earlier shot first ⇒ lo).
+ */
+export function tradeMinOut(r: { lo: bigint; hi: bigint }, slippageBps: number | null | undefined, sessionMaxBps: number | null | undefined, defaultBps = 100): bigint {
+  const own = applySlippage(r.lo, slippageBps ?? defaultBps);
+  if (sessionMaxBps == null || !(sessionMaxBps > 0) || r.lo <= B(0)) return own;
+  // range wider than the window (no minOut clears both landing orders): price for the likelier one — the earlier
+  // shot lands first (sent first) ⇒ lo
+  const wide = r.lo * B(10_000) < r.hi * B(10_000 - Math.min(5000, Math.round(sessionMaxBps)));
+  const w = wide ? sessionWindowMinOut(r.lo, r.lo, sessionMaxBps) : sessionWindowMinOut(r.lo, r.hi, sessionMaxBps);
+  return own > w ? own : w;
 }
 
 /** Release an in-flight amount once the RPC's head is ≥ the block the trade landed in (≤ maxMs; unknown block ⇒ lagMs). */

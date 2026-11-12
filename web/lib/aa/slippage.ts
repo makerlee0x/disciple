@@ -45,3 +45,27 @@ export const policyMinOutFloor = (quoted: bigint, maxSlippageBps: number) =>
   (quoted * BigInt(10_000 - maxSlippageBps)) / BigInt(10_000);
 export const meetsPolicyFloor = (minOut: bigint, quoted: bigint, maxSlippageBps: number) =>
   minOut >= policyMinOutFloor(quoted, maxSlippageBps);
+
+/** floor(√n) for bigint (Newton from the float estimate; exact). */
+export function isqrt(n: bigint): bigint {
+  const Z = BigInt(0), O = BigInt(1);
+  if (n < BigInt(2)) return n < Z ? Z : n;
+  let x = BigInt(Math.floor(Math.sqrt(Number(n)))) + O;
+  for (;;) { const y = (x + n / x) >> O; if (y >= x) break; x = y; }
+  while (x * x > n) x -= O;
+  while ((x + O) * (x + O) <= n) x += O;
+  return x;
+}
+/**
+ * minOut for a one-tap SESSION trade. The policy re-quotes at execution and needs minOut ≥ live × (1 − max); the
+ * router needs live ≥ minOut. So one minOut passes exactly for live ∈ [minOut, minOut / (1 − max)] — a window of fixed
+ * width 1 / (1 − max) that a quote taken BEFORE execution can only place, not widen. Old: minOut = quote × (1 − max +
+ * 0.5%) ⇒ the whole window sat below the quote: any move ≥ ~0.5 % in the player's FAVOR was refused.
+ * Now: centered (geometric) on the expected live range [lo, hi]: minOut = √(lo · hi · (1 − max)). With lo = hi = q:
+ * adverse tolerance 1 − √(1 − max), favorable 1/√(1 − max) − 1 (5 %: −2.53 % / +2.60 %; 15 %: −7.80 % / +8.47 %;
+ * 30 %: −16.33 % / +19.52 %; 50 %: −29.29 % / +41.42 %).
+ */
+export function sessionWindowMinOut(lo: bigint, hi: bigint, maxSlippageBps: number): bigint {
+  const m = Math.min(SESSION_SLIPPAGE_LIMIT_BPS, Math.max(0, Math.round(maxSlippageBps)));
+  return isqrt((lo * hi * BigInt(10_000 - m)) / BigInt(10_000));
+}

@@ -37,17 +37,15 @@ export function doneLine(side: "buy" | "sell", estUsd: number, r: { ok: boolean;
   const back = ok && side === "buy" ? refundLine(fill!.refundUsd, usd, fmt) : "";
   return `${arrow} ${fmt(usd)} ✓ done${back ? ` · ${back}` : ""}`;
 }
-/** Graduating BOOST overshoot (receipt UsdgRefund): "$80 back: only $6,520 was needed to graduate". "" when none / dust.
+/** BOOST that finishes the starting price path (receipt UsdgRefund): "$80 back. Only $6,520 was needed for this rocket to reach orbit." "" when none / dust.
  *  PLACEHOLDER COPY (BRAND to finalise). */
 export function refundLine(refundUsd: number | undefined, spentUsd: number, fmt: (v: number) => string) {
-  return refundUsd !== undefined && Number.isFinite(refundUsd) && refundUsd >= 0.01 ? `${fmt(refundUsd)} back: only ${fmt(spentUsd)} was needed to graduate` : "";
+  return refundUsd !== undefined && Number.isFinite(refundUsd) && refundUsd >= 0.01 ? `${fmt(refundUsd)} back. Only ${fmt(spentUsd)} was needed for this rocket to reach orbit.` : "";
 }
 
 /* ---------------- click mark hook (SITE #140 lib/trade/timing.ts markTradeClick) ---------------- */
-// TODO(#140): SITE's draft #140 (site/trade-latency) adds lib/trade/timing.ts markTradeClick(). It isn't on this base yet, so
-// it is NOT imported here. Once #140 lands, wire it with ONE line in components/TradeBridge.tsx:
-//   import { markTradeClick } from "@/lib/trade/timing";  setTradeClickMark(markTradeClick);
-// Until then tradeClick()/tradeStart() are no-ops (no hook registered).
+// TradeBridge registers the existing markTradeClick plus press-keyed flow telemetry.
+// The callback stays optional and guarded so measurement cannot break a trade.
 let clickHook: (() => void) | null = null;
 let pendingClickAt: number | undefined;
 const clickNow = () => (typeof performance !== "undefined" ? performance.now() : Date.now());

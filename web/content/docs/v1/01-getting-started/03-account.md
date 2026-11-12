@@ -30,7 +30,7 @@ Your profile holds:
 - **Settings:** username, wallet, X handle, referral link, preferences.
 - **Stats:** PnL, volume, bombs dropped, crews joined, achievements and identities.
 
-Your **username** is 3–20 characters: lowercase letters, numbers and underscores. Usernames are unique, so each one belongs to a single account. You can have one at a time; claiming a new one releases the old one.
+Your **username** is 3–22 characters: lowercase letters, numbers and underscores. Usernames are unique, so each one belongs to a single account. You can have one at a time; claiming a new one releases the old one.
 
 ## Gas
 

@@ -43,11 +43,11 @@ export const IDENTITIES: readonly IdentityDef[] = [
     test: (m) => m.bombCount >= T.bomberMinBombs },
   { id: "smart_money", label: "Smart Money", blurb: "Top-decile ROI with enough closes to prove it.", weight: 88,
     test: (m) => m.roiPercentile >= T.smartMoneyRoiDecile && m.closedTrades >= T.smartMoneyMinTrades },
-  { id: "kingmaker", label: "Kingmaker", blurb: "Early boosts on rockets that punched into Morning Stars+.", weight: 85,
+  { id: "kingmaker", label: "Kingmaker", blurb: "Early buys on rockets that climbed to Morning Stars or higher. Morning Stars is a named tier for how high a rocket's value has climbed. It starts at $100,000.", weight: 85,
     test: (m) => m.kingmakerCount >= T.kingmakerCount },
-  { id: "crew_captain", label: "Crew Captain", blurb: "Top booster on rockets that graduated.", weight: 84,
+  { id: "crew_captain", label: "Crew Captain", blurb: "Top buyer on rockets that have reached orbit. Reaching orbit means the starting price path finished and the rocket moved to the open market on Uniswap.", weight: 84,
     test: (m) => m.crewCaptainGrads >= T.crewCaptainGradTop },
-  { id: "gate_keeper", label: "Gate Keeper", blurb: "Helped shove rockets into Outer Space.", weight: 83,
+  { id: "gate_keeper", label: "Gate Keeper", blurb: "Helped rockets reach Outer Space. Outer Space is the named tier where a rocket reaches orbit, starting at $33,333.", weight: 83,
     test: (m) => m.gateKeeperAssists >= T.gateKeeperAssists },
   { id: "diamond_hands", label: "Diamond Hands", blurb: "Held through a −50% drawdown and still aboard.", weight: 80,
     test: (m) => m.diamondHandsCount >= 1 },
@@ -59,7 +59,7 @@ export const IDENTITIES: readonly IdentityDef[] = [
     test: (m) => m.sizePercentile >= T.whaleSizePercentile },
   { id: "launcher", label: "Launcher", blurb: "Lit the pad. Rockets with your name on the nose.", weight: 70,
     test: (m) => m.launches >= T.launcherMinLaunches },
-  { id: "dev_supporter", label: "Dev Supporter", blurb: "Launched rockets that actually graduated.", weight: 72,
+  { id: "dev_supporter", label: "Dev Supporter", blurb: "Launched at least one rocket that reached orbit. Reaching orbit means its starting price path finished and it moved to the open market on Uniswap.", weight: 72,
     test: (m) => m.graduatedLaunches >= T.launcherGraduated },
   { id: "trencher", label: "Trencher", blurb: "Seconds in, seconds out. High trade count.", weight: 96,
     test: (m) => m.avgHoldHours * 60 <= T.trencherHoldMinutes && m.tradeCount >= T.trencherMinTrades },
@@ -112,11 +112,11 @@ export function identityRuleText(id: IdentityId): string {
     case "jeet": return `≥3 dumps within ${T.jeetDumpMinutes}m after ≥${T.jeetPumpMultiple}× pump`;
     case "bomber": return `≥ ${T.bomberMinBombs} bombs (impact ≥ grenade)`;
     case "nuker": return `≥ ${T.nukerMinNukes} nukes/atoms (impact ≥ 25%)`;
-    case "crew_captain": return `Top booster on ≥ ${T.crewCaptainGradTop} graduated rockets`;
+    case "crew_captain": return `Top buyer on ${T.crewCaptainGradTop} or more rockets that have reached orbit`;
     case "gate_keeper": return `≥ ${T.gateKeeperAssists} Outer Space assists`;
     case "launcher": return `≥ ${T.launcherMinLaunches} rocket launched`;
-    case "dev_supporter": return `≥ ${T.launcherGraduated} graduated launch`;
-    case "kingmaker": return `Early boosts on ≥ ${T.kingmakerCount} rockets that hit Morning Stars+`;
+    case "dev_supporter": return `${T.launcherGraduated} or more rockets you launched that reached orbit`;
+    case "kingmaker": return `Early buys on ${T.kingmakerCount} or more rockets that reached Morning Stars or higher`;
     case "farmer": return `≥ ${T.farmerMinPoints} points with realized PnL ≤ $${T.farmerMaxPnl}`;
     case "smart_money": return `Top ${(1 - T.smartMoneyRoiDecile) * 100}% ROI with ≥ ${T.smartMoneyMinTrades} closes`;
     default: return "";

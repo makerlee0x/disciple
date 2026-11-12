@@ -158,7 +158,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
   },
   pvp: {
     label: "PvP", tag: "DOG EAT DOG", color: "#ffd24a",
-    blurb: "Pump-and-dump traders maximise their own PnL: momentum chasers, profit takers and whales. Bigger buys, bigger dumps. A high mcap is still possible.",
+    blurb: "Pump-and-dump traders maximise their own profit: momentum chasers, profit takers and whales. Bigger buys, bigger sells. A high value is still possible.",
     initial: { momentum: 5, scalper: 5, paperhand: 4, whale: 1, crew: 3 }, arrivalsPerMin: 6,
     mix: { momentum: 0.26, scalper: 0.22, paperhand: 0.2, whale: 0.07, diamond: 0.13, crew: 0.12 },
     activity: 2.4, size: 0.5, maxBots: 100, hypeSigma: 0.7,   // size: pre-#127 0.8 × ~0.63; 0.58 under the 77 s tax, recalibrated for the 7 s table to the #127-base PvP graduation (12/12, ~196–218 s)
@@ -168,7 +168,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
   },
   trench: {
     label: "TRENCH WARFARE", tag: "MERCENARY", color: "#ff6b7d",
-    blurb: "Snipers buy the launch. Bundled supply sits in clustered wallets. The dev may rug and crater the chart, and a CTO might revive it. Huge swings: altitude is possible, but hard.",
+    blurb: "Snipers buy the launch. Bundled supply sits in clustered wallets. The dev may rug and crater the chart, and a CTO might revive it. Huge swings: a high altitude is possible, but hard. Altitude is how high the rocket's value has climbed.",
     initial: { sniper: 4, bundler: 6, rugger: 1, cto: 1, momentum: 2, scalper: 2, paperhand: 3, whale: 1 }, arrivalsPerMin: 4,
     mix: { momentum: 0.28, scalper: 0.26, paperhand: 0.32, whale: 0.04, diamond: 0.05, crew: 0.05 },
     activity: 2.4, size: 0.42, maxBots: 100, hypeSigma: 0.7,   // size: pre-#127 0.55 × ~0.76 (unchanged for the 7 s table: graduation rate holds, 32/48 seeds either way; the launch
@@ -204,9 +204,9 @@ export const POINTS = {
 };
 export interface SimAchievement { id: string; title: string; sub: string }
 export const SIM_ACHIEVEMENTS: SimAchievement[] = [
-  { id: "graduate", title: "OUTER SPACE", sub: "the coin graduated to the pool" },
-  { id: "angels", title: "WINGS", sub: "peak mcap reached MORNING STARS ($100K)" },
-  { id: "million", title: "URANUS", sub: "peak mcap reached $1.2M" },
+  { id: "graduate", title: "OUTER SPACE", sub: "The rocket reached orbit and moved to the open market on Uniswap." },
+  { id: "angels", title: "WINGS", sub: "The rocket's value climbed into the Morning Stars tier, which starts at $100,000. Altitude is that climb, shown as named tiers." },
+  { id: "million", title: "URANUS", sub: "The rocket's value climbed into the URANUS tier, which starts at $1.2 million." },
   { id: "green", title: "IN THE GREEN", sub: "finished with positive PnL" },
   { id: "top3", title: "PODIUM", sub: "top 3 by PnL vs the bots" },
   { id: "survivor", title: "RUG SURVIVOR", sub: "finished green in a run with a rug" },

@@ -6,8 +6,16 @@
 (function(){
 /* Hidden tab: interval ticks are skipped (sources, polls, paper decay) and the rAF loop stops; both resume on
    visibilitychange. Shadowing setInterval here covers every source class below without touching each one. */
+/* @gen — one live engine per window. FlightCanvas re-runs this script whenever its `search` changes (e.g. /coin/<addr>
+   without ?quote: the real quote resolves after mount), and the old run's window listeners stayed live ⇒ every BOOST
+   tap / Space traded TWICE, the stale run at its own preset ($10 default). Each run takes a generation; a superseded
+   run ignores window events and stops its intervals + rAF loop (test:boost-amount). */
+const GEN=window.__flightGen=(window.__flightGen||0)+1, isCurrent=()=>window.__flightGen===GEN;
+const _addEventListener=window.addEventListener.bind(window), _removeEventListener=window.removeEventListener.bind(window), _genWrap=new WeakMap();
+function addEventListener(t,f,o){ let w=_genWrap.get(f); if(!w){ w=function(e){ if(isCurrent()) return f.call(this,e); }; _genWrap.set(f,w); } return _addEventListener(t,w,o); }
+function removeEventListener(t,f,o){ return _removeEventListener(t,_genWrap.get(f)||f,o); }
 const _setInterval=window.setInterval.bind(window);
-function setInterval(fn,ms){ return _setInterval(()=>{ if(!document.hidden) fn(); }, ms); }
+function setInterval(fn,ms){ return _setInterval(()=>{ if(!document.hidden && isCurrent()) fn(); }, ms); }
 'use strict';
 /* =====================================================================
    DISCIPLE flight prototype — single file, no build step, runs offline.
@@ -89,7 +97,8 @@ const SIM_BASE_USD=5;   // simulated-flow / candle-volume reference (was MODES[2
    the engine books no modelled per-trade network fee anywhere (not in paper cash, not in the PnL cost basis) and the HUD
    shows no fee line. (Was: a modelled ~$0.01 per-swap fee from gas units × gwei × an ETH price, charged to paper cash
    and the cost basis and printed in the BUY panel; the minimum was derived from it.) */
-const MIN_SHOT=0.20;                               // [PARAM] minimum buy $ (sells are never size-filtered)
+const MIN_SHOT=3;                                  // [PARAM] minimum buy $ (sells are never size-filtered). lee Nov 9 2026: $3 (was $0.20); same number as lib/trade/gaslessPermit2 MIN_TRADE_USD (server-enforced on gasless buys)
+const DUST_USD=0.20;                               // the old $0.20 floor, kept ONLY for sim-flow sizing and paper-stack dust checks (unchanged behavior)
 // auto label: shot* ≈ 0.1% of quote depth x (≈0.2% price per press), snapped to nearest mode (log distance)
 /* AMMO TIERS — preset $ sizes scale with the rocket's mcap tier so each preset is a similar % impact.
    Single source of truth: web/lib/flight/ammoTiers.ts (documented in docs/ammo-tiers.md), handed to the engine as
@@ -333,30 +342,72 @@ const short=a=>!a?'?':/^0x[0-9a-f]{8,}$/i.test(a)? a.slice(0,6)+'…'+a.slice(-4
 /* @feed-names:start — TRADES feed names + history seed + narrow HUD column (test: scripts/test-feed-names.mjs).
    Names: the SITE publishes window.__discipleNames[lc] + "disciple:names" (lib/nameLookup); NAMES is the engine's copy (the
    event also reaches the worker renderer). "@name" when claimed, the short address otherwise. Feed rows keep tr/pre so a name
-   that arrives after the row was drawn relabels it. */
-const NAMES={};
+   that arrives after the row was drawn relabels it.
+   Display cap: window.__usernameDisplayCap (USERNAME_DISPLAY_CAP from lib/defaultUsername, the longest default call sign).
+   If the cap is missing or ≤0, claimed / default names are not truncated. short() addresses / sim bots are unchanged. */
+const NAMES={}, DEFNAMES={};   // DEFNAMES: default call signs (no @) from the site's 'disciple:feednames' (lib/flight/holderNames)
+function nameCap(){ const c=typeof window!=='undefined'?window.__usernameDisplayCap:0; return typeof c==='number'&&c>0?c>>>0:0; }
+function clipName(s){ s=String(s); const c=nameCap(); return c&&s.length>c?s.slice(0,c):s; }
 function nameOf(a){ const k=String(a||'').toLowerCase(), g=typeof window!=='undefined'&&window.__discipleNames, n=NAMES[k]||(g&&g[k]);
-  return n?'@'+String(n).replace(/^@/,'').slice(0,11):short(a); }
-function feedTradeRow(side,usd,who,trader){ const pre=`${side==='buy'?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `;
-  const r={txt:pre+(who!=null?who:nameOf(trader)),c:side==='buy'?'#9ff3c8':'#ffb0c8',t:1,at:Date.now()}; if(who==null&&trader){ r.tr=String(trader).toLowerCase(); r.pre=pre; } return r; }
-function feedRelabel(feed){ for(const r of feed) if(r.tr&&r.pre!=null) r.txt=r.pre+nameOf(r.tr); }
+  return n?clipName('@'+String(n).replace(/^@/,'')):DEFNAMES[k]?clipName(String(DEFNAMES[k])):short(a); }
+// Local clock; ~ marks receipt/observation time when no block timestamp was supplied.
+function feedTime(r){ if(!(r.at>0)||!Number.isFinite(+r.at)) return '—'; const d=new Date(+r.at); if(!Number.isFinite(d.getTime())) return '—'; return (r.received?'~':'')+[d.getHours(),d.getMinutes(),d.getSeconds()].map(v=>String(v).padStart(2,'0')).join(':'); }
+/* Hidden from the TRADES feed / floaters / fuelers (keep the price tick). Sync with lib/home/hiddenCoins HIDDEN_TRADERS. */
+const HIDDEN_TRADERS=new Set(['0x0c21c3b9bb01a8245cd6b9659c727affacc46d7e']);
+function isHiddenTrader(a){ return !!a&&HIDDEN_TRADERS.has(String(a).toLowerCase()); }
+function feedTradeRow(side,usd,who,trader,at=Date.now(),received=true){ const pre=`${side==='buy'?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `;
+  const own=who!=null&&/^\(you/.test(who), r={txt:pre+(who!=null?who:nameOf(trader)),c:side==='buy'?'#9ff3c8':'#ffb0c8',t:1,at,received};
+  if(trader&&(who==null||own)){ r.tr=String(trader).toLowerCase(); r.pre=pre; } if(own){ r.own=1; r.pre=pre; } return r; }
+function feedRelabel(feed){ for(const r of feed) if(r.tr&&r.pre!=null&&!r.own) r.txt=r.pre+nameOf(r.tr); }
+/* sign-out / account switch: '(you)' rows that aren't the current wallet's become plain trader rows (name / short address;
+   '?' when the row never knew its trader). Keyed to the wallet address: me='' (signed out) un-tags every own row. */
+function feedUnown(feed,me){ for(const r of feed) if(r.own&&!(me&&r.tr===me)){ r.own=0; r.txt=r.pre+(r.tr?nameOf(r.tr):'?'); } }
 /* after a reload the feed is empty (since #113 it lists live swaps only): seed it from the newest indexed fills (/api/trades,
    newest first), below any live rows already there, deduped by tx[:logIndex]; dollars only (fillUsd = USDG paid/received). */
 function feedSeedFills(feed,fills,me,seen,max=6){ let n=feed.filter(r=>r.t).length; const out=[];
   for(const f of fills){ if(n>=max) break; if(!f||(seen&&(seen.has(f.tx+':'+f.logIndex)||seen.has(f.tx)))) continue;
-    const u=fillUsd(f); if(!(u>0)) continue; const mine=!!me&&String(f.trader||'').toLowerCase()===me;
-    const r=feedTradeRow(f.side==='sell'?'sell':'buy',u,mine?'(you)':null,f.trader); r.hist=1; if(f.ts>0) r.at=+f.ts; feed.push(r); out.push(r); n++; }
+    const u=fillUsd(f); if(!(u>0)||isHiddenTrader(f.trader)) continue; const mine=!!me&&String(f.trader||'').toLowerCase()===me;
+    const r=feedTradeRow(f.side==='sell'?'sell':'buy',u,mine?'(you)':null,f.trader,f.ts>0?+f.ts:0,false); r.hist=1; feed.push(r); out.push(r); n++; }
   feed.length=Math.min(feed.length,7); return out; }
 /* narrow screens (phones): the right HUD column (status box + TOP HOLDERS) would sit on top of the MARKET CAP panel
-   (20..400 × 18..148) → start it below that panel. Desktop (W ≥ 740) unchanged. FlightCanvas applies the same floor to
-   --ap-hud-rt / __hudRT so CrewPanel (+204 / +100 docked) and GameChat stay stacked under it. */
-const HUD_NARROW_W=740, HUD_NARROW_TOP=158;
-function hudColTop(W,rt){ return W<HUD_NARROW_W?Math.max(rt,HUD_NARROW_TOP):rt; }
-/* @phone-hud v3: phones (<HUD_NARROW_W, not CLEAN) — components/flight/PhoneHud.tsx publishes window.__phoneHud
+   (20..400 × 18..148) → start it below that panel. Desktop (W > 760) unchanged. FlightCanvas applies the same floor to
+   --ap-hud-rt / __hudRT so CrewPanel (+204 / +100 docked) and GameChat stay stacked under it. Matches site max-width:760px. */
+const HUD_NARROW_W=760, HUD_NARROW_TOP=158;
+function hudColTop(W,rt){ return W<=HUD_NARROW_W?Math.max(rt,HUD_NARROW_TOP):rt; }
+/* @coin-id-row: height of the coin's icon · name · pair row inside the desktop header card (CoinIdentity publishes
+   window.__coinIdH; 0 / unset = no row, e.g. /flight or the simulator). Clamped so a bad value can't eat the card. */
+function coinIdRowH(){ const h=typeof window!=='undefined'?+window.__coinIdH:0; return Number.isFinite(h)&&h>0?Math.round(Math.min(h,64)):0; }
+/* @phone-hud v3: phones (≤HUD_NARROW_W, not CLEAN) — components/flight/PhoneHud.tsx publishes window.__phoneHud
    {on, sheet, drawer, pillTop, hudTop, dTop, body:{x,y,w,h}}: the floating MCAP · TIER pill at `pillTop`, the bottom HUD
    (handle / PnL line / BOOST · DUMP, DOM) from `hudTop` down, and — while the drawer is open (dTop = its top) — the drawer's
    transparent body rect, where the engine draws the FEED / HOLDERS / CHART tab. Nothing else is drawn on the sky. */
-function phoneHud(w,clean){ const p=typeof window!=='undefined'?window.__phoneHud:null; return !clean&&w<HUD_NARROW_W&&p&&p.on?p:null; }
+function phoneHud(w,clean){ const p=typeof window!=='undefined'?window.__phoneHud:null; return !clean&&w<=HUD_NARROW_W&&p&&p.on?p:null; }
+
+/* TRADES / phone FEED name fit: shrink the name font stepwise to TRADE_NAME_FONT_FLOOR (9px) so the full name
+   fits the existing name column (desktop card stays 310px; phone columns unchanged). If it still doesn't fit,
+   abbreviate the first word to an initial ("Pathfinder Afterburner" → "P. Afterburner"). A claimed @handle
+   with no space is not abbreviated; existing phFit ellipsis applies at the floor. */
+const TRADE_NAME_FONT_FLOOR=9, TRADE_NAME_FONT_DESK=12, TRADE_NAME_FONT_PHONE=14;
+function tradeNameInitial(name){ const s=String(name??''); if(!s||(s[0]==='@'&&!/\s/.test(s))) return s;
+  const i=s.search(/\s/); if(i<=0) return s; const rest=s.slice(i+1).trim(); if(!rest) return s;
+  return s[0].toUpperCase()+'. '+rest; }
+function tradeNameEllipsis(meas,t,w){ t=String(t); if(meas(t)<=w) return t; while(t.length>1&&meas(t+'…')>w) t=t.slice(0,-1); return t+'…'; }
+function fitTradeName(name,width,o){
+  const start=o&&o.start>0?o.start:TRADE_NAME_FONT_DESK, floor=o&&o.floor>0?o.floor:TRADE_NAME_FONT_FLOOR;
+  const fam=(o&&o.family)||'ui-monospace,monospace', weight=(o&&o.weight)||'';
+  const set=o&&typeof o.setFont==='function'?o.setFont:(px=>{ ctx.font=(weight?weight+' ':'')+px+'px '+fam; });
+  const meas=o&&typeof o.measure==='function'?o.measure:(t=>ctx.measureText(t).width);
+  const n=String(name??'');
+  if(!(width>0)){ set(start); return {text:n,size:start,mode:'full'}; }
+  for(let px=start;px>=floor;px--){ set(px); if(meas(n)<=width) return {text:n,size:px,mode:px===start?'full':'shrink'}; }
+  const ini=tradeNameInitial(n);
+  if(ini!==n){ for(let px=start;px>=floor;px--){ set(px); if(meas(ini)<=width) return {text:ini,size:px,mode:'initial'}; }
+    set(floor); return {text:tradeNameEllipsis(meas,ini,width),size:floor,mode:'ellipsis'}; }
+  set(floor); return {text:tradeNameEllipsis(meas,n,width),size:floor,mode:'ellipsis'}; }
+function tradeRowParts(r){ const txt=String(r&&r.txt||'');
+  if(r&&r.pre!=null&&txt.startsWith(String(r.pre))) return {pre:String(r.pre),name:txt.slice(String(r.pre).length)};
+  const mt=/^(▲ BOOST|▼ DUMP)\s+(\S+)\s+(.+)$/.exec(txt); if(!mt) return null;
+  return {pre:txt.slice(0,txt.length-mt[3].length),name:mt[3]}; }
 /* @feed-names:end */
 const i256=h=>BigInt.asIntN(256,BigInt('0x'+h));
 class PoolV3Base {
@@ -447,8 +498,8 @@ class DiscipleSource {
   constructor(){ this.name='DISCIPLE'; this.supply=+(Q.get('supply')||1e6); this.mcap=null; this.block=0; this.paper=1; }
   shown(){ return this.mcap*this.paper; }
   start(emit){ this.emit=emit; emit({t:'status',source:this.name,ok:true,msg:'curve events'});
-    // paper shots (no wallet) move a multiplicative offset that decays like arbitrage would (τ 20 s), same as PoolV3Base
-    this.dv=setInterval(()=>{ if(this.mcap==null||this.paper===1) return; this.paper=1+(this.paper-1)*Math.exp(-0.25/20); if(Math.abs(this.paper-1)<1e-5) this.paper=1; emit({t:'mark',mcap:this.shown()}); },250);
+    // paper shots (no wallet) move a multiplicative offset that HOLDS (@altfollow, pass 3 #6). Was: it decayed toward the
+    // real price (τ 20 s), so after a paper sell the price — and the rocket — floated back up (and a buy sank back).
     this.h=(ev)=>{ const e=ev.detail; if(!e) return;
       // @graduated: SITE (#158 lib/events mcapOrderer) stamps every State / Trade / Graduate with { graduated, poolId, graduatedAt }
       // (lib/protocol GradState). graduated:true — on load or a late re-sent State — is the same as the live Graduate event.
@@ -458,7 +509,7 @@ class DiscipleSource {
         emit({t:'block',block:this.block,ts:Date.now()});
         emit({t:'swap',block:this.block,ts:Date.now(),txHash:e.txHash,side:e.side,usd:e.usd,mcap:this.shown(),price:this.shown()/this.supply,
               prePrice:(pre||e.mcapUsd)*this.paper/this.supply,postPrice:this.shown()/this.supply,impactPct:e.impactPct,trader:e.trader,mine:isMine(e.trader)}); }
-      else if(e.type==='Graduate'){ this.graduated=true; setGraduated(true,e); emit({t:'status',source:this.name,ok:true,msg:'GRADUATED → v4'}); }
+      else if(e.type==='Graduate'){ this.graduated=true; setGraduated(true,e); emit({t:'status',source:this.name,ok:true,msg:'ASCENDED → v4'}); }
       else if(e.type==='State'){ this.mcap=e.mcapUsd; emit({t:'swap',block:this.block,ts:Date.now(),txHash:'(state)',side:'buy',usd:0,mcap:this.shown(),price:this.shown()/this.supply}); } };
     addEventListener('disciple:event',this.h); }
   stop(){ removeEventListener('disciple:event',this.h); clearInterval(this.dv); }
@@ -558,7 +609,9 @@ if (IS_POOL||source.isSim) S.fuelers={'you':0};
 if (source instanceof DiscipleSource) S.fuelers={'you':0};   // live coin: no fake seed wallets
 S.holders=null; S.wallet='';
 addEventListener('disciple:holders-real',e=>{ const d=e.detail; S.holders=d&&Array.isArray(d.rows)?d:null; _topT=-1; });
-addEventListener('disciple:wallet',e=>{ const a=e.detail&&e.detail.address; S.wallet=typeof a==='string'?a.toLowerCase():''; });
+addEventListener('disciple:wallet',e=>{ const a=e.detail&&e.detail.address, prev=S.wallet; S.wallet=typeof a==='string'?a.toLowerCase():'';
+  if(prev&&S.wallet!==prev){ feedUnown(S.feed,S.wallet); if(S.fuelers) delete S.fuelers.you; const C=chartState(); C.mine.length=0; if(C.mineTx) C.mineTx.clear(); _topT=-1; } });   // own-wallet state follows the wallet
+addEventListener('disciple:feednames',e=>{ const m=e.detail; if(m&&typeof m==='object') for(const k in m){ const v=m[k]; if(typeof v!=='string'||!v) continue; if(v[0]==='@') NAMES[k.toLowerCase()]=v.slice(1); else DEFNAMES[k.toLowerCase()]=v; } feedRelabel(S.feed); });
 addEventListener('disciple:names',e=>{ const m=e.detail; if(m&&typeof m==='object') for(const k in m) if(typeof m[k]==='string'&&m[k]) NAMES[k.toLowerCase()]=m[k]; feedRelabel(S.feed); });
 function myWallet(){ return S.wallet||String(window.__flightWallet||'').toLowerCase(); }
 function isMine(trader){ const me=myWallet(); return !!me&&typeof trader==='string'&&trader.toLowerCase()===me; }
@@ -567,32 +620,33 @@ const goodMcap=(m)=>typeof m==='number'&&Number.isFinite(m)&&m>0;
 function onEvent(e){
   if (e.t==='block'){ S.confirmed.block=e.block; S.confirmed.lastBlockTs=performance.now(); if(source.isSim&&source.balance) S.balance=source.balance(); }   /* SIMULATOR: cash also moves on tramp/wall place, fill, cancel */
   else if (e.t==='swap'){
-    if (e.removed){ S.feed.unshift({txt:'REORG: swap '+e.txHash.slice(0,10)+' removed',c:'#f96'}); return; }
+    if (e.removed){ S.feed.unshift({at:Date.now(),received:true,txt:'REORG: swap '+e.txHash.slice(0,10)+' removed',c:'#f96'}); return; }
+    if (goodMcap(e.mcap)&&S.boostAnim&&S.boostAnim.length) baConfirm(S.boostAnim,e.txHash,!!e.mine,performance.now());   // @boostanim: the confirmed price for a fill is in
     e=ownSellSwap(e); if(!e) return;   // @sellfill: own sell $ from the decoded receipt; already drawn from the receipt ⇒ skip
     // a swap with no usable mcap (0 / null / NaN, e.g. a hook Trade priced before the quote $ is known at graduation) keeps
     // the last good mcap: mcapToAlt() floors it to LAUNCH PAD ⇒ the VFIVE replay's "TIER WITNESS — crossed into LAUNCH PAD"
     if (goodMcap(e.mcap)) S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); hudNoteTrade(e);
     if (S.displayAlt===null&&goodMcap(e.mcap)) S.displayAlt=mcapToAlt(e.mcap);
-    if(e.side==='buy'&&e.usd>0){ const who=e.mine?'you':e.trader?short(e.trader):null; if(who) S.fuelers[who]=(S.fuelers[who]||0)+e.usd; }   // no made-up wallet when the trader is unknown
+    if(e.side==='buy'&&e.usd>0&&!isHiddenTrader(e.trader)){ const who=e.mine?'you':e.trader?short(e.trader):null; if(who) S.fuelers[who]=(S.fuelers[who]||0)+e.usd; }   // no made-up wallet when the trader is unknown
     if(e.side==='sell'&&e.mine) S.fuelers.you=Math.max(0,S.fuelers.you-e.usd);
     if(e.mine&&e.side==='buy') award('first','FIRST FLAME','first confirmed thrust');
     if (e.side==='sell'&&e.usd>0){ const fs=e.mine&&S.fullStackNext; if(e.mine) S.fullStackNext=false; noteSell({side:'sell',usd:e.usd,prePrice:e.prePrice,postPrice:e.postPrice,impactPct:e.impactPct,trader:e.trader,mine:e.mine,fullStack:fs}); }
     S.volEma+=e.usd; if(e.side==='buy') S.buyEma+=e.usd; else S.sellEma+=e.usd;
     if (e.usd>0&&!e.mine) SIM.realRate+=1/30;   // real flow → simulated flow backs off
     if (e.usd>0){ if(!e.mine) queueThrust(e.side, e.usd, estimateImpactPct(e)); else momNote(e.side,e.usd);
-      S.feed.unshift(feedTradeRow(e.side,e.usd,e.mine?(isLive()?'(you)':'(you·paper)'):e.trader?null:'#'+e.block,e.trader)); }   // names: nameOf (relabelled on disciple:names)
-    if (e.usd>0 && !e.mine && e.trader && !CLEAN && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${nameOf(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
+      if(!isHiddenTrader(e.trader)) S.feed.unshift(feedTradeRow(e.side,e.usd,e.mine?(isLive()?'(you)':'(you·paper)'):e.trader?null:'#'+e.block,e.trader,e.ts,e.timeObserved!==false)); }   // names: nameOf (relabelled on disciple:names)
+    if (e.usd>0 && !e.mine && e.trader && !isHiddenTrader(e.trader) && !CLEAN && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${nameOf(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
     S.feed.length=Math.min(S.feed.length,7);
   }
   else if (e.t==='depth'){ S.levels=e.levels; }
   else if (e.t==='mark'){ if(goodMcap(e.mcap)) S.confirmed.mcap=e.mcap; }
-  else if (e.t==='replayRestart'){ S.feed.unshift({txt:'⟲ replay restarted',c:'#ffe7a3'}); /* keep altitude + camera: the springs glide to the restart price (no snap / loading flash) */ }
+  else if (e.t==='replayRestart'){ S.feed.unshift({at:Date.now(),received:true,txt:'⟲ replay restarted',c:'#ffe7a3'}); /* keep altitude + camera: the springs glide to the restart price (no snap / loading flash) */ }
   else if (e.t==='levelFilled'){ const l=e.level; const y=altToScreenY(mcapToAlt(l.mcap));
     for(let i=0;i<40;i++) spawnShard(laneX(l)+(Math.random()-.5)*laneW(l), y, (Math.random()-.5)*300, (Math.random()-.8)*260, l.side==='ask'?'#dfe8ff':'#ffd98a');
     // lateral gameplay: being lined up with the level when it breaks scores "Breaker"/"Bounce"
     if (Math.abs(S.x-laneX(l))<laneW(l)/2){ S.score+=Math.round(10+Math.log10(1+l.usd)*10);
       S.flashes.push({txt:l.side==='ask'?'WALL BREAKER +':'TRAMPOLINE BOUNCE +', life:1.4}); award(l.side==='ask'?'wall':'tramp',l.side==='ask'?'WALL BREAKER':'TRAMPOLINE BOUNCE','lined up when a level broke'); }
-    S.feed.unshift({txt:(l.side==='ask'?'wall cleared ':'trampoline used ')+fmtUsd(altToMcap(mcapToAlt(l.mcap))),c:'#ffe7a3',ic:l.side==='ask'?'wall':'tramp'});
+    S.feed.unshift({at:Date.now(),received:true,txt:(l.side==='ask'?'wall cleared ':'trampoline used ')+fmtUsd(altToMcap(mcapToAlt(l.mcap))),c:'#ffe7a3',ic:l.side==='ask'?'wall':'tramp'});
   }
   else if (e.t==='status'){ S.status=e; }
 }
@@ -645,8 +699,12 @@ function applyThrust(side, usd, pct){
   // sells into a pump push it over. Decays τ1.6 s; the heading spring + rate cap make it a gradual turn.
   const kn=impactNorm(Number.isFinite(pct)?pct:(source.impact&&S.confirmed.mcap?Math.abs(source.impact(usd,side)-1)*100:0.1));
   if (side==='buy'){ S.flare=Math.min(2.6,(S.flare||0)+0.6); } 
-  if (side==='buy'){ const diving=Math.abs(90-(S.aimDisp??AIM_REST))>60; S.fight=clamp((S.fight||0)+(10+28*kn)*(diving?1.6:1),-60,60); S.flare=Math.min(2.2,(S.flare||0)+(0.35+0.9*kn)*(diving?1.7:1)); }
-  else { const pumping=(S.vyAtt||0)>0; S.fight=clamp((S.fight||0)-(4+16*kn)*(pumping?1.4:1),-60,60); }   // a single small sell nudges; a heavy sell wave tips a pump over
+  // buys add NO nose-up push either (lee: the rocket's angle follows the price only; was S.fight +10..+60° τ1.6 s). The
+  // flare (exhaust glow) stays: it's a visual, not the heading.
+  if (side==='buy'){ const diving=Math.abs(90-(S.aimDisp??AIM_REST))>60; S.fight=0; S.flare=Math.min(2.2,(S.flare||0)+(0.35+0.9*kn)*(diving?1.7:1)); }
+  // sells add NO nose-down push (lee: the rocket moves only with price). Was S.fight −(4..28)° decaying τ1.6 s: after a
+  // 100% DUMP the nose stayed pinned down ~2–3 s with the price already flat. The price drop itself still tips it via vyAtt.
+  else S.fight=0;
   S.thrustT = S.t;
   S.flatSince = 0;
   S.cruise = Math.min(S.cruise||0, 0.25);
@@ -708,22 +766,22 @@ function simMarketStep(dt){
   if(Math.random()<rate*dt) simTrade();
 }
 function simTrade(){
-  const buy=Math.random()<0.5+SIM.bias-Math.log(S.simT||1)*2, base=Math.max(MIN_SHOT,SIM_BASE_USD);
+  const buy=Math.random()<0.5+SIM.bias-Math.log(S.simT||1)*2, base=Math.max(DUST_USD,SIM_BASE_USD);
   let usd=base*Math.exp((Math.random()+Math.random()+Math.random()-1.5)*1.6), whale=false;
   if(Math.random()<0.025){ usd*=20+Math.random()*40; whale=true; }
-  usd=+Math.max(MIN_SHOT,usd).toPrecision(3);
+  usd=+Math.max(DUST_USD,usd).toPrecision(3);
   const pct=clamp(0.3*usd/base,0.03,whale?9:2.5);
   S.simT=clamp((S.simT||1)*(buy?1+pct/100:1/(1+pct/100)),0.75,1.3);
   S.volEma+=usd; if(buy) S.buyEma+=usd; else S.sellEma+=usd;
   queueThrust(buy?'buy':'sell',usd,pct);
   if(!buy) noteSell({side:'sell',usd,impactPct:pct,trader:null,mine:false});
-  S.feed.unshift({txt:`${buy?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  sim${whale?' WHALE':''}`,c:buy?'rgba(159,243,200,.65)':'rgba(255,176,200,.65)'});
+  S.feed.unshift({at:Date.now(),received:true,txt:`${buy?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  sim${whale?' WHALE':''}`,c:buy?'rgba(159,243,200,.65)':'rgba(255,176,200,.65)'});
   S.feed.length=Math.min(S.feed.length,7);
 }
 setTimeout(pushSim,0);
 const AMMO_HIT=[0,1,2,3,4,5,6,7,8,9,10].map(()=>({x:-1e9,y:-1e9,w:0,h:0}));   // 0–3 buy presets (4–5 unused) · 6–9 SELL sizes · 10 gear (Advanced)
-function pushAmmo(){ noteBuyAmount(); pushPaperCash(); try{ dispatchEvent(new CustomEvent('disciple:ammo',{detail:{tier:S.ammoTier, rocketTier:S.rocketAmmoTier,
-  name:AMMO_TIERS&&S.ammoTier!=null?AMMO_TIERS[S.ammoTier].name:null, usd:MODES.map(m=>m.usd), names:MODES.map(m=>m.name), mode:S.mode}})); }catch(_){} }
+function pushAmmo(boot){ noteBuyAmount(); pushPaperCash(); try{ dispatchEvent(new CustomEvent('disciple:ammo',{detail:{tier:S.ammoTier, rocketTier:S.rocketAmmoTier,
+  name:AMMO_TIERS&&S.ammoTier!=null?AMMO_TIERS[S.ammoTier].name:null, usd:MODES.map(m=>m.usd), names:MODES.map(m=>m.name), mode:S.mode, ...(boot===true?{boot:true}:{})}})); }catch(_){} }
 function setAmmoTier(t){ if(!AMMO_TIERS) return; t=clamp(t|0,0,AMMO_TIERS.length-1); S.ammoTier=t;
   const u=S.ammoOverride||AMMO_TIERS[t].usd; for(let i=0;i<MODES.length&&i<u.length;i++) MODES[i].usd=u[i]; pushAmmo(); }
 function ammoTierStep(){ if(!AMMO_TIERS) return; const m=S.confirmed.mcap; if(!(m>0)) return; const T=AMMO_TIERS;
@@ -769,20 +827,20 @@ addEventListener('disciple:gradneed',e=>{ const d=e.detail||{}, u=d.usd; S.gradN
   if(d.graduated===true) setGraduated(true,d); });   // sticky: the curve read can only flip it on
 /* @graduated: one flag for the whole HUD. Sources: SITE's State payload (graduated / poolId / graduatedAt), the live Graduate
    event, TradeBridge's curve read (disciple:gradneed {graduated}). A graduated coin trades on its Uniswap v4 pool: no curve
-   tier progress, no "buys needed" / "to graduate" text, a GRADUATED badge instead (desktop tier bar + phone pill). */
+   tier progress bar, no "buys needed" / "to ascend" text, an ASCENDED badge instead (desktop tier bar). User-facing word since
+   lee's Oct 30 rename: ASCENDED (identifiers / contract + API names keep "graduated"). */
 S.graduated=false; S.gradInfo=null;
-const GRAD_BADGE='GRADUATED · trading on Uniswap';   // PLACEHOLDER copy (pending lee + BRAND)
+const GRAD_BADGE='ASCENDED';   // pass 3 #2 (lee): the word only — no 'trading on Uniswap' (chat row = lib/flight/tiers GRAD_BADGE)
+const ASCENDED='ASCENDED';   // the graduated state, as players read it (tier line: 'ASCENDED · LAUNCH PAD')
 function setGraduated(on,d){ S.graduated=!!on; if(on){ S.gradNeedUsd=null; const g=S.gradInfo||{};
     S.gradInfo={poolId:d&&typeof d.poolId==='string'?d.poolId:g.poolId||null,graduatedAt:d&&Number.isFinite(+d.graduatedAt)&&+d.graduatedAt>0?+d.graduatedAt:g.graduatedAt||null}; }
   else S.gradInfo=null;
   try{ if(typeof source!=='undefined'&&source&&source instanceof DiscipleSource) source.graduated=!!on; }catch(_){ } }
-/* tier-bar need line (pure, tested in scripts/test-grad-fix.mjs): exact "$X to graduate" when the curve read has it, else the HUD
+/* tier-bar need line (pure, tested in scripts/test-grad-fix.mjs): exact "$X to ascend" when the curve read has it, else the HUD
    estimate marked "≈ … (est.)" — never both, never "≈$0", nothing once graduated. */
 function tierNeedText(m,nx,o){ if(!nx||o.graduated) return '';
-  if(o.exact!=null&&o.exact>0&&m<TB_M1) return `${fmtNeed(o.exact)} to graduate`;
+  if(o.exact!=null&&o.exact>0&&m<TB_M1) return `${fmtNeed(o.exact)} to ascend`;
   const need=o.est; return need>0&&isFinite(need)?`≈${fmtNeed(need)} buys needed (est.)`:''; }
-/* curve progress is meaningless once graduated: hide the bar while the next tier is still a curve tier (≤ graduation) */
-const curveTierProgress=(nx)=>!!nx&&nx.lo<=TB_M1;
 /* position tag near the rocket: values from PnlHud (lib/pnl.ts view()), P toggles */
 S.pnlTag=null; S.pnlTagOn=(()=>{ try{ return localStorage.getItem('disciple.pnltag')!=='off'; }catch(_){ return true; } })();
 addEventListener('disciple:pnlview',e=>{ S.pnlTag=e.detail||null; });
@@ -822,10 +880,25 @@ function spendableCash(cash){ const g=window.__discipleTrade&&S.gasPerOpUsd>0?S.
 function inFlightPulse(){ const f=S.flashes.find(x=>x.inflight); if(f){ f.life=0.7; return; }   // final copy (lee, 11:25 CT)
   S.flashes.push({txt:'3 IN FLIGHT',life:0.7,inflight:1}); }
 /** pending_unknown (SITE): this press stays pending (cap + reservation), its rocket keeps hovering, calm status */
-function stillConfirming(p,ba,txt){ p.unknown=1; if(ba) ba.unk=1; txt=String(txt||'Still confirming your last trade…');   // SITE PENDING_UNKNOWN_MSG (final copy, lee 11:25 CT)
-  const f=S.flashes.find(x=>x.confirming); if(f){ f.life=1.8; f.txt=txt; } else S.flashes.push({txt,life:1.8,confirming:1}); }
+/* In-flight wait (lee Nov 10): no on-screen "Still confirming your last trade…" alert.
+   State is unchanged (unknown + hover). The wait is the existing PENDING ghost + a subtle
+   thruster shimmer / trail pulse (tradePendingFx), reused from exhaustParams.pend and the contrail. */
+function tradePendingFx(){ return S.pending.some(p=>p.state==='pending'); }
+function stillConfirming(p,ba,txt){ p.unknown=1; if(ba) ba.unk=1; }
 function pushInFlight(){ try{ dispatchEvent(new CustomEvent('disciple:inflight',{detail:{n:pendingCount(),max:MAX_PENDING}})); }catch(_){} }
 /* @rapidtap-end */
+/* @ascension-warp — visual only (lee Nov 10 notes #21). An ascension buy (the existing graduates /
+   gradNeedUsd / graduation-mcap flag) gets a warp-speed look while it is still pending, so the longer
+   confirm wait reads as a jump. Reuses drawSpeedLines stroke + the existing hash() (no extra Math.random
+   in the sim, same lesson as the in-flight shimmer). Trade / send path is unchanged. */
+function isAscensionBuy(side,usd,from,proj){
+  if(side!=='buy'||S.graduated) return false;
+  if(S.gradNeedUsd!=null&&usd+1e-9>=S.gradNeedUsd) return true;
+  const lo=from>0?from:(S.confirmed&&S.confirmed.mcap);
+  const hi=proj>0?proj:lo;
+  return lo>0&&lo<GRADUATION_MCAP&&hi>=GRADUATION_MCAP;
+}
+function warpFxOn(){ return (S.pending||[]).some(p=>p.state==='pending'&&p.gradBuy); }
 function trade(side,opt){
   // REAL FILL ONLY (maker lee 2026-10-24): no turbo flare / thrust at the click. The pending ghost (submit) shows where the
   // shot will go; the rocket reacts in submit() when the trade result comes back ok (fillThrust). Failed trades: no thrust.
@@ -843,8 +916,8 @@ function trade(side,opt){
   if (side==='sell'&&opt&&opt.all) opt={...opt,frac:1};
   const liveFrac=side==='sell'&&isLive()&&opt&&opt.frac>0;
   if (liveFrac&&S.liveBag&&S.liveBag.tokens>0){ const v=S.liveBag.tokens*(markMcap()||0)/(source.supply||1e6); if(v>0) md={...md,usd:+(v*Math.min(1,opt.frac)).toFixed(2)}; }
-  if (side==='sell'&&opt&&opt.all&&!isLive()){ if(!(S.hold.tokens>0)&&stack<MIN_SHOT){ S.flashes.push({txt:'NO PAPER STACK TO DUMP',life:1.4}); return; } if(S.hold.valueUsd>0) md={...md,usd:S.hold.valueUsd}; else md={...md,usd:stack}; }
-  if (side==='sell') S.fullStackNext = !!(opt&&opt.frac>=0.98) || (stack>=MIN_SHOT && md.usd>=stack*0.98);
+  if (side==='sell'&&opt&&opt.all&&!isLive()){ if(!(S.hold.tokens>0)&&stack<DUST_USD){ S.flashes.push({txt:'NO PAPER STACK TO DUMP',life:1.4}); return; } if(S.hold.valueUsd>0) md={...md,usd:S.hold.valueUsd}; else md={...md,usd:stack}; }
+  if (side==='sell') S.fullStackNext = !!(opt&&opt.frac>=0.98) || (stack>=DUST_USD && md.usd>=stack*0.98);
   // MIN_SHOT gates BUYS only (the smallest buy). A sell is never dropped by it: the bag is real (live: TradeBridge sizes
   // it from balanceOf and sends a $0.01 placeholder when it can't price the bag yet), and the confirmed fill is drawn on the
   // chart from the real USDG received (feed swap / decoded receipt, @sellfill). (Was: a live % sell of a bag the ledger
@@ -869,19 +942,34 @@ function trade(side,opt){
    BOOST_ANIM). pending: g = CAP·(1−e^(−t/τ)) ≤ CAP (a slow receipt = a short hover near CAP, never land-then-snap);
    ok: g eases on to 1 and the entry hands over to the real price as it catches up (c = share the mark already moved);
    fail: g eases back to 0 (only THIS trade's share). Adds to the spring TARGET only — PnL / HUD / ledger mark shownMcap,
-   never this; nothing here books, dispatches or broadcasts. */
-const BA_CAP=0.7, BA_TAU_UP=140, BA_TAU_DONE=90, BA_TAU_BACK=220, BA_HOLD=2500, BA_FADE=400, BA_STALE=30000;
+   never this; nothing here books, dispatches or broadcasts.
+   FOLLOW THE CONFIRMED PRICE (lee, Oct 30): after r.ok the boost HOLDS until a confirmed price for the fill arrives (the
+   indexed swap with this tx, or — no tx yet — the next own swap) or the real price reaches the ghost, then eases to it over BA_FADE. Was: a blind
+   fade after BA_HOLD (2.9 s) whether or not the price had caught up. BA_CONFIRM = the fallback when it never comes. */
+const BA_CAP=0.7, BA_TAU_UP=140, BA_TAU_DONE=90, BA_TAU_BACK=220, BA_CONFIRM=12000, BA_FADE=400, BA_STALE=30000;
+const baSeen=new Map();   // tx → ms: a confirmed swap that landed BEFORE its trade's result (fast indexer)
+const baTx=tx=>typeof tx==='string'&&/^0x[0-9a-f]{64}$/i.test(tx)?tx.toLowerCase():'';
+/** A confirmed swap arrived (indexed feed / paper fill). It confirms the ok entry with the same tx; an entry with no tx (the
+ *  optimistic 'sent' result has none yet) is confirmed by the next OWN swap. Pinned State / other traders' swaps don't
+ *  confirm (they may predate the fill) — they still hand over through the real-price progress term in baOffset. */
+function baConfirm(list,tx,mine,now){ tx=baTx(tx);
+  if(tx){ baSeen.set(tx,now); if(baSeen.size>64) baSeen.delete(baSeen.keys().next().value); }
+  let used=!mine;   // an own swap whose press has no tx yet (optimistic 'sent') confirms ONE press, oldest first (own fills land in press order)
+  for(const e of list||[]) if(e.st==='ok'&&e.ct==null){ if(e.tx){ if(e.tx===tx){ e.ct=now; used=true; } } else if(!used){ e.ct=now; used=true; } }
+  if(!used) for(const e of list||[]) if(e.st==='pending'&&e.ms==null){ e.ms=now; break; } }   // landed before its result (paper fills)
 function baStart(list,base,projAlt,now){ const d=projAlt-base; if(!Number.isFinite(d)||d===0) return null;
   const e={d,base,t0:now,st:'pending',tr:0,gr:0}; list.push(e); return e; }
 function baG(e,now){ if(e.st==='pending') return BA_CAP*(1-Math.exp(-Math.max(0,now-e.t0)/BA_TAU_UP));
   const dt=Math.max(0,now-e.tr); return e.st==='ok' ? 1-(1-e.gr)*Math.exp(-dt/BA_TAU_DONE) : e.gr*Math.exp(-dt/BA_TAU_BACK); }
-function baResolve(e,ok,now,list){ if(!e||e.st!=='pending') return; e.gr=baG(e,now); e.st=ok?'ok':'fail'; e.tr=now;
+function baResolve(e,ok,now,list,tx){ if(!e||e.st!=='pending') return; e.gr=baG(e,now); e.st=ok?'ok':'fail'; e.tr=now;
+  if(ok){ e.tx=baTx(tx); if(e.tx?baSeen.has(e.tx):e.ms!=null) e.ct=now; }   // its swap was already in: ease now
   // a failed segment never happens: the later segments (stacked on it) start where it started
   if(!ok&&list){ const i=list.indexOf(e); if(i>=0) for(let k=i+1;k<list.length;k++) list[k].base-=e.d; } }
 function pendingTip(){ for(let i=S.pending.length-1;i>=0;i--) if(S.pending[i].state==='pending') return S.pending[i]; return null; }
 function baOffset(list,realAlt,now){ let off=0;
   for (let i=list.length-1;i>=0;i--){ const e=list[i], g=baG(e,now); let o;
-    if (e.st==='ok'){ const dt=now-e.tr, c=Math.max(clamp((realAlt-e.base)/e.d,0,1), clamp((dt-BA_HOLD)/BA_FADE,0,1));
+    if (e.st==='ok'){ const t1=e.ct!=null?Math.max(e.ct,e.tr):e.tr+BA_CONFIRM;   // hold until the confirmed price (or the fallback), then ease
+      const c=Math.max(clamp((realAlt-e.base)/e.d,0,1), clamp((now-t1)/BA_FADE,0,1));
       o=e.d*Math.max(0,g-c); if(c>=1){ list.splice(i,1); continue; } }
     else if (e.st==='fail'){ o=e.d*g; if(g<0.004){ list.splice(i,1); continue; } }
     else { if(!e.unk&&now-e.t0>BA_STALE){ baResolve(e,false,now,list); continue; } o=e.d*Math.min(g,BA_CAP); }   // a send that never answers: ease back (visual only)
@@ -907,7 +995,7 @@ function submit(side,usd,force,opt,pct){
   // STACKED (up to MAX_PENDING in flight): each ghost is projected from the previous PENDING ghost, so 3 quick taps = 3 steps
   const prevP=pendingTip(), from=prevP?prevP.proj:S.confirmed.mcap;
   const proj = source.impact? from*srcImpact(S.tradeUsd,side) : from;
-  const p={id:Math.random(),side,usd:S.tradeUsd,proj,from,t0:now,state:'pending'}; S.pending.push(p); pushInFlight();
+  const p={id:Math.random(),side,usd:S.tradeUsd,proj,from,t0:now,state:'pending',gradBuy:isAscensionBuy(side,S.tradeUsd,from,proj)}; S.pending.push(p); pushInFlight();
   // the rocket heads for the ghost NOW (visual only, ≤ BA_CAP before the receipt; @boostanim). Its own segment: previous ghost → this one
   const sf=isLive()?1:(S.simF||1);
   const ba=baStart(S.boostAnim||(S.boostAnim=[]), mcapToAlt(from*sf), mcapToAlt(proj*sf), now); p.ba=ba;
@@ -921,8 +1009,14 @@ function submit(side,usd,force,opt,pct){
     // AUDIT: SITE 'pending_unknown' (a timed-out send can still land) ⇒ NOT failed: keep the ghost + its slot, keep the rocket
     // hovering (calm 'Still confirming your last trade…'), and resolve on the LATE outcome (SITE's watcher: resolved/release)
     if(r&&r.pending&&r.late&&typeof r.late.then==='function'){ stillConfirming(p,ba,r.reason); r.late.then(onResult,()=>onResult({ok:false,unknown:1})); return; }
+    // PRICE IMPACT NEVER FAILS A TRADE (lee): a pre-send note (TradeBridge: high price impact / wallet limit, needsConfirm)
+    // means nothing was sent and nothing failed — a calm amber note, no ✕ row, no "That didn't go through.", the boost eases
+    // back (no fill), the slot frees. The note's own strip offers the one tap to go ahead. (Also with SITE #201's unknown:true.)
+    if(r&&!r.ok&&r.needsConfirm){ p.state='held'; baResolve(ba,false,performance.now(),S.boostAnim);
+      if(p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }
+      tradeNote(r.reason); S.pending=S.pending.filter(q=>q!==p); pushInFlight(); return; }
     p.state=r.ok?'confirmed':'failed';
-    baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim);
+    baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim, r&&r.txHash);
     if(!(r&&r.ok)&&p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }   // later ghosts drop by the failed step   // ok → completes to the ghost; fail → eases back (this trade's share only)
     fillThrust(side,p.usd,pct,r);   // the rocket reacts to the REAL fill only (was: thrust + flare at the click)
     if(r.ok&&r.sim){ S.balance=r.balance; pushPaperCash(); dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply||1e6,gas:0,at:r.at,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // SIMULATOR: exact sim fill (frac: a % sell closes exactly that share of the bag)
@@ -941,15 +1035,19 @@ function submit(side,usd,force,opt,pct){
     // PnL HUD replaces this estimate with the exact USDG / token amounts (lib/pnl reconcileFill, keyed by txHash)
     const live=isLive()&&!!r.txHash;
     dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fm,supply:source.supply||1e6,gas:0,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION,live,txHash:live?r.txHash:undefined}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
+    if(r.ok&&r.warning) tradeNote(r.warning);   // sent with a non-blocking warning (e.g. high price impact): never a failure
     if(!r.ok&&r.unknown){ if(r.reason) S.flashes.push({txt:String(r.reason),life:1.8}); }   // hold ended without an outcome (logout): calm, no failure row (balances re-read)
     else if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
-      { const txt=(pre?'✕ trade failed: ':'✕ ')+why; if(!(S.feed[0]&&S.feed[0].err&&S.feed[0].txt===txt)) S.feed.unshift({txt,c:'#ff8f8f',err:1}); }   /* the same failure again doesn't stack rows */ S.flashes.push({txt:"That didn't go through.",life:1.6}); }   // final copy (lee, 11:25 CT): failure status; the reason stays in the TRADES row
+      { const txt=(pre?'✕ trade failed: ':'✕ ')+why; if(!(S.feed[0]&&S.feed[0].err&&S.feed[0].txt===txt)) S.feed.unshift({at:Date.now(),received:true,txt,c:'#ff8f8f',err:1}); }   /* the same failure again doesn't stack rows */ S.flashes.push({txt:"That didn't go through.",life:1.6}); }   // final copy (lee, 11:25 CT): failure status; the reason stays in the TRADES row
     S.pending=S.pending.filter(q=>q!==p); pushInFlight();   // frees its slot NOW (was a 450 ms linger that still counted toward the 3)
   });
 }
+/** Non-blocking trade note (price impact / wallet limit): calm amber flash, never the failure row. Same text not stacked. */
+function tradeNote(txt){ txt=String(txt||'').trim(); if(!txt) return; const f=S.flashes[S.flashes.length-1]; if(f&&f.txt===txt){ f.life=Math.max(f.life,2.4); return; }
+  S.flashes.push({txt,life:2.4,c:'#ffd98a'}); }
 // Pre-flight failures (gas estimate / simulation / balance) are not reverts — show the reason as-is.
 // GAME plain copy (TradeBridge → lib/flight/tradeGate GAME_COPY) is already a full sentence — no "trade failed:" prefix either.
-function isOnchainRevert(reason){ return !/^\s*(simulation|estimate|not enough|insufficient|too big|price moved|that didn't go through)/i.test(reason); }
+function isOnchainRevert(reason){ return !/^\s*(simulation|estimate|not enough|insufficient|too big|price moved|that didn't go through|high price impact|wallet limit)/i.test(reason); }
 // DOM ammo buttons (TradeBridge) → same path as keyboard shots.
 addEventListener('disciple:shoot',e=>{ const d=e.detail||{}; if(typeof d.mode==='number') S.mode=Math.max(0,Math.min(MODES.length-1,d.mode|0));
   if(typeof d.mode==='number'&&!d.side) pushAmmo();
@@ -1021,6 +1119,7 @@ function cashLineText(){ const c=cashNow(), u=activeBuyUsd();
    disciple:coinrules {ticker, mode, label}. Nothing is hardcoded here: no event → no rules text. */
 S.coinRules=null;
 addEventListener('disciple:coinrules',e=>{ const d=e.detail; S.coinRules=d&&typeof d==='object'?d:null; });
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- no longer drawn on the TIER line (pass 3 #2); kept for the tier tests
 function tierRulesText(){ const r=S.coinRules; return r&&typeof r.label==='string'?r.label.slice(0,28):''; }
 /* @rules-end */
 addEventListener('keydown',onHotkey);
@@ -1055,6 +1154,7 @@ function governor(rawDt){ if(DPR_PIN||FIXED_DT) return; const ms=rawDt*1000; if(
 let scale=1;
 // Fill the whole wrap (no black bars): logical units = CSS px, backing store = CSS px × DPR (≤2).
 function resize(){ const dpr=Math.min(DPR_PIN||DPR_STEPS[dprIx],devicePixelRatio||1); const wr=document.getElementById('wrap');
+  if(!wr) return;   // route teardown / pending mount: a late resize has no live canvas host
   const cw=Math.max(320,Math.round(wr.clientWidth||innerWidth)), ch=Math.max(240,Math.round(wr.clientHeight||innerHeight));
   relayout(cw,ch); scale=1;
   cv.style.width=cw+'px'; cv.style.height=ch+'px'; cv.width=Math.round(cw*dpr); cv.height=Math.round(ch*dpr);
@@ -1298,12 +1398,28 @@ function drawClouds(front){
   ctx.globalAlpha=1;
 }
 function drawSpeedLines(){
-  if (!S.speedBits.length) return;
-  ctx.save(); ctx.lineCap='round';
-  const vx=-(S.vxS||0)*0.3, vy=(S.vyS||0)+(S.air||0);   // streaks run vertically (air rushing down past a climb)
-  for (const b of S.speedBits){
-    ctx.globalAlpha=clamp(b.life,0,1)*0.5; ctx.strokeStyle=b.up?'rgba(235,240,255,.9)':'rgba(255,220,235,.85)'; ctx.lineWidth=b.w;
-    ctx.beginPath(); ctx.moveTo(b.x,b.y); ctx.lineTo(b.x+vx*0.14*b.k,b.y-vy*0.14*b.k); ctx.stroke();
+  if (S.speedBits.length){
+    ctx.save(); ctx.lineCap='round';
+    const vx=-(S.vxS||0)*0.3, vy=(S.vyS||0)+(S.air||0);   // streaks run vertically (air rushing down past a climb)
+    for (const b of S.speedBits){
+      ctx.globalAlpha=clamp(b.life,0,1)*0.5; ctx.strokeStyle=b.up?'rgba(235,240,255,.9)':'rgba(255,220,235,.85)'; ctx.lineWidth=b.w;
+      ctx.beginPath(); ctx.moveTo(b.x,b.y); ctx.lineTo(b.x+vx*0.14*b.k,b.y-vy*0.14*b.k); ctx.stroke();
+    }
+    ctx.restore(); ctx.globalAlpha=1;
+  }
+  drawWarpSpeed();
+}
+function drawWarpSpeed(){
+  if(!warpFxOn()) return;
+  // warp-speed streaks (radial, from a point ahead of the rocket). Deterministic: hash() + S.t, no Math.random.
+  const cx=(S.camX!=null?S.camX:S.x), cy=(S.ry||H*0.58)-40, n=28;
+  ctx.save(); ctx.lineCap='round'; ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<n;i++){
+    const u=hash(i*19.17), a=(u+S.t*0.15)%1*Math.PI*2, pulse=0.55+0.45*Math.abs(Math.sin(S.t*10+i));
+    const r0=18+hash(i*4.3)*30, r1=r0+140+hash(i*7.1)*280*pulse;
+    const x0=cx+Math.cos(a)*r0, y0=cy+Math.sin(a)*r0, x1=cx+Math.cos(a)*r1, y1=cy+Math.sin(a)*r1;
+    ctx.globalAlpha=0.18+0.28*pulse; ctx.strokeStyle='rgba(235,240,255,.9)'; ctx.lineWidth=0.8+1.6*hash(i*2.9);
+    ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
   }
   ctx.restore(); ctx.globalAlpha=1;
 }
@@ -1318,12 +1434,13 @@ function drawTickTrail(){   // (name kept for callers) — vertical contrail fro
   { const q=pts[n++]; q.x=tailX; q.y=tailY; q.thrust=true; }
   if(n<2) return;
   const sc=S.scorch||0, fl=clamp(exhaustParams().flame,0,1.6), am=fxMul('aura');   // aura stat: contrail opacity + width (1 at stat 5)
+  const pulse=tradePendingFx()?1+0.16*Math.abs(Math.sin(S.t*10)):1;
   ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round';
   // 1) soft contrail body: widens and fades with age (source-over smoke)
   for (let i=1;i<n;i++){ const u=i/(n-1);                 // 0 = oldest, 1 = at the nozzle
     const a=am===1?Math.pow(u,0.9)*(0.32+0.2*fl):Math.min(1,Math.pow(u,0.9)*(0.32+0.2*fl)*am);
     ctx.strokeStyle=`rgba(${Math.round(lerp(236,60,sc))},${Math.round(lerp(238,45,sc))},${Math.round(lerp(255,40,sc))},${a})`;
-    ctx.lineWidth=(5+22*Math.pow(1-u,0.8))*am;
+    ctx.lineWidth=(5+22*Math.pow(1-u,0.8))*am*pulse;
     ctx.beginPath(); ctx.moveTo(pts[i-1].x,pts[i-1].y); ctx.lineTo(pts[i].x,pts[i].y); ctx.stroke(); }
   // 2) hot core just behind the nozzle (additive), length/brightness from the plume
   ctx.globalCompositeOperation='lighter'; const hotN=Math.max(2,Math.round(n*0.18));
@@ -1368,7 +1485,7 @@ function drawRocket(dt){
   const TS=thrusterSprites(), HOT=TS.hot, COLD=TS.cold, FIRE_SPR=TS.fire, CORE_SPR=TS.core;   /* loadout thruster (stock = original sprites) */
   { const P=S.particles; for (let i=0;i<P.n;i++){ const p=P.a[i]; ctx.globalAlpha=clamp(0.32*p.life,0,1); blit(p.hot?HOT:COLD,p.x,p.y,p.s*(1.3-p.life*0.3)); } }
   // FLAME CONE — stretched hot sprites along the engine axis; length = volume / speed / climb, flickers, sputters
-  { ctx.save(); ctx.translate(x,y); ctx.rotate(ang); const L=(34+170*flame)*(0.85+0.3*flick)*TS.l*FXT, Wf=(20+12*flame)*TS.w;
+  { ctx.save(); ctx.translate(x,y); ctx.rotate(ang); const pendPulse=tradePendingFx()?1+0.12*Math.abs(Math.sin(S.t*10)):1; const L=(34+170*flame)*(0.85+0.3*flick)*TS.l*FXT*pendPulse, Wf=(20+12*flame)*TS.w*pendPulse;
     ctx.globalAlpha=clamp(0.55+0.4*flame,0,0.95); ctx.drawImage(FIRE_SPR,-Wf/2,-Wf*0.25,Wf,L);
     ctx.globalAlpha=clamp(0.5+0.5*flame,0,1); ctx.drawImage(CORE_SPR,-Wf*0.28,-Wf*0.15,Wf*0.56,L*0.55);
     // shock diamonds on a strong burn
@@ -1467,6 +1584,10 @@ function fmtTag(v){ return v>=1e6?'$'+(v/1e6).toFixed(1).replace(/\.0$/,'')+'M':
 let _topT=-1, _top=[];
 /* chat dock with a HOLDERS tab (components/gamechat/GameChat.tsx) → the canvas KOTH panel steps aside; holders pushed ≤2 Hz on change */
 addEventListener('disciple:chatdock',e=>{ const d=e.detail||{}; S.kothDocked=!!(d.open&&d.holders); S._holdersSig=''; });
+/* @dockgate (pass 3 #5): the chat dock also publishes window.__chatDockOpen (mirrored into the worker), read every frame, so
+   the canvas TOP HOLDERS box never draws under an open dock — not even before the first disciple:chatdock reaches an engine
+   that booted after GameChat (was: up to the 3 s re-announce, 'TOP HOLDERS' + the dock's list stacked until it settled). */
+function kothDockedNow(){ return !!S.kothDocked||window.__chatDockOpen===true; }
 addEventListener('disciple:controlsdock',e=>{ S.controlsDocked=!!(e.detail&&e.detail.docked); S._ctlSig=''; });
 function pushControls(){ if(S.t-(S._ctlT??-9)<0.25) return; S._ctlT=S.t; const md=MODES[S.mode];
   const d={mode:fmtShot(md.usd),key:md.key,shot:fmtShot(md.usd),pending:S.pending.filter(p=>p.state==='pending').length,max:MAX_PENDING,turbo:source instanceof MockReplaySource?!!S.turbo:null,orbs:!!S.orbsOn,score:S.score,streak:S.streak,mult:S.mult};
@@ -1478,7 +1599,7 @@ function pushHolders(top,title){ if(S.t-(S._holdersT??-9)<0.5) return; S._holder
    moves with the price between balance refreshes. items = ranked holders, system = labelled pool / curve / locker rows. */
 function realHolders(){ const h=S.holders; if(!h) return null; const m=markMcap()||0, me=myWallet();
   const map=r=>{ const mine=!!r.mine||(!!me&&r.address===me); const usd=r.pct>0&&m>0?r.pct/100*m:(+r.usd||0);
-    return {who:mine?'you':short(r.address),address:r.address,usd,pct:+r.pct||0,label:r.label||null,mine}; };
+    return {who:mine?'you':(r.name||short(r.address)),address:r.address,usd,pct:+r.pct||0,label:r.label||null,mine}; };
   return {items:h.rows.filter(r=>!r.label).map(map), system:h.rows.filter(r=>r.label).map(map), asOfBlock:h.asOfBlock??null}; }
 function topFuelers(){ if(S.t-_topT<0.5&&_top.length) return _top; _topT=S.t;
   const h=realHolders(); _top=h?h.items.map(r=>[r.who,r.usd]):Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1]); return _top; }
@@ -1566,12 +1687,12 @@ function panel(x,y,w,h){ ctx.save(); ctx.fillStyle='rgba(8,10,28,.62)'; ctx.stro
 const PH_FONT='ui-monospace,Menlo,"DejaVu Sans Mono",monospace';
 function rrect(x,y,w,h,r){ ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(x,y,w,h,r); else ctx.rect(x,y,w,h); }
 function drawPhonePill(m,ti,P){
-  const t=TIERS[ti], {f,next:nx}=tierProgress(m,ti);
+  const {f,next:nx}=tierProgress(m,ti);
   const sim=source.isSim||!isLive();   // 'SIM' tag: paper / sim mode
   ctx.save(); ctx.textBaseline='middle'; if('letterSpacing' in ctx) ctx.letterSpacing='0.6px';
-  ctx.font=`bold 15px ${PH_FONT}`; const a=fmtUsd(m), b=t.name, wa=ctx.measureText(a).width, wd=ctx.measureText('·').width, wb=ctx.measureText(b).width;
+  ctx.font=`bold 15px ${PH_FONT}`; const a=fmtUsd(m), b=tierName(ti), wa=ctx.measureText(a).width, wd=ctx.measureText('·').width, wb=ctx.measureText(b).width;
   ctx.font=`800 10px ${PH_FONT}`; const wt=sim?ctx.measureText('SIM').width+12:0;
-  const h=46, w=Math.round(Math.min(W-32,20+wa+10+wd+10+wb+(sim?10+wt:0)+20)), x=Math.round((W-w)/2), y=Math.round(P.pillTop);
+  const h=46, w=Math.ceil(Math.min(W-32,20+wa+10+wd+10+wb+(sim?10+wt:0)+20)), x=Math.round((W-w)/2), y=Math.round(P.pillTop);
   S.phonePill={x,y,w,h};
   ctx.save(); ctx.shadowColor='rgba(0,0,0,.55)'; ctx.shadowBlur=30; ctx.shadowOffsetY=10; ctx.fillStyle='rgba(16,18,34,.66)'; rrect(x,y,w,h,20); ctx.fill(); ctx.restore();
   ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=1; rrect(x+.5,y+.5,w-1,h-1,20); ctx.stroke();
@@ -1583,12 +1704,13 @@ function drawPhonePill(m,ti,P){
   if(sim){ const gx=tx+10, gy=ty-9; ctx.fillStyle='rgba(201,184,255,.16)'; rrect(gx,gy,wt,18,6); ctx.fill(); ctx.strokeStyle='rgba(201,184,255,.4)'; rrect(gx+.5,gy+.5,wt-1,17,6); ctx.stroke();
     ctx.font=`800 10px ${PH_FONT}`; ctx.fillStyle='#d9ccff'; ctx.fillText('SIM',gx+6,ty+.5); }
   const bx=x+20, bw=w-40, by=y+h-10;
-  if(!(S.graduated&&(!nx||curveTierProgress(nx)))){   // @graduated: no curve progress line once the coin trades on its pool
+  if(nx){   // tier progress line = mcap / next tier lo (same number as the '+X% to NEXT' caption), ascended coins too
   ctx.fillStyle='rgba(255,255,255,.12)'; rrect(bx,by,bw,2,1); ctx.fill();
   const g=ctx.createLinearGradient(bx,0,bx+bw*Math.max(f,.02),0); g.addColorStop(0,'#FFB547'); g.addColorStop(1,'#FFD873');
   ctx.save(); ctx.shadowColor='rgba(255,216,115,.7)'; ctx.shadowBlur=6; ctx.fillStyle=g; rrect(bx,by,Math.max(2,bw*f),2,1); ctx.fill(); ctx.restore(); }
   S.gradBadge=S.graduated?GRAD_BADGE:'';
-  const lb=P.drawer?'':S.graduated?GRAD_BADGE:tierLabel(f,nx); S.phoneTierLabel=lb;   // @tier-label: one quiet caption centred under the pill (hidden while the drawer is up: the rocket is lifted into that space)
+  const tl=tierLabel(m,nx), lb=P.drawer?'':S.graduated?(tl?`${ASCENDED} · ${tl}`:ASCENDED):tl; S.phoneTierLabel=lb;   // ascended: 'ASCENDED · +X% to NEXT' (the pill itself is too narrow for 'ASCENDED · NAME' at 360–390 px)
+    // @tier-label: one quiet caption centred under the pill (hidden while the drawer is up: the rocket is lifted into that space)
   if(lb&&S.graduated){ ctx.font=`800 11px ${PH_FONT}`; const t2=phFit(lb,W-64), tw=ctx.measureText(t2).width, gx=Math.round(x+w/2-tw/2-10), gy=y+h+4;   // @graduated badge, phone
     ctx.fillStyle='rgba(255,216,115,.16)'; rrect(gx,gy,tw+20,18,9); ctx.fill(); ctx.strokeStyle='rgba(255,216,115,.55)'; rrect(gx+.5,gy+.5,tw+19,17,9); ctx.stroke();
     ctx.fillStyle='#FFD873'; ctx.textAlign='center'; ctx.fillText(t2,x+w/2,gy+9.5); ctx.textAlign='left'; }
@@ -1606,15 +1728,18 @@ function phFit(t,w){ if(ctx.measureText(t).width<=w) return t; while(t.length>1&
 /* FEED tab: the same S.feed rows as the desktop TRADES panel, laid out like the mockup (avatar · name · BOOST/DUMP · $ · ago) */
 function drawPhoneFeed(P){ const B0=P.body, B={x:B0.x,y:B0.y+28,w:B0.w,h:B0.h-28}, rh=50, n=Math.max(1,Math.floor(B.h/rh)), x0=B.x+4, iw=B.w-8, gap=8, cAva=30, cTag=70, cUsd=66, cAgo=34, cNm=Math.max(40,iw-cAva-cTag-cUsd-cAgo-4*gap);
   ctx.save(); ctx.textBaseline='middle'; if('letterSpacing' in ctx) ctx.letterSpacing='0px';
+  /* phone-feedhead (PhoneHud) already says TRADE HISTORY in this band — do not draw a second one */
   const rows=S.feed.slice(0,n);
   if(!rows.length){ ctx.fillStyle='rgba(214,222,245,.42)'; ctx.font=`12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText('No trades yet',B.x+B.w/2,B.y+40); ctx.textAlign='left'; }
   rows.forEach((r,i)=>{ const y=B.y+i*rh, cy=y+rh/2, mt=/^(▲ BOOST|▼ DUMP)\s+(\S+)\s+(.+)$/.exec(r.txt||'');
     if(i<rows.length-1){ ctx.fillStyle='rgba(255,255,255,.05)'; ctx.fillRect(x0,y+rh-1,iw,1); }
-    if(!mt){ ctx.font=`12px ${PH_FONT}`; ctx.fillStyle=r.c||'rgba(214,222,245,.7)'; ctx.fillText(phFit(String(r.txt||''),iw),x0,cy); return; }
+    if(!mt){ ctx.font=`12px ${PH_FONT}`; ctx.fillStyle=r.c||'rgba(214,222,245,.7)'; ctx.fillText(phFit(String(r.txt||''),iw),x0,cy-6); ctx.font=`10px ${PH_FONT}`; ctx.fillText(feedTime(r),x0,cy+12); return; }
     const buy=mt[1][0]==='▲', who=mt[3].trim(), letter=(who.replace(/^[@(#]+/,'').replace(/^0x/i,'')[0]||'?').toUpperCase();
     let cx=x0; ctx.fillStyle=phAva(who); rrect(cx,cy-15,cAva,cAva,10); ctx.fill();
     ctx.fillStyle='#0b0d18'; ctx.font=`800 13px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText(letter,cx+cAva/2,cy+.5); ctx.textAlign='left'; cx+=cAva+gap;
-    ctx.fillStyle='#EEF1FA'; ctx.font=`bold 14px ${PH_FONT}`; ctx.fillText(phFit(who,cNm),cx,cy); cx+=cNm+gap;
+    ctx.fillStyle='#EEF1FA';
+    const fit=fitTradeName(who,cNm,{start:TRADE_NAME_FONT_PHONE,floor:TRADE_NAME_FONT_FLOOR,family:PH_FONT,weight:'bold'});
+    ctx.fillText(fit.text,cx,cy-6); ctx.font=`10px ${PH_FONT}`; ctx.fillStyle='rgba(214,222,245,.56)'; ctx.fillText(feedTime(r),cx,cy+12); cx+=cNm+gap;
     const tw=66; ctx.fillStyle=buy?'rgba(47,217,138,.13)':'rgba(255,61,127,.14)'; rrect(cx,cy-12,tw,24,8); ctx.fill();
     ctx.fillStyle=buy?'#7FF2B9':'#FF8DB3'; ctx.font=`800 11.5px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText(buy?'BOOST':'DUMP',cx+tw/2,cy+.5); cx+=cTag+gap;
     ctx.textAlign='right'; ctx.fillStyle='#EEF1FA'; ctx.font=`bold 14px ${PH_FONT}`; ctx.fillText(mt[2],cx+cUsd,cy); cx+=cUsd+gap;
@@ -1645,26 +1770,79 @@ function drawPhoneHolders(P,top,title){ const B=P.body, rh=46, n=Math.max(1,Math
     ctx.fillStyle='rgba(214,222,245,.62)'; ctx.font=`bold 13px ${PH_FONT}`; ctx.fillText(phFit(holderKindText(r.label)||String(r.label),iw-150),x0+38,cy);
     ctx.textAlign='right'; ctx.fillText(fmtUsd(r.usd),x0+iw,cy); ctx.textAlign='left'; });
   ctx.restore(); }
+/* @cards — pass 3 #4 (lee): every desktop coin-screen card (header, TOP HOLDERS, TRADES, controls, chart; the DOM PnL /
+   chat cards do the same in React) can be dragged by its handle, minimized or closed, and restored from the LAYOUT menu
+   (components/flight/CardChrome.tsx). The layout comes from the page (lib/game/cardLayoutStore: localStorage per account,
+   guest when signed out) as raw offsets {dx,dy,min,closed} per card id — disciple:cardlayout (live, worker-forwarded) or
+   window.__cardLayout (boot). Each card is drawn translated by its offset clamped to the canvas (cardOff = lib/game/cardLayout
+   clampOffset), so a resize never pushes a card off-screen; min / closed cards are skipped. The drawn rects (+ effective
+   offset) go back to the page as disciple:cardrects (on change) so the DOM chrome sits on the cards. Phone / clean: no layout.
+   The buy / sell ammo panel is NOT a movable card (its hit rects + buy / slippage warnings stay put — FLOW owns that path). */
+var CARD_L=null; const CARD_RECTS={}; let CARD_SIG='';
+addEventListener('disciple:cardlayout',e=>{ const d=e.detail; CARD_L=d&&typeof d==='object'?d:{}; });
+function cardOff(r,c,W,H){ const n=v=>typeof v==='number'&&Number.isFinite(v)?Math.round(v):0, ax=(lo,hi,v)=>hi<lo?lo:Math.min(hi,Math.max(lo,v));
+  return {dx:Math.round(ax(-r.x,W-r.w-r.x,n(c&&c.dx))),dy:Math.round(ax(-r.y,H-r.h-r.y,n(c&&c.dy)))}; }
+/* @cards-math-end */
+function cardState(id){ if(CLEAN||phoneHud(W,CLEAN)) return null; const L=CARD_L||(typeof window!=='undefined'?window.__cardLayout:null); const c=L&&typeof L==='object'?L[id]:null; return c&&typeof c==='object'?c:null; }
+/* base rect → the drawn rect (offset + clamp) and registers it for the chrome; null ⇒ minimized / closed (don't draw) */
+function cardPlace(id,x,y,w,h){ const c=cardState(id), o=c?cardOff({x,y,w,h},c,W,H):{dx:0,dy:0}, hid=!!(c&&(c.min||c.closed));
+  if(!CLEAN&&!phoneHud(W,CLEAN)) CARD_RECTS[id]={x:x+o.dx,y:y+o.dy,w,h,dx:o.dx,dy:o.dy,min:!!(c&&c.min),closed:!!(c&&c.closed)};
+  return hid?null:o; }
+function cardBegin(id,x,y,w,h){ const o=cardPlace(id,x,y,w,h); if(!o) return false; ctx.save(); ctx.translate(o.dx,o.dy); return true; }
+function cardPublish(){ if(CLEAN||phoneHud(W,CLEAN)) for(const k in CARD_RECTS) delete CARD_RECTS[k]; else if(!CH||!CH.on||domChart()) delete CARD_RECTS.chart;
+  const sig=W+'x'+H+JSON.stringify(CARD_RECTS); if(sig===CARD_SIG) return; CARD_SIG=sig;
+  dispatchEvent(new CustomEvent('disciple:cardrects',{detail:{W,H,cards:JSON.parse(JSON.stringify(CARD_RECTS))}})); }
+/* @cards-end */
+/* @hud-layout:start — desktop top row (header card · BUY/SELL ammo panel · right column) inside the AVAILABLE canvas
+   width, so nothing overlaps whatever the sidebar's width is (the canvas already starts at the sidebar edge: W is the
+   content width, never a hard-coded 270 / 220) or the site's wallet strip (cash / total cards; walletL = its left edge
+   in canvas px, colTop = the top below it). Pure (test: scripts/test-hud-layout.mjs).
+   1. ammo panel: centred between the header card and the right column when there's room (as before);
+   2. else right of the header card, as far right as the canvas allows; if that still runs under the wallet strip it
+      drops below the strip, and if it runs into the right column the column moves down below the panel;
+   3. a canvas too narrow even for header + panel side by side: the panel goes under the header card. */
+function hudTopLayout(o){ const W=o.W, AW=o.AW, AH=o.AH, CW=o.CW, G=o.gap??14, M=20, hdrR=o.hdrR, hdrB=o.hdrB, top=o.top??18;
+  const RX=W-M-CW, colTop0=o.colTop, wl=Number.isFinite(o.walletL)&&o.walletL>0?o.walletL:W;
+  let ax=Math.round(Math.max(hdrR+10,Math.min((W-AW)/2,RX-G-AW))), ay=top, colTop=colTop0;
+  if (ax+AW>W-M) ax=Math.max(M,W-M-AW);
+  if (ax<hdrR+10) ay=Math.max(ay,hdrB+10);                                     // 3. no room beside the header card
+  else if (ax+AW>wl-8) ay=Math.max(ay,colTop0-4);                               // 2. under the wallet strip (cash / total)
+  if (ax+AW>RX-G+1&&ay<colTop+o.colH&&ay+AH>colTop) colTop=Math.max(colTop,ay+AH+10);   // column below the panel
+  return {ax,ay,RX,colTop}; }
+/* @hud-layout:end */
 function drawHud(){
+  for(const k in CARD_RECTS) if(k!=='chart') delete CARD_RECTS[k];   /* re-registered by this frame's cards (chart: chartRect) */
   const m=shownMcap(), a=S.displayAlt, ti=clamp(Math.floor(mcapToAlt(m)),0,TIERS.length-1), t=TIERS[ti];   // same price the PnL marks against
   ctx.save(); ctx.textBaseline='alphabetic';
   const PH=phoneHud(W,CLEAN);
   if (PH) drawPhonePill(m,ti,PH); else {
-  // top-left: MCAP + tier
-  panel(20,18,380,130);
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:(coinTicker()?'$'+coinTicker()+' · ':'')+'MARKET CAP · confirmed',36,42);
+  // top-left: ONE header card (lee, Oct 30 coin-screen cleanup): the coin's icon · name · pair row (CoinIdentity, DOM,
+  // window.__coinIdH = its height, laid inside this card's top) + MARKET CAP label + the big mcap + TIER line + tier bar.
+  // The card grows by that row; everything under it is drawn shifted down (translate), so the rest stays as before.
+  const HY=coinIdRowH();
+  if (cardBegin('header',20,18,380,130+HY)){   /* @cards */
+  panel(20,18,380,130+HY); ctx.save(); ctx.translate(0,HY);
+  { const lbl=IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:source instanceof DiscipleSource?'MARKET CAP':(coinTicker()?'$'+coinTicker()+' · ':'')+'MARKET CAP · confirmed';
+    if(lbl){ ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(lbl,36,42); } }
   ctx.fillStyle='#fff'; ctx.font='bold 40px ui-monospace,monospace'; glowText(fmtUsd(m),34,84,'rgb(180,200,255)',8,0.3);
-  ctx.fillStyle='#ffe7a3'; ctx.font='bold 14px ui-monospace,monospace'; ctx.fillText(`TIER ${ti} · ${t.name}`,36,108);
-  { const rl=tierRulesText(); if(rl){ const x=36+ctx.measureText(`TIER ${ti} · ${t.name}`).width; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle='#9fd8ff'; ctx.fillText('  ·  '+rl,x,108); } }   // mode + wallet cap, read from the coin (disciple:coinrules)
+  ctx.fillStyle='#ffe7a3'; ctx.font='bold 14px ui-monospace,monospace'; ctx.fillText(tierText(ti),36,108);
+  // pass 3 #2 (lee): no mode / cap text ('TRENCH · no cap') on the TIER line — the tier name (ASCENDED once, when ascended) only
   // progress to next tier
   const tierEnd=tierLineEnd(ti,t);   // @tier-label: the right-hand label never runs into the TIER line
   drawTierBar(m,ti,tierEnd);   /* HUD+ block */
-  }
+  ctx.restore(); ctx.restore(); } }
   if(!CLEAN){   /* clean (replay) mode: no status / KOTH / feed / controls / ammo text */
   // top-right column starts below the site's wallet strip + the Share/Exit row (FlightCanvas measures it)
   S.hudRT=S.hudRT==null?Math.max(18,+window.__hudRT||0):lerp(S.hudRT,Math.max(18,+window.__hudRT||0),0.15); let RT=hudColTop(W,Math.round(S.hudRT)), RX=W-330, CW=310;   // eased: no HUD jump when the wallet strip changes height
+  const AW=472, AH=108, HB=(CARD_RECTS.header?CARD_RECTS.header.y+CARD_RECTS.header.h:148+coinIdRowH());
+  const LY=PH?null:hudTopLayout({W,AW,AH,CW,hdrR:Math.max(0,(+window.__hudLeft||0)-(+window.__wrapL||0))+400,hdrB:HB,colTop:RT,colH:96+(!(source instanceof DiscipleSource)?100:0),walletL:+window.__walletL});
+  if (LY){ RT=LY.colTop; RX=LY.RX; }
+  if (!PH&&LY){ const sig=RT+','+LY.ax+','+LY.ay+','+W; if(S._hudColPub!==sig){ S._hudColPub=sig; try{ dispatchEvent(new CustomEvent('disciple:hudcol',{detail:{top:RT,W,ammo:{x:LY.ax,y:LY.ay,w:AW,h:AH}}})); }catch(_){} } }   // FlightCanvas: CrewPanel / GameChat stack under it
   if (PH&&PH.drawer&&PH.body&&/^(feed|holders|chart)$/.test(PH.sheet||'')) drawPhoneBodyBg(PH);   // phone: canvas tabs paint the drawer body
-  if (!PH){
+  // DISCIPLE status box ('curve events / block # / HOLDING · no trades'): not on a coin page (lee, Oct 30 cleanup) —
+  // TOP HOLDERS moves up into its slot (STATUS_DY = 0; FlightCanvas --ap-status-h keeps GameChat in step)
+  const STATUS_BOX=!(source instanceof DiscipleSource), STATUS_DY=STATUS_BOX?100:0;
+  if (!PH&&STATUS_BOX){
   panel(RX,RT,CW,92);
   const sinceSwap=(performance.now()-S.confirmed.lastSwapTs)/1000, holding=sinceSwap>1.5;
   ctx.fillStyle=S.status.ok?'#8ff0c0':'#ff8f8f'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText('● '+(S.status.source||source.name),RX+16,RT+24);
@@ -1674,29 +1852,29 @@ function drawHud(){
   else { ctx.fillText(`block #${S.confirmed.block}`,RX+16,RT+60); }
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle=holding?'#ffd98a':'#8ff0c0'; ctx.fillText(holding?`HOLDING · no trades ${sinceSwap.toFixed(1)}s`:'LIVE · trade flow',RX+16,RT+78); }
   const top=topFuelers(), kothTitle=S.holders?'TOP HOLDERS':source instanceof DiscipleSource?'TOP HOLDERS · reading balances…':IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top boosters (sim)':'KING OF THE HILL · top boosters (mock)';
-  if (S.kothDocked) pushHolders(top,kothTitle);   /* HOLDERS tab of the chat panel (GameChat) shows it instead */
-  if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='holders') drawPhoneHolders(PH,top,kothTitle); }
-  else if (!S.kothDocked){ panel(RX,RT+100,CW,96);
-  ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+120);
-  top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; const ky=RT+140+i*18; if(i===0) drawIcon('crown',RX+16,ky-10,12,ctx.fillStyle); ctx.fillText(`${i===0?'  ':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,ky); }); }
+  pushHolders(top,kothTitle);   /* the chat panel's HOLDERS tab (GameChat) is the only desktop holders list (lee Oct 31): always current, ≤2 Hz on change */
+  // Holders and Chat share the DOM card, including inside the phone Holders drawer.
   // bottom-left: trade feed (compact)
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='feed') drawPhoneFeed(PH); }
-  else { const FX=20, FY=H, FW=310;
+  else if (cardBegin('trades',20,H-160,310,140)){ const FX=20, FY=H, FW=310;
   panel(FX,FY-160,FW,140); ctx.font='12px ui-monospace,monospace';
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADES',FX+16,FY-138);
-  S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=FY-116+i*17;
-    if(r.ic){ drawIcon(r.ic,FX+16,fy-11,14,r.c); ctx.fillText(r.txt.slice(0,36),FX+16+18,fy); } else ctx.fillText(r.txt.slice(0,38),FX+16,fy); }); ctx.globalAlpha=1; }
-  // bottom-right: controls (compact) — only without the React '? CONTROLS' pill (components/ControlsPill.tsx), which shows them on demand
-  if (S.controlsDocked) pushControls(); else if (!PH) { panel(RX,H-104,310,84);
-  const md=MODES[S.mode]; ctx.fillStyle='#fff'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(`BUY ${fmtShot(md.usd)}/shot [${md.key}] · ${MODES[0].key}-${MODES[MODES.length-1].key} select / click`,RX+16,H-82);
-  ctx.font='11px ui-monospace,monospace'; ctx.fillStyle='#9ff3c8'; ctx.fillText('SPACE turbo',RX+16,H-64); ctx.fillStyle='#ffb0c8'; ctx.fillText('ZXCV sell',RX+100,H-64);
-  ctx.fillStyle='rgba(220,228,255,.8)'; ctx.fillText('W boost·A/D',RX+178,H-64);
-  ctx.fillText(`pending ${S.pending.filter(p=>p.state==='pending').length}/${MAX_PENDING}${source instanceof MockReplaySource?'   T turbo '+(S.turbo?'ON':'off'):''}`,RX+16,H-46);
-  if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); } }
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADE HISTORY',FX+16,FY-138);
+  S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=FY-116+i*17, icon=r.ic?18:0, maxW=FW-32-74-icon;
+    if(r.ic) drawIcon(r.ic,FX+16,fy-11,14,r.c);
+    const parts=tradeRowParts(r);
+    if(parts){ ctx.font=TRADE_NAME_FONT_DESK+'px ui-monospace,monospace'; const preW=ctx.measureText(parts.pre).width;
+      ctx.fillText(parts.pre,FX+16+icon,fy);
+      const fit=fitTradeName(parts.name,maxW-preW,{start:TRADE_NAME_FONT_DESK,floor:TRADE_NAME_FONT_FLOOR,family:'ui-monospace,monospace'});
+      ctx.fillText(fit.text,FX+16+icon+preW,fy); }
+    else { ctx.font=TRADE_NAME_FONT_DESK+'px ui-monospace,monospace'; ctx.fillText(phFit(String(r.txt||''),maxW),FX+16+icon,fy); }
+    ctx.font=TRADE_NAME_FONT_DESK+'px ui-monospace,monospace';
+    ctx.textAlign='right'; ctx.fillStyle='rgba(220,228,255,.6)'; ctx.fillText(feedTime(r),FX+FW-16,fy); ctx.textAlign='left'; }); ctx.globalAlpha=1; ctx.restore(); }
+  // Keyboard/status box removed. Keep control events and all working trade/keyboard handlers.
+  if (S.controlsDocked) pushControls();
   let TOX=Math.round((W-300)/2), TOY=PH?PH.pillTop+(S.phoneTierLabel?76:58):136;   // achievement toasts: phone = under the MCAP pill
   if (PH) AMMO_HIT.forEach(R=>{ R.x=-1e9; R.y=-1e9; R.w=0; R.h=0; }); else {   // phone v3: no canvas preset chips (amounts live in the BOOST / DUMP sheets)
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
-  const AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,108);
+  const ax=LY.ax, ay=LY.ay; panel(ax,ay,AW,AH);   // @hud-layout (hudTopLayout)
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; ctx.fillText('· select ('+MODES[0].key+'–'+MODES[MODES.length-1].key+'), then BOOST / SPACE',ax+40,ay+16);
   { const hv=S.ammoHover; ctx.textAlign='right';
     if(hv>=0&&hv<MODES.length){ const wt=S.buyWarn.texts[hv]; ctx.fillStyle=wt?(S.buyWarn.over[hv]?'#ffb0c8':'#ffe7a3'):'#9ff3c8'; ctx.fillText(wt||`click to select ${fmtShot(MODES[hv].usd)}`,ax+AW-12,ay+16); }
@@ -1730,7 +1908,7 @@ function drawHud(){
   }   /* end !CLEAN */
   // tier banner
   if (S.tierBanner>0){ ctx.globalAlpha=clamp(S.tierBanner,0,1); ctx.textAlign='center'; ctx.fillStyle='#fff7df';
-    const BY=BANNER_Y; let fs=54; ctx.font=`bold ${fs}px Georgia,serif`; while(ctx.measureText(TIERS[S.tierShown].name).width>W-120&&fs>24){ fs-=4; ctx.font=`bold ${fs}px Georgia,serif`; } glowText(TIERS[S.tierShown].name,W/2,BY,'rgb(255,220,150)',14,0.3); ctx.font='16px ui-monospace,monospace'; glowText('ENTERED · '+fmtUsd(TIERS[S.tierShown].lo)+'+ MCAP',W/2,BY+30,'rgb(255,220,150)',6,0.3);
+    const BY=BANNER_Y, bn=tierName(S.tierShown); let fs=54; ctx.font=`bold ${fs}px Georgia,serif`; while(ctx.measureText(bn).width>W-120&&fs>24){ fs-=4; ctx.font=`bold ${fs}px Georgia,serif`; } glowText(bn,W/2,BY,'rgb(255,220,150)',14,0.3); ctx.font='16px ui-monospace,monospace'; glowText('ENTERED · '+fmtUsd(TIERS[S.tierShown].lo)+'+ MCAP',W/2,BY+30,'rgb(255,220,150)',6,0.3);
     ctx.textAlign='left'; ctx.globalAlpha=1; }
   S.flashes.forEach((fl,i)=>{ ctx.globalAlpha=clamp(fl.life,0,1); ctx.textAlign='center'; ctx.fillStyle=fl.c||'#fff'; ctx.font='bold 18px ui-monospace,monospace'; ctx.fillText(fl.txt,W/2,H*0.40-i*24); ctx.textAlign='left'; ctx.globalAlpha=1; });
   ctx.restore();
@@ -2091,6 +2269,10 @@ function aimFromMotion(vy, lat, fight, v0, st){
   if (st) st.lastSide=th<-0.5?-1:th>0.5?1:side;
   return cl(90-th, AIM_MIN, AIM_MAX);
 }
+// Manual S/Down is a full attitude target, not a fixed pixel velocity (which shrank with viewport/zoom).
+function aimWithDive(aim, dive, st){ const d=Math.max(0,Math.min(1,Number.isFinite(dive)?dive:0));
+  const cur=90-st.aimDisp, side=Math.abs(cur)>120?Math.sign(cur):(st.lastSide<0?-1:1), down=side<0?AIM_MAX:AIM_MIN;
+  return aim+(down-aim)*d; }
 function stepHeading(st, wantAimDeg, bankDeg, dt){
   const cl=(v,a,b)=>v<a?a:v>b?b:v;
   if (!(dt>0)) return st.aimDisp;
@@ -2124,6 +2306,7 @@ function stepHeadingOnce(st, wantAimDeg, bankDeg, dt){
    (price gaps, replay restarts, tab resume, sim impulses). A huge gap is tracked at capped speed while
    the rocket rides the soft edge of the safe band (rocketScreenY). */
 const CAM_W=1.6, CAM_VMAX=1500, CAM_AMAX=6000, CAM_SUB=1/120;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for scripts/test-camera.mjs (sliced); simStep now uses cameraFollow (pass 3 #6)
 function stepCamera(st, targetPx, dt){
   const cl=(v,a,b)=>v<a?a:v>b?b:v;
   if (!Number.isFinite(st.camPx)) st.camPx=Number.isFinite(targetPx)?targetPx:0;
@@ -2142,6 +2325,25 @@ function stepCamera(st, targetPx, dt){
   }
   return st.camPx;
 }
+/* @altfollow (pass 3 #6, lee Oct 30: "rocket height follows price ONLY — no drift, no snap-backs").
+   ROOT CAUSE of the three effects lee saw (stop buying → the jet stream glitched down; full sell → the rocket floated back
+   up; buy → zoomed up then sank): the chase camera (stepCamera, CAM_W 1.6 ≈ 1.5 s settle) LAGGED the rocket on purpose, so
+   S.ry = rocketScreenY(anchor, (displayAlt − camAlt)·PX) put the rocket above / below the anchor for ~1.5 s after every
+   price move and then slid it back to the anchor as the camera caught up — a buy rose then sank, a sell dropped then
+   floated back up, and the world-pinned contrail kinked when the camera settled after a burst of buys. On top: a buy
+   turbo hop (−34·buyBoost px, τ 0.8 s) and a W hop (−22·wBoost) that both decayed back, and paper shots' price offset
+   (DiscipleSource.paper) decaying toward the real price (τ 20 s) ⇒ a paper sell floated the price itself back up.
+   Now: altitude = a critically damped spring on the price (altSpring, no overshoot), the camera is LOCKED to that
+   altitude (cameraFollow), so after the spring settles the rocket sits at the anchor and the world's height is a pure
+   function of the price; no hops; the paper offset holds (no decay). */
+function altSpring(st, target, dt, W, Z){ W=W||10; Z=Z||1; if(!Number.isFinite(target)) return st.displayAlt;
+  if(!Number.isFinite(st.displayAlt)){ st.displayAlt=target; st.altVel=0; return target; }
+  const err=target-st.displayAlt; st.altVel=(st.altVel||0)+(W*W*err-2*Z*W*(st.altVel||0))*dt; st.displayAlt+=st.altVel*dt;
+  // critically damped: never past the target (float rounding / a big dt can't overshoot ⇒ no float-back)
+  if((target-st.displayAlt)*err<0||Math.abs(target-st.displayAlt)<2e-5&&Math.abs(st.altVel)<2e-4){ st.displayAlt=target; st.altVel=0; }
+  return st.displayAlt; }
+function cameraFollow(st, pxPerAlt, dt){ const t=st.displayAlt*pxPerAlt; if(!Number.isFinite(t)) return st.camPx;
+  st.camV=Number.isFinite(st.camPx)&&dt>0?(t-st.camPx)/dt:0; st.camPx=t; return st.camPx; }
 function rocketScreenY(anchor, offPx, Hh){ const up=Hh*0.07, dn=Hh*0.08; const o=Number.isFinite(offPx)?offPx:0;
   return anchor - (o>0? up*Math.tanh(o/up) : dn*Math.tanh(o/dn)); }
 /*CAMERA-END*/
@@ -2151,8 +2353,8 @@ function rocketScreenY(anchor, offPx, Hh){ const up=Hh*0.07, dn=Hh*0.08; const o
 let last=performance.now();
 const FIXED_DT=+Q.get('fixedDt')>0?1/+Q.get('fixedDt'):0, CAPTURE=Q.get('capture')==='1';   // ?fixedDt=30 deterministic step; ?capture=1 = manual __flight.step(n)
 let _rafOn=false;
-const RAF=f=>{ if(CAPTURE) return; if(document.hidden){ _rafOn=false; return; } _rafOn=true; requestAnimationFrame(f); };   // hidden tab: loop stops
-document.addEventListener('visibilitychange',()=>{ if(!document.hidden && !_rafOn && !CAPTURE){ last=performance.now(); acc=0; _rafOn=true; requestAnimationFrame(frame); } });
+const RAF=f=>{ if(CAPTURE||!isCurrent()) return; if(document.hidden){ _rafOn=false; return; } _rafOn=true; requestAnimationFrame(f); };   // hidden tab: loop stops
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && !_rafOn && !CAPTURE && isCurrent()){ last=performance.now(); acc=0; _rafOn=true; requestAnimationFrame(frame); } });
 /* Fixed-timestep simulation (60 Hz) decoupled from rendering. Each rAF accumulates real time, runs
    0..MAX_STEPS sim steps, then renders with visual state interpolated between the last two sim states
    (alpha = leftover/SIM_DT), so motion is identical at 30/60/120/144 Hz displays. */
@@ -2185,13 +2387,10 @@ function simStep(stepDt){
   /* SPRING — altitude tracks price. ω≈22 rad/s, ζ≈0.72 → ~150 ms rise with a little overshoot.
      Tunables: SPRING_W (stiffness), SPRING_Z (damping; <1 overshoots). */
   const SPRING_W=10, SPRING_Z=1.0;   // critically damped (~0.35 s): no overshoot bounce, no screen snap
-  simMarketStep(dt);
+  simMarketStep(dt);   // (sim off on live coins: S.simF stays 1)
   const realAlt=mcapToAlt(shownMcap());   // = the price the HUD shows and PnL marks (paper: × sim offset; live: real)
   const target=realAlt+(S.boostAnim&&S.boostAnim.length?baOffset(S.boostAnim,realAlt,performance.now()):0);   // + pending shots' visual lead (@boostanim)
-  const altErr=target-S.displayAlt;
-  S.altVel=(S.altVel||0)+ (SPRING_W*SPRING_W*altErr - 2*SPRING_Z*SPRING_W*(S.altVel||0))*dt;
-  S.displayAlt+=(S.altVel||0)*dt;
-  if (Math.abs(altErr)<2e-5 && Math.abs(S.altVel)<2e-4){ S.displayAlt=target; S.altVel=0; }
+  altSpring(S, target, dt, SPRING_W, SPRING_Z);   // @altfollow
   // volume EMAs decay (τ≈6s) → exhaust intensity
   const dec=Math.exp(-dt/6); S.volEma*=dec; S.buyEma*=dec; S.sellEma*=dec;
   // lateral steering — cosmetic only. Laggy follow so A/D banks instead of teleporting.
@@ -2215,7 +2414,7 @@ function simStep(stepDt){
   /* FORWARD SPEED from volume + momentum: rolling USD/s (volEma τ6 s) normalised by the tier's FLARE
      preset, plus |buy−sell| imbalance. Second-order smoothed (ω=1.4) so it never jumps.
      Quiet ≈ 60 px/s drift, heavy flow → ~520 px/s blast. */
-  { const ref=Math.max(MIN_SHOT,SIM_BASE_USD), x=(MOM.vol/TF.sec)/ref + Math.abs(MOM.buy-MOM.sell)/TF.sec/ref*0.6;   // candle-window volume
+  { const ref=Math.max(DUST_USD,SIM_BASE_USD), x=(MOM.vol/TF.sec)/ref + Math.abs(MOM.buy-MOM.sell)/TF.sec/ref*0.6;   // candle-window volume
     const tgt=60+460*(1-Math.exp(-x*0.8)), w=1.4; S.fwdV=(S.fwdV||0)+(w*w*(tgt-(S.fwd||60))-2*w*(S.fwdV||0))*dt; S.fwd=(S.fwd||60)+S.fwdV*dt;
     S.fwdN=clamp((S.fwd-60)/460,0,1); }
   /* AIRSPEED (vertical scroller): the rocket is always flying up through the air, so cosmetic layers
@@ -2240,14 +2439,14 @@ function simStep(stepDt){
   S.lean=clamp((S.steer?S.steer.vx:0)/(STEER_VMAX*W)+Math.tanh((S.drift||0)*0.35/60)*0.3,-1,1);                 // lateral term: drift / lane change → which side, how far (follows velocity)
   // vertical velocity for attitude: the ~10 s candle window (smooth trend) blended with the live climb rate,
   // so a dump tips the nose over promptly instead of waiting for the window to turn
-  S.vyAtt=0.45*(S.momV||0)+0.55*(S.vyS||0)-260*(S.dive||0);   // S/↓ dive noses down
-  stepHeading(S, aimFromMotion(S.vyAtt, S.lean, S.fight, PX_PER_ALT*0.02, S), 0, dt);   // v0 = 2% of a tier per second (source-independent)
+  S.vyAtt=0.45*(S.momV||0)+0.55*(S.vyS||0);   // market motion stays separate from cosmetic manual dive
+  stepHeading(S, aimWithDive(aimFromMotion(S.vyAtt, S.lean, S.fight, PX_PER_ALT*0.02, S), S.dive, S), 0, dt);   // v0 = 2% of a tier per second (source-independent)
   S.heading=Math.PI/2 - S.aimDisp*Math.PI/180; S.tilt=S.heading;
-  // CAMERA — critically damped spring in pixel space, then hard caps on speed and acceleration.
-  // It lags the rocket on purpose, so the ROCKET visibly rises / drops on screen, then the view follows.
+  // CAMERA — locked to the price altitude (@altfollow). Was: stepCamera's lagging chase (the rocket rose / dropped on
+  // screen, then slid back to the anchor as the view caught up = the sink / float-back lee saw).
   if (S.camAlt==null) S.camAlt=S.displayAlt;
   if (S.camX==null) S.camX=S.x;
-  stepCamera(S, S.displayAlt*PX_PER_ALT, dt);
+  cameraFollow(S, PX_PER_ALT, dt);
   S.camAlt=S.camPx/PX_PER_ALT;
   /* CINEMATIC CAMERA (Touch Grass + cine flag only): a second, much slower critically-damped follow on top of the
      normal camera (~1.6 s settle vs ~0.4 s), softer lateral follow, the anchor a little higher (more sky under the
@@ -2259,7 +2458,7 @@ function simStep(stepDt){
   { const PD=phoneHud(W,CLEAN), ay=S.cine?H*0.55:PD&&PD.drawer&&PD.dTop>0?Math.min(ROCKET_Y,PD.dTop-44):ROCKET_Y;   // @phone-hud: drawer open ⇒ the rocket rides above it
     S.anch=S.anch==null?ROCKET_Y:lerp(S.anch,ay,1-Math.exp(-dt*(S.cine?0.8:5))); }
   // rocket screen y: true altitude vs camera, soft-limited to the safe band (tanh, never a hard stop)
-  S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) - 22*(S.wBoost||0) - 34*(S.buyBoost||0) + 40*(S.dive||0);   // W nudge / buy turbo hop, decays back
+  S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) + 40*(S.dive||0);   // @altfollow: no buy/W hop (they decayed back = a sink); S/↓ dive only while held
   // idle bob / sway / micro-rot — attenuated during thrust so they don't fight heading
   const thrustHold=sinceThrust<1.2? clamp(1-sinceThrust/1.2,0,1) : 0;
   const amp=(1+(Math.abs(vUpRaw)/500))*(1-0.7*thrustHold);
@@ -2286,7 +2485,7 @@ function simStep(stepDt){
   if (!S._trailAcc) S._trailAcc=0; S._trailAcc+=dt;
   const lt=S.trail[S.trail.length-1], moved=!lt || Math.hypot(lt.x-nozX, trailY(lt)-nozY)>1.8;
   if (S._trailAcc>0.05 || moved){ S._trailAcc=0;
-    S.trail.push({x:nozX, alt:nozAlt, air:S.airPx||0, thrust:sinceThrust<0.25});
+    S.trail.push({x:nozX, alt:nozAlt, air:S.airPx||0, thrust:sinceThrust<0.25||tradePendingFx()});
     S._trailEmitErr=Math.max(S._trailEmitErr||0, Math.abs(trailY(S.trail[S.trail.length-1])-nozY));   // test hook: ≈0 by construction
     if (S.trail.length>TRAIL_MAX){ const T=S.trail, half=T.length>>1; let j=1;   // decimate the older half (fine detail only near the nozzle)
       for(let i=1;i<half;i++){ if(i&1) continue; T[j++]=T[i]; } for(let i=half;i<T.length;i++) T[j++]=T[i]; T.length=j; }
@@ -2301,6 +2500,33 @@ function simStep(stepDt){
   { const P=S.particles; for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*(p.dk||2.2); if(p.life<=0) P.kill(i); } }   // dk: launch stat (plume lifetime)
   { const P=S.shards; for (let i=P.n-1;i>=0;i--){ const s=P.a[i]; s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=500*dt; s.life-=dt*0.9; if(s.life<=0||s.y>H+20) P.kill(i); } }
   for (const f of S.flashes) f.life-=dt*0.8; keepIf(S.flashes,ALIVE);
+
+/* @orb-hit — any part of the drawn rocket (tip, wings, body, tail) counts as a hit, not a box at the nozzle.
+   Local sprite space matches drawRocket: nozzle at (0,0), tip at (0, -pivotY), sprite w×h, rotated by the same angle. */
+function rocketGeom(){
+  const im=typeof IMG!=='undefined'&&IMG.rocket, h=150, w=(im&&im.naturalWidth)?h*im.naturalWidth/im.naturalHeight:55;
+  const pivotY=h*0.96, pos=typeof nozzleXY==='function'?nozzleXY():[(S.camX!=null?S.camX:S.x),S.ry];
+  const ang=typeof rocketVisAngle==='function'?rocketVisAngle():(S.heading||0);
+  return {nx:pos[0],ny:pos[1],w,h,pivotY,ang,ca:Math.cos(ang),sa:Math.sin(ang)};
+}
+function hitPoly(x,y,poly,r){
+  let inside=false, minD2=Infinity;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const xi=poly[i][0], yi=poly[i][1], xj=poly[j][0], yj=poly[j][1];
+    if(((yi>y)!==(yj>y)) && (x<(xj-xi)*(y-yi)/(yj-yi)+xi)) inside=!inside;
+    const vx=xj-xi, vy=yj-yi, len=vx*vx+vy*vy, t=len>0?Math.max(0,Math.min(1,((x-xi)*vx+(y-yi)*vy)/len)):0;
+    const dx=x-(xi+t*vx), dy=y-(yi+t*vy); const d2=dx*dx+dy*dy; if(d2<minD2) minD2=d2;
+  }
+  return inside || minD2<=(r+0.25)*(r+0.25);   // 0.25px slop so a vertex at a rotated angle still counts (cos(π/2) is not 0)
+}
+function rocketHits(px,py,rad){
+  const g=rocketGeom();
+  const dx=px-g.nx, dy=py-g.ny, lx=dx*g.ca+dy*g.sa, ly=-dx*g.sa+dy*g.ca, r=rad>0?rad:0;
+  const hw=g.w/2, tipY=-g.pivotY, tailY=g.h-g.pivotY, midY=tipY+g.h*0.42, foreY=tipY+g.h*0.18;
+  return hitPoly(lx,ly,[[0,tipY],[-hw*0.28,foreY],[-hw,midY],[-hw*0.35,tailY],[hw*0.35,tailY],[hw,midY],[hw*0.28,foreY]],r);
+}
+function orbHitsRocket(o){ return rocketHits(o.x,o.y,(ORB[o.k]&&ORB[o.k].r)||14); }
+/* @orb-hit-end */
   // motes drift down (speed ∝ trade flow), collect by steering
   const flow=1+Math.log10(1+S.buyEma)*0.5;
   // OFF-CHAIN ORB LAYER: reward spawn ∝ buy flow, penalty spawn ∝ sell flow (server-seeded in prod)
@@ -2308,12 +2534,12 @@ function simStep(stepDt){
   const P=ORB_SPAWN, room=S.orbsOn&&S.motes.length+S.obstacles.length<P.maxOnScreen&&S.t-S.lastOrbT>=P.minGap;
   if (room&&Math.random()<dt*Math.min(P.rewardMax,P.rewardBase+P.rewardFlow*Math.log10(1+S.buyEma))){ const r=Math.random(); S.motes.push({k:r<0.85?'halo':'mult',x:lane(),y:-20,v:90+Math.random()*40}); S.lastOrbT=S.t; }
   else if (room&&Math.random()<dt*Math.min(P.penaltyMax,P.penaltyBase+P.penaltyFlow*Math.log10(1+S.sellEma))){ S.obstacles.push({k:Math.random()<0.7?'storm':'void',x:lane(),y:-40,v:100}); S.lastOrbT=S.t; }
-  for (const m of S.motes){ m.y+=m.v*dt*flow; if (Math.abs(m.x-S.x)<50&&Math.abs(m.y-S.ry)<40){ m.dead=true; const T=ORB[m.k];
+  for (const m of S.motes){ m.y+=m.v*dt*flow; if (orbHitsRocket(m)){ m.dead=true; const T=ORB[m.k];
       if (m.k==='mult'){ S.mult=2; S.multUntil=S.t+10; }
       const pts=T.pts*S.mult*(1+Math.floor(S.streak/10)); S.score+=pts; S.streak++; S.collected++;
       S.floaters.push({x:m.x,y:m.y-20,txt:m.k==='mult'?'×2 POINTS 10s':'+'+pts,c:T.rim||'#ffe7a3',life:1.2});
       if(S.streak===10) award('streak10','PERFECT LANE ×10','10 reward orbs in a row'); if(S.collected===25) award('c25','HALO HOARDER','25 reward orbs collected'); } }
-  for (const o of S.obstacles){ o.y+=o.v*dt*flow; if (!o.hit&&Math.abs(o.x-S.x)<50&&Math.abs(o.y-S.ry)<40){ o.hit=true; o.dead=true; const T=ORB[o.k];
+  for (const o of S.obstacles){ o.y+=o.v*dt*flow; if (!o.hit&&orbHitsRocket(o)){ o.hit=true; o.dead=true; const T=ORB[o.k];
       const loss=Math.min(S.score,T.pts); S.score-=loss; S.streak=0; if(o.k==='void') S.slowUntil=S.t+3;
       S.floaters.push({x:o.x,y:o.y-20,txt:'−'+loss+(o.k==='void'?' · SLOWED 3s':' · streak lost'),c:'#ff5a6a',life:1.4});
       S.flashes.push({txt:o.k==='void'?'VOID ORB · steering slowed':'STORM ORB · −'+loss+' pts',life:1.2,c:'#ff7a85'});
@@ -2360,42 +2586,50 @@ function usdToReach(M,Mt){
   if (Mt>TB_M1) q+=poolQuote(Mt)-poolQuote(Math.max(M,TB_M1));
   return q/(1-TB_FEE);
 }
-/* @tier-label (maker lee 11:29 CT): "X% to NEXT_TIER" on the tier bar, phone + desktop. Same log progress as the bar fill;
-   whole percent rounded DOWN (never claims 100% before the tier is reached); next tier name as TIERS spells it (caps).
-   Top tier (no next tier): no label — desktop keeps its ★ TOP TIER line, the phone pill already names the tier. */
-function tierProgress(m,ti){ const t=TIERS[ti], nx=TIERS[ti+1]||null, lo=t.lo, hi=nx?nx.lo:t.hi;
-  return { f:clamp(Math.log(Math.max(m,lo)/lo)/Math.log(hi/lo),0,1), next:nx }; }
-function tierLineEnd(ti,t){ ctx.save(); ctx.font='bold 14px ui-monospace,monospace'; let e=36+ctx.measureText(`TIER ${ti} · ${t.name}`).width;
-  const rl=tierRulesText(); if(rl){ ctx.font='bold 12px ui-monospace,monospace'; e+=ctx.measureText('  ·  '+rl).width; } ctx.restore(); return e; }
-function tierLabel(f,nx){ return nx ? `${Math.min(99,Math.max(0,Math.floor(f*100)))}% to ${nx.name}` : ''; }
+/* @tier-label (maker lee 11:29 CT, reworked Oct 30): "+X% to NEXT_TIER" on the tier bar, phone + desktop, ascended coins too;
+   next tier name as TIERS spells it (caps). Top tier (no next tier): no label — desktop keeps its ★ TOP TIER line, the phone
+   pill already names the tier.
+   @tier-progress (lee, Oct 30): progress = the mcap INCREASE still needed to reach the next tier, not the way through the band:
+   pct = (next.lo / mcap − 1) × 100 ($7.2K → +67% to OZONE). Bar fill f = mcap / next.lo, the same number (f = 1 / (1 + pct/100)),
+   so a bar at 60% reads "+67% to go". Top tier: no next, f = 1, no label. */
+function tierProgress(m,ti){ const nx=TIERS[ti+1]||null;
+  return { f:nx?clamp((m>0?m:0)/nx.lo,0,1):1, next:nx }; }
+function tierUpPct(m,nx){ return nx&&m>0?Math.max(0,(nx.lo/m-1)*100):null; }
+function fmtUpPct(p){ return p>=9.95?String(Math.round(p)):Math.max(0.1,Math.ceil(p*10)/10).toFixed(1); }   // ≥10: whole %, else 1 dp rounded UP (never "+0%")
+function tierLineEnd(ti){ ctx.save(); ctx.font='bold 14px ui-monospace,monospace'; const e=36+ctx.measureText(tierText(ti)).width; ctx.restore(); return e; }   // tier text only (no rules text, pass 3 #2)
+/* @tier-name — ONE tier label for the sky, used by the desktop HUD, the phone pill and the tier banner: the tier NAME only,
+   never a number (lee, Oct 30: "LAUNCH PAD", never "Tier 0"), from the TIERS ladder. The sky follows the CURRENT price, no
+   floor (lee, Oct 26: "No, keep the tier following price"); an ascended (graduated) coin always shows its current tier too:
+   "ASCENDED · LAUNCH PAD" (lee, Oct 30 — undoes #204's hiding of LAUNCH PAD). */
+function tierName(ti){ const t=TIERS[ti]; return t?t.name:''; }
+function tierText(ti){ const n=tierName(ti); return S.graduated?(n?`${ASCENDED} · ${n}`:ASCENDED):n; }
+/* @tier-name-end */
+function tierLabel(m,nx){ const p=tierUpPct(m,nx); return p==null?'':`+${fmtUpPct(p)}% to ${nx.name}`; }
 /* @tier-label-end */
-/* drawn inside the top-left MCAP panel (36..384 × 112..142): fill = log progress inside the tier band */
+/* drawn inside the top-left MCAP panel (36..384 × 112..142): fill = mcap / next tier lo (@tier-progress) */
 function drawTierBar(m,ti,leftEnd){
   const t=TIERS[ti], {f,next:nx}=tierProgress(m,ti);
   const X=36, Y=114, BW=348, BH=7;
-  if (S.graduated){ S.tierNeedText=''; S.gradBadge=GRAD_BADGE; drawGradBadgeDesk(X,Y,BW,BH);   // @graduated: badge replaces the curve progress + need text
-    if(!nx||curveTierProgress(nx)) return; }
-  else S.gradBadge='';
+  // @graduated (pass 3 #2, lee): ASCENDED shows ONCE — in the TIER line ('ASCENDED · LAUNCH PAD'). The separate gold
+  // 'ASCENDED · trading on Uniswap' badge under it (drawGradBadgeDesk) is gone; an ascended coin gets the same progress bar +
+  // '+X% to NEXT' label as any coin (no curve '$ to ascend' need text). S.gradBadge stays as the state flag (worker mirror).
+  S.gradBadge=S.graduated?GRAD_BADGE:''; if (S.graduated) S.tierNeedText='';
   ctx.fillStyle='rgba(255,255,255,.10)'; ctx.fillRect(X,Y,BW,BH);
   const g=ctx.createLinearGradient(X,0,X+BW,0); g.addColorStop(0,'#c99b3c'); g.addColorStop(1,'#ffe7a3'); ctx.fillStyle=g; ctx.fillRect(X,Y,Math.max(2,BW*f),BH);
   ctx.fillStyle='rgba(255,255,255,.35)'; for(let i=1;i<4;i++) ctx.fillRect(X+BW*i/4,Y,1,BH);
   ctx.strokeStyle='rgba(255,231,163,.35)'; ctx.lineWidth=1; ctx.strokeRect(X+.5,Y+.5,BW-1,BH-1);
   ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.6)';
-  if(!S.graduated){ let lb=tierLabel(f,nx); if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));   // long rules text: fall back to the bare %
-    if(lb) ctx.fillText(lb,384,108); }
+  { let lb=tierLabel(m,nx); if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));   // long tier text: fall back to the bare %
+    if(lb&&(leftEnd||0)+12<=384-ctx.measureText(lb).width) ctx.fillText(lb,384,108); }   // …and never over the TIER text
   ctx.textAlign='left'; ctx.font='bold 10px ui-monospace,monospace';
   if (nx){ ctx.fillStyle='rgba(220,228,255,.85)'; if(!S.graduated) ctx.fillText(`→ ${nx.name} ${fmtUsd(nx.lo)}`,X,Y+BH+13);
-    // need line (GAME post-grad fix 2): the exact curve amount when TradeBridge has it ("$0.29 to graduate") and ONLY that; else
+    // need line (GAME post-grad fix 2): the exact curve amount when TradeBridge has it ("$0.29 to ascend") and ONLY that; else
     // the HUD estimate, marked ≈ … (est.); amounts round UP to the cent (fmtNeed) — never "≈$0"; nothing once graduated
     const nt=tierNeedText(m,nx,{graduated:S.graduated,exact:S.gradNeedUsd,est:S.gradNeedUsd!=null&&m<TB_M1?0:usdToReach(m,nx.lo)}); S.tierNeedText=nt;
     if(nt){ ctx.textAlign='right'; ctx.fillStyle=S.gradNeedUsd!=null&&m<TB_M1?'#9ff3c8':'rgba(159,243,200,.7)'; ctx.fillText(nt,384,Y+BH+13); ctx.textAlign='left'; } }
   else { ctx.fillStyle='#ffe7a3'; drawIcon('star',X,Y+BH+3,12,'#ffe7a3'); ctx.fillText('TOP TIER',X+15,Y+BH+13); }
 }
 
-/* @graduated badge, desktop: a gold pill on the tier-bar row (replaces the curve bar while the next tier is a curve tier) */
-function drawGradBadgeDesk(X,Y,BW,BH){ ctx.save(); ctx.font='bold 10px ui-monospace,monospace'; const tw=ctx.measureText(GRAD_BADGE).width, bw=Math.min(BW,tw+16), by=Y+BH+2;
-  ctx.fillStyle='rgba(255,216,115,.16)'; rrect(X,by,bw,16,8); ctx.fill(); ctx.strokeStyle='rgba(255,216,115,.55)'; ctx.lineWidth=1; rrect(X+.5,by+.5,bw-1,15,8); ctx.stroke();
-  ctx.fillStyle='#FFD873'; ctx.textAlign='left'; ctx.fillText(GRAD_BADGE,X+8,by+11.5); ctx.restore(); }
 /* ---- 2) chart-map: tiny dexscreener-style mcap candle chart in a game-map frame (M toggles) ----
    Real OHLC on fixed wall-clock buckets (1m / 5m / 1h / 4h / D; 5m default; toggles in the title bar).
    Every tick (each swap + the per-frame mark) feeds ALL intervals from the same history, so switching is instant.
@@ -2444,7 +2678,7 @@ if(!CLEAN) setTimeout(()=>{ try{ chartState(); }catch(_){} },0);   /* live: crea
 /* real USDG of an indexed fill (/api/trades, SITE #113): sells usdOut (received), buys usdIn (paid); older fills lack them ⇒ usd */
 function fillUsd(f){ const v=f&&(f.side==='sell'?(f.usdOut??f.usd):(f.usdIn??f.usd)); return +v>0?+v:0; }
 function feedHistNames(rows){ const want=[...new Set(rows.filter(r=>r.tr&&/^0x[0-9a-f]{40}$/.test(r.tr)&&!NAMES[r.tr]&&!(window.__discipleNames&&window.__discipleNames[r.tr])).map(r=>r.tr))];
-  for(const a of want) fetch('/api/profile/username?address='+a,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{ const n=j&&typeof j.username==='string'&&j.username.trim(); if(n){ NAMES[a]=n; feedRelabel(S.feed); } }).catch(()=>{}); }
+  if(want.length) try{ dispatchEvent(new CustomEvent('disciple:names-want',{detail:{addresses:want}})); }catch(_){} }   // the site resolves them (lib/nameLookup cache, ≤3 at a time) → 'disciple:feednames'
 function chartBackfill(){ const C=CH, coin=Q.get('coin'); if(!C||!C.live||CLEAN||C.hist||!/^0x[0-9a-fA-F]{40}$/.test(coin||'')) return; C.hist=1;
   fetch('/api/trades?coin='+coin+'&limit=5000&order=desc').then(r=>r.ok?r.json():null).then(j=>{ const fills=j&&Array.isArray(j.fills)?j.fills:[]; if(!fills.length) return;
     const me=String(window.__flightWallet||Q.get('wallet')||'').toLowerCase(), keep=CHART_STYLE.keep;
@@ -2457,7 +2691,8 @@ function chartBackfill(){ const C=CH, coin=Q.get('coin'); if(!C||!C.live||CLEAN|
     for(const f of fs) if(f.mine&&f.m>0&&(f.usd>0||f.side==='sell')) C.mine.push({t:f.t,side:f.side,m:f.m});   // own sells always marked
     C.mine.sort((a,b)=>a.t-b.t); if(C.mine.length>60) C.mine.splice(0,C.mine.length-60); C.L0=C.L1=null; C.at=-1;
   }).catch(e=>{ C.hist=0; console.warn('[chart] history failed',e&&e.message); }); }
-function setChartMap(on){ const C=chartState(); C.on=on==null?!C.on:!!on; try{ localStorage.setItem('disciple.chartmap',C.on?'on':'off'); }catch(_){} C.at=-1; return C.on; }
+function setChartMap(on){ if(domChart()){ try{ dispatchEvent(new CustomEvent('disciple:chartmap',{detail:{toggle:on==null,on:on==null?null:!!on}})); }catch{ /* no window */ } return null; }   /* M → the DOM chart card (DexChart) */
+  const C=chartState(); C.on=on==null?!C.on:!!on; try{ localStorage.setItem('disciple.chartmap',C.on?'on':'off'); }catch(_){} C.at=-1; return C.on; }
 function setChartTf(s){ const C=chartState(); if(!(s in C.k)) return C.tf; C.tf=s; C.L0=C.L1=null; C.at=-1; try{ localStorage.setItem('disciple.chartmap.tf',String(s)); }catch(_){} return s; }
 const chartNow=()=>chartState().T0+S.t;
 /* one tick into every interval: price m (mcap), optional swap volume */
@@ -2486,19 +2721,27 @@ function ownSellSwap(e){ if(!e||(e.side!=='sell'&&e.side!=='buy')||!e.mine||!e.t
   if(S.rcptDrawn.has(k)){ S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); try{ chartState().seen.add(e.logIndex!=null?e.txHash+':'+e.logIndex:e.txHash); chartTick(e.mcap*(isLive()?1:(S.simF||1)),0,e.side); }catch(_){} return null; }
   const r=S.rcpt.get(k); if(!(e.usd>0)&&r&&r.usd>0) e={...e,usd:r.usd};
   S.rcptDrawn.add(k); return e; }
+/* @bombimpact — pass 3 #7: the receipt detail carries no impactPct and a DISCIPLE source has no pool `L`, so
+   estimateImpactPct() returned 0 ⇒ a PUFF (tier 0), and the feed swap that carries the real impactPct is skipped for that
+   tx (already drawn) ⇒ live own sells never showed a bomb. Use the receipt's impact when present, else the source's own
+   curve/pool impact for this $ at the current (pre-trade) mark — same estimate the BOOST ghost uses. */
+function rcptSellImpactPct(d,usd){ const x=d&&d.impactPct; if(typeof x==='number'&&Number.isFinite(x)) return Math.abs(x);
+  let r=1; try{ r=source&&source.impact?+source.impact(usd,'sell'):1; }catch{ r=1; }
+  return r>0&&Number.isFinite(r)?Math.abs(r-1)*100:0; }
+/* @bombimpact-end */
 function onFillReceipt(d){ if(!d||!d.txHash||(d.side!=='sell'&&d.side!=='buy')) return; const usd=+d.usd; if(!(usd>=0)||!Number.isFinite(usd)) return; const k=String(d.txHash).toLowerCase();
   S.rcpt.set(k,{usd}); if(S.rcpt.size>200) S.rcpt.delete(S.rcpt.keys().next().value);
   if(S.rcptDrawn.has(k)) return;   // the feed swap already drew it
   S.rcptDrawn.add(k); if(S.rcptDrawn.size>400) S.rcptDrawn=new Set(Array.from(S.rcptDrawn).slice(-200));
   if(d.side==='buy'){ ownBuyReceipt(usd,k); return; }
   const m=markMcap(); if(m>0){ chartTick(m,usd,'sell'); chartMine('sell',m,k); }
-  if(usd>0){ momNote('sell',usd); const fs=S.fullStackNext; S.fullStackNext=false; noteSell({side:'sell',usd,impactPct:d.impactPct,trader:null,mine:true,fullStack:fs}); }
-  S.feed.unshift({txt:`▼ DUMP ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  (you)`,c:'#ffb0c8'}); S.feed.length=Math.min(S.feed.length,7); }
+  if(usd>0){ momNote('sell',usd); const fs=S.fullStackNext; S.fullStackNext=false; noteSell({side:'sell',usd,impactPct:rcptSellImpactPct(d,usd),trader:null,mine:true,fullStack:fs}); }
+  { const pre=`▼ DUMP ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `; S.feed.unshift({at:Date.now(),received:true,txt:pre+'(you)',c:'#ffb0c8',own:1,pre,tr:S.wallet||undefined}); /* own: un-tagged on sign-out / switch (feedUnown) */ } S.feed.length=Math.min(S.feed.length,7); }
 /* own BUY at confirm (trade speed): the public feed lags the sequencer ~0.7 s, so the decoded receipt draws the own buy NOW
    (marker + candle volume + TRADES row + fueler credit); the feed swap for that tx later only moves the price. */
 function ownBuyReceipt(usd,k){ const m=markMcap(); if(m>0){ chartTick(m,usd,'buy'); chartMine('buy',m,k); }
   if(!(usd>0)) return; S.fuelers.you=(S.fuelers.you||0)+usd; award('first','FIRST FLAME','first confirmed thrust'); momNote('buy',usd); S.volEma+=usd; S.buyEma+=usd;
-  S.feed.unshift({txt:`▲ BOOST ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  (you)`,c:'#9ff3c8'}); S.feed.length=Math.min(S.feed.length,7); }
+  { const pre=`▲ BOOST ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `; S.feed.unshift({at:Date.now(),received:true,txt:pre+'(you)',c:'#9ff3c8',own:1,pre,tr:S.wallet||undefined}); /* own: un-tagged on sign-out / switch (feedUnown) */ } S.feed.length=Math.min(S.feed.length,7); }
 addEventListener('disciple:fillreceipt',e=>onFillReceipt(e.detail));
 /* @sellfill-end */
 /* pool label like Uniswap: $BASE/QUOTE fee% (total fee = LP fee + hook fee) */
@@ -2508,15 +2751,29 @@ const p2=n=>String(n).padStart(2,'0'), MON=['Jan','Feb','Mar','Apr','May','Jun',
 function chartTimeLabel(t,tf,live){ if(!live){ const s=Math.round(t); return Math.floor(s/60)+':'+p2(s%60); }
   const d=new Date(t*1000); return tf>=86400?MON[d.getMonth()]+' '+d.getDate():tf>=14400&&d.getHours()===0?MON[d.getMonth()]+' '+d.getDate():tf<60?p2(d.getMinutes())+':'+p2(d.getSeconds()):p2(d.getHours())+':'+p2(d.getMinutes()); }   /* sub-minute: mm:ss */
 const CHART_LABEL_STEP={5:30,60:900,300:3600,3600:6*3600,14400:86400,86400:7*86400};
-/* live: between the React PnL panel (top 212, ~240 tall when open) and the trades feed (H−160); shrinks to fit, min 132 */
-const GRID_COLS='ABCDEFGH';
-const CHART_PNL_BOTTOM=456;
+/* live: between the React PnL panel and the trades feed (H−172); shrinks to fit. The panel publishes its real bottom
+   (components/PnlHud → window.__pnlBottom, wrap px; null on the phone / hidden): the chart always starts below it, so the
+   "Your Position" card never covers the chart (lee, Oct 30; was a fixed 456 guess ⇒ overlap on short desktops). */
+/* @domchart: the coin page mounts the DOM DEX chart (window.__domChart, worker-mirrored) ⇒ the canvas chart is not drawn, hit-tested
+   or published as a card (its history fetch still runs: it seeds the TRADES feed + first mark). Never in CLEAN replays. */
+function domChart(){ return !CLEAN&&typeof window!=='undefined'&&!!window.__domChart; }
+const CHART_PNL_BOTTOM=456, CHART_PNL_GAP=8, CHART_MIN_H=100;
 function chartRect(){ const st=CHART_STYLE; if(CLEAN) return {x:20,y:H-20-st.h,h:st.h};
+  if(domChart()){ delete CARD_RECTS.chart; return {x:-1e4,y:-1e4,w:st.w,h:st.h,off:1}; }
   { const P=phoneHud(W,CLEAN); if(P){ const B=P.body; return P.sheet==='chart'&&B?{x:Math.round(B.x),y:Math.round(B.y+4),w:Math.round(Math.max(st.w*0.8,B.w)),h:Math.round(Math.max(132,B.h-8))}:{x:-1e4,y:-1e4,w:st.w,h:st.h}; } }   /* post-grad fix 4: the CHART tab fills the drawer body */   /* @phone-hud: chart only inside the drawer's CHART tab */
   if (source.isSim){ const y=Math.round(hudColTop(W,S.hudRT||18)+204), h=Math.round(clamp(H-116-y,132,st.h)); return {x:W-320,y,h}; }   /* /flight/sim: SimMode panel owns bottom-left; right column is free (no crew/chat) */
-  const h=Math.round(clamp(H-172-CHART_PNL_BOTTOM,132,st.h)); return {x:20,y:H-172-h,h}; }
+  { const b=chartDeskRect(H,st.h,typeof window!=='undefined'?window.__pnlBottom:null); if(b.off){ delete CARD_RECTS.chart; return b; }   /* @cards: movable / minimizable */
+    const o=cardPlace('chart',b.x,b.y,st.w,b.h); return o?{x:b.x+o.dx,y:b.y+o.dy,h:b.h}:{x:-1e4,y:-1e4,h:b.h,off:1}; } }
+/* @chart-desk: desktop live chart box under the PnL card (pb = its bottom, wrap px) and above the trades feed (floor).
+   Never overlaps either (lee, Oct 30): it starts at the card bottom + gap and is cut to the room left; when that room is
+   under CHART_MIN_H (short window + expanded card, e.g. ~680px) the chart is parked off-screen until there is room again
+   (collapse the card or grow the window) instead of being drawn over the card or the feed. */
+function chartDeskRect(H,maxH,pb){ const top=Number.isFinite(+pb)&&+pb>0?+pb+CHART_PNL_GAP:CHART_PNL_BOTTOM, floor=H-172;
+  const room=Math.floor(floor-top); if(!(room>=CHART_MIN_H)) return {x:-1e4,y:-1e4,h:CHART_MIN_H,off:1};
+  const h=Math.round(Math.min(room,maxH)); return {x:20,y:Math.round(Math.max(floor-h,top)),h}; }
+/* @chart-desk-end */
 /* title-bar interval buttons → canvas hit-test (pointerdown) */
-function chartBtnAt(e){ const C=CH; if(!C||!(C.on||(phoneHud(W,CLEAN)||{}).sheet==='chart')||CLEAN||!C.btn.length) return null; const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height, R=chartRect();
+function chartBtnAt(e){ const C=CH; if(!C||domChart()||!(C.on||(phoneHud(W,CLEAN)||{}).sheet==='chart')||CLEAN||!C.btn.length) return null; const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height, R=chartRect();
   for(const b of C.btn) if(x>=R.x+b.x&&x<=R.x+b.x+b.w&&y>=R.y+b.y&&y<=R.y+b.y+b.h) return b.s; return null; }
 function redrawChart(dt){
   const st=CHART_STYLE, C=chartState(), R0=chartRect(), h=R0.h, w=R0.w||st.w; if(!C.cv){ C.cv=document.createElement('canvas'); C.cv.width=w; } if(C.cv.width!==w) C.cv.width=w; if(C.cv.height!==h) C.cv.height=h;
@@ -2536,20 +2793,17 @@ function redrawChart(dt){
       if(on){ g.fillStyle=st.frameMid; g.fillRect(x,7,bw,st.title-8); g.strokeStyle=st.frameBevelLo; g.lineWidth=1; g.strokeRect(x+.5,7.5,bw-1,st.title-9); g.strokeStyle=st.frameBevelHi; g.beginPath(); g.moveTo(x+bw-.5,7.5); g.lineTo(x+bw-.5,st.title-1.5); g.lineTo(x+.5,st.title-1.5); g.stroke(); }   /* pressed bevel */
       g.fillStyle=on?st.btnOn:st.btn; g.textAlign='center'; g.fillText(t.l,x+bw/2,tyM); C.btn.push({s:t.s,x,y:5,w:bw,h:st.title-4}); x-=2; }
     g.textAlign='left'; }
-  // plot area (Warzone grid with lettered/numbered edges); bottom strip = time axis, bottom band of the plot = volume
+  // plot area (faint grid; the A–H / 1–5 spreadsheet edge labels are gone, Oct 30); bottom strip = time axis, bottom band = volume
   const px=5+st.gutter, py=st.title+3+st.top, pw=w-5-st.axis-px, xh=st.xaxis, ph=h-6-xh-py, vh=Math.round(ph*st.volFrac), pph=ph-vh-2;
   g.fillStyle=st.bg; g.fillRect(5,st.title+3,w-10,h-st.title-8);
-  g.font='8px ui-monospace,monospace'; g.fillStyle=st.edgeFg; g.textAlign='center';
-  const NC=GRID_COLS.length, NR=5;
-  for(let i=0;i<NC;i++) g.fillText(GRID_COLS[i],px+pw*(i+.5)/NC,st.title+3+st.top/2+3);
-  for(let j=0;j<NR;j++) g.fillText(String(j+1),5+st.gutter/2,py+ph*(j+.5)/NR+3);
+  const NC=8, NR=5;
   g.strokeStyle=st.grid; g.lineWidth=1; g.beginPath();
   for(let i=0;i<=NC;i++){ const x=Math.round(px+pw*i/NC)+.5; g.moveTo(x,py); g.lineTo(x,py+ph); }
   for(let j=0;j<=NR;j++){ const y=Math.round(py+ph*j/NR)+.5; g.moveTo(px,y); g.lineTo(px+pw,y); } g.stroke();
   g.textAlign='left';
-  const tf=C.tf, all=C.k[tf]||[], now=chartNow(), cw=pw/st.candles;
-  /* time → x: smooth scroll; latest bucket's centre sits ~1 candle in from the right edge */
-  const X=b=>px+pw-((now+tf*0.6)-(b+0.5)*tf)/tf*cw;
+  const tf=C.tf, all=C.k[tf]||[], now=chartNow(), n=st.candles, cw=pw/n, RT=now;   /* fixed live window: n candles, right edge = now */
+  /* time → x: smooth scroll; latest bucket's centre sits ~1 candle in from the right edge (panned: the view's right edge RT) */
+  const X=b=>px+pw-((RT+tf*0.6)-(b+0.5)*tf)/tf*cw;
   const cs=[]; for(const k of all){ const x=X(k.b); if(x>px-cw&&x<px+pw+cw) cs.push(k); }
   g.font='8px ui-monospace,monospace';
   if (!cs.length){ g.fillStyle=st.edgeFg; g.fillText('waiting for trades…',px+8,py+pph/2); return; }
@@ -2565,8 +2819,8 @@ function redrawChart(dt){
   if(C.L0==null){ C.L0=T0; C.L1=T1; } else { const a=1-Math.exp(-(dt||0.125)*5); C.L0+=(T0-C.L0)*a; C.L1+=(T1-C.L1)*a; C.L0=Math.min(C.L0,lg(lo)); C.L1=Math.max(C.L1,lg(hi)); }
   const L0=C.L0, L1=C.L1, pt=py+12, pa=pph-12, Y=v=>pt+pa*(1-(lg(v)-L0)/(L1-L0));   /* price area below the OHLC readout */
   // time axis labels under the grid (wall clock live, elapsed m:ss in replay)
-  const NT=4, step=CHART_LABEL_STEP[tf]||tf*8; g.fillStyle=st.edgeFg; g.textAlign='center';
-  for(let t=Math.ceil((now-tf*st.candles)/step)*step;t<=now;t+=step){ const x=X(t/tf-0.5); if(x>px+12&&x<px+pw-12) g.fillText(chartTimeLabel(t,tf,C.live),x,py+ph+xh-1); }
+  const NT=4, step=(CHART_LABEL_STEP[tf]||tf*8)*Math.max(1,Math.ceil(n/st.candles)); g.fillStyle=st.edgeFg; g.textAlign='center';
+  for(let t=Math.ceil((RT-tf*n)/step)*step;t<=RT;t+=step){ const x=X(t/tf-0.5); if(x>px+12&&x<px+pw-12) g.fillText(chartTimeLabel(t,tf,C.live),x,py+ph+xh-1); }
   g.textAlign='left';
   g.save(); g.beginPath(); g.rect(px,py,pw,ph); g.clip();
   // tier thresholds (dashed, labelled)
@@ -2600,10 +2854,13 @@ function redrawChart(dt){
   for(let j=0;j<=NT;j++){ const v=Math.exp(L1-(L1-L0)*j/NT), y=pt+pa*j/NT; if(Math.abs(y-cy)<10) continue; g.fillText(fmtUsd(v),ax+3,clamp(y+3,py+7,pt+pa)); }
   g.fillStyle=st.priceTag; g.fillRect(ax,cy-6,st.axis-7,12); g.fillStyle='#1a1630'; g.font='bold 8px ui-monospace,monospace'; g.fillText(fmtUsd(cur),ax+3,cy+3);
 }
+/* @chartnav (pass 3 #3: hand-rolled drag pan / wheel zoom / ⟲ LIVE) retired Oct 30: the live coin page's chart is the DOM
+   DEX chart (components/flight/DexChart.tsx, lightweight-charts: pan / zoom / price-axis drag built in). The canvas chart
+   below only draws for CLEAN replays (share videos), the sim and pages without the DOM chart, at a fixed live window. */
 function drawChartMap(){
-  const C=chartState(); chartSample(); { const P=phoneHud(W,CLEAN); if(P?P.sheet!=='chart':!C.on) return; }   /* @phone-hud: the CHART sheet shows it even with M off */
+  const C=chartState(); chartSample(); if(domChart()) return; { const P=phoneHud(W,CLEAN); if(P?P.sheet!=='chart':!C.on) return; }   /* @phone-hud: the CHART sheet shows it even with M off */
   const st=CHART_STYLE; if(C.at<0||S.t-C.at>=1/st.hz||S.t<C.at){ const dt=C.at<0||S.t<C.at?0:S.t-C.at; C.at=S.t; redrawChart(dt); }   // cached: redrawn at st.hz (sim time), blitted every frame
-  const r=chartRect(); ctx.save(); ctx.globalAlpha=st.alpha; ctx.drawImage(C.cv,r.x,r.y); ctx.restore();
+  const r=chartRect(); if(r.off) return; ctx.save(); ctx.globalAlpha=st.alpha; ctx.drawImage(C.cv,r.x,r.y); ctx.restore();
 }
 /* ---- rocket loadout (cosmetic only): skin tint, thruster flame colour/shape, nose coin. Ids = SITE's rocket upgrades
    (lib/rocketSkin.ts SKINS / THRUSTERS / COINS, embedded via the generated FLIGHT_COSMETICS block). Unknown ids → defaults. */
@@ -2685,7 +2942,7 @@ function drawPnlTag(){ const v=S.pnlTag; if(!S.pnlTagOn||CLEAN_TAG()||!v||!(v.si
   const T=v.txt||{pnl:fmtPnlUsd(v.uPnl),pct:(v.pnlPct<0?'−':'+')+Math.abs(v.pnlPct).toFixed(1)+'%',pos:fmtMoney(v.valueUsd),realized:fmtPnlUsd(v.realized)};   // txt = lib/pnl.ts fmtPnl/fmtPct/fmtMoney
   ctx.fillText(`${T.pnl} ${T.pct}`,x+10,y+16);
   ctx.font='10px ui-monospace,monospace'; ctx.fillStyle='rgba(230,236,255,.85)';
-  ctx.fillText(`POS ${T.pos} · ${fmtTok(v.size)} tok`,x+10,y+31);
+  ctx.fillText(`POS ${T.pos} · ${fmtTok(v.size)}${coinTicker()?' '+coinTicker():''}`,x+10,y+31);
   ctx.fillText(`ENTRY MC ${fmtUsd(v.entryMcap)}`,x+10,y+44);
   ctx.fillStyle=v.realized>=0?'#8ff0c0':'#ff9fb8'; ctx.fillText(`REALIZED ${T.realized}`,x+10,y+55);
   ctx.restore(); }
@@ -2721,7 +2978,7 @@ function render(dt){
   if (S.grass){ ctx.save(); drawBg(); drawClouds(); drawSpeedLines(); drawTickTrail(); drawRocket(dt); drawClouds(true); ctx.restore(); drawPost(); drawGrass(dt); return; }
   S._grassA=0;
   ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap();
+  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap(); cardPublish();
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
 }
@@ -2735,5 +2992,12 @@ function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){
   else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
   S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
 window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>loaded>=names.length&&ACC.state!=='loading',accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+
+/* @boot-ammo — announce the presets + mode once this run's listeners are live. TradeBridge's mount-time ammo-query
+   usually fires BEFORE this script loads (FlightCanvas fetches /replay.json first) and AMMO_TIERS is null (no tier
+   step ever pushes), so without this no disciple:ammo came at all: the remembered preset was never restored, the
+   custom $ / Swap-settings presets were never pushed, and every BOOST tap sent the React default mode 0 ⇒ $10.
+   boot:true tells TradeBridge a (new) engine is up so it re-sends its config (test:boost-amount). */
+pushAmmo(true);
 
 })();

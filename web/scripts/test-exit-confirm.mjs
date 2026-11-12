@@ -1,7 +1,7 @@
 // GAME exit confirm (game/exit-confirm): "Leave the mission?" before leaving a flight. Offline:
 //   1. lib/game/exitGuard decisions (which clicks / Back presses leave the flight; guard history state; focus wrap)
 //   2. copy lives in lib/game/i18n (exitc.*), English only, other locales fall back (NEEDS_REVIEW), no exclamation marks
-//   3. component wiring: armed only while the flight is live, ✕ + links + Back + beforeunload, Esc / backdrop = Stay,
+//   3. component wiring: armed only on timed/sim practice runs (not a regular live rocket), ✕ + links + Back + beforeunload, Esc / backdrop = Stay,
 //      Stay default focus, no key listener while closed (trading hotkeys untouched), SettingsMenu look
 //   Run: node scripts/test-exit-confirm.mjs   (npm run test:exit-confirm)
 import fs from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
@@ -75,12 +75,17 @@ ok(["exitc.title", "exitc.body", "exitc.stay", "exitc.leave"].every((k) => comp.
 console.log("— 3. wiring");
 const fc = rd("components/FlightCanvas.tsx");
 ok(/<ExitConfirm active=\{flightActive\} mode=\{isSimulator \? "sim" : "live"\} \/>/.test(fc), "FlightCanvas mounts <ExitConfirm active={flightActive} mode={sim|live} /> (sim = ?source=sim)");
+ok(/exitConfirmArms\(\{ status, err: !!err, replay: isReplay, sim: isSimulator \}\)/.test(fc) && /import \{ exitConfirmArms \} from "@\/lib\/game\/exitGuard"/.test(fc), "FlightCanvas arms via exitConfirmArms (sim only)");
+ok(G.exitConfirmArms({ status: "Live", err: false, replay: false, sim: true }) === true, "popup arms in a timed/sim mode (?source=sim, engine Live)");
+ok(G.exitConfirmArms({ status: "Live", err: false, replay: false, sim: false }) === false, "popup does not arm on a live flight (regular rocket)");
+ok(G.exitConfirmArms({ status: "Live", err: false, replay: true, sim: true }) === false, "popup does not arm on a replay");
+ok(G.exitConfirmArms({ status: "Loading flight…", err: false, replay: false, sim: true }) === false && G.exitConfirmArms({ status: "Live", err: true, replay: false, sim: true }) === false, "popup does not arm before Live or when the engine has an error");
 ok(/const notes = secondaryKeys\(mode, trades\)/.test(comp) && /\{notes\.length > 0 && <div id="exitc-note"/.test(comp) && !/secondaryKeys\([^)]*true/.test(comp) && /data-testid="exit-confirm-note"/.test(comp) && /fontSize: 11/.test(comp), "component renders the note block only when secondaryKeys returns lines (none while SHOW_EXIT_NOTES is false)");
 const tb = rd("components/TradeBridge.tsx");
 ok(/__disciplePendingTrades/.test(tb) && /TRADE_PENDING_EVENT/.test(tb) && /finally \{\s*(if \(!keep\) \{[^\n]*\n\s*)?bump\(-1\);/.test(tb), "TradeBridge counts in-flight trades per side (+1 on tap, −1 in finally) and fires the pending event");
 ok(/addEventListener\(TRADE_PENDING_EVENT/.test(comp) && /window\.__disciplePendingTrades/.test(comp), "ExitConfirm reads pending trades on open and follows the event");
-ok(/flightActive = status === "Live" && !err && !isReplay/.test(fc), "armed only while the engine is Live, no error, not a replay");
-ok(/id="exitX"/.test(fc) && /href="\/"/.test(fc), "✕ (#exitX) is still a plain link to / (caught by the capture-phase click guard)");
+ok(/exitConfirmArms\(\{ status, err: !!err, replay: isReplay, sim: isSimulator \}\)/.test(fc), "armed only on a timed/sim run while Live, no error, not a replay — not on a regular live rocket");
+ok(!/id="exitX"/.test(fc) && !/data-testid="settings-btn"/.test(rd("components/flight/SettingsMenu.tsx")), "no ✕ / gear top right (lee, Oct 30 cleanup): leave via the rail (guarded), Settings via Sidebar or ESC");
 ok(/document\.addEventListener\("click", onClick, true\)/.test(comp) && /e\.preventDefault\(\); e\.stopPropagation\(\);/.test(comp), "document capture-phase click guard runs before next/link");
 ok(/addEventListener\("popstate", onPop\)/.test(comp) && /history\.pushState\(guardState\(history\.state\)/.test(comp), "Back: guard history entry + popstate");
 const bu = comp.slice(comp.indexOf('"beforeunload"') - 260, comp.indexOf('"beforeunload"') + 80);

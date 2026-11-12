@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, use, useEffect, useMemo, useState } from "react";
 import { erc20Abi, isAddress, type Address } from "viem";
 import FlightCanvas from "@/components/FlightCanvas";
 import CrewPanel from "@/components/CrewPanel";
+import { CREW_CARD_ENABLED } from "@/lib/features";
 import PnlHud from "@/components/PnlHud";
 import DiscipleFeed from "@/components/DiscipleFeed";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
@@ -12,6 +14,9 @@ import TradeBridge from "@/components/TradeBridge";
 import SnipeCountdown from "@/components/flight/SnipeCountdown";
 import CoinIdentity from "@/components/pairart/CoinIdentity";
 import CoinClaims from "@/components/claims/CoinClaims";
+import CardChrome from "@/components/flight/CardChrome";
+import NameLockCopyBanner from "@/components/NameLockCopyBanner";
+import DexChart from "@/components/flight/DexChart";
 import { isDeployed } from "@/lib/chains";
 import { DEMO_POOL, STRATEGY_TOKEN } from "@/lib/config";
 import { PROTOCOL_META } from "@/lib/protocol";
@@ -53,25 +58,51 @@ function FlightInner({ address }: { address: string }) {
 
   return (
     <>
+      {isDeployed() && !demo0 && isAddress(address) && <NameLockCopyBanner coin={address} />}
       <FlightCanvas search={search} />
-      <CrewPanel coin={address} />
+      {/* CREW card: off by default since the Oct 30 cleanup (NEXT_PUBLIC_FEATURE_CREW_CARD=1 brings it back); its buy presets + orb-rain unlock are gone even then (pass 2) */}
+      {CREW_CARD_ENABLED && <CrewPanel coin={address} />}
       <PnlHud coin={address} />
+      {/* DEX-style mcap chart (GAME, Oct 30): lightweight-charts card; the engine's canvas chart stays for the v3 demo / replays */}
+      {isDeployed() && !demo0 && isAddress(address) && sp.get("replay") !== "1" && sp.get("clean") !== "1" && <DexChart coin={address} ticker={sp.get("ticker") || sp.get("cs")} />}
       <DiscipleFeed token={address} />
       <TrampWallPanel token={address} />
       <TradeBridge token={address} />
       <SnipeCountdown token={address} />
       <CoinIdentity address={address} sp={new URLSearchParams(sp.toString())} />
       <CoinClaims token={address} />
+      {/* pass 3 #4 (GAME): drag / minimize / close every desktop card + LAYOUT menu (per-account, localStorage) */}
+      <CardChrome />
       {/* Share (trade card + rocket card) lives in the ESC settings menu (FlightCanvas → SettingsMenu), not a floating pill */}
     </>
+  );
+}
+
+function CoinLost() {
+  return (
+    <div className="ds-lost" data-testid="coin-lost">
+      <div>
+        <h1>404</h1>
+        <h2>No rocket at this address</h2>
+        <p>That path isn&apos;t a coin address — check the link, or pick a live rocket from the launchpad.</p>
+        <div className="actions">
+          <Link href="/" className="ds-btn gold">Back to the Launchpad</Link>
+          <Link href="/create" className="ds-btn">Launch a Rocket</Link>
+        </div>
+      </div>
+    </div>
   );
 }
 
 export default function CoinPage({
   params,
 }: {
-  params: { address: string };
+  params: Promise<{ address: string }>;
 }) {
+  const { address } = use(params);
+  if (!isAddress(address) && address.toLowerCase() !== DEMO_POOL.address) {
+    return <CoinLost />;
+  }
   return (
     <Suspense
       fallback={
@@ -80,7 +111,7 @@ export default function CoinPage({
         </div>
       }
     >
-      <FlightInner address={params.address} />
+      <FlightInner address={address} />
     </Suspense>
   );
 }

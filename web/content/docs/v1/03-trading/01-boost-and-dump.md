@@ -16,14 +16,14 @@ On DISCIPLE, buying is **BOOST** and selling is **DUMP**.
 
 You always trade at the market. Where that market is depends on the rocket's phase:
 
-- **Before graduation:** against the rocket's bonding curve. See [Bonding curve](/docs/curve).
-- **After graduation:** against the rocket's Uniswap v4 pool, through the DISCIPLE router. See [Graduation](/docs/curve/graduation).
+- **Before orbit:** against the rocket's starting price path. People also call this a bonding curve, which means each buy costs a little more than the last. See [The starting price path](/docs/curve).
+- **After orbit:** on the open market on Uniswap. See [Reaching orbit](/docs/curve/graduation).
 
 The buttons work the same in both phases.
 
 ## Choosing an amount
 
-**BOOST presets.** Six dollar presets sit in the BUY row. They scale with the rocket's altitude, so a preset moves a small rocket and a large one by a similar amount. Type a custom amount to override them.
+**BOOST presets.** Six dollar presets sit in the BUY row. They scale with the rocket's altitude, which is how high its value has climbed, so a preset moves a small rocket and a large one by a similar amount. Type a custom amount to override them.
 
 **DUMP presets.** 10%, 25%, 50% or 100% of your bag. You can also type a custom % or $ amount. Sell presets are editable in settings.
 
@@ -47,4 +47,4 @@ Every BOOST and DUMP pays a 1% trade fee. On the curve, a creator tax of 0–7% 
 
 ## Your position
 
-The HUD under the market cap shows your holdings, average entry, % gain or loss, unrealized and realized PnL. PnL uses your average cost, including fees and gas. A dashed **YOUR ENTRY** line marks your entry altitude on the chart.
+The panel under the rocket's value shows your holdings, average entry, % gain or loss, unrealized and realized profit. Profit uses your average cost, including fees and gas. A dashed **YOUR ENTRY** line marks the altitude where you bought, which is how high the rocket's value was then.

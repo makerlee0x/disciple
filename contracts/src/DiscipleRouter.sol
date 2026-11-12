@@ -5,6 +5,7 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
@@ -18,6 +19,7 @@ import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ILaunchpad} from "./interfaces/ILaunchpad.sol";
+import {UsdgRouteLib} from "./libraries/UsdgRouteLib.sol";
 
 interface ILaunchpadCurveOf {
     function curveOf(address token) external view returns (address);
@@ -30,6 +32,34 @@ interface ILaunchpadCurveOf {
 
 interface IFeeRouterClaimFor {
     function claimCreatorFeesFor(address token, address creator) external returns (uint256);
+}
+
+/// @dev Canonical Uniswap Permit2 (ISignatureTransfer subset). Same address on every chain incl. Robinhood 4663/46630.
+interface IPermit2Witness {
+    struct TokenPermissions {
+        address token;
+        uint256 amount;
+    }
+
+    struct PermitTransferFrom {
+        TokenPermissions permitted;
+        uint256 nonce;
+        uint256 deadline;
+    }
+
+    struct SignatureTransferDetails {
+        address to;
+        uint256 requestedAmount;
+    }
+
+    function permitWitnessTransferFrom(
+        PermitTransferFrom calldata permit,
+        SignatureTransferDetails calldata transferDetails,
+        address owner,
+        bytes32 witness,
+        string calldata witnessTypeString,
+        bytes calldata signature
+    ) external;
 }
 
 interface IUsdgCurve {
@@ -102,18 +132,26 @@ contract DiscipleRouter is IUnlockCallback {
     error BadPool();
     error UnknownToken(address token);
     error Reentrancy();
+    error BadSigner();
+    error BadPermit();
 
     // ───────────────────────── USDG routing (buyWithUsdg / sellToUsdg) ─────────────────────────
     /// @notice USDG (the frontend's only payment asset). Owner-set together with `launchpad`.
     address public usdg;
     /// @notice Launchpad used as the curve registry (`curveOf(token)`) for pre-graduation routing.
     address public launchpad;
-    /// @dev quote asset => registered USDG/quote v4 pool (owner-managed allowlist).
-    mapping(address => PoolKey) internal _usdgPool;
+    /// @dev quote asset => USDG-first v4 route of 1 or 2 pools (owner-managed allowlist).
+    ///      1 hop: USDG/quote. 2 hops: USDG/mid, mid/quote. Mid may be native ETH (address(0)).
+    ///      Each PoolKey is stored and swapped as-is (hook address and fee, including the 0x800000
+    ///      dynamic-fee flag). Only the DISCIPLE hook is rejected; other hooks are allowed.
+    ///      afterSwap deltas are already folded into the BalanceDelta swap() returns, so settle/take
+    ///      and the caller min-out use the real hook-adjusted output. No extra settlement path.
+    mapping(address => PoolKey[]) internal _usdgRoute;
 
     event UsdgRoutingSet(address indexed usdg, address indexed launchpad);
     event UsdgPoolSet(address indexed quote, PoolKey key);
     event UsdgPoolRemoved(address indexed quote);
+    event UsdgRouteSet(address indexed quote, PoolKey[] keys);
     /// @notice Graduating curve buy refund: `quoteRefund` of the coin's quote returned as `usdgRefund` USDG.
     event UsdgRefund(address indexed trader, address indexed token, uint256 quoteRefund, uint256 usdgRefund);
     /// @notice launchWithUsdg: `usdgIn` USDG → `quoteIn` pair coin used as the First BOOST (`tokensBought`).
@@ -183,31 +221,52 @@ contract DiscipleRouter is IUnlockCallback {
         emit UsdgRoutingSet(usdg_, launchpad_);
     }
 
-    /// @notice Register the USDG/`quote` v4 pool used for the USDG hop (owner allowlist).
+    /// @notice Register the USDG/`quote` v4 pool used for a single USDG hop (owner allowlist).
     /// @dev The pool must pair exactly USDG and `quote`, and must not be a DISCIPLE (hooked) pool.
     function setUsdgPool(address quote, PoolKey calldata key) external {
+        PoolKey[] memory keys = new PoolKey[](1);
+        keys[0] = key;
+        _setUsdgRoute(quote, keys);
+        emit UsdgPoolSet(quote, key);
+    }
+
+    /// @notice Register a 1- or 2-hop USDG-first v4 route for `quote` (owner allowlist).
+    /// @dev 1 hop must pair USDG and `quote`. 2 hops must be USDG/mid then mid/quote. Mid may be
+    ///      address(0) (native ETH) so that route can be added later without a redeploy. No hop may
+    ///      use the DISCIPLE hook. Hook address and fee (including dynamic-fee 0x800000) are kept as-is.
+    function setUsdgRoute(address quote, PoolKey[] calldata keys) external {
+        _setUsdgRoute(quote, keys);
+        emit UsdgRouteSet(quote, keys);
+        if (keys.length == 1) emit UsdgPoolSet(quote, keys[0]);
+    }
+
+    function _setUsdgRoute(address quote, PoolKey[] memory keys) private {
         if (msg.sender != owner) revert OnlyOwner();
         address u = usdg;
         if (u == address(0)) revert UsdgNotConfigured();
         if (quote == address(0) || quote == u) revert BadParam();
-        address c0 = Currency.unwrap(key.currency0);
-        address c1 = Currency.unwrap(key.currency1);
-        if (!((c0 == u && c1 == quote) || (c0 == quote && c1 == u))) revert BadPool();
-        if (address(key.hooks) == hook) revert BadPool();
-        (uint160 sp,,,) = poolManager.getSlot0(key.toId());
-        if (sp == 0) revert BadPool(); // must be initialized
-        _usdgPool[quote] = key;
-        emit UsdgPoolSet(quote, key);
+        if (!UsdgRouteLib.check(poolManager, u, quote, keys, hook)) revert BadPool();
+        delete _usdgRoute[quote];
+        for (uint256 i; i < keys.length; ++i) {
+            _usdgRoute[quote].push(keys[i]);
+        }
     }
 
     function removeUsdgPool(address quote) external {
         if (msg.sender != owner) revert OnlyOwner();
-        delete _usdgPool[quote];
+        delete _usdgRoute[quote];
         emit UsdgPoolRemoved(quote);
     }
 
+    /// @notice First hop of the registered USDG route (the USDG-touching pool), or an empty key if unset.
     function usdgPoolOf(address quote) external view returns (PoolKey memory) {
-        return _usdgPool[quote];
+        PoolKey[] storage r = _usdgRoute[quote];
+        if (r.length == 0) return PoolKey(Currency.wrap(address(0)), Currency.wrap(address(0)), 0, 0, IHooks(address(0)));
+        return r[0];
+    }
+
+    function usdgRouteOf(address quote) external view returns (PoolKey[] memory) {
+        return _usdgRoute[quote];
     }
 
     function transferOwnership(address o) external {
@@ -339,8 +398,7 @@ contract DiscipleRouter is IUnlockCallback {
             // no approvals; the curve enforces the router impact cap on its exact quote; refunds go to the trader.
             uint256 quoteAmt = usdgIn;
             if (q != u) {
-                Hop[] memory h = new Hop[](1);
-                h[0] = _usdgHop(u, q, true);
+                Hop[] memory h = _quoteHops(u, q, true);
                 quoteAmt = _route(msg.sender, curve, h, usdgIn);
             } else {
                 IERC20(u).safeTransferFrom(msg.sender, curve, usdgIn);
@@ -381,8 +439,7 @@ contract DiscipleRouter is IUnlockCallback {
                 usdgOut = IUsdgCurve(curve).routerSell(msg.sender, tokensIn, 1, deadline, msg.sender, cap);
             } else {
                 uint256 quoteAmt = IUsdgCurve(curve).routerSell(msg.sender, tokensIn, 1, deadline, address(this), cap);
-                Hop[] memory h = new Hop[](1);
-                h[0] = _usdgHop(u, q, false);
+                Hop[] memory h = _quoteHops(u, q, false);
                 usdgOut = _route(address(this), msg.sender, h, quoteAmt);
             }
         }
@@ -418,8 +475,7 @@ contract DiscipleRouter is IUnlockCallback {
                 IERC20(u).safeTransferFrom(msg.sender, address(this), usdgIn);
                 quoteAmt = usdgIn;
             } else {
-                Hop[] memory h = new Hop[](1);
-                h[0] = _usdgHop(u, q, true);
+                Hop[] memory h = _quoteHops(u, q, true);
                 quoteAmt = _route(msg.sender, address(this), h, usdgIn);
             }
             if (quoteAmt < minQuoteIn) revert Slippage();
@@ -482,8 +538,7 @@ contract DiscipleRouter is IUnlockCallback {
         address u = usdg;
         if (u == address(0)) revert UsdgNotConfigured();
         if (quote == u) revert BadParam();
-        Hop[] memory h = new Hop[](1);
-        h[0] = _usdgHop(u, quote, toQuote);
+        Hop[] memory h = _quoteHops(u, quote, toQuote);
         return _simulate(msg.sender, h, amountIn, address(0));
     }
 
@@ -500,8 +555,7 @@ contract DiscipleRouter is IUnlockCallback {
         if (recipient == address(0)) revert ZeroRecipient();
         address u = usdg;
         if (quote == u) revert BadParam();
-        Hop[] memory h = new Hop[](1);
-        h[0] = _usdgHop(u, quote, toQuote);
+        Hop[] memory h = _quoteHops(u, quote, toQuote);
         out = _route(msg.sender, recipient, h, amountIn);
         if (out < minOut) revert Slippage();
         emit UsdgQuoteSwap(msg.sender, quote, toQuote, amountIn, out, recipient);
@@ -514,8 +568,7 @@ contract DiscipleRouter is IUnlockCallback {
             IERC20(u).safeTransfer(to, amount);
             return amount;
         }
-        Hop[] memory hb = new Hop[](1);
-        hb[0] = _usdgHop(u, q, false);
+        Hop[] memory hb = _quoteHops(u, q, false);
         return _route(address(this), to, hb, amount);
     }
 
@@ -545,14 +598,12 @@ contract DiscipleRouter is IUnlockCallback {
         // Curve quotes are for `trader`: mode caps, PVE login and the PVE profit tax apply.
         if (isBuy) {
             if (q == u) return _curveBuyQuote(curve, trader, amountIn);
-            Hop[] memory h = new Hop[](1);
-            h[0] = _usdgHop(u, q, true);
+            Hop[] memory h = _quoteHops(u, q, true);
             return _simulate(trader, h, amountIn, curve);
         }
         (uint256 qOut, uint256 cImp) = _curveSellQuote(curve, trader, amountIn);
         if (q == u) return (qOut, cImp);
-        Hop[] memory h2 = new Hop[](1);
-        h2[0] = _usdgHop(u, q, false);
+        Hop[] memory h2 = _quoteHops(u, q, false);
         (amountOut, maxHopImpactBps) = _simulate(trader, h2, qOut, address(0));
         if (cImp > maxHopImpactBps) maxHopImpactBps = cImp;
     }
@@ -563,6 +614,211 @@ contract DiscipleRouter is IUnlockCallback {
 
     function quoteSellToUsdg(address token, uint256 tokensIn) external returns (uint256 usdgOut, uint256 impactBps) {
         return quoteUsdgRoute(token, false, tokensIn);
+    }
+
+    // ───────────────────────── Gasless (Permit2 witness) entry points ─────────────────────────
+    // Pattern copied from 0x Gasless (0x-settler SettlerMetaTxn.executeMetaTxn): the trader signs ONE EIP-712
+    // Permit2 PermitWitnessTransferFrom whose witness is the whole trade; any relayer EOA submits it and pays the ETH.
+    // The relayer cannot change a single field: token/amount/spender/nonce/deadline are in the permit, and coin,
+    // side, amountIn, minOut, recipient and deadline are in the witness. Funds only ever leave the SIGNER and the
+    // output only ever goes to the SIGNER (signer == trade.recipient is enforced). Permit2's unordered nonce bitmap
+    // + deadline give replay protection. Curve / v4 legs are exactly buyWithUsdg / sellToUsdg with trader = signer.
+
+    /// @notice Canonical Permit2 (same address on Robinhood Chain 4663 and testnet 46630).
+    address public constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+
+    /// @notice The signed trade (Permit2 witness). `amountIn` must equal the permit amount.
+    struct Trade {
+        address coin;
+        bool isBuy;
+        uint256 amountIn;
+        uint256 minOut;
+        address recipient;
+        uint256 deadline;
+    }
+
+    /// @notice One-time EIP-2612 approval of PERMIT2 bundled into a trade (value 0 ⇒ skipped). USDG and every DISCIPLE
+    ///         coin (Token.sol ERC20Permit) support it, so the user never needs ETH for an approve.
+    struct Erc2612 {
+        uint256 value;
+        uint256 deadline;
+        uint8 v;
+        bytes32 r;
+        bytes32 s;
+    }
+
+    bytes32 public constant TRADE_TYPEHASH = keccak256(
+        "Trade(address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline)"
+    );
+    /// @dev Permit2 appends this to "PermitWitnessTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline,".
+    ///      EIP-712 orders referenced types by name: TokenPermissions < Trade.
+    string public constant TRADE_WITNESS_TYPE = "Trade witness)TokenPermissions(address token,uint256 amount)"
+        "Trade(address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline)";
+
+    event GaslessTrade(address indexed signer, address indexed relayer, address indexed coin, bool isBuy, uint256 nonce);
+
+    /// @notice Gasless buy: `signer` pays `trade.amountIn` USDG (via its Permit2 signature), coins go to `signer`.
+    function buyWithPermit2(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        Trade calldata trade,
+        bytes calldata signature
+    ) external returns (uint256 tokensOut) {
+        _enter();
+        tokensOut = _gaslessBuy(signer, permit, trade, signature);
+        _exit();
+    }
+
+    /// @notice buyWithPermit2 + a one-time USDG.permit(signer → PERMIT2) in the same tx (first trade, no ETH approve).
+    function buyWithPermit2AndApprove(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        Trade calldata trade,
+        bytes calldata signature,
+        Erc2612 calldata approval
+    ) external returns (uint256 tokensOut) {
+        _enter();
+        _approvePermit2(usdg, signer, approval);
+        tokensOut = _gaslessBuy(signer, permit, trade, signature);
+        _exit();
+    }
+
+    /// @notice Gasless sell: `signer` sells `trade.amountIn` of `trade.coin` (via Permit2), USDG goes to `signer`.
+    function sellWithPermit2(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        Trade calldata trade,
+        bytes calldata signature
+    ) external returns (uint256 usdgOut) {
+        _enter();
+        usdgOut = _gaslessSell(signer, permit, trade, signature);
+        _exit();
+    }
+
+    /// @notice sellWithPermit2 + a one-time coin.permit(signer → PERMIT2) (first sell of each coin).
+    function sellWithPermit2AndApprove(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        Trade calldata trade,
+        bytes calldata signature,
+        Erc2612 calldata approval
+    ) external returns (uint256 usdgOut) {
+        _enter();
+        _approvePermit2(trade.coin, signer, approval);
+        usdgOut = _gaslessSell(signer, permit, trade, signature);
+        _exit();
+    }
+
+    /// @notice EIP-712 struct hash of `trade` (the Permit2 witness). Off-chain signers can cross-check against it.
+    function tradeWitnessHash(Trade calldata trade) public pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                TRADE_TYPEHASH, trade.coin, trade.isBuy, trade.amountIn, trade.minOut, trade.recipient, trade.deadline
+            )
+        );
+    }
+
+    /// @dev try/catch: a front-run permit (same signature) must not brick the trade; Permit2 then just needs the allowance.
+    function _approvePermit2(address asset, address signer, Erc2612 calldata a) private {
+        if (a.value == 0) return;
+        try IERC20Permit(asset).permit(signer, PERMIT2, a.value, a.deadline, a.v, a.r, a.s) {} catch {}
+    }
+
+    /// @dev Shared checks + the Permit2 pull from `signer` to `to`.
+    function _pull(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        Trade calldata trade,
+        bytes calldata signature,
+        address asset,
+        address to
+    ) private {
+        if (signer == address(0) || trade.recipient != signer) revert BadSigner();
+        if (permit.permitted.token != asset || permit.permitted.amount != trade.amountIn) revert BadPermit();
+        _preflight(trade.amountIn, trade.minOut, trade.deadline);
+        IPermit2Witness(PERMIT2).permitWitnessTransferFrom(
+            permit,
+            IPermit2Witness.SignatureTransferDetails({to: to, requestedAmount: trade.amountIn}),
+            signer,
+            tradeWitnessHash(trade),
+            TRADE_WITNESS_TYPE,
+            signature
+        );
+        emit GaslessTrade(signer, msg.sender, trade.coin, trade.isBuy, permit.nonce);
+    }
+
+    function _gaslessBuy(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        Trade calldata trade,
+        bytes calldata signature
+    ) private returns (uint256 tokensOut) {
+        if (!trade.isBuy) revert BadParam();
+        address u = usdg;
+        address token = trade.coin;
+        (address curve, address q, bool grad, PoolKey memory dkey) = _market(token);
+        uint256 usdgIn = trade.amountIn;
+        if (grad) {
+            _pull(signer, permit, trade, signature, u, address(this));
+            uint256 b = IERC20(u).balanceOf(address(this)) - usdgIn;
+            tokensOut = _route(address(this), signer, _buyHops(u, q, token, dkey), usdgIn);
+            _sweep(u, b, signer); // a partial first-hop fill never strands the signer's USDG here
+        } else {
+            uint256 quoteAmt = usdgIn;
+            if (q != u) {
+                _pull(signer, permit, trade, signature, u, address(this));
+                uint256 b = IERC20(u).balanceOf(address(this)) - usdgIn;
+                Hop[] memory h = _quoteHops(u, q, true);
+                quoteAmt = _route(address(this), curve, h, usdgIn);
+                _sweep(u, b, signer);
+            } else {
+                // USDG-quoted: Permit2 delivers straight to the curve (no router hop, one transfer)
+                _pull(signer, permit, trade, signature, u, curve);
+            }
+            uint256 refund;
+            (tokensOut, refund) =
+                IUsdgCurve(curve).routerBuy(signer, quoteAmt, trade.minOut, trade.deadline, maxImpactBps);
+            if (refund != 0) emit UsdgRefund(signer, token, refund, _toUsdg(u, q, refund, signer));
+        }
+        if (tokensOut < trade.minOut) revert Slippage();
+        emit UsdgTrade(signer, token, true, usdgIn, tokensOut, !grad);
+    }
+
+    function _gaslessSell(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        Trade calldata trade,
+        bytes calldata signature
+    ) private returns (uint256 usdgOut) {
+        if (trade.isBuy) revert BadParam();
+        address u = usdg;
+        address token = trade.coin;
+        (address curve, address q, bool grad, PoolKey memory dkey) = _market(token);
+        uint256 tokensIn = trade.amountIn;
+        if (grad) {
+            _pull(signer, permit, trade, signature, token, address(this));
+            uint256 b = IERC20(token).balanceOf(address(this)) - tokensIn;
+            usdgOut = _route(address(this), signer, _sellHops(u, q, token, dkey), tokensIn);
+            _sweep(token, b, signer);
+        } else {
+            _pull(signer, permit, trade, signature, token, curve);
+            uint256 cap = maxImpactBps;
+            if (q == u) {
+                usdgOut = IUsdgCurve(curve).routerSell(signer, tokensIn, 1, trade.deadline, signer, cap);
+            } else {
+                uint256 quoteAmt = IUsdgCurve(curve).routerSell(signer, tokensIn, 1, trade.deadline, address(this), cap);
+                Hop[] memory h = _quoteHops(u, q, false);
+                usdgOut = _route(address(this), signer, h, quoteAmt);
+            }
+        }
+        if (usdgOut < trade.minOut) revert Slippage();
+        emit UsdgTrade(signer, token, false, tokensIn, usdgOut, !grad);
+    }
+
+    /// @dev Return anything of `asset` above the pre-trade balance `before` to `to` (unused router-held input).
+    function _sweep(address asset, uint256 before, address to) private {
+        uint256 left = IERC20(asset).balanceOf(address(this)) - before;
+        if (left != 0) IERC20(asset).safeTransfer(to, left);
     }
 
     // ───────────────────────── USDG routing internals ─────────────────────────
@@ -606,12 +862,32 @@ contract DiscipleRouter is IUnlockCallback {
         if (grad) key = poolKeyOf(token);
     }
 
-    function _usdgHop(address u, address q, bool usdgToQuote) private view returns (Hop memory h) {
-        h.key = _usdgPool[q];
-        if (h.key.tickSpacing == 0) revert NoUsdgPool(q);
-        bool usdgIsC0 = Currency.unwrap(h.key.currency0) == u;
-        h.zeroForOne = usdgToQuote ? usdgIsC0 : !usdgIsC0;
+    /// @dev USDG-side hops for `q`. `usdgToQuote` true walks the stored route forward, false reverses it.
+    function _quoteHops(address u, address q, bool usdgToQuote) private view returns (Hop[] memory h) {
+        PoolKey[] storage r = _usdgRoute[q];
+        uint256 n = r.length;
+        if (n == 0) revert NoUsdgPool(q);
+        h = new Hop[](n);
+        address cur = usdgToQuote ? u : q;
+        for (uint256 i; i < n; ++i) {
+            PoolKey memory k = usdgToQuote ? r[i] : r[n - 1 - i];
+            address c0 = Currency.unwrap(k.currency0);
+            address c1 = Currency.unwrap(k.currency1);
+            bool zfo;
+            if (cur == c0) {
+                zfo = true;
+                cur = c1;
+            } else if (cur == c1) {
+                zfo = false;
+                cur = c0;
+            } else {
+                revert NoUsdgPool(q);
+            }
+            h[i] = Hop({key: k, zeroForOne: zfo, disciple: false});
+        }
     }
+
+    
 
     function _buyHops(address u, address q, address token, PoolKey memory dkey) private view returns (Hop[] memory h) {
         bool tokenIsC0 = Currency.unwrap(dkey.currency0) == token;
@@ -620,9 +896,10 @@ contract DiscipleRouter is IUnlockCallback {
             h = new Hop[](1);
             h[0] = d;
         } else {
-            h = new Hop[](2);
-            h[0] = _usdgHop(u, q, true);
-            h[1] = d;
+            Hop[] memory qh = _quoteHops(u, q, true);
+            h = new Hop[](qh.length + 1);
+            for (uint256 i; i < qh.length; ++i) h[i] = qh[i];
+            h[qh.length] = d;
         }
     }
 
@@ -633,9 +910,10 @@ contract DiscipleRouter is IUnlockCallback {
             h = new Hop[](1);
             h[0] = d;
         } else {
-            h = new Hop[](2);
+            Hop[] memory qh = _quoteHops(u, q, false);
+            h = new Hop[](qh.length + 1);
             h[0] = d;
-            h[1] = _usdgHop(u, q, false);
+            for (uint256 i; i < qh.length; ++i) h[i + 1] = qh[i];
         }
     }
 
@@ -767,6 +1045,7 @@ contract DiscipleRouter is IUnlockCallback {
             if (i == 0) firstPaid = paid;
             else if (paid != amt) revert BadPool(); // partial fill of an intermediate hop: never strand deltas
             amt = uint256(uint128(dOut));
+            if (amt == 0) revert ZeroMinOut();
             uint256 imp = _hopImpact(h, sb);
             if (imp > maxImp) maxImp = imp;
             if (!d.simulate && imp > cap) revert PriceImpactTooHigh(imp, cap);

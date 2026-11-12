@@ -1,13 +1,15 @@
 "use client";
-/** Coin page header art: pair art + name + ticker, docked right under the MARKET CAP panel (top-left next to the menu on mobile, art only), clear of the HUD panels. The page has no header band, so the 220px "header" size would cover HUD panels. */
-import { useEffect, useState } from "react";
+/** Coin page header art: pair art + name + ticker, the top row INSIDE the MARKET CAP card (desktop) (top-left next to the menu on mobile, art only), clear of the HUD panels. The page has no header band, so the 220px "header" size would cover HUD panels. */
+import { useEffect, useRef, useState } from "react";
 import { erc20Abi, isAddress, type Address } from "viem";
 import { DEMO_POOL } from "@/lib/config";
 import { deployment, isDeployed } from "@/lib/chains";
-import { publicClient, readCurveState } from "@/lib/protocol-viem";
+import { curveOf, publicClient, readCurveState } from "@/lib/protocol-viem";
 import { launchpadAbi } from "@/lib/abi";
+import { isLegacyCurve } from "@/lib/legacyGate";
 import PairArt from "./PairArt";
 import { basePair } from "@/lib/pairArt";
+import { useCanvasCards } from "@/lib/game/cardLayoutStore";
 import { pickCoinIcon, resolveCoinStoredImage, type StoredImage } from "@/lib/coinPageImage";
 
 const AI_ICON = "https://cdn.dexscreener.com/cms/images/U6RIzs8Fm7Jar6GE?width=256&height=256&quality=95&format=png";
@@ -32,6 +34,7 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   const icon = pickCoinIcon(stored, sp.get("icon"), demo && !sp.get("cs") ? AI_ICON : null);
   // 1e: a direct /coin/0x… link has no ?cs/?nm ⇒ read name / symbol / pair from chain so the name always shows
   const [chain, setChain] = useState<{ name: string; symbol: string; pair?: string } | null>(null);
+  const [legacy, setLegacy] = useState(false);
   const needRead = !demo && !sp.get("cs") && isDeployed() && isAddress(address);
   useEffect(() => {
     if (!needRead) return;
@@ -44,6 +47,33 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
     ]).then(([name, symbol, pair]) => { if (alive) setChain({ name: String(name), symbol: String(symbol), pair: pair ? String(pair) : undefined }); }).catch(() => undefined);
     return () => { alive = false; };
   }, [needRead, address]);
+  // Legacy / archived (lee option B): curve.loginGate() ≠ live LoginGate — badge only; gated buys blocked in protocol-viem.
+  useEffect(() => {
+    setLegacy(false);
+    if (demo || !isDeployed() || !isAddress(address)) return;
+    let alive = true;
+    const pc = publicClient();
+    curveOf(pc, address as Address)
+      .then((c) => isLegacyCurve(pc, c))
+      .then((v) => { if (alive) setLegacy(!!v); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [demo, address]);
+  // ONE header card (lee, Oct 30): this row sits INSIDE the engine's canvas card (icon · name · pair on top, then the card's
+  // MARKET CAP label + big mcap). Publish its height so the card grows by it (engine.js coinIdRowH; 0 on phones, where the
+  // row is art only next to the menu and the mcap lives in the phone pill).
+  const ref = useRef<HTMLDivElement>(null);
+  // pass 3 #4 (GAME): this row rides with the engine's header card when it is dragged / minimized (engine-published rect)
+  const hc = useCanvasCards().cards.header;
+  useEffect(() => {
+    const el = ref.current, w = window as unknown as { __coinIdH?: number };
+    if (!el) return;
+    const pub = () => { w.__coinIdH = window.matchMedia?.("(max-width: 760px)").matches ? 0 : Math.ceil(el.getBoundingClientRect().height); };
+    pub();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(pub) : null; ro?.observe(el);
+    addEventListener("resize", pub);
+    return () => { ro?.disconnect(); removeEventListener("resize", pub); w.__coinIdH = 0; };
+  });
   const pair = sp.get("pair") || chain?.pair || (demo ? "ETH" : "STRATEGY");
   const tk = sp.get("cs") || chain?.symbol || (demo ? "AI" : "");
   const name = sp.get("nm") || chain?.name || (demo && tk === "AI" ? "Artificial Inu" : tk);
@@ -53,12 +83,17 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   // the chip is the coin's own art + name. Other pairs keep their badge.
   const ethPair = bp?.tk === "eth" || /^w?eth$/i.test(pair);
   const pairSym = ethPair ? "" : bp?.sym ?? pair;
+  // ticker/quote from the real coin data, written as TICKER/QUOTE (lee Nov 10: "GTNEAR/STRATEGY")
+  const ticker = String(tk || "").replace(/^\$/, "").trim().toUpperCase();
+  const quote = String(pairSym || "").replace(/^\$/, "").trim().toUpperCase();
+  const sub = ticker && quote ? `${ticker}/${quote}` : ticker;
   return (
-    <div className="coin-id" data-testid="coin-name" title={pairSym ? `${name} · $${tk} · ${pairSym}` : `${name} · $${tk}`} aria-label={pairSym ? `${name} paired with ${pairSym}` : name}>
+    <div ref={ref} className="coin-id" data-testid="coin-name" style={hc ? { transform: hc.dx || hc.dy ? `translate(${hc.dx}px, ${hc.dy}px)` : undefined, display: hc.min || hc.closed ? "none" : undefined } : undefined} title={sub ? `${name} · ${sub}` : name} aria-label={pairSym ? `${name} paired with ${pairSym}` : name}>
       <PairArt src={icon} pair={ethPair ? null : pair} tk={tk} size="list" px={38} eager />
       <div className="coin-id-txt">
         <b>{name}</b>
-        <span>${tk}{pairSym ? ` · ${pairSym}` : ""}</span>
+        {sub && <span data-testid="coin-id-sub">{sub}</span>}
+        {legacy && <span className="coin-id-legacy" data-testid="coin-legacy" title="Launched under an older login gate. Easy buys are off.">Legacy</span>}
       </div>
     </div>
   );

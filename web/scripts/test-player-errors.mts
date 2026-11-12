@@ -23,7 +23,7 @@ const { plainText, JARGON } = await import("../lib/aa/relayOp");
 const REJECTED = "That didn't go through. Try again.";
 const PENDING = "Still confirming. Check back in a moment.";
 // pending lee's approval (PR body)
-const GRADUATED = "This rocket has graduated, so trading moved to its pool.";
+const GRADUATED = "This rocket has reached orbit. The path its price follows at the start is finished, and buying and selling now happen on the open market on Uniswap.";
 const CREATOR_BUY = "Your launch buy is over the max for this rocket. Try a smaller amount.";
 const QUOTE_REJECTED = "That pair token can't be used. Pick another quote token.";
 
@@ -88,8 +88,8 @@ test("mapped errors keep their specific copy (WalletCap, Slippage, balance, MinO
   const E = parseAbi(["error WalletCap()", "error Slippage()", "error MinOutTooLow(uint256,uint256)", "error ERC20InsufficientBalance(address,uint256,uint256)"]);
   const cases: [Hex, string][] = [
     [encodeErrorResult({ abi: E, errorName: "WalletCap" }), "Wallet cap reached: one wallet can hold at most 7% before orbit."],
-    [encodeErrorResult({ abi: E, errorName: "Slippage" }), "Price moved too much. Try again or raise slippage."],
-    [encodeErrorResult({ abi: E, errorName: "MinOutTooLow", args: [BigInt(1), BigInt(2)] }), "Price moved past your one-tap max slippage. Try again or raise slippage."],
+    [encodeErrorResult({ abi: E, errorName: "Slippage" }), "Price moved, trade not sent. Try again."],
+    [encodeErrorResult({ abi: E, errorName: "MinOutTooLow", args: [BigInt(1), BigInt(2)] }), "Price moved, trade not sent. Try again."],
     [encodeErrorResult({ abi: E, errorName: "ERC20InsufficientBalance", args: [ADDR, BigInt(0), BigInt(1)] }), "Not enough balance for that shot size — deposit more or pick a smaller ammo."],
   ];
   for (const [rd, want] of cases) { const m = friendlyError(est(rd)).message; assert.equal(m, want); plain(m); }

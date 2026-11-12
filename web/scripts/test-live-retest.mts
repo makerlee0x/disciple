@@ -16,6 +16,7 @@ import { curveMcapAtFrac } from "../lib/curveMath";
 const V4_M0 = 7_000, V4_M1 = 33_000;
 import { playerUsd, type Fill } from "../lib/trades";
 import { tradeFromLog } from "../lib/events";
+import { usdgDecimals } from "../lib/usdg";
 import { statsFromFills } from "../lib/home/trending";
 import { chipLabel, clearNameCache, lookupFirstName, lookupName, cachedName } from "../lib/nameLookup";
 
@@ -69,6 +70,8 @@ test("#3 playerUsd: buys = USDG paid, sells = USDG received, else the estimate",
 });
 
 const E18 = BigInt(10) ** BigInt(18);
+/** $1 of USDG in raw units at the configured decimals (6 since the v5 redeploy; was 18). */
+const USDG1 = BigInt(10) ** BigInt(usdgDecimals());
 const TRADER = "0x3dfe06e0854788eed40f852d097d3cf0337dbede";
 const TOKEN = "0xedb9546d2f5a594c47f18ed9b63df7be95d412f5";
 const mkLog = (isBuy: boolean, quoteAmt: bigint) => ({
@@ -83,12 +86,12 @@ test("#3 live Trade events carry the router's USDG as usd (feed = status line)",
   const est = Number(quote) / 1e18 * 0.00253287290493654;
   const plain = tradeFromLog(mkLog(true, quote), QP, "curve") as { usd: number; usdIn?: number };
   near(plain.usd, est, 1e-9, "no router event ⇒ quote value");
-  const buy = tradeFromLog(mkLog(true, quote), QP, "curve", undefined, { trader: TRADER, token: TOKEN, isBuy: true, amountIn: BigInt(10) * E18, amountOut: BigInt(0) }) as { usd: number; usdIn?: number };
+  const buy = tradeFromLog(mkLog(true, quote), QP, "curve", undefined, { trader: TRADER, token: TOKEN, isBuy: true, amountIn: BigInt(10) * USDG1, amountOut: BigInt(0) }) as { usd: number; usdIn?: number };
   assert.equal(buy.usd, 10); assert.equal(buy.usdIn, 10);
-  const sell = tradeFromLog(mkLog(false, quote), QP, "curve", undefined, { trader: TRADER, token: TOKEN, isBuy: false, amountIn: BigInt(0), amountOut: BigInt(244) * E18 / BigInt(100) }) as { usd: number; usdOut?: number };
+  const sell = tradeFromLog(mkLog(false, quote), QP, "curve", undefined, { trader: TRADER, token: TOKEN, isBuy: false, amountIn: BigInt(0), amountOut: BigInt(244) * USDG1 / BigInt(100) }) as { usd: number; usdOut?: number };
   assert.equal(sell.usd, 2.44); assert.equal(sell.usdOut, 2.44);
   // UsdgTrade of another trader in the same tx is not applied
-  const other = tradeFromLog(mkLog(true, quote), QP, "curve", undefined, { trader: "0x" + "1".repeat(40), token: TOKEN, isBuy: true, amountIn: BigInt(10) * E18, amountOut: BigInt(0) }) as { usd: number };
+  const other = tradeFromLog(mkLog(true, quote), QP, "curve", undefined, { trader: "0x" + "1".repeat(40), token: TOKEN, isBuy: true, amountIn: BigInt(10) * USDG1, amountOut: BigInt(0) }) as { usd: number };
   near(other.usd, est, 1e-9);
 });
 

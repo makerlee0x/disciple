@@ -29,12 +29,79 @@ export type GasLimits = { callGasLimit: bigint; verificationGasLimit: bigint; pr
 /** Same preset ⇒ same shape of calls: targets + selectors (amounts don't change the gas class). */
 export const callsKind = (calls: Call[]) => calls.map((c) => `${c.to.toLowerCase()}:${c.data.slice(0, 10)}`).join(",");
 /**
- * Static conservative limits for a DEPLOYED account on the self-bundler (gas is charged on actualGasUsed + v0.7's 10%
- * penalty on unused execution gas — fractions of a cent on testnet), so even the first trade of a preset skips
- * eth_estimateUserOperationGas. Measured: v4 buy/sell incl. approve + hook ≈ 0.45–0.65M total; session validation
- * (signer + time-range + policy hook) ≈ 0.15M. PVG = self-bundler's fixed 60k.
+ * Static conservative limits for a DEPLOYED session trade (gas is charged on actualGasUsed + v0.7's 10%
+ * penalty on unused execution gas). The first session trade of a preset skips eth_estimateUserOperationGas.
+ * Measured: v4 buy/sell incl. approve + hook ≈ 0.45–0.65M total; session validation
+ * (signer + time-range + policy hook) ≈ 0.15M, which still clears Alchemy's 0.4 verification-efficiency floor
+ * at this 350k verification limit. A deployed owner op does not — mav2 estimates that verification gas instead.
+ * PVG is a legacy sizing/fallback floor only; mav2 measures and buffers it before quoting/signing.
  */
 export const STATIC_GAS: GasLimits = { callGasLimit: BigInt(1_800_000), verificationGasLimit: BigInt(350_000), preVerificationGas: BigInt(60_000) };
+/**
+ * Rundler v0.7 (Alchemy) rejects eth_sendUserOperation when
+ * (preOpGas − preVerificationGas) / (verificationGasLimit + paymasterVerificationGasLimit)
+ * is below 0.4. Session validation is heavy enough that STATIC_GAS.verificationGasLimit
+ * clears that floor. A deployed owner (plain send, no session hook) is not: the live
+ * rejection was 350_000 + 250_000 → efficiency 0.2935.
+ * Deployed owner ops take the bundler's verification estimate, add this much headroom,
+ * then clamp so the same ratio against the estimate stays at or above the target.
+ */
+export const VERIFICATION_EFFICIENCY_FLOOR_BPS = 4000n;
+export const VERIFICATION_EFFICIENCY_TARGET_BPS = 4500n;
+export const OWNER_VERIFICATION_HEADROOM_PCT = 10n;
+
+/** Basis points (2935 = 0.2935), same rounding the bundler prints to 4 decimals. */
+export function verificationEfficiencyBps(used: bigint, accountLimit: bigint, paymasterLimit: bigint): bigint {
+  const denom = accountLimit + paymasterLimit;
+  if (denom <= BigInt(0) || used <= BigInt(0)) return BigInt(0);
+  return (used * BigInt(10000)) / denom;
+}
+
+/**
+ * Account verificationGasLimit for an already-deployed owner op.
+ * `estimatedVerification` / `estimatedPaymasterVerification` are the bundler's binary-search
+ * results (just above gas actually used). `paymasterLimit` is what will be submitted —
+ * the quote server still stamps PAYMASTER_GAS.verificationGasLimit.
+ * Headroom is OWNER_VERIFICATION_HEADROOM_PCT, clamped so
+ * (estV + estPm) / (limit + paymasterLimit) stays at the 0.45 target. Never below the estimate.
+ */
+export function deployedOwnerVerificationGas(o: {
+  estimatedVerification: bigint; estimatedPaymasterVerification: bigint; paymasterLimit: bigint; headroomPct?: bigint;
+}): bigint {
+  const estV = o.estimatedVerification;
+  if (estV <= BigInt(0)) throw new Error("verification estimate missing");
+  const headroom = o.headroomPct ?? OWNER_VERIFICATION_HEADROOM_PCT;
+  const padded = estV + (estV * headroom) / BigInt(100);
+  const used = estV + (o.estimatedPaymasterVerification > BigInt(0) ? o.estimatedPaymasterVerification : BigInt(0));
+  const maxTotal = (used * BigInt(10000)) / VERIFICATION_EFFICIENCY_TARGET_BPS;
+  const maxAccount = maxTotal > o.paymasterLimit ? maxTotal - o.paymasterLimit : estV;
+  const capped = padded < maxAccount ? padded : maxAccount;
+  return capped < estV ? estV : capped;
+}
+/**
+ * Live v5 paymaster maxGasPerOp (RH testnet, Nov 6 2026). validatePaymasterUserOp reverts GasLimitAboveCap when
+ * PVG + verificationGasLimit + callGasLimit + paymasterVerificationGasLimit + paymasterPostOpGasLimit exceeds it.
+ */
+export const PAYMASTER_MAX_GAS_PER_OP = BigInt(7_068_712);
+/**
+ * Deployed owner (send/withdraw) account verification gas. Live RH testnet probes (Nov 6 2026, Alchemy rundler,
+ * test wallet 0x8634…d72b, MAv2 single-signer owner validation): 40k fails AA26, 60k passes. Alchemy echoes any
+ * non-zero limit it is given and simulates a zero/omitted verificationGasLimit at its 7.2M max, which the v5 cap
+ * rejects (AA33 GasLimitAboveCap), so this bound is the effective estimate. 120k ≈ 2× measured need; with the
+ * stamped 250k paymaster limit and the 176.1k live used verification, the 10% headroom clamp plans 132k ⇒ 0.461.
+ */
+export const DEPLOYED_OWNER_VERIFICATION_GAS = BigInt(120_000);
+/**
+ * Explicit gas fields for a deployed owner op's eth_estimateUserOperationGas request. Omitted fields are simulated at
+ * the bundler's maxima (live: 34.21M total → AA33 GasLimitAboveCap). STATIC_GAS call + zero PVG (request a measurement), plus the owner verification
+ * bound and the stamped paymaster limits sum to ~2.33M, well under the cap.
+ */
+export function ownerEstimateBounds(pm: { paymasterVerificationGasLimit: bigint | string; paymasterPostOpGasLimit: bigint | string }, cap: bigint = PAYMASTER_MAX_GAS_PER_OP): GasLimits {
+  const b = { ...STATIC_GAS, verificationGasLimit: DEPLOYED_OWNER_VERIFICATION_GAS, preVerificationGas: BigInt(0) };
+  const total = b.callGasLimit + b.verificationGasLimit + b.preVerificationGas + BigInt(pm.paymasterVerificationGasLimit) + BigInt(pm.paymasterPostOpGasLimit);
+  if (total > cap) throw new Error(`owner estimate bounds ${total} exceed paymaster cap ${cap}`);
+  return b;
+}
 /**
  * Graduating buys (quote ≥ remaining to graduation): Migration + 16 floor bands ≈ 2.76M execution gas (6-dec USDG), above
  * STATIC_GAS and above what a cached normal-buy estimate allows. The trade layer flags their call data
@@ -111,7 +178,8 @@ export type SendOpts = {
   pressId?: string;
 };
 /** SITE's shape (#144): sendCalls(calls, { rebuild }) — plus the signer / fee-retry switches as options. */
-export type SendCallsOpts = SendOpts & { as?: "owner" | "session"; feeRetry?: boolean };
+/** tt: trade timing marks (lib/trade/timing, console only); the first attempt only. */
+export type SendCallsOpts = SendOpts & { as?: "owner" | "session"; feeRetry?: boolean; tt?: import("../trade/timing").TradeTiming };
 /** GAME: every error a press throws carries its pressId: AAError ⇒ extra.pressId; any object error ⇒ .pressId too.
  * Duck-typed (no AAError import) so this module stays light. */
 export function tagPress(e: unknown, pressId: string) {

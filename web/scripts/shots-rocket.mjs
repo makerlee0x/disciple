@@ -26,7 +26,7 @@ const shots = [
   { path: "/create", file: "create-decal.png", wait: 1500, act: async (p) => {
       await p.getByRole("button", { name: /ADVANCED/ }).click();
       await p.setInputFiles('input[type="file"]', "public/test-icons/wide.png");
-      await p.waitForSelector("text=Icon approved", { timeout: 60000 });
+      await p.waitForSelector("text=Image approved", { timeout: 60000 });
       await p.waitForTimeout(800);
   } },
   { path: "/coin/0xc4a21f9d6485fc5893dd4a491b320a83daf4da1d?replay=1&cs=AI&icon=" + encodeURIComponent(AI_ICON), file: "share-card.png", wait: 7000, share: true },

@@ -95,12 +95,16 @@ export const GAS = {
   maxOverhead: 0.05,
 } as const;
 
+/** Minimum buy $ (lee, Nov 9 2026: $3, replacing the ~$0.20 gas-derived floor). Same number as
+ *  lib/trade/gaslessPermit2 MIN_TRADE_USD and public/flight/engine.js MIN_SHOT; the gas-overhead formula below can
+ *  only raise it. */
+export const MIN_TRADE_USD = 3;
 export function minShotUsd(
   gwei = GAS.robinhoodGwei,
   ethUsd = GAS.ethUsd,
 ): number {
   const gasUsd = GAS.execGas * gwei * 1e-9 * ethUsd;
-  return gasUsd / GAS.maxOverhead;
+  return Math.max(MIN_TRADE_USD, gasUsd / GAS.maxOverhead);
 }
 
 export function fmtUsd(v: number): string {

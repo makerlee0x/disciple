@@ -118,9 +118,9 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     address public immutable referralRegistry;
 
     /// @notice DISCIPLE USDG token paymaster (EntryPoint v0.7). Fixed per deployment (immutable) so the SessionConfig
-    ///         ABI is unchanged. The session key may approve it USDG only for EXACTLY the signed `maxTokenCost` in the
-    ///         same userOp's paymasterAndData, and that amount counts against the USDG spend cap (the gas fee's upper
-    ///         bound; the paymaster pulls the actual cost ≤ it). address(0) disables paymaster approvals.
+    ///         ABI is unchanged. A session may approve the signed `maxTokenCost` or a persistent max allowance.
+    ///         The signed maxTokenCost, not the ERC20 allowance, counts against the USDG spend cap. Payment is
+    ///         precharged in validation and unused USDG refunded in postOp. address(0) disables paymaster approvals.
     address public immutable paymaster;
 
     /// @notice Install-time session configuration (abi-encoded after the uint32 entityId in onInstall data).
@@ -229,7 +229,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     }
 
     function moduleId() external pure override returns (string memory) {
-        return "disciple.session-policy.1.4.1";
+        return "disciple.session-policy.1.4.2";
     }
 
     function supportsInterface(bytes4 id) external pure override returns (bool) {
@@ -347,7 +347,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         return w == uint256(uint160(paymaster));
     }
 
-    /// @dev USDG gas-fee approval to the DISCIPLE paymaster: exact signed maxTokenCost, counted against the USDG cap.
+    /// @dev F-01: permit persistent allowance without debiting uint256.max; debit the signed per-op precharge cap.
     function _paymasterApprove(SessionConfig storage c, Call memory k, address usdg, bytes calldata data)
         internal
         view
@@ -359,8 +359,8 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         (, uint256 amt) = abi.decode(_args(k.data), (address, uint256));
         if (amt == 0) return (0, 0); // revoke
         uint256 need = _paymasterMaxCost(data);
-        if (amt != need) revert PaymasterApproveNotExact(amt, need);
-        return _spend(c, usdg, amt);
+        if (amt != need && amt != type(uint256).max) revert PaymasterApproveNotExact(amt, need);
+        return _spend(c, usdg, need);
     }
 
     /// @dev maxTokenCost from the executing userOp's paymasterAndData (DisciplePaymaster layout:

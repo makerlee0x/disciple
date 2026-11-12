@@ -1,3 +1,5 @@
+import { flowCache } from "./trade/flowTiming";
+import { logPreSendNetwork } from "./aa/diagnostics";
 /**
  * viem implementation of ProtocolClient against DISCIPLE FLOW PR #4 (flow/contracts-api).
  *  - No custody/vault: the Privy embedded wallet (lib/wallet.ts) signs every tx.
@@ -5,17 +7,23 @@
  *  - Previews come from on-chain views (quoteBuy/quoteSell) or router.quoteExactIn (eth_call) post-grad.
  *  - Quote decimals are read per token (USDG = 6, STRATEGY = 18); never assumed.
  */
-import { routerUsdg, payUsdg, usdgRouteQuote, routerBuyWithUsdgCalls, routerSellToUsdgCalls, toCalls } from "./trade/usdgRouter";
+import { routerUsdg, routerUsdgNow, payUsdg, usdgRouteQuote, readUsdgRoute, usdgModelRoute, routerBuyWithUsdgCalls, routerSellToUsdgCalls, toCalls } from "./trade/usdgRouter";
+import { MODEL } from "./trade/quoteModel";
 import { COIN_DECIMALS, knownDecimals, usdgRawToUsd, usdToUsdgRaw } from "./usdg";
-import { BALANCES, COIN, QUOTES, LAST_QUOTE, scaledQuote, addInflight, marginalQuote, key as ckey } from "./trade/hotCache";
+import { BALANCES, COIN, QUOTES, LAST_QUOTE, TRADER_QUOTES, REQUOTE, OPPOSITE_WAIT, scaledQuote, addInflight, quoteRange, beginTap, type CoinTap, key as ckey, TAP_CLIENTS, isTapClient } from "./trade/hotCache";
+import { startTradeTiming, type TradeTiming } from "./trade/timing";
+import { asTrade, sessionMaxSlippageBps } from "./aa/session";
+import { READ_FLOOR, flooredTransport, receiptBlock } from "./trade/readFloor";
+import { appReadTransport, appRaceTransport, labelRead, readFailure, withinBudget, TAP_READ_BUDGET_MS, COLD_REQ_BUDGET_MS, COLD_READ_BUDGET_MS } from "./rpc/readTransport";
 import {
-  BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, http, maxUint256, parseAbi, type Hex, type PublicClient,
+  BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, maxUint256, parseAbi, type Hex, type PublicClient,
 } from "viem";
 import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
 import { readCoinMcap } from "./mcap";
 import { fillBook, readAtOrAfter } from "./fillBook";
 import { NETWORK_MSG, NO_PRICE_MSG, PENDING_MSG, REJECTED_MSG, isTransportError, logTradeError, plainText } from "./aa/relayOp";
 import { lookupOp, pendingIds, watchPending } from "./trade/pendingWatch";
+import { RESERVATIONS, spendable } from "./trade/reservations";
 import { ANON_ADDONS } from "./anon";
 import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
@@ -33,13 +41,17 @@ import type {
   Address, CurveState, LaunchCoinParams, LaunchCoinResult, ProtocolClient, TradeParams, TradeQuote, TradeResult,
 } from "./protocol";
 import { ZERO_ADDRESS } from "./protocol";
-import { activeAddress, connectedAddress, execCalls, isSmartMode, type ExecResult } from "./wallet";
-import { ensurePveLogin, PveError } from "./pve";
-import { seedCreatorBuyPosition } from "./pnl";
+import { activeAddress, connectedAddress, execCalls, execGasless, gaslessSigner, isSmartMode, type ExecResult } from "./wallet";
+import { clientGaslessMode } from "./aa/sponsorshipMode";
+import { sendPrivateLaunchRelayer } from "./trade/gaslessAnonLaunchClient";
+import { GaslessError } from "./trade/gaslessClient";
+import { ensurePveLogin, ensurePveLoginOnchain, PveError } from "./pve";
+import { isLegacyCurve, LEGACY_COIN_MSG } from "./legacyGate";
+import { pnlKey, seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
 import type { RelayTimeoutExtra } from "./aa/relayTypes";
 import { markGradBuy, newPressId, tagPress } from "./aa/fastPath";
-import { holdInflightUntilSeen } from "./trade/queuePricing";
+import { holdInflightUntilSeen, tradeMinOut } from "./trade/queuePricing";
 import { GradHint } from "./trade/gradHint";
 import { readGradNeed, usdgBuyGraduates, type GradNeed } from "./trade/gradNeed";
 export { readRouterMaxImpactBps, readGradNeed, type GradNeed } from "./trade/gradNeed";
@@ -47,6 +59,8 @@ const erc20Events = parseAbi(["event Transfer(address indexed from, address inde
 
 const B = BigInt;
 const DEFAULT_SLIPPAGE_BPS = 100; // 1%
+/** A trade that truly missed on price (lee, Oct 30: no slippage alert, a plain failure line). */
+export const PRICE_MOVED_MSG = "Price moved, trade not sent. Try again.";
 const now = () => Math.floor(Date.now() / 1000);
 const wadToNum = (v: bigint) => Number(v) / 1e18;
 /** USD value of `raw` quote units given quotePriceUsd (USD WAD per 1e18 raw units). */
@@ -186,10 +200,26 @@ const logsBlock = (logs: unknown): bigint | undefined => {
  * / "took too long" / fetch errors were shown raw to players (lee, Oct 26). Nothing was sent (the AA layer turns any
  * post-send failure into "Timeout"). Plain line; raw text + url to the console. null = not a transport error.
  */
+/** Pause before the one pre-send network retry (trade()). */
+export const NETWORK_RETRY_MS = 50;   // was 250; the retry's reads are budgeted races (fastClient) now
+/**
+ * aa-sdk's client-side "Request is missing parameters. All properties on UserOperationStruct must be set" — thrown by
+ * buildUserOperation BEFORE anything is signed or sent (seen on a fresh account's first two concurrent taps, Oct 30
+ * testnet repro). Wrapped by mav2 as AAError("Estimate", "simulation failed: …"); safe to retry like a network blip.
+ */
+export const INCOMPLETE_OP = /missing parameters|properties on UserOperationStruct must be set/i;
 export function tradeNetworkError(e: unknown): ProtocolError | null {
   const isAA = e instanceof AAError || (e as { constructor?: { name?: string } })?.constructor?.name === "AAError";
+  if (isAA && (e as AAError).code === "Estimate" && INCOMPLETE_OP.test(String((e as Error).message ?? ""))) {
+    logTradeError("trade op built incomplete before sending (retryable)", { message: String((e as Error).message).slice(0, 300) });
+    logPreSendNetwork("sdk-incomplete", "build", e);
+    return new ProtocolError("Network", NETWORK_MSG);
+  }
   if (isAA || e instanceof ProtocolError || !isTransportError(e)) return null;
-  logTradeError("trade failed before sending (network)", { name: (e as Error)?.name, message: String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300), url: (e as { url?: string })?.url });
+  // which pre-send read (labelRead in tradeOnce / tradeViaUsdg), the URL(s) tried and each attempt's error
+  const f = readFailure(e);
+  logPreSendNetwork("transport", f.read ?? "unlabeled", e);
+  logTradeError("trade failed before sending (network)", { read: f.read ?? "unlabeled", name: (e as Error)?.name, message: String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300), url: f.url, attempts: f.attempts });
   return new ProtocolError("Network", NETWORK_MSG);
 }
 export function friendlyError(e: unknown): ProtocolError {
@@ -225,11 +255,11 @@ export function friendlyError(e: unknown): ProtocolError {
       TaxTooHigh: `Creator tax must be ≤ ${CURVE.creatorTaxMaxPct}%.`,
       InvalidMetadata: "Name, call sign and image are required.",
       CreatorBuyTooLarge: CREATOR_BUY_MSG(),
-      Slippage: "Price moved too much. Try again or raise slippage.",
+      Slippage: PRICE_MOVED_MSG,
       Expired: "The trade took too long and expired. Try again.",
       WalletCap: "Wallet cap reached: one wallet can hold at most 7% before orbit.",
-      Graduated: "This rocket has graduated, so trading moved to its pool.",
-      NotGraduated: "This rocket is still on the curve.",
+      Graduated: "This rocket has reached orbit. The path its price follows at the start is finished, and buying and selling now happen on the open market on Uniswap.",
+      NotGraduated: "This rocket has not reached orbit yet. It still trades on the path its price follows at the start, before the open market on Uniswap.",
       InsufficientLiquidity: "Not enough left on the curve for that size.",
       ZeroAmount: "Amount is too small.",
       ZeroRecipient: "Missing recipient wallet.",
@@ -243,13 +273,13 @@ export function friendlyError(e: unknown): ProtocolError {
       BadMode: "Unknown game mode.",
       ERC20InsufficientBalance: "Not enough balance for that shot size — deposit more or pick a smaller ammo.",
       SpendCapExceeded: "One-tap budget for this session is used up — this trade will be signed by your wallet instead. Try again.",
-      MinOutTooLow: "Price moved past your one-tap max slippage. Try again or raise slippage.",
+      MinOutTooLow: PRICE_MOVED_MSG,
       QuoteFailed: NO_PRICE_MSG,   // approved by lee 2026-10-24; the target address goes to the console (below)
       SessionInactive: "One-tap session isn't active any more — retrying with your wallet.",
       SessionExpired: "One-tap session expired — retrying with your wallet.",
       ERC20InsufficientAllowance: "Approval too small for that shot size.",
-      V4TooLittleReceived: "Price moved too much. Try again or raise slippage.",
-      V4TooMuchRequested: "Price moved too much. Try again or raise slippage.",
+      V4TooLittleReceived: PRICE_MOVED_MSG,
+      V4TooMuchRequested: PRICE_MOVED_MSG,
       // raw reasons ("AA23 reverted", revert strings) → console only (below)
       FailedOp: REJECTED_MSG,
       Error: REJECTED_MSG,
@@ -281,8 +311,16 @@ export function friendlyError(e: unknown): ProtocolError {
   return new ProtocolError(typeof code === "string" ? code : "Unknown", plainText(msg, "trade error", { code }));
 }
 
+/**
+ * App-wide public client. Its state reads are pinned to our last receipt's block for ~3 s after our own trade
+ * (lib/trade/readFloor): the public RPC can lag the sequencer by ~0.7 s, and a "latest" read in that gap would return
+ * pre-trade quotes / balances. Reads go to the public RPC directly and fail over to our same-origin /api/rpc
+ * (lib/rpc/readTransport: CORS / connection failures, lee Oct 30); retries live in that transport (outer: none).
+ * Pinned eth_calls run at the next tx's second (ReadFloor.execTime), not the receipt block's: a buy quoted in a coin's
+ * first seconds otherwise prices an older second's sniper tax and the session policy refuses its minOut (MinOutTooLow).
+ */
 export function publicClient(): PublicClient {
-  return createPublicClient({ chain: ACTIVE_CHAIN, transport: http() }) as PublicClient;
+  return createPublicClient({ chain: ACTIVE_CHAIN, transport: flooredTransport(appReadTransport(ACTIVE_CHAIN.rpcUrls.default.http[0]), READ_FLOOR, { retryCount: 0, execTime: true }) }) as PublicClient;
 }
 
 /* ---------------- reads ---------------- */
@@ -327,7 +365,7 @@ export async function decimalsOf(pc: PublicClient, erc20: Address): Promise<numb
 
 const curveCache = new Map<string, Address>();
 export async function curveOf(pc: PublicClient, token: Address): Promise<Address> {
-  return COIN.get(ckey("curve", token), () => curveOfLive(pc, token)) as Promise<Address>;
+  return COIN.get(ckey("curve", token), () => curveOfLive(pc, token), undefined, isTapClient(pc)) as Promise<Address>;
 }
 async function curveOfLive(pc: PublicClient, token: Address): Promise<Address> {
   const hit = curveCache.get(token.toLowerCase());
@@ -390,7 +428,7 @@ export async function coinFacts(pc: PublicClient, token: Address): Promise<CoinF
   const c = { address: curve, abi: bondingCurveAbi } as const;
   const [graduated, quote, mode] = await Promise.all([
     pc.readContract({ ...c, functionName: "graduated" }), pc.readContract({ ...c, functionName: "quote" }),
-    (COIN.get(ckey("mode", curve), () => pc.readContract({ ...c, functionName: "mode" }).then(Number).catch(() => 0)) as Promise<number>),
+    (COIN.get(ckey("mode", curve), () => pc.readContract({ ...c, functionName: "mode" }).then(Number).catch(() => 0), undefined, isTapClient(pc)) as Promise<number>),
   ]);
   const v = { curve, graduated, quote, quoteDecimals: await decimalsOf(pc, quote), mode, at: Date.now() };
   COIN.set(kk, v); return v;
@@ -459,11 +497,27 @@ export async function readGradNeedForToken(pc: PublicClient, token: Address): Pr
  * amountOut for (token, side, amountIn): the background-warmed value if ≤ maxAge ms old, else a live quote.
  * exact = true (trade minOut): skip the linear down-scale of a bigger warmed quote (see usdgRouteQuote).
  */
-export async function quoteOut(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint, maxAge = 1500, exact = false): Promise<bigint> {
+export async function quoteOut(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint, maxAge = 1500, exact = false, pressId?: string): Promise<bigint> {
   const k = ckey(token, side, amountIn), lk = ckey(token, side);
-  const hit = QUOTES.fresh(k, maxAge); if (hit) return hit.amountOut;
-  if (!exact) { const sc = scaledQuote(LAST_QUOTE.get(lk), amountIn, maxAge); if (sc !== undefined) return sc; } // e.g. sell % after balance shrank
-  return (await QUOTES.get(k, async () => ({ amountOut: await readAmountOut(pc, token, side, amountIn) }), maxAge)).amountOut;
+  const read = async () => ({ amountOut: await readAmountOut(pc, token, side, amountIn) });
+  REQUOTE.remember(k, read, { lk, amountIn });
+  const hit = QUOTES.fresh(k, maxAge); if (hit) { flowCache(pressId, "quote", true); return hit.amountOut; }
+  if (!exact) { const sc = scaledQuote(LAST_QUOTE.get(lk), amountIn, maxAge); if (sc !== undefined) { flowCache(pressId, "quote", true); return sc; } } // e.g. sell % after balance shrank
+  flowCache(pressId, "quote", false);
+  return (await QUOTES.get(k, read, maxAge)).amountOut;
+}
+/**
+ * PVE/PVP pre-grad quote for one trader (latency plan #5): was a live eth_call on every tap. Exact (trader, side,
+ * amount) key, ≤ maxAge (1.5 s) old, never down-scaled; warmed by warmQuote for the connected trader, re-read right
+ * after our own trade. The contract still enforces minOut (= quote − slippage) on-chain.
+ */
+export async function traderQuote(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint, trader?: Address | null, maxAge = 1500, pressId?: string): Promise<bigint> {
+  const who = quoteTrader(trader);
+  const k = ckey("pvq", token, side, who ?? "-", amountIn);
+  const read = async () => ({ amountOut: await readAmountOut(pc, token, side, amountIn, who) });
+  REQUOTE.remember(k, read, undefined, TRADER_QUOTES);
+  flowCache(pressId, "quote", TRADER_QUOTES.fresh(k, maxAge) !== undefined);
+  return (await TRADER_QUOTES.get(k, read, maxAge)).amountOut;
 }
 /** amountOut only — ONE eth_call (router quoteExactIn post-grad, curve quoteBuy/quoteSell pre-grad); readQuote also
  * reads the lens for the mcap preview, which a trade doesn't need. */
@@ -475,11 +529,23 @@ export async function readAmountOut(pc: PublicClient, token: Address, side: "buy
   }
   return side === "buy" ? (await curveBuyQuote(pc, curve, mode, amountIn, trader)).tokensOut : (await curveSellQuote(pc, curve, mode, amountIn, trader)).quoteOut;
 }
-/** Background refresh of a preset quote (TradeBridge calls this ~1 s). */
-/** After a trade lands, quotes on its route are stale: drop them (the 1 s warm loop re-fills them). */
+/**
+ * After a trade lands, quotes on its route describe the pre-trade state. Latency plan #5: re-read the few quotes taps
+ * actually use (presets, the last custom amounts, the trader quote) right away instead of wiping them all and making
+ * the next tap pay a live read. Nothing from before the trade is served after it (lib/trade/hotCache Requoter).
+ */
+function requoteRoute(token: Address, logs?: ExecResult["logs"], sentAt?: number) {
+  // our receipt's block first: the re-reads below (and any balance read in the next ~3 s) are pinned to it, so a public
+  // node that hasn't caught up retries briefly instead of answering with the pre-trade state
+  READ_FLOOR.raise(receiptBlock(logs), sentAt);
+  const pre = [ckey(token), ckey("usdg", token), ckey("pvq", token)];
+  REQUOTE.requote((k) => pre.some((p) => k.startsWith(p)), ["buy", "sell"].flatMap((sd) => [ckey(token, sd), ckey("usdg", token, sd)]));
+}
+/** Before anything landed (MINOUT retry, rapid-tap rebuild): drop this route's quotes so the next read is live. */
 function dropRouteQuotes(token: Address) {
   for (const sd of ["buy", "sell"]) { LAST_QUOTE.delete(ckey(token, sd)); LAST_QUOTE.delete(ckey("usdg", token, sd)); }
   QUOTES.dropWhere((k) => k.startsWith(ckey(token)) || k.startsWith(ckey("usdg", token)));
+  TRADER_QUOTES.dropWhere((k) => k.startsWith(ckey("pvq", token)));
 }
 /** amountIn for a $ shot: USDG mode buys spend USDG 1:1 ($1 = 1 USDG, config usdgDecimals); otherwise quote/coin via usdToAmountIn. */
 /**
@@ -501,13 +567,27 @@ export async function shotAmountIn(pc: PublicClient, token: Address, side: "buy"
 export async function warmRoute(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint) {
   if (amountIn <= B(0)) return;
   const r = deployment().router;
-  if (await usdgRouteFor(pc, token)) { await usdgRouteQuote(pc, r, token, side === "buy", amountIn, 0, connectedAddress()); return; }
+  if (await usdgRouteFor(pc, token)) {
+    const f = side === "buy" ? (COIN.peek(ckey("facts", token))?.v as CoinFacts | undefined) : undefined;
+    if (f && !f.graduated) bg(ckey("gradneed", token), () => warmGradNeed(pc, token));
+    await usdgRouteQuote(pc, r, token, side === "buy", amountIn, 0, connectedAddress(), true); return;
+  }
   return warmQuote(pc, token, side, amountIn);
 }
 export async function warmQuote(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint) {
   if (amountIn <= B(0)) return;
-  const amountOut = await readAmountOut(pc, token, side, amountIn);
-  QUOTES.set(ckey(token, side, amountIn), { amountOut }); LAST_QUOTE.set(ckey(token, side), { amountIn, amountOut, at: Date.now() });
+  const k = ckey(token, side, amountIn), lk = ckey(token, side);
+  REQUOTE.remember(k, async () => ({ amountOut: await readAmountOut(pc, token, side, amountIn) }), { lk, amountIn });
+  const who = connectedAddress();
+  const amountOut = await readAmountOut(pc, token, side, amountIn);   // trader = connected account (quoteTrader)
+  QUOTES.set(k, { amountOut }); LAST_QUOTE.set(lk, { amountIn, amountOut, at: Date.now() });
+  // PVE/PVP pre-grad: the same read IS the connected trader's quote ⇒ also serves traderQuote (no second read on tap)
+  const { graduated, mode } = await coinFacts(pc, token);
+  if (!graduated && mode !== MODE.TRENCH && who && who === connectedAddress()) {
+    const tk = ckey("pvq", token, side, who, amountIn);
+    TRADER_QUOTES.set(tk, { amountOut });
+    REQUOTE.remember(tk, async () => ({ amountOut: await readAmountOut(pc, token, side, amountIn, who) }), undefined, TRADER_QUOTES);
+  }
 }
 
 /** Exact preview for the current block. Curve views pre-grad, router eth_call post-grad. */
@@ -516,7 +596,7 @@ export async function readQuote(pc: PublicClient, token: Address, side: "buy" | 
   const base = { side, amountIn, quoteDecimals, snipeFee: B(0), graduates: false, mode } as const;
 
   if (graduated) {
-    if (!hasRouter()) throw new ProtocolError("NoRouter", "This rocket reached orbit; the router isn't configured on this network yet.");
+    if (!hasRouter()) throw new ProtocolError("NoRouter", "This rocket has reached orbit, so it trades on the open market on Uniswap. That market is not set up on this network yet.");
     // Not a view (v4 has no view swaps): eth_call via simulateContract. Includes the hook's 1%.
     const { result: [amountOut, impactBps, mcapAfterUsd] } = await pc.simulateContract({
       address: deployment().router, abi: discipleRouterAbi, functionName: "quoteExactIn", args: [token, side === "buy", amountIn],
@@ -569,7 +649,7 @@ export async function launchUsdg(pc: PublicClient): Promise<Address | null> {
 export const FIRST_BOOST_CASH_MSG = (needUsd: number, haveUsd: number) =>
   `Not enough cash for a $${needUsd.toFixed(2)} First BOOST: you have $${haveUsd.toFixed(2)}. Lower it or deposit more.`;
 
-/** On-chain creator-buy supply cap in bps (v3 default 77 = 0.77%). Prefer this over any hardcoded UI limit. */
+/** On-chain creator-buy supply cap in bps (contracts default and ceiling 777 = 7.77%; older deployments 77 / 700). Prefer this over any hardcoded UI limit. */
 export async function readCreatorBuyMaxBps(pc: PublicClient) {
   return Number(await pc.readContract({ address: deployment().launchpad, abi: launchpadAbi, functionName: "creatorBuyMaxBps" }));
 }
@@ -581,7 +661,7 @@ export async function readCreatorBuyMaxBps(pc: PublicClient) {
 export async function usdToAmountIn(pc: PublicClient, token: Address, side: "buy" | "sell", usd: number): Promise<bigint> {
   const curve = await curveOf(pc, token);
   const c = { address: curve, abi: bondingCurveAbi } as const;
-  const qp = await COIN.get(ckey("qp", curve), () => pc.readContract({ ...c, functionName: "quotePriceUsd" })) as bigint;   // launch-fixed
+  const qp = await COIN.get(ckey("qp", curve), () => pc.readContract({ ...c, functionName: "quotePriceUsd" }), undefined, isTapClient(pc)) as bigint;   // launch-fixed
   const usdMicro = B(Math.max(1, Math.round(usd * 1e6)));
   if (side === "buy") return (usdMicro * B(1e18) * B(1e18)) / (qp * B(1e6));
   const [mcapWad, p] = await Promise.all([pc.readContract({ ...c, functionName: "mcapNow" }), curveParams(pc, curve)]);
@@ -597,17 +677,23 @@ export async function usdToAmountIn(pc: PublicClient, token: Address, side: "buy
  */
 export async function tokenBalance(pc: PublicClient, erc20: Address, owner: Address) {
   const at = (blockNumber?: bigint) => pc.readContract({ address: erc20, abi: tokenAbi, functionName: "balanceOf", args: [owner], ...(blockNumber !== undefined ? { blockNumber } : {}) });
-  const f = fillBook.floor(owner);
+  const f = fillBook.floor(owner), t0 = BALANCES.now();
   const b = f === undefined ? await at() : await readAtOrAfter(pc, f, at).then((r) => r.value, () => at());
-  BALANCES.set(ckey(erc20, owner), b); return b;
+  BALANCES.setRead(ckey(erc20, owner), b, t0); return b;
 }
 /**
  * Apply a known delta (e.g. coin received, from the receipt logs) to the cached balance. Reading balanceOf right after
  * a sync receipt can hit an RPC node one block behind (0 after a first buy ⇒ "NO TOKENS IN WALLET" on the next sell).
  */
 export function bumpBalance(erc20: Address, owner: Address, delta: bigint) {
-  const k = ckey(erc20, owner), cur = BALANCES.fresh(k, 60_000);
-  if (cur !== undefined) BALANCES.set(k, cur + delta > B(0) ? cur + delta : B(0)); else if (delta > B(0)) BALANCES.set(k, delta);
+  const k = ckey(erc20, owner), cur = BALANCES.peek(k)?.v;   // any age: zero-wait taps read it at any age (balanceNow)
+  if (cur !== undefined) BALANCES.setOwn(k, cur + delta > B(0) ? cur + delta : B(0)); else if (delta > B(0)) BALANCES.setOwn(k, delta);
+}
+/** Receipt path only: memory peek and compare-and-set. Never schedules or performs a read. */
+export const peekReceiptBalance = (erc20: Address, owner: Address) => BALANCES.peek(ckey(erc20, owner))?.v;
+export function syncReceiptBalance(erc20: Address, owner: Address, observed: bigint | undefined, value: bigint) {
+  const current = peekReceiptBalance(erc20, owner);
+  if (observed !== undefined && current === observed && current !== value) BALANCES.setOwn(ckey(erc20, owner), value);
 }
 /** Balance hint ≤ maxAge ms old (polled / refreshed after trades), else a live read. */
 export async function balanceHint(pc: PublicClient, erc20: Address, owner: Address, maxAge = 5000) {
@@ -616,6 +702,89 @@ export async function balanceHint(pc: PublicClient, erc20: Address, owner: Addre
     const f = fillBook.floor(owner);   // same receipt-block pin as tokenBalance
     return f === undefined ? at() : readAtOrAfter(pc, f, at).then((r) => r.value, () => at());
   }, maxAge);
+}
+
+/* ---------------- zero-wait tap path (lee, Oct 30: "Get rid of the delay entirely") ----------------
+ * A tap builds from memory: coin facts / route / referral / grad hint / balance / quote are all kept warm (warm loop,
+ * our own receipts) and read SYNC at any age (the age is logged). A truly cold value (first tap on a coin before the
+ * warm loop answered) is read with fastClient(): direct ∥ /api/rpc, first answer wins, hard TAP_READ_BUDGET_MS budget.
+ * A hung RPC therefore never stalls a tap; the session policy + the router's minOut protect the trade, and a definite
+ * min-out revert is re-sent ONCE at a fresh (budgeted) quote.
+ */
+let FAST: PublicClient | undefined;
+/** Tap-time reads only: hedged + bounded (lib/rpc/readTransport raceTransport), floored like publicClient. */
+export function fastClient(): PublicClient {
+  if (!FAST) TAP_CLIENTS.add(FAST = createPublicClient({ chain: ACTIVE_CHAIN, transport: flooredTransport(appRaceTransport(ACTIVE_CHAIN.rpcUrls.default.http[0]), READ_FLOOR, { retryCount: 0, execTime: true }) }) as PublicClient);
+  return FAST;
+}
+let COLD: PublicClient | undefined;
+/** Same race, wider per-request budget: only for reads with NO memory fallback (a coin's first tap). */
+export function coldClient(): PublicClient {
+  if (!COLD) TAP_CLIENTS.add(COLD = createPublicClient({ chain: ACTIVE_CHAIN, transport: flooredTransport(appRaceTransport(ACTIVE_CHAIN.rpcUrls.default.http[0], COLD_REQ_BUDGET_MS), READ_FLOOR, { retryCount: 0, execTime: true }) }) as PublicClient);
+  return COLD;
+}
+/** Where each tap read came from (timing log `reads`): memory (with its age) or a budgeted read (with its ms). */
+export type TapReads = Record<string, { src: "cache" | "model" | "exact" | "read" | "none" | "skip"; ageMs?: number; ms?: number; err?: string }>;
+async function tapRead<T>(reads: TapReads, name: string, p: () => Promise<T>, budget = TAP_READ_BUDGET_MS): Promise<T> {
+  const t = Date.now();
+  try { const v = await withinBudget(p(), budget, name); reads[name] = { src: "read", ms: Date.now() - t }; return v; }
+  catch (e) { reads[name] = { src: "read", ms: Date.now() - t, err: String((e as Error)?.name ?? "error") }; throw e; }
+}
+const BG = new Map<string, Promise<unknown>>();
+/** Background refresh, deduped per key, never awaited by a tap. */
+function bg(k: string, f: () => Promise<unknown>) {
+  if (BG.has(k)) return;
+  const p = f().catch(() => undefined).finally(() => BG.delete(k)); BG.set(k, p);
+}
+/** Coin facts at any age (graduated=false older than 5 s ⇒ refreshed in the background); cold ⇒ undefined. */
+export function coinFactsNow(pc: PublicClient, token: Address): { v: CoinFacts; ageMs: number } | undefined {
+  const e = COIN.peek(ckey("facts", token)) as { v: CoinFacts & { at: number }; ageMs: number } | undefined;
+  if (!e || (!e.v.graduated && Date.now() - e.v.at >= 5000)) bg(ckey("facts", token), () => coinFacts(pc, token));
+  return e ? { v: e.v, ageMs: Date.now() - e.v.at } : undefined;
+}
+/** usdgRouteFor, sync: undefined until router.usdg() (and, when the flag is off, the coin's quote) is known. */
+export function usdgRouteNow(pc: PublicClient, token: Address, facts?: CoinFacts): Address | null | undefined {
+  if (!hasRouter()) return null;
+  const ru = routerUsdgNow(deployment().router);
+  if (ru === undefined) { bg("routerUsdg", () => routerUsdg(pc, deployment().router)); return undefined; }
+  if (!ru) return null;
+  if (payUsdg()) return ru;
+  return facts ? (facts.quote.toLowerCase() === ru.toLowerCase() ? ru : null) : undefined;
+}
+/** Remaining-to-graduate per curve (USDG input), warmed in the background for pre-grad buys (warmRoute). */
+const GRAD_NEED = new Map<string, { usdgIn: bigint | null; at: number }>();
+/** Margin on the warmed need: other traders move the curve; a near-graduation buy gets the fresh-gas path. */
+export const GRAD_NEAR_BPS = 1500;
+/** Tap memory older than this ⇒ try one budgeted read first (falls back to the memory if it fails). */
+export const STALE_QUOTE_MS = 15_000;
+export function gradNow(curve: Address, usdgIn: bigint): { v: boolean; ageMs: number } | undefined {
+  const e = GRAD_NEED.get(curve.toLowerCase()); if (!e) return undefined;
+  const v = e.usdgIn !== null && usdgIn * B(10_000 + GRAD_NEAR_BPS) >= e.usdgIn * B(10_000);
+  return { v, ageMs: Date.now() - e.at };
+}
+async function warmGradNeed(pc: PublicClient, token: Address) {
+  const need = await readGradNeedForToken(pc, token);
+  GRAD_NEED.set(need.curve.toLowerCase(), { usdgIn: need.graduated ? null : need.usdgIn, at: Date.now() });
+}
+/** Balance at any age (receipt-booked / polled); undefined ⇒ never seen (background read kicked). */
+export function balanceNow(pc: PublicClient, erc20: Address, owner: Address): { v: bigint; ageMs: number } | undefined {
+  const e = BALANCES.peek(ckey(erc20, owner));
+  if (!e || e.ageMs > 5000) bg(ckey("bal", erc20, owner), () => balanceHint(pc, erc20, owner, 0));
+  return e;
+}
+
+/**
+ * A $ shot's amountIn from memory (zero-wait taps): USDG buys spend $ 1:1; a $ sell converts at the newest sell quote's
+ * average price on the USDG route. undefined ⇒ not known yet (caller: budgeted shotAmountIn).
+ */
+export function shotAmountNow(pc: PublicClient, token: Address, side: "buy" | "sell", usd: number): bigint | undefined {
+  const f = COIN.peek(ckey("facts", token))?.v as CoinFacts | undefined;
+  const u = usdgRouteNow(pc, token, f);
+  if (!u) return undefined;
+  if (side === "buy") return usdToUsdgRaw(usd);
+  const last = LAST_QUOTE.get(ckey("usdg", token, "sell"));
+  if (!last || last.amountOut <= B(0)) return undefined;
+  return (last.amountIn * usdToUsdgRaw(usd)) / last.amountOut;
 }
 
 /* ---------------- client ---------------- */
@@ -637,6 +806,32 @@ export function createViemProtocol(): ProtocolClient {
       try { const ev = decodeEventLog({ abi: erc20Events, data: l.data, topics: l.topics as [Hex, ...Hex[]] }); if (ev.eventName === "Transfer" && ev.args.to.toLowerCase() === recipient.toLowerCase()) out += ev.args.value; } catch { /* not a transfer */ }
     }
     return out;
+  }
+
+  /** Sum ERC-20 Transfer(from=owner) of `asset` in the receipt logs. */
+  function sent(logs: ExecResult["logs"], asset: Address, owner: Address) {
+    let out = B(0);
+    for (const l of logs) {
+      if (l.address.toLowerCase() !== asset.toLowerCase()) continue;
+      try { const ev = decodeEventLog({ abi: erc20Events, data: l.data, topics: l.topics as [Hex, ...Hex[]] }); if (ev.eventName === "Transfer" && ev.args.from.toLowerCase() === owner.toLowerCase()) out += ev.args.value; } catch { /* not a transfer */ }
+    }
+    return out;
+  }
+  /**
+   * Book a fill from its receipt logs (no balanceOf right after the receipt: the public RPC can lag ~0.7 s).
+   *  - spend asset: what the logs say actually left the account is debited from the cached balance (zero-wait taps
+   *    size / preflight from this cache with no read, so it must not keep the pre-trade amount: a 100 % sell sized
+   *    from it reverts). An own write: a balance read that started before it can't overwrite it (TtlCache.setRead);
+   *  - sell proceeds (quote / USDG) are added to the cached quote balance. Buys' coin side is booked by TradeBridge
+   *    (bumpBalance(r.amountOut)) and lib/wallet noteReceipt (GAME #138) — not here, to avoid double counting.
+   */
+  function bookFill(logs: ExecResult["logs"], spend: Address, me: Address, amountIn: bigint, proceeds: Address | undefined, recipient: Address, out: bigint) {
+    const s = sent(logs, spend, me);
+    void amountIn;
+    if (s > B(0)) bumpBalance(spend, me, -s);
+    // what we received (bought coins / sell proceeds), from the same receipt: a sell right after a buy sizes from memory
+    // even when no RPC answers (allhang). Unknown prior balance ⇒ booked as a lower bound (never over-sells).
+    if (proceeds && out > B(0)) bumpBalance(proceeds, recipient, out);
   }
 
   /**
@@ -665,6 +860,16 @@ export function createViemProtocol(): ProtocolClient {
     if (refDone.has(me.toLowerCase())) return [];
     const r = await referralCall(me); if (!r.length) refDone.add(me.toLowerCase()); return r;
   }
+  /** Zero-wait: the resolved referral call (consumed once: a second tryAttribute would revert), else [] + a background read. */
+  const REF = new Map<string, { to: Address; data: Hex }[]>();
+  function referralNow(me: Address): { to: Address; data: Hex }[] {
+    const k = me.toLowerCase();
+    if (refDone.has(k)) return [];
+    const r = REF.get(k);
+    if (r) { REF.delete(k); return r; }
+    bg(ckey("ref", k), () => referralCallCached(me).then((x) => { if (x.length) REF.set(k, x); }));
+    return [];
+  }
 
   /**
    * FLOW 2: a min-out / slippage revert on a quote WE derived (minAmountOut 0) means the warm quote went stale between
@@ -689,49 +894,125 @@ export function createViemProtocol(): ProtocolClient {
     if (fresh < first) console.warn("[disciple] re-quote is below the first quote; sending at the fresh price", { first: String(first), fresh: String(fresh) });
     return fresh;
   };
-  async function trade(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
-    try { return await tradeOnce(side, t); }
-    catch (e) {
-      // A min-out failure on a quote WE derived is retried ONCE with a fresh quote: pre-send, or (lee, Oct 26 10:50:
-      // "we can't stop them from selling") an op that definitely EXECUTED and reverted on-chain (nothing traded).
-      // An op that may still land (Timeout) is NEVER resent: lee's Oct 26 test got an extra sell from that resend.
-      // AUDIT: the definite-revert resend is new (was: never resend anything sent).
-      if (!(e instanceof ProtocolError) || t.minAmountOut > B(0) || !MINOUT_RETRY.test(e.code) || (wasSent(e) && !wasReverted(e))) throw e;
-      if (wasReverted(e)) console.warn("[disciple] trade reverted on price movement; resending once at a fresh quote", e.code);
-      dropRouteQuotes(t.token);
-      return tradeOnce(side, t);
+  async function trade(side: "buy" | "sell", t0: TradeParams): Promise<TradeResult> {
+    const tt = startTradeTiming(side);   // console-only latency marks: `[disciple] trade timing`
+    // rapid-tap (#144): one reservation per press (GAME's press id, else ours), kept across the minOut retry. tradeOnce
+    // holds the exact raw spend under it before quoting (holdSpend); it is released here on fill or a definite error.
+    // A Timeout (sent, outcome unknown) keeps the hold: lib/trade/pendingWatch settles it from the chain.
+    const t: TradeParams = t0.pressId ? t0 : { ...t0, pressId: newPressId() };
+    const rid = t.pressId!;
+    if (RESERVATIONS.isUnknown(rid)) {
+      // never rebuild or re-send a press whose op is still confirming (same id ⇒ same press)
+      const u = RESERVATIONS.get(rid)?.unknown;
+      console.warn("[disciple] trade not re-sent: this press is still confirming", { id: rid, userOpHash: u?.userOpHash });
+      tt.done("error", { code: "Timeout", resend: false });
+      const err = markSent(new ProtocolError("Timeout", PENDING_MSG)); tagPress(err, rid); throw err;
+    }
+    try {
+      let r: TradeResult;
+      try { r = await tradeOnce(side, t, tt); }
+      catch (e) {
+        // A min-out failure on a quote WE derived is retried ONCE with a fresh quote: pre-send, or (lee, Oct 26 10:50:
+        // "we can't stop them from selling") an op that definitely EXECUTED and reverted on-chain (nothing traded).
+        // An op that may still land (Timeout) is NEVER resent: lee's Oct 26 test got an extra sell from that resend.
+        // AUDIT: the definite-revert resend is new (was: never resend anything sent).
+        // Pre-send connection hiccup (a quote / balance / fee read failed, or the SDK built an incomplete op while two
+        // first taps raced): NOTHING was sent, so one quiet retry after a short pause is safe and usually lands (lee,
+        // Oct 30: "Connection hiccup" on buys that should have filled). Only "Network" (tradeNetworkError: never a sent op).
+        if (e instanceof ProtocolError && e.code === "Network" && !wasSent(e)) {
+          console.warn("[disciple] pre-send network error; retrying once (nothing was sent)");
+          tt.note({ networkRetry: true });
+          await new Promise((res) => setTimeout(res, NETWORK_RETRY_MS));
+          dropRouteQuotes(t.token);
+          r = await tradeOnce(side, t, tt, { fresh: true });
+          tt.done("fill"); RESERVATIONS.release(rid, "filled"); return r;
+        }
+        if (!(e instanceof ProtocolError) || t.minAmountOut > B(0) || !MINOUT_RETRY.test(e.code) || (wasSent(e) && !wasReverted(e))) throw e;
+        if (wasReverted(e)) console.warn("[disciple] trade reverted on price movement; resending once at a fresh quote", e.code);
+        tt.note({ minOutRetry: true });
+        dropRouteQuotes(t.token);   // fresh quotes for the retry (nothing landed)
+        r = await tradeOnce(side, t, tt, { fresh: true });
+      }
+      tt.done("fill");
+      RESERVATIONS.release(rid, "filled");
+      return r;
+    } catch (e) {
+      if ((e as { code?: unknown } | null)?.code !== "Timeout") RESERVATIONS.release(rid, "error");
+      tt.done("error", { code: (e as { code?: unknown }).code }); throw e;
     }
   }
-  async function tradeOnce(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
+  /**
+   * Hold this trade's raw spend under the press id BEFORE quoting (#144 spec #6), merged into GAME's reservation of the
+   * same press (reserve() merges per id, never double counts). `others` = what OTHER pending trades hold of the same
+   * asset (cash / holdings check); `need` adds this press's own gas hold when the spend is USDG.
+   * Synchronous: nothing awaits between the reservation and the quote that follows it.
+   */
+  function holdSpend(rid: string, side: "buy" | "sell", token: Address, asset: Address, amountIn: bigint, route: string) {
+    const usdg = deployment().usdg;
+    const r = RESERVATIONS.reserve(rid, { side: side === "buy" ? "boost" : "dump", coin: token, spend: { asset, raw: amountIn, route } });
+    // own gas counts against cash only for the part the hidden v5 gas credit can't cover (it is charged from credit)
+    const ownGas = asset.toLowerCase() === usdg.toLowerCase() ? RESERVATIONS.marginalWalletGas(r.gasReserve ?? B(0), rid) : B(0);
+    return { others: () => RESERVATIONS.reservedRaw(asset, { exceptId: rid, usdg }), need: amountIn + ownGas };
+  }
+  /** Copy for a spend that only fails because other pending trades hold the money (plain words, no ids; lee 2026-10-24). */
+  function heldMsg(isCash: boolean, amountUsd?: number) {
+    const n = Math.max(0, RESERVATIONS.count() - 1);
+    return isCash
+      ? `Not enough cash${amountUsd !== undefined ? ` for $${amountUsd.toFixed(2)}` : ""} while ${n === 1 ? "your other trade finishes" : "your other trades finish"}. Try again in a moment.`
+      : `Not enough tokens while ${n === 1 ? "your other trade finishes" : "your other trades finish"}. Try again in a moment.`;
+  }
+  async function tradeOnce(side: "buy" | "sell", t: TradeParams, tt?: TradeTiming, o: { fresh?: boolean } = {}): Promise<TradeResult> {
     if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
+    // cross-side taps are tracked (hotCache beginTap) but no longer awaited (OPPOSITE_WAIT.ms = 0, lee Oct 30): the tap
+    // quote model prices our in-flight trades on both sides into the [lo, hi] range instead (lib/trade/quoteModel)
+    const tap = beginTap(t.token, side), handoff = { done: false };
+    const reads: TapReads = {};
     try {
-      // Hot path: coin facts cached, quote/balance/referral/allowance in PARALLEL (warm tap ⇒ all cache hits, 0 RPCs).
-      const [{ curve, graduated, quote: quoteAsset, mode }, me] = await Promise.all([coinFacts(pc, t.token), activeAddress()]);
+      if (t.minAmountOut <= B(0) && tap.opposite && OPPOSITE_WAIT.ms > 0) {
+        const w = await tap.waitOpposite(OPPOSITE_WAIT.ms);
+        reads.oppositeWait = { src: "read", ms: w.waitedMs };
+        if (w.timedOut) console.warn("[disciple] opposite-side trade still in flight; pricing now", { side, waitedMs: w.waitedMs });
+      }
+      // Zero-wait: coin facts + route from memory at any age (background refresh); cold ⇒ one budgeted race read
+      const fNow = coinFactsNow(pc, t.token);
+      if (fNow) reads.facts = { src: "cache", ageMs: fNow.ageMs };
+      const [{ curve, graduated, quote: quoteAsset, mode }, me] = await Promise.all([
+        fNow ? fNow.v : labelRead("facts", tapRead(reads, "facts", () => coinFacts(coldClient(), t.token), COLD_READ_BUDGET_MS)),
+        labelRead("account", activeAddress()),
+      ]);
       const recipient = t.recipient || me;
       const deadline = B(t.deadline || now() + 120);
       // v4 PVE: the curve checks LoginGate.verifiedUntil(trader) on buys (trader = token recipient; router: msg.sender).
       // USDG router (#65) when the flag is on — and ALWAYS for USDG-quoted coins once the router supports it, so we
       // never emit a USDG approve to a curve (policy 1.3.0 rejects those)
-      const usdg = await usdgRouteFor(pc, t.token);
+      const uNow = usdgRouteNow(pc, t.token, { curve, graduated, quote: quoteAsset, mode, quoteDecimals: 0 });
+      const usdg = uNow !== undefined ? uNow : await labelRead("route", tapRead(reads, "route", () => usdgRouteFor(coldClient(), t.token), COLD_READ_BUDGET_MS));
       // graduation check for ANY quote: USDG-quoted ⇒ usdgIn is the curve's quoteIn; else converted on-chain (gradNeed)
       const gradCurve = usdg && side === "buy" && !graduated ? { curve, mode, quote: quoteAsset } : undefined;
-      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE, gradCurve });
-      const pveCalls = side === "buy" && !graduated && mode === MODE.PVE ? await ensurePveLogin(pc, recipient) : [];
+      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE, gradCurve, reads, fresh: o.fresh }, tt, tap, handoff);
+      // Legacy coins (curve.loginGate ≠ live LoginGate): no gated Easy buys — show archived, do not attest.
+      if (side === "buy" && !graduated && mode === MODE.PVE && await isLegacyCurve(pc, curve)) throw new ProtocolError("LegacyCoin", LEGACY_COIN_MSG);
+      const pveCalls = side === "buy" && !graduated && mode === MODE.PVE ? await labelRead("pve-login", ensurePveLogin(pc, recipient)) : [];
       const spendAsset = side === "buy" ? quoteAsset : t.token;
       const outAsset = side === "buy" ? t.token : quoteAsset;
+      const held = holdSpend(t.pressId!, side, t.token, spendAsset, t.amountIn, ckey("coin", t.token, side));
       const smart = isSmartMode();
-      const gradP = side === "buy" && !graduated ? buyMayGraduate(pc, curve, mode, t.amountIn, recipient) : Promise.resolve(false);
+      const gradP = side === "buy" && !graduated ? labelRead("graduation", buyMayGraduate(pc, curve, mode, t.amountIn, recipient)) : Promise.resolve(false);
       // PVE/PVP curve: always a live, trader-specific quote (mode caps; PVE sells net of the profit tax)
-      const quoteNow = () => !graduated && mode !== MODE.TRENCH ? readAmountOut(pc, t.token, side, t.amountIn, side === "buy" ? recipient : me)
-        : marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age, true));
+      // PVE/PVP curve: trader-specific quote (mode caps; PVE sells net of the profit tax), exact-key cache ≤ 1.5 s (traderQuote)
+      const quoteNow = () => !graduated && mode !== MODE.TRENCH ? quoteRange(ckey("coin", t.token, side), t.amountIn, (a, age) => traderQuote(pc, t.token, side, a, side === "buy" ? recipient : me, age, t.pressId))
+        : quoteRange(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age, true, t.pressId));
+      // minOut inside the session policy's window (favorable moves pass too): lib/trade/queuePricing tradeMinOut
+      const minOutOf = (r: { lo: bigint; hi: bigint }) => tradeMinOut(r, t.slippageBps, sessionMaxSlippageBps(), DEFAULT_SLIPPAGE_BPS);
+      flowCache(t.pressId, "balance", BALANCES.fresh(ckey(spendAsset, me), 5000) !== undefined);
       const [qOut, have, refCalls, approve] = await Promise.all([
-        t.minAmountOut > B(0) ? Promise.resolve(B(0)) : quoteNow(),
-        balanceHint(pc, spendAsset, me),
-        side === "buy" ? referralCallCached(me) : Promise.resolve([]),
-        smart ? Promise.resolve(null) : approveCall(me, spendAsset, graduated ? deployment().router : curve, t.amountIn),
+        t.minAmountOut > B(0) ? Promise.resolve({ lo: B(0), hi: B(0) }) : labelRead("quote", quoteNow()),
+        labelRead("balance", balanceHint(pc, spendAsset, me)),
+        side === "buy" ? labelRead("referral", referralCallCached(me)) : Promise.resolve([]),
+        smart ? Promise.resolve(null) : labelRead("allowance", approveCall(me, spendAsset, graduated ? deployment().router : curve, t.amountIn)),
       ]);
-      let minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(qOut, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
-      if (graduated && !hasRouter()) throw new ProtocolError("NoRouter", "This rocket reached orbit; the router isn't configured on this network yet.");
+      let minOut = t.minAmountOut > B(0) ? t.minAmountOut : minOutOf(qOut);
+      if (graduated && !hasRouter()) throw new ProtocolError("NoRouter", "This rocket has reached orbit, so it trades on the open market on Uniswap. That market is not set up on this network yet.");
       const target: Address = graduated ? deployment().router : curve;
       const encodeTrade = (mo: bigint): Hex => graduated
         ? encodeFunctionData({ abi: discipleRouterAbi, functionName: side === "buy" ? "buyExactIn" : "sellExactIn", args: [t.token, t.amountIn, mo, recipient, deadline] })
@@ -740,8 +1021,9 @@ export function createViemProtocol(): ProtocolClient {
       const grad = !graduated && await gradP;
       if (grad) { markGradBuy(data); GRAD.drop(curve); }
       // Preflight: an underfunded spend otherwise surfaces only as an opaque estimate failure / on-chain revert.
-      if (have < t.amountIn) {
-        const live = await pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "balanceOf", args: [me] });   // hint may be stale-low
+      // rapid-tap: what other pending trades hold of this asset is not spendable (no extra read: `have` is the hint).
+      if (spendable(have, held.others()) < held.need) {
+        const live = await labelRead("balance-live", pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "balanceOf", args: [me] }));   // hint may be stale-low
         BALANCES.set(ckey(spendAsset, me), live);
         if (live < t.amountIn) {
           const [sym, dec] = await Promise.all([
@@ -751,21 +1033,25 @@ export function createViemProtocol(): ProtocolClient {
           throw new ProtocolError("InsufficientBalance", dec == null ? `not enough ${sym} for that shot size`
             : `not enough ${sym}: need ${fmtUnits(t.amountIn, dec)} have ${fmtUnits(live, dec)}`);
         }
+        if (spendable(live, held.others()) < held.need) {
+          console.warn("[disciple] trade refused: balance held by trades in flight", { have: String(live), held: String(held.others()), need: String(held.need), inFlight: RESERVATIONS.count() });
+          throw new ProtocolError("InsufficientBalance", heldMsg(side === "buy"));
+        }
       }
       // Smart account: exact approve batched into the same op, always (no allowance read on the hot path).
       const approveCalls = smart ? [{ to: spendAsset, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [target, t.amountIn] }) }] : (approve ?? []);
       const calls = [...pveCalls, ...refCalls, ...approveCalls, { to: target, data }];
-      BALANCES.set(ckey(spendAsset, me), have - t.amountIn);   // optimistic; corrected by the next poll
+      // no optimistic balance write: displayed balances stay real; the pending spend is held in RESERVATIONS (#144)
       const ik = ckey("coin", t.token, side);
       let done = addInflight(ik, t.amountIn);
-      const pressId = t.pressId ?? newPressId();   // GAME reservation id: same on every retry of this press
+      const pressId = t.pressId!;   // trade() set it: GAME's reservation id, same on every retry of this press
       const minOut0 = minOut;   // the first quote's minOut (a rebuild may go lower: freshMinOut)
       // Rapid taps: the ONE transient-error retry in mav2.sendCalls re-quotes (fresh minOut) instead of re-sending a
       // quote taken before the preceding in-flight shots moved the curve. Same amountIn/approvals ⇒ same spend + shape.
       const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {
         dropRouteQuotes(t.token); done();   // our own op hasn't landed: don't price it against itself
         try {
-          const mo = freshMinOut(minOut0, applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS));
+          const mo = freshMinOut(minOut0, minOutOf(await quoteNow()));
           const d2 = encodeTrade(mo);
           if (grad) markGradBuy(d2);
           minOut = mo;
@@ -773,11 +1059,15 @@ export function createViemProtocol(): ProtocolClient {
         } finally { done = addInflight(ik, t.amountIn); }
       };
       let landed: bigint | undefined;
+      let logs: ExecResult["logs"] | undefined;
+    const sentAt = Date.now();   // its block is produced after this (READ_FLOOR clock bounds)
       try {
-        const r = await execCalls(calls, { rebuild, pressId });
-        landed = logsBlock(r.logs);
-        return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, recipient) || minOut, pressId: r.pressId ?? pressId };
-      } finally { releaseInflight(done, landed); dropRouteQuotes(t.token); }
+        const r = await asTrade(tt, () => labelRead("send-prep", execCalls(calls, { rebuild, pressId })));
+        logs = r.logs; landed = logsBlock(r.logs);
+        const out = received(r.logs, outAsset, recipient);
+        bookFill(r.logs, spendAsset, me, t.amountIn, outAsset, recipient, out);
+        return { ok: true, txHash: r.txHash, amountOut: out || minOut, pressId: r.pressId ?? pressId };
+      } finally { handoff.done = true; releaseInflight(() => { done(); tap.end(); }, landed); requoteRoute(t.token, logs, sentAt); }
     } catch (e) {
       // GAME: the press's reservation id survives the friendly re-wrap (aaSend tagged the original error)
       const pid = (e as { pressId?: string } | null)?.pressId ?? t.pressId;
@@ -790,72 +1080,143 @@ export function createViemProtocol(): ProtocolClient {
       // sent, outcome unknown: hold the press and settle it from the chain (never resends); TradeBridge shows "confirming"
       if (pid && out.code === "Timeout") void watchPending(pid, pendingIds(e), { lookup: (ids) => lookupOp(pc, ids) });
       throw out;
-    }
+    } finally { if (!handoff.done) tap.end(); }
   }
 
   /**
    * Pay-in-USDG through DiscipleRouter (lib/trade/usdgRouter, #65): ONE userOp = [exact approve, buyWithUsdg|sellToUsdg].
-   * t.amountIn is USDG on buys, coin on sells; minOut is end-to-end from quoteUsdgRoute − slippage (the caller clamps
-   * slippage to the session max − 0.5% headroom). Pre- and post-grad alike (the router picks curve or v4 pool).
+   * t.amountIn is USDG on buys, coin on sells; minOut is end-to-end from quoteUsdgRoute (under a one-tap session:
+   * centered in the policy window, queuePricing tradeMinOut). Pre- and post-grad alike (the router picks curve or v4 pool).
    * Recipient is pinned to the account on-chain, so t.recipient is ignored on this path.
    */
-  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean; gradCurve?: { curve: Address; mode: number; quote: Address } }): Promise<TradeResult> {
+  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean; gradCurve?: { curve: Address; mode: number; quote: Address }; reads?: TapReads; fresh?: boolean }, tt?: TradeTiming, tap?: CoinTap, handoff?: { done: boolean }): Promise<TradeResult> {
     const router = deployment().router, isBuy = side === "buy";
+    const reads: TapReads = c.reads ?? {};
     // Router path: the curve trades for msg.sender (the account) ⇒ PVE login is checked for `me`.
-    const pveCalls = isBuy && c.pve ? await ensurePveLogin(pc, c.me) : [];
-    // quoteUsdgRouteFor(me) reverts NotVerified until the attest is on-chain ⇒ this path needs the server relay.
-    if (pveCalls.length) throw new ProtocolError("PveRelayUnavailable", "Couldn't record your PVE login right now — try again in a moment.");
+    // A trader-aware USDG quote needs a live on-chain login. The user pays for this owner-signed setup,
+    // waits for inclusion, then gets the normal quote/buy; no server-funded or public relay transaction.
+    // Legacy coins: block gated Easy buys before any attest / owner-signed login setup.
+    if (isBuy && c.pve) {
+      const curve = c.gradCurve?.curve ?? await curveOf(pc, t.token);
+      if (await isLegacyCurve(pc, curve)) throw new ProtocolError("LegacyCoin", LEGACY_COIN_MSG);
+    }
+    // Gasless mode (flow/gasless-permit2): login is checked OFF-CHAIN by the relay from the Privy session (lee 7:37 PM
+    // CT: no on-chain login record) ⇒ no LoginGate.attest here. An existing Easy curve that still checks LoginGate
+    // on-chain is caught by the relay's exact simulation (NotVerified, nothing sent). Otherwise today's PVE login.
+    const gasless = !!gaslessSigner();
+    if (!gasless && isBuy && c.pve) await labelRead("pve-login", ensurePveLoginOnchain(pc, c.me, (calls) => execCalls(calls)));
+
     const spend = isBuy ? c.usdg : t.token, outAsset = isBuy ? t.token : c.usdg;
     const g = isBuy ? c.gradCurve : undefined;
-    // USDG-quoted curve: usdgIn IS the curve's quoteIn. Other quote (STRATEGY …): the router swaps USDG → quote first ⇒
-    // the same on-chain conversion + margin the relay applies (lib/trade/gradNeed, lib/server/gradBuy).
-    const gradP = !g ? Promise.resolve(false) : g.quote.toLowerCase() === c.usdg.toLowerCase()
-      ? buyMayGraduate(pc, g.curve, g.mode, t.amountIn, c.me)
-      : usdgBuyGraduates(pc, { router, curve: g.curve, quote: g.quote, usdgIn: t.amountIn });
-    const ik = ckey("usdgroute", t.token, side);
-    // exact (no down-scaled warm quote): minOut must clear the session policy floor on the FIRST try
-    const quoteNow = () => marginalQuote(ik, t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age, c.me, true));
-    const [q, have] = await Promise.all([
-      t.minAmountOut > B(0) ? Promise.resolve(B(0)) : quoteNow(),
-      balanceHint(pc, spend, c.me),
-    ]);
-    if (have < t.amountIn) {
-      const live = await pc.readContract({ address: spend, abi: tokenAbi, functionName: "balanceOf", args: [c.me] }); BALANCES.set(ckey(spend, c.me), live);
-      if (live < t.amountIn) throw new ProtocolError("InsufficientBalance", isBuy
-        ? `Not enough cash for $${usdgRawToUsd(t.amountIn).toFixed(2)}: you have $${usdgRawToUsd(live).toFixed(2)}. Pick a smaller amount or deposit more.`
-        : `not enough tokens: need ${fmtUnits(t.amountIn, COIN_DECIMALS)} have ${fmtUnits(live, COIN_DECIMALS)}`);
+    // Graduating buy? (mav2 estimates its gas fresh.) Warmed remaining-to-graduate at any age (GRAD_NEAR_BPS margin),
+    // else the curve-quote hint, else one budgeted race read; unreadable ⇒ false (as before).
+    let grad = false;
+    if (g) {
+      const gn = gradNow(g.curve, t.amountIn), usdgQuoted = g.quote.toLowerCase() === c.usdg.toLowerCase();
+      const hint = usdgQuoted ? GRAD.known(g.curve, t.amountIn) : undefined;
+      if (gn && gn.ageMs > 1500) bg(ckey("gradneed", t.token), () => warmGradNeed(pc, t.token));
+      if (hint !== undefined) { grad = hint; reads.grad = { src: "cache" }; }
+      else if (gn) { grad = gn.v; reads.grad = { src: "cache", ageMs: gn.ageMs }; }
+      else {
+        bg(ckey("gradneed", t.token), () => warmGradNeed(pc, t.token));
+        grad = await tapRead(reads, "grad", () => usdgQuoted ? buyMayGraduate(coldClient(), g.curve, g.mode, t.amountIn, c.me)
+          : usdgBuyGraduates(coldClient(), { router, curve: g.curve, quote: g.quote, usdgIn: t.amountIn }), COLD_READ_BUDGET_MS).catch(() => false);
+      }
     }
-    let minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(q, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
+    const ik = ckey("usdgroute", t.token, side), route = usdgModelRoute(t.token);
+    const held = holdSpend(t.pressId!, side, t.token, spend, t.amountIn, ik);
+    // Tap quote from memory (lib/trade/quoteModel): the newest exact / model-scaled observation with our own in-flight
+    // and landed trades applied ⇒ [lo, hi]. No observation (cold), a forced fresh quote (the one resend), or memory
+    // older than STALE_QUOTE_MS ⇒ one budgeted race read (a failed one falls back to the stale memory).
+    const quoteNow = async (fresh = false): Promise<{ lo: bigint; hi: bigint }> => {
+      const m = fresh ? undefined : MODEL.quote(route, side, t.amountIn);
+      if (m && m.ageMs <= STALE_QUOTE_MS) {
+        flowCache(t.pressId, "quote", true);
+        reads.quote = { src: m.src, ageMs: m.ageMs };
+        if (m.src !== "exact" || m.ageMs > 1000) bg(ckey("q", route, side, t.amountIn), () => readUsdgRoute(pc, router, t.token, isBuy, t.amountIn, c.me));
+        return m;
+      }
+      flowCache(t.pressId, "quote", false);
+      try {
+        const v = m ? await tapRead(reads, "quote", () => readUsdgRoute(fastClient(), router, t.token, isBuy, t.amountIn, c.me))
+          : await tapRead(reads, "quote", () => readUsdgRoute(coldClient(), router, t.token, isBuy, t.amountIn, c.me), COLD_READ_BUDGET_MS);
+        return MODEL.quote(route, side, t.amountIn) ?? { lo: v, hi: v };
+      } catch (e) {
+        if (m) { reads.quote = { ...reads.quote, src: m.src, ageMs: m.ageMs }; return m; }
+        throw e;
+      }
+    };
+    // minOut inside the session policy's window (favorable moves pass too): lib/trade/queuePricing tradeMinOut
+    const minOutOf = (r: { lo: bigint; hi: bigint }) => tradeMinOut(r, t.slippageBps, sessionMaxSlippageBps(), DEFAULT_SLIPPAGE_BPS);
+    const q = t.minAmountOut > B(0) ? { lo: B(0), hi: B(0) } : await labelRead("quote", quoteNow(c.fresh));
+    // Balance preflight from memory (receipt-booked / polled, any age). Unknown ⇒ skipped (TradeBridge checked cash /
+    // sized the sell from the tracked balance). Looks short ⇒ one budgeted live read; unreadable ⇒ send (the chain decides).
+    const have = balanceNow(pc, spend, c.me);
+    flowCache(t.pressId, "balance", !!have);
+    reads.balance = have ? { src: "cache", ageMs: have.ageMs } : { src: "skip" };
+    if (have && spendable(have.v, held.others()) < held.need) {
+      flowCache(t.pressId, "balance", false);
+      const t0 = BALANCES.now();
+      const live = await tapRead(reads, "balance-live", () => fastClient().readContract({ address: spend, abi: tokenAbi, functionName: "balanceOf", args: [c.me] })).catch(() => undefined);
+      if (live !== undefined) {
+        BALANCES.setRead(ckey(spend, c.me), live, t0);
+        if (live < t.amountIn) throw new ProtocolError("InsufficientBalance", isBuy
+          ? `Not enough cash for $${usdgRawToUsd(t.amountIn).toFixed(2)}: you have $${usdgRawToUsd(live).toFixed(2)}. Pick a smaller amount or deposit more.`
+          : `not enough tokens: need ${fmtUnits(t.amountIn, COIN_DECIMALS)} have ${fmtUnits(live, COIN_DECIMALS)}`);
+        if (spendable(live, held.others()) < held.need) {
+          console.warn("[disciple] trade refused: balance held by trades in flight", { have: String(live), held: String(held.others()), need: String(held.need), inFlight: RESERVATIONS.count() });
+          throw new ProtocolError("InsufficientBalance", heldMsg(isBuy, isBuy ? usdgRawToUsd(t.amountIn) : undefined));
+        }
+      }
+    }
+    let minOut = t.minAmountOut > B(0) ? t.minAmountOut : minOutOf(q);
     if (minOut <= B(0)) throw new ProtocolError("ZeroQuote", "Route quote is zero — amount too small.");
     const routerCalls = (mo: bigint): Call[] => isBuy
       ? toCalls(routerBuyWithUsdgCalls({ router, usdg: c.usdg, token: t.token, usdgIn: t.amountIn, minTokensOut: mo, deadline: c.deadline }))
       : toCalls(routerSellToUsdgCalls({ router, token: t.token, tokensIn: t.amountIn, minUsdgOut: mo, deadline: c.deadline }));
-    const prefix: Call[] = isBuy ? [...pveCalls, ...(await referralCallCached(c.me))] : [];
+    const prefix: Call[] = isBuy ? referralNow(c.me) : [];
     const calls: Call[] = [...prefix, ...routerCalls(minOut)];
-    const grad = await gradP;
-    if (grad) { const buy = calls[calls.length - 1]; markGradBuy(buy.data); GRAD.drop(c.gradCurve!.curve); }
-    BALANCES.set(ckey(spend, c.me), have - t.amountIn);
+    if (grad) { const buy = calls[calls.length - 1]; markGradBuy(buy.data); GRAD.drop(c.gradCurve!.curve); GRAD_NEED.delete(c.gradCurve!.curve.toLowerCase()); }
+    // no optimistic balance write (displayed balances stay real); the pending spend is held in RESERVATIONS (#144)
     let done = addInflight(ik, t.amountIn);
-    const pressId = t.pressId ?? newPressId();   // GAME reservation id
+    // this trade, in flight, for every later tap's quote (either landing order ⇒ their [lo, hi])
+    const est = (q.lo + q.hi) / B(2);
+    let mid = q.hi > B(0) ? MODEL.begin(route, side, t.amountIn, est) : 0;
+    const pressId = t.pressId!;   // trade() set it: GAME's reservation id
     const minOut0 = minOut;   // the first quote's minOut (freshMinOut)
+    tt?.note({ reads });
     // Rapid taps: transient-error retry re-quotes (see tradeOnce). Same usdgIn/tokensIn ⇒ same exact approve + shape.
     const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {
-      dropRouteQuotes(t.token); done();
+      dropRouteQuotes(t.token); done(); if (mid) MODEL.end(route, mid);   // our own op hasn't landed: don't price it against itself
       try {
-        const mo = freshMinOut(minOut0, applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS));
+        const mo = freshMinOut(minOut0, minOutOf(await quoteNow()));
         if (mo <= B(0)) throw new Error("re-quote is zero");
         const next = [...prefix, ...routerCalls(mo)];
         if (grad) markGradBuy(next[next.length - 1].data);
         minOut = mo;
         return next;
-      } finally { done = addInflight(ik, t.amountIn); }
+      } finally { done = addInflight(ik, t.amountIn); if (mid) mid = MODEL.begin(route, side, t.amountIn, est); }
     };
     let landed: bigint | undefined;
+    let logs: ExecResult["logs"] | undefined;
+    const sentAt = Date.now();   // its block is produced after this (READ_FLOOR clock bounds)
     try {
-      const r = await execCalls(calls, { rebuild, pressId });
-      landed = logsBlock(r.logs);
-      return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, c.me) || minOut, pressId: r.pressId ?? pressId };
-    } finally { releaseInflight(done, landed); dropRouteQuotes(t.token); }
+      // Gasless: ONE signed Permit2 witness → our relayer → the gasless router (no referral prefix: tryAttribute needs
+      // the trader as caller; no rebuild: a stale minOut is refused by the exact simulation, notSent, and trade()
+      // re-quotes once as today).
+      const r = await asTrade(tt, () => labelRead("send-prep", gasless
+        ? execGasless({ coin: t.token, isBuy, amountIn: t.amountIn, minOut, pressId })
+        : execCalls(calls, { rebuild, pressId })));
+      logs = r.logs; landed = logsBlock(r.logs);
+      const out = received(r.logs, outAsset, c.me);
+      if (mid) { MODEL.land(route, mid, out); mid = 0; }   // the receipt's amounts, applied to every quote read before now
+      bookFill(r.logs, spend, c.me, t.amountIn, outAsset, c.me, out);
+      return { ok: true, txHash: r.txHash, amountOut: out || minOut, pressId: r.pressId ?? pressId };
+    } catch (e) {
+      // unknown outcome (Timeout): keep it in the model's range until it settles / ages out; anything else never traded
+      if (mid && (e as { code?: unknown } | null)?.code !== "Timeout") { MODEL.end(route, mid); mid = 0; }
+      throw e;
+    } finally { if (handoff) handoff.done = true; releaseInflight(() => { done(); tap?.end(); }, landed); requoteRoute(t.token, logs, sentAt); }
   }
 
   return {
@@ -865,9 +1226,13 @@ export function createViemProtocol(): ProtocolClient {
       // lee 2026-10-26: no default rocket art; every launch needs an uploaded picture.
       if (!lp.imageUri || !lp.imageUri.trim()) throw new ProtocolError("NoImage", "Upload a picture to launch your rocket.");
       // First BOOST in USDG (lee 2026-10-26: every buy is paid in USDG; the router buys the pair coin): public launches
-      // go through DiscipleRouter.launchWithUsdg. creatorBuyQuoteIn (pair-token pull) is the legacy / no-router path only.
-      const usdgIn = !lp.private ? lp.creatorBuyUsdgIn ?? B(0) : B(0);
-      const usdg = usdgIn > B(0) ? await launchUsdg(pc) : null;
+      // go through DiscipleRouter.launchWithUsdg. Private launches with a dollar First BOOST go through
+      // AnonLauncher.launchAnonWithUsdg, which calls the same router path so AnonLauncher stays the on-chain creator.
+      // creatorBuyQuoteIn (pair-token pull) is the legacy / no-router path only.
+      const usdgIn = lp.creatorBuyUsdgIn ?? B(0);
+      // Private launches also go through the USDG path (launch fee is USDG even when First BOOST is 0)
+      // so the relayer can submit them. Public launches without a First BOOST stay on Launchpad.launch.
+      const usdg = (usdgIn > B(0) || lp.private) ? await launchUsdg(pc) : null;
       if (usdgIn > B(0) && !usdg) throw new ProtocolError("NoRouter", "Paying the First BOOST in dollars isn't available on this network yet.");
       const creatorBuy = usdg ? B(0) : lp.creatorBuyQuoteIn ?? B(0);
       // Private launches go through AnonLauncher v2 (Launchpad.launch ⇒ TRENCH mode; it pulls the fee + First BOOST).
@@ -893,7 +1258,7 @@ export function createViemProtocol(): ProtocolClient {
           // First BOOST cap = Launchpad.firstBoostMaxBps(mode) (lib/modeRules: Easy 1.2%, Hard 3.33%, Trench creatorBuyMaxBps).
           const eff = effectiveCreatorBuyCapBps(launchpadCapBps, mode);
           if (cq.exceedsCap) {
-            const pct = Math.min(eff.bps, 700) / 100;   // 700 bps = the creatorBuyMaxBps ceiling
+            const pct = Math.min(eff.bps, 777) / 100;   // 777 bps = the creatorBuyMaxBps ceiling (7.77%)
             logTradeError("launch buy over cap", { launchpadCapBps, effectiveBps: eff.bps, by: eff.by });
             throw new ProtocolError("CreatorBuyTooLarge", CREATOR_BUY_MSG(pct > 0 ? pct : undefined));
           }
@@ -901,7 +1266,7 @@ export function createViemProtocol(): ProtocolClient {
             throw new ProtocolError("BuyTooLarge", `${LAUNCH_MODE_NAME[mode]} launches allow a First BOOST of at most ${eff.bps / 100}% of the coins. Lower it.`);
           }
           // v4 PVE: the First BOOST is a curve buy by the creator ⇒ it needs a live GLOBAL LoginGate attestation.
-          // ensurePveLogin (#99) gets one from /api/pve/attest (relayed on-chain) or prepends LoginGate.attest; it throws
+          // ensurePveLogin (#99) gets one from /api/pve/attest and prepends a user-paid LoginGate.attest; it throws
           // a friendly PveError when the Privy login isn't verified.
           if (modesActive() && mode === LaunchMode.PVE) calls.unshift(...(await ensurePveLogin(pc, me)));
           params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS); // quote − 1%
@@ -918,34 +1283,66 @@ export function createViemProtocol(): ProtocolClient {
           }
         }
         let launchCall: Call | null = null;
-        if (usdg) {
+        let privateBoostTo: Address | undefined;
+        let privateRelay: { fee: bigint; minQuoteIn: bigint } | undefined;
+        if (usdg && (usdgIn > B(0) || (anonL && lp.private))) {
           const router = deployment().router;
           const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken
             : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });
-          // Balance check in dollars (USDG), never in the pair coin: the router buys the pair coin for you.
-          const [have, quoteAmt, launchpadCapBps] = await Promise.all([
-            pc.readContract({ address: usdg, abi: tokenAbi, functionName: "balanceOf", args: [me] }),
-            quoteUsdgPairSwap(pc, q, true, usdgIn),
-            readCreatorBuyMaxBps(pc),
-          ]);
-          if (have < usdgIn) throw new ProtocolError("InsufficientBalance", FIRST_BOOST_CASH_MSG(usdgRawToUsd(usdgIn), usdgRawToUsd(have)));
-          if (quoteAmt <= B(0)) throw new ProtocolError("ZeroQuote", "That First BOOST is too small. Try a bigger amount.");
-          const cq = await readCreatorBuyQuote(pc, q, quoteAmt, Number(params.creatorTaxBps), mode);
-          const eff = effectiveCreatorBuyCapBps(launchpadCapBps, mode);
-          if (cq.exceedsCap) {
-            logTradeError("launch buy over cap (usdg)", { launchpadCapBps, effectiveBps: eff.bps, by: eff.by });
-            throw new ProtocolError("CreatorBuyTooLarge", CREATOR_BUY_MSG(eff.bps / 100));
-          }
-          if (modesActive() && mode === LaunchMode.PVE) calls.unshift(...(await ensurePveLogin(pc, me)));
+          // Balance check in dollars (USDG), never in the pair coin: the router (or AnonLauncher) buys the pair coin.
+          const have = await pc.readContract({ address: usdg, abi: tokenAbi, functionName: "balanceOf", args: [me] });
           const slip = lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS;
+          let minQuoteIn = B(0);
+          if (usdgIn > B(0)) {
+            const [quoteAmt, launchpadCapBps] = await Promise.all([
+              quoteUsdgPairSwap(pc, q, true, usdgIn),
+              readCreatorBuyMaxBps(pc),
+            ]);
+            if (quoteAmt <= B(0)) throw new ProtocolError("ZeroQuote", "That First BOOST is too small. Try a bigger amount.");
+            const cq = await readCreatorBuyQuote(pc, q, quoteAmt, Number(params.creatorTaxBps), mode);
+            const eff = effectiveCreatorBuyCapBps(launchpadCapBps, mode);
+            if (cq.exceedsCap) {
+              const pct = Math.min(eff.bps, 777) / 100;   // 777 bps = the creatorBuyMaxBps ceiling (7.77%)
+              logTradeError("launch buy over cap (usdg)", { launchpadCapBps, effectiveBps: eff.bps, by: eff.by });
+              throw new ProtocolError("CreatorBuyTooLarge", CREATOR_BUY_MSG(pct > 0 ? pct : undefined));
+            }
+            if (modesActive() && mode === LaunchMode.PVE) calls.unshift(...(await ensurePveLogin(pc, me)));
+            params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, slip);
+            minQuoteIn = applySlippage(quoteAmt, slip);
+          }
           params.quote = q;
-          params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, slip);
-          // Exact USDG approve to the router (it pulls exactly usdgIn); the swap leg is guarded by minQuoteIn.
-          calls.push({ to: usdg, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [router, usdgIn] }) });
-          launchCall = { to: router, data: encodeFunctionData({ abi: discipleRouterAbi, functionName: "launchWithUsdg", args: [params, mode, usdgIn, applySlippage(quoteAmt, slip)] }) };
+          if (anonL && lp.private) {
+            // AnonLauncher pulls the launch fee and the First BOOST USDG, then calls DiscipleRouter.launchWithUsdg
+            // so AnonLauncher stays the on-chain creator. Coins go to the stealth owner (lee's privacy lock).
+            // Leftover USDG is refunded to this player (refundTo), not to the caller, so a relayer/Multicall3
+            // submit cannot trap leftovers.
+            const [feeToken, fee] = await Promise.all([
+              pc.readContract({ address: anonL, abi: anonLauncherAbi, functionName: "feeToken" }) as Promise<Address>,
+              pc.readContract({ address: anonL, abi: anonLauncherAbi, functionName: "launchFee" }) as Promise<bigint>,
+            ]);
+            const need = fee + usdgIn;
+            if (have < need) throw new ProtocolError("InsufficientBalance", FIRST_BOOST_CASH_MSG(usdgRawToUsd(need), usdgRawToUsd(have)));
+            if (feeToken.toLowerCase() !== usdg.toLowerCase()) throw new ProtocolError("NoRouter", "Private First BOOST expects the launch fee to be charged in USDG.");
+            const { stealthOwner, ephemeralPubKey, viewTag } = lp.private;
+            privateBoostTo = stealthOwner;
+            if (clientGaslessMode()) {
+              if (!gaslessSigner()) throw new ProtocolError("NotSignedIn", "Sign in to launch this private rocket.");
+              privateRelay = { fee, minQuoteIn };
+            } else {
+              calls.push({ to: usdg, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [anonL, need] }) });
+              launchCall = { to: anonL, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "launchAnonWithUsdg", args: [params, stealthOwner, stealthOwner, ephemeralPubKey, viewTag, fee, usdgIn, minQuoteIn, me] }) };
+            }
+          } else {
+            if (have < usdgIn) throw new ProtocolError("InsufficientBalance", FIRST_BOOST_CASH_MSG(usdgRawToUsd(usdgIn), usdgRawToUsd(have)));
+            // Exact USDG approve to the router (it pulls exactly usdgIn); the swap leg is guarded by minQuoteIn.
+            calls.push({ to: usdg, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [router, usdgIn] }) });
+            launchCall = { to: router, data: encodeFunctionData({ abi: discipleRouterAbi, functionName: "launchWithUsdg", args: [params, mode, usdgIn, minQuoteIn] }) };
+          }
         }
         if (launchCall) {
           calls.push(launchCall);
+        } else if (privateRelay) {
+          // Relayer submits the launch; no wallet calls to encode.
         } else if (anonL && lp.private) {
           // AnonLauncher pulls launchFee (feeToken = USDG) + creatorBuyQuoteIn (quote) from this account: exact approvals
           // (summed when the pair IS the fee token), then launchAnon(params, stealthOwner, buyRecipient = me, eph, viewTag, maxFee = the fee just read: the exact
@@ -969,7 +1366,41 @@ export function createViemProtocol(): ProtocolClient {
           // launchCoin on the pre-modes ABI; launchWithMode(params, mode) for every launch on the modes (v4) ABI (lib/launchAbi.ts).
           calls.push({ to: launchpad, data: encodeLaunchCall(params, mode) });
         }
-        const r = await execCalls(calls);
+        const sentAt = Date.now();
+        let r: Pick<ExecResult, "txHash" | "logs">;
+        if (privateRelay && anonL && lp.private && usdg) {
+          const { stealthOwner, ephemeralPubKey, viewTag } = lp.private;
+          try {
+            r = await sendPrivateLaunchRelayer(pc, usdg, {
+              name: params.name,
+              ticker: params.ticker,
+              imageURI: params.imageURI,
+              description: params.description,
+              socialsURI: params.socialsURI,
+              quote: params.quote,
+              creatorTaxBps: params.creatorTaxBps,
+              creatorBuyQuoteIn: params.creatorBuyQuoteIn,
+              creatorBuyMinTokensOut: params.creatorBuyMinTokensOut,
+              deadline: params.deadline,
+              stealthOwner,
+              buyRecipient: stealthOwner,
+              ephemeralPubKey,
+              viewTag,
+              maxFee: privateRelay.fee,
+              usdgIn,
+              minQuoteIn: privateRelay.minQuoteIn,
+              refundTo: me,
+              launcher: anonL,
+            });
+          } catch (e) {
+            if (e instanceof GaslessError) throw new ProtocolError("LaunchFailed", e.message);
+            throw e;
+          }
+        } else {
+          r = await execCalls(calls);
+        }
+        // a buy right after the launch reads (and is quoted at the execution second of) the launch block, like after a trade
+        READ_FLOOR.raise(receiptBlock(r.logs), sentAt);
         let launched: LaunchCoinResult | null = null, qp = B(0), supply = 0;
         for (const l of r.logs) {
           if (l.address.toLowerCase() !== launchpad.toLowerCase()) continue;
@@ -989,12 +1420,14 @@ export function createViemProtocol(): ProtocolClient {
             const ev = decodeEventLog({ abi: bondingCurveAbi, data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as { eventName: string; args: Record<string, unknown> };
             if (ev.eventName !== "Trade" || !ev.args.isBuy) continue;
             const quoteIn = ev.args.quoteAmt as bigint, tokens = ev.args.tokenAmt as bigint;
-            // private launch: the curve's trader is the AnonLauncher; it forwards the tokens to buyRecipient = this account
-            // launchWithUsdg: Launchpad.launchFor(me, …) buys for the creator (this account)
-            const recipient = anonL || usdg ? me : (ev.args.trader as Address);
+            // private First BOOST: AnonLauncher forwards the coins to the stealth owner, not this account.
+            // public launchWithUsdg: Launchpad.launchFor(me, …) buys for the creator (this account).
+            const recipient = privateBoostTo ?? (anonL || usdg ? me : (ev.args.trader as Address));
             launched.creatorBuy = { recipient, tokens, quoteIn, usd: quoteRawToUsd(quoteIn, qp) };
-            seedCreatorBuyPosition(`disciple.pnl.${launched.token}`, Number(tokens) / 1e18, launched.creatorBuy.usd, supply || undefined);
-            bumpBalance(launched.token, recipient, tokens);
+            if (recipient.toLowerCase() === me.toLowerCase()) {
+              seedCreatorBuyPosition(pnlKey("disciple.pnl.", me, launched.token), Number(tokens) / 1e18, launched.creatorBuy.usd, supply || undefined);
+              bumpBalance(launched.token, recipient, tokens);
+            }
           } catch { /* other event */ }
         }
         return launched;

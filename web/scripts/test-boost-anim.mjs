@@ -4,6 +4,7 @@
 //      hands over to the real price with no snap, eases back on fail, stale sends ease back
 //   2. stacked trades: each ghost projected from the previous pending one, own segment, a failed middle one drops only its share
 //   3. engine submit(): nothing booked / dispatched before r.ok (paper + live), failure status "That didn't go through."
+//   3b. price impact (needsConfirm / r.warning) is a calm note, never a failure (lee, Oct 30)
 //   4. hoverMs / clickToConfirmMs on disciple:op 'filled'; curve constants match lib/flight/tradeSpeed BOOST_ANIM
 //   5. #140 safety: no await before aaSend in execCalls
 import fs from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
@@ -15,7 +16,7 @@ const eng = fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8");
 const block = (a, b) => { const i = eng.indexOf(a), j = eng.indexOf(b, i); if (!(i > 0 && j > i)) throw new Error("engine block " + a); return eng.slice(i, j); };
 const baSrc = block("/* @boostanim", "/* @boostanim-end */");
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-const BA = new Function("clamp", "S", baSrc + "\nreturn {baStart,baG,baResolve,baOffset,pendingTip,BA_CAP,BA_TAU_UP,BA_STALE};")(clamp, { pending: [] });
+const BA = new Function("clamp", "S", baSrc + "\nreturn {baStart,baG,baResolve,baOffset,baConfirm,pendingTip,BA_CAP,BA_TAU_UP,BA_STALE,BA_CONFIRM,BA_FADE};")(clamp, { pending: [] });
 const { mods, cleanup } = await loadLib(["flight/tradeSpeed"], "boostanim-");
 const TS = mods["flight/tradeSpeed"];
 
@@ -38,8 +39,31 @@ console.log("— 1. the curve");
   for (let t = 3500; t <= 4300; t += 5) { const real = clamp((t - 3600) / 700, 0, 1), tot = real + BA.baOffset(L, real, t); jump = Math.max(jump, Math.abs(tot - prev)); prev = tot; }
   ok(jump < 0.01 && near(prev, 1, 1e-3), `ok: hands over to the real price without a snap (max step ${jump.toFixed(4)})`);
   ok(L.length === 0, "ok: entry retired once the real price reached the ghost"); }
-{ const L = []; BA.baStart(L, 0, 1, 0); const e = L[0]; BA.baResolve(e, true, 400, L);
-  ok(BA.baOffset(L, 0, 400 + 2500 + 400 + 1) === 0 && L.length === 0, "ok but the mark never moves: fades back to the real price after 2.9 s"); }
+// FOLLOW THE CONFIRMED PRICE (lee, Oct 30): the boost holds until the fill's confirmed price is in, then eases to it
+const TXA = "0x" + "a".repeat(64), TXB = "0x" + "b".repeat(64), TXC = "0x" + "c".repeat(64), TXD = "0x" + "d".repeat(64);
+{ const L = []; BA.baStart(L, 0, 1, 0); const e = L[0]; BA.baResolve(e, true, 400, L, TXA);
+  ok(BA.baOffset(L, 0, 400 + 2500 + 400 + 1) > 0.99, "ok, confirmed price not in yet: still holds at the ghost after 2.9 s (was: a blind fade)");
+  BA.baConfirm(L, TXB, false, 5000);
+  ok(BA.baOffset(L, 0, 5600) > 0.99 && e.ct == null, "another trader's swap (other tx) doesn't release the hold");
+  BA.baConfirm(L, "(state)", false, 5100);
+  ok(BA.baOffset(L, 0, 5700) > 0.99 && e.ct == null, "a State / mark update doesn't release it either (may predate the fill)");
+  BA.baConfirm(L, TXA.toUpperCase().replace("0X", "0x"), true, 6000);
+  // the indexed swap came in at only 40 % of the projected move (smaller impact): ease from the ghost to it, no snap
+  let prev = 0.4 + BA.baOffset(L, 0.4, 6000), jump = 0, last = prev;
+  for (let t = 6000; t <= 6000 + BA.BA_FADE + 20; t += 5) { const tot = 0.4 + BA.baOffset(L, 0.4, t); jump = Math.max(jump, Math.abs(tot - prev)); prev = tot; last = tot; }
+  ok(e.ct === 6000 && near(last, 0.4, 1e-6) && jump < 0.02 && L.length === 0, `own swap (same tx) in ⇒ eases to the confirmed price over ${BA.BA_FADE} ms (max step ${jump.toFixed(4)})`); }
+{ const L = []; BA.baStart(L, 0, 1, 0); BA.baConfirm(L, TXC, true, 300); const e = L[0]; BA.baResolve(e, true, 400, L, TXC);
+  ok(e.ct === 400 && BA.baOffset(L, 0, 400 + BA.BA_FADE + 1) === 0 && L.length === 0, "the swap landed before the result: eases straight away"); }
+{ const L = []; BA.baStart(L, 0, 1, 0); const e = L[0]; BA.baResolve(e, true, 400, L);   // optimistic 'sent': no tx yet
+  BA.baConfirm(L, TXB, false, 900); ok(e.ct == null, "no tx: another trader's swap doesn't confirm it");
+  BA.baConfirm(L, TXA, true, 1200); ok(e.ct === 1200, "no tx: the next OWN swap confirms it"); }
+{ const L = []; BA.baStart(L, 0, 1, 0); BA.baConfirm(L, "paper-1f2e", true, 50); const e = L[0]; BA.baResolve(e, true, 60, L);
+  ok(e.ct === 60, "paper: its own swap is emitted before the result ⇒ eases straight away"); }
+{ const L = []; BA.baStart(L, 0, 1, 0); const e = L[0]; BA.baResolve(e, true, 400, L, TXD);
+  ok(BA.baOffset(L, 0, 400 + BA.BA_CONFIRM - 1) > 0.99, `never confirmed: holds up to the ${BA.BA_CONFIRM / 1000} s fallback`);
+  ok(BA.baOffset(L, 0, 400 + BA.BA_CONFIRM + BA.BA_FADE + 1) === 0 && L.length === 0, "never confirmed: then eases back to the real price (timeout fallback)"); }
+{ const L = []; BA.baStart(L, 0, 1, 0); BA.baResolve(L[0], true, 400, L, TXA);
+  ok(BA.baOffset(L, 1, 900) === 0 && L.length === 0, "real price reaches the ghost before the swap is matched: hands over (progress term)"); }
 { const L = []; const e = BA.baStart(L, 0, 1, 0); const at = BA.baOffset(L, 0, 400); BA.baResolve(e, false, 400, L);
   let prev = at, mono = true; for (let t = 400; t <= 3000; t += 5) { const o = BA.baOffset(L, 0, t); if (o > prev + 1e-12) mono = false; prev = o; }
   ok(mono && prev === 0 && L.length === 0, "fail: eases back to where it was (monotone, from wherever it had reached)");
@@ -91,6 +115,21 @@ for (const live of [false, true]) { const E = engine({ live }), tag = live ? "li
   E.at(450); await E.settle(0, { ok: true, txHash: "0x" + "ab".repeat(32), pre: 7e4, post: 7.14e4 });
   ok(A[0].st === "ok" && E.events.filter((e) => e.type === "disciple:paperfill").length === 1, `${tag}: r.ok → completes + books exactly once (then, not before)`);
   ok(A[2].st === "pending", `${tag}: the 3rd trade still waits on its own receipt`); }
+
+console.log("— 3b. price impact never blocks or fails a trade (lee): a non-blocking note only");
+{ const IMP = "High price impact: this buy moves the price over 10%. You'll get about 1.2K coins.";
+  const realRevert = new Function(block("function isOnchainRevert(", "\n// DOM ammo") + "\nreturn isOnchainRevert;")();
+  ok(!realRevert(IMP) && !realRevert("Wallet limit: this coin's mode caps each wallet at 2%.") && realRevert("execution reverted"), "isOnchainRevert: impact / wallet-limit notes are never 'reverted'");
+  for (const extra of [{}, { unknown: true }]) { const E = engine({ live: true }), tag = extra.unknown ? "needsConfirm + unknown (SITE #201)" : "needsConfirm";
+    E.trade("buy"); E.at(60); E.trade("buy"); const A = E.S.boostAnim, p1 = E.S.pending[1];
+    E.at(200); await E.settle(0, { ok: false, reason: IMP, needsConfirm: "impact", ...extra });
+    ok(!E.S.feed.some((f) => f.err) && !E.S.flashes.some((f) => f.txt === "That didn't go through."), `${tag}: no ✕ failure row, no "That didn't go through."`);
+    ok(E.S.flashes.some((f) => f.txt === IMP && f.c), `${tag}: the plain note shows as a calm flash`);
+    ok(A[0].st === "fail" && E.S.pending.length === 1 && E.S.pending[0] === p1 && near(p1.proj, 7e4 * 1.02), `${tag}: nothing was sent — the boost eases back, the slot frees, the next ghost drops by that step`);
+    ok(!E.events.some((e) => e.type === "disciple:paperfill") && E.thrust.length === 0, `${tag}: books nothing, no thrust`); }
+  { const E = engine({ live: true }); E.trade("buy"); E.at(300); await E.settle(0, { ok: true, txHash: "0x" + "cd".repeat(32), warning: IMP });
+    ok(E.S.boostAnim[0].st === "ok" && E.events.filter((e) => e.type === "disciple:paperfill").length === 1 && !E.S.feed.some((f) => f.err) && E.S.flashes.some((f) => f.txt === IMP),
+      "sent with a warning (r.ok + r.warning): fills normally, note shown, never a failure"); } }
 
 console.log("— 4. hoverMs on disciple:op 'filled'");
 ok(TS.BOOST_ANIM.cap === BA.BA_CAP && TS.BOOST_ANIM.tauUpMs === BA.BA_TAU_UP, "tradeSpeed BOOST_ANIM matches engine @boostanim (cap 0.7, τ 140 ms)");

@@ -15,13 +15,19 @@ import "server-only";
  *                              `trades:cur` (≤ v3, unscoped) is ignored.
  *   trades:lock                10s run lock
  *   trades:reindex:lock        reindexFills run lock (60s)
+ * After storeFills, the off-chain referral ledger (lib/server/referralLedger) records the 1% fee
+ * slice for any fill whose trader has a locked ReferralRegistry referrer — same after-the-fact
+ * path, never on the relay / admission path. See referralLedger.ts for keys and FeeMath reuse.
  */
 import { decodeEventLog, getAbiItem, type Address, type Hex, type Log, type PublicClient } from "viem";
-import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "@/lib/abi";
-import { deployment, ZERO } from "@/lib/chains";
+import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, feeRouterAbi, launchpadAbi } from "@/lib/abi";
+import { deployment, ZERO, usdgRouters } from "@/lib/chains";
+export { usdgRouters };
 import { serverPc } from "./chat/identity";
 import { kv, type Kv } from "./kv";
 import { ACH } from "./achKeys";
+import { feeIndex, markReferralDirty, recordReferralSlices, type TradeFeeRoutedArgs } from "./referralLedger";
+
 import { coinBasis } from "@/lib/mcap";
 import { attachRefunds, fillUsd, FILL_V, usdgAmounts, usdgIndex, usdgKey, type Fill, type UsdgRefundArgs, type UsdgTradeArgs } from "@/lib/trades";
 import { usdgDecimals } from "@/lib/usdg";
@@ -32,6 +38,8 @@ const HOOK_TRADE = getAbiItem({ abi: discipleHookAbi, name: "Trade" });
 const TRADE_EVENTS = [CURVE_TRADE, HOOK_TRADE] as const;
 const USDG_TRADE = getAbiItem({ abi: discipleRouterAbi, name: "UsdgTrade" });
 const USDG_REFUND = getAbiItem({ abi: discipleRouterAbi, name: "UsdgRefund" });
+const FEE_ROUTED = getAbiItem({ abi: feeRouterAbi, name: "TradeFeeRouted" });
+
 export const cursorKey = (launchpad: string) => `trades:cur:${launchpad.toLowerCase()}`;
 const curveCache = new Map<string, string>();
 const qpCache = new Map<string, bigint>();
@@ -131,12 +139,18 @@ export async function indexTrades(budgetMs = 20_000): Promise<{ indexed: number;
         if (chunk > BigInt(50)) { chunk = chunk / BigInt(4); continue; } // RPC result/range cap: shrink and retry
         throw e;
       }
-      // DiscipleRouter UsdgTrade in the same range (address-filtered: the RH RPC serves those over any range) ⇒ real USDG in/out
-      const router = d.router;
-      const usdgLogs = router === ZERO ? [] : ((await pc.getLogs({ address: router, event: USDG_TRADE, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: UsdgTradeArgs }[]);
-      // …and its UsdgRefund (graduating buy / First BOOST over the cap) ⇒ usdIn is the NET paid. Router address only.
-      const refundLogs = router === ZERO || !usdgLogs.length ? [] : ((await pc.getLogs({ address: router, event: USDG_REFUND, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: UsdgRefundArgs }[]);
+      // DiscipleRouter UsdgTrade in the same range (address-filtered: the RH RPC serves those over any range) ⇒ real USDG in/out.
+      // Same pattern as d.router, also watching deployment().gaslessRouter (gasless Permit2 fills emit there).
+      const routers = usdgRouters(d);
+      const usdgLogs = routers.length === 0 ? [] : ((await pc.getLogs({ address: routers, event: USDG_TRADE, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: UsdgTradeArgs }[]);
+      // …and UsdgRefund on the same routers (graduating buy / First BOOST over the cap) ⇒ usdIn is the NET paid.
+      const refundLogs = routers.length === 0 || !usdgLogs.length ? [] : ((await pc.getLogs({ address: routers, event: USDG_REFUND, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: UsdgRefundArgs }[]);
       const usdg = usdgIndex(attachRefunds(usdgLogs.map((x) => ({ tx: x.transactionHash, args: x.args })), refundLogs.map((x) => ({ tx: x.transactionHash, args: x.args }))));
+      // FeeRouter.TradeFeeRouted in the same range: exact 33/33/33/1 split (referralLedger prefers this over fill math).
+      const feeLogs = d.feeRouter && d.feeRouter.toLowerCase() !== ZERO.toLowerCase()
+        ? ((await pc.getLogs({ address: d.feeRouter, event: FEE_ROUTED, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: TradeFeeRoutedArgs }[])
+        : [];
+      const fees = feeIndex(feeLogs.map((x) => ({ tx: x.transactionHash, args: x.args })));
       const fills: Fill[] = [];
       for (const l of logs) {
         let dec: { args: Record<string, unknown> };
@@ -152,6 +166,8 @@ export async function indexTrades(budgetMs = 20_000): Promise<{ indexed: number;
         fills.push(toFill({ transactionHash: tx, logIndex: li, blockNumber: l.blockNumber ?? BigInt(0) }, venue, a, await tsOf(l.blockNumber ?? BigInt(0)), usdg.get(usdgKey(tx, a.token, a.isBuy))?.shift()));
       }
       await storeFills(fills);
+      // After-the-fact only. A ledger failure must not fail the trade index; dirty fills are drained by the CSV/cron path.
+      if (fills.length) await recordReferralSlices(fills, fees).catch((e) => console.warn("[referral-ledger]", (e as Error).message));
       n += fills.length;
       cur = to;
       await s.set(ck, cur.toString());
@@ -172,16 +188,20 @@ export async function storeFills(fills: Fill[]) {
   for (const f of fills) (coinsBy.get(f.trader) ?? coinsBy.set(f.trader, new Set()).get(f.trader)!).add(f.coin);
   for (const [w, cs] of Array.from(coinsBy.entries())) await s.sadd(`trades:w:${w}`, ...Array.from(cs));
   // achievements engine: re-score these wallets on the next /api/cron/achievements (one member per fill ⇒ never lost)
-  if (fills.length) await s.zadd(ACH.dirty(), fills.map((f) => ({ score: Date.now(), member: `${f.trader}|${f.id}` })));
+  if (fills.length) {
+    await s.zadd(ACH.dirty(), fills.map((f) => ({ score: Date.now(), member: `${f.trader}|${f.id}` })));
+    await markReferralDirty(fills);
+  }
 }
 
 const byOrder = (a: Fill, b: Fill) => a.block - b.block || a.logIndex - b.logIndex;
 export const TRADES_MAX_LIMIT = 5000;
-/** Fills oldest→newest. order "asc" (default) = the oldest `limit`; "desc" = the newest `limit` (ZRANGE … REV), still returned oldest→newest. */
-export async function tradesOf(coin: string, wallet?: string | null, limit = 1000, order: "asc" | "desc" = "asc"): Promise<Fill[]> {
+/** Fills oldest→newest. order "asc" (default) = the oldest `limit`; "desc" = the newest `limit` (ZRANGE … REV), still returned oldest→newest.
+ *  offset skips that many from the chosen end first (paging the full history: the coin chart reads asc pages of 5000). */
+export async function tradesOf(coin: string, wallet?: string | null, limit = 1000, order: "asc" | "desc" = "asc", offset = 0): Promise<Fill[]> {
   const k = wallet ? `trades:w:${wallet.toLowerCase()}:${coin.toLowerCase()}` : `trades:${coin.toLowerCase()}`;
   const n = Math.min(TRADES_MAX_LIMIT, Math.max(1, Math.floor(limit) || 1));
-  const raw = await kv().zrange(k, n, order === "desc");
+  const raw = await kv().zrange(k, n, order === "desc", Math.max(0, Math.floor(offset) || 0));
   const seen = new Set<string>();
   return raw.map((r) => JSON.parse(r) as Fill).filter((f) => (seen.has(f.id) ? false : (seen.add(f.id), true))).sort(byOrder);
 }
@@ -205,15 +225,17 @@ type RLog = { address: string; topics: readonly string[]; data: string; logIndex
 /**
  * Pure (tests): the router UsdgTrade (with its UsdgRefund attached) for the Trade log at `logIndex` in a receipt. Matched
  * like the indexer: the n-th Trade of (token, side) in the tx takes the n-th UsdgTrade of (token, side), by log order.
+ * `router` is one address or the list from usdgRouters() (regular + gasless).
  */
-export function usdgFromReceiptLogs(logs: readonly RLog[], router: string, logIndex: number, a: { token: string; isBuy: boolean }): UsdgTradeArgs | undefined {
-  const r = router.toLowerCase(), tok = a.token.toLowerCase();
+export function usdgFromReceiptLogs(logs: readonly RLog[], router: string | readonly string[], logIndex: number, a: { token: string; isBuy: boolean }): UsdgTradeArgs | undefined {
+  const routers = new Set((typeof router === "string" ? [router] : router).map((x) => x.toLowerCase()).filter((x) => x && x !== ZERO.toLowerCase()));
+  const tok = a.token.toLowerCase();
   const sorted = [...logs].sort((x, y) => Number(x.logIndex) - Number(y.logIndex));
   const trades: { tx: string; args: UsdgTradeArgs }[] = [], refunds: { tx: string; args: UsdgRefundArgs }[] = [];
   let nth = 0;
   for (const l of sorted) {
     const t = { data: l.data as Hex, topics: l.topics as [Hex, ...Hex[]] };
-    if (l.address.toLowerCase() === r) {
+    if (routers.has(l.address.toLowerCase())) {
       try {
         const ev = decodeEventLog({ abi: [USDG_TRADE, USDG_REFUND], ...t }) as unknown as { eventName: string; args: Record<string, unknown> };
         if (ev.eventName === "UsdgTrade") trades.push({ tx: "r", args: ev.args as unknown as UsdgTradeArgs });
@@ -295,7 +317,8 @@ export async function reindexFills(scope: { coin: string } | "all", o: { dryRun?
         catch { out.missing++; continue; }
         const venue = await prepareTrade(pc, a, src, hook);
         if (!venue) { out.missing++; continue; }
-        const usdg = d.router === ZERO ? undefined : usdgFromReceiptLogs(r!.logs as unknown as RLog[], d.router, f.logIndex, a);
+        const routers = usdgRouters(d);
+        const usdg = routers.length === 0 ? undefined : usdgFromReceiptLogs(r!.logs as unknown as RLog[], routers, f.logIndex, a);
         const nf = revalueFill(f, venue, a, usdg);
         const nm = JSON.stringify(nf);
         if (nm === m) { out.skipped++; continue; }

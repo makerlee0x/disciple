@@ -10,7 +10,7 @@
  */
 import type { Address, Hex, PublicClient } from "viem";
 import { parseAbiItem } from "viem";
-import { RESERVATIONS } from "@/lib/flight/reservationsShim";
+import { RESERVATIONS } from "@/lib/trade/reservations";
 
 const ENTRYPOINT_V07: Address = "0x0000000071727De22E5E9d8BAf0edAc6f37da032";
 const UOE = parseAbiItem("event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)");

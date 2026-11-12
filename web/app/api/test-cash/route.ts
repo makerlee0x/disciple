@@ -1,6 +1,6 @@
 /**
- * POST /api/test-cash {address} — testnet-only "Get test cash": mints test USDG ($500) and some test STRATEGY (≈ $250 at
- * the live QuotePricer price, skipped if it can't be priced) to a player's smart account.
+ * POST /api/test-cash {address} — testnet-only "Get test cash": mints test USDG ($500) to a player's smart account.
+ * Cash only (lee 2026-10-26 test 2): First BOOST pays from USDG via launchWithUsdg, so no pair coin (STRATEGY) is minted.
  * The v5 test tokens (DevToken) have a public mint(address,uint256), so any funded EOA can mint; we use the existing
  * testnet faucet EOA (DRIP_FAUCET_KEY, same key /api/drip uses). No new env var. Unset key ⇒ 503 (button shows a plain note).
  * Only chain 46630: NEXT_PUBLIC_CHAIN_ID other than 46630 ⇒ 400, and the client never renders the button off testnet.
@@ -15,7 +15,7 @@ import { relayerIsFaucet, withRelayer } from "@/lib/server/relayer";
 import { classifySendError } from "@/lib/server/relayerNonce";
 import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
-import { TEST_CASH_COOLDOWN_SEC, TEST_CASH_STRATEGY_USD, TEST_CASH_USD } from "@/lib/testCash";
+import { TEST_CASH_COOLDOWN_SEC, TEST_CASH_USD } from "@/lib/testCash";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,8 +24,6 @@ const PER_IP_DAY = 10;
 const GLOBAL_PER_HOUR = 120;
 const DAY_SEC = 86_400;
 const tokenAbi = parseAbi(["function mint(address to, uint256 amount)", "function decimals() view returns (uint8)"]);
-const pricerAbi = parseAbi(["function quotePriceUsd(address) view returns (uint256)"]);
-const WAD = BigInt(10) ** BigInt(18);
 const Z = /^0x0{40}$/i;
 
 export async function POST(req: Request) {
@@ -50,37 +48,26 @@ export async function POST(req: Request) {
   if (!rl.ok || !gl.ok) { await kv().del(k); return NextResponse.json({ ok: false, reason: "rate limited", retryAfterSec: (rl.ok ? gl : rl).retryAfterSec }, { status: 429 }); }
 
   const pc = createPublicClient({ chain: robinhoodTestnet, transport: http() });
-  const mints: { token: Address; amount: bigint; usd: number; cash: boolean }[] = [];
+  let amount: bigint;
   try {
     const usdgDec = await pc.readContract({ address: d.usdg, abi: tokenAbi, functionName: "decimals" }).catch(() => d.usdgDecimals);
-    mints.push({ token: d.usdg, amount: parseUnits(String(TEST_CASH_USD), Number(usdgDec)), usd: TEST_CASH_USD, cash: true });
-    // STRATEGY (the pair token creator buys are paid in): only if it prices; raw = usd × 1e18 / (USD WAD per 1e18 raw)
-    if (!Z.test(d.defaultQuote) && !Z.test(d.quotePricer)) {
-      const px = await pc.readContract({ address: d.quotePricer, abi: pricerAbi, functionName: "quotePriceUsd", args: [d.defaultQuote] }).catch(() => BigInt(0));
-      if (px > BigInt(0)) mints.push({ token: d.defaultQuote, amount: (BigInt(TEST_CASH_STRATEGY_USD) * WAD * WAD) / px, usd: TEST_CASH_STRATEGY_USD, cash: false });
-    }
+    amount = parseUnits(String(TEST_CASH_USD), Number(usdgDec));
   } catch (e) {
     await kv().del(k).catch(() => undefined);
     return NextResponse.json({ ok: false, reason: (e as Error).message.split("\n")[0].slice(0, 120) }, { status: 500 });
   }
 
   const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(undefined, { retryCount: 0 }), account: privateKeyToAccount(key) });
-  const hashes: Hex[] = [];
-  let usd = 0, strategyUsd = 0;
-  for (const m of mints) {
-    const send = (nonce?: number) => wc.writeContract({ address: m.token, abi: tokenAbi, functionName: "mint", args: [address as Address, m.amount], ...(nonce === undefined ? {} : { nonce }) });
-    try {
-      // same EOA as the self-bundler relayer (non-production fallback) ⇒ share its nonce cursor; else serialized send
-      const h = relayerIsFaucet()
-        ? await withRelayer(async () => (await import("@/lib/server/fastRelay")).sendWithRelayerNonce(send), 0)
-        : await withRelayer(() => send());
-      hashes.push(h); if (m.cash) usd += m.usd; else strategyUsd += m.usd;
-    } catch (e) {
-      if (hashes.length) break;   // USDG landed, STRATEGY failed: still a success (cash is what matters)
-      // a definite rejection (nothing sent) frees the claim for an immediate retry; an unclear one keeps it
-      if (classifySendError(e) !== "unclear") await kv().del(k).catch(() => undefined);
-      return NextResponse.json({ ok: false, reason: (e as Error).message.split("\n")[0].slice(0, 120) }, { status: 500 });
-    }
+  const send = (nonce?: number) => wc.writeContract({ address: d.usdg, abi: tokenAbi, functionName: "mint", args: [address as Address, amount], ...(nonce === undefined ? {} : { nonce }) });
+  try {
+    // same EOA as the self-bundler relayer (non-production fallback) ⇒ share its nonce cursor; else serialized send
+    const h = relayerIsFaucet()
+      ? await withRelayer(async () => (await import("@/lib/server/fastRelay")).sendWithRelayerNonce(send), 0)
+      : await withRelayer(() => send());
+    return NextResponse.json({ ok: true, txHashes: [h], usd: TEST_CASH_USD });
+  } catch (e) {
+    // a definite rejection (nothing sent) frees the claim for an immediate retry; an unclear one keeps it
+    if (classifySendError(e) !== "unclear") await kv().del(k).catch(() => undefined);
+    return NextResponse.json({ ok: false, reason: (e as Error).message.split("\n")[0].slice(0, 120) }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, txHashes: hashes, usd, strategyUsd });
 }

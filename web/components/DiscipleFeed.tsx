@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { isDeployed } from "@/lib/chains";
-import { mcapOrderer, reconcileMcap, toEngine, watchCurve } from "@/lib/events";
+import { mcapOrderer, readMcapAt, reconcileMcap, toEngine, watchCurve } from "@/lib/events";
 import { fetchGrad } from "@/lib/grad";
 import { curveOf, publicClient, readCurveState } from "@/lib/protocol-viem";
 import type { Address } from "@/lib/protocol";
@@ -18,7 +18,11 @@ export default function DiscipleFeed({ token }: { token: string }) {
         const pc = publicClient();
         const gradP = fetchGrad(token); // server graduation state (cached once graduated) — in parallel with the chain reads
         const curve = await curveOf(pc, token as Address);
+        // b0 BEFORE the state read: the first State is labelled with a block its data is not older than (was: read the
+        // curve, then up to 2.5 s later label it with a newer block ⇒ a stale first mcap could outrank newer Trades)
+        const b0 = await pc.getBlockNumber();
         const st = await readCurveState(pc, token as Address);
+        const m0 = await readMcapAt(pc, token as Address, b0, { tries: 2 }).catch(() => null);   // pinned at b0 (null ⇒ unlabelled)
         // One orderer for live + reconcile: the engine's mcap only ever moves forward in chain order.
         const order = mcapOrderer(toEngine);
         // GAME contract (SITE job 7): every engine update — this first State included — carries { graduated, poolId,
@@ -27,10 +31,9 @@ export default function DiscipleFeed({ token }: { token: string }) {
         order.setGrad({ graduated: st.graduated });
         const g0 = await Promise.race([gradP, new Promise<undefined>((r) => setTimeout(() => r(undefined), 2500))]);
         order.setGrad(g0);
-        const b0 = await pc.getBlockNumber();
         // No history replay here: the engine draws past fills from /api/trades (engine.js liveHistory). Replaying every
         // Trade as a "live" event stacked old fills into the current candle and re-fed buys/sells the chart already had.
-        if (!order.state(st.mcapUsd, b0) && !(order.mcap > 0)) toEngine({ type: "State", mcapUsd: st.mcapUsd, ...order.grad } as never);
+        if (!(m0 !== null && order.state(m0, b0)) && !(order.mcap > 0)) toEngine({ type: "State", mcapUsd: m0 ?? st.mcapUsd, ...order.grad } as never);
         if (g0 === undefined) void gradP.then((g) => { if (alive && g) { order.setGrad(g); order.resend(); } });
         // stream from the block after the state read: nothing between the read and the first poll is skipped
         const u = await watchCurve(token as Address, curve, toEngine, pc, order, b0 + BigInt(1));

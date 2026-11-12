@@ -1,7 +1,7 @@
 /** Unit tests: parallel nonce keys, gas/fee/quote caches, relayer lock/retry, chain-ordered mcap, balance line.  pnpm test:trade-order */
 import { scaledQuote } from "../lib/trade/hotCache";
 import { routerBuyWithUsdgCalls, routerSellToUsdgCalls, BUY_WITH_USDG, SELL_TO_USDG, toCalls } from "../lib/trade/usdgRouter";
-import { policyHasUsdg, tradeSelectors, sessionEligible, SESSION_POLICY_MODULE_ID } from "../lib/aa/oneTap";
+import { policyHasUsdg, tradeSelectors, sessionEligible, SESSION_POLICY_MODULE_ID, SESSION_POLICY_VERSION } from "../lib/aa/oneTap";
 import { checkCalls, usdgBuyTotal } from "../lib/aa/policy";
 import { decodeFunctionData, encodeFunctionData, parseAbi } from "viem";
 import assert from "node:assert/strict";
@@ -52,7 +52,8 @@ await t("withRelayer: serial + retries nonce errors, not other errors", async ()
 await t("mcapOrderer: a late OLDER buy batch can't undo a newer DUMP; reconcile only moves forward", () => {
   const out: { type: string; mcapUsd?: number; side?: string }[] = [];
   const o = mcapOrderer((e) => out.push(e as never));
-  const tr = (block: number, logIndex: number, side: "buy" | "sell", mcapUsd: number) => ({ type: "Trade", side, mcapUsd, block: BigInt(block), logIndex, usd: 10, impactPct: 0, txHash: "0x", token: "0x", trader: "0x", amountIn: 0n, amountOut: 0n }) as never;
+  // one tx per (block, logIndex): mcapOrderer drops a repeated tx:logIndex (its getLogs re-delivery dedupe)
+  const tr = (block: number, logIndex: number, side: "buy" | "sell", mcapUsd: number) => ({ type: "Trade", side, mcapUsd, block: BigInt(block), logIndex, usd: 10, impactPct: 0, txHash: `0x${block.toString(16)}${logIndex}`, token: "0x", trader: "0x", amountIn: 0n, amountOut: 0n }) as never;
   o.trade(tr(100, 1, "buy", 33894));
   o.trade(tr(102, 3, "sell", 33018));      // DUMP lands first
   o.trade(tr(101, 0, "buy", 33749));       // older buy batch resolves late
@@ -93,7 +94,9 @@ await t("USDG router (#65 SDK mirror): exact approve + buyWithUsdg / sellToUsdg 
 await t("session policy version gating (config): 1.1.1 ⇒ USDG calls owner-signed; 1.3.0 ⇒ session-signable", () => {
   assert.equal(policyHasUsdg("1.1.1"), false); assert.equal(policyHasUsdg("1.3.0"), true); assert.equal(policyHasUsdg("1.10.0"), true);
   assert.ok(!tradeSelectors("1.1.1").has(BUY_WITH_USDG)); assert.ok(tradeSelectors("1.3.0").has(BUY_WITH_USDG) && tradeSelectors("1.3.0").has(SELL_TO_USDG));
-  assert.equal(SESSION_POLICY_MODULE_ID, `disciple.session-policy.${process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.3.0"}`);
+  // the configured version (v5 stack default 1.4.1, lib/aa/oneTap) must be one whose session key signs USDG trades
+  assert.equal(SESSION_POLICY_MODULE_ID, `disciple.session-policy.${SESSION_POLICY_VERSION}`);
+  assert.ok(policyHasUsdg(SESSION_POLICY_VERSION), `configured policy ${SESSION_POLICY_VERSION} is session-signable for USDG`);
 });
 await t("1.3.0 rules mirrored: USDG approve to a curve/tramp ⇒ owner signer; to router must be exact", async () => {
   const router = "0x00000000000000000000000000000000000000aa" as const, usdg = "0x00000000000000000000000000000000000000bb" as const, curve = "0x00000000000000000000000000000000000000cc" as const;

@@ -176,3 +176,33 @@ test("readMcapAt: a node without the block yields null (tick skipped), never a m
   const pc = { readContract: async () => { throw new Error("header not found"); } } as never;
   assert.equal(await readMcapAt(pc, COIN as never, BigInt(100), { tries: 2, delayMs: 1 }), null);
 });
+
+// lee, Oct 26: the chain went ~$4.5K → $5.1K and the HUD / chart didn't follow. A pinned marketCapQuote the node couldn't
+// serve (while `graduated` at that block answered) was read as "no marketCapQuote" ⇒ an UNPINNED curve read labelled with
+// the fresh block ⇒ that stale mcap outranked newer Trades in the orderer. Now: node-behind ⇒ retry / null, never latest.
+test("readMcapAt: pinned marketCapQuote missing at the block but served at latest ⇒ null, never the unpinned curve value", async () => {
+  const CURVE = "0x00000000000000000000000000000000000000c1", calls: string[] = [];
+  const mk = (pinnedMq: "ok" | "fail", latestMq: "ok" | "fail") => ({
+    readContract: async (r: { functionName: string; blockNumber?: bigint }) => {
+      calls.push(r.functionName + (r.blockNumber !== undefined ? "@" + r.blockNumber : ""));
+      switch (r.functionName) {
+        case "curveOf": return CURVE;
+        case "quote": return USDG;
+        case "quotePriceUsd": return BigInt(10) ** BigInt(18);
+        case "totalSupply": return BigInt(10) ** BigInt(27);
+        case "graduated": return true;
+        case "marketCapQuote": { const ok = r.blockNumber !== undefined ? pinnedMq === "ok" : latestMq === "ok"; if (!ok) throw new Error("Missing or invalid parameters"); return BigInt(5100) * BigInt(10) ** BigInt(18); }
+        case "marketCapUsd": return BigInt(4500) * BigInt(10) ** BigInt(18);   // the stale unpinned curve read (must never be used here)
+        default: return BigInt(0);
+      }
+    },
+  }) as never;
+  assert.equal(await readMcapAt(mk("fail", "ok"), COIN as never, BigInt(100), { tries: 2, delayMs: 1 }), null);
+  assert.ok(!calls.includes("marketCapUsd"), "no unpinned curve-state fallback for a node-behind read");
+  assert.ok(calls.includes("marketCapQuote"), "probed latest once to tell node-behind from a legacy curve");
+  const v = await readMcapAt(mk("ok", "ok"), COIN as never, BigInt(100), { tries: 2, delayMs: 1 });
+  assert.ok(v !== null && v > 0, "pinned read served ⇒ the pinned value");
+  calls.length = 0;   // a real legacy curve (no marketCapQuote anywhere) still takes the old curve-state path
+  await readMcapAt(mk("fail", "fail"), COIN as never, BigInt(100), { tries: 2, delayMs: 1 }).catch(() => null);
+  assert.ok(calls.some((c) => c === "marketCapUsd" || c.startsWith("market@")), "legacy curve (no marketCapQuote at latest either) keeps the legacy path (MarketLens / curve state)");
+});

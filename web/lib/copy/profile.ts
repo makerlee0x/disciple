@@ -72,7 +72,7 @@ export const PROFILE_COPY = {
 
   // Activity
   "activity.record": "Record",
-  "activity.record.grads": "Graduations",
+  "activity.record.grads": "Ascensions",
   "activity.pnl.title": "Cumulative PnL", // existed on the old profile; moved here as the one PnL chart
   "activity.empty.own": "Nothing here yet. BOOST a rocket and your war log starts.",
   "activity.empty.own.title": "No activity yet",

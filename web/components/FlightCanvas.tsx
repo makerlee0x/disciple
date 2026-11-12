@@ -2,11 +2,11 @@
 
 import TouchGrass from "./flight/TouchGrass";
 import SettingsMenu from "./flight/SettingsMenu";
+import GameRadio from "./flight/GameRadio";
 import ExitConfirm from "./flight/ExitConfirm";
 import { useT } from "@/lib/game/i18n";
+import { exitConfirmArms } from "@/lib/game/exitGuard";
 import { LOADOUT_KEY } from "@/lib/rocketSkin";
-import Icon from "@/components/ui/Icon";
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { brandedRocket } from "@/lib/decal";
 import { gateFlightIcon } from "@/lib/flight/iconGate";
@@ -18,6 +18,9 @@ import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
 import HoldersBridge from "@/components/flight/HoldersBridge";
 import PhoneHud from "@/components/flight/PhoneHud";
+import { publishUsernameDisplayCap } from "@/lib/defaultUsername";
+
+if (typeof window !== "undefined") publishUsernameDisplayCap();
 
 declare global {
   interface Window {
@@ -28,7 +31,7 @@ declare global {
 }
 
 /** = engine.js HUD_NARROW_W / HUD_NARROW_TOP (narrow screens: right HUD column below the MARKET CAP panel). */
-const HUD_NARROW_W = 740, HUD_NARROW_TOP = 158;
+const HUD_NARROW_W = 760, HUD_NARROW_TOP = 158;
 
 type Props = {
   /** Query string without leading ? (replay, speed, zoom, source, launched, …) */
@@ -186,28 +189,45 @@ export default function FlightCanvas({ search }: Props) {
     };
   }, [search]);
 
+  // The engine's DISCIPLE status box (top of the right column, 100px slot) is not drawn on coin pages (?source=disciple,
+  // lee Oct 30 cleanup: engine.js STATUS_BOX) → GameChat (stacked on --ap-hud-rt + --ap-status-h) moves up into its slot.
+  useEffect(() => {
+    const st = document.documentElement.style;
+    st.setProperty("--ap-status-h", new URLSearchParams(search).get("source") === "disciple" ? "0px" : "100px");
+    return () => { st.removeProperty("--ap-status-h"); };
+  }, [search]);
+
   // Top-right stacking: the site's wallet strip (top-right, height varies with its state) comes first,
-  // then the Settings(gear)/Exit row, then the in-canvas status column + crew panel. Measured, not hardcoded.
+  // then the in-canvas status column + crew panel (no Settings/Exit row since the Oct 30 cleanup). Measured, not hardcoded.
   useEffect(() => {
     let last = "";
     const tick = () => {
       const w = document.querySelector('[aria-label="wallet"]') as HTMLElement | null;
       const b = w ? Math.ceil(w.getBoundingClientRect().bottom) : 0;
       const vw = Math.round(wrapRef.current?.clientWidth || innerWidth);
-      if (`${b}:${vw}` === last) return;
-      last = `${b}:${vw}`;
+      // the wallet strip's left edge in canvas px (engine hudTopLayout keeps the BUY panel clear of the cash / total cards);
+      // the canvas starts at the sidebar edge, whatever its width (measured, not --ap-side-w)
+      const wl = w ? Math.floor(w.getBoundingClientRect().left - (wrapRef.current?.getBoundingClientRect().left || 0)) : 0;
+      const hl = Number((window as unknown as { __hudLeft?: number }).__hudLeft) || 0;   // overlay sidebar (lib/game/sidebarOverlay)
+      if (`${b}:${vw}:${wl}:${colTop}:${hl}` === last) return;
+      last = `${b}:${vw}:${wl}:${colTop}:${hl}`;
+      (window as unknown as { __walletL?: number }).__walletL = wl;
+      (window as unknown as { __wrapL?: number }).__wrapL = Math.round(wrapRef.current?.getBoundingClientRect().left || 0);
       const row = Math.max(12, b + 8);
-      // Phones: the in-canvas status column starts below the MARKET CAP panel (engine.js hudColTop, same 740/158 numbers),
+      // Phones: the in-canvas status column starts below the MARKET CAP panel (engine.js hudColTop, same 760/158 numbers),
       // so CrewPanel / GameChat (stacked on --ap-hud-rt) move down with it. Desktop unchanged.
-      const hudRT = vw < HUD_NARROW_W ? Math.max(row + 38 + 10, HUD_NARROW_TOP) : row + 38 + 10;
+      const hudRT = vw <= HUD_NARROW_W ? Math.max(row + 10, HUD_NARROW_TOP) : row + 10;   // +10 gap (the 38px gear/✕ row is gone)
       const st = document.documentElement.style;
       st.setProperty("--ap-tr-top", row + "px");
-      st.setProperty("--ap-hud-rt", hudRT + "px");
+      st.setProperty("--ap-hud-rt", Math.max(hudRT, colTop) + "px");   // the engine may move the column below the BUY panel
       (window as unknown as { __hudRT?: number }).__hudRT = hudRT;
     };
+    let colTop = 0;
+    const onCol = (e: Event) => { const t = +((e as CustomEvent<{ top?: number }>).detail?.top || 0); if (t !== colTop) { colTop = t; tick(); } };
+    addEventListener("disciple:hudcol", onCol);
     tick();
     const id = window.setInterval(tick, 400);
-    return () => window.clearInterval(id);
+    return () => { window.clearInterval(id); removeEventListener("disciple:hudcol", onCol); };
   }, []);
 
   // Simulated-market toggle (engine owns the state; this just mirrors + flips it).
@@ -229,9 +249,10 @@ export default function FlightCanvas({ search }: Props) {
     if (q.get("source") === "sim" && q.get("chatmock") !== "1") return null;
     return coin || "0x000000000000000000000000000000000000c0de"; })();
   const q0 = new URLSearchParams(search);
-  // EXIT CONFIRM is armed only while a flight is actually running (engine booted, no error) and not on a replay
+  // EXIT CONFIRM is armed only on a timed / simulated practice run (?source=sim), while the engine is Live with no error
+  // and not a replay — not on a regular live rocket (lee, Nov 10).
   const isReplay = q0.get("replay") === "1" || q0.get("source") === "replay";
-  const flightActive = status === "Live" && !err && !isReplay;
+  const flightActive = exitConfirmArms({ status, err: !!err, replay: isReplay, sim: isSimulator });
 
   return (
     <>
@@ -249,42 +270,20 @@ export default function FlightCanvas({ search }: Props) {
         className="flight-wrap"
       >
       </div>
-      <Link
-        id="exitX"
-        href="/"
-        title={t("exit")}
-        aria-label="Close flight and return to Launchpad"
-        style={{
-          position: "fixed",
-          top: "var(--ap-tr-top, 12px)",
-          right: 12,
-          zIndex: 35,
-          width: 38,
-          height: 38,
-          display: "grid",
-          placeItems: "center",
-          borderRadius: "50%",
-          textDecoration: "none",
-          font: "bold 18px system-ui,sans-serif",
-          color: "#fff7df",
-          background: "rgba(10,12,28,.82)",
-          border: "1px solid rgba(255,231,163,.7)",
-          boxShadow: "0 0 16px rgba(255,220,150,.35)",
-        }}
-      >
-        <Icon name="close" size={16} />
-      </Link>
-      {/* ✕ above, rail links, Back and tab close all go through the "Leave the mission?" confirm while flightActive */}
+      {/* coin / game screen cleanup (lee, Oct 30): no ✕ or gear top right. Leave via the Sidebar (ExitConfirm still guards
+          every link off a running flight); Settings = Sidebar "Settings" (SETTINGS_OPEN_EVENT) or ESC. */}
+      {/* rail links, Back and tab close all go through the "Leave the mission?" confirm while flightActive */}
       <ExitConfirm active={flightActive} mode={isSimulator ? "sim" : "live"} />
       <TouchGrass />
-      {/* ESC settings menu + its gear button (top-right, left of the exit X): Share, Hotkeys, Sound, Language, Display
+      {/* ESC settings menu (ESC or the Sidebar's Settings; no gear button since the Oct 30 cleanup): Share, Hotkeys, Sound, Language, Display
           (Touch Grass, Orbs) and the Controls reference all live there now, not in the pill row below. */}
+      <GameRadio />
       <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />
       {chatCoin && <GameChat coin={chatCoin} />}
-      {/* phones (<740px): v3 HUD — mcap pill, handle + PnL line, one swipe-up drawer (Feed/Holders/Chart/Crew/Chat/Run); desktop renders nothing */}
+      {/* phones (≤760px): v3 HUD — mcap pill, handle + PnL line, one swipe-up drawer (Feed/Holders/Chart/Crew/Chat/Position); desktop renders nothing */}
       <PhoneHud />
       {/^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") && q0.get("source") !== "sim" && <HoldersBridge coin={q0.get("coin") as string} />}
-      <div className="ap-bc" data-testid="flight-pills" style={{ bottom: 142, zIndex: 25, display: "flex", gap: 8 }}>
+      <div className="ap-bc" data-testid="flight-pills" style={{ bottom: "calc(142px + var(--ap-safe-bottom))", zIndex: 25, display: "flex", gap: 8 }}>
         {!isSimulator && sim.available === true && <button
           type="button"
           data-testid="sim-toggle"
@@ -313,7 +312,7 @@ export default function FlightCanvas({ search }: Props) {
         <div
           style={{
             position: "fixed",
-            bottom: 60,
+            bottom: "calc(60px + var(--ap-safe-bottom))",
             left: "50%",
             transform: "translateX(-50%)",
             zIndex: 40,
@@ -341,7 +340,7 @@ export default function FlightCanvas({ search }: Props) {
           display: none !important;
         }
         body.side-open .flight-wrap {
-          left: var(--ap-side-w, 270px) !important;
+          left: var(--ap-side-w, 248px) !important;
         }
         .ap-bc {
           position: fixed;
@@ -349,7 +348,7 @@ export default function FlightCanvas({ search }: Props) {
           transform: translateX(-50%);
         }
         body.side-open .ap-bc {
-          left: calc(50% + var(--ap-side-w, 270px) / 2) !important;
+          left: calc(50% + var(--ap-side-w, 248px) / 2) !important;
         }
         .ap-pill {
           padding: 6px 12px;

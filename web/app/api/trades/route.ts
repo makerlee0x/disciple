@@ -1,4 +1,4 @@
-/** GET /api/trades?coin=0x…[&wallet=0x…][&limit=n≤5000][&order=asc|desc] → { fills } oldest→newest (desc = newest n). Runs a short indexer catch-up first. */
+/** GET /api/trades?coin=0x…[&wallet=0x…][&limit=n≤5000][&order=asc|desc][&offset=k] → { fills } oldest→newest (desc = newest n; offset pages: skip k from that end). Runs a short indexer catch-up first. */
 import { NextResponse } from "next/server";
 import { indexTrades, tradesOf, coinsOf, TRADES_MAX_LIMIT } from "@/lib/server/trades";
 import { kv } from "@/lib/server/kv";
@@ -16,10 +16,12 @@ export async function GET(req: Request) {
   const coin = u.searchParams.get("coin"), wallet = u.searchParams.get("wallet");
   const limit = Math.min(TRADES_MAX_LIMIT, Math.max(1, Number(u.searchParams.get("limit")) || 1000));
   const order = u.searchParams.get("order") === "desc" ? "desc" : "asc";
+  const offset = Math.min(1e7, Math.max(0, Math.floor(Number(u.searchParams.get("offset"))) || 0));
   if (coin !== null && !isAddr(coin)) return NextResponse.json({ error: "bad coin" }, { status: 400 });
   if (wallet !== null && !isAddr(wallet)) return NextResponse.json({ error: "bad wallet" }, { status: 400 });
   if (!coin && !wallet) return NextResponse.json({ error: "coin or wallet required" }, { status: 400 });
-  await indexTrades(5_000).catch((e) => console.warn("[trades] index failed", (e as Error).message));
+  // later pages of a history read (offset > 0) skip the catch-up: page 0 just ran it
+  if (offset === 0) await indexTrades(5_000).catch((e) => console.warn("[trades] index failed", (e as Error).message));
   if (!coin) return NextResponse.json({ wallet: wallet!.toLowerCase(), coins: await coinsOf(wallet!) });
-  return NextResponse.json({ coin: coin.toLowerCase(), wallet: wallet?.toLowerCase() ?? null, fills: await tradesOf(coin, wallet, limit, order) });
+  return NextResponse.json({ coin: coin.toLowerCase(), wallet: wallet?.toLowerCase() ?? null, fills: await tradesOf(coin, wallet, limit, order, offset) });
 }

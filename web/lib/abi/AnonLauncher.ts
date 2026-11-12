@@ -501,6 +501,139 @@ export const anonLauncherAbi = [
   },
   {
     "type": "function",
+    "name": "launchAnonWithUsdg",
+    "inputs": [
+      {
+        "name": "p",
+        "type": "tuple",
+        "internalType": "struct ILaunchpad.LaunchParams",
+        "components": [
+          {
+            "name": "name",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "ticker",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "imageURI",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "description",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "socialsURI",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "quote",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "creatorTaxBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "creatorBuyQuoteIn",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "creatorBuyMinTokensOut",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "stealthOwner",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "buyRecipient",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "ephemeralPubKey",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "viewTag",
+        "type": "bytes1",
+        "internalType": "bytes1"
+      },
+      {
+        "name": "maxFee",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "usdgIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minQuoteIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "refundTo",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "r",
+        "type": "tuple",
+        "internalType": "struct ILaunchpad.LaunchResult",
+        "components": [
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "curve",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "creatorTokensBought",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "usdgRefund",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "launchFee",
     "inputs": [],
     "outputs": [
@@ -936,7 +1069,12 @@ export const anonLauncherAbi = [
     ],
     "anonymous": false
   },
-  {
+    {
+    "type": "error",
+    "name": "BadRefundTo",
+    "inputs": []
+  },
+{
     "type": "error",
     "name": "BadSignature",
     "inputs": []
@@ -979,6 +1117,11 @@ export const anonLauncherAbi = [
   {
     "type": "error",
     "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RouterUnset",
     "inputs": []
   },
   {

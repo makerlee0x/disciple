@@ -92,7 +92,7 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   const TB_M1 = 33333;
   const tierNeedText = new Function("fmtNeed", "TB_M1", `${grab(/function tierNeedText\(m,nx,o\)\{[\s\S]*?\n  const need=o\.est;[^\n]*\n/)}\nreturn tierNeedText;`)(fmtNeed, TB_M1);
   const nx = { lo: TB_M1 };
-  ok(tierNeedText(30000, nx, { exact: 812.4, est: 900 }) === "$813 to graduate", "exact known ⇒ only '$X to graduate'");
+  ok(tierNeedText(30000, nx, { exact: 812.4, est: 900 }) === "$813 to ascend", "exact known ⇒ only '$X to ascend'");
   ok(!/≈|est/.test(tierNeedText(30000, nx, { exact: 812.4, est: 900 })), "exact ⇒ no estimate alongside");
   ok(tierNeedText(30000, nx, { exact: null, est: 900 }) === "≈$900 buys needed (est.)", "no exact ⇒ estimate, clearly marked ≈ … (est.)");
   ok(tierNeedText(30000, nx, { exact: null, est: 0 }) === "" && tierNeedText(30000, nx, { exact: 0, est: 0.0 }) === "" && tierNeedText(30000, nx, { exact: null, est: NaN }) === "", "never ≈$0 / ≈NaN");
@@ -124,9 +124,10 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(!/setGraduated\(false/.test(eng), "nothing ever un-graduates");
   ok(/else if\(e\.type==='Graduate'\)\{ this\.graduated=true; setGraduated\(true,e\);/.test(eng), "live Graduate event → same setGraduated(true)");
   ok(/if\(d\.graduated===true\) setGraduated\(true,d\)/.test(eng), "TradeBridge curve read (gradneed {graduated}) → setGraduated");
-  ok(/if ?\(S\.graduated\)\{[^\n]*S\.gradBadge=GRAD_BADGE[^\n]*drawGradBadgeDesk/.test(eng), "desktop tier bar → GRADUATED badge");
-  ok(/S\.graduated&&\(!nx\|\|curveTierProgress\(nx\)\)/.test(eng) && /GRAD_BADGE/.test(grab(/function drawPhonePill[\s\S]*?\nfunction /)), "phone pill: curve progress hidden, GRADUATED badge");
-  ok(/const GRAD_BADGE='GRADUATED · trading on Uniswap';\s*\/\/ PLACEHOLDER/.test(eng), "badge copy marked PLACEHOLDER");
+  ok(/S\.gradBadge=S\.graduated\?GRAD_BADGE:''; if \(S\.graduated\) S\.tierNeedText='';/.test(eng) && !/function drawGradBadgeDesk/.test(eng), "desktop tier bar: ascended state flag only — ASCENDED shows ONCE, on the TIER line (pass 3 #2)");
+  { const pp = grab(/function drawPhonePill[\s\S]*?\nfunction /);   // pass 2 (lee, Oct 30): the pill names the tier on ascended coins too + its '+X% to NEXT' bar
+    ok(/b=tierName\(ti\)/.test(pp) && /if\(nx\)\{   \/\/ tier progress line/.test(pp) && /`\$\{ASCENDED\} · \$\{tl\}`/.test(pp) && /GRAD_BADGE/.test(pp), "phone pill: tier name + progress line (mcap / next lo), caption 'ASCENDED · +X% to NEXT'"); }
+  ok(/const GRAD_BADGE='ASCENDED';/.test(eng) && !/=\s*'[^'\n]*trading on Uniswap/.test(eng), "badge copy: 'ASCENDED' only, no 'trading on Uniswap' (pass 3 #2)");
   ok(/'graduated', 'phoneHolderTags', 'gradBadge', 'tierNeedText'/.test(rd("public/flight/worker.js")), "worker renderer mirrors graduated / badge / need text");
   ok(/send\(live \? st\.usd : null, st\.graduated\)/.test(tb) && /\[valid, live, token\]/.test(tb), "curve read runs for every viewer; exact $ only when live");
   // 8) big-move warning: only the side being tapped / previewed
@@ -155,14 +156,16 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(H.holderLabelText("pool") === "Pool" && H.holderLabelText("burn") === "Burned" && H.holderLabelText("locker") === "Locked LP" && H.holderLabelText(null) === "", "friendly names");
   const un = H.normalizeApiHolders({ holders: [{ address: "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9", balance: "842400000000000000000000", label: null }] }, base).rows;
   ok(un[0].label === null, "untagged unknown address left alone (no hard-coded guesses)");
-  const known = H.normalizeApiHolders({ holders: [{ address: "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9", balance: "1", label: null }] }, { ...base, labels: { "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9": "locker" } }).rows;
+  // a real balance: 1-wei rows are dust and hidden (44e23a0)
+  const known = H.normalizeApiHolders({ holders: [{ address: "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9", balance: "842400000000000000000000", label: null }] }, { ...base, labels: { "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9": "locker" } }).rows;
   ok(known[0].label === "locker", "client-known pool / locker address labels an untagged row");
   ok(!/BURN_ADDRS|0x000000000000000000000000000000000000dead/i.test(rd("lib/flight/holders.ts")) && /kindOf\(a\) === "burn"/.test(rd("lib/flight/holders.ts")), "burn fallback = SITE kindOf / BURN_ADDRESSES (no GAME table)");
   ok(/holderKinds\(d, \{ lockers: anonLaunchers/.test(rd("components/flight/HoldersBridge.tsx")), "untagged-row fallback = SITE holderKinds");
+  // real balances: system rows under $1 / 0.01% are dust and hidden (44e23a0)
   const hk = H.normalizeApiHolders({ holders: [
-    { address: "0x3333333333333333333333333333333333333333", balance: "9", kind: "holder" },
-    { address: "0x4444444444444444444444444444444444444444", balance: "8", kind: "locker" },
-    { address: "0x0000000000000000000000000000000000000000", balance: "7" } ] }, { ...base, labels: { "0x3333333333333333333333333333333333333333": "locker" } }).rows;
+    { address: "0x3333333333333333333333333333333333333333", balance: "300000000000000000000000", kind: "holder" },
+    { address: "0x4444444444444444444444444444444444444444", balance: "200000000000000000000000", kind: "locker" },
+    { address: "0x0000000000000000000000000000000000000000", balance: "100000000000000000000000" } ] }, { ...base, labels: { "0x3333333333333333333333333333333333333333": "locker" } }).rows;
   ok(hk.map((x) => x.label || "-").join() === "locker,burn,-", `kind 'holder' is ranked unlabelled (API truth), locker tagged, 0x0 = burn (${hk.map((x) => x.label || "-").join()})`);
   { const gc = rd("components/gamechat/GameChat.tsx");
     ok(/\{r\.label \? holderLabelText\(r\.label\) : r\.mine \? "you" : r\.who\}/.test(gc), "desktop holders list: tagged rows show their name");

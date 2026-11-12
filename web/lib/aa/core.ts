@@ -39,12 +39,12 @@ export type UserOp = {
 };
 export type UserOpReceipt = { success: boolean; actualGasCost?: Hex; paymaster?: Address; receipt: { transactionHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[] } };
 
-export type GasMode = "self-pay" | "usdg";
+export type GasMode = "self-pay" | "usdg" | "bso";
 export class AAError extends Error {
   constructor(public code: "FundAccount" | "Bundler" | "Timeout" | "Policy" | "Reverted" | "Estimate", msg: string, public extra?: Record<string, unknown>) { super(msg); }
 }
 
-/** Bundler/paymaster transport. Default is JSON-RPC to Alchemy; tests can inject a local EntryPoint.handleOps bundler. */
+/** Self-paid bundler transport. Default is JSON-RPC to Alchemy; tests can inject a local EntryPoint.handleOps bundler. */
 export interface Bundler {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   rpc(method: string, params: unknown[]): Promise<any>;
@@ -52,6 +52,11 @@ export interface Bundler {
 export function alchemyBundler(url: string): Bundler {
   return {
     async rpc(method, params) {
+      if (/^(pm_|alchemy_requestPaymaster)/.test(method) || method === "alchemy_requestGasAndPaymasterAndData") throw new AAError("Bundler", "gas sponsorship disabled");
+      if (method === "eth_sendUserOperation" || method === "eth_estimateUserOperationGas") {
+        const { checkSelfPaid } = await import("./gasPolicy");
+        checkSelfPaid(params[0] as never);
+      }
       const r = await fetch(url, {
         method: "POST",
         headers: { "content-type": "application/json" },

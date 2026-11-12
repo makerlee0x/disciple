@@ -36,10 +36,11 @@ test("new copy is plain (dollars, no jargon)", async () => {
   assert.equal(TEST_CASH_COPY.done(500, 250), "Added $500 in test cash and $250 in STRATEGY.");
 });
 
-test("Deposit link opens the Cash panel hash", async () => {
-  const { DEPOSIT_HREF, SETTINGS_HASHES } = await import("../lib/cashLink");
-  assert.equal(DEPOSIT_HREF, "/profile#cash");
-  assert.ok((SETTINGS_HASHES as readonly string[]).includes(new URL(DEPOSIT_HREF, "https://x.test").hash));
+test("Deposit link goes to Cash on /wallet (not the Settings popup)", async () => {
+  const { DEPOSIT_HREF, SETTINGS_HASHES, LEGACY_CASH_HASH } = await import("../lib/cashLink");
+  assert.equal(DEPOSIT_HREF, "/wallet");
+  assert.equal(LEGACY_CASH_HASH, "#cash");
+  assert.ok(!(SETTINGS_HASHES as readonly string[]).includes("#cash"));
   assert.ok((SETTINGS_HASHES as readonly string[]).includes("#settings"));
 });
 

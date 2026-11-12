@@ -61,8 +61,8 @@ export interface DecodeOpts {
   token: string;
   /** the trading account (smart account / EOA) — the `trader` the events credit */
   trader?: string | null;
-  /** DiscipleRouter address (only its UsdgTrade/UsdgRefund logs are trusted) */
-  router?: string | null;
+  /** DiscipleRouter address(es) whose UsdgTrade/UsdgRefund logs are trusted. A single address keeps the historical call shape; pass usdgRouters() (regular + gasless) so gasless fills book real USDG. */
+  router?: string | readonly string[] | null;
   /** USDG decimals (config: lib/usdg usdgDecimals()); required — no 18 default (6-dec USDG). */
   usdgDecimals: number;
   /** $ per token at the mark, for a hook-only fill (no mcapAfterUsd in the event) */
@@ -72,9 +72,15 @@ export interface DecodeOpts {
 }
 
 export function decodeTradeFill(logs: readonly LogLike[], o: DecodeOpts): DecodedFill | null {
-  const token = lc(o.token), me = o.trader ? lc(o.trader) : "", router = o.router ? lc(o.router) : "";
+  const token = lc(o.token), me = o.trader ? lc(o.trader) : "";
   const dec = o.usdgDecimals, supply = o.supply || 1_000_000;
-  const fromRouter = (l: LogLike) => !router || lc(l.address) === router;
+  // Same allow-list pattern as usdgRouters(): a string is the historical single-router filter; an array trusts each address (regular + gasless). Omitting router still trusts any emitter.
+  const fromRouter = (() => {
+    const raw = o.router;
+    if (raw == null || (typeof raw === "string" && !lc(raw))) return (_: LogLike) => true;
+    const allow = new Set((typeof raw === "string" ? [raw] : raw).map(lc));
+    return (l: LogLike) => allow.has(lc(l.address));
+  })();
   const mine = (a: string) => !me || a === me;
   // venue Trade for this token (prefer the trader's own row): token amount, fee, price
   let venue: { isBuy: boolean; quoteAmt: bigint; tokenAmt: bigint; fee: bigint; priceAfter: bigint; last: bigint; hook: boolean } | null = null;

@@ -4,6 +4,7 @@ import { EVENTS } from "../src/abi";
 import { openDb } from "../src/db";
 import { applyLogs, type RawLog } from "../src/ingest";
 import { Api } from "../src/api";
+import { HIDDEN_TEST_COINS } from "../src/hiddenCoins";
 import { candles, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve } from "../src/math";
 import type { Config, Stack } from "../src/config";
 
@@ -177,5 +178,20 @@ describe("#103 creator First BOOST attribution", () => {
     expect(rows.find((r) => r.trader === SMART.toLowerCase())!.tx).toBe(tx);
     const bal = db.prepare("SELECT bal FROM balances WHERE token=? AND holder=?").get(TOK2.toLowerCase(), SMART.toLowerCase()) as any;
     expect(bal.bal).toBe("9");
+  });
+});
+
+
+describe("hidden test coins", () => {
+  it("omits hidden tokens from GET /coins but still serves GET /coins/:address", async () => {
+    const db = seeded();
+    const hidden = Array.from(HIDDEN_TEST_COINS)[0];
+    db.prepare("UPDATE coins SET token=? WHERE token=?").run(hidden, TOKEN);
+    const api = new Api(db, null, cfg);
+    const [, list]: any = await api.route("GET", new URL("http://x/coins"));
+    expect(list.every((c: any) => c.token !== hidden)).toBe(true);
+    const [st, d]: any = await api.route("GET", new URL(`http://x/coins/${hidden}`));
+    expect(st).toBe(200);
+    expect(d.token).toBe(hidden);
   });
 });

@@ -338,7 +338,14 @@ export default function HowItWorksPage() {
         <img src={withBase("/brand/disciple-lockup-horizontal-light.svg")} alt={HIW_FINAL.logoAlt} width={120} height={31} className={s.lockup} loading="lazy" />
         <span className={s.sp} />
         <span>{HIW_FINAL.footer}</span>
-        <Link href="/security" className={s.footLink}>Security</Link>
+        <span className={s.footLinks}>
+          <Link href="/terms" className={s.footLink}>Terms</Link>
+          <Link href="/privacy" className={s.footLink}>Privacy</Link>
+          <Link href="/risk" className={s.footLink}>Risk</Link>
+          <Link href="/security" className={s.footLink}>Security</Link>
+        </span>
+        {/* coin page price chart = TradingView lightweight-charts (Apache-2.0); its in-chart logo is off, credited here */}
+        <a href="https://www.tradingview.com/" className={s.footLink} target="_blank" rel="noopener noreferrer">Charts by TradingView</a>
       </footer>
     </main>
   );

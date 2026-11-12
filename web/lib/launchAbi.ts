@@ -44,7 +44,7 @@ export const DEFAULT_LAUNCH_MODE: LaunchModeId = modesActive() ? envMode() : Lau
 /**
  * First BOOST (creator launch buy) cap in bps of supply, exactly Launchpad.firstBoostMaxBps(mode) (mode rules v2):
  * Easy 1.2% and Hard 3.33% are fixed per mode (lib/modeRules FIRST_BOOST_MAX_BPS); Trench uses the live, owner-settable
- * creatorBuyMaxBps (default 0.77%). The mode cap REPLACES creatorBuyMaxBps, it does not stack. On the pre-modes ABI it is
+ * creatorBuyMaxBps (contracts default 7.77%). The mode cap REPLACES creatorBuyMaxBps, it does not stack. On the pre-modes ABI it is
  * always creatorBuyMaxBps. Quote with the mode-aware quoteCreatorBuy overload so exceedsCap uses the same cap.
  */
 export function effectiveCreatorBuyCapBps(creatorBuyMaxBps: number, mode: number, shape: LaunchAbiShape = LAUNCH_ABI_SHAPE) {
@@ -64,18 +64,17 @@ export const launchpadModesAbi = parseAbi([
 export const modesErrorsAbi = parseAbi([
   "error BadMode()", "error LoginGateUnset()", "error NotVerified()", "error BuyTooLarge()", "error LaunchBlock()",
 ]);
-const loginGateAbi = parseAbi(["function verifiedUntil(address wallet, address coin) view returns (uint64)"]);
+const loginGateAbi = parseAbi(["function verifiedUntil(address wallet) view returns (uint64)"]);
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 /**
- * PVE: the creator's launch buy reverts NotVerified unless the creator holds a live LoginGate attestation. The coin
- * doesn't exist before the launch, so only a GLOBAL attestation (coin = address(0)) can count. Reads
- * Launchpad.loginGate() → LoginGate.verifiedUntil(wallet, 0). Needs 60 s of headroom so it can't expire mid-tx.
+ * PVE: the creator's launch buy reverts NotVerified unless the creator holds a live LoginGate attestation. All logins
+ * are global; reads Launchpad.loginGate() → LoginGate.verifiedUntil(wallet). Needs 60 s of headroom so it can't expire mid-tx.
  */
 export async function readPveLoginVerified(pc: PublicClient, launchpad: Address, wallet: Address): Promise<{ verified: boolean; until: number; gate: Address }> {
   const gate = await pc.readContract({ address: launchpad, abi: launchpadModesAbi, functionName: "loginGate" });
   if (gate === ZERO) return { verified: false, until: 0, gate };
-  const until = Number(await pc.readContract({ address: gate, abi: loginGateAbi, functionName: "verifiedUntil", args: [wallet, ZERO] }));
+  const until = Number(await pc.readContract({ address: gate, abi: loginGateAbi, functionName: "verifiedUntil", args: [wallet] }));
   return { verified: until > Math.floor(Date.now() / 1000) + 60, until, gate };
 }
 

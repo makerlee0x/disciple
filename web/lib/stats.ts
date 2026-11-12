@@ -47,6 +47,8 @@ export interface RocketRow {
 export interface ActivityItem {
   id: string; ts: number; kind: "buy" | "sell" | "bomb";
   text: string; usd?: number; ticker?: string;
+  /** real rows (profile activity, components/profile/RealActivity): the coin, so the row links to its page */
+  coin?: string;
   /** bomb rows only: BOMB_TIERS key + index (0 puff … 5 atom), drives the v2 --dsc-bomb-* color, icon and orb meter */
   bomb?: { k: (typeof BOMB_TIERS)[number]["k"]; tier: number };
 }
@@ -304,7 +306,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
     { key: "lpnl", label: "Lifetime PnL", value: cum + upnl, max: Math.max(1000, Math.abs(cum + upnl) * 1.4), format: "usd", sub: `${(roi * 100).toFixed(0)}% ROI` },
     { key: "fueled", label: "Rockets Boosted", value: pos.size, max: 20, format: "number", sub: `${buys} BOOSTs` },
     { key: "bombs", label: "Bombs Dropped", value: bombs, max: 25, format: "number", sub: `${nukes} nuke+` },
-    { key: "crews", label: "Crews Joined", value: all.filter((p) => p.entries > 0 && p.firstBuyTs - p.launchTs > 0).length, max: 20, format: "number", sub: `${grads} graduated` },
+    { key: "crews", label: "Crews Joined", value: all.filter((p) => p.entries > 0 && p.firstBuyTs - p.launchTs > 0).length, max: 20, format: "number", sub: `${grads} reached orbit` },
     { key: "bestx", label: "Best ×", value: bestX, max: 20, format: "multiple", sub: "biggest multiple" },
     { key: "rank", label: "Leaderboard", value: o.leaderboardRank, max: o.leaderboardSize, format: "rank", sub: `Top ${topPct.toFixed(1)}%` },
   ];

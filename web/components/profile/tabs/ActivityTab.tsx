@@ -10,16 +10,22 @@ import Pager from "../Pager";
 import { useMemo, useState } from "react";
 import { CrosshairChart, RangeToggle, sliceRange, type RangeKey } from "../Charts";
 
-/** Activity tab: the "Record" tiles (each stat shown once on the page), then one page (20) of the feed. */
-export default function ActivityTab({ record, pnl, rows, total, page, pages, onPage, isPrivate, owner, sample = false }: {
-  record: { label: string; value: string; tone?: "pos" | "neg" }[];
-  /** Cumulative PnL series: the profile's one PnL chart (PnL is public, lee 2026-10-24). */
-  pnl: { t: number; v: number }[];
+/**
+ * Activity tab: one page (20) of the player's REAL trades (components/profile/RealActivity), newest first, each row
+ * linking to its rocket. The "Record" tiles and the PnL chart render only when given (the profile passes none until real
+ * stats exist: they were sample numbers). No rows ⇒ the empty state with one action.
+ */
+export default function ActivityTab({ record = [], pnl = [], rows, total, page, pages, onPage, isPrivate, owner, sample = false, loading = false }: {
+  record?: { label: string; value: string; tone?: "pos" | "neg" }[];
+  /** Cumulative PnL series: the profile's one PnL chart (PnL is public, lee 2026-10-24). Omitted ⇒ no chart. */
+  pnl?: { t: number; v: number }[];
+  /** the real trades are still loading: render nothing (no empty-state flash) */ loading?: boolean;
   rows: ActivityItem[]; total: number; page: number; pages: number; onPage: (p: number) => void; isPrivate: boolean; owner: string;
   /** dev-only sample stats (`next dev` + ?sample=1) */ sample?: boolean;
 }) {
   const [range, setRange] = useState<RangeKey>("30d");
   const pts = useMemo(() => sliceRange(pnl, range, "level"), [pnl, range]);
+  if (loading) return <div className="pf-tab-body" data-testid="tab-activity" aria-busy="true" />;
   if (!total) {
     return isPrivate ? (
       <div className="pf-empty" data-testid="tab-activity">
@@ -31,14 +37,16 @@ export default function ActivityTab({ record, pnl, rows, total, page, pages, onP
   }
   return (
     <div className="pf-tab-body" data-testid="tab-activity">
-      <div className="pf-chips-row"><span className="pf-eyebrow">{C["activity.record"]}</span>{sample && <span className="tag mock">{C["profile.sample"]}</span>}</div>
-      <div className="pf-record">
-        {record.map((r) => <div key={r.label} className={`pf-stat ${r.tone ?? ""}`}><span>{r.label}</span><strong>{r.value}</strong></div>)}
-      </div>
-      <section className="chart-card pf-pnl-chart" data-testid="activity-pnl-chart">
+      {record.length > 0 && <>
+        <div className="pf-chips-row"><span className="pf-eyebrow">{C["activity.record"]}</span>{sample && <span className="tag mock">{C["profile.sample"]}</span>}</div>
+        <div className="pf-record">
+          {record.map((r) => <div key={r.label} className={`pf-stat ${r.tone ?? ""}`}><span>{r.label}</span><strong>{r.value}</strong></div>)}
+        </div>
+      </>}
+      {pnl.length > 1 && <section className="chart-card pf-pnl-chart" data-testid="activity-pnl-chart">
         <div className="chart-head"><h3>{C["activity.pnl.title"]}</h3><RangeToggle value={range} onChange={setRange} /></div>
         <CrosshairChart points={pts} hourly={range === "1d"} formatY={(v) => (v < 0 ? "-" : "") + fmtUsd(Math.abs(v))} color="#c9b6f2" />
-      </section>
+      </section>}
       {!total ? <p className="muted">{isPrivate ? C["activity.empty.own"] : C["activity.empty.other"](owner)}</p> : (
         <ul className="activity-feed">
           {rows.map((a) => (
@@ -51,7 +59,7 @@ export default function ActivityTab({ record, pnl, rows, total, page, pages, onP
                     <OrbMeter tier={(a.bomb.tier + 1) as BombTier} size={14} label="" />
                   </span>
                 ) : null}
-                {a.text}
+                {a.coin ? <Link href={`/coin/${a.coin}`}>{a.text}</Link> : a.text}
               </span>
               {a.usd != null ? <span className="act-usd">{fmtUsd(a.usd)}</span> : null}
               <span className="act-time muted">{new Date(a.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>

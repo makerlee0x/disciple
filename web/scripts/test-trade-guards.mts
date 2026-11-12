@@ -32,12 +32,14 @@ test("> 10 % impact ⇒ warning (buy coins / sell $); ≤ 10 % or unknown ⇒ no
   assert.equal(impactAlert("sell", 1000, { usdOut: 1 }), null);
   assert.equal(impactAlert("buy", null, {}), null);
 });
-test("order: wallet limit first, then impact; confirmed kinds are skipped", () => {
-  const i = { cap: easy, impactBps: 3000, expected: { coinsOut: 1e7 } };
+test("only the wallet limit holds a trade; price impact never does (lee; GAME review #201)", () => {
+  const i = { cap: easy };
   assert.equal(nextAlert("buy", 80, i)!.kind, "walletcap");
-  assert.equal(nextAlert("buy", 80, i, ["walletcap"])!.kind, "impact");
-  assert.equal(nextAlert("buy", 80, i, ["walletcap", "impact"]), null);
-  assert.equal(nextAlert("sell", 80, { ...i, expected: { usdOut: 3 } })!.kind, "impact", "sells: no wallet cap");
+  assert.equal(nextAlert("buy", 80, i, ["walletcap"]), null);
+  assert.equal(nextAlert("sell", 80, i), null, "sells: no wallet cap, and impact never holds");
+  const w = impactAlert("buy", 3000, { coinsOut: 1e7 })!;
+  assert.equal(w.kind, "impact");
+  assert.ok(!("actionLabel" in w), "no Go ahead tap for impact");
 });
 test("noRefuseMinOut: never refuses on price (≥ 1 wei, 99.99 %)", () => {
   assert.equal(noRefuseMinOut(BigInt(1_000_000), null), BigInt(100));

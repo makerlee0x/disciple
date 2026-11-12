@@ -2,11 +2,27 @@ import "server-only";
 /**
  * Small durable KV for site data (usernames, trade index). Same Upstash REST pattern as lib/server/chat/store.ts
  * (UPSTASH_REDIS_REST_URL/TOKEN or KV_REST_API_URL/TOKEN, plain fetch, no SDK). Without env it falls back to an
- * in-memory store persisted best-effort to KV_LOCAL_FILE (default /tmp/disciple-kv.json): dev only, not shared
- * across Vercel lambdas.
+ * in-memory store persisted best-effort to KV_LOCAL_FILE (default /tmp/disciple-kv.json): local/dev only.
+ * Serverless/production (Vercel production|preview, or NODE_ENV=production without KV_ALLOW_LOCAL=1) FAILS
+ * CLOSED — no silent per-instance local fallback for nonces, leases, rate limits, invites, or usernames.
  */
 import { promises as fs } from "fs";
 
+export type TrustMergeFields = { verifiedAt: number; fastOps: number; strikes: number; lastStrikeAt: number; strikeUntil: number };
+const TRUST_FIELDS = ["verifiedAt", "fastOps", "strikes", "lastStrikeAt", "strikeUntil"] as const;
+/** Same rule as TRUST_MERGE_LUA (kept identical; tests run both): null when the stored value can't be parsed. */
+export function mergeTrust(stored: string | null, p: TrustMergeFields): TrustMergeFields | null {
+  let o: Partial<Record<string, unknown>> = {};
+  if (stored !== null) {
+    try { o = JSON.parse(stored) as Record<string, unknown>; } catch { return null; }
+    if (!o || typeof o !== "object" || TRUST_FIELDS.some(f => typeof o[f] !== "number" || !Number.isFinite(o[f] as number))) return null;
+  }
+  const old = (f: (typeof TRUST_FIELDS)[number]) => (stored === null ? 0 : (o[f] as number));
+  return {
+    verifiedAt: p.verifiedAt, fastOps: p.fastOps, strikes: Math.max(p.strikes, old("strikes")),
+    lastStrikeAt: Math.max(p.lastStrikeAt, old("lastStrikeAt")), strikeUntil: Math.max(p.strikeUntil, old("strikeUntil")),
+  };
+}
 export interface Kv {
   kind: "upstash" | "local";
   get(k: string): Promise<string | null>;
@@ -18,8 +34,8 @@ export interface Kv {
   /** ZADD NX for each member (dedupe by member). */
   zadd(k: string, items: { score: number; member: string }[]): Promise<void>;
   /** ascending by score */
-  /** lowest scores first; rev → highest (newest) first */
-  zrange(k: string, limit?: number, rev?: boolean): Promise<string[]>;
+  /** lowest scores first; rev → highest (newest) first; offset skips that many first (paging, e.g. /api/trades?offset=) */
+  zrange(k: string, limit?: number, rev?: boolean, offset?: number): Promise<string[]>;
   /** ZREM: remove members (exact JSON strings); returns how many were removed. */
   zrem(k: string, ...members: string[]): Promise<number>;
   sadd(k: string, ...m: string[]): Promise<void>;
@@ -28,12 +44,36 @@ export interface Kv {
   getDel(k: string): Promise<string | null>;
   /** Atomic INCR; the key expires ttlSec after the FIRST increment (fixed-window counter). Returns the new count. */
   incrEx(k: string, ttlSec: number): Promise<number>;
+  /** Atomic INCRBY by `by`; the key expires ttlSec after the FIRST increment (fixed window). Returns the new total. */
+  incrByEx(k: string, by: number, ttlSec: number): Promise<number>;
   /** Seconds until k expires (-1 no ttl, -2 missing). */
   ttl(k: string): Promise<number>;
   /** Atomic compare-and-expire: reset k's TTL to ttlSec only while k == v (lease renewal). true if refreshed. */
   expireIfEq(k: string, v: string, ttlSec: number): Promise<boolean>;
   /** Atomic compare-and-delete: DEL k only while k == v (lease release by its owner token). true if deleted. */
   delIfEq(k: string, v: string): Promise<boolean>;
+  /**
+   * Shared relayer nonce allocator (lib/server/relayerNonce.SharedNonceCursor), ONE atomic step: pop the lowest released
+   * nonce >= floor from the sorted set `holes` (stale ones below floor are dropped), else n = max(counter, floor) and the
+   * counter becomes n + 1. Both keys expire ttlSec after the last write.
+   */
+  nonceAlloc(counter: string, holes: string, floor: number, ttlSec: number): Promise<number>;
+  /** AUDIT r264 step 6: ATOMIC merge-save of a relay trust ledger entry (one round trip). strikes, lastStrikeAt and
+   *  strikeUntil never decrease through a save (max with the stored entry); verifiedAt/fastOps are the caller's
+   *  (telemetry only, unchanged semantics). TTL refreshed. Returns 1 when written, 0 when the stored entry is unparseable (left as is, so
+   *  the relay's admission gate keeps failing closed on it). */
+  trustMerge(k: string, p: TrustMergeFields, ttlSec: number): Promise<number>;
+  /** Vercel Security finding 1: ATOMIC paid-send budget (one round trip). INCR the sender counter; over senderCap ⇒ 1 and
+   *  the global counter is NOT touched. Else INCR global; over globalCap ⇒ undo that global INCR and return 2. 0 = charged.
+   *  Both counters are fixed windows of ttlSec from their first INCR (as incrEx). */
+  relayBudget(senderKey: string, globalKey: string, senderCap: number, globalCap: number, ttlSec: number): Promise<0 | 1 | 2>;
+  /** Refund one unit (DECR only while > 0; keeps the window's TTL). */
+  decrIfPositive(k: string): Promise<number>;
+  /**
+   * Nonce n was handed out but never accepted. Atomic: counter == n + 1 ⇒ roll back (1); counter > n + 1 ⇒ n joins
+   * `holes` for the next alloc (2); else nothing (0: already below the counter's view).
+   */
+  nonceRelease(counter: string, holes: string, n: number, ttlSec: number): Promise<number>;
 }
 
 /* ---------------- local ---------------- */
@@ -56,30 +96,75 @@ function local(): Kv {
     async setNX(k, v, ttl = 0) { await ready; if (live(k)) return false; st.kv[k] = { v, exp: ttl ? Date.now() + ttl * 1000 : 0 }; save(); return true; },
     async del(...ks) { await ready; for (const k of ks) delete st.kv[k]; save(); },
     async zadd(k, items) { await ready; const z = (st.z[k] ??= {}); for (const i of items) if (!(i.member in z)) z[i.member] = i.score; save(); },
-    async zrange(k, limit = 1000, rev = false) { await ready; return Object.entries(st.z[k] ?? {}).sort((a, b) => (rev ? b[1] - a[1] : a[1] - b[1])).slice(0, limit).map(([m]) => m); },
+    async zrange(k, limit = 1000, rev = false, offset = 0) { await ready; const o = Math.max(0, Math.floor(offset) || 0); return Object.entries(st.z[k] ?? {}).sort((a, b) => (rev ? b[1] - a[1] : a[1] - b[1])).slice(o, o + limit).map(([m]) => m); },
     async zrem(k, ...m) { await ready; const z = st.z[k]; if (!z) return 0; let n = 0; for (const x of m) if (x in z) { delete z[x]; n++; } save(); return n; },
     async sadd(k, ...m) { await ready; const s = new Set(st.s[k] ?? []); m.forEach((x) => s.add(x)); st.s[k] = Array.from(s); save(); },
     async smembers(k) { await ready; return st.s[k] ?? []; },
     async getDel(k) { await ready; const e = live(k); if (!e) return null; delete st.kv[k]; save(); return e.v; },
     async incrEx(k, ttl) { await ready; const e = live(k); const n = (e ? Number(e.v) || 0 : 0) + 1; st.kv[k] = { v: String(n), exp: e?.exp || Date.now() + ttl * 1000 }; save(); return n; },
+    async incrByEx(k, by, ttl) { await ready; const e = live(k); const n = (e ? Number(e.v) || 0 : 0) + Math.floor(by); st.kv[k] = { v: String(n), exp: e?.exp || Date.now() + ttl * 1000 }; save(); return n; },
     async ttl(k) { await ready; const e = live(k); return !e ? -2 : e.exp ? Math.ceil((e.exp - Date.now()) / 1000) : -1; },
     async expireIfEq(k, v, ttl) { await ready; const e = live(k); if (!e || e.v !== v) return false; e.exp = Date.now() + ttl * 1000; save(); return true; },
     async delIfEq(k, v) { await ready; const e = live(k); if (!e || e.v !== v) return false; delete st.kv[k]; save(); return true; },
+    async nonceAlloc(c, h, floor, ttl) {
+      await ready;
+      const z = (st.z[h] ??= {}), exp = Date.now() + ttl * 1000;
+      for (const [m, n] of Object.entries(z).sort((a, b) => a[1] - b[1])) { delete z[m]; if (n >= floor) { save(); return n; } }
+      const n = Math.max(Number(live(c)?.v ?? 0) || 0, floor);
+      st.kv[c] = { v: String(n + 1), exp }; save(); return n;
+    },
+    async relayBudget(sk, gk, sc, gc, ttl) {
+      await ready;
+      const bump = (k: string) => { const e = live(k); const n = (e ? Number(e.v) || 0 : 0) + 1; st.kv[k] = { v: String(n), exp: e?.exp || Date.now() + ttl * 1000 }; return n; };
+      if (bump(sk) > sc) { save(); return 1; }
+      if (bump(gk) > gc) { st.kv[gk].v = String(Number(st.kv[gk].v) - 1); save(); return 2; }
+      save(); return 0;
+    },
+    async decrIfPositive(k) { await ready; const e = live(k); const n = e ? Number(e.v) || 0 : 0; if (!e || n <= 0) return 0; e.v = String(n - 1); save(); return n - 1; },
+    async trustMerge(k, p, ttl) {
+      await ready;
+      const m = mergeTrust(live(k)?.v ?? null, p); if (!m) return 0;
+      st.kv[k] = { v: JSON.stringify(m), exp: Date.now() + ttl * 1000 }; save(); return 1;
+    },
+    async nonceRelease(c, h, n, ttl) {
+      await ready;
+      const e = live(c), cur = e ? Number(e.v) : -1;
+      if (cur === n + 1) { st.kv[c] = { v: String(n), exp: Date.now() + ttl * 1000 }; save(); return 1; }
+      if (cur > n + 1) { (st.z[h] ??= {})[String(n)] = n; save(); return 2; }
+      return 0;
+    },
   };
 }
 
 /* ---------------- Upstash REST ---------------- */
 const EXPIRE_IF_EQ_LUA = "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('EXPIRE',KEYS[1],ARGV[2]) else return 0 end";
 const DEL_IF_EQ_LUA = "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end";
+const INCRBY_EX_LUA = "local c=redis.call('INCRBY',KEYS[1],ARGV[1]) if c==tonumber(ARGV[1]) then redis.call('EXPIRE',KEYS[1],ARGV[2]) end return c";
 const INCR_EX_LUA = "local c=redis.call('INCR',KEYS[1]) if c==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end return c";
+const NONCE_ALLOC_LUA = "local f=tonumber(ARGV[1]) while true do local h=redis.call('ZPOPMIN',KEYS[2]) if #h==0 then break end local n=tonumber(h[2]) if n>=f then return n end end local c=tonumber(redis.call('GET',KEYS[1]) or '0') if c<f then c=f end redis.call('SET',KEYS[1],c+1,'EX',ARGV[2]) return c";
+const NONCE_RELEASE_LUA = "local n=tonumber(ARGV[1]) local c=tonumber(redis.call('GET',KEYS[1]) or '-1') if c==n+1 then redis.call('SET',KEYS[1],n,'EX',ARGV[2]) return 1 end if c>n+1 then redis.call('ZADD',KEYS[2],n,ARGV[1]) redis.call('EXPIRE',KEYS[2],ARGV[2]) return 2 end return 0";
+/** Vercel Security finding 1 (see Kv.relayBudget). */
+export const RELAY_BUDGET_LUA = "local s=redis.call('INCR',KEYS[1]) if s==1 then redis.call('EXPIRE',KEYS[1],ARGV[3]) end if s>tonumber(ARGV[1]) then return 1 end local g=redis.call('INCR',KEYS[2]) if g==1 then redis.call('EXPIRE',KEYS[2],ARGV[3]) end if g>tonumber(ARGV[2]) then redis.call('DECR',KEYS[2]) return 2 end return 0";
+export const DECR_IF_POSITIVE_LUA = "local v=tonumber(redis.call('GET',KEYS[1]) or '0') if v and v>0 then return redis.call('DECR',KEYS[1]) end return 0";
+/** AUDIT r264 step 6. Lua 5.1 (no cjson dependency): reads the 5 numeric fields of the stored JSON; any missing/unparseable
+ * ⇒ return 0 and leave the entry (fail closed). Writes max() of strikes/lastStrikeAt/strikeUntil, the caller's
+ * verifiedAt/fastOps, SET EX ttl — atomically, so no reader ever sees the key missing or a strike lowered. Mirrors mergeTrust. */
+export const TRUST_MERGE_LUA = "local c=redis.call('GET',KEYS[1]) local f={'verifiedAt','fastOps','strikes','lastStrikeAt','strikeUntil'} local o={} for i=1,5 do local n=tonumber(ARGV[i]) if not n then return redis.error_reply('bad arg') end o[i]=n end if c then local old={} for i=1,5 do local v=tonumber(string.match(c,'\"'..f[i]..'\":(%-?[%d%.eE%+%-]+)')) if not v then return 0 end old[i]=v end for i=3,5 do if old[i]>o[i] then o[i]=old[i] end end end redis.call('SET',KEYS[1],string.format('{\"verifiedAt\":%.0f,\"fastOps\":%.0f,\"strikes\":%.0f,\"lastStrikeAt\":%.0f,\"strikeUntil\":%.0f}',o[1],o[2],o[3],o[4],o[5]),'EX',ARGV[6]) return 1";
+/** Per Upstash REST command (a healthy one is ~5–30 ms from Vercel). */
+export const KV_TIMEOUT_MS = 1500;
 function upstash(url: string, token: string): Kv {
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
-  const cmd = async <T = unknown>(...args: (string | number)[]): Promise<T> => {
-    const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(args), cache: "no-store" });
+  // Bounded (job 9): a hung KV must not hold the relay's pre-send steps (limits / invite / fast-lease / beforeSend all
+  // fail safe on an error). EXCEPT the relayer nonce counter ops (cmdNonce): an aborted EVAL may still have run ⇒ a lost
+  // nonce = a hole that stalls the relayer EOA; those stay unbounded as before.
+  const cmdT = async <T = unknown>(timeoutMs: number | undefined, args: (string | number)[]): Promise<T> => {
+    const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(args), cache: "no-store", ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}) });
     const j = (await r.json()) as { result?: T; error?: string };
     if (!r.ok || j.error) throw new Error(`upstash: ${j.error || r.status}`);
     return j.result as T;
   };
+  const cmd = <T = unknown>(...args: (string | number)[]) => cmdT<T>(KV_TIMEOUT_MS, args);
+  const cmdNonce = <T = unknown>(...args: (string | number)[]) => cmdT<T>(undefined, args);
   return {
     kind: "upstash",
     get: (k) => cmd<string | null>("GET", k),
@@ -94,23 +179,47 @@ function upstash(url: string, token: string): Kv {
         await cmd(...args);
       }
     },
-    async zrange(k, limit = 1000, rev = false) { return (await cmd<string[]>(...(rev ? ["ZRANGE", k, 0, limit - 1, "REV"] : ["ZRANGE", k, 0, limit - 1]))) ?? []; },
+    async zrange(k, limit = 1000, rev = false, offset = 0) { const o = Math.max(0, Math.floor(offset) || 0); return (await cmd<string[]>(...(rev ? ["ZRANGE", k, o, o + limit - 1, "REV"] : ["ZRANGE", k, o, o + limit - 1]))) ?? []; },
     async zrem(k, ...m) { return m.length ? Number(await cmd<number>("ZREM", k, ...m)) : 0; },
     async sadd(k, ...m) { if (m.length) await cmd("SADD", k, ...m); },
     async smembers(k) { return (await cmd<string[]>("SMEMBERS", k)) ?? []; },
     getDel: (k) => cmd<string | null>("GETDEL", k),
     async incrEx(k, ttl) { return Number(await cmd<number>("EVAL", INCR_EX_LUA, 1, k, ttl)); },
+    async incrByEx(k, by, ttl) { return Number(await cmd<number>("EVAL", INCRBY_EX_LUA, 1, k, Math.floor(by), ttl)); },
     async ttl(k) { return Number(await cmd<number>("TTL", k)); },
     async expireIfEq(k, v, ttl) { return Number(await cmd<number>("EVAL", EXPIRE_IF_EQ_LUA, 1, k, v, ttl)) === 1; },
     async delIfEq(k, v) { return Number(await cmd<number>("EVAL", DEL_IF_EQ_LUA, 1, k, v)) === 1; },
+    async nonceAlloc(c, h, floor, ttl) { return Number(await cmdNonce<number>("EVAL", NONCE_ALLOC_LUA, 2, c, h, floor, ttl)); },
+    async relayBudget(sk, gk, sc, gc, ttl) { const r = Number(await cmd<number>("EVAL", RELAY_BUDGET_LUA, 2, sk, gk, sc, gc, ttl)); if (r !== 0 && r !== 1 && r !== 2) throw new Error("upstash: bad budget reply"); return r; },
+    async decrIfPositive(k) { return Number(await cmd<number>("EVAL", DECR_IF_POSITIVE_LUA, 1, k)); },
+    async trustMerge(k, p, ttl) { return Number(await cmd<number>("EVAL", TRUST_MERGE_LUA, 1, k, p.verifiedAt, p.fastOps, p.strikes, p.lastStrikeAt, p.strikeUntil, ttl)); },
+    async nonceRelease(c, h, n, ttl) { return Number(await cmdNonce<number>("EVAL", NONCE_RELEASE_LUA, 2, c, h, n, ttl)); },
   };
 }
 
+/** True when this process must use shared Upstash/Vercel KV (no local /tmp fallback). */
+export function requiresSharedKv(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.KV_ALLOW_LOCAL === "1") return false; // explicit escape for local `next start` e2e
+  if (env.NEXT_PHASE === "phase-production-build") return false; // `next build` may compile routes without runtime secrets
+  if (env.VERCEL_ENV === "production" || env.VERCEL_ENV === "preview") return true;
+  if (env.VERCEL) return true; // on Vercel without VERCEL_ENV: fail closed
+  return env.NODE_ENV === "production";
+}
+
 let inst: Kv | null = null;
+/** Test hook: clear the cached instance (and optionally force the next kv() choice). */
+export function resetKvForTests() { inst = null; }
+
 export function kv(): Kv {
   if (inst) return inst;
   const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
   const tok = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-  inst = url && tok ? upstash(url, tok) : local();
+  if (url && tok) { inst = upstash(url, tok); return inst; }
+  if (requiresSharedKv()) {
+    throw new Error(
+      "[kv] shared Upstash/KV credentials required in serverless/production (set UPSTASH_REDIS_REST_URL/TOKEN or KV_REST_API_URL/TOKEN). Local /tmp fallback is disabled so nonces, leases, rate limits, invites and usernames stay consistent across instances.",
+    );
+  }
+  inst = local();
   return inst;
 }

@@ -7,21 +7,29 @@ import { IS_STATIC_PREVIEW } from "./base-path";
 import { refLink } from "./referral";
 import { claimMessage } from "./usernameClaim";
 import { PROFILE_COPY } from "./copy/profile";
+import { DEFAULT_USERNAME_MAX_LENGTH } from "./defaultUsername";
 
 export const USERNAME_MIN = 3;
-export const USERNAME_MAX = 20;
-export const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+/** Max length for a NEW claimed username. Equals the longest default call sign (lib/defaultUsername
+ *  DEFAULT_USERNAME_MAX_LENGTH, currently 22) so every generated name fits. Enforced on the client and
+ *  the claim route (same pattern as handle limits on X, Instagram and GitHub). Existing already-claimed
+ *  names longer than this are still returned and resolved — the cap applies only to new claims/changes. */
+export const USERNAME_MAX = DEFAULT_USERNAME_MAX_LENGTH;
+export const USERNAME_RE = new RegExp(`^[a-z0-9_]{${USERNAME_MIN},${USERNAME_MAX}}$`);
+/** Stored-username shape for read/resolve paths: charset only, no max, so a name claimed under an older cap still works. */
+export const USERNAME_STORED_RE = /^[a-z0-9_]+$/;
+export const usernameRuleText = () => `${USERNAME_MIN}–${USERNAME_MAX} chars: a–z, 0–9, underscore.`;
 /** Plain reason shown inline and returned by /api/profile/username for a name under USERNAME_MIN. */
 export const USERNAME_SHORT: string = PROFILE_COPY["edit.username.error.short"];
 export const RESERVED = new Set(["admin", "disciple", "support", "root", "api", "you", "settings", "profile"]);
-const K = { username: "disciple.username", x: "disciple.xHandle", ref: "disciple.ref" };
+const K = { username: "disciple.username", usernameFor: "disciple.username.for", x: "disciple.xHandle", ref: "disciple.ref" };
 
 export function normalizeUsername(u: string) { return u.trim().toLowerCase().replace(/^@/, ""); }
 export function validateUsername(u: string): string | null {
   const n = normalizeUsername(u);
   // Length first, so a short name gets the specific message. Existing names are never re-validated (only a change is).
   if (n.length < USERNAME_MIN) return USERNAME_SHORT;
-  if (!USERNAME_RE.test(n)) return "3–20 chars: a–z, 0–9, underscore.";
+  if (!USERNAME_RE.test(n)) return usernameRuleText();
   if (RESERVED.has(n)) return "That name is reserved.";
   return null;
 }
@@ -29,7 +37,17 @@ export function validateUsername(u: string): string | null {
 const get = (k: string) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } };
 const set = (k: string, v: string) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch { /* ignore */ } };
 
+/** This browser's cached claimed username. Bound to the account that claimed it (lee, Oct 30: X → Gmail sign-in kept
+ * showing the previous account's @name): a cache saved for a different account, or by an older build (no owner), is
+ * only trusted until the next account switch (clearLocalIdentity). */
 export const localUsername = () => get(K.username);
+/** Sign-in changed to another account: drop the previous account's cached username / X handle (server stays the truth). */
+export function clearLocalIdentity(nextAccount?: string | null) {
+  const owner = get(K.usernameFor), n = String(nextAccount ?? "").toLowerCase();
+  if (n && owner === n) return;
+  set(K.username, ""); set(K.usernameFor, ""); set(K.x, "");
+  notifyProfileChanged();
+}
 export const localXHandle = () => get(K.x);
 export const setLocalXHandle = (h: string) => set(K.x, h.replace(/^@/, "").trim());
 export const rememberReferrer = (u: string) => { if (!get(K.ref)) set(K.ref, normalizeUsername(u)); };
@@ -65,6 +83,14 @@ export async function fetchUsernameStatus(address: string | null | undefined): P
   } catch { return { username: null, nextAllowedAt: null }; }
 }
 
+/** Signed in as `account`: drop another account's cached name, then cache this account's claimed name from the server. */
+export async function syncLocalIdentity(account: string | null | undefined): Promise<void> {
+  clearLocalIdentity(account);
+  if (!account) return;
+  const { username } = await fetchUsernameStatus(account);
+  if (username && get(K.username) !== username) { set(K.username, username); set(K.usernameFor, account.toLowerCase()); notifyProfileChanged(); }
+}
+
 export async function claimUsername(u: string, address: string | null): Promise<{ ok: boolean; reason?: string; nextAllowedAt?: number }> {
   const n = normalizeUsername(u);
   const bad = validateUsername(n);
@@ -86,7 +112,7 @@ export async function claimUsername(u: string, address: string | null): Promise<
       if (!r.ok || !j.ok) return { ok: false, reason: j.reason || "Username taken.", nextAllowedAt: typeof j.nextAllowedAt === "number" ? j.nextAllowedAt : undefined };
     } catch { return { ok: false, reason: "Could not reach username service." }; }
   }
-  set(K.username, n);
+  set(K.username, n); set(K.usernameFor, address.toLowerCase());
   notifyProfileChanged();
   return { ok: true };
 }

@@ -49,6 +49,8 @@ export interface Deployment {
   hook: Address;
   /** DiscipleRouter (post-grad buyExactIn/sellExactIn/quoteExactIn). Zero ⇒ graduated trading disabled. */
   router: Address;
+  /** Gasless router (DiscipleRouter with buyWithPermit2/sellWithPermit2, flow/gasless-permit2). Zero ⇒ gasless off. */
+  gaslessRouter: Address;
   feeRouter: Address;
   referralRegistry: Address;
   lockedLP: Address;
@@ -90,6 +92,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     launchpad: addr(process.env.NEXT_PUBLIC_RH_LAUNCHPAD),
     hook: addr(process.env.NEXT_PUBLIC_RH_HOOK),
     router: addr(process.env.NEXT_PUBLIC_RH_ROUTER),
+    gaslessRouter: addr(process.env.NEXT_PUBLIC_RH_GASLESS_ROUTER),
     feeRouter: addr(process.env.NEXT_PUBLIC_RH_FEE_ROUTER),
     referralRegistry: addr(process.env.NEXT_PUBLIC_RH_REFERRAL_REGISTRY),
     lockedLP: addr(process.env.NEXT_PUBLIC_RH_LOCKED_LP),
@@ -105,17 +108,18 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     defaultQuote: STRATEGY_TOKEN.address,
     usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_RH_USDG_DECIMALS, 6),
-    paymaster: Z, // mainnet: not deployed (testnet only for now)
+    paymaster: addr(process.env.NEXT_PUBLIC_RH_PAYMASTER), // PREPAY_VERSION=5 + stake checked server-side; no legacy default
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RH_FROM_BLOCK || "0"),
   },
-  // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json on main (v5 redeploy, PR #150 / deploy commit 4310665b,
-  // startBlock 142064001). Prod sets every NEXT_PUBLIC_RHT_* in Vercel env; these literals are the fallbacks (and are inlined
-  // into the bundle), so they must match the live stack too.
+  // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json (v5 + wave #241 LoginGate, paymaster v5
+  // 0x5C3f…1136 / session policy 1.4.3 0xD2cF…E4d2 (v4 + 1.4.2 retired Nov 9); startBlock 142064001). Prod sets every NEXT_PUBLIC_RHT_* in Vercel env; these literals are the
+  // fallbacks (and are inlined into the bundle), so they must match the live stack too.
   // After a redeploy, edit these defaults or set NEXT_PUBLIC_RHT_* env. Do NOT send new launches to the old v2 stack (SEC-01).
   [robinhoodTestnet.id]: {
     launchpad: addr(process.env.NEXT_PUBLIC_RHT_LAUNCHPAD, "0x8a92e51940909424b3aacefff99b4834588c0988"),
     hook: addr(process.env.NEXT_PUBLIC_RHT_HOOK, "0x2ac264a620edd05ba78381c51539650c40e2e8c4"),
     router: addr(process.env.NEXT_PUBLIC_RHT_ROUTER, "0x688160633b22012717661545df6299d3d3174ad2"),
+    gaslessRouter: addr(process.env.NEXT_PUBLIC_RHT_GASLESS_ROUTER, "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e"), // gasless DiscipleRouter (Permit2 witness), Launchpad-trusted Nov 9
     feeRouter: addr(process.env.NEXT_PUBLIC_RHT_FEE_ROUTER, "0xa5aaddd75f1bc3b8fb3ecc8845eab0cfa5faed8c"),
     referralRegistry: addr(process.env.NEXT_PUBLIC_RHT_REFERRAL_REGISTRY, "0xfe529086b25c4e0724b88780e5ba9b4ace785aaf"),
     lockedLP: addr(process.env.NEXT_PUBLIC_RHT_LOCKED_LP, "0x61efff9f0dbdd818317858074bcf80e4dcc39646"),
@@ -125,19 +129,20 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     antiSnipe: addr(process.env.NEXT_PUBLIC_RHT_ANTI_SNIPE), // v5 has no AntiSnipe contract (snipe escrow lives in the curve) ⇒ zero
     trampWallManager: addr(process.env.NEXT_PUBLIC_RHT_TRAMP_WALL_MANAGER, "0xe9e98e149b43ff20dc7db665eefc387a8926e618"),
     marketLens: addr(process.env.NEXT_PUBLIC_RHT_MARKET_LENS, "0xd89da17e3aee9a7b1cba359666f0feb5382421fa"),
-    loginGate: addr(process.env.NEXT_PUBLIC_RHT_LOGIN_GATE, "0xaeb8abd314d2392f0f26b664ae78d889c4a079e2"),
+    loginGate: addr(process.env.NEXT_PUBLIC_RHT_LOGIN_GATE, "0xebDD6Ad15a6B838eE15Dc7d5871F09EFB284317D"), // wave #241 global LoginGate
     usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_RHT_USDG_DEPOSIT_NOTIFIER, "0xf7b3c09cae8c914530424c5882a24a4160013e9c"),
     ...RH_V4,
     defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xF5eB226F7f0890c36A06Cbd0Ff843292b7b1a88C"), // test STRATEGY (18 dec, v5 tokens.STRATEGY)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D"), // test USDG (6 dec, v5 tokens.USDG)
     usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_RHT_USDG_DECIMALS, 6),
-    paymaster: addr(process.env.NEXT_PUBLIC_RHT_PAYMASTER, "0xB3DB53C1E94F146194756FF456479ea0577E7d7E"), // DisciplePaymaster (v5 addons; charges the user's USDG)
+    paymaster: addr(process.env.NEXT_PUBLIC_RHT_PAYMASTER), // v5 gas-credit paymaster via env (0x5C3f…1136); no v4 fallback
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "142064001"),
   },
   [anvil.id]: {
     launchpad: addr(process.env.NEXT_PUBLIC_ANVIL_LAUNCHPAD),
     hook: addr(process.env.NEXT_PUBLIC_ANVIL_HOOK),
     router: addr(process.env.NEXT_PUBLIC_ANVIL_ROUTER),
+    gaslessRouter: addr(process.env.NEXT_PUBLIC_ANVIL_GASLESS_ROUTER),
     feeRouter: addr(process.env.NEXT_PUBLIC_ANVIL_FEE_ROUTER),
     referralRegistry: addr(process.env.NEXT_PUBLIC_ANVIL_REFERRAL_REGISTRY),
     lockedLP: addr(process.env.NEXT_PUBLIC_ANVIL_LOCKED_LP),
@@ -154,7 +159,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     defaultQuote: addr(process.env.NEXT_PUBLIC_ANVIL_DEFAULT_QUOTE),
     usdg: addr(process.env.NEXT_PUBLIC_ANVIL_USDG),
     usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_ANVIL_USDG_DECIMALS, 18),
-    paymaster: addr(process.env.NEXT_PUBLIC_ANVIL_PAYMASTER),
+    paymaster: addr(process.env.NEXT_PUBLIC_ANVIL_PAYMASTER), // PREPAY_VERSION=5 + stake checked server-side; no legacy default
     fromBlock: BigInt(0),
   },
 };
@@ -177,6 +182,24 @@ export const isDeployed = () => deployment().launchpad !== Z;
 export const hasRouter = () => deployment().router !== Z;
 export const hasLens = () => deployment().marketLens !== Z;
 export const ZERO = Z;
+/**
+ * Routers whose UsdgTrade / UsdgRefund the indexer and the live HUD watch. Same
+ * address-filtered path historically used for `d.router`, plus `d.gaslessRouter`
+ * (Permit2 gasless fills emit there, not on the regular USDG router). Zero / unset
+ * addresses are omitted; order is regular router then gasless.
+ */
+export function usdgRouters(d: { router: string; gaslessRouter?: string } = deployment()): Address[] {
+  const out: Address[] = [];
+  const seen = new Set<string>();
+  for (const a of [d.router, d.gaslessRouter]) {
+    if (!a) continue;
+    const k = a.toLowerCase();
+    if (k === ZERO.toLowerCase() || seen.has(k)) continue;
+    seen.add(k);
+    out.push(a as Address);
+  }
+  return out;
+}
 /** Testnet gas faucet (ETH). */
 export const GAS_FAUCET = "https://faucet.testnet.chain.robinhood.com/";
 /** Test quote tokens with a public mint(address,uint256) — testnet only. */

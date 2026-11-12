@@ -4,23 +4,19 @@ pragma solidity ^0.8.26;
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-/// @title PVE login gate: EIP-712 "verified Privy login" attestations from a protocol attester key
-/// @notice The backend (after a verified Privy login) signs LoginAttestation{wallet, expiry, coin}. Anyone (the wallet,
-///         a relayer, or the wallet's own smart-account batch right before its first PVE buy) submits it with
-///         `attest`, which records `verifiedUntil`. PVE curves read `verifiedUntil(wallet, coin)` once and cache it,
-///         so repeat buys cost a single warm SLOAD. coin == address(0) = valid for every PVE coin.
-/// @dev Rotating the attester does NOT revoke attestations already recorded (they expire on their own); use short
-///      expiries (proposal: 24h). The owner can `revoke` a wallet (applies to curves on their next cache refresh).
+/// @title Global PVE login gate: EIP-712 attestations from the protocol attester
+/// @notice A login covers every PVE coin. Users submit the signature themselves (including in an owner-signed batch).
+/// @dev Audit F-05: every signature binds the wallet's global epoch; revoke increments it and clears the expiry.
+///      Curves observe revocation on their next bounded cache refresh. Attester rotation does not clear stored logins.
 contract LoginGate is EIP712 {
-    bytes32 public constant LOGIN_TYPEHASH = keccak256("LoginAttestation(address wallet,uint64 expiry,address coin)");
+    bytes32 public constant LOGIN_TYPEHASH = keccak256("LoginAttestation(address wallet,uint64 expiry,uint64 epoch)");
 
     address public owner;
     address public attester;
+    mapping(address => uint64) internal _until;
+    /// @notice Global per-wallet revocation epoch, included in every signed login.
+    mapping(address => uint64) public epoch;
 
-    /// @dev wallet => coin (address(0) = all coins) => unix expiry
-    mapping(address => mapping(address => uint64)) internal _until;
-
-    /// @notice Max attestation lifetime (audit L2): a careless/compromised attester can't mint long sessions.
     uint256 public constant MAX_TTL = 24 hours;
     error TtlTooLong();
     error OnlyOwner();
@@ -30,7 +26,7 @@ contract LoginGate is EIP712 {
 
     event AttesterSet(address indexed attester);
     event OwnerTransferred(address indexed owner);
-    event LoginAttested(address indexed wallet, address indexed coin, uint64 expiry);
+    event LoginAttested(address indexed wallet, uint64 expiry);
     event LoginRevoked(address indexed wallet);
 
     constructor(address owner_, address attester_) EIP712("DisciplePVE", "1") {
@@ -53,37 +49,39 @@ contract LoginGate is EIP712 {
         emit OwnerTransferred(o);
     }
 
-    /// @notice Owner kill-switch for a wallet (global + is checked by curves on their next cache refresh only).
-    function revoke(address wallet, address coin) external {
+    /// @notice Revoke this wallet globally; old signatures cannot restore its login.
+    /// @dev Checked increment fails closed rather than allowing epoch wraparound.
+    function revoke(address wallet) external {
         if (msg.sender != owner) revert OnlyOwner();
-        delete _until[wallet][coin];
+        ++epoch[wallet];
+        delete _until[wallet];
         emit LoginRevoked(wallet);
     }
 
-    function digest(address wallet, uint64 expiry, address coin) public view returns (bytes32) {
-        return _hashTypedDataV4(keccak256(abi.encode(LOGIN_TYPEHASH, wallet, expiry, coin)));
+    function digest(address wallet, uint64 expiry) public view returns (bytes32) {
+        return digest(wallet, expiry, epoch[wallet]);
+    }
+
+    /// @notice Explicit epoch for off-chain digest parity; attest always verifies the CURRENT epoch.
+    function digest(address wallet, uint64 expiry, uint64 epoch_) public view returns (bytes32) {
+        return _hashTypedDataV4(keccak256(abi.encode(LOGIN_TYPEHASH, wallet, expiry, epoch_)));
     }
 
     function domainSeparator() external view returns (bytes32) {
         return _domainSeparatorV4();
     }
 
-    /// @notice Record an attester-signed login. Permissionless submit; the signature binds the wallet.
-    function attest(address wallet, uint64 expiry, address coin, bytes calldata sig) external {
+    /// @notice Permissionless, user-paid submission of a global login at the current wallet epoch.
+    function attest(address wallet, uint64 expiry, bytes calldata sig) external {
         if (expiry <= block.timestamp) revert Expired();
-        if (expiry > block.timestamp + MAX_TTL) revert TtlTooLong(); // audit L2
+        if (expiry > block.timestamp + MAX_TTL) revert TtlTooLong();
         address a = attester;
-        if (a == address(0) || ECDSA.recover(digest(wallet, expiry, coin), sig) != a) revert BadSignature();
-        if (expiry > _until[wallet][coin]) _until[wallet][coin] = expiry;
-        emit LoginAttested(wallet, coin, expiry);
+        if (a == address(0) || ECDSA.recover(digest(wallet, expiry), sig) != a) revert BadSignature();
+        if (expiry > _until[wallet]) _until[wallet] = expiry;
+        emit LoginAttested(wallet, expiry);
     }
 
-    /// @notice Max of the global and the coin-specific attestation expiry for `wallet`.
-    function verifiedUntil(address wallet, address coin) external view returns (uint64 t) {
-        t = _until[wallet][address(0)];
-        if (coin != address(0)) {
-            uint64 c = _until[wallet][coin];
-            if (c > t) t = c;
-        }
+    function verifiedUntil(address wallet) external view returns (uint64) {
+        return _until[wallet];
     }
 }

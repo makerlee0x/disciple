@@ -144,7 +144,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
           <div style={{ ...mono, width: "min(980px, 94vw)", color: "#e8ecff", padding: 20 }}>
             <div style={{ fontSize: 13, color: "#8fd8ff", letterSpacing: 3 }}>DISCIPLE</div>
             <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: 2, margin: "2px 0 4px" }}>SIMULATOR</div>
-            <div style={{ opacity: 0.8, marginBottom: 18, fontSize: 13 }}>Free paper trading on a fully local market. A fresh coin launches on the real Launchpad curve ($3,333 → graduates at $33,333) and bots trade it. Same ammo, BOOST/DUMP, bombs and orbs as the real game. After graduation, tramps (buy-support below the price) and walls (sell-resistance above it) are real limit liquidity in the sim pool: they absorb trades, fill, and a keeper closes them. Bots place their own and react to yours. No wallet cap, no gas, no wallet, no transactions.</div>
+            <div style={{ opacity: 0.8, marginBottom: 18, fontSize: 13 }}>Free practice trading on a fully local market. A fresh rocket launches on the real starting price path, from $3,333 until it reaches orbit at $33,333, and bots trade it. Reaching orbit means that path is finished and the rocket moves to the open market on Uniswap. Same buy sizes, BOOST (buy), DUMP (sell), bombs and orbs as the real game. After it reaches orbit, tramps (buys waiting below the price) and walls (sells waiting above it) are real orders in the practice pool: they take trades, fill, and a keeper closes them. Bots place their own and react to yours. No wallet cap, no gas, no wallet, no transactions.</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
               {DIFFS.map((id) => { const x = cfg.difficulties[id]; const on = id === difficulty; return (
                 <button key={id} data-testid={`sim-diff-${id}`} onClick={() => setDifficulty(id)} style={{ ...panel, textAlign: "left", padding: 16, cursor: "pointer", borderColor: on ? x.color : "rgba(255,255,255,.15)", boxShadow: on ? `0 0 0 2px ${x.color}55, 0 10px 40px rgba(0,0,0,.45)` : panel.boxShadow }}>
@@ -185,7 +185,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
               <div>
                 <div style={{ opacity: 0.7, marginBottom: 4 }}>TOP TRADERS (PnL)</div>
                 {summary.top.slice(0, 8).map((r, i) => <Row key={r.name} i={i} name={r.name} arch={r.arch} total={r.total} me={r.arch === "you"} />)}
-                <div style={{ opacity: 0.6, marginTop: 8 }}>final {fmt(summary.finalMcap)} · {summary.bots} bots · {summary.trades} trades{summary.graduatedAtS != null ? ` · graduated at ${clock(summary.graduatedAtS)}` : ""}</div>
+                <div style={{ opacity: 0.6, marginTop: 8 }}>final {fmt(summary.finalMcap)} · {summary.bots} bots · {summary.trades} trades{summary.graduatedAtS != null ? ` · reached orbit at ${clock(summary.graduatedAtS)}` : ""}</div>
                 <div data-testid="sim-summary-tw" style={{ opacity: 0.6, marginTop: 4 }}>tramps/walls: you placed {summary.tw.placed.you} ({summary.tw.filled.you} filled) · bots placed {summary.tw.placed.bots} ({summary.tw.filled.bots} filled) · keeper pulls {summary.tw.keeperPulls}</div>
                 {summary.reactPnl !== 0 && <div style={{ opacity: 0.6, marginTop: 2 }}>bots made {usd(summary.reactPnl)} reacting to you</div>}
               </div>

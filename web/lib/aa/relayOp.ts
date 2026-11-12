@@ -71,6 +71,8 @@ export const BUNDLE_REVERTED = /relayer tx 0x[0-9a-fA-F]{64} reverted/i;
  * live on AAError.extra and in the console (logRelayOp), never in a toast / inline error.
  */
 export const PENDING_MSG = "Still confirming. Check back in a moment.";
+/** Session spend limit reached, counting trades still in flight (#144; approved by lee 2026-10-24). */
+export const SPEND_LIMIT_MSG = "Spend limit reached";
 export const REJECTED_MSG = "That didn't go through. Try again.";
 /** A connection problem before anything was sent (viem HttpRequestError / TimeoutError / fetch failure on a read). */
 export const NETWORK_MSG = "Connection hiccup, nothing was sent. Try again.";

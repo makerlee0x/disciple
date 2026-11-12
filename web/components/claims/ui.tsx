@@ -53,8 +53,8 @@ export function TxLink({ hash, children }: { hash: Hex | string; children?: Reac
 
 export type ConfirmLine = { label: string; raw: bigint; asset: Asset };
 /** Claim confirm state: what lands where, then Confirm. */
-export function ConfirmSheet({ title, lines, to, note, busy, error, done, onConfirm, onClose, confirmLabel = "Confirm claim" }: {
-  title: string; lines: ConfirmLine[]; to: string | null; note?: string; busy?: boolean; error?: string | null; done?: Hex | null;
+export function ConfirmSheet({ title, lines, to, note, feeNote, busy, error, done, onConfirm, onClose, confirmLabel = "Confirm claim" }: {
+  title: string; lines: ConfirmLine[]; to: string | null; note?: string; feeNote?: string | null; busy?: boolean; error?: string | null; done?: Hex | null;
   onConfirm: () => void; onClose: () => void; confirmLabel?: string;
 }) {
   return (
@@ -69,6 +69,7 @@ export function ConfirmSheet({ title, lines, to, note, busy, error, done, onConf
         </ul>
         {to && <div className="cl-to"><span className="muted">To</span><code>{shortA(to)}</code></div>}
         {note && !done && <p className="cl-note">{note}</p>}
+        {feeNote && !done && <p className="cl-note" data-testid="claim-fee-note">{feeNote}</p>}
         {error && <p className="cl-err" role="alert">{error}</p>}
         {done && <p className="cl-ok">Sent · <TxLink hash={done} /></p>}
         <div className="cl-actions">

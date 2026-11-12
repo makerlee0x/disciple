@@ -27,6 +27,25 @@ forge build
 forge test
 ```
 
+### Fast builds with Solar (dev loop only)
+
+A cold solc via-IR build takes many minutes. [Solar](https://github.com/paradigmxyz/solar) builds the whole project in
+seconds, so you can use it while iterating:
+
+```bash
+cargo install solar-compiler --locked   # needs rustc 1.98+; or set SOLAR_BIN=/path/to/solar
+FOUNDRY_PROFILE=solar forge test --isolate
+```
+
+Rules:
+
+- Solar codegen is experimental. **Never deploy, broadcast, snapshot gas or check contract sizes with the `solar`
+  profile.** Its bytecode, gas and sizes differ from solc's.
+- Before merging and before any deploy, run the default (solc) profile: `forge build --sizes` and
+  `forge test --isolate`. A green Solar run does not prove the solc build is correct.
+- The profile writes to `out-solar/` and `cache-solar/`, so it never mixes with solc artifacts.
+- Gas benches that use `vm.lastCallGas()` need a forge that matches forge-std v1.17.
+
 Deploy stub (anvil / RH RPC):
 
 ```bash
@@ -48,7 +67,7 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 | `src/DiscipleRouter.sol` | Post-grad exact-in buy/sell + quoteExactIn via v4 unlock | §3 |
 | `src/interfaces/ITradeEvents.sol` | Unified `Trade` event (curve + hook) | — |
 | `docs/curve.md` | Curve formula, worked table, rounding | §2 |
-| `src/Launchpad.sol` | Permissionless factory; metadata; optional creator buy ≤0.77% | §5; LOCKED #23–#27 |
+| `src/Launchpad.sol` | Permissionless factory; metadata; optional creator buy ≤7.77% (TRENCH) | §5; LOCKED #23–#27 |
 | `src/FeeRouter.sol` | Fee split routing; creator/referrer accrue; treasury push; LP auto-add | §3; LOCKED #11–#15, #20–#22 |
 | `src/AntiSnipe.sol` | LEGACY fee schedule (FeeMath.snipeBps: 99%→0% over 7s); unused by v2 curves | §2; LOCKED #9 |
 | `src/ReferralRegistry.sol` | First-touch; $10 USDG gate hooks | §4; LOCKED #18–#19 |
@@ -79,7 +98,7 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 | Fee shares | 33 / 33 / 33 / 1 |
 | `CREATOR_TAX_MAX_BPS` | 700 (≤7%, immutable) |
 | Sniper tax | 9900 → 0 BPS over 7s, per-second table 9900/2500/300/100/30/10/3, 0 from 7s (buys, First BOOST exempt); curve `snipeEscrow` → LockedLP compound bucket at graduation, or RewardsVault after `snipeEscrowTimeout` |
-| `CREATOR_BUY_MAX_BPS` | 77 (0.77%) |
+| `CREATOR_BUY_MAX_BPS_DEFAULT` / `_CEILING` | 777 / 777 (7.77%) |
 | `REFERRAL_USDG_GATE` | 10e18 USDG |
 
 ## Bonding curve (Pump-style CPAMM)

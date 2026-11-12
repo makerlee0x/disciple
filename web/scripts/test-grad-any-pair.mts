@@ -32,7 +32,7 @@ test("kinds: PRICE_IMPACT / MIN_OUT (also wrapped in PreExecHookReverted) / OTHE
   assert.equal(pi.message, "Price impact too high for the router cap. Try a smaller shot.");
   const mo = friendlyError(new AAError("Reverted", "x", { revertData: hooked }));
   assert.equal(mo.code, "MinOutTooLow"); assert.equal(mo.kind, "MIN_OUT");
-  assert.equal(mo.message, "Price moved past your one-tap max slippage. Try again or raise slippage.");
+  assert.equal(mo.message, "Price moved, trade not sent. Try again.");
   const est = friendlyError(new AAError("Estimate", "simulation failed: x", { revertData: hooked }));
   assert.equal(est.kind, "MIN_OUT");
   assert.equal(friendlyError(new AAError("Reverted", "x", { revertData: encodeErrorResult({ abi: E, errorName: "Slippage" }) })).kind, "MIN_OUT");

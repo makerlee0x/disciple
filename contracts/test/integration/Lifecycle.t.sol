@@ -28,7 +28,7 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertEq(curve.currentSnipeFeeBps(), Constants.ANTI_SNIPE_START_BPS);
     }
 
-    function test_launch_with_creatorBuy_under_0_77pct() public {
+    function test_launch_with_creatorBuy_under_7_77pct() public {
         // Small buy to stay under wallet cap + creator buy max
         uint256 buyQuote = 20 * U;
         (BondingCurve curve, Token tok) = _launch(0, buyQuote);
@@ -38,9 +38,9 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertLe(curve.balanceOnCurve(creator), FeeMath.walletCap());
     }
 
-    /// mode rules v2: an oversized First BOOST partially fills to the max (TRENCH: creatorBuyMaxBps, 0.77%) and
+    /// mode rules v2: an oversized First BOOST partially fills to the max (TRENCH: creatorBuyMaxBps, 7.77%) and
     ///   refunds the unused input to the payer instead of reverting.
-    function test_launch_creatorBuy_partialFills_above_0_77pct() public {
+    function test_launch_creatorBuy_partialFills_above_7_77pct() public {
         uint256 huge = 5_000 * U;
         uint256 b0 = quote.balanceOf(creator);
         (BondingCurve curve, Token tok) = _launch(0, huge);

@@ -18,12 +18,12 @@
     "Launchpad": "0x8a92e51940909424b3aacefff99b4834588c0988",
     "QuotePricer": "0xbb757b8270a3fff15db2ff7694508a4ea4488078",
     "QuoteProbe": "0xf7a91d5d32cccb053dfbd8a56ddacc6fab7a96c9",
-    "CurveDeployer": "0x1055f3d6d79cce590e5ceae71a47476e937f9a21",
+    "CurveDeployer": "0x322329fa858268609170403921f28a794bef1584",
     "RewardsVault": "0xf1a2784de1ded172f4b10b242f124f60a6ab38c0",
     "AnonLauncher": "0x73a2a6e049aa21a5c440f3bc358de37fe3f7c509",
     "MarketLens": "0xd89da17e3aee9a7b1cba359666f0feb5382421fa",
     "UsdgDepositNotifier": "0xf7b3c09cae8c914530424c5882a24a4160013e9c",
-    "LoginGate": "0xaeb8abd314d2392f0f26b664ae78d889c4a079e2"
+    "LoginGate": "0xebdd6ad15a6b838ee15dc7d5871f09efb284317d"
   },
   "uniswapV4": {
     "PoolManager": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
@@ -131,7 +131,7 @@
         "address": "0xe564900809746b1f2baca9d2b8df3224a463f359",
         "version": "v1",
         "status": "legacy",
-        "note": "v1 AnonLauncher from the v4 Deploy.s.sol run. LEGACY: still the Launchpad creator of anon coins launched before v2 — keep it for their stealthOwnerOf / pending / quote-side claims. Its post-grad launch-token share (FeeRouter.creatorTokenAccrued[token][v1]) is unclaimable: v1 has no claimCreatorTokenFees path and no way to call Launchpad.transferCreator, so these coins cannot migrate to v2."
+        "note": "v1 AnonLauncher from the v4 Deploy.s.sol run. LEGACY: still the Launchpad creator of anon coins launched before v2 \u2014 keep it for their stealthOwnerOf / pending / quote-side claims. Its post-grad launch-token share (FeeRouter.creatorTokenAccrued[token][v1]) is unclaimable: v1 has no claimCreatorTokenFees path and no way to call Launchpad.transferCreator, so these coins cannot migrate to v2."
       }
     },
     "smoke": {
@@ -182,7 +182,7 @@
       "status": "superseded",
       "supersededBy": "v4",
       "supersededAt": "2026-10-17",
-      "note": "previous stack — superseded by combined redeploy",
+      "note": "previous stack \u2014 superseded by combined redeploy",
       "startBlock": 136187963,
       "contracts": {
         "ReferralRegistry": "0x633be77ee01aafb35297950d88168ca052e1f9ac",
@@ -238,7 +238,7 @@
         }
       },
       "previous": {
-        "note": "v2 stack (PR #10) — superseded by combined redeploy",
+        "note": "v2 stack (PR #10) \u2014 superseded by combined redeploy",
         "contracts": {
           "Launchpad": "0x5A3C7743D365F770710FE15F4bBf1cEc7bc41006",
           "DiscipleRouter": "0xF70F50F8C89A62E47b9ffa8F47d368B6215168B9",
@@ -583,14 +583,16 @@
   "deployTxFirst": "0x0337049dca463c390693be5f00c649537a1a99b613b4ab8cb96e1d68f6138dc0",
   "endBlock": 142064543,
   "ethSpentDeploy": "0.00040622876",
-  "note": "v5 (release/redeploy-v5 @ 4310665b): steep curve #1, 16-band USDG-only floor, FeeRouter referralSink (0), 7s sniper-tax escrow, 6-dec mock USDG, AnonLauncher v2, no legacy AntiSnipe; DisciplePaymaster + DiscipleSessionPolicy 1.4.1 as addons. Fresh broadcast 2026-10-24 16:01-16:05 CDT from deployer nonce 366. Nonces 362-365 (an interrupted earlier broadcast: mock USDG 0xa0c47030D06457099ED908901F691905f956a068, ReferralRegistry, LockedLP, FeeRouter) are ABANDONED orphans and are not part of this stack.",
+  "note": "v5 (release/redeploy-v5 @ 4310665b): steep curve #1, 16-band USDG-only floor, FeeRouter referralSink (0), 7s sniper-tax escrow, 6-dec mock USDG, AnonLauncher v2, no legacy AntiSnipe; DisciplePaymaster + DiscipleSessionPolicy 1.4.1 as addons. Fresh broadcast 2026-10-24 16:01-16:05 CDT from deployer nonce 366. Nonces 362-365 (an interrupted earlier broadcast: mock USDG 0xa0c47030D06457099ED908901F691905f956a068, ReferralRegistry, LockedLP, FeeRouter) are ABANDONED orphans and are not part of this stack. Additive wave #241/#246 steps (a)/(b) completed Nov 6 2026; see latestAdditiveDeploy. Core stack was not redeployed. New global LoginGate/CurveDeployer, prepaid paymaster v4 and policy 1.4.2 are live on testnet; site cutover/smoke are separate.",
   "loginGate": {
-    "address": "0xaeb8abd314d2392f0f26b664ae78d889c4a079e2",
+    "address": "0xebdd6ad15a6b838ee15dc7d5871f09efb284317d",
     "attester": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1",
-    "note": "PVE_ATTESTER set at deploy (LoginGate constructor); smoke checks attester() != 0."
+    "owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+    "deployTx": "0x6f113465c1521385619505b13e12292247169d784d5184c08676b3781ea820e9",
+    "note": "Global epoch-bound LoginAttestation(wallet,expiry,epoch); existing approved attester retained in constructor. Legacy coin rule is curve.loginGate() != this address; site-only archival, no new gated buys."
   },
   "wiring": {
-    "note": "All wiring is done inside Deploy.s.sol (broadcast/Deploy.s.sol/46630/run-latest.json, gitignored).",
+    "note": "Original core wiring from Deploy.s.sol; additive Nov 6 wave replaced only Launchpad.curveDeployer/loginGate via the two owner setters recorded in latestAdditiveDeploy.",
     "readback": {
       "FeeRouter.rewardsVault": "0xf1a2784de1ded172f4b10b242f124f60a6ab38c0",
       "RewardsVault.feeRouter": "0xa5aaddd75f1bc3b8fb3ecc8845eab0cfa5faed8c",
@@ -603,8 +605,8 @@
       "hook.isTrustedRouter(UniversalRouter)": false,
       "hook.pricer": "0xbb757b8270a3fff15db2ff7694508a4ea4488078",
       "launchpad.defaultQuote": "0xf5eb226f7f0890c36a06cbd0ff843292b7b1a88c",
-      "launchpad.loginGate": "0xaeb8abd314d2392f0f26b664ae78d889c4a079e2",
-      "launchpad.curveDeployer": "0x1055f3d6d79cce590e5ceae71a47476e937f9a21",
+      "launchpad.loginGate": "0xebdd6ad15a6b838ee15dc7d5871f09efb284317d",
+      "launchpad.curveDeployer": "0x322329fa858268609170403921f28a794bef1584",
       "launchpad.antiSnipe": "0x0000000000000000000000000000000000000000"
     }
   },
@@ -619,41 +621,112 @@
       "address": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
       "symbol": "STRATEGY",
       "decimals": 18,
-      "note": "test STRATEGY (DevToken, 1e9 supply, mintable — testnet only) (reused from v1 deploy; existing STRATEGY/mUSDG ref pool)",
+      "note": "test STRATEGY (DevToken, 1e9 supply, mintable \u2014 testnet only) (reused from v1 deploy; existing STRATEGY/mUSDG ref pool)",
       "defaultQuote": true
     }
   },
   "gasUsed": "40622876",
   "addons": {
     "DiscipleSessionPolicy": {
-      "address": "0x92b38057bb7bfa7d640e836e9b3aa8c7365720ac",
-      "version": "1.4.1",
+      "address": "0x61bb745881c2db24f6f61e35c7ff1de1dbfac6b4",
+      "version": "1.4.2",
       "constructor": {
-        "referralRegistry": "0xfe529086b25c4e0724b88780e5ba9b4ace785aaf",
-        "paymaster": "0xB3DB53C1E94F146194756FF456479ea0577E7d7E"
+        "referralRegistry": "0xFE529086B25C4e0724b88780E5ba9B4AcE785AAf",
+        "paymaster": "0x1e7b06adb1d0a92b83af2dc3d70cb4694e606822"
       },
-      "deployTx": "0x599d255fd20fe51b64f3eb5d61d7b7589f089cfb0e42fbc78a93b0a28c57edda",
-      "block": 142064768,
-      "moduleId": "disciple.session-policy.1.4.1"
+      "deployTx": "0xeb1c3cab9fb0c0e33533519d8003c4c31835a3fd1a1f0d73897a318a5d882340",
+      "block": 149505632,
+      "moduleId": "disciple.session-policy.1.4.2",
+      "status": "retired",
+      "retiredAtCT": "2026-11-09",
+      "supersededBy": "DiscipleSessionPolicyV143",
+      "retiredNote": "Config/manifest retirement only (lee Nov 9): site requires policy 1.4.3 bound to paymaster v5. Immutable contract left on-chain; no on-chain action."
     },
     "DisciplePaymaster": {
-      "address": "0xB3DB53C1E94F146194756FF456479ea0577E7d7E",
+      "address": "0x1e7b06adb1d0a92b83af2dc3d70cb4694e606822",
+      "version": 4,
       "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
-      "deployTx": "0x6fcaf9074fd8cc3fa5941b0a0c1532ae4295b34a1c6baf0bad3dcfb6f68986f7",
-      "depositTx": "0xae19c689aff9acd6aa110980ef4b9dd28a048611cf2c64c167f7f048838afc3c",
-      "deposit": "100000000000000000 (0.1 ETH)",
-      "stake": "none (self-relay; runbook item 12a)",
+      "usdg": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+      "usdgDecimals": 6,
+      "deployTx": "0x7156ccff0700adfb5b51ac122806450b5b24c09927e250e289908ca3f512ffbe",
+      "setLaunchGasLimitTx": "0xab3458cc95209eeb2dc0b4b3b0a36dd18e169839b0d88abe72c503a7bd980e33",
+      "depositTx": "0xf7c028c7e67d6ddf1f90f5a91eefc25a912f00c15c191d25473918b2a4448fef",
+      "stakeTx": "0xaf50ed8ce06c173438fc6e663da1ec1fd684b765f6b8a5c1e786821660caeaf1",
+      "depositWei": "13043478260869566",
+      "stakeWei": "2173913043478261",
+      "staked": true,
+      "unstakeDelaySec": 86400,
+      "withdrawTime": 0,
       "owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
       "treasury": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
       "signer": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1",
       "minRate": "1000000000",
       "maxRate": "10000000000",
-      "maxCostCap": "2000000 (2 USDG)",
-      "postOpGas": 30000,
+      "maxGasPerOp": 7068712,
+      "maxLaunchGasPerOp": 21840770,
+      "postOpGas": 79684,
+      "markupBps": 0,
+      "globalExposureBudget": null,
+      "keeper": false,
       "blocks": [
-        142064653,
-        142064662
-      ]
+        149505555,
+        149505569,
+        149505588,
+        149505611
+      ],
+      "note": "USDG validation-time prepay/refund. Separate signed launch domain, dynamic gas-unit caps. EntryPoint accepted approved $5 stake/$30 float at lee ETH/USD 2300; Alchemy provider acceptance remains untested. Server rate configuration was not changed by steps (a)/(b).",
+      "status": "retired",
+      "retiredAtCT": "2026-11-09",
+      "supersededBy": "DisciplePaymasterV5",
+      "retiredNote": "Config/manifest retirement only (lee Nov 9): site readiness requires PREPAY_VERSION 5. No on-chain action: stake/deposit/unstake/withdraw untouched; any unlock or withdrawal needs a separate OK."
+    },
+    "DisciplePaymasterV5": {
+      "address": "0x5c3f7400ed41acd7409d213cab2909e3b1e31136",
+      "version": 5,
+      "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+      "usdg": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+      "usdgDecimals": 6,
+      "deployTx": "0xefce3e4189e2dd6a8cb1c36d99f99f1f79468ec810724568b55bb665117b0c02",
+      "setLaunchGasLimitTx": "0x94fbb1716d0c09889d156a3a597cdf6496f2bfdf31daffd460dfb2e6bed23368",
+      "depositTx": "0xa8cbe85796ab667c384bd6ceb1921e4309c03424ffc32e685d63cdeab11e8588",
+      "stakeTx": "0x935a04ddbe719942b444bade2a9e8f47285b05964d62ccb1a361501a6ed18dcd",
+      "depositWei": "13043478260869566",
+      "stakeWei": "2173913043478261",
+      "staked": true,
+      "unstakeDelaySec": 86400,
+      "withdrawTime": 0,
+      "owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+      "treasury": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+      "signer": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1",
+      "minRate": "1000000000",
+      "maxRate": "10000000000",
+      "maxGasPerOp": 7068712,
+      "maxLaunchGasPerOp": 21840770,
+      "postOpGas": 150000,
+      "maxBootstrapGasPerOp": 3200000,
+      "bootstrapCodehashEnforced": false,
+      "markupBps": 0,
+      "keeper": false,
+      "blocks": [
+        149600480,
+        149600494,
+        149600507,
+        149600521
+      ],
+      "deployedAtCT": "2026-11-06 09:58:40-09:58:53 CT",
+      "note": "#251 hidden USDG gas credit (validation reserves only; tokens move in execution/postOp). Stake $5 / float $30 at lee ETH/USD 2300. ERC-7562: 6/6 ADMITTED locally (staked). Legacy v4 not retired (needs separate OK). Broadcast record: deployments/broadcast-v5/. Live paymaster as of 2026-11-09 (v4 retired in config/manifest by lee; no on-chain action). postOpGas 150000 read on-chain 2026-11-09 (draft #252 recorded 79684)."
+    },
+    "DiscipleSessionPolicyV143": {
+      "address": "0xd2cf85dd7cdc3c3e53ea0472bf6bf006de45e4d2",
+      "version": "1.4.3",
+      "constructor": {
+        "referralRegistry": "0xFE529086B25C4e0724b88780E5ba9B4AcE785AAf",
+        "paymaster": "0x5c3f7400ed41acd7409d213cab2909e3b1e31136"
+      },
+      "deployTx": "0xed8e08eebfdf2af95dff21425a5ad07bc423ae75e4297338ddb7609fb2523d4d",
+      "block": 149600608,
+      "moduleId": "disciple.session-policy.1.4.3",
+      "status": "live"
     }
   },
   "deployTxLast": "0x5adfa55419200eef2b9f89566ca64599a4a7fe5ea4c8a15fee1d5ee86103f4ff",
@@ -680,5 +753,170 @@
     "graduationGas": 2365644,
     "floorUsdg": "1201.27337",
     "graduationMcapUsd": "33332.999999"
+  },
+  "addonHistory": [
+    {
+      "supersededForNewSessionsAtCT": "2026-11-06 05:45:58 CT",
+      "status": "legacy contracts untouched; retirement/withdrawal/unlock require separate approval",
+      "addons": {
+        "DiscipleSessionPolicy": {
+          "address": "0x92b38057bb7bfa7d640e836e9b3aa8c7365720ac",
+          "version": "1.4.1",
+          "constructor": {
+            "referralRegistry": "0xfe529086b25c4e0724b88780e5ba9b4ace785aaf",
+            "paymaster": "0xB3DB53C1E94F146194756FF456479ea0577E7d7E"
+          },
+          "deployTx": "0x599d255fd20fe51b64f3eb5d61d7b7589f089cfb0e42fbc78a93b0a28c57edda",
+          "block": 142064768,
+          "moduleId": "disciple.session-policy.1.4.1"
+        },
+        "DisciplePaymaster": {
+          "address": "0xB3DB53C1E94F146194756FF456479ea0577E7d7E",
+          "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+          "deployTx": "0x6fcaf9074fd8cc3fa5941b0a0c1532ae4295b34a1c6baf0bad3dcfb6f68986f7",
+          "depositTx": "0xae19c689aff9acd6aa110980ef4b9dd28a048611cf2c64c167f7f048838afc3c",
+          "deposit": "100000000000000000 (0.1 ETH)",
+          "stake": "none (self-relay; runbook item 12a)",
+          "owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+          "treasury": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+          "signer": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1",
+          "minRate": "1000000000",
+          "maxRate": "10000000000",
+          "maxCostCap": "2000000 (2 USDG)",
+          "postOpGas": 30000,
+          "blocks": [
+            142064653,
+            142064662
+          ]
+        }
+      }
+    }
+  ],
+  "latestAdditiveDeploy": {
+    "id": "wave-241-246-ab",
+    "network": "RH testnet only",
+    "chainId": 46630,
+    "sourceCommit": "a85702c955327a89c365fd4f1d11a682b14f0556",
+    "branch": "audit/f01-paymaster-prepay",
+    "compiler": "solc 0.8.26",
+    "startedAtCT": "2026-11-06 05:36:49 CT",
+    "firstConfirmationCT": "2026-11-06 05:43:53 CT",
+    "lastConfirmationCT": "2026-11-06 05:45:58 CT",
+    "verifiedAtCT": "2026-11-06 05:46:12 CT",
+    "previousContracts": {
+      "CurveDeployer": "0x1055f3d6d79cce590e5ceae71a47476e937f9a21",
+      "LoginGate": "0xaeb8abd314d2392f0f26b664ae78d889c4a079e2"
+    },
+    "newContracts": {
+      "LoginGate": "0xebdd6ad15a6b838ee15dc7d5871f09efb284317d",
+      "CurveDeployer": "0x322329fa858268609170403921f28a794bef1584",
+      "DisciplePaymaster": "0x1e7b06adb1d0a92b83af2dc3d70cb4694e606822",
+      "DiscipleSessionPolicy": "0x61bb745881c2db24f6f61e35c7ff1de1dbfac6b4"
+    },
+    "transactions": [
+      {
+        "nonce": 429,
+        "contract": "LoginGate",
+        "function": "constructor",
+        "hash": "0x6f113465c1521385619505b13e12292247169d784d5184c08676b3781ea820e9",
+        "block": 149505519,
+        "confirmedAtCT": "2026-11-06 05:43:53 CT",
+        "valueWei": "0"
+      },
+      {
+        "nonce": 430,
+        "contract": "CurveDeployer",
+        "function": "constructor",
+        "hash": "0xe9bdf7399c7ed748110fe82e7f1b81ab948b34d7d9ad7c49c8d694f931d67c3d",
+        "block": 149505536,
+        "confirmedAtCT": "2026-11-06 05:43:55 CT",
+        "valueWei": "0"
+      },
+      {
+        "nonce": 431,
+        "contract": "DisciplePaymaster",
+        "function": "constructor",
+        "hash": "0x7156ccff0700adfb5b51ac122806450b5b24c09927e250e289908ca3f512ffbe",
+        "block": 149505555,
+        "confirmedAtCT": "2026-11-06 05:43:58 CT",
+        "valueWei": "0"
+      },
+      {
+        "nonce": 432,
+        "contract": "DisciplePaymaster",
+        "function": "setLaunchGasLimit(uint256)",
+        "hash": "0xab3458cc95209eeb2dc0b4b3b0a36dd18e169839b0d88abe72c503a7bd980e33",
+        "block": 149505569,
+        "confirmedAtCT": "2026-11-06 05:44:00 CT",
+        "valueWei": "0"
+      },
+      {
+        "nonce": 433,
+        "contract": "DisciplePaymaster",
+        "function": "deposit()",
+        "hash": "0xf7c028c7e67d6ddf1f90f5a91eefc25a912f00c15c191d25473918b2a4448fef",
+        "block": 149505588,
+        "confirmedAtCT": "2026-11-06 05:44:02 CT",
+        "valueWei": "13043478260869566"
+      },
+      {
+        "nonce": 434,
+        "contract": "DisciplePaymaster",
+        "function": "addStake(uint32)",
+        "hash": "0xaf50ed8ce06c173438fc6e663da1ec1fd684b765f6b8a5c1e786821660caeaf1",
+        "block": 149505611,
+        "confirmedAtCT": "2026-11-06 05:44:05 CT",
+        "valueWei": "2173913043478261"
+      },
+      {
+        "nonce": 435,
+        "contract": "DiscipleSessionPolicy",
+        "function": "constructor",
+        "hash": "0xeb1c3cab9fb0c0e33533519d8003c4c31835a3fd1a1f0d73897a318a5d882340",
+        "block": 149505632,
+        "confirmedAtCT": "2026-11-06 05:44:07 CT",
+        "valueWei": "0"
+      },
+      {
+        "nonce": 436,
+        "contract": "Launchpad",
+        "function": "setCurveDeployer(address)",
+        "hash": "0x064c3f6bc7af6c1abccb922082c9a820ba2c8c15884a05a0af537862fc4c60aa",
+        "block": 149506512,
+        "confirmedAtCT": "2026-11-06 05:45:55 CT",
+        "valueWei": "0"
+      },
+      {
+        "nonce": 437,
+        "contract": "Launchpad",
+        "function": "setLoginGate(address)",
+        "hash": "0x3111c47a4fc577f52b25050247d9034be812e39e82ac93d42a3dbc078e307299",
+        "block": 149506529,
+        "confirmedAtCT": "2026-11-06 05:45:58 CT",
+        "valueWei": "0"
+      }
+    ],
+    "curveDeployerChunks": [
+      "0xf88fe4626ded89ff94dc36217a20f24668d03a1b",
+      "0x79dbe11100324b177391bf51ee0edb88766f8a67"
+    ],
+    "curveCreationCodeMatchesProductionArtifact": true,
+    "deployerBalanceWeiAfterAB": "155696874085652173",
+    "legacyRule": "Archive/mark legacy if curve.loginGate() != new LoginGate; no new gated site buys. Existing legacy contracts remain untouched.",
+    "scope": "Steps (a)/(b) only. No PR merge, site/Vercel/env switch, smoke/userOp/coin launch, legacy retirement/pause/unlock/withdrawal, or mainnet action."
+  },
+  "community": {
+    "wallet": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
+    "kind": "EOA (temporary testnet community rewards wallet)",
+    "note": "Set 2026-11-10 by lee-approved FeeRouter owner txs (setRewardsVault, setReferralSink, setKolCreatorShareBps(0)); the old RewardsVault contract (contracts.RewardsVault) stays deployed but is no longer FeeRouter.rewardsVault(). smoke.mjs / the indexer read this block; a redeploy (postprocess.mjs) moves it under previous.",
+    "kolCreatorShareBps": 0,
+    "readback": {
+      "block": 151518807,
+      "FeeRouter.rewardsVault": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
+      "FeeRouter.referralSink": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
+      "FeeRouter.kolCreatorShareBps": 0,
+      "RewardsVault.owner": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
+      "RewardsVault.pendingOwner": "0x0000000000000000000000000000000000000000"
+    }
   }
 }

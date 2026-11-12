@@ -11,7 +11,7 @@ There are **43 achievements** in **8 categories**:
 
 | Category | For |
 |---|---|
-| Flight | Altitude and graduations you've flown |
+| Flight | How high you have flown, and rockets you saw reach orbit |
 | Crew | Joining and backing crews |
 | Bombs | Bombs you've dropped, from First Grenade to Atom Bomber |
 | Conviction | Holding through drawdowns |
@@ -22,7 +22,7 @@ There are **43 achievements** in **8 categories**:
 
 Each one is locked, in progress or unlocked. Every achievement has a rarity: **Common, Rare, Epic, Legendary or Mythic**. Rarer achievements carry rarer frames. Rocket parts use the same scale.
 
-More altitude achievements are planned.
+More achievements about altitude are planned. Altitude is how high a rocket's value has climbed, shown as named tiers.
 
 ## rHALO points
 

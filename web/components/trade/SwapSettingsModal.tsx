@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { MODES } from "@/lib/config";
 import { AUTO_SLIPPAGE_PCT, DEFAULT_SELLS, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 import Icon from "@/components/icons/Icon";
+import OneTapSlippagePicker from "./OneTapSlippagePicker";
 
 /** Swap settings modal (gear in the ammo panel's SELL row): 4 editable buy presets (default $10/$25/$50/$100), the fixed
  *  sell sizes (10/25/50/100% — read-only), slippage, tag. */
@@ -67,6 +68,8 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
               style={{ all: "unset", cursor: "pointer", padding: "4px 12px", borderRadius: 7, fontWeight: 600, background: slipMode === m ? "#2b2f6e" : "transparent", color: slipMode === m ? "#aab4ff" : "rgba(255,255,255,.55)" }}>{m === "auto" ? "Auto" : "Custom"}</button>)}
           </div>
         </div>
+        {/* SITE (lee, Oct 30): one-tap session's on-chain max price move; saved on tap (a live session is renewed) */}
+        {scope.startsWith("live") && <div style={{ marginTop: 12 }}><OneTapSlippagePicker /></div>}
         <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, cursor: "pointer" }}>
           <input type="checkbox" data-testid="swap-tag" checked={tag} onChange={(e) => setTag(e.target.checked)} /> Position tag next to the rocket <span style={{ opacity: 0.55 }}>(P)</span></label>
         <button type="button" data-testid="swap-save" onClick={save}

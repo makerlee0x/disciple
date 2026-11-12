@@ -8,7 +8,7 @@
   --ar: 1.7778;
   --rx: 0.359375; /* rocket centre, fraction of plate width */
   position: relative;
-  height: clamp(600px, calc(100vh - var(--ap-topbar-h, 56px)), 800px);
+  height: clamp(600px, calc(100dvh - var(--ap-topbar-offset, 56px)), 800px);
   overflow: hidden;
   background: #08090b;
   container-type: size;

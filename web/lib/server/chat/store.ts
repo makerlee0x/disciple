@@ -1,13 +1,14 @@
 import "server-only";
 /**
  * Pluggable chat store. Upstash Redis REST (also Vercel KV / Upstash Marketplace env names) when configured,
- * else in-memory (dev only: NOT shared across Vercel lambdas).
+ * else in-memory (local/dev only). Serverless/production fails closed via requiresSharedKv() — same rule as lib/server/kv.
  *   UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN   or   KV_REST_API_URL + KV_REST_API_TOKEN
  * Keys: chat:m:<coin> list (newest first, trimmed to 200) · chat:rl:<addr> bucket · chat:seen:<tx>:<i> dedupe
  *       chat:cur:<coin> last scanned block · chat:lock:<coin> catch-up lock · chat:active zset coin→last sub ts
  */
 import { CHAT_LIMITS, type ChatMsg } from "@/lib/chat/types";
 import { take, type Bucket } from "@/lib/chat/ratelimit";
+import { requiresSharedKv } from "@/lib/server/kv";
 
 export interface ChatStore {
   kind: "upstash" | "memory";
@@ -80,18 +81,25 @@ export function chatStore(): ChatStore {
   if (inst) return inst;
   const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
   const tok = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-  inst = url && tok ? upstash(url, tok) : memory();
+  if (url && tok) { inst = upstash(url, tok); return inst; }
+  if (requiresSharedKv()) {
+    throw new Error("[chat/store] shared Upstash/KV credentials required in serverless/production; in-memory chat store disabled.");
+  }
+  inst = memory();
   return inst;
 }
 
+/** Trade lines posted before trades left chat (event buy / sell / nuke, lib/server/chat/chain). Stored ones are hidden on read. */
+export const isTradeLine = (m: ChatMsg) => m.kind === "event" && m.meta?.event !== "graduate";
+
 /** History window: oldest→newest, ≤limit, strictly before `before` id if given. */
 export async function historyOf(coin: string, limit: number, before?: string): Promise<ChatMsg[]> {
-  const all = await chatStore().recent(coin, CHAT_LIMITS.keepPerCoin);
+  const all = (await chatStore().recent(coin, CHAT_LIMITS.keepPerCoin)).filter((m) => !isTradeLine(m));
   const f = before ? all.filter((m) => m.id < before) : all;
   return f.slice(0, Math.max(1, Math.min(limit, CHAT_LIMITS.historyMax))).reverse();
 }
 /** Messages newer than `after` id, oldest→newest. */
 export async function messagesAfter(coin: string, after: string): Promise<ChatMsg[]> {
   const all = await chatStore().recent(coin, 100);
-  return all.filter((m) => m.id > after).reverse();
+  return all.filter((m) => m.id > after && !isTradeLine(m)).reverse();
 }

@@ -21,9 +21,9 @@ No wallet, no transactions, no real funds. The curve, fees, anti-snipe and tramp
 
 **PvE.** Your crew helps the rocket climb. Bots buy dips and take modest profits. Low volatility, steady growth, an occasional small sell.
 
-**PvP.** Every trader plays for their own PnL: momentum chasers, profit takers and whales. Bigger buys, bigger dumps. A high market cap is still possible.
+**PvP.** Every trader plays for their own profit: momentum chasers, profit takers and whales. Bigger buys, bigger dumps. A high value is still possible.
 
-**Trench Warfare.** Snipers buy the launch. Bundled wallets sit on supply. The dev may rug, and a community takeover might revive it. Huge swings: altitude is possible, but hard.
+**Trench Warfare.** Snipers buy the launch. Bundled wallets sit on supply. The dev may rug, and a community takeover might revive it. Huge swings: a high altitude is possible, but hard. Altitude is how high the rocket's value has climbed.
 
 ## How the bots play you
 

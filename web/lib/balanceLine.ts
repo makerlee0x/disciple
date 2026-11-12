@@ -31,3 +31,10 @@ export function balanceLine(parts: BalancePart[], o: { payUsdg?: boolean } = {})
   ].filter(Boolean).join("\n");
   return { text, title };
 }
+
+/** Top-right fallback when the portfolio read is missing (coin page cleanup, lee Oct 30): dollars only. Never a coin,
+ *  STRATEGY or other raw token balance; "" when no dollar token was read. */
+export function cashLine(parts: BalancePart[]): string {
+  const d = parts.filter((p) => DOLLAR_SYMS.has(p.symbol.toUpperCase()));
+  return d.length ? `${usd(d.reduce((t, p) => t + p.amount, 0))} cash` : "";
+}
