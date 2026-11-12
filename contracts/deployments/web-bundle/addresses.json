@@ -1,8 +1,26 @@
 {
   "chainId": 46630,
   "mode": "broadcast",
-  "startBlock": 142064001,
+  "startBlock": 152153375,
   "contracts": {
+    "ReferralRegistry": "0x2c933d015815169900074e202c855276bbc0cc3a",
+    "LockedLP": "0x9e8106897e96739388c4582adfa92cf31538125e",
+    "FeeRouter": "0x7db57795ee2611881890b53f15f94fbd598bcf26",
+    "DiscipleHook": "0xff68befdf795a2fa574e4a891fa066f59533a8c4",
+    "Migration": "0x4bf424a07ccfd94825695ee1a82ccba827f2f600",
+    "DiscipleRouter": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839",
+    "TrampWallManager": "0x3d851837f1835b95b387cba050a6a9dfe6bbbb06",
+    "Launchpad": "0x7918167753b8ec0be07fb9e8c3061bc3516bd608",
+    "QuotePricer": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+    "QuoteProbe": "0x551a88430144cd08a8f5fd4d7a2e630ca64b6381",
+    "CurveDeployer": "0x9e5eb206bcac0e54f00f46e70c7f2c3e97dae3a6",
+    "RewardsVault": "0x737f8f231713c51f3699ad97aab356ae4c2131e3",
+    "AnonLauncher": "0x526784706e5ef369412abe65213ed65256182c6b",
+    "MarketLens": "0x60f774706e0b275c47cca610d3e9123128baa880",
+    "UsdgDepositNotifier": "0x8cfc1917699aaa0f87d6bbee3ad459c285fd46bf",
+    "LoginGate": "0xd19e138851fb4de489a4de81531f813081a143a7"
+  },
+  "previous": {
     "ReferralRegistry": "0xfe529086b25c4e0724b88780e5ba9b4ace785aaf",
     "LockedLP": "0x61efff9f0dbdd818317858074bcf80e4dcc39646",
     "FeeRouter": "0xa5aaddd75f1bc3b8fb3ecc8845eab0cfa5faed8c",
@@ -13,31 +31,12 @@
     "Launchpad": "0x8a92e51940909424b3aacefff99b4834588c0988",
     "QuotePricer": "0xbb757b8270a3fff15db2ff7694508a4ea4488078",
     "QuoteProbe": "0xf7a91d5d32cccb053dfbd8a56ddacc6fab7a96c9",
-    "CurveDeployer": "0x1055f3d6d79cce590e5ceae71a47476e937f9a21",
+    "CurveDeployer": "0x322329fa858268609170403921f28a794bef1584",
     "RewardsVault": "0xf1a2784de1ded172f4b10b242f124f60a6ab38c0",
     "AnonLauncher": "0x73a2a6e049aa21a5c440f3bc358de37fe3f7c509",
     "MarketLens": "0xd89da17e3aee9a7b1cba359666f0feb5382421fa",
     "UsdgDepositNotifier": "0xf7b3c09cae8c914530424c5882a24a4160013e9c",
-    "LoginGate": "0xaeb8abd314d2392f0f26b664ae78d889c4a079e2"
-  },
-  "previous": {
-    "ReferralRegistry": "0x0aa4dfb57deb37ada6de375da06aba5dc2099a9c",
-    "LockedLP": "0x6edb30bce65f87aeb750822de0de36b1cabd3d9a",
-    "FeeRouter": "0xe7ab694edcf1c91c34be23baf493d45e83f752d9",
-    "DiscipleHook": "0x16b6a7912324b67e562769bf7ed7e048ef6128c4",
-    "Migration": "0x37f20243c2cb78613fcfbd58607ce9905cf423b0",
-    "DiscipleRouter": "0xb53c37baa373c22b85fd3bb27fa71b8091abd316",
-    "TrampWallManager": "0x9c9693c44b5c09d318c95ba351ca4f70965c6cde",
-    "AntiSnipe": "0xe21904fc33220a81e23a5f0cd3fdeba6a644f45e",
-    "Launchpad": "0x4f540bc1585ca36c8a49662dc642f6e28ae534da",
-    "QuotePricer": "0xe173a0f0b8d44a7686fbd32958d65375ff77314f",
-    "QuoteProbe": "0x4d6e5131d197318da7aeb502659486eb00bf4c1f",
-    "CurveDeployer": "0x5f64b3464e340d2afdc4f4b35aa45346b89d1550",
-    "RewardsVault": "0x1f42909f1dea0f6bd0dbd19e05f2e9505d748b9e",
-    "AnonLauncher": "0x06f31a8877c8e025cc55faffb20cba8486cca527",
-    "MarketLens": "0x3afe8b96fba7c47790d6d195f0070edd560165ae",
-    "UsdgDepositNotifier": "0xaf5d4a15ee996140e83179952f0a0cf46c93f6d9",
-    "LoginGate": "0xe900b7060895f130e866eeddec2b3efd3ff0b69f"
+    "LoginGate": "0xebdd6ad15a6b838ee15dc7d5871f09efb284317d"
   },
   "uniswapV4": {
     "PoolManager": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
@@ -48,30 +47,14 @@
   },
   "tokens": {
     "USDG": {
-      "address": "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d",
+      "address": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
       "symbol": "USDG",
-      "decimals": 6,
-      "note": "mintable mock USDG (DevToken), 6 decimals like mainnet"
+      "decimals": 6
     },
     "STRATEGY": {
       "address": "0xf5eb226f7f0890c36a06cbd0ff843292b7b1a88c",
       "symbol": "STRATEGY",
-      "decimals": 18,
-      "note": "test STRATEGY; STRATEGY/USDG pricer pool fee 3000 / tickSpacing 60 / no hooks"
-    }
-  },
-  "community": {
-    "wallet": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
-    "kind": "EOA (temporary testnet community rewards wallet)",
-    "note": "Set 2026-11-10 by lee-approved FeeRouter owner txs (setRewardsVault, setReferralSink, setKolCreatorShareBps(0)); the old RewardsVault contract (contracts.RewardsVault) stays deployed but is no longer FeeRouter.rewardsVault(). smoke.mjs / the indexer read this block; a redeploy (postprocess.mjs) moves it under previous.",
-    "kolCreatorShareBps": 0,
-    "readback": {
-      "block": 151518807,
-      "FeeRouter.rewardsVault": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
-      "FeeRouter.referralSink": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
-      "FeeRouter.kolCreatorShareBps": 0,
-      "RewardsVault.owner": "0x7b36bDC13FF6AcaA0F285c0C3d818D1d703d0c1E",
-      "RewardsVault.pendingOwner": "0x0000000000000000000000000000000000000000"
+      "decimals": 18
     }
   }
 }
