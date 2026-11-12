@@ -12,10 +12,6 @@ import type { TradeTiming } from "../trade/timing";
 
 export { PRIVY_APP_ID, SIGNER_MODE };
 
-/** Legacy constants kept so existing imports compile; the 4337 bundler/paymaster routes are deleted. */
-export const PAYMASTER_URL = "/api/paymaster";
-export const BUNDLER_URL = process.env.NEXT_PUBLIC_AA_BUNDLER_URL || "/api/bundler";
-export const SESSION_POLICY: Address | "" = "";
 export const DEV_WALLETS = process.env.NEXT_PUBLIC_DEV_WALLETS === "1";
 /** Login is available on both Robinhood testnet and mainnet; no bundler required. */
 export const aaAvailable = () => ACTIVE_CHAIN.id === 46630 || ACTIVE_CHAIN.id === 4663;

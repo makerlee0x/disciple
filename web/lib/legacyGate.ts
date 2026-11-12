@@ -1,7 +1,7 @@
 /**
- * Legacy / archived coins (lee option B, deploy wave #241/#246):
- * a coin is legacy iff its curve.loginGate() is not the live LoginGate (deployment().loginGate).
- * Detected on-chain — no hardcoded coin list. Gated (Easy / PVE) buys are blocked; UI shows archived.
+ * Archived badge only (CoinIdentity): a coin is from an older stack iff its curve.loginGate() is not the live LoginGate
+ * (deployment().loginGate). Detected on-chain, no hardcoded coin list. This never blocks a trade: every coin uses
+ * the same gasless trade path (lee Nov 12).
  */
 import { parseAbi, type Address, type PublicClient } from "viem";
 import { deployment, ZERO } from "./chains";
@@ -10,9 +10,6 @@ const curveGateAbi = parseAbi(["function loginGate() view returns (address)"]);
 
 const cache = new Map<string, { gate: Address; at: number }>();
 const TTL_MS = 60_000;
-
-export const LEGACY_COIN_MSG =
-  "This rocket is archived. It launched under an older login gate, so Easy buys aren't available here.";
 
 /** Live LoginGate the site attests to. Empty/zero ⇒ treat nothing as legacy (gate not configured). */
 export function liveLoginGate(): Address {
