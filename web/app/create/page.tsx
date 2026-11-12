@@ -391,21 +391,23 @@ export default function LaunchRocketPage() {
               >
                 {launchButtonLabel(boost)}
               </button>
-              <div className={s.hiwTip}>
-                <button type="button" className={s.advLink} data-testid="how-launching" aria-expanded={howOpen} onClick={() => setHowOpen((v) => !v)}>
-                  {C.howLaunching}
-                </button>
-                {howOpen && (
-                  <div className={s.tip} data-testid="how-launching-steps">
-                    <ol className={s.hiwList}>
-                      {C.howLaunchingSteps.map((line, i) => (
-                        <li key={i}><b>{i + 1}.</b> <span>{line}</span></li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
+              <div className={s.footLinks}>
+                <div className={s.hiwTip}>
+                  <button type="button" className={s.advLink} data-testid="how-launching" aria-expanded={howOpen} onClick={() => setHowOpen((v) => !v)}>
+                    {C.howLaunching}
+                  </button>
+                  {howOpen && (
+                    <div className={s.tip} data-testid="how-launching-steps">
+                      <ol className={s.hiwList}>
+                        {C.howLaunchingSteps.map((line, i) => (
+                          <li key={i}><b>{i + 1}.</b> <span>{line}</span></li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                </div>
+                <button type="button" className={s.advLink} data-testid="advanced-open" onClick={() => setAdvanced(true)}>{C.advanced}</button>
               </div>
-              <button type="button" className={s.advLink} data-testid="advanced-open" onClick={() => setAdvanced(true)}>{C.advanced}</button>
               {advDirty && (
                 <div className={s.summary} data-testid="advanced-summary">
                   <span className={s.sumChip}>Pair: {quote.label}</span>

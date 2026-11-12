@@ -49,7 +49,7 @@ export const LIFTOFF_MS = 1300;
 const srcset = (list: string) => list.split(", ").map((e) => { const [u, w] = e.split(" "); return `${withBase(u)} ${w}`; }).join(", ");
 const n = (k: number, c?: string) => Array.from({ length: k }, (_, i) => <i key={i} className={c} />);
 
-export default function HeroPad({ go, launching, icon }: { go: boolean; launching: boolean; icon?: string | null }) {
+export default function HeroPad({ go, launching, icon, layout = "hero" }: { go: boolean; launching: boolean; icon?: string | null; layout?: "hero" | "create" }) {
   const rocket = withBase(ROCKET_SRC);
   const rocketMask = { WebkitMaskImage: `url(${rocket})`, maskImage: `url(${rocket})` };
   const lazy = go
@@ -60,7 +60,7 @@ export default function HeroPad({ go, launching, icon }: { go: boolean; launchin
       } as React.CSSProperties)
     : undefined;
   return (
-    <div className={`${s.pad}${go ? " " + s.go : ""}${launching ? " " + s.launching : ""}`} style={lazy} aria-hidden>
+    <div className={`${s.pad}${layout === "create" ? " " + s.create : ""}${go ? " " + s.go : ""}${launching ? " " + s.launching : ""}`} style={lazy} aria-hidden>
       <div className={s.plate}>
         {/* z0: sky plate (LCP; the inline LQIP under it is the frame's ::before) */}
         <picture>

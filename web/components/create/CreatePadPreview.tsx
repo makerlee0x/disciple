@@ -19,7 +19,9 @@ export default function CreatePadPreview({ name, ticker, icon }: { name: string;
   return (
     <div className={s.stage} aria-label="Rocket on the launch pad" data-testid="create-pad-preview">
       <div className={s.stagePad}>
-        <HeroPad go={go} launching={false} icon={icon} />
+        <div className={s.stageHero}>
+          <HeroPad go={go} launching={false} icon={icon} layout="create" />
+        </div>
       </div>
       <div className={s.stageTicker}>{ticker ? `$${ticker}` : "$TICKER"}</div>
       <div className={s.stageReady}>{QUICK_LAUNCH_COPY.ready(name)}</div>
