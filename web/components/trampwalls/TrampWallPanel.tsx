@@ -69,9 +69,9 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
   const placePreset = async (p: Preset) => {
     const q = presetParams(kind, p);
     const pre = await adapter.preview({ token: coin, kind, mcapUsd: q.priceMcap, rangeWidthPct: q.width, amount: BigInt(0), sizeUsd: q.sizeUsd }, cur);
-    if (!pre.valid) { setMsg(pre.reason || "invalid"); return; }
+    if (!pre.valid) { setMsg(pre.reason || "That order doesn't fit right now. Try a different size."); return; }
     const r = await adapter.place({ token: coin, kind, mcapUsd: q.priceMcap, rangeWidthPct: q.width, amount: BigInt(Math.floor(q.amount * 1e6)), sizeUsd: q.sizeUsd });
-    setMsg(r.ok ? `${kind === "tramp" ? "Tramp" : "Wall"} placed ✦ ${p.label} · ${fmt(q.sizeUsd)}` : r.reason || "failed");
+    setMsg(r.ok ? `${kind === "tramp" ? "Tramp" : "Wall"} placed ✦ ${p.label} · ${fmt(q.sizeUsd)}` : r.reason || "That didn't go through. Try again.");
     if (r.ok) { setOpen(false); refresh(); }
   };
   const openFlow = () => { setStep("kind"); setMsg(null); setOpen(true); };
@@ -111,7 +111,7 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
   const chooseKind = (k: TrampWallKind) => { setKind(k); setPct(k === "tramp" ? -Math.abs(pct || 8) : Math.abs(pct || 8)); setAmount(k === "tramp" ? "250" : simulator && cur > 0 ? String(Math.round(250 / (cur * 1.08 / SUP))) : "1000000"); };
   const confirm = async () => {
     const r = await adapter.place({ token: coin, kind, mcapUsd: priceMcap, rangeWidthPct: width, amount: BigInt(Math.floor((+amount || 0) * 1e6)), sizeUsd });
-    setMsg(r.ok ? `${kind === "tramp" ? "Tramp" : "Wall"} placed ✦` : r.reason || "failed");
+    setMsg(r.ok ? `${kind === "tramp" ? "Tramp" : "Wall"} placed ✦` : r.reason || "That didn't go through. Try again.");
     if (r.ok) { setOpen(false); refresh(); }
   };
   const cancel = async (id: string) => { await adapter.cancel(id); refresh(); };

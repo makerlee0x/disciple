@@ -55,13 +55,13 @@ async function ensurePveLogin1(pc: PublicClient, trader: Address, opts: { fetchF
   const j = (await r.json().catch(() => ({}))) as { error?: string; signature?: Hex; expiry?: number };
   if (!r.ok || !j.signature) {
     const M: Record<string, string> = {
-      login_not_verified: "Sign in with X, email or wallet to BOOST Easy rockets.",
-      wallet_not_owned: "This wallet isn't linked to your login.",
-      rate_limited: "Too many login checks — try again in a few minutes.",
-      attester_not_registered: "PVE login checks aren't switched on yet (attester not registered on-chain).",
-      pve_attester_not_configured: "PVE login checks aren't configured yet.",
+      login_not_verified: "Sign in with X, email, or a wallet before you can boost on an Easy rocket.",
+      wallet_not_owned: "This wallet isn't linked to your login. Use the wallet you signed in with.",
+      rate_limited: "You've checked login too many times. Try again in a few minutes.",
+      attester_not_registered: "Easy login checks aren't available yet. Try again later.",
+      pve_attester_not_configured: "Easy login checks aren't available yet. Try again later.",
     };
-    throw new PveError("PveAttestFailed", M[j.error ?? ""] ?? `PVE login check failed (${j.error ?? r.status}).`);
+    throw new PveError("PveAttestFailed", M[j.error ?? ""] ?? "We couldn't check your login. Try again.");
   }
   // Submit in the user-paid owner-signed batch; the session policy cannot call LoginGate.
   return [{ to: gate, data: encodeFunctionData({ abi: loginGateAbi, functionName: "attest", args: [trader, BigInt(j.expiry!), j.signature] }) }];

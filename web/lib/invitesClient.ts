@@ -11,7 +11,7 @@ async function call<T>(path: string, init?: RequestInit, optionalAuth = false): 
   if (!t && !optionalAuth) throw new NeedLogin("Sign in first.");
   const r = await fetch(withBase(path), { ...init, headers: { ...(init?.headers || {}), ...(t ? { authorization: `Bearer ${t}` } : {}), "content-type": "application/json" }, cache: "no-store" });
   const j = (await r.json().catch(() => ({}))) as T & { error?: string };
-  if (!r.ok) throw Object.assign(new Error(j.error || `Error ${r.status}`), { status: r.status, code: j.error }) as Err;
+  if (!r.ok) throw Object.assign(new Error(j.error || "Something went wrong. Try again."), { status: r.status, code: j.error }) as Err;
   return j;
 }
 export const loginPrivy = () => { if (privyReady()) privyLogin(); };

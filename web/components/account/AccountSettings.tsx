@@ -99,7 +99,7 @@ export default function AccountSettings({ onClose }: { onClose?: () => void } = 
               <><span>Setting up one-tap trading…</span><OneTapSlippagePicker /></>
             ) : oneTapAvailable() ? (
               <>
-                <span style={{ opacity: 0.8 }}>Trades go through without prompts (your wallet signs them silently).{oneTap.error ? ` One-tap session setup failed: ${oneTap.error}` : ""}</span>
+                <span style={{ opacity: 0.8 }}>Trades go through without prompts (your wallet signs them silently).{oneTap.error ? " We couldn't turn on one-tap trading. Try again in a moment." : ""}</span>
                 <OneTapSlippagePicker />
                 <button type="button" className="ds-btn gold" disabled={!!busy} onClick={() => run("approve session", () => { saveLimit(); return enableOneTap({ maxSlippageBps: oneTapSlippageBps(), spendLimitUsd: limitNum() }); })}>Enable one-tap trading</button>
                 {advancedLimit(saveLimit, "Save")}

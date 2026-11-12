@@ -55,7 +55,7 @@ export function createMockAdapter(getCurrentMcap: () => number): TrampWallAdapte
     },
     async cancel(id) {
       const all = load(); const t = all.find((x) => x.id === id);
-      if (!t || t.status !== "active") return { ok: false, reason: "Not active" };
+      if (!t || t.status !== "active") return { ok: false, reason: "That order isn't active anymore. Refresh and try again." };
       t.status = "cancelled"; save(all); emit({ type: "Cancelled", id, token: t.token });
       return { ok: true, txHash: "0xmock" };
     },
