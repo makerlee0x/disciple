@@ -4,10 +4,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { formatUnits, parseAbi } from "viem";
-import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
+import { MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
 
-/** Robinhood Chain testnet: a plain "Test network" tag sits first in the wallet strip there (GAME play-test, Oct 26 2026). */
-const TEST_NETWORK_ID = 46630;
 import { decimalsOf, publicClient, readCurveState, usdgRouteFor } from "@/lib/protocol-viem";
 import { cashLine, type BalancePart } from "@/lib/balanceLine";
 import { payUsdg, routerUsdg } from "@/lib/trade/usdgRouter";
@@ -250,8 +248,6 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         {/* .wb-row: one line on desktop; on phones (≤480px) it wraps right-aligned instead of running off the left edge (GAME 390×844) */}
         <div className="wb-row" style={{ display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap" }}>
-          {/* coin / game screen cleanup (lee, Oct 30): no "Test network" tag on a coin page */}
-          {ACTIVE_CHAIN.id === TEST_NETWORK_ID && !coin && <span className="wb-testnet" role="note">Test network</span>}
           {addr ? (
             <>
               {pf && smart && !hideCash && (

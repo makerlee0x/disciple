@@ -111,7 +111,7 @@ export default function AccountSettings({ onClose }: { onClose?: () => void } = 
           </>
         ) : smart && sess?.kind === "local" ? (
           <>
-            <span>Testnet wallet stored in this browser. Clearing site data loses it — export the key to back it up.</span>
+            <span>Your wallet is stored in this browser. Clearing site data deletes it, so export the key to back it up.</span>
             <span className="mono" style={brk}>Account: {addr} <button type="button" className="ds-btn" onClick={() => navigator.clipboard?.writeText(addr)}>copy</button></span>
             <span className="muted mono" style={brk}>Owner key address: {sess?.owner}</span>
             {oneTapAvailable() && oneTap.needsCash && !oneTap.settingUp && needsCash}

@@ -1731,7 +1731,6 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 @media (max-width: 480px) {
   .wb-row { flex-wrap: wrap; row-gap: 4px; justify-content: flex-end; }
   .wb-sigil { display: none; }  /* the portfolio sigil: frees ~34px */
-  .wb-testnet { display: none; } /* frees the strip on 360–390 wallet WebViews when signed in */
   .wb-cards { gap: 4px !important; }
   .wb-cards [data-testid="cash-card"],
   .wb-cards [data-testid="portfolio-card"] { padding: 2px 7px !important; border-radius: 10px !important; }
@@ -1741,10 +1740,6 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
   /* Ultra-narrow in-wallet browsers: cash+total cards stack under the chip instead of overflowing left into the menu. */
   .wb-cards { width: 100%; justify-content: flex-end; }
 }
-/* "Test network" tag, first item of the wallet strip on chain 46630 (components/WalletButton). Small, plain, never blocks clicks. */
-.wb-testnet { align-self: center; padding: 3px 8px; border-radius: 999px; font: 600 10px/1.4 var(--dsc-font-body, system-ui); letter-spacing: .06em;
-  text-transform: uppercase; color: var(--dsc-text, #E8EAEE); background: color-mix(in srgb, var(--dsc-surface, #16171B) 82%, transparent);
-  border: 1px solid color-mix(in srgb, #C9CED6 35%, transparent); pointer-events: none; }
 /* Shared tooltip (components/ui/Tooltip): BRAND v2 surface, type, radius, border, shadow; arrow follows the trigger. */
 .ds-tip { position: fixed; z-index: 1000; max-width: min(280px, calc(100vw - 16px)); padding: 8px 10px; background: var(--dsc-surface-2); color: var(--dsc-text);
   border: 1px solid var(--dsc-border); border-radius: var(--dsc-radius-sm); box-shadow: var(--dsc-shadow-md); font: 400 var(--dsc-font-size-xs)/1.45 var(--dsc-font-ui);
