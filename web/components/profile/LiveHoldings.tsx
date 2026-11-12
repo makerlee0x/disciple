@@ -8,17 +8,21 @@ import { deployment } from "@/lib/chains";
 import { publicClient } from "@/lib/protocol-viem";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 
-const erc20 = parseAbi(["function symbol() view returns (string)"]);
-export type LiveHolding = Holding & { symbol: string; usd: number };
+const erc20 = parseAbi(["function symbol() view returns (string)", "function name() view returns (string)"]);
+export type LiveHolding = Holding & { symbol: string; name: string; usd: number };
+/** Cash (the account's USDG, in dollars) + every coin it holds. */
+/** `ok` false = the read failed: show no dollar figures (never a made-up $0). */
+export type LivePortfolio = { ok: boolean; cashUsd: number; rows: LiveHolding[] };
 
 /**
- * On-chain holdings of `wallet` (same read as the header portfolio card, lib/portfolio): every DISCIPLE coin it holds,
- * valued at the current price, largest first. Read-only. `null` while loading / when there's no wallet.
+ * On-chain portfolio of `wallet` (same read as the header portfolio card, lib/portfolio): cash plus every DISCIPLE coin
+ * it holds, valued at the current price, largest first. Read-only. `null` while loading / when there's no wallet;
+ * a failed read is an empty portfolio.
  */
-export function useLiveHoldings(wallet: string | null): LiveHolding[] | null {
-  const [rows, setRows] = useState<LiveHolding[] | null>(null);
+export function useLivePortfolio(wallet: string | null): LivePortfolio | null {
+  const [pf, setPf] = useState<LivePortfolio | null>(null);
   useEffect(() => {
-    setRows(null);
+    setPf(null);
     if (!wallet || IS_STATIC_PREVIEW || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) return;
     let alive = true;
     const pc = publicClient();
@@ -27,14 +31,22 @@ export function useLiveHoldings(wallet: string | null): LiveHolding[] | null {
     const extra = fillBook.pendingTokens(wallet).filter((t) => t !== deployment().usdg.toLowerCase()) as Address[];
     readAtOrAfter(pc, fillBook.floor(wallet), (blockNumber) => loadPortfolio(pc, wallet as Address, extra, { blockNumber })).then(async ({ value, block }) => {
       for (const h of value.holdings) fillBook.observe(wallet, h.coin, h.tokens, block);
-      const pf = bookedPortfolio(value, wallet, deployment().usdg);
-      const out = await Promise.all(pf.holdings.map(async (h) => {
-        const symbol = await pc.readContract({ address: h.coin, abi: erc20, functionName: "symbol" }).catch(() => "") as string;
-        return { ...h, symbol: String(symbol).slice(0, 12), usd: h.tokens * h.priceNow };
+      const booked = bookedPortfolio(value, wallet, deployment().usdg);
+      const out = await Promise.all(booked.holdings.map(async (h) => {
+        const [symbol, name] = await Promise.all([
+          pc.readContract({ address: h.coin, abi: erc20, functionName: "symbol" }).catch(() => "") as Promise<string>,
+          pc.readContract({ address: h.coin, abi: erc20, functionName: "name" }).catch(() => "") as Promise<string>,
+        ]);
+        return { ...h, symbol: String(symbol).slice(0, 12), name: String(name).slice(0, 32), usd: h.tokens * h.priceNow };
       }));
-      if (alive) setRows(out.sort((a, b) => b.usd - a.usd));
-    }).catch(() => { if (alive) setRows([]); });
+      if (alive) setPf({ ok: true, cashUsd: booked.cashUsd, rows: out.sort((a, b) => b.usd - a.usd) });
+    }).catch(() => { if (alive) setPf({ ok: false, cashUsd: 0, rows: [] }); });
     return () => { alive = false; };
   }, [wallet]);
-  return rows;
+  return pf;
+}
+
+/** Holdings only (kept for callers that don't need cash). */
+export function useLiveHoldings(wallet: string | null): LiveHolding[] | null {
+  return useLivePortfolio(wallet)?.rows ?? null;
 }

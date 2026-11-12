@@ -219,3 +219,18 @@ test("referral deposit: dollars only, neutral dash when the coin has no live pri
   const src = readFileSync(new URL("../components/claims/ProfileClaims.tsx", import.meta.url), "utf8");
   assert.ok(!/<Money\b|ConfirmSheet|fmtAmount/.test(src), "no token amounts in the Rewards section");
 });
+
+test("rocket rewards: same rocket + type merged, unpriced / zero dropped, biggest first", async () => {
+  const { rocketRewardRows, countFriends } = await import("../lib/claims/rewards.ts");
+  const A = "0x00000000000000000000000000000000000000Aa", B = "0x00000000000000000000000000000000000000bB";
+  const rows = rocketRewardRows([
+    { token: A, name: "Alpha", ticker: "ALP", kind: "creator", usd: 10 },
+    { token: A.toLowerCase(), kind: "creator", usd: 5 },
+    { token: A, name: "Alpha", ticker: "ALP", kind: "crew", usd: 1 },
+    { token: B, name: "Beta", ticker: "BET", kind: "crew", usd: 20 },
+    { token: B, name: "Beta", ticker: "BET", kind: "creator", usd: null },
+    { token: B, name: "Beta", ticker: "BET", kind: "creator", usd: 0 },
+  ]);
+  assert.deepEqual(rows.map((r) => [r.name, r.kind, r.usd]), [["Beta", "crew", 20], ["Alpha", "creator", 15], ["Alpha", "crew", 1]]);
+  assert.equal(countFriends([A, A.toLowerCase(), B, "nope"]), 2);
+});

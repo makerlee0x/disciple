@@ -7,7 +7,7 @@ import { scanEventHistory } from "./eventHistory";
  * vault + the vaults of this account's rockets).
  */
 import { parseAbi, type Address, type Hex, type PublicClient } from "viem";
-import { bondingCurveAbi, feeRouterAbi } from "../abi";
+import { bondingCurveAbi, feeRouterAbi, referralRegistryAbi } from "../abi";
 import { deployment } from "../chains";
 import { curveOf, readMarket } from "../protocol-viem";
 import type { Caps } from "./capabilities";
@@ -20,8 +20,8 @@ import { sendGaslessAction } from "../trade/gaslessActionClient";
 import { crewPositions } from "./crew";
 import { curveFeeVaultAbi, stackFeeVault } from "./vault";
 import {
-  claimAllCalls, feeRouteEarnings, groupHistory, selectClaimCalls, sendClaimAll, priceEarnings, summarize, usdOf,
-  type Amount, type CrewClaimable, type FeeRouteLog, type HistoryRow, type Prices, type RawEarning, type RewardKind, type RewardsSummary,
+  claimAllCalls, countFriends, feeRouteEarnings, groupHistory, rocketRewardRows, selectClaimCalls, sendClaimAll, priceEarnings, summarize, usdOf,
+  type Amount, type CrewClaimable, type FeeRouteLog, type HistoryRow, type Prices, type RawEarning, type RewardKind, type RewardsSummary, type RocketReward,
 } from "./rewards";
 
 const ZERO = BigInt(0);
@@ -38,6 +38,10 @@ export type RewardsData = {
   launched: number;
   /** FeeRouter.referralSink() is set: new referral shares stop accruing (balances stay claimable) */
   referralPaused: boolean;
+  /** Rocket rewards tab: earned per rocket (Creator = launched, Crew = held), biggest first */
+  rockets: RocketReward[];
+  /** distinct friends whose referrer is this account (ReferralRegistry.ReferrerAttributed); null when unreadable */
+  friendsInvited: number | null;
 };
 
 const sinkAbi = parseAbi(["function referralSink() view returns (address)"]);
@@ -81,13 +85,17 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
   const warn = (what: string) => (e: unknown) => { console.warn(`[disciple] rewards: ${what}`, (e as Error)?.message ?? e); return null; };
   const anyCreator = caps.creatorFees || caps.creatorTokenFees || caps.anonClaims;
 
-  const [refs, creator, crew, routes, refClaims, paused] = await Promise.all([
+  const reg = d.referralRegistry;
+  const [refs, creator, crew, routes, refClaims, paused, attributed] = await Promise.all([
     caps.referrerFees ? referralBalances(pc, me).catch(warn("referral balances")) : null,
     anyCreator ? creatorDashboard(pc, me, caps, 1, stealth).catch(warn("creator rockets")) : null,
     caps.crew ? crewPositions(pc, me).catch(warn("crew positions")) : null,
     scanEventHistory(pc, (fromBlock, toBlock) => pc.getContractEvents({ address: d.feeRouter, abi: feeRouterAbi, eventName: "TradeFeeRouted", fromBlock, toBlock }), d.fromBlock).catch(warn("fee history")),
     caps.referrerFees ? scanEventHistory(pc, (fromBlock, toBlock) => pc.getContractEvents({ address: d.feeRouter, abi: feeRouterAbi, eventName: "ReferrerFeesClaimed", args: { referrer: me }, fromBlock, toBlock }), d.fromBlock).catch(warn("referral claims")) : null,
     caps.referrerFees ? referralPaused(pc) : false,
+    caps.referrerFees && reg && !/^0x0{40}$/i.test(reg)
+      ? scanEventHistory(pc, (fromBlock, toBlock) => pc.getContractEvents({ address: reg, abi: referralRegistryAbi, eventName: "ReferrerAttributed", args: { referrer: me }, fromBlock, toBlock }), d.fromBlock).catch(warn("friends invited"))
+      : null,
   ]);
   const rockets = creator ?? [];
   const crewRows = crew ?? [];
@@ -152,6 +160,26 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
     ...raw.filter((r) => r.kind === "crew").map((r) => ({ kind: "crew" as const, usd: usdOf(r.raw, r.asset, prices) })),
   ];
   const summary = summarize(claimable, claimed, entries, nowSec);
+  // Rocket rewards: per rocket, the same claimed + claimable parts the summary counts
+  const crewClaimedByToken = new Map<string, bigint>();
+  for (const l of crewClaims as unknown as Log<{ token: Address; amount: bigint }>[]) {
+    const k = lc(l.args.token);
+    crewClaimedByToken.set(k, (crewClaimedByToken.get(k) ?? ZERO) + l.args.amount);
+  }
+  const add = (a: number | null, b: number | null) => (a == null && b == null ? null : (a ?? 0) + (b ?? 0));
+  const rocketRows = rocketRewardRows([
+    ...rockets.map((r) => ({
+      token: r.token, name: r.name, ticker: r.ticker, kind: "creator" as const,
+      usd: add(usdOf(r.claimable + r.claimed, r.quote.address, prices),
+        r.tokenSide ? usdOf((tokenSideOn(r) ? r.tokenSide.claimable : ZERO) + r.tokenSide.claimed, r.tokenSide.asset.address, prices) : null),
+    })),
+    ...crewRows.map((r) => ({
+      token: r.token, name: r.name, ticker: r.ticker, kind: "crew" as const,
+      usd: usdOf(r.pending + (crewClaimedByToken.get(lc(r.token)) ?? ZERO), r.quote.address, prices),
+    })),
+  ]);
+  const friends = attributed == null ? null
+    : countFriends((attributed as unknown as Log<{ wallet: Address }>[]).map((l) => String(l.args.wallet ?? "")));
   return {
     summary,
     history: groupHistory(entries),
@@ -163,6 +191,8 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
     },
     launched: rockets.length,
     referralPaused: paused,
+    rockets: rocketRows,
+    friendsInvited: friends,
   };
 }
 

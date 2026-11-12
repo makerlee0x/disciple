@@ -3,6 +3,7 @@ import "./brand-tokens.css";
 import "./brand-tokens-v2.css";
 import "./globals.css";
 import "./claims.css";
+import "./profile-r5.css";
 import { geist, instrumentSerif } from "./fonts";
 import AppShell from "@/components/AppShell";
 import ChatBridge from "@/components/chat/ChatBridge";
