@@ -56,6 +56,9 @@ interface Clients {
   chain: Chain;
 }
 
+/** Least gas a matchOrders transaction is sent with (one vault deposit through the queue is ~1.2-1.5M). */
+const MATCH_GAS_FLOOR = 3_000_000n;
+
 const now = () => Math.floor(Date.now() / 1000);
 const srcKey = (s: PoolSource) => `${s.kind}:${s.target.toLowerCase()}:${s.v4Id.toLowerCase()}`;
 
@@ -918,7 +921,9 @@ export class Keeper {
         abi: carryQueueAbi,
         functionName: "matchOrders",
         args: [market, steps],
-        gas: (est * 13n) / 10n,
+        // never below MATCH_GAS_FLOOR: a vault deposit is ~1.2-1.5M gas, and a limit that starves it must not
+        // be mistaken for an empty match (round-3 audit; the queue also reverts LowGas when a deposit runs dry)
+        gas: (est * 13n) / 10n > MATCH_GAS_FLOOR ? (est * 13n) / 10n : MATCH_GAS_FLOOR,
         maxFeePerGas: maxFee,
         maxPriorityFeePerGas: tip,
       });
@@ -939,6 +944,11 @@ export class Keeper {
       }
     }
     this.log.info(`${s.name}: matched market ${market} (dry run ${would} raw stock), ${opened} position(s), tx ${hash}, spent ${formatEther(spent)} ETH (gas ${rc.gasUsed})`);
+    // a dry run that said yes but opened nothing: wait the full interval instead of looping (round-3 audit)
+    if (opened === 0) {
+      this.log.warn(`${s.name}: matchOrders(${market}) opened nothing after a positive dry run; waiting ${this.cfg.sampling.matchEverySec}s`);
+      return;
+    }
     // more may be matchable (a long line): check again next round
     this.lastMatchCheck.delete(s.name);
   }
