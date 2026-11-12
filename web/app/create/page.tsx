@@ -474,6 +474,7 @@ export default function LaunchRocketPage() {
               >
                 {launchButtonLabel(boost)}
               </button>
+              <div className={s.help} data-testid="creator-fee-split">{C.creatorFeeSplit}</div>
               <div className={s.footLinks}>
                 <div className={s.hiwTip}>
                   <button type="button" className={s.advLink} data-testid="how-launching" aria-expanded={howOpen} onClick={() => setHowOpen((v) => !v)}>
@@ -558,6 +559,7 @@ export default function LaunchRocketPage() {
               </div>
               <div className={s.fl} data-testid="creator-fee-destination">
                 <div className={s.lab}>{C.creatorFees}</div>
+                <div className={s.help} data-testid="creator-fee-split-advanced">{C.creatorFeeSplit}</div>
                 <div className={s.feeCards} role="radiogroup" aria-label={C.creatorFees}>
                   {CREATOR_FEE_DESTINATIONS.map((id) => {
                     const on = feeDestination === id;

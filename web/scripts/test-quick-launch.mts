@@ -264,8 +264,9 @@ test("creator fee copy matches the r7 card labels and tax helpers, with no jargo
   const here = dirname(fileURLToPath(import.meta.url));
   const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
   const css = readFileSync(join(here, "../components/create/quickLaunch.module.css"), "utf8");
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeeSplit, "Every trade pays a 1% fee: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer.");
   const visible = [
-    QUICK_LAUNCH_COPY.creatorFees, QUICK_LAUNCH_COPY.creatorFeesPerm,
+    QUICK_LAUNCH_COPY.creatorFees, QUICK_LAUNCH_COPY.creatorFeesPerm, QUICK_LAUNCH_COPY.creatorFeeSplit,
     QUICK_LAUNCH_COPY.rewards, QUICK_LAUNCH_COPY.rewardsHelp,
     ...CREATOR_FEE_DESTINATIONS.flatMap((id) => [CREATOR_FEE_COPY[id].sentence, CREATOR_FEE_COPY[id].chip, CREATOR_TAX_HELP[id]]),
   ].join("\n");
@@ -280,6 +281,26 @@ test("creator fee copy matches the r7 card labels and tax helpers, with no jargo
   assert.match(page, /liveCreatorFeeDestination\(feeDestination\)/);
 });
 
+
+test("the 1% fee split is on the closed Quick Launch page and in Advanced, and does not change with the destination", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
+  assert.match(page, /data-testid="creator-fee-split"/);
+  assert.match(page, /data-testid="creator-fee-split-advanced"/);
+  assert.equal((page.match(/C\.creatorFeeSplit/g) || []).length, 2);
+  // Same constant in both places; not rewritten for pool or burn.
+  assert.doesNotMatch(page, /creatorFeeSplit\[feeDestination\]|CREATOR_FEE_COPY\[feeDestination\]\.split/);
+  // Not on the illustrated cards (cards still use the short destination labels).
+  const cardBlock = page.slice(page.indexOf("feeCards"), page.indexOf("creatorFeesPerm"));
+  assert.match(cardBlock, /CREATOR_FEE_COPY\[id\]\.sentence/);
+  assert.doesNotMatch(cardBlock, /creatorFeeSplit/);
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeesPerm, "You pick this when you launch, and you can't change it later.");
+  assert.equal(CREATOR_TAX_HELP[0], "You already get 33% of every trading fee. Creator tax is an extra cut on top of that. Higher tax can scare off players.");
+  assert.equal(CREATOR_TAX_HELP[1], "The 33% of every trading fee goes into the locked pool. Creator tax is an extra cut on top of that, and it goes there too. Higher tax can scare off players.");
+  assert.equal(CREATOR_TAX_HELP[2], "The 33% of every trading fee is used to buy and burn the pair coin. Creator tax is an extra cut on top of that, and it is used the same way. Higher tax can scare off players.");
+  assert.equal(CREATOR_FEE_DESTINATION_LIVE, false);
+  assert.equal(liveCreatorFeeDestination(1), undefined);
+});
 test("Mode is a three-card row with descriptions only in a hover or info-mark tooltip", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const css = readFileSync(join(here, "../components/create/quickLaunch.module.css"), "utf8");

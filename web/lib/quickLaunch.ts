@@ -63,6 +63,7 @@ export const QUICK_LAUNCH_COPY = {
   anonEasyBoostHelp: "Your name won't be shown as the creator. The account that pays can still be seen on the public record.",
   pseudoHelp: "Your name won't be shown as the creator. The account that pays, and the first buy, can still be seen on the public record.",
   creatorFees: "Creator fees",
+  creatorFeeSplit: "Every trade pays a 1% fee: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer.",
   creatorFeesPerm: "You pick this when you launch, and you can't change it later.",
   creatorFeesHelp: "You pick this when you launch. It applies only to this rocket, including private launches, and it cannot be changed later. It covers all creator fees, including any extra creator tax.",
   creatorFeesPending: "This choice will be available once the new contracts are live.",
