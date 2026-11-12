@@ -43,8 +43,8 @@ test("#1 sessionHasHeadroom: session key only while under cap; unknown caps ⇒ 
   assert.equal(sessionHasHeadroom(full, { [STRAT]: BigInt(500) * E18 }), false);
   assert.equal(sessionHasHeadroom(full, { [STRAT]: BigInt(400) * E18 }), true);
 });
-test("v5 wiring: session policy defaults to the v5 deployment (1.4.1) on 46630", () => {
-  assert.equal(sessionPolicyFor(46630, ""), "0x92b38057bb7bfa7d640e836e9b3aa8c7365720ac");
+test("session policy 1.4.3 has no hardcoded address until it is deployed", () => {
+  assert.equal(sessionPolicyFor(46630, ""), "");
   assert.equal(sessionPolicyFor(1, ""), "");
   assert.equal(sessionPolicyFor(46630, "0x0000000000000000000000000000000000000001"), "0x0000000000000000000000000000000000000001");
 });
@@ -77,4 +77,32 @@ test("portfolio: 24h price = last fill at/before now−24h, else launch price; t
   const p = summarize(274.46, [{ coin: STRAT as never, tokens: 1e6, priceNow: 5e-6, price24h: 2e-6 }, { coin: USDG as never, tokens: 0, priceNow: 1, price24h: 1 }]);
   assert.equal(p.holdings.length, 1);
   assert.ok(Math.abs(p.totalUsd - 279.46) < 1e-9 && Math.abs(p.change24hUsd - 3) < 1e-9);
+});
+
+test("loginGate stays the live testnet gate; paymaster v5 has no hardcoded address", async () => {
+  const { DEPLOYMENTS } = await import("../lib/chains");
+  const d = DEPLOYMENTS[46630];
+  assert.equal(d.loginGate.toLowerCase(), "0xebdd6ad15a6b838ee15dc7d5871f09efb284317d");
+  assert.equal(d.paymaster.toLowerCase(), "0x0000000000000000000000000000000000000000");
+  assert.equal(DEPLOYMENTS[4663].usdg.toLowerCase(), "0x5fc5360d0400a0fd4f2af552add042d716f1d168");
+  assert.equal(d.usdg.toLowerCase(), "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d");
+});
+
+test("legacyGate: live gate matches itself; different gate is legacy", async () => {
+  const { _resetLegacyGateCache, isLegacyCurve, liveLoginGate } = await import("../lib/legacyGate");
+  _resetLegacyGateCache();
+  const live = liveLoginGate().toLowerCase();
+  assert.ok(live.startsWith("0xebdd"));
+  const pc = {
+    readContract: async ({ functionName }: { functionName: string }) => {
+      if (functionName !== "loginGate") throw new Error(functionName);
+      return liveLoginGate();
+    },
+  } as never;
+  assert.equal(await isLegacyCurve(pc, "0x1111111111111111111111111111111111111111"), false);
+  const pcOld = {
+    readContract: async () => "0xaeb8abd314d2392f0f26b664ae78d889c4a079e2",
+  } as never;
+  _resetLegacyGateCache();
+  assert.equal(await isLegacyCurve(pcOld, "0x2222222222222222222222222222222222222222"), true);
 });

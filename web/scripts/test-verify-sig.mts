@@ -12,11 +12,15 @@ const owner = privateKeyToAccount(generatePrivateKey());
 const other = privateKeyToAccount(generatePrivateKey());
 const rawSig = (a = owner) => a.signMessage({ message: { raw: keccak256(stringToBytes(msg)) } });
 
-function fake(o: { verify?: boolean; code?: Hex; predictMav2?: string; predictLa?: string }) {
+function fake(o: { verify?: boolean; code?: Hex | undefined; codeError?: Error; predictMav2?: string; predictLa?: string }) {
   const calls: string[] = [];
   const pc: VerifyClient = {
     async verifyMessage() { calls.push("verify"); return !!o.verify; },
-    async getCode() { calls.push("code"); return o.code ?? "0x"; },
+    async getCode() {
+      calls.push("code");
+      if (o.codeError) throw o.codeError;
+      return o.code ?? "0x";
+    },
     async readContract(a) {
       calls.push(a.functionName);
       if (a.address === MAV2_FACTORY) return o.predictMav2 ?? "0x0000000000000000000000000000000000000002";
@@ -45,6 +49,10 @@ test("undeployed legacy LightAccount: accepted via LA prediction", async () => {
   const f = fake({ verify: false, predictLa: SA.toUpperCase().replace("0X", "0x") });
   assert.equal(await verifyAccountSignature(f.pc, SA, msg, await rawSig(), owner.address), SA);
 });
+test("undeployed empty code as undefined (viem): owner shortcut still allowed", async () => {
+  const f = fake({ verify: false, code: undefined, predictMav2: SA });
+  assert.equal(await verifyAccountSignature(f.pc, SA, msg, await rawSig(), owner.address), SA);
+});
 test("undeployed: wrong signer or wrong prediction rejected", async () => {
   assert.equal(await verifyAccountSignature(fake({ predictMav2: SA }).pc, SA, msg, await rawSig(other), owner.address), null);
   assert.equal(await verifyAccountSignature(fake({}).pc, SA, msg, await rawSig(), owner.address), null);
@@ -53,4 +61,15 @@ test("no owner and verifyMessage fails ⇒ rejected; bad input ⇒ rejected", as
   assert.equal(await verifyAccountSignature(fake({ predictMav2: SA }).pc, SA, msg, await rawSig()), null);
   assert.equal(await verifyAccountSignature(fake({ verify: true }).pc, "nope", msg, "0x12"), null);
   assert.equal(await verifyAccountSignature(fake({ verify: true }).pc, SA, msg, "zz"), null);
+});
+// Audit F-07: RPC getCode failure must fail closed (not treat as undeployed).
+test("getCode RPC error: fail closed — former-owner shortcut rejected", async () => {
+  const f = fake({ verify: false, codeError: new Error("RPC timeout"), predictMav2: SA });
+  assert.equal(await verifyAccountSignature(f.pc, SA, msg, await rawSig(), owner.address), null);
+  assert.deepEqual(f.calls, ["verify", "code"]);
+  assert.ok(!f.calls.includes("getAddressSemiModular"));
+});
+test("getCode rejection: fail closed even when factory would predict the address", async () => {
+  const f = fake({ verify: false, codeError: new Error("eth_getCode failed"), predictMav2: SA, predictLa: SA });
+  assert.equal(await verifyAccountSignature(f.pc, SA, msg, await rawSig(), owner.address), null);
 });

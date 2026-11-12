@@ -209,6 +209,17 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
             id, stack.id, ev.eventName, lc(a.wallet), a.payer ? lc(a.payer) : a.attestor ? lc(a.attestor) : null, s(a.amount),
             a.id !== undefined ? Number(a.id) : null, a.unlockAt !== undefined ? Number(a.unlockAt) : null, block, ts, l.transactionHash);
           break;
+        case "SnipeEscrowReleased":
+        case "SnipeEscrowToLP": {
+          // F-08: only the coin's own curve may emit these (plain transfer; RewardsVault does NOT notifyReward)
+          const coin: any = coinBy.get(lc(a.token));
+          if (!coin || coin.curve !== src) break;
+          const amt = s(a.amount);
+          const vault = a.vault ? lc(a.vault) : ZERO;
+          db.prepare("INSERT OR IGNORE INTO fee_events (id, stack, kind, token, account, quote, a, b, c, d, e, block, ts, tx) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
+            id, stack.id, ev.eventName, coin.token, vault, coin.quote, amt, null, null, null, null, block, ts, l.transactionHash);
+          break;
+        }
         case "ReferrerFeesClaimed":
         case "UsdgDepositRecorded":
         case "CreatorFeesClaimed":

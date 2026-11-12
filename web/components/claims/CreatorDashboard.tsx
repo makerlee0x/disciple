@@ -9,35 +9,53 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Hex } from "viem";
-import { anonSigClaimCalls, creatorClaimCalls, creatorDashboard, sendCreatorClaims, type CreatorRocket } from "@/lib/claims/creatorFees";
-import { myStealthCoins, myStealthKeys, stealthKeyFor } from "@/lib/privateLaunch";
+import { creatorClaimCalls, creatorDashboard, sendCreatorClaims, signedAnonClaimCalls, type CreatorRocket } from "@/lib/claims/creatorFees";
+import { myStealthCoins, myStealthKeys } from "@/lib/privateLaunch";
 import { claimErrorText, fmtUsd, preflight, toUsd } from "@/lib/claims/common";
 import { demoRockets, demoRedeploy } from "@/lib/claims/demo";
-import { connectPrivy } from "@/lib/wallet";
+import { rocketsListView, walletPending, type WalletPhase } from "@/lib/claims/rocketsListView";
+import { connectedAddress, connectPrivy, onWallet, restoreSmart } from "@/lib/wallet";
+import { aaSession, onPrivy, privyAuthenticated, privyReady } from "@/lib/aa/session";
 import VerifiedBadge from "@/components/VerifiedBadge";
-import { ConfirmSheet, Money, SampleTag, TxLink, pc, shortA, useCaps, useWalletAddr, type ConfirmLine } from "./ui";
+import { ConfirmSheet, Money, SampleTag, TxLink, pc, shortA, useCaps, type ConfirmLine } from "./ui";
+import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
+import { partitionRelayableCalls, blockedCallsMessage } from "@/lib/trade/gaslessAction";
+import { formatActionFeeNote, quoteGaslessAction } from "@/lib/trade/gaslessActionClient";
 import VerifyRequest from "./VerifyRequest";
 
 type Pending = { rows: CreatorRocket[]; title: string } | null;
 
+function useSettledWallet(): { me: ReturnType<typeof connectedAddress>; phase: WalletPhase } {
+  const [me, setMe] = useState(() => connectedAddress());
+  const [restored, setRestored] = useState(false);
+  const [privy, setPrivy] = useState(() => privyReady());
+  useEffect(() => onWallet(setMe), []);
+  useEffect(() => onPrivy(() => setPrivy(true)), []);
+  useEffect(() => { void restoreSmart().finally(() => setRestored(true)); }, []);
+  const pending = walletPending(me, privy, privyAuthenticated() || !!aaSession(), restored);
+  const phase: WalletPhase = me ? "in" : pending ? "unknown" : "none";
+  return { me, phase };
+}
+
 export default function CreatorDashboard() {
-  const me = useWalletAddr();
-  const { caps, ready, demo } = useCaps();
+  const { me, phase } = useSettledWallet();
+  const { caps, demo } = useCaps();
   const [rows, setRows] = useState<CreatorRocket[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   const [busy, setBusy] = useState(false);
   const [sheetErr, setSheetErr] = useState<string | null>(null);
+  const [feeNote, setFeeNote] = useState<string | null>(null);
   const [done, setDone] = useState<Hex | null>(null);
 
   const load = useCallback(async () => {
     if (demo) { setRows(demoRockets(demoRedeploy())); return; }
-    if (!me || !ready) return;
+    if (!me) return;
     setErr(null);
     // private launches: coins announced to this account's stealth keys (one silent owner signature; none on the EOA path)
     const stealth = caps.anonClaims ? await myStealthKeys().then((k) => myStealthCoins(pc(), k)).catch(() => []) : [];
     try { setRows(await creatorDashboard(pc(), me, caps, 6, stealth)); } catch (e) { setErr(claimErrorText(e)); setRows([]); }
-  }, [me, ready, demo, caps]);
+  }, [me, demo, caps]);
   useEffect(() => { void load(); }, [load]);
 
   const totals = useMemo(() => {
@@ -53,14 +71,27 @@ export default function CreatorDashboard() {
     ...(r.claimable > BigInt(0) ? [{ label: `$${r.ticker} fees`, raw: r.claimable, asset: r.quote }] : []),
     ...((r.anon || caps.creatorTokenFees) && r.tokenSide && r.tokenSide.claimable > BigInt(0) ? [{ label: `$${r.ticker} token share`, raw: r.tokenSide.claimable, asset: r.tokenSide.asset }] : []),
   ]);
-  const open = (rs: CreatorRocket[], title: string) => { setSheetErr(null); setDone(null); setPending({ rows: rs, title }); };
+  const open = (rs: CreatorRocket[], title: string) => {
+    setSheetErr(null); setDone(null); setFeeNote(null); setPending({ rows: rs, title });
+    if (clientGaslessMode() && me) {
+      void (async () => {
+        try {
+          const calls = [...creatorClaimCalls(rs, caps, me), ...(await signedAnonClaimCalls(pc(), rs, me))];
+          const { relayable, blocked } = partitionRelayableCalls("anonClaim", calls.map((c) => ({ to: c.to, data: c.data })));
+          if (!relayable.length) { setFeeNote(blockedCallsMessage(blocked.length ? blocked : calls.map((c) => ({ to: c.to, data: c.data })))); return; }
+          const q = await quoteGaslessAction({ kind: "anonClaim", signer: me, callCount: relayable.length });
+          setFeeNote(formatActionFeeNote(q) + (blocked.length ? " Some wallet/crew/referral claims can't be relayed yet." : ""));
+        } catch (e) { setFeeNote((e as Error).message ?? "Could not quote the network fee."); }
+      })();
+    }
+  };
   const confirm = async () => {
     if (!pending) return;
     setBusy(true); setSheetErr(null);
     try {
       if (demo) { await new Promise((r) => setTimeout(r, 600)); setDone(`0x${"ab".repeat(32)}` as Hex); return; }
       const calls = creatorClaimCalls(pending.rows, caps, me ?? undefined);
-      if (me && pending.rows.some((r) => r.stealth)) { const k = await myStealthKeys(); calls.push(...(await anonSigClaimCalls(pc(), pending.rows, me, (eph) => stealthKeyFor(k, eph)))); }
+      if (me) calls.push(...(await signedAnonClaimCalls(pc(), pending.rows, me)));
       if (me) await preflight(pc(), calls, me);
       const r = await sendCreatorClaims(calls);
       setDone(r.txHash);
@@ -70,9 +101,10 @@ export default function CreatorDashboard() {
   const hasTok = (r: CreatorRocket) => (r.anon || caps.creatorTokenFees) && (r.tokenSide?.claimable ?? BigInt(0)) > BigInt(0);
   const canClaim = (r: CreatorRocket) => r.claimable > BigInt(0) || hasTok(r);
   const claimable = (rows ?? []).filter(canClaim);
+  const view = rocketsListView(phase, rows, demo);
 
   return (
-    <div className="cl-page" data-testid="creator-dashboard">
+    <div className="cl-page" data-testid="creator-dashboard" data-list={view}>
       <header className="cl-head">
         <div>
           <div className="cl-eyebrow">Creator</div>
@@ -82,15 +114,15 @@ export default function CreatorDashboard() {
         <SampleTag show={demo} />
       </header>
 
-      {!me && !demo ? (
-        <section className="cl-card cl-empty">
+      {view === "signin" ? (
+        <section className="cl-card cl-empty" data-testid="rockets-signin">
           <h3 className="cl-display sm">Sign in to see your rockets</h3>
           <button type="button" className="cl-btn primary" onClick={() => connectPrivy()}>Sign in</button>
         </section>
-      ) : rows == null ? (
-        <section className="cl-card cl-empty"><div className="cl-skel" /><div className="cl-skel short" /></section>
-      ) : !rows.length ? (
-        <section className="cl-card cl-empty">
+      ) : view === "loading" ? (
+        <section className="cl-card cl-empty" data-testid="rockets-loading" aria-busy="true"><div className="cl-skel" /><div className="cl-skel short" /></section>
+      ) : view === "empty" ? (
+        <section className="cl-card cl-empty" data-testid="rockets-empty">
           <h3 className="cl-display sm">No rockets yet</h3>
           <p className="muted">Launch one and its fees show up here.</p>
           <Link className="cl-btn primary" href="/create">Launch a rocket</Link>
@@ -109,7 +141,7 @@ export default function CreatorDashboard() {
           <p className="cl-fine muted">USD uses the live quote price. One transaction for Claim all.</p>
 
           <div className="cl-grid">
-            {rows.map((r) => (
+            {(rows ?? []).map((r) => (
               <article key={r.token} className="cl-card cl-rocket" data-testid="creator-rocket">
                 <div className="cl-rocket-top">
                   <div>
@@ -127,7 +159,7 @@ export default function CreatorDashboard() {
                   )}
                   {r.anon && r.tokenUnclaimable && (
                     <div className="cl-token-side cl-pending-upgrade" data-testid="unclaimable-legacy"
-                      title="This coin launched on the legacy AnonLauncher (v1), which can't claim its post-ascension token share."
+                      title="This rocket launched on the older private launcher. Fees paid in the rocket itself, after it reaches orbit, cannot be claimed from that launcher. Reaching orbit means the starting price path is finished and the rocket moves to the open market on Uniswap."
                       aria-label="Token share unclaimable: legacy launcher.">
                       <span className="muted">Token share <span className="cl-pill">Unclaimable (legacy launcher)</span></span>
                       <Money raw={r.tokenUnclaimable.raw} asset={r.tokenUnclaimable.asset} />
@@ -158,7 +190,7 @@ export default function CreatorDashboard() {
       {pending && (
         <ConfirmSheet title={pending.title} lines={linesOf(pending.rows)} to={me ?? (demo ? "0x5a3c7743d365f770710fe15f4bbf1cec7bc41006" : null)}
           note={pending.rows.length > 1 ? `${pending.rows.length} rockets in one transaction.` : pending.rows[0]?.anon ? "Claimed privately, paid to this account." : "Fees go to the wallet that launched the rocket."}
-          busy={busy} error={sheetErr} done={done} onConfirm={confirm} onClose={() => setPending(null)} />
+          feeNote={feeNote} busy={busy} error={sheetErr} done={done} onConfirm={confirm} onClose={() => setPending(null)} />
       )}
     </div>
   );

@@ -28,6 +28,7 @@ const fmt = (n: number) => n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `
  * once the price fully crosses it a keeper closes it for a 0.1% tip.
  */
 export default function TrampWallPanel({ token, adapter: ext, owner, supply, simulator }: { token: string; adapter?: TrampWallAdapter; owner?: Address; supply?: number; simulator?: boolean }) {
+  const sample = !ext; // live coin pages fall back to the local mock until on-chain tramps land
   const adapter = useMemo(() => ext ?? createMockAdapter(curMcap), [ext]);
   const ME = owner ?? MOCK_ME, SUP = supply ?? 1e9;
   const coin = token as Address;
@@ -118,20 +119,20 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
   if (!graduated) return null;
   return (
     <>
-      <div className="ap-bc z-30 flex gap-2" style={{ bottom: 96 }}>
+      <div className="ap-bc z-30 flex gap-2" style={{ bottom: "calc(96px + var(--ap-safe-bottom))" }}>
         <button data-testid="tw-open" onClick={openFlow}
           className="rounded-full border border-[#ffe7a3]/70 bg-gradient-to-b from-[#3a2a07]/90 to-[#120d02]/90 px-5 py-2 font-display text-sm font-bold tracking-wider text-[#ffe7a3] shadow-[0_0_24px_rgba(255,215,110,.45)] transition hover:scale-105">
-          <Icon name="tramp" size={16} /> TRAMP / <Icon name="wall" size={16} /> WALL
+          <Icon name="tramp" size={16} /> TRAMP / <Icon name="wall" size={16} /> WALL{sample && <span style={{ color: "#ffb0c8" }}> · SAMPLE</span>}
         </button>
         <button data-testid="tw-mine" onClick={() => setListOpen((v) => !v)}
           className="rounded-full border border-white/20 bg-black/60 px-4 py-2 font-mono text-xs text-white/80 hover:text-white">
-          My tramps & walls ({mine.filter((m) => m.status === "active").length})
+          My tramps & walls ({mine.filter((m) => m.status === "active").length}){sample && <span style={{ color: "#ffb0c8" }}> · SAMPLE</span>}
         </button>
       </div>
 
       {listOpen && (
-        <div data-testid="tw-list" style={{ bottom: 190 }} className="ap-bc z-40 w-[420px] rounded-2xl border border-[#ffe7a3]/30 bg-[#07070f]/95 p-4 font-mono text-xs text-white shadow-2xl">
-          <div className="mb-2 font-display text-base text-[#ffe7a3]">My tramps & walls</div>
+        <div data-testid="tw-list" style={{ bottom: "calc(190px + var(--ap-safe-bottom))" }} className="ap-bc z-40 w-[420px] rounded-2xl border border-[#ffe7a3]/30 bg-[#07070f]/95 p-4 font-mono text-xs text-white shadow-2xl">
+          <div className="mb-2 font-display text-base text-[#ffe7a3]">My tramps & walls{sample && <span style={{ color: "#ffb0c8" }}> · SAMPLE</span>}</div>
           {mine.length === 0 && <div className="text-white/50">None yet — place a trampoline under the rocket.</div>}
           {mine.map((t) => (
             <div key={t.id} className="flex items-center justify-between border-t border-white/10 py-2">
@@ -161,8 +162,8 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
           <div data-testid="tw-modal" onClick={(e) => e.stopPropagation()}
             className="relative w-[440px] rounded-3xl border border-[#ffe7a3]/50 bg-gradient-to-b from-[#1b1630] via-[#0c0a18] to-[#05040a] p-6 text-white shadow-[0_0_60px_rgba(255,215,110,.35)]">
             <div className="pointer-events-none absolute -top-5 left-1/2 h-8 w-40 -translate-x-1/2 rounded-[50%] border-4 border-[#ffe7a3]/80 shadow-[0_0_30px_#ffe7a3]" />
-            <h2 className="text-center font-display text-2xl font-bold tracking-wide text-[#ffe7a3]">Place a {kind === "tramp" ? "Trampoline" : "Wall"}</h2>
-            <p className="mb-4 text-center font-mono text-[11px] text-white/60">current mcap {fmt(cur)} · {simulator ? "SIM: " : ""}a limit order — no fee share; once the price fully crosses it a keeper closes it (0.1% tip)
+            <h2 className="text-center font-display text-2xl font-bold tracking-wide text-[#ffe7a3]">Place a {kind === "tramp" ? "Trampoline" : "Wall"}{sample && <span style={{ color: "#ffb0c8" }}> · SAMPLE</span>}</h2>
+            <p className="mb-4 text-center font-mono text-[11px] text-white/60">current mcap {fmt(cur)} · {sample ? "SAMPLE (local only, not on-chain) · " : simulator ? "SIM: " : ""}a limit order — no fee share; once the price fully crosses it a keeper closes it (0.1% tip)
               <br />points: {TRAMP_WALL_POINTS_PER_USD} per $1 of order size, only when filled · cancelled or partly filled = 0</p>
             <div className="mb-4 grid grid-cols-2 gap-2">
               {(["tramp", "wall"] as const).map((k) => (

@@ -13,26 +13,30 @@ import { readCreatorBuyMaxBps, readCreatorBuyQuote } from "./protocol-viem";
 import { LAUNCH_ABI_SHAPE, LAUNCH_MODE_NAME, LaunchMode, effectiveCreatorBuyCapBps, type LaunchAbiShape } from "./launchAbi";
 
 /** The approved draft says "0.77%"; `pct` is rendered from the live creatorBuyMaxBps so the copy can't drift. */
+/** The First BOOST info bubble starts closed and is not persisted. */
+export const FIRST_BOOST_TIP_STARTS_OPEN = false;
+
 export const FIRST_BOOST_COPY = {
   label: "First BOOST (optional)",
   helper: (pct: string) => `BOOST your own rocket in the launch, before anyone else. Enter a $ amount, up to ${pct} of supply. Paid from your cash.`,
   max: (usd: string, tokens: string, pct: string) => `Max ${usd} (${tokens} tokens, ${pct} of supply)`,
   pays: (amount: string, symbol: string) => `≈ ${amount} ${symbol} at the live pair price`,
   estimate: (tokens: string, ticker: string, pct: string) => `≈ ${tokens} $${ticker} (${pct} of supply)`,
-  modeCap: (mode: string, pct: string) => `${mode} launch: your First BOOST can be up to ${pct} of the coins.`,
-  easyLock: "On Easy, your First BOOST stays locked until the rocket ASCENDS. Coins you buy later are free to sell.",
-  pveLogin: "Easy needs a verified email, Google or X login to BOOST. Yours is verified, so you're good to go.",
-  pveLoginUnverified: "Easy needs a verified email, Google or X login to BOOST, and yours isn't verified yet. Sign in with one, or set First BOOST to 0.",
-  // #99: /api/pve/attest verifies the Privy login and relays LoginGate.attest when you launch.
-  pveLoginAttest: "Easy needs a verified email, Google or X login to BOOST. We'll check yours when you launch.",
-  pveLoginUnknown: "Easy needs a verified email, Google or X login to BOOST. Sign in to check yours before your First BOOST.",
+  modeCap: (mode: string, pct: string) => `On ${mode}, your first buy can be up to ${pct} of the coins.`,
+  easyLock: "On Easy, that first buy stays locked until the rocket moves to the open market. Later buys you can sell anytime.",
+  pveLogin: "On Easy, sign in with email, Google, or X before you launch with a first buy.",
+  pveLoginUnverified: "On Easy, sign in with email, Google, or X before you launch with a first buy.",
+  // #99: /api/pve/attest verifies the Privy login; your owner-signed batch submits the global LoginGate.attest.
+  pveLoginAttest: "On Easy, sign in with email, Google, or X before you launch with a first buy.",
+  pveLoginUnknown: "On Easy, sign in with email, Google, or X before you launch with a first buy.",
   overCap: (pct: string, maxUsd: string) => `Over the First BOOST cap: you can buy at most ${pct} of supply. Lower it to ${maxUsd} or less.`,
   balance: (haveUsd: string, symbol: string) => `Not enough ${symbol} for that First BOOST: you have ${haveUsd}.`, // legacy path only (no USDG router)
   // USDG-funded First BOOST (DiscipleRouter.launchWithUsdg): dollars only, the pair coin is never asked for.
   cash: (haveUsd: string) => `Not enough cash for that First BOOST: you have ${haveUsd}. Lower it or deposit more.`,
   cashBalance: (haveUsd: string) => `Cash ${haveUsd}`,
   paysCash: "Paid from your cash. We buy the pair coin for you in the same step.",
-  privateOff: "First BOOST isn't available on private launches yet. Launch first, then BOOST like anyone else.",
+  privateOff: "On a private launch, the First BOOST is paid from your cash.",
+  privateNote: "On a private launch, the First BOOST is paid from your cash and the new coins go to your private address, not your main wallet.",
   invalid: "Enter a $ amount like 25 or 12.5.",
   // SITE new-player cash (DRAFT, pending lee): the First BOOST spends the pair token (STRATEGY), not the USDG cash shown
   // top right, so the balance is labelled by its token and a note says where the money comes from.
@@ -93,6 +97,19 @@ export const modeName = (m: number) => LAUNCH_MODE_NAME[m] ?? `mode ${m}`;
 
 export async function readQuoteBalance(pc: PublicClient, token: Address, owner: Address) {
   return pc.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [owner] });
+}
+
+/**
+ * True when a USDG First BOOST is even one smallest unit over the live cap.
+ * Equal to the cap is allowed. Nulls are not over (the cap is still loading).
+ */
+export function exceedsUsdgFirstBoostCap(usdgIn: bigint | null | undefined, maxUsdg: bigint | null | undefined): boolean {
+  return usdgIn != null && maxUsdg != null && usdgIn > maxUsdg;
+}
+
+/** True when a pair-token First BOOST is even one smallest unit over the live cap. Equal to the cap is allowed. */
+export function exceedsQuoteFirstBoostCap(raw: bigint | null | undefined, maxQuoteIn: bigint | null | undefined): boolean {
+  return raw != null && raw > BigInt(0) && maxQuoteIn != null && raw > maxQuoteIn;
 }
 
 /** Human amount → raw units; null if malformed or too many decimals. */

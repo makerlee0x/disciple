@@ -64,8 +64,8 @@ test("5-arg buyFor is decoded as a curve buy (quoteIn = args[1]); a v4 4-arg buy
   assert.deepEqual(gp.buyIntents([{ to: CURVE, data: v4 }]), []);
 });
 
-test("LAUNCH_SELECTORS = ABI-derived launch / launchCoin / launchWithMode / launchAnon / launchWithUsdg (not router-only launchFor)", () => {
-  const want = new Set([sel(launchpadAbi, "launch"), sel(launchpadAbi, "launchCoin"), sel(launchpadAbi, "launchWithMode"), sel(anonLauncherAbi, "launchAnon"), sel(discipleRouterAbi, "launchWithUsdg")]);
+test("LAUNCH_SELECTORS = ABI-derived launch / launchCoin / launchWithMode / launchAnon / launchAnonWithUsdg / launchWithUsdg (not router-only launchFor)", () => {
+  const want = new Set([sel(launchpadAbi, "launch"), sel(launchpadAbi, "launchCoin"), sel(launchpadAbi, "launchWithMode"), sel(anonLauncherAbi, "launchAnon"), sel(anonLauncherAbi, "launchAnonWithUsdg"), sel(discipleRouterAbi, "launchWithUsdg")]);
   assert.ok(gp.LAUNCH_SELECTORS, "LAUNCH_SELECTORS exported");
   assert.deepEqual(new Set(gp.LAUNCH_SELECTORS), want);
   assert.ok(gp.LAUNCH_SELECTORS.has("0x9c05e6c5"));
@@ -97,6 +97,6 @@ test("launchTargets(46630) includes the v5 DiscipleRouter (deployments json) nex
 });
 
 test("helper selectors in gasPolicy (approve / LoginGate.attest / ReferralRegistry.tryAttribute) match the v5 ABIs", () => {
-  assert.equal(sel(loginGateAbi, "attest"), toFunctionSelector("function attest(address wallet, uint64 expiry, address coin, bytes sig)").toLowerCase());
+  assert.equal(sel(loginGateAbi, "attest"), toFunctionSelector("function attest(address wallet, uint64 expiry, bytes sig)").toLowerCase());
   assert.equal(sel(referralRegistryAbi, "tryAttribute"), toFunctionSelector("function tryAttribute(address wallet, address referrer)").toLowerCase());
 });

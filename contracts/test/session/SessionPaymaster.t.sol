@@ -95,7 +95,7 @@ contract SessionPaymasterTest is Test {
     }
 
     function test_moduleId() public view {
-        assertEq(policy.moduleId(), "disciple.session-policy.1.4.1");
+        assertEq(policy.moduleId(), "disciple.session-policy.1.4.2");
         assertEq(policy.paymaster(), pm);
     }
 
@@ -127,9 +127,18 @@ contract SessionPaymasterTest is Test {
         _exec(_uo(_buyCalls(2e18, 10e18), ""));
     }
 
-    function test_revert_unlimitedApprove() public {
-        vm.expectRevert(abi.encodeWithSelector(P.PaymasterApproveNotExact.selector, type(uint256).max, 2e18));
+    function test_persistentApprove_debitsOnlySignedCap() public {
         _exec(_uo(_buyCalls(type(uint256).max, 10e18), _pmd(pm, 2e18)));
+        assertEq(usdg.allowance(address(acct), pm), type(uint256).max);
+        assertEq(policy.sessionOf(address(acct), E).spent0, 12e18);
+        _exec(_uo(_buyCalls(type(uint256).max, 10e18), _pmd(pm, 3e18)));
+        assertEq(policy.sessionOf(address(acct), E).spent0, 25e18);
+    }
+
+    function test_persistentApprove_doesNotBypassSpendCap() public {
+        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 101e18, CAP));
+        _exec(_uo(_buyCalls(type(uint256).max, 99e18), _pmd(pm, 2e18)));
+        assertEq(policy.sessionOf(address(acct), E).spent0, 0);
     }
 
     function test_revert_nonUsdgApproveToPaymaster() public {

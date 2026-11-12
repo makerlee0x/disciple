@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {PaymasterTestBase} from "../paymaster/PaymasterTestBase.sol";
 import {Deploy} from "../../script/Deploy.s.sol";
 import {DeployPaymaster} from "../../script/DeployPaymaster.s.sol";
+import {DisciplePaymaster} from "../../src/paymaster/DisciplePaymaster.sol";
 import {ReferralRegistry} from "../../src/ReferralRegistry.sol";
 import {UsdgDepositNotifier} from "../../src/UsdgDepositNotifier.sol";
 import {DiscipleHook} from "../../src/DiscipleHook.sol";
@@ -22,7 +23,7 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
 
     function test_deployScripts_envConfig() public {
         _deployScriptWiring();
-        _deployPaymasterWholeUsdg();
+        _deployPaymasterDynamicUnits();
     }
 
     /// @dev Audit #5 / #10 / #1 / #2 / #12: the local deploy script output is wired correctly.
@@ -51,38 +52,35 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         assertTrue(uint160(o.hook) & Hooks.BEFORE_ADD_LIQUIDITY_FLAG != 0);
     }
 
-    /// @dev DeployPaymaster takes WHOLE USDG (PAYMASTER_MAX_COST_USDG), scaled by decimals, bounded to [0.1, 100] USDG.
-    function _deployPaymasterWholeUsdg() internal {
+    /// @dev DeployPaymaster uses dynamic gas units (PAYMASTER_MAX_GAS_PER_OP), requires an owner-supplied stake,
+    ///      keeps no minimum ETH float, and rejects the removed static USDG caps.
+    function _deployPaymasterDynamicUnits() internal {
         vm.chainId(46630);
+        vm.deal(owner, 1 ether);
+        vm.etch(0x0000000071727De22E5E9d8BAf0edAc6f37da032, address(ep).code);
         vm.setEnv("USDG", vm.toString(address(usdg)));
-        vm.setEnv("PAYMASTER_OWNER", vm.toString(owner));
+        vm.setEnv("PAYMASTER_OWNER", vm.toString(address(this)));
         vm.setEnv("PAYMASTER_SIGNER", vm.toString(signer));
         vm.setEnv("PAYMASTER_TREASURY", vm.toString(treasury));
         vm.setEnv("PAYMASTER_MIN_RATE", vm.toString(rate / 10));
         vm.setEnv("PAYMASTER_MAX_RATE", vm.toString(rate * 10));
         vm.setEnv("PAYMASTER_MAX_COST", "0");
+        vm.setEnv("PAYMASTER_MAX_COST_USDG", "0");
         vm.setEnv("PAYMASTER_DEPOSIT_WEI", "0");
-        vm.setEnv("PAYMASTER_STAKE_WEI", "0");
+        vm.setEnv("PAYMASTER_STAKE_WEI", "1"); // unit-test fixture only
 
         DeployPaymaster d = new DeployPaymaster();
-        vm.setEnv("PAYMASTER_MAX_COST_USDG", "2");
-        assertEq(d.run().maxCostCap(), 2 * 10 ** 6); // testnet runbook value: 2 USDG == 2000000 raw
-
-        vm.setEnv("PAYMASTER_MAX_COST_USDG", "100");
-        assertEq(d.run().maxCostCap(), 100 * 10 ** 6);
-
+        vm.setEnv("PAYMASTER_MAX_GAS_PER_OP", "2000000");
+        DisciplePaymaster deployed = d.run();
+        assertEq(deployed.maxGasPerOp(), 2_000_000);
+        assertEq(deployed.getDeposit(), 0, "no minimum ETH float");
+        vm.setEnv("PAYMASTER_STAKE_WEI", "0");
+        vm.expectRevert(bytes("owner must supply PAYMASTER_STAKE_WEI (~$5 of ETH)"));
+        d.run();
+        vm.setEnv("PAYMASTER_STAKE_WEI", "1");
+        vm.setEnv("PAYMASTER_MAX_COST_USDG", "10");
+        vm.expectRevert(bytes("static USDG caps removed: use PAYMASTER_MAX_GAS_PER_OP"));
+        d.run();
         vm.setEnv("PAYMASTER_MAX_COST_USDG", "0");
-        vm.expectRevert(bytes("PAYMASTER_MAX_COST_USDG outside [0.1, 100] USDG"));
-        d.run();
-
-        vm.setEnv("PAYMASTER_MAX_COST_USDG", "101");
-        vm.expectRevert(bytes("PAYMASTER_MAX_COST_USDG outside [0.1, 100] USDG"));
-        d.run();
-
-        vm.setEnv("PAYMASTER_MAX_COST_USDG", "2");
-        vm.setEnv("PAYMASTER_MAX_COST", "2000000");
-        vm.expectRevert(bytes("PAYMASTER_MAX_COST (raw) removed: use PAYMASTER_MAX_COST_USDG"));
-        d.run();
-        vm.setEnv("PAYMASTER_MAX_COST", "0");
     }
 }

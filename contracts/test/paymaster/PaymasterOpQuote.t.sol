@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {PaymasterTestBase} from "./PaymasterTestBase.sol";
 import {IEntryPoint} from "../vendor/aa-v07/interfaces/IEntryPoint.sol";
 import {PackedUserOperation as EpOp} from "../vendor/aa-v07/interfaces/PackedUserOperation.sol";
@@ -25,9 +26,15 @@ contract PaymasterOpQuoteTest is PaymasterTestBase {
     }
 
     function _signOp(EpOp memory op, uint256 m) internal view returns (EpOp memory) {
+        return _signDomain(op, m, false);
+    }
+
+    function _signDomain(EpOp memory op, uint256 m, bool launch) internal view returns (EpOp memory) {
         op.paymasterAndData = abi.encodePacked(_pmPrefix(), until, afterTs, rate, m, new bytes(65));
         PmOp memory po = abi.decode(abi.encode(op), (PmOp));
-        bytes32 h = MessageHashUtils.toEthSignedMessageHash(this.opHash(po, m));
+        bytes32 h = MessageHashUtils.toEthSignedMessageHash(
+            launch ? pm.getLaunchOpHash(po, until, afterTs, rate, m) : this.opHash(po, m)
+        );
         (uint8 v, bytes32 rr, bytes32 s) = vm.sign(signerPk, h);
         op.paymasterAndData = abi.encodePacked(_pmPrefix(), until, afterTs, rate, m, rr, s, v);
         return op;
@@ -100,6 +107,99 @@ contract PaymasterOpQuoteTest is PaymasterTestBase {
         assertTrue(this.opHash(po, big) != pm.getHash(other, until, afterTs, rate, big));
     }
 
+    function _largeOp() internal returns (EpOp memory op) {
+        vm.startPrank(owner);
+        pm.setBounds(rate / 10, rate * 10, 2_000_000);
+        pm.setLaunchGasLimit(3_000_000);
+        vm.stopPrank();
+        op = _op(_approveThen(big, _transferCall(sink, 1)));
+        op.accountGasLimits = bytes32((VERIF_GAS << 128) | uint256(1_500_000));
+    }
+
+    function test_launchTier_onlyExplicitLaunchDomainGetsLargerCap() public {
+        EpOp memory op = _largeOp();
+        op = _signAcct(_signOp(op, big));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IEntryPoint.FailedOpWithRevert.selector,
+                0,
+                "AA33 reverted",
+                abi.encodeWithSelector(DisciplePaymaster.GasLimitAboveCap.selector, 2_210_000, 2_000_000)
+            )
+        );
+        _send(op);
+        op = _signAcct(_signDomain(op, big, true));
+        (bool ok,,) = _sendRecord(op);
+        assertTrue(ok);
+    }
+
+    function test_launchTier_cachedAllowanceCannotEscalate() public {
+        EpOp memory op = _largeOp();
+        op = _signAcct(_signPm(op, until, afterTs, rate, big, signerPk));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IEntryPoint.FailedOpWithRevert.selector,
+                0,
+                "AA33 reverted",
+                abi.encodeWithSelector(DisciplePaymaster.GasLimitAboveCap.selector, 2_210_000, 2_000_000)
+            )
+        );
+        _send(op);
+    }
+
+    function test_launchTier_defaultDisabledAndOwnerCanDisable() public {
+        assertEq(pm.maxLaunchGasPerOp(), 0);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
+        pm.setLaunchGasLimit(3_000_000);
+        vm.prank(owner);
+        pm.setLaunchGasLimit(3_000_000);
+        vm.prank(owner);
+        pm.setLaunchGasLimit(0);
+        assertEq(pm.maxLaunchGasPerOp(), 0);
+        EpOp memory op = _signAcct(_signDomain(_op(_approveThen(big, _transferCall(sink, 1))), big, true));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IEntryPoint.FailedOpWithRevert.selector,
+                0,
+                "AA33 reverted",
+                abi.encodeWithSelector(DisciplePaymaster.GasLimitAboveCap.selector, 1_010_000, 0)
+            )
+        );
+        _send(op);
+    }
+
+    function test_launchTier_boundToNonceAndFeesAndCallData() public {
+        EpOp memory op = _signDomain(_largeOp(), big, true);
+        op.nonce = uint256(1) << 64;
+        op = _signAcct(op);
+        vm.expectRevert(_aa34(0));
+        _send(op);
+        op = _signDomain(_largeOp(), big, true);
+        op.gasFees = bytes32((TIP << 128) | (MAX_FEE + 1));
+        op = _signAcct(op);
+        vm.expectRevert(_aa34(0));
+        _send(op);
+        op = _signDomain(_largeOp(), big, true);
+        op.callData = _approveThen(big, _transferCall(sink, 2));
+        op = _signAcct(op);
+        vm.expectRevert(_aa34(0));
+        _send(op);
+    }
+
+    function test_launchTier_cannotReuseNextNonceOrRaiseGasLimits() public {
+        EpOp memory op = _signAcct(_signDomain(_largeOp(), big, true));
+        _send(op);
+        op.nonce++;
+        op = _signAcct(op);
+        vm.expectRevert(_aa34(0));
+        _send(op);
+        op = _signDomain(_largeOp(), big, true);
+        op.preVerificationGas++;
+        op = _signAcct(op);
+        vm.expectRevert(_aa34(0));
+        _send(op);
+    }
+
     /// @dev Byte parity with web/lib/aa/paymaster.ts paymasterQuoteHash (same vector in scripts/test-paymaster.mts).
     function test_opHashVector_matchesWeb() public {
         assertEq(pm.OP_QUOTE_TYPEHASH(), keccak256("DisciplePaymaster.OpQuote(v1)"));
@@ -117,9 +217,17 @@ contract PaymasterOpQuoteTest is PaymasterTestBase {
         po.paymasterAndData = abi.encodePacked(at, uint128(120_000), uint128(80_000), new bytes(141));
         bytes32 h = this.opHashAt(DisciplePaymaster(at), po);
         assertEq(h, OP_VECTOR);
+        assertEq(
+            this.launchHashAt(DisciplePaymaster(at), po),
+            0x03cd01e2d63175aaf435ec6bda5c23a49001b25a2607bafe132d57e562ee52eb
+        );
     }
 
     bytes32 constant OP_VECTOR = 0x2d991e8c73ba211ee1c6e0239394b0ce120ebef3f72bc030d71abb2561fa309f;
+
+    function launchHashAt(DisciplePaymaster p, PmOp calldata po) external view returns (bytes32) {
+        return p.getLaunchOpHash(po, 1_790_000_180, 1_789_999_970, 3000e18, 123456789012345678);
+    }
 
     function opHashAt(DisciplePaymaster p, PmOp calldata po) external view returns (bytes32) {
         return p.getOpHash(po, 1_790_000_180, 1_789_999_970, 3000e18, 123456789012345678);

@@ -15,6 +15,10 @@ export interface Stack {
   /** AnonLauncher v1 (legacy): still the Launchpad creator of private coins launched before v2. */
   anonLauncherLegacy?: Address;
   rewardsVault?: Address;
+  /** Community rewards wallet (deployment json `community.wallet`; COMMUNITY_WALLET overrides the newest stack): the
+   *  post-deploy FeeRouter.rewardsVault / referralSink. An EOA on testnet, so it emits nothing itself — its credits are the
+   *  FeeRouter `TradeFeeRouted` referral payee rows, `ReferrerFeesClaimed`, and the curves' `SnipeEscrowReleased` to it. */
+  communityWallet?: Address;
   referralRegistry?: Address;
   marketLens?: Address;
   quotePricer?: Address;
@@ -47,7 +51,7 @@ export interface Config {
 
 /**
  * Builds stacks from contracts/deployments/rh-testnet-46630.json by walking the `previous` chain:
- *  current (v4, PR #97, startBlock 137540728) -> previous (v3) -> … -> v1 (PR #4).
+ *  current (v5, startBlock 142064001) -> previous (v4, PR #97) -> … -> v1 (PR #4).
  * Also accepts contracts/deployments/web-bundle/addresses.json (its `previous` has no `contracts`, so only that stack is used).
  * STACKS=v3 restricts to a subset. All stacks are indexed (old coins keep trading on their own hook/pools). EXTRA_DEPLOYMENT adds one more json.
  */
@@ -60,6 +64,7 @@ function stackOf(d: any, id: string, fromBlock: bigint): Stack {
     anonLauncher: c.AnonLauncher ?? d.addons?.AnonLauncher?.address,
     anonLauncherLegacy: d.addons?.AnonLauncherLegacy?.address,
     rewardsVault: c.RewardsVault,
+    communityWallet: d.community?.wallet,
     referralRegistry: c.ReferralRegistry,
     marketLens: c.MarketLens ?? d.addons?.MarketLens?.address,
     usdgDepositNotifier: c.UsdgDepositNotifier,
@@ -85,6 +90,7 @@ export function loadConfig(env = process.env): Config {
   });
   // The newest stack's start block can be forced via START_BLOCK (e.g. after a redeploy whose json lacks startBlock).
   if (env.START_BLOCK && stacks.length) stacks[stacks.length - 1].fromBlock = BigInt(env.START_BLOCK);
+  if (env.COMMUNITY_WALLET && stacks.length) stacks[stacks.length - 1].communityWallet = env.COMMUNITY_WALLET as Address;
   if (env.EXTRA_DEPLOYMENT) {
     const x = JSON.parse(fs.readFileSync(env.EXTRA_DEPLOYMENT, "utf8"));
     stacks.push(stackOf(x, env.EXTRA_STACK_ID ?? `v${stacks.length + 1}`, BigInt(x.startBlock ?? 0)));

@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, use, useEffect, useMemo, useState } from "react";
 import { erc20Abi, isAddress, type Address } from "viem";
 import FlightCanvas from "@/components/FlightCanvas";
 import CrewPanel from "@/components/CrewPanel";
@@ -14,6 +15,7 @@ import SnipeCountdown from "@/components/flight/SnipeCountdown";
 import CoinIdentity from "@/components/pairart/CoinIdentity";
 import CoinClaims from "@/components/claims/CoinClaims";
 import CardChrome from "@/components/flight/CardChrome";
+import NameLockCopyBanner from "@/components/NameLockCopyBanner";
 import DexChart from "@/components/flight/DexChart";
 import { isDeployed } from "@/lib/chains";
 import { DEMO_POOL, STRATEGY_TOKEN } from "@/lib/config";
@@ -56,6 +58,7 @@ function FlightInner({ address }: { address: string }) {
 
   return (
     <>
+      {isDeployed() && !demo0 && isAddress(address) && <NameLockCopyBanner coin={address} />}
       <FlightCanvas search={search} />
       {/* CREW card: off by default since the Oct 30 cleanup (NEXT_PUBLIC_FEATURE_CREW_CARD=1 brings it back); its buy presets + orb-rain unlock are gone even then (pass 2) */}
       {CREW_CARD_ENABLED && <CrewPanel coin={address} />}
@@ -75,11 +78,31 @@ function FlightInner({ address }: { address: string }) {
   );
 }
 
+function CoinLost() {
+  return (
+    <div className="ds-lost" data-testid="coin-lost">
+      <div>
+        <h1>404</h1>
+        <h2>No rocket at this address</h2>
+        <p>That path isn&apos;t a coin address — check the link, or pick a live rocket from the launchpad.</p>
+        <div className="actions">
+          <Link href="/" className="ds-btn gold">Back to the Launchpad</Link>
+          <Link href="/create" className="ds-btn">Launch a Rocket</Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CoinPage({
   params,
 }: {
-  params: { address: string };
+  params: Promise<{ address: string }>;
 }) {
+  const { address } = use(params);
+  if (!isAddress(address) && address.toLowerCase() !== DEMO_POOL.address) {
+    return <CoinLost />;
+  }
   return (
     <Suspense
       fallback={
@@ -88,7 +111,7 @@ export default function CoinPage({
         </div>
       }
     >
-      <FlightInner address={params.address} />
+      <FlightInner address={address} />
     </Suspense>
   );
 }

@@ -6,6 +6,7 @@
  */
 import { fetchUsernameStatus } from "./profile";
 import { lookupGuild } from "./guildClient";
+import { publishUsernameDisplayCap } from "./defaultUsername";
 
 const TTL_MS = 5 * 60_000;
 type Hit = { at: number; name: string | null };
@@ -57,6 +58,7 @@ export function chipLabel(username: string | null | undefined, address: string):
  */
 export function publishTraderName(address: string | null | undefined, fetcher?: NameFetcher) {
   if (typeof window === "undefined" || !isAddr(address)) return;
+  publishUsernameDisplayCap();
   const k = address.toLowerCase();
   void lookupGuild(k);
   const w = window as unknown as { __discipleNames?: Record<string, string> };

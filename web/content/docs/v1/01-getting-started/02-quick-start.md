@@ -22,7 +22,7 @@ See [Deposits, withdrawals and gas](/docs/funds).
 
 ## 3. Pick a rocket
 
-The **Launchpad** lists rockets. Open one to fly it: the chart becomes the sky, and the rocket's altitude is its market cap.
+The **Launchpad** lists rockets. Open one to fly it. Flight is the screen for that rocket: the chart becomes the sky, and altitude is how high the rocket's value has climbed, shown as named tiers.
 
 ## 4. BOOST
 

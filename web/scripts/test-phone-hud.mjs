@@ -1,4 +1,4 @@
-// Phone HUD v3 (<740px, lee 10:36 CT): layout math, engine gating, drag-to-steer (unit + handler harness), worker forwarding,
+// Phone HUD v3 (≤760px, lee 10:36 CT): layout math, engine gating, drag-to-steer (unit + handler harness), worker forwarding,
 // trade-bar / amount-sheet wiring, tier label. Desktop paths must stay untouched.
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
@@ -23,9 +23,11 @@ for (const [w, h, top] of [[390, 844, 60], [360, 780, 60], [375, 667, 60]]) {
   ok(L.body.h >= 200, `${w}x${h}: body tall enough for 4+ feed rows (${L.body.h})`);
   ok(L.dTop > L.pillTop + 46 + 120, `${w}x${h}: rocket room between pill and drawer`);
 }
+{ const L = phoneLayout({ w: 390, h: 844, topBottom: 60, safeBottom: 34 });
+  ok(L.btnTop + 68 === 844 - 22 - 34, "safeBottom lifts BOOST/DUMP above the home indicator"); }
 // 2) drawer: Feed / Holders / Chart / Crew / Chat / Run (mockup copy), one at a time, closes on swipe down / dim tap / Esc
 const labels = [...hud.matchAll(/\{ id: "(\w+)", label: "([^"]+)"/g)].map((m) => m[2]);
-ok(labels.join() === "Feed,Holders,Chart,Crew,Chat,Position", "six drawer tabs from the mockup (Run → Position, lee Oct 30)");
+ok(labels.join() === "Feed,Holders,Chart,Crew,Position", "five drawer tabs; Chat exists only inside the Holders card");
 ok(!/PHONE_TABS|phone-tabs|"STAT"|"T\/W"/.test(hud), "old 8 edge tabs removed");
 ok(/data-testid="phone-dim" onPointerDown=\{\(e\) => \{ e\.preventDefault\(\); setSheet\(null\); \}\}/.test(hud), "tap the dimmed sky closes");
 ok(/e\.clientY - s\.y > 36\) setSheet\(null\)/.test(hud) && /e\.key === "Escape" && sheetRef\.current\) setSheet\(null\)/.test(hud), "swipe down / Esc close");
@@ -36,18 +38,19 @@ ok(hud.match(/DRAWER_BG = "([^"]+)"/)[1] === eng.match(/const PH_DRAWER_BG='([^'
 ok(/html\.ap-phone \[data-testid="settings-btn"\]/.test(hud) && !/phone-settings/.test(hud), "gear hidden on phone; no interim Run-tab Settings button (SITE Sidebar 'Settings' item, #149)");
 ok(!/#exitX/.test(hud), "no ✕ in the top row any more (coin-screen cleanup, lee Oct 30): no dead #exitX styling left");
 // 3) engine gating: desktop branches unchanged, phone draws pill + the open drawer tab only
-const ph = new Function("window", `const HUD_NARROW_W=740;\n${eng.match(/function phoneHud\(w,clean\)\{[^\n]+/)[0]}\nreturn phoneHud;`);
+const ph = new Function("window", `const HUD_NARROW_W=${PHONE_W};\n${eng.match(/function phoneHud\(w,clean\)\{[^\n]+/)[0]}\nreturn phoneHud;`);
 const P = { on: true, sheet: null };
-ok(ph({ __phoneHud: P })(390, false) === P && ph({ __phoneHud: P })(1440, false) === null && ph({ __phoneHud: P })(390, true) === null && ph({})(390, false) == null, "phoneHud(): phone only, never CLEAN / desktop");
+ok(PHONE_W === 760, "PHONE_W matches site chrome max-width:760px");
+ok(ph({ __phoneHud: P })(390, false) === P && ph({ __phoneHud: P })(760, false) === P && ph({ __phoneHud: P })(1440, false) === null && ph({ __phoneHud: P })(390, true) === null && ph({})(390, false) == null, "phoneHud(): ≤760 only, never CLEAN / desktop");
 for (const re of [/if \(PH\) drawPhonePill\(m,ti,PH\); else \{\n  \/\/ top-left: ONE header card[^\n]*\n[^\n]*\n[^\n]*\n  const HY=coinIdRowH\(\);\n  if \(cardBegin\('header',20,18,380,130\+HY\)\)\{   \/\* @cards \*\/\n  panel\(20,18,380,130\+HY\); ctx\.save\(\); ctx\.translate\(0,HY\);/, /if \(!PH&&STATUS_BOX\)\{\n  panel\(RX,RT,CW,92\);/,
-  /\n  pushHolders\(top,kothTitle\);   \/\*/, /else if \(cardBegin\('trades',20,H-160,310,140\)\)\{ const FX=20, FY=H, FW=310;/, /if \(S\.controlsDocked\) pushControls\(\); else if \(!PH&&cardBegin\('controls',RX,H-104,310,84\)\) \{ panel\(RX,H-104,310,84\);/,
-  /PH\.sheet==='holders'\) drawPhoneHolders\(PH,top,kothTitle\)/, /PH\.sheet==='feed'\) drawPhoneFeed\(PH\)/, /if \(PH\) AMMO_HIT\.forEach\(R=>\{ R\.x=-1e9;/,
+  /\n  pushHolders\(top,kothTitle\);   \/\*/, /else if \(cardBegin\('trades',20,H-160,310,140\)\)\{ const FX=20, FY=H, FW=310;/, /if \(S\.controlsDocked\) pushControls\(\);/,
+  /PH\.sheet==='feed'\) drawPhoneFeed\(PH\)/, /if \(PH\) AMMO_HIT\.forEach\(R=>\{ R\.x=-1e9;/,
   /return P\.sheet==='chart'&&B\?\{x:/, /if\(P\?P\.sheet!=='chart':!C\.on\) return;/, /PD&&PD\.drawer&&PD\.dTop>0\?Math\.min\(ROCKET_Y,PD\.dTop-44\):ROCKET_Y/])
   ok(re.test(eng), "engine: " + re.source.slice(0, 60));
 ok(!/cardBegin\('holders'/.test(eng), "engine: no desktop TOP HOLDERS card (lee Oct 31: the chat HOLDERS tab is the list)");
 ok(!/drawPhonePresets|drawPhoneMcap/.test(eng), "no canvas preset chips / big mcap card on phones");
 ok(/a 'SIM' tag in paper \/ simulated market \(final/.test(eng) && /const sim=source\.isSim\|\|!isLive\(\);/.test(eng) && eng.split("\n").filter((l) => /PLACEHOLDER/.test(l)).every((l) => /PLACEHOLDER copy \(pending lee \+ BRAND\)/.test(l)), "SIM tag (final) on paper / sim; only the post-grad copy is marked PLACEHOLDER (pending lee + BRAND)");
-ok(/\{ id: "run", label: "Position" \}/.test(hud) && !/label: "Run"/.test(hud) && /aria-label="Open panels \(feed, holders, chart, crew, chat, position\)"/.test(hud) && /data-ph-sheet="run"\] \.ap-bc:has\(> \[data-testid="tw-open"\]\)/.test(hud) && /data-ph-sheet="run"\] \[data-testid="tw-list"\]/.test(hud), "drawer tab label Position (was Run; id stays run), tramps & walls live under it (no T/W tab)");
+ok(/\{ id: "run", label: "Position" \}/.test(hud) && !/label: "Run"/.test(hud) && /aria-label="Open panels \(feed, holders, chart, crew, position\)"/.test(hud) && /data-ph-sheet="run"\] \.ap-bc:has\(> \[data-testid="tw-open"\]\)/.test(hud) && /data-ph-sheet="run"\] \[data-testid="tw-list"\]/.test(hud), "drawer tab label Position (was Run; id stays run), tramps & walls live under it (no T/W tab)");
 // 3b) @tier-label / @tier-progress (lee, Oct 30): "+X% to NEXT_TIER" = the mcap increase still needed, pct = (next.lo / mcap − 1) × 100;
 //     bar fill = mcap / next.lo (the same number); phone pill + desktop tier bar, ascended coins too
 {
@@ -93,7 +96,7 @@ ok(/\{ id: "run", label: "Position" \}/.test(hud) && !/label: "Run"/.test(hud) &
     ok(capB + 60 < L.dTop && capB < L.hudTop - 200, `${w}x${h}: caption clear of the drawer and the bottom HUD`);
     ok(0.6 * 11 * "99% to SEVENTH HEAVEN".length <= w - 48, `${w}: longest label fits without truncation`); }
 }
-ok(/r=\{txt:[^\n]*at:Date\.now\(\)\}/.test(eng), "feed rows carry a time for the phone 'ago' column");
+ok(/function feedTradeRow\([^\n]*at=Date\.now\(\),received=true\)/.test(eng) && /r=\{txt:[^\n]*at,received\}/.test(eng), "feed rows preserve supplied time or default to observed time for the phone ago column");
 // 4) drag-to-steer: pure controller (STEER block)
 const steer = eng.slice(eng.indexOf("/*STEER-BEGIN*/"), eng.indexOf("/*STEER-END*/"));
 const T = new Function(`${steer}\nreturn { stepSteerAuto, steerDragDir, steerMargin };`)();
@@ -153,7 +156,7 @@ ok(/data-testid=\{b \? "phone-amt-buy" : "phone-amt-sell"\}/.test(bar) && /\.ph-
 // 8) PnL line + panels
 ok(/\.__pnlView = detail;/.test(pnl) && /addEventListener\("disciple:phonesheet", onSheet\)/.test(pnl), "PnlHud: view mirrored for the PnL line; Run tab hook kept");
 ok(/No position yet/.test(hud) && /disciple:pnlview/.test(hud), "quiet PnL line");
-ok(/html\.ap-phone\[data-ph-sheet="run"\] \.pnl-hud/.test(hud) && /html\.ap-phone\[data-ph-sheet="chat"\] \[data-testid="chat-dock"\]/.test(hud), "Crew / Chat / Run reuse the existing panels");
+ok(/html\.ap-phone\[data-ph-sheet="run"\] \.pnl-hud/.test(hud) && /html\.ap-phone\[data-ph-sheet="holders"\] \[data-testid="chat-dock"\]/.test(hud), "Crew / Holders+Chat / Run reuse the existing panels");
 ok(/snipe-chip/.test(hud), "anti-snipe chip kept visible");
 // Settings: SITE's Sidebar item (#149) sends a plain Event (no detail) → the listener must not need a CustomEvent
 ok(/const o = \(\) => openMenu\(\); addEventListener\("disciple:settings-open", o\);/.test(sm), "SettingsMenu opens on a plain Event('disciple:settings-open') (no detail read)");

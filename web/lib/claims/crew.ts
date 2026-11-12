@@ -1,3 +1,4 @@
+import { scanEventHistory } from "./eventHistory";
 /**
  * CREW rewards (v4, PVE coins only — mode TRENCH=0, PVE=1, PVP=2). A 0.777% profit tax on DUMPs feeds a holder pool:
  *   mode  Launchpad.modeOf(token)
@@ -13,6 +14,8 @@ import { bondingCurveAbi, launchpadAbi } from "../abi";
 import { deployment } from "../chains";
 import type { Call } from "../aa/core";
 import { execCalls } from "../wallet";
+import { clientGaslessMode } from "../aa/sponsorshipMode";
+import { blockedActionMessage } from "../trade/gaslessAction";
 import { assetMeta, indexerGet, lc, type Asset } from "./common";
 import { coinFacts, curveOf, MODE } from "../protocol-viem";
 
@@ -55,6 +58,7 @@ export async function crewPositions(pc: PublicClient, holder: Address): Promise<
 export const crewClaimCall = (token: Address): Call => ({ to: deployment().launchpad, data: encodeFunctionData({ abi: launchpadAbi, functionName: "claim", args: [token] }) });
 export async function claimCrew(tokens: Address[]) {
   if (!tokens.length) throw new Error("Nothing to claim yet.");
+  if (clientGaslessMode()) throw new Error(blockedActionMessage("Launchpad.claim(address)"));
   return execCalls(tokens.map(crewClaimCall));
 }
 
@@ -64,7 +68,7 @@ export async function crewFeed(pc: PublicClient, token: Address, n = 8): Promise
   const idx = await indexerGet<{ events: { seller: string; tax: string; gross: string; tx: string; block: number; ts: number }[] }>(`/coins/${token}/profit-tax?limit=${n}`);
   if (idx) return idx.events.map((r) => ({ seller: r.seller as Address, tax: BigInt(r.tax), grossQuote: BigInt(r.gross), tx: r.tx as Hex, block: BigInt(r.block), ts: r.ts }));
   const curve = await curveOf(pc, token);
-  const logs = (await pc.getContractEvents({ address: curve, abi: bondingCurveAbi, eventName: "ProfitTaxCharged", fromBlock: deployment().fromBlock, toBlock: "latest" }).catch(() => [])) as unknown as
+  const logs = (await scanEventHistory(pc, (fromBlock, toBlock) => pc.getContractEvents({ address: curve, abi: bondingCurveAbi, eventName: "ProfitTaxCharged", fromBlock, toBlock }), deployment().fromBlock).catch(() => [])) as unknown as
     { args: { seller: Address; tax: bigint; grossQuote: bigint }; transactionHash: Hex; blockNumber: bigint }[];
   return logs.slice(-n).reverse().map((l) => ({ seller: l.args.seller, tax: l.args.tax, grossQuote: l.args.grossQuote, tx: l.transactionHash, block: l.blockNumber }));
 }

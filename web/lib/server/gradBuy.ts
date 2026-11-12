@@ -32,6 +32,7 @@ import { DEPLOYMENTS, ZERO } from "../chains";
 import { usdgToQuote, withGradMargin } from "../trade/gradNeed";
 
 export type CurveInfo = { token: string; quote: string; graduated: boolean };
+export type CurveMeta = { token: string; quote: string };
 export type GradCheck = { curveOf: string; graduates: boolean; balance: bigint; allowance: bigint };
 export type GradReads = {
   router?: string;
@@ -45,6 +46,9 @@ export type GradReads = {
   curveOf(token: string): Promise<string>;
   /** One batch: curve.token(), curve.quote(), curve.graduated(). */
   curveInfo(curve: string): Promise<CurveInfo>;
+  /** One batch: curve.token(), curve.quote() only — both `immutable` in BondingCurve. Admission (checkSponsoredCalls)
+   *  needs only these; absent ⇒ curveInfo. Never carries graduated (relayCaps / isGradBuyOp keep fresh curveInfo). */
+  curveMeta?(curve: string): Promise<CurveMeta>;
   /** One batch: Launchpad.curveOf(token), curve.quoteBuy(quoteIn).graduates, payToken.balanceOf(owner), payToken.allowance(owner, spender). */
   check(a: { token: string; curve: string; quoteIn: bigint; payToken: string; owner: string; spender: string }): Promise<GradCheck>;
   /** router.quoteUsdgQuoteSwap(quote, true, usdgIn).amountOut — the quote a pre-grad buyWithUsdg delivers to a non-USDG
@@ -123,6 +127,11 @@ export function chainGradReads(pc: PublicClient, chainId: number, over: { paymas
         { ...c, functionName: "token" }, { ...c, functionName: "quote" }, { ...c, functionName: "graduated" },
       ]);
       return { token, quote, graduated };
+    },
+    async curveMeta(curve) {
+      const c = { address: curve as Address, abi: curveAbi } as const;
+      const [token, quote] = await mc<[string, string]>([{ ...c, functionName: "token" }, { ...c, functionName: "quote" }]);
+      return { token, quote };
     },
     async check({ token, curve, quoteIn, payToken, owner, spender }) {
       if (!lp) return { curveOf: ZERO, graduates: false, balance: BigInt(0), allowance: BigInt(0) };

@@ -153,3 +153,32 @@ describe("params + list cache", () => {
     } finally { srv.close(); }
   });
 });
+
+describe("F-06 malformed request target", () => {
+  it("returns 400 and keeps the process alive on an invalid absolute-form URL", async () => {
+    const net = await import("node:net");
+    const api = new Api(seeded(), null, cfg);
+    const srv = api.server();
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+    const port = (srv.address() as any).port;
+    try {
+      const body = await new Promise<string>((resolve, reject) => {
+        const s = net.createConnection({ host: "127.0.0.1", port }, () => {
+          s.write("GET http://[ HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+        });
+        const chunks: Buffer[] = [];
+        s.on("data", (c) => chunks.push(c));
+        s.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+        s.on("error", reject);
+        setTimeout(() => reject(new Error("timeout")), 5000);
+      });
+      expect(body.startsWith("HTTP/1.1 400")).toBe(true);
+      expect(body).toMatch(/Invalid URL|bad request/i);
+      // process still serving after the bad request
+      const ok = await fetch(`http://127.0.0.1:${port}/coins`);
+      expect(ok.status).toBe(200);
+    } finally {
+      srv.close();
+    }
+  });
+});

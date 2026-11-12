@@ -1,3 +1,4 @@
+import { scanEventHistory } from "./eventHistory";
 /**
  * Reads behind the combined Rewards section (profile). Every number is live: contract views for what is claimable
  * now, FeeRouter / BondingCurve / AnonLauncher logs for what was earned and claimed. No sample data here (the demo
@@ -9,9 +10,11 @@ import { deployment } from "../chains";
 import { curveOf, readMarket } from "../protocol-viem";
 import type { Caps } from "./capabilities";
 import { assetMeta, lc, type Asset } from "./common";
-import { anonSigClaimCalls, creatorDashboard, referralBalances, type CreatorRocket, type ReferralBalance } from "./creatorFees";
-import { myStealthKeys, stealthKeyFor } from "../privateLaunch";
+import { creatorDashboard, referralBalances, signedAnonClaimCalls, type CreatorRocket, type ReferralBalance } from "./creatorFees";
 import { execCalls } from "../wallet";
+import { clientGaslessMode } from "../aa/sponsorshipMode";
+import { blockedCallsMessage, partitionRelayableCalls } from "../trade/gaslessAction";
+import { sendGaslessAction } from "../trade/gaslessActionClient";
 import { crewPositions } from "./crew";
 import {
   claimAllCalls, feeRouteEarnings, groupHistory, selectClaimCalls, sendClaimAll, priceEarnings, summarize, usdOf,
@@ -79,8 +82,8 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
     caps.referrerFees ? referralBalances(pc, me).catch(warn("referral balances")) : null,
     anyCreator ? creatorDashboard(pc, me, caps, 1, stealth).catch(warn("creator rockets")) : null,
     caps.crew ? crewPositions(pc, me).catch(warn("crew positions")) : null,
-    pc.getContractEvents({ address: d.feeRouter, abi: feeRouterAbi, eventName: "TradeFeeRouted", fromBlock: d.fromBlock, toBlock: "latest" }).catch(warn("fee history")),
-    caps.referrerFees ? pc.getContractEvents({ address: d.feeRouter, abi: feeRouterAbi, eventName: "ReferrerFeesClaimed", args: { referrer: me }, fromBlock: d.fromBlock, toBlock: "latest" }).catch(warn("referral claims")) : null,
+    scanEventHistory(pc, (fromBlock, toBlock) => pc.getContractEvents({ address: d.feeRouter, abi: feeRouterAbi, eventName: "TradeFeeRouted", fromBlock, toBlock }), d.fromBlock).catch(warn("fee history")),
+    caps.referrerFees ? scanEventHistory(pc, (fromBlock, toBlock) => pc.getContractEvents({ address: d.feeRouter, abi: feeRouterAbi, eventName: "ReferrerFeesClaimed", args: { referrer: me }, fromBlock, toBlock }), d.fromBlock).catch(warn("referral claims")) : null,
     caps.referrerFees ? referralPaused(pc) : false,
   ]);
   const rockets = creator ?? [];
@@ -90,7 +93,7 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
   const crewCurves = (await Promise.all(crewRows.map((r) => curveOf(pc, r.token).then((c) => ({ token: r.token, curve: c, quote: r.quote })).catch(() => null))))
     .filter((x): x is NonNullable<typeof x> => !!x);
   const crewClaims = crewCurves.length
-    ? ((await pc.getContractEvents({ address: crewCurves.map((c) => c.curve), abi: bondingCurveAbi, eventName: "HolderRewardsClaimed", args: { holder: me }, fromBlock: d.fromBlock, toBlock: "latest" }).catch(warn("crew claims"))) ?? [])
+    ? ((await scanEventHistory(pc, (fromBlock, toBlock) => pc.getContractEvents({ address: crewCurves.map((c) => c.curve), abi: bondingCurveAbi, eventName: "HolderRewardsClaimed", args: { holder: me }, fromBlock, toBlock }), d.fromBlock).catch(warn("crew claims"))) ?? [])
     : [];
 
   // earnings from fee routes
@@ -158,10 +161,9 @@ export type ClaimAllResult = { txHash: Hex; deferred: number; skipped: number };
  */
 export async function claimEverything(pc: PublicClient, me: Address, caps: Caps, claim: RewardsData["claim"]): Promise<ClaimAllResult> {
   const calls = claimAllCalls(claim, caps, me);
-  if (caps.anonClaims && claim.creator.some((r) => r.anon && r.stealth)) {
+  if (caps.anonClaims && claim.creator.some((r) => r.anon)) {
     try {
-      const k = await myStealthKeys();
-      calls.push(...(await anonSigClaimCalls(pc, claim.creator, me, (eph) => stealthKeyFor(k, eph))).map((c) => ({ ...c, kind: "creator" as const })));
+      calls.push(...(await signedAnonClaimCalls(pc, claim.creator, me)).map((c) => ({ ...c, kind: "creator" as const })));
     } catch (e) { console.warn("[disciple] rewards: private rocket claim skipped", (e as Error)?.message ?? e); }
   }
   let firstErr: unknown = null;
@@ -173,6 +175,13 @@ export async function claimEverything(pc: PublicClient, me: Address, caps: Caps,
   const pick = selectClaimCalls(calls, ok);
   if (!pick.send.length) throw firstErr ?? new Error("Nothing to claim yet.");
   if (pick.deferred) console.warn("[disciple] rewards: claim list capped", { sent: pick.send.length, deferred: pick.deferred });
+  if (clientGaslessMode()) {
+    const { relayable, blocked } = partitionRelayableCalls("anonClaim", pick.send.map((c) => ({ to: c.to, data: c.data })));
+    if (!relayable.length) throw firstErr ?? new Error(blockedCallsMessage(blocked.length ? blocked : pick.send.map((c) => ({ to: c.to, data: c.data }))));
+    if (blocked.length) console.warn("[disciple] rewards: skipped msg.sender-only claims (no on-behalf variant)", blocked.length);
+    const r = await sendGaslessAction("anonClaim", relayable, pc);
+    return { txHash: r.txHash, deferred: pick.deferred, skipped: pick.skipped + blocked.length };
+  }
   const r = await sendClaimAll(pick.send, execCalls);
   return { txHash: r.txHash, deferred: pick.deferred, skipped: pick.skipped };
 }

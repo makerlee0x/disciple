@@ -7,10 +7,18 @@ import { IS_STATIC_PREVIEW } from "./base-path";
 import { refLink } from "./referral";
 import { claimMessage } from "./usernameClaim";
 import { PROFILE_COPY } from "./copy/profile";
+import { DEFAULT_USERNAME_MAX_LENGTH } from "./defaultUsername";
 
 export const USERNAME_MIN = 3;
-export const USERNAME_MAX = 20;
-export const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+/** Max length for a NEW claimed username. Equals the longest default call sign (lib/defaultUsername
+ *  DEFAULT_USERNAME_MAX_LENGTH, currently 22) so every generated name fits. Enforced on the client and
+ *  the claim route (same pattern as handle limits on X, Instagram and GitHub). Existing already-claimed
+ *  names longer than this are still returned and resolved — the cap applies only to new claims/changes. */
+export const USERNAME_MAX = DEFAULT_USERNAME_MAX_LENGTH;
+export const USERNAME_RE = new RegExp(`^[a-z0-9_]{${USERNAME_MIN},${USERNAME_MAX}}$`);
+/** Stored-username shape for read/resolve paths: charset only, no max, so a name claimed under an older cap still works. */
+export const USERNAME_STORED_RE = /^[a-z0-9_]+$/;
+export const usernameRuleText = () => `${USERNAME_MIN}–${USERNAME_MAX} chars: a–z, 0–9, underscore.`;
 /** Plain reason shown inline and returned by /api/profile/username for a name under USERNAME_MIN. */
 export const USERNAME_SHORT: string = PROFILE_COPY["edit.username.error.short"];
 export const RESERVED = new Set(["admin", "disciple", "support", "root", "api", "you", "settings", "profile"]);
@@ -21,7 +29,7 @@ export function validateUsername(u: string): string | null {
   const n = normalizeUsername(u);
   // Length first, so a short name gets the specific message. Existing names are never re-validated (only a change is).
   if (n.length < USERNAME_MIN) return USERNAME_SHORT;
-  if (!USERNAME_RE.test(n)) return "3–20 chars: a–z, 0–9, underscore.";
+  if (!USERNAME_RE.test(n)) return usernameRuleText();
   if (RESERVED.has(n)) return "That name is reserved.";
   return null;
 }

@@ -11,6 +11,8 @@ import { referralRegistryAbi, tokenAbi, usdgDepositNotifierAbi as depositNotifie
 import { deployment } from "../chains";
 import type { Call } from "../aa/core";
 import { execCalls } from "../wallet";
+import { clientGaslessMode } from "../aa/sponsorshipMode";
+import { blockedActionMessage } from "../trade/gaslessAction";
 import { assetMeta, ZERO_ADDR, type Asset } from "./common";
 
 export type Escrow = { id: number; amount: bigint; unlockAt: number };
@@ -92,6 +94,7 @@ export async function deposit(pc: PublicClient, wallet: Address, amount: bigint)
   if (min != null && amount < min) throw new Error("Deposit is below the minimum.");
   const calls = await depositCalls(pc, wallet, amount);
   // exact approve: the allowance equals this deposit, nothing left over
+  if (clientGaslessMode()) throw new Error(blockedActionMessage("UsdgDepositNotifier.deposit(address,uint256)"));
   return execCalls(calls);
 }
 
@@ -103,6 +106,7 @@ export function withdrawCall(ids: number[]): Call {
 export async function withdraw(escrows: Escrow[]) {
   const ids = escrows.filter((e) => unlocked(e)).map((e) => e.id);
   if (!ids.length) throw new Error("Nothing unlocked yet.");
+  if (clientGaslessMode()) throw new Error(blockedActionMessage("UsdgDepositNotifier.withdraw(uint256[])"));
   return execCalls([withdrawCall(ids)]);
 }
 

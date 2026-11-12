@@ -2,8 +2,10 @@
 
 import TouchGrass from "./flight/TouchGrass";
 import SettingsMenu from "./flight/SettingsMenu";
+import GameRadio from "./flight/GameRadio";
 import ExitConfirm from "./flight/ExitConfirm";
 import { useT } from "@/lib/game/i18n";
+import { exitConfirmArms } from "@/lib/game/exitGuard";
 import { LOADOUT_KEY } from "@/lib/rocketSkin";
 import { useEffect, useRef, useState } from "react";
 import { brandedRocket } from "@/lib/decal";
@@ -16,6 +18,9 @@ import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
 import HoldersBridge from "@/components/flight/HoldersBridge";
 import PhoneHud from "@/components/flight/PhoneHud";
+import { publishUsernameDisplayCap } from "@/lib/defaultUsername";
+
+if (typeof window !== "undefined") publishUsernameDisplayCap();
 
 declare global {
   interface Window {
@@ -26,7 +31,7 @@ declare global {
 }
 
 /** = engine.js HUD_NARROW_W / HUD_NARROW_TOP (narrow screens: right HUD column below the MARKET CAP panel). */
-const HUD_NARROW_W = 740, HUD_NARROW_TOP = 158;
+const HUD_NARROW_W = 760, HUD_NARROW_TOP = 158;
 
 type Props = {
   /** Query string without leading ? (replay, speed, zoom, source, launched, …) */
@@ -209,9 +214,9 @@ export default function FlightCanvas({ search }: Props) {
       (window as unknown as { __walletL?: number }).__walletL = wl;
       (window as unknown as { __wrapL?: number }).__wrapL = Math.round(wrapRef.current?.getBoundingClientRect().left || 0);
       const row = Math.max(12, b + 8);
-      // Phones: the in-canvas status column starts below the MARKET CAP panel (engine.js hudColTop, same 740/158 numbers),
+      // Phones: the in-canvas status column starts below the MARKET CAP panel (engine.js hudColTop, same 760/158 numbers),
       // so CrewPanel / GameChat (stacked on --ap-hud-rt) move down with it. Desktop unchanged.
-      const hudRT = vw < HUD_NARROW_W ? Math.max(row + 10, HUD_NARROW_TOP) : row + 10;   // +10 gap (the 38px gear/✕ row is gone)
+      const hudRT = vw <= HUD_NARROW_W ? Math.max(row + 10, HUD_NARROW_TOP) : row + 10;   // +10 gap (the 38px gear/✕ row is gone)
       const st = document.documentElement.style;
       st.setProperty("--ap-tr-top", row + "px");
       st.setProperty("--ap-hud-rt", Math.max(hudRT, colTop) + "px");   // the engine may move the column below the BUY panel
@@ -244,9 +249,10 @@ export default function FlightCanvas({ search }: Props) {
     if (q.get("source") === "sim" && q.get("chatmock") !== "1") return null;
     return coin || "0x000000000000000000000000000000000000c0de"; })();
   const q0 = new URLSearchParams(search);
-  // EXIT CONFIRM is armed only while a flight is actually running (engine booted, no error) and not on a replay
+  // EXIT CONFIRM is armed only on a timed / simulated practice run (?source=sim), while the engine is Live with no error
+  // and not a replay — not on a regular live rocket (lee, Nov 10).
   const isReplay = q0.get("replay") === "1" || q0.get("source") === "replay";
-  const flightActive = status === "Live" && !err && !isReplay;
+  const flightActive = exitConfirmArms({ status, err: !!err, replay: isReplay, sim: isSimulator });
 
   return (
     <>
@@ -271,12 +277,13 @@ export default function FlightCanvas({ search }: Props) {
       <TouchGrass />
       {/* ESC settings menu (ESC or the Sidebar's Settings; no gear button since the Oct 30 cleanup): Share, Hotkeys, Sound, Language, Display
           (Touch Grass, Orbs) and the Controls reference all live there now, not in the pill row below. */}
+      <GameRadio />
       <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />
       {chatCoin && <GameChat coin={chatCoin} />}
-      {/* phones (<740px): v3 HUD — mcap pill, handle + PnL line, one swipe-up drawer (Feed/Holders/Chart/Crew/Chat/Position); desktop renders nothing */}
+      {/* phones (≤760px): v3 HUD — mcap pill, handle + PnL line, one swipe-up drawer (Feed/Holders/Chart/Crew/Chat/Position); desktop renders nothing */}
       <PhoneHud />
       {/^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") && q0.get("source") !== "sim" && <HoldersBridge coin={q0.get("coin") as string} />}
-      <div className="ap-bc" data-testid="flight-pills" style={{ bottom: 142, zIndex: 25, display: "flex", gap: 8 }}>
+      <div className="ap-bc" data-testid="flight-pills" style={{ bottom: "calc(142px + var(--ap-safe-bottom))", zIndex: 25, display: "flex", gap: 8 }}>
         {!isSimulator && sim.available === true && <button
           type="button"
           data-testid="sim-toggle"
@@ -305,7 +312,7 @@ export default function FlightCanvas({ search }: Props) {
         <div
           style={{
             position: "fixed",
-            bottom: 60,
+            bottom: "calc(60px + var(--ap-safe-bottom))",
             left: "50%",
             transform: "translateX(-50%)",
             zIndex: 40,

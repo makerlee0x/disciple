@@ -12,7 +12,7 @@ const mem = () => { const m = new Map<string, string>(); return { m, getItem: (k
 const A = "0xAbCdEf0123456789abcdef0123456789ABCDEF01", B = "0x1111111111111111111111111111111111111111";
 
 test("every coin-screen card is covered (canvas + DOM)", () => {
-  assert.deepEqual([...CARD_IDS].sort(), ["chart", "chat", "controls", "header", "pnl", "trades"]);
+  assert.deepEqual([...CARD_IDS].sort(), ["chart", "chat", "header", "pnl", "radio", "trades"]);
   assert.equal(CANVAS_CARDS.length + DOM_CARDS.length, CARD_IDS.length);
 });
 

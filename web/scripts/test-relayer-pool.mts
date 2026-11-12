@@ -72,12 +72,11 @@ test("KV down: acquire ⇒ undefined (single key, no scan storm); renew error ke
   clock.t += 30_000; assert.equal(p.current(), undefined);
 });
 
-test("pool OFF (RELAYER_KEY_POOL unset): fastRelay signs with the single RELAYER_PRIVATE_KEY, no KV touched", async () => {
+test("public relay stays disabled even when a relayer key/pool is configured", async () => {
   Object.assign(process.env, { NODE_ENV: "test", RELAYER_PRIVATE_KEY: SINGLE, DRIP_FAUCET_KEY: FAUCET, KV_LOCAL_FILE: "/tmp/disciple-kv-pooltest-never.json" });
   delete process.env.RELAYER_KEY_POOL; delete process.env.UPSTASH_REDIS_REST_URL; delete process.env.KV_REST_API_URL; delete process.env.VERCEL; delete process.env.VERCEL_ENV; delete process.env.RELAYER_ENV;
   const { standardRelayer } = await import("../lib/server/fastRelay");
-  const r1 = await standardRelayer(), r2 = await standardRelayer();
-  assert.equal(r1.address, addr(SINGLE)); assert.equal(r2.address, addr(SINGLE));
+  await assert.rejects(standardRelayer(), /protocol relay disabled/);
   const fs = await import("node:fs");
   assert.equal(fs.existsSync("/tmp/disciple-kv-pooltest-never.json"), false);
 });
@@ -102,14 +101,9 @@ test("AUDIT Info: lease epoch bumps on every re-acquisition; holds(epoch) false 
   assert.equal(p.holds(a!.epoch), false, "an in-flight send from the old epoch may not sign"); assert.equal(p.holds(b!.epoch), true);
 });
 
-test("GAME: streamRelay echoes params[2].pressId on every NDJSON frame (error frame here: no relayer configured)", async () => {
+test("legacy streaming relay is disabled regardless of params or key configuration", async () => {
   const { streamRelay } = await import("../lib/server/relayStream");
-  const saved = process.env.RELAYER_PRIVATE_KEY; delete process.env.RELAYER_PRIVATE_KEY;
-  try {
-    const res = streamRelay([{ sender: "0x" + "00".repeat(20) }, "0x", { pressId: "res-9" }], async () => undefined);
-    const frames = (await res.text()).trim().split("\n").map((l) => JSON.parse(l));
-    assert.ok(frames.length >= 1); assert.ok(frames.every((f) => f.pressId === "res-9"));
-    const none = (await streamRelay([{}, "0x"], async () => undefined).text()).trim().split("\n").map((l) => JSON.parse(l));
-    assert.ok(none.every((f) => !("pressId" in f)));
-  } finally { if (saved !== undefined) process.env.RELAYER_PRIVATE_KEY = saved; }
+  let settled = false;
+  const res = streamRelay([{ sender: "0x" + "11".repeat(20) }, "0x", { pressId: "res-9" }], async () => { settled = true; });
+  assert.equal(res.status, 410); assert.match((await res.json()).error.message, /relay disabled/); assert.equal(settled, false);
 });

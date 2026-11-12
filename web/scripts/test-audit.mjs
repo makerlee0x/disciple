@@ -72,6 +72,7 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   ok(!/INITIALS|"init"/.test(tb.replace(/INITIALS → 25%/, "")) && !/INITIALS/.test(eng), "INITIALS removed (engine + bridge)");
   ok(/fmtShot=v=>fmtMoney\(v\)/.test(eng) && /const fmtShot = fmtMoney/.test(tb), "buttons and buy tiles use the shared formatter");
   ok(/data-testid="custom-sell"/.test(tb) && /data-testid="sell-unit"/.test(tb) && /▼ \{t\("tb\.dump"\)\} \{dumpLabel\}/.test(tb), "custom sell field + %/$ toggle; DUMP shows the exact amount");
+  ok(tb.indexOf("data-testid=\"sell-btn\"") < tb.indexOf("tb.pos") && tb.indexOf("tb.pos") < tb.indexOf("data-testid=\"custom-sell\""), "DUMP stays on the top row with LIVE/pos; sell amount + %/$ toggle sit on the bottom (price-move) row");
   ok(/Math\.min\(sellCustomN, pos\.valueUsd\)/.test(tb) && /Math\.min\(100, sellCustomN\)/.test(tb), "custom sell: $ capped at position value, % capped at 100");
   ok(!/i===am/.test(eng), "no auto-ammo suggestion outline on buy tiles"); }
 // 5) PnL regression: a $60K paper buy at $3.3K–$50K mcap → uPnL ≥ −fee right after, and it tracks the mark afterwards.

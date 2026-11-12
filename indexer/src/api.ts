@@ -4,6 +4,7 @@ import { READS } from "./abi.js";
 import type { Config, Stack } from "./config.js";
 import { dataVersion, type DB } from "./db.js";
 import { candles, graduationPct, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, TOTAL_SUPPLY, virtualQuoteReserve, wad } from "./math.js";
+import { HIDDEN_TEST_COINS, isHiddenCoin } from "./hiddenCoins.js";
 
 /**
  * Quote-amount sums are scaled by each coin's coins.quote_decimals (USDG 6 / 18), never a blanket 1e18; coin-token
@@ -163,6 +164,9 @@ export class Api {
     if (q.get("stack")) { where.push("c.stack=?"); args.push(q.get("stack")); }
     if (q.get("graduated")) { where.push("c.graduated=?"); args.push(q.get("graduated") === "true" ? 1 : 0); }
     if (q.get("creator")) { where.push("c.creator=?"); args.push(q.get("creator")!.toLowerCase()); }
+    // Hidden test coins stay out of list endpoints; GET /coins/:address still resolves (web/lib/home/hiddenCoins).
+    const hidden = Array.from(HIDDEN_TEST_COINS);
+    if (hidden.length) { where.push(`c.token NOT IN (${hidden.map(() => "?").join(",")})`); args.push(...hidden); }
     const order = sort === "volume" ? "volume_usd DESC" : sort === "mcap" ? "last_mcap DESC" : sort === "tier" ? "COALESCE(c.tier,-1) DESC, last_mcap DESC" : "c.launched_block DESC";
     // per-coin aggregates maintained on ingest (coin_stats): no scan over trades per call. Same columns as before.
     const rows = this.db.prepare(
@@ -226,8 +230,33 @@ export class Api {
   rewards() {
     return this.db.prepare(
       `SELECT stack, quote asset, kind, COUNT(*) n, SUM(qd(a, (SELECT c.quote_decimals FROM coins c WHERE c.quote=fee_events.quote AND c.quote_decimals IS NOT NULL LIMIT 1))) sum_a, SUM(qd(b, (SELECT c.quote_decimals FROM coins c WHERE c.quote=fee_events.quote AND c.quote_decimals IS NOT NULL LIMIT 1))) sum_b FROM fee_events
-       WHERE kind IN ('RewardAccrued','SnipeFeeRouted','SnipeFeeRoutedToLP','Distributed') GROUP BY stack, quote, kind`,
+       WHERE kind IN ('RewardAccrued','SnipeFeeRouted','SnipeFeeRoutedToLP','Distributed','SnipeEscrowReleased','SnipeEscrowToLP') GROUP BY stack, quote, kind`,
     ).all();
+  }
+
+  /** Community rewards wallet per stack (FeeRouter.rewardsVault / referralSink after the post-deploy wiring): referral credits
+   *  routed to it (TradeFeeRouted referral payee rows, quote and launch-token units kept apart), its referrer claims, and sniper
+   *  escrow released to it. The old RewardsVault contract's RewardAccrued / Distributed stay in /rewards. */
+  communityRewards() {
+    const qdec = "(SELECT c.quote_decimals FROM coins c WHERE c.token=f.token)";
+    return this.cfg.stacks.filter((s) => s.communityWallet).map((s) => {
+      const w = String(s.communityWallet).toLowerCase();
+      const ref = this.db.prepare(
+        `SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN fee_is_quote=1 THEN qd(amount, ${qdec}) END),0) quote,
+           COALESCE(SUM(CASE WHEN fee_is_quote=0 THEN CAST(amount AS REAL) END),0)/1e18 token
+         FROM fee_credits f WHERE stack=? AND payee=? AND role='referral'`).get(s.id, w) as any;
+      const ev = (kind: string) => this.db.prepare(
+        `SELECT COUNT(*) n, COALESCE(SUM(qd(a, ${qdec})),0) sum FROM fee_events f WHERE stack=? AND kind=? AND account=?`).get(s.id, kind, w) as any;
+      const claims = this.db.prepare(
+        `SELECT COUNT(*) n, COALESCE(SUM(qd(a, (SELECT c.quote_decimals FROM coins c WHERE c.quote=f.quote AND c.quote_decimals IS NOT NULL LIMIT 1))),0) sum
+         FROM fee_events f WHERE stack=? AND kind='ReferrerFeesClaimed' AND account=?`).get(s.id, w) as any;
+      return {
+        stack: s.id, wallet: w, rewardsVaultContract: s.rewardsVault ? String(s.rewardsVault).toLowerCase() : null,
+        referralCredits: { n: ref.n, quote: ref.quote, tokenUnits: ref.token },
+        referrerClaims: claims,
+        snipeEscrowReleased: ev("SnipeEscrowReleased"),
+      };
+    });
   }
 
   holders(token: string, q: URLSearchParams) {
@@ -268,7 +297,7 @@ export class Api {
   feeRouting(token: string) {
     const c = this.coin(token);
     if (!c) return null;
-    const rows = this.db.prepare("SELECT kind, quote, a, b, c, d, e, fee_is_quote FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','SnipeFeeRouted','SnipeFeeRoutedToLP','CreatorFeesClaimed','RewardAccrued')").all(c.token) as any[];
+    const rows = this.db.prepare("SELECT kind, quote, a, b, c, d, e, fee_is_quote FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','SnipeFeeRouted','SnipeFeeRoutedToLP','CreatorFeesClaimed','RewardAccrued','SnipeEscrowReleased','SnipeEscrowToLP')").all(c.token) as any[];
     const sum = (xs: (string | null)[]) => xs.reduce((acc, x) => acc + BigInt(x ?? 0), 0n);
     // audit #11: quote-unit rows only (legacy rows have fee_is_quote NULL = quote); token-unit post-grad fees reported apart
     const tf = rows.filter((r) => r.kind === "TradeFeeRouted" && r.fee_is_quote !== 0);
@@ -281,6 +310,10 @@ export class Api {
       creatorTax: sum(tf.map((r) => r.e)),
       snipeToRewards: sum(sn.map((r) => r.a)), snipeToTreasury: sum(sn.map((r) => r.b)),
       snipeToLPLegacy: sum(rows.filter((r) => r.kind === "SnipeFeeRoutedToLP").map((r) => r.a)),
+      // F-08: current-curve escrow movements (not via RewardAccrued / routeSnipeFee)
+      snipeEscrowReleased: sum(rows.filter((r) => r.kind === "SnipeEscrowReleased").map((r) => r.a)),
+      snipeEscrowToLP: sum(rows.filter((r) => r.kind === "SnipeEscrowToLP").map((r) => r.a)),
+      rewardAccrued: sum(rows.filter((r) => r.kind === "RewardAccrued").map((r) => r.a)),
       creatorClaimed: sum(rows.filter((r) => r.kind === "CreatorFeesClaimed").map((r) => r.a)),
     };
     const usd: any = {};
@@ -513,6 +546,7 @@ export class Api {
       if (p[2] === "trades") return [200, this.trades("trader", p[1], q)];
       if (p[2] === "coins") return [200, this.listCoins(new URLSearchParams({ creator: p[1] }))];
     }
+    if (p[0] === "rewards" && p[1] === "community") return [200, this.communityRewards()];
     if (p[0] === "rewards") return [200, this.rewards()];
     if (p[0] === "orders") return [200, this.allOrders(q)];
     if (p[0] === "tier-breaks") return [200, this.tierBreaks(q)];
@@ -522,14 +556,25 @@ export class Api {
 
   server() {
     return http.createServer(async (req, res) => {
-      const url = new URL(req.url ?? "/", "http://x");
+      // F-06: URL parse + all async work inside try/catch so a malformed absolute-form
+      // request target (e.g. GET http://[) returns 400 instead of rejecting the callback
+      // promise and killing the process under default unhandledRejection behavior.
       let status = 500, body: unknown = { error: "internal" };
-      try { [status, body] = await this.route(req.method ?? "GET", url); } catch (e: any) { status = 400; body = { error: e.message }; }
-      const p = url.pathname.split("/").filter(Boolean);
-      const cacheHdr: Record<string, string> = status === 200 && LIST_CACHE_MS > 0 && isListPath(p)
-        ? { "cache-control": `public, max-age=${Math.round(LIST_CACHE_MS / 1000)}, s-maxage=${Math.round(LIST_CACHE_MS / 1000)}` } : {};
-      res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*", ...cacheHdr });
-      res.end(JSON.stringify(body, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
+      let cacheHdr: Record<string, string> = {};
+      try {
+        const url = new URL(req.url ?? "/", "http://x");
+        try { [status, body] = await this.route(req.method ?? "GET", url); }
+        catch (e: any) { status = 400; body = { error: e?.message ?? "bad request" }; }
+        const p = url.pathname.split("/").filter(Boolean);
+        if (status === 200 && LIST_CACHE_MS > 0 && isListPath(p))
+          cacheHdr = { "cache-control": `public, max-age=${Math.round(LIST_CACHE_MS / 1000)}, s-maxage=${Math.round(LIST_CACHE_MS / 1000)}` };
+      } catch (e: any) {
+        status = 400; body = { error: e?.message ?? "bad request" };
+      }
+      try {
+        res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*", ...cacheHdr });
+        res.end(JSON.stringify(body, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
+      } catch { try { res.destroy(); } catch { /* ignore */ } }
     });
   }
 }
