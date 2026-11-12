@@ -5,7 +5,8 @@
  *   - getAudioContext() / resumeAudio(): one shared AudioContext (radio + the SFX preview blip), resumed after a
  *     user gesture because browsers block autoplay with sound;
  *   - previewBlip(vol): a short WebAudio tick the settings menu plays when the SFX volume changes;
- *   - music channel: the house radio (lib/game/radio.ts), mounted on the flight canvas.
+ *   - music channel: the house radio (lib/game/radio.ts), mounted on the flight canvas;
+ *   - sfx channel: the flight sounds (lib/game/sfx.ts via components/flight/FlightSfx.tsx), driven by the engine's `disciple:sfx` events.
  */
 import { audioLevel, useGameSettings } from "./settings";
 

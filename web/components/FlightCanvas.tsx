@@ -3,6 +3,7 @@
 import TouchGrass from "./flight/TouchGrass";
 import SettingsMenu from "./flight/SettingsMenu";
 import GameRadio from "./flight/GameRadio";
+import FlightSfx from "./flight/FlightSfx";
 import ExitConfirm from "./flight/ExitConfirm";
 import { useT } from "@/lib/game/i18n";
 import { exitConfirmArms } from "@/lib/game/exitGuard";
@@ -15,6 +16,7 @@ import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
 import { paperCurve } from "@/lib/flight/paperCurve";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
+import { wants3D } from "@/lib/flight/view3d/detect";
 import GameChat from "@/components/gamechat/GameChat";
 import HoldersBridge from "@/components/flight/HoldersBridge";
 import PhoneHud from "@/components/flight/PhoneHud";
@@ -53,6 +55,7 @@ export default function FlightCanvas({ search }: Props) {
     let scriptEl: HTMLScriptElement | null = null;
     let stopWorker: (() => void) | null = null;
     let cv: HTMLCanvasElement | null = null;
+    let stop3d: (() => void) | null = null;
     // The canvas is created per boot (not by React): a canvas can be transferred to a worker only once,
     // and Strict Mode / fallback need a fresh one.
     const freshCanvas = () => {
@@ -62,9 +65,26 @@ export default function FlightCanvas({ search }: Props) {
       wrapRef.current?.appendChild(cv);
       return cv;
     };
-    const bootMain = async () => {
-      freshCanvas();
+    const bootMain = async (qs: string) => {
+      const c = freshCanvas();
       if (wrapRef.current) wrapRef.current.dataset.render = "main";
+      // 3D flight view (lib/flight/view3d: Three.js WebGPURenderer, WebGL 2 fallback) under the engine's canvas. It loads in
+      // the background and never blocks the engine: until it is ready (or if it can't start) the engine draws its 2D flight.
+      stop3d?.(); stop3d = null;
+      // the page URL carries both the route's flight query and any ?view= / ?renderer= / ?gfx= the player added
+      const q3 = typeof window !== "undefined" ? window.location.search : qs;
+      const want3d = wants3D(q3, "main") && !!wrapRef.current;
+      window.__flight3dWant = want3d;
+      if (want3d) {
+        c.style.position = "relative"; c.style.zIndex = "2";
+        const wrap = wrapRef.current!;
+        let stopped = false;
+        stop3d = () => { stopped = true; };
+        import("@/lib/flight/view3d")
+          .then((m) => m.startView3D(wrap, q3))
+          .then((stop) => { if (stopped || cancelled) stop(); else stop3d = stop; })
+          .catch((e) => console.warn("[flight 3d] not started, using the 2D flight:", e));
+      }
       const existing = document.querySelector('script[data-disciple-flight="1"]') as HTMLScriptElement | null;
       if (existing) {
         existing.remove();
@@ -143,7 +163,7 @@ export default function FlightCanvas({ search }: Props) {
         const mode = chooseRenderMode(qs);
         const ok = mode === "worker" && (await bootWorker(globals));
         if (cancelled) return;
-        if (!ok) await bootMain();
+        if (!ok) await bootMain(qs);
 
         if (!cancelled) setStatus("Live");
         // equipped Rocket Factory parts (cosmetic) → engine loadout; the token decal still owns the nose roundel
@@ -177,6 +197,7 @@ export default function FlightCanvas({ search }: Props) {
     return () => {
       cancelled = true;
       stopWorker?.();
+      stop3d?.(); stop3d = null;
       cv?.remove();
       // Stop RAF / intervals by reloading is heavy; clear known hooks
       try {
@@ -278,6 +299,7 @@ export default function FlightCanvas({ search }: Props) {
       {/* ESC settings menu (ESC or the Sidebar's Settings; no gear button since the Oct 30 cleanup): Share, Hotkeys, Sound, Language, Display
           (Touch Grass, Orbs) and the Controls reference all live there now, not in the pill row below. */}
       <GameRadio />
+      <FlightSfx />
       <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />
       {chatCoin && <GameChat coin={chatCoin} />}
       {/* phones (≤760px): v3 HUD — mcap pill, handle + PnL line, one swipe-up drawer (Feed/Holders/Chart/Crew/Chat/Position); desktop renders nothing */}

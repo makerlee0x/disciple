@@ -45,6 +45,7 @@
     "test:orb-hit": "node scripts/test-orb-hit.mjs",
     "test:hotkeys": "node scripts/test-hotkeys.mjs",
     "test:in-game-radio": "tsx scripts/test-in-game-radio.mjs",
+    "test:webgpu-flight-view": "tsx scripts/test-webgpu-flight-view.mjs",
     "test:live-fixes": "node scripts/test-live-fixes.mjs",
     "test:wallet-position": "node scripts/test-wallet-position.mjs",
     "test:trade-ui": "node scripts/test-trade-ui.mjs",
@@ -155,6 +156,7 @@
     "react-dom": "^18",
     "server-only": "^0.0.1",
     "sharp": "^0.35.5",
+    "three": "0.187.0",
     "undici": "^6.29.1",
     "viem": "^2.57.7"
   },
@@ -162,6 +164,7 @@
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@types/three": "^0.187.0",
     "eslint": "^8",
     "eslint-config-next": "15.5.29",
     "happy-dom": "^21.0.4",
