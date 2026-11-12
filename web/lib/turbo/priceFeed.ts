@@ -91,7 +91,7 @@ export function createHyperliquidStream(opts: HyperliquidStreamOptions = {}) {
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let stopped = true;
   let backoff = 500;
-  let lastPrices: Partial<Record<Market, number>> = {};
+  const lastPrices: Partial<Record<Market, number>> = {};
 
   const WSImpl = () => opts.WebSocketImpl ?? (typeof WebSocket !== "undefined" ? WebSocket : null);
   const fetchImpl = () => opts.fetchImpl ?? (typeof fetch !== "undefined" ? fetch.bind(globalThis) : null);
