@@ -242,7 +242,7 @@ export default function LaunchRocketPage() {
       setMsg("Pick the coin your rocket is bought and sold in.");
       return;
     }
-    const fr = feeReceiver.trim();
+    const fr = feeDestination === DEFAULT_CREATOR_FEE_DESTINATION && !privateLaunch ? feeReceiver.trim() : "";
     if (fr && !isAddr(fr)) {
       setMsg("Fee receiver must be a 0x wallet address (or leave it empty to use your own).");
       return;
@@ -318,7 +318,7 @@ export default function LaunchRocketPage() {
     || !!telegram.trim()
     || tax > 0
     || feeDestination !== DEFAULT_CREATOR_FEE_DESTINATION
-    || (!privateLaunch && !!feeReceiver.trim())
+    || (feeDestination === DEFAULT_CREATOR_FEE_DESTINATION && !privateLaunch && !!feeReceiver.trim())
   );
 
   return (
@@ -426,7 +426,7 @@ export default function LaunchRocketPage() {
                   {twitter.trim() && <span className={s.sumChip}>{twitter.trim()}</span>}
                   {website.trim() && <span className={s.sumChip}>{website.trim()}</span>}
                   {telegram.trim() && <span className={s.sumChip}>{telegram.trim()}</span>}
-                  {!privateLaunch && feeReceiver.trim() && <span className={s.sumChip}>Rewards: {feeReceiver.trim()}</span>}
+                  {feeDestination === DEFAULT_CREATOR_FEE_DESTINATION && !privateLaunch && feeReceiver.trim() && <span className={s.sumChip}>Fees: {feeReceiver.trim()}</span>}
                 </div>
               )}
               {!CREATOR_FEE_DESTINATION_LIVE && feeDestination !== DEFAULT_CREATOR_FEE_DESTINATION && (
@@ -482,6 +482,7 @@ export default function LaunchRocketPage() {
                 <h2>{C.advanced}</h2>
                 <button type="button" className={s.iconBtn} aria-label="Close" onClick={() => setAdvanced(false)}><Icon name="close" size={16} /></button>
               </div>
+              <div className={s.modalBody}>
               <div className={s.fl}>
                 <div className={s.lab}>{C.pairCoin}</div>
                 <div className={s.pchips} role="listbox" aria-label={C.pairCoin}>
@@ -514,8 +515,31 @@ export default function LaunchRocketPage() {
                     glyph={<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden><path d="M20.8 4.2L2.9 11.1c-1.2.5-1.2 1.1-.2 1.4l4.6 1.4 10.7-6.7c.5-.3.9 0 .6.3l-8.6 7.8-.3 4.7c.5 0 .7-.2 1-.5l2.3-2.2 4.7 3.5c.9.5 1.5.2 1.7-.8l3.1-14.6c.3-1.3-.5-1.9-1.4-1.5z"/></svg>} />
                 </div>
               </div>
-              {!privateLaunch && (
-                <div className={s.fl}>
+              <div className={s.fl}>
+                <div className={s.lab}>{C.creatorFees}</div>
+                <div className={s.help}>{C.creatorFeesHelp}</div>
+                <div className={s.feeList} role="radiogroup" aria-label={C.creatorFees} data-testid="creator-fee-destination">
+                  {CREATOR_FEE_DESTINATIONS.map((id) => {
+                    const on = feeDestination === id;
+                    return (
+                      <button type="button" key={id} role="radio" aria-checked={on} data-testid={`fee-destination-${id}`}
+                        className={`${s.feeOpt} ${on ? s.on : ""}`}
+                        onClick={() => { setFeeDestination(id); storeCreatorFeeDestination(id); }}>
+                        <span className={s.radio} aria-hidden>{on && <i />}</span>
+                        <div>
+                          <div className={s.feeTitle}>{CREATOR_FEE_COPY[id].chip}</div>
+                          {on && <p className={s.feeDetail}>{CREATOR_FEE_COPY[id].sentence}</p>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {!CREATOR_FEE_DESTINATION_LIVE && feeDestination !== DEFAULT_CREATOR_FEE_DESTINATION && (
+                  <div className={s.help} data-testid="fee-destination-pending">{C.creatorFeesPending}</div>
+                )}
+              </div>
+              {!privateLaunch && feeDestination === DEFAULT_CREATOR_FEE_DESTINATION && (
+                <div className={s.fl} data-testid="creator-fee-payout">
                   <div className={s.lab}>{C.rewards}</div>
                   <div className={s.row}>
                     <input className={s.inp} value={feeReceiver} onChange={(e) => setFeeReceiver(e.target.value.trim())} placeholder={C.rewardsPlaceholder} aria-label={C.rewards} />
@@ -533,27 +557,8 @@ export default function LaunchRocketPage() {
                     aria-label={C.creatorTax}
                     onChange={(e) => setTaxStepped(Number(e.target.value))} />
                 </div>
-                <div className={s.help}>{C.creatorTaxHelp}</div>
+                <div className={s.help} data-testid="creator-tax-help">{feeDestination === DEFAULT_CREATOR_FEE_DESTINATION ? C.creatorTaxHelp : C.creatorTaxHelpIncluded}</div>
               </div>
-              <div className={s.fl}>
-                <div className={s.lab}>{C.creatorFees}</div>
-                <div className={s.help}>{C.creatorFeesHelp}</div>
-                <div className={s.feeList} role="radiogroup" aria-label={C.creatorFees} data-testid="creator-fee-destination">
-                  {CREATOR_FEE_DESTINATIONS.map((id) => {
-                    const on = feeDestination === id;
-                    return (
-                      <button type="button" key={id} role="radio" aria-checked={on} data-testid={`fee-destination-${id}`}
-                        className={`${s.feeOpt} ${on ? s.on : ""}`}
-                        onClick={() => { setFeeDestination(id); storeCreatorFeeDestination(id); }}>
-                        <span className={s.radio} aria-hidden>{on && <i />}</span>
-                        <p>{CREATOR_FEE_COPY[id].sentence}</p>
-                      </button>
-                    );
-                  })}
-                </div>
-                {!CREATOR_FEE_DESTINATION_LIVE && feeDestination !== DEFAULT_CREATOR_FEE_DESTINATION && (
-                  <div className={s.help} data-testid="fee-destination-pending">{C.creatorFeesPending}</div>
-                )}
               </div>
             </div>
           </div>
