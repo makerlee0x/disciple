@@ -1385,7 +1385,7 @@ function drawClouds(front){
     const e=clamp((d-0.15)/0.75,0,1), al=c.a*see*(0.25+0.75*c.dens);
     const hl=c.hitT!=null&&S.t-c.hitT<0.45?(1-(S.t-c.hitT)/0.45)*(c.hitA||1):0;   // @cinefx blast hit: warm flash
     if (e<=0){ ctx.globalAlpha=al; ctx.drawImage(sp.spr,x,y+bob,sp.w,sp.h);
-      if(hl>0.02){ ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=hl*0.75*(al/(c.a||1)); ctx.drawImage(sp.lit,x,y+bob,sp.w,sp.h); ctx.globalCompositeOperation='source-over'; }
+      if(hl>0.02){ ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=Math.min(1,hl*(al/(c.a||1))); ctx.drawImage(sp.lit,x,y+bob,sp.w,sp.h); ctx.globalCompositeOperation='source-over'; }
       if(sp.night&&hi>0.01){ ctx.globalAlpha=al*hi; ctx.drawImage(sp.night,x,y+bob,sp.w,sp.h); }   // high tiers: night palette + rim
       if(lit>0.03){ ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=lit*0.38*(al/(c.a*see||1)); ctx.drawImage(sp.lit,x,y+bob,sp.w,sp.h); ctx.globalCompositeOperation='source-over'; } }
     else {
@@ -1422,10 +1422,12 @@ function takeoffBurn(){ const p=takeoffPhase(); return p&&!p.cd&&p.u<1?1-p.u:0; 
 function takeoffSkip(){ const k=S.takeoff; if(!k||k.t0==null||k.lit) return; k.t0=S.t-k.cd*TK.beat; }
 addEventListener('keydown',takeoffSkip); cv.addEventListener('pointerdown',takeoffSkip);
 function padSmoke(s){ const [x,y]=nozzleXY(), side=Math.random()<.5?-1:1;
-  bfxSpawn('smoke',x+side*(8+Math.random()*44),Math.min(H+10,y+18+Math.random()*34),side*(70+Math.random()*190)*s,-12-Math.random()*36,10+Math.random()*16*s,70,1.5+Math.random()*0.9,1.1,'234,228,220',0.5); }
+  bfxSpawn('smoke',x+side*(8+Math.random()*44),Math.min(H+10,y+18+Math.random()*34),side*(70+Math.random()*190)*s,-12-Math.random()*36,12+Math.random()*18*s,80,1.6+Math.random()*0.9,1.1,'234,228,220',0.55);
+  if(Math.random()<0.6) bfxSpawn('smoke',Math.random()*W,H-Math.random()*H*0.16,(Math.random()-.5)*60,-6-Math.random()*20,26+Math.random()*34*s,50,1.8+Math.random()*1.0,1.0,'228,222,216',0.42); }   // the smoke bank that floods the bottom of the screen
 function ignite(){ S.buyBoost=1; S.flare=Math.max(S.flare||0,2.4); S.air=(S.air||0)+560; S.screenFlash={t0:S.t,dur:0.55,a:0.38,c:'255,240,214'}; sfx('launch',{beat:0});
   const [x,y]=nozzleXY();
-  for(let i=0;i<30;i++){ const side=i&1?1:-1; bfxSpawn('smoke',x+side*Math.random()*30,y+12,side*(140+Math.random()*320),-20-Math.random()*70,14+Math.random()*18,110,1.8+Math.random()*0.9,1.3,'238,232,224',0.55); }
+  for(let i=0;i<44;i++){ const side=i&1?1:-1; bfxSpawn('smoke',x+side*Math.random()*30,y+12,side*(160+Math.random()*420),-20-Math.random()*90,16+Math.random()*22,130,2.0+Math.random()*1.0,1.2,'238,232,224',0.6); }
+  for(let i=0;i<14;i++) bfxSpawn('smoke',Math.random()*W,H-Math.random()*H*0.2,(Math.random()-.5)*120,-30-Math.random()*60,36+Math.random()*40,60,1.8+Math.random()*0.8,1.0,'236,230,222',0.5);
   burst(x,y+6,20,440,{k:'spark',r:1.8,life:0.5,drag:3,c:'255,214,150'}); }
 function takeoffStep(dt){ const k=S.takeoff; if(!k) return; if(k.t0==null) k.t0=S.t;
   const p=takeoffPhase();
@@ -1457,7 +1459,8 @@ function cloudHit(c,sh,d){ const sp=c.sp, cx=CB.x+c.ox+sp.w/2, cy=CB.y+c.oy+sp.h
   if(cx<-sp.w||cx>W+sp.w||cy<-sp.h||cy>H+sp.h||d>sh.R*1.15) return;
   const f=clamp(1-d/(sh.R*1.15),0.2,1), dx=cx-sh.x, dy=cy-sh.y, L=Math.hypot(dx,dy)||1, ux=dx/L, uy=dy/L, hx=cx-ux*sp.w*0.3, hy=cy-uy*sp.h*0.3;
   c.hitT=S.t; c.hitA=f;
-  for(let i=0;i<Math.round(4+8*f);i++){ const v=60+Math.random()*200*f; bfxSpawn('smoke',hx+(Math.random()-.5)*sp.w*0.3,hy+(Math.random()-.5)*sp.h*0.3,ux*v+(Math.random()-.5)*60,uy*v+(Math.random()-.5)*60,6+Math.random()*10*c.sp.h/80,40,0.8+Math.random()*0.6,2.2,'244,240,255',0.55); }
+  for(let i=0;i<Math.round(6+10*f);i++){ const v=80+Math.random()*240*f; bfxSpawn('smoke',hx+(Math.random()-.5)*sp.w*0.3,hy+(Math.random()-.5)*sp.h*0.3,ux*v+(Math.random()-.5)*70,uy*v+(Math.random()-.5)*70,(8+Math.random()*14)*clamp(sp.h/80,0.7,1.8),46,0.9+Math.random()*0.7,2.2,'246,242,255',0.7); }
+  for(let i=0;i<Math.round(3+5*f);i++){ const v=200+Math.random()*300*f; bfxSpawn('spark',hx,hy,ux*v+(Math.random()-.5)*160,uy*v+(Math.random()-.5)*160,1.4,0,0.3+Math.random()*0.25,3,'255,236,200',0.9); }
   sfx('hit',{on:'cloud',v:f}); }
 function rocketHit(px,py,sh,f){ const dx=px-sh.x, dy=py-sh.y, L=Math.hypot(dx,dy)||1, ux=-dx/L, uy=-dy/L, hx=px+ux*14, hy=py+uy*14;
   S.hullHit={t:S.t,a:clamp(f*1.6,0.35,1)};
