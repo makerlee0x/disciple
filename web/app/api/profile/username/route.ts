@@ -6,7 +6,9 @@ export const runtime = "nodejs";
  * GET  ?resolve=name      → { address | null }        (reverse lookup username → wallet)
  * GET  ?nonce=1&address=0x… → { nonce, ttlSec }   (fresh random nonce per request, bound to address, 10 min;
  *                              never deletes/overwrites another nonce; consumed only by a successful claim)
- * POST { username, address, nonce, signature, owner? } → { ok, reason? }
+ * POST { username, address, nonce, signature, owner?, ref? } → { ok, reason? }
+ *   On success the browser's first-touch referrer (`ref` = currentRef(), else the `disciple_ref` cookie) is saved to
+ *   the signed wallet (lib/server/referralBind.bindWalletReferrer). Best effort; never changes the answer.
  *   signature = wallet signMessage(claimMessage(...)) — EOA/1271/6492, or a DISCIPLE smart account's owner signing
  *   keccak(message) raw (pass `owner`). Verified with lib/server/chat/identity.verifyWalletSignature.
  *   One rename per 24h (lib/usernameCooldown): too soon → 429 { ok: false, reason, nextAllowedAt }. The timestamp
@@ -24,6 +26,7 @@ import { nextUsernameChangeAt, usernameChange } from "@/lib/usernameCooldown";
 import { PROFILE_COPY } from "@/lib/copy/profile";
 import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
 import { INVITE_REQUIRED_MESSAGE, requireInviteWallet } from "@/lib/server/inviteGate";
+import { bindWalletReferrerSafe, touchFromRequest } from "@/lib/server/referralBind";
 
 const NONCE_TTL = 600;
 const NONCE_PREFIX = "user:nonce";
@@ -66,7 +69,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  let body: { username?: string; address?: string; nonce?: string; signature?: string; owner?: string };
+  let body: { username?: string; address?: string; nonce?: string; signature?: string; owner?: string; ref?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ ok: false, reason: "Bad JSON" }, { status: 400 }); }
   const u = norm(body.username);
   const addr = String(body.address ?? "").toLowerCase();
@@ -94,5 +97,8 @@ export async function POST(req: Request) {
   // single use, consumed only by a successful claim (a concurrent replay of the same signed claim is the same
   // name for the same wallet, i.e. idempotent; any later replay finds no nonce)
   await consumeNonce(kv(), NONCE_PREFIX, nonce, addr);
+  // Save the first-touch referrer to this signed wallet (lib/server/referralBind, first write wins, off-chain).
+  // Best effort: a refusal, error, or slow store never changes this response.
+  await bindWalletReferrerSafe({ wallet: addr, touch: touchFromRequest(req.headers.get("cookie"), body.ref, now), alsoOwn: [body.owner] }, kv(), now);
   return NextResponse.json({ ok: true });
 }

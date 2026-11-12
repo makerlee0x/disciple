@@ -28,12 +28,24 @@ Nothing in the repo already saved the referral to the account on the server, so 
 
 Once saved, clearing cookies, a later link, or another browser does not change it.
 
+## Username claim or change (wallet without the Easy / Privy session)
+
+Lee's yes, Nov 11 2026, 11:47 PM CT: do the wallet save off-chain; when someone changes their username, link the wallet they used to sign in with that username.
+
+Same Rewardful / Impact first-touch-then-bind pattern, hooked into the existing wallet-signed `POST /api/profile/username` (no new login or signature). After a successful first claim or later change (signature, nonce, invite and cooldown checks unchanged; username ↔ wallet is saved as before), the route calls `bindWalletReferrerSafe` in `lib/server/referralBind.ts`:
+
+- First touch: the posted `ref` (the browser's `currentRef()`, the same payload `/api/referral/bind` gets) if it has a wallet, else the `disciple_ref` cookie on the request. Same `parseRef` 30-day rule.
+- `SET NX` `referral:<chain>:bind:<wallet>` on the signed wallet only (no Privy account on this path). Same `{ r, t, at }` value. First write wins, never overwrites, refuses self-referral (the signed wallet, or its smart-account owner) and username-only or expired touches.
+- Best effort: errors are swallowed and it gives up after 1.5 s, so the username answer never changes.
+
+Both paths share the wallet key, so whichever saves first wins. If a Privy sign-in comes later, the account adopts the wallet's earlier referrer instead of the new touch. The Privy sign-in bind is unchanged and still works on its own.
+
 ## Not changed
 
 Cookie first touch, `/r/` links, `tryAttribute`, the on-chain ReferralRegistry, the attestor, the USDG deposit hook, `referralSink`, the Rewards popup, login, trading.
 
 ## Known limits
 
-- Only Privy sign-ins bind (the bind needs the Privy session). A plain external-wallet session without Privy does not.
+- A plain external-wallet session binds only when it claims or changes a username (above). Otherwise only Privy sign-ins bind.
 - A player can still pick any referrer wallet by visiting that link first, or refer themself with a second account. Same limit as any cookie-based affiliate program; lee reviews the sheet before paying.
 - Trades from before the bind are not paid (same as before: a fill with no referrer is marked seen).

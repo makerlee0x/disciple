@@ -4,7 +4,7 @@
  * Static preview (no API) falls back to browser-only storage and says so.
  */
 import { IS_STATIC_PREVIEW } from "./base-path";
-import { refLink } from "./referral";
+import { currentRef, refLink } from "./referral";
 import { claimMessage } from "./usernameClaim";
 import { PROFILE_COPY } from "./copy/profile";
 import { DEFAULT_USERNAME_MAX_LENGTH } from "./defaultUsername";
@@ -106,7 +106,7 @@ export async function claimUsername(u: string, address: string | null): Promise<
       if (!signed) return { ok: false, reason: "Signature declined. Your wallet has to sign to claim a name." };
       const r = await fetch("/api/profile/username", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: n, address: a, nonce, ...signed }),
+        body: JSON.stringify({ username: n, address: a, nonce, ...signed, ref: currentRef() }),
       });
       const j = await r.json();
       if (!r.ok || !j.ok) return { ok: false, reason: j.reason || "Username taken.", nextAllowedAt: typeof j.nextAllowedAt === "number" ? j.nextAllowedAt : undefined };
