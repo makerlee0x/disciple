@@ -22,7 +22,7 @@ import TurboFlight, { type TurboFlightHandle } from "./TurboFlight";
 import TurboFundingSheet from "./TurboFundingSheet";
 import TurboHowItWorks from "./TurboHowItWorks";
 import TurboShareCard, { type TurboShare } from "./TurboShareCard";
-import TurboSupernova from "./TurboSupernova";
+import TurboHBomb from "./TurboHBomb";
 import s from "./turbo.module.css";
 
 const MARKETS: Market[] = ["BTC", "ETH"];
@@ -160,7 +160,7 @@ export default function TurboScreen() {
     try { await adapter.close(p.id, pct); } catch (e) { flash(e instanceof Error ? e.message : C.failed, "down"); } finally { setBusy(false); }
   };
 
-  /* ---- events → toasts, SUPERNOVA, share cards ---- */
+  /* ---- events → toasts, H-BOMB, share cards ---- */
   const seen = useRef<TurboEvent | null>(null);
   useEffect(() => {
     const e = lastEvent; if (!e || e === seen.current) return; seen.current = e;
@@ -179,7 +179,7 @@ export default function TurboScreen() {
     if (e.type === "closed") {
       const profit = (p.realizedUsd ?? 0) - fuelIn;
       flash(C.closedToast(usd(e.returnedUsd ?? 0)), profit >= 0 ? "up" : "down");
-      if (isBigWin(profit, fuelIn)) setShare({ ...base, kind: "win", profitUsd: profit });
+      if (isBigWin(profit)) setShare({ ...base, kind: "win", profitUsd: profit });
     }
   }, [lastEvent, flash]);
 
@@ -296,7 +296,7 @@ export default function TurboScreen() {
       {sheet === "fund" && <TurboFundingSheet adapter={adapter} onClose={() => setSheet(null)} />}
       {sheet === "how" && <TurboHowItWorks onClose={() => setSheet(null)} />}
       {sheet && typeof sheet === "object" && <Picker side={sheet.pick} prefs={prefs} setPrefs={setPrefs} levWhy={levWhy} onClose={() => setSheet(null)} />}
-      {nova && <TurboSupernova short={nova.short} label={nova.label} onDone={() => { setShare(nova.share); setNova(null); }} />}
+      {nova && <TurboHBomb short={nova.short} label={nova.label} onDone={() => { setShare(nova.share); setNova(null); }} />}
       {share && <TurboShareCard data={share} onClose={() => setShare(null)} />}
     </div>
   );

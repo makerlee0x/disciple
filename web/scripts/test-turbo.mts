@@ -26,11 +26,11 @@ test("price PnL: long and short are mirror images", () => {
   near(pricePnlUsd("short", 10_000, 100, 99), 100);
 });
 
-test("PnL after fees = pnl − open fee − close fee (at mark) + funding", () => {
+test("PnL after fees (display) = pnl − open fee + funding; close fee is estimated separately", () => {
   const b = pnlBreakdown({ side: "long", sizeUsd: 10_000, entry: 100, price: 101, openFeeUsd: 5, fundingUsd: -0.5, feeBps: 5 });
   near(b.pnlUsd, 100);
-  near(b.closeFeeUsdEst, 5.05); // close fee on notional at 101
-  near(b.pnlAfterFeesUsd, 100 - 5 - 5.05 - 0.5);
+  near(b.closeFeeUsdEst, 5.05); // close fee on notional at 101, shown as its own row
+  near(b.pnlAfterFeesUsd, 100 - 5 - 0.5);
 });
 
 test("liquidation price includes fees: value at liq == (1 − k)·C", () => {
@@ -39,7 +39,9 @@ test("liquidation price includes fees: value at liq == (1 − k)·C", () => {
       const N = C * L, open = feeUsd(N, bps), k = 0.8;
       const liq = liquidationPrice({ side, collateralUsd: C, sizeUsd: N, entry: 100, openFeeUsd: open, fundingUsd: fund, feeBps: bps, liqLossFrac: k });
       const b = pnlBreakdown({ side, sizeUsd: N, entry: 100, price: liq, openFeeUsd: open, fundingUsd: fund, feeBps: bps });
-      near(C + b.pnlAfterFeesUsd, (1 - k) * C, 1e-6);
+      // Liq formula still includes the close fee; do not use display pnlAfterFeesUsd here.
+      const realizedAtLiq = b.pnlUsd - open - b.closeFeeUsdEst + fund;
+      near(C + realizedAtLiq, (1 - k) * C, 1e-6);
       assert.ok(side === "long" ? liq < 100 : liq > 100, `${side} liq on the losing side`);
       assert.ok(isLiquidated(side, liq, liq));
     }
@@ -99,21 +101,24 @@ test("open → pending → filled; fuel locked; quote matches", async () => {
   const { id } = await a.open({ market: "BTC", side: "long", collateralUsd: 10, leverage: 100 });
   assert.equal((await a.getFuel()).usd, 90);
   assert.equal(events[0].type, "pending");
-  assert.equal((await a.getPositions())[0].status, "pending");
+  const pending = (await a.getPositions())[0];
+  assert.equal(pending.status, "pending");
+  near(pending.pnlAfterFeesUsd, -q.openFeeUsd);
   tick(2000);
   assert.equal(events[1].type, "filled");
   const p = (await a.getPositions())[0];
-  assert.equal(p.id, id); assert.equal(p.status, "open"); near(p.liqPrice, q.liqPrice); near(p.pnlAfterFeesUsd, -1);
+  assert.equal(p.id, id); assert.equal(p.status, "open"); near(p.liqPrice, q.liqPrice); near(p.pnlAfterFeesUsd, -0.5);
 });
 
-test("open validation: leverage cap, fuel, fee wipe-out", async () => {
+test("open validation: leverage cap, fuel", async () => {
   const { a } = setup();
   await a.addFuel(10);
   await assert.rejects(a.open({ market: "BTC", side: "long", collateralUsd: 20, leverage: 10 }), /fuel/);
   await assert.rejects(a.open({ market: "BTC", side: "long", collateralUsd: 5, leverage: 1001 }));
-  // 5 bp × 1000 = 50% each way > 10% buffer
-  await assert.rejects(a.open({ market: "BTC", side: "long", collateralUsd: 5, leverage: 1000 }), /lower leverage/);
-  assert.equal((await a.getFuel()).usd, 10);
+  // High leverage that would be immediately underwater on fees is allowed to open (and may liquidate after fill).
+  const { id } = await a.open({ market: "BTC", side: "long", collateralUsd: 5, leverage: 1000 });
+  assert.ok(id);
+  assert.equal((await a.getFuel()).usd, 5);
 });
 
 test("partial close 25% then 100%: fuel back matches the math, events in order", async () => {
@@ -215,7 +220,10 @@ test("flight: altitude = PnL after fees; long climbs, short dives; liquidation l
   const short = { ...base, side: "short" as const, liqPrice: liquidationPrice({ side: "short", collateralUsd: 10, sizeUsd: 1000, entry: 100, openFeeUsd: 0.1, fundingUsd: 0, feeBps: 1, liqLossFrac: 0.8 }) };
   assert.ok(liqAltOf(long) < FLIGHT_BASE_ALT, "long: line below the rocket");
   assert.ok(liqAltOf(short) > FLIGHT_BASE_ALT, "short: line is a ceiling");
-  near(liqAltOf(long), FLIGHT_BASE_ALT - 0.8 * FLIGHT_ALT_PER_FUEL, 0.002);
+  const r = long.liqPrice / long.entry - 1;
+  const paidFeesOnlyAtLiq = long.sizeUsd * r - long.openFeeUsd + long.fundingUsd;
+  near(liqAltOf(long), pnlToAlt("long", paidFeesOnlyAtLiq, long.collateralUsd), 1e-9);
+  assert.ok(liqAltOf(long) > FLIGHT_BASE_ALT - 0.8 * FLIGHT_ALT_PER_FUEL - 1e-9, "paid-fees-only line sits above realized −80%");
 });
 
 test("danger: share of the way from entry to liquidation; 50 / 80 / 95 levels", () => {
@@ -231,8 +239,9 @@ test("jetstream L = log10(lev)/3", () => {
   near(jetstreamL(10), 1 / 3); near(jetstreamL(100), 2 / 3); near(jetstreamL(1000), 1); near(jetstreamL(5000), 1);
 });
 
-test("big win share card: profit ≥ fuel in or ≥ $100", () => {
-  assert.ok(isBigWin(10, 10)); assert.ok(isBigWin(100, 1000)); assert.ok(!isBigWin(5, 10)); assert.ok(!isBigWin(-5, 10));
+test("big win share card: any profit after fees", () => {
+  assert.ok(isBigWin(10)); assert.ok(isBigWin(100)); assert.ok(isBigWin(5)); assert.ok(isBigWin(0.01));
+  assert.ok(!isBigWin(0)); assert.ok(!isBigWin(-5));
 });
 
 test("prefs: presets are 100/250/500/1000× and $10/$25/$50/$100; default 100× and $10; custom wins", () => {

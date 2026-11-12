@@ -1,5 +1,5 @@
 /**
- * Every player-facing Turbo string in one place, for lee / Brand. Placeholders until Brand's pass (SUPERNOVA included).
+ * Every player-facing Turbo string in one place, for lee / Brand. Placeholders until Brand's pass (H-BOMB included).
  * Rules: plain full sentences, dollars on the main surfaces, no "practice" or "test" labels, no real-money / loss /
  * 1000× warnings (lee, Nov 12 2026 9:42 AM CT), no take-profit / stop-loss / limit wording.
  */
@@ -45,7 +45,7 @@ export const TURBO_COPY = {
   leverageMax: (max: number, m: string) => `Max ${max}× on ${m} right now.`,
   closedToast: (usd: string) => `Closed. ${usd} went back to your Turbo fuel.`,
   partialToast: (pct: number, usd: string) => `Closed ${pct}%. ${usd} went back to your Turbo fuel.`,
-  liquidatedToast: (lev: string) => `Got SUPERNOVA'd at ${lev}.`,
+  liquidatedToast: (lev: string) => `Got H-BOMB'd at ${lev}.`,
   // Funding sheet (follows Nova's "Fund your Nova wallet" sheet)
   fundTitle1: "Fund your",
   fundTitle2: "Turbo fuel.",
@@ -62,14 +62,14 @@ export const TURBO_COPY = {
   fundStandInButton: (usd: string) => `Add ${usd} stand-in fuel`,
   // Share cards
   shareWinTitle: "Big win",
-  shareLiqTitle: (lev: string) => `Got SUPERNOVA'd at ${lev}`,
+  shareLiqTitle: (lev: string) => `Got H-BOMB'd at ${lev}`,
   shareDownload: "Download image",
   shareCopyText: "Copy text",
   shareCopied: "Copied",
   sharePostX: "Post on X",
   shareClose: "Close",
   shareWinText: (usd: string, lev: string, m: string, side: string) => `I just made ${usd} on a ${lev} ${side} on ${m} with DISCIPLE Turbo.`,
-  shareLiqText: (lev: string, m: string) => `Got SUPERNOVA'd at ${lev} on ${m} with DISCIPLE Turbo.`,
+  shareLiqText: (lev: string, m: string) => `Got H-BOMB'd at ${lev} on ${m} with DISCIPLE Turbo.`,
   // How Turbo works
   howBody: [
     "Turbo trades run on Nova Markets. Nova's markets are built on top of Hyperliquid, and its 1000× markets are a synthetic market on top of Hyperliquid prices.",

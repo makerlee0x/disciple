@@ -109,7 +109,7 @@
 .shareSheet { width: min(680px, 100%); }
 .shareImg { width: 100%; aspect-ratio: 1200 / 630; border-radius: 12px; background: var(--dsc-surface-2); }
 .shareBtns { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-/* SUPERNOVA overlay (placeholder name) */
+/* H-BOMB overlay */
 .nova { position: fixed; inset: 0; z-index: 65; pointer-events: none; overflow: hidden; }
 .novaCore { position: absolute; left: 50%; top: 50%; width: 60px; height: 60px; margin: -30px; border-radius: 50%; background: radial-gradient(circle, #fff, #ffe9b0 40%, rgba(255, 120, 40, 0) 70%); animation: core 6s ease-out forwards; }
 .novaWhite { position: absolute; inset: 0; background: #fff; opacity: 0; animation: whiteout 6s ease-out forwards; }

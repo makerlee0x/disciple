@@ -8,7 +8,7 @@
  *  - window.__turboFx = { open, pending, side, lev, danger, dive, liqMcap, liqLabel } → red liquidation seam, jetstream
  *    L = log10(lev)/3, baseline airspeed, orange glow > 50%, shudder (existing wobble spring) > 80%, sputter > 95%
  *  - ignite(): flame on at the tap (engine S.buyBoost), before the fill arrives
- *  - supernova(): the engine's ATOM bomb under the page's SUPERNOVA overlay (TurboSupernova)
+ *  - supernova(): the engine's ATOM bomb under the page's H-BOMB overlay (TurboHBomb)
  * The engine runs on the main thread (no worker) so these window hooks reach it.
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";

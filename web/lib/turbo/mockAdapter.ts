@@ -250,16 +250,12 @@ export function createMockAdapter(o: MockAdapterOptions = {}): MockTurboAdapter 
       if (!(Number.isFinite(p.leverage) && p.leverage >= cfg.minLeverage && p.leverage <= cfg.maxLeverage)) throw new Error(`Pick a leverage between ${cfg.minLeverage}× and ${cfg.maxLeverage}×.`);
       if (p.collateralUsd > fuel.get() + 1e-9) throw new Error("You don't have enough Turbo fuel for that. Add fuel or pick a smaller amount.");
       const q = quote(p);
-      if (isLiquidated(p.side, q.entryEst, q.liqPrice)) {
-        console.warn("[disciple] turbo stand-in: fees exceed the liquidation buffer at this leverage", { feeBps: cfg.feeBps, leverage: p.leverage });
-        throw new Error("Fees would wipe this out right away. Try lower leverage.");
-      }
       const t = now();
       const id = `standin-${t.toString(36)}-${(++seq).toString(36)}`;
       const pos: Internal = {
         id, market: p.market, side: p.side, collateralUsd: p.collateralUsd, leverage: p.leverage, sizeUsd: q.sizeUsd,
         entry: q.entryEst, liqPrice: q.liqPrice, fundingUsd: 0, openFeeUsd: q.openFeeUsd, closeFeeUsdEst: q.closeFeeUsd,
-        pnlUsd: 0, pnlAfterFeesUsd: -q.openFeeUsd - q.closeFeeUsd, status: "pending",
+        pnlUsd: 0, pnlAfterFeesUsd: -q.openFeeUsd, status: "pending",
         markPrice: q.entryEst, openedAt: t, realizedUsd: 0, fillAt: t + cfg.fillDelayMs, lastFundingAt: t,
       };
       fuel.set(fuel.get() - p.collateralUsd);

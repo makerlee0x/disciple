@@ -26,10 +26,11 @@ export function pnlToAlt(side: Side, pnlAfterFeesUsd: number, fuelUsd: number, p
 }
 
 /** Altitude of the red liquidation line: the PnL after fees the position would show AT its liquidation price. */
-export function liqAltOf(p: Pick<Position, "side" | "entry" | "liqPrice" | "sizeUsd" | "collateralUsd" | "openFeeUsd" | "closeFeeUsdEst" | "fundingUsd">, pxPerAlt = ENGINE_PX_PER_ALT): number {
+export function liqAltOf(p: Pick<Position, "side" | "entry" | "liqPrice" | "sizeUsd" | "collateralUsd" | "openFeeUsd" | "fundingUsd">, pxPerAlt = ENGINE_PX_PER_ALT): number {
   if (!(p.entry > 0) || !(p.liqPrice > 0)) return FLIGHT_ALT_MIN;
   const r = p.liqPrice / p.entry - 1;
-  const pnlAtLiq = (p.side === "long" ? 1 : -1) * p.sizeUsd * r - p.openFeeUsd - p.closeFeeUsdEst + p.fundingUsd;
+  // Paid-fees-only PnL at the liquidation price, so the rocket and the red line meet when liq fires.
+  const pnlAtLiq = (p.side === "long" ? 1 : -1) * p.sizeUsd * r - p.openFeeUsd + p.fundingUsd;
   return pnlToAlt(p.side, pnlAtLiq, p.collateralUsd, pxPerAlt);
 }
 
@@ -51,6 +52,5 @@ export const dangerLevel = (d: number): DangerLevel => (d >= 0.95 ? "blow" : d >
 /** Jetstream strength from leverage: L = log10(lev) / 3 (10× ≈ 0.33, 100× ≈ 0.67, 1000× = 1). */
 export const jetstreamL = (leverage: number) => clamp(Math.log10(Math.max(1, leverage)) / 3, 0, 1);
 
-/** Share card trigger for a big win: profit after fees of at least the fuel in, or $100. */
-export const BIG_WIN_MIN_USD = 100;
-export const isBigWin = (profitUsd: number, fuelUsd: number) => profitUsd > 0 && (profitUsd >= fuelUsd || profitUsd >= BIG_WIN_MIN_USD);
+/** Share card trigger for a big win: any profit after fees. */
+export const isBigWin = (profitUsd: number) => profitUsd > 0;

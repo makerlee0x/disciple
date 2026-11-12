@@ -2,7 +2,7 @@
 
 Live front end for Turbo: BTC and ETH, BOOST (long) / DUMP (short), leverage presets 100× / 250× / 500× / 1000× plus a
 custom field, four dollar fuel chips plus a custom field, market orders only, one-tap close at 25 / 50 / 100 percent,
-liquidation price always on screen, SUPERNOVA (placeholder) on liquidation, share cards in dollars. No take-profit,
+liquidation price always on screen, H-BOMB on liquidation, share cards in dollars. No take-profit,
 stop-loss or limit orders. No geoblock. Not in the public nav.
 
 ## Turn it on (this device only)
@@ -23,7 +23,7 @@ it on; it is not set anywhere and must not be set on Vercel.
 | `lib/turbo/prefs.ts` | fuel / leverage presets and the player's picks |
 | `lib/turbo/copy.ts` | every player-facing string (for lee / Brand) |
 | `lib/turbo/useTurbo.ts` | screen hook: prices, fuel, positions, events |
-| `components/turbo/*` | screen, flight mount, funding sheet, share card, SUPERNOVA overlay, How Turbo works |
+| `components/turbo/*` | screen, flight mount, funding sheet, share card, H-BOMB overlay, How Turbo works |
 | `public/flight/engine.js` | current-main flight engine; `?source=turbo` mode (`@turbo` block) |
 | `scripts/test-turbo.mts` | `npm run test:turbo` |
 
@@ -44,5 +44,5 @@ it on; it is not set anywhere and must not be set on Vercel.
 - Jetstream `L = log10(lev)/3` drives flame, baseline airspeed; 1000× adds a heat shimmer and slight field-of-view pull.
 - Danger (share of the way from entry to liquidation): 50% orange glow + "Running hot", 80% shudder (existing wobble
   spring) + red pulse, 95% sputter + red vignette + "About to blow!".
-- Liquidation: engine ATOM bomb under the SUPERNOVA overlay (~6 s; ~1.2 s when bombs are off), then the share card.
+- Liquidation: engine ATOM bomb under the H-BOMB overlay (~6 s; ~1.2 s when bombs are off), then the share card.
 - The engine never trades in Turbo mode; BOOST / DUMP / CLOSE call the adapter first and never wait on a frame.

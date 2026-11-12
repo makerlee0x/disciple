@@ -29,7 +29,8 @@ export interface PnlInput {
 export function pnlBreakdown(p: PnlInput): { pnlUsd: number; closeFeeUsdEst: number; pnlAfterFeesUsd: number } {
   const pnlUsd = pricePnlUsd(p.side, p.sizeUsd, p.entry, p.price);
   const closeFeeUsdEst = feeUsd(notionalAt(p.sizeUsd, p.entry, p.price), p.feeBps);
-  return { pnlUsd, closeFeeUsdEst, pnlAfterFeesUsd: pnlUsd - p.openFeeUsd - closeFeeUsdEst + p.fundingUsd };
+  // Display / mark-to-market: paid fees only (open fee + funding). Do not subtract the estimated closing fee.
+  return { pnlUsd, closeFeeUsdEst, pnlAfterFeesUsd: pnlUsd - p.openFeeUsd + p.fundingUsd };
 }
 
 export interface LiqInput {
@@ -70,7 +71,8 @@ export function fundingDeltaUsd(side: Side, notionalUsd: number, ratePerHour: nu
 /** What closing `frac` (0..1] of a position pays back, after that slice's open fee, its close fee and its funding. */
 export function closeSlice(p: PnlInput & { collateralUsd: number }, frac: number): { returnedUsd: number; closeFeeUsd: number; pnlAfterFeesUsd: number } {
   const b = pnlBreakdown(p);
-  const pnlAfterFeesUsd = b.pnlAfterFeesUsd * frac;
+  // Realized: the close fee has been paid, so subtract it here even though display PnL does not.
+  const pnlAfterFeesUsd = (b.pnlAfterFeesUsd - b.closeFeeUsdEst) * frac;
   return { returnedUsd: Math.max(0, p.collateralUsd * frac + pnlAfterFeesUsd), closeFeeUsd: b.closeFeeUsdEst * frac, pnlAfterFeesUsd };
 }
 

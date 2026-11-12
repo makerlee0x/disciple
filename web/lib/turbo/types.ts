@@ -38,7 +38,7 @@ export interface Position {
   closeFeeUsdEst: number;
   /** PnL from the price move only ($). */
   pnlUsd: number;
-  /** The big number: pnlUsd − openFeeUsd − closeFeeUsdEst + fundingUsd ($). */
+  /** The big number (mark-to-market): pnlUsd − openFeeUsd + fundingUsd ($). Paid fees only; does not subtract the estimated closing fee. */
   pnlAfterFeesUsd: number;
   status: PositionStatus;
   /** SITE extra: last mark price used for the PnL numbers. */
