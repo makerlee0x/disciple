@@ -93,6 +93,20 @@ for (const big of [0.05, 0.25, 1]) { const st = fresh();
     if (W === 1440) rows.push(`steer W=1440: hold D 1.5 s → x=${(xR / W * 100).toFixed(1)}% of width, hold A → ${(st.x / W * 100).toFixed(1)}%, crossing ${tcross.toFixed(2)} s, max tilt ${tl.toFixed(1)}°`);
   }
   for (const v of [NaN, Infinity]) { const s = { x: v, vx: v }; stepSteer(s, v, SIM_DT, 1000); if (!Number.isFinite(s.x)) bad("steer garbage"); } }
+// ---- @nose-down-fix (lee, Nov 12 "the rocket got stuck pointing down"): the 10 s candle window alone can no longer
+// hold the nose down. A hard dump that is still falling (live) points straight down; once the price stops falling
+// (live ≈ 0) while the window is still negative, the nose comes back within 45° of up in ≤ 2 s — and a dump with
+// no `live` argument (legacy callers / the tests above) is unchanged.
+{ const st = fresh(); let t = 0; while (t < 3) { stepHeading(st, aimFromMotion(-4000, 0, 0, V0, st, -4000), 0, SIM_DT); t += SIM_DT; }
+  const dn = th(st.aimDisp); if (!(Math.abs(dn) > 170)) bad(`live dump should point straight down, θ=${dn.toFixed(1)}`);
+  let rec = null; t = 0; while (t < 8) { stepHeading(st, aimFromMotion(-4000, 0, 0, V0, st, 0), 0, SIM_DT); t += SIM_DT; if (rec == null && Math.abs(th(st.aimDisp)) <= 45.5) rec = t; }
+  if (!(rec != null && rec <= 2)) bad(`window still negative, price flat: nose should be back within 45° of up in ≤ 2 s (got ${rec})`);
+  if (Math.abs(th(st.aimDisp)) > 45.5) bad(`stuck: θ=${th(st.aimDisp).toFixed(1)} after 8 s of a flat price`);
+  const legacy = aimFromMotion(-4000, 0, 0, V0, fresh()), withLive = aimFromMotion(-4000, 0, 0, V0, fresh(), -4000);
+  if (Math.abs(legacy - withLive) > 1e-9) bad("live = falling must give the same target as before");
+  const mild = aimFromMotion(-40, 0, 0, V0, fresh(), 0), mild0 = aimFromMotion(-40, 0, 0, V0, fresh());
+  if (Math.abs(mild - mild0) > 1e-9) bad("a mild dip (under the 45° hold) is unchanged");
+  rows.push(`nose-down fix: live dump θ=${dn.toFixed(1)}°, price stops falling → within 45° of up after ${rec.toFixed(2)} s, then ${th(st.aimDisp).toFixed(1)}°`); }
 console.log(rows.join("\n"));
 console.log(`replay θ range [${lo.toFixed(1)}, ${hi.toFixed(1)}]° from up (left −, right +), max Δ/step ${maxD.toFixed(2)}°, bottom crossings ${crossings}`);
 if (fail) { console.error(`${fail} violations`); process.exit(1); } else console.log("PASS");

@@ -7,7 +7,7 @@
  * (lib/trade/swapSettings.ts, per scope paper/live/sim) so the trade bar, the ammo panel and the settings menu share one book.
  *
  * Audio: `sfx` / `music` are persisted and exposed via audioLevel() + the `disciple:audio` event.
- * Music drives the house radio (lib/game/radio.ts). SFX still only have the settings preview blip.
+ * Music drives the house radio (lib/game/radio.ts). SFX drive the flight sounds (lib/game/sfx.ts, components/flight/FlightSfx.tsx).
  */
 import { useSyncExternalStore } from "react";
 import { STATIONS, DEFAULT_STATION_ID, type RepeatMode } from "./stations";

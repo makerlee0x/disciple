@@ -823,7 +823,7 @@ S.buyWarn={tags:[],texts:[],over:[]};
 addEventListener('disciple:buywarn',e=>{ const d=e.detail||{}; S.buyWarn={tags:Array.isArray(d.tags)?d.tags:[],texts:Array.isArray(d.texts)?d.texts:[],over:Array.isArray(d.over)?d.over:[]}; });
 // exact $ left to graduate, for the tier-bar label (TradeBridge → lib/flight/gradAdapter, SITE readGradNeedForToken); null = unknown / paper → HUD estimate
 S.gradNeedUsd=null;
-addEventListener('disciple:gradneed',e=>{ const d=e.detail||{}, u=d.usd; S.gradNeedUsd=typeof u==='number'&&isFinite(u)&&u>0?u:null;
+addEventListener('disciple:gradneed',e=>{ const d=e.detail||{}, u=d.usd; S.gradNeedUsd=typeof u==='number'&&isFinite(u)&&u>0?u:null; if(S.gradNeedUsd!=null&&d.graduated!==true) S._preGrad=true;
   if(d.graduated===true) setGraduated(true,d); });   // sticky: the curve read can only flip it on
 /* @graduated: one flag for the whole HUD. Sources: SITE's State payload (graduated / poolId / graduatedAt), the live Graduate
    event, TradeBridge's curve read (disciple:gradneed {graduated}). A graduated coin trades on its Uniswap v4 pool: no curve
@@ -832,7 +832,8 @@ addEventListener('disciple:gradneed',e=>{ const d=e.detail||{}, u=d.usd; S.gradN
 S.graduated=false; S.gradInfo=null;
 const GRAD_BADGE='ASCENDED';   // pass 3 #2 (lee): the word only — no 'trading on Uniswap' (chat row = lib/flight/tiers GRAD_BADGE)
 const ASCENDED='ASCENDED';   // the graduated state, as players read it (tier line: 'ASCENDED · LAUNCH PAD')
-function setGraduated(on,d){ S.graduated=!!on; if(on){ S.gradNeedUsd=null; const g=S.gradInfo||{};
+function setGraduated(on,d){ if(on&&!S.graduated&&typeof v3Ascend==='function') v3Ascend();   // @webgpu-flight-view hyperspeed (live flip only)
+  S.graduated=!!on; if(on){ S.gradNeedUsd=null; const g=S.gradInfo||{};
     S.gradInfo={poolId:d&&typeof d.poolId==='string'?d.poolId:g.poolId||null,graduatedAt:d&&Number.isFinite(+d.graduatedAt)&&+d.graduatedAt>0?+d.graduatedAt:g.graduatedAt||null}; }
   else S.gradInfo=null;
   try{ if(typeof source!=='undefined'&&source&&source instanceof DiscipleSource) source.graduated=!!on; }catch(_){ } }
@@ -1140,7 +1141,12 @@ document.addEventListener('visibilitychange',()=>{ if(document.hidden) S.keys={}
    ===================================================================== */
 // alpha:false — the frame is always fully painted, so the compositor can skip blending the canvas;
 // desynchronized — low-latency path (Chromium: bypasses one compositor frame of latency where supported).
-const cv=document.getElementById('c'), ctx=cv.getContext('2d',{alpha:false,desynchronized:true});
+// @webgpu-flight-view: when the page mounts the 3D layer (window.__flight3dWant, set by FlightCanvas before this script
+// runs), this canvas sits ON TOP of it and must be transparent; desynchronized is left off so the layers present together.
+// Without the 3D layer it is exactly as before (opaque, desynchronized).
+const V3W=typeof window!=='undefined'&&window.__flight3dWant===true;
+const cv=document.getElementById('c'), CTX_MAIN=cv.getContext('2d',V3W?{alpha:true}:{alpha:false,desynchronized:true});
+let ctx=CTX_MAIN;   // render3 points ctx at the 3D view's sky backdrop canvas while drawBg runs, then back
 /* Adaptive resolution governor: if frames run slow for ~2 s, step the backing-store DPR down
    (2 → 1.5 → 1.25 → 1); if they run fast for ~6 s, step back up. ≥4 s between changes, logical
    coordinates never change (only sharpness), so it can't move anything on screen. ?dpr=N pins it. */
@@ -1253,7 +1259,7 @@ function plateRows(T,y0,y1,oy,x0){ y0=Math.max(0,Math.floor(y0)); y1=Math.min(H,
 function altAtY(y){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); return base+((S.anch??ROCKET_Y)-y)/PX_PER_ALT; }
 function drawBg(){
   ctx.fillStyle='#0b0f22'; ctx.fillRect(0,0,W,H);
-  const F=H*0.5, oy=Math.round(((S.cloudY||0)*0.06)), w=Math.round(W*1.12), x0=Math.round((W-w)/2-((S.camX!=null?S.camX:S.x)-W/2)*0.03);
+  const F=H*0.5, oy=Math.round(((S.cloudY||0)*0.06)+(ctx!==CTX_MAIN&&S.v3?S.v3.bgOy:0)), w=Math.round(W*1.12), x0=Math.round((W-w)/2-((S.camX!=null?S.camX:S.x)-W/2)*0.03);
   S.bgU=tipPoint().alt;   // sky tint follows the rocket's own altitude
   const kb=Math.floor(altAtY(H+F/2)), kt=Math.floor(altAtY(-F/2));
   const B=bgTile(plateOf(Math.max(0,kb))); if(B) plateRows(B,0,H,oy,x0);
@@ -1466,7 +1472,12 @@ function drawRocket(dt){
   const [x,y]=nozzleXY();
   const NOZZLE_FROM_TOP = 0.96; // fraction of sprite height: engine sits just above the bottom edge
   const pivotY = h * NOZZLE_FROM_TOP; // draw offset so nozzle lands on (0,0) after rotate
-  // ghost thrust for pending txs (projected, never applied to confirmed altitude)
+  drawPendingGhosts();
+  drawRocketBody(dt,im,w,h,x,y,pivotY);
+}
+/* ghost thrust for pending txs (projected, never applied to confirmed altitude) — also drawn over the 3D view */
+function drawPendingGhosts(){
+  const im=IMG.rocket, h=150, w=im.naturalWidth? h*im.naturalWidth/im.naturalHeight : 55, [x,y]=nozzleXY(), pivotY=h*0.96;
   for (const p of S.pending){
     const gy=altToScreenY(mcapToAlt(p.proj*S.simF)), a=p.state==='pending'? 0.28+0.12*Math.sin(S.t*14) : p.state==='confirmed'?0.5:0.2;
     ctx.save(); ctx.globalAlpha=a; ctx.translate(x,gy); ctx.rotate(S.heading);
@@ -1476,6 +1487,8 @@ function drawRocket(dt){
     ctx.fillStyle=ctx.strokeStyle; ctx.font='11px ui-monospace,monospace';
     ctx.fillText((p.state==='pending'?'PENDING ':p.state==='confirmed'?'CONFIRMED ':'FAILED ')+(p.side==='buy'?'+':'-')+fmtUsd(p.usd), x+w/2+14, gy); ctx.restore();
   }
+}
+function drawRocketBody(dt,im,w,h,x,y,pivotY){
   // exhaust (procedural): leaves the nozzle opposite the nose
   const braking=S.pending.some(p=>p.side==='sell'&&p.state==='pending');
   const EP=exhaustParams(), flick=EP.flick, flame=EP.flame;
@@ -2058,7 +2071,7 @@ function launchBomb(pct,f){
   return b;
 }
 function bombY(b){ return clamp(altToScreenY(b.alt),40,H-40); }
-function spawnPuff(){ const tp=tipPoint(), y=altToScreenY(tp.alt);
+function spawnPuff(){ const tp=tipPoint(), y=altToScreenY(tp.alt); sfx('explode',{tier:0}); F3EV({k:'puff',x:tp.x,y});
   for(let i=0;i<7;i++) bfxSpawn('smoke',tp.x-10,y+(Math.random()-.5)*8,-60-Math.random()*90,(Math.random()-.5)*50,5+Math.random()*5,28,0.6,3,'225,215,190',0.32);
   for(let i=0;i<4;i++) bfxSpawn('spark',tp.x,y,-120-Math.random()*120,(Math.random()-.5)*90,1.6,0,0.3,4,'255,220,150',0.8); }
 function burst(x,y,n,spd,opt){ const fn=typeof opt==='function';
@@ -2066,6 +2079,8 @@ function burst(x,y,n,spd,opt){ const fn=typeof opt==='function';
     bfxSpawn(o.k||'spark',x,y,o.vx!=null?o.vx:Math.cos(a)*v,o.vy!=null?o.vy:Math.sin(a)*v,o.r!=null?o.r:2,o.gr||0,o.life!=null?o.life:1,o.drag!=null?o.drag:2,o.c||'255,220,140',o.a!=null?o.a:1,o.g||0); } }
 function detonate(b){
   const x=b.x, y=bombY(b), k=b.T.k; b.y0=y; b.detAge=b.age; addShock(x,y,k);   // real blast point
+  sfx('explode',{tier:b.tier}); if(b.tier>=1) sfx('hit',{on:'rocket',v:clamp(b.tier/5,0.2,1)});   // @webgpu-flight-view: blast sound by size + the hull hit
+  F3EV({k:'boom',tier:b.tier,x,y}); v3Drop(b.tier);   // 3D: explosion on the hull, stutter; bunker buster and up also drop the rocket
   const who=b.trader||'—', lbl=`${b.T.name} −${b.pct>=10?b.pct.toFixed(0):b.pct.toFixed(1)}%${b.fullStack?' · FULL STACK':''} · ${who}${b.usd>0?' '+(b.usd<10?fmtShot(b.usd):fmtUsd(b.usd)):''}${b.n>1?' ×'+b.n:''}`;
   S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0});
   if (k==='grenade'){
@@ -2254,10 +2269,16 @@ const AIM_REST=90;
          how far it leans: a dump with lateral speed points down-left / down-right, without it straight down.
    fight buy/sell push-back (+ = buys pull a dive back up, − = sells tip a pump over).
    st    optional heading state: remembers the last tipping side, and SIDE-LOCKS once past 120° so the target
-         can never cross the bottom to the other side (no wrap, no 360°). */
-function aimFromMotion(vy, lat, fight, v0, st){
+         can never cross the bottom to the other side (no wrap, no 360°).
+   live  optional LIVE fall rate (px/s, +up; simStep passes S.vyFall, the live climb rate with a ~0.4 s fall hold).
+         @nose-down-fix (lee, Nov 12): the candle window (vy) alone may tip the nose at most NOSE_HOLD_D (≤ 45° off
+         up); only a price that is still falling NOW points it further down. Before this, the 10 s window kept the
+         nose pinned straight down for 15–28 s after a dump had already stopped ("stuck pointing down"). */
+const NOSE_HOLD_D=0.5;   // d cap from the window alone: 180·0.5² = 45° off up
+function aimFromMotion(vy, lat, fight, v0, st, live){
   const cl=(v,a,b)=>v<a?a:v>b?b:v; vy=Number.isFinite(vy)?vy:0; lat=Number.isFinite(lat)?cl(lat,-1,1):0; fight=Number.isFinite(fight)?cl(fight,-60,60):0;
-  const u=Math.tanh(vy/(v0>0?v0:140)), d=Math.max(0,-u);
+  const V0=v0>0?v0:140, u=Math.tanh(vy/V0); let d=Math.max(0,-u);
+  if (Number.isFinite(live)) d=Math.min(d, Math.max(NOSE_HOLD_D, Math.max(0,-Math.tanh(live/V0))));
   const phi=cl(180*d*d - fight, 0, 180)*Math.PI/180;             // d²: a mild dip barely tips, a hard dump goes straight down
   let side=st&&st.lastSide<0?-1:1; if (Math.abs(lat)>0.15) side=lat<0?-1:1;
   const k=0.14+0.46*d;                                            // upright ≈ ±8° lean, dumping ≈ ±30° off vertical-down
@@ -2440,7 +2461,9 @@ function simStep(stepDt){
   // vertical velocity for attitude: the ~10 s candle window (smooth trend) blended with the live climb rate,
   // so a dump tips the nose over promptly instead of waiting for the window to turn
   S.vyAtt=0.45*(S.momV||0)+0.55*(S.vyS||0);   // market motion stays separate from cosmetic manual dive
-  stepHeading(S, aimWithDive(aimFromMotion(S.vyAtt, S.lean, S.fight, PX_PER_ALT*0.02, S), S.dive, S), 0, dt);   // v0 = 2% of a tier per second (source-independent)
+  // @nose-down-fix: the live fall, held ~0.4 s so a dump made of many trades stays one dive (released as soon as it stops)
+  { const v=S.vyS||0, f=Number.isFinite(S.vyFall)?S.vyFall:v; S.vyFall=Math.min(v, f+(v-f)*(1-Math.exp(-dt/0.4))); }
+  stepHeading(S, aimWithDive(aimFromMotion(S.vyAtt, S.lean, S.fight, PX_PER_ALT*0.02, S, S.vyFall), S.dive, S), 0, dt);   // v0 = 2% of a tier per second (source-independent)
   S.heading=Math.PI/2 - S.aimDisp*Math.PI/180; S.tilt=S.heading;
   // CAMERA — locked to the price altitude (@altfollow). Was: stepCamera's lagging chase (the rocket rose / dropped on
   // screen, then slid back to the anchor as the view caught up = the sink / float-back lee saw).
@@ -2494,7 +2517,7 @@ function simStep(stepDt){
   if(S.t>S.multUntil) S.mult=1;
   for (const f of S.floaters){ f.y-=40*dt; f.life-=dt*0.9; } keepIf(S.floaters,ALIVE);
   // tier change banner
-  const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; if(ti>S.tierShown){ S.grassCard=4.5; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } /* only a CLIMB is a crossing */ } S.tierShown=ti; HOOK('tier',{tier:ti,name:TIERS[ti].name}); }
+  const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; if(ti>S.tierShown){ S.grassCard=4.5; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); sfx('tier',{tier:ti}); F3EV({k:'tier',tier:ti}); } /* only a CLIMB is a crossing */ } S.tierShown=ti; HOOK('tier',{tier:ti,name:TIERS[ti].name}); }
   S.tierBanner=Math.max(0,S.tierBanner-dt); S.grassCard=Math.max(0,(S.grassCard||0)-dt);
   // particles
   { const P=S.particles; for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*(p.dk||2.2); if(p.life<=0) P.kill(i); } }   // dk: launch stat (plume lifetime)
@@ -2974,11 +2997,65 @@ function drawGrass(dt){ const m=shownMcap(); S._grassA=Math.min(1,(S._grassA||0)
       glowText(fmtUsd(TIERS[S.tierShown].lo),W/2,H*0.2,'rgba(255,220,160,1)',12,0.25);   // milestone, never the tier name
       ctx.globalAlpha=0.45*a; ctx.font='300 12px "Helvetica Neue",system-ui,sans-serif'; ctx.fillText('M I L E S T O N E',W/2,H*0.2+30); }
     ctx.restore(); } }
+/* =====================================================================
+   @webgpu-flight-view — the 3D flight view (web/lib/flight/view3d, Three.js WebGPURenderer with a WebGL 2 fallback).
+   The page mounts it under this canvas; when it is ready (window.__flight3d.ready) render() hands the sky plates to its
+   backdrop canvas, skips the 2D sky / clouds / flat rocket / rings and lines, keeps every HUD and gameplay overlay on this
+   (now transparent) canvas, then gives the 3D view a snapshot of the frame. The 3D view only WATCHES: it gets events that
+   already happened (F3EV) and never feeds anything back. If it is missing or fails, render() is the 2D flight as before.
+   Sounds: the engine only dispatches 'disciple:sfx' {k,…}; components/flight/FlightSfx.tsx + lib/game/sfx.ts play them on
+   the Sound effects channel (saved volume + mute; silent until a user gesture). Works from the render worker too.
+   ===================================================================== */
+function sfx(k,d){ try{ dispatchEvent(new CustomEvent('disciple:sfx',{detail:Object.assign({k},d||{})})); }catch(_){} }
+function v3(){ if(!V3W) return null; const F=window.__flight3d; return F&&F.ready?F:null; }
+function F3EV(e){ const F=v3(); if(F) try{ F.ev(e); }catch(_){} }
+/* visual-only state for the 3D view: the big-sell drop (rocket dips, world falls past) and the ascension hyperspeed rush.
+   Nothing here moves the price, the altitude spring, a trade or PnL. */
+S.v3={drop:0,dropV:0,fallV:0,scroll:0,bgOy:0}; S.hyper=null; S._preGrad=S._preGrad||false;
+const V3_DROP={2:[0.07,0.4],3:[0.1,0.65],4:[0.14,0.95],5:[0.19,1.35]}, V3_DROP_W=4.5, V3_FALL_TAU=0.35;   // [rocket dip, world fall] × screen height, by bomb tier
+function v3Drop(tier){ const p=V3_DROP[Math.min(5,tier|0)]; if(!p) return false; const D=S.v3;
+  D.dropV+=p[0]*H*V3_DROP_W*Math.E; D.fallV+=p[1]*H/V3_FALL_TAU; sfx('drop',{v:clamp((tier-1)/4,0.3,1)}); return true; }
+function hyperAmt(){ const h=S.hyper; if(!h) return 0; const t=S.t-h.t0; if(t<0||t>h.dur) return 0; return t<0.35?t/0.35:t>h.dur-0.9?(h.dur-t)/0.9:1; }
+function v3Ascend(){ if(S.confirmed&&S.confirmed.mcap!=null&&(S._preGrad||warpFxOn())){ S.hyper={t0:S.t,dur:2.8}; S.screenFlash={t0:S.t,dur:0.6,a:0.45,c:'232,240,255'}; sfx('ascend'); F3EV({k:'hyper'}); } }   // a live ascension, not a load
+function v3Step(dt){ const D=S.v3, w=V3_DROP_W;
+  D.dropV+=(-w*w*D.drop-2*w*D.dropV)*dt; D.drop+=D.dropV*dt; if(Math.abs(D.drop)<0.05&&Math.abs(D.dropV)<0.5){ D.drop=0; D.dropV=0; }
+  const rush=-D.fallV*dt+hyperAmt()*H*2.4*dt+(warpFxOn()?H*0.5*dt:0);   // fall: world moves UP past the rocket (−); hyperspeed: down (+)
+  D.scroll+=rush; D.bgOy+=rush*0.35; D.fallV*=Math.exp(-dt/V3_FALL_TAU); if(D.fallV<1) D.fallV=0;
+  if(S.hyper&&S.t-S.hyper.t0>S.hyper.dur) S.hyper=null; }
+/* FLIGHT SOUND — the engine hum follows airspeed and boosts (sent ≤10×/s, plus a keep-alive the page uses to fade it out
+   if the flight stops); a BOOST press gets a light whoosh, the fill's turbo a full one. */
+S.flySent={v:-1,at:-9}; S._bb=0;
+function flyLevel(){ return clamp(0.12+(S.air||0)/700+0.45*(S.buyBoost||0)+0.25*(S.wBoost||0)+0.5*hyperAmt(),0,1); }
+function sfxStep(){
+  for (const p of S.pending) if(!p._sfx){ p._sfx=1; if(p.side==='buy'&&p.state==='pending') sfx('boost',{v:0.55}); }
+  const bb=S.buyBoost||0; if(bb>0.95&&S._bb<0.9) sfx('boost',{v:1}); S._bb=bb;
+  const v=flyLevel(), f=S.flySent; if((Math.abs(v-f.v)>0.03&&S.t-f.at>0.1)||S.t-f.at>0.5){ f.v=v; f.at=S.t; sfx('fly',{v}); } }
+const V3_TMAX=200, V3S={W:0,H:0,t:0,dt:0,ts:1,x:0,y:0,ang:0,flame:0,flick:1,fall:0,boost:0,vy:0,sky:[0,0,0],band:0,tier:0,cloudY:0,camX:0,hyper:0,drop:0,braking:false,
+  thrustMul:1,glowMul:1,auraMul:1,scorch:0,P:null,tn:0,tx:new Float32Array(V3_TMAX),ty:new Float32Array(V3_TMAX),decalT0:-1,decal:null};
+function v3Snap(dt){ const V=V3S, [x,y]=nozzleXY(), EP=exhaustParams(), dec=window.__rocketDecal;
+  V.W=W; V.H=H; V.t=S.t; V.dt=dt; V.ts=S.timeScale||1; V.x=x; V.y=y; V.ang=rocketVisAngle(); V.flame=EP.flame; V.flick=EP.flick; V.fall=EP.fall;
+  V.boost=S.buyBoost||0; V.vy=S.vyS||0; V.sky=skyNow(); V.band=S.bgU!=null?S.bgU:bandOf(S.displayAlt); V.tier=S.tierShown; V.cloudY=(S.cloudY||0)+S.v3.scroll;
+  V.camX=S.camX!=null?S.camX:S.x; V.hyper=Math.max(hyperAmt(),warpFxOn()?0.35:0); V.drop=S.v3.drop; V.braking=S.pending.some(p=>p.side==='sell'&&p.state==='pending');
+  V.thrustMul=fxMul('thrust'); V.glowMul=fxMul('glow'); V.auraMul=fxMul('aura'); V.scorch=S.scorch||0; V.P=S.particles;
+  let n=0; const T=S.trail, k0=Math.max(0,T.length-(V3_TMAX-1)); for(let i=k0;i<T.length;i++){ V.tx[n]=T[i].x; V.ty[n]=trailY(T[i]); n++; } V.tx[n]=x; V.ty[n]=y; V.tn=n+1;
+  V.decal=dec&&dec.canvas||null; V.decalT0=dec?dec.t0:-1; return V; }
+function render3(dt,F3){
+  v3Step(dt*(S.timeScale||1));
+  const B=F3.bgFor(W,H);
+  if(B){ ctx=B; ctx.setTransform(B.canvas.width/W,0,0,B.canvas.height/H,0,0); try{ drawBg(); } finally{ ctx=CTX_MAIN; } }
+  ctx.clearRect(0,0,W,H);
+  ctx.save(); drawLevels(); drawEntryLine(); drawFx(dt); drawPendingGhosts(); drawTrampWalls(); ctx.restore();
+  ctx.drawImage(VIGNETTE,0,0,W,H); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap(); cardPublish();
+  F3.frame(v3Snap(dt));
+}
 function render(dt){
-  if (S.grass){ ctx.save(); drawBg(); drawClouds(); drawSpeedLines(); drawTickTrail(); drawRocket(dt); drawClouds(true); ctx.restore(); drawPost(); drawGrass(dt); return; }
+  sfxStep();
+  const F3=v3();
+  if (S.grass){ if(F3) F3.idle(); ctx.save(); drawBg(); drawClouds(); drawSpeedLines(); drawTickTrail(); drawRocket(dt); drawClouds(true); ctx.restore(); drawPost(); drawGrass(dt); return; }
   S._grassA=0;
-  ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap(); cardPublish();
+  if (F3) render3(dt,F3);
+  else { ctx.save();   // camera is stable: no shake of any kind
+  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap(); cardPublish(); }
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
 }
