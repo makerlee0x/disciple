@@ -10,6 +10,13 @@ import {UsdgDepositNotifier} from "../../src/UsdgDepositNotifier.sol";
 import {DiscipleHook} from "../../src/DiscipleHook.sol";
 import {Migration} from "../../src/Migration.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import {NetworkConfig} from "../../script/config/NetworkConfig.sol";
+
+contract NetworkGuardHarness is NetworkConfig {
+    function check() external view returns (bool) {
+        return _checkCoreConfig();
+    }
+}
 
 /// @notice Tests of the deploy scripts that configure them through environment variables.
 /// @dev vm.setEnv is process-global and test suites run in parallel, so EVERY test that sets env vars read by a
@@ -24,6 +31,7 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
     function test_deployScripts_envConfig() public {
         _deployScriptWiring();
         _deployPaymasterDynamicUnits();
+        _mainnetGuards();
     }
 
     /// @dev Audit #5 / #10 / #1 / #2 / #12: the local deploy script output is wired correctly.
@@ -82,5 +90,114 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         vm.expectRevert(bytes("static USDG caps removed: use PAYMASTER_MAX_GAS_PER_OP"));
         d.run();
         vm.setEnv("PAYMASTER_MAX_COST_USDG", "0");
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Mainnet fail-closed network guards (audit #248, moved here from MainnetGuards.t.sol). They set USDG,
+    // DEFAULT_QUOTE, EXPECT_USDG_DECIMALS, ... which Deploy.run() also reads, so they must not run in a parallel suite.
+    // Each case starts and ends from the env captured on entry.
+    // ---------------------------------------------------------------------------------------------------------------
+    string[] internal guardKeys;
+    mapping(string => string) internal guardOriginal;
+
+    function _mainnetGuards() internal {
+        NetworkGuardHarness guard = new NetworkGuardHarness();
+        guardKeys.push("DISCIPLE_NETWORK");
+        guardKeys.push("DISCIPLE_CHAIN_ID");
+        guardKeys.push("TREASURY");
+        guardKeys.push("POOL_MANAGER");
+        guardKeys.push("V4_QUOTER");
+        guardKeys.push("USDG");
+        guardKeys.push("DEFAULT_QUOTE");
+        guardKeys.push("PVE_ATTESTER");
+        guardKeys.push("EXPECT_USDG_DECIMALS");
+        guardKeys.push("MIN_LIQUIDITY");
+        guardKeys.push("PROBE_USDG");
+        guardKeys.push("ANON_LAUNCH_FEE");
+        guardKeys.push("ERC5564_ANNOUNCER");
+        guardKeys.push("DEPLOY_TEST_STRATEGY");
+        for (uint256 i; i < guardKeys.length; ++i) {
+            guardOriginal[guardKeys[i]] = vm.envOr(guardKeys[i], string(""));
+        }
+
+        // testnet and local still pass
+        _restoreGuardEnv();
+        vm.chainId(46630);
+        assertFalse(guard.check());
+        vm.chainId(31337);
+        assertFalse(guard.check());
+
+        // mainnet without config fails closed
+        _restoreGuardEnv();
+        vm.chainId(4663);
+        vm.expectRevert("Network: explicit mainnet config required");
+        guard.check();
+
+        // mainnet confirmation does not permit missing addresses
+        _restoreGuardEnv();
+        vm.chainId(4663);
+        _guardConfirm();
+        vm.setEnv("TREASURY", vm.toString(address(0)));
+        vm.expectRevert("Network: missing TREASURY");
+        guard.check();
+
+        // mainnet dummy config passes the guard only
+        _restoreGuardEnv();
+        vm.chainId(4663);
+        _guardDummyConfig();
+        assertTrue(guard.check());
+
+        // mainnet dummy config on the wrong chain fails closed
+        _restoreGuardEnv();
+        _guardDummyConfig();
+        vm.chainId(46630);
+        vm.expectRevert("Network: mode/chain mismatch");
+        guard.check();
+
+        // unknown chain never passes
+        _restoreGuardEnv();
+        vm.chainId(1);
+        vm.expectRevert("Network: unsupported chain");
+        guard.check();
+
+        // mainnet cannot create a mock quote
+        _restoreGuardEnv();
+        vm.chainId(4663);
+        _guardDummyConfig();
+        vm.setEnv("DEPLOY_TEST_STRATEGY", "true");
+        vm.expectRevert("Network: no mock assets on mainnet");
+        guard.check();
+
+        _restoreGuardEnv();
+    }
+
+    function _restoreGuardEnv() internal {
+        for (uint256 i; i < guardKeys.length; ++i) {
+            vm.setEnv(guardKeys[i], guardOriginal[guardKeys[i]]);
+        }
+    }
+
+    function _guardConfirm() internal {
+        vm.setEnv("DISCIPLE_NETWORK", "mainnet");
+        vm.setEnv("DISCIPLE_CHAIN_ID", "4663");
+    }
+
+    function _guardDummyConfig() internal {
+        _guardConfirm();
+        address fixture = makeAddr("DUMMY CONFIG ONLY");
+        vm.etch(fixture, hex"00");
+        string memory a = vm.toString(fixture);
+        vm.setEnv("TREASURY", a);
+        vm.setEnv("POOL_MANAGER", a);
+        vm.setEnv("V4_QUOTER", a);
+        vm.setEnv("USDG", a);
+        vm.setEnv("DEFAULT_QUOTE", a);
+        vm.setEnv("PVE_ATTESTER", a);
+        vm.setEnv("EXPECT_USDG_DECIMALS", "6");
+        vm.setEnv("MIN_LIQUIDITY", "1");
+        vm.setEnv("PROBE_USDG", "1");
+        vm.setEnv("ANON_LAUNCH_FEE", "0");
+        vm.setEnv("ERC5564_ANNOUNCER", vm.toString(address(0)));
+        vm.setEnv("DEPLOY_TEST_STRATEGY", "false");
     }
 }
