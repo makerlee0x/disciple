@@ -3,6 +3,7 @@ import { BaseError, ContractFunctionRevertedError, decodeErrorResult, formatUnit
 import { anonLauncherAbi, bondingCurveAbi, feeRouterAbi, launchpadAbi, referralRegistryAbi, tokenAbi, usdgDepositNotifierAbi } from "../abi";
 import { deployment } from "../chains";
 import { tokenDecimals } from "../usdg";
+import { curveFeeVaultAbi } from "./vault";
 import { plainText } from "../aa/relayOp";
 
 const pricerAbi = parseAbi(["function quotePriceUsd(address quote) view returns (uint256)"]);
@@ -48,7 +49,7 @@ export function fmtUsd(v: number | null | undefined): string {
   return "$" + v.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: v < 100 ? 2 : 0 });
 }
 
-const ERR_ABIS: Abi[] = [feeRouterAbi, usdgDepositNotifierAbi, bondingCurveAbi, launchpadAbi, anonLauncherAbi, referralRegistryAbi, tokenAbi] as Abi[];
+const ERR_ABIS: Abi[] = [feeRouterAbi, usdgDepositNotifierAbi, bondingCurveAbi, launchpadAbi, anonLauncherAbi, curveFeeVaultAbi, referralRegistryAbi, tokenAbi] as Abi[];
 /** Custom error name + args from any viem/AA error (simulation or on-chain revert). */
 export function revertOf(e: unknown): { name: string; args: readonly unknown[] } | null {
   // duck-typed (AAError.extra.revertData): instanceof breaks across duplicated module instances

@@ -26,7 +26,7 @@ export function makeClient(cfg: Config): PublicClient {
 }
 
 export const coreAddrs = (s: Stack) =>
-  [s.launchpad, s.feeRouter, s.hook, s.migration, s.trampWallManager, s.anonLauncher, s.anonLauncherLegacy, s.rewardsVault, s.referralRegistry, s.lockedLP, s.usdgDepositNotifier].filter(Boolean) as Address[];
+  [s.launchpad, s.feeRouter, s.hook, s.migration, s.trampWallManager, s.anonLauncher, s.anonLauncherLegacy, s.rewardsVault, s.referralRegistry, s.lockedLP, s.usdgDepositNotifier, s.curveFeeVault].filter(Boolean) as Address[];
 
 export class Syncer {
   private limiter: RateLimiter;

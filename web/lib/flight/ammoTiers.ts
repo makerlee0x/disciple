@@ -4,8 +4,9 @@
  * (set by FlightCanvas before engine.js loads) and re-labels its six presets (FEATHER…GLORY) from it.
  *
  * Rule of thumb: each step is ≈4–5× the previous tier, so a preset is a similar % of mcap across tiers.
- * Minimum buy is $3 (lee, Nov 9 2026; was the ~$0.20 network min shot): presets below it (SPARK $0.20–$2, KINDLE
- * $0.50–$2) show as below-minimum in the engine until lee picks new preset sizes (not changed here).
+ * Minimum buy is $3 (lee, Nov 9 2026; was the ~$0.20 network min shot). SPARK / KINDLE presets that were under it
+ * (SPARK $0.20/$0.50/$1/$2, KINDLE $0.50/$2) are raised to $3 (= MIN_SHOT in public/flight/engine.js and
+ * MIN_TRADE_USD in lib/config.ts + lib/trade/gaslessPermit2.ts).
  * Sells (bombs) use the same presets; bomb *tiers* are by % price impact (BOMB_PCT) and need no scaling.
  */
 export type AmmoTier = {
@@ -18,8 +19,8 @@ export type AmmoTier = {
 };
 
 export const AMMO_TIERS: AmmoTier[] = [
-  { id: "spark",     name: "SPARK",     maxMcap: 50_000,     usd: [0.2, 0.5, 1, 2, 5, 20] },
-  { id: "kindle",    name: "KINDLE",    maxMcap: 250_000,    usd: [0.5, 2, 5, 10, 25, 100] },
+  { id: "spark",     name: "SPARK",     maxMcap: 50_000,     usd: [3, 3, 3, 3, 5, 20] },
+  { id: "kindle",    name: "KINDLE",    maxMcap: 250_000,    usd: [3, 3, 5, 10, 25, 100] },
   { id: "blaze",     name: "BLAZE",     maxMcap: 1_000_000,  usd: [2, 5, 20, 50, 100, 500] },
   { id: "inferno",   name: "INFERNO",   maxMcap: 5_000_000,  usd: [5, 25, 100, 250, 500, 2_500] },
   { id: "nova",      name: "NOVA",      maxMcap: 20_000_000, usd: [25, 100, 500, 1_000, 2_500, 10_000] },

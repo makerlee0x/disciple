@@ -19,6 +19,7 @@
 //   testnet; a fresh redeploy's bundle has no `community`, so the defaults are Deploy.s.sol's wiring)
 //   EXPECT_REWARDS_VAULT_OWNER  set after REWARDS_VAULT_OWNER ran acceptOwnership() (runbook §5): checks owner() == it and
 //                 pendingOwner() == 0. Unset ⇒ owner / pendingOwner are printed only (the acceptance may not have happened yet).
+//   EXPECT_SNIPE_ESCROW_TIMEOUT  seconds, default 1036800 (12 days, Constants.SNIPE_ESCROW_TIMEOUT)
 //   EXPECT_OWNER  optional: every owned contract except RewardsVault must have owner() == it (default: owner() != 0 only)
 //   READ_ONLY=1   run only the read-only checks (phase 1) and exit; never sends a tx
 // ABIs come from the bundle (forge artifacts), so AUDIT's contract fixes need no change here unless an API changes.
@@ -103,6 +104,12 @@ check("AnonLauncher.launchAnon has maxFee (v2 ABI)", abi("AnonLauncher").some((x
 const mmWant = Number(process.env.EXPECT_MAX_MODE ?? 2);
 const mm = Number(await rd(B.Launchpad, lpAbi, "maxMode"));
 check("Launchpad.maxMode default == Hard", mm === mmWant, `${mm} (want ${mmWant}; owner-settable, bounds [2,15])`);
+// testnet snipe-escrow timeout (lee 2026-11-10 "yes do the snipe escrow"): 12 days = Constants.SNIPE_ESCROW_TIMEOUT. A fresh
+// Deploy.s.sol Launchpad starts at it; the CURRENT testnet Launchpad still stores 30 days until the owner calls
+// setSnipeEscrowTimeout(12 days), so this check FAILs against it on purpose until then.
+const tWant = BigInt(process.env.EXPECT_SNIPE_ESCROW_TIMEOUT ?? 12 * 86400);
+const tOut = BigInt(await rd(B.Launchpad, lpAbi, "snipeEscrowTimeout"));
+check("Launchpad.snipeEscrowTimeout == 12 days", tOut === tWant, `${tOut}s = ${Number(tOut) / 86400} days (want ${tWant}s; future launches only, existing curves keep their snapshot)`);
 const rtAbiNames = new Set(abi("DiscipleRouter").filter((x) => x.type === "function").map((x) => x.name));
 check("DiscipleRouter has swapUsdgToQuote / swapQuoteToUsdg / quoteUsdgQuoteSwap", ["swapUsdgToQuote", "swapQuoteToUsdg", "quoteUsdgQuoteSwap", "launchWithUsdg"].every((n) => rtAbiNames.has(n)), "pack item 2");
 check("Token ABI has burn / burnFrom", fs.existsSync(path.join(BUNDLE, "abi", "Token.json")) ? ["burn", "burnFrom"].every((n) => abi("Token").some((x) => x.type === "function" && x.name === n)) : true, fs.existsSync(path.join(BUNDLE, "abi", "Token.json")) ? "pack item 5" : "Token ABI not in bundle (skipped)");

@@ -136,7 +136,7 @@ contract MarketLens {
         if (block.timestamp < end) secondsLeft = end - block.timestamp;
     }
 
-    /// @notice Sniper escrow: `amount` held, `releasableAt` (launch + the curve's snipeEscrowTimeout, default 30 days; anyone may then send it to RewardsVault
+    /// @notice Sniper escrow: `amount` held, `releasableAt` (launch + the curve's snipeEscrowTimeout, default 12 days since 2026-11-09, was 30; anyone may then send it to RewardsVault
     ///         if the coin has not graduated), `releasable` now.
     function snipeEscrow(address token) external view returns (uint256 amount, uint256 releasableAt, bool releasable) {
         ILensCurveV2 c = _v2(token);

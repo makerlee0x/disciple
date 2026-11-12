@@ -16,11 +16,15 @@ contract CurveDeployer {
     address private immutable _chunk1;
     uint256 private immutable _len0;
     uint256 private immutable _len1;
+    /// @notice lp-accrue: CurveFeeVault passed to every curve this deployer creates (Launchpad's deploy call is
+    ///         unchanged, so swapping in this deployer via Launchpad.setCurveDeployer is the only wiring).
+    address public immutable feeVault;
 
     error ChunkDeployFailed();
     error CurveDeployFailed();
 
-    constructor() {
+    constructor(address feeVault_) {
+        feeVault = feeVault_;
         bytes memory code = type(BondingCurve).creationCode;
         uint256 l0 = code.length / 2;
         uint256 l1 = code.length - l0;
@@ -76,7 +80,8 @@ contract CurveDeployer {
             loginGate,
             trustedRouter,
             crewTipThresholdBps,
-            snipeEscrowTimeout
+            snipeEscrowTimeout,
+            feeVault
         );
         address c0 = _chunk0;
         address c1 = _chunk1;

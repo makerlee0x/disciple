@@ -21,6 +21,8 @@ export type ActionKind = (typeof ACTION_KINDS)[number];
 
 export const SEL = {
   claimManyBySig: toFunctionSelector("claimManyBySig((address,address[],address,uint256,uint256,bytes))"),
+  /** lp-accrue CurveFeeVault: a private coin's curve-phase creator fees, same Claim struct as claimManyBySig. */
+  claimManyAsStealthBySig: toFunctionSelector("claimManyAsStealthBySig((address,address[],address,uint256,uint256,bytes))"),
   transferCreatorBySig: toFunctionSelector("transferCreatorBySig(address,address,uint256,bytes)"),
   pull: toFunctionSelector("pull(uint256)"),
 } as const;
@@ -90,6 +92,7 @@ export function describeBlockedCall(data: Hex): string {
     [toFunctionSelector("deposit(address,uint256)")]: "UsdgDepositNotifier.deposit(address,uint256)",
     [toFunctionSelector("approve(address,uint256)")]: "ERC20.approve (token pull for tramp / deposit)",
     [toFunctionSelector("claimMany(address[],address)")]: "AnonLauncher.claimMany(address[],address) — use claimManyBySig instead",
+    [toFunctionSelector("claimCreatorFeesAsStealth(address,address)")]: "CurveFeeVault.claimCreatorFeesAsStealth(address,address) — use claimManyAsStealthBySig instead",
   };
   return map[s] ?? `unknown selector ${s}`;
 }
@@ -101,7 +104,7 @@ export function blockedCallsMessage(calls: ActionCall[]): string {
 
 export function isRelayableCall(kind: ActionKind, c: ActionCall): boolean {
   const s = selOf(c.data);
-  if (kind === "anonClaim") return s === SEL.claimManyBySig;
+  if (kind === "anonClaim") return s === SEL.claimManyBySig || s === SEL.claimManyAsStealthBySig;
   if (kind === "anonTransferCreator") return s === SEL.transferCreatorBySig;
   return s === SEL.pull && eq(c.to, deployment().trampWallManager);
 }
@@ -112,16 +115,16 @@ export function partitionRelayableCalls(kind: ActionKind, calls: ActionCall[]): 
   return { relayable, blocked };
 }
 
-const claimAbi = [{
-  type: "function", name: "claimManyBySig", stateMutability: "nonpayable",
-  inputs: [{ name: "c", type: "tuple", components: [
-    { name: "owner", type: "address" }, { name: "tokens", type: "address[]" }, { name: "to", type: "address" },
-    { name: "relayerFeeBps", type: "uint256" }, { name: "deadline", type: "uint256" }, { name: "sig", type: "bytes" },
-  ] }],
-  outputs: [],
-}] as const;
+const claimReqInputs = [{ name: "c", type: "tuple", components: [
+  { name: "owner", type: "address" }, { name: "tokens", type: "address[]" }, { name: "to", type: "address" },
+  { name: "relayerFeeBps", type: "uint256" }, { name: "deadline", type: "uint256" }, { name: "sig", type: "bytes" },
+] }] as const;
+const claimAbi = [
+  { type: "function", name: "claimManyBySig", stateMutability: "nonpayable", inputs: claimReqInputs, outputs: [] },
+  { type: "function", name: "claimManyAsStealthBySig", stateMutability: "nonpayable", inputs: claimReqInputs, outputs: [] },
+] as const;
 
-/** claimManyBySig payout `to` must be the session wallet (the current UI always pays `me`). */
+/** claimManyBySig / claimManyAsStealthBySig payout `to` must be the session wallet (the current UI always pays `me`). */
 export function claimPayoutOf(data: Hex): Address {
   const dec = decodeFunctionData({ abi: claimAbi, data });
   const c = dec.args[0] as { to: Address };

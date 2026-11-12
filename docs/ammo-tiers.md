@@ -10,17 +10,16 @@ addresses are involved.
 
 | Tier | Rocket mcap | FEATHER | EMBER | FLARE | COMET | ARCHANGEL | GLORY |
 |---|---|---|---|---|---|---|---|
-| SPARK | < $50K | $0.20 | $0.50 | $1 | $2 | $5 | $20 |
-| KINDLE | $50K – $250K | $0.50 | $2 | $5 | $10 | $25 | $100 |
+| SPARK | < $50K | $3 | $3 | $3 | $3 | $5 | $20 |
+| KINDLE | $50K – $250K | $3 | $3 | $5 | $10 | $25 | $100 |
 | BLAZE | $250K – $1M | $2 | $5 | $20 | $50 | $100 | $500 |
 | INFERNO | $1M – $5M | $5 | $25 | $100 | $250 | $500 | $2.5K |
 | NOVA | $5M – $20M | $25 | $100 | $500 | $1K | $2.5K | $10K |
 | SUPERNOVA | ≥ $20M | $100 | $500 | $2K | $5K | $10K | $50K |
 
 * Each tier is ≈4–5× the previous one (tier mid-points are ≈4.5× apart), so presets keep roughly the same % of mcap.
-* Minimum buy is $3 since Nov 9 2026 (lee; was the ≈$0.20 network minimum shot). SPARK/KINDLE presets under $3 show
-  as below-minimum until new preset sizes are picked. Previously: SPARK floored at the network minimum shot, so low-mcap rockets stay
-  playable on small budgets.
+* Minimum buy is $3 since Nov 9 2026 (lee; was the ≈$0.20 network minimum shot). The SPARK/KINDLE presets that were
+  under $3 (SPARK $0.20 / $0.50 / $1 / $2, KINDLE $0.50 / $2) are raised to $3, matching `MIN_SHOT = 3` in the engine.
 * Bomb *tiers* (grenade → atom) are chosen by % price impact (`BOMB_PCT`), so they need no scaling; sells simply use
   the same scaled presets.
 

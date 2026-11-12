@@ -7,6 +7,9 @@
  *   crew              Launchpad.modeOf / curveOf + BondingCurve.pendingRewards + Launchpad.claim   (PVE only)
  *   referralGate      UsdgDepositNotifier minDeposit / deposit / escrowCount / escrowOf / withdraw
  *   anonClaims        AnonLauncher.pending(token) + claimMany / claimManyBySig, on the coin's launcher (v2, or v1 legacy)
+ *   curveFeeVault     lp-accrue CurveFeeVault configured (deployment().curveFeeVault) and answering referrerAccrued. Per-coin
+ *                     creator rows do not need it (they read BondingCurve.feeVault()); it scopes the stack-wide referral /
+ *                     history reads. Optional in Caps so older literals stay valid.
  *
  * Each needs the function in the generated ABI, a non-zero address, and (probeCaps) a view answering on-chain,
  * so a misconfigured env hides the card instead of showing broken buttons.
@@ -15,6 +18,7 @@ import type { Abi, PublicClient } from "viem";
 import { anonLauncherAbi, bondingCurveAbi, feeRouterAbi, launchpadAbi, usdgDepositNotifierAbi } from "../abi";
 import { ANON_ADDONS } from "../anon";
 import { ACTIVE_CHAIN, deployment, isDeployed } from "../chains";
+import { curveFeeVaultAbi } from "./vault";
 
 export type Caps = {
   creatorFees: boolean;
@@ -23,6 +27,7 @@ export type Caps = {
   crew: boolean;
   referralGate: boolean;
   anonClaims: boolean;
+  curveFeeVault?: boolean;
 };
 
 export const abiHas = (abi: Abi | readonly unknown[], name: string) =>
@@ -46,6 +51,7 @@ export function staticCaps(): Caps {
     crew: !!d && abiHas(launchpadAbi, "modeOf") && abiHas(launchpadAbi, "claim") && abiHas(bondingCurveAbi, "pendingRewards"),
     referralGate: !!d && set(d.usdgDepositNotifier) && abiHas(usdgDepositNotifierAbi, "minDeposit") && abiHas(usdgDepositNotifierAbi, "escrowOf"),
     anonClaims: set(anonLauncherAddr()) && abiHas(anonLauncherAbi, "pending") && abiHas(anonLauncherAbi, "claimMany"),
+    curveFeeVault: !!d && set(d.curveFeeVault),
   };
 }
 
@@ -59,15 +65,16 @@ export function probeCaps(pc: PublicClient): Promise<Caps> {
   probed = (async (): Promise<Caps> => {
     if (!isDeployed()) return s;
     const d = deployment();
-    const [quote, token, ref, crew, gate, anon] = await Promise.all([
+    const [quote, token, ref, crew, gate, anon, vault] = await Promise.all([
       s.creatorFees ? ok(pc.readContract({ address: d.feeRouter, abi: feeRouterAbi, functionName: "creatorAccrued", args: [Z, Z] })) : false,
       s.creatorTokenFees ? ok(pc.readContract({ address: d.feeRouter, abi: feeRouterAbi, functionName: "creatorTokenAccrued", args: [Z, Z] })) : false,
       s.referrerFees ? ok(pc.readContract({ address: d.feeRouter, abi: feeRouterAbi, functionName: "referrerAccrued", args: [Z, Z] })) : false,
       s.crew ? ok(pc.readContract({ address: d.launchpad, abi: launchpadAbi, functionName: "modeOf", args: [Z] })) : false,
       s.referralGate ? ok(pc.readContract({ address: d.usdgDepositNotifier, abi: usdgDepositNotifierAbi, functionName: "minDeposit" })) : false,
       s.anonClaims ? ok(pc.readContract({ address: anonLauncherAddr()!, abi: anonLauncherAbi, functionName: "stealthOwnerOf", args: [Z] })) : false,
+      s.curveFeeVault ? ok(pc.readContract({ address: d.curveFeeVault, abi: curveFeeVaultAbi, functionName: "referrerAccrued", args: [Z, Z] })) : false,
     ]);
-    return { creatorFees: quote, creatorTokenFees: token, referrerFees: ref, crew, referralGate: gate, anonClaims: anon };
+    return { creatorFees: quote, creatorTokenFees: token, referrerFees: ref, crew, referralGate: gate, anonClaims: anon, curveFeeVault: vault };
   })();
   probed.catch(() => { probed = null; });
   return probed;
