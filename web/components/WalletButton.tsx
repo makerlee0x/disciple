@@ -56,7 +56,7 @@ function metaOf(coin: Address) {
  * Dev options: an existing wallet as owner (one signature).
  * Legacy "plain wallet" path kept as fallback (one tx per action).
  */
-export default function WalletButton({ compact = false }: { compact?: boolean } = {}) {
+export default function WalletButton({ compact = false, hideCash = false }: { compact?: boolean; /** profile pages: no cash / total cards */ hideCash?: boolean } = {}) {
   const [addr, setAddr] = useState<Address | null>(null);
   const [busy, setBusy] = useState("");
   const [, setEth] = useState<bigint | null>(null);
@@ -254,7 +254,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
           {ACTIVE_CHAIN.id === TEST_NETWORK_ID && !coin && <span className="wb-testnet" role="note">Test network</span>}
           {addr ? (
             <>
-              {pf && smart && (
+              {pf && smart && !hideCash && (
                 <div aria-label="cash and portfolio" className="wb-cards" style={{ display: "flex", gap: 6, alignItems: "stretch", minWidth: 0 }}>
                   <div data-testid="cash-card" style={cardStyle} title="Your cash: what BOOST spends and DUMP pays out in.">
                     <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.cashUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>cash</span></span>

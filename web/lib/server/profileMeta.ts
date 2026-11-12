@@ -1,7 +1,7 @@
 import "server-only";
 /**
  * Profile meta (pfp / bio / flag) on lib/server/kv, next to the username registry (lib/server/usernames).
- * Key: user:meta:<wallet lowercase> → JSON { pfp, bio, flag, lastUsernameChangeAt? }. Values are validated by
+ * Key: user:meta:<wallet lowercase> → JSON { pfp, bio, flag, title?, banner?, lastUsernameChangeAt? }. Values are validated by
  * /api/profile/meta before they land here, and re-validated on read so a bad stored value never reaches the page.
  * lastUsernameChangeAt (ms epoch) is written only by /api/profile/username (24h rename cooldown, lib/usernameCooldown);
  * a meta save keeps it.
@@ -28,13 +28,14 @@ export async function metaOf(wallet: string): Promise<ProfileMeta> {
     bio: bioLength(bio) <= BIO_MAX ? bio : "",
     flag: COUNTRY_FLAGS_ENABLED && typeof j.flag === "string" && isFlag(j.flag) ? j.flag : "",
     title: typeof j.title === "string" && isTitleId(j.title) ? j.title : "",
+    banner: typeof j.banner === "string" && isPfpId(j.banner) ? j.banner : "",
   };
 }
 
 export async function setMeta(wallet: string, m: ProfileMeta): Promise<void> {
   const prev = await readStored(wallet);
   const keep = typeof prev.lastUsernameChangeAt === "number" ? { lastUsernameChangeAt: prev.lastUsernameChangeAt } : {};
-  await kv().set(metaKey(wallet), JSON.stringify({ pfp: m.pfp, bio: m.bio, flag: m.flag, ...(m.title ? { title: m.title } : {}), ...keep }));
+  await kv().set(metaKey(wallet), JSON.stringify({ pfp: m.pfp, bio: m.bio, flag: m.flag, ...(m.title ? { title: m.title } : {}), ...(m.banner ? { banner: m.banner } : {}), ...keep }));
 }
 
 /** Last counted username change (ms epoch), or null. */

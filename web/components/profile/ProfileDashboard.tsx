@@ -1,60 +1,115 @@
 "use client";
 
-import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PROFILE_CHANGED_EVENT, localUsername, profileUrl } from "@/lib/profile";
+import { PROFILE_CHANGED_EVENT, localUsername } from "@/lib/profile";
 import { defaultUsername, isAddressLike } from "@/lib/defaultUsername";
 import { EMPTY_META, pfpUrl, type ProfileMeta } from "@/lib/profileMeta";
 import { fetchProfileMeta } from "@/lib/profileMetaClient";
-import { evaluateAchievements } from "@/lib/achievements";
-import { lootFromAchievements, LOOT_SLOTS, type LootSlot } from "@/lib/profileLoot";
-import { useProfileUrlState } from "@/lib/profileUrlState";
-import { GUILDS_ENABLED, LOOT_ENABLED, REAL_PROGRESS_ENABLED } from "@/lib/features";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
-import { SAMPLE_DATA_LABEL } from "@/lib/mock/sample-trades";
-import { earnedTitlesFor, profileStatsFor, profileStatsSeed, shownTitle, titleDef, titleTooltip } from "@/lib/titles";
-import { fmtUsd } from "@/lib/config";
-import { NO_IDENTITY, PERSONA_BADGES, personaBadge } from "@/lib/identity";
-import { prestigeFromPoints } from "@/lib/prestige";
+import { NO_IDENTITY } from "@/lib/identity";
 import { withBase } from "@/lib/base-path";
 import { onWallet } from "@/lib/wallet";
 import { DEPOSIT_HREF, LEGACY_CASH_HASH, OPEN_SETTINGS_EVENT, SETTINGS_HASHES } from "@/lib/cashLink";
+import { tokenAmountLabel } from "@/lib/portfolioHistory";
+import { useCoinIcons } from "@/lib/useCoinIcons";
 import SettingsModal from "./SettingsModal";
 import EditProfileSheet from "./EditProfileSheet";
-import LootPopup, { lootItemId, type LootItem } from "./LootPopup";
 import IdentitySigil from "./IdentitySigil";
-import Flag from "./Flag";
-import { GuildTagFor } from "@/components/guilds/GuildChip";
-import { COUNTRY_FLAGS_ENABLED } from "@/lib/guilds";
 import BioText from "./BioText";
-import { pageCount, pageSlice } from "./Pager";
-import { useLiveHoldings } from "./LiveHoldings";
+import Pager, { pageCount, pageSlice } from "./Pager";
+import { useLivePortfolio, type LiveHolding } from "./LiveHoldings";
 import { useRealActivity } from "./RealActivity";
-import type { RocketCardRow } from "./tabs/RocketsTab";
-import ProfileClaims from "@/components/claims/ProfileClaims";
+import PortfolioBlock from "./PortfolioBlock";
+import { ChestGlyph } from "./Glyphs";
+import { agoLabel, signedUsd2, usd2 } from "./money";
+import RewardsPopup from "@/components/claims/RewardsPopup";
+import { useRewards } from "@/components/claims/useRewards";
 import InvitesCard from "@/components/invites/InvitesCard";
-import ShareModal, { type ShareTarget } from "@/components/share/ShareModal";
+import PairArt from "@/components/pairart/PairArt";
 import Icon from "@/components/icons/Icon";
-import Tooltip from "@/components/ui/Tooltip";
-import AchievementsCard from "./AchievementsCard";
+import type { ActivityItem } from "@/lib/stats";
 
-// One page (lee 2026-10-24: no tabs). Sections are their own chunks; Loot only behind LOOT_ENABLED.
-const Skeleton = () => <div className="pf-skeleton" aria-hidden />;
-const RocketsTab = dynamic(() => import("./tabs/RocketsTab"), { loading: Skeleton });
-const LootTab = dynamic(() => import("./tabs/LootTab"), { loading: Skeleton });
-const ActivityTab = dynamic(() => import("./tabs/ActivityTab"), { loading: Skeleton });
+const PAGE = { rockets: 8, activity: 20 } as const;
 
-const PAGE = { rockets: 8, loot: 12, activity: 20 } as const;
+/** Rockets list (profile r5): art · name · `{count} $TICKER` on the left; value · today's change on the right. No tier. */
+function Holdings({ rows, icons, isPrivate, owner }: { rows: LiveHolding[] | null; icons: Record<string, string>; isPrivate: boolean; owner: string }) {
+  const [page, setPage] = useState(1);
+  if (rows == null) return <div className="p5-list" aria-busy="true" data-testid="tab-rockets" />;
+  if (!rows.length) {
+    return isPrivate ? (
+      <div className="p5-empty" data-testid="tab-rockets">
+        <strong>{C["rockets.empty.own.title"]}</strong>
+        <p>{C["rockets.empty.own.body"]}</p>
+        <Link href="/" className="p5-btn">{C["rockets.empty.own.cta"]}</Link>
+      </div>
+    ) : <div className="p5-empty" data-testid="tab-rockets"><p>{C["rockets.empty.other"](owner)}</p></div>;
+  }
+  const pages = pageCount(rows.length, PAGE.rockets), p = Math.min(page, pages);
+  return (
+    <div className="p5-list" data-testid="tab-rockets">
+      <ul>
+        {pageSlice(rows, p, PAGE.rockets).map((h) => {
+          const tk = h.symbol || h.coin.slice(2, 6).toUpperCase();
+          const ch = h.tokens * (h.priceNow - h.price24h);
+          return (
+            <li key={h.coin}>
+              <Link href={`/coin/${h.coin}`} className="p5-hold">
+                <PairArt src={icons[h.coin.toLowerCase()]} tk={tk} size="list" px={40} />
+                <span className="m"><span className="nm">{h.name || `$${tk}`}</span><span className="sub" data-testid="holding-amount">{tokenAmountLabel(h.tokens, tk)}</span></span>
+                <span className="vv"><span>{usd2(h.usd)}</span><span className={`ch ${Math.abs(ch) < 0.005 ? "muted" : ch > 0 ? "up" : "down"}`}>{signedUsd2(ch)} today</span></span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+      <Pager page={p} pages={pages} onPage={setPage} />
+    </div>
+  );
+}
 
-const signedUsd = (v: number) => `${v >= 0 ? "+" : "-"}${fmtUsd(Math.abs(v))}`;
+/** Activity (real trades only): ↑ BOOST / ↓ DUMP · rocket · dollars · when. */
+function Activity({ rows, isPrivate, owner }: { rows: ActivityItem[] | null; isPrivate: boolean; owner: string }) {
+  const [page, setPage] = useState(1);
+  if (rows == null) return <div className="p5-list" aria-busy="true" data-testid="tab-activity" />;
+  if (!rows.length) {
+    return isPrivate ? (
+      <div className="p5-empty" data-testid="tab-activity">
+        <strong>{C["activity.empty.own.title"]}</strong>
+        <p>{C["activity.empty.own.body"]}</p>
+      </div>
+    ) : <div className="p5-empty" data-testid="tab-activity"><p>{C["activity.empty.other"](owner)}</p></div>;
+  }
+  const pages = pageCount(rows.length, PAGE.activity), p = Math.min(page, pages);
+  return (
+    <div className="p5-list" data-testid="tab-activity">
+      <ul>
+        {pageSlice(rows, p, PAGE.activity).map((a) => {
+          const boost = a.kind === "buy";
+          return (
+            <li key={a.id} className="p5-arow">
+              <span className={`k ${boost ? "up" : "down"}`}><Icon name={boost ? "arrow-up" : "arrow-down"} size={12} />{boost ? "BOOST" : "DUMP"}</span>
+              <span className="r">{a.coin ? <Link href={`/coin/${a.coin}`}>{a.text}</Link> : a.text}</span>
+              <span className="u">{a.usd != null ? usd2(a.usd) : ""}</span>
+              <span className="t">{agoLabel(a.ts)}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <Pager page={p} pages={pages} onPage={setPage} />
+    </div>
+  );
+}
 
 /**
- * /profile (private) and /u/[username] (public), one page (lee 2026-10-24):
- *   header (picture, name, flag, rank + level, the ONE chosen title, bio, headline stats, actions) → claims →
- *   main column: achievements progress card (links to /achievements) then Activity (record, PnL chart, feed), always open;
- *   side column: rocket holdings. Mobile stacks header → achievements card → holdings → activity.
- * Stats are SAMPLE until the indexer is live (lib/titles profileStatsFor); live on-chain holdings replace the sample rockets
- * when the wallet has any.
+ * /profile (own) and /u/[username] (public), profile r5 (body) + r3 (header, Edit profile, Rewards popup, Settings):
+ *   banner (pilot-uploaded; plain dark panel when none) · picture · name (Instrument Serif) · bio
+ *   own only: Edit profile + chest, or a gold "Claim now" in place of the chest when rewards are waiting (opens Rewards)
+ *   portfolio block (total, change, 24H/7D/30D/ALL, chart, Cash, Rockets) — public profiles show the same block
+ *   Activity + Rockets (desktop: two columns; phone: Rockets then Activity)
+ * No cash pill, Share, Settings button, Log out, titles, Achievements card or Withdraw/Deposit on the page: Share lives in
+ * the Rewards popup, Log out and the username in Settings (sidebar gear → /profile#settings), money moves on /wallet.
+ * Everything shown is live (wallet reads + the trade index); nothing is sample data.
  */
 export default function ProfileDashboard({ mode = "private", username }: { mode?: "private" | "public"; username?: string }) {
   const isPrivate = mode === "private";
@@ -72,23 +127,25 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   // if any, is looked up below, else the page shows the wallet's space-themed default call sign.
   const slugAddr = !isPrivate && isAddressLike(username) ? username!.toLowerCase() : null;
   const [slugName, setSlugName] = useState<string | null>(null);
-  // Private: the signed-in wallet. Public: reverse lookup username → wallet (or the address slug itself).
+  // public: the username lookup finished (a name with no wallet then shows empty, not loading)
+  const [resolved, setResolved] = useState(false);
   useEffect(() => {
     if (isPrivate) return onWallet((a) => setWallet(a ? a.toLowerCase() : null));
     if (!username) return;
     let alive = true;
+    setResolved(false);
     if (slugAddr) {
-      setWallet(slugAddr); setSlugName(null);
+      setWallet(slugAddr); setSlugName(null); setResolved(true);
       fetch(`/api/profile/username?address=${slugAddr}`).then((r) => r.json())
         .then((j: { username?: string | null }) => { if (alive) setSlugName(j.username ?? null); }).catch(() => {});
       return () => { alive = false; };
     }
     fetch(`/api/profile/username?resolve=${encodeURIComponent(username)}`).then((r) => r.json())
-      .then((j: { address?: string | null }) => { if (alive) setWallet(j.address ?? null); }).catch(() => {});
+      .then((j: { address?: string | null }) => { if (alive) setWallet(j.address ?? null); }).catch(() => {})
+      .finally(() => { if (alive) setResolved(true); });
     return () => { alive = false; };
   }, [isPrivate, username, slugAddr]);
-  // Private, no username saved in this browser: use the wallet's claimed username from the registry (claimed on
-  // another device), so the default call sign below only shows when there really is no username.
+  // Private, no username saved in this browser: use the wallet's claimed username from the registry.
   useEffect(() => {
     if (!isPrivate || !wallet || localUsername()) return;
     let alive = true;
@@ -96,11 +153,10 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       .then((j: { username?: string | null }) => { if (alive && j.username) setMe(j.username); }).catch(() => {});
     return () => { alive = false; };
   }, [isPrivate, wallet]);
-  // Public name: claimed @username, else (address slug without one) the default call sign. Defaults never get an "@".
   const publicName = slugAddr ? (slugName ? `@${slugName}` : defaultUsername(slugAddr)) : `@${username}`;
   const publicUsername = slugAddr ? slugName : username;
 
-  // Picture / bio / flag for the profile's wallet (/api/profile/meta); re-read after a save.
+  // Picture / banner / bio for the profile's wallet (/api/profile/meta); re-read after a save.
   const [meta, setMeta] = useState<ProfileMeta>(EMPTY_META);
   useEffect(() => {
     let alive = true;
@@ -112,16 +168,17 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   }, [wallet]);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // closing clears #settings in place (no navigation or scroll), so the next Settings click opens it again
+  // closing clears #settings in place (no navigation or scroll), so the next gear click opens it again
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     if ((SETTINGS_HASHES as readonly string[]).includes(window.location.hash))
       window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`);
   }, []);
   const [edit, setEdit] = useState<{ focus: "bio" | null } | null>(null);
-  const [share, setShare] = useState<ShareTarget | null>(null);
+  const [rewardsOpen, setRewardsOpen] = useState(false);
   const [toast, setToast] = useState("");
-  const flash = (t: string) => { setToast(t); window.setTimeout(() => setToast(""), 1800); };
+  const toastT = useRef<number | undefined>(undefined);
+  const flash = (t: string) => { setToast(t); window.clearTimeout(toastT.current); toastT.current = window.setTimeout(() => setToast(""), 1800); };
   // Settings opens on #settings (lib/cashLink): on load, on hashchange, and on the in-place link event. Old Deposit links
   // (/profile#cash) go to Cash on /wallet, where it lives now.
   useEffect(() => {
@@ -138,86 +195,11 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   }, [isPrivate]);
 
   const owner = (isPrivate ? me : publicUsername) || "";
-  // Same seed as the server's title check (/api/profile/meta): claimed username, else the wallet.
-  const seed = profileStatsSeed(owner, isPrivate ? wallet : slugAddr ?? wallet);
-  const data = useMemo(() => profileStatsFor(seed), [seed]);
-  // REAL_PROGRESS_ENABLED off (lib/features): the stats are sample, so the header hides them, the season tier and
-  // the level, and shows no earned title ("Normie"). The sample data below still feeds the labeled SAMPLE sections.
-  const real = REAL_PROGRESS_ENABLED;
-  const identity = real ? data.identity : NO_IDENTITY;
-  const earned = useMemo(() => earnedTitlesFor(seed), [seed]);
-  const title = shownTitle(meta.title, earned);
-  const prestige = prestigeFromPoints(data.points);
-  const kpi = (k: string) => data.kpis.find((x) => x.key === k)?.total ?? 0;
-
-  // Loot keeps its ?loot= / ?slot= deep links (only when LOOT_ENABLED); section pages are local.
-  const [url, setUrl] = useProfileUrlState();
-  const [pg, setPg] = useState({ rockets: 1, loot: 1, activity: 1 });
-  const refs = { rockets: useRef<HTMLElement>(null), loot: useRef<HTMLElement>(null), activity: useRef<HTMLElement>(null) };
-  const goPage = (k: keyof typeof pg) => (p: number) => {
-    setPg((x) => ({ ...x, [k]: p }));
-    const el = refs[k].current;
-    if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: "start" });
-  };
-
-  // Rockets: live on-chain holdings only (no sample rows); none ⇒ the empty state.
-  const live = useLiveHoldings(wallet);
-  // Display name for the tabs' empty-state copy: the username, else the default call sign (address slug / no username yet).
   const ownerName = owner || defaultUsername(isPrivate ? wallet : slugAddr);
-  const rocketRows: RocketCardRow[] = useMemo(() => {
-    if (live && live.length) {
-      return live.map((h) => {
-        const ch = h.tokens * (h.priceNow - h.price24h);
-        const tk = h.symbol || h.coin.slice(2, 6).toUpperCase();
-        return { key: h.coin, href: `/coin/${h.coin}`, ticker: tk, name: h.coin.slice(0, 6) + "…" + h.coin.slice(-4), amount: h.usd, signed: false, sub: C["rockets.live.change"](signedUsd(ch)),
-          share: () => setShare({ coin: h.coin, ticker: tk, wallet, username: owner || null }) };
-      });
-    }
-    return [];
-  }, [live, wallet, owner]);
-  // Activity: the wallet's real trades on the current contracts (lib/mock sample trades used to fill this list).
+  const pf = useLivePortfolio(wallet);
+  const icons = useCoinIcons(useMemo(() => (pf?.rows ?? []).map((h) => h.coin), [pf]));
   const activity = useRealActivity(wallet);
-  const activityRows = activity ?? [];
-
-  // Achievements (unlocked → in progress → locked) and the loot they grant.
-  const achievements = useMemo(() => {
-    const order = { unlocked: 0, in_progress: 1, locked: 2 } as const;
-    return evaluateAchievements(data).sort((x, y) => order[x.state] - order[y.state]);
-  }, [data]);
-  const loot = useMemo(() => lootFromAchievements(achievements), [achievements]);
-  const lootFilter = (LOOT_SLOTS as readonly string[]).includes(url.filter ?? "") ? (url.filter as LootSlot) : null;
-  const lootShown = useMemo(() => (lootFilter ? loot.filter((p) => p.slot === lootFilter) : loot), [loot, lootFilter]);
-  const lootCounts = useMemo(() => {
-    const c = { all: loot.length, skin: 0, trail: 0, frame: 0 };
-    for (const p of loot) c[p.slot]++;
-    return c;
-  }, [loot]);
-
-  const pages = {
-    rockets: pageCount(rocketRows.length, PAGE.rockets), loot: pageCount(lootShown.length, PAGE.loot), activity: pageCount(activityRows.length, PAGE.activity),
-  };
-  const page = { rockets: Math.min(pg.rockets, pages.rockets), loot: Math.min(pg.loot, pages.loot), activity: Math.min(pg.activity, pages.activity) };
-
-  // Loot popup = the open page of Loot; ?loot=<id> deep-links one (and jumps to its page).
-  const popupItems: LootItem[] = useMemo(
-    () => (LOOT_ENABLED ? pageSlice(lootShown, page.loot, PAGE.loot).map((part) => ({ kind: "part", part }) as LootItem) : []),
-    [lootShown, page.loot]);
-  useEffect(() => {
-    if (!url.loot || !LOOT_ENABLED) return;
-    const i = lootShown.map((p) => p.id).indexOf(url.loot);
-    if (i < 0) return;
-    const want = Math.floor(i / PAGE.loot) + 1;
-    setPg((x) => (x.loot === want ? x : { ...x, loot: want }));
-  }, [url.loot, lootShown]);
-  const popupIndex = url.loot ? popupItems.findIndex((it) => lootItemId(it) === url.loot) : -1;
-  const openPopup = (i: number) => setUrl({ loot: lootItemId(popupItems[i]) });
-  const stepPopup = useCallback((i: number) => setUrl({ loot: lootItemId(popupItems[i]) }, "replace"), [popupItems, setUrl]);
-  const closePopup = useCallback(() => setUrl({ loot: null }), [setUrl]);
-
-  const shareProfile = () => {
-    const path = owner ? profileUrl(owner) : window.location.pathname;
-    try { navigator.clipboard?.writeText(`${window.location.origin}${withBase(path)}`); flash(C["profile.share.copied"]); } catch { /* no clipboard */ }
-  };
+  const rewards = useRewards(isPrivate && !!wallet);
 
   // /profile signed out: no sample pilot pretending to be you (existing copy only).
   if (isPrivate && !wallet) {
@@ -236,98 +218,63 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   // No username: the wallet's space-themed default call sign (never with an "@"); public /u/<0x…> slugs likewise.
   const handle = isPrivate ? (me ? `@${me}` : defaultUsername(wallet)) : publicName;
   const img = pfpUrl(meta.pfp);
-  const ring = real ? data.rank.border : undefined;
-  const badge = PERSONA_BADGES[personaBadge(identity)];
-  // Nothing earned: "Normie" (NO_TITLE; not a title, not pickable).
-  const titleD = title ? titleDef(title) : identity.primary;
-  const titleTip = title ? titleTooltip(title) : identity.primary.blurb;
-  const rpnl = kpi("rpnl");
+  const banner = pfpUrl(meta.banner ?? "");
+  const noWallet = !isPrivate && resolved && !wallet;
+  const holdings = pf ? (pf.ok ? pf.rows : []) : noWallet ? [] : null;
+
+  const rocketsSection = (
+    <section className="p5-sec p5-rockets" aria-labelledby="p5-h-rockets">
+      <div className="p5-sech"><h2 id="p5-h-rockets">{C["profile.tab.rockets"]}</h2>{!!holdings?.length && <span className="a">{C["rockets.filter.holding"](holdings.length)}</span>}</div>
+      <Holdings rows={holdings} icons={icons} isPrivate={isPrivate} owner={ownerName} />
+    </section>
+  );
+  const activitySection = (
+    <section className="p5-sec p5-activity" aria-labelledby="p5-h-activity">
+      <div className="p5-sech"><h2 id="p5-h-activity">{C["profile.tab.activity"]}</h2></div>
+      <Activity rows={noWallet ? [] : activity} isPrivate={isPrivate} owner={ownerName} />
+    </section>
+  );
 
   return (
-    <div className="profile-page pf-v3">
-      {share && <ShareModal target={share} onClose={() => setShare(null)} />}
+    <div className="profile-page p5">
       {isPrivate && <SettingsModal open={settingsOpen} onClose={closeSettings} />}
       {isPrivate && <EditProfileSheet open={!!edit} focus={edit?.focus} wallet={wallet} meta={meta}
         onClose={(saved) => { setEdit(null); if (saved) flash(C["edit.saved"]); }} />}
-      <LootPopup items={popupItems} index={popupIndex >= 0 ? popupIndex : null} onIndex={stepPopup} onClose={closePopup} />
+      {isPrivate && <RewardsPopup open={rewardsOpen} onClose={() => setRewardsOpen(false)} r={rewards} />}
       {toast && <div className="pf-toast" role="status">{toast}</div>}
 
-      <header className="pf-head" data-testid="profile-identity">
-        <button type="button" className="pf-avatar" style={{ ["--pf-ring" as string]: ring }} disabled={!isPrivate}
-          onClick={isPrivate ? () => setEdit({ focus: null }) : undefined} aria-label={isPrivate ? C["profile.action.edit"] : undefined} tabIndex={isPrivate ? 0 : -1}>
-          {img
-            // eslint-disable-next-line @next/next/no-img-element
-            ? <img src={withBase(img)} alt="" width={112} height={112} fetchPriority="high" />
-            : <IdentitySigil id={title ?? identity.primary.id} size={64} tip={false} />}
-        </button>
-
-        <div className="pf-id">
-          <h1 className="pf-name"><span>{handle}</span>{GUILDS_ENABLED && <GuildTagFor address={wallet} size="lg" />}{COUNTRY_FLAGS_ENABLED && meta.flag && <Flag cc={meta.flag} size={20} />}</h1>
-          {real && <div className="pf-rankrow" data-testid="profile-rankrow">
-            <span className="pf-rank" style={{ color: ring, borderColor: ring }} aria-label={C["profile.rank.aria"](data.rank.label)}>{data.rank.label}</span>
-            <span className="pf-lvl" aria-label={C["profile.level.aria"](prestige.level)}>{C["profile.level"](prestige.level)}</span>
-          </div>}
-          {titleD && (
-            <div className="pf-tags">
-              <Tooltip content={<><strong>{titleD.label}</strong>{titleTip}</>}>
-                <span className="pf-tag primary" data-testid="profile-title">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {titleD === identity.primary && <img src={withBase(badge.icon)} alt="" width={14} height={14} />}
-                  {titleD.label}
-                </span>
-              </Tooltip>
+      <header className="p5-head" data-testid="profile-identity">
+        <div className={`p5-banner ${banner ? "" : "none"}`} style={banner ? { backgroundImage: `url(${withBase(banner)})` } : undefined} data-testid="profile-banner" />
+        <div className="p5-hrow">
+          <div className="p5-av" aria-hidden>
+            {img
+              // eslint-disable-next-line @next/next/no-img-element
+              ? <img src={withBase(img)} alt="" width={136} height={136} fetchPriority="high" />
+              : <IdentitySigil id={NO_IDENTITY.primary.id} size={72} tip={false} />}
+          </div>
+          <div className="p5-id">
+            <h1 className="p5-name"><span>{handle}</span></h1>
+            {meta.bio ? <p className="p5-bio" data-testid="profile-bio"><BioText text={meta.bio} /></p>
+              : isPrivate ? <button type="button" className="p5-addbio" onClick={() => setEdit({ focus: "bio" })}><Icon name="plus" size={14} /> {C["profile.bio.empty.own"]}</button> : null}
+          </div>
+          {isPrivate && (
+            <div className="p5-acts">
+              <button type="button" className="p5-btn" onClick={() => setEdit({ focus: null })} data-testid="edit-profile-btn">{C["profile.action.edit"]}</button>
+              {rewards.canClaim
+                ? <button type="button" className="p5-btn claim" onClick={() => setRewardsOpen(true)} data-testid="claim-now"><ChestGlyph size={18} /> Claim now</button>
+                : <button type="button" className="p5-icon chest" aria-label="Rewards" title="Rewards" onClick={() => setRewardsOpen(true)} data-testid="rewards-chest"><ChestGlyph size={20} /></button>}
             </div>
           )}
-          {meta.bio ? <p className="pf-bio" data-testid="profile-bio"><BioText text={meta.bio} /></p>
-            : isPrivate ? <button type="button" className="pf-btn-text pf-addbio" onClick={() => setEdit({ focus: "bio" })}>{C["profile.bio.empty.own"]}</button> : null}
-        </div>
-
-        <div className="pf-side">
-          <div className="pf-actions">
-            {isPrivate ? <>
-              <button type="button" className="ds-btn pf-btn-secondary" onClick={() => setEdit({ focus: null })} data-testid="edit-profile-btn">{C["profile.action.edit"]}</button>
-              <button type="button" className="ds-btn pf-icon-btn" aria-label={C["profile.action.share"]} onClick={shareProfile}><Icon name="share" size={16} /></button>
-              <button type="button" className="ds-btn pf-icon-btn" aria-label="Settings" onClick={() => setSettingsOpen(true)}><Icon name="gear" size={16} /></button>
-            </> : (
-              <button type="button" className="ds-btn pf-btn-secondary pf-share-wide" onClick={shareProfile}><Icon name="share" size={16} /> {C["profile.action.share"]}</button>
-            )}
-          </div>
-          {real && <div className="pf-stats" title={SAMPLE_DATA_LABEL} data-testid="profile-stats">
-            <div className={`pf-stat ${rpnl >= 0 ? "pos" : "neg"}`}><span>Realized PnL</span><strong>{signedUsd(rpnl)}</strong></div>
-            <div className="pf-stat"><span>{C["profile.stat.winrate"]}</span><strong>{Math.round(kpi("wr"))}%</strong></div>
-            <div className="pf-stat"><span>{C["profile.stat.bombs"]}</span><strong>{data.metrics.bombCount}</strong></div>
-          </div>}
         </div>
       </header>
 
-      {isPrivate && <ProfileClaims />}
       {isPrivate && <InvitesCard />}
 
-      <div className="pf-body">
-        <div className="pf-main">
-          <AchievementsCard total={achievements.length} />
-          <section className="pf-section pf-activity" ref={refs.activity} aria-labelledby="pf-h-activity">
-            <h2 id="pf-h-activity" className="pf-section-h">{C["profile.tab.activity"]}</h2>
-            {/* real trades only; the sample Record tiles + PnL chart are gone until real stats exist */}
-            <ActivityTab rows={pageSlice(activityRows, page.activity, PAGE.activity)} total={activityRows.length} page={page.activity} pages={pages.activity}
-              onPage={goPage("activity")} isPrivate={isPrivate} owner={ownerName} loading={!!wallet && activity === null} />
-          </section>
-          {LOOT_ENABLED && (
-            <section className="pf-section" ref={refs.loot} aria-labelledby="pf-h-loot">
-              <h2 id="pf-h-loot" className="pf-section-h">{C["profile.tab.loot"]}</h2>
-              <LootTab rows={pageSlice(lootShown, page.loot, PAGE.loot)} total={lootShown.length} counts={lootCounts} filter={lootFilter}
-                onFilter={(f) => { setUrl({ filter: f, loot: null }); setPg((x) => ({ ...x, loot: 1 })); }} page={page.loot} pages={pages.loot} onPage={goPage("loot")} onOpen={openPopup}
-                isPrivate={isPrivate} owner={ownerName} onSeeAchievements={() => { window.location.href = withBase("/achievements"); }} />
-            </section>
-          )}
-        </div>
-        <aside className="pf-aside" aria-labelledby="pf-h-rockets">
-          <section className="pf-section pf-holdings" ref={refs.rockets}>
-            <h2 id="pf-h-rockets" className="pf-section-h">{C["profile.tab.rockets"]}</h2>
-            <RocketsTab rows={pageSlice(rocketRows, page.rockets, PAGE.rockets)} total={rocketRows.length} page={page.rockets} pages={pages.rockets} onPage={goPage("rockets")}
-              isPrivate={isPrivate} owner={ownerName} />
-          </section>
-        </aside>
+      <PortfolioBlock pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} isPrivate={isPrivate} />
+
+      <div className="p5-cols">
+        <div className="p5-colm">{activitySection}</div>
+        <aside className="p5-cola">{rocketsSection}</aside>
       </div>
     </div>
   );

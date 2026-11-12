@@ -75,5 +75,12 @@ export function demoRewards(nowSec: number): RewardsData {
     claimableByKind: { referral: 21.43, creator: 45.12, crew: 1.57 },
     claim: { referral: demoReferral(), creator: demoRockets(true).filter((x) => x.claimable > BigInt(0)), crew: demoCrew().map((c) => ({ token: c.token, pending: c.pending })) },
     launched: 4, referralPaused: false,
+    // per-rocket split of the same Creator ($87.72) and Crew ($3.14) totals as above
+    rockets: [
+      { token: "0xcac8a9654de3ae01470fc9e93e58fb97d5b86bb3", name: "Smoke Test", ticker: "SMOKE", kind: "creator", usd: 60.1 },
+      { token: "0x000000000000000000000000000000000000d302", name: "Halo Drive", ticker: "HALO", kind: "creator", usd: 27.62 },
+      { token: "0xcac8a9654de3ae01470fc9e93e58fb97d5b86bb3", name: "Smoke Test", ticker: "SMOKE", kind: "crew", usd: 3.14 },
+    ],
+    friendsInvited: 7,
   };
 }

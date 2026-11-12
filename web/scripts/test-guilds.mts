@@ -116,10 +116,12 @@ test("guilds / clan tags are hidden until v2 (GUILDS_ENABLED off; code kept)", (
     ["components/leaderboard/LeaderboardView.tsx", /GUILDS_ENABLED && <GuildTagFor address=\{row\.address\} \/>/],
     ["components/Sidebar.tsx", /GUILDS_ENABLED && <GuildTagFor address=\{me\.address\} markOnly \/>/],
     ["components/WalletButton.tsx", /GUILDS_ENABLED && <> <GuildTagFor address=\{addr\} markOnly \/>/],
-    ["components/profile/ProfileDashboard.tsx", /GUILDS_ENABLED && <GuildTagFor address=\{wallet\} size="lg" \/>/],
-    ["components/profile/EditProfileSheet.tsx", /GUILDS_ENABLED && <GuildPicker /],
   ];
   for (const [rel, re] of sites) assert.ok(re.test(rd(rel)), `gated: ${rel}`);
+  // profile r5 (BRAND boards: "no guilds"): the profile header and Edit profile carry no guild UI at all
+  for (const rel of ["components/profile/ProfileDashboard.tsx", "components/profile/EditProfileSheet.tsx"]) {
+    assert.ok(!/<Guild(TagFor|Picker|Chip)\b/.test(rd(rel)), `no guild UI: ${rel}`);
+  }
   // APIs still carry guild data — hide UI only, do not strip
   const holders = rd("app/api/holders/route.ts");
   assert.ok(/guildTagsOf/.test(holders) && /guild: tags\[/.test(holders), "/api/holders still attaches guild");
