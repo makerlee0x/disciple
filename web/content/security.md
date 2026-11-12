@@ -7,7 +7,7 @@ Found a bug? Tell us first, and we'll pay for it. This page explains what's in s
 ## Scope
 
 **In scope**
-- DISCIPLE smart contracts deployed by the team on Robinhood Chain (testnet now, mainnet later): the launchpad, bonding curves, the Uniswap v4 hook, the liquidity lock, the router, the gas paymaster and the session-key and login contracts. [CONFIRM: final list; we list contract names, not addresses]
+- DISCIPLE smart contracts deployed by the team on Robinhood Chain: the launchpad, bonding curves, the Uniswap v4 hook, the liquidity lock, the router, the gas paymaster and the session-key and login contracts. [CONFIRM: final list; we list contract names, not addresses]
 - The DISCIPLE web app and its API routes on [CONFIRM: domain].
 - Anything that lets someone take funds, mint or move tokens they don't own, unlock graduated liquidity, bypass mode caps or the sniper tax, take over another pilot's account, embedded wallet or session, abuse how DISCIPLE handles an external wallet connection (signature checks, replayed or spoofed sign-in messages, session hijacking), or take creator fees that aren't theirs.
 
@@ -16,7 +16,7 @@ Found a bug? Tell us first, and we'll pay for it. This page explains what's in s
 - Rockets launched by other users, and their content.
 - Social engineering, phishing, physical attacks, spam, or denial-of-service and load testing.
 - Missing best-practice headers, clickjacking on pages with no sensitive actions, self-XSS, and reports from automated scanners with no working exploit.
-- Bugs that only affect testnet test funds, unless they would also work on mainnet. [CONFIRM: does lee want to pay for testnet-only findings during the beta?]
+- Bugs that only affect test money with no value, unless they would also work with real funds. [CONFIRM: does lee want to pay for findings that only affect test money during the beta?]
 
 ## How to report
 - Email **[CONFIRM: security@ address]** or use **[CONFIRM: form link]**. Encrypt it if you can: [CONFIRM: PGP key].

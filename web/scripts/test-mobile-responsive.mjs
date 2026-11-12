@@ -28,7 +28,7 @@ ok(/\.wb-invite\s*\{[\s\S]*?var\(--ap-safe-bottom\)/.test(css), "invite banner c
 ok(/#apReopen\s*\{[\s\S]*?var\(--ap-safe-top\)/.test(css), "menu reopen clears notch");
 ok(/ap-phone-launch[\s\S]*?var\(--ap-safe-top\)/.test(css), "phone Launch clears notch");
 ok(/max-height:\s*calc\(100dvh/.test(css) || /min\(92dvh/.test(css), "sheets/modals use dvh (mobile browser chrome)");
-ok(/@media \(max-width: 480px\)[\s\S]*?\.wb-testnet\s*\{\s*display:\s*none/.test(css), "≤480px hides Test network tag to free strip");
+ok(!/\.wb-testnet/.test(css), "no Test network tag styles (removed Nov 12: nothing on the site says testnet)");
 
 const wb = read("components/WalletButton.tsx");
 ok(/className="wb-root"/.test(wb) && /data-compact=/.test(wb), "WalletButton uses .wb-root (not hardcoded top/right px)");

@@ -25,7 +25,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <ReferralOnboarding />
       <HowItWorksHost />
       {!isGame && <div className="ap-topbar" aria-hidden="true" />}
-      {/* the plain "Test network" marker lives in the wallet strip (WalletButton), so it shows on every route incl. the game */}
+      {/* no network tag in the shell or wallet strip (lee, Nov 12: nothing on the site says testnet) */}
       {!isGame && !IS_STATIC_PREVIEW && <InviteBanner />}
       {/* profile r3: no cash pill on a profile (the page's portfolio block shows Cash); every other route unchanged */}
       <WalletButton compact={!isGame} hideCash={/^\/(profile|u\/)/.test(pathname ?? "")} />

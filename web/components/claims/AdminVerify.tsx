@@ -16,7 +16,7 @@ const TABS = ["pending", "approved", "rejected", "revoked"] as const;
 type Tab = (typeof TABS)[number];
 
 const DEMO: AdminRow[] = [
-  { token: "0xcac8a9654de3ae01470fc9e93e58fb97d5b86bb3", creator: "0x5a3c7743d365f770710fe15f4bbf1cec7bc41006", x: "smoke_rocket", website: "https://disciple.vip/", note: "Team rocket for the RH testnet smoke run.", status: "pending", requestedAt: Date.now() - 3_600_000, updatedAt: Date.now() - 3_600_000 },
+  { token: "0xcac8a9654de3ae01470fc9e93e58fb97d5b86bb3", creator: "0x5a3c7743d365f770710fe15f4bbf1cec7bc41006", x: "smoke_rocket", website: "https://disciple.vip/", note: "Team rocket used to check that launches work.", status: "pending", requestedAt: Date.now() - 3_600_000, updatedAt: Date.now() - 3_600_000 },
   { token: "0x000000000000000000000000000000000000d302", creator: "0x7777777777777777777777777777777777777777", x: "halodrive", website: null, note: "", status: "pending", requestedAt: Date.now() - 7_200_000, updatedAt: Date.now() - 7_200_000 },
   { token: "0x000000000000000000000000000000000000d303", creator: "0x7777777777777777777777777777777777777778", x: null, website: "https://quiet-orbit.xyz/", note: "Art project.", status: "approved", requestedAt: Date.now() - 86_400_000, updatedAt: Date.now() - 80_000_000, reviewedBy: "maker@…" },
 ];

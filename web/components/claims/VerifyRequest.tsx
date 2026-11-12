@@ -22,7 +22,7 @@ export default function VerifyRequest({ token, demo }: { token: string; demo?: b
     return onPrivy(() => void run());
   }, [token, demo]);
 
-  useEffect(() => { if (demo && typeof window !== "undefined" && new URLSearchParams(location.search).get("verify") === token.toLowerCase()) { setOpen(true); setF({ x: "smoke_rocket", website: "disciple.vip", note: "Team rocket for the RH testnet smoke run." }); } }, [demo, token]);
+  useEffect(() => { if (demo && typeof window !== "undefined" && new URLSearchParams(location.search).get("verify") === token.toLowerCase()) { setOpen(true); setF({ x: "smoke_rocket", website: "disciple.vip", note: "Team rocket used to check that launches work." }); } }, [demo, token]);
 
   const submit = async () => {
     setBusy(true); setMsg(null);
