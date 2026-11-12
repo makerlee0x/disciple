@@ -77,7 +77,12 @@ def hull_eps(row, a):
     fade = min(1.0, max(0.0, (row - 14) / 40.0))
     for bnd in BANDS: fade *= min(1.0, abs(row - bnd) / 9.0) ** 2 if abs(row - bnd) < 9 else 1.0
     if row > 536: fade *= max(0.0, 1.0 - (row - 536) / 14.0)
-    low = 0.028 * math.cos(3 * a + 0.4) + 0.020 * math.cos(5 * a + 2.1) + 0.0125 * math.cos(7 * a + 4.0)
+    # r4: on the lower body the lobes slowly twist (phase drift) and a smooth 4-lobe swell rises toward the four fin roots,
+    # so the reflected bands bend and flare outward into the fins instead of running ruler-straight down the cylinder.
+    ramp = 0.0 if row < 330 else (1.0 if row > 525 else (lambda x: x * x * (3 - 2 * x))((row - 330) / 195.0))
+    tw = 0.55 * ramp
+    low = (0.028 * math.cos(3 * a + 0.4 + tw) + 0.020 * math.cos(5 * a + 2.1 - 1.3 * tw) + 0.0125 * math.cos(7 * a + 4.0 + 1.8 * tw)
+           + 0.050 * ramp * math.cos(4 * a))
     # r3: a slightly higher-frequency, IRREGULAR, smooth undulation (11/13/19 lobes with phases that drift slowly along
     # the length), so the reflection breaks into thin and wide bands of uneven width. Each term is < 0.5 % of the radius;
     # max tilt per term ~3 deg. Not even flutes: the lobes are unequal and wander.
@@ -120,11 +125,11 @@ band2 = band(BANDS[1], 47.9, 3.6, "BandLower")
 # ---------------- fins (traced): long swept leading edge, vertical outer edge, sharp bottom tip, and a trailing edge that
 # curves INWARD to meet the body. Built as a thin airfoil-like shell (no flat card) with a gentle compound curve
 # (chordwise bow + spanwise curl + a little twist) so the reflections break into many thin streaks. No grooves.
-LEAD = [(43.0, 321.0), (48.5, 330.0), (70.0, 374.0), (90.0, 414.0), (104.0, 444.0), (107.5, 452.0), (108.5, 460.0)]
+LEAD = [(40.0, 316.0), (43.0, 321.0), (48.5, 330.0), (70.0, 374.0), (90.0, 414.0), (104.0, 444.0), (107.5, 452.0), (108.5, 460.0)]
 # r3: trailing edge scooped deeper (concave), fin tips dropped to nozzle height
-TRAIL = [(43.0, 519.0), (48.5, 523.0), (56.0, 527.0), (65.0, 532.0), (74.0, 539.0), (82.0, 546.0), (90.0, 555.0), (97.0, 565.0),
+TRAIL = [(40.0, 517.0), (43.0, 519.0), (48.5, 523.0), (56.0, 527.0), (65.0, 532.0), (74.0, 539.0), (82.0, 546.0), (90.0, 555.0), (97.0, 565.0),
          (102.0, 575.0), (105.0, 584.0), (107.0, 586.0), (108.3, 581.0), (108.5, 575.0)]
-H_ROOT, H_TIP = 43.0, 108.5
+H_ROOT, H_TIP = 40.0, 108.5
 def fin(angle, name, NS=56, NT=72):
     me = bpy.data.meshes.new(name); bm = bmesh.new()
     top, bot = [], []
@@ -140,17 +145,25 @@ def fin(angle, name, NS=56, NT=72):
             # a soft, rounded rim along the leading and outer edges (the official fins read thick-edged); smooth, not a groove
             rim = 2.4 * math.exp(-((t - 0.07) / 0.06) ** 2) + 2.0 * math.exp(-((s - 0.93) / 0.05) ** 2) * math.sin(math.pi * t) ** 0.3
             half = 0.5 * (th0 + rim) * edge
+            # r4: a generous smooth fillet where the fin meets the hull (flares the root out into the body, tapering toward
+            # the leading/trailing edges), so the body's reflections bend and sweep out into each fin
+            fil = 9.5 * math.exp(-max(0.0, h - 48.5) / 10.0) * math.sin(math.pi * t) ** 0.6 * (0.55 + 0.45 * t)
+            half += fil
             # compound curve: chordwise bow that grows outboard, spanwise curl, a little twist and a gentle S along the chord,
             # so the fin is doubly curved everywhere and the reflections break into many thin streaks
-            camber = (7.0 * math.sin(math.pi * t) * s ** 1.1 + 5.0 * s * s + 6.0 * (t - 0.5) * s
-                      - 3.0 * math.sin(2 * math.pi * t) * s * (1 - 0.5 * s))
+            # r4: the curve lives INSIDE the fin (bow + S, both zero at the leading/trailing edges), so the edges stay in one
+            # plane and the edge-on silhouette is a clean straight line; no curl/twist of the edges.
+            camber = (4.2 * math.sin(math.pi * t) * s ** 1.1 * (1 - 0.35 * s)
+                      - 1.5 * math.sin(2 * math.pi * t) * s * (1 - 0.5 * s))
             # r3: a slight, smooth, irregular undulation across the chord whose crests run root -> tip along the sweep (like the
             # official streaks). Zero at the root and at the edges. Not grooves: amplitude <= ~1.6 px over 25-65 px wavelengths.
             # ridges run along lines of constant chord fraction, i.e. root -> tip parallel to the swept leading edge
             u = 0.88 * t + 0.12 * s
-            env = math.sin(math.pi * t) ** 0.7 * s ** 0.5
-            camber += env * (1.0 * math.sin(2 * math.pi * 3.1 * u + 0.7) + 0.7 * math.sin(2 * math.pi * 5.3 * u + 2.2 + 1.5 * t)
-                             + 0.4 * math.sin(2 * math.pi * 8.2 * u + 4.1))
+            # r4: pulled back and faded truly to zero at the leading, trailing and outer edges and toward the tip (the edge-on
+            # silhouette stays a clean line; no crumpled-foil look). The top/bottom shells get the same offset.
+            env = math.sin(math.pi * t) ** 2.5 * s ** 0.6 * (1 - s) ** 1.5 * 3.4
+            camber += env * (0.55 * math.sin(2 * math.pi * 3.1 * u + 0.7) + 0.35 * math.sin(2 * math.pi * 5.3 * u + 2.2 + 1.5 * t)
+                             + 0.2 * math.sin(2 * math.pi * 7.7 * u + 4.4))
             x, z = R(h), Z(row)
             if half < 1e-4:
                 v = bm.verts.new((x, R(camber), z)); rt.append(v); rb.append(v)
