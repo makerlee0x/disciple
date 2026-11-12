@@ -36,6 +36,7 @@
     "test:mobile-responsive": "node scripts/test-mobile-responsive.mjs",
     "test:trades-order": "node scripts/test-trades-order.mjs",
     "test:snipe": "node scripts/test-snipe.mjs",
+    "test:turbo": "tsx --test scripts/test-turbo.mts",
     "test:snipe-countdown": "node scripts/test-snipe-countdown.mjs",
     "gen:flight": "node scripts/gen-flight-data.mjs",
     "test:flightdata": "node scripts/gen-flight-data.mjs --check && node scripts/test-sim-parity.mjs",

@@ -549,13 +549,25 @@ class HookSource {
   impact(usd,side){ const m=this.mcap||1; const f=usd/(m*0.25); return side==='buy'?1+f:Math.max(0.01,1-f); }
   submitTrade(){ return Promise.resolve({ok:false,reason:'replay'}); }
 }
-const IS_POOL=!['mock','dexscreener','rpc','disciple','sim'].includes(Q.get('source')||'pool');
+/* TURBO source (?source=turbo, hidden /turbo page — components/turbo/TurboFlight.tsx). Altitude is the open Turbo
+   position's PnL AFTER FEES, not a coin price: the page maps it to an mcap (lib/turbo/flight.ts) and pushes
+   {t:'swap'|'mark', mcap} through window.__turboFeed(e). The engine never trades here (BOOST / DUMP / CLOSE live on the
+   Turbo ticket), no wallet, no network. Cosmetic state comes from window.__turboFx (see turboFx() below). */
+class TurboSource extends HookSource {
+  constructor(){ super(); this.name='TURBO'; this.isTurbo=true; }
+  start(emit){ this.emit=emit; window.__turboFeed=e=>{ if(e&&(e.t==='swap'||e.t==='mark')&&e.mcap>0) this.mcap=e.mcap; emit(e); }; emit({t:'status',source:this.name,ok:true,msg:'turbo'}); }
+  stop(){ window.__turboFeed=null; }
+  submitTrade(){ return Promise.resolve({ok:false,reason:'turbo'}); }
+}
+const IS_TURBO=(Q.get('source')||'')==='turbo';
+const IS_POOL=!['mock','dexscreener','rpc','disciple','sim','turbo'].includes(Q.get('source')||'pool');
 function makeSource(){
   const s=Q.get('source')||'pool';
   if (Q.get('replay')==='1'||s==='replay'){ if(window.REPLAY) return new ReplaySource(REPLAY); }
   if (s==='disciple') return new DiscipleSource();
   if (s==='sim') return new SimBridgeSource();
   if (s==='hook') return new HookSource();   /* replay.js driver */
+  if (s==='turbo') return new TurboSource();   /* hidden /turbo page */
   if (s==='pool') return new PoolLiveSource();
   if (s==='dexscreener') return new DexScreenerSource(Q.get('chain')||'robinhood', Q.get('pair')||'0x4be9657ec9002e528f4f17a5c43edc525a07f888f7b180c2afbf75e096c4f38a');
   if (s==='rpc') return new RpcSource({poolId:Q.get('pool'),ws:Q.get('ws')||null,supply:+(Q.get('supply')||1e9)});
@@ -900,6 +912,7 @@ function isAscensionBuy(side,usd,from,proj){
 }
 function warpFxOn(){ return (S.pending||[]).some(p=>p.state==='pending'&&p.gradBuy); }
 function trade(side,opt){
+  if (IS_TURBO) return;   // @turbo: Turbo orders go through the page's adapter only; the engine never trades
   // REAL FILL ONLY (maker lee 2026-10-24): no turbo flare / thrust at the click. The pending ghost (submit) shows where the
   // shot will go; the rocket reacts in submit() when the trade result comes back ok (fillThrust). Failed trades: no thrust.
   // RAPID TAP: ≤ MAX_PENDING real trades in flight (only state 'pending' counts; no 450 ms linger). A press over the cap is
@@ -1078,6 +1091,7 @@ function onHotkey(e){
   S.keys[e.code]=true;
   const mod=e.ctrlKey||e.metaKey||e.altKey;
   if (/^Arrow(Left|Right|Up|Down)$/.test(e.code)) e.preventDefault();
+  if (IS_TURBO && (e.code==='Space'||e.code==='ShiftLeft'||e.code==='ShiftRight'||HOTKEYS.buy.includes(e.code)||HOTKEYS.sell.includes(e.code))) return;   // @turbo: no engine trade keys
   if (e.code==='Space'){ e.preventDefault(); if(!e.repeat) boost(); return; }
   if ((e.code==='ShiftLeft'||e.code==='ShiftRight')&&!mod){ if(!e.repeat){ if(!hasTokens()) noTokens(); else dispatchEvent(new CustomEvent('disciple:dump')); } return; }   // DUMP = sell the SELECTED % (TradeBridge sizes it from the ledger)
   const bi=HOTKEYS.buy.indexOf(e.code); if(bi>=0&&!mod){ if(!e.repeat){ S.mode=bi; S.pressFx={i:bi,t:S.t}; pushAmmo(); } return; }   // buy-preset key = SELECT only (SPACE / BOOST buys it)
@@ -1556,14 +1570,45 @@ function exhaustParams(){ const vol=clamp(Math.log10(1+S.volEma)/3.2,0,1), pend=
   // falling: engine sputters (blocky on/off flicker, deeper the faster it sinks)
   const fall=clamp(-vy/320,0,1), n=Math.sin(S.t*29.0)*Math.sin(S.t*13.7+0.6), sput=1-fall*(n>0.15?0.82:0.25);
   const hv=S.hoverF||0, hflick=1-hv*0.5*Math.abs(Math.sin(S.t*23.0+Math.sin(S.t*7.1)*2));   // hover: weak, flickery
-  const boost=0.8*(S.wBoost||0)+1.6*(S.buyBoost||0);
-  return {flick:flick*hflick, sput, fall, hover:hv, flame:((I*(0.6+0.85*move+0.55*thrustBoost)*(1-0.55*hv)+0.7*(S.flare||0))*hflick+boost)*flick*sput}; }
+  const TF=turboFlame(), boost=0.8*(S.wBoost||0)+1.6*(S.buyBoost||0)+TF.boost;
+  return {flick:flick*hflick, sput:sput*TF.sput, fall, hover:hv*(TF.on?0.3:1), flame:((I*(0.6+0.85*move+0.55*thrustBoost)*(1-0.55*hv)+0.7*(S.flare||0))*hflick+boost)*flick*sput}; }
 function exhaustStep(dt){ const EP=exhaustParams(), {flick,flame}=EP; exhaustParams.fall=EP.fall; const LM=fxMul('launch'), DK=2.2/LM, _u=0, sa=Math.sin(S.heading), ca=Math.cos(S.heading);
   const tx=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.45, ty=S.ry+(S.bob||0)*0.55;
   S._exAcc=(S._exAcc||0)+(2+flame*9)*(0.55+flick)*60*dt*(0.75+0.3*(S.fwdN||0)); let n=S._exAcc|0; S._exAcc-=n;
   for(let i=0;i<n;i++){ const hv=EP.hover||0, sp=(140+Math.random()*280*flame)*(0.75+flick*0.5)*(1-0.35*hv), j=(Math.random()-.5)*(40+30*flick)*(1+1.6*hv);   // hover: shorter, spread-out plume
     const p=S.particles.spawn(); p.x=tx+(Math.random()-.5)*10; p.y=ty; p.vx=-sa*sp+ca*j-(S.vxS||0)*0.3; p.vy=ca*sp+sa*j+(S.air||0)*0.6+Math.max(0,S.vyS||0)*0.4; p.life=0.7+Math.random()*0.45; p.dk=DK; p.s=(5+Math.random()*14*flame)*flick*LM; p.hot=Math.random()<0.45*(1-0.7*(exhaustParams.fall||0)); } }
 // faint 'your entry' altitude marker (set by the PnL HUD: window.__entryMcap)
+/* =====================================================================
+   @turbo — Turbo flight feel (hidden /turbo page only; every helper is a no-op unless ?source=turbo).
+   The page writes window.__turboFx = { open, side:'long'|'short', lev, pending, danger:0..1, dive,
+   liqMcap, liqLabel }. All of it is cosmetic: a tap never waits on a frame.
+   - jetstream L = log10(lev)/3 (10× ≈ .33, 100× ≈ .67, 1000× = 1) → flame, airspeed (baseline even when flat)
+   - danger (share of the way from entry to liquidation): >.5 engine glows orange, >.8 body shudders (the
+     existing wobble spring, never the camera), >.95 the flame sputters
+   - red LIQUIDATION seam in the sky (below the rocket on a long, a ceiling above it on a short)
+   ===================================================================== */
+const TURBO_DIVE=0.72;   // nose-down dive pose depth (aimWithDive: 0 = up, 1 = straight down) — a narrow, controlled range
+function turboFx(){ if(!IS_TURBO) return null; const f=window.__turboFx; return f&&typeof f==='object'?f:null; }
+function turboL(lev){ return clamp(Math.log10(Math.max(1,+lev||1))/3,0,1); }
+function turboFlame(){ const f=turboFx(); if(!f||!(f.open||f.pending)) return {on:false,boost:0,air:0,sput:1};
+  const L=turboL(f.lev), d=clamp(+f.danger||0,0,1);
+  const sput=d>0.95?(Math.sin(S.t*31)*Math.sin(S.t*11.3+0.7)>0.1?0.25:1):1;
+  return {on:true, boost:(f.pending?1.2:0)+(f.open?0.35+1.1*L:0), air:f.open?40+260*L:(f.pending?60:0), sput}; }
+function turboShudder(dt){ const f=turboFx(); if(!f||!f.open) return; const d=clamp(+f.danger||0,0,1); if(d<=0.8) return;
+  S.wobV=(S.wobV||0)+(Math.random()-0.5)*2600*(d-0.8)*dt*60*0.05; }
+/* always on screen while a position is open: off-screen ⇒ pinned to the edge with an arrow (still the true price label) */
+function turboLine(m,col,label,dash,w){ if(!(m>0)) return; const y0=altToScreenY(mcapToAlt(m)), y=clamp(y0,22,H-14), pinned=y!==y0;
+  ctx.save(); ctx.strokeStyle=col; ctx.lineWidth=w||2; if(dash||pinned) ctx.setLineDash(dash||[14,10]); ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]);
+  if(label){ ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle=col; ctx.fillText((pinned?(y0>y?'↓ ':'↑ '):'')+label,16,y0>y||!pinned?y-7:y+16); } ctx.restore(); return y; }
+function drawTurboLines(){ const f=turboFx(); if(!f||S.displayAlt==null) return;
+  if(f.open||f.pending){
+    const d=clamp(+f.danger||0,0,1), pulse=d>0.8?0.55+0.45*Math.abs(Math.sin(S.t*6)):1;
+    const y=turboLine(f.liqMcap,'rgba(255,61,90,'+(0.85*pulse).toFixed(3)+')',f.liqLabel||'LIQUIDATION',null,2.5);
+    if(y!=null){ ctx.save(); const g=ctx.createLinearGradient(0,y,0,f.side==='short'?y-60:y+60); g.addColorStop(0,'rgba(255,40,70,.22)'); g.addColorStop(1,'rgba(255,40,70,0)');
+      ctx.fillStyle=g; ctx.fillRect(0,f.side==='short'?y-60:y,W,60); ctx.restore(); }
+    if(d>0.5){ const [nx,ny]=nozzleXY(), r=40+60*d; ctx.save(); ctx.globalCompositeOperation='lighter';
+      const g=ctx.createRadialGradient(nx,ny,0,nx,ny,r); g.addColorStop(0,d>0.8?'rgba(255,70,40,.55)':'rgba(255,140,40,.45)'); g.addColorStop(1,'rgba(255,90,30,0)');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(nx,ny,r,0,Math.PI*2); ctx.fill(); ctx.restore(); } } }
 function drawEntryLine(){ const m=window.__entryMcap; if(!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
   const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle=up?'rgba(143,240,192,.45)':'rgba(255,159,184,.45)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;
   ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=ctx.strokeStyle; ctx.font='bold 11px ui-monospace,monospace';
@@ -2403,7 +2448,8 @@ function simStep(stepDt){
   if (!dir&&S.drag&&S.drag.on&&S.drag.tx!=null){ dir=steerDragDir(S.steer,S.drag.tx-(S.drift||0)*0.35,W); S.steer.idle=0; }   // @drag-steer: finger held = steering input (no auto-centre until release)
   stepSteerAuto(S.steer, dir*(steer/7), dt, W);     // hold-to-steer (VOID orb: weaker thrust); idle ⇒ auto-centre
   { const m=steerMargin(W); S.x=clamp(S.steer.x+S.drift*0.35,m,W-m); S.vx=S.steer.vx; }
-  S.dive=lerp(S.dive||0,(K.KeyS||K.ArrowDown)?1:0,1-Math.exp(-dt*((K.KeyS||K.ArrowDown)?8:4)));   // S/↓ = dive (cosmetic, off-chain)
+  { const TX=turboFx(), want=(K.KeyS||K.ArrowDown)?1:TX&&TX.dive?TURBO_DIVE:0;   // @turbo: a DUMP (short) flies as a nose-down dive run — same sprite, a controlled pose (never a flip)
+    S.dive=lerp(S.dive||0,want,1-Math.exp(-dt*(want>0?(TX&&TX.dive?3:8):4))); }   // S/↓ = dive (cosmetic, off-chain)
   const bankTarget=clamp(-S.vx/900,-0.38,0.38);
   S.bank=lerp(S.bank||0,bankTarget,1-Math.exp(-dt*6));
   // price velocity in px/s (unsmoothed, for clouds / speed lines) then a short visual smoother
@@ -2425,7 +2471,7 @@ function simStep(stepDt){
   /* v2: NO baseline — a flat price hovers in place (no world scroll, slight sway only). Air comes only from a
      rising price, plus the brief W mini-acceleration and the buy turbo, which decay back to 0. Volume alone
      no longer climbs. */
-  { const up=Math.max(0,S.vyS||0), tgt=up*0.4 + 70*(S.wBoost||0) + 150*(S.buyBoost||0);
+  { const up=Math.max(0,S.vyS||0), tgt=up*0.4 + 70*(S.wBoost||0) + 150*(S.buyBoost||0) + turboFlame().air;   // @turbo: baseline airspeed scales with leverage
     S.air=lerp(S.air||0,tgt,1-Math.exp(-dt*2.2)); if (S.air<0.05&&tgt===0) S.air=0; S.airPx=(S.airPx||0)+S.air*dt; }
   S.hoverF=clamp(1-Math.abs(S.vyS||0)/120,0,1)*(1-clamp(Math.max(S.wBoost||0,S.buyBoost||0)*1.5,0,1));   // 1 = hovering
   S.vxS=lerp(S.vxS||0,S.vx*0.55,1-Math.exp(-dt*8));
@@ -2458,7 +2504,8 @@ function simStep(stepDt){
   { const PD=phoneHud(W,CLEAN), ay=S.cine?H*0.55:PD&&PD.drawer&&PD.dTop>0?Math.min(ROCKET_Y,PD.dTop-44):ROCKET_Y;   // @phone-hud: drawer open ⇒ the rocket rides above it
     S.anch=S.anch==null?ROCKET_Y:lerp(S.anch,ay,1-Math.exp(-dt*(S.cine?0.8:5))); }
   // rocket screen y: true altitude vs camera, soft-limited to the safe band (tanh, never a hard stop)
-  S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) + 40*(S.dive||0);   // @altfollow: no buy/W hop (they decayed back = a sink); S/↓ dive only while held
+  S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) + (IS_TURBO?0:40*(S.dive||0));   // @turbo: the dive is a pose; altitude is PnL
+  turboShudder(dt);   // @altfollow: no buy/W hop (they decayed back = a sink); S/↓ dive only while held
   // idle bob / sway / micro-rot — attenuated during thrust so they don't fight heading
   const thrustHold=sinceThrust<1.2? clamp(1-sinceThrust/1.2,0,1) : 0;
   const amp=(1+(Math.abs(vUpRaw)/500))*(1-0.7*thrustHold);
@@ -2531,7 +2578,7 @@ function orbHitsRocket(o){ return rocketHits(o.x,o.y,(ORB[o.k]&&ORB[o.k].r)||14)
   const flow=1+Math.log10(1+S.buyEma)*0.5;
   // OFF-CHAIN ORB LAYER: reward spawn ∝ buy flow, penalty spawn ∝ sell flow (server-seeded in prod)
   const lane=randLane;
-  const P=ORB_SPAWN, room=S.orbsOn&&S.motes.length+S.obstacles.length<P.maxOnScreen&&S.t-S.lastOrbT>=P.minGap;
+  const P=ORB_SPAWN, room=S.orbsOn&&!IS_TURBO&&S.motes.length+S.obstacles.length<P.maxOnScreen&&S.t-S.lastOrbT>=P.minGap;
   if (room&&Math.random()<dt*Math.min(P.rewardMax,P.rewardBase+P.rewardFlow*Math.log10(1+S.buyEma))){ const r=Math.random(); S.motes.push({k:r<0.85?'halo':'mult',x:lane(),y:-20,v:90+Math.random()*40}); S.lastOrbT=S.t; }
   else if (room&&Math.random()<dt*Math.min(P.penaltyMax,P.penaltyBase+P.penaltyFlow*Math.log10(1+S.sellEma))){ S.obstacles.push({k:Math.random()<0.7?'storm':'void',x:lane(),y:-40,v:100}); S.lastOrbT=S.t; }
   for (const m of S.motes){ m.y+=m.v*dt*flow; if (orbHitsRocket(m)){ m.dead=true; const T=ORB[m.k];
@@ -2978,7 +3025,7 @@ function render(dt){
   if (S.grass){ ctx.save(); drawBg(); drawClouds(); drawSpeedLines(); drawTickTrail(); drawRocket(dt); drawClouds(true); ctx.restore(); drawPost(); drawGrass(dt); return; }
   S._grassA=0;
   ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap(); cardPublish();
+  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTurboLines(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); if(!IS_TURBO){ drawHud(); drawChartMap(); } cardPublish();   // @turbo: the Turbo page draws its own dollar HUD (no market cap / tier card)
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
 }
