@@ -45,6 +45,10 @@ export type FlightPost = {
 
 export const POST = {
   bloom: { full: 0.012, lite: 0.008 }, threshold: 2.5, cap: 3.0, radius: 0.0,
+  /** bloom INPUT gain for the exhaust off the hull. The flame, nozzle glow and sparks are additive and leave the layer's
+   *  alpha at 0 over the sky, so they're weighted down here; the hull (alpha 1) keeps the full gain, so its bloom stays as tight
+   *  as before. This keeps the flame's glow from spreading a wide soft disc over the lower hull and the sky. */
+  flameBloom: 0.2,
   /** filmic "punch": out = pivot·(in/pivot)^k on the ship layer, before ACES */
   pivot: 0.18,
   ao: 0.55,
@@ -128,7 +132,7 @@ async function makeGL(o: Parameters<typeof makePost>[0]): Promise<FlightPost> {
   // same input cap as the look-dev page: a mirror catching a ~5000-nit highlight must not flood the frame
   bp.materialHighPassFilter.fragmentShader = bp.materialHighPassFilter.fragmentShader.replace(
     "gl_FragColor = mix( outputColor, texel, alpha );",
-    `gl_FragColor = min( mix( outputColor, texel, alpha ), vec4( vec3( ${POST.cap.toFixed(3)} ), 1.0 ) );`);
+    `gl_FragColor = min( mix( outputColor, texel, alpha ) * mix( ${POST.flameBloom.toFixed(3)}, 1.0, smoothstep( 0.6, 1.0, texel.a ) ), vec4( vec3( ${POST.cap.toFixed(3)} ), 1.0 ) );`);
   bp.materialHighPassFilter.needsUpdate = true;
   composer.addPass(bp);
   composer.addPass(new OutputPass());
@@ -177,7 +181,8 @@ async function makeGPU(o: Parameters<typeof makePost>[0]): Promise<FlightPost> {
   const graded = TSL.pow(TSL.max(color.rgb, TSL.vec3(0)).div(pivot).add(1e-6), TSL.vec3(kU)).mul(pivot);
   const punched = TSL.vec4(TSL.mix(color.rgb, graded, w), color.a);
   const cap = POST.cap;
-  const b = bloom(punched.min(TSL.vec4(cap, cap, cap, 1)), full ? POST.bloom.full : POST.bloom.lite, POST.radius, POST.threshold);
+  const bIn = TSL.vec4(punched.rgb.mul(TSL.mix(TSL.float(POST.flameBloom), TSL.float(1), w)), punched.a);
+  const b = bloom(bIn.min(TSL.vec4(cap, cap, cap, 1)), full ? POST.bloom.full : POST.bloom.lite, POST.radius, POST.threshold);
   pipeline.outputNode = punched.add(TSL.vec4(b.rgb, 0));
   const post: FlightPost = {
     kind: o.kind, heavy: full && !!ssrNode,
