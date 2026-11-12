@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { withBase } from "@/lib/base-path";
 import { BIO_MAX, BIO_RAW_MAX, EMPTY_META, bioLength, pfpUrl, sanitizeBio, type ProfileMeta } from "@/lib/profileMeta";
 import { saveProfileMeta, uploadPfp } from "@/lib/profileMetaClient";
-import { onPrivy, privyAccount } from "@/lib/aa/session";
+import XLinkControl from "./XLinkControl";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
 import Icon from "@/components/icons/Icon";
 import Sheet from "./Sheet";
@@ -22,7 +22,6 @@ export const EDIT_COPY = {
   x: "X",
   xConnect: "Connect your X account",
   xButton: "Connect X",
-  xSoon: "Linking accounts is coming soon.",
   save: "Save",
   changePicture: "Change picture",
   changeBanner: "Change banner",
@@ -38,8 +37,7 @@ const same = (a: ProfileMeta, b: ProfileMeta) =>
  * guild are not here. Username moved back here from Settings (lee, Nov 11).
  * Picture and banner both go through /api/moderate-image (same store, same checks); picture / banner / bio are one
  * signed write (/api/profile/meta). Desktop modal / phone bottom sheet (Sheet).
- * X: shows the X account linked to your sign-in (Privy) when there is one. Linking a new X account from here is not
- * wired yet (no Privy link flow in the app), so Connect X stays off with a plain note.
+ * X: link / unlink a verified X account through X's own OAuth (components/profile/XLinkControl, /api/x).
  */
 export default function EditProfileSheet({ open, onClose, wallet, meta, focus }: {
   open: boolean; onClose: (saved?: boolean) => void; wallet: string | null; meta: ProfileMeta; focus?: "bio" | null;
@@ -48,18 +46,15 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
   const [busy, setBusy] = useState<"" | "pfp" | "banner" | "save">("");
   const [err, setErr] = useState("");
   const [confirm, setConfirm] = useState(false);
-  const [xUser, setXUser] = useState<string | null>(null);
-  const [xNote, setXNote] = useState(false);
   const pfpFile = useRef<HTMLInputElement>(null);
   const bannerFile = useRef<HTMLInputElement>(null);
   const bioRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!open) return;
-    setDraft({ ...EMPTY_META, ...meta }); setErr(""); setConfirm(false); setXNote(false);
+    setDraft({ ...EMPTY_META, ...meta }); setErr(""); setConfirm(false);
     if (focus === "bio") requestAnimationFrame(() => bioRef.current?.focus());
   }, [open, meta, focus]);
-  useEffect(() => { const read = () => setXUser(privyAccount()?.xUsername ?? null); read(); return onPrivy(read); }, []);
 
   const uname = useUsernameDraft(wallet, open);
   const bioLen = bioLength(sanitizeBio(draft.bio));
@@ -145,18 +140,17 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
             </span>
           </label>
 
-          <div className="p5-fld" role="group" aria-label={EDIT_COPY.x}>
-            <span className="lab">{EDIT_COPY.x}</span>
-            <div className="p5-xrow" data-testid="edit-x">
-              <XGlyph size={18} />
-              {xUser ? <span className="u">@{xUser}</span> : <>
-                <span className="u muted">{EDIT_COPY.xConnect}</span>
-                {/* Not wired: the app has no Privy "link X" flow yet, and this change does not add a new login path. */}
-                <button type="button" className="p5-btn sm" aria-disabled="true" data-testid="connect-x" onClick={() => setXNote(true)}>{EDIT_COPY.xButton}</button>
-              </>}
+          <XLinkControl wallet={wallet} btnClass="p5-btn sm" render={({ handle, action, note }) => (
+            <div className="p5-fld" role="group" aria-label={EDIT_COPY.x}>
+              <span className="lab">{EDIT_COPY.x}</span>
+              <div className="p5-xrow" data-testid="edit-x">
+                <XGlyph size={18} />
+                {handle ? <span className="u">@{handle}</span> : <span className="u muted">{EDIT_COPY.xConnect}</span>}
+                {action}
+              </div>
+              {note && <span className="p5-fine" role="status">{note}</span>}
             </div>
-            {xNote && !xUser && <span className="p5-fine" role="status">{EDIT_COPY.xSoon}</span>}
-          </div>
+          )} />
 
           {err && <p className="p5-err" role="alert">{err}</p>}
           <button type="submit" className="p5-btn primary wide" disabled={!dirty || !valid || !!busy}>{busy === "save" ? C["edit.saving"] : EDIT_COPY.save}</button>
