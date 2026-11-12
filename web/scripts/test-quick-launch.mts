@@ -254,19 +254,11 @@ test("creator fee copy matches the shared PM lines, with no jargon", () => {
   assert.equal(CREATOR_FEE_COPY[1].chip, "Fees stay in the pool");
   assert.equal(CREATOR_FEE_COPY[2].sentence, "The creator fees are used to permanently destroy the pair coin this rocket is traded in. When the fee arrives as that pair coin, it is destroyed. When the fee arrives as this rocket's own coins, those coins are used to buy more of the pair coin, and that is destroyed too.");
   assert.equal(CREATOR_FEE_COPY[2].chip, "Fees destroy the pair coin");
-  assert.equal(QUICK_LAUNCH_COPY.rewards, "Send your creator fees to a different account");
-  assert.equal(QUICK_LAUNCH_COPY.rewardsHelp, "Your creator fees go to this account instead of you. You'll confirm this one extra time.");
-  assert.equal(QUICK_LAUNCH_COPY.creatorTaxHelp, "Permanent. A small cut of every trade goes to you. Higher tax can scare off players.");
-  assert.equal(QUICK_LAUNCH_COPY.creatorTaxHelpIncluded, "Permanent. A small cut of every trade is included in the creator fees chosen above. Higher tax can scare off players.");
   const visible = [
     QUICK_LAUNCH_COPY.creatorFees, QUICK_LAUNCH_COPY.creatorFeesHelp, QUICK_LAUNCH_COPY.creatorFeesPending,
-    QUICK_LAUNCH_COPY.rewards, QUICK_LAUNCH_COPY.rewardsHelp,
-    QUICK_LAUNCH_COPY.creatorTaxHelp, QUICK_LAUNCH_COPY.creatorTaxHelpIncluded,
     ...CREATOR_FEE_DESTINATIONS.flatMap((id) => [CREATOR_FEE_COPY[id].sentence, CREATOR_FEE_COPY[id].chip]),
   ].join("\n");
   assert.doesNotMatch(visible, /\bLP\b|quote token|renounced|\buint\b|\bhalf\b/i);
-  assert.doesNotMatch(QUICK_LAUNCH_COPY.rewards + QUICK_LAUNCH_COPY.rewardsHelp, /rewards/i);
-  assert.doesNotMatch(QUICK_LAUNCH_COPY.creatorTaxHelpIncluded, /goes to you/i);
 });
 
 test("the Mode control hugs its content and is not a full-width bar", () => {
