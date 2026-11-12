@@ -32,6 +32,12 @@ interface ILaunchpadCurveOf {
 
 interface IFeeRouterClaimFor {
     function claimCreatorFeesFor(address token, address creator) external returns (uint256);
+    function creatorAccrued(address token, address creator) external view returns (uint256);
+}
+
+/// @dev CurveFeeVault.claimCreatorFeesToRouter (lp-accrue coins' curve-phase creator fees; FeeRouter.isClaimRouter only).
+interface ICurveFeeVaultClaim {
+    function claimCreatorFeesToRouter(address token, address creator) external returns (uint256);
 }
 
 /// @dev Canonical Uniswap Permit2 (ISignatureTransfer subset). Same address on every chain incl. Robinhood 4663/46630.
@@ -494,6 +500,10 @@ contract DiscipleRouter is IUnlockCallback {
 
     /// @notice Claim msg.sender's accrued creator fees (quote side) of `token` and receive them in USDG (swapped on
     ///         the registered USDG pool; plain transfer for USDG-paired coins). Token-side fees: FeeRouter directly.
+    /// @dev lp-accrue coins (AUDIT M1): the curve-phase quote fees sit in the coin's CurveFeeVault (curve.feeVault()),
+    ///      so that balance (settled first, by the vault) is claimed too; the FeeRouter balance (post-graduation
+    ///      quote fees, and every fee of older curves) as before. With nothing in the vault the FeeRouter call runs
+    ///      unconditionally, so "nothing to claim" still reverts FeeRouter.NothingToClaim exactly as before.
     function claimCreatorFeesToUsdg(address token, uint256 minUsdgOut) external returns (uint256 usdgOut) {
         _enter();
         address u = usdg;
@@ -502,11 +512,21 @@ contract DiscipleRouter is IUnlockCallback {
         address curve = ILaunchpadCurveOf(lp).curveOf(token);
         if (curve == address(0)) revert UnknownToken(token);
         address q = IUsdgCurve(curve).quote();
-        uint256 amt = IFeeRouterClaimFor(ILaunchpadCurveOf(lp).feeRouter()).claimCreatorFeesFor(token, msg.sender);
+        IFeeRouterClaimFor fr = IFeeRouterClaimFor(ILaunchpadCurveOf(lp).feeRouter());
+        uint256 amt;
+        address v = _feeVaultOf(curve);
+        if (v != address(0)) amt = ICurveFeeVaultClaim(v).claimCreatorFeesToRouter(token, msg.sender);
+        if (amt == 0 || fr.creatorAccrued(token, msg.sender) != 0) amt += fr.claimCreatorFeesFor(token, msg.sender);
         usdgOut = _toUsdg(u, q, amt, msg.sender);
         if (usdgOut < minUsdgOut) revert Slippage();
         emit UsdgCreatorFeesClaimed(msg.sender, token, amt, usdgOut);
         _exit();
+    }
+
+    /// @dev lp-accrue curves expose `feeVault()`; older curves don't (→ address(0), FeeRouter only).
+    function _feeVaultOf(address curve) internal view returns (address v) {
+        (bool ok, bytes memory r) = curve.staticcall(abi.encodeWithSignature("feeVault()"));
+        if (ok && r.length >= 32) v = abi.decode(r, (address));
     }
 
     /// @notice Swap `usdgIn` USDG (from msg.sender) for pair coin `quote` (to `recipient`) on the registered USDG/quote

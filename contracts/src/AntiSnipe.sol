@@ -10,7 +10,7 @@ import {IAntiSnipe} from "./interfaces/IAntiSnipe.sol";
 /// @dev Still deployed by Deploy.s.sol, but v2 BondingCurves never call it: they compute the sniper tax inline
 ///      (BondingCurve.currentSnipeFeeBps) and hold it in `snipeEscrow`. At graduation that escrow goes to LockedLP's
 ///      locked compound bucket (excluded from the graduation floor); if not graduated within `snipeEscrowTimeout`
-///      (default 30 days) anyone can release it to RewardsVault. Nothing here routes a fee.
+///      (default 12 days since 2026-11-09, was 30) anyone can release it to RewardsVault. Nothing here routes a fee.
 contract AntiSnipe is IAntiSnipe {
     mapping(address => uint256) public override launchTimestamp;
 

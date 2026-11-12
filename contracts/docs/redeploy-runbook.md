@@ -162,6 +162,11 @@ Record the acceptance tx hash in the deployments json `note`. Fork rehearsal 202
 `EXPECT_REWARDS_VAULT_OWNER` = #1 PASS 25/25, and with a wrong expected owner it FAILs (exit 1) as intended.
 
 ### 5b. Other wiring
+
+- Snipe-escrow timeout (lee 2026-11-10 "yes do the snipe escrow"): a fresh Deploy.s.sol Launchpad starts at 12 days
+  (`Constants.SNIPE_ESCROW_TIMEOUT`, no env). The current testnet Launchpad still stores 30 days; on lee's GO the owner sends
+  `cast send $LAUNCHPAD "setSnipeEscrowTimeout(uint256)" 1036800` (future launches only; existing curves keep their
+  snapshot). Smoke checks `Launchpad.snipeEscrowTimeout() == 1036800` (`EXPECT_SNIPE_ESCROW_TIMEOUT`).
 - `FeeRouter.isClaimRouter(DiscipleRouter)` = true (set in Deploy.s.sol). `claimCreatorFeesFor` no longer trusts every
   `Launchpad.isTrustedRouter`; add/revoke with `setClaimRouter(address,bool)` (owner).
 - `FeeRouter.referralSink()` = 0x0 (today's routing). **lee's rule:** when set, the sink takes the WHOLE referral 1%, including the
@@ -171,7 +176,7 @@ Record the acceptance tx hash in the deployments json `note`. Fork rehearsal 202
 - Launchpad: `defaultQuote` = STRATEGY; LoginGate set; CurveDeployer set.
 - Owners: everything except RewardsVault stays with the deployer. Hand over with `transferOwnership` if lee wants a multisig on testnet.
 - Sniper escrow: no wiring. Curves hold it; at graduation Migration sends it to LockedLP's compound bucket; if a coin doesn't graduate within
-  30 days, anyone can call `releaseSnipeEscrow()` to send it to the RewardsVault.
+  12 days (default since 2026-11-09, was 30; per-curve snapshot), anyone can call `releaseSnipeEscrow()` to send it, plus the bundled LP fee share on lp-accrue curves, to the RewardsVault.
 
 ## 6. Env and config handoff
 
@@ -212,7 +217,7 @@ should still resolve, `marketLens`, `announcer`, `v2DeployBlock` = new startBloc
 `scripts/check-usdg-decimals.mts` must pass against the new USDG, and the USDG faucet/mint UX now mints 6-dec units.
 AUDIT round 2 copy/config items for SITE:
 - **Easy First BOOST lock has no time-based unlock** (AUDIT #121 r2 Info): on an Easy coin the creator's First BOOST stays locked
-  until graduation, forever if it never graduates (also past the 30-day sniper-escrow timeout). The launch flow / coin page / docs must say so.
+  until graduation, forever if it never graduates (also past the sniper-escrow timeout, 12 days by default (was 30)). The launch flow / coin page / docs must say so.
 - **New MarketLens only for v5 curves** (AUDIT #127 r2 Info): its `secondsLeft` / `sniperTax` assume the 7 s window for every curve;
   legacy (v4) curves used 77 s. Don't point the new MarketLens at old coins (keep `anonLauncherLegacy` resolution on the old lens/reads).
 **GAME updates:** regenerate `web/public/flight/engine.js` after #128/#129 land; bot sizing assumes the steep curve; any sim fixtures
@@ -224,7 +229,7 @@ The indexer reads `contracts/deployments/rh-testnet-46630.json` (`DEPLOYMENT_JSO
 indexed from its `startBlock` and the old stacks keep indexing. After the deployments json is on the indexer host:
 restart it; if the json lacks `startBlock`, set `START_BLOCK=<first deploy block>`. `STACKS=v5` restricts to the new stack.
 Check the indexer catches up to head and that the smoke coin appears.
-RewardsVault inflows from un-graduated coins (`releaseSnipeEscrow()` after 30 days) emit no vault-side event: attribute them from the
+RewardsVault inflows from un-graduated coins (`releaseSnipeEscrow()` after the timeout, 12 days by default since 2026-11-09; lp-accrue curves also emit `LpFeeEscrowReleased`) emit no vault-side event: attribute them from the
 curve's `SnipeEscrowReleased` (AUDIT #127 r2 ruling; a vault accrual event is a later nice-to-have).
 
 ## 8. Smoke (live testnet, after deploy)

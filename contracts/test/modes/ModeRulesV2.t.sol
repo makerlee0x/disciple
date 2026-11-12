@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {CurveFeeVault} from "../../src/CurveFeeVault.sol";
 import {IntegrationBase, MockUSDG} from "../integration/IntegrationBase.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {Owned2Step} from "../../src/utils/Owned2Step.sol";
@@ -188,7 +189,8 @@ contract ModeRulesV2Test is IntegrationBase {
             c.loginGate(),
             c.trustedRouter(),
             c.crewTipThresholdBps(),
-            c.snipeEscrowTimeout()
+            c.snipeEscrowTimeout(),
+            address(c.feeVault())
         );
         assertEq(keccak256(address(c).code), keccak256(address(ref).code), "same runtime incl. immutables");
         assertLe(address(c).code.length, 24_576, "EIP-170");
@@ -263,7 +265,11 @@ contract ModeRulesV2Test is IntegrationBase {
         vm.stopPrank();
         assertEq(out, cap);
         assertEq(b0 - quote.balanceOf(alice), q - bq.refund, "charged only what the fill needs");
-        assertEq(quote.balanceOf(address(c)), c.quoteReserve() + c.snipeEscrow() + c.rewardsHeld(), "no stray quote");
+        assertEq(
+            quote.balanceOf(address(c)),
+            c.quoteReserve() + c.snipeEscrow() + c.rewardsHeld() + c.protoFeesOwed() + c.creatorTaxOwed(), // lp-accrue: + owed
+            "no stray quote"
+        );
     }
 
     function test_partialFill_minOutAboveFillReverts() public {
@@ -359,7 +365,9 @@ contract ModeRulesV2Test is IntegrationBase {
         if (cap != type(uint256).max) assertLe(net0 + out, cap, "NET <= pre-trade cap");
         if (!c.graduated()) {
             assertEq(
-                quote.balanceOf(address(c)), c.quoteReserve() + c.snipeEscrow() + c.rewardsHeld(), "accounting closes"
+                quote.balanceOf(address(c)),
+                c.quoteReserve() + c.snipeEscrow() + c.rewardsHeld() + c.protoFeesOwed() + c.creatorTaxOwed(), // lp-accrue: + owed fees
+                "accounting closes"
             );
         }
     }
@@ -405,13 +413,13 @@ contract ModeRulesV2Test is IntegrationBase {
         assertGt(esc, 0);
         (uint256 amt, uint256 at, bool rel) = lens.snipeEscrow(address(t));
         assertEq(amt, esc);
-        assertEq(at, c.launchTime() + 30 days);
+        assertEq(at, c.launchTime() + 12 days);
         assertFalse(rel);
         vm.warp(vm.getBlockTimestamp() + 61);
         _grad(c);
         assertEq(c.snipeEscrow(), 0);
         assertEq(quote.balanceOf(address(c)), c.rewardsHeld(), "everything migrated");
-        vm.warp(c.launchTime() + 30 days);
+        vm.warp(c.launchTime() + 12 days);
         vm.expectRevert(BondingCurve.Graduated.selector);
         c.releaseSnipeEscrow();
     }
@@ -419,6 +427,7 @@ contract ModeRulesV2Test is IntegrationBase {
     function test_sniperEscrow_toVault_afterTimeout_easy() public {
         (BondingCurve c, Token t) = _launchM(Constants.MODE_PVE);
         _buyQ(c, bob, 5 ether);
+        c.settleFees(); // lp-accrue: the release also carries the LP fee share accrued before the timeout (L2)
         uint256 esc = c.snipeEscrow();
         vm.warp(c.launchTime() + c.snipeEscrowTimeout() - 1);
         vm.expectRevert(BondingCurve.EscrowLocked.selector);
@@ -643,7 +652,7 @@ contract ModeRulesV2Test is IntegrationBase {
 
     function test_snipeEscrowTimeout_tunable_snapshotted() public {
         (BondingCurve a,) = _launchM(Constants.MODE_PVP);
-        assertEq(a.snipeEscrowTimeout(), 30 days, "default 30 days");
+        assertEq(a.snipeEscrowTimeout(), 12 days, "default 12 days");
         vm.startPrank(owner);
         vm.expectRevert(Launchpad.SnipeEscrowTimeoutOutOfBounds.selector);
         launchpad.setSnipeEscrowTimeout(Constants.SNIPE_ESCROW_TIMEOUT_MIN - 1);
@@ -654,7 +663,7 @@ contract ModeRulesV2Test is IntegrationBase {
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
         launchpad.setSnipeEscrowTimeout(2 days);
         (BondingCurve b, Token tb) = _launchM(Constants.MODE_PVP);
-        assertEq(a.snipeEscrowTimeout(), 30 days, "existing coin keeps its snapshot");
+        assertEq(a.snipeEscrowTimeout(), 12 days, "existing coin keeps its snapshot");
         assertEq(b.snipeEscrowTimeout(), 7 days);
         _buyQ(b, bob, 10 ether);
         assertGt(b.snipeEscrow(), 0);
@@ -838,8 +847,8 @@ contract ModeRulesV2Test is IntegrationBase {
         BondingCurve(rs.curve).buy(100 ether, 0, vm.getBlockTimestamp() + 1);
         vm.stopPrank();
         _buyQ(BondingCurve(ru.curve), bob, 100 ether);
-        uint256 accS = feeRouter.creatorAccrued(rs.token, alice);
-        uint256 accU = feeRouter.creatorAccrued(ru.token, alice);
+        uint256 accS = feeVault.creatorClaimable(rs.token, alice); // lp-accrue: owed on the curve + booked in the vault
+        uint256 accU = feeVault.creatorClaimable(ru.token, alice);
         assertGt(accS, 0);
         assertGt(accU, 0);
         uint256 u0 = quote.balanceOf(alice);
@@ -847,7 +856,7 @@ contract ModeRulesV2Test is IntegrationBase {
         uint256 outS = router.claimCreatorFeesToUsdg(rs.token, 1);
         assertApproxEqRel(outS, accS, 0.01e18, "~1:1 pool minus the pool fee");
         assertEq(quote.balanceOf(alice) - u0, outS);
-        assertEq(feeRouter.creatorAccrued(rs.token, alice), 0);
+        assertEq(feeVault.creatorClaimable(rs.token, alice), 0);
         vm.prank(alice);
         uint256 outU = router.claimCreatorFeesToUsdg(ru.token, accU);
         assertEq(outU, accU, "USDG pair: plain transfer");
@@ -864,6 +873,9 @@ contract ModeRulesV2Test is IntegrationBase {
         vm.prank(alice);
         vm.expectRevert(FeeRouter.OnlyAuthorized.selector);
         feeRouter.claimCreatorFeesFor(rs.token, alice);
+        vm.prank(alice);
+        vm.expectRevert(CurveFeeVault.OnlyClaimRouter.selector);
+        feeVault.claimCreatorFeesToRouter(rs.token, alice);
     }
 
     /// Audit r121 Low (FeeRouter.sol:276): claimCreatorFeesFor uses its own owner-set allowlist, not trade-router trust.
@@ -874,7 +886,7 @@ contract ModeRulesV2Test is IntegrationBase {
         vm.stopPrank();
         vm.warp(vm.getBlockTimestamp() + 78);
         _buyQ(BondingCurve(ru.curve), bob, 100 ether);
-        uint256 acc = feeRouter.creatorAccrued(ru.token, alice);
+        uint256 acc = feeVault.creatorClaimable(ru.token, alice); // lp-accrue: curve-phase fees live in CurveFeeVault
         assertGt(acc, 0);
         // a trade-trusted router that is NOT a claim router cannot sweep creator fees
         address rogue = makeAddr("rogueRouter");
@@ -884,6 +896,9 @@ contract ModeRulesV2Test is IntegrationBase {
         vm.prank(rogue);
         vm.expectRevert(FeeRouter.OnlyAuthorized.selector);
         feeRouter.claimCreatorFeesFor(ru.token, alice);
+        vm.prank(rogue); // same allowlist on the vault entry
+        vm.expectRevert(CurveFeeVault.OnlyClaimRouter.selector);
+        feeVault.claimCreatorFeesToRouter(ru.token, alice);
         // owner-only setter, zero address rejected
         vm.prank(alice);
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
@@ -898,7 +913,7 @@ contract ModeRulesV2Test is IntegrationBase {
         emit FeeRouter.ClaimRouterSet(address(router), false);
         feeRouter.setClaimRouter(address(router), false);
         vm.prank(alice);
-        vm.expectRevert(FeeRouter.OnlyAuthorized.selector);
+        vm.expectRevert(CurveFeeVault.OnlyClaimRouter.selector); // the vault checks FeeRouter.isClaimRouter
         router.claimCreatorFeesToUsdg(ru.token, 0);
         assertTrue(launchpad.isTrustedRouter(address(router)));
         // re-allow: the creator claims in full

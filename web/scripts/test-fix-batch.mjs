@@ -46,7 +46,7 @@ function tradeEnv({ live = false, balance = 100, liveCash = null, usd = 10, sim 
   const E = { submits: [], flashes: [] };
   const S = { fuelers: { you: 0 }, hold: { tokens: 1e3, valueUsd: 5 }, liveBag: live ? { tokens: 100 } : null, flashes: E.flashes, mode: 0, balance, liveCash, confirmed: { mcap: 7e4 }, promoLeft: 0 };
   const env = { S, MAX_PENDING: 3, MODES: [{ usd }], hasTokens: () => true, noTokens() {}, isLive: () => live, markMcap: () => 7e4, source: { supply: 7e9, isSim: sim },
-    MIN_SHOT: 0.2, PROMO_GAS: false, GAS_USD: 0, applyThrust() {}, srcImpact: () => 1, fmtShot: fmt, window: live ? { __discipleTrade() {} } : {},
+    MIN_SHOT: 0.2, DUST_USD: Number(eng.match(/const DUST_USD=([\d.]+)/)[1]), PROMO_GAS: false, GAS_USD: 0, applyThrust() {}, srcImpact: () => 1, fmtShot: fmt, window: live ? { __discipleTrade() {} } : {},
     submit: (side, u, force, opt) => E.submits.push({ side, usd: u, opt }) };
   E.trade = new Function(...Object.keys(env), block("/* @trade", "/* @trade-end */") + "\nreturn trade;")(...Object.values(env));
   return E; }

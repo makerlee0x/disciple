@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {CurveDeployer} from "../../src/CurveDeployer.sol";
+import {CurveFeeVault} from "../../src/CurveFeeVault.sol";
 import {QuotePricer} from "../../src/QuotePricer.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -88,6 +89,7 @@ abstract contract IntegrationBase is Test {
     MockUSDG internal strategy; // mock STRATEGY default quote
     QuotePricer internal pricer;
     DiscipleRouter internal router;
+    CurveFeeVault internal feeVault; // lp-accrue: curve-phase creator / treasury / referral fees
     PoolKey internal strategyUsdgKey; // reference STRATEGY/USDG pool priced 1:1 ($1)
     uint256 internal refPoolQuoteSeed; // USDG seeded into the reference pool (excluded from accounting)
 
@@ -142,7 +144,8 @@ abstract contract IntegrationBase is Test {
         quoteProbe = new QuoteProbe(owner, manager, address(quote), address(pricer), 1e18);
         launchpad.setQuoteProbe(address(quoteProbe));
         launchpad.setPricer(address(pricer));
-        launchpad.setCurveDeployer(address(new CurveDeployer()));
+        feeVault = new CurveFeeVault(address(feeRouter), address(0)); // AnonLauncher tests deploy their own vault
+        launchpad.setCurveDeployer(address(new CurveDeployer(address(feeVault))));
         launchpad.setTrustedRouter(address(router), true);
         feeRouter.setClaimRouter(address(router), true);
         vm.stopPrank();

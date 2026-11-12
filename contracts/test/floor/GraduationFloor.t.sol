@@ -23,12 +23,13 @@ contract GraduationFloorTest is IntegrationBase {
 
     bytes32 constant FLOOR_SEEDED = keccak256("FloorSeeded(address,bytes32,int24,uint8,uint256,uint256)");
     bytes32 constant MIGRATED = keccak256("Migrated(address,address,bytes32,uint256,uint256,uint160)");
+    bytes32 constant SNIPE_TO_LP = keccak256("SnipeEscrowToLP(address,uint256)");
 
     struct Grad {
         BondingCurve c;
         Token tok;
         bool c0;
-        uint256 snipe; // sniper escrow at graduation
+        uint256 snipe; // escrow handed to Migration at graduation (lp-accrue: sniper tax + settled LP fee share)
         uint256 migratedQuote; // quote the curve sent to Migration (reserve + sniper escrow)
         uint256 seeded;
         uint256 dust;
@@ -53,6 +54,10 @@ contract GraduationFloorTest is IntegrationBase {
                 (, int24 b, uint8 n, uint256 s, uint256 d) = abi.decode(logs[i].data, (bytes32, int24, uint8, uint256, uint256));
                 assertEq(n, 16);
                 (g.base, g.seeded, g.dust) = (b, s, d);
+            }
+            // lp-accrue: _graduate settles owed fees first, so the escrow at graduation includes the LP fee share
+            if (logs[i].topics[0] == SNIPE_TO_LP && logs[i].emitter == address(g.c)) {
+                g.snipe = abi.decode(logs[i].data, (uint256));
             }
             if (logs[i].topics[0] == MIGRATED && address(uint160(uint256(logs[i].topics[1]))) == address(g.tok)) {
                 (,, uint256 q,) = abi.decode(logs[i].data, (bytes32, uint256, uint256, uint160));
