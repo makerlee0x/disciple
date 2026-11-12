@@ -62,8 +62,12 @@ export const carryHookAbi = parseAbi([
   "function poolState(bytes32 id) view returns (PoolView)",
   "function sample(bytes32 id)",
   "function sampleDue(bytes32 id) view returns (bool)",
+  "struct Tail { address vault; uint16 hotBps; uint256 shares; uint256 principal; }",
+  "function tailState(bytes32 id) view returns (Tail t, uint256 yield_)",
+  "function sweep(bytes32 id)",
   "event Created(bytes32 indexed id, address indexed coin, address quote, address indexed creator, uint32 remoteEid, uint24 fee)",
   "event Tipped(bytes32 indexed id, address indexed to, uint256 x, uint256 y)",
+  "event TailMoved(address indexed vault, uint256 toVault, uint256 toHot)",
 ]);
 
 /** Leader (same-chain source) reads: v2 pair, v3 pool, v4 PoolManager. */

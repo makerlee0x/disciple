@@ -56,6 +56,12 @@ export interface Sampling {
   selfPayBps: number;
   /** Most unpaid (selfPayBps) samples per pool per hour, a cost ceiling. */
   selfPayMaxPerHour: number;
+  /** Carry pools only: how often to check each pool's Morpho tail, seconds (0 = never sweep). Swaps pull USDG out of
+   *  Morpho when a sell needs it, but never put it back: this keeper does, with the hook's sweep(). */
+  sweepEverySec: number;
+  /** Sweep once a pool's hot quote is above this multiple of its hot target, in bps (20000 = 2x: at the default
+   *  20% target, sweep when hot passes 40%, back down to 20%). */
+  sweepBandBps: number;
 }
 
 export interface Policy {
@@ -175,6 +181,8 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       minGapSec: Number(sm.minGapSec ?? 13),
       selfPayBps: Number(sm.selfPayBps ?? 0),
       selfPayMaxPerHour: Number(sm.selfPayMaxPerHour ?? 60),
+      sweepEverySec: Number(sm.sweepEverySec ?? 900),
+      sweepBandBps: Number(sm.sweepBandBps ?? 20_000),
     },
     policy: {
       moveBps: b(p.moveBps, 102n),

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { privateKeyToAccount } from "viem/accounts";
 import { concat, pad, toHex, type Hex } from "viem";
-import { batch, judge, selfPayRoom, type Due } from "../src/keeper.ts";
+import { batch, judge, selfPayRoom, sweepNeeded, type Due } from "../src/keeper.ts";
 import { decodeSource, jarValue, OFF, POOLS_SLOT, readLeaderSpot, type PoolDyn, type PoolSource } from "../src/hook.ts";
 import { loadConfig } from "../src/config.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -116,7 +116,7 @@ test("config: same-chain sets, sampling and jar policy defaults", () => {
   assert.equal(c.sameChain[0].hook, "0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88");
   assert.deepEqual(c.sameChain[0].pools, ["0xabcd"]);
   assert.equal(c.sameChain[0].scanPools, true);
-  assert.deepEqual(c.sampling, { everySec: 2, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayMaxPerHour: 60 });
+  assert.deepEqual(c.sampling, { everySec: 2, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayMaxPerHour: 60, sweepEverySec: 900, sweepBandBps: 20_000 });
   assert.equal(c.sameChain[0].abi, "disciple");
   assert.equal(c.policy.minJar, 0n);
   assert.equal(c.policy.collectEverySec, 86_400);
@@ -259,3 +259,23 @@ test("leader spot: v4 Slot0 from extsload, v3 slot0, v2 reserves", async () => {
   assert.equal(await readLeaderSpot({ readContract: async () => { throw new Error("x"); } } as never, { ...base, kind: 3, coinIs0: true }), 0n);
 });
 
+
+test("Carry sweep: only once hot quote is above the band (2x the 20% target by default)", () => {
+  const V = "0xBeEff033F34C046626B8D0A041844C5d1A5409dd";
+  const Z = "0x0000000000000000000000000000000000000000";
+  const y = 25_000n * 10n ** 6n;
+  // 80/20: nothing to do
+  assert.equal(sweepNeeded(y, 20_000n * 10n ** 6n, 2000, V, 20_000), false);
+  // hot at 40% exactly: still inside the band
+  assert.equal(sweepNeeded(y, 15_000n * 10n ** 6n, 2000, V, 20_000), false);
+  // hot just above 40%: sweep
+  assert.equal(sweepNeeded(y, 14_999n * 10n ** 6n, 2000, V, 20_000), true);
+  // a 1.5x band sweeps sooner
+  assert.equal(sweepNeeded(y, 17_400n * 10n ** 6n, 2000, V, 15_000), true);
+  // hot below target (after sells): never sweeps from here (swaps pull from Morpho themselves)
+  assert.equal(sweepNeeded(y, 24_000n * 10n ** 6n, 2000, V, 20_000), false);
+  // tail off, closing (hot target 100%), or tail above the book: never
+  assert.equal(sweepNeeded(y, 0n, 2000, Z, 20_000), false);
+  assert.equal(sweepNeeded(y, 1n, 10_000, V, 20_000), false);
+  assert.equal(sweepNeeded(y, y + 1n, 2000, V, 20_000), false);
+});
