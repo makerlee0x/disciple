@@ -14,6 +14,18 @@ contract DeployConfigTest is Test {
     function test_deployScriptWiring() public {
         address ur = makeAddr("universalRouter");
         vm.setEnv("UNIVERSAL_ROUTER", vm.toString(ur)); // must be ignored now (SEC-05)
+        // Local deploy: no external addresses. vm.setEnv is process-wide, and other suites (e.g.
+        // DeployPaymasterEnvTest sets USDG to a test-only mock and never restores it) can leak values into this
+        // run, which made Deploy.run() revert depending on test order. Pin them back to "deploy local mocks".
+        string memory zero = vm.toString(address(0));
+        vm.setEnv("USDG", zero);
+        vm.setEnv("POOL_MANAGER", zero);
+        vm.setEnv("V4_QUOTER", zero);
+        vm.setEnv("DEFAULT_QUOTE", zero);
+        vm.setEnv("TREASURY", zero);
+        vm.setEnv("PVE_ATTESTER", zero);
+        vm.setEnv("REFERRAL_SINK", zero);
+        vm.setEnv("DEPLOY_TEST_STRATEGY", "false");
         Deploy d = new Deploy();
         Deploy.Out memory o = d.run();
 
