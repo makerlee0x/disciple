@@ -4,7 +4,7 @@
  * The sample pilots in lib/mock/leaderboard.ts load only in `next dev` with ?sample=1 (lib/devSample).
  */
 import type { IdentityId } from "./identity";
-import type { AchievementDef } from "./achievements";
+import type { MilestoneBadge } from "./achievements";
 import { DEMO_POOL, TIERS } from "./config";
 
 export type LeaderboardSort = "pnl" | "pctGain" | "volume" | "holdTime";
@@ -31,7 +31,7 @@ export interface LeaderboardRow {
   mode: "pve" | "pvp";
   achievementIds: string[];
   /** Top earned badges resolved for display */
-  badges: AchievementDef[];
+  badges: MilestoneBadge[];
   /** Heaven ladder tier label (e.g. MORNING STARS, SERAPHIM) */
   ladderTier: HeavenTierName;
   /** Current rocket the play button opens */

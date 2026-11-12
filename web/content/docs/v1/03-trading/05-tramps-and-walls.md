@@ -24,10 +24,6 @@ Tramps and walls are orders on a rocket that has reached orbit, waiting on the o
 - **Auto-close.** Once fully crossed, anyone can close a filled order. You get the proceeds minus a keeper tip of 0.1% (the team can set it up to 1%), paid to whoever closes it. Close it yourself and the tip comes back to you.
 - **One-sided only.** An order that touches the current price reverts.
 
-## Points
-
-Filled tramps and walls earn rHALO points: 1 point per $1 of filled size. Points are off-chain. See [Achievements and points](/docs/game/achievements).
-
 ## Good to know
 
 A large trader can push the price through your range to fill it. You still get your range's price.

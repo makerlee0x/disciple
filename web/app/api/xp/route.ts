@@ -27,6 +27,8 @@ export async function GET(req: Request) {
   }
   const wallet = (url.searchParams.get("wallet") || "").toLowerCase();
   if (!isAddr(wallet)) return NextResponse.json({ error: "wallet=0x… required" }, { status: 400 });
+  const rl = await hitLimit(kv(), `xp:read:ip:${clientIp(req.headers)}`, 120, 60);
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   try {
     return NextResponse.json(await xpSummary(wallet), { headers: { "cache-control": "no-store" } });
   } catch (e) {

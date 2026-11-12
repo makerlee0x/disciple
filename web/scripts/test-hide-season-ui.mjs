@@ -33,20 +33,18 @@ for (const rel of files) {
     for (const l of lines) console.log("     ", l);
   }
 }
-ok(seasonFiles.length >= 3, `source still has Season copy in ${seasonFiles.length} files (not deleted): ${seasonFiles.join(", ")}`);
+// Seasons were replaced by missions and XP (maker, 2026-11-12): the source no longer needs to keep Season copy.
 ok(!docsStillShowSeason(hideSeasonInDocs(readFileSync(join(root, "06-game/04-achievements-and-points.md"), "utf8"))), "Achievements and points: Season ranks / Seasonal / season goals hidden");
 ok(!docsStillShowSeason(hideSeasonInDocs(readFileSync(join(root, "08-reference/03-glossary.md"), "utf8"))), "Glossary: Season rank row hidden");
 ok(!docsStillShowSeason(hideSeasonInDocs(readFileSync(join(root, "06-game/03-crew.md"), "utf8"))), "Crew: 'season rank' hidden, rest of the pilot sentence kept");
 
 const crew = hideSeasonInDocs(readFileSync(join(root, "06-game/03-crew.md"), "utf8"));
-ok(/Your profile shows your pilot stats, achievements, identity\./.test(crew), "crew sentence still reads naturally after the hide");
+ok(/Your profile shows your pilot stats, level, identity and milestones\./.test(crew), "crew sentence still reads naturally after the hide");
 const ach = hideSeasonInDocs(readFileSync(join(root, "06-game/04-achievements-and-points.md"), "utf8"));
-ok(/achievements and filled tramps and walls/.test(ach), "rHALO sentence still reads naturally");
+ok(!/rHALO/.test(ach), "missions page has no rHALO");
 ok(/^## Level and prestige/m.test(ach), "Level and prestige section is kept");
 ok(!/^## Season ranks/m.test(ach), "Season ranks heading is gone from the hidden render");
 
-const profile = readFileSync(join(web, "components/profile/ProfileDashboard.tsx"), "utf8");
-ok(/REAL_PROGRESS_ENABLED/.test(profile) && /season tier/.test(profile), "profile season tier already gated on REAL_PROGRESS_ENABLED");
 
 if (failed) { console.error(failed + " hide-season-ui check(s) FAILED"); process.exit(1); }
 console.log("hide-season-ui checks passed");

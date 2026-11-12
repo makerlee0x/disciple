@@ -37,6 +37,9 @@ export const XPK = {
 /** Nonce prefix for the signed shop / prestige requests (lib/server/nonces). */
 export const XP_NONCE_PREFIX = "xp:nonce";
 
+/** Ledger rows read per wallet (a daily player writes ~10 a day; this is years of play). */
+const LEDGER_MAX = 20_000;
+
 export type LedgerKind = "mission" | "milestone" | "buy" | "prestige";
 export interface LedgerRow { src: string; kind: LedgerKind; xp: number; label: string; ts: number }
 
@@ -53,7 +56,7 @@ export async function award(w: string, row: LedgerRow, s: Kv = kv()): Promise<bo
 
 export async function ledgerOf(w: string, s: Kv = kv()): Promise<LedgerRow[]> {
   const seen = new Set<string>();
-  return (await s.zrange(XPK.ledger(w), 100_000)).map((m) => parse<LedgerRow>(m)).filter((r): r is LedgerRow => !!r && typeof r.xp === "number" && !seen.has(r.src) && (seen.add(r.src), true));
+  return (await s.zrange(XPK.ledger(w), LEDGER_MAX)).map((m) => parse<LedgerRow>(m)).filter((r): r is LedgerRow => !!r && typeof r.xp === "number" && !seen.has(r.src) && (seen.add(r.src), true));
 }
 
 /** Pure (tests): the two numbers + prestige from ledger rows. */
