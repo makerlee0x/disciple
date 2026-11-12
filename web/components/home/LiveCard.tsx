@@ -5,11 +5,10 @@
  * difficulty below. Hover shows DROP IN. Used by Climbing now and All rockets.
  */
 import Link from "next/link";
-import { fmtUsd } from "@/lib/config";
 import { difficultyOf } from "@/lib/difficulty";
 import { ROCKET_SRC, skySrc, tierProgress, type HomeCoin } from "@/lib/home/trending";
 import { withBase } from "@/lib/base-path";
-import { flightHref, lit, Mark, orbitPct, pct } from "./rocketBits";
+import { altShort, crewFaces, flightHref, lit, Mark, orbitPct, pct } from "./rocketBits";
 import s from "./liveCard.module.css";
 
 export default function LiveCard({ c, testId }: { c: HomeCoin; testId?: string }) {
@@ -28,7 +27,6 @@ export default function LiveCard({ c, testId }: { c: HomeCoin; testId?: string }
         <span className={s.trail} />
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img className={s.rocket} src={withBase(ROCKET_SRC)} alt="" loading="lazy" decoding="async" />
-        <Mark c={c} className={s.hull} />
       </span>
 
       <span className={s.top}>
@@ -39,12 +37,17 @@ export default function LiveCard({ c, testId }: { c: HomeCoin; testId?: string }
       <span className={s.foot}>
         <b className={s.name}>{c.name}</b>
         <span className={s.meta}>
-          <Mark c={c} className={s.mark} />
-          <span>{crew ? `${crew.toLocaleString("en-US")} aboard · ` : ""}Tier {t.index + 1} · {t.title}</span>
+          {crew ? (
+            <span className={s.faces} aria-hidden>
+              {crewFaces(c.token, crew).map((col, i) => <i key={i} style={{ background: col }} />)}
+            </span>
+          ) : <Mark c={c} className={s.mark} />}
+          <span>{crew ? `${crew.toLocaleString("en-US")} aboard · ` : ""}Tier {t.index + 1}{crew ? "" : ` · ${t.title}`}</span>
         </span>
-        {orbit != null && <span className={s.bar}><i style={{ width: `${orbit}%` }} /></span>}
+        {/* the bar's row is kept when progress is unknown so names line up across a shelf */}
+        <span className={`${s.bar}${orbit == null ? " " + s.barOff : ""}`}><i style={{ width: `${orbit ?? 0}%` }} /></span>
         <span className={s.row}>
-          <span>{fmtUsd(c.mcapUsd)} altitude</span>
+          <span>{altShort(c.mcapUsd)} altitude</span>
           {d && <span className={`${s.diff} ${s[d.key]}`}>{d.label}</span>}
         </span>
       </span>

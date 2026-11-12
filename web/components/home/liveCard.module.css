@@ -12,19 +12,17 @@
 .sky::after { content: ""; position: absolute; inset: 0;
   background: radial-gradient(120% 80% at 50% 30%, color-mix(in srgb, var(--c) 22%, transparent) 0%, rgba(18, 19, 39, .55) 70%); }
 .streaks { position: absolute; inset: -20% 0; background: repeating-linear-gradient(100deg, rgba(255, 255, 255, 0) 0 22px, rgba(255, 255, 255, .06) 22px 23px); }
-.glow { position: absolute; left: 50%; top: 70px; width: 190px; height: 190px; margin-left: -95px; border-radius: 50%;
+.glow { position: absolute; left: 50%; top: 50px; width: 230px; height: 230px; margin-left: -115px; border-radius: 50%;
   background: radial-gradient(closest-side, color-mix(in srgb, var(--c) 55%, transparent), transparent); }
 
 /* the rocket mid-climb: tilted, with its trail */
-.flight { position: absolute; left: 50%; top: 42px; width: 62px; height: 170px; margin-left: -31px; transform: rotate(-8deg); transform-origin: 50% 80%;
+.flight { position: absolute; left: 50%; top: 34px; width: 74px; height: 204px; margin-left: -37px; transform: rotate(-8deg); transform-origin: 50% 80%;
   transition: transform 400ms var(--dsc3-ease); }
 .card:hover .flight { transform: rotate(-8deg) translateY(-8px); }
 .rocket { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 14px rgba(200, 210, 255, .18)); }
-.trail { position: absolute; left: 50%; top: 150px; width: 18px; height: 64px; margin-left: -9px; border-radius: 50%;
+.trail { position: absolute; left: 50%; top: 180px; width: 20px; height: 70px; margin-left: -10px; z-index: -1; border-radius: 50%;
   background: linear-gradient(180deg, rgba(255, 214, 160, .9), rgba(255, 122, 61, 0)); filter: blur(5px); }
-.hull { position: absolute; left: 50%; top: 40%; width: 20px; height: 20px; transform: translate(-50%, -50%); overflow: hidden; border-radius: 50%;
-  display: grid; place-items: center; background: var(--c); color: var(--dsc-sky-ink); border: 2px solid var(--dsc3-light-gold); font: 800 11px / 1 var(--dsc-font-game); }
-.hull img, .mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 .top { position: absolute; left: 12px; right: 12px; top: 12px; display: flex; justify-content: space-between; align-items: center; }
 .live { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px; background: rgba(11, 12, 14, .6);
@@ -41,10 +39,14 @@
 .meta > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mark { flex: none; width: 20px; height: 20px; overflow: hidden; border-radius: 50%; display: grid; place-items: center;
   background: var(--c); color: var(--dsc-sky-ink); font: 800 11px / 1 var(--dsc-font-game); }
+.faces { flex: none; display: flex; }
+.faces i { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #16181C; }
+.faces i + i { margin-left: -6px; }
 .bar { height: 6px; border-radius: 999px; background: rgba(232, 234, 238, .16); overflow: hidden; }
 .bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--dsc3-light-gold), var(--dsc3-light-champagne)); }
+.barOff { visibility: hidden; }
 .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--dsc-muted-on-sky); }
-.diff { font-weight: 600; }
+.diff { font-weight: 700; text-transform: uppercase; letter-spacing: .02em; }
 .easy { color: var(--dsc3-diff-easy); }
 .hard { color: var(--dsc3-diff-hard); }
 .expert { color: var(--dsc3-diff-expert); }
@@ -66,8 +68,8 @@
 }
 @media (max-width: 760px) {
   .card { height: 300px; }
-  .flight { top: 36px; width: 54px; height: 150px; margin-left: -27px; }
-  .trail { top: 132px; }
+  .flight { top: 34px; width: 58px; height: 160px; margin-left: -29px; }
+  .trail { top: 140px; }
   .up, .dn { font-size: 20px; }
   .name { font-size: 22px; }
   .foot { padding: 36px 10px 10px; gap: 6px; }

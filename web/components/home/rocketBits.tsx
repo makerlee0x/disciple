@@ -22,6 +22,17 @@ export function lightOf(token: string) {
   for (let i = 0; i < token.length; i++) h = Math.imul(h ^ token.charCodeAt(i), 16777619);
   return LIGHTS[(h >>> 0) % LIGHTS.length];
 }
+/** Up to three crew dots in the rocket's palette (one per pilot, capped), seeded by the token so they stay put. */
+export function crewFaces(token: string, crew: number) {
+  const start = LIGHTS.indexOf(lightOf(token));
+  return Array.from({ length: Math.min(3, crew) }, (_, i) => LIGHTS[(start + 1 + i * 3) % LIGHTS.length]);
+}
+/** Card altitude: $214K, $9.5K, $1.2M (whole thousands from $10K up). */
+export function altShort(v: number) {
+  if (v >= 1e6) return "$" + (v / 1e6).toFixed(v >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
+  if (v >= 1e3) return "$" + (v / 1e3).toFixed(v >= 1e4 ? 0 : 1).replace(/\.0$/, "") + "K";
+  return "$" + Math.round(v);
+}
 export const lit = (c: HomeCoin) => ({ ["--c" as string]: lightOf(c.token) }) as CSSProperties;
 export const orbitPct = (c: HomeCoin) => (c.graduated ? 100 : Math.max(0, Math.min(100, (c.progressBps ?? 0) / 100)));
 export const pct = (v: number) => `${v >= 10 ? Math.round(v) : v.toFixed(1)}%`;
