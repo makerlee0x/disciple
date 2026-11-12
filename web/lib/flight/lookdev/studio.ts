@@ -6,7 +6,7 @@
  * Not part of the game: no engine, no trades, no flight. WebGPU (three/webgpu + RenderPipeline/TSL bloom) when the
  * browser has it, else WebGL 2 (EffectComposer + UnrealBloomPass + OutputPass). ?renderer=webgl forces WebGL.
  *
- * Query params: hdri=<id> · exposure=<n> · bloom=<strength> · bthresh=<n> · bcap=<n> · bg=studio|hdri|blur|plate
+ * Query params: hdri=<id> · exposure=<n> · sat=<n> · bloom=<strength> · bthresh=<n> · bcap=<n> · bradius=<n> · bg=studio|hdri|blur|plate
  *               view=front|three-quarter|low|underside|orbit · elev=<deg> · spin=0|1 · rot=<deg> · env=<intensity> · envrot=<deg>
  */
 import type { Texture, Object3D, Scene, PerspectiveCamera } from "three";
@@ -14,7 +14,9 @@ import type { Texture, Object3D, Scene, PerspectiveCamera } from "three";
 const CC0 = { name: "CC0 1.0 (Poly Haven)", url: "https://polyhaven.com/license" } as const;
 type Hdri = {
   file: string; title: string; kind: string; author: string; url: string; license: { name: string; url: string };
-  exposure: number; envrot: number; bg: "studio" | "hdri" | "blur" | "plate"; bgrot?: number;
+  exposure: number; envrot: number;
+  /** saturation applied to the HDR pixels at load (1 = as shot); used only to neutralise a warm studio */
+  sat?: number; bg: "studio" | "hdri" | "blur" | "plate"; bgrot?: number;
   /** the approved 16:9 backdrop, shown unchanged (cover-fit) when bg=plate */
   plate?: string;
   /** a real light matching the plate's brightest region (direction in the file's equirectUv frame, before envrot) */
@@ -23,16 +25,24 @@ type Hdri = {
 /** Lighting order per the brief: a real photographed studio HDRI to judge the metal first, then a real outdoor night sky
  *  (both Poly Haven, CC0), then DISCIPLE's own Launch Pad plate (BRAND env r1 — an LDR plate wrapped + highlight-boosted,
  *  not a true 360° HDRI; see /workspace/disciple-brand/mockups/flight-3d-lookdev-r1/env/README.md). */
-export const HDRIS: Record<"ferndale_studio_01" | "rooftop_night" | "launch_pad", Hdri> = {
+export const HDRIS: Record<"ferndale_studio_07" | "ferndale_studio_01" | "rooftop_night" | "launch_pad", Hdri> = {
+  // hero look-dev light (r2): a dark studio with several structured sources (strip tubes, a big round softbox, practicals),
+  // so the chrome shows a mix of thin and wide bands instead of two wide lobes. Its warm tungsten cast is neutralised
+  // (sat 0.35) to judge the metal against the cool-neutral official sprite; the light's shape and intensity are as shot.
+  ferndale_studio_07: {
+    file: "/lookdev/hdri/ferndale_studio_07_2k.hdr", title: "Ferndale Studio 07", kind: "studio, hero",
+    author: "Dimitrios Savva (photography), Greg Zaal (processing)", url: "https://polyhaven.com/a/ferndale_studio_07", license: CC0,
+    exposure: 2.2, envrot: 120, bg: "studio", sat: 0.35,
+  },
   ferndale_studio_01: {
-    file: "/lookdev/hdri/ferndale_studio_01_2k.hdr", title: "Ferndale Studio 01", kind: "studio",
+    file: "/lookdev/hdri/ferndale_studio_01_2k.hdr", title: "Ferndale Studio 01", kind: "studio, r1 single softbox",
     author: "Dimitrios Savva (photography), Jarod Guest (processing)", url: "https://polyhaven.com/a/ferndale_studio_01", license: CC0,
     exposure: 2.0, envrot: 200, bg: "studio",
   },
   rooftop_night: {
     file: "/lookdev/hdri/rooftop_night_2k.hdr", title: "Rooftop Night", kind: "outdoor night",
     author: "Greg Zaal", url: "https://polyhaven.com/a/rooftop_night", license: CC0,
-    exposure: 0.9, envrot: 120, bg: "studio",
+    exposure: 0.6, envrot: 120, bg: "studio",
   },
   launch_pad: {
     file: "/lookdev/hdri/launch-pad.boost.hdr", title: "Launch Pad", kind: "DISCIPLE sky, BRAND plate r1",
@@ -44,7 +54,7 @@ export const HDRIS: Record<"ferndale_studio_01" | "rooftop_night" | "launch_pad"
   },
 };
 export type HdriId = keyof typeof HDRIS;
-export const DEFAULT_HDRI: HdriId = "ferndale_studio_01";
+export const DEFAULT_HDRI: HdriId = "ferndale_studio_07";
 
 export type LookdevHandle = {
   ready: boolean; backend: "webgpu" | "webgl" | null; hdri: HdriId; error?: string;
@@ -58,7 +68,7 @@ export async function startLookdev(canvas: HTMLCanvasElement, search: string): P
   const q = new URLSearchParams(search);
   const hdri = (q.get("hdri") as HdriId) in HDRIS ? (q.get("hdri") as HdriId) : DEFAULT_HDRI;
   const H0 = HDRIS[hdri];
-  const exposure = num(q, "exposure", H0.exposure), bloomStrength = num(q, "bloom", 0.15), bloomThreshold = num(q, "bthresh", 2.0), bloomCap = num(q, "bcap", 3), envI = num(q, "env", 1.0);
+  const exposure = num(q, "exposure", H0.exposure), bloomStrength = num(q, "bloom", 0.035), bloomThreshold = num(q, "bthresh", 4.0), bloomCap = num(q, "bcap", 6), bloomRadius = num(q, "bradius", 0.0), envI = num(q, "env", 1.0);
   const bgMode = q.get("bg") || H0.bg, view = q.get("view") || "front", spin = q.get("spin") === "1";
   const handle: LookdevHandle = { ready: false, backend: null, hdri, frames: 0, setRotation: () => {}, render: async () => {} };
   window.__lookdev = handle;
@@ -95,7 +105,16 @@ export async function startLookdev(canvas: HTMLCanvasElement, search: string): P
   const camera = new THREE.PerspectiveCamera(24, 1, 0.05, 100);
 
   // ---- HDRI → PMREM → scene.environment (and the photo itself as the backdrop)
-  const hdr: Texture = await new HDRLoader().loadAsync(HDRIS[hdri].file);
+  const sat = num(q, "sat", H0.sat ?? 1);
+  const hdr = (await new HDRLoader().setDataType(THREE.FloatType).loadAsync(H0.file)) as Texture & { image: { data: Float32Array } };
+  if (sat !== 1) {   // neutralise colour casts (e.g. tungsten tubes) without touching the light's shape or intensity
+    const d = hdr.image.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const l = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+      d[i] = l + sat * (d[i] - l); d[i + 1] = l + sat * (d[i + 1] - l); d[i + 2] = l + sat * (d[i + 2] - l);
+    }
+    hdr.needsUpdate = true;
+  }
   hdr.mapping = THREE.EquirectangularReflectionMapping;
   let pm: { fromEquirectangular: (t: Texture) => { texture: Texture }; dispose: () => void };
   if (backend === "webgpu" && WGPU) pm = new WGPU.PMREMGenerator(renderer as never) as never;
@@ -156,7 +175,7 @@ export async function startLookdev(canvas: HTMLCanvasElement, search: string): P
     const scenePass = TSL.pass(scene, camera);
     const color = scenePass.getTextureNode("output");
     // Clamp the bloom INPUT only: a mirror reflecting a ~5000-nit softbox would otherwise flood the frame.
-    const b = bloom(color.min(TSL.vec4(bloomCap, bloomCap, bloomCap, 1)), bloomStrength, 0.25, bloomThreshold);
+    const b = bloom(color.min(TSL.vec4(bloomCap, bloomCap, bloomCap, 1)), bloomStrength, bloomRadius, bloomThreshold);
     pipeline.outputNode = color.add(b);
     draw = () => pipeline.render();
   } else {
@@ -166,7 +185,7 @@ export async function startLookdev(canvas: HTMLCanvasElement, search: string): P
     const { OutputPass } = await import("three/examples/jsm/postprocessing/OutputPass.js");
     const composer = new EffectComposer(renderer as never);
     composer.addPass(new RenderPass(scene, camera));
-    const bp = new UnrealBloomPass(new THREE.Vector2(256, 256), bloomStrength, 0.25, bloomThreshold);
+    const bp = new UnrealBloomPass(new THREE.Vector2(256, 256), bloomStrength, bloomRadius, bloomThreshold);
     // Same input clamp as the WebGPU path (patch the high-pass shader's output).
     bp.materialHighPassFilter.fragmentShader = bp.materialHighPassFilter.fragmentShader.replace(
       "gl_FragColor = mix( outputColor, texel, alpha );",
@@ -185,7 +204,7 @@ export async function startLookdev(canvas: HTMLCanvasElement, search: string): P
   resize();
   addEventListener("resize", resize);
 
-  let rot = num(q, "rot", 18) * Math.PI / 180;
+  let rot = num(q, "rot", 0) * Math.PI / 180;
   pivot.rotation.y = rot;
   handle.setRotation = (deg) => { rot = (deg * Math.PI) / 180; pivot.rotation.y = rot; };
   handle.render = async () => { draw(); handle.frames++; };
