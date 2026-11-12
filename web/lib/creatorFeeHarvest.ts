@@ -9,7 +9,9 @@
  * and the rocket-token half is sold for more of the quote token, which is burned.
  *
  * A later transaction calls `route`. Anyone may call it. The caller is not paid.
- * Trades do not call this contract.
+ * `route` pulls both the quote half and the rocket-token half. The creator does not
+ * claim, approve, or deposit. Destinations 1 and 2 cannot be self-claimed.
+ * Trades do not call this contract. The launch function signatures are unchanged.
  */
 export const CREATOR_FEE_DESTINATION = {
   /** The creator keeps the creator fees. */

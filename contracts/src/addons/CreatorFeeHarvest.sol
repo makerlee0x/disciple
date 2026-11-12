@@ -24,6 +24,7 @@ interface IFeePull {
     function creatorAccrued(address token, address creator) external view returns (uint256);
     function creatorTokenAccrued(address token, address creator) external view returns (uint256);
     function claimCreatorFeesFor(address token, address creator) external returns (uint256);
+    function claimCreatorTokenFeesFor_15(address token, address creator) external returns (uint256);
     function tokenQuote(address token) external view returns (address);
 }
 
@@ -82,18 +83,17 @@ interface IHookGuard {
 }
 
 /// @title Later send for a coin's creator fees
-/// @notice Trades keep paying the launcher. This contract is not `creatorOf`. Anyone may later call `route`
-///         and the accrued creator share and creator tax are pulled with `FeeRouter.claimCreatorFeesFor`
-///         (the same claim-router path `DiscipleRouter.claimCreatorFeesToUsdg` uses) and then locked or burned.
-///         That pull is permissionless in the same way as `FeeRouter.claimTreasury`: the caller is paid nothing.
-///         The crew tip already works this way on the curve: the trade only accrues, and a later call moves the tokens.
+/// @notice Trades keep paying the launcher. This contract is not `creatorOf`. Anyone may later call `route`.
+///         Quote fees are pulled with `FeeRouter.claimCreatorFeesFor` (the claim-router path
+///         `DiscipleRouter.claimCreatorFeesToUsdg` uses). Rocket-token fees are pulled with
+///         `claimCreatorTokenFeesFor_15`, the same pull extended to the token half. The caller is paid nothing,
+///         the same way as `FeeRouter.claimTreasury` and the crew tip: the trade only accrues, and a later call
+///         moves the tokens. Destination 1 or 2 cannot be self-claimed, on a public coin or a private one.
 /// @dev Destination 0 is not routed. The launcher claims exactly as today.
 ///      Destination 1 deposits into that rocket's locked liquidity, which cannot be withdrawn.
 ///      Destination 2 burns the quote. On the curve the fee is already quote, so it is burned. After orbit the
 ///      quote half is burned and the rocket-token half is sold for more quote, which is burned.
-///      Rocket-token fees have no `claimCreatorFeesFor` on FeeRouter. The launcher (or AnonLauncher, for a
-///      private coin) must put those tokens here in the same transaction as `route`. Calling `route` on a
-///      private coin asks AnonLauncher to do that itself, so the stealth owner is not paid.
+///      `route` pulls both halves itself. The launcher does not claim, approve, or deposit.
 contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;
@@ -123,7 +123,10 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
 
     /// @notice Fixed at launch. 0 (or unset) means the launcher keeps the fees. 1 locks them. 2 burns the quote.
     mapping(address token => uint8 dest) public creatorFeeDestinationOf;
-    /// @notice Rocket-token creator fees the launcher has already self-claimed and handed over for `route`.
+    /// @notice `creatorOf` at the moment the choice was recorded. `route` also pulls this address when a later
+    ///         `transferCreator` moved the role, so fees that accrued to the original launcher are not stuck.
+    mapping(address token => address launcher) public launcherOf;
+    /// @notice Rocket-token fees already pulled, waiting for a sell that the price guard refused.
     mapping(address token => uint256 amount) public rocketDeposited;
 
     error ZeroAddress();
@@ -305,8 +308,8 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         _record(result.token, creatorFeeDestination);
     }
 
-    /// @notice The launcher hands over rocket-token creator fees already self-claimed from FeeRouter.
-    ///         Quote fees are not deposited here. `route` pulls those itself.
+    /// @notice Optional handover of rocket tokens the caller already holds. `route` does not need this.
+    ///         Destination 1 or 2 cannot be self-claimed, so a launcher cannot fill this from FeeRouter.
     function depositRocketTokens(address token, uint256 amount) external {
         uint8 dest = creatorFeeDestinationOf[token];
         if (dest != DEST_LOCKED_LP && dest != DEST_BURN_QUOTE) revert BadDestination();
@@ -317,65 +320,84 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         emit RocketTokensDeposited(token, msg.sender, amount);
     }
 
+    struct Pulled {
+        address current;
+        uint256 quoteAmount;
+        uint256 rockets;
+        bool sellNow;
+    }
+
     /// @notice Send this coin's accrued creator fees where the launcher chose. Anyone may call it.
-    ///         The caller receives nothing. Quote fees are pulled with `claimCreatorFeesFor`.
-    ///         Rocket-token fees must already sit in `rocketDeposited`, except on a private coin, where this
-    ///         call asks AnonLauncher to self-claim them first.
+    ///         The caller receives nothing. Both halves are pulled from FeeRouter: quote via
+    ///         `claimCreatorFeesFor`, rocket tokens via `claimCreatorTokenFeesFor_15`. The launcher does not
+    ///         claim, approve, or deposit. Fees that accrued to the current `creatorOf` and to the launcher
+    ///         recorded at launch are both pulled.
     function route(address token)
         external
         nonReentrant
         returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)
     {
         uint8 dest = creatorFeeDestinationOf[token];
-        if (dest != DEST_LOCKED_LP && dest != DEST_BURN_QUOTE) revert BadDestination();
-        address launcher = launchpad.creatorOf(token);
-        IHarvestAnon a = anon;
-        if (address(a) != address(0) && launcher == address(a)) {
-            if (feeRouter.creatorTokenAccrued(token, launcher) != 0) a.forwardTokenFees(token);
-        }
-
-        IFeePull fr = feeRouter;
-        uint256 qAcc = fr.creatorAccrued(token, launcher);
-        uint256 rockets = rocketDeposited[token];
-        if (qAcc == 0 && rockets == 0) revert NothingToRoute();
-
-        bool graduated = lockedLP.isGraduated(token);
-        bool sellNow;
-        if (dest == DEST_BURN_QUOTE && rockets != 0) {
-            if (!graduated) {
-                if (qAcc == 0) revert AwaitingOrbit();
-            } else if (_priceOk(token)) {
-                sellNow = true;
-            } else if (qAcc == 0) {
-                revert PriceGuard();
-            }
-        }
-
-        if (qAcc != 0) qAcc = fr.claimCreatorFeesFor(token, launcher);
-        address quote = fr.tokenQuote(token);
-
+        Pulled memory pulled = _pull(token, dest);
+        address quote = feeRouter.tokenQuote(token);
         if (dest == DEST_LOCKED_LP) {
-            _lock(token, quote, rockets, qAcc);
-            if (rockets != 0) rocketDeposited[token] = 0;
-            quoteAmount = qAcc;
-            rocketTokenAmount = rockets;
+            _lock(token, quote, pulled.rockets, pulled.quoteAmount);
+            if (pulled.rockets != 0) rocketDeposited[token] = 0;
+            quoteAmount = pulled.quoteAmount;
+            rocketTokenAmount = pulled.rockets;
         } else {
-            if (qAcc != 0) {
-                IERC20(quote).safeTransfer(BURN, qAcc);
-                quoteAmount = qAcc;
+            if (pulled.quoteAmount != 0) {
+                IERC20(quote).safeTransfer(BURN, pulled.quoteAmount);
+                quoteAmount = pulled.quoteAmount;
             }
-            if (sellNow) {
-                try this.executeSell(token, rockets, launcher) returns (uint256 sold, uint256 bought) {
+            if (pulled.sellNow) {
+                try this.executeSell(token, pulled.rockets, pulled.current) returns (uint256 sold, uint256 bought) {
                     rocketDeposited[token] = 0;
                     rocketTokenAmount = sold;
                     quoteBought = bought;
                 } catch {
-                    // Quote already burned stays burned. Rocket tokens stay deposited for a later route.
-                    if (qAcc == 0) revert PriceGuard();
+                    // Quote already burned stays burned. Rocket tokens stay here for a later route.
+                    if (pulled.quoteAmount == 0) revert PriceGuard();
                 }
             }
         }
         emit CreatorFeesRouted(token, dest, quoteAmount, rocketTokenAmount, quoteBought);
+    }
+
+    /// @dev Reads both creators, decides whether a burn-destination sell is allowed, then pulls both halves.
+    function _pull(address token, uint8 dest) internal returns (Pulled memory pulled) {
+        if (dest != DEST_LOCKED_LP && dest != DEST_BURN_QUOTE) revert BadDestination();
+        pulled.current = launchpad.creatorOf(token);
+        address original = launcherOf[token];
+        IFeePull fr = feeRouter;
+        uint256 qCurrent = fr.creatorAccrued(token, pulled.current);
+        uint256 tCurrent = fr.creatorTokenAccrued(token, pulled.current);
+        uint256 qOriginal;
+        uint256 tOriginal;
+        if (original != address(0) && original != pulled.current) {
+            qOriginal = fr.creatorAccrued(token, original);
+            tOriginal = fr.creatorTokenAccrued(token, original);
+        }
+        uint256 parked = rocketDeposited[token];
+        pulled.quoteAmount = qCurrent + qOriginal;
+        pulled.rockets = tCurrent + tOriginal + parked;
+        if (pulled.quoteAmount == 0 && pulled.rockets == 0) revert NothingToRoute();
+        if (dest == DEST_BURN_QUOTE && pulled.rockets != 0) {
+            if (!lockedLP.isGraduated(token)) {
+                if (pulled.quoteAmount == 0) revert AwaitingOrbit();
+            } else if (_priceOk(token)) {
+                pulled.sellNow = true;
+            } else if (pulled.quoteAmount == 0) {
+                revert PriceGuard();
+            }
+        }
+        if (qCurrent != 0) qCurrent = fr.claimCreatorFeesFor(token, pulled.current);
+        if (qOriginal != 0) qOriginal = fr.claimCreatorFeesFor(token, original);
+        pulled.quoteAmount = qCurrent + qOriginal;
+        if (tCurrent != 0) tCurrent = fr.claimCreatorTokenFeesFor_15(token, pulled.current);
+        if (tOriginal != 0) tOriginal = fr.claimCreatorTokenFeesFor_15(token, original);
+        pulled.rockets = tCurrent + tOriginal + parked;
+        if (pulled.rockets != 0) rocketDeposited[token] = pulled.rockets;
     }
 
     /// @notice Sells `amount` of the rocket for its quote and burns that quote, including the creator fee
@@ -418,8 +440,12 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     }
 
     function _record(address token, uint8 dest) internal {
-        if (dest != 0) creatorFeeDestinationOf[token] = dest;
-        emit CreatorFeeDestinationSet(token, launchpad.creatorOf(token), dest);
+        address launcher = launchpad.creatorOf(token);
+        if (dest != 0) {
+            creatorFeeDestinationOf[token] = dest;
+            launcherOf[token] = launcher;
+        }
+        emit CreatorFeeDestinationSet(token, launcher, dest);
     }
 
     function _lock(address token, address quote, uint256 tokenAmount, uint256 quoteAmount) internal {

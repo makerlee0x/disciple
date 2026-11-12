@@ -237,6 +237,8 @@ contract Deploy is NetworkConfig {
         // setTrustedRouter also stores curveRouter. DiscipleRouter must remain that pointer.
         launchpad.setTrustedRouter(address(router), true);
         feeRouter.setClaimRouter(address(harvest), true);
+        // Self-claims read this pointer. Trades do not. Destination 1 or 2 then cannot be claimed by the launcher.
+        feeRouter.setCreatorFeeHarvest_51(address(harvest));
         o.creatorFeeHarvest = address(harvest);
         // PVE login gate: attester = backend key that signs Privy-login attestations (public address only).
         {

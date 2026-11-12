@@ -11,6 +11,8 @@ import {Token} from "../src/Token.sol";
 import {BondingCurve} from "../src/BondingCurve.sol";
 import {ILaunchpad} from "../src/interfaces/ILaunchpad.sol";
 import {LockedLP} from "../src/LockedLP.sol";
+import {LoginGate} from "../src/LoginGate.sol";
+import {Constants} from "../src/libraries/Constants.sol";
 
 /// @notice Creator-fee destinations. Trades still pay the launcher. `route` runs later.
 contract CreatorFeeRoutingTest is IntegrationBase {
@@ -32,6 +34,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         // setTrustedRouter also stores curveRouter. Put DiscipleRouter back so private USDG launches still find it.
         launchpad.setTrustedRouter(address(router), true);
         feeRouter.setClaimRouter(address(harvest), true);
+        feeRouter.setCreatorFeeHarvest_51(address(harvest));
         vm.stopPrank();
         anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), 0);
         vm.prank(owner);
@@ -80,13 +83,12 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         return esc;
     }
 
-    /// @dev The launcher self-claims rocket-token fees and hands them to the harvest. Quote fees stay accrued.
-    function _handOverRockets(Token tok) internal {
-        uint256 tAcc = feeRouter.creatorTokenAccrued(address(tok), creator);
-        vm.startPrank(creator);
-        feeRouter.claimCreatorTokenFees(address(tok));
-        tok.approve(address(harvest), tAcc);
-        harvest.depositRocketTokens(address(tok), tAcc);
+    function _expectRouted(address token, address who) internal {
+        vm.startPrank(who);
+        vm.expectRevert(FeeRouter.CreatorFeesRouted.selector);
+        feeRouter.claimCreatorFees(token);
+        vm.expectRevert(FeeRouter.CreatorFeesRouted.selector);
+        feeRouter.claimCreatorTokenFees(token);
         vm.stopPrank();
     }
 
@@ -140,6 +142,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         (uint256 creatorAmt,,, uint256 lpShare) = _owed(BUY, TAX);
         assertEq(feeRouter.creatorAccrued(address(tok), creator), creatorAmt);
         assertEq(_escrow(address(tok)) - esc0, lpShare, "trade path only moved the protocol share");
+        _expectRouted(address(tok), creator);
 
         harvest.route(address(tok));
         console2.log("ROUTE_GAS dest1 on-curve", vm.lastCallGas().gasTotalUsed);
@@ -150,9 +153,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
 
         vm.expectRevert(LockedLP.RemoveLiquidityDisabled.selector);
         lockedLP.removeLiquidity(address(tok), 1);
-        vm.prank(creator);
-        vm.expectRevert(FeeRouter.NothingToClaim.selector);
-        feeRouter.claimCreatorFees(address(tok));
+        _expectRouted(address(tok), creator);
     }
 
     function test_burnQuote_onCurve_burnsShareAndTax() public {
@@ -162,6 +163,11 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         uint256 esc0 = _escrow(address(tok));
         _buy(curve, trader1, BUY, 0);
         (uint256 creatorAmt, uint256 share, uint256 tax, uint256 lpShare) = _owed(BUY, TAX);
+        _expectRouted(address(tok), creator);
+        router.setUsdgRouting(address(quote), address(launchpad));
+        vm.prank(creator);
+        vm.expectRevert(FeeRouter.CreatorFeesRouted.selector);
+        router.claimCreatorFeesToUsdg(address(tok), 1);
         uint256 dead0 = quote.balanceOf(BURN);
         (uint256 qAmt, uint256 tAmt, uint256 bought) = harvest.route(address(tok));
         console2.log("ROUTE_GAS dest2 on-curve", vm.lastCallGas().gasTotalUsed);
@@ -202,7 +208,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         uint256 tAcc = feeRouter.creatorTokenAccrued(address(tok), creator);
         assertGt(qAcc, 0, "quote half after orbit");
         assertGt(tAcc, 0, "rocket-token half after orbit");
-        _handOverRockets(tok);
+        _expectRouted(address(tok), creator);
         (uint256 bT0, uint256 bQ0) = lockedLP.compoundBucket(address(tok));
         vm.roll(block.number + 1);
         harvest.route(address(tok));
@@ -226,7 +232,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         uint256 tAcc = feeRouter.creatorTokenAccrued(address(tok), creator);
         assertGt(qAcc, 0);
         assertGt(tAcc, 0);
-        _handOverRockets(tok);
+        _expectRouted(address(tok), creator);
         uint256 dead0 = quote.balanceOf(BURN);
         uint256 lpTok0 = tok.balanceOf(address(lockedLP));
         (uint256 bT0,) = lockedLP.compoundBucket(address(tok));
@@ -257,9 +263,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         uint256 dead0 = quote.balanceOf(BURN);
         harvest.route(address(burnTok));
         assertEq(quote.balanceOf(BURN) - dead0, creatorAmt);
-        vm.prank(creator);
-        vm.expectRevert(FeeRouter.NothingToClaim.selector);
-        feeRouter.claimCreatorFees(address(burnTok));
+        _expectRouted(address(burnTok), creator);
     }
 
     function test_launchWithMode_and_launchWithUsdg_recordChoice_andKeepLauncher() public {
@@ -346,5 +350,140 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         (,, string memory img, string memory desc,,,,) = launchpad.metaOf(lp.token);
         assertEq(img, "ipfs://private");
         assertEq(desc, "hidden");
+    }
+
+    function test_transferCreator_routedFees_followCurrentCreator_andCannotBeClaimed() public {
+        (BondingCurve curve, Token tok) = _launchDest(1, TAX);
+        _warpPastSnipe();
+        _buy(curve, trader1, BUY, 0);
+        (uint256 first,,,) = _owed(BUY, TAX);
+        address next = makeAddr("next");
+        vm.prank(creator);
+        launchpad.transferCreator(address(tok), next);
+        assertEq(launchpad.creatorOf(address(tok)), next);
+        assertEq(harvest.creatorFeeDestinationOf(address(tok)), 1, "the choice stays on the coin");
+        _expectRouted(address(tok), creator);
+        _expectRouted(address(tok), next);
+        _buy(curve, trader1, BUY, 0);
+        (uint256 second,,,) = _owed(BUY, TAX);
+        assertEq(feeRouter.creatorAccrued(address(tok), next), second, "later fees follow the current creator");
+        assertEq(feeRouter.creatorAccrued(address(tok), creator), first);
+        uint256 esc0 = _escrow(address(tok));
+        harvest.route(address(tok));
+        assertEq(_escrow(address(tok)) - esc0, first + second, "route pulled the original launcher and the new creator");
+        assertEq(feeRouter.creatorAccrued(address(tok), creator), 0);
+        assertEq(feeRouter.creatorAccrued(address(tok), next), 0);
+    }
+
+    function test_anon_afterOrbit_routePullsBothHalves() public {
+        vm.prank(creator);
+        ILaunchpad.LaunchResult memory locked = harvest.launchAnon(_params(0, 0), stealth, stealth, "", bytes1(0), 0, 1);
+        vm.prank(creator);
+        ILaunchpad.LaunchResult memory burned = harvest.launchAnon(_params(0, 0), stealth, stealth, "", bytes1(0), 0, 2);
+        _orbit(BondingCurve(locked.curve), Token(locked.token));
+        _orbit(BondingCurve(burned.curve), Token(burned.token));
+
+        uint256 qL = feeRouter.creatorAccrued(locked.token, address(anon));
+        uint256 tL = feeRouter.creatorTokenAccrued(locked.token, address(anon));
+        uint256 qB = feeRouter.creatorAccrued(burned.token, address(anon));
+        uint256 tB = feeRouter.creatorTokenAccrued(burned.token, address(anon));
+        assertGt(qL, 0);
+        assertGt(tL, 0);
+        assertGt(qB, 0);
+        assertGt(tB, 0);
+
+        address[] memory one = new address[](1);
+        one[0] = locked.token;
+        vm.prank(stealth);
+        vm.expectRevert(AnonLauncher.CreatorFeesRouted.selector);
+        anon.claimMany(one, stealth);
+        one[0] = burned.token;
+        vm.prank(stealth);
+        vm.expectRevert(AnonLauncher.CreatorFeesRouted.selector);
+        anon.claimMany(one, stealth);
+
+        (uint256 bT0, uint256 bQ0) = lockedLP.compoundBucket(locked.token);
+        vm.roll(block.number + 1);
+        harvest.route(locked.token);
+        (uint256 bT1, uint256 bQ1) = lockedLP.compoundBucket(locked.token);
+        assertEq(bT1, bT0 + tL, "private dest 1 locked the rocket-token half");
+        assertEq(bQ1, bQ0 + qL, "private dest 1 locked the quote half");
+
+        uint256 dead0 = quote.balanceOf(BURN);
+        vm.roll(block.number + 1);
+        (uint256 qAmt, uint256 tAmt, uint256 bought) = harvest.route(burned.token);
+        assertEq(qAmt, qB);
+        assertEq(tAmt, tB);
+        assertGt(bought, 0);
+        assertEq(quote.balanceOf(BURN) - dead0, qB + bought);
+        assertEq(feeRouter.creatorTokenAccrued(burned.token, address(anon)), 0);
+    }
+
+    function test_crewTip_stillGoesToHolders() public {
+        uint256 attesterPk = 0xA11CE;
+        LoginGate gate = new LoginGate(owner, vm.addr(attesterPk));
+        vm.startPrank(owner);
+        launchpad.setLoginGate(address(gate));
+        launchpad.setCrewTipThresholdBps(Constants.CREW_TIP_THRESHOLD_BPS_MIN);
+        vm.stopPrank();
+
+        vm.prank(creator);
+        ILaunchpad.LaunchResult memory r = harvest.launchWithMode(_params(0, 0), Constants.MODE_PVE, 2);
+        BondingCurve curve = BondingCurve(r.curve);
+        Token tok = Token(r.token);
+        _attest(gate, attesterPk, trader1);
+        _attest(gate, attesterPk, trader2);
+        _warpPastSnipe();
+        uint256 slice = Constants.TOTAL_SUPPLY / 100 * 8 / 10; // 0.8% of supply, under the 1% wallet cap
+        _buy(curve, trader1, _quoteFor(curve, slice), 0);
+        _buy(curve, trader2, _quoteFor(curve, slice), 0);
+        uint256 sellAmt = Constants.TOTAL_SUPPLY / 100 * 4 / 10;
+        for (uint256 i; i < 70 && curve.quoteSellFor(trader1, sellAmt).profitTax == 0; ++i) {
+            address w = address(uint160(0xC000 + i));
+            quote.mint(w, 1_000_000 ether);
+            _attest(gate, attesterPk, w);
+            _buy(curve, w, _quoteFor(curve, Constants.TOTAL_SUPPLY / 100 * 9 / 10), 0);
+        }
+        BondingCurve.SellQuote memory sq = curve.quoteSellFor(trader1, sellAmt);
+        assertGt(sq.profitTax, 0, "the crew tip still applies on a profitable sell");
+        assertEq(sq.profitTax, (sq.quoteOut + sq.profitTax) * Constants.PVE_CREW_TIP_PPM / 1e6);
+        vm.startPrank(trader1);
+        tok.approve(address(curve), sellAmt);
+        curve.sell(sellAmt, 0, block.timestamp + 1 hours);
+        vm.stopPrank();
+        assertGt(curve.pendingRewards(trader2), 0, "the other holder still receives the crew tip");
+        uint256 tip = curve.pendingRewards(trader2);
+        uint256 dead0 = quote.balanceOf(BURN);
+        uint256 creatorAmt = feeRouter.creatorAccrued(address(tok), creator);
+        harvest.route(address(tok));
+        assertEq(quote.balanceOf(BURN) - dead0, creatorAmt, "routing burned creator fees and left the crew tip");
+        assertEq(curve.pendingRewards(trader2), tip, "route did not touch holder rewards");
+    }
+
+    function _orbit(BondingCurve curve, Token tok) internal {
+        _graduate(curve);
+        _refReady(tok);
+        _swapExactInQuoteForToken(tok, trader1, 1 ether);
+        uint256 held = tok.balanceOf(trader1);
+        _swapExactInTokenForQuote(tok, trader1, held / 2);
+    }
+
+    function _attest(LoginGate gate, uint256 pk, address w) internal {
+        uint64 exp = uint64(block.timestamp + 12 hours);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, gate.digest(w, exp));
+        gate.attest(w, exp, abi.encodePacked(r, s, v));
+    }
+
+    function _quoteFor(BondingCurve c, uint256 tokens) internal view returns (uint256 q) {
+        q = 1 ether;
+        while (c.quoteBuy(q).tokensOut < tokens) q = q * 2;
+        uint256 lo = q / 2;
+        uint256 hi = q;
+        for (uint256 i; i < 40; ++i) {
+            uint256 mid = (lo + hi) / 2;
+            if (c.quoteBuy(mid).tokensOut <= tokens) lo = mid;
+            else hi = mid;
+        }
+        return lo;
     }
 }

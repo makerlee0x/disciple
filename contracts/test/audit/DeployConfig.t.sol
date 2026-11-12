@@ -37,6 +37,7 @@ contract DeployConfigTest is Test {
         // Later send is a claim router and a trusted launch router. It is not the coin's creator.
         assertTrue(o.creatorFeeHarvest != address(0));
         assertTrue(FeeRouter(o.feeRouter).isClaimRouter(o.creatorFeeHarvest));
+        assertEq(FeeRouter(o.feeRouter).creatorFeeHarvest_16(), o.creatorFeeHarvest);
         assertTrue(Launchpad(o.launchpad).isTrustedRouter(o.creatorFeeHarvest));
         assertEq(AnonLauncher(o.anonLauncher).creatorFeeHarvest(), o.creatorFeeHarvest);
         assertEq(address(CreatorFeeHarvest(o.creatorFeeHarvest).launchpad()), o.launchpad);
