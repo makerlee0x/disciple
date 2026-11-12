@@ -264,7 +264,7 @@ test("creator fee copy matches the r7 card labels and tax helpers, with no jargo
   const here = dirname(fileURLToPath(import.meta.url));
   const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
   const css = readFileSync(join(here, "../components/create/quickLaunch.module.css"), "utf8");
-  assert.equal(QUICK_LAUNCH_COPY.creatorFeeSplit, "Every trade pays a 1% fee: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer.");
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeeSplit, "Creators earn .33% of all trading fees forever.");
   const visible = [
     QUICK_LAUNCH_COPY.creatorFees, QUICK_LAUNCH_COPY.creatorFeesPerm, QUICK_LAUNCH_COPY.creatorFeeSplit,
     QUICK_LAUNCH_COPY.rewards, QUICK_LAUNCH_COPY.rewardsHelp,
@@ -282,12 +282,15 @@ test("creator fee copy matches the r7 card labels and tax helpers, with no jargo
 });
 
 
-test("the 1% fee split is on the closed Quick Launch page and in Advanced, and does not change with the destination", () => {
+test("the creator fee split is on the closed Quick Launch page and in Advanced, and does not change with the destination", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
   assert.match(page, /data-testid="creator-fee-split"/);
   assert.match(page, /data-testid="creator-fee-split-advanced"/);
   assert.equal((page.match(/C\.creatorFeeSplit/g) || []).length, 2);
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeeSplit, "Creators earn .33% of all trading fees forever.");
+  assert.doesNotMatch(page, /Every trade pays a 1% fee/);
+  assert.doesNotMatch(QUICK_LAUNCH_COPY.creatorFeeSplit, /Every trade pays a 1% fee|0\.33%|33% creator/);
   // Same constant in both places; not rewritten for pool or burn.
   assert.doesNotMatch(page, /creatorFeeSplit\[feeDestination\]|CREATOR_FEE_COPY\[feeDestination\]\.split/);
   // Not on the illustrated cards (cards still use the short destination labels).
