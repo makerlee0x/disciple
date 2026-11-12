@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { privateKeyToAccount } from "viem/accounts";
 import { concat, pad, toHex, type Hex } from "viem";
-import { batch, judge, selfPayRoom, sweepNeeded, type Due } from "../src/keeper.ts";
+import { batch, judge, Keeper, selfPayRoom, sweepNeeded, type Due } from "../src/keeper.ts";
 import { decodeSource, jarValue, OFF, POOLS_SLOT, readLeaderSpot, type PoolDyn, type PoolSource } from "../src/hook.ts";
 import { loadConfig } from "../src/config.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -116,7 +116,7 @@ test("config: same-chain sets, sampling and jar policy defaults", () => {
   assert.equal(c.sameChain[0].hook, "0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88");
   assert.deepEqual(c.sameChain[0].pools, ["0xabcd"]);
   assert.equal(c.sameChain[0].scanPools, true);
-  assert.deepEqual(c.sampling, { everySec: 2, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayMaxPerHour: 60, sweepEverySec: 900, sweepBandBps: 20_000 });
+  assert.deepEqual(c.sampling, { everySec: 2, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayMaxPerHour: 60, sweepEverySec: 900, sweepBandBps: 20_000, matchEverySec: 60, matchSteps: 20 });
   assert.equal(c.sameChain[0].abi, "disciple");
   assert.equal(c.policy.minJar, 0n);
   assert.equal(c.policy.collectEverySec, 86_400);
@@ -278,4 +278,42 @@ test("Carry sweep: only once hot quote is above the band (2x the 20% target by d
   assert.equal(sweepNeeded(y, 0n, 2000, Z, 20_000), false);
   assert.equal(sweepNeeded(y, 1n, 10_000, V, 20_000), false);
   assert.equal(sweepNeeded(y, y + 1n, 2000, V, 20_000), false);
+});
+
+test("Carry stock queue: config, and matchDue sends only for markets a dry run would match", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "keeper-q-"));
+  const f = join(dir, "c.json");
+  const Q = "0x1111111111111111111111111111111111111111";
+  const V = "0x2222222222222222222222222222222222222222";
+  writeFileSync(
+    f,
+    JSON.stringify({
+      chains: { robinhood: { rpcEnv: "RH_RPC", chainId: 4663 } },
+      sameChain: [{ name: "carry", chain: "robinhood", hook: "0xcedc3c312c5b3c4310f0fba0323ddec797e4aa88", abi: "carry", stockQueue: Q }],
+    }),
+  );
+  const cfg = loadConfig(f, { RH_RPC: "http://127.0.0.1:1" });
+  assert.equal(cfg.sameChain[0].stockQueue, Q);
+  const k = new Keeper(cfg, { routes: {} } as never, privateKeyToAccount(("0x" + "11".repeat(32)) as Hex), { info() {}, warn() {}, error() {} } as never);
+  // three markets: 0 has nothing waiting, 1 waits but no USDG is free (dry run matches 0), 2 can match
+  const sims: bigint[] = [];
+  const pub = {
+    readContract: async ({ functionName, args }: { functionName: string; args?: bigint[] }) =>
+      functionName === "vault" ? V : functionName === "marketCount" ? 3n : functionName === "waiting" ? [0n, 5n, 7n][Number(args![0])] : 0n,
+    simulateContract: async ({ args }: { args: bigint[] }) => {
+      sims.push(args[0]);
+      return { result: args[0] === 2n ? 7n : 0n };
+    },
+  };
+  (k as unknown as { clients: Map<string, unknown> }).clients.set("robinhood", { pub, wal: {}, chain: {} });
+  const sent: bigint[] = [];
+  (k as unknown as { matchOrders: (...a: unknown[]) => Promise<void> }).matchOrders = async (_s, _q, m) => {
+    sent.push(m as bigint);
+  };
+  await k.matchDue(cfg.sameChain[0]);
+  assert.deepEqual(sims, [1n, 2n], "no dry run where nothing waits");
+  assert.deepEqual(sent, [2n], "a transaction only where the dry run matches");
+  // checked again only after matchEverySec
+  await k.matchDue(cfg.sameChain[0]);
+  assert.deepEqual(sent, [2n]);
 });

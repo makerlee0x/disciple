@@ -43,6 +43,11 @@ On Carry pools the keeper also puts USDG back into Morpho: swaps only pull USDG 
 that needs more than the hot part holds), so every `sampling.sweepEverySec` (default 900 s) it reads each pool's
 `tailState` and calls `sweep(id)` once the hot quote is above `sampling.sweepBandBps` of its target (default 20000 =
 2x: past 40% hot at the 20% launch target, trimmed back to 20%). Sweeps are at the keeper's own gas (about 290k).
+With `"stockQueue"` set on the entry (the `CarryStockQueue` address from the Carry deploy), the keeper also matches
+stock waiting there for lender USDG: every `sampling.matchEverySec` (default 60 s), for each market with stock waiting,
+it dry-runs `matchOrders(market, matchSteps)` and sends it, at its own gas, only when the dry run would match
+something (lender USDG freed up, say after a lender deposit or a close). No free USDG, a full market cap or a paused
+vault cost nothing but the eth_calls.
 
 On the local anvil test, with plain tokens, a tip came to about gas + 26% (the hook adds a fixed 90k for the gas
 it cannot measure, sized for heavier real tokens). The first tip in a token pays about gas + 10%, because the
@@ -200,6 +205,8 @@ on the Robinhood side, or use a plan with a larger range (and raise `logChunk`).
 | `sampling.missesBeforeRest` / `restSec` | 3 / 3600 | rest a pool after this many unpaid samples, for this long |
 | `sampling.sweepEverySec` | 900 | Carry pools: how often to check each pool's Morpho tail (0 = never sweep) |
 | `sampling.sweepBandBps` | 20000 | Carry pools: sweep once hot quote is above this share of its target (20000 = 2x) |
+| `sampling.matchEverySec` | 60 | Carry stock queue: how often to check each market's line (0 = never match) |
+| `sampling.matchSteps` | 20 | Carry stock queue: most orders one `matchOrders` call works through |
 | `routes[].pools` | `[]` | extra pool ids to serve |
 | `routes[].scanPools` / `scanPushes` | true | scan for new pools / for other keepers' packets |
 | `policy.moveBps` | 102 | move trigger in bps |
