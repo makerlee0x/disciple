@@ -178,9 +178,8 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     try { await f(); setMenu(false); } catch (e) { fail(e); } finally { setBusy(""); }
   }
 
-  // Phones (≤760px): the signed-out pill ("Play" / "Sign in") is hidden from the top bar (it pushed GAME's ✕ out of
-  // the corner; CSS .ap-wallet-cta in globals.css) and the same action lives in the Sidebar menu. Publish the pill's
-  // label for the Sidebar and run the pill's own action when the Sidebar item is tapped.
+  // Sign in lives only in the Sidebar (no header pill). Publish the current label for the Sidebar card and run the
+  // same action when that button is tapped.
   const ctaLabel = !isDeployed() || addr ? null : aaAvailable() && SIGNER_MODE === "local" ? "Play" : aaAvailable() ? "Sign in" : "Connect wallet";
   useEffect(() => {
     (window as unknown as { __walletCta?: string | null }).__walletCta = ctaLabel;
@@ -246,17 +245,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             <Link href={SETTINGS_HREF} scroll={false} onClick={onSettingsClick} className="wb-gear" data-testid="header-settings" title="Settings" aria-label="Settings">
               <Icon name="gear" size={18} />
             </Link>
-          ) : (
-            aaAvailable() && SIGNER_MODE === "local" ? (
-              <button type="button" className="ap-wallet-cta" onClick={() => run("creating account", connectLocal)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
-                {busy || <><Icon name="play" size={16} /> Play</>}
-              </button>
-            ) : (
-            <button type="button" className="ap-wallet-cta" onClick={() => setMenu((m) => !m)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
-              {busy || (aaAvailable() ? "Sign in" : "Connect wallet")}
-            </button>
-            )
-          )}
+          ) : null}
         </div>
         {!addr && menu && (
           <div role="menu" style={{ ...popover, minWidth: 240 }}>

@@ -101,7 +101,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
     const a = onPrivy(sync), b = onSessionChange(sync);
     return () => { a(); b(); };
   }, []);
-  // The wallet pill's signed-out action ("Play" / "Sign in") also runs from the Sidebar's Sign in card (see lib/walletCta.ts).
+  // The signed-out Sign in / Play action lives on this card and asks the wallet chunk to run it (see lib/walletCta.ts).
   const [cta, setCta] = useState<string | null>(null);
   useEffect(() => {
     setCta(walletCtaLabel());
@@ -304,13 +304,15 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
         ) : !you ? (
           <div className="ap-join" data-testid="side-join">
             <p className="ap-join-p">{JOIN_LINE}</p>
-            {/* the wallet pill's own action ("Play" = guest account, else its sign-in menu); #149 phone Play */}
+            {/* Same action the header pill used to run ("Play" = guest account, else the sign-in menu).
+                Close the phone drawer so the menu is reachable; do not collapse the desktop sidebar
+                (non-game routes have no expand control once the rail is shut). */}
             <button
               type="button"
               className="ap-join-btn ap-side-cta"
               data-testid="side-wallet-cta"
               onClick={() => {
-                setOpen(false);
+                closeIfMobile();
                 window.dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT));
               }}
             >

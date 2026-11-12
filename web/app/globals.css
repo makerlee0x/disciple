@@ -470,8 +470,8 @@ body.home.home-top .ap-topbar { background: transparent; border-bottom-color: tr
 @media (max-width: 760px) {
   #apSide .ap-tog.ap-tog-mobile { display: grid; }
 }
-/* Phones (≤760px = PhoneHud PHONE_W): the wallet's signed-out pill ("Play") leaves the top bar so GAME's ✕ owns the
-   top-right corner; the same action is the Sidebar's Sign in card button (lib/walletCta.ts). Desktop shows both. */
+/* Sign in lives only in the Sidebar. Phones also hide any leftover header .ap-wallet-cta so GAME's ✕ owns the
+   top-right corner. */
 @media (max-width: 760px) {
   [aria-label="wallet"] .ap-wallet-cta { display: none !important; }
   /* the drawer's items (Play, Settings) must stay reachable on short phones */

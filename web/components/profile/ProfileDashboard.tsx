@@ -227,7 +227,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         <SettingsModal open={settingsOpen} onClose={closeSettings} />
         <header className="pf-head pf-signedout" data-testid="profile-identity">
           <h1 className="pf-name">Your Profile</h1>
-          <p className="muted">Sign in (top right)</p>
+          <p className="muted">Open the menu and tap Sign in.</p>
         </header>
       </div>
     );

@@ -9,7 +9,7 @@ Five minutes from zero to your first BOOST.
 
 ## 1. Sign in
 
-Tap **Sign in** (top right). Sign in with X, email or a wallet. Sign in once and DISCIPLE creates your account and wallet. After that, every trade is one tap, with no wallet pop-ups. See [Sign in and your account](/docs/account).
+Open the menu and tap **Sign in**. Sign in with X, email or a wallet. Sign in once and DISCIPLE creates your account and wallet. After that, every trade is one tap, with no wallet pop-ups. See [Sign in and your account](/docs/account).
 
 ## 2. Deposit
 
