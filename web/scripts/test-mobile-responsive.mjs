@@ -45,7 +45,10 @@ ok(/if \(!isGame && !isMobile\(\)\) return/.test(side), "desktop non-game routes
 ok(/id="apReopen"/.test(side) && /body\.side-hidden #apReopen/.test(css), "phones can reopen the menu after Sign in closes the drawer");
 ok(/className="wb-root"/.test(wb) && /data-compact=/.test(wb), "WalletButton uses .wb-root (not hardcoded top/right px)");
 ok(!/position:\s*"fixed",\s*top:\s*compact/.test(wb), "WalletButton no longer inlines fixed top that fights safe-area");
-ok(/addEventListener\("pointerdown"/.test(wb) && !/addEventListener\("mousedown"/.test(wb), "WalletButton outside-close uses pointerdown (wallet WebViews)");
+ok(!/Sign in once — then every trade is one tap, no popups/.test(wb) && !/>Email or Google</.test(wb) && !/role="menu"/.test(wb), "signed-out Sign in does not open the intermediate Email or Google card");
+const ctaClick = wb.match(/ctaClick\.current = \(\) => \{([\s\S]*?)\};/);
+ok(ctaClick && /connectPrivy\(\)/.test(ctaClick[1]) && !/setMenu\(true\)/.test(ctaClick[1]), "sidebar Sign in calls connectPrivy to open the existing Privy login modal");
+ok(/export function connectPrivy\(\) \{ privyLogin\(\); \}/.test(read("lib/wallet.ts")), "connectPrivy is the existing path that opens the Privy login modal");
 
 const inv = read("components/invites/InviteBanner.tsx");
 ok(/className="wb-invite"/.test(inv), "InviteBanner uses .wb-invite safe-area class");

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { formatUnits, parseAbi } from "viem";
 import { MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
@@ -9,11 +9,11 @@ import { decimalsOf, publicClient, readCurveState, usdgRouteFor } from "@/lib/pr
 import { type BalancePart } from "@/lib/balanceLine";
 import { payUsdg, routerUsdg } from "@/lib/trade/usdgRouter";
 import {
-  aaAvailable, connectLocal, connectPrivy, connectSmartWithWallet, connectWallet, disconnect,
+  aaAvailable, connectLocal, connectPrivy, connectWallet,
   hasWallet, onWallet, restoreSmart,
 } from "@/lib/wallet";
 import {
-  DEV_WALLETS, SIGNER_MODE, aaSession,
+  SIGNER_MODE, aaSession,
   legacyBalances, onSessionChange, sweepLegacy, restartOneTap,
 } from "@/lib/aa/session";
 import { bookedPortfolio, loadPortfolio, type Portfolio } from "@/lib/portfolio";
@@ -55,7 +55,6 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   const path = usePathname() || "";
   const coin = (/^\/coin\/(0x[0-9a-fA-F]{40})/.exec(path)?.[1] ?? null) as Address | null;
   const [err, setErr] = useState("");
-  const [menu, setMenu] = useState(false);
   const [, bump] = useState(0);
   const [pf, setPf] = useState<Portfolio | null>(null);
   useEffect(() => { if (SHOT_MOCK) return; return onWallet(setAddr); }, []);
@@ -175,7 +174,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   const fail = (e: unknown) => setErr(playerError(e).slice(0, 160));
   async function run(label: string, f: () => Promise<unknown>) {
     setErr(""); setBusy(label);
-    try { await f(); setMenu(false); } catch (e) { fail(e); } finally { setBusy(""); }
+    try { await f(); } catch (e) { fail(e); } finally { setBusy(""); }
   }
 
   // Sign in lives only in the Sidebar (no header pill). Publish the current label for the Sidebar card and run the
@@ -190,10 +189,14 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     dispatchEvent(new CustomEvent(WALLET_CTA_EVENT, { detail: { label: null } }));
   }, []);
   const ctaClick = useRef<() => void>(() => {});
+  // Open the existing Privy login modal immediately (privyLogin via connectPrivy). Do not show the
+  // old top-right "Email or Google" card first. Local-signer builds still create a guest account.
   ctaClick.current = () => {
     if (addr || busy) return;
     if (aaAvailable() && SIGNER_MODE === "local") run("creating account", connectLocal);
-    else setMenu(true);
+    else if (aaAvailable()) run("opening login", async () => connectPrivy());
+    else if (hasWallet()) run("connecting", connectWallet);
+    else setErr("No browser wallet found. Install MetaMask/Rabby.");
   };
   useEffect(() => {
     const f = () => ctaClick.current();
@@ -201,43 +204,11 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     return () => removeEventListener(WALLET_CTA_CLICK_EVENT, f);
   }, []);
 
-  const rootRef = useRef<HTMLDivElement>(null);
-  // Close sign-in / account popovers on outside click or Escape (menus are absolute so they
-  // must not rely on layout collapse for dismissal).
-  useEffect(() => {
-    if (!menu) return;
-    // pointerdown: in-wallet WebViews often skip a reliable mousedown before the next tap target
-    const onDown = (e: PointerEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setMenu(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setMenu(false);
-      }
-    };
-    document.addEventListener("pointerdown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [menu]);
-
   if (!isDeployed() && !SHOT_MOCK) return null;
   const sess = aaSession();
   const pill = { all: "unset" as const, cursor: "pointer", padding: "5px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, letterSpacing: ".04em" };
-  // Popover panel: out of flow so [aria-label=wallet] layout height stays the trigger strip
-  // (GAME / FlightCanvas measures that bottom edge to stack Share/Exit).
-  const popover: CSSProperties = {
-    position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 70,
-    display: "flex", flexDirection: "column", gap: 6, padding: 10, borderRadius: 12,
-    background: "rgba(22,24,28,.96)", alignItems: "stretch",
-    boxShadow: "0 8px 24px rgba(0,0,0,.45)",
-  };
   return (
-    <div ref={rootRef} aria-label="wallet" className="wb-root" data-compact={compact ? "true" : "false"}>
+    <div aria-label="wallet" className="wb-root" data-compact={compact ? "true" : "false"}>
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         {/* .wb-row: one line on desktop; on phones (≤480px) it wraps right-aligned instead of running off the left edge (GAME 390×844) */}
         <div className="wb-row" style={{ display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap" }}>
@@ -247,22 +218,6 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             </Link>
           ) : null}
         </div>
-        {!addr && menu && (
-          <div role="menu" style={{ ...popover, minWidth: 240 }}>
-            {aaAvailable() ? (
-              <>
-                <span style={{ fontSize: 10, opacity: 0.8 }}>Sign in once — then every trade is one tap, no popups.</span>
-                <button type="button" disabled={!!busy} onClick={() => run("opening login", async () => connectPrivy())} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }}>Email or Google</button>
-                {DEV_WALLETS && <>
-                <button type="button" disabled={!!busy || !hasWallet()} onClick={() => run("sign once in wallet", connectSmartWithWallet)} style={{ ...pill, background: "#2E323A", color: "#C9CED6", textAlign: "center" }}>Use my wallet as owner</button>
-                <button type="button" disabled={!!busy || !hasWallet()} onClick={() => run("connecting", connectWallet)} style={{ ...pill, fontSize: 10, opacity: 0.7, textAlign: "center" }}>Plain wallet (sign every tx)</button>
-                </>}
-              </>
-            ) : (
-              <button type="button" disabled={!!busy} onClick={() => hasWallet() ? run("connecting", connectWallet) : setErr("No browser wallet found. Install MetaMask/Rabby.")} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }}>Connect wallet</button>
-            )}
-          </div>
-        )}
       </div>
       {addr && legacy && (
         <span role="status" aria-label="sweep old account" style={{ fontSize: 10, color: "#C9CED6", maxWidth: 320, textAlign: "right" }}>
