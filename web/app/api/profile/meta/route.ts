@@ -2,9 +2,10 @@ export const runtime = "nodejs";
 /**
  * Profile meta: picture / bio / country flag, keyed by wallet (lib/server/profileMeta). Same auth as the username claim
  * (/api/profile/username): single-use server nonce + wallet signature over profileMetaMessage, which covers every field.
- * GET  ?address=0x…          → { pfp, pfpUrl, bio, flag }
+ * GET  ?address=0x…          → { pfp, pfpUrl, bio, flag, banner, bannerUrl }
  * GET  ?nonce=1&address=0x…  → { nonce, ttlSec }
- * POST { address, pfp, bio, flag, title?, nonce, signature, owner? } → { ok, reason? }
+ * POST { address, pfp, bio, flag, title?, banner?, nonce, signature, owner? } → { ok, reason? }
+ *   banner = id of an image that passed /api/moderate-image (same store and checks as pfp) or "" (plain panel).
  *   title = "" (default) or an id from lib/titles that this address has earned (checked here, server-side).
  *   pfp = id of an image that passed /api/moderate-image (must exist in the moderated image store) or "".
  *   bio must already be canonical (sanitizeBio) and ≤ BIO_MAX grapheme clusters (emoji = 1; links allowed, stored as text);
@@ -40,14 +41,14 @@ export async function GET(req: Request) {
     const nonce = await issueNonce(kv(), NONCE_PREFIX, address, NONCE_TTL);
     return NextResponse.json({ nonce, ttlSec: NONCE_TTL }, { headers: { "cache-control": "no-store" } });
   }
-  const m = await metaOf(address).catch(() => ({ pfp: "", bio: "", flag: "", title: "" }));
-  return NextResponse.json({ ...m, pfpUrl: pfpUrl(m.pfp) || null }, { headers: { "cache-control": "no-store" } });
+  const m = await metaOf(address).catch(() => ({ pfp: "", bio: "", flag: "", title: "", banner: "" }));
+  return NextResponse.json({ ...m, pfpUrl: pfpUrl(m.pfp) || null, bannerUrl: pfpUrl(m.banner ?? "") || null }, { headers: { "cache-control": "no-store" } });
 }
 
 export async function POST(req: Request) {
   const rl = await hitLimit(kv(), `meta:ip:${clientIp(req.headers)}`, 20, 60);
   if (!rl.ok) return tooMany(rl.retryAfterSec);
-  let body: { address?: unknown; pfp?: unknown; bio?: unknown; flag?: unknown; title?: unknown; nonce?: unknown; signature?: unknown; owner?: unknown };
+  let body: { address?: unknown; pfp?: unknown; bio?: unknown; flag?: unknown; title?: unknown; banner?: unknown; nonce?: unknown; signature?: unknown; owner?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ ok: false, reason: "Bad JSON" }, { status: 400 }); }
   if (!body || typeof body !== "object") return NextResponse.json({ ok: false, reason: "Bad JSON" }, { status: 400 });
   const addr = String(body.address ?? "").toLowerCase();
@@ -62,6 +63,7 @@ export async function POST(req: Request) {
     bio: sanitizeBio(rawBio),
     flag: normalizeFlag(typeof body.flag === "string" ? body.flag : ""),
     title: typeof body.title === "string" ? body.title.trim().toLowerCase() : "",
+    banner: typeof body.banner === "string" ? body.banner.trim().toLowerCase() : "",
   };
   // The signed message covers the exact posted bio, so it must already be canonical (no silent rewrite after signing).
   if (m.bio !== rawBio) return NextResponse.json({ ok: false, reason: "Invalid bio." }, { status: 400 });
@@ -78,6 +80,7 @@ export async function POST(req: Request) {
   if (who !== addr) return NextResponse.json({ ok: false, reason: "Signature didn't match this wallet." }, { status: 401 });
   // Pictures only from the moderated store: /api/moderate-image stores an image only on an "allow" verdict.
   if (m.pfp && !(await getImage(m.pfp).catch(() => null))) return NextResponse.json({ ok: false, reason: "Picture not found. Upload it again." }, { status: 400 });
+  if (m.banner && !(await getImage(m.banner).catch(() => null))) return NextResponse.json({ ok: false, reason: "Banner not found. Upload it again." }, { status: 400 });
   if (!(await consumeNonce(kv(), NONCE_PREFIX, nonce, addr))) return NextResponse.json({ ok: false, reason: "Sign-in expired. Try again." }, { status: 401 });
   await setMeta(addr, m);
   return NextResponse.json({ ok: true });

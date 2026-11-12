@@ -29,8 +29,9 @@ export const COUNTRY_CODES: readonly string[] = (
 const COUNTRY_SET = new Set(COUNTRY_CODES);
 
 /** title: optional chosen title id (lib/titles); "" / missing = the default title. Earned status is checked by the server. */
-export type ProfileMeta = { pfp: string; bio: string; flag: string; title?: string };
-export const EMPTY_META: ProfileMeta = { pfp: "", bio: "", flag: "" };
+/** banner: optional image id from the same moderated store as pfp (pilot-uploaded banner, profile r3); "" / missing = plain panel. */
+export type ProfileMeta = { pfp: string; bio: string; flag: string; title?: string; banner?: string };
+export const EMPTY_META: ProfileMeta = { pfp: "", bio: "", flag: "", banner: "" };
 
 // C0/C1 controls (newlines too: the bio is one line), zero-width, bidi embeddings/overrides/isolates, BOM.
 // eslint-disable-next-line no-control-regex
@@ -65,10 +66,11 @@ export function validateMeta(m: ProfileMeta): string | null {
   if (m.bio.length > BIO_RAW_MAX || bioLength(m.bio) > BIO_MAX) return `Bio: max ${BIO_MAX} characters.`;
   if (!isFlag(m.flag)) return "Unknown flag.";
   if (!isPfpId(m.pfp)) return "Invalid picture.";
+  if (!isPfpId(m.banner ?? "")) return "Invalid banner.";
   if (m.title && !/^[a-z_]{1,32}$/.test(m.title)) return PROFILE_COPY["edit.title.error.unknown"];
   return null;
 }
 
 /** Signed by the wallet; verified by /api/profile/meta. Covers every field so a signature can't be reused for other content. */
 export const profileMetaMessage = (address: string, m: ProfileMeta, nonce: string) =>
-  `DISCIPLE profile update\n\nWallet: ${address.toLowerCase()}\nPicture: ${m.pfp || "none"}\nFlag: ${m.flag || "none"}\n${m.title ? `Title: ${m.title}\n` : ""}Bio: ${m.bio || "none"}\nNonce: ${nonce}\n\nSigning proves you own this wallet. It costs nothing and sends no transaction.`;
+  `DISCIPLE profile update\n\nWallet: ${address.toLowerCase()}\nPicture: ${m.pfp || "none"}\n${m.banner ? `Banner: ${m.banner}\n` : ""}Flag: ${m.flag || "none"}\n${m.title ? `Title: ${m.title}\n` : ""}Bio: ${m.bio || "none"}\nNonce: ${nonce}\n\nSigning proves you own this wallet. It costs nothing and sends no transaction.`;

@@ -80,8 +80,9 @@ test("claimed username cap equals the longest default call sign (22); existing l
   assert.ok(/USERNAME_STORED_RE\.test\(r\)/.test(route), "GET ?resolve uses stored-name regex, not the new-claim cap");
   const ref = readFileSync(path.join(here, "../app/r/[username]/route.ts"), "utf8");
   assert.ok(/USERNAME_STORED_RE\.test\(raw\)/.test(ref), "/r/ looks up stored names without the new-claim cap");
-  const sheet = readFileSync(path.join(here, "../components/profile/EditProfileSheet.tsx"), "utf8");
-  assert.ok(/maxLength=\{USERNAME_MAX\}/.test(sheet) && /name\.length\}\/\{USERNAME_MAX\}/.test(sheet), "edit form uses shared cap");
+  // the Edit profile username field (components/profile/UsernameRow.tsx UsernameField)
+  const row = readFileSync(path.join(here, "../components/profile/UsernameRow.tsx"), "utf8");
+  assert.ok(/maxLength=\{USERNAME_MAX\}/.test(row), "Edit profile username field uses shared cap");
   const ident = readFileSync(path.join(here, "../components/profile/ProfileIdentity.tsx"), "utf8");
   assert.ok(/maxLength=\{USERNAME_MAX\}/.test(ident), "identity input uses shared cap");
 });
