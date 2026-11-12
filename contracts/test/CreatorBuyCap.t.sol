@@ -11,17 +11,17 @@ contract CreatorBuyCapTest is IntegrationBase {
     function test_default_777bps() public {
         assertEq(launchpad.creatorBuyMaxBps(), 777);
         assertEq(FeeMath.creatorBuyMax(), (Constants.TOTAL_SUPPLY * 777) / 10_000);
-        (BondingCurve c, Token t) = _launch(0, 10 ether);
+        (BondingCurve c, Token t) = _launch(0, 10 * U);
         assertEq(launchpad.creatorBuyMaxBpsOf(address(t)), 777);
         c;
         // above 7.77%: flagged by the quote, and (mode rules v2) partially filled instead of reverting
-        (uint256 qOut,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 5_000 ether, 0);
+        (uint256 qOut,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 5_000 * U, 0);
         assertTrue(ex);
         assertEq(qOut, FeeMath.creatorBuyMax(), "quote clamps to the max");
         uint256 b0 = quote.balanceOf(creator);
-        (, Token t2) = _launch(0, 5_000 ether);
+        (, Token t2) = _launch(0, 5_000 * U);
         assertEq(t2.balanceOf(creator), FeeMath.creatorBuyMax(), "partial fill to exactly 7.77%");
-        assertLt(b0 - quote.balanceOf(creator), 5_000 ether, "refund");
+        assertLt(b0 - quote.balanceOf(creator), 5_000 * U, "refund");
     }
 
     function launchExt(uint256 buy) external {
@@ -34,9 +34,9 @@ contract CreatorBuyCapTest is IntegrationBase {
         vm.prank(owner);
         launchpad.setCreatorBuyMaxBps(500);
         // steep curve ($3,333 start): 100 USDG buys ~2.8% — inside the 5% cap
-        (uint256 out,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 100 ether, 0);
+        (uint256 out,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 100 * U, 0);
         assertFalse(ex);
-        (, Token t) = _launch(0, 100 ether);
+        (, Token t) = _launch(0, 100 * U);
         assertEq(t.balanceOf(creator), out);
         assertGt(out, FeeMath.creatorBuyMax(77), "above the old 0.77% default");
         assertLe(out, FeeMath.creatorBuyMax(500));
@@ -64,31 +64,31 @@ contract CreatorBuyCapTest is IntegrationBase {
         assertEq(launchpad.creatorBuyMaxBps(), 777);
         assertEq(Constants.CREATOR_BUY_MAX_BPS_CEILING, 777);
         // at the ceiling: an oversized First BOOST fills to exactly 7.77% of supply, never more
-        (, Token t) = _launch(0, 5_000 ether);
+        (, Token t) = _launch(0, 5_000 * U);
         assertEq(t.balanceOf(creator), FeeMath.creatorBuyMax(777));
         assertEq(launchpad.creatorBuyMaxBpsOf(address(t)), 777);
     }
 
     function test_existing_coins_keep_snapshot() public {
-        (, Token old) = _launch(0, 10 ether);
+        (, Token old) = _launch(0, 10 * U);
         vm.prank(owner);
         launchpad.setCreatorBuyMaxBps(10);
         assertEq(launchpad.creatorBuyMaxBpsOf(address(old)), 777);
         (, Token nu) = _launch(0, 0);
         assertEq(launchpad.creatorBuyMaxBpsOf(address(nu)), 10);
-        (, Token nu2) = _launch(0, 10 ether);
+        (, Token nu2) = _launch(0, 10 * U);
         assertEq(nu2.balanceOf(creator), FeeMath.creatorBuyMax(10), "partial fill to the new 0.1% max");
         vm.prank(owner);
         launchpad.setCreatorBuyMaxBps(0);
         vm.expectRevert(Launchpad.CreatorBuyTooLarge.selector); // max 0 = First BOOST disabled
-        this.launchExt(10 ether);
+        this.launchExt(10 * U);
     }
 
     function test_anonLauncher_respects_owner_cap() public {
         AnonLauncher anon =
             new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), 0);
         address payer = makeAddr("payer");
-        quote.mint(payer, 10_000 ether);
+        quote.mint(payer, 10_000 * U);
         ILaunchpad.LaunchParams memory p = ILaunchpad.LaunchParams({
             name: "A",
             ticker: "A",
@@ -97,7 +97,7 @@ contract CreatorBuyCapTest is IntegrationBase {
             socialsURI: "",
             quote: address(quote),
             creatorTaxBps: 0,
-            creatorBuyQuoteIn: 5_000 ether,
+            creatorBuyQuoteIn: 5_000 * U,
             creatorBuyMinTokensOut: 0,
             deadline: block.timestamp + 1 hours
         });
@@ -107,7 +107,7 @@ contract CreatorBuyCapTest is IntegrationBase {
         ILaunchpad.LaunchResult memory r0 = anon.launchAnon(p, makeAddr("st"), makeAddr("fr0"), "", 0x00, type(uint256).max);
         vm.stopPrank();
         assertEq(r0.creatorTokensBought, FeeMath.creatorBuyMax(), "partial fill to 7.77%");
-        assertLt(pb0 - quote.balanceOf(payer), 5_000 ether, "refund forwarded to the payer");
+        assertLt(pb0 - quote.balanceOf(payer), 5_000 * U, "refund forwarded to the payer");
         assertEq(quote.balanceOf(address(anon)), 0, "AnonLauncher keeps nothing");
         vm.prank(owner);
         launchpad.setCreatorBuyMaxBps(500);
@@ -115,5 +115,12 @@ contract CreatorBuyCapTest is IntegrationBase {
         ILaunchpad.LaunchResult memory r = anon.launchAnon(p, makeAddr("st"), makeAddr("fr"), "", 0x00, type(uint256).max);
         assertEq(IERC20(r.token).balanceOf(makeAddr("fr")), r.creatorTokensBought);
         assertEq(launchpad.creatorBuyMaxBpsOf(r.token), 500);
+    }
+}
+
+/// @notice 6-decimal USDG run of CreatorBuyCapTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract CreatorBuyCap6DecTest is CreatorBuyCapTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
     }
 }
