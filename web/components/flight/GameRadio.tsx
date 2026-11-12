@@ -29,7 +29,7 @@ const PANEL: React.CSSProperties = {
   position: "fixed",
   right: 16,
   bottom: 16,
-  zIndex: 32,
+  zIndex: 36,
   width: 280,
   padding: "8px 10px 10px",
   borderRadius: 10,
@@ -55,7 +55,7 @@ const PILL: React.CSSProperties = {
   position: "fixed",
   right: 16,
   bottom: 16,
-  zIndex: 32,
+  zIndex: 36,
   padding: "2px 8px",
   borderRadius: 8,
   background: "rgba(8,10,28,.86)",
@@ -161,7 +161,7 @@ export default function GameRadio() {
   const closed = card.closed || (phone && !!layout.radio?.closed);
   const hidePanel = min || closed;
   const phoneBottom: React.CSSProperties = phone
-    ? { right: 10, bottom: "calc(var(--ap-safe-bottom, 0px) + 88px)" }
+    ? { right: 10, bottom: "calc(var(--ap-safe-bottom, 0px) + 148px)" }
     : {};
 
   const play = () => {
