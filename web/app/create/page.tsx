@@ -1,23 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { PRIVATE_COPY } from "@/lib/anon";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { newStealthOwner } from "@/lib/privateLaunch";
-
-// AnonLauncher v2 launchFee (0.25 USDG on testnet; launchCoin reads the live value and approves exactly that).
-const PRIVATE_LAUNCH_FEE = "$0.25";
 import { CURVE, MODERATION, type ModerationVerdict } from "@/lib/config";
 import { contrastWarning } from "@/lib/decal";
+import { houseBadgeDataUri } from "@/lib/decalDefault";
 import { precheckWithin, preloadModeration } from "@/lib/moderation-client";
-import BrandedRocket from "@/components/BrandedRocket";
-import SquareCrop, { cropSquare } from "@/components/create/SquareCrop";
-import PairPicker from "@/components/create/PairPicker";
+import { cropSquare } from "@/components/create/SquareCrop";
+import CreatePadPreview from "@/components/create/CreatePadPreview";
 import FirstBoostField, { type FirstBoostState } from "@/components/create/FirstBoostField";
+import { exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap } from "@/lib/firstBoost";
+import LiftoffOverlay, { LIFTOFF_MS } from "@/components/create/LiftoffOverlay";
 import { protocolStub, type Address } from "@/lib/protocol";
 import { LAUNCH_ABI_SHAPE, LaunchMode } from "@/lib/launchAbi";
-import { DEFAULT_MODE, MODE_COPY, MODE_DEFAULT_CHIP, MODE_HELPER, MODE_LABEL, MODE_ORDER, MODE_SELECTED_COPY, MODE_TOOLTIP, holdingCapRange } from "@/lib/modeRules";
+import { DEFAULT_MODE, MODE_LABEL, MODE_ORDER } from "@/lib/modeRules";
 import { ACTIVE_CHAIN, deployment, isDeployed } from "@/lib/chains";
-import { recommendedPairs } from "@/lib/pairs";
 import { nextTicker, randomRocketName, tickerVariants } from "@/lib/rocketNames";
 import { activeAddress, aaAvailable, canTransact, connectPrivy, connectWallet, execCalls, onWallet } from "@/lib/wallet";
 import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
@@ -27,29 +24,27 @@ import { encodeFunctionData } from "viem";
 import { useRouter } from "next/navigation";
 import { createViemProtocol } from "@/lib/protocol-viem";
 import { trackFunnel } from "@/lib/funnelClient";
-import { IS_STATIC_PREVIEW } from "@/lib/base-path";
+import { IS_STATIC_PREVIEW, withBase } from "@/lib/base-path";
 import Icon from "@/components/icons/Icon";
 import { CANCELLED_MSG, playerError } from "@/lib/playerError";
 import { IMAGE_COPY, LAUNCH_FAILED_MSG, launchImageFrom, type ModerateResponse } from "@/lib/launchImage";
 import { NAME_LOCK_TAKEN_MSG, fetchNameLock, nameLockEnforced } from "@/lib/nameLock";
+import {
+  addressOn, defaultLaunchPair, launchPairsForChain,
+} from "@/lib/launchWhitelist";
+import {
+  QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_COPY, buildLaunchSocials, launchButtonLabel,
+  launchNeedsSignIn, normalizeTelegram, normalizeTwitter, normalizeWebsite, privateLaunchHelp, privateLaunchTitle,
+  readStoredCreatorTax, readStoredUpload, snapCreatorTax, storeCreatorTax, storeUpload,
+} from "@/lib/quickLaunch";
+import s from "@/components/create/quickLaunch.module.css";
 
-const inputCls =
-  "w-full rounded-xl border border-[rgba(201,206,214,.35)] bg-[rgba(22,24,28,.8)] px-3 py-2 text-[#E8EAEE] outline-none focus:border-[rgba(201,206,214,.7)]";
-const labelCls = "mb-1 block text-xs tracking-wider text-[#C9CED6]";
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
-/** Launch modes (mode rules v2). Names, caps and copy come from lib/modeRules (the one shared constant). Curve only. */
-const GAME_MODES = MODE_ORDER.map((id) => ({
-  id,
-  label: MODE_LABEL[id],
-  cap: holdingCapRange(id),
-  copy: MODE_COPY[id],
-}));
-
-/** Website field: prefix https:// when no scheme was typed (1g). */
-const withHttps = (w: string) => { const t = w.trim(); return !t || /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t.replace(/^\/+/, "")}`; };
 
 export default function LaunchRocketPage() {
   const router = useRouter();
+  const [modeTip, setModeTip] = useState<number | null>(null);
+  const [howOpen, setHowOpen] = useState(false);
   const [name, setName] = useState("");
   const [callSign, setCallSign] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -58,26 +53,44 @@ export default function LaunchRocketPage() {
   const [contrast, setContrast] = useState<string | null>(null);
   const [mod, setMod] = useState<{ state: "idle" | "checking" | ModerationVerdict; uri?: string; note?: string }>({ state: "idle" });
   const [advanced, setAdvanced] = useState(false);
-  // Launch mode (Constants.MODE_*: 0 Trench, 1 Easy, 2 Hard); immutable per rocket. Easy is the default (lee 2026-10-26).
+  const [editingLink, setEditingLink] = useState<"twitter" | "website" | "telegram" | null>(null);
   const [gameMode, setGameMode] = useState<number>(DEFAULT_MODE);
-  const defaultPair = useMemo(() => recommendedPairs()[0], []);
-  const [quote, setQuote] = useState<{ address: Address | null; label: string }>({ address: defaultPair?.address ?? null, label: defaultPair?.symbol ?? "" });
+  const defaultPair = defaultLaunchPair();
+  const defaultPairAddr = addressOn(defaultPair, ACTIVE_CHAIN.id, deployment().defaultQuote);
+  const [quote, setQuote] = useState<{ address: Address | null; label: string }>({ address: defaultPairAddr, label: defaultPair.symbol });
   const [twitter, setTwitter] = useState("");
   const [website, setWebsite] = useState("");
+  const [telegram, setTelegram] = useState("");
   const [feeReceiver, setFeeReceiver] = useState("");
   const [croppedUri, setCroppedUri] = useState<string | null>(null);
+  const [uploadedUri, setUploadedUri] = useState<string | null>(null);
+  const [badgeUri, setBadgeUri] = useState<string | null>(null);
   const [tax, setTax] = useState(0);
-  // Private launch (AnonLauncher v2): stealth on-chain creator; Trench only; fees claimed privately on /creator.
   const [privateLaunch, setPrivateLaunch] = useState(false);
-  // First BOOST (creator launch buy): $ amount paid from the player's USDG; the router buys the pair coin (FirstBoostField).
   const [boost, setBoost] = useState("");
-  const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), usdgIn: null, error: null, ready: true });
-  // Status line: `ok` = a launch went through (rocket icon + "ok" style); otherwise a validation/launch error.
+  const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), usdgIn: null, maxUsdg: null, maxQuoteIn: null, error: null, ready: true, overCap: false });
   const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
+  const [liftoff, setLiftoff] = useState<string | null>(null);
   const setMsg = (text: string | null) => setStatus(text == null ? null : { text, ok: false });
   const setLaunched = (text: string) => setStatus({ text, ok: true });
-  // Mainnet name+ticker lock (lib/nameLock): show the taken message while typing; the submit path checks again.
   const [nameLockMsg, setNameLockMsg] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const modeRowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (modeTip == null) return;
+    const onPtr = (e: PointerEvent) => {
+      if (modeRowRef.current && !modeRowRef.current.contains(e.target as Node)) setModeTip(null);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setModeTip(null); };
+    document.addEventListener("pointerdown", onPtr);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPtr);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [modeTip]);
+
   useEffect(() => {
     if (IS_STATIC_PREVIEW || !nameLockEnforced(ACTIVE_CHAIN.id) || !name.trim() || !callSign.trim()) {
       setNameLockMsg(null);
@@ -90,11 +103,10 @@ export default function LaunchRocketPage() {
     }, 400);
     return () => clearTimeout(t);
   }, [name, callSign]);
-  // #103 follow-up: sign in BEFORE launching (the launch, First BOOST and fees must land on the DISCIPLE account).
-  // Signed out ⇒ the submit button opens sign-in instead of failing at launch time with SignInRequired.
+
   const [signedIn, setSignedIn] = useState(false);
   useEffect(() => onWallet(() => setSignedIn(canTransact())), []);
-  const needsSignIn = isDeployed() && !IS_STATIC_PREVIEW && !signedIn;
+  const needsSignIn = launchNeedsSignIn({ deployed: isDeployed(), staticPreview: IS_STATIC_PREVIEW, signedIn });
   const signIn = () => {
     setMsg(null);
     if (aaAvailable()) connectPrivy();
@@ -102,21 +114,50 @@ export default function LaunchRocketPage() {
   };
 
   const blocked = mod.state === "block";
+  const usingUpload = !!uploadedUri && !blocked;
+  const previewIcon = usingUpload ? (croppedUri || uploadedUri) : badgeUri;
+
   useEffect(() => { preloadModeration(); }, []);
-  // Fresh random name every page open.
-  useEffect(() => { shuffleName(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // Name shuffle re-rolls a matching call sign (first word, e.g. "Blessed Falcon" → BLESSED).
+  useEffect(() => {
+    shuffleName();
+    setTax(readStoredCreatorTax(CURVE.creatorTaxMaxPct));
+    const saved = readStoredUpload();
+    if (!saved) return;
+    setUploadedUri(saved);
+    setCroppedUri(saved);
+    setMod({ state: "allow", uri: saved });
+    const img = new Image();
+    img.src = saved;
+    img.decode().then(() => setIconSrc(img)).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setBadgeUri(houseBadgeDataUri(callSign) ?? houseBadgeDataUri("ROCKET"));
+  }, [callSign]);
+
   function shuffleName() {
     const n = randomRocketName();
     setName(n);
     setCallSign(tickerVariants(n)[0] ?? "");
   }
-  // Square crop → decal preview (debounced while dragging).
+
   useEffect(() => {
     if (!iconSrc) { setCroppedUri(null); return; }
     const t = setTimeout(() => setCroppedUri(cropSquare(iconSrc, crop)), 120);
     return () => clearTimeout(t);
   }, [iconSrc, crop]);
+
+  function clearUpload() {
+    setFile(null); setIconSrc(null); setContrast(null); setCroppedUri(null); setUploadedUri(null); setMod({ state: "idle" });
+    storeUpload(null);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function setTaxStepped(v: number) {
+    const n = snapCreatorTax(v, CURVE.creatorTaxMaxPct);
+    setTax(n);
+    storeCreatorTax(n);
+  }
 
   async function onPickFile(f: File | null) {
     setFile(f); setIconSrc(null); setContrast(null); setMod({ state: "idle" });
@@ -132,34 +173,54 @@ export default function LaunchRocketPage() {
     setCrop({ x: 0.5, y: 0.5 });
     setIconSrc(img);
     setContrast(contrastWarning(img));
-    // Fast client check (model preloaded on mount, hard 3s timeout). Explicit → block.
-    // Timeout/error → fail OPEN on testnet with "pending server review" (never hang the form).
     let pre: Awaited<ReturnType<typeof precheckWithin>> | null = null;
     try { pre = await precheckWithin(img, 3000); } catch { pre = null; }
     const ms = Math.round(performance.now() - t0);
     if (pre && pre !== "timeout" && pre.verdict === "block") {
-      setIconSrc(null); setContrast(null);
-      return setMod({ state: "block", note: `Rejected by image check (${ms} ms).` });
+      setIconSrc(null); setContrast(null); setFile(null); setCroppedUri(null); setUploadedUri(null); storeUpload(null);
+      return setMod({ state: "block", note: C.imageReverted });
     }
     const uri = cropSquare(img, { x: 0.5, y: 0.5 });
     const pending = !pre || pre === "timeout" || pre.verdict === "review";
+    setCroppedUri(uri);
+    setUploadedUri(uri);
+    storeUpload(uri);
     setMod({ state: "allow", uri, note: pending ? `pending server review (${ms} ms)` : `approved in ${ms} ms` });
-    // Async authoritative server check; only an explicit server block revokes approval.
     if (!IS_STATIC_PREVIEW) {
       const fd = new FormData(); fd.append("file", f);
       fetch("/api/moderate-image", { method: "POST", body: fd })
         .then((r) => r.json())
-        .then((r) => { if (r?.verdict === "block") { setIconSrc(null); setContrast(null); setMod({ state: "block", note: "Rejected by server review." }); } })
+        .then((r) => {
+          if (r?.verdict === "block") {
+            setIconSrc(null); setContrast(null); setFile(null); setCroppedUri(null); setUploadedUri(null); storeUpload(null);
+            setMod({ state: "block", note: C.imageReverted });
+          }
+        })
         .catch(() => { /* server unavailable: keep client verdict (testnet) */ });
     }
+  }
+
+  async function storeImage(dataUri: string): Promise<string | null> {
+    if (IS_STATIC_PREVIEW) return dataUri;
+    const fd = new FormData(); fd.append("uri", dataUri);
+    const v = await fetch("/api/moderate-image", { method: "POST", body: fd })
+      .then(async (r) => (await r.json().catch(() => null)) as ModerateResponse)
+      .catch((err) => { console.warn("[disciple] launch image upload failed", { message: String((err as Error)?.message ?? err).slice(0, 300) }); return null; });
+    const li = launchImageFrom(v);
+    if (!li.ok) {
+      console.warn("[disciple] launch image not usable", { reason: li.reason, detail: li.detail, verdict: v?.verdict });
+      setMsg(IMAGE_COPY[li.reason]);
+      return null;
+    }
+    return li.uri;
   }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
     if (needsSignIn) { signIn(); return; }
-    if (!name.trim() || !callSign.trim() || !file) {
-      setMsg("Add a rocket name, a call sign, and a picture to launch.");
+    if (!name.trim() || !callSign.trim()) {
+      setMsg("Give your rocket a name and a ticker.");
       return;
     }
     if (!IS_STATIC_PREVIEW && nameLockEnforced(ACTIVE_CHAIN.id)) {
@@ -175,18 +236,19 @@ export default function LaunchRocketPage() {
         return;
       }
     }
-    if (mod.state !== "allow" || !mod.uri) {
-      setMsg(mod.state === "block" ? "This image can't be used. Please pick a different one." : "Your icon is still being checked (or held for review).");
+    const usingBadge = !usingUpload;
+    if (!usingBadge && (mod.state !== "allow" || !mod.uri)) {
+      setMsg(mod.state === "block" ? C.imageReverted : "Your icon is still being checked (or held for review).");
       return;
     }
-    const effTax = advanced ? tax : 0;
+    const effTax = tax;
     if (effTax < 0 || effTax > CURVE.creatorTaxMaxPct) {
       setMsg(`Creator tax must be 0–${CURVE.creatorTaxMaxPct}%.`);
       return;
     }
     const quoteAddr = quote.address;
     if (!quoteAddr) {
-      setMsg("Pick a pair or paste a valid ERC-20 address.");
+      setMsg("Pick the coin your rocket is bought and sold in.");
       return;
     }
     const fr = feeReceiver.trim();
@@ -194,31 +256,25 @@ export default function LaunchRocketPage() {
       setMsg("Fee receiver must be a 0x wallet address (or leave it empty to use your own).");
       return;
     }
-    // 1g: "mysite.com" ⇒ "https://mysite.com" (http:// kept as typed); still must look like a host
-    const web = withHttps(website);
+    const web = normalizeWebsite(website) ?? "";
     if (web !== website.trim()) setWebsite(web);
     if (web && !/^https?:\/\/\S+\.\S+/.test(web)) {
       setMsg("Enter a website like mysite.com");
       return;
     }
-    // Moderated at center; launch with the user's chosen square crop of the same approved image. The crop is moderated
-    // and stored FIRST; the launch writes only the absolute, content-addressed URL of that stored copy on-chain
-    // (lib/launchImage), never the data: URI (gas: a real 256px crop pushed launches over the 10M cap). If the crop is
-    // blocked, held for review, or not stored, the launch stops here, before any wallet step.
-    const crop256 = iconSrc ? cropSquare(iconSrc, crop) : mod.uri;
-    let imageUri = crop256;
-    if (!IS_STATIC_PREVIEW) {
-      const fd = new FormData(); fd.append("uri", crop256);
-      const v = await fetch("/api/moderate-image", { method: "POST", body: fd })
-        .then(async (r) => (await r.json().catch(() => null)) as ModerateResponse)
-        .catch((err) => { console.warn("[disciple] launch image upload failed", { message: String((err as Error)?.message ?? err).slice(0, 300) }); return null; });
-      const li = launchImageFrom(v);
-      if (!li.ok) {
-        console.warn("[disciple] launch image not usable", { reason: li.reason, detail: li.detail, verdict: v?.verdict });
-        setMsg(IMAGE_COPY[li.reason]);
-        return;
-      }
-      imageUri = li.uri;
+    let imageUri: string | null = null;
+    if (usingBadge) {
+      const badge = badgeUri ?? houseBadgeDataUri(callSign);
+      if (!badge) { setMsg("Couldn't make your rocket's badge. Try again, or use your own image."); return; }
+      imageUri = await storeImage(badge);
+    } else {
+      const crop256 = iconSrc ? cropSquare(iconSrc, crop) : mod.uri!;
+      imageUri = await storeImage(crop256);
+    }
+    if (!imageUri) return;
+    if (boostState.overCap || exceedsUsdgFirstBoostCap(boostState.usdgIn, boostState.maxUsdg) || exceedsQuoteFirstBoostCap(boostState.raw, boostState.maxQuoteIn)) {
+      setMsg(boostState.error || "That's over the First BOOST cap. Lower the amount and try again.");
+      return;
     }
     if (boostState.error) { setMsg(boostState.error); return; }
     if (!boostState.ready) { setMsg("Still reading the First BOOST cap. Try again in a moment."); return; }
@@ -228,13 +284,12 @@ export default function LaunchRocketPage() {
       const res = await client.launchCoin({
         name: name.trim(),
         ticker: callSign.trim().toUpperCase(),
-        imageUri, // absolute https URL of the moderated, stored square crop (lib/launchImage)
+        imageUri,
         quoteToken: quoteAddr,
         creatorTaxPct: effTax,
-        // First BOOST (0 = skip): paid in USDG via launchWithUsdg; pair-coin amount only on a network without USDG routing
         creatorBuyUsdgIn: boostState.usdgIn != null && boostState.usdgIn > BigInt(0) ? boostState.usdgIn : undefined,
         creatorBuyQuoteIn: boostState.usdgIn == null && boostState.raw > BigInt(0) ? boostState.raw : undefined,
-        socials: twitter.trim() || web ? { twitter: twitter.trim().replace(/^@/, "") || undefined, website: web || undefined } : undefined,
+        socials: buildLaunchSocials({ twitter, telegram, website: web }),
         mode: priv ? LaunchMode.TRENCH_WARFARE : LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
         private: priv,
       });
@@ -253,8 +308,9 @@ export default function LaunchRocketPage() {
           }
         }
       }
-      setLaunched("Launched! Taking you to your rocket…");
-      setTimeout(() => router.push(`/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}`), 1200);
+      const dest = `/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}&liftoff=1`;
+      setLiftoff(dest);
+      window.setTimeout(() => router.push(dest), LIFTOFF_MS + 200);
     } catch (err) {
       if (!isDeployed()) { setMsg("Launches aren't open on this network yet."); return; }
       const shown = playerError(err);
@@ -263,172 +319,279 @@ export default function LaunchRocketPage() {
     }
   }
 
+  const defaultPairLabel = defaultPair.symbol;
+  const advDirty = (
+    quote.label !== defaultPairLabel
+    || !!twitter.trim()
+    || !!website.trim()
+    || !!telegram.trim()
+    || tax > 0
+    || (!privateLaunch && !!feeReceiver.trim())
+  );
+
   return (
-    <div className="page-shell">
-      <h1>Launch a Rocket</h1>
-      <div className="sub">EVERYONE ABOARD FLIES TOGETHER · PRICES IN $</div>
-      <form className="card create-form" onSubmit={onSubmit}>
-        <div className="create-grid">
-          <div className="space-y-4">
-            <label className="block">
-              <span className={labelCls}>ROCKET NAME *</span>
-              <div className="pid-edit" style={{ flexWrap: "nowrap" }}>
-                <input className={inputCls} style={{ flex: 1, minWidth: 0 }} value={name} onChange={(e) => setName(e.target.value)} placeholder="Artificial Inu" maxLength={32} />
-                <button type="button" className="ds-btn" title="Shuffle a random name" aria-label="Shuffle name" onClick={shuffleName}><Icon name="shuffle" size={16} /> Shuffle</button>
+    <div className={`page-shell ${s.ql}`}>
+      <form className={s.wrap} onSubmit={onSubmit}>
+        <div className={s.title}><h1>{C.title}</h1></div>
+        <div className={s.grid}>
+          <div className={s.form}>
+            <div className={s.fl}>
+              <div className={s.lab}>{C.name}</div>
+              <div className={s.row}>
+                <input className={s.inp} value={name} onChange={(e) => setName(e.target.value)} maxLength={32} aria-label="Name" />
+                <button type="button" className={s.dice} title="Shuffle name" aria-label="Shuffle name" onClick={shuffleName}><Icon name="shuffle" size={16} /></button>
               </div>
-            </label>
-            <label className="block">
-              <span className={labelCls}>CALL SIGN * <span className="normal-case opacity-70">— your $TICKER, e.g. $AI for Artificial Inu</span></span>
-              <div className="ticker-input">
-                <span>$</span>
-                <input className={inputCls} style={{ flex: 1, minWidth: 0 }} value={callSign} onChange={(e) => setCallSign(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase())} placeholder="AI" maxLength={10} />
-                <button type="button" className="ds-btn" disabled={!tickerVariants(name).length}
+            </div>
+            <div className={s.fl}>
+              <div className={s.lab}>{C.ticker}</div>
+              <div className={s.row}>
+                <div className={s.inp} style={{ paddingRight: 8 }}>
+                  <span className={s.pre}>$</span>
+                  <input style={{ flex: 1, minWidth: 0, border: 0, background: "transparent", color: "inherit", font: "inherit", outline: "none", height: "100%" }}
+                    value={callSign} onChange={(e) => setCallSign(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase())} placeholder="TICKER" maxLength={10} aria-label="Ticker" />
+                </div>
+                <button type="button" className={s.dice} disabled={!tickerVariants(name).length}
                   title={`Shuffle a call sign from the name (${tickerVariants(name).map((t) => "$" + t).join(" · ") || "type a name first"})`}
-                  aria-label="Shuffle call sign" onClick={() => setCallSign(nextTicker(name, callSign))}><Icon name="shuffle" size={16} /> Shuffle</button>
+                  aria-label="Shuffle ticker" onClick={() => setCallSign(nextTicker(name, callSign))}><Icon name="shuffle" size={16} /></button>
               </div>
-            </label>
-            {nameLockMsg && <p role="status" data-testid="name-lock-taken" className="text-xs text-[#FF7A3D]">{nameLockMsg}</p>}
-            <div className="block">
-              <span className={labelCls}>ROCKET ICON * <span className="normal-case opacity-70">square · PNG/JPG/WEBP/GIF · ≤2 MB</span></span>
-              <label className="upload-drop">
-                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="upload rocket icon" className="sr-only" onChange={(e) => onPickFile(e.target.files?.[0] || null)} />
-                <span>{file ? `${file.name} · click to replace` : "Click to upload an image"}</span>
-              </label>
-              {iconSrc && !blocked && (
-                <div className="crop-row">
-                  <SquareCrop img={iconSrc} pos={crop} onChange={setCrop} />
-                  <span className="muted tiny">Images are always cropped square. Drag to choose what shows on your hull.</span>
+            </div>
+            {nameLockMsg && <p role="status" data-testid="name-lock-taken" className={`${s.msg} ${s.msgBad}`}>{nameLockMsg}</p>}
+            <div className={s.fl}>
+              <div className={s.lab}>{C.icon}</div>
+              <div className={s.iconRow}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {previewIcon && <img src={previewIcon} alt="" width={64} height={64} />}
+                <div className={s.iconActions}>
+                  <button type="button" className={s.upload} onClick={() => fileRef.current?.click()}>{usingUpload ? C.changeImage : C.uploadImage}</button>
+                  {usingUpload && <button type="button" className={s.link} onClick={clearUpload}>{C.useGenerated}</button>}
+                </div>
+                <input ref={fileRef} className={s.file} type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="upload rocket icon" onChange={(e) => onPickFile(e.target.files?.[0] || null)} />
+              </div>
+              {mod.state === "checking" && <p className={s.msg}>Checking image…</p>}
+              {mod.state === "allow" && usingUpload && <p className={`${s.msg} ${s.msgOk}`}><Icon name="check" size={12} /> Image saved</p>}
+              {blocked && <p role="alert" className={`${s.msg} ${s.msgBad}`}>{mod.note || C.imageReverted}</p>}
+              {contrast && <p className={`${s.msg} ${s.msgBad}`}><Icon name="warning" size={12} /> {contrast}</p>}
+            </div>
+
+            <FirstBoostField
+              variant="chips"
+              pair={quote.address} pairLabel={quote.label} creatorTaxBps={Math.round(tax * 100)}
+              ticker={callSign.trim().toUpperCase()} value={boost} onChange={setBoost} onState={setBoostState}
+              mode={LAUNCH_ABI_SHAPE === "modes" && !privateLaunch ? gameMode : LaunchMode.TRENCH_WARFARE} privateLaunch={privateLaunch}
+            />
+
+            <div className={s.anon}>
+              <button type="button" className={`${s.sw} ${privateLaunch ? s.on : ""}`} role="switch" aria-checked={privateLaunch}
+                data-testid="private-launch" onClick={() => setPrivateLaunch((v) => !v)}>
+                <i />
+              </button>
+              <div className={s.copy}>
+                <div className={s.name}>{privateLaunchTitle(boost, gameMode)} <span className={s.beta}>{C.beta}</span></div>
+                {privateLaunch && (
+                  <div className={s.help} data-testid="private-launch-help">{privateLaunchHelp(boost, gameMode)}</div>
+                )}
+              </div>
+            </div>
+
+            <div className={s.modeBlock} ref={modeRowRef} data-testid="mode-cards">
+              <div className={s.lab}>{C.mode}</div>
+              <div className={s.modeCards} role="radiogroup" aria-label={C.mode}>
+                {MODE_ORDER.map((id) => {
+                  const label = MODE_LABEL[id];
+                  const on = gameMode === id;
+                  const copy = label === "Easy" ? QUICK_LAUNCH_MODE_COPY.Easy : label === "Hard" ? QUICK_LAUNCH_MODE_COPY.Hard : QUICK_LAUNCH_MODE_COPY.Trench;
+                  const tipId = `mode-tip-${label.toLowerCase()}`;
+                  return (
+                    <div key={id} className={s.modeCardWrap}>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        aria-label={label}
+                        aria-describedby={tipId}
+                        data-testid={`mode-card-${label.toLowerCase()}`}
+                        className={`${s.modeCard} ${on ? s.on : ""}`}
+                        onClick={() => setGameMode(id)}
+                      >
+                        <span className={s.modeCardLbl}>{label}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={s.modeInfo}
+                        data-testid={`mode-info-${label.toLowerCase()}`}
+                        aria-label={`About ${label}`}
+                        aria-expanded={modeTip === id}
+                        aria-controls={tipId}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setModeTip((v) => (v === id ? null : id));
+                        }}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                          <circle cx="12" cy="12" r="8.5" />
+                          <path d="M12 11v5.25" />
+                          <circle cx="12" cy="7.85" r="1" fill="currentColor" stroke="none" />
+                        </svg>
+                      </button>
+                      <div
+                        className={`${s.modeTip} ${modeTip === id ? s.open : ""}`}
+                        role="tooltip"
+                        id={tipId}
+                        data-testid={tipId}
+                      >
+                        <p>{copy}</p>
+                        <p>{QUICK_LAUNCH_MODE_COPY.footer}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className={s.foot}>
+              <button
+                type="submit"
+                data-testid={needsSignIn ? "create-sign-in" : "create-launch"}
+                className={s.launch}
+              >
+                {launchButtonLabel(boost)}
+              </button>
+              <div className={s.footLinks}>
+                <div className={s.hiwTip}>
+                  <button type="button" className={s.advLink} data-testid="how-launching" aria-expanded={howOpen} onClick={() => setHowOpen((v) => !v)}>
+                    {C.howLaunching}
+                  </button>
+                  {howOpen && (
+                    <div className={s.tip} data-testid="how-launching-steps">
+                      <ol className={s.hiwList}>
+                        {C.howLaunchingSteps.map((line, i) => (
+                          <li key={i}><b>{i + 1}.</b> <span>{line}</span></li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                </div>
+                <button type="button" className={s.advLink} data-testid="advanced-open" onClick={() => setAdvanced(true)}>{C.advanced}</button>
+              </div>
+              {advDirty && (
+                <div className={s.summary} data-testid="advanced-summary">
+                  <span className={s.sumChip}>Pair: {quote.label}</span>
+                  {tax > 0 && <span className={s.sumChip}>Creator tax: {tax}%</span>}
+                  {twitter.trim() && <span className={s.sumChip}>{twitter.trim()}</span>}
+                  {website.trim() && <span className={s.sumChip}>{website.trim()}</span>}
+                  {telegram.trim() && <span className={s.sumChip}>{telegram.trim()}</span>}
+                  {!privateLaunch && feeReceiver.trim() && <span className={s.sumChip}>Rewards: {feeReceiver.trim()}</span>}
                 </div>
               )}
-              {mod.state === "checking" && <p className="text-xs text-[#C9CED6]">Checking image…</p>}
-              {mod.state === "allow" && file && <p className="text-xs text-[#9ff3c8]"><Icon name="check" size={12} /> Icon approved{mod.note ? ` · ${mod.note}` : ""}</p>}
-              {blocked && (
-                <p role="alert" className="ds-msg bad">
-                  This image can&apos;t be used. Please pick a different one.{mod.note ? ` (${mod.note})` : ""}
-                </p>
-              )}
-              {mod.state === "review" && <p className="text-xs text-[#FF7A3D]">Held for review — you can launch once it&apos;s cleared.{mod.note ? ` ${mod.note}` : ""}</p>}
-              {contrast && <p className="text-xs text-[#FF7A3D]"><Icon name="warning" size={12} /> {contrast}</p>}
             </div>
+            {status && <p role="status" className={`${s.msg} ${status.ok ? s.msgOk : s.msgBad}`}>{status.text}</p>}
           </div>
 
-          <div className="staging" aria-label="Rocket on the staging block">
-            <div className="staging-sky" />
-            <div className="staging-tower"><span /><span /><span /><span /></div>
-            <div className="staging-rocket"><BrandedRocket height={240} icon={croppedUri} /></div>
-            <div className="staging-block"><span>{callSign ? `$${callSign}` : "$TICKER"}</span></div>
-            <div className="staging-label">{name || "Your rocket"} · READY FOR LAUNCH</div>
-          </div>
+          <CreatePadPreview name={name} ticker={callSign} icon={previewIcon} />
         </div>
-
-        <div className="block">
-          <span className={labelCls}>PAIR WITH *</span>
-          <PairPicker value={quote.address} onChange={(address, label) => setQuote({ address, label })} />
-          {quote.address && <p className="muted tiny">Paired with <strong className="text-[#E8EAEE]">{quote.label}</strong></p>}
-        </div>
-
-        <FirstBoostField
-          pair={quote.address} pairLabel={quote.label} creatorTaxBps={Math.round((advanced ? tax : 0) * 100)}
-          ticker={callSign.trim().toUpperCase()} value={boost} onChange={setBoost} onState={setBoostState}
-          mode={LAUNCH_ABI_SHAPE === "modes" && !privateLaunch ? gameMode : LaunchMode.TRENCH_WARFARE} privateLaunch={privateLaunch}
-        />
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="block">
-            <span className={labelCls}>X / SOCIAL LINK <span className="normal-case opacity-70">(optional)</span></span>
-            <input className={inputCls} value={twitter} onChange={(e) => setTwitter(e.target.value)} placeholder="@handle or https://x.com/…" maxLength={80} />
-          </label>
-          <label className="block">
-            <span className={labelCls}>WEBSITE <span className="normal-case opacity-70">(optional)</span></span>
-            <input className={inputCls} value={website} onChange={(e) => setWebsite(e.target.value)} onBlur={() => setWebsite((w) => withHttps(w))} placeholder="mysite.com" inputMode="url" maxLength={120} />
-          </label>
-        </div>
-
-        {!privateLaunch && <label className="block">
-          <span className={labelCls}>FEE RECEIVER WALLET <span className="normal-case opacity-70">(optional — defaults to the deployer)</span></span>
-          <input className={`${inputCls} font-mono`} value={feeReceiver} onChange={(e) => setFeeReceiver(e.target.value.trim())} placeholder="0x… (leave empty to receive fees yourself)" />
-          <span className="muted tiny block mt-1">Set via Launchpad.transferCreator right after launch (one extra confirmation). That wallet becomes the rocket&apos;s creator and receives creator fees.</span>
-        </label>}
-
-        {LAUNCH_ABI_SHAPE === "modes" && !privateLaunch && (
-          <fieldset className="block">
-            <legend className={labelCls}>GAME MODE <span className="normal-case opacity-70">(permanent, curve only)</span> <span className="cursor-help normal-case opacity-70" title={MODE_TOOLTIP} aria-label={MODE_TOOLTIP}>ⓘ</span></legend>
-            <div className="grid gap-2 md:grid-cols-3">
-              {GAME_MODES.map((m) => (
-                <label key={m.id} className={`flex cursor-pointer items-start gap-2 rounded-xl border p-2 text-xs ${gameMode === m.id ? "border-[rgba(201,206,214,.6)]" : "border-[rgba(201,206,214,.2)]"}`}>
-                  <input type="radio" name="game-mode" checked={gameMode === m.id} onChange={() => setGameMode(m.id)} />
-                  <span><span className="font-bold text-[#E8EAEE]">{m.label}</span>{m.id === DEFAULT_MODE && <span className="ml-1 rounded border border-[rgba(201,206,214,.35)] px-1 text-[10px] tracking-wider opacity-80">{MODE_DEFAULT_CHIP}</span>}<span className="block text-[rgba(232,234,238,.7)]" data-mode-cap={m.cap ?? "none"}>{m.copy}</span></span>
-                </label>
-              ))}
-            </div>
-            <p className="mt-1 text-xs text-[rgba(232,234,238,.7)]">{MODE_SELECTED_COPY[gameMode]}</p>
-            <p className="mt-1 text-xs text-[rgba(232,234,238,.55)]">{MODE_HELPER}</p>
-          </fieldset>
-        )}
-
-        <button
-          type="button"
-          aria-expanded={advanced}
-          onClick={() => setAdvanced((a) => !a)}
-          className="flex w-full items-center justify-between rounded-xl border border-[rgba(201,206,214,.25)] px-3 py-2 text-xs tracking-wider text-[#C9CED6]"
-        >
-          <span>ADVANCED · creator tax &amp; private launch</span>
-          <span><Icon name={advanced ? "chevron-up" : "chevron-down"} size={16} /> {advanced ? "ON" : "OFF"}</span>
-        </button>
-
-        {advanced && (
-          <div className="space-y-4 rounded-xl border border-[rgba(201,206,214,.2)] p-3">
-            <label className="block">
-              <span className={labelCls}>CREATOR TAX (0–{CURVE.creatorTaxMaxPct}%, immutable)</span>
-              <input type="number" min={0} max={CURVE.creatorTaxMaxPct} step={0.1} className={inputCls} value={tax} onChange={(e) => setTax(+e.target.value)} />
-            </label>
-            <label className="flex items-start gap-2 text-xs">
-              <input type="checkbox" data-testid="private-launch" checked={privateLaunch} onChange={(e) => setPrivateLaunch(e.target.checked)} />
-              <span>
-                <span className={labelCls}>PRIVATE LAUNCH</span>
-                <span className="block text-[rgba(232,234,238,.7)]">{PRIVATE_COPY}</span>
-                {privateLaunch && <span className="block text-[rgba(232,234,238,.7)]">Private rockets fly in Trench mode and pay creator fees to you, not a separate fee receiver. Claim them on your creator page. Includes a {PRIVATE_LAUNCH_FEE} private launch fee.</span>}
-              </span>
-            </label>
-          </div>
-        )}
-
-        <p className="note">
-          Rockets lift off at ${CURVE.startMcap.toLocaleString()} and reach orbit at $
-          {CURVE.graduationMcap.toLocaleString()}. Name and call sign are permanent after launch. Reaching orbit means the path the price follows at the start is finished, and the rocket moves to the open market on Uniswap.
-        </p>
-        <details className="text-xs text-[rgba(232,234,238,.7)]">
-          <summary className="cursor-pointer">What am I launching?</summary>
-          Your rocket is an ERC-20 token on Robinhood Chain, traded on a bonding curve
-          {quote.label ? ` paired with ${quote.label}` : ""}. BOOST to buy. DUMP to sell, and drop a bomb.
-        </details>
-        {needsSignIn ? (
-          <button
-            type="button"
-            onClick={signIn}
-            data-testid="create-sign-in"
-            className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A]"
-          >
-            Sign in to launch
-          </button>
-        ) : (
-          <>
-          <button
-            type="submit"
-            disabled={!file}
-            aria-describedby={!file ? "create-image-hint" : undefined}
-            data-testid="create-launch"
-            className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:from-[#1F2228]"
-          >
-            <Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> Launch Rocket
-          </button>
-          {!file && <p id="create-image-hint" className="text-xs text-[#C9CED6]">Upload a picture to launch your rocket.</p>}
-          </>
-        )}
-        {status && (
-          <p role="status" className={`ds-msg ${status.ok ? "ok" : "bad"}`}>{status.ok && <><Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> </>}{status.text}</p>
-        )}
       </form>
+
+      {advanced && (
+        <>
+          <div className={s.scrim} onClick={() => setAdvanced(false)} />
+          <div className={s.modal} role="dialog" aria-label={C.advanced} data-testid="advanced-modal">
+            <div className={`${s.modalPanel} ${s.wide}`}>
+              <div className={s.drawerHd}>
+                <h2>{C.advanced}</h2>
+                <button type="button" className={s.iconBtn} aria-label="Close" onClick={() => setAdvanced(false)}><Icon name="close" size={16} /></button>
+              </div>
+              <div className={s.fl}>
+                <div className={s.lab}>{C.pairCoin}</div>
+                <div className={s.pchips} role="listbox" aria-label={C.pairCoin}>
+                  {launchPairsForChain(ACTIVE_CHAIN.id).map((coin) => {
+                    const addr = addressOn(coin, ACTIVE_CHAIN.id, deployment().defaultQuote);
+                    const on = quote.address?.toLowerCase() === addr.toLowerCase();
+                    return (
+                      <button key={coin.symbol} type="button" role="option" aria-selected={on} className={`${s.pchip} ${on ? s.on : ""}`}
+                        onClick={() => setQuote({ address: addr, label: coin.symbol })}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={withBase(coin.image)} alt="" width={20} height={20} />
+                        {coin.symbol}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className={s.help}>{C.pairHelp}</div>
+              </div>
+              <div className={s.fl}>
+                <div className={s.lab}>{C.links}</div>
+                <div className={s.lchips}>
+                  <LinkChip kind="twitter" label={C.linkX} short={C.linkXShort} value={twitter} editing={editingLink} setEditing={setEditingLink} onChange={setTwitter}
+                    onBlur={() => setTwitter((v) => normalizeTwitter(v) ?? "")}
+                    glyph={<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden><path d="M13.8 11.2L21 3h-2.4l-5.5 6.3L8.4 3H3l7.5 10.1L3 21h2.4l6-6.8L15.6 21H21L13.8 11.2zM6 4.5h1.7L18 19.5h-1.7L6 4.5z"/></svg>} />
+                  <LinkChip kind="website" label={C.linkWebsite} short={C.linkWebsite} value={website} editing={editingLink} setEditing={setEditingLink}
+                    onChange={setWebsite} onBlur={() => setWebsite((w) => normalizeWebsite(w) ?? "")}
+                    glyph={<Icon name="external-link" size={14} />} />
+                  <LinkChip kind="telegram" label={C.linkTelegram} short={C.linkTelegram} value={telegram} editing={editingLink} setEditing={setEditingLink} onChange={setTelegram}
+                    onBlur={() => setTelegram((v) => normalizeTelegram(v) ?? "")}
+                    glyph={<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden><path d="M20.8 4.2L2.9 11.1c-1.2.5-1.2 1.1-.2 1.4l4.6 1.4 10.7-6.7c.5-.3.9 0 .6.3l-8.6 7.8-.3 4.7c.5 0 .7-.2 1-.5l2.3-2.2 4.7 3.5c.9.5 1.5.2 1.7-.8l3.1-14.6c.3-1.3-.5-1.9-1.4-1.5z"/></svg>} />
+                </div>
+              </div>
+              {!privateLaunch && (
+                <div className={s.fl}>
+                  <div className={s.lab}>{C.rewards}</div>
+                  <div className={s.row}>
+                    <input className={s.inp} value={feeReceiver} onChange={(e) => setFeeReceiver(e.target.value.trim())} placeholder={C.rewardsPlaceholder} aria-label={C.rewards} />
+                  </div>
+                  <div className={s.help}>{C.rewardsHelp}</div>
+                </div>
+              )}
+              <div className={s.fl}>
+                <div className={s.lab}>{C.creatorTax}</div>
+                <div className={s.tax}>
+                  <button type="button" className={s.taxStep} aria-label="Lower creator tax" disabled={tax <= 0} onClick={() => setTaxStepped(tax - 0.5)}>−</button>
+                  <span className={s.taxVal} data-testid="creator-tax-value">{tax}%</span>
+                  <button type="button" className={s.taxStep} aria-label="Raise creator tax" disabled={tax >= CURVE.creatorTaxMaxPct} onClick={() => setTaxStepped(tax + 0.5)}>+</button>
+                  <input className={s.track} type="range" min={0} max={CURVE.creatorTaxMaxPct} step={0.5} value={tax}
+                    aria-label={C.creatorTax}
+                    onChange={(e) => setTaxStepped(Number(e.target.value))} />
+                </div>
+                <div className={s.help}>{C.creatorTaxHelp}</div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+      {liftoff && <LiftoffOverlay />}
     </div>
   );
 }
+
+function LinkChip({ kind, label, short, value, editing, setEditing, onChange, onBlur, glyph }: {
+  kind: "twitter" | "website" | "telegram";
+  label: string; short: string; value: string;
+  editing: "twitter" | "website" | "telegram" | null;
+  setEditing: (k: "twitter" | "website" | "telegram" | null) => void;
+  onChange: (v: string) => void; onBlur?: () => void; glyph: ReactNode;
+}) {
+  const filled = !!value.trim();
+  const open = editing === kind;
+  return (
+    <button type="button" className={`${s.lchip} ${filled || open ? s.filled : ""}`}
+      onClick={() => setEditing(kind)} aria-label={label}>
+      <span className={s.g}>{glyph}</span>
+      {open ? (
+        <input autoFocus value={value} placeholder={label} aria-label={label}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={() => { onBlur?.(); setEditing(null); }}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }} />
+      ) : filled ? (
+        <span data-testid={`link-value-${kind}`}>{value}</span>
+      ) : (
+        <>
+          <span className={s.full}>{label}</span>
+          <span className={s.short}>{short}</span>
+          <span className={s.plus}>+</span>
+        </>
+      )}
+    </button>
+  );
+}
+
