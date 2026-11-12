@@ -1302,8 +1302,9 @@ export function createViemProtocol(): ProtocolClient {
             const cq = await readCreatorBuyQuote(pc, q, quoteAmt, Number(params.creatorTaxBps), mode);
             const eff = effectiveCreatorBuyCapBps(launchpadCapBps, mode);
             if (cq.exceedsCap) {
+              const pct = Math.min(eff.bps, 777) / 100;   // 777 bps = the creatorBuyMaxBps ceiling (7.77%)
               logTradeError("launch buy over cap (usdg)", { launchpadCapBps, effectiveBps: eff.bps, by: eff.by });
-              throw new ProtocolError("CreatorBuyTooLarge", CREATOR_BUY_MSG(eff.bps / 100));
+              throw new ProtocolError("CreatorBuyTooLarge", CREATOR_BUY_MSG(pct > 0 ? pct : undefined));
             }
             if (modesActive() && mode === LaunchMode.PVE) calls.unshift(...(await ensurePveLogin(pc, me)));
             params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, slip);
