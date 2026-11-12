@@ -39,6 +39,7 @@ function capChart(s: { w: number; h: number }, x?: number): { w: number; h: numb
 import { getSavedLayout, isPhoneUI, updateLayout, useCardLayout } from "@/lib/game/cardLayoutStore";
 import { useHudMode } from "@/lib/game/hudMode";
 import { HUD } from "@/lib/game/hudStyle";
+import { FLIGHT_TIERS, tierIndexAt } from "@/lib/flight/tiers";
 
 /* the old chart-map skin: engine.js CHART_STYLE (main before #211), same HUD palette as PnlHud / the tier bar */
 const C = {
@@ -51,7 +52,14 @@ const mono = "ui-monospace, Menlo, monospace";
 const TF_KEY = "disciple.dexchart.tf";
 const PRO_W = 420, PRO_H = 270;   // Pro: top of the right column (mockup); the crew feed reads --ap-pro-chart-h
 type Lc = typeof import("lightweight-charts");
-type W = { __domChart?: boolean; __pnlBottom?: number | null; __discipleTrade?: unknown };
+type W = { __domChart?: boolean; __pnlBottom?: number | null; __discipleTrade?: unknown; __entryMcap?: number };
+/** "$12K" (no ".0") for the zone labels and the price tag */
+const k$ = (v: number) => fmtMcap(v).replace(/\.0(?=[KMB])/, "");
+/** desktop guides (approved mockup ALTITUDE CHART): the next zone, the floor of the zone you are in, and where you boarded (mcap) */
+function guidesFor(cur: number, entry: number) {
+  const i = Math.max(0, tierIndexAt(cur)), floor = FLIGHT_TIERS[i], next = FLIGHT_TIERS[i + 1];
+  return { next: next ? { v: next.lo, label: `${next.name} ${k$(next.lo)}` } : null, floor: floor ? { v: floor.lo, label: floor.name } : null, entry: entry > 0 ? entry : 0 };
+}
 /** price-axis / crosshair label: $ mcap, blank below $0 (never a "-$20K" tick) */
 const axisMcap = (v: number) => (v < 0 ? "" : fmtMcap(v));
 const p2 = (n: number) => String(n).padStart(2, "0");
@@ -75,6 +83,8 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
   const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
   const [hover, setHover] = useState<Candle | null>(null), [last, setLast] = useState<Candle | null>(null), [mark, setMark] = useState<number | null>(null);
   const [phone, setPhone] = useState(false), [ready, setReady] = useState(false), roRef = useRef<ResizeObserver | null>(null);
+  const phoneRef = useRef(false); phoneRef.current = phone;
+  const nextRef = useRef<HTMLDivElement>(null), floorRef = useRef<HTMLDivElement>(null), entryRef = useRef<HTMLDivElement>(null), tagRef = useRef<HTMLDivElement>(null);
   const liveRef = useRef<{ line: IPriceLine | null }>({ line: null });
   const paneRef = useRef<HTMLDivElement>(null), stripRef = useRef<HTMLDivElement>(null), ringRef = useRef<HTMLDivElement>(null), vlineRef = useRef<HTMLDivElement>(null);
   const layout = useCardLayout(), card = layout.chart;
@@ -169,7 +179,17 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
       const candle = chart.addSeries(lc.CandlestickSeries, {
         upColor: C.up, downColor: C.down, wickUpColor: C.up, wickDownColor: C.down, borderVisible: false,
         priceFormat: { type: "custom", formatter: axisMcap, minMove: 0.01 },
-        autoscaleInfoProvider: (orig: () => AutoscaleInfo | null) => { const r = orig(); if (r?.priceRange) r.priceRange.minValue = Math.max(0, r.priceRange.minValue); return r; },
+        autoscaleInfoProvider: (orig: () => AutoscaleInfo | null) => { const r = orig();
+          if (r?.priceRange && !phoneRef.current) {   // desktop: the next zone, the zone floor and your entry stay on the plot when they are near
+            const c = candlesRef.current[candlesRef.current.length - 1], g = c ? guidesFor(c.close, Number((window as unknown as W).__entryMcap) || 0) : null;
+            const lo0 = r.priceRange.minValue, hi0 = r.priceRange.maxValue;
+            // …only while the candles still fill ≥ 35% of the plot (linear axis), so a calm coin keeps readable candles
+            const s0 = Math.max(hi0 - lo0, hi0 * 0.01), fit = (a: number, b: number) => s0 / Math.max(b - a, 1e-12) >= 0.35;
+            for (const v of g ? [g.entry, g.next?.v, g.floor?.v] : []) { const pv = v ? plotOf(v) : 0; if (!(pv > 0)) continue;
+              const lo = r.priceRange.minValue, hi = r.priceRange.maxValue;
+              if (pv > hi && fit(lo, pv)) r.priceRange.maxValue = pv; else if (pv < lo && fit(pv, hi)) r.priceRange.minValue = pv; }
+          }
+          if (r?.priceRange) r.priceRange.minValue = Math.max(0, r.priceRange.minValue); return r; },
         // the live value is our own price line below (white dotted line + gold tag, dark text — the old current-value tag)
         lastValueVisible: false, priceLineVisible: false,
       });
@@ -231,9 +251,9 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
   useEffect(() => {
     const h = chartRef.current, L = liveRef.current; if (!h) return;
     if (!last) { if (L.line) { h.candle.removePriceLine(L.line); L.line = null; } return; }
-    const o = { price: plotOf(last.close), color: C.cross, lineWidth: 1 as const, lineStyle: h.lc.LineStyle.Dashed, axisLabelVisible: true, title: "", axisLabelColor: C.gold, axisLabelTextColor: C.tagFg };
+    const o = { price: plotOf(last.close), color: C.cross, lineWidth: 1 as const, lineStyle: h.lc.LineStyle.Dashed, lineVisible: phone, axisLabelVisible: phone, title: "", axisLabelColor: C.gold, axisLabelTextColor: C.tagFg };
     if (L.line) L.line.applyOptions(o); else L.line = h.candle.createPriceLine(o);
-  }, [last, ready, unit]);
+  }, [last, ready, unit, phone]);
 
   // ---- per frame: the pulsing ring + vertical line on the live candle, the dark price-axis strip, the pane clip
   useEffect(() => {
@@ -243,9 +263,17 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
       const h = chartRef.current, pane = paneRef.current, ring = ringRef.current, vl = vlineRef.current, strip = stripRef.current; if (!h || !pane || !ring || !vl || !strip) return;
       const c = candlesRef.current[candlesRef.current.length - 1], aw = h.chart.priceScale("right").width(), th = h.chart.timeScale().height();
       const x = c ? h.chart.timeScale().timeToCoordinate(c.time as UTCTimestamp) : null, y = c ? h.candle.priceToCoordinate(plotOf(c.close)) : null;
+      /* desktop guides + gold price tag (mockup): DOM lines positioned from the chart's coordinates */
+      if (!phoneRef.current) { const g = c ? guidesFor(c.close, Number((window as unknown as W).__entryMcap) || 0) : null, ph = pane.clientHeight;
+        const put = (el: HTMLDivElement | null, v: number | undefined, label?: string) => { if (!el) return; const yy = v && v > 0 ? h.candle.priceToCoordinate(plotOf(v)) : null;
+          const on = yy != null && yy >= 0 && yy <= ph; el.style.display = on ? "block" : "none"; if (on) el.style.transform = `translateY(${Math.round(yy!)}px)`;
+          const t = el.firstElementChild as HTMLElement | null; if (t && label != null && t.textContent !== label) t.textContent = label; };
+        put(nextRef.current, g?.next?.v, g?.next?.label); put(floorRef.current, g?.floor?.v, g?.floor?.label); put(entryRef.current, g?.entry);
+        const tag = tagRef.current; if (tag) { const on = y != null && c != null; tag.style.display = on ? "block" : "none";
+          if (on) { tag.style.transform = `translateY(${Math.round(Math.min(Math.max(y!, 9), ph - 9)) - 9}px)`; const s = k$(c!.close); if (tag.textContent !== s) tag.textContent = s; } } }
       const k = `${aw}|${th}|${x}|${y}`; if (k === prev) return; prev = k;
       strip.style.width = `${aw}px`; strip.style.bottom = `${th}px`; pane.style.right = `${aw}px`; pane.style.bottom = `${th}px`;
-      const on = x != null && y != null; ring.style.display = vl.style.display = on ? "block" : "none";
+      const on = phoneRef.current && x != null && y != null; ring.style.display = vl.style.display = on ? "block" : "none";
       if (on) { ring.style.transform = `translate(${Math.round(x!)}px, ${Math.round(y!)}px)`; vl.style.transform = `translateX(${Math.round(x!)}px)`; } };
     f(); return () => cancelAnimationFrame(id);
   }, [ready]);
@@ -272,7 +300,11 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
   const rsReset = () => updateLayout((l) => setCard(l, "chart", { w: 0, h: 0 }));
 
   useLayoutEffect(() => { const h = chartRef.current; if (!h) return;
-    h.chart.timeScale().applyOptions({ rightOffset: phone ? 2 : 4 }); h.chart.applyOptions({ layout: { fontSize: phone ? 10 : 9 } }); }, [phone, ready]);
+    h.chart.timeScale().applyOptions({ rightOffset: phone ? 2 : 7 }); h.chart.applyOptions({ layout: { fontSize: phone ? 10 : 9 } });
+    /* desktop = the approved mockup's ALTITUDE CHART: clean candles on the glass, no grid, axes or volume (the guides + gold tag are DOM) */
+    h.chart.applyOptions({ grid: { vertLines: { visible: phone }, horzLines: { visible: phone } }, rightPriceScale: { visible: phone, scaleMargins: phone ? { top: 0.12, bottom: 0.24 } : { top: 0.08, bottom: 0.08 } },
+      timeScale: { visible: phone }, crosshair: { vertLine: { visible: phone }, horzLine: { visible: phone } } });
+    h.vol.applyOptions({ visible: phone }); }, [phone, ready]);
   // unit toggle: rewrite the series in the new units; leave the time scale (pan / zoom / reset) alone
   useLayoutEffect(() => { if (!ready) return; paint(false);
     const h = chartRef.current; if (!h) return;
@@ -309,7 +341,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
               color: on ? HUD.ink : "rgba(215,217,228,.78)", background: on ? "#F2F3F7" : "transparent" }}>{t.l}</button>; })}   {/* selected = white pill (mockup) */}
         </div>
       </div>
-      <div className="dex-body" style={{ position: "relative", flex: "1 1 auto", minHeight: 0, background: C.plot,
+      <div className="dex-body" style={{ position: "relative", flex: "1 1 auto", minHeight: 0, background: phone ? C.plot : "transparent", margin: phone ? 0 : "2px 12px 10px 14px",
         backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)" /* sky still shows through; the rocket / feed text behind a big card stay quiet */ }}>
         <div ref={stripRef} aria-hidden style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 0, background: C.axis, pointerEvents: "none" }} />
         <div ref={plotRef} data-testid="dex-plot" style={{ position: "absolute", inset: 0 }} />
@@ -320,7 +352,14 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
             <span className="dex-ring" /><span className="dex-ring dex-ring2" /><span className="dex-dot" />
           </div>
         </div>
-        {shown && <div data-testid="dex-ohlc" style={{ position: "absolute", left: 4, top: 3, zIndex: 3, pointerEvents: "none", display: "flex", flexWrap: "wrap", gap: "0 6px",
+        {!phone && <div aria-hidden data-testid="dex-guides" style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 3, font: `700 12px/1 ${HUD.game}` }}>
+          <div ref={nextRef} data-testid="dex-next" style={{ position: "absolute", left: 0, right: 0, top: 0, display: "none", borderTop: "1px dashed rgba(243,223,168,.45)" }}><span style={{ position: "absolute", left: 4, bottom: 4, color: HUD.champagne }} /></div>
+          <div ref={floorRef} data-testid="dex-floor" style={{ position: "absolute", left: 0, right: 0, top: 0, display: "none", borderTop: "1px dashed rgba(215,217,228,.25)" }}><span style={{ position: "absolute", left: 4, top: 4, fontWeight: 600, color: "rgba(215,217,228,.6)" }} /></div>
+          <div ref={entryRef} data-testid="dex-entry" style={{ position: "absolute", left: 0, right: 0, top: 0, display: "none", borderTop: "1px solid rgba(242,193,78,.5)" }}><span style={{ position: "absolute", right: 58, bottom: 4, color: HUD.gold }}>YOU BOARDED</span></div>
+          <div ref={tagRef} data-testid="dex-tag" style={{ position: "absolute", right: 0, top: 0, display: "none", minWidth: 44, height: 18, padding: "0 6px", boxSizing: "border-box", borderRadius: 4,
+            background: HUD.gold, color: HUD.ink, font: `800 13px/18px ${HUD.game}`, textAlign: "center" }} />
+        </div>}
+        {shown && phone && <div data-testid="dex-ohlc" style={{ position: "absolute", left: 4, top: 3, zIndex: 3, pointerEvents: "none", display: "flex", flexWrap: "wrap", gap: "0 6px",
           fontSize: phone ? 10.5 : 9, lineHeight: phone ? "14px" : "12px", padding: "0 4px", borderRadius: 2, background: "rgba(8,10,20,.55)", maxWidth: "calc(100% - 70px)" }}>
           {!phone && <><span style={{ color: C.edge }}>O <b style={{ color: col, fontWeight: 400 }}>{fmtMcap(plotOf(shown.open))}</b></span>
             <span style={{ color: C.edge }}>H <b style={{ color: col, fontWeight: 400 }}>{fmtMcap(plotOf(shown.high))}</b></span>

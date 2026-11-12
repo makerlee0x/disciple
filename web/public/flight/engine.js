@@ -127,6 +127,12 @@ const fmtShot=v=>fmtMoney(v);   // = lib/pnl.ts fmtMoney: <$1K 2 decimals, then 
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const lerp=(a,b,t)=>a+(b-a)*t;
 // "buys needed" amounts: under $10 → cents rounded UP (min $0.01 while anything is needed), so a real need never shows "$0"
+/* header card money (approved mockup): Pro exact "$7,312" / "$12,000" (>= $1M keeps "$94.33M"); Pilot short "$7.3K" / "$12K" */
+const fmtFull=v=>v>=1e6?fmtUsd(v):'$'+Math.round(v).toLocaleString('en-US');
+const fmtShort=v=>fmtUsd(v).replace(/\.0(?=[KMB])/,'');
+const titleCase=s=>String(s||'').replace(/ to (.+)$/,(_,n)=>' to '+n.toLowerCase().replace(/(^|[\s-])(\S)/g,(a,b,c)=>b+c.toUpperCase()));
+/* need line as shown: "≈ $2,140 of boosts to go" in Pro (exact dollars), "≈ $2.1K …" in Pilot; tierNeedText stays the tested source */
+function needShown(nt,v){ let t=String(nt).replace(/^≈/,'≈ '); if(S.pro&&v>=10&&v<1e6) t=t.replace(fmtNeed(v),fmtFull(Math.ceil(v))); return t; }
 const fmtNeed=v=>!(v>0)?'$0':v<10?'$'+(Math.max(1,Math.ceil(v*100-1e-6))/100).toFixed(2):fmtUsd(Math.ceil(v));
 const fmtUsd=v=>v>=1e9?'$'+(v/1e9).toFixed(2)+'B':v>=1e6?'$'+(v/1e6).toFixed(2)+'M':v>=1e3?'$'+(v/1e3).toFixed(1)+'K':'$'+v.toFixed(0);
 function hash(n){n=Math.sin(n*127.1+311.7)*43758.5453;return n-Math.floor(n);}
@@ -1892,10 +1898,11 @@ function drawHud(){
   const PROH=S.pro&&!PH&&!S.graduated&&!IS_POOL?28:0;   /* Pro: + the orbit / holders line (curve coins; a DEX pool has no orbit) */
   if (cardBegin('header',20,18,380,130+HY+PROH)){   /* @cards */
   panel(20,18,380,130+HY+PROH); ctx.save(); ctx.translate(0,HY);
-  { const lbl=IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}`:(coinTicker()&&!(source instanceof DiscipleSource)?'$'+coinTicker()+' · ':'')+(S.pro?'MARKET CAP':'ALTITUDE');   /* mockup: Pilot reads altitude, Pro reads market cap */
+  { const lbl=(coinTicker()?'$'+coinTicker()+' · ':'')+(S.pro?'MARKET CAP':'ALTITUDE');   /* approved mockup: "$LUNA · ALTITUDE" (Pilot) / "$LUNA · MARKET CAP" (Pro); no PRICE label, no identity row (maker Nov 12) */
     if(lbl){ ctx.fillStyle='rgba(215,217,228,.72)'; ctx.font=GF(14,600); if('letterSpacing' in ctx) ctx.letterSpacing='2px'; ctx.fillText(lbl,36,40); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; } }
   drawBadge(diffBadge(),384,36);   /* brand v3 difficulty badge: EASY / HARD / EXPERT, IN ORBIT after graduation */
-  ctx.fillStyle='#fff'; ctx.font=GF(46,800); glowText(fmtUsd(m),34,86,'rgb(243,223,168)',8,0.22);
+  ctx.fillStyle='#fff'; ctx.font=GF(46,800); { const big=S.pro?fmtFull(m):fmtShort(m); glowText(big,34,86,'rgb(243,223,168)',8,0.22);   /* Pro: exact dollars "$7,312"; Pilot "$7.3K" */
+    const ch=S.pro?change24h(m):null; if(ch!=null){ const bw=ctx.measureText(big).width; ctx.font=GF(18,700); ctx.fillStyle=ch>=0?'#5FF0A0':'#FF7FB3'; ctx.fillText(`${ch>=0?'▲':'▼'} ${Math.abs(ch)>=100?Math.round(Math.abs(ch)):Math.abs(ch).toFixed(1)}% 24H`,34+bw+10,86); } }
   ctx.fillStyle='#F3DFA8'; ctx.font=GF(20,700); ctx.fillText(tierText(ti),36,108);
   // pass 3 #2 (lee): no mode / cap text ('TRENCH · no cap') on the TIER line — the tier name (ASCENDED once, when ascended) only
   // progress to next tier
@@ -2716,19 +2723,18 @@ function drawTierBar(m,ti,leftEnd){
   // 'ASCENDED · trading on Uniswap' badge under it (drawGradBadgeDesk) is gone; an ascended coin gets the same progress bar +
   // '+X% to NEXT' label as any coin (no curve '$ to ascend' need text). S.gradBadge stays as the state flag (worker mirror).
   S.gradBadge=S.graduated?GRAD_BADGE:''; if (S.graduated) S.tierNeedText='';
-  ctx.fillStyle='rgba(255,255,255,.10)'; ctx.fillRect(X,Y,BW,BH);
-  const g=ctx.createLinearGradient(X,0,X+BW,0); g.addColorStop(0,'#c99b3c'); g.addColorStop(1,'#ffe7a3'); ctx.fillStyle=g; ctx.fillRect(X,Y,Math.max(2,BW*f),BH);
-  ctx.fillStyle='rgba(255,255,255,.35)'; for(let i=1;i<4;i++) ctx.fillRect(X+BW*i/4,Y,1,BH);
-  ctx.strokeStyle='rgba(255,231,163,.35)'; ctx.lineWidth=1; ctx.strokeRect(X+.5,Y+.5,BW-1,BH-1);
-  ctx.font=GF(14,600); ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.66)';
-  { let lb=tierLabel(m,nx); if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));   // long tier text: fall back to the bare %
+  /* approved mockup: a 6 px rounded track, solid gold fill (no quarter ticks / outline) */
+  const pill=(x,w)=>{ ctx.beginPath(); ctx.roundRect? ctx.roundRect(x,Y,w,6,3) : ctx.rect(x,Y,w,6); ctx.fill(); };
+  ctx.fillStyle='rgba(255,255,255,.12)'; pill(X,BW); ctx.fillStyle='#F2C14E'; pill(X,Math.max(6,BW*f));
+  ctx.font=GF(14,600); ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.7)';
+  { let lb=tierLabel(m,nx); if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to ')); lb=titleCase(lb);   // long tier text: fall back to the bare %; mockup "+65% to Ozone"
     if(lb&&(leftEnd||0)+12<=384-ctx.measureText(lb).width) ctx.fillText(lb,384,108); }   // …and never over the TIER text
   ctx.textAlign='left'; ctx.font=GF(14,600);
-  if (nx){ ctx.fillStyle='rgba(215,217,228,.85)'; if(!S.graduated) ctx.fillText(`NEXT · ${nx.name} ${fmtUsd(nx.lo)}`,X,Y+BH+15);
+  if (nx){ ctx.fillStyle='rgba(215,217,228,.78)'; if(!S.graduated) ctx.fillText(`NEXT · ${nx.name} ${S.pro?fmtFull(nx.lo):fmtShort(nx.lo)}`,X,Y+BH+15);   /* mockup: Pro "$12,000", Pilot "$12K" */
     // need line (GAME post-grad fix 2): the exact curve amount when TradeBridge has it ("$0.29 to ascend") and ONLY that; else
     // the HUD estimate, marked ≈ … (est.); amounts round UP to the cent (fmtNeed) — never "≈$0"; nothing once graduated
     const nt=tierNeedText(m,nx,{graduated:S.graduated,exact:S.gradNeedUsd,est:S.gradNeedUsd!=null&&m<TB_M1?0:usdToReach(m,nx.lo)}); S.tierNeedText=nt;
-    if(nt){ ctx.textAlign='right'; ctx.fillStyle=S.gradNeedUsd!=null&&m<TB_M1?'#5FF0A0':'rgba(95,240,160,.78)'; ctx.fillText(nt,384,Y+BH+15); ctx.textAlign='left'; } }
+    if(nt){ ctx.textAlign='right'; ctx.fillStyle='#5FF0A0'; ctx.fillText(needShown(nt,S.gradNeedUsd!=null&&m<TB_M1?S.gradNeedUsd:usdToReach(m,nx.lo)),384,Y+BH+15); ctx.textAlign='left'; } }
   else { ctx.fillStyle='#F3DFA8'; drawIcon('star',X,Y+BH+4,12,'#F3DFA8'); ctx.fillText('TOP ZONE',X+15,Y+BH+15); }
 }
 
@@ -2798,6 +2804,11 @@ function setChartMap(on){ if(domChart()){ try{ dispatchEvent(new CustomEvent('di
 function setChartTf(s){ const C=chartState(); if(!(s in C.k)) return C.tf; C.tf=s; C.L0=C.L1=null; C.at=-1; try{ localStorage.setItem('disciple.chartmap.tf',String(s)); }catch(_){} return s; }
 const chartNow=()=>chartState().T0+S.t;
 /* one tick into every interval: price m (mcap), optional swap volume */
+/* Pro header "▲ 412% 24H": vs the 1 h candle 24 h ago; a curve coin younger than that is measured from its launch mcap */
+function change24h(m){ if(!(m>0)||typeof CH==='undefined'||!CH) return null; const k=CH.k[3600]||[], now=chartNow(), b0=Math.floor((now-86400)/3600);
+  if(!k.length) return null; let base=null;
+  for(const c of k){ if(c.b>=b0){ base=c.b-b0<=1?c.o:(IS_POOL?c.o:START_MCAP); break; } }
+  if(base==null) base=k[k.length-1].c; return base>0?(m/base-1)*100:null; }
 function chartTick(m,usd,side){ if(!(m>0)) return; const C=chartState(), t=chartNow(), keep=CHART_STYLE.keep;
   for(const s in C.k){ const a=C.k[s], b=Math.floor(t/s); let k=a[a.length-1];
     if(!k||k.b<b){ if(k){ for(let g=Math.max(k.b+1,b-keep);g<b;g++) a.push({b:g,o:k.c,h:k.c,l:k.c,c:k.c,v:0}); }   /* gaps → flat dojis */
@@ -2894,66 +2905,48 @@ function redrawChart(dt){
       if(on){ g.fillStyle='#F2F3F7'; g.beginPath(); g.roundRect? g.roundRect(x,7,bw,st.title-6,6) : g.rect(x,7,bw,st.title-6); g.fill(); }   /* selected = white pill (mockup) */
       g.fillStyle=on?'#121327':'rgba(215,217,228,.78)'; g.textAlign='center'; g.fillText(t.l,x+bw/2,tyM); C.btn.push({s:t.s,x,y:5,w:bw,h:st.title-4}); x-=2; }
     g.textAlign='left'; }
-  // plot area (faint grid; the A–H / 1–5 spreadsheet edge labels are gone, Oct 30); bottom strip = time axis, bottom band = volume
-  const px=5+st.gutter, py=st.title+3+st.top, pw=w-5-st.axis-px, xh=st.xaxis, ph=h-6-xh-py, vh=Math.round(ph*st.volFrac), pph=ph-vh-2;
-  /* plot sits straight on the card glass (no inner panel) */
-  const NC=8, NR=5;
-  g.strokeStyle=st.grid; g.lineWidth=1; g.beginPath();
-  for(let i=0;i<=NC;i++){ const x=Math.round(px+pw*i/NC)+.5; g.moveTo(x,py); g.lineTo(x,py+ph); }
-  for(let j=0;j<=NR;j++){ const y=Math.round(py+ph*j/NR)+.5; g.moveTo(px,y); g.lineTo(px+pw,y); } g.stroke();
+  /* plot (approved mockup "Desktop · Pro HUD" ALTITUDE CHART, maker Nov 12: "the price chart is old"): clean candles straight
+     on the glass. No OHLC strip, grid, axis column, time axis or volume. Dashed next-zone line labelled at the top
+     ("OZONE $12K"), the current zone's floor as the dim LAUNCH PAD line, a gold YOU BOARDED line at your entry and a gold
+     price tag on the right edge. */
+  const TAGW=54, px=14, py=st.title+10, pw=w-px-12, ph=h-py-16, cpw=pw-TAGW;
   g.textAlign='left';
-  const tf=C.tf, all=C.k[tf]||[], now=chartNow(), n=st.candles, cw=pw/n, RT=now;   /* fixed live window: n candles, right edge = now */
-  /* time → x: smooth scroll; latest bucket's centre sits ~1 candle in from the right edge (panned: the view's right edge RT) */
-  const X=b=>px+pw-((RT+tf*0.6)-(b+0.5)*tf)/tf*cw;
-  const cs=[]; for(const k of all){ const x=X(k.b); if(x>px-cw&&x<px+pw+cw) cs.push(k); }
-  g.font='8px ui-monospace,monospace';
-  if (!cs.length){ g.fillStyle=st.edgeFg; g.fillText('waiting for trades…',px+8,py+pph/2); return; }
-  const last=cs[cs.length-1], first=cs[0];
-  // OHLC readout (current candle) + % change vs its open
-  { const ch=(last.c/last.o-1)*100, col=last.c>=last.o?st.up:st.down; let x=px+3; const parts=[['O',last.o],['H',last.h],['L',last.l],['C',last.c]];
-    const oy=py+9; g.fillStyle='rgba(8,10,20,.55)'; g.fillRect(px+1,py+1,pw-2,11);
-    for(const [lb,v] of parts){ g.fillStyle=st.edgeFg; g.fillText(lb,x,oy); x+=g.measureText(lb).width+2; g.fillStyle=col; const s=fmtUsd(v); g.fillText(s,x,oy); x+=g.measureText(s).width+6; }
-    g.fillStyle=col; g.fillText((ch>=0?'+':'')+ch.toFixed(2)+'%',x,oy); }
-  // y-scale (log mcap): target from visible highs/lows, eased so the axis never jumps; snaps open to keep the price inside
-  let lo=Infinity, hi=-Infinity, vmax=0; for(const k of cs){ if(k.l<lo) lo=k.l; if(k.h>hi) hi=k.h; if(k.v>vmax) vmax=k.v; }
-  const lg=Math.log, span=Math.max(lg(hi/lo),0.02), pad=span*0.12, T0=lg(lo)-pad, T1=lg(hi)+pad;
+  const tf=C.tf, all=C.k[tf]||[], now=chartNow(), n=st.candles, cw=cpw/n, RT=now;   /* fixed live window: n candles, right edge = now */
+  const X=b=>px+cpw-((RT+tf*0.6)-(b+0.5)*tf)/tf*cw;
+  const cs=[]; for(const k of all){ const x=X(k.b); if(x>px-cw&&x<px+cpw+cw) cs.push(k); }
+  if (!cs.length){ g.font=`12px ${UI_FAMILY}`; g.fillStyle='rgba(215,217,228,.6)'; g.fillText('Waiting for the first trades…',px,py+ph/2); return; }
+  const last=cs[cs.length-1], cur=last.c;
+  let lo=Infinity, hi=-Infinity; for(const k of cs){ if(k.l<lo) lo=k.l; if(k.h>hi) hi=k.h; }
+  /* the zone you're in, the next one and your entry frame the plot, but only while the candles still fill ≥ 35% of it
+     (a calm coin far from both zone lines keeps readable candles; the lines then sit off the plot) */
+  let ti=0; for(let i=0;i<TIERS.length;i++) if(cur>=TIERS[i].lo) ti=i;
+  const floorT=TIERS[ti], nextT=TIERS[ti+1], entry=+(typeof window!=='undefined'&&window.__entryMcap)||0;
+  { const s0=Math.max(Math.log(hi/lo),0.02), fit=(a,b)=>s0/Math.max(Math.log(b/a),0.02)>=0.35;
+    for(const v of [entry,nextT&&nextT.lo,floorT&&floorT.lo]){ if(!(v>0)) continue; if(v>hi&&fit(lo,v)) hi=v; else if(v<lo&&fit(v,hi)) lo=v; } }
+  const lg=Math.log, span=Math.max(lg(hi/lo),0.02), pad=span*0.06, T0=lg(lo)-pad, T1=lg(hi)+pad;
   if(C.L0==null){ C.L0=T0; C.L1=T1; } else { const a=1-Math.exp(-(dt||0.125)*5); C.L0+=(T0-C.L0)*a; C.L1+=(T1-C.L1)*a; C.L0=Math.min(C.L0,lg(lo)); C.L1=Math.max(C.L1,lg(hi)); }
-  const L0=C.L0, L1=C.L1, pt=py+12, pa=pph-12, Y=v=>pt+pa*(1-(lg(v)-L0)/(L1-L0));   /* price area below the OHLC readout */
-  // time axis labels under the grid (wall clock live, elapsed m:ss in replay)
-  const NT=4, step=(CHART_LABEL_STEP[tf]||tf*8)*Math.max(1,Math.ceil(n/st.candles)); g.fillStyle=st.edgeFg; g.textAlign='center';
-  for(let t=Math.ceil((RT-tf*n)/step)*step;t<=RT;t+=step){ const x=X(t/tf-0.5); if(x>px+12&&x<px+pw-12) g.fillText(chartTimeLabel(t,tf,C.live),x,py+ph+xh-1); }
-  g.textAlign='left';
-  g.save(); g.beginPath(); g.rect(px,py,pw,ph); g.clip();
-  // tier thresholds (dashed, labelled)
-  for(const t of TIERS){ const v=t.lo; if(lg(v)<L0||lg(v)>L1) continue; const y=Math.round(Y(v))+.5;
-    g.strokeStyle=st.tier; g.setLineDash([4,3]); g.beginPath(); g.moveTo(px,y); g.lineTo(px+pw,y); g.stroke(); g.setLineDash([]);
-    g.fillStyle=st.tierFg; g.fillText(t.name,px+3,y-3); }
-  // volume bars (bottom band), coloured by candle direction
-  const bw=Math.max(1,Math.floor(cw*0.62)), vb=py+ph;
-  if(vmax>0) for(const k of cs){ if(!(k.v>0)) continue; const x=Math.round(X(k.b)), hh=Math.max(1,Math.round(vh*k.v/vmax)); g.fillStyle=k.c>=k.o?st.volUp:st.volDown; g.fillRect(x-(bw>>1),vb-hh,bw,hh); }
-  // candles (doji = 1 px body)
-  for(const k of cs){ const x=Math.round(X(k.b)), up=k.c>=k.o; g.fillStyle=up?st.up:st.down;
+  const L0=C.L0, L1=C.L1, Y=v=>py+ph*(1-(lg(v)-L0)/(L1-L0)), inR=v=>v>0&&lg(v)>=L0&&lg(v)<=L1;
+  const k$=v=>fmtUsd(v).replace(/\.0(?=[KMB])/,'');
+  const hline=(v,col,dash)=>{ const y=Math.round(Y(v))+.5; g.strokeStyle=col; g.lineWidth=1; g.setLineDash(dash||[]); g.beginPath(); g.moveTo(px,y); g.lineTo(px+pw,y); g.stroke(); g.setLineDash([]); return y; };
+  g.font=GF(12,700);
+  if(nextT&&inR(nextT.lo)){ const y=hline(nextT.lo,'rgba(243,223,168,.45)',[3,4]); g.fillStyle='#F3DFA8'; g.fillText(nextT.name+' '+k$(nextT.lo),px+4,y-6); }
+  if(floorT&&inR(floorT.lo)){ const y=hline(floorT.lo,'rgba(215,217,228,.25)',[3,4]); g.font=GF(12,600); g.fillStyle='rgba(215,217,228,.6)'; g.fillText(floorT.name,px+4,Math.min(y+14,h-4)); g.font=GF(12,700); }
+  if(entry>0&&inR(entry)){ const y=hline(entry,'rgba(242,193,78,.5)'); g.fillStyle='#F2C14E'; g.textAlign='right'; g.fillText('YOU BOARDED',px+cpw-4,y-4); g.textAlign='left'; }
+  g.save(); g.beginPath(); g.rect(px,py-4,cpw+4,ph+8); g.clip();
+  const bw=Math.max(2,Math.floor(cw*0.64)), rr=(x,y,ww,hh)=>{ g.beginPath(); g.roundRect? g.roundRect(x,y,ww,hh,Math.min(1,ww/2,hh/2)) : g.rect(x,y,ww,hh); g.fill(); };
+  for(const k of cs){ const x=Math.round(X(k.b)), up=k.c>=k.o; g.fillStyle=up?'#5FF0A0':'#F0307F';
     g.fillRect(x,Math.round(Y(k.h)),1,Math.max(1,Math.round(Y(k.l)-Y(k.h))));
-    const yo=Y(k.o), yc=Y(k.c); g.fillRect(x-(bw>>1),Math.round(Math.min(yo,yc)),bw,Math.max(1,Math.round(Math.abs(yc-yo)))); }
-  // own buys/sells on their candle
-  for(const t of C.mine){ const x=X(Math.floor(t.t/tf)); if(x<px||x>px+pw) continue; const y=Y(t.m), buy=t.side==='buy';
-    g.fillStyle=buy?st.mineBuy:st.mineSell; g.strokeStyle='#0b0a12'; g.lineWidth=1; g.beginPath();
+    const yo=Y(k.o), yc=Y(k.c); rr(x-(bw>>1),Math.round(Math.min(yo,yc)),bw,Math.max(2,Math.round(Math.abs(yc-yo)))); }
+  /* your own fills: a small arrow on their candle */
+  for(const t of C.mine){ const x=X(Math.floor(t.t/tf)); if(x<px||x>px+cpw) continue; const y=Y(t.m), buy=t.side==='buy';
+    g.fillStyle=buy?'#5FF0A0':'#F0307F'; g.strokeStyle='#121327'; g.lineWidth=1; g.beginPath();
     if(buy){ g.moveTo(x,y+3); g.lineTo(x-4,y+10); g.lineTo(x+4,y+10); } else { g.moveTo(x,y-3); g.lineTo(x-4,y-10); g.lineTo(x+4,y-10); }
     g.closePath(); g.fill(); g.stroke(); }
-  // Warzone crosshair through the live candle / current price + glowing ringed marker
-  const cur=last.c, cx=Math.round(X(last.b))+.5, cy=Math.round(Y(cur))+.5;
-  g.strokeStyle=st.cross; g.lineWidth=1; g.beginPath(); g.moveTo(cx,py); g.lineTo(cx,py+ph); g.stroke();
-  g.setLineDash([2,2]); g.beginPath(); g.moveTo(px,cy); g.lineTo(px+pw,cy); g.stroke(); g.setLineDash([]);   /* dotted current-value line */
-  const pulse=0.5+0.5*Math.sin(S.t*4);
-  g.fillStyle='rgba(159,243,200,.18)'; g.beginPath(); g.arc(cx,cy,9+pulse*2,0,Math.PI*2); g.fill();   /* glow without shadowBlur (cheap) */
-  g.strokeStyle=st.marker; g.lineWidth=1.5; g.beginPath(); g.arc(cx,cy,6+pulse*1.5,0,Math.PI*2); g.stroke();
-  g.globalAlpha=.45; g.beginPath(); g.arc(cx,cy,10+pulse*2,0,Math.PI*2); g.stroke(); g.globalAlpha=1;
-  g.fillStyle='#fff'; g.beginPath(); g.arc(cx,cy,2.2,0,Math.PI*2); g.fill();
   g.restore();
-  // right price axis + highlighted current-value tag
-  const ax=px+pw+2; g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(ax,py,st.axis-7,ph); g.fillStyle=st.axisFg; g.font='8px ui-monospace,monospace';
-  for(let j=0;j<=NT;j++){ const v=Math.exp(L1-(L1-L0)*j/NT), y=pt+pa*j/NT; if(Math.abs(y-cy)<10) continue; g.fillText(fmtUsd(v),ax+3,clamp(y+3,py+7,pt+pa)); }
-  g.fillStyle=st.priceTag; g.fillRect(ax,cy-6,st.axis-7,12); g.fillStyle='#1a1630'; g.font='bold 8px ui-monospace,monospace'; g.fillText(fmtUsd(cur),ax+3,cy+3);
+  /* gold price tag on the right edge at the live value */
+  { const s=k$(cur); g.font=GF(13,800); const tw=Math.max(44,Math.ceil(g.measureText(s).width)+12), cy=clamp(Math.round(Y(cur)),py+9,py+ph-9), tx=px+pw-tw;
+    g.fillStyle='#F2C14E'; g.beginPath(); g.roundRect? g.roundRect(tx,cy-9,tw,18,4) : g.rect(tx,cy-9,tw,18); g.fill();
+    g.fillStyle='#121327'; g.textAlign='center'; g.fillText(s,tx+tw/2,cy+4.5); g.textAlign='left'; }
 }
 /* @chartnav (pass 3 #3: hand-rolled drag pan / wheel zoom / ⟲ LIVE) retired Oct 30: the live coin page's chart is the DOM
    DEX chart (components/flight/DexChart.tsx, lightweight-charts: pan / zoom / price-axis drag built in). The canvas chart

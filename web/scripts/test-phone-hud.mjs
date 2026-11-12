@@ -32,7 +32,7 @@ ok(!/PHONE_TABS|phone-tabs|"STAT"|"T\/W"/.test(hud), "old 8 edge tabs removed");
 ok(/data-testid="phone-dim" onPointerDown=\{\(e\) => \{ e\.preventDefault\(\); setSheet\(null\); \}\}/.test(hud), "tap the dimmed sky closes");
 ok(/e\.clientY - s\.y > 36\) setSheet\(null\)/.test(hud) && /e\.key === "Escape" && sheetRef\.current\) setSheet\(null\)/.test(hud), "swipe down / Esc close");
 ok(/dy < -18 \|\| Math\.abs\(dy\) < 8\) setSheet\(lastTab\.current\)/.test(hud), "swipe up / tap the handle opens");
-ok(/\[data-testid="phone-drawer"\]'\);/.test(sm), "Esc with the drawer open closes it (Settings does not open)");
+ok(/\[data-testid="phone-drawer"\](, \[data-testid="flight-menu"\])?'\);/.test(sm), "Esc with the drawer open closes it (Settings does not open)");
 ok(/new URLSearchParams\(location\.search\)\.get\("clean"\) === "1"\) return/.test(hud) && /if \(!phone \|\| !L\) return null;/.test(hud), "?clean=1 / desktop render nothing");
 ok(hud.match(/DRAWER_BG = "([^"]+)"/)[1] === eng.match(/const PH_DRAWER_BG='([^']+)'/)[1], "drawer tint == engine body tint");
 ok(/html\.ap-phone \[data-testid="settings-btn"\]/.test(hud) && !/phone-settings/.test(hud), "gear hidden on phone; no interim Run-tab Settings button (SITE Sidebar 'Settings' item, #149)");
@@ -221,7 +221,8 @@ ok(!/setPointerCapture/.test(hud.match(/const down = [^\n]*/)[0]) && /data-testi
 { const id = rd("components/pairart/CoinIdentity.tsx"), css = rd("app/globals.css");
   const f = new Function("window", eng.match(/function coinIdRowH\(\)\{[^\n]*\}/)[0] + "\nreturn coinIdRowH;");
   ok(f({ __coinIdH: 46 })() === 46 && f({})() === 0 && f({ __coinIdH: -3 })() === 0 && f({ __coinIdH: 900 })() === 64, "coinIdRowH: published row height, 0 when unset, clamped");
-  ok(/\(coinTicker\(\)&&!\(source instanceof DiscipleSource\)\?'\$'\+coinTicker\(\)\+' · ':''\)\+\(S\.pro\?'MARKET CAP':'ALTITUDE'\)/.test(eng), "coin page: the card has an ALTITUDE label (brand v3: market cap reads as altitude)");
+  ok(/const lbl=\(coinTicker\(\)\?'\$'\+coinTicker\(\)\+' · ':''\)\+\(S\.pro\?'MARKET CAP':'ALTITUDE'\);/.test(eng) && !/`PRICE \$\$\{/.test(eng), "header card: \"$TICKER · ALTITUDE\" (Pilot) / \"· MARKET CAP\" (Pro), no PRICE label (approved mockup, maker Nov 12)");
+  ok(/@media \(min-width: 761px\) \{ \.coin-id \{ display: none !important; \} \}/.test(css), "desktop: no identity row in the header card (approved mockup)");
   ok(/drawTierBar\(m,ti,tierEnd\);[^\n]*\n(  if \(PROH\) drawProHeaderLine\(m\);\n)?  ctx\.restore\(\); ctx\.restore\(\); \} \}/.test(eng), "card contents shifted under the identity row, restored after the tier bar (+ the @cards translate)");
   ok(/w\.__coinIdH = window\.matchMedia\?\.\("\(max-width: 760px\)"\)\.matches \? 0 : Math\.ceil/.test(id) && !/mcap/.test(id.replace(/\/\/[^\n]*/g, "")), "CoinIdentity publishes its row height (0 on phones); no separate mcap in it");
   ok(/\.coin-id \{ position: fixed; left: calc\(var\(--ap-rail-w, 64px\) \+ 28px\); top: 24px;/.test(css) && !/\.coin-id \{[^}]*backdrop-filter/.test(css), "name row sits inside the card (no own pill scrim)");

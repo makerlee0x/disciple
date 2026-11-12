@@ -31,8 +31,9 @@ export default function FlightPath() {
   if (hud === "pro" || phone) return null;
   const cur = pts.length ? pts[pts.length - 1].m : 0;
   const next = cur > 0 ? FLIGHT_TIERS[tierIndexAt(cur) + 1] : undefined;
-  const lo = pts.length ? Math.min(...pts.map((p) => p.m)) : 0;
-  const hi = Math.max(pts.length ? Math.max(...pts.map((p) => p.m)) : 1, next ? Math.min(next.lo, cur * 1.6) : 0);
+  const lo = pts.length ? Math.min(...pts.map((p) => p.m)) : 0, hi0 = pts.length ? Math.max(...pts.map((p) => p.m)) : 1;
+  // the next zone's dashed line joins the plot only while the path still fills ≥ 35% of it (else the line reads flat)
+  const hi = next && next.lo > hi0 && Math.max(hi0 - lo, hi0 * 0.01) / (next.lo - lo) >= 0.35 ? next.lo : hi0;
   const span = hi - lo || hi * 0.1 || 1, t0 = Date.now() - WINDOW_MS;
   const y = (m: number) => Math.round(H - 6 - ((m - lo) / span) * (H - 18));
   const x = (t: number) => Math.round(((t - t0) / WINDOW_MS) * W);
