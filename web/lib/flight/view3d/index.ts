@@ -118,6 +118,16 @@ export async function startView3D(wrap: HTMLElement, search: string): Promise<()
     await view.wantWorld(fl?.S?.bgU ?? 0);
     if (stopped) { view.dispose(); view = null; return () => {}; }
     if (!view.world) throw new Error("no world plate for the hull");
+    // STEP 3 post stack (post.ts). If it cannot start, the view renders without it — never fails the flight.
+    try {
+      const { makePost, pickPost } = await import("./post");
+      const R = view.rocket;
+      view.post = await makePost({ renderer, backend, kind: pickPost(search, quality), scene: view.scene, camera: view.camera,
+        ship: [R.hull], width: innerWidth, height: innerHeight,
+        ratio: (renderer as { getPixelRatio?: () => number }).getPixelRatio?.() || 1 });
+      view.post?.setPunch(view.world.punch);
+    } catch (e) { console.warn("[flight 3d] post stack off:", e); view.post = null; }
+    if (stopped) { view.dispose(); view = null; return () => {}; }
     handle.backend = backend;
     Object.defineProperty(handle, "_view", { value: view, enumerable: false, configurable: true });   // for the screenshot / debug scripts
     (renderer as { domElement?: HTMLCanvasElement }).domElement?.addEventListener?.("webglcontextlost", (e) => { e.preventDefault(); fail("WebGL context lost"); });

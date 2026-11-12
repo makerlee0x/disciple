@@ -75,6 +75,15 @@ ok(/hyper \* 700 \* dt/.test(sc) && /starAmt = Math\.max\(smooth\(2\.6, 4\.2, V\
 ok(/V\.H \* 0\.82 - V\.y/.test(sc), "big-sell drop never pushes the rocket out of the flight lane");
 ok(/ROCKET_H = 150/.test(rd("lib/flight/view3d/rocket.ts")) && /H \/ 2 \/ TANH/.test(sc), "same framing: flight plane maps 1:1 to screen px, rocket 150 px tall at the engine's nozzle point");
 
+console.log("— 4b. step 3 post stack");
+const po = rd("lib/flight/view3d/post.ts");
+ok(/kind === "lite" \? "lite" : "full"|quality === "lite" \? "lite" : "full"/.test(po) && /if \(full\) \{[\s\S]*SSRPass[\s\S]*GTAOPass/.test(po), "post: SSR + GTAO only on the full (desktop) preset; lite = filmic + light bloom");
+ok(/threshold: 2\.5, cap: 3\.0/.test(po) && /bloom: \{ full: 0\.0\d+, lite: 0\.0\d+ \}/.test(po), "post: tight bloom (threshold 2.5, input capped at 3, strength ~0.01)");
+ok(/smoothstep\( 0\.6, 1\.0, t\.a \)/.test(po) && !/f3d-bg/.test(po.replace(/canvas\.f3d-bg\) and never/, "")), "post: grade weighted by the ship layer's alpha; the sky canvas is never touched");
+ok(/P\?\.heavy[\s\S]*P\.setHeavy\(false\)/.test(sc), "governor drops SSR + AO before resolution or frames");
+ok(/post stack off/.test(idx3), "post stack failing never fails the flight (plain render)");
+ok(!/clearcoat: [1-9]/.test(rd("lib/flight/view3d/rocket.ts")), "clear coat stays off");
+
 console.log("— 5. no takeoff on the game page; sounds");
 const all = [eng, fc, idx3, sc, rd("lib/game/sfx.ts"), rd("components/flight/FlightSfx.tsx")].join("\n");
 ok(!/takeoff=1|countdown|3-2-1|ignition/i.test(all.replace(/snipeCountdown|SnipeCountdown|SNIPE_COUNTDOWN|snipe countdown|countdown chip|launch countdown/gi, "")), "no takeoff / 3-2-1 / ignition in the flight engine, 3D view or sounds");

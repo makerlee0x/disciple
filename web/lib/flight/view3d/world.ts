@@ -33,13 +33,15 @@ export type WorldTier = {
   /** scene.environmentIntensity and renderer exposure, tuned by eye against rocket-hi.webp */
   envI: number;
   exposure: number;
+  /** STEP 3: filmic contrast on the ship layer only (post.ts "punch"; 1 = none). The sky canvas is never graded. */
+  punch: number;
   /** lights.json key light (dir_threejs_equirectUv, colour_hex) + any other light already in the plate */
   lights: L[];
 };
 
 // directions are in the plate's own (un-rotated) equirectUv frame, copied from lights.json; ENV_ROT_Y is applied below
 export const WORLD_TIERS: WorldTier[] = [
-  { id: "launch-pad", tier: 0, name: "LAUNCH PAD", hdr: "/world/env/launch-pad.hdr", envI: 1.0, exposure: 1.15, lights: [
+  { id: "launch-pad", tier: 0, name: "LAUNCH PAD", hdr: "/world/env/launch-pad.hdr", envI: 1.0, exposure: 1.15, punch: 1.16, lights: [
     { dir: [0.9006, 0.4345, 0.0119], color: "#fff3e6", intensity: 6.0 },          // the moon (lights.json key); r2: harder
     // sodium city lights spread across the plate just under its horizon (plate px y ≈ 360–520), colour = median of those
     // pixels in the approved plate (#cc976d). Low, warm, from where they are in the picture.
@@ -47,17 +49,17 @@ export const WORLD_TIERS: WorldTier[] = [
     { dir: [0.97, -0.12, 0.20], color: "#cc976d", intensity: 1.8 },
     { dir: [0.75, -0.12, 0.65], color: "#cc976d", intensity: 1.4 },
   ] },
-  { id: "ozone", tier: 1, name: "OZONE", hdr: "/world/env/ozone.hdr", envI: 1.0, exposure: 1.1, lights: [
+  { id: "ozone", tier: 1, name: "OZONE", hdr: "/world/env/ozone.hdr", envI: 1.0, exposure: 1.1, punch: 1.08, lights: [
     { dir: [0.8442, -0.4877, 0.2224], color: "#fff8fe", intensity: 2.2 },          // glow on the cloud horizon
   ] },
-  { id: "outer-space", tier: 4, name: "OUTER SPACE", hdr: "/world/env/outer-space.hdr", envI: 1.0, exposure: 1.15, lights: [
+  { id: "outer-space", tier: 4, name: "OUTER SPACE", hdr: "/world/env/outer-space.hdr", envI: 1.0, exposure: 1.15, punch: 1.08, lights: [
     { dir: [0.9968, -0.0793, 0.0051], color: "#ffe4e4", intensity: 1.6 },          // galactic core (lights.json key)
     { dir: [0.132, 0.672, 0.729], color: "#f4f2ff", intensity: 1.4 },              // the small moon, plate px (1207, 60) per README
   ] },
-  { id: "the-moon", tier: 8, name: "THE MOON", hdr: "/world/env/the-moon.hdr", envI: 1.0, exposure: 1.1, lights: [
+  { id: "the-moon", tier: 8, name: "THE MOON", hdr: "/world/env/the-moon.hdr", envI: 1.0, exposure: 1.1, punch: 1.06, lights: [
     { dir: [0.8544, 0.4833, 0.1907], color: "#fef6ff", intensity: 5.0 },           // moon disk and rim
   ] },
-  { id: "seventh-heaven", tier: 17, name: "SEVENTH HEAVEN", hdr: "/world/env/seventh-heaven.hdr", envI: 0.85, exposure: 0.9, lights: [
+  { id: "seventh-heaven", tier: 17, name: "SEVENTH HEAVEN", hdr: "/world/env/seventh-heaven.hdr", envI: 0.85, exposure: 0.9, punch: 1.08, lights: [
     { dir: [0.59, -0.1664, 0.7901], color: "#fffaee", intensity: 5.0 },           // low sun and its glint
   ] },
 ];

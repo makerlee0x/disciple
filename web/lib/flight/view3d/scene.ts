@@ -24,6 +24,7 @@ import { ENV_ROT_Y, WorldLights, worldFor, loadWorldHDR, type WorldTier } from "
 import { Quads, SmokeQuads, PPool, lightBlend } from "./particles";
 import { radialTex, puffTex, cloudTex, flameTex, streakTex } from "./textures";
 import { govInit, govStep, type Gov, type Preset, type View3DBackend } from "./detect";
+import type { FlightPost } from "./post";
 
 export type Snap = {
   W: number; H: number; t: number; dt: number; ts: number;
@@ -93,8 +94,10 @@ export class FlightView3D {
   private tmp = new Object3D(); private v3 = new Vector3(); private col = new Color(); private col2 = new Color();
   private t = 0;
   private hit = { x: 0, y: 0, z: 0, s: 1 };
+  /** STEP 3 post stack (post.ts); null = plain render */
+  post: FlightPost | null = null;
   visible = true;
-  stats = { frames: 0, drawn: 0, skipped: 0, lastMs: 0, ema: 0, ratio: 1 };
+  stats = { frames: 0, drawn: 0, skipped: 0, lastMs: 0, ema: 0, ratio: 1, post: "off", heavy: false };
 
   constructor(public renderer: RendererLike, public backend: View3DBackend, public preset: Preset, dpr: number, pmrem: PmremLike | null, ship: Object3D) {
     const p = preset;
@@ -185,6 +188,7 @@ export class FlightView3D {
     this.scene.environmentIntensity = w.envI;
     this.renderer.toneMappingExposure = w.exposure;
     this.worldLights.apply(w);
+    this.post?.setPunch(w.punch);
     this.world = w;
   }
   /** fetch the world for this band if it is not the one on the hull (never waits; the old world stays until it lands) */
@@ -213,6 +217,7 @@ export class FlightView3D {
     this.camera.aspect = W / H; this.camera.position.set(0, 0, this.D); this.camera.near = 5; this.camera.far = this.D + 4000;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(W, H, false);
+    this.post?.setSize(W, H);
     // scatter clouds / stars over the visible area at their depth
     for (const c of this.clouds) { const [hw, hh] = this.half(c.z); c.x = (Math.random() * 2 - 1) * hw; c.y = (Math.random() * 2 - 1) * hh; }
     for (const s of this.starsA) { const [hw, hh] = this.half(s.z); s.x = (Math.random() * 2 - 1) * hw; s.y = (Math.random() * 2 - 1) * hh; }
@@ -511,13 +516,19 @@ export class FlightView3D {
     const g = this.gov, skip = g.skip > 0 && (this.fc++ % (g.skip + 1)) !== 0;
     if (skip) { this.stats.skipped++; return; }
     if (this.review) this.reviewCam();
-    this.renderer.render(this.scene, this.camera);
+    if (this.post) this.post.render(); else this.renderer.render(this.scene, this.camera);
     const ms = performance.now() - t0;
     this.stats.drawn++; this.stats.lastMs = ms;
     const slowFrame = V.dt * 1000 > 26 ? this.preset.budgetMs * 1.3 : 0;
     const act = this.stats.drawn > 30 ? govStep(g, this.preset, Math.max(ms, slowFrame)) : null;   // skip shader-compile warm-up frames
-    if (act === "down" || act === "up") this.renderer.setPixelRatio(g.ratio);
-    this.stats.ema = g.ema; this.stats.ratio = g.ratio;
+    const P = this.post;
+    if ((act === "down" || act === "skip") && P?.heavy) {   // over budget: drop SSR + AO first, keep resolution and frames
+      if (act === "down") g.ratio = Math.min(this.preset.maxPixelRatio, +(g.ratio / 0.8).toFixed(3)); else g.skip = 0;
+      P.setHeavy(false);
+    } else if (act === "up" && P && P.kind === "full" && !P.heavy && g.ratio >= this.preset.maxPixelRatio - 1e-6) {
+      P.setHeavy(true);                 // lots of headroom at full resolution: bring them back
+    } else if (act === "down" || act === "up") { this.renderer.setPixelRatio(g.ratio); P?.setPixelRatio(g.ratio); }
+    this.stats.ema = g.ema; this.stats.ratio = g.ratio; this.stats.post = P?.kind ?? "off"; this.stats.heavy = !!P?.heavy;
   }
 
   dispose() {
@@ -527,6 +538,7 @@ export class FlightView3D {
       const mat = m.material as MeshBasicMaterial | MeshBasicMaterial[] | undefined;
       if (mat) for (const x of Array.isArray(mat) ? mat : [mat]) { x.map?.dispose(); x.dispose(); }
     });
+    try { this.post?.dispose(); } catch { /* ignore */ }
     this.envRT?.dispose(); try { this.pmrem?.dispose(); } catch { /* ignore */ }
     this.renderer.dispose();
   }
