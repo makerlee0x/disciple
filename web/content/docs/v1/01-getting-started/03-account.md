@@ -28,7 +28,7 @@ BOOST and DUMP are one tap each. There are no wallet pop-ups, and you don't pay 
 Your profile shows your portfolio, your rockets and your recent activity. From your own profile you can:
 
 - **Edit profile**: picture, banner, username and bio.
-- **Open Rewards** (the chest): what you've earned as a creator and from friends you invited, and your invite link. See [Referrals](/docs/fees/referrals).
+- **Open Rewards** (the chest): see what you've earned as a creator, and claim it. See [Creator earnings](/docs/fees/creators).
 
 Your **username** is 3–22 characters: lowercase letters, numbers and underscores. Usernames are unique, so each one belongs to a single account. You can have one at a time. Picking a new one frees the old one.
 

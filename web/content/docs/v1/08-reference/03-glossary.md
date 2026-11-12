@@ -24,7 +24,7 @@ section: Reference
 | **Crew tip** | On Easy rockets: 0.777% of a profitable DUMP, shared with the other holders. |
 | **CRUISE** | A bomb with 12–25% price impact. |
 | **DUMP** | Sell. It drops a bomb. |
-| **Fee vault** | Where the creator, treasury and referral shares of fees paid before orbit wait until they're claimed. |
+| **Fee vault** | Where every share of the fees paid before orbit, except the liquidity share, waits until it's claimed. |
 | **First BOOST** | The creator's own buy, made as part of the launch. |
 | **GRENADE** | A bomb with 2–5% price impact. |
 | **Hold bonus** | A points multiplier, up to ×2.5, for holding a rocket in profit. Points only, never money. Coming soon: not yet applied to points. |
@@ -47,8 +47,7 @@ section: Reference
 | **PUFF** | The smallest bomb: under 2% price impact. |
 | **PvE / PvP** | Simulator difficulties: the crew climbing together, or every trader for themselves. |
 | **Rarity** | Common, Rare, Epic, Legendary or Mythic. One scale for achievements and rocket parts. |
-| **Referral** | A friend who signed in through your invite link. You earn 1% of the trade fee on their trades. |
-| **Rewards** | The chest on your profile. It shows what you've earned, including payouts made by hand, lets you claim, and has your invite link. |
+| **Rewards** | The chest on your profile. It shows what you've earned, including payouts made by hand, and lets you claim it. |
 | **rHALO** | Off-chain points from achievements and play. Not a token. |
 | **Rocket** | The thing you launch on DISCIPLE. |
 | **Season rank** | Unranked to Divine, by rHALO points in the season. |

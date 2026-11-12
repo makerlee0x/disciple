@@ -32,7 +32,7 @@ Every number in one place.
 | Parameter | Value |
 |---|---|
 | Trade fee | 1% of every BOOST and DUMP |
-| Split of the trade fee | 33% creator · 33% locked liquidity · 33% treasury · 1% referrals |
+| Split of the trade fee | 33% creator · 33% locked liquidity · 33% treasury · 1% other |
 | Extra fee charged by the Uniswap pool after orbit | 0% (the 1% fee still applies) |
 | Creator tax | 0–7%, set at launch, before orbit only |
 | Sniper tax | 99% at launch, 25% at 1 second, 3% at 2 seconds, nothing from 7 seconds (one step per second). BOOSTs only, before orbit only. |
@@ -51,15 +51,6 @@ Every number in one place.
 | Router max price impact | 50% per trade (team can set 1–1,000%) |
 | Keeper tip (tramps and walls) | 0.1% (max 1%) |
 | Private launch fee | Set by the team, paid in USDG, up to $5 |
-
-## Referrals
-
-| Parameter | Value |
-|---|---|
-| How a friend becomes yours | They open your link and sign in. The first link wins. |
-| What you earn | 1% of the trade fee on your friends' trades (0.01% of the trade) |
-| How it's paid | Builds up for you to claim in Rewards. Your totals there also count payouts made by hand. |
-| Referring yourself | Not allowed |
 
 ## Launch modes
 

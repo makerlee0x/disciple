@@ -5,9 +5,9 @@ section: Fees and rewards
 ---
 # Trade fee
 
-Every BOOST and DUMP pays a 1% fee. That one fee is split four ways: 33% to the rocket's creator, 33% to the rocket's locked liquidity, 33% to the DISCIPLE treasury, and 1% to referrals. After a rocket reaches orbit, the Uniswap pool adds no extra fee of its own, so it's still 1%.
+Every BOOST and DUMP pays a 1% fee. That one fee is split four ways: 33% goes to the rocket's creator, 33% to the rocket's locked liquidity and 33% to the DISCIPLE treasury. The remaining 1% is a separate share. After a rocket reaches orbit, the Uniswap pool adds no extra fee of its own, so it's still 1%.
 
-![The 1% trade fee, split: 33% to the creator, 33% to locked liquidity, 33% to the treasury, 1% to referrals.](/illustrations/docs/fee-split.svg)
+![The 1% trade fee, split: 33% to the creator, 33% to locked liquidity, 33% to the treasury, and a remaining 1%.](/illustrations/docs/fee-split.svg)
 
 ## The split
 
@@ -16,13 +16,13 @@ Every BOOST and DUMP pays a 1% fee. That one fee is split four ways: 33% to the 
 | **33%** | The creator | Builds up for the creator on every trade. See [Creator earnings](/docs/fees/creators). |
 | **33%** | Locked liquidity | Before orbit, it's held aside by the rocket and added to the locked pool when the rocket reaches orbit. If the rocket hasn't reached orbit 12 days after launch, it goes to [community rewards](/docs/fees/rewards-vault) instead. After orbit, it's added to the locked pool as it builds up. |
 | **33%** | Treasury | Goes to the DISCIPLE treasury. |
-| **1%** | Referrals | Goes to the person whose invite link the trader used. If the rocket's creator joined through someone's link, it goes to that person instead. If there's no referrer, it goes to the treasury. See [Referrals](/docs/fees/referrals). |
+| **1%** | Other | The last 1% of the fee. |
 
 Percentages are shares of the 1% fee, not of your trade.
 
 ## Where fees wait until they're claimed
 
-Before a rocket reaches orbit, the creator, treasury and referral shares of each fee are kept in DISCIPLE's fee vault until they're claimed. After orbit, the fee router keeps them. Either way, nothing expires, and each share is only ever paid to the person or wallet it belongs to.
+Before a rocket reaches orbit, every share of each fee except the liquidity share is kept in DISCIPLE's fee vault until it's claimed. After orbit, the fee router keeps them. Either way, nothing expires, and each share is only ever paid to the person or wallet it belongs to.
 
 ## Example
 
@@ -33,7 +33,7 @@ A $100 BOOST pays a $1.00 fee:
 | Creator | $0.33 |
 | Locked liquidity | $0.33 |
 | Treasury | $0.33 |
-| Referrals | $0.01 |
+| Other | $0.01 |
 
 ## Everything you might pay
 

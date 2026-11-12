@@ -41,13 +41,10 @@ There's no further mint, the name and call sign are locked at launch, and once t
 ## Fees
 
 **What are the fees?**
-1% on every BOOST and DUMP: 33% to the creator, 33% to locked liquidity, 33% to the treasury and 1% to referrals. Creators can add a 0–7% tax on trades before orbit, set at launch. A sniper tax applies only in a rocket's first 7 seconds. There's no separate gas to pay on trades. See [Trade fee](/docs/fees).
+1% on every BOOST and DUMP: 33% to the creator, 33% to locked liquidity, 33% to the treasury, and the remaining 1% is a separate share. Creators can add a 0–7% tax on trades before orbit, set at launch. A sniper tax applies only in a rocket's first 7 seconds. There's no separate gas to pay on trades. See [Trade fee](/docs/fees).
 
 **Why did my first-second BOOST cost so much?**
 The sniper tax. It's 99% at launch, 25% at 1 second, 3% at 2 seconds, and nothing from 7 seconds on. See [Anti-snipe](/docs/trading/anti-snipe).
-
-**How do referrals work?**
-Share your invite link from Rewards (the chest on your profile). When a friend opens it and signs in, you earn 1% of the trade fee on their trades. Your share builds up in Rewards, and you claim it there. See [Referrals](/docs/fees/referrals).
 
 ## Game
 

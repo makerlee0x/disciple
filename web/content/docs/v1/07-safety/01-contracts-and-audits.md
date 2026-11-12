@@ -25,9 +25,8 @@ Findings and fixes are tracked openly in the repository. [CONFIRM: FLOW — link
 | **DiscipleHook** | Attached to every rocket's Uniswap pool after orbit. Charges the 1% fee and reports trades and altitude. |
 | **DiscipleRouter** | Carries the app's trades, including one-tap trades paid in USDG. Adds slippage and price-impact checks. |
 | **LockedLP** | Owns the locked liquidity of every rocket that has reached orbit. It has no way to remove it. |
-| **FeeRouter** | Splits every fee 33 / 33 / 33 / 1 after orbit and holds what creators and referrers can claim from those fees. The sniper tax doesn't pass through it: each rocket holds its own. |
-| **CurveFeeVault** | The fee vault. Holds the creator, treasury and referral shares of fees paid before orbit, until they're claimed. |
-| **ReferralRegistry** | Records who referred whom. |
+| **FeeRouter** | Splits every fee 33 / 33 / 33 / 1 after orbit and holds what's owed from those fees until it's claimed. The sniper tax doesn't pass through it: each rocket holds its own. |
+| **CurveFeeVault** | The fee vault. Holds every share of the fees paid before orbit, except the liquidity share, until it's claimed. |
 | **RewardsVault** | The community rewards vault. Holds the sniper tax and the liquidity share of fees from rockets that didn't reach orbit within 12 days. See [Community rewards](/docs/fees/rewards-vault). |
 | **QuotePricer** | Prices a base in dollars at launch. |
 | **QuoteProbe** | Checks a base before launch. |
@@ -43,7 +42,7 @@ Addresses: [Contract addresses](/docs/reference/contracts).
 - **Name and call sign are locked.**
 - **No pause.** Curves and pools are always live.
 - **Locked liquidity has no remove function.** Tested with large numbers of random inputs: locked liquidity can never be removed.
-- **Fees always add up.** Tested: the fee router always holds at least what it owes creators and referrers.
+- **Fees always add up.** Tested: the fee router always holds at least what it owes.
 - **Non-upgradeable.** Deployed code can't be replaced.
 
 ## Found a bug?
