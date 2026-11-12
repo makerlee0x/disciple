@@ -57,7 +57,15 @@
 .tip { position: absolute; left: 0; top: 28px; z-index: 6; width: min(320px, 100%); padding: 10px 12px; border-radius: 6px; border: 1px solid var(--dsc-border); background: var(--dsc-surface-2); font-size: 13px; line-height: 18px; color: #C3C7CF; box-shadow: none; }
 .tip::before { content: ""; position: absolute; left: 18px; top: -5px; width: 8px; height: 8px; background: var(--dsc-surface-2); border-left: 1px solid var(--dsc-border); border-top: 1px solid var(--dsc-border); transform: rotate(45deg); }
 .hiwTip { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-.hiwTip .tip { top: auto; bottom: calc(100% + 10px); }
+.hiwTip .tip {
+  top: auto;
+  bottom: calc(100% + 10px);
+  /* Width is independent of the shrink-wrapped trigger, so the 1-2-3 lines wrap naturally. */
+  width: 320px;
+  max-width: min(320px, calc(100vw - 32px));
+  right: auto;
+  box-sizing: border-box;
+}
 .hiwTip .tip::before { top: auto; bottom: -5px; left: 18px; transform: rotate(225deg); }
 .hiwList { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
 .hiwList li { display: flex; gap: 8px; align-items: flex-start; }
@@ -156,6 +164,7 @@
   .modeBtn { height: 36px; }
   .iconRow img, .badge { width: 44px; height: 44px; }
   .tip { right: 0; width: auto; }
+  .hiwTip .tip { width: min(320px, calc(100vw - 32px)); max-width: calc(100vw - 32px); right: auto; }
   .pchip { height: 30px; padding: 0 10px 0 6px; font-size: 12px; gap: 6px; }
   .pchip img { width: 16px; height: 16px; }
   .pchips { gap: 6px; }

@@ -373,7 +373,9 @@ export default function LaunchRocketPage() {
               </button>
               <div className={s.copy}>
                 <div className={s.name}>{privateLaunchTitle(boost, gameMode)} <span className={s.beta}>{C.beta}</span></div>
-                <div className={s.help}>{privateLaunchHelp(boost, gameMode)}</div>
+                {privateLaunch && (
+                  <div className={s.help} data-testid="private-launch-help">{privateLaunchHelp(boost, gameMode)}</div>
+                )}
               </div>
             </div>
 
