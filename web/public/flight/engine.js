@@ -1401,48 +1401,13 @@ function drawClouds(front){
   ctx.globalAlpha=1;
 }
 /* =====================================================================
-   @cinefx — cinematic launch, blast hits on clouds and the rocket, the ascension hyperspeed boost, the big-sell drop,
+   @cinefx — blast hits on clouds and the rocket, the ascension hyperspeed boost, the big-sell drop,
    and the flight sound hooks. Visual / audio only: nothing here moves the price, the altitude spring, a trade or PnL.
    Sounds: the engine only dispatches 'disciple:sfx' {k,…}; components/flight/FlightSfx.tsx + lib/game/sfx.ts play them
    on the Sound effects channel (saved volume + mute, silent until a user gesture). Works from the render worker too
    (worker.js forwards every disciple:* event to the page).
    ===================================================================== */
 function sfx(k,d){ try{ dispatchEvent(new CustomEvent('disciple:sfx',{detail:Object.assign({k},d||{})})); }catch(_){} }
-/* TAKEOFF — ?takeoff=1 (create page, right after the launch confirms): a 3·2·1 countdown with the rocket rumbling on a
-   building smoke bank, then ignition (flash, smoke flooding out across the bottom, a burst of airspeed). ?launched=1
-   (home hero / feed lift-off) gets the ignition only, under the existing #launchFade. Any key or tap skips to ignition.
-   Based on the home hero lift-off (components/home/HeroPad: smog surges into the ignition) and the short takeoff
-   flourishes of 2D flight / runner games: under three seconds, never blocks input. The rumble moves the rocket only;
-   the camera never shakes (lee's no-shake rule, setShake above). */
-const TAKEOFF_CD=Q.get('takeoff')==='1', TK={beat:0.6, burn:1.1, tail:0.7};
-S.takeoff=(TAKEOFF_CD||Q.get('launched')==='1')&&Q.get('clean')!=='1'?{t0:null,cd:TAKEOFF_CD?3:0,beat:-1,lit:false}:null;
-function takeoffPhase(){ const k=S.takeoff; if(!k||k.t0==null) return null; const t=S.t-k.t0, cd=k.cd*TK.beat;
-  return t<cd?{cd:true,beat:k.cd-Math.floor(t/TK.beat),u:t/cd,f:(t%TK.beat)/TK.beat}:{cd:false,u:(t-cd)/TK.burn}; }
-function takeoffBurn(){ const p=takeoffPhase(); return p&&!p.cd&&p.u<1?1-p.u:0; }
-function takeoffSkip(){ const k=S.takeoff; if(!k||k.t0==null||k.lit) return; k.t0=S.t-k.cd*TK.beat; }
-addEventListener('keydown',takeoffSkip); cv.addEventListener('pointerdown',takeoffSkip);
-function padSmoke(s){ const [x,y]=nozzleXY(), side=Math.random()<.5?-1:1;
-  bfxSpawn('smoke',x+side*(8+Math.random()*44),Math.min(H+10,y+18+Math.random()*34),side*(70+Math.random()*190)*s,-12-Math.random()*36,12+Math.random()*18*s,80,1.6+Math.random()*0.9,1.1,'234,228,220',0.55);
-  if(Math.random()<0.6) bfxSpawn('smoke',Math.random()*W,H-Math.random()*H*0.16,(Math.random()-.5)*60,-6-Math.random()*20,26+Math.random()*34*s,50,1.8+Math.random()*1.0,1.0,'228,222,216',0.42); }   // the smoke bank that floods the bottom of the screen
-function ignite(){ S.buyBoost=1; S.flare=Math.max(S.flare||0,2.4); S.air=(S.air||0)+560; S.screenFlash={t0:S.t,dur:0.55,a:0.38,c:'255,240,214'}; sfx('launch',{beat:0});
-  const [x,y]=nozzleXY();
-  for(let i=0;i<44;i++){ const side=i&1?1:-1; bfxSpawn('smoke',x+side*Math.random()*30,y+12,side*(160+Math.random()*420),-20-Math.random()*90,16+Math.random()*22,130,2.0+Math.random()*1.0,1.2,'238,232,224',0.6); }
-  for(let i=0;i<14;i++) bfxSpawn('smoke',Math.random()*W,H-Math.random()*H*0.2,(Math.random()-.5)*120,-30-Math.random()*60,36+Math.random()*40,60,1.8+Math.random()*0.8,1.0,'236,230,222',0.5);
-  burst(x,y+6,20,440,{k:'spark',r:1.8,life:0.5,drag:3,c:'255,214,150'}); }
-function takeoffStep(dt){ const k=S.takeoff; if(!k) return; if(k.t0==null) k.t0=S.t;
-  const p=takeoffPhase();
-  if(p.cd){ if(p.beat!==k.beat){ k.beat=p.beat; sfx('launch',{beat:p.beat}); }
-    const r=2+7*p.u; S.sway+=(hash(S.t*61.3)-0.5)*r; S.bob+=(hash(S.t*47.9+3)-0.5)*r*0.8;   // engine rumble on the pad
-    S.flare=Math.max(S.flare||0,0.3+0.7*p.u);
-    if(Math.random()<dt*(14+36*p.u)) padSmoke(0.8+p.u); return; }
-  if(!k.lit){ k.lit=true; ignite(); }
-  if(p.u<1){ S.sway+=(hash(S.t*61.3)-0.5)*6*(1-p.u); if(Math.random()<dt*26*(1-p.u)) padSmoke(0.4+1.2*(1-p.u)); }
-  else if(p.u*TK.burn>TK.burn+TK.tail) S.takeoff=null; }
-function drawTakeoff(){ const p=takeoffPhase(); if(!p||!p.cd) return;
-  const pop=1.3-0.3*Math.min(1,p.f*5), a=p.f<0.7?1:1-(p.f-0.7)/0.3, fs=Math.round(clamp(Math.min(W,H)*0.24,96,210));
-  ctx.save(); ctx.globalAlpha=0.94*a; ctx.translate(W/2,H*0.36); ctx.scale(pop,pop); ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.font=`200 ${fs}px "Helvetica Neue","Inter",system-ui,sans-serif`; ctx.fillStyle='#fff7ef';
-  glowText(String(p.beat),0,0,'rgba(255,214,150,1)',16,0.32); ctx.restore(); }
 /* HYPERSPEED — the moment a coin ascends (leaves the bonding curve) while you watch: the @ascension-warp streaks
    (drawWarpSpeed) grow into a Star Wars-style jump (more, longer, brighter radial streaks), a cool white flash and a
    rush of airspeed. Only on a live flip (a curve read or an ascension buy said it was still on the curve), never when
@@ -1480,7 +1445,7 @@ function dropStep(dt){ const w=DROP_W; S.dropV+=(-w*w*S.drop-2*w*S.dropV)*dt; S.
 /* FLIGHT SOUND — the engine hum follows airspeed and boosts (sent ≤10×/s, plus a keep-alive the page uses to fade it out
    if the flight stops); a BOOST press gets a light whoosh, the fill's turbo a full one. */
 S.flySent={v:-1,at:-9}; S._bb=0;
-function flyLevel(){ return clamp(0.12+(S.air||0)/700+0.45*(S.buyBoost||0)+0.25*(S.wBoost||0)+0.5*hyperAmt()+0.4*takeoffBurn(),0,1); }
+function flyLevel(){ return clamp(0.12+(S.air||0)/700+0.45*(S.buyBoost||0)+0.25*(S.wBoost||0)+0.5*hyperAmt(),0,1); }
 function sfxStep(){
   for (const p of S.pending) if(!p._sfx){ p._sfx=1; if(p.side==='buy'&&p.state==='pending') sfx('boost',{v:0.55}); }
   const bb=S.buyBoost||0; if(bb>0.95&&S._bb<0.9) sfx('boost',{v:1}); S._bb=bb;
@@ -2562,7 +2527,7 @@ function simStep(stepDt){
   S.microRot=(Math.sin(S.t*1.35)*0.012 + Math.sin(S.t*2.8+0.7)*0.006)*(1-0.8*thrustHold) + (S.bank||0)*0.05;
   S.roll=1; // kept for compat; draw path no longer scaleX-wobbles
   S.glint=Math.sin(S.t*1.8);
-  takeoffStep(dt); hyperStep(); dropStep(dt);   // @cinefx
+  hyperStep(); dropStep(dt);   // @cinefx
   // parallax scroll: clouds/bg move with price velocity; sideways adds horizontal drift
   // parallax: vertical is tied to the camera POSITION (not raw price velocity), horizontal to forward speed
   S.cloudY=S.camPx+S.airPx-(S.fallPx||0);   // − @cinefx big-sell fall: the clouds rush up past the rocket   // world scroll (px): + = world moved down past the rocket
@@ -3075,7 +3040,7 @@ function render(dt){
   if (S.grass){ ctx.save(); drawBg(); drawClouds(); drawSpeedLines(); drawTickTrail(); drawRocket(dt); drawClouds(true); ctx.restore(); drawPost(); drawGrass(dt); return; }
   S._grassA=0;
   ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawTakeoff(); drawPnlTag(); drawHud(); drawChartMap(); cardPublish();
+  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap(); cardPublish();
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
 }
@@ -3088,7 +3053,7 @@ window.__flightMom=()=>({sec:TF.sec,pct:MOM.pct,press:MOM.press,buy:MOM.buy,sell
 function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){ source.mcap=m; source.seedDepth&&source.seedDepth(); }
   else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
   S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
-window.__flight={cinefx:{hyperspeed:startHyperspeed,drop:bigSellDrop,takeoff:()=>{ S.takeoff={t0:null,cd:3,beat:-1,lit:false}; },hyperAmt,flyLevel,takeoffPhase,DROP_TIER},setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>loaded>=names.length&&ACC.state!=='loading',accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+window.__flight={cinefx:{hyperspeed:startHyperspeed,drop:bigSellDrop,hyperAmt,flyLevel,DROP_TIER},setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>loaded>=names.length&&ACC.state!=='loading',accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 /* @boot-ammo — announce the presets + mode once this run's listeners are live. TradeBridge's mount-time ammo-query
    usually fires BEFORE this script loads (FlightCanvas fetches /replay.json first) and AMMO_TIERS is null (no tier

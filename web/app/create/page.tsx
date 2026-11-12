@@ -252,7 +252,7 @@ export default function LaunchRocketPage() {
         }
       }
       setLaunched("Launched! Taking you to your rocket…");
-      setTimeout(() => router.push(`/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}&takeoff=1`), 1200);
+      setTimeout(() => router.push(`/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}`), 1200);
     } catch (err) {
       if (!isDeployed()) { setMsg("Launches aren't open on this network yet."); return; }
       const shown = playerError(err);

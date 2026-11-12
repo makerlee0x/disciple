@@ -6,13 +6,13 @@
  * All of it runs through one bus GainNode set to the saved SFX level, so the existing slider and mute apply.
  *
  * The flight engine (public/flight/engine.js, main thread or render worker) only dispatches
- *   `disciple:sfx` {k: "fly" | "boost" | "explode" | "tier" | "hit" | "launch" | "ascend" | "drop", ...}
+ *   `disciple:sfx` {k: "fly" | "boost" | "explode" | "tier" | "hit" | "ascend" | "drop", ...}
  * and this module turns those into sound. Nothing plays until the shared AudioContext is running, which needs a user
  * gesture (same unlock as the house radio in components/flight/GameRadio.tsx and lib/game/audio.ts).
  */
 import { getAudioContext } from "./audio";
 
-export type SfxKind = "fly" | "boost" | "explode" | "tier" | "hit" | "launch" | "ascend" | "drop";
+export type SfxKind = "fly" | "boost" | "explode" | "tier" | "hit" | "ascend" | "drop";
 export type SfxDetail = {
   k: SfxKind;
   /** fly: engine loudness 0..1; boost / hit: strength 0..1 */
@@ -21,8 +21,6 @@ export type SfxDetail = {
   tier?: number;
   /** hit: what the blast hit */
   on?: "rocket" | "cloud";
-  /** launch: countdown beat (3, 2, 1) or 0 for ignition */
-  beat?: number;
 };
 
 /** Explosion sizes, indexed by the engine's BOMB_TIERS (puff … atom). Bigger = longer, louder, lower. */
@@ -36,7 +34,7 @@ export const EXPLODE = [
 ] as const;
 
 /** Minimum gap per kind (s), so a burst of trades can't stack dozens of identical voices. */
-export const SFX_GAP: Record<SfxKind, number> = { fly: 0, boost: 0.06, explode: 0.08, tier: 0.15, hit: 0.07, launch: 0.1, ascend: 1.5, drop: 0.3 };
+export const SFX_GAP: Record<SfxKind, number> = { fly: 0, boost: 0.06, explode: 0.08, tier: 0.15, hit: 0.07, ascend: 1.5, drop: 0.3 };
 export const MAX_VOICES = 24;
 /** Engine loudness: the hum while hovering, rising with airspeed and boosts. */
 export const flyGain = (v: number) => 0.035 + 0.2 * Math.max(0, Math.min(1, v));
@@ -108,7 +106,6 @@ export class FlightSfx {
       case "explode": this.explode(ctx, now, Math.max(0, Math.min(5, Math.round(d.tier ?? 0)))); break;
       case "tier": this.tier(ctx, now, d.tier ?? 0); break;
       case "hit": this.hit(ctx, now, d.on === "cloud" ? "cloud" : "rocket", v); break;
-      case "launch": this.launch(ctx, now, d.beat ?? 0); break;
       case "ascend": this.ascend(ctx, now); break;
       case "drop": this.drop(ctx, now, v); break;
       default: return false;
@@ -170,16 +167,6 @@ export class FlightSfx {
       this.noiseHit(ctx, t, "highpass", 2600, 1800, 0.18 * v, 0.002, 0.09, 0.9);
       this.tone(ctx, t, "square", 940, 700, 0.05 * v, 0.002, 0.22);
     } else this.noiseHit(ctx, t, "lowpass", 900, 260, 0.14 * v, 0.01, 0.24, 0.7);
-  }
-  /** Countdown beeps (3, 2, 1), then ignition: a higher beep and a rumbling roar that swells and fades. */
-  private launch(ctx: AudioContext, t: number, beat: number) {
-    if (beat > 0) { this.tone(ctx, t, "sine", 660, 660, 0.18, 0.005, 0.16); return; }
-    this.tone(ctx, t, "sine", 990, 990, 0.18, 0.005, 0.22);
-    const s = this.noiseSrc(ctx), f = this.filt(ctx, "lowpass", 380, 1800, t, 0.3, 0.7), g = ctx.createGain();
-    f.frequency.exponentialRampToValueAtTime(260, t + 1.6);
-    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.25); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.7);
-    s.connect(f).connect(g).connect(this.bus!); s.start(t, Math.random()); s.stop(t + 1.75); this.voice(t + 1.7);
-    this.tone(ctx, t, "sine", 85, 38, 0.4, 0.02, 1.1);
   }
   /** Ascension: a long rising sweep (the jump to hyperspeed), then a deep boom as it punches through. */
   private ascend(ctx: AudioContext, t: number) {

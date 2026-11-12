@@ -1,4 +1,4 @@
-// game/cinematic-flight-effects — cinematic takeoff, blast hits, ascension hyperspeed, big-sell drop, flight SFX.
+// game/cinematic-flight-effects — blast hits, ascension hyperspeed, big-sell drop, flight SFX.
 //   Run: tsx scripts/test-cinematic-flight-fx.mjs
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -15,7 +15,7 @@ const create = readFileSync(join(web, "app/create/page.tsx"), "utf8");
 
 // ---- engine wiring (static) ---------------------------------------------------------
 ok(/function sfx\(k,d\)\{ try\{ dispatchEvent\(new CustomEvent\('disciple:sfx'/.test(eng), "engine only dispatches disciple:sfx (no audio in the engine / worker)");
-for (const k of ["fly", "boost", "explode", "tier", "hit", "launch", "ascend", "drop"]) ok(new RegExp(`sfx\\('${k}'`).test(eng), `engine sends the ${k} sound`);
+for (const k of ["fly", "boost", "explode", "tier", "hit", "ascend", "drop"]) ok(new RegExp(`sfx\\('${k}'`).test(eng), `engine sends the ${k} sound`);
 ok(/addShock\(x,y,k\);[^\n]*\n\s*sfx\('explode',\{tier:b\.tier\}\); bigSellDrop\(b\.tier\);/.test(eng), "each detonation plays an explosion sized by its bomb tier and drops the rocket on a big one");
 ok(/function spawnPuff\(\)\{[^\n]*sfx\('explode',\{tier:0\}\)/.test(eng), "small sells (puffs) get the smallest explosion");
 ok(/if\(ti>S\.tierShown\)\{[^}]*sfx\('tier',\{tier:ti\}\); \}/.test(eng), "the tier sound plays only on a climb into a new tier (same rule as TIER WITNESS)");
@@ -24,10 +24,9 @@ ok(/rocketHit\(SD\.x,SD\.y,sh,f\); \} \}/.test(eng), "the shockwave reaching the
 ok(/S\.hullHit/.test(eng) && /drawRocket\.hc/.test(eng), "the hull flashes hot on a hit");
 ok(/c\.hitT!=null&&S\.t-c\.hitT<0\.45/.test(eng), "a hit cloud flashes");
 ok(/function setShake\(\)\{ \/\* camera shake removed permanently/.test(eng) && /ctx\.save\(\);   \/\/ camera is stable: no shake of any kind/.test(eng), "no camera shake added (render still has no shake)");
-ok(/drawBombScreen\(\); drawTakeoff\(\);/.test(eng), "countdown draws over the scene");
-ok(/Q\.get\('takeoff'\)==='1'/.test(eng) && /Q\.get\('launched'\)==='1'/.test(eng), "takeoff runs on ?takeoff=1 (countdown) and ?launched=1 (ignition only)");
-ok(/addEventListener\('keydown',takeoffSkip\); cv\.addEventListener\('pointerdown',takeoffSkip\)/.test(eng), "any key or tap skips the countdown");
-ok(/router\.push\(`\/coin\/\$\{res\.token\}\?cs=\$\{encodeURIComponent\(callSign\.trim\(\)\.toUpperCase\(\)\)\}&takeoff=1`\)/.test(create), "create page opens the new rocket with the takeoff");
+ok(!/takeoff|TAKEOFF|drawTakeoff|ignite\(|padSmoke|sfx\('launch'/.test(eng), "no takeoff cinematic on the game page (no countdown, rumble, ignition, smoke bank or launch sounds)");
+ok(/drawBombScreen\(\); drawPnlTag\(\);/.test(eng), "nothing extra drawn over the scene at load");
+ok(!/takeoff=1/.test(create), "create page does not send a confirmed launch into a takeoff");
 ok(/if\(on&&!S\.graduated&&typeof cineAscend==='function'\) cineAscend\(\);/.test(eng) && /function cineAscend\(\)\{ if\(S\.confirmed&&S\.confirmed\.mcap!=null&&\(S\._preGrad\|\|warpFxOn\(\)\)\) startHyperspeed\(\); \}/.test(eng), "hyperspeed only on a live ascension (not when an ascended coin loads)");
 ok(/if\(S\.gradNeedUsd!=null&&d\.graduated!==true\) S\._preGrad=true;/.test(eng), "a curve read with $ left to ascend arms the hyperspeed");
 ok(/function warpFxOn\(\)\{ return \(S\.pending\|\|\[\]\)\.some\(p=>p\.state==='pending'&&p\.gradBuy\); \}/.test(eng), "the existing ascension-warp predicate is unchanged");
@@ -35,8 +34,8 @@ ok(/const hy=hyperAmt\(\);[\s\S]{0,200}if\(!warpFxOn\(\)&&hy<=0\) return;/.test(
 ok(/S\.cloudY=S\.camPx\+S\.airPx-\(S\.fallPx\|\|0\);/.test(eng) && /oy=Math\.round\(\(\(S\.cloudY\|\|0\)\*0\.06\)-\(S\.fallPx\|\|0\)\*0\.45\)/.test(eng), "big-sell fall scrolls the clouds and the sky texture");
 ok(/\n  S\.ry\+=S\.drop\|\|0;/.test(eng), "big-sell dip moves the rocket on screen");
 ok(/'fwd','vyS','fallPx'\]/.test(eng), "fall scroll is interpolated for high-refresh displays");
-ok(!/S\.confirmed\.mcap\s*=|S\.displayAlt\s*=/.test(eng.split("@cinefx — cinematic launch")[1].split("function drawSpeedLines(){")[0]), "@cinefx block never touches the confirmed price or altitude");
-ok(!/submitTrade|source\.submit|S\.pending\.push/.test(eng.split("@cinefx — cinematic launch")[1].split("function drawSpeedLines(){")[0]), "@cinefx block sends no trades");
+ok(!/S\.confirmed\.mcap\s*=|S\.displayAlt\s*=/.test(eng.split("@cinefx — blast hits")[1].split("function drawSpeedLines(){")[0]), "@cinefx block never touches the confirmed price or altitude");
+ok(!/submitTrade|source\.submit|S\.pending\.push/.test(eng.split("@cinefx — blast hits")[1].split("function drawSpeedLines(){")[0]), "@cinefx block sends no trades");
 ok(canvas.includes("<FlightSfx />") && canvas.includes('import FlightSfx from "./flight/FlightSfx"'), "FlightCanvas mounts FlightSfx (flight pages only)");
 ok(/audioLevel\("sfx"\)/.test(comp) && /disciple:audio/.test(comp) && /disciple:sfx/.test(comp), "FlightSfx follows the Sound effects channel");
 ok(/resumeAudio/.test(comp) && /pointerdown/.test(comp) && /keydown/.test(comp), "sound unlocks on a user gesture like the radio");
@@ -49,23 +48,15 @@ ok(!i18n.includes("Sound effects aren't in yet") && !i18n.includes("音效还没
 // ---- engine pure helpers (extracted) -------------------------------------------------
 const grab = (name) => { const m = eng.match(new RegExp(`function ${name}\\([^)]*\\)\\{[\\s\\S]*?\\n(?=function |const |S\\.|/\\*)`)); return m ? m[0] : null; };
 {
-  const src = ["takeoffPhase", "takeoffBurn", "hyperAmt", "bigSellDrop", "dropStep"].map(grab);
-  ok(src.every(Boolean), "can extract the takeoff / hyperspeed / drop helpers");
+  const src = ["hyperAmt", "bigSellDrop", "dropStep"].map(grab);
+  ok(src.every(Boolean), "can extract the hyperspeed / drop helpers");
   if (src.every(Boolean)) {
     const sent = [];
-    const S = { t: 0, takeoff: null, hyper: null, drop: 0, dropV: 0, fallPx: 0, fallV: 0 };
+    const S = { t: 0, hyper: null, drop: 0, dropV: 0, fallPx: 0, fallV: 0 };
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-    const H = 800, TK = { beat: 0.6, burn: 1.1, tail: 0.7 }, DROP_TIER = { 2: [0.07, 0.4], 3: [0.1, 0.65], 4: [0.14, 0.95], 5: [0.19, 1.35] }, DROP_W = 4.5, FALL_TAU = 0.35;
-    const lib = new Function("S", "clamp", "H", "TK", "DROP_TIER", "DROP_W", "FALL_TAU", "sfx",
-      src.join("\n") + "; return {takeoffPhase,takeoffBurn,hyperAmt,bigSellDrop,dropStep};")(S, clamp, H, TK, DROP_TIER, DROP_W, FALL_TAU, (k, d) => sent.push({ k, ...d }));
-    // takeoff
-    S.takeoff = { t0: 0, cd: 3, beat: -1, lit: false };
-    S.t = 0.1; let p = lib.takeoffPhase(); ok(p.cd && p.beat === 3, "countdown starts at 3");
-    S.t = 0.7; p = lib.takeoffPhase(); ok(p.cd && p.beat === 2, "then 2");
-    S.t = 1.3; p = lib.takeoffPhase(); ok(p.cd && p.beat === 1, "then 1");
-    S.t = 1.85; p = lib.takeoffPhase(); ok(!p.cd && lib.takeoffBurn() > 0.9, "ignition right after 1 (countdown is 1.8 s)");
-    ok(3 * TK.beat + TK.burn + TK.tail <= 3.6, "whole takeoff is short (≤3.6 s with the smoke tail)");
-    S.takeoff = { t0: 0, cd: 0, beat: -1, lit: false }; S.t = 0.05; p = lib.takeoffPhase(); ok(!p.cd, "?launched=1: no countdown, straight to ignition");
+    const H = 800, DROP_TIER = { 2: [0.07, 0.4], 3: [0.1, 0.65], 4: [0.14, 0.95], 5: [0.19, 1.35] }, DROP_W = 4.5, FALL_TAU = 0.35;
+    const lib = new Function("S", "clamp", "H", "DROP_TIER", "DROP_W", "FALL_TAU", "sfx",
+      src.join("\n") + "; return {hyperAmt,bigSellDrop,dropStep};")(S, clamp, H, DROP_TIER, DROP_W, FALL_TAU, (k, d) => sent.push({ k, ...d }));
     // hyperspeed envelope
     S.hyper = { t0: 0, dur: 2.8 };
     S.t = 0.1; const a0 = lib.hyperAmt(); S.t = 1.2; const a1 = lib.hyperAmt(); S.t = 2.75; const a2 = lib.hyperAmt(); S.t = 3; const a3 = lib.hyperAmt();
@@ -117,12 +108,12 @@ ok(fx.play({ k: "explode", tier: 3 }) === true && started > 0, "after the gestur
 const ctx = audio.getAudioContext();
 ok(fx.play({ k: "explode", tier: 3 }) === false, "the same sound is rate-limited within its gap");
 ctx.currentTime += 1;
-for (const k of ["boost", "tier", "hit", "launch", "ascend", "drop"]) { ctx.currentTime += 1; ok(fx.play({ k, tier: 4, beat: 2, on: "rocket", v: 0.8 }) === true, `${k} plays`); }
-ok(fx.play({ k: "nope" }) === false, "unknown kinds are ignored");
+for (const k of ["boost", "tier", "hit", "ascend", "drop"]) { ctx.currentTime += 1; ok(fx.play({ k, tier: 4, on: "rocket", v: 0.8 }) === true, `${k} plays`); }
+ok(fx.play({ k: "nope" }) === false && fx.play({ k: "launch", beat: 3 }) === false, "unknown kinds (and the removed launch sounds) are ignored");
 ok(EXPLODE.length === 6 && EXPLODE.every((p, i) => i === 0 || (p.dur > EXPLODE[i - 1].dur && p.peak > EXPLODE[i - 1].peak && p.lp1 < EXPLODE[i - 1].lp1)), "explosions grow longer, louder and deeper with bomb size (puff → atom)");
 ok(tierFreq(0) > 500 && tierFreq(5) > tierFreq(0) && tierFreq(20) < 1050, "tier chime climbs with the tier and stays under an octave");
 ok(flyGain(1) > flyGain(0) && flyGain(0) > 0 && flyGain(1) < 0.3, "engine hum is quiet at a hover and louder at speed");
-ok(Object.keys(SFX_GAP).length === 8, "every engine sound has a rate limit");
+ok(Object.keys(SFX_GAP).length === 7, "every engine sound has a rate limit");
 ok(fx.play({ k: "fly", v: 0.4 }) === true && fx.flyOn(), "the engine hum starts when the flight sends its level");
 ctx.currentTime += 3; fx.watchdog(); ok(!fx.flyOn(), "the hum fades out if the flight stops sending (tab hidden, page left)");
 fx.play({ k: "fly", v: 0.4 });
