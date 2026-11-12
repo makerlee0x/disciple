@@ -261,10 +261,17 @@ test("creator fee copy matches the shared PM lines, with no jargon", () => {
   assert.doesNotMatch(visible, /\bLP\b|quote token|renounced|\buint\b|\bhalf\b/i);
 });
 
-test("the Mode control hugs its content and is not a full-width bar", () => {
-  const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../components/create/quickLaunch.module.css"), "utf8");
-  const block = css.match(/\.modeBtn\s*\{[^}]+\}/);
-  assert.ok(block, "modeBtn rule exists");
-  assert.match(block[0], /width:\s*auto/);
-  assert.doesNotMatch(block[0], /(?<!max-)width:\s*100%/);
+test("Mode is a three-card row with descriptions only in a hover or info-mark tooltip", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const css = readFileSync(join(here, "../components/create/quickLaunch.module.css"), "utf8");
+  const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
+  assert.match(css, /\.modeCards\s*\{[^}]*grid-template-columns:\s*1fr 1fr 1fr/);
+  assert.match(css, /\.modeTip\s*\{/);
+  assert.match(css, /modeCardWrap:hover \.modeTip/);
+  assert.match(css, /@media \(max-width: 820px\)[\s\S]*\.modeInfo \{ display: inline-grid; \}/);
+  assert.match(page, /data-testid=\{\`mode-card-\$\{label\.toLowerCase\(\)\}\`\}/);
+  assert.match(page, /data-testid=\{\`mode-info-\$\{label\.toLowerCase\(\)\}\`\}/);
+  assert.match(page, /QUICK_LAUNCH_MODE_COPY\.footer/);
+  assert.doesNotMatch(page, /modesFoot|mode-modal|modeBtn|modeOpen/);
+  assert.doesNotMatch(page, /creator-fee-destination|fee-destination/);
 });

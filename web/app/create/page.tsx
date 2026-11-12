@@ -13,7 +13,7 @@ import { exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap } from "@/lib/first
 import LiftoffOverlay, { LIFTOFF_MS } from "@/components/create/LiftoffOverlay";
 import { protocolStub, type Address } from "@/lib/protocol";
 import { LAUNCH_ABI_SHAPE, LaunchMode } from "@/lib/launchAbi";
-import { DEFAULT_MODE, MODE, MODE_LABEL, MODE_ORDER } from "@/lib/modeRules";
+import { DEFAULT_MODE, MODE_LABEL, MODE_ORDER } from "@/lib/modeRules";
 import { ACTIVE_CHAIN, deployment, isDeployed } from "@/lib/chains";
 import { nextTicker, randomRocketName, tickerVariants } from "@/lib/rocketNames";
 import { activeAddress, aaAvailable, canTransact, connectPrivy, connectWallet, execCalls, onWallet } from "@/lib/wallet";
@@ -40,11 +40,9 @@ import s from "@/components/create/quickLaunch.module.css";
 
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
 
-const DIFF_BARS: Record<number, number> = { [MODE.EASY]: 1, [MODE.HARD]: 2, [MODE.TRENCH]: 3 };
-
 export default function LaunchRocketPage() {
   const router = useRouter();
-  const [modeOpen, setModeOpen] = useState(false);
+  const [modeTip, setModeTip] = useState<number | null>(null);
   const [howOpen, setHowOpen] = useState(false);
   const [name, setName] = useState("");
   const [callSign, setCallSign] = useState("");
@@ -76,6 +74,21 @@ export default function LaunchRocketPage() {
   const setLaunched = (text: string) => setStatus({ text, ok: true });
   const [nameLockMsg, setNameLockMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const modeRowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (modeTip == null) return;
+    const onPtr = (e: PointerEvent) => {
+      if (modeRowRef.current && !modeRowRef.current.contains(e.target as Node)) setModeTip(null);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setModeTip(null); };
+    document.addEventListener("pointerdown", onPtr);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPtr);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [modeTip]);
 
   useEffect(() => {
     if (IS_STATIC_PREVIEW || !nameLockEnforced(ACTIVE_CHAIN.id) || !name.trim() || !callSign.trim()) {
@@ -304,7 +317,6 @@ export default function LaunchRocketPage() {
     }
   }
 
-  const modeLabel = MODE_LABEL[gameMode] ?? "Easy";
   const defaultPairLabel = defaultPair.symbol;
   const advDirty = (
     quote.label !== defaultPairLabel
@@ -379,11 +391,61 @@ export default function LaunchRocketPage() {
               </div>
             </div>
 
-            <button type="button" className={s.modeBtn} data-testid="mode-open" onClick={() => setModeOpen(true)}>
-              <span className={s.k}>{C.mode}</span>
-              <b>{modeLabel}</b>
-              <span className={s.modeChange}>{C.modeChange}</span>
-            </button>
+            <div className={s.modeBlock} ref={modeRowRef} data-testid="mode-cards">
+              <div className={s.lab}>{C.mode}</div>
+              <div className={s.modeCards} role="radiogroup" aria-label={C.mode}>
+                {MODE_ORDER.map((id) => {
+                  const label = MODE_LABEL[id];
+                  const on = gameMode === id;
+                  const copy = label === "Easy" ? QUICK_LAUNCH_MODE_COPY.Easy : label === "Hard" ? QUICK_LAUNCH_MODE_COPY.Hard : QUICK_LAUNCH_MODE_COPY.Trench;
+                  const tipId = `mode-tip-${label.toLowerCase()}`;
+                  return (
+                    <div key={id} className={s.modeCardWrap}>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        aria-label={label}
+                        aria-describedby={tipId}
+                        data-testid={`mode-card-${label.toLowerCase()}`}
+                        className={`${s.modeCard} ${on ? s.on : ""}`}
+                        onClick={() => setGameMode(id)}
+                      >
+                        <span className={s.modeCardLbl}>{label}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={s.modeInfo}
+                        data-testid={`mode-info-${label.toLowerCase()}`}
+                        aria-label={`About ${label}`}
+                        aria-expanded={modeTip === id}
+                        aria-controls={tipId}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setModeTip((v) => (v === id ? null : id));
+                        }}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                          <circle cx="12" cy="12" r="8.5" />
+                          <path d="M12 11v5.25" />
+                          <circle cx="12" cy="7.85" r="1" fill="currentColor" stroke="none" />
+                        </svg>
+                      </button>
+                      <div
+                        className={`${s.modeTip} ${modeTip === id ? s.open : ""}`}
+                        role="tooltip"
+                        id={tipId}
+                        data-testid={tipId}
+                      >
+                        <p>{copy}</p>
+                        <p>{QUICK_LAUNCH_MODE_COPY.footer}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
 
             <div className={s.foot}>
               <button
@@ -427,39 +489,6 @@ export default function LaunchRocketPage() {
           <CreatePadPreview name={name} ticker={callSign} icon={previewIcon} />
         </div>
       </form>
-
-      {modeOpen && (
-        <>
-          <div className={s.scrim} onClick={() => setModeOpen(false)} />
-          <div className={s.modal} role="dialog" aria-label={C.pickMode} data-testid="mode-modal">
-            <div className={s.modalPanel}>
-              <div className={s.drawerHd}>
-                <h2>{C.pickMode}</h2>
-                <button type="button" className={s.iconBtn} aria-label="Close" onClick={() => setModeOpen(false)}><Icon name="close" size={16} /></button>
-              </div>
-              <div className={s.modes}>
-                {MODE_ORDER.map((id) => {
-                  const label = MODE_LABEL[id];
-                  const on = gameMode === id;
-                  const filled = DIFF_BARS[id] ?? 1;
-                  const copy = label === "Easy" ? QUICK_LAUNCH_MODE_COPY.Easy : label === "Hard" ? QUICK_LAUNCH_MODE_COPY.Hard : QUICK_LAUNCH_MODE_COPY.Trench;
-                  return (
-                    <button type="button" key={id} className={`${s.mcard} ${on ? s.on : ""}`} onClick={() => { setGameMode(id); setModeOpen(false); }}>
-                      <div className={s.hd}>
-                        <span className={s.check}>{on && <Icon name="check" size={12} />}</span>
-                        <h2>{label}</h2>
-                        <span className={s.bars} aria-hidden>{[1, 2, 3].map((n) => <i key={n} className={n <= filled ? s.on : ""} />)}</span>
-                      </div>
-                      <p>{copy}</p>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className={s.modesFoot}><div className={s.perm}>{QUICK_LAUNCH_MODE_COPY.footer}</div></div>
-            </div>
-          </div>
-        </>
-      )}
 
       {advanced && (
         <>
