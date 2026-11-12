@@ -1,6 +1,6 @@
 "use client";
 /** Daily (and optionally weekly) missions with progress and the reset timer. Same 3 for every pilot each period. */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { missionById, type MissionStatus, type XpSummary } from "@/lib/xp";
 import { untilLabel } from "@/lib/xpClient";
 
@@ -22,12 +22,12 @@ function Mission({ m }: { m: MissionStatus }) {
   );
 }
 
-export default function MissionsPanel({ xp, weekly = false, title = "Daily missions" }: { xp: XpSummary | null; weekly?: boolean; title?: string }) {
+export default function MissionsPanel({ xp, weekly = false, title = "Daily missions", footer, className }: { xp: XpSummary | null; weekly?: boolean; title?: string; footer?: ReactNode; className?: string }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(t); }, []);
   if (!xp) return null;
   return (
-    <section className="dsc3-panel xp-missions" aria-label={title} data-testid="missions-panel">
+    <section className={`dsc3-panel xp-missions${className ? " " + className : ""}`} aria-label={title} data-testid="missions-panel">
       <header className="xp-missions-head">
         <h2 className="dsc3-h3">{title}</h2>
         <span className="xp-reset">New in {untilLabel(xp.daily.resetsAt, now)}</span>
@@ -42,6 +42,7 @@ export default function MissionsPanel({ xp, weekly = false, title = "Daily missi
           <ul className="xp-mission-list">{xp.weekly.missions.map((m) => <Mission key={m.id} m={m} />)}</ul>
         </>
       )}
+      {footer}
     </section>
   );
 }

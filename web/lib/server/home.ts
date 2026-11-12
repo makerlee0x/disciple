@@ -15,7 +15,7 @@ import { storeSrc, STORE_ID_RE, uriKey } from "@/lib/coinImages";
 import { pairOf, pairSymOf, shortHex } from "@/lib/home/pairs";
 import { isHiddenCoin } from "@/lib/home/hiddenCoins";
 import { flaggedCopySet } from "@/lib/server/nameLock";
-import { chipOf, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
+import { chipOf, lobbyAgeTokens, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
 import { resolveKeys } from "./imageStore";
 import { indexTrades, tradesOf } from "./trades";
 
@@ -41,8 +41,20 @@ async function resolveImages(uris: string[]): Promise<Map<string, string>> {
 
 export const EMPTY_HOME: HomeData = { at: 0, coins: [], hero: null, heroMode: "empty", next: [], chips: [] };
 
+/** `next dev` only: DSC_HOME_FIXTURE=<path to a HomeData JSON> paints the lobby with it (layout QA without a chain). */
+async function devFixture(): Promise<HomeData | null> {
+  if (process.env.NODE_ENV !== "development" || !process.env.DSC_HOME_FIXTURE) return null;
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const d = JSON.parse(await readFile(process.env.DSC_HOME_FIXTURE, "utf8")) as HomeData;
+    return { ...d, at: Date.now() };
+  } catch { return null; }
+}
+
 async function build(): Promise<HomeData> {
   const now = Date.now();
+  const fx = await devFixture();
+  if (fx) return fx;
   if (!isDeployed()) return { ...EMPTY_HOME, at: now };
   const pc = publicClient() as PublicClient;
   const [launches] = await Promise.all([
@@ -59,13 +71,13 @@ async function build(): Promise<HomeData> {
     return {
       token: x.token.toLowerCase(), name: x.name, ticker: x.ticker, pair: pairOf(x.quote), pairSym: pairSymOf(x.quote),
       icon: x.imageURI, creator: shortHex(x.creator), creatorAddr: String(x.creator).toLowerCase(), mcapUsd: x.mcapUsd, graduated: x.graduated, progressBps: x.progressBps ?? undefined, block: Number(x.block),
-      launchedAt: null,
+      launchedAt: null, mode: x.mode,
       stats: statsFromFills(fills, now, x.mcapUsd, fills.length >= FILLS_CAP),
     };
   });
   const pick = pickHero(coins);
-  // launch time (age) for the hero + strip
-  const need = [pick.hero, ...pick.next].filter(Boolean) as string[];
+  // launch time (age) for the hero, the trending list and the newest launches (lobby shelves)
+  const need = lobbyAgeTokens(coins, pick);
   await Promise.all(need.map(async (t) => {
     const c = coins.find((x) => x.token === t);
     if (!c) return;

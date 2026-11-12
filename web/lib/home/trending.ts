@@ -49,8 +49,10 @@ export type HomeCoin = {
   progressBps?: number;
   /** launch block (newer = larger) */
   block: number;
-  /** launch time, ms (filled for the hero + strip only) */
+  /** launch time, ms (filled for the hero, the trending list and the newest launches only) */
   launchedAt: number | null;
+  /** launch difficulty: curve.mode() (0 Trench = Expert, 1 Easy, 2 Hard); null/absent = unknown */
+  mode?: number | null;
   stats: CoinStats | null;
 };
 
@@ -141,6 +143,35 @@ export function pickHero(coins: HomeCoin[]): Pick<HomeData, "hero" | "heroMode" 
   if (ranked.length) return { hero: ranked[0].token, heroMode: "trending", next: ranked.slice(1, 9).map((c) => c.token) };
   const newest = [...coins].sort((a, b) => b.block - a.block)[0];
   return newest ? { hero: newest.token, heroMode: "newest", next: [] } : { hero: null, heroMode: "empty", next: [] };
+}
+
+/* ── lobby shelves (components/home/Lobby) ───────────────────────────────────────────────────────────────────────── */
+
+/** Climbing now: still on the curve, traded in the last 24h and up on the day, biggest climb first. */
+export function climbingNow(coins: HomeCoin[], n = 10): HomeCoin[] {
+  return coins
+    .filter((c) => !c.graduated && (c.stats?.vol24 ?? 0) > 0 && (c.stats?.chg24 ?? 0) > 0)
+    .sort((a, b) => b.stats!.chg24! - a.stats!.chg24! || b.stats!.vol24 - a.stats!.vol24)
+    .slice(0, n);
+}
+
+/** About to reach orbit: still on the curve and at least halfway there, closest first. */
+export const ORBIT_SHELF_MIN_BPS = 5_000;
+export function nearOrbit(coins: HomeCoin[], n = 3): HomeCoin[] {
+  return coins
+    .filter((c) => !c.graduated && (c.progressBps ?? 0) >= ORBIT_SHELF_MIN_BPS && (c.progressBps ?? 0) < 10_000)
+    .sort((a, b) => (b.progressBps ?? 0) - (a.progressBps ?? 0) || b.block - a.block)
+    .slice(0, n);
+}
+
+/** Fresh off the pad: the newest launches still on the curve. */
+export function freshOffPad(coins: HomeCoin[], n = 6): HomeCoin[] {
+  return coins.filter((c) => !c.graduated).sort((a, b) => b.block - a.block).slice(0, n);
+}
+
+/** Every coin the lobby shows an age for (server fills launchedAt for these). */
+export function lobbyAgeTokens(coins: HomeCoin[], pick: Pick<HomeData, "hero" | "next">): string[] {
+  return Array.from(new Set([pick.hero, ...pick.next, ...freshOffPad(coins).map((c) => c.token)].filter(Boolean) as string[]));
 }
 
 /** "KÁRMÁN LINE" → "Kármán Line", "GATES OF HEAVEN" → "Gates of Heaven". */

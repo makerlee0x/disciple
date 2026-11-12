@@ -1,8 +1,8 @@
-/* App home (BRAND app-home r1, mock A): trending hero + feed. Lunar palette + v2 tokens (--dsc-*) for scrims and motion.
- * Film grain covers the hero scene (sky, pad, rocket); coin art and text carry none. Motion is transform/opacity only,
- * starts after paint (.go) and is off under prefers-reduced-motion. */
+/* Lobby hero (door one: LAUNCH A ROCKET) over the BRAND night plate + the feed wrapper. v3 type and buttons
+ * (app/brand-tokens-v3.css), v2 tokens for scrims and motion. Film grain covers the hero scene (sky, pad, rocket); text
+ * carries none. Motion is transform/opacity only, starts after paint (.go) and is off under prefers-reduced-motion. */
 .hero {
-  --hero-h: 580px;
+  --hero-h: 600px;
   position: relative;
   height: var(--hero-h);
   margin-top: calc(-1 * var(--ap-topbar-offset, 56px)); /* sky runs under the transparent-at-top chrome strip */
@@ -28,82 +28,23 @@
 
 /* rocket + launch pad + smog + moon: HeroPad / heroPad.module.css */
 
-/* info panel */
+/* door one */
 .panel {
-  position: absolute; left: 40px; top: calc(var(--ap-topbar-offset, 56px) + 40px); width: 420px; z-index: 4;
-  display: grid; grid-template-columns: 1fr; grid-template-areas: "eyebrow" "ident" "mcap" "tier" "stats" "actions";
+  position: absolute; z-index: 4; left: max(40px, calc((100% - 1360px) / 2)); top: calc(var(--ap-topbar-offset, 56px) + 56px);
+  width: min(460px, calc(100% - 80px)); display: flex; flex-direction: column; align-items: flex-start; gap: 18px;
 }
-.eyebrow, .eyebrowSm { font: 500 11px var(--dsc-font-mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dsc-muted-on-sky); }
-.eyebrow { grid-area: eyebrow; display: flex; align-items: center; gap: 8px; color: #FF9A6B; }
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dsc-secondary); box-shadow: 0 0 10px rgba(255, 122, 61, .7); }
-.ident { grid-area: ident; display: flex; align-items: center; gap: 14px; margin-top: 16px; min-width: 0; }
-.av { position: relative; width: 56px; height: 56px; flex: none; display: block; }
-.identTxt { min-width: 0; }
-.name { display: block; font-size: 26px; font-weight: 600; letter-spacing: -.01em; line-height: 1.15; color: var(--dsc-text); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.name:hover { text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
-.sub { font-size: 13.5px; color: var(--dsc-muted-on-sky); margin-top: 3px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.subIc { color: var(--dsc-muted-on-sky); }
-.num { font-family: var(--dsc-font-mono); font-variant-numeric: tabular-nums; }
-.mcap { grid-area: mcap; display: flex; align-items: baseline; gap: 14px; margin-top: 22px; }
-.mcapV { font: 600 52px/1 var(--dsc-font-mono); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-.mcapL { font: 11px var(--dsc-font-mono); color: var(--dsc-muted); }
-.chg { font: 500 13px var(--dsc-font-mono); white-space: nowrap; }
-.up { color: var(--dsc-up); }
-.dn { color: var(--dsc-down); }
-.tier { grid-area: tier; margin-top: 18px; max-width: 380px; }
-.tierHd { display: flex; justify-content: space-between; align-items: center; font: 500 11px var(--dsc-font-mono); letter-spacing: .14em; color: var(--dsc-text); }
-.tierHd > span:first-child { display: inline-flex; align-items: center; gap: 6px; }
-.tierPct { color: var(--dsc-muted-on-sky); }
-.tierM { display: none; color: var(--dsc-muted-on-sky); letter-spacing: .06em; }
-.bar { height: 4px; border-radius: 2px; background: rgba(201, 206, 214, .12); overflow: hidden; margin-top: 8px; }
-.bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--dsc-sky-lavender), var(--dsc-text)); border-radius: inherit; }
-.tierFt { display: flex; justify-content: space-between; gap: 12px; font: 11px var(--dsc-font-mono); color: var(--dsc-muted-on-sky); margin-top: 6px; }
-.stats { grid-area: stats; display: flex; gap: 26px; margin-top: 20px; }
-.stats:empty { display: none; }
-.stat { display: flex; flex-direction: column; gap: 3px; }
-.stat span { font: 10.5px var(--dsc-font-mono); letter-spacing: .12em; color: var(--dsc-muted); text-transform: uppercase; }
-.stat b { font: 500 14px var(--dsc-font-mono); font-variant-numeric: tabular-nums; }
-.actions { grid-area: actions; display: flex; gap: 10px; margin-top: 24px; }
-.btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 48px; padding: 0 22px; border-radius: var(--dsc-radius-lg);
-  font: 500 15px var(--dsc-font-ui); border: 1px solid rgba(201, 206, 214, .3); color: var(--dsc-text); background: rgba(201, 206, 214, .06);
-  white-space: nowrap; text-decoration: none; cursor: pointer;
-  transition: transform var(--dsc-duration-fast) var(--dsc-easing-standard), box-shadow var(--dsc-duration-fast) var(--dsc-easing-standard), background-color var(--dsc-duration-fast) var(--dsc-easing-standard);
+.step {
+  font: var(--dsc3-type-label); color: var(--dsc-sky-ink); background: var(--dsc3-light-champagne);
+  padding: 6px 10px; border-radius: 6px;
 }
-.btn:focus-visible { outline: 2px solid var(--dsc-primary); outline-offset: 2px; }
-.boost { background: var(--dsc-up); color: #06140C; border-color: var(--dsc-up); font-weight: 600; letter-spacing: .04em; box-shadow: var(--dsc-glow-up); }
-.boost:hover { transform: translateY(-1px); box-shadow: 0 0 24px rgba(95, 240, 160, .42); }
-.dump { background: rgba(240, 48, 127, .08); color: #FF7AAE; border-color: rgba(240, 48, 127, .55); font-weight: 600; letter-spacing: .04em; }
-.dump:hover { background: rgba(240, 48, 127, .14); }
-.ghost { border-color: transparent; background: transparent; color: var(--dsc-muted-on-sky); padding: 0 14px; }
-.ghost:hover { color: var(--dsc-text); }
-.primary { background: var(--dsc-primary); color: var(--dsc-bg); border-color: var(--dsc-primary); }
-.emptyT { grid-area: ident; margin: 16px 0 0; font: 400 44px/1.05 var(--dsc-font-display); color: var(--dsc-text); }
-
-/* Next trending (#2 onward), bottom-right over the sky */
-.strip { position: absolute; right: 24px; bottom: 22px; z-index: 4; display: flex; flex-direction: column; gap: 10px; max-width: min(628px, calc(100% - 48px)); }
-.stripHd { display: flex; align-items: center; gap: 10px; }
-.stripHd .eyebrowSm { margin-right: auto; }
-.arrows { display: flex; gap: 6px; }
-.arrows button { all: unset; box-sizing: border-box; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; border: 1px solid rgba(201, 206, 214, .18); color: var(--dsc-muted-on-sky); cursor: pointer; }
-.arrows button:hover { color: var(--dsc-text); border-color: rgba(201, 206, 214, .4); }
-.arrows button:focus-visible { outline: 2px solid var(--dsc-primary); outline-offset: 2px; }
-.minis { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
-.minis::-webkit-scrollbar { display: none; }
-.mini {
-  flex: none; width: 196px; scroll-snap-align: start; display: flex; gap: 10px; align-items: center; padding: 8px; border-radius: var(--dsc-radius-lg);
-  background: rgba(11, 12, 14, .62); border: 1px solid rgba(201, 206, 214, .14); backdrop-filter: blur(10px); color: var(--dsc-text); text-decoration: none;
-  transition: border-color var(--dsc-duration-fast) var(--dsc-easing-standard);
-}
-.mini:hover, .mini:focus-visible { border-color: rgba(201, 206, 214, .4); outline: none; }
-.miniTh { width: 64px; height: 40px; border-radius: 7px; object-fit: cover; flex: none; border: 1px solid rgba(201, 206, 214, .12); background: var(--dsc-surface); }
-.miniTh:has(> .miniBadge) { display: block; overflow: hidden; }
-.miniBadge { display: block; width: 100% !important; height: 100% !important; border-radius: 0; }
-.miniTx { min-width: 0; display: flex; flex-direction: column; }
-.miniR { display: flex; gap: 6px; align-items: baseline; font-size: 13px; white-space: nowrap; overflow: hidden; }
-.miniN { color: var(--dsc-muted); font: 11px var(--dsc-font-mono); }
-.miniR2 { display: flex; gap: 8px; align-items: baseline; margin-top: 3px; font-size: 12px; white-space: nowrap; }
-.miniR2 .chg { font-size: 11.5px; }
+.title { text-shadow: 0 2px 24px rgba(11, 12, 14, .45); }
+.lede { margin: 0; max-width: 340px; font: 400 18px / 1.45 var(--dsc-font-ui); color: var(--dsc3-text-on-sky); }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
+.ghostLg { min-height: 56px; }
+.facts { display: flex; flex-wrap: wrap; gap: 28px; margin: 22px 0 0; }
+.facts > div { display: flex; flex-direction: column; gap: 4px; }
+.facts dt { font: var(--dsc3-type-stat); color: var(--dsc-text); }
+.facts dd { margin: 0; font: var(--dsc3-type-small); color: var(--dsc-muted-on-sky); }
 
 .pollErr {
   position: sticky; top: var(--ap-topbar-offset, 56px); z-index: 8;
@@ -112,59 +53,25 @@
   background: rgba(40, 28, 8, .92); border-bottom: 1px solid rgba(255, 231, 163, .35);
 }
 
-/* feed */
-.feed { max-width: 1440px; margin: 14px auto 40px; padding: 0 24px; position: relative; z-index: 5; min-height: 520px; }
+/* feed (all rockets) */
+.feed { max-width: 1440px; margin: 0 auto 40px; padding: 0 24px; position: relative; z-index: 5; min-height: 520px; }
 .feedSkel { padding-top: 4px; }
 .feedSkelBar { height: 34px; width: min(520px, 100%); border-radius: var(--dsc-radius-md); background: var(--dsc-surface); }
 .feedSkelGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 12px; margin-top: 18px; }
 .feedSkelGrid i { display: block; height: 260px; border-radius: var(--dsc-radius-xl); background: var(--dsc-surface); border: 1px solid rgba(201, 206, 214, .06); }
 
-
-/* mobile (mock A mobile): sky + rocket on top, info at the bottom of the scene, Next trending below it */
+/* mobile: sky + rocket on top, door one at the bottom of the scene */
 @media (max-width: 760px) {
   .hero { height: auto; background: var(--dsc-bg); }
-  /* tall enough that the info panel sits in the plate's fog below the deck and the seated rocket stays clear of it:
-   * the plate frame height (1792/828 of the width; 844px at 390) up to seat (54.81% of it) + 382px on wider phones */
-  .stage { position: relative; height: min(calc(100vw * 1792 / 828), calc(118.6vw + 382px)); overflow: hidden; background: var(--dsc-sky-ink); }
-  /* same scrim as before, anchored to the bottom in px (it was % of a 560px stage) so it stays under the panel */
-  .scrim { background: linear-gradient(0deg, rgba(11, 12, 14, 1) 0, rgba(11, 12, 14, .86) 168px, rgba(11, 12, 14, .5) 258px, rgba(11, 12, 14, 0) 358px); }
-  .panel {
-    left: 18px; right: 18px; top: auto; bottom: 18px; width: auto;
-    grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "eyebrow eyebrow" "ident mcap" "tier tier" "stats stats" "actions actions";
-  }
-  .eyebrow { font-size: 10.5px; }
-  .dot { width: 6px; height: 6px; box-shadow: none; }
-  .ident { margin-top: 10px; gap: 12px; }
-  .av { width: 44px; height: 44px; }
-  .name { font-size: 20px; }
-  .sub { font-size: 12.5px; margin-top: 2px; }
-  .subIc { display: none; }
-  .mcap { margin-top: 10px; flex-direction: column; align-items: flex-end; gap: 4px; justify-content: center; }
-  .mcapV { font-size: 24px; }
-  .mcapL { display: none; }
-  .tier { margin-top: 14px; max-width: none; }
-  .tierHd { font-size: 10.5px; letter-spacing: .12em; }
-  .tierPct, .tierFt { display: none; }
-  .tierM { display: inline; }
-  .bar { margin-top: 7px; }
-  .stats { gap: 18px; margin-top: 12px; }
-  .stat span { font-size: 9.5px; }
-  .stat b { font-size: 12.5px; }
-  .actions { gap: 8px; margin-top: 14px; }
-  .boost { flex: 1.6; }
-  .dump { flex: 1; }
-  .ghost { display: none; }
-  .btn { padding: 0 12px; }
-  .emptyT { font-size: 32px; }
-  .strip { position: static; max-width: none; padding: 16px 0 0 18px; }
-  .stripHd { padding-right: 18px; }
-  .arrows { display: none; }
-  .minis { padding-right: 18px; }
-  .mini { backdrop-filter: none; background: var(--dsc-bg); border-color: rgba(201, 206, 214, .18); }
-  .feed { padding: 0 12px; margin-top: 18px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .btn, .mini { transition: none; }
-  .boost:hover { transform: none; }
+  /* the seated rocket owns the top of the plate (seat = 118.6vw); door one flows below it, over the plate's fog */
+  .stage { position: relative; height: auto; padding: calc(118.6vw + 28px) 0 24px; overflow: hidden; background: var(--dsc-sky-ink); }
+  .scrim { background: linear-gradient(0deg, rgba(11, 12, 14, 1) 0, rgba(11, 12, 14, .9) 260px, rgba(11, 12, 14, .55) 360px, rgba(11, 12, 14, 0) 440px); }
+  .panel { position: relative; left: auto; right: auto; top: auto; bottom: auto; width: auto; margin: 0 16px; gap: 14px; }
+  .title { font-size: 64px; }
+  .lede { font-size: 16px; }
+  .actions { width: 100%; }
+  .actions > a { flex: 1 1 auto; }
+  .facts { gap: 20px; margin-top: 8px; }
+  .facts dt { font-size: 22px; }
+  .feed { padding: 0 12px; }
 }

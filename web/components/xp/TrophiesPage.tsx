@@ -11,17 +11,10 @@ import { V1_RULES } from "@/lib/achievements";
 import { achievementIconPath, rarityStyle } from "@/lib/achievements";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 import { rarityRank } from "@/lib/config";
-import { dayPeriod, levelInfo, milestoneXp, missionsFor, MILESTONE_COPY, weekPeriod, type XpSummary } from "@/lib/xp";
-import { usePilotWallet, useXp } from "@/lib/xpClient";
+import { milestoneXp, MILESTONE_COPY } from "@/lib/xp";
+import { blankXp, usePilotWallet, useXp } from "@/lib/xpClient";
 
 type Unlock = { id: string; unlockedAt?: number };
-
-/** Today's missions with no progress (signed out, or before the first score). */
-function blankSummary(now: number): XpSummary {
-  const d = dayPeriod(now), w = weekPeriod(now);
-  const view = (p: typeof d) => ({ period: p.id, resetsAt: p.end, missions: missionsFor(p).map((m) => ({ id: m.id, title: m.title, xp: m.xp, target: m.target, progress: 0, done: false })) });
-  return { wallet: "", totalXp: 0, spendableXp: 0, level: levelInfo(0), daily: view(d), weekly: view(w), owned: [], recent: [], evaluatedAt: null };
-}
 
 export default function TrophiesPage() {
   const wallet = usePilotWallet();
@@ -37,7 +30,7 @@ export default function TrophiesPage() {
     return () => { live = false; };
   }, [wallet]);
 
-  const shown = xp ?? blankSummary(Date.now());
+  const shown = xp ?? blankXp();
   const milestones = useMemo(() => [...V1_RULES].sort((a, b) => Number(unlocks.has(b.id)) - Number(unlocks.has(a.id)) || rarityRank(a.rarity) - rarityRank(b.rarity)), [unlocks]);
   const earned = milestones.filter((m) => unlocks.has(m.id)).length;
 

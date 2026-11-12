@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { IS_STATIC_PREVIEW } from "./base-path";
 import { signWalletMessage } from "./profile";
 import { onWallet } from "./wallet";
-import { prestigeMessage, shopBuyMessage, type XpSummary } from "./xp";
+import { dayPeriod, levelInfo, missionsFor, prestigeMessage, shopBuyMessage, weekPeriod, type XpSummary } from "./xp";
 
 const isAddr = (a: string | null | undefined): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.test(a);
 export const XP_CHANGED_EVENT = "disciple:xp-changed";
@@ -62,4 +62,11 @@ export function untilLabel(ts: number, now = Date.now()): string {
   const m = Math.max(0, Math.round((ts - now) / 60_000));
   const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
   return d ? `${d}d ${h}h` : h ? `${h}h ${mm}m` : `${mm}m`;
+}
+
+/** This period's missions with no progress (signed out, or before the first score). Same roll for every pilot. */
+export function blankXp(now = Date.now()): XpSummary {
+  const d = dayPeriod(now), w = weekPeriod(now);
+  const view = (p: typeof d) => ({ period: p.id, resetsAt: p.end, missions: missionsFor(p).map((m) => ({ id: m.id, title: m.title, xp: m.xp, target: m.target, progress: 0, done: false })) });
+  return { wallet: "", totalXp: 0, spendableXp: 0, level: levelInfo(0), daily: view(d), weekly: view(w), owned: [], recent: [], evaluatedAt: null };
 }
