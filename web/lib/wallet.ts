@@ -41,7 +41,7 @@ export async function ensureChain(w: WalletClient) {
 let plainWallet: Address | null = null;
 export class SignInRequired extends Error { code = "SignIn"; constructor(m = "Sign in to trade or launch (Email / Google) — your DISCIPLE wallet signs for you.") { super(m); } }
 /** May writes go through right now? Smart session (signed in), or an explicitly connected plain wallet. */
-export function canTransact(): boolean { return isSmartMode() || !!plainWallet; }
+export function canTransact(): boolean { return isSmartMode() || !!plainWallet || !!gaslessSigner(); }
 
 /** Explicit connect (wallet button). Returns the address. */
 export async function connectWallet(): Promise<Address> {
@@ -71,7 +71,8 @@ export async function getSigner(): Promise<Signer> {
 import type { Call } from "./aa/core";
 import type { SendOpts } from "./aa/fastPath";
 import type { GasOpKind } from "./aa/gasReserve";
-import { aaAddress, aaAvailable, aaGasReservePerOp, aaLogout, aaPeekGasReservePerOp, aaSend, aaSession, eoaLogin, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
+import { aaAddress, aaAvailable, aaGasReservePerOp, aaLogout, aaOwnerAccount, aaPeekGasReservePerOp, aaSession, eoaLogin, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
+import { clientGaslessMode } from "./aa/sponsorshipMode";
 import type { Hex, LocalAccount } from "viem";
 
 export type ExecResult = { txHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[]; userOp?: Hex; gasMode?: string; /** GAME reservation id (SendOpts.pressId) */ pressId?: string };
@@ -89,8 +90,10 @@ export async function connectSmartWithWallet(): Promise<Address> {
 /** Open the Privy login modal (email / Google). The address is emitted once the embedded wallet is ready. */
 export function connectPrivy() { privyLogin(); }
 /** Called by PrivyProviders with toViemAccount(embeddedWallet). */
-export async function connectPrivyOwner(owner: LocalAccount) { const a = await setPrivyOwner(owner); emit(a); return a; }
-export async function restoreSmart() { if (!aaAvailable()) return null; const a = await restore(); if (a) emit(a); return a; }
+export async function connectPrivyOwner(owner: LocalAccount) { const a = await setPrivyOwner(owner); const shown = clientGaslessMode() ? owner.address : a; emit(shown); return shown; }
+/** Gasless mode: the owner EOA that signs Permit2 trades (null ⇒ not gasless / signed out). */
+export function gaslessSigner(): LocalAccount | null { return clientGaslessMode() ? aaOwnerAccount() : null; }
+export async function restoreSmart() { if (!aaAvailable()) return null; const a = await restore(); const shown = (a && gaslessSigner()?.address) || a; if (shown) emit(shown); return shown; }
 export async function connectLocal() { const a = await localStart(); emit(a); return a; }
 export async function importLocal(k: string) { const a = await localImport(k); emit(a); return a; }
 export async function resetLocal() { await localReset(); emit(null); }
@@ -108,6 +111,8 @@ export async function plainWalletSigner(expect?: string): Promise<Signer> {
 }
 /** The address that holds funds/trades: the smart account when signed in, else an explicitly connected plain wallet. */
 export async function activeAddress(): Promise<Address> {
+  const g = gaslessSigner();
+  if (g) return g.address;   // gasless: the Privy EOA holds funds and trades (no smart account on the trade path)
   const a = await aaAddress();
   if (a) return a;
   if (plainWallet) return (await getSigner()).account.address;
@@ -119,12 +124,12 @@ export async function activeAddress(): Promise<Address> {
  *   reserve = liveCash − Σ pending (amountIn + gasReservePerOp())
  * USDG-paid smart-account gas reserves are computed synchronously; EOAs use native ETH.
  */
-export function gasReservePerOp(kind: GasOpKind = "trade"): bigint { return isSmartMode() ? aaGasReservePerOp(kind) : BigInt(0); }
+export function gasReservePerOp(kind: GasOpKind = "trade"): bigint { return isSmartMode() && !clientGaslessMode() ? aaGasReservePerOp(kind) : BigInt(0); }
 // SITE #144 (lib/trade/reservations, not in this base yet) — at rebase add, once at module scope here:
 //   import { setGasReserveSource } from "@/lib/trade/reservations";
 //   setGasReserveSource(() => gasReservePerOp());   // raw USDG base units (18 dec testnet mUSDG, 6 mainnet); 0n ⇒ ETH gas
 /** Same, but null while cold (no fresh allowance yet) instead of the derived value. */
-export function peekGasReservePerOp(kind: GasOpKind = "trade"): bigint | null { return isSmartMode() ? aaPeekGasReservePerOp(kind) : BigInt(0); }
+export function peekGasReservePerOp(kind: GasOpKind = "trade"): bigint | null { return isSmartMode() && !clientGaslessMode() ? aaPeekGasReservePerOp(kind) : BigInt(0); }
 export type { GasOpKind } from "./aa/gasReserve";
 
 /**
@@ -137,22 +142,37 @@ function handOffLogs(txHash: Hex | undefined, logs: readonly { address: Address;
   try { noteReceipt(txHash, logs); } catch { /* never break the trade */ }
 }
 export async function execCalls(calls: Call[], o: SendOpts = {}): Promise<ExecResult> {
-  if (!isSmartMode() && !plainWallet) throw new SignInRequired();
-  if (isSmartMode()) {
-    const r = await aaSend(calls, o);
-    // GAME trade speed: the send already returned the receipt logs ⇒ TradeBridge decodes the fill from them (no 2nd receipt poll)
-    handOffLogs(r.txHash, r.receipt?.receipt?.logs);
-    return { txHash: r.txHash, logs: r.receipt.receipt.logs, userOp: r.userOpHash, gasMode: r.gasMode, pressId: r.pressId };
-  }
-  const w = await getSigner();
-  const { createPublicClient, http } = await import("viem");
+  const owner = gaslessSigner();
+  /**
+   * WITHDRAW / CLAIMS / SEND FLAG: Cash withdraw (and claims, tramp walls, creator transfer) is a plain USDG (or
+   * contract) send via execCalls. It previously used the 4337 userOp/paymaster path (aaSend) so the player needed no
+   * ETH. That path is deleted. This now sends from the Privy owner EOA (the address that holds funds in gasless mode)
+   * with a normal EIP-1559 tx — it REQUIRES ETH on that EOA for gas. No new gasless withdraw was built.
+   * The injected-wallet fallback (getSigner / MetaMask) is only used for an explicitly connected plainWallet.
+   */
+  if (!owner && !plainWallet) throw new SignInRequired();
+  const { createWalletClient, createPublicClient, http } = await import("viem");
   const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
   let last: ExecResult | null = null;
+  if (owner) {
+    const w = createWalletClient({ chain: ACTIVE_CHAIN, account: owner, transport: http() });
+    for (const c of calls) {
+      const hash = await w.sendTransaction({ chain: ACTIVE_CHAIN, account: owner, to: c.to, data: c.data, value: c.value ?? BigInt(0) });
+      const rc = await pc.waitForTransactionReceipt({ hash });
+      if (rc.status !== "success") {
+        console.warn("[disciple] send reverted", { txHash: hash });
+        throw Object.assign(new Error(REJECTED_MSG), { txHash: hash });
+      }
+      last = { txHash: hash, logs: rc.logs as ExecResult["logs"] };
+      handOffLogs(hash, last.logs);
+    }
+    return last!;
+  }
+  const w = await getSigner();
   for (const c of calls) {
     const hash = await w.sendTransaction({ chain: ACTIVE_CHAIN, account: w.account.address, to: c.to, data: c.data, value: c.value });
     const rc = await pc.waitForTransactionReceipt({ hash });
     if (rc.status !== "success") {
-      // players see the plain line; the hash stays on the error (txHash) and in the console
       console.warn("[disciple] trade reverted", { txHash: hash });
       throw Object.assign(new Error(REJECTED_MSG), { txHash: hash });
     }
@@ -160,4 +180,54 @@ export async function execCalls(calls: Call[], o: SendOpts = {}): Promise<ExecRe
     handOffLogs(hash, last.logs);
   }
   return last!;
+}
+
+/* ---------------- gasless (Permit2 witness) seam — flow/gasless-permit2 ---------------- */
+/**
+ * One gasless trade from the owner EOA (gaslessSigner): sign the Permit2 witness (+ the one-time EIP-2612 approval of
+ * PERMIT2) silently and POST /api/gasless. Errors are AAErrors so the trade path's existing rules apply unchanged:
+ * "Estimate" = refused before sending (exact simulation / admission; nothing sent), "Reverted" = included and reverted
+ * (sent), "Timeout" = may still land (never resent).
+ */
+export async function execGasless(a: { coin: Address; isBuy: boolean; amountIn: bigint; minOut: bigint; pressId?: string }): Promise<ExecResult> {
+  const owner = gaslessSigner();
+  if (!owner) throw new SignInRequired();
+  const { deployment } = await import("./chains");
+  const { createPublicClient, http } = await import("viem");
+  const { signGaslessTrade, submitGasless, resetGaslessNonces, GaslessError } = await import("./trade/gaslessClient");
+  const { AAError } = await import("./aa/core");
+  const d = deployment();
+  const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
+  // Privy identity token (linked accounts; cached/auto-refreshed by Privy) fetched in parallel with signing.
+  const tokenP = import("./aa/session").then(m => m.privyIdentityToken()).catch(() => null);
+  const q = await signGaslessTrade(pc as never, owner, { router: d.gaslessRouter, usdg: d.usdg, coin: a.coin, isBuy: a.isBuy, amountIn: a.amountIn, minOut: a.minOut });
+  try {
+    const r = await submitGasless(q, "/api/gasless", fetch, await tokenP);
+    handOffLogs(r.txHash, r.logs);
+    return { txHash: r.txHash, logs: r.logs, gasMode: "gasless", pressId: a.pressId };
+  } catch (e) {
+    if (!(e instanceof GaslessError)) throw e;
+    if (e.data.unclear) throw new AAError("Timeout", e.message, { txHash: e.data.txHash });
+    if (e.data.txHash && e.data.notSent !== true) throw new AAError("Reverted", e.message, { txHash: e.data.txHash });
+    if (/InvalidNonce|0x756688fe/i.test(e.message + (e.data.revert ?? ""))) resetGaslessNonces(owner.address);
+    throw new AAError("Estimate", e.message, { revertData: e.data.revert, notSent: true });
+  }
+}
+/** TODO(lee): DELETE with disciple_gaslessLogin (server relay is OFF; login is checked off-chain from the Privy session).
+ *  No longer called by the trade path. Gasless mode login: LoginGate must verify the owner EOA (relay admission). Attestation from /api/pve/attest (Privy
+ *  auth), relayed by disciple_gaslessLogin (no ETH needed). No-op while verified. */
+export async function ensureGaslessLogin(): Promise<void> {
+  const owner = gaslessSigner();
+  if (!owner) throw new SignInRequired();
+  const { createPublicClient, http, decodeFunctionData } = await import("viem");
+  const { ensurePveLogin } = await import("./pve");
+  const { loginGateAbi } = await import("./abi");
+  const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
+  const calls = await ensurePveLogin(pc as never, owner.address);
+  if (!calls.length) return;
+  const { args } = decodeFunctionData({ abi: loginGateAbi, data: calls[0].data }) as { args: readonly [Address, bigint, Hex] };
+  const r = await fetch("/api/gasless", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_gaslessLogin", params: [{ wallet: args[0], expiry: Number(args[1]), signature: args[2] }] }) });
+  const j = await r.json().catch(() => ({})) as { result?: { success?: boolean }; error?: { message?: string } };
+  if (!j.result?.success) throw Object.assign(new Error(j.error?.message ?? "login relay failed"), { code: "PveAttestFailed" });
 }

@@ -104,6 +104,16 @@ export const CLAIM_TYPES = {
   ],
 } as const;
 
+/** EIP-712 for AnonLauncher.transferCreatorBySig (TRANSFER_TYPEHASH). Same domain as claims. */
+export const TRANSFER_TYPES = {
+  TransferCreator: [
+    { name: "token", type: "address" },
+    { name: "newOwner", type: "address" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ],
+} as const;
+
 /** EIP-712 domain of ONE launcher (v1 and v2 share name/version; verifyingContract differs ⇒ sign per coin's launcher). */
 export const claimDomain = (chainId: number, verifyingContract: Address) =>
   ({ name: "DISCIPLE AnonLauncher", version: "1", chainId, verifyingContract }) as const;

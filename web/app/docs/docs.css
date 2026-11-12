@@ -28,7 +28,6 @@
   border: 1px solid color-mix(in srgb, var(--dv-accent) 55%, transparent);
   color: var(--dv-accent); font: 600 10.5px/1.6 var(--dsc-font-mono); letter-spacing: .12em; text-transform: uppercase;
 }
-
 /* Mobile/tablet bar with the sections toggle (hidden on desktop) */
 .dv-mbar { display: none; }
 

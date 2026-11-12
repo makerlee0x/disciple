@@ -64,8 +64,8 @@ test("5-arg buyFor is decoded as a curve buy (quoteIn = args[1]); a v4 4-arg buy
   assert.deepEqual(gp.buyIntents([{ to: CURVE, data: v4 }]), []);
 });
 
-test("LAUNCH_SELECTORS = ABI-derived launch / launchCoin / launchWithMode / launchAnon / launchWithUsdg (not router-only launchFor)", () => {
-  const want = new Set([sel(launchpadAbi, "launch"), sel(launchpadAbi, "launchCoin"), sel(launchpadAbi, "launchWithMode"), sel(anonLauncherAbi, "launchAnon"), sel(discipleRouterAbi, "launchWithUsdg")]);
+test("LAUNCH_SELECTORS = ABI-derived launch / launchCoin / launchWithMode / launchAnon / launchAnonWithUsdg / launchWithUsdg (not router-only launchFor)", () => {
+  const want = new Set([sel(launchpadAbi, "launch"), sel(launchpadAbi, "launchCoin"), sel(launchpadAbi, "launchWithMode"), sel(anonLauncherAbi, "launchAnon"), sel(anonLauncherAbi, "launchAnonWithUsdg"), sel(discipleRouterAbi, "launchWithUsdg")]);
   assert.ok(gp.LAUNCH_SELECTORS, "LAUNCH_SELECTORS exported");
   assert.deepEqual(new Set(gp.LAUNCH_SELECTORS), want);
   assert.ok(gp.LAUNCH_SELECTORS.has("0x9c05e6c5"));

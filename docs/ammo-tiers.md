@@ -18,7 +18,8 @@ addresses are involved.
 | SUPERNOVA | ≥ $20M | $100 | $500 | $2K | $5K | $10K | $50K |
 
 * Each tier is ≈4–5× the previous one (tier mid-points are ≈4.5× apart), so presets keep roughly the same % of mcap.
-* SPARK floors at the network minimum shot (≈$0.20 on RH: gas ≤ 5% of the shot), so low-mcap rockets stay
+* Minimum buy is $3 since Nov 9 2026 (lee; was the ≈$0.20 network minimum shot). SPARK/KINDLE presets under $3 show
+  as below-minimum until new preset sizes are picked. Previously: SPARK floored at the network minimum shot, so low-mcap rockets stay
   playable on small budgets.
 * Bomb *tiers* (grenade → atom) are chosen by % price impact (`BOMB_PCT`), so they need no scaling; sells simply use
   the same scaled presets.

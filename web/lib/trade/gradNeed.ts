@@ -30,6 +30,35 @@ export async function usdgToQuote(pc: PublicClient, router: Address, quote: Addr
 }
 
 /** buyWithUsdg(usdgIn) on a pre-grad curve quoted in `quote` (≠ USDG) graduates it? (see header; false when unreadable) */
+const launchpadCurveAbi = parseAbi(["function curveOf(address) view returns (address)"]);
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+
+/**
+ * Does a USDG-paid gasless/router buy of `usdgIn` fill (graduate) this token's curve?
+ * False when already graduated, the token is unknown, or a read fails. Uses the same
+ * quoteBuy / usdgBuyGraduates path as the AA relay. Safe to run in parallel with simulation.
+ */
+export async function usdgBuyFillsCurve(pc: PublicClient, a: {
+  launchpad: Address; router: Address; usdg: Address; token: Address; usdgIn: bigint;
+}): Promise<boolean> {
+  try {
+    const curve = await pc.readContract({ address: a.launchpad, abi: launchpadCurveAbi, functionName: "curveOf", args: [a.token] });
+    if (typeof curve !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(curve) || curve.toLowerCase() === ZERO_ADDR) return false;
+    const [graduated, quote] = await Promise.all([
+      pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "graduated" }),
+      pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quote" }),
+    ]);
+    if (graduated) return false;
+    if (String(quote).toLowerCase() === a.usdg.toLowerCase()) {
+      const r = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quoteBuy", args: [a.usdgIn] });
+      return Boolean(r.graduates);
+    }
+    return await usdgBuyGraduates(pc, { router: a.router, curve, quote: quote as Address, usdgIn: a.usdgIn });
+  } catch {
+    return false;
+  }
+}
+
 export async function usdgBuyGraduates(pc: PublicClient, a: { router: Address; curve: Address; quote: Address; usdgIn: bigint }): Promise<boolean> {
   try {
     const q = await usdgToQuote(pc, a.router, a.quote, a.usdgIn);

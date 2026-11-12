@@ -21,7 +21,7 @@ export const NAME_LOCK_DROP_MS = 24 * 60 * 60 * 1000;
  * Launch form and the API return this as `reason` on mainnet when a lock is held.
  */
 export const NAME_LOCK_TAKEN_MSG =
-  "An ASCENDED rocket already uses this name and call sign. Change the name or the call sign.";
+  "A rocket that has reached orbit already uses this name and call sign. Reaching orbit means its starting price path finished and it moved to the open market on Uniswap. Change the name or the call sign.";
 
 export function nameLockEnforced(chainId: number): boolean {
   return chainId === MAINNET_CHAIN_ID;

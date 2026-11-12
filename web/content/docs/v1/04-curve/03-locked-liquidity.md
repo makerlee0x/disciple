@@ -1,11 +1,11 @@
 ---
 title: Locked liquidity
 slug: /docs/curve/locked-liquidity
-section: Bonding curve and ascension
+section: The starting price path
 ---
 # Locked liquidity
 
-At ascension, the liquidity is locked forever in a full-range Uniswap v4 position owned by the LockedLP contract, which has no function to remove it.
+When a rocket reaches orbit, its liquidity is locked forever in the Uniswap v4 LP. That position is owned by the LockedLP contract, which has no way to remove it. Reaching orbit means the starting price path is finished and the rocket moves to the open market on Uniswap.
 
 ## What's locked
 
@@ -13,7 +13,7 @@ At ascension, the liquidity is locked forever in a full-range Uniswap v4 positio
 - The base the curve raised.
 - Every later LP share of the trade fee (33% of each fee), added to the position as it builds up.
 
-The base is locked permanently in the Uniswap v4 LP at ascension.
+The base coin is locked forever in the Uniswap v4 LP when the rocket reaches orbit.
 
 ## How it's locked
 

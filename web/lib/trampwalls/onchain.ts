@@ -16,6 +16,9 @@ import { deployment } from "../chains";
 import type { Address } from "../protocol";
 import { curveOf, curveParams, friendlyError, publicClient, quoteRawToUsd } from "../protocol-viem";
 import { execCalls } from "../wallet";
+import { clientGaslessMode } from "../aa/sponsorshipMode";
+import { blockedActionMessage } from "../trade/gaslessAction";
+import { sendGaslessAction } from "../trade/gaslessActionClient";
 import { placeTramp, placeWall } from "../trampWall";
 import {
   computePreview, pointsEarned, pointsFor, type PlaceTrampWallParams, type TrampWall, type TrampWallAdapter, type TrampWallEvent,
@@ -154,7 +157,13 @@ export function createOnchainAdapter(pc: PublicClient = publicClient()): Onchain
   // this used to call the injected wallet directly, so MetaMask could place/cancel without a DISCIPLE sign-in).
   async function send(fn: "cancel" | "pull", id: string) {
     try {
-      const r = await execCalls([{ to: mgr(), data: encodeFunctionData({ abi: trampWallManagerAbi, functionName: fn, args: [B(id)] }) }]);
+      const call = { to: mgr(), data: encodeFunctionData({ abi: trampWallManagerAbi, functionName: fn, args: [B(id)] }) };
+      if (clientGaslessMode()) {
+        if (fn === "cancel") throw new Error(blockedActionMessage("TrampWallManager.cancel(uint256)"));
+        const r = await sendGaslessAction("trampPull", [call], pc);
+        return { ok: true, txHash: r.txHash };
+      }
+      const r = await execCalls([call]);
       return { ok: true, txHash: r.txHash };
     } catch (e) { return { ok: false, reason: friendlyError(e).message }; }
   }
@@ -189,7 +198,7 @@ export function createOnchainAdapter(pc: PublicClient = publicClient()): Onchain
 
     async place(p: PlaceTrampWallParams) {
       try {
-        if (!(await adapter.isGraduated(p.token))) return { ok: false, reason: "Tramps & walls open once the rocket has ASCENDED." };
+        if (!(await adapter.isGraduated(p.token))) return { ok: false, reason: "Tramps and walls open once the rocket has reached orbit and trades on the open market on Uniswap." };
         const c = await ctx(p.token);
         const w = (p.rangeWidthPct ?? 2) / 100;
         const [lo, hi] = rangeFor(c, p.kind, p.mcapUsd * (1 - w / 2), p.mcapUsd * (1 + w / 2));

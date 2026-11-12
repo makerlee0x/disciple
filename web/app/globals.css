@@ -1265,7 +1265,10 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .lp-tmeta .lp-mc { font: 700 17px var(--dsc-font-ui); color: #E8EAEE; }
 .lp-body { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 20px; align-items: start; }
 .lp-bar-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; border-bottom: 1px solid var(--lp-line); padding-bottom: 8px; }
-.lp-tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.lp-tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; align-items: flex-end; }
+.lp-sort-lbl { flex: none; padding: 8px 10px 8px 0; font: 600 13px var(--dsc-font-ui); color: rgba(232,234,238,.55); white-space: nowrap; }
+.lp-group { font: 600 12px var(--dsc-font-ui); color: rgba(232,234,238,.75); letter-spacing: .02em; padding: 14px 4px 6px; }
+.lp-grid-group { grid-column: 1 / -1; }
 .lp-tabs button { all: unset; cursor: pointer; padding: 8px 12px; font: 600 13px var(--dsc-font-ui); color: rgba(232,234,238,.6); border-bottom: 2px solid transparent; white-space: nowrap; }
 .lp-tabs button.on { color: #E8EAEE; border-bottom-color: var(--lp-accent); }
 .lp-tabs button:hover { color: #E8EAEE; }

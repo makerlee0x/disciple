@@ -132,7 +132,7 @@ export class SimRun {
     this.trades.push(tr); if (this.trades.length > 4000) this.trades.splice(0, 1000);
     this.notify({ trade: tr, player: !who });
     if (react && who) { this.reactLog.push({ t: this.t, usd: f.usd }); this.noteReact(react, who); }
-    if (wasCurve && this.m.phase === "pool") this.emitEvent("graduate", `ASCENDED → pool at ${fmt(this.m.mcap())}`);
+    if (wasCurve && this.m.phase === "pool") this.emitEvent("graduate", `Reached orbit. This rocket now trades on the open market on Uniswap, at ${fmt(this.m.mcap())}.`);
     if (who && f.usd > Math.max(3000, this.m.depth() * 0.25) && side === "buy") this.emitEvent("whale", `${who.name} apes ${fmt(f.usd)}`);
     return f;
   }
@@ -188,7 +188,7 @@ export class SimRun {
   /** place a range order for owner; tramp deposit = quote, wall deposit = tokens (moved out of the bag at cost) */
   place(owner: string, kind: OrderKind, a: number, b: number, deposit: number, sizeUsd: number): RangeOrder | string {
     const pool = this.m.pool, who = this.acct(owner);
-    if (!pool) return "Tramps & walls open after graduation";
+    if (!pool) return "Tramps and walls open after the rocket reaches orbit and moves to the open market on Uniswap.";
     if (!who) return "unknown owner";
     const why = pool.canPlace(kind, a, b); if (why) return why;
     if (!(deposit > 0)) return "Enter an amount";

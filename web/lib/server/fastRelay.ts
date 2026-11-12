@@ -2,7 +2,7 @@ import "server-only";
 import { relayReadTransport } from "./relayReadTransport";
 import type { RelayMetrics } from "./relayMetrics";
 /**
- * disciple_sendUserOperationSync — the one-round-trip trade path (self-bundler only).
+ * Gasless direct relayer: the relayer EOA signs and sends router txs (eth_sendRawTransactionSync).
  * Client sends a fully built + signed v0.7 UserOp; we validate the exact op, relay handleOps and answer with the receipt:
  *  - warm module state: relayer account, keep-alive RPC client, cached base fee (background refresh)
  *  - pre-tracked relayer nonce (local cursor, resynced on nonce errors) ⇒ no getTransactionCount per op
@@ -16,36 +16,19 @@ import type { RelayMetrics } from "./relayMetrics";
  * nonce rejection (incl. "nonce too high") ⇒ resync + re-sign, "already known" / unclear ⇒ wait on the SAME txHash,
  * never re-sign. Both the fast path and the standard eth_sendUserOperation path (standardRelayer) follow them.
  */
-import { createPublicClient, decodeEventLog, decodeFunctionData, decodeFunctionResult, encodeFunctionData, keccak256, parseAbi, parseAbiItem, type Hex, type TransactionReceipt } from "viem";
+import { createPublicClient, keccak256, type Hex, type TransactionReceipt } from "viem";
 import type { RelayConfirmed, RelayReceipt } from "../aa/relayTypes";
 import { jsonRpc, plainSend, syncSend, waitReceipt, type PendingReason, type RpcErr } from "./syncSend";
 import { RelayerNonceCursor, SharedNonceCursor, sendWithCursor, classifySendError, type NonceCursor, type NonceStore } from "./relayerNonce";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { robinhoodTestnet } from "../chains";
-import { userOpHash, type UserOp } from "../aa/core";
-import { ENTRYPOINT_V07 } from "../aa/constants";
 import { relayerIsFaucet, relayerKey } from "./relayer";
 import { RelayerKeyPool, poolKey, poolNames, uniquePoolNames } from "./relayerPool";
 import { kv } from "./kv";
-import { checkOpGas, maxPrefund, relayerPrice, relayerTxFees } from "../aa/gasPolicy";
-import { launchTargets } from "../aa/launchTargets";
-import { chainGradReads, relayCaps } from "./gradBuy";
-import { checkPaymaster, RelayPolicyError } from "../aa/gasPolicy";
-import { bundleGas, BundleGasError, L1_GAS_FALLBACK, l1Reserve } from "../aa/bundleGas";
-import { allowedPaymaster, debitPaymasterDeposit, paymasterDepositCached } from "./paymasterDeposit";
-import { TRADE_SELECTORS, TRY_ATTRIBUTE } from "../aa/oneTap";
-import { packUserOp } from "./selfBundler";
-import { broadcastError } from "../aa/relayOp";
 import { SenderTrust } from "./relayTrust";
-import { authorizeRelayOperation, checkRelayAccount, warmRelayAccountTemplates, type RelayAuthReads } from "./relayAuth";
 import { kvTrustStore } from "./relayTrustStore";
-import { lockedRelay, recheckUnderLease, relaySendBudget, requireExpiryMargin, requireLogin, requireSelfBundlerMode, strikeSource, type FreshFacts } from "./relayLockdown";
+import { strikeSource } from "./relayLockdown";
 
-const epAbi = parseAbi([
-  "struct P { address sender; uint256 nonce; bytes initCode; bytes callData; bytes32 accountGasLimits; uint256 preVerificationGas; bytes32 gasFees; bytes paymasterAndData; bytes signature; }",
-  "function handleOps(P[] ops, address beneficiary)",
-]);
-const uoEvent = parseAbiItem("event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)");
 const pc = createPublicClient({ chain: robinhoodTestnet, transport: relayReadTransport(3000, 1)   /* job 9: bounded pre-send (viem default 10 s × 3 retries) */ });
 
 /** One relayer EOA + its nonce cursor (one per key per process). */
@@ -134,63 +117,9 @@ async function baseFee(): Promise<bigint> { if (!base.at) await refreshBase(); e
 const TRUST = new SenderTrust(Date.now, kvTrustStore());   // AUDIT Low: strikes / verification shared + durable (KV)
 // AUDIT r264 hardening 6: admission refuses a sender inside its strike window (this instance's ledger ∪ the KV copy).
 strikeSource.local = (sender) => TRUST.get(sender)?.strikeUntil ?? 0;
-async function primeSender(sender: string) {
-  await TRUST.primeShared(sender, await pc.getBalance({ address: sender as Hex }));
-}
-/** Await the trust ledger's pending KV writes (the bundler route calls this before responding). */
+/** Await the trust ledger's pending KV writes (the gasless route calls this before responding). */
 export const flushRelayTrust = () => TRUST.flush();
-/** After a simulated + successful send (eth_sendUserOperation path): mark verified, refresh the balance. */
-export const primeSenderNow = async (sender: string, opts: { simulated?: boolean } = {}) => {
-  if (opts.simulated) TRUST.simulated(sender);
-  await primeSender(sender);
-};
-const execAbi = parseAbi(["function execute(address target, uint256 value, bytes data)", "function executeBatch((address target, uint256 value, bytes data)[] calls)"]);
-/**
- * Legacy structural hint only — NEVER authorization / a simulation bypass (audit F-02).
- * Local (no-RPC) pre-check for SESSION-key ops (non-global validation in the MAv2 nonce key): the policy rejects
- * non-trade calls in VALIDATION (AA23 → handleOps reverts → relayer pays; seen: STRATEGY.transfer, tx 0x9c29662a…),
- * so any inner call outside the trade allowlist (or carrying ETH) is simulated first instead of fast-pathed.
- */
-export function sessionOpLooksAllowed(op: UserOp): boolean {
-  const key = BigInt(op.nonce) >> BigInt(64);
-  if ((key & BigInt(1)) === BigInt(1)) return true;  // global validation = owner: no policy hook
-  let cd = op.callData as Hex;
-  if (cd.slice(0, 10).toLowerCase() === "0x8dd7712f") cd = `0x${cd.slice(10)}` as Hex;  // executeUserOp prefix (raw concat)
-  try {
-    const d = decodeFunctionData({ abi: execAbi, data: cd });
-    const calls = d.functionName === "execute" ? [{ value: d.args[1], data: d.args[2] }] : (d.args[0] as readonly { value: bigint; data: Hex }[]);
-    return calls.every((c) => c.value === BigInt(0) && (TRADE_SELECTORS.has(c.data.slice(0, 10).toLowerCase()) || c.data.slice(0, 10).toLowerCase() === TRY_ATTRIBUTE));
-  } catch { return false; }
-}
-/** Sender-level trust cannot authorize an exact op (audit F-02). Kept for compatibility; never skip simulation. */
-export function trusted(op: UserOp): boolean { void op; return false; }
-/**
- * What the SENDER's ETH must cover: the max prefund for self-pay ops; 0 for paymaster ops (DisciplePaymaster's deposit
- * pays, checked by checkPaymaster before trust; the user's USDG credit is checked by the paymaster's
- * validation reserves v5 USDG credit. A post-simulation outer revert can still cost the EOA).
- */
-const senderPrefund = (op: UserOp) => (op.paymaster ? BigInt(0) : maxPrefund(op, relayerPrice(base.fee)));
 
-/** Warm the relay (nonce + base fee + TLS connection) and, if given, the sender balance telemetry (NOT authorization). */
-export async function warmRelay(sender?: string) {
-  requireSelfBundlerMode();
-  if (!sender || !/^0x[0-9a-fA-F]{40}$/.test(sender)) throw new Error("warm requires LoginGate wallet");
-  await requireLogin(sender as Hex);
-  account(); // fail closed (production, no dedicated relayer key) before any RPC
-  warmSequencer();
-  const st = await ready();   // pool on ⇒ lease a key at warm
-  // Off-trade-path diagnostics only. No key/raw op is logged; TTL read never releases a quarantine.
-  const [, , , , senderLeaseTtlSec] = await Promise.all([st.nonces.warm(), baseFee(), warmRelayAccountTemplates(pc as unknown as RelayAuthReads), sender ? primeSender(sender).catch(() => undefined) : 0,
-    kv().ttl(`relay:pending:${sender.toLowerCase()}`).catch(() => null)]);
-  console.info("[disciple] relay warm ready", { sender, relayer: st.account.address, senderLeaseTtlSec });
-}
-
-/**
- * Item 1 (feat/trade-latency): RHT_SEQUENCER_URL (server env, e.g. https://sequencer.testnet.chain.robinhood.com,
- * send-only) ⇒ eth_sendRawTransactionSync [raw] goes there (live: full receipt in ~161 ms warm; the public RPC sees
- * the tx 0.64–0.75 s later). Unset ⇒ the public RPC exactly as before. RHT_RECEIPT_RPC_URL (optional fast node)
- * serves the slow-path receipt wait before the public RPC. Rules: lib/server/syncSend.
- */
 const RPC_URL = robinhoodTestnet.rpcUrls.default.http[0];
 const SEQ_URL = /^https?:\/\//.test(process.env.RHT_SEQUENCER_URL || "") ? process.env.RHT_SEQUENCER_URL! : undefined;
 const SEND = SEQ_URL ? { name: "sequencer" as const, rpc: jsonRpc(SEQ_URL) } : { name: "rpc" as const, rpc: jsonRpc(RPC_URL) };
@@ -213,209 +142,11 @@ async function receiptOf(hash: Hex): Promise<RelayReceipt | null> {
     logs: rc.logs.map((l) => ({ address: l.address, topics: l.topics as Hex[], data: l.data, logIndex: hx(l.logIndex ?? undefined), blockNumber: hx(l.blockNumber ?? undefined), transactionHash: l.transactionHash ?? undefined })),
   };
 }
+export type OnPending = (p: { txHash: Hex; reason: PendingReason; relayNonce?: number }) => void;
 async function sendSync(raw: Hex, onPending?: OnPending) {
   warmSequencer();
   return syncSend(raw, keccak256(raw), { send: SEND, getReceipt: receiptOf, onPending });
 }
-const PLAIN = jsonRpc(RPC_URL);
-/** Arbitrum NodeInterface (virtual, eth_call only): the L1 calldata gas ArbOS takes from the relayer tx's gas limit. */
-const NODE_INTERFACE = "0x00000000000000000000000000000000000000C8" as const;
-const nodeIfaceAbi = parseAbi(["function gasEstimateL1Component(address to, bool contractCreation, bytes data) payable returns (uint64 gasEstimateForL1, uint256 baseFee, uint256 l1BaseFeeEstimate)"]);
-/** L1 gas units for a handleOps tx with this calldata (L1_GAS_FALLBACK if the node can't answer). Never throws. */
-export async function l1GasOf(data: Hex): Promise<bigint> {
-  try {
-    const r = await pc.call({ to: NODE_INTERFACE, data: encodeFunctionData({ abi: nodeIfaceAbi, functionName: "gasEstimateL1Component", args: [ENTRYPOINT_V07, false, data] }) });
-    return BigInt(decodeFunctionResult({ abi: nodeIfaceAbi, functionName: "gasEstimateL1Component", data: r.data! })[0]);
-  } catch (e) { console.warn("[relay] L1 gas estimate failed, using fallback:", (e as Error).message.split("\n")[0]); return L1_GAS_FALLBACK; }
-}
-/** bundleGas (+ the reserved L1 gas), or a RelayPolicyError (before anything is signed / charged) when the op cannot fit one relay tx. */
-export function relayGas(op: UserOp, data: Hex, l1Gas: bigint = BigInt(0)): bigint {
-  try { return bundleGas(op, data, undefined, l1Gas); }
-  catch (e) { if (e instanceof BundleGasError) throw new RelayPolicyError("operation too large to relay", "gas", e.message); throw e; }
-}
-/** Sign a relayer tx; a local signing failure happened before any send ⇒ definitive (the nonce is released). */
-async function signRelayerTx(me: PrivateKeyAccount, tx: { nonce: number; data: Hex; gas: bigint; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }): Promise<Hex> {
-  try { return await me.signTransaction({ chainId: robinhoodTestnet.id, type: "eip1559", to: ENTRYPOINT_V07, ...tx }); }
-  catch (e) { throw Object.assign(e as Error, { definitive: true }); }
-}
-/**
- * Standard path (selfBundler eth_sendUserOperation): sign handleOps with the relayer cursor and send it with a plain
- * eth_sendRawTransaction under the syncSend rules (lib/server/syncSend.plainSend). Returns the tx hash as soon as the
- * node accepted it OR it may have ("already known", timeout, network): the caller waits on that hash
- * (waitRelayReceipt) and NEVER re-signs. Only a definite nonce rejection re-signs (fresh nonce, bounded).
- */
-/** `onSigned(relayNonce)`: the relayer EOA nonce of the signed handleOps tx (reported per signature; the last one wins). */
-export type StandardRelayer = { address: Hex; send(data: Hex, gas: bigint, fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }, onSigned?: (relayNonce: number) => void): Promise<Hex> };
-export async function standardRelayer(): Promise<StandardRelayer> {
-  const st = await ready();   // ONE EOA for simulation, beneficiary and signature, even if the lease changes meanwhile
-  return {
-    address: st.account.address,
-    async send(data, gas, fees, onSigned) {
-      const r = await sendWithCursor(st.nonces, async (nonce) => {
-        const raw = await signRelayerTx(st.account, { nonce, data, gas, ...fees });
-        onSigned?.(nonce);
-        return plainSend(raw, keccak256(raw), PLAIN);
-      }, 2, st.canSign);
-      if (r.pending) console.warn(`[relay] standard send ${r.txHash}: ${r.pending} — waiting on the same hash (no re-sign)`);
-      return r.txHash;
-    },
-  };
-}
-/** Receipt of ONE relayer tx (fast node first when RHT_RECEIPT_RPC_URL is set, public RPC last); null at the deadline. */
-export async function waitRelayReceipt(txHash: Hex, maxWaitMs = 25_000): Promise<RelayReceipt | null> {
-  return waitReceipt(txHash, { getReceipt: receiptOf, maxWaitMs, pollMs: 250 }).catch(() => null);
-}
-export type OnPending = (p: { txHash: Hex; reason: PendingReason; relayNonce?: number }) => void;
-
-/**
- * `beforeSend` (AUDIT Low, sender lockout): awaited once the op passed validation — gas/paymaster policy and the
- * exact handleOps simulation plus account-template check — and BEFORE the relayer signs anything. The route charges the
- * per-sender limit there (lib/server/limits.sendLimiter); a throw aborts with nothing sent.
- *
- * Speedup 1 (lee, Nov 7 11:02 AM CT): validateOp runs speculatively, concurrently with admission and before the sender
- * lease (lib/server/relayLockdown.lockedRelay). Under the lease, recheckOp re-reads the state that simulation relied on;
- * a stale speculation is fully re-validated under the lease instead. commitOp never signs before both pass.
- */
-export async function sendUserOperationSync(op: UserOp, onPending?: OnPending, beforeSend?: () => Promise<void>, metrics?: RelayMetrics, confirmed?: (r: RelayConfirmed) => void): Promise<RelayConfirmed> {
-  requireSelfBundlerMode();
-  // Read-only prefetch overlaps admission. It is NEVER authority: the existing TTL/debit-aware
-  // getter is re-read under the sender lease before checkPaymaster/signing, including queued waits.
-  const pm = allowedPaymaster();
-  const deposit = op.paymaster && pm && op.paymaster.toLowerCase() === pm.toLowerCase()
-    ? stage(metrics, "paymasterDepositPrefetch", () => paymasterDepositCached(pm)) : undefined;
-  void deposit?.catch(() => undefined); // admission may fail first; no unhandled rejection
-  return lockedRelay<RelayConfirmed, Validated>(op, {
-    validate: () => validateOp(op, metrics, deposit),
-    freshReads: () => freshReadsOp(op, metrics),
-    underLease: (v, f) => underLeaseOp(op, v, f, metrics),
-    commit: (v, fresh) => commitOp(op, v, fresh, onPending, beforeSend, metrics),
-  }, metrics, confirmed);
-}
-const stage = <T>(metrics: RelayMetrics | undefined, name: string, task: () => Promise<T>) => metrics ? metrics.span(name, task) : task();
-/** Everything validateOp established for ONE exact signed op and ONE relayer EOA (beneficiary = caller = signer). */
-type Validated = { st: RelayerState; me: PrivateKeyAccount; fee: bigint; data: Hex; hash: Hex; gas: bigint; simulate: number; /** validation start (Date.now): t.total keeps its old validation→receipt meaning */ t0: number };
-const preSign = (e: unknown) => Object.assign(e as Error, { notSent: true });
-/** USDG-gas op: the prefund comes from OUR paymaster's deposit (launch ops: up to LAUNCH_GAS_CAPS.total × fee). */
-async function depositGuard(op: UserOp, fee: bigint, metrics?: RelayMetrics, deposit?: Promise<bigint>) {
-  if (!op.paymaster) return;
-  const pm = allowedPaymaster();
-  try {
-    await deposit; // failure remains fail-closed; never trust the prefetched numeric value
-    checkPaymaster(op, pm, pm ? await stage(metrics, "paymasterDeposit", () => paymasterDepositCached(pm)) : BigInt(0), fee);
-  }
-  catch (e) { if (e instanceof RelayPolicyError) console.warn("[fastRelay] paymaster check:", e.detail ?? e.message); throw e; }
-}
-/** Today's complete pre-sign validation. Read-only: no lease, budget, relayer nonce, signature or send. */
-async function validateOp(op: UserOp, metrics?: RelayMetrics, deposit?: Promise<bigint>): Promise<Validated> {
-  const t0 = Date.now();
-  try {
-  const st = await ready(), me = st.account;
-  // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
-  const [fee] = await Promise.all([stage(metrics, "baseFee", baseFee), stage(metrics, "nonceWarm", () => st.nonces.warm())]); // #140 parallel cold nonce/base fee; no allocation/signing
-  // launches ⇒ LAUNCH_GAS_CAPS; above GAS_CAPS + verified graduating buy ⇒ GRAD_GAS_CAPS (on-chain check, lib/server/gradBuy)
-  checkOpGas(op, fee, await relayCaps(op, launchTargets(robinhoodTestnet.id), chainGradReads(pc as never, robinhoodTestnet.id, { paymaster: allowedPaymaster() })));
-  const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[packUserOp(op)], me.address] });
-  const hash = userOpHash(op, robinhoodTestnet.id);   // fixed by the signed op: returned on success AND on post-broadcast errors
-  // outer gas sized for EntryPoint v0.7's 63/64 check (lib/aa/bundleGas; was totalGas + 120k ⇒ AA95 on launches)
-  // + the Arbitrum L1 calldata gas (lib/aa/bundleGas l1Gas; its absence ⇒ AA95 on setups 2026-10-30 07:31–07:36 CDT).
-  // The L1 estimate runs alongside the simulation; the cap check without it stays before both.
-  relayGas(op, data);
-  const l1P = stage(metrics, "l1Check", () => l1GasOf(data));
-  // Deposit sufficiency (prefetched during admission) is checked alongside, not before, the exact simulation: both
-  // must pass before validateOp resolves; neither result is authority on its own.
-  const guard = depositGuard(op, fee, metrics, deposit);
-  void guard.catch(() => undefined);
-  const s = Date.now();
-  await Promise.all([guard, authorizeRelayOperation(op, pc as unknown as RelayAuthReads,
-    () => pc.call({ account: me.address, to: ENTRYPOINT_V07, data, blockTag: "pending" })).catch((e) => {
-    // keep the revert payload (FailedOp / FailedOpWithRevert(inner)) so the client can show the real reason (FLOW 2)
-    let rd: string | undefined;
-    (e as { walk?: (f: (x: unknown) => boolean) => unknown }).walk?.((x) => { const v = (x as { data?: unknown }).data; if (typeof v === "string" && /^0x[0-9a-fA-F]{8,}$/.test(v)) { rd = v; return true; } return false; });
-    throw Object.assign(new Error(`simulation failed: ${(e as Error).message.split("\n")[0]}`), { data: rd, userOpHash: hash });
-  })]);
-  const simulate = Date.now() - s; metrics?.add("simulate", simulate); TRUST.simulated(op.sender); void primeSender(op.sender).catch(() => undefined);
-  const gas = relayGas(op, data, l1Reserve(await stage(metrics, "l1ResidualWait", () => l1P)));
-  return { st, me, fee, data, hash, gas, simulate, t0 };
-  } catch (e) { throw preSign(e); }
-}
-/** Fresh read wave (pre-lease after the fence snapshot, or again under the lease past the age cap): nonce for this
- * key / LoginGate / session (relayLockdown) and the current account runtime + implementation slot. */
-async function freshReadsOp(op: UserOp, metrics?: RelayMetrics): Promise<FreshFacts> {
-  try {
-    const [facts] = await Promise.all([recheckUnderLease(op, metrics), checkRelayAccount(op, pc as unknown as RelayAuthReads)]);
-    return facts;
-  } catch (e) { throw preSign(e); }
-}
-/** Always under the lease, before signing (AUDIT M1/M2): the deposit guard exactly as today + the expiry margin. */
-async function underLeaseOp(op: UserOp, v: Validated, f: FreshFacts, metrics?: RelayMetrics): Promise<void> {
-  try { requireExpiryMargin(f); await depositGuard(op, v.fee, metrics); } catch (e) { throw preSign(e); }
-}
-async function commitOp(op: UserOp, v: Validated, fresh: Promise<void>, onPending?: OnPending, beforeSend?: () => Promise<void>, metrics?: RelayMetrics): Promise<RelayConfirmed> {
-  let signed = false, budgetP: Promise<() => Promise<void>> | undefined;
-  try {
-  const T0 = v.t0, t: Record<string, number> = { simulate: v.simulate };
-  const { st, me, fee, data, hash, gas } = v;
-  const fast = false; // audit F-02: no sender-level or cached-op bypass
-  // Paid budget is charged only after a passing exact simulation; the fresh re-check runs alongside it and BOTH must
-  // pass before beforeSend, nonce allocation or signing.
-  // Vercel Security finding 1: the budget promise is kept so any rejection before signing (including a fresh-check
-  // failure that wins this race) can refund the global unit once the budget call settles. Success path unchanged.
-  budgetP = relaySendBudget(op.sender, metrics);
-  await Promise.all([budgetP, fresh]);
-  await beforeSend?.();   // validated ⇒ now the per-sender limit (and a press's free retry) may be charged
-  const txFees = relayerTxFees(op, fee);   // never above the op's fees ⇒ the EntryPoint refund covers the relayer's cost per gas
-  let txHash: Hex | undefined, relayNonce: number | undefined;
-  let r: Awaited<ReturnType<typeof sendSync>>;
-  try {
-    r = await sendWithCursor(metrics ? {
-      warm: () => st.nonces.warm(),
-      take: () => metrics.span("nonceAllocate", () => st.nonces.take()),
-      release: n => st.nonces.release(n), invalidate: () => st.nonces.invalidate(),
-      recover: (e, n, final) => metrics.span("nonceRecover", () => st.nonces.recover(e, n, final)),
-    } : st.nonces, async (nonce) => {
-      const s = Date.now();
-      const raw = await signRelayerTx(me, { nonce, data, gas, ...txFees });
-      signed = true;
-      t.signTx = Date.now() - s; metrics?.add("signTx", t.signTx);
-      const h = (txHash = keccak256(raw)), n = (relayNonce = nonce);
-      // accepted: checks passed + signed ⇒ an early pending frame on the stream (NOT a final fill). The sync send below
-      // still streams the receipt on the same response (RELAY_EARLY_ACCEPT=0 turns the early frame off).
-      if (onPending && process.env.RELAY_EARLY_ACCEPT !== "0") { try { onPending({ txHash: h, reason: "accepted", relayNonce: n }); } catch { /* stream closed */ } }
-      return sendSync(raw, onPending && ((p) => onPending({ ...p, txHash: h, relayNonce: n })));
-    }, 2, st.canSign);
-  } catch (e) {
-    // AUDIT L2: notSent only for a definite rejection; anything else (unclear) leaves the client to look the tx up.
-    // #141: once signed, txHash + the relayer nonce ride on the error; syncSend's receipt timeout keeps unclear/reason
-    // (an unclear error is never notSent, whatever the classifier says).
-    const unclear = (e as { unclear?: unknown }).unclear === true;
-    const notSent = !unclear && classifySendError(e) !== "unclear";
-    const tx = (e as RpcErr).txHash ?? txHash;
-    // main #130: a signed tx that may be in ⇒ RelayBroadcastError ("[userOp 0x…]" + data ids); a definite rejection
-    // (notSent) or a failure before signing keeps the original error (no broadcast ids in the message)
-    const base = tx && !notSent ? broadcastError(e, hash, tx) : (e as Error);
-    throw Object.assign(base, { txHash: tx, userOpHash: hash, notSent, ...(unclear ? { unclear: true, reason: (e as { reason?: unknown }).reason } : {}), ...(relayNonce !== undefined ? { relayNonce } : {}) });
-  }
-  t.send = r.sendMs; t.mined = r.minedMs; t.total = Date.now() - T0; metrics?.add("syncSend", r.sendMs); metrics?.add("mined", r.minedMs); metrics?.mark("receiptReady");
-  if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(fee)));
-  let success = false;
-  for (const l of r.rc.logs) {
-    if (l.address.toLowerCase() !== ENTRYPOINT_V07.toLowerCase()) continue;
-    try { const ev = decodeEventLog({ abi: [uoEvent], data: l.data, topics: l.topics as [Hex, ...Hex[]] }); if ((ev.args as { userOpHash: Hex }).userOpHash === hash) success = (ev.args as { success: boolean }).success; } catch { /* other event */ }
-  }
-  if (r.rc.status !== "0x1") TRUST.strike(op.sender);   // escalating backoff; fast path returns only after a passing simulation
-  else if (TRUST.get(op.sender)) { TRUST.succeeded(op.sender, fast, senderPrefund(op)); void primeSender(op.sender).catch(() => undefined); } // conservative until refresh
-  // main #130: the bundle reverted after broadcast ⇒ RelayBroadcastError (ids in message + data; the client's BUNDLE_REVERTED)
-  if (r.rc.status !== "0x1") throw Object.assign(broadcastError(new Error(`relayer tx ${r.rc.transactionHash} reverted (handleOps: validation failed?)`), hash, r.rc.transactionHash), { txHash: r.rc.transactionHash, userOpHash: hash, notSent: false, ...(relayNonce !== undefined ? { relayNonce } : {}) });
-  const receipt = normalizeReceipt(r.rc);
-  return { kind: "confirmed", userOpHash: hash, txHash: receipt.transactionHash, success, receipt, logs: receipt.logs, via: r.via, t: { simulate: t.simulate, signTx: t.signTx, send: t.send, mined: t.mined, total: t.total, mode: r.via === "rpc-wait" ? 0 : 1 } };
-  } catch (e) {
-    // nothing signed ⇒ not a send: give the global unit back (the sender's own counter keeps the attempt)
-    if (!signed) { await budgetP?.then(refund => refund(), () => undefined).catch(() => undefined); throw Object.assign(e as Error, { notSent: true }); }
-    throw e;
-  }
-}
-
-/** EIP-7966 / RPC receipts → RelayReceipt (hex quantities, logs kept whole). */
 function normalizeReceipt(rc: RelayReceipt): RelayReceipt {
   return {
     transactionHash: rc.transactionHash, blockHash: rc.blockHash, blockNumber: rc.blockNumber, status: rc.status, gasUsed: rc.gasUsed,
@@ -423,3 +154,63 @@ function normalizeReceipt(rc: RelayReceipt): RelayReceipt {
     logs: (rc.logs ?? []).map((l) => ({ address: l.address, topics: l.topics, data: l.data, ...(l.logIndex ? { logIndex: l.logIndex } : {}), ...(l.blockNumber ? { blockNumber: l.blockNumber } : {}), ...(l.transactionHash ? { transactionHash: l.transactionHash } : {}) })),
   };
 }
+
+/* ───────── Gasless direct relay (lib/server/gaslessRelay; GAS_SPONSORSHIP_MODE=gasless) ─────────
+ * Additive: the SAME relayer pool / lease / nonce cursor / sequencer sync send as the self-bundler above, but the
+ * relayer tx calls the gasless router (DiscipleRouter.buyWithPermit2 / sellWithPermit2, LoginGate.attest) directly:
+ * no handleOps, no UserOp, no paymaster. Nothing above changed. */
+export type DirectRelayer = { address: Hex; fee: bigint; st: RelayerState };
+/** Relayer EOA (pool lease when on) + warm base fee + warm nonce, in parallel. Read-only (nothing allocated/signed). */
+const stage = <T>(metrics: RelayMetrics | undefined, name: string, task: () => Promise<T>) => metrics ? metrics.span(name, task) : task();
+export async function directRelayer(metrics?: RelayMetrics): Promise<DirectRelayer> {
+  const st = await stage(metrics, "relayerReady", ready);
+  const [fee] = await Promise.all([stage(metrics, "baseFee", baseFee), stage(metrics, "nonceWarm", () => st.nonces.warm())]);
+  warmSequencer();
+  return { address: st.account.address, fee, st };
+}
+/** Exact eth_call of the relayer tx from the relayer address (pending block). Throws with the revert data kept. */
+export async function simulateDirect(from: Hex, to: Hex, data: Hex): Promise<void> {
+  try { await pc.call({ account: from, to, data, blockTag: "pending" }); }
+  catch (e) {
+    let rd: string | undefined;
+    (e as { walk?: (f: (x: unknown) => boolean) => unknown }).walk?.((x) => { const v = (x as { data?: unknown }).data; if (typeof v === "string" && /^0x[0-9a-fA-F]{8,}$/.test(v)) { rd = v; return true; } return false; });
+    throw Object.assign(new Error(`simulation failed: ${(e as Error).message.split("\n")[0]}`), { data: rd, notSent: true });
+  }
+}
+/** Relayer tx fees: 2 × base fee cap (Arbitrum charges the actual base fee), no tip (FCFS sequencer). */
+export const directTxFees = (fee: bigint) => ({ maxFeePerGas: fee * BigInt(2) > BigInt(0) ? fee * BigInt(2) : BigInt(20_000_000), maxPriorityFeePerGas: BigInt(0) });
+export type DirectSendResult = { rc: RelayReceipt; via: RelayConfirmed["via"]; sendMs: number; minedMs: number; txHash: Hex; relayNonce?: number };
+/**
+ * Sign + eth_sendRawTransactionSync ONE relayer tx to `to` under the existing nonce rules (lib/server/relayerNonce
+ * sendWithCursor: definite rejection ⇒ release/resync, unclear ⇒ wait on the SAME hash, never re-sign) and the pool
+ * lease check before every signature. Errors carry { txHash, notSent, unclear } exactly like commitOp.
+ */
+export async function sendDirect(r: DirectRelayer, to: Hex, data: Hex, gas: bigint, onPending?: OnPending, metrics?: RelayMetrics): Promise<DirectSendResult> {
+  const { st } = r, fees = directTxFees(r.fee);
+  let txHash: Hex | undefined, relayNonce: number | undefined, signed = false;
+  try {
+    const res = await sendWithCursor(metrics ? {
+      warm: () => st.nonces.warm(),
+      take: () => metrics.span("nonceAllocate", () => st.nonces.take()),
+      release: n => st.nonces.release(n), invalidate: () => st.nonces.invalidate(),
+      recover: (e, n, final) => metrics.span("nonceRecover", () => st.nonces.recover(e, n, final)),
+    } : st.nonces, async (nonce) => {
+      const s = Date.now();
+      let raw: Hex;
+      try { raw = await st.account.signTransaction({ chainId: robinhoodTestnet.id, type: "eip1559", to, data, gas, nonce, ...fees }); }
+      catch (e) { throw Object.assign(e as Error, { definitive: true }); }
+      signed = true; metrics?.add("signTx", Date.now() - s);
+      const h = (txHash = keccak256(raw)), n = (relayNonce = nonce);
+      return sendSync(raw, onPending && ((p) => onPending({ ...p, txHash: h, relayNonce: n })));
+    }, 2, st.canSign);
+    metrics?.add("syncSend", res.sendMs); metrics?.add("mined", res.minedMs); metrics?.mark("receiptReady");
+    return { rc: normalizeReceipt(res.rc), via: res.via, sendMs: res.sendMs, minedMs: res.minedMs, txHash: res.rc.transactionHash as Hex, relayNonce };
+  } catch (e) {
+    const unclear = (e as { unclear?: unknown }).unclear === true;
+    const notSent = !signed || (!unclear && classifySendError(e) !== "unclear");
+    throw Object.assign(e as Error, { txHash: (e as RpcErr).txHash ?? txHash, notSent, ...(unclear ? { unclear: true } : {}), ...(relayNonce !== undefined ? { relayNonce } : {}) });
+  }
+}
+/** Strike the sender's trust ledger (escalating backoff; admission's strike window refuses it). */
+/** Strike the wallet, and when `did` is set also the Privy user, so a new linked wallet can't skip the window (M1). */
+export const strikeSender = (sender: string, did?: string | null) => { TRUST.strike(sender); if (did) TRUST.strike(did); };

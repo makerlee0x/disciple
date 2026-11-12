@@ -4,6 +4,7 @@ import { READS } from "./abi.js";
 import type { Config, Stack } from "./config.js";
 import { dataVersion, type DB } from "./db.js";
 import { candles, graduationPct, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, TOTAL_SUPPLY, virtualQuoteReserve, wad } from "./math.js";
+import { HIDDEN_TEST_COINS, isHiddenCoin } from "./hiddenCoins.js";
 
 /**
  * Quote-amount sums are scaled by each coin's coins.quote_decimals (USDG 6 / 18), never a blanket 1e18; coin-token
@@ -163,6 +164,9 @@ export class Api {
     if (q.get("stack")) { where.push("c.stack=?"); args.push(q.get("stack")); }
     if (q.get("graduated")) { where.push("c.graduated=?"); args.push(q.get("graduated") === "true" ? 1 : 0); }
     if (q.get("creator")) { where.push("c.creator=?"); args.push(q.get("creator")!.toLowerCase()); }
+    // Hidden test coins stay out of list endpoints; GET /coins/:address still resolves (web/lib/home/hiddenCoins).
+    const hidden = Array.from(HIDDEN_TEST_COINS);
+    if (hidden.length) { where.push(`c.token NOT IN (${hidden.map(() => "?").join(",")})`); args.push(...hidden); }
     const order = sort === "volume" ? "volume_usd DESC" : sort === "mcap" ? "last_mcap DESC" : sort === "tier" ? "COALESCE(c.tier,-1) DESC, last_mcap DESC" : "c.launched_block DESC";
     // per-coin aggregates maintained on ingest (coin_stats): no scan over trades per call. Same columns as before.
     const rows = this.db.prepare(

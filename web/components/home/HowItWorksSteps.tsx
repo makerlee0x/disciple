@@ -29,7 +29,7 @@ export function TradeLegend({ size = "md", className }: { size?: "md" | "lg"; cl
 export const HIW_STEPS: { icon: IconName; title: string; body: ReactNode[] }[] = [
   { icon: "base-pair", title: "Pick your coin.", body: [`Launch a rocket paired with any coin you believe in. Your rocket trades in${NB}that${NB}coin.`] },
   { icon: "boost", title: "BOOST to climb.", body: [`Every BOOST lifts the rocket. Every${NB}DUMP${NB}drops${NB}a${NB}bomb.`, <TradeLegend key="legend" />] },
-  { icon: "lock", title: `Send your coin to The${NB}Moon and beyond.`, body: [`If rockets ascend from the bonding curve, their liquidity is locked in a Uniswap v4${NB}LP,${NB}forever.`] },
+  { icon: "lock", title: `Send your rocket to The${NB}Moon and beyond.`, body: [`The Moon is a named tier for how high a rocket's value has climbed. A rocket reaches orbit when the path its price follows at the start is finished, and it moves to the open market on Uniswap. Its liquidity is locked forever in the Uniswap v4${NB}LP.`] },
 ];
 
 export default function HowItWorksSteps({ id, className }: { id?: string; className?: string }) {

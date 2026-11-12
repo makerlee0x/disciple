@@ -4,7 +4,8 @@
  * (set by FlightCanvas before engine.js loads) and re-labels its six presets (FEATHER…GLORY) from it.
  *
  * Rule of thumb: each step is ≈4–5× the previous tier, so a preset is a similar % of mcap across tiers.
- * Floors stay at the network min shot (~$0.20 on RH) so small-budget players can still play low-mcap rockets.
+ * Minimum buy is $3 (lee, Nov 9 2026; was the ~$0.20 network min shot): presets below it (SPARK $0.20–$2, KINDLE
+ * $0.50–$2) show as below-minimum in the engine until lee picks new preset sizes (not changed here).
  * Sells (bombs) use the same presets; bomb *tiers* are by % price impact (BOMB_PCT) and need no scaling.
  */
 export type AmmoTier = {

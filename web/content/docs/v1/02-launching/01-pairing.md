@@ -9,11 +9,11 @@ Every rocket has a **base**: the coin it's paired with.
 
 ## What pairing means
 
-Your rocket is a new coin, priced and traded in its base.
+Your rocket is priced and traded in its base coin.
 
 - **BOOST** a rocket and you pay in the base.
 - **DUMP** it and you're paid in the base.
-- **At ascension**, the base is locked permanently in the rocket's Uniswap v4 LP, alongside the rocket.
+- **When the rocket reaches orbit**, the base is locked forever in the Uniswap v4 LP, alongside the rocket. Reaching orbit means the starting price path is finished and the rocket moves to the open market on Uniswap.
 
 That's the whole relationship. A rocket follows its base on the chart because it's priced in it. DISCIPLE makes no other claim about what a rocket does for its base.
 
@@ -31,12 +31,12 @@ Pick a supported base: STRATEGY by default, USDG always. Other coins work once t
 
 ## How the dollar price is set
 
-Rocket targets are in dollars ($3,333 start, $33,333 ascension). Your base may not be a dollar coin, so DISCIPLE converts once, at launch:
+Rocket targets are in dollars ($3,333 at the start, $33,333 when the rocket reaches orbit). Your base may not be a dollar coin, so DISCIPLE converts once, at launch:
 
 - It reads the base's USD price from its registered base/USDG pool, using a time-weighted average so a single-block price spike can't skew it. [CONFIRM: FLOW — the TWAP pricer is fixed in source (PR #44); confirm it's live on the current testnet deploy.]
 - That price is fixed into your rocket's curve. The curve then works in base units.
 
-So if your base's dollar price moves after launch, the rocket's curve doesn't change in base terms. Its dollar market cap moves with the base.
+So if your base's dollar price moves after launch, the rocket's price path doesn't change in base terms. Its dollar value moves with the base. Value here is the same number altitude is drawn from.
 
 ## The default can change
 

@@ -44,7 +44,7 @@ export function createSimTrampWallAdapter(getRun: () => SimRun | null, storage?:
     },
     async preview(p, cur) {
       const pv = computePreview(p, cur), r = getRun();
-      if (!r?.m.pool) return { ...pv, valid: false, reason: "Tramps & walls open after graduation" };
+      if (!r?.m.pool) return { ...pv, valid: false, reason: "Tramps and walls open after the rocket reaches orbit and moves to the open market on Uniswap." };
       if (pv.valid && p.kind === "tramp" && p.sizeUsd > r.player.cash + 1e-9) return { ...pv, valid: false, reason: `insufficient sim balance (${r.player.cash.toFixed(2)})` };
       if (pv.valid && p.kind === "wall" && p.mcapUsd > 0 && p.sizeUsd / (p.mcapUsd / r.m.S) > r.player.pos.size * (1 + 1e-9)) return { ...pv, valid: false, reason: "not enough tokens for this wall — buy some first" };
       return pv;

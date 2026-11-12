@@ -13,6 +13,8 @@ import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {TwapOracle} from "./libraries/TwapOracle.sol";
 import {BasePools} from "./libraries/BasePools.sol";
+import {UsdgRouteLib} from "./libraries/UsdgRouteLib.sol";
+import {PoolDepth} from "./libraries/PoolDepth.sol";
 
 /// @title Quote/USD oracle (USDG = $1, others via a TRUNCATED TWAP of a registered quote/USDG v4 pool)
 /// @notice Curve mcap targets ($7,777 / $33,333) are USD. At launch the Launchpad asks this contract for the
@@ -51,6 +53,14 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     mapping(address => PoolKey) internal _poolOf;
     mapping(address => bool) public hasPricePool;
 
+    /// @notice If true, every quote is priced live with the $10k-per-side dollar floor (default off).
+    bool public allowAnyQuote;
+    mapping(address => bool) public isAllowedQuote;
+    /// @dev USDG-first v4 route used for live pricing of a listed (or allow-any) quote. 1 or 2 hops.
+    mapping(address => PoolKey[]) internal _routeOf;
+    /// @notice $10,000 per side, USD WAD. Applied only to listed / allow-any quotes.
+    uint256 public constant DEPTH_FLOOR_USD = 10_000e18;
+
     /// @notice TWAP window, seconds (owner-settable). Default 30 minutes.
     uint32 public twapWindow = 1800;
     /// @notice Max |tick move| recorded per poke. Default 2000 ticks ≈ ±22% per observation.
@@ -63,6 +73,7 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     error ThinPool(uint128 liquidity);
     error ZeroPrice();
     error BadParam();
+    error NoRouteAboveFloor(address quote);
 
     event PricePoolSet(address indexed quote, bytes32 indexed poolId, uint24 fee, int24 tickSpacing, address hooks);
     event PricePoolCleared(address indexed quote);
@@ -71,6 +82,9 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     event AutoWarmupSet(uint32 warmup);
     event TwapParamsSet(uint32 window, int24 maxTickDelta);
     event Poked(address indexed quote, int24 spotTick, int24 recordedTick);
+    event AllowAnyQuoteSet(bool allowed);
+    event AllowedQuoteSet(address indexed quote, bool allowed);
+    event PriceRouteSet(address indexed quote, PoolKey[] keys);
 
     constructor(address owner_, IPoolManager poolManager_, address usdg_) Owned2Step(owner_) {
         poolManager = poolManager_;
@@ -103,6 +117,42 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         emit MinLiquiditySet(l);
     }
 
+    function setAllowAnyQuote(bool allowed) external onlyOwner {
+        allowAnyQuote = allowed;
+        emit AllowAnyQuoteSet(allowed);
+    }
+
+    function setAllowedQuote(address quote, bool allowed) external onlyOwner {
+        if (quote == address(0) || quote == usdg) revert BadParam();
+        isAllowedQuote[quote] = allowed;
+        emit AllowedQuoteSet(quote, allowed);
+    }
+
+    /// @notice Register the USDG-first v4 route used to price `quote` (1 or 2 hops). Owner only.
+    function setPriceRoute(address quote, PoolKey[] calldata keys) external onlyOwner {
+        if (!UsdgRouteLib.check(poolManager, usdg, quote, keys, address(0))) revert BadPool();
+        delete _routeOf[quote];
+        for (uint256 i; i < keys.length; ++i) {
+            _routeOf[quote].push(keys[i]);
+        }
+        emit PriceRouteSet(quote, keys);
+        if (keys.length == 1) {
+            _poolOf[quote] = keys[0];
+            hasPricePool[quote] = true;
+            isAutoPool[quote] = false;
+            TwapOracle.initialize(_oracle[quote], _usdTick(quote, keys[0]));
+            emit PricePoolSet(quote, PoolId.unwrap(keys[0].toId()), keys[0].fee, keys[0].tickSpacing, address(keys[0].hooks));
+        }
+    }
+
+    function priceRouteOf(address quote) external view returns (PoolKey[] memory) {
+        return _routeOf[quote];
+    }
+
+    function _listed(address quote) internal view returns (bool) {
+        return isAllowedQuote[quote] || allowAnyQuote;
+    }
+
     /// @notice Register the canonical quote/USDG v4 pool for `quote`. Pool must exist (initialized).
     function setPricePool(address quote, PoolKey calldata key) external onlyOwner {
         address c0 = Currency.unwrap(key.currency0);
@@ -113,6 +163,8 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         _poolOf[quote] = key;
         hasPricePool[quote] = true;
         isAutoPool[quote] = false;
+        delete _routeOf[quote];
+        _routeOf[quote].push(key);
         // (Re)start the oracle at the owner-registration spot.
         TwapOracle.initialize(_oracle[quote], _usdTick(quote, key));
         emit PricePoolSet(quote, PoolId.unwrap(key.toId()), key.fee, key.tickSpacing, address(key.hooks));
@@ -122,6 +174,7 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         delete _poolOf[quote];
         hasPricePool[quote] = false;
         isAutoPool[quote] = false;
+        delete _routeOf[quote];
         emit PricePoolCleared(quote);
     }
 
@@ -129,6 +182,8 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     ///         discover and auto-register the deepest standard (quote, USDG) v4 pool meeting minLiquidity.
     function poke(address quote) public {
         if (quote == usdg) return;
+        // 2-hop listed routes are priced live; do not auto-register a direct USDG pool over them.
+        if (_routeOf[quote].length > 1) return;
         // Discover if unset, or re-discover if the AUTO pool fell below the floor (e.g. a thin/narrow-range pool
         // that was arbitraged out of range). Owner-registered pools are never replaced.
         if (!hasPricePool[quote] || (isAutoPool[quote] && poolManager.getLiquidity(_poolOf[quote].toId()) < minLiquidity)) {
@@ -167,10 +222,32 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     /// @notice The pool `quote` is (or would be) priced from: the registered pool, else the deepest standard
     ///         (quote, USDG) v4 pool meeting minLiquidity. Used by QuoteProbe for the round-trip probe.
     function poolKeyFor(address quote) external view returns (bool ok, PoolKey memory key) {
-        if (hasPricePool[quote]) return (true, _poolOf[quote]);
-        uint128 liq;
-        (ok, key, liq) = BasePools.discover(poolManager, quote, usdg);
-        ok = ok && liq != 0 && liq >= minLiquidity;
+        PoolKey[] memory keys;
+        (ok, keys) = _routeFor(quote);
+        if (ok) key = keys[0];
+    }
+
+    /// @notice Full USDG-first route for `quote`: owner-registered route, else the registered/discovered USDG pool.
+    function routeFor(address quote) external view returns (bool ok, PoolKey[] memory keys) {
+        return _routeFor(quote);
+    }
+
+    function _routeFor(address quote) internal view returns (bool ok, PoolKey[] memory keys) {
+        uint256 n = _routeOf[quote].length;
+        if (n > 0) {
+            keys = _routeOf[quote];
+            return (true, keys);
+        }
+        if (hasPricePool[quote]) {
+            keys = new PoolKey[](1);
+            keys[0] = _poolOf[quote];
+            return (true, keys);
+        }
+        (bool found, PoolKey memory k, uint128 liq) = BasePools.discover(poolManager, quote, usdg);
+        if (!found || liq == 0 || liq < minLiquidity) return (false, keys);
+        keys = new PoolKey[](1);
+        keys[0] = k;
+        return (true, keys);
     }
 
     /// @inheritdoc IQuotePricer
@@ -178,6 +255,11 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     function quotePriceUsd(address quote) external view override returns (uint256 p) {
         uint256 usdgScale = 10 ** (36 - uint256(usdgDecimals));
         if (quote == usdg) return usdgScale;
+        if (_listed(quote)) {
+            (bool ok, PoolKey[] memory keys) = _routeFor(quote);
+            if (!ok) revert NoRouteAboveFloor(quote);
+            return _liveRoutePrice(keys, usdgScale, quote);
+        }
         if (!hasPricePool[quote]) revert NoPricePool(quote);
         uint128 liq = poolManager.getLiquidity(_poolOf[quote].toId());
         if (liq < minLiquidity || liq == 0) revert ThinPool(liq);
@@ -203,6 +285,11 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         // USD WAD per 1e18 raw units: usdg raw unit = 10^-dec USD → 1e18 raw = 1e(36-dec) USD WAD
         uint256 usdgScale = 10 ** (36 - uint256(usdgDecimals));
         if (quote == usdg) return usdgScale;
+        if (_listed(quote)) {
+            (bool ok, PoolKey[] memory keys) = _routeFor(quote);
+            if (!ok) revert NoRouteAboveFloor(quote);
+            return _liveRoutePrice(keys, usdgScale, quote);
+        }
         if (!hasPricePool[quote]) revert NoPricePool(quote);
 
         PoolKey memory key = _poolOf[quote];
@@ -222,5 +309,53 @@ contract QuotePricer is IQuotePricer, Owned2Step {
             p = Math.mulDiv(1 << 128, usdgScale, priceX128);
         }
         if (p == 0) revert ZeroPrice();
+    }
+
+    /// @dev Live spot along a USDG-first 1- or 2-hop route, with a $10k-per-side floor on every pool.
+    function _liveRoutePrice(PoolKey[] memory keys, uint256 usdgScale, address quote) internal view returns (uint256 p) {
+        uint256 midUsd = usdgScale;
+        if (keys.length == 2) {
+            address mid = UsdgRouteLib.other(keys[0], usdg);
+            midUsd = _priceInPool(keys[0], mid, usdg, usdgScale);
+            _assertFloor(keys[0], usdg, usdgScale, midUsd, quote);
+            p = _priceInPool(keys[1], quote, mid, midUsd);
+            _assertFloor(keys[1], mid, midUsd, p, quote);
+        } else {
+            p = _priceInPool(keys[0], quote, usdg, usdgScale);
+            _assertFloor(keys[0], usdg, usdgScale, p, quote);
+        }
+        if (p == 0) revert ZeroPrice();
+    }
+
+    /// @dev USD WAD per 1e18 raw of `token`, given the other currency's USD WAD per 1e18 raw.
+    function _priceInPool(PoolKey memory key, address token, address other, uint256 otherUsd)
+        internal
+        view
+        returns (uint256)
+    {
+        (uint160 sqrtP,,,) = poolManager.getSlot0(key.toId());
+        if (sqrtP == 0) revert BadPool();
+        uint256 priceX128 = Math.mulDiv(sqrtP, sqrtP, 1 << 64);
+        if (Currency.unwrap(key.currency0) == token) {
+            // other raw per token raw
+            if (Currency.unwrap(key.currency1) != other) revert BadPool();
+            return Math.mulDiv(otherUsd, priceX128, 1 << 128);
+        }
+        if (Currency.unwrap(key.currency1) != token || Currency.unwrap(key.currency0) != other) revert BadPool();
+        return Math.mulDiv(otherUsd, 1 << 128, priceX128);
+    }
+
+    function _assertFloor(
+        PoolKey memory key,
+        address a,
+        uint256 aUsd,
+        uint256 bUsd,
+        address quote
+    ) internal view {
+        (uint256 r0, uint256 r1) = PoolDepth.virtualReserves(poolManager, key);
+        address c0 = Currency.unwrap(key.currency0);
+        uint256 d0 = PoolDepth.sideUsd(r0, c0 == a ? aUsd : bUsd);
+        uint256 d1 = PoolDepth.sideUsd(r1, c0 == a ? bUsd : aUsd);
+        if (d0 < DEPTH_FLOOR_USD || d1 < DEPTH_FLOOR_USD) revert NoRouteAboveFloor(quote);
     }
 }
