@@ -10,13 +10,13 @@
  * stars in front of / far behind the rocket) gives the parallax.
  */
 import {
-  Scene, PerspectiveCamera, HemisphereLight, DirectionalLight, PointLight, Group, Mesh, MeshBasicMaterial, ConeGeometry,
-  PlaneGeometry, AdditiveBlending, DoubleSide, InstancedMesh, IcosahedronGeometry, MeshStandardMaterial, Object3D,
+  Scene, PerspectiveCamera, HemisphereLight, DirectionalLight, PointLight, Group, Mesh, MeshBasicMaterial,
+  PlaneGeometry, DoubleSide, InstancedMesh, IcosahedronGeometry, MeshStandardMaterial, Object3D,
   Vector3, Color, ACESFilmicToneMapping, InstancedBufferAttribute, DynamicDrawUsage, type Texture,
 } from "three";
 import { buildRocket, BODY_R, ROCKET_H, type RocketParts } from "./rocket";
-import { Quads, SmokeQuads, PPool } from "./particles";
-import { radialTex, puffTex, cloudTex, flameTex, envTex } from "./textures";
+import { Quads, SmokeQuads, PPool, lightBlend } from "./particles";
+import { radialTex, puffTex, cloudTex, flameTex, envHDR, streakTex } from "./textures";
 import { govInit, govStep, type Gov, type Preset, type View3DBackend } from "./detect";
 
 export type Snap = {
@@ -43,6 +43,8 @@ type RendererLike = {
   dispose: () => void;
   toneMapping: number; toneMappingExposure: number;
 };
+/** the renderer's own PMREMGenerator (three for WebGL, three/webgpu for WebGPU), used once to prefilter the chrome env */
+export type PmremLike = { fromEquirectangular: (t: Texture) => { texture: Texture; dispose: () => void }; dispose: () => void };
 
 const FOV = 55, TANH = Math.tan((FOV / 2) * Math.PI / 180);
 const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
@@ -57,10 +59,12 @@ export class FlightView3D {
   camera = new PerspectiveCamera(FOV, 16 / 9, 1, 8000);
   rocket: RocketParts;
   private fixed = new Group();   // rocket transform without roll (flame, scorch)
-  private flameOuter: Mesh; private flameCore: Mesh; private nozzleGlow: Mesh;
+  private flameOuter: Mesh; private flameCore: Mesh; private nozzleGlow: Mesh; private streaks: Quads;
+  private streakA: { a: number; r: number; sp: number; w: number }[] = [];
+  private envRT: { texture: Texture; dispose: () => void } | null = null;
   private engineLight = new PointLight(0xffa860, 0, 260, 1);
   private blastLight = new PointLight(0xffc880, 0, 900, 1);
-  private hemi = new HemisphereLight(0xbfd2ff, 0x1a1626, 1.4);
+  private hemi = new HemisphereLight(0xbfd2ff, 0x1a1626, 0.7);
   private key = new DirectionalLight(0xffffff, 2.2);
   private exhaust: Quads; private fire: Quads; private sparks: Quads; private flash: Quads; private stars: Quads;
   private smoke: SmokeQuads; private trail: SmokeQuads;
@@ -82,16 +86,26 @@ export class FlightView3D {
   visible = true;
   stats = { frames: 0, drawn: 0, skipped: 0, lastMs: 0, ema: 0, ratio: 1 };
 
-  constructor(public renderer: RendererLike, public backend: View3DBackend, public preset: Preset, dpr: number) {
+  constructor(public renderer: RendererLike, public backend: View3DBackend, public preset: Preset, dpr: number, pmrem?: PmremLike | null) {
     const p = preset;
     renderer.setClearColor(0x000000, 0);
-    renderer.toneMapping = ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+    renderer.toneMapping = ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
     this.gov = govInit(p, dpr);
     renderer.setPixelRatio(this.gov.ratio);
 
     const S = this.scene;
     this.key.position.set(-0.8, 1.4, 1.1);
     S.add(this.hemi, this.key, this.blastLight);
+
+    // chrome environment: procedural HDR night sky + soft boxes → PMREM → scene.environment (built once, here, before
+    // the first frame, so it never lands in the middle of a flight frame)
+    const lite = p.quality === "lite";
+    const eq = envHDR([120, 104, 190], lite ? 256 : 512, lite ? 128 : 256);
+    if (pmrem) {
+      try { this.envRT = pmrem.fromEquirectangular(eq); this.scene.environment = this.envRT.texture; eq.dispose(); this.envTexCur = null; }
+      catch { this.scene.environment = eq; this.envTexCur = eq; }
+      try { pmrem.dispose(); } catch { /* ignore */ }
+    } else { this.scene.environment = eq; this.envTexCur = eq; }
 
     // rocket
     this.rocket = buildRocket(p.latheSegments);
@@ -100,13 +114,13 @@ export class FlightView3D {
     S.add(this.rocket.group);
 
     // flame: two additive cones (outer fire, white-blue core) pointing out of the nozzle, plus the nozzle bloom
-    const cone = new ConeGeometry(0.5, 1, 20, 1, true);
-    cone.rotateX(Math.PI); cone.translate(0, -0.5, 0);          // apex down, base at the nozzle (y = 0)
-    const fmat = (t: Texture, o: number) => new MeshBasicMaterial({ map: t, transparent: true, blending: AdditiveBlending, depthWrite: false, side: DoubleSide, opacity: o });
-    this.flameOuter = new Mesh(cone, fmat(flameTex(false), 0.9));
-    this.flameCore = new Mesh(cone, fmat(flameTex(true), 0.9));
+    // flame: camera-facing cards (the camera never turns), top edge at the nozzle — soft teardrop, not a solid cone
+    const cone = new PlaneGeometry(1, 1); cone.translate(0, -0.5, 0);
+    const fmat = (t: Texture, o: number) => lightBlend(new MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, side: DoubleSide, opacity: o }));
+    this.flameOuter = new Mesh(cone, fmat(flameTex(false), 0.85));
+    this.flameCore = new Mesh(cone, fmat(flameTex(true), 1));
     const glowTex = radialTex([[0, "rgba(255,250,232,1)"], [0.3, "rgba(255,210,150,0.55)"], [1, "rgba(255,140,60,0)"]]);
-    this.nozzleGlow = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial({ map: glowTex, transparent: true, blending: AdditiveBlending, depthWrite: false }));
+    this.nozzleGlow = new Mesh(new PlaneGeometry(1, 1), lightBlend(new MeshBasicMaterial({ map: glowTex, transparent: true, depthWrite: false })));
     this.fixed.add(this.flameOuter, this.flameCore, this.nozzleGlow);
     this.flameOuter.renderOrder = 2; this.flameCore.renderOrder = 3; this.nozzleGlow.renderOrder = 4;
 
@@ -114,7 +128,7 @@ export class FlightView3D {
     const burnTex = radialTex([[0, "rgba(10,6,4,0.95)"], [0.45, "rgba(30,18,12,0.75)"], [1, "rgba(30,18,12,0)"]], 64);
     const hotTex = radialTex([[0, "rgba(255,230,160,1)"], [0.35, "rgba(255,120,40,0.7)"], [1, "rgba(255,60,10,0)"]], 64);
     const burn = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial({ map: burnTex, transparent: true, depthWrite: false, opacity: 0 }));
-    const glow = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial({ map: hotTex, transparent: true, depthWrite: false, opacity: 0, blending: AdditiveBlending }));
+    const glow = new Mesh(new PlaneGeometry(1, 1), lightBlend(new MeshBasicMaterial({ map: hotTex, transparent: true, depthWrite: false, opacity: 0 })));
     burn.renderOrder = 5; glow.renderOrder = 6;
     this.fixed.add(burn, glow);
     this.scorch = { burn, glow, age: 99 };
@@ -129,6 +143,8 @@ export class FlightView3D {
     this.sparks = new Quads(p.sparks, dot, true);
     this.flash = new Quads(8, glowTex, true);
     this.stars = new Quads(p.stars, dot, true);
+    this.streaks = new Quads(lite ? 14 : 30, streakTex(), true);
+    for (let i = 0; i < this.streaks.cap; i++) this.streakA.push({ a: 0, r: -1, sp: 0, w: 0 });
     this.fireP = new PPool(p.fire); this.smokeP = new PPool(p.smoke * 3); this.sparkP = new PPool(p.sparks); this.debrisP = new PPool(p.debris);
     const debrisMat = new MeshStandardMaterial({ color: 0xcfd5df, metalness: 1, roughness: 0.3 });
     this.debris = new InstancedMesh(new IcosahedronGeometry(1, 0), debrisMat, p.debris);
@@ -136,7 +152,8 @@ export class FlightView3D {
     this.stars.mesh.renderOrder = -10;
     this.exhaust.mesh.renderOrder = 1;
     for (const pool of this.trail.pools) pool.mesh.renderOrder = 0;
-    S.add(this.stars.mesh, this.exhaust.mesh, this.fire.mesh, this.sparks.mesh, this.flash.mesh, this.debris);
+    this.streaks.mesh.renderOrder = -6;
+    S.add(this.stars.mesh, this.streaks.mesh, this.exhaust.mesh, this.fire.mesh, this.sparks.mesh, this.flash.mesh, this.debris);
     for (const pool of [...this.trail.pools, ...this.smoke.pools]) S.add(pool.mesh);
     this.fire.mesh.renderOrder = 8; this.sparks.mesh.renderOrder = 9; this.flash.mesh.renderOrder = 10;
     for (const pool of this.smoke.pools) pool.mesh.renderOrder = 7;
@@ -295,14 +312,17 @@ export class FlightView3D {
     R.hull.rotation.y = Math.sin(T * 0.45) * 0.38 + this.rollK;
     if (V.decal && V.decalT0 !== this.decalT0) { this.decalT0 = V.decalT0; R.setDecal(V.decal); }
     // heat on the hull after a nuke-class hit (engine scorch 0..1)
-    R.chrome.color.setRGB(0.914 - 0.5 * V.scorch, 0.93 - 0.55 * V.scorch, 0.957 - 0.6 * V.scorch);
+    R.chrome.color.setRGB((0.9 + 0.1 * V.sky[0] / 255) * (1 - 0.55 * V.scorch), (0.9 + 0.1 * V.sky[1] / 255) * (1 - 0.6 * V.scorch), (0.92 + 0.08 * V.sky[2] / 255) * (1 - 0.62 * V.scorch));
+    R.flutedSync();
 
     // ---- flame (same sizing law as the 2D engine)
     const fl = Math.max(0, V.flame), fk = V.flick, br = V.braking ? 0.55 : 1;
-    const L = (30 + 120 * Math.min(fl, 1.6)) * (0.85 + 0.3 * fk) * V.thrustMul * br, Wf = (13 + 8 * Math.min(fl, 1.6)) * br;
-    this.flameOuter.scale.set(Wf, L, Wf); (this.flameOuter.material as MeshBasicMaterial).opacity = clamp(0.4 + 0.3 * fl, 0, 0.8);
-    this.flameCore.scale.set(Wf * 0.45, L * 0.42, Wf * 0.45); (this.flameCore.material as MeshBasicMaterial).opacity = clamp(0.45 + 0.35 * fl, 0, 0.9);
-    const gs = Math.min(90, 40 + 45 * fl) * fk * Math.sqrt(V.glowMul) * 1.5;
+    const L = (26 + 84 * Math.min(fl, 1.6)) * (0.85 + 0.3 * fk) * V.thrustMul * br, Wf = (20 + 9 * Math.min(fl, 1.6)) * br;
+    this.flameOuter.scale.set(Wf * (0.95 + 0.1 * fk), L, 1); this.flameOuter.position.set(0, -2, 1);
+    (this.flameOuter.material as MeshBasicMaterial).opacity = clamp(0.45 + 0.35 * fl, 0, 0.9);
+    this.flameCore.scale.set(Wf * 0.6, L * 0.48, 1); this.flameCore.position.set(0, -2, 2);
+    (this.flameCore.material as MeshBasicMaterial).opacity = clamp(0.55 + 0.4 * fl, 0, 1);
+    const gs = Math.min(70, 30 + 32 * fl) * fk * Math.sqrt(V.glowMul) * 1.3;
     this.nozzleGlow.scale.set(gs, gs, 1); this.nozzleGlow.position.set(0, -4, 14);
     (this.nozzleGlow.material as MeshBasicMaterial).opacity = clamp(0.55 * fl * fk * V.glowMul, 0, 1);
     this.engineLight.intensity = 900 * clamp(fl, 0, 1.6) * fk;
@@ -318,7 +338,7 @@ export class FlightView3D {
     this.tierPulse = Math.max(0, this.tierPulse - dt * 0.9);
     this.hemi.intensity = 1.3 + 0.9 * this.tierPulse + 0.6 * hyper;
     const bandI = Math.floor(V.band);
-    if (bandI !== this.envBand) { this.envBand = bandI; const e = envTex([sr, sg, sb]); this.scene.environment = e; this.envTexCur?.dispose(); this.envTexCur = e; }
+    if (bandI !== this.envBand) this.envBand = bandI;   // the env is built once; the tier tint goes on the chrome colour below
 
     // ---- blast light
     this.flashT += dt;
@@ -326,8 +346,10 @@ export class FlightView3D {
 
     // ---- clouds: parallax by depth, thin out in space, stretched and rushing during hyperspeed
     const cloudAmt = 1 - 0.7 * smooth(3.4, 4.6, V.band);
-    const tint = 0.35, nightK = smooth(4, 7, V.band);
+    const tint = 0.22, nightK = smooth(4, 7, V.band);
     const rx = R.group.position.x, ry = R.group.position.y;
+    // hyperspeed vanishing point: just above the nose; the world streams out of it and past the rocket
+    const vpx = rx * 0.4, vpy = Math.max(ry + ROCKET_H + 160, this.H * 0.34), radK = Math.min(1, hyper * 3);
     for (const c of this.clouds) {
       c.vx += (-1.1 * c.ox - 1.9 * c.vx) * dt; c.vy += (-1.1 * c.oy - 1.9 * c.vy) * dt; c.ox += c.vx * dt; c.oy += c.vy * dt;
       c.y -= dY * 0.6; c.x -= dX * 0.25;
@@ -338,8 +360,10 @@ export class FlightView3D {
       else if (c.y > hh + c.h) { c.y -= 2 * hh + 2 * c.h; c.x = (Math.random() * 2 - 1) * hw; }
       if (c.x < -hw - c.w) c.x += 2 * hw + 2 * c.w; else if (c.x > hw + c.w) c.x -= 2 * hw + 2 * c.w;
       const stretch = 1 + clamp(spd / 3000, 0, 0.6) + hyper * 0.9;
-      c.m.position.set(c.x + c.ox, c.y + c.oy, c.z); c.m.scale.set(c.w, c.h * stretch, 1);
-      let a = c.a * cloudAmt / Math.sqrt(stretch);
+      c.m.position.set(c.x + c.ox, c.y + c.oy, c.z); c.m.scale.set(c.w / (1 + 0.35 * hyper), c.h * stretch, 1);
+      // in hyperspeed each cloud is smeared along its line out of the vanishing point
+      c.m.rotation.z = radK > 0 ? (Math.atan2(c.y - vpy, c.x - vpx) + Math.PI / 2) * radK : 0;
+      let a = c.a * cloudAmt / stretch;
       if (c.z > 0) { const d = Math.hypot(c.x - rx, (c.y - ry - 70) * 0.8); if (d < c.w * 0.6 + 60) a *= 0.3; }
       const mat = c.m.material as MeshBasicMaterial;
       mat.opacity = clamp(a, 0, 1);
@@ -362,25 +386,48 @@ export class FlightView3D {
         const k = (this.D - s.z) / this.D, size = s.s * k * (1 + 0.6 * hyper);
         const len = size + clamp(spd * 0.08, 0, 1400) * (0.3 + 1.2 * hyper) * k * (this.D / (this.D - s.z));
         const tw = 0.6 + 0.4 * Math.sin(T * 2.2 + s.tw), b = starAmt * tw * (1 + 0.8 * hyper);
-        this.stars.push(s.x, s.y + len / 2, s.z, size, len, 0, b, b, b * 1.05);
+        if (radK > 0.05) {
+          let dx = s.x - vpx, dy = s.y - vpy; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+          const L2 = size + (len - size) * radK * 0.45 + hyper * 30 * k;
+          this.stars.push(s.x + dx * L2 / 2, s.y + dy * L2 / 2, s.z, size, L2, Math.atan2(dy, dx) - Math.PI / 2, b * 0.45, b * 0.45, b * 0.55);
+        } else this.stars.push(s.x, s.y + len / 2, s.z, size, len, 0, b, b, b * 1.05);
       }
     }
     this.stars.end();
 
+    // ---- hyperspeed streaks: cloud-wisps and light rushing outward from the vanishing point (never from the rocket:
+    //      the cone straight down behind the rocket is left empty)
+    this.streaks.begin();
+    if (hyper > 0.02) {
+      const maxR = Math.hypot(this.W, this.H) * 0.75;
+      for (const k of this.streakA) {
+        if (k.r < 0 || k.r > maxR) {
+          let a = Math.random() * Math.PI * 2; const down = -Math.PI / 2;
+          const da = Math.atan2(Math.sin(a - down), Math.cos(a - down)); if (Math.abs(da) < 0.45) a = down + Math.sign(da || 1) * (0.45 + Math.random() * 0.3);
+          k.a = a; k.r = 20 + Math.random() * (k.r < 0 ? maxR : 80); k.sp = 0.8 + Math.random() * 1.4; k.w = 7 + Math.random() * 12;
+        }
+        k.r += (60 + k.r * 2.4) * k.sp * hyper * dt;
+        const len = (40 + k.r * 0.6) * hyper, cx = vpx + Math.cos(k.a) * (k.r + len / 2), cy = vpy + Math.sin(k.a) * (k.r + len / 2);
+        const b = hyper * smooth(maxR * 0.22, maxR * 0.45, k.r) * (1 - smooth(maxR * 0.75, maxR, k.r)) * 0.16;
+        this.streaks.push(cx, cy, -120, k.w * (1 + k.r / 500), len, k.a - Math.PI / 2, b * 0.78, b * 0.74, b);
+      }
+    } else for (const k of this.streakA) k.r = -1;
+    this.streaks.end();
+
     // ---- exhaust glow from the engine's own particles
     this.exhaust.begin();
-    if (V.P) { const a = V.P.a; for (let i = 0; i < V.P.n; i++) { const p = a[i], al = clamp(0.32 * p.life, 0, 1), s = p.s * (1.3 - p.life * 0.3) * 2;
-      if (p.hot) this.exhaust.push(this.wx(p.x), this.wy(p.y + drop), -2, s, s, 0, al, al * 0.72, al * 0.42);
-      else this.exhaust.push(this.wx(p.x), this.wy(p.y + drop), -2, s, s, 0, al * 0.42, al * 0.5, al * 0.75); } }
+    if (V.P) { const a = V.P.a; for (let i = 0; i < V.P.n; i++) { const p = a[i], al = clamp(0.14 * p.life, 0, 1), s = p.s * (1.3 - p.life * 0.3) * 1.5;
+      if (p.hot) this.exhaust.push(this.wx(p.x), this.wy(p.y + drop), -2, s * 0.8, s * 0.8, 0, al * 0.85, al * 0.42, al * 0.14);
+      else this.exhaust.push(this.wx(p.x), this.wy(p.y + drop), -2, s, s, 0, al * 0.05, al * 0.05, al * 0.08); } }
     this.exhaust.end();
 
     // ---- contrail: soft smoke along the engine's trail points (oldest → nozzle), not a line
     this.trail.begin();
     const n = V.tn, am = V.auraMul, sc = V.scorch;
     for (let i = 0; i < n; i++) { const u = n > 1 ? i / (n - 1) : 1;
-      const a = Math.min(1, Math.pow(u, 1.2) * (0.22 + 0.12 * clamp(fl, 0, 1.6)) * am), s = (8 + 30 * Math.pow(1 - u, 0.8)) * am * 1.7;
-      const c = 0.86 - 0.62 * sc;
-      this.trail.push(a, this.wx(V.tx[i]), this.wy(V.ty[i] + drop * Math.pow(u, 6)), -6, s, i * 0.7, c, c, c * 1.04); }
+      const a = Math.min(1, Math.pow(u, 1.6) * (0.06 + 0.05 * clamp(fl, 0, 1.6)) * am), s = (6 + 34 * Math.pow(1 - u, 0.8)) * am * 1.6;
+      const c = 1 - 0.7 * sc;
+      this.trail.push(a, this.wx(V.tx[i]), this.wy(V.ty[i] + drop * Math.pow(u, 6)), -6, s, i * 0.7, c * 0.78, c * 0.76, c * 0.88); }
     this.trail.end();
 
     // ---- own particles: fire, smoke, sparks, debris
@@ -388,6 +435,11 @@ export class FlightView3D {
     if (V.braking && Math.random() < 0.5) {   // retro jets at the nose while a DUMP is pending (replaces the 2D brake rings)
       this.v3.set((Math.random() < 0.5 ? -1 : 1) * BODY_R, ROCKET_H * 0.78, 2); R.group.localToWorld(this.v3);
       const p = this.smokeP.spawn(); if (p) { Object.assign(p, { x: this.v3.x, y: this.v3.y, z: 8, vx: (this.v3.x - R.group.position.x) * 9, vy: 30, vz: 0, size: 5, grow: 30, life: 0.45, max: 0.45, drag: 3, g: 0, rot: 0, vr: 1, kind: 1, r: 0.92, gg: 0.92, b: 0.96 }); }
+    }
+    if ((drop > 10 || this.stut > 0.35) && Math.random() < (this.preset.quality === "lite" ? 0.35 : 0.7)) {
+      this.v3.set((Math.random() - 0.5) * BODY_R, 30 + Math.random() * 80, BODY_R * 0.6); R.group.localToWorld(this.v3);
+      const p = this.smokeP.spawn(); if (p) { Object.assign(p, { x: this.v3.x, y: this.v3.y, z: this.v3.z - 8, vx: (Math.random() - 0.5) * 30, vy: 60 + Math.random() * 60, vz: 0, size: 10 + Math.random() * 8, grow: 40, life: 1.6, max: 1.6, drag: 1.2, g: -30, rot: Math.random() * 6, vr: 0.6, kind: 1, r: 0.09, gg: 0.08, b: 0.1 }); }
+      const e = this.sparkP.spawn(); if (e) { Object.assign(e, { x: this.v3.x, y: this.v3.y, z: this.v3.z + 4, vx: (Math.random() - 0.5) * 120, vy: 40 + Math.random() * 120, vz: 30, size: 1.6 + Math.random(), grow: 0, life: 0.6, max: 0.6, drag: 1.5, g: -60, rot: 0, vr: 0, kind: 2 }); }
     }
     this.fire.begin();
     for (const p of this.fireP.a) { const u = 1 - p.life / p.max;
@@ -436,7 +488,7 @@ export class FlightView3D {
       const mat = m.material as MeshBasicMaterial | MeshBasicMaterial[] | undefined;
       if (mat) for (const x of Array.isArray(mat) ? mat : [mat]) { x.map?.dispose(); x.dispose(); }
     });
-    this.envTexCur?.dispose();
+    this.envTexCur?.dispose(); this.envRT?.dispose();
     this.renderer.dispose();
   }
 }

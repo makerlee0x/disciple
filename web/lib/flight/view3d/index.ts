@@ -12,7 +12,7 @@
  * and the engine goes back to drawing its 2D sky and rocket on the next frame. Trades never pass through this code.
  */
 import { hasWebGPU, pickQuality, forcedBackend, PRESETS, type View3DBackend, type Preset } from "./detect";
-import type { FlightView3D, Snap, Ev } from "./scene";
+import type { FlightView3D, Snap, Ev, PmremLike } from "./scene";
 
 export type Flight3DHandle = {
   ready: boolean;
@@ -78,29 +78,35 @@ export async function startView3D(wrap: HTMLElement, search: string): Promise<()
     const dpr = devicePixelRatio || 1;
     let backend: View3DBackend = "webgl";
     let renderer: unknown = null;
+    type PmremCtor = new (r: never) => unknown;
+    let Pmrem: PmremCtor | null = null;
     if (forced !== "webgl" && (await hasWebGPU(gpu))) {
       try {
-        const { WebGPURenderer } = await import("three/webgpu");
+        const { WebGPURenderer, PMREMGenerator } = await import("three/webgpu");
         const r = new WebGPURenderer({ canvas: glC, antialias: preset.antialias, alpha: true });
         await r.init();
         const isGPU = !!(r as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend;
         if (!isGPU) { r.dispose(); throw new Error("WebGPU backend did not start"); }
-        renderer = r; backend = "webgpu";
+        renderer = r; backend = "webgpu"; Pmrem = PMREMGenerator as unknown as PmremCtor;
       } catch (e) {
         console.warn("[flight 3d] WebGPU failed, falling back to WebGL 2:", e);
         renderer = null;
       }
     }
     if (!renderer) {
-      const { WebGLRenderer } = await import("three");
+      const { WebGLRenderer, PMREMGenerator } = await import("three");
+      Pmrem = PMREMGenerator as unknown as PmremCtor;
       // WebGLRenderer needs WebGL 2; throws when it is missing → caught below → 2D flight
       renderer = new WebGLRenderer({ canvas: glC, antialias: preset.antialias, alpha: true, powerPreference: quality === "lite" ? "low-power" : "high-performance" });
       backend = "webgl";
     }
     if (stopped) { (renderer as { dispose: () => void }).dispose(); return () => {}; }
     const { FlightView3D } = await import("./scene");
-    view = new FlightView3D(renderer as ConstructorParameters<typeof FlightView3D>[0], backend, preset, dpr);
+    let pmrem: PmremLike | null = null;
+    try { pmrem = Pmrem ? (new Pmrem(renderer as never) as PmremLike) : null; } catch { pmrem = null; }
+    view = new FlightView3D(renderer as ConstructorParameters<typeof FlightView3D>[0], backend, preset, dpr, pmrem);
     handle.backend = backend;
+    Object.defineProperty(handle, "_view", { value: view, enumerable: false, configurable: true });   // for the screenshot / debug scripts
     (renderer as { domElement?: HTMLCanvasElement }).domElement?.addEventListener?.("webglcontextlost", (e) => { e.preventDefault(); fail("WebGL context lost"); });
     const dl = (renderer as { onDeviceLost?: unknown });
     if (backend === "webgpu") dl.onDeviceLost = (info: unknown) => fail({ message: "WebGPU device lost: " + JSON.stringify(info) });

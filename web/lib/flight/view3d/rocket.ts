@@ -5,9 +5,10 @@
  * engine), so the engine's nozzle position and attitude drive it directly. Height = 150 px, the same size as today.
  */
 import {
-  Group, LatheGeometry, Vector2, Mesh, MeshStandardMaterial, Shape, ExtrudeGeometry, CylinderGeometry, CanvasTexture,
+  Group, LatheGeometry, Vector2, Mesh, MeshStandardMaterial, MeshPhysicalMaterial, Shape, ExtrudeGeometry, CylinderGeometry, CanvasTexture,
   SRGBColorSpace, MeshBasicMaterial, DoubleSide, type Texture,
 } from "three";
+import { fluteNormalTex } from "./textures";
 
 export const ROCKET_H = 150;
 const SPR_W = 221, SPR_H = 609, PIVOT = 0.96;
@@ -27,22 +28,35 @@ const PROFILE: [number, number][] = [
 export type RocketParts = {
   group: Group;      // positioned / rotated by the view (nozzle pivot)
   hull: Group;       // rolls about the long axis
-  chrome: MeshStandardMaterial;
-  dark: MeshStandardMaterial;
+  chrome: MeshPhysicalMaterial;
+  dark: MeshPhysicalMaterial;
   decal: Mesh;
   setDecal: (canvas: HTMLCanvasElement | OffscreenCanvas | null) => void;
+  flutedSync: () => void;
 };
 
 export function buildRocket(segments: number): RocketParts {
   const group = new Group(), hull = new Group();
   group.add(hull);
-  const chrome = new MeshStandardMaterial({ color: 0xe9edf4, metalness: 1, roughness: 0.14, envMapIntensity: 1.25 });
-  const dark = new MeshStandardMaterial({ color: 0xa4acba, metalness: 1, roughness: 0.26, envMapIntensity: 1.1 });
+  // Mirror chrome: metalness 1, near-zero roughness, plus a clear coat for the extra Fresnel sheen at grazing angles.
+  // It has no colour of its own — everything you see is the PMREM environment (scene.environment) reflected.
+  const chrome = new MeshPhysicalMaterial({ color: 0xf6f8fc, metalness: 1, roughness: 0.05, clearcoat: 0.5, clearcoatRoughness: 0.03, envMapIntensity: 1 });
+  const dark = new MeshPhysicalMaterial({ color: 0x9aa1b0, metalness: 1, roughness: 0.2, clearcoat: 0.6, clearcoatRoughness: 0.12, envMapIntensity: 1 });
+  // the lower hull of the official art is fluted (vertical ribs between the fins) — same chrome, with a flute normal map
+  const fluted = chrome.clone();
+  fluted.normalMap = fluteNormalTex(); fluted.normalScale.set(0.9, 0.9);
+  // fins: the art's fins are fluted along their sweep and catch light; same chrome, own flute repeat, a touch softer
+  const finMat = chrome.clone();
+  finMat.normalMap = fluted.normalMap!.clone(); finMat.normalMap.repeat.set(0.007, 1); finMat.normalMap.needsUpdate = true;
+  finMat.normalScale.set(1.2, 1.2); finMat.roughness = 0.12;
+  const flutedSync = () => { fluted.color.copy(chrome.color); finMat.color.copy(chrome.color); };
 
-  // lathe wants bottom → top
-  const pts = PROFILE.slice().reverse().map(([row, hw]) => new Vector2(rOf(hw), yOf(row)));
-  const body = new Mesh(new LatheGeometry(pts, segments), chrome);
-  hull.add(body);
+  // lathe wants bottom → top; split at the fin root so the lower hull can carry the flutes
+  const SPLIT = 330;
+  const lathe = (rows: [number, number][]) => new LatheGeometry(rows.slice().reverse().map(([row, hw]) => new Vector2(rOf(hw), yOf(row))), segments);
+  const body = new Mesh(lathe(PROFILE.filter(([r]) => r <= SPLIT)), chrome);
+  const lower = new Mesh(lathe(PROFILE.filter(([r]) => r >= SPLIT)), fluted);
+  hull.add(body, lower);
 
   // fins: swept leading edge from the body (row 330) out to the tip (row 458), straight outer edge, raked trailing edge
   const fin = new Shape();
@@ -54,7 +68,7 @@ export function buildRocket(segments: number): RocketParts {
   const finGeo = new ExtrudeGeometry(fin, { depth: 1.6, bevelEnabled: true, bevelThickness: 0.5, bevelSize: 0.45, bevelSegments: 2, curveSegments: 6 });
   finGeo.translate(0, 0, -0.8);
   for (let k = 0; k < 4; k++) {
-    const m = new Mesh(finGeo, chrome);
+    const m = new Mesh(finGeo, finMat);
     m.rotation.y = (k * Math.PI) / 2;
     hull.add(m);
   }
@@ -93,7 +107,7 @@ export function buildRocket(segments: number): RocketParts {
     decalMat.map = decalTex; decalMat.visible = true; decalMat.needsUpdate = true;
   };
 
-  return { group, hull, chrome, dark, decal, setDecal };
+  return { group, hull, chrome, dark, decal, setDecal, flutedSync };
 }
 
 /** Hull scorch: a dark burn with a hot rim, stuck to the skin where a blast hit; fades over a few seconds. */

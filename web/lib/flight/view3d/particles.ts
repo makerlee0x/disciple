@@ -4,19 +4,32 @@
  * material, so it is split into a few alpha buckets (one InstancedMesh each).
  */
 import {
-  InstancedMesh, PlaneGeometry, MeshBasicMaterial, InstancedBufferAttribute, Object3D, AdditiveBlending, NormalBlending,
+  InstancedMesh, PlaneGeometry, MeshBasicMaterial, InstancedBufferAttribute, Object3D, NormalBlending, CustomBlending, AddEquation,
+  SrcAlphaFactor, OneFactor, ZeroFactor, type Material,
   DynamicDrawUsage, type Texture,
 } from "three";
 
 const geo = new PlaneGeometry(1, 1);
+
+/**
+ * Additive light on a TRANSPARENT canvas: add colour, leave the canvas alpha alone. (Plain AdditiveBlending also adds
+ * srcAlpha² into the alpha channel, so dim glow builds up opaque, near-black pixels over the sky layer — dark halos
+ * around the flame and exhaust.) With alpha untouched, the page composites the light additively over the sky.
+ */
+export function lightBlend<M extends Material>(m: M): M {
+  m.blending = CustomBlending; m.blendEquation = AddEquation;
+  m.blendSrc = SrcAlphaFactor; m.blendDst = OneFactor;
+  m.blendSrcAlpha = ZeroFactor; m.blendDstAlpha = OneFactor; m.blendEquationAlpha = AddEquation;
+  return m;
+}
 const tmp = new Object3D();
 
 export class Quads {
   mesh: InstancedMesh;
   private n = 0;
   constructor(public cap: number, map: Texture, additive: boolean, opacity = 1) {
-    const mat = new MeshBasicMaterial({ map, transparent: true, depthWrite: false, opacity,
-      blending: additive ? AdditiveBlending : NormalBlending, vertexColors: false });
+    const mat = new MeshBasicMaterial({ map, transparent: true, depthWrite: false, opacity, blending: NormalBlending, vertexColors: false });
+    if (additive) lightBlend(mat);
     this.mesh = new InstancedMesh(geo, mat, cap);
     this.mesh.instanceMatrix.setUsage(DynamicDrawUsage);
     this.mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(cap * 3).fill(1), 3);
