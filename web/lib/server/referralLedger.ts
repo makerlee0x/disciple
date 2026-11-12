@@ -14,20 +14,26 @@ import "server-only";
  * creatorShare+lpShare+treasuryShare+referralShare, then split again so a sink / KOL redirect that
  * zeroed referralShare still yields the slice). Fallback: compute from the stored Fill.
  *
- * Referrer = ReferralRegistry.referrerOf(friend) — the locked referrer of the trading wallet — never
- * TradeFeeRouted.referralPayee (that can be a launch KOL or referralSink). No locked referrer ⇒ no
+ * Referrer = the account referral bind (lib/server/referralBind accountReferrerOf: the first-touch referrer
+ * saved to the trader's account at sign-in, Upstash `referral:<chain>:bind:<wallet>`) — never
+ * TradeFeeRouted.referralPayee (that can be a launch KOL or referralSink). No saved referrer ⇒ no
  * row (that 1% stays on the treasury / community path, unchanged). Not tracked per coin.
+ * (Before flow/account-referral-bind this read ReferralRegistry.referrerOf, which is locked on-chain only
+ * through tryAttribute; nothing is locked on the live test network, so the sheet stayed empty. That
+ * reader is kept below as registryReferrerOf, unused for this payout.)
  *
  * Keys (namespaced by chain id, same idea as lib/server/achKeys.ts):
  *   referral:<chain>:seen:<fillId>   SET NX dedupe (a fill is counted once even if the indexer re-runs)
  *   referral:<chain>:rows            zset score=ts member=ReferralRow JSON
  *   referral:<chain>:dirty           zset score=ts member=Fill JSON (pending, like ACH.dirty)
- *   referral:<chain>:of:<wallet>     cached non-zero referrerOf (first-touch is immutable)
+ *   referral:<chain>:of:<wallet>     cached non-zero referrerOf (registryReferrerOf only; unused for the payout)
+ *   referral:<chain>:bind:<wallet>   account referral bind (written by lib/server/referralBind, read here)
  */
 import { parseAbi, type Address } from "viem";
 import { deployment, ZERO, ACTIVE_CHAIN } from "@/lib/chains";
 import { serverPc } from "./chat/identity";
 import { kv, type Kv } from "./kv";
+import { accountReferrerOf } from "./referralBind";
 import { usernameOf as usernameOfWallet } from "./usernames";
 import { playerUsd, type Fill } from "@/lib/trades";
 import { usdgDecimals, usdgRawToUsd, isUsdg, COIN_DECIMALS } from "@/lib/usdg";
@@ -192,7 +198,12 @@ function storeOf(d?: LedgerDeps): LedgerStore {
 
 const registryAbi = parseAbi(["function referrerOf(address) view returns (address)"]);
 
-async function defaultReferrerOf(friend: string, s: LedgerStore): Promise<string | null> {
+/**
+ * On-chain ReferralRegistry.referrerOf reader. NOT used for the payout sheet any more (that uses the account bind,
+ * see defaultReferrerOf). Kept so the on-chain registry path stays in the repo; pass it as LedgerDeps.referrerOf
+ * to get the old behavior.
+ */
+export async function registryReferrerOf(friend: string, s: LedgerStore): Promise<string | null> {
   const addr = lc(friend);
   if (isZero(addr)) return null;
   const cached = await s.get(REF.of(addr));
@@ -216,6 +227,13 @@ async function defaultReferrerOf(friend: string, s: LedgerStore): Promise<string
   }
 }
 
+/** Payout sheet referrer: the referrer saved to the trader's account at sign-in (account referral bind). */
+async function defaultReferrerOf(friend: string, s: LedgerStore): Promise<string | null> {
+  const addr = lc(friend);
+  if (isZero(addr)) return null;
+  return accountReferrerOf(addr, s);
+}
+
 /** Queue fills for a later drain (called from storeFills). Cheap; no RPC. */
 export async function markReferralDirty(fills: Fill[], d: LedgerDeps = {}): Promise<void> {
   if (!fills.length) return;
@@ -227,9 +245,9 @@ export type RecordResult = { recorded: number; skipped: number; noReferrer: numb
 export type DirtyFill = { fill: Fill; dirtyMember: string };
 
 /**
- * Write one ledger row per fill that has a locked referrer. Idempotent via referral:seen:<fillId>.
+ * Write one ledger row per fill whose trader has a saved account referrer. Idempotent via referral:seen:<fillId>.
  * A fill with no referrer is marked seen (and dropped from dirty) so a later attribution is not
- * back-applied to a trade that happened before the lock — same as on-chain trade-time referrerOf.
+ * back-applied to a trade that happened before the account bind (same idea as on-chain trade-time referrerOf).
  * A referrerOf failure leaves the fill unseen / dirty for retry (setNX happens only after a
  * successful resolve, so a failed read is never stuck as "already counted").
  */
