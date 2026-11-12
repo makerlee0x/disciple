@@ -15,7 +15,9 @@
  * (same fields as TradeFeeRouted, quote side) for history, creatorClaimable / referrerAccrued for claimable now, and
  * vault.claimCreatorFees / claimReferrerFees / claimCreatorFeesAsStealth(BySig) to claim (lib/claims/vault.ts).
  *
- * Total earned = claimed so far (claim events) + claimable now. "This week" = history entries in the last 7 days.
+ * Total earned = claimed so far (claim events) + claimable now + referral shares recorded in the off-chain manual
+ * payout ledger (lib/server/referralLedger, the payout CSV lee sends by hand) that were not also credited on-chain.
+ * "This week" = history entries (on-chain and ledger) in the last 7 days. See offchainReferral for the double-count rule.
  * Dollar values use the live price of each asset (QuotePricer, launch tokens via the market read).
  */
 import type { Address, Hex } from "viem";
@@ -88,14 +90,66 @@ export type RewardsSummary = {
   byKind: Record<RewardKind, { earnedUsd: number; claimableUsd: number }>;
 };
 /** Total earned (claimed + claimable), this week (history in the last 7 days), and the per-type split. */
-export function summarize(claimable: Amount[], claimed: Amount[], history: RewardEntry[], nowSec: number): RewardsSummary {
+/**
+ * `offchain`: earned amounts paid by hand (manual payout ledger). They count toward Total earned and the per-type
+ * earned figure, never toward claimable (the Claim button only sends on-chain claims).
+ */
+export function summarize(claimable: Amount[], claimed: Amount[], history: RewardEntry[], nowSec: number, offchain: Amount[] = []): RewardsSummary {
   const byKind = Object.fromEntries(REWARD_KINDS.map((k) => [k, { earnedUsd: 0, claimableUsd: 0 }])) as RewardsSummary["byKind"];
-  let claimableUsd = 0, claimedUsd = 0;
+  let claimableUsd = 0, claimedUsd = 0, offchainUsd = 0;
   for (const a of claimable) if (a.usd != null && a.usd > 0) { byKind[a.kind].claimableUsd += a.usd; byKind[a.kind].earnedUsd += a.usd; claimableUsd += a.usd; }
   for (const a of claimed) if (a.usd != null && a.usd > 0) { byKind[a.kind].earnedUsd += a.usd; claimedUsd += a.usd; }
+  for (const a of offchain) if (a.usd != null && Number.isFinite(a.usd) && a.usd > 0) { byKind[a.kind].earnedUsd += a.usd; offchainUsd += a.usd; }
   const from = nowSec - WEEK_SEC;
   const weekUsd = history.filter((e) => e.ts > from && e.ts <= nowSec + 60).reduce((s, e) => s + e.usd, 0);
-  return { totalUsd: claimableUsd + claimedUsd, weekUsd, claimableUsd, byKind };
+  return { totalUsd: claimableUsd + claimedUsd + offchainUsd, weekUsd, claimableUsd, byKind };
+}
+
+/* ---------------- Off-chain referral ledger (manual payouts) ---------------- */
+/** One manual-payout ledger row for this referrer (GET /api/profile/referral-ledger): fill id, tx, unix seconds, dollars. */
+export type LedgerRow = { id: string; tx: string; ts: number; usd: number };
+export type OffchainReferral = {
+  /** dollars from the ledger that count toward the totals (after removing anything also credited on-chain) */
+  usd: number;
+  /** history rows for those dollars (kind referral); empty in the "max" fallback */
+  entries: RewardEntry[];
+  /** ledger dollars left out because the same trade's referral share was credited on-chain */
+  overlapUsd: number;
+  /** "tx": matched per transaction; "max": on-chain history unreadable, counted the larger of the two; "none": no ledger rows */
+  mode: "tx" | "max" | "none";
+};
+/**
+ * Same idea as an affiliate dashboard (Rewardful / Impact style) that shows one total over a commission ledger where
+ * each commission is counted once, whichever way it is paid: here a referral share is either credited on-chain
+ * (FeeRouter / CurveFeeVault referrerAccrued, then claimed) or recorded in the manual payout ledger for lee to send.
+ *
+ * No double count: the ledger writes one row per fill (`tx:logIndex`) whenever the trader has an on-chain referrer,
+ * even when the FeeRouter also credits that referral share on-chain (referralSink unset). So for each tx, the number
+ * of on-chain referral credits to this account (TradeFeeRouted / CurveFeeSettled with referralPayee or kolPayee = me)
+ * removes that many ledger rows of the same tx. `onchainTxs` = tx → on-chain referral credit count.
+ * If the on-chain history could not be read (null), fall back to max(on-chain, ledger): never more than either source.
+ */
+export function offchainReferral(rows: LedgerRow[] | null | undefined, onchainTxs: ReadonlyMap<string, number> | null, onchainReferralUsd: number): OffchainReferral {
+  const good = (rows ?? []).filter((r) => r && Number.isFinite(r.usd) && r.usd > 0 && typeof r.tx === "string");
+  if (!good.length) return { usd: 0, entries: [], overlapUsd: 0, mode: "none" };
+  const total = good.reduce((s, r) => s + r.usd, 0);
+  if (!onchainTxs) {
+    const on = Number.isFinite(onchainReferralUsd) && onchainReferralUsd > 0 ? onchainReferralUsd : 0;
+    const usd = Math.max(0, total - on);
+    return { usd, entries: on > 0 ? [] : good.map((r) => ({ kind: "referral" as const, ts: r.ts, usd: r.usd })), overlapUsd: total - usd, mode: "max" };
+  }
+  const left = new Map<string, number>();
+  for (const [tx, n] of onchainTxs) left.set(tx.toLowerCase(), n);
+  const entries: RewardEntry[] = [];
+  let usd = 0, overlapUsd = 0;
+  // oldest first per tx so the same rows drop on every load
+  for (const r of [...good].sort((a, b) => a.ts - b.ts || a.id.localeCompare(b.id))) {
+    const k = r.tx.toLowerCase(), n = left.get(k) ?? 0;
+    if (n > 0) { left.set(k, n - 1); overlapUsd += r.usd; continue; }
+    usd += r.usd;
+    entries.push({ kind: "referral", ts: r.ts, usd: r.usd });
+  }
+  return { usd, entries, overlapUsd, mode: "tx" };
 }
 
 export type HistoryRow = { kind: RewardKind; day: string; from: number; to: number; usd: number; count: number };

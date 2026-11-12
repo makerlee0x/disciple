@@ -5,6 +5,8 @@ import { scanEventHistory } from "./eventHistory";
  * lives in lib/claims/demo.ts behind ?demo=1 on dev builds only). Mapping + sums: lib/claims/rewards.ts.
  * lp-accrue: CurveFeeVault.CurveFeeSettled / ReferrerFeesClaimed join the FeeRouter logs (vaults = the configured stack
  * vault + the vaults of this account's rockets).
+ * Referral totals also include the off-chain manual payout ledger (GET /api/profile/referral-ledger, the same rows as the
+ * payout CSV); lib/claims/rewards.offchainReferral removes any trade whose referral share was also credited on-chain.
  */
 import { parseAbi, type Address, type Hex, type PublicClient } from "viem";
 import { bondingCurveAbi, feeRouterAbi, referralRegistryAbi } from "../abi";
@@ -20,7 +22,7 @@ import { sendGaslessAction } from "../trade/gaslessActionClient";
 import { crewPositions } from "./crew";
 import { curveFeeVaultAbi, stackFeeVault } from "./vault";
 import {
-  claimAllCalls, countFriends, feeRouteEarnings, groupHistory, rocketRewardRows, selectClaimCalls, sendClaimAll, priceEarnings, summarize, usdOf,
+  claimAllCalls, countFriends, offchainReferral, type LedgerRow, feeRouteEarnings, groupHistory, rocketRewardRows, selectClaimCalls, sendClaimAll, priceEarnings, summarize, usdOf,
   type Amount, type CrewClaimable, type FeeRouteLog, type HistoryRow, type Prices, type RawEarning, type RewardKind, type RewardsSummary, type RocketReward,
 } from "./rewards";
 
@@ -42,7 +44,17 @@ export type RewardsData = {
   rockets: RocketReward[];
   /** distinct friends whose referrer is this account (ReferralRegistry.ReferrerAttributed); null when unreadable */
   friendsInvited: number | null;
+  /** referral dollars from the manual payout ledger included in the totals (paid by hand, not through Claim) */
+  offchainReferralUsd: number;
 };
+
+/** This account's rows in the off-chain manual payout ledger; null when the read fails (totals then stay on-chain only). */
+export async function fetchReferralLedger(me: Address, f: typeof fetch = fetch): Promise<LedgerRow[] | null> {
+  const r = await f(`/api/profile/referral-ledger?wallet=${me}`);
+  if (!r.ok) throw new Error(`referral ledger HTTP ${r.status}`);
+  const j = (await r.json()) as { rows?: LedgerRow[] };
+  return Array.isArray(j.rows) ? j.rows : [];
+}
 
 const sinkAbi = parseAbi(["function referralSink() view returns (address)"]);
 /** true when the deployed FeeRouter routes new referral shares to a sink (#129). Older FeeRouters have no sink ⇒ false. */
@@ -86,7 +98,7 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
   const anyCreator = caps.creatorFees || caps.creatorTokenFees || caps.anonClaims;
 
   const reg = d.referralRegistry;
-  const [refs, creator, crew, routes, refClaims, paused, attributed] = await Promise.all([
+  const [refs, creator, crew, routes, refClaims, paused, attributed, ledger] = await Promise.all([
     caps.referrerFees ? referralBalances(pc, me).catch(warn("referral balances")) : null,
     anyCreator ? creatorDashboard(pc, me, caps, 1, stealth).catch(warn("creator rockets")) : null,
     caps.crew ? crewPositions(pc, me).catch(warn("crew positions")) : null,
@@ -96,6 +108,7 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
     caps.referrerFees && reg && !/^0x0{40}$/i.test(reg)
       ? scanEventHistory(pc, (fromBlock, toBlock) => pc.getContractEvents({ address: reg, abi: referralRegistryAbi, eventName: "ReferrerAttributed", args: { referrer: me }, fromBlock, toBlock }), d.fromBlock).catch(warn("friends invited"))
       : null,
+    fetchReferralLedger(me).catch(warn("referral payout ledger")),
   ]);
   const rockets = creator ?? [];
   const crewRows = crew ?? [];
@@ -126,6 +139,9 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
     const args: FeeRouteLog = { ...l.args, feeToken: l.args.quote };
     for (const e of feeRouteEarnings(args, me, myPrivate)) raw.push({ ...e, asset: l.args.quote, block: l.blockNumber, tx: l.transactionHash });
   }
+  // on-chain referral credits per tx (to match against the manual payout ledger); null if either fee history failed
+  const onchainRefTxs = routes == null || (vaults.length > 0 && vaultRoutes == null) ? null : new Map<string, number>();
+  if (onchainRefTxs) for (const r of raw) if (r.kind === "referral" && r.tx) onchainRefTxs.set(lc(r.tx), (onchainRefTxs.get(lc(r.tx)) ?? 0) + 1);
   const quoteOfCrew = new Map(crewCurves.map((c) => [lc(c.curve), c.quote.address]));
   for (const l of crewClaims as unknown as (Log<{ token: Address; amount: bigint }> & { address: Address })[]) {
     const q = quoteOfCrew.get(lc(l.address)) ?? crewRows.find((r) => lc(r.token) === lc(l.args.token))?.quote.address;
@@ -159,7 +175,11 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
     ]),
     ...raw.filter((r) => r.kind === "crew").map((r) => ({ kind: "crew" as const, usd: usdOf(r.raw, r.asset, prices) })),
   ];
-  const summary = summarize(claimable, claimed, entries, nowSec);
+  const onchainRefUsd = [...claimable, ...claimed].filter((a) => a.kind === "referral").reduce((s, a) => s + (a.usd != null && a.usd > 0 ? a.usd : 0), 0);
+  const off = offchainReferral(ledger, onchainRefTxs, onchainRefUsd);
+  if (off.overlapUsd > 0) console.warn("[disciple] rewards: ledger rows already credited on-chain left out", { mode: off.mode, usd: off.overlapUsd });
+  entries.push(...off.entries);
+  const summary = summarize(claimable, claimed, entries, nowSec, off.usd > 0 ? [{ kind: "referral", usd: off.usd }] : []);
   // Rocket rewards: per rocket, the same claimed + claimable parts the summary counts
   const crewClaimedByToken = new Map<string, bigint>();
   for (const l of crewClaims as unknown as Log<{ token: Address; amount: bigint }>[]) {
@@ -193,6 +213,7 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
     referralPaused: paused,
     rockets: rocketRows,
     friendsInvited: friends,
+    offchainReferralUsd: off.usd,
   };
 }
 

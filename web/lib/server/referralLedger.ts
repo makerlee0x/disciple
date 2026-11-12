@@ -301,6 +301,28 @@ export async function loadReferralRows(d: LedgerDeps = {}, limit = 1_000_000): P
   return rows;
 }
 
+/** One ledger row as the Rewards popup reads it: the fill id (`tx:logIndex`), when it happened, and its dollars. No friend address. */
+export type ReferrerLedgerRow = { id: string; tx: string; ts: number; usd: number };
+export type ReferrerLedger = { referrer: string; totalUsd: number; rows: ReferrerLedgerRow[] };
+
+/**
+ * Read-only: the manual-payout ledger rows for one referrer (the same rows the payout CSV sums), for the Rewards popup.
+ * `ts` is unix seconds. Friend wallets are left out on purpose; the popup only needs dollars, times, and the tx to
+ * avoid counting a trade twice when the same referral share was also credited on-chain (lib/claims/rewards.offchainReferral).
+ */
+export async function referrerLedger(referrer: string, d: LedgerDeps = {}): Promise<ReferrerLedger> {
+  const me = lc(referrer);
+  const rows: ReferrerLedgerRow[] = [];
+  let totalUsd = 0;
+  for (const r of await loadReferralRows(d)) {
+    if (lc(r.referrer) !== me || !(r.amountUsdg > 0) || !Number.isFinite(r.amountUsdg)) continue;
+    const tx = String(r.id).split(":")[0].toLowerCase();
+    rows.push({ id: r.id, tx, ts: Math.floor(r.ts / 1000), usd: r.amountUsdg });
+    totalUsd += r.amountUsdg;
+  }
+  return { referrer: me, totalUsd, rows };
+}
+
 export function formatUsdg(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "0.00000000";
   return (Math.round(n * 1e8) / 1e8).toFixed(8);

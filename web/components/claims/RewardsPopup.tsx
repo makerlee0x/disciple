@@ -8,6 +8,8 @@
  * (lib/claims/rewardsData.claimEverything, lib/claims/referralGate). Share lives only here.
  * Referral tab shows totals only: fee events (FeeRouter.TradeFeeRouted) do not name the trading friend, so earnings
  * can't be honestly split per friend from existing on-chain data.
+ * Referral totals include on-chain amounts plus what the manual payout ledger has recorded for this account (paid by
+ * hand, never part of Claim); the note under "Earned from friends" says how much of it is paid that way.
  */
 import { useEffect, useState } from "react";
 import type { Hex } from "viem";
@@ -52,6 +54,7 @@ const T = {
   later: "A few more are ready to claim next time.",
   depositNote: "This is your own deposit, not earnings.",
   linkCopied: "Link copied",
+  byHand: (usd: string) => `This includes ${usd} from your friends' trades that the DISCIPLE team sends you by hand. You don't need to claim that part.`,
 } as const;
 type Tab = keyof typeof T.tabs;
 
@@ -184,6 +187,7 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
             <div><span className="p5-l">{T.invited}</span><span className="p5-v" data-testid="referral-friends">{data?.friendsInvited ?? "—"}</span></div>
           </div>
           {data && refUsd < 0.005 && <p className="p5-fine" data-testid="rewards-empty">{T.empty}</p>}
+          {data && data.offchainReferralUsd >= 0.005 && <p className="p5-fine" data-testid="referral-by-hand">{T.byHand(usd2(data.offchainReferralUsd))}</p>}
           {caps.referralGate && gate && (
             <div className="p5-card p5-deposit" data-testid="referral-deposit">
               <span className="p5-l">Referral deposit</span>
