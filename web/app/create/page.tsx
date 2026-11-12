@@ -33,10 +33,14 @@ import {
   addressOn, defaultLaunchPair, launchPairsForChain,
 } from "@/lib/launchWhitelist";
 import {
-  QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_COPY, buildLaunchSocials, launchButtonLabel,
-  launchNeedsSignIn, normalizeTelegram, normalizeTwitter, normalizeWebsite, privateLaunchHelp, privateLaunchTitle,
-  readStoredCreatorTax, readStoredUpload, snapCreatorTax, storeCreatorTax, storeUpload,
+  QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION,
+  CREATOR_FEE_DESTINATIONS, CREATOR_TAX_HELP, DEFAULT_CREATOR_FEE_DESTINATION,
+  buildLaunchSocials, launchButtonLabel, launchNeedsSignIn, liveCreatorFeeDestination,
+  normalizeTelegram, normalizeTwitter, normalizeWebsite, privateLaunchHelp, privateLaunchTitle,
+  readStoredCreatorFeeDestination, readStoredCreatorTax, readStoredUpload, snapCreatorTax,
+  storeCreatorFeeDestination, storeCreatorTax, storeUpload, type CreatorFeeDestination,
 } from "@/lib/quickLaunch";
+import CreatorFeeArt from "@/components/create/CreatorFeeArt";
 import s from "@/components/create/quickLaunch.module.css";
 
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
@@ -62,6 +66,7 @@ export default function LaunchRocketPage() {
   const [website, setWebsite] = useState("");
   const [telegram, setTelegram] = useState("");
   const [feeReceiver, setFeeReceiver] = useState("");
+  const [feeDestination, setFeeDestination] = useState<CreatorFeeDestination>(DEFAULT_CREATOR_FEE_DESTINATION);
   const [croppedUri, setCroppedUri] = useState<string | null>(null);
   const [uploadedUri, setUploadedUri] = useState<string | null>(null);
   const [badgeUri, setBadgeUri] = useState<string | null>(null);
@@ -121,6 +126,7 @@ export default function LaunchRocketPage() {
   useEffect(() => {
     shuffleName();
     setTax(readStoredCreatorTax(CURVE.creatorTaxMaxPct));
+    setFeeDestination(readStoredCreatorFeeDestination());
     const saved = readStoredUpload();
     if (!saved) return;
     setUploadedUri(saved);
@@ -158,6 +164,12 @@ export default function LaunchRocketPage() {
     setTax(n);
     storeCreatorTax(n);
   }
+
+  function setFeeDest(v: CreatorFeeDestination) {
+    setFeeDestination(v);
+    storeCreatorFeeDestination(v);
+  }
+
 
   async function onPickFile(f: File | null) {
     setFile(f); setIconSrc(null); setContrast(null); setMod({ state: "idle" });
@@ -251,11 +263,16 @@ export default function LaunchRocketPage() {
       setMsg("Pick the coin your rocket is bought and sold in.");
       return;
     }
-    const fr = feeReceiver.trim();
+    // Payout only applies when the creator keeps the fees. The typed value stays in
+    // state if they switch back to keep. Do not send a non-default destination to the
+    // live Launchpad — liveCreatorFeeDestination() is undefined until contracts are live.
+    const keepFees = feeDestination === CREATOR_FEE_DESTINATION.creator;
+    const fr = keepFees ? feeReceiver.trim() : "";
     if (fr && !isAddr(fr)) {
       setMsg("Fee receiver must be a 0x wallet address (or leave it empty to use your own).");
       return;
     }
+    void liveCreatorFeeDestination(feeDestination);
     const web = normalizeWebsite(website) ?? "";
     if (web !== website.trim()) setWebsite(web);
     if (web && !/^https?:\/\/\S+\.\S+/.test(web)) {
@@ -457,6 +474,7 @@ export default function LaunchRocketPage() {
               >
                 {launchButtonLabel(boost)}
               </button>
+              <div className={s.help} data-testid="creator-fee-split">{C.creatorFeeSplit}</div>
               <div className={s.footLinks}>
                 <div className={s.hiwTip}>
                   <button type="button" className={s.advLink} data-testid="how-launching" aria-expanded={howOpen} onClick={() => setHowOpen((v) => !v)}>
@@ -472,7 +490,12 @@ export default function LaunchRocketPage() {
                     </div>
                   )}
                 </div>
-                <button type="button" className={s.advLink} data-testid="advanced-open" onClick={() => setAdvanced(true)}>{C.advanced}</button>
+                <div className={s.advRow}>
+                  <button type="button" className={s.advLink} data-testid="advanced-open" onClick={() => setAdvanced(true)}>{C.advanced}</button>
+                  {CREATOR_FEE_COPY[feeDestination].chip && (
+                    <span className={s.feeChip} data-testid="fee-destination-chip">{CREATOR_FEE_COPY[feeDestination].chip}</span>
+                  )}
+                </div>
               </div>
               {advDirty && (
                 <div className={s.summary} data-testid="advanced-summary">
@@ -481,7 +504,7 @@ export default function LaunchRocketPage() {
                   {twitter.trim() && <span className={s.sumChip}>{twitter.trim()}</span>}
                   {website.trim() && <span className={s.sumChip}>{website.trim()}</span>}
                   {telegram.trim() && <span className={s.sumChip}>{telegram.trim()}</span>}
-                  {!privateLaunch && feeReceiver.trim() && <span className={s.sumChip}>Rewards: {feeReceiver.trim()}</span>}
+                  {!privateLaunch && feeDestination === CREATOR_FEE_DESTINATION.creator && feeReceiver.trim() && <span className={s.sumChip}>{feeReceiver.trim()}</span>}
                 </div>
               )}
             </div>
@@ -501,6 +524,7 @@ export default function LaunchRocketPage() {
                 <h2>{C.advanced}</h2>
                 <button type="button" className={s.iconBtn} aria-label="Close" onClick={() => setAdvanced(false)}><Icon name="close" size={16} /></button>
               </div>
+              <div className={s.modalBody}>
               <div className={s.fl}>
                 <div className={s.lab}>{C.pairCoin}</div>
                 <div className={s.pchips} role="listbox" aria-label={C.pairCoin}>
@@ -533,8 +557,33 @@ export default function LaunchRocketPage() {
                     glyph={<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden><path d="M20.8 4.2L2.9 11.1c-1.2.5-1.2 1.1-.2 1.4l4.6 1.4 10.7-6.7c.5-.3.9 0 .6.3l-8.6 7.8-.3 4.7c.5 0 .7-.2 1-.5l2.3-2.2 4.7 3.5c.9.5 1.5.2 1.7-.8l3.1-14.6c.3-1.3-.5-1.9-1.4-1.5z"/></svg>} />
                 </div>
               </div>
-              {!privateLaunch && (
-                <div className={s.fl}>
+              <div className={s.fl} data-testid="creator-fee-destination">
+                <div className={s.lab}>{C.creatorFees}</div>
+                <div className={s.help} data-testid="creator-fee-split-advanced">{C.creatorFeeSplit}</div>
+                <div className={s.feeCards} role="radiogroup" aria-label={C.creatorFees}>
+                  {CREATOR_FEE_DESTINATIONS.map((id) => {
+                    const on = feeDestination === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        data-testid={`fee-destination-${id}`}
+                        className={`${s.feeCard} ${on ? s.on : ""}`}
+                        onClick={() => setFeeDest(id)}
+                      >
+                        <span className={s.feeRadio}><i /></span>
+                        <div className={s.feeArt}><CreatorFeeArt dest={id} /></div>
+                        <div className={s.feeLab}>{CREATOR_FEE_COPY[id].sentence}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className={`${s.help} ${s.feePerm}`}>{C.creatorFeesPerm}</div>
+              </div>
+              {!privateLaunch && feeDestination === CREATOR_FEE_DESTINATION.creator && (
+                <div className={s.fl} data-testid="fee-payout">
                   <div className={s.lab}>{C.rewards}</div>
                   <div className={s.row}>
                     <input className={s.inp} value={feeReceiver} onChange={(e) => setFeeReceiver(e.target.value.trim())} placeholder={C.rewardsPlaceholder} aria-label={C.rewards} />
@@ -552,7 +601,8 @@ export default function LaunchRocketPage() {
                     aria-label={C.creatorTax}
                     onChange={(e) => setTaxStepped(Number(e.target.value))} />
                 </div>
-                <div className={s.help}>{C.creatorTaxHelp}</div>
+                <div className={s.help} data-testid="creator-tax-help">{CREATOR_TAX_HELP[feeDestination]}</div>
+              </div>
               </div>
             </div>
           </div>

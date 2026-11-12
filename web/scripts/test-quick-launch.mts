@@ -14,7 +14,7 @@ import {
   buildLaunchSocials, boostHasAmount, creatorTaxSteps, launchButtonLabel, launchNeedsSignIn, maxBoostChipLabel,
   isPseudoLaunch, normalizeTelegram, normalizeTwitter, normalizeWebsite, parseCreatorFeeDestination, privateLaunchHelp, privateLaunchTitle,
   readStoredCreatorFeeDestination, readStoredCreatorTax, readStoredUpload, snapCreatorTax, socialsURI, storeCreatorFeeDestination, storeCreatorTax, storeUpload, withHttps,
-  QUICK_LAUNCH_COPY, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION, CREATOR_FEE_DESTINATIONS, CREATOR_FEE_DESTINATION_LIVE, CREATOR_FEE_FIELD, CREATOR_FEE_STORE_KEY, CREATOR_TAX_STORE_KEY, DEFAULT_CREATOR_FEE_DESTINATION, UPLOAD_STORE_KEY,
+  QUICK_LAUNCH_COPY, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION, CREATOR_FEE_DESTINATIONS, CREATOR_FEE_DESTINATION_LIVE, CREATOR_FEE_FIELD, CREATOR_FEE_STORE_KEY, CREATOR_TAX_HELP, CREATOR_TAX_STORE_KEY, DEFAULT_CREATOR_FEE_DESTINATION, UPLOAD_STORE_KEY, liveCreatorFeeDestination,
 } from "../lib/quickLaunch";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -243,24 +243,67 @@ test("creator fee destination is a three-way exclusive choice, default is the cr
   assert.equal(readStoredCreatorFeeDestination(storage), 0);
 });
 
-test("creator fee copy matches the shared PM lines, with no jargon", () => {
+test("creator fee copy matches the r7 card labels and tax helpers, with no jargon", () => {
   assert.equal(QUICK_LAUNCH_COPY.creatorFees, "Creator fees");
-  assert.equal(QUICK_LAUNCH_COPY.creatorFeesHelp, "You pick this when you launch. It applies only to this rocket, including private launches, and it cannot be changed later. It covers all creator fees, including any extra creator tax.");
-  assert.equal(QUICK_LAUNCH_COPY.creatorFeesPending, "This choice will be available once the new contracts are live.");
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeesPerm, "You pick this when you launch, and you can't change it later.");
+  assert.equal(QUICK_LAUNCH_COPY.rewards, "Send your creator fees to a different account");
+  assert.equal(QUICK_LAUNCH_COPY.rewardsHelp, "Your creator fees go to this account instead of you. You'll confirm this one extra time.");
   assert.equal(CREATOR_FEE_DESTINATION_LIVE, false);
+  assert.equal(liveCreatorFeeDestination(0), undefined);
+  assert.equal(liveCreatorFeeDestination(1), undefined);
+  assert.equal(liveCreatorFeeDestination(2), undefined);
   assert.equal(CREATOR_FEE_COPY[0].sentence, "You keep the creator fees.");
-  assert.equal(CREATOR_FEE_COPY[0].chip, "You keep the fees");
-  assert.equal(CREATOR_FEE_COPY[1].sentence, "The creator fees are deposited into this rocket's trading pool, and that liquidity can never be pulled out.");
+  assert.equal(CREATOR_FEE_COPY[0].chip, "");
+  assert.equal(CREATOR_FEE_COPY[1].sentence, "Fees go into the locked pool.");
   assert.equal(CREATOR_FEE_COPY[1].chip, "Fees stay in the pool");
-  assert.equal(CREATOR_FEE_COPY[2].sentence, "The creator fees are used to permanently destroy the pair coin this rocket is traded in. When the fee arrives as that pair coin, it is destroyed. When the fee arrives as this rocket's own coins, those coins are used to buy more of the pair coin, and that is destroyed too.");
-  assert.equal(CREATOR_FEE_COPY[2].chip, "Fees destroy the pair coin");
+  assert.equal(CREATOR_FEE_COPY[2].sentence, "Fees buy and burn the pair coin.");
+  assert.equal(CREATOR_FEE_COPY[2].chip, "Fees buy and burn the pair coin");
+  assert.equal(CREATOR_TAX_HELP[0], "You already get 33% of every trading fee. Creator tax is an extra cut on top of that. Higher tax can scare off players.");
+  assert.equal(CREATOR_TAX_HELP[1], "The 33% of every trading fee goes into the locked pool. Creator tax is an extra cut on top of that, and it goes there too. Higher tax can scare off players.");
+  assert.equal(CREATOR_TAX_HELP[2], "The 33% of every trading fee is used to buy and burn the pair coin. Creator tax is an extra cut on top of that, and it is used the same way. Higher tax can scare off players.");
+  const here = dirname(fileURLToPath(import.meta.url));
+  const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
+  const css = readFileSync(join(here, "../components/create/quickLaunch.module.css"), "utf8");
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeeSplit, "Creators earn .33% of all trading fees forever.");
   const visible = [
-    QUICK_LAUNCH_COPY.creatorFees, QUICK_LAUNCH_COPY.creatorFeesHelp, QUICK_LAUNCH_COPY.creatorFeesPending,
-    ...CREATOR_FEE_DESTINATIONS.flatMap((id) => [CREATOR_FEE_COPY[id].sentence, CREATOR_FEE_COPY[id].chip]),
+    QUICK_LAUNCH_COPY.creatorFees, QUICK_LAUNCH_COPY.creatorFeesPerm, QUICK_LAUNCH_COPY.creatorFeeSplit,
+    QUICK_LAUNCH_COPY.rewards, QUICK_LAUNCH_COPY.rewardsHelp,
+    ...CREATOR_FEE_DESTINATIONS.flatMap((id) => [CREATOR_FEE_COPY[id].sentence, CREATOR_FEE_COPY[id].chip, CREATOR_TAX_HELP[id]]),
   ].join("\n");
-  assert.doesNotMatch(visible, /\bLP\b|quote token|renounced|\buint\b|\bhalf\b/i);
+  assert.doesNotMatch(visible, /\bLP\b|quote token|renounced|\buint\b|\bhalf\b|creator rewards|available once the new contracts are live/i);
+  assert.doesNotMatch(page, /available once the new contracts are live|creator rewards|creatorFeesPending/i);
+  assert.doesNotMatch(page, /client\.launchCoin\(\{[^}]*creatorFeeDestination/);
+  const feeCss = css.slice(css.indexOf(".feeCards"), css.indexOf(".feePerm") + 80);
+  assert.match(feeCss, /grid-template-columns:\s*repeat\(3,/);
+  assert.doesNotMatch(feeCss, /#F2C14E|#FF7A3D|gold|orange/i);
+  assert.match(page, /data-testid=\{\`fee-destination-\$\{id\}\`\}/);
+  assert.match(page, /CREATOR_TAX_HELP\[feeDestination\]/);
+  assert.match(page, /liveCreatorFeeDestination\(feeDestination\)/);
 });
 
+
+test("the creator fee split is on the closed Quick Launch page and in Advanced, and does not change with the destination", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
+  assert.match(page, /data-testid="creator-fee-split"/);
+  assert.match(page, /data-testid="creator-fee-split-advanced"/);
+  assert.equal((page.match(/C\.creatorFeeSplit/g) || []).length, 2);
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeeSplit, "Creators earn .33% of all trading fees forever.");
+  assert.doesNotMatch(page, /Every trade pays a 1% fee/);
+  assert.doesNotMatch(QUICK_LAUNCH_COPY.creatorFeeSplit, /Every trade pays a 1% fee|0\.33%|33% creator/);
+  // Same constant in both places; not rewritten for pool or burn.
+  assert.doesNotMatch(page, /creatorFeeSplit\[feeDestination\]|CREATOR_FEE_COPY\[feeDestination\]\.split/);
+  // Not on the illustrated cards (cards still use the short destination labels).
+  const cardBlock = page.slice(page.indexOf("feeCards"), page.indexOf("creatorFeesPerm"));
+  assert.match(cardBlock, /CREATOR_FEE_COPY\[id\]\.sentence/);
+  assert.doesNotMatch(cardBlock, /creatorFeeSplit/);
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeesPerm, "You pick this when you launch, and you can't change it later.");
+  assert.equal(CREATOR_TAX_HELP[0], "You already get 33% of every trading fee. Creator tax is an extra cut on top of that. Higher tax can scare off players.");
+  assert.equal(CREATOR_TAX_HELP[1], "The 33% of every trading fee goes into the locked pool. Creator tax is an extra cut on top of that, and it goes there too. Higher tax can scare off players.");
+  assert.equal(CREATOR_TAX_HELP[2], "The 33% of every trading fee is used to buy and burn the pair coin. Creator tax is an extra cut on top of that, and it is used the same way. Higher tax can scare off players.");
+  assert.equal(CREATOR_FEE_DESTINATION_LIVE, false);
+  assert.equal(liveCreatorFeeDestination(1), undefined);
+});
 test("Mode is a three-card row with descriptions only in a hover or info-mark tooltip", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const css = readFileSync(join(here, "../components/create/quickLaunch.module.css"), "utf8");
@@ -273,5 +316,5 @@ test("Mode is a three-card row with descriptions only in a hover or info-mark to
   assert.match(page, /data-testid=\{\`mode-info-\$\{label\.toLowerCase\(\)\}\`\}/);
   assert.match(page, /QUICK_LAUNCH_MODE_COPY\.footer/);
   assert.doesNotMatch(page, /modesFoot|mode-modal|modeBtn|modeOpen/);
-  assert.doesNotMatch(page, /creator-fee-destination|fee-destination/);
+  assert.match(page, /data-testid="mode-cards"/);
 });

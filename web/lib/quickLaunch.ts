@@ -41,11 +41,11 @@ export const QUICK_LAUNCH_COPY = {
   linkXShort: "X",
   linkWebsite: "Website",
   linkTelegram: "Telegram",
-  rewards: "Send your creator rewards to a different account",
+  rewards: "Send your creator fees to a different account",
   rewardsPlaceholder: "You",
-  rewardsHelp: "Your rewards go to this account instead of you. You'll confirm this one extra time.",
+  rewardsHelp: "Your creator fees go to this account instead of you. You'll confirm this one extra time.",
   creatorTax: "Creator tax",
-  creatorTaxHelp: "Permanent. A small cut of every trade goes to you. Higher tax can scare off players.",
+  creatorTaxHelp: "You already get 33% of every trading fee. Creator tax is an extra cut on top of that. Higher tax can scare off players.",
   creatorTaxHelpIncluded: "Permanent. A small cut of every trade is included in the creator fees chosen above. Higher tax can scare off players.",
   howLaunching: "How launching works",
   howLaunchingSteps: [
@@ -63,6 +63,8 @@ export const QUICK_LAUNCH_COPY = {
   anonEasyBoostHelp: "Your name won't be shown as the creator. The account that pays can still be seen on the public record.",
   pseudoHelp: "Your name won't be shown as the creator. The account that pays, and the first buy, can still be seen on the public record.",
   creatorFees: "Creator fees",
+  creatorFeeSplit: "Creators earn .33% of all trading fees forever.",
+  creatorFeesPerm: "You pick this when you launch, and you can't change it later.",
   creatorFeesHelp: "You pick this when you launch. It applies only to this rocket, including private launches, and it cannot be changed later. It covers all creator fees, including any extra creator tax.",
   creatorFeesPending: "This choice will be available once the new contracts are live.",
   // Image rejected after a generated badge is in use (Oct 17 Quick Launch spec; not on the r4 boards).
@@ -140,24 +142,36 @@ export const CREATOR_FEE_DESTINATIONS: readonly CreatorFeeDestination[] = [
   CREATOR_FEE_DESTINATION.buyAndBurnQuote,
 ] as const;
 
-/** Full sentences shown on the Advanced radio cards. Keep HOOK's meaning; no jargon. */
+/** Short labels on the r7 Advanced cards, plus the closed-Advanced chip (empty when default). */
 export const CREATOR_FEE_COPY: Record<CreatorFeeDestination, { sentence: string; chip: string }> = {
   0: {
     sentence: "You keep the creator fees.",
-    chip: "You keep the fees",
+    chip: "",
   },
   1: {
-    sentence: "The creator fees are deposited into this rocket's trading pool, and that liquidity can never be pulled out.",
+    sentence: "Fees go into the locked pool.",
     chip: "Fees stay in the pool",
   },
   2: {
-    sentence: "The creator fees are used to permanently destroy the pair coin this rocket is traded in. When the fee arrives as that pair coin, it is destroyed. When the fee arrives as this rocket's own coins, those coins are used to buy more of the pair coin, and that is destroyed too.",
-    chip: "Fees destroy the pair coin",
+    sentence: "Fees buy and burn the pair coin.",
+    chip: "Fees buy and burn the pair coin",
   },
+};
+
+/** Creator tax helper, verbatim from the r7 boards. Changes with the selected fee card. */
+export const CREATOR_TAX_HELP: Record<CreatorFeeDestination, string> = {
+  0: "You already get 33% of every trading fee. Creator tax is an extra cut on top of that. Higher tax can scare off players.",
+  1: "The 33% of every trading fee goes into the locked pool. Creator tax is an extra cut on top of that, and it goes there too. Higher tax can scare off players.",
+  2: "The 33% of every trading fee is used to buy and burn the pair coin. Creator tax is an extra cut on top of that, and it is used the same way. Higher tax can scare off players.",
 };
 
 /** False until HOOK's contracts are live and lee says they can be used. The menu is shown; 1 and 2 are not sent on a live launch. */
 export const CREATOR_FEE_DESTINATION_LIVE = false;
+
+/** The live testnet Launchpad ABI has no creatorFeeDestination yet. Only return a value when the new contracts are live. */
+export function liveCreatorFeeDestination(dest: CreatorFeeDestination): CreatorFeeDestination | undefined {
+  return CREATOR_FEE_DESTINATION_LIVE ? dest : undefined;
+}
 
 export function isCreatorFeeDestination(value: number): value is CreatorFeeDestination {
   return value === 0 || value === 1 || value === 2;
