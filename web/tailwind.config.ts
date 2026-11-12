@@ -34,6 +34,8 @@ const config: Config = {
         sans: ["var(--dsc-font-ui)"],
         ui: ["var(--dsc-font-ui)"],
         mono: ["var(--dsc-font-mono)"],
+        // Brand v3 game display face (app/brand-tokens-v3.css).
+        game: ["var(--dsc-font-game)"],
       },
     },
   },
