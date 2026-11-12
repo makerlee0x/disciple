@@ -46,8 +46,7 @@ export function launchImageFrom(r: ModerateResponse, origin: string = imageOrigi
   return { ok: true, uri };
 }
 
-/** Plain player copy (no jargon). LAUNCH_FAILED_MSG: copy pending lee approval. */
-export const LAUNCH_FAILED_MSG = "Launch didn't go through. Nothing was spent. Try again.";
+/** Plain player copy (no jargon). Launch failure copy lives in lib/launchError. */
 export const IMAGE_COPY = {
   block: "This image can't be used. Please pick a different one.",
   review: "Your icon is still being checked. Try again in a moment.",
