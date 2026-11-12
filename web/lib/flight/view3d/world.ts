@@ -14,6 +14,8 @@
  *    galactic core, the Launch Pad's sodium city lights), because the map alone only gives soft reflections.
  *
  * Only the five plates BRAND has made are wired. Other tiers use the nearest wired plate until BRAND signs theirs off.
+ * Step-2 r2: the plate's own moon / sun disc and city lights are also made real-source bright IN the map (build_world_env.py),
+ * because tight chrome takes its shape from the environment; the punctual lights only add the crisp specular point.
  * No studio light: no softbox strips (those stay on /flight/lookdev only) and no light behind the camera.
  */
 import { DirectionalLight, Group, Vector3 } from "three";
@@ -38,12 +40,12 @@ export type WorldTier = {
 // directions are in the plate's own (un-rotated) equirectUv frame, copied from lights.json; ENV_ROT_Y is applied below
 export const WORLD_TIERS: WorldTier[] = [
   { id: "launch-pad", tier: 0, name: "LAUNCH PAD", hdr: "/world/env/launch-pad.hdr", envI: 1.0, exposure: 1.15, lights: [
-    { dir: [0.9006, 0.4345, 0.0119], color: "#fff3e6", intensity: 3.0 },          // the moon (lights.json key)
+    { dir: [0.9006, 0.4345, 0.0119], color: "#fff3e6", intensity: 6.0 },          // the moon (lights.json key); r2: harder
     // sodium city lights spread across the plate just under its horizon (plate px y ≈ 360–520), colour = median of those
     // pixels in the approved plate (#cc976d). Low, warm, from where they are in the picture.
-    { dir: [0.80, -0.10, -0.59], color: "#cc976d", intensity: 0.9 },
-    { dir: [0.97, -0.12, 0.20], color: "#cc976d", intensity: 0.9 },
-    { dir: [0.75, -0.12, 0.65], color: "#cc976d", intensity: 0.7 },
+    { dir: [0.80, -0.10, -0.59], color: "#cc976d", intensity: 1.8 },
+    { dir: [0.97, -0.12, 0.20], color: "#cc976d", intensity: 1.8 },
+    { dir: [0.75, -0.12, 0.65], color: "#cc976d", intensity: 1.4 },
   ] },
   { id: "ozone", tier: 1, name: "OZONE", hdr: "/world/env/ozone.hdr", envI: 1.0, exposure: 1.1, lights: [
     { dir: [0.8442, -0.4877, 0.2224], color: "#fff8fe", intensity: 2.2 },          // glow on the cloud horizon
@@ -53,10 +55,10 @@ export const WORLD_TIERS: WorldTier[] = [
     { dir: [0.132, 0.672, 0.729], color: "#f4f2ff", intensity: 1.4 },              // the small moon, plate px (1207, 60) per README
   ] },
   { id: "the-moon", tier: 8, name: "THE MOON", hdr: "/world/env/the-moon.hdr", envI: 1.0, exposure: 1.1, lights: [
-    { dir: [0.8544, 0.4833, 0.1907], color: "#fef6ff", intensity: 3.2 },           // moon disk and rim
+    { dir: [0.8544, 0.4833, 0.1907], color: "#fef6ff", intensity: 5.0 },           // moon disk and rim
   ] },
   { id: "seventh-heaven", tier: 17, name: "SEVENTH HEAVEN", hdr: "/world/env/seventh-heaven.hdr", envI: 0.85, exposure: 0.9, lights: [
-    { dir: [0.59, -0.1664, 0.7901], color: "#fffaee", intensity: 3.0 },           // low sun and its glint
+    { dir: [0.59, -0.1664, 0.7901], color: "#fffaee", intensity: 5.0 },           // low sun and its glint
   ] },
 ];
 

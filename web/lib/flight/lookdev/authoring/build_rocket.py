@@ -93,9 +93,10 @@ def hull_eps(row, a):
     # the reflections into long V-sweeps that run down and out into the fins; its crest is the bright edge-on ridge.
     da = ((a + math.pi / 4) % (math.pi / 2)) - math.pi / 4
     sm = lambda x: 0.0 if x <= 0 else (1.0 if x >= 1 else x * x * (3 - 2 * x))
-    ramp_r = sm((row - 215) / 200.0) * (1 - sm((row - 532) / 14.0))
+    ramp_r = sm((row - 200) / 205.0) * (1 - sm((row - 532) / 14.0))
     sig = math.radians(4.0 + 13.0 * sm((row - 215) / 315.0))
-    ridge = 0.15 * ramp_r * math.exp(-(da / sig) ** 2)
+    # step-2 r2: modest raise (0.15 -> 0.185, starting a little higher) so the V-sweeps read in the flight world
+    ridge = 0.185 * ramp_r * math.exp(-(da / sig) ** 2)
     return fade * (low + hi) + ridge
 
 def lathe_eps(name, prof, segs):

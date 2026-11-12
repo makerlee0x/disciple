@@ -9,7 +9,7 @@
  * today's 150 px size, and the engine's nozzle position and attitude drive it directly.
  *
  * Chrome recipe (official Three.js PMREM chrome): MeshPhysicalMaterial, metalness 1, the bake's roughness map (0.012–0.02
- * on the hull), its normal map, and a thin clear coat; everything you see on it is the world (scene.environment + lights).
+ * on the hull) and its normal map, no clear coat (as the accepted look-dev); everything you see on it is the world (scene.environment + lights).
  */
 import {
   Group, Mesh, MeshStandardMaterial, MeshPhysicalMaterial, CylinderGeometry, CanvasTexture,
@@ -43,12 +43,12 @@ export async function loadShip(url = ROCKET_GLB): Promise<Object3D> {
   return g.scene;
 }
 
-/** glTF metal-rough material → MeshPhysicalMaterial with the same maps and factors, plus a thin clear coat */
+/** glTF metal-rough material → MeshPhysicalMaterial with the same maps and factors (no clear coat) */
 function physical(m: MeshStandardMaterial): MeshPhysicalMaterial {
   const p = new MeshPhysicalMaterial({
     name: m.name, color: m.color.clone(), metalness: m.metalness, roughness: m.roughness,
     map: m.map, normalMap: m.normalMap, normalScale: m.normalScale.clone(), roughnessMap: m.roughnessMap, metalnessMap: m.metalnessMap,
-    aoMap: m.aoMap, clearcoat: 0.25, clearcoatRoughness: 0.015, envMapIntensity: 1, side: FrontSide,
+    aoMap: m.aoMap, clearcoat: 0, envMapIntensity: 1, side: FrontSide,   // no clear coat: same as the accepted look-dev material
   });
   return p;
 }
