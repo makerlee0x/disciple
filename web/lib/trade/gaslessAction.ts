@@ -23,6 +23,8 @@ export const SEL = {
   claimManyBySig: toFunctionSelector("claimManyBySig((address,address[],address,uint256,uint256,bytes))"),
   /** lp-accrue CurveFeeVault: a private coin's curve-phase creator fees, same Claim struct as claimManyBySig. */
   claimManyAsStealthBySig: toFunctionSelector("claimManyAsStealthBySig((address,address[],address,uint256,uint256,bytes))"),
+  /** CreatorClaimBySig (owner-yes claim for normal rockets): the same Claim struct, signed by the launch wallet. */
+  claimCreatorFeesBySig: toFunctionSelector("claimCreatorFeesBySig((address,address[],address,uint256,uint256,bytes))"),
   transferCreatorBySig: toFunctionSelector("transferCreatorBySig(address,address,uint256,bytes)"),
   pull: toFunctionSelector("pull(uint256)"),
 } as const;
@@ -104,14 +106,44 @@ export function blockedCallsMessage(calls: ActionCall[]): string {
 
 export function isRelayableCall(kind: ActionKind, c: ActionCall): boolean {
   const s = selOf(c.data);
-  if (kind === "anonClaim") return s === SEL.claimManyBySig || s === SEL.claimManyAsStealthBySig;
+  if (kind === "anonClaim") {
+    if (s === SEL.claimManyBySig || s === SEL.claimManyAsStealthBySig) return true;
+    // owner-yes claim: only at the configured CreatorClaimBySig helper (unset ⇒ never relayable)
+    const h = deployment().creatorClaimHelper;
+    return s === SEL.claimCreatorFeesBySig && !!h && !/^0x0{40}$/i.test(h) && eq(c.to, h);
+  }
   if (kind === "anonTransferCreator") return s === SEL.transferCreatorBySig;
   return s === SEL.pull && eq(c.to, deployment().trampWallManager);
 }
 
+const SELF_CLAIM_CREATOR = new Set<string>([toFunctionSelector("claimCreatorFees(address)"), toFunctionSelector("claimCreatorTokenFees(address)")]);
+/** Rockets covered by relayable owner-yes calls (CreatorClaimBySig) in `calls`. */
+function ownerYesCovered(kind: ActionKind, calls: ActionCall[]): Set<string> {
+  const out = new Set<string>();
+  if (kind !== "anonClaim") return out;
+  for (const c of calls) {
+    if (selOf(c.data) !== SEL.claimCreatorFeesBySig || !isRelayableCall(kind, c)) continue;
+    try {
+      const dec = decodeFunctionData({ abi: claimAbi, data: c.data });
+      for (const t of (dec.args[0] as { tokens: readonly Address[] }).tokens) out.add(t.toLowerCase());
+    } catch { /* not decodable: covers nothing */ }
+  }
+  return out;
+}
+
+/**
+ * Split into calls the relayer accepts and msg.sender-only calls it does not. A wallet rocket's own
+ * claimCreatorFees / claimCreatorTokenFees call (FeeRouter or its CurveFeeVault) is left out of both lists when an
+ * owner-yes CreatorClaimBySig call in the same list already claims that rocket.
+ */
 export function partitionRelayableCalls(kind: ActionKind, calls: ActionCall[]): { relayable: ActionCall[]; blocked: ActionCall[] } {
   const relayable: ActionCall[] = [], blocked: ActionCall[] = [];
-  for (const c of calls) (isRelayableCall(kind, c) ? relayable : blocked).push(c);
+  const covered = ownerYesCovered(kind, calls);
+  for (const c of calls) {
+    if (isRelayableCall(kind, c)) { relayable.push(c); continue; }
+    if (covered.size && SELF_CLAIM_CREATOR.has(selOf(c.data)) && c.data.length >= 74 && covered.has(("0x" + c.data.slice(34, 74)).toLowerCase())) continue;
+    blocked.push(c);
+  }
   return { relayable, blocked };
 }
 
@@ -122,9 +154,10 @@ const claimReqInputs = [{ name: "c", type: "tuple", components: [
 const claimAbi = [
   { type: "function", name: "claimManyBySig", stateMutability: "nonpayable", inputs: claimReqInputs, outputs: [] },
   { type: "function", name: "claimManyAsStealthBySig", stateMutability: "nonpayable", inputs: claimReqInputs, outputs: [] },
+  { type: "function", name: "claimCreatorFeesBySig", stateMutability: "nonpayable", inputs: claimReqInputs, outputs: [{ name: "creator", type: "address" }] },
 ] as const;
 
-/** claimManyBySig / claimManyAsStealthBySig payout `to` must be the session wallet (the current UI always pays `me`). */
+/** claimManyBySig / claimManyAsStealthBySig / claimCreatorFeesBySig payout `to` must be the session wallet (the current UI always pays `me`). */
 export function claimPayoutOf(data: Hex): Address {
   const dec = decodeFunctionData({ abi: claimAbi, data });
   const c = dec.args[0] as { to: Address };

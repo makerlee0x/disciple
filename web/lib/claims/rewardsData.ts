@@ -207,10 +207,12 @@ export type ClaimAllResult = { txHash: Hex; deferred: number; skipped: number };
  */
 export async function claimEverything(pc: PublicClient, me: Address, caps: Caps, claim: RewardsData["claim"]): Promise<ClaimAllResult> {
   const calls = claimAllCalls(claim, caps, me);
-  if (caps.anonClaims && claim.creator.some((r) => r.anon)) {
+  // signed claims: private rockets (claimManyBySig) and, in gasless mode, normal rockets (owner-yes CreatorClaimBySig,
+  // only once that helper is approved on-chain)
+  if ((caps.anonClaims && claim.creator.some((r) => r.anon)) || (clientGaslessMode() && claim.creator.some((r) => !r.anon))) {
     try {
       calls.push(...(await signedAnonClaimCalls(pc, claim.creator, me)).map((c) => ({ ...c, kind: "creator" as const })));
-    } catch (e) { console.warn("[disciple] rewards: private rocket claim skipped", (e as Error)?.message ?? e); }
+    } catch (e) { console.warn("[disciple] rewards: signed rocket claim skipped", (e as Error)?.message ?? e); }
   }
   let firstErr: unknown = null;
   const ok = await Promise.all(calls.map((c) => pc.call({ account: me, to: c.to, data: c.data, value: c.value }).then(() => true, (e) => {

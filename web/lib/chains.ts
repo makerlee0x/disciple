@@ -71,6 +71,12 @@ export interface Deployment {
    * this address only scopes stack-wide reads (referral balances, fee history).
    */
   curveFeeVault: Address;
+  /**
+   * CreatorClaimBySig (contracts/src/addons/CreatorClaimBySig.sol): a normal rocket's creator signs a Claim and the
+   * gasless relayer submits it (docs/owner-yes-creator-claim.md). Env only, no default: unset ⇒ zero ⇒ claims work
+   * exactly as before. The app also checks FeeRouter.isClaimRouter(helper) before offering it.
+   */
+  creatorClaimHelper?: Address;
   poolManager: Address;
   v4Quoter: Address;
   stateView: Address;
@@ -111,6 +117,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     loginGate: addr(process.env.NEXT_PUBLIC_RH_LOGIN_GATE),
     usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_RH_USDG_DEPOSIT_NOTIFIER),
     curveFeeVault: addr(process.env.NEXT_PUBLIC_RH_CURVE_FEE_VAULT),
+    creatorClaimHelper: addr(process.env.NEXT_PUBLIC_RH_CREATOR_CLAIM_HELPER),
     ...RH_V4,
     defaultQuote: STRATEGY_TOKEN.address,
     usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
@@ -139,6 +146,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     loginGate: addr(process.env.NEXT_PUBLIC_RHT_LOGIN_GATE, "0xebDD6Ad15a6B838eE15Dc7d5871F09EFB284317D"), // wave #241 global LoginGate
     usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_RHT_USDG_DEPOSIT_NOTIFIER, "0xf7b3c09cae8c914530424c5882a24a4160013e9c"),
     curveFeeVault: addr(process.env.NEXT_PUBLIC_RHT_CURVE_FEE_VAULT),
+    creatorClaimHelper: addr(process.env.NEXT_PUBLIC_RHT_CREATOR_CLAIM_HELPER),
     ...RH_V4,
     defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xF5eB226F7f0890c36A06Cbd0Ff843292b7b1a88C"), // test STRATEGY (18 dec, v5 tokens.STRATEGY)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D"), // test USDG (6 dec, v5 tokens.USDG)
@@ -163,6 +171,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     loginGate: addr(process.env.NEXT_PUBLIC_ANVIL_LOGIN_GATE),
     usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_ANVIL_USDG_DEPOSIT_NOTIFIER),
     curveFeeVault: addr(process.env.NEXT_PUBLIC_ANVIL_CURVE_FEE_VAULT),
+    creatorClaimHelper: addr(process.env.NEXT_PUBLIC_ANVIL_CREATOR_CLAIM_HELPER),
     poolManager: addr(process.env.NEXT_PUBLIC_ANVIL_POOL_MANAGER),
     v4Quoter: Z, stateView: Z, universalRouter: Z, permit2: RH_V4.permit2,
     defaultQuote: addr(process.env.NEXT_PUBLIC_ANVIL_DEFAULT_QUOTE),

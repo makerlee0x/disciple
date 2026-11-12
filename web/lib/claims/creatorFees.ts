@@ -30,6 +30,7 @@ import { ACTIVE_CHAIN } from "../chains";
 import { anonLaunchers, CLAIM_TYPES, claimDomain, isLegacyLauncher } from "../anon";
 import { assetMeta, lc, type Asset } from "./common";
 import { curveFeeVaultAbi, feeVaultOf, stackFeeVault, vaultClaimDomain, vaultCreatorClaimable } from "./vault";
+import { creatorClaimBySigAbi, creatorClaimHelper, ownerYesClaimCalls } from "./ownerYesClaim";
 
 const ZERO = BigInt(0);
 export type Accrual = { amount: bigint; trader: Address; tx: Hex; block: bigint; ts?: number; side: "quote" | "token" };
@@ -224,6 +225,8 @@ const anonHasSomething = (r: ClaimRow) => baseOf(r) > ZERO || (!!r.tokenSide && 
  * Calls for claiming `rows`. Wallet rockets: FeeRouter (quote + token side) and, on lp-accrue curves, the coin's
  * CurveFeeVault.claimCreatorFees. Private rockets (wallet- or stealth-owned) are skipped here: they are claimed by
  * signature (AnonLauncher.claimManyBySig + CurveFeeVault.claimManyAsStealthBySig), see anonSigClaimCalls.
+ * These msg.sender calls stay for the smart-account path; in gasless mode the relayer drops them and wallet rockets
+ * are claimed by the owner-yes signature instead (CreatorClaimBySig, lib/claims/ownerYesClaim, see signedAnonClaimCalls).
  * Skips zeros.
  */
 export function creatorClaimCalls(rows: ClaimRow[], caps: Caps, me?: Address): Call[] {
@@ -305,7 +308,11 @@ export async function anonSigClaimCalls(pc: PublicClient, rows: ClaimRow[], me: 
 }
 
 
-/** Sign every AnonLauncher claim (wallet-owned and stealth-owned) as claimManyBySig so the gasless relayer can submit it. */
+/**
+ * Every claim the gasless relayer can submit, signed: AnonLauncher claims (wallet-owned and stealth-owned) as
+ * claimManyBySig / claimManyAsStealthBySig, plus, for normal wallet rockets, one owner-yes CreatorClaimBySig call
+ * signed by the same wallet key (only when that helper is configured and approved on-chain; see ownerYesClaim).
+ */
 export async function signedAnonClaimCalls(pc: PublicClient, rows: ClaimRow[], me: Address): Promise<Call[]> {
   let keyFor: ((eph: Hex) => Hex) | undefined;
   if (rows.some((r) => r.anon && r.stealth)) {
@@ -313,7 +320,13 @@ export async function signedAnonClaimCalls(pc: PublicClient, rows: ClaimRow[], m
     const k = await myStealthKeys();
     keyFor = (eph) => stealthKeyFor(k, eph);
   }
-  return anonSigClaimCalls(pc, rows, me, keyFor, gaslessSigner());
+  const signer = gaslessSigner();
+  const anon = await anonSigClaimCalls(pc, rows, me, keyFor, signer);
+  const own = await ownerYesClaimCalls(pc, rows, me, signer).catch((e) => {
+    console.warn("[disciple] claims: owner-yes claim skipped", (e as Error)?.message ?? e);
+    return [] as Call[];
+  });
+  return [...anon, ...own];
 }
 
 export type ClaimReceipt = { txHash: Hex; claimed: { token: Address; amount: bigint; side: "quote" | "token" }[] };
@@ -331,13 +344,28 @@ export async function sendCreatorClaims(calls: Call[]): Promise<ClaimReceipt> {
     r = await execCalls(calls);
   }
   const fr = lc(deployment().feeRouter), als = anonLaunchers(ACTIVE_CHAIN.id).map(lc);
-  const vaults = new Set(calls.map((c) => lc(c.to)).filter((a) => a !== fr && !als.includes(a)));
+  const helper = creatorClaimHelper() ? lc(creatorClaimHelper()!) : null;
+  const vaults = new Set(calls.map((c) => lc(c.to)).filter((a) => a !== fr && !als.includes(a) && a !== helper));
   const claimed: ClaimReceipt["claimed"] = [];
+  // owner-yes claims: count the helper's CreatorClaimedBySig (vault + FeeRouter, as paid) and not the FeeRouter pull
+  // events of the same coins, so nothing is counted twice
+  const viaHelper = new Set<string>();
+  if (helper) for (const l of r.logs) {
+    if (lc(l.address) !== helper) continue;
+    try {
+      const ev = decodeEventLog({ abi: creatorClaimBySigAbi, data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as { eventName: string; args: { token: Address; quoteAmount: bigint; tokenAmount: bigint } };
+      if (ev.eventName !== "CreatorClaimedBySig") continue;
+      viaHelper.add(lc(ev.args.token));
+      if (ev.args.quoteAmount > ZERO) claimed.push({ token: ev.args.token, amount: ev.args.quoteAmount, side: "quote" });
+      if (ev.args.tokenAmount > ZERO) claimed.push({ token: ev.args.token, amount: ev.args.tokenAmount, side: "token" });
+    } catch { /* other event */ }
+  }
   for (const l of r.logs) {
     const topics = l.topics as [Hex, ...Hex[]];
     try {
       if (lc(l.address) === fr) {
         const ev = decodeEventLog({ abi: feeRouterAbi, data: l.data, topics }) as { eventName: string; args: { token: Address; amount: bigint } };
+        if (viaHelper.has(lc(ev.args.token))) continue;
         if (ev.eventName === "CreatorFeesClaimed") claimed.push({ token: ev.args.token, amount: ev.args.amount, side: "quote" });
         if (ev.eventName === "CreatorTokenFeesClaimed") claimed.push({ token: ev.args.token, amount: ev.args.amount, side: "token" });
       } else if (als.includes(lc(l.address))) {

@@ -16,7 +16,7 @@ import { relayGaslessAnonLaunch } from "@/lib/server/gaslessAnonLaunchRelay";
  * disciple_gaslessWarm [wallet] · disciple_gaslessWithdrawQuote [{amount?, signer?}] (no signature) ·
  * disciple_gaslessWithdraw [request] (same Privy / revoke / strike gate as a trade) ·
  * disciple_gaslessActionQuote [{kind, callCount?, signer?}] (no signature) ·
- * disciple_gaslessAction [request] (same gate; allowlisted claimManyBySig / transferCreatorBySig / tramp pull) ·
+ * disciple_gaslessAction [request] (same gate; allowlisted claimManyBySig / claimCreatorFeesBySig / transferCreatorBySig / tramp pull) ·
  * disciple_gaslessAnonLaunch [request] (same Privy / revoke / strike gate; relayer-submitted private launch).
  * One JSON answer with the full receipt (eth_sendRawTransactionSync). Never logs signatures, keys or RPC URLs.
  */
