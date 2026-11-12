@@ -8,6 +8,7 @@
  * Sign in runs the wallet pill's own action (lib/walletCta WALLET_CTA_CLICK_EVENT); its login popover still portals from the
  * (hidden) wallet strip, which globals.css parks under this bar. ✕ is a plain link to the lobby, so ExitConfirm guards it.
  */
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { isPhoneUI } from "@/lib/game/cardLayoutStore";
 import { setHudMode, useHudMode, type HudMode } from "@/lib/game/hudMode";
@@ -68,9 +69,9 @@ export default function HudModeToggle({ sim, onSim }: { sim?: Sim | null; onSim?
         style={{ ...sq, background: open ? "#F2F3F7" : HUD.glass, color: open ? HUD.ink : "#F2F3F7" }}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 7h16M4 12h16M4 17h16" /></svg>
       </button>
-      <a href="/" aria-label="Leave flight" title="Leave flight" data-testid="flight-leave" style={sq}>
+      <Link href="/" aria-label="Leave flight" title="Leave flight" data-testid="flight-leave" style={sq}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg>
-      </a>
+      </Link>
       {open && (
         <div role="menu" aria-label="Flight menu" data-testid="flight-menu" style={{ position: "absolute", right: 0, top: 52, width: 300, boxSizing: "border-box", padding: 6,
           borderRadius: HUD.radius, background: "rgba(18,19,39,.94)", border: `1px solid ${HUD.border}`, boxShadow: "0 16px 40px rgba(0,0,0,.45)", backdropFilter: "blur(8px)" }}>
@@ -79,7 +80,7 @@ export default function HudModeToggle({ sim, onSim }: { sim?: Sim | null; onSim?
             <button type="button" role="menuitem" data-testid="flight-menu-signin" onClick={() => { dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT)); setOpen(false); }}
               style={{ ...row, background: "#F2C14E", color: HUD.ink, justifyContent: "center", font: `700 16px/1 ${HUD.game}`, letterSpacing: ".04em" }}>{cta.toUpperCase()}</button>
           ) : me ? (<>
-            <a role="menuitem" href="/profile" data-testid="flight-menu-hangar" style={row}><span>{me.name ? `@${me.name}` : `${me.address.slice(0, 6)}…${me.address.slice(-4)}`}</span><span style={{ color: HUD.dim, fontSize: 12 }}>Hangar</span></a>
+            <Link role="menuitem" href="/profile" data-testid="flight-menu-hangar" style={row}><span>{me.name ? `@${me.name}` : `${me.address.slice(0, 6)}…${me.address.slice(-4)}`}</span><span style={{ color: HUD.dim, fontSize: 12 }}>Hangar</span></Link>
             <button type="button" role="menuitem" data-testid="flight-menu-signout" onClick={go(() => { void disconnect(); })} style={{ ...row, color: HUD.dim }}>Sign out</button>
           </>) : <div style={{ ...row, cursor: "default", color: HUD.dim }}>Playing on paper</div>}
           {(tw?.on || (sim && sim.available)) && <div style={head}>FLIGHT</div>}
@@ -95,7 +96,7 @@ export default function HudModeToggle({ sim, onSim }: { sim?: Sim | null; onSim?
           <div style={{ height: 1, background: HUD.border, margin: "6px 8px" }} />
           <button type="button" role="menuitem" data-testid="flight-menu-settings" onClick={go(() => dispatchEvent(new Event(SETTINGS_OPEN_EVENT)))} style={row}>
             <span>Settings</span><span style={{ ...tag, color: HUD.dim, background: "rgba(255,255,255,.08)" }}>ESC</span></button>
-          <a role="menuitem" href="/" data-testid="flight-menu-lobby" style={row}>Back to the lobby</a>
+          <Link role="menuitem" href="/" data-testid="flight-menu-lobby" style={row}>Back to the lobby</Link>
         </div>
       )}
     </div>

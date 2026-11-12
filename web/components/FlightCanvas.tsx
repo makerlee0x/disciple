@@ -1,6 +1,5 @@
 "use client";
 
-import { useHudMode } from "@/lib/game/hudMode";
 import TouchGrass from "./flight/TouchGrass";
 import SettingsMenu from "./flight/SettingsMenu";
 import GameRadio from "./flight/GameRadio";
@@ -242,7 +241,6 @@ export default function FlightCanvas({ search }: Props) {
 
   // Simulated-market toggle (engine owns the state; this just mirrors + flips it).
   // `available` is false on a live market (real coin / live pool / wallet attached): the pill is hidden there (engine decides).
-  const hud = useHudMode();
   const [sim, setSim] = useState<{ on: boolean; mode: string; available?: boolean }>({ on: false, mode: "off", available: false });
   useEffect(() => {
     const on = (e: Event) => setSim((e as CustomEvent).detail);
