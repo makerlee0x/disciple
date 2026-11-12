@@ -96,6 +96,8 @@ export class FlightView3D {
   private hit = { x: 0, y: 0, z: 0, s: 1 };
   /** STEP 3 post stack (post.ts); null = plain render */
   post: FlightPost | null = null;
+  /** the governor switched the post stack off (over budget at the lowest resolution) */
+  private postOff = false;
   visible = true;
   stats = { frames: 0, drawn: 0, skipped: 0, lastMs: 0, ema: 0, ratio: 1, post: "off", heavy: false };
 
@@ -516,7 +518,7 @@ export class FlightView3D {
     const g = this.gov, skip = g.skip > 0 && (this.fc++ % (g.skip + 1)) !== 0;
     if (skip) { this.stats.skipped++; return; }
     if (this.review) this.reviewCam();
-    if (this.post) this.post.render(); else this.renderer.render(this.scene, this.camera);
+    if (this.post && !this.postOff) this.post.render(); else this.renderer.render(this.scene, this.camera);
     const ms = performance.now() - t0;
     this.stats.drawn++; this.stats.lastMs = ms;
     const slowFrame = V.dt * 1000 > 26 ? this.preset.budgetMs * 1.3 : 0;
@@ -525,10 +527,14 @@ export class FlightView3D {
     if ((act === "down" || act === "skip") && P?.heavy) {   // over budget: drop SSR + AO first, keep resolution and frames
       if (act === "down") g.ratio = Math.min(this.preset.maxPixelRatio, +(g.ratio / 0.8).toFixed(3)); else g.skip = 0;
       P.setHeavy(false);
+    } else if (act === "skip" && P && !this.postOff) {   // still over budget at the lowest resolution: plain render (no post) before dropping frames
+      g.skip = 0; this.postOff = true;
+    } else if (act === "up" && P && this.postOff) {         // headroom again: post back first, at the same resolution
+      g.ratio = Math.max(this.preset.minPixelRatio, +(g.ratio / 1.15).toFixed(3)); this.postOff = false;
     } else if (act === "up" && P && P.kind === "full" && !P.heavy && g.ratio >= this.preset.maxPixelRatio - 1e-6) {
       P.setHeavy(true);                 // lots of headroom at full resolution: bring them back
     } else if (act === "down" || act === "up") { this.renderer.setPixelRatio(g.ratio); P?.setPixelRatio(g.ratio); }
-    this.stats.ema = g.ema; this.stats.ratio = g.ratio; this.stats.post = P?.kind ?? "off"; this.stats.heavy = !!P?.heavy;
+    this.stats.ema = g.ema; this.stats.ratio = g.ratio; this.stats.post = P && !this.postOff ? P.kind : "off"; this.stats.heavy = !!P?.heavy;
   }
 
   dispose() {

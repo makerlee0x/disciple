@@ -81,6 +81,7 @@ ok(/kind === "lite" \? "lite" : "full"|quality === "lite" \? "lite" : "full"/.te
 ok(/threshold: 2\.5, cap: 3\.0/.test(po) && /bloom: \{ full: 0\.0\d+, lite: 0\.0\d+ \}/.test(po), "post: tight bloom (threshold 2.5, input capped at 3, strength ~0.01)");
 ok(/smoothstep\( 0\.6, 1\.0, t\.a \)/.test(po) && !/f3d-bg/.test(po.replace(/canvas\.f3d-bg\) and never/, "")), "post: grade weighted by the ship layer's alpha; the sky canvas is never touched");
 ok(/P\?\.heavy[\s\S]*P\.setHeavy\(false\)/.test(sc), "governor drops SSR + AO before resolution or frames");
+ok(/act === "skip" && P && !this\.postOff[\s\S]*this\.postOff = true/.test(sc), "governor turns the post stack off at the lowest resolution before skipping frames");
 ok(/post stack off/.test(idx3), "post stack failing never fails the flight (plain render)");
 ok(!/clearcoat: [1-9]/.test(rd("lib/flight/view3d/rocket.ts")), "clear coat stays off");
 
