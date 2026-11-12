@@ -1,0 +1,30 @@
+/* All rockets (components/home/RocketGrid): v3 chips + Live window cards. */
+.wrap { display: flex; flex-direction: column; gap: 16px; padding-top: 4px; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; }
+.chips, .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.search {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border-radius: 999px;
+  background: var(--dsc3-panel-glass); border: 1px solid var(--dsc3-panel-border); color: var(--dsc-muted);
+}
+.search:focus-within { border-color: var(--dsc3-panel-border-gold); box-shadow: var(--dsc-glow-focus-ring); }
+.search input { all: unset; width: 180px; font: 500 14px / 1 var(--dsc-font-ui); color: var(--dsc-text); }
+.search input::placeholder { color: var(--dsc-muted); }
+.select {
+  appearance: none; min-height: 40px; padding: 0 34px 0 16px; border-radius: 999px; cursor: pointer;
+  background: var(--dsc3-panel-glass) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23C9CED6' stroke-width='2'><path d='M6 9l6 6 6-6'/></svg>") right 14px center / 12px no-repeat;
+  border: 1px solid var(--dsc3-panel-border); color: var(--dsc-text); font: 600 14px / 1 var(--dsc-font-ui);
+}
+.select:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+.count { margin: 0; font: var(--dsc3-type-label); color: var(--dsc-muted); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
+.empty { margin: 24px 0; font: var(--dsc3-type-body); color: var(--dsc-muted-on-sky); }
+.more { display: flex; justify-content: center; padding: 16px 0; }
+@media (max-width: 760px) {
+  .chips { flex-wrap: nowrap; overflow-x: auto; margin: 0 -16px; padding: 0 16px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chips > * { flex: none; }
+  .tools { width: 100%; }
+  .search { flex: 1 1 100%; }
+  .search input { width: 100%; }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+}

@@ -1,0 +1,75 @@
+/* Live window rocket card (components/home/LiveCard). --c = the rocket's light, --sky = its tier's sky plate. */
+.card {
+  position: relative; display: block; height: 340px; min-width: 0; overflow: hidden; isolation: isolate;
+  border-radius: var(--dsc3-tile-radius); border: 1px solid rgba(243, 223, 168, .22); background: var(--dsc-sky-ink);
+  color: #FFFFFF; text-decoration: none; transition: transform 160ms var(--dsc3-ease), border-color 160ms;
+}
+.card:hover { transform: translateY(-4px); border-color: color-mix(in srgb, var(--c) 60%, transparent); }
+.card:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+
+/* the window: tier sky, tinted toward the rocket's light, darker at the edges */
+.sky { position: absolute; inset: 0; background: var(--sky) center 30% / cover no-repeat; transform: scale(1.04); }
+.sky::after { content: ""; position: absolute; inset: 0;
+  background: radial-gradient(120% 80% at 50% 30%, color-mix(in srgb, var(--c) 22%, transparent) 0%, rgba(18, 19, 39, .55) 70%); }
+.streaks { position: absolute; inset: -20% 0; background: repeating-linear-gradient(100deg, rgba(255, 255, 255, 0) 0 22px, rgba(255, 255, 255, .06) 22px 23px); }
+.glow { position: absolute; left: 50%; top: 70px; width: 190px; height: 190px; margin-left: -95px; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--c) 55%, transparent), transparent); }
+
+/* the rocket mid-climb: tilted, with its trail */
+.flight { position: absolute; left: 50%; top: 42px; width: 62px; height: 170px; margin-left: -31px; transform: rotate(-8deg); transform-origin: 50% 80%;
+  transition: transform 400ms var(--dsc3-ease); }
+.card:hover .flight { transform: rotate(-8deg) translateY(-8px); }
+.rocket { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 14px rgba(200, 210, 255, .18)); }
+.trail { position: absolute; left: 50%; top: 150px; width: 18px; height: 64px; margin-left: -9px; border-radius: 50%;
+  background: linear-gradient(180deg, rgba(255, 214, 160, .9), rgba(255, 122, 61, 0)); filter: blur(5px); }
+.hull { position: absolute; left: 50%; top: 40%; width: 20px; height: 20px; transform: translate(-50%, -50%); overflow: hidden; border-radius: 50%;
+  display: grid; place-items: center; background: var(--c); color: var(--dsc-sky-ink); border: 2px solid var(--dsc3-light-gold); font: 800 11px / 1 var(--dsc-font-game); }
+.hull img, .mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.top { position: absolute; left: 12px; right: 12px; top: 12px; display: flex; justify-content: space-between; align-items: center; }
+.live { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px; background: rgba(11, 12, 14, .6);
+  font: 600 12px / 1 var(--dsc-font-ui); text-transform: uppercase; letter-spacing: .02em; }
+.live i { width: 7px; height: 7px; border-radius: 50%; background: var(--dsc3-signal-up); }
+.up, .dn { font: 800 24px / 1 var(--dsc-font-game); text-shadow: 0 2px 10px rgba(11, 12, 14, .6); }
+.up { color: var(--dsc3-signal-up); }
+.dn { color: var(--dsc3-signal-down); }
+
+.foot { position: absolute; left: 0; right: 0; bottom: 0; padding: 44px 14px 14px; display: flex; flex-direction: column; gap: 8px;
+  background: linear-gradient(180deg, rgba(11, 12, 14, 0), rgba(11, 12, 14, .92) 45%); }
+.name { font: 800 28px / .95 var(--dsc-font-game); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--dsc3-text-on-sky); }
+.meta > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mark { flex: none; width: 20px; height: 20px; overflow: hidden; border-radius: 50%; display: grid; place-items: center;
+  background: var(--c); color: var(--dsc-sky-ink); font: 800 11px / 1 var(--dsc-font-game); }
+.bar { height: 6px; border-radius: 999px; background: rgba(232, 234, 238, .16); overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--dsc3-light-gold), var(--dsc3-light-champagne)); }
+.row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--dsc-muted-on-sky); }
+.diff { font-weight: 600; }
+.easy { color: var(--dsc3-diff-easy); }
+.hard { color: var(--dsc3-diff-hard); }
+.expert { color: var(--dsc3-diff-expert); }
+.orbit { color: var(--dsc3-diff-orbit); }
+
+/* hover: DROP IN over the window */
+.drop {
+  position: absolute; left: 50%; top: 128px; transform: translate(-50%, 8px); opacity: 0; pointer-events: none;
+  padding: 10px 18px; border-radius: var(--dsc3-control-radius); background: #FFFFFF; color: var(--dsc-sky-ink);
+  font: 800 18px / 1 var(--dsc-font-game); text-transform: uppercase; box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
+  transition: opacity 160ms, transform 160ms var(--dsc3-ease);
+}
+.card:hover .drop, .card:focus-visible .drop { opacity: 1; transform: translate(-50%, 0); }
+@media (hover: none) { .drop { display: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .card, .flight, .drop { transition: none; }
+  .card:hover, .card:hover .flight { transform: none; }
+  .card:hover .flight { transform: rotate(-8deg); }
+}
+@media (max-width: 760px) {
+  .card { height: 300px; }
+  .flight { top: 36px; width: 54px; height: 150px; margin-left: -27px; }
+  .trail { top: 132px; }
+  .up, .dn { font-size: 20px; }
+  .name { font-size: 22px; }
+  .foot { padding: 36px 10px 10px; gap: 6px; }
+  .row { font-size: 11px; }
+}

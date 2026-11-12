@@ -1,6 +1,6 @@
 "use client";
 /**
- * Lazy feed: the Launchpad bundle loads only after the hero has painted, on the
+ * Lazy feed: the All rockets grid (RocketGrid) loads only after the hero has painted, on the
  * first of: page load + idle, or the placeholder nearing the viewport. The placeholder holds the feed's space (no CLS).
  */
 import dynamic from "next/dynamic";
@@ -9,7 +9,7 @@ import type { HomeCoin } from "@/lib/home/trending";
 import { afterPaint } from "./idle";
 import s from "./appHome.module.css";
 
-const HomeFeed = dynamic(() => import("./HomeFeed"), { ssr: false, loading: () => <FeedSkeleton /> });
+const RocketGrid = dynamic(() => import("./RocketGrid"), { ssr: false, loading: () => <FeedSkeleton /> });
 
 function FeedSkeleton() {
   return (
@@ -32,8 +32,8 @@ export default function HomeFeedLazy({ initial }: { initial: HomeCoin[] }) {
     return () => { cancel(); io?.disconnect(); };
   }, [on]);
   return (
-    <main ref={ref} className={`lp-wrap ${s.feed}`} aria-label="Rockets">
-      {on ? <HomeFeed initial={initial} /> : <FeedSkeleton />}
+    <main ref={ref} className={s.feed} aria-label="Rockets">
+      {on ? <RocketGrid initial={initial} /> : <FeedSkeleton />}
     </main>
   );
 }

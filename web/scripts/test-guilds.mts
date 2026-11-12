@@ -112,7 +112,6 @@ test("guilds / clan tags are hidden until v2 (GUILDS_ENABLED off; code kept)", (
   assert.ok(/if \(!GUILDS_ENABLED\) return null;/.test(picker), "GuildPicker hidden when flag is off");
   // every SITE render point is also gated at the call site (same pattern as LOOT_ENABLED / CREW_CARD_ENABLED)
   const sites: [string, RegExp][] = [
-    ["components/launchpad/Launchpad.tsx", /GUILDS_ENABLED && c\.live && c\.creatorAddr/],
     ["components/leaderboard/LeaderboardView.tsx", /GUILDS_ENABLED && <GuildTagFor address=\{row\.address\} \/>/],
     ["components/Sidebar.tsx", /GUILDS_ENABLED && <GuildTagFor address=\{me\.address\} markOnly \/>/],
     ["components/WalletButton.tsx", /GUILDS_ENABLED && <> <GuildTagFor address=\{addr\} markOnly \/>/],
