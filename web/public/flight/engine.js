@@ -2269,10 +2269,16 @@ const AIM_REST=90;
          how far it leans: a dump with lateral speed points down-left / down-right, without it straight down.
    fight buy/sell push-back (+ = buys pull a dive back up, − = sells tip a pump over).
    st    optional heading state: remembers the last tipping side, and SIDE-LOCKS once past 120° so the target
-         can never cross the bottom to the other side (no wrap, no 360°). */
-function aimFromMotion(vy, lat, fight, v0, st){
+         can never cross the bottom to the other side (no wrap, no 360°).
+   live  optional LIVE fall rate (px/s, +up; simStep passes S.vyFall, the live climb rate with a ~0.4 s fall hold).
+         @nose-down-fix (lee, Nov 12): the candle window (vy) alone may tip the nose at most NOSE_HOLD_D (≤ 45° off
+         up); only a price that is still falling NOW points it further down. Before this, the 10 s window kept the
+         nose pinned straight down for 15–28 s after a dump had already stopped ("stuck pointing down"). */
+const NOSE_HOLD_D=0.5;   // d cap from the window alone: 180·0.5² = 45° off up
+function aimFromMotion(vy, lat, fight, v0, st, live){
   const cl=(v,a,b)=>v<a?a:v>b?b:v; vy=Number.isFinite(vy)?vy:0; lat=Number.isFinite(lat)?cl(lat,-1,1):0; fight=Number.isFinite(fight)?cl(fight,-60,60):0;
-  const u=Math.tanh(vy/(v0>0?v0:140)), d=Math.max(0,-u);
+  const V0=v0>0?v0:140, u=Math.tanh(vy/V0); let d=Math.max(0,-u);
+  if (Number.isFinite(live)) d=Math.min(d, Math.max(NOSE_HOLD_D, Math.max(0,-Math.tanh(live/V0))));
   const phi=cl(180*d*d - fight, 0, 180)*Math.PI/180;             // d²: a mild dip barely tips, a hard dump goes straight down
   let side=st&&st.lastSide<0?-1:1; if (Math.abs(lat)>0.15) side=lat<0?-1:1;
   const k=0.14+0.46*d;                                            // upright ≈ ±8° lean, dumping ≈ ±30° off vertical-down
@@ -2455,7 +2461,9 @@ function simStep(stepDt){
   // vertical velocity for attitude: the ~10 s candle window (smooth trend) blended with the live climb rate,
   // so a dump tips the nose over promptly instead of waiting for the window to turn
   S.vyAtt=0.45*(S.momV||0)+0.55*(S.vyS||0);   // market motion stays separate from cosmetic manual dive
-  stepHeading(S, aimWithDive(aimFromMotion(S.vyAtt, S.lean, S.fight, PX_PER_ALT*0.02, S), S.dive, S), 0, dt);   // v0 = 2% of a tier per second (source-independent)
+  // @nose-down-fix: the live fall, held ~0.4 s so a dump made of many trades stays one dive (released as soon as it stops)
+  { const v=S.vyS||0, f=Number.isFinite(S.vyFall)?S.vyFall:v; S.vyFall=Math.min(v, f+(v-f)*(1-Math.exp(-dt/0.4))); }
+  stepHeading(S, aimWithDive(aimFromMotion(S.vyAtt, S.lean, S.fight, PX_PER_ALT*0.02, S, S.vyFall), S.dive, S), 0, dt);   // v0 = 2% of a tier per second (source-independent)
   S.heading=Math.PI/2 - S.aimDisp*Math.PI/180; S.tilt=S.heading;
   // CAMERA — locked to the price altitude (@altfollow). Was: stepCamera's lagging chase (the rocket rose / dropped on
   // screen, then slid back to the anchor as the view caught up = the sink / float-back lee saw).
