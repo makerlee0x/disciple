@@ -42,10 +42,10 @@ const ph = new Function("window", `const HUD_NARROW_W=${PHONE_W};\n${eng.match(/
 const P = { on: true, sheet: null };
 ok(PHONE_W === 760, "PHONE_W matches site chrome max-width:760px");
 ok(ph({ __phoneHud: P })(390, false) === P && ph({ __phoneHud: P })(760, false) === P && ph({ __phoneHud: P })(1440, false) === null && ph({ __phoneHud: P })(390, true) === null && ph({})(390, false) == null, "phoneHud(): ≤760 only, never CLEAN / desktop");
-for (const re of [/if \(PH\) drawPhonePill\(m,ti,PH\); else \{\n  \/\/ top-left: ONE header card[^\n]*\n[^\n]*\n[^\n]*\n  const HY=coinIdRowH\(\);\n  if \(cardBegin\('header',20,18,380,130\+HY\)\)\{   \/\* @cards \*\/\n  panel\(20,18,380,130\+HY\); ctx\.save\(\); ctx\.translate\(0,HY\);/, /if \(!PH&&STATUS_BOX\)\{\n  panel\(RX,RT,CW,92\);/,
-  /\n  pushHolders\(top,kothTitle\);   \/\*/, /else if \(cardBegin\('trades',20,H-160,310,140\)\)\{ const FX=20, FY=H, FW=310;/, /if \(S\.controlsDocked\) pushControls\(\);/,
-  /PH\.sheet==='feed'\) drawPhoneFeed\(PH\)/, /if \(PH\) AMMO_HIT\.forEach\(R=>\{ R\.x=-1e9;/,
-  /return P\.sheet==='chart'&&B\?\{x:/, /if\(P\?P\.sheet!=='chart':!C\.on\) return;/, /PD&&PD\.drawer&&PD\.dTop>0\?Math\.min\(ROCKET_Y,PD\.dTop-44\):ROCKET_Y/])
+for (const re of [/if \(PH\) drawPhonePill\(m,ti,PH\); else \{\n  \/\/ top-left: ONE header card[^\n]*\n[^\n]*\n[^\n]*\n  const HY=coinIdRowH\(\);\n  const PROH=[^\n]*\n  if \(cardBegin\('header',20,18,380,130\+HY\+PROH\)\)\{   \/\* @cards \*\/\n  panel\(20,18,380,130\+HY\+PROH\); ctx\.save\(\); ctx\.translate\(0,HY\);/, /if \(!PH&&STATUS_BOX&&S\.pro\)\{\n  panel\(RX,RT,CW,92\);/,
+  /\n  pushHolders\(top,kothTitle\);   \/\*/, /else if \(!kothDockedNow\(\)&&cardBegin\('trades',20,H-160,310,140\)\)\{[^\n]*const FX=20, FY=H, FW=310;/, /if \(S\.controlsDocked\) pushControls\(\);/,
+  /PH\.sheet==='feed'\) drawPhoneFeed\(PH\)/, /if \(PH\|\|!S\.pro\) AMMO_HIT\.forEach\(R=>\{ R\.x=-1e9;/,
+  /return P\.sheet==='chart'&&B\?\{x:/, /if\(P\?P\.sheet!=='chart':\(!C\.on\|\|\(!S\.pro&&!CLEAN\)\)\) return;/, /PD&&PD\.drawer&&PD\.dTop>0\?Math\.min\(ROCKET_Y,PD\.dTop-44\):ROCKET_Y/])
   ok(re.test(eng), "engine: " + re.source.slice(0, 60));
 ok(!/cardBegin\('holders'/.test(eng), "engine: no desktop TOP HOLDERS card (lee Oct 31: the chat HOLDERS tab is the list)");
 ok(!/drawPhonePresets|drawPhoneMcap/.test(eng), "no canvas preset chips / big mcap card on phones");
@@ -62,7 +62,7 @@ ok(/\{ id: "run", label: "Position" \}/.test(hud) && !/label: "Run"/.test(hud) &
   // monospace stub: 0.6em per glyph
   const ctx = { font: "", save() {}, restore() {}, measureText: (t) => ({ width: String(t).length * 0.6 * +(ctx.font.match(/(\d+)px/) || [0, 10])[1] }) };
   let rules = ""; const S0 = { graduated: false };
-  const TL = new Function("TIERS", "clamp", "ctx", "tierRulesText", "S", "ASCENDED", blk + "\nreturn {tierProgress,tierLabel,tierLineEnd};")(TIERS, (v, a, b) => Math.max(a, Math.min(b, v)), ctx, () => rules, S0, "ASCENDED");
+  const TL = new Function("TIERS", "clamp", "ctx", "tierRulesText", "S", "ASCENDED", "GF", blk + "\nreturn {tierProgress,tierLabel,tierLineEnd};")(TIERS, (v, a, b) => Math.max(a, Math.min(b, v)), ctx, () => rules, S0, "IN ORBIT", (sz, wt) => `${wt || 400} ${sz}px sans-serif`);
   const tiAt = (m) => { let i = 0; while (i < TIERS.length - 1 && m >= TIERS[i + 1].lo) i++; return i; };
   const lab = (m, ti = tiAt(m)) => TL.tierLabel(m, TL.tierProgress(m, ti).next);
   ok(lab(7200) === "+67% to OZONE", `lee's example: $7.2K → (12000/7200 − 1)·100 = 66.7 → "${lab(7200)}"`);
@@ -155,7 +155,7 @@ ok(/setSheet\(null\); \}\}>\{o\}(\{tags\[i\] \? <span[^\n]*?: null\})?<\/button>
 ok(/data-testid=\{b \? "phone-amt-buy" : "phone-amt-sell"\}/.test(bar) && /\.ph-tb \{[^}]*height: 68px; border-radius: 22px;/.test(bar), "68px BOOST / DUMP with amount chips");
 // 8) PnL line + panels
 ok(/\.__pnlView = detail;/.test(pnl) && /addEventListener\("disciple:phonesheet", onSheet\)/.test(pnl), "PnlHud: view mirrored for the PnL line; Run tab hook kept");
-ok(/No position yet/.test(hud) && /disciple:pnlview/.test(hud), "quiet PnL line");
+ok(/No bag yet/.test(hud) && /disciple:pnlview/.test(hud), "quiet PnL line");
 ok(/html\.ap-phone\[data-ph-sheet="run"\] \.pnl-hud/.test(hud) && /html\.ap-phone\[data-ph-sheet="holders"\] \[data-testid="chat-dock"\]/.test(hud), "Crew / Holders+Chat / Run reuse the existing panels");
 ok(/snipe-chip/.test(hud), "anti-snipe chip kept visible");
 // Settings: SITE's Sidebar item (#149) sends a plain Event (no detail) → the listener must not need a CustomEvent
@@ -221,8 +221,8 @@ ok(!/setPointerCapture/.test(hud.match(/const down = [^\n]*/)[0]) && /data-testi
 { const id = rd("components/pairart/CoinIdentity.tsx"), css = rd("app/globals.css");
   const f = new Function("window", eng.match(/function coinIdRowH\(\)\{[^\n]*\}/)[0] + "\nreturn coinIdRowH;");
   ok(f({ __coinIdH: 46 })() === 46 && f({})() === 0 && f({ __coinIdH: -3 })() === 0 && f({ __coinIdH: 900 })() === 64, "coinIdRowH: published row height, 0 when unset, clamped");
-  ok(/source instanceof DiscipleSource\?'MARKET CAP':/.test(eng), "coin page: the card has a MARKET CAP label");
-  ok(/drawTierBar\(m,ti,tierEnd\);[^\n]*\n  ctx\.restore\(\); ctx\.restore\(\); \} \}/.test(eng), "card contents shifted under the identity row, restored after the tier bar (+ the @cards translate)");
+  ok(/\(coinTicker\(\)&&!\(source instanceof DiscipleSource\)\?'\$'\+coinTicker\(\)\+' · ':''\)\+'ALTITUDE'/.test(eng), "coin page: the card has an ALTITUDE label (brand v3: market cap reads as altitude)");
+  ok(/drawTierBar\(m,ti,tierEnd\);[^\n]*\n(  if \(PROH\) drawProHeaderLine\(m\);\n)?  ctx\.restore\(\); ctx\.restore\(\); \} \}/.test(eng), "card contents shifted under the identity row, restored after the tier bar (+ the @cards translate)");
   ok(/w\.__coinIdH = window\.matchMedia\?\.\("\(max-width: 760px\)"\)\.matches \? 0 : Math\.ceil/.test(id) && !/mcap/.test(id.replace(/\/\/[^\n]*/g, "")), "CoinIdentity publishes its row height (0 on phones); no separate mcap in it");
   ok(/\.coin-id \{ position: fixed; left: calc\(var\(--ap-rail-w, 64px\) \+ 28px\); top: 24px;/.test(css) && !/\.coin-id \{[^}]*backdrop-filter/.test(css), "name row sits inside the card (no own pill scrim)");
   ok(wb.includes('"__coinIdH"'), "worker render: __coinIdH forwarded");

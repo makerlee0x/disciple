@@ -578,6 +578,31 @@ const S = {
   headTarget:Math.PI/2, headSmooth:Math.PI/2, aimDisp:90, aimVel:0, aimTgt:90, camAlt:null, camX:null,
   thrustNet:0, thrustPend:null, trailAimLP:0,
 };
+/* GAME LAYER (phase 1 refresh, Nov 2026): brand v3 type + the Pilot / Pro HUD.
+   GF(px,w) = the game display face (Barlow Condensed, handed in by FlightCanvas as __GAME_FONT; Arial Narrow fallback).
+   S.pro = the Pro layout: today's trader cards (top preset panel, floating trade tags, a banner for every bomb).
+   Default = Pilot: one trade surface (the bottom bar), one crew feed, and only Nuke / Atom bombs get a centre banner.
+   Saved per browser (localStorage disciple.hud = 'pro' | 'pilot'); disciple:hudmode {pro} sets it, disciple:hudstate {pro}
+   answers (and is sent on every change). */
+const GAME_FAMILY=((typeof __GAME_FONT!=='undefined'&&typeof __GAME_FONT==='string'&&__GAME_FONT.trim())?__GAME_FONT.trim()+',':'')+"'Barlow Condensed','Arial Narrow',sans-serif";
+/* SFX hook: the engine names the moment, components/flight/FlightSfx.tsx plays it (WebAudio, the ESC menu's SFX volume).
+   ignite = a BOOST / DUMP press (same frame), fill = it confirmed, fail = it didn't, bomb = a detonation (tier 0..5),
+   zone = a climb into a new zone, orbit = graduation. Haptic on the press where the device has one. */
+function sfx(k,o){ try{ dispatchEvent(new CustomEvent('disciple:sfx',{detail:Object.assign({k},o||{})})); }catch(_){} }
+function haptic(ms){ try{ if(typeof navigator!=='undefined'&&navigator.vibrate) navigator.vibrate(ms); }catch(_){} }
+function GF(px,w){ return `${w||700} ${px}px ${GAME_FAMILY}`; }
+const UI_FAMILY=((typeof __UI_FONT!=='undefined'&&typeof __UI_FONT==='string'&&__UI_FONT.trim())?__UI_FONT.trim()+',':'')+"'Geist',system-ui,sans-serif";   /* brand v3 body face for small canvas copy */
+S.pro=(()=>{ try{ return localStorage.getItem('disciple.hud')==='pro'; }catch(_){ return false; } })();
+function hudState(){ try{ dispatchEvent(new CustomEvent('disciple:hudstate',{detail:{pro:!!S.pro}})); }catch(_){} }
+function setHudMode(pro){ S.pro=!!pro; try{ localStorage.setItem('disciple.hud',S.pro?'pro':'pilot'); }catch(_){} hudState(); }
+addEventListener('disciple:hudmode',e=>{ const d=e.detail||{}; if(typeof d.pro==='boolean') setHudMode(d.pro); else hudState(); });
+/* Difficulty badge (brand v3): the host's launch mode while the coin is on the curve, IN ORBIT once it graduated (the caps
+   switch off). Mode from disciple:coinrules (BondingCurve.mode(): 0 TRENCH = Expert, 1 PVE = Easy, 2 PVP = Hard). */
+const DIFF={1:{txt:'EASY',c:'#5FF0A0'},2:{txt:'HARD',c:'#FF7A3D'},0:{txt:'EXPERT',c:'#F0307F'}}, ORBIT_BADGE={txt:'IN ORBIT',c:'#F3DFA8'};
+function diffBadge(){ if(S.graduated) return ORBIT_BADGE; const r=S.coinRules; return r&&Number.isInteger(r.mode)&&DIFF[r.mode]||null; }
+function drawBadge(b,xr,yc){ if(!b) return 0; ctx.save(); ctx.font=GF(14,700); const tw=ctx.measureText(b.txt).width, w=tw+30, h=22, x=xr-w, y=yc-h/2;
+  ctx.fillStyle='rgba(11,12,14,.7)'; rrect(x,y,w,h,6); ctx.fill(); ctx.strokeStyle=b.c; ctx.lineWidth=1; rrect(x+.5,y+.5,w-1,h-1,6); ctx.stroke();
+  ctx.fillStyle=b.c; ctx.beginPath(); ctx.arc(x+12,yc,3,0,6.2832); ctx.fill(); ctx.fillStyle='#F2F3F7'; ctx.textAlign='left'; ctx.fillText(b.txt,x+20,yc+5); ctx.restore(); return w; }
 /* =====================================================================
    POOLED PARTICLES — fixed capacity, preallocated objects, swap-remove on death.
    No per-frame allocation. Hard caps: when full, a live slot is recycled (round-robin)
@@ -635,7 +660,7 @@ function onEvent(e){
     if (e.usd>0&&!e.mine) SIM.realRate+=1/30;   // real flow → simulated flow backs off
     if (e.usd>0){ if(!e.mine) queueThrust(e.side, e.usd, estimateImpactPct(e)); else momNote(e.side,e.usd);
       if(!isHiddenTrader(e.trader)) S.feed.unshift(feedTradeRow(e.side,e.usd,e.mine?(isLive()?'(you)':'(you·paper)'):e.trader?null:'#'+e.block,e.trader,e.ts,e.timeObserved!==false)); }   // names: nameOf (relabelled on disciple:names)
-    if (e.usd>0 && !e.mine && e.trader && !isHiddenTrader(e.trader) && !CLEAN && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${nameOf(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
+    if (S.pro && e.usd>0 && !e.mine && e.trader && !isHiddenTrader(e.trader) && !CLEAN && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${nameOf(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
     S.feed.length=Math.min(S.feed.length,7);
   }
   else if (e.t==='depth'){ S.levels=e.levels; }
@@ -830,17 +855,17 @@ addEventListener('disciple:gradneed',e=>{ const d=e.detail||{}, u=d.usd; S.gradN
    tier progress bar, no "buys needed" / "to ascend" text, an ASCENDED badge instead (desktop tier bar). User-facing word since
    lee's Oct 30 rename: ASCENDED (identifiers / contract + API names keep "graduated"). */
 S.graduated=false; S.gradInfo=null;
-const GRAD_BADGE='ASCENDED';   // pass 3 #2 (lee): the word only — no 'trading on Uniswap' (chat row = lib/flight/tiers GRAD_BADGE)
-const ASCENDED='ASCENDED';   // the graduated state, as players read it (tier line: 'ASCENDED · LAUNCH PAD')
-function setGraduated(on,d){ S.graduated=!!on; if(on){ S.gradNeedUsd=null; const g=S.gradInfo||{};
+const GRAD_BADGE='IN ORBIT';   // brand v3 (Nov 2026): graduated = IN ORBIT (was ASCENDED); the word only, no 'trading on Uniswap'
+const ASCENDED='IN ORBIT';   // the graduated state, as players read it (tier line: 'IN ORBIT · LAUNCH PAD'); name kept for callers
+function setGraduated(on,d){ const was=!!S.graduated; S.graduated=!!on; if(on&&!was&&S.t>4&&S.confirmed&&S.confirmed.mcap>0) startOrbitFx(); if(on){ S.gradNeedUsd=null; const g=S.gradInfo||{};
     S.gradInfo={poolId:d&&typeof d.poolId==='string'?d.poolId:g.poolId||null,graduatedAt:d&&Number.isFinite(+d.graduatedAt)&&+d.graduatedAt>0?+d.graduatedAt:g.graduatedAt||null}; }
   else S.gradInfo=null;
   try{ if(typeof source!=='undefined'&&source&&source instanceof DiscipleSource) source.graduated=!!on; }catch(_){ } }
 /* tier-bar need line (pure, tested in scripts/test-grad-fix.mjs): exact "$X to ascend" when the curve read has it, else the HUD
    estimate marked "≈ … (est.)" — never both, never "≈$0", nothing once graduated. */
 function tierNeedText(m,nx,o){ if(!nx||o.graduated) return '';
-  if(o.exact!=null&&o.exact>0&&m<TB_M1) return `${fmtNeed(o.exact)} to ascend`;
-  const need=o.est; return need>0&&isFinite(need)?`≈${fmtNeed(need)} buys needed (est.)`:''; }
+  if(o.exact!=null&&o.exact>0&&m<TB_M1) return `${fmtNeed(o.exact)} to orbit`;
+  const need=o.est; return need>0&&isFinite(need)?`≈${fmtNeed(need)} of boosts to go`:''; }
 /* position tag near the rocket: values from PnlHud (lib/pnl.ts view()), P toggles */
 S.pnlTag=null; S.pnlTagOn=(()=>{ try{ return localStorage.getItem('disciple.pnltag')!=='off'; }catch(_){ return true; } })();
 addEventListener('disciple:pnlview',e=>{ S.pnlTag=e.detail||null; });
@@ -996,6 +1021,9 @@ function submit(side,usd,force,opt,pct){
   const prevP=pendingTip(), from=prevP?prevP.proj:S.confirmed.mcap;
   const proj = source.impact? from*srcImpact(S.tradeUsd,side) : from;
   const p={id:Math.random(),side,usd:S.tradeUsd,proj,from,t0:now,state:'pending',gradBuy:isAscensionBuy(side,S.tradeUsd,from,proj)}; S.pending.push(p); pushInFlight();
+  /* @ignite (phase 1): the press is answered in THIS frame — a nozzle flash + shock ring, the engine spools up, a sound and a
+     haptic. Visual only: the price, the PnL and the altitude still wait for the real fill (REAL FILL ONLY stands). */
+  S.ignite={t:S.t,side}; sfx('ignite',{side,usd:S.tradeUsd}); haptic(side==='buy'?14:[8,30,8]);
   // the rocket heads for the ghost NOW (visual only, ≤ BA_CAP before the receipt; @boostanim). Its own segment: previous ghost → this one
   const sf=isLive()?1:(S.simF||1);
   const ba=baStart(S.boostAnim||(S.boostAnim=[]), mcapToAlt(from*sf), mcapToAlt(proj*sf), now); p.ba=ba;
@@ -1019,6 +1047,7 @@ function submit(side,usd,force,opt,pct){
     baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim, r&&r.txHash);
     if(!(r&&r.ok)&&p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }   // later ghosts drop by the failed step   // ok → completes to the ghost; fail → eases back (this trade's share only)
     fillThrust(side,p.usd,pct,r);   // the rocket reacts to the REAL fill only (was: thrust + flare at the click)
+    if(r&&r.ok){ S.fillFx={t:S.t,side}; sfx('fill',{side}); } else if(!(r&&r.unknown)){ S.sputter=S.t; spawnPuff(); sfx('fail'); }
     if(r.ok&&r.sim){ S.balance=r.balance; pushPaperCash(); dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply||1e6,gas:0,at:r.at,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // SIMULATOR: exact sim fill (frac: a % sell closes exactly that share of the bag)
     else if(r.ok&&r.exact){   // PAPER (mock / DISCIPLE, no wallet): exact curve/pool fill — spent $ (a curve-completing buy is refunded the rest), sell proceeds net of the fee
       S.balance+=(side==='buy'?-r.usd:r.net); pushPaperCash();
@@ -1263,8 +1292,18 @@ function drawBg(){
     for(let j=0;j<BG_STRIPS;j++){ const a0=top+F*j/BG_STRIPS, a1=top+F*(j+1)/BG_STRIPS; if(a1<0||a0>H) continue;
       const u=(j+0.5)/BG_STRIPS, al=1-u*u*(3-2*u); ctx.globalAlpha=al; plateRows(T,a0,a1,oy,x0); }
     ctx.globalAlpha=1; }
-  ctx.fillStyle='rgba(8,10,34,.30)'; ctx.fillRect(0,0,W,H);
+  skyGrade();
 }
+/* SKY GRADE (phase 1, brand v3): cools the lavender plates toward deep night blue (multiply), deepens the top of the frame,
+   and lays one soft gold key light from the upper right (screen), so every zone shares the moodboard's light. Gradients are
+   cached per canvas size; 3 full-screen fills per frame, no read-back. */
+const SKYG={k:''};
+function skyGrade(){ const k=W+'x'+H; if(SKYG.k!==k){ SKYG.k=k;
+    const v=ctx.createLinearGradient(0,0,0,H); v.addColorStop(0,'rgba(6,8,22,.42)'); v.addColorStop(0.55,'rgba(10,12,30,.16)'); v.addColorStop(1,'rgba(11,12,14,.30)'); SKYG.v=v;
+    const r=Math.max(W,H); const gk=ctx.createRadialGradient(W*0.78,H*0.08,0,W*0.78,H*0.08,r*0.75); gk.addColorStop(0,'rgba(242,193,78,.20)'); gk.addColorStop(0.35,'rgba(242,193,78,.07)'); gk.addColorStop(1,'rgba(242,193,78,0)'); SKYG.g=gk; }
+  ctx.save(); ctx.globalCompositeOperation='multiply'; ctx.fillStyle='rgb(150,165,225)'; ctx.fillRect(0,0,W,H);
+  ctx.globalCompositeOperation='source-over'; ctx.fillStyle=SKYG.v; ctx.fillRect(0,0,W,H);
+  ctx.globalCompositeOperation='screen'; ctx.fillStyle=SKYG.g; ctx.fillRect(0,0,W,H); ctx.restore(); }
 /* Sky tint per tier plate (average colour, sampled once per image) → rocket rim light + cloud shading */
 const SKY_RGB=new Map();
 function skyRGB(idx){ const key=plateOf(idx); let c=SKY_RGB.get(key); if(c) return c;
@@ -1317,8 +1356,8 @@ function cloudCircles(seed,r,w,base){ const n=5+(seed%3), circ=[];
 function cloudRecolor(c,fill){ const l=document.createElement('canvas'); l.width=c.width; l.height=c.height; const lg=l.getContext('2d');
   lg.drawImage(c,0,0); lg.globalCompositeOperation='source-in'; lg.fillStyle=fill; lg.fillRect(0,0,l.width,l.height); return l; }
 const celHi=()=>clamp(((S.bgU!=null?S.bgU:bandOf(S.displayAlt))-4)/4,0,1);   // 0 below PEARLY GATES → 1 from HEAVENLY HOST up
-const CEL_PAL=[['#D6D1EE','#A49DD2','#6C679A'],['#E4E0F6','#B4ACDF','#7A72AC'],['#F2EFFB','#C5BDEA','#887FBD']];        // lit / body / shadow per depth
-const CEL_NIGHT=[['#ECE9FF','#9890CC','#4C4878'],['#F3F1FF','#A79FDA','#555085'],['#FAF9FF','#B5ADE6','#5E5892']];      // high tiers: more contrast
+const CEL_PAL=[['#C9CFE6','#7F8BB8','#3F4A78'],['#DCE0F0','#919DC8','#4A5687'],['#F1F0EC','#A9B2D6','#56628F']];   /* brand v3: pearl / periwinkle / indigo (was pastel lavender) */        // lit / body / shadow per depth
+const CEL_NIGHT=[['#E6E9F6','#7C88B8','#2F3862'],['#EEF0F8','#8B97C6','#38426F'],['#FFF6DC','#9CA7D2','#414C7C']];      // high tiers: more contrast
 function celLayer(seed,r,li,pal,night){
   const w=Math.ceil(r*3.8), h=Math.ceil(r*2.1), base=h*0.86, PX=0.5, circ=cloudCircles(seed,r,w,base);
   const mk=()=>{ const c=document.createElement('canvas'); c.width=Math.round(w*PX); c.height=Math.round(h*PX); const g=c.getContext('2d'); g.scale(PX,PX);
@@ -1473,8 +1512,8 @@ function drawRocket(dt){
     if(im.complete&&!im.bad) ctx.drawImage(im,-w/2,-pivotY,w,h);
     ctx.restore(); ctx.save(); ctx.strokeStyle=p.side==='buy'?'rgba(140,255,200,.6)':'rgba(255,150,190,.6)'; ctx.setLineDash([4,6]);
     ctx.beginPath(); ctx.moveTo(x+w/2+8,y); ctx.lineTo(x+w/2+8,gy); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle=ctx.strokeStyle; ctx.font='11px ui-monospace,monospace';
-    ctx.fillText((p.state==='pending'?'PENDING ':p.state==='confirmed'?'CONFIRMED ':'FAILED ')+(p.side==='buy'?'+':'-')+fmtUsd(p.usd), x+w/2+14, gy); ctx.restore();
+    ctx.fillStyle=ctx.strokeStyle; ctx.font=GF(15,700);
+    ctx.fillText((p.state==='pending'?(p.side==='buy'?'BOOSTING ':'DUMPING '):p.state==='confirmed'?'LANDED ':'MISSED ')+fmtUsd(p.usd), x+w/2+14, gy+5); ctx.restore();
   }
   // exhaust (procedural): leaves the nozzle opposite the nose
   const braking=S.pending.some(p=>p.side==='sell'&&p.state==='pending');
@@ -1493,7 +1532,12 @@ function drawRocket(dt){
     ctx.restore(); }
   // engine core bloom at nozzle
   ctx.globalAlpha=clamp(0.55*flame*flick*FXG,0,1); blit(CORE_SPR,x,y,Math.min(90,40+45*flame)*flick*Math.sqrt(FXG));   // glow stat: bloom alpha + size
+  { const ig=S.ignite, u=ig?(S.t-ig.t)/0.42:9; if(u<1){ const e=1-u;   /* @ignite: press-frame flash + spool bloom (visual only) */
+      ctx.globalAlpha=0.9*e*e; blit(CORE_SPR,x,y,(46+70*u)*Math.sqrt(FXG)); ctx.globalAlpha=0.5*e; blit(HOT,x,y+10,30+50*u); } }
+  { const fx=S.fillFx, u=fx?(S.t-fx.t)/0.55:9; if(u<1){ ctx.globalAlpha=0.55*(1-u); blit(CORE_SPR,x,y,60+40*u); } }
   ctx.restore();
+  { const ig=S.ignite, u=ig?(S.t-ig.t)/0.5:9; if(u<1){ ctx.save(); ctx.globalAlpha=0.75*(1-u)*(1-u);   /* @ignite shock ring */
+      ctx.strokeStyle=ig.side==='buy'?'rgba(243,223,168,1)':'rgba(240,48,127,1)'; ctx.lineWidth=2.5*(1-u)+0.5; ctx.beginPath(); ctx.ellipse(x,y+6,14+64*u,5+20*u,ang,0,6.2832); ctx.stroke(); ctx.restore(); } }
   // rocket — rotate about nozzle (aft). Nose leads; body trails. No center-spin / scaleX barrel-roll.
   if(im.complete&&!im.bad){
     const ow=Math.ceil(w), oh=Math.ceil(h), RB=rocketSprite(im,ow,oh), P=RB.pad;
@@ -1565,9 +1609,9 @@ function exhaustStep(dt){ const EP=exhaustParams(), {flick,flame}=EP; exhaustPar
     const p=S.particles.spawn(); p.x=tx+(Math.random()-.5)*10; p.y=ty; p.vx=-sa*sp+ca*j-(S.vxS||0)*0.3; p.vy=ca*sp+sa*j+(S.air||0)*0.6+Math.max(0,S.vyS||0)*0.4; p.life=0.7+Math.random()*0.45; p.dk=DK; p.s=(5+Math.random()*14*flame)*flick*LM; p.hot=Math.random()<0.45*(1-0.7*(exhaustParams.fall||0)); } }
 // faint 'your entry' altitude marker (set by the PnL HUD: window.__entryMcap)
 function drawEntryLine(){ const m=window.__entryMcap; if(!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
-  const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle=up?'rgba(143,240,192,.45)':'rgba(255,159,184,.45)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;
-  ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=ctx.strokeStyle; ctx.font='bold 11px ui-monospace,monospace';
-  ctx.fillText('YOUR ENTRY '+fmtUsd(m),W/2+60,y-6); ctx.restore(); }
+  const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle='rgba(242,193,78,.5)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;   /* brand gold: where YOU boarded */
+  ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=up?'#F2C14E':'#FF9CC4'; ctx.font=GF(13,700); if('letterSpacing' in ctx) ctx.letterSpacing='1px';
+  ctx.fillText('YOU BOARDED '+fmtUsd(m),W/2+60,y-6); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.restore(); }
 // ── TRAMPS & WALLS (graduated coins): individual small elements, sized by $ (log), compact $ tag.
 //    React pushes window.__trampWalls [{id,kind:'tramp'|'wall',mcap,lo,hi,sizeUsd,mine,status}] + window.__twPreview.
 //    Max ~8 nearest the price, same-level merged. Never over the rocket; no camera shake; heading untouched.
@@ -1592,11 +1636,30 @@ addEventListener('disciple:controlsdock',e=>{ S.controlsDocked=!!(e.detail&&e.de
 function pushControls(){ if(S.t-(S._ctlT??-9)<0.25) return; S._ctlT=S.t; const md=MODES[S.mode];
   const d={mode:fmtShot(md.usd),key:md.key,shot:fmtShot(md.usd),pending:S.pending.filter(p=>p.state==='pending').length,max:MAX_PENDING,turbo:source instanceof MockReplaySource?!!S.turbo:null,orbs:!!S.orbsOn,score:S.score,streak:S.streak,mult:S.mult};
   const sig=JSON.stringify(d); if(sig===S._ctlSig) return; S._ctlSig=sig; try{ dispatchEvent(new CustomEvent('disciple:controls',{detail:d})); }catch(_){} }
+/* @crewfeed: the DOM crew feed (components/gamechat/GameChat) shows trades and chat in one list. Trades are NOT chat (the chat
+   store drops trade lines, lib/server/chat/store isTradeLine), so the feed rows come from here: ≤4 Hz, only on change, newest first.
+   Each row keeps a stable id (assigned the first time it is published). side/usd/name parsed from the row text (feedTradeRow). */
+const FEED_RE=/^(▲ BOOST|▼ DUMP)\s+(\S+)\s+(.+)$/;
+function feedUsd(s){ const m=/^\$?([\d.,]+)([KMB])?/.exec(String(s||'')); if(!m) return 0; const v=parseFloat(m[1].replace(/,/g,'')); return v*({K:1e3,M:1e6,B:1e9}[m[2]]||1); }
+function pushFeed(){ if(S.t-(S._feedT??-9)<0.25) return; S._feedT=S.t;
+  const rows=S.feed.slice(0,12).map(r=>{ if(!r.fid) r.fid=(S._fid=(S._fid||0)+1); const txt=String(r.txt||''), m=FEED_RE.exec(txt);
+    return m?{id:r.fid,at:+r.at||0,side:m[1]==='▲ BOOST'?'buy':'sell',usd:feedUsd(m[2]),amt:m[2],who:m[3].trim(),own:!!r.own,ic:r.ic||null}
+           :{id:r.fid,at:+r.at||0,note:txt,err:!!r.err,ic:r.ic||null}; });
+  const sig=rows.map(r=>r.id+':'+(r.who||r.note)).join('|'); if(sig===S._feedSig) return; S._feedSig=sig;
+  try{ dispatchEvent(new CustomEvent('disciple:feed',{detail:{rows}})); }catch(_){} }
 function pushHolders(top,title){ if(S.t-(S._holdersT??-9)<0.5) return; S._holdersT=S.t; const rows=top.slice(0,10), sig=title+JSON.stringify(rows); if(sig===S._holdersSig) return; S._holdersSig=sig;
   const h=realHolders(), items=h?h.system.concat(h.items.slice(0,10)):undefined, me=h&&h.items.find(r=>r.mine);
   try{ dispatchEvent(new CustomEvent('disciple:holders',{detail:{title,rows,you:h?(me?me.usd:0):(S.fuelers&&S.fuelers.you||0),items,asOfBlock:h?h.asOfBlock:undefined}})); }catch(_){} }
 /* Real holders (S.holders from HoldersBridge): $ re-marked at the CURRENT mark from each row's share of supply, so the list
    moves with the price between balance refreshes. items = ranked holders, system = labelled pool / curve / locker rows. */
+/* Pro header line: 'Orbit at $33,333 · 22% there' (graduation = GRADUATION_MCAP, from the launch mcap) and, with real holders,
+   'N holders · top 10 hold X%' (S.holders from HoldersBridge: ≤50 ranked rows, pool / curve / locker rows excluded). */
+function drawProHeaderLine(m){ const y=164; ctx.strokeStyle='rgba(46,50,58,.9)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(36,y-16); ctx.lineTo(384,y-16); ctx.stroke();
+  const pct=Math.max(0,Math.min(1,(m-START_MCAP)/(GRADUATION_MCAP-START_MCAP)));
+  ctx.font='12px '+UI_FAMILY; ctx.fillStyle='rgba(215,217,228,.78)'; ctx.textAlign='left'; const a='Orbit at '+fmtUsd(GRADUATION_MCAP)+' · '; ctx.fillText(a,36,y);
+  ctx.fillStyle='#F3DFA8'; ctx.fillText(Math.round(pct*100)+'% there',36+ctx.measureText(a).width,y);
+  const h=realHolders(); if(h&&h.items.length){ const n=h.items.length, top=h.items.slice(0,10).reduce((s,r)=>s+(r.pct||0),0);
+    ctx.fillStyle='rgba(215,217,228,.78)'; ctx.textAlign='right'; ctx.fillText(`${n>=50?'50+':n} holders · top 10 hold ${Math.round(top)}%`,384,y); ctx.textAlign='left'; } }
 function realHolders(){ const h=S.holders; if(!h) return null; const m=markMcap()||0, me=myWallet();
   const map=r=>{ const mine=!!r.mine||(!!me&&r.address===me); const usd=r.pct>0&&m>0?r.pct/100*m:(+r.usd||0);
     return {who:mine?'you':(r.name||short(r.address)),address:r.address,usd,pct:+r.pct||0,label:r.label||null,mine}; };
@@ -1669,6 +1732,8 @@ function drawPost(){
   // (full-screen self-copy bloom removed: reading the canvas back every frame stalls the GPU pipeline;
   //  glow now comes from the cached additive sprites themselves)
   ctx.drawImage(VIGNETTE,0,0,W,H);   // cached vignette
+  { const u=S.zoneWash!=null?(S.t-S.zoneWash)/1.4:9; if(u<1){ ctx.save(); ctx.globalCompositeOperation='screen'; ctx.globalAlpha=0.5*Math.sin(Math.PI*Math.min(1,u*1.4))*(1-u);   /* zone arrival: soft gold wash from the top */
+      const g=ctx.createLinearGradient(0,0,0,H*0.6); g.addColorStop(0,'rgba(243,223,168,.55)'); g.addColorStop(1,'rgba(243,223,168,0)'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H*0.6); ctx.restore(); } }
   // grain
   const g=grain[(S.t*24|0)%4]; ctx.save(); ctx.globalCompositeOperation='overlay'; const ox=(Math.random()*256)|0, oy=(Math.random()*256)|0;
   for(let x=-ox;x<W;x+=256) for(let y=-oy;y<H;y+=256) ctx.drawImage(g,x,y); ctx.restore();
@@ -1679,8 +1744,9 @@ function glowText(t,x,y,glow,lw,a){ ctx.save(); ctx.lineJoin='round'; ctx.stroke
   for(const f of GLOW_STEPS){ ctx.globalAlpha=g; ctx.lineWidth=lw*f; ctx.strokeText(t,x,y); } ctx.restore(); ctx.fillText(t,x,y); }   // 3 soft rings ≈ blur halo
 const GLOW_STEPS=[1.6,1.0,0.5];
 /* MOMENTUM widget: candle window, arrow along the nose, buy-vs-sell pressure bar, turn-around cue */
-function panel(x,y,w,h){ ctx.save(); ctx.fillStyle='rgba(8,10,28,.62)'; ctx.strokeStyle='rgba(220,230,255,.18)'; ctx.lineWidth=1;
-  ctx.beginPath(); ctx.roundRect? ctx.roundRect(x,y,w,h,10) : ctx.rect(x,y,w,h); ctx.fill(); ctx.stroke(); ctx.restore(); }
+function panel(x,y,w,h){ ctx.save(); ctx.fillStyle='rgba(18,19,39,.78)'; ctx.strokeStyle='#2E323A'; ctx.lineWidth=1;   /* brand v3 HUD glass (lib/game/hudStyle) */
+  ctx.beginPath(); ctx.roundRect? ctx.roundRect(x+.5,y+.5,w-1,h-1,16) : ctx.rect(x,y,w,h); ctx.fill(); ctx.stroke(); ctx.restore(); }
+function chipRect(x,y,w,h,r){ ctx.beginPath(); ctx.roundRect? ctx.roundRect(x,y,w,h,r) : ctx.rect(x,y,w,h); }
 
 /* @phone-hud v3: one floating glass pill under the top buttons — `$94.19M · CHERUBIM` + a thin progress line to the next tier,
    a 'SIM' tag in paper / simulated market (final, lee 11:29 CT), and the tier label (`34% to OUTER SPACE`) just under the pill. */
@@ -1690,14 +1756,14 @@ function drawPhonePill(m,ti,P){
   const {f,next:nx}=tierProgress(m,ti);
   const sim=source.isSim||!isLive();   // 'SIM' tag: paper / sim mode
   ctx.save(); ctx.textBaseline='middle'; if('letterSpacing' in ctx) ctx.letterSpacing='0.6px';
-  ctx.font=`bold 15px ${PH_FONT}`; const a=fmtUsd(m), b=tierName(ti), wa=ctx.measureText(a).width, wd=ctx.measureText('·').width, wb=ctx.measureText(b).width;
+  ctx.font=GF(19,700); const a=fmtUsd(m), b=tierName(ti), wa=ctx.measureText(a).width, wd=ctx.measureText('·').width, wb=ctx.measureText(b).width;
   ctx.font=`800 10px ${PH_FONT}`; const wt=sim?ctx.measureText('SIM').width+12:0;
   const h=46, w=Math.ceil(Math.min(W-32,20+wa+10+wd+10+wb+(sim?10+wt:0)+20)), x=Math.round((W-w)/2), y=Math.round(P.pillTop);
   S.phonePill={x,y,w,h};
   ctx.save(); ctx.shadowColor='rgba(0,0,0,.55)'; ctx.shadowBlur=30; ctx.shadowOffsetY=10; ctx.fillStyle='rgba(16,18,34,.66)'; rrect(x,y,w,h,20); ctx.fill(); ctx.restore();
   ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=1; rrect(x+.5,y+.5,w-1,h-1,20); ctx.stroke();
   ctx.strokeStyle='rgba(255,255,255,.07)'; ctx.beginPath(); ctx.moveTo(x+18,y+1.5); ctx.lineTo(x+w-18,y+1.5); ctx.stroke();
-  const ty=y+19; let tx=x+20; ctx.font=`bold 15px ${PH_FONT}`;
+  const ty=y+19; let tx=x+20; ctx.font=GF(19,700);
   ctx.fillStyle='#EEF1FA'; ctx.fillText(a,tx,ty); tx+=wa+10; ctx.fillStyle='rgba(214,222,245,.56)'; ctx.fillText('·',tx,ty); tx+=wd+10;
   ctx.fillStyle='#FFD873'; const room=x+w-20-(sim?10+wt:0)-tx; let nm=b; while(nm.length>3&&ctx.measureText(nm).width>room) nm=nm.slice(0,-1);
   if(nm!==b) nm=nm.slice(0,-1)+'…'; ctx.fillText(nm,tx,ty); tx+=Math.min(wb,ctx.measureText(nm).width);
@@ -1820,16 +1886,19 @@ function drawHud(){
   // window.__coinIdH = its height, laid inside this card's top) + MARKET CAP label + the big mcap + TIER line + tier bar.
   // The card grows by that row; everything under it is drawn shifted down (translate), so the rest stays as before.
   const HY=coinIdRowH();
-  if (cardBegin('header',20,18,380,130+HY)){   /* @cards */
-  panel(20,18,380,130+HY); ctx.save(); ctx.translate(0,HY);
-  { const lbl=IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:source instanceof DiscipleSource?'MARKET CAP':(coinTicker()?'$'+coinTicker()+' · ':'')+'MARKET CAP · confirmed';
-    if(lbl){ ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(lbl,36,42); } }
-  ctx.fillStyle='#fff'; ctx.font='bold 40px ui-monospace,monospace'; glowText(fmtUsd(m),34,84,'rgb(180,200,255)',8,0.3);
-  ctx.fillStyle='#ffe7a3'; ctx.font='bold 14px ui-monospace,monospace'; ctx.fillText(tierText(ti),36,108);
+  const PROH=S.pro&&!PH&&!S.graduated&&!IS_POOL?28:0;   /* Pro: + the orbit / holders line (curve coins; a DEX pool has no orbit) */
+  if (cardBegin('header',20,18,380,130+HY+PROH)){   /* @cards */
+  panel(20,18,380,130+HY+PROH); ctx.save(); ctx.translate(0,HY);
+  { const lbl=IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}`:(coinTicker()&&!(source instanceof DiscipleSource)?'$'+coinTicker()+' · ':'')+'ALTITUDE';
+    if(lbl){ ctx.fillStyle='rgba(215,217,228,.72)'; ctx.font=GF(14,600); if('letterSpacing' in ctx) ctx.letterSpacing='2px'; ctx.fillText(lbl,36,40); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; } }
+  drawBadge(diffBadge(),384,36);   /* brand v3 difficulty badge: EASY / HARD / EXPERT, IN ORBIT after graduation */
+  ctx.fillStyle='#fff'; ctx.font=GF(46,800); glowText(fmtUsd(m),34,86,'rgb(243,223,168)',8,0.22);
+  ctx.fillStyle='#F3DFA8'; ctx.font=GF(20,700); ctx.fillText(tierText(ti),36,108);
   // pass 3 #2 (lee): no mode / cap text ('TRENCH · no cap') on the TIER line — the tier name (ASCENDED once, when ascended) only
   // progress to next tier
   const tierEnd=tierLineEnd(ti,t);   // @tier-label: the right-hand label never runs into the TIER line
   drawTierBar(m,ti,tierEnd);   /* HUD+ block */
+  if (PROH) drawProHeaderLine(m);
   ctx.restore(); ctx.restore(); } }
   if(!CLEAN){   /* clean (replay) mode: no status / KOTH / feed / controls / ammo text */
   // top-right column starts below the site's wallet strip + the Share/Exit row (FlightCanvas measures it)
@@ -1842,7 +1911,7 @@ function drawHud(){
   // DISCIPLE status box ('curve events / block # / HOLDING · no trades'): not on a coin page (lee, Oct 30 cleanup) —
   // TOP HOLDERS moves up into its slot (STATUS_DY = 0; FlightCanvas --ap-status-h keeps GameChat in step)
   const STATUS_BOX=!(source instanceof DiscipleSource), STATUS_DY=STATUS_BOX?100:0;
-  if (!PH&&STATUS_BOX){
+  if (!PH&&STATUS_BOX&&S.pro){
   panel(RX,RT,CW,92);
   const sinceSwap=(performance.now()-S.confirmed.lastSwapTs)/1000, holding=sinceSwap>1.5;
   ctx.fillStyle=S.status.ok?'#8ff0c0':'#ff8f8f'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText('● '+(S.status.source||source.name),RX+16,RT+24);
@@ -1855,10 +1924,11 @@ function drawHud(){
   pushHolders(top,kothTitle);   /* the chat panel's HOLDERS tab (GameChat) is the only desktop holders list (lee Oct 31): always current, ≤2 Hz on change */
   // Holders and Chat share the DOM card, including inside the phone Holders drawer.
   // bottom-left: trade feed (compact)
+  pushFeed();
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='feed') drawPhoneFeed(PH); }
-  else if (cardBegin('trades',20,H-160,310,140)){ const FX=20, FY=H, FW=310;
+  else if (!kothDockedNow()&&cardBegin('trades',20,H-160,310,140)){   /* the DOM crew feed (chat dock) lists the trades when it is open */ const FX=20, FY=H, FW=310;
   panel(FX,FY-160,FW,140); ctx.font='12px ui-monospace,monospace';
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADE HISTORY',FX+16,FY-138);
+  ctx.fillStyle=S.pro?'rgba(200,210,255,.7)':'#F3DFA8'; ctx.font=GF(16,700); ctx.fillText(S.pro?'TRADE HISTORY':'CREW FEED',FX+16,FY-137); ctx.font='12px ui-monospace,monospace';
   S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=FY-116+i*17, icon=r.ic?18:0, maxW=FW-32-74-icon;
     if(r.ic) drawIcon(r.ic,FX+16,fy-11,14,r.c);
     const parts=tradeRowParts(r);
@@ -1872,45 +1942,44 @@ function drawHud(){
   // Keyboard/status box removed. Keep control events and all working trade/keyboard handlers.
   if (S.controlsDocked) pushControls();
   let TOX=Math.round((W-300)/2), TOY=PH?PH.pillTop+(S.phoneTierLabel?76:58):136;   // achievement toasts: phone = under the MCAP pill
-  if (PH) AMMO_HIT.forEach(R=>{ R.x=-1e9; R.y=-1e9; R.w=0; R.h=0; }); else {   // phone v3: no canvas preset chips (amounts live in the BOOST / DUMP sheets)
+  if (PH||!S.pro) AMMO_HIT.forEach(R=>{ R.x=-1e9; R.y=-1e9; R.w=0; R.h=0; }); else {   // phone v3 + desktop Pilot: no canvas preset chips (amounts live in the bottom bar / BOOST + DUMP sheets); Pro keeps the panel
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
   const ax=LY.ax, ay=LY.ay; panel(ax,ay,AW,AH);   // @hud-layout (hudTopLayout)
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; ctx.fillText('· select ('+MODES[0].key+'–'+MODES[MODES.length-1].key+'), then BOOST / SPACE',ax+40,ay+16);
-  { const hv=S.ammoHover; ctx.textAlign='right';
+  ctx.fillStyle='#F3DFA8'; ctx.font=GF(15,700); if('letterSpacing' in ctx) ctx.letterSpacing='1.5px'; ctx.fillText('LOADOUT',ax+12,ay+17); if('letterSpacing' in ctx) ctx.letterSpacing='0px';
+  { const hv=S.ammoHover; ctx.textAlign='right'; ctx.font='12px '+UI_FAMILY;
     if(hv>=0&&hv<MODES.length){ const wt=S.buyWarn.texts[hv]; ctx.fillStyle=wt?(S.buyWarn.over[hv]?'#ffb0c8':'#ffe7a3'):'#9ff3c8'; ctx.fillText(wt||`click to select ${fmtShot(MODES[hv].usd)}`,ax+AW-12,ay+16); }
     else if(hv>=6&&hv<10){ const p=S.sellPresets[hv-6]; ctx.fillStyle=p&&p.on?(p.warnText?(p.over?'#ffb0c8':'#ffe7a3'):'#ffb0c8'):'rgba(255,176,200,.6)'; ctx.fillText(p&&p.on?(p.warnText||`click to select ${p.label}`):'NO TOKENS IN WALLET',ax+AW-12,ay+16); }
-    else { ctx.fillStyle='rgba(255,176,200,.5)'; ctx.fillText(HOTKEYS.sell.join()==='KeyZ,KeyX,KeyC,KeyV'?'SELL · Z/X/C/V select, SHIFT dump':'SELL · '+HOTKEYS.sell.map(hotkeyLabel).join('/')+' select, SHIFT dump',ax+AW-12,ay+16); }
+    else { ctx.fillStyle='rgba(215,217,228,.78)'; ctx.fillText('Pick an amount, then fire: SPACE boosts, SHIFT dumps',ax+AW-12,ay+16); }
     ctx.textAlign='left'; }
   MODES.forEach((q,i)=>{ const TW=82, bx=ax+50+i*86, by=ay+24, below=q.usd<MIN_SHOT&&!source.isSim, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=TW; R.h=30;   // 4 tiles, aligned over the 4 SELL tiles
-    ctx.fillStyle=sel?'rgba(255,231,163,.9)':hov?'rgba(255,255,255,.22)':'rgba(255,255,255,.08)'; ctx.fillRect(bx,by,TW,30);
-    ctx.strokeStyle=hov?'#fff':'rgba(255,255,255,.2)'; ctx.lineWidth=hov?2:1; ctx.strokeRect(bx,by,TW,30);
-    ctx.fillStyle=sel?'#1a1630':'#e8ecff'; ctx.font='bold 14px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(fmtShot(q.usd),bx+TW/2,by+20); ctx.textAlign='left';
+    ctx.fillStyle=sel?'#F2F3F7':hov?'rgba(255,255,255,.16)':'rgba(11,12,14,.6)'; chipRect(bx,by,TW,30,10); ctx.fill();
+    ctx.strokeStyle=sel?'#F2F3F7':hov?'rgba(255,255,255,.6)':'#2E323A'; ctx.lineWidth=1; chipRect(bx+.5,by+.5,TW-1,29,10); ctx.stroke();
+    ctx.fillStyle=sel?'#121327':'#F2F3F7'; ctx.font=GF(17,700); ctx.textAlign='center'; ctx.fillText(fmtShot(q.usd),bx+TW/2,by+21); ctx.textAlign='left';
     { const f=S.pressFx; if(f&&f.i===i&&S.t-f.t<0.35){ ctx.globalAlpha=0.7*(1-(S.t-f.t)/0.35); ctx.fillStyle='#9ff3c8'; ctx.fillRect(bx,by,TW,30); ctx.globalAlpha=1; ctx.fillStyle=sel?'#1a1630':'#e8ecff'; } }   // press flash
-    ctx.font='9px ui-monospace,monospace'; ctx.globalAlpha=0.6; ctx.fillText(q.key,bx+4,by+10); if(below){ ctx.textAlign='right'; ctx.fillText('min✗',bx+TW-3,by+27); ctx.textAlign='left'; } ctx.globalAlpha=1;
+    ctx.font=GF(11,600); ctx.globalAlpha=0.6; ctx.fillText(q.key,bx+6,by+11); if(below){ ctx.textAlign='right'; ctx.fillText('min✗',bx+TW-3,by+27); ctx.textAlign='left'; } ctx.globalAlpha=1;
     { const wt=S.buyWarn.tags[i]; if(wt){ ctx.font='bold 9px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle=sel?(S.buyWarn.over[i]?'#8a1238':'#5a3a00'):(S.buyWarn.over[i]?'#ffb0c8':'#ffe7a3'); ctx.fillText(wt,bx+TW-3,by+10); ctx.textAlign='left'; } } });   // price-move tag (warning only)
-  ctx.font='11px ui-monospace,monospace';
-  ctx.fillStyle=boostShort()||(activeBuyUsd()<MIN_SHOT&&!source.isSim)?'#ffb0c8':'#9ff3c8'; ctx.fillText(cashLineText(),ax+12,ay+72);
+  ctx.font='12px '+UI_FAMILY;
+  ctx.fillStyle=boostShort()||(activeBuyUsd()<MIN_SHOT&&!source.isSim)?'#FF9CC4':'#5FF0A0'; ctx.fillText(cashLineText(),ax+12,ay+72);
   // SELL row (moved up from the bottom bar): presets Z/X/C/V + gear → Swap settings
-  { const sy=ay+80, sh=20; ctx.font='bold 10px ui-monospace,monospace'; ctx.fillStyle='rgba(255,176,200,.75)'; ctx.fillText('SELL',ax+12,sy+14);
+  { const sy=ay+80, sh=20; ctx.font=GF(13,600); ctx.fillStyle='#FF7FB3'; ctx.fillText('DUMP',ax+12,sy+15);
     S.sellPresets.forEach((p,k)=>{ const bx=ax+50+k*86, R=AMMO_HIT[6+k], hov=S.ammoHover===6+k; R.x=bx; R.y=sy; R.w=82; R.h=sh;
-      ctx.globalAlpha=p.on?1:0.45; ctx.fillStyle=p.sel?'rgba(255,176,200,.92)':hov?'rgba(160,50,80,.85)':'rgba(122,34,54,.55)'; ctx.fillRect(bx,sy,82,sh);   // selected = filled pink (like the gold buy tile)
+      ctx.globalAlpha=p.on?1:0.45; ctx.fillStyle=p.sel?'rgba(240,48,127,.32)':hov?'rgba(240,48,127,.2)':'rgba(11,12,14,.6)'; chipRect(bx,sy,82,sh,8); ctx.fill();   // selected = pink (brand signal-down)
       { const f=S.pressFx; if(f&&f.i===6+k&&S.t-f.t<0.35){ ctx.globalAlpha=0.7*(1-(S.t-f.t)/0.35); ctx.fillStyle='#ffd0dc'; ctx.fillRect(bx,sy,82,sh); ctx.globalAlpha=p.on?1:0.4; } }
-      ctx.strokeStyle=p.sel?'#fff':hov?'#ffd0dc':'rgba(255,176,200,.25)'; ctx.lineWidth=p.sel?2:1; ctx.strokeRect(bx+.5,sy+.5,81,sh-1); ctx.lineWidth=1;
-      ctx.fillStyle=p.sel?'#3a0f1c':'#ffd0dc'; ctx.fillText(String(p.label).slice(0,9),bx+6,sy+14); ctx.fillStyle=p.sel?'rgba(58,15,28,.7)':'rgba(255,208,220,.55)'; ctx.textAlign='right'; ctx.fillText(p.key,bx+77,sy+14);
+      ctx.strokeStyle=p.sel?'#F0307F':hov?'#FF9CC4':'#2E323A'; ctx.lineWidth=1; chipRect(bx+.5,sy+.5,81,sh-1,8); ctx.stroke();
+      ctx.font=GF(14,700); ctx.fillStyle=p.sel?'#FFC2DA':'#F2F3F7'; ctx.fillText(String(p.label).slice(0,9),bx+8,sy+15); ctx.font=GF(11,600); ctx.fillStyle='rgba(255,208,220,.6)'; ctx.textAlign='right'; ctx.fillText(p.key,bx+76,sy+15); ctx.font=GF(14,700);
       if(p.on&&p.warn){ ctx.font='bold 9px ui-monospace,monospace'; ctx.fillStyle=p.sel?'#3a0f1c':(p.over?'#ffb0c8':'#ffe7a3'); ctx.fillText(String(p.warn).slice(0,6),bx+66,sy+14); ctx.font='bold 10px ui-monospace,monospace'; }   // price-move tag (warning only)
       ctx.textAlign='left'; ctx.globalAlpha=1; });
     const gx=ax+AW-12-62, R=AMMO_HIT[10], hov=S.ammoHover===10; R.x=gx; R.y=sy; R.w=62; R.h=sh;
-    ctx.fillStyle=hov?'rgba(255,231,163,.3)':'rgba(255,255,255,.08)'; ctx.fillRect(gx,sy,62,sh); ctx.strokeStyle=hov?'#ffe7a3':'rgba(255,231,163,.35)'; ctx.strokeRect(gx+.5,sy+.5,61,sh-1);
-    ctx.fillStyle='#ffe7a3'; drawIcon('gear',gx+10,sy+4,12,'#ffe7a3'); ctx.fillText('ADV',gx+10+15,sy+14); }
+    ctx.fillStyle=hov?'rgba(243,223,168,.22)':'rgba(11,12,14,.6)'; chipRect(gx,sy,62,sh,8); ctx.fill(); ctx.strokeStyle=hov?'#F3DFA8':'rgba(243,223,168,.35)'; chipRect(gx+.5,sy+.5,61,sh-1,8); ctx.stroke();
+    ctx.fillStyle='#F3DFA8'; drawIcon('gear',gx+9,sy+4,12,'#F3DFA8'); ctx.font=GF(13,700); ctx.fillText('SLIPPAGE',gx+9+15,sy+15); }
   TOX=Math.round(ax+(AW-300)/2); TOY=ay+118; }
-  S.toasts.slice(0,3).forEach((t,i)=>{ const a=clamp(t.life,0,1), y=TOY+i*58, tx=TOX; ctx.globalAlpha=a; panel(tx,y,300,50);
+  if (S.pro) S.toasts.slice(0,3).forEach((t,i)=>{ const a=clamp(t.life,0,1), y=TOY+i*58, tx=TOX; ctx.globalAlpha=a; panel(tx,y,300,50);
     ctx.fillStyle='#ffe7a3'; ctx.font='bold 13px ui-monospace,monospace'; drawIcon('star',tx+14,y+9,14,'#ffe7a3'); ctx.fillText('ACHIEVEMENT · '+t.title,tx+14+18,y+21); ctx.fillStyle='rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(t.sub,tx+14,y+39); ctx.globalAlpha=1; });
   }   /* end !CLEAN */
   // tier banner
-  if (S.tierBanner>0){ ctx.globalAlpha=clamp(S.tierBanner,0,1); ctx.textAlign='center'; ctx.fillStyle='#fff7df';
-    const BY=BANNER_Y, bn=tierName(S.tierShown); let fs=54; ctx.font=`bold ${fs}px Georgia,serif`; while(ctx.measureText(bn).width>W-120&&fs>24){ fs-=4; ctx.font=`bold ${fs}px Georgia,serif`; } glowText(bn,W/2,BY,'rgb(255,220,150)',14,0.3); ctx.font='16px ui-monospace,monospace'; glowText('ENTERED · '+fmtUsd(TIERS[S.tierShown].lo)+'+ MCAP',W/2,BY+30,'rgb(255,220,150)',6,0.3);
-    ctx.textAlign='left'; ctx.globalAlpha=1; }
-  S.flashes.forEach((fl,i)=>{ ctx.globalAlpha=clamp(fl.life,0,1); ctx.textAlign='center'; ctx.fillStyle=fl.c||'#fff'; ctx.font='bold 18px ui-monospace,monospace'; ctx.fillText(fl.txt,W/2,H*0.40-i*24); ctx.textAlign='left'; ctx.globalAlpha=1; });
+  if (S.tierBanner>0&&!(S.orbitFx!=null&&S.t-S.orbitFx<4.5)){ drawZoneCard(); }
+  drawOrbitCard();
+  S.flashes.forEach((fl,i)=>{ ctx.globalAlpha=clamp(fl.life,0,1); ctx.textAlign='center'; ctx.fillStyle=fl.c||'#fff'; ctx.font=GF(22,700); ctx.fillText(fl.txt,W/2,H*0.40-i*26); ctx.textAlign='left'; ctx.globalAlpha=1; });
   ctx.restore();
 }
 
@@ -2067,7 +2136,9 @@ function burst(x,y,n,spd,opt){ const fn=typeof opt==='function';
 function detonate(b){
   const x=b.x, y=bombY(b), k=b.T.k; b.y0=y; b.detAge=b.age; addShock(x,y,k);   // real blast point
   const who=b.trader||'—', lbl=`${b.T.name} −${b.pct>=10?b.pct.toFixed(0):b.pct.toFixed(1)}%${b.fullStack?' · FULL STACK':''} · ${who}${b.usd>0?' '+(b.usd<10?fmtShot(b.usd):fmtUsd(b.usd)):''}${b.n>1?' ×'+b.n:''}`;
-  S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0});
+  if (S.pro||b.tier>=4){ if(!S.pro) S.bombLabels.length=0; S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0}); if(S.bombLabels.length>2) S.bombLabels.shift(); }
+  { for(let i=0;i<Math.min(5,S.feed.length);i++){ const r=S.feed[i]; if(r&&r.t&&r.c==='#ffb0c8'&&!r.ic){ r.ic=BOMB_ICON[b.tier]||'bomb-puff'; r.bomb=b.T.name; break; } } }   /* crew feed: the sell row carries its bomb icon */
+  sfx('bomb',{tier:b.tier});
   if (k==='grenade'){
     burst(x,y,16,320,{k:'streak',r:1.6,life:0.45,max:0.45,drag:5,c:'255,236,170'});
     burst(x,y,8,60,{k:'smoke',r:7,gr:30,life:0.9,max:0.9,drag:2,c:'90,80,80',a:0.45});
@@ -2179,11 +2250,11 @@ function drawMushroom(b,x,y,t){
 function drawBombScreen(){ // un-shaken overlays: flash + label pops
   if (S.screenFlash){ const f=S.screenFlash, u=(S.t-f.t0)/f.dur; if(u>=1) S.screenFlash=null; else { ctx.fillStyle=`rgba(${f.c},${f.a*Math.pow(1-u,1.6)})`; ctx.fillRect(0,0,W,H); } }
   for (const l of S.bombLabels){ const pop=l.age<0.18?0.6+0.55*(l.age/0.18):1.15-0.15*Math.min(1,(l.age-0.18)/0.15), a=clamp((l.life-l.age)/0.5,0,1);
-    const fs=[13,15,18,21,25,30][l.tier]; ctx.save(); ctx.globalAlpha=a; ctx.font=`bold ${fs}px Georgia,serif`; ctx.textAlign='center';
+    const fs=[15,17,20,24,30,38][l.tier]; ctx.save(); ctx.globalAlpha=a; ctx.font=GF(fs,800); ctx.textAlign='center';
     // tier icon (DISCIPLE bomb family) + 6-orb tier meter (reached = solid) lead the label; text unchanged
     const tw=ctx.measureText(l.txt).width, ih=Math.round(fs*1.15), mh=Math.round(Math.max(12,fs*0.8)), iw=ih, mw=iconW('meter-orbs-1',mh), gap=Math.round(fs*0.3), lead=iw+gap+mw+gap*1.4;
-    const w=tw+lead, lx=clamp(l.x,w/2+20,W-w/2-20), ly=clamp(l.y-90-l.age*18-(l.tier>=5?120:0),BANNER_Y+50,H-30);
-    ctx.translate(lx,ly); ctx.scale(pop,pop);
+    const w=tw+lead, fit=Math.min(1,(W-40)/(w+24)), lx=clamp(l.x,Math.min(W/2,w*fit/2+20),Math.max(W/2,W-w*fit/2-20)), ly=clamp(l.y-90-l.age*18-(l.tier>=5?120:0),BANNER_Y+50,H-30);
+    ctx.translate(lx,ly); ctx.scale(pop*fit,pop*fit);   /* fit: never wider than the screen (phone: ATOM BOMB ran off the edge) */
     ctx.fillStyle='rgba(10,8,20,.62)'; ctx.beginPath(); ctx.roundRect?ctx.roundRect(-w/2-12,-fs*0.95,w+24,fs*1.45,8):ctx.rect(-w/2-12,-fs*0.95,w+24,fs*1.45); ctx.fill();
     const col=l.tier>=5?'#fffdf2':'#ffd77a', cy=-fs*0.95+fs*1.45/2, x0=-w/2;
     drawIcon(BOMB_ICON[l.tier]||'bomb-puff',x0,cy-ih/2,ih,col); drawIcon('meter-orbs-'+((l.tier|0)+1),x0+iw+gap,cy-mh/2,mh,col);
@@ -2494,7 +2565,7 @@ function simStep(stepDt){
   if(S.t>S.multUntil) S.mult=1;
   for (const f of S.floaters){ f.y-=40*dt; f.life-=dt*0.9; } keepIf(S.floaters,ALIVE);
   // tier change banner
-  const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; if(ti>S.tierShown){ S.grassCard=4.5; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } /* only a CLIMB is a crossing */ } S.tierShown=ti; HOOK('tier',{tier:ti,name:TIERS[ti].name}); }
+  const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; S.tierUp=ti>S.tierShown; if(S.tierUp){ S.zoneWash=S.t; sfx('zone',{tier:ti}); } if(ti>S.tierShown){ S.grassCard=4.5; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } /* only a CLIMB is a crossing */ } S.tierShown=ti; HOOK('tier',{tier:ti,name:TIERS[ti].name}); }
   S.tierBanner=Math.max(0,S.tierBanner-dt); S.grassCard=Math.max(0,(S.grassCard||0)-dt);
   // particles
   { const P=S.particles; for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*(p.dk||2.2); if(p.life<=0) P.kill(i); } }   // dk: launch stat (plume lifetime)
@@ -2596,7 +2667,35 @@ function tierProgress(m,ti){ const nx=TIERS[ti+1]||null;
   return { f:nx?clamp((m>0?m:0)/nx.lo,0,1):1, next:nx }; }
 function tierUpPct(m,nx){ return nx&&m>0?Math.max(0,(nx.lo/m-1)*100):null; }
 function fmtUpPct(p){ return p>=9.95?String(Math.round(p)):Math.max(0.1,Math.ceil(p*10)/10).toFixed(1); }   // ≥10: whole %, else 1 dp rounded UP (never "+0%")
-function tierLineEnd(ti){ ctx.save(); ctx.font='bold 14px ui-monospace,monospace'; const e=36+ctx.measureText(tierText(ti)).width; ctx.restore(); return e; }   // tier text only (no rules text, pass 3 #2)
+function tierLineEnd(ti){ ctx.save(); ctx.font=GF(20,700); const e=36+ctx.measureText(tierText(ti)).width; ctx.restore(); return e; }   // tier text only (no rules text, pass 3 #2)
+/* GRADUATION SET PIECE (phase 1): the coin leaves the curve live (not on load) → a pearl flash, a gold shock ring off the
+   rocket, the 'IN ORBIT' card for 4.5 s and the orbit sting. window.__flightOrbit() plays it for previews / tests. */
+function startOrbitFx(){ S.orbitFx=S.t; S.tierBanner=0; S.screenFlash={t0:S.t,dur:1.1,a:0.7,c:'255,246,220'}; sfx('orbit'); haptic([20,40,60]);
+  try{ dispatchEvent(new CustomEvent('disciple:orbit',{detail:{at:Date.now()}})); }catch(_){} }
+function drawOrbitCard(){ const age=S.orbitFx!=null?S.t-S.orbitFx:99; if(age>4.5) return;
+  const a=clamp(age/0.3,0,1)*clamp((4.5-age)/0.8,0,1), BY=BANNER_Y+20;
+  ctx.save();
+  { const u=clamp(age/1.6,0,1); ctx.globalAlpha=0.8*(1-u); ctx.strokeStyle='#F2C14E'; ctx.lineWidth=3*(1-u)+1; ctx.beginPath(); ctx.arc(S.x,S.ry,30+Math.max(W,H)*0.6*u,0,6.2832); ctx.stroke();
+    ctx.globalAlpha=0.5*(1-u); ctx.strokeStyle='#FFF6DC'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(S.x,S.ry,20+Math.max(W,H)*0.42*u,0,6.2832); ctx.stroke(); }
+  ctx.globalAlpha=a; ctx.textAlign='center';
+  let fs=Math.min(110,Math.max(52,W*0.1)); ctx.font=GF(fs,800); while(ctx.measureText('IN ORBIT').width>W-48&&fs>30){ fs-=4; ctx.font=GF(fs,800); }
+  ctx.font=GF(17,700); ctx.fillStyle='#F2C14E'; if('letterSpacing' in ctx) ctx.letterSpacing='5px'; ctx.fillText('GRADUATED',W/2,BY-fs*0.8-14); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.font=GF(fs,800);
+  ctx.fillStyle='#FFFFFF'; glowText('IN ORBIT',W/2,BY+(1-clamp(age/0.4,0,1))*18,'rgb(242,193,78)',18,0.32);
+  ctx.font=GF(18,600); ctx.fillStyle='rgba(243,223,168,.92)'; ctx.fillText('Caps off. Keep climbing.',W/2,BY+40);
+  ctx.restore(); }
+/* ZONE ARRIVAL CARD (phase 1): a game location reveal on every zone change, Barlow Condensed. A climb gets the gold
+   kicker 'ZONE 06 / 18', a rule that draws out, a sound sting and a soft gold wash from the top (drawPost); a drop reads
+   'DROPPED TO' in the dump colour, no sting. S.tierBanner counts down from 2.2 s (simStep). */
+function drawZoneCard(){ const k=S.tierShown, bn=tierName(k); if(!bn) return;
+  const age=2.2-S.tierBanner, inA=clamp(age/0.25,0,1), a=Math.min(inA,clamp(S.tierBanner/0.6,0,1)), up=S.tierUp!==false, BY=BANNER_Y+10;
+  ctx.save(); ctx.globalAlpha=a; ctx.textAlign='center';
+  const kick=up?`ZONE ${String(k+1).padStart(2,'0')} / ${TIERS.length}`:'DROPPED TO';
+  let fs=Math.min(84,Math.max(40,W*0.075)); ctx.font=GF(fs,800); while(ctx.measureText(bn).width>W-48&&fs>26){ fs-=4; ctx.font=GF(fs,800); }
+  ctx.font=GF(17,700); ctx.fillStyle=up?'#F2C14E':'#F0307F'; if('letterSpacing' in ctx) ctx.letterSpacing='4px'; ctx.fillText(kick,W/2,BY-fs*0.8-12); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.font=GF(fs,800);
+  const rise=(1-inA)*14; ctx.fillStyle='#FFFFFF'; glowText(bn,W/2,BY+rise,up?'rgb(242,193,78)':'rgb(240,48,127)',14,0.28);
+  const rw=Math.min(W-80,ctx.measureText(bn).width)*clamp(age/0.6,0,1); ctx.fillStyle=up?'rgba(243,223,168,.8)':'rgba(240,48,127,.7)'; ctx.fillRect(W/2-rw/2,BY+16,rw,2);
+  ctx.font=GF(16,600); ctx.fillStyle='rgba(215,217,228,.85)'; ctx.fillText(fmtUsd(TIERS[k].lo)+' ALTITUDE',W/2,BY+40);
+  ctx.restore(); }
 /* @tier-name — ONE tier label for the sky, used by the desktop HUD, the phone pill and the tier banner: the tier NAME only,
    never a number (lee, Oct 30: "LAUNCH PAD", never "Tier 0"), from the TIERS ladder. The sky follows the CURRENT price, no
    floor (lee, Oct 26: "No, keep the tier following price"); an ascended (graduated) coin always shows its current tier too:
@@ -2618,16 +2717,16 @@ function drawTierBar(m,ti,leftEnd){
   const g=ctx.createLinearGradient(X,0,X+BW,0); g.addColorStop(0,'#c99b3c'); g.addColorStop(1,'#ffe7a3'); ctx.fillStyle=g; ctx.fillRect(X,Y,Math.max(2,BW*f),BH);
   ctx.fillStyle='rgba(255,255,255,.35)'; for(let i=1;i<4;i++) ctx.fillRect(X+BW*i/4,Y,1,BH);
   ctx.strokeStyle='rgba(255,231,163,.35)'; ctx.lineWidth=1; ctx.strokeRect(X+.5,Y+.5,BW-1,BH-1);
-  ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.6)';
+  ctx.font=GF(14,600); ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.66)';
   { let lb=tierLabel(m,nx); if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));   // long tier text: fall back to the bare %
     if(lb&&(leftEnd||0)+12<=384-ctx.measureText(lb).width) ctx.fillText(lb,384,108); }   // …and never over the TIER text
-  ctx.textAlign='left'; ctx.font='bold 10px ui-monospace,monospace';
-  if (nx){ ctx.fillStyle='rgba(220,228,255,.85)'; if(!S.graduated) ctx.fillText(`→ ${nx.name} ${fmtUsd(nx.lo)}`,X,Y+BH+13);
+  ctx.textAlign='left'; ctx.font=GF(14,600);
+  if (nx){ ctx.fillStyle='rgba(215,217,228,.85)'; if(!S.graduated) ctx.fillText(`NEXT · ${nx.name} ${fmtUsd(nx.lo)}`,X,Y+BH+15);
     // need line (GAME post-grad fix 2): the exact curve amount when TradeBridge has it ("$0.29 to ascend") and ONLY that; else
     // the HUD estimate, marked ≈ … (est.); amounts round UP to the cent (fmtNeed) — never "≈$0"; nothing once graduated
     const nt=tierNeedText(m,nx,{graduated:S.graduated,exact:S.gradNeedUsd,est:S.gradNeedUsd!=null&&m<TB_M1?0:usdToReach(m,nx.lo)}); S.tierNeedText=nt;
-    if(nt){ ctx.textAlign='right'; ctx.fillStyle=S.gradNeedUsd!=null&&m<TB_M1?'#9ff3c8':'rgba(159,243,200,.7)'; ctx.fillText(nt,384,Y+BH+13); ctx.textAlign='left'; } }
-  else { ctx.fillStyle='#ffe7a3'; drawIcon('star',X,Y+BH+3,12,'#ffe7a3'); ctx.fillText('TOP TIER',X+15,Y+BH+13); }
+    if(nt){ ctx.textAlign='right'; ctx.fillStyle=S.gradNeedUsd!=null&&m<TB_M1?'#5FF0A0':'rgba(95,240,160,.78)'; ctx.fillText(nt,384,Y+BH+15); ctx.textAlign='left'; } }
+  else { ctx.fillStyle='#F3DFA8'; drawIcon('star',X,Y+BH+4,12,'#F3DFA8'); ctx.fillText('TOP ZONE',X+15,Y+BH+15); }
 }
 
 /* ---- 2) chart-map: tiny dexscreener-style mcap candle chart in a game-map frame (M toggles) ----
@@ -2761,7 +2860,8 @@ const CHART_PNL_BOTTOM=456, CHART_PNL_GAP=8, CHART_MIN_H=100;
 function chartRect(){ const st=CHART_STYLE; if(CLEAN) return {x:20,y:H-20-st.h,h:st.h};
   if(domChart()){ delete CARD_RECTS.chart; return {x:-1e4,y:-1e4,w:st.w,h:st.h,off:1}; }
   { const P=phoneHud(W,CLEAN); if(P){ const B=P.body; return P.sheet==='chart'&&B?{x:Math.round(B.x),y:Math.round(B.y+4),w:Math.round(Math.max(st.w*0.8,B.w)),h:Math.round(Math.max(132,B.h-8))}:{x:-1e4,y:-1e4,w:st.w,h:st.h}; } }   /* post-grad fix 4: the CHART tab fills the drawer body */   /* @phone-hud: chart only inside the drawer's CHART tab */
-  if (source.isSim){ const y=Math.round(hudColTop(W,S.hudRT||18)+204), h=Math.round(clamp(H-116-y,132,st.h)); return {x:W-320,y,h}; }   /* /flight/sim: SimMode panel owns bottom-left; right column is free (no crew/chat) */
+  if (source.isSim){ const top=hudColTop(W,S.hudRT||18), y=Math.round(kothDockedNow()?top+100+420+12:top+204), room=H-116-y; if(room<132) return {x:-1e4,y:-1e4,h:132,off:1};
+    return {x:W-320,y,h:Math.round(Math.min(room,st.h))}; }   /* /flight/sim: SimMode panel owns bottom-left; right column: the crew feed (GameChat, ≤420 px) then the chart */
   { const b=chartDeskRect(H,st.h,typeof window!=='undefined'?window.__pnlBottom:null); if(b.off){ delete CARD_RECTS.chart; return b; }   /* @cards: movable / minimizable */
     const o=cardPlace('chart',b.x,b.y,st.w,b.h); return o?{x:b.x+o.dx,y:b.y+o.dy,h:b.h}:{x:-1e4,y:-1e4,h:b.h,off:1}; } }
 /* @chart-desk: desktop live chart box under the PnL card (pb = its bottom, wrap px) and above the trades feed (floor).
@@ -2858,7 +2958,7 @@ function redrawChart(dt){
    DEX chart (components/flight/DexChart.tsx, lightweight-charts: pan / zoom / price-axis drag built in). The canvas chart
    below only draws for CLEAN replays (share videos), the sim and pages without the DOM chart, at a fixed live window. */
 function drawChartMap(){
-  const C=chartState(); chartSample(); if(domChart()) return; { const P=phoneHud(W,CLEAN); if(P?P.sheet!=='chart':!C.on) return; }   /* @phone-hud: the CHART sheet shows it even with M off */
+  const C=chartState(); chartSample(); if(domChart()) return; { const P=phoneHud(W,CLEAN); if(P?P.sheet!=='chart':(!C.on||(!S.pro&&!CLEAN))) return; }   /* desktop Pilot: no chart card (Pro shows it; clean replays keep it) */   /* @phone-hud: the CHART sheet shows it even with M off */
   const st=CHART_STYLE; if(C.at<0||S.t-C.at>=1/st.hz||S.t<C.at){ const dt=C.at<0||S.t<C.at?0:S.t-C.at; C.at=S.t; redrawChart(dt); }   // cached: redrawn at st.hz (sim time), blitted every frame
   const r=chartRect(); if(r.off) return; ctx.save(); ctx.globalAlpha=st.alpha; ctx.drawImage(C.cv,r.x,r.y); ctx.restore();
 }
@@ -2929,22 +3029,21 @@ function flightReplay(o){ const w=window; if(w.__flightReplay) return w.__flight
   return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=(w.__DISCIPLE_BASE_PATH__||'')+'/flight/replay.js'; s.onload=()=>res(w.__flightReplay(o)); s.onerror=()=>rej(new Error('replay.js failed to load')); document.head.appendChild(s); }); }
 /* POSITION TAG — compact label beside the rocket (perpendicular to its axis, so never on the nose or the trail),
    eased toward its target each frame; values = PnlHud's lib/pnl.ts view() via disciple:pnlview. Shown only with a position. */
-function drawPnlTag(){ const v=S.pnlTag; if(!S.pnlTagOn||CLEAN_TAG()||!v||!(v.size>0)){ S._tagXY=null; return; }
+function drawPnlTag(){ const v=S.pnlTag; if(!S.pnlTagOn||(!S.pro&&!CLEAN)||CLEAN_TAG()||!v||!(v.size>0)){ S._tagXY=null; return; }   /* Pilot: the YOUR BAG card carries it */
   const [nx,ny]=nozzleXY(), h=S.heading, dx=Math.cos(h), dy=-Math.sin(h), cx=nx+dx*55, cy=ny+dy*55;   // body centre
   let px=-dy, py=dx; if(px<0){ px=-px; py=-py; } if(cx>W-360){ px=-px; py=-py; }                          // side away from the right HUD column
   const TW=196, TH=58, off=78; let tx=cx+px*off-(px<0?TW:0), ty=cy+py*off-TH/2;
   tx=clamp(tx,SAFE_LEFT,W-TW-12); ty=clamp(ty,HUD_BOTTOM,H-TH-170);
   const P=S._tagXY||(S._tagXY={x:tx,y:ty}); P.x+=(tx-P.x)*0.18; P.y+=(ty-P.y)*0.18;
-  const up=v.uPnl>=0, col=up?'#8ff0c0':'#ff9fb8', x=Math.round(P.x), y=Math.round(P.y);
-  ctx.save(); ctx.globalAlpha=0.92; ctx.fillStyle='rgba(8,10,24,.78)'; ctx.fillRect(x,y,TW,TH); ctx.fillStyle=col; ctx.fillRect(x,y,3,TH);
-  ctx.strokeStyle=up?'rgba(143,240,192,.45)':'rgba(255,159,184,.45)'; ctx.lineWidth=1; ctx.strokeRect(x+.5,y+.5,TW-1,TH-1);
-  ctx.textBaseline='alphabetic'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle=col;
+  const up=v.uPnl>=0, col=up?'#5FF0A0':'#FF7FB3', x=Math.round(P.x), y=Math.round(P.y);
+  ctx.save(); ctx.globalAlpha=0.94; ctx.fillStyle='rgba(18,19,39,.82)'; chipRect(x,y,TW,TH,10); ctx.fill();
+  ctx.strokeStyle=up?'rgba(95,240,160,.45)':'rgba(240,48,127,.5)'; ctx.lineWidth=1; chipRect(x+.5,y+.5,TW-1,TH-1,10); ctx.stroke();
+  ctx.textBaseline='alphabetic'; ctx.font=GF(16,700); ctx.fillStyle=col;
   const T=v.txt||{pnl:fmtPnlUsd(v.uPnl),pct:(v.pnlPct<0?'−':'+')+Math.abs(v.pnlPct).toFixed(1)+'%',pos:fmtMoney(v.valueUsd),realized:fmtPnlUsd(v.realized)};   // txt = lib/pnl.ts fmtPnl/fmtPct/fmtMoney
   ctx.fillText(`${T.pnl} ${T.pct}`,x+10,y+16);
-  ctx.font='10px ui-monospace,monospace'; ctx.fillStyle='rgba(230,236,255,.85)';
-  ctx.fillText(`POS ${T.pos} · ${fmtTok(v.size)}${coinTicker()?' '+coinTicker():''}`,x+10,y+31);
-  ctx.fillText(`ENTRY MC ${fmtUsd(v.entryMcap)}`,x+10,y+44);
-  ctx.fillStyle=v.realized>=0?'#8ff0c0':'#ff9fb8'; ctx.fillText(`REALIZED ${T.realized}`,x+10,y+55);
+  ctx.font='11px '+UI_FAMILY; ctx.fillStyle='rgba(215,217,228,.85)';
+  ctx.fillText(`Bag ${T.pos} · ${fmtTok(v.size)}${coinTicker()?' '+coinTicker():''}`,x+10,y+34);   /* boarded-at = the gold YOU BOARDED line */
+  ctx.fillStyle=v.realized>=0?'#5FF0A0':'#FF7FB3'; ctx.fillText(`Banked ${T.realized}`,x+10,y+50);
   ctx.restore(); }
 /* fallback mirror of lib/pnl.ts fmtMoney/fmtPnl (React normally sends preformatted txt) */
 function fmtMoney(v){ const a=Math.abs(v); return (v<0?'−':'')+'$'+(a>=1e12?(a/1e12).toFixed(2)+'T':a>=1e9?(a/1e9).toFixed(2)+'B':a>=1e6?(a/1e6).toFixed(2)+'M':a>=1e3?(a/1e3).toFixed(2)+'K':a.toFixed(2)); }
@@ -2991,6 +3090,7 @@ window.__flightMom=()=>({sec:TF.sec,pct:MOM.pct,press:MOM.press,buy:MOM.buy,sell
 function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){ source.mcap=m; source.seedDepth&&source.seedDepth(); }
   else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
   S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
+window.__flightOrbit=()=>startOrbitFx();   // preview / test hook for the graduation set piece
 window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>loaded>=names.length&&ACC.state!=='loading',accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 /* @boot-ammo — announce the presets + mode once this run's listeners are live. TradeBridge's mount-time ammo-query

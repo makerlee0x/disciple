@@ -37,6 +37,8 @@ function capChart(s: { w: number; h: number }, x?: number): { w: number; h: numb
   return { w: Math.min(s.w, c.w), h: Math.min(s.h, c.h) };
 }
 import { getSavedLayout, isPhoneUI, updateLayout, useCardLayout } from "@/lib/game/cardLayoutStore";
+import { useHudMode } from "@/lib/game/hudMode";
+import { HUD } from "@/lib/game/hudStyle";
 
 /* the old chart-map skin: engine.js CHART_STYLE (main before #211), same HUD palette as PnlHud / the tier bar */
 const C = {
@@ -45,7 +47,7 @@ const C = {
   up: "#3ddc97", down: "#ff5c7a", volUp: "rgba(61,220,151,.35)", volDown: "rgba(255,92,122,.35)", gold: "#ffe7a3", tagFg: "#1a1630",
   tier: "rgba(255,231,163,.55)", cross: "rgba(255,255,255,.55)", marker: "#9ff3c8", btn: "rgba(243,230,194,.6)", grip: "rgba(243,230,194,.35)",
 };
-const mono = "ui-monospace, Menlo, monospace", serif = "Georgia, 'Times New Roman', serif";
+const mono = "ui-monospace, Menlo, monospace";
 const TF_KEY = "disciple.dexchart.tf";
 const GAP = 8, FEED_ROOM = 172, PNL_FALLBACK = 456;   // = engine chartDeskRect (top under the PnL card, above the trades feed)
 type Lc = typeof import("lightweight-charts");
@@ -76,6 +78,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
   const liveRef = useRef<{ line: IPriceLine | null }>({ line: null });
   const paneRef = useRef<HTMLDivElement>(null), stripRef = useRef<HTMLDivElement>(null), ringRef = useRef<HTMLDivElement>(null), vlineRef = useRef<HTMLDivElement>(null);
   const layout = useCardLayout(), card = layout.chart;
+  const hud = useHudMode();   // Pilot: no chart card on desktop (the altitude card + crew feed carry the flight); Pro shows it
 
   // ---- mounted ⇒ the engine stops drawing its canvas chart (engine.js @domchart, worker-mirrored global)
   useEffect(() => { const w = window as unknown as W; w.__domChart = true; return () => { w.__domChart = false; }; }, []);
@@ -281,17 +284,15 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
   const style: React.CSSProperties = phone
     ? { position: "fixed", display: "flex" }
     : { position: "fixed", left: vp.x, top: vp.y, width: size.w, height: size.h, transform: off.dx || off.dy ? `translate(${off.dx}px, ${off.dy}px)` : undefined,
-        display: hidden ? "none" : "flex" };
+        display: hidden || hud === "pilot" ? "none" : "flex" };
   return (
     <div ref={boxRef} className="dex-chart" data-card="chart" data-testid="dex-chart" data-tf={tf ?? ""} data-status={status}
-      style={{ ...style, zIndex: 31, flexDirection: "column", boxSizing: "border-box", background: "transparent", borderRadius: 3, overflow: "hidden",
-        // Guild Wars window: 3 px bevelled mid frame (light top-left, dark bottom-right) in a 1 px near-black outer edge, soft gold glow
-        border: `3px solid ${C.frameMid}`, borderTopColor: C.bevelHi, borderLeftColor: C.bevelHi, borderRightColor: C.bevelLo, borderBottomColor: C.bevelLo,
-        boxShadow: `0 0 0 1px ${C.frameOuter}, 0 0 18px rgba(255,231,163,.10), 0 8px 28px rgba(0,0,0,.45)`, font: `9px ${mono}`, color: C.fg, userSelect: "none" }}>
-      <div className="dex-head" style={{ display: "flex", alignItems: "center", gap: 6, padding: phone ? "4px 8px" : "2px 6px", minHeight: phone ? 26 : 20, background: C.titleBg,
-        borderBottom: `2px solid ${C.frameMid}` }}>
-        <span style={{ color: C.title, font: `bold ${phone ? 13 : 11}px ${serif}`, letterSpacing: ".02em", textShadow: "0 0 6px rgba(255,231,163,.35)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {label ? <><span data-testid="dex-title-dollar" style={{ marginRight: 1.5 }}>$</span><span data-testid="dex-title">{label}</span></> : <span data-testid="dex-title">PRICE</span>}</span>
+      style={{ ...style, zIndex: 31, flexDirection: "column", boxSizing: "border-box", background: HUD.glass, borderRadius: HUD.radius, overflow: "hidden",
+        // brand v3 HUD card (was the bevelled Guild Wars frame): glass panel, hairline border, same as the other flight cards
+        border: `1px solid ${HUD.border}`, boxShadow: "0 8px 28px rgba(0,0,0,.35)", font: `9px ${mono}`, color: C.fg, userSelect: "none" }}>
+      <div className="dex-head" style={{ display: "flex", alignItems: "center", gap: 6, padding: phone ? "6px 10px" : "8px 12px 4px", minHeight: phone ? 26 : 22 }}>
+        <span style={{ color: HUD.champagne, font: `700 15px ${HUD.game}`, letterSpacing: ".08em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {label ? <><span data-testid="dex-title-dollar" style={{ marginRight: 1.5 }}>$</span><span data-testid="dex-title">{label}</span></> : <span data-testid="dex-title">ALTITUDE CHART</span>}</span>
         <div role="group" aria-label="Price or market cap" data-testid="dex-unit" style={{ display: "flex", gap: 2, marginLeft: 2 }}>
           {([["price", "Price"], ["mcap", "Market cap"]] as const).map(([id, lab]) => { const on = unit === id; return <button key={id} type="button" data-testid={`dex-unit-${id}`} aria-pressed={on} onClick={() => setUnit(id)}
             style={{ all: "unset", cursor: "pointer", padding: phone ? "3px 7px" : "1px 5px", borderRadius: 1, font: `${on ? "bold " : ""}${phone ? 11 : 8.5}px ${mono}`,

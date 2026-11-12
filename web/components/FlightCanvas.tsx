@@ -16,6 +16,8 @@ import { paperCurve } from "@/lib/flight/paperCurve";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
+import HudModeToggle from "@/components/flight/HudModeToggle";
+import FlightSfx from "@/components/flight/FlightSfx";
 import HoldersBridge from "@/components/flight/HoldersBridge";
 import PhoneHud from "@/components/flight/PhoneHud";
 import { publishUsernameDisplayCap } from "@/lib/defaultUsername";
@@ -137,6 +139,10 @@ export default function FlightCanvas({ search }: Props) {
           // runs on a live market (engine SIM block: pill on mock/replay, ?sim=on dev opt-in).
           __DISCIPLE_TESTNET: !!(ACTIVE_CHAIN as { testnet?: boolean }).testnet,
           REPLAY: window.REPLAY,
+          // brand v3 game face for the canvas HUD (next/font's hashed family from the --font-barlow-condensed variable)
+          __GAME_FONT: getComputedStyle(document.documentElement).getPropertyValue("--font-barlow-condensed").trim(),
+          // body face (Geist via next/font --font-geist) for small HUD copy drawn on the canvas
+          __UI_FONT: getComputedStyle(document.documentElement).getPropertyValue("--font-geist").trim(),
         };
         Object.assign(window, globals);
         // ?render=main|worker forces a path; default = main; worker is opt-in (?render=worker) and falls back to main if unsupported/failed
@@ -278,12 +284,16 @@ export default function FlightCanvas({ search }: Props) {
       {/* ESC settings menu (ESC or the Sidebar's Settings; no gear button since the Oct 30 cleanup): Share, Hotkeys, Sound, Language, Display
           (Touch Grass, Orbs) and the Controls reference all live there now, not in the pill row below. */}
       <GameRadio />
+      {/* PILOT / PRO (desktop, left of the wallet strip): lib/game/hudMode */}
+      <HudModeToggle />
+      <FlightSfx />
       <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />
-      {chatCoin && <GameChat coin={chatCoin} />}
+      {/* the crew feed: trades + chat + holders on a coin; trades + holders where there is no coin chat (simulator, mock) */}
+      <GameChat coin={chatCoin || ""} tradesOnly={!chatCoin} />
       {/* phones (≤760px): v3 HUD — mcap pill, handle + PnL line, one swipe-up drawer (Feed/Holders/Chart/Crew/Chat/Position); desktop renders nothing */}
       <PhoneHud />
       {/^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") && q0.get("source") !== "sim" && <HoldersBridge coin={q0.get("coin") as string} />}
-      <div className="ap-bc" data-testid="flight-pills" style={{ bottom: "calc(142px + var(--ap-safe-bottom))", zIndex: 25, display: "flex", gap: 8 }}>
+      <div className="ap-bc" data-testid="flight-pills" style={{ bottom: "calc(var(--ap-tb-h, 80px) + 62px + var(--ap-safe-bottom))", zIndex: 25, display: "flex", gap: 8 }}>
         {!isSimulator && sim.available === true && <button
           type="button"
           data-testid="sim-toggle"

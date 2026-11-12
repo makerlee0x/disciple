@@ -119,7 +119,7 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
   if (!graduated) return null;
   return (
     <>
-      <div className="ap-bc z-30 flex gap-2" style={{ bottom: "calc(96px + var(--ap-safe-bottom))" }}>
+      <div className="ap-bc z-30 flex gap-2" style={{ bottom: "calc(var(--ap-tb-h, 80px) + 16px + var(--ap-safe-bottom))" }}>
         <button data-testid="tw-open" onClick={openFlow}
           className="rounded-full border border-[#ffe7a3]/70 bg-gradient-to-b from-[#3a2a07]/90 to-[#120d02]/90 px-5 py-2 font-display text-sm font-bold tracking-wider text-[#ffe7a3] shadow-[0_0_24px_rgba(255,215,110,.45)] transition hover:scale-105">
           <Icon name="tramp" size={16} /> TRAMP / <Icon name="wall" size={16} /> WALL{sample && <span style={{ color: "#ffb0c8" }}> · SAMPLE</span>}
@@ -131,7 +131,7 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
       </div>
 
       {listOpen && (
-        <div data-testid="tw-list" style={{ bottom: "calc(190px + var(--ap-safe-bottom))" }} className="ap-bc z-40 w-[420px] rounded-2xl border border-[#ffe7a3]/30 bg-[#07070f]/95 p-4 font-mono text-xs text-white shadow-2xl">
+        <div data-testid="tw-list" style={{ bottom: "calc(var(--ap-tb-h, 80px) + 110px + var(--ap-safe-bottom))" }} className="ap-bc z-40 w-[420px] rounded-2xl border border-[#ffe7a3]/30 bg-[#07070f]/95 p-4 font-mono text-xs text-white shadow-2xl">
           <div className="mb-2 font-display text-base text-[#ffe7a3]">My tramps & walls{sample && <span style={{ color: "#ffb0c8" }}> · SAMPLE</span>}</div>
           {mine.length === 0 && <div className="text-white/50">None yet — place a trampoline under the rocket.</div>}
           {mine.map((t) => (
