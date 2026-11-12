@@ -262,10 +262,11 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
               {compact ? (
                 <>
                   {/* lobby routes (brand v3 lobby mockup): one cash chip + the pilot chip (level ring + name) */}
-                  {pf && smart && !hideCash && (
+                  {/* always shown when signed in: $0.00 until (or unless) the cash read lands */}
+                  {!hideCash && (
                     <a href={DEPOSIT_HREF} onClick={onDepositClick} className="wb-cash" data-testid="cash-card" title="Your cash: what BOOST spends and DUMP pays out in. Tap to add more.">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg>
-                      <b>{usd2(pf.cashUsd)}</b>
+                      <b>{usd2(pf?.cashUsd ?? 0)}</b>
                     </a>
                   )}
                   <button type="button" className="wb-pilot" aria-label="Your pilot menu" aria-haspopup={smart ? "menu" : undefined} aria-expanded={smart ? acct : undefined}
