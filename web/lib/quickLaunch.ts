@@ -61,6 +61,8 @@ export const QUICK_LAUNCH_COPY = {
   anonHelp: "Your name won't be shown as the creator. The account that pays can still be seen on the public record.",
   anonEasyBoostHelp: "Your name won't be shown as the creator. The account that pays can still be seen on the public record.",
   pseudoHelp: "Your name won't be shown as the creator. The account that pays, and the first buy, can still be seen on the public record.",
+  creatorFees: "Creator fees",
+  creatorFeesHelp: "You pick this when you launch, and it applies to that rocket only, including private launches. It covers all creator fees, including any creator tax.",
   // Image rejected after a generated badge is in use (Oct 17 Quick Launch spec; not on the r4 boards).
   imageReverted: "That image can't be used. We've put your rocket's badge back.",
 } as const;
@@ -100,6 +102,80 @@ export function readStoredCreatorTax(maxPct: number, storage?: Pick<Storage, "ge
 export function storeCreatorTax(pct: number, storage?: Pick<Storage, "setItem"> | null): void {
   try {
     (storage ?? (typeof localStorage !== "undefined" ? localStorage : null))?.setItem(CREATOR_TAX_STORE_KEY, String(pct));
+  } catch { /* private mode */ }
+}
+
+/**
+ * Where creator fees go. HOOK locked this as LaunchParams.creatorFeeDestination
+ * (uint8, appended after deadline): 0 keep, 1 locked pool, 2 buy-and-burn quote.
+ * It will later be passed on every path that already takes LaunchParams, and on
+ * the gasless AnonLaunch EIP-712 type after deadline and before stealthOwner.
+ *
+ * This Preview stores the choice in form state and localStorage only (same
+ * remembered-between-launches pattern as creator tax). Do not add the field to
+ * live launch calldata, ABI encodings, or EIP-712 types until HOOK's contract
+ * branch is up — an extra struct field would break today's testnet Launchpad.
+ * Applies to new coins only, including private launches, and covers the whole
+ * creator fee (the 33% creator share and the creator tax). Options 1 and 2 stay
+ * separate exclusive choices. Default is 0.
+ */
+export const CREATOR_FEE_FIELD = "creatorFeeDestination" as const;
+export const CREATOR_FEE_STORE_KEY = "disciple.create.creatorFeeDestination.v1";
+
+export const CREATOR_FEE_DESTINATION = {
+  creator: 0,
+  lockedPool: 1,
+  buyAndBurnQuote: 2,
+} as const;
+
+export type CreatorFeeDestination = (typeof CREATOR_FEE_DESTINATION)[keyof typeof CREATOR_FEE_DESTINATION];
+
+export const DEFAULT_CREATOR_FEE_DESTINATION: CreatorFeeDestination = CREATOR_FEE_DESTINATION.creator;
+
+export const CREATOR_FEE_DESTINATIONS: readonly CreatorFeeDestination[] = [
+  CREATOR_FEE_DESTINATION.creator,
+  CREATOR_FEE_DESTINATION.lockedPool,
+  CREATOR_FEE_DESTINATION.buyAndBurnQuote,
+] as const;
+
+/** Full sentences shown on the Advanced radio cards. Keep HOOK's meaning; no jargon. */
+export const CREATOR_FEE_COPY: Record<CreatorFeeDestination, { sentence: string; chip: string }> = {
+  0: {
+    sentence: "You keep the creator fees.",
+    chip: "You keep the fees",
+  },
+  1: {
+    sentence: "The creator fees go into this rocket's trading pool, and that money can never be pulled out.",
+    chip: "Fees stay in the pool",
+  },
+  2: {
+    sentence: "The creator fees are used to permanently remove the coin this rocket is traded in. The half that is already that coin is removed. The half that is this rocket's coins is used to buy more of that coin and remove it too.",
+    chip: "Fees remove the pair coin",
+  },
+};
+
+export function isCreatorFeeDestination(value: number): value is CreatorFeeDestination {
+  return value === 0 || value === 1 || value === 2;
+}
+
+export function parseCreatorFeeDestination(value: string | number | null | undefined): CreatorFeeDestination {
+  if (value == null || value === "") return DEFAULT_CREATOR_FEE_DESTINATION;
+  const n = typeof value === "number" ? value : Number(value);
+  return isCreatorFeeDestination(n) ? n : DEFAULT_CREATOR_FEE_DESTINATION;
+}
+
+export function readStoredCreatorFeeDestination(storage?: Pick<Storage, "getItem"> | null): CreatorFeeDestination {
+  try {
+    const raw = (storage ?? (typeof localStorage !== "undefined" ? localStorage : null))?.getItem(CREATOR_FEE_STORE_KEY);
+    return parseCreatorFeeDestination(raw);
+  } catch {
+    return DEFAULT_CREATOR_FEE_DESTINATION;
+  }
+}
+
+export function storeCreatorFeeDestination(value: CreatorFeeDestination, storage?: Pick<Storage, "setItem"> | null): void {
+  try {
+    (storage ?? (typeof localStorage !== "undefined" ? localStorage : null))?.setItem(CREATOR_FEE_STORE_KEY, String(value));
   } catch { /* private mode */ }
 }
 

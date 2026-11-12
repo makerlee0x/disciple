@@ -12,10 +12,13 @@ import { exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap, parseAmount } from
 import { WHITELIST_QUOTES, whitelistQuoteBySymbol } from "../lib/whitelistQuotes";
 import {
   buildLaunchSocials, boostHasAmount, creatorTaxSteps, launchButtonLabel, launchNeedsSignIn, maxBoostChipLabel,
-  isPseudoLaunch, normalizeTelegram, normalizeTwitter, normalizeWebsite, privateLaunchHelp, privateLaunchTitle,
-  readStoredCreatorTax, readStoredUpload, snapCreatorTax, socialsURI, storeCreatorTax, storeUpload, withHttps,
-  QUICK_LAUNCH_COPY, QUICK_LAUNCH_MODE_COPY, CREATOR_TAX_STORE_KEY, UPLOAD_STORE_KEY,
+  isPseudoLaunch, normalizeTelegram, normalizeTwitter, normalizeWebsite, parseCreatorFeeDestination, privateLaunchHelp, privateLaunchTitle,
+  readStoredCreatorFeeDestination, readStoredCreatorTax, readStoredUpload, snapCreatorTax, socialsURI, storeCreatorFeeDestination, storeCreatorTax, storeUpload, withHttps,
+  QUICK_LAUNCH_COPY, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION, CREATOR_FEE_DESTINATIONS, CREATOR_FEE_FIELD, CREATOR_FEE_STORE_KEY, CREATOR_TAX_STORE_KEY, DEFAULT_CREATOR_FEE_DESTINATION, UPLOAD_STORE_KEY,
 } from "../lib/quickLaunch";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { FIRST_BOOST_COPY, FIRST_BOOST_TIP_STARTS_OPEN } from "../lib/firstBoost";
 import { badgeLetters } from "../lib/decalDefault";
 import { MODE } from "../lib/modeRules";
@@ -213,4 +216,51 @@ test("a chosen badge image is stored in the session so it stays after leaving th
   assert.equal(readStoredUpload(storage), null);
   storeUpload("https://example.com/x.png", storage);
   assert.equal(readStoredUpload(storage), null);
+});
+
+test("creator fee destination is a three-way exclusive choice, default is the creator keeps the fees", () => {
+  assert.equal(CREATOR_FEE_FIELD, "creatorFeeDestination");
+  assert.deepEqual([...CREATOR_FEE_DESTINATIONS], [0, 1, 2]);
+  assert.equal(DEFAULT_CREATOR_FEE_DESTINATION, 0);
+  assert.equal(CREATOR_FEE_DESTINATION.creator, 0);
+  assert.equal(CREATOR_FEE_DESTINATION.lockedPool, 1);
+  assert.equal(CREATOR_FEE_DESTINATION.buyAndBurnQuote, 2);
+  assert.equal(parseCreatorFeeDestination(undefined), 0);
+  assert.equal(parseCreatorFeeDestination(""), 0);
+  assert.equal(parseCreatorFeeDestination("nope"), 0);
+  assert.equal(parseCreatorFeeDestination("1"), 1);
+  assert.equal(parseCreatorFeeDestination(2), 2);
+  assert.equal(parseCreatorFeeDestination("0"), 0);
+  const mem = new Map<string, string>();
+  const storage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => { mem.set(k, v); } };
+  assert.equal(readStoredCreatorFeeDestination(storage), 0);
+  storeCreatorFeeDestination(1, storage);
+  assert.equal(mem.get(CREATOR_FEE_STORE_KEY), "1");
+  assert.equal(readStoredCreatorFeeDestination(storage), 1);
+  storeCreatorFeeDestination(2, storage);
+  assert.equal(readStoredCreatorFeeDestination(storage), 2);
+  storeCreatorFeeDestination(0, storage);
+  assert.equal(readStoredCreatorFeeDestination(storage), 0);
+});
+
+test("creator fee copy keeps HOOK's meaning in plain sentences, with no jargon", () => {
+  assert.equal(CREATOR_FEE_COPY[0].sentence, "You keep the creator fees.");
+  assert.equal(CREATOR_FEE_COPY[0].chip, "You keep the fees");
+  assert.equal(CREATOR_FEE_COPY[1].sentence, "The creator fees go into this rocket's trading pool, and that money can never be pulled out.");
+  assert.equal(CREATOR_FEE_COPY[1].chip, "Fees stay in the pool");
+  assert.equal(CREATOR_FEE_COPY[2].sentence, "The creator fees are used to permanently remove the coin this rocket is traded in. The half that is already that coin is removed. The half that is this rocket's coins is used to buy more of that coin and remove it too.");
+  assert.equal(CREATOR_FEE_COPY[2].chip, "Fees remove the pair coin");
+  const visible = [
+    QUICK_LAUNCH_COPY.creatorFees, QUICK_LAUNCH_COPY.creatorFeesHelp,
+    ...CREATOR_FEE_DESTINATIONS.flatMap((id) => [CREATOR_FEE_COPY[id].sentence, CREATOR_FEE_COPY[id].chip]),
+  ].join("\n");
+  assert.doesNotMatch(visible, /\bLP\b|quote token|renounced/i);
+});
+
+test("the Mode control hugs its content and is not a full-width bar", () => {
+  const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../components/create/quickLaunch.module.css"), "utf8");
+  const block = css.match(/\.modeBtn\s*\{[^}]+\}/);
+  assert.ok(block, "modeBtn rule exists");
+  assert.match(block[0], /width:\s*auto/);
+  assert.doesNotMatch(block[0], /(?<!max-)width:\s*100%/);
 });

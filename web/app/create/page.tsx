@@ -32,9 +32,12 @@ import {
   addressOn, defaultLaunchPair, launchPairsForChain,
 } from "@/lib/launchWhitelist";
 import {
-  QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_COPY, buildLaunchSocials, launchButtonLabel,
+  QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATIONS,
+  DEFAULT_CREATOR_FEE_DESTINATION, buildLaunchSocials, launchButtonLabel,
   launchNeedsSignIn, normalizeTelegram, normalizeTwitter, normalizeWebsite, privateLaunchHelp, privateLaunchTitle,
-  readStoredCreatorTax, readStoredUpload, snapCreatorTax, storeCreatorTax, storeUpload,
+  readStoredCreatorFeeDestination, readStoredCreatorTax, readStoredUpload, snapCreatorTax,
+  storeCreatorFeeDestination, storeCreatorTax, storeUpload,
+  type CreatorFeeDestination,
 } from "@/lib/quickLaunch";
 import s from "@/components/create/quickLaunch.module.css";
 
@@ -67,6 +70,7 @@ export default function LaunchRocketPage() {
   const [uploadedUri, setUploadedUri] = useState<string | null>(null);
   const [badgeUri, setBadgeUri] = useState<string | null>(null);
   const [tax, setTax] = useState(0);
+  const [feeDestination, setFeeDestination] = useState<CreatorFeeDestination>(DEFAULT_CREATOR_FEE_DESTINATION);
   const [privateLaunch, setPrivateLaunch] = useState(false);
   const [boost, setBoost] = useState("");
   const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), usdgIn: null, maxUsdg: null, maxQuoteIn: null, error: null, ready: true, overCap: false });
@@ -107,6 +111,7 @@ export default function LaunchRocketPage() {
   useEffect(() => {
     shuffleName();
     setTax(readStoredCreatorTax(CURVE.creatorTaxMaxPct));
+    setFeeDestination(readStoredCreatorFeeDestination());
     const saved = readStoredUpload();
     if (!saved) return;
     setUploadedUri(saved);
@@ -312,6 +317,7 @@ export default function LaunchRocketPage() {
     || !!website.trim()
     || !!telegram.trim()
     || tax > 0
+    || feeDestination !== DEFAULT_CREATOR_FEE_DESTINATION
     || (!privateLaunch && !!feeReceiver.trim())
   );
 
@@ -414,6 +420,9 @@ export default function LaunchRocketPage() {
                 <div className={s.summary} data-testid="advanced-summary">
                   <span className={s.sumChip}>Pair: {quote.label}</span>
                   {tax > 0 && <span className={s.sumChip}>Creator tax: {tax}%</span>}
+                  {feeDestination !== DEFAULT_CREATOR_FEE_DESTINATION && (
+                    <span className={s.sumChip} data-testid="fee-destination-chip">{CREATOR_FEE_COPY[feeDestination].chip}</span>
+                  )}
                   {twitter.trim() && <span className={s.sumChip}>{twitter.trim()}</span>}
                   {website.trim() && <span className={s.sumChip}>{website.trim()}</span>}
                   {telegram.trim() && <span className={s.sumChip}>{telegram.trim()}</span>}
@@ -522,6 +531,23 @@ export default function LaunchRocketPage() {
                     onChange={(e) => setTaxStepped(Number(e.target.value))} />
                 </div>
                 <div className={s.help}>{C.creatorTaxHelp}</div>
+              </div>
+              <div className={s.fl}>
+                <div className={s.lab}>{C.creatorFees}</div>
+                <div className={s.help}>{C.creatorFeesHelp}</div>
+                <div className={s.feeList} role="radiogroup" aria-label={C.creatorFees} data-testid="creator-fee-destination">
+                  {CREATOR_FEE_DESTINATIONS.map((id) => {
+                    const on = feeDestination === id;
+                    return (
+                      <button type="button" key={id} role="radio" aria-checked={on} data-testid={`fee-destination-${id}`}
+                        className={`${s.feeOpt} ${on ? s.on : ""}`}
+                        onClick={() => { setFeeDestination(id); storeCreatorFeeDestination(id); }}>
+                        <span className={s.radio} aria-hidden>{on && <i />}</span>
+                        <p>{CREATOR_FEE_COPY[id].sentence}</p>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
