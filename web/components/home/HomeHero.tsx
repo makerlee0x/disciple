@@ -1,9 +1,10 @@
 "use client";
 /**
- * Lobby hero, door one (brand v3 lobby): LAUNCH A ROCKET over the BRAND night plate (home-hero layers r1). The chrome
+ * Lobby door one (brand v3 lobby mockup): a card, about 3/4 of the row, with LAUNCH A ROCKET over the BRAND night plate
+ * (home-hero layers r1). The chrome
  * rocket sits in the mount ring of the layered pad (HeroPad: one plate frame with the sky, pad, moon, stars, smog and
  * exhaust glow); START A LAUNCH plays the lift-off and then opens the launch builder (/create).
- * Door two (join a live flight), the daily missions and the shelves sit below it (components/home/Lobby).
+ * Door two (join a live flight) and the daily missions sit in the column beside it (components/home/Lobby).
  * Server-rendered with the data (app/page.tsx), so the sky plate is the LCP and needs no client fetch. Sky/pad idle
  * motion and the 30s numbers poll start after paint; each poll is re-broadcast as "dsc:home-data" for the lobby + feed.
  */
@@ -29,26 +30,8 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
   const [data, setData] = useState(initial);
   const [go, setGo] = useState(false);
   const [pollErr, setPollErr] = useState(false);
-  const ref = useRef<HTMLElement>(null);
   const [launching, setLaunching] = useState(false);
   const launchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Chrome strip floats transparent over the hero (same contract as the previous home).
-  useEffect(() => {
-    document.body.classList.add("home");
-    const onScroll = () => {
-      const h = ref.current?.offsetHeight ?? 0;
-      document.body.classList.toggle("home-top", window.scrollY < h - 64);
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    return () => {
-      document.body.classList.remove("home", "home-top");
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, []);
 
   // After paint: start sky + pad motion, then keep the lobby numbers fresh (paused while the tab is hidden).
   useEffect(() => afterPaint(() => setGo(true)), []);
@@ -103,10 +86,10 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
           Live numbers paused. Showing the last update and retrying.
         </div>
       )}
-      <section ref={ref} className={s.hero} aria-labelledby="lobby-launch-title" data-testid="lobby-launch">
+      <section className={s.hero} aria-labelledby="lobby-launch-title" data-testid="lobby-launch">
         <div className={s.stage}>
           {/* plate frame: sky (pad baked in) + stars + moon + pad + rocket + exhaust + smog, all registered to the sky */}
-          <HeroPad go={go} launching={launching} />
+          <HeroPad go={go} launching={launching} layout="card" />
           {/* film grain over the whole scene (restores the plate grain the WebP/AVIF encode drops), then the scrims */}
           <div className={s.grain} style={go ? { backgroundImage: `url(${withBase(GRAIN_SRC)})` } : undefined} aria-hidden />
           <div className={s.scrim} aria-hidden />

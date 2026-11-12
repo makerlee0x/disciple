@@ -1,6 +1,7 @@
 "use client";
 /**
- * Top bar: the pilot's level ring, linking to Trophies. Also shows a toast when new XP lands
+ * Top bar: the pilot's level ring, linking to Trophies (`toastOnly`: the lobby bar, where the ring sits in the wallet
+ * strip's pilot chip instead). Also shows a toast when new XP lands
  * ("+150 XP · Boost 3 different rockets"), comparing the newest ledger row between polls.
  */
 import Link from "next/link";
@@ -9,7 +10,7 @@ import LevelRing from "./LevelRing";
 import { usePilotWallet, useXp } from "@/lib/xpClient";
 import { xpLabel } from "@/lib/xp";
 
-export default function LevelChip() {
+export default function LevelChip({ toastOnly = false }: { toastOnly?: boolean } = {}) {
   const wallet = usePilotWallet();
   const { xp } = useXp(wallet);
   const seen = useRef<number | null>(null);
@@ -29,6 +30,8 @@ export default function LevelChip() {
   }, [xp]);
 
   if (!xp) return null;
+  const t = toast && <div className="xp-toast" role="status" data-testid="xp-toast">{toast}</div>;
+  if (toastOnly) return t || null;
   return (
     <>
       <Link href="/achievements" className="xp-chip" aria-label={`Level ${xp.level.level}. See missions`} data-testid="level-chip">
@@ -38,7 +41,7 @@ export default function LevelChip() {
           <span>{xp.spendableXp.toLocaleString("en-US")} XP</span>
         </span>
       </Link>
-      {toast && <div className="xp-toast" role="status" data-testid="xp-toast">{toast}</div>}
+      {t}
     </>
   );
 }

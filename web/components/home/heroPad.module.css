@@ -279,3 +279,14 @@
   .pad.create .scene { left: 53.87%; top: 75.14%; }
   .pad.create .moon { left: 74.14%; top: -4.58%; width: 26.56%; }
 }
+
+/* Lobby card frame (brand v3 lobby, door one): the plate scaled 1.1× and shifted so the seated rocket stands at 66% of
+ * the card width and 80% of its height (--hero-h = the card height). Every edge still covers the card. */
+.pad.card {
+  --fw: max(calc(100cqw * 1.1), calc(var(--hero-h, 560px) * 16 / 9 * 1.1));
+  left: calc(100cqw * .66 - var(--fw) * .5387);
+  top: calc(var(--hero-h, 560px) * .8 - var(--fw) * .4227);
+}
+@media (max-width: 760px) {
+  .pad.card { left: 0; top: 0; }
+}

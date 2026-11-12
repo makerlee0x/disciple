@@ -61,7 +61,7 @@ export default function LobbyTopBar() {
           How to play
         </button>
       </nav>
-      <LevelChip />
+      <LevelChip toastOnly />
     </header>
   );
 }

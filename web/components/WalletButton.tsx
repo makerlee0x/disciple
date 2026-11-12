@@ -4,10 +4,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { formatUnits, parseAbi } from "viem";
-import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
+import { MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
 
-/** Robinhood Chain testnet: a plain "Test network" tag sits first in the wallet strip there (GAME play-test, Oct 26 2026). */
-const TEST_NETWORK_ID = 46630;
 import { decimalsOf, publicClient, readCurveState, usdgRouteFor } from "@/lib/protocol-viem";
 import { cashLine, type BalancePart } from "@/lib/balanceLine";
 import { payUsdg, routerUsdg } from "@/lib/trade/usdgRouter";
@@ -26,6 +24,9 @@ import { BOOKED_EVENT, blockOf, bookFill, fillBook, readAtOrAfter, txBlock, type
 import { pct } from "@/lib/aa/slippage";
 import type { Address } from "@/lib/protocol";
 import Icon from "@/components/icons/Icon";
+import LevelRing from "@/components/xp/LevelRing";
+import { levelInfo } from "@/lib/xp";
+import { useXp } from "@/lib/xpClient";
 import { playerError } from "@/lib/playerError";
 import { chipLabel, clearNameCache, lookupFirstName } from "@/lib/nameLookup";
 import { GuildTagFor } from "@/components/guilds/GuildChip";
@@ -56,6 +57,12 @@ function metaOf(coin: Address) {
  * Dev options: an existing wallet as owner (one signature).
  * Legacy "plain wallet" path kept as fallback (one tx per action).
  */
+/** The pilot's level ring for the lobby chip (level 1 until the first XP lands). */
+function PilotRing({ wallet }: { wallet: string }) {
+  const { xp } = useXp(wallet);
+  return <LevelRing info={xp?.level ?? levelInfo(0)} size={36} />;
+}
+
 export default function WalletButton({ compact = false, hideCash = false }: { compact?: boolean; /** profile pages: no cash / total cards */ hideCash?: boolean } = {}) {
   const [addr, setAddr] = useState<Address | null>(null);
   const [busy, setBusy] = useState("");
@@ -181,10 +188,10 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
     try { await f(); setMenu(false); } catch (e) { fail(e); } finally { setBusy(""); }
   }
 
-  // Phones (≤760px): the signed-out pill ("Play" / "Sign in") is hidden from the top bar (it pushed GAME's ✕ out of
+  // Phones (≤760px): the signed-out pill ("Sign in") is hidden from the top bar (it pushed GAME's ✕ out of
   // the corner; CSS .ap-wallet-cta in globals.css) and the same action lives in the Sidebar menu. Publish the pill's
   // label for the Sidebar and run the pill's own action when the Sidebar item is tapped.
-  const ctaLabel = !isDeployed() || addr ? null : aaAvailable() && SIGNER_MODE === "local" ? "Play" : aaAvailable() ? "Sign in" : "Connect wallet";
+  const ctaLabel = !isDeployed() || addr ? null : aaAvailable() ? "Sign in" : "Connect wallet";
   useEffect(() => {
     (window as unknown as { __walletCta?: string | null }).__walletCta = ctaLabel;
     dispatchEvent(new CustomEvent(WALLET_CTA_EVENT, { detail: { label: ctaLabel } }));
@@ -250,37 +257,54 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         {/* .wb-row: one line on desktop; on phones (≤480px) it wraps right-aligned instead of running off the left edge (GAME 390×844) */}
         <div className="wb-row" style={{ display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap" }}>
-          {/* coin / game screen cleanup (lee, Oct 30): no "Test network" tag on a coin page */}
-          {ACTIVE_CHAIN.id === TEST_NETWORK_ID && !coin && <span className="wb-testnet" role="note">Test network</span>}
           {addr ? (
             <>
+              {compact ? (
+                <>
+                  {/* lobby routes (brand v3 lobby mockup): one cash chip + the pilot chip (level ring + name) */}
+                  {pf && smart && !hideCash && (
+                    <a href={DEPOSIT_HREF} onClick={onDepositClick} className="wb-cash" data-testid="cash-card" title="Your cash: what BOOST spends and DUMP pays out in. Tap to add more.">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg>
+                      <b>{usd2(pf.cashUsd)}</b>
+                    </a>
+                  )}
+                  <button type="button" className="wb-pilot" aria-label="Your pilot menu" aria-haspopup={smart ? "menu" : undefined} aria-expanded={smart ? acct : undefined}
+                    onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
+                    <PilotRing wallet={addr} />
+                    <span>{copied ? "Copied" : chipLabel(uname, addr)}</span>
+                  </button>
+                </>
+              ) : (
+              <>
               {pf && smart && !hideCash && (
-                <div aria-label="cash and portfolio" className="wb-cards" style={{ display: "flex", gap: 6, alignItems: "stretch", minWidth: 0 }}>
-                  <div data-testid="cash-card" style={cardStyle} title="Your cash: what BOOST spends and DUMP pays out in.">
-                    <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.cashUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>cash</span></span>
-                    <a href={DEPOSIT_HREF} onClick={onDepositClick} style={{ fontSize: 10, fontWeight: 700, color: "#C9CED6", textDecoration: "none" }}>Deposit more</a>
+                  <div aria-label="cash and portfolio" className="wb-cards" style={{ display: "flex", gap: 6, alignItems: "stretch", minWidth: 0 }}>
+                    <div data-testid="cash-card" style={cardStyle} title="Your cash: what BOOST spends and DUMP pays out in.">
+                      <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.cashUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>cash</span></span>
+                      <a href={DEPOSIT_HREF} onClick={onDepositClick} style={{ fontSize: 10, fontWeight: 700, color: "#C9CED6", textDecoration: "none" }}>Deposit more</a>
+                    </div>
+                    {/* total holdings bubble next to cash (back on lee's request, Oct 30 coin-screen cleanup) */}
+                    <a href="/profile" data-testid="portfolio-card" style={{ ...cardStyle, textDecoration: "none", color: "inherit" }}
+                      title={`Total = cash ${usd2(pf.cashUsd)} + coins ${usd2(pf.holdingsUsd)} at current prices.\n24h: current holdings priced now vs 24h ago (no stored portfolio history; coins younger than 24h use their launch price).`}>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.totalUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>total</span></span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: pf.change24hUsd > 0.005 ? GREEN : pf.change24hUsd < -0.005 ? RED : "#C9CED6" }}>{signedUsd(pf.change24hUsd)} <span style={{ opacity: 0.6, color: "#C9CED6" }}>24h</span></span>
+                    </a>
                   </div>
-                  {/* total holdings bubble next to cash (back on lee's request, Oct 30 coin-screen cleanup) */}
-                  <a href="/profile" data-testid="portfolio-card" style={{ ...cardStyle, textDecoration: "none", color: "inherit" }}
-                    title={`Total = cash ${usd2(pf.cashUsd)} + coins ${usd2(pf.holdingsUsd)} at current prices.\n24h: current holdings priced now vs 24h ago (no stored portfolio history; coins younger than 24h use their launch price).`}>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.totalUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>total</span></span>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: pf.change24hUsd > 0.005 ? GREEN : pf.change24hUsd < -0.005 ? RED : "#C9CED6" }}>{signedUsd(pf.change24hUsd)} <span style={{ opacity: 0.6, color: "#C9CED6" }}>24h</span></span>
-                  </a>
-                </div>
+                )}
+                <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
+                  style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
+                  {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}{!copied && GUILDS_ENABLED && <> <GuildTagFor address={addr} markOnly /></>}
+                </button>
+              </>
               )}
-              <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
-                style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
-                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}{!copied && GUILDS_ENABLED && <> <GuildTagFor address={addr} markOnly /></>}
-              </button>
               {/* coin page cleanup (lee, Oct 30): no ✕ next to the chip; Sign out lives in the account menu + Sidebar */}
             </>
           ) : (
             aaAvailable() && SIGNER_MODE === "local" ? (
-              <button type="button" className="ap-wallet-cta" onClick={() => run("creating account", connectLocal)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
-                {busy || <><Icon name="play" size={16} /> Play</>}
+              <button type="button" className={`ap-wallet-cta${compact ? " wb-signin" : ""}`} onClick={() => run("creating account", connectLocal)} disabled={!!busy} style={compact ? undefined : { ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
+                {busy || "Sign in"}
               </button>
             ) : (
-            <button type="button" className="ap-wallet-cta" onClick={() => setMenu((m) => !m)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
+            <button type="button" className={`ap-wallet-cta${compact ? " wb-signin" : ""}`} onClick={() => setMenu((m) => !m)} disabled={!!busy} style={compact ? undefined : { ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
               {busy || (aaAvailable() ? "Sign in" : "Connect wallet")}
             </button>
             )

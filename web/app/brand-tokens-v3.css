@@ -187,3 +187,34 @@
 }
 /* reserved from the first paint (no body class needed), and wins over a stale body.side-open left by a game route */
 .main-offset.main-offset-lobby, body.side-open .main-offset.main-offset-lobby { padding-left: 0; padding-top: calc(var(--lb-bar-h) + var(--ap-safe-top, 0px)); }
+
+/* ── lobby wallet strip (components/WalletButton compact, non-game routes): cash chip + pilot chip, or Sign in ── */
+.wb-root[data-compact="true"] { top: calc(var(--ap-safe-top, 0px) + (var(--lb-bar-h) - 48px) / 2); font-family: var(--dsc-font-ui); }
+@media (max-width: 900px) { .wb-root[data-compact="true"] { top: calc(var(--ap-safe-top, 0px) + 6px); } }
+.wb-root[data-compact="true"] .wb-row { gap: 12px !important; }
+.wb-cash, .wb-pilot {
+  all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+  border-radius: 999px; background: rgba(22,24,28,0.8); border: 1px solid var(--dsc3-panel-border); color: var(--dsc-text);
+}
+.wb-cash { min-height: 44px; padding: 0 16px; }
+.wb-cash svg { color: var(--dsc3-signal-up); }
+.wb-cash b { font: 700 20px / 1 var(--dsc-font-game); }
+.wb-pilot { min-height: 48px; padding: 4px 16px 4px 4px; gap: 10px; }
+.wb-pilot > span:last-child { font: 600 14px / 1 var(--dsc-font-ui); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-cash:hover, .wb-pilot:hover { border-color: var(--dsc3-panel-border-gold); }
+.wb-cash:focus-visible, .wb-pilot:focus-visible, .wb-signin:focus-visible { box-shadow: var(--dsc-glow-focus-ring); }
+.wb-signin {
+  all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  min-height: 44px; padding: 0 22px; border-radius: var(--dsc3-control-radius); background: #FFFFFF; color: var(--dsc-sky-ink);
+  font: 800 20px / 1 var(--dsc-font-game); text-transform: uppercase;
+}
+.wb-signin:hover { filter: brightness(0.94); }
+/* lobby routes have no sidebar, so Sign in stays in the bar on phones too */
+@media (max-width: 760px) {
+  [aria-label="wallet"][data-compact="true"] .ap-wallet-cta { display: inline-flex !important; }
+  .wb-cash { min-height: 40px; padding: 0 12px; }
+  .wb-cash b { font-size: 17px; }
+  .wb-pilot { min-height: 44px; padding: 2px 2px; }
+  .wb-pilot > span:last-child { display: none; }
+  .wb-signin { min-height: 40px; padding: 0 16px; font-size: 18px; }
+}
