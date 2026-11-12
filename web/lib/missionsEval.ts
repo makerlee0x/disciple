@@ -52,7 +52,8 @@ interface Interval { start: number; end: number; startMcap?: number }
 
 export function evaluateMissions(inp: MissionInput, period: Period, missions: readonly MissionDef[]): MissionsEval {
   const wallet = inp.wallet.toLowerCase();
-  const fills = [...inp.fills].sort(order);
+  // a zero-value transfer can be emitted "from" anyone without approval: never let one touch a position
+  const fills = [...inp.fills].filter((f) => f.side !== "out" || f.tokens > 0).sort(order);
   const inP = (ts: number) => ts >= period.start && ts < period.end && ts <= inp.now;
   const coin = (c: string) => inp.coins.get(c.toLowerCase());
   const mineLaunch = (c: string) => { const m = coin(c); return !!m && !m.anon && m.creator.toLowerCase() === wallet; };

@@ -234,32 +234,46 @@ export async function scoreWallet(walletIn: string, o: { dryRun?: boolean; s?: K
   const recent = Array.from(new Set(onChain.filter((f) => now - f.ts <= 8 * 86_400_000).map((f) => f.coin.toLowerCase())));
   if (!o.dryRun) await ensureModes(metas, recent, s);
   // If the transfer scan fails, holding missions wait for the next pass instead of paying on an unverified position.
-  const outs = await transfersOut(w, recent, onChain, s, o.dryRun).catch(() => null);
+  const scan = await transfersOut(w, recent, onChain, s, o.dryRun).catch(() => null);
+  const outs = scan?.complete ? scan.outs : null;
+  // unfinished (budget) or failed scan: re-score this wallet in a minute, the cursor picks up where it stopped
+  if (!outs && !o.dryRun) await s.zadd(XPK.timers(), [{ score: now + 60_000, member: `${w}|${now + 60_000}` }]);
   const coinFills = new Map<string, Fill[]>();
   for (const c of recent) coinFills.set(c, await tradesOf(c, null, 1000, "desc"));
   const xp = await scoreXp(w, { fills: onChain, outs: outs ?? undefined, holdsUnverified: outs === null, metas, unlocks: r.unlocks, coinFills }, { now, s, dryRun: o.dryRun });
   return { wallet: w, unlocks: r.unlocks, fresh, fills: fills.length, xp: xp.awarded };
 }
 
+/** Per-wallet time budget for the transfer scan; the rest continues on a later pass (cursor saved per chunk). */
+const TRANSFER_BUDGET_MS = 4_000;
+/** Outs kept per (wallet, coin): the newest ones (each needs a non-zero transfer the wallet itself signed). */
+const TRANSFER_KEEP = 500;
+
 /**
  * Tokens this wallet sent away by plain transfer (not in one of its own trade txs), per coin, from the coin's first fill.
  * Holding missions treat them as leaving the position, so moving tokens to another wallet can't keep a 24h hold, a tier
- * ride or an orbit seat alive. Incremental: the scanned range and the outs found are cached per (wallet, coin).
+ * ride or an orbit seat alive. Zero-value transfers are ignored: anyone can emit one "from" any address without an
+ * approval, so they must never reset someone's progress.
+ * Bounded: the cursor is saved after every chunk and the scan stops at TRANSFER_BUDGET_MS; `complete: false` means
+ * holding missions wait (the caller re-queues the wallet) and the next pass resumes where this one stopped.
  */
-async function transfersOut(w: string, coins: string[], fills: readonly Fill[], s: Kv, dryRun?: boolean): Promise<TransferOut[]> {
-  const pc = serverPc(), out: TransferOut[] = [];
-  if (!coins.length) return out;
+async function transfersOut(w: string, coins: string[], fills: readonly Fill[], s: Kv, dryRun?: boolean): Promise<{ outs: TransferOut[]; complete: boolean }> {
+  const pc = serverPc(), out: TransferOut[] = [], t0 = Date.now();
+  if (!coins.length) return { outs: out, complete: true };
   const latest = await pc.getBlockNumber();
+  let complete = true;
   for (const coin of coins) {
     const mine = fills.filter((f) => f.coin.toLowerCase() === coin);
     if (!mine.length) continue;
     const trades = new Set(mine.map((f) => f.tx.toLowerCase()));
     const key = XPK.transfers(w, coin);
     const cached = parse<{ cursor: string; outs: TransferOut[] }>(await s.get(key));
-    const outs = cached?.outs ?? [];
+    let outs = (cached?.outs ?? []).filter((x) => !trades.has(x.tx.toLowerCase()) && x.tokens > 0);
     let cur = cached ? BigInt(cached.cursor) : BigInt(Math.min(...mine.map((f) => f.block))) - BigInt(1);
+    const save = async () => { if (!dryRun) await s.set(key, JSON.stringify({ cursor: cur.toString(), outs: outs.slice(-TRANSFER_KEEP) })); };
     let chunk = CHUNK;
     while (cur < latest) {
+      if (Date.now() - t0 > TRANSFER_BUDGET_MS) { complete = false; break; }
       const from = cur + BigInt(1), to = from + chunk - BigInt(1) > latest ? latest : from + chunk - BigInt(1);
       let logs: Log[];
       try { logs = await (pc.getLogs as unknown as (a: unknown) => Promise<Log[]>)({ address: coin, event: TRANSFER, args: { from: w }, fromBlock: from, toBlock: to }); }
@@ -267,16 +281,17 @@ async function transfersOut(w: string, coins: string[], fills: readonly Fill[], 
       for (const l of logs) {
         if (trades.has(String(l.transactionHash).toLowerCase())) continue;   // a sell's own token leg
         const a = (decodeEventLog({ abi: [TRANSFER], data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as unknown as { args: { value: bigint } }).args;
+        if (a.value === BigInt(0)) continue;
         outs.push({ coin, tx: String(l.transactionHash), block: Number(l.blockNumber), logIndex: Number(l.logIndex), ts: await tsOf(l.blockNumber ?? BigInt(0)), tokens: Number(a.value) / 1e18 });
       }
       cur = to;
+      outs = outs.slice(-TRANSFER_KEEP);
+      await save();
     }
-    // a trade tx indexed after its transfer was cached is a trade, not a transfer
-    const kept = outs.filter((x) => !trades.has(x.tx.toLowerCase()));
-    if (!dryRun) await s.set(key, JSON.stringify({ cursor: cur.toString(), outs: kept }));
-    out.push(...kept);
+    out.push(...outs);
+    if (!complete) break;
   }
-  return out;
+  return { outs: out, complete };
 }
 
 /** Coins this wallet launched (public), from the coin metas. Small set on testnet; index by creator if it grows. */

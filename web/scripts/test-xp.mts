@@ -161,3 +161,10 @@ test("tokens sent away end a hold, a tier ride and an orbit seat", () => {
   const d = dayPeriod(start);
   assert.equal(evaluateMissions({ wallet: W, fills, coins, coinFills: path, now: start + 3 * H }, d, only("d_tier")).results.d_tier.progress, 0);
 });
+
+test("a zero-value transfer never resets progress", () => {
+  const start = week.start + H;
+  const coins = new Map([["c", coin(OTHER, start - H)]]);
+  const fills = [f("c", start, "buy", 30), f("c", start + H, "out", 0)];
+  assert.equal(evaluateMissions({ wallet: W, fills, coins, now: start + 25 * H }, week, only("w_hold")).results.w_hold.doneAt, start + 24 * H);
+});
