@@ -8,14 +8,14 @@ import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
 import {FeeRouter} from "../../src/FeeRouter.sol";
 import {LockedLP} from "../../src/LockedLP.sol";
 import {Migration} from "../../src/Migration.sol";
-import {DiscipleHook} from "../../src/DiscipleHook.sol";
+import {AscensionHook} from "../../src/AscensionHook.sol";
 import {DiscipleRouter} from "../../src/DiscipleRouter.sol";
 
-/// @dev Shared v4 stack deployer for tests (PoolManager + mined DiscipleHook + Migration).
+/// @dev Shared v4 stack deployer for tests (PoolManager + mined AscensionHook + Migration).
 library V4Deploy {
     struct Stack {
         IPoolManager manager;
-        DiscipleHook hook;
+        AscensionHook hook;
         Migration migration;
         DiscipleRouter router;
     }
@@ -31,9 +31,9 @@ library V4Deploy {
 
         bytes memory ctorArgs = abi.encode(s.manager, feeRouter, address(0), address(this));
         (address hookAddr, bytes32 salt) =
-            HookMiner.find(address(this), flags, type(DiscipleHook).creationCode, ctorArgs);
+            HookMiner.find(address(this), flags, type(AscensionHook).creationCode, ctorArgs);
 
-        DiscipleHook hook = new DiscipleHook{salt: salt}(s.manager, feeRouter, address(0), address(this));
+        AscensionHook hook = new AscensionHook{salt: salt}(s.manager, feeRouter, address(0), address(this));
         require(address(hook) == hookAddr, "hook addr");
 
         Migration migration = new Migration(owner, address(lockedLP), address(s.manager), address(hook));

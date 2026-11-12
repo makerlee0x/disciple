@@ -1,6 +1,6 @@
 # DISCIPLE FLOW — internal security review (2026-10-15)
 
-- **Scope:** `contracts/src` on `flow/snipe-split` (#16) plus this branch: BondingCurve, Launchpad, FeeRouter (70/30 and 33/33/33/1), DiscipleHook, DiscipleRouter, TrampWallManager, LockedLP, Migration, QuotePricer, RewardsVault, AnonLauncher and MarketLens.
+- **Scope:** `contracts/src` on `flow/snipe-split` (#16) plus this branch: BondingCurve, Launchpad, FeeRouter (70/30 and 33/33/33/1), AscensionHook, DiscipleRouter, TrampWallManager, LockedLP, Migration, QuotePricer, RewardsVault, AnonLauncher and MarketLens.
 - **Method:** manual review; new fuzz/invariant tests in `test/security/`; Slither 0.10.x (`--exclude-dependencies`, src only); a fork PoC against the live testnet.
 - **Limits:** this is an internal pass, not an audit. A professional audit is still required before mainnet (see `mainnet-plan.md`).
 
@@ -53,7 +53,7 @@
 
 ## SEC-02 / SEC-03 fix (PR #44, revised 2026-10-16)
 - **JIT:**
-  - `DiscipleHook.beforeAddLiquidity` only accepts `isLiquidityManager` senders (LockedLP, TrampWallManager), so nobody can add raw v4 positions around a swap.
+  - `AscensionHook.beforeAddLiquidity` only accepts `isLiquidityManager` senders (LockedLP, TrampWallManager), so nobody can add raw v4 positions around a swap.
   - **Root cause removed (revision 3):** the hook no longer calls `PoolManager.donate`; the pool LP fee is 0, so in-range liquidity earns nothing and JIT has no payoff. The full 33% LP share goes to LockedLP (permanent).
   - The TrampWallManager min hold and fee vesting are therefore unnecessary and removed: cancel any time, pull immediately. Test `test_jit_same_block_add_swap_cancel_earns_no_yield` checks a same-block place→swap→cancel returns 0 fees and emits no donation.
 - **Tramp/wall auto-close:** `pull` is permissionless once the range is fully crossed. It pays the owner proceeds minus `keeperTipBps` (default 0.1%, max 1%) to the caller. SEC-06 still applies: a whale can force-fill a range by pushing price through it, but the owner always gets their range price.
@@ -70,24 +70,24 @@
 - **Launchpad owner:** pricer, probe, curve deployer, default quote, creator-buy cap.
 - **Hook admin:** trusted routers and pricer.
 - **LockedLP owner:** migration, poolManager, feeRouter.
-- Each can redirect funds or break trading. **Mainnet:** a Safe multisig owner, and a timelock on the wiring setters. `DiscipleHook.setMigration` is one-shot and admin-only (audit #12); `Migration.setLaunchpad` is one-shot owner-only.
+- Each can redirect funds or break trading. **Mainnet:** a Safe multisig owner, and a timelock on the wiring setters. `AscensionHook.setMigration` is one-shot and admin-only (audit #12); `Migration.setLaunchpad` is one-shot owner-only.
 
 ### SEC-04 pre-mainnet requirement (blocking)
 Still open on PR #75: nothing in the contracts enforces a multisig or a delay. **Do not deploy to mainnet until:**
 1. **Every owner/admin is a Safe multisig** (not the deployer EOA): FeeRouter, Launchpad, LockedLP, Migration,
-   DiscipleHook (`transferAdmin`), DiscipleRouter, QuotePricer, QuoteProbe, TrampWallManager, RewardsVault,
+   AscensionHook (`transferAdmin`), DiscipleRouter, QuotePricer, QuoteProbe, TrampWallManager, RewardsVault,
    ReferralRegistry, UsdgDepositNotifier, LoginGate, AnonLauncher. Treasury pointers go to a treasury Safe.
 2. **A timelock (e.g. OZ `TimelockController`, proposer = Safe, suggested ≥ 48 h) owns the fund-redirecting wiring
    setters:** FeeRouter `setLaunchpad/setLockedLP/setTreasury/setAuthorized/setRewardsVault`; LockedLP
    `setFeeRouter/setMigration/setPoolManager/setHook/setTreasury`; Launchpad `setPricer/setQuoteProbe/setCurveDeployer/
-   setDefaultQuote/setTrustedRouter/setLoginGate`; DiscipleHook `setTrustedRouter/setLiquidityManager/setCompounder/
+   setDefaultQuote/setTrustedRouter/setLoginGate`; AscensionHook `setTrustedRouter/setLiquidityManager/setCompounder/
    setPricer`; QuotePricer `setPricePool/setTwapParams`; ReferralRegistry/UsdgDepositNotifier `setAttestor`,
    `setDepositHook`; LoginGate `setAttester`. Since these contracts use single-owner setters, the timelock must be the
    owner (or a Safe module routes them through it); a Safe alone gives no delay.
 3. **Emergency levers stay fast (Safe, no timelock), and are documented:** `Launchpad.setCurveRouterKilled`
    (kills a compromised cached `trustedRouter` on existing curves), `DiscipleRouter.setMaxImpactBps`,
    `TrampWallManager.setKeeperTipBps` (bounded), `LockedLP.setCompoundParams` (bounded).
-4. One-shot setters consumed at deploy (`DiscipleHook.setMigration`, `Migration.setLaunchpad`) and verified on-chain.
+4. One-shot setters consumed at deploy (`AscensionHook.setMigration`, `Migration.setLaunchpad`) and verified on-chain.
 5. `mainnet-plan.md` checklist ticked and the Safe/timelock addresses recorded in `deployments/<chain>.json`.
 
 ## R-5 (Info): quote donated to a curve is stuck

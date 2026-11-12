@@ -6,7 +6,7 @@ import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {LockedLP} from "../../src/LockedLP.sol";
-import {DiscipleHook} from "../../src/DiscipleHook.sol";
+import {AscensionHook} from "../../src/AscensionHook.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
@@ -107,6 +107,13 @@ contract LPCompoundTest is IntegrationBase {
         _swapExactInQuoteForToken(t, trader1, q);
     }
 
+    /// @dev Swap fees are collected after the swap (take onto the hook, collect later), so a compound made ready by
+    ///      one swap's collect runs on the next swap. A dust sell in a new block triggers it.
+    function _nudge() internal {
+        vm.roll(vm.getBlockNumber() + 1);
+        _swapExactInTokenForQuote(tok, trader1, 1e12);
+    }
+
     function _sellFrac(Token t, uint256 div) internal {
         _swapExactInTokenForQuote(t, trader1, t.balanceOf(trader1) / div);
     }
@@ -186,7 +193,8 @@ contract LPCompoundTest is IntegrationBase {
 
     function test_one_sided_accumulation_then_pairing() public {
         _params(1, 0, 5000);
-        _buy(tok, 50 ether); // pairs against the leftover → token side exhausted (dust < 1 liquidity unit)
+        _buy(tok, 50 ether); // token-side fee collected into the bucket after the swap
+        _nudge(); // the next swap pairs it against the leftover → token side exhausted (dust < 1 liquidity unit)
         (uint256 bt,) = _bucket(tok);
         assertLt(bt, 1e6);
         vm.recordLogs();
@@ -197,6 +205,7 @@ contract LPCompoundTest is IntegrationBase {
         vm.roll(vm.getBlockNumber() + 1); // audit round 3: at most one add per block
         vm.recordLogs();
         _buy(tok, 50 ether);
+        _nudge(); // compounding runs on the swap after the collect that made both buckets ready
         assertEq(_count(COMPOUNDED), 1);
         (uint256 bt2, uint256 bq2) = _bucket(tok);
         assertLt(bt2, 1e6);

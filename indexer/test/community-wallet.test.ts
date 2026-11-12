@@ -73,7 +73,7 @@ describe("community rewards wallet", () => {
     expect(real.stacks.at(-1)!.communityWallet).toBe(cur.community.wallet);
     expect(real.stacks.slice(0, -1).every((s) => !s.communityWallet)).toBe(true);
     const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cw-")), "d.json");
-    fs.writeFileSync(f, JSON.stringify({ chainId: 46630, contracts: { Launchpad: A(1), FeeRouter: A(2), DiscipleHook: A(3) } }));
+    fs.writeFileSync(f, JSON.stringify({ chainId: 46630, contracts: { Launchpad: A(1), FeeRouter: A(2), AscensionHook: A(3) } }));
     expect(loadConfig({ DEPLOYMENT_JSON: f }).stacks[0].communityWallet).toBeUndefined();
     expect(loadConfig({ DEPLOYMENT_JSON: f, COMMUNITY_WALLET: WALLET }).stacks[0].communityWallet).toBe(WALLET);
   });

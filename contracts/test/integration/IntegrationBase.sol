@@ -20,7 +20,7 @@ import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {V4Deploy} from "../helpers/V4Deploy.sol";
-import {DiscipleHook} from "../../src/DiscipleHook.sol";
+import {AscensionHook} from "../../src/AscensionHook.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
@@ -92,7 +92,7 @@ abstract contract IntegrationBase is Test {
     FeeRouter internal feeRouter;
     Migration internal migration;
     Launchpad internal launchpad;
-    DiscipleHook internal hook;
+    AscensionHook internal hook;
     IPoolManager internal manager;
     PoolSwapTest internal swapRouter;
     QuoteProbe internal quoteProbe;
@@ -190,6 +190,7 @@ abstract contract IntegrationBase is Test {
         feeVault = new CurveFeeVault(address(feeRouter), address(0)); // AnonLauncher tests deploy their own vault
         launchpad.setCurveDeployer(address(new CurveDeployer(address(feeVault))));
         launchpad.setTrustedRouter(address(router), true);
+        launchpad.setCurveRouter(address(router));
         feeRouter.setClaimRouter(address(router), true);
         vm.stopPrank();
 
@@ -288,7 +289,7 @@ abstract contract IntegrationBase is Test {
         return out;
     }
 
-    /// @dev DiscipleHook compound reference needs REF_MIN_AGE (60 s) of history after graduation.
+    /// @dev AscensionHook compound reference needs REF_MIN_AGE (60 s) of history after graduation.
     function _warpRefReady() internal {
         vm.warp(vm.getBlockTimestamp() + 61);
         vm.roll(vm.getBlockNumber() + 1);
@@ -389,6 +390,23 @@ abstract contract IntegrationBase is Test {
         );
         vm.stopPrank();
         totalQuoteIn += amountIn;
+        _autoCollect(tok);
+    }
+
+    /// @dev The hook now holds each swap's 1% until `collectFees` (anyone) books it in FeeRouter. These helpers
+    ///      collect right after the swap so tests that read FeeRouter balances see the same split as before. Set
+    ///      `autoCollectHookFees = false` to look at the fee while it is still pending on the hook.
+    bool internal autoCollectHookFees = true;
+
+    function _autoCollect(Token tok) internal {
+        if (autoCollectHookFees) _collectHookFees(tok, address(swapRouter));
+    }
+
+    /// @dev Hand `trader`'s pending hook fees on `tok`'s pool to FeeRouter. No-op when nothing is pending.
+    function _collectHookFees(Token tok, address trader) internal {
+        address[] memory ts = new address[](1);
+        ts[0] = trader;
+        try hook.collectFees(_poolKey(tok), ts) {} catch {}
     }
 
     function _swapExactInTokenForQuote(Token tok, address trader, uint256 tokenAmount) internal {
@@ -408,6 +426,7 @@ abstract contract IntegrationBase is Test {
             ""
         );
         vm.stopPrank();
+        _autoCollect(tok);
     }
 
     /// @dev Quote held in protocol buckets (curve reserve / LP escrow / accrued / treasury).

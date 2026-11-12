@@ -84,6 +84,9 @@ interface IHarvestAnon {
 interface IHookGuard {
     function swappedInTx(PoolId id) external view returns (bool);
     function compoundRefs(PoolId id) external view returns (uint160 refBlock, uint160 refEma);
+    function collectFees(PoolKey calldata key, address[] calldata traders)
+        external
+        returns (uint256 tokenAmount, uint256 quoteAmount);
 }
 
 /// @title Later send for a coin's creator fees
@@ -338,26 +341,71 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         uint256 quoteAmount;
         uint256 rockets;
         bool sellNow;
+        /// @dev False while a locked-pool coin is still on its curve: rocket tokens then stay parked here until
+        ///      graduation, because the graduation seed would overwrite a pre-graduation token-side deposit.
+        bool lockRockets;
     }
 
     /// @notice Send this coin's accrued creator fees where the launcher chose. Anyone may call it.
     ///         The caller receives nothing. Curve-phase quote is pulled from CurveFeeVault. Post-graduation
     ///         quote is pulled with `claimCreatorFeesFor`, and rocket tokens with `claimCreatorTokenFeesFor_15`.
     ///         The launcher does not claim, approve, or deposit. Fees of the current `creatorOf` and of the
-    ///         launcher recorded at launch are both pulled.
+    ///         launcher recorded at launch are both pulled. Use `routeFrom` for fees booked to a creator in between.
     function route(address token)
         external
         nonReentrant
         returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)
     {
+        return _route(token, new address[](0));
+    }
+
+    /// @notice Same as `route`, and also pulls the fees booked to each address in `pastCreators`.
+    ///         The creator role can move any number of times (Launchpad.transferCreator), and each fee is booked to
+    ///         the creator of record when it settles, so a creator in the middle of a chain A -> B -> C can hold
+    ///         fees that neither the current creator nor the launcher owns. Pass those addresses (for example from
+    ///         Launchpad `CreatorTransferred` events). Anyone may call it and the caller receives nothing: the
+    ///         destination is fixed per coin, so the list can only choose whose balance on this coin is sent there,
+    ///         never where it goes. Same caller-supplied pull list as `FeeRouter.claimCreatorFeesFor` /
+    ///         `CurveFeeVault.claimReferrerFees(settleTokens)`. Unknown or empty addresses are skipped.
+    function routeFrom(address token, address[] calldata pastCreators)
+        external
+        nonReentrant
+        returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)
+    {
+        return _route(token, pastCreators);
+    }
+
+    /// @notice Public harvest for a locked-pool or buy-and-burn coin after graduation: first hands the swap fees the
+    ///         hook is holding for `traders` to FeeRouter (`AscensionHook.collectFees`, unchanged split), then routes
+    ///         like `routeFrom`. Anyone may call it, for example a keeper; there is no privileged role and the caller
+    ///         receives nothing, so the destination does not depend on the creator showing up. An empty `traders`
+    ///         list just routes. Nothing pending on the hook for those traders is not an error.
+    function collectAndRoute(address token, address[] calldata traders, address[] calldata pastCreators)
+        external
+        nonReentrant
+        returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)
+    {
         uint8 dest = creatorFeeDestinationOf[token];
-        Pulled memory pulled = _pull(token, dest);
+        if (dest != DEST_LOCKED_LP && dest != DEST_BURN_QUOTE) revert BadDestination();
+        if (traders.length != 0 && lockedLP.isGraduated(token)) {
+            try hook.collectFees(lockedLP.getPoolKey(token), traders) {} catch {}
+        }
+        return _route(token, pastCreators);
+    }
+
+    function _route(address token, address[] memory pastCreators)
+        internal
+        returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)
+    {
+        uint8 dest = creatorFeeDestinationOf[token];
+        Pulled memory pulled = _pull(token, dest, pastCreators);
         address quote = feeRouter.tokenQuote(token);
         if (dest == DEST_LOCKED_LP) {
-            _lock(token, quote, pulled.rockets, pulled.quoteAmount);
-            if (pulled.rockets != 0) rocketDeposited[token] = 0;
+            uint256 rockets = pulled.lockRockets ? pulled.rockets : 0;
+            _lock(token, quote, rockets, pulled.quoteAmount);
+            if (rockets != 0) rocketDeposited[token] = 0;
             quoteAmount = pulled.quoteAmount;
-            rocketTokenAmount = pulled.rockets;
+            rocketTokenAmount = rockets;
         } else {
             if (pulled.quoteAmount != 0) {
                 IERC20(quote).safeTransfer(BURN, pulled.quoteAmount);
@@ -377,28 +425,60 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         emit CreatorFeesRouted(token, dest, quoteAmount, rocketTokenAmount, quoteBought);
     }
 
-    /// @dev Reads both creators, decides whether a burn-destination sell is allowed, then pulls both halves.
-    function _pull(address token, uint8 dest) internal returns (Pulled memory pulled) {
+    /// @dev The addresses whose balances on `token` are pulled: the current creator, the launcher recorded at
+    ///      launch, then `extra`, with zero addresses and repeats dropped.
+    function _payees(address current, address original, address[] memory extra)
+        internal
+        pure
+        returns (address[] memory who, uint256 n)
+    {
+        who = new address[](2 + extra.length);
+        if (current != address(0)) who[n++] = current;
+        for (uint256 i; i <= extra.length; ++i) {
+            address a = i == 0 ? original : extra[i - 1];
+            if (a == address(0)) continue;
+            bool seen;
+            for (uint256 j; j < n; ++j) {
+                if (who[j] == a) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (!seen) who[n++] = a;
+        }
+    }
+
+    /// @dev Reads every payee, decides whether a burn-destination sell (or a locked-pool rocket deposit) is allowed,
+    ///      then pulls both halves.
+    function _pull(address token, uint8 dest, address[] memory extra) internal returns (Pulled memory pulled) {
         if (dest != DEST_LOCKED_LP && dest != DEST_BURN_QUOTE) revert BadDestination();
         pulled.current = launchpad.creatorOf(token);
-        address original = launcherOf[token];
+        (address[] memory who, uint256 n) = _payees(pulled.current, launcherOf[token], extra);
         IFeePull fr = feeRouter;
-        uint256 qCurrent = fr.creatorAccrued(token, pulled.current);
-        uint256 tCurrent = fr.creatorTokenAccrued(token, pulled.current);
-        uint256 qOriginal;
-        uint256 tOriginal;
-        if (original != address(0) && original != pulled.current) {
-            qOriginal = fr.creatorAccrued(token, original);
-            tOriginal = fr.creatorTokenAccrued(token, original);
+        uint256[] memory q = new uint256[](n);
+        uint256[] memory t = new uint256[](n);
+        uint256 qSum;
+        uint256 tSum;
+        uint256 qVault;
+        for (uint256 i; i < n; ++i) {
+            q[i] = fr.creatorAccrued(token, who[i]);
+            t[i] = fr.creatorTokenAccrued(token, who[i]);
+            qSum += q[i];
+            tSum += t[i];
+            qVault += _pullVault(token, who[i]);
         }
         uint256 parked = rocketDeposited[token];
-        uint256 qVault = _pullVault(token, pulled.current);
-        if (original != address(0) && original != pulled.current) qVault += _pullVault(token, original);
-        pulled.quoteAmount = qCurrent + qOriginal + qVault;
-        pulled.rockets = tCurrent + tOriginal + parked;
+        pulled.quoteAmount = qSum + qVault;
+        pulled.rockets = tSum + parked;
         if (pulled.quoteAmount == 0 && pulled.rockets == 0) revert NothingToRoute();
-        if (dest == DEST_BURN_QUOTE && pulled.rockets != 0) {
-            if (!lockedLP.isGraduated(token)) {
+        if (pulled.rockets != 0) {
+            bool graduated = lockedLP.isGraduated(token);
+            if (dest == DEST_LOCKED_LP) {
+                // Before graduation the rocket side cannot join the locked position (the seed would overwrite
+                // it), so it waits here, the same way the burn destination waits with AwaitingOrbit.
+                if (graduated) pulled.lockRockets = true;
+                else if (pulled.quoteAmount == 0) revert AwaitingOrbit();
+            } else if (!graduated) {
                 if (pulled.quoteAmount == 0) revert AwaitingOrbit();
             } else if (_priceOk(token)) {
                 pulled.sellNow = true;
@@ -406,12 +486,14 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
                 revert PriceGuard();
             }
         }
-        if (qCurrent != 0) qCurrent = fr.claimCreatorFeesFor(token, pulled.current);
-        if (qOriginal != 0) qOriginal = fr.claimCreatorFeesFor(token, original);
-        pulled.quoteAmount = qCurrent + qOriginal + qVault;
-        if (tCurrent != 0) tCurrent = fr.claimCreatorTokenFeesFor_15(token, pulled.current);
-        if (tOriginal != 0) tOriginal = fr.claimCreatorTokenFeesFor_15(token, original);
-        pulled.rockets = tCurrent + tOriginal + parked;
+        qSum = 0;
+        tSum = 0;
+        for (uint256 i; i < n; ++i) {
+            if (q[i] != 0) qSum += fr.claimCreatorFeesFor(token, who[i]);
+            if (t[i] != 0) tSum += fr.claimCreatorTokenFeesFor_15(token, who[i]);
+        }
+        pulled.quoteAmount = qSum + qVault;
+        pulled.rockets = tSum + parked;
         if (pulled.rockets != 0) rocketDeposited[token] = pulled.rockets;
     }
 

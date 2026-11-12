@@ -34,8 +34,9 @@ interface ILPCompounder {
         returns (uint128);
 }
 
-/// @title Post-grad 1% trade-fee hook (§3 / LOCKED #11)
-/// @notice Pool LP fee is 0; this hook takes 1% of swap output and routes via FeeRouter (33/33/33/1).
+/// @title AscensionHook — post-graduation 1% trade-fee hook (§3 / LOCKED #11)
+/// @notice Pool LP fee is 0; this hook takes 1% of swap output onto itself and `collectFees` (anyone, later) routes it
+///         via FeeRouter (33/33/33/1). Payouts never run inside a swap, so they cannot halt trading.
 /// @dev Must be mined to an address with
 ///      BEFORE_INITIALIZE_FLAG | BEFORE_ADD_LIQUIDITY_FLAG | BEFORE_SWAP_FLAG | AFTER_SWAP_FLAG |
 ///      AFTER_SWAP_RETURNS_DELTA_FLAG.
@@ -46,7 +47,7 @@ interface ILPCompounder {
 ///      beforeAddLiquidity (SEC-02): only allowlisted liquidity managers (LockedLP, TrampWallManager) may add,
 ///      so nobody can JIT raw v4 positions around a swap. TrampWallManager positions are strictly single-sided
 ///      one-tick-spacing bands placed out of range; there is no minimum hold period.
-contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
+contract AscensionHook is IHooks, IHookTradeEvents, IAltitudeEvents {
     using PoolIdLibrary for PoolKey;
     using SafeCast for uint256;
     using SafeERC20 for IERC20;
@@ -93,6 +94,14 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
 
     address public migration;
 
+    /// @notice 1% fees taken onto this hook by swaps and not yet handed to FeeRouter, per pool, fee token and trader.
+    ///         Keyed by trader so `collectFees` books exactly the split (33/33/33/1, referral or KOL leftover) the
+    ///         swap itself used to book. No shared fee contract is called during a swap.
+    mapping(PoolId id => mapping(address feeToken => mapping(address trader => uint256 amount))) public pendingFee;
+
+    /// @notice `collectFees` handed `amount` of `feeToken` for `trader` to FeeRouter (same split as before).
+    event FeesCollected(PoolId indexed id, address indexed feeToken, address indexed trader, uint256 amount);
+
     error OnlyPoolManager();
     error OnlyMigration();
     error HookNotImplemented();
@@ -100,6 +109,7 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
     error OnlyAdmin();
     error OnlyLiquidityManager();
     error OnlyLockedLP();
+    error NothingToCollect();
 
     // ── SEC-02 LP gate / altitude ───────────────────────────────────────────
     /// @notice Contracts allowed to add liquidity to DISCIPLE pools (LockedLP, TrampWallManager).
@@ -124,6 +134,9 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
         uint40 emaTime;
         uint40 refSince;
         uint8 obs;
+        /// @dev Set by `collectFees` when FeeRouter reports both LP buckets ready; the next swap tries the isolated
+        ///      compound once and clears it. Same slot beforeSwap already warmed.
+        bool compoundPending;
     }
 
     mapping(PoolId => PoolTrack) internal _track;
@@ -195,7 +208,7 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
     ///         set in the constructor) so it cannot be front-run between hook deploy and wiring.
     function setMigration(address m) external {
         if (msg.sender != admin) revert OnlyAdmin();
-        require(migration == address(0) && m != address(0), "DiscipleHook: mig");
+        require(migration == address(0) && m != address(0), "AscensionHook: mig");
         migration = m;
     }
 
@@ -237,7 +250,7 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
 
     function setCompounder(address c, uint32 gasLimit) external {
         if (msg.sender != admin) revert OnlyAdmin();
-        require(gasLimit >= 50_000 && gasLimit <= 1_000_000, "DiscipleHook: gas");
+        require(gasLimit >= 50_000 && gasLimit <= 1_000_000, "AscensionHook: gas");
         compounder = ILPCompounder(c);
         compoundGasLimit = gasLimit;
         emit CompounderSet(c, gasLimit);
@@ -298,7 +311,8 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
             emaTickX256: int32(tk) * 256,
             emaTime: uint40(block.timestamp),
             refSince: uint40(block.timestamp),
-            obs: 1
+            obs: 1,
+            compoundPending: false
         });
         emit AltitudeUpdate(token, mcap, tier);
     }
@@ -366,7 +380,8 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
         BalanceDelta delta,
         bytes calldata hookData
     ) external onlyPoolManager returns (bytes4, int128) {
-        PoolMeta memory m = metaOf[key.toId()];
+        PoolId id = key.toId();
+        PoolMeta memory m = metaOf[id];
         if (!m.registered) revert NotRegistered();
 
         // Fee on unspecified (output) token — same pattern as FeeTakingHook
@@ -383,49 +398,96 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
 
         address feeToken = Currency.unwrap(feeCurrency);
         if (feeAmount > 0) {
-            // Full 1% fee → FeeRouter (33/33/33/1); no in-range LP donation (tramps/walls earn no yield).
-            // Gas: PoolManager pays the FeeRouter directly (no hook hop / second ERC-20 transfer).
-            poolManager.take(feeCurrency, address(feeRouter), feeAmount);
-            // Audit #3 (gas): FeeRouter reports whether the LP buckets now hold both sides; one-sided accumulation
-            // (the common case) skips the compound call entirely.
-            if (feeRouter.routeHookFee(m.token, feeToken, trader, m.creator, feeAmount)) {
-                _tryCompound(m.token, key.toId());
-            }
+            // Full 1% fee taken onto this hook and recorded per pool (FeeTakingHook / Doppler Rehype pattern: take
+            // onto the hook during the swap, collect later). No FeeRouter or other shared fee contract is called
+            // here, so a failing payout path can never stop trading. `collectFees` (anyone) books the unchanged
+            // 33/33/33/1 split later. No in-range LP donation (tramps/walls earn no yield).
+            poolManager.take(feeCurrency, address(this), feeAmount);
+            pendingFee[id][feeToken][trader] += feeAmount;
         }
+        // A collect left both LP buckets ready: try the isolated, gas-capped compound (cleared once attempted).
+        if (_track[id].compoundPending && _tryCompound(m.token, id)) _track[id].compoundPending = false;
 
         // Gas G-1: no live QuotePricer call per swap. Trade carries sqrtPriceAfter; altitude/tier needs a USD mcap and
         // uses the cheapest existing path: the launch-time quote/USD already loaded in `m` (no extra SLOAD / CALL).
         (uint160 sqrtAfter, bool tokenIsC0) = _emitTrade(key, m, trader, delta, feeToken, feeAmount);
-        _emitAltitude(key.toId(), m.token, mcapUsdFromSqrt(sqrtAfter, tokenIsC0, m.quotePriceUsd));
+        _emitAltitude(id, m.token, mcapUsdFromSqrt(sqrtAfter, tokenIsC0, m.quotePriceUsd));
         return (IHooks.afterSwap.selector, feeAmount.toInt128());
+    }
+
+    /// @notice Hand fees this hook took during swaps to FeeRouter, which books the official split exactly as the
+    ///         in-swap call did (creator share, LP share to LockedLP, treasury, referral/KOL leftover for `traders`).
+    ///         Anyone may call it (a keeper, the creator, CreatorFeeHarvest); the caller receives nothing and cannot
+    ///         change where any amount goes. Traders come from this hook's Trade events. Both pool currencies are
+    ///         collected for each trader. Creator fees are booked to the creator of record at collect time (the same
+    ///         rule as unsettled curve-phase fees on `transferCreator`); collect before transferring to keep them.
+    /// @return tokenAmount launch-token fees collected
+    /// @return quoteAmount quote fees collected
+    function collectFees(PoolKey calldata key, address[] calldata traders)
+        external
+        returns (uint256 tokenAmount, uint256 quoteAmount)
+    {
+        PoolId id = key.toId();
+        PoolMeta memory m = metaOf[id];
+        if (!m.registered) revert NotRegistered();
+        bool ready;
+        for (uint256 i; i < traders.length; ++i) {
+            address trader = traders[i];
+            uint256 t = pendingFee[id][m.token][trader];
+            uint256 q = pendingFee[id][m.quote][trader];
+            if (t != 0) {
+                pendingFee[id][m.token][trader] = 0;
+                tokenAmount += t;
+                if (_collect(m, id, m.token, trader, t)) ready = true;
+            }
+            if (q != 0) {
+                pendingFee[id][m.quote][trader] = 0;
+                quoteAmount += q;
+                if (_collect(m, id, m.quote, trader, q)) ready = true;
+            }
+        }
+        if (tokenAmount == 0 && quoteAmount == 0) revert NothingToCollect();
+        if (ready) _track[id].compoundPending = true;
+    }
+
+    /// @dev Pays FeeRouter, then books the split (FeeRouter expects the tokens before `routeHookFee`).
+    function _collect(PoolMeta memory m, PoolId id, address feeToken, address trader, uint256 amount)
+        private
+        returns (bool compoundReady)
+    {
+        IERC20(feeToken).safeTransfer(address(feeRouter), amount);
+        compoundReady = feeRouter.routeHookFee(m.token, feeToken, trader, m.creator, amount);
+        emit FeesCollected(id, feeToken, trader, amount);
     }
 
     /// @dev Never reverts the swap: gas-capped external call in try/catch, skipped when gas is short.
     ///      PoolManager is already unlocked by the swapper — no unlock here. LockedLP's modifyLiquidity re-enters
     ///      only beforeAddLiquidity (allowlist check), never the fee path.
-    function _tryCompound(address token, PoolId id) internal {
+    ///      Returns true once the compound call was made (whatever its result), false when it was skipped.
+    function _tryCompound(address token, PoolId id) internal returns (bool tried) {
         ILPCompounder c = compounder;
-        if (address(c) == address(0)) return;
+        if (address(c) == address(0)) return true;
         uint256 rep;
         bytes32 rslot = REPEAT_SLOT;
         assembly ("memory-safe") {
             rep := tload(rslot)
         }
-        if (rep != 0) return;
+        if (rep != 0) return false;
         uint256 g = compoundGasLimit;
-        if (gasleft() < g + COMPOUND_GAS_RESERVE) return;
+        if (gasleft() < g + COMPOUND_GAS_RESERVE) return false;
         uint160 sqrtBefore;
         bytes32 slot = PRICE_SLOT;
         assembly ("memory-safe") {
             sqrtBefore := tload(slot)
         }
-        // DISCIPLE audit High-1 / L7: LockedLP checks spot against ALL THREE references (this swap's pre-price,
-        // the block-start price and the multi-block EMA) and skips if any is > maxCompoundDeviationBps away. No
-        // compounding at all until the EMA has REF_MIN_AGE of history.
+        // LockedLP checks spot against all three references (this swap's pre-price, the block-start price and
+        // the multi-block EMA) and skips if any is > maxCompoundDeviationBps away. No compounding at all until
+        // the EMA has REF_MIN_AGE of history.
         PoolTrack memory t = _track[id]; // warm (read in beforeSwap)
-        if (!_refReady(t)) return;
+        if (!_refReady(t)) return false;
         uint160 refBlock = TickMath.getSqrtPriceAtTick(t.anchorTick);
         uint160 refEma = TickMath.getSqrtPriceAtTick(_emaTick(t));
+        tried = true;
         try c.compoundFromHook{gas: g}(token, sqrtBefore, refBlock, refEma) {}
         catch {
             emit CompoundFailed(token);

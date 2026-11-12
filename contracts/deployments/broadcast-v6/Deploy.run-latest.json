@@ -100,7 +100,7 @@
     {
       "hash": "0xba29eaf62427eac00284ba14cef71062b8eac86061a280d239d0420c5786ec38",
       "transactionType": "CREATE2",
-      "contractName": "DiscipleHook",
+      "contractName": "AscensionHook",
       "exactArtifactMatch": true,
       "contractAddress": "0xff68befdf795a2fa574e4a891fa066f59533a8c4",
       "function": null,
@@ -152,7 +152,7 @@
     {
       "hash": "0x1d86472dcd4f28702a15480ecde2775bfe89ce03ed8b051d66fc25d09150e7a0",
       "transactionType": "CALL",
-      "contractName": "DiscipleHook",
+      "contractName": "AscensionHook",
       "contractAddress": "0xff68befdf795a2fa574e4a891fa066f59533a8c4",
       "function": "setMigration(address)",
       "functionAbi": "function setMigration(address m)",
@@ -290,7 +290,7 @@
     {
       "hash": "0xf7aa2c0390922ba6499081d84bcf53480af1b2d1d7a5d2d6af4d7eb7ca0e9b0e",
       "transactionType": "CALL",
-      "contractName": "DiscipleHook",
+      "contractName": "AscensionHook",
       "contractAddress": "0xff68befdf795a2fa574e4a891fa066f59533a8c4",
       "function": "setLiquidityManager(address,bool)",
       "functionAbi": "function setLiquidityManager(address mgr, bool allowed)",
@@ -313,7 +313,7 @@
     {
       "hash": "0xbde5ae3db45f6757506b2b7c76f01993a5c37105e6fcd2b65426a5de4dfba00e",
       "transactionType": "CALL",
-      "contractName": "DiscipleHook",
+      "contractName": "AscensionHook",
       "contractAddress": "0xff68befdf795a2fa574e4a891fa066f59533a8c4",
       "function": "setLiquidityManager(address,bool)",
       "functionAbi": "function setLiquidityManager(address mgr, bool allowed)",
@@ -336,7 +336,7 @@
     {
       "hash": "0xccfdae15ee8591506bf905b53f7651814d96b9e708e423bd14ff6486495cba83",
       "transactionType": "CALL",
-      "contractName": "DiscipleHook",
+      "contractName": "AscensionHook",
       "contractAddress": "0xff68befdf795a2fa574e4a891fa066f59533a8c4",
       "function": "setCompounder(address,uint32)",
       "functionAbi": "function setCompounder(address c, uint32 gasLimit)",
@@ -381,7 +381,7 @@
     {
       "hash": "0xfea18a8b5d4644c84c5a41670a78b397b06f3bb22e1d8eb681b9e9f0166a29e8",
       "transactionType": "CALL",
-      "contractName": "DiscipleHook",
+      "contractName": "AscensionHook",
       "contractAddress": "0xff68befdf795a2fa574e4a891fa066f59533a8c4",
       "function": "setTrustedRouter(address,bool)",
       "functionAbi": "function setTrustedRouter(address r, bool trusted)",
@@ -1008,7 +1008,7 @@
     {
       "hash": "0x17381f448b28bec25435624d42e3819bd650398464684588e80d8e7ac5ad7510",
       "transactionType": "CALL",
-      "contractName": "DiscipleHook",
+      "contractName": "AscensionHook",
       "contractAddress": "0xff68befdf795a2fa574e4a891fa066f59533a8c4",
       "function": "setPricer(address)",
       "functionAbi": "function setPricer(address p)",

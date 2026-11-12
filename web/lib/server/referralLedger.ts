@@ -3,7 +3,7 @@ import "server-only";
  * Off-chain referral ledger (flow/referral-ledger).
  *
  * Existing pattern reused (see lib/server/trades.ts): the trade indexer already writes each
- * BondingCurve / DiscipleHook Trade to Upstash as a Fill (`trades:<coin>` zsets, `trades:seen:<tx>:<li>`
+ * BondingCurve / AscensionHook Trade to Upstash as a Fill (`trades:<coin>` zsets, `trades:seen:<tx>:<li>`
  * SET NX so a re-run never double-counts), and attaches DiscipleRouter UsdgTrade / UsdgRefund from
  * usdgRouters() (regular + gasless). This ledger is the same after-the-fact path: storeFills marks
  * fills dirty (same idea as ACH.dirty), indexTrades then records a fee-slice row, and a later CSV
@@ -154,7 +154,7 @@ export function referralSliceFromFill(
       }
     }
   }
-  // Fallback / no event: hook buys take the 1% fee in the coin (DiscipleHook afterSwap, output side).
+  // Fallback / no event: hook buys take the 1% fee in the coin (AscensionHook afterSwap, output side).
   if (f.venue === "hook" && f.side === "buy" && f.priceUsd > 0 && f.tokens > 0) {
     const feeTokens = f.tokens * TRADE_FEE_BPS / (BPS_DENOM - TRADE_FEE_BPS); // net = 99% of gross
     const sliceTokens = splitTradeFee(feeTokens).referral;

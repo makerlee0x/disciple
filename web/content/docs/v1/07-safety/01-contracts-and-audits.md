@@ -22,7 +22,7 @@ Findings and fixes are tracked openly in the repository. [CONFIRM: FLOW — link
 | **Launchpad** | Creates rockets and their curves. Holds launch settings. |
 | **BondingCurve** | One per rocket. The starting price path, before orbit. |
 | **Migration** | Moves a rocket to Uniswap v4 when it reaches orbit, in the same trade. |
-| **DiscipleHook** | Attached to every rocket's Uniswap pool after orbit. Charges the 1% fee and reports trades and altitude. |
+| **AscensionHook** | Attached to every rocket's Uniswap pool after orbit. Charges the 1% fee and reports trades and altitude. |
 | **DiscipleRouter** | Carries the app's trades, including one-tap trades paid in USDG. Adds slippage and price-impact checks. |
 | **LockedLP** | Owns the locked liquidity of every rocket that has reached orbit. It has no way to remove it. |
 | **FeeRouter** | Splits every fee 33 / 33 / 33 / 1 after orbit and holds what's owed from those fees until it's claimed. The sniper tax doesn't pass through it: each rocket holds its own. |

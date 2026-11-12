@@ -4,7 +4,7 @@ Base: `flow/gasless-permit2` @ a8154368. Branch `flow/curve-lp-accrue`. Testnet 
 Lee's go-aheads (via COO): 7:28 PM "ok yes then bundle the lp share"; 7:32 PM 12-day rule for sniper fees and LP fees; 7:37 PM drop the on-chain verified record; 7:39 PM standing rule: add no mechanism beyond the brief.
 Prior work in git history: no curve fee accrual to reuse (the only "owed" commits are the paymaster and keeper jars).
 
-## Design (NEW curves only; existing curves, FeeRouter, LockedLP, Migration, AscensionHook/DiscipleHook unchanged)
+## Design (NEW curves only; existing curves, FeeRouter, LockedLP, Migration, AscensionHook/AscensionHook unchanged)
 Copied pattern: **Uniswap v3 accrue-then-collect**. In v3, Position.tokensOwed0/1 grow on every swap and NonfungiblePositionManager.collect() pays out later. It is named in the NatSpec of BondingCurve and CurveFeeVault.
 - **Per trade (unreferred trader):** the curve only adds `protoFee` and `creatorTax` to `protoFeesOwed` and `creatorTaxOwed`. These are `uint112`, packed in the same slot as `graduated`, so it is one warm SSTORE. There is no transfer and no FeeRouter or LockedLP call. The quote stays in the curve, outside `quoteReserve`. `_prepaid` (audit L3) counts it as owed.
 - **Referred trader** (ReferralRegistry.referrerOf != 0, one view call per trade): the fee settles inside the same trade, so the trader's referrer still gets exactly their 1%. A referrer only exists at trade time, so this cannot be deferred.
@@ -122,7 +122,7 @@ The indexer tests pass on both sides: 64 tests in 9 files on this branch and 60 
 - contracts/src/libraries/Constants.sol:190 `PVE_LOGIN_CACHE_TTL` is unused by new curves.
 - contracts/src/BondingCurve.sol `verifiedUntilOf` / `NotVerified` are kept for ABI only.
 - Instant revoke design (/workspace/instant-revoke-design.md, paused): the transfer block via `onTokenTransfer`, the sell block, and the claim/rewards pause all assumed a curve-level LoginGate read. On new curves there is no hook for them.
-- Token.sol, FeeRouter.sol, DiscipleHook.sol, RewardsVault.sol and crew tip (`_crewTip`): no LoginGate dependency found.
+- Token.sol, FeeRouter.sol, AscensionHook.sol, RewardsVault.sol and crew tip (`_crewTip`): no LoginGate dependency found.
 - web/lib/protocol-viem.ts:991-992 and 1104, plus lib/pve.ts:22-67: PvE buys still prepend a user-paid `LoginGate.attest`, which is unnecessary on new curves (extra gas and a wallet step).
   - 1098 and lib/legacyGate.ts:23 (+ components/pairart/CoinIdentity.tsx:57): legacy detection keys off `curve.loginGate()`. Kept non-legacy because the immutable stays.
   - protocol-viem.ts:264,461, launchAbi.ts:65,71 and components/create/FirstBoostField.tsx:62: NotVerified messaging. Harmless, never fires on new curves.

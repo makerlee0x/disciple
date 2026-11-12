@@ -1,4 +1,4 @@
-/** Indexed trade fill (one Trade event from a BondingCurve or the DiscipleHook). Shared client/server. */
+/** Indexed trade fill (one Trade event from a BondingCurve or the AscensionHook). Shared client/server. */
 export interface Fill {
   /** `${tx}:${logIndex}` — dedupe id */
   id: string;
@@ -58,7 +58,7 @@ export const FILL_V = 3;
 /** Fixed DISCIPLE supply (contracts Constants.TOTAL_SUPPLY = 1M × 1e18). */
 export const TOTAL_SUPPLY_TOKENS = 1_000_000;
 
-/** sqrtPriceX96 (v4) → $ mcap, full precision (mirrors DiscipleHook.mcapUsdFromSqrt / indexer math.mcapUsdFromSqrt).
+/** sqrtPriceX96 (v4) → $ mcap, full precision (mirrors AscensionHook.mcapUsdFromSqrt / indexer math.mcapUsdFromSqrt).
  *  tokenIsC0 = token < quote (v4 currency order); quoteUsdWad = USD WAD per 1e18 RAW quote units (decimal-agnostic). */
 export function mcapUsdFromSqrt(sqrtP: bigint, tokenIsC0: boolean, quoteUsdWad: bigint, supplyTokens = TOTAL_SUPPLY_TOKENS): number {
   if (sqrtP <= BigInt(0) || quoteUsdWad <= BigInt(0)) return 0;
@@ -79,12 +79,12 @@ export const preciseX18 = (v: bigint | number | undefined) => v !== undefined &&
  * Pure: raw Trade args → USD numbers (exported for tests). Units-agnostic — never derives $ from the floored priceX18
  * fields (6-dec USDG: FLOW #115).
  *  - BondingCurve Trade (pre-grad): mcapAfterUsd (USD WAD, launch-time quote price) straight from the event.
- *  - DiscipleHook Trade (post-grad, v4 G-1): no mcapAfterUsd (last field = sqrtPriceAfter) ⇒ mcap = mcapUsdFromSqrt(
+ *  - AscensionHook Trade (post-grad, v4 G-1): no mcapAfterUsd (last field = sqrtPriceAfter) ⇒ mcap = mcapUsdFromSqrt(
  *    sqrtPriceAfter, token < quote, quotePriceUsd). Legacy fallback (no sqrtPriceAfter / quote given): priceAfterX18 ×
  *    supply × quotePriceUsd — exact only for 18-dec quotes.
  *  - usd = the QUOTE actually paid (buy) / received (sell): Trade.quoteAmt × quotePriceUsd (the coin's launch quote
  *    price; USDG = $1). Both venues emit quoteAmt that way (BondingCurve: quoteIn incl. fee on buys, quoteOut after fee
- *    on sells; DiscipleHook: quote in incl. fee / out after fee). SITE job 7: the old tokens × mid(priceBefore,
+ *    on sells; AscensionHook: quote in incl. fee / out after fee). SITE job 7: the old tokens × mid(priceBefore,
  *    priceAfter) estimate overstated big curve buys ~2.3× (SGRAD's first buy: $15.2K shown for ~$6.5K paid).
  *    Only when quoteAmt or the quote price is missing: the old estimate, tokens × mid(priceBefore, priceAfter) (mid
  *    factor only when both prices are precise, else tokens × the price after the fill).

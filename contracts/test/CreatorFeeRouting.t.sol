@@ -10,14 +10,20 @@ import {FeeMath} from "../src/libraries/FeeMath.sol";
 import {Token} from "../src/Token.sol";
 import {BondingCurve} from "../src/BondingCurve.sol";
 import {ILaunchpad} from "../src/interfaces/ILaunchpad.sol";
+import {Launchpad} from "../src/Launchpad.sol";
 import {LockedLP} from "../src/LockedLP.sol";
 import {LoginGate} from "../src/LoginGate.sol";
 import {Constants} from "../src/libraries/Constants.sol";
 import {CurveFeeVault} from "../src/CurveFeeVault.sol";
 import {CurveDeployer} from "../src/CurveDeployer.sol";
+import {Launchpad} from "../src/Launchpad.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @notice Creator-fee destinations. Trades still pay the launcher. `route` runs later.
 contract CreatorFeeRoutingTest is IntegrationBase {
+    using PoolIdLibrary for PoolKey;
     uint256 internal constant TAX = 700; // 7%
     uint256 internal constant BUY = 100 ether;
     address internal constant BURN = 0x000000000000000000000000000000000000dEaD;
@@ -33,8 +39,8 @@ contract CreatorFeeRoutingTest is IntegrationBase {
             address(launchpad), address(feeRouter), address(lockedLP), address(router), address(hook), address(manager)
         );
         launchpad.setTrustedRouter(address(harvest), true);
-        // setTrustedRouter also stores curveRouter. Put DiscipleRouter back so private USDG launches still find it.
-        launchpad.setTrustedRouter(address(router), true);
+        // Trusting the harvest leaves curveRouter on DiscipleRouter.
+        assertEq(launchpad.curveRouter(), address(router));
         feeRouter.setClaimRouter(address(harvest), true);
         feeRouter.setCreatorFeeHarvest_51(address(harvest));
         harvest.setFeeVault(address(feeVault));
@@ -498,7 +504,353 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         assertEq(curve.pendingRewards(trader2), tip, "route did not touch holder rewards");
     }
 
+    function test_setTrustedRouter_doesNotMoveCurveRouter() public {
+        address current = launchpad.curveRouter();
+        assertEq(current, address(router));
+        address helper = makeAddr("helperRouter");
+        vm.prank(owner);
+        launchpad.setTrustedRouter(helper, true);
+        assertEq(launchpad.curveRouter(), current, "trusting another router must not move the default");
+        assertTrue(launchpad.isTrustedRouter(helper));
+
+        address rogue = makeAddr("untrustedRouter");
+        vm.prank(owner);
+        vm.expectRevert(Launchpad.NotRouter.selector);
+        launchpad.setCurveRouter(rogue);
+
+        vm.prank(owner);
+        launchpad.setCurveRouter(helper);
+        assertEq(launchpad.curveRouter(), helper);
+
+        vm.prank(owner);
+        launchpad.setTrustedRouter(helper, false);
+        assertEq(launchpad.curveRouter(), address(0), "untrusting the default clears it");
+    }
+
+    function test_routeFrom_pullsIntermediateCreator() public {
+        (BondingCurve curve, Token tok) = _launchDest(1, TAX);
+        _warpPastSnipe();
+        _buy(curve, trader1, BUY, 0);
+        curve.settleFees();
+        (uint256 first,,,) = _owed(BUY, TAX);
+        address mid = makeAddr("mid");
+        address last = makeAddr("last");
+        vm.prank(creator);
+        launchpad.transferCreator(address(tok), mid);
+        _buy(curve, trader1, BUY, 0);
+        curve.settleFees();
+        (uint256 second,,,) = _owed(BUY, TAX);
+        assertEq(feeVault.creatorClaimable(address(tok), mid), second);
+        vm.prank(mid);
+        launchpad.transferCreator(address(tok), last);
+        _buy(curve, trader1, BUY, 0);
+        curve.settleFees();
+        (uint256 third,,,) = _owed(BUY, TAX);
+        assertEq(feeVault.creatorClaimable(address(tok), last), third);
+
+        uint256 esc0 = _escrow(address(tok));
+        harvest.route(address(tok));
+        assertEq(_escrow(address(tok)) - esc0, first + third, "route pulls the launcher and the current creator only");
+        assertEq(feeVault.creatorClaimable(address(tok), mid), second, "the mid creator is still sitting on the vault");
+
+        address[] memory past = new address[](1);
+        past[0] = mid;
+        harvest.routeFrom(address(tok), past);
+        assertEq(_escrow(address(tok)) - esc0, first + second + third, "routeFrom sends the mid creator's fees to the same dest");
+        assertEq(feeVault.creatorClaimable(address(tok), mid), 0);
+        assertEq(feeVault.creatorClaimable(address(tok), creator), 0);
+        assertEq(feeVault.creatorClaimable(address(tok), last), 0);
+    }
+
+    function test_lockedLp_refusesTokenDepositBeforeGraduation() public {
+        (, Token tok) = _launchDest(1, 0);
+        deal(address(tok), address(harvest), 1 ether);
+        deal(address(quote), address(harvest), 2 ether);
+        vm.startPrank(address(harvest));
+        tok.approve(address(lockedLP), 1 ether);
+        quote.approve(address(lockedLP), 2 ether);
+        vm.expectRevert(LockedLP.NotGraduated.selector);
+        lockedLP.depositCreatorFees_57(address(tok), address(quote), 1 ether, 0);
+        vm.expectRevert(LockedLP.NotGraduated.selector);
+        lockedLP.depositCreatorFees_57(address(tok), address(quote), 1 ether, 1 ether);
+        uint256 esc0 = _escrow(address(tok));
+        lockedLP.depositCreatorFees_57(address(tok), address(quote), 0, 1 ether);
+        vm.stopPrank();
+        assertEq(_escrow(address(tok)) - esc0, 1 ether, "quote still escrows before graduation");
+        assertEq(tok.balanceOf(address(harvest)), 1 ether, "the rocket tokens stayed with the harvest");
+    }
+
+    // ───────── creator role moves any number of times; middle creators' fees still reach the destination ─────────
+
+    /// @dev A -> B -> C -> D with settled fees booked to A, B and C. `route` reaches A and D; `routeFrom` reaches B
+    ///      and C. No transfer is blocked by unclaimed fees, and nobody can self-claim a routed coin.
+    function _chain(uint8 dest)
+        internal
+        returns (Token tok, address b, address c, address d, uint256 feeA, uint256 feeB, uint256 feeC)
+    {
+        BondingCurve curve;
+        (curve, tok) = _launchDest(dest, TAX);
+        _warpPastSnipe();
+        b = makeAddr("creatorB");
+        c = makeAddr("creatorC");
+        d = makeAddr("creatorD");
+        _buy(curve, trader1, BUY, 0);
+        curve.settleFees();
+        feeA = feeVault.creatorAccrued(address(tok), creator);
+        vm.prank(creator);
+        launchpad.transferCreator(address(tok), b);
+        _buy(curve, trader1, BUY, 0);
+        curve.settleFees();
+        feeB = feeVault.creatorAccrued(address(tok), b);
+        vm.prank(b);
+        launchpad.transferCreator(address(tok), c);
+        _buy(curve, trader1, BUY, 0);
+        curve.settleFees();
+        feeC = feeVault.creatorAccrued(address(tok), c);
+        vm.prank(c);
+        launchpad.transferCreator(address(tok), d);
+        assertEq(launchpad.creatorOf(address(tok)), d, "three transfers, none blocked by unclaimed fees");
+        assertGt(feeA, 0);
+        assertGt(feeB, 0);
+        assertGt(feeC, 0);
+        _expectRouted(address(tok), b);
+        _expectRouted(address(tok), c);
+    }
+
+    function test_lockedLp_middleCreators_routeFrom_reachesThem() public {
+        (Token tok, address b, address c,, uint256 feeA, uint256 feeB, uint256 feeC) = _chain(1);
+        uint256 esc0 = _escrow(address(tok));
+        harvest.route(address(tok));
+        assertEq(_escrow(address(tok)) - esc0, feeA, "route pulls the launcher and the current creator only");
+        assertEq(feeVault.creatorAccrued(address(tok), b), feeB, "middle creator still owed");
+        assertEq(feeVault.creatorAccrued(address(tok), c), feeC, "middle creator still owed");
+
+        address[] memory past = new address[](4);
+        past[0] = b;
+        past[1] = c;
+        past[2] = b; // repeats and unknown addresses are skipped
+        past[3] = makeAddr("stranger");
+        address keeper = makeAddr("keeper");
+        vm.prank(keeper);
+        (uint256 q,,) = harvest.routeFrom(address(tok), past);
+        assertEq(q, feeB + feeC);
+        assertEq(_escrow(address(tok)) - esc0, feeA + feeB + feeC, "every creator's fees joined the locked escrow");
+        assertEq(feeVault.creatorAccrued(address(tok), b), 0);
+        assertEq(feeVault.creatorAccrued(address(tok), c), 0);
+        assertEq(quote.balanceOf(keeper), 0, "caller is paid nothing");
+        assertEq(quote.balanceOf(address(harvest)), 0);
+        vm.expectRevert(CreatorFeeHarvest.NothingToRoute.selector);
+        harvest.routeFrom(address(tok), past);
+    }
+
+    function test_burn_middleCreators_routeFrom_burnsThem() public {
+        (Token tok, address b, address c,, uint256 feeA, uint256 feeB, uint256 feeC) = _chain(2);
+        uint256 burned0 = quote.balanceOf(BURN);
+        address[] memory past = new address[](2);
+        past[0] = b;
+        past[1] = c;
+        harvest.routeFrom(address(tok), past);
+        assertEq(quote.balanceOf(BURN) - burned0, feeA + feeB + feeC, "launcher, middle and current creators burned");
+        assertEq(feeVault.creatorAccrued(address(tok), b), 0);
+        assertEq(feeVault.creatorAccrued(address(tok), c), 0);
+    }
+
+    function test_keepFees_transfersStillUnrestricted() public {
+        (BondingCurve curve, Token tok) = _launchDest(0, TAX);
+        _warpPastSnipe();
+        _buy(curve, trader1, BUY, 0);
+        curve.settleFees();
+        address b = makeAddr("creatorB");
+        vm.prank(creator);
+        launchpad.transferCreator(address(tok), b);
+        vm.prank(b);
+        launchpad.transferCreator(address(tok), creator);
+        vm.prank(creator);
+        launchpad.transferCreator(address(tok), b);
+        uint256 owed = feeVault.creatorAccrued(address(tok), creator);
+        assertGt(owed, 0);
+        vm.prank(creator);
+        assertEq(feeVault.claimCreatorFees(address(tok)), owed, "past creator of a keep-fees coin claims any time");
+    }
+
+    // ───────── rocket tokens wait for graduation on locked-pool coins ─────────
+
+    function test_lockedLp_preGraduationRocketDeposit_waitsForOrbit_thenJoinsBucket() public {
+        (BondingCurve curve, Token tok) = _launchDest(1, TAX);
+        _warpPastSnipe();
+        _buy(curve, creator, BUY, 0);
+        uint256 rockets = tok.balanceOf(creator) / 2;
+        vm.startPrank(creator);
+        IERC20(address(tok)).approve(address(harvest), rockets);
+        harvest.depositRocketTokens(address(tok), rockets);
+        vm.stopPrank();
+        (,, uint256 posTok0,,,,) = lockedLP.positions(address(tok));
+
+        uint256 esc0 = _escrow(address(tok));
+        (uint256 q, uint256 r,) = harvest.route(address(tok));
+        assertGt(q, 0, "quote fees still lock before graduation");
+        assertEq(r, 0, "rocket side not deposited before graduation");
+        assertEq(_escrow(address(tok)) - esc0, q);
+        assertEq(harvest.rocketDeposited(address(tok)), rockets, "rockets parked on the harvest");
+        assertEq(tok.balanceOf(address(harvest)), rockets);
+        (,, uint256 posTok1,,,,) = lockedLP.positions(address(tok));
+        assertEq(posTok1, posTok0, "no token-side credit the graduation seed would overwrite");
+        vm.expectRevert(CreatorFeeHarvest.AwaitingOrbit.selector);
+        harvest.route(address(tok));
+
+        _graduate(curve);
+        (uint256 bT0,) = lockedLP.compoundBucket(address(tok));
+        (, uint256 r2,) = harvest.route(address(tok));
+        assertEq(r2, rockets);
+        (uint256 bT1,) = lockedLP.compoundBucket(address(tok));
+        assertEq(bT1 - bT0, rockets, "parked rockets joined the locked position after graduation");
+        assertEq(harvest.rocketDeposited(address(tok)), 0);
+        assertEq(tok.balanceOf(address(harvest)), 0);
+    }
+
+    function test_lockedLP_refusesTokenSideBeforeGraduation_acceptsQuote() public {
+        (BondingCurve curve, Token tok) = _launchDest(1, 0);
+        vm.prank(address(harvest));
+        vm.expectRevert(LockedLP.NotGraduated.selector);
+        lockedLP.depositCreatorFees_57(address(tok), address(quote), 1, 0);
+        quote.mint(address(harvest), 1 ether);
+        uint256 esc0 = _escrow(address(tok));
+        vm.startPrank(address(harvest));
+        quote.approve(address(lockedLP), 1 ether);
+        lockedLP.depositCreatorFees_57(address(tok), address(quote), 0, 1 ether);
+        vm.stopPrank();
+        assertEq(_escrow(address(tok)) - esc0, 1 ether, "quote-side escrow still allowed");
+        curve; // silence
+    }
+
+    // ───────── default curve router stays on DiscipleRouter ─────────
+
+    function test_trustingRouters_neverMovesCurveRouter() public {
+        assertEq(launchpad.curveRouter(), address(router));
+        address rogue = makeAddr("rogueRouter");
+        vm.startPrank(owner);
+        launchpad.setTrustedRouter(rogue, true);
+        launchpad.setTrustedRouter(address(harvest), true);
+        assertEq(launchpad.curveRouter(), address(router), "trusting other routers leaves the default alone");
+        launchpad.setTrustedRouter(rogue, false);
+        assertEq(launchpad.curveRouter(), address(router), "untrusting another router leaves the default alone");
+        vm.expectRevert(Launchpad.NotRouter.selector);
+        launchpad.setCurveRouter(rogue);
+        launchpad.setCurveRouter(address(harvest));
+        assertEq(launchpad.curveRouter(), address(harvest), "explicit setter moves it");
+        launchpad.setCurveRouter(address(router));
+        launchpad.setTrustedRouter(address(router), false);
+        assertEq(launchpad.curveRouter(), address(0), "untrusting the default clears it (fails closed)");
+        vm.stopPrank();
+        vm.prank(creator);
+        vm.expectRevert();
+        launchpad.setCurveRouter(address(router));
+    }
+
+    function test_anonUsdgLaunch_survivesHarvestReTrust() public {
+        vm.prank(owner);
+        launchpad.setTrustedRouter(address(harvest), true);
+        router.setUsdgRouting(address(quote), address(launchpad));
+        quote.mint(creator, 10 ether);
+        vm.startPrank(creator);
+        quote.approve(address(anon), type(uint256).max);
+        ILaunchpad.LaunchParams memory p = _params(0, 0);
+        (ILaunchpad.LaunchResult memory r,) = anon.launchAnonWithUsdg(p, stealth, stealth, "", 0x00, 0, 1 ether, 1, creator);
+        vm.stopPrank();
+        assertEq(BondingCurve(r.curve).trustedRouter(), address(router), "new curve snapshots DiscipleRouter");
+    }
+
+    // ───────── hook fee path: take onto the hook, collect later ─────────
+
+    function _pending(Token tok, address feeToken) internal view returns (uint256) {
+        return hook.pendingFee(_poolKey(tok).toId(), feeToken, address(swapRouter));
+    }
+
+    function test_hook_swapTakesFeeOntoHook_collectBooksSameSplit() public {
+        (BondingCurve curve, Token tok) = _launchDest(0, 0);
+        _graduate(curve);
+        _refReady(tok);
+        autoCollectHookFees = false;
+        uint256 qAcc0 = feeRouter.creatorAccrued(address(tok), creator);
+        uint256 tAcc0 = feeRouter.creatorTokenAccrued(address(tok), creator); // _refReady's swaps, already collected
+        _swapExactInQuoteForToken(tok, trader1, 1 ether);
+        uint256 held = tok.balanceOf(trader1);
+        _swapExactInTokenForQuote(tok, trader1, held / 2);
+        uint256 pT = _pending(tok, address(tok));
+        uint256 pQ = _pending(tok, address(quote));
+        assertGt(pT, 0, "buy fee (token side) held on the hook");
+        assertGt(pQ, 0, "sell fee (quote side) held on the hook");
+        assertEq(tok.balanceOf(address(hook)), pT);
+        assertEq(quote.balanceOf(address(hook)), pQ);
+        assertEq(feeRouter.creatorAccrued(address(tok), creator), qAcc0, "FeeRouter untouched during the swap");
+        assertEq(feeRouter.creatorTokenAccrued(address(tok), creator), tAcc0);
+
+        (uint256 share,,,) = FeeMath.splitTradeFee(pQ);
+        (uint256 tShare,,,) = FeeMath.splitTradeFee(pT);
+        address[] memory ts = new address[](1);
+        ts[0] = address(swapRouter);
+        vm.prank(makeAddr("keeper"));
+        (uint256 cT, uint256 cQ) = hook.collectFees(_poolKey(tok), ts);
+        assertEq(cT, pT);
+        assertEq(cQ, pQ);
+        assertEq(feeRouter.creatorAccrued(address(tok), creator) - qAcc0, share, "official 33% creator share");
+        assertEq(feeRouter.creatorTokenAccrued(address(tok), creator) - tAcc0, tShare);
+        assertEq(_pending(tok, address(tok)), 0);
+        assertEq(_pending(tok, address(quote)), 0);
+        assertEq(tok.balanceOf(address(hook)), 0);
+        assertEq(quote.balanceOf(address(hook)), 0);
+        PoolKey memory key = _poolKey(tok);
+        vm.expectRevert();
+        hook.collectFees(key, ts);
+    }
+
+    function test_hook_swapsKeepTrading_whenFeeRouterReverts() public {
+        (BondingCurve curve, Token tok) = _launchDest(0, 0);
+        _graduate(curve);
+        _refReady(tok);
+        autoCollectHookFees = false;
+        vm.mockCallRevert(address(feeRouter), abi.encodeWithSelector(FeeRouter.routeHookFee.selector), "router down");
+        _swapExactInQuoteForToken(tok, trader1, 1 ether);
+        _swapExactInTokenForQuote(tok, trader1, tok.balanceOf(trader1) / 2);
+        uint256 pQ = _pending(tok, address(quote));
+        assertGt(pQ, 0, "swaps completed and the fee is held");
+        address[] memory ts = new address[](1);
+        ts[0] = address(swapRouter);
+        PoolKey memory key = _poolKey(tok);
+        vm.expectRevert();
+        hook.collectFees(key, ts);
+        assertEq(_pending(tok, address(quote)), pQ, "a failed collect keeps the fee pending");
+        vm.clearMockedCalls();
+        hook.collectFees(key, ts);
+        assertEq(_pending(tok, address(quote)), 0);
+    }
+
+    function test_collectAndRoute_isPublic_locksPostGraduationFees() public {
+        (BondingCurve curve, Token tok) = _launchDest(1, 0);
+        _graduate(curve);
+        _refReady(tok);
+        autoCollectHookFees = false;
+        _swapExactInQuoteForToken(tok, trader1, 1 ether);
+        _swapExactInTokenForQuote(tok, trader1, tok.balanceOf(trader1) / 2);
+        uint256 pT = _pending(tok, address(tok));
+        (uint256 tShare,,,) = FeeMath.splitTradeFee(pT);
+        assertGt(tShare, 0);
+        uint256 tAcc0 = feeRouter.creatorTokenAccrued(address(tok), creator); // _refReady's swaps, already collected
+        (uint256 bT0,) = lockedLP.compoundBucket(address(tok));
+        address[] memory ts = new address[](1);
+        ts[0] = address(swapRouter);
+        vm.roll(block.number + 1);
+        vm.prank(makeAddr("keeper")); // no role needed
+        (, uint256 r,) = harvest.collectAndRoute(address(tok), ts, new address[](0));
+        assertEq(r, tShare + tAcc0, "creator's rocket share went to the locked position");
+        (uint256 bT1,) = lockedLP.compoundBucket(address(tok));
+        assertGe(bT1 - bT0, tShare + tAcc0);
+        assertEq(_pending(tok, address(tok)), 0);
+        assertEq(feeRouter.creatorTokenAccrued(address(tok), creator), 0);
+    }
+
     function _orbit(BondingCurve curve, Token tok) internal {
+
         _graduate(curve);
         _refReady(tok);
         _swapExactInQuoteForToken(tok, trader1, 1 ether);

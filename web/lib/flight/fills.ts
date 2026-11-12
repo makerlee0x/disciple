@@ -4,7 +4,7 @@
  * Preferred source = DiscipleRouter `UsdgTrade(trader indexed, token indexed, isBuy, amountIn, amountOut, viaCurve)`
  * (trader = msg.sender = the smart account): buy amountIn = USDG spent, amountOut = tokens; sell amountIn = tokens,
  * amountOut = USDG received (net). A graduating buy's `UsdgRefund(trader, token, quoteRefund, usdgRefund)` is subtracted.
- * Fallback (native-quote path, no router) = the venue `Trade` event (BondingCurve: last field mcapAfterUsd; DiscipleHook:
+ * Fallback (native-quote path, no router) = the venue `Trade` event (BondingCurve: last field mcapAfterUsd; AscensionHook:
  * last field sqrtPriceAfter ⇒ different topic0): tokenAmt exact, $ from quoteAmt × the quote's USD price.
  * Fee ($) = Trade.fee (quote raw) converted at the same quote→$ rate.
  */
@@ -27,7 +27,7 @@ export const TOPIC = {
   usdgRefund: "0x4b56fe5da5cdebaaf396f5c8665f846a46f9ad9d40b767d881bb1b89f98f7cc5",
   /** BondingCurve.Trade(…, uint256 mcapAfterUsd) */
   curveTrade: "0xc9d4f93ded9b42fa24561e02b2a40f720f71601eb1b3f7b3fd4eff20877639ee",
-  /** DiscipleHook.Trade(…, uint160 sqrtPriceAfter) */
+  /** AscensionHook.Trade(…, uint160 sqrtPriceAfter) */
   hookTrade: "0x429d1e9e19c899db3fe448c2651841c2beb6846fdff9c61e31123b4262c94ef2",
 } as const;
 

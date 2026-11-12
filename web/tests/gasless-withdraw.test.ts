@@ -1,20 +1,22 @@
-/** flow/gasless-withdraw: fee math (round up to 0.000001 USDG, 1.0x paymaster rate), request rules, typed-data + Multicall3 calldata. */
+/** Gasless withdraw: fee math, request rules, Permit2 witness + GaslessForwarder calldata. */
 import { describe, expect, it } from "vitest";
 import { decodeFunctionData, hashTypedData, recoverTypedDataAddress, type Address } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { rateFromEnv, unmarkedRate } from "../lib/server/usdgEthRate";
 import { GaslessReject, jsonSafe, PERMIT2 } from "../lib/trade/gaslessPermit2";
 import {
-  checkGaslessWithdrawRequest, encodeWithdrawCall, erc2612PermitAbi, minWithdrawAmount, microUsdg,
-  MULTICALL3, multicall3Abi, parseGaslessWithdrawRequest, permit2TransferAbi, transferTypedData,
-  withdrawFeeRaw, withdrawGas, WITHDRAW_GAS, WITHDRAW_GAS_PAD, WITHDRAW_GAS_PERMIT, type GaslessWithdrawRequest,
+  checkGaslessWithdrawRequest, encodeWithdrawCall, minWithdrawAmount, microUsdg, parseGaslessWithdrawRequest,
+  withdrawFeeRaw, withdrawGas, withdrawTypedData, withdrawWitnessHash,
+  WITHDRAW_GAS, WITHDRAW_GAS_PAD, WITHDRAW_GAS_PERMIT, type GaslessWithdrawRequest,
 } from "../lib/trade/gaslessWithdraw";
+import { gaslessForwarderAbi } from "../lib/trade/gaslessForwarder";
 import { formatUsdgFee, parseWithdrawQuote, signGaslessWithdraw } from "../lib/trade/gaslessWithdrawClient";
 import type { LocalAccount, PublicClient } from "viem";
 
 const usdg = "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D" as Address;
 const dest = "0x00000000000000000000000000000000000000dd" as Address;
 const feeTo = "0x00000000000000000000000000000000000000ee" as Address;
+const fwd = "0x111111111111111111111111111111111111F0D1" as Address;
 const NOW = 1_000_000;
 const user = privateKeyToAccount(generatePrivateKey());
 
@@ -53,20 +55,18 @@ describe("withdraw fee math (round up to 0.000001 USDG, 1.0x paymaster rate)", (
   });
 });
 
-async function req(o: Partial<{ amount: bigint; fee: bigint; dest: Address; feeTo: Address; nonce1: bigint; nonce2: bigint; deadline: bigint; token: Address }> = {}): Promise<GaslessWithdrawRequest> {
+async function req(o: Partial<{ amount: bigint; fee: bigint; dest: Address; feeTo: Address; nonce: bigint; deadline: bigint; token: Address }> = {}): Promise<GaslessWithdrawRequest> {
   const fee = o.fee ?? 5_106n, amount = o.amount ?? 10_000_000n, deadline = o.deadline ?? BigInt(NOW + 120);
   const token = o.token ?? usdg;
-  const netPermit = { permitted: { token, amount: amount - fee }, nonce: o.nonce1 ?? 0n, deadline };
-  const feePermit = { permitted: { token, amount: fee }, nonce: o.nonce2 ?? 1n, deadline };
+  const permit = { permitted: { token, amount }, nonce: o.nonce ?? 0n, deadline };
+  const destination = o.dest ?? dest, f = o.feeTo ?? feeTo;
   return {
-    signer: user.address, destination: o.dest ?? dest, amount, fee, feeTo: o.feeTo ?? feeTo,
-    netPermit, feePermit,
-    netSignature: await user.signTypedData(transferTypedData(46630, netPermit)),
-    feeSignature: await user.signTypedData(transferTypedData(46630, feePermit)),
+    signer: user.address, destination, amount, fee, feeTo: f,
+    permit, signature: await user.signTypedData(withdrawTypedData(46630, permit, { to: destination, fee, feeTo: f }, fwd)),
   };
 }
 const chk = (q: GaslessWithdrawRequest, extra: Partial<{ minFee: bigint; feeTo: Address }> = {}) =>
-  checkGaslessWithdrawRequest(q, { usdg, usdgDecimals: 6, nowSec: NOW, feeTo: extra.feeTo ?? feeTo, minFee: extra.minFee });
+  checkGaslessWithdrawRequest(q, { usdg, usdgDecimals: 6, nowSec: NOW, feeTo: extra.feeTo ?? feeTo, minFee: extra.minFee, forwarder: fwd });
 
 describe("request rules (before any RPC)", () => {
   it("amount <= fee is refused; the minimum is fee plus one micro-USDG", async () => {
@@ -74,16 +74,13 @@ describe("request rules (before any RPC)", () => {
     await expect(req({ amount: 5_107n, fee: 5_106n }).then(chk)).resolves.toBeUndefined();
     expect(minWithdrawAmount(5_106n, 6)).toBe(5_107n);
   });
-  it("permit token / amounts / nonces / feeTo / deadlines are checked", async () => {
+  it("permit token / amount / feeTo / deadlines are checked", async () => {
     await expect(req({ token: dest }).then(chk)).rejects.toThrow("permit token mismatch");
     const q = await req();
-    q.netPermit = { ...q.netPermit, permitted: { ...q.netPermit.permitted, amount: 1n } };
-    expect(() => chk(q)).toThrow("net permit amount mismatch");
-    const q2 = await req();
-    q2.feePermit = { ...q2.feePermit, permitted: { ...q2.feePermit.permitted, amount: 1n } };
-    expect(() => chk(q2)).toThrow("fee permit amount mismatch");
-    await expect(req({ nonce1: 7n, nonce2: 7n }).then(chk)).rejects.toThrow("permit nonces must differ");
+    q.permit = { ...q.permit, permitted: { ...q.permit.permitted, amount: 1n } };
+    expect(() => chk(q)).toThrow("permit amount mismatch");
     await expect(req({ feeTo: dest }).then(chk)).rejects.toThrow("fee recipient is not the relayer");
+    await expect(req({ dest: fwd }).then(chk)).rejects.toThrow("destination cannot be the forwarder");
     await expect(req({ deadline: BigInt(NOW) }).then(chk)).rejects.toThrow("deadline");
     await expect(req({ deadline: BigInt(NOW + 301) }).then(chk)).rejects.toThrow("deadline");
   });
@@ -91,56 +88,52 @@ describe("request rules (before any RPC)", () => {
     const q = await req();
     const wire = JSON.parse(JSON.stringify(q, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
     expect(parseGaslessWithdrawRequest(wire)).toEqual(q);
-    for (const bad of [{ ...wire, signer: "0x0" }, { ...wire, netSignature: "0x12" }, { ...wire, fee: "-1" }]) {
+    for (const bad of [{ ...wire, signer: "0x0" }, { ...wire, signature: "0x12" }, { ...wire, fee: "-1" }]) {
       try { parseGaslessWithdrawRequest(bad); throw new Error("accepted"); } catch (e) { expect(e).toBeInstanceOf(GaslessReject); expect((e as GaslessReject).notSent).toBe(true); }
     }
   });
 });
 
-describe("Permit2 typed data + Multicall3 calldata (spender is Multicall3)", () => {
-  it("recovers the signer and binds amount / spender / nonce; a changed field does not recover", async () => {
+describe("Permit2 witness typed data + GaslessForwarder calldata", () => {
+  const tdOf = (q: GaslessWithdrawRequest) => withdrawTypedData(46630, q.permit, { to: q.destination, fee: q.fee, feeTo: q.feeTo }, fwd);
+
+  it("recovers the signer and binds amount, destination, fee, and spender; a changed field does not recover", async () => {
     const q = await req();
-    expect(await recoverTypedDataAddress({ ...transferTypedData(46630, q.netPermit), signature: q.netSignature })).toBe(user.address);
-    expect(await recoverTypedDataAddress({ ...transferTypedData(46630, q.feePermit), signature: q.feeSignature })).toBe(user.address);
-    const changed = { ...q.netPermit, permitted: { ...q.netPermit.permitted, amount: 1n } };
-    expect(await recoverTypedDataAddress({ ...transferTypedData(46630, changed), signature: q.netSignature })).not.toBe(user.address);
-    const otherSpender = { ...transferTypedData(46630, q.netPermit), message: { ...transferTypedData(46630, q.netPermit).message, spender: feeTo } };
-    expect(await recoverTypedDataAddress({ ...otherSpender, signature: q.netSignature })).not.toBe(user.address);
-    expect(transferTypedData(46630, q.netPermit).message.spender).toBe(MULTICALL3);
+    expect(await recoverTypedDataAddress({ ...tdOf(q), signature: q.signature })).toBe(user.address);
+    expect(tdOf(q).message.spender.toLowerCase()).toBe(fwd.toLowerCase());
+    const changed = { ...q.permit, permitted: { ...q.permit.permitted, amount: 1n } };
+    expect(await recoverTypedDataAddress({ ...withdrawTypedData(46630, changed, { to: q.destination, fee: q.fee, feeTo: q.feeTo }, fwd), signature: q.signature })).not.toBe(user.address);
+    const otherTo = { ...tdOf(q), message: { ...tdOf(q).message, witness: { to: feeTo, fee: q.fee, feeTo: q.feeTo } } };
+    expect(await recoverTypedDataAddress({ ...otherTo, signature: q.signature })).not.toBe(user.address);
+    const otherSpender = { ...tdOf(q), message: { ...tdOf(q).message, spender: feeTo } };
+    expect(await recoverTypedDataAddress({ ...otherSpender, signature: q.signature })).not.toBe(user.address);
+  });
+  it("matches the on-chain Withdraw witness hash", () => {
+    expect(withdrawWitnessHash({
+      to: "0x6666666666666666666666666666666666666666",
+      fee: 123n,
+      feeTo: "0x7777777777777777777777777777777777777777",
+    })).toBe("0xb1e7b9296d5945f569ac0c347500ad10e9de290b7f1cf395681810e9b1dbf738");
   });
   it("jsonSafe preserves the EIP-712 digest (Privy JSON.stringify)", async () => {
     const q = await req();
-    const td = transferTypedData(46630, q.netPermit);
+    const td = tdOf(q);
     expect(() => JSON.stringify(td)).toThrow(/BigInt/);
     expect(hashTypedData(jsonSafe(td))).toBe(hashTypedData(td));
   });
-  it("encodes Multicall3.aggregate3 of [net transfer, fee transfer], optional USDG.permit first, never to the relayer as spender", async () => {
+  it("encodes GaslessForwarder.withdraw with the signed destination and a bundled EIP-2612 when present", async () => {
     const q = await req();
-    const data = encodeWithdrawCall(q, usdg);
-    const decoded = decodeFunctionData({ abi: multicall3Abi, data });
-    expect(decoded.functionName).toBe("aggregate3");
-    const calls = decoded.args[0] as { target: Address; allowFailure: boolean; callData: `0x${string}` }[];
-    expect(calls).toHaveLength(2);
-    expect(calls.every(c => !c.allowFailure)).toBe(true);
-    expect(calls[0].target.toLowerCase()).toBe(PERMIT2.toLowerCase());
-    expect(calls[1].target.toLowerCase()).toBe(PERMIT2.toLowerCase());
-    const net = decodeFunctionData({ abi: permit2TransferAbi, data: calls[0].callData });
-    const fee = decodeFunctionData({ abi: permit2TransferAbi, data: calls[1].callData });
-    expect(net.functionName).toBe("permitTransferFrom");
-    expect((net.args[1] as { to: Address }).to.toLowerCase()).toBe(dest.toLowerCase());
-    expect((net.args[1] as { requestedAmount: bigint }).requestedAmount).toBe(q.amount - q.fee);
-    expect((net.args[2] as Address).toLowerCase()).toBe(user.address.toLowerCase());
-    expect((fee.args[1] as { to: Address }).to.toLowerCase()).toBe(feeTo.toLowerCase());
-    expect((fee.args[1] as { requestedAmount: bigint }).requestedAmount).toBe(q.fee);
+    const decoded = decodeFunctionData({ abi: gaslessForwarderAbi, data: encodeWithdrawCall(q, fwd) });
+    expect(decoded.functionName).toBe("withdraw");
+    const args = decoded.args as unknown as readonly unknown[];
+    expect((args[0] as Address).toLowerCase()).toBe(user.address.toLowerCase());
+    expect((args[2] as { to: Address; fee: bigint; feeTo: Address }).to.toLowerCase()).toBe(dest.toLowerCase());
+    expect((args[2] as { fee: bigint }).fee).toBe(q.fee);
+    expect((args[2] as { feeTo: Address }).feeTo.toLowerCase()).toBe(feeTo.toLowerCase());
     const a = { value: 2n ** 256n - 1n, deadline: BigInt(NOW + 100), v: 27 as const, r: `0x${"11".repeat(32)}` as const, s: `0x${"22".repeat(32)}` as const };
-    const withPermit = encodeWithdrawCall({ ...q, approval: a }, usdg);
-    const d2 = decodeFunctionData({ abi: multicall3Abi, data: withPermit });
-    const c2 = d2.args[0] as unknown as { target: Address; callData: `0x${string}` }[];
-    expect(c2).toHaveLength(3);
-    expect(c2[0].target.toLowerCase()).toBe(usdg.toLowerCase());
-    const perm = decodeFunctionData({ abi: erc2612PermitAbi, data: c2[0].callData });
-    expect(perm.functionName).toBe("permit");
-    expect((perm.args[1] as Address).toLowerCase()).toBe(PERMIT2.toLowerCase());
+    const withPermit = decodeFunctionData({ abi: gaslessForwarderAbi, data: encodeWithdrawCall({ ...q, approval: a }, fwd) });
+    expect((withPermit.args[4] as { value: bigint; v: number }).value).toBe(2n ** 256n - 1n);
+    expect((withPermit.args[4] as { v: number }).v).toBe(27);
   });
 });
 
@@ -165,18 +158,18 @@ function mockPc(allowance = 0n): PublicClient {
   } } as unknown as PublicClient;
 }
 
-describe("client sign (jsonSafe + two distinct nonces + optional EIP-2612)", () => {
+describe("client sign (jsonSafe + one witness + optional EIP-2612)", () => {
   it("signGaslessWithdraw works when the signer JSON.stringifies the typed data", async () => {
     const owner = privyLike(user);
     const quote = parseWithdrawQuote({
       fee: "5106", feeTo, gas: "200000", gasPrice: "11100000", rate: "2300000000",
-      usdg, usdgDecimals: 6, minAmount: "5107", spender: MULTICALL3, permit2: PERMIT2,
+      usdg, usdgDecimals: 6, minAmount: "5107", spender: fwd, permit2: PERMIT2,
     });
     const q = await signGaslessWithdraw(mockPc(0n), owner, { amount: 10_000_000n, destination: dest, quote, nowSec: NOW });
     expect(q.fee).toBe(5_106n);
-    expect(q.netPermit.nonce).not.toBe(q.feePermit.nonce);
+    expect(q.permit.permitted.amount).toBe(10_000_000n);
     expect(q.approval?.value).toBe(2n ** 256n - 1n);
-    expect(await recoverTypedDataAddress({ ...transferTypedData(46630, q.netPermit), signature: q.netSignature })).toBe(user.address);
+    expect(await recoverTypedDataAddress({ ...withdrawTypedData(46630, q.permit, { to: dest, fee: q.fee, feeTo }, fwd), signature: q.signature })).toBe(user.address);
     expect(() => chk(q, { feeTo })).not.toThrow();
   });
   it("formatUsdgFee trims zeros", () => {

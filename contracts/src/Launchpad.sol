@@ -71,8 +71,9 @@ contract Launchpad is ILaunchpad, Owned2Step {
     /// @notice Routers allowed to call curve.routerBuy / routerSell on behalf of a trader (owner-managed).
     mapping(address => bool) public isTrustedRouter;
     /// @notice Primary router, snapshotted into each NEW curve as an immutable (gas: no external call per router
-    ///         trade). Set by setTrustedRouter(r, true); cleared when that router is untrusted. Existing curves keep
-    ///         trusting their snapshot (documented; prepaid amounts are balance-checked by the curve).
+    ///         trade). Set only by setCurveRouter(r), which requires r to be trusted; cleared when that router is
+    ///         untrusted. Existing curves keep trusting their snapshot (documented; prepaid amounts are
+    ///         balance-checked by the curve).
     address public curveRouter;
     /// @notice PVE LoginGate (EIP-712 Privy-login attestations). Required to launch PVE coins; snapshotted per coin.
     address public loginGate;
@@ -124,6 +125,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
     event CreatorBuyMaxSet(uint256 bps);
     event WalletCapSet(uint256 bps);
     event TrustedRouterSet(address indexed router, bool trusted);
+    event CurveRouterSet(address indexed router);
     event CurveRouterKilled(address indexed curve, bool killed);
     event LoginGateSet(address indexed gate);
     event CrewTipThresholdSet(uint256 bps);
@@ -173,12 +175,28 @@ contract Launchpad is ILaunchpad, Owned2Step {
         emit WalletCapSet(bps);
     }
 
+    /// @notice Owner adds or removes a router from the trade allowlist. Trusting a router never moves
+    ///         `curveRouter`: the default router new curves snapshot (and AnonLauncher.launchAnonWithUsdg uses)
+    ///         only changes through `setCurveRouter`. Untrusting the current default clears it (fails closed),
+    ///         the same as before.
     function setTrustedRouter(address r, bool ok) external {
         if (msg.sender != owner) revert OnlyOwner();
         isTrustedRouter[r] = ok;
-        if (ok) curveRouter = r;
-        else if (curveRouter == r) curveRouter = address(0);
+        if (!ok && curveRouter == r) {
+            curveRouter = address(0);
+            emit CurveRouterSet(address(0));
+        }
         emit TrustedRouterSet(r, ok);
+    }
+
+    /// @notice Owner sets the default router that NEW curves snapshot. It must already be trusted. Kept apart from
+    ///         `setTrustedRouter` so trusting a helper router, such as CreatorFeeHarvest, cannot silently re-point
+    ///         the default away from DiscipleRouter.
+    function setCurveRouter(address r) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (!isTrustedRouter[r]) revert NotRouter();
+        curveRouter = r;
+        emit CurveRouterSet(r);
     }
 
     /// @notice Audit round 3 (ops) kill switch: existing curves snapshot their primary router as an immutable;

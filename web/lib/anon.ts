@@ -3,10 +3,11 @@
  * UI copy says "private", never "anonymous" / "fully anonymous": the wallet that pays the launch fee and the creator
  * buy is still visible on-chain, and bundlers / our backend see request metadata.
  *
- * Launchers on RH testnet 46630:
- *   v5 (default)  0x73a2…C509  new private launches on the v5 stack (launchAnon(…, maxFee)); claimMany / claimManyBySig pay
- *                              BOTH sides. Also a one-tap session target (buildCreateSession anonLauncher).
- *   legacy        0x06f3…a527  the v4-stack v2 launcher (per FLOW's v5 env note); older coins only. The v1 launcher
+ * Launchers on RH testnet 46630 (contracts/deployments/rh-testnet-46630.json contracts.AnonLauncher / legacyAnonLaunchers):
+ *   v6 (default)  0x5267…2c6b  new private launches on the v6 stack (launchAnon(…, maxFee)); claimMany / claimManyBySig pay
+ *                              BOTH sides.
+ *   legacy        0x73a2…C509  the v5 launcher; older private coins only (still live and claimable).
+ *   older         0x06f3…a527  the v4-stack launcher; still listed so its coins can be claimed. The v1 launcher
  *                              0xe564…f359 is no longer listed (its coins live on the superseded v3/v4 launchpads).
  * Each coin's launcher = Launchpad.creatorOf(token) (the launcher is the on-chain creator), so pending / stealthOwnerOf /
  * claims / EIP-712 signatures always go to that address (a v1 coin sent to v2 reverts NotStealthOwner).
@@ -15,24 +16,25 @@ import { concat, keccak256, toBytes, toHex, hexToBigInt, numberToHex, pad, type 
 import { publicKeyToAddress } from "viem/accounts";
 import { secp256k1 } from "@noble/curves/secp256k1";
 
-export type AnonAddons = { anonLauncher: Address; anonLauncherLegacy: Address; marketLens: Address; announcer: Address; v2DeployBlock: bigint };
-/** Add-ons for RH testnet 46630 (contracts/deployments/rh-testnet-46630.json contracts.AnonLauncher / MarketLens, v5). */
+export type AnonAddons = { anonLauncher: Address; anonLauncherLegacy: Address; olderLaunchers: Address[]; marketLens: Address; announcer: Address; v2DeployBlock: bigint; gaslessForwarder?: Address };
+/** Add-ons for RH testnet 46630 (contracts/deployments/rh-testnet-46630.json contracts.AnonLauncher / MarketLens, v6). */
 export const ANON_ADDONS: Record<number, AnonAddons> = {
   46630: {
-    anonLauncher: "0x73a2a6e049aa21A5C440F3bc358dE37FE3f7C509", // v5 contracts.AnonLauncher
-    anonLauncherLegacy: "0x06f31a8877c8e025cc55faffb20cba8486cca527", // v4-stack AnonLauncher v2
-    marketLens: "0xD89da17E3aEe9a7b1CBa359666F0fEb5382421Fa", // v5 contracts.MarketLens
-    announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564", // ERC-5564 singleton (= AnonLauncher(v5).announcer())
-    v2DeployBlock: BigInt(142064537), // v5 AnonLauncher creation block (tx 0x853e696d…6c0b)
+    anonLauncher: "0x526784706e5ef369412abe65213ed65256182c6b", // v6 contracts.AnonLauncher
+    anonLauncherLegacy: "0x73a2a6e049aa21A5C440F3bc358dE37FE3f7C509", // v5 AnonLauncher (older private coins: claims only)
+    olderLaunchers: ["0x06f31a8877c8e025cc55faffb20cba8486cca527"], // v4-stack AnonLauncher (claims only)
+    marketLens: "0x60f774706e0b275c47cca610d3e9123128baa880", // v6 contracts.MarketLens
+    announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564", // ERC-5564 singleton (= AnonLauncher(v6).announcer())
+    v2DeployBlock: BigInt(152153930), // v6 AnonLauncher creation block (tx 0x28745ecc…09ff)
   },
 };
 /** Every AnonLauncher this chain still lists (current first). */
 export const anonLaunchers = (chainId: number): Address[] => {
   const a = ANON_ADDONS[chainId];
-  return a ? [a.anonLauncher, a.anonLauncherLegacy] : [];
+  return a ? [a.anonLauncher, a.anonLauncherLegacy, ...a.olderLaunchers] : [];
 };
 export const isLegacyLauncher = (chainId: number, addr: string) =>
-  !!ANON_ADDONS[chainId] && addr.toLowerCase() === ANON_ADDONS[chainId].anonLauncherLegacy.toLowerCase();
+  !!ANON_ADDONS[chainId] && [ANON_ADDONS[chainId].anonLauncherLegacy, ...ANON_ADDONS[chainId].olderLaunchers].some((x) => x.toLowerCase() === addr.toLowerCase());
 
 export const PRIVATE_COPY =
   "Private launch: the coin's creator on-chain is a one-time stealth address, not your wallet. " +

@@ -1,7 +1,7 @@
 export { launchpadAbi } from "./Launchpad";
 export { bondingCurveAbi } from "./BondingCurve";
 export { quoteProbeAbi } from "./QuoteProbe";
-export { discipleHookAbi } from "./DiscipleHook";
+export { ascensionHookAbi } from "./AscensionHook";
 export { discipleRouterAbi } from "./DiscipleRouter";
 export { trampWallManagerAbi } from "./TrampWallManager";
 export { tokenAbi } from "./Token";

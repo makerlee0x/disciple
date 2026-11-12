@@ -9,7 +9,7 @@ DISCIPLE runs on Robinhood Chain. The addresses of its contracts will be publish
 
 ## DISCIPLE
 
-The DISCIPLE contracts are Launchpad, CurveDeployer, DiscipleHook, DiscipleRouter, Migration, LockedLP, FeeRouter, CurveFeeVault (the fee vault), RewardsVault (community rewards), QuotePricer, QuoteProbe, TrampWallManager, AnonLauncher and MarketLens.
+The DISCIPLE contracts are Launchpad, CurveDeployer, AscensionHook, DiscipleRouter, Migration, LockedLP, FeeRouter, CurveFeeVault (the fee vault), RewardsVault (community rewards), QuotePricer, QuoteProbe, TrampWallManager, AnonLauncher and MarketLens.
 
 Each rocket also has its own BondingCurve. Find it from the Launchpad (`curveOf(token)`) or on the rocket's page.
 

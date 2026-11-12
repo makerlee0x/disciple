@@ -7,7 +7,7 @@ import {DeployPaymaster} from "../../script/DeployPaymaster.s.sol";
 import {DisciplePaymaster} from "../../src/paymaster/DisciplePaymaster.sol";
 import {ReferralRegistry} from "../../src/ReferralRegistry.sol";
 import {UsdgDepositNotifier} from "../../src/UsdgDepositNotifier.sol";
-import {DiscipleHook} from "../../src/DiscipleHook.sol";
+import {AscensionHook} from "../../src/AscensionHook.sol";
 import {Migration} from "../../src/Migration.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {NetworkConfig} from "../../script/config/NetworkConfig.sol";
@@ -15,6 +15,7 @@ import {FeeRouter} from "../../src/FeeRouter.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
 import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
 import {CreatorFeeHarvest} from "../../src/addons/CreatorFeeHarvest.sol";
+import {GaslessForwarder} from "../../src/addons/GaslessForwarder.sol";
 import {CurveDeployer} from "../../src/CurveDeployer.sol";
 
 contract NetworkGuardHarness is NetworkConfig {
@@ -62,12 +63,12 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         assertEq(address(UsdgDepositNotifier(o.depositNotifier).usdg()), o.usdg);
 
         // #10 only DiscipleRouter is trusted for hookData attribution
-        assertTrue(DiscipleHook(o.hook).isTrustedRouter(o.router));
-        assertFalse(DiscipleHook(o.hook).isTrustedRouter(ur));
+        assertTrue(AscensionHook(o.hook).isTrustedRouter(o.router));
+        assertFalse(AscensionHook(o.hook).isTrustedRouter(ur));
 
         // #1 migrate gated by Launchpad registry; #12 hook wired to Migration
         assertEq(Migration(o.migration).launchpad(), o.launchpad);
-        assertEq(DiscipleHook(o.hook).migration(), o.migration);
+        assertEq(AscensionHook(o.hook).migration(), o.migration);
 
         // #2 hook address carries the beforeInitialize flag
         assertTrue(uint160(o.hook) & Hooks.BEFORE_INITIALIZE_FLAG != 0);
@@ -83,6 +84,9 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         assertEq(address(CreatorFeeHarvest(o.creatorFeeHarvest).launchpad()), o.launchpad);
         assertEq(address(CreatorFeeHarvest(o.creatorFeeHarvest).lockedLP()), o.lockedLP);
         assertEq(address(CreatorFeeHarvest(o.creatorFeeHarvest).feeVault()), CurveDeployer(o.curveDeployer).feeVault());
+
+        assertTrue(o.gaslessForwarder != address(0));
+        assertEq(address(GaslessForwarder(o.gaslessForwarder).anonLauncher()), o.anonLauncher);
     }
 
     /// @dev DeployPaymaster uses dynamic gas units (PAYMASTER_MAX_GAS_PER_OP), requires an owner-supplied stake,

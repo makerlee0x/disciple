@@ -19,12 +19,13 @@ import {TrampWallManager} from "../src/TrampWallManager.sol";
 import {QuoteProbe} from "../src/QuoteProbe.sol";
 import {QuotePricer} from "../src/QuotePricer.sol";
 import {DiscipleRouter} from "../src/DiscipleRouter.sol";
-import {DiscipleHook} from "../src/DiscipleHook.sol";
+import {AscensionHook} from "../src/AscensionHook.sol";
 import {RewardsVault} from "../src/RewardsVault.sol";
 import {UsdgDepositNotifier} from "../src/UsdgDepositNotifier.sol";
 import {AnonLauncher} from "../src/addons/AnonLauncher.sol";
 import {CreatorFeeHarvest} from "../src/addons/CreatorFeeHarvest.sol";
 import {MarketLens} from "../src/addons/MarketLens.sol";
+import {GaslessForwarder} from "../src/addons/GaslessForwarder.sol";
 import {Constants} from "../src/libraries/Constants.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
@@ -114,6 +115,7 @@ contract Deploy is NetworkConfig {
         address marketLens;
         address loginGate;
         address creatorFeeHarvest;
+        address gaslessForwarder;
     }
 
     function run() external returns (Out memory o) {
@@ -154,8 +156,8 @@ contract Deploy is NetworkConfig {
         );
         bytes memory ctorArgs = abi.encode(manager, feeRouter, address(0), deployer);
         (address hookAddr, bytes32 salt) =
-            HookMiner.find(CREATE2_DEPLOYER, flags, type(DiscipleHook).creationCode, ctorArgs);
-        DiscipleHook hook = new DiscipleHook{salt: salt}(manager, feeRouter, address(0), deployer);
+            HookMiner.find(CREATE2_DEPLOYER, flags, type(AscensionHook).creationCode, ctorArgs);
+        AscensionHook hook = new AscensionHook{salt: salt}(manager, feeRouter, address(0), deployer);
         require(address(hook) == hookAddr, "Deploy: hook address mismatch");
 
         Migration migration = new Migration(deployer, address(lockedLP), o.manager, address(hook));
@@ -238,8 +240,8 @@ contract Deploy is NetworkConfig {
             address(launchpad), address(feeRouter), address(lockedLP), address(router), address(hook), address(manager)
         );
         launchpad.setTrustedRouter(address(harvest), true);
-        // setTrustedRouter also stores curveRouter. DiscipleRouter must remain that pointer.
-        launchpad.setTrustedRouter(address(router), true);
+        // Trusting the harvest does not move the default curve router. DiscipleRouter is set explicitly.
+        launchpad.setCurveRouter(address(router));
         feeRouter.setClaimRouter(address(harvest), true);
         // Self-claims read this pointer. Trades do not. Destination 1 or 2 then cannot be claimed by the launcher.
         feeRouter.setCreatorFeeHarvest_51(address(harvest));
@@ -270,6 +272,8 @@ contract Deploy is NetworkConfig {
         // Deployed before the CurveDeployer: the CurveFeeVault takes the AnonLauncher (AUDIT H1 stealth-owner claim).
         (o.rewardsVault, o.anonLauncher, o.marketLens) =
             _addons(deployer, treasury, feeRouter, hook, launchpad, migration, pricer, o.usdg, usdgDec);
+        o.gaslessForwarder = address(new GaslessForwarder(o.anonLauncher));
+        console2.log("GaslessForwarder", o.gaslessForwarder);
         CurveFeeVault feeVault = new CurveFeeVault(address(feeRouter), o.anonLauncher);
         o.curveDeployer = address(new CurveDeployer(address(feeVault)));
         launchpad.setCurveDeployer(o.curveDeployer);
@@ -300,7 +304,7 @@ contract Deploy is NetworkConfig {
 
         console2.log("PoolManager", o.manager);
         console2.log("V4Quoter", o.quoter);
-        console2.log("DiscipleHook", o.hook);
+        console2.log("AscensionHook", o.hook);
         console2.log("DiscipleRouter", o.router);
         console2.log("TrampWallManager", o.trampWall);
         console2.log("CurveDeployer", o.curveDeployer);
@@ -337,7 +341,7 @@ contract Deploy is NetworkConfig {
         address deployer,
         address treasury,
         FeeRouter feeRouter,
-        DiscipleHook hook,
+        AscensionHook hook,
         Launchpad launchpad,
         Migration migration,
         QuotePricer pricer,

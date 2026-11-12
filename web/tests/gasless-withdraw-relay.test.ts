@@ -1,6 +1,6 @@
-/** flow/gasless-withdraw relay: same Privy/revoke/strike gate as trades, Multicall3 submit, no-strike on relayer-side failure. */
+/** Gasless withdraw relay: same Privy/revoke/strike gate as trades, GaslessForwarder submit, no-strike on relayer-side failure. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { decodeFunctionData, parseTransaction, toBytes, keccak256, slice, type Address, type Hex } from "viem";
+import { parseTransaction, toBytes, keccak256, slice, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 const h = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_CHAIN_ID = "46630";
@@ -19,7 +19,8 @@ import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { relayGaslessWithdraw, quoteGaslessWithdraw, withdrawFeeTo, withdrawUsdgPerEth } from "../lib/server/gaslessWithdrawRelay";
 import { gaslessSessionDeps } from "../lib/server/gaslessSession";
 import { strikeSource } from "../lib/server/relayLockdown";
-import { MULTICALL3, multicall3Abi, transferTypedData, WITHDRAW_TX_GAS_LIMIT, withdrawFeeRaw, withdrawGas } from "../lib/trade/gaslessWithdraw";
+import { WITHDRAW_TX_GAS_LIMIT, withdrawFeeRaw, withdrawGas, withdrawTypedData } from "../lib/trade/gaslessWithdraw";
+import { setGaslessForwarderForTests } from "../lib/trade/gaslessForwarder";
 import { DEPLOYMENTS } from "../lib/chains";
 import type { GaslessDeps } from "../lib/server/gaslessRelay";
 
@@ -47,6 +48,7 @@ let TOKEN = "";
 const relay = (b: unknown, d: GaslessDeps = {}) => relayGaslessWithdraw(b, { idToken: TOKEN, ...d });
 const usdg = DEPLOYMENTS[46630].usdg;
 const dest = "0x00000000000000000000000000000000000000dd" as Address;
+const fwd = "0x111111111111111111111111111111111111F0D1" as Address;
 const NOW = Math.floor(Date.now() / 1000);
 const BASE = 11_100_000n;
 const errSel = (sig: string) => slice(keccak256(toBytes(sig)), 0, 4);
@@ -57,13 +59,12 @@ function feeNow(needsPermit = false) {
 }
 async function wire(o: { signer?: typeof user; amount?: bigint; fee?: bigint; dest?: Address } = {}) {
   const s = o.signer ?? user, fee = o.fee ?? feeNow(), amount = o.amount ?? fee + 1_000_000n, deadline = BigInt(NOW + 120);
-  const netPermit = { permitted: { token: usdg, amount: amount - fee }, nonce: 0n, deadline };
-  const feePermit = { permitted: { token: usdg, amount: fee }, nonce: 1n, deadline };
+  const destination = o.dest ?? dest;
+  const permit = { permitted: { token: usdg, amount }, nonce: 0n, deadline };
+  const w = { to: destination, fee, feeTo: feeTo() };
   return JSON.parse(JSON.stringify({
-    signer: s.address, destination: o.dest ?? dest, amount, fee, feeTo: feeTo(),
-    netPermit, feePermit,
-    netSignature: await s.signTypedData(transferTypedData(46630, netPermit)),
-    feeSignature: await s.signTypedData(transferTypedData(46630, feePermit)),
+    signer: s.address, destination, amount, fee, feeTo: feeTo(),
+    permit, signature: await s.signTypedData(withdrawTypedData(46630, permit, w, fwd)),
   }, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
 }
 beforeEach(() => {
@@ -78,21 +79,22 @@ beforeEach(() => {
   gaslessSessionDeps.fetch = privyFetch as never;
   gaslessSessionDeps.invite = async () => ({ ok: true });
   TOKEN = session([user.address, other.address]).token;
+  setGaslessForwarderForTests(46630, fwd);
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => { setGaslessForwarderForTests(46630, undefined); vi.unstubAllEnvs(); });
 
 describe("quote (no signature)", () => {
   it("returns fee = gas × base fee × 1.0x paymaster rate, rounded up, and feeTo = the relayer", async () => {
     const q = await quoteGaslessWithdraw({ signer: user.address }, { needsPermit: false, baseFee: BASE, rate: withdrawUsdgPerEth(), feeTo: feeTo() });
     expect(q.feeTo.toLowerCase()).toBe(feeTo().toLowerCase());
-    expect(q.spender.toLowerCase()).toBe(MULTICALL3.toLowerCase());
+    expect(q.spender.toLowerCase()).toBe(fwd.toLowerCase());
     expect(BigInt(q.fee)).toBe(feeNow(false));
     expect(BigInt(q.minAmount)).toBe(feeNow(false) + 1n);
   });
 });
 
 describe("admission + exact simulation", () => {
-  it("happy path: one Multicall3 relayer tx, budget after gates, gas cap is the withdraw limit", async () => {
+  it("happy path: one GaslessForwarder relayer tx, budget after gates, gas cap is the withdraw limit", async () => {
     const order: string[] = [];
     h.call.mockImplementation(async () => { order.push("sim"); return { data: "0x" }; });
     h.budget.mockImplementation(async () => { order.push("budget"); return 0; });
@@ -102,9 +104,8 @@ describe("admission + exact simulation", () => {
     expect(r).toMatchObject({ kind: "confirmed", success: true });
     expect(order).toEqual(["sim", "budget", "send"]);
     const simArgs = h.call.mock.calls[0][0] as { to: string; data: Hex };
-    expect(simArgs.to.toLowerCase()).toBe(MULTICALL3.toLowerCase());
-    expect(decodeFunctionData({ abi: multicall3Abi, data: simArgs.data }).functionName).toBe("aggregate3");
-    expect(parseTransaction(raw!).to?.toLowerCase()).toBe(MULTICALL3.toLowerCase());
+    expect(simArgs.to.toLowerCase()).toBe(fwd.toLowerCase());
+    expect(parseTransaction(raw!).to?.toLowerCase()).toBe(fwd.toLowerCase());
     expect(parseTransaction(raw!).gas).toBe(WITHDRAW_TX_GAS_LIMIT);
   });
   it("revoked or in the strike window ⇒ notSent", async () => {
@@ -132,9 +133,9 @@ describe("admission + exact simulation", () => {
   });
   it("signature by another key ⇒ refused before send", async () => {
     const w = await wire();
-    const deadline = BigInt(NOW + 120), fee = feeNow();
-    const netPermit = { permitted: { token: usdg, amount: BigInt(w.amount) - fee }, nonce: 0n, deadline };
-    w.netSignature = await other.signTypedData(transferTypedData(46630, netPermit));
+    const deadline = BigInt(NOW + 120);
+    const permit = { permitted: { token: usdg, amount: BigInt(w.amount) }, nonce: 0n, deadline };
+    w.signature = await other.signTypedData(withdrawTypedData(46630, permit, { to: dest, fee: BigInt(w.fee), feeTo: feeTo() }, fwd));
     await expect(relay(w)).rejects.toThrow("signature is not the signer's");
     expect(h.send).not.toHaveBeenCalled();
   });
