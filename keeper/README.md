@@ -39,6 +39,10 @@ RPC after each receipt, which a lagging node behind a load balancer can answer w
 
 **Carry pools.** Carry's follower hook (makerlee0x/carry `contracts/follower`) has the same `sample()` /
 `sampleDue()` and pool storage head, but a shorter `poolState`. Set `"abi": "carry"` on its `sameChain` entry.
+On Carry pools the keeper also puts USDG back into Morpho: swaps only pull USDG out of a pool's Morpho tail (a sell
+that needs more than the hot part holds), so every `sampling.sweepEverySec` (default 900 s) it reads each pool's
+`tailState` and calls `sweep(id)` once the hot quote is above `sampling.sweepBandBps` of its target (default 20000 =
+2x: past 40% hot at the 20% launch target, trimmed back to 20%). Sweeps are at the keeper's own gas (about 290k).
 
 On the local anvil test, with plain tokens, a tip came to about gas + 26% (the hook adds a fixed 90k for the gas
 it cannot measure, sized for heavier real tokens). The first tip in a token pays about gas + 10%, because the
@@ -194,6 +198,8 @@ on the Robinhood side, or use a plan with a larger range (and raise `logChunk`).
 | `sameChain[].pools` / `scanPools` | `[]` / true | extra pool ids / scan for new pools |
 | `sampling.everySec` | 2 | how often to check same-chain pools |
 | `sampling.missesBeforeRest` / `restSec` | 3 / 3600 | rest a pool after this many unpaid samples, for this long |
+| `sampling.sweepEverySec` | 900 | Carry pools: how often to check each pool's Morpho tail (0 = never sweep) |
+| `sampling.sweepBandBps` | 20000 | Carry pools: sweep once hot quote is above this share of its target (20000 = 2x) |
 | `routes[].pools` | `[]` | extra pool ids to serve |
 | `routes[].scanPools` / `scanPushes` | true | scan for new pools / for other keepers' packets |
 | `policy.moveBps` | 102 | move trigger in bps |

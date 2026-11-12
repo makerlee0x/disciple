@@ -97,6 +97,13 @@ export function selfPayRoom(log: Map<string, number[]>, id: string, t: number, m
 }
 
 /** Split due pools into messages: at most `maxPools` listings and MAX_MESSAGE_SIZE bytes each. */
+/** Carry: whether a pool's tail should be swept now. `y` is the pool's quote reserve and `principal` what its tail
+ *  holds in the vault, so `y - principal` is the hot quote; sweep once it is above `bandBps` of the hot target. */
+export function sweepNeeded(y: bigint, principal: bigint, hotBps: number, vault: string, bandBps: number): boolean {
+  if (/^0x0{40}$/i.test(vault) || hotBps >= 10_000 || y <= principal) return false;
+  return (y - principal) * 100_000_000n > y * BigInt(hotBps) * BigInt(bandBps);
+}
+
 export function batch(due: Due[], maxPools: number): Due[][] {
   const bySrc = new Map<string, Due[]>();
   for (const d of due) {
@@ -154,6 +161,8 @@ export class Keeper {
   private restUntil = new Map<string, number>();
   /** same-chain: when we last sampled each pool, and our recent unpaid (selfPayBps) samples, by pool id */
   private lastSample = new Map<string, number>();
+  /** Carry: last tail check per pool (unix s) */
+  private lastSweepCheck = new Map<string, number>();
   private selfPaid = new Map<string, number[]>();
 
   private cfg: Config;
@@ -289,6 +298,7 @@ export class Keeper {
       try {
         await this.discoverSame(s);
         await this.sampleDue(s);
+        if (s.abi === "carry") await this.sweepDue(s);
       } catch (e) {
         this.log.warn(`${s.name}: ${(e as Error).message?.split("\n")[0] ?? e}`);
       } finally {
@@ -771,6 +781,82 @@ export class Keeper {
         await this.sample(s, id, false);
       }
     }
+  }
+
+  /** Carry: put each pool's extra hot USDG back into its Morpho tail. Swaps only ever pull USDG out of Morpho (a sell
+   *  that needs more than the hot part holds); this sweeps a pool, at our own gas, once its hot quote is above
+   *  `sweepBandBps` of its target, which trims hot back down to the target. Each pool is checked every
+   *  `sweepEverySec` (two eth_calls). */
+  async sweepDue(s: SameChainCfg): Promise<void> {
+    const sm = this.cfg.sampling;
+    if (sm.sweepEverySec <= 0) return;
+    const rs = routeState(this.state, s.name);
+    const { pub } = this.c(s.chain);
+    const t = now();
+    for (const id of Object.keys(rs.pools) as Hex[]) {
+      if ((this.lastSweepCheck.get(id) ?? 0) + sm.sweepEverySec > t) continue;
+      this.lastSweepCheck.set(id, t);
+      const [v, ts] = await Promise.all([
+        pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "poolState", args: [id] }).catch(() => null),
+        pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "tailState", args: [id] }).catch(() => null),
+      ]);
+      if (!v || !ts || !v.live) continue;
+      const tail = ts[0];
+      if (!sweepNeeded(v.quoteReserve, tail.principal, tail.hotBps, tail.vault, sm.sweepBandBps)) continue;
+      await this.sweep(s, id, v.quoteReserve, tail.principal);
+    }
+  }
+
+  async sweep(s: SameChainCfg, id: Hex, y: bigint, principal: bigint): Promise<void> {
+    const { pub, wal, chain } = this.c(s.chain);
+    const blk = await pub.getBlock({ blockTag: "latest" });
+    const base = blk.baseFeePerGas ?? 0n;
+    if (base > s.chain.maxFee) {
+      this.log.warn(`${s.name}: ${s.chain.name} basefee ${base} above maxFee, sweep waits`);
+      this.lastSweepCheck.delete(id);
+      return;
+    }
+    let est: bigint;
+    try {
+      est = await pub.estimateContractGas({ address: s.hook, abi: carryHookAbi, functionName: "sweep", args: [id], account: this.account });
+    } catch (e) {
+      this.log.warn(`${s.name}: sweep ${id.slice(0, 10)} would revert: ${(e as Error).message?.split("\n")[0]}`);
+      return;
+    }
+    const tip = s.chain.priorityFee;
+    const maxFee = base * 2n + tip < s.chain.maxFee ? base * 2n + tip : s.chain.maxFee;
+    const { hash, rc } = await this.serial(s.chain, async (nonce) => {
+      const hash = await wal.writeContract({
+        chain,
+        account: this.account,
+        nonce,
+        address: s.hook,
+        abi: carryHookAbi,
+        functionName: "sweep",
+        args: [id],
+        gas: (est * 13n) / 10n,
+        maxFeePerGas: maxFee,
+        maxPriorityFeePerGas: tip,
+      });
+      return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
+    });
+    const spent = rc.gasUsed * rc.effectiveGasPrice;
+    if (rc.status !== "success") {
+      this.log.warn(`${s.name}: sweep ${id.slice(0, 10)} reverted, tx ${hash}, spent ${formatEther(spent)} ETH`);
+      return;
+    }
+    let moved = "";
+    for (const l of rc.logs) {
+      try {
+        const ev = decodeEventLog({ abi: carryHookAbi, data: l.data, topics: l.topics });
+        if (ev.eventName === "TailMoved") moved = `to Morpho ${ev.args.toVault}, to hot ${ev.args.toHot} (raw)`;
+      } catch {
+        /* other logs */
+      }
+    }
+    this.log.info(
+      `${s.name}: swept ${id.slice(0, 10)} (hot ${y - principal} of ${y}) tx ${hash}, ${moved || "nothing moved"}, spent ${formatEther(spent)} ETH (gas ${rc.gasUsed})`,
+    );
   }
 
   /** How far (bps) a pool's centre is from its leader's live spot; 0 when either cannot be read. */

@@ -43,7 +43,9 @@
     "restSec": 3600,
     "minGapSec": 13,
     "selfPayBps": 0,
-    "selfPayMaxPerHour": 60
+    "selfPayMaxPerHour": 60,
+    "sweepEverySec": 900,
+    "sweepBandBps": 20000
   },
   "policy": {
     "moveBps": 102,
