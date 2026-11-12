@@ -52,6 +52,12 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
         super.setUp();
         anon =
             new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), FEE);
+        // lp-accrue: the CurveFeeVault is built with this AnonLauncher (as DeployLpAccrue / Deploy do), so private
+        // coins' curve-phase creator fees are claimable by the coin's owner there
+        feeVault = new CurveFeeVault(address(feeRouter), address(anon));
+        address d = address(new CurveDeployer(address(feeVault)));
+        vm.prank(owner);
+        launchpad.setCurveDeployer(d);
         (stealthA, skA) = makeAddrAndKey("stealthA");
         (stealthB, skB) = makeAddrAndKey("stealthB");
         quote.mint(payer, 1_000_000 ether);
@@ -229,15 +235,15 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
         quote.approve(r.curve, type(uint256).max);
         BondingCurve(r.curve).buy(100 ether, 0, block.timestamp + 1 hours);
         vm.stopPrank();
-        uint256 accrued = feeRouter.creatorAccrued(address(t), address(anon));
+        // lp-accrue: curve-phase creator fees sit in the coin's CurveFeeVault under the launcher, not in FeeRouter
+        assertEq(feeRouter.creatorAccrued(address(t), address(anon)), 0);
+        uint256 accrued = feeVault.creatorClaimable(address(t), address(anon));
         assertGt(accrued, 0);
         address dest = makeAddr("feeDest");
-        address[] memory toks = new address[](1);
-        toks[0] = address(t);
         vm.prank(stealthA);
-        anon.claimMany(toks, dest);
+        assertEq(feeVault.claimCreatorFeesAsStealth(address(t), dest), accrued);
         assertEq(quote.balanceOf(dest), accrued);
-        assertEq(feeRouter.creatorAccrued(address(t), address(anon)), 0);
+        assertEq(feeVault.creatorClaimable(address(t), address(anon)), 0);
     }
 
     function test_routerUnset_reverts() public {
@@ -363,5 +369,118 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
         assertEq(Token(r.token).balanceOf(stealthA), cap);
         assertEq(Token(r.token).balanceOf(mc), 0);
         assertEq(Token(r.token).balanceOf(player), 0);
+    }
+
+    // ───────── lp-accrue: private-launch creator fees in CurveFeeVault (refundTo unchanged) ─────────
+
+    function _vaultSig(uint256 sk, address o, address[] memory toks, address to, uint256 feeBps, uint256 dl)
+        internal
+        view
+        returns (bytes memory)
+    {
+        (, string memory name, string memory version, uint256 chainId, address vc,,) = feeVault.eip712Domain();
+        bytes32 ds = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes(name)),
+                keccak256(bytes(version)),
+                chainId,
+                vc
+            )
+        );
+        bytes32 sh = keccak256(
+            abi.encode(
+                keccak256(
+                    "Claim(address owner,address[] tokens,address to,uint256 relayerFeeBps,uint256 nonce,uint256 deadline)"
+                ),
+                o,
+                keccak256(abi.encodePacked(toks)),
+                to,
+                feeBps,
+                feeVault.sigNonces(o),
+                dl
+            )
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sk, keccak256(abi.encodePacked("\x19\x01", ds, sh)));
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _tradeOn(address curve, uint256 q) internal {
+        _warpPastSnipe();
+        vm.startPrank(trader1);
+        quote.approve(curve, type(uint256).max);
+        BondingCurve(curve).buy(q, 0, block.timestamp + 1 hours);
+        vm.stopPrank();
+    }
+
+    /// @dev The relayer (Multicall3) launches for a named player whose wallet owns the coin: the leftover First BOOST
+    ///      still goes to the player (refundTo), and the coin's curve-phase creator fees, booked in the vault under the
+    ///      launcher, are claimed gaslessly by the player's own signature. Nothing is left on the caller or launcher.
+    function test_lpAccrue_relayedLaunch_walletOwner_refundTo_and_vaultClaimBySig() public {
+        address mc = makeAddr("multicall3");
+        (address player, uint256 playerSk) = makeAddrAndKey("playerWallet");
+        uint256 cap = FeeMath.creatorBuyMax(launchpad.firstBoostMaxBps(Constants.MODE_TRENCH));
+        quote.mint(mc, 1_000_000 ether);
+        vm.startPrank(mc);
+        quote.approve(address(anon), type(uint256).max);
+        (ILaunchpad.LaunchResult memory r, uint256 refund) = anon.launchAnonWithUsdg(
+            _paramsQ(address(quote), 0, block.timestamp + 1 hours), player, player, "", 0x00, FEE, 500 ether, 1, player
+        );
+        vm.stopPrank();
+        assertEq(r.creatorTokensBought, cap);
+        assertGt(refund, 0);
+        assertEq(quote.balanceOf(player), refund, "leftover First BOOST to the named player");
+        assertEq(anon.stealthOwnerOf(r.token), player);
+        assertEq(address(BondingCurve(r.curve).feeVault()), address(feeVault), "new curve uses the vault");
+
+        _tradeOn(r.curve, 100 ether);
+        uint256 owed = feeVault.creatorClaimable(r.token, address(anon));
+        assertGt(owed, 0);
+        assertEq(feeRouter.creatorAccrued(r.token, address(anon)), 0, "nothing in FeeRouter on a new curve");
+
+        address[] memory toks = new address[](1);
+        toks[0] = r.token;
+        uint256 dl = block.timestamp + 30 minutes;
+        bytes memory sig = _vaultSig(playerSk, player, toks, player, 0, dl);
+        vm.prank(mc); // the gasless relayer submits; the player pays no gas
+        feeVault.claimManyAsStealthBySig(CurveFeeVault.ClaimReq(player, toks, player, 0, dl, sig));
+        assertEq(quote.balanceOf(player), refund + owed, "player got the leftover and the creator fees");
+        assertEq(feeVault.creatorClaimable(r.token, address(anon)), 0);
+        assertEq(quote.balanceOf(address(anon)), 0);
+        assertEq(quote.balanceOf(mc), 1_000_000 ether - FEE - 500 ether, "caller keeps nothing extra");
+
+        // the caller (or anyone else) cannot claim the player's coin from the vault
+        _tradeOn(r.curve, 50 ether);
+        vm.prank(mc);
+        vm.expectRevert(CurveFeeVault.NotStealthOwner.selector);
+        feeVault.claimCreatorFeesAsStealth(r.token, mc);
+        vm.prank(player);
+        assertGt(feeVault.claimCreatorFeesAsStealth(r.token, player), 0);
+    }
+
+    /// @dev Stealth-owned private launch with a USDG First BOOST: the stealth key signs the vault claim, paid to the
+    ///      player's wallet, relayer fee <= 5% to the submitter.
+    function test_lpAccrue_stealthOwner_usdgLaunch_vaultClaimBySig_relayerFee() public {
+        address player = makeAddr("playerWallet");
+        (ILaunchpad.LaunchResult memory r,) = _launchUsdgTo(stealthA, stealthA, address(quote), 10 ether, 1, player);
+        _tradeOn(r.curve, 200 ether);
+        uint256 owed = feeVault.creatorClaimable(r.token, address(anon));
+        assertGt(owed, 0);
+        address[] memory toks = new address[](1);
+        toks[0] = r.token;
+        uint256 dl = block.timestamp + 30 minutes;
+        bytes memory sig = _vaultSig(skA, stealthA, toks, player, 100, dl);
+        address relayer = makeAddr("relayer");
+        uint256 p0 = quote.balanceOf(player);
+        vm.prank(relayer);
+        feeVault.claimManyAsStealthBySig(CurveFeeVault.ClaimReq(stealthA, toks, player, 100, dl, sig));
+        uint256 rf = (owed * 100) / 10_000;
+        assertEq(quote.balanceOf(player) - p0, owed - rf);
+        assertEq(quote.balanceOf(relayer), rf);
+        // a signature by the wrong key (stealthB) is refused
+        _tradeOn(r.curve, 50 ether);
+        bytes memory bad = _vaultSig(skB, stealthA, toks, player, 0, dl);
+        vm.expectRevert(CurveFeeVault.BadSignature.selector);
+        feeVault.claimManyAsStealthBySig(CurveFeeVault.ClaimReq(stealthA, toks, player, 0, dl, bad));
     }
 }

@@ -38,7 +38,16 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
     function _deployScriptWiring() internal {
         address ur = makeAddr("universalRouter");
         vm.setEnv("UNIVERSAL_ROUTER", vm.toString(ur)); // must be ignored now (SEC-05)
-        vm.setEnv("USDG", vm.toString(address(0))); // local deploy: Deploy creates its own mock USDG
+        // vm.setEnv is process-wide; other suites can leak values into this run. Pin them back to "deploy local mocks".
+        string memory zero = vm.toString(address(0));
+        vm.setEnv("USDG", zero);
+        vm.setEnv("POOL_MANAGER", zero);
+        vm.setEnv("V4_QUOTER", zero);
+        vm.setEnv("DEFAULT_QUOTE", zero);
+        vm.setEnv("TREASURY", zero);
+        vm.setEnv("PVE_ATTESTER", zero);
+        vm.setEnv("REFERRAL_SINK", zero);
+        vm.setEnv("DEPLOY_TEST_STRATEGY", "false");
         Deploy d = new Deploy();
         Deploy.Out memory o = d.run();
 

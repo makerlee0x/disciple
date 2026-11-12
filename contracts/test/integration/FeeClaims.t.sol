@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {CurveFeeVault} from "../../src/CurveFeeVault.sol";
 import {IntegrationBase} from "./IntegrationBase.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
@@ -18,14 +19,16 @@ contract FeeClaimsTest is IntegrationBase {
         _buy(c, trader1, 100 * U, 0);
         assertEq(quote.balanceOf(treasury), t0, "no per-trade push");
         (, , uint256 tsh, uint256 rsh) = FeeMath.splitTradeFee(FeeMath.protocolFee(100 * U));
-        uint256 acc = feeRouter.treasuryAccrued(address(quote));
-        assertEq(acc, tsh + rsh, "33% + unrouted 1%");
+        // lp-accrue: curve-phase fees accrue on the curve, then settle into CurveFeeVault (claimTreasury settles the listed coins)
+        address[] memory toks = new address[](1);
+        toks[0] = address(c.token());
         vm.prank(trader2); // permissionless
-        feeRouter.claimTreasury(address(quote));
+        uint256 acc = feeVault.claimTreasury(address(quote), toks);
+        assertEq(acc, tsh + rsh, "33% + unrouted 1%");
         assertEq(quote.balanceOf(treasury) - t0, acc);
-        assertEq(feeRouter.treasuryAccrued(address(quote)), 0);
-        vm.expectRevert(FeeRouter.NothingToClaim.selector);
-        feeRouter.claimTreasury(address(quote));
+        assertEq(feeVault.treasuryAccrued(address(quote)), 0);
+        vm.expectRevert(CurveFeeVault.NothingToClaim.selector);
+        feeVault.claimTreasury(address(quote), toks);
     }
 
     function test_snipeTreasuryShareAccrues() public {
@@ -33,7 +36,8 @@ contract FeeClaimsTest is IntegrationBase {
         uint256 t0 = quote.balanceOf(treasury);
         _buy(c, sniper, 10 * U, 0); // inside the 7s sniper-tax window
         assertEq(quote.balanceOf(treasury), t0);
-        assertGt(feeRouter.treasuryAccrued(address(quote)), 0);
+        c.settleFees(); // lp-accrue: curve-phase fees accrue in CurveFeeVault
+        assertGt(feeVault.treasuryAccrued(address(quote)), 0);
     }
 
     function test_postGradTokenSideFeesAccrue() public {

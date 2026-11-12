@@ -47,7 +47,8 @@ contract KolCreatorShareTest is IntegrationBase {
         assertEq(feeRouter.MAX_KOL_CREATOR_SHARE_BPS(), 500);
         BondingCurve c = _launchReferred();
         _buy(c, trader1, BUY, 0);
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)), REF + CREATOR_RAW * 200 / 10_000);
+        c.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertEq(feeVault.referrerAccrued(kol, address(quote)), REF + CREATOR_RAW * 200 / 10_000);
     }
 
     function test_onlyOwner_range_event() public {
@@ -70,25 +71,28 @@ contract KolCreatorShareTest is IntegrationBase {
     function test_future_trades_only_past_accruals_unchanged() public {
         BondingCurve c = _launchReferred();
         _buy(c, trader1, BUY, 0);
-        uint256 k1 = feeRouter.referrerAccrued(kol, address(quote));
-        uint256 cr1 = feeRouter.creatorAccrued(address(c.token()), referred);
+        c.settleFees(); // lp-accrue: settle into CurveFeeVault
+        uint256 k1 = feeVault.referrerAccrued(kol, address(quote));
+        uint256 cr1 = feeVault.creatorAccrued(address(c.token()), referred);
         assertEq(k1, REF + CREATOR_RAW * 200 / 10_000);
         assertEq(cr1, CREATOR_RAW - CREATOR_RAW * 200 / 10_000);
 
         _set(500);
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)), k1, "setter does not touch accruals");
+        assertEq(feeVault.referrerAccrued(kol, address(quote)), k1, "setter does not touch accruals");
         _buy(c, trader1, BUY, 0);
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)) - k1, REF + CREATOR_RAW * 500 / 10_000);
+        c.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertEq(feeVault.referrerAccrued(kol, address(quote)) - k1, REF + CREATOR_RAW * 500 / 10_000);
         assertEq(
-            feeRouter.creatorAccrued(address(c.token()), referred) - cr1, CREATOR_RAW - CREATOR_RAW * 500 / 10_000
+            feeVault.creatorAccrued(address(c.token()), referred) - cr1, CREATOR_RAW - CREATOR_RAW * 500 / 10_000
         );
 
         _set(0);
-        uint256 k2 = feeRouter.referrerAccrued(kol, address(quote));
-        uint256 cr2 = feeRouter.creatorAccrued(address(c.token()), referred);
+        uint256 k2 = feeVault.referrerAccrued(kol, address(quote));
+        uint256 cr2 = feeVault.creatorAccrued(address(c.token()), referred);
         _buy(c, trader1, BUY, 0);
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)) - k2, REF, "0 bps: KOL keeps only the 1% leftover");
-        assertEq(feeRouter.creatorAccrued(address(c.token()), referred) - cr2, CREATOR_RAW, "creator keeps all 33%");
+        c.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertEq(feeVault.referrerAccrued(kol, address(quote)) - k2, REF, "0 bps: KOL keeps only the 1% leftover");
+        assertEq(feeVault.creatorAccrued(address(c.token()), referred) - cr2, CREATOR_RAW, "creator keeps all 33%");
     }
 
     function test_referralSink_logic_unchanged() public {
@@ -98,8 +102,9 @@ contract KolCreatorShareTest is IntegrationBase {
         _set(300);
         BondingCurve c = _launchReferred();
         _buy(c, trader1, BUY, 0);
-        assertEq(feeRouter.referrerAccrued(sink, address(quote)), REF, "sink still gets the 1%");
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)), CREATOR_RAW * 300 / 10_000, "KOL cut not redirected");
+        c.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertEq(feeVault.referrerAccrued(sink, address(quote)), REF, "sink still gets the 1%");
+        assertEq(feeVault.referrerAccrued(kol, address(quote)), CREATOR_RAW * 300 / 10_000, "KOL cut not redirected");
         assertEq(feeRouter.referralSink(), sink, "packed slot keeps the sink");
     }
 
@@ -109,7 +114,8 @@ contract KolCreatorShareTest is IntegrationBase {
         (BondingCurve c,) = _launch(0, 0); // launched by `creator` (no referrer)
         _warpPastSnipe();
         _buy(c, referred, BUY, 0); // trader's referrer gets the 1% only
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)), REF);
+        c.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertEq(feeVault.referrerAccrued(kol, address(quote)), REF);
     }
 
     function testFuzz_kolCut(uint16 bps) public {
@@ -117,6 +123,7 @@ contract KolCreatorShareTest is IntegrationBase {
         _set(b);
         BondingCurve c = _launchReferred();
         _buy(c, trader1, BUY, 0);
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)), REF + CREATOR_RAW * b / 10_000);
+        c.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertEq(feeVault.referrerAccrued(kol, address(quote)), REF + CREATOR_RAW * b / 10_000);
     }
 }

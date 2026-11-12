@@ -215,18 +215,19 @@ contract AuditRegression is IntegrationBase {
         _warpPastSnipe();
         vm.recordLogs();
         _buy(curve, trader1, 100 ether, 0);
+        curve.settleFees(); // lp-accrue: curve-phase fees settle to CurveFeeVault (CurveFeeSettled = TradeFeeRouted's fields)
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 sig = keccak256(
-            "TradeFeeRouted(address,address,address,bool,address,uint256,uint256,uint256,uint256,address,uint256,address,uint256)"
+            "CurveFeeSettled(address,address,address,address,uint256,uint256,uint256,uint256,address,uint256,address,uint256)"
         );
         bool seen;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].topics[0] != sig) continue;
+            assertEq(logs[i].emitter, address(feeVault));
             assertEq(address(uint160(uint256(logs[i].topics[1]))), address(tok));
-            assertEq(address(uint160(uint256(logs[i].topics[2]))), address(quote), "feeToken");
-            (bool feeIsQuote, address cr,,,,, address refPayee, uint256 refShare, address kolPayee, uint256 kolShare) = abi
-                .decode(logs[i].data, (bool, address, uint256, uint256, uint256, uint256, address, uint256, address, uint256));
-            assertTrue(feeIsQuote);
+            assertEq(address(uint160(uint256(logs[i].topics[2]))), address(quote), "quote");
+            (address cr,,,,, address refPayee, uint256 refShare, address kolPayee, uint256 kolShare) = abi
+                .decode(logs[i].data, (address, uint256, uint256, uint256, uint256, address, uint256, address, uint256));
             assertEq(cr, creator);
             assertEq(refPayee, kol);
             assertGt(refShare, 0);

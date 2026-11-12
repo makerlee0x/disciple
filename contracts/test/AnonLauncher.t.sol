@@ -9,6 +9,7 @@ import {McapMath} from "../src/libraries/McapMath.sol";
 import {CurveMath} from "../src/libraries/CurveMath.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {CurveDeployerV1} from "./lpaccrue/legacy/CurveDeployerV1.sol";
 
 contract Wallet1271 is IERC1271 {
     address public immutable signer;
@@ -45,6 +46,16 @@ contract AnonLauncherTest is IntegrationBase {
         quote.mint(payer, 1_000_000 * U);
         vm.prank(payer);
         quote.approve(address(anon), type(uint256).max);
+    }
+
+    /// @dev lp-accrue: new curves book curve-phase creator fees in CurveFeeVault (stealth owners claim them there:
+    ///      test/lpaccrue/LpAccrueFollowups.t.sol). AnonLauncher's own FeeRouter claim path (claimMany / claimManyBySig /
+    ///      pending) is unchanged and still pays every pre-lp-accrue coin and post-graduation fees, so the tests of
+    ///      that path launch on the pre-lp-accrue curve (verbatim legacy copy, per-trade FeeRouter routing).
+    function _useLegacyCurves() internal {
+        address d = address(new CurveDeployerV1());
+        vm.prank(owner);
+        launchpad.setCurveDeployer(d);
     }
 
     function _params(uint256 buy) internal view returns (ILaunchpad.LaunchParams memory) {
@@ -198,6 +209,7 @@ contract AnonLauncherTest is IntegrationBase {
     }
 
     function test_claimManyBySig_batch_across_coins_any_address() public {
+        _useLegacyCurves(); // AnonLauncher FeeRouter path (pre-lp-accrue curve)
         (BondingCurve c1, Token t1,) = _anonLaunch(stealthA, address(0), 0);
         (BondingCurve c2, Token t2,) = _anonLaunch(stealthA, address(0), 0);
         _warpPastSnipe();
@@ -257,6 +269,7 @@ contract AnonLauncherTest is IntegrationBase {
     }
 
     function test_relayer_batches_many_owners() public {
+        _useLegacyCurves(); // AnonLauncher FeeRouter path (pre-lp-accrue curve)
         (BondingCurve c1, Token t1,) = _anonLaunch(stealthA, address(0), 0);
         (BondingCurve c2, Token t2,) = _anonLaunch(stealthB, address(0), 0);
         _warpPastSnipe();
@@ -276,6 +289,7 @@ contract AnonLauncherTest is IntegrationBase {
     }
 
     function test_erc1271_owner_and_direct_claimMany() public {
+        _useLegacyCurves(); // AnonLauncher FeeRouter path (pre-lp-accrue curve)
         Wallet1271 w = new Wallet1271(stealthA);
         (BondingCurve c1, Token t1,) = _anonLaunch(address(w), address(0), 0);
         _warpPastSnipe();
@@ -291,6 +305,7 @@ contract AnonLauncherTest is IntegrationBase {
     }
 
     function test_transferCreatorBySig_moves_unclaimed_and_metadata_by_sig() public {
+        _useLegacyCurves(); // AnonLauncher FeeRouter path (pre-lp-accrue curve)
         (BondingCurve c1, Token t1,) = _anonLaunch(stealthA, address(0), 0);
         uint256 dl = block.timestamp + 1 hours;
         bytes32 sh = keccak256(abi.encode(anon.TRANSFER_TYPEHASH(), address(t1), stealthB, anon.nonces(stealthA), dl));
@@ -463,6 +478,7 @@ contract AnonLauncherTest is IntegrationBase {
     }
 
     function test_v2_pre_grad_quote_only_and_empty_list_noop() public {
+        _useLegacyCurves(); // AnonLauncher FeeRouter path (pre-lp-accrue curve)
         (BondingCurve c1, Token t1,) = _anonLaunch(stealthA, address(0), 0);
         address[] memory toks = new address[](1);
         toks[0] = address(t1);

@@ -14,6 +14,7 @@ import {Migration} from "../src/Migration.sol";
 import {LoginGate} from "../src/LoginGate.sol";
 import {Launchpad} from "../src/Launchpad.sol";
 import {CurveDeployer} from "../src/CurveDeployer.sol";
+import {CurveFeeVault} from "../src/CurveFeeVault.sol";
 import {TrampWallManager} from "../src/TrampWallManager.sol";
 import {QuoteProbe} from "../src/QuoteProbe.sol";
 import {QuotePricer} from "../src/QuotePricer.sol";
@@ -73,8 +74,11 @@ contract DevToken is ERC20, ERC20Permit {
 ///   MIN_LIQUIDITY       QuotePricer minimum in-range liquidity (default 0)
 ///   (UNIVERSAL_ROUTER is intentionally NOT trusted: audit #10 / SEC-05 — anyone can pass arbitrary hookData
 ///    through it and spoof the credited trader. Only DiscipleRouter is a trusted router.)
-///   REWARDS_VAULT_OWNER community RewardsVault owner/multisig (default deployer); receives sniper escrows of coins
-///                       not graduated within snipeEscrowTimeout (releaseSnipeEscrow)
+///   REWARDS_VAULT_OWNER community RewardsVault owner (default deployer): TEMP wallet on testnet, multisig (Safe) on
+///                       mainnet (lee 2026-11-10). Receives the sniper tax + curve LP fees of coins not graduated
+///                       within snipeEscrowTimeout (releaseSnipeEscrow, or a late graduation). Nominated only
+///                       (Owned2Step): it must acceptOwnership(). Existing stack: script/rewards/DeployRewardsVault.s.sol;
+///                       steps in docs/rewards-vault-runbook.md.
 ///   ANON_LAUNCH_FEE     AnonLauncher USDG launch fee in USDG raw units (default 0.25 USDG at USDG's decimals;
 ///                       contract cap MAX_LAUNCH_FEE = 5e18 raw)
 ///   ERC5564_ANNOUNCER   ERC-5564 announcer (default 0x55649E01B5Df198D18D95b5cc5051630cfD45564)
@@ -247,15 +251,15 @@ contract Deploy is NetworkConfig {
         );
 
         launchpad.setPricer(address(pricer));
-        o.curveDeployer = address(new CurveDeployer());
+        // ── Combined redeploy additions (flow/anon-launch + flow/snipe-split) ──
+        // Mode rules v2: sniper tax → curve snipeEscrow → LockedLP compound bucket at graduation (RewardsVault after timeout).
+        // Deployed before the CurveDeployer: the CurveFeeVault takes the AnonLauncher (AUDIT H1 stealth-owner claim).
+        (o.rewardsVault, o.anonLauncher, o.marketLens) =
+            _addons(deployer, treasury, feeRouter, hook, launchpad, migration, pricer, o.usdg, usdgDec);
+        o.curveDeployer = address(new CurveDeployer(address(new CurveFeeVault(address(feeRouter), o.anonLauncher))));
         launchpad.setCurveDeployer(o.curveDeployer);
         launchpad.setQuoteProbe(address(probe));
         launchpad.setDefaultQuote(o.defaultQuote);
-
-        // ── Combined redeploy additions (flow/anon-launch + flow/snipe-split) ──
-        // Mode rules v2: sniper tax → curve snipeEscrow → LockedLP compound bucket at graduation (RewardsVault after timeout).
-        (o.rewardsVault, o.anonLauncher, o.marketLens) =
-            _addons(deployer, treasury, feeRouter, hook, launchpad, migration, pricer, o.usdg, usdgDec);
         // referralSink: address(0) = today's routing (default). Non-zero takes the whole referral 1% incl. launch KOL.
         {
             address sink = vm.envOr("REFERRAL_SINK", address(0));

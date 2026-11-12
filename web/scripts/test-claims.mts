@@ -86,7 +86,7 @@ test("USD helpers", () => {
   assert.equal(fmtUsd(12.34), "$12.34");
 });
 
-test("anon: claims route per launcher; legacy token share and stealth rows never produce a direct claim", async () => {
+test("anon: private rockets never produce a direct (msg.sender) claim; they are signed (claimManyBySig)", async () => {
   const { creatorClaimCalls } = await import("../lib/claims/creatorFees");
   const { anonLauncherAddr, anonLauncherLegacyAddr } = await import("../lib/claims/capabilities");
   const v2 = anonLauncherAddr()!, v1 = anonLauncherLegacyAddr()!;
@@ -96,8 +96,69 @@ test("anon: claims route per launcher; legacy token share and stealth rows never
   const caps = { creatorFees: true, referrerFees: true, creatorTokenFees: true, crew: true, referralGate: true, anonClaims: true };
   const row = { token: A(9), claimable: BigInt(0), anon: true, launcher: v1, tokenSide: { asset, claimable: BigInt(0), claimed: BigInt(0) }, tokenUnclaimable: { asset, raw: BigInt(5) } };
   assert.equal(creatorClaimCalls([row], caps, ME).length, 0);                      // only an unclaimable legacy share
-  const calls = creatorClaimCalls([{ ...row, claimable: BigInt(1) }, { ...row, token: A(8), launcher: v2, claimable: BigInt(1) }], caps, ME);
-  assert.deepEqual(calls.map((c) => c.to), [v1, v2]);                              // one claimMany per launcher
+  // gasless: AnonLauncher claims go through claimManyBySig (anonSigClaimCalls / signedAnonClaimCalls), never claimMany
+  assert.equal(creatorClaimCalls([{ ...row, claimable: BigInt(1) }, { ...row, token: A(8), launcher: v2, claimable: BigInt(1) }], caps, ME).length, 0);
   const stealthRow = { ...row, launcher: v2, claimable: BigInt(1), stealth: { owner: A(7), ephemeralPubKey: "0x02" as const } };
   assert.equal(creatorClaimCalls([stealthRow], caps, ME).length, 0);               // signed path (anonSigClaimCalls)
+});
+
+test("lp-accrue: creator / private / referral claims hit the CurveFeeVault side that holds the balance", async () => {
+  const { creatorClaimCalls, referralClaimCalls, anonSigClaimCalls } = await import("../lib/claims/creatorFees");
+  const { anonLauncherAddr } = await import("../lib/claims/capabilities");
+  const { curveFeeVaultAbi, vaultClaimDomain } = await import("../lib/claims/vault");
+  const { decodeFunctionData } = await import("viem");
+  const { privateKeyToAccount } = await import("viem/accounts");
+  const { deployment } = await import("../lib/chains");
+  const v2 = anonLauncherAddr()!, VAULT = A(0xfee), fr = deployment().feeRouter;
+  const caps = { creatorFees: true, referrerFees: true, creatorTokenFees: false, crew: false, referralGate: false, anonClaims: true };
+  const fn = (c: { data: Hex }, abi: readonly unknown[]) => decodeFunctionData({ abi: abi as never, data: c.data }) as { functionName: string; args: readonly unknown[] };
+  // wallet rocket: vault-only balance → only the vault call; both sides → FeeRouter + vault; no vault → FeeRouter as before
+  const w = { token: A(9), claimable: BigInt(5), tokenSide: null, vault: VAULT, vaultClaimable: BigInt(5), baseClaimable: BigInt(0) };
+  assert.deepEqual(creatorClaimCalls([w], caps, ME).map((c) => c.to), [VAULT]);
+  assert.equal(fn(creatorClaimCalls([w], caps, ME)[0], curveFeeVaultAbi).functionName, "claimCreatorFees");
+  assert.deepEqual(creatorClaimCalls([{ ...w, claimable: BigInt(7), baseClaimable: BigInt(2) }], caps, ME).map((c) => c.to), [fr, VAULT]);
+  assert.deepEqual(creatorClaimCalls([{ token: A(9), claimable: BigInt(1), tokenSide: null }], caps, ME).map((c) => c.to), [fr]);
+  // private rockets never get a direct (msg.sender) call: they are signed, so the gasless relayer can submit them
+  const p = { ...w, anon: true, launcher: v2 };
+  assert.equal(creatorClaimCalls([p], caps, ME).length, 0);
+  assert.equal(creatorClaimCalls([{ ...p, baseClaimable: BigInt(1), claimable: BigInt(6) }], caps, ME).length, 0);
+  // wallet-owned private rocket (e.g. launchAnonWithUsdg for a named player): the wallet signs the vault claim to itself
+  const { CLAIM_TYPES } = await import("../lib/anon");
+  const { ACTIVE_CHAIN } = await import("../lib/chains");
+  const { recoverTypedDataAddress } = await import("viem");
+  const wk = "0x00000000000000000000000000000000000000000000000000000000000a11ce" as Hex;
+  const wallet = privateKeyToAccount(wk);
+  const pcW = { readContract: async ({ functionName }: { functionName: string }) => { assert.equal(functionName, "sigNonces"); return BigInt(1); } } as never;
+  const wc = await anonSigClaimCalls(pcW, [p], wallet.address, undefined, wallet);
+  assert.deepEqual(wc.map((c) => c.to), [VAULT]);
+  const dw = fn(wc[0], curveFeeVaultAbi);
+  assert.equal(dw.functionName, "claimManyAsStealthBySig");
+  const rw = dw.args[0] as { owner: Address; tokens: Address[]; to: Address; relayerFeeBps: bigint; deadline: bigint; sig: Hex };
+  assert.equal(rw.owner, wallet.address);
+  assert.equal(rw.to, wallet.address);
+  assert.equal(await recoverTypedDataAddress({ domain: vaultClaimDomain(ACTIVE_CHAIN.id, VAULT), types: CLAIM_TYPES, primaryType: "Claim",
+    message: { owner: rw.owner, tokens: rw.tokens, to: rw.to, relayerFeeBps: rw.relayerFeeBps, nonce: BigInt(1), deadline: rw.deadline }, signature: rw.sig }), wallet.address);
+  // no wallet signer (not gasless) → nothing signed for a wallet-owned row
+  assert.equal((await anonSigClaimCalls(pcW, [p], wallet.address, undefined, null)).length, 0);
+  // stealth-owned: signed by the stealth key, vault domain + sigNonces, recovers to the owner
+  const key = "0x00000000000000000000000000000000000000000000000000000000005ea17f" as Hex;
+  const owner = privateKeyToAccount(key).address;
+  const pcSig = { readContract: async ({ functionName }: { functionName: string }) => { assert.equal(functionName, "sigNonces"); return BigInt(3); } } as never;
+  const sc = await anonSigClaimCalls(pcSig, [{ ...p, stealth: { owner, ephemeralPubKey: "0x02" as Hex } }], ME, () => key);
+  assert.equal(sc.length, 1);
+  assert.equal(sc[0].to, VAULT);
+  const d2 = fn(sc[0], curveFeeVaultAbi);
+  assert.equal(d2.functionName, "claimManyAsStealthBySig");
+  const req = d2.args[0] as { owner: Address; tokens: Address[]; to: Address; relayerFeeBps: bigint; deadline: bigint; sig: Hex };
+  const rec = await recoverTypedDataAddress({ domain: vaultClaimDomain(ACTIVE_CHAIN.id, VAULT), types: CLAIM_TYPES, primaryType: "Claim",
+    message: { owner: req.owner, tokens: req.tokens, to: req.to, relayerFeeBps: req.relayerFeeBps, nonce: BigInt(3), deadline: req.deadline }, signature: req.sig });
+  assert.equal(rec, owner);
+  assert.equal(req.to, ME);
+  // referral: FeeRouter part and vault part each get their own claim (vault settles nothing extra: [])
+  const asset = { address: USDG, symbol: "USDG", decimals: 6, usd: 1 };
+  const rc = referralClaimCalls([{ asset, claimable: BigInt(9), vault: VAULT, vaultClaimable: BigInt(4) }]);
+  assert.deepEqual(rc.map((c) => c.to), [fr, VAULT]);
+  assert.deepEqual(fn(rc[1], curveFeeVaultAbi).args, [USDG, []]);
+  assert.deepEqual(referralClaimCalls([{ asset, claimable: BigInt(4), vault: VAULT, vaultClaimable: BigInt(4) }]).map((c) => c.to), [VAULT]);
+  assert.deepEqual(referralClaimCalls([{ asset, claimable: BigInt(4) }]).map((c) => c.to), [fr]);
 });

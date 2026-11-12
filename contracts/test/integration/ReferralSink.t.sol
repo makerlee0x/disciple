@@ -26,8 +26,8 @@ contract ReferralSinkTest is IntegrationBase {
         _bindReferral(referred, kol, 10 ether);
         (BondingCurve c,) = _launch(0, 0);
         _warpPastSnipe();
-        _buy(c, referred, BUY, 0);
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)), REF);
+        _buy(c, referred, BUY, 0); c.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertEq(feeVault.referrerAccrued(kol, address(quote)), REF);
     }
 
     function test_only_owner_and_event() public {
@@ -47,20 +47,20 @@ contract ReferralSinkTest is IntegrationBase {
         _bindReferral(referred, kol, 10 ether);
         (BondingCurve c,) = _launch(0, 0);
         _warpPastSnipe();
-        _buy(c, referred, BUY, 0);
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)), REF);
+        _buy(c, referred, BUY, 0); c.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertEq(feeVault.referrerAccrued(kol, address(quote)), REF);
         _sink(sink);
-        uint256 t0 = feeRouter.treasuryAccrued(address(quote));
-        _buy(c, referred, BUY, 0);
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)), REF, "referrer: no new accrual");
-        assertEq(feeRouter.referrerAccrued(sink, address(quote)), REF, "sink accrues the 1%");
-        assertEq(feeRouter.treasuryAccrued(address(quote)) - t0, 0.33 ether, "treasury unchanged (33%)");
+        uint256 t0 = feeVault.treasuryAccrued(address(quote));
+        _buy(c, referred, BUY, 0); c.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertEq(feeVault.referrerAccrued(kol, address(quote)), REF, "referrer: no new accrual");
+        assertEq(feeVault.referrerAccrued(sink, address(quote)), REF, "sink accrues the 1%");
+        assertEq(feeVault.treasuryAccrued(address(quote)) - t0, 0.33 ether, "treasury unchanged (33%)");
         // both claim
         vm.prank(kol);
-        assertEq(feeRouter.claimReferrerFees(address(quote)), REF);
+        assertEq(feeVault.claimReferrerFees(address(quote), new address[](0)), REF);
         uint256 b = quote.balanceOf(sink);
         vm.prank(sink);
-        feeRouter.claimReferrerFees(address(quote));
+        feeVault.claimReferrerFees(address(quote), new address[](0));
         assertEq(quote.balanceOf(sink) - b, REF);
     }
 
@@ -69,11 +69,11 @@ contract ReferralSinkTest is IntegrationBase {
         (BondingCurve c,) = _launch(0, 0);
         _warpPastSnipe();
         _sink(feeRouter.treasury());
-        uint256 t0 = feeRouter.treasuryAccrued(address(quote));
-        _buy(c, referred, BUY, 0);
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)), 0);
-        assertEq(feeRouter.referrerAccrued(feeRouter.treasury(), address(quote)), 0, "not as a referrer balance");
-        assertEq(feeRouter.treasuryAccrued(address(quote)) - t0, 0.33 ether + REF, "33% + the 1%");
+        uint256 t0 = feeVault.treasuryAccrued(address(quote));
+        _buy(c, referred, BUY, 0); c.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertEq(feeVault.referrerAccrued(kol, address(quote)), 0);
+        assertEq(feeVault.referrerAccrued(feeRouter.treasury(), address(quote)), 0, "not as a referrer balance");
+        assertEq(feeVault.treasuryAccrued(address(quote)) - t0, 0.33 ether + REF, "33% + the 1%");
     }
 
     /// Audit r127 Low (FeeRouter.sol:193): a treasury-sink follows setTreasury; the old treasury never accrues as a referrer.
@@ -89,12 +89,12 @@ contract ReferralSinkTest is IntegrationBase {
         emit FeeRouter.ReferralSinkSet(oldT, newT);
         feeRouter.setTreasury(newT);
         assertEq(feeRouter.referralSink(), newT, "sink follows the treasury");
-        uint256 t0 = feeRouter.treasuryAccrued(address(quote));
-        _buy(c, referred, BUY, 0);
-        assertEq(feeRouter.referrerAccrued(oldT, address(quote)), 0, "old treasury is not a referrer");
-        assertEq(feeRouter.referrerAccrued(newT, address(quote)), 0, "new treasury not as a referrer either");
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)), 0);
-        assertEq(feeRouter.treasuryAccrued(address(quote)) - t0, 0.33 ether + REF, "33% + the 1% to the treasury bucket");
+        uint256 t0 = feeVault.treasuryAccrued(address(quote));
+        _buy(c, referred, BUY, 0); c.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertEq(feeVault.referrerAccrued(oldT, address(quote)), 0, "old treasury is not a referrer");
+        assertEq(feeVault.referrerAccrued(newT, address(quote)), 0, "new treasury not as a referrer either");
+        assertEq(feeVault.referrerAccrued(kol, address(quote)), 0);
+        assertEq(feeVault.treasuryAccrued(address(quote)) - t0, 0.33 ether + REF, "33% + the 1% to the treasury bucket");
     }
 
     /// A sink at another address, or off, is untouched by setTreasury.
@@ -114,10 +114,11 @@ contract ReferralSinkTest is IntegrationBase {
         (BondingCurve c,) = _launch(0, 0);
         _warpPastSnipe();
         _sink(sink);
-        uint256 t0 = feeRouter.treasuryAccrued(address(quote));
+        uint256 t0 = feeVault.treasuryAccrued(address(quote));
         _buy(c, trader2, BUY, 0); // trader2 has no referrer
-        assertEq(feeRouter.referrerAccrued(sink, address(quote)), 0, "sink only replaces a referrer");
-        assertEq(feeRouter.treasuryAccrued(address(quote)) - t0, 0.33 ether + REF);
+        c.settleFees(); // lp-accrue: settle into CurveFeeVault
+        assertEq(feeVault.referrerAccrued(sink, address(quote)), 0, "sink only replaces a referrer");
+        assertEq(feeVault.treasuryAccrued(address(quote)) - t0, 0.33 ether + REF);
     }
 
     /// @dev Launch-KOL coins: the 1% leftover is the same referral share → redirected; the KOL's 2% of the
@@ -143,9 +144,9 @@ contract ReferralSinkTest is IntegrationBase {
         assertEq(feeRouter.tokenLaunchKol(r.token), kol);
         _sink(sink);
         _warpPastSnipe();
-        _buy(BondingCurve(r.curve), trader1, BUY, 0);
+        _buy(BondingCurve(r.curve), trader1, BUY, 0); BondingCurve(r.curve).settleFees(); // lp-accrue: settle into CurveFeeVault
         uint256 creatorRaw = 0.33 ether;
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)), creatorRaw * 200 / 10_000, "KOL keeps 2% of creator");
-        assertEq(feeRouter.referrerAccrued(sink, address(quote)), REF, "sink gets the 1%");
+        assertEq(feeVault.referrerAccrued(kol, address(quote)), creatorRaw * 200 / 10_000, "KOL keeps 2% of creator");
+        assertEq(feeVault.referrerAccrued(sink, address(quote)), REF, "sink gets the 1%");
     }
 }

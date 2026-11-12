@@ -90,7 +90,7 @@ partial fill, sniper escrow, creator lock, crew tip). Summary:
 
 Unchanged except the v2 **sniper tax** (all modes): 99% → 0 over 7 s (per-second table), First BOOST exempt, held in `snipeEscrow`
 outside reserves/price, credited to LockedLP's locked compound bucket at graduation (not the floor), or sent to RewardsVault by anyone if not graduated
-after `snipeEscrowTimeout` (default 30 days). The legacy owner `walletCapBps` (default 0) still applies to TRENCH
+after `snipeEscrowTimeout` (default 12 days since 2026-11-09, was 30 days). The legacy owner `walletCapBps` (default 0) still applies to TRENCH
 coins only and now partial-fills. First BOOST max = `creatorBuyMaxBps`.
 
 ## PVE: NET follows transfers (audit round-2 M1)

@@ -3,6 +3,8 @@ import { scanEventHistory } from "./eventHistory";
  * Reads behind the combined Rewards section (profile). Every number is live: contract views for what is claimable
  * now, FeeRouter / BondingCurve / AnonLauncher logs for what was earned and claimed. No sample data here (the demo
  * lives in lib/claims/demo.ts behind ?demo=1 on dev builds only). Mapping + sums: lib/claims/rewards.ts.
+ * lp-accrue: CurveFeeVault.CurveFeeSettled / ReferrerFeesClaimed join the FeeRouter logs (vaults = the configured stack
+ * vault + the vaults of this account's rockets).
  */
 import { parseAbi, type Address, type Hex, type PublicClient } from "viem";
 import { bondingCurveAbi, feeRouterAbi } from "../abi";
@@ -16,6 +18,7 @@ import { clientGaslessMode } from "../aa/sponsorshipMode";
 import { blockedCallsMessage, partitionRelayableCalls } from "../trade/gaslessAction";
 import { sendGaslessAction } from "../trade/gaslessActionClient";
 import { crewPositions } from "./crew";
+import { curveFeeVaultAbi, stackFeeVault } from "./vault";
 import {
   claimAllCalls, feeRouteEarnings, groupHistory, selectClaimCalls, sendClaimAll, priceEarnings, summarize, usdOf,
   type Amount, type CrewClaimable, type FeeRouteLog, type HistoryRow, type Prices, type RawEarning, type RewardKind, type RewardsSummary,
@@ -89,6 +92,15 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
   const rockets = creator ?? [];
   const crewRows = crew ?? [];
 
+  // lp-accrue: CurveFeeVault history (CurveFeeSettled has TradeFeeRouted's fields; the fee token is the quote)
+  const vaults = Array.from(new Set([stackFeeVault(), ...rockets.map((r) => r.vault)].filter((v): v is Address => !!v).map(lc))) as Address[];
+  const [vaultRoutes, vaultRefClaims] = vaults.length
+    ? await Promise.all([
+      scanEventHistory(pc, (fromBlock, toBlock) => pc.getContractEvents({ address: vaults, abi: curveFeeVaultAbi, eventName: "CurveFeeSettled", fromBlock, toBlock }), d.fromBlock).catch(warn("vault fee history")),
+      caps.referrerFees ? scanEventHistory(pc, (fromBlock, toBlock) => pc.getContractEvents({ address: vaults, abi: curveFeeVaultAbi, eventName: "ReferrerFeesClaimed", args: { referrer: me }, fromBlock, toBlock }), d.fromBlock).catch(warn("vault referral claims")) : null,
+    ])
+    : [null, null];
+
   // crew claims: HolderRewardsClaimed(holder = me) on the curves of the PVE rockets we know about
   const crewCurves = (await Promise.all(crewRows.map((r) => curveOf(pc, r.token).then((c) => ({ token: r.token, curve: c, quote: r.quote })).catch(() => null))))
     .filter((x): x is NonNullable<typeof x> => !!x);
@@ -102,6 +114,10 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
   for (const l of (routes ?? []) as unknown as Log<FeeRouteLog>[]) {
     for (const e of feeRouteEarnings(l.args, me, myPrivate)) raw.push({ ...e, asset: l.args.feeToken, block: l.blockNumber, tx: l.transactionHash });
   }
+  for (const l of (vaultRoutes ?? []) as unknown as Log<Omit<FeeRouteLog, "feeToken"> & { quote: Address }>[]) {
+    const args: FeeRouteLog = { ...l.args, feeToken: l.args.quote };
+    for (const e of feeRouteEarnings(args, me, myPrivate)) raw.push({ ...e, asset: l.args.quote, block: l.blockNumber, tx: l.transactionHash });
+  }
   const quoteOfCrew = new Map(crewCurves.map((c) => [lc(c.curve), c.quote.address]));
   for (const l of crewClaims as unknown as (Log<{ token: Address; amount: bigint }> & { address: Address })[]) {
     const q = quoteOfCrew.get(lc(l.address)) ?? crewRows.find((r) => lc(r.token) === lc(l.args.token))?.quote.address;
@@ -110,7 +126,7 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
 
   // prices for every asset in play
   const known: Asset[] = [...(refs ?? []).map((r) => r.asset), ...rockets.flatMap((r) => [r.quote, ...(r.tokenSide ? [r.tokenSide.asset] : [])]), ...crewRows.map((r) => r.quote)];
-  const refClaimLogs = (refClaims ?? []) as unknown as Log<{ quote: Address; amount: bigint }>[];
+  const refClaimLogs = [...(refClaims ?? []), ...(vaultRefClaims ?? [])] as unknown as Log<{ quote: Address; amount: bigint }>[];
   const prices: Prices = await priceBook(pc, [...raw.map((r) => r.asset), ...refClaimLogs.map((l) => l.args.quote), ...known.map((a) => a.address)], known);
 
   const times = await blockTimes(pc, raw.map((r) => r.block));

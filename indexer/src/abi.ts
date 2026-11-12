@@ -50,6 +50,14 @@ export const EVENTS = parseAbi([
   "event SnipeEscrowReleased(address indexed token, address indexed vault, uint256 amount)",
   "event SnipeEscrowToLP(address indexed token, uint256 amount)",
   "event Distributed(address indexed asset, address indexed to, uint256 amount)",
+  // lp-accrue (CurveFeeVault + its curves): curve-phase fees settle into the vault (TradeFeeRouted's fields, quote side;
+  // lpShareKept stays on the curve as lpFeeEscrow); not graduated by the escrow timeout (12d) ⇒ all LP and sniper tax go to RewardsVault (LpFeeEscrowReleased /
+  // SnipeEscrowReleased: each release, and at a late graduation). SnipeEscrowToLP on these curves = sniper tax + the LP share
+  // (graduation within 12d only) (api.ts escrowSplit separates them).
+  "event CurveFeeSettled(address indexed token, address indexed quote, address indexed trader, address creator, uint256 creatorShare, uint256 creatorTaxAmount, uint256 lpShareKept, uint256 treasuryShare, address referralPayee, uint256 referralShare, address kolPayee, uint256 kolShare)",
+  "event LpFeeEscrowReleased(address indexed token, address indexed vault, uint256 amount)",
+  "event StealthCreatorFeesClaimed(address indexed token, address indexed stealthOwner, address to, address asset, uint256 amount)",
+  "event TreasuryFeesClaimed(address indexed asset, address indexed treasury, uint256 amount)",
   // flow/jit-twap (PR #44) additions
   "event LaunchTierContext(address indexed token, uint256 startMcapUsd, uint256 graduationMcapUsd, uint256 totalSupply, uint8 decimals_)",
   "event AltitudeUpdate(address indexed token, uint256 mcapUsd, uint8 tier)",
@@ -80,4 +88,6 @@ export const READS = parseAbi([
   "function getLiquidity(bytes32) view returns (uint128)",
   "function pricer() view returns (address)",
   "function pendingRewards(address) view returns (uint256)",
+  "function feeVault() view returns (address)",
+  "function creatorClaimable(address,address) view returns (uint256)",
 ]);

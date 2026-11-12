@@ -395,9 +395,9 @@ contract UsdgRouterTest is IntegrationBase {
         (uint8 v, bytes32 rr, bytes32 ss) = vm.sign(pk, gate.digest(address(acct), exp));
         gate.attest(address(acct), exp, abi.encodePacked(rr, ss, v));
 
-        // the policy (msg.sender of the old quote path) is not verified → old behaviour reverted NotVerified
+        // lp-accrue curves have no on-chain login check (app-level gating), so the msg.sender quote path no longer
+        // reverts NotVerified for the unverified policy; the account-specific quote below is still the one used.
         vm.prank(address(policy));
-        vm.expectRevert(BondingCurve.NotVerified.selector);
         router.quoteUsdgRoute(address(pTok), true, 10 * U);
 
         (uint256 q,) = router.quoteUsdgRouteFor(address(acct), address(pTok), true, 10 * U);

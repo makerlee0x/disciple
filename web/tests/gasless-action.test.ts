@@ -11,6 +11,7 @@ import {
   type ActionCall, type GaslessActionRequest,
 } from "../lib/trade/gaslessAction";
 import { multicall3Abi } from "../lib/trade/gaslessWithdraw";
+import { curveFeeVaultAbi } from "../lib/claims/vault";
 import { unmarkedRate } from "../lib/server/usdgEthRate";
 import { rateFromEnv } from "../lib/server/usdgEthRate";
 
@@ -45,6 +46,31 @@ describe("allowlist and blocked functions", () => {
     expect(relayable).toHaveLength(1);
     expect(b).toHaveLength(1);
     expect(blockedCallsMessage(b)).toMatch(/claimCreatorFees/);
+  });
+});
+
+describe("lp-accrue CurveFeeVault private-coin claims", () => {
+  const vault = "0x00000000000000000000000000000000000000bb" as Address;
+  const vaultClaim = (to: Address = user.address): ActionCall => ({
+    to: vault,
+    data: encodeFunctionData({
+      abi: curveFeeVaultAbi, functionName: "claimManyAsStealthBySig",
+      args: [{ owner: user.address, tokens: [launcher], to, relayerFeeBps: 0n, deadline: BigInt(NOW + 120), sig: "0x11" as Hex }],
+    }),
+  });
+  it("claimManyAsStealthBySig is relayable next to claimManyBySig; claimCreatorFeesAsStealth (msg.sender) is not", () => {
+    expect(isRelayableCall("anonClaim", vaultClaim())).toBe(true);
+    const asSender = { to: vault, data: encodeFunctionData({ abi: curveFeeVaultAbi, functionName: "claimCreatorFeesAsStealth", args: [launcher, user.address] }) };
+    const { relayable, blocked } = partitionRelayableCalls("anonClaim", [claimCall(), vaultClaim(), asSender]);
+    expect(relayable).toHaveLength(2);
+    expect(blocked).toHaveLength(1);
+    expect(describeBlockedCall(asSender.data)).toMatch(/claimManyAsStealthBySig instead/);
+  });
+  it("vault claim payout must be the signer's wallet", () => {
+    const ok = parseGaslessActionRequest({ kind: "anonClaim", signer: user.address, calls: [claimCall(), vaultClaim()], fee: 0n, feeTo });
+    checkGaslessActionRequest(ok, { usdg, usdgDecimals: 6, nowSec: NOW, feeTo });
+    const bad = parseGaslessActionRequest({ kind: "anonClaim", signer: user.address, calls: [vaultClaim(feeTo)], fee: 0n, feeTo });
+    expect(() => checkGaslessActionRequest(bad, { usdg, usdgDecimals: 6, nowSec: NOW, feeTo })).toThrow(/payout must be the signer's/);
   });
 });
 
