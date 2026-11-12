@@ -150,3 +150,40 @@
 .dsc3-bar-climb > i { background: linear-gradient(90deg, var(--dsc3-signal-info), var(--dsc3-signal-up)); }
 .dsc3-bar-orbit > i { background: linear-gradient(90deg, var(--dsc3-light-gold), var(--dsc3-light-champagne)); }
 .dsc3-bar-thin { height: 6px; }
+
+/* ── lobby top bar (components/LobbyTopBar, non-game routes) ─────────────── */
+:root { --lb-bar-h: 72px; }
+@media (max-width: 900px) { :root { --lb-bar-h: 112px; } }
+.lb-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  height: calc(var(--lb-bar-h) + var(--ap-safe-top, 0px)); padding: var(--ap-safe-top, 0px) 24px 0; box-sizing: border-box;
+  display: flex; align-items: center; gap: 40px;
+  /* the wallet pill (fixed, top-right) sits over this space */
+  padding-right: calc(24px + 380px);
+  background: linear-gradient(180deg, rgba(11,12,14,0.96), rgba(11,12,14,0.80));
+  border-bottom: 1px solid rgba(232,234,238,0.10); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.lb-bar::after { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: var(--dsc3-grain); opacity: 0.12; mix-blend-mode: overlay; }
+.lb-brand { display: flex; align-items: center; gap: 10px; color: var(--dsc-text); text-decoration: none; flex: 0 0 auto; }
+.lb-word { font: 800 24px / 1 var(--dsc-font-game); letter-spacing: 0.04em; }
+.lb-tabs { display: flex; align-items: stretch; gap: 28px; height: 100%; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.lb-tabs::-webkit-scrollbar { display: none; }
+.lb-tabs a, .lb-tab-btn {
+  all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; min-height: 44px; white-space: nowrap;
+  font: 700 20px / 1 var(--dsc-font-game); text-transform: uppercase; color: var(--dsc-muted);
+  border-bottom: 3px solid transparent; padding-top: 3px; transition: color var(--dsc-duration-fast, 120ms);
+}
+.lb-tabs a:hover, .lb-tab-btn:hover { color: var(--dsc-text); }
+.lb-tabs a.on { color: #FFFFFF; border-bottom-color: var(--dsc3-light-gold); }
+.lb-tabs a:focus-visible, .lb-tab-btn:focus-visible { color: #FFFFFF; box-shadow: var(--dsc-glow-focus-ring); border-radius: 4px; }
+/* a launch tab reads as the primary door */
+.lb-tabs a[href="/create"] { color: var(--dsc3-light-gold); }
+.lb-tabs a[href="/create"].on { color: #FFFFFF; }
+@media (max-width: 900px) {
+  .lb-bar { flex-direction: column; align-items: stretch; gap: 0; padding-right: 16px; padding-left: 16px; }
+  .lb-brand { height: 60px; }
+  .lb-tabs { height: 52px; gap: 22px; }
+  .lb-tabs a, .lb-tab-btn { font-size: 18px; }
+}
+/* reserved from the first paint (no body class needed), and wins over a stale body.side-open left by a game route */
+.main-offset.main-offset-lobby, body.side-open .main-offset.main-offset-lobby { padding-left: 0; padding-top: calc(var(--lb-bar-h) + var(--ap-safe-top, 0px)); }

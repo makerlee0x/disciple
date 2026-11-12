@@ -1,6 +1,7 @@
 "use client";
 
 import Sidebar, { isCollapsibleRoute } from "./Sidebar";
+import LobbyTopBar from "./LobbyTopBar";
 import RefCapture from "./RefCapture";
 import ReferralOnboarding from "./claims/ReferralOnboarding";
 import HowItWorksHost from "./home/HowItWorksHost";
@@ -20,17 +21,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isGame = isCollapsibleRoute(pathname);
   return (
     <>
-      <Sidebar />
+      {/* brand v3: game routes keep the sidebar rail; every other route gets the lobby tab bar */}
+      {isGame ? <Sidebar /> : <LobbyTopBar />}
       <RefCapture />
       <ReferralOnboarding />
       <HowItWorksHost />
-      {!isGame && <div className="ap-topbar" aria-hidden="true" />}
       {/* the plain "Test network" marker lives in the wallet strip (WalletButton), so it shows on every route incl. the game */}
       {!isGame && !IS_STATIC_PREVIEW && <InviteBanner />}
       {/* profile r3: no cash pill on a profile (the page's portfolio block shows Cash); every other route unchanged */}
       <WalletButton compact={!isGame} hideCash={/^\/(profile|u\/)/.test(pathname ?? "")} />
       <FunnelBeacon />
-      {isGame ? children : <div className="main-offset main-offset-open min-h-screen">{children}</div>}
+      {isGame ? children : <div className="main-offset main-offset-lobby min-h-screen">{children}</div>}
       {IS_STATIC_PREVIEW && (
         <div
           aria-label="Static preview"
