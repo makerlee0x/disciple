@@ -5,7 +5,7 @@ section: Launching
 ---
 # Creator tax
 
-Creator tax: optional, 0–7%, set at launch and fixed. Charged on top of the 1% fee only while the rocket is still on its starting price path. After it reaches orbit, trades pay just the 1% fee. Reaching orbit means that path is finished and the rocket moves to the open market on Uniswap.
+A creator tax is optional. It can be 0–7%, and you set it at launch, for good. It's charged on top of the 1% fee, but only while the rocket is still on its starting price path. After it reaches orbit, trades pay just the 1% fee. Reaching orbit means that path is finished and the rocket moves to the open market on Uniswap.
 
 | | |
 |---|---|
@@ -18,7 +18,7 @@ Creator tax: optional, 0–7%, set at launch and fixed. Charged on top of the 1%
 
 ## Example
 
-A rocket with a 3% creator tax, on the curve. A $100 BOOST pays:
+Take a rocket with a 3% creator tax that hasn't reached orbit yet. A $100 BOOST pays:
 
 - $1.00 trade fee (split four ways, see [Trade fee](/docs/fees))
 - $3.00 creator tax, to the creator
@@ -27,4 +27,4 @@ After the rocket reaches orbit, the same BOOST pays only the $1.00 trade fee.
 
 ## Why it's fixed
 
-Traders see the tax before they BOOST, and it can never go up. If you transfer your rocket, the tax rights go with it.
+Traders see the tax before they BOOST, and it can never go up. If you hand off your rocket, the tax goes to the new creator.

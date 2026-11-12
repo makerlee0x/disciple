@@ -177,20 +177,19 @@ export const HIW_FEES = {
   eyebrow: "Fees & creator rewards",
   h2: "One fee. Four places it goes.",
   body: [
-    "Every BOOST and DUMP pays a 1% fee: 33% creator, 33% locked liquidity (added to the locked position as it builds up), 33% treasury, 1% referrer. After the rocket reaches orbit, the Uniswap pool charges no extra fee on top of that.",
+    "Every BOOST and DUMP pays a 1% fee: 33% creator, 33% locked liquidity (added to the locked position as it builds up), 33% treasury and 1% other. After the rocket reaches orbit, the Uniswap pool charges no extra fee on top of that.",
   ],
   headline: { value: "1%", label: "of every BOOST and DUMP" },
   split: [
-    { name: "Creator", pct: "33%", desc: "Builds up on-chain. Claiming from the app is coming soon.", color: "#C9CED6" },
+    { name: "Creator", pct: "33%", desc: "Builds up on every trade. The creator claims it in Rewards.", color: "#C9CED6" },
     { name: "Locked liquidity", pct: "33%", desc: "Set aside on every trade. Added to the locked position as it builds up.", color: "#8585AA" },
     { name: "Treasury", pct: "33%", desc: "Credited to the DISCIPLE treasury on every trade, then claimed.", color: "#44426A" },
-    { name: "Referrer", pct: "1%", desc: "Goes to the launcher’s referrer first, if the launcher has one. 1% of the fee, not of the trade.", color: "#F2C14E" },
+    { name: "Other", pct: "1%", desc: "The last 1% of the fee, not of the trade.", color: "#F2C14E" },
   ],
-  example: "On a $100 BOOST, the fee is $1: $0.33 creator · $0.33 locked liquidity · $0.33 treasury · $0.01 referrer.",
+  example: "On a $100 BOOST, the fee is $1: $0.33 creator · $0.33 locked liquidity · $0.33 treasury · $0.01 other.",
   cards: [
     { title: "Creator tax", body: "Optional, 0–7%, set at launch and fixed. Charged on top of the 1% fee only while the rocket is still on its starting price path. After it reaches orbit, trades pay just the 1% fee.", more: "Creators can hand off a rocket anytime. The fee claim and tax rights go with it." },
-    { title: "Anti-snipe", body: "For the first 7 seconds, the BOOST fee is 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s. After that, only the 1% remains.", more: "That early fee is held aside. It goes into the pool when the rocket reaches orbit, or to the rewards vault after 30 days if the rocket never does. The creator’s launch buy is exempt.", openItem: "C5" },
-    { title: "Referrals", body: "Share your link. When a wallet opens your link and deposits $10+ in USDG, it’s yours for life (first link wins).", more: "You earn 1% of the protocol fee on its trades, unless the rocket’s launcher has a referrer, and on rockets it launches after that, 1% of the protocol fee on every trade plus 2% of the creator’s fee share. You can’t refer your own wallet. On testnet, referrals don’t lock yet. Claiming from the app is coming soon." },
+    { title: "Anti-snipe", body: "For the first 7 seconds, the BOOST fee is 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s. After that, only the 1% remains.", more: "That early fee is held aside. It goes into the pool when the rocket reaches orbit, or to the community rewards vault if the rocket hasn’t reached orbit 12 days after launch. The creator’s launch buy is exempt.", openItem: "C5" },
   ] as { title: string; body: string; more: string; openItem?: string }[],
   snipeChart: { title: "Anti-snipe BOOST fee over the first 7 seconds: 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s", top: "99%", bottom: "0%", axis: "0s · anti-snipe fee, on top of the 1%", end: "7s" },
 };
@@ -205,11 +204,10 @@ export const HIW_FAQ = {
     { q: "What coins can I pair with?", a: "Pick a supported base: STRATEGY by default, USDG always. Other coins work once they have an on-chain USDG price pool." },
     { q: "What does pairing do for my coin?", a: "Your rocket is priced and traded in its base coin. When the rocket reaches orbit, the base is locked forever in the Uniswap v4 LP, the pool that holds the rocket and its base together." },
     { q: "When does a rocket reach orbit?", a: "When its value reaches $33,333 and about 84% of it has been bought on the starting price path. It moves to the open market on Uniswap in that same trade. That moment is the Outer Space tier." },
-    { q: "What are the fees?", a: "1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer. Creators can add a 0–7% tax on trades while the rocket is still on its starting price path, set at launch. An anti-snipe fee applies only in the first 7 seconds." },
+    { q: "What are the fees?", a: "1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury and 1% other. Creators can add a 0–7% tax on trades while the rocket is still on its starting price path, set at launch. An anti-snipe fee applies only in the first 7 seconds." },
     { q: "Can a creator rug?", a: "There’s no further mint, the name and call sign are set at launch, and once the rocket reaches orbit its liquidity is locked forever in the Uniswap v4 LP. Creators can still sell their own rockets, like anyone else.", openItem: "C11" },
     { q: "What is the Simulator?", a: "Free paper trading against bots on a private market, with no wallet and no transactions. Pick PvE, PvP or Trench Warfare.", openItem: "C12" },
     { q: "Is DISCIPLE audited?", a: "Not yet. The contracts have had internal security reviews only, no third-party audit. A professional audit is required before mainnet." },
-    { q: "Is this live?", a: "DISCIPLE runs on Robinhood Chain Testnet today, with test tokens. Mainnet isn’t live yet, and there’s no date." },
     { q: "What do I need to start?", a: "Sign in with X, email or a wallet. Deposit any token on Robinhood Chain. Minimums are in USDG, and you pay your own gas." },
   ] as { q: string; a: string; openItem?: string }[],
 };
@@ -221,7 +219,7 @@ export const HIW_FINAL = {
   ctas: { primary: "Launch a rocket", secondary: "Explore rockets" },
   /** Hidden until docs ship (BRAND sweep r1); empty string renders nothing. */
   link: "",
-  footer: "Robinhood Chain Testnet · Not audited · Nothing here is financial advice.",
+  footer: "DISCIPLE runs on Robinhood Chain. It is not audited. Nothing here is financial advice.",
   footerOpenItem: "C10",
   logoAlt: "DISCIPLE",
 };

@@ -16,16 +16,13 @@ A coin launched on DISCIPLE. 1M fixed supply, priced and traded in its base.
 **What does BOOST mean? DUMP?**
 BOOST is buy. DUMP is sell.
 
-**Is it live?**
-DISCIPLE runs on Robinhood Chain Testnet today, with test tokens. Mainnet isn't live yet, and there's no date.
-
 **What do I need to start?**
-Sign in with X, email or a wallet. Then get test funds and a little test ETH for gas. See [Quick start](/docs/quick-start).
+Sign in with email, Google, X or a wallet. Then press **Get test cash** for free test dollars. You don't need ETH for gas. See [Quick start](/docs/quick-start).
 
 ## Pairing
 
 **What coins can I pair with?**
-Pick a supported base: STRATEGY by default, USDG always. Other coins work once they have an on-chain USDG price pool.
+Right now, the launch form pairs new rockets with STRATEGY. Other pair coins are not available on the form yet. See [Pairing](/docs/launch/pairing).
 
 **What does pairing do for my coin?**
 Your rocket is priced and traded in its base coin. When the rocket reaches orbit, the base is locked forever in the Uniswap v4 LP. Reaching orbit means the starting price path is finished and the rocket moves to the open market on Uniswap.
@@ -36,7 +33,7 @@ Your rocket is priced and traded in its base coin. When the rocket reaches orbit
 When its value reaches $33,333 and about 84% of it has been bought on the starting price path. People also call that path a bonding curve, which means each buy costs a little more than the last. The rocket moves to the open market on Uniswap in that same trade. That moment is the Outer Space tier.
 
 **Is the liquidity really locked?**
-Yes. When the rocket reaches orbit, its liquidity is locked forever in a full-range Uniswap v4 position owned by the LockedLP contract, which has no function to remove it. Reaching orbit means the starting price path is finished and the rocket moves to the open market on Uniswap. Contracts are non-upgradeable; admin controls are held by the team during testnet.
+Yes. When the rocket reaches orbit, its liquidity is locked forever in the Uniswap v4 LP. The contract that holds it has no way to remove it, and the contracts can't be swapped for new code. The team holds some admin settings. See [Admin controls](/docs/safety/admin).
 
 **Can a creator rug?**
 There's no further mint, the name and call sign are locked at launch, and once the rocket reaches orbit its liquidity is locked forever in the Uniswap v4 LP. Creators can still sell their own rockets, like anyone else. [CONFIRM: lee — keep this question?]
@@ -44,13 +41,10 @@ There's no further mint, the name and call sign are locked at launch, and once t
 ## Fees
 
 **What are the fees?**
-1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer. Creators can add a 0–7% tax on bonding-curve trades, set at launch. A sniper tax applies only in the first 7 seconds. See [Trade fee](/docs/fees).
+1% on every BOOST and DUMP: 33% to the creator, 33% to locked liquidity, 33% to the treasury, and the remaining 1% is a separate share. Creators can add a 0–7% tax on trades before orbit, set at launch. A sniper tax applies only in a rocket's first 7 seconds. There's no separate gas to pay on trades. See [Trade fee](/docs/fees).
 
 **Why did my first-second BOOST cost so much?**
-The sniper tax. It's 99% at launch, 25% at 1s, 3% at 2s, and 0 from 7 seconds. See [Anti-snipe](/docs/trading/anti-snipe).
-
-**How do referrals work?**
-When a wallet opens your link and deposits $10+ in USDG, it's yours for life. You earn 1% of the protocol fee on its trades, plus 2% of the creator's share on rockets it launches. On testnet, referrals don't lock yet. See [Referrals](/docs/fees/referrals).
+The sniper tax. It's 99% at launch, 25% at 1 second, 3% at 2 seconds, and nothing from 7 seconds on. See [Anti-snipe](/docs/trading/anti-snipe).
 
 ## Game
 

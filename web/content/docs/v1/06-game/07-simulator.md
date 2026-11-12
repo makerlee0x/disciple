@@ -31,4 +31,4 @@ Bots read only the public tape: your confirmed trades and your placed tramps and
 
 ## Simulator vs live launch modes
 
-Live launch modes with the same names are coming (see [Launch modes](/docs/launch/modes)). In the Simulator, difficulty sets **who you're trading against**. On a live rocket, the launch mode sets **the curve's rules**. The Simulator doesn't apply the PvE or PvP caps or the profit tax.
+Live rockets have launch modes with similar names: Easy, Hard and Trench (see [Launch modes](/docs/launch/modes)). In the Simulator, the difficulty sets **who you're trading against**. On a live rocket, the launch mode sets **the rocket's rules**. The Simulator doesn't use the Easy or Hard holding limits or the crew tip.

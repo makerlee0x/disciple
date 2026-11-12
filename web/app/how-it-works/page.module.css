@@ -163,7 +163,7 @@
 .legend span { font: 500 13px var(--dsc-font-mono); color: var(--dsc-text); }
 .legend p { margin-top: 4px; font-size: 13px; line-height: 1.5; color: var(--dsc-muted-on-sky); }
 .example { margin-top: 22px; padding: 14px 18px; border-radius: var(--dsc-radius-lg); border: 1px dashed rgba(201, 206, 214, .22); font: 13px/1.5 var(--dsc-font-mono); color: var(--dsc-muted-on-sky); }
-.fcards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 22px; }
+.fcards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 22px; }
 .fcard { padding: 24px; }
 .fcard h3 { font-size: 16px; font-weight: 600; }
 .fcard p { margin-top: 8px; font-size: 13.5px; line-height: 1.55; color: var(--dsc-muted-on-sky); }

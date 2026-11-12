@@ -7,31 +7,31 @@ section: Getting started
 
 ## Signing in
 
-Press **Sign in**. Sign in with X, email or a wallet. Login is handled by Privy.
+Press **Sign in**. You can sign in with email, Google, X or a wallet. Sign-in is handled by Privy, a login service.
 
-## What you get
+## Your wallet
 
-Signing in creates two things:
+The first time you sign in, Privy makes a wallet for you. That wallet is your DISCIPLE account: your dollars and your rockets live there. You can see its address in **Settings** (the gear in the sidebar).
 
-- **A signer key**, held by Privy for your login.
-- **A smart account** on Robinhood Chain, owned by that key. This is your DISCIPLE wallet. Its address is shown in your profile.
+DISCIPLE never moves your money into its own wallet. Every trade is signed by your wallet.
 
-You don't hold custody through DISCIPLE. Your account signs its own transactions. DISCIPLE never takes your funds into its own wallet.
+You can see your wallet's private key in **Settings → Security → Export key**. Anyone who has that key controls your money, so keep it to yourself. You can also turn on **Two-factor authentication** there, with an authenticator app or a passkey.
 
 ## One-tap trading
 
-After you sign in once, BOOST and DUMP are one tap each. There are no wallet pop-ups per trade. This works through a session key: a limited permission your account grants so the app can submit your trades. [CONFIRM: FLOW — session-key limits (which contracts and amounts) as shipped on testnet.]
+BOOST and DUMP are one tap each. There are no wallet pop-ups, and you don't pay gas. When you tap, your wallet signs the trade quietly, and DISCIPLE sends it to the chain for you. The network cost is covered by the 1% trade fee.
+
+**Max price move per trade** (in Settings) sets how far the price may move before a one-tap trade is cancelled. You can pick 5%, 15%, 30% or 50%. The default is 15%.
 
 ## Your profile
 
-Your profile holds:
+Your profile shows your portfolio, your rockets and your recent activity. From your own profile you can:
 
-- **Cash:** balances, deposit address and withdraw.
-- **Settings:** username, wallet, X handle, referral link, preferences.
-- **Stats:** PnL, volume, bombs dropped, crews joined, achievements and identities.
+- **Edit profile**: picture, banner, username and bio.
+- **Open Rewards** (the chest): see what you've earned as a creator, and claim it. See [Creator earnings](/docs/fees/creators).
 
-Your **username** is 3–22 characters: lowercase letters, numbers and underscores. Usernames are unique, so each one belongs to a single account. You can have one at a time; claiming a new one releases the old one.
+Your **username** is 3–22 characters: lowercase letters, numbers and underscores. Usernames are unique, so each one belongs to a single account. You can have one at a time. Picking a new one frees the old one.
 
-## Gas
+## Your money
 
-You pay your own gas, in ETH on Robinhood Chain. There is no gas sponsorship today. See [Deposits, withdrawals and gas](/docs/funds).
+Your dollars are on the **Wallet** page. See [Deposits, withdrawals and gas](/docs/funds).

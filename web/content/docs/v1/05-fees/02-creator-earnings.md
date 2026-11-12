@@ -5,25 +5,31 @@ section: Fees and rewards
 ---
 # Creator earnings
 
-As a creator you earn from every trade on your rocket.
+As a creator, you earn from every trade on your rocket.
 
 | Source | Size | When |
 |---|---|---|
-| Creator share of the trade fee | 33% of the 1% fee | Every BOOST and DUMP, before and after the rocket reaches orbit |
+| Your share of the trade fee | 33% of the 1% fee | Every BOOST and DUMP, before and after the rocket reaches orbit |
 | Creator tax | 0–7% of the trade, if you set one | Only while the rocket is on its starting price path |
 
-On a $100 trade that's $0.33 from the fee, plus your creator tax while the rocket is still on its starting price path.
+On a $100 trade, that's $0.33 from the fee, plus your creator tax while the rocket is still on its starting price path.
 
-## Claiming
+## Seeing and claiming your earnings
 
-Earnings build up on-chain in the fee router. There's no deadline and no minimum.
+Your earnings build up on every trade. There's no deadline and no minimum, and they stay yours until you claim them.
 
-Claiming from the app is coming soon. Until then, call `claimCreatorFees(token)` on the FeeRouter from your creator wallet, with the base you earned in. See [Contract addresses](/docs/reference/contracts). Until you claim, your earnings stay accrued to your wallet.
+Before your rocket reaches orbit, your share is kept for you in DISCIPLE's fee vault. After orbit, the fee router keeps it. You claim from both in the same place.
 
-## If you were referred
+Open **Rewards** (the chest on your profile) to see your total. The total counts what you've earned from trades on the chain, plus any payouts the team has sent you by hand outside the chain.
 
-If a referrer brought you to DISCIPLE, they get 2% of your 33% creator share on rockets you launch after your referral locked in. You keep the other 98%. See [Referrals](/docs/fees/referrals).
+When something is ready to claim, a gold **Claim** button shows the amount. Press it to claim. This works for every rocket you launched, whether you launched it publicly or privately. Before you confirm, Rewards shows the small network fee, in dollars.
 
-## Transfers
+## Choosing where your fees go
 
-If you hand off your rocket, the right to claim future earnings goes with it. [CONFIRM: FLOW — whether unclaimed earnings move with the transfer or stay claimable by the previous creator.]
+Under **Advanced** on the launch form, you can name another account to receive your creator fees.
+
+The form also shows two more choices: adding your fees to the rocket's locked pool, or using them to buy and burn. Those choices are not available yet, so today your creator fees always go to you or to the account you named.
+
+## Hand-offs
+
+If you hand off your rocket, the right to future earnings goes with it. [CONFIRM: FLOW — whether unclaimed earnings move with the hand-off or stay with the previous creator.]

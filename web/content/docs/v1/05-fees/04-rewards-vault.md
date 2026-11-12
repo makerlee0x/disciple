@@ -1,20 +1,17 @@
 ---
-title: Rewards vault
+title: Community rewards
 slug: /docs/fees/rewards-vault
 section: Fees and rewards
 ---
-# Rewards vault
+# Community rewards
 
-The community rewards vault holds sniper tax from rockets that never reached orbit. Reaching orbit means the starting price path is finished and the rocket moves to the open market on Uniswap. How this vault is shared out later is still being decided.
+Community rewards are held in the community rewards vault, a DISCIPLE contract. It collects two things, both from rockets that didn't reach orbit within 12 days of launch:
 
-## What's in it
+- **Their sniper tax.** The sniper tax (paid on BOOSTs in a rocket's first 7 seconds) is held aside by the rocket. If the rocket reaches orbit within 12 days of launch, the tax goes into the rocket's locked liquidity. If it doesn't, the tax comes here. Anyone can send it once the 12 days are up, and if the rocket reaches orbit later, what's left is sent here at that moment.
+- **Their liquidity share of the trade fee.** Before orbit, the 33% of each fee meant for locked liquidity is held aside by the rocket in the same way. If the rocket hasn't reached orbit 12 days after launch, all of it comes here instead, including the share from trades made after the 12 days.
 
-The sniper tax (on BOOSTs in a rocket's first 7 seconds) is held aside. If the rocket reaches orbit, it goes into the locked liquidity instead. If it has not reached orbit 30 days after launch, anyone can send it here. Nothing else goes in. It's held in each rocket's base coin.
+Both are held in that rocket's base coin.
 
 ## How it's shared
 
-Not decided yet. There are no on-chain distribution rules today. Payouts are made by the vault's owner, and every payout is recorded on-chain. [CONFIRM: FLOW + lee — distribution rules and timing before this page goes live.]
-
-## Check it yourself
-
-The vault is a public contract. Its lifetime total per asset and every payout are visible on-chain. See [Contract addresses](/docs/reference/contracts).
+Not decided yet. There are no automatic payout rules today. Payouts from the vault are made by the team, and every payout is a public transfer that anyone can look up. [CONFIRM: FLOW + lee — distribution rules and timing.]

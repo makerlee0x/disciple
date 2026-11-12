@@ -9,14 +9,11 @@ Five minutes from zero to your first BOOST.
 
 ## 1. Sign in
 
-Tap **Sign in** (top right). Sign in with X, email or a wallet. Sign in once and DISCIPLE creates your account and wallet. After that, every trade is one tap, with no wallet pop-ups. See [Sign in and your account](/docs/account).
+Tap **Sign in** (top right). You can sign in with email, Google, X or a wallet. The first time you sign in, DISCIPLE makes a wallet for you. After that, every trade is one tap, with no wallet pop-ups. See [Sign in and your account](/docs/account).
 
-## 2. Get test funds
+## 2. Get test cash
 
-DISCIPLE is on testnet, so funds are test tokens with no value.
-
-- **Gas:** you need a little test ETH on Robinhood Chain Testnet. Use the faucet link in your profile's Cash panel.
-- **Tokens:** use **Get test funds** (top right) for test STRATEGY and test USDG (mUSDG).
+Press **Get test cash**. It adds free test dollars (USDG) to your wallet. You don't need any ETH: trades don't ask you to pay for gas.
 
 See [Deposits, withdrawals and gas](/docs/funds).
 
@@ -26,14 +23,12 @@ The **Launchpad** lists rockets. Open one to fly it. Flight is the screen for th
 
 ## 4. BOOST
 
-Pick an amount and press **BOOST** (or `Space`). You pay in the rocket's base. The rocket lifts.
+Pick an amount and press **BOOST** (or `Space`). You pay in dollars (USDG), and the smallest BOOST is $3. The rocket lifts.
 
 ## 5. DUMP when you want out
 
-Pick a share of your bag (10%, 25%, 50% or 100%) and press **DUMP** (or `Shift`). You're paid in the base. Your sell drops a bomb on the chart.
+Pick a share of your bag (10%, 25%, 50% or 100%) and press **DUMP** (or `Shift`). You get dollars (USDG) back. Your sell drops a bomb on the chart.
 
 ## Or launch your own
 
-Press **Launch a Rocket**. Choose a base, a name, a call sign and an image. See [Launch a rocket](/docs/launch).
-
-> Everything on testnet is for testing. Don't send real funds to a testnet address.
+Press **Launch a Rocket**. Give it a name, a ticker and a picture, pick a mode, and launch. See [Launch a rocket](/docs/launch).

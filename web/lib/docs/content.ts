@@ -119,6 +119,11 @@ export function renderDoc(meta: DocMeta): DocPage {
         if (t.depth === 2 || t.depth === 3) toc.push({ id, text: plain(inner.replace(VERIFY, "")).trim(), depth: t.depth });
         return `<h${t.depth} id="${id}"><a class="dv-anchor" href="#${id}" aria-hidden="true" tabindex="-1">#</a>${inner}</h${t.depth}>\n`;
       },
+      // Docs illustrations (web/public/illustrations/docs): base-path aware, lazy, alt text required by review.
+      image(t: Tokens.Image) {
+        const src = /^https?:\/\//.test(t.href) ? t.href : withBase(t.href);
+        return `<img class="dv-figure" src="${esc(src)}" alt="${esc(t.text)}" loading="lazy" decoding="async" />`;
+      },
       link(t: Tokens.Link) {
         const inner = this.parser.parseInline(t.tokens);
         const ext = /^https?:\/\//.test(t.href);
