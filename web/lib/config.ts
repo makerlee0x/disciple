@@ -363,7 +363,7 @@ export const ACHIEVEMENT_RARITY: Record<
 export const SEASON_PASS = {
   xpPerLevel: 1_000,
   maxLevel: 50,
-  seasonName: "Season 1 — Ascension",
+  seasonName: "",
 } as const;
 
 /** Demo wallet treated as the signed-in pilot on sample screens. */

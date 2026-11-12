@@ -19,8 +19,6 @@ There are **37 achievements** in **7 categories**:
 | Trencher | Fast, active trading |
 | Tramps & Walls | Filled limit orders |
 
-Seasonal achievements will be listed here when Season 1 starts.
-
 Each one is locked, in progress or unlocked. Every achievement has a rarity: **Common, Rare, Epic, Legendary or Mythic**. Rarer achievements carry rarer frames. Rocket parts use the same scale.
 
 More achievements about altitude are planned. Altitude is how high a rocket's value has climbed, shown as named tiers.
@@ -55,7 +53,7 @@ Your season rank comes from your rHALO points for the season:
 | Glorified | 25,000 |
 | Divine | 80,000 |
 
-Your profile shows your season rank. Season length and reset rules are TBD and will be announced before Season 1 starts.
+Your profile shows your season rank. Season length and reset rules will be announced later.
 
 ## Level and prestige
 
