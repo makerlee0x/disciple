@@ -28,6 +28,10 @@ interface IFeePull {
     function tokenQuote(address token) external view returns (address);
 }
 
+interface IVaultPull {
+    function claimCreatorFeesToRouter(address token, address creator) external returns (uint256);
+}
+
 interface ILockedDeposit {
     function depositCreatorFees_57(address token, address quote, uint256 tokenAmount, uint256 quoteAmount)
         external
@@ -120,6 +124,8 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     IHookGuard public hook;
     IPoolManager public poolManager;
     IHarvestAnon public anon;
+    /// @notice Curve-phase creator fees settle here (#312). `route` pulls them. Trades do not read this.
+    IVaultPull public feeVault;
 
     /// @notice Fixed at launch. 0 (or unset) means the launcher keeps the fees. 1 locks them. 2 burns the quote.
     mapping(address token => uint8 dest) public creatorFeeDestinationOf;
@@ -178,7 +184,14 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         poolManager = IPoolManager(poolManager_);
     }
 
-    /// @notice Private launches. `route` asks this contract to self-claim rocket-token fees so the stealth owner is not paid.
+    /// @notice CurveFeeVault that holds this chain's curve-phase creator fees. `route` pulls it.
+    function setFeeVault(address vault_) external {
+        _checkOwner();
+        if (vault_ == address(0)) revert ZeroAddress();
+        feeVault = IVaultPull(vault_);
+    }
+
+    /// @notice Private launches. The stealth owner is not paid when the destination is 1 or 2.
     function setAnonLauncher(address anon_) external {
         _checkOwner();
         if (anon_ == address(0)) revert ZeroAddress();
@@ -328,10 +341,10 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     }
 
     /// @notice Send this coin's accrued creator fees where the launcher chose. Anyone may call it.
-    ///         The caller receives nothing. Both halves are pulled from FeeRouter: quote via
-    ///         `claimCreatorFeesFor`, rocket tokens via `claimCreatorTokenFeesFor_15`. The launcher does not
-    ///         claim, approve, or deposit. Fees that accrued to the current `creatorOf` and to the launcher
-    ///         recorded at launch are both pulled.
+    ///         The caller receives nothing. Curve-phase quote is pulled from CurveFeeVault. Post-graduation
+    ///         quote is pulled with `claimCreatorFeesFor`, and rocket tokens with `claimCreatorTokenFeesFor_15`.
+    ///         The launcher does not claim, approve, or deposit. Fees of the current `creatorOf` and of the
+    ///         launcher recorded at launch are both pulled.
     function route(address token)
         external
         nonReentrant
@@ -379,7 +392,9 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
             tOriginal = fr.creatorTokenAccrued(token, original);
         }
         uint256 parked = rocketDeposited[token];
-        pulled.quoteAmount = qCurrent + qOriginal;
+        uint256 qVault = _pullVault(token, pulled.current);
+        if (original != address(0) && original != pulled.current) qVault += _pullVault(token, original);
+        pulled.quoteAmount = qCurrent + qOriginal + qVault;
         pulled.rockets = tCurrent + tOriginal + parked;
         if (pulled.quoteAmount == 0 && pulled.rockets == 0) revert NothingToRoute();
         if (dest == DEST_BURN_QUOTE && pulled.rockets != 0) {
@@ -393,11 +408,18 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         }
         if (qCurrent != 0) qCurrent = fr.claimCreatorFeesFor(token, pulled.current);
         if (qOriginal != 0) qOriginal = fr.claimCreatorFeesFor(token, original);
-        pulled.quoteAmount = qCurrent + qOriginal;
+        pulled.quoteAmount = qCurrent + qOriginal + qVault;
         if (tCurrent != 0) tCurrent = fr.claimCreatorTokenFeesFor_15(token, pulled.current);
         if (tOriginal != 0) tOriginal = fr.claimCreatorTokenFeesFor_15(token, original);
         pulled.rockets = tCurrent + tOriginal + parked;
         if (pulled.rockets != 0) rocketDeposited[token] = pulled.rockets;
+    }
+
+    /// @dev Curve-phase quote for `who`. Settles the coin first. Returns 0 when this harvest has no vault.
+    function _pullVault(address token, address who) internal returns (uint256 q) {
+        IVaultPull v = feeVault;
+        if (address(v) == address(0) || who == address(0)) return 0;
+        q = v.claimCreatorFeesToRouter(token, who);
     }
 
     /// @notice Sells `amount` of the rocket for its quote and burns that quote, including the creator fee

@@ -81,7 +81,8 @@ contract Launchpad is ILaunchpad, Owned2Step {
     /// @notice Easy crew-tip threshold for FUTURE launches, bps of the coin's mcap at the time of sale (default 0.5%;
     ///         bounds [CREW_TIP_THRESHOLD_BPS_MIN, _MAX]). Snapshotted into each curve as an immutable.
     uint256 public crewTipThresholdBps = Constants.CREW_TIP_THRESHOLD_BPS_DEFAULT;
-    /// @notice Sniper-escrow timeout for FUTURE launches (default 30 days; bounds [1 day, 365 days]). Snapshotted into
+    /// @notice Sniper-escrow timeout for FUTURE launches (default Constants.SNIPE_ESCROW_TIMEOUT = 12 days since 2026-11-09, was 30;
+    ///         bounds [1 day, 365 days]). Snapshotted into
     ///         each curve: after it, a not-yet-graduated curve's escrow can be sent to RewardsVault by anyone.
     uint256 public snipeEscrowTimeout = Constants.SNIPE_ESCROW_TIMEOUT;
 
@@ -403,7 +404,11 @@ contract Launchpad is ILaunchpad, Owned2Step {
     }
 
     /// @notice Transfer creator ownership pack (§5 / #26): metadata + fee claim + tax rights.
-    /// @dev Accrued fees already booked to the previous creator stay with them (claim anytime).
+    /// @dev Fees already booked to the previous creator (FeeRouter.creatorAccrued, and CurveFeeVault.creatorAccrued
+    ///      for fees settled before the transfer) stay with them (claim anytime). lp-accrue curves (L1, lee
+    ///      2026-11-09 "Leave it, the new creator gets unsettled fees"): curve-phase fees that are still owed on the
+    ///      curve (not yet settled) are booked at settle time to the creator of record THEN, so they go to the new
+    ///      creator. To keep them, call BondingCurve.settleFees() (permissionless) before transferring.
     function transferCreator(address token, address newCreator) external {
         LaunchMeta storage m = metaOf[token];
         if (msg.sender != m.creator) revert OnlyCreator();

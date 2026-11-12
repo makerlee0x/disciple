@@ -16,6 +16,7 @@ import {Altitude} from "./libraries/Altitude.sol";
 import {IAltitudeEvents} from "./interfaces/IAltitudeEvents.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
@@ -36,10 +37,6 @@ interface ILaunchpadRouters {
     function isTrustedRouter(address r) external view returns (bool);
 }
 
-interface ILoginGate {
-    function verifiedUntil(address wallet) external view returns (uint64);
-}
-
 interface IPveToken {
     function endPveHooks() external;
     function lockCreator(uint256 amount) external;
@@ -48,6 +45,17 @@ interface IPveToken {
 interface IFeeRouterCurve {
     function accrueTreasury(address asset, uint256 amount) external;
     function rewardsVault() external view returns (address);
+    function referrals() external view returns (address);
+}
+
+interface IReferrerOf {
+    function referrerOf(address wallet) external view returns (address);
+}
+
+interface ICurveFeeVault {
+    /// @dev Named so its selector (0x038b09d3) sorts first in the vault's dispatcher: the in-trade settle of a
+    ///      referred trader pays no extra dispatch gas for the vault's claim functions.
+    function settleCurveFee(address token, address quote, address trader, uint256 protoFee, uint256 creatorTax) external;
 }
 
 /// @title External bonding curve — Pump-style CPAMM (§2 / LOCKED #5–#8)
@@ -83,15 +91,31 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @notice Easy crew-tip threshold in bps of the coin's mcap at the time of sale (snapshotted from Launchpad).
     uint256 public immutable crewTipThresholdBps;
     /// @notice Seconds after launch when a not-graduated curve's snipeEscrow becomes releasable to RewardsVault
-    ///         (snapshotted from Launchpad.snipeEscrowTimeout; default 30 days).
+    ///         (snapshotted from Launchpad.snipeEscrowTimeout; default 12 days).
     uint256 public immutable snipeEscrowTimeout;
+    /// @notice lp-accrue: receives the creator / treasury / referral part of curve-phase fees on settle.
+    ICurveFeeVault public immutable feeVault;
+    /// @notice FeeRouter's ReferralRegistry (snapshotted): a referred trader's fee is settled in the same trade so
+    ///         their referrer's 1% is attributed exactly as today (the referrer only exists at trade time).
+    IReferrerOf public immutable referrals;
 
     CurveMath.Params private _params;
 
     /// @notice Sniper tax (mode rules v2, all modes) held in the pair coin. NOT part of quoteReserve / price math and
-    ///         not withdrawable: at graduation it goes to LockedLP's locked compound bucket (excluded from the floor), or (if not graduated `snipeEscrowTimeout`
-    ///         after launch) sent to RewardsVault by anyone via releaseSnipeEscrow().
-    uint256 public snipeEscrow;
+    ///         not withdrawable: at a graduation within `snipeEscrowTimeout` it goes to LockedLP's locked compound bucket
+    ///         (excluded from the floor). If not graduated `snipeEscrowTimeout` after launch it goes to RewardsVault:
+    ///         sent by anyone via releaseSnipeEscrow(), or, if still escrowed when the coin graduates late, by
+    ///         _graduate (lee 2026-11-10 7:44 AM CT: "the sniper tax should go to community rewards").
+    uint256 public sniperTaxEscrow;
+    /// @notice lp-accrue (lee 2026-11-09 "lets have the lp fee share do the same setup"): the 33% LP share of settled
+    ///         curve-phase fees, held exactly like the sniper tax: outside quoteReserve, → LockedLP's locked compound
+    ///         bucket at graduation (non-floor), or → RewardsVault via releaseSnipeEscrow() if not graduated
+    ///         `snipeEscrowTimeout` after launch. Rule (lee 2026-11-09 10:17 PM CT): a coin that has not graduated
+    ///         by launchTime + snipeEscrowTimeout sends ALL its curve LP fees to RewardsVault (creator rewards), from
+    ///         before and after the timeout: releaseSnipeEscrow() is repeatable (each call settles everything owed
+    ///         and sends the whole lpFeeEscrow), and a graduation after the timeout sends the remaining lpFeeEscrow
+    ///         to RewardsVault instead of the compound bucket. Decided only at release / graduation, never per trade.
+    uint256 public lpFeeEscrow;
 
     uint256 public override quoteReserve;
     uint256 public override tokensSold;
@@ -99,6 +123,13 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @notice Audit round 3 (ops): protocol kill switch for this curve's cached `trustedRouter` (packed with
     ///         `graduated`, so the router path pays one warm read). Set via Launchpad.setCurveRouterKilled.
     bool public routerKilled;
+    /// @notice Curve-phase fee accrual, Uniswap v3 accrue-then-collect (Position.tokensOwed0/1 grow per swap,
+    ///         NonfungiblePositionManager.collect pays later): an unreferred trade only adds its 1% protocol fee and
+    ///         creator tax here (packed with `graduated`: one warm SSTORE); the quote stays in this curve.
+    ///         settleFees() ("collect", permissionless; CurveFeeVault claims call it first; graduation and release call
+    ///         it) keeps the LP 33% in lpFeeEscrow and sends the rest to `feeVault` for the creator/treasury/1% split.
+    uint112 public protoFeesOwed;
+    uint112 public creatorTaxOwed;
 
     mapping(address => uint256) public balanceOnCurve; // for wallet cap tracking
 
@@ -155,6 +186,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     );
     event SnipeEscrowToLP(address indexed token, uint256 amount);
     event SnipeEscrowReleased(address indexed token, address indexed vault, uint256 amount);
+    event LpFeeEscrowReleased(address indexed token, address indexed vault, uint256 amount);
 
     event GraduatedToV4(address indexed token, bytes32 poolId, uint256 tokenLiq, uint256 quoteLiq);
 
@@ -194,10 +226,11 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         address loginGate_,
         address trustedRouter_,
         uint256 crewTipThresholdBps_,
-        uint256 snipeEscrowTimeout_
+        uint256 snipeEscrowTimeout_,
+        address feeVault_
     ) {
         if (
-            mode_ > Constants.MODE_PVP || (mode_ == Constants.MODE_PVE && loginGate_ == address(0))
+            mode_ > Constants.MODE_PVP
                 || walletCapBps_ > Constants.BPS_DENOM || creatorTaxBps_ > Constants.CREATOR_TAX_MAX_BPS
         ) revert BadParams();
         token = token_;
@@ -216,6 +249,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         trustedRouter = trustedRouter_;
         crewTipThresholdBps = crewTipThresholdBps_;
         snipeEscrowTimeout = snipeEscrowTimeout_;
+        feeVault = ICurveFeeVault(feeVault_);
+        referrals = IReferrerOf(IFeeRouterCurve(feeRouter_).referrals());
 
         _params = params_;
     }
@@ -426,6 +461,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     }
 
     /// @notice PVE: cached login expiry for `wallet` (0 = not cached; the gate is consulted on the next buy).
+    /// @dev lp-accrue curves never write it (no on-chain login check): always 0. Kept for ABI compatibility.
     function verifiedUntilOf(address wallet) external view returns (uint64) {
         return _acct[wallet].verifiedUntil;
     }
@@ -437,15 +473,10 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     }
 
     /// @notice quoteBuy for a specific trader, enforcing every mode rule exactly like the trade: the holding-cap
-    ///         partial fill (`refund`), Easy login (NotVerified), room 0 (WalletCap).
+    ///         partial fill (`refund`) and room 0 (WalletCap). lp-accrue curves: no on-chain login (app-level gating).
     function quoteBuyFor(address trader, uint256 quoteIn) external view returns (BuyQuote memory q) {
         uint256 room = _roomOrRevert(trader);
         q = _quoteBuy(quoteIn, false, room);
-        if (mode == Constants.MODE_PVE) {
-            if (_acct[trader].verifiedUntil <= block.timestamp && _gateUntil(trader) <= block.timestamp) {
-                revert NotVerified();
-            }
-        }
     }
 
     /// @notice quoteSell for a specific trader: deducts the Easy crew tip (when it applies).
@@ -527,8 +558,9 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @dev audit L3: a router's prepaid `amount` must be on top of what the curve already owes (quote: reserve +
     ///      PVE reward pool; token: unsold inventory).
     function _prepaid(address asset, uint256 amount) internal view {
-        uint256 owed =
-            asset == quote ? quoteReserve + rewardsHeld + snipeEscrow : Constants.TOTAL_SUPPLY - tokensSold;
+        uint256 owed = asset == quote
+            ? quoteReserve + rewardsHeld + snipeEscrow() + protoFeesOwed + creatorTaxOwed
+            : Constants.TOTAL_SUPPLY - tokensSold;
         if (IERC20(asset).balanceOf(address(this)) < owed + amount) revert NotPrepaid();
     }
 
@@ -589,15 +621,11 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
             tokensSold = sold + tokensOut; // <= sCurve
         }
         quoteReserve += q.quoteToCurve;
-        if (q.snipeFee != 0) snipeEscrow += q.snipeFee; // stays here, outside reserves (mode rules v2)
+        if (q.snipeFee != 0) sniperTaxEscrow += q.snipeFee; // stays here, outside reserves (mode rules v2)
 
         IERC20(token).safeTransfer(trader, tokensOut);
 
-        if (q.fee > 0) {
-            uint256 protoFee = FeeMath.protocolFee(quoteIn - q.snipeFee);
-            IERC20(quote).safeTransfer(address(feeRouter), q.fee);
-            feeRouter.routeTradeFee(token, quote, trader, creator, protoFee, q.fee - protoFee);
-        }
+        if (q.fee > 0) _takeFee(trader, FeeMath.protocolFee(quoteIn - q.snipeFee), q.fee);
 
         emit Trade(
             token,
@@ -624,21 +652,13 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         if (room == 0) revert WalletCap();
     }
 
-    function _gateUntil(address trader) internal view returns (uint64) {
-        return ILoginGate(loginGate).verifiedUntil(trader);
-    }
-
     /// @dev PVE buy bookkeeping: login check (cached), reward settlement at the CURRENT accumulator (so a new
     ///      buyer's rewardDebt starts at acc and earns nothing from earlier taxed sells), cost basis, totalNet.
     function _pveOnBuy(address trader, uint256 oldBal, uint256 newBal, uint256 quoteSpent) internal {
+        // lp-accrue curves (lee 2026-11-09 "why do we have to record onchain that theyre verified? ... get rid of it"):
+        // no LoginGate read / cache here. App-level gating as pump.fun / FOMO do it: login is enforced off-chain at the
+        // app + relay (relay admission checks the session); the curve is permissionless. Older curves keep the check.
         Acct memory a = _acct[trader];
-        if (a.verifiedUntil <= block.timestamp) {
-            uint64 u = _gateUntil(trader);
-            if (u <= block.timestamp) revert NotVerified();
-            // audit L1: cache at most PVE_LOGIN_CACHE_TTL so a LoginGate revoke bites within 10 minutes
-            uint256 capT = block.timestamp + Constants.PVE_LOGIN_CACHE_TTL;
-            a.verifiedUntil = u > capT ? uint64(capT) : u;
-        }
         uint256 acc = accRewardPerToken;
         if (acc != 0) {
             if (oldBal != 0) rewardsAccrued[trader] += Math.mulDiv(oldBal, acc, ACC_SCALE) - rewardDebt[trader];
@@ -749,11 +769,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         tokensSold = sold - tokensIn;
         quoteReserve -= q.grossQuote;
 
-        if (q.fee > 0) {
-            uint256 protoFee = FeeMath.protocolFee(q.grossQuote);
-            IERC20(quote).safeTransfer(address(feeRouter), q.fee);
-            feeRouter.routeTradeFee(token, quote, trader, creator, protoFee, q.fee - protoFee);
-        }
+        if (q.fee > 0) _takeFee(trader, FeeMath.protocolFee(q.grossQuote), q.fee);
 
         IERC20(quote).safeTransfer(recipient, quoteOut);
         emit Trade(
@@ -806,6 +822,46 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         accRewardPerToken = acc;
         rewardsHeld += tax;
         return acc;
+    }
+
+    // ── curve-phase fee accrual (Uniswap v3 tokensOwed → collect) ──
+
+    /// @dev `fee` = protoFee + creator tax, already in this curve's quote balance (outside quoteReserve).
+    function _takeFee(address trader, uint256 protoFee, uint256 fee) internal {
+        if (referrals.referrerOf(trader) != address(0)) {
+            _settle(trader, protoFee, fee - protoFee); // referred: settle now with the trader (exact 1% attribution)
+        } else {
+            protoFeesOwed = SafeCast.toUint112(protoFeesOwed + protoFee);
+            creatorTaxOwed = SafeCast.toUint112(creatorTaxOwed + (fee - protoFee));
+        }
+    }
+
+    /// @dev LP share (FeeMath split, same rounding as FeeRouter) → lpFeeEscrow; the rest → feeVault.settleCurveFee.
+    function _settle(address trader, uint256 protoFee, uint256 tax) internal {
+        uint256 lp = (protoFee * Constants.FEE_SHARE_LP_LOCK) / Constants.FEE_SHARE_DENOM;
+        lpFeeEscrow += lp;
+        IERC20(quote).safeTransfer(address(feeVault), protoFee - lp + tax);
+        feeVault.settleCurveFee(token, quote, trader, protoFee, tax);
+    }
+
+    /// @notice "collect()": settle every owed curve-phase fee now. Permissionless; 0 owed = no-op.
+    function settleFees() external returns (uint256 protoFee, uint256 creatorTax) {
+        return _settleFees();
+    }
+
+    function _settleFees() internal returns (uint256 protoFee, uint256 creatorTax) {
+        protoFee = protoFeesOwed;
+        creatorTax = creatorTaxOwed;
+        if (protoFee + creatorTax == 0) return (0, 0);
+        protoFeesOwed = 0;
+        creatorTaxOwed = 0;
+        _settle(address(0), protoFee, creatorTax);
+    }
+
+    /// @notice Non-floor quote escrow passed to Migration at graduation (Migration reads this selector): sniper tax +
+    ///         settled LP fee share. Owed (unsettled) fees are settled into it first by _graduate.
+    function snipeEscrow() public view returns (uint256) {
+        return sniperTaxEscrow + lpFeeEscrow;
     }
 
     // ── PVE: NET positions follow transfers (DISCIPLE audit Medium-1) ──
@@ -873,19 +929,29 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
 
     // ── sniper escrow timeout ──
 
-    /// @notice Anyone, once `snipeEscrowTimeout` (default 30 days) has passed since launch without graduation: send the
+    /// @notice Anyone, once `snipeEscrowTimeout` (default 12 days) has passed since launch without graduation: send the
     ///         sniper escrow to the protocol RewardsVault (FeeRouter.rewardsVault). Reverts before the timeout,
     ///         after graduation (the escrow is in the LP), or when there is nothing to release.
+    /// @dev lp-accrue: settles every owed fee first (creator / treasury / 1% → feeVault, unaffected), then releases the
+    ///      sniper tax AND the whole LP fee escrow. Only these escrows move, never quoteReserve / rewardsHeld /
+    ///      inventory. Repeatable (lee 2026-11-09 10:17 PM CT: "if the coin never graduates, those lp fees should
+    ///      always go to the creator rewards"): LP shares of later trades accrue again and the next call sends them;
+    ///      each call zeroes what it sent, so nothing is paid twice. Nothing new → ZeroAmount.
     function releaseSnipeEscrow() external returns (uint256 amount) {
         if (graduated) revert Graduated();
         if (block.timestamp < launchTime + snipeEscrowTimeout) revert EscrowLocked();
-        amount = snipeEscrow;
+        _settleFees();
+        uint256 sn = sniperTaxEscrow;
+        uint256 lpE = lpFeeEscrow;
+        amount = sn + lpE;
         if (amount == 0) revert ZeroAmount();
         address v = IFeeRouterCurve(address(feeRouter)).rewardsVault();
         if (v == address(0)) revert ZeroRecipient();
-        snipeEscrow = 0;
+        sniperTaxEscrow = 0;
+        lpFeeEscrow = 0;
         IERC20(quote).safeTransfer(v, amount);
-        emit SnipeEscrowReleased(token, v, amount);
+        emit SnipeEscrowReleased(token, v, sn);
+        if (lpE != 0) emit LpFeeEscrowReleased(token, v, lpE);
     }
 
     // ── altitude (spot) ──
@@ -903,12 +969,33 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @dev Atomic same-tx migrate to locked v4 at curve-end price — no pause/gap (§2 / LOCKED #5).
     function _graduate() internal {
         if (graduated) return;
+        // lp-accrue: settle owed fees so the LP share is in lpFeeEscrow, which snipeEscrow() reports to Migration as
+        // non-floor quote → LockedLP's locked compound bucket (where the per-trade LP share ends up today)
+        _settleFees();
         graduated = true;
+        // lee 2026-11-09 10:17 PM CT: "if the coin graduates at a later date for whatever reason after the 12 days, they
+        // just wont get those lp fees at all. it'll just go to the creator rewards." + 2026-11-10 7:44 AM CT: "the sniper
+        // tax should go to community rewards". Decided here (graduating buy only, never per trade): past the timeout
+        // the remaining sniper tax AND LP fee escrow go to RewardsVault (same transfer + events as releaseSnipeEscrow),
+        // not the compound bucket.
+        if (block.timestamp >= launchTime + snipeEscrowTimeout) {
+            uint256 sn = sniperTaxEscrow;
+            uint256 lpE = lpFeeEscrow;
+            address v = sn + lpE != 0 ? IFeeRouterCurve(address(feeRouter)).rewardsVault() : address(0);
+            // no vault configured: keep the old destination (compound bucket) rather than revert the graduating trade
+            if (v != address(0)) {
+                sniperTaxEscrow = 0;
+                lpFeeEscrow = 0;
+                IERC20(quote).safeTransfer(v, sn + lpE);
+                if (sn != 0) emit SnipeEscrowReleased(token, v, sn);
+                if (lpE != 0) emit LpFeeEscrowReleased(token, v, lpE);
+            }
+        }
 
         uint256 tokenLiq = IERC20(token).balanceOf(address(this));
         // mode rules v2: the sniper escrow is passed to migration with the reserve; Migration marks it non-floor, so
         // LockedLP credits it to the coin's locked compound bucket (never the graduation floor)
-        uint256 esc = snipeEscrow;
+        uint256 esc = snipeEscrow();
         uint256 quoteLiq = quoteReserve + esc;
         // Pool opens at the curve-end spot price: price = curve mcap / supply (quote wei per token wei, full precision).
         uint160 sqrtPriceX96 = SqrtPrice.fromReserves(
@@ -921,7 +1008,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         bytes32 poolId = migration.migrate(token, quote, tokenLiq, quoteLiq, sqrtPriceX96);
         quoteReserve = 0;
         if (esc != 0) {
-            snipeEscrow = 0;
+            sniperTaxEscrow = 0;
+            lpFeeEscrow = 0;
             emit SnipeEscrowToLP(token, esc);
         }
 

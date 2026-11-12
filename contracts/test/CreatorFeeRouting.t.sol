@@ -13,6 +13,8 @@ import {ILaunchpad} from "../src/interfaces/ILaunchpad.sol";
 import {LockedLP} from "../src/LockedLP.sol";
 import {LoginGate} from "../src/LoginGate.sol";
 import {Constants} from "../src/libraries/Constants.sol";
+import {CurveFeeVault} from "../src/CurveFeeVault.sol";
+import {CurveDeployer} from "../src/CurveDeployer.sol";
 
 /// @notice Creator-fee destinations. Trades still pay the launcher. `route` runs later.
 contract CreatorFeeRoutingTest is IntegrationBase {
@@ -35,6 +37,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         launchpad.setTrustedRouter(address(router), true);
         feeRouter.setClaimRouter(address(harvest), true);
         feeRouter.setCreatorFeeHarvest_51(address(harvest));
+        harvest.setFeeVault(address(feeVault));
         vm.stopPrank();
         anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), 0);
         vm.prank(owner);
@@ -83,13 +86,30 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         return esc;
     }
 
+    /// @dev Curve-phase quote sits on the vault (settled or still owed). Post-graduation quote sits on FeeRouter.
+    function _quoteOwed(address token, address who) internal view returns (uint256) {
+        return feeVault.creatorClaimable(token, who) + feeRouter.creatorAccrued(token, who);
+    }
+
     function _expectRouted(address token, address who) internal {
         vm.startPrank(who);
         vm.expectRevert(FeeRouter.CreatorFeesRouted.selector);
         feeRouter.claimCreatorFees(token);
         vm.expectRevert(FeeRouter.CreatorFeesRouted.selector);
         feeRouter.claimCreatorTokenFees(token);
+        vm.expectRevert(CurveFeeVault.CreatorFeesRouted.selector);
+        feeVault.claimCreatorFees(token);
         vm.stopPrank();
+    }
+
+    /// @dev Private coins claim curve fees from a vault that knows the AnonLauncher. Point new launches at one.
+    function _pointVaultAtAnon() internal {
+        CurveFeeVault v = new CurveFeeVault(address(feeRouter), address(anon));
+        vm.startPrank(owner);
+        launchpad.setCurveDeployer(address(new CurveDeployer(address(v))));
+        harvest.setFeeVault(address(v));
+        vm.stopPrank();
+        feeVault = v;
     }
 
     function test_keepFees_isDefault_andIncludesShareAndTax() public {
@@ -109,14 +129,17 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         (uint256 creatorAmt, uint256 share, uint256 tax, uint256 lpShare) = _owed(BUY, TAX);
         assertGt(share, 0, "33% creator share");
         assertGt(tax, 0, "creator tax");
-        assertEq(feeRouter.creatorAccrued(address(tok), creator), creatorAmt, "share plus tax, and nothing else");
-        assertEq(_escrow(address(tok)) - esc0, lpShare, "only the protocol LP share moved during the trade");
+        assertEq(feeVault.creatorClaimable(address(tok), creator), creatorAmt, "share plus tax, and nothing else");
+        assertEq(feeRouter.creatorAccrued(address(tok), creator), 0, "curve fees settle to the vault");
+        assertEq(_escrow(address(tok)), esc0, "the trade leaves the LP share owed on the curve");
+        assertEq(curve.lpFeeEscrow(), 0);
 
         uint256 bal0 = quote.balanceOf(creator);
         vm.prank(creator);
-        uint256 got = feeRouter.claimCreatorFees(address(tok));
+        uint256 got = feeVault.claimCreatorFees(address(tok));
         assertEq(got, creatorAmt);
         assertEq(quote.balanceOf(creator) - bal0, creatorAmt);
+        assertEq(curve.lpFeeEscrow(), lpShare, "settling keeps the protocol LP share on the curve");
 
         address next = makeAddr("next");
         vm.prank(creator);
@@ -140,13 +163,14 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         uint256 esc0 = _escrow(address(tok));
         _buy(curve, trader1, BUY, 0);
         (uint256 creatorAmt,,, uint256 lpShare) = _owed(BUY, TAX);
-        assertEq(feeRouter.creatorAccrued(address(tok), creator), creatorAmt);
-        assertEq(_escrow(address(tok)) - esc0, lpShare, "trade path only moved the protocol share");
+        assertEq(_quoteOwed(address(tok), creator), creatorAmt);
+        assertEq(_escrow(address(tok)), esc0, "the trade did not lock the creator fee");
         _expectRouted(address(tok), creator);
 
         harvest.route(address(tok));
         console2.log("ROUTE_GAS dest1 on-curve", vm.lastCallGas().gasTotalUsed);
-        assertEq(_escrow(address(tok)) - esc0, lpShare + creatorAmt, "creator fee joined the locked escrow");
+        assertEq(_escrow(address(tok)) - esc0, creatorAmt, "creator fee joined the locked escrow");
+        assertEq(curve.lpFeeEscrow(), lpShare, "the protocol LP share stayed on the curve");
         assertEq(feeRouter.creatorAccrued(address(tok), creator), 0);
         assertEq(quote.balanceOf(BURN), 0, "burn destination was not used");
         assertEq(quote.balanceOf(address(harvest)), 0, "route did not keep the fees");
@@ -177,7 +201,8 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         assertGt(share, 0);
         assertGt(tax, 0);
         assertEq(quote.balanceOf(BURN) - dead0, share + tax);
-        assertEq(_escrow(address(tok)) - esc0, lpShare, "rocket and quote creator fees were not sent to the pool");
+        assertEq(_escrow(address(tok)), esc0, "creator fees were not sent to the pool");
+        assertEq(curve.lpFeeEscrow(), lpShare, "the protocol LP share stayed on the curve");
         assertEq(tok.balanceOf(address(lockedLP)), 0);
     }
 
@@ -194,7 +219,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         uint256 dead0 = quote.balanceOf(BURN);
         harvest.route(address(tok));
         assertEq(quote.balanceOf(BURN) - dead0, net, "the creator fee, after the KOL cut, is burned");
-        assertEq(feeRouter.referrerAccrued(kol, address(quote)), kolCut + referral, "KOL keeps its cut and the 1%");
+        assertEq(feeVault.referrerAccrued(kol, address(quote)), kolCut + referral, "KOL keeps its cut and the 1%");
     }
 
     function test_lockedLp_afterOrbit_depositsBothSides() public {
@@ -204,9 +229,10 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         _swapExactInQuoteForToken(tok, trader1, 1 ether);
         uint256 held = tok.balanceOf(trader1);
         _swapExactInTokenForQuote(tok, trader1, held / 2);
-        uint256 qAcc = feeRouter.creatorAccrued(address(tok), creator);
+        uint256 qAcc = _quoteOwed(address(tok), creator);
         uint256 tAcc = feeRouter.creatorTokenAccrued(address(tok), creator);
-        assertGt(qAcc, 0, "quote half after orbit");
+        assertGt(feeRouter.creatorAccrued(address(tok), creator), 0, "quote half after orbit");
+        assertGt(feeVault.creatorAccrued(address(tok), creator), 0, "curve-phase quote is on the vault");
         assertGt(tAcc, 0, "rocket-token half after orbit");
         _expectRouted(address(tok), creator);
         (uint256 bT0, uint256 bQ0) = lockedLP.compoundBucket(address(tok));
@@ -228,7 +254,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         _swapExactInQuoteForToken(tok, trader1, 1 ether);
         uint256 held = tok.balanceOf(trader1);
         _swapExactInTokenForQuote(tok, trader1, held / 2);
-        uint256 qAcc = feeRouter.creatorAccrued(address(tok), creator);
+        uint256 qAcc = _quoteOwed(address(tok), creator);
         uint256 tAcc = feeRouter.creatorTokenAccrued(address(tok), creator);
         assertGt(qAcc, 0);
         assertGt(tAcc, 0);
@@ -259,7 +285,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         _buy(burnCurve, trader1, BUY, 0);
         (uint256 creatorAmt,,,) = _owed(BUY, TAX);
         vm.prank(creator);
-        assertEq(feeRouter.claimCreatorFees(address(keepTok)), creatorAmt);
+        assertEq(feeVault.claimCreatorFees(address(keepTok)), creatorAmt);
         uint256 dead0 = quote.balanceOf(BURN);
         harvest.route(address(burnTok));
         assertEq(quote.balanceOf(BURN) - dead0, creatorAmt);
@@ -282,22 +308,22 @@ contract CreatorFeeRoutingTest is IntegrationBase {
     }
 
     function test_anon_keep_stillPaysStealthOwner() public {
+        _pointVaultAtAnon();
         vm.prank(creator);
         ILaunchpad.LaunchResult memory r = harvest.launchAnon(_params(0, 0), stealth, stealth, "", bytes1(0), 0, 0);
         assertEq(launchpad.creatorOf(r.token), address(anon));
         assertEq(harvest.creatorFeeDestinationOf(r.token), 0);
         _warpPastSnipe();
         _buy(BondingCurve(r.curve), trader1, BUY, 0);
-        address[] memory toks = new address[](1);
-        toks[0] = r.token;
         address to = makeAddr("payout");
         vm.prank(stealth);
-        anon.claimMany(toks, to);
+        feeVault.claimCreatorFeesAsStealth(r.token, to);
         (uint256 creatorAmt,,,) = _owed(BUY, 0);
         assertEq(quote.balanceOf(to), creatorAmt);
     }
 
     function test_anon_routePullsLauncher_andStealthCannotClaim() public {
+        _pointVaultAtAnon();
         vm.prank(creator);
         ILaunchpad.LaunchResult memory lp = harvest.launchAnon(_params(TAX, 0), stealth, stealth, "", bytes1(0), 0, 1);
         router.setUsdgRouting(address(quote), address(launchpad));
@@ -316,13 +342,16 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         _buy(BondingCurve(lp.curve), trader1, BUY, 0);
         _buy(BondingCurve(burnR.curve), trader1, BUY, 0);
         (uint256 creatorAmt,,,) = _owed(BUY, TAX);
-        assertEq(feeRouter.creatorAccrued(lp.token, address(anon)), creatorAmt);
+        assertEq(_quoteOwed(lp.token, address(anon)), creatorAmt);
 
         address[] memory one = new address[](1);
         one[0] = lp.token;
         vm.prank(stealth);
         vm.expectRevert(AnonLauncher.CreatorFeesRouted.selector);
         anon.claimMany(one, stealth);
+        vm.prank(stealth);
+        vm.expectRevert(CurveFeeVault.CreatorFeesRouted.selector);
+        feeVault.claimCreatorFeesAsStealth(lp.token, stealth);
 
         uint256 esc0 = _escrow(lp.token);
         harvest.route(lp.token);
@@ -356,7 +385,11 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         (BondingCurve curve, Token tok) = _launchDest(1, TAX);
         _warpPastSnipe();
         _buy(curve, trader1, BUY, 0);
+        curve.settleFees();
         (uint256 first,,,) = _owed(BUY, TAX);
+        assertEq(
+            feeVault.creatorAccrued(address(tok), creator), first, "settled curve fees stay with the creator of record"
+        );
         address next = makeAddr("next");
         vm.prank(creator);
         launchpad.transferCreator(address(tok), next);
@@ -366,8 +399,8 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         _expectRouted(address(tok), next);
         _buy(curve, trader1, BUY, 0);
         (uint256 second,,,) = _owed(BUY, TAX);
-        assertEq(feeRouter.creatorAccrued(address(tok), next), second, "later fees follow the current creator");
-        assertEq(feeRouter.creatorAccrued(address(tok), creator), first);
+        assertEq(feeVault.creatorClaimable(address(tok), next), second, "later fees follow the current creator");
+        assertEq(feeVault.creatorAccrued(address(tok), creator), first);
         uint256 esc0 = _escrow(address(tok));
         harvest.route(address(tok));
         assertEq(_escrow(address(tok)) - esc0, first + second, "route pulled the original launcher and the new creator");
@@ -376,6 +409,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
     }
 
     function test_anon_afterOrbit_routePullsBothHalves() public {
+        _pointVaultAtAnon();
         vm.prank(creator);
         ILaunchpad.LaunchResult memory locked = harvest.launchAnon(_params(0, 0), stealth, stealth, "", bytes1(0), 0, 1);
         vm.prank(creator);
@@ -383,10 +417,11 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         _orbit(BondingCurve(locked.curve), Token(locked.token));
         _orbit(BondingCurve(burned.curve), Token(burned.token));
 
-        uint256 qL = feeRouter.creatorAccrued(locked.token, address(anon));
+        uint256 qL = _quoteOwed(locked.token, address(anon));
         uint256 tL = feeRouter.creatorTokenAccrued(locked.token, address(anon));
-        uint256 qB = feeRouter.creatorAccrued(burned.token, address(anon));
+        uint256 qB = _quoteOwed(burned.token, address(anon));
         uint256 tB = feeRouter.creatorTokenAccrued(burned.token, address(anon));
+        assertGt(feeVault.creatorAccrued(locked.token, address(anon)), 0, "curve-phase quote is on the vault");
         assertGt(qL, 0);
         assertGt(tL, 0);
         assertGt(qB, 0);
@@ -401,6 +436,9 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         vm.prank(stealth);
         vm.expectRevert(AnonLauncher.CreatorFeesRouted.selector);
         anon.claimMany(one, stealth);
+        vm.prank(stealth);
+        vm.expectRevert(CurveFeeVault.CreatorFeesRouted.selector);
+        feeVault.claimCreatorFeesAsStealth(burned.token, stealth);
 
         (uint256 bT0, uint256 bQ0) = lockedLP.compoundBucket(locked.token);
         vm.roll(block.number + 1);
@@ -454,7 +492,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         assertGt(curve.pendingRewards(trader2), 0, "the other holder still receives the crew tip");
         uint256 tip = curve.pendingRewards(trader2);
         uint256 dead0 = quote.balanceOf(BURN);
-        uint256 creatorAmt = feeRouter.creatorAccrued(address(tok), creator);
+        uint256 creatorAmt = _quoteOwed(address(tok), creator);
         harvest.route(address(tok));
         assertEq(quote.balanceOf(BURN) - dead0, creatorAmt, "routing burned creator fees and left the crew tip");
         assertEq(curve.pendingRewards(trader2), tip, "route did not touch holder rewards");
