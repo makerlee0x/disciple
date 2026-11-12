@@ -28,6 +28,7 @@ import { kv, type Kv } from "./kv";
 import { ACH } from "./achKeys";
 import { coinsOf, tradesOf, TRADES_MAX_LIMIT } from "./trades";
 import { dueTimers, scoreXp, XPK, type TransferOut } from "./xp";
+import { nonTradeOuts } from "@/lib/xpTransfers";
 
 const LAUNCHED = getAbiItem({ abi: launchpadAbi, name: "Launched" });
 const GRADUATED = getAbiItem({ abi: bondingCurveAbi, name: "GraduatedToV4" });
@@ -250,7 +251,10 @@ const TRANSFER_BUDGET_MS = 4_000;
 const TRANSFER_KEEP = 500;
 
 /**
- * Tokens this wallet sent away by plain transfer (not in one of its own trade txs), per coin, from the coin's first fill.
+ * Tokens this wallet sent away by plain transfer (not a sell's own token leg), per coin, from the coin's first fill.
+ * A tx that holds a trade is NOT skipped whole: a smart account can batch a buy and a transfer away in one tx, so only the
+ * wallet's sell legs in that tx are ignored (lib/xpTransfers nonTradeOuts). An out scanned before its tx's fill was
+ * indexed (`checked` unset) is re-matched against the fills on every pass.
  * Holding missions treat them as leaving the position, so moving tokens to another wallet can't keep a 24h hold, a tier
  * ride or an orbit seat alive. Zero-value transfers are ignored: anyone can emit one "from" any address without an
  * approval, so they must never reset someone's progress.
@@ -265,10 +269,14 @@ async function transfersOut(w: string, coins: string[], fills: readonly Fill[], 
   for (const coin of coins) {
     const mine = fills.filter((f) => f.coin.toLowerCase() === coin);
     if (!mine.length) continue;
-    const trades = new Set(mine.map((f) => f.tx.toLowerCase()));
+    const sells = new Map<string, number[]>(), trades = new Set<string>();
+    for (const f of mine) { const k = f.tx.toLowerCase(); trades.add(k); if (f.side === "sell") (sells.get(k) ?? sells.set(k, []).get(k)!).push(f.tokens); }
     const key = XPK.transfers(w, coin);
     const cached = parse<{ cursor: string; outs: TransferOut[] }>(await s.get(key));
-    let outs = (cached?.outs ?? []).filter((x) => !trades.has(x.tx.toLowerCase()) && x.tokens > 0);
+    const kept = (cached?.outs ?? []).filter((x) => x.tokens > 0);
+    // outs scanned before their tx's fill was indexed: match them against the fills known now
+    let outs = [...kept.filter((x) => x.checked), ...nonTradeOuts(kept.filter((x) => !x.checked), sells).map((x) => ({ ...x, checked: trades.has(x.tx.toLowerCase()) || undefined }))]
+      .sort((a, b) => a.block - b.block || a.logIndex - b.logIndex);
     let cur = cached ? BigInt(cached.cursor) : BigInt(Math.min(...mine.map((f) => f.block))) - BigInt(1);
     const save = async () => { if (!dryRun) await s.set(key, JSON.stringify({ cursor: cur.toString(), outs: outs.slice(-TRANSFER_KEEP) })); };
     let chunk = CHUNK;
@@ -278,12 +286,14 @@ async function transfersOut(w: string, coins: string[], fills: readonly Fill[], 
       let logs: Log[];
       try { logs = await (pc.getLogs as unknown as (a: unknown) => Promise<Log[]>)({ address: coin, event: TRANSFER, args: { from: w }, fromBlock: from, toBlock: to }); }
       catch (e) { if (chunk > BigInt(200)) { chunk = chunk / BigInt(4); continue; } throw e; }
+      const found: TransferOut[] = [];
       for (const l of logs) {
-        if (trades.has(String(l.transactionHash).toLowerCase())) continue;   // a sell's own token leg
         const a = (decodeEventLog({ abi: [TRANSFER], data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as unknown as { args: { value: bigint } }).args;
         if (a.value === BigInt(0)) continue;
-        outs.push({ coin, tx: String(l.transactionHash), block: Number(l.blockNumber), logIndex: Number(l.logIndex), ts: await tsOf(l.blockNumber ?? BigInt(0)), tokens: Number(a.value) / 1e18 });
+        const tx = String(l.transactionHash);
+        found.push({ coin, tx, block: Number(l.blockNumber), logIndex: Number(l.logIndex), ts: await tsOf(l.blockNumber ?? BigInt(0)), tokens: Number(a.value) / 1e18, checked: trades.has(tx.toLowerCase()) || undefined });
       }
+      outs.push(...nonTradeOuts(found, sells));   // a sell's own token leg is not a transfer away; anything else in that tx is
       cur = to;
       outs = outs.slice(-TRANSFER_KEEP);
       await save();
