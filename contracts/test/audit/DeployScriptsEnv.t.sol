@@ -79,6 +79,7 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         assertTrue(FeeRouter(o.feeRouter).isClaimRouter(o.creatorFeeHarvest));
         assertTrue(Launchpad(o.launchpad).isTrustedRouter(o.creatorFeeHarvest));
         assertEq(AnonLauncher(o.anonLauncher).creatorFeeHarvest(), o.creatorFeeHarvest);
+        assertEq(address(CreatorFeeHarvest(o.creatorFeeHarvest).anon()), o.anonLauncher);
         assertEq(address(CreatorFeeHarvest(o.creatorFeeHarvest).launchpad()), o.launchpad);
         assertEq(address(CreatorFeeHarvest(o.creatorFeeHarvest).lockedLP()), o.lockedLP);
         assertEq(address(CreatorFeeHarvest(o.creatorFeeHarvest).feeVault()), CurveDeployer(o.curveDeployer).feeVault());
