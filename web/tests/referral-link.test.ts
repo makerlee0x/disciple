@@ -2,19 +2,31 @@
  * Referral link path (funnel-and-referral-attribution plan, "Link check"). Checks the EXISTING first-touch code only
  * (lib/referral.ts + app/r/[username]/route.ts); nothing here changes login or trade. Same rules as Rewardful/Impact-
  * style affiliate tracking: first touch wins for 30 days, a later link does not overwrite it, no self-referral.
- * On-chain parts (tryAttribute, the $10 lock, FeeRouter payee) are checked live against testnet, not here.
+ * A cookie is written only when a real wallet address is present. On-chain parts (tryAttribute, the $10 lock,
+ * FeeRouter payee) are checked live against testnet, not here.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("@/lib/server/usernames", () => ({
-  usernameOf: vi.fn(async (a: string) => (a === ALICE ? "alice" : null)),
-  walletOf: vi.fn(async (u: string) => (u === "alice" ? ALICE : u === "carol" ? CAROL : null)),
+  usernameOf: vi.fn(async (a: string) => {
+    if (a === ALICE) return "alice";
+    if (a === RAW_ONLY) throw new Error("store down");
+    return null;
+  }),
+  walletOf: vi.fn(async (u: string) => {
+    if (u === "alice") return ALICE;
+    if (u === "carol") return CAROL;
+    if (u === "nowallet") return null; // claimed-looking name, no wallet mapping
+    if (u === "store_down") throw new Error("store down");
+    return null; // unknown name
+  }),
 }));
 
 const ALICE = "0x00000000000000000000000000000000000a11ce";
 const BOB = "0x0000000000000000000000000000000000000b0b";
 const CAROL = "0x00000000000000000000000000000000000ca201";
+const RAW_ONLY = "0x00000000000000000000000000000000000aa111";
 const DAY = 24 * 3600 * 1000;
 
 import { REF_COOKIE, REF_LS, REF_TTL_MS, captureRefFromCookie, captureRefFromQuery, currentRef, parseRef, referrerWallet } from "@/lib/referral";
@@ -41,6 +53,7 @@ async function openRefLink(slug: string, existingCookie?: string): Promise<strin
   if (existingCookie) headers.cookie = `${REF_COOKIE}=${encodeURIComponent(existingCookie)}`;
   const res = await refLanding(new NextRequest(`https://disciple.vip/r/${slug}`, { headers }), { params: Promise.resolve({ username: slug }) });
   expect(res.status).toBe(307);
+  expect(res.headers.get("location")).toMatch(/\/$/);
   return res.cookies.get(REF_COOKIE)?.value ?? null;
 }
 const browserGets = (v: string) => { cookie = `${REF_COOKIE}=${encodeURIComponent(v)}`; };
@@ -50,6 +63,7 @@ describe("link check (first touch, 30 days)", () => {
     const set = await openRefLink("alice");
     expect(set).toBeTruthy();
     expect(parseRef(set!)?.a).toBe(ALICE);
+    expect(parseRef(set!)?.u).toBe("alice");
     browserGets(set!);
     captureRefFromCookie(); // RefCapture in AppShell
     expect(parseRef(store[REF_LS])?.a).toBe(ALICE);
@@ -59,6 +73,23 @@ describe("link check (first touch, 30 days)", () => {
   it("a /r/<wallet> link works the same", async () => {
     const set = await openRefLink(ALICE);
     expect(parseRef(set!)).toMatchObject({ a: ALICE, u: "alice" });
+  });
+
+  it("a raw /r/0x wallet with no username still sets the cookie", async () => {
+    const set = await openRefLink(RAW_ONLY);
+    expect(parseRef(set!)).toMatchObject({ a: RAW_ONLY, u: null });
+  });
+
+  it("an unknown username redirects home and does not set a cookie", async () => {
+    expect(await openRefLink("zz_no_such_user_x")).toBeNull();
+  });
+
+  it("a username with no wallet redirects home and does not set a cookie", async () => {
+    expect(await openRefLink("nowallet")).toBeNull();
+  });
+
+  it("a store failure on a username lookup does not set a cookie", async () => {
+    expect(await openRefLink("store_down")).toBeNull();
   });
 
   it("a coin share link with ?ref=Alice stores Alice when no earlier link is stored", () => {
@@ -107,6 +138,12 @@ describe("link check (first touch, 30 days)", () => {
   it("server ignores an expired cookie (a new first touch is written)", async () => {
     const old = JSON.stringify({ u: "alice", a: ALICE, t: Date.now() - REF_TTL_MS - DAY });
     expect(parseRef((await openRefLink("carol", old))!)?.a).toBe(CAROL);
+  });
+
+  it("an unknown username does not replace an existing first-touch cookie", async () => {
+    const first = (await openRefLink("alice"))!;
+    expect(await openRefLink("zz_no_such_user_x", first)).toBeNull();
+    expect(parseRef(first)?.a).toBe(ALICE);
   });
 
   it("no link opened ⇒ no referrer (trade path sends nothing)", () => {

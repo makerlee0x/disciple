@@ -2,6 +2,7 @@
 
 import TouchGrass from "./flight/TouchGrass";
 import SettingsMenu from "./flight/SettingsMenu";
+import GameRadio from "./flight/GameRadio";
 import ExitConfirm from "./flight/ExitConfirm";
 import { useT } from "@/lib/game/i18n";
 import { exitConfirmArms } from "@/lib/game/exitGuard";
@@ -276,6 +277,7 @@ export default function FlightCanvas({ search }: Props) {
       <TouchGrass />
       {/* ESC settings menu (ESC or the Sidebar's Settings; no gear button since the Oct 30 cleanup): Share, Hotkeys, Sound, Language, Display
           (Touch Grass, Orbs) and the Controls reference all live there now, not in the pill row below. */}
+      <GameRadio />
       <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />
       {chatCoin && <GameChat coin={chatCoin} />}
       {/* phones (≤760px): v3 HUD — mcap pill, handle + PnL line, one swipe-up drawer (Feed/Holders/Chart/Crew/Chat/Position); desktop renders nothing */}

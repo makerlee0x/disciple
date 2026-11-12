@@ -7,8 +7,7 @@
  * focused text field.
  *
  * Sections: Share (ShareModal "share your trade" + rocket-card PNG), Hotkeys (key per buy preset / sell size, persisted in
- * lib/game/settings; amounts = Swap settings via TradeBridge), Sound (SFX / music on/off + volume, persisted; no audio
- * engine yet, see lib/game/audio.ts), Language (lib/game/i18n, drafts pending review), Display (Touch Grass, Orbs),
+ * lib/game/settings; amounts = Swap settings via TradeBridge), Sound (SFX / music on/off + volume, persisted; music is the house radio, see lib/game/radio.ts), Language (lib/game/i18n, drafts pending review), Display (Touch Grass, Orbs),
  * Controls (reference + live mode line). Look: the HUD's navy glass + gold hairline (PnlHud / trade bar).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
