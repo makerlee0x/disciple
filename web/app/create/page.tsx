@@ -6,8 +6,8 @@ import { CURVE, MODERATION, type ModerationVerdict } from "@/lib/config";
 import { contrastWarning } from "@/lib/decal";
 import { houseBadgeDataUri } from "@/lib/decalDefault";
 import { precheckWithin, preloadModeration } from "@/lib/moderation-client";
-import BrandedRocket from "@/components/BrandedRocket";
-import SquareCrop, { cropSquare } from "@/components/create/SquareCrop";
+import { cropSquare } from "@/components/create/SquareCrop";
+import CreatePadPreview from "@/components/create/CreatePadPreview";
 import FirstBoostField, { type FirstBoostState } from "@/components/create/FirstBoostField";
 import { exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap } from "@/lib/firstBoost";
 import LiftoffOverlay, { LIFTOFF_MS } from "@/components/create/LiftoffOverlay";
@@ -33,7 +33,8 @@ import {
 } from "@/lib/launchWhitelist";
 import {
   QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_COPY, buildLaunchSocials, launchButtonLabel,
-  launchNeedsSignIn, privateLaunchHelp, privateLaunchTitle, readStoredCreatorTax, storeCreatorTax, withHttps,
+  launchNeedsSignIn, normalizeTelegram, normalizeTwitter, normalizeWebsite, privateLaunchHelp, privateLaunchTitle,
+  readStoredCreatorTax, readStoredUpload, snapCreatorTax, storeCreatorTax, storeUpload,
 } from "@/lib/quickLaunch";
 import s from "@/components/create/quickLaunch.module.css";
 
@@ -43,7 +44,8 @@ const DIFF_BARS: Record<number, number> = { [MODE.EASY]: 1, [MODE.HARD]: 2, [MOD
 
 export default function LaunchRocketPage() {
   const router = useRouter();
-  const [screen, setScreen] = useState<"form" | "mode">("form");
+  const [modeOpen, setModeOpen] = useState(false);
+  const [howOpen, setHowOpen] = useState(false);
   const [name, setName] = useState("");
   const [callSign, setCallSign] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -62,6 +64,7 @@ export default function LaunchRocketPage() {
   const [telegram, setTelegram] = useState("");
   const [feeReceiver, setFeeReceiver] = useState("");
   const [croppedUri, setCroppedUri] = useState<string | null>(null);
+  const [uploadedUri, setUploadedUri] = useState<string | null>(null);
   const [badgeUri, setBadgeUri] = useState<string | null>(null);
   const [tax, setTax] = useState(0);
   const [privateLaunch, setPrivateLaunch] = useState(false);
@@ -97,11 +100,22 @@ export default function LaunchRocketPage() {
   };
 
   const blocked = mod.state === "block";
-  const usingUpload = !!file && !!iconSrc && !blocked;
-  const previewIcon = usingUpload ? croppedUri : badgeUri;
+  const usingUpload = !!uploadedUri && !blocked;
+  const previewIcon = usingUpload ? (croppedUri || uploadedUri) : badgeUri;
 
   useEffect(() => { preloadModeration(); }, []);
-  useEffect(() => { shuffleName(); setTax(readStoredCreatorTax(CURVE.creatorTaxMaxPct)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    shuffleName();
+    setTax(readStoredCreatorTax(CURVE.creatorTaxMaxPct));
+    const saved = readStoredUpload();
+    if (!saved) return;
+    setUploadedUri(saved);
+    setCroppedUri(saved);
+    setMod({ state: "allow", uri: saved });
+    const img = new Image();
+    img.src = saved;
+    img.decode().then(() => setIconSrc(img)).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setBadgeUri(houseBadgeDataUri(callSign) ?? houseBadgeDataUri("ROCKET"));
@@ -120,8 +134,15 @@ export default function LaunchRocketPage() {
   }, [iconSrc, crop]);
 
   function clearUpload() {
-    setFile(null); setIconSrc(null); setContrast(null); setCroppedUri(null); setMod({ state: "idle" });
+    setFile(null); setIconSrc(null); setContrast(null); setCroppedUri(null); setUploadedUri(null); setMod({ state: "idle" });
+    storeUpload(null);
     if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function setTaxStepped(v: number) {
+    const n = snapCreatorTax(v, CURVE.creatorTaxMaxPct);
+    setTax(n);
+    storeCreatorTax(n);
   }
 
   async function onPickFile(f: File | null) {
@@ -142,11 +163,14 @@ export default function LaunchRocketPage() {
     try { pre = await precheckWithin(img, 3000); } catch { pre = null; }
     const ms = Math.round(performance.now() - t0);
     if (pre && pre !== "timeout" && pre.verdict === "block") {
-      setIconSrc(null); setContrast(null); setFile(null);
+      setIconSrc(null); setContrast(null); setFile(null); setCroppedUri(null); setUploadedUri(null); storeUpload(null);
       return setMod({ state: "block", note: C.imageReverted });
     }
     const uri = cropSquare(img, { x: 0.5, y: 0.5 });
     const pending = !pre || pre === "timeout" || pre.verdict === "review";
+    setCroppedUri(uri);
+    setUploadedUri(uri);
+    storeUpload(uri);
     setMod({ state: "allow", uri, note: pending ? `pending server review (${ms} ms)` : `approved in ${ms} ms` });
     if (!IS_STATIC_PREVIEW) {
       const fd = new FormData(); fd.append("file", f);
@@ -154,7 +178,7 @@ export default function LaunchRocketPage() {
         .then((r) => r.json())
         .then((r) => {
           if (r?.verdict === "block") {
-            setIconSrc(null); setContrast(null); setFile(null);
+            setIconSrc(null); setContrast(null); setFile(null); setCroppedUri(null); setUploadedUri(null); storeUpload(null);
             setMod({ state: "block", note: C.imageReverted });
           }
         })
@@ -218,7 +242,7 @@ export default function LaunchRocketPage() {
       setMsg("Fee receiver must be a 0x wallet address (or leave it empty to use your own).");
       return;
     }
-    const web = withHttps(website);
+    const web = normalizeWebsite(website) ?? "";
     if (web !== website.trim()) setWebsite(web);
     if (web && !/^https?:\/\/\S+\.\S+/.test(web)) {
       setMsg("Enter a website like mysite.com");
@@ -281,143 +305,163 @@ export default function LaunchRocketPage() {
   }
 
   const modeLabel = MODE_LABEL[gameMode] ?? "Easy";
+  const defaultPairLabel = defaultPair.symbol;
+  const advDirty = (
+    quote.label !== defaultPairLabel
+    || !!twitter.trim()
+    || !!website.trim()
+    || !!telegram.trim()
+    || tax > 0
+    || (!privateLaunch && !!feeReceiver.trim())
+  );
 
   return (
     <div className={`page-shell ${s.ql}`}>
       <form className={s.wrap} onSubmit={onSubmit}>
-        {screen === "mode" ? (
-          <>
-            <div className={s.title}>
-              <button type="button" className={s.back} aria-label="Back" onClick={() => setScreen("form")}>
-                <Icon name="chevron-left" size={20} />
+        <div className={s.title}><h1>{C.title}</h1></div>
+        <div className={s.grid}>
+          <div className={s.form}>
+            <div className={s.fl}>
+              <div className={s.lab}>{C.name}</div>
+              <div className={s.row}>
+                <input className={s.inp} value={name} onChange={(e) => setName(e.target.value)} maxLength={32} aria-label="Name" />
+                <button type="button" className={s.dice} title="Shuffle name" aria-label="Shuffle name" onClick={shuffleName}><Icon name="shuffle" size={16} /></button>
+              </div>
+            </div>
+            <div className={s.fl}>
+              <div className={s.lab}>{C.ticker}</div>
+              <div className={s.row}>
+                <div className={s.inp} style={{ paddingRight: 8 }}>
+                  <span className={s.pre}>$</span>
+                  <input style={{ flex: 1, minWidth: 0, border: 0, background: "transparent", color: "inherit", font: "inherit", outline: "none", height: "100%" }}
+                    value={callSign} onChange={(e) => setCallSign(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase())} placeholder="TICKER" maxLength={10} aria-label="Ticker" />
+                </div>
+                <button type="button" className={s.dice} disabled={!tickerVariants(name).length}
+                  title={`Shuffle a call sign from the name (${tickerVariants(name).map((t) => "$" + t).join(" · ") || "type a name first"})`}
+                  aria-label="Shuffle ticker" onClick={() => setCallSign(nextTicker(name, callSign))}><Icon name="shuffle" size={16} /></button>
+              </div>
+            </div>
+            {nameLockMsg && <p role="status" data-testid="name-lock-taken" className={`${s.msg} ${s.msgBad}`}>{nameLockMsg}</p>}
+            <div className={s.fl}>
+              <div className={s.lab}>{C.icon}</div>
+              <div className={s.iconRow}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {previewIcon && <img src={previewIcon} alt="" width={64} height={64} />}
+                <div className={s.iconActions}>
+                  <button type="button" className={s.upload} onClick={() => fileRef.current?.click()}>{usingUpload ? C.changeImage : C.uploadImage}</button>
+                  {usingUpload && <button type="button" className={s.link} onClick={clearUpload}>{C.useGenerated}</button>}
+                </div>
+                <input ref={fileRef} className={s.file} type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="upload rocket icon" onChange={(e) => onPickFile(e.target.files?.[0] || null)} />
+              </div>
+              {mod.state === "checking" && <p className={s.msg}>Checking image…</p>}
+              {mod.state === "allow" && usingUpload && <p className={`${s.msg} ${s.msgOk}`}><Icon name="check" size={12} /> Image saved</p>}
+              {blocked && <p role="alert" className={`${s.msg} ${s.msgBad}`}>{mod.note || C.imageReverted}</p>}
+              {contrast && <p className={`${s.msg} ${s.msgBad}`}><Icon name="warning" size={12} /> {contrast}</p>}
+            </div>
+
+            <FirstBoostField
+              variant="chips"
+              pair={quote.address} pairLabel={quote.label} creatorTaxBps={Math.round(tax * 100)}
+              ticker={callSign.trim().toUpperCase()} value={boost} onChange={setBoost} onState={setBoostState}
+              mode={LAUNCH_ABI_SHAPE === "modes" && !privateLaunch ? gameMode : LaunchMode.TRENCH_WARFARE} privateLaunch={privateLaunch}
+            />
+
+            <div className={s.anon}>
+              <button type="button" className={`${s.sw} ${privateLaunch ? s.on : ""}`} role="switch" aria-checked={privateLaunch}
+                data-testid="private-launch" onClick={() => setPrivateLaunch((v) => !v)}>
+                <i />
               </button>
-              <h1>{C.pickMode}</h1>
-            </div>
-            <div className={s.modes}>
-              {MODE_ORDER.map((id) => {
-                const label = MODE_LABEL[id];
-                const on = gameMode === id;
-                const filled = DIFF_BARS[id] ?? 1;
-                const copy = label === "Easy" ? QUICK_LAUNCH_MODE_COPY.Easy : label === "Hard" ? QUICK_LAUNCH_MODE_COPY.Hard : QUICK_LAUNCH_MODE_COPY.Trench;
-                return (
-                  <button type="button" key={id} className={`${s.mcard} ${on ? s.on : ""}`} onClick={() => { setGameMode(id); setScreen("form"); }}>
-                    <div className={s.hd}>
-                      <span className={s.check}>{on && <Icon name="check" size={12} />}</span>
-                      <h2>{label}</h2>
-                    </div>
-                    <div className={s.diff}>
-                      <span className={s.bars} aria-hidden>{[1, 2, 3].map((n) => <i key={n} className={n <= filled ? s.on : ""} />)}</span>
-                      <span className={s.diffLbl}>Difficulty: {label}</span>
-                    </div>
-                    <p>{copy}</p>
-                  </button>
-                );
-              })}
-            </div>
-            <div className={s.modesFoot}><div className={s.perm}>{QUICK_LAUNCH_MODE_COPY.footer}</div></div>
-          </>
-        ) : (
-          <>
-            <div className={s.title}><h1>{C.title}</h1></div>
-            <div className={s.grid}>
-              <div className={s.form}>
-                <div className={s.fl}>
-                  <div className={s.lab}>{C.name}</div>
-                  <div className={s.row}>
-                    <input className={s.inp} value={name} onChange={(e) => setName(e.target.value)} maxLength={32} aria-label="Name" />
-                    <button type="button" className={s.dice} title="Shuffle name" aria-label="Shuffle name" onClick={shuffleName}><Icon name="shuffle" size={16} /></button>
-                  </div>
-                </div>
-                <div className={s.fl}>
-                  <div className={s.lab}>{C.ticker}</div>
-                  <div className={s.row}>
-                    <div className={s.inp} style={{ paddingRight: 8 }}>
-                      <span className={s.pre}>$</span>
-                      <input style={{ flex: 1, minWidth: 0, border: 0, background: "transparent", color: "inherit", font: "inherit", outline: "none", height: "100%" }}
-                        value={callSign} onChange={(e) => setCallSign(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase())} placeholder="TICKER" maxLength={10} aria-label="Ticker" />
-                    </div>
-                    <button type="button" className={s.dice} disabled={!tickerVariants(name).length}
-                      title={`Shuffle a call sign from the name (${tickerVariants(name).map((t) => "$" + t).join(" · ") || "type a name first"})`}
-                      aria-label="Shuffle ticker" onClick={() => setCallSign(nextTicker(name, callSign))}><Icon name="shuffle" size={16} /></button>
-                  </div>
-                </div>
-                {nameLockMsg && <p role="status" data-testid="name-lock-taken" className={`${s.msg} ${s.msgBad}`}>{nameLockMsg}</p>}
-                <div className={s.fl}>
-                  <div className={s.lab}>{C.icon}</div>
-                  <div className={s.iconRow}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {previewIcon && <img src={previewIcon} alt="" width={64} height={64} />}
-                    <button type="button" className={s.link} onClick={() => fileRef.current?.click()}>{C.useOwnImage}</button>
-                    <input ref={fileRef} className={s.file} type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="upload rocket icon" onChange={(e) => onPickFile(e.target.files?.[0] || null)} />
-                  </div>
-                  {usingUpload && !blocked && (
-                    <div className="crop-row">
-                      <SquareCrop img={iconSrc!} pos={crop} onChange={setCrop} />
-                      <span className="muted tiny">Images are always cropped square. Drag to choose what shows on your hull.</span>
-                    </div>
-                  )}
-                  {usingUpload && (
-                    <button type="button" className={s.link} onClick={clearUpload}>Use the badge we made</button>
-                  )}
-                  {mod.state === "checking" && <p className={s.msg}>Checking image…</p>}
-                  {mod.state === "allow" && file && <p className={`${s.msg} ${s.msgOk}`}><Icon name="check" size={12} /> Image approved{mod.note ? ` · ${mod.note}` : ""}</p>}
-                  {blocked && <p role="alert" className={`${s.msg} ${s.msgBad}`}>{mod.note || C.imageReverted}</p>}
-                  {contrast && <p className={`${s.msg} ${s.msgBad}`}><Icon name="warning" size={12} /> {contrast}</p>}
-                </div>
-
-                <FirstBoostField
-                  variant="chips"
-                  pair={quote.address} pairLabel={quote.label} creatorTaxBps={Math.round(tax * 100)}
-                  ticker={callSign.trim().toUpperCase()} value={boost} onChange={setBoost} onState={setBoostState}
-                  mode={LAUNCH_ABI_SHAPE === "modes" && !privateLaunch ? gameMode : LaunchMode.TRENCH_WARFARE} privateLaunch={privateLaunch}
-                />
-
-                <div className={s.foot}>
-                  <button
-                    type="submit"
-                    data-testid={needsSignIn ? "create-sign-in" : "create-launch"}
-                    className={s.launch}
-                  >
-                    {launchButtonLabel(boost)}
-                  </button>
-                  <button type="button" className={s.modeLink} onClick={() => setScreen("mode")}>
-                    Mode: <b>{modeLabel}</b> · change
-                  </button>
-                  <div className={s.anon}>
-                    <button type="button" className={`${s.sw} ${privateLaunch ? s.on : ""}`} role="switch" aria-checked={privateLaunch}
-                      data-testid="private-launch" onClick={() => setPrivateLaunch((v) => !v)}>
-                      <i />
-                    </button>
-                    <div className={s.copy}>
-                      <div className={s.name}>{privateLaunchTitle(boost, gameMode)} <span className={s.beta}>{C.beta}</span></div>
-                      <div className={s.help}>{privateLaunchHelp(boost, gameMode)}</div>
-                    </div>
-                  </div>
-                  <button type="button" className={s.advLink} onClick={() => setAdvanced(true)}>{C.advanced}</button>
-                </div>
-                {status && <p role="status" className={`${s.msg} ${status.ok ? s.msgOk : s.msgBad}`}>{status.text}</p>}
-              </div>
-
-              <div className={s.stage}>
-                <div className="staging" aria-label="Rocket on the staging block">
-                  <div className="staging-sky" />
-                  <div className="staging-tower"><span /><span /><span /><span /></div>
-                  <div className="staging-rocket"><BrandedRocket height={240} icon={previewIcon} /></div>
-                  <div className="staging-block"><span>{callSign ? `$${callSign}` : "$TICKER"}</span></div>
-                  <div className="staging-label">{C.ready(name)}</div>
-                </div>
+              <div className={s.copy}>
+                <div className={s.name}>{privateLaunchTitle(boost, gameMode)} <span className={s.beta}>{C.beta}</span></div>
+                <div className={s.help}>{privateLaunchHelp(boost, gameMode)}</div>
               </div>
             </div>
-          </>
-        )}
+
+            <button type="button" className={s.modeBtn} data-testid="mode-open" onClick={() => setModeOpen(true)}>
+              <span className={s.k}>{C.mode}</span>
+              <b>{modeLabel}</b>
+              <span className={s.modeChange}>{C.modeChange}</span>
+            </button>
+
+            <div className={s.foot}>
+              <button
+                type="submit"
+                data-testid={needsSignIn ? "create-sign-in" : "create-launch"}
+                className={s.launch}
+              >
+                {launchButtonLabel(boost)}
+              </button>
+              <div className={s.hiwTip}>
+                <button type="button" className={s.advLink} data-testid="how-launching" aria-expanded={howOpen} onClick={() => setHowOpen((v) => !v)}>
+                  {C.howLaunching}
+                </button>
+                {howOpen && (
+                  <div className={s.tip} data-testid="how-launching-steps">
+                    <ol className={s.hiwList}>
+                      {C.howLaunchingSteps.map((line, i) => (
+                        <li key={i}><b>{i + 1}.</b> <span>{line}</span></li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+              </div>
+              <button type="button" className={s.advLink} data-testid="advanced-open" onClick={() => setAdvanced(true)}>{C.advanced}</button>
+              {advDirty && (
+                <div className={s.summary} data-testid="advanced-summary">
+                  <span className={s.sumChip}>Pair: {quote.label}</span>
+                  {tax > 0 && <span className={s.sumChip}>Creator tax: {tax}%</span>}
+                  {twitter.trim() && <span className={s.sumChip}>{twitter.trim()}</span>}
+                  {website.trim() && <span className={s.sumChip}>{website.trim()}</span>}
+                  {telegram.trim() && <span className={s.sumChip}>{telegram.trim()}</span>}
+                  {!privateLaunch && feeReceiver.trim() && <span className={s.sumChip}>Rewards: {feeReceiver.trim()}</span>}
+                </div>
+              )}
+            </div>
+            {status && <p role="status" className={`${s.msg} ${status.ok ? s.msgOk : s.msgBad}`}>{status.text}</p>}
+          </div>
+
+          <CreatePadPreview name={name} ticker={callSign} icon={previewIcon} />
+        </div>
       </form>
+
+      {modeOpen && (
+        <>
+          <div className={s.scrim} onClick={() => setModeOpen(false)} />
+          <div className={s.modal} role="dialog" aria-label={C.pickMode} data-testid="mode-modal">
+            <div className={s.modalPanel}>
+              <div className={s.drawerHd}>
+                <h2>{C.pickMode}</h2>
+                <button type="button" className={s.iconBtn} aria-label="Close" onClick={() => setModeOpen(false)}><Icon name="close" size={16} /></button>
+              </div>
+              <div className={s.modes}>
+                {MODE_ORDER.map((id) => {
+                  const label = MODE_LABEL[id];
+                  const on = gameMode === id;
+                  const filled = DIFF_BARS[id] ?? 1;
+                  const copy = label === "Easy" ? QUICK_LAUNCH_MODE_COPY.Easy : label === "Hard" ? QUICK_LAUNCH_MODE_COPY.Hard : QUICK_LAUNCH_MODE_COPY.Trench;
+                  return (
+                    <button type="button" key={id} className={`${s.mcard} ${on ? s.on : ""}`} onClick={() => { setGameMode(id); setModeOpen(false); }}>
+                      <div className={s.hd}>
+                        <span className={s.check}>{on && <Icon name="check" size={12} />}</span>
+                        <h2>{label}</h2>
+                        <span className={s.bars} aria-hidden>{[1, 2, 3].map((n) => <i key={n} className={n <= filled ? s.on : ""} />)}</span>
+                      </div>
+                      <p>{copy}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className={s.modesFoot}><div className={s.perm}>{QUICK_LAUNCH_MODE_COPY.footer}</div></div>
+            </div>
+          </div>
+        </>
+      )}
 
       {advanced && (
         <>
           <div className={s.scrim} onClick={() => setAdvanced(false)} />
-          <div className={s.drawer} role="dialog" aria-label={C.advanced}>
-            <div className={s.drawerPanel}>
-              <div className={s.grab} />
+          <div className={s.modal} role="dialog" aria-label={C.advanced} data-testid="advanced-modal">
+            <div className={`${s.modalPanel} ${s.wide}`}>
               <div className={s.drawerHd}>
                 <h2>{C.advanced}</h2>
                 <button type="button" className={s.iconBtn} aria-label="Close" onClick={() => setAdvanced(false)}><Icon name="close" size={16} /></button>
@@ -444,11 +488,13 @@ export default function LaunchRocketPage() {
                 <div className={s.lab}>{C.links}</div>
                 <div className={s.lchips}>
                   <LinkChip kind="twitter" label={C.linkX} short={C.linkXShort} value={twitter} editing={editingLink} setEditing={setEditingLink} onChange={setTwitter}
+                    onBlur={() => setTwitter((v) => normalizeTwitter(v) ?? "")}
                     glyph={<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden><path d="M13.8 11.2L21 3h-2.4l-5.5 6.3L8.4 3H3l7.5 10.1L3 21h2.4l6-6.8L15.6 21H21L13.8 11.2zM6 4.5h1.7L18 19.5h-1.7L6 4.5z"/></svg>} />
                   <LinkChip kind="website" label={C.linkWebsite} short={C.linkWebsite} value={website} editing={editingLink} setEditing={setEditingLink}
-                    onChange={setWebsite} onBlur={() => setWebsite((w) => withHttps(w))}
+                    onChange={setWebsite} onBlur={() => setWebsite((w) => normalizeWebsite(w) ?? "")}
                     glyph={<Icon name="external-link" size={14} />} />
                   <LinkChip kind="telegram" label={C.linkTelegram} short={C.linkTelegram} value={telegram} editing={editingLink} setEditing={setEditingLink} onChange={setTelegram}
+                    onBlur={() => setTelegram((v) => normalizeTelegram(v) ?? "")}
                     glyph={<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden><path d="M20.8 4.2L2.9 11.1c-1.2.5-1.2 1.1-.2 1.4l4.6 1.4 10.7-6.7c.5-.3.9 0 .6.3l-8.6 7.8-.3 4.7c.5 0 .7-.2 1-.5l2.3-2.2 4.7 3.5c.9.5 1.5.2 1.7-.8l3.1-14.6c.3-1.3-.5-1.9-1.4-1.5z"/></svg>} />
                 </div>
               </div>
@@ -464,14 +510,15 @@ export default function LaunchRocketPage() {
               <div className={s.fl}>
                 <div className={s.lab}>{C.creatorTax}</div>
                 <div className={s.tax}>
-                  <span className={s.taxVal}>{tax}%</span>
-                  <input className={s.track} type="range" min={0} max={CURVE.creatorTaxMaxPct} step={0.1} value={tax}
+                  <button type="button" className={s.taxStep} aria-label="Lower creator tax" disabled={tax <= 0} onClick={() => setTaxStepped(tax - 0.5)}>−</button>
+                  <span className={s.taxVal} data-testid="creator-tax-value">{tax}%</span>
+                  <button type="button" className={s.taxStep} aria-label="Raise creator tax" disabled={tax >= CURVE.creatorTaxMaxPct} onClick={() => setTaxStepped(tax + 0.5)}>+</button>
+                  <input className={s.track} type="range" min={0} max={CURVE.creatorTaxMaxPct} step={0.5} value={tax}
                     aria-label={C.creatorTax}
-                    onChange={(e) => { const v = Number(e.target.value); setTax(v); storeCreatorTax(v); }} />
+                    onChange={(e) => setTaxStepped(Number(e.target.value))} />
                 </div>
                 <div className={s.help}>{C.creatorTaxHelp}</div>
               </div>
-              <a className={s.docLink} href="/how-it-works">{C.howLaunching} <Icon name="chevron-right" size={14} /></a>
             </div>
           </div>
         </>
@@ -501,7 +548,7 @@ function LinkChip({ kind, label, short, value, editing, setEditing, onChange, on
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }} />
       ) : filled ? (
-        <span>{value.replace(/^https?:\/\//, "").replace(/^@/, "@")}</span>
+        <span data-testid={`link-value-${kind}`}>{value}</span>
       ) : (
         <>
           <span className={s.full}>{label}</span>

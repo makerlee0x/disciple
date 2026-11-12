@@ -13,19 +13,22 @@ import { readCreatorBuyMaxBps, readCreatorBuyQuote } from "./protocol-viem";
 import { LAUNCH_ABI_SHAPE, LAUNCH_MODE_NAME, LaunchMode, effectiveCreatorBuyCapBps, type LaunchAbiShape } from "./launchAbi";
 
 /** The approved draft says "0.77%"; `pct` is rendered from the live creatorBuyMaxBps so the copy can't drift. */
+/** The First BOOST info bubble starts closed and is not persisted. */
+export const FIRST_BOOST_TIP_STARTS_OPEN = false;
+
 export const FIRST_BOOST_COPY = {
   label: "First BOOST (optional)",
   helper: (pct: string) => `BOOST your own rocket in the launch, before anyone else. Enter a $ amount, up to ${pct} of supply. Paid from your cash.`,
   max: (usd: string, tokens: string, pct: string) => `Max ${usd} (${tokens} tokens, ${pct} of supply)`,
   pays: (amount: string, symbol: string) => `≈ ${amount} ${symbol} at the live pair price`,
   estimate: (tokens: string, ticker: string, pct: string) => `≈ ${tokens} $${ticker} (${pct} of supply)`,
-  modeCap: (mode: string, pct: string) => `${mode} launch: your First BOOST can be up to ${pct} of the coins.`,
-  easyLock: "On Easy, your First BOOST stays locked until the rocket ASCENDS. Coins you buy later are free to sell.",
-  pveLogin: "Easy needs a verified email, Google or X login to BOOST. Yours is verified, so you're good to go.",
-  pveLoginUnverified: "Easy needs a verified email, Google or X login to BOOST, and yours isn't verified yet. Sign in with one, or set First BOOST to 0.",
+  modeCap: (mode: string, pct: string) => `On ${mode}, your first buy can be up to ${pct} of the coins.`,
+  easyLock: "On Easy, that first buy stays locked until the rocket moves to the open market. Later buys you can sell anytime.",
+  pveLogin: "On Easy, sign in with email, Google, or X before you launch with a first buy.",
+  pveLoginUnverified: "On Easy, sign in with email, Google, or X before you launch with a first buy.",
   // #99: /api/pve/attest verifies the Privy login; your owner-signed batch submits the global LoginGate.attest.
-  pveLoginAttest: "Easy needs a verified email, Google or X login to BOOST. We'll check yours when you launch.",
-  pveLoginUnknown: "Easy needs a verified email, Google or X login to BOOST. Sign in to check yours before your First BOOST.",
+  pveLoginAttest: "On Easy, sign in with email, Google, or X before you launch with a first buy.",
+  pveLoginUnknown: "On Easy, sign in with email, Google, or X before you launch with a first buy.",
   overCap: (pct: string, maxUsd: string) => `Over the First BOOST cap: you can buy at most ${pct} of supply. Lower it to ${maxUsd} or less.`,
   balance: (haveUsd: string, symbol: string) => `Not enough ${symbol} for that First BOOST: you have ${haveUsd}.`, // legacy path only (no USDG router)
   // USDG-funded First BOOST (DiscipleRouter.launchWithUsdg): dollars only, the pair coin is never asked for.

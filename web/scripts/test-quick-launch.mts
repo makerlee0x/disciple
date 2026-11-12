@@ -11,10 +11,12 @@ import {
 import { exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap, parseAmount } from "../lib/firstBoost";
 import { WHITELIST_QUOTES, whitelistQuoteBySymbol } from "../lib/whitelistQuotes";
 import {
-  buildLaunchSocials, boostHasAmount, launchButtonLabel, launchNeedsSignIn, maxBoostChipLabel,
-  isPseudoLaunch, privateLaunchHelp, privateLaunchTitle, readStoredCreatorTax, socialsURI, storeCreatorTax, withHttps,
-  QUICK_LAUNCH_COPY, CREATOR_TAX_STORE_KEY,
+  buildLaunchSocials, boostHasAmount, creatorTaxSteps, launchButtonLabel, launchNeedsSignIn, maxBoostChipLabel,
+  isPseudoLaunch, normalizeTelegram, normalizeTwitter, normalizeWebsite, privateLaunchHelp, privateLaunchTitle,
+  readStoredCreatorTax, readStoredUpload, snapCreatorTax, socialsURI, storeCreatorTax, storeUpload, withHttps,
+  QUICK_LAUNCH_COPY, QUICK_LAUNCH_MODE_COPY, CREATOR_TAX_STORE_KEY, UPLOAD_STORE_KEY,
 } from "../lib/quickLaunch";
+import { FIRST_BOOST_COPY, FIRST_BOOST_TIP_STARTS_OPEN } from "../lib/firstBoost";
 import { badgeLetters } from "../lib/decalDefault";
 import { MODE } from "../lib/modeRules";
 
@@ -87,7 +89,7 @@ test("Anon vs Pseudo follows mode and First BOOST amount", () => {
   assert.equal(boostHasAmount("0"), false);
   assert.equal(boostHasAmount("5"), true);
   assert.equal(privateLaunchHelp("0", MODE.EASY), QUICK_LAUNCH_COPY.anonHelp);
-  assert.equal(privateLaunchHelp("5", MODE.EASY), QUICK_LAUNCH_COPY.anonEasyBoostHelp);
+  assert.equal(privateLaunchHelp("5", MODE.EASY), QUICK_LAUNCH_COPY.anonHelp);
   assert.equal(privateLaunchHelp("5", MODE.HARD), QUICK_LAUNCH_COPY.pseudoHelp);
   assert.equal(privateLaunchHelp("5", MODE.TRENCH), QUICK_LAUNCH_COPY.pseudoHelp);
   assert.equal(QUICK_LAUNCH_COPY.signInLine, "Sign in with email, Google, X or wallet");
@@ -107,12 +109,12 @@ test("socialsURI includes Telegram next to twitter and website, same JSON packin
   assert.equal(socialsURI(undefined), "");
   assert.equal(buildLaunchSocials({}), undefined);
   const all = buildLaunchSocials({ twitter: "@velvetlion", telegram: "@velvetlion", website: "velvetlion.xyz" });
-  assert.deepEqual(all, { twitter: "velvetlion", telegram: "velvetlion", website: "https://velvetlion.xyz" });
-  assert.equal(socialsURI(all), JSON.stringify({ twitter: "velvetlion", telegram: "velvetlion", website: "https://velvetlion.xyz" }));
+  assert.deepEqual(all, { twitter: "https://x.com/velvetlion", telegram: "https://t.me/velvetlion", website: "https://velvetlion.xyz" });
+  assert.equal(socialsURI(all), JSON.stringify({ twitter: "https://x.com/velvetlion", telegram: "https://t.me/velvetlion", website: "https://velvetlion.xyz" }));
   const onlyTg = buildLaunchSocials({ telegram: "https://t.me/velvetlion" });
   assert.deepEqual(onlyTg, { telegram: "https://t.me/velvetlion" });
   const onlyX = buildLaunchSocials({ twitter: "maker" });
-  assert.deepEqual(onlyX, { twitter: "maker" });
+  assert.deepEqual(onlyX, { twitter: "https://x.com/maker" });
   assert.ok(!("telegram" in (onlyX ?? {})));
   assert.equal(withHttps("mysite.com"), "https://mysite.com");
   assert.equal(withHttps("https://mysite.com"), "https://mysite.com");
@@ -138,4 +140,77 @@ test("generated badge letters come from the ticker; creator tax is remembered", 
   assert.equal(readStoredCreatorTax(7, storage), 1.5);
   storeCreatorTax(99, storage);
   assert.equal(readStoredCreatorTax(7, storage), 7);
+});
+
+test("X, Telegram, and website fields turn handles into full https URLs", () => {
+  assert.equal(normalizeTwitter("@0xmakerlee"), "https://x.com/0xmakerlee");
+  assert.equal(normalizeTwitter("0xmakerlee"), "https://x.com/0xmakerlee");
+  assert.equal(normalizeTwitter("https://x.com/0xmakerlee"), "https://x.com/0xmakerlee");
+  assert.equal(normalizeTwitter("https://twitter.com/0xmakerlee"), "https://x.com/0xmakerlee");
+  assert.equal(normalizeTwitter(""), undefined);
+  assert.equal(normalizeTelegram("@disciple"), "https://t.me/disciple");
+  assert.equal(normalizeTelegram("disciple"), "https://t.me/disciple");
+  assert.equal(normalizeTelegram("https://t.me/disciple"), "https://t.me/disciple");
+  assert.equal(normalizeWebsite("strategy.xyz"), "https://strategy.xyz");
+  assert.equal(normalizeWebsite("https://strategy.xyz"), "https://strategy.xyz");
+  assert.equal(withHttps("mysite.com"), "https://mysite.com");
+});
+
+test("First BOOST and Anon/Pseudo copy is short, and the info bubble starts closed", () => {
+  assert.equal(FIRST_BOOST_TIP_STARTS_OPEN, false);
+  assert.equal(FIRST_BOOST_COPY.modeCap("Easy", "1.2%"), "On Easy, your first buy can be up to 1.2% of the coins.");
+  assert.equal(FIRST_BOOST_COPY.easyLock, "On Easy, that first buy stays locked until the rocket moves to the open market. Later buys you can sell anytime.");
+  assert.equal(FIRST_BOOST_COPY.pveLoginUnknown, "On Easy, sign in with email, Google, or X before you launch with a first buy.");
+  assert.doesNotMatch(FIRST_BOOST_COPY.easyLock, /ASCENDS/i);
+  assert.equal(QUICK_LAUNCH_COPY.anonHelp, "Your name won't be shown as the creator. The account that pays can still be seen on the public record.");
+  assert.equal(QUICK_LAUNCH_COPY.pseudoHelp, "Your name won't be shown as the creator. The account that pays, and the first buy, can still be seen on the public record.");
+  assert.equal(QUICK_LAUNCH_COPY.uploadImage, "Upload image");
+});
+
+test("mode cards and How launching works use the short in-page copy", () => {
+  assert.equal(QUICK_LAUNCH_MODE_COPY.Easy, "At first, one person can hold up to 1% of the coins. That cap rises to 3.33% as the price goes up.");
+  assert.equal(QUICK_LAUNCH_MODE_COPY.Hard, "At first, one person can hold up to 3.33% of the coins. That cap rises to 7.77% as the price goes up.");
+  assert.equal(QUICK_LAUNCH_MODE_COPY.Trench, "There is no cap on how many coins one person can hold.");
+  assert.equal(QUICK_LAUNCH_MODE_COPY.footer, "You choose this when you launch, and you can't change it later. The caps end when the rocket moves to the open market.");
+  assert.deepEqual([...QUICK_LAUNCH_COPY.howLaunchingSteps], [
+    "Give your rocket a name, a ticker, and a picture.",
+    "Choose how tightly one person can hold the coins, and whether to buy some at launch.",
+    "When you launch, your rocket goes live and people can start trading it.",
+  ]);
+  assert.equal(QUICK_LAUNCH_COPY.howLaunchingSteps.length, 3);
+});
+
+test("creator tax snaps to whole numbers or halves, default 0, and is remembered", () => {
+  assert.deepEqual(creatorTaxSteps(7), [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7]);
+  assert.equal(snapCreatorTax(0, 7), 0);
+  assert.equal(snapCreatorTax(0.24, 7), 0);
+  assert.equal(snapCreatorTax(0.25, 7), 0.5);
+  assert.equal(snapCreatorTax(1.2, 7), 1);
+  assert.equal(snapCreatorTax(1.25, 7), 1.5);
+  assert.equal(snapCreatorTax(7.4, 7), 7);
+  assert.equal(snapCreatorTax(-1, 7), 0);
+  const mem = new Map<string, string>();
+  const storage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => { mem.set(k, v); } };
+  storeCreatorTax(1.25, storage);
+  assert.equal(readStoredCreatorTax(7, storage), 1.5);
+  storeCreatorTax(0.1, storage);
+  assert.equal(readStoredCreatorTax(7, storage), 0);
+});
+
+test("a chosen badge image is stored in the session so it stays after leaving the control", () => {
+  const mem = new Map<string, string>();
+  const storage = {
+    getItem: (k: string) => mem.get(k) ?? null,
+    setItem: (k: string, v: string) => { mem.set(k, v); },
+    removeItem: (k: string) => { mem.delete(k); },
+  };
+  assert.equal(readStoredUpload(storage), null);
+  const uri = "data:image/png;base64,abc";
+  storeUpload(uri, storage);
+  assert.equal(mem.get(UPLOAD_STORE_KEY), uri);
+  assert.equal(readStoredUpload(storage), uri);
+  storeUpload(null, storage);
+  assert.equal(readStoredUpload(storage), null);
+  storeUpload("https://example.com/x.png", storage);
+  assert.equal(readStoredUpload(storage), null);
 });

@@ -8,10 +8,10 @@ import type { LaunchCoinParams } from "./protocol";
 
 /** r4 Screen 2 mode cards, in the same order as the boards (Easy, Hard, Trench). */
 export const QUICK_LAUNCH_MODE_COPY = {
-  Easy: "At first, nobody can own more than 1% of the coins. That limit grows to 3.33% as the price goes up, until the rocket moves to the open market.",
-  Hard: "At first, nobody can own more than 3.33% of the coins. That limit grows to 7.77% as the price goes up, until the rocket moves to the open market.",
-  Trench: "There is no limit on how many coins one person can own.",
-  footer: "You pick the mode when you launch, and you can't change it later. These limits only last until the rocket moves to the open market. After that, every rocket trades the same way.",
+  Easy: "At first, one person can hold up to 1% of the coins. That cap rises to 3.33% as the price goes up.",
+  Hard: "At first, one person can hold up to 3.33% of the coins. That cap rises to 7.77% as the price goes up.",
+  Trench: "There is no cap on how many coins one person can hold.",
+  footer: "You choose this when you launch, and you can't change it later. The caps end when the rocket moves to the open market.",
 } as const;
 
 export const QUICK_LAUNCH_COPY = {
@@ -21,13 +21,18 @@ export const QUICK_LAUNCH_COPY = {
   ticker: "Ticker",
   icon: "Badge",
   useOwnImage: "Use your own image",
+  uploadImage: "Upload image",
+  changeImage: "Change image",
+  useGenerated: "Use the badge we made",
   firstBoost: "First BOOST",
   firstBoostTip: "This is your first buy, at launch. You get first dibs on your own rocket.",
   custom: "Custom",
   chip0: "$0",
   chip5: "$5",
   chip20: "$20",
-  modeChange: (label: string) => `Mode: ${label} · change`,
+  mode: "Mode",
+  modeChange: "Change",
+  modeLabel: (label: string) => `Mode: ${label}`,
   advanced: "Advanced",
   pairCoin: "Pair coin",
   pairHelp: "Your rocket is bought and sold in this coin.",
@@ -42,21 +47,43 @@ export const QUICK_LAUNCH_COPY = {
   creatorTax: "Creator tax",
   creatorTaxHelp: "Permanent. A small cut of every trade goes to you. Higher tax can scare off players.",
   howLaunching: "How launching works",
+  howLaunchingSteps: [
+    "Give your rocket a name, a ticker, and a picture.",
+    "Choose how tightly one person can hold the coins, and whether to buy some at launch.",
+    "When you launch, your rocket goes live and people can start trading it.",
+  ],
   ready: (name: string) => `${name || "Your rocket"} · READY FOR LAUNCH`,
   liftoff: "3 · 2 · 1 · LIFTOFF",
   signInLine: "Sign in with email, Google, X or wallet",
   anon: "Anon",
   pseudo: "Pseudo",
   beta: "beta",
-  anonHelp: "Your name isn't shown as the creator. But the account that pays the launch fee is still visible in the public record of transactions, so someone who looks hard enough could work out it was you.",
-  anonEasyBoostHelp: "Your name isn't shown as the creator. On Easy, the coins you buy at launch stay locked until the rocket moves to the open market. The account that pays is still visible in the public record of transactions, so someone who looks hard enough could work out it was you.",
-  pseudoHelp: "Your name isn't shown as the creator. But the account that pays the launch fee and makes your first buy is still visible in the public record of transactions, so someone who looks hard enough could work out it was you.",
+  anonHelp: "Your name won't be shown as the creator. The account that pays can still be seen on the public record.",
+  anonEasyBoostHelp: "Your name won't be shown as the creator. The account that pays can still be seen on the public record.",
+  pseudoHelp: "Your name won't be shown as the creator. The account that pays, and the first buy, can still be seen on the public record.",
   // Image rejected after a generated badge is in use (Oct 17 Quick Launch spec; not on the r4 boards).
   imageReverted: "That image can't be used. We've put your rocket's badge back.",
 } as const;
 
-/** localStorage key for the Advanced creator-tax slider (defaults to 0%). */
+/** localStorage key for the Advanced creator-tax control (defaults to 0%). */
 export const CREATOR_TAX_STORE_KEY = "disciple.create.creatorTax.v1";
+
+/** sessionStorage key for a chosen badge image, so the file stays after leaving the control. */
+export const UPLOAD_STORE_KEY = "disciple.create.upload.v1";
+
+/** Snap to whole numbers or halves: 0, 0.5, 1, 1.5, … up to maxPct. */
+export function snapCreatorTax(pct: number, maxPct: number): number {
+  if (!Number.isFinite(pct) || pct < 0) return 0;
+  const snapped = Math.round(pct * 2) / 2;
+  return Math.min(maxPct, Math.max(0, snapped));
+}
+
+export function creatorTaxSteps(maxPct: number): number[] {
+  const out: number[] = [];
+  for (let n = 0; n <= maxPct + 1e-9; n = Math.round((n + 0.5) * 10) / 10) out.push(n > maxPct ? maxPct : n);
+  if (out[out.length - 1] !== maxPct) out.push(maxPct);
+  return out;
+}
 
 export function readStoredCreatorTax(maxPct: number, storage?: Pick<Storage, "getItem"> | null): number {
   try {
@@ -64,7 +91,7 @@ export function readStoredCreatorTax(maxPct: number, storage?: Pick<Storage, "ge
     if (raw == null || raw === "") return 0;
     const n = Number(raw);
     if (!Number.isFinite(n) || n < 0) return 0;
-    return Math.min(n, maxPct);
+    return snapCreatorTax(n, maxPct);
   } catch {
     return 0;
   }
@@ -73,6 +100,24 @@ export function readStoredCreatorTax(maxPct: number, storage?: Pick<Storage, "ge
 export function storeCreatorTax(pct: number, storage?: Pick<Storage, "setItem"> | null): void {
   try {
     (storage ?? (typeof localStorage !== "undefined" ? localStorage : null))?.setItem(CREATOR_TAX_STORE_KEY, String(pct));
+  } catch { /* private mode */ }
+}
+
+export function readStoredUpload(storage?: Pick<Storage, "getItem"> | null): string | null {
+  try {
+    const raw = (storage ?? (typeof sessionStorage !== "undefined" ? sessionStorage : null))?.getItem(UPLOAD_STORE_KEY);
+    return raw && raw.startsWith("data:image/") ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeUpload(uri: string | null, storage?: Pick<Storage, "setItem" | "removeItem"> | null): void {
+  try {
+    const store = storage ?? (typeof sessionStorage !== "undefined" ? sessionStorage : null);
+    if (!store) return;
+    if (!uri) store.removeItem(UPLOAD_STORE_KEY);
+    else store.setItem(UPLOAD_STORE_KEY, uri);
   } catch { /* private mode */ }
 }
 
@@ -97,7 +142,6 @@ export function privateLaunchTitle(boostValue: string, mode: number): "Anon" | "
 
 export function privateLaunchHelp(boostValue: string, mode: number): string {
   if (isPseudoLaunch(boostValue, mode)) return QUICK_LAUNCH_COPY.pseudoHelp;
-  if (boostHasAmount(boostValue)) return QUICK_LAUNCH_COPY.anonEasyBoostHelp;
   return QUICK_LAUNCH_COPY.anonHelp;
 }
 
@@ -131,17 +175,47 @@ export const withHttps = (w: string) => {
   return !t || /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t.replace(/^\/+/, "")}`;
 };
 
-export function normalizeTwitter(value: string): string | undefined {
-  const t = value.trim().replace(/^@/, "");
-  return t || undefined;
+function firstPathSeg(value: string): string {
+  return value.split(/[/?#\s]/)[0] ?? "";
 }
 
-/** Telegram handle or URL, packed into socialsURI the same way twitter is (trim, strip a leading @). */
+/**
+ * Turn a typed X username or URL into https://x.com/handle.
+ * Follows the usual profile-link pattern (X, Telegram, websites): add the public URL prefix if it is missing.
+ */
+export function normalizeTwitter(value: string): string | undefined {
+  const t = value.trim();
+  if (!t) return undefined;
+  const bare = t.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+  const hostMatch = bare.match(/^(?:x\.com|twitter\.com)\/(.+)$/i);
+  if (hostMatch) {
+    const handle = firstPathSeg(hostMatch[1].replace(/^@/, ""));
+    return handle ? `https://x.com/${handle}` : undefined;
+  }
+  const handle = firstPathSeg(t.replace(/^@/, ""));
+  if (!handle || handle.includes(".")) return t.includes(".") ? withHttps(t) : undefined;
+  return `https://x.com/${handle}`;
+}
+
+/** Turn @name or a t.me URL into https://t.me/name. */
 export function normalizeTelegram(value: string): string | undefined {
   const t = value.trim();
   if (!t) return undefined;
-  if (/^(https?:\/\/|t\.me\/)/i.test(t)) return withHttps(t);
-  return t.replace(/^@/, "") || undefined;
+  const bare = t.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+  const hostMatch = bare.match(/^(?:t\.me|telegram\.me)\/(.+)$/i);
+  if (hostMatch) {
+    const handle = firstPathSeg(hostMatch[1].replace(/^@/, ""));
+    return handle ? `https://t.me/${handle}` : undefined;
+  }
+  const handle = firstPathSeg(t.replace(/^@/, ""));
+  if (!handle) return undefined;
+  return `https://t.me/${handle}`;
+}
+
+/** Add https:// to a website if the scheme is missing. */
+export function normalizeWebsite(value: string): string | undefined {
+  const t = value.trim();
+  return t ? withHttps(t) : undefined;
 }
 
 export type LaunchSocials = NonNullable<LaunchCoinParams["socials"]>;

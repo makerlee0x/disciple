@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { deployment, isDeployed } from "@/lib/chains";
 import { TOTAL_SUPPLY_WEI as SUPPLY_WEI, launchBuyTokensOut, paramsFromQuotePrice } from "@/lib/curveMath";
 import {
-  FIRST_BOOST_COPY as COPY, bpsToPct, exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap, fmtAmount, fmtUsdWad, modeName, parseAmount, quoteRawToUsdWad, readFirstBoostLimits, readQuoteBalance, toInputString, usdToQuoteRaw,
+  FIRST_BOOST_COPY as COPY, FIRST_BOOST_TIP_STARTS_OPEN, bpsToPct, exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap, fmtAmount, fmtUsdWad, modeName, parseAmount, quoteRawToUsdWad, readFirstBoostLimits, readQuoteBalance, toInputString, usdToQuoteRaw,
   type FirstBoostLimits,
 } from "@/lib/firstBoost";
 import { DEFAULT_LAUNCH_MODE, LaunchMode, modesActive, readPveLoginVerified } from "@/lib/launchAbi";
@@ -50,7 +50,7 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
   const deployed = isDeployed();
   const pve = modesActive() && mode === LaunchMode.PVE;
   const [customOpen, setCustomOpen] = useState(false);
-  const [tipOpen, setTipOpen] = useState(true);
+  const [tipOpen, setTipOpen] = useState(FIRST_BOOST_TIP_STARTS_OPEN);
   const autoDefaulted = useRef(false);
 
   useEffect(() => onWallet((a) => setMe(a)), []);
@@ -197,19 +197,25 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
               <button type="button" className={`${s.bchip} ${isAmt(5) ? s.on : ""}`} disabled={maxUsd != null && maxUsd < 5} onClick={() => { setCustomOpen(false); onChange("5"); }}>{QUICK_LAUNCH_COPY.chip5}</button>
               <button type="button" className={`${s.bchip} ${isAmt(20) ? s.on : ""}`} disabled={maxUsd != null && maxUsd < 20} onClick={() => { setCustomOpen(false); onChange("20"); }}>{QUICK_LAUNCH_COPY.chip20}</button>
               <button type="button" className={`${s.bchip} ${isMaxSel ? s.on : ""}`} disabled={!limits || (!!usdg && !maxUsdg)} onClick={() => { setCustomOpen(false); fillMax(); }}>{maxBoostChipLabel(maxUsd)}</button>
-              <button type="button" className={`${s.bchip} ${isCustom ? s.on : ""}`} onClick={() => setCustomOpen(true)}>{QUICK_LAUNCH_COPY.custom}</button>
+              {customOpen || isCustom ? (
+                <label className={`${s.bchip} ${s.on} ${s.customPill}`}>
+                  <span className={s.pre} aria-hidden>$</span>
+                  <input inputMode="decimal" autoComplete="off" aria-label="Custom First BOOST" autoFocus={customOpen}
+                    data-testid="first-boost-custom"
+                    value={isAmt(0) || value === "" ? "" : value}
+                    placeholder="0"
+                    onChange={(e) => { setCustomOpen(true); onChange(e.target.value.replace(/,/g, ".")); }}
+                    onBlur={() => { if (value.trim() === "" || isAmt(0) || isAmt(5) || isAmt(20) || isMaxSel) setCustomOpen(false); }}
+                  />
+                </label>
+              ) : (
+                <button type="button" className={`${s.bchip} ${isCustom ? s.on : ""}`} data-testid="first-boost-custom-open" onClick={() => { setCustomOpen(true); if (value === "" || isAmt(0) || isAmt(5) || isAmt(20) || isMaxSel) onChange(""); }}>{QUICK_LAUNCH_COPY.custom}</button>
+              )}
             </div>
-            {isCustom && (
-              <div className={s.customRow}>
-                <span className={s.pre} aria-hidden>$</span>
-                <input className={s.inp} inputMode="decimal" autoComplete="off" aria-label="Custom First BOOST"
-                  value={value} onChange={(e) => onChange(e.target.value.replace(/,/g, "."))} />
-              </div>
-            )}
             {limits?.capBy === "mode" && pct && <p className={s.boostNote}>{COPY.modeCap(modeName(limits.mode), pct)}</p>}
             {pve && raw != null && raw > BigInt(0) && <p className={s.boostNote}>{COPY.easyLock}</p>}
-            {pve && raw != null && raw > BigInt(0) && (
-              <p className={s.boostNote}>{!me ? COPY.pveLoginUnknown : pveVerified === false ? COPY.pveLoginAttest : COPY.pveLogin}</p>
+            {pve && raw != null && raw > BigInt(0) && (!me || pveVerified === false) && (
+              <p className={s.boostNote}>{COPY.pveLoginUnknown}</p>
             )}
             {error && <p role="alert" className={s.boostErr}>{error}</p>}
         </>

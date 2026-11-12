@@ -73,6 +73,7 @@
 .lift { position: absolute; left: calc(var(--rk-w) / -2); top: calc(-.955 * var(--rk-h)); width: var(--rk-w); height: var(--rk-h); will-change: transform; }
 .body { position: absolute; inset: 0; }
 .rocketImg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; filter: drop-shadow(0 0 14px rgba(200, 210, 255, .12)); }
+.decal { position: absolute; left: 50%; top: 39%; width: 38%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; border: 1.5px solid rgba(242, 193, 78, .9); object-fit: cover; z-index: 2; pointer-events: none; background: #202141; }
 .tint, .rim, .burn { position: absolute; inset: 0; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
 /* night tint (SPEC §4): rgb × [0.392, 0.392, 0.556] */
 .tint { background: rgb(100 100 142); mix-blend-mode: multiply; }

@@ -49,7 +49,7 @@ export const LIFTOFF_MS = 1300;
 const srcset = (list: string) => list.split(", ").map((e) => { const [u, w] = e.split(" "); return `${withBase(u)} ${w}`; }).join(", ");
 const n = (k: number, c?: string) => Array.from({ length: k }, (_, i) => <i key={i} className={c} />);
 
-export default function HeroPad({ go, launching }: { go: boolean; launching: boolean }) {
+export default function HeroPad({ go, launching, icon }: { go: boolean; launching: boolean; icon?: string | null }) {
   const rocket = withBase(ROCKET_SRC);
   const rocketMask = { WebkitMaskImage: `url(${rocket})`, maskImage: `url(${rocket})` };
   const lazy = go
@@ -110,6 +110,8 @@ export default function HeroPad({ go, launching }: { go: boolean; launching: boo
               <div className={s.tint} style={rocketMask} />
               <div className={s.rim} style={rocketMask} />
               <div className={s.burn} style={rocketMask} />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {icon ? <img className={s.decal} src={icon} alt="" width={64} height={64} draggable={false} /> : null}
             </div>
           </div>
           {/* z6: idle exhaust glow; z7: front lip of the ring; z8: glow spill over the lip */}
