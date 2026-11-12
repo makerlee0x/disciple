@@ -169,7 +169,7 @@ contract SessionPackTest is Test {
             MockPackRouter.launchWithUsdg.selector,
             bytes4(
                 keccak256(
-                    "launchWithUsdg((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8),uint8,uint256,uint256)"
+                    "launchWithUsdg((string,string,string,string,string,address,uint256,uint256,uint256,uint256),uint8,uint256,uint256)"
                 )
             )
         );
@@ -185,9 +185,7 @@ contract SessionPackTest is Test {
     }
 
     function test_swapUsdgToQuote_capExceeded() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), uint256(CAP) + 1, uint256(CAP))
-        );
+        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), uint256(CAP) + 1, uint256(CAP)));
         _batch2(_approve(address(usdg), CAP + 1), _toQuote(address(strat), CAP + 1, CAP, address(acct)));
     }
 
@@ -216,15 +214,11 @@ contract SessionPackTest is Test {
     function test_swaps_wrongTarget() public {
         MockPackRouter evil = new MockPackRouter(usdg);
         MockMAv2.Call memory c = _toQuote(address(strat), 1e18, 1e18, address(acct));
-        vm.expectRevert(
-            abi.encodeWithSelector(P.NotAllowed.selector, address(evil), MockPackRouter.swapUsdgToQuote.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(evil), MockPackRouter.swapUsdgToQuote.selector));
         vm.prank(key);
         acct.execute(address(evil), 0, c.data);
         c = _toUsdg(address(strat), 1e18, 1e18, address(acct));
-        vm.expectRevert(
-            abi.encodeWithSelector(P.NotAllowed.selector, address(evil), MockPackRouter.swapQuoteToUsdg.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(evil), MockPackRouter.swapQuoteToUsdg.selector));
         vm.prank(key);
         acct.execute(address(evil), 0, c.data);
     }
@@ -239,9 +233,7 @@ contract SessionPackTest is Test {
     }
 
     function test_swapQuoteToUsdg_capExceeded() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(P.SpendCapExceeded.selector, address(strat), uint256(CAP1) + 1, uint256(CAP1))
-        );
+        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(strat), uint256(CAP1) + 1, uint256(CAP1)));
         _batch2(_approve(address(strat), CAP1 + 1), _toUsdg(address(strat), CAP1 + 1, CAP1 + 1, address(acct)));
     }
 
@@ -374,15 +366,11 @@ contract SessionPackTest is Test {
         acct.installSession(policy, E, key, c);
         vm.stopPrank();
         MockMAv2.Call memory call = _toQuote(address(strat), 1e18, 1e18, address(acct));
-        vm.expectRevert(
-            abi.encodeWithSelector(P.NotAllowed.selector, address(router), MockPackRouter.swapUsdgToQuote.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(router), MockPackRouter.swapUsdgToQuote.selector));
         vm.prank(key);
         acct.execute(address(router), 0, call.data);
         call = _launch(address(0), 0, 0);
-        vm.expectRevert(
-            abi.encodeWithSelector(P.NotAllowed.selector, address(router), MockPackRouter.launchWithUsdg.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(router), MockPackRouter.launchWithUsdg.selector));
         vm.prank(key);
         acct.execute(address(router), 0, call.data);
     }
@@ -414,9 +402,7 @@ contract SessionPackTest is Test {
     function test_launchWithUsdg_capExceeded() public {
         MockMAv2.Call memory l = _launch(address(strat), CAP + 1, CAP + 1);
         l.target = address(router);
-        vm.expectRevert(
-            abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), uint256(CAP) + 1, uint256(CAP))
-        );
+        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), uint256(CAP) + 1, uint256(CAP)));
         _batch2(_approve(address(usdg), CAP + 1), l);
     }
 
@@ -430,9 +416,7 @@ contract SessionPackTest is Test {
     function test_launchWithUsdg_wrongTarget() public {
         MockPackRouter evil = new MockPackRouter(usdg);
         MockMAv2.Call memory l = _launch(address(strat), 0, 0);
-        vm.expectRevert(
-            abi.encodeWithSelector(P.NotAllowed.selector, address(evil), MockPackRouter.launchWithUsdg.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(evil), MockPackRouter.launchWithUsdg.selector));
         vm.prank(key);
         acct.execute(address(evil), 0, l.data);
     }

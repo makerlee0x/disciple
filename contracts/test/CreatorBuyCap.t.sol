@@ -99,14 +99,12 @@ contract CreatorBuyCapTest is IntegrationBase {
             creatorTaxBps: 0,
             creatorBuyQuoteIn: 5_000 ether,
             creatorBuyMinTokensOut: 0,
-            deadline: block.timestamp + 1 hours,
-            creatorFeeDestination: 0
+            deadline: block.timestamp + 1 hours
         });
         vm.startPrank(payer);
         quote.approve(address(anon), type(uint256).max);
         uint256 pb0 = quote.balanceOf(payer);
-        ILaunchpad.LaunchResult memory r0 =
-            anon.launchAnon(p, makeAddr("st"), makeAddr("fr0"), "", 0x00, type(uint256).max);
+        ILaunchpad.LaunchResult memory r0 = anon.launchAnon(p, makeAddr("st"), makeAddr("fr0"), "", 0x00, type(uint256).max);
         vm.stopPrank();
         assertEq(r0.creatorTokensBought, FeeMath.creatorBuyMax(), "partial fill to 7.77%");
         assertLt(pb0 - quote.balanceOf(payer), 5_000 ether, "refund forwarded to the payer");
@@ -114,8 +112,7 @@ contract CreatorBuyCapTest is IntegrationBase {
         vm.prank(owner);
         launchpad.setCreatorBuyMaxBps(500);
         vm.prank(payer);
-        ILaunchpad.LaunchResult memory r =
-            anon.launchAnon(p, makeAddr("st"), makeAddr("fr"), "", 0x00, type(uint256).max);
+        ILaunchpad.LaunchResult memory r = anon.launchAnon(p, makeAddr("st"), makeAddr("fr"), "", 0x00, type(uint256).max);
         assertEq(IERC20(r.token).balanceOf(makeAddr("fr")), r.creatorTokensBought);
         assertEq(launchpad.creatorBuyMaxBpsOf(r.token), 500);
     }

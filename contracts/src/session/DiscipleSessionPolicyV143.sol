@@ -83,7 +83,7 @@ contract DiscipleSessionPolicyV143 is IValidationHookModule, IExecutionHookModul
     // calls (claimCreatorFeesToUsdg, FeeRouter claims, crew tips, referral, transferCreator need a wallet confirm).
     bytes4 internal constant ROUTER_LAUNCH_USDG = bytes4(
         keccak256(
-            "launchWithUsdg((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8),uint8,uint256,uint256)"
+            "launchWithUsdg((string,string,string,string,string,address,uint256,uint256,uint256,uint256),uint8,uint256,uint256)"
         )
     );
     bytes4 internal constant ROUTER_SWAP_TO_QUOTE =
@@ -98,18 +98,15 @@ contract DiscipleSessionPolicyV143 is IValidationHookModule, IExecutionHookModul
     bytes4 internal constant WALL = bytes4(keccak256("placeWall(address,int24,int24,uint256,uint128,uint256)"));
     bytes4 internal constant CANCEL = bytes4(keccak256("cancel(uint256)"));
     bytes4 internal constant LAUNCH =
-        bytes4(keccak256("launch((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8))"));
-    bytes4 internal constant LAUNCH_COIN = bytes4(
-        keccak256("launchCoin((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8))")
-    );
+        bytes4(keccak256("launch((string,string,string,string,string,address,uint256,uint256,uint256,uint256))"));
+    bytes4 internal constant LAUNCH_COIN =
+        bytes4(keccak256("launchCoin((string,string,string,string,string,address,uint256,uint256,uint256,uint256))"));
     bytes4 internal constant LAUNCH_MODE = bytes4(
-        keccak256(
-            "launchWithMode((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8),uint8)"
-        )
+        keccak256("launchWithMode((string,string,string,string,string,address,uint256,uint256,uint256,uint256),uint8)")
     );
     bytes4 internal constant ANON_LAUNCH = bytes4(
         keccak256(
-            "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8),address,address,bytes,bytes1,uint256)"
+            "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1,uint256)"
         )
     );
     bytes4 internal constant APPROVE = bytes4(keccak256("approve(address,uint256)"));
@@ -299,9 +296,8 @@ contract DiscipleSessionPolicyV143 is IValidationHookModule, IExecutionHookModul
             add1 += g1;
         }
         for (uint256 i; i < calls.length; ++i) {
-            if (_isCreditAction(calls[i])) {
-                _creditAction(s.cfg, calls[i], usdg, calls);
-            } else {
+            if (_isCreditAction(calls[i])) _creditAction(s.cfg, calls[i], usdg, calls);
+            else {
                 (uint256 a0, uint256 a1) = _fullCheck(s.cfg, msg.sender, calls[i], usdg, calls);
                 add0 += a0;
                 add1 += a1;
@@ -374,9 +370,7 @@ contract DiscipleSessionPolicyV143 is IValidationHookModule, IExecutionHookModul
         if (c.permissions & P_APPROVE == 0) revert NotAllowed(k.target, _sel(k.data));
         bytes4 sel = _sel(k.data);
         if (sel == WITHDRAW) {
-            if (k.target != paymaster || k.data.length != 4 || calls.length != 1) {
-                revert NotAllowed(k.target, WITHDRAW);
-            }
+            if (k.target != paymaster || k.data.length != 4 || calls.length != 1) revert NotAllowed(k.target, WITHDRAW);
             return;
         }
         if (sel == RELEASE) {
@@ -644,7 +638,6 @@ contract DiscipleSessionPolicyV143 is IValidationHookModule, IExecutionHookModul
         uint256 creatorBuyQuoteIn;
         uint256 creatorBuyMinTokensOut;
         uint256 deadline;
-        uint8 creatorFeeDestination;
     }
 
     function _usdgQuoteSwapQuote(address router, address q, bool toQuote, uint256 amountIn)
@@ -746,9 +739,7 @@ contract DiscipleSessionPolicyV143 is IValidationHookModule, IExecutionHookModul
 
     function _permissionFor(SessionConfig storage c, address target, bytes4 sel) internal view returns (uint256) {
         if (sel == APPROVE) return P_APPROVE; // spender & token pinned in the execution hook
-        if (target == paymaster && paymaster != address(0) && (sel == DEPOSIT || sel == WITHDRAW || sel == RELEASE)) {
-            return P_APPROVE;
-        }
+        if (target == paymaster && paymaster != address(0) && (sel == DEPOSIT || sel == WITHDRAW || sel == RELEASE)) return P_APPROVE;
         if (target == c.router && target != address(0)) {
             if (sel == ROUTER_BUY) return P_ROUTER_BUY;
             if (sel == ROUTER_SELL) return P_ROUTER_SELL;

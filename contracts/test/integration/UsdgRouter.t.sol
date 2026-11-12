@@ -287,9 +287,7 @@ contract UsdgRouterTest is IntegrationBase {
         cs = new MockMAv2.Call[](2);
         cs[0] = MockMAv2.Call(address(sTok), 0, abi.encodeCall(IERC20.approve, (address(router), bal)));
         cs[1] = MockMAv2.Call(
-            address(router),
-            0,
-            abi.encodeCall(DiscipleRouter.sellToUsdg, (address(sTok), bal, qs * 9950 / 10_000, _dl()))
+            address(router), 0, abi.encodeCall(DiscipleRouter.sellToUsdg, (address(sTok), bal, qs * 9950 / 10_000, _dl()))
         );
         uint256 u0 = quote.balanceOf(address(acct));
         _uo(cs);
@@ -349,9 +347,7 @@ contract UsdgRouterTest is IntegrationBase {
         cs[1] = MockMAv2.Call(
             address(uCurve),
             0,
-            abi.encodeWithSignature(
-                "buy(uint256,uint256,uint256,address)", 5 ether, q * 9950 / 10_000, _dl(), address(acct)
-            )
+            abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 5 ether, q * 9950 / 10_000, _dl(), address(acct))
         );
         _uo(cs);
         assertGt(uTok.balanceOf(address(acct)), 0, "session USDG curve buy works");
@@ -362,13 +358,12 @@ contract UsdgRouterTest is IntegrationBase {
         cs[1] = MockMAv2.Call(
             address(uCurve),
             0,
-            abi.encodeWithSignature(
-                "buy(uint256,uint256,uint256,address)", 5 ether, q * 9950 / 10_000, _dl(), address(acct)
-            )
+            abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 5 ether, q * 9950 / 10_000, _dl(), address(acct))
         );
         vm.expectRevert(abi.encodeWithSelector(P.UsdgApproveNotExact.selector, 6 ether, 5 ether));
         _uo(cs);
     }
+
 
     /// DISCIPLE audit Medium-2: session USDG quotes are for the ACCOUNT, so a PVE session buy works (the policy
     /// contract itself is not logged in) and the sell floor includes the account's profit tax.
@@ -389,8 +384,7 @@ contract UsdgRouterTest is IntegrationBase {
                 creatorTaxBps: 0,
                 creatorBuyQuoteIn: 0,
                 creatorBuyMinTokensOut: 0,
-                deadline: block.timestamp + 1 days,
-                creatorFeeDestination: 0
+                deadline: block.timestamp + 1 days
             }),
             Constants.MODE_PVE
         );

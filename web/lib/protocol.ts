@@ -34,13 +34,6 @@ export interface LaunchCoinParams {
   slippageBps?: number;
   /** Private launch (AnonLauncher v2, TRENCH only): stealth creator from lib/privateLaunch.newStealthOwner. */
   private?: { stealthOwner: Address; ephemeralPubKey: `0x${string}`; viewTag: `0x${string}` };
-  /**
-   * Where this rocket's creator fees go. The choice is fixed at launch.
-   * Omit this field, or pass 0, and the creator keeps the creator fees.
-   * 1 deposits the creator fees into this rocket's locked liquidity pool, and that liquidity is renounced.
-   * 2 uses the creator fees to buy and burn the quote token. On the bonding curve the fee is already the quote token, so it is burned. After orbit, the quote half is burned and the rocket-token half is sold for more of the quote token, which is burned.
-   */
-  creatorFeeDestination?: 0 | 1 | 2;
   // quotePriceUsd was REMOVED in PR #4: Launchpad prices the quote on-chain via QuotePricer.
 }
 

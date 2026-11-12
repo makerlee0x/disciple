@@ -53,8 +53,7 @@ contract MaxModeTest is IntegrationBase {
             creatorTaxBps: 0,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: 0,
-            deadline: vm.getBlockTimestamp() + 1 days,
-            creatorFeeDestination: 0
+            deadline: vm.getBlockTimestamp() + 1 days
         });
     }
 

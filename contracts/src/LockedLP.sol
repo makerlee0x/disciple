@@ -49,11 +49,10 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     address public migration;
     /// @notice FeeRouter allowed to lock LP shares / snipe escrow (SEC-01: addLockedLiquidity is caller-restricted).
     address public feeRouter;
-    /// @notice Creator-fee manager allowed to deposit a coin's own creator fees into that coin's locked position
-    ///         (destination 1). Same SEC-01 rule: not a general depositor. Replacing this address stops the previous
-    ///         manager from depositing; coins already pointing at it keep their fees in that manager until this is
-    ///         set back. It does not make locked liquidity withdrawable.
-    address public creatorFeeManager;
+    /// @notice Later-send contract that may deposit a coin's creator fees. Immutable, so it takes no storage slot
+    ///         and this contract gains no new external function. address(0) allows nobody extra.
+    ///         Replacing LockedLP is what changes this address. It does not make locked liquidity withdrawable.
+    address private immutable creatorFeeHarvest;
     IPoolManager public poolManager;
 
     int24 public constant TICK_SPACING = 60;
@@ -173,10 +172,12 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     );
     event CompoundParamsSet(uint32 minPpm, uint32 maxPpm, uint16 maxDeviationBps);
     event HookSet(address indexed hook);
-    event CreatorFeeManagerSet(address indexed manager);
 
-    constructor(address owner_, address treasury_) Owned2Step(owner_) {
+    /// @param creatorFeeHarvest_ Later-send contract allowed to call `addLockedLiquidity`. address(0) allows nobody extra.
+    ///        No new external function, so the trade-path dispatcher stays as it was.
+    constructor(address owner_, address treasury_, address creatorFeeHarvest_) Owned2Step(owner_) {
         treasury = treasury_;
+        creatorFeeHarvest = creatorFeeHarvest_;
         SQRT_LOWER = TickMath.getSqrtPriceAtTick(TickMath.minUsableTick(TICK_SPACING));
         SQRT_UPPER = TickMath.getSqrtPriceAtTick(TickMath.maxUsableTick(TICK_SPACING));
     }
@@ -211,14 +212,6 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         feeRouter = r;
     }
 
-    /// @notice Owner allows `m` to deposit creator fees via addLockedLiquidity. Not the trade path.
-    function setCreatorFeeManager(address m) external {
-        if (msg.sender != owner) revert OnlyOwner();
-        if (m == address(0)) revert BadParams();
-        creatorFeeManager = m;
-        emit CreatorFeeManagerSet(m);
-    }
-
     function setMigration(address m) external {
         if (msg.sender != owner) revert OnlyOwner();
         migration = m;
@@ -235,11 +228,27 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         override
         returns (uint256 lpShares)
     {
-        // SEC-01: only FeeRouter (fee LP share), Migration (graduation), and the creator-fee manager (destination 1)
-        // may add. Otherwise anyone could overflow escrowQuote with a worthless token and brick fee routing.
-        if (msg.sender != feeRouter && msg.sender != migration && msg.sender != creatorFeeManager) {
-            revert Unauthorized();
+        // SEC-01: only FeeRouter (fee LP share) and Migration (graduation) may add; otherwise anyone could
+        // overflow escrowQuote with a worthless token and brick all fee routing for a coin.
+        if (msg.sender != feeRouter && msg.sender != migration) revert Unauthorized();
+        if (quoteAmount > 0) {
+            IERC20(quote).safeTransferFrom(msg.sender, address(this), quoteAmount);
         }
+        if (tokenAmount > 0) {
+            IERC20(token).safeTransferFrom(msg.sender, address(this), tokenAmount);
+        }
+        _credit(token, quote, tokenAmount, quoteAmount);
+        return tokenAmount + quoteAmount;
+    }
+
+    /// @notice Deposit one coin's creator fees. Only the later-send contract.
+    ///         The suffix keeps this selector after every other function, so a trade or a graduation
+    ///         does not walk an extra comparison in the dispatcher.
+    function depositCreatorFees_57(address token, address quote, uint256 tokenAmount, uint256 quoteAmount)
+        external
+        returns (uint256)
+    {
+        if (msg.sender != creatorFeeHarvest) revert Unauthorized();
         if (quoteAmount > 0) {
             IERC20(quote).safeTransferFrom(msg.sender, address(this), quoteAmount);
         }

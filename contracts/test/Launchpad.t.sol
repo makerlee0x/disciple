@@ -47,7 +47,7 @@ contract LaunchpadTest is Test {
     function setUp() public {
         quote = new MockQuote();
         referrals = new ReferralRegistry(owner, address(quote));
-        lockedLP = new LockedLP(owner, treasury);
+        lockedLP = new LockedLP(owner, treasury, address(0));
         feeRouter = new FeeRouter(owner, treasury, address(referrals));
 
         V4Deploy.Stack memory stack = V4Deploy.deploy(owner, lockedLP, feeRouter);
@@ -92,8 +92,7 @@ contract LaunchpadTest is Test {
             creatorTaxBps: 0,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: 0,
-            deadline: block.timestamp + 1 hours,
-            creatorFeeDestination: 0
+            deadline: block.timestamp + 1 hours
         });
         ILaunchpad.LaunchResult memory r = launchpad.launch(p);
         vm.stopPrank();
@@ -120,8 +119,7 @@ contract LaunchpadTest is Test {
             creatorTaxBps: 0,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: 0,
-            deadline: block.timestamp + 1,
-            creatorFeeDestination: 0
+            deadline: block.timestamp + 1
         });
         vm.expectRevert(Launchpad.InvalidMetadata.selector);
         launchpad.launch(p);
@@ -139,8 +137,7 @@ contract LaunchpadTest is Test {
             creatorTaxBps: 701,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: 0,
-            deadline: block.timestamp + 1,
-            creatorFeeDestination: 0
+            deadline: block.timestamp + 1
         });
         vm.expectRevert(Launchpad.TaxTooHigh.selector);
         launchpad.launch(p);

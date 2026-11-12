@@ -33,6 +33,7 @@ import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiqui
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {RewardsVault} from "../../src/RewardsVault.sol";
+import {CreatorFeeHarvest} from "../../src/addons/CreatorFeeHarvest.sol";
 
 contract MockUSDG is ERC20, ERC20Permit {
     constructor() ERC20("USD Mock", "USDG") ERC20Permit("USD Mock") {}
@@ -88,6 +89,8 @@ abstract contract IntegrationBase is Test {
     MockUSDG internal strategy; // mock STRATEGY default quote
     QuotePricer internal pricer;
     DiscipleRouter internal router;
+    /// @notice Later-send contract. Trades do not call it. Routing tests wire it; the gas bench does not.
+    CreatorFeeHarvest internal harvest;
     PoolKey internal strategyUsdgKey; // reference STRATEGY/USDG pool priced 1:1 ($1)
     uint256 internal refPoolQuoteSeed; // USDG seeded into the reference pool (excluded from accounting)
 
@@ -97,7 +100,11 @@ abstract contract IntegrationBase is Test {
     function setUp() public virtual {
         quote = new MockUSDG();
         referrals = new ReferralRegistry(owner, address(quote));
-        lockedLP = new LockedLP(owner, treasury);
+        // The harvest address is known before it is deployed so this create does not shift the nonce of
+        // LockedLP or anything after it. The gas bench compares those addresses with main.
+        bytes32 harvestSalt = keccak256("disciple.creator-fee-harvest");
+        address harvestAddr = _harvestAddress(harvestSalt);
+        lockedLP = new LockedLP(owner, treasury, harvestAddr);
         feeRouter = new FeeRouter(owner, treasury, address(referrals));
 
         V4Deploy.Stack memory stack = V4Deploy.deploy(owner, lockedLP, feeRouter);
@@ -154,11 +161,29 @@ abstract contract IntegrationBase is Test {
 
         swapRouter = new PoolSwapTest(manager);
 
+        harvest = new CreatorFeeHarvest{salt: harvestSalt}(owner);
         // Fund actors
         address[7] memory actors = [creator, sniper, trader1, trader2, kol, referred, address(this)];
         for (uint256 i = 0; i < actors.length; i++) {
             quote.mint(actors[i], 50_000_000 ether);
         }
+    }
+
+    function _harvestAddress(bytes32 salt) internal view returns (address) {
+        return address(
+            uint160(
+                uint256(
+                    keccak256(
+                        abi.encodePacked(
+                            bytes1(0xff),
+                            address(this),
+                            salt,
+                            keccak256(abi.encodePacked(type(CreatorFeeHarvest).creationCode, abi.encode(owner)))
+                        )
+                    )
+                )
+            )
+        );
     }
 
     function _bindReferral(address wallet, address referrer, uint256 usdgDeposit) internal {
@@ -195,8 +220,7 @@ abstract contract IntegrationBase is Test {
                 creatorTaxBps: taxBps,
                 creatorBuyQuoteIn: creatorBuyQuote,
                 creatorBuyMinTokensOut: 0,
-                deadline: ts + 1 days,
-                creatorFeeDestination: 0
+                deadline: ts + 1 days
             })
         );
         vm.stopPrank();

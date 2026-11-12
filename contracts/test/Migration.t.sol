@@ -65,7 +65,7 @@ contract MigrationTest is Test {
     function setUp() public {
         quote = new MockQuote();
         referrals = new ReferralRegistry(owner, address(quote));
-        lockedLP = new LockedLP(owner, treasury);
+        lockedLP = new LockedLP(owner, treasury, address(0));
         feeRouter = new FeeRouter(owner, treasury, address(referrals));
 
         V4Deploy.Stack memory stack = V4Deploy.deploy(owner, lockedLP, feeRouter);
@@ -116,8 +116,7 @@ contract MigrationTest is Test {
                 creatorTaxBps: 0,
                 creatorBuyQuoteIn: 0,
                 creatorBuyMinTokensOut: 0,
-                deadline: ts + 1 days,
-                creatorFeeDestination: 0
+                deadline: ts + 1 days
             })
         );
         vm.stopPrank();
@@ -208,8 +207,7 @@ contract MigrationTest is Test {
 
         // Hook took 1% of output and routed — treasury and/or creator accrued should rise
         assertTrue(
-            (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) > treBefore
-                || feeRouter.creatorAccrued(address(tok), alice) > creatorBefore
+            (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) > treBefore || feeRouter.creatorAccrued(address(tok), alice) > creatorBefore
                 || (tok.balanceOf(treasury) + feeRouter.treasuryAccrued(address(tok))) > 0,
             "fees should route"
         );

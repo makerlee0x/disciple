@@ -57,8 +57,7 @@ contract AnonLauncherTest is IntegrationBase {
             creatorTaxBps: 0,
             creatorBuyQuoteIn: buy,
             creatorBuyMinTokensOut: 0,
-            deadline: block.timestamp + 1 hours,
-            creatorFeeDestination: 0
+            deadline: block.timestamp + 1 hours
         });
     }
 
@@ -171,7 +170,7 @@ contract AnonLauncherTest is IntegrationBase {
             AnonLauncher.launchAnon.selector,
             bytes4(
                 keccak256(
-                    "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8),address,address,bytes,bytes1,uint256)"
+                    "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1,uint256)"
                 )
             )
         );
@@ -540,9 +539,7 @@ contract McapNowGraduatedTest is IntegrationBase {
             )
         );
         assertApproxEqRel(
-            curve.mcapNow(),
-            Math.mulDiv(Math.mulDiv(px, Constants.TOTAL_SUPPLY, 1e18), curve.quotePriceUsd(), 1e18),
-            1e6
+            curve.mcapNow(), Math.mulDiv(Math.mulDiv(px, Constants.TOTAL_SUPPLY, 1e18), curve.quotePriceUsd(), 1e18), 1e6
         );
         assertGt(curve.mcapNow(), launchVal);
         uint256 hi = curve.mcapNow();

@@ -30,8 +30,7 @@ contract ReenteringFeeToken is MockUSDG {
                 creatorTaxBps: 0,
                 creatorBuyQuoteIn: 0,
                 creatorBuyMinTokensOut: 0,
-                deadline: block.timestamp + 1 hours,
-                creatorFeeDestination: 0
+                deadline: block.timestamp + 1 hours
             });
             target.launchAnonWithUsdg(p, address(1), address(1), "", 0x00, type(uint256).max, 0, 0, address(0));
         }
@@ -77,8 +76,7 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
             creatorTaxBps: 0,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: minOut,
-            deadline: deadline,
-            creatorFeeDestination: 0
+            deadline: deadline
         });
     }
 
@@ -248,15 +246,7 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
         vm.prank(payer);
         vm.expectRevert(AnonLauncher.RouterUnset.selector);
         anon.launchAnonWithUsdg(
-            _paramsQ(address(quote), 0, block.timestamp + 1 hours),
-            stealthA,
-            stealthA,
-            "",
-            0x00,
-            FEE,
-            10 ether,
-            1,
-            address(0)
+            _paramsQ(address(quote), 0, block.timestamp + 1 hours), stealthA, stealthA, "", 0x00, FEE, 10 ether, 1, address(0)
         );
     }
 

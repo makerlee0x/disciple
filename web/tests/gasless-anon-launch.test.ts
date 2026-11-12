@@ -22,7 +22,7 @@ function launch(over: Partial<AnonLaunch> = {}): AnonLaunch {
   return {
     name: "Anon", ticker: "ANON", imageURI: "ipfs://x", description: "", socialsURI: "",
     quote, creatorTaxBps: 0n, creatorBuyQuoteIn: 0n, creatorBuyMinTokensOut: 1n,
-    deadline: BigInt(NOW + 240), creatorFeeDestination: 0n, stealthOwner: stealth, buyRecipient: stealth,
+    deadline: BigInt(NOW + 240), stealthOwner: stealth, buyRecipient: stealth,
     ephemeralPubKey: "0x", viewTag: "0x00", maxFee: 500_000n, usdgIn: 10_000_000n, minQuoteIn: 1n,
     refundTo: user.address, launcher, ...over,
   };
@@ -128,7 +128,7 @@ describe("anon launch Multicall3 batch", () => {
   });
 
   it("launchAnonWithUsdg selector includes refundTo (the ABI changed)", () => {
-    const sel = toFunctionSelector("launchAnonWithUsdg((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8),address,address,bytes,bytes1,uint256,uint256,uint256,address)");
+    const sel = toFunctionSelector("launchAnonWithUsdg((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1,uint256,uint256,uint256,address)");
     expect(sel).toMatch(/^0x[0-9a-f]{8}$/);
   });
 });

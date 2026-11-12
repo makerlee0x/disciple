@@ -19,22 +19,16 @@ interface IFeeRouterClaims {
     function tokenQuote(address token) external view returns (address);
 }
 
+interface ICreatorFeeHarvest {
+    function creatorFeeDestinationOf(address token) external view returns (uint8);
+    function depositRocketTokens(address token, uint256 amount) external;
+}
+
 interface ILaunchpadAdmin {
     function defaultQuote() external view returns (address);
     function curveRouter() external view returns (address);
     function updateMetadata(address token, string calldata img, string calldata desc, string calldata socials) external;
     function transferCreator(address token, address newCreator) external;
-    function creatorFeeDestinationOf(address token) external view returns (uint8);
-    function creatorFeeManager() external view returns (address);
-}
-
-interface ICreatorFeeMetadata {
-    function updateMetadata(
-        address token,
-        string calldata imageURI,
-        string calldata description,
-        string calldata socialsURI
-    ) external;
 }
 
 /// @dev The public First BOOST path (DiscipleRouter.launchWithUsdg). AnonLauncher calls this so it stays the
@@ -93,6 +87,8 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
 
     address public treasury;
     uint256 public launchFee;
+    /// @notice Later-send contract. When set, coins it marks as destination 1 or 2 cannot be claimed here.
+    address public creatorFeeHarvest;
 
     mapping(address => address) public stealthOwnerOf; // token => stealth owner
     mapping(address => uint256) public nonces;
@@ -114,6 +110,8 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     error Expired();
     error BadSignature();
     error NothingToClaim();
+    /// @notice This coin's creator fees are sent later to the locked pool or the burn, not to the stealth owner.
+    error CreatorFeesRouted();
 
     event AnonLaunched(
         address indexed token, address indexed curve, address indexed stealthOwner, uint256 tokensBought
@@ -163,6 +161,13 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         if (t == address(0)) revert ZeroAddress();
         treasury = t;
         emit TreasuryUpdated(t);
+    }
+
+    /// @notice Owner points claims at the later-send contract. Unset keeps today's claim behavior.
+    function setCreatorFeeHarvest(address harvest) external {
+        _checkOwner();
+        if (harvest == address(0)) revert ZeroAddress();
+        creatorFeeHarvest = harvest;
     }
 
     // ───────────────────────────── launch ─────────────────────────────
@@ -289,14 +294,7 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
             )
         );
         _useSig(so, h, deadline, sig);
-        // Destination 0: this launcher is still the Launchpad creator. Destinations 1 and 2: the creator-fee
-        // manager is the Launchpad creator and relays the edit. The stealth owner is unchanged either way.
-        ILaunchpadAdmin pad = ILaunchpadAdmin(address(launchpad));
-        if (pad.creatorFeeDestinationOf(token) == 0) {
-            pad.updateMetadata(token, imageURI, description, socialsURI);
-        } else {
-            ICreatorFeeMetadata(pad.creatorFeeManager()).updateMetadata(token, imageURI, description, socialsURI);
-        }
+        ILaunchpadAdmin(address(launchpad)).updateMetadata(token, imageURI, description, socialsURI);
     }
 
     /// @notice Move the stealth owner role. `newOwner` = address(0) is rejected. Unclaimed fees move with it.
@@ -386,6 +384,7 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         for (uint256 i; i < tokens.length; ++i) {
             address token = tokens[i];
             if (stealthOwnerOf[token] != so) revert NotStealthOwner();
+            if (_feesRouted(token)) revert CreatorFeesRouted();
             uint256 qAmt = fr.creatorAccrued(token, address(this));
             if (qAmt > 0) {
                 qAmt = fr.claimCreatorFees(token);
@@ -396,6 +395,26 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
             if (tAmt > 0) _pay(token, so, token, tAmt, to, relayerFeeBps);
             if (qAmt == 0 && tAmt == 0) revert NothingToClaim();
         }
+    }
+
+    /// @notice Self-claim this coin's rocket-token creator fees and hand them to the later-send contract.
+    ///         Anyone may call it. The stealth owner is not paid. Quote fees stay accrued for `route` to pull.
+    function forwardTokenFees(address token) external nonReentrant {
+        if (!_feesRouted(token)) revert CreatorFeesRouted();
+        IFeeRouterClaims fr = feeRouter;
+        if (fr.creatorTokenAccrued(token, address(this)) == 0) revert NothingToClaim();
+        uint256 amt = fr.claimCreatorTokenFees(token);
+        address harvest = creatorFeeHarvest;
+        IERC20(token).forceApprove(harvest, amt);
+        ICreatorFeeHarvest(harvest).depositRocketTokens(token, amt);
+    }
+
+    /// @dev Destination 1 or 2 on the later-send contract. Unset harvest means every coin is still claimable here.
+    function _feesRouted(address token) internal view returns (bool) {
+        address harvest = creatorFeeHarvest;
+        if (harvest == address(0)) return false;
+        uint8 dest = ICreatorFeeHarvest(harvest).creatorFeeDestinationOf(token);
+        return dest == 1 || dest == 2;
     }
 
     function _pay(address token, address so, address asset, uint256 amt, address to, uint256 relayerFeeBps) internal {

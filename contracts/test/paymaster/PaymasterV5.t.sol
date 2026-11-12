@@ -62,7 +62,7 @@ contract PaymasterV5Test is Test {
     uint256 constant TIP = 1 gwei;
     uint256 constant RATE = 2_300_000_000; // 2300 USDG per ETH, 6 decimals
     uint256 constant TRADE_CAP = 7_068_712;
-    uint256 constant LAUNCH_CAP = 21_940_348;
+    uint256 constant LAUNCH_CAP = 21_855_958;
     bytes4 internal constant DEPOSIT_SEL = bytes4(keccak256("deposit(address,uint256)"));
 
     function _asPm(EpOp memory op) internal pure returns (PmOp memory out) {
@@ -112,8 +112,7 @@ contract PaymasterV5Test is Test {
     }
 
     function _trade() internal view returns (bytes memory) {
-        return
-            abi.encodeCall(MiniAccount.execute, (address(usdg), 0, abi.encodeCall(ERC20.transfer, (address(acct), 0))));
+        return abi.encodeCall(MiniAccount.execute, (address(usdg), 0, abi.encodeCall(ERC20.transfer, (address(acct), 0))));
     }
 
     function _op(bytes memory callData) internal view returns (EpOp memory op) {
@@ -151,10 +150,7 @@ contract PaymasterV5Test is Test {
         ep.handleOps(ops, payable(bundler));
     }
 
-    function _send(EpOp memory op)
-        internal
-        returns (bool success, uint256 actualGasCost, uint256 actualGasUsed, uint256 charged)
-    {
+    function _send(EpOp memory op) internal returns (bool success, uint256 actualGasCost, uint256 actualGasUsed, uint256 charged) {
         vm.recordLogs();
         EpOp[] memory ops = new EpOp[](1);
         ops[0] = op;
@@ -183,8 +179,7 @@ contract PaymasterV5Test is Test {
         assertEq(pm.availableCredit(address(acct)), need);
         assertEq(usdg.balanceOf(address(pm)), need);
         uint256 treasuryBefore = usdg.balanceOf(treasury);
-        (bool ok, uint256 weiCost, uint256 used, uint256 charged) =
-            _send(_sign(_op(_trade()), need, pm.ALLOWANCE_TYPEHASH()));
+        (bool ok, uint256 weiCost, uint256 used, uint256 charged) = _send(_sign(_op(_trade()), need, pm.ALLOWANCE_TYPEHASH()));
         assertTrue(ok);
         assertGt(charged, 0);
         assertLe(charged, need, "charge stays inside the signed reservation");
@@ -207,7 +202,7 @@ contract PaymasterV5Test is Test {
         calls[1] = MiniAccount.Call(address(pm), 0, abi.encodeWithSelector(DEPOSIT_SEL, address(acct), top));
         calls[2] = MiniAccount.Call(address(rev), 0, abi.encodeCall(Reverter.fail, ()));
         uint256 walletBefore = usdg.balanceOf(address(acct));
-        (bool ok,,, uint256 charged) = _send(_sign(_op(_batch(calls)), need, pm.OP_QUOTE_TYPEHASH()));
+        (bool ok,, , uint256 charged) = _send(_sign(_op(_batch(calls)), need, pm.OP_QUOTE_TYPEHASH()));
         assertFalse(ok, "trade reverts");
         assertGt(charged, 0, "gas still taken from pre-existing credit");
         assertEq(pm.creditOf(address(acct)), need - charged, "reverted top-up is not credit");
@@ -257,7 +252,7 @@ contract PaymasterV5Test is Test {
         _fund(need + 7_000_000);
         bytes memory cd = abi.encodeCall(MiniAccount.execute, (address(pm), 0, abi.encodeCall(PM.withdraw, ())));
         uint256 before = usdg.balanceOf(address(acct));
-        (bool ok,,, uint256 charged) = _send(_sign(_op(cd), need, pm.OP_QUOTE_TYPEHASH()));
+        (bool ok,, , uint256 charged) = _send(_sign(_op(cd), need, pm.OP_QUOTE_TYPEHASH()));
         assertTrue(ok);
         assertGt(charged, 0);
         assertEq(pm.creditOf(address(acct)), 0, "no dust");
@@ -360,9 +355,7 @@ contract PaymasterV5Test is Test {
         assertGt(unpaid, 0, "protocol ETH is the unsecured exposure");
         console2.log("reverted bootstrap unpaid wei", unpaid);
         console2.log("reverted bootstrap gas", used);
-        g = _signFor(
-            _opFor(address(grief), _setup(address(grief), fund, false), ep.getNonce(address(grief), 0)), fund, USER_PK
-        );
+        g = _signFor(_opFor(address(grief), _setup(address(grief), fund, false), ep.getNonce(address(grief), 0)), fund, USER_PK);
         _mustRevert(g, _aa33(abi.encodeWithSelector(PM.InsufficientCredit.selector, 0, fund)));
     }
 
@@ -492,16 +485,14 @@ contract PaymasterV5Test is Test {
         vm.prank(owner);
         pm.setPaused(true);
         _fund(need);
-        _mustRevert(
-            _sign(_op(_trade()), need, pm.ALLOWANCE_TYPEHASH()), _aa33(abi.encodeWithSelector(PM.Paused.selector))
-        );
+        _mustRevert(_sign(_op(_trade()), need, pm.ALLOWANCE_TYPEHASH()), _aa33(abi.encodeWithSelector(PM.Paused.selector)));
     }
 
     function test_claim_is_not_player_credit() public {
         uint256 need = _need();
         _fund(need);
         vm.mockCall(address(usdg), abi.encodeWithSelector(ERC20.transfer.selector, treasury), abi.encode(false));
-        (bool ok,,, uint256 charged) = _send(_sign(_op(_trade()), need, pm.ALLOWANCE_TYPEHASH()));
+        (bool ok,, , uint256 charged) = _send(_sign(_op(_trade()), need, pm.ALLOWANCE_TYPEHASH()));
         assertTrue(ok);
         vm.clearMockedCalls();
         assertEq(pm.claimOf(treasury), charged);

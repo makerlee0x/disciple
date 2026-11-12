@@ -7,7 +7,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Constants} from "./libraries/Constants.sol";
 import {FeeMath} from "./libraries/FeeMath.sol";
 import {CurveMath} from "./libraries/CurveMath.sol";
-import {CreatorBuyQuote} from "./libraries/CreatorBuyQuote.sol";
 import {Token} from "./Token.sol";
 import {BondingCurve} from "./BondingCurve.sol";
 import {CurveDeployer} from "./CurveDeployer.sol";
@@ -86,14 +85,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
     ///         each curve: after it, a not-yet-graduated curve's escrow can be sent to RewardsVault by anyone.
     uint256 public snipeEscrowTimeout = Constants.SNIPE_ESCROW_TIMEOUT;
 
-    /// @notice On-chain creator for NEW coins whose creator fee is not kept by the launcher (destinations 1 and 2).
-    ///         Trades never call it. Address zero until the owner sets it; destination 0 does not need it.
-    address public creatorFeeManager;
-    /// @notice Fixed at launch. 0 (the default, including coins that never set one) = the creator keeps the creator
-    ///         fees. 1 = deposited into that rocket's locked liquidity pool, which is renounced. 2 = buy and burn the
-    ///         quote token. Existing coins stay 0 because this mapping is empty for them.
-    mapping(address => uint8) public creatorFeeDestinationOf;
-
     /// @notice Highest launch mode accepted (default Hard). Owner can open a future mode (<= 15) once a CurveDeployer
     ///         that understands it is set; the current BondingCurve still rejects mode > Hard (BadParams).
     uint8 public maxMode = Constants.MODE_PVP;
@@ -114,8 +105,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
     error CrewTipThresholdOutOfBounds();
     error SnipeEscrowTimeoutOutOfBounds();
     error NotRouter();
-    error BadFeeDestination();
-    error FeeManagerUnset();
 
     event Launched(
         address indexed token,
@@ -143,14 +132,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
     event LaunchMode(address indexed token, address indexed curve, uint8 mode);
     /// @notice Quote/USD price baked into the curve at launch (USD WAD per 1e18 raw quote units).
     event QuotePriced(address indexed token, address indexed quote, uint256 quotePriceUsd);
-    /// @notice Chosen once at launch and never changed. `beneficiary` is the launcher (the wallet, or AnonLauncher for
-    ///         a private launch): Token.creator and the Launched event keep that address. `feeOwner` is who
-    ///         FeeRouter pays. For destination 0 they are the same. For destinations 1 and 2, `feeOwner` is
-    ///         `creatorFeeManager` and does not move.
-    event CreatorFeeDestinationSet(
-        address indexed token, address indexed feeOwner, address indexed beneficiary, uint8 destination
-    );
-    event CreatorFeeManagerSet(address indexed manager);
     /// @notice Emitted at launch for off-chain/indexer tier tracking (no on-chain tier hooks).
     event LaunchTierContext(
         address indexed token, uint256 startMcapUsd, uint256 graduationMcapUsd, uint256 totalSupply, uint8 decimals_
@@ -251,15 +232,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
         emit LoginGateSet(g);
     }
 
-    /// @notice Owner sets the contract that receives creator fees for future coins with destination 1 or 2.
-    ///         Does not move coins already launched. Destination 0 never uses it.
-    function setCreatorFeeManager(address mgr) external {
-        if (msg.sender != owner) revert OnlyOwner();
-        if (mgr == address(0)) revert FeeManagerUnset();
-        creatorFeeManager = mgr;
-        emit CreatorFeeManagerSet(mgr);
-    }
-
     /// @notice Claim PVE holder rewards (profit-tax pool) of `token`'s curve. Works after graduation.
     function claim(address token) external returns (uint256) {
         address c = curveOf[token];
@@ -323,17 +295,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
         }
         if (params.creatorTaxBps > Constants.CREATOR_TAX_MAX_BPS) revert TaxTooHigh();
 
-        // Destination 0 keeps `creator` (the launcher) as the fee owner. Destinations 1 and 2 make the manager
-        // the fee owner so claims happen off the trade path. The launcher stays Token.creator, the curve's
-        // creator (First BOOST, Easy lock, KOL attribution) and the `creator` in the Launched event.
-        uint8 feeDest = params.creatorFeeDestination;
-        address feeOwner = creator;
-        if (feeDest != 0) {
-            if (feeDest > 2) revert BadFeeDestination();
-            feeOwner = creatorFeeManager;
-            if (feeOwner == address(0)) revert FeeManagerUnset();
-        }
-
         address quote = params.quote;
         if (quote == address(0)) {
             if (defaultQuote == address(0)) revert DefaultQuoteUnset();
@@ -347,8 +308,9 @@ contract Launchpad is ILaunchpad, Owned2Step {
             }
         }
 
-        Token t =
-            new Token(params.name, params.ticker, creator, address(this), address(this), mode == Constants.MODE_PVE);
+        Token t = new Token(
+            params.name, params.ticker, creator, address(this), address(this), mode == Constants.MODE_PVE
+        );
 
         // USD price is derived on-chain (never caller-supplied); reverts if no USDG reference pool.
         if (address(pricer) == address(0)) revert PricerUnset();
@@ -390,11 +352,10 @@ contract Launchpad is ILaunchpad, Owned2Step {
             imageURI: params.imageURI,
             description: params.description,
             socialsURI: params.socialsURI,
-            creator: feeOwner,
+            creator: creator,
             creatorTaxBps: params.creatorTaxBps,
             launchedAt: block.timestamp
         });
-        if (feeDest != 0) creatorFeeDestinationOf[address(t)] = feeDest;
         if (mode != Constants.MODE_TRENCH) modeOf[address(t)] = mode;
         emit LaunchMode(address(t), address(curve), mode);
         uint256 capBps = firstBoostMaxBps(mode);
@@ -419,7 +380,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
 
         result = LaunchResult({token: address(t), curve: address(curve), creatorTokensBought: bought});
         emit Launched(address(t), address(curve), creator, quote, params.name, params.ticker, params.creatorTaxBps);
-        emit CreatorFeeDestinationSet(address(t), feeOwner, creator, feeDest);
         // Off-chain/indexer consumes this for verified tier ladder — no on-chain tier hooks.
         emit QuotePriced(address(t), quote, quotePriceUsd);
         emit LaunchTierContext(
@@ -485,11 +445,20 @@ contract Launchpad is ILaunchpad, Owned2Step {
         view
         returns (uint256 tokensOut, uint256 fee, uint256 snipeFee, uint256 quotePriceUsd, bool exceedsCap)
     {
-        // The curve preview lives in CreatorBuyQuote (delegatecall) so this contract stays inside EIP-170.
-        // Error selectors match this contract: TaxTooHigh, DefaultQuoteUnset, PricerUnset.
-        return CreatorBuyQuote.preview(
-            quote, creatorBuyQuoteIn, creatorTaxBps, defaultQuote, address(pricer), firstBoostMaxBps(mode)
-        );
+        if (creatorTaxBps > Constants.CREATOR_TAX_MAX_BPS) revert TaxTooHigh();
+        if (quote == address(0)) quote = defaultQuote;
+        if (quote == address(0)) revert DefaultQuoteUnset();
+        if (address(pricer) == address(0)) revert PricerUnset();
+        quotePriceUsd = pricer.quotePriceUsd(quote);
+        // Creator launch buy is anti-snipe exempt (LOCKED #27): snipeFee is always 0.
+        uint256 afterSnipe = creatorBuyQuoteIn;
+        fee = FeeMath.protocolFee(afterSnipe) + FeeMath.creatorTax(afterSnipe, creatorTaxBps);
+        tokensOut = CurveMath.tokensOutForQuote(CurveMath.makeParams(quotePriceUsd), 0, afterSnipe - fee);
+        uint256 maxTokens = FeeMath.creatorBuyMax(firstBoostMaxBps(mode));
+        if (tokensOut > maxTokens) {
+            exceedsCap = true;
+            tokensOut = maxTokens;
+        }
     }
 
     /// @inheritdoc ILaunchpad

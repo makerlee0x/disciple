@@ -444,11 +444,6 @@ export const anonLauncherAbi = [
             "name": "deadline",
             "type": "uint256",
             "internalType": "uint256"
-          },
-          {
-            "name": "creatorFeeDestination",
-            "type": "uint8",
-            "internalType": "uint8"
           }
         ]
       },
@@ -562,11 +557,6 @@ export const anonLauncherAbi = [
             "name": "deadline",
             "type": "uint256",
             "internalType": "uint256"
-          },
-          {
-            "name": "creatorFeeDestination",
-            "type": "uint8",
-            "internalType": "uint8"
           }
         ]
       },
@@ -1079,12 +1069,12 @@ export const anonLauncherAbi = [
     ],
     "anonymous": false
   },
-  {
+    {
     "type": "error",
     "name": "BadRefundTo",
     "inputs": []
   },
-  {
+{
     "type": "error",
     "name": "BadSignature",
     "inputs": []

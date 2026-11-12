@@ -50,7 +50,7 @@ contract PaymasterLaunchRuntimeTest is PaymasterBootstrapFixture {
     address quoteAsset;
     uint256 minQuoteIn;
     uint256 constant FEE = 10_000_000; // RH fixture gas price, not a live USD/ETH price
-    uint256 constant MAX_LAUNCH_GAS = 21_940_348; // 2x worst measured launch: 10,970,174 gas
+    uint256 constant MAX_LAUNCH_GAS = 21_855_958; // 2x worst measured launch: 10,927,979 gas
 
     function setUp() public override {
         super.setUp();
@@ -119,8 +119,9 @@ contract PaymasterLaunchRuntimeTest is PaymasterBootstrapFixture {
         if (mode == 1 && install) {
             uint64 expiry = uint64(block.timestamp + 1 hours);
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xA77E57, LoginGate(gate).digest(smart, expiry));
-            calls[i++] =
-                MiniAccount.Call(gate, 0, abi.encodeCall(LoginGate.attest, (smart, expiry, abi.encodePacked(r, s, v))));
+            calls[i++] = MiniAccount.Call(
+                gate, 0, abi.encodeCall(LoginGate.attest, (smart, expiry, abi.encodePacked(r, s, v)))
+            );
         }
         address spender = kind == 0 ? lp : kind == 1 ? address(trade) : anon;
         if (kind == 2) {
@@ -145,8 +146,7 @@ contract PaymasterLaunchRuntimeTest is PaymasterBootstrapFixture {
             creatorTaxBps: 100,
             creatorBuyQuoteIn: kind == 1 ? 0 : boost,
             creatorBuyMinTokensOut: 0,
-            deadline: block.timestamp + 60,
-            creatorFeeDestination: 0
+            deadline: block.timestamp + 60
         });
         bytes memory data;
         if (kind == 0) data = abi.encodeCall(Launchpad.launchWithMode, (p, mode));

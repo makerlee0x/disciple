@@ -8,7 +8,9 @@ import {UsdgDepositNotifier} from "../../src/UsdgDepositNotifier.sol";
 import {DiscipleHook} from "../../src/DiscipleHook.sol";
 import {Migration} from "../../src/Migration.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
-import {LockedLP} from "../../src/LockedLP.sol";
+import {FeeRouter} from "../../src/FeeRouter.sol";
+import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
+import {CreatorFeeHarvest} from "../../src/addons/CreatorFeeHarvest.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 
 /// @notice Audit #5 / #10 / #1 / #2 / #12: the local deploy script output is wired correctly.
@@ -32,10 +34,13 @@ contract DeployConfigTest is Test {
         assertEq(Migration(o.migration).launchpad(), o.launchpad);
         assertEq(DiscipleHook(o.hook).migration(), o.migration);
 
-        // Creator-fee manager is wired into Launchpad and LockedLP. Destination 0 does not use it.
-        assertTrue(o.creatorFeeManager != address(0));
-        assertEq(Launchpad(o.launchpad).creatorFeeManager(), o.creatorFeeManager);
-        assertEq(LockedLP(o.lockedLP).creatorFeeManager(), o.creatorFeeManager);
+        // Later send is a claim router and a trusted launch router. It is not the coin's creator.
+        assertTrue(o.creatorFeeHarvest != address(0));
+        assertTrue(FeeRouter(o.feeRouter).isClaimRouter(o.creatorFeeHarvest));
+        assertTrue(Launchpad(o.launchpad).isTrustedRouter(o.creatorFeeHarvest));
+        assertEq(AnonLauncher(o.anonLauncher).creatorFeeHarvest(), o.creatorFeeHarvest);
+        assertEq(address(CreatorFeeHarvest(o.creatorFeeHarvest).launchpad()), o.launchpad);
+        assertEq(address(CreatorFeeHarvest(o.creatorFeeHarvest).lockedLP()), o.lockedLP);
 
         // #2 hook address carries the beforeInitialize flag
         assertTrue(uint160(o.hook) & Hooks.BEFORE_INITIALIZE_FLAG != 0);

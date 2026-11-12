@@ -299,8 +299,7 @@ contract TrampWallTest is IntegrationBase {
                 creatorTaxBps: 0,
                 creatorBuyQuoteIn: qIn,
                 creatorBuyMinTokensOut: tOut,
-                deadline: block.timestamp + 1,
-                creatorFeeDestination: 0
+                deadline: block.timestamp + 1
             })
         );
         vm.stopPrank();

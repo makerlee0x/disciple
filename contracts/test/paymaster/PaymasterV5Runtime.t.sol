@@ -39,7 +39,7 @@ contract PaymasterV5RuntimeTest is PaymasterBootstrapFixture {
         rate = 3000 ether;
         v5 = new PM(EP, address(usdg), owner, signer, treasury, rate / 10, rate * 10, 7_068_712, 150_000);
         vm.prank(owner);
-        v5.setLaunchGasLimit(21_940_348);
+        v5.setLaunchGasLimit(21_855_958);
         v5.deposit{value: 1 ether}();
         vm.fee(0);
         trade = BootstrapBuy(market.routerAddress());
@@ -95,8 +95,9 @@ contract PaymasterV5RuntimeTest is PaymasterBootstrapFixture {
         selectors[0] = MiniAccount.execute.selector;
         selectors[1] = MiniAccount.executeBatch.selector;
         bytes[] memory hooks = new bytes[](2);
-        hooks[0] =
-            abi.encodePacked(bytes25(abi.encodePacked(address(policy5), ENTITY, uint8(1))), abi.encode(ENTITY, cfg));
+        hooks[0] = abi.encodePacked(
+            bytes25(abi.encodePacked(address(policy5), ENTITY, uint8(1))), abi.encode(ENTITY, cfg)
+        );
         hooks[1] = abi.encodePacked(
             bytes25(abi.encodePacked(address(policy5), ENTITY | policy5.EXEC_HOOK_FLAG(), uint8(4))),
             abi.encode(ENTITY | policy5.EXEC_HOOK_FLAG())
@@ -156,9 +157,8 @@ contract PaymasterV5RuntimeTest is PaymasterBootstrapFixture {
         op.callData = abi.encodePacked(bytes4(0x8dd7712f), inner);
         op = _limits(op, 500_000, callGas);
         op = _sign(op, _need(op), launch, false);
-        op.signature = abi.encodePacked(
-            hex"ff00", _nativeSig(SESSION_PK, MessageHashUtils.toEthSignedMessageHash(ep.getUserOpHash(op)))
-        );
+        op.signature =
+            abi.encodePacked(hex"ff00", _nativeSig(SESSION_PK, MessageHashUtils.toEthSignedMessageHash(ep.getUserOpHash(op))));
     }
 
     function _measure(string memory label, EpOp memory op) internal returns (uint256 used) {
@@ -245,9 +245,7 @@ contract PaymasterV5RuntimeTest is PaymasterBootstrapFixture {
 
     function _filled(uint256 n) internal pure returns (string memory) {
         bytes memory v = new bytes(n);
-        for (uint256 i; i < n; ++i) {
-            v[i] = bytes1(uint8(97 + (i % 26)));
-        }
+        for (uint256 i; i < n; ++i) v[i] = bytes1(uint8(97 + (i % 26)));
         return string(v);
     }
 
@@ -267,8 +265,7 @@ contract PaymasterV5RuntimeTest is PaymasterBootstrapFixture {
             creatorTaxBps: 100,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: 0,
-            deadline: block.timestamp + 60,
-            creatorFeeDestination: 0
+            deadline: block.timestamp + 60
         });
         bytes memory inner = abi.encodeCall(
             MiniAccount.execute, (launchTarget, 0, abi.encodeCall(Launchpad.launchWithMode, (p, uint8(0))))

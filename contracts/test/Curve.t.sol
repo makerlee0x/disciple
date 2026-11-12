@@ -69,7 +69,7 @@ contract CurveTest is Test {
     function setUp() public {
         quote = new MockQuote();
         referrals = new ReferralRegistry(owner, address(quote));
-        lockedLP = new LockedLP(owner, treasury);
+        lockedLP = new LockedLP(owner, treasury, address(0));
         feeRouter = new FeeRouter(owner, treasury, address(referrals));
 
         // PoolManager + mined hook + Migration (3 CREATE/CREATE2)
@@ -123,8 +123,7 @@ contract CurveTest is Test {
             creatorTaxBps: 0,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: 0,
-            deadline: ts + 1 hours,
-            creatorFeeDestination: 0
+            deadline: ts + 1 hours
         });
         ILaunchpad.LaunchResult memory r = launchpad.launch(p);
         vm.stopPrank();
@@ -365,8 +364,7 @@ contract CurveTest is Test {
             creatorTaxBps: 0,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: 0,
-            deadline: ts + 1 hours,
-            creatorFeeDestination: 0
+            deadline: ts + 1 hours
         });
         ILaunchpad.LaunchResult memory r = launchpad.launch(p);
         vm.stopPrank();
@@ -401,11 +399,7 @@ contract CurveTest is Test {
         assertEq(curve.snipeEscrow(), expectedSnipe, "escrowed");
         assertEq(quote.balanceOf(address(rewardsVault)), 0, "nothing to the vault on the buy");
         assertEq(escrowAfter - escrowBefore, lps, "no snipe to LP yet");
-        assertEq(
-            (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - treBefore,
-            ts_ + rs,
-            "proto treasury only"
-        );
+        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - treBefore, ts_ + rs, "proto treasury only");
         assertEq(feeRouter.creatorAccrued(tok, alice) - creatorBefore, cs);
     }
 

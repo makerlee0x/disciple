@@ -29,8 +29,7 @@ contract KolCreatorShareTest is IntegrationBase {
                 creatorTaxBps: 0,
                 creatorBuyQuoteIn: 0,
                 creatorBuyMinTokensOut: 0,
-                deadline: block.timestamp + 1 hours,
-                creatorFeeDestination: 0
+                deadline: block.timestamp + 1 hours
             })
         );
         assertEq(feeRouter.tokenLaunchKol(r.token), kol);
@@ -80,7 +79,9 @@ contract KolCreatorShareTest is IntegrationBase {
         assertEq(feeRouter.referrerAccrued(kol, address(quote)), k1, "setter does not touch accruals");
         _buy(c, trader1, BUY, 0);
         assertEq(feeRouter.referrerAccrued(kol, address(quote)) - k1, REF + CREATOR_RAW * 500 / 10_000);
-        assertEq(feeRouter.creatorAccrued(address(c.token()), referred) - cr1, CREATOR_RAW - CREATOR_RAW * 500 / 10_000);
+        assertEq(
+            feeRouter.creatorAccrued(address(c.token()), referred) - cr1, CREATOR_RAW - CREATOR_RAW * 500 / 10_000
+        );
 
         _set(0);
         uint256 k2 = feeRouter.referrerAccrued(kol, address(quote));

@@ -8,15 +8,8 @@ import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 /// @notice Shared helpers: create standard hookless (base, USDG) v4 pools, warm the TWAP, launch on a base.
 abstract contract BaseTestBase is IntegrationBase {
     function _std(address base, uint24 fee, int24 ts, uint128 liq) internal returns (PoolKey memory key) {
-        (address c0, address c1) =
-            uint160(base) < uint160(address(quote)) ? (base, address(quote)) : (address(quote), base);
-        key = PoolKey({
-            currency0: Currency.wrap(c0),
-            currency1: Currency.wrap(c1),
-            fee: fee,
-            tickSpacing: ts,
-            hooks: IHooks(address(0))
-        });
+        (address c0, address c1) = uint160(base) < uint160(address(quote)) ? (base, address(quote)) : (address(quote), base);
+        key = PoolKey({currency0: Currency.wrap(c0), currency1: Currency.wrap(c1), fee: fee, tickSpacing: ts, hooks: IHooks(address(0))});
         manager.initialize(key, uint160(1) << 96);
         PoolModifyLiquidityTest lp = new PoolModifyLiquidityTest(manager);
         MockUSDG(base).mint(address(this), 1e30);
@@ -26,9 +19,7 @@ abstract contract BaseTestBase is IntegrationBase {
         int24 hi = (887272 / ts) * ts;
         lp.modifyLiquidity(
             key,
-            IPoolManager.ModifyLiquidityParams({
-                tickLower: -hi, tickUpper: hi, liquidityDelta: int256(uint256(liq)), salt: 0
-            }),
+            IPoolManager.ModifyLiquidityParams({tickLower: -hi, tickUpper: hi, liquidityDelta: int256(uint256(liq)), salt: 0}),
             ""
         );
     }
@@ -50,17 +41,8 @@ abstract contract BaseTestBase is IntegrationBase {
         vm.prank(creator);
         r = launchpad.launchCoin(
             ILaunchpad.LaunchParams({
-                name: "B",
-                ticker: "B",
-                imageURI: "ipfs://b",
-                description: "",
-                socialsURI: "",
-                quote: base,
-                creatorTaxBps: 0,
-                creatorBuyQuoteIn: 0,
-                creatorBuyMinTokensOut: 0,
-                deadline: vm.getBlockTimestamp() + 1 days,
-                creatorFeeDestination: 0
+                name: "B", ticker: "B", imageURI: "ipfs://b", description: "", socialsURI: "", quote: base,
+                creatorTaxBps: 0, creatorBuyQuoteIn: 0, creatorBuyMinTokensOut: 0, deadline: vm.getBlockTimestamp() + 1 days
             })
         );
     }

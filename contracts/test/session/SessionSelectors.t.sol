@@ -36,7 +36,7 @@ contract SessionSelectorsTest is Test {
             s[7],
             bytes4(
                 keccak256(
-                    "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256,uint8),address,address,bytes,bytes1,uint256)"
+                    "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1,uint256)"
                 )
             )
         );
