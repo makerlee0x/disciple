@@ -22,12 +22,15 @@ ok(/setGameSettings/.test(hook) && /music: \{ \.\.\.g\.music, vol:/.test(hook) &
 ok(!/SETTINGS_KEY|disciple:audio-radio|sfx:/.test(hook), "player does not introduce a separate audio storage key");
 ok(/useDomCard\("radio"/.test(hook) && /data-card="radio"/.test(hook), "mini player is a DOM card (useDomCard + data-card=radio)");
 ok(/right: 16/.test(hook) && /bottom: 16/.test(hook), "default position is bottom right of the screen");
-ok(/title="Minimize"/.test(hook) && /Show Music/.test(hook), "phone minimize / restore uses the same Minimize and Show Music wording as the card chrome pills");
-ok(/Previous track/.test(hook) && /Next track/.test(hook) && /Music volume/.test(hook), "control labels are plain English");
+ok(/title="Minimize"/.test(hook) && /Show Radio/.test(hook) && /▸ RADIO/.test(hook), "phone minimize / restore uses Minimize and Show Radio / RADIO");
+ok(/Previous track/.test(hook) && /Next track/.test(hook) && /Music volume/.test(hook), "control labels are plain English; volume still uses the Music setting name");
+ok(!/data-testid="radio-track"/.test(hook) && !/st\.trackTitle/.test(hook), "the player does not show a track name");
+ok(/--radio-vol/.test(hook) && /linear-gradient/.test(hook), "the volume track is filled up to the current Music level");
 const layout = readFileSync(join(web, "lib/game/cardLayout.ts"), "utf8");
 const chrome = readFileSync(join(web, "components/flight/CardChrome.tsx"), "utf8");
-ok(/FLOAT_CARDS[\s\S]*radio/.test(layout) && /radio: "Music"/.test(layout), "radio is a FLOAT_CARD titled Music in cardLayout.ts");
+ok(/FLOAT_CARDS[\s\S]*radio/.test(layout) && /radio: "Radio"/.test(layout), "radio is a FLOAT_CARD titled Radio in cardLayout.ts");
 ok(/FLOAT_CARDS\.includes/.test(chrome) && /radio: '\[data-card="radio"\]'/.test(chrome), "CardChrome reuses ⠿ / – / × for radio and keeps it out of the slot snap flow");
+ok(/startDrag\(id\)/.test(chrome) && /pillMoved/.test(chrome) && /id === "radio"/.test(chrome), "the Radio restore pill reuses CardChrome drag (other pills stay click-to-restore)");
 ok(menu.includes("audio-${ch}-toggle") && menu.includes("audio.music") && menu.includes("audio-${ch}-vol"), "settings still use the existing Music toggle and slider");
 ok(i18n.includes("Music plays during a flight. Sound effects aren't in yet."), "EN audio.note no longer says sounds don't ship");
 

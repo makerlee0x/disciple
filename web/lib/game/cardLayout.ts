@@ -29,7 +29,7 @@ export const RESIZABLE: Partial<Record<CardId, { minW: number; minH: number; def
 };
 export const CARD_IDS: CardId[] = [...CANVAS_CARDS, ...DOM_CARDS];
 export const CARD_TITLES: Record<CardId, string> = {
-  header: "Coin", trades: "Trades", chart: "Chart", pnl: "Your position", chat: "Holders", radio: "Music",
+  header: "Coin", trades: "Trades", chart: "Chart", pnl: "Your position", chat: "Holders", radio: "Radio",
 };
 export const LAYOUT_PREFIX = "disciple.layout.v1:";
 export const layoutKey = (account: string | null | undefined) => LAYOUT_PREFIX + (account && /^0x[0-9a-fA-F]{40}$/.test(account) ? account.toLowerCase() : "guest");
