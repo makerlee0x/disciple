@@ -16,7 +16,10 @@ type Hdri = {
   file: string; title: string; kind: string; author: string; url: string; license: { name: string; url: string };
   exposure: number; envrot: number;
   /** saturation applied to the HDR pixels at load (1 = as shot); used only to neutralise a warm studio */
-  sat?: number; bg: "studio" | "hdri" | "blur" | "plate"; bgrot?: number;
+  sat?: number;
+  /** extra thin vertical strip lights painted into the HDR (u = equirect x 0..1, w = width in degrees, i = radiance) */
+  strips?: { u: number; w: number; i: number }[];
+  bg: "studio" | "hdri" | "blur" | "plate"; bgrot?: number;
   /** the approved 16:9 backdrop, shown unchanged (cover-fit) when bg=plate */
   plate?: string;
   /** a real light matching the plate's brightest region (direction in the file's equirectUv frame, before envrot) */
@@ -26,13 +29,18 @@ type Hdri = {
  *  (both Poly Haven, CC0), then DISCIPLE's own Launch Pad plate (BRAND env r1 — an LDR plate wrapped + highlight-boosted,
  *  not a true 360° HDRI; see /workspace/disciple-brand/mockups/flight-3d-lookdev-r1/env/README.md). */
 export const HDRIS: Record<"ferndale_studio_07" | "ferndale_studio_01" | "rooftop_night" | "launch_pad", Hdri> = {
-  // hero look-dev light (r2): a dark studio with several structured sources (strip tubes, a big round softbox, practicals),
+  // hero look-dev light (r2/r3): a dark studio with several structured sources (strip tubes, a big round softbox, practicals),
   // so the chrome shows a mix of thin and wide bands instead of two wide lobes. Its warm tungsten cast is neutralised
   // (sat 0.35) to judge the metal against the cool-neutral official sprite; the light's shape and intensity are as shot.
+  // r3 adds 7 thin vertical strips of uneven width/spacing (see `strips`) for the match; ?strips=0 shows the bare photo.
   ferndale_studio_07: {
     file: "/lookdev/hdri/ferndale_studio_07_2k.hdr", title: "Ferndale Studio 07", kind: "studio, hero",
     author: "Dimitrios Savva (photography), Greg Zaal (processing)", url: "https://polyhaven.com/a/ferndale_studio_07", license: CC0,
-    exposure: 2.2, envrot: 120, bg: "studio", sat: 0.35,
+    exposure: 0.9, envrot: 120, bg: "studio", sat: 0.35,
+    strips: [
+      { u: 0.03, w: 1.2, i: 18 }, { u: 0.11, w: 3.5, i: 12 }, { u: 0.31, w: 2.2, i: 15 }, { u: 0.44, w: 0.9, i: 21 },
+      { u: 0.53, w: 4.0, i: 10.5 }, { u: 0.71, w: 1.6, i: 15 }, { u: 0.86, w: 2.8, i: 12 },
+    ],
   },
   ferndale_studio_01: {
     file: "/lookdev/hdri/ferndale_studio_01_2k.hdr", title: "Ferndale Studio 01", kind: "studio, r1 single softbox",
@@ -112,6 +120,28 @@ export async function startLookdev(canvas: HTMLCanvasElement, search: string): P
     for (let i = 0; i < d.length; i += 4) {
       const l = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
       d[i] = l + sat * (d[i] - l); d[i + 1] = l + sat * (d[i + 1] - l); d[i + 2] = l + sat * (d[i + 2] - l);
+    }
+    hdr.needsUpdate = true;
+  }
+  const stripGain = num(q, "strips", 1);
+  if (H0.strips && stripGain > 0) {
+    // A few thin vertical softbox strips added to the real studio (look-dev only; not a dense grid). Uneven widths and
+    // spacing so the chrome shows the official's mix of thin and wide bands. Soft top/bottom ends, ±50° elevation.
+    const img = hdr.image as unknown as { data: Float32Array; width: number; height: number };
+    const { data: d, width: W, height: Hh } = img;
+    for (const st of H0.strips) {
+      const half = (st.w / 360) * W * 0.5, cx = st.u * W;
+      for (let y = 0; y < Hh; y++) {
+        const el = 90 - (y / Hh) * 180; const ve = Math.max(0, 1 - Math.max(0, Math.abs(el) - 40) / 10);
+        if (ve <= 0) continue;
+        for (let x = Math.floor(cx - half - 2); x <= Math.ceil(cx + half + 2); x++) {
+          const xx = ((x % W) + W) % W, dx = Math.abs(x + 0.5 - cx);
+          const he = Math.max(0, Math.min(1, half + 0.75 - dx));   // ~1.5 px soft edge
+          if (he <= 0) continue;
+          const k = (xx + y * W) * 4, v = st.i * stripGain * ve * he;
+          d[k] = Math.max(d[k], v); d[k + 1] = Math.max(d[k + 1], v); d[k + 2] = Math.max(d[k + 2], v);
+        }
+      }
     }
     hdr.needsUpdate = true;
   }

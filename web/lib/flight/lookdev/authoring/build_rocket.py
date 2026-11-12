@@ -66,7 +66,7 @@ nose = catmull([(2, 0.0), (6, 5.5), (12, 9.5), (18, 12.5), (24, 15.0), (30, 17.5
                 (60, 29.5), (72, 33.5), (84, 37.3), (96, 40.6), (108, 43.6), (112, 44.5)], 4)
 nose[0] = (2.0, 0.0)
 body_prof = nose + [(116, 45.6), (122, 46.5), (130, 47.2), (140, 47.5), (176, 47.6), (186, 48.5), (330, 48.5), (538, 48.5)] \
-    + catmull([(538, 48.5), (546, 47.4), (552, 43.0), (558, 38.8), (564, 34.5), (568, 30.5)], 4)[1:] + [(569, 20.0), (569.5, 0.0)]
+    + catmull([(538, 48.5), (546, 47.4), (552, 43.5), (558, 39.5), (564, 34.5), (569, 29.0), (573, 22.5)], 4)[1:] + [(575.0, 12.0), (575.5, 0.0)]
 BANDS = (112.0, 181.0)
 
 def hull_eps(row, a):
@@ -77,7 +77,13 @@ def hull_eps(row, a):
     fade = min(1.0, max(0.0, (row - 14) / 40.0))
     for bnd in BANDS: fade *= min(1.0, abs(row - bnd) / 9.0) ** 2 if abs(row - bnd) < 9 else 1.0
     if row > 536: fade *= max(0.0, 1.0 - (row - 536) / 14.0)
-    return fade * (0.022 * math.cos(3 * a + 0.4) + 0.016 * math.cos(5 * a + 2.1) + 0.010 * math.cos(7 * a + 4.0))
+    low = 0.028 * math.cos(3 * a + 0.4) + 0.020 * math.cos(5 * a + 2.1) + 0.0125 * math.cos(7 * a + 4.0)
+    # r3: a slightly higher-frequency, IRREGULAR, smooth undulation (11/13/19 lobes with phases that drift slowly along
+    # the length), so the reflection breaks into thin and wide bands of uneven width. Each term is < 0.5 % of the radius;
+    # max tilt per term ~3 deg. Not even flutes: the lobes are unequal and wander.
+    hi = (0.0045 * math.cos(11 * a + 1.3 + 0.006 * row) + 0.0032 * math.cos(13 * a + 3.7 - 0.004 * row)
+          + 0.0018 * math.cos(19 * a + 0.2 + 0.009 * row))
+    return fade * (low + hi)
 
 def lathe_eps(name, prof, segs):
     me = bpy.data.meshes.new(name); bm = bmesh.new(); rings = []
@@ -115,8 +121,9 @@ band2 = band(BANDS[1], 47.9, 3.6, "BandLower")
 # curves INWARD to meet the body. Built as a thin airfoil-like shell (no flat card) with a gentle compound curve
 # (chordwise bow + spanwise curl + a little twist) so the reflections break into many thin streaks. No grooves.
 LEAD = [(43.0, 321.0), (48.5, 330.0), (70.0, 374.0), (90.0, 414.0), (104.0, 444.0), (107.5, 452.0), (108.5, 460.0)]
-TRAIL = [(43.0, 527.0), (48.5, 531.0), (54.0, 535.0), (60.0, 538.0), (65.5, 541.0), (72.0, 546.0), (78.5, 552.0), (89.5, 564.0),
-         (99.5, 576.0), (103.5, 581.5), (105.5, 582.5), (107.5, 580.0), (108.5, 574.0)]
+# r3: trailing edge scooped deeper (concave), fin tips dropped to nozzle height
+TRAIL = [(43.0, 519.0), (48.5, 523.0), (56.0, 527.0), (65.0, 532.0), (74.0, 539.0), (82.0, 546.0), (90.0, 555.0), (97.0, 565.0),
+         (102.0, 575.0), (105.0, 584.0), (107.0, 586.0), (108.3, 581.0), (108.5, 575.0)]
 H_ROOT, H_TIP = 43.0, 108.5
 def fin(angle, name, NS=56, NT=72):
     me = bpy.data.meshes.new(name); bm = bmesh.new()
@@ -135,8 +142,15 @@ def fin(angle, name, NS=56, NT=72):
             half = 0.5 * (th0 + rim) * edge
             # compound curve: chordwise bow that grows outboard, spanwise curl, a little twist and a gentle S along the chord,
             # so the fin is doubly curved everywhere and the reflections break into many thin streaks
-            camber = (4.6 * math.sin(math.pi * t) * s ** 1.1 + 3.6 * s * s + 4.2 * (t - 0.5) * s
-                      - 2.2 * math.sin(2 * math.pi * t) * s * (1 - 0.5 * s))
+            camber = (7.0 * math.sin(math.pi * t) * s ** 1.1 + 5.0 * s * s + 6.0 * (t - 0.5) * s
+                      - 3.0 * math.sin(2 * math.pi * t) * s * (1 - 0.5 * s))
+            # r3: a slight, smooth, irregular undulation across the chord whose crests run root -> tip along the sweep (like the
+            # official streaks). Zero at the root and at the edges. Not grooves: amplitude <= ~1.6 px over 25-65 px wavelengths.
+            # ridges run along lines of constant chord fraction, i.e. root -> tip parallel to the swept leading edge
+            u = 0.88 * t + 0.12 * s
+            env = math.sin(math.pi * t) ** 0.7 * s ** 0.5
+            camber += env * (1.0 * math.sin(2 * math.pi * 3.1 * u + 0.7) + 0.7 * math.sin(2 * math.pi * 5.3 * u + 2.2 + 1.5 * t)
+                             + 0.4 * math.sin(2 * math.pi * 8.2 * u + 4.1))
             x, z = R(h), Z(row)
             if half < 1e-4:
                 v = bm.verts.new((x, R(camber), z)); rt.append(v); rb.append(v)
@@ -170,13 +184,16 @@ def torus(name, row, major, minor):
     ob = bpy.context.active_object; ob.name = name
     for p in ob.data.polygons: p.use_smooth = True
     return ob
-rings = [torus("Ring0", 554.0, 43.0, 3.2), torus("Ring1", 563.0, 37.5, 3.6), torus("Ring2", 572.0, 31.0, 3.8)]
+rings = []   # r3: the ribbed skirt is gone (the official has no rib stack); the boat-tail runs smoothly into the bells
 def nozzle(name, x, y):
-    prof = [(566.0, 4.6), (572.0, 5.0), (577.0, 5.6), (582.0, 6.6), (586.0, 7.4), (588.0, 7.7), (589.5, 7.1), (588.0, 6.2), (582.0, 5.0), (574.0, 4.0)]
+    # r3: a smoother, rounded bell (bulb shoulder, neck, flared lip) so the four read as a rounded group
+    prof = [(563.0, 3.0), (565.0, 6.0), (568.0, 8.0), (572.0, 8.6), (576.0, 7.6), (579.0, 7.0), (582.5, 7.6), (585.5, 8.4), (586.6, 8.0),
+            (586.0, 7.0), (582.0, 5.6), (575.0, 4.6)]
     ob = lathe(name, prof, 48); ob.location = (R(x), R(y), 0); return ob
-pins = [nozzle(f"Nozzle{k}", 23.5 * math.cos(math.pi / 2 * k), 23.5 * math.sin(math.pi / 2 * k)) for k in range(4)]
-spike = lathe("Spike", [(562.0, 0.0), (563.0, 3.0), (566.0, 4.5)] + [(r, 4.5) for r in range(570, 602, 4)]
-              + [(602.0, 4.5), (604.5, 3.8), (606.2, 2.4), (607.0, 0.0)], 48)
+pins = [nozzle(f"Nozzle{k}", 22.0 * math.cos(math.pi / 2 * k), 22.0 * math.sin(math.pi / 2 * k)) for k in range(4)]
+# r3: the centre spike is more prominent (thicker, chrome like the hull, a small collar where it leaves the body)
+spike = lathe("Spike", [(570.0, 0.0), (571.0, 7.5), (573.0, 8.0), (575.5, 6.4), (577.0, 5.4)] + [(r, 5.2) for r in range(580, 602, 3)]
+              + [(602.0, 5.2), (604.6, 4.4), (606.5, 2.8), (607.4, 0.0)], 64)
 # ---------------- apply modifiers, join, UV
 objs = [o for o in scene.objects if o.type == "MESH"]
 for o in objs:
