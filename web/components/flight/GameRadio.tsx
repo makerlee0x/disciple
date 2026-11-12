@@ -30,9 +30,9 @@ const PANEL: React.CSSProperties = {
   right: 16,
   bottom: 16,
   zIndex: 36,
-  width: 280,
-  padding: "8px 10px 10px",
-  borderRadius: 10,
+  width: 216,
+  padding: "5px 7px 6px",
+  borderRadius: 8,
   background: "rgba(8,10,28,.92)",
   border: "1px solid rgba(255,231,163,.35)",
   color: INK,
@@ -56,13 +56,13 @@ const PILL: React.CSSProperties = {
   right: 16,
   bottom: 16,
   zIndex: 36,
-  padding: "2px 8px",
-  borderRadius: 8,
+  padding: "2px 6px",
+  borderRadius: 6,
   background: "rgba(8,10,28,.86)",
   border: "1px solid rgba(255,231,163,.45)",
   color: GOLD,
   fontFamily: MONO,
-  fontSize: 11,
+  fontSize: 10,
   fontWeight: 700,
   letterSpacing: ".06em",
   pointerEvents: "auto",
@@ -194,6 +194,14 @@ export default function GameRadio() {
 
   return (
     <>
+      <style>{`
+        [data-testid="radio-volume"] { -webkit-appearance: none; appearance: none; background: transparent; }
+        [data-testid="radio-volume"]::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: rgba(255,231,163,.28); }
+        [data-testid="radio-volume"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 10px; height: 10px; margin-top: -3.5px; border-radius: 50%; background: #ffe7a3; border: 0; }
+        [data-testid="radio-volume"]::-moz-range-track { height: 3px; border-radius: 2px; background: rgba(255,231,163,.28); }
+        [data-testid="radio-volume"]::-moz-range-thumb { width: 10px; height: 10px; border-radius: 50%; background: #ffe7a3; border: 0; }
+      `}</style>
+
       <div
         ref={ref}
         data-card="radio"
@@ -205,8 +213,8 @@ export default function GameRadio() {
           display: hidePanel ? "none" : undefined,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, minHeight: 22 }}>
-          <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, minHeight: 16 }}>
+          <div style={{ position: "relative", flex: "0 0 auto" }}>
             <button
               type="button"
               data-testid="radio-station"
@@ -217,17 +225,17 @@ export default function GameRadio() {
               onClick={() => setPicker((p) => !p)}
               style={{
                 ...BTN,
-                gap: 6,
+                gap: 2,
                 color: GOLD,
-                fontSize: 11,
+                fontSize: 9,
                 fontWeight: 800,
-                letterSpacing: ".08em",
+                letterSpacing: ".06em",
                 textTransform: "uppercase",
-                lineHeight: "18px",
+                lineHeight: "14px",
               }}
             >
               {station?.label ?? "House"}
-              <Ico d={ICONS.chevron} size={12} />
+              <Ico d={ICONS.chevron} size={9} />
             </button>
             {picker && (
               <div
@@ -239,10 +247,10 @@ export default function GameRadio() {
                   left: 0,
                   top: "100%",
                   zIndex: 2,
-                  minWidth: 140,
-                  marginTop: 4,
-                  padding: 4,
-                  borderRadius: 8,
+                  minWidth: 110,
+                  marginTop: 2,
+                  padding: 3,
+                  borderRadius: 6,
                   background: "rgba(10,12,30,.96)",
                   border: "1px solid rgba(255,231,163,.35)",
                   boxShadow: "0 8px 24px rgba(0,0,0,.5)",
@@ -262,14 +270,14 @@ export default function GameRadio() {
                       width: "100%",
                       justifyContent: "flex-start",
                       boxSizing: "border-box",
-                      padding: "6px 8px",
-                      borderRadius: 6,
+                      padding: "4px 6px",
+                      borderRadius: 4,
                       color: s.id === st.stationId ? "#151830" : INK,
                       background: s.id === st.stationId ? GOLD : "transparent",
-                      fontSize: 12,
+                      fontSize: 10,
                       fontWeight: 700,
                       letterSpacing: ".04em",
-                      lineHeight: "16px",
+                      lineHeight: "14px",
                     }}
                   >
                     {s.label}
@@ -278,14 +286,14 @@ export default function GameRadio() {
               </div>
             )}
           </div>
+          <div style={{ color: DIM, fontSize: 9, letterSpacing: ".02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0, lineHeight: "14px" }} data-testid="radio-track" title={st.trackTitle}>
+            {st.trackTitle}
+          </div>
           {phone && (
-            <button type="button" data-testid="radio-min" title="Minimize" aria-label="Minimize" onClick={() => updateLayout((l) => setCard(l, "radio", { min: true }))} style={{ ...BTN, fontSize: 14, padding: "0 4px", lineHeight: "16px" }}>–</button>
+            <button type="button" data-testid="radio-min" title="Minimize" aria-label="Minimize" onClick={() => updateLayout((l) => setCard(l, "radio", { min: true }))} style={{ ...BTN, fontSize: 12, padding: "0 2px", lineHeight: "14px", flex: "0 0 auto" }}>–</button>
           )}
         </div>
-        <div style={{ color: DIM, fontSize: 10, letterSpacing: ".02em", margin: "-2px 0 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} data-testid="radio-track" title={st.trackTitle}>
-          {st.trackTitle}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4, marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2, marginBottom: 3 }}>
           <button
             type="button"
             data-testid="radio-repeat"
@@ -295,11 +303,11 @@ export default function GameRadio() {
             onClick={toggleRepeat}
             style={{ ...BTN, opacity: st.repeat === "one" ? 1 : 0.55, position: "relative" }}
           >
-            <Ico d={ICONS.repeat} size={16} />
-            {st.repeat === "one" && <span style={{ position: "absolute", right: -4, bottom: -4, fontSize: 8, fontWeight: 800, color: GOLD }}>1</span>}
+            <Ico d={ICONS.repeat} size={12} />
+            {st.repeat === "one" && <span style={{ position: "absolute", right: -3, bottom: -3, fontSize: 7, fontWeight: 800, color: GOLD }}>1</span>}
           </button>
           <button type="button" data-testid="radio-prev" aria-label="Previous track" title="Previous track" onClick={() => skip(-1)} style={BTN}>
-            <Ico d={ICONS.prev} size={18} fill />
+            <Ico d={ICONS.prev} size={14} fill />
           </button>
           <button
             type="button"
@@ -307,12 +315,12 @@ export default function GameRadio() {
             aria-label={playing ? "Pause" : "Play"}
             title={playing ? "Pause" : "Play"}
             onClick={playing ? pause : play}
-            style={{ ...BTN, width: 36, height: 36, borderRadius: 18, border: `1px solid ${GOLD}`, background: playing ? "rgba(255,231,163,.14)" : "rgba(255,231,163,.08)" }}
+            style={{ ...BTN, width: 26, height: 26, borderRadius: 13, border: `1px solid ${GOLD}`, background: playing ? "rgba(255,231,163,.14)" : "rgba(255,231,163,.08)" }}
           >
-            <Ico d={playing ? ICONS.pause : ICONS.play} size={18} fill />
+            <Ico d={playing ? ICONS.pause : ICONS.play} size={13} fill />
           </button>
           <button type="button" data-testid="radio-next" aria-label="Next track" title="Next track" onClick={() => skip(1)} style={BTN}>
-            <Ico d={ICONS.next} size={18} fill />
+            <Ico d={ICONS.next} size={14} fill />
           </button>
           <button
             type="button"
@@ -323,12 +331,12 @@ export default function GameRadio() {
             onClick={toggleShuffle}
             style={{ ...BTN, opacity: st.shuffle ? 1 : 0.55 }}
           >
-            <Ico d={ICONS.shuffle} size={16} />
+            <Ico d={ICONS.shuffle} size={12} />
           </button>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <button type="button" data-testid="radio-mute" aria-label={musicOn ? "Mute Music" : "Turn Music on"} title={musicOn ? "Mute Music" : "Turn Music on"} onClick={toggleMute} style={{ ...BTN, opacity: musicOn ? 1 : 0.5 }}>
-            <Ico d={musicOn ? ICONS.speaker : ICONS.speakerOff} size={16} fill />
+            <Ico d={musicOn ? ICONS.speaker : ICONS.speakerOff} size={12} fill />
           </button>
           <input
             type="range"
@@ -339,7 +347,7 @@ export default function GameRadio() {
             title="Music volume"
             value={Math.round(gs.music.vol * 100)}
             onChange={(e) => setVol(+e.target.value / 100)}
-            style={{ flex: 1, accentColor: GOLD, opacity: musicOn ? 1 : 0.4, minWidth: 0 }}
+            style={{ flex: 1, accentColor: GOLD, opacity: musicOn ? 1 : 0.4, minWidth: 0, height: 12, margin: 0 }}
           />
         </div>
       </div>

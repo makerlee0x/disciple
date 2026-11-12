@@ -19,7 +19,7 @@ type R = { x: number; y: number; w: number; h: number };
 const mono = "ui-monospace, monospace";
 const btn: React.CSSProperties = { all: "unset", cursor: "pointer", padding: "0 5px", lineHeight: "16px", fontSize: 11, color: "#ffe7a3", fontFamily: mono };
 const DOM_SEL: Partial<Record<CardId, string>> = { chart: '[data-card="chart"]', pnl: '[data-card="pnl"]', chat: '[data-card="chat"]', radio: '[data-card="radio"]' };
-const DOM_HOME: Partial<Record<CardId, R>> = { chart: { x: 84, y: 470, w: 440, h: 40 }, pnl: { x: 86, y: 212, w: 272, h: 40 }, chat: { x: 0, y: 160, w: 300, h: 40 }, radio: { x: 0, y: 0, w: 280, h: 40 } };   // pill spot if never seen; radio uses the bottom-right fallback below
+const DOM_HOME: Partial<Record<CardId, R>> = { chart: { x: 84, y: 470, w: 440, h: 40 }, pnl: { x: 86, y: 212, w: 272, h: 40 }, chat: { x: 0, y: 160, w: 300, h: 40 }, radio: { x: 0, y: 0, w: 216, h: 40 } };   // pill spot if never seen; radio uses the bottom-right fallback below
 
 export default function CardChrome() {
   const layout = useCardLayout(), canvas = useCanvasCards();
