@@ -8,15 +8,21 @@
  * Camera: a fixed perspective camera set so the flight plane (z = 0) maps 1:1 onto screen px, i.e. the rocket sits
  * exactly where the 2D engine puts it today, upright in the flight lane at the same 150 px size. Depth (clouds and
  * stars in front of / far behind the rocket) gives the parallax.
+ *
+ * Step 2 (world): the ship is the authored r5 GLB (rocket.ts) and the WORLD lights it (world.ts): the tier's BRAND env
+ * plate → PMREM → scene.environment, rotated so it agrees with the visible sky plate, plus the plate's own moon / sun /
+ * city lights as real lights. The flame (engineLight) and blasts (blastLight) are real lights too, so they light and
+ * reflect in the chrome. No studio strips, no light behind the camera.
  */
 import {
-  Scene, PerspectiveCamera, HemisphereLight, DirectionalLight, PointLight, Group, Mesh, MeshBasicMaterial,
+  Scene, PerspectiveCamera, HemisphereLight, PointLight, Group, Mesh, MeshBasicMaterial,
   PlaneGeometry, DoubleSide, InstancedMesh, IcosahedronGeometry, MeshStandardMaterial, Object3D,
   Vector3, Color, ACESFilmicToneMapping, InstancedBufferAttribute, DynamicDrawUsage, type Texture,
 } from "three";
 import { buildRocket, BODY_R, ROCKET_H, type RocketParts } from "./rocket";
+import { ENV_ROT_Y, WorldLights, worldFor, loadWorldHDR, type WorldTier } from "./world";
 import { Quads, SmokeQuads, PPool, lightBlend } from "./particles";
-import { radialTex, puffTex, cloudTex, flameTex, envHDR, streakTex } from "./textures";
+import { radialTex, puffTex, cloudTex, flameTex, streakTex } from "./textures";
 import { govInit, govStep, type Gov, type Preset, type View3DBackend } from "./detect";
 
 export type Snap = {
@@ -65,7 +71,12 @@ export class FlightView3D {
   private engineLight = new PointLight(0xffa860, 0, 260, 1);
   private blastLight = new PointLight(0xffc880, 0, 900, 1);
   private hemi = new HemisphereLight(0xbfd2ff, 0x1a1626, 0.7);
-  private key = new DirectionalLight(0xffffff, 2.2);
+  private worldLights = new WorldLights();
+  private pmrem: PmremLike | null = null;
+  /** the world currently on the hull, the one being fetched, and the one the snapshot asks for */
+  world: WorldTier | null = null; private worldLoading: WorldTier | null = null;
+  /** review framing for BRAND stills only (?f3dcam=front|three-quarter|underside): a large, readable shot of the ship */
+  review: { view: string; roll: number } | null = null;
   private exhaust: Quads; private fire: Quads; private sparks: Quads; private flash: Quads; private stars: Quads;
   private smoke: SmokeQuads; private trail: SmokeQuads;
   private debris: InstancedMesh;
@@ -77,7 +88,6 @@ export class FlightView3D {
   private lastCloudY: number | null = null; private lastCamX: number | null = null;
   private stut = 0; private pitch = 0; private pitchV = 0; private rollK = 0; private rollV = 0;
   private flashT = 9; private flashMax = 0; private tierPulse = 0;
-  private envBand = -99; private envTexCur: Texture | null = null;
   private decalT0 = -1;
   private gov: Gov; private fc = 0;
   private tmp = new Object3D(); private v3 = new Vector3(); private col = new Color(); private col2 = new Color();
@@ -86,7 +96,7 @@ export class FlightView3D {
   visible = true;
   stats = { frames: 0, drawn: 0, skipped: 0, lastMs: 0, ema: 0, ratio: 1 };
 
-  constructor(public renderer: RendererLike, public backend: View3DBackend, public preset: Preset, dpr: number, pmrem?: PmremLike | null) {
+  constructor(public renderer: RendererLike, public backend: View3DBackend, public preset: Preset, dpr: number, pmrem: PmremLike | null, ship: Object3D) {
     const p = preset;
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
@@ -94,21 +104,15 @@ export class FlightView3D {
     renderer.setPixelRatio(this.gov.ratio);
 
     const S = this.scene;
-    this.key.position.set(-0.8, 1.4, 1.1);
-    S.add(this.hemi, this.key, this.blastLight);
-
-    // chrome environment: procedural HDR night sky + soft boxes → PMREM → scene.environment (built once, here, before
-    // the first frame, so it never lands in the middle of a flight frame)
+    S.add(this.hemi, this.blastLight, this.worldLights.group);
     const lite = p.quality === "lite";
-    const eq = envHDR([120, 104, 190], lite ? 256 : 512, lite ? 128 : 256);
-    if (pmrem) {
-      try { this.envRT = pmrem.fromEquirectangular(eq); this.scene.environment = this.envRT.texture; eq.dispose(); this.envTexCur = null; }
-      catch { this.scene.environment = eq; this.envTexCur = eq; }
-      try { pmrem.dispose(); } catch { /* ignore */ }
-    } else { this.scene.environment = eq; this.envTexCur = eq; }
 
-    // rocket
-    this.rocket = buildRocket(p.latheSegments);
+    // the world on the chrome: environment rotated so the plate's centre sits behind the ship, where the backdrop shows it
+    this.pmrem = pmrem || null;
+    S.environmentRotation.y = ENV_ROT_Y;
+
+    // rocket: the r5 GLB (preloaded by index.ts)
+    this.rocket = buildRocket(ship);
     this.rocket.group.add(this.fixed);
     this.fixed.add(this.engineLight); this.engineLight.position.set(0, -10, 16);
     S.add(this.rocket.group);
@@ -170,6 +174,37 @@ export class FlightView3D {
       S.add(m);
     }
     for (let i = 0; i < p.stars; i++) this.starsA.push({ x: 0, y: 0, z: -2600 + Math.random() * 2300, s: 1.2 + Math.random() * 2.2, tw: Math.random() * 6.28 });
+  }
+
+  /** Put a tier's world on the hull: its HDR plate through PMREM, its lights. Runs between frames (promise callback). */
+  setWorld(w: WorldTier, hdr: Texture) {
+    let rt: { texture: Texture; dispose: () => void } | null = null;
+    if (this.pmrem) { try { rt = this.pmrem.fromEquirectangular(hdr); } catch { rt = null; } }
+    this.scene.environment = rt ? rt.texture : hdr;
+    this.envRT?.dispose(); this.envRT = rt;
+    this.scene.environmentIntensity = w.envI;
+    this.renderer.toneMappingExposure = w.exposure;
+    this.worldLights.apply(w);
+    this.world = w;
+  }
+  /** fetch the world for this band if it is not the one on the hull (never waits; the old world stays until it lands) */
+  wantWorld(band: number): Promise<void> | null {
+    const w = worldFor(band);
+    if (w === this.world || w === this.worldLoading) return null;
+    this.worldLoading = w;
+    return loadWorldHDR(w.hdr).then((t) => { if (this.worldLoading === w) { this.worldLoading = null; this.setWorld(w, t as Texture); } })
+      .catch((e) => { if (this.worldLoading === w) this.worldLoading = null; console.warn("[flight 3d] world plate failed", w.id, e); });
+  }
+
+  /** BRAND review stills only: a long-lens camera close on the ship (the play camera is untouched without ?f3dcam). The
+   *  ship is rolled for the three-quarter view instead of orbiting the camera, so the backdrop, the environment and the
+   *  lights stay exactly as in play; only the elevation tilts the camera. */
+  private reviewCam() {
+    const r = this.review!, c = this.camera, el = ({ front: 6, "three-quarter": 10, underside: -36 } as Record<string, number>)[r.view] ?? 6;
+    const ctr = this.v3.set(0, ROCKET_H * 0.47, 0); this.rocket.group.localToWorld(ctr);
+    c.fov = 24; const dist = (ROCKET_H * 0.6) / Math.tan((c.fov * Math.PI) / 360), e = (el * Math.PI) / 180;
+    c.position.set(ctr.x, ctr.y + Math.sin(e) * dist, ctr.z + Math.cos(e) * dist);
+    c.near = 5; c.far = dist + 4000; c.lookAt(ctr); c.updateProjectionMatrix();
   }
 
   private resize(W: number, H: number) {
@@ -309,11 +344,13 @@ export class FlightView3D {
     // a big-sell drop tips the nose over a little while it falls
     const dropTilt = clamp(drop / 900, 0, 0.12);
     R.group.rotation.set(this.pitch + dropTilt, 0, -V.ang + jr);
-    R.hull.rotation.y = Math.sin(T * 0.45) * 0.38 + this.rollK;
+    if (this.review) R.group.rotation.set(0, 0, 0);   // review stills: the ship upright, like the official sprite
+    R.hull.rotation.y = this.review ? this.review.roll : Math.sin(T * 0.45) * 0.38 + this.rollK;
     if (V.decal && V.decalT0 !== this.decalT0) { this.decalT0 = V.decalT0; R.setDecal(V.decal); }
+    if (this.review) R.decal.visible = false;   // review stills: the bare hull (the coin roundel stays in play)
     // heat on the hull after a nuke-class hit (engine scorch 0..1)
-    R.chrome.color.setRGB((0.9 + 0.1 * V.sky[0] / 255) * (1 - 0.55 * V.scorch), (0.9 + 0.1 * V.sky[1] / 255) * (1 - 0.6 * V.scorch), (0.92 + 0.08 * V.sky[2] / 255) * (1 - 0.62 * V.scorch));
-    R.flutedSync();
+    // the sky's colour now comes from the world itself (env + lights); only the scorch darkens the metal
+    R.setScorch(clamp(V.scorch, 0, 1));
 
     // ---- flame (same sizing law as the 2D engine)
     const fl = Math.max(0, V.flame), fk = V.flick, br = V.braking ? 0.55 : 1;
@@ -338,7 +375,7 @@ export class FlightView3D {
     this.tierPulse = Math.max(0, this.tierPulse - dt * 0.9);
     this.hemi.intensity = 1.3 + 0.9 * this.tierPulse + 0.6 * hyper;
     const bandI = Math.floor(V.band);
-    if (bandI !== this.envBand) this.envBand = bandI;   // the env is built once; the tier tint goes on the chrome colour below
+    this.wantWorld(bandI);   // the tier's world on the hull (async fetch + PMREM between frames; the old one stays meanwhile)
 
     // ---- blast light
     this.flashT += dt;
@@ -365,6 +402,7 @@ export class FlightView3D {
       c.m.rotation.z = radK > 0 ? (Math.atan2(c.y - vpy, c.x - vpx) + Math.PI / 2) * radK : 0;
       let a = c.a * cloudAmt / stretch;
       if (c.z > 0) { const d = Math.hypot(c.x - rx, (c.y - ry - 70) * 0.8); if (d < c.w * 0.6 + 60) a *= 0.3; }
+      if (this.review && c.z > -250) a = 0;   // review stills: nothing between the close camera and the ship
       const mat = c.m.material as MeshBasicMaterial;
       mat.opacity = clamp(a, 0, 1);
       this.col.setRGB(1 - tint + (tint * sr) / 255, 1 - tint + (tint * sg) / 255, 1 - tint + (tint * sb) / 255);
@@ -472,6 +510,7 @@ export class FlightView3D {
     // ---- draw (or drop this 3D frame if the governor says we're over budget)
     const g = this.gov, skip = g.skip > 0 && (this.fc++ % (g.skip + 1)) !== 0;
     if (skip) { this.stats.skipped++; return; }
+    if (this.review) this.reviewCam();
     this.renderer.render(this.scene, this.camera);
     const ms = performance.now() - t0;
     this.stats.drawn++; this.stats.lastMs = ms;
@@ -488,7 +527,7 @@ export class FlightView3D {
       const mat = m.material as MeshBasicMaterial | MeshBasicMaterial[] | undefined;
       if (mat) for (const x of Array.isArray(mat) ? mat : [mat]) { x.map?.dispose(); x.dispose(); }
     });
-    this.envTexCur?.dispose(); this.envRT?.dispose();
+    this.envRT?.dispose(); try { this.pmrem?.dispose(); } catch { /* ignore */ }
     this.renderer.dispose();
   }
 }

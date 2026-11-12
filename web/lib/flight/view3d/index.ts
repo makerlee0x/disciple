@@ -58,7 +58,7 @@ export async function startView3D(wrap: HTMLElement, search: string): Promise<()
       if (bgC.width !== w || bgC.height !== h) { bgC.width = w; bgC.height = h; }
       return bg;
     },
-    frame: () => {}, ev: () => {}, idle: () => {}, stats: () => (view ? { backend: handle.backend, quality, ...view.stats } : null),
+    frame: () => {}, ev: () => {}, idle: () => {}, stats: () => (view ? { backend: handle.backend, quality, world: view.world?.id ?? null, ...view.stats } : null),
   };
   window.__flight3d = handle;
   const show = (on: boolean) => { if (on === shown) return; shown = on; bgC.style.display = glC.style.display = on ? "block" : "none"; };
@@ -73,6 +73,9 @@ export async function startView3D(wrap: HTMLElement, search: string): Promise<()
   wrap.insertBefore(glC, wrap.firstChild); wrap.insertBefore(bgC, glC);
 
   try {
+    // the ship (r5 GLB, ~7.7 MB) starts downloading right away, alongside the renderer start-up
+    const shipP = import("./rocket").then((m) => m.loadShip());
+    shipP.catch(() => {});
     const forced = forcedBackend(search);
     const gpu = (navigator as unknown as { gpu?: { requestAdapter: (o?: unknown) => Promise<unknown> } }).gpu;
     const dpr = devicePixelRatio || 1;
@@ -104,7 +107,17 @@ export async function startView3D(wrap: HTMLElement, search: string): Promise<()
     const { FlightView3D } = await import("./scene");
     let pmrem: PmremLike | null = null;
     try { pmrem = Pmrem ? (new Pmrem(renderer as never) as PmremLike) : null; } catch { pmrem = null; }
-    view = new FlightView3D(renderer as ConstructorParameters<typeof FlightView3D>[0], backend, preset, dpr, pmrem);
+    const ship = await shipP;
+    if (stopped) { (renderer as { dispose: () => void }).dispose(); return () => {}; }
+    view = new FlightView3D(renderer as ConstructorParameters<typeof FlightView3D>[0], backend, preset, dpr, pmrem, ship);
+    // BRAND review stills only: ?f3dcam=front|three-quarter|underside (&f3droll=deg). Play never sets this.
+    const qs = new URLSearchParams(search), cam = qs.get("f3dcam");
+    if (cam) view.review = { view: cam, roll: ((+(qs.get("f3droll") ?? (cam === "three-quarter" ? 35 : 0)) || 0) * Math.PI) / 180 };
+    // the world for the tier the flight is in, on the hull before the 3D layer shows (until then the 2D flight draws)
+    const fl = (window as unknown as { __flight?: { S?: { bgU?: number } } }).__flight;
+    await view.wantWorld(fl?.S?.bgU ?? 0);
+    if (stopped) { view.dispose(); view = null; return () => {}; }
+    if (!view.world) throw new Error("no world plate for the hull");
     handle.backend = backend;
     Object.defineProperty(handle, "_view", { value: view, enumerable: false, configurable: true });   // for the screenshot / debug scripts
     (renderer as { domElement?: HTMLCanvasElement }).domElement?.addEventListener?.("webglcontextlost", (e) => { e.preventDefault(); fail("WebGL context lost"); });

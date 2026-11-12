@@ -1,29 +1,29 @@
 /**
- * The official chrome rocket (web/public/assets/rocket-hi.webp, 221×609) as a 3D model: a lathe body traced from the
- * sprite's own silhouette (nose cone, two hull bands, straight body), four swept fins, and the engine bells. Model
- * units = screen px at the flight plane; the origin is the nozzle pivot (0.96 of the sprite height, same as the 2D
- * engine), so the engine's nozzle position and attitude drive it directly. Height = 150 px, the same size as today.
+ * The flight ship: the authored look-dev rocket, exactly the r5 GLB BRAND accepted (web/public/lookdev/disciple-rocket.glb,
+ * baked by lib/flight/lookdev/authoring/build_rocket.py, look-dev HEAD 2d30a76d). It is loaded as-is — no simpler stand-in,
+ * no retopo. Note: it is large (~193k tris, ~7.7 MB with its 2k normal + 1k ORM maps); it loads once, in the background,
+ * and the 2D flight keeps drawing the official sprite until it is ready.
+ *
+ * The GLB is authored in sprite units (1 m = 609 sprite px = the full sprite height) with its origin at the nozzle pivot
+ * (0.96 of the sprite height, same as the 2D engine), so scaling it by ROCKET_H puts it on the flight plane in screen px at
+ * today's 150 px size, and the engine's nozzle position and attitude drive it directly.
+ *
+ * Chrome recipe (official Three.js PMREM chrome): MeshPhysicalMaterial, metalness 1, the bake's roughness map (0.012–0.02
+ * on the hull), its normal map, and a thin clear coat; everything you see on it is the world (scene.environment + lights).
  */
 import {
-  Group, LatheGeometry, Vector2, Mesh, MeshStandardMaterial, MeshPhysicalMaterial, Shape, ExtrudeGeometry, CylinderGeometry, CanvasTexture,
-  SRGBColorSpace, MeshBasicMaterial, DoubleSide, type Texture,
+  Group, Mesh, MeshStandardMaterial, MeshPhysicalMaterial, CylinderGeometry, CanvasTexture,
+  SRGBColorSpace, MeshBasicMaterial, FrontSide, type Texture, type Object3D,
 } from "three";
-import { fluteNormalTex } from "./textures";
 
 export const ROCKET_H = 150;
+export const ROCKET_GLB = "/lookdev/disciple-rocket.glb";
 const SPR_W = 221, SPR_H = 609, PIVOT = 0.96;
 const U = ROCKET_H / SPR_H;                       // model units per sprite px
 const yOf = (row: number) => (PIVOT * SPR_H - row) * U;
 const rOf = (halfPx: number) => halfPx * U;
 export const BODY_R = rOf(48.5);
 export const ROCKET_W = SPR_W * U;
-
-/** Sprite silhouette (row, half-width px), measured from rocket-hi.webp's alpha, with the two raised hull bands. */
-const PROFILE: [number, number][] = [
-  [5, 0], [10, 4], [20, 13.5], [40, 21.5], [60, 29.5], [80, 36.5], [100, 41.5], [110, 44],
-  [111, 46.2], [118, 46.2], [119, 45.4], [140, 47.6], [176, 48.5], [177, 50.3], [184, 50.3], [185, 48.5],
-  [330, 48.5], [560, 48.5], [568, 46], [574, 40], [576, 26],
-];
 
 export type RocketParts = {
   group: Group;      // positioned / rotated by the view (nozzle pivot)
@@ -32,63 +32,52 @@ export type RocketParts = {
   dark: MeshPhysicalMaterial;
   decal: Mesh;
   setDecal: (canvas: HTMLCanvasElement | OffscreenCanvas | null) => void;
-  flutedSync: () => void;
+  /** scorch 0..1 after a nuke-class hit: darkens the metal, keeps the bake's own base colours otherwise */
+  setScorch: (k: number) => void;
 };
 
-export function buildRocket(segments: number): RocketParts {
+/** the r5 GLB's scene (fetched once; the caller keeps the 2D flight on until it resolves) */
+export async function loadShip(url = ROCKET_GLB): Promise<Object3D> {
+  const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
+  const g = await new GLTFLoader().loadAsync(url);
+  return g.scene;
+}
+
+/** glTF metal-rough material → MeshPhysicalMaterial with the same maps and factors, plus a thin clear coat */
+function physical(m: MeshStandardMaterial): MeshPhysicalMaterial {
+  const p = new MeshPhysicalMaterial({
+    name: m.name, color: m.color.clone(), metalness: m.metalness, roughness: m.roughness,
+    map: m.map, normalMap: m.normalMap, normalScale: m.normalScale.clone(), roughnessMap: m.roughnessMap, metalnessMap: m.metalnessMap,
+    aoMap: m.aoMap, clearcoat: 0.25, clearcoatRoughness: 0.015, envMapIntensity: 1, side: FrontSide,
+  });
+  return p;
+}
+
+export function buildRocket(ship: Object3D): RocketParts {
   const group = new Group(), hull = new Group();
   group.add(hull);
-  // Mirror chrome: metalness 1, near-zero roughness, plus a clear coat for the extra Fresnel sheen at grazing angles.
-  // It has no colour of its own — everything you see is the PMREM environment (scene.environment) reflected.
-  const chrome = new MeshPhysicalMaterial({ color: 0xf6f8fc, metalness: 1, roughness: 0.05, clearcoat: 0.5, clearcoatRoughness: 0.03, envMapIntensity: 1 });
-  const dark = new MeshPhysicalMaterial({ color: 0x9aa1b0, metalness: 1, roughness: 0.2, clearcoat: 0.6, clearcoatRoughness: 0.12, envMapIntensity: 1 });
-  // the lower hull of the official art is fluted (vertical ribs between the fins) — same chrome, with a flute normal map
-  const fluted = chrome.clone();
-  fluted.normalMap = fluteNormalTex(); fluted.normalScale.set(0.9, 0.9);
-  // fins: the art's fins are fluted along their sweep and catch light; same chrome, own flute repeat, a touch softer
-  const finMat = chrome.clone();
-  finMat.normalMap = fluted.normalMap!.clone(); finMat.normalMap.repeat.set(0.007, 1); finMat.normalMap.needsUpdate = true;
-  finMat.normalScale.set(1.2, 1.2); finMat.roughness = 0.12;
-  const flutedSync = () => { fluted.color.copy(chrome.color); finMat.color.copy(chrome.color); };
+  ship.scale.setScalar(ROCKET_H);
+  const mats = new Map<MeshStandardMaterial, MeshPhysicalMaterial>();
+  let chrome: MeshPhysicalMaterial | null = null, dark: MeshPhysicalMaterial | null = null;
+  ship.traverse((o) => {
+    const m = o as Mesh;
+    if (!m.isMesh) return;
+    const src = m.material as MeshStandardMaterial;
+    let p = mats.get(src);
+    if (!p) { p = physical(src); mats.set(src, p); if (/engine/i.test(src.name)) dark = p; else chrome = chrome || p; }
+    m.material = p;
+  });
+  const chromeM: MeshPhysicalMaterial = chrome || new MeshPhysicalMaterial({ metalness: 1, roughness: 0.015 });
+  const darkM: MeshPhysicalMaterial = dark || chromeM;
+  const base = [...mats.values()].map((p) => [p, p.color.clone()] as const);
+  const setScorch = (k: number) => { for (const [p, c] of base) p.color.setRGB(c.r * (1 - 0.55 * k), c.g * (1 - 0.6 * k), c.b * (1 - 0.62 * k)); };
+  hull.add(ship);
 
-  // lathe wants bottom → top; split at the fin root so the lower hull can carry the flutes
-  const SPLIT = 330;
-  const lathe = (rows: [number, number][]) => new LatheGeometry(rows.slice().reverse().map(([row, hw]) => new Vector2(rOf(hw), yOf(row))), segments);
-  const body = new Mesh(lathe(PROFILE.filter(([r]) => r <= SPLIT)), chrome);
-  const lower = new Mesh(lathe(PROFILE.filter(([r]) => r >= SPLIT)), fluted);
-  hull.add(body, lower);
-
-  // fins: swept leading edge from the body (row 330) out to the tip (row 458), straight outer edge, raked trailing edge
-  const fin = new Shape();
-  fin.moveTo(BODY_R - 0.5, yOf(330));
-  fin.lineTo(rOf(108.5), yOf(458));
-  fin.lineTo(rOf(109.5), yOf(566));
-  fin.quadraticCurveTo(rOf(80), yOf(552), BODY_R - 0.5, yOf(548));
-  fin.closePath();
-  const finGeo = new ExtrudeGeometry(fin, { depth: 1.6, bevelEnabled: true, bevelThickness: 0.5, bevelSize: 0.45, bevelSegments: 2, curveSegments: 6 });
-  finGeo.translate(0, 0, -0.8);
-  for (let k = 0; k < 4; k++) {
-    const m = new Mesh(finGeo, finMat);
-    m.rotation.y = (k * Math.PI) / 2;
-    hull.add(m);
-  }
-
-  // engine bells: one main, two small (the sprite's nozzle cluster)
-  const bell = (r0: number, r1: number, h: number) => new CylinderGeometry(r0, r1, h, Math.max(12, segments >> 1), 1, true);
-  const main = new Mesh(bell(rOf(20), rOf(30), yOf(574) - yOf(600)), dark);
-  main.material.side = DoubleSide;
-  main.position.y = (yOf(574) + yOf(600)) / 2;
-  hull.add(main);
-  for (const s of [-1, 1]) {
-    const m = new Mesh(bell(rOf(9), rOf(14), yOf(574) - yOf(592)), dark);
-    m.position.set(s * rOf(34), (yOf(574) + yOf(592)) / 2, 0);
-    hull.add(m);
-  }
-
-  // coin roundel on the hull (lib/decal.ts MID: x .5, y .47, r .2 of the sprite width) — a curved patch just above the skin
-  const dr = 0.2 * ROCKET_W, arc = (2 * dr) / BODY_R;
-  const decalGeo = new CylinderGeometry(BODY_R + 0.25, BODY_R + 0.25, 2 * dr, 24, 1, true, -arc / 2, arc);
-  const decalMat = new MeshStandardMaterial({ transparent: true, metalness: 0.35, roughness: 0.35, alphaTest: 0.35, visible: false });
+  // coin roundel on the hull (lib/decal.ts MID: x .5, y .47, r .2 of the sprite width) — a curved patch just above the
+  // authored skin (which ripples a few % around the sprite radius, so the patch sits at 1.08 r)
+  const dr = 0.2 * ROCKET_W, DR = BODY_R * 1.08, arc = (2 * dr) / DR;
+  const decalGeo = new CylinderGeometry(DR, DR, 2 * dr, 24, 1, true, -arc / 2, arc);
+  const decalMat = new MeshPhysicalMaterial({ transparent: true, metalness: 0.35, roughness: 0.35, alphaTest: 0.35, visible: false });
   const decal = new Mesh(decalGeo, decalMat);
   decal.position.y = yOf(0.47 * SPR_H);
   hull.add(decal);
@@ -106,8 +95,7 @@ export function buildRocket(segments: number): RocketParts {
     decalTex = new CanvasTexture(c); decalTex.colorSpace = SRGBColorSpace;
     decalMat.map = decalTex; decalMat.visible = true; decalMat.needsUpdate = true;
   };
-
-  return { group, hull, chrome, dark, decal, setDecal, flutedSync };
+  return { group, hull, chrome: chromeM, dark: darkM, decal, setDecal, setScorch };
 }
 
 /** Hull scorch: a dark burn with a hot rim, stuck to the skin where a blast hit; fades over a few seconds. */
