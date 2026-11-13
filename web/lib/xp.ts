@@ -185,6 +185,8 @@ export interface XpSummary {
   weekly: { period: string; resetsAt: number; missions: MissionStatus[] };
   /** parts bought in the shop (catalogue ids) */
   owned: string[];
+  /** XP earned since this week's missions reset (the Trophies page "XP this week") */
+  weekXp: number;
   /** newest first, at most 20 */
   recent: { label: string; xp: number; ts: number }[];
   evaluatedAt: number | null;
@@ -200,3 +202,5 @@ export const shopBuyMessage = (address: string, partId: string, nonce: string) =
   `DISCIPLE: unlock a rocket part with XP\n\nWallet: ${address.toLowerCase()}\nPart: ${partId}\nNonce: ${nonce}\n\n${SIGN_FOOTER}`;
 export const prestigeMessage = (address: string, nonce: string) =>
   `DISCIPLE: prestige\n\nWallet: ${address.toLowerCase()}\nNonce: ${nonce}\n\nYour level goes back to 1 and your prestige goes up.\n\n${SIGN_FOOTER}`;
+export const looksMessage = (address: string, hull: string, flare: string, nonce: string) =>
+  `DISCIPLE: set your rocket look\n\nWallet: ${address.toLowerCase()}\nHull: ${hull}\nFlare: ${flare}\nNonce: ${nonce}\n\n${SIGN_FOOTER}`;

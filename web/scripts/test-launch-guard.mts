@@ -64,5 +64,5 @@ test("Quick Launch page wiring: sync ref guard, lock kept after success / while 
   assert.match(page, /if \(launchStillConfirming\(err\)\) keepLockedRef\.current = true;/);
   assert.match(page, /setMsg\(launchErrorMessage\(err\)\)/);
   assert.match(page, /disabled=\{launching\}\n\s*aria-busy=\{launching\}/);
-  assert.match(page, /\{launching \? \(launchDone \? LAUNCHED_LABEL : LAUNCHING_LABEL\) : launchButtonLabel\(boost\)\}/);
+  assert.match(page, /\{launching \? \(launchDone \? LAUNCHED_LABEL : LAUNCHING_LABEL\) : "Light the engines"\}/);
 });

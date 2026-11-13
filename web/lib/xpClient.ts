@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { IS_STATIC_PREVIEW } from "./base-path";
 import { signWalletMessage } from "./profile";
 import { onWallet } from "./wallet";
-import { dayPeriod, levelInfo, missionsFor, prestigeMessage, shopBuyMessage, weekPeriod, type XpSummary } from "./xp";
+import { dayPeriod, levelInfo, looksMessage, missionsFor, prestigeMessage, shopBuyMessage, weekPeriod, type XpSummary } from "./xp";
 
 const isAddr = (a: string | null | undefined): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.test(a);
 export const XP_CHANGED_EVENT = "disciple:xp-changed";
@@ -56,6 +56,8 @@ async function signedPost(address: string, url: string, msg: (a: string, n: stri
 
 export const buyPartWithXp = (address: string, part: string) => signedPost(address, "/api/shop/buy", (a, n) => shopBuyMessage(a, part, n), { part });
 export const prestigeWithXp = (address: string) => signedPost(address, "/api/xp/prestige", prestigeMessage);
+/** Save the Hangar look (hull + flare) on the server so other pilots see it (POST /api/looks). */
+export const saveLooksSigned = (address: string, hull: string, flare: string) => signedPost(address, "/api/looks", (a, n) => looksMessage(a, hull, flare, n), { hull, flare });
 
 /** "4h 12m" until ts. */
 export function untilLabel(ts: number, now = Date.now()): string {
@@ -68,5 +70,5 @@ export function untilLabel(ts: number, now = Date.now()): string {
 export function blankXp(now = Date.now()): XpSummary {
   const d = dayPeriod(now), w = weekPeriod(now);
   const view = (p: typeof d) => ({ period: p.id, resetsAt: p.end, missions: missionsFor(p).map((m) => ({ id: m.id, title: m.title, xp: m.xp, target: m.target, progress: 0, done: false })) });
-  return { wallet: "", totalXp: 0, spendableXp: 0, level: levelInfo(0), daily: view(d), weekly: view(w), owned: [], recent: [], evaluatedAt: null };
+  return { wallet: "", totalXp: 0, spendableXp: 0, level: levelInfo(0), daily: view(d), weekly: view(w), owned: [], weekXp: 0, recent: [], evaluatedAt: null };
 }
