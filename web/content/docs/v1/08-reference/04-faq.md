@@ -36,7 +36,7 @@ When its value reaches $33,333 and about 84% of it has been bought on the starti
 Yes. When the rocket reaches orbit, its liquidity is locked forever in the Uniswap v4 LP. The contract that holds it has no way to remove it, and the contracts can't be swapped for new code. The team holds some admin settings. See [Admin controls](/docs/safety/admin).
 
 **Can a creator rug?**
-There's no further mint, the name and call sign are locked at launch, and once the rocket reaches orbit its liquidity is locked forever in the Uniswap v4 LP. Creators can still sell their own rockets, like anyone else. [CONFIRM: lee — keep this question?]
+There's no further mint, the name and call sign are locked at launch, and once the rocket reaches orbit its liquidity is locked forever in the Uniswap v4 LP. Creators can still sell their own rockets, like anyone else.
 
 ## Fees
 

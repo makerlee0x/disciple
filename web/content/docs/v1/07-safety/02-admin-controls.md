@@ -39,4 +39,4 @@ Some wiring settings could redirect fees or break trading if misused. This is tr
 
 ## Before mainnet
 
-The plan for mainnet: every owner role moves to a multisig (suggested 3-of-5, signers on hardware wallets, at least two people or orgs), the treasury moves to a separate multisig, and parameter changes go through a 24–48 hour timelock. [CONFIRM: FLOW — final multisig and timelock setup.]
+The plan for mainnet: every owner role moves to a multisig (suggested 3-of-5, signers on hardware wallets, at least two people or orgs), the treasury moves to a separate multisig, and parameter changes go through a 24–48 hour timelock.

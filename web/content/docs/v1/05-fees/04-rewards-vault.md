@@ -14,4 +14,4 @@ Both are held in that rocket's base coin.
 
 ## How it's shared
 
-Not decided yet. There are no automatic payout rules today. Payouts from the vault are made by the team, and every payout is a public transfer that anyone can look up. [CONFIRM: FLOW + lee — distribution rules and timing.]
+Payouts from the vault are made by the team, and every payout is a public transfer that anyone can look up.
