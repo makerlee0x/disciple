@@ -10,9 +10,9 @@ import { ledgerOf, XPK } from "./xp";
 /** a flight is at most this long (an open tab left overnight still logs one day) */
 export const FLIGHT_LOG_MAX_MS = 24 * 3600_000;
 
-export async function flightLogFor(walletIn: string, coinIn: string, sinceIn: number, now = Date.now(), s: Kv = kv()): Promise<FlightLog> {
+export async function flightLogFor(walletIn: string, coinIn: string, sinceIn: number, now = Date.now(), s: Kv = kv(), maxMs = FLIGHT_LOG_MAX_MS): Promise<FlightLog> {
   const w = walletIn.toLowerCase(), coin = coinIn.toLowerCase();
-  const since = Math.max(now - FLIGHT_LOG_MAX_MS, Math.min(now, sinceIn));
+  const since = Math.max(now - maxMs, Math.min(now, sinceIn));
   // the wallet's whole history on this coin (to know when it was aboard) + the coin's recent trades (the flight itself)
   const [mine, recent, claims, rows] = await Promise.all([
     tradesOf(coin, w, 5000, "asc"),
@@ -30,3 +30,6 @@ export async function flightLogFor(walletIn: string, coinIn: string, sinceIn: nu
   const xp = rows.filter((r) => r.ts >= since && r.ts <= now && r.xp > 0).reduce((t, r) => t + r.xp, 0);
   return computeFlightLog({ wallet: w, since, now, fills, slingshots, xp });
 }
+
+/** a share card covers the whole position (first fill → now / last fill), up to a month back */
+export const SHARE_LOG_MAX_MS = 30 * 86_400_000;

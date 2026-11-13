@@ -6,7 +6,7 @@
  * Factory loadout) climbing through it, film grain, vignette, and heavy Geist type with a glowing +$.
  * Pure canvas 2D: no DOM, no fetch. Callers pass loaded images and a canvas factory.
  */
-import { fmtCt, fmtMcap, fmtMoney, fmtPct } from "./format";
+import { fmtMcap, fmtMoney } from "./format";
 import { FLIGHT_TIERS, tierIndexAt } from "@/lib/flight/tiers";
 import { defaultUsername } from "@/lib/defaultUsername";
 import { RAMPS, applyRamp } from "@/lib/hullRamp";
@@ -30,12 +30,16 @@ export interface SceneData {
   /** player wallet: no username → footer shows its space-themed default call sign (lib/defaultUsername) */
   wallet?: string | null;
   fills: { side: string; mcapUsd: number }[];
+  /** flight log stats (lib/flightLog.ts, from the fills); absent = tiles show "—" and the peak comes from the fills above */
+  log?: { peakMcap: number | null; bombsSurvived: number; wingmen: number; slingshots: number; xp: number } | null;
+  /** difficulty badge: EASY / HARD / EXPERT (or IN ORBIT), with its colour */
+  badge?: { text: string; color: string } | null;
 }
 /** coinIcon: the coin's own moderated image (lib/server/share/coinIcon). None ⇒ the ticker block draws as before. */
-export interface SceneAssets { bg: Img | null; rocket: Img | null; wordmark?: Img | null; coinIcon?: Img | null }
-export const FONT = { black: "GeistBlack", mono: "GeistMonoBold", monoMed: "GeistMonoMed" };
+export interface SceneAssets { bg: Img | null; rocket: Img | null; wordmark?: Img | null; coinIcon?: Img | null; /** untinted chrome rocket for the wingmen ships */ wing?: Img | null }
+export const FONT = { black: "GeistBlack", mono: "GeistMonoBold", monoMed: "GeistMonoMed", game600: "BarlowCondensedSemiBold", game700: "BarlowCondensedBold", game800: "BarlowCondensedExtraBold", ui600: "InterSemiBold" };
 
-const GREEN = "#5FF0A0", RED = "#F0307F", INK = "#E8EAEE";
+const GREEN = "#5FF0A0", RED = "#F0307F";
 
 /* ---------------- rocket (server-safe port of lib/rocketSkin tintBase + decal roundel) ---------------- */
 export function composeRocket(mk: MakeCanvas, base: Img, lo: Loadout, scale = 4): Cv {
@@ -84,14 +88,6 @@ function star(o: Ctx, x: number, y: number, r: number, id: string) {
 }
 
 /* ---------------- helpers ---------------- */
-function seeded(seed: number) { let a = seed >>> 0 || 1; return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
-const grainCache = new Map<string, Cv>();
-function grainTile(mk: MakeCanvas, seed = 7): Cv {
-  const k = String(seed); const hit = grainCache.get(k); if (hit) return hit;
-  const S = 256, c = mk(S, S), g = c.getContext("2d"), id = g.createImageData(S, S), rnd = seeded(seed);
-  for (let i = 0; i < id.data.length; i += 4) { const v = rnd() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 30 + rnd() * 26; }
-  g.putImageData(id, 0, 0); grainCache.set(k, c); return c;
-}
 function cover(ctx: Ctx, im: Img, x: number, y: number, w: number, h: number, zoom = 1, fx = 0.5, fy = 0.5) {
   const s = Math.max(w / im.width, h / im.height) * zoom, dw = im.width * s, dh = im.height * s;
   ctx.drawImage(im, x + (w - dw) * fx, y + (h - dh) * fy, dw, dh);
@@ -108,168 +104,185 @@ function tracked(ctx: Ctx, text: string, x: number, y: number, track: number, al
 /* ---------------- scene ---------------- */
 export interface DrawOpts { format: "story" | "og"; /** 0..1 intro progress for the video end card (1 = final still) */ t?: number; seed?: number }
 
+/**
+ * Flight log card (approved mockup "Flight log share card", maker Nov 13): the tier sky you peaked in, your rocket with its
+ * gold trail and your wingmen's ships, PEAK ALTITUDE + the tier ride, the gain, and four stat tiles (bombs survived,
+ * wingmen, slingshots, XP), all from the fills (lib/flightLog.ts). Barlow Condensed (game face) + Inter for the link pill.
+ */
+const CHAMP = "#F3DFA8", PEARL = "#FFF6DC", GOLD = "#F2C14E", DIM = "rgba(215,217,228,0.85)", DOWN_SOFT = "#FF9CC4";
+const WING_COLS = ["242,193,78", "68,212,226", "255,122,61", "95,240,160", "200,196,255", "255,156,196", "243,223,168", "68,212,226", "255,122,61", "95,240,160", "200,196,255", "255,156,196"];
+type Lay = {
+  pad: number; headTop: number; headW: number; wordPx: number; datePx: number; rule: number | null;
+  coinTop: number; iconPx: number; tickPx: number; badgePx: number;
+  peakTop: number; peakLbl: number; peakPx: number; tierFrom: number; tierTo: number; arrowW: number;
+  resTop: number; gainPx: number; pctPx: number; statusPx: number; statusTop: number | null;
+  tilesTop: number; tilesW: number; tileGap: number; tilePad: number; tileLbl: number; tileVal: number; tileR: number;
+  footBottom: number; avatar: number; namePx: number; pillPx: number; pillPadX: number; pillPadY: number; pillLead: string;
+  rocket: [number, number, number, number]; trailW: number; trailL: number; flame: [number, number]; glow: [number, number, number];
+  slots: [number, number, number][]; wingTrail: number;
+};
+const STORY: Lay = {
+  pad: 72, headTop: 72, headW: 936, wordPx: 44, datePx: 28, rule: 136,
+  coinTop: 196, iconPx: 84, tickPx: 96, badgePx: 28,
+  peakTop: 1060, peakLbl: 30, peakPx: 210, tierFrom: 34, tierTo: 52, arrowW: 64,
+  resTop: 1430, gainPx: 120, pctPx: 64, statusPx: 30, statusTop: null,
+  tilesTop: 1590, tilesW: 936, tileGap: 16, tilePad: 22, tileLbl: 22, tileVal: 64, tileR: 20,
+  footBottom: 64, avatar: 56, namePx: 38, pillPx: 26, pillPadX: 24, pillPadY: 14, pillLead: "Board my rocket · ",
+  rocket: [570, 330, 230, 680], trailW: 16, trailL: 760, flame: [70, 110], glow: [800, 660, 280],
+  slots: [[420, 520, 0.62], [860, 560, 0.6], [330, 760, 0.5], [930, 800, 0.52], [470, 900, 0.44], [820, 960, 0.42], [250, 520, 0.4], [990, 460, 0.4], [360, 330, 0.36], [880, 330, 0.36], [180, 700, 0.34], [1010, 680, 0.34]], wingTrail: 260,
+};
+const SQUARE: Lay = {
+  pad: 64, headTop: 64, headW: 620, wordPx: 36, datePx: 24, rule: null,
+  coinTop: 150, iconPx: 64, tickPx: 72, badgePx: 24,
+  peakTop: 280, peakLbl: 26, peakPx: 170, tierFrom: 28, tierTo: 44, arrowW: 52,
+  resTop: 610, gainPx: 104, pctPx: 54, statusPx: 26, statusTop: 730,
+  tilesTop: 800, tilesW: 640, tileGap: 12, tilePad: 16, tileLbl: 17, tileVal: 48, tileR: 16,
+  footBottom: 52, avatar: 48, namePx: 32, pillPx: 22, pillPadX: 20, pillPadY: 12, pillLead: "",
+  rocket: [765, 170, 180, 530], trailW: 13, trailL: 520, flame: [56, 88], glow: [870, 370, 230],
+  slots: [[700, 330, 0.5], [1010, 360, 0.5], [660, 520, 0.42], [1040, 560, 0.42], [760, 640, 0.36], [980, 700, 0.36], [620, 200, 0.32], [1050, 200, 0.32], [700, 760, 0.3], [960, 820, 0.3], [600, 640, 0.28], [1060, 440, 0.28]], wingTrail: 200,
+};
+const BC = (w: 600 | 700 | 800, px: number) => `${px}px ${w === 800 ? FONT.game800 : w === 700 ? FONT.game700 : FONT.game600}`;
+const money = (v: number) => fmtMoney(v).replace(/^-/, "−");
+const pctTxt = (v: number) => `${v < 0 ? "−" : "+"}${Math.abs(v) >= 10 ? Math.round(Math.abs(v)) : Math.abs(v).toFixed(1)}%`;
+const dayLabel = (ms: number) => new Date(ms).toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" }).toUpperCase();
+function rrect(ctx: Ctx, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+/** a rocket box (CSS: left/top/w/h, rotate about its centre) with its trail out of the nozzle (92% down) and a flame glow */
+function ship(ctx: Ctx, im: Img | null, x: number, y: number, w: number, h: number, deg: number, alpha: number, trail: { w: number; l: number; col: string; head: string }, flame: { w: number; h: number; col: string }, shadow?: string) {
+  ctx.save(); ctx.globalAlpha = alpha; ctx.translate(x + w / 2, y + h / 2); ctx.rotate((deg * Math.PI) / 180); ctx.translate(-w / 2, -h / 2);
+  const ty = h * 0.92, tg = ctx.createLinearGradient(0, ty, 0, ty + trail.l);
+  tg.addColorStop(0, trail.head); tg.addColorStop(0.13, `rgba(${trail.col},0.82)`); tg.addColorStop(1, `rgba(${trail.col},0)`);
+  ctx.fillStyle = tg; rrect(ctx, w / 2 - trail.w / 2, ty, trail.w, trail.l, trail.w / 2); ctx.fill();
+  const fy = h * 0.9 + flame.h / 2, fg = ctx.createRadialGradient(w / 2, fy, 0, w / 2, fy, flame.h / 2);
+  fg.addColorStop(0, "rgba(255,246,220,1)"); fg.addColorStop(0.45, `rgba(${flame.col},0.7)`); fg.addColorStop(1, `rgba(${flame.col},0)`);
+  ctx.save(); ctx.translate(w / 2, fy); ctx.scale(flame.w / flame.h, 1); ctx.translate(-w / 2, -fy); ctx.fillStyle = fg; ctx.fillRect(w / 2 - flame.h / 2, fy - flame.h / 2, flame.h, flame.h); ctx.restore();
+  if (im) {
+    const k = Math.min(w / im.width, h / im.height), dw = im.width * k, dh = im.height * k;
+    if (shadow) { ctx.shadowColor = shadow; ctx.shadowBlur = 40; }
+    ctx.drawImage(im, (w - dw) / 2, (h - dh) / 2, dw, dh); ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+}
+
+/** the card's peak: the flight log's (highest mcap while aboard), else the highest the fills show */
+export const scenePeak = (d: SceneData) => d.log?.peakMcap ?? Math.max(d.mcapStart || 0, d.mcapEnd || 0, ...d.fills.map((f) => f.mcapUsd || 0));
+
 export function drawShareScene(ctx: Ctx, mk: MakeCanvas, d: SceneData, a: SceneAssets, lo: Loadout, o: DrawOpts) {
-  const story = o.format === "story", W = 1080, H = story ? 1920 : 1080, t = o.t ?? 1;
+  void mk; void lo;
+  const story = o.format === "story", W = 1080, H = story ? 1920 : 1080, t = o.t ?? 1, Y = story ? STORY : SQUARE, L = Y.pad;
   const ease = (x: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
-  const tier = tierAt(d.mcapEnd);
-  const up = d.gainUsd >= 0, accent = up ? GREEN : RED;
-  ctx.save();
-  ctx.fillStyle = "#07070b"; ctx.fillRect(0, 0, W, H);
+  const log = d.log, peak = scenePeak(d);
+  const pt = tierAt(peak), st = tierAt(d.mcapStart || peak);
+  const up = d.gainUsd >= 0, good = up && d.kind !== "none";
+  ctx.save(); ctx.textBaseline = "top";
+  ctx.fillStyle = "#121327"; ctx.fillRect(0, 0, W, H);
 
-  // 1) far sky: tier plate, soft + slightly oversized (depth), drifting with t
-  if (a.bg) {
-    ctx.save(); ctx.filter = "blur(10px) saturate(1.15)"; ctx.globalAlpha = 0.9; cover(ctx, a.bg, -40, -40, W + 80, H + 80, 1.18, 0.5, 0.35 + 0.05 * (1 - t)); ctx.restore();
-    // near sky: sharper plate masked to the upper area
-    ctx.save(); ctx.filter = "saturate(1.2) contrast(1.1)"; ctx.globalAlpha = 0.75; cover(ctx, a.bg, 0, 0, W, story ? H * 0.72 : H, 1.02, story ? 0.42 : 0.6, 0.4); ctx.restore();
-  }
-  // 2) grade: crush to a liminal dusk; colour stays from the plate
-  let g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, "rgba(6,6,12,.30)"); g.addColorStop(0.4, "rgba(6,6,12,.05)"); g.addColorStop(story ? 0.62 : 0.7, "rgba(6,6,12,.55)"); g.addColorStop(1, "rgba(4,4,8,.97)");
+  // sky: the tier you peaked in, dimmed (brightness .8, saturate .85), then the scrim
+  if (a.bg) { ctx.save(); ctx.filter = "saturate(0.85) brightness(0.8)"; cover(ctx, a.bg, 0, 0, W, H, 1, story ? 0.5 : 0.6, 0.4); ctx.restore(); }
+  const g = story ? ctx.createLinearGradient(0, 0, 0, H) : ctx.createLinearGradient(0, 0, W, 0);
+  if (story) { g.addColorStop(0, "rgba(18,19,39,0.55)"); g.addColorStop(0.3, "rgba(18,19,39,0.05)"); g.addColorStop(0.52, "rgba(18,19,39,0.2)"); g.addColorStop(0.74, "rgba(11,12,14,0.92)"); g.addColorStop(1, "#0B0C0E"); }
+  else { g.addColorStop(0, "rgba(11,12,14,0.94)"); g.addColorStop(0.46, "rgba(11,12,14,0.78)"); g.addColorStop(0.72, "rgba(18,19,39,0.1)"); g.addColorStop(1, "rgba(18,19,39,0.1)"); }
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  // 3) atmospheric haze bands (dreamcore bloom) + god-ray
-  ctx.save(); ctx.globalCompositeOperation = "screen";
-  const hz = (y: number, r: number, al: number, col: string, x = W * 0.6) => { const rg = ctx.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, `rgba(${col},${al})`); rg.addColorStop(1, `rgba(${col},0)`); ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H); };
-  hz(story ? H * 0.2 : H * 0.15, W * 0.9, 0.22, "232,234,238");
-  hz(story ? H * 0.5 : H * 0.6, W * 0.7, 0.12, "200,210,255", W * 0.25);
-  ctx.globalAlpha = 0.16; ctx.translate(W * 0.75, -40); ctx.rotate(0.32);
-  const ray = ctx.createLinearGradient(-160, 0, 160, 0); ray.addColorStop(0, "rgba(232,234,238,0)"); ray.addColorStop(0.5, "rgba(232,234,238,1)"); ray.addColorStop(1, "rgba(232,234,238,0)");
-  ctx.fillStyle = ray; ctx.fillRect(-160, 0, 320, H * 1.4); ctx.fillRect(-420, 0, 120, H * 1.4);
-  ctx.restore();
+  { const [gx, gy, gr] = Y.glow, rg = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+    rg.addColorStop(0, `rgba(255,246,220,${story ? 0.32 : 0.3})`); rg.addColorStop(0.4, "rgba(242,193,78,0.10)"); rg.addColorStop(0.7, "rgba(242,193,78,0)"); rg.addColorStop(1, "rgba(242,193,78,0)");
+    ctx.fillStyle = rg; ctx.fillRect(gx - gr, gy - gr, gr * 2, gr * 2); }
 
-  // 4) the rocket: big, tilted, climbing out of the haze; thruster glow from the loadout
-  if (a.rocket) {
-    const rc = a.rocket, rh = story ? 980 : 760, rw = (rh * rc.width) / rc.height;
-    const rx = story ? W * 0.72 : W * 0.76, ry = (story ? H * 0.40 : H * 0.56) + 60 * (1 - ease(t * 1.4)), tilt = 0.2;
-    ctx.save(); ctx.translate(rx, ry); ctx.rotate(tilt);
-    ctx.globalCompositeOperation = "source-over";
-    // rim light + body
-    ctx.shadowColor = "rgba(232,234,238,.55)"; ctx.shadowBlur = 60;
-    ctx.drawImage(rc, -rw / 2, -rh / 2, rw, rh);
-    ctx.shadowBlur = 0;
-    // atmospheric perspective: haze over the lower hull
-    const fog = ctx.createLinearGradient(0, -rh * 0.1, 0, rh * 0.6); fog.addColorStop(0, "rgba(20,20,30,0)"); fog.addColorStop(1, "rgba(14,14,22,.55)");
-    ctx.globalCompositeOperation = "source-atop"; ctx.fillStyle = fog; ctx.fillRect(-rw, -rh, rw * 2, rh * 2);
+  // wingmen: one ship per pilot who boosted while you were aboard (up to 12), each with its own trail
+  const wing = a.wing ?? null, n = Math.max(0, Math.min(12, log?.wingmen ?? 0));
+  for (let i = 0; i < n; i++) {
+    const [x, y, s] = Y.slots[i], w = Math.round(221 * s * 0.45), h = Math.round(609 * s * 0.45), c = WING_COLS[i];
+    ship(ctx, wing, x - w / 2, y + 20 * (1 - ease(t * 1.3)), w, h, i % 2 ? 6 : 10, 0.55 + s * 0.4, { w: 4, l: Y.wingTrail, col: c, head: "rgba(255,246,220,0.95)" }, { w: 14, h: 22, col: c });
+  }
+  // your rocket (your hull) with the gold trail
+  { const [x, y, w, h] = Y.rocket;
+    ship(ctx, a.rocket, x, y + 40 * (1 - ease(t * 1.4)), w, h, 8, 1, { w: Y.trailW, l: Y.trailL, col: "242,193,78", head: "rgba(255,246,220,1)" }, { w: Y.flame[0], h: Y.flame[1], col: "242,193,78" }, `rgba(242,193,78,${good ? 0.35 : 0.18})`); }
+
+  // header: DISCIPLE · FLIGHT LOG · <day>
+  ctx.fillStyle = "#F2F3F7"; ctx.font = BC(800, Y.wordPx); tracked(ctx, "DISCIPLE", L, Y.headTop, Y.wordPx * 0.22);
+  ctx.fillStyle = CHAMP; ctx.font = BC(600, Y.datePx); tracked(ctx, `FLIGHT LOG · ${dayLabel(d.endTs || Date.now())}`, L + Y.headW, Y.headTop + (Y.wordPx - Y.datePx) / 2, Y.datePx * 0.14, "right");
+  if (Y.rule !== null) { ctx.fillStyle = "rgba(243,223,168,0.35)"; ctx.fillRect(L, Y.rule, W - 2 * L, 2); }
+  if (d.sample) { ctx.save(); ctx.translate(W - L - 120, Y.coinTop + 20); ctx.rotate(0.05); ctx.fillStyle = "#FFD84D"; ctx.fillRect(-120, -26, 240, 46); ctx.fillStyle = "#0a0a0a"; ctx.font = BC(800, 26); tracked(ctx, "SAMPLE DATA", -96, -14, 4); ctx.restore(); }
+
+  // coin row: icon (the coin's own, else a gold disc with its initial), $TICKER, difficulty badge
+  { const I = Y.iconPx, cy = Y.coinTop, ic = a.coinIcon;
+    ctx.save(); ctx.beginPath(); ctx.arc(L + I / 2, cy + I / 2, I / 2, 0, Math.PI * 2); ctx.closePath();
+    if (ic) { ctx.clip(); const k = Math.max(I / ic.width, I / ic.height); ctx.drawImage(ic, L + (I - ic.width * k) / 2, cy + (I - ic.height * k) / 2, ic.width * k, ic.height * k); }
+    else { const cg = ctx.createRadialGradient(L + I * 0.35, cy + I * 0.3, 0, L + I / 2, cy + I / 2, I * 0.6); cg.addColorStop(0, PEARL); cg.addColorStop(0.55, GOLD); cg.addColorStop(1, "#8A6420"); ctx.fillStyle = cg; ctx.fill();
+      ctx.fillStyle = "#121327"; ctx.font = BC(800, Math.round(I * 0.52)); ctx.textAlign = "center"; ctx.fillText((d.ticker[0] || "?").toUpperCase(), L + I / 2, cy + I * 0.2); ctx.textAlign = "left"; }
     ctx.restore();
+    const tx = L + I + 20, tickMax = (story ? W - 2 * L : Y.headW) - I - 20 - (d.badge ? 160 : 0);
+    ctx.fillStyle = "#F2F3F7"; const tp = fitText(ctx, `$${d.ticker}`, (px) => BC(800, px), tickMax, Y.tickPx);
+    const tty = cy + (I - tp) / 2; ctx.fillText(`$${d.ticker}`, tx, tty);
+    if (d.badge) { const bx = tx + ctx.measureText(`$${d.ticker}`).width + 20, bp = Y.badgePx; ctx.font = BC(700, bp);
+      const bw = Array.from(d.badge.text).reduce((s2, ch) => s2 + ctx.measureText(ch).width + bp * 0.12, -bp * 0.12) + (story ? 28 : 24), bh = bp + (story ? 16 : 12), by = cy + (I - bh) / 2;
+      ctx.strokeStyle = hexA(d.badge.color, 0.7); ctx.lineWidth = 2; rrect(ctx, bx, by, bw, bh, story ? 10 : 9); ctx.stroke();
+      ctx.fillStyle = d.badge.color; tracked(ctx, d.badge.text, bx + (story ? 14 : 12), by + (bh - bp) / 2 + 1, bp * 0.12); } }
+
+  // PEAK ALTITUDE + the tier ride
+  const fade = ease(t * 1.6);
+  ctx.save(); ctx.globalAlpha = fade;
+  ctx.fillStyle = DIM; ctx.font = BC(600, Y.peakLbl); tracked(ctx, "PEAK ALTITUDE", L, Y.peakTop, Y.peakLbl * 0.16);
+  const pkY = Y.peakTop + Y.peakLbl * 1.2 + 6, pk = fmtMcap(peak);
+  ctx.font = BC(800, Y.peakPx); ctx.shadowColor = "rgba(242,193,78,0.35)"; ctx.shadowBlur = 40; ctx.fillStyle = PEARL; ctx.fillText(pk, L - Y.peakPx * 0.02, pkY - Y.peakPx * 0.07); ctx.shadowBlur = 0;
+  const trY = pkY + Y.peakPx * 0.86 + 10, toH = Y.tierTo, mid = trY + toH * 0.6;
+  if (st.index < pt.index) {
+    ctx.font = BC(700, Y.tierFrom); ctx.fillStyle = "rgba(215,217,228,0.7)"; const fw = tracked(ctx, st.name, L, mid - Y.tierFrom * 0.6, Y.tierFrom * 0.08);
+    const ax = L + fw + 18, aw = Y.arrowW; ctx.strokeStyle = GOLD; ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.beginPath(); ctx.moveTo(ax + 2, mid); ctx.lineTo(ax + aw - 6, mid); ctx.moveTo(ax + aw - 16, mid - 8); ctx.lineTo(ax + aw - 6, mid); ctx.lineTo(ax + aw - 16, mid + 8); ctx.stroke();
+    ctx.font = BC(800, toH); ctx.fillStyle = CHAMP; tracked(ctx, pt.name, ax + aw + 18, mid - toH * 0.6, toH * 0.06);
+  } else {
+    ctx.font = BC(800, toH); ctx.fillStyle = CHAMP; const tw = tracked(ctx, pt.name, L, mid - toH * 0.6, toH * 0.06);
+    const next = FLIGHT_TIERS[pt.index + 1];
+    if (next && pt.hi > pt.lo) { const share = Math.round(Math.max(0, Math.min(0.99, (peak - pt.lo) / (pt.hi - pt.lo))) * 100);
+      ctx.font = BC(700, Y.tierFrom); ctx.fillStyle = "rgba(215,217,228,0.7)"; tracked(ctx, `· ${share}% OF THE WAY TO ${next.name}`, L + tw + 18, mid - Y.tierFrom * 0.6, Y.tierFrom * 0.08); }
   }
-  // foreground haze over everything below the rocket (depth)
-  g = ctx.createLinearGradient(0, story ? H * 0.55 : H * 0.55, 0, H); g.addColorStop(0, "rgba(10,10,16,0)"); g.addColorStop(0.45, "rgba(8,8,12,.78)"); g.addColorStop(1, "rgba(5,5,8,.96)");
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  // left scrim so type holds on bright skies
-  g = ctx.createLinearGradient(0, 0, W * 0.75, 0); g.addColorStop(0, `rgba(6,6,10,${story ? 0.45 : 0.6})`); g.addColorStop(1, "rgba(6,6,10,0)");
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  // thruster plume after the haze so it glows through it
-  if (a.rocket) {
-    const rc = a.rocket, rh = story ? 980 : 760;
-    const rx = story ? W * 0.72 : W * 0.76, ry = (story ? H * 0.40 : H * 0.56) + 60 * (1 - ease(t * 1.4)), tilt = 0.2;
-    ctx.save(); ctx.translate(rx, ry); ctx.rotate(tilt); void rc;
-    // exhaust plume (several stacked glows, long tail fading into haze)
-    ctx.globalCompositeOperation = "screen";
-    for (let k = 0; k < 7; k++) {
-      const yy = rh * 0.5 + k * rh * 0.16, rr = rh * (0.1 + k * 0.07), al = 0.42 * (1 - k / 7);
-      const pg = ctx.createRadialGradient(0, yy, 0, 0, yy, rr); pg.addColorStop(0, hexA(lo.thruster.core, al)); pg.addColorStop(0.35, hexA(lo.thruster.flame, al * 0.8)); pg.addColorStop(1, hexA(lo.thruster.flame, 0));
-      ctx.fillStyle = pg; ctx.fillRect(-rr, yy - rr, 2 * rr, 2 * rr);
-    }
-    ctx.restore();
-  }
-  // vignette
-  const vg = ctx.createRadialGradient(W / 2, H * 0.45, Math.min(W, H) * 0.35, W / 2, H * 0.5, Math.max(W, H) * 0.75);
-  vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.7)"); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
-
-  // 5) type
-  const L = 64, R = W - 64;
-  ctx.textBaseline = "alphabetic"; ctx.fillStyle = INK;
-  if (a.wordmark) { const wh = 30, ww = (a.wordmark.width / a.wordmark.height) * wh; ctx.drawImage(a.wordmark, L, (story ? 120 : 92) - wh + 2, ww, wh); } // W1 outlined wordmark
-  else { ctx.font = `30px ${FONT.mono}`; tracked(ctx, "DISCIPLE", L, story ? 120 : 92, 8); }
-  ctx.font = `26px ${FONT.monoMed}`; ctx.fillStyle = "rgba(232,234,238,.75)"; tracked(ctx, fmtCt(d.endTs || Date.now()), R, story ? 120 : 92, 3, "right");
-  ctx.fillStyle = INK; ctx.fillRect(L, story ? 146 : 114, R - L, 5);
-  // tier tag
-  ctx.font = `24px ${FONT.mono}`; ctx.fillStyle = "rgba(232,234,238,.85)";
-  tracked(ctx, tier.name, L, story ? 200 : 160, 6);
-  if (d.sample) { ctx.save(); ctx.translate(R - 150, story ? 196 : 156); ctx.rotate(0.05); ctx.fillStyle = "#FFD84D"; ctx.fillRect(-110, -32, 250, 46); ctx.fillStyle = "#0a0a0a"; ctx.font = `24px ${FONT.mono}`; tracked(ctx, "SAMPLE DATA", -96, 0, 4); ctx.restore(); }
-
-  // ticker block
-  const tickY = story ? 960 : 330;
-  const ic = a.coinIcon, isz = ic ? (story ? 120 : 92) : 0, tx = ic ? L + isz + 24 : L - 4;
-  ctx.fillStyle = INK; const tpx = fitText(ctx, `$${d.ticker}`, (p) => `${p}px ${FONT.black}`, (story ? 760 : 560) - (ic ? isz + 28 : 0), story ? 132 : 104);
-  if (ic) { // the coin's own icon, rounded, left of the ticker (baseline-aligned to the cap height)
-    const iy = tickY - Math.round(tpx * 0.72) - Math.round((isz - tpx * 0.72) / 2);
-    ctx.save(); ctx.beginPath(); const rr = Math.round(isz * 0.22);
-    ctx.moveTo(L + rr, iy); ctx.arcTo(L + isz, iy, L + isz, iy + isz, rr); ctx.arcTo(L + isz, iy + isz, L, iy + isz, rr); ctx.arcTo(L, iy + isz, L, iy, rr); ctx.arcTo(L, iy, L + isz, iy, rr); ctx.closePath();
-    ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 24; ctx.fillStyle = "#111"; ctx.fill(); ctx.shadowBlur = 0; ctx.clip();
-    const k = Math.max(isz / ic.width, isz / ic.height), dw = ic.width * k, dh = ic.height * k;
-    ctx.drawImage(ic, L + (isz - dw) / 2, iy + (isz - dh) / 2, dw, dh); ctx.restore(); ctx.fillStyle = INK;
-  }
-  ctx.font = `${tpx}px ${FONT.black}`; ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 30; ctx.fillText(`$${d.ticker}`, tx, tickY); ctx.shadowBlur = 0;
-  ctx.font = `26px ${FONT.mono}`; ctx.fillStyle = "rgba(232,234,238,.7)";
-  tracked(ctx, d.kind === "realized" ? "CLOSED · REALIZED" : d.kind === "none" ? "NO TRADES YET" : "STILL HOLDING · UNREALIZED", L, tickY + 46, 5);
-
-  // the number: glow + crisp pass, slams in on the video
-  const big = fmtMoney(d.gainUsd), bt = ease(t * 1.6);
-  const bpx = fitText(ctx, big, (p) => `${p}px ${FONT.black}`, story ? R - L : 640, story ? 270 : 190);
-  const bigY = story ? tickY + 300 : tickY + 230;
-  ctx.save(); ctx.globalAlpha = bt; ctx.translate(L - 6, bigY); const sc = 1 + 0.08 * (1 - bt); ctx.scale(sc, sc);
-  ctx.font = `${bpx}px ${FONT.black}`;
-  ctx.shadowColor = hexA(accent, 0.9); ctx.shadowBlur = 90; ctx.fillStyle = hexA(accent, 0.55); ctx.fillText(big, 0, 0);
-  ctx.shadowBlur = 28; ctx.fillStyle = accent; ctx.fillText(big, 0, 0);
-  ctx.shadowBlur = 0; ctx.globalAlpha = bt * 0.25; ctx.fillStyle = "#ffffff"; ctx.fillText(big, 0, -3);
-  ctx.restore();
-  const pct = fmtPct(d.gainPct), pt = ease(t * 1.6 - 0.25);
-  ctx.save(); ctx.globalAlpha = pt; ctx.font = `${story ? 130 : 92}px ${FONT.black}`; ctx.shadowColor = hexA(accent, 0.7); ctx.shadowBlur = 40; ctx.fillStyle = accent;
-  ctx.fillText(pct, L - 4, bigY + (story ? 150 : 108)); ctx.restore();
-
-  // stats + fills strip
-  const sy = story ? bigY + 250 : bigY + 180, st = ease(t * 1.6 - 0.45);
-  ctx.save(); ctx.globalAlpha = st;
-  const col = (label: string, val: string, x: number) => { ctx.font = `22px ${FONT.monoMed}`; ctx.fillStyle = "rgba(232,234,238,.6)"; tracked(ctx, label, x, sy, 4); ctx.font = `${story ? 50 : 40}px ${FONT.black}`; ctx.fillStyle = INK; ctx.fillText(val, x, sy + (story ? 56 : 46)); };
-  col("ENTRY MCAP", fmtMcap(d.mcapStart), L); col(d.kind === "realized" ? "EXIT MCAP" : "MCAP NOW", fmtMcap(d.mcapEnd), L + (story ? 330 : 260)); col("FILLS", String(d.fills.length), L + (story ? 660 : 520));
-  if (story) fillsStrip(ctx, d, L, sy + 100, R - L, 120, accent);
   ctx.restore();
 
-  // footer
-  const fy = H - (story ? 90 : 62);
-  ctx.fillStyle = "rgba(232,234,238,.35)"; ctx.fillRect(L, fy - (story ? 70 : 58), R - L, 2);
-  ctx.fillStyle = INK; ctx.font = `${story ? 54 : 42}px ${FONT.black}`;
-  const who = d.username ? `@${d.username}` : defaultUsername(d.wallet) || d.refLabel.split("/r/")[1] || "";
-  ctx.fillText(who, L, fy);
-  if (d.guildTag && /^[A-Z0-9]{2,5}$/.test(d.guildTag)) {
-    const nx = L + ctx.measureText(who).width + (story ? 22 : 18), ch = story ? 46 : 38;
-    ctx.save(); ctx.font = `${story ? 26 : 22}px ${FONT.monoMed}`;
-    const cw = ctx.measureText(d.guildTag).width + (story ? 28 : 22);
-    ctx.strokeStyle = "rgba(201,206,214,.45)"; ctx.lineWidth = 2; ctx.strokeRect(nx, fy - ch + (story ? 6 : 5), cw, ch);
-    ctx.fillStyle = INK; ctx.fillText(d.guildTag, nx + (story ? 14 : 11), fy - (story ? 6 : 5));
-    ctx.restore();
-  }
-  ctx.font = `${story ? 28 : 24}px ${FONT.mono}`;
-  const lw = ctx.measureText(d.refLabel).width + 36;
-  ctx.fillStyle = "rgba(10,10,14,.6)"; ctx.fillRect(R - lw, fy - (story ? 42 : 36), lw, story ? 56 : 48);
-  ctx.strokeStyle = "rgba(232,234,238,.5)"; ctx.lineWidth = 2; ctx.strokeRect(R - lw, fy - (story ? 42 : 36), lw, story ? 56 : 48);
-  ctx.fillStyle = INK; ctx.fillText(d.refLabel, R - lw + 18, fy - 4);
-
-  // 6) grain on top (seeded; animated per-frame on video via seed)
-  ctx.globalCompositeOperation = "overlay"; const gt = grainTile(mk, o.seed ?? 7);
-  ctx.fillStyle = ctx.createPattern(gt, "repeat"); ctx.fillRect(0, 0, W, H);
-  ctx.globalCompositeOperation = "source-over";
+  // the gain (same PnL as before) + status
+  ctx.save(); ctx.globalAlpha = ease(t * 1.6 - 0.2);
+  const gTxt = money(d.gainUsd), pTxt = pctTxt(d.gainPct), gc = up ? GREEN : RED;
+  ctx.font = BC(800, Y.gainPx); ctx.shadowColor = hexA(gc, 0.35); ctx.shadowBlur = 30; ctx.fillStyle = gc; ctx.fillText(gTxt, L, Y.resTop); ctx.shadowBlur = 0;
+  const gw = ctx.measureText(gTxt).width; ctx.font = BC(700, Y.pctPx); ctx.fillStyle = up ? GREEN : DOWN_SOFT; ctx.fillText(pTxt, L + gw + (story ? 24 : 20), Y.resTop + (Y.gainPx - Y.pctPx) * 0.78);
+  const status = d.kind === "realized" ? "CASHED OUT" : d.kind === "none" ? "NO BAG YET" : "STILL ABOARD";
+  ctx.font = BC(700, Y.statusPx); ctx.fillStyle = CHAMP;
+  if (Y.statusTop === null) tracked(ctx, status, W - L, Y.resTop + Y.gainPx * 0.8 - Y.statusPx * 0.8, Y.statusPx * 0.12, "right");
+  else tracked(ctx, status, L, Y.statusTop, Y.statusPx * 0.12);
   ctx.restore();
-}
 
-function fillsStrip(ctx: Ctx, d: SceneData, x: number, y: number, w: number, h: number, accent: string) {
-  const pts = d.fills.map((f) => ({ m: f.mcapUsd, s: f.side }));
-  if (d.kind === "unrealized") pts.push({ m: d.mcapEnd, s: "now" });
-  if (pts.length < 1) return;
-  const ls = pts.map((p) => Math.log10(Math.max(1, p.m))); let lo = Math.min(...ls), hi = Math.max(...ls);
-  if (hi - lo < 0.08) { const c = (hi + lo) / 2; lo = c - 0.04; hi = c + 0.04; }
-  const X = (i: number) => x + 14 + (pts.length > 1 ? i / (pts.length - 1) : 0.5) * (w - 28), Y = (m: number) => y + h - 14 - ((Math.log10(Math.max(1, m)) - lo) / (hi - lo)) * (h - 28);
-  ctx.fillStyle = "rgba(8,8,12,.45)"; ctx.fillRect(x, y, w, h); ctx.strokeStyle = "rgba(232,234,238,.18)"; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
-  ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(X(i), Y(p.m)) : ctx.moveTo(X(i), Y(p.m))));
-  ctx.strokeStyle = INK; ctx.lineWidth = 5; ctx.lineJoin = "round"; ctx.shadowColor = hexA(accent, 0.6); ctx.shadowBlur = 16; ctx.stroke(); ctx.shadowBlur = 0;
-  pts.forEach((p, i) => {
-    const px = X(i), py = Y(p.m); ctx.beginPath();
-    if (p.s === "buy") { ctx.moveTo(px - 12, py + 11); ctx.lineTo(px, py - 13); ctx.lineTo(px + 12, py + 11); ctx.fillStyle = GREEN; }
-    else if (p.s === "sell") { ctx.moveTo(px - 12, py - 11); ctx.lineTo(px, py + 13); ctx.lineTo(px + 12, py - 11); ctx.fillStyle = RED; }
-    else { ctx.arc(px, py, 10, 0, 7); ctx.fillStyle = INK; }
-    ctx.closePath(); ctx.fill();
+  // four tiles: bombs survived · wingmen · slingshots · XP earned
+  ctx.save(); ctx.globalAlpha = ease(t * 1.6 - 0.4);
+  const tiles: [string, string, boolean][] = [["BOMBS SURVIVED", log ? String(log.bombsSurvived) : "—", false], ["WINGMEN", log ? String(log.wingmen) : "—", false], ["SLINGSHOTS", log ? String(log.slingshots) : "—", false], ["XP EARNED", log ? `+${log.xp}` : "—", true]];
+  const tw4 = (Y.tilesW - 3 * Y.tileGap) / 4, th = Y.tilePad * 2 + Y.tileLbl * 1.2 + 10 + Y.tileVal;
+  tiles.forEach(([lbl, val, xp], k) => {
+    const x = L + k * (tw4 + Y.tileGap), y = Y.tilesTop;
+    rrect(ctx, x + 0.5, y + 0.5, tw4 - 1, th - 1, Y.tileR); ctx.fillStyle = story ? "rgba(22,24,28,0.82)" : "rgba(22,24,28,0.85)"; ctx.fill();
+    ctx.strokeStyle = xp ? "rgba(243,223,168,0.35)" : "#2E323A"; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = DIM; ctx.font = BC(600, Y.tileLbl); tracked(ctx, lbl, x + Y.tilePad, y + Y.tilePad, Y.tileLbl * (story ? 0.12 : 0.1));
+    ctx.fillStyle = xp ? GOLD : "#F2F3F7"; ctx.font = BC(800, Y.tileVal); ctx.fillText(val, x + Y.tilePad, y + Y.tilePad + Y.tileLbl * 1.2 + 10 - Y.tileVal * 0.08);
   });
+  ctx.restore();
+
+  // footer: avatar + @name (guild chip) · gold "Board my rocket" pill
+  const who = d.username ? `@${d.username}` : defaultUsername(d.wallet) || d.refLabel.split("/r/")[1] || "";
+  const fyC = H - Y.footBottom - Math.max(Y.avatar, Y.pillPx + 2 * Y.pillPadY) / 2, A = Y.avatar;
+  ctx.beginPath(); ctx.arc(L + A / 2, fyC, A / 2 - 1, 0, Math.PI * 2); ctx.fillStyle = "#26274B"; ctx.fill(); ctx.strokeStyle = "#3D4A79"; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = CHAMP; ctx.font = BC(700, Math.round(A * 0.46)); ctx.textAlign = "center";
+  ctx.fillText(who.replace(/^@/, "").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase(), L + A / 2, fyC - A * 0.27); ctx.textAlign = "left";
+  ctx.fillStyle = "#F2F3F7"; ctx.font = BC(700, Y.namePx); ctx.fillText(who, L + A + 16, fyC - Y.namePx * 0.58);
+  if (d.guildTag && /^[A-Z0-9]{2,5}$/.test(d.guildTag)) {
+    const nx = L + A + 16 + ctx.measureText(who).width + 14; ctx.font = BC(700, Math.round(Y.namePx * 0.62));
+    const cw = ctx.measureText(d.guildTag).width + 20, ch = Math.round(Y.namePx * 0.95);
+    ctx.strokeStyle = "rgba(243,223,168,0.45)"; ctx.lineWidth = 2; rrect(ctx, nx, fyC - ch / 2, cw, ch, 8); ctx.stroke();
+    ctx.fillStyle = CHAMP; ctx.fillText(d.guildTag, nx + 10, fyC - Y.namePx * 0.36);
+  }
+  { const txt = Y.pillLead + d.refLabel; ctx.font = `${Y.pillPx}px ${FONT.ui600}`;
+    const pw = ctx.measureText(txt).width + 2 * Y.pillPadX, ph = Y.pillPx * 1.2 + 2 * Y.pillPadY;
+    rrect(ctx, W - L - pw, fyC - ph / 2, pw, ph, ph / 2); ctx.fillStyle = GOLD; ctx.fill();
+    ctx.fillStyle = "#121327"; ctx.fillText(txt, W - L - pw + Y.pillPadX, fyC - Y.pillPx * 0.55); }
+  ctx.restore();
 }
+
 function hexA(hex: string, a: number) {
   const h = hex.replace("#", ""); const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;

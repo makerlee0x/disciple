@@ -1,9 +1,10 @@
-/** GET /api/share/pnl?wallet&coin[&demo=1&demoMcap] → PositionPnl (end = now for open positions). demo → sample fills, `next dev` only. */
+/** GET /api/share/pnl?wallet&coin[&demo=1&demoMcap] → PositionPnl (end = now for open positions) + `log` / `badge` for the card. demo → sample fills, `next dev` only. */
 import { NextResponse } from "next/server";
 import { pnlForPosition } from "@/lib/server/share/pnl";
 import { indexTrades } from "@/lib/server/trades";
 import { demoFills, DEMO_MCAP } from "@/lib/server/share/demo";
 import { pnlFromFills } from "@/lib/sharePnl";
+import { flightCardParts, SAMPLE_LOG } from "@/lib/server/share/flightCard";
 import { kv } from "@/lib/server/kv";
 import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
 
@@ -19,9 +20,11 @@ export async function GET(req: Request) {
   if (process.env.NODE_ENV === "development" && u.searchParams.get("demo") === "1") {
     const w = isAddr(wallet) ? wallet.toLowerCase() : "0x000000000000000000000000000000000000dead", c = isAddr(coin) ? coin.toLowerCase() : "0x0";
     const dm = Math.min(5e9, Math.max(3333, Number(u.searchParams.get("demoMcap")) || DEMO_MCAP)), now = Number(u.searchParams.get("at")) || Date.now();
-    return NextResponse.json({ ...pnlFromFills(w, c, demoFills(w, c, now, dm), dm, now), sample: true });
+    return NextResponse.json({ ...pnlFromFills(w, c, demoFills(w, c, now, dm), dm, now), sample: true, log: SAMPLE_LOG, badge: { text: "HARD", color: "#FF7A3D" } });
   }
   if (!isAddr(wallet) || !isAddr(coin)) return NextResponse.json({ error: "wallet and coin required" }, { status: 400 });
   await indexTrades(5_000).catch(() => {});
-  return NextResponse.json(await pnlForPosition(wallet, coin));
+  const pnl = await pnlForPosition(wallet, coin);
+  // flight log stats + badge for the video end card (same as the PNG card)
+  return NextResponse.json({ ...pnl, ...(await flightCardParts(wallet, coin, pnl, Date.now()).catch(() => ({}))) });
 }
