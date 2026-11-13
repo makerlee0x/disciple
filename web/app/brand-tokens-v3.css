@@ -179,6 +179,19 @@
 /* a launch tab reads as the primary door */
 .lb-tabs a[href="/create"] { color: var(--dsc3-light-gold); }
 .lb-tabs a[href="/create"].on { color: #FFFFFF; }
+/* signed out: the wallet pill is only Sign in, so less room is reserved; PLAY NOW sits just left of it */
+.lb-bar.lb-out { padding-right: calc(24px + 110px); }
+.lb-playnow {
+  margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; min-height: 44px; padding: 0 20px; border-radius: 12px;
+  background: linear-gradient(180deg, var(--dsc3-light-champagne), var(--dsc3-light-gold)); color: var(--dsc-sky-ink); text-decoration: none;
+  font: 800 18px / 1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: 0.02em; white-space: nowrap;
+}
+.lb-playnow:hover { color: var(--dsc-sky-ink); filter: brightness(1.06); }
+.lb-playnow:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+@media (max-width: 900px) {
+  .lb-bar.lb-out { padding-right: 16px; }
+  .lb-playnow { position: absolute; top: calc(var(--ap-safe-top, 0px) + 12px); right: calc(16px + 88px); min-height: 40px; padding: 0 16px; font-size: 16px; }
+}
 @media (max-width: 900px) {
   .lb-bar { flex-direction: column; align-items: stretch; gap: 0; padding-right: 16px; padding-left: 16px; }
   .lb-brand { height: 60px; }

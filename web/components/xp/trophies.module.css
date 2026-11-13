@@ -1,0 +1,145 @@
+/* Trophies (/achievements), after the lobby canvas board "Trophies". */
+.page { max-width: 1360px; margin: 0 auto; padding: 0 40px 72px; box-sizing: border-box; color: #E8EAEE; font-family: var(--dsc-font-ui, Inter, system-ui, sans-serif); }
+.mono { font-family: var(--dsc-font-mono, 'JetBrains Mono', ui-monospace, monospace); font-size: 12px; color: #9095A0; }
+.meta { font-size: 13px; color: #9095A0; }
+.up { color: #5FF0A0; }
+.eb, .ebGold { font: 500 11px / 1 var(--dsc-font-mono, 'JetBrains Mono', ui-monospace, monospace); letter-spacing: .1em; text-transform: uppercase; color: #F3DFA8; }
+.ebGold { color: #F2C14E; }
+.link { font-size: 13px; font-weight: 600; color: #F3DFA8; text-decoration: none; white-space: nowrap; }
+.link:hover { color: #FFFFFF; }
+.h2 { margin: 0; font: 800 30px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.card { border-radius: 20px; border: 1px solid rgba(232, 234, 238, .10); background: linear-gradient(180deg, rgba(26, 28, 46, .85), rgba(14, 15, 22, .92)); box-sizing: border-box; }
+.xpc { flex: none; padding: 4px 8px; border-radius: 6px; background: rgba(95, 240, 160, .12); color: #5FF0A0; font: 700 15px / 1 var(--dsc-font-game); letter-spacing: .02em; white-space: nowrap; }
+
+.head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin: 36px 0 24px; }
+.h1 { margin: 0; font: 800 64px / .9 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.lede { margin: 12px 0 0; font-size: 17px; color: #BCC0CA; }
+.total { font-size: 13px; color: #9095A0; text-align: right; }
+.total b { display: block; margin-top: 4px; font: 800 30px / 1 var(--dsc-font-game); color: #FFFFFF; }
+
+.top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.55fr); gap: 24px; align-items: stretch; }
+
+/* pilot card */
+.pilot { position: relative; overflow: hidden; padding: 28px; display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.pilotSky { position: absolute; inset: 0; background: url(/home/sky/t6.webp) 50% 30% / cover no-repeat; opacity: .28; }
+.pilotShade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(18, 19, 39, .2), rgba(14, 15, 22, .95) 70%); }
+.pilot > *:not(.pilotSky):not(.pilotShade) { position: relative; }
+.pilotId, .empty { display: flex; align-items: center; gap: 22px; }
+.pilotTx { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.pilotName { font: 800 36px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; overflow-wrap: anywhere; }
+.ring { position: relative; width: 150px; height: 150px; flex: none; }
+.ringTx { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.ringTx span { font: 500 11px / 1 var(--dsc-font-mono, 'JetBrains Mono', ui-monospace, monospace); letter-spacing: .1em; text-transform: uppercase; color: #9095A0; }
+.ringTx b { font: 800 64px / .9 var(--dsc-font-game); color: #FFFFFF; }
+.pilotXpRow { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; font-weight: 600; color: #FFFFFF; }
+.xpBar { height: 12px; border-radius: 6px; background: rgba(232, 234, 238, .10); overflow: hidden; }
+.xpBar i { display: block; height: 100%; border-radius: 6px; background: linear-gradient(90deg, #F3DFA8, #F2C14E); }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.stats > div { padding: 12px 14px; border-radius: 12px; background: rgba(10, 12, 18, .55); border: 1px solid #23262E; min-width: 0; }
+.stats span { display: block; font-size: 13px; color: #9095A0; }
+.stats b { display: block; margin-top: 6px; font: 800 26px / 1 var(--dsc-font-game); color: #FFFFFF; }
+.stats b.up { color: #5FF0A0; }
+.prestige { align-self: flex-start; display: inline-flex; align-items: center; text-decoration: none; min-height: 48px; padding: 0 20px; border: 0; border-radius: 12px; cursor: pointer; background: linear-gradient(180deg, #F3DFA8, #F2C14E); color: #121327; font: 800 20px / 1 var(--dsc-font-game); text-transform: uppercase; }
+.prestige:disabled { opacity: .6; cursor: default; }
+.next { margin-top: auto; display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-radius: 14px; background: rgba(10, 12, 18, .7); border: 1px solid rgba(242, 193, 78, .35); }
+.nextTx { min-width: 0; flex: 1; }
+.nextName { margin-top: 6px; font: 800 22px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+
+/* missions */
+.missions { padding: 24px 28px 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px 24px; min-width: 0; }
+.col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.colHead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.mi { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 12px; background: rgba(10, 12, 18, .6); border: 1px solid #23262E; }
+.miTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.miT { font-weight: 600; font-size: 15px; line-height: 1.35; color: #FFFFFF; min-width: 0; }
+.miBar { height: 8px; border-radius: 4px; background: rgba(232, 234, 238, .10); overflow: hidden; }
+.miBar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #A9C4FF, #F3DFA8); }
+.miSub { font: 500 12px / 1 var(--dsc-font-mono, 'JetBrains Mono', ui-monospace, monospace); color: #9095A0; }
+.miSub b { color: #5FF0A0; font-weight: 500; }
+.done .miBar i { background: #5FF0A0; }
+.done .miT { color: #BCC0CA; }
+.missionsFoot { grid-column: 1 / -1; padding-top: 4px; }
+
+/* sections */
+.sec { margin-top: 40px; }
+.secHead { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.secTitle { display: flex; align-items: baseline; gap: 16px; }
+
+/* rewards track */
+.track { padding: 24px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+.rw { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 18px 14px; border-radius: 16px; border: 1px solid #2A2D36; background: rgba(10, 12, 18, .55); min-width: 0; }
+.rw.got { border-color: rgba(95, 240, 160, .35); }
+.rw.isNext { border-color: #F2C14E; box-shadow: 0 0 0 1px #F2C14E inset, 0 16px 40px rgba(242, 193, 78, .14); }
+.rwLv { font: 800 18px / 1 var(--dsc-font-game); letter-spacing: .04em; text-transform: uppercase; color: #9095A0; }
+.got .rwLv { color: #5FF0A0; }
+.isNext .rwLv { color: #F2C14E; }
+.rwArt { position: relative; height: 150px; width: 100%; display: flex; justify-content: center; align-items: flex-start; }
+.rwArt img { filter: drop-shadow(0 0 18px rgba(160, 195, 255, .25)); }
+.lock .rwArt img { opacity: .55; }
+.rwName { min-height: 22px; margin-top: 4px; font: 800 22px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.rwBlurb { margin: 0; min-height: 36px; font-size: 13px; line-height: 1.4; color: #BCC0CA; }
+.tb { margin-top: 2px; padding: 6px 10px; border-radius: 8px; background: rgba(232, 234, 238, .08); color: #BCC0CA; font: 700 14px / 1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .03em; }
+.tbGot { background: rgba(95, 240, 160, .12); color: #5FF0A0; }
+.tbNext { background: #F2C14E; color: #121327; }
+.flareArt { position: relative; display: inline-block; }
+.flare { position: absolute; left: 50%; width: 30px; height: 60px; margin-left: -15px; border-radius: 50% 50% 40% 40%; filter: blur(3px);
+  background: radial-gradient(closest-side, #FFFFFF, var(--core) 20%, var(--flare) 50%, color-mix(in srgb, var(--flare) 40%, transparent) 70%, transparent); }
+.next .flare { width: 14px; height: 26px; margin-left: -7px; filter: blur(2px); }
+
+/* trophy case */
+.seg { display: flex; padding: 4px; border-radius: 12px; background: rgba(10, 12, 18, .7); border: 1px solid #2A2D36; }
+.seg button { padding: 8px 14px; border: 0; border-radius: 8px; background: transparent; cursor: pointer; font: 700 16px / 1 var(--dsc-font-game); text-transform: uppercase; color: #9095A0; }
+.seg button:hover { color: #FFFFFF; }
+.seg .segOn { background: rgba(232, 234, 238, .10); color: #FFFFFF; }
+.seg button:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+.case { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+.tro { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 18px 16px 16px; border-radius: 16px; border: 1px solid #2A2D36; background: rgba(10, 12, 18, .55); overflow: hidden; min-width: 0; }
+.tro::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--rc); opacity: .35; }
+.troOn { border-color: color-mix(in srgb, var(--rc) 55%, transparent);
+  background: radial-gradient(260px 160px at 50% 0%, color-mix(in srgb, var(--rc) 18%, transparent), transparent 70%), rgba(14, 16, 24, .85); }
+.troOn::before { opacity: 1; }
+.troArt { height: 96px; display: grid; place-items: center; }
+.troArt img { width: 84px; height: 84px; filter: drop-shadow(0 6px 18px rgba(0, 0, 0, .5)); }
+.tro:not(.troOn) .troArt img { filter: grayscale(1) brightness(.45); opacity: .7; }
+.troRar { display: flex; align-items: center; gap: 6px; font: 500 11px / 1 var(--dsc-font-mono, 'JetBrains Mono', ui-monospace, monospace); text-transform: uppercase; letter-spacing: .06em; color: var(--rc); }
+.troRar i { width: 8px; height: 8px; transform: rotate(45deg); background: var(--rc); border-radius: 1px; }
+.troName { margin: 0; font: 800 24px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.tro:not(.troOn) .troName { color: #C8CBD3; }
+.troDesc { margin: 0; flex: 1; font-size: 13px; line-height: 1.45; color: #9095A0; }
+.troFoot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; padding-top: 12px; border-top: 1px solid rgba(232, 234, 238, .07); }
+.tfGot, .tfLock { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+.tfGot { color: #5FF0A0; }
+.tfLock { color: #7A7F8A; }
+.tro:not(.troOn) .xpc { background: rgba(232, 234, 238, .06); color: #9095A0; }
+
+@media (max-width: 1180px) {
+  .top { grid-template-columns: minmax(0, 1fr); }
+  .track { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .case { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .page { padding: 0 16px 56px; }
+  .head { margin: 24px 0 18px; flex-wrap: wrap; align-items: flex-start; }
+  .h1 { font-size: 48px; }
+  .lede { font-size: 15px; }
+  .total { text-align: left; }
+  .pilot { padding: 20px; gap: 18px; }
+  .pilotId, .empty { gap: 16px; }
+  .ring { width: 104px; height: 104px; }
+  .ring svg { width: 104px; height: 104px; }
+  .ringTx b { font-size: 46px; }
+  .pilotName { font-size: 28px; }
+  .stats { gap: 8px; }
+  .stats > div { padding: 10px; }
+  .stats b { font-size: 22px; }
+  .next { flex-wrap: wrap; }
+  .missions { grid-template-columns: minmax(0, 1fr); padding: 20px; }
+  .secHead { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .track { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 62%; overflow-x: auto; scroll-snap-type: x mandatory; padding: 14px; gap: 10px; }
+  .rw { scroll-snap-align: start; }
+  .case { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .tro { padding: 14px 12px 12px; }
+  .troName { font-size: 20px; }
+  .troFoot { flex-wrap: wrap; }
+}

@@ -175,6 +175,14 @@ export async function restore(): Promise<Address | null> {
   return null;
 }
 
+/** A saved, unexpired session in this browser (before restore runs): the best guess at "signed in" for the first paint. */
+export function hasSavedSession(): boolean {
+  try {
+    const v = JSON.parse(localStorage.getItem(LS) || "null") as Stored | null;
+    return !!v?.owner && (!v.expiresAt || v.expiresAt > Date.now());
+  } catch { return false; }
+}
+
 export function aaSession() {
   return state && ownerAcct ? {
     kind: state.kind, owner: state.owner, expiresAt: state.expiresAt, gasMode: "gasless" as const,
