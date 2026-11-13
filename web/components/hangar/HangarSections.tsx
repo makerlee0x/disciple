@@ -13,7 +13,7 @@ import type { HomeCoin } from "@/lib/home/trending";
 import LiveCard from "@/components/home/LiveCard";
 import type { LiveHolding, LivePortfolio } from "@/components/profile/LiveHoldings";
 import { signedUsd2, usd2 } from "@/components/profile/money";
-import { DEPOSIT_HREF } from "@/lib/cashLink";
+import { DEPOSIT_HREF, onDepositClick } from "@/lib/cashLink";
 
 export function ServiceRecord({ pf, aboard, launched, isPrivate }: { pf: LivePortfolio | null; aboard: number | null; launched: HomeCoin[] | null; isPrivate: boolean }) {
   const ok = pf && pf.ok;
@@ -31,7 +31,7 @@ export function ServiceRecord({ pf, aboard, launched, isPrivate }: { pf: LivePor
       <div>
         <span className="l">Cash</span>
         <b data-testid="portfolio-cash">{ok ? usd2(pf.cashUsd) : "—"}</b>
-        {isPrivate ? <Link href={DEPOSIT_HREF} className="s">Add cash</Link> : <span className="s" />}
+        {isPrivate ? <Link href={DEPOSIT_HREF} onClick={onDepositClick} className="s">Add cash</Link> : <span className="s" />}
       </div>
       <div>
         <span className="l">Flights aboard</span>
