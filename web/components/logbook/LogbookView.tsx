@@ -165,6 +165,11 @@ export default function LogbookView() {
               <div><b className={s.down}>{r?.red ?? 0}</b><span>{c.stats.red}</span></div>
             </div>
           </section>
+          {own && (
+            <Link href={sample ? "/streaks?sample=1" : "/streaks"} className={`${s.card} ${s.linkCard}`}>
+              <span className={s.eb}>Streaks</span><span className={s.linkTxt}>Aboard and check-in days, with a weekly shield</span>
+            </Link>
+          )}
           {own && shareable && (
             <section className={`${s.card} ${s.shareCard}`}>
               <span className={`${s.eb} ${s.goldTxt}`}>{c.share.eyebrow}</span>

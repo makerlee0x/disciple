@@ -10,6 +10,7 @@ import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
 import { logbookFor, rocketStoryFor } from "@/lib/server/logbook";
+import { checkIn } from "@/lib/server/streaks";
 import { logRecord, type LogEntry } from "@/lib/logbook";
 
 export const runtime = "nodejs";
@@ -32,6 +33,8 @@ export async function GET(req: Request) {
   if (tok) {
     const a = await authenticate(tok, privyEnv());
     own = a.ok && a.user.wallets.some((x) => x.toLowerCase() === wallet);
+    // opening your own logbook is the day's check-in (lib/streaks); never blocks the read
+    if (own) await checkIn(wallet).catch(() => {});
   }
   try {
     if (coin) {

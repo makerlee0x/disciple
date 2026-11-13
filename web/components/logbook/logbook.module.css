@@ -42,6 +42,10 @@
 .stats b { display: block; font: 700 34px/1 var(--dsc-font-game); color: #FFF6DC; }
 .stats b.goldTxt { color: #F3DFA8; } .stats b.up { color: #5FF0A0; } .stats b.down { color: #F0307F; }
 .stats span { display: block; font-size: 12px; color: #9EA3B5; margin-top: 4px; }
+.linkCard { display: flex; flex-direction: column; gap: 6px; padding: 16px 22px; color: inherit; text-decoration: none; }
+.linkCard:hover { border-color: rgba(243,223,168,.25); color: inherit; }
+.linkCard:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+.linkTxt { font-size: 14px; color: #D7D9E4; }
 .shareCard { background: rgba(242,193,78,.08); border-color: rgba(243,223,168,.35); }
 .shareCard p { margin: 10px 0 14px; font-size: 14px; line-height: 1.45; color: #D7D9E4; }
 .gold { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 18px; border: 0; border-radius: 12px; background: #F2C14E; color: #121327;

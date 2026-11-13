@@ -4,6 +4,7 @@
  * Never imported in production code paths without the inline NODE_ENV guard.
  */
 import type { LogEntry, LogRecord, StoryEvent } from "@/lib/logbook";
+import { dayIndex, type Streak } from "@/lib/streaks";
 
 const H = 3600_000, D = 24 * H;
 const now = () => Date.now();
@@ -39,5 +40,15 @@ export function sampleStory(): { entry: LogEntry; story: StoryEvent[]; index: nu
       { kind: "zone", at: t0 + 33 * H, zone: "KÁRMÁN LINE", passengers: 41 },
       { kind: "orbit", at: t0 + 3 * D - 2 * H, aboard: true, pilotsAboard: 58 },
     ],
+  };
+}
+
+export function sampleStreaks(): { aboard: Streak; checkin: Streak; paid: number } {
+  const t = dayIndex(now());
+  const week = (states: Streak["week"][number]["state"][]) => states.map((state, i) => ({ day: t - 6 + i, state }));
+  return {
+    aboard: { current: 6, best: 14, week: week(["done", "done", "paused", "done", "done", "done", "today"]), shieldUsed: true, pausedDay: t - 4, todayOk: true, run: [] },
+    checkin: { current: 11, best: 11, week: week(["done", "done", "done", "done", "done", "done", "done"]), shieldUsed: false, pausedDay: null, todayOk: true, run: [] },
+    paid: 0,
   };
 }
