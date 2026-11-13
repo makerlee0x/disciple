@@ -5,7 +5,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PUBLIC_GET_LIMITS, hitLimit, memoryCounter } from "../lib/server/limits";
-import { alchemyKey } from "../lib/server/alchemyKey";
 
 test("PUBLIC_GET_LIMITS: positive caps for img / share / trades / username nonce / image resolve", () => {
   for (const [name, lim] of Object.entries(PUBLIC_GET_LIMITS)) {
@@ -29,10 +28,3 @@ test("hitLimit enforces the public-get windows (memory store)", async () => {
   assert.ok(over.retryAfterSec > 0);
 });
 
-test("alchemyKey: prefer ALCHEMY_API_KEY; ignore NEXT_PUBLIC_ on Vercel/prod", () => {
-  assert.equal(alchemyKey({ ALCHEMY_API_KEY: "server", NEXT_PUBLIC_ALCHEMY_API_KEY: "browser" }), "server");
-  assert.equal(alchemyKey({ NEXT_PUBLIC_ALCHEMY_API_KEY: "browser", VERCEL: "1" }), undefined);
-  assert.equal(alchemyKey({ NEXT_PUBLIC_ALCHEMY_API_KEY: "browser", NODE_ENV: "production" }), undefined);
-  assert.equal(alchemyKey({ NEXT_PUBLIC_ALCHEMY_API_KEY: "browser", NODE_ENV: "development" }), "browser");
-  assert.equal(alchemyKey({}), undefined);
-});

@@ -19,7 +19,18 @@ const wait = (k: string) => h.lat(k);
 vi.mock("viem", async original => ({ ...await original<typeof import("viem")>(), createPublicClient: () => ({
   getChainId: async () => { await wait("rpc"); return 46630; },
   getBlock: async () => { await wait("rpc"); return { timestamp: 100n, baseFeePerGas: 1n }; },
-  readContract: async ({ functionName }: { functionName: string }) => { await wait("rpc"); return functionName === "verifiedUntil" ? 1000n : 0n; },
+  readContract: async ({ functionName }: { functionName: string }) => { await wait("rpc");
+    // RELAY_BENCH_EASY=1: the coin has a v6 Easy curve (FSF1 shape: loginGate set, mode 1, ungraduated, USDG-quoted).
+    if (process.env.RELAY_BENCH_EASY) {
+      if (functionName === "curveOf") return "0x0cfbb7b54a94b8b7c36759c2f61b536f61d33a3d";
+      // RELAY_BENCH_EASY=trench: same curve shape with loginGate 0 / mode 0 (a Trench coin; admitted before and after).
+      if (functionName === "loginGate") return process.env.RELAY_BENCH_EASY === "trench" ? "0x0000000000000000000000000000000000000000" : "0xd19e138851fb4de489a4de81531f813081a143a7";
+      if (functionName === "mode") return process.env.RELAY_BENCH_EASY === "trench" ? 0 : 1;
+      if (functionName === "graduated") return false;
+      if (functionName === "quote") return "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d";
+      if (functionName === "quoteBuy") return { graduates: false };
+    }
+    return functionName === "verifiedUntil" ? 1000n : 0n; },
   call: async () => { await wait("sim"); return { data: "0x" }; },
   getTransactionCount: async () => { await wait("rpc"); return 5; }, getBalance: async () => { await wait("rpc"); return 0n; },
 }) }));
@@ -68,7 +79,7 @@ const pct = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - 
 describe.skipIf(!process.env.RELAY_BENCH)("gasless relay benchmark (mocked RPC latencies)", () => {
   it("request→receipt server wall, N trials", async () => {
     process.env.GAS_SPONSORSHIP_MODE = "gasless"; delete process.env.VERCEL_ENV; delete process.env.VERCEL;
-    const N = Number(process.env.RELAY_BENCH_N ?? 60), cold = rng(4663), rows: { ms: number; cold: boolean; plan: ReturnType<(typeof LAT)["snapshot"]> }[] = [];
+    const N = Number(process.env.RELAY_BENCH_N ?? 60), cold = rng(4663), rows: { ms: number; adm: number; cold: boolean; plan: ReturnType<(typeof LAT)["snapshot"]> }[] = [];
     h.lat = LAT.wait;   // per-(stage, trial, occurrence) streams: removing a stage can't shift the others' draws
     gaslessSessionDeps.env = () => ({ appId: "benchapp01", appSecret: "x", verificationKey: PK.export({ type: "spki", format: "pem" }).toString() });
     gaslessSessionDeps.invite = async () => ({ ok: true });
@@ -81,10 +92,11 @@ describe.skipIf(!process.env.RELAY_BENCH)("gasless relay benchmark (mocked RPC l
       const idToken = jwt(did);
       const t = performance.now(); const r = await relayGaslessTrade(body, { idToken }); const ms = performance.now() - t;
       expect(r.kind).toBe("confirmed");
-      if (i >= 3) rows.push({ ms, cold: isCold, plan: LAT.snapshot() });
+      if (i >= 3) rows.push({ ms, adm: r.t.admission, cold: isCold, plan: LAT.snapshot() });
     }
     const sum = (xs: number[]) => ({ n: xs.length, median: Math.round(pct(xs, 0.5)), p95: Math.round(pct(xs, 0.95)), min: Math.round(Math.min(...xs)), max: Math.round(Math.max(...xs)) });
-    const out = { tree: process.env.RELAY_BENCH_TREE ?? "gasless", all: sum(rows.map(r => r.ms)), coldInstance: sum(rows.filter(r => r.cold).map(r => r.ms)), warmInstance: sum(rows.filter(r => !r.cold).map(r => r.ms)) };
+    const out = { tree: process.env.RELAY_BENCH_TREE ?? "gasless", all: sum(rows.map(r => r.ms)), coldInstance: sum(rows.filter(r => r.cold).map(r => r.ms)), warmInstance: sum(rows.filter(r => !r.cold).map(r => r.ms)),
+      admission: sum(rows.map(r => r.adm)) };
     const plan = (xs: typeof rows) => ({
       plannedPath: sum(xs.map(r => r.plan.path)), jsSlop: sum(xs.map(r => r.ms - r.plan.path)),
       stages: Object.fromEntries((["sim", "kvGate", "privy", "rpc", "kvIncr", "send"] as const).map(k => [k, sum(xs.map(r => r.plan[k]))])),

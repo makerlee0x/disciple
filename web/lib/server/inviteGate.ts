@@ -26,7 +26,7 @@ export function inviteDeps(): Deps {
     privy: privyEnv(),
     adminEmails: process.env.ADMIN_EMAILS,
     envMode: process.env.INVITE_ONLY,
-    // linked wallets + the MAv2 and LightAccount v2 smart accounts each owns (salt 0, as app/api/pve/attest)
+    // linked wallets + the MAv2 and LightAccount v2 smart accounts each owns (salt 0)
     async accountsOf(u: PrivyUser) {
       const c = pc();
       const smart = await Promise.all(u.wallets.slice(0, 10).flatMap((w) => [
@@ -61,7 +61,7 @@ async function run(what: string, f: (m: Mode) => Promise<Gate>): Promise<Gate> {
 }
 /** Gate by wallet / smart-account address (bundler, paymaster, drip, chat, username). */
 export const requireInviteWallet = (addr: string, what: string) => run(what, (m) => gateWallet(kv(), m, addr));
-/** Gate by Privy user id (pve/attest). */
+/** Gate by Privy user id (gasless session). */
 export const requireInviteUser = (privyId: string, what: string) => run(what, (m) => gateUser(kv(), m, privyId));
 
 /** Standard 403 body for plain JSON routes. */

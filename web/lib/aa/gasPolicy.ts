@@ -75,7 +75,7 @@ export const LAUNCH_SELECTORS: ReadonlySet<string> = new Set(
     .filter((f): f is AbiFunction => f.type === "function" && (LAUNCH_FUNCTIONS as readonly string[]).includes(f.name))
     .map((f) => toFunctionSelector(f).toLowerCase()),
 );
-/** Calls allowed next to a launch: the exact First BOOST approve and the PVE LoginGate.attest (#99 ensurePveLogin). */
+/** Calls allowed next to a launch: the exact First BOOST approve and (older batches) a LoginGate.attest. */
 const LAUNCH_HELPERS = new Set([
   toFunctionSelector("function approve(address,uint256)"),
   toFunctionSelector("function attest(address wallet, uint64 expiry, bytes sig)"),
@@ -176,7 +176,7 @@ export type InOpApproval = { token: string; spender: string; amount: bigint };
  *    must carry — set only when the op's paymaster field IS our paymaster;
  *  - `referralRegistry`: ReferralRegistry.tryAttribute(sender, referrer) (protocol-viem referralCall, first buy of a
  *    referred wallet); `sender` binds its `wallet` arg (the registry reverts NotWalletOrAttestor otherwise);
- *  - `loginGate`: LoginGate.attest(wallet, expiry, sig) (lib/pve ensurePveLogin, user-paid owner batch).
+ *  - `loginGate`: LoginGate.attest(wallet, expiry, sig) (older user-paid owner batches; no current caller).
  */
 export type GradShapeOpts = { usdg?: string; paymaster?: string; referralRegistry?: string; loginGate?: string; sender?: string };
 /** `c` decoded as ERC-20 approve(spender, amount) on `c.to`, else null (selector AND full decode required). */

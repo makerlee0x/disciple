@@ -4,7 +4,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { VERIFIED_LOGIN_TYPES, isLoginVerified } from "../lib/pveAttest";
 import { needsEmbeddedWallet, ownerWalletAddress } from "../lib/privyOwner";
 
 const mount = readFileSync(new URL("../components/PrivyMount.tsx", import.meta.url), "utf8");
@@ -38,8 +37,12 @@ test("owner pick: the ORIGINAL embedded wallet (HD index 0, then earliest), neve
   assert.equal(ownerWalletAddress([]), null);
 });
 
-test("PVE login-verified: X counts like email / Google; a wallet-only login does not", () => {
-  assert.ok(VERIFIED_LOGIN_TYPES.has("twitter_oauth"));
-  assert.equal(isLoginVerified({ id: "did:privy:x", linked_accounts: [{ type: "twitter_oauth" } as never] }), true);
-  assert.equal(isLoginVerified({ id: "did:privy:w", linked_accounts: [{ type: "wallet", address: "0x" + "1".repeat(40) } as never] }), false);
+test("gasless session login-verified: X counts like email / Google; a wallet-only login does not", () => {
+  // lib/server/gaslessSession is server-only: read its SESSION_LOGIN_TYPES literal (pure, no Privy SDK).
+  const src = readFileSync(new URL("../lib/server/gaslessSession.ts", import.meta.url), "utf8");
+  const m = src.match(/SESSION_LOGIN_TYPES = new Set\(\[([^\]]*)\]\)/);
+  assert.ok(m, "SESSION_LOGIN_TYPES present");
+  const types = m![1].split(",").map((x) => x.trim().replace(/["']/g, "")).filter(Boolean);
+  assert.deepEqual(types.sort(), ["email", "google_oauth", "twitter_oauth"]);
+  assert.ok(!types.includes("wallet"));
 });

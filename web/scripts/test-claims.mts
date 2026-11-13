@@ -90,8 +90,8 @@ test("anon: private rockets never produce a direct (msg.sender) claim; they are 
   const { creatorClaimCalls } = await import("../lib/claims/creatorFees");
   const { anonLauncherAddr, anonLauncherLegacyAddr } = await import("../lib/claims/capabilities");
   const v2 = anonLauncherAddr()!, v1 = anonLauncherLegacyAddr()!;
-  assert.equal(v2.toLowerCase(), "0x73a2a6e049aa21a5c440f3bc358de37fe3f7c509"); // v5 AnonLauncher
-  assert.equal(v1.toLowerCase(), "0x06f31a8877c8e025cc55faffb20cba8486cca527"); // legacy = the v4-stack launcher
+  assert.equal(v2.toLowerCase(), "0x526784706e5ef369412abe65213ed65256182c6b"); // v6 AnonLauncher
+  assert.equal(v1.toLowerCase(), "0x73a2a6e049aa21a5c440f3bc358de37fe3f7c509"); // legacy = the v5 launcher
   const asset = { address: A(9), symbol: "NITE", decimals: 18, usd: null };
   const caps = { creatorFees: true, referrerFees: true, creatorTokenFees: true, crew: true, referralGate: true, anonClaims: true };
   const row = { token: A(9), claimable: BigInt(0), anon: true, launcher: v1, tokenSide: { asset, claimable: BigInt(0), claimed: BigInt(0) }, tokenUnclaimable: { asset, raw: BigInt(5) } };

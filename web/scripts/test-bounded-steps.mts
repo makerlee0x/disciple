@@ -1,5 +1,5 @@
-// Bounded server/pre-send steps (fix/bound-server-steps-ascended): a hung nonce KV EVAL, grad-gas estimateGas or
-// ensurePveLogin each finish within their bound with a clear outcome instead of stalling.
+// Bounded server/pre-send steps (fix/bound-server-steps-ascended): a hung nonce KV EVAL or grad-gas estimateGas
+// each finish within their bound with a clear outcome instead of stalling.
 // Run: npx tsx --conditions=react-server --test scripts/test-bounded-steps.mts
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -7,8 +7,6 @@ import type { Address } from "viem";
 import { SharedNonceCursor, type NonceStore } from "../lib/server/relayerNonce";
 import { Mav2Account, GRAD_GAS_BUDGET_MS } from "../lib/aa/mav2";
 import { GRAD_STATIC_GAS } from "../lib/aa/fastPath";
-import { ensurePveLogin, PveError, PVE_LOGIN_BUDGET_MS, PVE_SLOW_MSG, _resetPveCache } from "../lib/pve";
-import { deployment } from "../lib/chains";
 
 const hang = <T,>() => new Promise<T>(() => {});
 const ME = "0x4444444444444444444444444444444444444444" as Address;
@@ -29,18 +27,6 @@ test("hung USDG graduation estimate falls back within its bound", async () => {
   const t = Date.now();
   assert.deepEqual(await (a as any).gradGas(ME, []), GRAD_STATIC_GAS);
   assert.ok(Date.now() - t < GRAD_GAS_BUDGET_MS + 400);
-});
-
-test("hung ensurePveLogin fails within the bound with the clear message", { skip: deployment().loginGate === "0x0000000000000000000000000000000000000000" ? "no loginGate in this deployment" : false }, async () => {
-  assert.ok(PVE_LOGIN_BUDGET_MS >= 1500 && PVE_LOGIN_BUDGET_MS <= 3000);
-  _resetPveCache();
-  const pc = { readContract: () => hang<bigint>() } as never;
-  const t0 = Date.now();
-  await assert.rejects(ensurePveLogin(pc, ME, { token: async () => "t" }), (e: unknown) => e instanceof PveError && e.code === "Network" && e.message === PVE_SLOW_MSG);
-  assert.ok(Date.now() - t0 < PVE_LOGIN_BUDGET_MS + 300);
-  // hung attest fetch too
-  _resetPveCache();
-  await assert.rejects(ensurePveLogin({ readContract: async () => BigInt(0) } as never, ME, { token: async () => "t", fetchFn: (() => hang<Response>()) as typeof fetch, budgetMs: 200 }), (e: unknown) => e instanceof PveError && e.message === PVE_SLOW_MSG);
 });
 
 test("player-facing trade wording says ASCENDED, not graduated", async () => {
