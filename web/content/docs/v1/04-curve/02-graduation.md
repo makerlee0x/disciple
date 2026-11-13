@@ -9,7 +9,7 @@ A rocket reaches orbit when about 84% of it has been bought on its starting pric
 
 ## What happens
 
-The BOOST that crosses the line makes the rocket reach orbit in the same trade. There's no pause and no gap. [CONFIRM: FLOW — how the crossing BOOST is filled when it overshoots, e.g. partial fill and refund.]
+The BOOST that crosses the line makes the rocket reach orbit in the same trade. There's no pause and no gap. If that BOOST is bigger than what's left on the path, it fills up to the line and the rest of your dollars come straight back to you in the same trade.
 
 1. **A Uniswap v4 pool opens** for the rocket and its base, at the curve's last price. No jump.
 2. **Liquidity goes into the pool**: the remaining 15.76% of supply plus the base the curve raised, as one full-range position.

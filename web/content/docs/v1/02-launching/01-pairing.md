@@ -27,7 +27,7 @@ The contracts can also take USDG or another coin as the base, as long as that co
 
 Rocket targets are in dollars ($3,333 at the start, $33,333 when the rocket reaches orbit). Your base may not be a dollar coin, so DISCIPLE converts once, at launch:
 
-- It reads the base's dollar price from a trading pool of that coin and USDG. It uses an average over a short time, so one sudden price spike can't skew it. [CONFIRM: FLOW — the TWAP pricer is fixed in source (PR #44); confirm it's live on the current deploy.]
+- It reads the base's dollar price from a trading pool of that coin and USDG. It uses an average over a short time, so one sudden price spike can't skew it. The average runs over 30 minutes.
 - That price is fixed into your rocket at launch. From then on, the rocket's starting price path is counted in the base coin.
 
 So if your base's dollar price moves after launch, the rocket's price path doesn't change in base terms, but its dollar value moves with the base. Altitude is drawn from that dollar value.
