@@ -6,6 +6,7 @@
 import type { LogEntry, LogRecord, StoryEvent } from "@/lib/logbook";
 import { dayIndex, type Streak } from "@/lib/streaks";
 import type { CrewPage } from "@/lib/crew";
+import type { HostView } from "@/lib/host";
 
 const H = 3600_000, D = 24 * H;
 const now = () => Date.now();
@@ -67,5 +68,28 @@ export function sampleCrew(): CrewPage {
     ],
     mission: { best: 2, target: 3, xp: 400, done: false, resetsAt: now() + 2 * D },
     username: "mk",
+  };
+}
+
+export function sampleHost(): HostView {
+  const t = now(), t0 = t - 2 * D - 20 * H;
+  const curve = [0, 8, 16, 21, 19, 24, 31, 29, 37, 43, 49, 52];
+  const series = curve.map((n, i) => ({ at: t0 + ((t - t0) * i) / (curve.length - 1), n }));
+  const at = (i: number) => series[i].at;
+  return {
+    coin: "0x00000000000000000000000000000000000b1b10", name: "Lumen Trail", ticker: "LUMA", creator: "0x000000000000000000000000000000000000c0de", hostName: "lumen", mode: 2, graduated: false,
+    launchedAt: t0, zone: "KÁRMÁN LINE", toOrbitUsd: 8_100, passengers: 52, crews: 4, top10Pct: 31, series, peak: 52, day: 3,
+    milestones: [
+      { key: "p10", kind: "passengers", label: "First 10 passengers", at: at(2) },
+      { key: "crew", kind: "crew", label: "First crew aboard", at: at(2) },
+      { key: "z:OZONE", kind: "zone", label: "Ozone", at: at(3) },
+      { key: "z:STRATOSPHERE", kind: "zone", label: "Stratosphere", at: at(5) },
+      { key: "z:KÁRMÁN LINE", kind: "zone", label: "Kármán Line", at: at(8) },
+      { key: "p25", kind: "passengers", label: "25 passengers", at: at(6) },
+      { key: "p50", kind: "passengers", label: "50 passengers", at: at(10) },
+      { key: "p100", kind: "passengers", label: "100 passengers", at: null },
+      { key: "orbit", kind: "orbit", label: "Orbit", at: null },
+    ],
+    rockets: { launched: 4, orbits: 1, mostPassengers: 88 },
   };
 }

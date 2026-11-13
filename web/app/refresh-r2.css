@@ -655,3 +655,8 @@ textarea.he-ta { min-height: 76px; padding: 12px 14px; resize: none; display: bl
   .iv-code { flex-basis: 100%; }
   .iv-st { flex: 1; }
 }
+
+/* Host earnings bay: Mission control link (main mode hook loop, maker 2026-11-13) */
+.he-rkname a.he-mc { display: inline-block; font-size: 12px; line-height: 1.4; white-space: normal; margin-top: 4px; font: 500 12px var(--dsc-font-mono); color: #44D4E2; text-transform: uppercase; text-decoration: none; }
+.he-rkname a.he-mc:hover { color: #FFF6DC; }
+.he-mc:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); border-radius: 4px; }
