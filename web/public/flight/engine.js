@@ -1080,6 +1080,39 @@ function drawWingmen(){ if(!S.wing.size&&!wingExtra()) return; const im=IMG.rock
     ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='rgba(230,232,255,.92)'; ctx.fillText(t,px,py+1); ctx.textBaseline='alphabetic'; }
   ctx.restore(); }
 /* @wingmen-end */
+/* @draft — DRAFTING (maker 2026-11-13). Steer (A/D or drag) so the nose sits in a wingman's contrail and the Draft meter fills:
+   x2 at a third, x3 at two thirds, x4 = SLINGSHOT (your contrail goes gold for 5 s). Out of the contrail it drains; a bomb going
+   off knocks you out of the draft. Each slingshot fires disciple:slingshot { wingmen, at } with the drafted pilots' addresses;
+   components/flight/DraftXp.tsx reports it (lib/xp DRAFT: 10 XP, 5 a day, paid by the cron only if the fills back it up) and
+   answers disciple:slingshotxp so the tag reads "confirming" or "capped". Cosmetic in the engine: no price, PnL or trade. */
+const DRAFT_FILL=22, DRAFT_DRAIN=14, DRAFT_HIT=17, SLING_S=5;   // meter %/s in, %/s out, px either side of the contrail, gold s
+S.draft=0; S.draftLvl=0; S.draftOn=null; S.draftWho=new Set(); S.sling=-1;
+function draftStep(dt){
+  const [nx,ny]=nozzleXY(), noseY=ny-150*0.9; let on=null;
+  for(const w of S.wing.values()){ if(w.peel!=null||w.y>noseY-20) continue;
+    const i=Math.round((noseY-w.y)/WING_SP); if(i<1||i>=w.hist.length) continue;
+    if(Math.abs(w.hist[i]-nx)<DRAFT_HIT){ on=w; break; } }
+  S.draftOn=on;
+  if(on){ S.draft=Math.min(100,S.draft+dt*DRAFT_FILL); if(/^0x[0-9a-f]{40}$/i.test(on.trader)) S.draftWho.add(on.trader.toLowerCase()); }
+  else { S.draft=Math.max(0,S.draft-dt*DRAFT_DRAIN); if(!S.draft) S.draftWho.clear(); }
+  const lvl=S.draft>=100?4:S.draft>=66?3:S.draft>=33?2:S.draft>0?1:0;
+  if(lvl>S.draftLvl&&lvl>=2&&lvl<4) S.floaters.push({x:nx+70,y:noseY+10,txt:'DRAFT x'+lvl,c:'#C8C4FF',life:1.2,game:20});
+  if(lvl===4){ S.sling=S.t+SLING_S; S.draft=0; S.draftLvl=0; S.floaters.push({x:nx+70,y:noseY,txt:'SLINGSHOT',c:'#F2C14E',life:1.6,game:30});
+    sfx('zone',{tier:0}); const who=Array.from(S.draftWho); S.draftWho.clear();
+    try{ dispatchEvent(new CustomEvent('disciple:slingshot',{detail:{wingmen:who,at:Date.now()}})); }catch(_){} return; }
+  S.draftLvl=lvl; }
+function draftKnock(){ if(!(S.draft>0)) return; S.draft=0; S.draftLvl=0; S.draftWho.clear(); const [nx,ny]=nozzleXY();
+  S.floaters.push({x:nx-80,y:ny-150,txt:'Knocked out of the draft',c:'#FF8AB0',life:1.4,game:18}); }
+addEventListener('disciple:slingshotxp',e=>{ const d=e.detail||{}, [nx,ny]=nozzleXY();
+  if(d.state==='confirming') S.floaters.push({x:nx+70,y:ny-170,txt:'+'+(d.xp||10)+' XP · confirming',c:'#5FF0A0',life:1.6,game:20});
+  else if(d.state==='capped') S.floaters.push({x:nx+70,y:ny-170,txt:'Drafting XP capped for today',c:'#C8C4FF',life:1.6,game:18}); });
+function drawDraftMeter(x,y,h){ const sl=S.t<S.sling; if(!(S.draft>0)&&!sl) return; const mx=x+52, my=y-h*0.8, mh=h*0.6;
+  ctx.save(); ctx.fillStyle='rgba(14,16,34,.72)'; ctx.beginPath(); ctx.roundRect?ctx.roundRect(mx-6,my-4,12,mh+8,6):ctx.rect(mx-6,my-4,12,mh+8); ctx.fill();
+  const f=sl?1:S.draft/100; ctx.fillStyle=sl?'#F2C14E':'#B9B3FF'; ctx.beginPath(); ctx.roundRect?ctx.roundRect(mx-3,my+mh*(1-f),6,mh*f,3):ctx.rect(mx-3,my+mh*(1-f),6,mh*f); ctx.fill();
+  if(!CLEAN){ ctx.font=GF(13,700); ctx.textAlign='left'; ctx.fillStyle='#E7E5FF'; ctx.fillText(sl?'SLINGSHOT':'DRAFT x'+Math.max(1,S.draftLvl),mx+10,my+10); }
+  ctx.restore(); }
+/* @draft-end */
+
 
 /* @pressfeel — body kick spring (squat on a BOOST press, recoil on a DUMP fill; drawn y only), engine idle after a quiet spell,
    and the lock rings. Visual only: nothing here touches the price, the camera, PnL or a trade. */
@@ -1644,7 +1677,7 @@ function drawRocket(dt){
   const pivotY = h * NOZZLE_FROM_TOP; // draw offset so nozzle lands on (0,0) after rotate
   // @pressfeel lock rings (replace the ghost rocket + dashed line): one per press, at the projected fill (never applied to the
   // confirmed altitude). Pending = the arc closes; ok = a gold snap; fail = it cracks; gone (held / unknown) = it fades.
-  drawLocks(x,h);
+  drawLocks(x,h); drawDraftMeter(x,y,h);
   if ((S.idle||0)>0.6&&!CLEAN){ ctx.save(); ctx.globalAlpha=clamp((S.idle-0.6)*2.5,0,1); ctx.font=GF(15,700); ctx.textAlign='center'; ctx.fillStyle='rgba(230,232,255,.92)';
     ctx.fillText('ENGINES IDLE · THE CREW NEEDS A BOOST',x,y+96); ctx.restore(); }
   // exhaust (procedural): leaves the nozzle opposite the nose
@@ -2259,7 +2292,7 @@ function spawnPuff(){ const tp=tipPoint(), y=altToScreenY(tp.alt);
 function burst(x,y,n,spd,opt){ const fn=typeof opt==='function';
   for(let i=0;i<n;i++){ const a=Math.random()*6.2832, v=spd*(0.35+Math.random()*0.65), o=fn?opt(i,a):opt;
     bfxSpawn(o.k||'spark',x,y,o.vx!=null?o.vx:Math.cos(a)*v,o.vy!=null?o.vy:Math.sin(a)*v,o.r!=null?o.r:2,o.gr||0,o.life!=null?o.life:1,o.drag!=null?o.drag:2,o.c||'255,220,140',o.a!=null?o.a:1,o.g||0); } }
-function detonate(b){
+function detonate(b){ draftKnock();
   const x=b.x, y=bombY(b), k=b.T.k; b.y0=y; b.detAge=b.age; addShock(x,y,k);   // real blast point
   const who=b.trader||'—', lbl=`${b.T.name} −${b.pct>=10?b.pct.toFixed(0):b.pct.toFixed(1)}%${b.fullStack?' · FULL STACK':''} · ${who}${b.usd>0?' '+(b.usd<10?fmtShot(b.usd):fmtUsd(b.usd)):''}${b.n>1?' ×'+b.n:''}`;
   if (S.pro||b.tier>=4){ if(!S.pro) S.bombLabels.length=0; S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0}); if(S.bombLabels.length>2) S.bombLabels.shift(); }
@@ -2683,7 +2716,7 @@ function simStep(stepDt){
   if (!S._trailAcc) S._trailAcc=0; S._trailAcc+=dt;
   const lt=S.trail[S.trail.length-1], moved=!lt || Math.hypot(lt.x-nozX, trailY(lt)-nozY)>1.8;
   if (S._trailAcc>0.05 || moved){ S._trailAcc=0;
-    S.trail.push({x:nozX, alt:nozAlt, air:S.airPx||0, thrust:sinceThrust<0.25||tradePendingFx(), c:sigOn()?S.sig.rgb:null});
+    S.trail.push({x:nozX, alt:nozAlt, air:S.airPx||0, thrust:sinceThrust<0.25||tradePendingFx(), c:S.t<(S.sling||-1)?'242,193,78':sigOn()?S.sig.rgb:null});   // @draft slingshot: gold contrail for 5 s
     S._trailEmitErr=Math.max(S._trailEmitErr||0, Math.abs(trailY(S.trail[S.trail.length-1])-nozY));   // test hook: ≈0 by construction
     if (S.trail.length>TRAIL_MAX){ const T=S.trail, half=T.length>>1; let j=1;   // decimate the older half (fine detail only near the nozzle)
       for(let i=1;i<half;i++){ if(i&1) continue; T[j++]=T[i]; } for(let i=half;i<T.length;i++) T[j++]=T[i]; T.length=j; }
@@ -2726,7 +2759,7 @@ function rocketHits(px,py,rad){
 function orbHitsRocket(o){ return rocketHits(o.x,o.y,(ORB[o.k]&&ORB[o.k].r)||14); }
 /* @orb-hit-end */
   // (orb layer retired 2026-11-13: crew wingmen replace it, see @wingmen)
-  wingStep(dt);
+  wingStep(dt); draftStep(dt);
   bombStep(dt);
   for (const t of S.toasts) t.life-=dt*0.6; keepIf(S.toasts,ALIVE);
   if (!S.ach.koth){ let top=null, tv=-Infinity; if(S.holders){ const t=topFuelers()[0]; if(t) top=t[0]; } else for (const k in S.fuelers) if(S.fuelers[k]>tv){ tv=S.fuelers[k]; top=k; } if(top==='you') award('koth','KING OF THE HILL','top booster on this coin'); }

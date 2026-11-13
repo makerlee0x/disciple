@@ -215,3 +215,25 @@ test("transfer scan: dust transfers can't push a sent-away bag out of the kept o
   assert.equal(kept[0].block, 10);                       // at its earliest position, never later
   assert.deepEqual(capOuts([bag], 500), [bag]);
 });
+import { evaluateDrafts } from "../lib/missionsEval";
+import { DRAFT } from "../lib/xp";
+test("drafting XP: pays only aboard with $5+, only behind a pilot who boosted that coin in the last minute, 5 a day", () => {
+  const C = "0x00000000000000000000000000000000000000c1", P = dayPeriod(T0);
+  const buy = (ts: number, usd: number): MissionFill => ({ coin: C, ts, block: ts, logIndex: 0, side: "buy", tokens: usd, usd });
+  const fills = [buy(T0 - H, 20)];
+  const coinFills = new Map([[C, [{ ts: T0 - 30_000, trader: OTHER, side: "buy" }, { ts: T0 + 10 * MIN - 30_000, trader: OTHER, side: "buy" }]]]);
+  const claim = (at: number, wingmen = [OTHER]) => ({ coin: C, wingmen, at });
+  const run = (claims: ReturnType<typeof claim>[], f = fills) => evaluateDrafts({ wallet: W, fills: f, coinFills, claims, asOf: T0 + H }, P);
+  assert.equal(run([claim(T0)]).length, 1);                                   // aboard, pilot boosted 30 s before
+  assert.equal(run([claim(T0 + 2 * MIN)]).length, 0);                         // pilot's boost is older than a minute
+  assert.equal(run([claim(T0, [W])]).length, 0);                              // drafting yourself never counts
+  assert.equal(run([claim(T0)], [buy(T0 - H, 3)]).length, 0);                 // under $5 aboard
+  assert.equal(run([claim(T0)], [buy(T0 + MIN, 20)]).length, 0);              // boarded after the slingshot
+  assert.equal(run([claim(T0), claim(T0 + 1000)]).length, 1);                 // a second claim inside the gap is dropped
+  const many = Array.from({ length: 9 }, (_, i) => claim(T0 + i * 5_000)).filter((c) => c.at <= T0);
+  const lots = Array.from({ length: 9 }, (_, i) => ({ ts: T0 + i * 5_000 - 1000, trader: OTHER, side: "buy" }));
+  const cf2 = new Map([[C, lots]]);
+  const paid = evaluateDrafts({ wallet: W, fills, coinFills: cf2, claims: Array.from({ length: 9 }, (_, i) => claim(T0 + i * 5_000)), asOf: T0 + H }, P);
+  assert.equal(paid.length, DRAFT.perDay);                                    // capped at 5 a day
+  assert.ok(many.length >= 1);
+});

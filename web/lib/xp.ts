@@ -117,6 +117,15 @@ export const FAIR = {
   freshLaunchMs: 3600_000,
 } as const;
 
+/**
+ * Drafting XP (maker 2026-11-13): flying in a wingman's contrail fills the Draft meter; a full meter is a slingshot. The
+ * game reports each slingshot with the pilots it drafted (POST /api/xp/draft); the cron pays it only when, from the fills,
+ * you held at least `minHoldUsd` of that coin and at least one drafted pilot really boosted it in the minute before.
+ * The server trusts only the steering itself, so the pay is small and capped per day.
+ */
+export const DRAFT = { xp: 10, perDay: 5, windowMs: 60_000, minHoldUsd: 5, minGapMs: 4_000, maxWingmen: 12 } as const;
+export interface DraftClaim { coin: string; wingmen: string[]; at: number }
+
 const DAY = 86_400_000;
 
 export interface Period { id: string; cadence: Cadence; start: number; end: number }

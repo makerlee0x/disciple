@@ -4,7 +4,7 @@
  * same history gives the same answer, so the cron can replay a wallet from scratch every time it changes.
  */
 import { TIERS } from "./config";
-import { FAIR, type MissionDef, type Period } from "./xp";
+import { DRAFT, FAIR, type DraftClaim, type MissionDef, type Period } from "./xp";
 
 const DUST = 1e-9;
 
@@ -177,4 +177,40 @@ export function evaluateMissions(inp: MissionInput, period: Period, missions: re
     }
   }
   return { results, ...(recheckAt !== undefined ? { recheckAt } : {}) };
+}
+
+/**
+ * Drafting slingshots that pay in this period (oldest first, at most DRAFT.perDay). A claim counts when:
+ *  - it falls inside the period and is not later than `asOf`, and at least DRAFT.minGapMs after the last counted one;
+ *  - the wallet held the coin at that moment with a cost basis of at least DRAFT.minHoldUsd (from its own fills);
+ *  - at least one drafted pilot (never the wallet itself) has a buy fill on that coin in the DRAFT.windowMs before it.
+ * `coinFills` = every trader's fills per coin. Pure: the same inputs always pay the same claims.
+ */
+export function evaluateDrafts(inp: { wallet: string; fills: readonly MissionFill[]; coinFills: ReadonlyMap<string, readonly { ts: number; trader: string; side: string }[]>; claims: readonly DraftClaim[]; asOf: number }, period: Period): DraftClaim[] {
+  const wallet = inp.wallet.toLowerCase();
+  const fills = [...inp.fills].filter((f) => f.side !== "out" || f.tokens > 0).sort(order);
+  const claims = inp.claims.filter((c) => c.at >= period.start && c.at < period.end && c.at <= inp.asOf).slice().sort((a, b) => a.at - b.at);
+  const heldBasis = (coin: string, at: number) => {
+    let tokens = 0, basis = 0;
+    for (const f of fills) {
+      if (f.ts > at) break;
+      if (f.coin !== coin) continue;
+      if (f.side === "buy") { tokens += f.tokens; basis += Number.isFinite(f.usd) && f.usd > 0 ? f.usd : 0; }
+      else { const q = Math.min(f.tokens, Math.max(0, tokens)); if (tokens > DUST) { basis -= basis * (q / tokens); tokens -= q; } if (tokens <= DUST) { tokens = 0; basis = 0; } }
+    }
+    return tokens > DUST ? basis : 0;
+  };
+  const out: DraftClaim[] = [];
+  let lastAt = -Infinity;
+  for (const c of claims) {
+    if (out.length >= DRAFT.perDay) break;
+    const coin = c.coin.toLowerCase();
+    if (c.at - lastAt < DRAFT.minGapMs) continue;
+    if (heldBasis(coin, c.at) < DRAFT.minHoldUsd) continue;
+    const pilots = new Set(c.wingmen.map((x) => x.toLowerCase()).filter((x) => x !== wallet));
+    const boosted = (inp.coinFills.get(coin) ?? []).some((f) => f.side === "buy" && pilots.has(f.trader.toLowerCase()) && f.ts <= c.at && f.ts >= c.at - DRAFT.windowMs);
+    if (!boosted) continue;
+    out.push(c); lastAt = c.at;
+  }
+  return out;
 }
