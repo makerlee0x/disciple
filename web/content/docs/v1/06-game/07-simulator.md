@@ -1,34 +1,45 @@
 ---
-title: Simulator
+title: Free play
 slug: /docs/game/simulator
 section: Game
 ---
-# Simulator
+# Free play
 
-The Simulator is free paper trading on a private market. A fresh coin launches on the real curve ($3,333 → $33,333) and bots trade it with you. You choose how hostile they are.
+Free play is the game with practice cash. Each run launches a fresh rocket on the real curve ($3,333 → $33,333), and bots fly it with you. You don't need a wallet, nothing is sent onchain, and no real money is involved.
 
-Open the Simulator at `/flight/sim`.
+Open Free play at `/flight/sim`. Every run starts with $250 of practice cash and lasts 2 minutes.
 
-No wallet, no transactions, no real funds. The curve, fees, anti-snipe and tramps-and-walls rules match the contracts.
+## Daily flight
 
-## Difficulties
+There's one market a day, and everyone flies the same one. It's always Hard. You get one scored run per day, and your score is your cash-out multiple: everything that came back divided by what you put in. A new flight starts at 00:00 UTC.
 
-| | **PvE** | **PvP** | **Trench Warfare** |
+To get on the daily board, you have to be signed in. If you're signed out, you can still fly, and the result tells you where you would have placed. When you sign in, it's saved. If you share a challenge link, a friend can fly the same market with your ghost flying next to them.
+
+## Practice
+
+Practice runs are unlimited, and there are three modes. Each run is a new market.
+
+| | **Easy** | **Hard** | **Expert** |
 |---|---|---|---|
-| Tag | Crew | Dog eat dog | Mercenary |
-| Feel | Steady growth | Bigger swings | Huge swings |
-| Who's trading | Crew, diamond hands, scalpers, paper hands | Momentum, scalpers, paper hands, whales, diamond hands, crew | Snipers, bundlers, the dev, CTO, momentum, scalpers, paper hands, whales |
+| Feel | Steady climb | Bigger swings | Huge swings |
+| Who's flying | Crew, diamond hands, scalpers, paper hands | Momentum, scalpers, paper hands, whales, diamond hands, crew | Snipers, bundlers, the dev, a CTO, plus everyone from Hard |
 
-**PvE.** Your crew helps the rocket climb. Bots buy dips and take modest profits. Low volatility, steady growth, an occasional small sell.
+**Easy.** The crew has your back. Bots buy the dips and take small profits.
 
-**PvP.** Every trader plays for their own profit: momentum chasers, profit takers and whales. Bigger buys, bigger dumps. A high value is still possible.
+**Hard.** Everyone flies for themselves. Your boost is someone else's exit.
 
-**Trench Warfare.** Snipers buy the launch. Bundled wallets sit on supply. The dev may rug, and a community takeover might revive it. Huge swings: a high altitude is possible, but hard. Altitude is how high the rocket's value has climbed.
+**Expert.** Snipers buy the launch, bundled wallets hold supply, and the dev might rug. To survive, you have to read the tells.
 
-## How the bots play you
+## Goals and XP
 
-Bots read only the public tape: your confirmed trades and your placed tramps and walls, each with its own reaction delay. They never see pending trades or your intent. Competitive bots may ride your pumps or sell into your BOOSTs. Supportive bots buy your dips.
+Every run has three goals: finish green, cash out at 2× or better, and see the rocket reach orbit.
 
-## Simulator vs live launch modes
+Signed-in pilots earn XP from Free play. A daily flight pays up to 150 XP and a practice run up to 20. Free play XP stops at 150 a day.
 
-Live rockets have launch modes with similar names: Easy, Hard and Trench (see [Launch modes](/docs/launch/modes)). In the Simulator, the difficulty sets **who you're trading against**. On a live rocket, the launch mode sets **the rocket's rules**. The Simulator doesn't use the Easy or Hard holding limits or the crew tip.
+## Reading the tells
+
+Bots only react to the public tape: your trades and your tramps and walls, each after its own short delay. They never see a trade before it lands. Before a bot makes a big dump, it peels off, and the feed warns you a moment ahead of time. Reading those tells is the skill.
+
+## Free play vs live rockets
+
+Live rockets use the same names, Easy, Hard and Trench (see [Launch modes](/docs/launch/modes)). On a live rocket, the mode sets the rocket's rules. In Free play, it sets who you're flying against. Free play doesn't use the holding limits or the crew tip.

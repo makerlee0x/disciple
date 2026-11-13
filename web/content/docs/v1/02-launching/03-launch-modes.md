@@ -41,4 +41,4 @@ For the first 7 seconds after launch, BOOSTs pay a sniper tax: 99% at launch, 25
 
 ## Practice first
 
-The [Simulator](/docs/game/simulator) has difficulty levels with similar names: PvE, PvP and Trench Warfare. There, the level sets who you're trading against (the bots), not the rocket's rules. The Simulator doesn't use the Easy or Hard limits or the crew tip. It's free practice with no wallet.
+[Free play](/docs/game/simulator) uses the same names, Easy, Hard and Expert. In Free play, the mode sets who you're flying against (the bots), not the rocket's rules. Free play doesn't use the holding limits or the crew tip. It's practice cash with no wallet.

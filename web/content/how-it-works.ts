@@ -126,8 +126,10 @@ export const HIW_PRO = {
 
 export const HIW_FINAL = {
   h2: "Ready up",
-  sub: "Warm up in the Simulator with no real money, or jump into a live flight.",
-  sim: "Try the Simulator",
+  sub: "Warm up in Free play with practice cash, or jump into a live flight.",
+  /** the Pilot / Pro switch again, so a reader at the bottom can flip modes without scrolling back up */
+  tog: "Read it as",
+  sim: "Try Free play",
   explore: "Find a flight",
   launch: "Launch a rocket",
   footer: "DISCIPLE runs on Robinhood Chain. Nothing here is financial advice.",

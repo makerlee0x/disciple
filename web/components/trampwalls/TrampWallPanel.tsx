@@ -192,7 +192,7 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
               <h2 style={{ ...h2, fontSize: 20, margin: 0 }}>PLACE A {kind === "tramp" ? "TRAMPOLINE" : "WALL"}{sampleTag}</h2>
               <button type="button" aria-label="Close" onClick={() => setOpen(false)} style={{ all: "unset", cursor: "pointer", color: HUD.dim, fontSize: 20, lineHeight: 1 }}>×</button>
             </div>
-            <p style={{ ...dim, margin: "6px 0 14px" }}>Altitude now {fmt(cur)}. {sample ? "Sample only: local, not on-chain. " : simulator ? "Simulator. " : ""}A limit order with no fee share: once the price fully crosses it, a keeper closes it for a 0.1% tip.
+            <p style={{ ...dim, margin: "6px 0 14px" }}>Altitude now {fmt(cur)}. {sample ? "Sample only: local, not on-chain. " : simulator ? "Free play. " : ""}A limit order with no fee share: once the price fully crosses it, a keeper closes it for a 0.1% tip.
               {" "}{TRAMP_WALL_POINTS_PER_USD} points per $1 of size, only when it fills.</p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
               {(["tramp", "wall"] as const).map((k) => (

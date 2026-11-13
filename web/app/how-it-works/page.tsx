@@ -132,10 +132,8 @@ export default function HowItWorksPage() {
       <ModeTabs
         pilot={{ eyebrow: HIW_PILOT.eyebrow, h1: HIW_PILOT.h1, sub: HIW_PILOT.sub, body: <Pilot /> }}
         pro={{ eyebrow: HIW_PRO.eyebrow, h1: HIW_PRO.h1, sub: HIW_PRO.sub, body: <Pro /> }}
-      />
-
-      <section className={s.final} style={sky(1)} aria-labelledby="hiw-final">
-        <div className={s.finalC}>
+        finalStyle={sky(1)}
+        final={<>
           <h2 id="hiw-final">{HIW_FINAL.h2}</h2>
           <p>{HIW_FINAL.sub}</p>
           <div className={s.ctas}>
@@ -143,8 +141,8 @@ export default function HowItWorksPage() {
             <Link href={HIW_ROUTES.explore} className={`${s.btn} ${s.gold}`}>{HIW_FINAL.explore}</Link>
             <Link href={HIW_ROUTES.launch} className={`${s.btn} ${s.ghost}`}>{HIW_FINAL.launch}</Link>
           </div>
-        </div>
-      </section>
+        </>}
+      />
 
       <footer className={s.footer}>
         {/* eslint-disable-next-line @next/next/no-img-element -- static SVG lockup, no optimisation needed */}

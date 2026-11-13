@@ -130,6 +130,8 @@
 .final::before { content: ""; position: absolute; inset: 0; background: radial-gradient(60% 80% at 50% 50%, rgba(5, 6, 10, .35), rgba(5, 6, 10, .85)); }
 .finalC { position: relative; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 44px 24px; }
 .finalC h2 { margin: 0; font: 800 clamp(56px, 7vw, 88px) / .9 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.finalTog { display: flex; align-items: center; gap: 12px; margin-top: 6px; font-size: 14px; color: #D7D9E4; }
+.finalTog .tog button { padding: 8px 18px; font-size: 16px; }
 .finalC p { margin: 0; font-size: 18px; line-height: 1.5; color: #D7D9E4; max-width: 560px; }
 .ctas { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
 .footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--hair); display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; font-size: 13px; color: #9095A0; }

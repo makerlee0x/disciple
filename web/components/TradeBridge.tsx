@@ -895,7 +895,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     : rows.length > 1 ? <div data-testid="press-rows" style={{ fontSize: 12, opacity: 0.9, color: HUD.champagne, display: "flex", flexDirection: "column", gap: 1 }}>
         {rows.map((r) => <div key={r.id} data-press={r.id} data-done={r.done ? "1" : "0"} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", opacity: r.done ? 0.75 : 1 }}>{r.txt}</div>)}</div>
     : (last || preview) ? <div style={{ fontSize: 12, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? HUD.champagne : HUD.dim }}>{last || preview}</div> : null;
-  const modeTag = live ? null : <span title={valid ? "paper trades: connect a wallet to trade" : "practice market"} style={{ padding: "1px 6px", borderRadius: 5, font: `700 12px ${HUD.game}`, letterSpacing: ".06em", background: "rgba(243,223,168,.14)", color: HUD.champagne }}>{token === "SIMULATOR" ? "SIM" : "PAPER"}</span>;
+  const modeTag = live ? null : <span title={valid ? "paper trades: connect a wallet to trade" : "practice market"} style={{ padding: "1px 6px", borderRadius: 5, font: `700 12px ${HUD.game}`, letterSpacing: ".06em", background: "rgba(243,223,168,.14)", color: HUD.champagne }}>{token === "SIMULATOR" ? "FREE PLAY" : "PAPER"}</span>;
   return (
     <>
     <AmmoTierNotice />

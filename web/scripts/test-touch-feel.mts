@@ -72,5 +72,5 @@ test("flight guards, wake lock, folded overlays", () => {
   assert.match(css, /font-size: max\(16px, 1em\)/, "inputs don't zoom on iOS");
   assert.match(rd("components/AppShell.tsx"), /<TouchKit \/>/);
   assert.match(rd("components/flight/GameRadio.tsx"), /phone && \(!!layout\.radio\?\.min \|\| !phoneOpen\)/, "radio starts folded on phones");
-  assert.match(rd("components/sim/SimMode.tsx"), /data-testid="sim-chip"/, "sim panel folds into a chip on phones");
+  assert.match(rd("components/sim/FreePlay.tsx"), /data-testid="sim-chip"/, "Free play goals fold into a chip on phones");
 });
