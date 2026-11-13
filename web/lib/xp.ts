@@ -77,6 +77,8 @@ export type MissionKind =
   | "drop_bomb"
   /** hold ≥$25 of one rocket for 24 hours with no dump */
   | "hold_24h"
+  /** keep $25+ of one rocket for an hour with no dump or transfer away (replaces the size and count missions, Nov 16) */
+  | "hold_1h"
   /** launch a rocket (public launches only) */
   | "launch"
   /** hold a rocket when it reaches orbit */
@@ -94,23 +96,31 @@ export interface MissionDef {
   id: string; cadence: Cadence; kind: MissionKind; title: string; xp: number; target: number;
   /** in the pool only for periods starting at or after this time (ms): adding a mission never reshuffles a running period */
   from?: number;
+  /** out of the pool for periods starting at or after this time (ms); the def stays so older periods still resolve */
+  until?: number;
 }
 
 /** First UTC day / week that draws the in-flight missions (Monday 2026-11-16). */
 const FLIGHT_MISSIONS_FROM = Date.UTC(2026, 10, 16);
+/**
+ * Missions that paid for trade size or count, dumping on a crew, or aping the newest rockets leave the pools on the same
+ * Monday (maker 2026-11-13, main mode hook loop review: never reward trade count or size).
+ */
+const SIZE_MISSIONS_UNTIL = FLIGHT_MISSIONS_FROM;
 
 export const DAILY_POOL: readonly MissionDef[] = [
-  { id: "d_boost3", cadence: "daily", kind: "boost_rockets", title: "Boost 3 different rockets", xp: 150, target: 3 },
-  { id: "d_boost50", cadence: "daily", kind: "boost_usd", title: "Boost $50 in total", xp: 100, target: 50 },
+  { id: "d_boost3", cadence: "daily", kind: "boost_rockets", title: "Boost 3 different rockets", xp: 150, target: 3, until: SIZE_MISSIONS_UNTIL },
+  { id: "d_boost50", cadence: "daily", kind: "boost_usd", title: "Boost $50 in total", xp: 100, target: 50, until: SIZE_MISSIONS_UNTIL },
   { id: "d_tier", cadence: "daily", kind: "ride_tier", title: "Ride a rocket up one tier", xp: 100, target: 1 },
-  { id: "d_fresh", cadence: "daily", kind: "boost_fresh", title: "Boost a rocket launched in the last hour", xp: 100, target: 1 },
-  { id: "d_bomb", cadence: "daily", kind: "drop_bomb", title: "Drop a bomb", xp: 75, target: 1 },
+  { id: "d_fresh", cadence: "daily", kind: "boost_fresh", title: "Boost a rocket launched in the last hour", xp: 100, target: 1, until: SIZE_MISSIONS_UNTIL },
+  { id: "d_bomb", cadence: "daily", kind: "drop_bomb", title: "Drop a bomb", xp: 75, target: 1, until: SIZE_MISSIONS_UNTIL },
   { id: "d_modes", cadence: "daily", kind: "boost_modes", title: "Boost an Easy, a Hard and an Expert rocket", xp: 200, target: 3 },
   { id: "d_run", cadence: "daily", kind: "start_run", title: "Start a run", xp: 100, target: 1, from: FLIGHT_MISSIONS_FROM },
+  { id: "d_hold1h", cadence: "daily", kind: "hold_1h", title: "Stay aboard one rocket for an hour", xp: 100, target: 1, from: FLIGHT_MISSIONS_FROM },
   { id: "d_crew", cadence: "daily", kind: "first_crew", title: "Be in a rocket's first crew", xp: 100, target: 1, from: FLIGHT_MISSIONS_FROM },
 ];
 export const WEEKLY_POOL: readonly MissionDef[] = [
-  { id: "w_boost10", cadence: "weekly", kind: "boost_rockets", title: "Boost 10 different rockets", xp: 600, target: 10 },
+  { id: "w_boost10", cadence: "weekly", kind: "boost_rockets", title: "Boost 10 different rockets", xp: 600, target: 10, until: SIZE_MISSIONS_UNTIL },
   { id: "w_hold", cadence: "weekly", kind: "hold_24h", title: "Stay aboard one rocket for 24 hours", xp: 500, target: 1 },
   { id: "w_launch", cadence: "weekly", kind: "launch", title: "Launch a rocket", xp: 750, target: 1 },
   { id: "w_orbit", cadence: "weekly", kind: "orbit_aboard", title: "Be aboard when a rocket reaches orbit", xp: 1000, target: 1 },
@@ -129,6 +139,8 @@ export const FAIR = {
   /** staying aboard needs this much held */
   holdMinUsd: 25,
   holdMs: 24 * 3600_000,
+  /** the daily stay-aboard mission (same $25 floor) */
+  holdShortMs: 3600_000,
   /** bombs count only on rockets held this long */
   bombMinHoldMs: 10 * 60_000,
   bombMinImpactBps: 200,
@@ -200,7 +212,7 @@ function hash(s: string): number {
 
 /** The same 3 missions for everyone in a period: a seeded shuffle of the pool, keyed by the period id. */
 export function missionsFor(p: Period): MissionDef[] {
-  const pool = (p.cadence === "daily" ? DAILY_POOL : WEEKLY_POOL).filter((m) => m.from === undefined || p.start >= m.from);
+  const pool = (p.cadence === "daily" ? DAILY_POOL : WEEKLY_POOL).filter((m) => (m.from === undefined || p.start >= m.from) && (m.until === undefined || p.start < m.until));
   let seed = hash(p.id) || 1;
   for (let i = pool.length - 1; i > 0; i--) {
     seed = Math.imul(seed ^ (seed >>> 15), 0x2c1b3c6d) >>> 0;
