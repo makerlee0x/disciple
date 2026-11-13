@@ -9,9 +9,9 @@ import { ACTIVE_CHAIN } from "../chains";
 import { AAError, type GasMode } from "./core";
 import { PRIVY_APP_ID, SIGNER_MODE } from "./env";
 import type { TradeTiming } from "../trade/timing";
-import { _publishSession, privyHooksNow, type OwnerKind } from "./sessionState";
+import { _publishSession, privyHooksNow, SESSION_LS, type OwnerKind } from "./sessionState";
 export {
-  aaSession, onSessionChange, registerPrivy, privyReady, privyLoaded, onPrivy, privyAuthenticated, privyAccount, privySecurity,
+  aaSession, onSessionChange, registerPrivy, privyReady, privyLoaded, hasSavedSession, onPrivy, privyAuthenticated, privyAccount, privySecurity,
   privyAccessToken, privyIdentityToken, privyLogin,
 } from "./sessionState";
 export type { OwnerKind, SessionSummary, PrivyAccountInfo, PrivyMfaMethod, PrivySecurity } from "./sessionState";
@@ -59,7 +59,7 @@ export async function setOneTapSlippageBps(bps: number): Promise<void> {
 export function sessionMaxSlippageBps(): number | null { return oneTapSlippageBps(); }
 
 const LOCAL_KEY = "disciple.local.ownerKey.v1";
-const LS = "disciple.aa.session.v2";
+const LS = SESSION_LS;
 type Stored = { kind: OwnerKind; owner: Address; key?: Hex; expiresAt: number };
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 

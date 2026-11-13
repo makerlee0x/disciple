@@ -14,6 +14,21 @@ export const QUICK_LAUNCH_MODE_COPY = {
   footer: "You choose this when you launch, and you can't change it later. The caps end when the rocket moves to the open market.",
 } as const;
 
+/** The launch builder's difficulty cards (canvas board "Launch: build your rocket"). Same caps as above, in game words. */
+export const QUICK_LAUNCH_MODE_CARD = {
+  Easy: { label: "Easy", nick: "", blurb: "Small bags only. No one can hold more than 1% at first, so the whole crew climbs together.", color: "#5FF0A0", meter: 1 },
+  Hard: { label: "Hard", nick: "", blurb: "Bigger bags, up to 3.33% each at first. More room for whales, bigger bombs.", color: "#FF7A3D", meter: 2 },
+  Trench: { label: "Expert", nick: "aka the Trench", blurb: "No caps at all. Anyone can grab as much as they want. Wild climbs, wilder dumps.", color: "#F0307F", meter: 3 },
+  footer: "The caps switch off once the rocket reaches orbit.",
+} as const;
+
+/** "$20" for the seat the host takes at launch ("$0" with no First BOOST). */
+export function seatLabel(boostValue: string): string {
+  if (!boostHasAmount(boostValue)) return "$0";
+  const n = Number.parseFloat(boostValue.trim().replace(/,/g, "."));
+  return `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
+}
+
 export const QUICK_LAUNCH_COPY = {
   title: "Your rocket",
   pickMode: "Pick your mode",
@@ -26,6 +41,7 @@ export const QUICK_LAUNCH_COPY = {
   useGenerated: "Use the badge we made",
   firstBoost: "First BOOST",
   firstBoostTip: "This is your first buy, at launch. You get first dibs on your own rocket.",
+  seatHelp: "You get first dibs on your own rocket. Skip it with $0.",
   custom: "Custom",
   chip0: "$0",
   chip5: "$5",
@@ -33,7 +49,7 @@ export const QUICK_LAUNCH_COPY = {
   mode: "Mode",
   modeChange: "Change",
   modeLabel: (label: string) => `Mode: ${label}`,
-  advanced: "Advanced",
+  advanced: "More options",
   pairCoin: "Pair coin",
   pairHelp: "Your rocket is bought and sold in this coin.",
   links: "Links",
@@ -63,7 +79,7 @@ export const QUICK_LAUNCH_COPY = {
   anonEasyBoostHelp: "Your name won't be shown as the creator. The account that pays can still be seen on the public record.",
   pseudoHelp: "Your name won't be shown as the creator. The account that pays, and the first buy, can still be seen on the public record.",
   creatorFees: "Creator fees",
-  creatorFeeSplit: "Creators earn .33% of all trading fees forever.",
+  creatorFeeSplit: "You earn 33% of every trading fee, forever.",
   creatorFeesPerm: "You pick this when you launch, and you can't change it later.",
   creatorFeesHelp: "You pick this when you launch. It applies only to this rocket, including private launches, and it cannot be changed later. It covers all creator fees, including any extra creator tax.",
   creatorFeesPending: "This choice will be available once the new contracts are live.",

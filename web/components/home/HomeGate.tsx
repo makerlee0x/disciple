@@ -6,7 +6,7 @@
  * live sign-in state decides (Privy, the smart session, the wallet pill) and the other lobby is unmounted.
  */
 import { useEffect, useState, type ReactNode } from "react";
-import { aaSession, onPrivy, onSessionChange, privyAuthenticated, privyLoaded } from "@/lib/aa/session";
+import { aaSession, hasSavedSession, onPrivy, onSessionChange, privyAuthenticated, privyLoaded } from "@/lib/aa/session";
 import { WALLET_ID_EVENT, walletId } from "@/lib/walletCta";
 import s from "./homeGate.module.css";
 
@@ -17,23 +17,15 @@ const GUESS_JS = `(function(){try{var e=document.currentScript.parentNode,v=JSON
 /** Privy never reports (no app id, blocked script): stop waiting and treat the visitor as signed out. */
 const GIVE_UP_MS = 6_000;
 
-function savedSession(): boolean {
-  try {
-    const v = JSON.parse(localStorage.getItem(SESSION_LS) || "null") as { owner?: string; expiresAt?: number } | null;
-    return !!v?.owner && (!v.expiresAt || v.expiresAt > Date.now());
-  } catch { return false; }
-}
-
 export default function HomeGate({ signedIn, signedOut }: { signedIn: ReactNode; signedOut: ReactNode }) {
   const [auth, setAuth] = useState<Auth>("out");
   const [settled, setSettled] = useState(false);
   useEffect(() => {
-    let guess: Auth = savedSession() ? "in" : "out";
-    setAuth(guess);
+    setAuth(hasSavedSession() ? "in" : "out");
     const sync = () => {
       const live = privyAuthenticated() || !!aaSession() || !!walletId()?.address;
-      if (live) { guess = "in"; setAuth("in"); setSettled(true); }
-      else if (privyLoaded()) { guess = "out"; setAuth("out"); setSettled(true); }
+      if (live) { setAuth("in"); setSettled(true); }
+      else if (privyLoaded()) { setAuth("out"); setSettled(true); }
     };
     sync();
     const giveUp = setTimeout(() => { if (!(privyAuthenticated() || aaSession() || walletId()?.address)) setAuth("out"); setSettled(true); }, GIVE_UP_MS);

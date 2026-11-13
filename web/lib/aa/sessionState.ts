@@ -58,3 +58,13 @@ export function privyLogin() {
   if (!privyHooks) throw new Error("Login is still loading — try again in a second.");
   privyHooks.login();
 }
+
+/** localStorage key of the saved session (lib/aa/session.ts reads and writes it). */
+export const SESSION_LS = "disciple.aa.session.v2";
+/** A saved, unexpired session in this browser (before restore runs): the best guess at "signed in" for the first paint. */
+export function hasSavedSession(): boolean {
+  try {
+    const v = JSON.parse(localStorage.getItem(SESSION_LS) || "null") as { owner?: string; expiresAt?: number } | null;
+    return !!v?.owner && (!v.expiresAt || v.expiresAt > Date.now());
+  } catch { return false; }
+}

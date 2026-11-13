@@ -166,6 +166,7 @@ export async function xpSummary(walletIn: string, now = Date.now(), s: Kv = kv()
   return {
     wallet: w, totalXp: t.total, spendableXp: t.spendable, level: levelInfo(t.total, t.prestige),
     daily: view(dayPeriod(now)), weekly: view(weekPeriod(now)), owned,
+    weekXp: rows.reduce((a, r) => (r.xp > 0 && r.ts >= weekPeriod(now).start ? a + r.xp : a), 0),
     recent: rows.filter((r) => r.xp !== 0).sort((a, b) => b.ts - a.ts).slice(0, 20).map((r) => ({ label: r.label, xp: r.xp, ts: r.ts })),
     evaluatedAt: m?.at ?? null,
   };

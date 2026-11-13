@@ -70,5 +70,5 @@ export function untilLabel(ts: number, now = Date.now()): string {
 export function blankXp(now = Date.now()): XpSummary {
   const d = dayPeriod(now), w = weekPeriod(now);
   const view = (p: typeof d) => ({ period: p.id, resetsAt: p.end, missions: missionsFor(p).map((m) => ({ id: m.id, title: m.title, xp: m.xp, target: m.target, progress: 0, done: false })) });
-  return { wallet: "", totalXp: 0, spendableXp: 0, level: levelInfo(0), daily: view(d), weekly: view(w), owned: [], recent: [], evaluatedAt: null };
+  return { wallet: "", totalXp: 0, spendableXp: 0, level: levelInfo(0), daily: view(d), weekly: view(w), owned: [], weekXp: 0, recent: [], evaluatedAt: null };
 }

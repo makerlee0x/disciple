@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { aaSession, onPrivy, onSessionChange, privyAuthenticated } from "@/lib/aa/sessionState";
+import { aaSession, hasSavedSession, onPrivy, onSessionChange, privyAuthenticated, privyLoaded } from "@/lib/aa/sessionState";
 import { WALLET_ID_EVENT, walletId } from "@/lib/walletCta";
 import LevelChip from "@/components/xp/LevelChip";
 import Icon, { type IconName } from "@/components/icons/Icon";
@@ -22,14 +22,15 @@ const TABS: readonly Tab[] = [
   { href: "/create", key: "launch", label: "Launch", icon: "rocket" },
   { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot", you: true },
   { href: "/leaderboard", key: "leader", label: "Leaderboard", icon: "leaderboard" },
-  { href: "/achievements", key: "trophies", label: "Trophies", icon: "achievement" },
+  { href: "/achievements", key: "trophies", label: "Trophies", icon: "achievement", you: true },
 ];
 
 export default function LobbyTopBar() {
   const pathname = usePathname() ?? "/";
   const [you, setYou] = useState(false);
   useEffect(() => {
-    const sync = () => setYou(privyAuthenticated() || !!aaSession() || !!walletId()?.address);
+    // until Privy has loaded, a saved session counts as signed in (no Play now / missing tabs flash for players)
+    const sync = () => setYou(privyAuthenticated() || !!aaSession() || !!walletId()?.address || (!privyLoaded() && hasSavedSession()));
     sync();
     const a = onPrivy(sync), b = onSessionChange(sync);
     addEventListener(WALLET_ID_EVENT, sync);
@@ -46,7 +47,7 @@ export default function LobbyTopBar() {
   const tabs = TABS.filter((t) => !t.you || you);
 
   return (
-    <header className="lb-bar" data-testid="lobby-topbar">
+    <header className={`lb-bar${you ? "" : " lb-out"}`} data-testid="lobby-topbar">
       <Link href="/" className="lb-brand" aria-label="DISCIPLE lobby">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/brand/disciple-mark-light.svg" alt="" width={28} height={28} />
@@ -64,6 +65,9 @@ export default function LobbyTopBar() {
           How to play
         </button>
       </nav>
+      {!you && (
+        <Link href="/play" prefetch={false} className="lb-playnow" data-testid="topbar-play">Play now</Link>
+      )}
       <LevelChip toastOnly />
     </header>
   );
