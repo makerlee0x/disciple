@@ -33,16 +33,17 @@ export const MIN_FLIGHT_MS = (dailySeconds() - 5) * 1000;
 /** a ticket older than this has gone stale (a paused tab, a run left open) */
 export const TICKET_TTL_MS = 45 * 60_000;
 
-export async function issueTicket(id: number, runId: string, now = Date.now(), s: Kv = kv()): Promise<string> {
-  return `${now}.${mac(await secret(s), `daily:ticket:${id}:${runId}:${now}`)}`;
+/** net: the hashed network the ticket was issued to; the scored run is charged to that network's daily quota */
+export async function issueTicket(id: number, runId: string, net: string, now = Date.now(), s: Kv = kv()): Promise<string> {
+  return `${now}.${net}.${mac(await secret(s), `daily:ticket:${id}:${runId}:${net}:${now}`)}`;
 }
-export type TicketCheck = { ok: true; issuedAt: number } | { ok: false; error: string };
+export type TicketCheck = { ok: true; issuedAt: number; net: string } | { ok: false; error: string };
 export async function checkTicket(id: number, runId: string, ticket: unknown, now = Date.now(), s: Kv = kv()): Promise<TicketCheck> {
-  if (typeof ticket !== "string" || !/^\d{12,14}\.[0-9a-f]{64}$/.test(ticket)) return { ok: false, error: "Start the flight from the game to score it." };
-  const [ts, sig] = ticket.split("."), at = Number(ts);
-  const want = Buffer.from(mac(await secret(s), `daily:ticket:${id}:${runId}:${at}`), "hex"), got = Buffer.from(sig, "hex");
+  if (typeof ticket !== "string" || !/^\d{12,14}\.[0-9a-f]{16}\.[0-9a-f]{64}$/.test(ticket)) return { ok: false, error: "Start the flight from the game to score it." };
+  const [ts, net, sig] = ticket.split("."), at = Number(ts);
+  const want = Buffer.from(mac(await secret(s), `daily:ticket:${id}:${runId}:${net}:${at}`), "hex"), got = Buffer.from(sig, "hex");
   if (want.length !== got.length || !timingSafeEqual(want, got)) return { ok: false, error: "Start the flight from the game to score it." };
   if (now - at < MIN_FLIGHT_MS) return { ok: false, error: "That flight ended too fast to score." };
   if (now - at > TICKET_TTL_MS) return { ok: false, error: "This flight's start ticket ran out. Fly it again." };
-  return { ok: true, issuedAt: at };
+  return { ok: true, issuedAt: at, net };
 }

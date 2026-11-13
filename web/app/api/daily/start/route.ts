@@ -5,13 +5,14 @@
  */
 import { NextResponse } from "next/server";
 import { kv } from "@/lib/server/kv";
-import { clientIp, hitLimit } from "@/lib/server/limits";
+import { clientIp, hitLimit, sameSitePost } from "@/lib/server/limits";
 import { startDaily } from "@/lib/server/daily";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  if (!sameSitePost(req.headers)) return NextResponse.json({ error: "Start the flight from the game to score it." }, { status: 403 });
   const ip = clientIp(req.headers);
   const rl = await hitLimit(kv(), `daily:start:${ip}`, 30, 3600);
   if (!rl.ok) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });

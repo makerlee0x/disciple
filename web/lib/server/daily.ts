@@ -30,7 +30,9 @@ export const DAILY_PER_IP = 5;
 export const runIdOf = (device: string) => createHash("sha256").update("disciple:daily:" + device).digest("hex").slice(0, 16);
 export const nameOf = (runId: string) => defaultUsername("0x" + createHash("sha256").update("disciple:pilot:" + runId).digest("hex").slice(0, 40));
 const zkey = (id: number) => `daily:${id}:z`, rkey = (id: number, run: string) => `daily:${id}:run:${run}`, okey = (id: number, run: string) => `daily:${id}:owner:${run}`,
-  fkey = (id: number) => `daily:${id}:zflag`, ipkey = (id: number, ip: string) => `daily:${id}:ip:${createHash("sha256").update(ipBucket(ip)).digest("hex").slice(0, 16)}`;
+  fkey = (id: number) => `daily:${id}:zflag`, ipkey = (id: number, net: string) => `daily:${id}:ip:${net}`;
+/** the hashed network an IP belongs to (see ipBucket) */
+export const netOf = (ip: string) => createHash("sha256").update(ipBucket(ip)).digest("hex").slice(0, 16);
 /** the network an IP counts against: IPv4 as is, IPv6 by its /64 (one home or phone gets a whole /64 to rotate through) */
 export function ipBucket(ip: string): string {
   if (!ip.includes(":") || /^::ffff:\d/.test(ip)) return ip.replace(/^::ffff:/, "");
@@ -59,12 +61,13 @@ export async function startDaily(id: number, device: unknown, ip: string, s: Kv 
   if (typeof device !== "string" || !/^[A-Za-z0-9-]{16,64}$/.test(device)) return { ok: false, status: 400, error: "bad device" };
   const runId = runIdOf(device), seed = await serverDailySeed(id, s);
   if (await s.get(rkey(id, runId))) return { ok: true, seed, ticket: "", already: true };
-  if (Number((await s.get(ipkey(id, ip))) || 0) >= DAILY_PER_IP) return { ok: false, status: 429, error: "Too many pilots from this network today. Practice is open." };
-  return { ok: true, seed, ticket: await issueTicket(id, runId, Date.now(), s), already: false };
+  const net = netOf(ip);
+  if (Number((await s.get(ipkey(id, net))) || 0) >= DAILY_PER_IP) return { ok: false, status: 429, error: "Too many pilots from this network today. Practice is open." };
+  return { ok: true, seed, ticket: await issueTicket(id, runId, net, Date.now(), s), already: false };
 }
 
 export type SubmitResult = { ok: true; run: DailyRun; rank: number; count: number; already: boolean } | { ok: false; status: number; error: string };
-export async function submitDaily(id: number, device: unknown, inputs: unknown, ticket: unknown, ip: string, s: Kv = kv()): Promise<SubmitResult> {
+export async function submitDaily(id: number, device: unknown, inputs: unknown, ticket: unknown, s: Kv = kv()): Promise<SubmitResult> {
   if (!Number.isInteger(id) || id < 1) return { ok: false, status: 400, error: "bad id" };
   if (!dailyOpen(id)) return { ok: false, status: 409, error: "This daily flight has closed." };
   if (typeof device !== "string" || !/^[A-Za-z0-9-]{16,64}$/.test(device)) return { ok: false, status: 400, error: "bad device" };
@@ -73,7 +76,9 @@ export async function submitDaily(id: number, device: unknown, inputs: unknown, 
   const prev = await s.get(key);
   if (prev) { const run = JSON.parse(prev) as DailyRun; return { ok: true, run, already: true, ...(await rankOf(id, run.score.multiple, s)) }; }
   const t = await checkTicket(id, runId, ticket, Date.now(), s); if (!t.ok) return { ok: false, status: 403, error: t.error };
-  const n = await s.incrEx(ipkey(id, ip), 2 * 86_400);
+  // charged to the network that started the flight, so tickets a hostile site issued to itself and posts through a
+  // visitor's browser spend the hostile site's quota, never the visitor's
+  const n = await s.incrEx(ipkey(id, t.net), 2 * 86_400);
   if (n > DAILY_PER_IP) return { ok: false, status: 429, error: "Too many pilots from this network today. Practice is open." };
   const seed = await serverDailySeed(id, s), v = verifyDailyFull(seed, inputs as PlayerInput[]);
   const run: DailyRun = { runId, name: nameOf(runId), score: v.score, at: Date.now(), inputs: inputs as PlayerInput[], seed, ...(v.flags.length ? { flags: v.flags } : {}) };

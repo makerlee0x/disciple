@@ -272,3 +272,16 @@ export const PUBLIC_GET_LIMITS = {
   /** GET /api/name-lock (launch-form check + coin-page copy flag) */
   nameLockPerIp: { limit: 60, windowSec: 60 },
 } as const;
+
+/**
+ * A browser POST that only our own pages can send: JSON content type (a cross-site form or no-cors fetch can't set it
+ * without a CORS preflight, which we never answer) and, when the browser says, a same-origin request. Stops a hostile
+ * site from spending a visitor's per-IP quotas through their browser.
+ */
+export function sameSitePost(h: { get(name: string): string | null }): boolean {
+  if (!/^application\/json\b/i.test(h.get("content-type") || "")) return false;
+  const site = h.get("sec-fetch-site"); if (site && site !== "same-origin" && site !== "none") return false;
+  const origin = h.get("origin"), host = h.get("x-forwarded-host") || h.get("host");
+  if (origin && host) { try { if (new URL(origin).host.toLowerCase() !== host.toLowerCase()) return false; } catch { return false; } }
+  return true;
+}
