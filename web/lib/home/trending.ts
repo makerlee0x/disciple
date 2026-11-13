@@ -7,6 +7,7 @@
 import { BOMB_TIERS, TIERS } from "@/lib/config";
 import { bombTierIndex } from "@/lib/flight/bombTier";
 import { playerUsd, type Fill } from "@/lib/trades";
+import type { TickerItem, TopPilots } from "./topPilots";
 
 export const DAY_MS = 864e5;
 
@@ -67,6 +68,10 @@ export type HomeData = {
   next: string[];
   /** latest fills of the hero, newest first */
   chips: TradeChip[];
+  /** signed-out lobby: biggest realized cash-outs today / this week / this month (lib/home/topPilots) */
+  pilots?: TopPilots;
+  /** signed-out lobby: the latest boosts and bombs across every rocket, newest first */
+  ticker?: TickerItem[];
 };
 
 /** Prefer the on-chain price impact. Quote-paid notional includes fees and is NOT a mid-price. */
