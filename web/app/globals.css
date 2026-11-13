@@ -1153,26 +1153,6 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .pp-custom.on { border-style: solid; border-color: #C9CED6; }
 .pp-custom .ds-input { flex: 1; }
 
-/* —— Themed 404 / error (flat card on the ozone sky) —— */
-.ds-lost { position: relative; isolation: isolate; min-height: calc(100dvh - var(--ap-topbar-offset)); display: grid; place-items: center; padding: 24px 16px; background: var(--dsc-bg); overflow: hidden; }
-.ds-lost-sky { position: absolute; inset: 0; z-index: 0; }
-.ds-lost-sky img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.ds-lost-card { position: relative; z-index: 1; width: min(440px, 100%); padding: 28px 24px 24px; text-align: center; background: var(--dsc-surface); border: 1px solid var(--dsc-border); border-radius: var(--dsc-radius-xl); color: var(--dsc-text); }
-.ds-lost-rocket { display: block; width: auto; height: 120px; margin: 0 auto 8px; transform: rotate(18deg); }
-.ds-lost-kicker { margin: 0; font: 400 56px/1 var(--dsc-font-display); color: var(--dsc-text); }
-.ds-lost-card h1 { margin: 8px 0 10px; font: 400 28px/1.2 var(--dsc-font-display); color: var(--dsc-text); }
-.ds-lost-body { margin: 0 auto 18px; max-width: 36ch; font: 16px/1.45 var(--dsc-font-ui); color: var(--dsc-text); }
-.ds-lost .actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-.ds-lost .actions .ds-btn { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 10px 16px; font: 600 14px/1 var(--dsc-font-ui); text-decoration: none; }
-@media (max-width: 560px) {
-  .ds-lost { padding: 16px 12px calc(16px + env(safe-area-inset-bottom)); }
-  .ds-lost-card { padding: 22px 16px 16px; }
-  .ds-lost-rocket { height: 96px; }
-  .ds-lost-kicker { font-size: 44px; }
-  .ds-lost-card h1 { font-size: 24px; }
-  .ds-lost .actions { flex-direction: column; }
-  .ds-lost .actions .ds-btn { width: 100%; }
-}
 #settings .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px dashed rgba(201, 206, 214, 0.12); font-size: 13px; }
 #settings .card { background: transparent; border: 0; padding: 0; }
 

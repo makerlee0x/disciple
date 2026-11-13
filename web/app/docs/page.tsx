@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import DocsArticle from "@/components/docs/DocsArticle";
 import { allDocs, docSections, renderDoc } from "@/lib/docs/content";
 
-export const metadata: Metadata = { title: { absolute: "Docs (draft) · DISCIPLE" } };
+export const metadata: Metadata = { title: { absolute: "Docs · DISCIPLE" } };
 
 export default function DocsIndex() {
   const docs = allDocs();

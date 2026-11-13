@@ -27,7 +27,10 @@ export default function SecurityPage() {
           <span className="dv-banner-txt">Some details are still being decided.<span className="dv-banner-more"> They&apos;re marked &quot;To be confirmed&quot;.</span></span>
         </div>
       )}
-      <DocsArticle page={page} prev={null} next={null} />
+      {/* same side margins as the docs pages (step 6: the page had none on phones) */}
+      <div className="dv-main dv-solo">
+        <DocsArticle page={page} prev={null} next={null} />
+      </div>
     </div>
   );
 }

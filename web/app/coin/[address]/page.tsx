@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import LostSky from "@/components/LostSky";
+import LostSky, { LostRocket } from "@/components/LostSky";
 import { useSearchParams } from "next/navigation";
 import { Suspense, use, useEffect, useMemo, useState } from "react";
 import { erc20Abi, isAddress, type Address } from "viem";
@@ -83,12 +83,13 @@ function CoinLost() {
   return (
     <LostSky
       testId="coin-lost"
-      kicker="404"
-      title="There's no rocket at this address."
-      body="Check the link, or pick a rocket from the launchpad."
+      art={<LostRocket />}
+      eyebrow="404 · Off course"
+      title="No rocket at this address"
+      body="Check the link, or pick a live rocket in the Lobby."
     >
-      <Link href="/" className="ds-btn gold">Launchpad</Link>
-      <Link href="/create" className="ds-btn">Launch a Rocket</Link>
+      <Link href="/" className="r2-gold ls-gold">Back to the Lobby</Link>
+      <Link href="/create" className="r2-btn ls-btn">Launch a rocket</Link>
     </LostSky>
   );
 }

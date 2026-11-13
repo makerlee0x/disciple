@@ -1,22 +1,34 @@
 ---
-title: Rocket upgrades
+title: Your rocket
 slug: /docs/game/rocket
 section: Game
 ---
-# Rocket upgrades
+# Your rocket
 
-Make your rocket yours under **Upgrade Rocket**. Your rocket page is titled "<your name>'s Rocket", and you can rename it.
+Every pilot flies the chrome rocket. You change how it looks under **Your rocket** in your Hangar, and you earn new looks by playing. Looks are never sold.
 
-| Slot | What it changes |
+## Hull
+
+Your hull is the finish of the rockets you launch.
+
+| Hull | How you get it |
 |---|---|
-| Body skin | The hull finish |
-| Thrusters | The flame |
-| Nose coin | The coin on the nose |
-| Trail | The exhaust trail |
-| Frame | The card frame on shares |
+| Chrome | Everyone starts with it |
+| Matte | Reach level 10 |
+| Violet | Reach level 25 |
+| Gold | Reach prestige 1 |
 
-Each part shows stats that describe how it looks in flight. [CONFIRM: GAME — on-screen stat names. Today the page shows THRUST, HANDLING, GLOW, AURA and LAUNCH; lee has renamed HANDLING to STYLE, and BRAND's rename of the other four is in review.]
+## Engine flare
 
-**Cosmetic only. Upgrades never change price, fills or odds.** The stats describe the look, not the market.
+Your flare fires on every BOOST you make, and everyone in the flight sees it.
 
-Parts are unlocked with XP from missions and milestones. Unlocking a part never costs you a level, and the rarest parts unlock with prestige.
+| Flare | How you get it |
+|---|---|
+| Classic | Everyone starts with it |
+| Plasma | Reach level 5 |
+| Toxic | Earn the **Outer Space** trophy: buy $10 or more of a rocket and hold it as it reaches orbit |
+| Neon | Earn the **Final Push** trophy: make the BOOST that takes a rocket to orbit |
+
+**Cosmetic only. Looks never change price, fills or odds.**
+
+A look you've earned stays yours. Unlocking one never costs you a level.

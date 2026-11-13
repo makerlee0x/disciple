@@ -17,10 +17,14 @@ import IconSprite from "@/components/icons/IconSprite";
 import { sponsorshipConfig } from "@/lib/server/sponsorshipConfig";
 import { SPONSORSHIP_CONFIG_ID } from "@/lib/aa/sponsorshipMode";
 
+const SITE_TITLE = "DISCIPLE · Ride it to orbit";
+const SITE_LINE = "Every rocket is a live match. The crew boosts it up, and anyone can bomb it down.";
+/** Site card (step 7): drawn by /api/og/site (lib/server/og/card.ts). Rocket, pilot and invite pages carry their own. */
+const SITE_CARD = { url: "/api/og/site", width: 1200, height: 630, alt: "DISCIPLE: Ride it to orbit" };
+
 export const metadata: Metadata = {
-  title: "DISCIPLE — Every coin is a rocket",
-  description:
-    "DISCIPLE launchpad: pair any coin with any ERC-20. Altitude is how high a rocket's value has climbed, shown as named tiers. Robinhood Chain.",
+  title: SITE_TITLE,
+  description: SITE_LINE,
   metadataBase: new URL("https://disciple.vip"),
   icons: {
     icon: [
@@ -30,22 +34,8 @@ export const metadata: Metadata = {
     apple: "/apple-touch-icon.png",
   },
   manifest: "/site.webmanifest",
-  openGraph: {
-    title: "DISCIPLE — Every coin is a rocket",
-    description:
-      "DISCIPLE launchpad: pair any coin with any ERC-20. Altitude is how high a rocket's value has climbed, shown as named tiers. Robinhood Chain.",
-    url: "/",
-    siteName: "DISCIPLE",
-    type: "website",
-    images: [{ url: "/brand/og-1200x630.png", width: 1200, height: 630, alt: "DISCIPLE" }],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "DISCIPLE — Every coin is a rocket",
-    description:
-      "DISCIPLE launchpad: pair any coin with any ERC-20. Altitude is how high a rocket's value has climbed, shown as named tiers. Robinhood Chain.",
-    images: ["/brand/og-1200x630.png"],
-  },
+  openGraph: { title: SITE_TITLE, description: SITE_LINE, url: "/", siteName: "DISCIPLE", type: "website", images: [SITE_CARD] },
+  twitter: { card: "summary_large_image", site: "@disciplevip", title: SITE_TITLE, description: SITE_LINE, images: [SITE_CARD.url] },
 };
 
 export const viewport: Viewport = {
