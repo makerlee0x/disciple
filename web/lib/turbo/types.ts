@@ -84,6 +84,8 @@ export type TurboEventReason =
   | "manual"
   | "liquidation"
   | "timeout"
+  | "slippage"
+  | "market-full"
   | "not-enough-fuel"
   | "invalid"
   | (string & {});
@@ -138,6 +140,10 @@ export interface MarketInfo {
   standIn?: boolean;
   /** Plain reason a leverage above maxLeverage can't open on this market (e.g. "Max 40× on BTC right now"). */
   leverageNote?: string;
+  /** Full trading parameters (lib/turbo/markets.ts), when the adapter knows them. */
+  params?: import("./markets").MarketParams;
+  /** $ notional open on this market right now, against params.oiCapUsd. */
+  openInterestUsd?: number;
 }
 
 export type Unsub = () => void;
@@ -182,4 +188,10 @@ export interface DepositInfo {
   network: "Arbitrum";
   /** null until Nova's team hooks up deposits. */
   address: string | null;
+}
+
+/** Why an order was refused before it was sent. The screen turns each into a plain line next to the fire buttons. */
+export type TurboErrorCode = "no-price" | "stale-price" | "no-fuel" | "min-size" | "market-full" | "leverage" | "bad-amount" | "unknown";
+export class TurboError extends Error {
+  constructor(public code: TurboErrorCode, message: string) { super(message); this.name = "TurboError"; }
 }

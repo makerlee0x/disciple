@@ -19,6 +19,8 @@
 import { closeSlice, feeUsd, fundingDeltaUsd, isLiquidated, liquidationPrice, notionalAt, pnlBreakdown, prng, walkStep } from "./math";
 import { createFuelStore, type FuelStore } from "./fuel";
 import type { PriceFeed } from "./types";
+import { TurboError } from "./types";
+import { sideCostBps, type MarketParams } from "./markets";
 import type { MarketTrade, TradeFeed } from "./types";
 import type {
   ClosePct, Market, MarketInfo, OpenParams, Position, PriceTick, Quote, QuoteParams, TurboAdapter, TurboEvent, TurboEventReason, Unsub,
@@ -48,6 +50,12 @@ export interface MockAdapterOptions {
   priceFeed?: PriceFeed;
   /** Completed market buys/sells for flight boosts/bombs. Swap this for a Nova stream later. */
   tradeFeed?: TradeFeed;
+  /** Nova-shaped per-market parameters (lib/turbo/markets.ts). When set they drive fees (fee + half spread + impact per
+   *  side), liquidation threshold, min position, OI cap, leverage range, borrowing, funding, fill time and claim-back.
+   *  The explicit options above still win when given (tests). */
+  params?: Partial<Record<Market, MarketParams>>;
+  /** A price older than this (ms) refuses new orders as stale. Default 15000; only with a priceFeed. */
+  staleMs?: number;
   /** Starts the price timer on first subscribe. Default true. */
   autoStart?: boolean;
   now?: () => number;
@@ -75,6 +83,8 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 interface Internal extends Position {
   fillAt: number;
   lastFundingAt: number;
+  /** Execution cost per side (bps) locked at the fill. */
+  bps: number;
 }
 
 export function createMockAdapter(o: MockAdapterOptions = {}): MockTurboAdapter {
@@ -90,6 +100,15 @@ export function createMockAdapter(o: MockAdapterOptions = {}): MockTurboAdapter 
     volatility: o.volatility ?? 0.00012,
     autoStart: o.autoStart ?? true,
   };
+  const MP = (m: Market): MarketParams | undefined => o.params?.[m];
+  const costBps = (m: Market, notional: number) => o.feeBps ?? (MP(m) ? sideCostBps(MP(m)!, notional) : cfg.feeBps);
+  const lossFrac = (m: Market) => o.liqLossFrac ?? MP(m)?.liqThreshold ?? cfg.liqLossFrac;
+  const fundRate = (m: Market) => o.fundingRatePerHour ?? MP(m)?.fundingRatePerHour ?? cfg.fundingRatePerHour;
+  const borrowRate = (m: Market) => (o.fundingRatePerHour != null ? 0 : MP(m)?.borrowRatePerHour ?? 0);
+  const levRange = (m: Market) => ({ min: o.minLeverage ?? MP(m)?.minLeverage ?? cfg.minLeverage, max: o.maxLeverage ?? MP(m)?.maxLeverage ?? cfg.maxLeverage });
+  const fillMs = (m: Market) => o.fillDelayMs ?? MP(m)?.fillMs ?? cfg.fillDelayMs;
+  const lastTickAt: Partial<Record<Market, number>> = {};
+  const oiOf = (m: Market) => { let n = 0; positions.forEach((p) => { if (p.market === m) n += p.sizeUsd; }); return n; };
   const rand = prng(o.seed ?? 0xd15c1e);
   let clock = (o.now ?? Date.now)();
   const now = () => (o.now ? o.now() : Math.max(clock, Date.now()));
@@ -118,25 +137,26 @@ export function createMockAdapter(o: MockAdapterOptions = {}): MockTurboAdapter 
   };
 
   const refresh = (p: Internal) => {
-    const price = prices[p.market];
-    const b = pnlBreakdown({ side: p.side, sizeUsd: p.sizeUsd, entry: p.entry, price, openFeeUsd: p.openFeeUsd, fundingUsd: p.fundingUsd, feeBps: cfg.feeBps });
+    const price = prices[p.market], BPS = p.bps, LOSS = lossFrac(p.market);
+    const b = pnlBreakdown({ side: p.side, sizeUsd: p.sizeUsd, entry: p.entry, price, openFeeUsd: p.openFeeUsd, fundingUsd: p.fundingUsd, feeBps: BPS });
     p.markPrice = price;
     p.pnlUsd = b.pnlUsd;
     p.closeFeeUsdEst = b.closeFeeUsdEst;
     p.pnlAfterFeesUsd = b.pnlAfterFeesUsd;
-    p.liqPrice = liquidationPrice({ side: p.side, collateralUsd: p.collateralUsd, sizeUsd: p.sizeUsd, entry: p.entry, openFeeUsd: p.openFeeUsd, fundingUsd: p.fundingUsd, feeBps: cfg.feeBps, liqLossFrac: cfg.liqLossFrac });
+    p.liqPrice = liquidationPrice({ side: p.side, collateralUsd: p.collateralUsd, sizeUsd: p.sizeUsd, entry: p.entry, openFeeUsd: p.openFeeUsd, fundingUsd: p.fundingUsd, feeBps: BPS, liqLossFrac: LOSS });
   };
 
   const quote = (q: QuoteParams): Quote => {
     const entryEst = prices[q.market];
     const sizeUsd = q.collateralUsd * q.leverage;
-    const openFeeUsd = feeUsd(sizeUsd, cfg.feeBps);
-    const liqPrice = liquidationPrice({ side: q.side, collateralUsd: q.collateralUsd, sizeUsd, entry: entryEst, openFeeUsd, fundingUsd: 0, feeBps: cfg.feeBps, liqLossFrac: cfg.liqLossFrac });
+    const BPS = costBps(q.market, sizeUsd), LOSS = lossFrac(q.market);
+    const openFeeUsd = feeUsd(sizeUsd, BPS);
+    const liqPrice = liquidationPrice({ side: q.side, collateralUsd: q.collateralUsd, sizeUsd, entry: entryEst, openFeeUsd, fundingUsd: 0, feeBps: BPS, liqLossFrac: LOSS });
     return { sizeUsd, entryEst, liqPrice, openFeeUsd, closeFeeUsd: openFeeUsd };
   };
 
   const finish = (p: Internal, type: "closed" | "liquidated", reason: TurboEventReason) => {
-    const returnedUsd = type === "liquidated" ? 0 : closeSlice({ side: p.side, sizeUsd: p.sizeUsd, entry: p.entry, price: prices[p.market], openFeeUsd: p.openFeeUsd, fundingUsd: p.fundingUsd, feeBps: cfg.feeBps, collateralUsd: p.collateralUsd }, 1).returnedUsd;
+    const returnedUsd = type === "liquidated" ? 0 : closeSlice({ side: p.side, sizeUsd: p.sizeUsd, entry: p.entry, price: prices[p.market], openFeeUsd: p.openFeeUsd, fundingUsd: p.fundingUsd, feeBps: p.bps, collateralUsd: p.collateralUsd }, 1).returnedUsd;
     p.status = type;
     positions.delete(p.id);
     if (returnedUsd > 0) fuel.set(fuel.get() + returnedUsd);
@@ -153,7 +173,8 @@ export function createMockAdapter(o: MockAdapterOptions = {}): MockTurboAdapter 
       return;
     }
     p.entry = prices[p.market];
-    p.openFeeUsd = feeUsd(p.sizeUsd, cfg.feeBps);
+    p.bps = costBps(p.market, p.sizeUsd);
+    p.openFeeUsd = feeUsd(p.sizeUsd, p.bps);
     p.status = "open";
     p.openedAt = t;
     p.lastFundingAt = t;
@@ -172,11 +193,18 @@ export function createMockAdapter(o: MockAdapterOptions = {}): MockTurboAdapter 
   const step = (t: number) => {
     for (const p of Array.from(positions.values())) {
       if (!hasPrice(p.market)) continue;
-      if (p.status === "pending") { if (t >= p.fillAt) fill(p, t); continue; }
+      if (p.status === "pending") {
+        // Nova: a market order the price nodes never answer can be claimed back (about 50 s). Fuel goes back, no fees.
+        const cb = MP(p.market)?.claimBackMs;
+        if (cb && t - (p.openedAt ?? t) >= cb) { p.status = "failed"; positions.delete(p.id); fuel.set(fuel.get() + p.collateralUsd); emit("failed", p, { reason: "timeout" }); continue; }
+        if (t >= p.fillAt) fill(p, t);
+        continue;
+      }
       if (p.status !== "open") continue;
       const dt = t - p.lastFundingAt;
       if (dt > 0) {
-        p.fundingUsd += fundingDeltaUsd(p.side, notionalAt(p.sizeUsd, p.entry, prices[p.market]), cfg.fundingRatePerHour, dt);
+        const nt = notionalAt(p.sizeUsd, p.entry, prices[p.market]);
+        p.fundingUsd += fundingDeltaUsd(p.side, nt, fundRate(p.market), dt) - nt * borrowRate(p.market) * (dt / 3_600_000);
         p.lastFundingAt = t;
       }
       refresh(p);
@@ -186,6 +214,7 @@ export function createMockAdapter(o: MockAdapterOptions = {}): MockTurboAdapter 
 
   const publish = (m: Market, t: number) => {
     const tick = { price: prices[m], ts: t };
+    lastTickAt[m] = t;
     ticks[m] = tick;
     priceSubs.forEach((s) => { if (s.m === m) s.cb(tick); });
   };
@@ -245,7 +274,8 @@ export function createMockAdapter(o: MockAdapterOptions = {}): MockTurboAdapter 
       return { usd: fuel.get() };
     },
 
-    getMarkets: () => MARKETS.map((market) => ({ market, maxLeverage: cfg.maxLeverage, minLeverage: cfg.minLeverage, feeBps: cfg.feeBps, fundingRatePerHour: cfg.fundingRatePerHour, standIn: true })),
+    getMarkets: () => MARKETS.map((market) => ({ market, maxLeverage: levRange(market).max, minLeverage: levRange(market).min, feeBps: o.feeBps ?? MP(market)?.feeBps ?? cfg.feeBps,
+      fundingRatePerHour: fundRate(market), standIn: true, params: MP(market), openInterestUsd: oiOf(market) })),
 
     quote,
 
@@ -253,11 +283,16 @@ export function createMockAdapter(o: MockAdapterOptions = {}): MockTurboAdapter 
     depositInfo: () => ({ token: "USDC", network: "Arbitrum", address: null }),
 
     async open(p: OpenParams) {
-      if (!MARKETS.includes(p.market)) throw new Error("That market isn't available");
-      if (!hasPrice(p.market)) throw new Error("Still waiting on a price. Try again in a moment.");
-      if (!(Number.isFinite(p.collateralUsd) && p.collateralUsd > 0)) throw new Error("Enter an amount above $0.");
-      if (!(Number.isFinite(p.leverage) && p.leverage >= cfg.minLeverage && p.leverage <= cfg.maxLeverage)) throw new Error(`Pick a leverage between ${cfg.minLeverage}× and ${cfg.maxLeverage}×.`);
-      if (p.collateralUsd > fuel.get() + 1e-9) throw new Error("You don't have enough Turbo fuel for that. Add fuel or pick a smaller amount.");
+      if (!MARKETS.includes(p.market)) throw new TurboError("unknown", "That market isn't available");
+      if (!hasPrice(p.market)) throw new TurboError("no-price", "Still waiting on a price. Try again in a moment.");
+      if (feed && now() - (lastTickAt[p.market] ?? 0) > (o.staleMs ?? 15_000)) throw new TurboError("stale-price", "Prices paused for a moment. Try again when they're back.");
+      if (!(Number.isFinite(p.collateralUsd) && p.collateralUsd > 0)) throw new TurboError("bad-amount", "Enter an amount above $0.");
+      const lr = levRange(p.market);
+      if (!(Number.isFinite(p.leverage) && p.leverage >= lr.min && p.leverage <= lr.max)) throw new TurboError("leverage", `Pick a leverage between ${lr.min}× and ${lr.max}×.`);
+      if (p.collateralUsd > fuel.get() + 1e-9) throw new TurboError("no-fuel", "You don't have enough Turbo fuel for that. Add fuel or pick a smaller amount.");
+      const mp = MP(p.market), size = p.collateralUsd * p.leverage;
+      if (mp && size < mp.minPositionUsd - 1e-9) throw new TurboError("min-size", `The smallest run at ${p.leverage}× is $${Math.ceil(mp.minPositionUsd / p.leverage)} fuel.`);
+      if (mp && oiOf(p.market) + size > mp.oiCapUsd) throw new TurboError("market-full", `${p.market} is full right now. Try a smaller run or come back in a bit.`);
       const q = quote(p);
       const t = now();
       const id = `standin-${t.toString(36)}-${(++seq).toString(36)}`;
@@ -265,13 +300,13 @@ export function createMockAdapter(o: MockAdapterOptions = {}): MockTurboAdapter 
         id, market: p.market, side: p.side, collateralUsd: p.collateralUsd, leverage: p.leverage, sizeUsd: q.sizeUsd,
         entry: q.entryEst, liqPrice: q.liqPrice, fundingUsd: 0, openFeeUsd: q.openFeeUsd, closeFeeUsdEst: q.closeFeeUsd,
         pnlUsd: 0, pnlAfterFeesUsd: -q.openFeeUsd, status: "pending",
-        markPrice: q.entryEst, openedAt: t, realizedUsd: 0, fillAt: t + cfg.fillDelayMs, lastFundingAt: t,
+        markPrice: q.entryEst, openedAt: t, realizedUsd: 0, fillAt: t + fillMs(p.market), lastFundingAt: t, bps: costBps(p.market, q.sizeUsd),
       };
       fuel.set(fuel.get() - p.collateralUsd);
       positions.set(id, pos);
       emit("pending", pos);
       startTimer();
-      if (cfg.autoStart && cfg.fillDelayMs <= 0) fill(pos, t);
+      if (cfg.autoStart && fillMs(p.market) <= 0) fill(pos, t);
       return { id };
     },
 
@@ -281,7 +316,7 @@ export function createMockAdapter(o: MockAdapterOptions = {}): MockTurboAdapter 
       if (pct !== 25 && pct !== 50 && pct !== 100) throw new Error("You can close 25, 50 or 100 percent.");
       if (pct === 100) { finish(p, "closed", "manual"); stopTimerIfIdle(); return; }
       const frac = pct / 100;
-      const s = closeSlice({ side: p.side, sizeUsd: p.sizeUsd, entry: p.entry, price: prices[p.market], openFeeUsd: p.openFeeUsd, fundingUsd: p.fundingUsd, feeBps: cfg.feeBps, collateralUsd: p.collateralUsd }, frac);
+      const s = closeSlice({ side: p.side, sizeUsd: p.sizeUsd, entry: p.entry, price: prices[p.market], openFeeUsd: p.openFeeUsd, fundingUsd: p.fundingUsd, feeBps: p.bps, collateralUsd: p.collateralUsd }, frac);
       const keep = 1 - frac;
       p.collateralUsd *= keep;
       p.sizeUsd *= keep;

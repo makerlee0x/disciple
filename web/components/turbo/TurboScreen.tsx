@@ -18,6 +18,8 @@ import Link from "next/link";
 import { useTurbo } from "@/lib/turbo/useTurbo";
 import type { ClosePct, Market, MarketInfo, MarketTrade, Position, Side, TurboEvent } from "@/lib/turbo";
 import { RUN_COPY as R, TURBO_COPY as C } from "@/lib/turbo/copy";
+import { minFuelAt } from "@/lib/turbo/markets";
+import { TurboError } from "@/lib/turbo/types";
 import { lev as fmtLev, price as fmtPrice, signedUsd, usd } from "@/lib/turbo/format";
 import { DEFAULT_PREFS, FUEL_PRESETS, LEVERAGE_PRESETS, fuelOf, leverageOf, loadPrefs, savePrefs, type TurboPrefs } from "@/lib/turbo/prefs";
 import { breakEvenPrice, cashOutNowUsd, dangerLevel, dangerOf, liqDistance, marketCapUsd, multiplePrice, paceLabel, SKY_BASE_ALT, typicalRunSeconds } from "@/lib/turbo/flight";
@@ -60,6 +62,8 @@ type Result = { run: TurboRun; entry: number; exit: number; liqMove?: number };
 /** v2.1 liftoff: the pad stays up for the 3-2-1 while the order fills; it never delays the order itself. */
 type Launch = { t0: number; side: Side; market: Market; leverage: number; fuelUsd: number; entry: number; liq: number; leaving?: boolean };
 const COUNT_MS = 1800;
+/** Same as the adapter's stale check: no tick for this long pauses fire. */
+const STALE_MS = 15_000;
 
 /** Pre-launch tape: 1h change, last-hour sparkline (live end) and where the price sits in its 24h range. */
 function Tape({ st, px }: { st: MarketStats | null; px: number }) {
@@ -126,12 +130,14 @@ function DetailSheet({ p, onClose }: { p: Position; onClose: () => void }) {
 }
 
 export default function TurboScreen() {
-  const { adapter, prices, fuel, positions, lastEvent, standIn } = useTurbo();
+  const { adapter, prices, fuel, positions, lastEvent, standIn, history } = useTurbo();
   const [prefs, setPrefsState] = useState<TurboPrefs>(DEFAULT_PREFS);
+  /** Why the last order didn't go out (or came back). Shown as a line above the fire buttons, cleared on any change. */
+  const [fireNote, setFireNote] = useState<string | null>(null);
   useEffect(() => { setPrefsState(loadPrefs()); }, []);
-  const setPrefs = useCallback((p: TurboPrefs) => { setPrefsState(p); savePrefs(p); }, []);
+  const setPrefs = useCallback((p: TurboPrefs) => { setPrefsState(p); savePrefs(p); setFireNote(null); }, []);
   const market = prefs.market;
-  const markets: MarketInfo[] = useMemo(() => adapter.getMarkets?.() ?? MARKETS.map((m) => ({ market: m, maxLeverage: 1000 })), [adapter]);
+  const markets: MarketInfo[] = useMemo(() => adapter.getMarkets?.() ?? MARKETS.map((m) => ({ market: m, maxLeverage: 1000 })), [adapter, positions]); // eslint-disable-line react-hooks/exhaustive-deps -- open interest moves with positions
   const info = markets.find((m) => m.market === market);
   const fuelUsd = fuelOf(prefs), leverage = leverageOf(prefs);
   const px = prices[market];
@@ -201,7 +207,7 @@ export default function TurboScreen() {
       flight.current?.ignite();
       const { id } = await r;
       track.current[id] = { id, fuelUsd: f, startedAt: Date.now(), peak: 0, path: [], lastSample: 0, side, market: m, leverage: lv };
-    } catch (e) { setLaunch(null); flash(e instanceof Error ? e.message : C.failed); }
+    } catch (e) { setLaunch(null); if (e instanceof TurboError) setFireNote(e.message); else flash(e instanceof Error ? e.message : C.failed); }
     finally { setBusy(false); }
   }, [adapter, busy, flash, fuel, fuelUsd, leverage, market]);
   const close = useCallback(async (p: Position, pct: ClosePct) => {
@@ -241,7 +247,12 @@ export default function TurboScreen() {
     const t = track.current[p.id] ?? (track.current[p.id] = { id: p.id, fuelUsd: p.collateralUsd, startedAt: p.openedAt ?? Date.now(), peak: 0, path: [], lastSample: 0, side: p.side, market: p.market, leverage: p.leverage });
     if (e.type === "filled") { t.startedAt = Date.now(); t.path = [cashOutNowUsd(p) / t.fuelUsd]; return; }
     if (e.type === "pending") return;
-    if (e.type === "failed") { setLaunch(null); flash(C.failed); delete track.current[p.id]; return; }
+    if (e.type === "failed") {
+      setLaunch(null); delete track.current[p.id];
+      const why = e.reason === "timeout" ? R.noAnswer : e.reason === "slippage" ? R.slipped : e.reason === "market-full" ? R.marketFull(p.market) : null;
+      if (why) setFireNote(why); else flash(C.failed);
+      return;
+    }
     if (e.type === "partial-closed") { flash(R.banked(usd(e.returnedUsd ?? 0))); return; }
     const back = p.realizedUsd ?? 0, mult = t.fuelUsd > 0 ? back / t.fuelUsd : 0;
     const path = [...t.path, +mult.toFixed(3)];
@@ -332,6 +343,18 @@ export default function TurboScreen() {
   const padOn = !result && !nova && (!active || !!launch);
   const digit = cd < 600 ? 3 : cd < 1200 ? 2 : cd < COUNT_MS ? 1 : 0;
   const noFuel = fuel != null && fuelUsd > fuel;
+  // the same checks the adapter makes, shown before the tap: stale price, minimum position, open-interest cap
+  const lastTickAt = history[market]?.at(-1)?.t ?? 0;
+  const stale = hasPx && lastTickAt > 0 && now - lastTickAt > STALE_MS;
+  const mp = info?.params;
+  const sizeUsd = fuelUsd * leverage;
+  const preNote = stale ? R.pricesPaused
+    : mp && sizeUsd < mp.minPositionUsd ? R.minFuel(fmtLev(leverage), usd(Math.ceil(minFuelAt(mp, leverage) * 100) / 100, 2))
+    : mp && (info?.openInterestUsd ?? 0) + sizeUsd > mp.oiCapUsd ? R.marketFull(market)
+    : null;
+  const note = preNote ?? fireNote;
+  const fireOff = busy || !hasPx || !!launch || !!preNote;
+  const waitingFill = !!launch && active?.status === "pending" && now - launch.t0 > COUNT_MS + 1500;
   const bestT = bestToday(all), longestG = longestAt(all, leverage);
   const routeCards = MARKETS.map((m) => {
     const r = ROUTES[m];
@@ -440,12 +463,13 @@ export default function TurboScreen() {
             {selLiqDist > 0 && (stats[market]?.typMin ?? 0) > 0 && <small className={s.typMin}>{R.typMin(pctMove(stats[market]!.typMin))}</small>}</span>
         </div>
         {standIn && <p className={`${s.planNotice} ${s.phoneOnly}`} data-testid="turbo-standin-notice">{sample ? C.sampleNotice : C.notConnected}</p>}
+        {note && !launch && <p className={s.fireNote} role="status" data-testid="turbo-fire-note">{note}</p>}
         {noFuel
           ? <button type="button" className={s.noFuel} data-testid="turbo-add-fuel-fire" onClick={() => setSheet("fund")}>
               <span className={s.big}>{R.addFuelToFire}</span><span className={s.sub}>{R.needFuelSub(usd(fuel ?? 0, 0), usd(fuelUsd, 0))}</span></button>
           : <div className={s.fire}>
-              <button type="button" className={s.boost} data-testid="turbo-boost" disabled={busy || !hasPx || !!launch} onClick={() => openRun("long")}><span className={s.big}>{R.boost}</span><span className={s.sub}>{R.boostSub}</span></button>
-              <button type="button" className={s.dump} data-testid="turbo-dump" disabled={busy || !hasPx || !!launch} onClick={() => openRun("short")}><span className={s.big}>{R.dump}</span><span className={s.sub}>{R.dumpSub}</span></button>
+              <button type="button" className={s.boost} data-testid="turbo-boost" disabled={fireOff} onClick={() => openRun("long")}><span className={s.big}>{R.boost}</span><span className={s.sub}>{R.boostSub}</span></button>
+              <button type="button" className={s.dump} data-testid="turbo-dump" disabled={fireOff} onClick={() => openRun("short")}><span className={s.big}>{R.dump}</span><span className={s.sub}>{R.dumpSub}</span></button>
             </div>}
       </section>}
 
@@ -458,6 +482,7 @@ export default function TurboScreen() {
           <div className={s.runPill}><span className={launch.side === "long" ? s.boostTxt : s.dumpTxt}>{launch.side === "long" ? R.boost : R.dump}</span>
             <span>{ROUTES[launch.market].name} · {fmtLev(launch.leverage)}</span><span className={s.sep} /><span>{usd(launch.fuelUsd, 0)} {R.fuel.toLowerCase()}</span></div>
           {launch.entry > 0 && launch.liq > 0 && <small>{R.boardingAt(px0(launch.entry), px0(launch.liq))}</small>}
+          {waitingFill && <small data-testid="turbo-waiting-fill">{R.waitingFill}</small>}
         </div>
       </>}
 

@@ -364,3 +364,6 @@
 }
 @media (min-width: 761px) { .phoneOnly { display: none !important; } }
 @media (min-width: 761px) and (max-width: 1180px) { .heroR .tg { display: none; } .padStats { display: none; } }
+
+/* real-world states: one plain line above the fire buttons (never over the rocket) */
+.fireNote { margin: 0; padding: 8px 12px; border-radius: 10px; font-size: 12.5px; line-height: 1.35; color: var(--r-acc-text, #F3DFA8); background: rgba(255, 255, 255, .05); border: 1px solid var(--r-line, #4A3328); }

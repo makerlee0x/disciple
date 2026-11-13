@@ -181,6 +181,13 @@ export const RUN_COPY = {
   fundBalance: "Turbo fuel",
   yourAddress: "Your address",
   close: "Close",
+  // real-world states: a plain line by the fire buttons, never a popup over the rocket
+  pricesPaused: "Prices paused. Reconnecting…",
+  noAnswer: "That order didn't get an answer in time, so your fuel is back. Try again.",
+  slipped: "The price moved too far before the fill, so it didn't go through. Your fuel is back.",
+  marketFull: (m: string) => `${m} is full right now. Try less fuel or come back in a bit.`,
+  minFuel: (lev: string, usd: string) => `The smallest run at ${lev} is ${usd} fuel.`,
+  waitingFill: "Waiting on the fill…",
   // share card
   shareFooter: "Think you can beat it? disciple.vip/turbo",
   shareWinText: (mult: string, usd: string, lev: string, side: string, m: string, t: string) => `Cashed out ${mult} (+${usd}) on a ${lev} ${side} on ${m}, lasted ${t}. DISCIPLE Turbo.`,

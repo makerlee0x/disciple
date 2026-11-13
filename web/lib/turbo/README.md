@@ -62,3 +62,14 @@ drawer on desktop and a bottom sheet on phone.
 - Jetstream `L = log10(lev)/3` and danger 50/80/95 still apply while a position is open. Liquidation: engine ATOM bomb
   under the H-BOMB overlay, then the share card. Keep the existing background; do not add new skies.
 - The engine never trades in Turbo mode; BOOST / DUMP / CLOSE call the adapter first and never wait on a frame.
+
+## Nova-shaped sample and the adapter contract (Nov 13 2026)
+
+- `markets.ts` holds per-market params shaped like Nova's "Markets and parameters" page: fee, spread, impact per $100k,
+  liquidation threshold, minimum position, OI cap, leverage range, borrowing, funding, fill time and claim-back. The
+  stand-in uses `STAND_IN_PARAMS` (copied from HYPE1000 until Nova sends BTC/ETH numbers). Every `CONFIRM` is a hand-off question.
+- Refusals throw `TurboError(code, message)`; the screen shows the message as one line above the fire buttons
+  (stale price, min fuel, market full) and never as a popup over the rocket. A `failed` event with reason
+  `timeout` / `slippage` / `market-full` gets its own line too.
+- `contract.ts` is the behaviour the screen relies on, as a test suite. `npm run test:turbo-contract` runs it on the
+  stand-in; Nova's adapter runs the same suite against staging with a harness that funds a test wallet and waits for real fills.

@@ -9,6 +9,7 @@
  */
 import type { TurboAdapter } from "./types";
 import { createMockAdapter } from "./mockAdapter";
+import { STAND_IN_PARAMS } from "./markets";
 import { createHyperliquidPriceFeed, createHyperliquidStream, createHyperliquidTradeFeed } from "./priceFeed";
 
 export * from "./types";
@@ -22,6 +23,7 @@ export function getTurboAdapter(): TurboAdapter {
     if (typeof window !== "undefined") {
       const stream = createHyperliquidStream();
       adapter = createMockAdapter({
+        params: STAND_IN_PARAMS,
         priceFeed: createHyperliquidPriceFeed({ stream }),
         tradeFeed: createHyperliquidTradeFeed({ stream }),
       });
