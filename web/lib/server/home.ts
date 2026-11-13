@@ -16,7 +16,7 @@ import { pairOf, pairSymOf, shortHex } from "@/lib/home/pairs";
 import { isHiddenCoin } from "@/lib/home/hiddenCoins";
 import { flaggedCopySet } from "@/lib/server/nameLock";
 import { chipOf, lobbyAgeTokens, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
-import { topPilots, tickerOf, type TickerItem, type TopPilots } from "@/lib/home/topPilots";
+import { pilotBoard, topPilots, tickerOf, type PilotBoard, type TickerItem, type TopPilots } from "@/lib/home/topPilots";
 import { levelInfo } from "@/lib/xp";
 import { resolveKeys } from "./imageStore";
 import { usernameOf } from "./usernames";
@@ -26,7 +26,7 @@ import { indexTrades, tradesOf } from "./trades";
 const CACHE_MS = 15_000;
 const FILLS_CAP = 2000;
 const MAX_COINS = 120;
-const g = globalThis as unknown as { __dscHome?: { at: number; v: HomeData }; __dscHomeP?: Promise<HomeData> | null };
+const g = globalThis as unknown as { __dscHome?: { at: number; v: HomeData }; __dscHomeP?: Promise<HomeData> | null; __dscBoard?: { at: number; v: PilotBoard } };
 
 const timeout = <T,>(p: Promise<T>, ms: number, fallback: T) =>
   Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
@@ -93,6 +93,8 @@ async function build(): Promise<HomeData> {
     ? [...fillsBy[heroIdx]].sort((a, b) => b.block - a.block || b.logIndex - a.logIndex).slice(0, 6).map(chipOf)
     : [];
   const pilots = topPilots(fillsBy, now);
+  // the full /leaderboard (lib/server/leaderboard) ranks from the same fills; kept server side, not in HomeData
+  g.__dscBoard = { at: now, v: pilotBoard(fillsBy, now) };
   const ticker = tickerOf(fillsBy, new Map(coins.map((c) => [c.token, c.name])));
   await timeout(namePilots(pilots, ticker), 2_500, undefined);
   return { at: now, coins, ...pick, chips, pilots, ticker };
@@ -113,6 +115,12 @@ async function namePilots(pilots: TopPilots, ticker: TickerItem[]): Promise<void
   }));
   for (const r of rows) { r.username = names.get(r.wallet) ?? null; const l = levels.get(r.wallet); r.level = l?.level ?? null; r.prestige = l?.prestige ?? null; }
   for (const t of ticker) t.username = names.get(t.trader) ?? null;
+}
+
+/** Every pilot's numbers per window (lib/home/topPilots pilotBoard), from the last home build; null before the first. */
+export async function getPilotBoard(budgetMs = 9_000): Promise<PilotBoard | null> {
+  await getHomeData(budgetMs);
+  return g.__dscBoard?.v ?? null;
 }
 
 /** Home data, cached CACHE_MS; never throws (empty state on failure). */
