@@ -4,6 +4,7 @@ import "./brand-tokens-v2.css";
 import "./brand-tokens-v3.css";
 import "./xp-v3.css";
 import "./globals.css";
+import "./menu-v3.css";
 import "./claims.css";
 import "./profile-r5.css";
 import "./hangar-v3.css";

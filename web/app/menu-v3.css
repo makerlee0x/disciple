@@ -1,0 +1,23 @@
+/* —— App menu (#apSide, the drawer on phones and the rail elsewhere) in the lobby's v3 look: names match the lobby tabs,
+   game-font labels, a gold Launch, a white Sign in (2026-11-13, maker: "the old sidebar is there"). —— */
+#apSide { background: #0B0C0E; }
+#apSide .ap-launch { background: var(--dsc3-light-gold); border-color: var(--dsc3-light-gold); color: var(--dsc-sky-ink, #121327);
+  font: 800 18px / 1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .02em; border-radius: 12px; box-shadow: none; }
+#apSide .ap-launch .lb { font: inherit; }
+#apSide .ap-launch:hover { background: var(--dsc3-light-champagne); }
+#apSide .ap-nav a, #apSide .ap-foot button, #apSide .ap-foot a { font-family: var(--dsc-font-game); font-weight: 700; text-transform: uppercase; letter-spacing: .02em; }
+#apSide .ap-nav a.on, #apSide .ap-nav a[aria-current="page"] { color: #FFFFFF; }
+#apSide .ap-join-btn { background: #FFFFFF; border-color: #FFFFFF; color: var(--dsc-sky-ink, #121327);
+  font: 800 18px / 1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .02em; border-radius: 12px; }
+#apSide .ap-join-btn:hover { background: var(--dsc3-light-champagne); }
+@media (max-width: 760px) {
+  #apSide .ap-nav a { font-size: 20px; }
+  #apSide .ap-foot button, #apSide .ap-foot a { font-size: 18px; }
+  #apSide .ap-join-btn { height: 48px; background: #FFFFFF; border-color: #FFFFFF; color: var(--dsc-sky-ink, #121327); }
+}
+/* brand row = the lobby's: mark + game-font word (not the old serif lockup) */
+#apSide .ap-lockup { display: none !important; }
+#apSide .ap-mark { display: block !important; width: 28px; height: 28px; }
+#apSide .ap-logo { gap: 10px; color: var(--dsc-text); }
+#apSide .ap-word { font: 800 24px / 1 var(--dsc-font-game); letter-spacing: .04em; }
+#apSide.collapsed .ap-word { display: none; }

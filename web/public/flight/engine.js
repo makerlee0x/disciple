@@ -1077,7 +1077,7 @@ function submit(side,usd,force,opt,pct){
     const live=isLive()&&!!r.txHash;
     dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fm,supply:source.supply||1e6,gas:0,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION,live,txHash:live?r.txHash:undefined}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
     if(r.ok&&r.warning) tradeNote(r.warning);   // sent with a non-blocking warning (e.g. high price impact): never a failure
-    if(!r.ok&&r.unknown){ if(r.reason) S.flashes.push({txt:String(r.reason),life:1.8}); }   // hold ended without an outcome (logout): calm, no failure row (balances re-read)
+    if(!r.ok&&r.unknown){ if(r.reason&&!r.needsConfirm) S.flashes.push({txt:String(r.reason),life:1.8}); }   // needsConfirm: the page shows its own card (wallet limit), no sky banner   // hold ended without an outcome (logout): calm, no failure row (balances re-read)
     else if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
       { const txt=(pre?'✕ trade failed: ':'✕ ')+why; if(!(S.feed[0]&&S.feed[0].err&&S.feed[0].txt===txt)) S.feed.unshift({at:Date.now(),received:true,txt,c:'#ff8f8f',err:1}); }   /* the same failure again doesn't stack rows */ S.flashes.push({txt:"That didn't go through.",life:1.6}); }   // final copy (lee, 11:25 CT): failure status; the reason stays in the TRADES row
     S.pending=S.pending.filter(q=>q!==p); pushInFlight();   // frees its slot NOW (was a 450 ms linger that still counted toward the 3)
@@ -2024,7 +2024,9 @@ function drawHud(){
   // tier banner
   if (S.tierBanner>0&&!(S.orbitFx!=null&&S.t-S.orbitFx<4.5)){ drawZoneCard(); }
   drawOrbitCard();
-  S.flashes.forEach((fl,i)=>{ ctx.globalAlpha=clamp(fl.life,0,1); ctx.textAlign='center'; ctx.fillStyle=fl.c||'#fff'; ctx.font=GF(22,700); ctx.fillText(fl.txt,W/2,H*0.40-i*26); ctx.textAlign='left'; ctx.globalAlpha=1; });
+  S.flashes.forEach((fl,i)=>{ ctx.globalAlpha=clamp(fl.life,0,1); ctx.textAlign='center'; ctx.fillStyle=fl.c||'#fff'; ctx.font=GF(22,700);
+    const fw=ctx.measureText(fl.txt).width, room=W-32; if(fw>room) ctx.font=GF(Math.max(12,Math.floor(22*room/fw)),700);   // phones: shrink a long line to fit, never run off the screen
+    ctx.fillText(fl.txt,W/2,H*0.40-i*26); ctx.textAlign='left'; ctx.globalAlpha=1; });
   ctx.restore();
 }
 

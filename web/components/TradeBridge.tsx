@@ -798,11 +798,17 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   };
   const alertStrip = alert && alert.a.kind === "walletcap" ? (
     <div role="alertdialog" aria-label="trade alert" data-testid="trade-alert" data-kind={alert.a.kind}
-      style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: phone ? 132 : "calc(var(--ap-tb-h, 80px) + 16px)", zIndex: 40, display: "flex", gap: 8, alignItems: "center",
-        maxWidth: "min(92vw, 520px)", padding: "8px 10px", borderRadius: 12, background: "rgba(28,10,18,.94)", border: "1px solid #ffb0c8", color: "#ffe7ef", fontSize: 12, fontFamily: "ui-monospace,monospace" }}>
-      <span style={{ flex: 1 }}>{alert.a.text}</span>
-      {alert.a.actionLabel && <button type="button" data-testid="trade-alert-max" onClick={buyMax} style={{ ...btn, padding: "6px 10px", background: "#1f6b4a", color: "#d9ffe9" }}>{alert.a.actionLabel}</button>}
-      <button type="button" data-testid="trade-alert-cancel" onClick={() => setAlert(null)} style={{ ...btn, padding: "6px 10px", background: "rgba(255,255,255,.1)", color: "#eef0ff" }}>{alert.a.dismissLabel}</button>
+      style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: phone ? "calc(132px + env(safe-area-inset-bottom, 0px))" : "calc(var(--ap-tb-h, 80px) + 16px)", zIndex: 40,
+        display: "flex", flexDirection: phone ? "column" : "row", gap: phone ? 10 : 8, alignItems: phone ? "stretch" : "center", boxSizing: "border-box",
+        width: phone ? "calc(100vw - 24px)" : undefined, maxWidth: "min(92vw, 520px)", padding: phone ? "14px 14px 12px" : "8px 10px", borderRadius: phone ? 16 : 12,
+        background: "rgba(18,19,39,.96)", border: "1px solid #F0307F", color: "#F2F3F7", fontSize: phone ? 14 : 13, lineHeight: 1.4, fontFamily: HUD.ui }}>
+      <span style={{ flex: phone ? undefined : 1 }}>{alert.a.text}</span>
+      <div style={{ display: "flex", gap: 8 }}>
+        {alert.a.actionLabel && <button type="button" data-testid="trade-alert-max" data-haptic="boost" onClick={buyMax} style={{ ...btn, flex: phone ? 1 : undefined, minHeight: phone ? 48 : 32, padding: "0 14px", borderRadius: 12, display: "inline-flex", alignItems: "center", justifyContent: "center",
+          background: "#F2C14E", color: "#121327", font: `800 ${phone ? 20 : 16}px/1 ${HUD.game}`, letterSpacing: ".02em", textTransform: "uppercase" }}>{alert.a.actionLabel}</button>}
+        <button type="button" data-testid="trade-alert-cancel" onClick={() => setAlert(null)} style={{ ...btn, minHeight: phone ? 48 : 32, padding: "0 16px", borderRadius: 12, display: "inline-flex", alignItems: "center", justifyContent: "center",
+          background: "rgba(255,255,255,.08)", border: "1px solid #2E323A", color: "#F2F3F7", font: `700 ${phone ? 18 : 15}px/1 ${HUD.game}` }}>{alert.a.dismissLabel}</button>
+      </div>
     </div>
   ) : null;
   if (phone) return (
