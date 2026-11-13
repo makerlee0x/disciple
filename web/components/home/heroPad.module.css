@@ -290,3 +290,16 @@
 @media (max-width: 760px) {
   .pad.card { left: 0; top: 0; }
 }
+
+/* Turbo pre-launch pad (components/turbo): the desktop registration at every width, the seat placed at (--ax, --ay) of
+ * the Turbo stage and the frame --sw wide (set by run.module.css .heroStage). */
+.pad.turbo { width: var(--sw); aspect-ratio: 16 / 9; left: calc(var(--ax) - var(--sw) * .5387); top: calc(var(--ay) - var(--sw) * .5625 * .7514); }
+@media (max-width: 760px) {
+  .pad.turbo { width: var(--sw); aspect-ratio: 16 / 9; }
+  .pad.turbo .plate { --u: calc(76.25cqw / 1070); --seat-y: 42.27cqw; transform-origin: 53.87% 75.14%; }
+  .pad.turbo .plate::before { background-image: none; }
+  .pad.turbo .scene { left: 53.87%; top: 75.14%; }
+  .pad.turbo .moon { left: 74.14%; top: -4.58%; width: 26.56%; }
+  .pad.turbo .bandA { top: 66%; }
+  .pad.turbo .bandB { top: 70%; }
+}

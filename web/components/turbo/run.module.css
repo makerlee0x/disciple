@@ -296,7 +296,7 @@
   .runCard .r span { color: var(--t-dim); }
   .runCard .r b { font-weight: 600; }
   .link { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--t-dim); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-  .act { left: 50%; right: auto; width: 560px; transform: translateX(-50%); bottom: 28px; gap: 12px; }
+  .act { left: 50%; right: auto; width: 760px; transform: translateX(-50%); bottom: 28px; gap: 12px; }
   .bank, .cash { height: 72px; border-radius: 18px; }
   .bank .big { font-size: 22px; }
   .cash .big { font-size: 30px; }
@@ -367,3 +367,29 @@
 
 /* real-world states: one plain line above the fire buttons (never over the rocket) */
 .fireNote { margin: 0; padding: 8px 12px; border-radius: 10px; font-size: 12.5px; line-height: 1.35; color: var(--r-acc-text, #F3DFA8); background: rgba(255, 255, 255, .05); border: 1px solid var(--r-line, #4A3328); }
+
+/* run controls (maker, Nov 13: "double down and add more, sell some, buy more"): Bank 25% · Bank half · Add · Cash out */
+.add { border-color: color-mix(in srgb, var(--r-acc, #F2C14E) 55%, transparent); }
+.add .big { color: var(--r-acc-text, #F3DFA8); }
+@media (max-width: 760px) {
+  .act { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .act .bank { height: 52px; border-radius: 14px; }
+  .act .bank .big { font-size: 17px; }
+  .act .bank .sub { font-size: 11px; margin-top: 3px; }
+  .act .cash { grid-column: 1 / -1; }
+}
+
+/* v2.2 pad: the lobby's layered HeroPad (components/home/HeroPad.tsx, layout "turbo") under a route grade */
+.heroStage { --sw: max(112vw, 179.2vh); --ax: min(55vw, calc(100vw - 600px)); --ay: 76vh; --hero-h: 100vh;
+  position: absolute; inset: 0; z-index: 0; overflow: hidden; container-type: inline-size; }
+.routeGrade { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: color; opacity: .4;
+  background: linear-gradient(180deg, #4a2418 0%, #c8642a 62%, #3a1a10 100%); }
+[data-route="eth"] .routeGrade { mix-blend-mode: color; opacity: .42;
+  background: linear-gradient(180deg, #3b2fa8 0%, #5b4ad6 55%, #241a6b 100%); }
+.heroR .padStats { position: static; margin-top: 10px; }
+@media (max-height: 760px) and (min-width: 761px) { .heroR { top: 15vh; } .heroR .tg { display: none; } .heroR .nm { font-size: clamp(56px, 6vw, 84px); } }
+@media (max-width: 760px) {
+  .heroStage { --sw: 130vh; --ax: 50vw; --ay: min(53.5vh, calc(100vh - 392px)); }
+  .heroR .padStats { position: fixed; left: auto; right: 12px; top: calc(150px + env(safe-area-inset-top, 0px)); margin: 0; }
+}
+@media (max-width: 760px) { .rangeLo, .rangeHi { display: none; } }
