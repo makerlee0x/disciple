@@ -2,7 +2,7 @@
 
 import { useXp } from "@/lib/xpClient";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PROFILE_CHANGED_EVENT, localUsername } from "@/lib/profile";
 import { defaultUsername, isAddressLike } from "@/lib/defaultUsername";
 import { EMPTY_META, pfpUrl, type ProfileMeta } from "@/lib/profileMeta";
@@ -28,6 +28,8 @@ import InvitesCard from "@/components/invites/InvitesCard";
 import Icon from "@/components/icons/Icon";
 import type { ActivityItem } from "@/lib/stats";
 import HangarBay from "@/components/hangar/HangarBay";
+import RocketLooks from "@/components/hangar/RocketLooks";
+import type { Progress } from "@/lib/unlocks";
 import { Fleet, ServiceRecord, TrophyCase } from "@/components/hangar/HangarSections";
 import { useHomeCoins, useLoadout, useTrophies } from "@/components/hangar/hangarData";
 
@@ -68,7 +70,7 @@ function Activity({ rows, isPrivate, owner }: { rows: ActivityItem[] | null; isP
 
 /**
  * /profile (own) and /u/[username] (public): the Hangar (canvas boards "Hangar (pilot profile)" and "The bay", take A).
- *   bay: call sign as a title card, bio, level bar, Rewards / Edit profile / Rocket Factory (own), the pilot's rocket on its pad
+ *   bay: call sign as a title card, bio, level bar, Rewards / Edit profile (own), the pilot's rocket on its pad; under it, Your rocket (earned hulls and flares, own only)
  *   service record: hangar value + today, cash (+ Add cash), flights aboard, rockets launched
  *   Your fleet: rockets aboard (or launched) as the lobby's Live window cards, each with its seat's worth
  *   Your altitude (the portfolio chart) + Flight log | Trophy case + invites (own)
@@ -162,8 +164,10 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const pf = useLivePortfolio(wallet);
   const { xp } = useXp(wallet);
   const home = useHomeCoins();
-  const loadout = useLoadout(isPrivate);
   const trophies = useTrophies(wallet);
+  const progress = useMemo<Progress | null>(() => (xp && trophies ? { level: xp.level.level, prestige: xp.level.prestige, trophies: new Set(trophies.keys()) } : null), [xp, trophies]);
+  const looks = useLoadout(isPrivate, progress);
+  const loadout = looks.loadout;
   const activity = useRealActivity(wallet);
   const rewards = useRewards(isPrivate && !!wallet);
 
@@ -199,7 +203,6 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       ? <button type="button" className="dsc3-btn dsc3-btn-primary hg-claim" onClick={() => setRewardsOpen(true)} data-testid="claim-now"><ChestGlyph size={18} /> Claim rewards</button>
       : <button type="button" className="hg-ghost" onClick={() => setRewardsOpen(true)} data-testid="rewards-chest"><ChestGlyph size={18} /> Rewards</button>}
     <button type="button" className="hg-ghost" onClick={() => setEdit({ focus: null })} data-testid="edit-profile-btn">{C["profile.action.edit"]}</button>
-    <Link href="/rocket" className="hg-ghost">Rocket Factory</Link>
   </> : null;
 
   return (
@@ -210,9 +213,11 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       {isPrivate && <RewardsPopup open={rewardsOpen} onClose={() => setRewardsOpen(false)} r={rewards} />}
       {toast && <div className="pf-toast" role="status">{toast}</div>}
 
-      <HangarBay handle={handle} bio={bio} avatar={avatar} xp={xp} loadout={loadout} actions={actions} spend={isPrivate} />
+      <HangarBay handle={handle} bio={bio} avatar={avatar} xp={xp} loadout={loadout} actions={actions} spend={false} />
 
       <ServiceRecord pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} aboard={holdings ? holdings.length : null} launched={launched} isPrivate={isPrivate} />
+
+      {isPrivate && <RocketLooks progress={progress} hull={looks.hull} flare={looks.flare} coin={loadout.coin} setHull={looks.setHull} setFlare={looks.setFlare} />}
 
       <Fleet rows={holdings} home={home} launched={launched} isPrivate={isPrivate} owner={ownerName} />
 

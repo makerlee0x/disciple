@@ -38,7 +38,7 @@ export default function TrophiesPage() {
     <div className="xp-page" data-testid="trophies">
       <header className="xp-page-head">
         <h1 className="dsc3-h1">Trophies</h1>
-        <p className="xp-page-sub">Missions pay XP. XP levels you up and unlocks parts in the Rocket Factory.</p>
+        <p className="xp-page-sub">Missions pay XP. XP levels you up, and levels unlock new looks for your rocket.</p>
       </header>
       <div className="xp-page-top">
         {xp ? <PilotCard xp={xp} wallet={wallet} /> : (
