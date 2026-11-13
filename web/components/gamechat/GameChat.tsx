@@ -10,6 +10,7 @@ import { GRAD_BADGE } from "@/lib/flight/tiers";
 import { useDomCard } from "@/lib/game/cardLayoutStore";
 import { useHudMode } from "@/lib/game/hudMode";
 import { HUD } from "@/lib/game/hudStyle";
+import { useIsPhoneHud } from "@/components/flight/PhoneHud";
 
 /**
  * CREW FEED: the flight screen's one community card (right column). Trades, chat and holders in one place, with tabs
@@ -88,6 +89,8 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
   const [feed, setFeed] = useState<FeedRow[]>([]);
   const [pending, setPending] = useState<PendingRow[]>([]);   // your own presses still in flight (TradeBridge disciple:pending)
   const hud = useHudMode();
+  const phone = useIsPhoneHud();
+  const [phoneFull, setPhoneFull] = useState(false);   // phone: the chat button opens the full crew feed
   const tabRef = useRef<Tab>(tradesOnly ? "trades" : "all");
   const setTab = useCallback((t: Tab) => { tabRef.current = t; setTabS(t); if (t === "chat" || t === "all") setTabUnread(0); try { localStorage.setItem("disciple.gamechat.tab", t); } catch { /* */ } }, []);
   const buf = useRef<ChatMsg[]>([]);
@@ -217,6 +220,48 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
         <button data-testid="chat-emote-btn" onClick={() => setPicker((p) => !p)} title="Emotes" aria-label="Emotes" style={{ all: "unset", cursor: "pointer", fontSize: 16, padding: "0 2px" }}>🚀</button>
         <span aria-hidden="true" style={{ padding: "2px 7px", borderRadius: 6, background: "rgba(255,255,255,.1)", font: `700 12px ${HUD.game}`, color: HUD.dim }}>ENTER</span>
       </div>;
+  if (phone) {
+    // PHONE (approved board "Phone v2 · 1 Flying", maker 2026-11-13): on the sky under the header card, the newest trade as a toast
+    // (a few seconds) and the latest two chat lines; the chat button (right) opens the full crew feed with the message box.
+    const fresh = feed.find((r) => r.side && now - (r.seen ?? r.at) < PHONE_TOAST_MS);
+    const lines = rows.filter((r) => r.msg.kind !== "system" && r.msg.kind !== "event").slice(-2);
+    const list = items.filter((it) => !it.chat || it.chat.msg.kind !== "system").slice(-60).reverse();
+    const sqBtn: React.CSSProperties = { all: "unset", boxSizing: "border-box", cursor: "pointer", width: 44, height: 44, borderRadius: 12, background: "rgba(18,19,39,.78)", border: `1px solid ${HUD.border}`, display: "grid", placeItems: "center", pointerEvents: "auto" };
+    const bubble = <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 5h16v11H9l-5 4z" /></svg>;
+    if (!phoneFull) return (
+      <aside ref={dockRef} tabIndex={-1} data-testid="chat-dock" data-card="chat" data-hud="phone" aria-label="Crew feed"
+        style={{ position: "fixed", left: 12, right: 12, top: "var(--ph-feed-top, 262px)", zIndex: 32, pointerEvents: "none", font: `13px/1.4 ${HUD.ui}`, color: HUD.text, outline: "none" }}>
+        <div data-testid="chat-list" role="log" aria-live="polite" style={{ width: "min(260px, calc(100vw - 92px))", display: "flex", flexDirection: "column", gap: 8 }}>
+          {fresh && <PhoneToast r={fresh} />}
+          {lines.length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>{lines.map((r) => <ChatRow key={r.key} row={r} svg={api?.svg ?? false} known={known} emotes={api?.api.EMOTES ?? {}} />)}</div>}
+        </div>
+        <button type="button" data-testid="chat-open" aria-label={tradesOnly ? "Open crew feed" : "Open crew chat"} onClick={() => setPhoneFull(true)} style={{ ...sqBtn, position: "absolute", right: 0, top: 0 }}>
+          {bubble}{tabUnread > 0 || unread > 0 ? <span aria-hidden style={{ position: "absolute", top: 6, right: 6, width: 8, height: 8, borderRadius: "50%", background: HUD.down }} /> : null}</button>
+      </aside>);
+    return (
+      <aside ref={dockRef} tabIndex={-1} data-testid="chat-dock" data-card="chat" data-hud="phone" data-open="1" aria-label="Crew feed"
+        style={{ position: "fixed", left: 12, right: 12, top: "var(--ph-feed-top, 262px)", bottom: "calc(100dvh - var(--ph-pill-top, 600px) + 8px)", zIndex: 46, display: "flex", flexDirection: "column", gap: 6,
+          boxSizing: "border-box", padding: "10px 8px 8px", borderRadius: 16, background: "rgba(18,19,39,.94)", border: `1px solid ${HUD.border}`, boxShadow: "0 16px 40px rgba(0,0,0,.45)",
+          font: `13px/1.4 ${HUD.ui}`, color: HUD.text, outline: "none" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 4px 2px 6px" }}>
+          <span data-testid="chat-state" style={{ width: 7, height: 7, borderRadius: "50%", background: tradesOnly ? HUD.up : st.c, flex: "none" }} />
+          <span style={{ font: `700 16px/1 ${HUD.game}`, letterSpacing: "1.5px", color: HUD.champagne }}>CREW</span>
+          <span style={{ fontSize: 12, color: "rgba(215,217,228,.7)", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{onBoard > 0 ? `${onBoard >= 50 ? "50+" : onBoard} on board · ` : ""}{tradesOnly ? "trades" : "chat and trades"}</span>
+          <button type="button" data-testid="chat-close" aria-label="Close crew feed" onClick={() => setPhoneFull(false)} style={{ ...sqBtn, width: 40, height: 40 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+        </div>
+        <div data-testid="chat-list" role="log" aria-live="polite" style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", display: "flex", flexDirection: "column", gap: 6 }}>
+          {!api && !tradesOnly && <p role="status" style={{ opacity: 0.6, margin: "4px 6px" }}>Chat is connecting…</p>}
+          {pending.map((p) => <PilotTrade key={"p" + p.id} buy={p.side === "buy"} who="You" own amt={p.amt} op={1} sent />)}
+          {!list.length && !pending.length && (api || tradesOnly) && <p style={{ opacity: 0.6, margin: "4px 6px" }}>Quiet up here. Be the first boost.</p>}
+          {list.map((it) => { if (it.chat) return <div key={it.k}><ChatRow row={it.chat} svg={api?.svg ?? false} known={known} emotes={api?.api.EMOTES ?? {}} /></div>;
+            const r = it.trade!; if (!r.side) return <div key={it.k}><TradeRow r={r} /></div>;
+            return <PilotTrade key={it.k} buy={r.side === "buy"} who={r.own ? "You" : r.who || "?"} own={!!r.own} amt={r.amt || ""} ic={r.ic} op={1} />; })}
+        </div>
+        {errBox}{pickerBox}
+        {!tradesOnly && inputBox(true)}
+      </aside>);
+  }
   if (hud !== "pro") {
     // PILOT (approved mockup "Desktop · Pilot HUD"): no box, no tabs. A header (CREW · N on board · Holders), then the newest
     // rows first, fading with age: trades as small cards (avatar, name, ▲ BOOST $X / ▼ DUMP $X), chat as plain lines between them.
@@ -290,6 +335,19 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
   );
 }
 
+const PHONE_TOAST_MS = 6000;
+/** phone sky toast (board "Phone v2 · 1"): avatar · name · BOOST $3 (green) / DUMP $3 (pink) */
+function PhoneToast({ r }: { r: FeedRow }) {
+  const buy = r.side === "buy", who = r.own ? "You" : r.who || "?";
+  const h = Array.from(who).reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
+  return <div data-testid="phone-toast" data-kind={r.side} style={{ alignSelf: "flex-start", maxWidth: "100%", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 6px 6px", borderRadius: 999,
+    background: "rgba(18,19,39,.74)", border: `1px solid ${HUD.border}` }}>
+    <span aria-hidden style={{ width: 22, height: 22, flex: "none", borderRadius: "50%", background: r.own ? HUD.gold : ["#C9B6F2", "#8FD8FF", "#5FF0A0", "#FFB3CF", "#FFE08A"][h % 5], color: "#121327", display: "grid", placeItems: "center", font: `800 12px/1 ${HUD.game}` }}>{initials(who).slice(0, 1)}</span>
+    <span style={{ minWidth: 0, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: r.own ? 600 : 400 }}>{who}</span>
+    {r.ic && <Icon name={r.ic} size={14} style={{ color: HUD.down }} />}
+    <span style={{ font: `700 14px/1 ${HUD.game}`, color: buy ? "#5FF0A0" : "#FF7FB3", whiteSpace: "nowrap" }}>{buy ? "BOOST" : "DUMP"} {(r.amt || "").trim()}</span>
+  </div>;
+}
 /** one trade from the engine feed, kill-feed style: side, who, amount, bomb icon for big dumps */
 const TradeRow = memo(function TradeRow({ r, age, sent }: { r: FeedRow; age?: string; sent?: boolean }) {
   if (!r.side) return <div data-kind="note" style={{ padding: "4px 6px", fontSize: 12, color: r.err ? "#FFC2DA" : HUD.dim, fontStyle: "italic" }}>{r.ic && <Icon name={r.ic} size={12} />} {r.note}</div>;

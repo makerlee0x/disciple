@@ -117,12 +117,12 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
       )}
       {phase === "run" && run && phone && !simOpen && (
         <button type="button" data-testid="sim-chip" aria-expanded={false} onClick={() => setSimOpen(true)}
-          style={{ ...panel, ...btn(false), position: "fixed", right: 12, top: "calc(var(--ap-safe-top, 0px) + 14px)", zIndex: 31, minHeight: 40, padding: "0 12px", display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+          style={{ ...panel, ...btn(false), position: "fixed", right: 12, top: "calc(var(--ph-radio-top, 314px) + 44px)", zIndex: 31, minHeight: 40, padding: "0 12px", display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
           <b style={{ color: "#8fd8ff" }}>SIM</b><span style={{ opacity: 0.85 }}>{clock(run.t)}</span><span style={{ color: D.color }}>{D.label}</span><span aria-hidden>▾</span>
         </button>
       )}
       {phase === "run" && run && (!phone || simOpen) && (
-        <div data-testid="sim-bar" style={{ ...panel, position: "fixed", ...(phone ? { right: 12, top: "calc(var(--ap-safe-top, 0px) + 14px)" } : { left: "calc(var(--ap-rail-w, 64px) + 12px)", top: 430 }), width: 236, padding: "8px 10px", zIndex: 31, fontSize: 11 }}>
+        <div data-testid="sim-bar" style={{ ...panel, position: "fixed", ...(phone ? { right: 12, top: "calc(var(--ph-radio-top, 314px) + 44px)" } : { left: "calc(var(--ap-rail-w, 64px) + 12px)", top: 430 }), width: 236, padding: "8px 10px", zIndex: 31, fontSize: 11 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <b style={{ color: "#8fd8ff", letterSpacing: 1 }}>SIMULATOR</b>
             <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ color: D.color, fontWeight: 700 }}>{D.label}</span>

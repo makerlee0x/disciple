@@ -39,8 +39,7 @@ const inv = read("components/invites/InviteBanner.tsx");
 ok(/className="wb-invite"/.test(inv), "InviteBanner uses .wb-invite safe-area class");
 
 const bar = read("components/flight/PhoneTradeBar.tsx");
-ok(/\.ph-bar\s*\{[^}]*bottom:\s*calc\(22px \+ var\(--ap-safe-bottom\)\)/.test(bar), "phone trade bar clears home indicator");
-ok(/\.ph-sheet\s*\{[^}]*bottom:\s*calc\(8px \+ var\(--ap-safe-bottom\)\)/.test(bar), "amount sheet clears home indicator");
+ok(/\.ph-bar\s*\{[^}]*bottom:\s*var\(--ph-bar-bottom, 24px\)/.test(bar) && /const barBottom = Math\.max\(BAR_BOTTOM, \(o\.safeBottom \?\? 0\) \+ 8\);/.test(read("components/flight/PhoneHud.tsx")), "phone trade bar clears home indicator (PhoneHud --ph-bar-bottom)");
 
 const claims = read("app/claims.css");
 ok(/\.cl-onboard\s*\{[^}]*bottom:\s*calc\(20px \+ var\(--ap-safe-bottom\)\)/.test(claims), "claims onboard clears home indicator");

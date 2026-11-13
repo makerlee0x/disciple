@@ -1,4 +1,4 @@
-// Phone HUD v3 (≤760px, lee 10:36 CT): layout math, engine gating, drag-to-steer (unit + handler harness), worker forwarding,
+// Phone flight v2 (≤760px; approved boards 'Phone v2', maker 2026-11-13): layout math, engine gating, drag-to-steer (unit + handler harness), worker forwarding,
 // trade-bar / amount-sheet wiring, tier label. Desktop paths must stay untouched.
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
@@ -14,43 +14,46 @@ const fn = hud.match(/export function phoneLayout\(o: [^)]+\) \{[\s\S]*?\n\}/)[0
 const phoneLayout = new Function(`${consts}\n${fn}\nreturn phoneLayout;`)();
 const PHONE_W = +hud.match(/export const PHONE_W = (\d+);/)[1];
 ok(PHONE_W === +eng.match(/const HUD_NARROW_W=(\d+)/)[1], "PhoneHud PHONE_W == engine HUD_NARROW_W");
-for (const [w, h, top] of [[390, 844, 60], [360, 780, 60], [375, 667, 60]]) {
-  const L = phoneLayout({ w, h, topBottom: top });
-  ok(L.pillTop >= top + 8 && L.pillTop + 46 < L.hudTop - 220, `${w}x${h}: pill under the top row, open sky below it`);
-  ok(L.btnTop + 68 === h - 22 && L.pnlTop + 22 + 14 === L.btnTop && L.hudTop + 28 === L.pnlTop, `${w}x${h}: handle → PnL line → 68px buttons, 22px from the bottom`);
-  ok(Math.abs(L.dTop - h * 0.38) <= 1, `${w}x${h}: drawer ~62% of the height`);
-  ok(L.body.x === 16 && L.body.w === w - 32 && L.body.y > L.dTop + 72 && L.body.y + L.body.h <= L.dBtnTop - 12, `${w}x${h}: drawer body between tabs and the (60px) buttons`);
-  ok(L.body.h >= 200, `${w}x${h}: body tall enough for 4+ feed rows (${L.body.h})`);
-  ok(L.dTop > L.pillTop + 46 + 120, `${w}x${h}: rocket room between pill and drawer`);
+for (const [w, h] of [[390, 844], [360, 780], [375, 667], [430, 932]]) {
+  const hb0 = 12 + 44 + 12 + 138, L = phoneLayout({ w, h, headBottom: hb0 });
+  ok(L.top === 12 && L.headTop === L.top + 56, `${w}x${h}: top row, header card 12px under it`);
+  ok(L.barTop + 36 + 6 + 64 === h - L.barBottom && L.barBottom === 24, `${w}x${h}: chips → 64px BOOST / DUMP, 24px from the bottom`);
+  ok(L.pillTop + 32 + 32 === L.barTop, `${w}x${h}: HOLDERS · CHART pill 32px above the chips`);
+  ok(L.feedTop === hb0 + 16 && L.radioTop === L.feedTop + 52, `${w}x${h}: crew feed + chat button under the header, radio under the chat button`);
+  ok(L.pillTop - L.radioTop > (h < 700 ? 150 : 240), `${w}x${h}: open sky for the rocket (${L.pillTop - L.radioTop}px)`);
+  ok(Math.abs(L.dTop - h * 0.355) <= 1, `${w}x${h}: sheet starts ~35% down (board: 300 of 844)`);
+  ok(L.body.x === 16 && L.body.w === w - 32 && L.body.y === L.dTop + 27 + 48 + 12 && L.body.y + L.body.h <= L.dBtnTop - 12, `${w}x${h}: sheet body between the tabs and the (60px) buttons`);
+  ok(L.body.h >= (h < 700 ? 150 : 200), `${w}x${h}: body tall enough for 4+ holder rows (${L.body.h})`);
 }
-{ const L = phoneLayout({ w: 390, h: 844, topBottom: 60, safeBottom: 34 });
-  ok(L.btnTop + 68 === 844 - 22 - 34, "safeBottom lifts BOOST/DUMP above the home indicator"); }
-// 2) drawer: Feed / Holders / Chart / Crew / Chat / Run (mockup copy), one at a time, closes on swipe down / dim tap / Esc
+{ const L = phoneLayout({ w: 390, h: 844, headBottom: 250, safeTop: 47, safeBottom: 34 });
+  ok(L.top === 55 && L.barBottom === 42, "safe areas: top row under the notch, BOOST/DUMP above the home indicator"); }
+// 2) sheet: Holders / Chart (board copy), one at a time, closes on swipe down / dim tap / Esc
 const labels = [...hud.matchAll(/\{ id: "(\w+)", label: "([^"]+)"/g)].map((m) => m[2]);
-ok(labels.join() === "Feed,Holders,Chart,Crew,Position", "five drawer tabs; Chat exists only inside the Holders card");
-ok(!/PHONE_TABS|phone-tabs|"STAT"|"T\/W"/.test(hud), "old 8 edge tabs removed");
+ok(labels.join() === "HOLDERS,CHART", "two sheet tabs: HOLDERS · CHART (Feed / Crew / Position gone, board n6)");
+ok(/HOLDERS · CHART<\/button>/.test(hud) && /aria-label="Open holders and chart"/.test(hud), "the pill reads HOLDERS · CHART");
 ok(/data-testid="phone-dim" onPointerDown=\{\(e\) => \{ e\.preventDefault\(\); setSheet\(null\); \}\}/.test(hud), "tap the dimmed sky closes");
 ok(/e\.clientY - s\.y > 36\) setSheet\(null\)/.test(hud) && /e\.key === "Escape" && sheetRef\.current\) setSheet\(null\)/.test(hud), "swipe down / Esc close");
-ok(/dy < -18 \|\| Math\.abs\(dy\) < 8\) setSheet\(lastTab\.current\)/.test(hud), "swipe up / tap the handle opens");
-ok(/\[data-testid="phone-drawer"\](, \[data-testid="flight-menu"\])?'\);/.test(sm), "Esc with the drawer open closes it (Settings does not open)");
+ok(/dy < -18 \|\| Math\.abs\(dy\) < 8\) setSheet\(lastTab\.current\)/.test(hud), "swipe up / tap the pill opens");
+ok(/\[data-testid="phone-drawer"\](, \[data-testid="flight-menu"\])?'\);/.test(sm), "Esc with the sheet open closes it (Settings does not open)");
 ok(/new URLSearchParams\(location\.search\)\.get\("clean"\) === "1"\) return/.test(hud) && /if \(!phone \|\| !L\) return null;/.test(hud), "?clean=1 / desktop render nothing");
-ok(hud.match(/DRAWER_BG = "([^"]+)"/)[1] === eng.match(/const PH_DRAWER_BG='([^']+)'/)[1], "drawer tint == engine body tint");
-ok(/html\.ap-phone \[data-testid="settings-btn"\]/.test(hud) && !/phone-settings/.test(hud), "gear hidden on phone; no interim Run-tab Settings button (SITE Sidebar 'Settings' item, #149)");
-ok(!/#exitX/.test(hud), "no ✕ in the top row any more (coin-screen cleanup, lee Oct 30): no dead #exitX styling left");
+ok(hud.match(/DRAWER_BG = "([^"]+)"/)[1] === eng.match(/const PH_DRAWER_BG='([^']+)'/)[1], "sheet tint == engine body tint");
+ok(/html\.ap-phone \[data-testid="settings-btn"\]/.test(hud), "gear hidden on phone (Settings lives in the app menu)");
+ok(/data-testid="phone-menu" onClick=\{openMenu\}/.test(hud) && /getElementById\("apReopen"\)/.test(hud) && /html\.ap-phone #apReopen,/.test(hud), "☰ opens the app menu (Sidebar #apSide); the site's own menu button is hidden");
+ok(/href="\/" aria-label="Leave flight"[^\n]*data-testid="flight-leave"/.test(hud), "✕ leave is a plain lobby link (ExitConfirm guards it)");
+ok(/WALLET_CTA_CLICK_EVENT/.test(hud) && /data-testid="phone-pilot"/.test(hud) && /<LevelRing info=\{xp\.level\} size=\{32\} \/>/.test(hud), "pilot chip: level ring + name, or Sign in (the wallet's own action)");
 // 3) engine gating: desktop branches unchanged, phone draws pill + the open drawer tab only
 const ph = new Function("window", `const HUD_NARROW_W=${PHONE_W};\n${eng.match(/function phoneHud\(w,clean\)\{[^\n]+/)[0]}\nreturn phoneHud;`);
 const P = { on: true, sheet: null };
 ok(PHONE_W === 760, "PHONE_W matches site chrome max-width:760px");
 ok(ph({ __phoneHud: P })(390, false) === P && ph({ __phoneHud: P })(760, false) === P && ph({ __phoneHud: P })(1440, false) === null && ph({ __phoneHud: P })(390, true) === null && ph({})(390, false) == null, "phoneHud(): ≤760 only, never CLEAN / desktop");
-for (const re of [/if \(PH\) drawPhonePill\(m,ti,PH\); else \{\n  \/\/ top-left: ONE header card[^\n]*\n[^\n]*\n[^\n]*\n  const HY=coinIdRowH\(\);\n  const PROH=[^\n]*\n  if \(cardBegin\('header',20,18,380,130\+HY\+PROH\)\)\{   \/\* @cards \*\/\n  panel\(20,18,380,130\+HY\+PROH\); ctx\.save\(\); ctx\.translate\(0,HY\);/, /if \(!PH&&STATUS_BOX&&S\.pro&&SHOW_STATUS\)\{\n  panel\(RX,RT,CW,92\);/,
+for (const re of [/if \(PH\) \{ if\(!PH\.v2\) drawPhonePill\(m,ti,PH\); else \{ S\.phonePill=null; S\.phoneTierLabel=''; [^\n]*\n  \/\/ top-left: ONE header card[^\n]*\n[^\n]*\n[^\n]*\n  const HY=coinIdRowH\(\);\n  const PROH=[^\n]*\n  if \(cardBegin\('header',20,18,380,130\+HY\+PROH\)\)\{   \/\* @cards \*\/\n  panel\(20,18,380,130\+HY\+PROH\); ctx\.save\(\); ctx\.translate\(0,HY\);/, /if \(!PH&&STATUS_BOX&&S\.pro&&SHOW_STATUS\)\{\n  panel\(RX,RT,CW,92\);/,
   /\n  pushHolders\(top,kothTitle\);   \/\*/, /else if \(!kothDockedNow\(\)&&cardBegin\('trades',20,H-160,310,140\)\)\{[^\n]*const FX=20, FY=H, FW=310;/, /if \(S\.controlsDocked\) pushControls\(\);/,
-  /PH\.sheet==='feed'\) drawPhoneFeed\(PH\)/, /if \(PH\|\|!S\.pro\|\|!AMMO_CANVAS\) AMMO_HIT\.forEach\(R=>\{ R\.x=-1e9;/,
+  /if \(PH\|\|!S\.pro\|\|!AMMO_CANVAS\) AMMO_HIT\.forEach\(R=>\{ R\.x=-1e9;/,
   /return P\.sheet==='chart'&&B\?\{x:/, /if\(P\?P\.sheet!=='chart':\(!C\.on\|\|\(!S\.pro&&!CLEAN\)\)\) return;/, /PD&&PD\.drawer&&PD\.dTop>0\?Math\.min\(ROCKET_Y,PD\.dTop-44\):ROCKET_Y/])
   ok(re.test(eng), "engine: " + re.source.slice(0, 60));
 ok(!/cardBegin\('holders'/.test(eng), "engine: no desktop TOP HOLDERS card (lee Oct 31: the chat HOLDERS tab is the list)");
 ok(!/drawPhonePresets|drawPhoneMcap/.test(eng), "no canvas preset chips / big mcap card on phones");
 ok(/a 'SIM' tag in paper \/ simulated market \(final/.test(eng) && /const sim=source\.isSim\|\|!isLive\(\);/.test(eng) && eng.split("\n").filter((l) => /PLACEHOLDER/.test(l)).every((l) => /PLACEHOLDER copy \(pending lee \+ BRAND\)/.test(l)), "SIM tag (final) on paper / sim; only the post-grad copy is marked PLACEHOLDER (pending lee + BRAND)");
-ok(/\{ id: "run", label: "Position" \}/.test(hud) && !/label: "Run"/.test(hud) && /aria-label="Open panels \(feed, holders, chart, crew, position\)"/.test(hud) && /data-ph-sheet="run"\] \.ap-bc:has\(> \[data-testid="tw-open"\]\)/.test(hud) && /data-ph-sheet="run"\] \[data-testid="tw-list"\]/.test(hud), "drawer tab label Position (was Run; id stays run), tramps & walls live under it (no T/W tab)");
 // 3b) @tier-label / @tier-progress (lee, Oct 30): "+X% to NEXT_TIER" = the mcap increase still needed, pct = (next.lo / mcap − 1) × 100;
 //     bar fill = mcap / next.lo (the same number); phone pill + desktop tier bar, ascended coins too
 {
@@ -89,12 +92,10 @@ ok(/\{ id: "run", label: "Position" \}/.test(hud) && !/label: "Run"/.test(hud) &
   // pass 3 #2 (lee): no mode / cap text on the TIER line any more ⇒ a long rules text never changes where the line ends
   { rules = ""; const e1 = TL.tierLineEnd(16, TIERS[16]); rules = "EASY · cap 1% of supply per wallet".slice(0, 28);
     ok(TL.tierLineEnd(16, TIERS[16]) === e1, "pass 3 #2: rules text is not on the TIER line (line end unchanged)"); rules = ""; }
-  // phone: one quiet caption centred under the pill; toasts move down to make room; fits 360/390 and the rocket room
-  ok(/const tl=tierLabel\(m,nx\), lb=P\.drawer\?'':S\.graduated\?\(tl\?`\$\{ASCENDED\} · \$\{tl\}`:ASCENDED\):tl; S\.phoneTierLabel=lb;/.test(eng) && /ctx\.fillText\(phFit\(lb,W-48\),x\+w\/2,y\+h\+13\)/.test(eng), "phone: caption under the pill, fitted to the width, hidden while the drawer is open");
-  ok(/TOY=PH\?PH\.pillTop\+\(S\.phoneTierLabel\?76:58\):136/.test(eng), "phone: toasts sit below the caption");
-  for (const [w, h] of [[390, 844], [360, 780]]) { const L = phoneLayout({ w, h, topBottom: 60 }); const capB = L.pillTop + 46 + 13 + 4;
-    ok(capB + 60 < L.dTop && capB < L.hudTop - 200, `${w}x${h}: caption clear of the drawer and the bottom HUD`);
-    ok(0.6 * 11 * "99% to SEVENTH HEAVEN".length <= w - 48, `${w}: longest label fits without truncation`); }
+  // phone v2: the DOM header card shows zone + "$X to Next" + the same bar fill (mcap / next zone low); the engine's pill and caption are off
+  ok(/f: nx \? Math\.max\(0\.02, Math\.min\(1, mcap \/ nx\.lo\)\) : 1/.test(hud) && /`\$\{shortUsd\(Math\.max\(0, nx\.lo - mcap\)\)\} to \$\{title\(nx\.name\)\}`/.test(hud), "phone header: zone row + bar = the desktop tier bar's number");
+  ok(/TOY=PH\?\(PH\.v2\?PH\.toastTop:PH\.pillTop\+\(S\.phoneTierLabel\?76:58\)\):136/.test(eng) && /toastTop: L\.toastTop/.test(hud), "phone: toasts sit under the crew feed");
+  ok(/v2: true/.test(hud), "PhoneHud publishes v2 (engine skips its pill)");
 }
 ok(/function feedTradeRow\([^\n]*at=Date\.now\(\),received=true\)/.test(eng) && /r=\{txt:[^\n]*at,received\}/.test(eng), "feed rows preserve supplied time or default to observed time for the phone ago column");
 // 4) drag-to-steer: pure controller (STEER block)
@@ -144,36 +145,37 @@ ok(/post\(\{ k: "ptr", type: p\.type, x: p\.clientX, y: p\.clientY, id: p\.point
 ok(/case 'ptr': [^\n]*pointerId: d\.id, pointerType: d\.pt/.test(wk), "worker re-dispatches pointerId / pointerType");
 ok(/const GLOBALS = \[[^\]]*"__phoneHud"/.test(wb), "worker renderer mirrors window.__phoneHud");
 ok(/#c \{\n\s+display: block;\n\s+image-rendering: auto;\n\s+touch-action: none;/.test(fc), "canvas touch-action:none");
-// 7) trade bar + amount sheet: layout only, TradeBridge's own state and calls; the sheet never trades
-ok(/if \(phone\) return \(/.test(tb) && /onBoost=\{\(\) => shoot\("buy"\)\} onDump=\{\(\) => dumpRef\.current\?\.\(\)\}/.test(tb), "phone bar: body taps = TradeBridge shoot / dumpRef");
-ok(/onPickBuy=\{\(i\) => \{ setCustom\(""\); setMode\(i\); window\.dispatchEvent\(new CustomEvent\("disciple:shoot", \{ detail: \{ mode: i \} \}\)\); \}\}/.test(tb), "BUY preset = select only (no side)");
-ok(/onPickSell=\{\(i\) => \{ setSellCustom\(""\); selSell\.current\(i\); \}\}/.test(tb) && /onSetSell=\{\(v\) => \{ pickUnit\("%"\); setSellCustom\(v\); \}\}/.test(tb), "DUMP preset / custom = existing sell state");
+// 7) trade bar: layout only, TradeBridge's own state and calls; chips set the amount, never trade
+ok(/if \(phone\) return \(/.test(tb) && /onBoost=\{\(\) => shoot\("buy"\)\} onDump=\{\(\) => dumpRef\.current\?\.\(\)\}/.test(tb), "phone bar: BOOST / DUMP = TradeBridge shoot / dumpRef");
+ok(/onPickBuy=\{\(i\) => \{ setCustom\(""\); setMode\(i\); window\.dispatchEvent\(new CustomEvent\("disciple:shoot", \{ detail: \{ mode: i \} \}\)\); \}\}/.test(tb), "BOOST chip = select only (no side)");
+ok(/onPickSell=\{\(i\) => \{ setSellCustom\(""\); selSell\.current\(i\); \}\}/.test(tb), "DUMP chip = existing sell state");
+ok(/buyOver=\{\[0, 1, 2, 3\]\.map\(\(i\) => room != null && \(ammo\.usd\[i\] \?\? MODES\[i\]\.usd\) > room \+ 0\.005\)\}/.test(tb) && /\.ph-chip\.over \{ border: 1px dashed/.test(bar), "chips over the wallet cap's room are dashed");
 ok(/data-testid="custom-sell"/.test(tb) && /data-testid="sell-unit"/.test(tb) && /aria-label="custom amount"/.test(tb), "desktop bar markup kept");
-const sheetJsx = bar.slice(bar.indexOf("{sheet && <>"), bar.indexOf("<style jsx global>"));
-ok(sheetJsx.length > 200 && !/onBoost|onDump/.test(sheetJsx), "amount sheet never trades");
-ok(/setSheet\(null\); \}\}>\{o\}(\{tags\[i\] \? <span[^\n]*?: null\})?<\/button>/.test(sheetJsx) && /data-testid="amt-set"/.test(sheetJsx), "tap sets the amount and closes; Custom + SET");
-ok(/data-testid=\{b \? "phone-amt-buy" : "phone-amt-sell"\}/.test(bar) && /\.ph-tb \{[^}]*height: 68px; border-radius: 22px;/.test(bar), "68px BOOST / DUMP with amount chips");
-// 8) PnL line + panels
-ok(/\.__pnlView = detail;/.test(pnl) && /addEventListener\("disciple:phonesheet", onSheet\)/.test(pnl), "PnlHud: view mirrored for the PnL line; Run tab hook kept");
-ok(/No bag yet/.test(hud) && /disciple:pnlview/.test(hud), "quiet PnL line");
-ok(/html\.ap-phone\[data-ph-sheet="run"\] \.pnl-hud/.test(hud) && /html\.ap-phone\[data-ph-sheet="holders"\] \[data-testid="chat-dock"\]/.test(hud), "Crew / Holders+Chat / Run reuse the existing panels");
+const chipJsx = bar.slice(bar.indexOf("const chip = "), bar.indexOf("const bw = "));
+ok(chipJsx.length > 200 && !/onBoost|onDump/.test(chipJsx), "chips never trade");
+ok(/\.ph-fire \{[^}]*height: 64px; border-radius: 16px;/.test(bar) && /\.ph-col-boost \{ flex: 1\.6 1 0; \}/.test(bar), "64px BOOST (wider) / DUMP, as on the board");
+ok(/dumpSub=\{has \? \(phoneDumpUsd > 0 \? `≈ \$\{chipUsd\(\+phoneDumpUsd\.toFixed\(2\)\)\}` : ""\) : "no bag yet"\}/.test(tb), "DUMP's second line: ≈ $ worth, or no bag yet");
+{ const f = bar.match(/export function dumpChips\([\s\S]*?\n\}/)[0].replace(/^export /, "").replace(/\(fracs: number\[\], sel: number, lastPart: number\)/, "(fracs, sel, lastPart)");
+  const dumpChips = new Function(`${f}\nreturn dumpChips;`)(), F = [0.1, 0.25, 0.5, 1];
+  const a = dumpChips(F, 1, -1); ok(a.part === 1 && a.all === 3 && a.next === 2, "25% picked: chips 25% · ALL; tap 25% again → half");
+  const b = dumpChips(F, 3, 0); ok(b.part === 0 && b.all === 3, "ALL picked: the % chip keeps your last partial size");
+  ok(dumpChips(F, 2, -1).next === 0, "half → wraps to 10%"); }
+ok(/COPY_PENDING_LEE\.walletTitle/.test(tb) && /bottom: phone \? "calc\(var\(--ph-bar-bottom, 24px\) \+ 108px\)"/.test(tb), "wallet-limit card: WALLET LIMIT title, sits over the trade bar (board 3)");
+// 8) header card: bag (PnlHud view), cash + Room (TradeBridge), mode badge (coin rules)
+ok(/\.__pnlView = detail;/.test(pnl) && /addEventListener\("disciple:phonesheet", onSheet\)/.test(pnl), "PnlHud: view mirrored for the header card");
+ok(/"disciple:pnlview"/.test(hud) && /"disciple:phonestats"/.test(hud) && /"disciple:coinrules"/.test(hud) && /"disciple:mark"/.test(hud), "header listens to bag / cash+Room / rules / mark");
+ok(/dispatchEvent\(new CustomEvent\("disciple:phonestats", \{ detail: d \}\)\)/.test(tb) && /capRoomUsd\(\{ capBps: r\.capBps/.test(tb), "TradeBridge publishes cash + Room (same math as Boost max)");
+ok(/MODE\[rules\.mode!\]\.t \+ \(rules\.capBps \? ` · \$\{capTxt\(rules\.capBps\)\} CAP` : ""\)/.test(hud), "mode badge: EASY · 1% CAP");
 ok(/snipe-chip/.test(hud), "anti-snipe chip kept visible");
 // Settings: SITE's Sidebar item (#149) sends a plain Event (no detail) → the listener must not need a CustomEvent
 ok(/const o = \(\) => openMenu\(\); addEventListener\("disciple:settings-open", o\);/.test(sm), "SettingsMenu opens on a plain Event('disciple:settings-open') (no detail read)");
 { let opened = 0; const T = new EventTarget(); const o = () => { opened++; }; T.addEventListener("disciple:settings-open", o);
   T.dispatchEvent(new Event("disciple:settings-open")); T.dispatchEvent(new CustomEvent("disciple:settings-open")); ok(opened === 2, "plain Event and CustomEvent both open Settings"); }
-// 9) post-grad fixes (play-test 8:26 PM CT, 360 / 390 / 430)
-const pillGap = +hud.match(/html\.ap-phone \.cl-coin \{ top: calc\(var\(--ph-pill-top\) \+ 46px \+ (\d+)px\) !important;/)[1];
-for (const [w, h] of [[360, 780], [390, 844], [430, 932]]) {
-  const L = phoneLayout({ w, h, topBottom: 60 }), floorTop = L.pillTop + 46 + pillGap, floorBottom = floorTop + 30;
-  ok(floorTop >= L.pillTop + 46 + 22, `${w}: floor pill starts below the mcap pill + its caption (${floorTop} vs pill ${L.pillTop}–${L.pillTop + 46})`);
-  ok(floorBottom < L.dTop && floorBottom < L.hudTop - 200, `${w}: floor pill clear of the drawer and the rocket`);
-}
-ok(/"pill-top": L\.pillTop/.test(hud) && /"cash-top": cashTop/.test(hud), "--ph-pill-top / --ph-cash-top published");
-ok(/html\.ap-phone \[aria-label="cash and portfolio"\] \{ position: fixed !important; top: var\(--ph-cash-top\) !important; left: 16px !important; right: 16px !important;/.test(hud), "cash + portfolio: own row under the logo row");
-ok(/html\.ap-phone \[data-testid="cash-card"\], html\.ap-phone \[data-testid="portfolio-card"\] \{[^}]*white-space: nowrap !important;[^}]*background: rgba\(12,14,28,\.9\) !important;/.test(hud), "cash / portfolio cards: contrast + never clipped");
-ok(/const topBottom = Math\.max\(64, rowBottom, cash \? cash\.bottom : 0\)/.test(hud), "pill stacks under the cash row");
-ok(/setPointerCapture\(e\.pointerId\)/.test(hud.match(/const downOpen = [^\n]*/)[0]) && /onPointerDown=\{downOpen\} onPointerMove=\{moveOpen\} onPointerUp=\{upOpen\}/.test(hud), "handle: pointer capture + drag-to-open (desktop mouse drag)");
+// 9) old phone pieces gone (board n6): cash / total cards, Crew rewards pill, wallet strip row, PnL card, crew panel
+for (const sel of ['[aria-label="cash and portfolio"]', ".wb-root .wb-row", ".cl-coin", '[data-testid="crew-panel"]', ".pnl-hud", ".coin-id"])
+  ok(hud.includes(`html.ap-phone ${sel},`) || hud.includes(`html.ap-phone ${sel} {`), `phone hides ${sel}`);
+ok(!/PnL line|phone-pnl|DRAWER_TABS/.test(hud), "no PnL line, no five-tab drawer");
+ok(/setPointerCapture\(e\.pointerId\)/.test(hud.match(/const downOpen = [^\n]*/)[0]) && /onPointerDown=\{downOpen\} onPointerMove=\{moveOpen\} onPointerUp=\{upOpen\}/.test(hud), "pill: pointer capture + drag-to-open (desktop mouse drag)");
 ok(!/setPointerCapture/.test(hud.match(/const down = [^\n]*/)[0]) && /data-testid="phone-drawer-head" onPointerDown=\{down\}/.test(hud), "drawer head: no capture (tab / close clicks still reach their buttons)");
 { // gesture harness: a mouse drag that ends off the handle still opens (capture), and opens mid-drag past 24px
   let opened = 0, g = null; const setSheet = () => { opened++; };
@@ -183,7 +185,7 @@ ok(!/setPointerCapture/.test(hud.match(/const down = [^\n]*/)[0]) && /data-testi
 { // chart tab fills the drawer body
   const line = eng.match(/\{ const P=phoneHud\(W,CLEAN\); if\(P\)\{ const B=P\.body; return P\.sheet==='chart'[^\n]*/)[0];
   const chartRect = new Function("phoneHud", "W", "CLEAN", "clamp", "CHART_STYLE", `return function(){ const st=CHART_STYLE; ${line.replace(/\/\*[\s\S]*$/, "")} };`);
-  for (const w of [360, 390, 430]) { const L = phoneLayout({ w, h: 844, topBottom: 60 });
+  for (const w of [360, 390, 430]) { const L = phoneLayout({ w, h: 844, headBottom: 250 });
     const r = chartRect(() => ({ sheet: "chart", body: L.body }), w, false, (v, a, b) => Math.max(a, Math.min(b, v)), { w: 300, h: 196 })();
     ok(r.x === L.body.x && r.w === L.body.w && r.h === L.body.h - 8 && r.h > 196, `${w}: chart = drawer body (${r.w}×${r.h})`); }
   ok(/R0=chartRect\(\), h=R0\.h, w=R0\.w\|\|st\.w;[^\n]*if\(C\.cv\.width!==w\) C\.cv\.width=w;/.test(eng), "chart canvas resizes to the rect"); }
@@ -215,8 +217,8 @@ ok(!/setPointerCapture/.test(hud.match(/const down = [^\n]*/)[0]) && /data-testi
   ok(/matchMedia\?\.\("\(max-height: 767px\)"\)\.matches\) setOpenS\(false\)/.test(pnl), "short desktop: the card starts collapsed (chart keeps its full height)"); }
 // 390 px phone: the chart is a drawer TAB and the Your Position card is another tab → never on screen together
 { ok(/return P\.sheet==='chart'&&B\?\{x:[^\n]*:\{x:-1e4,y:-1e4,w:st\.w,h:st\.h\}/.test(eng), "phone: chart drawn only in the Chart sheet (off-screen otherwise)");
-  ok(/html\.ap-phone \.pnl-hud \{ display: none !important; \}/.test(hud) && /html\.ap-phone\[data-ph-sheet="run"\] \.pnl-hud \{/.test(hud), "phone: Your Position only in the Position sheet");
-  for (const w of [360, 390, 430]) { const L = phoneLayout({ w, h: 844, topBottom: 60 }); ok(L && L.body.h > 0, `${w}×844: one drawer body hosts either the chart or the run card`); } }
+  ok(/html\.ap-phone \.pnl-hud \{ display: none !important; \}/.test(hud), "phone: no Your Position card (your bag sits in the header card, board n7)");
+  for (const w of [360, 390, 430]) { const L = phoneLayout({ w, h: 844, headBottom: 250 }); ok(L && L.body.h > 0, `${w}×844: one sheet body hosts the chart`); } }
 // ONE header card (lee, Oct 30): coin icon · name · pair row inside the MARKET CAP card; card grows by that row
 { const id = rd("components/pairart/CoinIdentity.tsx"), css = rd("app/globals.css");
   const f = new Function("window", eng.match(/function coinIdRowH\(\)\{[^\n]*\}/)[0] + "\nreturn coinIdRowH;");

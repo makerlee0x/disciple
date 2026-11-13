@@ -387,6 +387,8 @@ function coinIdRowH(){ const h=typeof window!=='undefined'?+window.__coinIdH:0; 
    {on, sheet, drawer, pillTop, hudTop, dTop, body:{x,y,w,h}}: the floating MCAP · TIER pill at `pillTop`, the bottom HUD
    (handle / PnL line / BOOST · DUMP, DOM) from `hudTop` down, and — while the drawer is open (dTop = its top) — the drawer's
    transparent body rect, where the engine draws the FEED / HOLDERS / CHART tab. Nothing else is drawn on the sky. */
+/* v2 (approved boards 'Phone v2', maker 2026-11-13): {v2:true, toastTop} — the DOM draws the header card, so the engine skips its pill
+   and caption; toasts sit under the crew feed (toastTop); hudTop = top of the HOLDERS · CHART pill (drag-steer stops there). */
 function phoneHud(w,clean){ const p=typeof window!=='undefined'?window.__phoneHud:null; return !clean&&w<=HUD_NARROW_W&&p&&p.on?p:null; }
 
 /* TRADES / phone FEED name fit: shrink the name font stepwise to TRADE_NAME_FONT_FLOOR (9px) so the full name
@@ -1925,7 +1927,7 @@ function drawHud(){
   const m=shownMcap(), a=S.displayAlt, ti=clamp(Math.floor(mcapToAlt(m)),0,TIERS.length-1), t=TIERS[ti];   // same price the PnL marks against
   ctx.save(); ctx.textBaseline='alphabetic';
   const PH=phoneHud(W,CLEAN);
-  if (PH) drawPhonePill(m,ti,PH); else {
+  if (PH) { if(!PH.v2) drawPhonePill(m,ti,PH); else { S.phonePill=null; S.phoneTierLabel=''; S.gradBadge=S.graduated?GRAD_BADGE:''; } } else {   /* phone v2 (Nov 13): the DOM header card (PhoneHud) shows mcap, zone and progress */
   // top-left: ONE header card (lee, Oct 30 coin-screen cleanup): the coin's icon · name · pair row (CoinIdentity, DOM,
   // window.__coinIdH = its height, laid inside this card's top) + MARKET CAP label + the big mcap + TIER line + tier bar.
   // The card grows by that row; everything under it is drawn shifted down (translate), so the rest stays as before.
@@ -1986,7 +1988,7 @@ function drawHud(){
     ctx.textAlign='right'; ctx.fillStyle='rgba(220,228,255,.6)'; ctx.fillText(feedTime(r),FX+FW-16,fy); ctx.textAlign='left'; }); ctx.globalAlpha=1; ctx.restore(); }
   // Keyboard/status box removed. Keep control events and all working trade/keyboard handlers.
   if (S.controlsDocked) pushControls();
-  let TOX=Math.round((W-300)/2), TOY=PH?PH.pillTop+(S.phoneTierLabel?76:58):136;   // achievement toasts: phone = under the MCAP pill
+  let TOX=Math.round((W-300)/2), TOY=PH?(PH.v2?PH.toastTop:PH.pillTop+(S.phoneTierLabel?76:58)):136;   // achievement toasts: phone = under the MCAP pill
   if (PH||!S.pro||!AMMO_CANVAS) AMMO_HIT.forEach(R=>{ R.x=-1e9; R.y=-1e9; R.w=0; R.h=0; }); else {   // phone v3 + desktop Pilot: no canvas preset chips (amounts live in the bottom bar / BOOST + DUMP sheets); Pro keeps the panel
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
   const ax=LY.ax, ay=LY.ay; panel(ax,ay,AW,AH);   // @hud-layout (hudTopLayout)
