@@ -196,7 +196,8 @@
   .lb-tabs { height: 52px; gap: 22px; }
   .lb-tabs a, .lb-tab-btn { font-size: 18px; }
 }
-.lb-ico { display: none !important; }   /* Icon sets an inline display: the phone tab bar alone shows it */
+.lb-ico { display: none !important; }
+.lb-tabs.lb-dock { display: none; }   /* Icon sets an inline display: the phone tab bar alone shows it */
 /* Phones (≤760px, mobile plan option A, maker 2026-11-13): the tabs move to a bottom tab bar in thumb reach, icon over label.
    The top bar keeps only the mark and the wallet strip. How to play stays on the lobby's Launch card. */
 @media (max-width: 760px) {
@@ -204,12 +205,16 @@
   body.lobby { --ap-bottom-nav: 64px; }
   /* no backdrop-filter here: it would make the header the containing block of the fixed bottom bar */
   .lb-bar { flex-direction: row; align-items: center; backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(11,12,14,0.96); }
+  .lb-bar .lb-tabs.lb-top { display: none; }
+  html.lb-typing .lb-tabs.lb-dock { display: none; }
   .lb-tabs {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; height: calc(64px + var(--ap-safe-bottom, 0px)); padding: 0 6px var(--ap-safe-bottom, 0px);
     display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0; overflow: visible; box-sizing: border-box;
     background: #0B0C0E; border-top: 1px solid rgba(232,234,238,0.10); box-shadow: 0 -12px 32px -12px rgba(0,0,0,0.6);
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   }
+  .lb-tabs.lb-dock { display: grid; }
+  html.lb-typing .lb-tabs.lb-dock { display: none; }
   .lb-tabs a {
     flex-direction: column; justify-content: center; gap: 4px; min-height: 64px; padding: 0; border-bottom: 0; border-top: 2px solid transparent;
     font-size: 11px; letter-spacing: 0.04em; text-align: center;

@@ -1235,7 +1235,7 @@ function submit(side,usd,force,opt,pct){
     // back (no fill), the slot frees. The note's own strip offers the one tap to go ahead. (Also with SITE #201's unknown:true.)
     if(r&&!r.ok&&r.needsConfirm){ p.state='held'; lockResolve(p,'gone'); baResolve(ba,false,performance.now(),S.boostAnim);
       if(p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }
-      tradeNote(r.reason); S.pending=S.pending.filter(q=>q!==p); pushInFlight(); return; }
+      if(r.needsConfirm!=='walletcap') tradeNote(r.reason); S.pending=S.pending.filter(q=>q!==p); pushInFlight(); return; }   // wallet limit: the page's card says it (no sky banner too)
     p.state=r.ok?'confirmed':'failed'; lockResolve(p,r&&r.ok?'ok':r&&r.unknown?'gone':'fail');
     if(r&&r.ok&&side==='buy'){ const [nx0,ny0]=nozzleXY(); S.floaters.push({x:nx0+70,y:ny0-120,txt:'+'+fmtShot(p.usd).replace(/\.00$/,'')+' aboard',c:'#F2C14E',life:1.4,game:24}); }
     if(r&&r.ok&&side==='sell') S.kickV=(S.kickV||0)-120;   // @pressfeel: recoil, the rocket kicks up as the bomb leaves
