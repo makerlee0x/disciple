@@ -11,7 +11,7 @@ import { coinsOf, tradesOf } from "./trades";
 export const LOGBOOK_MAX_COINS = 60;
 const COIN_FILLS = 2000;
 
-const toLog = (f: Fill): LogFill => ({ ts: f.ts, block: f.block, logIndex: f.logIndex, trader: f.trader, side: f.side, tokens: f.tokens, usd: playerUsd(f), mcapUsd: f.mcapUsd, priceUsd: f.priceUsd, impactBps: typeof f.impactBps === "number" ? Math.abs(f.impactBps) : undefined });
+export const toLog = (f: Fill): LogFill => ({ ts: f.ts, block: f.block, logIndex: f.logIndex, trader: f.trader, side: f.side, tokens: f.tokens, usd: playerUsd(f), mcapUsd: f.mcapUsd, priceUsd: f.priceUsd, impactBps: typeof f.impactBps === "number" ? Math.abs(f.impactBps) : undefined });
 
 export async function coinMetas(): Promise<Map<string, LogCoin>> {
   const h = await getHomeData();
@@ -29,7 +29,7 @@ export async function crewOf(wallet: string): Promise<{ guild: Guild | null; mem
 }
 
 /** One rocket, merged: the wallet's whole history on it + the rocket's newest fills. */
-async function coinFillsFor(wallet: string, coin: string): Promise<LogFill[]> {
+export async function coinFillsFor(wallet: string, coin: string): Promise<LogFill[]> {
   const [mine, recent] = await Promise.all([tradesOf(coin, wallet, 5000, "asc"), tradesOf(coin, null, COIN_FILLS, "desc")]);
   const seen = new Set<string>(), out: LogFill[] = [];
   for (const f of [...mine, ...recent]) { if (seen.has(f.id)) continue; seen.add(f.id); out.push(toLog(f)); }

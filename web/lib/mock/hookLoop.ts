@@ -5,6 +5,7 @@
  */
 import type { LogEntry, LogRecord, StoryEvent } from "@/lib/logbook";
 import { dayIndex, type Streak } from "@/lib/streaks";
+import type { CrewPage } from "@/lib/crew";
 
 const H = 3600_000, D = 24 * H;
 const now = () => Date.now();
@@ -50,5 +51,21 @@ export function sampleStreaks(): { aboard: Streak; checkin: Streak; paid: number
     aboard: { current: 6, best: 14, week: week(["done", "done", "paused", "done", "done", "done", "today"]), shieldUsed: true, pausedDay: t - 4, todayOk: true, run: [] },
     checkin: { current: 11, best: 11, week: week(["done", "done", "done", "done", "done", "done", "done"]), shieldUsed: false, pausedDay: null, todayOk: true, run: [] },
     paid: 0,
+  };
+}
+
+export function sampleCrew(): CrewPage {
+  const w = (n: number) => `0x${String(n).padStart(40, "0")}`;
+  return {
+    crew: { id: "u-000000000001", tag: "NOVA", name: "Nova Squadron", mark: "", members: 9, since: Date.UTC(2026, 9, 28) },
+    record: { together: 31, orbits: 3, longestMs: 2 * D + 9 * H, rank: 12 },
+    flying: [
+      { coin: "0x00000000000000000000000000000000000a7a10", ticker: "MOTH", name: "Moth Light", zone: "STRATOSPHERE", mode: 1, graduated: false, count: 3, you: true,
+        aboard: [{ wallet: w(2), name: "jo" }, { wallet: w(3), name: "ra" }, { wallet: w(4), name: "ev" }] },
+      { coin: "0x00000000000000000000000000000000000a1a10", ticker: "HALO", name: "Halo Drive", zone: "In orbit", mode: 1, graduated: true, count: 2, you: false,
+        aboard: [{ wallet: w(4), name: "ev" }, { wallet: w(5), name: "li" }] },
+    ],
+    mission: { best: 2, target: 3, xp: 400, done: false, resetsAt: now() + 2 * D },
+    username: "mk",
   };
 }

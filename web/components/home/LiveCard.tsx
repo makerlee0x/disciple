@@ -9,6 +9,7 @@ import { difficultyOf } from "@/lib/difficulty";
 import { ROCKET_SRC, skySrc, tierProgress, type HomeCoin } from "@/lib/home/trending";
 import { withBase } from "@/lib/base-path";
 import { altShort, crewFaces, flightHref, lit, Mark, orbitPct, pct } from "./rocketBits";
+import { useCrewAboard } from "@/components/crew/CrewAboard";
 import s from "./liveCard.module.css";
 
 /** `seat` (Hangar fleet): the pilot's holding in dollars, shown in place of altitude. */
@@ -16,6 +17,7 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
   const t = tierProgress(c.mcapUsd);
   const chg = c.stats?.chg24 ?? null;
   const crew = c.stats?.crew ?? null;
+  const mates = useCrewAboard(c.token);
   const d = difficultyOf(c.mode, c.graduated);
   const orbit = c.progressBps == null && !c.graduated ? null : orbitPct(c);
   const style = { ...lit(c), ["--sky" as string]: `url(${withBase(skySrc(t.index))})` };
@@ -36,6 +38,7 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
       </span>
 
       <span className={s.foot}>
+        {mates > 0 && <span className={s.mates}>{mates} of your crew aboard</span>}
         <b className={s.name}>{c.name}</b>
         <span className={s.meta}>
           {crew ? (

@@ -166,6 +166,8 @@ export function createGuildStore(s: GuildKv, now: () => number = Date.now) {
   /** A guild's wallets, oldest member first (crew flights read this; capped). */
   async function membersOf(id: string, limit = 500): Promise<string[]> { return isGuildId(id) ? (await s.zrange(K.members(id), limit)).map((w) => w.toLowerCase()) : []; }
 
-  return { guildById, guildByTag, guildOf, tagsOf, join, leave, create, list, nextSwitchAt, memberCount, withCount, membersOf };
+  /** when the wallet joined its current guild (crew page "flying together since") */
+  async function memberSince(wallet: string): Promise<number | null> { return (await memberOf(wallet))?.at ?? null; }
+  return { guildById, guildByTag, guildOf, tagsOf, join, leave, create, list, nextSwitchAt, memberCount, withCount, membersOf, memberSince };
 }
 export type GuildStore = ReturnType<typeof createGuildStore>;
