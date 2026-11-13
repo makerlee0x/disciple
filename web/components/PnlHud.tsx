@@ -9,6 +9,11 @@ import { isDeployed } from "@/lib/chains";
 import { withBase } from "@/lib/base-path";
 import { POINTS_ENABLED } from "@/lib/features";
 import { useDomCard } from "@/lib/game/cardLayoutStore";
+import { useHudMode } from "@/lib/game/hudMode";
+import { HUD, hudLabel } from "@/lib/game/hudStyle";
+
+/** protocol trade fee (contracts/src/libraries/Constants.sol TRADE_FEE_BPS = 100): the "Dump all now" estimate */
+const TRADE_FEE = 0.01;
 
 type Fill = { side: "buy" | "sell"; usd: number; mcap: number; supply: number; /** always 0 (no per-trade gas line in the ledger) */ gas?: number; at?: number; frac?: number; session?: string | null; live?: boolean; txHash?: string };
 type Receipt = ExactFill & { txHash: string; side: "buy" | "sell" };
@@ -24,7 +29,7 @@ type FlightWin = {
 const DEFAULT_KEY = "disciple.pnl.";
 const usd = fmtPnl;
 const pct = (v: number) => (v > 0 ? "▲ " : v < 0 ? "▼ " : "") + Math.abs(v).toFixed(1) + "%";
-const GREEN = "#8ff0c0", RED = "#ff9fb8", FLAT = "#e8ecff";
+const GREEN = "#5FF0A0", RED = "#FF7FB3", FLAT = "#F2F3F7";
 /** phone-first HUD active (components/flight/PhoneHud.tsx sets html.ap-phone at ≤760px) */
 const isPhone = () => typeof document !== "undefined" && document.documentElement.classList.contains("ap-phone");
 const col = (x: number) => (x > 0.005 ? GREEN : x < -0.005 ? RED : FLAT);
@@ -65,6 +70,15 @@ function Num({ value, fmt, style }: { value: number; fmt: (v: number) => string;
  *  so it pushes the whole position on this event ({ pos, supply }) and paper fills are not re-booked here. */
 export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, syncEvent }: { coin: string; storagePrefix?: string; modeLabel?: string; syncEvent?: string }) {
   const t = useT();
+  const hud = useHudMode();
+  // Pro rows: the coin's hold limit (disciple:coinrules from TradeBridge: capBps of supply, null = no cap) and live cash (disciple:cash)
+  const [capBps, setCapBps] = useState<number | null>(null), [rules, setRules] = useState(""), [cash, setCash] = useState<number | null>(null);
+  useEffect(() => {
+    const r = (e: Event) => { const d = (e as CustomEvent<{ capBps?: number | null; modeName?: string } | null>).detail; setCapBps(d && typeof d.capBps === "number" ? d.capBps : null); setRules(d?.modeName ? String(d.modeName) : ""); };
+    const c = (e: Event) => { const u = (e as CustomEvent<{ usd?: number | null }>).detail?.usd; setCash(typeof u === "number" && Number.isFinite(u) ? u : null); };
+    addEventListener("disciple:coinrules", r); addEventListener("disciple:cash", c);
+    return () => { removeEventListener("disciple:coinrules", r); removeEventListener("disciple:cash", c); };
+  }, []);
   // the signed-in account (lib/wallet onWallet: the smart account, null when signed out). The SIMULATOR (syncEvent) keeps
   // its own run ledger, not per account.
   const [account, setAccount] = useState<string | null>(null);
@@ -236,40 +250,61 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   const feeNote = redFromBuyFees({ ...pos, costBasis: basis }, { size: tracked ? v.size : 0, uPnl: v.uPnl });
   const maxMult = 1 + HOLD_BONUS.maxBoost;
   const share = Math.max(0, Math.min(1, (v.bonus - 1) / HOLD_BONUS.maxBoost));
-  const label = { color: "rgba(220,228,255,.62)", fontSize: 10, letterSpacing: ".06em" } as const;
+  const label = { color: HUD.dim, fontSize: 12 } as const;
   const row = { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 } as const;
-  const glow = (c: string) => `0 0 10px ${c}55`;
+  const line = { ...row, padding: "4px 0", borderTop: "1px solid rgba(46,50,58,.7)" } as const;
+  const big = { font: `700 16px/1.2 ${HUD.game}` } as const;
+  // YOUR BAG (approved mockup option A, Nov 12): what it is worth, what you put in, what you banked, what a full dump pays.
+  // Pilot = that card. Pro (and the phone POSITION sheet) add the trader rows: tokens + share of supply, entry, hold limit, cash.
+  const proRows = open && (hud === "pro" || isPhone());
+  const putIn = tracked ? basis : 0;
+  const gainShare = holding && v.valueUsd > 0 ? Math.max(0, Math.min(1, (v.valueUsd - putIn) / v.valueUsd)) : 0;
+  const lossShare = holding && putIn > 0 ? Math.max(0, Math.min(1, (putIn - v.valueUsd) / putIn)) : 0;
+  const dumpAll = holding ? v.valueUsd * (1 - TRADE_FEE) : 0;
+  const supplyPct = holding && mark.supply > 0 ? (v.size / mark.supply) * 100 : 0;
 
   return (
-    <aside ref={asideRef} aria-label="Holdings and PnL" className="pnl-hud" data-card="pnl"
-      style={{ ...(card.hidden ? { display: "none" } : null), transform: card.transform, position: "fixed", top: 212, left: "calc(var(--ap-rail-w, 64px) + 22px)", zIndex: 31, width: 272, padding: "9px 12px 10px",
-        borderRadius: 14, background: "linear-gradient(180deg,rgba(16,14,40,.88),rgba(8,10,26,.84))", backdropFilter: "blur(6px)",
-        border: `1px solid ${holding ? col(v.uPnl) + "88" : "rgba(255,231,163,.45)"}`, color: "#fff7df", font: "11px ui-monospace,monospace",
-        transition: "border-color .4s" }}>
-      <button type="button" onClick={() => setOpen((o) => !o)} style={{ all: "unset", cursor: "pointer", ...row, width: "100%", color: "#ffe7a3", fontWeight: "bold" }}>
-        <span data-testid="pnl-title">{t("pnl.yourPosition")} <span style={{ color: modeLabel ? "#8fd8ff" : "#ffb0c8", fontWeight: modeLabel ? 700 : 400 }}>· {modeLabel || (wallet ? t("pnl.live") : t("pnl.paper"))}</span></span>
-        <span style={{ color: "rgba(255,231,163,.7)" }}>{open ? "−" : "+"}</span>
+    <aside ref={asideRef} aria-label="Holdings and PnL" className="pnl-hud" data-card="pnl" data-hud={hud}
+      style={{ ...(card.hidden ? { display: "none" } : null), transform: card.transform, position: "fixed", ...(hud === "pro" ? { top: 212 } : { bottom: 16 }), left: "calc(var(--ap-rail-w, 64px) + 20px)", zIndex: 31, width: 300, padding: "14px 16px",
+        borderRadius: HUD.radius, background: HUD.glass, backdropFilter: "blur(6px)",
+        border: `1px solid ${HUD.border}`, color: HUD.text, font: `13px/1.4 ${HUD.ui}`, boxSizing: "border-box" }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} style={{ all: "unset", cursor: "pointer", ...row, width: "100%" }}>
+        <span data-testid="pnl-title" style={hudLabel}>{t("pnl.yourBag")} <span style={{ color: modeLabel ? "#8fd8ff" : wallet ? HUD.up : HUD.champagne }}>· {modeLabel || (wallet ? t("pnl.live") : t("pnl.paper"))}</span></span>
+        <Num value={v.pnlPct} fmt={pct} style={{ font: `700 16px ${HUD.game}`, color: col(v.pnlPct) }} />
       </button>
 
-      {/* hero: unrealized PnL + %. % = uPnL ÷ cost basis = MCAP ÷ AVG ENTRY MC − 1 (fees in the basis): it depends on how far the
-          mcap moved since YOUR entry, not on the share of supply held. E.g. holdings $1.35K at $8.8K MCAP with avg entry MC
-          ≈$7.27K (curve starts at $3,333) ⇒ +21%; see docs in lib/pnl.ts. */}
-      <div style={{ ...row, marginTop: 4 }} title={t("pnl.pctTitle")}>
-        <Num value={v.uPnl} fmt={usd} style={{ fontSize: 22, fontWeight: 800, color: col(v.uPnl), textShadow: glow(col(v.uPnl)), letterSpacing: "-.02em" }} />
-        <Num value={v.pnlPct} fmt={pct} style={{ fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 7, color: col(v.pnlPct),
-          background: v.pnlPct > 0.005 ? "rgba(143,240,192,.13)" : v.pnlPct < -0.005 ? "rgba(255,159,184,.13)" : "rgba(255,255,255,.07)" }} />
+      {/* hero: what the bag is worth now + unrealized PnL. % = uPnL ÷ cost basis = MCAP ÷ AVG ENTRY MC − 1 (fees in the basis): it
+          depends on how far the mcap moved since YOUR entry, not on the share of supply held; see docs in lib/pnl.ts. */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, margin: "4px 0 8px" }} title={t("pnl.pctTitle")}>
+        <Num value={v.valueUsd} fmt={fmtMoney} style={{ font: `800 38px/1 ${HUD.game}`, color: HUD.text }} />
+        <Num value={v.uPnl} fmt={usd} style={{ font: `700 20px/1 ${HUD.game}`, color: col(v.uPnl) }} />
       </div>
-      <div style={label}>{t("pnl.unrealized")}{feeNote > 0 && <span data-testid="pnl-buy-fees" style={{ opacity: 0.8 }}> · {t("pnl.inclBuyFees", { fee: fmtMoney(feeNote) })}</span>}</div>
+      {holding ? <>
+        <div aria-hidden="true" style={{ display: "flex", height: 8, borderRadius: 999, overflow: "hidden", background: "rgba(255,255,255,.1)" }}>
+          <div style={{ flex: 1, background: lossShare > 0 ? "rgba(243,223,168,.35)" : "rgba(243,223,168,.55)" }} />
+          {gainShare > 0 && <div style={{ width: `${gainShare * 100}%`, background: HUD.up }} />}
+          {lossShare > 0 && <div style={{ width: `${lossShare * 100}%`, background: HUD.down }} />}
+        </div>
+        <div style={{ ...row, marginTop: 6, fontSize: 12, color: HUD.dim }}>
+          <span>{t("pnl.putIn")} {tracked ? fmtMoney(putIn) : "—"}</span>
+          <span>{t("pnl.banked")} <Num value={v.realized} fmt={usd} style={{ color: col(v.realized) }} /></span>
+        </div>
+        {feeNote > 0 && <div data-testid="pnl-buy-fees" style={{ fontSize: 11, color: HUD.dim, marginTop: 2 }}>{t("pnl.inclBuyFees", { fee: fmtMoney(feeNote) })}</div>}
+        <div style={{ ...row, marginTop: 10, paddingTop: 8, borderTop: "1px solid rgba(46,50,58,.9)" }} title="about what selling it all pays back after the 1% fee (price move not included)">
+          <span style={label}>{t("pnl.dumpAll")}</span>
+          <span data-testid="pnl-dump-all" style={{ font: `700 18px ${HUD.game}` }}>≈ {fmtMoney(dumpAll)} <span style={{ font: `600 13px ${HUD.game}`, color: HUD.dim }}>{t("pnl.afterFees")}</span></span>
+        </div>
+      </> : <div style={{ fontSize: 12, color: HUD.dim }}>{v.realized !== 0 ? <>{t("pnl.banked")} <Num value={v.realized} fmt={usd} style={{ color: col(v.realized) }} /></> : t("pnl.noBag")}</div>}
 
-      {open && (
-        <div style={{ marginTop: 7, lineHeight: 1.6 }}>
-          {/* YOUR POSITION (pass 3 #1, lee): no MCAP row (the header card shows it). HOLDINGS = token amount + its $ value
-              (live: the wallet's real balance × mark = exactly what DUMP 100% sells) */}
-          <div style={row}><span style={label}>{t("pnl.holdings")}</span>
-            <span data-testid="pnl-holdings"><span data-testid="pnl-holdings-tokens">{fmtTokens(v.size)}</span><span style={{ opacity: 0.55 }}> · </span><Num value={v.valueUsd} fmt={fmtMoney} /></span></div>
-          <div style={row}><span style={label}>{t("pnl.avgEntry")}</span><span>{tracked ? `MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
-          <div style={row}><span style={label}>{t("pnl.realized")}</span><Num value={v.realized} fmt={usd} style={{ color: col(v.realized), fontWeight: 700 }} /></div>
-          {v.fees > 0 && <div style={row} title="exit fee (kept out of realized so realized = closed uPnL)"><span style={label}>{t("pnl.exitFees")}</span><span style={{ opacity: 0.75 }}>{usd(-v.fees)}</span></div>}
+      {proRows && (
+        <div style={{ marginTop: 8 }}>
+          {/* HOLDINGS = token amount + share of supply (live: the wallet's real balance = exactly what DUMP 100% sells) */}
+          {holding && <><div style={line}><span style={label}>{t("pnl.holdings")}</span>
+            <span data-testid="pnl-holdings" style={big}><span data-testid="pnl-holdings-tokens">{fmtTokens(v.size)}</span>{supplyPct > 0 && <span style={{ color: HUD.dim }}> · {supplyPct < 0.01 ? "<0.01" : supplyPct.toFixed(2)}%</span>}<span style={{ display: "none" }}><Num value={v.valueUsd} fmt={fmtMoney} /></span></span></div>
+          <div style={line}><span style={label}>{t("pnl.boardedAt")}</span><span style={big}>{tracked ? `${fmtUsd(v.entryMcap)} altitude` : "—"}</span></div></>}
+          {capBps != null && <div style={line} title="the most of the supply one wallet may hold right now (this rocket's difficulty)"><span style={label}>{t("pnl.holdLimit")}{rules ? ` (${rules === "TRENCH" ? "Expert" : rules.charAt(0) + rules.slice(1).toLowerCase()})` : ""}</span><span style={{ ...big, color: HUD.hard }}>{(capBps / 100).toFixed(2)}% of supply</span></div>}
+          {cash != null && <div style={line}><span style={label}>{t("pnl.cash")}</span><span style={big}>{fmtMoney(cash)}</span></div>}
+          {v.fees > 0 && <div style={line} title="exit fee (kept out of realized so realized = closed uPnL)"><span style={label}>{t("pnl.exitFees")}</span><span style={{ ...big, opacity: 0.75 }}>{usd(-v.fees)}</span></div>}
 
           {/* POINTS (off by default: lib/features POINTS_ENABLED, lee Oct 30) — off-chain points multiplier only (lib/config HOLD_BONUS, a proposal) — grows with
               unrealized PnL + hold time. Never money: it scales season points, not payouts or fees. */}

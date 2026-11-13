@@ -156,7 +156,7 @@ export default function PhoneHud() {
   const engineBody = !!cur?.engine && !(cur.id === "chart" && (window as unknown as { __domChart?: boolean }).__domChart);
   const bg = engineBody ? `linear-gradient(to bottom, ${DRAWER_BG} 0, ${DRAWER_BG} ${by}px, transparent ${by}px, transparent ${bb}px, ${DRAWER_BG} ${bb}px)` : DRAWER_BG;
   const pos = !!pnl?.txt, neg = (pnl?.uPnl ?? 0) < 0;
-  const pnlLine = pos ? <><b style={{ color: neg ? "#FF9EBE" : "#BFF5D9", fontWeight: 700 }}>{pnl!.txt!.pnl}</b> · {pnl!.txt!.pct}</> : <>No position yet</>;
+  const pnlLine = pos ? <><b style={{ color: neg ? "#FF9EBE" : "#BFF5D9", fontWeight: 700 }}>{pnl!.txt!.pnl}</b> · {pnl!.txt!.pct}</> : <>No bag yet</>;
   return (
     <>
       {/* bottom scrim (legibility under the buttons) — never takes input */}

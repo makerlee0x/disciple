@@ -16,6 +16,9 @@ import { paperCurve } from "@/lib/flight/paperCurve";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
+import HudModeToggle from "@/components/flight/HudModeToggle";
+import FlightSfx from "@/components/flight/FlightSfx";
+import FlightPath from "@/components/flight/FlightPath";
 import HoldersBridge from "@/components/flight/HoldersBridge";
 import PhoneHud from "@/components/flight/PhoneHud";
 import { publishUsernameDisplayCap } from "@/lib/defaultUsername";
@@ -137,6 +140,10 @@ export default function FlightCanvas({ search }: Props) {
           // runs on a live market (engine SIM block: pill on mock/replay, ?sim=on dev opt-in).
           __DISCIPLE_TESTNET: !!(ACTIVE_CHAIN as { testnet?: boolean }).testnet,
           REPLAY: window.REPLAY,
+          // brand v3 game face for the canvas HUD (next/font's hashed family from the --font-barlow-condensed variable)
+          __GAME_FONT: getComputedStyle(document.documentElement).getPropertyValue("--font-barlow-condensed").trim(),
+          // body face (Geist via next/font --font-geist) for small HUD copy drawn on the canvas
+          __UI_FONT: getComputedStyle(document.documentElement).getPropertyValue("--font-geist").trim(),
         };
         Object.assign(window, globals);
         // ?render=main|worker forces a path; default = main; worker is opt-in (?render=worker) and falls back to main if unsupported/failed
@@ -202,7 +209,9 @@ export default function FlightCanvas({ search }: Props) {
   useEffect(() => {
     let last = "";
     const tick = () => {
-      const w = document.querySelector('[aria-label="wallet"]') as HTMLElement | null;
+      // desktop: the flight top bar (PILOT/PRO + menu + leave; the wallet strip is hidden there), else the wallet strip
+      const bar = document.querySelector('[data-testid="flight-topbar"]') as HTMLElement | null;
+      const w = bar || (document.querySelector('[aria-label="wallet"]') as HTMLElement | null);
       const b = w ? Math.ceil(w.getBoundingClientRect().bottom) : 0;
       const vw = Math.round(wrapRef.current?.clientWidth || innerWidth);
       // the wallet strip's left edge in canvas px (engine hudTopLayout keeps the BUY panel clear of the cash / total cards);
@@ -216,7 +225,7 @@ export default function FlightCanvas({ search }: Props) {
       const row = Math.max(12, b + 8);
       // Phones: the in-canvas status column starts below the MARKET CAP panel (engine.js hudColTop, same 760/158 numbers),
       // so CrewPanel / GameChat (stacked on --ap-hud-rt) move down with it. Desktop unchanged.
-      const hudRT = vw <= HUD_NARROW_W ? Math.max(row + 10, HUD_NARROW_TOP) : row + 10;   // +10 gap (the 38px gear/✕ row is gone)
+      const hudRT = vw <= HUD_NARROW_W ? Math.max(row + 10, HUD_NARROW_TOP) : bar ? b - 4 : row + 10;   // top bar (62px): the right column starts at 92 (mockup)   // +10 gap (the 38px gear/✕ row is gone)
       const st = document.documentElement.style;
       st.setProperty("--ap-tr-top", row + "px");
       st.setProperty("--ap-hud-rt", Math.max(hudRT, colTop) + "px");   // the engine may move the column below the BUY panel
@@ -278,12 +287,18 @@ export default function FlightCanvas({ search }: Props) {
       {/* ESC settings menu (ESC or the Sidebar's Settings; no gear button since the Oct 30 cleanup): Share, Hotkeys, Sound, Language, Display
           (Touch Grass, Orbs) and the Controls reference all live there now, not in the pill row below. */}
       <GameRadio />
+      {/* desktop top bar (approved mockup): PILOT / PRO (lib/game/hudMode) + menu (sign in, settings, tramp / wall, simulated market) + leave */}
+      <HudModeToggle sim={!isSimulator ? sim : null} onSim={toggleSim} />
+      <FlightSfx />
+      <FlightPath />
       <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />
-      {chatCoin && <GameChat coin={chatCoin} />}
+      {/* the crew feed: trades + chat + holders on a coin; trades + holders where there is no coin chat (simulator, mock) */}
+      <GameChat coin={chatCoin || ""} tradesOnly={!chatCoin} />
       {/* phones (≤760px): v3 HUD — mcap pill, handle + PnL line, one swipe-up drawer (Feed/Holders/Chart/Crew/Chat/Position); desktop renders nothing */}
       <PhoneHud />
       {/^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") && q0.get("source") !== "sim" && <HoldersBridge coin={q0.get("coin") as string} />}
-      <div className="ap-bc" data-testid="flight-pills" style={{ bottom: "calc(142px + var(--ap-safe-bottom))", zIndex: 25, display: "flex", gap: 8 }}>
+      {/* desktop (approved mockup): no simulated-market pill over the trade bar; it lives in the top bar's menu. Phones keep the pill */}
+      <div className="ap-bc" data-testid="flight-pills" style={{ bottom: "calc(var(--ap-tb-h, 80px) + 62px + var(--ap-safe-bottom))", zIndex: 25, display: "flex", gap: 8 }} data-desk-hide="1">
         {!isSimulator && sim.available === true && <button
           type="button"
           data-testid="sim-toggle"

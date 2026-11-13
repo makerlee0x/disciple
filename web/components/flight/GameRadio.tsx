@@ -20,6 +20,12 @@ import { isPhoneUI, updateLayout, useCardLayout, useDomCard } from "@/lib/game/c
 import { getGameRadio } from "@/lib/game/radio";
 import { audioLevel, DEFAULT_GAME_SETTINGS, setGameSettings, useGameSettings } from "@/lib/game/settings";
 import { radioShouldPlay, stationList, type RepeatMode } from "@/lib/game/stations";
+import { useHudMode } from "@/lib/game/hudMode";
+import { HUD } from "@/lib/game/hudStyle";
+
+/* desktop (approved mockup, Nov 12): a one-line card "♫ House radio · Night Drive  R"; click it for the full controls.
+   Pilot: bottom right, above the Flight path card. Pro: bottom left. R plays / pauses (not while typing, not when bound to a trade). */
+const DESK: React.CSSProperties = { width: 300, padding: 0, borderRadius: 12, background: HUD.glass, border: `1px solid ${HUD.border}`, color: HUD.text, fontFamily: HUD.ui };
 
 const GOLD = "#ffe7a3";
 const INK = "#e8ecff";
@@ -85,6 +91,7 @@ const ICONS = {
   speaker: "M11 5L6 9H2v6h4l5 4V5z",
   speakerOff: "M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6",
   chevron: "M6 9l6 6 6-6",
+  note: "M9 18V5l12-2v13M9 18a3 3 0 11-6 0 3 3 0 016 0zM21 16a3 3 0 11-6 0 3 3 0 016 0z",
 };
 
 function useRadio() {
@@ -100,6 +107,8 @@ export default function GameRadio() {
   const card = useDomCard("radio", ref);
   const [phone, setPhone] = useState(false);
   const [picker, setPicker] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const hud = useHudMode();
   const lastLevel = useRef(audioLevel("music", gs));
 
   useEffect(() => {
@@ -152,6 +161,16 @@ export default function GameRadio() {
     };
   }, []);
 
+  const playRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (e.code !== "KeyR" || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.target as HTMLElement | null; if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      if (gs.keys.buy.includes("KeyR") || gs.keys.sell.includes("KeyR")) return;   // bound to a trade: the trade wins
+      playRef.current();
+    };
+    addEventListener("keydown", k); return () => removeEventListener("keydown", k);
+  }, [gs.keys.buy, gs.keys.sell]);
   const musicOn = gs.music.on;
   const playing = st.running && !st.paused && musicOn && gs.music.vol > 0;
   const stations = stationList();
@@ -161,7 +180,8 @@ export default function GameRadio() {
   const hidePanel = min || closed;
   const phoneBottom: React.CSSProperties = phone
     ? { right: 10, bottom: "calc(var(--ap-safe-bottom, 0px) + 148px)" }
-    : {};
+    : hud === "pro" ? { ...DESK, right: "auto", left: "calc(var(--ap-rail-w, 64px) + 20px)", bottom: 20, width: 326 }
+    : { ...DESK, right: 20, bottom: 179 };
 
   const play = () => {
     const radio = getGameRadio();
@@ -178,6 +198,7 @@ export default function GameRadio() {
     }
   };
   const pause = () => getGameRadio().pause();
+  playRef.current = () => (playing ? pause() : play());
   const skip = (dir: 1 | -1) => getGameRadio().skip(dir);
   const toggleShuffle = () => setGameSettings((g) => ({ ...g, radio: { ...g.radio, shuffle: !g.radio.shuffle } }));
   const toggleRepeat = () => setGameSettings((g) => ({
@@ -212,6 +233,13 @@ export default function GameRadio() {
           display: hidePanel ? "none" : undefined,
         }}
       >
+        {!phone && <button type="button" data-testid="radio-line" aria-expanded={expanded} onClick={() => setExpanded((x) => !x)} title="Radio controls (R plays / pauses)"
+          style={{ all: "unset", cursor: "pointer", boxSizing: "border-box", width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", fontSize: 14, color: HUD.text }}>
+          <Ico d={ICONS.note} size={15} />
+          <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: playing ? 1 : 0.7 }}>{station?.label ?? "House"} radio{playing ? "" : " · paused"}</span>
+          <span aria-hidden="true" style={{ font: `700 12px ${HUD.game}`, color: HUD.dim }}>R</span>
+        </button>}
+        <div style={{ display: phone || expanded ? "block" : "none", padding: phone ? 0 : "0 12px 10px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2, minHeight: 22 }}>
           <div style={{ position: "relative", flex: "0 0 auto" }}>
             <button
@@ -343,6 +371,7 @@ export default function GameRadio() {
             onChange={(e) => setVol(+e.target.value / 100)}
             style={{ flex: 1, accentColor: GOLD, opacity: musicOn ? 1 : 0.4, minWidth: 0, height: 10, margin: 0, ["--radio-vol" as string]: `${Math.round(gs.music.vol * 100)}%` }}
           />
+        </div>
         </div>
       </div>
       {phone && hidePanel && (

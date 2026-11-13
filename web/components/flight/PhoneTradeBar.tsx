@@ -54,7 +54,7 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
           title={b ? p.boostTitle : p.dumpTitle} aria-disabled={dis || full} disabled={dis} {...p.keyGuard} onClick={b ? p.onBoost : p.onDump}>
           <span className="ph-lbl">{full ? "3 IN FLIGHT" : b ? "BOOST" : "DUMP"}</span></button>
         <button type="button" className="ph-amt" data-testid={b ? "phone-amt-buy" : "phone-amt-sell"} aria-haspopup="dialog" aria-label={`${b ? "BOOST" : "DUMP"} amount: ${b ? p.buyLabel : p.sellLabel} (change)`}
-          {...p.keyGuard} onClick={() => setSheet(side)}>{b ? p.buyLabel : p.sellLabel}<Chevron c={b ? "#04281A" : "#fff"} /></button>
+          {...p.keyGuard} onClick={() => setSheet(side)}>{b ? p.buyLabel : p.sellLabel}<Chevron c={b ? "#121327" : "#FFC2DA"} /></button>
       </div>);
   };
   return (
@@ -68,7 +68,7 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
         <div className="ph-dim" data-testid="amt-sheet-dim" onPointerDown={(e) => { e.preventDefault(); setSheet(null); }} />
         <div role="dialog" aria-modal="true" aria-label={buy ? "BOOST amount" : "DUMP amount"} data-testid="amt-sheet" className="ph-sheet">
           <div className="ph-sh-grab"><i /></div>
-          <div className="ph-sh-head"><div className="ph-sh-title"><span style={{ color: buy ? "#2FD98A" : "#FF3D7F" }}>{buy ? "▲" : "▼"}</span> {buy ? "BOOST" : "DUMP"} AMOUNT</div>
+          <div className="ph-sh-head"><div className="ph-sh-title"><span style={{ color: buy ? "#F2C14E" : "#F0307F" }}>{buy ? "▲" : "▼"}</span> {buy ? "BOOST" : "DUMP"} AMOUNT</div>
             <button type="button" className="ph-sh-x" data-testid="amt-sheet-close" aria-label="Close" onClick={() => setSheet(null)}><Xicon /></button></div>
           <div className="ph-grid">
             {opts.slice(0, 4).map((o, i) => <button key={i} type="button" data-testid={`amt-opt-${i}`} className={`ph-opt${i === sel ? " sel" : ""}${buy ? "" : " dump"}`} aria-pressed={i === sel}
@@ -86,24 +86,25 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
         </div>
       </>}
       <style jsx global>{`
-        .ph-bar { position: fixed; left: 16px; right: 16px; bottom: calc(22px + var(--ap-safe-bottom)); z-index: 40; font-family: ui-monospace, Menlo, "DejaVu Sans Mono", monospace; }
+        .ph-bar { position: fixed; left: 16px; right: 16px; bottom: calc(22px + var(--ap-safe-bottom)); z-index: 40; font-family: var(--dsc-font-ui, var(--font-geist), system-ui, sans-serif); }
         .ph-btns { display: flex; gap: 12px; }
         .ph-tb { flex: 1 1 0; min-width: 0; height: 68px; border-radius: 22px; position: relative; display: flex; align-items: center; justify-content: flex-end; padding: 0 8px; box-sizing: border-box; transition: height .2s, opacity .2s; }
         html.ap-phone:not([data-ph-sheet=""]) .ph-tb { height: 60px; border-radius: 20px; }
         html.ap-phone:not([data-ph-sheet=""]) .ph-amt { height: 44px; }
         .ph-tb[data-disabled="1"] .ph-tb-body, .ph-tb[data-disabled="1"] .ph-lbl { opacity: .5; }
         .ph-tb[data-disabled="1"] { filter: saturate(.55); }
-        .ph-boost { background: linear-gradient(180deg, #36E595, #17B56C); color: #04281A; box-shadow: 0 12px 28px -10px rgba(47,217,138,.65), inset 0 1px 0 rgba(255,255,255,.35); }
-        .ph-dump { background: linear-gradient(180deg, #FF5A93, #E3216A); color: #fff; box-shadow: 0 12px 28px -10px rgba(255,61,127,.6), inset 0 1px 0 rgba(255,255,255,.3); }
+        /* brand v3 (approved mockup Nov 12): gold BOOST, pink-outlined DUMP, game face */
+        .ph-boost { background: #F2C14E; color: #121327; box-shadow: 0 12px 28px -12px rgba(242,193,78,.6), inset 0 1px 0 rgba(255,255,255,.35); }
+        .ph-dump { background: rgba(18,19,39,.82); border: 1.5px solid #F0307F; color: #FF9CC4; box-shadow: inset 0 0 0 999px rgba(240,48,127,.12); }
         .ph-tb-body { all: unset; position: absolute; inset: 0; border-radius: inherit; cursor: pointer; display: flex; align-items: center; padding-left: 18px; -webkit-tap-highlight-color: transparent; }
         .ph-tb-body:disabled { cursor: not-allowed; }
         .ph-tb-body:active:not(:disabled) { background: rgba(255,255,255,.12); }
         .ph-tb-body:focus-visible, .ph-amt:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-        .ph-lbl { font-size: 19px; font-weight: 800; letter-spacing: .08em; }
+        .ph-lbl { font: 800 25px/1 var(--dsc-font-game, var(--font-barlow-condensed), 'Barlow Condensed', 'Arial Narrow', sans-serif); letter-spacing: .03em; }
         .ph-amt { all: unset; position: relative; z-index: 1; box-sizing: border-box; height: 48px; min-width: 72px; padding: 0 10px 0 14px; border-radius: 15px; display: flex; align-items: center; justify-content: center; gap: 6px;
-          font-size: 16px; font-weight: 700; cursor: pointer; white-space: nowrap; -webkit-tap-highlight-color: transparent; transition: height .2s; }
-        .ph-boost .ph-amt { background: rgba(3,40,24,.18); color: #04281A; }
-        .ph-dump .ph-amt { background: rgba(60,0,22,.22); color: #fff; }
+          font: 700 18px/1 var(--dsc-font-game, var(--font-barlow-condensed), 'Barlow Condensed', 'Arial Narrow', sans-serif); cursor: pointer; white-space: nowrap; -webkit-tap-highlight-color: transparent; transition: height .2s; }
+        .ph-boost .ph-amt { background: rgba(18,19,39,.14); color: #121327; }
+        .ph-dump .ph-amt { background: rgba(240,48,127,.2); color: #FFC2DA; }
         .ph-hint { position: absolute; left: 0; right: 0; bottom: calc(100% + 10px); margin: 0 auto; width: max-content; max-width: 100%; box-sizing: border-box; padding: 6px 12px; border-radius: 12px;
           font-size: 11.5px; color: #FFB0C8; background: rgba(16,18,34,.85); border: 1px solid rgba(255,61,127,.3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .ph-warn { color: #FFE7A3; border-color: rgba(255,231,163,.35); }
@@ -112,27 +113,27 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
         .ph-opt-warn.over { color: #FFB0C8; }
         .ph-dim { position: fixed; inset: 0; z-index: 60; background: rgba(5,6,14,.5); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
         .ph-sheet { position: fixed; left: 8px; right: 8px; bottom: calc(8px + var(--ap-safe-bottom)); z-index: 61; border-radius: 30px; padding: 0 18px 20px; box-sizing: border-box; color: #EEF1FA;
-          font-family: ui-monospace, Menlo, "DejaVu Sans Mono", monospace; background: rgba(18,20,38,.78); -webkit-backdrop-filter: blur(28px) saturate(1.3); backdrop-filter: blur(28px) saturate(1.3);
+          font-family: var(--dsc-font-ui, var(--font-geist), system-ui, sans-serif); background: rgba(18,19,39,.86); -webkit-backdrop-filter: blur(28px) saturate(1.3); backdrop-filter: blur(28px) saturate(1.3);
           border: 1px solid rgba(255,255,255,.10); box-shadow: 0 -10px 50px -10px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.08); }
         .ph-sh-grab { height: 26px; display: grid; place-items: center; }
         .ph-sh-grab i { width: 40px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.38); }
         .ph-sh-head { display: flex; align-items: center; justify-content: space-between; height: 48px; margin-bottom: 10px; }
-        .ph-sh-title { font-size: 15px; font-weight: 800; letter-spacing: .12em; }
+        .ph-sh-title { font: 800 18px/1 var(--dsc-font-game, var(--font-barlow-condensed), 'Barlow Condensed', 'Arial Narrow', sans-serif); letter-spacing: .1em; }
         .ph-sh-x { all: unset; width: 48px; height: 48px; border-radius: 16px; display: grid; place-items: center; background: rgba(255,255,255,.06); margin-right: -6px; cursor: pointer; }
         .ph-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .ph-opt { all: unset; box-sizing: border-box; position: relative; height: 72px; border-radius: 20px; display: grid; place-items: center; font-size: 24px; font-weight: 800; letter-spacing: .03em; cursor: pointer;
+        .ph-opt { all: unset; box-sizing: border-box; position: relative; height: 72px; border-radius: 20px; display: grid; place-items: center; font: 800 28px/1 var(--dsc-font-game, var(--font-barlow-condensed), 'Barlow Condensed', 'Arial Narrow', sans-serif); letter-spacing: .02em; cursor: pointer;
           background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); color: #EEF1FA; }
-        .ph-opt.sel { background: rgba(47,217,138,.14); border: 1.5px solid #2FD98A; color: #9FF5C8; box-shadow: 0 0 24px -8px rgba(47,217,138,.7); }
-        .ph-opt.dump.sel { background: rgba(255,61,127,.14); border-color: #FF3D7F; color: #FFB3CC; box-shadow: 0 0 24px -8px rgba(255,61,127,.7); }
+        .ph-opt.sel { background: rgba(242,193,78,.16); border: 1.5px solid #F2C14E; color: #FFF6DC; box-shadow: 0 0 24px -8px rgba(242,193,78,.7); }
+        .ph-opt.dump.sel { background: rgba(240,48,127,.14); border-color: #F0307F; color: #FFC2DA; box-shadow: 0 0 24px -8px rgba(240,48,127,.7); }
         .ph-custom { margin: 10px 0 0; height: 64px; border-radius: 20px; display: flex; align-items: center; gap: 12px; padding: 0 8px 0 18px; box-sizing: border-box;
           background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); }
         .ph-cl { font-size: 15px; font-weight: 700; color: rgba(214,222,245,.56); letter-spacing: .06em; flex: 1; }
         .ph-field { width: 128px; height: 48px; border-radius: 14px; box-sizing: border-box; background: rgba(0,0,0,.32); border: 1px solid rgba(255,255,255,.12); display: flex; align-items: center; padding: 0 14px; gap: 6px; font-size: 18px; font-weight: 700; }
-        .ph-field input { all: unset; min-width: 0; flex: 1; font: inherit; color: #EEF1FA; caret-color: #2FD98A; }
+        .ph-field input { all: unset; min-width: 0; flex: 1; font: inherit; color: #EEF1FA; caret-color: #F2C14E; }
         .ph-field input::placeholder { color: rgba(214,222,245,.32); }
-        .ph-cur { color: #2FD98A; } .ph-cur.dump { color: #FF3D7F; }
+        .ph-cur { color: #F2C14E; } .ph-cur.dump { color: #F0307F; }
         .ph-set { all: unset; width: 64px; height: 48px; border-radius: 14px; display: grid; place-items: center; font-size: 14px; font-weight: 800; letter-spacing: .1em; cursor: pointer;
-          background: rgba(47,217,138,.16); color: #9FF5C8; border: 1px solid rgba(47,217,138,.35); box-sizing: border-box; }
+          background: #F2C14E; color: #121327; border: 1px solid #F2C14E; box-sizing: border-box; }
         .ph-set.dump { background: rgba(255,61,127,.16); color: #FFB3CC; border-color: rgba(255,61,127,.35); }
         .ph-set:disabled { opacity: .5; cursor: default; }
         @media (max-width: 374px) {   /* 360-class phones: label + chip must fit a 158px button */

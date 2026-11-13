@@ -92,9 +92,9 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   const TB_M1 = 33333;
   const tierNeedText = new Function("fmtNeed", "TB_M1", `${grab(/function tierNeedText\(m,nx,o\)\{[\s\S]*?\n  const need=o\.est;[^\n]*\n/)}\nreturn tierNeedText;`)(fmtNeed, TB_M1);
   const nx = { lo: TB_M1 };
-  ok(tierNeedText(30000, nx, { exact: 812.4, est: 900 }) === "$813 to ascend", "exact known ⇒ only '$X to ascend'");
+  ok(tierNeedText(30000, nx, { exact: 812.4, est: 900 }) === "$813 to orbit", "exact known ⇒ only '$X to orbit'");
   ok(!/≈|est/.test(tierNeedText(30000, nx, { exact: 812.4, est: 900 })), "exact ⇒ no estimate alongside");
-  ok(tierNeedText(30000, nx, { exact: null, est: 900 }) === "≈$900 buys needed (est.)", "no exact ⇒ estimate, clearly marked ≈ … (est.)");
+  ok(tierNeedText(30000, nx, { exact: null, est: 900 }) === "≈$900 of boosts to go", "no exact ⇒ estimate, clearly marked ≈");
   ok(tierNeedText(30000, nx, { exact: null, est: 0 }) === "" && tierNeedText(30000, nx, { exact: 0, est: 0.0 }) === "" && tierNeedText(30000, nx, { exact: null, est: NaN }) === "", "never ≈$0 / ≈NaN");
   ok(tierNeedText(30000, nx, { graduated: true, exact: 812, est: 900 }) === "" && tierNeedText(40000, { lo: 55000 }, { graduated: true, est: 9000 }) === "", "graduated ⇒ no need text at all");
   ok(tierNeedText(30000, null, { exact: 5 }) === "", "top tier ⇒ nothing");
@@ -127,7 +127,7 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(/S\.gradBadge=S\.graduated\?GRAD_BADGE:''; if \(S\.graduated\) S\.tierNeedText='';/.test(eng) && !/function drawGradBadgeDesk/.test(eng), "desktop tier bar: ascended state flag only — ASCENDED shows ONCE, on the TIER line (pass 3 #2)");
   { const pp = grab(/function drawPhonePill[\s\S]*?\nfunction /);   // pass 2 (lee, Oct 30): the pill names the tier on ascended coins too + its '+X% to NEXT' bar
     ok(/b=tierName\(ti\)/.test(pp) && /if\(nx\)\{   \/\/ tier progress line/.test(pp) && /`\$\{ASCENDED\} · \$\{tl\}`/.test(pp) && /GRAD_BADGE/.test(pp), "phone pill: tier name + progress line (mcap / next lo), caption 'ASCENDED · +X% to NEXT'"); }
-  ok(/const GRAD_BADGE='ASCENDED';/.test(eng) && !/=\s*'[^'\n]*trading on Uniswap/.test(eng), "badge copy: 'ASCENDED' only, no 'trading on Uniswap' (pass 3 #2)");
+  ok(/const GRAD_BADGE='IN ORBIT';/.test(eng) && !/=\s*'[^'\n]*trading on Uniswap/.test(eng), "badge copy: 'ASCENDED' only, no 'trading on Uniswap' (pass 3 #2)");
   ok(/'graduated', 'phoneHolderTags', 'gradBadge', 'tierNeedText'/.test(rd("public/flight/worker.js")), "worker renderer mirrors graduated / badge / need text");
   ok(/send\(live \? st\.usd : null, st\.graduated\)/.test(tb) && /\[valid, live, token\]/.test(tb), "curve read runs for every viewer; exact $ only when live");
   // 8) big-move warning: only the side being tapped / previewed

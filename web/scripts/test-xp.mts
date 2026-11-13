@@ -168,3 +168,23 @@ test("a zero-value transfer never resets progress", () => {
   const fills = [f("c", start, "buy", 30), f("c", start + H, "out", 0)];
   assert.equal(evaluateMissions({ wallet: W, fills, coins, now: start + 25 * H }, week, only("w_hold")).results.w_hold.doneAt, start + 24 * H);
 });
+
+// ---- the XP transfer scan: only a sell's own token leg is skipped (lib/xpTransfers, Vercel security review, Nov 12)
+import { nonTradeOuts } from "../lib/xpTransfers";
+test("transfer scan: a transfer batched with a BUY in one tx still counts as sending tokens away", () => {
+  const logs = [{ tx: "0xA", logIndex: 5, tokens: 1000 }];
+  assert.deepEqual(nonTradeOuts(logs, new Map()), logs);                   // buy-only tx: no sell legs to skip
+  assert.deepEqual(nonTradeOuts(logs, new Map([["0xa", []]])), logs);
+});
+test("transfer scan: a plain sell's token leg is skipped, a transfer batched with it is not", () => {
+  const sells = new Map([["0xb", [400]]]);
+  assert.deepEqual(nonTradeOuts([{ tx: "0xB", logIndex: 2, tokens: 400 }], sells), []);
+  const both = [{ tx: "0xB", logIndex: 1, tokens: 600 }, { tx: "0xB", logIndex: 2, tokens: 400 }];
+  assert.deepEqual(nonTradeOuts(both, sells).map((l) => l.tokens), [600]);   // exact match wins whatever the order
+  const split = [{ tx: "0xB", logIndex: 1, tokens: 250 }, { tx: "0xB", logIndex: 2, tokens: 150 }, { tx: "0xB", logIndex: 3, tokens: 900 }];
+  assert.deepEqual(nonTradeOuts(split, sells).map((l) => l.tokens), [900]);  // a split leg up to the sell's tokens, then a transfer away
+});
+test("transfer scan: other txs are untouched", () => {
+  const logs = [{ tx: "0xC", logIndex: 1, tokens: 10 }, { tx: "0xB", logIndex: 2, tokens: 400 }];
+  assert.deepEqual(nonTradeOuts(logs, new Map([["0xb", [400]]])), [logs[0]]);
+});

@@ -32,7 +32,8 @@ export const XPK = {
   missions: (w: string) => `${ns()}:m:${w.toLowerCase()}`,
   owned: (w: string) => `${ns()}:owned:${w.toLowerCase()}`,
   /** JSON { cursor, outs: TransferOut[] }: plain token transfers away from the wallet, scanned so far */
-  transfers: (w: string, coin: string) => `${ns()}:tx:${w.toLowerCase()}:${coin.toLowerCase()}`,
+  // tx2: rescan from the first fill (the v1 scan skipped every transfer in a tx that held a trade, batched transfers included)
+  transfers: (w: string, coin: string) => `${ns()}:tx2:${w.toLowerCase()}:${coin.toLowerCase()}`,
   lock: (w: string) => `${ns()}:lock:${w.toLowerCase()}`,
   timers: () => `${ns()}:timers`,
 };
@@ -71,7 +72,9 @@ export function totals(rows: readonly LedgerRow[]) {
 /* ------------------------------------------------------ scoring ------------------------------------------------------- */
 
 /** Tokens a wallet sent away by plain transfer (not a trade). */
-export interface TransferOut { coin: string; tx: string; block: number; logIndex: number; ts: number; tokens: number }
+export interface TransferOut { coin: string; tx: string; block: number; logIndex: number; ts: number; tokens: number;
+  /** true: matched against the wallet's fills in its tx when scanned (kept as is); unset: re-matched once the tx's fills are indexed */
+  checked?: boolean }
 
 export interface XpCoinMeta { creator: string; anon: boolean; mode?: number; launch: { ts: number }; grad?: { ts: number; block: number; logIndex: number } }
 

@@ -30,6 +30,8 @@ import SwapSettingsModal from "./trade/SwapSettingsModal";
 import { DEFAULT_BUY, SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettings, sellLabel, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 import { keyLabel, useGameSettings } from "@/lib/game/settings";
 import { useT } from "@/lib/game/i18n";
+import { useHudMode } from "@/lib/game/hudMode";
+import { HUD, hudLabel } from "@/lib/game/hudStyle";
 import { readCoinRules } from "@/lib/flight/coinRules";
 import { COPY, REJECTED, ROW_LINGER_MS, rowLive, upsertRow, type PressRow, awaitResolution, gasKindFor, isPendingUnknown, nextPressId, type GradHint, releasePress, reservePress, reservePressTokens, canSpend, ownWalletGasRaw, rawToUsd, spendableRaw, tradeErrorCopy, unreservedTokens } from "@/lib/flight/rapidTap";
 import { reservedTokens, subscribe as onReservations } from "@/lib/flight/reservationsShim";
@@ -75,6 +77,8 @@ type Pos = { size: number; valueUsd: number; costBasis: number };
 type Sell = { id: string; label: string; frac: number; key: string };
 const toSells = (sl: SellSlot[]): Sell[] => sl.map((v, i) => ({ id: String(v), label: sellLabel(v), frac: v / 100, key: SELL_KEYS[i] }));
 const DEFAULT_SELL_SEL = 1;   // 25%
+/** protocol trade fee (contracts/src/libraries/Constants.sol TRADE_FEE_BPS = 100): the DUMP button's "≈ $ back" estimate */
+const TRADE_FEE = 0.01;
 /** GAME graduation fix: expected price-move warnings per amount (lib/flight/tradeGate moveWarning). Warnings only — never block. */
 type Warns = { max: number; buy: MoveWarn[]; sell: MoveWarn[]; customBuy: MoveWarn | null; customSell: MoveWarn | null };
 const NO_WARNS: Warns = { max: 0, buy: [], sell: [], customBuy: null, customSell: null };
@@ -100,6 +104,16 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const phone = useIsPhoneHud();
   const [custom, setCustom] = useState("");
   const gs = useGameSettings();
+  const hud = useHudMode();
+  // the desktop bar's height (Pilot has a chip row, Pro does not) → --ap-tb-h, so the pills / tramp row / alerts sit just above it
+  const barRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = barRef.current, root = document.documentElement;
+    if (!el) { root.style.removeProperty("--ap-tb-h"); return; }
+    const set = () => root.style.setProperty("--ap-tb-h", Math.ceil(el.getBoundingClientRect().height) + "px");
+    set(); const ro = new ResizeObserver(set); ro.observe(el);
+    return () => { ro.disconnect(); root.style.removeProperty("--ap-tb-h"); };
+  });
   const t = useT();
   const [pos, setPos] = useState<Pos>({ size: 0, valueUsd: 0, costBasis: 0 });
   useEffect(() => {
@@ -117,10 +131,17 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   }, []);
   const [addr, setAddr] = useState<string | null>(null);
   const [preview, setPreview] = useState("");
+  const [buyImpact, setBuyImpact] = useState<number | null>(null);   // the selected BOOST's price move (%), Pro loadout info line
   const [last, setLast] = useState("");
   // RAPID TAP status (SITE diag 9:29 CT): one row PER PRESS (pressId), so close-together fills don't overwrite each other in
   // the single `last` line (8 taps → 6 ops on chain, the UI showed 4). Finished rows linger ROW_LINGER_MS, newest last.
   const [rows, setRows] = useState<PressRow[]>([]);
+  const pressMeta = useRef(new Map<string, { side: TradeSide; amt: string }>());   // pressId → side + amount, for the crew feed's "sent" rows
+  useEffect(() => {   // your presses still in flight → GameChat (crew feed) shows "You · ▲ BOOST $25 · sent" until the receipt lands
+    const live = rows.filter((r) => !r.done && rowLive(r.txt) && pressMeta.current.has(r.id)).map((r) => ({ id: r.id, ...pressMeta.current.get(r.id)! }));
+    for (const id of Array.from(pressMeta.current.keys())) if (!rows.some((r) => r.id === id)) pressMeta.current.delete(id);
+    dispatchEvent(new CustomEvent("disciple:pending", { detail: { rows: live } }));
+  }, [rows]);
   const receiptCacheWork = useRef(new Map<string, () => void>());
   useEffect(() => {
     for (const row of rows) if (row.done) {
@@ -274,6 +295,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       // RAPID TAP: this press's reservation, SYNC at entry (no await): buy $ + one op's gas now; a sell's tokens once sized.
       // Released on the result (slow path: once its receipt is booked) ⇒ the next press sizes from what is really left.
       const pressId = nextPressId(); reservePress(pressId, side, token, side === "buy" ? usd : undefined, kind);
+      pressMeta.current.set(pressId, { side, amt: usd > 0 ? fmtShot(usd) : "" });
       o?.onPress?.(pressId);
       // this press's status: its own row (rapid tap) + the legacy single line (phone hint / one-press case)
       const say = (txt: string) => {
@@ -525,8 +547,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         const b = await readQuote(pc, token as Address, "buy", await usdToAmountIn(pc, token as Address, "buy", usd));
         if (alive) gradRef.current = { usd, graduates: b.graduates, mcapAfterUsd: b.mcapAfterUsd, venue: b.venue };   // gas kind
         const s = await readQuote(pc, token as Address, "sell", await usdToAmountIn(pc, token as Address, "sell", usd));
+        if (alive) setBuyImpact(b.impactPct);
         if (alive) setPreview(`price move: buy ▲${b.impactPct.toFixed(2)}% · sell ▼${Math.abs(s.impactPct).toFixed(2)}%${b.snipeFee > BigInt(0) ? " · anti-snipe fee" : ""}`);
-      } catch { if (alive) setPreview(""); }
+      } catch { if (alive) { setPreview(""); setBuyImpact(null); } }
     })();
     return () => { alive = false; };
   }, [mode, token, valid, ammo.usd]);
@@ -775,7 +798,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   };
   const alertStrip = alert && alert.a.kind === "walletcap" ? (
     <div role="alertdialog" aria-label="trade alert" data-testid="trade-alert" data-kind={alert.a.kind}
-      style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: phone ? 132 : 96, zIndex: 40, display: "flex", gap: 8, alignItems: "center",
+      style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: phone ? 132 : "calc(var(--ap-tb-h, 80px) + 16px)", zIndex: 40, display: "flex", gap: 8, alignItems: "center",
         maxWidth: "min(92vw, 520px)", padding: "8px 10px", borderRadius: 12, background: "rgba(28,10,18,.94)", border: "1px solid #ffb0c8", color: "#ffe7ef", fontSize: 12, fontFamily: "ui-monospace,monospace" }}>
       <span style={{ flex: 1 }}>{alert.a.text}</span>
       {alert.a.actionLabel && <button type="button" data-testid="trade-alert-max" onClick={buyMax} style={{ ...btn, padding: "6px 10px", background: "#1f6b4a", color: "#d9ffe9" }}>{alert.a.actionLabel}</button>}
@@ -803,44 +826,98 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       onSave={(n) => { setCfg(n); saveSettings(scope, n); setShowCfg(false); }} />}
     </>
   );
+  // desktop trade bar (brand v3, approved mockup Nov 12): two sides, ONE rule each — pick an amount, then fire.
+  // BOOST side: the 4 buy presets (keys 1–4, select only) + custom $, fired by BOOST / Space. DUMP side: the 4 sell sizes
+  // (Z/X/C/V, select only) + custom % / $, fired by DUMP / Shift. Pro moves the preset chips and custom fields to the LOADOUT card
+  // (a DOM card top centre, mockup "Desktop · Pro HUD"), so its bar keeps only the two buttons.
+  const pro = hud === "pro";
+  const sellFracNow = customSellPct ? customSellPct / 100 : customSellUsd ? (pos.valueUsd > 0 ? Math.min(1, customSellUsd / pos.valueUsd) : 0) : selSellPreset.frac;
+  const dumpBack = pos.valueUsd > 0 && sellFracNow > 0 ? pos.valueUsd * sellFracNow * (1 - TRADE_FEE) : 0;   // ≈ what this DUMP pays back after the 1% fee (price move not included)
+  const chip = (on: boolean, side: TradeSide): React.CSSProperties => ({ all: "unset", cursor: "pointer", flex: 1, minHeight: 32, padding: "0 6px", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+    font: `700 16px/1 ${HUD.game}`, boxSizing: "border-box",
+    ...(on ? (side === "buy" ? { background: "#F2F3F7", color: HUD.ink } : { background: "rgba(240,48,127,.22)", color: "#FFC2DA", border: `1px solid ${HUD.down}` })
+      : { background: "rgba(11,12,14,.6)", color: HUD.text, border: `1px solid ${HUD.border}` }) });
+  const keyTag = (k: string) => <span aria-hidden="true" style={{ fontSize: 11, fontWeight: 600, opacity: 0.6 }}>{k}</span>;
+  const cap = (k: string, dark?: boolean) => <span aria-hidden="true" style={{ padding: "2px 7px", borderRadius: 6, background: dark ? "rgba(18,19,39,.18)" : "rgba(255,255,255,.1)", font: `700 13px/1 ${HUD.game}` }}>{k}</span>;
+  const field = (on: boolean, side: TradeSide): React.CSSProperties => ({ width: 76, minHeight: 32, boxSizing: "border-box", font: `600 15px ${HUD.game}`, padding: "0 8px", borderRadius: 10, outline: "none",
+    border: `1px ${on ? "solid" : "dashed"} ${on ? (side === "buy" ? HUD.up : HUD.down) : side === "buy" ? "rgba(243,223,168,.4)" : "rgba(240,48,127,.45)"}`, background: "rgba(11,12,14,.5)", color: HUD.text });
+  const boostChips = [0, 1, 2, 3].map((i) => <button key={i} type="button" role="radio" aria-checked={!customUsd && mode === i} data-testid={`boost-chip-${i}`} {...noKeyActivate} {...hoverSide("buy")}
+    title={`select ${chipUsd(ammo.usd[i] ?? MODES[i].usd)} (${keyLabel(gs.keys.buy[i] || "")}), then BOOST / Space`}
+    onClick={() => { setCustom(""); setMode(i); window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: i } })); }}
+    style={chip(!customUsd && mode === i, "buy")}>{chipUsd(ammo.usd[i] ?? MODES[i].usd)}{keyTag(keyLabel(gs.keys.buy[i] || ""))}</button>);
+  const dumpChips = SELLS.slice(0, 4).map((x, i) => <button key={x.id} type="button" role="radio" aria-checked={!sellCustomN && sellSel === i} data-testid={`dump-chip-${i}`} {...noKeyActivate} {...hoverSide("sell")}
+    title={`select ${x.label} (${keyLabel(gs.keys.sell[i] || x.key)}), then DUMP / Shift`}
+    onClick={() => { setSellCustom(""); selSell.current(i); }}
+    style={chip(!sellCustomN && sellSel === i, "sell")}>{x.frac >= 1 ? "ALL" : x.frac === 0.5 ? "HALF" : x.label}{keyTag(keyLabel(gs.keys.sell[i] || x.key))}</button>);
+  const customBuyInput = <input aria-label="custom amount" {...hoverSide("buy")} inputMode="decimal" placeholder="$ custom" value={custom} title="custom $: when filled it overrides the selected BUY preset for BOOST / Space (clear it to use the preset)"
+    onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ""))}
+    onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.repeat) { e.preventDefault(); }   // held Enter / SPACE never auto-fires
+      else if ((e.key === "Enter" || e.key === " ") && customUsd) { e.preventDefault(); shoot("buy"); }   // SPACE here = BOOST the custom $ (as in game)
+      else if (e.key === " ") e.preventDefault();   // no custom $ / held: never type a space into the amount
+      e.stopPropagation(); }}
+    style={field(!!customUsd, "buy")} />;
+  const customSellInput = <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+    <input aria-label="custom sell amount" data-testid="custom-sell" {...hoverSide("sell")} inputMode="decimal" placeholder={sellUnit === "%" ? "% custom" : "$ value"} value={sellCustom}
+      title={`custom sell: ${sellUnit === "%" ? "% of holdings" : "$ value, capped at your position value"}. When filled it overrides the selected SELL preset for DUMP / Shift (clear it to use the preset)`}
+      onChange={(e) => setSellCustom(e.target.value.replace(/[^\d.]/g, ""))}
+      onKeyDown={(e) => { if (e.key === "Enter" && e.repeat) e.preventDefault();   // held Enter never auto-fires DUMPs
+      else if (e.key === "Enter" && sellCustomN) { e.preventDefault(); dumpRef.current?.(); } e.stopPropagation(); }}
+      style={field(!!sellCustomN, "sell")} />
+    <button type="button" data-testid="sell-unit" {...hoverSide("sell")} aria-label={`custom sell unit: ${sellUnit}`} title="toggle: % of holdings ↔ $ value" onClick={() => pickUnit(sellUnit === "%" ? "$" : "%")}
+      style={{ all: "unset", cursor: "pointer", minHeight: 32, padding: "0 8px", borderRadius: 10, display: "inline-flex", alignItems: "center", font: `700 14px ${HUD.game}`, background: "rgba(240,48,127,.14)", color: HUD.downSoft }}>{sellUnit}</button>
+  </span>;
+  const statusLine = (hint || shortLine) ? <div data-testid="trade-hint" style={{ fontSize: 12, color: "#FFC2DA" }}>{hint || shortLine}</div>
+    : warnText ? <div data-testid="trade-warn" style={{ fontSize: 12, color: warnOver ? "#FFC2DA" : HUD.champagne }}>{warnText}</div>
+    : rows.length > 1 ? <div data-testid="press-rows" style={{ fontSize: 12, opacity: 0.9, color: HUD.champagne, display: "flex", flexDirection: "column", gap: 1 }}>
+        {rows.map((r) => <div key={r.id} data-press={r.id} data-done={r.done ? "1" : "0"} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", opacity: r.done ? 0.75 : 1 }}>{r.txt}</div>)}</div>
+    : (last || preview) ? <div style={{ fontSize: 12, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? HUD.champagne : HUD.dim }}>{last || preview}</div> : null;
+  const modeTag = live ? null : <span title={valid ? "paper trades: connect a wallet to trade" : "practice market"} style={{ padding: "1px 6px", borderRadius: 5, font: `700 12px ${HUD.game}`, letterSpacing: ".06em", background: "rgba(243,223,168,.14)", color: HUD.champagne }}>{token === "SIMULATOR" ? "SIM" : "PAPER"}</span>;
   return (
     <>
     <AmmoTierNotice />
     {alertStrip}
-    <div aria-label="trade bar" data-testid="trade-bar" className="ap-bc" style={{ bottom: 14, zIndex: 31, display: "flex", flexDirection: "column", gap: 3,
-      padding: "6px 8px", borderRadius: 14, background: "rgba(8,10,28,.85)", border: "1px solid rgba(255,231,163,.3)", color: "#eef0ff", fontFamily: "ui-monospace,monospace" }}>
-      <div style={{ display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
-        <input aria-label="custom amount" {...hoverSide("buy")} inputMode="decimal" placeholder={fmtMoney(ammo.usd[mode] ?? MODES[mode].usd)} value={custom} title="custom $: when filled it overrides the selected BUY preset for BOOST / Space (clear it to use the preset)"
-          onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ""))}
-          onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.repeat) { e.preventDefault(); }   // held Enter / SPACE never auto-fires
-            else if ((e.key === "Enter" || e.key === " ") && customUsd) { e.preventDefault(); shoot("buy"); }   // SPACE here = BOOST the custom $ (as in game)
-            else if (e.key === " ") e.preventDefault();   // no custom $ / held: never type a space into the amount
-            e.stopPropagation(); }}
-          style={{ width: 78, fontSize: 12, padding: "7px 8px", borderRadius: 8, border: `1px solid ${customUsd ? "#9ff3c8" : "rgba(255,255,255,.18)"}`, background: "rgba(0,0,0,.4)", color: "#fff" }} />
-        <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} {...hoverSide("buy")} title={full ? COPY.inFlight : short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`} aria-disabled={short || full} disabled={short} data-inflight={full ? "1" : "0"} onClick={() => shoot("buy")} style={{ ...btn, minWidth: 116, background: "#1f6f4a", color: "#c8ffe4", opacity: short || full ? 0.4 : 1, cursor: short || full ? "not-allowed" : "pointer" }}>{full ? COPY.inFlight : <>▲ {t("tb.boost")} {fmtShot(shotUsd)}{customUsd ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</>}</button>
-        <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} {...hoverSide("sell")} title={has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET"} aria-disabled={!has || full} disabled={!has} data-inflight={full ? "1" : "0"} onClick={() => dumpRef.current?.()}
-          style={{ ...btn, minWidth: 104, background: "#7a2236", color: "#ffd0dc", opacity: has && !full ? 1 : 0.4, cursor: has && !full ? "pointer" : "not-allowed" }}>{full && has ? COPY.inFlight : <>▼ {t("tb.dump")} {dumpLabel}{sellCustomN ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</>}</button>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
-          <input aria-label="custom sell amount" data-testid="custom-sell" {...hoverSide("sell")} inputMode="decimal" placeholder={sellUnit === "%" ? selSellPreset.label : "$ value"} value={sellCustom}
-            title={`custom sell: ${sellUnit === "%" ? "% of holdings" : "$ value, capped at your position value"}. When filled it overrides the selected SELL preset for DUMP / Shift (clear it to use the preset)`}
-            onChange={(e) => setSellCustom(e.target.value.replace(/[^\d.]/g, ""))}
-            onKeyDown={(e) => { if (e.key === "Enter" && e.repeat) e.preventDefault();   // held Enter never auto-fires DUMPs
-            else if (e.key === "Enter" && sellCustomN) { e.preventDefault(); dumpRef.current?.(); } e.stopPropagation(); }}
-            style={{ width: 58, fontSize: 12, padding: "7px 6px", borderRadius: 8, border: `1px solid ${sellCustomN ? "#ffb0c8" : "rgba(255,255,255,.18)"}`, background: "rgba(0,0,0,.4)", color: "#fff" }} />
-          <button type="button" data-testid="sell-unit" {...hoverSide("sell")} aria-label={`custom sell unit: ${sellUnit}`} title="toggle: % of holdings ↔ $ value" onClick={() => pickUnit(sellUnit === "%" ? "$" : "%")}
-            style={{ ...btn, padding: "6px 7px", fontSize: 11, background: "rgba(255,176,200,.14)", color: "#ffd0dc" }}>{sellUnit}</button>
-        </span>
-        <div style={{ display: "grid", gap: 1, fontSize: 10, lineHeight: 1.2, minWidth: 64 }}>
-          <span title={live ? "wallet signs each shot" : "paper trades — connect wallet to trade"} style={{ justifySelf: "start", padding: "1px 6px", borderRadius: 5,
-            background: live ? "rgba(159,243,200,.14)" : "rgba(255,231,163,.14)", color: live ? "#9ff3c8" : "#ffe7a3" }}>{live ? "LIVE" : valid ? "PAPER" : token === "SIMULATOR" ? "SIM" : "PAPER"}</span>
-          <span style={{ opacity: 0.65 }}>{pos.valueUsd > 0 ? `${t("tb.pos")} ${fmtMoney(pos.valueUsd)}` : t("tb.noPos")}</span>
+    {pro && <div aria-label="loadout" data-testid="loadout" style={{ position: "fixed", left: "calc(var(--ap-rail-w, 64px) + 420px)", top: 18, width: 500, zIndex: 31, boxSizing: "border-box", padding: "14px 16px 12px",
+      borderRadius: HUD.radius, background: HUD.glass, border: `1px solid ${HUD.border}`, color: HUD.text, fontFamily: HUD.ui, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}><span style={{ font: `700 16px/1 ${HUD.game}`, letterSpacing: "1.5px", color: HUD.champagne }}>LOADOUT</span><span style={{ fontSize: 12, color: HUD.dim }}>Pick an amount, then fire</span></div>
+      <div role="radiogroup" aria-label="boost amount" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <span style={{ width: 52, font: `700 13px ${HUD.game}`, letterSpacing: "1px", color: HUD.up }}>BOOST</span>
+        {boostChips}{customBuyInput}
+      </div>
+      <div role="radiogroup" aria-label="dump amount" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <span style={{ width: 52, font: `700 13px ${HUD.game}`, letterSpacing: "1px", color: "#FF7FB3" }}>DUMP</span>
+        {dumpChips}{customSellInput}
+      </div>
+      <div data-testid="loadout-info" style={{ display: "flex", gap: 8, fontSize: 12, color: HUD.dim, whiteSpace: "nowrap" }}>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>Fee 1%{buyImpact != null && isFinite(buyImpact) ? ` · ${fmtShot(shotUsd)} boost moves altitude +${buyImpact.toFixed(1)}%` : ""}{cashUsd != null ? ` · Cash ${fmtShot(Math.max(0, cashUsd))}` : ""}</span>
+        <button type="button" data-testid="loadout-settings" onClick={() => setShowCfg(true)} style={{ all: "unset", cursor: "pointer", color: HUD.champagne }}>Settings</button>
+      </div>
+    </div>}
+    <div ref={barRef} aria-label="trade bar" data-testid="trade-bar" data-hud={hud} className="ap-bc" style={{ bottom: 16, zIndex: 31, width: pro ? 560 : 700, maxWidth: "calc(100vw - var(--ap-rail-w, 64px) - 40px)", boxSizing: "border-box",
+      display: "flex", flexDirection: "column", gap: 8, padding: 12, borderRadius: 20, background: "rgba(18,19,39,.82)", border: `1px solid ${HUD.borderGold}`, color: HUD.text, fontFamily: HUD.ui }}>
+      <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ flex: pro ? 1.2 : 1.25, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+          {!pro && <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}><span style={hudLabel}>Boost amount</span><span style={{ fontSize: 12, color: HUD.dim }}>{modeTag} {cashUsd != null ? `Cash ${fmtShot(Math.max(0, cashUsd))}` : ""}</span></div>}
+          {!pro && <div role="radiogroup" aria-label="boost amount" style={{ display: "flex", gap: 5 }}>{boostChips}{customBuyInput}</div>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} {...hoverSide("buy")} title={boostTitle} aria-disabled={short || full} disabled={short} data-inflight={full ? "1" : "0"} onClick={() => shoot("buy")}
+              style={{ all: "unset", flex: 1, minHeight: 56, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, whiteSpace: "nowrap", background: HUD.gold, color: HUD.ink,
+                font: `800 27px/1 ${HUD.game}`, letterSpacing: ".02em", opacity: short || full ? 0.45 : 1, cursor: short || full ? "not-allowed" : "pointer" }}>
+              {full ? COPY.inFlight : <>{t("tb.boost")} {fmtShot(shotUsd)}{cap("SPACE", true)}</>}</button>
+          </div>
+        </div>
+        <div aria-hidden="true" style={{ width: 1, background: HUD.border }} />
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+          {!pro && <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}><span style={hudLabel}>Dump amount</span><span style={{ fontSize: 12, color: HUD.dim }}>{has ? "of your bag" : "no bag yet"}</span></div>}
+          {!pro && <div role="radiogroup" aria-label="dump amount" style={{ display: "flex", gap: 5 }}>{dumpChips}</div>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} {...hoverSide("sell")} title={dumpTitle} aria-disabled={!has || full} disabled={!has} data-inflight={full ? "1" : "0"} onClick={() => dumpRef.current?.()}
+              style={{ all: "unset", flex: 1, minHeight: 56, boxSizing: "border-box", borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, whiteSpace: "nowrap", border: `1.5px solid ${HUD.down}`, background: "rgba(240,48,127,.12)", color: HUD.downSoft,
+                font: `800 25px/1 ${HUD.game}`, opacity: has && !full ? 1 : 0.45, cursor: has && !full ? "pointer" : "not-allowed" }}>
+              {full && has ? COPY.inFlight : <>{t("tb.dump")} {dumpLabel}{dumpBack > 0 && <span data-testid="dump-back" title="about what this dump pays back after the 1% fee" style={{ font: `600 15px ${HUD.game}`, opacity: 0.85 }}>≈ {fmtShot(dumpBack)}</span>}{cap("SHIFT")}</>}</button>
+          </div>
         </div>
       </div>
-      {(hint || shortLine) && <div data-testid="trade-hint" style={{ fontSize: 10, color: "#ffb0c8" }}>{hint || shortLine}</div>}
-      {!hint && !shortLine && warnText && <div data-testid="trade-warn" style={{ fontSize: 10, color: warnOver ? "#ffb0c8" : "#ffe7a3" }}>{warnText}</div>}
-      {!hint && !shortLine && !warnText && rows.length > 1 && <div data-testid="press-rows" style={{ fontSize: 10, opacity: 0.85, maxWidth: 380, color: "#ffe7a3", display: "flex", flexDirection: "column", gap: 1 }}>
-        {rows.map((r) => <div key={r.id} data-press={r.id} data-done={r.done ? "1" : "0"} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", opacity: r.done ? 0.75 : 1 }}>{r.txt}</div>)}</div>}
-      {!hint && !shortLine && !warnText && rows.length <= 1 && (last || preview) && <div style={{ fontSize: 10, opacity: 0.8, maxWidth: 380, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? "#ffe7a3" : undefined }}>{last || preview}</div>}
+      {statusLine}
     </div>
     {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
       onClose={() => setShowCfg(false)}
