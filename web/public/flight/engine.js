@@ -1020,6 +1020,32 @@ function fillThrust(side,usd,pct,r){ if(!r||!r.ok) return;
   if (side==='buy') S.buyBoost=1;   // turbo: big flare + climb burst (the trade itself moves the price)
   applyThrust(side, u, pct); }
 /* @fillthrust-end */
+/* @pressfeel — body kick spring (squat on a BOOST press, recoil on a DUMP fill; drawn y only), engine idle after a quiet spell,
+   and the lock rings. Visual only: nothing here touches the price, the camera, PnL or a trade. */
+const IDLE_AFTER=20, IDLE_RAMP=4;   // s without a swap before the engines idle down
+function pressFeelStep(dt){
+  S.kickV=(S.kickV||0)+(-170*(S.kick||0)-22*(S.kickV||0))*dt; S.kick=(S.kick||0)+S.kickV*dt;
+  if(Math.abs(S.kick)<0.02&&Math.abs(S.kickV)<0.2){ S.kick=0; S.kickV=0; }
+  const last=S.confirmed.lastSwapTs||0, quiet=last?(performance.now()-last)/1000:0, busy=S.pending.length>0;
+  const tgt=busy?0:clamp((quiet-IDLE_AFTER)/IDLE_RAMP,0,1); S.idle=lerp(S.idle||0,tgt,1-Math.exp(-dt*(tgt<(S.idle||0)?6:1.2)));
+  if(S.locks&&S.locks.length) keepIf(S.locks,lockLive);
+}
+const lockLive=L=>L.st==='pend'?S.t-L.t0<40:S.t-L.tr<0.6;
+function lockResolve(p,st){ const L=S.locks&&S.locks.find(l=>l.p===p); if(L&&L.st==='pend'){ L.st=st; L.tr=S.t; } }
+function drawLocks(x,h){ const list=S.locks; if(!list||!list.length) return; const R=30;
+  ctx.save();
+  for(const L of list){ const p=L.p, gy=altToScreenY(mcapToAlt(p.proj*(S.simF||1)))-h*0.45, col=L.side==='buy'?'242,193,78':'240,48,127';
+    if(L.st==='pend'){ const k=Math.min(0.92,1-Math.exp(-(S.t-L.t0)/0.35));
+      ctx.globalAlpha=1; ctx.lineWidth=2; ctx.strokeStyle=`rgba(${col},.32)`; ctx.beginPath(); ctx.arc(x,gy,R,0,6.2832); ctx.stroke();
+      ctx.lineWidth=3; ctx.strokeStyle=`rgba(${col},.95)`; ctx.beginPath(); ctx.arc(x,gy,R,-Math.PI/2,-Math.PI/2+6.2832*k); ctx.stroke();
+      if(!CLEAN){ ctx.font=GF(14,700); ctx.textAlign='left'; ctx.fillStyle=`rgba(${col},.9)`; ctx.fillText((L.side==='buy'?'BOOSTING ':'DUMPING ')+fmtShot(L.usd),x+R+10,gy+5); } }
+    else { const u=clamp((S.t-L.tr)/0.6,0,1), a=1-u;
+      if(L.st==='ok'){ ctx.lineWidth=1+4*a; ctx.strokeStyle=`rgba(${col},${a})`; ctx.beginPath(); ctx.arc(x,gy,R+u*70,0,6.2832); ctx.stroke();
+        ctx.globalAlpha=0.35*a; ctx.fillStyle=`rgba(${col},1)`; ctx.beginPath(); ctx.arc(x,gy,R*0.9,0,6.2832); ctx.fill(); ctx.globalAlpha=1; }
+      else if(L.st==='fail'){ ctx.lineWidth=3; ctx.strokeStyle=`rgba(255,120,150,${a})`; for(let i=0;i<6;i++){ const a0=i*1.047+0.2, d=u*18; ctx.beginPath(); ctx.arc(x+Math.cos(a0+0.5)*d,gy+Math.sin(a0+0.5)*d,R,a0,a0+0.7); ctx.stroke(); } }
+      else { ctx.lineWidth=2; ctx.strokeStyle=`rgba(${col},${0.32*a})`; ctx.beginPath(); ctx.arc(x,gy,R,0,6.2832); ctx.stroke(); } } }
+  ctx.restore(); }
+
 function submit(side,usd,force,opt,pct){
   S.tradeUsd=usd;
   const now=performance.now();
@@ -1036,6 +1062,11 @@ function submit(side,usd,force,opt,pct){
   /* @ignite (phase 1): the press is answered in THIS frame — a nozzle flash + shock ring, the engine spools up, a sound and a
      haptic. Visual only: the price, the PnL and the altitude still wait for the real fill (REAL FILL ONLY stands). */
   S.ignite={t:S.t,side}; sfx('ignite',{side,usd:S.tradeUsd}); haptic(side==='buy'?14:[8,30,8]);
+  /* @pressfeel (flight mechanics pass, maker 2026-11-13): a BOOST squats the rocket body on the press frame (a spring on the
+     drawn y only, ≈6 px, settled in ~150 ms; the altitude, camera and PnL are untouched) and a lock ring marks where the fill
+     will land: its arc closes while the trade is in flight, snaps gold on the fill, cracks on a fail. */
+  if(side==='buy') S.kickV=(S.kickV||0)+150;
+  (S.locks||(S.locks=[])).push({p,side,usd:S.tradeUsd,t0:S.t,st:'pend',tr:0});
   // the rocket heads for the ghost NOW (visual only, ≤ BA_CAP before the receipt; @boostanim). Its own segment: previous ghost → this one
   const sf=isLive()?1:(S.simF||1);
   const ba=baStart(S.boostAnim||(S.boostAnim=[]), mcapToAlt(from*sf), mcapToAlt(proj*sf), now); p.ba=ba;
@@ -1052,10 +1083,12 @@ function submit(side,usd,force,opt,pct){
     // PRICE IMPACT NEVER FAILS A TRADE (lee): a pre-send note (TradeBridge: high price impact / wallet limit, needsConfirm)
     // means nothing was sent and nothing failed — a calm amber note, no ✕ row, no "That didn't go through.", the boost eases
     // back (no fill), the slot frees. The note's own strip offers the one tap to go ahead. (Also with SITE #201's unknown:true.)
-    if(r&&!r.ok&&r.needsConfirm){ p.state='held'; baResolve(ba,false,performance.now(),S.boostAnim);
+    if(r&&!r.ok&&r.needsConfirm){ p.state='held'; lockResolve(p,'gone'); baResolve(ba,false,performance.now(),S.boostAnim);
       if(p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }
       tradeNote(r.reason); S.pending=S.pending.filter(q=>q!==p); pushInFlight(); return; }
-    p.state=r.ok?'confirmed':'failed';
+    p.state=r.ok?'confirmed':'failed'; lockResolve(p,r&&r.ok?'ok':r&&r.unknown?'gone':'fail');
+    if(r&&r.ok&&side==='buy'){ const [nx0,ny0]=nozzleXY(); S.floaters.push({x:nx0+70,y:ny0-120,txt:'+'+fmtShot(p.usd).replace(/\.00$/,'')+' aboard',c:'#F2C14E',life:1.4,game:24}); }
+    if(r&&r.ok&&side==='sell') S.kickV=(S.kickV||0)-120;   // @pressfeel: recoil, the rocket kicks up as the bomb leaves
     baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim, r&&r.txHash);
     if(!(r&&r.ok)&&p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }   // later ghosts drop by the failed step   // ok → completes to the ghost; fail → eases back (this trade's share only)
     fillThrust(side,p.usd,pct,r);   // the rocket reacts to the REAL fill only (was: thrust + flare at the click)
@@ -1549,16 +1582,11 @@ function drawRocket(dt){
   const [x,y]=nozzleXY();
   const NOZZLE_FROM_TOP = 0.96; // fraction of sprite height: engine sits just above the bottom edge
   const pivotY = h * NOZZLE_FROM_TOP; // draw offset so nozzle lands on (0,0) after rotate
-  // ghost thrust for pending txs (projected, never applied to confirmed altitude)
-  for (const p of S.pending){
-    const gy=altToScreenY(mcapToAlt(p.proj*S.simF)), a=p.state==='pending'? 0.28+0.12*Math.sin(S.t*14) : p.state==='confirmed'?0.5:0.2;
-    ctx.save(); ctx.globalAlpha=a; ctx.translate(x,gy); ctx.rotate(S.heading);
-    if(im.complete&&!im.bad) ctx.drawImage(im,-w/2,-pivotY,w,h);
-    ctx.restore(); ctx.save(); ctx.strokeStyle=p.side==='buy'?'rgba(140,255,200,.6)':'rgba(255,150,190,.6)'; ctx.setLineDash([4,6]);
-    ctx.beginPath(); ctx.moveTo(x+w/2+8,y); ctx.lineTo(x+w/2+8,gy); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle=ctx.strokeStyle; ctx.font=GF(15,700);
-    ctx.fillText((p.state==='pending'?(p.side==='buy'?'BOOSTING ':'DUMPING '):p.state==='confirmed'?'LANDED ':'MISSED ')+fmtUsd(p.usd), x+w/2+14, gy+5); ctx.restore();
-  }
+  // @pressfeel lock rings (replace the ghost rocket + dashed line): one per press, at the projected fill (never applied to the
+  // confirmed altitude). Pending = the arc closes; ok = a gold snap; fail = it cracks; gone (held / unknown) = it fades.
+  drawLocks(x,h);
+  if ((S.idle||0)>0.6&&!CLEAN){ ctx.save(); ctx.globalAlpha=clamp((S.idle-0.6)*2.5,0,1); ctx.font=GF(15,700); ctx.textAlign='center'; ctx.fillStyle='rgba(230,232,255,.92)';
+    ctx.fillText('ENGINES IDLE · THE CREW NEEDS A BOOST',x,y+96); ctx.restore(); }
   // exhaust (procedural): leaves the nozzle opposite the nose
   const braking=S.pending.some(p=>p.side==='sell'&&p.state==='pending');
   const EP=exhaustParams(), flick=EP.flick, flame=EP.flame;
@@ -1645,7 +1673,7 @@ function exhaustParams(){ const vol=clamp(Math.log10(1+S.volEma)/3.2,0,1), pend=
   const fall=clamp(-vy/320,0,1), n=Math.sin(S.t*29.0)*Math.sin(S.t*13.7+0.6), sput=1-fall*(n>0.15?0.82:0.25);
   const hv=S.hoverF||0, hflick=1-hv*0.5*Math.abs(Math.sin(S.t*23.0+Math.sin(S.t*7.1)*2));   // hover: weak, flickery
   const boost=0.8*(S.wBoost||0)+1.6*(S.buyBoost||0);
-  return {flick:flick*hflick, sput, fall, hover:hv, flame:((I*(0.6+0.85*move+0.55*thrustBoost)*(1-0.55*hv)+0.7*(S.flare||0))*hflick+boost)*flick*sput}; }
+  return {flick:flick*hflick, sput, fall, hover:hv, flame:((I*(0.6+0.85*move+0.55*thrustBoost)*(1-0.55*hv)+0.7*(S.flare||0))*hflick+boost)*flick*sput*(1-0.6*(S.idle||0))}; }
 function exhaustStep(dt){ const EP=exhaustParams(), {flick,flame}=EP; exhaustParams.fall=EP.fall; const LM=fxMul('launch'), DK=2.2/LM, _u=0, sa=Math.sin(S.heading), ca=Math.cos(S.heading);
   const tx=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.45, ty=S.ry+(S.bob||0)*0.55;
   S._exAcc=(S._exAcc||0)+(2+flame*9)*(0.55+flick)*60*dt*(0.75+0.3*(S.fwdN||0)); let n=S._exAcc|0; S._exAcc-=n;
@@ -1768,7 +1796,7 @@ function drawFx(dt){
     for(let k=0;k<=10;k++){ const a=k/10*6.283+S.t*3, rr=r*(0.9+0.25*hash(k+Math.floor(S.t*12)+o.x)); k?ctx.lineTo(o.x+Math.cos(a)*rr,o.y+Math.sin(a)*rr):ctx.moveTo(o.x+Math.cos(a)*rr,o.y+Math.sin(a)*rr); }
     ctx.globalAlpha=0.3; ctx.lineWidth=7; ctx.stroke(); ctx.globalAlpha=1; ctx.lineWidth=2; ctx.stroke();   // glow underlay instead of shadowBlur
     ctx.fillStyle=T.rim; ctx.font='bold 10px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(T.tag,o.x,o.y+r+14); ctx.restore(); }
-  for (const f of S.floaters){ ctx.save(); ctx.globalAlpha=clamp(f.life,0,1); ctx.fillStyle=f.c; ctx.font=f.small?'bold 13px ui-monospace,monospace':'bold 16px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(f.txt,f.x,f.y); ctx.restore(); }
+  for (const f of S.floaters){ ctx.save(); ctx.globalAlpha=clamp(f.life,0,1); ctx.textAlign='center'; if(f.game){ ctx.font=GF(f.game,800); ctx.lineWidth=4; ctx.lineJoin='round'; ctx.strokeStyle='rgba(8,9,20,.6)'; ctx.strokeText(f.txt,f.x,f.y); } else ctx.font=f.small?'bold 13px ui-monospace,monospace':'bold 16px ui-monospace,monospace'; ctx.fillStyle=f.c; ctx.fillText(f.txt,f.x,f.y); ctx.restore(); }   /* f.game = px size in the game face (brand v3) */
 }
 
 function drawPost(){
@@ -2520,7 +2548,7 @@ function simStep(stepDt){
   if (S.steer==null) S.steer={x:S.x,vx:0};
   if (!dir&&S.drag&&S.drag.on&&S.drag.tx!=null){ dir=steerDragDir(S.steer,S.drag.tx-(S.drift||0)*0.35,W); S.steer.idle=0; }   // @drag-steer: finger held = steering input (no auto-centre until release)
   stepSteerAuto(S.steer, dir*(steer/7), dt, W);     // hold-to-steer (VOID orb: weaker thrust); idle ⇒ auto-centre
-  { const m=steerMargin(W); S.x=clamp(S.steer.x+S.drift*0.35,m,W-m); S.vx=S.steer.vx; }
+  { const m=steerMargin(W); S.x=clamp(S.steer.x+S.drift*0.35+Math.sin(S.t*0.6)*14*(S.idle||0),m,W-m); S.vx=S.steer.vx; }
   S.dive=lerp(S.dive||0,(K.KeyS||K.ArrowDown)?1:0,1-Math.exp(-dt*((K.KeyS||K.ArrowDown)?8:4)));   // S/↓ = dive (cosmetic, off-chain)
   const bankTarget=clamp(-S.vx/900,-0.38,0.38);
   S.bank=lerp(S.bank||0,bankTarget,1-Math.exp(-dt*6));
@@ -2576,13 +2604,14 @@ function simStep(stepDt){
   { const PD=phoneHud(W,CLEAN), ay=S.cine?H*0.55:PD&&PD.drawer&&PD.dTop>0?Math.min(ROCKET_Y,PD.dTop-44):ROCKET_Y;   // @phone-hud: drawer open ⇒ the rocket rides above it
     S.anch=S.anch==null?ROCKET_Y:lerp(S.anch,ay,1-Math.exp(-dt*(S.cine?0.8:5))); }
   // rocket screen y: true altitude vs camera, soft-limited to the safe band (tanh, never a hard stop)
-  S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) + 40*(S.dive||0);   // @altfollow: no buy/W hop (they decayed back = a sink); S/↓ dive only while held
+  pressFeelStep(dt);
+  S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) + 40*(S.dive||0) + (S.kick||0);   // @altfollow: no buy/W hop (they decayed back = a sink); S/↓ dive only while held
   // idle bob / sway / micro-rot — attenuated during thrust so they don't fight heading
   const thrustHold=sinceThrust<1.2? clamp(1-sinceThrust/1.2,0,1) : 0;
   const amp=(1+(Math.abs(vUpRaw)/500))*(1-0.7*thrustHold);
   S.bob=(Math.sin(S.t*1.7)*3.2*amp + Math.sin(S.t*3.1+1.2)*1.4)*(1-0.55*thrustHold);
   S.sway=(Math.sin(S.t*1.15+0.4)*4.5 + Math.sin(S.t*2.4)*1.6)*(1-0.55*thrustHold) + (S.bank||0)*-12;
-  S.microRot=(Math.sin(S.t*1.35)*0.012 + Math.sin(S.t*2.8+0.7)*0.006)*(1-0.8*thrustHold) + (S.bank||0)*0.05;
+  S.microRot=(Math.sin(S.t*1.35)*0.012 + Math.sin(S.t*2.8+0.7)*0.006)*(1-0.8*thrustHold) + (S.bank||0)*0.05 + Math.sin(S.t*0.9)*0.05*(S.idle||0);
   S.roll=1; // kept for compat; draw path no longer scaleX-wobbles
   S.glint=Math.sin(S.t*1.8);
   // parallax scroll: clouds/bg move with price velocity; sideways adds horizontal drift
