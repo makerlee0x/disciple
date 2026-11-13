@@ -557,13 +557,26 @@ class HookSource {
   impact(usd,side){ const m=this.mcap||1; const f=usd/(m*0.25); return side==='buy'?1+f:Math.max(0.01,1-f); }
   submitTrade(){ return Promise.resolve({ok:false,reason:'replay'}); }
 }
-const IS_POOL=!['mock','dexscreener','rpc','disciple','sim'].includes(Q.get('source')||'pool');
+/* TURBO source (?source=turbo, hidden /turbo page — components/turbo/TurboFlight.tsx). Altitude is the live BTC/ETH
+   market cap (page maps mid × circulating supply and pushes {t:'swap'|'mark', mcap} through window.__turboFeed). Live
+   market buys/sells also arrive as {t:'swap', side, usd, mcap} and use this engine's existing boost / bomb path. The
+   engine never trades here (BOOST / DUMP / CLOSE live on the Turbo ticket), no wallet, no network. Cosmetic state comes
+   from window.__turboFx (see turboFx() below). Height is never PnL. */
+class TurboSource extends HookSource {
+  constructor(){ super(); this.name='TURBO'; this.isTurbo=true; }
+  start(emit){ this.emit=emit; window.__turboFeed=e=>{ if(e&&(e.t==='swap'||e.t==='mark')&&e.mcap>0) this.mcap=e.mcap; emit(e); }; emit({t:'status',source:this.name,ok:true,msg:'turbo'}); }
+  stop(){ window.__turboFeed=null; }
+  submitTrade(){ return Promise.resolve({ok:false,reason:'turbo'}); }
+}
+const IS_TURBO=(Q.get('source')||'')==='turbo';
+const IS_POOL=!['mock','dexscreener','rpc','disciple','sim','turbo'].includes(Q.get('source')||'pool');
 function makeSource(){
   const s=Q.get('source')||'pool';
   if (Q.get('replay')==='1'||s==='replay'){ if(window.REPLAY) return new ReplaySource(REPLAY); }
   if (s==='disciple') return new DiscipleSource();
   if (s==='sim') return new SimBridgeSource();
   if (s==='hook') return new HookSource();   /* replay.js driver */
+  if (s==='turbo') return new TurboSource();   /* hidden /turbo page */
   if (s==='pool') return new PoolLiveSource();
   if (s==='dexscreener') return new DexScreenerSource(Q.get('chain')||'robinhood', Q.get('pair')||'0x4be9657ec9002e528f4f17a5c43edc525a07f888f7b180c2afbf75e096c4f38a');
   if (s==='rpc') return new RpcSource({poolId:Q.get('pool'),ws:Q.get('ws')||null,supply:+(Q.get('supply')||1e9)});
@@ -941,6 +954,7 @@ function isAscensionBuy(side,usd,from,proj){
 }
 function warpFxOn(){ return (S.pending||[]).some(p=>p.state==='pending'&&p.gradBuy); }
 function trade(side,opt){
+  if (IS_TURBO) return;   // @turbo: Turbo orders go through the page's adapter only; the engine never trades
   // REAL FILL ONLY (maker lee 2026-10-24): no turbo flare / thrust at the click. The pending ghost (submit) shows where the
   // shot will go; the rocket reacts in submit() when the trade result comes back ok (fillThrust). Failed trades: no thrust.
   // RAPID TAP: ≤ MAX_PENDING real trades in flight (only state 'pending' counts; no 450 ms linger). A press over the cap is
@@ -1288,6 +1302,7 @@ function onHotkey(e){
   S.keys[e.code]=true;
   const mod=e.ctrlKey||e.metaKey||e.altKey;
   if (/^Arrow(Left|Right|Up|Down)$/.test(e.code)) e.preventDefault();
+  if (IS_TURBO && (e.code==='Space'||e.code==='ShiftLeft'||e.code==='ShiftRight'||HOTKEYS.buy.includes(e.code)||HOTKEYS.sell.includes(e.code))) return;   // @turbo: no engine trade keys
   if (e.code==='Space'){ e.preventDefault(); if(!e.repeat) boost(); return; }
   if ((e.code==='ShiftLeft'||e.code==='ShiftRight')&&!mod){ if(!e.repeat){ if(!hasTokens()) noTokens(); else dispatchEvent(new CustomEvent('disciple:dump')); } return; }   // DUMP = sell the SELECTED % (TradeBridge sizes it from the ledger)
   const bi=HOTKEYS.buy.indexOf(e.code); if(bi>=0&&!mod){ if(!e.repeat){ S.mode=bi; S.pressFx={i:bi,t:S.t}; pushAmmo(); } return; }   // buy-preset key = SELECT only (SPACE / BOOST buys it)
@@ -1474,8 +1489,25 @@ function bgTile(name){ const s=1.12, w=Math.round(W*s), h=Math.round(H*s), k=w+'
 function plateRows(T,y0,y1,oy,x0){ y0=Math.max(0,Math.floor(y0)); y1=Math.min(H,Math.ceil(y1)); const P=T.height, w=T.width;
   let y=y0; while(y<y1){ const r=(((y-oy)%P)+P)%P, seg=Math.min(y1-y,P-r); ctx.drawImage(T,0,r,w,seg,x0,y,w,seg); y+=seg; } }
 function altAtY(y){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); return base+((S.anch??ROCKET_Y)-y)/PX_PER_ALT; }
+/* @turbo-route (maker, Nov 13 2026: "a completely different sky for BTC versus ETH, so the quest feels different"): in Turbo
+   the page sends f.route = 'btc' | 'eth' and the sky is that route's own plate (public/turbo/sky-*.webp, re-graded from the
+   tier art): Sun route = sunrise over the Earth, Moon route = a huge moon. One plate per run with a slow parallax, since a
+   run lives inside a narrow altitude band. Falls back to the tier sky until the plate has loaded. */
+const TURBO_SKY={}, TURBO_SKY_FX={btc:0.74,eth:0.62}, TURBO_RIM={btc:[255,206,150],eth:[178,204,255]};
+function turboRoute(){ const f=turboFx(); return f&&(f.route==='btc'||f.route==='eth')?f.route:null; }
+function turboSkyImg(r){ if(!r) return null; let im=TURBO_SKY[r];
+  if(!im){ im=new Image(); im.onerror=()=>{ im.bad=true; }; im.src=(window.__DISCIPLE_BASE_PATH__||'')+'/turbo/sky-'+r+'.webp'; TURBO_SKY[r]=im; }
+  if(im.bad) return null; if(im.bitmap) return im.bitmap; return im.complete&&im.naturalWidth>0?im:null; }
+function drawTurboSky(im,r){ const iw=im.width||im.naturalWidth, ih=im.height||im.naturalHeight; if(!(iw>0&&ih>0)) return false;
+  const sc=Math.max(W/iw,H/ih)*1.18, dw=iw*sc, dh=ih*sc, my=(dh-H)/2;
+  const off=clamp(((S.displayAlt!=null?S.displayAlt:4.5)-4.5)*PX_PER_ALT*0.12,-my,my);
+  const x0=(W-dw)*(TURBO_SKY_FX[r]??0.5)-((S.camX!=null?S.camX:S.x)-W/2)*0.03, y0=-my+off;
+  ctx.drawImage(im,x0,y0,dw,dh); S.bgU=tipPoint().alt;
+  const k=W+'x'+H; if(SKYG.tk!==k){ SKYG.tk=k; const v=ctx.createLinearGradient(0,0,0,H); v.addColorStop(0,'rgba(6,6,18,.38)'); v.addColorStop(0.5,'rgba(6,6,18,.05)'); v.addColorStop(1,'rgba(6,6,18,.32)'); SKYG.tv=v; }
+  ctx.fillStyle=SKYG.tv; ctx.fillRect(0,0,W,H); return true; }
 function drawBg(){
   ctx.fillStyle='#0b0f22'; ctx.fillRect(0,0,W,H);
+  if(IS_TURBO){ const r=turboRoute(), im=turboSkyImg(r); if(im&&drawTurboSky(im,r)) return; }
   const F=H*0.5, oy=Math.round(((S.cloudY||0)*0.06)), w=Math.round(W*1.12), x0=Math.round((W-w)/2-((S.camX!=null?S.camX:S.x)-W/2)*0.03);
   S.bgU=tipPoint().alt;   // sky tint follows the rocket's own altitude
   const kb=Math.floor(altAtY(H+F/2)), kt=Math.floor(altAtY(-F/2));
@@ -1506,7 +1538,7 @@ function skyRGB(idx){ const key=plateOf(idx); let c=SKY_RGB.get(key); if(c) retu
     // lift toward pastel so the rim reads as light, not as paint
     c=[Math.round(r/n*0.5+128),Math.round(gg/n*0.5+124),Math.round(b/n*0.5+128)]; SKY_RGB.set(key,c); }catch(_){ } }
   return c; }
-function skyNow(){ const a=(S.bgU!=null?S.bgU:bandOf(S.displayAlt))-0.5, i=Math.floor(a), f=clamp(a-i,0,1), c0=skyRGB(i), c1=skyRGB(i+1);
+function skyNow(){ if(IS_TURBO){ const r=turboRoute(); if(r&&turboSkyImg(r)) return TURBO_RIM[r]; } const a=(S.bgU!=null?S.bgU:bandOf(S.displayAlt))-0.5, i=Math.floor(a), f=clamp(a-i,0,1), c0=skyRGB(i), c1=skyRGB(i+1);
   return [Math.round(lerp(c0[0],c1[0],f)),Math.round(lerp(c0[1],c1[1],f)),Math.round(lerp(c0[2],c1[2],f))]; }
 
 /* CLASSIC CLOUDS (?clouds=classic fallback; default is CEL below) — crisp, stylised cumulus silhouettes pre-rendered once (2× res): union of circles with a
@@ -1807,15 +1839,68 @@ function exhaustParams(){ const vol=clamp(Math.log10(1+S.volEma)/3.2,0,1), pend=
   // falling: engine sputters (blocky on/off flicker, deeper the faster it sinks)
   const fall=clamp(-vy/320,0,1), n=Math.sin(S.t*29.0)*Math.sin(S.t*13.7+0.6), sput=1-fall*(n>0.15?0.82:0.25);
   const hv=S.hoverF||0, hflick=1-hv*0.5*Math.abs(Math.sin(S.t*23.0+Math.sin(S.t*7.1)*2));   // hover: weak, flickery
-  const boost=0.8*(S.wBoost||0)+1.6*(S.buyBoost||0);
-  return {flick:flick*hflick, sput, fall, hover:hv, flame:((I*(0.6+0.85*move+0.55*thrustBoost)*(1-0.55*hv)+0.7*(S.flare||0))*hflick+boost)*flick*sput*(1-0.6*(S.idle||0))}; }
+  const TF=turboFlame(), boost=0.8*(S.wBoost||0)+1.6*(S.buyBoost||0)+TF.boost;
+  return {flick:flick*hflick, sput:sput*TF.sput, fall, hover:hv*(TF.on?0.3:1), flame:((I*(0.6+0.85*move+0.55*thrustBoost)*(1-0.55*hv)+0.7*(S.flare||0))*hflick+boost)*flick*sput*(1-0.6*(S.idle||0))}; }
 function exhaustStep(dt){ const EP=exhaustParams(), {flick,flame}=EP; exhaustParams.fall=EP.fall; const LM=fxMul('launch'), DK=2.2/LM, _u=0, sa=Math.sin(S.heading), ca=Math.cos(S.heading);
   const tx=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.45, ty=S.ry+(S.bob||0)*0.55;
   S._exAcc=(S._exAcc||0)+(2+flame*9)*(0.55+flick)*60*dt*(0.75+0.3*(S.fwdN||0)); let n=S._exAcc|0; S._exAcc-=n;
   for(let i=0;i<n;i++){ const hv=EP.hover||0, sp=(140+Math.random()*280*flame)*(0.75+flick*0.5)*(1-0.35*hv), j=(Math.random()-.5)*(40+30*flick)*(1+1.6*hv);   // hover: shorter, spread-out plume
     const p=S.particles.spawn(); p.x=tx+(Math.random()-.5)*10; p.y=ty; p.vx=-sa*sp+ca*j-(S.vxS||0)*0.3; p.vy=ca*sp+sa*j+(S.air||0)*0.6+Math.max(0,S.vyS||0)*0.4; p.life=0.7+Math.random()*0.45; p.dk=DK; p.s=(5+Math.random()*14*flame)*flick*LM; p.hot=Math.random()<0.45*(1-0.7*(exhaustParams.fall||0)); } }
 // faint 'your entry' altitude marker (set by the PnL HUD: window.__entryMcap)
-function drawEntryLine(){ const m=window.__entryMcap; if(!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
+/* =====================================================================
+   @turbo — Turbo flight feel (hidden /turbo page only; every helper is a no-op unless ?source=turbo).
+   The page writes window.__turboFx = { open, side:'long'|'short', lev, pending, danger:0..1, dive,
+   liqMcap, liqLabel }. All of it is cosmetic: a tap never waits on a frame.
+   - jetstream L = log10(lev)/3 (10× ≈ .33, 100× ≈ .67, 1000× = 1) → flame, airspeed (baseline even when flat)
+   - danger (share of the way from entry to liquidation): >.5 engine glows orange, >.8 body shudders (the
+     existing wobble spring, never the camera), >.95 the flame sputters
+   - red LIQUIDATION seam in the sky (below the rocket on a long, a ceiling above it on a short)
+   ===================================================================== */
+const TURBO_DIVE=0.72;   // nose-down dive pose depth (aimWithDive: 0 = up, 1 = straight down) — a narrow, controlled range
+function turboFx(){ if(!IS_TURBO) return null; const f=window.__turboFx; return f&&typeof f==='object'?f:null; }
+function turboL(lev){ return clamp(Math.log10(Math.max(1,+lev||1))/3,0,1); }
+function turboFlame(){ const f=turboFx(); if(!f||!(f.open||f.pending)) return {on:false,boost:0,air:0,sput:1};
+  const L=turboL(f.lev), d=clamp(+f.danger||0,0,1);
+  const sput=d>0.95?(Math.sin(S.t*31)*Math.sin(S.t*11.3+0.7)>0.1?0.25:1):1;
+  return {on:true, boost:(f.pending?1.2:0)+(f.open?0.35+1.1*L:0), air:f.open?40+260*L:(f.pending?60:0), sput}; }
+function turboShudder(dt){ const f=turboFx(); if(!f||!f.open) return; const d=clamp(+f.danger||0,0,1); if(d<=0.8) return;
+  S.wobV=(S.wobV||0)+(Math.random()-0.5)*2600*(d-0.8)*dt*60*0.05; }
+/* always on screen while a position is open: off-screen ⇒ pinned to the edge with an arrow (still the true price label).
+   @turbo-sky (maker, Nov 13 2026: the sky zooms to the run): the page sends f.lines = [{mcap, kind, label}] with kind
+   'hbomb' (solid pink, glow, pill label), 'even' (green dashed: break-even) or 'boarded' (cream dashed). */
+function turboPill(text,x,y,bg,fg,right){ ctx.save(); ctx.font='700 13px '+GAME_FAMILY;
+  const w=ctx.measureText(text).width+16, h=20, x0=right==='center'?(W-w)/2:right?W-x-w:x; ctx.fillStyle=bg; ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(x0,y-h/2,w,h,6); else ctx.rect(x0,y-h/2,w,h); ctx.fill();
+  ctx.fillStyle=fg; ctx.textBaseline='middle'; ctx.fillText(text,x0+8,y+0.5); ctx.restore(); }
+const TURBO_LINE_STYLE={
+  hbomb:{col:'#F0307F',w:3,dash:null,glow:'rgba(240,48,127,.8)',bg:'rgba(240,48,127,.92)',fg:'#F2F3F7',right:true},
+  even:{col:'rgba(95,240,160,.8)',w:2,dash:[8,6],bg:'rgba(18,19,39,.85)',fg:'#5FF0A0',right:true},
+  boarded:{col:'rgba(243,223,168,.7)',w:1,dash:[4,4],bg:'rgba(18,19,39,.85)',fg:'#F3DFA8',right:false},
+  two:{col:'rgba(242,243,247,.5)',w:1,dash:[6,5],bg:'rgba(11,10,22,.85)',fg:'#F2F3F7',right:'center'},   // v2.1: the 2× (double your fuel) line
+};
+/* lines are placed relative to the rocket as drawn (its screen y is soft-limited to a band), so the rocket body sits
+   exactly on the line of the price it is at: at the boarding line on fill, on the H-BOMB line when it fires. */
+function turboYOff(){ return (S.ry!=null&&S.displayAlt!=null)?S.ry-altToScreenY(S.displayAlt):0; }
+function turboLine(m,col,label,dash,w,st,alpha){ if(!(m>0)) return; const y0=altToScreenY(mcapToAlt(m))+turboYOff(), y=clamp(y0,W<=760?150:22,H-14), pinned=y!==y0;   // phone: below the run HUD
+  ctx.save(); if(alpha!=null) ctx.globalAlpha=alpha; ctx.strokeStyle=col; ctx.lineWidth=w||2; if(st&&st.glow){ ctx.shadowColor=st.glow; ctx.shadowBlur=14; }
+  if(dash||pinned) ctx.setLineDash(dash||[14,10]); ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]); ctx.shadowBlur=0;
+  if(label){ const t=(pinned?(y0>y?'↓ ':'↑ '):'')+label, ly=y0>y||!pinned?y-14:y+14;
+    if(st) turboPill(t,12,ly,st.bg,st.fg,st.right); else { ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle=col; ctx.fillText(t,16,ly+4); } }
+  ctx.restore(); return y; }
+function drawTurboLines(){ const f=turboFx(); if(!f||S.displayAlt==null) return;
+  if(f.open||f.pending){
+    const d=clamp(+f.danger||0,0,1), pulse=d>0.8?0.55+0.45*Math.abs(Math.sin(S.t*6)):1;
+    let y=null;
+    if(Array.isArray(f.lines)&&f.lines.length){
+      for(const L of f.lines){ const st=TURBO_LINE_STYLE[L.kind]||TURBO_LINE_STYLE.boarded;
+        const yy=turboLine(L.mcap,st.col,L.label,st.dash,st.w,st,L.kind==='hbomb'?pulse:1); if(L.kind==='hbomb') y=yy; } }
+    else y=turboLine(f.liqMcap,'rgba(255,61,90,'+(0.85*pulse).toFixed(3)+')',f.liqLabel||'LIQUIDATION',null,2.5);
+    if(y!=null){ ctx.save(); const g=ctx.createLinearGradient(0,y,0,f.side==='short'?y-60:y+60); g.addColorStop(0,'rgba(240,48,127,.22)'); g.addColorStop(1,'rgba(240,48,127,0)');
+      ctx.fillStyle=g; ctx.fillRect(0,f.side==='short'?y-60:y,W,60); ctx.restore(); }
+    if(d>0.5){ const [nx,ny]=nozzleXY(), r=40+60*d; ctx.save(); ctx.globalCompositeOperation='lighter';
+      const g=ctx.createRadialGradient(nx,ny,0,nx,ny,r); g.addColorStop(0,d>0.8?'rgba(255,70,40,.55)':'rgba(255,140,40,.45)'); g.addColorStop(1,'rgba(255,90,30,0)');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(nx,ny,r,0,Math.PI*2); ctx.fill(); ctx.restore(); } } }
+function drawEntryLine(){ const m=window.__entryMcap; if(IS_TURBO||!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
   const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle='rgba(242,193,78,.5)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;   /* brand gold: where YOU boarded */
   ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=up?'#F2C14E':'#FF9CC4'; ctx.font=GF(13,700); if('letterSpacing' in ctx) ctx.letterSpacing='1px';
   ctx.fillText('YOU BOARDED '+fmtUsd(m),W/2+60,y-6); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.restore(); }
@@ -2469,7 +2554,7 @@ function debugBomb(spec,opt){ opt=opt||{};
   if (typeof spec==='string'){ spec=spec.toLowerCase(); if(BOMB_ALIASES[spec]) spec=BOMB_ALIASES[spec]; }   // 'NUKE' and 'nuke' both work
   const i=typeof spec==='number'?null:BOMB_TIERS.findIndex(t=>t.k===spec);
   const pct=typeof spec==='number'?spec:[0.8,3.2,8,18,35,55][Math.max(0,i)];
-  noteSell({side:'sell',usd:opt.usd??[40,600,8900,31e3,120e3,480e3][Math.max(0,bombTierOf(pct))],impactPct:pct,trader:opt.trader||'0xabc1230000000000000000000000000000def456',fullStack:!!opt.fullStack}); }
+  noteSell({side:'sell',usd:opt.usd??[40,600,8900,31e3,120e3,480e3][Math.max(0,bombTierOf(pct))],impactPct:pct,trader:opt.trader||'0xabc1230000000000000000000000000000def456',fullStack:!!opt.fullStack,mine:!!opt.mine}); }   // @turbo: mine ⇒ the tag reads 'you', never a sample address
 
 /*STEER-BEGIN*/
 /* Arcade hold-to-steer (pure; unit-tested by test-heading.mjs + test-camera.mjs).
@@ -2675,7 +2760,8 @@ function simStep(stepDt){
   if (!dir&&S.drag&&S.drag.on&&S.drag.tx!=null){ dir=steerDragDir(S.steer,S.drag.tx-(S.drift||0)*0.35,W); S.steer.idle=0; }   // @drag-steer: finger held = steering input (no auto-centre until release)
   stepSteerAuto(S.steer, dir*(steer/7), dt, W);     // hold-to-steer (VOID orb: weaker thrust); idle ⇒ auto-centre
   { const m=steerMargin(W); S.x=clamp(S.steer.x+S.drift*0.35+Math.sin(S.t*0.6)*14*(S.idle||0),m,W-m); S.vx=S.steer.vx; }
-  S.dive=lerp(S.dive||0,(K.KeyS||K.ArrowDown)?1:0,1-Math.exp(-dt*((K.KeyS||K.ArrowDown)?8:4)));   // S/↓ = dive (cosmetic, off-chain)
+  { const TX=turboFx(), want=(K.KeyS||K.ArrowDown)?1:TX&&TX.dive?TURBO_DIVE:0;   // @turbo: a DUMP (short) flies as a nose-down dive run — same sprite, a controlled pose (never a flip)
+    S.dive=lerp(S.dive||0,want,1-Math.exp(-dt*(want>0?(TX&&TX.dive?3:8):4))); }   // S/↓ = dive (cosmetic, off-chain)
   const bankTarget=clamp(-S.vx/900,-0.38,0.38);
   S.bank=lerp(S.bank||0,bankTarget,1-Math.exp(-dt*6));
   // price velocity in px/s (unsmoothed, for clouds / speed lines) then a short visual smoother
@@ -2697,7 +2783,7 @@ function simStep(stepDt){
   /* v2: NO baseline — a flat price hovers in place (no world scroll, slight sway only). Air comes only from a
      rising price, plus the brief W mini-acceleration and the buy turbo, which decay back to 0. Volume alone
      no longer climbs. */
-  { const up=Math.max(0,S.vyS||0), tgt=up*0.4 + 70*(S.wBoost||0) + 150*(S.buyBoost||0);
+  { const up=Math.max(0,S.vyS||0), tgt=up*0.4 + 70*(S.wBoost||0) + 150*(S.buyBoost||0) + turboFlame().air;   // @turbo: baseline airspeed scales with leverage
     S.air=lerp(S.air||0,tgt,1-Math.exp(-dt*2.2)); if (S.air<0.05&&tgt===0) S.air=0; S.airPx=(S.airPx||0)+S.air*dt; }
   S.hoverF=clamp(1-Math.abs(S.vyS||0)/120,0,1)*(1-clamp(Math.max(S.wBoost||0,S.buyBoost||0)*1.5,0,1));   // 1 = hovering
   S.vxS=lerp(S.vxS||0,S.vx*0.55,1-Math.exp(-dt*8));
@@ -2725,13 +2811,20 @@ function simStep(stepDt){
      rocket) and a slow sub-pixel drift so the frame breathes. Off ⇒ the exact normal camera. */
   if (S.cine){ if(S.cinePx==null){ S.cinePx=S.camPx; S.cineV=0; } const w=2.4, e=S.camPx-S.cinePx; S.cineV+=(w*w*e-2*w*S.cineV)*dt; S.cinePx+=S.cineV*dt;
     S.camAlt=(S.cinePx+Math.sin(S.t*0.21)*10+Math.sin(S.t*0.083)*16)/PX_PER_ALT; } else S.cinePx=null;
+  /* @turbo-hold (maker, Nov 13 2026: "the price is barely moving"): during a run the camera holds at the boarding
+     altitude (f.holdAlt) instead of locking to the price, so the H-BOMB / break-even / 2× lines stay put on screen and
+     the ROCKET moves between them on every tick. Eases back to the normal locked camera when the run ends. */
+  if (IS_TURBO){ const f=turboFx(), hold=f&&(f.open||f.pending)&&Number.isFinite(+f.holdAlt)?+f.holdAlt:null;
+    if (hold!=null){ S.tHold=S.tHold==null?S.camAlt:lerp(S.tHold,hold,1-Math.exp(-dt*6)); S.camAlt=S.tHold; S.tHeld=1; }
+    else if (S.tHeld){ S.tHold=lerp(S.tHold,S.camAlt,1-Math.exp(-dt*3)); if(Math.abs(S.tHold-S.camAlt)*PX_PER_ALT<1){ S.tHeld=0; S.tHold=null; } else S.camAlt=S.tHold; } }
   { const e=S.x+(S.cine?Math.sin(S.t*0.11)*22:0)-S.camX, w=S.cine?2.6:8; S.camXV=(S.camXV||0)+(w*w*e-2*w*(S.camXV||0))*dt; S.camX+=S.camXV*dt; }
   // screen anchor eases on resize (no jump when the window / sidebar changes)
   { const PD=phoneHud(W,CLEAN), ay=S.cine?H*0.55:PD&&PD.drawer&&PD.dTop>0?Math.min(ROCKET_Y,PD.dTop-44):ROCKET_Y;   // @phone-hud: drawer open ⇒ the rocket rides above it
     S.anch=S.anch==null?ROCKET_Y:lerp(S.anch,ay,1-Math.exp(-dt*(S.cine?0.8:5))); }
   // rocket screen y: true altitude vs camera, soft-limited to the safe band (tanh, never a hard stop)
   pressFeelStep(dt);
-  S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) + 40*(S.dive||0) + (S.kick||0);   // @altfollow: no buy/W hop (they decayed back = a sink); S/↓ dive only while held
+  S.ry=(IS_TURBO&&S.tHeld)? clamp(S.anch-(S.displayAlt-S.camAlt)*PX_PER_ALT, 70, H-40) : rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) + (IS_TURBO?0:40*(S.dive||0)) + (S.kick||0);   // @turbo-hold: linear in a run, so the rocket sits exactly on its price line
+  turboShudder(dt);   // @altfollow: no buy/W hop (they decayed back = a sink); S/↓ dive only while held
   // idle bob / sway / micro-rot — attenuated during thrust so they don't fight heading
   const thrustHold=sinceThrust<1.2? clamp(1-sinceThrust/1.2,0,1) : 0;
   const amp=(1+(Math.abs(vUpRaw)/500))*(1-0.7*thrustHold);
@@ -3252,7 +3345,7 @@ function render(dt){
   if (S.grass){ ctx.save(); drawBg(); drawClouds(); drawSpeedLines(); drawTickTrail(); drawRocket(dt); drawClouds(true); ctx.restore(); drawPost(); drawGrass(dt); return; }
   S._grassA=0;
   ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawWingmen(); drawGhost(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap(); cardPublish();
+  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTurboLines(); drawWingmen(); drawGhost(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); if(!IS_TURBO){ drawHud(); drawChartMap(); } cardPublish();   // @turbo: the Turbo page draws its own dollar HUD (no market cap / tier card)
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
 }
