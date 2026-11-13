@@ -9,7 +9,7 @@ import { snipeState } from "@/lib/snipe";
 import { SIM_LAUNCH_TS } from "@/lib/game/snipeCountdown";
 import Icon from "@/components/ui/Icon";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
-import { ARCHETYPES, cloneConfig, mergeTune, resetSimStorage, SIM_STORAGE, type ArchetypeId, type DifficultyId, type SimConfig } from "@/lib/sim/config";
+import { ARCHETYPES, PLAYER, cloneConfig, mergeTune, resetSimStorage, SIM_STORAGE, type ArchetypeId, type DifficultyId, type SimConfig } from "@/lib/sim/config";
 import { SIM_POS_EVENT, SimDriver } from "@/lib/sim/driver";
 import { createSimTrampWallAdapter, SIM_ME } from "@/lib/sim/twAdapter";
 import { fmt, seedOf } from "@/lib/sim/run";
@@ -39,7 +39,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
   const [difficulty, setDifficulty] = useState<DifficultyId>(DIFFS.includes(initial.difficulty as DifficultyId) ? (initial.difficulty as DifficultyId) : "pve");
   const [seedText, setSeedText] = useState(initial.seed || "");
   const [speed, setSpeed] = useState(SPEEDS.includes(initial.speed || 0) ? initial.speed! : 1);
-  const [minutes, setMinutes] = useState(initial.minutes || 10);
+  const [minutes, setMinutes] = useState(initial.minutes || PLAYER.defaultMinutes);
   const [phase, setPhase] = useState<"select" | "run" | "summary">("select");
   const [runN, setRunN] = useState(0);
   const [tuneOpen, setTuneOpen] = useState(!!initial.tune);
@@ -62,7 +62,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
     try { resetSimStorage(localStorage); } catch { /* ignore */ }
     const d = new SimDriver(c, difficulty, seed, minutes); d.speed = speed; d.start(); drv.current = d;
     setChatter([]);
-    d.onEvent((e) => { if (e.kind === "react" || e.kind === "tw") setChatter((l) => [e, ...l].slice(0, 5));
+    d.onEvent((e) => { if (e.kind === "react" || e.kind === "tw" || e.kind === "tell" || e.kind === "dump" || e.kind === "pump") setChatter((l) => [e, ...l].slice(0, 5));
       if (e.kind === "rug" || e.kind === "cto" || e.kind === "graduate" || e.kind === "whale") { if (e.kind === "rug" || e.kind === "cto" || e.kind === "graduate" || e.kind === "whale") { setBanner(e); window.setTimeout(() => setBanner((b) => (b === e ? null : b)), e.kind === "whale" ? 2500 : 5000); } } });
     setSummary(null); setPaused(false); setRunN((n) => n + 1); setPhase("run");
   }, [cfg, difficulty, minutes, seedText, speed, initial.balance]);
@@ -140,7 +140,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
           {me >= 3 && <Row i={me} name="you" arch="you" total={lb[me].total} me />}
           {run.m.phase === "pool" && <div data-testid="sim-tw-stats" style={{ opacity: 0.7, marginTop: 4 }}>tramps/walls live {run.m.pool?.active.length ?? 0} · yours {run.m.pool?.active.filter((o) => o.owner === "you").length ?? 0} · keeper pulls {run.keeper.pulls}</div>}
           {chatter.length > 0 && <div data-testid="sim-chatter" style={{ marginTop: 6, borderTop: "1px solid rgba(255,255,255,.12)", paddingTop: 4 }}>
-            {chatter.map((e, i) => <div key={i} style={{ opacity: 1 - i * 0.16, color: e.mine ? "#ffe7a3" : e.kind === "react" ? "#ffb0c8" : "#c8d2ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{clock(e.t)} {e.text}</div>)}
+            {chatter.map((e, i) => <div key={i} style={{ opacity: 1 - i * 0.16, color: e.mine ? "#ffe7a3" : e.kind === "tell" ? "#FFB48F" : e.kind === "react" || e.kind === "dump" ? "#ffb0c8" : "#c8d2ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{clock(e.t)} {e.text}</div>)}
           </div>}
         </div>
       )}
@@ -167,7 +167,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
             </div>
             <div style={{ display: "flex", gap: 14, alignItems: "center", marginTop: 18, flexWrap: "wrap", fontSize: 12 }}>
               <label>seed <input data-testid="sim-seed" value={seedText} placeholder="random" onChange={(e) => setSeedText(e.target.value)} style={{ ...mono, width: 110, background: "#0d1030", color: "#e8ecff", border: "1px solid #334", borderRadius: 6, padding: "4px 6px" }} /></label>
-              <label>minutes <input type="number" min={1} max={60} value={minutes} onChange={(e) => setMinutes(Math.max(1, Math.min(60, +e.target.value || 10)))} style={{ ...mono, width: 56, background: "#0d1030", color: "#e8ecff", border: "1px solid #334", borderRadius: 6, padding: "4px 6px" }} /></label>
+              <label>minutes <input type="number" min={1} max={60} value={minutes} onChange={(e) => setMinutes(Math.max(1, Math.min(60, +e.target.value || PLAYER.defaultMinutes)))} style={{ ...mono, width: 56, background: "#0d1030", color: "#e8ecff", border: "1px solid #334", borderRadius: 6, padding: "4px 6px" }} /></label>
               <span>speed {SPEEDS.map((s) => <button key={s} style={{ ...btn(speed === s), marginLeft: 4, ...(phone ? { minHeight: 40, minWidth: 44 } : {}) }} onClick={() => setSpeed(s)}>{s}×</button>)}</span>
               <span style={{ opacity: 0.75 }}>balance ${(initial.balance || cfg.player.startBalanceUsd).toLocaleString()} paper</span>
               <button data-testid="sim-start" onClick={() => start()} style={{ ...btn(true, D.color), padding: "10px 26px", fontSize: 15, marginLeft: "auto" }}>START ▸</button>

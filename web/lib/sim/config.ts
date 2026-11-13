@@ -71,16 +71,16 @@ export interface Archetype {
   names: string[];
 }
 export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
-  crew:      { label: "Crew", blurb: "crewmate: buys dips at support, trims a little at resistance", cash: 600, cashSigma: 0.6, rate: 2.2, buyFrac: [0.08, 0.2], tp: 0.6, sellFrac: [0.08, 0.18], sl: -9, dip: 1, chase: 0.2, resist: 0.5, followPlayer: 0.8, style: "support", names: ["Mira", "Juno", "Oz", "Pax", "Wren", "Ivo", "Lux", "Tam", "Rho", "Sol", "Kit", "Ada"] },
-  scalper:   { label: "Scalper", blurb: "in on a tick up, out at +12% or −7%", cash: 450, cashSigma: 0.5, rate: 5, buyFrac: [0.3, 0.6], tp: 0.12, sellFrac: [1, 1], sl: -0.07, dip: 0.1, chase: 1, resist: 0.6, followPlayer: 0.6, style: "compete", names: ["Flip", "Tick", "Snap", "Quik", "Zap", "Blink"] },
-  whale:     { label: "Whale", blurb: "rare, huge buys; dumps half at 2×", cash: 9000, cashSigma: 0.7, rate: 0.7, buyFrac: [0.1, 0.3], tp: 1.0, sellFrac: [0.35, 0.6], sl: -0.5, dip: 0.6, chase: 0.6, resist: 0.4, followPlayer: 0.3, style: "compete", names: ["Leviathan", "Moby", "Orca", "Kraken"] },
-  sniper:    { label: "Sniper", blurb: "buys the launch block, dumps at 2–4×", cash: 1500, cashSigma: 0.5, rate: 3, buyFrac: [0.6, 0.9], tp: 2.0, sellFrac: [0.6, 1], sl: -0.4, dip: 0, chase: 0.2, resist: 0.3, followPlayer: 0, style: "insider", names: ["Scope", "Deadeye", "Ghost", "Viper", "Hawk", "Tracer"] },
-  bundler:   { label: "Bundler", blurb: "clustered wallets holding bundled supply; drip-sells, joins the rug", cash: 800, cashSigma: 0.3, rate: 1.5, buyFrac: [0.9, 1], tp: 1.5, sellFrac: [0.08, 0.2], sl: -9, dip: 0, chase: 0, resist: 0.2, followPlayer: 0, style: "insider", names: ["b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8"] },
-  rugger:    { label: "Dev (rugger)", blurb: "dev wallet; pulls the rug when the chart looks juicy", cash: 2600, cashSigma: 0.2, rate: 1, buyFrac: [0.9, 1], tp: 99, sellFrac: [1, 1], sl: -9, dip: 0, chase: 0, resist: 0, followPlayer: 0, style: "insider", names: ["dev"] },
-  cto:       { label: "CTO", blurb: "community takeover: revives a rugged chart", cash: 7000, cashSigma: 0.3, rate: 4, buyFrac: [0.05, 0.12], tp: 3, sellFrac: [0.1, 0.2], sl: -9, dip: 1, chase: 0, resist: 0.1, followPlayer: 0.5, style: "support", names: ["CTO Council"] },
-  momentum:  { label: "Momentum", blurb: "chases green candles, bails on red", cash: 700, cashSigma: 0.6, rate: 3, buyFrac: [0.2, 0.45], tp: 0.5, sellFrac: [0.5, 1], sl: -0.12, dip: 0, chase: 1.4, resist: 0.3, followPlayer: 1.2, style: "compete", names: ["Rocket", "Chad", "Degen", "Pump", "FOMO", "Ape", "Send"] },
-  paperhand: { label: "Paper hand", blurb: "buys hype, panics at −6%, sells at +15%", cash: 160, cashSigma: 0.6, rate: 2.5, buyFrac: [0.4, 0.8], tp: 0.15, sellFrac: [1, 1], sl: -0.06, dip: 0.2, chase: 0.8, resist: 0.4, followPlayer: 0.8, style: "compete", names: ["Shaky", "Jitter", "Panic", "Wobble", "Flinch"] },
-  diamond:   { label: "Diamond hand", blurb: "buys and holds; sells a slice only at 10×", cash: 900, cashSigma: 0.6, rate: 1.2, buyFrac: [0.2, 0.5], tp: 9, sellFrac: [0.2, 0.3], sl: -9, dip: 0.8, chase: 0.3, resist: 0, followPlayer: 0.4, style: "support", names: ["Gem", "Rock", "Iron", "Stone", "Steel"] },
+  crew:      { label: "Crew", blurb: "crewmate: buys dips at support, trims a little at resistance", cash: 70, cashSigma: 0.6, rate: 2.2, buyFrac: [0.08, 0.2], tp: 0.6, sellFrac: [0.08, 0.18], sl: -9, dip: 1, chase: 0.2, resist: 0.5, followPlayer: 0.8, style: "support", names: ["Mira", "Juno", "Oz", "Pax", "Wren", "Ivo", "Lux", "Tam", "Rho", "Sol", "Kit", "Ada"] },
+  scalper:   { label: "Scalper", blurb: "in on a tick up, out at +12% or −7%", cash: 60, cashSigma: 0.5, rate: 5, buyFrac: [0.3, 0.6], tp: 0.12, sellFrac: [1, 1], sl: -0.07, dip: 0.1, chase: 1, resist: 0.6, followPlayer: 0.6, style: "compete", names: ["Flip", "Tick", "Snap", "Quik", "Zap", "Blink"] },
+  whale:     { label: "Whale", blurb: "rare, huge buys; dumps half at 2×", cash: 900, cashSigma: 0.35, rate: 0.7, buyFrac: [0.1, 0.3], tp: 1.0, sellFrac: [0.35, 0.6], sl: -0.5, dip: 0.6, chase: 0.6, resist: 0.4, followPlayer: 0.3, style: "compete", names: ["Leviathan", "Moby", "Orca", "Kraken"] },
+  sniper:    { label: "Sniper", blurb: "buys the launch block, dumps at 2–4×", cash: 160, cashSigma: 0.5, rate: 3, buyFrac: [0.6, 0.9], tp: 2.0, sellFrac: [0.6, 1], sl: -0.4, dip: 0, chase: 0.2, resist: 0.3, followPlayer: 0, style: "insider", names: ["Scope", "Deadeye", "Ghost", "Viper", "Hawk", "Tracer"] },
+  bundler:   { label: "Bundler", blurb: "clustered wallets holding bundled supply; drip-sells, joins the rug", cash: 110, cashSigma: 0.3, rate: 1.5, buyFrac: [0.9, 1], tp: 1.5, sellFrac: [0.08, 0.2], sl: -9, dip: 0, chase: 0, resist: 0.2, followPlayer: 0, style: "insider", names: ["b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8"] },
+  rugger:    { label: "Dev (rugger)", blurb: "dev wallet; pulls the rug when the chart looks juicy", cash: 420, cashSigma: 0.2, rate: 1, buyFrac: [0.9, 1], tp: 99, sellFrac: [1, 1], sl: -9, dip: 0, chase: 0, resist: 0, followPlayer: 0, style: "insider", names: ["dev"] },
+  cto:       { label: "CTO", blurb: "community takeover: revives a rugged chart", cash: 1400, cashSigma: 0.3, rate: 4, buyFrac: [0.05, 0.12], tp: 3, sellFrac: [0.1, 0.2], sl: -9, dip: 1, chase: 0, resist: 0.1, followPlayer: 0.5, style: "support", names: ["CTO Council"] },
+  momentum:  { label: "Momentum", blurb: "chases green candles, bails on red", cash: 80, cashSigma: 0.6, rate: 3, buyFrac: [0.2, 0.45], tp: 0.5, sellFrac: [0.5, 1], sl: -0.12, dip: 0, chase: 1.4, resist: 0.3, followPlayer: 1.2, style: "compete", names: ["Rocket", "Chad", "Degen", "Pump", "FOMO", "Ape", "Send"] },
+  paperhand: { label: "Paper hand", blurb: "buys hype, panics at −6%, sells at +15%", cash: 35, cashSigma: 0.6, rate: 2.5, buyFrac: [0.4, 0.8], tp: 0.15, sellFrac: [1, 1], sl: -0.06, dip: 0.2, chase: 0.8, resist: 0.4, followPlayer: 0.8, style: "compete", names: ["Shaky", "Jitter", "Panic", "Wobble", "Flinch"] },
+  diamond:   { label: "Diamond hand", blurb: "buys and holds; sells a slice only at 10×", cash: 100, cashSigma: 0.6, rate: 1.2, buyFrac: [0.2, 0.5], tp: 9, sellFrac: [0.2, 0.3], sl: -9, dip: 0.8, chase: 0.3, resist: 0, followPlayer: 0.4, style: "support", names: ["Gem", "Rock", "Iron", "Stone", "Steel"] },
 };
 
 // ── Difficulties ────────────────────────────────────────────────────────────────────────────────────
@@ -114,6 +114,51 @@ export interface Difficulty {
   adapt: Adapt;
   /** tramps & walls (post-graduation only, like the contract) */
   orders: OrderPlay;
+  /** Free play pacing director: the shape of a run and its beats (SimRun.direct) */
+  story: Story;
+}
+/** Pacing director (Free play). Each run draws a target arc from these ranges: it climbs to a high at peakAt of the
+ *  run, then falls by `fall` by the end. Every beatS the director lands a beat that steers the chart toward the arc:
+ *  a pump (a crowd boards, or a whale boosts) or a dump (the biggest holder peels off, warns for tellS, then sells).
+ *  Every bot sell above tellFrac of depth gets the same warning first: reading tells is the skill. */
+export type ArcShape = "rocket" | "fakeout" | "fade";
+export interface Story {
+  beatS: [number, number];
+  /** odds of each arc shape: rocket (one climb to a late high), fakeout (early spike, crash, then the real climb), fade (early high, bleeds out) */
+  shapes: Record<ArcShape, number>;
+  /** the same for duds (runs that don't reach orbit) */
+  dudShapes: Record<ArcShape, number>;
+  /** fakeout: the crash takes the spike down to this fraction of itself */
+  fakeDip: [number, number];
+  /** where the high should land, as a fraction of the run */
+  peakAt: [number, number];
+  /** odds the run is a flyer: its high clears orbit (10× the launch mcap), drawn log-uniform from orbitClimb */
+  orbit: number; orbitClimb: [number, number];
+  /** otherwise a dud: the high as a multiple of the launch mcap (log-uniform) */
+  climb: [number, number];
+  /** fall from the high by the end of the run */
+  fall: [number, number];
+  /** dump beats: odds at a beat on the arc (after the first; `late` once past the high), size as a fraction of depth
+   *  (the first one × first), the first one lands in firstS */
+  bomb: { odds: number; late: number; size: [number, number]; firstS: [number, number]; first: number };
+  /** pump beats: size as a fraction of depth */
+  pump: [number, number];
+  /** the warning before a big sell, s */
+  tellS: [number, number];
+  /** a bot sell above this fraction of depth is announced (tell) and lands tellS later */
+  tellFrac: number;
+  /** odds a paper hand or chaser follows a dump */
+  follow: number;
+  /** how hard the organic flow is pulled toward the arc (0 = not at all) */
+  steer: number;
+  /** the crowd's drift closes the gap to the arc with this time constant, s */
+  flowS: number;
+  /** the open: launch wallets pump it to `peak`× by `at` s, then dump it to `dumpTo`× by `by` s (Expert's sniper flush) */
+  open?: { peak: [number, number]; at: [number, number]; dumpTo: [number, number]; by: [number, number] };
+  /** Expert: the rug lands in this window (fraction of the run), after bundle and dev-wallet tells */
+  rugAt?: [number, number];
+  /** after a CTO the crew climbs the chart back to (1 + ctoLift)× the crash by the end */
+  ctoLift: number;
 }
 export interface Adapt {
   /** per-bot reaction delay range, s (bots see your trades this late) */
@@ -147,39 +192,47 @@ export interface OrderPlay {
 }
 export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
   pve: {
-    label: "PvE", tag: "CREW", color: "#8ff0c0",
+    label: "Easy", tag: "CREW", color: "#5FF0A0",
     blurb: "Your crew helps the rocket climb. Bots buy dips at support and take modest profits at resistance. Low volatility, steady growth, an occasional small sell.",
     initial: { crew: 20, diamond: 5, scalper: 4, paperhand: 3 }, arrivalsPerMin: 10, mix: { crew: 0.55, diamond: 0.2, paperhand: 0.13, scalper: 0.12 },
-    activity: 5.5, size: 1.2, maxBots: 90, hypeSigma: 0.12,   // size: pre-#127 1.9 × ~0.63; 1.37 under the 77 s tax, recalibrated for the 7 s table (bots trade full size from ~7 s, not 77 s): 12/12, ~145 s, best p10
-    startS: [0.3, 1.4], tradeScale: 0.25, takeProfit: 0.055,
+    activity: 1, size: 1.2, maxBots: 90, hypeSigma: 0.12,   // size: pre-#127 1.9 × ~0.63; 1.37 under the 77 s tax, recalibrated for the 7 s table (bots trade full size from ~7 s, not 77 s): 12/12, ~145 s, best p10
+    startS: [0.3, 1.4], tradeScale: 0.2, takeProfit: 0.055,
     waves: { everyS: [12, 28], durS: [4, 9], sellBoost: 0.42, buyCut: 0.1 },
     adapt: { reactS: [2.5, 4.5], windowS: 20, pumpFrac: 0.03, dumpFrac: 0.02, ride: 0.06, dumpOn: 0.03, pile: 0, tpRide: 0.3, dipBuy: 0.5, budgetPerMin: 0.05, maxReactors: 2 },
     orders: { rate: 0.05, maxPerBot: 1, maxTotal: 10, sizeFrac: [0.05, 0.15], undercut: 0.03, stack: 0.5, exitInto: 0, keeperS: [1.5, 4] },
+    story: { beatS: [10, 15], shapes: { rocket: 0.8, fakeout: 0.2, fade: 0 }, dudShapes: { rocket: 0.2, fakeout: 0.4, fade: 0.4 }, fakeDip: [0.7, 0.8], peakAt: [0.7, 0.92], orbit: 0.73, orbitClimb: [10.5, 24], climb: [1.05, 1.7], fall: [0.12, 0.3], bomb: { odds: 0.25, late: 0.35, size: [0.04, 0.09], firstS: [48, 70], first: 1 },
+      pump: [0.06, 0.14], tellS: [2.5, 3], tellFrac: 0.05, follow: 0.2, steer: 1, flowS: 6, ctoLift: 1 },
   },
   pvp: {
-    label: "PvP", tag: "DOG EAT DOG", color: "#ffd24a",
+    label: "Hard", tag: "DOG EAT DOG", color: "#FF7A3D",
     blurb: "Pump-and-dump traders maximise their own profit: momentum chasers, profit takers and whales. Bigger buys, bigger sells. A high value is still possible.",
     initial: { momentum: 5, scalper: 5, paperhand: 4, whale: 1, crew: 3 }, arrivalsPerMin: 6,
     mix: { momentum: 0.26, scalper: 0.22, paperhand: 0.2, whale: 0.07, diamond: 0.13, crew: 0.12 },
-    activity: 2.4, size: 0.5, maxBots: 100, hypeSigma: 0.7,   // size: pre-#127 0.8 × ~0.63; 0.58 under the 77 s tax, recalibrated for the 7 s table to the #127-base PvP graduation (12/12, ~196–218 s)
-    startS: [0.3, 1.5], tradeScale: 0.55, takeProfit: 0.06,
+    activity: 0.6, size: 0.5, maxBots: 100, hypeSigma: 0.7,   // size: pre-#127 0.8 × ~0.63; 0.58 under the 77 s tax, recalibrated for the 7 s table to the #127-base PvP graduation (12/12, ~196–218 s)
+    startS: [0.3, 1.5], tradeScale: 0.3, takeProfit: 0.06,
     adapt: { reactS: [1.2, 2.4], windowS: 20, pumpFrac: 0.025, dumpFrac: 0.02, ride: 0.35, dumpOn: 0.35, pile: 0.3, tpRide: 0.14, dipBuy: 0.2, budgetPerMin: 0.14, maxReactors: 5 },
     orders: { rate: 0.06, maxPerBot: 1, maxTotal: 14, sizeFrac: [0.08, 0.25], undercut: 0.35, stack: 0.1, exitInto: 0.3, keeperS: [1, 3] },
+    story: { beatS: [10, 14], shapes: { rocket: 0.4, fakeout: 0.45, fade: 0.15 }, dudShapes: { rocket: 0.3, fakeout: 0.4, fade: 0.3 }, fakeDip: [0.45, 0.65], peakAt: [0.65, 0.9], orbit: 0.58, orbitClimb: [10.5, 26], climb: [1.1, 2], fall: [0.35, 0.75], bomb: { odds: 0.45, late: 0.7, size: [0.08, 0.2], firstS: [15, 30], first: 1 },
+      pump: [0.08, 0.18], tellS: [1.8, 2.3], tellFrac: 0.05, follow: 0.45, steer: 2, flowS: 5, ctoLift: 1 },
   },
   trench: {
-    label: "TRENCH WARFARE", tag: "MERCENARY", color: "#ff6b7d",
+    label: "Expert", tag: "MERCENARY", color: "#F0307F",
     blurb: "Snipers buy the launch. Bundled supply sits in clustered wallets. The dev may rug and crater the chart, and a CTO might revive it. Huge swings: a high altitude is possible, but hard. Altitude is how high the rocket's value has climbed.",
     initial: { sniper: 4, bundler: 6, rugger: 1, cto: 1, momentum: 2, scalper: 2, paperhand: 3, whale: 1 }, arrivalsPerMin: 4,
     mix: { momentum: 0.28, scalper: 0.26, paperhand: 0.32, whale: 0.04, diamond: 0.05, crew: 0.05 },
-    activity: 2.4, size: 0.42, maxBots: 100, hypeSigma: 0.7,   // size: pre-#127 0.55 × ~0.76 (unchanged for the 7 s table: graduation rate holds, 32/48 seeds either way; the launch
+    activity: 0.6, size: 0.42, maxBots: 100, hypeSigma: 0.7,   // size: pre-#127 0.55 × ~0.76 (unchanged for the 7 s table: graduation rate holds, 32/48 seeds either way; the launch
     // wallets now buy at ~7 s instead of ~77 s, so TRENCH graduates/rugs ~70 s earlier by design)
-    startS: [0.3, 1.5], tradeScale: 0.65, takeProfit: 0.05,
+    startS: [0.3, 1.5], tradeScale: 0.3, takeProfit: 0.05,
     // dev buys the first block after the 7 s sniper tax (~7.5 s), so the rug window opens ~30 s after that, at 40 s, and closes
     // 70 s earlier than under the old 77 s tax (300 s, was 110–370 s); it is tempted at ~$15K
     // (4.6× the $3,333 launch: the same $ level as the old 2.2× of $7K, now ~46% of the way to $33,333)
-    rug: { chance: 0.85, earliestS: 40, latestS: 300, minMcap: 4.6, ctoChance: 0.6, ctoDelayS: [20, 70], ctoArrivalBoost: 2.5 },
+    rug: { chance: 0.75, earliestS: 40, latestS: 300, minMcap: 2, ctoChance: 0.5, ctoDelayS: [10, 25], ctoArrivalBoost: 2.5 },
     adapt: { reactS: [0.6, 1.4], windowS: 20, pumpFrac: 0.02, dumpFrac: 0.015, ride: 0.55, dumpOn: 0.6, pile: 0.5, tpRide: 0.1, dipBuy: 0.08, budgetPerMin: 0.22, maxReactors: 8 },
     orders: { rate: 0.07, maxPerBot: 2, maxTotal: 18, sizeFrac: [0.1, 0.3], undercut: 0.6, stack: 0, exitInto: 0.55, keeperS: [0.6, 2] },
+    story: { beatS: [10, 13], shapes: { rocket: 0.15, fakeout: 0.25, fade: 0.6 }, dudShapes: { rocket: 0.3, fakeout: 0.4, fade: 0.3 }, fakeDip: [0.35, 0.55],
+      peakAt: [0.6, 0.88], orbit: 0.5, orbitClimb: [10.5, 30], climb: [1.05, 1.6], fall: [0.7, 0.95],
+      bomb: { odds: 0.5, late: 0.8, size: [0.12, 0.3], firstS: [10, 14], first: 1.5 }, pump: [0.1, 0.22], tellS: [1.5, 2], tellFrac: 0.05, follow: 0.6,
+      steer: 2, flowS: 5, ctoLift: 0.3, rugAt: [0.2, 0.6], open: { peak: [1.6, 2.4], at: [8, 12], dumpTo: [0.85, 1.05], by: [20, 30] } },
   },
 };
 
@@ -194,7 +247,8 @@ export const MARKET = {
 };
 
 // ── Player, points, achievements (sim-only scoring layer) ───────────────────────────────────────────
-export const PLAYER = { startBalanceUsd: 1000, gasUsd: 0 /* free mode: no gas */, defaultMinutes: 10 };
+/** Free play: $250 practice cash everywhere (maker, 2026-11-13); Practice runs 3 min, the Daily flight 2 min */
+export const PLAYER = { startBalanceUsd: 250, gasUsd: 0 /* free mode: no gas */, defaultMinutes: 3, dailyMinutes: 2 };
 export const POINTS = {
   perTier: 100,                      // per tier index reached (peak)
   graduation: 500,
@@ -225,7 +279,7 @@ export function mergeTune(saved: Partial<SimConfig> | null | undefined): SimConf
   const out: SimConfig = { ...c, ...saved, launch: c.launch } as SimConfig;
   out.difficulties = { ...c.difficulties };
   for (const id of Object.keys(c.difficulties) as DifficultyId[]) { const d = saved.difficulties?.[id]; if (!d) continue; const b = c.difficulties[id];
-    out.difficulties[id] = { ...b, ...d, adapt: { ...b.adapt, ...(d.adapt || {}) }, orders: { ...b.orders, ...(d.orders || {}) } }; }
+    out.difficulties[id] = { ...b, ...d, adapt: { ...b.adapt, ...(d.adapt || {}) }, orders: { ...b.orders, ...(d.orders || {}) }, story: { ...b.story, ...(d.story || {}) } }; }
   out.archetypes = { ...c.archetypes }; for (const id of Object.keys(c.archetypes) as ArchetypeId[]) { const a = saved.archetypes?.[id]; if (a) out.archetypes[id] = { ...c.archetypes[id], ...a }; }
   return out;
 }

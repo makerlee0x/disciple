@@ -18,6 +18,7 @@
     "test:chat": "node scripts/test-chat.mjs",
     "test:chat-no-trades": "tsx --conditions=react-server --test scripts/test-chat-no-trades.mts",
     "test:sim": "node scripts/test-sim.mjs",
+    "test:sim-bands": "node scripts/test-sim-bands.mjs",
     "test:recenter": "node scripts/test-recenter.mjs",
     "test:audit": "node scripts/test-audit.mjs",
     "test:share-pnl": "node scripts/test-share-pnl.mjs",

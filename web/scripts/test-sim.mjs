@@ -3,22 +3,23 @@
 //   curve mirrors CurveMath.sol steep curve #1 ($3,333 at launch, $33,333 at graduation, no price jump into the pool),
 //   the graduation floor (16 locked USDG-only bands, LockedLP.floorBands shape) absorbs dumps and re-arms on buybacks,
 //   determinism (same seed → identical run), PnL invariants for every wallet,
-//   and the difficulty shape: PvE climbs most reliably, PvP is volatile but can go high, TRENCH is hardest with rugs.
+//   and the difficulty shape at the Free play run length: Easy orbits most, Expert least and is the only one that rugs.
+//   The difficulty BANDS (green rates of scripted pilots, pacing, tells) live in scripts/test-sim-bands.mjs.
 // Plus (feat/sim-parity): tramps/walls are real range liquidity (absorb trades, fill, keeper pull + tip, revert rule),
 //   per-run reset (sim-only storage), bots place and react to orders, NO wallet cap, adaptive bots that profit more
 //   off an aggressive player at higher difficulty, and replay determinism (seed + player-input log incl. place/cancel).
-// Run: node scripts/test-sim.mjs [minutes=10] [seedsPerDifficulty=12]      (SIM_JSON=path writes the raw runs)
+// Run: node scripts/test-sim.mjs [minutes=Practice length] [seedsPerDifficulty=24]      (SIM_JSON=path writes the raw runs)
 import fs from "node:fs";
 import { loadLib } from "./lib/load-ts.mjs";
 const { mods, cleanup } = await loadLib(undefined, "sim-");
-const { SIM_CONFIG, cloneConfig, LAUNCH, DIFFICULTIES, resetSimStorage, SIM_STORAGE, mergeTune } = mods["sim/config"];
+const { SIM_CONFIG, cloneConfig, LAUNCH, DIFFICULTIES, resetSimStorage, SIM_STORAGE, mergeTune, PLAYER } = mods["sim/config"];
 const { Market } = mods["sim/market"];
 const { SimRun, fmt, YOU } = mods["sim/run"];
 const { Pool, KEEPER_TIP_BPS } = mods["sim/pool"];
 const { createSimTrampWallAdapter, SIM_ME } = mods["sim/twAdapter"];
 const { pointsFor, pointsEarned, computePreview } = mods["trampwalls/adapter"];
 const { TRAMP_WALL_POINTS_PER_USD } = mods["config"];
-const MIN = +(process.argv[2] || 10), N = +(process.argv[3] || 12);
+const MIN = +(process.argv[2] || PLAYER.defaultMinutes), N = +(process.argv[3] || 24);
 let fail = 0; const bad = (m) => { fail++; console.error("FAIL " + m); };
 // the sniper tax is a per-second table (99% in second 0 … 0.03% in second 6), 0 from 7s (ANTI_SNIPE_DURATION): "after the tax" = AS + 1 = 8 s
 const AS = LAUNCH.antiSnipeDurationS, AFTER = AS + 1;
@@ -187,18 +188,22 @@ const graduated = (d, seed, bal = 1e5) => { const r = new SimRun(cloneConfig(), 
   for (const d of Object.keys(R)) { console.log(`${d.padEnd(6)} vs your tramp+wall (6 seeds × 2 min): bots placed ${R[d].botsPlaced} · front-run ${R[d].frontrun || 0} · undercut ${R[d].undercut || 0} · exit-into ${R[d].exitInto || 0} · stack ${R[d].stack || 0}`);
     if (!(R[d].botsPlaced > 0)) bad(`${d}: bots never placed tramps/walls`); }
   if (!(hostile(R.trench) > hostile(R.pve) && hostile(R.pvp) > hostile(R.pve))) bad("bots should exploit your orders more in PvP/TRENCH than in PvE");
-  if (!((R.pve.stack || 0) > (R.trench.stack || 0))) bad("PvE bots should cooperate (stack tramps) more than TRENCH"); }
+  // (Free play has no tramps or walls in its UI, and calmer bots: the old "PvE stacks more tramps" check is gone; the
+  //  engine keeps the order book for the live mode's parity tests above)
+  if ((R.trench.stack || 0) > 0) bad("TRENCH bots should never stack a tramp with yours"); }
 
 // ---- adaptive bots: an aggressive player feeds the bots more at higher difficulty; a passive one feeds nobody ----
 { const AN = 8, AM = 6, mean = (a) => a.reduce((x, y) => x + y, 0) / a.length, med = (a) => [...a].sort((x, y) => x - y)[a.length >> 1];
   const aggressive = (r) => { const t = Math.round(r.t * 10); if (t >= 50 && t <= 1500 && t % 30 === 0) r.playerTrade("buy", 25); if (t === 3000) r.playerTrade("sell", 0, { frac: 1 }); };
-  const go = (d, seed, play) => { const r = new SimRun(cloneConfig(), d, seed); for (let i = 0; i < AM * 600; i++) { if (play) play(r); r.step(0.1); } return r; };
+  const go = (d, seed, play) => { const r = new SimRun(cloneConfig(), d, seed, { balance: 1000, minutes: AM }); for (let i = 0; i < AM * 600; i++) { if (play) play(r); r.step(0.1); } return r; };
   const A = {};
   for (const d of ["pve", "pvp", "trench"]) { const rp = [], you = [], pas = [];
     for (let i = 0; i < AN; i++) { const r = go(d, 2000 + i, aggressive); rp.push(r.reactPnl); you.push(r.pnlOf(YOU).total); if (i < 3) pas.push(go(d, 2000 + i).reactPnl); }
     A[d] = { mean: mean(rp), med: med(rp), you: med(you), pas: Math.max(...pas.map(Math.abs)) };
     console.log(`${d.padEnd(6)} aggressive player ($25 every 3 s, dump at 5:00; ${AN} seeds): bots' reaction PnL mean $${A[d].mean.toFixed(0)} (median $${A[d].med.toFixed(0)}) · your PnL median $${A[d].you.toFixed(0)} · passive player → bots' reaction PnL $${A[d].pas.toFixed(2)}`); }
-  if (!(A.trench.mean > A.pvp.mean && A.pvp.mean > A.pve.mean)) bad("bots should profit more off an aggressive player as difficulty rises (TRENCH > PvP > PvE)");
+  // (Free play: Expert's insiders take your buys as exit liquidity and the rug does the rest, so its bots' reaction PnL can
+  //  trail Hard's; what must hold is that both play you harder than Easy and that you do worse on Expert)
+  if (!(A.trench.mean > A.pve.mean && A.pvp.mean > A.pve.mean)) bad("bots should profit more off an aggressive player on Hard and Expert than on Easy");
   if (!(A.pvp.med > A.pve.med && A.trench.med > A.pve.med)) bad("median reaction PnL: PvP/TRENCH should beat PvE");
   if (!(A.pve.pas === 0 && A.pvp.pas === 0 && A.trench.pas === 0)) bad("bots reacted to a player who never traded (omniscience?)");
   if (!(A.trench.you < A.pve.you)) bad("the same aggressive play should do worse in TRENCH than in PvE"); }
@@ -236,20 +241,14 @@ for (const d of D) { const peaks = [], fin = [], rugs = [], ctos = [], bots = []
 for (const d of D) { const s = raw.find((r) => r.difficulty === d); console.log(`  ${d} seed ${s.seed}: peak ${fmt(s.peakMcap)} (${s.peakTier}) · events ${s.events.filter((e) => e.kind !== "tier").map((e) => `${e.t}s ${e.kind}`).join(", ")} · bots ${JSON.stringify(s.botsByArchetype)}`); }
 console.log(`(${((Date.now() - t0) / 1000).toFixed(1)} s wall for ${3 * N} runs)`);
 const P = out.pve, V = out.pvp, T = out.trench;
-if (!(P.p10 >= LAUNCH.graduationMcapUsd)) bad(`PvE should graduate reliably (p10 ${fmt(P.p10)})`);
-if (!(P.p10 > V.p10 && P.p10 > T.p10)) bad("PvE should have the best floor (p10)");
-// #49 retuned PvE with profit-taking + pullback waves, so PvP whales can now END higher on some seeds; what PvE must
-// keep is a reliable, calm hold: final median above graduation and above TRENCH, and more of its peak kept than PvP
-// (TRENCH is excluded from retention: rug + CTO leave a low peak that is trivially "kept").
-const keep = (o) => o.finMed / o.med;
-if (!(P.finMed >= LAUNCH.graduationMcapUsd && P.finMed > T.finMed)) bad(`PvE should hold its altitude (final median ${fmt(P.finMed)} ≥ graduation, > TRENCH)`);
-if (!(keep(P) > keep(V))) bad(`PvE should keep more of its peak than PvP (final/peak PvE ${keep(P).toFixed(2)} · PvP ${keep(V).toFixed(2)} · TRENCH ${keep(T).toFixed(2)})`);
-if (!(V.logSpread > P.logSpread)) bad("PvP should be more volatile than PvE");
-if (!(V.max >= 100_000)) bad(`PvP should be able to go high (max ${fmt(V.max)})`);
-if (!(T.med < P.med)) bad("TRENCH should be harder than PvE (median peak)");
-if (!(T.rugs >= N * 0.5)) bad(`TRENCH should rug often (${T.rugs}/${N})`);
-if (!(T.ctos >= 1)) bad("TRENCH never had a CTO");
-if (!(out.pve.rugs === 0 && out.pvp.rugs === 0)) bad("rugs outside TRENCH");
+// Free play shape at the run length (the green-rate bands are in test-sim-bands.mjs): Easy orbits most and keeps the most,
+// Expert orbits least, ends lowest and is the only difficulty that rugs (with a CTO now and then)
+if (!(P.grads >= V.grads && V.grads >= T.grads && P.grads >= N * 0.6)) bad(`orbit should fall with difficulty and Easy should orbit most runs (Easy ${P.grads} · Hard ${V.grads} · Expert ${T.grads} of ${N})`);
+if (!(P.finMed > V.finMed && P.finMed > T.finMed)) bad(`Easy should hold the most altitude (final median Easy ${fmt(P.finMed)} · Hard ${fmt(V.finMed)} · Expert ${fmt(T.finMed)})`);
+if (!(T.med < P.med)) bad("Expert should be harder than Easy (median peak)");
+if (!(V.max >= 50_000 && T.max >= 33_333)) bad(`Hard and Expert should still be able to go high (max ${fmt(V.max)} · ${fmt(T.max)})`);
+if (!(T.rugs >= N * 0.2 && T.ctos >= 1)) bad(`Expert should rug in a good share of runs, with a CTO now and then (${T.rugs}/${N} rugs, ${T.ctos} CTO)`);
+if (!(out.pve.rugs === 0 && out.pvp.rugs === 0)) bad("rugs outside Expert");
 if (process.env.SIM_JSON) fs.writeFileSync(process.env.SIM_JSON, JSON.stringify(raw, null, 1));
 cleanup();
 if (fail) process.exit(1); else console.log("PASS");
