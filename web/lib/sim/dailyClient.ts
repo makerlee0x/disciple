@@ -20,17 +20,26 @@ export function deviceId(): string {
   } catch { return "anon-" + Math.random().toString(36).slice(2).padEnd(16, "0"); }
 }
 
-export interface DailyVerdict { runId: string; name: string; score: DailyScore; rank: number; count: number; topPct: number; already: boolean; /** already: the input log of the run that was scored first */ inputs?: PlayerInput[] }
-export interface LocalDaily { id: number; inputs: PlayerInput[]; verdict: DailyVerdict | null }
+export interface DailyVerdict { runId: string; name: string; score: DailyScore; rank: number; count: number; topPct: number; already: boolean; /** the day's seed (for the chart replay) */ seed: number; /** already: the input log of the run that was scored first */ inputs?: PlayerInput[] }
+export interface LocalDaily { id: number; seed: number; inputs: PlayerInput[]; verdict: DailyVerdict | null }
 
 export function savedDaily(id: number): LocalDaily | null {
-  try { const s = localStorage.getItem(runKey(id)); return s ? (JSON.parse(s) as LocalDaily) : null; } catch { return null; }
+  try { const s = localStorage.getItem(runKey(id)), d = s ? (JSON.parse(s) as LocalDaily) : null; return d && typeof d.seed === "number" ? d : null; } catch { return null; }
 }
 export function saveDaily(d: LocalDaily) { try { localStorage.setItem(runKey(d.id), JSON.stringify(d)); } catch { /* ignore */ } }
 
-export async function submitDaily(id: number, inputs: PlayerInput[]): Promise<{ ok: true; verdict: DailyVerdict } | { ok: false; error: string }> {
+/** start today's scored run: the seed (secret until now) and the start ticket the submit needs */
+export async function startDaily(id: number): Promise<{ ok: true; seed: number; ticket: string; already: boolean } | { ok: false; error: string }> {
   try {
-    const res = await fetch("/api/daily", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, device: deviceId(), inputs }) });
+    const res = await fetch("/api/daily/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, device: deviceId() }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || typeof j.seed !== "number") return { ok: false, error: typeof j.error === "string" ? j.error : "Couldn't reach the board." };
+    return { ok: true, seed: j.seed, ticket: String(j.ticket || ""), already: !!j.already };
+  } catch { return { ok: false, error: "Couldn't reach the board." }; }
+}
+export async function submitDaily(id: number, inputs: PlayerInput[], ticket: string): Promise<{ ok: true; verdict: DailyVerdict } | { ok: false; error: string }> {
+  try {
+    const res = await fetch("/api/daily", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, device: deviceId(), inputs, ticket }) });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) return { ok: false, error: typeof j.error === "string" ? j.error : "Couldn't reach the board." };
     return { ok: true, verdict: j as DailyVerdict };

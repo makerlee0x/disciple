@@ -43,11 +43,11 @@ function storyLine(s: DailyScore, dumper: string | null) {
 
 export interface DailyGhost { name: string; multiple: number; outAtS: number | null }
 
-export default function DailyResult({ id, label, inputs, verdict, error, ghost, onClose, onAgain, onPractice }: {
-  id: number; label: string; inputs: PlayerInput[]; verdict: DailyVerdict | null; error?: string | null; ghost?: DailyGhost | null;
+export default function DailyResult({ id, seed, label, inputs, verdict, error, ghost, onClose, onAgain, onPractice }: {
+  id: number; seed: number; label: string; inputs: PlayerInput[]; verdict: DailyVerdict | null; error?: string | null; ghost?: DailyGhost | null;
   onClose: () => void; onAgain: () => void; onPractice: () => void;
 }) {
-  const rc = useMemo(() => dailyRecap(id, inputs), [id, inputs]);
+  const rc = useMemo(() => dailyRecap(seed, inputs), [seed, inputs]);
   const s = verdict?.score ?? rc.score;
   const [rank, setRank] = useState(verdict ? { rank: verdict.rank, count: verdict.count, topPct: verdict.topPct } : null);
   const [note, setNote] = useState<string | null>(null);

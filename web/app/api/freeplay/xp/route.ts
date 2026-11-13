@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     const run = await readRun(id, runIdOf(device));
     if (!run) return out(404, { ok: false, reason: "No scored daily on this device." });
     if (!(await bindOwner(id, run.runId, wallet))) return out(409, { ok: false, reason: "This run is saved to another pilot." });
-    const r = await awardFreePlay(wallet, `fp:d:${id}`, freePlayXp("daily", run.score), `Daily flight #${id}`);
+    const r = await awardFreePlay(wallet, `fp:d:${id}`, run.flags?.length ? 0 : freePlayXp("daily", run.score), `Daily flight #${id}`);   // a flagged run pays nothing
     return r.ok ? out(200, { ...r, perDay: FREE_PLAY_XP.perDay, runId: run.runId }) : out(409, r);
   }
   if (body.practice) {

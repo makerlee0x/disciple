@@ -7,7 +7,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { dailyOpen, pilotOf, readRun } from "@/lib/server/daily";
 import LevelRing from "@/components/xp/LevelRing";
-import { dailySeed, dailyToday, fmtMultiple, DAILY } from "@/lib/sim/daily";
+import { dailyToday, fmtMultiple, DAILY } from "@/lib/sim/daily";
+import { serverDailySeed } from "@/lib/server/dailySeed";
 import { cloneConfig, PLAYER } from "@/lib/sim/config";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +39,7 @@ export default async function DailyChallenge(p: P) {
   const id = d?.id ?? dailyToday(), run = d?.run ?? null, pilot = d?.pilot ?? null;
   const label = cloneConfig().difficulties[DAILY.difficulty].label.toUpperCase();
   // today's open daily is scored; a closed one is flown on its exact seed as practice
-  const href = dailyOpen(id) && id === dailyToday() ? `/flight/sim?daily=1${run ? `&c=${run.runId}` : ""}` : `/flight/sim?difficulty=${DAILY.difficulty}&seed=${dailySeed(id)}&autostart=1${run ? `&d=${id}&c=${run.runId}` : ""}`;
+  const href = dailyOpen(id) && id === dailyToday() ? `/flight/sim?daily=1${run ? `&c=${run.runId}` : ""}` : `/flight/sim?difficulty=${DAILY.difficulty}&seed=${await serverDailySeed(id)}&autostart=1${run ? `&d=${id}&c=${run.runId}` : ""}`;
   const name = pilot?.name ?? run?.name ?? "", initials = name.replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase();
   return (
     <div data-testid="daily-challenge" style={{ position: "fixed", inset: 0, zIndex: 60, background: "#0B0C0E", color: "#F2F3F7", fontFamily: "var(--dsc-font-ui)", overflow: "auto" }}>
