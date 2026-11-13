@@ -80,8 +80,10 @@ body.game {
   align-items: center;
   flex: 0 1 auto;
   min-width: 0;
+  min-height: 44px;   /* thumb-sized hit area (mobile plan) */
   text-decoration: none;
 }
+#apSide.collapsed .ap-logo { min-width: 44px; justify-content: center; }
 #apSide .ap-logo img { display: block; }
 #apSide .ap-lockup { height: 38px; width: auto; max-width: 100%; margin-left: -8px; }
 #apSide .ap-mark { display: none !important; width: 30px; height: 30px; }
@@ -1523,7 +1525,7 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .pf-stat span { font-size: 12px; color: var(--dsc-muted); }
 .pf-stat strong { font: 500 16px var(--dsc-font-mono); color: var(--dsc-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pf-stat.pos strong { color: var(--dsc-up); } .pf-stat.neg strong { color: var(--dsc-down); }
-.pf-toast { position: fixed; left: 50%; bottom: calc(24px + var(--ap-safe-bottom)); transform: translateX(-50%); z-index: 120; padding: 10px 16px; border-radius: var(--dsc-radius-lg); background: var(--dsc-surface-2); border: 1px solid var(--dsc-border-color-subtle); font-size: 14px; }
+.pf-toast { position: fixed; left: 50%; bottom: calc(24px + var(--ap-safe-bottom) + var(--ap-bottom-nav, 0px)); transform: translateX(-50%); z-index: 120; padding: 10px 16px; border-radius: var(--dsc-radius-lg); background: var(--dsc-surface-2); border: 1px solid var(--dsc-border-color-subtle); font-size: 14px; }
 
 /* Tabs */
 .pf-tabbar { display: flex; align-items: center; justify-content: space-between; scroll-margin-top: calc(var(--ap-topbar-offset) + 8px); }
@@ -1715,7 +1717,7 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .wb-invite {
   position: fixed;
   left: 50%;
-  bottom: calc(16px + var(--ap-safe-bottom));
+  bottom: calc(16px + var(--ap-safe-bottom) + var(--ap-bottom-nav, 0px));
   transform: translateX(-50%);
   z-index: 60;
   display: flex;

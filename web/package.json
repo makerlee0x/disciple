@@ -35,6 +35,7 @@
     "test:phone-hud": "node scripts/test-phone-hud.mjs",
     "test:mobile-responsive": "node scripts/test-mobile-responsive.mjs",
     "test:touch-feel": "tsx --test scripts/test-touch-feel.mts",
+    "test:phone-widths": "node scripts/test-phone-widths.mjs",
     "test:trades-order": "node scripts/test-trades-order.mjs",
     "test:snipe": "node scripts/test-snipe.mjs",
     "test:snipe-countdown": "node scripts/test-snipe-countdown.mjs",

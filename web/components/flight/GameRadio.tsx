@@ -62,6 +62,10 @@ const PILL: React.CSSProperties = {
   bottom: 16,
   zIndex: 36,
   padding: "2px 6px",
+  minHeight: 32,   // phones: the RADIO pill is a thumb target (mobile plan)
+  display: "inline-flex",
+  alignItems: "center",
+  boxSizing: "border-box",
   borderRadius: 6,
   background: "rgba(8,10,28,.86)",
   border: "1px solid rgba(255,231,163,.45)",

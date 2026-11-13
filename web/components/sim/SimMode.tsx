@@ -168,7 +168,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
             <div style={{ display: "flex", gap: 14, alignItems: "center", marginTop: 18, flexWrap: "wrap", fontSize: 12 }}>
               <label>seed <input data-testid="sim-seed" value={seedText} placeholder="random" onChange={(e) => setSeedText(e.target.value)} style={{ ...mono, width: 110, background: "#0d1030", color: "#e8ecff", border: "1px solid #334", borderRadius: 6, padding: "4px 6px" }} /></label>
               <label>minutes <input type="number" min={1} max={60} value={minutes} onChange={(e) => setMinutes(Math.max(1, Math.min(60, +e.target.value || 10)))} style={{ ...mono, width: 56, background: "#0d1030", color: "#e8ecff", border: "1px solid #334", borderRadius: 6, padding: "4px 6px" }} /></label>
-              <span>speed {SPEEDS.map((s) => <button key={s} style={{ ...btn(speed === s), marginLeft: 4 }} onClick={() => setSpeed(s)}>{s}×</button>)}</span>
+              <span>speed {SPEEDS.map((s) => <button key={s} style={{ ...btn(speed === s), marginLeft: 4, ...(phone ? { minHeight: 40, minWidth: 44 } : {}) }} onClick={() => setSpeed(s)}>{s}×</button>)}</span>
               <span style={{ opacity: 0.75 }}>balance ${(initial.balance || cfg.player.startBalanceUsd).toLocaleString()} paper</span>
               <button data-testid="sim-start" onClick={() => start()} style={{ ...btn(true, D.color), padding: "10px 26px", fontSize: 15, marginLeft: "auto" }}>START ▸</button>
             </div>
