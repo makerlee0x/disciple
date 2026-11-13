@@ -15,11 +15,13 @@ import s from "./hangarBay.module.css";
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 
-export default function HangarBay({ handle, bio, avatar, xp, loadout, actions, spend }: {
+export default function HangarBay({ handle, bio, avatar, xp, loadout, actions, spend, eyebrow, lines }: {
   handle: string; bio: ReactNode; avatar: ReactNode; xp: XpSummary | null; loadout: Loadout; actions?: ReactNode; spend: boolean;
+  /** signed-out Hangar: its own eyebrow and title lines in place of the pilot's */
+  eyebrow?: ReactNode; lines?: string[];
 }) {
   const L = xp?.level;
-  const words = handle.replace(/^@/, "").split(/\s+/);
+  const words = lines ?? handle.replace(/^@/, "").split(/\s+/);
   return (
     <section className={s.bay} style={{ ["--plate" as string]: `url(${withBase("/hangar/plate-1280.webp")})`, ["--flame" as string]: loadout.flame }} data-testid="profile-identity">
       <div className={s.stage} aria-hidden>
@@ -43,8 +45,8 @@ export default function HangarBay({ handle, bio, avatar, xp, loadout, actions, s
 
       <div className={s.card}>
         <div className={s.eyebrow}>
-          <span className={s.av}>{avatar}</span>
-          <span>{L ? `Pilot · Level ${L.level} · ${L.prestige ? `Prestige ${L.prestige} · ` : ""}${L.prestigeName}` : "Pilot"}</span>
+          {eyebrow ?? <><span className={s.av}>{avatar}</span>
+          <span>{L ? `Pilot · Level ${L.level} · ${L.prestige ? `Prestige ${L.prestige} · ` : ""}${L.prestigeName}` : "Pilot"}</span></>}
         </div>
         <h1 className={s.name}>
           {words.length > 1 ? words.map((w, i) => <span key={i}>{w}</span>) : <span>{handle}</span>}

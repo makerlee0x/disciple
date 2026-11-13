@@ -17,6 +17,8 @@ import { PRIVY_APP_ID, aaSession, registerPrivy, type PrivyAccountInfo, type Pri
 import { connectPrivyOwner, disconnect } from "@/lib/wallet";
 import { withPrivyTxType } from "@/lib/aa/privyTx";
 import { syncLocalIdentity } from "@/lib/profile";
+import { withBase } from "@/lib/base-path";
+import { SIGN_IN_COPY, SIGN_IN_FAILED_EVENT } from "@/lib/walletCta";
 
 type AccountLike = { type?: string; latestVerifiedAt?: Date | string | null; walletClientType?: string; email?: string; address?: string; username?: string | null };
 const METHOD: Record<string, PrivyAccountInfo["method"]> = { email: "Email", google_oauth: "Google", twitter_oauth: "X", wallet: "a wallet" };
@@ -82,7 +84,7 @@ function PrivyBridge() {
       .then((owner) => connectPrivyOwner(withPrivyTxType(owner)))
       // the cached @name belongs to the account that claimed it: a different sign-in must not keep showing it
       .then((acct) => { void syncLocalIdentity(acct).catch(() => undefined); })
-      .catch((e) => { linked.current = null; console.warn("[privy] owner setup failed", (e as Error).message); });
+      .catch((e) => { linked.current = null; console.warn("[privy] owner setup failed", (e as Error).message); dispatchEvent(new Event(SIGN_IN_FAILED_EVENT)); });
   }, [ready, walletsReady, authenticated, wallets, user, linkedAccounts, createWallet]);
   return null;
 }
@@ -94,7 +96,12 @@ export default function PrivyMount() {
       appId={PRIVY_APP_ID}
       config={{
         loginMethods: ["email", "google", "twitter", "wallet"],
-        appearance: { theme: "dark", accentColor: "#C9CED6", showWalletLoginFirst: false },
+        // step 5 board "Sign in, account menu, Hangar signed out": the window in DISCIPLE gold with our mark and words
+        appearance: {
+          theme: "#14151B", accentColor: "#F2C14E", showWalletLoginFirst: false,
+          logo: withBase("/brand/disciple-mark-light.svg"),
+          landingHeader: SIGN_IN_COPY.header, loginMessage: SIGN_IN_COPY.line,
+        },
         embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" }, showWalletUIs: false },
         defaultChain: ACTIVE_CHAIN,
         supportedChains: [ACTIVE_CHAIN],
