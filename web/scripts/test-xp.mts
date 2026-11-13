@@ -300,3 +300,27 @@ test("in-flight missions join the pools only from Monday Nov 16: running periods
     assert.equal(ev("w_cashout", [buy, mine(T0 + H, "sell", 30, 60, { mcapUsd: 5_500 })], [cf(T0 + 30 * MIN, P2, "buy", 5, { mcapUsd: 5_400 })], { p: week }).progress, 0);   // no tier climbed
   });
 }
+
+import { computeFlightLog, type FlightLogFill } from "../lib/flightLog";
+test("flight log: peak aboard, bombs survived, wingmen, boosts, all from the fills", () => {
+  const P2 = "0x00000000000000000000000000000000000000b2", P3 = "0x00000000000000000000000000000000000000b3";
+  let b = 0;
+  const x = (ts: number, trader: string, side: "buy" | "sell", usd: number, mcapUsd: number, impactBps = 0): FlightLogFill => ({ ts, block: ++b, logIndex: 0, trader, side, tokens: usd, usd, mcapUsd, impactBps });
+  const fills = [
+    x(T0 - H, P2, "buy", 50, 4_000),                 // before the flight
+    x(T0 + 1_000, W, "buy", 10, 5_000),              // you board
+    x(T0 + 2_000, P2, "buy", 40, 9_000),
+    x(T0 + 3_000, P3, "buy", 30, 14_000),            // peak, OZONE
+    x(T0 + 4_000, P3, "buy", 3, 14_100),             // dust: not a wingman boost (P3 already counted anyway)
+    x(T0 + 5_000, P2, "sell", 60, 8_000, 900),       // a bomb you sit through
+    x(T0 + 20 * MIN, W, "sell", 10, 7_000),          // you cash out long after
+    x(T0 + 21 * MIN, P3, "buy", 400, 30_000),        // higher, but you're gone
+  ];
+  const log = computeFlightLog({ wallet: W, since: T0, now: T0 + H, fills, slingshots: 2, xp: 120 });
+  assert.equal(log.peakMcap, 14_100); assert.equal(log.peakTier, "OZONE");
+  assert.equal(log.bombsSurvived, 1); assert.equal(log.wingmen, 2); assert.equal(log.boosts, 1);
+  assert.equal(log.slingshots, 2); assert.equal(log.xp, 120);
+  // sold inside the 10 minutes: not survived
+  const bailed = [...fills.slice(0, 6), x(T0 + 6_000, W, "sell", 5, 7_900)];
+  assert.equal(computeFlightLog({ wallet: W, since: T0, now: T0 + H, fills: bailed }).bombsSurvived, 0);
+});
