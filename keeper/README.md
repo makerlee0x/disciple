@@ -47,7 +47,11 @@ With `"stockQueue"` set on the entry (the `CarryStockQueue` address from the Car
 stock waiting there for lender USDG: every `sampling.matchEverySec` (default 60 s), for each market with stock waiting,
 it dry-runs `matchOrders(market, matchSteps)` and sends it, at its own gas, only when the dry run would match
 something (lender USDG freed up, say after a lender deposit or a close). No free USDG, a full market cap or a paused
-vault cost nothing but the eth_calls.
+vault cost nothing but the eth_calls. One more case: the vault takes a deposit only while the pool's centre is within
+its fee (at most 0.25%) of the leader, live and at the last block's reading, but the hook only pays a sample from 1%.
+So in a quiet market waiting stock can be blocked with USDG free. Then the keeper samples the pool at its own gas
+(about 80k), once when the centre is 0.1% or more off and once more a block later, and matches on the next round. At
+most `sampling.matchSampleMaxPerHour` (default 12) such samples per pool per hour.
 
 On the local anvil test, with plain tokens, a tip came to about gas + 26% (the hook adds a fixed 90k for the gas
 it cannot measure, sized for heavier real tokens). The first tip in a token pays about gas + 10%, because the
@@ -206,7 +210,9 @@ on the Robinhood side, or use a plan with a larger range (and raise `logChunk`).
 | `sampling.sweepEverySec` | 60 | Carry pools: how often to check each pool's Morpho tail (0 = never sweep) |
 | `sampling.sweepBandBps` | 20000 | Carry pools: sweep once hot quote is above this share of its target (20000 = 2x) |
 | `sampling.matchEverySec` | 60 | Carry stock queue: how often to check each market's line (0 = never match) |
+| `sampling.selfPayBpsCarry` | 15 | `selfPayBps` for Carry pools (`abi: "carry"`): the vault takes deposits only while the centre is within the pool fee (at most 0.25%) of the leader, so the keeper keeps it within 0.15%, at its own gas (about 80k a sample). 0 = off |
 | `sampling.matchSteps` | 20 | Carry stock queue: most orders one `matchOrders` call works through |
+| `sampling.matchSampleMaxPerHour` | 12 | Carry stock queue: most unpaid samples per pool per hour to unblock waiting stock (the vault takes deposits only while the pool's centre is within its fee, at most 0.25%, of the leader; 0 = never) |
 | `routes[].pools` | `[]` | extra pool ids to serve |
 | `routes[].scanPools` / `scanPushes` | true | scan for new pools / for other keepers' packets |
 | `policy.moveBps` | 102 | move trigger in bps |

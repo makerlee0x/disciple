@@ -78,6 +78,8 @@ export const carryQueueAbi = parseAbi([
   "function matchOrders(uint256 market, uint256 maxSteps) returns (uint256 matched)",
   "event Matched(uint256 indexed orderId, uint256 indexed positionId, uint256 used, uint256 left)",
   "function marketCount() view returns (uint256)",
+  "function freeUsdg() view returns (uint256)",
+  "function markets(uint256 market) view returns ((address token, bytes32 pool, bool active, uint256 cap, uint256 lent, uint256 shares, uint256 owed))",
 ]);
 
 /** Leader (same-chain source) reads: v2 pair, v3 pool, v4 PoolManager. */

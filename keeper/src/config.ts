@@ -57,6 +57,10 @@ export interface Sampling {
   /** 0 = off. Otherwise also sample, unpaid and at our own gas, when a pool's centre is at least this many bps from
    *  its leader's live price, below the hook's 1% tip line. Keeps a low-fee pool quoting at the market. */
   selfPayBps: number;
+  /** selfPayBps for Carry pools (`abi: "carry"`), default 15. The Carry vault takes a deposit (a paired stock + own
+   *  USDG deposit goes straight to it) only while the pool's centre is within its fee, at most 0.25%, of the leader,
+   *  so its centre has to stay that close for deposits to go through at any time, not only when the 1% tip pays. */
+  selfPayBpsCarry: number;
   /** Most unpaid (selfPayBps) samples per pool per hour, a cost ceiling. */
   selfPayMaxPerHour: number;
   /** Carry pools only: how often to check each pool's Morpho tail, seconds (0 = never sweep). Swaps pull USDG out of
@@ -70,6 +74,13 @@ export interface Sampling {
   matchEverySec: number;
   /** Orders one matchOrders call works through at most. */
   matchSteps: number;
+  /** Carry stock queue: most unpaid samples per pool per hour taken to unblock waiting stock (0 = never). The vault
+   *  takes a deposit only while the pool's centre is within its fee (at most 0.25%) of the leader, both live and at
+   *  the last block's reading, and the hook's paid tip line is 1%. So in a quiet market waiting stock can sit there
+   *  with lender USDG free. When a match dry run finds nothing while USDG is free and the centre is off the leader,
+   *  the keeper samples the pool, at its own gas, and tries again next round (a second reading in a later block
+   *  clears the last-block half of the check). */
+  matchSampleMaxPerHour: number;
 }
 
 export interface Policy {
@@ -189,11 +200,13 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       restSec: Number(sm.restSec ?? 3600),
       minGapSec: Number(sm.minGapSec ?? 13),
       selfPayBps: Number(sm.selfPayBps ?? 0),
+      selfPayBpsCarry: Number(sm.selfPayBpsCarry ?? 15),
       selfPayMaxPerHour: Number(sm.selfPayMaxPerHour ?? 60),
       sweepEverySec: Number(sm.sweepEverySec ?? 60),
       sweepBandBps: Number(sm.sweepBandBps ?? 20_000),
       matchEverySec: Number(sm.matchEverySec ?? 60),
       matchSteps: Number(sm.matchSteps ?? 20),
+      matchSampleMaxPerHour: Number(sm.matchSampleMaxPerHour ?? 12),
     },
     policy: {
       moveBps: b(p.moveBps, 102n),

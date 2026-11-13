@@ -56,6 +56,9 @@ interface Clients {
   chain: Chain;
 }
 
+/** Carry: a pool's centre at least this far (bps) from its leader may fail the vault's deposit check (the pool fee,
+ *  10 to 25 bps): below it a blocked match is some other cause (cap, paused) and is not worth a sample. */
+export const MATCH_SAMPLE_BPS = 10;
 /** Least gas a matchOrders transaction is sent with: the queue needs 3M left before each match (one match is ~1.9M on mainnet). */
 const MATCH_GAS_FLOOR = 5_000_000n;
 
@@ -175,6 +178,8 @@ export class Keeper {
   /** Carry: last stock queue check per set (unix s) */
   private lastMatchCheck = new Map<string, number>();
   private selfPaid = new Map<string, number[]>();
+  /** Carry: unpaid samples taken to unblock the stock queue, by pool id, and when the last one was taken */
+  private matchSampled = new Map<string, number[]>();
 
   private cfg: Config;
   private state: State;
@@ -785,9 +790,10 @@ export class Keeper {
         await this.sample(s, id);
         continue;
       }
-      if (sm.selfPayBps <= 0 || !selfPayRoom(this.selfPaid, id, t, sm.selfPayMaxPerHour)) continue;
+      const selfPay = s.abi === "carry" ? sm.selfPayBpsCarry : sm.selfPayBps;
+      if (selfPay <= 0 || !selfPayRoom(this.selfPaid, id, t, sm.selfPayMaxPerHour)) continue;
       const gap = await this.leaderGapBps(s, id, rs.pools[id] as PoolSource);
-      if (gap >= sm.selfPayBps) {
+      if (gap >= selfPay) {
         if (!this.selfPaid.has(id)) this.selfPaid.set(id, []);
         this.selfPaid.get(id)!.push(t);
         await this.sample(s, id, false);
@@ -895,9 +901,45 @@ export class Keeper {
         this.log.warn(`${s.name}: matchOrders(${m}) dry run failed: ${(e as Error).message?.split("\n")[0]}`);
         continue;
       }
-      if (would === 0n) continue;
+      if (would === 0n) {
+        await this.unblockMatch(s, vault, m);
+        continue;
+      }
       await this.matchOrders(s, q, m, BigInt(sm.matchSteps), would);
     }
+  }
+
+  /** Stock waits, the dry run matched nothing, and lender USDG is free: most likely the pool's centre is too far from
+   *  the leader for the vault's deposit check (Rebalancing). Sample the pool, unpaid, when its centre is at least
+   *  MATCH_SAMPLE_BPS off the leader, or once more right after such a sample (the check also wants the last block's
+   *  reading near), then check the line again next round. Capped at matchSampleMaxPerHour per pool. A sample only
+   *  moves the centre toward the real leader price; the vault's check itself is unchanged. */
+  async unblockMatch(s: SameChainCfg, vault: Hex, market: bigint): Promise<void> {
+    const sm = this.cfg.sampling;
+    if (sm.matchSampleMaxPerHour <= 0) return;
+    const { pub } = this.c(s.chain);
+    const [free, mk] = await Promise.all([
+      pub.readContract({ address: vault, abi: carryQueueAbi, functionName: "freeUsdg" }).catch(() => 0n),
+      pub.readContract({ address: vault, abi: carryQueueAbi, functionName: "markets", args: [market] }).catch(() => null),
+    ]);
+    if (free === 0n || !mk || !mk.active) return;
+    const id = (mk.pool as string).toLowerCase() as Hex;
+    const src = routeState(this.state, s.name).pools[id] as PoolSource | undefined;
+    if (!src) return;
+    const t = now();
+    if ((this.lastSample.get(id) ?? 0) + sm.minGapSec > t) {
+      this.lastMatchCheck.delete(s.name); // a reading is too recent to take another: look again next round
+      return;
+    }
+    const recent = this.matchSampled.get(id) ?? [];
+    const follow = recent.length > 0 && recent[recent.length - 1] > t - 3 * sm.minGapSec - this.cfg.pollSeconds;
+    const gap = await this.leaderGapBps(s, id, src);
+    if (gap < MATCH_SAMPLE_BPS && !follow) return;
+    if (!selfPayRoom(this.matchSampled, id, t, sm.matchSampleMaxPerHour)) return;
+    this.matchSampled.get(id)!.push(t);
+    this.log.info(`${s.name}: market ${market} has stock waiting and USDG free; centre ${gap} bps off its leader, sampling to unblock`);
+    await this.sample(s, id, false);
+    this.lastMatchCheck.delete(s.name);
   }
 
   async matchOrders(s: SameChainCfg, q: Hex, market: bigint, steps: bigint, would: bigint): Promise<void> {
