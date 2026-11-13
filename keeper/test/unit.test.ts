@@ -116,7 +116,7 @@ test("config: same-chain sets, sampling and jar policy defaults", () => {
   assert.equal(c.sameChain[0].hook, "0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88");
   assert.deepEqual(c.sameChain[0].pools, ["0xabcd"]);
   assert.equal(c.sameChain[0].scanPools, true);
-  assert.deepEqual(c.sampling, { everySec: 13, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayMaxPerHour: 60, sweepEverySec: 60, sweepBandBps: 20_000, matchEverySec: 60, matchSteps: 20, matchSampleMaxPerHour: 12 });
+  assert.deepEqual(c.sampling, { everySec: 13, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayBpsCarry: 15, selfPayMaxPerHour: 60, sweepEverySec: 60, sweepBandBps: 20_000, matchEverySec: 60, matchSteps: 20, matchSampleMaxPerHour: 12 });
   assert.equal(c.sameChain[0].abi, "disciple");
   assert.equal(c.policy.minJar, 0n);
   assert.equal(c.policy.collectEverySec, 86_400);

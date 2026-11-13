@@ -210,6 +210,7 @@ on the Robinhood side, or use a plan with a larger range (and raise `logChunk`).
 | `sampling.sweepEverySec` | 60 | Carry pools: how often to check each pool's Morpho tail (0 = never sweep) |
 | `sampling.sweepBandBps` | 20000 | Carry pools: sweep once hot quote is above this share of its target (20000 = 2x) |
 | `sampling.matchEverySec` | 60 | Carry stock queue: how often to check each market's line (0 = never match) |
+| `sampling.selfPayBpsCarry` | 15 | `selfPayBps` for Carry pools (`abi: "carry"`): the vault takes deposits only while the centre is within the pool fee (at most 0.25%) of the leader, so the keeper keeps it within 0.15%, at its own gas (about 80k a sample). 0 = off |
 | `sampling.matchSteps` | 20 | Carry stock queue: most orders one `matchOrders` call works through |
 | `sampling.matchSampleMaxPerHour` | 12 | Carry stock queue: most unpaid samples per pool per hour to unblock waiting stock (the vault takes deposits only while the pool's centre is within its fee, at most 0.25%, of the leader; 0 = never) |
 | `routes[].pools` | `[]` | extra pool ids to serve |

@@ -790,9 +790,10 @@ export class Keeper {
         await this.sample(s, id);
         continue;
       }
-      if (sm.selfPayBps <= 0 || !selfPayRoom(this.selfPaid, id, t, sm.selfPayMaxPerHour)) continue;
+      const selfPay = s.abi === "carry" ? sm.selfPayBpsCarry : sm.selfPayBps;
+      if (selfPay <= 0 || !selfPayRoom(this.selfPaid, id, t, sm.selfPayMaxPerHour)) continue;
       const gap = await this.leaderGapBps(s, id, rs.pools[id] as PoolSource);
-      if (gap >= sm.selfPayBps) {
+      if (gap >= selfPay) {
         if (!this.selfPaid.has(id)) this.selfPaid.set(id, []);
         this.selfPaid.get(id)!.push(t);
         await this.sample(s, id, false);

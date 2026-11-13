@@ -43,6 +43,7 @@
     "restSec": 3600,
     "minGapSec": 13,
     "selfPayBps": 0,
+    "selfPayBpsCarry": 15,
     "selfPayMaxPerHour": 60,
     "sweepEverySec": 60,
     "sweepBandBps": 20000,

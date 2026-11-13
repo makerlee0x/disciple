@@ -57,6 +57,10 @@ export interface Sampling {
   /** 0 = off. Otherwise also sample, unpaid and at our own gas, when a pool's centre is at least this many bps from
    *  its leader's live price, below the hook's 1% tip line. Keeps a low-fee pool quoting at the market. */
   selfPayBps: number;
+  /** selfPayBps for Carry pools (`abi: "carry"`), default 15. The Carry vault takes a deposit (a paired stock + own
+   *  USDG deposit goes straight to it) only while the pool's centre is within its fee, at most 0.25%, of the leader,
+   *  so its centre has to stay that close for deposits to go through at any time, not only when the 1% tip pays. */
+  selfPayBpsCarry: number;
   /** Most unpaid (selfPayBps) samples per pool per hour, a cost ceiling. */
   selfPayMaxPerHour: number;
   /** Carry pools only: how often to check each pool's Morpho tail, seconds (0 = never sweep). Swaps pull USDG out of
@@ -196,6 +200,7 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       restSec: Number(sm.restSec ?? 3600),
       minGapSec: Number(sm.minGapSec ?? 13),
       selfPayBps: Number(sm.selfPayBps ?? 0),
+      selfPayBpsCarry: Number(sm.selfPayBpsCarry ?? 15),
       selfPayMaxPerHour: Number(sm.selfPayMaxPerHour ?? 60),
       sweepEverySec: Number(sm.sweepEverySec ?? 60),
       sweepBandBps: Number(sm.sweepBandBps ?? 20_000),
