@@ -69,21 +69,32 @@ export function scoreRun(r: SimRun): DailyScore {
     goals: { green: pnl > 0.005, cash2x: multiple >= 2, orbit: r.m.gradAt != null }, boardedMcap, boardedAtS, outMcap, peakMcap: Math.round(r.peak), peakAtS: +r.peakT.toFixed(1), outAtS };
 }
 
-/** a submitted input log, checked: trades only (no tramps or walls in Free play), in block order, inside the run */
-export function validInputs(x: unknown, seconds = dailySeconds()): x is PlayerInput[] {
+/** a submitted input log, checked: trades only (no tramps or walls in the Daily; `orders` lets a practice log keep them),
+ *  in block order, inside the run */
+export function validInputs(x: unknown, seconds = dailySeconds(), orders = false): x is PlayerInput[] {
   if (!Array.isArray(x) || x.length > DAILY.maxInputs) return false;
   const N = Math.round(seconds / SIM_CONFIG.market.blockS); let last = 0;
   for (const i of x) {
     if (!i || typeof i !== "object") return false;
     const o = i as Record<string, unknown>;
-    if (o.op !== "trade" || (o.side !== "buy" && o.side !== "sell")) return false;
     if (!Number.isInteger(o.blk) || (o.blk as number) < last || (o.blk as number) > N) return false;
+    if (orders && (o.op === "place" || o.op === "cancel")) {
+      const fin = (k: string, lo: number, hi: number) => typeof o[k] === "number" && Number.isFinite(o[k]) && (o[k] as number) >= lo && (o[k] as number) <= hi;
+      if (o.op === "place" ? !((o.kind === "tramp" || o.kind === "wall") && fin("mcapUsd", 1, 1e12) && fin("widthPct", 0, 100) && fin("sizeUsd", 0, 1e6)) : !Number.isInteger(o.id)) return false;
+      if (Object.keys(o).some((k) => !(o.op === "place" ? ["blk", "op", "kind", "mcapUsd", "widthPct", "sizeUsd"] : ["blk", "op", "id"]).includes(k))) return false;
+      last = o.blk as number; continue;
+    }
+    if (o.op !== "trade" || (o.side !== "buy" && o.side !== "sell")) return false;
     if (typeof o.usd !== "number" || !Number.isFinite(o.usd) || o.usd < 0 || o.usd > 1e6) return false;
     if (o.frac != null && (typeof o.frac !== "number" || !(o.frac > 0 && o.frac <= 1))) return false;
     const keys = Object.keys(o); if (keys.some((k) => !["blk", "op", "side", "usd", "frac"].includes(k))) return false;
     last = o.blk as number;
   }
   return true;
+}
+/** re-fly a practice run (default config, 2 min, $250) and score it: what practice XP is paid on */
+export function verifyPractice(difficulty: DifficultyId, seed: number, inputs: PlayerInput[]): DailyScore {
+  const m = SIM_CONFIG.player.defaultMinutes; return scoreRun(SimRun.replay(cloneConfig(), difficulty, seed, inputs, m * 60, { minutes: m }));
 }
 /** re-fly daily `id` with an input log on the default config and score it (the server's verdict) */
 export function verifyDaily(id: number, inputs: PlayerInput[]): DailyScore {

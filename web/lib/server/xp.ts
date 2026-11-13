@@ -20,7 +20,7 @@ import { partById } from "@/lib/parts";
 import { playerUsd, type Fill } from "@/lib/trades";
 import { V1_RULES, type AchievementUnlockRecord } from "@/lib/achievements";
 import {
-  DRAFT, dayPeriod, levelInfo, milestoneXp, MILESTONE_COPY, missionsFor, weekPeriod, MAX_PRESTIGE,
+  DRAFT, FREE_PLAY_XP, dayPeriod, levelInfo, milestoneXp, MILESTONE_COPY, missionsFor, weekPeriod, MAX_PRESTIGE,
   type DraftClaim, type MissionStatus, type Period, type XpSummary,
 } from "@/lib/xp";
 import { kv, type Kv } from "./kv";
@@ -46,7 +46,7 @@ export const XP_NONCE_PREFIX = "xp:nonce";
 /** Ledger rows read per wallet (a daily player writes ~10 a day; this is years of play). */
 const LEDGER_MAX = 20_000;
 
-export type LedgerKind = "mission" | "milestone" | "buy" | "prestige" | "draft";
+export type LedgerKind = "mission" | "milestone" | "buy" | "prestige" | "draft" | "freeplay";
 export interface LedgerRow { src: string; kind: LedgerKind; xp: number; label: string; ts: number }
 
 const parse = <T>(s: string | null): T | null => { if (!s) return null; try { return JSON.parse(s) as T; } catch { return null; } };
@@ -247,3 +247,29 @@ export async function queueDraft(walletIn: string, claim: DraftClaim, now = Date
   await s.zadd(ACH.dirty(), [{ score: now, member: `${w}|draft:${claim.at}` }]);   // the cron re-scores this wallet on its next pass
   return { ok: true, paidToday, queuedToday: recent.length + 1, capped: false };
 }
+
+/* ------------------------------------------------------ free play ----------------------------------------------------- */
+
+export type FreePlayAward = { ok: true; xp: number; already: boolean; paidToday: number; capped: boolean; totalXp: number; level: ReturnType<typeof levelInfo> } | { ok: false; reason: string };
+
+/**
+ * Pay one server-verified Free play run (lib/xp FREE_PLAY_XP): once ever per `src`, and never past the daily cap across
+ * all Free play rows (a run that lands on a full day pays what is left, possibly 0, and is not paid again).
+ */
+export async function awardFreePlay(walletIn: string, src: string, xp: number, label: string, now = Date.now(), s: Kv = kv()): Promise<FreePlayAward> {
+  const w = walletIn.toLowerCase(), day = dayPeriod(now);
+  const r = await withLock(w, s, async (): Promise<FreePlayAward> => {
+    const rows = await ledgerOf(w, s);
+    const paidToday = rows.reduce((a, x) => (x.kind === "freeplay" && x.ts >= day.start && x.ts < day.end ? a + x.xp : a), 0);
+    const done = (already: boolean, paid: number, all: LedgerRow[]) => { const t = totals(all);
+      return { ok: true as const, xp: paid, already, paidToday: paidToday + paid, capped: paidToday + paid >= FREE_PLAY_XP.perDay, totalXp: t.total, level: levelInfo(t.total, t.prestige) }; };
+    if (rows.some((x) => x.src === src)) return done(true, 0, rows);
+    const pay = Math.max(0, Math.min(Math.floor(xp), FREE_PLAY_XP.perDay - paidToday));
+    const row: LedgerRow = { src, kind: "freeplay", xp: pay, label, ts: now };
+    if (!(await award(w, row, s))) return done(true, 0, rows);
+    return done(false, pay, [...rows, row]);
+  });
+  return r;
+}
+/** a pilot's level (for the challenge page and the board) */
+export async function levelOfWallet(walletIn: string, s: Kv = kv()) { const t = totals(await ledgerOf(walletIn.toLowerCase(), s)); return levelInfo(t.total, t.prestige); }

@@ -153,6 +153,25 @@ export const FAIR = {
 export const DRAFT = { xp: 10, perDay: 5, windowMs: 60_000, minHoldUsd: 5, minGapMs: 4_000, maxWingmen: 12 } as const;
 export interface DraftClaim { coin: string; wingmen: string[]; at: number }
 
+/**
+ * Free play XP (maker 2026-11-13: reduced, signed-in pilots only, capped per day). Only runs the server re-flew pay:
+ * the Daily flight (one a day, up to 150) and practice runs (up to 20 each). All Free play XP together stops at
+ * `perDay` per UTC day. A signed-out pilot's daily can be saved after signing in for `claimDays` days.
+ */
+export const FREE_PLAY_XP = {
+  perDay: 150,
+  daily: { flew: 40, green: 40, cash2x: 40, orbit: 30 },
+  practice: { flew: 5, green: 5, cash2x: 5, orbit: 5 },
+  claimDays: 7,
+} as const;
+export type FreePlayKind = "daily" | "practice";
+/** XP a verified Free play run earns before the daily cap: 0 if it never boarded */
+export function freePlayXp(kind: FreePlayKind, r: { invested: number; goals: { green: boolean; cash2x: boolean; orbit: boolean } }): number {
+  if (!(r.invested > 0)) return 0;
+  const t = FREE_PLAY_XP[kind];
+  return t.flew + (r.goals.green ? t.green : 0) + (r.goals.cash2x ? t.cash2x : 0) + (r.goals.orbit ? t.orbit : 0);
+}
+
 const DAY = 86_400_000;
 
 export interface Period { id: string; cadence: Cadence; start: number; end: number }

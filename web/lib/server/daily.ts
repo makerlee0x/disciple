@@ -5,11 +5,14 @@ import "server-only";
  * the browser) is hashed into a public run id, which is what a challenge link carries. The pilot's name on the board is
  * the default call sign of that run id (lib/defaultUsername), so nothing typed by a player is ever shown.
  *
- * Keys: daily:{id}:z (zset run id → multiple), daily:{id}:run:{runId} (the verified run, 30 days).
+ * Keys: daily:{id}:z (zset run id → multiple), daily:{id}:run:{runId} (the verified run, 30 days),
+ * daily:{id}:owner:{runId} (the wallet that saved the run's XP after signing in: its username and level then show).
  */
 import { createHash } from "crypto";
 import { kv, type Kv } from "./kv";
 import { defaultUsername } from "../defaultUsername";
+import { usernameOf } from "./usernames";
+import { levelOfWallet } from "./xp";
 import { dailySeed, dailyToday, dailyEndsAt, verifyDaily, validInputs, DAILY, type DailyScore } from "../sim/daily";
 import type { PlayerInput } from "../sim/run";
 
@@ -18,14 +21,14 @@ const RUN_TTL_S = 30 * 86_400;
 export const DAILY_GRACE_MS = 10 * 60_000;
 export const runIdOf = (device: string) => createHash("sha256").update("disciple:daily:" + device).digest("hex").slice(0, 16);
 export const nameOf = (runId: string) => defaultUsername("0x" + createHash("sha256").update("disciple:pilot:" + runId).digest("hex").slice(0, 40));
-const zkey = (id: number) => `daily:${id}:z`, rkey = (id: number, run: string) => `daily:${id}:run:${run}`;
+const zkey = (id: number) => `daily:${id}:z`, rkey = (id: number, run: string) => `daily:${id}:run:${run}`, okey = (id: number, run: string) => `daily:${id}:owner:${run}`;
 
 export interface DailyRun { runId: string; name: string; score: DailyScore; at: number; inputs: PlayerInput[] }
 export interface DailyBoard {
   id: number; seed: number; difficulty: string; endsAt: number; count: number;
   top: { runId: string; name: string; multiple: number; pnl: number }[];
   me: { runId: string; rank: number; multiple: number; pnl: number; topPct: number } | null;
-  run: { runId: string; name: string; multiple: number; pnl: number; goals: DailyScore["goals"]; outAtS: number | null } | null;
+  run: { runId: string; name: string; level: number | null; prestige: number; multiple: number; pnl: number; goals: DailyScore["goals"]; boardedAtS: number | null; outAtS: number | null } | null;
 }
 /** is daily `id` open for a submission at `now` (today, or yesterday inside the grace window)? */
 export function dailyOpen(id: number, now = Date.now()) {
@@ -64,8 +67,23 @@ export async function dailyBoard(id: number, opts: { me?: string | null; run?: s
   const count = await s.zcard(zkey(id));
   let me: DailyBoard["me"] = null, run: DailyBoard["run"] = null;
   if (opts.me) { const r = await readRun(id, opts.me, s); if (r) { const k = await rankOf(id, r.score.multiple, s); me = { runId: r.runId, rank: k.rank, multiple: r.score.multiple, pnl: r.score.pnl, topPct: topPct(k.rank, k.count) }; } }
-  if (opts.run) { const r = await readRun(id, opts.run, s); if (r) run = { runId: r.runId, name: r.name, multiple: r.score.multiple, pnl: r.score.pnl, goals: r.score.goals, outAtS: r.score.outAtS }; }
+  if (opts.run) { const r = await readRun(id, opts.run, s); if (r) { const p = await pilotOf(id, r, s);
+    run = { runId: r.runId, name: p.name, level: p.level, prestige: p.prestige, multiple: r.score.multiple, pnl: r.score.pnl, goals: r.score.goals, boardedAtS: r.score.boardedAtS ?? null, outAtS: r.score.outAtS }; } }
   return { id, seed: dailySeed(id), difficulty: DAILY.difficulty, endsAt: dailyEndsAt(id), count, top, me, run };
 }
 /** "Top 12%": the share of today's pilots at or above this rank, rounded up, at least 1 */
 export const topPct = (rank: number, count: number) => Math.max(1, Math.ceil((rank / Math.max(1, count)) * 100));
+
+/** the wallet that saved this run (null: never claimed) */
+export const ownerOf = (id: number, runId: string, s: Kv = kv()) => s.get(okey(id, runId));
+/** bind a run to the wallet saving its XP: first wallet wins, for as long as the run is kept */
+export async function bindOwner(id: number, runId: string, wallet: string, s: Kv = kv()): Promise<boolean> {
+  const w = wallet.toLowerCase(); if (await s.setNX(okey(id, runId), w, RUN_TTL_S)) return true;
+  return (await s.get(okey(id, runId))) === w;
+}
+/** how a run's pilot is shown: a signed-in pilot by their username and level, otherwise the run's call sign */
+export async function pilotOf(id: number, r: DailyRun, s: Kv = kv()): Promise<{ name: string; level: number | null; prestige: number; progress: number }> {
+  const w = await ownerOf(id, r.runId, s).catch(() => null); if (!w) return { name: r.name, level: null, prestige: 0, progress: 0 };
+  const [u, lv] = await Promise.all([usernameOf(w).catch(() => null), levelOfWallet(w, s).catch(() => null)]);
+  return { name: u || r.name, level: lv?.level ?? null, prestige: lv?.prestige ?? 0, progress: lv?.progress ?? 0 };
+}

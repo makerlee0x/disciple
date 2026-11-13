@@ -3,11 +3,17 @@
  * Daily flight result (the approved ResultPhone board): the multiple, practice cash, today's rank, the three goals, the
  * flight chart (boarded, your best exit, the peak, the dump after it) and Challenge a friend / Fly it again / Practice Hard.
  * Numbers are the server's verdict; the chart is drawn from a local replay of the same input log (lib/sim/daily dailyRecap).
- * The +XP card on the board belongs to the XP step and is left out until XP exists.
+ * The XP card: a signed-in pilot's daily is saved to their level at once (POST /api/freeplay/xp); a signed-out pilot sees
+ * the XP waiting and SAVE XP signs them in, then saves it.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import LevelRing from "@/components/xp/LevelRing";
+import { freePlayXp, FREE_PLAY_XP } from "@/lib/xp";
+import { nextLevelUnlock } from "@/lib/unlocks";
+import { fetchXp, usePilotWallet, XP_CHANGED_EVENT } from "@/lib/xpClient";
+import { privyLogin, privyReady } from "@/lib/aa/sessionState";
 import { dailyRecap, fmtMultiple as mult, type DailyScore } from "@/lib/sim/daily";
-import { refreshRank, type DailyVerdict } from "@/lib/sim/dailyClient";
+import { claimFreePlayXp, deviceId, refreshRank, type DailyVerdict, type FreePlayXpResult } from "@/lib/sim/dailyClient";
 import { fmt, type PlayerInput } from "@/lib/sim/run";
 
 const game: React.CSSProperties = { fontFamily: "var(--dsc-font-game)" };
@@ -35,8 +41,10 @@ function storyLine(s: DailyScore, dumper: string | null) {
   return dumper ? `${a} Then ${dumper} dumped.` : a;
 }
 
-export default function DailyResult({ id, label, inputs, verdict, error, onClose, onAgain, onPractice }: {
-  id: number; label: string; inputs: PlayerInput[]; verdict: DailyVerdict | null; error?: string | null;
+export interface DailyGhost { name: string; multiple: number; outAtS: number | null }
+
+export default function DailyResult({ id, label, inputs, verdict, error, ghost, onClose, onAgain, onPractice }: {
+  id: number; label: string; inputs: PlayerInput[]; verdict: DailyVerdict | null; error?: string | null; ghost?: DailyGhost | null;
   onClose: () => void; onAgain: () => void; onPractice: () => void;
 }) {
   const rc = useMemo(() => dailyRecap(id, inputs), [id, inputs]);
@@ -44,6 +52,25 @@ export default function DailyResult({ id, label, inputs, verdict, error, onClose
   const [rank, setRank] = useState(verdict ? { rank: verdict.rank, count: verdict.count, topPct: verdict.topPct } : null);
   const [note, setNote] = useState<string | null>(null);
   useEffect(() => { if (verdict) refreshRank(id, verdict.runId).then((r) => { if (r) setRank(r); }); }, [id, verdict]);
+
+  // XP: saved as soon as there is a scored run and a signed-in pilot
+  const pilot = usePilotWallet(), waiting = freePlayXp("daily", s);
+  const [xp, setXp] = useState<FreePlayXpResult | { ok: false; reason: string } | null>(null);
+  const [mine, setMine] = useState<{ total: number; prestige: number } | null>(null);
+  const claimed = useRef<string | null>(null);
+  const save = async () => {
+    if (!verdict || !pilot) return; claimed.current = pilot; setXp(null);
+    const r = await claimFreePlayXp(pilot, { daily: { id, device: deviceId() } });
+    if (r) { setXp(r); if (r.ok) dispatchEvent(new CustomEvent(XP_CHANGED_EVENT)); }
+  };
+  useEffect(() => { if (verdict && pilot && claimed.current !== pilot && waiting > 0) save(); }, [verdict, pilot]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!pilot) { setMine(null); return; } fetchXp(pilot).then((x) => { if (x) setMine({ total: x.totalXp, prestige: x.level.prestige }); }); }, [pilot]);
+  const saved = xp && xp.ok ? xp : null;
+  const unlock = saved ? nextLevelUnlock(saved.totalXp, saved.level.prestige) : nextLevelUnlock(mine?.total ?? 0, mine?.prestige ?? 0, waiting);
+  const unlockLine = unlock ? ` ${unlock.more.toLocaleString("en-US")} more unlocks the ${unlock.name} ${unlock.part}.` : "";
+  const xpHead = saved ? `+${saved.xp} XP` : pilot ? `+${waiting} XP` : `+${waiting} XP waiting`;
+  const xpSub = saved ? (saved.already ? "Already saved to your level." : saved.xp < waiting ? `Saved. Free play XP stops at ${FREE_PLAY_XP.perDay} a day.` : "Saved to your level.") + unlockLine
+    : xp && !xp.ok ? xp.reason : pilot ? (verdict ? "Saving to your level…" : "Saves once your score is in.") : `Sign in to keep it.${unlockLine}`;
 
   // chart: 330×98, log scale, markers at boarded / your best exit / the peak, a tick where the dump hit
   const W = 330, H = 98, P = rc.path, lo = Math.min(...P), hi = Math.max(...P), span = Math.max(1e-6, Math.log(hi / lo));
@@ -53,6 +80,7 @@ export default function DailyResult({ id, label, inputs, verdict, error, onClose
   const head = s.invested <= 0 ? "NEVER BOARDED" : s.outAtS == null ? "HELD TO THE END" : "CASHED OUT";
   const peakX = s.boardedMcap ? s.peakMcap / s.boardedMcap : null;
 
+  const login = () => { try { if (privyReady()) privyLogin(); else setNote("Sign-in is still loading, try again in a second."); } catch (e) { setNote((e as Error).message); } };
   const challenge = async () => {
     if (!verdict) return;
     const url = `${location.origin}/d/${id}?c=${verdict.runId}`, text = `I cashed out at ${mult(s.multiple)} on Daily flight #${id}. Beat it.`;
@@ -90,6 +118,7 @@ export default function DailyResult({ id, label, inputs, verdict, error, onClose
             {s.boardedAtS != null && <circle cx={X(s.boardedAtS)} cy={Y(at(s.boardedAtS))} r="5" fill="#F2F3F7" />}
             {s.outAtS != null && <circle cx={X(s.outAtS)} cy={Y(at(s.outAtS))} r="6" fill={GOLD} />}
             <circle cx={X(s.peakAtS)} cy={Y(at(s.peakAtS))} r="5" fill="none" stroke="#FF7FB2" strokeWidth="2" />
+            {ghost?.outAtS != null && <circle data-testid="daily-ghost-mark" cx={X(ghost.outAtS)} cy={Y(at(ghost.outAtS))} r="6" fill="none" stroke={GOLD} strokeWidth="2" strokeDasharray="3 2" />}
           </svg>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12, gap: 6 }}>
             <span style={{ color: "#D7D9E4" }}><b style={{ color: "#F2F3F7", fontWeight: 600 }}>●</b> {s.boardedMcap ? `Boarded ${fmt(s.boardedMcap)}` : "Never boarded"}</span>
@@ -97,7 +126,18 @@ export default function DailyResult({ id, label, inputs, verdict, error, onClose
             <span style={{ color: "#FF9CC4" }}>○ Peak {peakX ? mult(peakX) : fmt(s.peakMcap)}</span>
           </div>
           <div data-testid="daily-story" style={{ marginTop: 4, fontSize: 12, color: "#D7D9E4" }}>{storyLine(s, rc.dumper)}</div>
+          {ghost && <div data-testid="daily-ghost-line" style={{ marginTop: 4, fontSize: 12, color: "#F3DFA8" }}>{ghost.name} {ghost.outAtS != null ? `cashed out at ${mult(ghost.multiple)}, ${Math.round(ghost.outAtS)} s in` : `finished at ${mult(ghost.multiple)}`}. {s.multiple > ghost.multiple ? "You beat them." : s.multiple === ghost.multiple ? "Dead even." : "They beat you."}</div>}
         </div>
+
+        {waiting > 0 && <div data-testid="daily-xp" style={{ marginTop: 14, minHeight: 72, boxSizing: "border-box", padding: "10px 14px", borderRadius: 16, background: "rgba(243,223,168,0.08)", border: "1px solid rgba(243,223,168,0.4)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <span data-testid="daily-xp-head" style={{ ...game, fontWeight: 800, fontSize: 22, color: "#F3DFA8" }}>{xpHead}</span>
+            <span data-testid="daily-xp-sub" style={{ fontSize: 12, color: "#D7D9E4" }}>{xpSub}</span>
+          </span>
+          {saved ? <LevelRing info={saved.level} size={44} />
+            : !pilot ? <button type="button" data-testid="daily-xp-save" onClick={login} style={{ ...game, height: 44, boxSizing: "border-box", padding: "0 14px", borderRadius: 12, border: `1px solid ${GOLD}`, background: "transparent", color: GOLD, cursor: "pointer", fontWeight: 800, fontSize: 17, whiteSpace: "nowrap" }}>SAVE XP</button>
+            : xp && !xp.ok ? <button type="button" data-testid="daily-xp-retry" onClick={save} style={{ ...game, height: 44, padding: "0 14px", borderRadius: 12, border: `1px solid ${GOLD}`, background: "transparent", color: GOLD, cursor: "pointer", fontWeight: 800, fontSize: 17 }}>RETRY</button> : null}
+        </div>}
 
         <div style={{ marginTop: "auto", paddingTop: 20, display: "flex", flexDirection: "column", gap: 8 }}>
           <button type="button" data-testid="daily-challenge-friend" onClick={challenge} disabled={!verdict} style={{ ...game, height: 60, borderRadius: 16, background: GOLD, color: "#121327", border: 0, cursor: verdict ? "pointer" : "default", opacity: verdict ? 1 : 0.55, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontWeight: 800, fontSize: 24, letterSpacing: 1 }}>

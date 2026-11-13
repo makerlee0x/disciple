@@ -5,6 +5,8 @@
  */
 import type { PlayerInput } from "./run";
 import type { DailyScore } from "./daily";
+import type { LevelInfo } from "../xp";
+import { privyAccessToken } from "../aa/sessionState";
 
 const DEVICE_KEY = "disciple.daily.device";
 const runKey = (id: number) => `disciple.daily.${id}`;
@@ -40,4 +42,17 @@ export async function refreshRank(id: number, runId: string): Promise<{ rank: nu
     const res = await fetch(`/api/daily?id=${id}&me=${runId}`); if (!res.ok) return null;
     const j = await res.json(); return j.me ? { rank: j.me.rank, count: j.count, topPct: j.me.topPct } : null;
   } catch { return null; }
+}
+
+export interface FreePlayXpResult { ok: true; xp: number; already: boolean; paidToday: number; perDay: number; capped: boolean; totalXp: number; level: LevelInfo }
+/** save Free play XP for the signed-in pilot (POST /api/freeplay/xp): null when signed out or the server said no */
+export async function claimFreePlayXp(wallet: string | null, body: { daily: { id: number; device: string } } | { practice: { difficulty: string; seed: number; inputs: PlayerInput[] } }): Promise<FreePlayXpResult | { ok: false; reason: string } | null> {
+  if (!wallet) return null;
+  const token = await privyAccessToken(); if (!token) return null;
+  try {
+    const r = await fetch("/api/freeplay/xp", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ wallet, ...body }) });
+    const j = await r.json().catch(() => null);
+    if (!r.ok || !j?.ok) return { ok: false, reason: (j && typeof j.reason === "string" && j.reason) || "Couldn't save XP." };
+    return j as FreePlayXpResult;
+  } catch { return { ok: false, reason: "Couldn't save XP." }; }
 }
