@@ -22,11 +22,9 @@ function write(key: string, on: boolean) {
 }
 
 export default function SettingsPanel() {
-  const [orbs, setOrbs] = useState(true);
   const [bombs, setBombs] = useState(true);
 
   useEffect(() => {
-    setOrbs(read(SETTINGS_KEYS.orbs));
     setBombs(read(SETTINGS_KEYS.bombs));
   }, []);
 
@@ -71,13 +69,6 @@ export default function SettingsPanel() {
       <div className="muted tiny">Preferences · saved in this browser</div>
       <div className="card">
         <Toggle
-          label="Orbs layer"
-          on={orbs}
-          set={setOrbs}
-          keyName={SETTINGS_KEYS.orbs}
-          flight="setOrbs"
-        />
-        <Toggle
           label="Sell bombs"
           on={bombs}
           set={setBombs}
@@ -86,14 +77,14 @@ export default function SettingsPanel() {
         />
         <div className="row">
           <span>Shortcut</span>
-          <span>O orbs · B bombs in flight</span>
+          <span>B bombs in flight</span>
         </div>
         <div className="row">
           <span>Replay</span>
           <span>add ?replay=1 on a rocket URL</span>
         </div>
         <p className="note">
-          Keys: disciple.orbs / disciple.bombs (camera shake removed)
+          Keys: disciple.bombs (camera shake removed)
         </p>
       </div>
     </section>

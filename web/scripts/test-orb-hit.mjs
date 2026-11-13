@@ -22,7 +22,7 @@ const F = new Function("S", "ORB", "IMG", "nozzleXY", block + "\nreturn {rocketH
 
 const g = F.rocketGeom();
 ok(g.w === 55 && g.h === 150 && Math.abs(g.pivotY - 144) < 1e-9 && g.nx === 400 && g.ny === 500, `geom: w=${g.w} h=${g.h} pivotY=${g.pivotY} nozzle=(${g.nx},${g.ny})`);
-ok(/orbHitsRocket\(m\)/.test(eng) && /orbHitsRocket\(o\)/.test(eng) && !/Math\.abs\(m\.x-S\.x\)<50&&Math\.abs\(m\.y-S\.ry\)<40/.test(eng) && !/Math\.abs\(o\.x-S\.x\)<50&&Math\.abs\(o\.y-S\.ry\)<40/.test(eng), "engine collision uses rocketHits for motes and storm/void orbs; old 50×40 box is gone");
+ok(!/S\.motes\.push|S\.obstacles\.push/.test(eng) && /orbsOn:false/.test(eng), "orbs retired (2026-11-13): no orb spawns, orbsOn is always false; rocketHits stays for the drafting / hit geometry");
 
 const tip = { x: S.x, y: S.ry - g.pivotY };
 const wing = { x: S.x - g.w / 2, y: S.ry + (-g.pivotY + g.h * 0.42) };

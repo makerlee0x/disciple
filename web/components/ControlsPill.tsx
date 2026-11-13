@@ -31,7 +31,7 @@ export default function ControlsReference({ c, simulator = false }: { c: Ctl | n
   const rows: [string, I18nKey, string?][] = [
     ["SPACE", "ctl.space", "#9ff3c8"], ["SHIFT", "ctl.shift", "#ffb0c8"],
     [buyKeys, "ctl.buyKeys", "#9ff3c8"], [sellKeys, "ctl.sellKeys", "#ffb0c8"],
-    ["CLICK", "ctl.click"], ["W / ↑", "ctl.w"], ["A / D", "ctl.ad"], ["P", "ctl.p"], ["G", "ctl.g", "#c8ffd8"], ["O", "ctl.o"], ["B", "ctl.b"],
+    ["CLICK", "ctl.click"], ["W / ↑", "ctl.w"], ["A / D", "ctl.ad"], ["P", "ctl.p"], ["G", "ctl.g", "#c8ffd8"], ["B", "ctl.b"],
     ...(simulator ? [] : ([["ENTER", "ctl.enter"], ["H", "ctl.h"]] as [string, I18nKey][])),
     ["ESC", "ctl.esc"],
   ];

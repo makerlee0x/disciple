@@ -41,7 +41,6 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
   const [share, setShare] = useState<ShareTarget | null>(null);
   const [wallet, setWallet] = useState<string | null>(null);
   const [grass, setGrass] = useState(false);
-  const [orbs, setOrbs] = useState(true);
   const [ammoUsd, setAmmoUsd] = useState<number[]>(MODES.map((m) => m.usd));
   const [presets, setPresets] = useState<{ buy: number[] | null; sells: number[] }>({ buy: null, sells: DEFAULT_SELLS });
   const [buyDraft, setBuyDraft] = useState<string[]>([]);
@@ -51,22 +50,20 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
   const st = useRef({ open, listen, share: !!share }); st.current = { open, listen, share: !!share };
 
   const flash = (m: string) => { setNote(m); window.setTimeout(() => setNote((n) => (n === m ? "" : n)), 1600); };
-  const openMenu = useCallback((tb?: Tab) => { if (tb) setTab(tb); setOpen(true); dispatchEvent(new Event("disciple:presets-query")); dispatchEvent(new CustomEvent("disciple:orbs", { detail: {} })); }, []);
+  const openMenu = useCallback((tb?: Tab) => { if (tb) setTab(tb); setOpen(true); dispatchEvent(new Event("disciple:presets-query")); }, []);
   const close = useCallback(() => { setOpen(false); setListen(null); }, []);
 
   // engine/game state mirrors
   useEffect(() => onWallet((a) => setWallet(a ? a.toLowerCase() : null)), []);
   useEffect(() => {
-    try { setOrbs(localStorage.getItem("disciple.orbs") !== "off"); } catch { /* */ }
     const g = (e: Event) => setGrass(!!(e as CustomEvent<{ on: boolean }>).detail?.on);
-    const o = (e: Event) => setOrbs(!!(e as CustomEvent<{ on: boolean }>).detail?.on);
     const a = (e: Event) => { const d = (e as CustomEvent<{ usd: number[] }>).detail; if (Array.isArray(d?.usd)) setAmmoUsd(d.usd); };
     const p = (e: Event) => { const d = (e as CustomEvent<{ buy: number[] | null; sells: number[] }>).detail; if (d) setPresets({ buy: d.buy, sells: d.sells }); };
     // hotkeys → engine again whenever it (re)announces itself (boot / worker restart); first few only
     let n = 0; const boot = () => { if (n++ < 3) broadcast(); };
-    addEventListener("disciple:grass", g); addEventListener("disciple:orbstate", o); addEventListener("disciple:ammo", a); addEventListener("disciple:presets", p); addEventListener("disciple:ammo", boot);
+    addEventListener("disciple:grass", g); addEventListener("disciple:ammo", a); addEventListener("disciple:presets", p); addEventListener("disciple:ammo", boot);
     broadcast(); dispatchEvent(new Event("disciple:presets-query"));
-    return () => { removeEventListener("disciple:grass", g); removeEventListener("disciple:orbstate", o); removeEventListener("disciple:ammo", a); removeEventListener("disciple:presets", p); removeEventListener("disciple:ammo", boot); };
+    return () => { removeEventListener("disciple:grass", g); removeEventListener("disciple:ammo", a); removeEventListener("disciple:presets", p); removeEventListener("disciple:ammo", boot); };
   }, []);
   // amount drafts follow the live values while the hotkeys tab isn't being edited
   const editing = useRef(false);
@@ -226,11 +223,6 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
                   <Icon name="grass" size={16} style={{ color: "#c8ffd8" }} />
                   <div style={{ flex: 1 }}><div>{t("disp.grass")}</div><div style={label}>{t("disp.grassHint")}</div></div>
                   {toggle(grass, (v) => { if (v !== grass) { dispatchEvent(new Event("disciple:grass-toggle")); if (v) close(); } }, "grass-toggle")}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <Icon name="star" size={16} style={{ color: GOLD }} />
-                  <div style={{ flex: 1 }}><div>{t("disp.orbs")}</div><div style={label}>{t("disp.orbsHint")}</div></div>
-                  {toggle(orbs, (v) => { setOrbs(v); dispatchEvent(new CustomEvent("disciple:orbs", { detail: { on: v } })); }, "orbs-toggle")}
                 </div>
               </div>}
 
