@@ -200,4 +200,18 @@ test("transfer scan: dormant coins still held by fills are scanned, sold-out dor
     { coin: "0xNEW", ts: now - D, side: "buy", tokens: 5 }, { coin: "0xNEW", ts: now - D, side: "sell", tokens: 5 },  // recent
   ];
   assert.deepEqual(coinsToScan(fills, now).sort(), ["0xnew", "0xold"]);
+  // a coin sold out 10 days ago is still scanned: last week's period (up to 14 days back) is still being settled
+  const sold = [{ coin: "0xB", ts: now - 13 * D, side: "buy", tokens: 50 }, { coin: "0xB", ts: now - 10 * D, side: "sell", tokens: 50 }];
+  assert.deepEqual(coinsToScan(sold, now), ["0xb"]);
+});
+import { capOuts } from "../lib/xpTransfers";
+test("transfer scan: dust transfers can't push a sent-away bag out of the kept outs", () => {
+  const bag = { block: 10, logIndex: 0, ts: 10, tokens: 49.99, checked: true };
+  const dust = Array.from({ length: 600 }, (_, i) => ({ block: 20 + i, logIndex: 0, ts: 20 + i, tokens: 1e-18, checked: true }));
+  const kept = capOuts([bag, ...dust], 500);
+  assert.ok(kept.length <= 500);
+  const total = kept.reduce((t, o) => t + o.tokens, 0);
+  assert.ok(total >= 49.99);                             // the bag still counts as gone
+  assert.equal(kept[0].block, 10);                       // at its earliest position, never later
+  assert.deepEqual(capOuts([bag], 500), [bag]);
 });

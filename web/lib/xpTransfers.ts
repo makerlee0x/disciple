@@ -34,11 +34,14 @@ export function nonTradeOuts<T extends OutLog>(logs: readonly T[], sells: Readon
   return logs.filter((l) => !legsOf.has(l));
 }
 
-/** Coins traded within this window are always scanned (they can still move any mission this or last week). */
-export const RECENT_SCAN_MS = 8 * 86_400_000;
+/**
+ * Coins traded within this window are always scanned. It covers every period the cron settles (this and last week:
+ * up to 14 days back), so any position change inside a scored period is a scanned coin.
+ */
+export const RECENT_SCAN_MS = 15 * 86_400_000;
 
 /**
- * Coins the transfer scan must cover (pure; tested in scripts/test-xp.mts): every coin traded in the last 8 days, plus
+ * Coins the transfer scan must cover (pure; tested in scripts/test-xp.mts): every coin traded in the last 15 days, plus
  * every coin the wallet's fills alone still show tokens in, however long ago it last traded. Holding missions (orbit
  * seat, 24h hold, tier ride, bomb) read the position from fills minus transfers away; if a dormant coin were left out of
  * the scan, a wallet that sent its tokens away and waited would still look aboard when the rocket reaches orbit.
@@ -52,4 +55,22 @@ export function coinsToScan(fills: readonly { coin: string; ts: number; side: st
   }
   for (const [c, t] of Array.from(net.entries())) if (t > 1e-9) out.add(c);
   return Array.from(out);
+}
+
+/**
+ * Keep at most `max` outs per coin without ever forgetting tokens that left (pure; tested in scripts/test-xp.mts).
+ * Dropping the oldest outs would let a wallet send its bag away and then push that transfer out of the list with dust
+ * transfers, so the bag would look held again. Instead the oldest checked outs fold into one out at the earliest
+ * position: the tokens still count as gone, just earlier than they really left (never credits a seat it didn't have).
+ */
+export function capOuts<T extends { block: number; logIndex: number; ts: number; tokens: number; checked?: boolean }>(outs: readonly T[], max: number): T[] {
+  if (outs.length <= max) return outs.slice();
+  const sorted = outs.slice().sort((a, b) => a.block - b.block || a.logIndex - b.logIndex);
+  const over = sorted.length - max + 1;
+  const fold: T[] = [], keep: T[] = [];
+  for (const o of sorted) (fold.length < over && o.checked ? fold : keep).push(o);
+  if (fold.length < 2) return sorted;   // outs still waiting on their fills: keep them all until the next pass checks them
+  const first = fold[0];
+  const merged = { ...first, tokens: fold.reduce((t, o) => t + o.tokens, 0), checked: true } as T;
+  return [merged, ...keep].sort((a, b) => a.block - b.block || a.logIndex - b.logIndex);
 }

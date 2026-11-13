@@ -28,7 +28,7 @@ import { kv, type Kv } from "./kv";
 import { ACH } from "./achKeys";
 import { coinsOf, tradesOf, TRADES_MAX_LIMIT } from "./trades";
 import { dueTimers, scoreXp, XPK, type TransferOut } from "./xp";
-import { coinsToScan, nonTradeOuts } from "@/lib/xpTransfers";
+import { capOuts, coinsToScan, nonTradeOuts } from "@/lib/xpTransfers";
 
 const LAUNCHED = getAbiItem({ abi: launchpadAbi, name: "Launched" });
 const GRADUATED = getAbiItem({ abi: bondingCurveAbi, name: "GraduatedToV4" });
@@ -230,12 +230,12 @@ export async function scoreWallet(walletIn: string, o: { dryRun?: boolean; s?: K
     }
     await s.set(ACH.progress(w), JSON.stringify({ v: V1_RULES_VERSION, at: now, progress: r.progress }));
   }
-  // XP: milestones for every unlock + this and last period's missions. Only coins touched in the last 8 days (or still
-  // held) can move a mission, so only those get the mode read and the full-rocket fill path (ride_tier).
+  // XP: milestones for every unlock + this and last period's missions. Mode reads and the full-rocket fill path
+  // (ride_tier) cover coins touched in the last 8 days; the transfer scan covers more (coinsToScan, below).
   const recent = Array.from(new Set(onChain.filter((f) => now - f.ts <= 8 * 86_400_000).map((f) => f.coin.toLowerCase())));
   if (!o.dryRun) await ensureModes(metas, recent, s);
-  // Transfers away are scanned for every coin the fills still show held too, not only recent ones: an old position
-  // that was sent away must not count as aboard when that rocket later reaches orbit.
+  // Transfers away are scanned for every coin traded in the last 15 days (both settled weeks) and every coin the fills
+  // still show held: an old position that was sent away must not count as aboard when that rocket later reaches orbit.
   // If the transfer scan fails, holding missions wait for the next pass instead of paying on an unverified position.
   const scan = await transfersOut(w, coinsToScan(onChain, now), onChain, s, o.dryRun).catch(() => null);
   const outs = scan?.complete ? scan.outs : null;
@@ -249,7 +249,7 @@ export async function scoreWallet(walletIn: string, o: { dryRun?: boolean; s?: K
 
 /** Per-wallet time budget for the transfer scan; the rest continues on a later pass (cursor saved per chunk). */
 const TRANSFER_BUDGET_MS = 4_000;
-/** Outs kept per (wallet, coin): the newest ones (each needs a non-zero transfer the wallet itself signed). */
+/** Outs kept per (wallet, coin); older checked ones fold into one (capOuts), so a sent-away bag is never forgotten. */
 const TRANSFER_KEEP = 500;
 
 /**
@@ -280,7 +280,7 @@ async function transfersOut(w: string, coins: string[], fills: readonly Fill[], 
     let outs = [...kept.filter((x) => x.checked), ...nonTradeOuts(kept.filter((x) => !x.checked), sells).map((x) => ({ ...x, checked: trades.has(x.tx.toLowerCase()) || undefined }))]
       .sort((a, b) => a.block - b.block || a.logIndex - b.logIndex);
     let cur = cached ? BigInt(cached.cursor) : BigInt(Math.min(...mine.map((f) => f.block))) - BigInt(1);
-    const save = async () => { if (!dryRun) await s.set(key, JSON.stringify({ cursor: cur.toString(), outs: outs.slice(-TRANSFER_KEEP) })); };
+    const save = async () => { if (!dryRun) await s.set(key, JSON.stringify({ cursor: cur.toString(), outs: capOuts(outs, TRANSFER_KEEP) })); };
     let chunk = CHUNK;
     while (cur < latest) {
       if (Date.now() - t0 > TRANSFER_BUDGET_MS) { complete = false; break; }
@@ -297,7 +297,7 @@ async function transfersOut(w: string, coins: string[], fills: readonly Fill[], 
       }
       outs.push(...nonTradeOuts(found, sells));   // a sell's own token leg is not a transfer away; anything else in that tx is
       cur = to;
-      outs = outs.slice(-TRANSFER_KEEP);
+      outs = capOuts(outs, TRANSFER_KEEP);
       await save();
     }
     out.push(...outs);
