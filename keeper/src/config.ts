@@ -184,7 +184,7 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
     routes,
     sameChain,
     sampling: {
-      everySec: Number(sm.everySec ?? 2),
+      everySec: Number(sm.everySec ?? 13),
       missesBeforeRest: Number(sm.missesBeforeRest ?? 3),
       restSec: Number(sm.restSec ?? 3600),
       minGapSec: Number(sm.minGapSec ?? 13),

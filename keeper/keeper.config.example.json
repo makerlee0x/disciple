@@ -38,7 +38,7 @@
     }
   ],
   "sampling": {
-    "everySec": 2,
+    "everySec": 13,
     "missesBeforeRest": 3,
     "restSec": 3600,
     "minGapSec": 13,
