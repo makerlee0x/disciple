@@ -131,3 +131,28 @@ body:has(.profile-page.hg) { background: var(--dsc3-page-bg); }
 .p5-modal .hg-epfp:focus-visible { box-shadow: var(--dsc-glow-focus-ring); }
 .p5-modal .hg-epic-tx { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
 .p5-modal .hg-epic-tx span { font-size: 13px; color: var(--dsc-muted); }
+
+/* your rocket: earned hulls and flares (board "Rocket variety at launch") */
+.hg-looks-row { display: flex; flex-direction: column; gap: 10px; }
+.hg-looks-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.hg-looks-h h3 { margin: 0; font: 800 22px / 1 var(--dsc-font-game); text-transform: uppercase; }
+.hg-looks-h span { font-size: 13px; color: var(--dsc-muted); }
+.hg-looks { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 900px) { .hg-looks { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.hg-look { width: 100%; display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 16px; text-align: left; color: inherit; font: inherit;
+  border: 1px solid #262A33; background: linear-gradient(180deg, #15171C, #101115); cursor: pointer; transition: border-color .15s, transform .15s; }
+.hg-look:hover:not(:disabled) { border-color: color-mix(in srgb, var(--sw) 55%, #262A33); transform: translateY(-1px); }
+.hg-look:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+.hg-look.on { border-color: var(--sw); background: radial-gradient(120% 120% at 0% 50%, color-mix(in srgb, var(--sw) 16%, transparent), transparent 60%), linear-gradient(180deg, #15171C, #101115); }
+.hg-look.locked { cursor: default; }
+.hg-look.locked .hg-look-art { filter: saturate(.55) brightness(.5); }
+.hg-look.locked .hg-look-tx b { color: #8A8F9A; }
+.hg-look-art { flex: none; width: 52px; height: 108px; display: flex; align-items: center; justify-content: center; border-radius: 12px;
+  background: radial-gradient(60% 50% at 50% 60%, color-mix(in srgb, var(--sw) 18%, transparent), transparent 70%), #0B0C0E; overflow: hidden; }
+.hg-flame { width: 40px; height: 64px; }
+.hg-look-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.hg-look-tx b { font: 800 22px / 1 var(--dsc-font-game); text-transform: uppercase; }
+.hg-look-s { font-size: 12px; color: #A9ADB8; line-height: 1.35; }
+.hg-look.on .hg-look-s { color: var(--sw); font-weight: 600; }
+.hg-look-r { font: 500 10px / 1 var(--dsc-font-mono); letter-spacing: .1em; text-transform: uppercase; }
+.r-common .hg-look-r { color: #BCC0CA; } .r-rare .hg-look-r { color: #5FB7FF; } .r-epic .hg-look-r { color: #B48CFF; } .r-legendary .hg-look-r { color: #F3C969; }
