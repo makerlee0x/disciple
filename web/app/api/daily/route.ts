@@ -1,11 +1,12 @@
 /**
  * Daily flight (Free play).
  * GET  /api/daily[?id=N][&me=runId][&run=runId] → lib/server/daily DailyBoard (today when id is left out)
- * POST /api/daily {id, device, inputs} → the server re-flies the input log and stores that verdict, one per device per day
+ * POST /api/daily {id, device, inputs, ticket} → the server checks the start ticket (app/api/daily/start), re-flies the input
+ *   log and stores that verdict, one per device per day
  */
 import { NextResponse } from "next/server";
 import { kv } from "@/lib/server/kv";
-import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
+import { PUBLIC_GET_LIMITS, clientIp, hitLimit, sameSitePost } from "@/lib/server/limits";
 import { dailyBoard, submitDaily, topPct } from "@/lib/server/daily";
 import { dailyToday } from "@/lib/sim/daily";
 
@@ -24,14 +25,15 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (!sameSitePost(req.headers)) return NextResponse.json({ error: "Start the flight from the game to score it." }, { status: 403 });
   const ip = clientIp(req.headers);
   const rl = await hitLimit(kv(), `daily:post:${ip}`, 30, 3600);
   if (!rl.ok) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   const raw = await req.text(); if (raw.length > 40_000) return NextResponse.json({ error: "too big" }, { status: 413 });
-  let body: { id?: unknown; device?: unknown; inputs?: unknown };
+  let body: { id?: unknown; device?: unknown; inputs?: unknown; ticket?: unknown };
   try { body = JSON.parse(raw); } catch { return NextResponse.json({ error: "bad json" }, { status: 400 }); }
-  const r = await submitDaily(Number(body.id), body.device, body.inputs);
+  const r = await submitDaily(Number(body.id), body.device, body.inputs, body.ticket);
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
   const { run } = r;
-  return NextResponse.json({ runId: run.runId, name: run.name, score: run.score, rank: r.rank, count: r.count, topPct: topPct(r.rank, r.count), already: r.already, ...(r.already ? { inputs: run.inputs } : {}) });
+  return NextResponse.json({ runId: run.runId, name: run.name, score: run.score, rank: r.rank, count: r.count, topPct: topPct(r.rank, r.count), boarded: r.boarded, already: r.already, seed: run.seed, ...(r.already ? { inputs: run.inputs } : {}) });
 }

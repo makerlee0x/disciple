@@ -8,6 +8,7 @@ import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
 import { dailyBoard, pilotOf, readRun } from "@/lib/server/daily";
 import { renderDailyCard } from "@/lib/server/share/dailyCard";
 import { dailyRecap, dailyToday, DAILY } from "@/lib/sim/daily";
+import { serverDailySeed } from "@/lib/server/dailySeed";
 import { cloneConfig } from "@/lib/sim/config";
 
 export const runtime = "nodejs";
@@ -22,11 +23,11 @@ export async function GET(req: Request) {
   const board = await dailyBoard(id, { me: want && /^[0-9a-f]{16}$/.test(want) ? want : null });
   const runId = board.me?.runId ?? board.top[0]?.runId ?? null;
   const run = runId ? await readRun(id, runId) : null;
-  const rc = run ? dailyRecap(id, run.inputs) : null, pilot = run ? await pilotOf(id, run).catch(() => null) : null;
+  const rc = run ? dailyRecap(run.seed ?? (await serverDailySeed(id)), run.inputs) : null, pilot = run ? await pilotOf(id, run).catch(() => null) : null;
   const rank = board.me?.rank ?? (run ? 1 : 0);
   const host = u.host.startsWith("localhost") || u.host.endsWith(".vercel.app") ? u.host : "disciple.vip";
   const png = await renderDailyCard({
-    id, difficulty: cloneConfig().difficulties[DAILY.difficulty].label.toUpperCase(), host, rank, count: board.count,
+    id, difficulty: cloneConfig().difficulties[DAILY.difficulty].label.toUpperCase(), host, rank, count: board.me && !board.me.boarded ? 0 : board.count,   // a run not on the board yet shows no rank
     run: run && rc ? { name: pilot?.name ?? run.name, multiple: rc.score.multiple, goals: rc.score.goals, path: rc.path, outAtS: rc.score.outAtS } : null,
   });
   return new Response(new Uint8Array(png), { headers: { "content-type": "image/png", "cache-control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600" } });
