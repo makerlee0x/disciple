@@ -91,7 +91,7 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
 .cx-split { display: flex; justify-content: space-between; gap: 12px; }
 .cx-big { margin-top: 8px; min-height: 76px; border-color: rgba(242,193,78,0.55); }
 .cx-dollar { font-size: 40px; color: #9095A0; }
-.cx-big input { all: unset; flex: 1; min-width: 0; color: #FFFFFF; font: 800 48px/1 var(--dsc-font-game); }
+.cx-big input#cx-amt, .cx-big input { all: unset; flex: 1; min-width: 0; color: #FFFFFF; font: 800 48px/1 var(--dsc-font-game); }
 .cx-big input::placeholder { color: #5A5F6A; }
 .cx-help { display: block; margin-top: 6px; font-size: 12px; color: #9095A0; }
 .cx-recv { font-size: 24px; color: #FFFFFF; }
@@ -146,7 +146,7 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
   .cx-addtxt span { color: #BCC0CA; }
   .cx-big { min-height: 72px; }
   .cx-dollar { font-size: 36px; }
-  .cx-big input { font-size: 44px; }
+  .cx-big input, .cx-big input#cx-amt { font-size: 44px; }
   .r2-note.warn { font-size: 12px; }
   .cx-page { padding: 0; }
   .ds-modal.cx-static { min-height: calc(100dvh - var(--ap-topbar-offset, 0px) - var(--ap-bottom-nav, 0px)); }
@@ -189,10 +189,10 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
 .qh-step.up .qh-dot { background: #5FF0A0; } .qh-step.up .qh-tag .r2-eb { color: #5FF0A0; }
 .qh-step.down .qh-dot { background: #F0307F; } .qh-step.down .qh-tag .r2-eb { color: #FF7FB0; }
 .qh-step.gold .qh-dot { background: #F2C14E; } .qh-step.gold .qh-tag .r2-eb { color: #F3DFA8; }
-.qh-keys { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
-.qh-k { min-width: 30px; height: 30px; padding: 0 8px; box-sizing: border-box; border-radius: 7px; border: 1px solid #3A3F49; border-bottom-width: 3px; background: #16181E;
+.qh-keys { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; }
+.qh-k { min-width: 28px; height: 30px; padding: 0 7px; box-sizing: border-box; border-radius: 7px; border: 1px solid #3A3F49; border-bottom-width: 3px; background: #16181E;
   display: inline-flex; align-items: center; justify-content: center; font: 700 15px/1 var(--dsc-font-game); color: #E8EAEE; }
-.qh-k.wide { min-width: 70px; }
+.qh-k.wide { min-width: 60px; }
 .qh-k.up { border-color: rgba(95,240,160,0.6); color: #5FF0A0; }
 .qh-k.down { border-color: rgba(240,48,127,0.6); color: #FF7FB0; }
 .qh-k.txt { min-width: 0; padding: 0 10px; font-size: 14px; }
@@ -329,7 +329,7 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
   .tp-who b { font-size: 14px; }
   .tp-av.sm { width: 34px; height: 34px; font-size: 15px; }
   .tp-num.up { font-size: 20px; }
-  .tp-me { position: fixed; z-index: 45; left: 12px; right: 12px; margin: 0; bottom: calc(12px + var(--ap-safe-bottom, 0px) + var(--ap-bottom-nav, 0px)); background: rgba(40,34,20,.96); border-color: rgba(242,193,78,.5) !important; }
+  .tp-me { position: fixed; z-index: 45; left: 12px; right: 12px; margin: 0; bottom: calc(12px + var(--ap-safe-bottom, 0px) + var(--ap-bottom-nav, 0px)); background: #282214; border-color: rgba(242,193,78,.5) !important; }
   .tp-rows .tp-me { position: static; background: rgba(242,193,78,.08); }
   .tp-me .tp-who span:not(.tp-av) { color: #BCC0CA; font-size: 11px; }
   .tp-empty { padding: 28px 20px; min-height: 360px; }
@@ -350,7 +350,7 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
 .cs-claimed.ds-modal.r2-modal, .cs-claimed { border-color: rgba(95,240,160,.4); }
 .cs-done { position: relative; align-items: center; text-align: center; padding-top: 34px; overflow: hidden; }
 .cs-donebloom { position: absolute; left: 50%; top: -80px; width: 340px; height: 260px; transform: translateX(-50%); border-radius: 50%; background: #5FF0A0; filter: blur(70px); opacity: .18; pointer-events: none; }
-.cs-done > * { position: relative; }
+.cs-done > :not(.cs-donebloom) { position: relative; }
 .cs-ok { width: 72px; height: 72px; }
 .cs-plus { font-size: 60px; line-height: 1; color: #5FF0A0; }
 .cs-landed { font-size: 15px; color: #D7D9E4; }
@@ -455,3 +455,4 @@ textarea.he-ta { min-height: 76px; padding: 12px 14px; resize: none; display: bl
   .he-latest .r2-lbl + .he-feed { margin-top: 0; }
   .he-empty { padding: 28px 20px; }
 }
+.tp-who b span, .tp-me .tp-who b span { font-size: inherit !important; color: inherit !important; }

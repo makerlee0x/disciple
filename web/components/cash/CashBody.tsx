@@ -143,7 +143,7 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
   async function cashOut() {
     setErr(null);
     if (!bal || !addr) return;
-    if (!isAddress(to)) return setErr(CASH_COPY.badAddr);
+    if (!isAddress(to, { strict: false })) return setErr(CASH_COPY.badAddr);
     let amount: bigint;
     try { amount = parseUnits(amt || "0", bal.dec); } catch { amount = BigInt(0); }
     if (amount <= BigInt(0)) return;
