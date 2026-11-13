@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { startDaily, submitDaily, runIdOf, DAILY_PER_IP } from "../lib/server/daily";
+import { startDaily, submitDaily, runIdOf, ipBucket, DAILY_PER_IP } from "../lib/server/daily";
 import { issueTicket } from "../lib/server/dailySeed";
 import { dailyToday } from "../lib/sim/daily";
 
@@ -32,4 +32,13 @@ test(`one scored run per device, ${DAILY_PER_IP} per IP, then start and submit a
   assert.ok(!sub.ok && sub.status === 429, "submit refused past the cap");
   const back = await startDaily(id, devices[1], ip);
   assert.ok(back.ok && back.already, "a device that already flew can still open its result");
+});
+
+test("IPv6 counts by its /64, IPv4 by its address", () => {
+  assert.equal(ipBucket("2001:db8:1:2:aaaa::1"), ipBucket("2001:db8:1:2:ffff:1:2:3"));
+  assert.notEqual(ipBucket("2001:db8:1:2::1"), ipBucket("2001:db8:1:3::1"));
+  assert.equal(ipBucket("2001:0db8:0001:0002::"), "2001:db8:1:2::/64");
+  assert.equal(ipBucket("::ffff:1.2.3.4"), "1.2.3.4");
+  assert.equal(ipBucket("1.2.3.4"), "1.2.3.4");
+  assert.notEqual(ipBucket("1.2.3.4"), ipBucket("1.2.3.5"));
 });

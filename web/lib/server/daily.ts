@@ -30,7 +30,14 @@ export const DAILY_PER_IP = 5;
 export const runIdOf = (device: string) => createHash("sha256").update("disciple:daily:" + device).digest("hex").slice(0, 16);
 export const nameOf = (runId: string) => defaultUsername("0x" + createHash("sha256").update("disciple:pilot:" + runId).digest("hex").slice(0, 40));
 const zkey = (id: number) => `daily:${id}:z`, rkey = (id: number, run: string) => `daily:${id}:run:${run}`, okey = (id: number, run: string) => `daily:${id}:owner:${run}`,
-  fkey = (id: number) => `daily:${id}:zflag`, ipkey = (id: number, ip: string) => `daily:${id}:ip:${createHash("sha256").update(ip).digest("hex").slice(0, 16)}`;
+  fkey = (id: number) => `daily:${id}:zflag`, ipkey = (id: number, ip: string) => `daily:${id}:ip:${createHash("sha256").update(ipBucket(ip)).digest("hex").slice(0, 16)}`;
+/** the network an IP counts against: IPv4 as is, IPv6 by its /64 (one home or phone gets a whole /64 to rotate through) */
+export function ipBucket(ip: string): string {
+  if (!ip.includes(":") || /^::ffff:\d/.test(ip)) return ip.replace(/^::ffff:/, "");
+  const [head, tail = ""] = ip.split("::"), h = head ? head.split(":") : [], t = tail ? tail.split(":") : [];
+  const full = ip.includes("::") ? [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t] : h;
+  return full.slice(0, 4).map((x) => (parseInt(x, 16) || 0).toString(16)).join(":") + "::/64";
+}
 
 export interface DailyRun { runId: string; name: string; score: DailyScore; at: number; inputs: PlayerInput[]; seed: number;
   /** failed human checks (lib/sim/daily humanFlags): off the board, no XP. Not shown to the pilot. */
