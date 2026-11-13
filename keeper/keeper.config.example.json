@@ -44,7 +44,7 @@
     "minGapSec": 13,
     "selfPayBps": 0,
     "selfPayMaxPerHour": 60,
-    "sweepEverySec": 900,
+    "sweepEverySec": 60,
     "sweepBandBps": 20000,
     "matchEverySec": 60,
     "matchSteps": 20

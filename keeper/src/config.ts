@@ -190,7 +190,7 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       minGapSec: Number(sm.minGapSec ?? 13),
       selfPayBps: Number(sm.selfPayBps ?? 0),
       selfPayMaxPerHour: Number(sm.selfPayMaxPerHour ?? 60),
-      sweepEverySec: Number(sm.sweepEverySec ?? 900),
+      sweepEverySec: Number(sm.sweepEverySec ?? 60),
       sweepBandBps: Number(sm.sweepBandBps ?? 20_000),
       matchEverySec: Number(sm.matchEverySec ?? 60),
       matchSteps: Number(sm.matchSteps ?? 20),
