@@ -70,6 +70,13 @@ export interface Sampling {
   matchEverySec: number;
   /** Orders one matchOrders call works through at most. */
   matchSteps: number;
+  /** Carry stock queue: most unpaid samples per pool per hour taken to unblock waiting stock (0 = never). The vault
+   *  takes a deposit only while the pool's centre is within its fee (at most 0.25%) of the leader, both live and at
+   *  the last block's reading, and the hook's paid tip line is 1%. So in a quiet market waiting stock can sit there
+   *  with lender USDG free. When a match dry run finds nothing while USDG is free and the centre is off the leader,
+   *  the keeper samples the pool, at its own gas, and tries again next round (a second reading in a later block
+   *  clears the last-block half of the check). */
+  matchSampleMaxPerHour: number;
 }
 
 export interface Policy {
@@ -194,6 +201,7 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       sweepBandBps: Number(sm.sweepBandBps ?? 20_000),
       matchEverySec: Number(sm.matchEverySec ?? 60),
       matchSteps: Number(sm.matchSteps ?? 20),
+      matchSampleMaxPerHour: Number(sm.matchSampleMaxPerHour ?? 12),
     },
     policy: {
       moveBps: b(p.moveBps, 102n),

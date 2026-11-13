@@ -116,7 +116,7 @@ test("config: same-chain sets, sampling and jar policy defaults", () => {
   assert.equal(c.sameChain[0].hook, "0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88");
   assert.deepEqual(c.sameChain[0].pools, ["0xabcd"]);
   assert.equal(c.sameChain[0].scanPools, true);
-  assert.deepEqual(c.sampling, { everySec: 13, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayMaxPerHour: 60, sweepEverySec: 60, sweepBandBps: 20_000, matchEverySec: 60, matchSteps: 20 });
+  assert.deepEqual(c.sampling, { everySec: 13, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayMaxPerHour: 60, sweepEverySec: 60, sweepBandBps: 20_000, matchEverySec: 60, matchSteps: 20, matchSampleMaxPerHour: 12 });
   assert.equal(c.sameChain[0].abi, "disciple");
   assert.equal(c.policy.minJar, 0n);
   assert.equal(c.policy.collectEverySec, 86_400);
@@ -322,4 +322,47 @@ test("Carry stock queue: config, and matchDue sends only for markets a dry run w
   // checked again only after matchEverySec
   await k.matchDue(cfg.sameChain[0]);
   assert.deepEqual(sent, [2n]);
+});
+
+test("Carry stock queue: a blocked match with USDG free samples the pool (unpaid), then once more, within the cap", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "keeper-u-"));
+  const f = join(dir, "c.json");
+  const P = ("0x" + "ab".repeat(32)) as Hex;
+  writeFileSync(
+    f,
+    JSON.stringify({
+      chains: { robinhood: { rpcEnv: "RH_RPC", chainId: 4663 } },
+      sameChain: [{ name: "carry", chain: "robinhood", hook: "0xcedc3c312c5b3c4310f0fba0323ddec797e4aa88", abi: "carry", stockQueue: "0x1111111111111111111111111111111111111111" }],
+      sampling: { matchSampleMaxPerHour: 2, minGapSec: 0 },
+    }),
+  );
+  const cfg = loadConfig(f, { RH_RPC: "http://127.0.0.1:1" });
+  assert.equal(loadConfig(f, { RH_RPC: "x" }).sampling.matchSampleMaxPerHour, 2);
+  const state = { routes: { carry: { pools: { [P]: { kind: 4 } } } } };
+  const k = new Keeper(cfg, state as never, privateKeyToAccount(("0x" + "11".repeat(32)) as Hex), { info() {}, warn() {}, error() {} } as never);
+  let free = 30_000_000n;
+  const pub = {
+    readContract: async ({ functionName }: { functionName: string }) =>
+      functionName === "freeUsdg" ? free : functionName === "markets" ? { pool: P, active: true } : 0n,
+  };
+  (k as unknown as { clients: Map<string, unknown> }).clients.set("robinhood", { pub, wal: {}, chain: {} });
+  let gap = 20;
+  (k as unknown as { leaderGapBps: () => Promise<number> }).leaderGapBps = async () => gap;
+  const sampled: boolean[] = [];
+  (k as unknown as { sample: (s: unknown, id: Hex, paid: boolean) => Promise<void> }).sample = async (_s, _id, paid) => {
+    sampled.push(paid);
+  };
+  const V = "0x2222222222222222222222222222222222222222" as Hex;
+  await k.unblockMatch(cfg.sameChain[0], V, 0n);
+  assert.deepEqual(sampled, [false], "off the leader with USDG free: one unpaid sample");
+  gap = 2;
+  await k.unblockMatch(cfg.sameChain[0], V, 0n);
+  assert.deepEqual(sampled, [false, false], "right after: one more reading, even though the centre is now close");
+  await k.unblockMatch(cfg.sameChain[0], V, 0n);
+  assert.equal(sampled.length, 2, "capped at matchSampleMaxPerHour");
+  free = 0n;
+  gap = 50;
+  (k as unknown as { matchSampled: Map<string, number[]> }).matchSampled.clear();
+  await k.unblockMatch(cfg.sameChain[0], V, 0n);
+  assert.equal(sampled.length, 2, "no free USDG: a sample would not help");
 });
