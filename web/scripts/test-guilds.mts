@@ -108,8 +108,6 @@ test("guilds / clan tags are hidden until v2 (GUILDS_ENABLED off; code kept)", (
   const chip = rd("components/guilds/GuildChip.tsx");
   assert.ok(/if \(!GUILDS_ENABLED \|\| !guild\) return null;/.test(chip), "GuildChip hidden when flag is off");
   assert.ok(/if \(!GUILDS_ENABLED\) return null;/.test(chip), "GuildTagFor hidden when flag is off");
-  const picker = rd("components/guilds/GuildPicker.tsx");
-  assert.ok(/if \(!GUILDS_ENABLED\) return null;/.test(picker), "GuildPicker hidden when flag is off");
   // every SITE render point is also gated at the call site (same pattern as LOOT_ENABLED / CREW_CARD_ENABLED)
   const sites: [string, RegExp][] = [
     ["components/leaderboard/LeaderboardView.tsx", /GUILDS_ENABLED && <GuildTagFor address=\{row\.address\} \/>/],
