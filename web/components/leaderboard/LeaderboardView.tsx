@@ -126,7 +126,7 @@ function Row({ p, sort, self }: { p: BoardPilot & { rank: number }; sort: BoardS
 
 function BestCallCard({ c, win }: { c: BestCall; win: BoardWindow }) {
   const name = displayName(c.username ?? null, c.wallet);
-  const href = c.username ? profileUrl(c.username) : `/u/${c.wallet}`;
+  const href = `/logbook?wallet=${c.wallet}${c.username ? `&name=${encodeURIComponent(c.username)}` : ""}`;
   const t = LEADERBOARD_COPY.bestCall;
   return (
     <section className="tp-call" aria-label={t.eyebrow[win]} data-testid="lb-bestcall">
