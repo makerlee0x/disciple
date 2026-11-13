@@ -38,8 +38,13 @@ it on; it is not set anywhere and must not be set on Vercel.
 4. Sign-up / login and any signing path are NOT part of this pass: lee decides after talking to Nova.
 
 ## Flight (engine.js `?source=turbo&clean=1`, `components/turbo/TurboFlight.tsx`)
-- Altitude is the actual BTC or ETH market cap at all times (lee, Nov 12 2026 10:40 AM CT), including with no position
-  open. It follows the existing engine mark/swap path. Height is never profit after fees. A short does not flip the sky.
+- Sky zoomed to the run (maker, Nov 13 2026; replaces the Nov 12 "height = actual market cap" rule): the page marks
+  `skyMcap(price)` (lib/turbo/flight.ts `skyAlt`), so the H-BOMB line sits 16% of the screen below the boarding line
+  at any gear. With no run open, the selected gear's scale is previewed around a slowly re-centring price. Market cap
+  stays a number on the market tab. A short does not flip the sky.
+- Lines: `__turboFx.lines` = H-BOMB (pink), break-even (green dashed), boarded (cream dashed), placed relative to the
+  rocket as drawn.
+- Runs (v2 screens): every position is a run; results, streak and best live in `lib/turbo/runs.ts` (this device).
 - Live mids come from Hyperliquid's public `allMids` WebSocket (HTTP poll only as a fallback if the socket is down).
 - Live buys become boosts and live sells become bombs through the existing engine path, sized with the existing impact /
   ammo rules. Stand-in feed: Hyperliquid public `trades` (not `l2Book`). `subscribeTrades` on the adapter is the hook a

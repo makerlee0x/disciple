@@ -304,3 +304,59 @@ test("copy: no practice / test / real-money / take-profit / stop-loss / limit wo
   const all = JSON.stringify(TURBO_COPY, (_k, v) => (typeof v === "function" ? v(1, "$1", "BTC", "BOOST") : v)).toLowerCase();
   for (const bad of ["practice", "test version", "real money", "take profit", "take-profit", "stop loss", "stop-loss", "limit order", "lose all"]) assert.ok(!all.includes(bad), bad);
 });
+
+/* ---- v2: run-zoomed sky, run numbers, run log (Nov 13 2026) ---- */
+import { breakEvenPrice, cashOutNowUsd, liqDistance, paceLabel, skyOffsetPx, SKY_LIQ_FRAC, typicalRunSeconds } from "../lib/turbo/flight";
+import { bestToday, clock, createRunStore, longestAt, multipleLabel, streak, type TurboRun } from "../lib/turbo/runs";
+import { RUN_COPY } from "../lib/turbo/copy";
+
+test("sky: the H-BOMB line sits SKY_LIQ_FRAC of the screen below boarding at every gear", () => {
+  for (const lv of LEVERAGE_PRESETS) {
+    const a = createMockAdapter({ autoStart: false, startPrices: { BTC: 97_250 } }); a.setPrice("BTC", 97_250);
+    const q = a.quote({ market: "BTC", side: "long", collateralUsd: 10, leverage: lv });
+    const d = liqDistance(q.entryEst, q.liqPrice);
+    near(skyOffsetPx(q.liqPrice, q.entryEst, d, 900), -SKY_LIQ_FRAC * 900, 1e-6);
+    near(skyOffsetPx(q.entryEst, q.entryEst, d, 900), 0);
+    a.dispose();
+  }
+});
+
+test("break-even covers both fees; cashing out at break-even returns the fuel", () => {
+  const a = createMockAdapter({ autoStart: false, startPrices: { BTC: 100_000 }, fillDelayMs: 0 }); a.setPrice("BTC", 100_000);
+  return a.addFuel(100).then(() => a.open({ market: "BTC", side: "long", collateralUsd: 10, leverage: 1000 })).then(async () => {
+    a.flushFills();
+    let [p] = await a.getPositions();
+    const be = breakEvenPrice(p);
+    assert.ok(be > p.entry);
+    a.setPrice("BTC", be);
+    [p] = await a.getPositions();
+    near(cashOutNowUsd(p), 10, 0.02);
+    a.dispose();
+  });
+});
+
+test("gear pace labels: higher gear, faster run", () => {
+  const secs = [0.0078, 0.003, 0.0014, 0.0006].map((d) => typicalRunSeconds("BTC", d));
+  for (let i = 1; i < secs.length; i++) assert.ok(secs[i] < secs[i - 1]);
+  assert.deepEqual(secs.map(paceLabel), ["~2 hr", "~20 min", "~5 min", "~1 min"]);
+});
+
+test("run log: streak, best today, longest at a gear, labels", () => {
+  const mem = new Map<string, string>();
+  const st = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => { mem.set(k, v); }, removeItem: (k: string) => { mem.delete(k); } } as unknown as Storage;
+  const runs = createRunStore(st);
+  const t = Date.now();
+  const r = (id: string, mult: number, lev: number, ms: number): TurboRun => ({ id, kind: mult > 0 ? "cashed" : "hbomb", market: "BTC", side: "long", leverage: lev, fuelUsd: 10, backUsd: 10 * mult, multiple: mult, startedAt: t - ms, endedAt: t });
+  runs.add(r("a", 2, 1000, 30_000)); runs.add(r("b", 0, 1000, 72_000)); runs.add(r("c", 1.4, 500, 10_000)); runs.add(r("d", 3.1, 1000, 52_000));
+  const all = runs.all();
+  assert.equal(streak(all), 2);
+  near(bestToday(all, t)!, 3.1);
+  assert.equal(longestAt(all, 1000), 72_000);
+  assert.equal(clock(41_000), "0:41"); assert.equal(clock(72_000), "1:12"); assert.equal(clock(7_390_000), "2:03:10");
+  assert.equal(multipleLabel(3.1), "3.1×"); assert.equal(multipleLabel(0.24), "0.24×"); assert.equal(multipleLabel(1.42), "1.42×");
+});
+
+test("run copy keeps the same rules", () => {
+  const all = JSON.stringify(RUN_COPY, (_k, v) => (typeof v === "function" ? v("$1", "$1", "1:00", "BOOST", "BTC", "0:41") : v)).toLowerCase();
+  for (const bad of ["practice", "test version", "real money", "take profit", "stop loss", "limit order", "win it back", "double"]) assert.ok(!all.includes(bad), bad);
+});

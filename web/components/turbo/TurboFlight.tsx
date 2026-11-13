@@ -11,7 +11,9 @@
  *  - window.__turboFx = { open, pending, side, lev, danger, dive:false, liqMcap, liqLabel }
  *  - ignite(): flame on at the player's own tap, before the fill arrives
  *  - supernova(): the engine's ATOM bomb under the page's H-BOMB overlay (TurboHBomb)
- * The engine never places trades. A short does not flip the sky. Height is never PnL.
+ * The engine never places trades. A short does not flip the sky.
+ * @turbo-sky (maker, Nov 13 2026): the page now marks the ZOOMED sky market cap (skyMcap) instead of the whole BTC/ETH
+ * market cap, so the H-BOMB line sits ~16% of the screen below the boarding line at any gear.
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { brandedRocket } from "@/lib/decal";
@@ -19,6 +21,7 @@ import { BASE_PATH, withBase } from "@/lib/base-path";
 import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
 import { paperCurve } from "@/lib/flight/paperCurve";
 import GameRadio from "@/components/flight/GameRadio";
+import { skyAlt } from "@/lib/turbo/flight";
 import SettingsMenu from "@/components/flight/SettingsMenu";
 
 export interface TurboFx {
@@ -26,6 +29,8 @@ export interface TurboFx {
   /** Always false: a short does not dive or invert the sky (lee, Nov 12 2026 10:40 AM CT). */
   dive: boolean;
   liqMcap?: number; liqLabel?: string;
+  /** @turbo-sky: lines drawn across the zoomed sky (H-BOMB, break-even, boarded), at their sky market cap. */
+  lines?: { mcap: number; kind: "hbomb" | "even" | "boarded"; label: string }[];
 }
 
 export interface TurboSwap {
@@ -49,16 +54,20 @@ export interface TurboFlightHandle {
   pxPerAlt(): number | undefined;
   altToMcap(alt: number): number | null;
   ready(): boolean;
+  /** @turbo-sky: the zoomed-sky market cap for a price (anchor + liqDist set by the page), or null before the engine loads. */
+  skyMcap(price: number, anchor: number, liqDist: number): number | null;
 }
 
 type Engine = { PX_PER_ALT?: number; altToMcap?: (a: number) => number; bomb?: (k: string, o?: unknown) => void; S?: Record<string, unknown>; source?: { stop?: () => void } };
 type W = Window & { __flight?: Engine; __turboFeed?: ((e: unknown) => void) | null; __turboFx?: TurboFx; Q_OVERRIDE?: URLSearchParams | null; __rocketDecal?: unknown; __entryMcap?: number };
 
-const TurboFlight = forwardRef<TurboFlightHandle, { className?: string; ticker?: string }>(function TurboFlight({ className, ticker = "BTC" }, ref) {
+const TurboFlight = forwardRef<TurboFlightHandle, { className?: string; ticker?: string; onReady?: () => void }>(function TurboFlight({ className, ticker = "BTC", onReady }, ref) {
   const wrap = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "live" | "error">("loading");
   const pendingMark = useRef<number | null>(null);
   const lastMcap = useRef(0);
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
 
   const push = (e: Record<string, unknown>) => {
     const w = window as W;
@@ -86,10 +95,16 @@ const TurboFlight = forwardRef<TurboFlightHandle, { className?: string; ticker?:
     },
     setFx(fx) { (window as W).__turboFx = { ...fx, dive: false }; },
     ignite() { const S = (window as W).__flight?.S; if (S) { S.buyBoost = 1; S.thrustT = S.t; } },
-    supernova(bombs) { if (bombs) try { (window as W).__flight?.bomb?.("atom", { usd: 0 }); } catch { /* cosmetic */ } },
+    supernova(bombs) { if (bombs) try { (window as W).__flight?.bomb?.("atom", { usd: 0, mine: true }); } catch { /* cosmetic */ } },
     pxPerAlt() { const v = (window as W).__flight?.PX_PER_ALT; return typeof v === "number" && v > 0 ? v : undefined; },
     altToMcap(alt) { const f = (window as W).__flight; return f?.altToMcap ? f.altToMcap(alt) : null; },
     ready() { return status === "live"; },
+    skyMcap(price, anchor, liqDist) {
+      const f = (window as W).__flight;
+      if (!f?.altToMcap || !(price > 0)) return null;
+      const m = f.altToMcap(skyAlt(price, anchor, liqDist, window.innerHeight, f.PX_PER_ALT ?? 0));
+      return Number.isFinite(m) && m > 0 ? m : null;
+    },
   }), [status]);
 
   useEffect(() => {
@@ -101,7 +116,8 @@ const TurboFlight = forwardRef<TurboFlightHandle, { className?: string; ticker?:
     const fade = document.createElement("div");
     fade.id = "launchFade"; fade.style.cssText = "position:absolute;inset:0;background:#000;opacity:0;pointer-events:none";
     wrap.current?.appendChild(fade);
-    Object.assign(window, { __DISCIPLE_BASE_PATH__: BASE_PATH, __AMMO_TIERS: AMMO_TIERS, __PAPER_CURVE: paperCurve() });
+    Object.assign(window, { __DISCIPLE_BASE_PATH__: BASE_PATH, __AMMO_TIERS: AMMO_TIERS, __PAPER_CURVE: paperCurve(),
+      __GAME_FONT: getComputedStyle(document.documentElement).getPropertyValue("--font-barlow-condensed").trim() });
     w.Q_OVERRIDE = new URLSearchParams("source=turbo&clean=1");
     w.__turboFx = { open: false, pending: false, side: null, lev: 100, danger: 0, dive: false };
     brandedRocket(null).then(({ canvas, fallback }) => { if (!cancelled) w.__rocketDecal = { canvas, t0: performance.now(), fallback }; }).catch(() => {});
@@ -112,6 +128,7 @@ const TurboFlight = forwardRef<TurboFlightHandle, { className?: string; ticker?:
     s.onload = () => {
       if (cancelled) return;
       setStatus("live");
+      onReadyRef.current?.();
       const tryFeed = () => {
         if (cancelled) return;
         if (w.__turboFeed && w.__flight) {

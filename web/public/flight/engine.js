@@ -1687,20 +1687,41 @@ function turboFlame(){ const f=turboFx(); if(!f||!(f.open||f.pending)) return {o
   return {on:true, boost:(f.pending?1.2:0)+(f.open?0.35+1.1*L:0), air:f.open?40+260*L:(f.pending?60:0), sput}; }
 function turboShudder(dt){ const f=turboFx(); if(!f||!f.open) return; const d=clamp(+f.danger||0,0,1); if(d<=0.8) return;
   S.wobV=(S.wobV||0)+(Math.random()-0.5)*2600*(d-0.8)*dt*60*0.05; }
-/* always on screen while a position is open: off-screen ⇒ pinned to the edge with an arrow (still the true price label) */
-function turboLine(m,col,label,dash,w){ if(!(m>0)) return; const y0=altToScreenY(mcapToAlt(m)), y=clamp(y0,22,H-14), pinned=y!==y0;
-  ctx.save(); ctx.strokeStyle=col; ctx.lineWidth=w||2; if(dash||pinned) ctx.setLineDash(dash||[14,10]); ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]);
-  if(label){ ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle=col; ctx.fillText((pinned?(y0>y?'↓ ':'↑ '):'')+label,16,y0>y||!pinned?y-7:y+16); } ctx.restore(); return y; }
+/* always on screen while a position is open: off-screen ⇒ pinned to the edge with an arrow (still the true price label).
+   @turbo-sky (maker, Nov 13 2026: the sky zooms to the run): the page sends f.lines = [{mcap, kind, label}] with kind
+   'hbomb' (solid pink, glow, pill label), 'even' (green dashed: break-even) or 'boarded' (cream dashed). */
+function turboPill(text,x,y,bg,fg,right){ ctx.save(); ctx.font='700 13px '+GAME_FAMILY;
+  const w=ctx.measureText(text).width+16, h=20, x0=right?W-x-w:x; ctx.fillStyle=bg; ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(x0,y-h/2,w,h,6); else ctx.rect(x0,y-h/2,w,h); ctx.fill();
+  ctx.fillStyle=fg; ctx.textBaseline='middle'; ctx.fillText(text,x0+8,y+0.5); ctx.restore(); }
+const TURBO_LINE_STYLE={
+  hbomb:{col:'#F0307F',w:3,dash:null,glow:'rgba(240,48,127,.8)',bg:'rgba(240,48,127,.92)',fg:'#F2F3F7',right:true},
+  even:{col:'rgba(95,240,160,.8)',w:2,dash:[8,6],bg:'rgba(18,19,39,.85)',fg:'#5FF0A0',right:true},
+  boarded:{col:'rgba(243,223,168,.7)',w:1,dash:[4,4],bg:'rgba(18,19,39,.85)',fg:'#F3DFA8',right:false},
+};
+/* lines are placed relative to the rocket as drawn (its screen y is soft-limited to a band), so the rocket body sits
+   exactly on the line of the price it is at: at the boarding line on fill, on the H-BOMB line when it fires. */
+function turboYOff(){ return (S.ry!=null&&S.displayAlt!=null)?S.ry-altToScreenY(S.displayAlt):0; }
+function turboLine(m,col,label,dash,w,st,alpha){ if(!(m>0)) return; const y0=altToScreenY(mcapToAlt(m))+turboYOff(), y=clamp(y0,22,H-14), pinned=y!==y0;
+  ctx.save(); if(alpha!=null) ctx.globalAlpha=alpha; ctx.strokeStyle=col; ctx.lineWidth=w||2; if(st&&st.glow){ ctx.shadowColor=st.glow; ctx.shadowBlur=14; }
+  if(dash||pinned) ctx.setLineDash(dash||[14,10]); ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]); ctx.shadowBlur=0;
+  if(label){ const t=(pinned?(y0>y?'↓ ':'↑ '):'')+label, ly=y0>y||!pinned?y-14:y+14;
+    if(st) turboPill(t,12,ly,st.bg,st.fg,st.right); else { ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle=col; ctx.fillText(t,16,ly+4); } }
+  ctx.restore(); return y; }
 function drawTurboLines(){ const f=turboFx(); if(!f||S.displayAlt==null) return;
   if(f.open||f.pending){
     const d=clamp(+f.danger||0,0,1), pulse=d>0.8?0.55+0.45*Math.abs(Math.sin(S.t*6)):1;
-    const y=turboLine(f.liqMcap,'rgba(255,61,90,'+(0.85*pulse).toFixed(3)+')',f.liqLabel||'LIQUIDATION',null,2.5);
-    if(y!=null){ ctx.save(); const g=ctx.createLinearGradient(0,y,0,f.side==='short'?y-60:y+60); g.addColorStop(0,'rgba(255,40,70,.22)'); g.addColorStop(1,'rgba(255,40,70,0)');
+    let y=null;
+    if(Array.isArray(f.lines)&&f.lines.length){
+      for(const L of f.lines){ const st=TURBO_LINE_STYLE[L.kind]||TURBO_LINE_STYLE.boarded;
+        const yy=turboLine(L.mcap,st.col,L.label,st.dash,st.w,st,L.kind==='hbomb'?pulse:1); if(L.kind==='hbomb') y=yy; } }
+    else y=turboLine(f.liqMcap,'rgba(255,61,90,'+(0.85*pulse).toFixed(3)+')',f.liqLabel||'LIQUIDATION',null,2.5);
+    if(y!=null){ ctx.save(); const g=ctx.createLinearGradient(0,y,0,f.side==='short'?y-60:y+60); g.addColorStop(0,'rgba(240,48,127,.22)'); g.addColorStop(1,'rgba(240,48,127,0)');
       ctx.fillStyle=g; ctx.fillRect(0,f.side==='short'?y-60:y,W,60); ctx.restore(); }
     if(d>0.5){ const [nx,ny]=nozzleXY(), r=40+60*d; ctx.save(); ctx.globalCompositeOperation='lighter';
       const g=ctx.createRadialGradient(nx,ny,0,nx,ny,r); g.addColorStop(0,d>0.8?'rgba(255,70,40,.55)':'rgba(255,140,40,.45)'); g.addColorStop(1,'rgba(255,90,30,0)');
       ctx.fillStyle=g; ctx.beginPath(); ctx.arc(nx,ny,r,0,Math.PI*2); ctx.fill(); ctx.restore(); } } }
-function drawEntryLine(){ const m=window.__entryMcap; if(!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
+function drawEntryLine(){ const m=window.__entryMcap; if(IS_TURBO||!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
   const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle='rgba(242,193,78,.5)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;   /* brand gold: where YOU boarded */
   ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=up?'#F2C14E':'#FF9CC4'; ctx.font=GF(13,700); if('letterSpacing' in ctx) ctx.letterSpacing='1px';
   ctx.fillText('YOU BOARDED '+fmtUsd(m),W/2+60,y-6); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.restore(); }
@@ -2363,7 +2384,7 @@ function debugBomb(spec,opt){ opt=opt||{};
   if (typeof spec==='string'){ spec=spec.toLowerCase(); if(BOMB_ALIASES[spec]) spec=BOMB_ALIASES[spec]; }   // 'NUKE' and 'nuke' both work
   const i=typeof spec==='number'?null:BOMB_TIERS.findIndex(t=>t.k===spec);
   const pct=typeof spec==='number'?spec:[0.8,3.2,8,18,35,55][Math.max(0,i)];
-  noteSell({side:'sell',usd:opt.usd??[40,600,8900,31e3,120e3,480e3][Math.max(0,bombTierOf(pct))],impactPct:pct,trader:opt.trader||'0xabc1230000000000000000000000000000def456',fullStack:!!opt.fullStack}); }
+  noteSell({side:'sell',usd:opt.usd??[40,600,8900,31e3,120e3,480e3][Math.max(0,bombTierOf(pct))],impactPct:pct,trader:opt.trader||'0xabc1230000000000000000000000000000def456',fullStack:!!opt.fullStack,mine:!!opt.mine}); }   // @turbo: mine ⇒ the tag reads 'you', never a sample address
 
 /*STEER-BEGIN*/
 /* Arcade hold-to-steer (pure; unit-tested by test-heading.mjs + test-camera.mjs).

@@ -2,106 +2,99 @@
 /**
  * DISCIPLE Turbo — live trade screen (hidden /turbo; not in the public nav).
  *
- * Layout is the existing DISCIPLE game interface (AppShell + collapsed rail + full-bleed flight + ticket + trade bar),
- * not a Nova terminal. Altitude is the live BTC/ETH market cap (lee, Nov 12 2026 10:40 AM CT), never profit.
- * Live buys/sells from the trade stream become engine boosts and bombs. The engine never places trades.
+ * v2 (maker signed off the "Turbo mockups" canvas, Nov 13 2026): every position is a RUN.
+ *  - Ready: market, GEAR tiles (leverage presets with 1–4 chevrons and a typical run length), FUEL chips, the H-BOMB
+ *    distance, then BOOST ▲ (long) / DUMP ▼ (short) in one tap.
+ *  - Run: cash out now + multiple, heat (share of the way to the H-BOMB), market flow, BANK HALF and CASH OUT.
+ *    Desktop adds the Your run card. Space = cash out, Q = bank half.
+ *  - Result: Cashed out (multiple, money, run chart, streak, best today) or H-BOMB'd (how long you lasted), each with
+ *    RUN IT BACK (same fuel, gear and side; never raised) and Share.
+ *  - Sky: zoomed to the run (lib/turbo/flight.ts skyAlt). The H-BOMB, break-even and boarding lines are drawn by the
+ *    engine from __turboFx.lines. Market cap stays a number on the market tab.
+ * The engine never places trades; every tap goes to the adapter first.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useTurbo } from "@/lib/turbo/useTurbo";
 import type { ClosePct, Market, MarketInfo, MarketTrade, Position, Side, TurboEvent } from "@/lib/turbo";
-import { TURBO_COPY as C } from "@/lib/turbo/copy";
-import { chipUsd, lev as fmtLev, liqWithDistance, price as fmtPrice, signedUsd, usd } from "@/lib/turbo/format";
-import { CLOSE_PCTS, DEFAULT_PREFS, FUEL_PRESETS, LEVERAGE_PRESETS, fuelOf, leverageOf, loadPrefs, savePrefs, type TurboPrefs } from "@/lib/turbo/prefs";
-import { dangerLevel, dangerOf, isBigWin, marketCapUsd } from "@/lib/turbo/flight";
+import { RUN_COPY as R, TURBO_COPY as C } from "@/lib/turbo/copy";
+import { lev as fmtLev, price as fmtPrice, signedUsd, usd } from "@/lib/turbo/format";
+import { DEFAULT_PREFS, FUEL_PRESETS, LEVERAGE_PRESETS, fuelOf, leverageOf, loadPrefs, savePrefs, type TurboPrefs } from "@/lib/turbo/prefs";
+import { breakEvenPrice, cashOutNowUsd, dangerLevel, dangerOf, liqDistance, marketCapUsd, paceLabel, typicalRunSeconds } from "@/lib/turbo/flight";
+import { bestToday, clock, createRunStore, longestAt, multipleLabel, streak, type TurboRun } from "@/lib/turbo/runs";
 import { SETTINGS_OPEN_EVENT } from "@/lib/walletCta";
 import TurboFlight, { type TurboFlightHandle } from "./TurboFlight";
 import TurboFundingSheet from "./TurboFundingSheet";
 import TurboHowItWorks from "./TurboHowItWorks";
 import TurboShareCard, { type TurboShare } from "./TurboShareCard";
 import TurboHBomb from "./TurboHBomb";
-import s from "./turbo.module.css";
+import s from "./run.module.css";
+import old from "./turbo.module.css";
 
 const MARKETS: Market[] = ["BTC", "ETH"];
-const sideWord = (side: Side) => (side === "long" ? C.boost : C.dump);
+const sideWord = (side: Side) => (side === "long" ? "BOOST" : "DUMP");
+/** Whole dollars on the big price labels ($97,250), cents under $10k ($3,420.50). */
+const px0 = (v: number) => (!(v > 0) ? "—" : usd(v, v >= 10_000 ? 0 : 2));
+/** Market tabs: whole dollars from $1,000 ($3,420). */
+const pxTab = (v: number) => (!(v > 0) ? "—" : usd(v, v >= 1000 ? 0 : 2));
+const capLabel = (v: number) => (!(v > 0) ? "" : v >= 1e12 ? `$${(v / 1e12).toFixed(2)}T cap` : `$${(v / 1e9).toFixed(0)}B cap`);
+const bigUsd = (v: number) => (v >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : `$${Math.round(v / 1e3)}K`);
+const pctMove = (f: number) => `${(f * 100).toFixed(f < 0.001 ? 3 : 2).replace(/0$/, "")}%`;
+/** Smallest print that shows as Big buy / Big sell in the market-flow pills. */
+const FLOW_MIN: Record<Market, number> = { BTC: 100_000, ETH: 50_000 };
 
-function ChipRow({ label, opts, fmt, sel, custom, onPick, onCustom, disabledReason, testid, unit, extra }: {
-  label: string; opts: readonly number[]; fmt: (v: number) => string; sel: number; custom: number;
-  onPick: (i: number) => void; onCustom: (v: number) => void; disabledReason?: (v: number) => string | null; testid: string; unit: "$" | "×";
-  extra?: ReactNode;
-}) {
-  const [val, setVal] = useState(custom > 0 && sel < 0 ? String(custom) : "");
-  useEffect(() => { if (sel >= 0) setVal(""); }, [sel]);
-  return (
-    <div className={s.chipBlock}>
-      <div className={s.fuelHead}><div className={s.k}>{label}</div>{extra}</div>
-      <div className={s.chips}>
-        {opts.map((o, i) => { const why = disabledReason?.(o) ?? null; return (
-          <button key={o} type="button" className={`${s.chip} ${i === sel ? s.chipSel : ""}`} aria-pressed={i === sel} disabled={!!why} title={why ?? undefined}
-            data-testid={`${testid}-${i}`} onClick={() => onPick(i)}>{fmt(o)}{why && <span className={s.chipWhy}>{why}</span>}</button>); })}
-        <form className={s.customRow} onSubmit={(e) => { e.preventDefault(); const n = +val; if (n > 0) onCustom(n); }}>
-          <label className={`${s.field} ${sel < 0 ? s.fieldOn : ""}`}>{unit === "$" && <span>$</span>}
-            <input inputMode="decimal" aria-label={`${C.custom} ${label.toLowerCase()}`} data-testid={`${testid}-custom`} placeholder={C.custom} value={val}
-              onChange={(e) => setVal(e.target.value.replace(/[^0-9.]/g, ""))} onBlur={() => { const n = +val; if (n > 0) onCustom(n); }} />
-            {unit === "×" && <span>×</span>}</label>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-const Row = ({ k, v, tone, testid }: { k: string; v: string; tone?: "up" | "down" | "liq"; testid?: string }) => (
-  <div className={s.row} data-testid={testid}><span className={s.k}>{k}</span><span className={`${s.v} ${tone ? s[tone] : ""}`}>{v}</span></div>
+const Chevrons = ({ n }: { n: number }) => (
+  <svg width={4 + n * 9} height="12" viewBox={`0 0 ${4 + n * 9} 12`} fill="none" stroke="#F2C14E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d={Array.from({ length: n }, (_, i) => `M${4 + i * 9} 2l4 4-4 4`).join("")} />
+  </svg>
 );
+const MenuIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 7h16M4 12h16M4 17h16" /></svg>;
+const XIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg>;
+const PlusIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="#121327" strokeWidth="2.6" strokeLinecap="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>;
 
-function fundingLine(p: Position): string {
-  if (p.fundingUsd === 0) return C.fundingOffMarket;
-  const v = signedUsd(p.fundingUsd);
-  return p.fundingUsd < 0 ? C.fundingPaid(v) : C.fundingReceived(v);
-}
+interface RunTrack { id: string; fuelUsd: number; startedAt: number; peak: number; path: number[]; lastSample: number; side: Side; market: Market; leverage: number }
+type Result = { run: TurboRun; entry: number; exit: number; liqMove?: number };
 
-function PositionCard({ p }: { p: Position }) {
-  const mark = p.markPrice ?? p.entry, pending = p.status === "pending";
-  const afterLabel = p.pnlAfterFeesUsd >= 0 ? C.pnlAfter : C.lossAfter;
+function RunChart({ path }: { path: number[] }) {
+  const pts = path.length >= 2 ? path : [1, ...(path.length ? path : [1])];
+  const W = 358, H = 150, lo = 0.2, hi = Math.max(1.2, ...pts) * 1.08;
+  const x = (i: number) => 24 + (i / (pts.length - 1)) * (W - 52);
+  const y = (m: number) => H - 22 - ((m - lo) / (hi - lo)) * (H - 40);
+  const peakI = pts.indexOf(Math.max(...pts)), last = pts.length - 1;
+  const d = pts.map((m, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(m).toFixed(1)}`).join(" ");
+  const pctX = (i: number) => `${(x(i) / W) * 100}%`, pctY = (m: number) => `${(y(m) / H) * 100}%`;
   return (
-    <div className={s.card} data-testid="turbo-position-card" data-status={p.status}>
-      <div className={s.cardHead}>
-        <span className={p.side === "long" ? s.up : s.down}>{sideWord(p.side)} · {p.market} · {fmtLev(p.leverage)}</span>
-        <span className={s.levTag}>{C.positions.replace(/s$/, "")}</span>
-      </div>
-      {pending ? <div className={s.pendingBig}>{C.waitingFill}</div> : <>
-        <div className={s.k}>{afterLabel}</div>
-        <div className={`${s.bigPnl} ${p.pnlAfterFeesUsd >= 0 ? s.up : s.down}`} data-testid="turbo-pnl-after">{signedUsd(p.pnlAfterFeesUsd)}</div>
-        <div className={s.winLine}>{p.side === "long" ? C.youWinLong : C.youWinShort}</div>
-      </>}
-      <Row k={C.size} v={usd(p.sizeUsd)} />
-      <Row k={C.fuelIn} v={usd(p.collateralUsd)} />
-      <Row k={pending ? C.entryEst : C.entry} v={fmtPrice(p.entry)} />
-      <Row k={C.now} v={fmtPrice(mark)} />
-      <Row k={C.liq} v={liqWithDistance(p.liqPrice, mark)} tone="liq" testid="turbo-card-liq" />
-      {!pending && <>
-        <Row k={C.funding} v={fundingLine(p)} />
-        <Row k={C.feesPaid} v={usd(p.openFeeUsd)} />
-        <Row k={C.closeFee} v={usd(p.closeFeeUsdEst)} />
-        <Row k={C.loseIfLiq} v={usd(p.collateralUsd)} />
-        <Row k={p.pnlUsd >= 0 ? C.pnlBefore : "Loss before fees"} v={signedUsd(p.pnlUsd)} />
-      </>}
+    <div className={s.chart}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" fill="none" role="img" aria-label={`Run chart: peak ${multipleLabel(pts[peakI])}, cashed out at ${multipleLabel(pts[last])}`}>
+        <path d={`M0 ${y(lo)}H${W}`} stroke="#F0307F" strokeWidth="1.5" strokeDasharray="4 4" />
+        <path d={`M0 ${y(1)}H${W}`} stroke="rgba(243,223,168,0.5)" strokeWidth="1" strokeDasharray="3 3" />
+        <path d={d} stroke="#F2C14E" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        <circle cx={x(0)} cy={y(pts[0])} r="5" fill="#F3DFA8" />
+        {peakI !== last && <circle cx={x(peakI)} cy={y(pts[peakI])} r="4" fill="#F2F3F7" />}
+        <circle cx={x(last)} cy={y(pts[last])} r="6" fill="#5FF0A0" stroke="#121327" strokeWidth="2" />
+      </svg>
+      <span style={{ left: 12, top: `calc(${pctY(pts[0])} + 8px)`, color: "#F3DFA8" }}>{R.boarded}</span>
+      {peakI !== last && <span style={{ left: `calc(${pctX(peakI)} - 26px)`, top: `calc(${pctY(pts[peakI])} - 18px)`, color: "#F2F3F7" }}>{R.peak(multipleLabel(pts[peakI]))}</span>}
+      <span style={{ right: 8, top: `calc(${pctY(pts[last])} + 8px)`, color: "#5FF0A0" }}>{R.you}</span>
+      <span style={{ right: 10, bottom: 4, color: "#FF7FB2" }}>{R.bombLine}</span>
     </div>
   );
 }
 
-function Picker({ side, prefs, setPrefs, levWhy, onClose }: { side: Side; prefs: TurboPrefs; setPrefs: (p: TurboPrefs) => void; levWhy: (v: number) => string | null; onClose: () => void }) {
-  useEffect(() => { const k = (e: KeyboardEvent) => e.key === "Escape" && onClose(); addEventListener("keydown", k); return () => removeEventListener("keydown", k); }, [onClose]);
+function DetailSheet({ p, onClose }: { p: Position; onClose: () => void }) {
+  const rows: [string, string][] = [
+    [C.size, usd(p.sizeUsd)], [C.fuelIn, usd(p.collateralUsd)], [C.entry, fmtPrice(p.entry)], [C.now, fmtPrice(p.markPrice ?? p.entry)],
+    [C.liq, fmtPrice(p.liqPrice)], [C.feesPaid, usd(p.openFeeUsd)], [C.closeFee, usd(p.closeFeeUsdEst)],
+    [C.funding, p.fundingUsd === 0 ? C.fundingOffMarket : p.fundingUsd < 0 ? C.fundingPaid(signedUsd(p.fundingUsd)) : C.fundingReceived(signedUsd(p.fundingUsd))],
+    [p.pnlUsd >= 0 ? C.pnlBefore : "Loss before fees", signedUsd(p.pnlUsd)],
+  ];
   return (
-    <div className={s.dim} onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div role="dialog" aria-modal="true" aria-label={`${sideWord(side)} fuel and leverage`} className={`${s.sheet} ${s.pickSheet}`} data-testid="turbo-picker">
-        <button type="button" className={s.x} aria-label="Close" onClick={onClose}>×</button>
-        <div className={s.sheetTitle}><span className={side === "long" ? s.up : s.down}>{side === "long" ? "▲" : "▼"}</span> {sideWord(side)}</div>
-        <ChipRow label={C.fuelLabel} unit="$" testid="pick-fuel" opts={FUEL_PRESETS} fmt={chipUsd} sel={prefs.fuelIdx} custom={prefs.fuelCustom}
-          onPick={(i) => setPrefs({ ...prefs, fuelIdx: i })} onCustom={(v) => setPrefs({ ...prefs, fuelIdx: -1, fuelCustom: v })} />
-        <ChipRow label={C.leverageLabel} unit="×" testid="pick-lev" opts={LEVERAGE_PRESETS} fmt={(v) => `${v}×`} sel={prefs.levIdx} custom={prefs.levCustom} disabledReason={levWhy}
-          onPick={(i) => setPrefs({ ...prefs, levIdx: i })} onCustom={(v) => setPrefs({ ...prefs, levIdx: -1, levCustom: v })} />
-        <button type="button" className={s.doneBtn} onClick={onClose}>Done</button>
-        <p className={s.pickFooter}>{C.pickerFooter}</p>
+    <div className={old.dim} onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div role="dialog" aria-modal="true" aria-label={R.feesLink} className={old.sheet} data-testid="turbo-detail">
+        <button type="button" className={old.x} aria-label={R.close} onClick={onClose}>×</button>
+        <div className={old.sheetTitle}>{R.feesLink}</div>
+        {rows.map(([k, v]) => <div key={k} className={old.row}><span className={old.k}>{k}</span><span className={old.v}>{v}</span></div>)}
+        <p className={old.feeFooter}>{C.feeFooter}</p>
       </div>
     </div>
   );
@@ -115,220 +108,389 @@ export default function TurboScreen() {
   const market = prefs.market;
   const markets: MarketInfo[] = useMemo(() => adapter.getMarkets?.() ?? MARKETS.map((m) => ({ market: m, maxLeverage: 1000 })), [adapter]);
   const info = markets.find((m) => m.market === market);
-  const levWhy = useCallback((v: number) => (info && v > info.maxLeverage ? (info.leverageNote ?? C.leverageMax(info.maxLeverage, market)) : null), [info, market]);
-
   const fuelUsd = fuelOf(prefs), leverage = leverageOf(prefs);
   const px = prices[market];
   const hasPx = !!px && px > 0;
-  const qLong = hasPx ? adapter.quote({ market, side: "long", collateralUsd: fuelUsd, leverage }) : null;
-  const qShort = hasPx ? adapter.quote({ market, side: "short", collateralUsd: fuelUsd, leverage }) : null;
+
+  const runs = useMemo(() => createRunStore(), []);
+  const [, bumpRuns] = useState(0);
 
   const mine = positions.filter((p) => p.market === market);
   const active = mine[mine.length - 1] ?? null;
-  const [adding, setAdding] = useState(false);
-  useEffect(() => { if (!active) setAdding(false); }, [active]);
+  const open_ = active?.status === "open";
 
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<{ txt: string; tone?: "up" | "down" } | null>(null);
-  const flash = useCallback((txt: string, tone?: "up" | "down") => { setToast({ txt, tone }); setTimeout(() => setToast((t) => (t?.txt === txt ? null : t)), 3200); }, []);
-  const [sheet, setSheet] = useState<null | "fund" | "how" | "position" | { pick: Side }>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const flash = useCallback((txt: string) => { setToast(txt); setTimeout(() => setToast((t) => (t === txt ? null : t)), 3200); }, []);
+  const [sheet, setSheet] = useState<null | "fund" | "how" | "detail">(null);
   const [share, setShare] = useState<TurboShare | null>(null);
-  const [nova, setNova] = useState<null | { short: boolean; label: string; share: TurboShare }>(null);
+  const [nova, setNova] = useState<null | { short: boolean; label: string; result: Result }>(null);
+  const [result, setResult] = useState<Result | null>(null);
+  const [flow, setFlow] = useState<{ id: number; side: "buy" | "sell"; usd: number }[]>([]);
   const flight = useRef<TurboFlightHandle>(null);
-  const fuelAtOpen = useRef<Record<string, number>>({});
+  const [engineReady, setEngineReady] = useState(0);
+  const track = useRef<Record<string, RunTrack>>({});
   const lastMid = useRef<Partial<Record<Market, number>>>({});
   const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
-  const [pageOpenedAt] = useState(() => Date.now());
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(id); }, []);
 
   useEffect(() => { document.body.classList.add("turbo-game"); return () => document.body.classList.remove("turbo-game"); }, []);
 
+  /* ---- quotes per gear (pace labels, H-BOMB distance) ---- */
+  const gearQuotes = useMemo(() => LEVERAGE_PRESETS.map((lv) => {
+    if (!hasPx) return null;
+    const q = adapter.quote({ market, side: "long", collateralUsd: fuelUsd, leverage: lv });
+    return { lev: lv, liqDist: liqDistance(q.entryEst, q.liqPrice) };
+  }), [adapter, market, fuelUsd, hasPx, px]); // eslint-disable-line react-hooks/exhaustive-deps
+  const selQuote = hasPx ? adapter.quote({ market, side: "long", collateralUsd: fuelUsd, leverage }) : null;
+  const selLiqDist = selQuote ? liqDistance(selQuote.entryEst, selQuote.liqPrice) : 0;
+  const levBlocked = (v: number) => !!info && v > info.maxLeverage;
+
   /* ---- taps: adapter first, visuals after (never awaited) ---- */
-  const open = async (side: Side) => {
+  const openRun = useCallback(async (side: Side, o?: { fuelUsd: number; leverage: number; market: Market }) => {
     if (busy) return;
+    const f = o?.fuelUsd ?? fuelUsd, lv = o?.leverage ?? leverage, m = o?.market ?? market;
+    if (fuel != null && f > fuel) { flash(R.needFuel); setSheet("fund"); return; }
     setBusy(true);
     try {
-      const r = adapter.open({ market, side, collateralUsd: fuelUsd, leverage });
+      const r = adapter.open({ market: m, side, collateralUsd: f, leverage: lv });
       flight.current?.ignite();
-      await r;
-      setAdding(false);
-    } catch (e) { flash(e instanceof Error ? e.message : C.failed, "down"); }
+      const { id } = await r;
+      track.current[id] = { id, fuelUsd: f, startedAt: Date.now(), peak: 0, path: [], lastSample: 0, side, market: m, leverage: lv };
+    } catch (e) { flash(e instanceof Error ? e.message : C.failed); }
     finally { setBusy(false); }
-  };
-  const close = async (p: Position, pct: ClosePct) => {
-    if (busy) return;
+  }, [adapter, busy, flash, fuel, fuelUsd, leverage, market]);
+  const close = useCallback(async (p: Position, pct: ClosePct) => {
+    if (busy || p.status !== "open") return;
     setBusy(true);
-    try { await adapter.close(p.id, pct); } catch (e) { flash(e instanceof Error ? e.message : C.failed, "down"); } finally { setBusy(false); }
-  };
+    try { await adapter.close(p.id, pct); } catch (e) { flash(e instanceof Error ? e.message : C.failed); } finally { setBusy(false); }
+  }, [adapter, busy, flash]);
 
-  /* ---- events → toasts, H-BOMB, share cards ---- */
+  /* ---- live run numbers ---- */
+  const tr = active ? track.current[active.id] : undefined;
+  const fuelIn = tr?.fuelUsd ?? active?.collateralUsd ?? 0;
+  const cashNow = active && open_ ? cashOutNowUsd(active) : 0;
+  const realized = active?.realizedUsd ?? 0;
+  const multiple = fuelIn > 0 ? (realized + cashNow) / fuelIn : 0;
+  const upUsd = realized + cashNow - fuelIn;
+  const danger = active && open_ ? dangerOf(active) : 0;
+  const level = dangerLevel(danger);
+  const red = open_ && (level === "shudder" || level === "blow");
+  const evenPx = active && open_ ? breakEvenPrice(active) : 0;
+  const elapsed = tr ? now - tr.startedAt : 0;
+
+  // peak + chart samples (twice a second, max 80 points)
+  useEffect(() => {
+    if (!active || !open_ || !tr) return;
+    if (multiple > tr.peak) tr.peak = multiple;
+    if (now - tr.lastSample >= 500) {
+      tr.lastSample = now; tr.path.push(+multiple.toFixed(3));
+      if (tr.path.length > 80) tr.path = tr.path.filter((_, i) => i % 2 === 0);
+    }
+  }, [active, open_, tr, multiple, now]);
+
+  /* ---- events → toasts, H-BOMB, results ---- */
   const seen = useRef<TurboEvent | null>(null);
   useEffect(() => {
     const e = lastEvent; if (!e || e === seen.current) return; seen.current = e;
     const p = e.position;
-    if (e.type === "pending" || e.type === "filled") { if (!(p.id in fuelAtOpen.current)) fuelAtOpen.current[p.id] = p.collateralUsd; return; }
-    if (e.type === "failed") { flash(C.failed, "down"); return; }
-    if (e.type === "partial-closed") { flash(C.partialToast(e.pct ?? 0, usd(e.returnedUsd ?? 0)), "up"); return; }
-    const fuelIn = fuelAtOpen.current[p.id] ?? p.collateralUsd;
-    const base = { market: p.market, side: p.side, leverage: p.leverage, fuelUsd: fuelIn, entry: p.entry, exit: p.markPrice ?? p.entry };
+    const t = track.current[p.id] ?? (track.current[p.id] = { id: p.id, fuelUsd: p.collateralUsd, startedAt: p.openedAt ?? Date.now(), peak: 0, path: [], lastSample: 0, side: p.side, market: p.market, leverage: p.leverage });
+    if (e.type === "filled") { t.startedAt = Date.now(); t.path = [cashOutNowUsd(p) / t.fuelUsd]; return; }
+    if (e.type === "pending") return;
+    if (e.type === "failed") { flash(C.failed); delete track.current[p.id]; return; }
+    if (e.type === "partial-closed") { flash(R.banked(usd(e.returnedUsd ?? 0))); return; }
+    const back = p.realizedUsd ?? 0, mult = t.fuelUsd > 0 ? back / t.fuelUsd : 0;
+    const path = [...t.path, +mult.toFixed(3)];
+    const run: TurboRun = { id: p.id, kind: e.type === "liquidated" ? "hbomb" : "cashed", market: p.market, side: p.side, leverage: p.leverage, fuelUsd: t.fuelUsd, backUsd: back, multiple: mult, startedAt: t.startedAt, endedAt: Date.now(), peakMultiple: Math.max(t.peak, mult), path };
+    const exit = p.markPrice ?? p.entry;
+    runs.add(run); bumpRuns((n) => n + 1); delete track.current[p.id];
     if (e.type === "liquidated") {
       const bombs = (() => { try { return localStorage.getItem("disciple.bombs") !== "off"; } catch { return true; } })();
       flight.current?.supernova(bombs);
-      setNova({ short: !bombs, label: C.liquidatedToast(fmtLev(p.leverage)), share: { ...base, kind: "liquidated", profitUsd: (p.realizedUsd ?? 0) - fuelIn } });
+      setNova({ short: !bombs, label: C.liquidatedToast(fmtLev(p.leverage)), result: { run, entry: p.entry, exit, liqMove: Math.abs(exit / p.entry - 1) } });
       return;
     }
-    if (e.type === "closed") {
-      const profit = (p.realizedUsd ?? 0) - fuelIn;
-      flash(C.closedToast(usd(e.returnedUsd ?? 0)), profit >= 0 ? "up" : "down");
-      if (isBigWin(profit)) setShare({ ...base, kind: "win", profitUsd: profit });
-    }
-  }, [lastEvent, flash]);
+    if (e.type === "closed") setResult({ run, entry: p.entry, exit });
+  }, [lastEvent, flash, runs]);
 
-  /* ---- live mid → market-cap altitude; ticket/HUD numbers move with the same ticks ---- */
-  const danger = active && active.status === "open" ? dangerOf(active) : 0;
-  const level = dangerLevel(danger);
+  /* ---- zoomed sky: anchor + scale, rocket mark, lines ---- */
+  const anchor = useRef<{ px: number; t: number } | null>(null);
   useEffect(() => {
     const f = flight.current;
-    if (hasPx) {
-      lastMid.current[market] = px!;
-      f?.mark(marketCapUsd(market, px!));
-    }
+    if (!hasPx || !f) return;
+    lastMid.current[market] = px!;
     const live = !!(active && (active.status === "open" || active.status === "pending"));
-    const liqMcap = active ? marketCapUsd(market, active.liqPrice) : undefined;
-    const entryMcap = active ? marketCapUsd(market, active.entry) : 0;
-    (window as unknown as { __entryMcap?: number }).__entryMcap = entryMcap > 0 ? entryMcap : 0;
-    f?.setFx({
-      open: !!active && active.status === "open", pending: active?.status === "pending",
-      side: active?.side ?? null, lev: active?.leverage ?? leverage, danger,
-      dive: false,
-      liqMcap: live && liqMcap && liqMcap > 0 ? liqMcap : undefined,
-      liqLabel: active ? `LIQUIDATION · ${fmtPrice(active.liqPrice)}` : undefined,
-    });
-  }, [active, danger, leverage, px, hasPx, market]);
+    let a: number, dist: number;
+    if (live) { a = active!.entry; dist = liqDistance(active!.entry, active!.liqPrice) || selLiqDist; anchor.current = { px: a, t: Date.now() }; }
+    else {
+      const nowT = Date.now(), cur = anchor.current;
+      if (!cur || cur.px <= 0) anchor.current = { px: px!, t: nowT };
+      else { const k = Math.min(1, (nowT - cur.t) / 30_000); anchor.current = { px: cur.px + (px! - cur.px) * k, t: nowT }; }
+      a = anchor.current.px; dist = selLiqDist;
+    }
+    if (!(dist > 0)) return;
+    const sky = (price: number) => f.skyMcap(price, a, dist);
+    const m = sky(px!); if (m) f.mark(m);
+    const lines: NonNullable<Parameters<TurboFlightHandle["setFx"]>[0]["lines"]> = [];
+    if (live && active) {
+      const away = usd(Math.abs(px! - active.liqPrice), 0);
+      const hb = sky(active.liqPrice); if (hb) lines.push({ mcap: hb, kind: "hbomb", label: red ? R.lineBombAway(px0(active.liqPrice), away) : R.lineBomb(px0(active.liqPrice)) });
+      if (open_ && evenPx > 0) { const ev = sky(evenPx); if (ev) lines.push({ mcap: ev, kind: "even", label: R.lineEven }); }
+      const bd = sky(active.entry); if (bd) lines.push({ mcap: bd, kind: "boarded", label: R.lineBoarded(px0(active.entry)) });
+    }
+    (window as unknown as { __entryMcap?: number }).__entryMcap = 0;
+    f.setFx({ open: open_, pending: active?.status === "pending", side: active?.side ?? null, lev: active?.leverage ?? leverage, danger, dive: false, lines });
+  }, [active, open_, danger, red, evenPx, leverage, px, hasPx, market, selLiqDist, engineReady]);
 
-  /* ---- live trades → existing engine boosts / bombs (completed fills only, not the book) ---- */
+  /* ---- live trades → engine boosts / bombs (on the zoomed sky) + market flow pills ---- */
+  const skyRef = useRef({ a: 0, dist: 0 });
+  skyRef.current = { a: anchor.current?.px ?? 0, dist: active && (active.status === "open" || active.status === "pending") ? liqDistance(active.entry, active.liqPrice) : selLiqDist };
   useEffect(() => {
     if (!adapter.subscribeTrades) return;
+    let n = 0;
     return adapter.subscribeTrades(market, (t: MarketTrade) => {
-      const pre = t.prePrice ?? lastMid.current[t.market];
+      const f = flight.current; const pre = t.prePrice ?? lastMid.current[t.market];
       lastMid.current[t.market] = t.price;
-      flight.current?.swap({ side: t.side, usd: t.usd, mcap: marketCapUsd(t.market, t.price), price: t.price, prePrice: pre, ts: t.ts });
+      const { a, dist } = skyRef.current;
+      const sky = f && a > 0 && dist > 0 ? f.skyMcap(t.price, a, dist) : null;
+      const real = marketCapUsd(t.market, t.price);
+      if (f && sky && real > 0) f.swap({ side: t.side, usd: t.usd * (sky / real), mcap: sky, price: t.price, prePrice: pre, ts: t.ts });
+      if (t.usd >= FLOW_MIN[t.market]) setFlow((fl) => [{ id: ++n, side: t.side, usd: t.usd }, ...fl].slice(0, 2));
     });
   }, [adapter, market]);
 
-  const pendingLong = active?.status === "pending" && active.openedAt != null && now - active.openedAt > 60_000;
-  const waitingPrice = !hasPx && now - pageOpenedAt > 3000;
-  const showClose = !!active && !adding;
-  const chipLabel = `${chipUsd(fuelUsd)} · ${fmtLev(leverage)}`;
-  const afterLabel = active && active.pnlAfterFeesUsd < 0 ? C.lossAfter : C.pnlAfter;
+  /* ---- desktop hotkeys: Space = cash out, Q = bank half ---- */
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (sheet || result || share || !active || !open_ || e.repeat || (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      if (e.code === "Space") { e.preventDefault(); close(active, 100); }
+      else if (e.code === "KeyQ") { e.preventDefault(); close(active, 50); }
+    };
+    addEventListener("keydown", k);
+    return () => removeEventListener("keydown", k);
+  }, [active, open_, close, sheet, result, share]);
 
-  const tradeBar = (
-    <div className={s.bar} data-testid="turbo-trade-bar">
-      {showClose ? <>
-        <div className={s.closeBar}>
-          {CLOSE_PCTS.map((pct) => <button key={pct} type="button" className={s.barClose} disabled={busy || active!.status !== "open"} data-testid={`turbo-close-${pct}`} onClick={() => close(active!, pct)}>{C.close} {pct}%</button>)}
-        </div>
-        <button type="button" className={s.addBtn} data-testid="turbo-add" onClick={() => setAdding(true)}>{C.add}</button>
-      </> : (["long", "short"] as Side[]).map((side) => (
-        <div key={side} className={`${s.tb} ${side === "long" ? s.tbBoost : s.tbDump}`}>
-          <button type="button" className={s.tbBody} data-testid={side === "long" ? "turbo-boost" : "turbo-dump"} disabled={busy || !hasPx} title={side === "long" ? C.boostHint : C.dumpHint}
-            onClick={() => open(side)}>{sideWord(side)}<span className={s.tbHint}>{side === "long" ? C.boostHint : C.dumpHint}</span></button>
-          <button type="button" className={s.tbChip} data-testid={side === "long" ? "turbo-chip-boost" : "turbo-chip-dump"} aria-haspopup="dialog" onClick={() => setSheet({ pick: side })}>{chipLabel} ⌄</button>
-        </div>))}
-      {adding && active && <button type="button" className={s.addBtn} onClick={() => setAdding(false)}>{C.backToClose}</button>}
+  const all = runs.all();
+  const menu = () => dispatchEvent(new Event(SETTINGS_OPEN_EVENT));
+  const fuelChip = (
+    <button type="button" className={s.fuel} data-testid="turbo-add-fuel" aria-label={`${C.fuel} ${fuel == null ? "" : usd(fuel)}, ${C.addFuel}`} onClick={() => setSheet("fund")}>
+      <span className={`${s.fuelK} ${s.deskOnly}`}>{R.fuel}</span>
+      <b data-testid="turbo-fuel">{fuel == null ? "—" : usd(fuel, fuel >= 100 || Number.isInteger(fuel) ? 0 : 2)}</b>
+      <span className={s.plus}><PlusIcon /></span>
+    </button>
+  );
+  const marketTabs = (
+    <div className={`${s.mkts} ${s.deskOnly}`} role="tablist" aria-label="Market">
+      {MARKETS.map((m) => <button key={m} role="tab" type="button" aria-selected={m === market} disabled={!!active} className={`${s.mkt} ${m === market ? s.mktOn : ""}`}
+        data-testid={`turbo-market-${m}`} onClick={() => setPrefs({ ...prefs, market: m })}><b>{m}</b>{pxTab(prices[m] ?? NaN)}</button>)}
     </div>
   );
-
-  const ticketBody = active && !adding ? (
-    <>
-      <PositionCard p={active} />
-      <p className={s.feeFooter}>{C.feeFooter}</p>
-      <button type="button" className={s.howLink} onClick={() => setSheet("how")}>{C.howItWorks}</button>
-    </>
-  ) : (
-    <>
-      <div className={s.ticketHead}>
-        <h2>{C.newPosition}</h2>
-        <button type="button" className={s.howLink} onClick={() => setSheet("how")}>{C.howItWorks}</button>
-      </div>
-      <ChipRow label={C.fuelLabel} unit="$" testid="turbo-fuel-chip" opts={FUEL_PRESETS} fmt={chipUsd} sel={prefs.fuelIdx} custom={prefs.fuelCustom}
-        extra={<span className={s.k}>{C.fuel} {fuel == null ? "—" : usd(fuel)}</span>}
-        onPick={(i) => setPrefs({ ...prefs, fuelIdx: i })} onCustom={(v) => setPrefs({ ...prefs, fuelIdx: -1, fuelCustom: v })} />
-      <ChipRow label={C.leverageLabel} unit="×" testid="turbo-lev-chip" opts={LEVERAGE_PRESETS} fmt={(v) => `${v}×`} sel={prefs.levIdx} custom={prefs.levCustom} disabledReason={levWhy}
-        onPick={(i) => setPrefs({ ...prefs, levIdx: i })} onCustom={(v) => setPrefs({ ...prefs, levIdx: -1, levCustom: v })} />
-      <div className={s.rows}>
-        <Row k={C.size} v={qLong ? usd(qLong.sizeUsd) : "—"} />
-        <div className={s.sizeHint}>{C.sizeHint}</div>
-        <Row k={C.openFee} v={qLong ? usd(qLong.openFeeUsd) : "—"} />
-      </div>
-      <div className={s.liqBox}>
-        <div className={s.k}>{C.estLiq}</div>
-        <div className={s.liqLine} data-testid="turbo-liq-boost"><span className={s.up}>{C.boost}</span><span>{qLong ? liqWithDistance(qLong.liqPrice, qLong.entryEst) : "—"}</span></div>
-        <div className={s.liqLine} data-testid="turbo-liq-dump"><span className={s.down}>{C.dump}</span><span>{qShort ? liqWithDistance(qShort.liqPrice, qShort.entryEst) : "—"}</span></div>
-      </div>
-      <p className={s.emptyLine}>{C.noPositions}</p>
-    </>
+  const runTag = active && (
+    <><span className={active.side === "long" ? s.boostTxt : s.dumpTxt}>{active.side === "long" ? R.boost : R.dump}</span>{" "}<span className={s.cream}>{active.market} · {fmtLev(active.leverage)}</span></>
   );
 
   return (
-    <div className={`${s.page} ${s["danger_" + level]}`} data-testid="turbo-screen" data-adapter={adapter.kind}>
-      <TurboFlight ref={flight} ticker={market} />
+    <div className={s.page} data-testid="turbo-screen" data-adapter={adapter.kind} data-state={result ? "result" : active ? active.status : "ready"}>
+      <TurboFlight ref={flight} ticker={market} onReady={() => setEngineReady((n) => n + 1)} />
+      {red && <div className={s.vignette} />}
+      {open_ && level === "hot" && <div className={`${s.vignette} ${s.vignetteHot}`} />}
 
       <header className={s.top}>
-        <h1 className={s.wordmark}>{C.title}</h1>
-        <div className={s.markets} role="tablist" aria-label="Market">
-          {MARKETS.map((m) => <button key={m} role="tab" type="button" aria-selected={m === market} className={`${s.mkt} ${m === market ? s.mktSel : ""}`} data-testid={`turbo-market-${m}`}
-            onClick={() => setPrefs({ ...prefs, market: m })}><b>{m}</b><span>{fmtPrice(prices[m] ?? NaN)}</span></button>)}
-        </div>
-        <div className={s.fuelBox}>
-          <span className={s.k}>{C.fuel}</span>
-          <b data-testid="turbo-fuel">{fuel == null ? "—" : usd(fuel)}</b>
-          <button type="button" className={s.addFuel} data-testid="turbo-add-fuel" onClick={() => setSheet("fund")}>+ {C.addFuel}</button>
-        </div>
-        <button type="button" className={s.gear} aria-label="Settings" onClick={() => dispatchEvent(new Event(SETTINGS_OPEN_EVENT))}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
-        </button>
+        <button type="button" className={`${s.iconBtn} ${s.phoneOnly}`} aria-label="Menu" onClick={menu}><MenuIcon /></button>
+        {active ? <>
+          <span className={`${s.word} ${s.deskOnly}`}>TURBO</span>
+          {marketTabs}
+          <span className={`${s.spacer} ${s.phoneOnly}`} />
+          <div className={`${s.runPill} ${s.runPillPhone}`} data-testid="turbo-run-pill">{runTag}<span className={s.sep} /><span className={s.clock}>{open_ ? clock(elapsed) : "0:00"}</span></div>
+        </> : <>
+          <span className={`${s.spacer} ${s.phoneOnly}`} />
+          <span className={s.word}>TURBO</span>
+          {marketTabs}
+        </>}
+        <span className={s.spacer} />
+        {fuelChip}
+        <button type="button" className={`${s.iconBtn} ${s.deskOnly}`} aria-label="Menu" onClick={menu}><MenuIcon /></button>
+        <Link href="/" className={`${s.iconBtn} ${s.deskOnly}`} aria-label="Leave Turbo"><XIcon /></Link>
       </header>
 
-      <button type="button" className={s.phonePill} data-testid="turbo-price" onClick={() => setPrefs({ ...prefs, market: market === "BTC" ? "ETH" : "BTC" })}>
-        {market} {hasPx ? fmtPrice(px!) : C.waitingPrice} ⌄
-      </button>
+      {standIn && <div className={`${s.notice} ${active ? s.deskOnly : ""}`} data-testid="turbo-standin-notice">{C.notConnected}</div>}
 
-      {standIn && <div className={s.notice} data-testid="turbo-standin-notice">{C.notConnected}</div>}
-
-      {active && <div className={s.hudPnl} data-testid="turbo-hud">
-        {active.status === "pending" ? (pendingLong ? C.waitingPrice : C.waitingFill) : <>
-          <div className={s.hudK}>{afterLabel}</div>
-          <div className={`${s.hudVal} ${active.pnlAfterFeesUsd >= 0 ? s.up : s.down}`}>{signedUsd(active.pnlAfterFeesUsd)}</div>
-        </>}
-        {level === "hot" && <div className={s.dangerTxt}>{C.runningHot}</div>}
-        {(level === "shudder" || level === "blow") && <div className={`${s.dangerTxt} ${s.dangerRed}`}>{level === "blow" ? C.aboutToBlow : C.runningHot}</div>}
-      </div>}
-      {waitingPrice && <div className={s.hudPnl}>{C.waitingPrice}</div>}
-
-      {!active && <div className={s.phoneEmpty}>
-        {C.noPositions}
-        <button type="button" className={s.howLink} onClick={() => setSheet("how")}>{C.howItWorks}</button>
-      </div>}
-
-      {active && <button type="button" className={s.drawerHandle} data-testid="turbo-position-tab" onClick={() => setSheet("position")}><i /><span>{C.positions.replace(/s$/, "")}</span></button>}
-
-      <aside className={s.ticket} data-testid="turbo-ticket">{ticketBody}</aside>
-
-      {sheet === "position" && active && (
-        <div className={s.dim} onPointerDown={(e) => { if (e.target === e.currentTarget) setSheet(null); }}>
-          <div className={s.phoneDrawer} role="dialog" aria-label="Position" data-testid="turbo-position-drawer">{ticketBody}</div>
+      {!active && !nova && <>
+        <div className={s.mktCard} role="tablist" aria-label="Market">
+          {MARKETS.map((m) => <button key={m} role="tab" type="button" aria-selected={m === market} className={`${s.mktTab} ${m === market ? s.mktTabOn : ""}`}
+            data-testid={`turbo-market-tab-${m}`} onClick={() => setPrefs({ ...prefs, market: m })}>
+            <span className={s.t}>{m}</span><span className={s.p}>{pxTab(prices[m] ?? NaN)}</span><span className={s.cap}>{capLabel(marketCapUsd(m, prices[m] ?? NaN))}</span>
+          </button>)}
         </div>
-      )}
+        <div className={s.readyFade} />
+        <section className={s.ready} data-testid="turbo-ready">
+          <div className={s.head}><span className={s.label}>{R.gear}</span><small>{R.gearHint}</small></div>
+          <div className={s.gears}>
+            {LEVERAGE_PRESETS.map((lv, i) => {
+              const q = gearQuotes[i], blocked = levBlocked(lv);
+              return (
+                <button key={lv} type="button" className={`${s.gear} ${prefs.levIdx === i ? s.gearOn : ""}`} aria-pressed={prefs.levIdx === i} disabled={blocked}
+                  title={blocked ? (info?.leverageNote ?? C.leverageMax(info!.maxLeverage, market)) : undefined} data-testid={`turbo-lev-chip-${i}`}
+                  onClick={() => setPrefs({ ...prefs, levIdx: i })}>
+                  <span className={s.x}>{lv}×</span><Chevrons n={i + 1} /><span className={s.pace}>{q ? paceLabel(typicalRunSeconds(market, q.liqDist)) : "—"}</span>
+                </button>);
+            })}
+          </div>
+          <div className={s.head}><span className={s.label}>{R.fuel}</span><small>{R.inPlay(usd(fuelUsd * leverage, 0))}</small></div>
+          <div className={s.chips}>
+            {FUEL_PRESETS.map((v, i) => <button key={v} type="button" className={`${s.chip} ${prefs.fuelIdx === i ? s.chipOn : ""}`} aria-pressed={prefs.fuelIdx === i}
+              data-testid={`turbo-fuel-chip-${i}`} onClick={() => setPrefs({ ...prefs, fuelIdx: i })}>${v}</button>)}
+          </div>
+          <div className={s.bombNote} data-testid="turbo-bomb-note">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#FF7FB2" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="12" cy="13" r="7" /><path d="M12 6V3M15 4l-1.5 2" /></svg>
+            <span>{selLiqDist > 0 ? <>H-BOMB if {market} moves <b>{pctMove(selLiqDist)}</b> against you</> : C.waitingPrice}</span>
+          </div>
+          <div className={s.fire}>
+            <button type="button" className={s.boost} data-testid="turbo-boost" disabled={busy || !hasPx} onClick={() => openRun("long")}><span className={s.big}>{R.boost}</span><span className={s.sub}>{R.boostSub}</span></button>
+            <button type="button" className={s.dump} data-testid="turbo-dump" disabled={busy || !hasPx} onClick={() => openRun("short")}><span className={s.big}>{R.dump}</span><span className={s.sub}>{R.dumpSub}</span></button>
+          </div>
+        </section>
+      </>}
 
-      {tradeBar}
+      {active && <>
+        <section className={`${s.hud} ${red ? s.hudRed : ""}`} data-testid="turbo-hud" data-danger={level}>
+          <div className={s.hudTop}><span>{runTag}</span><span className={s.clock}>{open_ ? clock(elapsed) : "0:00"}</span></div>
+          {active.status === "pending" ? <div className={s.pending}>{R.opening}</div> : <>
+            <div className={s.hudMain}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}><span className={s.k}>{R.cashNow}</span>
+                <span className={`${s.money} ${upUsd >= 0 ? s.up : s.pinkTxt}`} data-testid="turbo-cash-now">{usd(cashNow, 2)}</span></div>
+              <span className={s.mult} data-testid="turbo-multiple">{multipleLabel(multiple)}</span>
+            </div>
+            {!red && <div className={s.hudLine}><span>{R.putIn} <b>{usd(fuelIn, Number.isInteger(fuelIn) ? 0 : 2)}</b> · {upUsd >= 0 ? R.up : R.down} <b className={upUsd >= 0 ? s.up : s.pinkTxt}>{signedUsd(upUsd)}</b> {R.afterFees}</span>
+              <span>{R.best} <b>{multipleLabel(Math.max(tr?.peak ?? 0, multiple))}</b></span></div>}
+            <div className={s.heat}><span className={s.hk}>{R.heat.toUpperCase()}</span><span className={s.bar}><i style={{ width: `${Math.round(danger * 100)}%` }} /></span><span className={s.hv} data-testid="turbo-heat">{Math.round(danger * 100)}%</span></div>
+          </>}
+        </section>
 
-      {toast && <div className={`${s.toast} ${toast.tone ? s[toast.tone] : ""}`} role="status" data-testid="turbo-toast">{toast.txt}</div>}
+        {red && <div className={s.blow} role="status">{R.aboutToBlow}</div>}
+
+        {!red && flow.length > 0 && <div className={s.flow} aria-live="off">
+          <span className={s.label} style={{ fontSize: 12 }}>{R.marketFlow}</span>
+          {flow.map((f, i) => <div key={f.id} className={`${s.flowItem} ${f.side === "buy" ? s.flowBuy : s.flowSell} ${i ? s.flowOld : ""}`}><i /><span>{f.side === "buy" ? R.bigBuy : R.bigSell}</span><b>{bigUsd(f.usd)}</b></div>)}
+        </div>}
+
+        {open_ && <aside className={s.runCard} data-testid="turbo-run-card">
+          <span className={s.label}>{R.yourRun}</span>
+          <div className={s.r}><span>{R.inPlayK}</span><b>{usd(active.sizeUsd, 0)}</b></div>
+          <div className={s.r}><span>{R.boardedAt}</span><b>{px0(active.entry)}</b></div>
+          <div className={s.r}><span>{R.evenAt}</span><b className={s.up}>{px0(evenPx)}</b></div>
+          <div className={s.r}><span>{R.bombAt}</span><b className={s.pinkTxt}>{px0(active.liqPrice)}</b></div>
+          <div className={s.r}><span>{R.feesSoFar}</span><b>{usd(active.openFeeUsd + Math.max(0, -active.fundingUsd), 2)}</b></div>
+          <button type="button" className={s.link} onClick={() => setSheet("detail")}>{R.feesLink}</button>
+        </aside>}
+
+        <div className={s.act} data-testid="turbo-act">
+          <button type="button" className={s.bank} data-testid="turbo-bank" disabled={busy || !open_} onClick={() => close(active, 50)}>
+            <span className={s.big}>{R.bankHalf}</span><span className={s.sub}>≈ {usd(cashNow / 2, 2)}<span className={s.kbd}> · Q</span></span></button>
+          <button type="button" className={`${s.cash} ${red ? s.cashRed : ""}`} data-testid="turbo-cashout" disabled={busy || !open_} onClick={() => close(active, 100)}>
+            <span className={s.big}>{R.cashOut}</span><span className={s.sub}>{red ? R.save(usd(cashNow, 2)) : R.backToFuel(usd(cashNow, 2))}<span className={s.kbd}> · Space</span></span></button>
+        </div>
+      </>}
+
+      {toast && <div className={s.toast} role="status" data-testid="turbo-toast">{toast}</div>}
+
+      {result && <ResultScreen r={result} all={all} busy={busy} adapter={adapter}
+        onClose={() => setResult(null)}
+        onAgain={() => { const run = result.run; setResult(null); setPrefs({ ...prefs, market: run.market }); openRun(run.side, { fuelUsd: run.fuelUsd, leverage: run.leverage, market: run.market }); }}
+        onShare={() => setShare({ kind: result.run.kind === "hbomb" ? "liquidated" : "win", market: result.run.market, side: result.run.side, leverage: result.run.leverage,
+          profitUsd: result.run.backUsd - result.run.fuelUsd, fuelUsd: result.run.fuelUsd, entry: result.entry, exit: result.exit, multiple: result.run.multiple, lastedMs: result.run.endedAt - result.run.startedAt })} />}
+
       {sheet === "fund" && <TurboFundingSheet adapter={adapter} onClose={() => setSheet(null)} />}
       {sheet === "how" && <TurboHowItWorks onClose={() => setSheet(null)} />}
-      {sheet && typeof sheet === "object" && <Picker side={sheet.pick} prefs={prefs} setPrefs={setPrefs} levWhy={levWhy} onClose={() => setSheet(null)} />}
-      {nova && <TurboHBomb short={nova.short} label={nova.label} onDone={() => { setShare(nova.share); setNova(null); }} />}
+      {sheet === "detail" && active && <DetailSheet p={active} onClose={() => setSheet(null)} />}
+      {nova && <TurboHBomb short={nova.short} label={nova.label} onDone={() => { setResult(nova.result); setNova(null); }} />}
       {share && <TurboShareCard data={share} onClose={() => setShare(null)} />}
+    </div>
+  );
+}
+
+function ResultScreen({ r, all, busy, adapter, onClose, onAgain, onShare }: {
+  r: Result; all: TurboRun[]; busy: boolean; adapter: ReturnType<typeof useTurbo>["adapter"];
+  onClose: () => void; onAgain: () => void; onShare: () => void;
+}) {
+  const run = r.run, bomb = run.kind === "hbomb", lasted = clock(run.endedAt - run.startedAt), levL = fmtLev(run.leverage);
+  const tag = <span className={s.tag}><span className={run.side === "long" ? s.boostTxt : s.dumpTxt}>{run.side === "long" ? R.boost : R.dump}</span>{" "}<span className={s.cream}>{run.market} · {levL}</span></span>;
+  const fuelL = usd(run.fuelUsd, Number.isInteger(run.fuelUsd) ? 0 : 2);
+  const again = (
+    <button type="button" className={s.again} disabled={busy} data-testid="turbo-run-back" onClick={onAgain}>
+      <span className={s.big}>{R.runItBack}</span><span className={s.sub}>{R.runSub(fuelL, levL, sideWord(run.side))}</span></button>
+  );
+  const head = (
+    <div className={s.resHead}>{tag}<button type="button" className={s.iconBtn} aria-label={R.close} data-testid="turbo-result-close" onClick={onClose}><XIcon /></button></div>
+  );
+  if (bomb) {
+    const prev = all.filter((x) => x.id !== run.id);
+    const longest = longestAt(prev, run.leverage);
+    const move = r.liqMove ?? 0;
+    // highest lower gear that would have survived this move (same fuel, quoted at the exit price)
+    const lower = LEVERAGE_PRESETS.filter((lv) => lv < run.leverage).reverse().find((lv) => {
+      try { const q = adapter.quote({ market: run.market, side: run.side, collateralUsd: run.fuelUsd, leverage: lv }); return liqDistance(q.entryEst, q.liqPrice) > move; } catch { return false; }
+    });
+    return (
+      <div className={`${s.result} ${s.resultBomb}`} role="dialog" aria-modal="true" aria-label={R.hbombed} data-testid="turbo-result" data-kind="hbomb">
+        <div className={s.res}>
+          {head}
+          <div className={`${s.hero} ${s.heroBomb}`}>
+            <span className={s.title}>{R.hbombed}</span>
+            <span className={s.over}>{R.lasted}</span>
+            <span className={s.num} data-testid="turbo-result-lasted">{lasted}</span>
+            <span className={s.line}>{R.lastedLine(levL, run.market, fuelL)}</span>
+          </div>
+          <div className={s.fact}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#F3DFA8" strokeWidth="1.8" strokeLinecap="round" aria-hidden><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2.5 2M9 2h6" /></svg>
+            <span>{longest != null ? <>Your longest at {levL} is <b>{clock(longest)}</b>.</> : R.firstAt(levL)}</span>
+          </div>
+          {move > 0 && <div className={s.fact}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#F3DFA8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 14l4-4 4 4 8-8" /><path d="M14 6h6v6" /></svg>
+            <span>{R.wentWrong(run.market, pctMove(move))}{lower ? ` ${R.stillFlying(fmtLev(lower))}` : ""}</span>
+          </div>}
+          <span className={s.grow} />
+          <div className={s.resBtns}>
+            {again}
+            <div className={s.row2}>
+              <button type="button" className={s.sec} data-testid="turbo-share" onClick={onShare}>{R.share(lasted)}</button>
+              <button type="button" className={`${s.sec} ${s.ghost}`} onClick={onClose}>{R.changeSetup}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  const green = run.multiple >= 1, profit = run.backUsd - run.fuelUsd;
+  const today = all.filter((x) => new Date(x.endedAt).toDateString() === new Date().toDateString());
+  const bankedToday = today.reduce((a, x) => a + (x.backUsd - x.fuelUsd), 0);
+  const best = bestToday(all);
+  return (
+    <div className={s.result} role="dialog" aria-modal="true" aria-label={R.cashedOut} data-testid="turbo-result" data-kind="cashed">
+      <div className={s.res}>
+        {head}
+        <div className={s.hero}>
+          <span className={s.over}>{R.cashedOut}</span>
+          <span className={s.num} style={green ? undefined : { color: "#FF7FB2" }} data-testid="turbo-result-multiple">{multipleLabel(run.multiple)}</span>
+          <span className={`${s.usd} ${green ? s.up : s.pinkTxt}`}>{signedUsd(profit)}</span>
+          <span className={s.line}>{R.inBack(usd(run.fuelUsd, 2), usd(run.backUsd, 2), lasted)}</span>
+        </div>
+        <RunChart path={run.path ?? [1, run.multiple]} />
+        <div className={s.stats}>
+          <div className={s.stat}><span className={s.k}>{R.streak}</span><span className={s.v}>{R.streakV(streak(all))}</span></div>
+          <div className={s.stat}><span className={s.k}>{R.bestToday}</span><span className={s.v}>{best != null ? multipleLabel(best) : "—"}</span></div>
+          <div className={`${s.stat} ${s.statGold}`}><span className={s.k}>{R.bankedToday}</span><span className={s.v}>{signedUsd(bankedToday)}</span></div>
+        </div>
+        <span className={s.grow} />
+        <div className={s.resBtns}>
+          {again}
+          <div className={s.row2}>
+            <button type="button" className={s.sec} data-testid="turbo-share" onClick={onShare}>{R.share(multipleLabel(run.multiple))}</button>
+            <button type="button" className={`${s.sec} ${s.ghost}`} onClick={onClose}>{R.changeSetup}</button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

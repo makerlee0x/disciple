@@ -68,3 +68,61 @@ export const jetstreamL = (leverage: number) => clamp(Math.log10(Math.max(1, lev
 
 /** Share card trigger for a big win: any profit after fees. */
 export const isBigWin = (profitUsd: number) => profitUsd > 0;
+
+/* ---------------------------------------------------------------------------------------------------------------
+ * Run-zoomed sky (maker, Nov 13 2026: "Zoom the sky to the run"). Replaces the Nov 12 rule that height = the whole
+ * market cap. The sky is scaled to the run: the H-BOMB line sits SKY_LIQ_FRAC of the screen below the boarding line,
+ * so a 0.06% move at 1000× is as visible as a 0.78% move at 100×. Market cap is still shown as a number.
+ * With no run open, the same scale is previewed for the selected gear around a slowly re-centring anchor.
+ * ------------------------------------------------------------------------------------------------------------- */
+
+/** Mid-sky altitude the run is anchored at (engine alt units). */
+export const SKY_BASE_ALT = 4.5;
+/** Share of the screen height between the boarding line and the H-BOMB line. */
+export const SKY_LIQ_FRAC = 0.16;
+
+/** Pixel offset of a price from the anchor on the zoomed sky (+ = up). `liqDist` = |liq/entry − 1| (fraction). */
+export function skyOffsetPx(price: number, anchor: number, liqDist: number, screenH: number): number {
+  if (!(price > 0) || !(anchor > 0) || !(liqDist > 0) || !(screenH > 0)) return 0;
+  return ((price / anchor - 1) / liqDist) * SKY_LIQ_FRAC * screenH;
+}
+
+/** Altitude on the zoomed sky for a price (engine alt units). */
+export function skyAlt(price: number, anchor: number, liqDist: number, screenH: number, pxPerAlt: number): number {
+  return SKY_BASE_ALT + skyOffsetPx(price, anchor, liqDist, screenH) / (pxPerAlt > 0 ? pxPerAlt : ENGINE_PX_PER_ALT);
+}
+
+/** |liq / entry − 1| as a fraction. */
+export const liqDistance = (entry: number, liqPrice: number): number => (entry > 0 && liqPrice > 0 ? Math.abs(liqPrice / entry - 1) : 0);
+
+/** Price where cashing out returns exactly the fuel put in (open fee, close fee and funding so far covered). */
+export function breakEvenPrice(p: Pick<Position, "side" | "entry" | "sizeUsd" | "openFeeUsd" | "closeFeeUsdEst" | "fundingUsd">): number {
+  if (!(p.entry > 0) || !(p.sizeUsd > 0)) return 0;
+  const need = (p.openFeeUsd + p.closeFeeUsdEst - p.fundingUsd) / p.sizeUsd;
+  return p.side === "long" ? p.entry * (1 + need) : p.entry * (1 - need);
+}
+
+/** Dollars back if the whole position were closed now (after the close fee). Never below 0. */
+export const cashOutNowUsd = (p: Pick<Position, "collateralUsd" | "pnlAfterFeesUsd" | "closeFeeUsdEst">): number =>
+  Math.max(0, p.collateralUsd + p.pnlAfterFeesUsd - p.closeFeeUsdEst);
+
+/** Annualised volatility used only for the "typical run" label on the gear tiles (not for any trade math). */
+export const ANNUAL_VOL: Record<Market, number> = { BTC: 0.5, ETH: 0.65 };
+
+/**
+ * Typical (median) seconds before a price random walk first travels `liqDist` against you: (a/σ)² / (2·erfcinv(½)²).
+ * A label for the gear tiles ("~1 min"), never a promise.
+ */
+export function typicalRunSeconds(market: Market, liqDist: number): number {
+  const sigma = ANNUAL_VOL[market] / Math.sqrt(365 * 24 * 3600);
+  if (!(liqDist > 0)) return 0;
+  return (liqDist / sigma) ** 2 / 0.91;
+}
+
+export function paceLabel(seconds: number): string {
+  if (!(seconds > 0)) return "";
+  if (seconds < 90) return "~1 min";
+  if (seconds < 3600) return `~${Math.max(2, Math.round(seconds / 300) * 5 || Math.round(seconds / 60))} min`;
+  const h = Math.round(seconds / 3600);
+  return `~${h} hr`;
+}
