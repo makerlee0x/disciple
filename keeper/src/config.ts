@@ -60,10 +60,10 @@ export interface Sampling {
   /** Most unpaid (selfPayBps) samples per pool per hour, a cost ceiling. */
   selfPayMaxPerHour: number;
   /** Carry pools only: how often to check each pool's Morpho tail, seconds (0 = never sweep). Swaps pull USDG out of
-   *  Morpho when a sell needs it, but never put it back: this keeper does, with the hook's sweep(). */
+   *  Morpho when a sell needs it, but never rebalance: this keeper does, with the hook's sweep(), both ways. */
   sweepEverySec: number;
-  /** Sweep once a pool's hot quote is above this multiple of its hot target, in bps (20000 = 2x: at the default
-   *  20% target, sweep when hot passes 40%, back down to 20%). */
+  /** Sweep once a pool's hot quote is above this multiple of its hot target or below the target divided by it, in
+   *  bps (20000 = 2x: at the default 20% target, sweep when hot passes 40% or drops under 10%, back to 20%). */
   sweepBandBps: number;
   /** Carry stock queue: how often to check each market's line, seconds (0 = never match). Each check is a dry run
    *  of matchOrders per market with stock waiting; a transaction is sent only when it would match something. */

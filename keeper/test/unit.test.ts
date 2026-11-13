@@ -260,7 +260,7 @@ test("leader spot: v4 Slot0 from extsload, v3 slot0, v2 reserves", async () => {
 });
 
 
-test("Carry sweep: only once hot quote is above the band (2x the 20% target by default)", () => {
+test("Carry sweep: once hot quote is outside the band either way (2x the 20% target by default)", () => {
   const V = "0xBeEff033F34C046626B8D0A041844C5d1A5409dd";
   const Z = "0x0000000000000000000000000000000000000000";
   const y = 25_000n * 10n ** 6n;
@@ -272,8 +272,14 @@ test("Carry sweep: only once hot quote is above the band (2x the 20% target by d
   assert.equal(sweepNeeded(y, 14_999n * 10n ** 6n, 2000, V, 20_000), true);
   // a 1.5x band sweeps sooner
   assert.equal(sweepNeeded(y, 17_400n * 10n ** 6n, 2000, V, 15_000), true);
-  // hot below target (after sells): never sweeps from here (swaps pull from Morpho themselves)
-  assert.equal(sweepNeeded(y, 24_000n * 10n ** 6n, 2000, V, 20_000), false);
+  // hot below target but at 10% or more: inside the band
+  assert.equal(sweepNeeded(y, 22_500n * 10n ** 6n, 2000, V, 20_000), false);
+  // hot under 10% (after sells): sweep pulls it back to 20%
+  assert.equal(sweepNeeded(y, 22_501n * 10n ** 6n, 2000, V, 20_000), true);
+  // hot 0, everything in Morpho (mainnet Nov 13 after a $25 sell: 76.40 USDG, all in the tail)
+  assert.equal(sweepNeeded(76_403_500n, 76_403_500n, 2000, V, 20_000), true);
+  // nothing in Morpho yet: all hot, so it goes in
+  assert.equal(sweepNeeded(1_000_000n, 0n, 2000, V, 20_000), true);
   // tail off, closing (hot target 100%), or tail above the book: never
   assert.equal(sweepNeeded(y, 0n, 2000, Z, 20_000), false);
   assert.equal(sweepNeeded(y, 1n, 10_000, V, 20_000), false);
