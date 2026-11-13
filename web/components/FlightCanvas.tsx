@@ -18,6 +18,7 @@ import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
 import HudModeToggle from "@/components/flight/HudModeToggle";
 import FlightSfx from "@/components/flight/FlightSfx";
+import FlightObjectives from "@/components/flight/FlightObjectives";
 import DraftXp from "@/components/flight/DraftXp";
 import FlightPath from "@/components/flight/FlightPath";
 import HoldersBridge from "@/components/flight/HoldersBridge";
@@ -325,6 +326,7 @@ export default function FlightCanvas({ search }: Props) {
       <HudModeToggle sim={!isSimulator ? sim : null} onSim={toggleSim} />
       <FlightSfx />
       <DraftXp coin={(() => { const c = new URLSearchParams(search).get("coin") || ""; return /^0x[0-9a-fA-F]{40}$/.test(c) ? c : null; })()} />
+      <FlightObjectives replay={isReplay} practice={isSimulator} />
       <FlightPath />
       <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />
       {/* the crew feed: trades + chat + holders on a coin; trades + holders where there is no coin chat (simulator, mock) */}

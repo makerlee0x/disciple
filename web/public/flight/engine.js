@@ -664,6 +664,7 @@ function onEvent(e){
     if(e.side==='sell'&&e.mine) S.fuelers.you=Math.max(0,S.fuelers.you-e.usd);
     if(e.mine&&e.side==='buy') award('first','FIRST FLAME','first confirmed thrust');
     if(e.side==='buy'&&e.usd>0&&!isHiddenTrader(e.trader)) noteSignature(e);
+    if(e.usd>0&&!isHiddenTrader(e.trader)) objNote(e);   // @objlive
     if(e.usd>0&&!e.mine&&e.trader&&!isHiddenTrader(e.trader)) wingNote(e);   // @wingmen   // boost signature: the booster's flare colour
     if (e.side==='sell'&&e.usd>0){ const fs=e.mine&&S.fullStackNext; if(e.mine) S.fullStackNext=false; noteSell({side:'sell',usd:e.usd,prePrice:e.prePrice,postPrice:e.postPrice,impactPct:e.impactPct,trader:e.trader,mine:e.mine,fullStack:fs}); }
     S.volEma+=e.usd; if(e.side==='buy') S.buyEma+=e.usd; else S.sellEma+=e.usd;
@@ -1034,6 +1035,19 @@ S.wing=new Map(); S.wingRecent=new Map();
 function wingKey(t){ return String(t||'').toLowerCase(); }
 function wingRgb(k){ const id=FLARE_OF[k]; const rgb=id&&id!=='stock'?flareRgb(id):null; if(rgb) return rgb; let h=0; for(let i=0;i<k.length;i++) h=(h*31+k.charCodeAt(i))|0; return WING_PAL[Math.abs(h)%WING_PAL.length]; }
 function wingCap(){ return W<640?6:WING_MAX; }
+/* @objlive: live hints for the in-flight objective card (components/flight/FlightObjectives.tsx). Only a hint: the cron
+   scores the real missions from the fills (lib/missionsEval start_run / hold_bomb). Times are wall clock (ms). */
+S.objRun=null; S.objHold=null;
+function objPub(){ try{ dispatchEvent(new CustomEvent('disciple:objlive',{detail:{run:S.objRun?{n:S.objRun.who.size,until:S.objRun.at+60000}:null,hold:S.objHold?{until:S.objHold.until}:null}})); }catch(_){} }
+function objNote(e){ const now=Date.now(), usd=+e.usd||0; let ch=false;
+  if(S.objRun&&now-S.objRun.at>60000){ S.objRun=null; ch=true; }
+  if(S.objHold&&now>S.objHold.until){ S.objHold=null; ch=true; }
+  if(e.mine){ if(e.side==='buy'&&usd>=5){ S.objRun={at:now,who:new Set()}; ch=true; }
+    else if(e.side==='sell'&&S.objHold){ S.objHold=null; ch=true; } }
+  else if(e.trader){ const k=String(e.trader).toLowerCase();
+    if(e.side==='buy'&&usd>=5&&S.objRun&&!S.objRun.who.has(k)){ S.objRun.who.add(k); ch=true; }
+    if(e.side==='sell'&&usd>=10&&!S.objHold&&estimateImpactPct(e)>=5&&S.pnlTag&&S.pnlTag.size>0){ S.objHold={at:now,until:now+600000}; ch=true; } }
+  if(ch) objPub(); }
 function wingNote(e){ const k=wingKey(e.trader); if(!k) return;
   if(e.side==='buy'){ S.wingRecent.set(k,S.t); let w=S.wing.get(k);
     if(w&&w.peel==null){ w.last=S.t; w.boostT=S.t; return; }
@@ -2063,7 +2077,7 @@ function drawHud(){
   const AW=472, AH=108, HB=(CARD_RECTS.header?CARD_RECTS.header.y+CARD_RECTS.header.h:148+coinIdRowH());
   const LY=PH?null:hudTopLayout({W,AW,AH,CW,hdrR:Math.max(0,(+window.__hudLeft||0)-(+window.__wrapL||0))+400,hdrB:HB,colTop:RT,colH:96+(!(source instanceof DiscipleSource)?100:0),walletL:+window.__walletL});
   if (LY){ RT=LY.colTop; RX=LY.RX; }
-  if (!PH&&LY){ const sig=RT+','+LY.ax+','+LY.ay+','+W; if(S._hudColPub!==sig){ S._hudColPub=sig; try{ dispatchEvent(new CustomEvent('disciple:hudcol',{detail:{top:RT,W,ammo:{x:LY.ax,y:LY.ay,w:AW,h:AH}}})); }catch(_){} } }   // FlightCanvas: CrewPanel / GameChat stack under it
+  if (!PH&&LY){ const sig=RT+','+LY.ax+','+LY.ay+','+W+','+HB; if(S._hudColPub!==sig){ S._hudColPub=sig; try{ dispatchEvent(new CustomEvent('disciple:hudcol',{detail:{top:RT,W,hdrB:HB,ammo:{x:LY.ax,y:LY.ay,w:AW,h:AH}}})); }catch(_){} } }   // FlightCanvas: CrewPanel / GameChat stack under it
   if (PH&&PH.drawer&&PH.body&&/^(feed|holders|chart)$/.test(PH.sheet||'')) drawPhoneBodyBg(PH);   // phone: canvas tabs paint the drawer body
   // DISCIPLE status box ('curve events / block # / HOLDING · no trades'): not on a coin page (lee, Oct 30 cleanup) —
   // TOP HOLDERS moves up into its slot (STATUS_DY = 0; FlightCanvas --ap-status-h keeps GameChat in step)

@@ -30,13 +30,19 @@ export interface MissionInput {
   /** this wallet's fills, any order */
   fills: readonly MissionFill[];
   coins: ReadonlyMap<string, MissionCoin>;
-  /** every trader's fills per coin (ride_tier reads the coin's mcap path); coins without an entry use the wallet's fills */
-  coinFills?: ReadonlyMap<string, readonly { ts: number; mcapUsd?: number }[]>;
+  /**
+   * every trader's fills per coin: ride_tier / cash_out_higher read the mcap path (coins without an entry use the wallet's
+   * fills); start_run, first_crew and hold_bomb read the other pilots' trades and need `trader` / `side` / `usd`
+   */
+  coinFills?: ReadonlyMap<string, readonly CoinFill[]>;
+  /** coins whose `coinFills` reach back to the launch (first_crew counts the crew ahead of you only on these) */
+  coinFillsComplete?: ReadonlySet<string>;
   /** evaluation cutoff for this period (events after it don't count) */
   now: number;
   /** wall-clock time of this run (default `now`): a boost only counts once its wash window has fully passed by then */
   asOf?: number;
 }
+export interface CoinFill { ts: number; mcapUsd?: number; trader?: string; side?: string; usd?: number; impactBps?: number; block?: number; logIndex?: number }
 export interface MissionResult { progress: number; target: number; doneAt?: number }
 export interface MissionsEval {
   results: Record<string, MissionResult>;
@@ -46,6 +52,9 @@ export interface MissionsEval {
 
 export const tierIndex = (mcap: number) => { let i = 0; for (let k = 0; k < TIERS.length; k++) if (mcap >= TIERS[k].lo) i = k; return i; };
 
+/** a before b on chain (block / log index when both have them, else time) */
+const before = (a: { ts: number; block?: number; logIndex?: number }, b: { ts: number; block?: number; logIndex?: number }) =>
+  a.block !== undefined && b.block !== undefined ? a.block < b.block || (a.block === b.block && (a.logIndex ?? 0) < (b.logIndex ?? 0)) : a.ts < b.ts;
 const order = (a: MissionFill, b: MissionFill) => a.block - b.block || a.logIndex - b.logIndex || a.ts - b.ts;
 
 interface Interval { start: number; end: number; startMcap?: number }
@@ -80,6 +89,8 @@ export function evaluateMissions(inp: MissionInput, period: Period, missions: re
   const pos = new Map<string, Pos>();
   const bombs: number[] = [];
   const holds: number[] = [];     // times a 24h streak completed
+  const cashOuts: number[] = [];  // cash_out_higher: qualifying sells
+  const pathOf = (c: string) => (inp.coinFills?.get(c) ?? fills.filter((f) => f.coin === c)).filter((x) => typeof x.mcapUsd === "number").slice().sort((a, b) => a.ts - b.ts);
   for (const f of fills) {
     const p = pos.get(f.coin) ?? pos.set(f.coin, { tokens: 0, basis: 0, holdStart: null, streak: null, intervals: [] }).get(f.coin)!;
     const usd = Number.isFinite(f.usd) && f.usd > 0 ? f.usd : 0;
@@ -92,6 +103,14 @@ export function evaluateMissions(inp: MissionInput, period: Period, missions: re
     } else {
       if (f.side === "sell" && inP(f.ts) && (f.impactBps ?? 0) >= FAIR.bombMinImpactBps && usd >= FAIR.bombMinUsd && p.holdStart !== null && f.ts - p.holdStart >= FAIR.bombMinHoldMs) bombs.push(f.ts);
       const q = Math.min(f.tokens, Math.max(0, p.tokens));
+      // cash out higher: one sell of half the bag or more, above the average entry, on a ride that climbed a tier
+      if (f.side === "sell" && inP(f.ts) && p.tokens > DUST && q >= p.tokens * FAIR.cashOutShare - DUST && p.basis >= FAIR.minBoostUsd && usd / q > p.basis / p.tokens && coin(f.coin) && !mineLaunch(f.coin)) {
+        const iv = p.intervals[p.intervals.length - 1];
+        if (iv && iv.startMcap !== undefined) {
+          const t0 = tierIndex(iv.startMcap);
+          if (pathOf(f.coin).some((x) => x.ts >= iv.start && x.ts <= f.ts && tierIndex(x.mcapUsd!) > t0)) cashOuts.push(f.ts);
+        }
+      }
       if (p.tokens > DUST) { p.basis -= p.basis * (q / p.tokens); p.tokens -= q; }
       if (p.tokens <= DUST) { p.tokens = 0; p.basis = 0; p.holdStart = null; const last = p.intervals[p.intervals.length - 1]; if (last && last.end === Infinity) last.end = f.ts; }
       // any dump or transfer away resets the clock
@@ -133,6 +152,56 @@ export function evaluateMissions(inp: MissionInput, period: Period, missions: re
         done(m, modes.size, at); break;
       }
       case "drop_bomb": done(m, bombs.length ? 1 : 0, bombs[0]); break;
+      case "cash_out_higher": done(m, cashOuts.length ? 1 : 0, cashOuts[0]); break;
+      case "start_run": {
+        let at: number | undefined;
+        for (const b of boosts) {
+          const who = new Set<string>();
+          for (const x of (inp.coinFills?.get(b.coin) ?? []).slice().sort((u, v) => u.ts - v.ts)) {
+            if (x.side !== "buy" || !x.trader || !(Number(x.usd) >= FAIR.minBoostUsd) || x.ts > b.ts + FAIR.runMs || !before(b, x)) continue;
+            const t = x.trader.toLowerCase(); if (t === wallet) continue;
+            who.add(t);
+            if (who.size >= FAIR.runPilots) { if (x.ts <= inp.now && (at === undefined || x.ts < at)) at = x.ts; break; }
+          }
+          if (at !== undefined) break;
+        }
+        done(m, at !== undefined ? 1 : 0, at); break;
+      }
+      case "first_crew": {
+        const b = boosts.find((x) => {
+          if (!inp.coinFillsComplete?.has(x.coin)) return false;
+          const creator = coin(x.coin)!.creator.toLowerCase(), ahead = new Set<string>();
+          for (const y of inp.coinFills?.get(x.coin) ?? []) {
+            if (y.side !== "buy" || !y.trader || !(Number(y.usd) >= FAIR.minBoostUsd) || !before(y, x)) continue;
+            const t = y.trader.toLowerCase(); if (t !== wallet && t !== creator) ahead.add(t);
+          }
+          return ahead.size < FAIR.crewSize;
+        });
+        done(m, b ? 1 : 0, b?.ts); break;
+      }
+      case "hold_bomb": {
+        let at: number | undefined;
+        for (const [addr, list] of Array.from(inp.coinFills?.entries() ?? [])) {
+          const mine = fills.filter((f) => f.coin === addr);
+          if (!mine.length) continue;
+          for (const x of list) {
+            if (x.side !== "sell" || !x.trader || x.trader.toLowerCase() === wallet || !inP(x.ts) || !((x.impactBps ?? 0) >= FAIR.holdBombImpactBps) || !(Number(x.usd) >= FAIR.bombMinUsd)) continue;
+            // aboard when it landed: what this wallet held just before the bomb
+            let tokens = 0, basis = 0;
+            for (const f of mine) {
+              if (!before(f, x)) break;
+              if (f.side === "buy") { tokens += f.tokens; basis += f.usd > 0 ? f.usd : 0; }
+              else { const q = Math.min(f.tokens, Math.max(0, tokens)); if (tokens > DUST) { basis -= basis * (q / tokens); tokens -= q; } if (tokens <= DUST) { tokens = 0; basis = 0; } }
+            }
+            if (tokens <= DUST || basis < FAIR.minBoostUsd) continue;
+            const end = x.ts + FAIR.holdBombMs;
+            if (mine.some((f) => f.side !== "buy" && !before(f, x) && f.ts <= end)) continue;   // sold or sent away inside the 10 min
+            if (end > inp.now || end > asOf) { if (end < period.end) recheck(end + 1); continue; }
+            if (at === undefined || end < at) at = end;
+          }
+        }
+        done(m, at !== undefined ? 1 : 0, at); break;
+      }
       case "hold_24h": {
         const at = holds.filter((t) => t >= period.start && t < period.end && t <= inp.now).sort((a, b) => a - b)[0];
         done(m, at !== undefined ? 1 : 0, at); break;
@@ -159,7 +228,7 @@ export function evaluateMissions(inp: MissionInput, period: Period, missions: re
       case "ride_tier": {
         let at: number | undefined;
         for (const [addr, p] of Array.from(pos.entries())) {
-          const path = (inp.coinFills?.get(addr) ?? fills.filter((f) => f.coin === addr)).filter((x) => typeof x.mcapUsd === "number").slice().sort((a, b) => a.ts - b.ts);
+          const path = pathOf(addr);
           for (const iv of p.intervals) {
             const s = Math.max(iv.start, period.start), e = Math.min(iv.end, period.end, inp.now);
             if (s >= e) continue;

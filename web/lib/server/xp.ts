@@ -15,7 +15,7 @@ import "server-only";
  */
 import { randomUUID } from "node:crypto";
 import { ACTIVE_CHAIN } from "@/lib/chains";
-import { evaluateDrafts, evaluateMissions, type MissionCoin, type MissionFill } from "@/lib/missionsEval";
+import { evaluateDrafts, evaluateMissions, type CoinFill, type MissionCoin, type MissionFill } from "@/lib/missionsEval";
 import { partById } from "@/lib/parts";
 import { playerUsd, type Fill } from "@/lib/trades";
 import { V1_RULES, type AchievementUnlockRecord } from "@/lib/achievements";
@@ -87,7 +87,10 @@ const toMissionFill = (f: Fill): MissionFill => ({
 });
 
 /** Missions that depend on still holding the tokens: not paid while transfers out couldn't be checked. */
-const HOLDING_KINDS = new Set(["hold_24h", "ride_tier", "orbit_aboard", "drop_bomb"]);
+const HOLDING_KINDS = new Set(["hold_24h", "ride_tier", "orbit_aboard", "drop_bomb", "hold_bomb", "cash_out_higher"]);
+
+/** How many recent trades per coin the cron loads for `coinFills`; fewer than this = the coin's whole history (first_crew). */
+export const COIN_FILLS_LIMIT = 1000;
 
 /** The periods a cron pass settles: this day and week, plus the previous ones (a pass that runs just after a reset). */
 export const periodsAt = (now: number): Period[] => [dayPeriod(now), dayPeriod(now - 86_400_000), weekPeriod(now), weekPeriod(now - 7 * 86_400_000)];
@@ -113,13 +116,16 @@ export async function scoreXp(
 
   const coins = new Map<string, MissionCoin>();
   for (const [c, m] of Array.from(ctx.metas.entries())) coins.set(c.toLowerCase(), { creator: m.creator, anon: m.anon, mode: m.mode, launchTs: m.launch.ts, grad: m.grad });
-  const coinFills = new Map<string, { ts: number; mcapUsd?: number }[]>();
-  for (const [c, fs] of Array.from(ctx.coinFills?.entries() ?? [])) coinFills.set(c.toLowerCase(), fs.map((f) => ({ ts: f.ts, mcapUsd: f.mcapUsd })));
+  const coinFills = new Map<string, CoinFill[]>(), coinFillsComplete = new Set<string>();
+  for (const [c, fs] of Array.from(ctx.coinFills?.entries() ?? [])) {
+    coinFills.set(c.toLowerCase(), fs.map((f) => ({ ts: f.ts, mcapUsd: f.mcapUsd, trader: f.trader, side: f.side, usd: playerUsd(f), impactBps: typeof f.impactBps === "number" ? Math.abs(f.impactBps) : undefined, block: f.block, logIndex: f.logIndex })));
+    if (fs.length < COIN_FILLS_LIMIT) coinFillsComplete.add(c.toLowerCase());
+  }
   const fills: MissionFill[] = [
     ...ctx.fills.map(toMissionFill),
     ...(ctx.outs ?? []).map((t): MissionFill => ({ coin: t.coin.toLowerCase(), ts: t.ts, block: t.block, logIndex: t.logIndex, side: "out", tokens: t.tokens, usd: 0 })),
   ];
-  const input = { wallet: w, fills, coins, coinFills, now, asOf: now };
+  const input = { wallet: w, fills, coins, coinFills, coinFillsComplete, now, asOf: now };
 
   const stored: Record<string, Record<string, { progress: number; target: number; doneAt?: number }>> = {};
   let recheck: number | undefined;

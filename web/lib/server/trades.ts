@@ -26,6 +26,7 @@ export { usdgRouters };
 import { serverPc } from "./chat/identity";
 import { kv, type Kv } from "./kv";
 import { ACH } from "./achKeys";
+import { FAIR } from "@/lib/xp";
 import { feeIndex, markReferralDirty, recordReferralSlices, type TradeFeeRoutedArgs } from "./referralLedger";
 
 import { coinBasis } from "@/lib/mcap";
@@ -191,6 +192,14 @@ export async function storeFills(fills: Fill[]) {
   if (fills.length) {
     await s.zadd(ACH.dirty(), fills.map((f) => ({ score: Date.now(), member: `${f.trader}|${f.id}` })));
     await markReferralDirty(fills);
+    // "Hold through a bomb" (lib/xp FAIR.holdBombImpactBps): a 5%+ dump re-scores the rocket's recent pilots, whose own
+    // fills didn't change (the mission then sets a timer for the end of its 10 minutes)
+    for (const f of fills) {
+      if (f.side !== "sell" || !(Math.abs(f.impactBps ?? 0) >= FAIR.holdBombImpactBps)) continue;
+      const ws = new Set<string>();
+      for (const m of await s.zrange(`trades:${f.coin}`, 1000, true)) { try { const t = (JSON.parse(m) as Fill).trader; if (t && t !== f.trader) ws.add(t.toLowerCase()); } catch { /* skip */ } }
+      if (ws.size) await s.zadd(ACH.dirty(), Array.from(ws).map((w) => ({ score: Date.now(), member: `${w}|bomb:${f.id}` })));
+    }
   }
 }
 
