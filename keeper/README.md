@@ -16,7 +16,7 @@ side) pays no tips; it still catches up through its own trades.
 Cross-chain routes in v0: Ethereum → Robinhood Chain and Robinhood Chain → Ethereum (`DisciplePushSender` on the home chain,
 `DisciplePushReceiver` + `DiscipleHook` on the destination). The keeper does not change or need any contract code.
 
-## Same-chain: what it does every `sampling.everySec` (default 2 s)
+## Same-chain: what it does every `sampling.everySec` (default 13 s)
 
 1. **Finds pools.** Scans each `sameChain` hook's `Created` events for same-chain pools (and any listed in `pools`).
 2. **Asks the hook.** One `sampleDue(id)` eth_call per pool. The hook answers yes only when a `sample()` sent now
@@ -201,7 +201,7 @@ on the Robinhood side, or use a plan with a larger range (and raise `logChunk`).
 | `sameChain[].chain` / `hook` | | chain name and same-chain hook address |
 | `sameChain[].fromBlock` | 0 (= from now) | scan `Created` events from here |
 | `sameChain[].pools` / `scanPools` | `[]` / true | extra pool ids / scan for new pools |
-| `sampling.everySec` | 2 | how often to check same-chain pools |
+| `sampling.everySec` | 13 | how often to check same-chain pools (one L1 block is about 12 s, so a faster check finds nothing new) |
 | `sampling.missesBeforeRest` / `restSec` | 3 / 3600 | rest a pool after this many unpaid samples, for this long |
 | `sampling.sweepEverySec` | 60 | Carry pools: how often to check each pool's Morpho tail (0 = never sweep) |
 | `sampling.sweepBandBps` | 20000 | Carry pools: sweep once hot quote is above this share of its target (20000 = 2x) |
