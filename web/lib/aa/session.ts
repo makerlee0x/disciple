@@ -114,7 +114,7 @@ export type PrivySecurity = {
   enrollMfa: () => void;
   unenrollMfa: (m: PrivyMfaMethod) => Promise<void>;
 };
-type PrivyHooks = { login: () => void; logout: () => Promise<void>; getAccessToken?: () => Promise<string | null>; getIdentityToken?: () => Promise<string | null>; authenticated?: boolean; account?: PrivyAccountInfo | null; security?: PrivySecurity | null };
+type PrivyHooks = { /** Privy finished loading (usePrivy().ready) */ ready?: boolean; login: () => void; logout: () => Promise<void>; getAccessToken?: () => Promise<string | null>; getIdentityToken?: () => Promise<string | null>; authenticated?: boolean; account?: PrivyAccountInfo | null; security?: PrivySecurity | null };
 let privyHooks: PrivyHooks | null = null;
 const privySubs = new Set<() => void>();
 export async function setPrivyOwner(owner: LocalAccount): Promise<Address> {
@@ -125,6 +125,8 @@ export function registerPrivy(h: PrivyHooks | null) { privyHooks = h; privySubs.
 export function privyReady() { return !!privyHooks; }
 export function onPrivy(f: () => void) { privySubs.add(f); return () => { privySubs.delete(f); }; }
 export const privyAuthenticated = () => !!privyHooks?.authenticated;
+/** Privy has loaded and knows whether this visitor is signed in. */
+export const privyLoaded = () => !!privyHooks?.ready;
 /** The signed-in Privy user's login method / email / linked X username, or null (signed out, or not a Privy login). */
 export const privyAccount = (): PrivyAccountInfo | null => (privyHooks?.authenticated ? privyHooks.account ?? null : null);
 /** Export key / 2FA actions for the signed-in Privy user, or null (signed out, or not a Privy login). */
