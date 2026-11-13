@@ -108,6 +108,8 @@ export default function GameRadio() {
   const [phone, setPhone] = useState(false);
   const [picker, setPicker] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  /* phones (mobile plan, one overlay at a time): the player starts folded into the ▸ RADIO pill; the sky stays clear */
+  const [phoneOpen, setPhoneOpen] = useState(false);
   const hud = useHudMode();
   const lastLevel = useRef(audioLevel("music", gs));
 
@@ -175,7 +177,7 @@ export default function GameRadio() {
   const playing = st.running && !st.paused && musicOn && gs.music.vol > 0;
   const stations = stationList();
   const station = stations.find((s) => s.id === st.stationId) ?? stations[0];
-  const min = card.min || (phone && !!layout.radio?.min);
+  const min = card.min || (phone && (!!layout.radio?.min || !phoneOpen));
   const closed = card.closed || (phone && !!layout.radio?.closed);
   const hidePanel = min || closed;
   const phoneBottom: React.CSSProperties = phone
@@ -353,7 +355,7 @@ export default function GameRadio() {
             <Ico d={ICONS.shuffle} size={11} />
           </button>
           {phone && (
-            <button type="button" data-testid="radio-min" title="Minimize" aria-label="Minimize" onClick={() => updateLayout((l) => setCard(l, "radio", { min: true }))} style={{ ...BTN, fontSize: 11, padding: "0 1px", lineHeight: "12px", flex: "0 0 auto" }}>–</button>
+            <button type="button" data-testid="radio-min" title="Minimize" aria-label="Minimize" onClick={() => { setPhoneOpen(false); updateLayout((l) => setCard(l, "radio", { min: true })); }} style={{ ...BTN, fontSize: 11, padding: "0 1px", lineHeight: "12px", flex: "0 0 auto" }}>–</button>
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
@@ -380,7 +382,7 @@ export default function GameRadio() {
           data-testid="radio-pill"
           title="Show Radio"
           aria-label="Show Radio"
-          onClick={() => updateLayout((l) => restoreCard(l, "radio"))}
+          onClick={() => { setPhoneOpen(true); updateLayout((l) => restoreCard(l, "radio")); }}
           style={{ ...PILL, ...phoneBottom }}
         >
           ▸ RADIO

@@ -5,6 +5,7 @@ import LobbyTopBar from "./LobbyTopBar";
 import RefCapture from "./RefCapture";
 import ReferralOnboarding from "./claims/ReferralOnboarding";
 import HowItWorksHost from "./home/HowItWorksHost";
+import TouchKit from "./TouchKit";
 import InviteBanner from "./invites/InviteBanner";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
@@ -31,6 +32,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* profile r3: no cash pill on a profile (the page's portfolio block shows Cash); every other route unchanged */}
       <WalletButton compact={!isGame} hideCash={/^\/(profile|u\/)/.test(pathname ?? "")} />
       <FunnelBeacon />
+      <TouchKit />
       {isGame ? children : <div className="main-offset main-offset-lobby min-h-screen">{children}</div>}
       {IS_STATIC_PREVIEW && (
         <div

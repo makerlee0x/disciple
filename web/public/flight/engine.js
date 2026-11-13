@@ -595,7 +595,9 @@ const GAME_FAMILY=((typeof __GAME_FONT!=='undefined'&&typeof __GAME_FONT==='stri
    ignite = a BOOST / DUMP press (same frame), fill = it confirmed, fail = it didn't, bomb = a detonation (tier 0..5),
    zone = a climb into a new zone, orbit = graduation. Haptic on the press where the device has one. */
 function sfx(k,o){ try{ dispatchEvent(new CustomEvent('disciple:sfx',{detail:Object.assign({k},o||{})})); }catch(_){} }
-function haptic(ms){ try{ if(typeof navigator!=='undefined'&&navigator.vibrate) navigator.vibrate(ms); }catch(_){} }
+/* Haptics live on the page (lib/game/haptics.ts): it maps the disciple:sfx cues above to buzzes on the main thread,
+   because navigator.vibrate does not exist in the flight worker. Kept as a no-op so old call sites stay harmless. */
+function haptic(){}
 function GF(px,w){ return `${w||700} ${px}px ${GAME_FAMILY}`; }
 const UI_FAMILY=((typeof __UI_FONT!=='undefined'&&typeof __UI_FONT==='string'&&__UI_FONT.trim())?__UI_FONT.trim()+',':'')+"'Geist',system-ui,sans-serif";   /* brand v3 body face for small canvas copy */
 S.pro=(()=>{ try{ return localStorage.getItem('disciple.hud')==='pro'; }catch(_){ return false; } })();
@@ -1236,8 +1238,22 @@ addEventListener('resize',resize); addEventListener('apsidebar',()=>requestAnima
 
 const IMG={}; let loaded=0; const SKY_SRC=Object.fromEntries(TIERS.map(t=>[t.bg,t.sky]));   // tier plates load from TIERS[i].sky (lib/flight/tiers.ts)
 const names=[...new Set(TIERS.map(t=>t.bg).concat(['rocket']))];
-names.forEach(n=>{ const im=new Image(); im.onload=()=>{ if(im.bitmap) IMG[n]=im.bitmap; loaded++; };   // worker: shim decodes via createImageBitmap
-  im.onerror=()=>{loaded++; im.bad=true; console.warn('asset failed',n);}; im.src=(window.__DISCIPLE_BASE_PATH__||'')+(SKY_SRC[n]||'/assets/'+n+'.png'); IMG[n]=im; });
+/* Streamed sky plates (mobile plan 2026-11-13, speed fix 4): the 18 plates are ~3.4 MB, so waiting for all of them kept a phone
+   on 4G at "loading assets" for 15s+. Now the rocket and the plates around the current altitude load first, the game starts as
+   soon as THOSE are in (skyReady), and the rest stream in the background nearest-first, 3 at a time. A plate that isn't in yet
+   draws as the plain night fill (bgTile returns null). assetsReady() still means "everything" for the replay/test tools. */
+const done=Object.create(null), started=Object.create(null); let inflight=0;
+function loadAsset(n){ if(started[n]) return; started[n]=1; inflight++; const im=new Image();
+  const fin=()=>{ done[n]=1; loaded++; inflight--; pumpAssets(); };
+  im.onload=()=>{ if(im.bitmap) IMG[n]=im.bitmap; fin(); };   // worker: shim decodes via createImageBitmap
+  im.onerror=()=>{ im.bad=true; console.warn('asset failed',n); fin(); }; IMG[n]=im; im.src=(window.__DISCIPLE_BASE_PATH__||'')+(SKY_SRC[n]||'/assets/'+n+'.png'); }
+function tierIxOf(mcap){ if(!(mcap>0)) return 0; for(let i=TIERS.length-1;i>=0;i--) if(mcap>=TIERS[i].lo) return i; return 0; }
+function nearTiers(){ const c=tierIxOf(S&&S.confirmed?S.confirmed.mcap:0); return [c,c+1,c-1].filter(i=>i>=0&&i<TIERS.length).map(i=>TIERS[i].bg); }
+function pumpAssets(){ const c=tierIxOf(S&&S.confirmed?S.confirmed.mcap:0);
+  const q=['rocket',...TIERS.map((t,i)=>[t.bg,Math.abs(i-c)+(i<c?0.5:0)]).sort((a,b)=>a[1]-b[1]).map(x=>x[0])];
+  for(const n of q){ if(inflight>=3) break; if(!started[n]) loadAsset(n); } }
+function skyReady(){ if(!done.rocket) return false; for(const n of nearTiers()){ if(!done[n]){ loadAsset(n); return false; } } return true; }
+pumpAssets();
 
 // film grain: pre-rendered noise tiles
 const grain=[...Array(4)].map(()=>{ const g=document.createElement('canvas'); g.width=g.height=256; const gx=g.getContext('2d'), id=gx.createImageData(256,256);
@@ -1994,7 +2010,7 @@ function drawHud(){
 }
 
 function drawLoading(){ ctx.fillStyle='#05060c'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#ccd'; ctx.font='16px ui-monospace,monospace'; ctx.textAlign='center';
-  ctx.fillText(S.confirmed.mcap===null?`waiting for first confirmed trade… (${source.name}) ${S.status.ok?'':S.status.msg}`:`loading assets ${loaded}/${names.length}`,W/2,H/2); ctx.textAlign='left'; }
+  ctx.fillText(S.confirmed.mcap===null?`waiting for first confirmed trade… (${source.name}) ${S.status.ok?'':S.status.msg}`:'Fueling up…',W/2,H/2); ctx.textAlign='left'; }
 
 /* =====================================================================
    NUKE ON DUMP — sell bombs (visual layer only; never touches rocket motion/springs)
@@ -2447,7 +2463,7 @@ const PERF=window.__flightPerf={n:0,long25:0,long50:0,max:0,sum:0,reset(){ this.
 function frame(now){
   { const d=now-last; if(d>0&&d<5000){ PERF.n++; PERF.sum+=d; if(d>25) PERF.long25++; if(d>50) PERF.long50++; if(d>PERF.max) PERF.max=d; } }
   const rawDt=FIXED_DT||Math.min(0.25,Math.max(0,(now-last)/1000)); last=now;
-  if (S.confirmed.mcap===null || loaded<names.length){ S.t+=rawDt; drawLoading(); RAF(frame); return; }
+  if (S.confirmed.mcap===null || !skyReady()){ S.t+=rawDt; drawLoading(); RAF(frame); return; }
   acc+=rawDt; let n=0;
   while (acc>=SIM_DT-1e-9 && n<MAX_STEPS){ for(const k of LERP_KEYS) PREV[k]=S[k]; S.particles.snap(); S.shards.snap(); S.bfx.snap(); simStep(SIM_DT); acc-=SIM_DT; n++; }
   if (n===MAX_STEPS && acc>SIM_DT) acc=0;             // long stall: drop the backlog instead of spiralling

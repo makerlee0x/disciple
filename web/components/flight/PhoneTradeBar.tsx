@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Phone trade bar v3 (html.ap-phone; mockups phone-v3 frame1 + frame2). Layout only — every action is TradeBridge's own:
@@ -15,6 +15,8 @@ import { useEffect, useState } from "react";
 export type PhoneTradeBarProps = {
   buyLabel: string; sellLabel: string;
   onBoost: () => void; onDump: () => void;
+  /** the selected DUMP size sells the whole bag: on a phone it needs a short hold (HOLD_MS) so a stray tap can't empty it */
+  dumpAll?: boolean;
   boostDisabled: boolean; dumpDisabled: boolean; boostTitle: string; dumpTitle: string;
   /** rapid tap: 3 trades in flight — both buttons look greyed and read "3 IN FLIGHT" but stay tappable, so an extra tap
    *  reaches the engine's '3 IN FLIGHT' pulse instead of being swallowed by a disabled button */
@@ -36,8 +38,36 @@ export const chipUsd = (v: number) => (!(v > 0) ? "$0" : v >= 1000 ? (v >= 1e6 ?
 const Chevron = ({ c }: { c: string }) => <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden style={{ opacity: 0.75 }}><path d="M2.5 4.5L6 8l3.5-3.5" fill="none" stroke={c} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 const Xicon = () => <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="#D8DEF0" strokeWidth="2.2" strokeLinecap="round" /></svg>;
 
+/** DUMP ALL hold (maker, 2026-11-13): ~0.4s with a filling ring; 10% / 25% / half stay one tap. */
+export const HOLD_MS = 400;
+
 export default function PhoneTradeBar(p: PhoneTradeBarProps) {
   const [sheet, setSheet] = useState<null | "buy" | "sell">(null);
+  // Fire on finger DOWN (same frame as the press), not on release. The click that follows is swallowed; a keyboard
+  // click (detail 0) still trades. DUMP ALL: finger down starts the hold ring, lifting early cancels.
+  const firedByPointer = useRef(false);
+  const holdT = useRef<number | null>(null);
+  const [holding, setHolding] = useState(false);
+  const [holdHint, setHoldHint] = useState(false);
+  const endHold = () => { if (holdT.current != null) { clearTimeout(holdT.current); holdT.current = null; } setHolding(false); };
+  useEffect(() => () => endHold(), []);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!holdHint) return; const t = setTimeout(() => setHoldHint(false), 1600); return () => clearTimeout(t); }, [holdHint]);
+  const press = (side: "buy" | "sell", e: React.PointerEvent<HTMLButtonElement>) => {
+    const b = side === "buy";
+    if (e.button !== 0 || (b ? p.boostDisabled : p.dumpDisabled)) return;
+    firedByPointer.current = true;
+    if (!b && p.dumpAll) {
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* old WebView */ }
+      setHolding(true); setHoldHint(false);
+      holdT.current = window.setTimeout(() => {
+        holdT.current = null; setHolding(false); p.onDump();
+        dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "dump" } }));
+      }, HOLD_MS);
+      return;
+    }
+    (b ? p.onBoost : p.onDump)();
+  };
+  const release = () => { if (holdT.current != null) { endHold(); setHoldHint(true); } };
   const [val, setVal] = useState("");
   useEffect(() => { setVal(""); }, [sheet]);
   useEffect(() => { if (!sheet) return; const k = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); setSheet(null); } };
@@ -51,7 +81,12 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
     return (
       <div className={`ph-tb ${b ? "ph-boost" : "ph-dump"}`} data-disabled={dis || full ? "1" : "0"} data-inflight={full ? "1" : "0"} onPointerDown={() => p.onSide?.(side)} onFocusCapture={() => p.onSide?.(side)}>
         <button type="button" className="ph-tb-body" data-testid={b ? "buy-btn" : "sell-btn"} aria-label={b ? `buy ${p.buyLabel}` : `sell ${p.sellLabel}`}
-          title={b ? p.boostTitle : p.dumpTitle} aria-disabled={dis || full} disabled={dis} {...p.keyGuard} onClick={b ? p.onBoost : p.onDump}>
+          title={b ? p.boostTitle : p.dumpTitle} aria-disabled={dis || full} disabled={dis} {...p.keyGuard}
+          data-haptic={!b && p.dumpAll ? "hold" : b ? "boost" : "dump"} data-holding={!b && holding ? "1" : undefined}
+          onPointerDown={(e) => press(side, e)} onPointerUp={b ? undefined : release} onPointerCancel={b ? undefined : () => endHold()}
+          onContextMenu={(e) => e.preventDefault()}
+          onClick={(e) => { if (firedByPointer.current || e.detail > 0) { firedByPointer.current = false; return; } (b ? p.onBoost : p.onDump)(); }}>
+          {!b && p.dumpAll && <span className="ph-hold" aria-hidden />}
           <span className="ph-lbl">{full ? "3 IN FLIGHT" : b ? "BOOST" : "DUMP"}</span></button>
         <button type="button" className="ph-amt" data-testid={b ? "phone-amt-buy" : "phone-amt-sell"} aria-haspopup="dialog" aria-label={`${b ? "BOOST" : "DUMP"} amount: ${b ? p.buyLabel : p.sellLabel} (change)`}
           {...p.keyGuard} onClick={() => setSheet(side)}>{b ? p.buyLabel : p.sellLabel}<Chevron c={b ? "#121327" : "#FFC2DA"} /></button>
@@ -60,7 +95,8 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
   return (
     <>
       <div aria-label="trade bar" data-testid="trade-bar" className="ph-bar">
-        {p.hint ? <div data-testid="trade-hint" className="ph-hint">{p.hint}</div>
+        {holdHint ? <div data-testid="hold-hint" className="ph-hint">Hold to dump all</div>
+          : p.hint ? <div data-testid="trade-hint" className="ph-hint">{p.hint}</div>
           : p.warn ? <div data-testid="trade-warn" className={`ph-hint ph-warn${p.warnOver ? " over" : ""}`}>{p.warn}</div> : null}
         <div className="ph-btns">{tb("buy")}{tb("sell")}</div>
       </div>
@@ -71,7 +107,7 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
           <div className="ph-sh-head"><div className="ph-sh-title"><span style={{ color: buy ? "#F2C14E" : "#F0307F" }}>{buy ? "▲" : "▼"}</span> {buy ? "BOOST" : "DUMP"} AMOUNT</div>
             <button type="button" className="ph-sh-x" data-testid="amt-sheet-close" aria-label="Close" onClick={() => setSheet(null)}><Xicon /></button></div>
           <div className="ph-grid">
-            {opts.slice(0, 4).map((o, i) => <button key={i} type="button" data-testid={`amt-opt-${i}`} className={`ph-opt${i === sel ? " sel" : ""}${buy ? "" : " dump"}`} aria-pressed={i === sel}
+            {opts.slice(0, 4).map((o, i) => <button key={i} type="button" data-haptic="select" data-testid={`amt-opt-${i}`} className={`ph-opt${i === sel ? " sel" : ""}${buy ? "" : " dump"}`} aria-pressed={i === sel}
               onClick={() => { p.onSide?.(buy ? "buy" : "sell"); (buy ? p.onPickBuy : p.onPickSell)(i); setSheet(null); }}>{o}{tags[i] ? <span className={`ph-opt-warn${tags[i].endsWith("!") ? " over" : ""}`} data-testid={`amt-opt-warn-${i}`}>{tags[i].endsWith("!") ? "too big" : "big move"} {tags[i].replace(/!$/, "")}</span> : null}</button>)}
           </div>
           <form className="ph-custom" onSubmit={(e) => { e.preventDefault(); apply(); }}>
@@ -99,6 +135,14 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
         .ph-tb-body { all: unset; position: absolute; inset: 0; border-radius: inherit; cursor: pointer; display: flex; align-items: center; padding-left: 18px; -webkit-tap-highlight-color: transparent; }
         .ph-tb-body:disabled { cursor: not-allowed; }
         .ph-tb-body:active:not(:disabled) { background: rgba(255,255,255,.12); }
+        /* press feel: the whole button squashes on finger down */
+        .ph-tb { transform-origin: 50% 60%; }
+        .ph-tb:has(.ph-tb-body:active:not(:disabled)) { transform: scale(.96); filter: brightness(1.12); transition: transform .04s, filter .04s; }
+        .ph-tb-body { touch-action: manipulation; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+        /* DUMP ALL hold ring: fills left to right over HOLD_MS while the finger stays down */
+        .ph-hold { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; overflow: hidden; }
+        .ph-hold::before { content: ""; position: absolute; inset: 0; background: rgba(240,48,127,.42); transform: scaleX(0); transform-origin: left center; }
+        .ph-tb-body[data-holding="1"] .ph-hold::before { transform: scaleX(1); transition: transform ${HOLD_MS}ms linear; }
         .ph-tb-body:focus-visible, .ph-amt:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
         .ph-lbl { font: 800 25px/1 var(--dsc-font-game, var(--font-barlow-condensed), 'Barlow Condensed', 'Arial Narrow', sans-serif); letter-spacing: .03em; }
         .ph-amt { all: unset; position: relative; z-index: 1; box-sizing: border-box; height: 48px; min-width: 72px; padding: 0 10px 0 14px; border-radius: 15px; display: flex; align-items: center; justify-content: center; gap: 6px;

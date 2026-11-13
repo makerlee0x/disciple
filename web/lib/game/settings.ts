@@ -26,13 +26,15 @@ export interface GameSettings {
   music: AudioChannel;
   radio: RadioPrefs;
   lang: Locale;
+  /** Vibration on taps and big moments (lib/game/haptics.ts). On by default; Android buzzes, iPhone gets a light tick. */
+  haptics: boolean;
 }
 export const DEFAULT_BUY_KEYS = ["Digit1", "Digit2", "Digit3", "Digit4"];   // 4 buy presets (was 6: an older 6-key save keeps its first 4)
 export const DEFAULT_SELL_KEYS = ["KeyZ", "KeyX", "KeyC", "KeyV"];
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
   v: 1, keys: { buy: DEFAULT_BUY_KEYS, sell: DEFAULT_SELL_KEYS },
   sfx: { on: true, vol: 0.7 }, music: { on: true, vol: 0.5 },
-  radio: { station: DEFAULT_STATION_ID, shuffle: false, repeat: "station" }, lang: "en",
+  radio: { station: DEFAULT_STATION_ID, shuffle: false, repeat: "station" }, lang: "en", haptics: true,
 };
 /** Keys the game already uses for something else (SPACE boost, SHIFT dump, steering, toggles, chat, menu). Not bindable. */
 export const RESERVED_CODES = new Set([
@@ -79,6 +81,7 @@ export function sanitizeGameSettings(x: unknown): GameSettings {
     sfx: chan(o.sfx, DEFAULT_GAME_SETTINGS.sfx), music: chan(o.music, DEFAULT_GAME_SETTINGS.music),
     radio,
     lang: LOCALE_IDS.includes(o.lang as Locale) ? (o.lang as Locale) : "en",
+    haptics: o.haptics !== false,
   };
 }
 

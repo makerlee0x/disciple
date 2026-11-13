@@ -7,6 +7,7 @@ import { ONE_TAP_SLIPPAGE_CHOICES_BPS, onPrivy, onSessionChange, oneTapSlippageB
 import { playerError } from "@/lib/playerError";
 import Icon from "@/components/icons/Icon";
 import { SETTINGS_KEYS } from "@/lib/config";
+import { setGameSettings, useGameSettings } from "@/lib/game/settings";
 
 /** Settings copy (profile r3 README copy list). */
 export const SETTINGS_COPY = {
@@ -66,6 +67,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   const [copied, setCopied] = useState(false);
   const [bps, setBps] = useState(1500);
   const [busy, setBusy] = useState(false);
+  const gs = useGameSettings();
   const [err, setErr] = useState("");
   const [sec, setSec] = useState<PrivySecurity | null>(null);
   const [view, setView] = useState<"main" | "2fa">("main");
@@ -149,6 +151,16 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                 <div className="p5-walletbox"><span className="val" title={addr}>{short(addr)}</span>
                   <button type="button" className="p5-btn sm" onClick={copy}><Icon name="copy" size={16} /> {copied ? SETTINGS_COPY.copied : SETTINGS_COPY.copy}</button>
                 </div>
+              </div>
+            </div>
+          </section>
+          <section className="p5-sgrp" aria-label="Game" data-testid="settings-game">
+            <span className="gh">Game</span>
+            <div className="p5-sbox">
+              <div className="p5-srow">
+                <div className="tx"><b>Vibration</b><span>Buzz on taps and big moments. iPhone gets a light tick.</span></div>
+                <button type="button" role="switch" aria-checked={gs.haptics} aria-label="Vibration" className={`p5-switch${gs.haptics ? " on" : ""}`} data-testid="settings-haptics"
+                  onClick={() => { const v = !gs.haptics; setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); }}><span /></button>
               </div>
             </div>
           </section>

@@ -31,6 +31,10 @@ function loadTune(): SimConfig { try { const s = localStorage.getItem(SIM_STORAG
 /** SIMULATOR — free paper-trading mode on a fully local market (lib/sim). Never touches wallets or real profiles. */
 export default function SimMode({ initial }: { initial: { difficulty?: string; seed?: string; tune?: boolean; autostart?: boolean; speed?: number; minutes?: number; balance?: number } }) {
   const [cfg, setCfg] = useState<SimConfig>(() => cloneConfig());
+  // phones (mobile plan, one overlay at a time): the run panel folds into a small SIM chip in the top-right corner
+  const [phone, setPhone] = useState(false);
+  const [simOpen, setSimOpen] = useState(false);
+  useEffect(() => { const mq = matchMedia("(max-width: 760px)"); const f = () => setPhone(mq.matches); f(); mq.addEventListener("change", f); return () => mq.removeEventListener("change", f); }, []);
   useEffect(() => { setCfg(loadTune()); }, []);
   const [difficulty, setDifficulty] = useState<DifficultyId>(DIFFS.includes(initial.difficulty as DifficultyId) ? (initial.difficulty as DifficultyId) : "pve");
   const [seedText, setSeedText] = useState(initial.seed || "");
@@ -111,11 +115,18 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
           <SnipeChip state={snipe} />
         </>
       )}
-      {phase === "run" && run && (
-        <div data-testid="sim-bar" style={{ ...panel, position: "fixed", left: "calc(var(--ap-rail-w, 64px) + 12px)", top: 430, width: 236, padding: "8px 10px", zIndex: 31, fontSize: 11 }}>
+      {phase === "run" && run && phone && !simOpen && (
+        <button type="button" data-testid="sim-chip" aria-expanded={false} onClick={() => setSimOpen(true)}
+          style={{ ...panel, ...btn(false), position: "fixed", right: 12, top: "calc(var(--ap-safe-top, 0px) + 14px)", zIndex: 31, minHeight: 40, padding: "0 12px", display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+          <b style={{ color: "#8fd8ff" }}>SIM</b><span style={{ opacity: 0.85 }}>{clock(run.t)}</span><span style={{ color: D.color }}>{D.label}</span><span aria-hidden>▾</span>
+        </button>
+      )}
+      {phase === "run" && run && (!phone || simOpen) && (
+        <div data-testid="sim-bar" style={{ ...panel, position: "fixed", ...(phone ? { right: 12, top: "calc(var(--ap-safe-top, 0px) + 14px)" } : { left: "calc(var(--ap-rail-w, 64px) + 12px)", top: 430 }), width: 236, padding: "8px 10px", zIndex: 31, fontSize: 11 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <b style={{ color: "#8fd8ff", letterSpacing: 1 }}>SIMULATOR</b>
-            <span style={{ color: D.color, fontWeight: 700 }}>{D.label}</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ color: D.color, fontWeight: 700 }}>{D.label}</span>
+              {phone && <button type="button" data-testid="sim-chip-close" aria-label="Fold the simulator panel" onClick={() => setSimOpen(false)} style={{ ...btn(false), minWidth: 36, minHeight: 32, padding: 0 }}>▴</button>}</span>
           </div>
           <div style={{ opacity: 0.8, margin: "2px 0 6px" }}>seed {d!.seed} · {clock(run.t)} / {clock(minutes * 60)} · {run.bots.length} bots · {run.m.phase === "curve" ? `curve ${(run.m.sold / run.m.sC * 100).toFixed(0)}%` : "pool"}</div>
           <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
@@ -140,17 +151,17 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
         </div>
       )}
       {phase === "select" && (
-        <div data-testid="sim-select" style={{ position: "fixed", inset: 0, left: "var(--ap-rail-w, 64px)", display: "grid", placeItems: "center", background: "radial-gradient(ellipse at 50% 30%, #1a1f4a 0%, #070814 70%)", zIndex: 30, overflow: "auto" }}>
-          <div style={{ ...mono, width: "min(980px, 94vw)", color: "#e8ecff", padding: 20 }}>
+        <div data-testid="sim-select" style={{ position: "fixed", inset: 0, left: phone ? 0 : "var(--ap-rail-w, 64px)", display: "grid", placeItems: "center", background: "radial-gradient(ellipse at 50% 30%, #1a1f4a 0%, #070814 70%)", zIndex: 30, overflow: "auto" }}>
+          <div style={{ ...mono, width: "min(980px, 94vw)", color: "#e8ecff", padding: 20, paddingTop: phone ? "calc(var(--ap-safe-top, 0px) + 72px)" : 20, alignSelf: phone ? "start" : undefined }}>
             <div style={{ fontSize: 13, color: "#8fd8ff", letterSpacing: 3 }}>DISCIPLE</div>
             <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: 2, margin: "2px 0 4px" }}>SIMULATOR</div>
             <div style={{ opacity: 0.8, marginBottom: 18, fontSize: 13 }}>Free practice trading on a fully local market. A fresh rocket launches on the real starting price path, from $3,333 until it reaches orbit at $33,333, and bots trade it. Reaching orbit means that path is finished and the rocket moves to the open market on Uniswap. Same buy sizes, BOOST (buy), DUMP (sell), bombs and orbs as the real game. After it reaches orbit, tramps (buys waiting below the price) and walls (sells waiting above it) are real orders in the practice pool: they take trades, fill, and a keeper closes them. Bots place their own and react to yours. No wallet cap, no gas, no wallet, no transactions.</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: phone ? "1fr" : "repeat(3, 1fr)", gap: 14 }}>
               {DIFFS.map((id) => { const x = cfg.difficulties[id]; const on = id === difficulty; return (
                 <button key={id} data-testid={`sim-diff-${id}`} onClick={() => setDifficulty(id)} style={{ ...panel, textAlign: "left", padding: 16, cursor: "pointer", borderColor: on ? x.color : "rgba(255,255,255,.15)", boxShadow: on ? `0 0 0 2px ${x.color}55, 0 10px 40px rgba(0,0,0,.45)` : panel.boxShadow }}>
                   <div style={{ color: x.color, fontWeight: 900, fontSize: 18 }}>{x.label}</div>
                   <div style={{ fontSize: 11, letterSpacing: 2, opacity: 0.8, marginBottom: 8 }}>{x.tag}</div>
-                  <div style={{ fontSize: 12, lineHeight: 1.5, opacity: 0.9, minHeight: 90 }}>{x.blurb}</div>
+                  <div style={{ fontSize: 12, lineHeight: 1.5, opacity: 0.9, minHeight: phone ? 0 : 90 }}>{x.blurb}</div>
                   <div style={{ fontSize: 11, opacity: 0.65, marginTop: 8 }}>bots: {Object.entries(x.mix).map(([a]) => ARCHETYPES[a as ArchetypeId].label).join(", ")}{x.rug ? ", sniper, bundler, dev, CTO" : ""}</div>
                 </button>); })}
             </div>

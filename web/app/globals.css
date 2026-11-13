@@ -1832,3 +1832,24 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
   body.game .wb-root .wb-row { display: none !important; }
   [data-desk-hide="1"] { display: none !important; }
 }
+
+/* ---------- Touch feel (mobile plan 2026-11-13, touch rules 1, 3 and 7) ----------
+   No grey tap flash, no double-tap zoom delay on controls, a press you can see the moment a finger lands,
+   and inputs that don't make iOS zoom in. Hover styles are moved behind @media (hover: hover) at build time
+   (lib/postcss/hover-media.cjs). `scale` is its own property, so it composes with any transform a control already has. */
+html { -webkit-tap-highlight-color: transparent; }
+button, [role="button"], [role="tab"], [role="switch"], a, summary, label, select, input[type="checkbox"], input[type="radio"], input[type="range"] { touch-action: manipulation; }
+@media (hover: none) {
+  button:not(:disabled):active, [role="button"]:not([aria-disabled="true"]):active, [role="tab"]:active, a.ds-btn:active, a[class*="btn"]:active, a[class*="Btn"]:active, a[class*="cta"]:active, a[class*="Cta"]:active {
+    scale: .97; filter: brightness(1.1); transition: scale .04s ease-out, filter .04s ease-out;
+  }
+}
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: max(16px, 1em); }
+}
+
+/* Flight routes are a game, not a page (mobile plan touch rule 4): no pull-to-refresh or rubber-band scroll, and no
+   long-press text menu / selection on the HUD. Chat and inputs keep normal selection. */
+html.ap-flight, html.ap-flight body { overscroll-behavior: none; }
+html.ap-flight body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+html.ap-flight input, html.ap-flight textarea, html.ap-flight [contenteditable="true"], html.ap-flight [data-selectable] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }

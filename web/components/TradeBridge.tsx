@@ -810,7 +810,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     <AmmoTierNotice />
     {alertStrip}
     <PhoneTradeBar buyLabel={chipUsd(shotUsd)} sellLabel={customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
-      onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()} boostDisabled={short} dumpDisabled={!has} inFlightFull={full} boostTitle={boostTitle} dumpTitle={dumpTitle}
+      onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()}
+      dumpAll={(customSellPct ? customSellPct / 100 : customSellUsd ? (pos.valueUsd > 0 ? customSellUsd / pos.valueUsd : 0) : selSellPreset.frac) >= 0.999}
+      boostDisabled={short} dumpDisabled={!has} inFlightFull={full} boostTitle={boostTitle} dumpTitle={dumpTitle}
       buyOpts={[0, 1, 2, 3].map((i) => chipUsd(ammo.usd[i] ?? MODES[i].usd))} buySel={customUsd ? -1 : mode}
       onSide={setPhoneSide}
       onPickBuy={(i) => { setCustom(""); setMode(i); window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: i } })); }}
