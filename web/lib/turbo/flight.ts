@@ -106,6 +106,16 @@ export function breakEvenPrice(p: Pick<Position, "side" | "entry" | "sizeUsd" | 
 export const cashOutNowUsd = (p: Pick<Position, "collateralUsd" | "pnlAfterFeesUsd" | "closeFeeUsdEst">): number =>
   Math.max(0, p.collateralUsd + p.pnlAfterFeesUsd - p.closeFeeUsdEst);
 
+/** v2.1: price where the run pays back `k` × the fuel put in (partial banks included), from the live cash-out value.
+ *  Close-fee changes over the move are ignored (they are a rounding error at line scale). 0 when it can't be placed. */
+export function multiplePrice(p: Pick<Position, "side" | "entry" | "sizeUsd" | "markPrice" | "collateralUsd" | "pnlAfterFeesUsd" | "closeFeeUsdEst">, fuelIn: number, realizedUsd: number, k = 2): number {
+  const mark = p.markPrice ?? p.entry;
+  if (!(p.entry > 0) || !(p.sizeUsd > 0) || !(mark > 0) || !(fuelIn > 0)) return 0;
+  const need = k * fuelIn - realizedUsd - cashOutNowUsd(p);
+  const px = mark + (p.side === "long" ? 1 : -1) * (p.entry * need) / p.sizeUsd;
+  return px > 0 ? px : 0;
+}
+
 /** Annualised volatility used only for the "typical run" label on the gear tiles (not for any trade math). */
 export const ANNUAL_VOL: Record<Market, number> = { BTC: 0.5, ETH: 0.65 };
 

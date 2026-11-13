@@ -1323,8 +1323,25 @@ function bgTile(name){ const s=1.12, w=Math.round(W*s), h=Math.round(H*s), k=w+'
 function plateRows(T,y0,y1,oy,x0){ y0=Math.max(0,Math.floor(y0)); y1=Math.min(H,Math.ceil(y1)); const P=T.height, w=T.width;
   let y=y0; while(y<y1){ const r=(((y-oy)%P)+P)%P, seg=Math.min(y1-y,P-r); ctx.drawImage(T,0,r,w,seg,x0,y,w,seg); y+=seg; } }
 function altAtY(y){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); return base+((S.anch??ROCKET_Y)-y)/PX_PER_ALT; }
+/* @turbo-route (maker, Nov 13 2026: "a completely different sky for BTC versus ETH, so the quest feels different"): in Turbo
+   the page sends f.route = 'btc' | 'eth' and the sky is that route's own plate (public/turbo/sky-*.webp, re-graded from the
+   tier art): Sun route = sunrise over the Earth, Moon route = a huge moon. One plate per run with a slow parallax, since a
+   run lives inside a narrow altitude band. Falls back to the tier sky until the plate has loaded. */
+const TURBO_SKY={}, TURBO_SKY_FX={btc:0.74,eth:0.62}, TURBO_RIM={btc:[255,206,150],eth:[178,204,255]};
+function turboRoute(){ const f=turboFx(); return f&&(f.route==='btc'||f.route==='eth')?f.route:null; }
+function turboSkyImg(r){ if(!r) return null; let im=TURBO_SKY[r];
+  if(!im){ im=new Image(); im.onerror=()=>{ im.bad=true; }; im.src=(window.__DISCIPLE_BASE_PATH__||'')+'/turbo/sky-'+r+'.webp'; TURBO_SKY[r]=im; }
+  if(im.bad) return null; if(im.bitmap) return im.bitmap; return im.complete&&im.naturalWidth>0?im:null; }
+function drawTurboSky(im,r){ const iw=im.width||im.naturalWidth, ih=im.height||im.naturalHeight; if(!(iw>0&&ih>0)) return false;
+  const sc=Math.max(W/iw,H/ih)*1.18, dw=iw*sc, dh=ih*sc, my=(dh-H)/2;
+  const off=clamp(((S.displayAlt!=null?S.displayAlt:4.5)-4.5)*PX_PER_ALT*0.12,-my,my);
+  const x0=(W-dw)*(TURBO_SKY_FX[r]??0.5)-((S.camX!=null?S.camX:S.x)-W/2)*0.03, y0=-my+off;
+  ctx.drawImage(im,x0,y0,dw,dh); S.bgU=tipPoint().alt;
+  const k=W+'x'+H; if(SKYG.tk!==k){ SKYG.tk=k; const v=ctx.createLinearGradient(0,0,0,H); v.addColorStop(0,'rgba(6,6,18,.38)'); v.addColorStop(0.5,'rgba(6,6,18,.05)'); v.addColorStop(1,'rgba(6,6,18,.32)'); SKYG.tv=v; }
+  ctx.fillStyle=SKYG.tv; ctx.fillRect(0,0,W,H); return true; }
 function drawBg(){
   ctx.fillStyle='#0b0f22'; ctx.fillRect(0,0,W,H);
+  if(IS_TURBO){ const r=turboRoute(), im=turboSkyImg(r); if(im&&drawTurboSky(im,r)) return; }
   const F=H*0.5, oy=Math.round(((S.cloudY||0)*0.06)), w=Math.round(W*1.12), x0=Math.round((W-w)/2-((S.camX!=null?S.camX:S.x)-W/2)*0.03);
   S.bgU=tipPoint().alt;   // sky tint follows the rocket's own altitude
   const kb=Math.floor(altAtY(H+F/2)), kt=Math.floor(altAtY(-F/2));
@@ -1355,7 +1372,7 @@ function skyRGB(idx){ const key=plateOf(idx); let c=SKY_RGB.get(key); if(c) retu
     // lift toward pastel so the rim reads as light, not as paint
     c=[Math.round(r/n*0.5+128),Math.round(gg/n*0.5+124),Math.round(b/n*0.5+128)]; SKY_RGB.set(key,c); }catch(_){ } }
   return c; }
-function skyNow(){ const a=(S.bgU!=null?S.bgU:bandOf(S.displayAlt))-0.5, i=Math.floor(a), f=clamp(a-i,0,1), c0=skyRGB(i), c1=skyRGB(i+1);
+function skyNow(){ if(IS_TURBO){ const r=turboRoute(); if(r&&turboSkyImg(r)) return TURBO_RIM[r]; } const a=(S.bgU!=null?S.bgU:bandOf(S.displayAlt))-0.5, i=Math.floor(a), f=clamp(a-i,0,1), c0=skyRGB(i), c1=skyRGB(i+1);
   return [Math.round(lerp(c0[0],c1[0],f)),Math.round(lerp(c0[1],c1[1],f)),Math.round(lerp(c0[2],c1[2],f))]; }
 
 /* CLASSIC CLOUDS (?clouds=classic fallback; default is CEL below) — crisp, stylised cumulus silhouettes pre-rendered once (2× res): union of circles with a
@@ -1691,13 +1708,14 @@ function turboShudder(dt){ const f=turboFx(); if(!f||!f.open) return; const d=cl
    @turbo-sky (maker, Nov 13 2026: the sky zooms to the run): the page sends f.lines = [{mcap, kind, label}] with kind
    'hbomb' (solid pink, glow, pill label), 'even' (green dashed: break-even) or 'boarded' (cream dashed). */
 function turboPill(text,x,y,bg,fg,right){ ctx.save(); ctx.font='700 13px '+GAME_FAMILY;
-  const w=ctx.measureText(text).width+16, h=20, x0=right?W-x-w:x; ctx.fillStyle=bg; ctx.beginPath();
+  const w=ctx.measureText(text).width+16, h=20, x0=right==='center'?(W-w)/2:right?W-x-w:x; ctx.fillStyle=bg; ctx.beginPath();
   if(ctx.roundRect) ctx.roundRect(x0,y-h/2,w,h,6); else ctx.rect(x0,y-h/2,w,h); ctx.fill();
   ctx.fillStyle=fg; ctx.textBaseline='middle'; ctx.fillText(text,x0+8,y+0.5); ctx.restore(); }
 const TURBO_LINE_STYLE={
   hbomb:{col:'#F0307F',w:3,dash:null,glow:'rgba(240,48,127,.8)',bg:'rgba(240,48,127,.92)',fg:'#F2F3F7',right:true},
   even:{col:'rgba(95,240,160,.8)',w:2,dash:[8,6],bg:'rgba(18,19,39,.85)',fg:'#5FF0A0',right:true},
   boarded:{col:'rgba(243,223,168,.7)',w:1,dash:[4,4],bg:'rgba(18,19,39,.85)',fg:'#F3DFA8',right:false},
+  two:{col:'rgba(242,243,247,.5)',w:1,dash:[6,5],bg:'rgba(11,10,22,.85)',fg:'#F2F3F7',right:'center'},   // v2.1: the 2× (double your fuel) line
 };
 /* lines are placed relative to the rocket as drawn (its screen y is soft-limited to a band), so the rocket body sits
    exactly on the line of the price it is at: at the boarding line on fill, on the H-BOMB line when it fires. */

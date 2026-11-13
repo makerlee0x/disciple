@@ -38,6 +38,13 @@ it on; it is not set anywhere and must not be set on Vercel.
 4. Sign-up / login and any signing path are NOT part of this pass: lee decides after talking to Nova.
 
 ## Flight (engine.js `?source=turbo&clean=1`, `components/turbo/TurboFlight.tsx`)
+
+**v2.1 (Nov 13 2026): routes and the pad.** Each market is a route (`lib/turbo/routes.ts`): BTC = Sun route, ETH = Moon route,
+each with its own pad plate, flight sky (`public/turbo/sky-*.webp`, sent to the engine as `__turboFx.route`) and accent colour
+(CSS vars `--r-*`). With no position, Turbo opens on the pre-launch pad (rocket on the pad, Flight plan console). Firing plays a
+3-2-1 on the pad while the order fills (it never waits to send the order), then the pad fades into the flight. The sky draws
+H-BOMB, break-even and 2× lines (`multiplePrice`). No fuel turns the fire buttons into Add fuel to fire; Add fuel is a right
+drawer on desktop and a bottom sheet on phone.
 - Sky zoomed to the run (maker, Nov 13 2026; replaces the Nov 12 "height = actual market cap" rule): the page marks
   `skyMcap(price)` (lib/turbo/flight.ts `skyAlt`), so the H-BOMB line sits 16% of the screen below the boarding line
   at any gear. With no run open, the selected gear's scale is previewed around a slowly re-centring price. Market cap

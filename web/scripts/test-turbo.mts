@@ -360,3 +360,27 @@ test("run copy keeps the same rules", () => {
   const all = JSON.stringify(RUN_COPY, (_k, v) => (typeof v === "function" ? v("$1", "$1", "1:00", "BOOST", "BTC", "0:41") : v)).toLowerCase();
   for (const bad of ["practice", "test version", "real money", "take profit", "stop loss", "limit order", "win it back", "double"]) assert.ok(!all.includes(bad), bad);
 });
+
+// ---- v2.1: 2× line, routes ----
+import { multiplePrice } from "../lib/turbo/flight";
+import { ROUTES } from "../lib/turbo/routes";
+
+test("v2.1 multiplePrice: the 2× line sits where the run pays back twice the fuel", () => {
+  const base = { entry: 100_000, sizeUsd: 10_000, markPrice: 100_000, collateralUsd: 10, pnlAfterFeesUsd: -1, closeFeeUsdEst: 1 };
+  const long = multiplePrice({ side: "long", ...base }, 10, 0, 2);
+  // cash now = 8, need 12 more on $10k size = +0.12% of entry
+  assert.ok(Math.abs(long - 100_120) < 1e-6, String(long));
+  const short = multiplePrice({ side: "short", ...base }, 10, 0, 2);
+  assert.ok(Math.abs(short - 99_880) < 1e-6, String(short));
+  // banked $5 already: only $7 more needed
+  assert.ok(Math.abs(multiplePrice({ side: "long", ...base }, 10, 5, 2) - 100_070) < 1e-6);
+  assert.equal(multiplePrice({ side: "long", ...base, sizeUsd: 0 }, 10, 0), 0);
+});
+
+test("v2.1 routes: BTC and ETH each have their own pad, sky key and accent", () => {
+  assert.notEqual(ROUTES.BTC.key, ROUTES.ETH.key);
+  assert.notEqual(ROUTES.BTC.pad, ROUTES.ETH.pad);
+  assert.notEqual(ROUTES.BTC.vars["--r-acc"], ROUTES.ETH.vars["--r-acc"]);
+  const copy = JSON.stringify(ROUTES).toLowerCase();
+  for (const bad of ["practice", "testnet", "coming soon", "stop-loss", "take profit"]) assert.ok(!copy.includes(bad), bad);
+});

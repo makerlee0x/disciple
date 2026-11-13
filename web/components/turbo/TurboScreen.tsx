@@ -13,14 +13,16 @@
  *    engine from __turboFx.lines. Market cap stays a number on the market tab.
  * The engine never places trades; every tap goes to the adapter first.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useTurbo } from "@/lib/turbo/useTurbo";
 import type { ClosePct, Market, MarketInfo, MarketTrade, Position, Side, TurboEvent } from "@/lib/turbo";
 import { RUN_COPY as R, TURBO_COPY as C } from "@/lib/turbo/copy";
 import { lev as fmtLev, price as fmtPrice, signedUsd, usd } from "@/lib/turbo/format";
 import { DEFAULT_PREFS, FUEL_PRESETS, LEVERAGE_PRESETS, fuelOf, leverageOf, loadPrefs, savePrefs, type TurboPrefs } from "@/lib/turbo/prefs";
-import { breakEvenPrice, cashOutNowUsd, dangerLevel, dangerOf, liqDistance, marketCapUsd, paceLabel, typicalRunSeconds } from "@/lib/turbo/flight";
+import { breakEvenPrice, cashOutNowUsd, dangerLevel, dangerOf, liqDistance, marketCapUsd, multiplePrice, paceLabel, typicalRunSeconds } from "@/lib/turbo/flight";
+import { ROUTES } from "@/lib/turbo/routes";
+import { withBase } from "@/lib/base-path";
 import { bestToday, clock, createRunStore, longestAt, multipleLabel, streak, type TurboRun } from "@/lib/turbo/runs";
 import { SETTINGS_OPEN_EVENT } from "@/lib/walletCta";
 import TurboFlight, { type TurboFlightHandle } from "./TurboFlight";
@@ -44,16 +46,19 @@ const pctMove = (f: number) => `${(f * 100).toFixed(f < 0.001 ? 3 : 2).replace(/
 const FLOW_MIN: Record<Market, number> = { BTC: 100_000, ETH: 50_000 };
 
 const Chevrons = ({ n }: { n: number }) => (
-  <svg width={4 + n * 9} height="12" viewBox={`0 0 ${4 + n * 9} 12`} fill="none" stroke="#F2C14E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+  <svg width={4 + n * 9} height="12" viewBox={`0 0 ${4 + n * 9} 12`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <path d={Array.from({ length: n }, (_, i) => `M${4 + i * 9} 2l4 4-4 4`).join("")} />
   </svg>
 );
 const MenuIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 7h16M4 12h16M4 17h16" /></svg>;
 const XIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg>;
-const PlusIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="#121327" strokeWidth="2.6" strokeLinecap="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>;
+const PlusIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>;
 
 interface RunTrack { id: string; fuelUsd: number; startedAt: number; peak: number; path: number[]; lastSample: number; side: Side; market: Market; leverage: number }
 type Result = { run: TurboRun; entry: number; exit: number; liqMove?: number };
+/** v2.1 liftoff: the pad stays up for the 3-2-1 while the order fills; it never delays the order itself. */
+type Launch = { t0: number; side: Side; market: Market; leverage: number; fuelUsd: number; entry: number; liq: number; leaving?: boolean };
+const COUNT_MS = 1800;
 
 function RunChart({ path }: { path: number[] }) {
   const pts = path.length >= 2 ? path : [1, ...(path.length ? path : [1])];
@@ -126,6 +131,8 @@ export default function TurboScreen() {
   const [share, setShare] = useState<TurboShare | null>(null);
   const [nova, setNova] = useState<null | { short: boolean; label: string; result: Result }>(null);
   const [result, setResult] = useState<Result | null>(null);
+  const [launch, setLaunch] = useState<Launch | null>(null);
+  const [tick, setTick] = useState(0);
   const [flow, setFlow] = useState<{ id: number; side: "buy" | "sell"; usd: number }[]>([]);
   const flight = useRef<TurboFlightHandle>(null);
   const [engineReady, setEngineReady] = useState(0);
@@ -150,14 +157,16 @@ export default function TurboScreen() {
   const openRun = useCallback(async (side: Side, o?: { fuelUsd: number; leverage: number; market: Market }) => {
     if (busy) return;
     const f = o?.fuelUsd ?? fuelUsd, lv = o?.leverage ?? leverage, m = o?.market ?? market;
-    if (fuel != null && f > fuel) { flash(R.needFuel); setSheet("fund"); return; }
+    if (fuel != null && f > fuel) { setSheet("fund"); return; }
     setBusy(true);
     try {
+      const q = (() => { try { return adapter.quote({ market: m, side, collateralUsd: f, leverage: lv }); } catch { return null; } })();
+      setLaunch({ t0: Date.now(), side, market: m, leverage: lv, fuelUsd: f, entry: q?.entryEst ?? 0, liq: q?.liqPrice ?? 0 });
       const r = adapter.open({ market: m, side, collateralUsd: f, leverage: lv });
       flight.current?.ignite();
       const { id } = await r;
       track.current[id] = { id, fuelUsd: f, startedAt: Date.now(), peak: 0, path: [], lastSample: 0, side, market: m, leverage: lv };
-    } catch (e) { flash(e instanceof Error ? e.message : C.failed); }
+    } catch (e) { setLaunch(null); flash(e instanceof Error ? e.message : C.failed); }
     finally { setBusy(false); }
   }, [adapter, busy, flash, fuel, fuelUsd, leverage, market]);
   const close = useCallback(async (p: Position, pct: ClosePct) => {
@@ -197,7 +206,7 @@ export default function TurboScreen() {
     const t = track.current[p.id] ?? (track.current[p.id] = { id: p.id, fuelUsd: p.collateralUsd, startedAt: p.openedAt ?? Date.now(), peak: 0, path: [], lastSample: 0, side: p.side, market: p.market, leverage: p.leverage });
     if (e.type === "filled") { t.startedAt = Date.now(); t.path = [cashOutNowUsd(p) / t.fuelUsd]; return; }
     if (e.type === "pending") return;
-    if (e.type === "failed") { flash(C.failed); delete track.current[p.id]; return; }
+    if (e.type === "failed") { setLaunch(null); flash(C.failed); delete track.current[p.id]; return; }
     if (e.type === "partial-closed") { flash(R.banked(usd(e.returnedUsd ?? 0))); return; }
     const back = p.realizedUsd ?? 0, mult = t.fuelUsd > 0 ? back / t.fuelUsd : 0;
     const path = [...t.path, +mult.toFixed(3)];
@@ -236,11 +245,23 @@ export default function TurboScreen() {
       const away = usd(Math.abs(px! - active.liqPrice), 0);
       const hb = sky(active.liqPrice); if (hb) lines.push({ mcap: hb, kind: "hbomb", label: red ? R.lineBombAway(px0(active.liqPrice), away) : R.lineBomb(px0(active.liqPrice)) });
       if (open_ && evenPx > 0) { const ev = sky(evenPx); if (ev) lines.push({ mcap: ev, kind: "even", label: R.lineEven }); }
-      const bd = sky(active.entry); if (bd) lines.push({ mcap: bd, kind: "boarded", label: R.lineBoarded(px0(active.entry)) });
+      const twoPx = open_ ? multiplePrice(active, fuelIn, realized, 2) : 0;
+      const two = twoPx > 0 ? sky(twoPx) : null; if (two) lines.push({ mcap: two, kind: "two", label: R.line2x(px0(twoPx)) });
     }
     (window as unknown as { __entryMcap?: number }).__entryMcap = 0;
-    f.setFx({ open: open_, pending: active?.status === "pending", side: active?.side ?? null, lev: active?.leverage ?? leverage, danger, dive: false, lines });
-  }, [active, open_, danger, red, evenPx, leverage, px, hasPx, market, selLiqDist, engineReady]);
+    f.setFx({ open: open_, pending: active?.status === "pending", side: active?.side ?? null, lev: active?.leverage ?? leverage, danger, dive: false, lines, route: ROUTES[market].key });
+  }, [active, open_, danger, red, evenPx, leverage, px, hasPx, market, selLiqDist, engineReady, fuelIn, realized]);
+
+  /* ---- liftoff: 3-2-1 on the pad while the fill lands, then the pad fades into the flight ---- */
+  useEffect(() => { if (!launch) return; const id = setInterval(() => setTick(Date.now()), 100); return () => clearInterval(id); }, [launch]);
+  const cd = launch ? Math.max(0, (tick || launch.t0) - launch.t0) : 0;
+  useEffect(() => {
+    if (!launch || launch.leaving || cd < COUNT_MS) return;
+    if (active && active.status === "open") setLaunch({ ...launch, leaving: true });
+    else if (!active && !busy) setLaunch(null);
+  }, [launch, cd, active, busy]);
+  const leaving = !!launch?.leaving;
+  useEffect(() => { if (!leaving) return; const id = setTimeout(() => setLaunch(null), 450); return () => clearTimeout(id); }, [leaving]);
 
   /* ---- live trades → engine boosts / bombs (on the zoomed sky) + market flow pills ---- */
   const skyRef = useRef({ a: 0, dist: 0 });
@@ -272,6 +293,20 @@ export default function TurboScreen() {
   }, [active, open_, close, sheet, result, share]);
 
   const all = runs.all();
+  const route = ROUTES[market];
+  const padOn = !result && !nova && (!active || !!launch);
+  const digit = cd < 600 ? 3 : cd < 1200 ? 2 : cd < COUNT_MS ? 1 : 0;
+  const noFuel = fuel != null && fuelUsd > fuel;
+  const bestT = bestToday(all), longestG = longestAt(all, leverage);
+  const routeCards = MARKETS.map((m) => {
+    const r = ROUTES[m];
+    return (
+      <button key={m} role="tab" type="button" aria-selected={m === market} disabled={!!launch} className={`${s.route} ${m === market ? s.routeOn : ""}`}
+        style={r.vars as CSSProperties} data-testid={`turbo-route-${m}`} onClick={() => setPrefs({ ...prefs, market: m })}>
+        <img src={withBase(r.thumb)} alt="" />
+        <span className={s.rn}><b>{r.name}</b><span>{m} {pxTab(prices[m] ?? NaN)}</span></span>
+      </button>);
+  });
   const menu = () => dispatchEvent(new Event(SETTINGS_OPEN_EVENT));
   const fuelChip = (
     <button type="button" className={s.fuel} data-testid="turbo-add-fuel" aria-label={`${C.fuel} ${fuel == null ? "" : usd(fuel)}, ${C.addFuel}`} onClick={() => setSheet("fund")}>
@@ -291,14 +326,14 @@ export default function TurboScreen() {
   );
 
   return (
-    <div className={s.page} data-testid="turbo-screen" data-adapter={adapter.kind} data-state={result ? "result" : active ? active.status : "ready"}>
+    <div className={s.page} style={ROUTES[market].vars as CSSProperties} data-testid="turbo-screen" data-adapter={adapter.kind} data-state={result ? "result" : active ? active.status : "ready"}>
       <TurboFlight ref={flight} ticker={market} onReady={() => setEngineReady((n) => n + 1)} />
       {red && <div className={s.vignette} />}
       {open_ && level === "hot" && <div className={`${s.vignette} ${s.vignetteHot}`} />}
 
       <header className={s.top}>
         <button type="button" className={`${s.iconBtn} ${s.phoneOnly}`} aria-label="Menu" onClick={menu}><MenuIcon /></button>
-        {active ? <>
+        {active && !padOn ? <>
           <span className={`${s.word} ${s.deskOnly}`}>TURBO</span>
           {marketTabs}
           <span className={`${s.spacer} ${s.phoneOnly}`} />
@@ -306,7 +341,7 @@ export default function TurboScreen() {
         </> : <>
           <span className={`${s.spacer} ${s.phoneOnly}`} />
           <span className={s.word}>TURBO</span>
-          {marketTabs}
+          <span className={`${s.prelabel} ${s.deskOnly}`}>{R.preLaunch}</span>
         </>}
         <span className={s.spacer} />
         {fuelChip}
@@ -314,53 +349,90 @@ export default function TurboScreen() {
         <Link href="/" className={`${s.iconBtn} ${s.deskOnly}`} aria-label="Leave Turbo"><XIcon /></Link>
       </header>
 
-      {standIn && <div className={`${s.notice} ${active ? s.deskOnly : ""}`} data-testid="turbo-standin-notice">{C.notConnected}</div>}
+      {standIn && <div className={`${s.notice} ${active || padOn ? s.deskOnly : ""}`} data-testid="turbo-standin-notice">{C.notConnected}</div>}
 
-      {!active && !nova && <>
-        <div className={s.mktCard} role="tablist" aria-label="Market">
-          {MARKETS.map((m) => <button key={m} role="tab" type="button" aria-selected={m === market} className={`${s.mktTab} ${m === market ? s.mktTabOn : ""}`}
-            data-testid={`turbo-market-tab-${m}`} onClick={() => setPrefs({ ...prefs, market: m })}>
-            <span className={s.t}>{m}</span><span className={s.p}>{pxTab(prices[m] ?? NaN)}</span><span className={s.cap}>{capLabel(marketCapUsd(m, prices[m] ?? NaN))}</span>
-          </button>)}
+      {padOn && <section className={`${s.pad} ${launch ? s.igniting : ""} ${leaving ? s.padLeaving : ""}`} data-testid="turbo-pad" data-route={route.key}>
+        <div className={s.stage}>
+          <img className={s.plate} src={withBase(route.pad)} alt={`${route.name.toLowerCase()} launch pad`} />
+          <i className={s.flame} />
+          <img className={s.padRocket} src={withBase("/assets/rocket-hi.webp")} alt="" />
+          <img className={s.padRing} src={withBase("/home/pad/pad-front.webp")} alt="" />
         </div>
-        <div className={s.readyFade} />
-        <section className={s.ready} data-testid="turbo-ready">
-          <div className={s.head}><span className={s.label}>{R.gear}</span><small>{R.gearHint}</small></div>
-          <div className={s.gears}>
-            {LEVERAGE_PRESETS.map((lv, i) => {
-              const q = gearQuotes[i], blocked = levBlocked(lv);
-              return (
-                <button key={lv} type="button" className={`${s.gear} ${prefs.levIdx === i ? s.gearOn : ""}`} aria-pressed={prefs.levIdx === i} disabled={blocked}
-                  title={blocked ? (info?.leverageNote ?? C.leverageMax(info!.maxLeverage, market)) : undefined} data-testid={`turbo-lev-chip-${i}`}
-                  onClick={() => setPrefs({ ...prefs, levIdx: i })}>
-                  <span className={s.x}>{lv}×</span><Chevrons n={i + 1} /><span className={s.pace}>{q ? paceLabel(typicalRunSeconds(market, q.liqDist)) : "—"}</span>
-                </button>);
-            })}
+        {route.key === "eth" && <i className={s.moon} />}
+        <div className={s.padShade} />
+        {!launch && <>
+          <div className={s.heroR} data-testid="turbo-route-hero">
+            <span className={s.no}>{R.routeNo(route.no, market)}</span>
+            <span className={s.nm}>{route.name.split(" ").map((w) => <span key={w} style={{ display: "block" }}>{w}</span>)}</span>
+            <span className={s.tg}>{route.tagline}</span>
+            <span className={s.px}><b>{pxTab(px ?? NaN)}</b><small>{capLabel(marketCapUsd(market, px ?? NaN))}</small></span>
           </div>
-          <div className={s.head}><span className={s.label}>{R.fuel}</span><small>{R.inPlay(usd(fuelUsd * leverage, 0))}</small></div>
-          <div className={s.chips}>
-            {FUEL_PRESETS.map((v, i) => <button key={v} type="button" className={`${s.chip} ${prefs.fuelIdx === i ? s.chipOn : ""}`} aria-pressed={prefs.fuelIdx === i}
-              data-testid={`turbo-fuel-chip-${i}`} onClick={() => setPrefs({ ...prefs, fuelIdx: i })}>${v}</button>)}
+          <div className={s.padStats}>
+            <div className={s.pstat}><span>{R.streak}</span><b>{R.streakV(streak(all))}</b></div>
+            <div className={s.pstat}><span>{R.bestTodayShort}</span><b>{bestT != null ? multipleLabel(bestT) : "—"}</b></div>
+            <div className={s.pstat}><span>{R.longestAt(fmtLev(leverage))}</span><b>{longestG != null ? clock(longestG) : "—"}</b></div>
           </div>
-          <div className={s.bombNote} data-testid="turbo-bomb-note">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#FF7FB2" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="12" cy="13" r="7" /><path d="M12 6V3M15 4l-1.5 2" /></svg>
-            <span>{selLiqDist > 0 ? <>H-BOMB if {market} moves <b>{pctMove(selLiqDist)}</b> against you</> : C.waitingPrice}</span>
-          </div>
-          <div className={s.fire}>
-            <button type="button" className={s.boost} data-testid="turbo-boost" disabled={busy || !hasPx} onClick={() => openRun("long")}><span className={s.big}>{R.boost}</span><span className={s.sub}>{R.boostSub}</span></button>
-            <button type="button" className={s.dump} data-testid="turbo-dump" disabled={busy || !hasPx} onClick={() => openRun("short")}><span className={s.big}>{R.dump}</span><span className={s.sub}>{R.dumpSub}</span></button>
-          </div>
-        </section>
+        </>}
+      </section>}
+
+      {padOn && !launch && <div className={`${s.routes} ${s.routesPhone} ${s.phoneOnly}`} role="tablist" aria-label="Route">{routeCards}</div>}
+
+      {padOn && <section className={`${s.plan} ${launch ? s.planGone : ""}`} data-testid="turbo-ready" aria-hidden={!!launch}>
+        <span className={`${s.ttl} ${s.deskOnly}`}>{R.flightPlan}</span>
+        <div className={`${s.head} ${s.deskOnly}`}><span className={s.label}>{R.stepRoute}</span></div>
+        <div className={`${s.routes} ${s.deskOnly}`} role="tablist" aria-label="Route">{routeCards}</div>
+        <div className={s.head}><span className={s.label}><span className={s.deskOnly}>{R.stepGear}</span><span className={s.phoneOnly}>{R.gear}</span></span><small>{R.gearHint}</small></div>
+        <div className={s.gears}>
+          {LEVERAGE_PRESETS.map((lv, i) => {
+            const q = gearQuotes[i], blocked = levBlocked(lv);
+            return (
+              <button key={lv} type="button" className={`${s.gear} ${prefs.levIdx === i ? s.gearOn : ""}`} aria-pressed={prefs.levIdx === i} disabled={blocked || !!launch}
+                title={blocked ? (info?.leverageNote ?? C.leverageMax(info!.maxLeverage, market)) : undefined} data-testid={`turbo-lev-chip-${i}`}
+                onClick={() => setPrefs({ ...prefs, levIdx: i })}>
+                <span className={s.x}>{lv}×</span><Chevrons n={i + 1} /><span className={s.pace}>{q ? paceLabel(typicalRunSeconds(market, q.liqDist)) : "—"}</span>
+              </button>);
+          })}
+        </div>
+        <div className={s.head}><span className={s.label}><span className={s.deskOnly}>{R.stepFuel}</span><span className={s.phoneOnly}>{R.fuel}</span></span><small>{R.inPlay(usd(fuelUsd * leverage, 0))}</small></div>
+        <div className={s.chips}>
+          {FUEL_PRESETS.map((v, i) => <button key={v} type="button" className={`${s.chip} ${prefs.fuelIdx === i ? s.chipOn : ""}`} aria-pressed={prefs.fuelIdx === i} disabled={!!launch}
+            data-testid={`turbo-fuel-chip-${i}`} onClick={() => setPrefs({ ...prefs, fuelIdx: i })}>${v}</button>)}
+        </div>
+        <div className={s.bombNote} data-testid="turbo-bomb-note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#FF7FB2" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="12" cy="13" r="7" /><path d="M12 6V3M15 4l-1.5 2" /></svg>
+          <span>{selLiqDist > 0 ? <>H-BOMB if {market} moves <b>{pctMove(selLiqDist)}</b> against you</> : C.waitingPrice}</span>
+        </div>
+        {standIn && <p className={`${s.planNotice} ${s.phoneOnly}`} data-testid="turbo-standin-notice">{C.notConnected}</p>}
+        {noFuel
+          ? <button type="button" className={s.noFuel} data-testid="turbo-add-fuel-fire" onClick={() => setSheet("fund")}>
+              <span className={s.big}>{R.addFuelToFire}</span><span className={s.sub}>{R.needFuelSub(usd(fuel ?? 0, 0), usd(fuelUsd, 0))}</span></button>
+          : <div className={s.fire}>
+              <button type="button" className={s.boost} data-testid="turbo-boost" disabled={busy || !hasPx || !!launch} onClick={() => openRun("long")}><span className={s.big}>{R.boost}</span><span className={s.sub}>{R.boostSub}</span></button>
+              <button type="button" className={s.dump} data-testid="turbo-dump" disabled={busy || !hasPx || !!launch} onClick={() => openRun("short")}><span className={s.big}>{R.dump}</span><span className={s.sub}>{R.dumpSub}</span></button>
+            </div>}
+      </section>}
+
+      {padOn && launch && !leaving && <>
+        <div className={s.count} role="status" data-testid="turbo-countdown">
+          <span>{digit ? R.liftoffIn : "\u00a0"}</span>
+          {digit ? <b key={digit}>{digit}</b> : <b key="go" className={s.go}>{R.liftoff}</b>}
+        </div>
+        <div className={s.boarding}>
+          <div className={s.runPill}><span className={launch.side === "long" ? s.boostTxt : s.dumpTxt}>{launch.side === "long" ? R.boost : R.dump}</span>
+            <span>{ROUTES[launch.market].name} · {fmtLev(launch.leverage)}</span><span className={s.sep} /><span>{usd(launch.fuelUsd, 0)} {R.fuel.toLowerCase()}</span></div>
+          {launch.entry > 0 && launch.liq > 0 && <small>{R.boardingAt(px0(launch.entry), px0(launch.liq))}</small>}
+        </div>
       </>}
 
-      {active && <>
+      {active && !padOn && <>
         <section className={`${s.hud} ${red ? s.hudRed : ""}`} data-testid="turbo-hud" data-danger={level}>
           <div className={s.hudTop}><span>{runTag}</span><span className={s.clock}>{open_ ? clock(elapsed) : "0:00"}</span></div>
           {active.status === "pending" ? <div className={s.pending}>{R.opening}</div> : <>
             <div className={s.hudMain}>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}><span className={s.k}>{R.cashNow}</span>
                 <span className={`${s.money} ${upUsd >= 0 ? s.up : s.pinkTxt}`} data-testid="turbo-cash-now">{usd(cashNow, 2)}</span></div>
-              <span className={s.mult} data-testid="turbo-multiple">{multipleLabel(multiple)}</span>
+              <span className={s.hudMulti}><span className={s.mult} data-testid="turbo-multiple">{multipleLabel(multiple)}</span>
+                <span className={s.hudSub}>{R.best} {multipleLabel(Math.max(tr?.peak ?? 0, multiple))} · {R.heat} {Math.round(danger * 100)}%</span></span>
             </div>
             {!red && <div className={s.hudLine}><span>{R.putIn} <b>{usd(fuelIn, Number.isInteger(fuelIn) ? 0 : 2)}</b> · {upUsd >= 0 ? R.up : R.down} <b className={upUsd >= 0 ? s.up : s.pinkTxt}>{signedUsd(upUsd)}</b> {R.afterFees}</span>
               <span>{R.best} <b>{multipleLabel(Math.max(tr?.peak ?? 0, multiple))}</b></span></div>}
@@ -372,7 +444,7 @@ export default function TurboScreen() {
 
         {!red && flow.length > 0 && <div className={s.flow} aria-live="off">
           <span className={s.label} style={{ fontSize: 12 }}>{R.marketFlow}</span>
-          {flow.map((f, i) => <div key={f.id} className={`${s.flowItem} ${f.side === "buy" ? s.flowBuy : s.flowSell} ${i ? s.flowOld : ""}`}><i /><span>{f.side === "buy" ? R.bigBuy : R.bigSell}</span><b>{bigUsd(f.usd)}</b></div>)}
+          {flow.map((f, i) => <div key={f.id} className={`${s.flowItem} ${f.side === "buy" ? s.flowBuy : s.flowSell} ${i ? s.flowOld : ""}`}><i /><span>{f.side === "buy" ? R.bigBuy : R.bigSell}</span><b>{bigUsd(f.usd)}</b><em className={s.ago}>{R.justNow}</em></div>)}
         </div>}
 
         {open_ && <aside className={s.runCard} data-testid="turbo-run-card">
@@ -401,7 +473,7 @@ export default function TurboScreen() {
         onShare={() => setShare({ kind: result.run.kind === "hbomb" ? "liquidated" : "win", market: result.run.market, side: result.run.side, leverage: result.run.leverage,
           profitUsd: result.run.backUsd - result.run.fuelUsd, fuelUsd: result.run.fuelUsd, entry: result.entry, exit: result.exit, multiple: result.run.multiple, lastedMs: result.run.endedAt - result.run.startedAt })} />}
 
-      {sheet === "fund" && <TurboFundingSheet adapter={adapter} onClose={() => setSheet(null)} />}
+      {sheet === "fund" && <TurboFundingSheet adapter={adapter} fuel={fuel} onClose={() => setSheet(null)} />}
       {sheet === "how" && <TurboHowItWorks onClose={() => setSheet(null)} />}
       {sheet === "detail" && active && <DetailSheet p={active} onClose={() => setSheet(null)} />}
       {nova && <TurboHBomb short={nova.short} label={nova.label} onDone={() => { setResult(nova.result); setNova(null); }} />}

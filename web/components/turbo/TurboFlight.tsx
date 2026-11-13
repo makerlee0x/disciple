@@ -1,7 +1,7 @@
 "use client";
 /**
  * Turbo flight: the CURRENT-MAIN flight engine (public/flight/engine.js) in its Turbo mode (?source=turbo&clean=1).
- * Not draft #311. Same locked rocket sprite. Existing background — no new skies.
+ * Not draft #311. Same locked rocket sprite. v2.1: each route (BTC Sun, ETH Moon) flies its own re-graded sky plate.
  *
  * What this component feeds the engine (all cosmetic; a BOOST / DUMP / CLOSE tap never waits on any of it):
  *  - mark(mcap)  = live BTC/ETH market cap (lib/turbo/flight.ts marketCapUsd) → window.__turboFeed({t:'mark', mcap})
@@ -30,7 +30,9 @@ export interface TurboFx {
   dive: boolean;
   liqMcap?: number; liqLabel?: string;
   /** @turbo-sky: lines drawn across the zoomed sky (H-BOMB, break-even, boarded), at their sky market cap. */
-  lines?: { mcap: number; kind: "hbomb" | "even" | "boarded"; label: string }[];
+  lines?: { mcap: number; kind: "hbomb" | "even" | "boarded" | "two"; label: string }[];
+  /** v2.1 route sky: "btc" = Sun route plate, "eth" = Moon route plate (public/turbo/sky-*.webp). */
+  route?: "btc" | "eth";
 }
 
 export interface TurboSwap {
