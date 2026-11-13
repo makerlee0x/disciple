@@ -49,7 +49,7 @@ export default function DailyResult({ id, seed, label, inputs, verdict, error, g
 }) {
   const rc = useMemo(() => dailyRecap(seed, inputs), [seed, inputs]);
   const s = verdict?.score ?? rc.score;
-  const [rank, setRank] = useState(verdict ? { rank: verdict.rank, count: verdict.count, topPct: verdict.topPct } : null);
+  const [rank, setRank] = useState(verdict ? { rank: verdict.rank, count: verdict.count, topPct: verdict.topPct, boarded: !!verdict.boarded } : null);
   const [note, setNote] = useState<string | null>(null);
   useEffect(() => { if (verdict) refreshRank(id, verdict.runId).then((r) => { if (r) setRank(r); }); }, [id, verdict]);
 
@@ -61,16 +61,18 @@ export default function DailyResult({ id, seed, label, inputs, verdict, error, g
   const save = async () => {
     if (!verdict || !pilot) return; claimed.current = pilot; setXp(null);
     const r = await claimFreePlayXp(pilot, { daily: { id, device: deviceId() } });
-    if (r) { setXp(r); if (r.ok) dispatchEvent(new CustomEvent(XP_CHANGED_EVENT)); }
+    if (r) { setXp(r); if (r.ok) { dispatchEvent(new CustomEvent(XP_CHANGED_EVENT)); refreshRank(id, verdict.runId).then((k) => { if (k) setRank(k); }); } }
   };
-  useEffect(() => { if (verdict && pilot && claimed.current !== pilot && waiting > 0) save(); }, [verdict, pilot]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (verdict && pilot && claimed.current !== pilot) save(); }, [verdict, pilot]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!pilot) { setMine(null); return; } fetchXp(pilot).then((x) => { if (x) setMine({ total: x.totalXp, prestige: x.level.prestige }); }); }, [pilot]);
   const saved = xp && xp.ok ? xp : null;
   const unlock = saved ? nextLevelUnlock(saved.totalXp, saved.level.prestige) : nextLevelUnlock(mine?.total ?? 0, mine?.prestige ?? 0, waiting);
   const unlockLine = unlock ? ` ${unlock.more.toLocaleString("en-US")} more unlocks the ${unlock.name} ${unlock.part}.` : "";
-  const xpHead = saved ? `+${saved.xp} XP` : pilot ? `+${waiting} XP` : `+${waiting} XP waiting`;
-  const xpSub = saved ? (saved.already ? "Already saved to your level." : saved.xp < waiting ? `Saved. Free play XP stops at ${FREE_PLAY_XP.perDay} a day.` : "Saved to your level.") + unlockLine
-    : xp && !xp.ok ? xp.reason : pilot ? (verdict ? "Saving to your level…" : "Saves once your score is in.") : `Sign in to keep it.${unlockLine}`;
+  // signed-in board (maker 2026-11-13): a score goes on the board when its pilot signs in and saves it
+  const posted = !!saved || !!rank?.boarded, showCard = waiting > 0 || !posted;
+  const xpHead = saved ? (waiting > 0 ? `+${saved.xp} XP` : "ON THE BOARD") : waiting > 0 ? (pilot ? `+${waiting} XP` : `+${waiting} XP waiting`) : "POST YOUR SCORE";
+  const xpSub = saved ? (waiting <= 0 ? "Your score is posted." : saved.already ? "On the board and saved to your level." : saved.xp < waiting ? `On the board. Free play XP stops at ${FREE_PLAY_XP.perDay} a day.` : "On the board and saved to your level.") + unlockLine
+    : xp && !xp.ok ? xp.reason : pilot ? (verdict ? "Posting your score…" : "Posts once your score is in.") : waiting > 0 ? `Sign in to post your score and keep it.${unlockLine}` : "Sign in to put your score on the board.";
 
   // chart: 330×98, log scale, markers at boarded / your best exit / the peak, a tick where the dump hit
   const W = 330, H = 98, P = rc.path, lo = Math.min(...P), hi = Math.max(...P), span = Math.max(1e-6, Math.log(hi / lo));
@@ -102,7 +104,9 @@ export default function DailyResult({ id, seed, label, inputs, verdict, error, g
           <span style={{ ...game, fontWeight: 700, fontSize: 16, letterSpacing: 3, color: "#D7D9E4" }}>{head}</span>
           <span data-testid="daily-multiple" style={{ ...game, fontWeight: 800, fontSize: 104, lineHeight: 0.9, color: GOLD }}>{mult(s.multiple)}</span>
           <span style={{ ...game, fontWeight: 700, fontSize: 22 }}>{money(s.pnl)} <span style={{ fontWeight: 600, fontSize: 16, color: "#D7D9E4" }}>practice cash</span></span>
-          {rank ? <span data-testid="daily-rank" style={{ marginTop: 6, padding: "5px 12px", borderRadius: 999, background: "rgba(95,240,160,0.12)", border: "1px solid rgba(95,240,160,0.5)", fontSize: 13, color: "#BFF8D8" }}>
+          {rank && !rank.boarded ? <span data-testid="daily-rank-pending" style={{ marginTop: 6, padding: "5px 12px", borderRadius: 999, border: "1px dashed rgba(95,240,160,0.5)", fontSize: 13, color: "#BFF8D8" }}>
+            Would place #{rank.rank.toLocaleString("en-US")} of {rank.count.toLocaleString("en-US")} today</span>
+            : rank ? <span data-testid="daily-rank" style={{ marginTop: 6, padding: "5px 12px", borderRadius: 999, background: "rgba(95,240,160,0.12)", border: "1px solid rgba(95,240,160,0.5)", fontSize: 13, color: "#BFF8D8" }}>
             Top {rank.topPct}% today · #{rank.rank.toLocaleString("en-US")} of {rank.count.toLocaleString("en-US")}</span>
             : <span data-testid="daily-rank-error" style={{ marginTop: 6, padding: "5px 12px", borderRadius: 999, border: "1px solid #2E323A", fontSize: 13, color: "#D7D9E4" }}>{error || "Saving your score…"}</span>}
         </div>
@@ -129,13 +133,13 @@ export default function DailyResult({ id, seed, label, inputs, verdict, error, g
           {ghost && <div data-testid="daily-ghost-line" style={{ marginTop: 4, fontSize: 12, color: "#F3DFA8" }}>{ghost.name} {ghost.outAtS != null ? `cashed out at ${mult(ghost.multiple)}, ${Math.round(ghost.outAtS)} s in` : `finished at ${mult(ghost.multiple)}`}. {s.multiple > ghost.multiple ? "You beat them." : s.multiple === ghost.multiple ? "Dead even." : "They beat you."}</div>}
         </div>
 
-        {waiting > 0 && <div data-testid="daily-xp" style={{ marginTop: 14, minHeight: 72, boxSizing: "border-box", padding: "10px 14px", borderRadius: 16, background: "rgba(243,223,168,0.08)", border: "1px solid rgba(243,223,168,0.4)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        {showCard && <div data-testid="daily-xp" style={{ marginTop: 14, minHeight: 72, boxSizing: "border-box", padding: "10px 14px", borderRadius: 16, background: "rgba(243,223,168,0.08)", border: "1px solid rgba(243,223,168,0.4)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
           <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <span data-testid="daily-xp-head" style={{ ...game, fontWeight: 800, fontSize: 22, color: "#F3DFA8" }}>{xpHead}</span>
             <span data-testid="daily-xp-sub" style={{ fontSize: 12, color: "#D7D9E4" }}>{xpSub}</span>
           </span>
           {saved ? <LevelRing info={saved.level} size={44} />
-            : !pilot ? <button type="button" data-testid="daily-xp-save" onClick={login} style={{ ...game, height: 44, boxSizing: "border-box", padding: "0 14px", borderRadius: 12, border: `1px solid ${GOLD}`, background: "transparent", color: GOLD, cursor: "pointer", fontWeight: 800, fontSize: 17, whiteSpace: "nowrap" }}>SAVE XP</button>
+            : !pilot ? <button type="button" data-testid="daily-xp-save" onClick={login} style={{ ...game, height: 44, boxSizing: "border-box", padding: "0 14px", borderRadius: 12, border: `1px solid ${GOLD}`, background: "transparent", color: GOLD, cursor: "pointer", fontWeight: 800, fontSize: 17, whiteSpace: "nowrap" }}>{waiting > 0 ? "SAVE XP" : "SIGN IN"}</button>
             : xp && !xp.ok ? <button type="button" data-testid="daily-xp-retry" onClick={save} style={{ ...game, height: 44, padding: "0 14px", borderRadius: 12, border: `1px solid ${GOLD}`, background: "transparent", color: GOLD, cursor: "pointer", fontWeight: 800, fontSize: 17 }}>RETRY</button> : null}
         </div>}
 

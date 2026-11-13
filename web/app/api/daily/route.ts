@@ -35,5 +35,5 @@ export async function POST(req: Request) {
   const r = await submitDaily(Number(body.id), body.device, body.inputs, body.ticket);
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
   const { run } = r;
-  return NextResponse.json({ runId: run.runId, name: run.name, score: run.score, rank: r.rank, count: r.count, topPct: topPct(r.rank, r.count), already: r.already, seed: run.seed, ...(r.already ? { inputs: run.inputs } : {}) });
+  return NextResponse.json({ runId: run.runId, name: run.name, score: run.score, rank: r.rank, count: r.count, topPct: topPct(r.rank, r.count), boarded: r.boarded, already: r.already, seed: run.seed, ...(r.already ? { inputs: run.inputs } : {}) });
 }

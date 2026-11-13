@@ -27,7 +27,7 @@ export async function generateMetadata(p: P): Promise<Metadata> {
   const d = await load(p); if (!d) return { title: "Daily flight · DISCIPLE" };
   const title = d.run ? `${d.pilot?.name ?? d.run.name} cashed out at ${fmtMultiple(d.run.score.multiple)}. Beat it.` : `Daily flight #${d.id} · DISCIPLE`;
   const img = `/api/daily/card?id=${d.id}${d.run ? `&run=${d.run.runId}` : ""}`;
-  const description = "Free play. Same market for everyone, one scored run. No sign-in, no wallet.";
+  const description = "Free play. Same market for everyone, one scored run. Sign in to post your score.";
   return { title, description, openGraph: { title, description, images: [{ url: img, width: 1200, height: 630 }] }, twitter: { card: "summary_large_image", title, description, images: [img] } };
 }
 

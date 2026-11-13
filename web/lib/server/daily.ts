@@ -9,9 +9,13 @@ import "server-only";
  * start's signed ticket and a real flight's worth of time, at most DAILY_PER_IP new scored runs come from one IP a day,
  * and a log that fails the human checks (lib/sim/daily humanFlags) is kept off the board and paid no XP.
  *
+ * Signed-in board (maker 2026-11-13): anyone can fly and see where they'd place, but a run goes on the board only when
+ * its pilot signs in and saves it (boardRun, from POST /api/freeplay/xp), one run per wallet a day.
+ *
  * Keys: daily:{id}:z (zset run id → multiple), daily:{id}:zflag (flagged runs), daily:{id}:run:{runId} (the run, 30 days),
  * daily:{id}:ip:{ip} (new scored runs from that IP),
- * daily:{id}:owner:{runId} (the wallet that saved the run's XP after signing in: its username and level then show).
+ * daily:{id}:owner:{runId} (the wallet that saved the run's XP after signing in: its username and level then show),
+ * daily:{id}:pilot:{wallet} (the one run that wallet put on the board).
  */
 import { createHash } from "crypto";
 import { kv, type Kv } from "./kv";
@@ -30,7 +34,7 @@ export const DAILY_PER_IP = 5;
 export const runIdOf = (device: string) => createHash("sha256").update("disciple:daily:" + device).digest("hex").slice(0, 16);
 export const nameOf = (runId: string) => defaultUsername("0x" + createHash("sha256").update("disciple:pilot:" + runId).digest("hex").slice(0, 40));
 const zkey = (id: number) => `daily:${id}:z`, rkey = (id: number, run: string) => `daily:${id}:run:${run}`, okey = (id: number, run: string) => `daily:${id}:owner:${run}`,
-  fkey = (id: number) => `daily:${id}:zflag`, ipkey = (id: number, net: string) => `daily:${id}:ip:${net}`;
+  fkey = (id: number) => `daily:${id}:zflag`, pkey = (id: number, w: string) => `daily:${id}:pilot:${w}`, ipkey = (id: number, net: string) => `daily:${id}:ip:${net}`;
 /** the hashed network an IP belongs to (see ipBucket) */
 export const netOf = (ip: string) => createHash("sha256").update(ipBucket(ip)).digest("hex").slice(0, 16);
 /** the network an IP counts against: IPv4 as is, IPv6 by its /64 (one home or phone gets a whole /64 to rotate through) */
@@ -47,7 +51,8 @@ export interface DailyRun { runId: string; name: string; score: DailyScore; at: 
 export interface DailyBoard {
   id: number; /** null while the daily is open (the seed comes with a start ticket) */ seed: number | null; difficulty: string; endsAt: number; count: number;
   top: { runId: string; name: string; multiple: number; pnl: number }[];
-  me: { runId: string; rank: number; multiple: number; pnl: number; topPct: number } | null;
+  /** boarded false: not on the board yet (its pilot hasn't signed in and saved it); rank and count are where it would place */
+  me: { runId: string; rank: number; count: number; boarded: boolean; multiple: number; pnl: number; topPct: number } | null;
   run: { runId: string; name: string; level: number | null; prestige: number; multiple: number; pnl: number; goals: DailyScore["goals"]; boardedAtS: number | null; outAtS: number | null } | null;
 }
 /** is daily `id` open for a submission at `now` (today, or yesterday inside the grace window)? */
@@ -66,7 +71,7 @@ export async function startDaily(id: number, device: unknown, ip: string, s: Kv 
   return { ok: true, seed, ticket: await issueTicket(id, runId, net, Date.now(), s), already: false };
 }
 
-export type SubmitResult = { ok: true; run: DailyRun; rank: number; count: number; already: boolean } | { ok: false; status: number; error: string };
+export type SubmitResult = { ok: true; run: DailyRun; rank: number; count: number; boarded: boolean; already: boolean } | { ok: false; status: number; error: string };
 export async function submitDaily(id: number, device: unknown, inputs: unknown, ticket: unknown, s: Kv = kv()): Promise<SubmitResult> {
   if (!Number.isInteger(id) || id < 1) return { ok: false, status: 400, error: "bad id" };
   if (!dailyOpen(id)) return { ok: false, status: 409, error: "This daily flight has closed." };
@@ -74,7 +79,7 @@ export async function submitDaily(id: number, device: unknown, inputs: unknown, 
   if (!validInputs(inputs)) return { ok: false, status: 400, error: "bad run" };
   const runId = runIdOf(device), key = rkey(id, runId);
   const prev = await s.get(key);
-  if (prev) { const run = JSON.parse(prev) as DailyRun; return { ok: true, run, already: true, ...(await rankOf(id, run.score.multiple, s)) }; }
+  if (prev) { const run = JSON.parse(prev) as DailyRun; return { ok: true, run, already: true, ...(await placeOf(id, run, s)) }; }
   const t = await checkTicket(id, runId, ticket, Date.now(), s); if (!t.ok) return { ok: false, status: 403, error: t.error };
   // charged to the network that started the flight, so tickets a hostile site issued to itself and posts through a
   // visitor's browser spend the hostile site's quota, never the visitor's
@@ -84,15 +89,27 @@ export async function submitDaily(id: number, device: unknown, inputs: unknown, 
   const run: DailyRun = { runId, name: nameOf(runId), score: v.score, at: Date.now(), inputs: inputs as PlayerInput[], seed, ...(v.flags.length ? { flags: v.flags } : {}) };
   if (!(await s.setNX(key, JSON.stringify(run), RUN_TTL_S))) {   // a second tab won the race: theirs is the scored run
     const won = JSON.parse((await s.get(key)) || "null") as DailyRun | null; if (!won) return { ok: false, status: 503, error: "try again" };
-    return { ok: true, run: won, already: true, ...(await rankOf(id, won.score.multiple, s)) };
+    return { ok: true, run: won, already: true, ...(await placeOf(id, won, s)) };
   }
-  await s.zadd(v.flags.length ? fkey(id) : zkey(id), [{ score: v.score.multiple, member: runId }]);
-  return { ok: true, run, already: false, ...(await rankOf(id, v.score.multiple, s)) };
+  return { ok: true, run, already: false, ...(await placeOf(id, run, s)) };   // on the board once its pilot signs in (boardRun)
 }
-async function rankOf(id: number, multiple: number, s: Kv) {
-  const [above, count] = await Promise.all([s.zcountAbove(zkey(id), multiple), s.zcard(zkey(id))]);
-  return { rank: above + 1, count: Math.max(count, above + 1) };
+/** where a run places: on the board, or where it would place if its pilot signed in and saved it */
+async function placeOf(id: number, run: DailyRun, s: Kv) {
+  const boarded = !!(await ownerOf(id, run.runId, s)), [above, count] = await Promise.all([s.zcountAbove(zkey(id), run.score.multiple), s.zcard(zkey(id))]);
+  return { boarded, rank: above + 1, count: boarded ? Math.max(count, above + 1) : count + 1 };
 }
+/**
+ * Put a saved run on the board for this wallet: one run per wallet a day (the first it saves). A flagged run goes to the
+ * flag set instead. Call after bindOwner.
+ */
+export async function boardRun(id: number, run: DailyRun, wallet: string, s: Kv = kv()): Promise<boolean> {
+  const w = wallet.toLowerCase();
+  if (!(await s.setNX(pkey(id, w), run.runId, RUN_TTL_S)) && (await s.get(pkey(id, w))) !== run.runId) return false;
+  await s.zadd(run.flags?.length ? fkey(id) : zkey(id), [{ score: run.score.multiple, member: run.runId }]);
+  return true;
+}
+/** the run this wallet already put on daily `id`'s board, if any */
+export const boardedRunOf = (id: number, wallet: string, s: Kv = kv()) => s.get(pkey(id, wallet.toLowerCase()));
 export async function readRun(id: number, runId: string, s: Kv = kv()): Promise<DailyRun | null> {
   if (!/^[0-9a-f]{16}$/.test(runId)) return null;
   const v = await s.get(rkey(id, runId)); return v ? (JSON.parse(v) as DailyRun) : null;
@@ -103,7 +120,7 @@ export async function dailyBoard(id: number, opts: { me?: string | null; run?: s
   const top = runs.flatMap((v) => { if (!v) return []; const r = JSON.parse(v) as DailyRun; return [{ runId: r.runId, name: r.name, multiple: r.score.multiple, pnl: r.score.pnl }]; });
   const count = await s.zcard(zkey(id));
   let me: DailyBoard["me"] = null, run: DailyBoard["run"] = null;
-  if (opts.me) { const r = await readRun(id, opts.me, s); if (r) { const k = await rankOf(id, r.score.multiple, s); me = { runId: r.runId, rank: k.rank, multiple: r.score.multiple, pnl: r.score.pnl, topPct: topPct(k.rank, k.count) }; } }
+  if (opts.me) { const r = await readRun(id, opts.me, s); if (r) { const k = await placeOf(id, r, s); me = { runId: r.runId, rank: k.rank, count: k.count, boarded: k.boarded, multiple: r.score.multiple, pnl: r.score.pnl, topPct: topPct(k.rank, k.count) }; } }
   if (opts.run) { const r = await readRun(id, opts.run, s); if (r) { const p = await pilotOf(id, r, s);
     run = { runId: r.runId, name: p.name, level: p.level, prestige: p.prestige, multiple: r.score.multiple, pnl: r.score.pnl, goals: r.score.goals, boardedAtS: r.score.boardedAtS ?? null, outAtS: r.score.outAtS }; } }
   return { id, seed: dailyOpen(id) ? null : await serverDailySeed(id, s), difficulty: DAILY.difficulty, endsAt: dailyEndsAt(id), count, top, me, run };

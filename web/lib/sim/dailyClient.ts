@@ -20,7 +20,7 @@ export function deviceId(): string {
   } catch { return "anon-" + Math.random().toString(36).slice(2).padEnd(16, "0"); }
 }
 
-export interface DailyVerdict { runId: string; name: string; score: DailyScore; rank: number; count: number; topPct: number; already: boolean; /** the day's seed (for the chart replay) */ seed: number; /** already: the input log of the run that was scored first */ inputs?: PlayerInput[] }
+export interface DailyVerdict { runId: string; name: string; score: DailyScore; rank: number; count: number; topPct: number; /** on the board (saved by a signed-in pilot); false: rank is where it would place */ boarded?: boolean; already: boolean; /** the day's seed (for the chart replay) */ seed: number; /** already: the input log of the run that was scored first */ inputs?: PlayerInput[] }
 export interface LocalDaily { id: number; seed: number; inputs: PlayerInput[]; verdict: DailyVerdict | null }
 
 export function savedDaily(id: number): LocalDaily | null {
@@ -46,10 +46,10 @@ export async function submitDaily(id: number, inputs: PlayerInput[], ticket: str
   } catch { return { ok: false, error: "Couldn't reach the board." }; }
 }
 /** the board's latest rank for a run this device flew (the rank moves as more pilots finish) */
-export async function refreshRank(id: number, runId: string): Promise<{ rank: number; count: number; topPct: number } | null> {
+export async function refreshRank(id: number, runId: string): Promise<{ rank: number; count: number; topPct: number; boarded: boolean } | null> {
   try {
     const res = await fetch(`/api/daily?id=${id}&me=${runId}`); if (!res.ok) return null;
-    const j = await res.json(); return j.me ? { rank: j.me.rank, count: j.count, topPct: j.me.topPct } : null;
+    const j = await res.json(); return j.me ? { rank: j.me.rank, count: j.me.count ?? j.count, topPct: j.me.topPct, boarded: !!j.me.boarded } : null;
   } catch { return null; }
 }
 

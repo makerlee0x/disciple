@@ -4,14 +4,15 @@ export const runtime = "nodejs";
  * POST { wallet, daily: { id, device } }                 → pays the device's stored, server-verified daily run once
  * POST { wallet, practice: { difficulty, seed, inputs } } → re-flies the practice run on the default config and pays it once
  * → { ok, xp, already, paidToday, perDay, capped, totalXp, level } | { ok: false, reason }
- * All Free play XP stops at FREE_PLAY_XP.perDay per UTC day. A daily run can be saved by one wallet only.
+ * All Free play XP stops at FREE_PLAY_XP.perDay per UTC day. A daily run can be saved by one wallet only, and saving it is
+ * what puts it on the board (one run per wallet a day).
  */
 import { NextResponse } from "next/server";
 import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
 import { awardFreePlay } from "@/lib/server/xp";
-import { bindOwner, readRun, runIdOf } from "@/lib/server/daily";
+import { bindOwner, boardRun, boardedRunOf, readRun, runIdOf } from "@/lib/server/daily";
 import { FREE_PLAY_XP, freePlayXp } from "@/lib/xp";
 import { dailyToday, validInputs, verifyPractice } from "@/lib/sim/daily";
 import { PLAYER, type DifficultyId } from "@/lib/sim/config";
@@ -42,7 +43,10 @@ export async function POST(req: Request) {
     if (typeof device !== "string" || !/^[A-Za-z0-9-]{16,64}$/.test(device)) return out(400, { ok: false, reason: "bad device" });
     const run = await readRun(id, runIdOf(device));
     if (!run) return out(404, { ok: false, reason: "No scored daily on this device." });
+    const had = await boardedRunOf(id, wallet);
+    if (had && had !== run.runId) return out(409, { ok: false, reason: "You already posted a score on this daily. One run per pilot." });
     if (!(await bindOwner(id, run.runId, wallet))) return out(409, { ok: false, reason: "This run is saved to another pilot." });
+    if (!(await boardRun(id, run, wallet))) return out(409, { ok: false, reason: "You already posted a score on this daily. One run per pilot." });
     const r = await awardFreePlay(wallet, `fp:d:${id}`, run.flags?.length ? 0 : freePlayXp("daily", run.score), `Daily flight #${id}`);   // a flagged run pays nothing
     return r.ok ? out(200, { ...r, perDay: FREE_PLAY_XP.perDay, runId: run.runId }) : out(409, r);
   }

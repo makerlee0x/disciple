@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { startDaily, submitDaily, runIdOf, ipBucket, netOf, DAILY_PER_IP } from "../lib/server/daily";
+import { startDaily, submitDaily, runIdOf, ipBucket, netOf, bindOwner, boardRun, dailyBoard, DAILY_PER_IP } from "../lib/server/daily";
 import { sameSitePost } from "../lib/server/limits";
 import { issueTicket } from "../lib/server/dailySeed";
 import { dailyToday } from "../lib/sim/daily";
@@ -58,4 +58,20 @@ test("daily POSTs only from our own pages", () => {
   assert.ok(!sameSitePost(h({ "content-type": "application/json", "sec-fetch-site": "cross-site" })));
   assert.ok(!sameSitePost(h({ "content-type": "application/json", origin: "https://evil.example", host: "disciple.vip" })));
   assert.ok(!sameSitePost(h({ "content-type": "text/plain;charset=UTF-8" })));
+});
+
+test("only signed-in pilots are on the board, one run per wallet", async () => {
+  const net = `10.251.${Math.floor(Math.random() * 250)}.1`, w = "0x" + randomUUID().replace(/-/g, "").padEnd(40, "0").slice(0, 40);
+  const before = (await dailyBoard(id)).count;
+  const a = dev(), ra = await submitDaily(id, a, [], await oldTicket(a, net));
+  assert.ok(ra.ok && !ra.boarded && ra.count === before + 1, "a fresh run isn't on the board, its rank is where it would place");
+  assert.equal((await dailyBoard(id)).count, before, "the board didn't change");
+  const ma = (await dailyBoard(id, { me: runIdOf(a) })).me; assert.ok(ma && !ma.boarded);
+  assert.ok(ra.ok && (await bindOwner(id, ra.run.runId, w)) && (await boardRun(id, ra.run, w)));
+  assert.equal((await dailyBoard(id)).count, before + 1, "saved: on the board");
+  const mb = (await dailyBoard(id, { me: runIdOf(a) })).me; assert.ok(mb && mb.boarded);
+  const b = dev(), rb = await submitDaily(id, b, [], await oldTicket(b, net));
+  assert.ok(rb.ok && !(await boardRun(id, rb.run, w)), "a second run from the same wallet stays off");
+  assert.ok(ra.ok && (await boardRun(id, ra.run, w)), "saving the same run again is fine");
+  assert.equal((await dailyBoard(id)).count, before + 1);
 });
