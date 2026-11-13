@@ -57,11 +57,11 @@ test("engine streams sky plates and starts on the near ones", () => {
 test("phone trade bar: fire on press, DUMP ALL needs a hold", () => {
   const bar = rd("components/flight/PhoneTradeBar.tsx"), tb = rd("components/TradeBridge.tsx");
   assert.match(bar, /export const HOLD_MS = 400;/);
-  assert.match(bar, /onPointerDown=\{\(e\) => press\(side, e\)\}/);
+  assert.match(bar, /onPointerDown=\{\(e\) => \{ p\.onSide\?\.\(side\); press\(side, e\); \}\}/);
   assert.match(bar, /if \(!b && p\.dumpAll\) \{[\s\S]*?setTimeout\([\s\S]*?p\.onDump\(\)/, "hold completes → DUMP");
   assert.match(bar, /Hold to dump all/);
   assert.match(bar, /if \(firedByPointer\.current \|\| e\.detail > 0\)/, "pointer-fired trade is not repeated by the click; keyboard click still trades");
-  assert.match(tb, /dumpAll=\{[\s\S]*?>= 0\.999\}/);
+  assert.match(tb, /dumpAll=\{phoneDumpAll\}/); assert.match(tb, /const phoneDumpAll = phoneDumpFrac >= 0\.999;/);
 });
 
 test("flight guards, wake lock, folded overlays", () => {

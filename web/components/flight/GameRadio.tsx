@@ -185,7 +185,7 @@ export default function GameRadio() {
   const closed = card.closed || (phone && !!layout.radio?.closed);
   const hidePanel = min || closed;
   const phoneBottom: React.CSSProperties = phone
-    ? { right: 10, bottom: "calc(var(--ap-safe-bottom, 0px) + 148px)" }
+    ? { right: 12, top: "var(--ph-radio-top, 314px)", bottom: "auto" }   /* phone v2 board: folded under the chat button */
     : hud === "pro" ? { ...DESK, right: "auto", left: "calc(var(--ap-rail-w, 64px) + 20px)", bottom: 20, width: 326 }
     : { ...DESK, right: 20, bottom: 179 };
 

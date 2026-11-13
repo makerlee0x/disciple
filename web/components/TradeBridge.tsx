@@ -23,7 +23,7 @@ import { plainText } from "@/lib/aa/relayOp";
 import { isSentUnknown } from "@/lib/trade/pendingWatch";
 import { clampSlippage } from "@/lib/aa/slippage";
 import { NO_REFUSE_SLIPPAGE_BPS } from "@/lib/trade/queuePricing";
-import { nextAlert, type TradeAlert } from "@/lib/trade/tradeGuards";
+import { capRoomUsd, COPY_PENDING_LEE, nextAlert, type TradeAlert } from "@/lib/trade/tradeGuards";
 import AmmoTierNotice from "./AmmoTierNotice";
 import { fmtMoney } from "@/lib/pnl";
 import SwapSettingsModal from "./trade/SwapSettingsModal";
@@ -791,6 +791,18 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // 2+ presses with a status: every press's row (rapid tap), newest last — else the single line as before
   const rowsLine = rows.length > 1 ? rows.map((r) => r.txt).join("  ·  ") : "";
   const phoneHint = hint || (full ? COPY.inFlight : "") || shortLine || rowsLine || (inFlight.n > 0 || last.includes(COPY.confirming) ? last : "");
+  // Room (phone header + dashed chips): how much more this wallet can boost under the coin's cap, the same math as Boost max.
+  // Cached reads only, re-checked twice a second (mark / holdings / pending buys all move without a re-render here).
+  const [room, setRoom] = useState<number | null>(null);
+  useEffect(() => {
+    const f = () => { const m = markRef.current, price = m.mcap > 0 && m.supply > 0 ? m.mcap / m.supply : 0, r = rulesRef.current;
+      const v = r ? capRoomUsd({ capBps: r.capBps, supply: m.supply, holding: liveTokens.current, pendingBuyTokens: price > 0 ? pendingBuyUsd.current / price : 0, priceUsd: price }) : null;
+      setRoom((x) => (x === v ? x : v)); };
+    f(); const iv = setInterval(f, 500); return () => clearInterval(iv);
+  }, []);
+  // phone header card (PhoneHud): cash + Room, one event (window.__phoneStats for late mounts)
+  useEffect(() => { const d = { cash: cashUsd ?? null, room }; (window as unknown as { __phoneStats?: unknown }).__phoneStats = d;
+    dispatchEvent(new CustomEvent("disciple:phonestats", { detail: d })); }, [cashUsd, room]);
   // SITE trade alert: the wallet limit only (one tap to buy the max allowed); price impact never shows a hold strip
   const buyMax = () => {
     const x = alert; setAlert(null); if (!x || x.a.kind !== "walletcap") return;
@@ -798,37 +810,41 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   };
   const alertStrip = alert && alert.a.kind === "walletcap" ? (
     <div role="alertdialog" aria-label="trade alert" data-testid="trade-alert" data-kind={alert.a.kind}
-      style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: phone ? "calc(132px + env(safe-area-inset-bottom, 0px))" : "calc(var(--ap-tb-h, 80px) + 16px)", zIndex: 40,
+      style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: phone ? "calc(var(--ph-bar-bottom, 24px) + 108px)" : "calc(var(--ap-tb-h, 80px) + 16px)", zIndex: 40,
         display: "flex", flexDirection: phone ? "column" : "row", gap: phone ? 10 : 8, alignItems: phone ? "stretch" : "center", boxSizing: "border-box",
-        width: phone ? "calc(100vw - 24px)" : undefined, maxWidth: "min(92vw, 520px)", padding: phone ? "14px 14px 12px" : "8px 10px", borderRadius: phone ? 16 : 12,
-        background: "rgba(18,19,39,.96)", border: "1px solid #F0307F", color: "#F2F3F7", fontSize: phone ? 14 : 13, lineHeight: 1.4, fontFamily: HUD.ui }}>
-      <span style={{ flex: phone ? undefined : 1 }}>{alert.a.text}</span>
+        width: phone ? "calc(100vw - 24px)" : undefined, maxWidth: "min(92vw, 520px)", padding: phone ? "16px 16px 14px" : "8px 10px", borderRadius: phone ? 16 : 12,
+        background: "rgba(18,19,39,.97)", border: "1px solid #F0307F", boxShadow: phone ? "0 16px 40px rgba(0,0,0,.45)" : undefined, color: "#F2F3F7", fontSize: phone ? 14 : 13, lineHeight: 1.4, fontFamily: HUD.ui }}>
+      {phone ? <span style={{ font: `800 20px/1 ${HUD.game}`, letterSpacing: 1, color: "#FFC2DA", textTransform: "uppercase" }}>{COPY_PENDING_LEE.walletTitle}</span> : null}
+      <span style={{ flex: phone ? undefined : 1 }}>{phone ? null : <b style={{ color: "#FFC2DA" }}>{COPY_PENDING_LEE.walletTitle}: </b>}{alert.a.text}</span>
       <div style={{ display: "flex", gap: 8 }}>
         {alert.a.actionLabel && <button type="button" data-testid="trade-alert-max" data-haptic="boost" onClick={buyMax} style={{ ...btn, flex: phone ? 1 : undefined, minHeight: phone ? 48 : 32, padding: "0 14px", borderRadius: 12, display: "inline-flex", alignItems: "center", justifyContent: "center",
           background: "#F2C14E", color: "#121327", font: `800 ${phone ? 20 : 16}px/1 ${HUD.game}`, letterSpacing: ".02em", textTransform: "uppercase" }}>{alert.a.actionLabel}</button>}
         <button type="button" data-testid="trade-alert-cancel" onClick={() => setAlert(null)} style={{ ...btn, minHeight: phone ? 48 : 32, padding: "0 16px", borderRadius: 12, display: "inline-flex", alignItems: "center", justifyContent: "center",
-          background: "rgba(255,255,255,.08)", border: "1px solid #2E323A", color: "#F2F3F7", font: `700 ${phone ? 18 : 15}px/1 ${HUD.game}` }}>{alert.a.dismissLabel}</button>
+          background: "rgba(255,255,255,.08)", border: "1px solid #2E323A", color: "#F2F3F7", font: `700 ${phone ? 18 : 15}px/1 ${HUD.game}`, textTransform: "uppercase" }}>{alert.a.dismissLabel}</button>
       </div>
     </div>
   ) : null;
+  // phone DUMP button: the active size's fraction and roughly what it returns ("≈ $6.10" second line)
+  const phoneDumpFrac = customSellPct ? customSellPct / 100 : customSellUsd ? (pos.valueUsd > 0 ? customSellUsd / pos.valueUsd : 0) : selSellPreset.frac;
+  const phoneDumpAll = phoneDumpFrac >= 0.999;
+  const phoneDumpUsd = phone && has ? (customSellUsd || (sellPlan(Math.min(1, phoneDumpFrac))?.usd ?? 0)) : 0;
   if (phone) return (
     <>
     <AmmoTierNotice />
     {alertStrip}
-    <PhoneTradeBar buyLabel={chipUsd(shotUsd)} sellLabel={customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
+    <PhoneTradeBar buyLabel={chipUsd(shotUsd)} sellLabel={phoneDumpAll ? "ALL" : customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
       onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()}
-      dumpAll={(customSellPct ? customSellPct / 100 : customSellUsd ? (pos.valueUsd > 0 ? customSellUsd / pos.valueUsd : 0) : selSellPreset.frac) >= 0.999}
+      dumpAll={phoneDumpAll} dumpSub={has ? (phoneDumpUsd > 0 ? `≈ ${chipUsd(+phoneDumpUsd.toFixed(2))}` : "") : "no bag yet"}
       boostDisabled={short} dumpDisabled={!has} inFlightFull={full} boostTitle={boostTitle} dumpTitle={dumpTitle}
       buyOpts={[0, 1, 2, 3].map((i) => chipUsd(ammo.usd[i] ?? MODES[i].usd))} buySel={customUsd ? -1 : mode}
+      buyOver={[0, 1, 2, 3].map((i) => room != null && (ammo.usd[i] ?? MODES[i].usd) > room + 0.005)}
       onSide={setPhoneSide}
       onPickBuy={(i) => { setCustom(""); setMode(i); window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: i } })); }}
-      onSetBuy={(v) => setCustom(v)}
-      sellOpts={SELLS.slice(0, 4).map((x) => x.label)} sellSel={sellCustomN ? -1 : sellSel}
+      sellOpts={SELLS.map((x) => x.label)} sellFracs={SELLS.map((x) => x.frac)} sellSel={sellCustomN ? -1 : sellSel}
       onPickSell={(i) => { setSellCustom(""); selSell.current(i); }}
-      onSetSell={(v) => { pickUnit("%"); setSellCustom(v); }}
       buyWarn={warns.buy.map((w) => chipTag("buy", w))} sellWarn={warns.sell.map((w) => chipTag("sell", w))}
       warn={warnText} warnOver={warnOver}
-      hint={phoneHint} keyGuard={noKeyActivate} />
+      hint={phoneHint} keyGuard={noKeyActivate} noSignIn={token === "SIMULATOR"} />
     {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
       onClose={() => setShowCfg(false)}
       onSave={(n) => { setCfg(n); saveSettings(scope, n); setShowCfg(false); }} />}

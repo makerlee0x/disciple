@@ -14,7 +14,7 @@ const i18n = rd("lib/game/i18n.ts");
 const ph = rd("components/flight/PhoneHud.tsx");
 
 ok(/ctx\.fillText\(S\.pro\?'TRADE HISTORY':'CREW FEED',FX\+16,FY-137\)/.test(eng) && !/TRADES · LOCAL \(~SEEN\)/.test(eng), "desktop trades card header: TRADE HISTORY in Pro, CREW FEED in Pilot");
-ok(/●<\/span> TRADE HISTORY/.test(ph) && !/LIVE TRADES/.test(ph) && !/LOCAL TIME · ~RECEIVED/.test(eng) && !/ctx\.fillText\('TRADE HISTORY',x0/.test(eng), "phone feed header is exactly TRADE HISTORY (PhoneHud; no second engine label in the same band)");
+ok(!/LIVE TRADES/.test(ph) && !/LOCAL TIME · ~RECEIVED/.test(eng) && !/ctx\.fillText\('TRADE HISTORY',x0/.test(eng), "phone: no LIVE TRADES / engine TRADE HISTORY labels (phone v2 shows the crew feed on the sky, GameChat)");
 ok(eng.includes("fmtTok(v.size)") && eng.includes("coinTicker()") && !eng.includes("fmtTok(v.size)} tok") && !/ tok`/.test(eng.split("drawPnlTag")[1].split("function fmtMoney")[0]), "position tag shows the ticker (e.g. 3.7K GTNEAR), not tok");
 ok(!/your bag:/.test(gc), "holders card no longer prints your bag: $…");
 ok(/const sub = ticker && quote \? `\$\{ticker\}\/\$\{quote\}` : ticker/.test(ci) && /const quote = String\(pairSym/.test(ci) && !/`\$\$\{tk\}`/.test(ci) && !/\.join\(" · "\)/.test(ci), "coin header sub is TICKER/QUOTE (GTNEAR/STRATEGY), no $ and no middle dot");
