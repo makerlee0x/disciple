@@ -98,4 +98,3 @@ body:has(.xp-trophies)::after, body:has(.launch-v3)::after {
   content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background-image: var(--dsc3-grain); opacity: var(--dsc3-grain-opacity); mix-blend-mode: overlay;
 }
-.xp-trophies, .launch-v3 { position: relative; z-index: 1; }
