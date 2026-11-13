@@ -25,6 +25,7 @@ import { ROUTES } from "@/lib/turbo/routes";
 import { withBase } from "@/lib/base-path";
 import { bestToday, clock, createRunStore, longestAt, multipleLabel, streak, type TurboRun } from "@/lib/turbo/runs";
 import { SETTINGS_OPEN_EVENT } from "@/lib/walletCta";
+import { isSampleLink, SAMPLE_FUEL_USD, SAMPLE_GIVEN_KEY } from "@/lib/turbo/flag";
 import TurboFlight, { type TurboFlightHandle } from "./TurboFlight";
 import TurboFundingSheet from "./TurboFundingSheet";
 import TurboHowItWorks from "./TurboHowItWorks";
@@ -140,6 +141,14 @@ export default function TurboScreen() {
   const lastMid = useRef<Partial<Record<Market, number>>>({});
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(id); }, []);
+
+  /* play sample link: one-time sample fuel on a fresh device (stand-in adapter only; never on Nova) */
+  const sample = useMemo(() => isSampleLink(), []);
+  useEffect(() => {
+    if (!sample || !standIn || fuel == null || fuel > 0 || !adapter.addFuel) return;
+    try { if (localStorage.getItem(SAMPLE_GIVEN_KEY) === "1") return; localStorage.setItem(SAMPLE_GIVEN_KEY, "1"); } catch { /* still top up once this visit */ }
+    adapter.addFuel(SAMPLE_FUEL_USD).catch(() => {});
+  }, [sample, standIn, fuel, adapter]);
 
   useEffect(() => { document.body.classList.add("turbo-game"); return () => document.body.classList.remove("turbo-game"); }, []);
 
@@ -349,7 +358,7 @@ export default function TurboScreen() {
         <Link href="/" className={`${s.iconBtn} ${s.deskOnly}`} aria-label="Leave Turbo"><XIcon /></Link>
       </header>
 
-      {standIn && <div className={`${s.notice} ${active || padOn ? s.deskOnly : ""}`} data-testid="turbo-standin-notice">{C.notConnected}</div>}
+      {standIn && <div className={`${s.notice} ${active || padOn ? s.deskOnly : ""}`} data-testid="turbo-standin-notice">{sample ? C.sampleNotice : C.notConnected}</div>}
 
       {padOn && <section className={`${s.pad} ${launch ? s.igniting : ""} ${leaving ? s.padLeaving : ""}`} data-testid="turbo-pad" data-route={route.key}>
         <div className={s.stage}>
@@ -402,7 +411,7 @@ export default function TurboScreen() {
           <svg viewBox="0 0 24 24" fill="none" stroke="#FF7FB2" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="12" cy="13" r="7" /><path d="M12 6V3M15 4l-1.5 2" /></svg>
           <span>{selLiqDist > 0 ? <>H-BOMB if {market} moves <b>{pctMove(selLiqDist)}</b> against you</> : C.waitingPrice}</span>
         </div>
-        {standIn && <p className={`${s.planNotice} ${s.phoneOnly}`} data-testid="turbo-standin-notice">{C.notConnected}</p>}
+        {standIn && <p className={`${s.planNotice} ${s.phoneOnly}`} data-testid="turbo-standin-notice">{sample ? C.sampleNotice : C.notConnected}</p>}
         {noFuel
           ? <button type="button" className={s.noFuel} data-testid="turbo-add-fuel-fire" onClick={() => setSheet("fund")}>
               <span className={s.big}>{R.addFuelToFire}</span><span className={s.sub}>{R.needFuelSub(usd(fuel ?? 0, 0), usd(fuelUsd, 0))}</span></button>

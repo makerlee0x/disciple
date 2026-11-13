@@ -41,6 +41,7 @@ export const TURBO_COPY = {
   noPositions: "No open position. Pick your fuel and leverage, then tap BOOST or DUMP.",
   positions: "Positions",
   howItWorks: "How Turbo works",
+  sampleNotice: "Play sample: BTC and ETH prices are live from Hyperliquid. Runs use sample fuel on this device, so nothing is sent to Nova and no money moves.",
   notConnected: "Nova isn't connected yet. Prices are live from Hyperliquid, but orders on this page are stand-ins: nothing is sent to Nova and no money moves.",
   leverageMax: (max: number, m: string) => `Up to ${max}× on ${m} right now.`,
   closedToast: (usd: string) => `Closed. ${usd} went back to your Turbo fuel.`,

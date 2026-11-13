@@ -21,8 +21,8 @@ function envOn(): boolean {
 export function syncTurboFlagFromUrl(search?: string): boolean {
   if (typeof window === "undefined") return false;
   try {
-    const q = new URLSearchParams(search ?? window.location.search).get("turbo");
-    if (q === "1") window.localStorage.setItem(TURBO_FLAG_KEY, "1");
+    const qs = new URLSearchParams(search ?? window.location.search), q = qs.get("turbo");
+    if (q === "1" || qs.get("sample") === "1") window.localStorage.setItem(TURBO_FLAG_KEY, "1");
     else if (q === "0") window.localStorage.removeItem(TURBO_FLAG_KEY);
     return window.localStorage.getItem(TURBO_FLAG_KEY) === "1";
   } catch {
@@ -33,4 +33,13 @@ export function syncTurboFlagFromUrl(search?: string): boolean {
 export function isTurboEnabled(): boolean {
   if (envOn()) return true;
   return syncTurboFlagFromUrl();
+}
+
+/** Play sample link (/turbo?sample=1, for Nova and play-testers): also turns Turbo on, and on a device with no stand-in
+ *  fuel the screen tops it up to SAMPLE_FUEL_USD once so the first run is one tap. Only ever with the stand-in adapter. */
+export const SAMPLE_FUEL_USD = 100;
+export const SAMPLE_GIVEN_KEY = "disciple.turbo.sample.v1";
+export function isSampleLink(search?: string): boolean {
+  if (typeof window === "undefined") return false;
+  try { return new URLSearchParams(search ?? window.location.search).get("sample") === "1"; } catch { return false; }
 }
