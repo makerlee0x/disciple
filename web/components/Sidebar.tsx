@@ -176,6 +176,10 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
     return () => clearTimeout(t);
   }, [open, ready, storageKey, isGame, desktop]);
 
+  // AppShell swaps this sidebar for LobbyTopBar off the game routes, so the effect above never re-runs to clear these:
+  // a leftover body.game (overflow: hidden) froze lobby scrolling after leaving a flight.
+  useEffect(() => () => { document.body.classList.remove("game", "side-open", "side-hidden"); }, []);
+
   const toggle = useCallback((force?: boolean) => {
     if (!isGame && !isMobile()) return; // not collapsible here
     setOpen((o) => (typeof force === "boolean" ? force : !o));
