@@ -200,7 +200,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     waves: { everyS: [12, 28], durS: [4, 9], sellBoost: 0.42, buyCut: 0.1 },
     adapt: { reactS: [2.5, 4.5], windowS: 20, pumpFrac: 0.03, dumpFrac: 0.02, ride: 0.06, dumpOn: 0.03, pile: 0, tpRide: 0.3, dipBuy: 0.5, budgetPerMin: 0.05, maxReactors: 2 },
     orders: { rate: 0.05, maxPerBot: 1, maxTotal: 10, sizeFrac: [0.05, 0.15], undercut: 0.03, stack: 0.5, exitInto: 0, keeperS: [1.5, 4] },
-    story: { beatS: [10, 15], shapes: { rocket: 0.8, fakeout: 0.2, fade: 0 }, dudShapes: { rocket: 0.2, fakeout: 0.4, fade: 0.4 }, fakeDip: [0.7, 0.8], peakAt: [0.7, 0.92], orbit: 0.73, orbitClimb: [10.5, 24], climb: [1.05, 1.7], fall: [0.12, 0.3], bomb: { odds: 0.25, late: 0.35, size: [0.04, 0.09], firstS: [48, 70], first: 1 },
+    story: { beatS: [10, 15], shapes: { rocket: 0.8, fakeout: 0.2, fade: 0 }, dudShapes: { rocket: 0.2, fakeout: 0.4, fade: 0.4 }, fakeDip: [0.7, 0.8], peakAt: [0.7, 0.92], orbit: 0.73, orbitClimb: [10.5, 24], climb: [1.1, 1.9], fall: [0.12, 0.3], bomb: { odds: 0.25, late: 0.35, size: [0.04, 0.09], firstS: [52, 72], first: 1 },
       pump: [0.06, 0.14], tellS: [2.5, 3], tellFrac: 0.05, follow: 0.2, steer: 1, flowS: 6, ctoLift: 1 },
   },
   pvp: {
@@ -212,8 +212,8 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     startS: [0.3, 1.5], tradeScale: 0.3, takeProfit: 0.06,
     adapt: { reactS: [1.2, 2.4], windowS: 20, pumpFrac: 0.025, dumpFrac: 0.02, ride: 0.35, dumpOn: 0.35, pile: 0.3, tpRide: 0.14, dipBuy: 0.2, budgetPerMin: 0.14, maxReactors: 5 },
     orders: { rate: 0.06, maxPerBot: 1, maxTotal: 14, sizeFrac: [0.08, 0.25], undercut: 0.35, stack: 0.1, exitInto: 0.3, keeperS: [1, 3] },
-    story: { beatS: [10, 14], shapes: { rocket: 0.4, fakeout: 0.45, fade: 0.15 }, dudShapes: { rocket: 0.3, fakeout: 0.4, fade: 0.3 }, fakeDip: [0.45, 0.65], peakAt: [0.65, 0.9], orbit: 0.58, orbitClimb: [10.5, 26], climb: [1.1, 2], fall: [0.35, 0.75], bomb: { odds: 0.45, late: 0.7, size: [0.08, 0.2], firstS: [15, 30], first: 1 },
-      pump: [0.08, 0.18], tellS: [1.8, 2.3], tellFrac: 0.05, follow: 0.45, steer: 2, flowS: 5, ctoLift: 1 },
+    story: { beatS: [10, 14], shapes: { rocket: 0.4, fakeout: 0.45, fade: 0.15 }, dudShapes: { rocket: 0.1, fakeout: 0.3, fade: 0.6 }, fakeDip: [0.45, 0.65], peakAt: [0.65, 0.9], orbit: 0.65, orbitClimb: [10.5, 26], climb: [1.1, 2], fall: [0.35, 0.75], bomb: { odds: 0.45, late: 0.7, size: [0.08, 0.2], firstS: [15, 30], first: 1 },
+      pump: [0.08, 0.18], tellS: [1.3, 1.7], tellFrac: 0.05, follow: 0.45, steer: 2, flowS: 4, ctoLift: 1 },
   },
   trench: {
     label: "Expert", tag: "MERCENARY", color: "#F0307F",
@@ -226,13 +226,13 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     // dev buys the first block after the 7 s sniper tax (~7.5 s), so the rug window opens ~30 s after that, at 40 s, and closes
     // 70 s earlier than under the old 77 s tax (300 s, was 110–370 s); it is tempted at ~$15K
     // (4.6× the $3,333 launch: the same $ level as the old 2.2× of $7K, now ~46% of the way to $33,333)
-    rug: { chance: 0.75, earliestS: 40, latestS: 300, minMcap: 2, ctoChance: 0.5, ctoDelayS: [10, 25], ctoArrivalBoost: 2.5 },
+    rug: { chance: 0.65, earliestS: 40, latestS: 300, minMcap: 2, ctoChance: 0.5, ctoDelayS: [10, 25], ctoArrivalBoost: 2.5 },
     adapt: { reactS: [0.6, 1.4], windowS: 20, pumpFrac: 0.02, dumpFrac: 0.015, ride: 0.55, dumpOn: 0.6, pile: 0.5, tpRide: 0.1, dipBuy: 0.08, budgetPerMin: 0.22, maxReactors: 8 },
     orders: { rate: 0.07, maxPerBot: 2, maxTotal: 18, sizeFrac: [0.1, 0.3], undercut: 0.6, stack: 0, exitInto: 0.55, keeperS: [0.6, 2] },
     story: { beatS: [10, 13], shapes: { rocket: 0.15, fakeout: 0.25, fade: 0.6 }, dudShapes: { rocket: 0.3, fakeout: 0.4, fade: 0.3 }, fakeDip: [0.35, 0.55],
-      peakAt: [0.6, 0.88], orbit: 0.5, orbitClimb: [10.5, 30], climb: [1.05, 1.6], fall: [0.7, 0.95],
-      bomb: { odds: 0.5, late: 0.8, size: [0.12, 0.3], firstS: [10, 14], first: 1.5 }, pump: [0.1, 0.22], tellS: [1.5, 2], tellFrac: 0.05, follow: 0.6,
-      steer: 2, flowS: 5, ctoLift: 0.3, rugAt: [0.2, 0.6], open: { peak: [1.6, 2.4], at: [8, 12], dumpTo: [0.85, 1.05], by: [20, 30] } },
+      peakAt: [0.6, 0.88], orbit: 0.6, orbitClimb: [10.5, 30], climb: [1.05, 1.6], fall: [0.85, 0.97],
+      bomb: { odds: 0.5, late: 0.95, size: [0.15, 0.35], firstS: [10, 14], first: 1.5 }, pump: [0.14, 0.3], tellS: [1.2, 1.6], tellFrac: 0.05, follow: 0.6,
+      steer: 2, flowS: 4, ctoLift: 0.3, rugAt: [0.2, 0.6], open: { peak: [1.6, 2.4], at: [8, 12], dumpTo: [0.85, 1.05], by: [20, 30] } },
   },
 };
 
@@ -247,8 +247,8 @@ export const MARKET = {
 };
 
 // ── Player, points, achievements (sim-only scoring layer) ───────────────────────────────────────────
-/** Free play: $250 practice cash everywhere (maker, 2026-11-13); Practice runs 3 min, the Daily flight 2 min */
-export const PLAYER = { startBalanceUsd: 250, gasUsd: 0 /* free mode: no gas */, defaultMinutes: 3, dailyMinutes: 2 };
+/** Free play: $250 practice cash everywhere; every run (Practice and the Daily flight) is 2 min (maker, 2026-11-13) */
+export const PLAYER = { startBalanceUsd: 250, gasUsd: 0 /* free mode: no gas */, defaultMinutes: 2, dailyMinutes: 2 };
 export const POINTS = {
   perTier: 100,                      // per tier index reached (peak)
   graduation: 500,

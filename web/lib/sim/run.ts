@@ -388,7 +388,7 @@ export class SimRun {
         if (!b.buys) return this.botBuy(b, bf());
         if (has && this.m.pool && R() < D.orders.rate && this.orderPlay(b, F, u)) return;   // distribution walls
         if (has && u > A.tp && R() < 0.35) return this.botSell(b, sf());   // drip distribution
-        { const rd = this.read(b.react); if (has && u > 0 && rd.recentBuy && rd.net > 0 && R() < this.diff().adapt.dumpOn && this.canReact()) return this.botSell(b, this.r(0.2, 0.45), "dumpOn"); }   // your buy = the bundle's exit
+        { const rd = this.read(b.react); if (has && u > 0 && rd.recentBuy && rd.net > 0 && R() < this.diff().adapt.dumpOn && this.canReact()) return this.botSell(b, this.r(0.35, 0.7), "dumpOn"); }   // your buy = the bundle's exit
         return;
       }
       case "sniper": {

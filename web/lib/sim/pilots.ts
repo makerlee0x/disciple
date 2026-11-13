@@ -24,7 +24,7 @@ export interface Pilot { tick(): void }
 export const DIFFICULTY_BANDS: Record<DifficultyId, Record<PilotId, number>> = {
   pve: { newbie: 0.65, casual: 0.85, reader: 0.95 },
   pvp: { newbie: 0.35, casual: 0.55, reader: 0.75 },
-  trench: { newbie: 0.20, casual: 0.30, reader: 0.55 },
+  trench: { newbie: 0.20, casual: 0.35, reader: 0.55 },
 };
 export const BAND_TOLERANCE = 0.05;
 

@@ -8,7 +8,7 @@
 // Plus (feat/sim-parity): tramps/walls are real range liquidity (absorb trades, fill, keeper pull + tip, revert rule),
 //   per-run reset (sim-only storage), bots place and react to orders, NO wallet cap, adaptive bots that profit more
 //   off an aggressive player at higher difficulty, and replay determinism (seed + player-input log incl. place/cancel).
-// Run: node scripts/test-sim.mjs [minutes=Practice length] [seedsPerDifficulty=24]      (SIM_JSON=path writes the raw runs)
+// Run: node scripts/test-sim.mjs [minutes=run length, 2] [seedsPerDifficulty=24]      (SIM_JSON=path writes the raw runs)
 import fs from "node:fs";
 import { loadLib } from "./lib/load-ts.mjs";
 const { mods, cleanup } = await loadLib(undefined, "sim-");

@@ -2,7 +2,7 @@
 // Reader) through N seeded runs per difficulty and fails the build when a green rate is more than 5 points off its
 // target, or when the shape of a run drifts: orbit rate, how far a run falls from its high, when the first bomb
 // lands, rugs and CTO revivals on Expert, and quiet stretches (no beat in the feed for 20 s).
-// Run: node scripts/test-sim-bands.mjs [seeds=200] [minutes=Practice length]      (BANDS_JSON=path writes the table)
+// Run: node scripts/test-sim-bands.mjs [seeds=200] [minutes=run length, 2]      (BANDS_JSON=path writes the table)
 import fs from "node:fs";
 import { loadLib } from "./lib/load-ts.mjs";
 const { mods, cleanup } = await loadLib(undefined, "bands-");
@@ -15,11 +15,12 @@ let fail = 0; const bad = (m) => { fail++; console.error("FAIL " + m); };
 const q = (a, p) => { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
 const pct = (x) => (x * 100).toFixed(0) + "%";
 // shape targets (plan doc): orbit rate floor, median fall from the high by the end (ceiling), first bomb (≥12% drop
-// inside 6 s) by/after, Expert rug rate and CTO share, and the longest quiet stretch in the feed
+// inside 6 s) by/after a fraction of the run (2 min: Easy after 0:30, Hard by 0:30, Expert by 0:18), Expert rug rate
+// and CTO share, and the longest quiet stretch in the feed
 const SHAPE = {
-  pve:    { orbit: 0.70, fallMax: 0.35, bombAfter: 45 },
-  pvp:    { orbit: 0.50, fallMax: 0.60, bombBy: 30 },
-  trench: { orbit: 0.35, bombBy: 20, rug: [0.3, 0.5], cto: [0.3, 0.7] },
+  pve:    { orbit: 0.70, fallMax: 0.35, bombAfter: 0.25 },
+  pvp:    { orbit: 0.50, fallMax: 0.60, bombBy: 0.25 },
+  trench: { orbit: 0.30, bombBy: 0.15, rug: [0.3, 0.5], cto: [0.3, 0.7] },
 };
 const BEAT_GAP = 20;
 const firstBomb = (r) => { let t = null; const w = []; r.on(({ trade }) => { if (!trade || t != null) return; w.push(trade); while (w.length && w[0].t < trade.t - 6) w.shift();
@@ -43,8 +44,8 @@ for (const d of ["pve", "pvp", "trench"]) {
   if (!(row.green.newbie < row.green.casual && row.green.casual < row.green.reader)) bad(`${LABEL[d]}: skill must pay (newbie < casual < reader)`);
   if (row.orbit < S.orbit - BAND_TOLERANCE) bad(`${LABEL[d]} orbit ${pct(row.orbit)} < ${pct(S.orbit)}`);
   if (S.fallMax != null && q(row.fall, 0.5) > S.fallMax) bad(`${LABEL[d]} median fall from the high ${pct(q(row.fall, 0.5))} > ${pct(S.fallMax)}`);
-  if (S.bombAfter != null && q(row.bomb, 0.5) < S.bombAfter) bad(`${LABEL[d]} first bomb median ${q(row.bomb, 0.5).toFixed(0)} s, want after ${S.bombAfter} s`);
-  if (S.bombBy != null && q(row.bomb, 0.5) > S.bombBy) bad(`${LABEL[d]} first bomb median ${q(row.bomb, 0.5).toFixed(0)} s, want by ${S.bombBy} s`);
+  if (S.bombAfter != null && q(row.bomb, 0.5) < S.bombAfter * SEC) bad(`${LABEL[d]} first bomb median ${q(row.bomb, 0.5).toFixed(0)} s, want after ${(S.bombAfter * SEC).toFixed(0)} s`);
+  if (S.bombBy != null && q(row.bomb, 0.5) > S.bombBy * SEC) bad(`${LABEL[d]} first bomb median ${q(row.bomb, 0.5).toFixed(0)} s, want by ${(S.bombBy * SEC).toFixed(0)} s`);
   if (S.rug && (row.rug < S.rug[0] || row.rug > S.rug[1])) bad(`${LABEL[d]} rug rate ${pct(row.rug)}, want ${pct(S.rug[0])}–${pct(S.rug[1])}`);
   if (S.cto && row.rug && (row.cto < S.cto[0] || row.cto > S.cto[1])) bad(`${LABEL[d]} CTO revives ${pct(row.cto)} of rugs, want ${pct(S.cto[0])}–${pct(S.cto[1])}`);
   if (Math.max(...row.gap) > BEAT_GAP) bad(`${LABEL[d]}: a run went ${Math.max(...row.gap).toFixed(0)} s with no beat (max ${BEAT_GAP} s)`);
