@@ -264,7 +264,7 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
 .tp-podval { position: relative; font-size: 40px; color: #5FF0A0; }
 .tp-pod.r1 .tp-podval { font-size: 52px; }
 .tp-table { margin-top: 20px; overflow: hidden; }
-.tp-th, .tp-row { display: grid; grid-template-columns: 48px minmax(0,1fr) 120px 110px 150px; gap: 12px; }
+.tp-th, .tp-row { display: grid; grid-template-columns: 48px minmax(0,1fr) 140px 150px 100px; gap: 12px; }
 .tp-th { padding: 14px 20px 10px; font: 500 11px/1 var(--dsc-font-mono); letter-spacing: .08em; text-transform: uppercase; color: #9095A0; }
 .tp-th span:first-child { text-align: center; }
 .tp-th span:nth-child(n+3) { text-align: right; }
@@ -335,6 +335,50 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
   .tp-empty { padding: 28px 20px; min-height: 360px; }
   .tp-empty > b { font-size: 36px; }
   .tp-empty img { right: -10px; height: 200px; opacity: .9; }
+}
+
+/* ── Top pilots: guardrails, record, Best call, You this week (main mode hook loop, maker 2026-11-13) ── */
+.tp-cols { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; }
+.tp-main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.tp-main .tp-table { margin-top: 4px; }
+.tp-side { flex: 1 1 340px; max-width: 380px; display: flex; flex-direction: column; gap: 16px; }
+.tp-side:empty { display: none; }
+.tp-tag { font-weight: 400; font-size: 12px; color: #9095A0; margin-left: 6px; }
+.tp-rec { font-size: 13px; color: #D7D9E4; text-align: right; align-self: center; }
+.tp-num.tp-dim { font: 500 14px/1 var(--dsc-font-ui); color: #9095A0; }
+.tp-eb { font: 500 12px/1.2 var(--dsc-font-mono); letter-spacing: .04em; text-transform: uppercase; color: #9095A0; }
+.tp-eb.gold { color: #F3DFA8; }
+.tp-rules { padding: 16px 20px; border-radius: 16px; border: 1px dashed #3D4A79; display: flex; flex-direction: column; gap: 8px; }
+.tp-rules ul { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 24px; font-size: 13px; line-height: 1.45; color: #D7D9E4; }
+.tp-note { margin: 0; font-size: 12px; color: #7D8296; }
+.tp-call { border-radius: 20px; overflow: hidden; border: 1px solid rgba(243,223,168,0.35); }
+.tp-callhd { padding: 22px; background: linear-gradient(180deg, #3D4A79 0%, #202141 100%); display: flex; flex-direction: column; gap: 14px; }
+.tp-callname { font-size: 40px; line-height: .92; color: #FFF6DC; overflow-wrap: anywhere; }
+.tp-zones { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tp-zones > div { padding: 8px 10px; border-radius: 10px; background: rgba(18,19,39,.6); font-size: 12px; }
+.tp-zones span { display: block; color: #9EA3B5; }
+.tp-zones b { font-size: 18px; color: #D7D9E4; }
+.tp-zones b.gold, .tp-callname .gold { color: #F3DFA8; }
+.tp-callnums { display: flex; gap: 18px; }
+.tp-callnums b { display: block; font-size: 30px; line-height: 1; color: #FFF6DC; }
+.tp-callnums b.up { color: #5FF0A0; }
+.tp-callnums span { font-size: 12px; color: #D7D9E4; }
+.tp-callft { padding: 14px; background: #16181C; }
+.tp-callbtn { display: flex; align-items: center; justify-content: center; min-height: 44px; border-radius: 12px; font-size: 16px; }
+.tp-you { padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+.tp-youbody { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.tp-youbody b { display: block; font-size: 32px; line-height: 1; color: #FFF6DC; }
+.tp-youbody .r { text-align: right; } .tp-youbody .r b { font-size: 22px; }
+.tp-youbody b.up { color: #5FF0A0; } .tp-youbody b.down { color: #F0307F; }
+.tp-youbody span { font-size: 12px; color: #9095A0; }
+.tp-younone { margin: 0; font-size: 13px; color: #9095A0; }
+.tp-av.crew { background: #3D4A79; color: #F3DFA8; font-size: 14px; }
+@media (max-width: 760px) {
+  .tp-cols { gap: 16px; margin-top: 14px; }
+  .tp-side { max-width: none; }
+  .tp-rules ul { grid-template-columns: minmax(0, 1fr); }
+  .tp-callname { font-size: 32px; }
+  .tp-tag { display: none; }
 }
 
 /* ── Claim sheet (one sheet for every payout) ───────────────────────────── */

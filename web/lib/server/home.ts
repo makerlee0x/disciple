@@ -16,7 +16,7 @@ import { pairOf, pairSymOf, shortHex } from "@/lib/home/pairs";
 import { isHiddenCoin } from "@/lib/home/hiddenCoins";
 import { flaggedCopySet } from "@/lib/server/nameLock";
 import { chipOf, lobbyAgeTokens, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
-import { pilotBoard, topPilots, tickerOf, type PilotBoard, type TickerItem, type TopPilots } from "@/lib/home/topPilots";
+import { bestCalls, pilotBoard, topPilots, tickerOf, type BestCalls, type BoardOpts, type PilotBoard, type TickerItem, type TopPilots } from "@/lib/home/topPilots";
 import { levelInfo } from "@/lib/xp";
 import { resolveKeys } from "./imageStore";
 import { usernameOf } from "./usernames";
@@ -92,17 +92,22 @@ async function build(): Promise<HomeData> {
   const chips = heroIdx >= 0
     ? [...fillsBy[heroIdx]].sort((a, b) => b.block - a.block || b.logIndex - a.logIndex).slice(0, 6).map(chipOf)
     : [];
-  const pilots = topPilots(fillsBy, now);
+  // board guardrails need who launched each rocket and which reached orbit (lib/home/topPilots BOARD_RULES)
+  const opts: BoardOpts = { creators: new Map(list.map((x) => [x.token.toLowerCase(), String(x.creator).toLowerCase()])), graduated: new Set(list.filter((x) => x.graduated).map((x) => x.token.toLowerCase())) };
+  const pilots = topPilots(fillsBy, now, 5, opts);
+  const calls = bestCalls(fillsBy, now, opts);
+  for (const k of Object.keys(calls) as (keyof BestCalls)[]) { const c = calls[k]; if (c) c.coinName = coins.find((x) => x.token === c.coin)?.ticker ?? ""; }
   // the full /leaderboard (lib/server/leaderboard) ranks from the same fills; kept server side, not in HomeData
-  g.__dscBoard = { at: now, v: pilotBoard(fillsBy, now) };
+  g.__dscBoard = { at: now, v: pilotBoard(fillsBy, now, opts) };
   const ticker = tickerOf(fillsBy, new Map(coins.map((c) => [c.token, c.name])));
-  await timeout(namePilots(pilots, ticker), 2_500, undefined);
-  return { at: now, coins, ...pick, chips, pilots, ticker };
+  await timeout(namePilots(pilots, ticker, calls), 2_500, undefined);
+  return { at: now, coins, ...pick, chips, pilots, bestCalls: calls, ticker };
 }
 
 /** Usernames + levels for the Top pilots and ticker traders (KV). Mutates; a miss leaves the default name. */
-async function namePilots(pilots: TopPilots, ticker: TickerItem[]): Promise<void> {
-  const rows = [...pilots.day, ...pilots.week, ...pilots.month];
+async function namePilots(pilots: TopPilots, ticker: TickerItem[], calls?: BestCalls): Promise<void> {
+  const callRows = calls ? [calls.day, calls.week, calls.month].filter((c): c is NonNullable<typeof c> => !!c) : [];
+  const rows = [...pilots.day, ...pilots.week, ...pilots.month, ...callRows];
   const wallets = Array.from(new Set([...rows.map((r) => r.wallet), ...ticker.map((t) => t.trader)]));
   const names = new Map<string, string | null>();
   const levels = new Map<string, { level: number; prestige: number }>();

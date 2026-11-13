@@ -13,6 +13,7 @@ import { withBase } from "@/lib/base-path";
 import { displayName } from "@/lib/defaultUsername";
 import { climbingNow, ROCKET_SRC, tierProgress, type HomeCoin, type HomeData } from "@/lib/home/trending";
 import { EMPTY_PILOTS, PILOT_WINDOWS, type PilotWindow, type TickerItem } from "@/lib/home/topPilots";
+import { tierAt } from "@/lib/flight/tiers";
 import { afterPaint } from "./idle";
 import LiveCard from "./LiveCard";
 import { altShort, flightHref, lightOf, orbitPct, pct } from "./rocketBits";
@@ -185,6 +186,7 @@ function TopPilotsBoard({ data }: { data: HomeData }) {
   // open on the shortest window that has anyone in it
   useEffect(() => { if (!all.day.length) setWin(all.week.length ? "week" : all.month.length ? "month" : "day"); }, [all.day.length, all.week.length, all.month.length]);
   const rows = all[win];
+  const call = data.bestCalls?.[win] ?? null;
   const label = PILOT_WINDOWS.find((w) => w.k === win)!.label;
   return (
     <section className={s.pilots} aria-labelledby="so-pilots-title" data-testid="so-pilots">
@@ -208,7 +210,7 @@ function TopPilotsBoard({ data }: { data: HomeData }) {
                   <b>{name}</b>
                   {r.level ? <span>Lvl {r.level}{r.prestige ? ` · Prestige ${r.prestige}` : ""}</span> : null}
                 </span>
-                <span className={s.flights}>{r.flights} {r.flights === 1 ? "flight" : "flights"}</span>
+                <span className={s.flights}>{r.green ?? 0} of {r.flights} green</span>
                 <span className={s.pnl}>+{money(r.pnlUsd)}</span>
               </li>
             );
@@ -216,6 +218,14 @@ function TopPilotsBoard({ data }: { data: HomeData }) {
         </ol>
       ) : (
         <p className={s.empty}>No cash-outs {win === "day" ? "yet today" : `this ${label.toLowerCase()} yet`}. The first pilot to cash out higher takes the top spot.</p>
+      )}
+      {call && (
+        <div className={s.call} data-testid="so-bestcall">
+          <span className={s.callEb}>Best call {win === "day" ? "today" : `this ${label.toLowerCase()}`}</span>
+          <b className={s.callName}>{displayName(call.username ?? null, call.wallet)} on {call.coinName ? `$${call.coinName}` : "a rocket"}</b>
+          <span className={s.callZones}>{tierAt(call.boardedMcap).name} <span aria-hidden>{"\u2192"}</span> {tierAt(call.cashedMcap).name}</span>
+          <span className={s.callPct}>+{Math.round(call.pct).toLocaleString("en-US")}%</span>
+        </div>
       )}
       <Link href="/leaderboard" className={s.link}>Full leaderboard</Link>
     </section>
