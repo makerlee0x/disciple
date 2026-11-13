@@ -18,8 +18,9 @@
  */
 import { applyFill, emptyPosition, view, type Position } from "../pnl";
 import { pointsFor } from "../trampwalls/adapter";
-import { tierOf, TIERS, SIM_ACHIEVEMENTS, type ArchetypeId, type DifficultyId, type SimConfig, DIFFICULTIES } from "./config";
+import { tierOf, TIERS, SIM_ACHIEVEMENTS, type ArchetypeId, type DifficultyId, type SimConfig, type Story, type ArcShape, DIFFICULTIES } from "./config";
 import { Market, type Fill } from "./market";
+import { CALLSIGN_NOUNS } from "../defaultUsername";
 import type { OrderKind, RangeOrder } from "./pool";
 
 export function mulberry32(seed: number) {
@@ -30,17 +31,25 @@ export const seedOf = (s: string | number) => { if (typeof s === "number") retur
 
 /** owner id of the player's orders and trades */
 export const YOU = "you";
+/** bot callsigns: the player call-sign nouns (lib/defaultUsername), never the bot's type; "Turbo" is a game mode */
+export const BOT_CALLSIGNS: readonly string[] = CALLSIGN_NOUNS.filter((n) => n !== "Turbo");
+/** engine flares (lib/unlocks FLARES ids) a bot flies with, and how often: most pilots fly the stock flare */
+export const BOT_FLARES: readonly [string, number][] = [["stock", 0.55], ["ion", 0.25], ["venom", 0.12], ["neon", 0.08]];
 export type ReactKind = "ride" | "dumpOn" | "takeProfit" | "pile" | "rebuy" | "dipBuy" | "exitInto" | "undercut" | "frontrun" | "stack";
-export interface Bot { id: number; name: string; wallet: string; arch: ArchetypeId; cash: number; cash0: number; pos: Position; cluster?: number;
+export interface Bot { id: number; name: string; flare: string; wallet: string; arch: ArchetypeId; cash: number; cash0: number; pos: Position; cluster?: number;
   joinT: number; nextT: number; holdUntil?: number; active: boolean; buys: number; sells: number; volume: number;
   /** reaction delay, s: this bot sees your trades / orders this late */
   react: number;
   /** riding your pump: take profit at +tp */
   ride?: { tp: number; since: number } | null;
   /** sold into your dump: buys back at/below this price */
-  rebuy?: { below: number; until: number } | null }
-export interface SimTrade { t: number; side: "buy" | "sell"; usd: number; tokens: number; mcap: number; preMcap: number; trader: string; arch: ArchetypeId | "you"; mine: boolean; react?: ReactKind }
-export interface SimEvent { t: number; kind: "launch" | "graduate" | "rug" | "cto" | "whale" | "tier" | "react" | "tw"; text: string; mcap: number; mine?: boolean }
+  rebuy?: { below: number; until: number } | null;
+  /** a big sell it announced (tell): lands at `at` */
+  pending?: { frac: number; at: number; react?: ReactKind; beat?: boolean } | null }
+export interface SimTrade { t: number; side: "buy" | "sell"; usd: number; tokens: number; mcap: number; preMcap: number; trader: string; flare?: string; arch: ArchetypeId | "you"; mine: boolean; react?: ReactKind }
+/** feed events. tell = a warning before a big sell (a bot peels off, linked wallets sell, the dev wallet moves);
+ *  pump / dump = the director's beats; whale = one big boost */
+export interface SimEvent { t: number; kind: "launch" | "graduate" | "rug" | "cto" | "whale" | "tier" | "react" | "tw" | "tell" | "pump" | "dump"; text: string; mcap: number; mine?: boolean; who?: string; flare?: string }
 export type PlayerInput =
   | { blk: number; op: "trade"; side: "buy" | "sell"; usd: number; frac?: number }
   | { blk: number; op: "place"; kind: OrderKind; mcapUsd: number; widthPct: number; sizeUsd: number }
@@ -49,8 +58,8 @@ type Acct = { name: string; cash: number; pos: Position };
 type Read = { state: "pump" | "dump" | "calm"; net: number; recentBuy: boolean };
 
 const REACT_TEXT: Record<ReactKind, string> = {
-  ride: "rides your pump", dumpOn: "sells into your buys", takeProfit: "takes profit on your pump", pile: "piles into your dump", rebuy: "buys back below your dump",
-  dipBuy: "buys your dip", exitInto: "dumps into your tramp", undercut: "undercuts your wall", frontrun: "front-runs your tramp", stack: "stacks a tramp with yours",
+  ride: "is riding your boost", dumpOn: "cashed out into your boost", takeProfit: "cashed out on your boost", pile: "bailed with you", rebuy: "boosted back in below you",
+  dipBuy: "caught your dip", exitInto: "sold into your tramp", undercut: "undercut your wall", frontrun: "jumped ahead of your tramp", stack: "stacked a tramp with yours",
 };
 
 export class SimRun {
@@ -58,7 +67,7 @@ export class SimRun {
   player: Acct & { cash0: number; buys: number; sells: number; volume: number; firstBuyT: number | null; tokens: number };
   emaF: number; emaS: number; hist: number[] = []; histT = 0; peak: number; peakT = 0; peakTier = 0;
   lastPlayerBigBuy = -1e9; rugged: { t: number; peakBefore: number } | null = null; ctoAt: number | null = null; ctoActive = false;
-  rugPlan: { at: number; minMcap: number } | null = null; waveAt = Infinity; waveUntil = -1; waves = 0; ctoPlan: boolean; hype = 1; nextId = 1; nextOrderId = 1;
+  rugPlan: { at: number; minMcap: number; stage: number; next: number } | null = null; waveAt = Infinity; waveUntil = -1; waves = 0; ctoPlan: boolean; hype = 1; nextId = 1; nextOrderId = 1;
   listeners = new Set<(e: { trade?: SimTrade; event?: SimEvent; player?: boolean; orders?: boolean; order?: RangeOrder }) => void>();
   /** every player action, with the block it happened after (replay log) */
   inputs: PlayerInput[] = [];
@@ -71,21 +80,37 @@ export class SimRun {
   keeper = { tips: 0, pulls: 0 };
   tw = { placed: { you: 0, bots: 0 }, filled: { you: 0, bots: 0 }, cancelled: 0, youPoints: 0 };
   private byWallet = new Map<string, Bot>();
-  constructor(public cfg: SimConfig, public difficulty: DifficultyId, public seed: number, opts: { balance?: number } = {}) {
+  /** run length, s (the director's arc spans it) */
+  seconds: number;
+  /** the director's arc for this run (Story): keyframes (t, multiple of the launch mcap), log-linear in between.
+   *  rocket = one climb to a late high · fakeout = an early spike that crashes, then the real climb · fade = an early
+   *  high that bleeds out */
+  arc: { shape: ArcShape; flyer: boolean; keys: [number, number][]; peakT: number; climb: number; fall: number; firstBomb: number };
+  nextBeat = 0; beats = 0; bombs = 0; pumps = 0; tells = 0; private deck: string[]; private nameRng: () => number;
+  constructor(public cfg: SimConfig, public difficulty: DifficultyId, public seed: number, opts: { balance?: number; minutes?: number } = {}) {
     this.rng = mulberry32(seed);
+    this.seconds = (opts.minutes ?? cfg.player.defaultMinutes) * 60;
+    // names + flares from their own stream, so they never shift the market's
+    this.nameRng = mulberry32((seed ^ 0x5bd1e995) >>> 0); this.deck = [...BOT_CALLSIGNS];
+    for (let i = this.deck.length - 1; i > 0; i--) { const j = Math.floor(this.nameRng() * (i + 1)); [this.deck[i], this.deck[j]] = [this.deck[j], this.deck[i]]; }
     this.m = new Market(cfg);
     const p0 = this.m.price(); this.emaF = this.emaS = p0; this.peak = this.m.mcap();
     const bal = opts.balance ?? cfg.player.startBalanceUsd;
     this.player = { name: YOU, cash: bal, cash0: bal, pos: emptyPosition(), buys: 0, sells: 0, volume: 0, firstBuyT: null, tokens: 0 };
     const D = this.diff();
-    this.hype = Math.exp(this.normal() * D.hypeSigma);
-    const rug = D.rug;
-    this.rugPlan = rug && this.rng() < rug.chance ? { at: rug.earliestS + this.rng() * (rug.latestS - rug.earliestS), minMcap: cfg.launch.startMcapUsd * rug.minMcap * (0.8 + this.rng() * 0.8) } : null;
+    this.hype = Math.exp(this.normal() * D.hypeSigma); this.base = { t0: 0, m0: this.m.mcap() };
+    const rug = D.rug, St = D.story;
+    // the rug window follows the run length (Story.rugAt) when the story sets one, else the legacy seconds window
+    const rugAt = (u: number) => St?.rugAt ? this.seconds * (St.rugAt[0] + u * (St.rugAt[1] - St.rugAt[0])) : rug!.earliestS + u * (rug!.latestS - rug!.earliestS);
+    this.rugPlan = rug && this.rng() < rug.chance ? { at: rugAt(this.rng()), minMcap: cfg.launch.startMcapUsd * rug.minMcap * (0.8 + this.rng() * 0.8), stage: 0, next: 0 } : null;
     this.ctoPlan = !!rug && this.rng() < rug.ctoChance;
+    const lg = (a: number, b: number) => Math.exp(Math.log(a) + this.rng() * (Math.log(b) - Math.log(a)));
+    this.arc = St ? this.drawArc(St, lg) : { shape: "rocket", flyer: false, keys: [[0, 1]], peakT: Infinity, climb: 1, fall: 0, firstBomb: Infinity };
+    this.nextBeat = St ? this.r(4, 8) : Infinity;
     if (D.waves) this.waveAt = this.r(D.waves.everyS[0], D.waves.everyS[1]);
     let cluster = 0;
     for (const [a, n] of Object.entries(D.initial) as [ArchetypeId, number][]) for (let i = 0; i < n; i++) this.spawn(a, 0, a === "bundler" ? (cluster || (cluster = 1)) : undefined);
-    this.emitEvent("launch", `LAUNCH · ${D.label} · seed ${seed}`);
+    this.emitEvent("launch", `Launch · ${D.label}`);
   }
   /** difficulty with defaults filled in (a stale saved tune may lack newer knobs) */
   diff() { const d = this.cfg.difficulties[this.difficulty], base = DIFFICULTIES[this.difficulty];
@@ -95,21 +120,38 @@ export class SimRun {
   spawn(arch: ArchetypeId, t: number, cluster?: number) {
     const A = this.cfg.archetypes[arch], id = this.nextId++, D = this.diff();
     const cash = A.cash * Math.exp(this.normal() * A.cashSigma) * D.size * Math.sqrt(this.hype);
-    const nm = A.names[Math.floor(this.rng() * A.names.length)];
+    void A.names;
     let wallet = "0x"; for (let i = 0; i < 40; i++) wallet += Math.floor(this.rng() * 16).toString(16);
     if (cluster) wallet = "0xb0b" + (wallet.slice(5, 38)) + "c" + cluster.toString(16);   // clustered wallets share a visible prefix/suffix
-    const name = arch === "bundler" ? `Bundle#${cluster}·${nm}` : arch === "rugger" ? "DEV" : arch === "cto" ? "CTO Council" : `${A.label.split(" ")[0]}·${nm}${id}`;
+    const name = arch === "rugger" ? "Dev" : arch === "cto" ? "CTO crew" : this.callsign(), flare = this.pickFlare();
     const launchy = arch === "sniper" || arch === "bundler" || arch === "rugger";
     // launch wallets act in the first blocks after the sniper tax reaches 0 (antiSnipeDurationS = 7 s: 7.2–11 s; the dev 7.2–7.6 s)
-    const b: Bot = { id, name, wallet, arch, cash, cash0: cash, pos: emptyPosition(), cluster, joinT: t, active: arch !== "cto",
+    const b: Bot = { id, name, flare, wallet, arch, cash, cash0: cash, pos: emptyPosition(), cluster, joinT: t, active: arch !== "cto",
       nextT: launchy && t === 0 ? this.cfg.launch.antiSnipeDurationS + this.r(0.2, arch === "rugger" ? 0.6 : 4)
         : t === 0 ? this.r(...(D.startS ?? [0.5, 8]) as [number, number]) : t + this.r(0.5, 60 / Math.max(0.1, A.rate)), buys: 0, sells: 0, volume: 0,
       react: this.r(D.adapt.reactS[0], D.adapt.reactS[1]), ride: null, rebuy: null };
     this.bots.push(b); this.byWallet.set(wallet, b); return b;
   }
+  private drawArc(St: Story, lg: (a: number, b: number) => number): SimRun["arc"] {
+    const T = this.seconds, flyer = this.rng() < St.orbit, climb = flyer ? lg(St.orbitClimb[0], St.orbitClimb[1]) : lg(St.climb[0], St.climb[1]), fall = this.r(St.fall[0], St.fall[1]), firstBomb = this.r(St.bomb.firstS[0], St.bomb.firstS[1]);
+    const w = flyer ? St.shapes : St.dudShapes, tot = w.rocket + w.fakeout + w.fade; let x = this.rng() * tot;
+    const shape: ArcShape = (x -= w.rocket) <= 0 ? "rocket" : (x -= w.fakeout) <= 0 ? "fakeout" : "fade";
+    let peakT = T * this.r(St.peakAt[0], St.peakAt[1]), keys: [number, number][];
+    if (shape === "rocket") keys = [[0, 1], [peakT, climb], [T, climb * (1 - fall)]];
+    else if (shape === "fakeout") { const t1 = T * this.r(0.12, 0.25), spike = climb ** this.r(0.4, 0.6), dip = this.r(St.fakeDip[0], St.fakeDip[1]);
+      keys = [[0, 1], [t1, spike], [t1 + T * this.r(0.08, 0.14), Math.max(0.8, spike * dip)], [peakT, climb], [T, climb * (1 - fall)]]; }
+    else { peakT = T * this.r(0.2, 0.4); const hi = flyer ? climb : climb ** 0.7; keys = [[0, 1], [peakT, hi], [T, hi * (1 - fall)]]; }
+    if (St.open) {   // the launch wallets pump the open, then dump it (Expert): the rest of the arc starts after
+      const O = St.open, t1 = this.r(O.at[0], O.at[1]), t2 = this.r(O.by[0], O.by[1]), lo = this.r(O.dumpTo[0], O.dumpTo[1]);
+      keys = [[0, 1], [t1, this.r(O.peak[0], O.peak[1])], [t2, lo], ...keys.filter(([t]) => t > t2 + 5).map(([t, m]) => [t, Math.max(lo, m)] as [number, number])]; }
+    return { shape, flyer, keys, peakT, climb: shape === "fade" && !flyer ? climb ** 0.7 : climb, fall, firstBomb };
+  }
+  /** next callsign from this run's shuffled deck ("Redshift", then "Redshift 2" once the deck is used up) */
+  private callsign() { const n = this.nextId - 2, k = BOT_CALLSIGNS.length, w = this.deck[n % k]; return n < k ? w : `${w} ${Math.floor(n / k) + 1}`; }
+  private pickFlare() { let x = this.nameRng(); for (const [id, w] of BOT_FLARES) { if ((x -= w) <= 0) return id; } return BOT_FLARES[0][0]; }
   on(f: (e: { trade?: SimTrade; event?: SimEvent; player?: boolean; orders?: boolean; order?: RangeOrder }) => void) { this.listeners.add(f); return () => this.listeners.delete(f); }
   private notify(e: { trade?: SimTrade; event?: SimEvent; player?: boolean; orders?: boolean; order?: RangeOrder }) { this.listeners.forEach((f) => f(e)); }
-  emitEvent(kind: SimEvent["kind"], text: string, mine?: boolean) { const e: SimEvent = { t: this.t, kind, text, mcap: this.m.mcap(), mine }; this.events.push(e); if (this.events.length > 600) this.events.splice(1, 100); this.notify({ event: e }); }
+  emitEvent(kind: SimEvent["kind"], text: string, mine?: boolean, who?: Bot) { const e: SimEvent = { t: this.t, kind, text, mcap: this.m.mcap(), mine, ...(who ? { who: who.name, flare: who.flare } : {}) }; this.events.push(e); if (this.events.length > 600) this.events.splice(1, 100); this.notify({ event: e }); }
   /** momentum, support/resistance (what bots see) */
   feat() {
     const p = this.m.price(), mom = this.emaF / this.emaS - 1;
@@ -128,15 +170,15 @@ export class SimRun {
     else { const P = this.player; P.pos = applyFill(P.pos, side, f.usd, f.price, gas, at); P.cash += (side === "buy" ? -f.usd : f.usd * (1 - this.m.fee)) - gas; P[side === "buy" ? "buys" : "sells"]++; P.volume += f.usd;
       if (side === "buy" && P.firstBuyT == null) P.firstBuyT = this.t;
       this.tape.push({ t: this.t, side, dp: f.usd / Math.max(1, depth0) }); if (this.tape.length > 400) this.tape.splice(0, 100); }
-    const tr: SimTrade = { t: this.t, side, usd: f.usd, tokens: f.tokens, mcap: f.postMcap, preMcap: pre, trader: who ? who.name : "you", arch: who ? who.arch : "you", mine: !who, react };
+    const tr: SimTrade = { t: this.t, side, usd: f.usd, tokens: f.tokens, mcap: f.postMcap, preMcap: pre, trader: who ? who.name : "you", ...(who ? { flare: who.flare } : {}), arch: who ? who.arch : "you", mine: !who, react };
     this.trades.push(tr); if (this.trades.length > 4000) this.trades.splice(0, 1000);
     this.notify({ trade: tr, player: !who });
     if (react && who) { this.reactLog.push({ t: this.t, usd: f.usd }); this.noteReact(react, who); }
     if (wasCurve && this.m.phase === "pool") this.emitEvent("graduate", `Reached orbit. This rocket now trades on the open market on Uniswap, at ${fmt(this.m.mcap())}.`);
-    if (who && f.usd > Math.max(3000, this.m.depth() * 0.25) && side === "buy") this.emitEvent("whale", `${who.name} apes ${fmt(f.usd)}`);
+    if (who && !this.inBeat && f.usd > Math.max(250, this.m.depth() * 0.08) && side === "buy") this.emitEvent("whale", `${who.name} boosts ${fmt(f.usd)}`, false, who);
     return f;
   }
-  private noteReact(k: ReactKind, b: Bot) { this.reacts[k]++; if (this.t - this.lastReactEvT >= 3) { this.lastReactEvT = this.t; this.emitEvent("react", `${b.name} ${REACT_TEXT[k]}`); } }
+  private noteReact(k: ReactKind, b: Bot) { this.reacts[k]++; if (this.t - this.lastReactEvT >= 3) { this.lastReactEvT = this.t; this.emitEvent("react", `${b.name} ${REACT_TEXT[k]}`, false, b); } }
   private fail(reason: string) { const m = this.m.mcap(); return { ok: false, reason, tokens: 0, usd: 0, price: 0, preMcap: m, postMcap: m, mcap: m }; }
 
   // ── player API (every call is recorded in `inputs`) ──────────────────────────────────────────────────
@@ -170,7 +212,7 @@ export class SimRun {
     this.close(o, "cancel", YOU); return { ok: true };
   }
   /** re-run a recorded player log: identical (cfg, difficulty, seed, inputs) ⇒ identical run */
-  static replay(cfg: SimConfig, difficulty: DifficultyId, seed: number, inputs: PlayerInput[], seconds: number, opts: { balance?: number } = {}) {
+  static replay(cfg: SimConfig, difficulty: DifficultyId, seed: number, inputs: PlayerInput[], seconds: number, opts: { balance?: number; minutes?: number } = {}) {
     const r = new SimRun(cfg, difficulty, seed, opts), N = Math.round(seconds / cfg.market.blockS); let i = 0;
     for (;;) {
       while (i < inputs.length && inputs[i].blk === r.blk) r.apply(inputs[i++]);
@@ -245,7 +287,19 @@ export class SimRun {
     const as = b.arch === "sniper" || b.arch === "bundler" || b.arch === "rugger" ? 0 : this.m.antiSnipe(this.t);
     if (as > 0) frac *= Math.max(0.04, 1 - as) ** 2;
     const usd = Math.min(b.cash, b.cash * frac); if (usd >= 1) this.exec("buy", b, usd, react); }
-  private botSell(b: Bot, frac: number, react?: ReactKind) { let tk = b.pos.size * Math.min(1, frac); if (tk * this.m.price() < 1) tk = b.pos.size; if (tk > 0 && tk * this.m.price() >= 0.5) this.exec("sell", b, tk, react); }   // no dust sells
+  /** a bot sells frac of its bag. A sell above story.tellFrac of depth is announced first (tell) and lands tellS later. */
+  private botSell(b: Bot, frac: number, react?: ReactKind, now = false) {
+    let tk = b.pos.size * Math.min(1, frac); if (tk * this.m.price() < 1) tk = b.pos.size;
+    if (!(tk > 0 && tk * this.m.price() >= 0.5)) return;   // no dust sells
+    const St = this.diff().story;
+    if (!now && St && tk * this.m.price() > St.tellFrac * this.m.depth()) { if (!b.pending) this.tell(b, Math.min(1, frac), react); return; }
+    this.exec("sell", b, tk, react);
+  }
+  private tell(b: Bot, frac: number, react?: ReactKind, beat = false) {
+    const St = this.diff().story; this.tells++;
+    b.pending = { frac, at: this.t + this.r(St.tellS[0], St.tellS[1]), react, beat };
+    this.emitEvent("tell", `${b.name} is peeling off`, false, b);
+  }
   /** what a bot reads of YOU off the public tape, `lag` seconds late */
   read(lag: number): Read {
     const A = this.diff().adapt, now = this.t - lag, from = now - A.windowS; let net = 0, lastBuy = -1e9;
@@ -327,13 +381,14 @@ export class SimRun {
     switch (b.arch) {
       case "rugger": {   // dev: buys at launch (after anti-snipe), then waits for the rug plan
         if (!b.buys) return this.botBuy(b, bf());
-        const rp = this.rugPlan; if (rp && !this.rugged && this.t >= rp.at && this.m.mcap() >= rp.minMcap) this.rug(b);
+        const rp = this.rugPlan; if (rp && !this.diff().story && !this.rugged && this.t >= rp.at && this.m.mcap() >= rp.minMcap) this.rug(b);
         return;
       }
       case "bundler": {
         if (!b.buys) return this.botBuy(b, bf());
         if (has && this.m.pool && R() < D.orders.rate && this.orderPlay(b, F, u)) return;   // distribution walls
         if (has && u > A.tp && R() < 0.35) return this.botSell(b, sf());   // drip distribution
+        { const rd = this.read(b.react); if (has && u > 0 && rd.recentBuy && rd.net > 0 && R() < this.diff().adapt.dumpOn && this.canReact()) return this.botSell(b, this.r(0.35, 0.7), "dumpOn"); }   // your buy = the bundle's exit
         return;
       }
       case "sniper": {
@@ -355,7 +410,8 @@ export class SimRun {
     // generic traders (crew, scalper, whale, momentum, paperhand, diamond)
     const wave = this.inWave() && D.waves;
     if (has && wave && u > -0.08 && R() < wave.sellBoost * (A.resist > 0 ? 1 : 0.4)) return this.botSell(b, this.r(0.25, 0.55));   // pullback wave: holders take real profit
-    if (has && D.takeProfit && u > 0.04 && R() < D.takeProfit * (A.tp > 5 ? 0.3 : 1)) return this.botSell(b, sf() * 0.6);         // steady profit-taking
+    const over = D.story ? Math.max(0.5, Math.min(3, (1 / this.pull) ** D.story.steer)) : 1;   // above the arc: more profit-taking, fewer buys
+    if (has && D.takeProfit && u > 0.04 && R() < D.takeProfit * (A.tp > 5 ? 0.3 : 1) * over) return this.botSell(b, sf() * 0.6);         // steady profit-taking
     if (has && u >= A.tp && (A.resist === 0 || F.nearRes || R() < 0.5) && R() < (D.tradeScale ?? 1)) return this.botSell(b, sf());
     if (has && u <= A.sl) return this.botSell(b, 1);
     if (has && F.nearRes && A.resist > 0 && u > 0.15 && R() < A.resist * 0.35) return this.botSell(b, A.sellFrac[0]);
@@ -366,16 +422,18 @@ export class SimRun {
     if (b.arch === "crew" && F.nearRes) w *= 0.5;
     if (this.rugged && !this.ctoActive) w *= 0.25;
     if (wave) w *= wave.buyCut;
+    if (D.story) w *= Math.max(0.1, Math.min(2.5, this.pull ** D.story.steer));
     if (b.cash >= 1 && R() < Math.min(0.95, w * 0.6)) return this.botBuy(b, bf());
   }
   private rug(dev: Bot) {
     this.rugged = { t: this.t, peakBefore: this.peak };
     if (this.m.pool) for (const o of [...this.m.pool.active]) if (o.owner === dev.wallet || this.byWallet.get(o.owner)?.arch === "bundler") this.close(o, "cancel", "DEV");
-    this.botSell(dev, 1);
-    for (const b of this.bots) if (b.arch === "bundler" && b.pos.size > 0) this.botSell(b, 1);
-    this.emitEvent("rug", `RUG · dev + bundle dumped · ${fmt(this.m.mcap())}`);
+    this.botSell(dev, 1, undefined, true);
+    for (const b of this.bots) if (b.arch === "bundler" && b.pos.size > 0) this.botSell(b, 1, undefined, true);
+    this.emitEvent("rug", `Rug pull: the dev and linked wallets dumped at ${fmt(this.m.mcap())}`, false, dev);
     // panic: paper hands and momentum dump too
-    for (const b of this.bots) if ((b.arch === "paperhand" || b.arch === "momentum") && b.pos.size > 0 && this.rng() < 0.7) this.botSell(b, 1);
+    for (const b of this.bots) if ((b.arch === "paperhand" || b.arch === "momentum") && b.pos.size > 0 && this.rng() < 0.7) this.botSell(b, 1, undefined, true);
+    this.base = { t0: this.t, m0: this.m.mcap() };
     const D = this.diff().rug!;
     if (this.ctoPlan) this.ctoAt = this.t + this.r(D.ctoDelayS[0], D.ctoDelayS[1]);
   }
@@ -385,9 +443,96 @@ export class SimRun {
     const n = Math.floor((this.acc + 1e-9) / B); this.acc = Math.max(0, this.acc - n * B);
     for (let i = 0; i < n; i++) this.block(B);
   }
+  // ── pacing director (Free play) ─────────────────────────────────────────────────────────────────────
+  /** where the arc starts: launch, or the crash after a rug */
+  base = { t0: 0, m0: 0 };
+  /** target / actual mcap this block (> 1: the chart is below its arc) */
+  pull = 1;
+  /** the director's target mcap at time t */
+  target(t: number) {
+    const A = this.arc, B = this.base;
+    if (this.rugged) {   // after a rug: flat until a CTO, then the crew climbs it back up by story.ctoLift by the end
+      const St = this.diff().story;
+      if (!this.ctoActive || this.ctoAt == null) return B.m0;
+      const u = Math.min(1, (t - this.ctoAt) / Math.max(10, this.seconds - this.ctoAt)); return B.m0 * (1 + St.ctoLift * u);
+    }
+    const K = A.keys; if (t >= K[K.length - 1][0]) return B.m0 * K[K.length - 1][1];
+    for (let i = 1; i < K.length; i++) if (t <= K[i][0]) { const [t0, a] = K[i - 1], [t1, b] = K[i], u = (t - t0) / Math.max(1e-6, t1 - t0);
+      return B.m0 * Math.exp(Math.log(a) + u * (Math.log(b) - Math.log(a))); }
+    return B.m0;
+  }
+  /** the crowd's drift: once a second a small trader buys (chart under its arc) or sells (over it), closing the gap
+   *  with a time constant of story.flowS. Always below the tell size, so it reads as the tape, not a beat. */
+  private flow(St: Story) {
+    if (this.t < this.cfg.launch.antiSnipeDurationS + 1 || (this.rugged && !this.ctoActive)) return;
+    const gap = Math.log(this.pull); if (Math.abs(gap) < 0.04) return;
+    const usd = Math.min(St.tellFrac * 0.9, Math.abs(gap) / (2 * St.flowS)) * this.m.depth() * this.r(0.6, 1.4);
+    if (gap > 0) { const pool = this.bots.filter((b) => b.active && !b.pending && b.cash >= usd && b.arch !== "rugger" && b.arch !== "bundler");
+      const b = pool.length ? pool[Math.floor(this.rng() * pool.length)] : this.spawn("crew", this.t); if (b.cash < usd) b.cash = b.cash0 = usd * 1.5;
+      this.botBuy(b, usd / b.cash); }
+    else { const p = this.m.price(), pool = this.bots.filter((b) => b.active && !b.pending && b.pos.size * p >= 2 && b.arch !== "rugger" && b.arch !== "bundler");
+      let left = usd;   // a few holders trim (each at most 60% of its bag) until the drift is sold
+      for (let k = 0; k < 4 && left > 1 && pool.length; k++) { const i = Math.floor(this.rng() * pool.length), b = pool[i]; pool.splice(i, 1);
+        const v = b.pos.size * p, f = Math.min(0.6, left / v); this.botSell(b, f, undefined, true); left -= v * f; } }
+  }
+  /** land the bots' announced sells; a beat's dump drags followers with it */
+  private landPending() {
+    const St = this.diff().story;
+    for (const b of this.bots) { const P = b.pending; if (!P || this.t < P.at) continue; b.pending = null;
+      const before = b.volume; this.botSell(b, P.frac, P.react, true); const usd = b.volume - before; if (!(usd > 0)) continue;
+      this.emitEvent("dump", `${b.name} cashed out ${fmt(usd)}`, false, b);
+      if (P.beat) for (const f of this.bots) if (f !== b && !f.pending && f.pos.size > 0 && (f.arch === "paperhand" || f.arch === "momentum" || f.arch === "scalper") && this.rng() < St.follow) this.botSell(f, this.r(0.5, 1), undefined, true); }
+  }
+  /** Expert: linked wallets drip-sell (tell), the dev wallet moves (tell), then the rug */
+  private rugChain() {
+    const rp = this.rugPlan; if (!rp || this.rugged) return;
+    const dev = this.bots.find((b) => b.arch === "rugger"); if (!dev || !dev.pos.size) return;
+    if (rp.stage === 0 && this.t >= rp.at && this.m.mcap() >= rp.minMcap) { rp.stage = 1; rp.next = this.t + this.r(4, 7);
+      this.emitEvent("tell", "Linked wallets are selling", false, this.bots.find((b) => b.arch === "bundler"));
+      for (const b of this.bots) if (b.arch === "bundler" && b.pos.size > 0) this.botSell(b, this.r(0.12, 0.25), undefined, true); }
+    else if (rp.stage === 1 && this.t >= rp.next) { rp.stage = 2; rp.next = this.t + this.r(2, 3); this.emitEvent("tell", "The dev wallet just moved", false, dev); }
+    else if (rp.stage === 2 && this.t >= rp.next) { rp.stage = 3; this.rug(dev); }
+  }
+  private direct() {
+    const St = this.diff().story; if (!St) return;
+    const firstDue = this.bombs === 0 && this.t >= this.arc.firstBomb;
+    if (this.t < this.nextBeat && !firstDue) return;
+    this.nextBeat = this.t + this.r(St.beatS[0], St.beatS[1]); this.beats++;
+    if (this.rugPlan && this.rugPlan.stage > 0 && this.rugPlan.stage < 3) return;   // the rug chain is the beat
+    const ratio = 1 / this.pull, late = this.t > this.arc.peakT;
+    const bomb = this.t >= this.arc.firstBomb && (firstDue || ratio > 1.12 || (ratio >= 0.88 && this.rng() < (late ? St.bomb.late : St.bomb.odds)));
+    if (bomb && this.beatBomb(St, ratio)) return;
+    this.beatPump(St, ratio);
+  }
+  /** the biggest holder peels off (tell), then dumps size × depth */
+  private beatBomb(St: Story, ratio: number) {
+    const p = this.m.price(), need = this.r(St.bomb.size[0], St.bomb.size[1]) * this.m.depth() * (ratio > 1.25 ? 1.7 : 1) * (this.bombs === 0 ? St.bomb.first : 1); let top: Bot | null = null, v = 0;
+    for (const b of this.bots) { if (b.pending || !b.active || b.arch === "rugger" || b.arch === "cto") continue; const x = b.pos.size * p; if (x > v) { v = x; top = b; } }
+    if (!top || v < 0.02 * this.m.depth()) return false;
+    this.bombs++; this.tell(top, Math.min(1, need / v), undefined, true); return true;
+  }
+  /** a beat's own trades are announced by the beat (no extra whale line) */
+  private inBeat = false;
+  /** a crowd boards, or a whale boosts: size × depth (bigger when the chart is well under its arc) */
+  private beatPump(St: Story, ratio: number) { this.inBeat = true; try { this.pumpNow(St, ratio); } finally { this.inBeat = false; } }
+  private pumpNow(St: Story, ratio: number) {
+    if (this.rugged && !this.ctoActive) {   // nobody pumps a rugged chart: a few dip buyers nibble
+      const k = 1 + Math.floor(this.rng() * 3); for (let i = 0; i < k; i++) { const b = this.spawn("crew", this.t); this.botBuy(b, this.r(0.3, 0.6)); }
+      this.emitEvent("pump", `${k} pilots bought the crater`); return; }
+    const usd = this.r(St.pump[0], St.pump[1]) * this.m.depth() * (ratio < 0.85 ? 1.6 : ratio > 1.1 ? 0.5 : 1); this.pumps++;
+    if (this.rng() < 0.3) { let w = this.bots.find((b) => b.arch === "whale" && b.active && !b.pending && b.cash >= usd);
+      if (!w) { w = this.spawn("whale", this.t); w.cash = w.cash0 = usd * this.r(1.15, 1.6); }
+      this.botBuy(w, usd / w.cash); this.emitEvent("pump", `${w.name} boosts ${fmt(usd)}`, false, w); return; }
+    const D = this.diff(), mix = (Object.entries(D.mix) as [ArchetypeId, number][]).filter(([a]) => a !== "whale"), tot = mix.reduce((x, [, w]) => x + w, 0), k = 3 + Math.floor(this.rng() * 4);
+    for (let i = 0; i < k; i++) { let x = this.rng() * tot, a: ArchetypeId = mix[0][0]; for (const [id, w] of mix) { if ((x -= w) <= 0) { a = id; break; } }
+      const b = this.spawn(a, this.t); b.cash = b.cash0 = (usd / k) * this.r(1.1, 1.5); this.botBuy(b, this.r(0.7, 0.9)); }
+    this.emitEvent("pump", `${k} pilots boarded`);
+  }
   private block(dt: number) {
     this.blk++; this.t = this.blk * this.cfg.market.blockS;
     const D = this.diff(), M = this.cfg.market;
+    if (D.story) { const mc = this.m.mcap(); this.pull = Math.max(0.05, Math.min(20, this.target(this.t) / Math.max(1, mc)));
+      this.landPending(); this.rugChain(); this.direct(); if (this.blk % 10 === 0) this.flow(D.story); }
     if (this.ctoAt != null && !this.ctoActive && this.t >= this.ctoAt) {
       this.ctoActive = true; const c = this.bots.find((b) => b.arch === "cto") || this.spawn("cto", this.t); c.active = true; c.nextT = this.t;
       this.emitEvent("cto", `CTO · community takeover at ${fmt(this.m.mcap())}`);
@@ -396,14 +541,15 @@ export class SimRun {
       this.waveUntil = this.t + this.r(W.durS[0], W.durS[1]); this.waveAt = this.waveUntil + this.r(W.everyS[0], W.everyS[1]); }
     const F = this.feat();
     for (const b of this.bots) {
-      if (!b.active || this.t < b.nextT) continue;
+      if (!b.active || b.pending || this.t < b.nextT) continue;
       const A = this.cfg.archetypes[b.arch];
       b.nextT = this.t + (60 / Math.max(0.05, A.rate * D.activity)) * (-Math.log(this.rng() + 1e-12));
       this.decide(b, F);
     }
     this.keeperStep();
     // arrivals: attention follows momentum and altitude; a rug kills it until a CTO
-    const att = Math.max(0.2, 1 + 6 * Math.max(-0.1, F.mom)) * (this.rugged && !this.ctoActive ? 0.15 : 1) * (this.ctoActive ? D.rug?.ctoArrivalBoost ?? 1 : 1);
+    const att = Math.max(0.2, 1 + 6 * Math.max(-0.1, F.mom)) * (this.rugged && !this.ctoActive ? 0.15 : 1) * (this.ctoActive ? D.rug?.ctoArrivalBoost ?? 1 : 1)
+      * (D.story ? Math.max(0.05, Math.min(3, this.pull ** D.story.steer)) : 1);
     if (this.bots.length < D.maxBots && this.rng() < D.arrivalsPerMin * this.hype / 60 * att * dt) {
       const mix = Object.entries(D.mix) as [ArchetypeId, number][]; let x = this.rng() * mix.reduce((s, [, w]) => s + w, 0);
       for (const [a, w] of mix) { if ((x -= w) <= 0) { this.spawn(this.ctoActive && this.rng() < 0.5 ? "crew" : a, this.t); break; } }

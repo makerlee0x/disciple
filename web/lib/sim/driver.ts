@@ -21,7 +21,7 @@ export class SimDriver {
   run: SimRun; speed = 1; paused = false; ended = false; iv = 0; block = 1; emit: Emit | null = null;
   listeners = new Set<() => void>(); eventSubs = new Set<(e: SimEvent) => void>();
   constructor(cfg: SimConfig, public difficulty: DifficultyId, public seed: number, public minutes: number) {
-    this.run = new SimRun(cfg, difficulty, seed);
+    this.run = new SimRun(cfg, difficulty, seed, { minutes });
     this.run.on(({ trade, event, player }) => { if (trade) this.toEngine(trade); if (event) this.eventSubs.forEach((f) => f(event)); if (player) this.syncPos(); });
   }
   /** push the authoritative sim position to the HUD */
@@ -30,14 +30,14 @@ export class SimDriver {
     if (!this.emit) return;
     const S = this.run.m.S;
     this.emit({ t: "swap", block: this.block, ts: Date.now(), txHash: "sim:" + this.run.trades.length, side: tr.side, usd: tr.usd, mcap: tr.mcap, price: tr.mcap / S,
-      prePrice: tr.preMcap / S, postPrice: tr.mcap / S, impactPct: (tr.mcap / tr.preMcap - 1) * 100, trader: tr.mine ? undefined : tr.trader, mine: tr.mine });
+      prePrice: tr.preMcap / S, postPrice: tr.mcap / S, impactPct: (tr.mcap / tr.preMcap - 1) * 100, trader: tr.mine ? undefined : tr.trader, flare: tr.mine ? undefined : tr.flare, mine: tr.mine });
   }
   start() {
     const tick = () => {
       if (this.paused || this.ended) return;
-      const dt = 0.1 * this.speed; this.run.step(dt); this.block++;
+      const dt = Math.min(0.1 * this.speed, Math.max(0, this.minutes * 60 - this.run.t)); this.run.step(dt); this.block++;   // never past the end (a daily is scored at exactly its last block)
       this.emit?.({ t: "block", block: this.block, ts: Date.now() });
-      if (this.run.t >= this.minutes * 60) { this.ended = true; }
+      if (this.run.t >= this.minutes * 60 - 1e-9) { this.ended = true; }
       this.listeners.forEach((f) => f());
     };
     this.iv = window.setInterval(tick, 100);
