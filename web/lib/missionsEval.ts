@@ -84,22 +84,23 @@ export function evaluateMissions(inp: MissionInput, period: Period, missions: re
     boosts.push(f);
   }
 
-  // Positions: holding intervals, the bomb hold clock and the 24h stay-aboard streak, per coin.
-  type Pos = { tokens: number; basis: number; holdStart: number | null; streak: number | null; intervals: Interval[] };
+  // Positions: holding intervals, the bomb hold clock and the stay-aboard streaks (24h weekly, 1h daily), per coin.
+  const HOLD_MS = [FAIR.holdMs, FAIR.holdShortMs] as const;
+  type Pos = { tokens: number; basis: number; holdStart: number | null; streak: (number | null)[]; intervals: Interval[] };
   const pos = new Map<string, Pos>();
   const bombs: number[] = [];
-  const holds: number[] = [];     // times a 24h streak completed
+  const holds: number[][] = HOLD_MS.map(() => []);     // per HOLD_MS entry: times a streak of that length completed
   const cashOuts: number[] = [];  // cash_out_higher: qualifying sells
   const pathOf = (c: string) => (inp.coinFills?.get(c) ?? fills.filter((f) => f.coin === c)).filter((x) => typeof x.mcapUsd === "number").slice().sort((a, b) => a.ts - b.ts);
   for (const f of fills) {
-    const p = pos.get(f.coin) ?? pos.set(f.coin, { tokens: 0, basis: 0, holdStart: null, streak: null, intervals: [] }).get(f.coin)!;
+    const p = pos.get(f.coin) ?? pos.set(f.coin, { tokens: 0, basis: 0, holdStart: null, streak: HOLD_MS.map(() => null), intervals: [] }).get(f.coin)!;
     const usd = Number.isFinite(f.usd) && f.usd > 0 ? f.usd : 0;
-    // a streak that reached 24h before this fill is complete
-    if (p.streak !== null && f.ts >= p.streak + FAIR.holdMs) { holds.push(p.streak + FAIR.holdMs); p.streak = null; }
+    // a streak that reached its length before this fill is complete
+    HOLD_MS.forEach((ms, k) => { const s0 = p.streak[k]; if (s0 !== null && f.ts >= s0 + ms) { holds[k].push(s0 + ms); p.streak[k] = null; } });
     if (f.side === "buy") {
       if (p.tokens <= DUST) { p.holdStart = f.ts; p.intervals.push({ start: f.ts, end: Infinity, startMcap: f.mcapUsd }); }
       p.tokens += f.tokens; p.basis += usd;
-      if (p.streak === null && p.basis >= FAIR.holdMinUsd) p.streak = f.ts;
+      HOLD_MS.forEach((_, k) => { if (p.streak[k] === null && p.basis >= FAIR.holdMinUsd) p.streak[k] = f.ts; });
     } else {
       if (f.side === "sell" && inP(f.ts) && (f.impactBps ?? 0) >= FAIR.bombMinImpactBps && usd >= FAIR.bombMinUsd && p.holdStart !== null && f.ts - p.holdStart >= FAIR.bombMinHoldMs) bombs.push(f.ts);
       const q = Math.min(f.tokens, Math.max(0, p.tokens));
@@ -114,14 +115,17 @@ export function evaluateMissions(inp: MissionInput, period: Period, missions: re
       if (p.tokens > DUST) { p.basis -= p.basis * (q / p.tokens); p.tokens -= q; }
       if (p.tokens <= DUST) { p.tokens = 0; p.basis = 0; p.holdStart = null; const last = p.intervals[p.intervals.length - 1]; if (last && last.end === Infinity) last.end = f.ts; }
       // any dump or transfer away resets the clock
-      p.streak = p.basis >= FAIR.holdMinUsd ? f.ts : null;
+      HOLD_MS.forEach((_, k) => { p.streak[k] = p.basis >= FAIR.holdMinUsd ? f.ts : null; });
     }
   }
   for (const p of Array.from(pos.values())) {
-    if (p.streak === null) continue;
-    const due = p.streak + FAIR.holdMs;
-    if (due <= inp.now) holds.push(due);
-    else if (due < period.end) recheck(due);
+    HOLD_MS.forEach((ms, k) => {
+      const s0 = p.streak[k];
+      if (s0 === null) return;
+      const due = s0 + ms;
+      if (due <= inp.now) holds[k].push(due);
+      else if (due < period.end) recheck(due);
+    });
   }
 
   const results: Record<string, MissionResult> = {};
@@ -202,8 +206,9 @@ export function evaluateMissions(inp: MissionInput, period: Period, missions: re
         }
         done(m, at !== undefined ? 1 : 0, at); break;
       }
-      case "hold_24h": {
-        const at = holds.filter((t) => t >= period.start && t < period.end && t <= inp.now).sort((a, b) => a - b)[0];
+      case "hold_24h":
+      case "hold_1h": {
+        const at = holds[m.kind === "hold_24h" ? 0 : 1].filter((t) => t >= period.start && t < period.end && t <= inp.now).sort((a, b) => a - b)[0];
         done(m, at !== undefined ? 1 : 0, at); break;
       }
       case "launch": {

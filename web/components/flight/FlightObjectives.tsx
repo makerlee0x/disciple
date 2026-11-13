@@ -40,6 +40,7 @@ function hint(m: MissionStatus, kind: MissionKind | undefined, live: Live, aboar
     case "boost_modes": return { sub: `${m.progress} of 3 modes boosted`, f };
     case "boost_fresh": return { sub: "Boost a rocket launched under an hour ago", f };
     case "drop_bomb": return { sub: "Dump 2%+ after 10 minutes aboard", f };
+    case "hold_1h": return { sub: "Keep $25+ of one rocket for an hour", f };
     case "hold_24h": return { sub: "Keep $25+ of one rocket for a day", f };
     case "launch": return { sub: "Launch your own rocket", f };
     case "orbit_aboard": return { sub: "Be aboard when a rocket reaches orbit", f };

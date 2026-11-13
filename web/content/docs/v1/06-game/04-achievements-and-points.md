@@ -32,19 +32,21 @@ Everyone gets the same missions, so you can compare notes in chat.
 
 | Daily mission | XP |
 |---|---|
-| Boost 3 different rockets | 150 |
-| Boost $50 in total | 100 |
 | Ride a rocket up one tier | 100 |
-| Boost a rocket launched in the last hour | 100 |
-| Drop a bomb | 75 |
 | Boost an Easy, a Hard and an Expert rocket | 200 |
+| Start a run | 100 |
+| Be in a rocket's first crew | 100 |
+| Stay aboard one rocket for an hour | 100 |
 
 | Weekly mission | XP |
 |---|---|
-| Boost 10 different rockets | 600 |
 | Stay aboard one rocket for 24 hours | 500 |
 | Launch a rocket | 750 |
 | Be aboard when a rocket reaches orbit | 1,000 |
+| Hold through a bomb | 150 |
+| Cash out higher | 300 |
+
+Missions never pay for how much or how often you trade. They pay for being early, staying aboard and riding a rocket up.
 
 Missions are checked from on-chain trades, so there's nothing to claim. XP shows up a minute or two after the trade that finished it.
 

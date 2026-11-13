@@ -87,7 +87,7 @@ const toMissionFill = (f: Fill): MissionFill => ({
 });
 
 /** Missions that depend on still holding the tokens: not paid while transfers out couldn't be checked. */
-const HOLDING_KINDS = new Set(["hold_24h", "ride_tier", "orbit_aboard", "drop_bomb", "hold_bomb", "cash_out_higher"]);
+const HOLDING_KINDS = new Set(["hold_24h", "hold_1h", "ride_tier", "orbit_aboard", "drop_bomb", "hold_bomb", "cash_out_higher"]);
 
 /** How many recent trades per coin the cron loads for `coinFills`; fewer than this = the coin's whole history (first_crew). */
 export const COIN_FILLS_LIMIT = 1000;

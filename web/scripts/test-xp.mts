@@ -238,6 +238,36 @@ test("drafting XP: pays only aboard with $5+, only behind a pilot who boosted th
   assert.ok(many.length >= 1);
 });
 
+test("stay aboard 1h: $25 held for an hour, a dump resets the clock", () => {
+  const coins = new Map([["c", coin(OTHER, T0 - 50 * H)]]);
+  const start = day.start + H;
+  const fills = [f("c", start, "buy", 30)];
+  let r = evaluateMissions({ wallet: W, fills, coins, now: start + 30 * MIN }, day, only("d_hold1h"));
+  assert.equal(r.results.d_hold1h.progress, 0);
+  assert.equal(r.recheckAt, start + H);
+  r = evaluateMissions({ wallet: W, fills, coins, now: start + 2 * H }, day, only("d_hold1h"));
+  assert.equal(r.results.d_hold1h.doneAt, start + H);
+  const dumped = [...fills, f("c", start + 40 * MIN, "sell", 1)];
+  r = evaluateMissions({ wallet: W, fills: dumped, coins, now: start + 90 * MIN }, day, only("d_hold1h"));
+  assert.equal(r.results.d_hold1h.progress, 0);
+  assert.equal(evaluateMissions({ wallet: W, fills: dumped, coins, now: start + 2 * H }, day, only("d_hold1h")).results.d_hold1h.doneAt, start + 100 * MIN);
+  assert.equal(evaluateMissions({ wallet: W, fills: [f("c", start, "buy", 20)], coins, now: start + 2 * H }, day, only("d_hold1h")).results.d_hold1h.progress, 0); // under $25
+});
+
+test("size, count, bomb and fresh-launch missions leave the pools from Monday Nov 16 (maker, Nov 13)", () => {
+  const before = Date.UTC(2026, 10, 15, 12), after = Date.UTC(2026, 10, 16, 0);
+  const OLD = new Set(["d_boost3", "d_boost50", "d_fresh", "d_bomb", "w_boost10"]);
+  const seenBefore = new Set<string>();
+  for (let i = 0; i < 40; i++) missionsFor(dayPeriod(before - i * 86_400_000)).forEach((m) => seenBefore.add(m.id));
+  assert.ok(seenBefore.has("d_boost3") || seenBefore.has("d_boost50"), "running periods keep their draw");
+  assert.ok(!seenBefore.has("d_hold1h"));
+  const seen = new Set<string>();
+  for (let i = 0; i < 60; i++) { missionsFor(dayPeriod(after + i * 86_400_000)).forEach((m) => seen.add(m.id)); missionsFor(weekPeriod(after + i * 7 * 86_400_000)).forEach((m) => seen.add(m.id)); }
+  assert.ok([...seen].every((id) => !OLD.has(id)));
+  assert.ok(seen.has("d_hold1h"));
+  for (let i = 0; i < 20; i++) assert.equal(missionsFor(dayPeriod(after + i * 86_400_000)).length, 3);
+});
+
 /* ------------------------------------------------ in-flight missions (Nov 13) ------------------------------------------------ */
 test("in-flight missions join the pools only from Monday Nov 16: running periods keep their draw", () => {
   const before = Date.UTC(2026, 10, 15, 12), after = Date.UTC(2026, 10, 18, 12);
