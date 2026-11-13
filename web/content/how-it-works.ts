@@ -121,7 +121,7 @@ export const HIW_PRO = {
       { k: "Custom size", keys: [], v: "Type any $ or %" },
     ] as { k: string; keys: string[]; v: string }[],
   },
-  verify: { title: "Verify it yourself", body: "Contract addresses, the curve formula and the full rules are in the docs.", contracts: "Contracts", docs: "Read the docs" },
+  verify: { title: "Verify it yourself", body: "The contracts, the curve formula and the full rules are in the docs.", contracts: "Contracts", docs: "Read the docs" },
 };
 
 export const HIW_FINAL = {

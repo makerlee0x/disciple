@@ -42,7 +42,7 @@ section: Reference
 | **Pair** | A rocket and its base. |
 | **Pilot** | A trader. |
 | **Price impact** | How far one trade moves the price, in %. |
-| **Private launch** | A launch where your name doesn't show as the creator. In beta. |
+| **Private launch** | A launch where your name doesn't show as the creator. |
 | **PUFF** | The smallest bomb: under 2% price impact. |
 | **PvE / PvP** | Simulator difficulties: the crew climbing together, or every trader for themselves. |
 | **Rarity** | Common, Rare, Epic, Legendary or Mythic. One scale for milestones and rocket parts. |

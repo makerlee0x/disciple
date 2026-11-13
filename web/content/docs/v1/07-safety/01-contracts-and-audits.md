@@ -13,8 +13,6 @@ Not yet. The contracts have had internal security reviews only, no third-party a
 
 The latest internal review (Oct 15, 2026) covered every core contract: the bonding curve, Launchpad, fee router, hook, router, LockedLP, migration, pricer, rewards vault, tramps-and-walls manager and the pseudonymous launcher. It used manual review, fuzz and invariant tests, static analysis and a fork test against the live contracts.
 
-Findings and fixes are tracked openly in the repository. [CONFIRM: FLOW — link the public security-review page, and whether the findings table is published as-is.]
-
 ## How the contracts are built
 
 | Contract | Job |
@@ -34,7 +32,7 @@ Findings and fixes are tracked openly in the repository. [CONFIRM: FLOW — link
 | **AnonLauncher** | Private launches. |
 | **MarketLens** | Read-only market data. |
 
-Addresses: [Contract addresses](/docs/reference/contracts).
+The full list: [Contracts](/docs/reference/contracts).
 
 ## Properties you can check
 

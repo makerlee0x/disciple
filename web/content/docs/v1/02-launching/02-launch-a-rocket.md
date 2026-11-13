@@ -18,7 +18,7 @@ Press **Launch a Rocket** and fill in:
 | **Badge** | Yes | Your rocket's picture. DISCIPLE makes one for you, or you can upload your own. You can change it later. |
 | **Mode** | Yes | Easy, Hard or Trench. Easy is picked for you. Set for good at launch. See [Launch modes](/docs/launch/modes). |
 | **First BOOST** | No | Buy some of your own rocket at launch. See [Creator launch buy](/docs/launch/creator-buy). |
-| **Anon** switch | No | Launch without your name showing as the creator (beta). See [Private launches](/docs/launch/pseudonymous). |
+| **Anon** switch | No | Launch without your name showing as the creator. See [Private launches](/docs/launch/pseudonymous). |
 | **Advanced** | No | The pair coin, links (X, website, Telegram), a creator tax of 0–7%, and who receives your creator fees. |
 
 ## What happens when you launch
@@ -42,6 +42,6 @@ As the creator, you get 33% of every 1% trade fee on your rocket, for as long as
 
 Under **Advanced**, the form also shows other places your creator fees could go: into the rocket's locked pool, or into a buy-and-burn. Those two choices are not available yet. Today, creator fees always go to you, or to the account you name.
 
-## Private launch (beta)
+## Private launch
 
 You can launch without your name showing as the creator. See [Private launches](/docs/launch/pseudonymous).
