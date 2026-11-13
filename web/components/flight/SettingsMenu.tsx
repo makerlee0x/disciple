@@ -204,6 +204,10 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
                     style={{ flex: 1, accentColor: GOLD, opacity: gs[ch].on ? 1 : 0.4 }} />
                   <span style={{ width: 36, textAlign: "right", opacity: 0.8 }}>{Math.round(gs[ch].vol * 100)}%</span>
                 </div>)}
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ width: 130 }}><div>{t("audio.vibe")}</div><div style={label}>{t("audio.vibeHint")}</div></div>
+                  {toggle(gs.haptics, (v) => { setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); }, "audio-haptics-toggle")}
+                </div>
                 <div style={{ ...label, letterSpacing: ".02em", fontSize: 11 }}>{t("audio.note")}</div>
               </div>}
 

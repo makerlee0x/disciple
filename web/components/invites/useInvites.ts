@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { onPrivy } from "@/lib/aa/session";
+import { onPrivy } from "@/lib/aa/sessionState";
 import { inviteStatus, type InviteStatus } from "@/lib/invitesClient";
 
 /** The player's invite status; reloads when the Privy session changes. null while loading or if the API is down. */

@@ -198,6 +198,33 @@
   .lb-tabs { height: 52px; gap: 22px; }
   .lb-tabs a, .lb-tab-btn { font-size: 18px; }
 }
+.lb-ico { display: none; }
+/* Phones (≤760px, mobile plan option A, maker 2026-11-13): the tabs move to a bottom tab bar in thumb reach, icon over label.
+   The top bar keeps only the mark and the wallet strip. How to play stays on the lobby's Launch card. */
+@media (max-width: 760px) {
+  :root { --lb-bar-h: 60px; }
+  body.lobby { --ap-bottom-nav: 64px; }
+  /* no backdrop-filter here: it would make the header the containing block of the fixed bottom bar */
+  .lb-bar { flex-direction: row; align-items: center; backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(11,12,14,0.96); }
+  .lb-tabs {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; height: calc(64px + var(--ap-safe-bottom, 0px)); padding: 0 6px var(--ap-safe-bottom, 0px);
+    display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0; overflow: visible; box-sizing: border-box;
+    background: #0B0C0E; border-top: 1px solid rgba(232,234,238,0.10); box-shadow: 0 -12px 32px -12px rgba(0,0,0,0.6);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  }
+  .lb-tabs a {
+    flex-direction: column; justify-content: center; gap: 4px; min-height: 64px; padding: 0; border-bottom: 0; border-top: 2px solid transparent;
+    font-size: 11px; letter-spacing: 0.04em; text-align: center;
+  }
+  .lb-tabs a.on { border-bottom: 0; border-top-color: var(--dsc3-light-gold); }
+  .lb-tabs .lb-ico { display: block; box-sizing: content-box; padding: 5px 14px; border-radius: 999px; }
+  .lb-lbl { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .lb-tab-btn { display: none; }
+  /* Launch = host a match, the primary door: a gold rocket chip */
+  .lb-tabs a[href="/create"] .lb-ico { background: var(--dsc3-light-gold); color: #121327; }
+  .lb-tabs a[href="/create"].on { border-top-color: transparent; }
+  .main-offset.main-offset-lobby, body.side-open .main-offset.main-offset-lobby { padding-bottom: calc(64px + var(--ap-safe-bottom, 0px)); }
+}
 /* reserved from the first paint (no body class needed), and wins over a stale body.side-open left by a game route */
 .main-offset.main-offset-lobby, body.side-open .main-offset.main-offset-lobby { padding-left: 0; padding-top: calc(var(--lb-bar-h) + var(--ap-safe-top, 0px)); }
 

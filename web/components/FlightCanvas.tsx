@@ -77,7 +77,7 @@ export default function FlightCanvas({ search }: Props) {
       }
       await new Promise<void>((resolve, reject) => {
         scriptEl = document.createElement("script");
-        scriptEl.src = withBase("/flight/engine.js");
+        scriptEl.src = withBase(process.env.NEXT_PUBLIC_FLIGHT_ENGINE || "/flight/engine.js");   // minified in production builds (next.config.mjs)
         scriptEl.dataset.discipleFlight = "1";
         scriptEl.async = false;
         scriptEl.onload = () => resolve();

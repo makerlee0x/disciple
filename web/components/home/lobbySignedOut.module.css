@@ -248,3 +248,8 @@
   .hostPad { top: 254px; } .hostPadBase { top: 272px; } .hostPadGlow { top: 240px; } .hostRocket { top: 22px; } .hostSmoke { top: 240px; }
   .allHd { margin-top: 40px; }
 }
+
+/* phones: text links get a full thumb-sized hit box (same look, taller tap area) */
+@media (pointer: coarse), (max-width: 760px) {
+  .link, .trader a { display: inline-flex; align-items: center; min-height: 44px; }
+}

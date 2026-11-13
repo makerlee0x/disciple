@@ -121,7 +121,7 @@ export function startWorkerRender(o: {
   for (const k of LS_KEYS) { try { const v = localStorage.getItem(k); if (v != null) ls[k] = v; } catch { /* ignore */ } }
   const globals: Record<string, unknown> = { ...o.globals };
   for (const g of GLOBALS) if (w[g] !== undefined) globals[g] = w[g];
-  post({ k: "init", canvas: off, engineUrl: o.basePath + "/flight/engine.js", search: location.search, href: location.href, pathname: location.pathname,
+  post({ k: "init", canvas: off, engineUrl: o.basePath + (process.env.NEXT_PUBLIC_FLIGHT_ENGINE || "/flight/engine.js"), search: location.search, href: location.href, pathname: location.pathname,
     ls, globals, hidden: document.hidden, tradeAvail: !!w.__discipleTrade, ...size() }, [off]);
 
   // ---- input
