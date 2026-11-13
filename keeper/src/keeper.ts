@@ -101,10 +101,16 @@ export function selfPayRoom(log: Map<string, number[]>, id: string, t: number, m
 
 /** Split due pools into messages: at most `maxPools` listings and MAX_MESSAGE_SIZE bytes each. */
 /** Carry: whether a pool's tail should be swept now. `y` is the pool's quote reserve and `principal` what its tail
- *  holds in the vault, so `y - principal` is the hot quote; sweep once it is above `bandBps` of the hot target. */
+ *  holds in the vault, so `y - principal` is the hot quote. Sweep both ways, with `bandBps` as the band around the hot
+ *  target: once hot is above `bandBps` of the target (sweep puts the extra into Morpho), and once it is below the
+ *  target divided by that (sweep pulls USDG back out of Morpho to the target, so the next sells are paid from hot
+ *  USDG instead of each redeeming from Morpho in the swap, about 300k gas more per sell). At the default 2x band and
+ *  20% target: above 40% or below 10%. */
 export function sweepNeeded(y: bigint, principal: bigint, hotBps: number, vault: string, bandBps: number): boolean {
-  if (/^0x0{40}$/i.test(vault) || hotBps >= 10_000 || y <= principal) return false;
-  return (y - principal) * 100_000_000n > y * BigInt(hotBps) * BigInt(bandBps);
+  if (/^0x0{40}$/i.test(vault) || hotBps >= 10_000 || y < principal || y === 0n) return false;
+  const hot = y - principal, tgt = y * BigInt(hotBps), band = BigInt(bandBps);
+  if (hot * 100_000_000n > tgt * band) return true;
+  return principal > 0n && hot * band < tgt;
 }
 
 export function batch(due: Due[], maxPools: number): Due[][] {
@@ -789,9 +795,9 @@ export class Keeper {
     }
   }
 
-  /** Carry: put each pool's extra hot USDG back into its Morpho tail. Swaps only ever pull USDG out of Morpho (a sell
-   *  that needs more than the hot part holds); this sweeps a pool, at our own gas, once its hot quote is above
-   *  `sweepBandBps` of its target, which trims hot back down to the target. Each pool is checked every
+  /** Carry: keep each pool's hot USDG near its target. Swaps only ever pull USDG out of Morpho (a sell that needs
+   *  more than the hot part holds); this sweeps a pool, at our own gas, once its hot quote is outside `sweepBandBps`
+   *  of its target either way (sweepNeeded), which moves hot back to the target. Each pool is checked every
    *  `sweepEverySec` (two eth_calls). */
   async sweepDue(s: SameChainCfg): Promise<void> {
     const sm = this.cfg.sampling;
