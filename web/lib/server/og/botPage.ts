@@ -1,7 +1,9 @@
 import "server-only";
 /**
  * Invite links (/i/<CODE>, /r/<name>) redirect people straight on. Link preview crawlers get a tiny page with the
- * invite card's tags instead, because a redirect would show them the target's card, not the invite.
+ * invite card's tags instead, because a redirect would show them the target's card, not the invite. The page is never
+ * cached (private, no-store, Vary: User-Agent): a shared cache keyed only on the URL would hand it to people too, and
+ * they would skip the redirect and the first-touch referral cookie.
  */
 import { NextResponse } from "next/server";
 
@@ -22,5 +24,5 @@ export function previewPage({ title, description, image, url, to }: { title: str
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@disciplevip">
 <meta name="twitter:title" content="${t}"><meta name="twitter:description" content="${d}"><meta name="twitter:image" content="${i}">
 <meta http-equiv="refresh" content="0;url=${r}"></head><body><a href="${r}">${t}</a></body></html>`;
-  return new NextResponse(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300, s-maxage=3600" } });
+  return new NextResponse(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store", vary: "User-Agent" } });
 }

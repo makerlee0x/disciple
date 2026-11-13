@@ -16,5 +16,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ code
     const o = SITE_ORIGIN;
     return previewPage({ title: "You're invited to DISCIPLE", description: "Take your seat and boost your first rocket.", image: `${o}/api/og/invite`, url: `${o}/i/${code ?? ""}`, to: `${o}/invite${code ? `?code=${code}` : ""}` });
   }
-  return NextResponse.redirect(to, 307);
+  const res = NextResponse.redirect(to, 307);
+  res.headers.set("cache-control", "private, no-store"); res.headers.set("vary", "User-Agent");
+  return res;
 }

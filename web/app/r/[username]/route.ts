@@ -21,6 +21,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ user
     });
   }
   const res = NextResponse.redirect(new URL("/", req.url), 307);
+  res.headers.set("cache-control", "private, no-store"); res.headers.set("vary", "User-Agent");
   const existing = parseRef(req.cookies.get(REF_COOKIE)?.value);
   if (existing) return res; // first touch wins
   let u: string | null = null, a: string | null = null;

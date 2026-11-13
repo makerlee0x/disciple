@@ -18,6 +18,9 @@ describe("link preview cards", () => {
     expect(html).toContain("&lt;b&gt;&quot;x&quot;");
     expect(html).toContain('og:image" content="https://disciple.vip/api/og/invite"');
     expect(html).toContain("http-equiv=\"refresh\"");
+    // never stored by a shared cache: people on the same URL must get the redirect and the referral cookie
+    expect(r.headers.get("cache-control")).toBe("private, no-store");
+    expect(r.headers.get("vary")).toBe("User-Agent");
   });
 
   it("picks the sky band from the rocket's value", () => {
