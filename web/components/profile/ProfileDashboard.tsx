@@ -166,7 +166,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const home = useHomeCoins();
   const trophies = useTrophies(wallet);
   const progress = useMemo<Progress | null>(() => (xp && trophies ? { level: xp.level.level, prestige: xp.level.prestige, trophies: new Set(trophies.keys()) } : null), [xp, trophies]);
-  const looks = useLoadout(isPrivate, progress);
+  const looks = useLoadout(isPrivate, progress, wallet || null);
   const loadout = looks.loadout;
   const activity = useRealActivity(wallet);
   const rewards = useRewards(isPrivate && !!wallet);
@@ -217,7 +217,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
 
       <ServiceRecord pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} aboard={holdings ? holdings.length : null} launched={launched} isPrivate={isPrivate} />
 
-      {isPrivate && <RocketLooks progress={progress} hull={looks.hull} flare={looks.flare} coin={loadout.coin} setHull={looks.setHull} setFlare={looks.setFlare} />}
+      {isPrivate && <RocketLooks progress={progress} hull={looks.hull} flare={looks.flare} coin={loadout.coin} setHull={looks.setHull} setFlare={looks.setFlare} note={looks.note} />}
 
       <Fleet rows={holdings} home={home} launched={launched} isPrivate={isPrivate} owner={ownerName} />
 

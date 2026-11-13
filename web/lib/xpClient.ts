@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { IS_STATIC_PREVIEW } from "./base-path";
 import { onWallet } from "./walletState";   // light: no viem in the lobby level chip (mobile plan speed fix 1)
-import { dayPeriod, levelInfo, missionsFor, prestigeMessage, shopBuyMessage, weekPeriod, type XpSummary } from "./xp";
+import { dayPeriod, levelInfo, looksMessage, missionsFor, prestigeMessage, shopBuyMessage, weekPeriod, type XpSummary } from "./xp";
 
 const isAddr = (a: string | null | undefined): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.test(a);
 export const XP_CHANGED_EVENT = "disciple:xp-changed";
@@ -56,6 +56,8 @@ async function signedPost(address: string, url: string, msg: (a: string, n: stri
 
 export const buyPartWithXp = (address: string, part: string) => signedPost(address, "/api/shop/buy", (a, n) => shopBuyMessage(a, part, n), { part });
 export const prestigeWithXp = (address: string) => signedPost(address, "/api/xp/prestige", prestigeMessage);
+/** Save the Hangar look (hull + flare) on the server so other pilots see it (POST /api/looks). */
+export const saveLooksSigned = (address: string, hull: string, flare: string) => signedPost(address, "/api/looks", (a, n) => looksMessage(a, hull, flare, n), { hull, flare });
 
 /** "4h 12m" until ts. */
 export function untilLabel(ts: number, now = Date.now()): string {

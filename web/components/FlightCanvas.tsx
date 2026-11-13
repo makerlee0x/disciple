@@ -29,6 +29,7 @@ declare global {
   interface Window {
     REPLAY?: unknown;
     __flight?: unknown;
+    __flightLooksReq?: (wallet: string) => void;
     __rocketDecal?: { canvas: HTMLCanvasElement; t0: number; fallback: boolean };
   }
 }
@@ -154,7 +155,9 @@ export default function FlightCanvas({ search }: Props) {
 
         if (!cancelled) setStatus("Live");
         // equipped Rocket Factory parts (cosmetic) → engine loadout; the token decal still owns the nose roundel
-        if (!cancelled) try {
+        // (a live coin flies its host's look instead: wireLooks below)
+        const liveCoin = new URLSearchParams(qs.slice(1)).get("source") === "disciple" && /^0x[0-9a-fA-F]{40}$/.test(new URLSearchParams(qs.slice(1)).get("coin") || "");
+        if (!cancelled && !liveCoin) try {
           const j = JSON.parse(localStorage.getItem(LOADOUT_KEY) || "{}") as { equipped?: Record<string, string>; stats?: Record<string, number> };
           const e = j.equipped || {};
           const f = window.__flight as { setLoadout?: (l: unknown) => unknown } | undefined;
@@ -165,6 +168,7 @@ export default function FlightCanvas({ search }: Props) {
           if (e.body || e.thrusters || e.coin || accessory || stats) f?.setLoadout?.({ skin: (e.body || "").replace(/^body-/, ""), thruster: (e.thrusters || "").replace(/^thr-/, ""), noseCoin: (e.coin || "").replace(/^coin-/, ""),
             ...(accessory ? { accessory } : {}), ...(stats ? { stats } : {}) });
         } catch { /* no loadout */ }
+        if (!cancelled) wireLooks(liveCoin ? new URLSearchParams(qs.slice(1)).get("coin") : null);
       } catch (e) {
         if (!cancelled) {
           setErr(String((e as Error).message || e));
@@ -173,6 +177,33 @@ export default function FlightCanvas({ search }: Props) {
       }
     }
 
+    /* Rocket looks (Hangar "Your rocket", GET /api/looks): a live coin flies its HOST's hull and flare; the viewer's own flare
+       and every other booster's (asked for by the engine as their boosts arrive, batched) fire as the boost signature. */
+    let askT: number | null = null;
+    const asked = new Set<string>();
+    const flight = () => window.__flight as { setLoadout?: (l: unknown) => unknown; setFlares?: (m: Record<string, string>) => unknown } | undefined;
+    const pull = async (wallets: string[], coin?: string) => {
+      const q = new URLSearchParams(); if (wallets.length) q.set("wallets", wallets.join(",")); if (coin) q.set("coin", coin);
+      const r = await fetch(withBase(`/api/looks?${q}`)).catch(() => null);
+      return r && r.ok ? ((await r.json()) as { looks?: Record<string, { hull: string; flare: string }>; host?: { hull: string; flare: string } }) : null;
+    };
+    const wireLooks = (coin: string | null) => {
+      let mine = "stock";
+      try { const e = (JSON.parse(localStorage.getItem(LOADOUT_KEY) || "{}") as { equipped?: Record<string, string> }).equipped || {}; mine = (e.thrusters || "thr-stock").replace(/^thr-/, ""); } catch { /* none */ }
+      flight()?.setFlares?.({ you: mine });
+      window.__flightLooksReq = (w: string) => {
+        if (cancelled || asked.has(w)) return; asked.add(w);
+        if (askT == null) askT = window.setTimeout(() => {
+          askT = null; const ws = [...asked].slice(-100);
+          pull(ws).then((j) => { if (cancelled || !j) return; const m: Record<string, string> = {}; for (const w2 of ws) m[w2] = j.looks?.[w2]?.flare ?? "stock"; flight()?.setFlares?.(m); });
+        }, 400);
+      };
+      if (coin && /^0x[0-9a-fA-F]{40}$/.test(coin)) pull([], coin.toLowerCase()).then((j) => {
+        if (cancelled || !j?.host) return;
+        const cur = (flight() as { getLoadout?: () => Record<string, unknown> | null } | undefined)?.getLoadout?.() || {};
+        flight()?.setLoadout?.({ ...cur, skin: j.host.hull, thruster: j.host.flare });
+      });
+    };
     boot();
     // Token decal loads in parallel with the engine; never blocks flight.
     // AUDIT: ?icon only from the moderated store (/api/image/<sha>); anything else → plain-rocket fallback
@@ -183,6 +214,8 @@ export default function FlightCanvas({ search }: Props) {
 
     return () => {
       cancelled = true;
+      if (askT != null) clearTimeout(askT);
+      delete window.__flightLooksReq;
       stopWorker?.();
       cv?.remove();
       // Stop RAF / intervals by reloading is heavy; clear known hooks
