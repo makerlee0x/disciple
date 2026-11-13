@@ -1096,6 +1096,32 @@ function drawWingmen(){ if(!S.wing.size&&!wingExtra()) return; const im=IMG.rock
     ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='rgba(230,232,255,.92)'; ctx.fillText(t,px,py+1); ctx.textBaseline='alphabetic'; }
   ctx.restore(); }
 /* @wingmen-end */
+/* @ghost — a challenger's ghost (Free play Daily challenge, maker 2026-11-13). The page (components/sim/SimMode) sends
+   disciple:ghost { op:'join', name } when the challenger boarded on this exact flight, { op:'out', tag } when they cashed
+   out, { op:'clear' } on a new run. One see-through rocket flies beside yours with their name; on cash-out it shows the tag
+   and fades. Visual only: the ghost never trades, so nothing here touches the price, PnL or trades. */
+S.ghost=null;
+addEventListener('disciple:ghost',e=>{ const d=e.detail||{};
+  if(d.op==='clear'){ S.ghost=null; return; }
+  if(d.op==='join'){ S.ghost={name:String(d.name||'Ghost').slice(0,24),join:S.t,out:null,tag:'',x:W/2-200,y:H+90,a:0}; return; }
+  if(d.op==='out'&&S.ghost&&S.ghost.out==null){ S.ghost.out=S.t; S.ghost.tag=String(d.tag||'CASHED OUT').slice(0,32); } });
+function ghostStep(dt){ const g=S.ghost; if(!g) return;
+  const sc=Math.max(0.6,Math.min(1,W/1280)), tx=W/2-(W<640?105:190)*sc+Math.sin(S.t*0.5)*18*sc, ty=(S.ry||ROCKET_Y)+30+Math.sin(S.t*1.1)*5;
+  g.x=lerp(g.x,tx,1-Math.exp(-dt*2.2)); g.y=lerp(g.y,ty,1-Math.exp(-dt*2.2));
+  if(g.out!=null){ const a=S.t-g.out; g.a=a<2.5?1:Math.max(0,1-(a-2.5)/1.2); if(g.a<=0) S.ghost=null; }
+  else g.a=Math.min(1,(S.t-g.join)/0.8); }
+function drawGhost(){ const g=S.ghost; if(!g||g.a<=0) return; const im=IMG.rocket, ok=im&&im.complete&&!im.bad&&im.naturalWidth;
+  const h=(W<640?50:64), fw=h*0.11, fl=h*0.5*(g.out==null?1:0.5)*(0.9+0.12*Math.sin(S.t*40));
+  ctx.save(); ctx.globalAlpha=0.5*g.a; ctx.translate(g.x,g.y);
+  ctx.globalCompositeOperation='lighter'; const fg=ctx.createLinearGradient(0,0,0,fl); fg.addColorStop(0,'rgba(255,255,255,.9)'); fg.addColorStop(0.35,'rgba(243,223,168,.85)'); fg.addColorStop(1,'rgba(243,223,168,0)');
+  ctx.fillStyle=fg; ctx.beginPath(); ctx.moveTo(-fw,0); ctx.quadraticCurveTo(-fw*0.7,fl*0.5,0,fl); ctx.quadraticCurveTo(fw*0.7,fl*0.5,fw,0); ctx.closePath(); ctx.fill();
+  ctx.globalCompositeOperation='source-over';
+  if(ok){ const iw=h*im.naturalWidth/im.naturalHeight; ctx.drawImage(im,-iw/2,-h*0.96,iw,h); }
+  ctx.restore();
+  if(!CLEAN){ const lab=g.out!=null?g.name+' · '+g.tag:g.name+' · GHOST'; ctx.save(); ctx.globalAlpha=g.a; ctx.font=GF(13,700); ctx.textAlign='center'; ctx.lineWidth=3; ctx.lineJoin='round';
+    const tw=ctx.measureText(lab).width, lx=clamp(g.x,tw/2+8,W-tw/2-8);   // the label stays on screen on a phone
+    ctx.strokeStyle='rgba(8,9,20,.75)'; ctx.strokeText(lab,lx,g.y-h-6); ctx.fillStyle=g.out!=null?'#F2C14E':'#F3DFA8'; ctx.fillText(lab,lx,g.y-h-6); ctx.restore(); } }
+/* @ghost-end */
 /* @draft — DRAFTING (maker 2026-11-13). Steer (A/D or drag) so the nose sits in a wingman's contrail and the Draft meter fills:
    x2 at a third, x3 at two thirds, x4 = SLINGSHOT (your contrail goes gold for 5 s). Out of the contrail it drains; a bomb going
    off knocks you out of the draft. Each slingshot fires disciple:slingshot { wingmen, at } with the drafted pilots' addresses;
@@ -2775,7 +2801,7 @@ function rocketHits(px,py,rad){
 function orbHitsRocket(o){ return rocketHits(o.x,o.y,(ORB[o.k]&&ORB[o.k].r)||14); }
 /* @orb-hit-end */
   // (orb layer retired 2026-11-13: crew wingmen replace it, see @wingmen)
-  wingStep(dt); draftStep(dt);
+  wingStep(dt); ghostStep(dt); draftStep(dt);
   bombStep(dt);
   for (const t of S.toasts) t.life-=dt*0.6; keepIf(S.toasts,ALIVE);
   if (!S.ach.koth){ let top=null, tv=-Infinity; if(S.holders){ const t=topFuelers()[0]; if(t) top=t[0]; } else for (const k in S.fuelers) if(S.fuelers[k]>tv){ tv=S.fuelers[k]; top=k; } if(top==='you') award('koth','KING OF THE HILL','top booster on this coin'); }
@@ -3226,7 +3252,7 @@ function render(dt){
   if (S.grass){ ctx.save(); drawBg(); drawClouds(); drawSpeedLines(); drawTickTrail(); drawRocket(dt); drawClouds(true); ctx.restore(); drawPost(); drawGrass(dt); return; }
   S._grassA=0;
   ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawWingmen(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap(); cardPublish();
+  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawWingmen(); drawGhost(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap(); cardPublish();
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
 }

@@ -324,3 +324,31 @@ test("flight log: peak aboard, bombs survived, wingmen, boosts, all from the fil
   const bailed = [...fills.slice(0, 6), x(T0 + 6_000, W, "sell", 5, 7_900)];
   assert.equal(computeFlightLog({ wallet: W, since: T0, now: T0 + H, fills: bailed }).bombsSurvived, 0);
 });
+
+test("Free play XP: daily up to 150, practice up to 20, 150 a day across Free play, paid once per run", async () => {
+  const { freePlayXp, FREE_PLAY_XP } = await import("../lib/xp");
+  const { awardFreePlay } = await import("../lib/server/xp");
+  const { nextLevelUnlock } = await import("../lib/unlocks");
+  const { kv } = await import("../lib/server/kv");
+  const g = (green: boolean, cash2x: boolean, orbit: boolean) => ({ invested: 50, goals: { green, cash2x, orbit } });
+  assert.equal(freePlayXp("daily", g(true, true, true)), 150);
+  assert.equal(freePlayXp("daily", g(true, true, false)), 120);   // the board's "+120 XP waiting"
+  assert.equal(freePlayXp("daily", { invested: 0, goals: { green: false, cash2x: false, orbit: false } }), 0);
+  assert.equal(freePlayXp("practice", g(true, true, true)), 20);
+  assert.equal(FREE_PLAY_XP.perDay, 150);
+  const w = "0x" + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join(""), s = kv(), now = Date.UTC(2026, 10, 13, 15);   // fresh wallet: the local store persists
+  const a = await awardFreePlay(w, "fp:d:1", 120, "Daily flight #1", now, s); assert.ok(a.ok && a.xp === 120 && !a.capped);
+  const again = await awardFreePlay(w, "fp:d:1", 120, "Daily flight #1", now, s); assert.ok(again.ok && again.already && again.xp === 0);
+  const p1 = await awardFreePlay(w, "fp:p:x:pvp:1", 20, "p", now + 1, s); assert.ok(p1.ok && p1.xp === 20);
+  const p2 = await awardFreePlay(w, "fp:p:x:pvp:2", 20, "p", now + 2, s); assert.ok(p2.ok && p2.xp === 10 && p2.capped);   // 150 − 140
+  const { ledgerOf } = await import("../lib/server/xp");
+  const rowsBefore = (await ledgerOf(w, s)).length;
+  for (let i = 0; i < 50; i++) { const z = await awardFreePlay(w, `fp:p:x:pvp:z${i}`, 20, "p", now + 3, s); assert.ok(z.ok && z.xp === 0 && z.capped && z.totalXp === 150); }
+  const none = await awardFreePlay(w, "fp:p:x:pvp:never", 0, "p", now + 4, s); assert.ok(none.ok && none.xp === 0);
+  assert.equal((await ledgerOf(w, s)).length, rowsBefore, "a run paying 0 XP must not write a ledger row");
+  const tomorrow = await awardFreePlay(w, "fp:p:x:pvp:4", 20, "p", now + 86_400_000, s); assert.ok(tomorrow.ok && tomorrow.xp === 20);
+  // "80 more unlocks the Plasma flare": Plasma is level 5 = 1,040 XP
+  assert.deepEqual(nextLevelUnlock(0, 0, 120), { name: "Plasma", part: "flare", level: 5, more: 920 });
+  assert.equal(nextLevelUnlock(960)?.more, 80);
+  assert.equal(nextLevelUnlock(1040)?.name, "Matte");
+});
