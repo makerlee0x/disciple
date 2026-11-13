@@ -3,6 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { REF_COOKIE, REF_TTL_MS, parseRef } from "@/lib/referral";
 import { USERNAME_STORED_RE } from "@/lib/profile";
 import { usernameOf, walletOf } from "@/lib/server/usernames";
+import { isPreviewBot, previewPage } from "@/lib/server/og/botPage";
+import { inviterName } from "@/lib/server/og/data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +12,14 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest, { params }: { params: Promise<{ username: string }> }) {
   const { username } = await params;
   const raw = decodeURIComponent(username || "").trim().toLowerCase().replace(/^@/, "");
+  if (isPreviewBot(req.headers.get("user-agent"))) {
+    // link preview crawlers: the invite card (naming the sender when the name exists), no cookie
+    const o = new URL(req.url).origin, from = await inviterName(raw).catch(() => null);
+    return previewPage({
+      title: from ? `@${from} invited you to DISCIPLE` : "You're invited to DISCIPLE", description: "Take your seat and boost your first rocket.",
+      image: `${o}/api/og/invite${from ? `?from=${encodeURIComponent(from)}` : ""}`, url: req.url, to: `${o}/`,
+    });
+  }
   const res = NextResponse.redirect(new URL("/", req.url), 307);
   const existing = parseRef(req.cookies.get(REF_COOKIE)?.value);
   if (existing) return res; // first touch wins

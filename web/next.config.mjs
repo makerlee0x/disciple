@@ -34,7 +34,11 @@ const nextConfig = {
   // Next 15: serverComponentsExternalPackages → serverExternalPackages;
   // outputFileTracingIncludes moved out of experimental.
   serverExternalPackages: ["sharp", "nsfwjs", "@tensorflow/tfjs", "@napi-rs/canvas", "undici"],
-  outputFileTracingIncludes: { "/api/share/card": ["./public/fonts/share/**", "./public/assets/**"] },
+  outputFileTracingIncludes: {
+    "/api/share/card": ["./public/fonts/share/**", "./public/assets/**"],
+    // link preview cards: fonts, tier skies, rocket, mark, and the art plates in public/og once they land
+    "/api/og/[kind]": ["./public/fonts/share/**", "./public/assets/**", "./public/home/sky/**", "./public/brand/**", "./public/og/**"],
+  },
   env: {
     // lets the client pick NEXT_PUBLIC_PRIVY_APP_ID_PREVIEW on Vercel preview deployments
     NEXT_PUBLIC_VERCEL_ENV: process.env.VERCEL_ENV || "",

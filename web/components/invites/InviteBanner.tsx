@@ -11,7 +11,7 @@ export default function InviteBanner() {
   if (!st?.mode || !st.signedIn || st.in || path.startsWith("/invite") || path.startsWith("/admin")) return null;
   return (
     <div role="status" data-testid="invite-banner" className="wb-invite">
-      <span>{C["gate.title"]} {C["gate.body"]}</span>
+      <span>{C["gate.banner.text"]}</span>
       <Link href="/invite" className="cl-btn sm primary">{C["gate.banner.link"]}</Link>
     </div>
   );
