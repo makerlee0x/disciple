@@ -11,7 +11,7 @@ import { PRIVY_APP_ID, SIGNER_MODE } from "./env";
 import type { TradeTiming } from "../trade/timing";
 import { _publishSession, privyHooksNow, type OwnerKind } from "./sessionState";
 export {
-  aaSession, onSessionChange, registerPrivy, privyReady, onPrivy, privyAuthenticated, privyAccount, privySecurity,
+  aaSession, onSessionChange, registerPrivy, privyReady, privyLoaded, onPrivy, privyAuthenticated, privyAccount, privySecurity,
   privyAccessToken, privyIdentityToken, privyLogin,
 } from "./sessionState";
 export type { OwnerKind, SessionSummary, PrivyAccountInfo, PrivyMfaMethod, PrivySecurity } from "./sessionState";

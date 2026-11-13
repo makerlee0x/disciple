@@ -1,5 +1,5 @@
 "use client";
-/** Hangar pilot card: level ring, prestige, total XP, XP to spend, and the prestige button at level 50. */
+/** Hangar pilot card: level ring, prestige, total XP and the prestige button at level 50. */
 import { useState } from "react";
 import LevelRing from "./LevelRing";
 import { prestigeWithXp } from "@/lib/xpClient";
@@ -27,7 +27,6 @@ export default function PilotCard({ xp, wallet, name }: { xp: XpSummary | null; 
         <div className="xp-pilot-next">{L.level >= MAX_LEVEL ? "Max level" : `${fmt(L.need - L.into)} XP to level ${L.level + 1}`}</div>
         <dl className="xp-pilot-stats">
           <div><dt>Total XP</dt><dd className="dsc3-stat">{fmt(xp.totalXp)}</dd></div>
-          <div><dt>XP to spend</dt><dd className="dsc3-stat">{fmt(xp.spendableXp)}</dd></div>
         </dl>
         {L.canPrestige && wallet && (
           <button type="button" className="dsc3-btn dsc3-btn-primary" disabled={busy} data-testid="prestige"

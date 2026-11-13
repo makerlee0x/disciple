@@ -16,7 +16,11 @@ import { pairOf, pairSymOf, shortHex } from "@/lib/home/pairs";
 import { isHiddenCoin } from "@/lib/home/hiddenCoins";
 import { flaggedCopySet } from "@/lib/server/nameLock";
 import { chipOf, lobbyAgeTokens, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
+import { topPilots, tickerOf, type TickerItem, type TopPilots } from "@/lib/home/topPilots";
+import { levelInfo } from "@/lib/xp";
 import { resolveKeys } from "./imageStore";
+import { usernameOf } from "./usernames";
+import { ledgerOf, totals } from "./xp";
 import { indexTrades, tradesOf } from "./trades";
 
 const CACHE_MS = 15_000;
@@ -88,7 +92,27 @@ async function build(): Promise<HomeData> {
   const chips = heroIdx >= 0
     ? [...fillsBy[heroIdx]].sort((a, b) => b.block - a.block || b.logIndex - a.logIndex).slice(0, 6).map(chipOf)
     : [];
-  return { at: now, coins, ...pick, chips };
+  const pilots = topPilots(fillsBy, now);
+  const ticker = tickerOf(fillsBy, new Map(coins.map((c) => [c.token, c.name])));
+  await timeout(namePilots(pilots, ticker), 2_500, undefined);
+  return { at: now, coins, ...pick, chips, pilots, ticker };
+}
+
+/** Usernames + levels for the Top pilots and ticker traders (KV). Mutates; a miss leaves the default name. */
+async function namePilots(pilots: TopPilots, ticker: TickerItem[]): Promise<void> {
+  const rows = [...pilots.day, ...pilots.week, ...pilots.month];
+  const wallets = Array.from(new Set([...rows.map((r) => r.wallet), ...ticker.map((t) => t.trader)]));
+  const names = new Map<string, string | null>();
+  const levels = new Map<string, { level: number; prestige: number }>();
+  const ranked = new Set(rows.map((r) => r.wallet));
+  await Promise.all(wallets.map(async (w) => {
+    names.set(w, await usernameOf(w).catch(() => null));
+    if (!ranked.has(w)) return;
+    const l = await ledgerOf(w).then((x) => { const t = totals(x); return levelInfo(t.total, t.prestige); }).catch(() => null);
+    if (l) levels.set(w, { level: l.level, prestige: l.prestige });
+  }));
+  for (const r of rows) { r.username = names.get(r.wallet) ?? null; const l = levels.get(r.wallet); r.level = l?.level ?? null; r.prestige = l?.prestige ?? null; }
+  for (const t of ticker) t.username = names.get(t.trader) ?? null;
 }
 
 /** Home data, cached CACHE_MS; never throws (empty state on failure). */

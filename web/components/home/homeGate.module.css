@@ -1,0 +1,3 @@
+/* components/home/HomeGate: show the lobby for the visitor's sign-in state (data-auth, set before paint). */
+.gate[data-auth="in"] > .out { display: none; }
+.gate[data-auth="out"] > .in { display: none; }

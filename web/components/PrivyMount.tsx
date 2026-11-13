@@ -57,7 +57,7 @@ function PrivyBridge() {
   }, [user, linkedAccounts, exportWallet, showMfaEnrollmentModal, unenrollWithTotp, unenrollWithPasskey]);
 
   // getAccessToken: Privy session for our API routes (verification requests / admin review), no wallet signature
-  useEffect(() => { registerPrivy({ login, logout, getAccessToken, getIdentityToken, authenticated: ready && authenticated, account: accountInfo(user), security }); return () => registerPrivy(null); }, [login, logout, getAccessToken, ready, authenticated, user, security]);
+  useEffect(() => { registerPrivy({ ready, login, logout, getAccessToken, getIdentityToken, authenticated: ready && authenticated, account: accountInfo(user), security }); return () => registerPrivy(null); }, [login, logout, getAccessToken, ready, authenticated, user, security]);
 
   useEffect(() => {
     if (!ready || !walletsReady) return;
