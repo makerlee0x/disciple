@@ -578,7 +578,7 @@ const S = {
   displayAlt:null, levels:[], pending:[], feed:[], volEma:0, buyEma:0, sellEma:0,
   x:W/2, vx:0, tilt:0, tradeUsd:10, mode:0, lane:1, balance:250, promoLeft:50, slowUntil:0, mult:1, multUntil:0, simF:1, simT:1, simV:0, fwd:60, fwdV:0, fwdN:0, vyS:0, ry:H*0.58, anch:null, ammoHover:-1, floaters:[], heading:Math.PI/2, toasts:[], ach:{}, streak:0, collected:0, obstacles:[], fuelers:{'you':0}, cooldownUntil:0,
   status:{source:'',ok:true,msg:''}, score:0, motes:[], particles:[], shards:[], flashes:[],
-  orbsOn:localStorage.getItem('disciple.orbs')!=='off', lastOrbT:-99,
+  orbsOn:false, lastOrbT:-99,   // orbs retired (maker 2026-11-13): crew wingmen replace them
   tierShown:-1, tierBanner:0, keys:{}, t:0, turbo:false,
   altVel:0, flatSince:0, cruise:0, bank:0, bob:0, sway:0, roll:1, glint:0,
   trail:[], bgScrollX:0, speedBits:[],
@@ -665,7 +665,9 @@ function onEvent(e){
     if(e.side==='buy'&&e.usd>0&&!isHiddenTrader(e.trader)){ const who=e.mine?'you':e.trader?short(e.trader):null; if(who) S.fuelers[who]=(S.fuelers[who]||0)+e.usd; }   // no made-up wallet when the trader is unknown
     if(e.side==='sell'&&e.mine) S.fuelers.you=Math.max(0,S.fuelers.you-e.usd);
     if(e.mine&&e.side==='buy') award('first','FIRST FLAME','first confirmed thrust');
-    if(e.side==='buy'&&e.usd>0&&!isHiddenTrader(e.trader)) noteSignature(e);   // boost signature: the booster's flare colour
+    if(e.side==='buy'&&e.usd>0&&!isHiddenTrader(e.trader)) noteSignature(e);
+    if(e.usd>0&&!isHiddenTrader(e.trader)) objNote(e);   // @objlive
+    if(e.usd>0&&!e.mine&&e.trader&&!isHiddenTrader(e.trader)) wingNote(e);   // @wingmen   // boost signature: the booster's flare colour
     if (e.side==='sell'&&e.usd>0){ const fs=e.mine&&S.fullStackNext; if(e.mine) S.fullStackNext=false; noteSell({side:'sell',usd:e.usd,prePrice:e.prePrice,postPrice:e.postPrice,impactPct:e.impactPct,trader:e.trader,mine:e.mine,fullStack:fs}); }
     S.volEma+=e.usd; if(e.side==='buy') S.buyEma+=e.usd; else S.sellEma+=e.usd;
     if (e.usd>0&&!e.mine) SIM.realRate+=1/30;   // real flow → simulated flow backs off
@@ -1022,6 +1024,138 @@ function fillThrust(side,usd,pct,r){ if(!r||!r.ok) return;
   if (side==='buy') S.buyBoost=1;   // turbo: big flare + climb burst (the trade itself moves the price)
   applyThrust(side, u, pct); }
 /* @fillthrust-end */
+/* @wingmen (flight mechanics pass, maker 2026-11-13; replaces the orbs). Every pilot who BOOSTED in the last 60 s flies in a
+   formation around the centre line, up to WING_MAX ships (12, one per disciple; 6 on a phone). Ship size follows how much
+   they boosted on this coin, the flame is their boost signature (Hangar looks) or a stable colour from their address.
+   When a wingman dumps for 1%+ impact, the ship peels off and dives away as the bomb drops; a smaller sell flashes a red tag.
+   Every ship is a real trade from the feed: nothing here is simulated, and nothing touches the price, PnL or trades.
+   Each ship keeps a short x history = its contrail (drafting reads it, @draft). Pilots past the cap count as "+N more aboard". */
+const WING_MAX=12, WING_TTL=60, WING_SP=5;   // ships, s since their last boost, px between contrail samples
+const WING_SLOTS=[[-150,-120],[160,-150],[-270,-40],[280,-60],[-60,-250],[90,-300],[-220,-330],[240,-290],[-390,-190],[400,-210],[-360,50],[370,70]];
+const WING_PAL=['95,240,160','127,211,255','255,155,210','255,106,77','185,167,255','255,211,106','106,242,230','255,163,240','156,255,106','255,194,122','168,224,255','229,140,255'];
+S.wing=new Map(); S.wingRecent=new Map();
+function wingKey(t){ return String(t||'').toLowerCase(); }
+function wingRgb(k){ const id=FLARE_OF[k]; const rgb=id&&id!=='stock'?flareRgb(id):null; if(rgb) return rgb; let h=0; for(let i=0;i<k.length;i++) h=(h*31+k.charCodeAt(i))|0; return WING_PAL[Math.abs(h)%WING_PAL.length]; }
+function wingCap(){ return W<640?6:WING_MAX; }
+/* @objlive: live hints for the in-flight objective card (components/flight/FlightObjectives.tsx). Only a hint: the cron
+   scores the real missions from the fills (lib/missionsEval start_run / hold_bomb). Times are wall clock (ms). */
+S.objRun=null; S.objHold=null;
+function objPub(){ try{ dispatchEvent(new CustomEvent('disciple:objlive',{detail:{run:S.objRun?{n:S.objRun.who.size,until:S.objRun.at+60000}:null,hold:S.objHold?{until:S.objHold.until}:null}})); }catch(_){} }
+function objNote(e){ const now=Date.now(), usd=+e.usd||0; let ch=false;
+  if(S.objRun&&now-S.objRun.at>60000){ S.objRun=null; ch=true; }
+  if(S.objHold&&now>S.objHold.until){ S.objHold=null; ch=true; }
+  if(e.mine){ if(e.side==='buy'&&usd>=5){ S.objRun={at:now,who:new Set()}; ch=true; }
+    else if(e.side==='sell'&&S.objHold){ S.objHold=null; ch=true; } }
+  else if(e.trader){ const k=String(e.trader).toLowerCase();
+    if(e.side==='buy'&&usd>=5&&S.objRun&&!S.objRun.who.has(k)){ S.objRun.who.add(k); ch=true; }
+    if(e.side==='sell'&&usd>=10&&!S.objHold&&estimateImpactPct(e)>=5&&S.pnlTag&&S.pnlTag.size>0){ S.objHold={at:now,until:now+600000}; ch=true; } }
+  if(ch) objPub(); }
+function wingNote(e){ const k=wingKey(e.trader); if(!k) return;
+  if(e.side==='buy'){ S.wingRecent.set(k,S.t); let w=S.wing.get(k);
+    if(w&&w.peel==null){ w.last=S.t; w.boostT=S.t; return; }
+    if(w) return;   // still peeling away
+    const used=new Set(Array.from(S.wing.values()).map(v=>v.slot)); let slot=-1;
+    for(let i=0;i<wingCap();i++) if(!used.has(i)){ slot=i; break; }
+    if(slot<0) return;   // formation full: counted in "+N more aboard"
+    const [sx,sy]=wingSlotXY(slot);
+    S.wing.set(k,{k,trader:e.trader,slot,join:S.t,last:S.t,boostT:S.t,peel:null,x:sx+(sx<W/2?-1:1)*W*0.3,y:H+90,rot:0,hist:[],tagT:-9,tag:''}); return; }
+  const w=S.wing.get(k); if(!w||w.peel!=null) return;
+  const pct=estimateImpactPct(e);
+  if(pct>=1){ w.peel=S.t; w.peelDir=w.x<W/2?-1:1; w.tag='DUMPING'; w.tagT=S.t; S.wingRecent.delete(k); }
+  else { w.tag='−'+fmtShot(e.usd); w.tagT=S.t; } }
+function wingSlotXY(i){ const sc=Math.min(1,W/1280), sy=Math.min(1,H/720)*(W<640?0.8:1), s=WING_SLOTS[i]||[0,0], m=steerMargin(W)+20;
+  return [clamp(W/2+s[0]*sc*(W<640?1.4:1),m,W-m), (S.ry||ROCKET_Y)+s[1]*sy]; }
+function wingStep(dt){ if(!S.wing.size) return;
+  for(const w of Array.from(S.wing.values())){
+    const [sx,sy]=wingSlotXY(w.slot), ph=w.slot*1.7, wob=(Math.sin(S.t*0.45+ph)*55+Math.sin(S.t*0.21+ph*2)*25)*Math.min(1,W/1280);
+    if(w.peel!=null){ const a=S.t-w.peel; w.x+=w.peelDir*420*dt*(1+a*2); w.y+=260*dt*(1+a*3); w.rot+=w.peelDir*dt*3;
+      if(a>2.5||w.y>H+200) S.wing.delete(w.k); }
+    else if(S.t-w.last>WING_TTL){ w.x=lerp(w.x,sx+wob,1-Math.exp(-dt*1.2)); w.y=lerp(w.y,-160,1-Math.exp(-dt*0.8)); if(w.y<-120) S.wing.delete(w.k); }
+    else { const k=S.t-w.join<1.5?2.2:3, tx=sx+wob, ty=sy+Math.sin(S.t*1.3+ph)*6; w.x=lerp(w.x,tx,1-Math.exp(-dt*k)); w.y=lerp(w.y,ty,1-Math.exp(-dt*k)); w.rot=lerp(w.rot,clamp((tx-w.x)*-0.004,-0.3,0.3),0.1); }
+    w.hist.unshift(w.x); if(w.hist.length>90) w.hist.length=90; }
+  for(const [k,t] of S.wingRecent) if(S.t-t>WING_TTL) S.wingRecent.delete(k); }
+function wingExtra(){ let n=0; for(const k of S.wingRecent.keys()) if(!S.wing.has(k)) n++; return n; }
+function drawWingmen(){ if(!S.wing.size&&!wingExtra()) return; const im=IMG.rocket, ok=im&&im.complete&&!im.bad&&im.naturalWidth;
+  ctx.save(); ctx.lineCap='round';
+  for(const w of S.wing.values()){ const c=wingRgb(w.k), drafting=S.draftOn===w, n=w.hist.length;   // contrail: x history streamed downward
+    for(let i=1;i<n;i++){ const a=(1-i/n)*(drafting?0.8:0.28); if(a<0.01) continue; ctx.strokeStyle=`rgba(${c},${a})`; ctx.lineWidth=(drafting?4.5:2.5)*(1+i/n*1.6);
+      ctx.beginPath(); ctx.moveTo(w.hist[i-1],w.y+8+(i-1)*WING_SP); ctx.lineTo(w.hist[i],w.y+8+i*WING_SP); ctx.stroke(); } }
+  for(const w of S.wing.values()){ const c=wingRgb(w.k), boosting=S.t-w.boostT<1.1, usd=S.fuelers[w.k]||S.fuelers[short(w.trader)]||10;
+    const h=(46+Math.min(22,Math.log10(1+usd)*9))*(W<640?0.75:1), fw=h*0.11, fl=h*0.55*(boosting?1.6:0.8)*(0.9+0.12*Math.sin(S.t*40+w.slot));
+    ctx.save(); ctx.translate(w.x,w.y); ctx.rotate(w.rot||0);
+    ctx.globalCompositeOperation='lighter'; const g=ctx.createLinearGradient(0,0,0,fl); g.addColorStop(0,'rgba(255,255,255,.95)'); g.addColorStop(0.35,`rgba(${c},.9)`); g.addColorStop(1,`rgba(${c},0)`);
+    ctx.fillStyle=g; ctx.beginPath(); ctx.moveTo(-fw,0); ctx.quadraticCurveTo(-fw*0.7,fl*0.5,0,fl); ctx.quadraticCurveTo(fw*0.7,fl*0.5,fw,0); ctx.closePath(); ctx.fill();
+    ctx.globalCompositeOperation='source-over';
+    if(ok){ const iw=h*im.naturalWidth/im.naturalHeight; ctx.globalAlpha=0.92; ctx.drawImage(im,-iw/2,-h*0.96,iw,h); ctx.globalAlpha=1; }
+    ctx.restore();
+    if(!CLEAN){ const tag=S.t-w.tagT<1.6?w.tag:'', lab=w.peel!=null?nameOf(w.trader)+' · DUMPING':nameOf(w.trader)+(tag?' · '+tag:'');
+      ctx.font=GF(13,700); ctx.textAlign='center'; ctx.lineWidth=3; ctx.lineJoin='round'; ctx.strokeStyle='rgba(8,9,20,.75)'; ctx.strokeText(lab,w.x,w.y-h-6);
+      ctx.fillStyle=w.peel!=null||tag?'#FF8AB0':`rgb(${c})`; ctx.fillText(lab,w.x,w.y-h-6); } }
+  const more=wingExtra(); if(more&&!CLEAN){ const t='+'+more+' MORE ABOARD'; ctx.font=GF(14,700); const tw=ctx.measureText(t).width+22, px=W/2, py=Math.max(70,(S.ry||ROCKET_Y)-0.5*H);
+    ctx.fillStyle='rgba(14,16,34,.72)'; ctx.beginPath(); ctx.roundRect?ctx.roundRect(px-tw/2,py-13,tw,26,13):ctx.rect(px-tw/2,py-13,tw,26); ctx.fill();
+    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='rgba(230,232,255,.92)'; ctx.fillText(t,px,py+1); ctx.textBaseline='alphabetic'; }
+  ctx.restore(); }
+/* @wingmen-end */
+/* @draft — DRAFTING (maker 2026-11-13). Steer (A/D or drag) so the nose sits in a wingman's contrail and the Draft meter fills:
+   x2 at a third, x3 at two thirds, x4 = SLINGSHOT (your contrail goes gold for 5 s). Out of the contrail it drains; a bomb going
+   off knocks you out of the draft. Each slingshot fires disciple:slingshot { wingmen, at } with the drafted pilots' addresses;
+   components/flight/DraftXp.tsx reports it (lib/xp DRAFT: 10 XP, 5 a day, paid by the cron only if the fills back it up) and
+   answers disciple:slingshotxp so the tag reads "confirming" or "capped". Cosmetic in the engine: no price, PnL or trade. */
+const DRAFT_FILL=22, DRAFT_DRAIN=14, DRAFT_HIT=17, SLING_S=5;   // meter %/s in, %/s out, px either side of the contrail, gold s
+S.draft=0; S.draftLvl=0; S.draftOn=null; S.draftWho=new Set(); S.sling=-1;
+function draftStep(dt){
+  const [nx,ny]=nozzleXY(), noseY=ny-150*0.9; let on=null;
+  for(const w of S.wing.values()){ if(w.peel!=null||w.y>noseY-20) continue;
+    const i=Math.round((noseY-w.y)/WING_SP); if(i<1||i>=w.hist.length) continue;
+    if(Math.abs(w.hist[i]-nx)<DRAFT_HIT){ on=w; break; } }
+  S.draftOn=on;
+  if(on){ S.draft=Math.min(100,S.draft+dt*DRAFT_FILL); if(/^0x[0-9a-f]{40}$/i.test(on.trader)) S.draftWho.add(on.trader.toLowerCase()); }
+  else { S.draft=Math.max(0,S.draft-dt*DRAFT_DRAIN); if(!S.draft) S.draftWho.clear(); }
+  const lvl=S.draft>=100?4:S.draft>=66?3:S.draft>=33?2:S.draft>0?1:0;
+  if(lvl>S.draftLvl&&lvl>=2&&lvl<4) S.floaters.push({x:nx+70,y:noseY+10,txt:'DRAFT x'+lvl,c:'#C8C4FF',life:1.2,game:20});
+  if(lvl===4){ S.sling=S.t+SLING_S; S.draft=0; S.draftLvl=0; S.floaters.push({x:nx+70,y:noseY,txt:'SLINGSHOT',c:'#F2C14E',life:1.6,game:30});
+    sfx('zone',{tier:0}); const who=Array.from(S.draftWho); S.draftWho.clear();
+    try{ dispatchEvent(new CustomEvent('disciple:slingshot',{detail:{wingmen:who,at:Date.now()}})); }catch(_){} return; }
+  S.draftLvl=lvl; }
+function draftKnock(){ if(!(S.draft>0)) return; S.draft=0; S.draftLvl=0; S.draftWho.clear(); const [nx,ny]=nozzleXY();
+  S.floaters.push({x:nx-80,y:ny-150,txt:'Knocked out of the draft',c:'#FF8AB0',life:1.4,game:18}); }
+addEventListener('disciple:slingshotxp',e=>{ const d=e.detail||{}, [nx,ny]=nozzleXY();
+  if(d.state==='confirming') S.floaters.push({x:nx+70,y:ny-170,txt:'+'+(d.xp||10)+' XP · confirming',c:'#5FF0A0',life:1.6,game:20});
+  else if(d.state==='capped') S.floaters.push({x:nx+70,y:ny-170,txt:'Drafting XP capped for today',c:'#C8C4FF',life:1.6,game:18}); });
+function drawDraftMeter(x,y,h){ const sl=S.t<S.sling; if(!(S.draft>0)&&!sl) return; const mx=x+52, my=y-h*0.8, mh=h*0.6;
+  ctx.save(); ctx.fillStyle='rgba(14,16,34,.72)'; ctx.beginPath(); ctx.roundRect?ctx.roundRect(mx-6,my-4,12,mh+8,6):ctx.rect(mx-6,my-4,12,mh+8); ctx.fill();
+  const f=sl?1:S.draft/100; ctx.fillStyle=sl?'#F2C14E':'#B9B3FF'; ctx.beginPath(); ctx.roundRect?ctx.roundRect(mx-3,my+mh*(1-f),6,mh*f,3):ctx.rect(mx-3,my+mh*(1-f),6,mh*f); ctx.fill();
+  if(!CLEAN){ ctx.font=GF(13,700); ctx.textAlign='left'; ctx.fillStyle='#E7E5FF'; ctx.fillText(sl?'SLINGSHOT':'DRAFT x'+Math.max(1,S.draftLvl),mx+10,my+10); }
+  ctx.restore(); }
+/* @draft-end */
+
+
+/* @pressfeel — body kick spring (squat on a BOOST press, recoil on a DUMP fill; drawn y only), engine idle after a quiet spell,
+   and the lock rings. Visual only: nothing here touches the price, the camera, PnL or a trade. */
+const IDLE_AFTER=20, IDLE_RAMP=4;   // s without a swap before the engines idle down
+function pressFeelStep(dt){
+  S.kickV=(S.kickV||0)+(-170*(S.kick||0)-22*(S.kickV||0))*dt; S.kick=(S.kick||0)+S.kickV*dt;
+  if(Math.abs(S.kick)<0.02&&Math.abs(S.kickV)<0.2){ S.kick=0; S.kickV=0; }
+  const last=S.confirmed.lastSwapTs||0, quiet=last?(performance.now()-last)/1000:0, busy=S.pending.length>0;
+  const tgt=busy?0:clamp((quiet-IDLE_AFTER)/IDLE_RAMP,0,1); S.idle=lerp(S.idle||0,tgt,1-Math.exp(-dt*(tgt<(S.idle||0)?6:1.2)));
+  if(S.locks&&S.locks.length) keepIf(S.locks,lockLive);
+}
+const lockLive=L=>L.st==='pend'?S.t-L.t0<40:S.t-L.tr<0.6;
+function lockResolve(p,st){ const L=S.locks&&S.locks.find(l=>l.p===p); if(L&&L.st==='pend'){ L.st=st; L.tr=S.t; } }
+function drawLocks(x,h){ const list=S.locks; if(!list||!list.length) return; const R=30;
+  ctx.save();
+  for(const L of list){ const p=L.p, gy=altToScreenY(mcapToAlt(p.proj*(S.simF||1)))-h*0.45, col=L.side==='buy'?'242,193,78':'240,48,127';
+    if(L.st==='pend'){ const k=Math.min(0.92,1-Math.exp(-(S.t-L.t0)/0.35));
+      ctx.globalAlpha=1; ctx.lineWidth=2; ctx.strokeStyle=`rgba(${col},.32)`; ctx.beginPath(); ctx.arc(x,gy,R,0,6.2832); ctx.stroke();
+      ctx.lineWidth=3; ctx.strokeStyle=`rgba(${col},.95)`; ctx.beginPath(); ctx.arc(x,gy,R,-Math.PI/2,-Math.PI/2+6.2832*k); ctx.stroke();
+      if(!CLEAN){ ctx.font=GF(14,700); ctx.textAlign='left'; ctx.fillStyle=`rgba(${col},.9)`; ctx.fillText((L.side==='buy'?'BOOSTING ':'DUMPING ')+fmtShot(L.usd),x+R+10,gy+5); } }
+    else { const u=clamp((S.t-L.tr)/0.6,0,1), a=1-u;
+      if(L.st==='ok'){ ctx.lineWidth=1+4*a; ctx.strokeStyle=`rgba(${col},${a})`; ctx.beginPath(); ctx.arc(x,gy,R+u*70,0,6.2832); ctx.stroke();
+        ctx.globalAlpha=0.35*a; ctx.fillStyle=`rgba(${col},1)`; ctx.beginPath(); ctx.arc(x,gy,R*0.9,0,6.2832); ctx.fill(); ctx.globalAlpha=1; }
+      else if(L.st==='fail'){ ctx.lineWidth=3; ctx.strokeStyle=`rgba(255,120,150,${a})`; for(let i=0;i<6;i++){ const a0=i*1.047+0.2, d=u*18; ctx.beginPath(); ctx.arc(x+Math.cos(a0+0.5)*d,gy+Math.sin(a0+0.5)*d,R,a0,a0+0.7); ctx.stroke(); } }
+      else { ctx.lineWidth=2; ctx.strokeStyle=`rgba(${col},${0.32*a})`; ctx.beginPath(); ctx.arc(x,gy,R,0,6.2832); ctx.stroke(); } } }
+  ctx.restore(); }
+
 function submit(side,usd,force,opt,pct){
   S.tradeUsd=usd;
   const now=performance.now();
@@ -1038,6 +1172,11 @@ function submit(side,usd,force,opt,pct){
   /* @ignite (phase 1): the press is answered in THIS frame — a nozzle flash + shock ring, the engine spools up, a sound and a
      haptic. Visual only: the price, the PnL and the altitude still wait for the real fill (REAL FILL ONLY stands). */
   S.ignite={t:S.t,side}; sfx('ignite',{side,usd:S.tradeUsd}); haptic(side==='buy'?14:[8,30,8]);
+  /* @pressfeel (flight mechanics pass, maker 2026-11-13): a BOOST squats the rocket body on the press frame (a spring on the
+     drawn y only, ≈6 px, settled in ~150 ms; the altitude, camera and PnL are untouched) and a lock ring marks where the fill
+     will land: its arc closes while the trade is in flight, snaps gold on the fill, cracks on a fail. */
+  if(side==='buy') S.kickV=(S.kickV||0)+150;
+  (S.locks||(S.locks=[])).push({p,side,usd:S.tradeUsd,t0:S.t,st:'pend',tr:0});
   // the rocket heads for the ghost NOW (visual only, ≤ BA_CAP before the receipt; @boostanim). Its own segment: previous ghost → this one
   const sf=isLive()?1:(S.simF||1);
   const ba=baStart(S.boostAnim||(S.boostAnim=[]), mcapToAlt(from*sf), mcapToAlt(proj*sf), now); p.ba=ba;
@@ -1054,10 +1193,12 @@ function submit(side,usd,force,opt,pct){
     // PRICE IMPACT NEVER FAILS A TRADE (lee): a pre-send note (TradeBridge: high price impact / wallet limit, needsConfirm)
     // means nothing was sent and nothing failed — a calm amber note, no ✕ row, no "That didn't go through.", the boost eases
     // back (no fill), the slot frees. The note's own strip offers the one tap to go ahead. (Also with SITE #201's unknown:true.)
-    if(r&&!r.ok&&r.needsConfirm){ p.state='held'; baResolve(ba,false,performance.now(),S.boostAnim);
+    if(r&&!r.ok&&r.needsConfirm){ p.state='held'; lockResolve(p,'gone'); baResolve(ba,false,performance.now(),S.boostAnim);
       if(p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }
       tradeNote(r.reason); S.pending=S.pending.filter(q=>q!==p); pushInFlight(); return; }
-    p.state=r.ok?'confirmed':'failed';
+    p.state=r.ok?'confirmed':'failed'; lockResolve(p,r&&r.ok?'ok':r&&r.unknown?'gone':'fail');
+    if(r&&r.ok&&side==='buy'){ const [nx0,ny0]=nozzleXY(); S.floaters.push({x:nx0+70,y:ny0-120,txt:'+'+fmtShot(p.usd).replace(/\.00$/,'')+' aboard',c:'#F2C14E',life:1.4,game:24}); }
+    if(r&&r.ok&&side==='sell') S.kickV=(S.kickV||0)-120;   // @pressfeel: recoil, the rocket kicks up as the bomb leaves
     baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim, r&&r.txHash);
     if(!(r&&r.ok)&&p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }   // later ghosts drop by the failed step   // ok → completes to the ghost; fail → eases back (this trade's share only)
     fillThrust(side,p.usd,pct,r);   // the rocket reacts to the REAL fill only (was: thrust + flare at the click)
@@ -1129,7 +1270,6 @@ function onHotkey(e){
   if (e.code==='Minus'||e.code==='BracketLeft'){ S.mode=Math.max(0,S.mode-1);  pushAmmo(); }
   // A/D/←/→ (steer) and S/↓ (dive) are read from S.keys every sim step (hold-to-steer), not from key repeat.
   if (e.code==='KeyW'||e.code==='ArrowUp') e.preventDefault();   // W/↑ held = mini acceleration (S.keys → S.wBoost; off-chain, no trade)
-  if (e.code==='KeyO'&&!e.repeat) setOrbs(!S.orbsOn);
   if (e.code==='KeyM'&&!e.repeat) setChartMap();   /* HUD+ chart-map */
   if (e.code==='KeyP'&&!e.repeat) setPnlTag();   /* position tag near the rocket */
   if (e.code==='KeyB'&&!e.repeat) setBombs(!S.bombsOn);
@@ -1166,7 +1306,7 @@ addEventListener('disciple:coinrules',e=>{ const d=e.detail; S.coinRules=d&&type
 function tierRulesText(){ const r=S.coinRules; return r&&typeof r.label==='string'?r.label.slice(0,28):''; }
 /* @rules-end */
 addEventListener('keydown',onHotkey);
-function setOrbs(on){ S.orbsOn=on; try{localStorage.setItem('disciple.orbs',on?'on':'off');}catch(_){}
+function setOrbs(){ const on=false; S.orbsOn=false;   /* retired 2026-11-13: always off, kept so old callers / the settings API stay harmless */ try{localStorage.setItem('disciple.orbs',on?'on':'off');}catch(_){}
   if(!on){ S.motes=[]; S.obstacles=[]; }
   const b=document.getElementById('orbBtn'); if(b){ b.textContent='ORBS '+(on?'ON':'OFF')+' · O'; b.classList.toggle('off',!on); }   // legacy pill (optional)
   dispatchEvent(new Event('apflightorbs')); try{ dispatchEvent(new CustomEvent('disciple:orbstate',{detail:{on:!!on}})); }catch(_){} }
@@ -1551,16 +1691,11 @@ function drawRocket(dt){
   const [x,y]=nozzleXY();
   const NOZZLE_FROM_TOP = 0.96; // fraction of sprite height: engine sits just above the bottom edge
   const pivotY = h * NOZZLE_FROM_TOP; // draw offset so nozzle lands on (0,0) after rotate
-  // ghost thrust for pending txs (projected, never applied to confirmed altitude)
-  for (const p of S.pending){
-    const gy=altToScreenY(mcapToAlt(p.proj*S.simF)), a=p.state==='pending'? 0.28+0.12*Math.sin(S.t*14) : p.state==='confirmed'?0.5:0.2;
-    ctx.save(); ctx.globalAlpha=a; ctx.translate(x,gy); ctx.rotate(S.heading);
-    if(im.complete&&!im.bad) ctx.drawImage(im,-w/2,-pivotY,w,h);
-    ctx.restore(); ctx.save(); ctx.strokeStyle=p.side==='buy'?'rgba(140,255,200,.6)':'rgba(255,150,190,.6)'; ctx.setLineDash([4,6]);
-    ctx.beginPath(); ctx.moveTo(x+w/2+8,y); ctx.lineTo(x+w/2+8,gy); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle=ctx.strokeStyle; ctx.font=GF(15,700);
-    ctx.fillText((p.state==='pending'?(p.side==='buy'?'BOOSTING ':'DUMPING '):p.state==='confirmed'?'LANDED ':'MISSED ')+fmtUsd(p.usd), x+w/2+14, gy+5); ctx.restore();
-  }
+  // @pressfeel lock rings (replace the ghost rocket + dashed line): one per press, at the projected fill (never applied to the
+  // confirmed altitude). Pending = the arc closes; ok = a gold snap; fail = it cracks; gone (held / unknown) = it fades.
+  drawLocks(x,h); drawDraftMeter(x,y,h);
+  if ((S.idle||0)>0.6&&!CLEAN){ ctx.save(); ctx.globalAlpha=clamp((S.idle-0.6)*2.5,0,1); ctx.font=GF(15,700); ctx.textAlign='center'; ctx.fillStyle='rgba(230,232,255,.92)';
+    ctx.fillText('ENGINES IDLE · THE CREW NEEDS A BOOST',x,y+96); ctx.restore(); }
   // exhaust (procedural): leaves the nozzle opposite the nose
   const braking=S.pending.some(p=>p.side==='sell'&&p.state==='pending');
   const EP=exhaustParams(), flick=EP.flick, flame=EP.flame;
@@ -1647,7 +1782,7 @@ function exhaustParams(){ const vol=clamp(Math.log10(1+S.volEma)/3.2,0,1), pend=
   const fall=clamp(-vy/320,0,1), n=Math.sin(S.t*29.0)*Math.sin(S.t*13.7+0.6), sput=1-fall*(n>0.15?0.82:0.25);
   const hv=S.hoverF||0, hflick=1-hv*0.5*Math.abs(Math.sin(S.t*23.0+Math.sin(S.t*7.1)*2));   // hover: weak, flickery
   const boost=0.8*(S.wBoost||0)+1.6*(S.buyBoost||0);
-  return {flick:flick*hflick, sput, fall, hover:hv, flame:((I*(0.6+0.85*move+0.55*thrustBoost)*(1-0.55*hv)+0.7*(S.flare||0))*hflick+boost)*flick*sput}; }
+  return {flick:flick*hflick, sput, fall, hover:hv, flame:((I*(0.6+0.85*move+0.55*thrustBoost)*(1-0.55*hv)+0.7*(S.flare||0))*hflick+boost)*flick*sput*(1-0.6*(S.idle||0))}; }
 function exhaustStep(dt){ const EP=exhaustParams(), {flick,flame}=EP; exhaustParams.fall=EP.fall; const LM=fxMul('launch'), DK=2.2/LM, _u=0, sa=Math.sin(S.heading), ca=Math.cos(S.heading);
   const tx=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.45, ty=S.ry+(S.bob||0)*0.55;
   S._exAcc=(S._exAcc||0)+(2+flame*9)*(0.55+flick)*60*dt*(0.75+0.3*(S.fwdN||0)); let n=S._exAcc|0; S._exAcc-=n;
@@ -1758,19 +1893,10 @@ function screenYToMcap(y){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); re
 function drawLanes(){ ctx.save(); ctx.strokeStyle='rgba(220,230,255,.08)'; ctx.setLineDash([6,18]); ctx.lineDashOffset=-S.t*60*(1+Math.log10(1+S.volEma));
   for (const lx of [W/2-130,W/2+130]){ ctx.beginPath(); ctx.moveTo(lx,0); ctx.lineTo(lx,H); ctx.stroke(); } ctx.restore(); }
 function drawFx(dt){
-  // collectible motes (cosmetic, lateral gameplay)
   ctx.save(); ctx.globalCompositeOperation='lighter';
-  for (const m of S.motes){ const T=ORB[m.k]; blit(radialSprite('orb'+m.k,[[0,T.c0],[1,T.c1]]),m.x,m.y,T.r*(1+0.12*Math.sin(S.t*6+m.x))); }
   { const P=S.shards; for (let i=0;i<P.n;i++){ const s=P.a[i]; ctx.fillStyle=s.c; ctx.globalAlpha=clamp(s.life,0,1); ctx.fillRect(s.x,s.y,3,3); } }
   ctx.restore(); ctx.globalAlpha=1;
-  // PENALTY orbs: dark red/black storm cores (normal blending so they read as dark), crackling rim
-  for (const o of S.obstacles){ const T=ORB[o.k], r=T.r; ctx.save();
-    blit(radialSprite('obs'+o.k,[[0,T.c0],[.55,T.c1],[1,'rgba(40,0,0,0)']]),o.x,o.y,r*1.6);
-    ctx.strokeStyle=T.rim; ctx.beginPath();
-    for(let k=0;k<=10;k++){ const a=k/10*6.283+S.t*3, rr=r*(0.9+0.25*hash(k+Math.floor(S.t*12)+o.x)); k?ctx.lineTo(o.x+Math.cos(a)*rr,o.y+Math.sin(a)*rr):ctx.moveTo(o.x+Math.cos(a)*rr,o.y+Math.sin(a)*rr); }
-    ctx.globalAlpha=0.3; ctx.lineWidth=7; ctx.stroke(); ctx.globalAlpha=1; ctx.lineWidth=2; ctx.stroke();   // glow underlay instead of shadowBlur
-    ctx.fillStyle=T.rim; ctx.font='bold 10px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(T.tag,o.x,o.y+r+14); ctx.restore(); }
-  for (const f of S.floaters){ ctx.save(); ctx.globalAlpha=clamp(f.life,0,1); ctx.fillStyle=f.c; ctx.font=f.small?'bold 13px ui-monospace,monospace':'bold 16px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(f.txt,f.x,f.y); ctx.restore(); }
+  for (const f of S.floaters){ ctx.save(); ctx.globalAlpha=clamp(f.life,0,1); ctx.textAlign='center'; if(f.game){ ctx.font=GF(f.game,800); ctx.lineWidth=4; ctx.lineJoin='round'; ctx.strokeStyle='rgba(8,9,20,.6)'; ctx.strokeText(f.txt,f.x,f.y); } else ctx.font=f.small?'bold 13px ui-monospace,monospace':'bold 16px ui-monospace,monospace'; ctx.fillStyle=f.c; ctx.fillText(f.txt,f.x,f.y); ctx.restore(); }   /* f.game = px size in the game face (brand v3) */
 }
 
 function drawPost(){
@@ -1953,7 +2079,7 @@ function drawHud(){
   const AW=472, AH=108, HB=(CARD_RECTS.header?CARD_RECTS.header.y+CARD_RECTS.header.h:148+coinIdRowH());
   const LY=PH?null:hudTopLayout({W,AW,AH,CW,hdrR:Math.max(0,(+window.__hudLeft||0)-(+window.__wrapL||0))+400,hdrB:HB,colTop:RT,colH:96+(!(source instanceof DiscipleSource)?100:0),walletL:+window.__walletL});
   if (LY){ RT=LY.colTop; RX=LY.RX; }
-  if (!PH&&LY){ const sig=RT+','+LY.ax+','+LY.ay+','+W; if(S._hudColPub!==sig){ S._hudColPub=sig; try{ dispatchEvent(new CustomEvent('disciple:hudcol',{detail:{top:RT,W,ammo:{x:LY.ax,y:LY.ay,w:AW,h:AH}}})); }catch(_){} } }   // FlightCanvas: CrewPanel / GameChat stack under it
+  if (!PH&&LY){ const sig=RT+','+LY.ax+','+LY.ay+','+W+','+HB; if(S._hudColPub!==sig){ S._hudColPub=sig; try{ dispatchEvent(new CustomEvent('disciple:hudcol',{detail:{top:RT,W,hdrB:HB,ammo:{x:LY.ax,y:LY.ay,w:AW,h:AH}}})); }catch(_){} } }   // FlightCanvas: CrewPanel / GameChat stack under it
   if (PH&&PH.drawer&&PH.body&&/^(feed|holders|chart)$/.test(PH.sheet||'')) drawPhoneBodyBg(PH);   // phone: canvas tabs paint the drawer body
   // DISCIPLE status box ('curve events / block # / HOLDING · no trades'): not on a coin page (lee, Oct 30 cleanup) —
   // TOP HOLDERS moves up into its slot (STATUS_DY = 0; FlightCanvas --ap-status-h keeps GameChat in step)
@@ -2182,7 +2308,7 @@ function spawnPuff(){ const tp=tipPoint(), y=altToScreenY(tp.alt);
 function burst(x,y,n,spd,opt){ const fn=typeof opt==='function';
   for(let i=0;i<n;i++){ const a=Math.random()*6.2832, v=spd*(0.35+Math.random()*0.65), o=fn?opt(i,a):opt;
     bfxSpawn(o.k||'spark',x,y,o.vx!=null?o.vx:Math.cos(a)*v,o.vy!=null?o.vy:Math.sin(a)*v,o.r!=null?o.r:2,o.gr||0,o.life!=null?o.life:1,o.drag!=null?o.drag:2,o.c||'255,220,140',o.a!=null?o.a:1,o.g||0); } }
-function detonate(b){
+function detonate(b){ draftKnock();
   const x=b.x, y=bombY(b), k=b.T.k; b.y0=y; b.detAge=b.age; addShock(x,y,k);   // real blast point
   const who=b.trader||'—', lbl=`${b.T.name} −${b.pct>=10?b.pct.toFixed(0):b.pct.toFixed(1)}%${b.fullStack?' · FULL STACK':''} · ${who}${b.usd>0?' '+(b.usd<10?fmtShot(b.usd):fmtUsd(b.usd)):''}${b.n>1?' ×'+b.n:''}`;
   if (S.pro||b.tier>=4){ if(!S.pro) S.bombLabels.length=0; S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0}); if(S.bombLabels.length>2) S.bombLabels.shift(); }
@@ -2522,7 +2648,7 @@ function simStep(stepDt){
   if (S.steer==null) S.steer={x:S.x,vx:0};
   if (!dir&&S.drag&&S.drag.on&&S.drag.tx!=null){ dir=steerDragDir(S.steer,S.drag.tx-(S.drift||0)*0.35,W); S.steer.idle=0; }   // @drag-steer: finger held = steering input (no auto-centre until release)
   stepSteerAuto(S.steer, dir*(steer/7), dt, W);     // hold-to-steer (VOID orb: weaker thrust); idle ⇒ auto-centre
-  { const m=steerMargin(W); S.x=clamp(S.steer.x+S.drift*0.35,m,W-m); S.vx=S.steer.vx; }
+  { const m=steerMargin(W); S.x=clamp(S.steer.x+S.drift*0.35+Math.sin(S.t*0.6)*14*(S.idle||0),m,W-m); S.vx=S.steer.vx; }
   S.dive=lerp(S.dive||0,(K.KeyS||K.ArrowDown)?1:0,1-Math.exp(-dt*((K.KeyS||K.ArrowDown)?8:4)));   // S/↓ = dive (cosmetic, off-chain)
   const bankTarget=clamp(-S.vx/900,-0.38,0.38);
   S.bank=lerp(S.bank||0,bankTarget,1-Math.exp(-dt*6));
@@ -2578,13 +2704,14 @@ function simStep(stepDt){
   { const PD=phoneHud(W,CLEAN), ay=S.cine?H*0.55:PD&&PD.drawer&&PD.dTop>0?Math.min(ROCKET_Y,PD.dTop-44):ROCKET_Y;   // @phone-hud: drawer open ⇒ the rocket rides above it
     S.anch=S.anch==null?ROCKET_Y:lerp(S.anch,ay,1-Math.exp(-dt*(S.cine?0.8:5))); }
   // rocket screen y: true altitude vs camera, soft-limited to the safe band (tanh, never a hard stop)
-  S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) + 40*(S.dive||0);   // @altfollow: no buy/W hop (they decayed back = a sink); S/↓ dive only while held
+  pressFeelStep(dt);
+  S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) + 40*(S.dive||0) + (S.kick||0);   // @altfollow: no buy/W hop (they decayed back = a sink); S/↓ dive only while held
   // idle bob / sway / micro-rot — attenuated during thrust so they don't fight heading
   const thrustHold=sinceThrust<1.2? clamp(1-sinceThrust/1.2,0,1) : 0;
   const amp=(1+(Math.abs(vUpRaw)/500))*(1-0.7*thrustHold);
   S.bob=(Math.sin(S.t*1.7)*3.2*amp + Math.sin(S.t*3.1+1.2)*1.4)*(1-0.55*thrustHold);
   S.sway=(Math.sin(S.t*1.15+0.4)*4.5 + Math.sin(S.t*2.4)*1.6)*(1-0.55*thrustHold) + (S.bank||0)*-12;
-  S.microRot=(Math.sin(S.t*1.35)*0.012 + Math.sin(S.t*2.8+0.7)*0.006)*(1-0.8*thrustHold) + (S.bank||0)*0.05;
+  S.microRot=(Math.sin(S.t*1.35)*0.012 + Math.sin(S.t*2.8+0.7)*0.006)*(1-0.8*thrustHold) + (S.bank||0)*0.05 + Math.sin(S.t*0.9)*0.05*(S.idle||0);
   S.roll=1; // kept for compat; draw path no longer scaleX-wobbles
   S.glint=Math.sin(S.t*1.8);
   // parallax scroll: clouds/bg move with price velocity; sideways adds horizontal drift
@@ -2605,7 +2732,7 @@ function simStep(stepDt){
   if (!S._trailAcc) S._trailAcc=0; S._trailAcc+=dt;
   const lt=S.trail[S.trail.length-1], moved=!lt || Math.hypot(lt.x-nozX, trailY(lt)-nozY)>1.8;
   if (S._trailAcc>0.05 || moved){ S._trailAcc=0;
-    S.trail.push({x:nozX, alt:nozAlt, air:S.airPx||0, thrust:sinceThrust<0.25||tradePendingFx(), c:sigOn()?S.sig.rgb:null});
+    S.trail.push({x:nozX, alt:nozAlt, air:S.airPx||0, thrust:sinceThrust<0.25||tradePendingFx(), c:S.t<(S.sling||-1)?'242,193,78':sigOn()?S.sig.rgb:null});   // @draft slingshot: gold contrail for 5 s
     S._trailEmitErr=Math.max(S._trailEmitErr||0, Math.abs(trailY(S.trail[S.trail.length-1])-nozY));   // test hook: ≈0 by construction
     if (S.trail.length>TRAIL_MAX){ const T=S.trail, half=T.length>>1; let j=1;   // decimate the older half (fine detail only near the nozzle)
       for(let i=1;i<half;i++){ if(i&1) continue; T[j++]=T[i]; } for(let i=half;i<T.length;i++) T[j++]=T[i]; T.length=j; }
@@ -2647,24 +2774,8 @@ function rocketHits(px,py,rad){
 }
 function orbHitsRocket(o){ return rocketHits(o.x,o.y,(ORB[o.k]&&ORB[o.k].r)||14); }
 /* @orb-hit-end */
-  // motes drift down (speed ∝ trade flow), collect by steering
-  const flow=1+Math.log10(1+S.buyEma)*0.5;
-  // OFF-CHAIN ORB LAYER: reward spawn ∝ buy flow, penalty spawn ∝ sell flow (server-seeded in prod)
-  const lane=randLane;
-  const P=ORB_SPAWN, room=S.orbsOn&&S.motes.length+S.obstacles.length<P.maxOnScreen&&S.t-S.lastOrbT>=P.minGap;
-  if (room&&Math.random()<dt*Math.min(P.rewardMax,P.rewardBase+P.rewardFlow*Math.log10(1+S.buyEma))){ const r=Math.random(); S.motes.push({k:r<0.85?'halo':'mult',x:lane(),y:-20,v:90+Math.random()*40}); S.lastOrbT=S.t; }
-  else if (room&&Math.random()<dt*Math.min(P.penaltyMax,P.penaltyBase+P.penaltyFlow*Math.log10(1+S.sellEma))){ S.obstacles.push({k:Math.random()<0.7?'storm':'void',x:lane(),y:-40,v:100}); S.lastOrbT=S.t; }
-  for (const m of S.motes){ m.y+=m.v*dt*flow; if (orbHitsRocket(m)){ m.dead=true; const T=ORB[m.k];
-      if (m.k==='mult'){ S.mult=2; S.multUntil=S.t+10; }
-      const pts=T.pts*S.mult*(1+Math.floor(S.streak/10)); S.score+=pts; S.streak++; S.collected++;
-      S.floaters.push({x:m.x,y:m.y-20,txt:m.k==='mult'?'×2 POINTS 10s':'+'+pts,c:T.rim||'#ffe7a3',life:1.2});
-      if(S.streak===10) award('streak10','PERFECT LANE ×10','10 reward orbs in a row'); if(S.collected===25) award('c25','HALO HOARDER','25 reward orbs collected'); } }
-  for (const o of S.obstacles){ o.y+=o.v*dt*flow; if (!o.hit&&orbHitsRocket(o)){ o.hit=true; o.dead=true; const T=ORB[o.k];
-      const loss=Math.min(S.score,T.pts); S.score-=loss; S.streak=0; if(o.k==='void') S.slowUntil=S.t+3;
-      S.floaters.push({x:o.x,y:o.y-20,txt:'−'+loss+(o.k==='void'?' · SLOWED 3s':' · streak lost'),c:'#ff5a6a',life:1.4});
-      S.flashes.push({txt:o.k==='void'?'VOID ORB · steering slowed':'STORM ORB · −'+loss+' pts',life:1.2,c:'#ff7a85'});
-      for(let i=0;i<30;i++) spawnShard(o.x,o.y,(Math.random()-.5)*320,(Math.random()-.5)*320,'#ff3344'); } }
-  keepIf(S.motes,NOT_DEAD_MOTE); keepIf(S.obstacles,NOT_DEAD_OBS);
+  // (orb layer retired 2026-11-13: crew wingmen replace it, see @wingmen)
+  wingStep(dt); draftStep(dt);
   bombStep(dt);
   for (const t of S.toasts) t.life-=dt*0.6; keepIf(S.toasts,ALIVE);
   if (!S.ach.koth){ let top=null, tv=-Infinity; if(S.holders){ const t=topFuelers()[0]; if(t) top=t[0]; } else for (const k in S.fuelers) if(S.fuelers[k]>tv){ tv=S.fuelers[k]; top=k; } if(top==='you') award('koth','KING OF THE HILL','top booster on this coin'); }
@@ -3115,7 +3226,7 @@ function render(dt){
   if (S.grass){ ctx.save(); drawBg(); drawClouds(); drawSpeedLines(); drawTickTrail(); drawRocket(dt); drawClouds(true); ctx.restore(); drawPost(); drawGrass(dt); return; }
   S._grassA=0;
   ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap(); cardPublish();
+  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawWingmen(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap(); cardPublish();
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
 }

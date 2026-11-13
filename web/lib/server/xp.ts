@@ -15,15 +15,16 @@ import "server-only";
  */
 import { randomUUID } from "node:crypto";
 import { ACTIVE_CHAIN } from "@/lib/chains";
-import { evaluateMissions, type MissionCoin, type MissionFill } from "@/lib/missionsEval";
+import { evaluateDrafts, evaluateMissions, type CoinFill, type MissionCoin, type MissionFill } from "@/lib/missionsEval";
 import { partById } from "@/lib/parts";
 import { playerUsd, type Fill } from "@/lib/trades";
 import { V1_RULES, type AchievementUnlockRecord } from "@/lib/achievements";
 import {
-  dayPeriod, levelInfo, milestoneXp, MILESTONE_COPY, missionsFor, weekPeriod, MAX_PRESTIGE,
-  type MissionStatus, type Period, type XpSummary,
+  DRAFT, dayPeriod, levelInfo, milestoneXp, MILESTONE_COPY, missionsFor, weekPeriod, MAX_PRESTIGE,
+  type DraftClaim, type MissionStatus, type Period, type XpSummary,
 } from "@/lib/xp";
 import { kv, type Kv } from "./kv";
+import { ACH } from "./achKeys";
 
 const ns = () => `xp:${ACTIVE_CHAIN.id}`;
 export const XPK = {
@@ -36,6 +37,8 @@ export const XPK = {
   transfers: (w: string, coin: string) => `${ns()}:tx2:${w.toLowerCase()}:${coin.toLowerCase()}`,
   lock: (w: string) => `${ns()}:lock:${w.toLowerCase()}`,
   timers: () => `${ns()}:timers`,
+  /** zset score=at ms, member=DraftClaim JSON: drafting slingshots reported by the game, paid by the cron once checked */
+  drafts: (w: string) => `${ns()}:draft:${w.toLowerCase()}`,
 };
 /** Nonce prefix for the signed shop / prestige requests (lib/server/nonces). */
 export const XP_NONCE_PREFIX = "xp:nonce";
@@ -43,7 +46,7 @@ export const XP_NONCE_PREFIX = "xp:nonce";
 /** Ledger rows read per wallet (a daily player writes ~10 a day; this is years of play). */
 const LEDGER_MAX = 20_000;
 
-export type LedgerKind = "mission" | "milestone" | "buy" | "prestige";
+export type LedgerKind = "mission" | "milestone" | "buy" | "prestige" | "draft";
 export interface LedgerRow { src: string; kind: LedgerKind; xp: number; label: string; ts: number }
 
 const parse = <T>(s: string | null): T | null => { if (!s) return null; try { return JSON.parse(s) as T; } catch { return null; } };
@@ -84,7 +87,10 @@ const toMissionFill = (f: Fill): MissionFill => ({
 });
 
 /** Missions that depend on still holding the tokens: not paid while transfers out couldn't be checked. */
-const HOLDING_KINDS = new Set(["hold_24h", "ride_tier", "orbit_aboard", "drop_bomb"]);
+const HOLDING_KINDS = new Set(["hold_24h", "ride_tier", "orbit_aboard", "drop_bomb", "hold_bomb", "cash_out_higher"]);
+
+/** How many recent trades per coin the cron loads for `coinFills`; fewer than this = the coin's whole history (first_crew). */
+export const COIN_FILLS_LIMIT = 1000;
 
 /** The periods a cron pass settles: this day and week, plus the previous ones (a pass that runs just after a reset). */
 export const periodsAt = (now: number): Period[] => [dayPeriod(now), dayPeriod(now - 86_400_000), weekPeriod(now), weekPeriod(now - 7 * 86_400_000)];
@@ -110,13 +116,16 @@ export async function scoreXp(
 
   const coins = new Map<string, MissionCoin>();
   for (const [c, m] of Array.from(ctx.metas.entries())) coins.set(c.toLowerCase(), { creator: m.creator, anon: m.anon, mode: m.mode, launchTs: m.launch.ts, grad: m.grad });
-  const coinFills = new Map<string, { ts: number; mcapUsd?: number }[]>();
-  for (const [c, fs] of Array.from(ctx.coinFills?.entries() ?? [])) coinFills.set(c.toLowerCase(), fs.map((f) => ({ ts: f.ts, mcapUsd: f.mcapUsd })));
+  const coinFills = new Map<string, CoinFill[]>(), coinFillsComplete = new Set<string>();
+  for (const [c, fs] of Array.from(ctx.coinFills?.entries() ?? [])) {
+    coinFills.set(c.toLowerCase(), fs.map((f) => ({ ts: f.ts, mcapUsd: f.mcapUsd, trader: f.trader, side: f.side, usd: playerUsd(f), impactBps: typeof f.impactBps === "number" ? Math.abs(f.impactBps) : undefined, block: f.block, logIndex: f.logIndex })));
+    if (fs.length < COIN_FILLS_LIMIT) coinFillsComplete.add(c.toLowerCase());
+  }
   const fills: MissionFill[] = [
     ...ctx.fills.map(toMissionFill),
     ...(ctx.outs ?? []).map((t): MissionFill => ({ coin: t.coin.toLowerCase(), ts: t.ts, block: t.block, logIndex: t.logIndex, side: "out", tokens: t.tokens, usd: 0 })),
   ];
-  const input = { wallet: w, fills, coins, coinFills, now, asOf: now };
+  const input = { wallet: w, fills, coins, coinFills, coinFillsComplete, now, asOf: now };
 
   const stored: Record<string, Record<string, { progress: number; target: number; doneAt?: number }>> = {};
   let recheck: number | undefined;
@@ -128,6 +137,16 @@ export async function scoreXp(
     for (const m of ms) {
       const res = r.results[m.id];
       if (res?.doneAt !== undefined && !(ctx.holdsUnverified && HOLDING_KINDS.has(m.kind))) await pay({ src: `m:${p.id}:${m.id}`, kind: "mission", xp: m.xp, label: m.title, ts: res.doneAt });
+    }
+  }
+  // drafting slingshots (lib/xp DRAFT): checked against the fills, at most DRAFT.perDay paid per day (src index 0..perDay-1)
+  const claims = (await s.zrange(XPK.drafts(w), 500, true)).map((m) => parse<DraftClaim>(m)).filter((c): c is DraftClaim => !!c && typeof c.at === "number" && typeof c.coin === "string" && Array.isArray(c.wingmen));
+  if (claims.length) {
+    const cf = new Map<string, { ts: number; trader: string; side: string }[]>();
+    for (const [c, fs] of Array.from(ctx.coinFills?.entries() ?? [])) cf.set(c.toLowerCase(), fs.map((f) => ({ ts: f.ts, trader: f.trader, side: f.side })));
+    for (const p of [dayPeriod(now), dayPeriod(now - 86_400_000)]) {
+      const ok = evaluateDrafts({ wallet: w, fills, coinFills: cf, claims, asOf: now }, p);
+      for (let i = 0; i < ok.length; i++) await pay({ src: `draft:${p.id}:${i}`, kind: "draft", xp: DRAFT.xp, label: "Drafting slingshot", ts: ok[i].at });
     }
   }
   if (!o.dryRun) {
@@ -210,4 +229,21 @@ export async function prestigeUp(walletIn: string, now = Date.now(), s: Kv = kv(
     if (!(await award(w, { src: `prestige:${next}`, kind: "prestige", xp: 0, label: `Prestige ${next}`, ts: now }, s))) return { ok: false, reason: "Already done." };
     return { ok: true, prestige: next };
   }) as Promise<PrestigeResult>;
+}
+
+/* ------------------------------------------------------ drafting ------------------------------------------------------ */
+
+export type DraftQueueResult = { ok: true; paidToday: number; queuedToday: number; capped: boolean } | { ok: false; reason: string };
+
+/** Queue one reported slingshot for the cron (POST /api/xp/draft). Stored as is; scoreXp checks it against the fills. */
+export async function queueDraft(walletIn: string, claim: DraftClaim, now = Date.now(), s: Kv = kv()): Promise<DraftQueueResult> {
+  const w = walletIn.toLowerCase(), day = dayPeriod(now);
+  const paidToday = (await ledgerOf(w, s)).filter((r) => r.kind === "draft" && r.src.startsWith(`draft:${day.id}:`)).length;
+  const recent = (await s.zrange(XPK.drafts(w), 200, true)).map((m) => parse<DraftClaim>(m)).filter((c): c is DraftClaim => !!c && c.at >= day.start);
+  // keep the queue bounded: a day never needs more than a few times the paid cap
+  if (paidToday >= DRAFT.perDay || recent.length >= DRAFT.perDay * 4) return { ok: true, paidToday, queuedToday: recent.length, capped: true };
+  if (recent.some((c) => Math.abs(c.at - claim.at) < DRAFT.minGapMs)) return { ok: false, reason: "Too soon after the last slingshot." };
+  await s.zadd(XPK.drafts(w), [{ score: claim.at, member: JSON.stringify(claim) }]);
+  await s.zadd(ACH.dirty(), [{ score: now, member: `${w}|draft:${claim.at}` }]);   // the cron re-scores this wallet on its next pass
+  return { ok: true, paidToday, queuedToday: recent.length + 1, capped: false };
 }

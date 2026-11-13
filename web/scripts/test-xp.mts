@@ -215,3 +215,112 @@ test("transfer scan: dust transfers can't push a sent-away bag out of the kept o
   assert.equal(kept[0].block, 10);                       // at its earliest position, never later
   assert.deepEqual(capOuts([bag], 500), [bag]);
 });
+import { evaluateDrafts } from "../lib/missionsEval";
+import { DRAFT } from "../lib/xp";
+test("drafting XP: pays only aboard with $5+, only behind a pilot who boosted that coin in the last minute, 5 a day", () => {
+  const C = "0x00000000000000000000000000000000000000c1", P = dayPeriod(T0);
+  const buy = (ts: number, usd: number): MissionFill => ({ coin: C, ts, block: ts, logIndex: 0, side: "buy", tokens: usd, usd });
+  const fills = [buy(T0 - H, 20)];
+  const coinFills = new Map([[C, [{ ts: T0 - 30_000, trader: OTHER, side: "buy" }, { ts: T0 + 10 * MIN - 30_000, trader: OTHER, side: "buy" }]]]);
+  const claim = (at: number, wingmen = [OTHER]) => ({ coin: C, wingmen, at });
+  const run = (claims: ReturnType<typeof claim>[], f = fills) => evaluateDrafts({ wallet: W, fills: f, coinFills, claims, asOf: T0 + H }, P);
+  assert.equal(run([claim(T0)]).length, 1);                                   // aboard, pilot boosted 30 s before
+  assert.equal(run([claim(T0 + 2 * MIN)]).length, 0);                         // pilot's boost is older than a minute
+  assert.equal(run([claim(T0, [W])]).length, 0);                              // drafting yourself never counts
+  assert.equal(run([claim(T0)], [buy(T0 - H, 3)]).length, 0);                 // under $5 aboard
+  assert.equal(run([claim(T0)], [buy(T0 + MIN, 20)]).length, 0);              // boarded after the slingshot
+  assert.equal(run([claim(T0), claim(T0 + 1000)]).length, 1);                 // a second claim inside the gap is dropped
+  const many = Array.from({ length: 9 }, (_, i) => claim(T0 + i * 5_000)).filter((c) => c.at <= T0);
+  const lots = Array.from({ length: 9 }, (_, i) => ({ ts: T0 + i * 5_000 - 1000, trader: OTHER, side: "buy" }));
+  const cf2 = new Map([[C, lots]]);
+  const paid = evaluateDrafts({ wallet: W, fills, coinFills: cf2, claims: Array.from({ length: 9 }, (_, i) => claim(T0 + i * 5_000)), asOf: T0 + H }, P);
+  assert.equal(paid.length, DRAFT.perDay);                                    // capped at 5 a day
+  assert.ok(many.length >= 1);
+});
+
+/* ------------------------------------------------ in-flight missions (Nov 13) ------------------------------------------------ */
+test("in-flight missions join the pools only from Monday Nov 16: running periods keep their draw", () => {
+  const before = Date.UTC(2026, 10, 15, 12), after = Date.UTC(2026, 10, 18, 12);
+  const NEW = new Set(["d_run", "d_crew", "w_holdbomb", "w_cashout"]);
+  for (let i = 0; i < 6; i++) assert.ok(missionsFor(dayPeriod(before - i * 86_400_000)).every((m) => !NEW.has(m.id)));
+  assert.ok(missionsFor(weekPeriod(before)).every((m) => !NEW.has(m.id)));
+  const seen = new Set<string>();
+  for (let i = 0; i < 30; i++) missionsFor(dayPeriod(after + i * 86_400_000)).forEach((m) => seen.add(m.id));
+  assert.ok(seen.has("d_run") && seen.has("d_crew"));
+});
+
+{
+  const C = "0x00000000000000000000000000000000000000c2", LAUNCHER = "0x00000000000000000000000000000000000000ee";
+  const P2 = "0x00000000000000000000000000000000000000b2", P3 = "0x00000000000000000000000000000000000000b3", P4 = "0x00000000000000000000000000000000000000b4";
+  const coins = new Map([[C, coin(LAUNCHER, T0 - 2 * H)]]);
+  const cf = (ts: number, trader: string, side: "buy" | "sell", usd: number, extra: Record<string, unknown> = {}) => ({ ts, trader, side, usd, block: ts, logIndex: 0, ...extra });
+  const mine = (ts: number, side: "buy" | "sell" | "out", usd: number, tokens = usd, extra: Partial<MissionFill> = {}): MissionFill => ({ coin: C, ts, block: ts, logIndex: 0, side, tokens, usd, ...extra });
+  const ev = (id: string, fills: MissionFill[], coinFills: ReturnType<typeof cf>[], o: { complete?: boolean; asOf?: number; p?: typeof day } = {}) =>
+    evaluateMissions({ wallet: W, fills, coins, coinFills: new Map([[C, [...coinFills, ...fills.map((x) => ({ ...x, trader: W }))]]]), coinFillsComplete: o.complete === false ? new Set() : new Set([C]), now: o.asOf ?? T0 + 6 * H, asOf: o.asOf ?? T0 + 6 * H }, o.p ?? day, only(id)).results[id];
+
+  test("start a run: 3 other pilots boost $5+ within 60 s of your boost", () => {
+    const b = mine(T0, "buy", 10);
+    assert.ok(ev("d_run", [b], [cf(T0 + 5_000, P2, "buy", 6), cf(T0 + 20_000, P3, "buy", 9), cf(T0 + 50_000, P4, "buy", 5)]).doneAt === T0 + 50_000);
+    assert.equal(ev("d_run", [b], [cf(T0 + 5_000, P2, "buy", 6), cf(T0 + 20_000, P3, "buy", 9), cf(T0 + 70_000, P4, "buy", 5)]).progress, 0);   // third one too late
+    assert.equal(ev("d_run", [b], [cf(T0 + 5_000, P2, "buy", 6), cf(T0 + 6_000, P2, "buy", 6), cf(T0 + 20_000, P3, "buy", 9)]).progress, 0);    // same pilot twice
+    assert.equal(ev("d_run", [b], [cf(T0 + 5_000, P2, "buy", 6), cf(T0 + 20_000, P3, "buy", 2), cf(T0 + 30_000, P4, "buy", 5)]).progress, 0);   // under $5
+    assert.equal(ev("d_run", [b], [cf(T0 - 5_000, P2, "buy", 6), cf(T0 + 20_000, P3, "buy", 9), cf(T0 + 30_000, P4, "buy", 5)]).progress, 0);   // before you
+    assert.equal(ev("d_run", [mine(T0, "buy", 4)], [cf(T0 + 5_000, P2, "buy", 6), cf(T0 + 20_000, P3, "buy", 9), cf(T0 + 30_000, P4, "buy", 5)]).progress, 0);   // your boost under $5
+  });
+
+  test("first crew: fewer than 10 other pilots boosted before you (launcher not counted, full history only)", () => {
+    const early = Array.from({ length: 9 }, (_, i) => cf(T0 - 60_000 + i, "0x00000000000000000000000000000000000001" + String(i).padStart(2, "0"), "buy", 5));
+    const b = mine(T0, "buy", 10);
+    assert.equal(ev("d_crew", [b], [cf(T0 - 90_000, LAUNCHER, "buy", 50), ...early]).doneAt, T0);
+    assert.equal(ev("d_crew", [b], [...early, cf(T0 - 1, P2, "buy", 5)]).progress, 0);            // tenth ahead of you
+    assert.equal(ev("d_crew", [b], [...early, cf(T0 - 1, P2, "buy", 1)]).doneAt, T0);           // a dust buy is not crew
+    assert.equal(ev("d_crew", [b], early, { complete: false }).progress, 0);                      // can't see back to launch
+  });
+
+  test("hold through a bomb: aboard $5+ when another pilot's 5%+ dump lands, no sell for 10 minutes", () => {
+    const bomb = cf(T0 + H, P2, "sell", 40, { impactBps: 600 });
+    const held = [mine(T0, "buy", 10)];
+    assert.equal(ev("w_holdbomb", held, [bomb], { p: week }).doneAt, T0 + H + 10 * MIN);
+    assert.equal(ev("w_holdbomb", held, [{ ...bomb, impactBps: 400 }], { p: week }).progress, 0);              // under 5%
+    assert.equal(ev("w_holdbomb", [...held, mine(T0 + H + 5 * MIN, "sell", 2)], [bomb], { p: week }).progress, 0);   // sold some inside the 10 min
+    assert.equal(ev("w_holdbomb", [...held, mine(T0 + H + 5 * MIN, "out", 0, 2)], [bomb], { p: week }).progress, 0); // sent some away
+    assert.equal(ev("w_holdbomb", [mine(T0 + H + 1, "buy", 10)], [bomb], { p: week }).progress, 0);            // boarded after it
+    const r = evaluateMissions({ wallet: W, fills: held, coins, coinFills: new Map([[C, [bomb]]]), now: T0 + H + 5 * MIN, asOf: T0 + H + 5 * MIN }, week, only("w_holdbomb"));
+    assert.equal(r.results.w_holdbomb.progress, 0); assert.equal(r.recheckAt, T0 + H + 10 * MIN + 1);          // pays once the 10 min are up
+    // your own big dump is not a bomb you held through
+    assert.equal(evaluateMissions({ wallet: W, fills: held, coins, coinFills: new Map([[C, [{ ...bomb, trader: W }]]]), now: T0 + 6 * H, asOf: T0 + 6 * H }, week, only("w_holdbomb")).results.w_holdbomb.progress, 0);
+  });
+
+  test("cash out higher: sell half the bag or more above your entry, on a ride that climbed a tier", () => {
+    const buy = mine(T0, "buy", 20, 100, { mcapUsd: 5_000 });
+    const climb = cf(T0 + 30 * MIN, P2, "buy", 500, { mcapUsd: 40_000 });
+    assert.equal(ev("w_cashout", [buy, mine(T0 + H, "sell", 30, 60, { mcapUsd: 30_000 })], [climb], { p: week }).doneAt, T0 + H);
+    assert.equal(ev("w_cashout", [buy, mine(T0 + H, "sell", 30, 40, { mcapUsd: 30_000 })], [climb], { p: week }).progress, 0);   // under half the bag
+    assert.equal(ev("w_cashout", [buy, mine(T0 + H, "sell", 9, 60, { mcapUsd: 30_000 })], [climb], { p: week }).progress, 0);    // below entry
+    assert.equal(ev("w_cashout", [buy, mine(T0 + H, "sell", 30, 60, { mcapUsd: 5_500 })], [cf(T0 + 30 * MIN, P2, "buy", 5, { mcapUsd: 5_400 })], { p: week }).progress, 0);   // no tier climbed
+  });
+}
+
+import { computeFlightLog, type FlightLogFill } from "../lib/flightLog";
+test("flight log: peak aboard, bombs survived, wingmen, boosts, all from the fills", () => {
+  const P2 = "0x00000000000000000000000000000000000000b2", P3 = "0x00000000000000000000000000000000000000b3";
+  let b = 0;
+  const x = (ts: number, trader: string, side: "buy" | "sell", usd: number, mcapUsd: number, impactBps = 0): FlightLogFill => ({ ts, block: ++b, logIndex: 0, trader, side, tokens: usd, usd, mcapUsd, impactBps });
+  const fills = [
+    x(T0 - H, P2, "buy", 50, 4_000),                 // before the flight
+    x(T0 + 1_000, W, "buy", 10, 5_000),              // you board
+    x(T0 + 2_000, P2, "buy", 40, 9_000),
+    x(T0 + 3_000, P3, "buy", 30, 14_000),            // peak, OZONE
+    x(T0 + 4_000, P3, "buy", 3, 14_100),             // dust: not a wingman boost (P3 already counted anyway)
+    x(T0 + 5_000, P2, "sell", 60, 8_000, 900),       // a bomb you sit through
+    x(T0 + 20 * MIN, W, "sell", 10, 7_000),          // you cash out long after
+    x(T0 + 21 * MIN, P3, "buy", 400, 30_000),        // higher, but you're gone
+  ];
+  const log = computeFlightLog({ wallet: W, since: T0, now: T0 + H, fills, slingshots: 2, xp: 120 });
+  assert.equal(log.peakMcap, 14_100); assert.equal(log.peakTier, "OZONE");
+  assert.equal(log.bombsSurvived, 1); assert.equal(log.wingmen, 2); assert.equal(log.boosts, 1);
+  assert.equal(log.slingshots, 2); assert.equal(log.xp, 120);
+  // sold inside the 10 minutes: not survived
+  const bailed = [...fills.slice(0, 6), x(T0 + 6_000, W, "sell", 5, 7_900)];
+  assert.equal(computeFlightLog({ wallet: W, since: T0, now: T0 + H, fills: bailed }).bombsSurvived, 0);
+});

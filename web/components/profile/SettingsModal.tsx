@@ -18,7 +18,6 @@ export const SETTINGS_COPY = {
   wallet: "Your wallet",
   walletHelp: "Deposit and withdraw on the Wallet page.",
   oneTap: "One-tap boosts",
-  orbs: "Orbs", orbsHelp: "Show each trade as an orb in flight. O in flight.",
   bombs: "Dump bombs", bombsHelp: "Show dumps as bombs in flight. B in flight.",
   oneTapHelp: "BOOST and DUMP with one tap, no pop-up.",
   on: "On",
@@ -73,8 +72,8 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   const [view, setView] = useState<"main" | "2fa">("main");
   const [secBusy, setSecBusy] = useState("");
   const [secErr, setSecErr] = useState("");
-  const [fx, setFx] = useState({ orbs: true, bombs: true });
-  useEffect(() => { if (open) setFx({ orbs: readFx(SETTINGS_KEYS.orbs), bombs: readFx(SETTINGS_KEYS.bombs) }); }, [open]);
+  const [fx, setFx] = useState({ bombs: true });
+  useEffect(() => { if (open) setFx({ bombs: readFx(SETTINGS_KEYS.bombs) }); }, [open]);
   useEffect(() => onWallet(setAddr), []);
   useEffect(() => { const read = () => { setAcct(privyAccount()); setSec(privySecurity()); }; read(); return onPrivy(read); }, []);
   useEffect(() => { if (!open) { setView("main"); setSecErr(""); } }, [open]);
@@ -181,7 +180,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                 </div>
                 {err && <span className="p5-err" role="alert">{err}</span>}
               </div>
-              {([["orbs", SETTINGS_COPY.orbs, SETTINGS_COPY.orbsHelp, "setOrbs"], ["bombs", SETTINGS_COPY.bombs, SETTINGS_COPY.bombsHelp, "setBombs"]] as const).map(([k, label, help, fn]) => (
+              {([["bombs", SETTINGS_COPY.bombs, SETTINGS_COPY.bombsHelp, "setBombs"]] as const).map(([k, label, help, fn]) => (
                 <div className="p5-srow" key={k}>
                   <div className="tx"><b>{label}</b><span>{help}</span></div>
                   <button type="button" role="switch" aria-checked={fx[k]} aria-label={label} className={`p5-switch${fx[k] ? " on" : ""}`} data-testid={`settings-${k}`}

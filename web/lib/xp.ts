@@ -80,9 +80,24 @@ export type MissionKind =
   /** launch a rocket (public launches only) */
   | "launch"
   /** hold a rocket when it reaches orbit */
-  | "orbit_aboard";
+  | "orbit_aboard"
+  /** a qualifying boost, then 3 other pilots boost that rocket ($5+ each) within 60 s (in-flight objective, Nov 13) */
+  | "start_run"
+  /** a qualifying boost while fewer than 10 other pilots have boosted that rocket ($5+, launcher not counted) */
+  | "first_crew"
+  /** aboard ($5+) when another pilot's 5%+ bomb lands, and no sell or transfer away for 10 minutes after */
+  | "hold_bomb"
+  /** sell at least half your bag above your average entry, on a ride that climbed a tier while you were aboard */
+  | "cash_out_higher";
 
-export interface MissionDef { id: string; cadence: Cadence; kind: MissionKind; title: string; xp: number; target: number }
+export interface MissionDef {
+  id: string; cadence: Cadence; kind: MissionKind; title: string; xp: number; target: number;
+  /** in the pool only for periods starting at or after this time (ms): adding a mission never reshuffles a running period */
+  from?: number;
+}
+
+/** First UTC day / week that draws the in-flight missions (Monday 2026-11-16). */
+const FLIGHT_MISSIONS_FROM = Date.UTC(2026, 10, 16);
 
 export const DAILY_POOL: readonly MissionDef[] = [
   { id: "d_boost3", cadence: "daily", kind: "boost_rockets", title: "Boost 3 different rockets", xp: 150, target: 3 },
@@ -91,12 +106,16 @@ export const DAILY_POOL: readonly MissionDef[] = [
   { id: "d_fresh", cadence: "daily", kind: "boost_fresh", title: "Boost a rocket launched in the last hour", xp: 100, target: 1 },
   { id: "d_bomb", cadence: "daily", kind: "drop_bomb", title: "Drop a bomb", xp: 75, target: 1 },
   { id: "d_modes", cadence: "daily", kind: "boost_modes", title: "Boost an Easy, a Hard and an Expert rocket", xp: 200, target: 3 },
+  { id: "d_run", cadence: "daily", kind: "start_run", title: "Start a run", xp: 100, target: 1, from: FLIGHT_MISSIONS_FROM },
+  { id: "d_crew", cadence: "daily", kind: "first_crew", title: "Be in a rocket's first crew", xp: 100, target: 1, from: FLIGHT_MISSIONS_FROM },
 ];
 export const WEEKLY_POOL: readonly MissionDef[] = [
   { id: "w_boost10", cadence: "weekly", kind: "boost_rockets", title: "Boost 10 different rockets", xp: 600, target: 10 },
   { id: "w_hold", cadence: "weekly", kind: "hold_24h", title: "Stay aboard one rocket for 24 hours", xp: 500, target: 1 },
   { id: "w_launch", cadence: "weekly", kind: "launch", title: "Launch a rocket", xp: 750, target: 1 },
   { id: "w_orbit", cadence: "weekly", kind: "orbit_aboard", title: "Be aboard when a rocket reaches orbit", xp: 1000, target: 1 },
+  { id: "w_holdbomb", cadence: "weekly", kind: "hold_bomb", title: "Hold through a bomb", xp: 150, target: 1, from: FLIGHT_MISSIONS_FROM },
+  { id: "w_cashout", cadence: "weekly", kind: "cash_out_higher", title: "Cash out higher", xp: 300, target: 1, from: FLIGHT_MISSIONS_FROM },
 ];
 export const MISSIONS_PER_PERIOD = 3;
 export const missionById = (id: string) => [...DAILY_POOL, ...WEEKLY_POOL].find((m) => m.id === id);
@@ -115,7 +134,24 @@ export const FAIR = {
   bombMinImpactBps: 200,
   bombMinUsd: 10,
   freshLaunchMs: 3600_000,
+  /** start a run: this many other pilots boost within runMs after yours */
+  runPilots: 3, runMs: 60_000,
+  /** first crew: fewer than this many other pilots boosted before you */
+  crewSize: 10,
+  /** hold through a bomb: another pilot's sell of this impact, and this long aboard after it */
+  holdBombImpactBps: 500, holdBombMs: 10 * 60_000,
+  /** cash out higher: at least this share of the bag in one sell */
+  cashOutShare: 0.5,
 } as const;
+
+/**
+ * Drafting XP (maker 2026-11-13): flying in a wingman's contrail fills the Draft meter; a full meter is a slingshot. The
+ * game reports each slingshot with the pilots it drafted (POST /api/xp/draft); the cron pays it only when, from the fills,
+ * you held at least `minHoldUsd` of that coin and at least one drafted pilot really boosted it in the minute before.
+ * The server trusts only the steering itself, so the pay is small and capped per day.
+ */
+export const DRAFT = { xp: 10, perDay: 5, windowMs: 60_000, minHoldUsd: 5, minGapMs: 4_000, maxWingmen: 12 } as const;
+export interface DraftClaim { coin: string; wingmen: string[]; at: number }
 
 const DAY = 86_400_000;
 
@@ -143,7 +179,7 @@ function hash(s: string): number {
 
 /** The same 3 missions for everyone in a period: a seeded shuffle of the pool, keyed by the period id. */
 export function missionsFor(p: Period): MissionDef[] {
-  const pool = [...(p.cadence === "daily" ? DAILY_POOL : WEEKLY_POOL)];
+  const pool = (p.cadence === "daily" ? DAILY_POOL : WEEKLY_POOL).filter((m) => m.from === undefined || p.start >= m.from);
   let seed = hash(p.id) || 1;
   for (let i = pool.length - 1; i > 0; i--) {
     seed = Math.imul(seed ^ (seed >>> 15), 0x2c1b3c6d) >>> 0;

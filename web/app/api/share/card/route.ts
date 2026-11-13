@@ -1,6 +1,6 @@
 /**
  * GET /api/share/card?wallet&coin[&format=story|og][&ticker][&username][&demo=1][&skin&coin_skin&thruster][&demoMcap]
- * PNG share card (story 1080×1920, og 1080×1080) drawn by lib/share/scene.ts on the tier sky of the end mcap.
+ * PNG share card (story 1080×1920, og 1080×1080): the flight log card drawn by lib/share/scene.ts on the tier sky of the peak.
  * Numbers come from indexed fills (pnlForPosition), never the query; loadout params are cosmetic only.
  * No fills → a "no trades yet" card with real zeros. The stamped SAMPLE DATA card (demo=1, or no fills) is
  * `next dev` only: production never draws sample numbers.
@@ -9,6 +9,7 @@ import type { Address } from "viem";
 import { pnlForPosition } from "@/lib/server/share/pnl";
 import { demoFills, DEMO_MCAP } from "@/lib/server/share/demo";
 import { renderSharePng } from "@/lib/server/share/render";
+import { flightCardParts, SAMPLE_LOG } from "@/lib/server/share/flightCard";
 import { coinIconBuffer } from "@/lib/server/share/coinIcon";
 import { pnlFromFills } from "@/lib/sharePnl";
 import { usernameOf } from "@/lib/server/usernames";
@@ -58,6 +59,8 @@ export async function GET(req: Request) {
     gainUsd: pnl!.gainUsd, gainPct: pnl!.gainPct, kind: pnl!.kind, ticker, mcapStart: pnl!.mcapStartUsd, mcapEnd: pnl!.mcapEndUsd,
     endTs: pnl!.endTs || at, username, refLabel: refLabel(username, isAddr(wallet) ? wallet : null, host), sample, wallet: isAddr(wallet) ? wallet : null, guildTag: sample ? null : guildTag,
     fills: pnl!.fills.map((f) => ({ side: f.side, mcapUsd: f.mcapUsd })),
+    // flight log stats + difficulty badge, from the fills / the coin's launch mode (never the query)
+    ...(sample ? { log: SAMPLE_LOG, badge: { text: "HARD", color: "#FF7A3D" } } : isAddr(wallet) && isAddr(coin) ? await flightCardParts(wallet, coin, pnl!, at) : {}),
   };
   const icon = sample || !isAddr(coin) ? null : await coinIconBuffer(coin);
   const png = await renderSharePng(d, { skin: q.get("skin") || undefined, coin: q.get("nose") || undefined, thruster: q.get("thruster") || undefined }, format, icon);
