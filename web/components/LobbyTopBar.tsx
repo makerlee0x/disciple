@@ -12,15 +12,17 @@ import { useEffect, useState } from "react";
 import { aaSession, onPrivy, onSessionChange, privyAuthenticated } from "@/lib/aa/sessionState";
 import { WALLET_ID_EVENT, walletId } from "@/lib/walletCta";
 import LevelChip from "@/components/xp/LevelChip";
+import Icon, { type IconName } from "@/components/icons/Icon";
 
-type Tab = { href: string; key: string; label: string; you?: boolean };
+// icons show only in the phone bottom tab bar (≤760px, mobile plan option A); desktop keeps the text tabs
+type Tab = { href: string; key: string; label: string; icon: IconName; you?: boolean };
 
 const TABS: readonly Tab[] = [
-  { href: "/", key: "lobby", label: "Lobby" },
-  { href: "/create", key: "launch", label: "Launch" },
-  { href: "/profile", key: "hangar", label: "Hangar", you: true },
-  { href: "/leaderboard", key: "leader", label: "Leaderboard" },
-  { href: "/achievements", key: "trophies", label: "Trophies" },
+  { href: "/", key: "lobby", label: "Lobby", icon: "home" },
+  { href: "/create", key: "launch", label: "Launch", icon: "rocket" },
+  { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot", you: true },
+  { href: "/leaderboard", key: "leader", label: "Leaderboard", icon: "leaderboard" },
+  { href: "/achievements", key: "trophies", label: "Trophies", icon: "achievement" },
 ];
 
 export default function LobbyTopBar() {
@@ -53,7 +55,8 @@ export default function LobbyTopBar() {
       <nav className="lb-tabs" aria-label="Main">
         {tabs.map((t) => (
           <Link key={t.key} href={t.href} className={isOn(t.href) ? "on" : ""} aria-current={isOn(t.href) ? "page" : undefined}>
-            {t.label}
+            <Icon name={t.icon} size={22} className="lb-ico" />
+            <span className="lb-lbl">{t.label}</span>
           </Link>
         ))}
         <button type="button" className="lb-tab-btn" aria-haspopup="dialog" data-testid="topbar-hiw"
