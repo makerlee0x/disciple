@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { REF_COOKIE, REF_TTL_MS, parseRef } from "@/lib/referral";
 import { USERNAME_STORED_RE } from "@/lib/profile";
 import { usernameOf, walletOf } from "@/lib/server/usernames";
-import { isPreviewBot, previewPage } from "@/lib/server/og/botPage";
+import { SITE_ORIGIN, isPreviewBot, previewPage } from "@/lib/server/og/botPage";
 import { inviterName } from "@/lib/server/og/data";
 
 export const runtime = "nodejs";
@@ -14,10 +14,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ user
   const raw = decodeURIComponent(username || "").trim().toLowerCase().replace(/^@/, "");
   if (isPreviewBot(req.headers.get("user-agent"))) {
     // link preview crawlers: the invite card (naming the sender when the name exists), no cookie
-    const o = new URL(req.url).origin, from = await inviterName(raw).catch(() => null);
+    const o = SITE_ORIGIN, from = await inviterName(raw).catch(() => null);
     return previewPage({
       title: from ? `@${from} invited you to DISCIPLE` : "You're invited to DISCIPLE", description: "Take your seat and boost your first rocket.",
-      image: `${o}/api/og/invite${from ? `?from=${encodeURIComponent(from)}` : ""}`, url: req.url, to: `${o}/`,
+      image: `${o}/api/og/invite${from ? `?from=${encodeURIComponent(from)}` : ""}`, url: `${o}/r/${encodeURIComponent(raw)}`, to: `${o}/`,
     });
   }
   const res = NextResponse.redirect(new URL("/", req.url), 307);

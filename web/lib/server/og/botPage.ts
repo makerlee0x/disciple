@@ -6,6 +6,8 @@ import "server-only";
 import { NextResponse } from "next/server";
 
 const BOTS = /twitterbot|facebookexternalhit|facebookcatalog|discordbot|slackbot|telegrambot|whatsapp|linkedinbot|skypeuripreview|redditbot|embedly|pinterest|applebot|iframely|mastodon/i;
+/** Absolute links on the crawler page use the site's own origin, never the request's Host header. Vercel previews use their deployment URL. */
+export const SITE_ORIGIN = process.env.VERCEL_ENV === "preview" && process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://disciple.vip";
 export const isPreviewBot = (ua: string | null) => !!ua && BOTS.test(ua);
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);

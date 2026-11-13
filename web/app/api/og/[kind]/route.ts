@@ -12,8 +12,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: Promise<{ kind: string }> }) {
-  const rl = await hitLimit(kv(), `og:ip:${clientIp(req.headers)}`, PUBLIC_GET_LIMITS.sharePerIp.limit, PUBLIC_GET_LIMITS.sharePerIp.windowSec).catch(() => ({ ok: true as const }));
-  if (!rl.ok) return new Response("rate limited", { status: 429 });
+  const rl = await hitLimit(kv(), `og:ip:${clientIp(req.headers)}`, PUBLIC_GET_LIMITS.sharePerIp.limit, PUBLIC_GET_LIMITS.sharePerIp.windowSec);
+  if (!rl.ok) return new Response("rate limited", { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   const { kind } = await params;
   const q = new URL(req.url).searchParams;
   let card: OgCard = { kind: "site" };
