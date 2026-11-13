@@ -91,3 +91,11 @@
   .xp-milestone { padding: 14px; }
   .xp-milestone-name { font-size: 19px; }
 }
+
+/* Trophies and the launch builder sit on the night-sky page (canvas boards "Trophies" and "Launch: build your rocket"). */
+body:has(.xp-trophies), body:has(.launch-v3), body:has(.xp-trophies) .main-offset, body:has(.launch-v3) .main-offset { background: var(--dsc3-page-bg); }
+body:has(.xp-trophies)::after, body:has(.launch-v3)::after {
+  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: var(--dsc3-grain); opacity: var(--dsc3-grain-opacity); mix-blend-mode: overlay;
+}
+.xp-trophies, .launch-v3 { position: relative; z-index: 1; }

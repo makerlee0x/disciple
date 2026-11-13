@@ -185,6 +185,8 @@ export interface XpSummary {
   weekly: { period: string; resetsAt: number; missions: MissionStatus[] };
   /** parts bought in the shop (catalogue ids) */
   owned: string[];
+  /** XP earned since this week's missions reset (the Trophies page "XP this week") */
+  weekXp: number;
   /** newest first, at most 20 */
   recent: { label: string; xp: number; ts: number }[];
   evaluatedAt: number | null;
