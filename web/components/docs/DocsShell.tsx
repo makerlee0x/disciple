@@ -1,5 +1,5 @@
 "use client";
-/** Docs v1 draft chrome: draft banner + section sidebar (collapsible sheet on narrow screens). */
+/** Docs chrome: section sidebar (collapsible sheet on narrow screens). */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
@@ -20,10 +20,6 @@ export default function DocsShell({ sections, children }: { sections: NavSection
 
   return (
     <div className="dv-root">
-      <div className="dv-banner" role="note">
-        <span className="dv-banner-tag">Draft</span>
-        <span className="dv-banner-txt">Draft docs, not final.<span className="dv-banner-more"> Details may change before launch.</span></span>
-      </div>
       <div className="dv-mbar">
         <button type="button" className="dv-mbar-btn" aria-expanded={open} aria-controls="dv-side" onClick={() => setOpen((o) => !o)}>
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
@@ -34,7 +30,7 @@ export default function DocsShell({ sections, children }: { sections: NavSection
       <div className="dv-grid">
         {open && <button type="button" className="dv-scrim" aria-label="Close sections" onClick={() => setOpen(false)} />}
         <nav id="dv-side" className={`dv-side${open ? " is-open" : ""}`} aria-label="Docs sections">
-          <Link href="/docs" className="dv-side-home">DISCIPLE Docs <span>v1 draft</span></Link>
+          <Link href="/docs" className="dv-side-home">DISCIPLE Docs</Link>
           {sections.map((s) => (
             <div key={s.title} className="dv-side-sec">
               <h4>{s.title}</h4>

@@ -3,7 +3,7 @@ title: Private launches
 slug: /docs/launch/pseudonymous
 section: Launching
 ---
-# Private launches (beta)
+# Private launches
 
 You can launch a rocket without your name showing as the creator. Turn on the **Anon** switch on the launch form, under First BOOST.
 
