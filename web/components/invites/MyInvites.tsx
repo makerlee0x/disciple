@@ -3,7 +3,7 @@ import { useState } from "react";
 import { INVITE_COPY as C } from "@/lib/copy/invites";
 import { inviteLink, type MyCode } from "@/lib/invitesClient";
 
-/** "You have N invites" + each code with its state and a copy-link button. */
+/** "N invites left" + each code with its state, Copy link and Share (phone share sheet, else a post on X) (step 7 board, state d). Used codes are struck through. */
 export default function MyInvites({ codes }: { codes: MyCode[] }) {
   const [copied, setCopied] = useState<string | null>(null);
   const left = codes.filter((c) => !c.used).length;
@@ -11,16 +11,25 @@ export default function MyInvites({ codes }: { codes: MyCode[] }) {
     try { await navigator.clipboard.writeText(inviteLink(code)); setCopied(code); setTimeout(() => setCopied((x) => (x === code ? null : x)), 1500); }
     catch { /* clipboard blocked: the code is on screen */ }
   };
+  // The phone share sheet where there is one; otherwise a post on X with the link.
+  const share = async (code: string) => {
+    const url = inviteLink(code), text = C["invites.shareText"];
+    if (typeof navigator.share === "function") { try { await navigator.share({ text, url }); } catch { /* closed the sheet */ } return; }
+    window.open(`https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, "_blank", "noopener");
+  };
   return (
-    <div data-testid="my-invites">
-      <h3 className="cl-display xs">{left ? C["invites.count"](left) : C["invites.none"]}</h3>
-      {left > 0 && <p className="muted cl-fine">{C["invites.help"]}</p>}
-      <ul style={{ listStyle: "none", padding: 0, margin: "12px 0 0", display: "grid", gap: 8 }}>
+    <div data-testid="my-invites" className="iv-mine">
+      <div className="iv-mhead">
+        <div><span className="r2-eb iv-green">{C["in.eyebrow"]}</span><h1 className="r2-g">{left ? C["invites.count"](left) : C["invites.none"]}</h1></div>
+        {left > 0 && <p>{C["invites.help"]}</p>}
+      </div>
+      <ul className="iv-list">
         {codes.map((c) => (
-          <li key={c.code} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span className="cl-mono" style={{ fontSize: 15, letterSpacing: ".12em", opacity: c.used ? 0.45 : 1, textDecoration: c.used ? "line-through" : "none" }}>{c.code}</span>
-            <span className="muted cl-fine" style={{ margin: 0 }}>{c.used ? C["invites.used"] : C["invites.unused"]}</span>
-            {!c.used && <button type="button" className="cl-btn sm ghost" onClick={() => void copy(c.code)}>{copied === c.code ? C["invites.copied"] : C["invites.copy"]}</button>}
+          <li key={c.code} className={`iv-row${c.used ? " used" : ""}`}>
+            <span className="r2-mono iv-code">{c.code}</span>
+            <span className="iv-st">{c.used ? C["invites.used"] : C["invites.unused"]}</span>
+            {!c.used && <button type="button" className="r2-btn" onClick={() => void copy(c.code)}>{copied === c.code ? C["invites.copied"] : C["invites.copy"]}</button>}
+            {!c.used && <button type="button" className="r2-btn r2-goldsm" onClick={() => void share(c.code)}>{C["invites.share"]}</button>}
           </li>
         ))}
       </ul>

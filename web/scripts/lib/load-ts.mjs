@@ -4,7 +4,7 @@ import fs from "node:fs"; import os from "node:os"; import path from "node:path"
 import ts from "typescript";
 const lib = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../lib");
 /** every lib module the simulator pulls in (sim + what it imports) */
-export const SIM_MODULES = ["config", "curveMath", "pnl", "flight/tiers", "trampwalls/adapter", "sim/pool", "sim/config", "sim/market", "sim/run", "sim/twAdapter"];
+export const SIM_MODULES = ["config", "defaultUsername", "curveMath", "pnl", "flight/tiers", "trampwalls/adapter", "sim/pool", "sim/config", "sim/market", "sim/run", "sim/twAdapter", "sim/pilots", "sim/daily"];
 export async function loadLib(mods = SIM_MODULES, prefix = "lib-") {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   for (const rel of mods) {

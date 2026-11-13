@@ -27,7 +27,10 @@ import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
 import { creatorClaimCalls, signedAnonClaimCalls } from "@/lib/claims/creatorFees";
 import { partitionRelayableCalls, blockedCallsMessage } from "@/lib/trade/gaslessAction";
 import { formatActionFeeNote, quoteGaslessAction } from "@/lib/trade/gaslessActionClient";
-import { SampleTag, pc } from "./ui";
+import { SampleTag, isCashAsset, pc } from "./ui";
+import { CLAIM_COPY, ClaimBody, type ClaimRow } from "./ClaimSheet";
+
+const ZERO_TX = `0x${"0".repeat(64)}` as Hex;
 import type { Rewards } from "./useRewards";
 
 const T = {
@@ -76,7 +79,7 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
   const [feeNote, setFeeNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [done, setDone] = useState<{ usd: number; deferred: number } | null>(null);
+  const [done, setDone] = useState<{ usd: number; deferred: number; tx?: Hex | null } | null>(null);
   // referral deposit (separate)
   const [sheet, setSheet] = useState<DepSheet>(null);
   const [sBusy, setSBusy] = useState(false);
@@ -127,7 +130,7 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
       if (demo) { await new Promise((x) => setTimeout(x, 500)); setDone({ usd: claimUsd, deferred: 0 }); return; }
       const res = await claimEverything(pc(), me!, caps, data.claim);
       console.warn("[disciple] rewards: claimed", { txHash: res.txHash, skipped: res.skipped, deferred: res.deferred });
-      setDone({ usd: claimUsd, deferred: res.deferred });
+      setDone({ usd: claimUsd, deferred: res.deferred, tx: (res.txHash as Hex | undefined) ?? null });
       void r.reload();
     } catch (e) { setErr(claimErrorText(e)); } finally { setBusy(false); }
   };
@@ -139,6 +142,17 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
     catch (e) { setSErr(claimErrorText(e)); } finally { setSBusy(false); }
   };
 
+  // the claim sheet's split (round 2 board): from friends, rockets you host, crew rewards
+  const claimRows: ClaimRow[] = !data ? [] : kinds.filter((k) => data.claimableByKind[k] > 0).map((k) => {
+    if (k === "referral") return { label: CLAIM_COPY.fromFriends, sub: CLAIM_COPY.fromFriendsSub, usd: data.claimableByKind[k] };
+    if (k === "creator") {
+      const coin = data.claim.creator.map((x) => (!isCashAsset(x.quote) ? x.quote.symbol : x.tokenSide && x.tokenSide.claimable > BigInt(0) ? `$${x.ticker}` : null)).find(Boolean) ?? null;
+      return { label: CLAIM_COPY.hosted, sub: CLAIM_COPY.hostedSub(data.claim.creator.length, coin), usd: data.claimableByKind[k] };
+    }
+    const names = data.claim.crew.map((c) => data.rockets.find((x) => x.kind === "crew" && x.token.toLowerCase() === c.token.toLowerCase())?.name).filter(Boolean);
+    return { label: CLAIM_COPY.crew, sub: names.slice(0, 2).join(", ") + (names.length > 2 ? ` +${names.length - 2}` : ""), usd: data.claimableByKind[k] };
+  });
+  const claimAllCash = !!data && data.claim.crew.length === 0 && data.claim.creator.every((x) => isCashAsset(x.quote) && !(x.tokenSide && x.tokenSide.claimable > BigInt(0)));
   const creatorUsd = s?.byKind.creator.earnedUsd ?? 0, crewUsd = s?.byKind.crew.earnedUsd ?? 0, refUsd = s?.byKind.referral.earnedUsd ?? 0;
 
   return (
@@ -252,24 +266,12 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
       )}
 
       {claimOpen && data && (
-        <div className="p5-inner" role="dialog" aria-modal="true" aria-label={T.sheetTitle} data-testid="claim-confirm">
-          <div className="p5-inner-box">
-            <span className="p5-l">{done ? "Done" : "Confirm"}</span>
-            <h3>{done ? T.claimed : T.sheetTitle}</h3>
-            <ul className="p5-lines">
-              {kinds.filter((k) => data.claimableByKind[k] > 0).map((k: RewardKind) => (
-                <li key={k}><span className="muted">{REWARD_LABEL[k]}</span><span>{usd2(data.claimableByKind[k])}</span></li>
-              ))}
-            </ul>
-            {done && <p className="p5-ok">{usd2(done.usd)} · {T.landed}</p>}
-            {done && done.deferred > 0 && <p className="p5-fine">{T.later}</p>}
-            {feeNote && !done && <p className="p5-fine" data-testid="claim-fee-note">{feeNote}</p>}
-            {err && <p className="p5-err" role="alert">{err}</p>}
-            <div className="p5-actions">
-              <button type="button" className="p5-btn" onClick={() => setClaimOpen(false)}>{done ? "Close" : "Cancel"}</button>
-              {!done && <button type="button" className="p5-btn primary" disabled={busy} onClick={confirmClaim} data-testid="claim-confirm-btn">{busy ? "Sending…" : "Confirm claim"}</button>}
-            </div>
-          </div>
+        <div className="p5-inner cs-over">
+          <section className={`ds-modal r2-modal cs-inner${done ? " cs-claimed" : ""}`} role="dialog" aria-modal="true" aria-label={T.sheetTitle} data-testid="claim-confirm">
+            <ClaimBody title={T.sheetTitle} rows={claimRows} allCash={claimAllCash} feeNote={feeNote} busy={busy} error={err}
+              done={done ? (done.tx ?? ZERO_TX) : null} doneNote={done && done.deferred > 0 ? T.later : null}
+              onConfirm={confirmClaim} onClose={() => setClaimOpen(false)} />
+          </section>
         </div>
       )}
       {sheet && (

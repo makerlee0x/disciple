@@ -32,4 +32,4 @@ The form also shows two more choices: adding your fees to the rocket's locked po
 
 ## Hand-offs
 
-If you hand off your rocket, the right to future earnings goes with it. [CONFIRM: FLOW — whether unclaimed earnings move with the hand-off or stay with the previous creator.]
+If you hand off your rocket, the right to future earnings goes with it. Earnings already booked to you stay yours, and you can claim them any time. Fees from trades that haven't been settled yet go to the new creator.

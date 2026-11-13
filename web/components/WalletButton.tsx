@@ -18,7 +18,10 @@ import {
   legacyBalances, onSessionChange, sweepLegacy, restartOneTap,
 } from "@/lib/aa/session";
 import { bookedPortfolio, loadPortfolio, type Portfolio } from "@/lib/portfolio";
-import { WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, type WalletId } from "@/lib/walletCta";
+import { SIGN_IN_COPY, SIGN_IN_FAILED_EVENT, WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, type WalletId } from "@/lib/walletCta";
+import { onPrivy, privyAuthenticated } from "@/lib/aa/sessionState";
+import AccountMenu from "@/components/account/AccountMenu";
+import WelcomeToast, { markSignInStarted } from "@/components/account/WelcomeToast";
 import { COIN_DECIMALS, knownDecimals, usdgDecimals } from "@/lib/usdg";
 import { BOOKED_EVENT, blockOf, bookFill, fillBook, readAtOrAfter, txBlock, type FillReceiptDetail } from "@/lib/fillBook";
 import { pct } from "@/lib/aa/slippage";
@@ -183,6 +186,20 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
   }, []);
 
   const fail = (e: unknown) => setErr(playerError(e).slice(0, 160));
+  // step 5 board: after the Privy window closes, the button holds "Setting up…" until the account exists; a failed
+  // setup shows the pink retry line under it
+  const [authed, setAuthed] = useState(false);
+  useEffect(() => { const f = () => setAuthed(privyAuthenticated()); f(); return onPrivy(f); }, []);
+  const settingUp = authed && !addr && SIGNER_MODE !== "local";
+  const [signFail, setSignFail] = useState(false);
+  useEffect(() => { const f = () => setSignFail(true); addEventListener(SIGN_IN_FAILED_EVENT, f); return () => removeEventListener(SIGN_IN_FAILED_EVENT, f); }, []);
+  useEffect(() => { if (addr) setSignFail(false); }, [addr]);
+  /** Sign in goes straight to the Privy window (the old "Email or Google" box only stays for dev wallet options). */
+  const signIn = () => {
+    setErr(""); setSignFail(false); markSignInStarted();
+    if (DEV_WALLETS) { setMenu((m) => !m); return; }
+    try { connectPrivy(); } catch (e) { fail(e); }
+  };
   async function run(label: string, f: () => Promise<unknown>) {
     setErr(""); setBusy(label);
     try { await f(); setMenu(false); } catch (e) { fail(e); } finally { setBusy(""); }
@@ -203,7 +220,8 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
   const ctaClick = useRef<() => void>(() => {});
   ctaClick.current = () => {
     if (addr || busy) return;
-    if (aaAvailable() && SIGNER_MODE === "local") run("creating account", connectLocal);
+    if (aaAvailable() && SIGNER_MODE === "local") { markSignInStarted(); run("creating account", connectLocal); }
+    else if (aaAvailable()) signIn();
     else setMenu(true);
   };
   useEffect(() => {
@@ -264,15 +282,17 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
                   {/* lobby routes (brand v3 lobby mockup): one cash chip + the pilot chip (level ring + name) */}
                   {/* always shown when signed in: $0.00 until (or unless) the cash read lands */}
                   {!hideCash && (
-                    <a href={DEPOSIT_HREF} onClick={onDepositClick} className="wb-cash" data-testid="cash-card" title="Your cash: what BOOST spends and DUMP pays out in. Tap to add more.">
+                    <a href={DEPOSIT_HREF} onClick={onDepositClick} className="wb-cash" data-testid="cash-card" aria-label="Your cash: open Cash" title="Your cash: what BOOST spends and DUMP pays out in. Tap to add more.">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg>
                       <b>{usd2(pf?.cashUsd ?? 0)}</b>
+                      <svg className="wb-cash-plus" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
                     </a>
                   )}
                   <button type="button" className="wb-pilot" aria-label="Your pilot menu" aria-haspopup={smart ? "menu" : undefined} aria-expanded={smart ? acct : undefined}
                     onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
                     <PilotRing wallet={addr} />
                     <span>{copied ? "Copied" : chipLabel(uname, addr)}</span>
+                    {smart && <svg className="wb-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M6 9l6 6 6-6" /></svg>}
                   </button>
                 </>
               ) : (
@@ -301,12 +321,12 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
             </>
           ) : (
             aaAvailable() && SIGNER_MODE === "local" ? (
-              <button type="button" className={`ap-wallet-cta${compact ? " wb-signin" : ""}`} onClick={() => run("creating account", connectLocal)} disabled={!!busy} style={compact ? undefined : { ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
-                {busy || "Sign in"}
+              <button type="button" className={`ap-wallet-cta${compact ? " wb-signin" : ""}`} onClick={() => { markSignInStarted(); run("creating account", connectLocal); }} disabled={!!busy} style={compact ? undefined : { ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
+                {busy ? <><span className="am-spin" aria-hidden />{SIGN_IN_COPY.settingUp}</> : SIGN_IN_COPY.signIn}
               </button>
             ) : (
-            <button type="button" className={`ap-wallet-cta${compact ? " wb-signin" : ""}`} onClick={() => setMenu((m) => !m)} disabled={!!busy} style={compact ? undefined : { ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
-              {busy || (aaAvailable() ? "Sign in" : "Connect wallet")}
+            <button type="button" className={`ap-wallet-cta${compact ? " wb-signin" : ""}`} onClick={() => (aaAvailable() ? signIn() : setMenu((m) => !m))} disabled={!!busy || settingUp} style={compact ? undefined : { ...pill, background: "#C9CED6", color: "#0B0C0E" }} data-testid="signin-btn">
+              {busy || settingUp ? <><span className="am-spin" aria-hidden />{SIGN_IN_COPY.settingUp}</> : aaAvailable() ? SIGN_IN_COPY.signIn : "Connect wallet"}
             </button>
             )
           )}
@@ -330,10 +350,13 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
         {/* account settings (one-tap session, max price move, Advanced, sign out) moved to Profile → Settings
             (components/account/AccountSettings, SITE Oct 30); the chip opens this slim menu */}
         {addr && acct && smart && (
-          <div aria-label="account" role="menu" style={{ ...popover, minWidth: 160, fontSize: 11 }}>
-            <a role="menuitem" href="/profile" onClick={() => setAcct(false)} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Profile</a>
-            <Link role="menuitem" href={SETTINGS_HREF} scroll={false} onClick={(e) => { setAcct(false); onSettingsClick(e); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Settings</Link>
-            <button role="menuitem" type="button" onClick={() => { setAcct(false); run("", disconnect); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Sign out</button>
+          <AccountMenu wallet={addr} name={chipLabel(uname, addr)} initial={(uname || "P").replace(/^@/, "").charAt(0).toUpperCase()}
+            cashUsd={pf?.cashUsd ?? 0} onClose={() => setAcct(false)} onSignOut={() => run("", disconnect)} />
+        )}
+        {!addr && signFail && (
+          <div className="r2-note err wb-fail" role="alert" data-testid="signin-failed">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.5" /></svg>
+            <span>{SIGN_IN_COPY.failed} <button type="button" className="wb-retry" onClick={signIn}>{SIGN_IN_COPY.retry}</button></span>
           </div>
         )}
       </div>
@@ -352,6 +375,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
           <button type="button" onClick={() => setSlipCap(null)} style={{ ...pill, padding: "1px 6px", fontSize: 9, background: "rgba(255,255,255,.08)" }}>Keep {pct(slipCap.maxBps)}</button>
         </span>
       )}
+      {compact && <WelcomeToast wallet={addr} />}
       {err && <span role="alert" style={{ fontSize: 10, color: "#ffb0c0", maxWidth: 320, textAlign: "right" }}>{err}</span>}
     </div>
   );

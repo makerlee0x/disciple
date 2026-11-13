@@ -17,7 +17,7 @@ A coin launched on DISCIPLE. 1M fixed supply, priced and traded in its base.
 BOOST is buy. DUMP is sell.
 
 **What do I need to start?**
-Sign in with email, Google, X or a wallet. Then press **Get test cash** for free test dollars. You don't need ETH for gas. See [Quick start](/docs/quick-start).
+Sign in with email, Google, X or a wallet. Then add cash from the cash button at the top. You don't need ETH for gas. See [Quick start](/docs/quick-start).
 
 ## Pairing
 
@@ -36,7 +36,7 @@ When its value reaches $33,333 and about 84% of it has been bought on the starti
 Yes. When the rocket reaches orbit, its liquidity is locked forever in the Uniswap v4 LP. The contract that holds it has no way to remove it, and the contracts can't be swapped for new code. The team holds some admin settings. See [Admin controls](/docs/safety/admin).
 
 **Can a creator rug?**
-There's no further mint, the name and call sign are locked at launch, and once the rocket reaches orbit its liquidity is locked forever in the Uniswap v4 LP. Creators can still sell their own rockets, like anyone else. [CONFIRM: lee — keep this question?]
+There's no further mint, the name and call sign are locked at launch, and once the rocket reaches orbit its liquidity is locked forever in the Uniswap v4 LP. Creators can still sell their own rockets, like anyone else.
 
 ## Fees
 
@@ -52,7 +52,7 @@ The sniper tax. It's 99% at launch, 25% at 1 second, 3% at 2 seconds, and nothin
 Every DUMP drops one. Its size is set by price impact, from PUFF (under 2%) to ATOM (50%+). See [Bombs](/docs/trading/bombs).
 
 **Do upgrades or tiers change my trades?**
-No. Rocket upgrades, tiers, bombs and XP are cosmetic or display only. A tier is a named step for how high a rocket's value has climbed. They never change the price, the trade, or the odds.
+No. Rocket looks, tiers, bombs and XP are cosmetic or display only. A tier is a named step for how high a rocket's value has climbed. They never change the price, the trade, or the odds.
 
 **What is the Simulator?**
 Free paper trading against bots on a private market, with no wallet and no transactions. Pick PvE, PvP or Trench Warfare. Open it at `/flight/sim`. See [Simulator](/docs/game/simulator).

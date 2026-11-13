@@ -9,11 +9,19 @@ import { snipeState } from "@/lib/snipe";
 import { SIM_LAUNCH_TS } from "@/lib/game/snipeCountdown";
 import Icon from "@/components/ui/Icon";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
-import { ARCHETYPES, cloneConfig, mergeTune, resetSimStorage, SIM_STORAGE, type ArchetypeId, type DifficultyId, type SimConfig } from "@/lib/sim/config";
+import { ARCHETYPES, PLAYER, cloneConfig, mergeTune, resetSimStorage, SIM_STORAGE, type ArchetypeId, type DifficultyId, type SimConfig } from "@/lib/sim/config";
 import { SIM_POS_EVENT, SimDriver } from "@/lib/sim/driver";
 import { createSimTrampWallAdapter, SIM_ME } from "@/lib/sim/twAdapter";
 import { fmt, seedOf } from "@/lib/sim/run";
-import type { SimEvent } from "@/lib/sim/run";
+import type { PlayerInput, SimEvent } from "@/lib/sim/run";
+import { dailySeed, dailyToday, fmtMultiple, DAILY } from "@/lib/sim/daily";
+import { claimFreePlayXp, saveDaily, savedDaily, submitDaily, type DailyVerdict, type FreePlayXpResult } from "@/lib/sim/dailyClient";
+import { usePilotWallet, XP_CHANGED_EVENT } from "@/lib/xpClient";
+import DailyResult from "@/components/sim/DailyResult";
+
+/** a challenger's run on a daily (GET /api/daily?run=): flown as a ghost when this run is that exact flight */
+type Ghost = { day: number; name: string; multiple: number; boardedAtS: number | null; outAtS: number | null };
+const ghostEvent = (detail: Record<string, unknown>) => dispatchEvent(new CustomEvent("disciple:ghost", { detail }));
 
 type Summary = ReturnType<SimDriver["run"]["summary"]>;
 const DIFFS: DifficultyId[] = ["pve", "pvp", "trench"];
@@ -29,7 +37,7 @@ const usd = (v: number) => (v < 0 ? "−$" : "+$") + Math.abs(v).toFixed(2);
 function loadTune(): SimConfig { try { const s = localStorage.getItem(SIM_STORAGE.tune); if (s) return mergeTune(JSON.parse(s)); } catch { /* ignore */ } return cloneConfig(); }
 
 /** SIMULATOR — free paper-trading mode on a fully local market (lib/sim). Never touches wallets or real profiles. */
-export default function SimMode({ initial }: { initial: { difficulty?: string; seed?: string; tune?: boolean; autostart?: boolean; speed?: number; minutes?: number; balance?: number } }) {
+export default function SimMode({ initial }: { initial: { difficulty?: string; seed?: string; tune?: boolean; autostart?: boolean; speed?: number; minutes?: number; balance?: number; daily?: boolean; challenge?: string; challengeDay?: number } }) {
   const [cfg, setCfg] = useState<SimConfig>(() => cloneConfig());
   // phones (mobile plan, one overlay at a time): the run panel folds into a small SIM chip in the top-right corner
   const [phone, setPhone] = useState(false);
@@ -39,8 +47,24 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
   const [difficulty, setDifficulty] = useState<DifficultyId>(DIFFS.includes(initial.difficulty as DifficultyId) ? (initial.difficulty as DifficultyId) : "pve");
   const [seedText, setSeedText] = useState(initial.seed || "");
   const [speed, setSpeed] = useState(SPEEDS.includes(initial.speed || 0) ? initial.speed! : 1);
-  const [minutes, setMinutes] = useState(initial.minutes || 10);
-  const [phase, setPhase] = useState<"select" | "run" | "summary">("select");
+  const [minutes, setMinutes] = useState(initial.minutes || PLAYER.defaultMinutes);
+  const [phase, setPhase] = useState<"select" | "run" | "summary" | "daily">("select");
+  // Daily flight: today's fixed seed on the default config (never the tuning panel's), Hard, 2 min, 1×; one scored run per device
+  const [dailyRun, setDailyRun] = useState(false);
+  const dailyId = useMemo(() => dailyToday(), []);
+  const [dailyRes, setDailyRes] = useState<{ inputs: PlayerInput[]; verdict: DailyVerdict | null; error: string | null } | null>(null);
+  // the challenger's ghost (a /d/ challenge link): loaded once, flown on any run of that day's exact seed
+  const [ghost, setGhost] = useState<Ghost | null>(null);
+  const ghostOn = useRef<{ g: Ghost; joined: boolean; out: boolean } | null>(null);
+  const ghostRef = useRef<Ghost | null>(null), ghostFor = useRef<SimDriver | null>(null);   // the run the ghost was armed for
+  useEffect(() => { ghostRef.current = ghost; ghostFor.current = null; }, [ghost]);
+  useEffect(() => {
+    const c = initial.challenge, day = initial.challengeDay || dailyId; if (!c || !/^[0-9a-f]{16}$/.test(c)) return;
+    fetch(`/api/daily?id=${day}&run=${c}`).then((r) => (r.ok ? r.json() : null)).then((j) => { const r = j?.run; if (r) setGhost({ day, name: r.name, multiple: r.multiple, boardedAtS: r.boardedAtS ?? null, outAtS: r.outAtS ?? null }); }).catch(() => {});
+  }, [initial.challenge, initial.challengeDay, dailyId]);
+  // practice XP (signed-in pilots): the server re-flies the run; shown on the summary
+  const pilot = usePilotWallet();
+  const [practiceXp, setPracticeXp] = useState<FreePlayXpResult | { ok: false; reason: string } | null>(null);
   const [runN, setRunN] = useState(0);
   const [tuneOpen, setTuneOpen] = useState(!!initial.tune);
   const drv = useRef<SimDriver | null>(null);
@@ -52,34 +76,67 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
   // tramps/walls: the panel talks to the live SimRun (re-created every run), never to the live/mock store
   const twAdapter = useMemo(() => (runN > 0 ? createSimTrampWallAdapter(() => drv.current?.run ?? null, typeof window !== "undefined" ? localStorage : undefined) : undefined), [runN]);
 
-  const start = useCallback((seedOverride?: number) => {
+  const start = useCallback((seedOverride?: number, o: { daily?: boolean; difficulty?: DifficultyId; minutes?: number } = {}) => {
     drv.current?.stop();
-    const seed = seedOverride ?? (seedText.trim() ? seedOf(/^\d+$/.test(seedText.trim()) ? +seedText.trim() : seedText.trim()) : (Math.random() * 2 ** 31) >>> 0);
-    setSeedText(String(seed));
-    const c: SimConfig = JSON.parse(JSON.stringify(cfg));
-    if (initial.balance && initial.balance > 0) c.player.startBalanceUsd = initial.balance;
+    const seed = o.daily ? dailySeed(dailyId) : seedOverride ?? (seedText.trim() ? seedOf(/^\d+$/.test(seedText.trim()) ? +seedText.trim() : seedText.trim()) : (Math.random() * 2 ** 31) >>> 0);
+    if (!o.daily) setSeedText(String(seed));
+    const c: SimConfig = o.daily ? cloneConfig() : JSON.parse(JSON.stringify(cfg));
+    if (!o.daily && initial.balance && initial.balance > 0) c.player.startBalanceUsd = initial.balance;
     // fresh SIMULATOR ledger + tramps/walls (own namespace) for every run
     try { resetSimStorage(localStorage); } catch { /* ignore */ }
-    const d = new SimDriver(c, difficulty, seed, minutes); d.speed = speed; d.start(); drv.current = d;
+    const diff = o.daily ? DAILY.difficulty : o.difficulty ?? difficulty, mins = o.daily ? PLAYER.dailyMinutes : o.minutes ?? minutes;
+    if (o.difficulty || o.daily) setDifficulty(diff);
+    if (o.minutes || o.daily) setMinutes(mins);
+    setDailyRun(!!o.daily);
+    const d = new SimDriver(c, diff, seed, mins); d.speed = o.daily ? 1 : speed; d.start(); drv.current = d;
+    ghostEvent({ op: "clear" }); ghostOn.current = null; ghostFor.current = null;
+    setPracticeXp(null);
     setChatter([]);
-    d.onEvent((e) => { if (e.kind === "react" || e.kind === "tw") setChatter((l) => [e, ...l].slice(0, 5));
+    d.onEvent((e) => { if (e.kind === "react" || e.kind === "tw" || e.kind === "tell" || e.kind === "dump" || e.kind === "pump") setChatter((l) => [e, ...l].slice(0, 5));
       if (e.kind === "rug" || e.kind === "cto" || e.kind === "graduate" || e.kind === "whale") { if (e.kind === "rug" || e.kind === "cto" || e.kind === "graduate" || e.kind === "whale") { setBanner(e); window.setTimeout(() => setBanner((b) => (b === e ? null : b)), e.kind === "whale" ? 2500 : 5000); } } });
     setSummary(null); setPaused(false); setRunN((n) => n + 1); setPhase("run");
-  }, [cfg, difficulty, minutes, seedText, speed, initial.balance]);
+  }, [cfg, difficulty, minutes, seedText, speed, initial.balance, dailyId]);
+  /** open today's daily: its result if this device already flew it, otherwise the scored flight */
+  const openDaily = useCallback(() => {
+    const have = savedDaily(dailyId);
+    if (have?.verdict) { drv.current?.stop(); setDailyRes({ inputs: have.inputs, verdict: have.verdict, error: null }); setPhase("daily"); return; }
+    start(undefined, { daily: true });
+  }, [dailyId, start]);
+  const finishDaily = useCallback(async (inputs: PlayerInput[]) => {
+    setDailyRes({ inputs, verdict: null, error: null }); setPhase("daily");
+    saveDaily({ id: dailyId, inputs, verdict: null });
+    const r = await submitDaily(dailyId, inputs);
+    if (!r.ok) { setDailyRes({ inputs, verdict: null, error: r.error }); return; }
+    const scored = r.verdict.inputs ?? inputs;   // already flown on this device: the first run is the scored one
+    saveDaily({ id: dailyId, inputs: scored, verdict: { ...r.verdict, inputs: undefined } });
+    setDailyRes({ inputs: scored, verdict: r.verdict, error: null });
+  }, [dailyId]);
 
   useEffect(() => () => drv.current?.stop(), []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (initial.autostart) start(); }, []);   // once, on mount
+  useEffect(() => { if (initial.daily) openDaily(); else if (initial.autostart) start(); }, []);   // once, on mount
   // HUD refresh 4×/s (not per tick) + end-of-run summary
   useEffect(() => {
     if (phase !== "run") return;
     const iv = window.setInterval(() => {
       const d = drv.current; if (!d) return; force((x) => x + 1);
+      if (ghostFor.current !== d) {   // arm the ghost once per run (it may load after the run started): only on that day's exact flight
+        ghostFor.current = d; const g = ghostRef.current;
+        ghostOn.current = g && g.boardedAtS != null && d.difficulty === DAILY.difficulty && d.minutes === PLAYER.dailyMinutes && d.seed === dailySeed(g.day) ? { g, joined: false, out: false } : null; }
+      const go = ghostOn.current;   // the ghost boards and cashes out at the challenger's own times
+      if (go && !go.joined && d.run.t >= go.g.boardedAtS!) { go.joined = true; ghostEvent({ op: "join", name: go.g.name });
+        setChatter((l) => [{ t: d.run.t, kind: "react" as const, text: `${go.g.name}'s ghost boarded`, mcap: d.run.m.mcap(), mine: true }, ...l].slice(0, 5)); }
+      if (go && go.joined && !go.out && go.g.outAtS != null && d.run.t >= go.g.outAtS) { go.out = true; ghostEvent({ op: "out", tag: `CASHED OUT ${fmtMultiple(go.g.multiple)}` });
+        setChatter((l) => [{ t: d.run.t, kind: "react" as const, text: `${go.g.name}'s ghost cashed out at ${fmtMultiple(go.g.multiple)}`, mcap: d.run.m.mcap(), mine: true }, ...l].slice(0, 5)); }
+      if (d.ended && dailyRun) { d.stop(); finishDaily(d.run.inputs.slice()); return; }
       if (d.ended) { const s = d.run.summary(); setSummary(s); setPhase("summary");
+        // practice XP: only a default run (no tuning, $250, 2 min) can match the server's replay
+        if (pilot && !initial.balance && minutes === PLAYER.defaultMinutes && !localStorage.getItem(SIM_STORAGE.tune))
+          claimFreePlayXp(pilot, { practice: { difficulty: d.difficulty, seed: d.seed, inputs: d.run.inputs.slice() } }).then((r) => { setPracticeXp(r); if (r?.ok) dispatchEvent(new CustomEvent(XP_CHANGED_EVENT)); });
         try { const all = JSON.parse(localStorage.getItem(SIM_STORAGE.runs) || "[]"); all.unshift({ ...s, at: Date.now(), events: undefined }); localStorage.setItem(SIM_STORAGE.runs, JSON.stringify(all.slice(0, 20))); } catch { /* ignore */ } }
     }, 250);
     return () => window.clearInterval(iv);
-  }, [phase]);
+  }, [phase, dailyRun, finishDaily, pilot, minutes, initial.balance]);
   useEffect(() => { if (drv.current) drv.current.speed = speed; }, [speed]);
   useEffect(() => { if (drv.current) drv.current.paused = paused; }, [paused]);
   useEffect(() => {
@@ -106,11 +163,11 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
 
   return (
     <>
-      {phase !== "select" && (
+      {(phase === "run" || phase === "summary") && (
         <>
           <FlightCanvas key={runN} search={search} />
           <PnlHud coin={`run-${runN}`} storagePrefix={SIM_STORAGE.pnlPrefix} modeLabel="SIMULATOR" syncEvent={SIM_POS_EVENT} />
-          <TrampWallPanel key={runN} token="SIMULATOR" adapter={twAdapter} owner={SIM_ME} supply={run?.m.S} simulator />
+          {!dailyRun && <TrampWallPanel key={runN} token="SIMULATOR" adapter={twAdapter} owner={SIM_ME} supply={run?.m.S} simulator />}
           <TradeBridge token="SIMULATOR" storagePrefix={SIM_STORAGE.swapPrefix} />
           <SnipeChip state={snipe} />
         </>
@@ -118,29 +175,29 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
       {phase === "run" && run && phone && !simOpen && (
         <button type="button" data-testid="sim-chip" aria-expanded={false} onClick={() => setSimOpen(true)}
           style={{ ...panel, ...btn(false), position: "fixed", right: 12, top: "calc(var(--ph-radio-top, 314px) + 44px)", zIndex: 31, minHeight: 40, padding: "0 12px", display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-          <b style={{ color: "#8fd8ff" }}>SIM</b><span style={{ opacity: 0.85 }}>{clock(run.t)}</span><span style={{ color: D.color }}>{D.label}</span><span aria-hidden>▾</span>
+          <b style={{ color: "#8fd8ff" }}>{dailyRun ? `DAILY #${dailyId}` : "SIM"}</b><span style={{ opacity: 0.85 }}>{clock(run.t)}</span><span style={{ color: D.color }}>{D.label}</span><span aria-hidden>▾</span>
         </button>
       )}
       {phase === "run" && run && (!phone || simOpen) && (
         <div data-testid="sim-bar" style={{ ...panel, position: "fixed", ...(phone ? { right: 12, top: "calc(var(--ph-radio-top, 314px) + 44px)" } : { left: "calc(var(--ap-rail-w, 64px) + 12px)", top: 430 }), width: 236, padding: "8px 10px", zIndex: 31, fontSize: 11 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <b style={{ color: "#8fd8ff", letterSpacing: 1 }}>SIMULATOR</b>
+            <b style={{ color: "#8fd8ff", letterSpacing: 1 }}>{dailyRun ? `DAILY FLIGHT #${dailyId}` : "SIMULATOR"}</b>
             <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ color: D.color, fontWeight: 700 }}>{D.label}</span>
               {phone && <button type="button" data-testid="sim-chip-close" aria-label="Fold the simulator panel" onClick={() => setSimOpen(false)} style={{ ...btn(false), minWidth: 36, minHeight: 32, padding: 0 }}>▴</button>}</span>
           </div>
-          <div style={{ opacity: 0.8, margin: "2px 0 6px" }}>seed {d!.seed} · {clock(run.t)} / {clock(minutes * 60)} · {run.bots.length} bots · {run.m.phase === "curve" ? `curve ${(run.m.sold / run.m.sC * 100).toFixed(0)}%` : "pool"}</div>
-          <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+          <div style={{ opacity: 0.8, margin: "2px 0 6px" }}>{dailyRun ? "scored run" : `seed ${d!.seed}`} · {clock(run.t)} / {clock(minutes * 60)} · {run.bots.length} bots · {run.m.phase === "curve" ? `curve ${(run.m.sold / run.m.sC * 100).toFixed(0)}%` : "pool"}</div>
+          {!dailyRun && <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
             {SPEEDS.map((s) => <button key={s} data-testid={`sim-speed-${s}`} style={btn(speed === s)} onClick={() => setSpeed(s)}>{s}×</button>)}
             <button style={btn(paused, "#ffd24a")} onClick={() => setPaused((p) => !p)}>{paused ? "▶" : "⏸"}</button>
             <button data-testid="sim-restart" style={btn(false, "#ffb0c8")} onClick={() => start(d!.seed)} title="restart with the same seed">⟲</button>
             <button data-testid="sim-end" style={btn(false, "#ffb0c8")} onClick={endNow} title="end run → summary">■</button>
-          </div>
+          </div>}
           <div style={{ opacity: 0.7, marginBottom: 2 }}>PnL LEADERBOARD · peak {fmt(run.peak)}</div>
           {lb.slice(0, 3).map((r, i) => <Row key={r.name} i={i} name={r.name} arch={r.arch} total={r.total} me={r.arch === "you"} />)}
           {me >= 3 && <Row i={me} name="you" arch="you" total={lb[me].total} me />}
           {run.m.phase === "pool" && <div data-testid="sim-tw-stats" style={{ opacity: 0.7, marginTop: 4 }}>tramps/walls live {run.m.pool?.active.length ?? 0} · yours {run.m.pool?.active.filter((o) => o.owner === "you").length ?? 0} · keeper pulls {run.keeper.pulls}</div>}
           {chatter.length > 0 && <div data-testid="sim-chatter" style={{ marginTop: 6, borderTop: "1px solid rgba(255,255,255,.12)", paddingTop: 4 }}>
-            {chatter.map((e, i) => <div key={i} style={{ opacity: 1 - i * 0.16, color: e.mine ? "#ffe7a3" : e.kind === "react" ? "#ffb0c8" : "#c8d2ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{clock(e.t)} {e.text}</div>)}
+            {chatter.map((e, i) => <div key={i} style={{ opacity: 1 - i * 0.16, color: e.mine ? "#ffe7a3" : e.kind === "tell" ? "#FFB48F" : e.kind === "react" || e.kind === "dump" ? "#ffb0c8" : "#c8d2ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{clock(e.t)} {e.text}</div>)}
           </div>}
         </div>
       )}
@@ -167,14 +224,22 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
             </div>
             <div style={{ display: "flex", gap: 14, alignItems: "center", marginTop: 18, flexWrap: "wrap", fontSize: 12 }}>
               <label>seed <input data-testid="sim-seed" value={seedText} placeholder="random" onChange={(e) => setSeedText(e.target.value)} style={{ ...mono, width: 110, background: "#0d1030", color: "#e8ecff", border: "1px solid #334", borderRadius: 6, padding: "4px 6px" }} /></label>
-              <label>minutes <input type="number" min={1} max={60} value={minutes} onChange={(e) => setMinutes(Math.max(1, Math.min(60, +e.target.value || 10)))} style={{ ...mono, width: 56, background: "#0d1030", color: "#e8ecff", border: "1px solid #334", borderRadius: 6, padding: "4px 6px" }} /></label>
+              <label>minutes <input type="number" min={1} max={60} value={minutes} onChange={(e) => setMinutes(Math.max(1, Math.min(60, +e.target.value || PLAYER.defaultMinutes)))} style={{ ...mono, width: 56, background: "#0d1030", color: "#e8ecff", border: "1px solid #334", borderRadius: 6, padding: "4px 6px" }} /></label>
               <span>speed {SPEEDS.map((s) => <button key={s} style={{ ...btn(speed === s), marginLeft: 4, ...(phone ? { minHeight: 40, minWidth: 44 } : {}) }} onClick={() => setSpeed(s)}>{s}×</button>)}</span>
               <span style={{ opacity: 0.75 }}>balance ${(initial.balance || cfg.player.startBalanceUsd).toLocaleString()} paper</span>
-              <button data-testid="sim-start" onClick={() => start()} style={{ ...btn(true, D.color), padding: "10px 26px", fontSize: 15, marginLeft: "auto" }}>START ▸</button>
+              <button data-testid="sim-daily" onClick={openDaily} style={{ ...btn(false, "#F2C14E"), padding: "10px 18px", fontSize: 15, marginLeft: "auto" }}>DAILY FLIGHT #{dailyId} ▸</button>
+              <button data-testid="sim-start" onClick={() => start()} style={{ ...btn(true, D.color), padding: "10px 26px", fontSize: 15 }}>START ▸</button>
             </div>
             <div style={{ fontSize: 11, opacity: 0.55, marginTop: 14 }}>Keys in flight: SPACE = BOOST · SHIFT = DUMP · 1–6 BOOST that preset now · Z/X/C/V select DUMP % · W/↑ boost (hold) · A/D steer · S dive · ` tuning panel. Same seed + same inputs = same bots and market.</div>
           </div>
         </div>
+      )}
+      {phase === "daily" && dailyRes && (
+        <DailyResult id={dailyId} label={cfg.difficulties[DAILY.difficulty].label.toUpperCase()} inputs={dailyRes.inputs} verdict={dailyRes.verdict} error={dailyRes.error}
+          ghost={ghost && ghost.day === dailyId ? { name: ghost.name, multiple: ghost.multiple, outAtS: ghost.outAtS } : null}
+          onClose={() => { drv.current?.stop(); setDailyRun(false); setPhase("select"); }}
+          onAgain={() => start(dailySeed(dailyId), { difficulty: DAILY.difficulty, minutes: PLAYER.dailyMinutes })}
+          onPractice={() => { setSeedText(""); start((Math.random() * 2 ** 31) >>> 0, { difficulty: DAILY.difficulty }); }} />
       )}
       {phase === "summary" && summary && (
         <div data-testid="sim-summary" style={{ position: "fixed", inset: 0, left: "var(--ap-rail-w, 64px)", display: "grid", placeItems: "center", background: "rgba(4,5,14,.78)", zIndex: 40 }}>
@@ -185,6 +250,10 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
               <Stat k="YOUR PnL" v={usd(summary.you.total)} sub={`realized ${usd(summary.you.realized)} · fees $${summary.you.fees.toFixed(2)}`} c={summary.you.total >= 0 ? "#8ff0c0" : "#ff9fb8"} />
               <Stat k="RANK" v={`#${summary.you.rank}`} sub={`of ${summary.you.of} traders`} />
               <Stat k="POINTS" v={String(summary.points)} sub={`${summary.achievements.length} achievements`} c="#ffd24a" />
+            </div>
+            <div data-testid="sim-xp" style={{ fontSize: 12, marginBottom: 12, color: "#F3DFA8" }}>
+              {practiceXp?.ok ? (practiceXp.already ? "XP for this flight is already saved." : practiceXp.xp > 0 ? `+${practiceXp.xp} XP saved to your level${practiceXp.capped ? ` (Free play XP stops at ${practiceXp.perDay} a day)` : ""}.` : practiceXp.capped ? `Free play XP is capped at ${practiceXp.perDay} a day. Come back tomorrow.` : "Board a flight to earn XP.")
+                : practiceXp && !practiceXp.ok ? practiceXp.reason : pilot ? "Saving XP…" : "Sign in to earn XP from Free play."}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, fontSize: 12 }}>
               <div>

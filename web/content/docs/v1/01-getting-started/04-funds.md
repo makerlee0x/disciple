@@ -9,17 +9,15 @@ section: Getting started
 
 DISCIPLE counts your money in dollars. Under the hood that's USDG, a dollar stablecoin on Robinhood Chain. One USDG is one dollar. You BOOST with USDG, and a DUMP pays you back in USDG.
 
-Press **Get test cash** to get some USDG for free.
-
 ## Deposit
 
-Open **Wallet → Deposit**. The page shows your wallet's address, with the line "Send USDG to your account address". Copy the address and send USDG to it on Robinhood Chain.
+Tap your cash at the top, then **Add cash**. It shows your account address as a QR code with a **Copy** button. Send USDG to that address on Robinhood Chain.
 
 Send only USDG, and send it only on Robinhood Chain. Money sent on another network will not arrive.
 
 ## Withdraw
 
-Open **Wallet → Withdraw**. Enter an amount (or press **Max**) and the address you're sending to, then press **Withdraw**.
+Tap your cash at the top, then **Cash out**. Enter an amount (or pick 25%, 40%, Half or All) and the address you're sending to, then press **Cash out**.
 
 Before you confirm, the page shows how much will arrive and the small network fee, both in dollars. The fee is taken from the amount you send, so you never need ETH. Withdrawals go out on Robinhood Chain only, and they can't be undone.
 

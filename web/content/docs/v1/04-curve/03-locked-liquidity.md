@@ -25,7 +25,7 @@ The base coin is locked forever in the Uniswap v4 LP when the rocket reaches orb
 
 ## Batched adds
 
-The LP share of each fee is set aside on every trade and added to the locked position as it builds up, in batches. Until a batch is added, it's held for the pool. [CONFIRM: FLOW — batching ships with the PR #75 redeploy; on the current deploy the LP share is escrowed per trade.]
+The LP share of each fee is set aside on every trade and added to the locked position as it builds up, in batches. Until a batch is added, it's held for the pool.
 
 ## Admin controls
 

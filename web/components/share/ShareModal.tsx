@@ -9,11 +9,12 @@ import { coinRefLink, refLabel } from "@/lib/referral";
 import { fmtMcap, fmtMoney, fmtPct, shareText } from "@/lib/share/format";
 import { localLoadoutIds, loadoutFromIds } from "@/lib/share/loadout";
 import type { PositionPnl } from "@/lib/sharePnl";
+import type { SceneData } from "@/lib/share/scene";
 import type { Fill } from "@/lib/trades";
 import Icon from "@/components/icons/Icon";
 
 export interface ShareTarget { coin: string; ticker: string; wallet: string | null; username: string | null; sample?: boolean }
-type Pnl = PositionPnl & { sample?: boolean };
+type Pnl = PositionPnl & { sample?: boolean; log?: SceneData["log"]; badge?: SceneData["badge"] };
 /** Sample share cards are `next dev` only; production shows the real position, or "no trades yet". */
 const DEV_DEMO = process.env.NODE_ENV === "development";
 
@@ -62,7 +63,7 @@ export default function ShareModal({ target, onClose }: { target: ShareTarget; o
         coin: target.coin, ticker: target.ticker, wallet: target.wallet ?? pnl.wallet, pnl, coinFills, loadout: loadoutFromIds(ids), loadoutIds: ids,
         scene: { gainUsd: pnl.gainUsd, gainPct: pnl.gainPct, kind: pnl.kind, ticker: target.ticker, mcapStart: pnl.mcapStartUsd, mcapEnd: pnl.mcapEndUsd,
           endTs: pnl.endTs || at, username: target.username, refLabel: refLabel(target.username, target.wallet, window.location.host), sample: !!demo, wallet: target.wallet ?? pnl.wallet,
-          fills: pnl.fills.map((f) => ({ side: f.side, mcapUsd: f.mcapUsd })) },
+          fills: pnl.fills.map((f) => ({ side: f.side, mcapUsd: f.mcapUsd })), log: pnl.log ?? null, badge: pnl.badge ?? null },
         onProgress: (p, stage) => setVp({ p, stage }),
       });
       if (!res) { setVNote("Video isn't available in this browser (or the replay engine isn't deployed yet), so here's the PNG."); return; }

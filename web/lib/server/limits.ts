@@ -256,6 +256,8 @@ export function paymasterAllowanceLimits(ip: string, sender: string): [key: stri
  */
 export const PUBLIC_GET_LIMITS = {
   imgPerIp: { limit: 60, windowSec: 60 },
+  /** GET /api/daily (Free play daily board) */
+  dailyPerIp: { limit: 60, windowSec: 60 },
   sharePerIp: { limit: 30, windowSec: 60 },
   tradesPerIp: { limit: 60, windowSec: 60 },
   usernameNoncePerIp: { limit: 30, windowSec: 60 },

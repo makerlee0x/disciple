@@ -11,9 +11,9 @@ Five minutes from zero to your first BOOST.
 
 Tap **Sign in** (top right). You can sign in with email, Google, X or a wallet. The first time you sign in, DISCIPLE makes a wallet for you. After that, every trade is one tap, with no wallet pop-ups. See [Sign in and your account](/docs/account).
 
-## 2. Get test cash
+## 2. Add cash
 
-Press **Get test cash**. It adds free test dollars (USDG) to your wallet. You don't need any ETH: trades don't ask you to pay for gas.
+Tap your cash at the top, then **Add cash**. Send USDG to your account address (scan the QR code or press **Copy**). You don't need any ETH: trades don't ask you to pay for gas.
 
 See [Deposits, withdrawals and gas](/docs/funds).
 

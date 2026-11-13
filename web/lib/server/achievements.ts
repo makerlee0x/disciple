@@ -27,7 +27,7 @@ import { serverPc } from "./chat/identity";
 import { kv, type Kv } from "./kv";
 import { ACH } from "./achKeys";
 import { coinsOf, tradesOf, TRADES_MAX_LIMIT } from "./trades";
-import { dueTimers, scoreXp, XPK, type TransferOut } from "./xp";
+import { COIN_FILLS_LIMIT, dueTimers, scoreXp, XPK, type TransferOut } from "./xp";
 import { capOuts, coinsToScan, nonTradeOuts } from "@/lib/xpTransfers";
 
 const LAUNCHED = getAbiItem({ abi: launchpadAbi, name: "Launched" });
@@ -242,7 +242,7 @@ export async function scoreWallet(walletIn: string, o: { dryRun?: boolean; s?: K
   // unfinished (budget) or failed scan: re-score this wallet in a minute, the cursor picks up where it stopped
   if (!outs && !o.dryRun) await s.zadd(XPK.timers(), [{ score: now + 60_000, member: `${w}|${now + 60_000}` }]);
   const coinFills = new Map<string, Fill[]>();
-  for (const c of recent) coinFills.set(c, await tradesOf(c, null, 1000, "desc"));
+  for (const c of recent) coinFills.set(c, await tradesOf(c, null, COIN_FILLS_LIMIT, "desc"));
   const xp = await scoreXp(w, { fills: onChain, outs: outs ?? undefined, holdsUnverified: outs === null, metas, unlocks: r.unlocks, coinFills }, { now, s, dryRun: o.dryRun });
   return { wallet: w, unlocks: r.unlocks, fresh, fills: fills.length, xp: xp.awarded };
 }

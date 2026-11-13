@@ -9,7 +9,7 @@ import { docSections } from "@/lib/docs/content";
 import "./docs.css";
 
 export const metadata: Metadata = {
-  title: { default: "Docs (draft) · DISCIPLE", template: "%s · DISCIPLE Docs (draft)" },
+  title: { default: "Docs · DISCIPLE", template: "%s · DISCIPLE Docs" },
   robots: { index: false, follow: false, nocache: true, googleBot: { index: false, follow: false } },
 };
 

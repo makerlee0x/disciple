@@ -3,7 +3,7 @@
  * the one chrome rocket recoloured in code (lib/hullRamp) and every flare is drawn in code, and pilots earn them by
  * playing, never by paying. Rules read only what the Hangar already has: level, prestige and trophies. Cosmetic only.
  */
-import { MILESTONE_COPY } from "./xp";
+import { MILESTONE_COPY, XP_PER_PRESTIGE, levelInfo, xpForLevel } from "./xp";
 
 export type Rarity = "common" | "rare" | "epic" | "legendary";
 export type Rule = { kind: "free" } | { kind: "level"; level: number } | { kind: "prestige"; prestige: number } | { kind: "trophy"; trophy: string };
@@ -43,4 +43,16 @@ export function ruleLabel(r: Rule): string {
     case "prestige": return `Reach Prestige ${r.prestige}`;
     case "trophy": return `Earn the ${MILESTONE_COPY[r.trophy]?.name ?? "matching"} trophy`;
   }
+}
+
+/** the next look a level unlocks for a pilot with `totalXp` (+ `extra` not yet saved): "80 more unlocks the Plasma flare" */
+export function nextLevelUnlock(totalXp: number, prestige = 0, extra = 0): { name: string; part: "hull" | "flare"; level: number; more: number } | null {
+  if (prestige > 0) return null;   // level unlocks stay unlocked after a prestige
+  const now = levelInfo(totalXp + extra, prestige).level;
+  const next = [...HULLS.map((l) => ({ l, part: "hull" as const })), ...FLARES.map((l) => ({ l, part: "flare" as const }))]
+    .filter((x) => x.l.rule.kind === "level" && x.l.rule.level > now)
+    .sort((a, b) => (a.l.rule as { level: number }).level - (b.l.rule as { level: number }).level)[0];
+  if (!next) return null;
+  const level = (next.l.rule as { level: number }).level;
+  return { name: next.l.name, part: next.part, level, more: Math.max(1, xpForLevel(level) - (totalXp + extra - prestige * XP_PER_PRESTIGE)) };
 }

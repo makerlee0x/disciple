@@ -18,6 +18,8 @@ const FunnelBeacon = dynamic(() => import("./FunnelBeacon"), { ssr: false });
 // Referral deposit sheet (viem + the claims contracts): an overlay that only shows after a referral link, so it loads after
 // hydration in its own chunk (mobile plan speed fix 1), not in every page's first-load JS.
 const ReferralOnboarding = dynamic(() => import("./claims/ReferralOnboarding"), { ssr: false });
+// The Cash popup (round 2 "Cash" board): opened by any cash link (lib/cashLink OPEN_CASH_EVENT). Its body loads on open.
+const CashHost = dynamic(() => import("./cash/CashHost"), { ssr: false });
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -29,6 +31,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <RefCapture />
       <ReferralOnboarding />
       <HowItWorksHost />
+      <CashHost />
       {/* the plain "Test network" marker lives in the wallet strip (WalletButton), so it shows on every route incl. the game */}
       {!isGame && !IS_STATIC_PREVIEW && <InviteBanner />}
       {/* profile r3: no cash pill on a profile (the page's portfolio block shows Cash); every other route unchanged */}

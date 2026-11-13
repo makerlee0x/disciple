@@ -28,6 +28,7 @@ import InvitesCard from "@/components/invites/InvitesCard";
 import Icon from "@/components/icons/Icon";
 import type { ActivityItem } from "@/lib/stats";
 import HangarBay from "@/components/hangar/HangarBay";
+import HangarSignedOut from "@/components/hangar/HangarSignedOut";
 import RocketLooks from "@/components/hangar/RocketLooks";
 import type { Progress } from "@/lib/unlocks";
 import { Fleet, ServiceRecord, TrophyCase } from "@/components/hangar/HangarSections";
@@ -141,6 +142,18 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   }, []);
   const [edit, setEdit] = useState<{ focus: "bio" | null } | null>(null);
   const [rewardsOpen, setRewardsOpen] = useState(false);
+  // the account menu's Rewards row links to /profile#rewards: open the popup on load and on hashchange
+  useEffect(() => {
+    if (!isPrivate) return;
+    const open = () => { if (window.location.hash === "#rewards") setRewardsOpen(true); };
+    open();
+    window.addEventListener("hashchange", open);
+    return () => window.removeEventListener("hashchange", open);
+  }, [isPrivate]);
+  const closeRewards = useCallback(() => {
+    setRewardsOpen(false);
+    if (window.location.hash === "#rewards") window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`);
+  }, []);
   const [toast, setToast] = useState("");
   const toastT = useRef<number | undefined>(undefined);
   const flash = (t: string) => { setToast(t); window.clearTimeout(toastT.current); toastT.current = window.setTimeout(() => setToast(""), 1800); };
@@ -174,13 +187,10 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   // /profile signed out: no sample pilot pretending to be you (existing copy only).
   if (isPrivate && !wallet) {
     return (
-      <div className="profile-page pf-v3">
+      <div className="profile-page hg hgo" data-testid="hangar-signedout">
         {/* Settings opens right away, before the wallet resolves; its sections show their own loading / signed-out state */}
         <SettingsModal open={settingsOpen} onClose={closeSettings} />
-        <header className="pf-head pf-signedout" data-testid="profile-identity">
-          <h1 className="pf-name">Your Profile</h1>
-          <p className="muted">Sign in (top right)</p>
-        </header>
+        <HangarSignedOut loadout={loadout} />
       </div>
     );
   }
@@ -210,7 +220,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       {isPrivate && <SettingsModal open={settingsOpen} onClose={closeSettings} />}
       {isPrivate && <EditProfileSheet open={!!edit} focus={edit?.focus} wallet={wallet} meta={meta}
         onClose={(saved) => { setEdit(null); if (saved) flash(C["edit.saved"]); }} />}
-      {isPrivate && <RewardsPopup open={rewardsOpen} onClose={() => setRewardsOpen(false)} r={rewards} />}
+      {isPrivate && <RewardsPopup open={rewardsOpen} onClose={closeRewards} r={rewards} />}
       {toast && <div className="pf-toast" role="status">{toast}</div>}
 
       <HangarBay handle={handle} bio={bio} avatar={avatar} xp={xp} loadout={loadout} actions={actions} spend={false} />

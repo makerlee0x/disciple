@@ -5,7 +5,7 @@
  * engine.js instance), so the profile page never mounts the game.
  */
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
-import { drawShareScene, composeRocket, tierAt, FONT, type SceneData, type MakeCanvas, type Loadout } from "./scene";
+import { drawShareScene, composeRocket, scenePeak, tierAt, FONT, type SceneData, type MakeCanvas, type Loadout } from "./scene";
 import type { Fill } from "../trades";
 import { CURVE } from "../config";
 import type { LoadoutIds } from "./loadout";
@@ -55,14 +55,15 @@ const img = (src: string) => new Promise<HTMLImageElement | null>((res) => { con
 let fontsP: Promise<void> | null = null;
 export function loadShareFonts() {
   return (fontsP ??= (async () => {
-    const list: [string, string][] = [[FONT.black, "Geist-Black.ttf"], [FONT.mono, "GeistMono-Bold.ttf"], [FONT.monoMed, "GeistMono-Medium.ttf"]];
+    const list: [string, string][] = [[FONT.black, "Geist-Black.ttf"], [FONT.mono, "GeistMono-Bold.ttf"], [FONT.monoMed, "GeistMono-Medium.ttf"],
+      [FONT.game600, "BarlowCondensed-SemiBold.ttf"], [FONT.game700, "BarlowCondensed-Bold.ttf"], [FONT.game800, "BarlowCondensed-ExtraBold.ttf"], [FONT.ui600, "Inter-SemiBold.ttf"]];
     await Promise.all(list.map(async ([fam, f]) => { const ff = new FontFace(fam, `url(${BASE()}/fonts/share/${f})`); await ff.load(); document.fonts.add(ff); }));
   })().catch(() => {}));
 }
 export async function endCardAssets(mcapEnd: number, lo: Loadout) {
   await loadShareFonts();
   const [bg, base, wordmark] = await Promise.all([img(`${BASE()}${tierAt(mcapEnd).sky}`), img(`${BASE()}/assets/rocket.png`), img(`${BASE()}/brand/disciple-wordmark-light-1200.png`)]);
-  return { bg, rocket: base ? composeRocket(mkDom, base, lo, 4) : null, wordmark };
+  return { bg, rocket: base ? composeRocket(mkDom, base, lo, 4) : null, wordmark, wing: base };
 }
 
 /* ---------------- encoders ---------------- */
@@ -136,7 +137,7 @@ export async function renderShareVideo(opts: {
     width: VIDEO.width, height: VIDEO.height, seed, clean: true, loadout: replayLoadout });
   if (r.loadout && (r.loadout.skin !== replayLoadout.skin || r.loadout.noseCoin !== replayLoadout.noseCoin)) console.warn("[share] replay normalized loadout", r.loadout);
   onP(0, "preparing end card");
-  const assets = await endCardAssets(opts.scene.mcapEnd, opts.loadout);
+  const assets = await endCardAssets(scenePeak(opts.scene), opts.loadout);
   const endFrames = VIDEO.endSec * VIDEO.fps, total = r.frames + endFrames;
   let lastReplayHash = "";
   const src: FrameSource = {
