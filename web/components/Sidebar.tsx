@@ -2,8 +2,8 @@
 
 /**
  * App navigation, premium-ui-r1 (BRAND mockups/premium-ui-r1, DIRECTION.md "Sidebar"):
- * one silver "Launch a Rocket" button on top, six places in two groups (Launchpad / Leaderboard / Achievements, then
- * You: Profile / Your rockets / Wallet), How it works near the bottom, and who you are at the bottom (picture, name,
+ * one gold Launch button on top, six places in two groups (Lobby / Leaderboard / Trophies, then
+ * You: Hangar / Your rockets / Wallet), How to play near the bottom (names match the lobby tabs, brand v3), and who you are at the bottom (picture, name,
  * guild tag, settings) or, signed out, one card with one Sign in button. Sign out lives in Settings.
  * Game routes collapse to the 64px rail (silver + for Launch). Phones: a drawer; Launch sits in the top bar.
  * Upgrade Rocket is hidden from the menu until it does something (the /rocket route stays).
@@ -29,13 +29,13 @@ import {
 type NavItem = { href: string; key: string; label: string; icon: IconName };
 
 const NAV: readonly NavItem[] = [
-  { href: "/", key: "home", label: "Launchpad", icon: "home" },
+  { href: "/", key: "home", label: "Lobby", icon: "home" },
   { href: "/leaderboard", key: "leader", label: "Leaderboard", icon: "leaderboard" },
-  { href: "/achievements", key: "ach", label: "Achievements", icon: "achievement" },
+  { href: "/achievements", key: "ach", label: "Trophies", icon: "achievement" },
 ];
 /** "You" group: signed in only (nothing of yours to show signed out). Upgrade Rocket (/rocket) is hidden, not deleted. */
 const NAV_YOU: readonly NavItem[] = [
-  { href: "/profile", key: "profile", label: "Profile", icon: "profile" },
+  { href: "/profile", key: "profile", label: "Hangar", icon: "pilot" },
   // Copy pending lee approval: "Your rockets"
   { href: "/creator", key: "creator", label: "Your rockets", icon: "rocket" },
   // Copy pending lee approval: "Wallet"
@@ -50,7 +50,7 @@ const JOIN_LINE = "Sign in with email, Google, X or wallet";
 // because there the button creates a guest account instead of opening sign-in.
 const JOIN_BTN = "Sign in";
 // Copy pending lee approval: "How it works" (replaces "Help")
-const HIW_LABEL = "How it works";
+const HIW_LABEL = "How to play";
 // Copy pending lee approval: "Launch" (phone top-bar button)
 const PHONE_LAUNCH = "Launch";
 
@@ -217,6 +217,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
             <img className="ap-lockup" src="/brand/disciple-lockup-horizontal-light.svg" alt="DISCIPLE" width={176} height={45} />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img className="ap-mark" src="/brand/disciple-mark-light.svg" alt="DISCIPLE" width={32} height={32} />
+            <span className="ap-word" aria-hidden="true">DISCIPLE</span>
           </Link>
           <button
             type="button"
@@ -231,10 +232,10 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
         </div>
 
         {/* One Launch button (the old nav item + winged promo card are gone); the silver + on the rail */}
-        <Link href="/create" className={`ap-launch${isGame ? " ap-launch-game" : ""}`} title="Launch a Rocket"
+        <Link href="/create" className={`ap-launch${isGame ? " ap-launch-game" : ""}`} title="Launch a rocket"
           data-testid="side-launch" onClick={closeIfMobile}>
           <Icon name="plus" size={18} />
-          <span className="lb">Launch a Rocket</span>
+          <span className="lb">Launch</span>
         </Link>
 
         <nav className="ap-nav" aria-label="Main">{NAV.map(navLink)}</nav>
