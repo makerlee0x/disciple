@@ -341,7 +341,11 @@ test("Free play XP: daily up to 150, practice up to 20, 150 a day across Free pl
   const again = await awardFreePlay(w, "fp:d:1", 120, "Daily flight #1", now, s); assert.ok(again.ok && again.already && again.xp === 0);
   const p1 = await awardFreePlay(w, "fp:p:x:pvp:1", 20, "p", now + 1, s); assert.ok(p1.ok && p1.xp === 20);
   const p2 = await awardFreePlay(w, "fp:p:x:pvp:2", 20, "p", now + 2, s); assert.ok(p2.ok && p2.xp === 10 && p2.capped);   // 150 − 140
-  const p3 = await awardFreePlay(w, "fp:p:x:pvp:3", 20, "p", now + 3, s); assert.ok(p3.ok && p3.xp === 0 && p3.totalXp === 150);
+  const { ledgerOf } = await import("../lib/server/xp");
+  const rowsBefore = (await ledgerOf(w, s)).length;
+  for (let i = 0; i < 50; i++) { const z = await awardFreePlay(w, `fp:p:x:pvp:z${i}`, 20, "p", now + 3, s); assert.ok(z.ok && z.xp === 0 && z.capped && z.totalXp === 150); }
+  const none = await awardFreePlay(w, "fp:p:x:pvp:never", 0, "p", now + 4, s); assert.ok(none.ok && none.xp === 0);
+  assert.equal((await ledgerOf(w, s)).length, rowsBefore, "a run paying 0 XP must not write a ledger row");
   const tomorrow = await awardFreePlay(w, "fp:p:x:pvp:4", 20, "p", now + 86_400_000, s); assert.ok(tomorrow.ok && tomorrow.xp === 20);
   // "80 more unlocks the Plasma flare": Plasma is level 5 = 1,040 XP
   assert.deepEqual(nextLevelUnlock(0, 0, 120), { name: "Plasma", part: "flare", level: 5, more: 920 });

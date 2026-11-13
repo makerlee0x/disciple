@@ -163,6 +163,8 @@ export const FREE_PLAY_XP = {
   daily: { flew: 40, green: 40, cash2x: 40, orbit: 30 },
   practice: { flew: 5, green: 5, cash2x: 5, orbit: 5 },
   claimDays: 7,
+  /** at most this many Free play ledger rows a UTC day per wallet (each pays at least 1 XP, so the cap alone allows ~30) */
+  rowsPerDay: 30,
 } as const;
 export type FreePlayKind = "daily" | "practice";
 /** XP a verified Free play run earns before the daily cap: 0 if it never boarded */

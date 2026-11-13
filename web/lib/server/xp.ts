@@ -254,17 +254,20 @@ export type FreePlayAward = { ok: true; xp: number; already: boolean; paidToday:
 
 /**
  * Pay one server-verified Free play run (lib/xp FREE_PLAY_XP): once ever per `src`, and never past the daily cap across
- * all Free play rows (a run that lands on a full day pays what is left, possibly 0, and is not paid again).
+ * all Free play rows (a run that lands on a nearly full day pays what is left). A run that would pay 0 writes nothing.
  */
 export async function awardFreePlay(walletIn: string, src: string, xp: number, label: string, now = Date.now(), s: Kv = kv()): Promise<FreePlayAward> {
   const w = walletIn.toLowerCase(), day = dayPeriod(now);
   const r = await withLock(w, s, async (): Promise<FreePlayAward> => {
     const rows = await ledgerOf(w, s);
-    const paidToday = rows.reduce((a, x) => (x.kind === "freeplay" && x.ts >= day.start && x.ts < day.end ? a + x.xp : a), 0);
+    const today = rows.filter((x) => x.kind === "freeplay" && x.ts >= day.start && x.ts < day.end), paidToday = today.reduce((a, x) => a + x.xp, 0);
     const done = (already: boolean, paid: number, all: LedgerRow[]) => { const t = totals(all);
       return { ok: true as const, xp: paid, already, paidToday: paidToday + paid, capped: paidToday + paid >= FREE_PLAY_XP.perDay, totalXp: t.total, level: levelInfo(t.total, t.prestige) }; };
     if (rows.some((x) => x.src === src)) return done(true, 0, rows);
     const pay = Math.max(0, Math.min(Math.floor(xp), FREE_PLAY_XP.perDay - paidToday));
+    // nothing to pay (never boarded, or the day is full): write nothing. Rows only ever carry XP, so a wallet adds at most
+    // a handful a day (the cap over the smallest payment, and rowsPerDay at worst) and can't grow its ledger past the read limit
+    if (pay <= 0 || today.length >= FREE_PLAY_XP.rowsPerDay) return done(false, 0, rows);
     const row: LedgerRow = { src, kind: "freeplay", xp: pay, label, ts: now };
     if (!(await award(w, row, s))) return done(true, 0, rows);
     return done(false, pay, [...rows, row]);
