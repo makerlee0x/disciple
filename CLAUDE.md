@@ -10,7 +10,7 @@ DISCIPLE: a launchpad where every coin is a rocket and altitude = price, front e
 
 | Path | What | Owner |
 |---|---|---|
-| `web/` | Next.js 14 App Router + TypeScript + Tailwind. Routes in `app/`, UI in `components/`, logic in `lib/`, flight engine in `public/flight/engine.js` | DISCIPLE GAME |
+| `web/` | Next.js 14 App Router + TypeScript + Tailwind. Routes in `app/`, UI in `components/`, logic in `lib/`, flight engine in `public/flight/engine.js` | DISCIPLE SITE (flight engine and game feel: DISCIPLE GAME) |
 | `contracts/` | Foundry, Solidity 0.8.26, OpenZeppelin v5. Source of truth: `contracts/docs/protocol-constitution.md`; front-end contract surface: `contracts/docs/frontend-api.md` | DISCIPLE FLOW |
 | `indexer/` | viem + SQLite + `node:http` indexer and REST API (`@disciple/indexer`, npm lockfile, not in the pnpm workspace) | DISCIPLE FLOW |
 | `sdk/session-keys/` | Session-key SDK (pnpm workspace package) | DISCIPLE FLOW |
