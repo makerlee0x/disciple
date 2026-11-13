@@ -13,7 +13,10 @@ import { ARCHETYPES, PLAYER, cloneConfig, mergeTune, resetSimStorage, SIM_STORAG
 import { SIM_POS_EVENT, SimDriver } from "@/lib/sim/driver";
 import { createSimTrampWallAdapter, SIM_ME } from "@/lib/sim/twAdapter";
 import { fmt, seedOf } from "@/lib/sim/run";
-import type { SimEvent } from "@/lib/sim/run";
+import type { PlayerInput, SimEvent } from "@/lib/sim/run";
+import { dailySeed, dailyToday, DAILY } from "@/lib/sim/daily";
+import { saveDaily, savedDaily, submitDaily, type DailyVerdict } from "@/lib/sim/dailyClient";
+import DailyResult from "@/components/sim/DailyResult";
 
 type Summary = ReturnType<SimDriver["run"]["summary"]>;
 const DIFFS: DifficultyId[] = ["pve", "pvp", "trench"];
@@ -29,7 +32,7 @@ const usd = (v: number) => (v < 0 ? "−$" : "+$") + Math.abs(v).toFixed(2);
 function loadTune(): SimConfig { try { const s = localStorage.getItem(SIM_STORAGE.tune); if (s) return mergeTune(JSON.parse(s)); } catch { /* ignore */ } return cloneConfig(); }
 
 /** SIMULATOR — free paper-trading mode on a fully local market (lib/sim). Never touches wallets or real profiles. */
-export default function SimMode({ initial }: { initial: { difficulty?: string; seed?: string; tune?: boolean; autostart?: boolean; speed?: number; minutes?: number; balance?: number } }) {
+export default function SimMode({ initial }: { initial: { difficulty?: string; seed?: string; tune?: boolean; autostart?: boolean; speed?: number; minutes?: number; balance?: number; daily?: boolean } }) {
   const [cfg, setCfg] = useState<SimConfig>(() => cloneConfig());
   // phones (mobile plan, one overlay at a time): the run panel folds into a small SIM chip in the top-right corner
   const [phone, setPhone] = useState(false);
@@ -40,7 +43,11 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
   const [seedText, setSeedText] = useState(initial.seed || "");
   const [speed, setSpeed] = useState(SPEEDS.includes(initial.speed || 0) ? initial.speed! : 1);
   const [minutes, setMinutes] = useState(initial.minutes || PLAYER.defaultMinutes);
-  const [phase, setPhase] = useState<"select" | "run" | "summary">("select");
+  const [phase, setPhase] = useState<"select" | "run" | "summary" | "daily">("select");
+  // Daily flight: today's fixed seed on the default config (never the tuning panel's), Hard, 2 min, 1×; one scored run per device
+  const [dailyRun, setDailyRun] = useState(false);
+  const dailyId = useMemo(() => dailyToday(), []);
+  const [dailyRes, setDailyRes] = useState<{ inputs: PlayerInput[]; verdict: DailyVerdict | null; error: string | null } | null>(null);
   const [runN, setRunN] = useState(0);
   const [tuneOpen, setTuneOpen] = useState(!!initial.tune);
   const drv = useRef<SimDriver | null>(null);
@@ -52,34 +59,54 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
   // tramps/walls: the panel talks to the live SimRun (re-created every run), never to the live/mock store
   const twAdapter = useMemo(() => (runN > 0 ? createSimTrampWallAdapter(() => drv.current?.run ?? null, typeof window !== "undefined" ? localStorage : undefined) : undefined), [runN]);
 
-  const start = useCallback((seedOverride?: number) => {
+  const start = useCallback((seedOverride?: number, o: { daily?: boolean; difficulty?: DifficultyId; minutes?: number } = {}) => {
     drv.current?.stop();
-    const seed = seedOverride ?? (seedText.trim() ? seedOf(/^\d+$/.test(seedText.trim()) ? +seedText.trim() : seedText.trim()) : (Math.random() * 2 ** 31) >>> 0);
-    setSeedText(String(seed));
-    const c: SimConfig = JSON.parse(JSON.stringify(cfg));
-    if (initial.balance && initial.balance > 0) c.player.startBalanceUsd = initial.balance;
+    const seed = o.daily ? dailySeed(dailyId) : seedOverride ?? (seedText.trim() ? seedOf(/^\d+$/.test(seedText.trim()) ? +seedText.trim() : seedText.trim()) : (Math.random() * 2 ** 31) >>> 0);
+    if (!o.daily) setSeedText(String(seed));
+    const c: SimConfig = o.daily ? cloneConfig() : JSON.parse(JSON.stringify(cfg));
+    if (!o.daily && initial.balance && initial.balance > 0) c.player.startBalanceUsd = initial.balance;
     // fresh SIMULATOR ledger + tramps/walls (own namespace) for every run
     try { resetSimStorage(localStorage); } catch { /* ignore */ }
-    const d = new SimDriver(c, difficulty, seed, minutes); d.speed = speed; d.start(); drv.current = d;
+    const diff = o.daily ? DAILY.difficulty : o.difficulty ?? difficulty, mins = o.daily ? PLAYER.dailyMinutes : o.minutes ?? minutes;
+    if (o.difficulty || o.daily) setDifficulty(diff);
+    if (o.minutes || o.daily) setMinutes(mins);
+    setDailyRun(!!o.daily);
+    const d = new SimDriver(c, diff, seed, mins); d.speed = o.daily ? 1 : speed; d.start(); drv.current = d;
     setChatter([]);
     d.onEvent((e) => { if (e.kind === "react" || e.kind === "tw" || e.kind === "tell" || e.kind === "dump" || e.kind === "pump") setChatter((l) => [e, ...l].slice(0, 5));
       if (e.kind === "rug" || e.kind === "cto" || e.kind === "graduate" || e.kind === "whale") { if (e.kind === "rug" || e.kind === "cto" || e.kind === "graduate" || e.kind === "whale") { setBanner(e); window.setTimeout(() => setBanner((b) => (b === e ? null : b)), e.kind === "whale" ? 2500 : 5000); } } });
     setSummary(null); setPaused(false); setRunN((n) => n + 1); setPhase("run");
-  }, [cfg, difficulty, minutes, seedText, speed, initial.balance]);
+  }, [cfg, difficulty, minutes, seedText, speed, initial.balance, dailyId]);
+  /** open today's daily: its result if this device already flew it, otherwise the scored flight */
+  const openDaily = useCallback(() => {
+    const have = savedDaily(dailyId);
+    if (have?.verdict) { drv.current?.stop(); setDailyRes({ inputs: have.inputs, verdict: have.verdict, error: null }); setPhase("daily"); return; }
+    start(undefined, { daily: true });
+  }, [dailyId, start]);
+  const finishDaily = useCallback(async (inputs: PlayerInput[]) => {
+    setDailyRes({ inputs, verdict: null, error: null }); setPhase("daily");
+    saveDaily({ id: dailyId, inputs, verdict: null });
+    const r = await submitDaily(dailyId, inputs);
+    if (!r.ok) { setDailyRes({ inputs, verdict: null, error: r.error }); return; }
+    const scored = r.verdict.inputs ?? inputs;   // already flown on this device: the first run is the scored one
+    saveDaily({ id: dailyId, inputs: scored, verdict: { ...r.verdict, inputs: undefined } });
+    setDailyRes({ inputs: scored, verdict: r.verdict, error: null });
+  }, [dailyId]);
 
   useEffect(() => () => drv.current?.stop(), []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (initial.autostart) start(); }, []);   // once, on mount
+  useEffect(() => { if (initial.daily) openDaily(); else if (initial.autostart) start(); }, []);   // once, on mount
   // HUD refresh 4×/s (not per tick) + end-of-run summary
   useEffect(() => {
     if (phase !== "run") return;
     const iv = window.setInterval(() => {
       const d = drv.current; if (!d) return; force((x) => x + 1);
+      if (d.ended && dailyRun) { d.stop(); finishDaily(d.run.inputs.slice()); return; }
       if (d.ended) { const s = d.run.summary(); setSummary(s); setPhase("summary");
         try { const all = JSON.parse(localStorage.getItem(SIM_STORAGE.runs) || "[]"); all.unshift({ ...s, at: Date.now(), events: undefined }); localStorage.setItem(SIM_STORAGE.runs, JSON.stringify(all.slice(0, 20))); } catch { /* ignore */ } }
     }, 250);
     return () => window.clearInterval(iv);
-  }, [phase]);
+  }, [phase, dailyRun, finishDaily]);
   useEffect(() => { if (drv.current) drv.current.speed = speed; }, [speed]);
   useEffect(() => { if (drv.current) drv.current.paused = paused; }, [paused]);
   useEffect(() => {
@@ -106,11 +133,11 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
 
   return (
     <>
-      {phase !== "select" && (
+      {(phase === "run" || phase === "summary") && (
         <>
           <FlightCanvas key={runN} search={search} />
           <PnlHud coin={`run-${runN}`} storagePrefix={SIM_STORAGE.pnlPrefix} modeLabel="SIMULATOR" syncEvent={SIM_POS_EVENT} />
-          <TrampWallPanel key={runN} token="SIMULATOR" adapter={twAdapter} owner={SIM_ME} supply={run?.m.S} simulator />
+          {!dailyRun && <TrampWallPanel key={runN} token="SIMULATOR" adapter={twAdapter} owner={SIM_ME} supply={run?.m.S} simulator />}
           <TradeBridge token="SIMULATOR" storagePrefix={SIM_STORAGE.swapPrefix} />
           <SnipeChip state={snipe} />
         </>
@@ -118,23 +145,23 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
       {phase === "run" && run && phone && !simOpen && (
         <button type="button" data-testid="sim-chip" aria-expanded={false} onClick={() => setSimOpen(true)}
           style={{ ...panel, ...btn(false), position: "fixed", right: 12, top: "calc(var(--ph-radio-top, 314px) + 44px)", zIndex: 31, minHeight: 40, padding: "0 12px", display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-          <b style={{ color: "#8fd8ff" }}>SIM</b><span style={{ opacity: 0.85 }}>{clock(run.t)}</span><span style={{ color: D.color }}>{D.label}</span><span aria-hidden>▾</span>
+          <b style={{ color: "#8fd8ff" }}>{dailyRun ? `DAILY #${dailyId}` : "SIM"}</b><span style={{ opacity: 0.85 }}>{clock(run.t)}</span><span style={{ color: D.color }}>{D.label}</span><span aria-hidden>▾</span>
         </button>
       )}
       {phase === "run" && run && (!phone || simOpen) && (
         <div data-testid="sim-bar" style={{ ...panel, position: "fixed", ...(phone ? { right: 12, top: "calc(var(--ph-radio-top, 314px) + 44px)" } : { left: "calc(var(--ap-rail-w, 64px) + 12px)", top: 430 }), width: 236, padding: "8px 10px", zIndex: 31, fontSize: 11 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <b style={{ color: "#8fd8ff", letterSpacing: 1 }}>SIMULATOR</b>
+            <b style={{ color: "#8fd8ff", letterSpacing: 1 }}>{dailyRun ? `DAILY FLIGHT #${dailyId}` : "SIMULATOR"}</b>
             <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ color: D.color, fontWeight: 700 }}>{D.label}</span>
               {phone && <button type="button" data-testid="sim-chip-close" aria-label="Fold the simulator panel" onClick={() => setSimOpen(false)} style={{ ...btn(false), minWidth: 36, minHeight: 32, padding: 0 }}>▴</button>}</span>
           </div>
-          <div style={{ opacity: 0.8, margin: "2px 0 6px" }}>seed {d!.seed} · {clock(run.t)} / {clock(minutes * 60)} · {run.bots.length} bots · {run.m.phase === "curve" ? `curve ${(run.m.sold / run.m.sC * 100).toFixed(0)}%` : "pool"}</div>
-          <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+          <div style={{ opacity: 0.8, margin: "2px 0 6px" }}>{dailyRun ? "scored run" : `seed ${d!.seed}`} · {clock(run.t)} / {clock(minutes * 60)} · {run.bots.length} bots · {run.m.phase === "curve" ? `curve ${(run.m.sold / run.m.sC * 100).toFixed(0)}%` : "pool"}</div>
+          {!dailyRun && <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
             {SPEEDS.map((s) => <button key={s} data-testid={`sim-speed-${s}`} style={btn(speed === s)} onClick={() => setSpeed(s)}>{s}×</button>)}
             <button style={btn(paused, "#ffd24a")} onClick={() => setPaused((p) => !p)}>{paused ? "▶" : "⏸"}</button>
             <button data-testid="sim-restart" style={btn(false, "#ffb0c8")} onClick={() => start(d!.seed)} title="restart with the same seed">⟲</button>
             <button data-testid="sim-end" style={btn(false, "#ffb0c8")} onClick={endNow} title="end run → summary">■</button>
-          </div>
+          </div>}
           <div style={{ opacity: 0.7, marginBottom: 2 }}>PnL LEADERBOARD · peak {fmt(run.peak)}</div>
           {lb.slice(0, 3).map((r, i) => <Row key={r.name} i={i} name={r.name} arch={r.arch} total={r.total} me={r.arch === "you"} />)}
           {me >= 3 && <Row i={me} name="you" arch="you" total={lb[me].total} me />}
@@ -170,11 +197,18 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
               <label>minutes <input type="number" min={1} max={60} value={minutes} onChange={(e) => setMinutes(Math.max(1, Math.min(60, +e.target.value || PLAYER.defaultMinutes)))} style={{ ...mono, width: 56, background: "#0d1030", color: "#e8ecff", border: "1px solid #334", borderRadius: 6, padding: "4px 6px" }} /></label>
               <span>speed {SPEEDS.map((s) => <button key={s} style={{ ...btn(speed === s), marginLeft: 4, ...(phone ? { minHeight: 40, minWidth: 44 } : {}) }} onClick={() => setSpeed(s)}>{s}×</button>)}</span>
               <span style={{ opacity: 0.75 }}>balance ${(initial.balance || cfg.player.startBalanceUsd).toLocaleString()} paper</span>
-              <button data-testid="sim-start" onClick={() => start()} style={{ ...btn(true, D.color), padding: "10px 26px", fontSize: 15, marginLeft: "auto" }}>START ▸</button>
+              <button data-testid="sim-daily" onClick={openDaily} style={{ ...btn(false, "#F2C14E"), padding: "10px 18px", fontSize: 15, marginLeft: "auto" }}>DAILY FLIGHT #{dailyId} ▸</button>
+              <button data-testid="sim-start" onClick={() => start()} style={{ ...btn(true, D.color), padding: "10px 26px", fontSize: 15 }}>START ▸</button>
             </div>
             <div style={{ fontSize: 11, opacity: 0.55, marginTop: 14 }}>Keys in flight: SPACE = BOOST · SHIFT = DUMP · 1–6 BOOST that preset now · Z/X/C/V select DUMP % · W/↑ boost (hold) · A/D steer · S dive · ` tuning panel. Same seed + same inputs = same bots and market.</div>
           </div>
         </div>
+      )}
+      {phase === "daily" && dailyRes && (
+        <DailyResult id={dailyId} label={cfg.difficulties[DAILY.difficulty].label.toUpperCase()} inputs={dailyRes.inputs} verdict={dailyRes.verdict} error={dailyRes.error}
+          onClose={() => { drv.current?.stop(); setDailyRun(false); setPhase("select"); }}
+          onAgain={() => start(dailySeed(dailyId), { difficulty: DAILY.difficulty, minutes: PLAYER.dailyMinutes })}
+          onPractice={() => { setSeedText(""); start((Math.random() * 2 ** 31) >>> 0, { difficulty: DAILY.difficulty }); }} />
       )}
       {phase === "summary" && summary && (
         <div data-testid="sim-summary" style={{ position: "fixed", inset: 0, left: "var(--ap-rail-w, 64px)", display: "grid", placeItems: "center", background: "rgba(4,5,14,.78)", zIndex: 40 }}>

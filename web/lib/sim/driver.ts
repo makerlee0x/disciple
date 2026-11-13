@@ -35,9 +35,9 @@ export class SimDriver {
   start() {
     const tick = () => {
       if (this.paused || this.ended) return;
-      const dt = 0.1 * this.speed; this.run.step(dt); this.block++;
+      const dt = Math.min(0.1 * this.speed, Math.max(0, this.minutes * 60 - this.run.t)); this.run.step(dt); this.block++;   // never past the end (a daily is scored at exactly its last block)
       this.emit?.({ t: "block", block: this.block, ts: Date.now() });
-      if (this.run.t >= this.minutes * 60) { this.ended = true; }
+      if (this.run.t >= this.minutes * 60 - 1e-9) { this.ended = true; }
       this.listeners.forEach((f) => f());
     };
     this.iv = window.setInterval(tick, 100);

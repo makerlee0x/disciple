@@ -212,7 +212,7 @@ export class SimRun {
     this.close(o, "cancel", YOU); return { ok: true };
   }
   /** re-run a recorded player log: identical (cfg, difficulty, seed, inputs) ⇒ identical run */
-  static replay(cfg: SimConfig, difficulty: DifficultyId, seed: number, inputs: PlayerInput[], seconds: number, opts: { balance?: number } = {}) {
+  static replay(cfg: SimConfig, difficulty: DifficultyId, seed: number, inputs: PlayerInput[], seconds: number, opts: { balance?: number; minutes?: number } = {}) {
     const r = new SimRun(cfg, difficulty, seed, opts), N = Math.round(seconds / cfg.market.blockS); let i = 0;
     for (;;) {
       while (i < inputs.length && inputs[i].blk === r.blk) r.apply(inputs[i++]);
