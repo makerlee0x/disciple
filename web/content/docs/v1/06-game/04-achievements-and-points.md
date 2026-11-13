@@ -5,16 +5,23 @@ section: Game
 ---
 # Missions and XP
 
-XP is how you level up. Missions pay it, milestones pay it, and the Rocket Factory spends it. XP is off-chain, has no cash value and is never a token.
+XP is how you level up. Missions pay it and milestones pay it. Levels, prestige and trophies unlock new looks for your rocket. XP is off-chain, has no cash value and is never a token.
 
-## Two numbers
+## Rocket looks
 
-| Number | What it is | Goes down when |
-|---|---|---|
-| **Total XP** | Lifetime XP. Sets your level | Never |
-| **XP to spend** | Your Rocket Factory wallet | You unlock a part |
+Your rocket's hull and engine flare are earned, never bought. Pick them in the Hangar under **Your rocket**. They are cosmetic only and never change prices, fills or odds.
 
-Unlocking a part never costs you a level.
+| Look | How you get it |
+|---|---|
+| Chrome hull, Classic flare | Every pilot starts with these |
+| Plasma flare | Reach level 5 |
+| Matte hull | Reach level 10 |
+| Violet hull | Reach level 25 |
+| Gold hull | Reach Prestige 1 |
+| Toxic flare | Earn the Outer Space trophy |
+| Neon flare | Earn the Final Push trophy |
+
+A level unlock stays unlocked after you prestige.
 
 ## Missions
 
@@ -59,7 +66,7 @@ Your first launch pays 500. See them all on the Trophies tab.
 
 Levels run from 1 to 50. Each level needs 40 XP more than the last, starting at 200 XP for level 2. An active pilot reaches level 50 in about 12 weeks.
 
-At level 50 you can **prestige**. Your level goes back to 1, your prestige badge goes up, and your XP to spend is kept. Prestige 0 is **Normie**. Higher prestige unlocks the rarest parts in the Rocket Factory.
+At level 50 you can **prestige**. Your level goes back to 1, and your prestige badge goes up. Prestige 0 is **Normie**. Prestige 1 unlocks the Gold hull.
 
 ## Fair play
 

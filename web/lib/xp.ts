@@ -199,4 +199,4 @@ const SIGN_FOOTER = "Signing proves you own this wallet. It costs nothing and se
 export const shopBuyMessage = (address: string, partId: string, nonce: string) =>
   `DISCIPLE: unlock a rocket part with XP\n\nWallet: ${address.toLowerCase()}\nPart: ${partId}\nNonce: ${nonce}\n\n${SIGN_FOOTER}`;
 export const prestigeMessage = (address: string, nonce: string) =>
-  `DISCIPLE: prestige\n\nWallet: ${address.toLowerCase()}\nNonce: ${nonce}\n\nYour level goes back to 1 and your prestige goes up. Your XP to spend is kept.\n\n${SIGN_FOOTER}`;
+  `DISCIPLE: prestige\n\nWallet: ${address.toLowerCase()}\nNonce: ${nonce}\n\nYour level goes back to 1 and your prestige goes up.\n\n${SIGN_FOOTER}`;
