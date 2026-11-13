@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { aaSession, onPrivy, onSessionChange, privyAuthenticated } from "@/lib/aa/session";
+import { aaSession, onPrivy, onSessionChange, privyAuthenticated } from "@/lib/aa/sessionState";
 import { WALLET_ID_EVENT, walletId } from "@/lib/walletCta";
 import LevelChip from "@/components/xp/LevelChip";
 

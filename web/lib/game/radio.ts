@@ -35,7 +35,9 @@ type Deck = { el: HTMLAudioElement; gain: GainNode };
 
 function makeAudio(): HTMLAudioElement {
   const el = new Audio();
-  el.preload = "auto";
+  // "metadata", not "auto" (mobile plan speed fix 3): each house track is 5-7 MB, and "auto" made phones download the
+  // playing track AND the queued next one up front. The playing track still streams as it plays.
+  el.preload = "metadata";
   el.crossOrigin = "anonymous";
   if (typeof el.setAttribute === "function") el.setAttribute("playsinline", "");
   return el;

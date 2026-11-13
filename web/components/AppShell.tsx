@@ -3,7 +3,6 @@
 import Sidebar, { isCollapsibleRoute } from "./Sidebar";
 import LobbyTopBar from "./LobbyTopBar";
 import RefCapture from "./RefCapture";
-import ReferralOnboarding from "./claims/ReferralOnboarding";
 import HowItWorksHost from "./home/HowItWorksHost";
 import TouchKit from "./TouchKit";
 import InviteBanner from "./invites/InviteBanner";
@@ -16,6 +15,9 @@ import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 const WalletButton = dynamic(() => import("./WalletButton"), { ssr: false });
 // Funnel counter beacon (lib/funnelClient): client-only, own chunk, fails silently.
 const FunnelBeacon = dynamic(() => import("./FunnelBeacon"), { ssr: false });
+// Referral deposit sheet (viem + the claims contracts): an overlay that only shows after a referral link, so it loads after
+// hydration in its own chunk (mobile plan speed fix 1), not in every page's first-load JS.
+const ReferralOnboarding = dynamic(() => import("./claims/ReferralOnboarding"), { ssr: false });
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

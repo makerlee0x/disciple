@@ -12,7 +12,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { SETTINGS_KEYS } from "@/lib/config";
-import { aaSession, onPrivy, onSessionChange, privyAuthenticated } from "@/lib/aa/session";
+import { aaSession, onPrivy, onSessionChange, privyAuthenticated } from "@/lib/aa/sessionState";
 import Icon, { type IconName } from "@/components/icons/Icon";
 import { GuildTagFor } from "@/components/guilds/GuildChip";
 import { GUILDS_ENABLED } from "@/lib/features";

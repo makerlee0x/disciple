@@ -2,8 +2,7 @@
 /** Client side of /api/xp, /api/shop/buy and /api/xp/prestige (lib/server/xp.ts has the ledger). */
 import { useCallback, useEffect, useState } from "react";
 import { IS_STATIC_PREVIEW } from "./base-path";
-import { signWalletMessage } from "./profile";
-import { onWallet } from "./wallet";
+import { onWallet } from "./walletState";   // light: no viem in the lobby level chip (mobile plan speed fix 1)
 import { dayPeriod, levelInfo, missionsFor, prestigeMessage, shopBuyMessage, weekPeriod, type XpSummary } from "./xp";
 
 const isAddr = (a: string | null | undefined): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.test(a);
@@ -44,6 +43,7 @@ async function signedPost(address: string, url: string, msg: (a: string, n: stri
     const a = address.toLowerCase();
     const { nonce } = (await (await fetch(`/api/xp?nonce=1&address=${a}`, { cache: "no-store" })).json()) as { nonce?: string };
     if (!nonce) return { ok: false, reason: "Could not reach the server." };
+    const { signWalletMessage } = await import("./profile");   // wallet stack loads only when the pilot signs
     const s = await signWalletMessage(msg(a, nonce), a);
     if (!s) return { ok: false, reason: "Signing was cancelled." };
     const r = (await (await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: a, nonce, ...s, ...extra }) })).json()) as { ok?: boolean; reason?: string };

@@ -6,7 +6,8 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { installHaptics } from "@/lib/game/haptics";
-import { isCollapsibleRoute } from "./Sidebar";
+// same rule as Sidebar.isCollapsibleRoute, inlined so this tiny component does not pull the sidebar into its chunk
+const isCollapsibleRoute = (p: string) => p.startsWith("/coin/") || p.startsWith("/flight");
 
 type WakeLockSentinelLike = { release: () => Promise<void>; released?: boolean };
 type WakeNav = Navigator & { wakeLock?: { request: (t: "screen") => Promise<WakeLockSentinelLike> } };

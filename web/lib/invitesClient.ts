@@ -1,7 +1,7 @@
 "use client";
 /** Client side of the invite API: every call carries the Privy session (no wallet signature). */
 import { withBase } from "./base-path";
-import { privyAccessToken, privyLogin, privyReady } from "./aa/session";
+import { privyAccessToken, privyLogin, privyReady } from "./aa/sessionState";
 
 export class NeedLogin extends Error { code = "NeedLogin"; }
 type Err = Error & { status?: number; code?: string };

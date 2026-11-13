@@ -1,3 +1,12 @@
+import { statSync } from "node:fs";
+
+/* Minified flight engine (scripts/minify-engine.mjs, run by `pnpm build`): pages load public/flight/engine.min.js only when it
+   exists and is newer than engine.js, so dev and any build path that skipped the step keep loading the readable source. */
+const engineMin = (() => {
+  if (process.env.NODE_ENV !== "production") return false;
+  try { return statSync(new URL("./public/flight/engine.min.js", import.meta.url)).mtimeMs >= statSync(new URL("./public/flight/engine.js", import.meta.url)).mtimeMs; } catch { return false; }
+})();
+
 /** @type {import('next').NextConfig} */
 const isStatic = process.env.STATIC_PREVIEW === "1";
 const basePath = isStatic
@@ -29,6 +38,7 @@ const nextConfig = {
   env: {
     // lets the client pick NEXT_PUBLIC_PRIVY_APP_ID_PREVIEW on Vercel preview deployments
     NEXT_PUBLIC_VERCEL_ENV: process.env.VERCEL_ENV || "",
+    NEXT_PUBLIC_FLIGHT_ENGINE: engineMin ? "/flight/engine.min.js" : "/flight/engine.js",
     ...(isStatic ? { NEXT_PUBLIC_STATIC_PREVIEW: "1", NEXT_PUBLIC_BASE_PATH: basePath } : {}),
   },
 };

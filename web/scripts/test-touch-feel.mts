@@ -51,7 +51,7 @@ test("engine streams sky plates and starts on the near ones", () => {
   assert.match(eng, /S\.confirmed\.mcap===null \|\| !skyReady\(\)/, "frame gate = rocket + plates near the current altitude");
   assert.match(eng, /if\(inflight>=3\) break;/, "background plates load 3 at a time");
   assert.match(eng, /assetsReady:\(\)=>loaded>=names\.length/, "assetsReady still = everything (replay / tests)");
-  assert.match(eng, /^function haptic\(\)\{\}/m, "engine haptic is a no-op: vibrate does not exist in the worker");
+  assert.match(eng, /^function haptic\(\)\{\}/m, "engine haptic is a no-op: the page owns haptics (works in worker mode too)");
 });
 
 test("phone trade bar: fire on press, DUMP ALL needs a hold", () => {

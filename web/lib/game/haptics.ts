@@ -4,8 +4,8 @@
  * - Android Chrome and most Android wallet browsers: navigator.vibrate with the patterns below.
  * - iPhone: Safari has no Vibration API. Toggling a hidden <input type="checkbox" switch> inside a tap plays
  *   the system tick (iOS 18+), so taps get a light tick; non-tap moments (fills, zones, orbit) stay silent there.
- * - The flight engine runs in a Web Worker, where navigator.vibrate does not exist. It already forwards
- *   `disciple:sfx` cues to the page, so the page maps those cues to haptics here, on the main thread.
+ * - The flight engine fires `disciple:sfx` cues (forwarded to the page in ?render=worker mode too, where navigator.vibrate
+ *   does not exist), and the page maps those cues to haptics here, on the main thread, with one dedupe for both modes.
  * - Off when Settings → Sound → Vibration is off (lib/game/settings.ts `haptics`, on by default).
  *
  * Mark an element with data-haptic="boost" (or any HapticKind) to pick its buzz, or data-haptic="off" to skip it.
