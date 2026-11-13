@@ -33,8 +33,9 @@ export async function GET(req: Request) {
   if (tok) {
     const a = await authenticate(tok, privyEnv());
     own = a.ok && a.user.wallets.some((x) => x.toLowerCase() === wallet);
-    // opening your own logbook is the day's check-in (lib/streaks); never blocks the read
-    if (own) await checkIn(wallet).catch(() => {});
+    // opening your own logbook is the day's check-in (lib/streaks); never blocks the read. peek=1 (the lobby's
+    // "Since you were away" card) reads without checking in, since the check-in is for opening the logbook itself
+    if (own && q.get("peek") !== "1") await checkIn(wallet).catch(() => {});
   }
   try {
     if (coin) {

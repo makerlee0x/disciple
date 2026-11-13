@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import PushSettings from "@/components/push/PushSettings";
 import { disconnect, onWallet } from "@/lib/wallet";
 import type { Address } from "@/lib/protocol";
 import { ONE_TAP_SLIPPAGE_CHOICES_BPS, onPrivy, onSessionChange, oneTapSlippageBps, privyAccount, privySecurity, setOneTapSlippageBps, type PrivyAccountInfo, type PrivyMfaMethod, type PrivySecurity } from "@/lib/aa/session";
@@ -189,6 +190,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
               ))}
             </div>
           </section>
+          <PushSettings wallet={addr ? addr.toLowerCase() : null} />
           <section className="p5-sgrp" aria-label={SETTINGS_COPY.security} data-testid="settings-security">
             <span className="gh">{SETTINGS_COPY.security}</span>
             <div className="p5-sbox">
