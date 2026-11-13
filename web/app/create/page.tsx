@@ -7,10 +7,10 @@ import { contrastWarning } from "@/lib/decal";
 import { houseBadgeDataUri } from "@/lib/decalDefault";
 import { precheckWithin, preloadModeration } from "@/lib/moderation-client";
 import { cropSquare } from "@/components/create/SquareCrop";
-import CreatePadPreview from "@/components/create/CreatePadPreview";
+import LaunchPad from "@/components/create/LaunchPad";
+import { LaunchCountdown, LaunchLiveNow, type LaunchPhase } from "@/components/create/LaunchLive";
 import FirstBoostField, { type FirstBoostState } from "@/components/create/FirstBoostField";
 import { exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap } from "@/lib/firstBoost";
-import LiftoffOverlay, { LIFTOFF_MS } from "@/components/create/LiftoffOverlay";
 import { protocolStub, type Address } from "@/lib/protocol";
 import { LAUNCH_ABI_SHAPE, LaunchMode } from "@/lib/launchAbi";
 import { DEFAULT_MODE, MODE_LABEL, MODE_ORDER } from "@/lib/modeRules";
@@ -26,29 +26,41 @@ import { createViemProtocol } from "@/lib/protocol-viem";
 import { trackFunnel } from "@/lib/funnelClient";
 import { IS_STATIC_PREVIEW, withBase } from "@/lib/base-path";
 import Icon from "@/components/icons/Icon";
-import { CANCELLED_MSG, playerError } from "@/lib/playerError";
-import { IMAGE_COPY, LAUNCH_FAILED_MSG, launchImageFrom, type ModerateResponse } from "@/lib/launchImage";
+import { playerError } from "@/lib/playerError";
+import { IMAGE_COPY, launchImageFrom, type ModerateResponse } from "@/lib/launchImage";
+import { LAUNCHED_LABEL, LAUNCHING_LABEL, launchErrorMessage, launchStillConfirming } from "@/lib/launchError";
 import { NAME_LOCK_TAKEN_MSG, fetchNameLock, nameLockEnforced } from "@/lib/nameLock";
 import {
   addressOn, defaultLaunchPair, launchPairsForChain,
 } from "@/lib/launchWhitelist";
 import {
-  QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION,
+  QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_CARD, seatLabel, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION,
   CREATOR_FEE_DESTINATIONS, CREATOR_TAX_HELP, DEFAULT_CREATOR_FEE_DESTINATION,
-  buildLaunchSocials, launchButtonLabel, launchNeedsSignIn, liveCreatorFeeDestination,
-  normalizeTelegram, normalizeTwitter, normalizeWebsite, privateLaunchHelp, privateLaunchTitle,
+  buildLaunchSocials, launchNeedsSignIn, liveCreatorFeeDestination,
+  normalizeTelegram, normalizeTwitter, normalizeWebsite, privateLaunchHelp,
   readStoredCreatorFeeDestination, readStoredCreatorTax, readStoredUpload, snapCreatorTax,
   storeCreatorFeeDestination, storeCreatorTax, storeUpload, type CreatorFeeDestination,
 } from "@/lib/quickLaunch";
 import CreatorFeeArt from "@/components/create/CreatorFeeArt";
 import s from "@/components/create/quickLaunch.module.css";
+import L from "@/components/create/launch.module.css";
 
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
+const modeCard = (label: string) => (label === "Easy" ? QUICK_LAUNCH_MODE_CARD.Easy : label === "Hard" ? QUICK_LAUNCH_MODE_CARD.Hard : QUICK_LAUNCH_MODE_CARD.Trench);
+const Shuffle = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" /></svg>
+);
+/** "You earn 33% of every trading fee, forever." with the cut picked out, as on the board. */
+const FeeLine = ({ text }: { text: string }) => {
+  const m = text.match(/^(.*?)(\d+(?:\.\d+)?%)(.*)$/);
+  return m ? <span>{m[1]}<b>{m[2]}</b>{m[3]}</span> : <span>{text}</span>;
+};
 
 export default function LaunchRocketPage() {
   const router = useRouter();
-  const [modeTip, setModeTip] = useState<number | null>(null);
   const [howOpen, setHowOpen] = useState(false);
+  const [phase, setPhase] = useState<LaunchPhase | null>(null);
+  const [live, setLive] = useState<{ token: string; dest: string; name: string; ticker: string; mode: number; seat: string; note: string | null } | null>(null);
   const [name, setName] = useState("");
   const [callSign, setCallSign] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -75,26 +87,31 @@ export default function LaunchRocketPage() {
   const [boost, setBoost] = useState("");
   const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), usdgIn: null, maxUsdg: null, maxQuoteIn: null, error: null, ready: true, overCap: false });
   const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
-  const [liftoff, setLiftoff] = useState<string | null>(null);
   const setMsg = (text: string | null) => setStatus(text == null ? null : { text, ok: false });
   const setLaunched = (text: string) => setStatus({ text, ok: true });
   const [nameLockMsg, setNameLockMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const modeRowRef = useRef<HTMLDivElement>(null);
+  // One click = one launch (#231, rebuilt on Quick Launch): the ref blocks re-entry synchronously (state alone lags a
+  // render, so rapid clicks / Enter presses got through and one Easy launch fired 4 times). Held from the click until the
+  // launch clearly fails. keepLockedRef: the launch went through (the page is leaving for the rocket) or is still
+  // confirming (it may still land, so a re-click could launch twice), so the lock is never released.
+  const launchingRef = useRef(false);
+  const keepLockedRef = useRef(false);
+  const [launching, setLaunching] = useState(false);
+  const [launchDone, setLaunchDone] = useState(false);
+  const howRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (modeTip == null) return;
-    const onPtr = (e: PointerEvent) => {
-      if (modeRowRef.current && !modeRowRef.current.contains(e.target as Node)) setModeTip(null);
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setModeTip(null); };
+    if (!howOpen) return;
+    const onPtr = (e: PointerEvent) => { if (howRef.current && !howRef.current.contains(e.target as Node)) setHowOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setHowOpen(false); };
     document.addEventListener("pointerdown", onPtr);
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("pointerdown", onPtr);
       document.removeEventListener("keydown", onKey);
     };
-  }, [modeTip]);
+  }, [howOpen]);
 
   useEffect(() => {
     if (IS_STATIC_PREVIEW || !nameLockEnforced(ACTIVE_CHAIN.id) || !name.trim() || !callSign.trim()) {
@@ -229,6 +246,17 @@ export default function LaunchRocketPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (launchingRef.current || keepLockedRef.current) return;
+    launchingRef.current = true;
+    setLaunching(true);
+    try {
+      await launch();
+    } finally {
+      if (!keepLockedRef.current) { launchingRef.current = false; setLaunching(false); }
+    }
+  }
+
+  async function launch() {
     setMsg(null);
     if (needsSignIn) { signIn(); return; }
     if (!name.trim() || !callSign.trim()) {
@@ -295,7 +323,10 @@ export default function LaunchRocketPage() {
     }
     if (boostState.error) { setMsg(boostState.error); return; }
     if (!boostState.ready) { setMsg("Still reading the First BOOST cap. Try again in a moment."); return; }
+    const seat = seatLabel(boost);
+    const launchMode = privateLaunch ? LaunchMode.TRENCH_WARFARE : gameMode;
     try {
+      setPhase("signing");
       const client = isDeployed() ? createViemProtocol() : protocolStub;
       const priv = privateLaunch && isDeployed() ? await newStealthOwner() : undefined;
       const res = await client.launchCoin({
@@ -310,7 +341,11 @@ export default function LaunchRocketPage() {
         mode: priv ? LaunchMode.TRENCH_WARFARE : LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
         private: priv,
       });
+      keepLockedRef.current = true;   // the coin exists: never launch it again from this page
+      setLaunchDone(true);
       trackFunnel("first_launch"); // funnel counter: once per browser, fails silently
+      setPhase("fuelling");
+      let note: string | null = null;
       if (fr && isDeployed() && !priv) {
         const me = await activeAddress();
         if (fr.toLowerCase() !== me.toLowerCase()) {
@@ -320,200 +355,165 @@ export default function LaunchRocketPage() {
             await execCalls([{ to: deployment().launchpad, data: encodeFunctionData({ abi: launchpadAbi, functionName: "transferCreator", args: [res.token, fr as Address] }) }]);
           } catch (err) {
             console.warn("[disciple] fee receiver assignment failed", { token: res.token, feeReceiver: fr, message: String((err as Error)?.message ?? err).slice(0, 300) });
-            setLaunched(`Launched, but setting the fee receiver didn't go through. You can retry from the rocket page later.`);
-            return;
+            note = "Launched, but setting the fee receiver didn't go through. You can retry from the rocket page later.";
+            setLaunched(note);
           }
         }
+      } else {
+        await new Promise((r) => window.setTimeout(r, 700));
       }
       const dest = `/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}&liftoff=1`;
-      setLiftoff(dest);
-      window.setTimeout(() => router.push(dest), LIFTOFF_MS + 200);
+      setPhase("lifting");
+      router.prefetch(dest);
+      await new Promise((r) => window.setTimeout(r, 1400));
+      setLive({ token: res.token, dest, name: name.trim(), ticker: callSign.trim().toUpperCase(), mode: launchMode, seat, note });
+      setPhase(null);
+      window.scrollTo({ top: 0 });
     } catch (err) {
+      setPhase(null);
       if (!isDeployed()) { setMsg("Launches aren't open on this network yet."); return; }
-      const shown = playerError(err);
       console.warn("[disciple] launch failed", { private: privateLaunch, imageUri, message: String((err as Error)?.message ?? err).slice(0, 500), code: (err as { code?: unknown })?.code });
-      setMsg(shown === CANCELLED_MSG ? shown : LAUNCH_FAILED_MSG);
+      if (launchStillConfirming(err)) keepLockedRef.current = true;   // unknown outcome: stay locked
+      setMsg(launchErrorMessage(err));
     }
   }
 
   const defaultPairLabel = defaultPair.symbol;
-  const advDirty = (
-    quote.label !== defaultPairLabel
-    || !!twitter.trim()
-    || !!website.trim()
-    || !!telegram.trim()
-    || tax > 0
-    || (!privateLaunch && !!feeReceiver.trim())
-  );
+
+  const modeLabel = MODE_LABEL[privateLaunch ? LaunchMode.TRENCH_WARFARE : gameMode] ?? "Easy";
+  const card = modeCard(modeLabel);
+  const liveCard = live ? modeCard(MODE_LABEL[live.mode] ?? "Easy") : card;
+  const pairSet = quote.label !== defaultPairLabel;
+  const linksSet = !!(twitter.trim() || website.trim() || telegram.trim());
+  const feesSet = tax > 0 || feeDestination !== DEFAULT_CREATOR_FEE_DESTINATION || (!privateLaunch && !!feeReceiver.trim());
 
   return (
-    <div className={`page-shell ${s.ql}`}>
-      <form className={s.wrap} onSubmit={onSubmit}>
-        <div className={s.title}><h1>{C.title}</h1></div>
-        <div className={s.grid}>
-          <div className={s.form}>
-            <div className={s.fl}>
-              <div className={s.lab}>{C.name}</div>
-              <div className={s.row}>
-                <input className={s.inp} value={name} onChange={(e) => setName(e.target.value)} maxLength={32} aria-label="Name" />
-                <button type="button" className={s.dice} title="Shuffle name" aria-label="Shuffle name" onClick={shuffleName}><Icon name="shuffle" size={16} /></button>
-              </div>
-            </div>
-            <div className={s.fl}>
-              <div className={s.lab}>{C.ticker}</div>
-              <div className={s.row}>
-                <div className={s.inp} style={{ paddingRight: 8 }}>
-                  <span className={s.pre}>$</span>
-                  <input style={{ flex: 1, minWidth: 0, border: 0, background: "transparent", color: "inherit", font: "inherit", outline: "none", height: "100%" }}
-                    value={callSign} onChange={(e) => setCallSign(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase())} placeholder="TICKER" maxLength={10} aria-label="Ticker" />
-                </div>
-                <button type="button" className={s.dice} disabled={!tickerVariants(name).length}
-                  title={`Shuffle a call sign from the name (${tickerVariants(name).map((t) => "$" + t).join(" · ") || "type a name first"})`}
-                  aria-label="Shuffle ticker" onClick={() => setCallSign(nextTicker(name, callSign))}><Icon name="shuffle" size={16} /></button>
-              </div>
-            </div>
-            {nameLockMsg && <p role="status" data-testid="name-lock-taken" className={`${s.msg} ${s.msgBad}`}>{nameLockMsg}</p>}
-            <div className={s.fl}>
-              <div className={s.lab}>{C.icon}</div>
-              <div className={s.iconRow}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                {previewIcon && <img src={previewIcon} alt="" width={64} height={64} />}
-                <div className={s.iconActions}>
-                  <button type="button" className={s.upload} onClick={() => fileRef.current?.click()}>{usingUpload ? C.changeImage : C.uploadImage}</button>
-                  {usingUpload && <button type="button" className={s.link} onClick={clearUpload}>{C.useGenerated}</button>}
-                </div>
-                <input ref={fileRef} className={s.file} type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="upload rocket icon" onChange={(e) => onPickFile(e.target.files?.[0] || null)} />
-              </div>
-              {mod.state === "checking" && <p className={s.msg}>Checking image…</p>}
-              {mod.state === "allow" && usingUpload && <p className={`${s.msg} ${s.msgOk}`}><Icon name="check" size={12} /> Image saved</p>}
-              {blocked && <p role="alert" className={`${s.msg} ${s.msgBad}`}>{mod.note || C.imageReverted}</p>}
-              {contrast && <p className={`${s.msg} ${s.msgBad}`}><Icon name="warning" size={12} /> {contrast}</p>}
-            </div>
+    <div className={`${L.page} launch-v3`}>
+      {live ? (
+        <LaunchLiveNow name={live.name} ticker={live.ticker} mode={liveCard.label} modeColor={liveCard.color} seat={live.seat}
+          href={live.dest} token={live.token} note={live.note} onOpen={() => router.push(live.dest)} />
+      ) : (
+      <form className={L.grid} onSubmit={onSubmit}>
+        <LaunchPad name={name} ticker={callSign} icon={previewIcon} mode={card.label} modeColor={card.color} seat={seatLabel(boost)} />
 
+        <section className={L.panel} aria-labelledby="lc-title">
+          <div className={L.panelHead}>
+            <h2 id="lc-title">Launch control</h2>
+            <span>4 steps · about a minute</span>
+          </div>
+
+          <div className={L.sec}>
+            <div className={L.sh}><span className={L.num}>1</span><span className={L.st}>Name it</span><span className={L.sub}>Shuffle for ideas</span></div>
+            <div className={L.field}>
+              <label className={`${L.inp} ${L.inpBig}`}>
+                <input value={name} onChange={(e) => setName(e.target.value)} maxLength={32} aria-label={C.name} placeholder="Rocket name" />
+              </label>
+              <button type="button" className={L.dice} title="Shuffle name" aria-label="Shuffle name" onClick={shuffleName}><Shuffle /></button>
+            </div>
+            <div className={L.field}>
+              <label className={L.inp}>
+                <span className={L.pre}>$</span>
+                <input value={callSign} onChange={(e) => setCallSign(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase())} placeholder="TICKER" maxLength={10} aria-label={C.ticker} />
+              </label>
+              <button type="button" className={L.dice} disabled={!tickerVariants(name).length}
+                title={`Shuffle a ticker from the name (${tickerVariants(name).map((t) => "$" + t).join(" · ") || "type a name first"})`}
+                aria-label="Shuffle ticker" onClick={() => setCallSign(nextTicker(name, callSign))}><Shuffle /></button>
+            </div>
+            {nameLockMsg && <p role="status" data-testid="name-lock-taken" className={`${L.help} ${L.bad}`}>{nameLockMsg}</p>}
+          </div>
+
+          <div className={L.sec}>
+            <div className={L.sh}><span className={L.num}>2</span><span className={L.st}>{C.icon}</span><span className={L.sub}>Goes on the hull</span></div>
+            <div className={L.badgeRow}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <span className={L.badgeBig}>{previewIcon && <img src={previewIcon} alt="" width={64} height={64} />}</span>
+              <div className={L.chips}>
+                <button type="button" className={`${L.chip} ${L.chipTx}${usingUpload ? ` ${L.on}` : ""}`} onClick={() => fileRef.current?.click()}>{usingUpload ? C.changeImage : C.uploadImage}</button>
+                <button type="button" className={`${L.chip} ${L.chipTx}${usingUpload ? "" : ` ${L.on}`}`} onClick={() => { if (usingUpload) clearUpload(); }} aria-pressed={!usingUpload}>{C.useGenerated}</button>
+              </div>
+              <input ref={fileRef} className={s.file} type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="upload rocket icon" onChange={(e) => onPickFile(e.target.files?.[0] || null)} />
+            </div>
+            <span className={L.note}>PNG, JPG, WEBP or GIF, up to 2 MB. Every image is checked before it flies.</span>
+            {mod.state === "checking" && <span className={L.help}>Checking image…</span>}
+            {mod.state === "allow" && usingUpload && <span className={`${L.help} ${L.ok}`}><Icon name="check" size={12} /> Image saved</span>}
+            {blocked && <span role="alert" className={`${L.help} ${L.bad}`}>{mod.note || C.imageReverted}</span>}
+            {contrast && <span className={`${L.help} ${L.bad}`}><Icon name="warning" size={12} /> {contrast}</span>}
+          </div>
+
+          <div className={L.sec} data-testid="mode-cards">
+            <div className={L.sh}><span className={L.num}>3</span><span className={L.st}>Difficulty</span><span className={L.sub}>Locked at launch</span></div>
+            <div className={L.diffs} role="radiogroup" aria-label="Difficulty">
+              {MODE_ORDER.map((id) => {
+                const label = MODE_LABEL[id];
+                const c = modeCard(label);
+                const on = privateLaunch ? id === LaunchMode.TRENCH_WARFARE : gameMode === id;
+                return (
+                  <button key={id} type="button" role="radio" aria-checked={on} aria-label={c.label} data-testid={`mode-card-${label.toLowerCase()}`}
+                    className={`${L.diff}${on ? ` ${L.diffOn}` : ""}`} style={{ ["--mc" as string]: c.color }}
+                    onClick={() => { setGameMode(id); if (privateLaunch && id !== MODE_ORDER[MODE_ORDER.length - 1]) setPrivateLaunch(false); }}>
+                    <span className={L.band} />
+                    {on && <span className={L.tick}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#121327" strokeWidth="3.5" aria-hidden><path d="M5 12l5 5 9-10" /></svg></span>}
+                    <span className={L.lbl}>{c.label}</span>
+                    {c.nick && <span className={L.nick}>{c.nick}</span>}
+                    <p>{c.blurb}</p>
+                    <span className={L.meter} aria-hidden>{[1, 2, 3].map((n) => <i key={n} className={n <= c.meter ? L.lit : ""} />)}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <span className={L.note}>{QUICK_LAUNCH_MODE_CARD.footer}</span>
+          </div>
+
+          <div className={L.sec}>
+            <div className={L.sh}><span className={L.num}>4</span><span className={L.st}>Your seat</span><span className={L.sub}>First boost, at launch</span></div>
             <FirstBoostField
-              variant="chips"
+              variant="seat"
               pair={quote.address} pairLabel={quote.label} creatorTaxBps={Math.round(tax * 100)}
               ticker={callSign.trim().toUpperCase()} value={boost} onChange={setBoost} onState={setBoostState}
               mode={LAUNCH_ABI_SHAPE === "modes" && !privateLaunch ? gameMode : LaunchMode.TRENCH_WARFARE} privateLaunch={privateLaunch}
             />
-
-            <div className={s.anon}>
-              <button type="button" className={`${s.sw} ${privateLaunch ? s.on : ""}`} role="switch" aria-checked={privateLaunch}
-                data-testid="private-launch" onClick={() => setPrivateLaunch((v) => !v)}>
-                <i />
-              </button>
-              <div className={s.copy}>
-                <div className={s.name}>{privateLaunchTitle(boost, gameMode)} <span className={s.beta}>{C.beta}</span></div>
-                {privateLaunch && (
-                  <div className={s.help} data-testid="private-launch-help">{privateLaunchHelp(boost, gameMode)}</div>
-                )}
-              </div>
-            </div>
-
-            <div className={s.modeBlock} ref={modeRowRef} data-testid="mode-cards">
-              <div className={s.lab}>{C.mode}</div>
-              <div className={s.modeCards} role="radiogroup" aria-label={C.mode}>
-                {MODE_ORDER.map((id) => {
-                  const label = MODE_LABEL[id];
-                  const on = gameMode === id;
-                  const copy = label === "Easy" ? QUICK_LAUNCH_MODE_COPY.Easy : label === "Hard" ? QUICK_LAUNCH_MODE_COPY.Hard : QUICK_LAUNCH_MODE_COPY.Trench;
-                  const tipId = `mode-tip-${label.toLowerCase()}`;
-                  return (
-                    <div key={id} className={s.modeCardWrap}>
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={on}
-                        aria-label={label}
-                        aria-describedby={tipId}
-                        data-testid={`mode-card-${label.toLowerCase()}`}
-                        className={`${s.modeCard} ${on ? s.on : ""}`}
-                        onClick={() => setGameMode(id)}
-                      >
-                        <span className={s.modeCardLbl}>{label}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={s.modeInfo}
-                        data-testid={`mode-info-${label.toLowerCase()}`}
-                        aria-label={`About ${label}`}
-                        aria-expanded={modeTip === id}
-                        aria-controls={tipId}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setModeTip((v) => (v === id ? null : id));
-                        }}
-                      >
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
-                          <circle cx="12" cy="12" r="8.5" />
-                          <path d="M12 11v5.25" />
-                          <circle cx="12" cy="7.85" r="1" fill="currentColor" stroke="none" />
-                        </svg>
-                      </button>
-                      <div
-                        className={`${s.modeTip} ${modeTip === id ? s.open : ""}`}
-                        role="tooltip"
-                        id={tipId}
-                        data-testid={tipId}
-                      >
-                        <p>{copy}</p>
-                        <p>{QUICK_LAUNCH_MODE_COPY.footer}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className={s.foot}>
-              <button
-                type="submit"
-                data-testid={needsSignIn ? "create-sign-in" : "create-launch"}
-                className={s.launch}
-              >
-                {launchButtonLabel(boost)}
-              </button>
-              <div className={s.help} data-testid="creator-fee-split">{C.creatorFeeSplit}</div>
-              <div className={s.footLinks}>
-                <div className={s.hiwTip}>
-                  <button type="button" className={s.advLink} data-testid="how-launching" aria-expanded={howOpen} onClick={() => setHowOpen((v) => !v)}>
-                    {C.howLaunching}
-                  </button>
-                  {howOpen && (
-                    <div className={s.tip} data-testid="how-launching-steps">
-                      <ol className={s.hiwList}>
-                        {C.howLaunchingSteps.map((line, i) => (
-                          <li key={i}><b>{i + 1}.</b> <span>{line}</span></li>
-                        ))}
-                      </ol>
-                    </div>
-                  )}
-                </div>
-                <div className={s.advRow}>
-                  <button type="button" className={s.advLink} data-testid="advanced-open" onClick={() => setAdvanced(true)}>{C.advanced}</button>
-                  {CREATOR_FEE_COPY[feeDestination].chip && (
-                    <span className={s.feeChip} data-testid="fee-destination-chip">{CREATOR_FEE_COPY[feeDestination].chip}</span>
-                  )}
-                </div>
-              </div>
-              {advDirty && (
-                <div className={s.summary} data-testid="advanced-summary">
-                  <span className={s.sumChip}>Pair: {quote.label}</span>
-                  {tax > 0 && <span className={s.sumChip}>Creator tax: {tax}%</span>}
-                  {twitter.trim() && <span className={s.sumChip}>{twitter.trim()}</span>}
-                  {website.trim() && <span className={s.sumChip}>{website.trim()}</span>}
-                  {telegram.trim() && <span className={s.sumChip}>{telegram.trim()}</span>}
-                  {!privateLaunch && feeDestination === CREATOR_FEE_DESTINATION.creator && feeReceiver.trim() && <span className={s.sumChip}>{feeReceiver.trim()}</span>}
-                </div>
-              )}
-            </div>
-            {status && <p role="status" className={`${s.msg} ${status.ok ? s.msgOk : s.msgBad}`}>{status.text}</p>}
+            <button type="button" className={L.hide} role="switch" aria-checked={privateLaunch} data-testid="private-launch" onClick={() => setPrivateLaunch((v) => !v)}>
+              <span className={L.tog} aria-hidden />
+              <span className={L.hideTx}>
+                <b>Hide my name</b>
+                <span>{privateLaunch ? privateLaunchHelp(boost, gameMode) : "You won't show as the host."}</span>
+              </span>
+            </button>
+            {privateLaunch && <span className={L.note} data-testid="private-launch-help">Hidden launches fly on Expert.</span>}
           </div>
 
-          <CreatePadPreview name={name} ticker={callSign} icon={previewIcon} />
-        </div>
+          <button type="button" className={L.adv} data-testid="advanced-open" onClick={() => setAdvanced(true)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M4 6h16M4 12h10M4 18h6" /></svg>
+            <b>{C.advanced}</b>
+            <span className={`${L.pill}${pairSet ? ` ${L.pillOn}` : ""}`}>{pairSet ? `Pair: ${quote.label}` : C.pairCoin}</span>
+            <span className={`${L.pill}${linksSet ? ` ${L.pillOn}` : ""}`}>{C.links}</span>
+            <span className={`${L.pill}${feesSet ? ` ${L.pillOn}` : ""}`} data-testid="fee-destination-chip">{CREATOR_FEE_COPY[feeDestination].chip || "Host fees"}</span>
+            <svg className={L.advGo} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
+          </button>
+
+          <button
+            type="submit"
+            disabled={launching}
+            aria-busy={launching}
+            data-testid={needsSignIn ? "create-sign-in" : "create-launch"}
+            className={L.cta}
+          >
+            {launching ? (launchDone ? LAUNCHED_LABEL : LAUNCHING_LABEL) : "Light the engines"}
+            {!launching && <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M5 12h14M13 6l6 6-6 6" /></svg>}
+          </button>
+          <div className={L.ctaFoot} ref={howRef}>
+            <span data-testid="creator-fee-split"><FeeLine text={C.creatorFeeSplit} /></span>
+            <button type="button" className={L.linkBtn} data-testid="how-launching" aria-expanded={howOpen} onClick={() => setHowOpen((v) => !v)}>{C.howLaunching}</button>
+            {howOpen && (
+              <div className={L.how} data-testid="how-launching-steps">
+                <ol>{C.howLaunchingSteps.map((line, i) => <li key={i}>{line}</li>)}</ol>
+              </div>
+            )}
+          </div>
+          {status && <p role="status" className={`${L.status} ${status.ok ? L.ok : L.bad}`}>{status.text}</p>}
+        </section>
       </form>
+      )}
 
       {advanced && (
         <>
@@ -608,7 +608,7 @@ export default function LaunchRocketPage() {
           </div>
         </>
       )}
-      {liftoff && <LiftoffOverlay />}
+      {phase && <LaunchCountdown name={name.trim() || "Your rocket"} mode={card.label} phase={phase} />}
     </div>
   );
 }

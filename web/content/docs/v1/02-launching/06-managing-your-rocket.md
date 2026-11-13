@@ -17,17 +17,17 @@ section: Launching
 | Creator tax | Locked |
 | Launch mode | Locked |
 
-## Claim your earnings
+## Your earnings
 
-Creator fees build up on-chain. Claiming from the app is coming soon. Until then, call `claimCreatorFees(token)` on the FeeRouter. See [Creator earnings](/docs/fees/creators).
+Your creator fees build up on every trade. Open **Rewards** (the chest on your profile) to see them. See [Creator earnings](/docs/fees/creators).
 
 ## Hand off a rocket
 
-You can transfer a rocket to another wallet, anytime, as many times as you like. The whole pack goes with it: metadata rights, the fee claim and creator tax rights.
+A rocket's creator role can be handed to another wallet, as many times as you like. Everything goes with it: the right to edit its picture and links, future creator fees, and the creator tax.
 
 ## What you can't do
 
-- Mint more supply. Supply is fixed at 1M.
+- Make more coins. Every rocket has exactly 1,000,000, for good.
 - Pause trading. The starting price path and the open market on Uniswap are always live.
 - Remove liquidity after orbit. It is locked forever in the Uniswap v4 LP.
 

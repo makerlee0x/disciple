@@ -22,9 +22,11 @@ const coins = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ?
 
 /** COPY PENDING LEE APPROVAL */
 export const COPY_PENDING_LEE = {
-  walletCap: (capPct: string, maxUsd: number) => `Wallet limit: this coin's mode caps each wallet at ${capPct}. You can buy up to about ${money(maxUsd)} more.`,
-  walletFull: (capPct: string) => `Wallet limit: this coin's mode caps each wallet at ${capPct}. You're already at the limit.`,
-  buyMax: (maxUsd: number) => `Buy max (${money(maxUsd)})`,
+  /** card title (approved board "Phone v2 · 3 Wallet limit", maker 2026-11-13) */
+  walletTitle: "Wallet limit",
+  walletCap: (capPct: string, maxUsd: number) => `This rocket's mode caps each wallet at ${capPct}. You can boost about ${money(maxUsd)} more.`,
+  walletFull: (capPct: string) => `This rocket's mode caps each wallet at ${capPct}. You're already at the limit.`,
+  buyMax: (maxUsd: number) => `Boost max ${money(maxUsd)}`,
   impactSell: (usd: number) => `High price impact: this sell moves the price over 10%. You'll get about ${money(usd)}.`,
   impactBuy: (coinsOut: number) => `High price impact: this buy moves the price over 10%. You'll get about ${coins(coinsOut)} coins.`,
   cancel: "Cancel",
@@ -38,6 +40,14 @@ export type CapInput = {
   priceUsd: number;
 };
 /** Wallet-limit check for a buy of `usd`. null = fine (or not enough data to tell: never blocks on a guess). */
+/** How much more this wallet can boost under the cap, in $ at the mark (the same number Boost max offers).
+ *  null = no cap (Expert / graduated) or price unknown. */
+export function capRoomUsd(c: CapInput): number | null {
+  if (c.capBps == null || !(c.capBps > 0) || !(c.supply > 0) || !(c.priceUsd > 0)) return null;
+  const room = (c.capBps / 10_000) * c.supply - c.holding - (c.pendingBuyTokens ?? 0);
+  return Math.max(0, Math.floor(room * c.priceUsd * BUY_MAX_HEADROOM * 100) / 100);
+}
+
 export function walletCapAlert(usd: number, c: CapInput): Extract<TradeAlert, { kind: "walletcap" }> | null {
   if (c.capBps == null || !(c.capBps > 0) || !(c.supply > 0) || !(c.priceUsd > 0) || !(usd > 0)) return null;
   const capTokens = (c.capBps / 10_000) * c.supply;

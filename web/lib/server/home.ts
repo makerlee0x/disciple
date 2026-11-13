@@ -15,8 +15,12 @@ import { storeSrc, STORE_ID_RE, uriKey } from "@/lib/coinImages";
 import { pairOf, pairSymOf, shortHex } from "@/lib/home/pairs";
 import { isHiddenCoin } from "@/lib/home/hiddenCoins";
 import { flaggedCopySet } from "@/lib/server/nameLock";
-import { chipOf, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
+import { chipOf, lobbyAgeTokens, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
+import { topPilots, tickerOf, type TickerItem, type TopPilots } from "@/lib/home/topPilots";
+import { levelInfo } from "@/lib/xp";
 import { resolveKeys } from "./imageStore";
+import { usernameOf } from "./usernames";
+import { ledgerOf, totals } from "./xp";
 import { indexTrades, tradesOf } from "./trades";
 
 const CACHE_MS = 15_000;
@@ -41,8 +45,20 @@ async function resolveImages(uris: string[]): Promise<Map<string, string>> {
 
 export const EMPTY_HOME: HomeData = { at: 0, coins: [], hero: null, heroMode: "empty", next: [], chips: [] };
 
+/** `next dev` only: DSC_HOME_FIXTURE=<path to a HomeData JSON> paints the lobby with it (layout QA without a chain). */
+async function devFixture(): Promise<HomeData | null> {
+  if (process.env.NODE_ENV !== "development" || !process.env.DSC_HOME_FIXTURE) return null;
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const d = JSON.parse(await readFile(process.env.DSC_HOME_FIXTURE, "utf8")) as HomeData;
+    return { ...d, at: Date.now() };
+  } catch { return null; }
+}
+
 async function build(): Promise<HomeData> {
   const now = Date.now();
+  const fx = await devFixture();
+  if (fx) return fx;
   if (!isDeployed()) return { ...EMPTY_HOME, at: now };
   const pc = publicClient() as PublicClient;
   const [launches] = await Promise.all([
@@ -59,13 +75,13 @@ async function build(): Promise<HomeData> {
     return {
       token: x.token.toLowerCase(), name: x.name, ticker: x.ticker, pair: pairOf(x.quote), pairSym: pairSymOf(x.quote),
       icon: x.imageURI, creator: shortHex(x.creator), creatorAddr: String(x.creator).toLowerCase(), mcapUsd: x.mcapUsd, graduated: x.graduated, progressBps: x.progressBps ?? undefined, block: Number(x.block),
-      launchedAt: null,
+      launchedAt: null, mode: x.mode,
       stats: statsFromFills(fills, now, x.mcapUsd, fills.length >= FILLS_CAP),
     };
   });
   const pick = pickHero(coins);
-  // launch time (age) for the hero + strip
-  const need = [pick.hero, ...pick.next].filter(Boolean) as string[];
+  // launch time (age) for the hero, the trending list and the newest launches (lobby shelves)
+  const need = lobbyAgeTokens(coins, pick);
   await Promise.all(need.map(async (t) => {
     const c = coins.find((x) => x.token === t);
     if (!c) return;
@@ -76,7 +92,27 @@ async function build(): Promise<HomeData> {
   const chips = heroIdx >= 0
     ? [...fillsBy[heroIdx]].sort((a, b) => b.block - a.block || b.logIndex - a.logIndex).slice(0, 6).map(chipOf)
     : [];
-  return { at: now, coins, ...pick, chips };
+  const pilots = topPilots(fillsBy, now);
+  const ticker = tickerOf(fillsBy, new Map(coins.map((c) => [c.token, c.name])));
+  await timeout(namePilots(pilots, ticker), 2_500, undefined);
+  return { at: now, coins, ...pick, chips, pilots, ticker };
+}
+
+/** Usernames + levels for the Top pilots and ticker traders (KV). Mutates; a miss leaves the default name. */
+async function namePilots(pilots: TopPilots, ticker: TickerItem[]): Promise<void> {
+  const rows = [...pilots.day, ...pilots.week, ...pilots.month];
+  const wallets = Array.from(new Set([...rows.map((r) => r.wallet), ...ticker.map((t) => t.trader)]));
+  const names = new Map<string, string | null>();
+  const levels = new Map<string, { level: number; prestige: number }>();
+  const ranked = new Set(rows.map((r) => r.wallet));
+  await Promise.all(wallets.map(async (w) => {
+    names.set(w, await usernameOf(w).catch(() => null));
+    if (!ranked.has(w)) return;
+    const l = await ledgerOf(w).then((x) => { const t = totals(x); return levelInfo(t.total, t.prestige); }).catch(() => null);
+    if (l) levels.set(w, { level: l.level, prestige: l.prestige });
+  }));
+  for (const r of rows) { r.username = names.get(r.wallet) ?? null; const l = levels.get(r.wallet); r.level = l?.level ?? null; r.prestige = l?.prestige ?? null; }
+  for (const t of ticker) t.username = names.get(t.trader) ?? null;
 }
 
 /** Home data, cached CACHE_MS; never throws (empty state on failure). */

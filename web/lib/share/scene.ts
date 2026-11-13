@@ -9,6 +9,7 @@
 import { fmtCt, fmtMcap, fmtMoney, fmtPct } from "./format";
 import { FLIGHT_TIERS, tierIndexAt } from "@/lib/flight/tiers";
 import { defaultUsername } from "@/lib/defaultUsername";
+import { RAMPS, applyRamp } from "@/lib/hullRamp";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Ctx = any; // CanvasRenderingContext2D | @napi-rs/canvas SKRSContext2D
@@ -19,7 +20,7 @@ type Img = any; // drawable
 /** Tier ladder: single source lib/flight/tiers.ts (added by #50 — this PR depends on it). */
 export function tierAt(mcap: number) { const index = tierIndexAt(mcap); return { index, ...FLIGHT_TIERS[index] }; }
 
-export interface Loadout { skin: { tint: string | null; mode?: "color" | "multiply"; strength?: number; sheen?: string }; coin: { bg: [string, string]; ink: string; glyph: string; rim: string; id: string }; thruster: { core: string; flame: string } }
+export interface Loadout { skin: { tint: string | null; mode?: "color" | "multiply"; strength?: number; sheen?: string; ramp?: string }; coin: { bg: [string, string]; ink: string; glyph: string; rim: string; id: string }; thruster: { core: string; flame: string } }
 export interface SceneData {
   gainUsd: number; gainPct: number; kind: "unrealized" | "realized" | "none";
   ticker: string; mcapStart: number; mcapEnd: number; endTs: number;
@@ -43,7 +44,9 @@ export function composeRocket(mk: MakeCanvas, base: Img, lo: Loadout, scale = 4)
   o.imageSmoothingQuality = "high";
   o.drawImage(base, 0, 0, w, h);
   const sk = lo.skin;
-  if (sk.tint) {
+  const ramp = sk.ramp ? RAMPS[sk.ramp] : undefined;
+  if (ramp) { const im = o.getImageData(0, 0, w, h); applyRamp(im.data, ramp); o.putImageData(im, 0, 0); }
+  else if (sk.tint) {
     o.globalAlpha = sk.strength ?? 0.85; o.globalCompositeOperation = sk.mode === "multiply" ? "multiply" : "color";
     o.fillStyle = sk.tint; o.fillRect(0, 0, w, h);
     if (sk.mode !== "multiply") { o.globalAlpha = 0.35; o.globalCompositeOperation = "overlay"; o.fillRect(0, 0, w, h); }

@@ -32,7 +32,7 @@ ok(/FLOAT_CARDS[\s\S]*radio/.test(layout) && /radio: "Radio"/.test(layout), "rad
 ok(/FLOAT_CARDS\.includes/.test(chrome) && /radio: '\[data-card="radio"\]'/.test(chrome), "CardChrome reuses ⠿ / – / × for radio and keeps it out of the slot snap flow");
 ok(/startDrag\(id\)/.test(chrome) && /pillMoved/.test(chrome) && /id === "radio"/.test(chrome), "the Radio restore pill reuses CardChrome drag (other pills stay click-to-restore)");
 ok(menu.includes("audio-${ch}-toggle") && menu.includes("audio.music") && menu.includes("audio-${ch}-vol"), "settings still use the existing Music toggle and slider");
-ok(i18n.includes("Music plays during a flight. Sound effects aren't in yet."), "EN audio.note no longer says sounds don't ship");
+ok(i18n.includes('"audio.note": "Music plays during a flight.",') && !i18n.includes("Sound effects aren't in yet"), "EN audio.note no longer says sounds don't ship (flight SFX are live)");
 
 const files = [
   "candlelit-nocturne.m4a", "cavernous-reverb.m4a", "golden-hour-basement.m4a",

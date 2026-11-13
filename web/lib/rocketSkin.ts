@@ -3,29 +3,32 @@
  * Presentational only — never affects price, fills or odds.
  */
 import { BASE_ROCKET_HI_SRC, composeRocket, loadBaseRocket, loadRocketSprite } from "./decal";
+import { RAMPS, applyRamp } from "./hullRamp";
 
-export type Skin = { id: string; name: string; tint: string | null; mode?: "color" | "multiply"; strength?: number; sheen?: string };
+/** `ramp` (a key of lib/hullRamp RAMPS) grades the chrome by brightness instead of the older tint composite. */
+export type Skin = { id: string; name: string; tint: string | null; mode?: "color" | "multiply"; strength?: number; sheen?: string; ramp?: string };
 export type Coin = { id: string; name: string; bg: [string, string]; ink: string; glyph: string; rim: string };
 export type Thruster = { id: string; name: string; core: string; flame: string };
 
 export const SKINS: Skin[] = [
-  { id: "chrome", name: "Factory Chrome", tint: null },
-  { id: "gold", name: "Golden Rocket", tint: "#e0aa2e", strength: 0.9, sheen: "rgba(255,236,170,.35)" },
+  { id: "chrome", name: "Chrome", tint: null },
+  { id: "gold", name: "Gold", tint: "#e0aa2e", ramp: "gold" },
   { id: "rose", name: "Rose Gold", tint: "#e79a86", strength: 0.8, sheen: "rgba(255,220,210,.3)" },
   { id: "green", name: "Metallic Green", tint: "#22b56a", strength: 0.85, sheen: "rgba(190,255,215,.3)" },
   { id: "cobalt", name: "Cobalt Blue", tint: "#2f6bff", strength: 0.85, sheen: "rgba(190,215,255,.3)" },
-  { id: "violet", name: "Seraph Violet", tint: "#9b6bff", strength: 0.8, sheen: "rgba(230,215,255,.3)" },
-  { id: "matte", name: "Matte Black", tint: "#2a2c33", mode: "multiply", strength: 1 },
+  { id: "violet", name: "Violet", tint: "#9b6bff", ramp: "violet" },
+  { id: "matte", name: "Matte", tint: "#2a2c33", ramp: "matte" },
   { id: "crimson", name: "Crimson Candy", tint: "#d42a46", strength: 0.9, sheen: "rgba(255,200,210,.25)" },
 ];
 
 export const THRUSTERS: Thruster[] = [
-  { id: "stock", name: "Stock Burners", core: "#fff1d6", flame: "#ff8a3d" },
+  { id: "stock", name: "Classic", core: "#fff1d6", flame: "#ff8a3d" },
   { id: "seraph", name: "Seraph Gold", core: "#fffbe6", flame: "#ffcc33" },
-  { id: "ion", name: "Halo Ion (blue)", core: "#e9f6ff", flame: "#3fa9ff" },
+  { id: "ion", name: "Plasma", core: "#e9f6ff", flame: "#3fa9ff" },
   { id: "plasma", name: "Plasma Violet", core: "#f5ecff", flame: "#a24bff" },
-  { id: "venom", name: "Venom Green", core: "#effff4", flame: "#2bff88" },
+  { id: "venom", name: "Toxic", core: "#effff4", flame: "#2bff88" },
   { id: "inferno", name: "Inferno Red", core: "#fff0e8", flame: "#ff2d3d" },
+  { id: "neon", name: "Neon", core: "#fff0f8", flame: "#ff5fb4" },
 ];
 
 export const COINS: Coin[] = [
@@ -64,6 +67,10 @@ export function tintBase(base: HTMLImageElement, skin: Skin, scale = 1): HTMLCan
   const c = document.createElement("canvas"); c.width = w; c.height = h;
   const o = c.getContext("2d")!;
   o.drawImage(base, 0, 0, w, h);
+  const ramp = skin.ramp ? RAMPS[skin.ramp] : undefined;
+  if (ramp) {
+    try { const im = o.getImageData(0, 0, w, h); applyRamp(im.data, ramp); o.putImageData(im, 0, 0); return c; } catch { /* tainted canvas: fall back to the tint */ }
+  }
   if (!skin.tint) return c;
   o.globalAlpha = skin.strength ?? 0.85;
   o.globalCompositeOperation = skin.mode === "multiply" ? "multiply" : "color";

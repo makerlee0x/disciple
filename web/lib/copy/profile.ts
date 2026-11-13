@@ -23,7 +23,6 @@ export const PROFILE_COPY = {
   // Tabs + paging
   "profile.tab.rockets": "Rockets",
   "profile.tab.loot": "Loot",
-  "profile.tab.achievements": "Achievements",
   "profile.tab.activity": "Activity",
   "pager.prev": "Prev",
   "pager.next": "Next",
@@ -37,38 +36,6 @@ export const PROFILE_COPY = {
   "rockets.empty.own.body": "BOOST a rocket on the Launchpad and it shows up here.",
   "rockets.empty.own.cta": "Open Launchpad",
   "rockets.empty.other": (u: string) => `${u} isn't holding any rockets.`,
-
-  // Loot (parts = cosmetic rewards of unlocked achievements; slot names follow the existing reward kinds)
-  "loot.slot.skin": "Body skin",
-  "loot.slot.trail": "Trail",
-  "loot.slot.frame": "Frame",
-  "loot.filter.all": (n: number) => `All ${n}`,
-  "loot.popup.eyebrow": (rarity: string, slot: string) => `${rarity} · ${slot}`.toUpperCase(),
-  "loot.popup.source.achievement": (a: string) => `Earned from ${a}`,
-  "loot.popup.share.aria": "Share this part",
-  "loot.popup.close.aria": "Close",
-  "loot.popup.prev.aria": "Previous part",
-  "loot.popup.next.aria": "Next part",
-  "loot.popup.position": (i: number, n: number) => `${i} of ${n}`,
-  "loot.cosmetic": "Cosmetic only — upgrades never change price, fills or odds.",
-  "loot.empty.own.title": "No loot yet",
-  "loot.empty.own.body": "Earn parts from achievements and prestige.",
-  "loot.empty.own.cta": "See achievements",
-  "loot.empty.other": (u: string) => `${u} hasn't found any loot yet.`,
-  "loot.empty.slot": (slot: string) => `No ${slot.toLowerCase()} parts yet.`,
-
-  // Achievements
-  "ach.summary": (u: number, t: number) => `${u} of ${t} unlocked`,
-  "ach.prestige": (n: number, name: string) => `Prestige ${n} · ${name}`,
-  "ach.level": (l: number, max: number) => `Level ${l} of ${max}`,
-  "ach.nextrank": (pts: string, next: string) => `${pts} pts to ${next}`,
-  "ach.leaderboard": (rank: number) => `#${rank} on the leaderboard`,
-  "ach.seeall": "See all achievements",
-  "ach.earned": (n: number) => `${n} earned`,
-  "ach.empty.own": "No achievements yet. Your first BOOST starts the climb.",
-  "ach.empty.own.title": "No achievements yet",
-  "ach.empty.own.body": "Your first BOOST starts the climb.",
-  "ach.empty.other": (u: string) => `${u} hasn't unlocked any achievements yet.`,
 
   // Activity
   "activity.record": "Record",

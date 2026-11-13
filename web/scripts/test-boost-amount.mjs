@@ -40,7 +40,8 @@ const tbPresets = need(tb, /const pushPresets = \(\) => [^\n]*/, "pushPresets")[
 const tbRestoreH = need(tb, /const h = \(e: Event\) => \{ const d = \(e as CustomEvent<\{ mode: number; boot\?: boolean \}>\)[\s\S]*?catch \{ \/\* \*\/ \} \};/, "restore listener")[0];
 const tbShoot = need(tb, /const shoot = \(side[\s\S]*?\)\)\);/, "shoot")[0];
 const tbPick = need(tb, /onPickBuy=\{(\(i\) => \{[^\n]*?\})\}\n/, "onPickBuy")[1];
-const tbSet = need(tb, /onSetBuy=\{(\(v\) => setCustom\(v\))\}/, "onSetBuy")[1];
+// custom $ comes from the desktop field (the phone bar has chips only since phone v2, maker 2026-11-13)
+need(tb, /onChange=\{\(e\) => setCustom\(e\.target\.value/, "desktop custom $ field"); const tbSet = "(v) => setCustom(v)";
 const tbCustomFx = /useEffect\(\(\) => \{ dispatchEvent\(new CustomEvent\("disciple:custombuy", \{ detail: \{ usd: customUsd \} \}\)\); \}, \[customUsd\]\);/.test(tb);
 const tbShot = need(tb, /const shotUsd = ([^;]*);/, "shotUsd")[1];
 

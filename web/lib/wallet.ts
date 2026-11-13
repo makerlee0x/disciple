@@ -3,6 +3,7 @@
  * (components/PrivyProviders.tsx → connectPrivyOwner). The plain-EOA path below (injected wallet,
  * window.ethereum) is the legacy / dev fallback.
  */
+import { _emitWallet } from "./walletState";
 import { createWalletClient, custom, type Address, type WalletClient } from "viem";
 import { ACTIVE_CHAIN } from "./chains";
 import { REJECTED_MSG } from "./aa/relayOp";
@@ -52,11 +53,9 @@ export async function connectWallet(): Promise<Address> {
 }
 
 /** Tiny pub/sub so UI bits (wallet button, ammo bar) share the connected address. */
-let current: Address | null = null;
-const subs = new Set<(a: Address | null) => void>();
-function emit(a: Address | null) { current = a; subs.forEach((f) => f(a)); }
-export function connectedAddress() { return current; }
-export function onWallet(f: (a: Address | null) => void) { subs.add(f); f(current); return () => { subs.delete(f); }; }
+// address + listeners live in ./walletState (no viem) so light UI can subscribe without loading the wallet stack
+const emit = (a: Address | null) => _emitWallet(a);
+export { connectedAddress, onWallet } from "./walletState";
 
 export async function getSigner(): Promise<Signer> {
   const eth = provider || ((globalThis as { ethereum?: unknown }).ethereum as Eip1193 | undefined);

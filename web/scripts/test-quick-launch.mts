@@ -14,7 +14,7 @@ import {
   buildLaunchSocials, boostHasAmount, creatorTaxSteps, launchButtonLabel, launchNeedsSignIn, maxBoostChipLabel,
   isPseudoLaunch, normalizeTelegram, normalizeTwitter, normalizeWebsite, parseCreatorFeeDestination, privateLaunchHelp, privateLaunchTitle,
   readStoredCreatorFeeDestination, readStoredCreatorTax, readStoredUpload, snapCreatorTax, socialsURI, storeCreatorFeeDestination, storeCreatorTax, storeUpload, withHttps,
-  QUICK_LAUNCH_COPY, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION, CREATOR_FEE_DESTINATIONS, CREATOR_FEE_DESTINATION_LIVE, CREATOR_FEE_FIELD, CREATOR_FEE_STORE_KEY, CREATOR_TAX_HELP, CREATOR_TAX_STORE_KEY, DEFAULT_CREATOR_FEE_DESTINATION, UPLOAD_STORE_KEY, liveCreatorFeeDestination,
+  QUICK_LAUNCH_COPY, QUICK_LAUNCH_MODE_CARD, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION, CREATOR_FEE_DESTINATIONS, CREATOR_FEE_DESTINATION_LIVE, CREATOR_FEE_FIELD, CREATOR_FEE_STORE_KEY, CREATOR_TAX_HELP, CREATOR_TAX_STORE_KEY, DEFAULT_CREATOR_FEE_DESTINATION, UPLOAD_STORE_KEY, liveCreatorFeeDestination,
 } from "../lib/quickLaunch";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -264,7 +264,7 @@ test("creator fee copy matches the r7 card labels and tax helpers, with no jargo
   const here = dirname(fileURLToPath(import.meta.url));
   const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
   const css = readFileSync(join(here, "../components/create/quickLaunch.module.css"), "utf8");
-  assert.equal(QUICK_LAUNCH_COPY.creatorFeeSplit, "Creators earn .33% of all trading fees forever.");
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeeSplit, "You earn 33% of every trading fee, forever.");
   const visible = [
     QUICK_LAUNCH_COPY.creatorFees, QUICK_LAUNCH_COPY.creatorFeesPerm, QUICK_LAUNCH_COPY.creatorFeeSplit,
     QUICK_LAUNCH_COPY.rewards, QUICK_LAUNCH_COPY.rewardsHelp,
@@ -288,9 +288,9 @@ test("the creator fee split is on the closed Quick Launch page and in Advanced, 
   assert.match(page, /data-testid="creator-fee-split"/);
   assert.match(page, /data-testid="creator-fee-split-advanced"/);
   assert.equal((page.match(/C\.creatorFeeSplit/g) || []).length, 2);
-  assert.equal(QUICK_LAUNCH_COPY.creatorFeeSplit, "Creators earn .33% of all trading fees forever.");
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeeSplit, "You earn 33% of every trading fee, forever.");
   assert.doesNotMatch(page, /Every trade pays a 1% fee/);
-  assert.doesNotMatch(QUICK_LAUNCH_COPY.creatorFeeSplit, /Every trade pays a 1% fee|0\.33%|33% creator/);
+  assert.doesNotMatch(QUICK_LAUNCH_COPY.creatorFeeSplit, /Every trade pays a 1% fee|0\.33%|\.33%|33% creator/);
   // Same constant in both places; not rewritten for pool or burn.
   assert.doesNotMatch(page, /creatorFeeSplit\[feeDestination\]|CREATOR_FEE_COPY\[feeDestination\]\.split/);
   // Not on the illustrated cards (cards still use the short destination labels).
@@ -304,17 +304,17 @@ test("the creator fee split is on the closed Quick Launch page and in Advanced, 
   assert.equal(CREATOR_FEE_DESTINATION_LIVE, false);
   assert.equal(liveCreatorFeeDestination(1), undefined);
 });
-test("Mode is a three-card row with descriptions only in a hover or info-mark tooltip", () => {
+test("Difficulty is three cards with the caps written on them (canvas board \"Launch: build your rocket\")", () => {
   const here = dirname(fileURLToPath(import.meta.url));
-  const css = readFileSync(join(here, "../components/create/quickLaunch.module.css"), "utf8");
+  const css = readFileSync(join(here, "../components/create/launch.module.css"), "utf8");
   const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
-  assert.match(css, /\.modeCards\s*\{[^}]*grid-template-columns:\s*1fr 1fr 1fr/);
-  assert.match(css, /\.modeTip\s*\{/);
-  assert.match(css, /modeCardWrap:hover \.modeTip/);
-  assert.match(css, /@media \(max-width: 820px\)[\s\S]*\.modeInfo \{ display: inline-grid; \}/);
-  assert.match(page, /data-testid=\{\`mode-card-\$\{label\.toLowerCase\(\)\}\`\}/);
-  assert.match(page, /data-testid=\{\`mode-info-\$\{label\.toLowerCase\(\)\}\`\}/);
-  assert.match(page, /QUICK_LAUNCH_MODE_COPY\.footer/);
-  assert.doesNotMatch(page, /modesFoot|mode-modal|modeBtn|modeOpen/);
+  assert.match(css, /\.diffs\s*\{[^}]*grid-template-columns:\s*repeat\(3,/);
+  assert.match(page, /data-testid=\{`mode-card-\$\{label\.toLowerCase\(\)\}`\}/);
+  assert.match(page, /QUICK_LAUNCH_MODE_CARD\.footer/);
   assert.match(page, /data-testid="mode-cards"/);
+  assert.match(QUICK_LAUNCH_MODE_CARD.Easy.blurb, /1%/);
+  assert.match(QUICK_LAUNCH_MODE_CARD.Hard.blurb, /3\.33%/);
+  assert.match(QUICK_LAUNCH_MODE_CARD.Trench.blurb, /No caps/);
+  assert.equal(QUICK_LAUNCH_MODE_CARD.Trench.label, "Expert");
+  assert.doesNotMatch(page, /modesFoot|mode-modal|modeBtn|modeOpen/);
 });

@@ -15,6 +15,7 @@ import { needsEmbeddedWallet, ownerWalletAddress, type LinkedLike } from "@/lib/
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { PRIVY_APP_ID, aaSession, registerPrivy, type PrivyAccountInfo, type PrivySecurity } from "@/lib/aa/session";
 import { connectPrivyOwner, disconnect } from "@/lib/wallet";
+import { withPrivyTxType } from "@/lib/aa/privyTx";
 import { syncLocalIdentity } from "@/lib/profile";
 
 type AccountLike = { type?: string; latestVerifiedAt?: Date | string | null; walletClientType?: string; email?: string; address?: string; username?: string | null };
@@ -56,7 +57,7 @@ function PrivyBridge() {
   }, [user, linkedAccounts, exportWallet, showMfaEnrollmentModal, unenrollWithTotp, unenrollWithPasskey]);
 
   // getAccessToken: Privy session for our API routes (verification requests / admin review), no wallet signature
-  useEffect(() => { registerPrivy({ login, logout, getAccessToken, getIdentityToken, authenticated: ready && authenticated, account: accountInfo(user), security }); return () => registerPrivy(null); }, [login, logout, getAccessToken, ready, authenticated, user, security]);
+  useEffect(() => { registerPrivy({ ready, login, logout, getAccessToken, getIdentityToken, authenticated: ready && authenticated, account: accountInfo(user), security }); return () => registerPrivy(null); }, [login, logout, getAccessToken, ready, authenticated, user, security]);
 
   useEffect(() => {
     if (!ready || !walletsReady) return;
@@ -77,7 +78,8 @@ function PrivyBridge() {
     if (!w || linked.current === w.address.toLowerCase()) return;
     linked.current = w.address.toLowerCase();
     toViemAccount({ wallet: w })
-      .then((owner) => connectPrivyOwner(owner))
+      // Privy's wallet RPC needs the numeric tx type (2), not viem's "eip1559" (lib/aa/privyTx)
+      .then((owner) => connectPrivyOwner(withPrivyTxType(owner)))
       // the cached @name belongs to the account that claimed it: a different sign-in must not keep showing it
       .then((acct) => { void syncLocalIdentity(acct).catch(() => undefined); })
       .catch((e) => { linked.current = null; console.warn("[privy] owner setup failed", (e as Error).message); });

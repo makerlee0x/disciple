@@ -4,7 +4,7 @@
  * on the server from the wallet's indexed fills (GET /api/profile/stats → lib/server/profileStats, same KV trade
  * index as the share card and trade history), so every visitor sees the same PnL, win rate and bombs dropped.
  * Season points, leaderboard rank and tramps/walls have no real source yet, so they are 0 and every achievement that
- * depends on them is left out (REAL_ACHIEVEMENT_CATEGORIES): nothing can unlock from a placeholder.
+ * depends on them is left out: nothing is scored from a placeholder.
  * `next dev` + ?sample=1 swaps in the seeded persona (lib/mock/sample-trades) for local design work only.
  */
 import { useEffect, useState } from "react";
@@ -13,7 +13,7 @@ import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 import { devSample } from "@/lib/devSample";
 import { profileStatsFrom, type ProfileStats, type PublicProfileSummary } from "@/lib/profileStatsCore";
 
-export { REAL_ACHIEVEMENT_CATEGORIES, profileStatsFrom, statsTradeOf, type ProfileStats, type PublicProfileSummary } from "@/lib/profileStatsCore";
+export { profileStatsFrom, statsTradeOf, type ProfileStats, type PublicProfileSummary } from "@/lib/profileStatsCore";
 
 const isAddr = (a: string | null | undefined): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.test(a);
 

@@ -5,7 +5,7 @@ section: Reference
 ---
 # Parameters
 
-Every number in one place. Values are for the current testnet deploy unless marked.
+Every number in one place.
 
 ## Rocket
 
@@ -32,43 +32,37 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | Parameter | Value |
 |---|---|
 | Trade fee | 1% of every BOOST and DUMP |
-| Split of the trade fee | 33% creator · 33% locked liquidity · 33% treasury · 1% referrer |
+| Split of the trade fee | 33% creator · 33% locked liquidity · 33% treasury · 1% other |
 | Extra fee charged by the Uniswap pool after orbit | 0% (the 1% fee still applies) |
-| Creator tax | 0–7%, set at launch, curve trades only |
-| Sniper tax | 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s (one step per second), BOOSTs only, curve only |
-| Sniper tax destination | Locked liquidity when the rocket reaches orbit · the rewards vault if it has not reached orbit in 30 days |
-| Creator launch buy | Exempt from anti-snipe |
+| Creator tax | 0–7%, set at launch, before orbit only |
+| Sniper tax | 99% at launch, 25% at 1 second, 3% at 2 seconds, nothing from 7 seconds (one step per second). BOOSTs only, before orbit only. |
+| Sniper-tax window | 12 days after launch |
+| Where the sniper tax goes | Locked liquidity if the rocket reaches orbit within 12 days · community rewards if it doesn't |
+| Where the liquidity share of fees before orbit goes | Locked liquidity if the rocket reaches orbit within 12 days · community rewards if it doesn't |
+| Creator launch buy | Doesn't pay the sniper tax |
 
 ## Limits
 
 | Parameter | Value |
 |---|---|
-| Creator launch buy cap (First BOOST) | Trench Warfare: 7.77% of supply (team-settable, max 7.77%). Easy is fixed at 1.2% and Hard at 3.33%. |
-| Protocol wallet cap (curve) | None by default (team-settable 0–100%) |
-| Router max price impact | 50% per swap (team-settable 1–1,000%) |
+| Smallest BOOST | $3 |
+| Creator launch buy (First BOOST) | Easy 1.2% · Hard 3.33% · Trench 7.77% (the team can lower the Trench limit, not raise it) |
+| Extra holding limit on every new rocket | None (the team can set one, 0–100%) |
+| Router max price impact | 50% per trade (team can set 1–1,000%) |
 | Keeper tip (tramps and walls) | 0.1% (max 1%) |
-| Pseudonymous launch fee | $0.25 USDG on testnet (max $5) |
+| Private launch fee | Set by the team, paid in USDG, up to $5 |
 
-## Referrals
+## Launch modes
 
-| Parameter | Value |
-|---|---|
-| Lock-in | Link → sign in → $10+ USDG deposit, first link wins, for life |
-| Referrer earns on a referred wallet's trades | 1% of the trade fee (0.01% of the trade), unless the launcher's referrer comes first |
-| On rockets the referred wallet launches | 1% of the trade fee on every trade + 2% of the creator's share |
-| Self-referral | Same wallet blocked |
-
-## Launch modes (coming with the next redeploy, mode rules v2)
-
-| | Easy (PvE) | Hard (PvP) | Trench Warfare |
+| | Easy | Hard | Trench |
 |---|---|---|---|
-| Wallet cap | 1% → 3.33% as the rocket's value climbs | 3.33% → 7.77% | None |
-| Over-cap BOOST | Partial fill + refund | Partial fill + refund | — |
-| Max BOOST / DUMP | None | None | None |
+| Holding limit | 1% → 3.33% as the rocket's value climbs | 3.33% → 7.77% | None |
+| BOOST over the limit | Partly filled, the rest refunded | Partly filled, the rest refunded | — |
+| Biggest single BOOST or DUMP | No limit | No limit | No limit |
 | Crew tip | 0.777% when profit is above 0.5% of the rocket's value | None | None |
 | First BOOST max | 1.2%, locked until the rocket reaches orbit | 3.33% | 7.77% |
-| Login to BOOST | Yes | No | No |
-| Sniper tax | 99% → 0 over 7 s (per-second table), held aside: locked liquidity when the rocket reaches orbit, rewards vault after 30 days if it has not | same | same |
+| Sign-in to BOOST | Yes | No | No |
+| Sniper tax | Same in every mode: 99% falling to 0 over 7 seconds | Same | Same |
 
 ## Altitude
 

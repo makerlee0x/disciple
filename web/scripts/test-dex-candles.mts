@@ -139,7 +139,11 @@ test("DexChart reskin: the old chart-map game skin (CHART_STYLE palette, Georgia
   assert.match(src, /Georgia/); assert.match(src, /PriceScaleMode\.Normal/); assert.doesNotMatch(src, /Logarithmic/, "straight (linear) scale");
   assert.match(src, /minValue = Math\.max\(0, r\.priceRange\.minValue\)/, "autoscale floored at $0"); assert.match(src, /v < 0 \? "" : fmtMcap\(v\)/, "no negative mcap labels");
   assert.match(src, /axisLabelColor: C\.gold, axisLabelTextColor: C\.tagFg/, "gold current-value tag, dark text");
-  assert.doesNotMatch(src, /FLIGHT_TIERS|tierRefs|dex-tier/, "no tier threshold lines / labels (lee: too busy)");
+  // maker, Nov 12 (approved ALTITUDE CHART mockup): desktop shows the NEXT zone + the current zone's floor + YOU BOARDED only
+  // (not every tier: still "too busy"), as DOM guides; the plot keeps no grid / axes / volume on desktop
+  assert.doesNotMatch(src, /tierRefs|dex-tier/, "no per-tier threshold lines");
+  assert.match(src, /function guidesFor\(cur: number, entry: number\)/); assert.match(src, /data-testid="dex-next"/); assert.match(src, /data-testid="dex-floor"/); assert.match(src, /YOU BOARDED/);
+  assert.match(src, /grid: \{ vertLines: \{ visible: phone \}, horzLines: \{ visible: phone \} \}, rightPriceScale: \{ visible: phone/, "desktop: no grid or price axis");
   assert.match(src, /data-testid="dex-live-ring"/); assert.match(src, /@keyframes dexPulse/); assert.match(src, /prefers-reduced-motion/);
   assert.match(src, /pointerEvents: "none", zIndex: 2/, "overlay never eats pan / pinch / crosshair input");
   assert.doesNotMatch(src, /ABCDEFGH|GRID_COLS/, "no A–H / 1–5 grid labels");

@@ -9,8 +9,8 @@ On DISCIPLE, buying is **BOOST** and selling is **DUMP**.
 
 | On screen | Means | Effect |
 |---|---|---|
-| **BOOST** | Buy the rocket, paying in its base | The rocket lifts |
-| **DUMP** | Sell the rocket, paid in its base | The rocket drops a bomb |
+| **BOOST** | Buy the rocket, paying in dollars (USDG) | The rocket lifts |
+| **DUMP** | Sell the rocket, and get dollars (USDG) back | The rocket drops a bomb |
 
 ## Where you trade
 
@@ -23,9 +23,9 @@ The buttons work the same in both phases.
 
 ## Choosing an amount
 
-**BOOST presets.** Six dollar presets sit in the BUY row. They scale with the rocket's altitude, which is how high its value has climbed, so a preset moves a small rocket and a large one by a similar amount. Type a custom amount to override them.
+**BOOST presets.** Four dollar amounts sit in the buy row. You can change them in **Swap settings** (the gear next to the sell sizes), or type your own amount. The smallest BOOST is $3.
 
-**DUMP presets.** 10%, 25%, 50% or 100% of your bag. You can also type a custom % or $ amount. Sell presets are editable in settings.
+**DUMP presets.** 10%, 25%, 50% or 100% of your bag. You can also type your own % or $ amount.
 
 Selecting a preset never trades. Only BOOST and DUMP trade.
 
@@ -35,7 +35,7 @@ Selecting a preset never trades. Only BOOST and DUMP trade.
 |---|---|
 | `Space` | BOOST the selected amount |
 | `Shift` | DUMP the selected amount |
-| `1`–`6` | BOOST that preset instantly |
+| `1`–`4` | Select a buy preset (selects only, never trades) |
 | `Z` `X` `C` `V` | Select 10% · 25% · 50% · 100% to DUMP (selects only, never trades) |
 | `A` / `D` or `←` / `→` | Steer the rocket |
 
@@ -43,8 +43,8 @@ With no coins in your wallet, DUMP is disabled.
 
 ## What you pay
 
-Every BOOST and DUMP pays a 1% trade fee. On the curve, a creator tax of 0–7% may apply. In the first 7 seconds after launch, BOOSTs pay a sniper tax. See [Trade fee](/docs/fees).
+Every BOOST and DUMP pays a 1% trade fee. Before orbit, a creator tax of 0–7% may apply. In the first 7 seconds after launch, BOOSTs pay a sniper tax. There's no separate gas to pay. See [Trade fee](/docs/fees).
 
 ## Your position
 
-The panel under the rocket's value shows your holdings, average entry, % gain or loss, unrealized and realized profit. Profit uses your average cost, including fees and gas. A dashed **YOUR ENTRY** line marks the altitude where you bought, which is how high the rocket's value was then.
+The panel under the rocket's value shows what you hold, your average entry price, your % gain or loss, and your profit so far, both on coins you still hold and on coins you've sold. Profit is worked out from your average cost, including fees. A dashed **YOUR ENTRY** line marks the altitude where you bought, which is how high the rocket's value was then.

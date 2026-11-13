@@ -19,4 +19,4 @@ Each part shows stats that describe how it looks in flight. [CONFIRM: GAME — o
 
 **Cosmetic only. Upgrades never change price, fills or odds.** The stats describe the look, not the market.
 
-Parts are unlocked with points. The catalogue and prices are samples for now, and real unlocks open when cosmetics go live.
+Parts are unlocked with XP from missions and milestones. Unlocking a part never costs you a level, and the rarest parts unlock with prestige.

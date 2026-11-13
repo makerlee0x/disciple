@@ -14,6 +14,7 @@ import { usdgDecimals, usdgRawToUsd } from "@/lib/usdg";
 import { onWallet } from "@/lib/wallet";
 import { maxBoostChipLabel, QUICK_LAUNCH_COPY } from "@/lib/quickLaunch";
 import s from "./quickLaunch.module.css";
+import L from "./launch.module.css";
 
 /** raw = pair-coin amount (legacy path); usdgIn = USDG the player pays (launchWithUsdg), null on the legacy path. */
 export type FirstBoostState = { raw: bigint; usdgIn: bigint | null; maxUsdg: bigint | null; maxQuoteIn: bigint | null; error: string | null; ready: boolean; overCap: boolean };
@@ -34,8 +35,9 @@ const pctOfSupply = (tokens: bigint) => `${(Number((tokens * BigInt(1000000)) / 
 export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker, value, onChange, onState, mode = DEFAULT_LAUNCH_MODE, privateLaunch = false, variant = "field" }: {
   pair: Address | null; pairLabel: string; creatorTaxBps: number; ticker: string;
   value: string; onChange: (v: string) => void; onState: (s: FirstBoostState) => void; mode?: number; privateLaunch?: boolean;
-  /** "chips" = r4 First BOOST control ($0 / $5 / $20 / Max / Custom). */
-  variant?: "field" | "chips";
+  /** "chips" = r4 First BOOST control ($0 / $5 / $20 / Max / Custom). "seat" = the same chips in the launch builder's
+   *  "Your seat" step (canvas board "Launch: build your rocket"). */
+  variant?: "field" | "chips" | "seat";
 }) {
   // USDG router (launchWithUsdg) on this network? undefined = still checking, null = legacy pair-token path.
   const [usdg, setUsdg] = useState<Address | null | undefined>(undefined);
@@ -180,6 +182,39 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
   const isMaxSel = maxUsd != null && Number.isFinite(amount) && amount > 0 && !isAmt(5) && !isAmt(20) && !isAmt(0)
     && Math.abs(amount - maxUsd) < 0.015;
   const isCustom = customOpen || (value !== "" && Number.isFinite(amount) && !isAmt(0) && !isAmt(5) && !isAmt(20) && !isMaxSel);
+
+  if (variant === "seat") {
+    const c = (on: boolean, tx = false) => `${L.chip}${tx ? ` ${L.chipTx}` : ""}${on ? ` ${L.on}` : ""}`;
+    return (
+      <div className={L.sec} data-testid="first-boost-chips" style={{ padding: 0, borderTop: 0 }}>
+        <div className={L.chips} role="group" aria-label="Your seat">
+          <button type="button" className={c(isAmt(0) || value === "")} onClick={() => { setCustomOpen(false); onChange("0"); }}>{QUICK_LAUNCH_COPY.chip0}</button>
+          <button type="button" className={c(isAmt(5))} disabled={maxUsd != null && maxUsd < 5} onClick={() => { setCustomOpen(false); onChange("5"); }}>{QUICK_LAUNCH_COPY.chip5}</button>
+          <button type="button" className={c(isAmt(20))} disabled={maxUsd != null && maxUsd < 20} onClick={() => { setCustomOpen(false); onChange("20"); }}>{QUICK_LAUNCH_COPY.chip20}</button>
+          <button type="button" className={c(isMaxSel)} disabled={!limits || (!!usdg && !maxUsdg)} onClick={() => { setCustomOpen(false); fillMax(); }}>{maxBoostChipLabel(maxUsd)}</button>
+          {customOpen || isCustom ? (
+            <label className={c(true)}>
+              <span aria-hidden>$</span>
+              <input className={L.chipInput} inputMode="decimal" autoComplete="off" aria-label="Custom seat" autoFocus={customOpen}
+                data-testid="first-boost-custom"
+                value={isAmt(0) || value === "" ? "" : value}
+                placeholder="0"
+                onChange={(e) => { setCustomOpen(true); onChange(e.target.value.replace(/,/g, ".")); }}
+                onBlur={() => { if (value.trim() === "" || isAmt(0) || isAmt(5) || isAmt(20) || isMaxSel) setCustomOpen(false); }}
+              />
+            </label>
+          ) : (
+            <button type="button" className={c(isCustom, true)} data-testid="first-boost-custom-open" onClick={() => { setCustomOpen(true); if (value === "" || isAmt(0) || isAmt(5) || isAmt(20) || isMaxSel) onChange(""); }}>{QUICK_LAUNCH_COPY.custom}</button>
+          )}
+        </div>
+        <span className={L.help}>{QUICK_LAUNCH_COPY.seatHelp}</span>
+        {limits?.capBy === "mode" && pct && <span className={L.note}>{COPY.modeCap(modeName(limits.mode), pct)}</span>}
+        {pve && raw != null && raw > BigInt(0) && <span className={L.note}>{COPY.easyLock}</span>}
+        {pve && raw != null && raw > BigInt(0) && (!me || pveVerified === false) && <span className={L.note}>{COPY.pveLoginUnknown}</span>}
+        {error && <span role="alert" className={`${L.help} ${L.bad}`}>{error}</span>}
+      </div>
+    );
+  }
 
   if (variant === "chips") {
     return (

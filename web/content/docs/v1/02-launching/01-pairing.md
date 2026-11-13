@@ -11,32 +11,26 @@ Every rocket has a **base**: the coin it's paired with.
 
 Your rocket is priced and traded in its base coin.
 
-- **BOOST** a rocket and you pay in the base.
-- **DUMP** it and you're paid in the base.
+- **BOOST** a rocket and you pay in dollars (USDG). The trade swaps your dollars into the base for you, then buys the rocket.
+- **DUMP** it and the same happens in reverse: you get dollars back.
 - **When the rocket reaches orbit**, the base is locked forever in the Uniswap v4 LP, alongside the rocket. Reaching orbit means the starting price path is finished and the rocket moves to the open market on Uniswap.
 
 That's the whole relationship. A rocket follows its base on the chart because it's priced in it. DISCIPLE makes no other claim about what a rocket does for its base.
 
 ## Which coins can be a base
 
-Pick a supported base: STRATEGY by default, USDG always. Other coins work once they have an on-chain USDG price pool.
+Right now, the launch form pairs every new rocket with **STRATEGY**. It's the default, and it's the only pair coin the form offers today.
 
-| Base | Status |
-|---|---|
-| **STRATEGY** | The default. Used when you don't pick one. |
-| **USDG** | Always available. Priced at $1. |
-| **Any other ERC-20** | Works once the team has registered an on-chain base/USDG price pool for it. Without one, the launch reverts. |
-
-[CONFIRM: FLOW — how a creator requests a new base, and whether the /create picker lists only registered bases.]
+The contracts can also take USDG or another coin as the base, as long as that coin has a registered dollar price. A longer list of pair coins is built, but those coins are not available on the launch form yet.
 
 ## How the dollar price is set
 
 Rocket targets are in dollars ($3,333 at the start, $33,333 when the rocket reaches orbit). Your base may not be a dollar coin, so DISCIPLE converts once, at launch:
 
-- It reads the base's USD price from its registered base/USDG pool, using a time-weighted average so a single-block price spike can't skew it. [CONFIRM: FLOW — the TWAP pricer is fixed in source (PR #44); confirm it's live on the current testnet deploy.]
-- That price is fixed into your rocket's curve. The curve then works in base units.
+- It reads the base's dollar price from a trading pool of that coin and USDG. It uses an average over a short time, so one sudden price spike can't skew it. [CONFIRM: FLOW — the TWAP pricer is fixed in source (PR #44); confirm it's live on the current deploy.]
+- That price is fixed into your rocket at launch. From then on, the rocket's starting price path is counted in the base coin.
 
-So if your base's dollar price moves after launch, the rocket's price path doesn't change in base terms. Its dollar value moves with the base. Value here is the same number altitude is drawn from.
+So if your base's dollar price moves after launch, the rocket's price path doesn't change in base terms, but its dollar value moves with the base. Altitude is drawn from that dollar value.
 
 ## The default can change
 

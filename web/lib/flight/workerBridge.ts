@@ -41,9 +41,9 @@ export function chooseRenderMode(search: string): "main" | "worker" {
   return "main";
 }
 
-const INBOUND = ["disciple:feednames", "disciple:cardlayout", "disciple:event", "disciple:fillreceipt", "disciple:ammo-upgrade", "disciple:ammo-keep", "disciple:ammo-tier", "disciple:ammo-query", "disciple:shoot", "disciple:sim", "disciple:chatdock", "disciple:controlsdock", "disciple:ammo-override", "disciple:sellpresets", "disciple:pnlview", "disciple:pnltag", "disciple:grass", "disciple:position", "disciple:holdings", "disciple:hotkeys", "disciple:custombuy", "disciple:menu", "disciple:orbs", "disciple:holders-real", "disciple:wallet", "disciple:cash", "disciple:coinrules", "disciple:names", "disciple:buywarn", "disciple:gradneed", "apsidebar"];
+const INBOUND = ["disciple:feednames", "disciple:cardlayout", "disciple:event", "disciple:fillreceipt", "disciple:ammo-upgrade", "disciple:ammo-keep", "disciple:ammo-tier", "disciple:ammo-query", "disciple:shoot", "disciple:sim", "disciple:chatdock", "disciple:controlsdock", "disciple:ammo-override", "disciple:sellpresets", "disciple:pnlview", "disciple:pnltag", "disciple:grass", "disciple:position", "disciple:holdings", "disciple:hotkeys", "disciple:custombuy", "disciple:menu", "disciple:orbs", "disciple:holders-real", "disciple:wallet", "disciple:cash", "disciple:coinrules", "disciple:names", "disciple:buywarn", "disciple:gradneed", "disciple:hudmode", "apsidebar"];
 const GLOBALS = ["__walletL", "__hudLeft", "__wrapL", "__trampWalls", "__twPreview", "__entryMcap", "__hudRT", "__phoneHud", "__pnlBottom", "__coinIdH", "__chatDockOpen", "__cardLayout", "__domChart", "__usernameDisplayCap"];
-const LS_KEYS = ["disciple.orbs", "disciple.bombs", "disciple.sim", "disciple.game.settings.v1"];   // last: ESC-menu hotkey bindings (lib/game/settings SETTINGS_KEY)
+const LS_KEYS = ["disciple.orbs", "disciple.bombs", "disciple.sim", "disciple.game.settings.v1", "disciple.hud"];   // last: ESC-menu hotkey bindings (lib/game/settings SETTINGS_KEY)
 
 export function startWorkerRender(o: {
   canvas: HTMLCanvasElement; wrap: HTMLElement; basePath: string; globals: Record<string, unknown>;
@@ -121,7 +121,7 @@ export function startWorkerRender(o: {
   for (const k of LS_KEYS) { try { const v = localStorage.getItem(k); if (v != null) ls[k] = v; } catch { /* ignore */ } }
   const globals: Record<string, unknown> = { ...o.globals };
   for (const g of GLOBALS) if (w[g] !== undefined) globals[g] = w[g];
-  post({ k: "init", canvas: off, engineUrl: o.basePath + "/flight/engine.js", search: location.search, href: location.href, pathname: location.pathname,
+  post({ k: "init", canvas: off, engineUrl: o.basePath + (process.env.NEXT_PUBLIC_FLIGHT_ENGINE || "/flight/engine.js"), search: location.search, href: location.href, pathname: location.pathname,
     ls, globals, hidden: document.hidden, tradeAvail: !!w.__discipleTrade, ...size() }, [off]);
 
   // ---- input

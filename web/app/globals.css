@@ -80,8 +80,10 @@ body.game {
   align-items: center;
   flex: 0 1 auto;
   min-width: 0;
+  min-height: 44px;   /* thumb-sized hit area (mobile plan) */
   text-decoration: none;
 }
+#apSide.collapsed .ap-logo { min-width: 44px; justify-content: center; }
 #apSide .ap-logo img { display: block; }
 #apSide .ap-lockup { height: 38px; width: auto; max-width: 100%; margin-left: -8px; }
 #apSide .ap-mark { display: none !important; width: 30px; height: 30px; }
@@ -1408,6 +1410,8 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 /* contrast: .coin-id-txt span { color: var(--dsc-muted-on-sky, #BCC0CA) } used to override this color (1.15:1 on #C9CED6). Higher specificity keeps ink #0B0C0E on #C9CED6 (12.38:1, WCAG AA). */
 .coin-id-txt .coin-id-legacy { display: inline-block; margin-top: 2px; padding: 1px 6px; border-radius: 999px; font: 600 9px var(--dsc-font-ui); letter-spacing: 0.04em; text-transform: uppercase; color: #0B0C0E; background: #C9CED6; width: fit-content; }
 @media (max-width: 760px) { .coin-id { left: 66px; top: 10px; bottom: auto; padding: 3px; max-width: 200px; } .coin-id-txt { display: none; } }
+/* approved flight mockup (maker Nov 12): no identity row in the desktop header card; "$TICKER · ALTITUDE" names the coin */
+@media (min-width: 761px) { .coin-id { display: none !important; } }
 
 /* —— Rocket factory v2: full-bleed hangar scene above the part pickers —— */
 .factory-below { padding-top: 18px; }
@@ -1521,7 +1525,7 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .pf-stat span { font-size: 12px; color: var(--dsc-muted); }
 .pf-stat strong { font: 500 16px var(--dsc-font-mono); color: var(--dsc-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pf-stat.pos strong { color: var(--dsc-up); } .pf-stat.neg strong { color: var(--dsc-down); }
-.pf-toast { position: fixed; left: 50%; bottom: calc(24px + var(--ap-safe-bottom)); transform: translateX(-50%); z-index: 120; padding: 10px 16px; border-radius: var(--dsc-radius-lg); background: var(--dsc-surface-2); border: 1px solid var(--dsc-border-color-subtle); font-size: 14px; }
+.pf-toast { position: fixed; left: 50%; bottom: calc(24px + var(--ap-safe-bottom) + var(--ap-bottom-nav, 0px)); transform: translateX(-50%); z-index: 120; padding: 10px 16px; border-radius: var(--dsc-radius-lg); background: var(--dsc-surface-2); border: 1px solid var(--dsc-border-color-subtle); font-size: 14px; }
 
 /* Tabs */
 .pf-tabbar { display: flex; align-items: center; justify-content: space-between; scroll-margin-top: calc(var(--ap-topbar-offset) + 8px); }
@@ -1713,7 +1717,7 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .wb-invite {
   position: fixed;
   left: 50%;
-  bottom: calc(16px + var(--ap-safe-bottom));
+  bottom: calc(16px + var(--ap-safe-bottom) + var(--ap-bottom-nav, 0px));
   transform: translateX(-50%);
   z-index: 60;
   display: flex;
@@ -1818,3 +1822,36 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .guild-opt-sub { font-size: 11px; color: rgba(232,234,238,.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .guild-new { display: grid; grid-template-columns: 96px 1fr auto; gap: 6px; align-items: start; }
 .guild-new .pf-input { min-width: 0; }
+
+/* Flight screen, desktop (approved mockup boards, maker Nov 12: "the sidebar shouldnt be there", "the signin at the top pill
+   shouldnt be there"): no sidebar rail and no wallet strip. The top bar (components/flight/HudModeToggle: PILOT/PRO, the
+   menu, leave) carries sign in / account; the wallet's own login popover still opens, parked under that bar. */
+@media (min-width: 761px) {
+  body.game #apSide, body.game #apReopen { display: none !important; }
+  body.game { --ap-rail-w: 0px; }
+  body.game .main-offset { padding-left: 0; }
+  body.game .wb-root { top: 72px; right: 20px; }
+  body.game .wb-root .wb-row { display: none !important; }
+  [data-desk-hide="1"] { display: none !important; }
+}
+
+/* ---------- Touch feel (mobile plan 2026-11-13, touch rules 1, 3 and 7) ----------
+   No grey tap flash, no double-tap zoom delay on controls, a press you can see the moment a finger lands,
+   and inputs that don't make iOS zoom in. Hover styles are moved behind @media (hover: hover) at build time
+   (lib/postcss/hover-media.cjs). `scale` is its own property, so it composes with any transform a control already has. */
+html { -webkit-tap-highlight-color: transparent; }
+button, [role="button"], [role="tab"], [role="switch"], a, summary, label, select, input[type="checkbox"], input[type="radio"], input[type="range"] { touch-action: manipulation; }
+@media (hover: none) {
+  button:not(:disabled):active, [role="button"]:not([aria-disabled="true"]):active, [role="tab"]:active, a.ds-btn:active, a[class*="btn"]:active, a[class*="Btn"]:active, a[class*="cta"]:active, a[class*="Cta"]:active {
+    scale: .97; filter: brightness(1.1); transition: scale .04s ease-out, filter .04s ease-out;
+  }
+}
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: max(16px, 1em); }
+}
+
+/* Flight routes are a game, not a page (mobile plan touch rule 4): no pull-to-refresh or rubber-band scroll, and no
+   long-press text menu / selection on the HUD. Chat and inputs keep normal selection. */
+html.ap-flight, html.ap-flight body { overscroll-behavior: none; }
+html.ap-flight body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+html.ap-flight input, html.ap-flight textarea, html.ap-flight [contenteditable="true"], html.ap-flight [data-selectable] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }

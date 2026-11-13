@@ -405,6 +405,8 @@ export interface LaunchedCoin {
   imageURI: string; mcapUsd: number; graduated: boolean;
   /** curve.progressBps() (0–10000, 10000 once graduated); null when the read failed */
   progressBps: number | null; block: bigint;
+  /** curve.mode(): 0 Trench (Expert), 1 Easy, 2 Hard; null when the read failed (immutable per coin) */
+  mode: number | null;
 }
 
 /** All launches since the deployment start block, newest first, with live mcap/progress (launchpad home list).
@@ -417,16 +419,18 @@ export async function listLaunches(pc: PublicClient = publicClient(), resolveIma
     const a = l.args as Record<string, string>;
     const curve = a.curve as Address;
     const c = { address: curve, abi: bondingCurveAbi } as const;
-    const [mcap, grad, prog, meta] = await Promise.all([
+    const [mcap, grad, prog, meta, mode] = await Promise.all([
       readMarket(pc, a.token as Address).then((m) => (m ? BigInt(Math.round(m.mcapUsd * 1e6)) * BigInt(1e12) : pc.readContract({ ...c, functionName: "mcapNow" }))).catch(() => BigInt(0)),
       pc.readContract({ ...c, functionName: "graduated" }).catch(() => false),
       pc.readContract({ ...c, functionName: "progressBps" }).catch(() => null),
       pc.readContract({ address: lp, abi: launchpadAbi, functionName: "metaOf", args: [a.token as Address] }).catch(() => null),
+      pc.readContract({ ...c, functionName: "mode" }).catch(() => null),
     ]);
     return {
       token: a.token as Address, curve, creator: a.creator as Address, quote: a.quote as Address, name: a.name, ticker: a.ticker,
       imageURI: meta ? String((meta as readonly unknown[])[2] ?? "") : "",
       mcapUsd: wad(mcap as bigint), graduated: grad as boolean, progressBps: prog == null ? null : Number(prog), block: l.blockNumber ?? BigInt(0),
+      mode: mode == null ? null : Number(mode),
     };
   }));
   // W-3e: render only moderated images. imageURI is replaced by its moderated-store URL (/api/image/<id>), or "" when

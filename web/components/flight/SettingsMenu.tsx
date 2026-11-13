@@ -97,7 +97,7 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
       }
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
       const blocked = () => document.documentElement.classList.contains("ap-grass")
-        || !!document.querySelector('[data-testid="swap-settings"], [role="dialog"][aria-modal="true"], [aria-label="wallet"] [role="menu"], [aria-label="Share card preview"], [data-testid="phone-drawer"]');   // phone drawer: its own Esc closes it
+        || !!document.querySelector('[data-testid="swap-settings"], [role="dialog"][aria-modal="true"], [aria-label="wallet"] [role="menu"], [aria-label="Share card preview"], [data-testid="phone-drawer"], [data-testid="flight-menu"]');   // phone drawer: its own Esc closes it
       if (e.code === "Escape") { if (blocked()) return; e.preventDefault(); e.stopImmediatePropagation(); openMenu(); return; }
       if (e.code === "F1" || (e.code === "Slash" && !e.shiftKey)) { if (blocked()) return; e.preventDefault(); e.stopImmediatePropagation(); openMenu("controls"); }
     };
@@ -204,6 +204,10 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
                     style={{ flex: 1, accentColor: GOLD, opacity: gs[ch].on ? 1 : 0.4 }} />
                   <span style={{ width: 36, textAlign: "right", opacity: 0.8 }}>{Math.round(gs[ch].vol * 100)}%</span>
                 </div>)}
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ width: 130 }}><div>{t("audio.vibe")}</div><div style={label}>{t("audio.vibeHint")}</div></div>
+                  {toggle(gs.haptics, (v) => { setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); }, "audio-haptics-toggle")}
+                </div>
                 <div style={{ ...label, letterSpacing: ".02em", fontSize: 11 }}>{t("audio.note")}</div>
               </div>}
 

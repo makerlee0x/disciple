@@ -5,7 +5,7 @@ section: Trading
 ---
 # Tramps and walls
 
-> **Only rockets that have reached orbit. Practice mode for now.** On testnet, the tramp/wall panel places practice orders in your browser, not on-chain. On-chain tramps and walls are coming. The rules below are how the contract works.
+> **Only rockets that have reached orbit. Practice mode for now.** The tramp/wall panel places practice orders in your browser, not on-chain. On-chain tramps and walls are coming. The rules below are how the contract works.
 
 Tramps and walls are orders on a rocket that has reached orbit, waiting on the open market on Uniswap. Reaching orbit means the starting price path is finished.
 
@@ -23,10 +23,6 @@ Tramps and walls are orders on a rocket that has reached orbit, waiting on the o
 - **Cancel anytime.** You get back what's left: unfilled funds plus anything already filled. No minimum hold.
 - **Auto-close.** Once fully crossed, anyone can close a filled order. You get the proceeds minus a keeper tip of 0.1% (the team can set it up to 1%), paid to whoever closes it. Close it yourself and the tip comes back to you.
 - **One-sided only.** An order that touches the current price reverts.
-
-## Points
-
-Filled tramps and walls earn rHALO points: 1 point per $1 of filled size. Points are off-chain. See [Achievements and points](/docs/game/achievements).
 
 ## Good to know
 

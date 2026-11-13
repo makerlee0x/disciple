@@ -14,7 +14,7 @@ The BOOST that crosses the line makes the rocket reach orbit in the same trade. 
 1. **A Uniswap v4 pool opens** for the rocket and its base, at the curve's last price. No jump.
 2. **Liquidity goes into the pool**: the remaining 15.76% of supply plus the base the curve raised, as one full-range position.
 3. **The position is locked forever** in the LockedLP contract. See [Locked liquidity](/docs/curve/locked-liquidity).
-4. **The DISCIPLE hook is attached** to the pool. It charges the same 1% fee, split the same way.
+4. **DISCIPLE's fee contract is attached** to the pool. It charges the same 1% fee, split the same way.
 
 ## Before orbit and after
 
@@ -35,4 +35,4 @@ The BOOST that crosses the line makes the rocket reach orbit in the same trade. 
 - The Uniswap pool charges no extra fee of its own. The 1% fee still applies. The total fee stays 1%.
 - 33% of every fee still goes to the locked liquidity, added to the position as it builds up.
 - The rocket keeps climbing through the named tiers. Altitude is how high its value has climbed. See [Altitude and tiers](/docs/game/tiers).
-- The pool is a normal Uniswap v4 pool, so other routers can trade it too. Those swaps still pay the hook's 1%.
+- The pool is a normal Uniswap v4 pool, so other apps can trade it too. Those trades still pay the 1% fee.

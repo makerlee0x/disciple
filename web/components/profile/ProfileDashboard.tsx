@@ -1,5 +1,6 @@
 "use client";
 
+import { useXp } from "@/lib/xpClient";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PROFILE_CHANGED_EVENT, localUsername } from "@/lib/profile";
@@ -11,62 +12,28 @@ import { NO_IDENTITY } from "@/lib/identity";
 import { withBase } from "@/lib/base-path";
 import { onWallet } from "@/lib/wallet";
 import { DEPOSIT_HREF, LEGACY_CASH_HASH, OPEN_SETTINGS_EVENT, SETTINGS_HASHES } from "@/lib/cashLink";
-import { tokenAmountLabel } from "@/lib/portfolioHistory";
-import { useCoinIcons } from "@/lib/useCoinIcons";
 import SettingsModal from "./SettingsModal";
 import EditProfileSheet from "./EditProfileSheet";
 import IdentitySigil from "./IdentitySigil";
 import BioText from "./BioText";
 import Pager, { pageCount, pageSlice } from "./Pager";
-import { useLivePortfolio, type LiveHolding } from "./LiveHoldings";
+import { useLivePortfolio } from "./LiveHoldings";
 import { useRealActivity } from "./RealActivity";
 import PortfolioBlock from "./PortfolioBlock";
 import { ChestGlyph } from "./Glyphs";
-import { agoLabel, signedUsd2, usd2 } from "./money";
+import { agoLabel, usd2 } from "./money";
 import RewardsPopup from "@/components/claims/RewardsPopup";
 import { useRewards } from "@/components/claims/useRewards";
 import InvitesCard from "@/components/invites/InvitesCard";
-import PairArt from "@/components/pairart/PairArt";
 import Icon from "@/components/icons/Icon";
 import type { ActivityItem } from "@/lib/stats";
+import HangarBay from "@/components/hangar/HangarBay";
+import RocketLooks from "@/components/hangar/RocketLooks";
+import type { Progress } from "@/lib/unlocks";
+import { Fleet, ServiceRecord, TrophyCase } from "@/components/hangar/HangarSections";
+import { useHomeCoins, useLoadout, useTrophies } from "@/components/hangar/hangarData";
 
-const PAGE = { rockets: 8, activity: 20 } as const;
-
-/** Rockets list (profile r5): art · name · `{count} $TICKER` on the left; value · today's change on the right. No tier. */
-function Holdings({ rows, icons, isPrivate, owner }: { rows: LiveHolding[] | null; icons: Record<string, string>; isPrivate: boolean; owner: string }) {
-  const [page, setPage] = useState(1);
-  if (rows == null) return <div className="p5-list" aria-busy="true" data-testid="tab-rockets" />;
-  if (!rows.length) {
-    return isPrivate ? (
-      <div className="p5-empty" data-testid="tab-rockets">
-        <strong>{C["rockets.empty.own.title"]}</strong>
-        <p>{C["rockets.empty.own.body"]}</p>
-        <Link href="/" className="p5-btn">{C["rockets.empty.own.cta"]}</Link>
-      </div>
-    ) : <div className="p5-empty" data-testid="tab-rockets"><p>{C["rockets.empty.other"](owner)}</p></div>;
-  }
-  const pages = pageCount(rows.length, PAGE.rockets), p = Math.min(page, pages);
-  return (
-    <div className="p5-list" data-testid="tab-rockets">
-      <ul>
-        {pageSlice(rows, p, PAGE.rockets).map((h) => {
-          const tk = h.symbol || h.coin.slice(2, 6).toUpperCase();
-          const ch = h.tokens * (h.priceNow - h.price24h);
-          return (
-            <li key={h.coin}>
-              <Link href={`/coin/${h.coin}`} className="p5-hold">
-                <PairArt src={icons[h.coin.toLowerCase()]} tk={tk} size="list" px={40} />
-                <span className="m"><span className="nm">{h.name || `$${tk}`}</span><span className="sub" data-testid="holding-amount">{tokenAmountLabel(h.tokens, tk)}</span></span>
-                <span className="vv"><span>{usd2(h.usd)}</span><span className={`ch ${Math.abs(ch) < 0.005 ? "muted" : ch > 0 ? "up" : "down"}`}>{signedUsd2(ch)} today</span></span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-      <Pager page={p} pages={pages} onPage={setPage} />
-    </div>
-  );
-}
+const PAGE = { activity: 12 } as const;
 
 /** Activity (real trades only): ↑ BOOST / ↓ DUMP · rocket · dollars · when. */
 function Activity({ rows, isPrivate, owner }: { rows: ActivityItem[] | null; isPrivate: boolean; owner: string }) {
@@ -102,14 +69,12 @@ function Activity({ rows, isPrivate, owner }: { rows: ActivityItem[] | null; isP
 }
 
 /**
- * /profile (own) and /u/[username] (public), profile r5 (body) + r3 (header, Edit profile, Rewards popup, Settings):
- *   banner (pilot-uploaded; plain dark panel when none) · picture · name (Instrument Serif) · bio
- *   own only: Edit profile + chest, or a gold "Claim now" in place of the chest when rewards are waiting (opens Rewards)
- *   portfolio block (total, change, 24H/7D/30D/ALL, chart, Cash, Rockets) — public profiles show the same block
- *   Activity + Rockets (desktop: two columns; phone: Rockets then Activity)
- * No cash pill, Share, Settings button, Log out, titles, Achievements card or Withdraw/Deposit on the page: Share lives in
- * the Rewards popup, Log out and the username in Settings (sidebar gear → /profile#settings), money moves on /wallet.
- * Everything shown is live (wallet reads + the trade index); nothing is sample data.
+ * /profile (own) and /u/[username] (public): the Hangar (canvas boards "Hangar (pilot profile)" and "The bay", take A).
+ *   bay: call sign as a title card, bio, level bar, Rewards / Edit profile (own), the pilot's rocket on its pad; under it, Your rocket (earned hulls and flares, own only)
+ *   service record: hangar value + today, cash (+ Add cash), flights aboard, rockets launched
+ *   Your fleet: rockets aboard (or launched) as the lobby's Live window cards, each with its seat's worth
+ *   Your altitude (the portfolio chart) + Flight log | Trophy case + invites (own)
+ * Settings opens from the pilot chip (/profile#settings). Everything shown is live; nothing is sample data.
  */
 export default function ProfileDashboard({ mode = "private", username }: { mode?: "private" | "public"; username?: string }) {
   const isPrivate = mode === "private";
@@ -197,7 +162,12 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const owner = (isPrivate ? me : publicUsername) || "";
   const ownerName = owner || defaultUsername(isPrivate ? wallet : slugAddr);
   const pf = useLivePortfolio(wallet);
-  const icons = useCoinIcons(useMemo(() => (pf?.rows ?? []).map((h) => h.coin), [pf]));
+  const { xp } = useXp(wallet);
+  const home = useHomeCoins();
+  const trophies = useTrophies(wallet);
+  const progress = useMemo<Progress | null>(() => (xp && trophies ? { level: xp.level.level, prestige: xp.level.prestige, trophies: new Set(trophies.keys()) } : null), [xp, trophies]);
+  const looks = useLoadout(isPrivate, progress, wallet || null);
+  const loadout = looks.loadout;
   const activity = useRealActivity(wallet);
   const rewards = useRewards(isPrivate && !!wallet);
 
@@ -218,63 +188,51 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   // No username: the wallet's space-themed default call sign (never with an "@"); public /u/<0x…> slugs likewise.
   const handle = isPrivate ? (me ? `@${me}` : defaultUsername(wallet)) : publicName;
   const img = pfpUrl(meta.pfp);
-  const banner = pfpUrl(meta.banner ?? "");
   const noWallet = !isPrivate && resolved && !wallet;
   const holdings = pf ? (pf.ok ? pf.rows : []) : noWallet ? [] : null;
 
-  const rocketsSection = (
-    <section className="p5-sec p5-rockets" aria-labelledby="p5-h-rockets">
-      <div className="p5-sech"><h2 id="p5-h-rockets">{C["profile.tab.rockets"]}</h2>{!!holdings?.length && <span className="a">{C["rockets.filter.holding"](holdings.length)}</span>}</div>
-      <Holdings rows={holdings} icons={icons} isPrivate={isPrivate} owner={ownerName} />
-    </section>
-  );
-  const activitySection = (
-    <section className="p5-sec p5-activity" aria-labelledby="p5-h-activity">
-      <div className="p5-sech"><h2 id="p5-h-activity">{C["profile.tab.activity"]}</h2></div>
-      <Activity rows={noWallet ? [] : activity} isPrivate={isPrivate} owner={ownerName} />
-    </section>
-  );
+  const launched = home && (wallet || slugAddr) ? [...home.values()].filter((c) => c.creatorAddr === (wallet || slugAddr)).sort((x, y) => y.block - x.block) : null;
+  const avatar = img
+    // eslint-disable-next-line @next/next/no-img-element
+    ? <img src={withBase(img)} alt="" width={36} height={36} fetchPriority="high" />
+    : <IdentitySigil id={NO_IDENTITY.primary.id} size={22} tip={false} />;
+  const bio = meta.bio ? <p className="hg-bio" data-testid="profile-bio"><BioText text={meta.bio} /></p>
+    : isPrivate ? <button type="button" className="hg-addbio" onClick={() => setEdit({ focus: "bio" })}><Icon name="plus" size={14} /> {C["profile.bio.empty.own"]}</button> : null;
+  const actions = isPrivate ? <>
+    {rewards.canClaim
+      ? <button type="button" className="dsc3-btn dsc3-btn-primary hg-claim" onClick={() => setRewardsOpen(true)} data-testid="claim-now"><ChestGlyph size={18} /> Claim rewards</button>
+      : <button type="button" className="hg-ghost" onClick={() => setRewardsOpen(true)} data-testid="rewards-chest"><ChestGlyph size={18} /> Rewards</button>}
+    <button type="button" className="hg-ghost" onClick={() => setEdit({ focus: null })} data-testid="edit-profile-btn">{C["profile.action.edit"]}</button>
+  </> : null;
 
   return (
-    <div className="profile-page p5">
+    <div className="profile-page hg">
       {isPrivate && <SettingsModal open={settingsOpen} onClose={closeSettings} />}
       {isPrivate && <EditProfileSheet open={!!edit} focus={edit?.focus} wallet={wallet} meta={meta}
         onClose={(saved) => { setEdit(null); if (saved) flash(C["edit.saved"]); }} />}
       {isPrivate && <RewardsPopup open={rewardsOpen} onClose={() => setRewardsOpen(false)} r={rewards} />}
       {toast && <div className="pf-toast" role="status">{toast}</div>}
 
-      <header className="p5-head" data-testid="profile-identity">
-        <div className={`p5-banner ${banner ? "" : "none"}`} style={banner ? { backgroundImage: `url(${withBase(banner)})` } : undefined} data-testid="profile-banner" />
-        <div className="p5-hrow">
-          <div className="p5-av" aria-hidden>
-            {img
-              // eslint-disable-next-line @next/next/no-img-element
-              ? <img src={withBase(img)} alt="" width={136} height={136} fetchPriority="high" />
-              : <IdentitySigil id={NO_IDENTITY.primary.id} size={72} tip={false} />}
-          </div>
-          <div className="p5-id">
-            <h1 className="p5-name"><span>{handle}</span></h1>
-            {meta.bio ? <p className="p5-bio" data-testid="profile-bio"><BioText text={meta.bio} /></p>
-              : isPrivate ? <button type="button" className="p5-addbio" onClick={() => setEdit({ focus: "bio" })}><Icon name="plus" size={14} /> {C["profile.bio.empty.own"]}</button> : null}
-          </div>
-          {isPrivate && (
-            <div className="p5-acts">
-              <button type="button" className="p5-btn" onClick={() => setEdit({ focus: null })} data-testid="edit-profile-btn">{C["profile.action.edit"]}</button>
-              {rewards.canClaim
-                ? <button type="button" className="p5-btn claim" onClick={() => setRewardsOpen(true)} data-testid="claim-now"><ChestGlyph size={18} /> Claim now</button>
-                : <button type="button" className="p5-icon chest" aria-label="Rewards" title="Rewards" onClick={() => setRewardsOpen(true)} data-testid="rewards-chest"><ChestGlyph size={20} /></button>}
-            </div>
-          )}
+      <HangarBay handle={handle} bio={bio} avatar={avatar} xp={xp} loadout={loadout} actions={actions} spend={false} />
+
+      <ServiceRecord pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} aboard={holdings ? holdings.length : null} launched={launched} isPrivate={isPrivate} />
+
+      {isPrivate && <RocketLooks progress={progress} hull={looks.hull} flare={looks.flare} coin={loadout.coin} setHull={looks.setHull} setFlare={looks.setFlare} note={looks.note} />}
+
+      <Fleet rows={holdings} home={home} launched={launched} isPrivate={isPrivate} owner={ownerName} />
+
+      <div className="hg-cols">
+        <div className="hg-colm">
+          <PortfolioBlock pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} isPrivate={isPrivate} title={isPrivate ? "Your altitude" : "Altitude"} />
+          <section className="dsc3-panel hg-panel" aria-labelledby="hg-log">
+            <header className="hg-panelh"><h2 id="hg-log">Flight log</h2><span>{isPrivate ? "Your boosts and dumps" : "Boosts and dumps"}</span></header>
+            <Activity rows={noWallet ? [] : activity} isPrivate={isPrivate} owner={ownerName} />
+          </section>
         </div>
-      </header>
-
-      {isPrivate && <InvitesCard />}
-
-      <PortfolioBlock pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} isPrivate={isPrivate} />
-
-      <div className="p5-cols">
-        <div className="p5-colm">{activitySection}</div>
-        <aside className="p5-cola">{rocketsSection}</aside>
+        <aside className="hg-cola">
+          <TrophyCase got={trophies} />
+          {isPrivate && <InvitesCard />}
+        </aside>
       </div>
     </div>
   );

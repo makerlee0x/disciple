@@ -27,16 +27,39 @@ import { serverPc } from "./chat/identity";
 import { kv, type Kv } from "./kv";
 import { ACH } from "./achKeys";
 import { coinsOf, tradesOf, TRADES_MAX_LIMIT } from "./trades";
+import { dueTimers, scoreXp, XPK, type TransferOut } from "./xp";
+import { capOuts, coinsToScan, nonTradeOuts } from "@/lib/xpTransfers";
 
 const LAUNCHED = getAbiItem({ abi: launchpadAbi, name: "Launched" });
 const GRADUATED = getAbiItem({ abi: bondingCurveAbi, name: "GraduatedToV4" });
+const TRANSFER = {
+  type: "event", name: "Transfer", anonymous: false,
+  inputs: [{ name: "from", type: "address", indexed: true }, { name: "to", type: "address", indexed: true }, { name: "value", type: "uint256", indexed: false }],
+} as const;
 const CHUNK = BigInt(Math.max(100, Number(process.env.ACH_CHUNK_BLOCKS) || 20_000));
 /** Unlocks whose event is older than this when first recorded (backfill) are stored but NOT put on the toast feed. */
 const FEED_FRESH_MS = 15 * 60_000;
 const FEED_MAX = 500;
 const TEN_YEARS = 10 * 365 * 86400;
 
-export interface CoinMeta { creator: string; anon: boolean; curve: string; launch: AchEventRef; grad?: AchEventRef }
+/** mode: the curve's on-chain launch mode (0 Trench, 1 Easy, 2 Hard), read once and cached here (missions). */
+export interface CoinMeta { creator: string; anon: boolean; curve: string; mode?: number; launch: AchEventRef; grad?: AchEventRef }
+
+const MODE_ABI = [{ type: "function", name: "mode", inputs: [], outputs: [{ name: "", type: "uint8" }], stateMutability: "view" }] as const;
+async function readMode(curve: string): Promise<number | undefined> {
+  try { return Number(await serverPc().readContract({ address: curve as `0x${string}`, abi: MODE_ABI, functionName: "mode" })); } catch { return undefined; }
+}
+/** Fill in (and persist) the launch mode of metas that don't have it yet. */
+async function ensureModes(metas: Map<string, CoinMeta>, coins: string[], s: Kv): Promise<void> {
+  for (const c of coins) {
+    const m = metas.get(c);
+    if (!m || m.mode !== undefined || !m.curve) continue;
+    const mode = await readMode(m.curve);
+    if (mode === undefined) continue;
+    m.mode = mode;
+    await s.set(ACH.coin(c), JSON.stringify(m));
+  }
+}
 
 /* ------------------------------------------------ pure helpers (tests) ------------------------------------------------ */
 
@@ -141,7 +164,7 @@ export async function scanCoinEvents(budgetMs = 15_000, s: Kv = kv()): Promise<{
       const a = (decodeEventLog({ abi: [LAUNCHED], data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as unknown as { args: { token: string; curve: string; creator: string } }).args;
       const coin = a.token.toLowerCase(), creator = a.creator.toLowerCase();
       if (await s.get(ACH.coin(coin))) continue;
-      const meta: CoinMeta = { creator, anon: anon.has(creator), curve: a.curve.toLowerCase(), launch: await refOf(l) };
+      const meta: CoinMeta = { creator, anon: anon.has(creator), curve: a.curve.toLowerCase(), mode: await readMode(a.curve), launch: await refOf(l) };
       await s.set(ACH.coin(coin), JSON.stringify(meta));
       await s.sadd(ACH.coins(), coin);
       // creator (launch rules) + anyone whose fills were indexed before this meta existed (fills only count on coins
@@ -180,7 +203,7 @@ async function tradersOf(coin: string, s: Kv): Promise<Set<string>> {
 /* ------------------------------------------------------- scoring ------------------------------------------------------ */
 
 /** Re-score one wallet from scratch and persist new unlocks (SET NX guarded). dryRun ⇒ compute only. */
-export async function scoreWallet(walletIn: string, o: { dryRun?: boolean; s?: Kv; now?: number } = {}): Promise<{ wallet: string; unlocks: AchievementUnlockRecord[]; fresh: string[]; fills: number }> {
+export async function scoreWallet(walletIn: string, o: { dryRun?: boolean; s?: Kv; now?: number } = {}): Promise<{ wallet: string; unlocks: AchievementUnlockRecord[]; fresh: string[]; fills: number; xp: { src: string; xp: number }[] }> {
   const s = o.s ?? kv(), w = walletIn.toLowerCase(), now = o.now ?? Date.now();
   const coins = await coinsOf(w);
   const fills: Fill[] = [];
@@ -207,7 +230,80 @@ export async function scoreWallet(walletIn: string, o: { dryRun?: boolean; s?: K
     }
     await s.set(ACH.progress(w), JSON.stringify({ v: V1_RULES_VERSION, at: now, progress: r.progress }));
   }
-  return { wallet: w, unlocks: r.unlocks, fresh, fills: fills.length };
+  // XP: milestones for every unlock + this and last period's missions. Mode reads and the full-rocket fill path
+  // (ride_tier) cover coins touched in the last 8 days; the transfer scan covers more (coinsToScan, below).
+  const recent = Array.from(new Set(onChain.filter((f) => now - f.ts <= 8 * 86_400_000).map((f) => f.coin.toLowerCase())));
+  if (!o.dryRun) await ensureModes(metas, recent, s);
+  // Transfers away are scanned for every coin traded in the last 15 days (both settled weeks) and every coin the fills
+  // still show held: an old position that was sent away must not count as aboard when that rocket later reaches orbit.
+  // If the transfer scan fails, holding missions wait for the next pass instead of paying on an unverified position.
+  const scan = await transfersOut(w, coinsToScan(onChain, now), onChain, s, o.dryRun).catch(() => null);
+  const outs = scan?.complete ? scan.outs : null;
+  // unfinished (budget) or failed scan: re-score this wallet in a minute, the cursor picks up where it stopped
+  if (!outs && !o.dryRun) await s.zadd(XPK.timers(), [{ score: now + 60_000, member: `${w}|${now + 60_000}` }]);
+  const coinFills = new Map<string, Fill[]>();
+  for (const c of recent) coinFills.set(c, await tradesOf(c, null, 1000, "desc"));
+  const xp = await scoreXp(w, { fills: onChain, outs: outs ?? undefined, holdsUnverified: outs === null, metas, unlocks: r.unlocks, coinFills }, { now, s, dryRun: o.dryRun });
+  return { wallet: w, unlocks: r.unlocks, fresh, fills: fills.length, xp: xp.awarded };
+}
+
+/** Per-wallet time budget for the transfer scan; the rest continues on a later pass (cursor saved per chunk). */
+const TRANSFER_BUDGET_MS = 4_000;
+/** Outs kept per (wallet, coin); older checked ones fold into one (capOuts), so a sent-away bag is never forgotten. */
+const TRANSFER_KEEP = 500;
+
+/**
+ * Tokens this wallet sent away by plain transfer (not a sell's own token leg), per coin, from the coin's first fill.
+ * A tx that holds a trade is NOT skipped whole: a smart account can batch a buy and a transfer away in one tx, so only the
+ * wallet's sell legs in that tx are ignored (lib/xpTransfers nonTradeOuts). An out scanned before its tx's fill was
+ * indexed (`checked` unset) is re-matched against the fills on every pass.
+ * Holding missions treat them as leaving the position, so moving tokens to another wallet can't keep a 24h hold, a tier
+ * ride or an orbit seat alive. Zero-value transfers are ignored: anyone can emit one "from" any address without an
+ * approval, so they must never reset someone's progress.
+ * Bounded: the cursor is saved after every chunk and the scan stops at TRANSFER_BUDGET_MS; `complete: false` means
+ * holding missions wait (the caller re-queues the wallet) and the next pass resumes where this one stopped.
+ */
+async function transfersOut(w: string, coins: string[], fills: readonly Fill[], s: Kv, dryRun?: boolean): Promise<{ outs: TransferOut[]; complete: boolean }> {
+  const pc = serverPc(), out: TransferOut[] = [], t0 = Date.now();
+  if (!coins.length) return { outs: out, complete: true };
+  const latest = await pc.getBlockNumber();
+  let complete = true;
+  for (const coin of coins) {
+    const mine = fills.filter((f) => f.coin.toLowerCase() === coin);
+    if (!mine.length) continue;
+    const sells = new Map<string, number[]>(), trades = new Set<string>();
+    for (const f of mine) { const k = f.tx.toLowerCase(); trades.add(k); if (f.side === "sell") (sells.get(k) ?? sells.set(k, []).get(k)!).push(f.tokens); }
+    const key = XPK.transfers(w, coin);
+    const cached = parse<{ cursor: string; outs: TransferOut[] }>(await s.get(key));
+    const kept = (cached?.outs ?? []).filter((x) => x.tokens > 0);
+    // outs scanned before their tx's fill was indexed: match them against the fills known now
+    let outs = [...kept.filter((x) => x.checked), ...nonTradeOuts(kept.filter((x) => !x.checked), sells).map((x) => ({ ...x, checked: trades.has(x.tx.toLowerCase()) || undefined }))]
+      .sort((a, b) => a.block - b.block || a.logIndex - b.logIndex);
+    let cur = cached ? BigInt(cached.cursor) : BigInt(Math.min(...mine.map((f) => f.block))) - BigInt(1);
+    const save = async () => { if (!dryRun) await s.set(key, JSON.stringify({ cursor: cur.toString(), outs: capOuts(outs, TRANSFER_KEEP) })); };
+    let chunk = CHUNK;
+    while (cur < latest) {
+      if (Date.now() - t0 > TRANSFER_BUDGET_MS) { complete = false; break; }
+      const from = cur + BigInt(1), to = from + chunk - BigInt(1) > latest ? latest : from + chunk - BigInt(1);
+      let logs: Log[];
+      try { logs = await (pc.getLogs as unknown as (a: unknown) => Promise<Log[]>)({ address: coin, event: TRANSFER, args: { from: w }, fromBlock: from, toBlock: to }); }
+      catch (e) { if (chunk > BigInt(200)) { chunk = chunk / BigInt(4); continue; } throw e; }
+      const found: TransferOut[] = [];
+      for (const l of logs) {
+        const a = (decodeEventLog({ abi: [TRANSFER], data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as unknown as { args: { value: bigint } }).args;
+        if (a.value === BigInt(0)) continue;
+        const tx = String(l.transactionHash);
+        found.push({ coin, tx, block: Number(l.blockNumber), logIndex: Number(l.logIndex), ts: await tsOf(l.blockNumber ?? BigInt(0)), tokens: Number(a.value) / 1e18, checked: trades.has(tx.toLowerCase()) || undefined });
+      }
+      outs.push(...nonTradeOuts(found, sells));   // a sell's own token leg is not a transfer away; anything else in that tx is
+      cur = to;
+      outs = capOuts(outs, TRANSFER_KEEP);
+      await save();
+    }
+    out.push(...outs);
+    if (!complete) break;
+  }
+  return { outs: out, complete };
 }
 
 /** Coins this wallet launched (public), from the coin metas. Small set on testnet; index by creator if it grows. */
@@ -265,6 +361,8 @@ export async function runAchievements(o: { budgetMs?: number; dryRun?: boolean }
     // dry run: no writes at all (coin events are not scanned; scoring uses what is stored)
     const events = o.dryRun ? { launches: 0, graduations: 0, cursor: "", latest: "", done: true } : await scanCoinEvents(Math.min(15_000, budget / 3), s);
     const seed = o.dryRun ? { seeded: 0, done: true, skipped: true } : await seedIfNeeded(Math.min(10_000, budget / 4), s);
+    // XP timers: a 24h stay-aboard that finished with no new trade re-scores its wallet now
+    if (!o.dryRun) { const due = await dueTimers(Date.now(), s); if (due.length) await s.zadd(ACH.dirty(), due.map((w) => ({ score: Date.now(), member: `${w}|xp-timer:${Date.now()}` }))); }
     const dirty = await processDirty(Math.max(5_000, budget - (Date.now() - t0)), { dryRun: o.dryRun, s });
     return { ok: true, events, seed, dirty, done: events.done && seed.done && !dirty.remaining };
   } finally {

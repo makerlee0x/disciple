@@ -21,4 +21,4 @@ In flight, the crew panel shows:
 
 ## Pilots
 
-Every trader is a **pilot**. Your profile shows your pilot stats, achievements, identity and season rank.
+Every trader is a **pilot**. Your profile shows your pilot stats, level, identity and milestones.

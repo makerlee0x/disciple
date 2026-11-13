@@ -1,10 +1,14 @@
 import type { Metadata, Viewport } from "next";
 import "./brand-tokens.css";
 import "./brand-tokens-v2.css";
+import "./brand-tokens-v3.css";
+import "./xp-v3.css";
 import "./globals.css";
+import "./menu-v3.css";
 import "./claims.css";
 import "./profile-r5.css";
-import { geist, instrumentSerif } from "./fonts";
+import "./hangar-v3.css";
+import { barlowCondensed, geist, instrumentSerif } from "./fonts";
 import AppShell from "@/components/AppShell";
 import ChatBridge from "@/components/chat/ChatBridge";
 import PrivyProviders from "@/components/PrivyProviders";
@@ -57,7 +61,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geist.variable} ${instrumentSerif.variable}`}>
+    <html lang="en" className={`${geist.variable} ${instrumentSerif.variable} ${barlowCondensed.variable}`}>
       <body className="antialiased">
         <script id={SPONSORSHIP_CONFIG_ID} type="application/json" dangerouslySetInnerHTML={{ __html: JSON.stringify(sponsorshipConfig()) }} />
         <IconSprite />

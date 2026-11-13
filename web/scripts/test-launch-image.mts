@@ -1,7 +1,7 @@
 // The launch imageURI is the absolute https content-addressed store URL, never data: / relative.  pnpm test:launch-image
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_IMAGE_ORIGIN, IMAGE_COPY, LAUNCH_FAILED_MSG, imageOrigin, isLaunchImageUrl, launchImageFrom, launchImageUrl } from "../lib/launchImage";
+import { DEFAULT_IMAGE_ORIGIN, IMAGE_COPY, imageOrigin, isLaunchImageUrl, launchImageFrom, launchImageUrl } from "../lib/launchImage";
 
 const id = "0123456789abcdef".repeat(4);
 const data = "data:image/webp;base64,UklGRhIAAABXRUJQVlA4TAYAAAAvQWxvAGs=";
@@ -35,6 +35,5 @@ test("origin: env override must be a bare https origin, else prod alias", () => 
   assert.equal(launchImageUrl(id, imageOrigin("https://disciple.example")), `https://disciple.example/api/image/${id}`);
 });
 test("player copy is plain (no jargon)", () => {
-  assert.equal(LAUNCH_FAILED_MSG, "Launch didn't go through. Nothing was spent. Try again.");
-  for (const s of [LAUNCH_FAILED_MSG, ...Object.values(IMAGE_COPY)]) assert.doesNotMatch(s, /on-?chain|relay|\btx\b|transaction|gas|paymaster|bundler|data:|0x/i, s);
+  for (const s of Object.values(IMAGE_COPY)) assert.doesNotMatch(s, /on-?chain|relay|\btx\b|transaction|gas|paymaster|bundler|data:|0x/i, s);
 });

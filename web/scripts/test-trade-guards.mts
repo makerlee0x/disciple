@@ -1,7 +1,7 @@
 // SITE pre-send alerts + no-refuse pricing (lee, Oct 26 10:50–10:52 CDT). npm run test:trade-guards
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { nextAlert, walletCapAlert, impactAlert, COPY_PENDING_LEE } from "../lib/trade/tradeGuards";
+import { nextAlert, walletCapAlert, impactAlert, capRoomUsd, COPY_PENDING_LEE } from "../lib/trade/tradeGuards";
 import { noRefuseMinOut, holdInflightUntilSeen, sendWithRequote } from "../lib/trade/queuePricing";
 
 // EASY coin: 1 B supply, mcap $5,000 ⇒ $0.000005 / coin; cap 1 % (100 bps) = 10 M coins ≈ $50
@@ -12,8 +12,11 @@ test("Easy over-cap buy ⇒ wallet-limit alert with a buy-max amount; the max-al
   assert.equal(a.capPct, "1%");
   assert.ok(a.maxUsd > 45 && a.maxUsd < 50, String(a.maxUsd));
   assert.equal(a.text, COPY_PENDING_LEE.walletCap("1%", a.maxUsd));
-  assert.match(a.text, /^Wallet limit: this coin's mode caps each wallet at 1%\. You can buy up to about \$4\d\.\d\d more\.$/);
+  assert.match(a.text, /^This rocket's mode caps each wallet at 1%\. You can boost about \$4\d\.\d\d more\.$/);
   assert.equal(walletCapAlert(a.maxUsd, easy), null, "buy max fits");
+  assert.equal(capRoomUsd(easy), a.maxUsd, "header Room = the Boost max amount");
+  assert.equal(a.actionLabel, `Boost max $${a.maxUsd.toFixed(2)}`);
+  assert.equal(capRoomUsd({ ...easy, capBps: null }), null, "no cap means no Room");
   assert.doesNotMatch(a.text, /revert|tx|0x|HTTP|relay/i);
 });
 test("holdings + pending buys count against the cap; full wallet ⇒ no buy-max", () => {

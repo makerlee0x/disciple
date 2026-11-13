@@ -24,7 +24,7 @@ Price impact is measured on-chain, at full precision, for every trade. Every BOO
 
 - **For you:** a big bomb means you're moving the price a lot. You'll get a worse average price than the one on screen.
 - **For the crew:** bombs land on everyone aboard. They're visible, live, in the flight view.
-- **For your profile:** bombs count toward achievements and identities such as Bomber and Nuker.
+- **For your profile:** bombs count toward missions, milestones and identities such as Bomber and Nuker.
 
 ## Bombs are display only
 
