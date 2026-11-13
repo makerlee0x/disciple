@@ -79,7 +79,7 @@ export const isBigWin = (profitUsd: number) => profitUsd > 0;
 /** Mid-sky altitude the run is anchored at (engine alt units). */
 export const SKY_BASE_ALT = 4.5;
 /** Share of the screen height between the boarding line and the H-BOMB line. */
-export const SKY_LIQ_FRAC = 0.16;
+export const SKY_LIQ_FRAC = 0.22;   // v2.1: was 0.16; with the camera held during a run the rocket now travels this band itself
 
 /** Pixel offset of a price from the anchor on the zoomed sky (+ = up). `liqDist` = |liq/entry − 1| (fraction). */
 export function skyOffsetPx(price: number, anchor: number, liqDist: number, screenH: number): number {

@@ -283,7 +283,8 @@ test("Hyperliquid stream subscribes to allMids + trades, never l2Book, and dispa
   assert.ok(opened);
   opened!.onmessage?.({ data: JSON.stringify({ channel: "allMids", data: { mids: { BTC: "101000.5", ETH: "3500" } } }) });
   opened!.onmessage?.({ data: JSON.stringify({ channel: "trades", data: [{ coin: "BTC", side: "B", px: "101000.5", sz: "0.01", time: 9, tid: 1 }] }) });
-  assert.deepEqual(prices, [["BTC", 101000.5], ["ETH", 3500]]);
+  // v2.1: a print ticks the price too (last traded price), not only allMids
+  assert.deepEqual(prices, [["BTC", 101000.5], ["ETH", 3500], ["BTC", 101000.5]]);
   assert.deepEqual(sides, ["BTC:buy"]);
   off();
 });
@@ -383,4 +384,20 @@ test("v2.1 routes: BTC and ETH each have their own pad, sky key and accent", () 
   assert.notEqual(ROUTES.BTC.vars["--r-acc"], ROUTES.ETH.vars["--r-acc"]);
   const copy = JSON.stringify(ROUTES).toLowerCase();
   for (const bad of ["practice", "testnet", "coming soon", "stop-loss", "take profit"]) assert.ok(!copy.includes(bad), bad);
+});
+
+// ---- v2.1: pre-launch tape + tick on prints ----
+import { parseCandles, statsFrom, pctChange } from "../lib/turbo/marketStats";
+
+test("v2.1 market stats: 1h open, 24h range, typical minute", () => {
+  const m1 = parseCandles(Array.from({ length: 61 }, (_, i) => ({ t: i * 60_000, o: String(100 + i), h: String(101 + i), l: String(99 + i), c: String(100.5 + i) })));
+  const h1 = parseCandles([{ t: 0, o: "90", h: "170", l: "80", c: "150" }]);
+  const st = statsFrom(m1, h1)!;
+  assert.equal(st.spark.length, 60);
+  assert.equal(st.open1h, 101);
+  assert.equal(st.high24h, 170); assert.equal(st.low24h, 80);
+  assert.ok(st.typMin > 0.01 && st.typMin < 0.03);
+  assert.equal(statsFrom([], h1), null);
+  assert.equal(pctChange(100, 100.42), "+0.42%");
+  assert.equal(pctChange(100, 98.7), "−1.3%");
 });

@@ -33,6 +33,8 @@ export interface TurboFx {
   lines?: { mcap: number; kind: "hbomb" | "even" | "boarded" | "two"; label: string }[];
   /** v2.1 route sky: "btc" = Sun route plate, "eth" = Moon route plate (public/turbo/sky-*.webp). */
   route?: "btc" | "eth";
+  /** @turbo-hold: during a run the camera holds at this altitude (the boarding line), so the rocket moves between fixed lines. */
+  holdAlt?: number;
 }
 
 export interface TurboSwap {

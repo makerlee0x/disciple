@@ -20,8 +20,9 @@ import type { ClosePct, Market, MarketInfo, MarketTrade, Position, Side, TurboEv
 import { RUN_COPY as R, TURBO_COPY as C } from "@/lib/turbo/copy";
 import { lev as fmtLev, price as fmtPrice, signedUsd, usd } from "@/lib/turbo/format";
 import { DEFAULT_PREFS, FUEL_PRESETS, LEVERAGE_PRESETS, fuelOf, leverageOf, loadPrefs, savePrefs, type TurboPrefs } from "@/lib/turbo/prefs";
-import { breakEvenPrice, cashOutNowUsd, dangerLevel, dangerOf, liqDistance, marketCapUsd, multiplePrice, paceLabel, typicalRunSeconds } from "@/lib/turbo/flight";
+import { breakEvenPrice, cashOutNowUsd, dangerLevel, dangerOf, liqDistance, marketCapUsd, multiplePrice, paceLabel, SKY_BASE_ALT, typicalRunSeconds } from "@/lib/turbo/flight";
 import { ROUTES } from "@/lib/turbo/routes";
+import { fetchMarketStats, pctChange, type MarketStats } from "@/lib/turbo/marketStats";
 import { withBase } from "@/lib/base-path";
 import { bestToday, clock, createRunStore, longestAt, multipleLabel, streak, type TurboRun } from "@/lib/turbo/runs";
 import { SETTINGS_OPEN_EVENT } from "@/lib/walletCta";
@@ -40,7 +41,6 @@ const sideWord = (side: Side) => (side === "long" ? "BOOST" : "DUMP");
 const px0 = (v: number) => (!(v > 0) ? "—" : usd(v, v >= 10_000 ? 0 : 2));
 /** Market tabs: whole dollars from $1,000 ($3,420). */
 const pxTab = (v: number) => (!(v > 0) ? "—" : usd(v, v >= 1000 ? 0 : 2));
-const capLabel = (v: number) => (!(v > 0) ? "" : v >= 1e12 ? `$${(v / 1e12).toFixed(2)}T cap` : `$${(v / 1e9).toFixed(0)}B cap`);
 const bigUsd = (v: number) => (v >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : `$${Math.round(v / 1e3)}K`);
 const pctMove = (f: number) => `${(f * 100).toFixed(f < 0.001 ? 3 : 2).replace(/0$/, "")}%`;
 /** Smallest print that shows as Big buy / Big sell in the market-flow pills. */
@@ -60,6 +60,25 @@ type Result = { run: TurboRun; entry: number; exit: number; liqMove?: number };
 /** v2.1 liftoff: the pad stays up for the 3-2-1 while the order fills; it never delays the order itself. */
 type Launch = { t0: number; side: Side; market: Market; leverage: number; fuelUsd: number; entry: number; liq: number; leaving?: boolean };
 const COUNT_MS = 1800;
+
+/** Pre-launch tape: 1h change, last-hour sparkline (live end) and where the price sits in its 24h range. */
+function Tape({ st, px }: { st: MarketStats | null; px: number }) {
+  if (!st || !(px > 0)) return null;
+  const pts = [...st.spark, px], lo = Math.min(...pts), hi = Math.max(...pts), W = 300, H = 48;
+  const d = pts.map((v, i) => `${i ? "L" : "M"}${((i / (pts.length - 1)) * W).toFixed(1)} ${(H - 3 - ((v - lo) / (hi - lo || 1)) * (H - 6)).toFixed(1)}`).join(" ");
+  const up = px >= st.open1h, pos = Math.max(0, Math.min(1, (px - st.low24h) / (st.high24h - st.low24h || 1)));
+  return (
+    <div className={s.tape} data-testid="turbo-tape">
+      <div className={s.tapeRow}><span className={s.tapeK}>{R.last1h}</span><b className={up ? s.up : s.pinkTxt}>{pctChange(st.open1h, px)}</b></div>
+      <svg className={s.spark} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden><path d={d} fill="none" stroke={up ? "#5FF0A0" : "#FF7FB2"} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" /></svg>
+      <div className={s.range} aria-label={R.range24(pxTab(st.low24h), pxTab(st.high24h))}>
+        <span className={s.tapeK}>{R.range24k}</span>
+        <span className={s.rangeBar}><i style={{ left: `${pos * 100}%` }} /></span>
+        <span className={s.rangeLo}>{pxTab(st.low24h)}</span><span className={s.rangeHi}>{pxTab(st.high24h)}</span>
+      </div>
+    </div>
+  );
+}
 
 function RunChart({ path }: { path: number[] }) {
   const pts = path.length >= 2 ? path : [1, ...(path.length ? path : [1])];
@@ -133,6 +152,13 @@ export default function TurboScreen() {
   const [nova, setNova] = useState<null | { short: boolean; label: string; result: Result }>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [launch, setLaunch] = useState<Launch | null>(null);
+  const [stats, setStats] = useState<Partial<Record<Market, MarketStats>>>({});
+  useEffect(() => {
+    let dead = false;
+    const load = () => MARKETS.forEach((m) => { fetchMarketStats(m).then((st) => { if (!dead && st) setStats((o) => ({ ...o, [m]: st })); }); });
+    load(); const id = setInterval(load, 60_000);
+    return () => { dead = true; clearInterval(id); };
+  }, []);
   const [tick, setTick] = useState(0);
   const [flow, setFlow] = useState<{ id: number; side: "buy" | "sell"; usd: number }[]>([]);
   const flight = useRef<TurboFlightHandle>(null);
@@ -258,7 +284,7 @@ export default function TurboScreen() {
       const two = twoPx > 0 ? sky(twoPx) : null; if (two) lines.push({ mcap: two, kind: "two", label: R.line2x(px0(twoPx)) });
     }
     (window as unknown as { __entryMcap?: number }).__entryMcap = 0;
-    f.setFx({ open: open_, pending: active?.status === "pending", side: active?.side ?? null, lev: active?.leverage ?? leverage, danger, dive: false, lines, route: ROUTES[market].key });
+    f.setFx({ open: open_, pending: active?.status === "pending", side: active?.side ?? null, lev: active?.leverage ?? leverage, danger, dive: false, lines, route: ROUTES[market].key, holdAlt: live ? SKY_BASE_ALT : undefined });
   }, [active, open_, danger, red, evenPx, leverage, px, hasPx, market, selLiqDist, engineReady, fuelIn, realized]);
 
   /* ---- liftoff: 3-2-1 on the pad while the fill lands, then the pad fades into the flight ---- */
@@ -374,7 +400,8 @@ export default function TurboScreen() {
             <span className={s.no}>{R.routeNo(route.no, market)}</span>
             <span className={s.nm}>{route.name.split(" ").map((w) => <span key={w} style={{ display: "block" }}>{w}</span>)}</span>
             <span className={s.tg}>{route.tagline}</span>
-            <span className={s.px}><b>{pxTab(px ?? NaN)}</b><small>{capLabel(marketCapUsd(market, px ?? NaN))}</small></span>
+            <span className={s.px}><b>{pxTab(px ?? NaN)}</b></span>
+            <Tape st={stats[market] ?? null} px={px ?? 0} />
           </div>
           <div className={s.padStats}>
             <div className={s.pstat}><span>{R.streak}</span><b>{R.streakV(streak(all))}</b></div>
@@ -409,7 +436,8 @@ export default function TurboScreen() {
         </div>
         <div className={s.bombNote} data-testid="turbo-bomb-note">
           <svg viewBox="0 0 24 24" fill="none" stroke="#FF7FB2" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="12" cy="13" r="7" /><path d="M12 6V3M15 4l-1.5 2" /></svg>
-          <span>{selLiqDist > 0 ? <>H-BOMB if {market} moves <b>{pctMove(selLiqDist)}</b> against you</> : C.waitingPrice}</span>
+          <span>{selLiqDist > 0 ? <>H-BOMB if {market} moves <b>{pctMove(selLiqDist)}</b> against you</> : C.waitingPrice}
+            {selLiqDist > 0 && (stats[market]?.typMin ?? 0) > 0 && <small className={s.typMin}>{R.typMin(pctMove(stats[market]!.typMin))}</small>}</span>
         </div>
         {standIn && <p className={`${s.planNotice} ${s.phoneOnly}`} data-testid="turbo-standin-notice">{sample ? C.sampleNotice : C.notConnected}</p>}
         {noFuel

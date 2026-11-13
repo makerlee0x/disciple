@@ -2,7 +2,7 @@
  * Live ETH / BTC prices and prints for the stand-in adapter.
  *
  * Primary path: Hyperliquid's public WebSocket (wss://api.hyperliquid.xyz/ws), read-only, no key, no wallet.
- *   - `allMids`        → tick-by-tick mid prices (the rocket follows the resulting market cap)
+ *   - `allMids`        → mid prices every block, plus the last traded price on every print (tick by tick)
  *   - `trades` BTC/ETH → completed buys and sells (existing engine boosts / bombs). Never `l2Book`.
  * If the socket drops, mid prices may fall back to the public info HTTP poll until the socket is back.
  * Nothing is invented: no mid and no trade is emitted until the venue has sent one.
@@ -65,7 +65,7 @@ export interface HyperliquidStreamOptions {
   infoUrl?: string;
   WebSocketImpl?: typeof WebSocket;
   fetchImpl?: typeof fetch;
-  /** HTTP mid poll, used only while the WebSocket is down. Default 5000 ms. */
+  /** HTTP mid poll, used only while the WebSocket is down. Default 1000 ms (allMids weighs 2 of the 1200 per minute limit). */
   pollIntervalMs?: number;
   /** WebSocket ping interval. Default 30000 ms. */
   pingIntervalMs?: number;
@@ -81,7 +81,7 @@ type TradeCb = (t: MarketTrade) => void;
 export function createHyperliquidStream(opts: HyperliquidStreamOptions = {}) {
   const wsUrl = opts.wsUrl ?? HYPERLIQUID_WS_URL;
   const infoUrl = opts.infoUrl ?? HYPERLIQUID_INFO_URL;
-  const pollIntervalMs = opts.pollIntervalMs ?? 5000;
+  const pollIntervalMs = opts.pollIntervalMs ?? 1000;
   const pingIntervalMs = opts.pingIntervalMs ?? 30_000;
   const priceSubs = new Set<PriceCb>();
   const tradeSubs = new Set<TradeCb>();
@@ -168,7 +168,14 @@ export function createHyperliquidStream(opts: HyperliquidStreamOptions = {}) {
       const ch = String((json as Record<string, unknown>).channel ?? "");
       if (ch === "trades" || (Array.isArray((json as Record<string, unknown>).data) && (json as Record<string, unknown>).data)) {
         const trades = parseTradesMessage(json);
-        if (trades.length) emitTrades(trades);
+        if (trades.length) {
+          emitTrades(trades);
+          // tick on every print too (maker, Nov 13 2026: "it should be tick based"): the last traded price moves the
+          // rocket between allMids pushes. Liquidation on Nova uses its oracle mark; for the stand-in this is close enough.
+          const last: Partial<Record<Market, number>> = {};
+          for (const t of trades) if (t.price > 0) last[t.market] = t.price;
+          emitPrices(last);
+        }
       }
       if (ch === "allMids" || ch === "subscriptionResponse") {
         const mids = parseAllMidsMessage(json);

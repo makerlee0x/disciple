@@ -1720,7 +1720,7 @@ const TURBO_LINE_STYLE={
 /* lines are placed relative to the rocket as drawn (its screen y is soft-limited to a band), so the rocket body sits
    exactly on the line of the price it is at: at the boarding line on fill, on the H-BOMB line when it fires. */
 function turboYOff(){ return (S.ry!=null&&S.displayAlt!=null)?S.ry-altToScreenY(S.displayAlt):0; }
-function turboLine(m,col,label,dash,w,st,alpha){ if(!(m>0)) return; const y0=altToScreenY(mcapToAlt(m))+turboYOff(), y=clamp(y0,22,H-14), pinned=y!==y0;
+function turboLine(m,col,label,dash,w,st,alpha){ if(!(m>0)) return; const y0=altToScreenY(mcapToAlt(m))+turboYOff(), y=clamp(y0,W<=760?150:22,H-14), pinned=y!==y0;   // phone: below the run HUD
   ctx.save(); if(alpha!=null) ctx.globalAlpha=alpha; ctx.strokeStyle=col; ctx.lineWidth=w||2; if(st&&st.glow){ ctx.shadowColor=st.glow; ctx.shadowBlur=14; }
   if(dash||pinned) ctx.setLineDash(dash||[14,10]); ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]); ctx.shadowBlur=0;
   if(label){ const t=(pinned?(y0>y?'↓ ':'↑ '):'')+label, ly=y0>y||!pinned?y-14:y+14;
@@ -2659,12 +2659,18 @@ function simStep(stepDt){
      rocket) and a slow sub-pixel drift so the frame breathes. Off ⇒ the exact normal camera. */
   if (S.cine){ if(S.cinePx==null){ S.cinePx=S.camPx; S.cineV=0; } const w=2.4, e=S.camPx-S.cinePx; S.cineV+=(w*w*e-2*w*S.cineV)*dt; S.cinePx+=S.cineV*dt;
     S.camAlt=(S.cinePx+Math.sin(S.t*0.21)*10+Math.sin(S.t*0.083)*16)/PX_PER_ALT; } else S.cinePx=null;
+  /* @turbo-hold (maker, Nov 13 2026: "the price is barely moving"): during a run the camera holds at the boarding
+     altitude (f.holdAlt) instead of locking to the price, so the H-BOMB / break-even / 2× lines stay put on screen and
+     the ROCKET moves between them on every tick. Eases back to the normal locked camera when the run ends. */
+  if (IS_TURBO){ const f=turboFx(), hold=f&&(f.open||f.pending)&&Number.isFinite(+f.holdAlt)?+f.holdAlt:null;
+    if (hold!=null){ S.tHold=S.tHold==null?S.camAlt:lerp(S.tHold,hold,1-Math.exp(-dt*6)); S.camAlt=S.tHold; S.tHeld=1; }
+    else if (S.tHeld){ S.tHold=lerp(S.tHold,S.camAlt,1-Math.exp(-dt*3)); if(Math.abs(S.tHold-S.camAlt)*PX_PER_ALT<1){ S.tHeld=0; S.tHold=null; } else S.camAlt=S.tHold; } }
   { const e=S.x+(S.cine?Math.sin(S.t*0.11)*22:0)-S.camX, w=S.cine?2.6:8; S.camXV=(S.camXV||0)+(w*w*e-2*w*(S.camXV||0))*dt; S.camX+=S.camXV*dt; }
   // screen anchor eases on resize (no jump when the window / sidebar changes)
   { const PD=phoneHud(W,CLEAN), ay=S.cine?H*0.55:PD&&PD.drawer&&PD.dTop>0?Math.min(ROCKET_Y,PD.dTop-44):ROCKET_Y;   // @phone-hud: drawer open ⇒ the rocket rides above it
     S.anch=S.anch==null?ROCKET_Y:lerp(S.anch,ay,1-Math.exp(-dt*(S.cine?0.8:5))); }
   // rocket screen y: true altitude vs camera, soft-limited to the safe band (tanh, never a hard stop)
-  S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) + (IS_TURBO?0:40*(S.dive||0));   // @turbo: the dive is a pose; altitude is PnL
+  S.ry=(IS_TURBO&&S.tHeld)? clamp(S.anch-(S.displayAlt-S.camAlt)*PX_PER_ALT, 70, H-40) : rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) + (IS_TURBO?0:40*(S.dive||0));   // @turbo-hold: linear in a run, so the rocket sits exactly on its price line   // @turbo: the dive is a pose; altitude is PnL
   turboShudder(dt);   // @altfollow: no buy/W hop (they decayed back = a sink); S/↓ dive only while held
   // idle bob / sway / micro-rot — attenuated during thrust so they don't fight heading
   const thrustHold=sinceThrust<1.2? clamp(1-sinceThrust/1.2,0,1) : 0;
