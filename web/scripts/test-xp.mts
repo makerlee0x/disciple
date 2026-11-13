@@ -188,3 +188,16 @@ test("transfer scan: other txs are untouched", () => {
   const logs = [{ tx: "0xC", logIndex: 1, tokens: 10 }, { tx: "0xB", logIndex: 2, tokens: 400 }];
   assert.deepEqual(nonTradeOuts(logs, new Map([["0xb", [400]]])), [logs[0]]);
 });
+
+// ---- the transfer scan covers dormant coins still held by fills (Vercel security review, Nov 13: an old position sent
+// away and left untouched for 8+ days must not count as aboard when the rocket later reaches orbit)
+import { coinsToScan } from "../lib/xpTransfers";
+test("transfer scan: dormant coins still held by fills are scanned, sold-out dormant coins are not", () => {
+  const now = 100 * 86_400_000, D = 86_400_000;
+  const fills = [
+    { coin: "0xOLD", ts: now - 20 * D, side: "buy", tokens: 50 },                                   // held by fills, dormant
+    { coin: "0xGONE", ts: now - 20 * D, side: "buy", tokens: 50 }, { coin: "0xGONE", ts: now - 19 * D, side: "sell", tokens: 50 },
+    { coin: "0xNEW", ts: now - D, side: "buy", tokens: 5 }, { coin: "0xNEW", ts: now - D, side: "sell", tokens: 5 },  // recent
+  ];
+  assert.deepEqual(coinsToScan(fills, now).sort(), ["0xnew", "0xold"]);
+});

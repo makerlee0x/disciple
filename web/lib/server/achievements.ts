@@ -28,7 +28,7 @@ import { kv, type Kv } from "./kv";
 import { ACH } from "./achKeys";
 import { coinsOf, tradesOf, TRADES_MAX_LIMIT } from "./trades";
 import { dueTimers, scoreXp, XPK, type TransferOut } from "./xp";
-import { nonTradeOuts } from "@/lib/xpTransfers";
+import { coinsToScan, nonTradeOuts } from "@/lib/xpTransfers";
 
 const LAUNCHED = getAbiItem({ abi: launchpadAbi, name: "Launched" });
 const GRADUATED = getAbiItem({ abi: bondingCurveAbi, name: "GraduatedToV4" });
@@ -234,8 +234,10 @@ export async function scoreWallet(walletIn: string, o: { dryRun?: boolean; s?: K
   // held) can move a mission, so only those get the mode read and the full-rocket fill path (ride_tier).
   const recent = Array.from(new Set(onChain.filter((f) => now - f.ts <= 8 * 86_400_000).map((f) => f.coin.toLowerCase())));
   if (!o.dryRun) await ensureModes(metas, recent, s);
+  // Transfers away are scanned for every coin the fills still show held too, not only recent ones: an old position
+  // that was sent away must not count as aboard when that rocket later reaches orbit.
   // If the transfer scan fails, holding missions wait for the next pass instead of paying on an unverified position.
-  const scan = await transfersOut(w, recent, onChain, s, o.dryRun).catch(() => null);
+  const scan = await transfersOut(w, coinsToScan(onChain, now), onChain, s, o.dryRun).catch(() => null);
   const outs = scan?.complete ? scan.outs : null;
   // unfinished (budget) or failed scan: re-score this wallet in a minute, the cursor picks up where it stopped
   if (!outs && !o.dryRun) await s.zadd(XPK.timers(), [{ score: now + 60_000, member: `${w}|${now + 60_000}` }]);

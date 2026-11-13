@@ -33,3 +33,23 @@ export function nonTradeOuts<T extends OutLog>(logs: readonly T[], sells: Readon
   }
   return logs.filter((l) => !legsOf.has(l));
 }
+
+/** Coins traded within this window are always scanned (they can still move any mission this or last week). */
+export const RECENT_SCAN_MS = 8 * 86_400_000;
+
+/**
+ * Coins the transfer scan must cover (pure; tested in scripts/test-xp.mts): every coin traded in the last 8 days, plus
+ * every coin the wallet's fills alone still show tokens in, however long ago it last traded. Holding missions (orbit
+ * seat, 24h hold, tier ride, bomb) read the position from fills minus transfers away; if a dormant coin were left out of
+ * the scan, a wallet that sent its tokens away and waited would still look aboard when the rocket reaches orbit.
+ */
+export function coinsToScan(fills: readonly { coin: string; ts: number; side: string; tokens: number }[], now: number): string[] {
+  const out = new Set<string>(), net = new Map<string, number>();
+  for (const f of fills) {
+    const c = f.coin.toLowerCase();
+    if (now - f.ts <= RECENT_SCAN_MS) out.add(c);
+    net.set(c, (net.get(c) ?? 0) + (f.side === "buy" ? f.tokens : -f.tokens));
+  }
+  for (const [c, t] of Array.from(net.entries())) if (t > 1e-9) out.add(c);
+  return Array.from(out);
+}
