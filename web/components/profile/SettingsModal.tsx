@@ -6,16 +6,19 @@ import type { Address } from "@/lib/protocol";
 import { ONE_TAP_SLIPPAGE_CHOICES_BPS, onPrivy, onSessionChange, oneTapSlippageBps, privyAccount, privySecurity, setOneTapSlippageBps, type PrivyAccountInfo, type PrivyMfaMethod, type PrivySecurity } from "@/lib/aa/session";
 import { playerError } from "@/lib/playerError";
 import Icon from "@/components/icons/Icon";
+import { SETTINGS_KEYS } from "@/lib/config";
 
 /** Settings copy (profile r3 README copy list). */
 export const SETTINGS_COPY = {
   title: "Settings",
   account: "Account",
-  trading: "Trading",
+  trading: "Flying",
   signedIn: (m: string) => `Signed in with ${m}`,
   wallet: "Your wallet",
   walletHelp: "Deposit and withdraw on the Wallet page.",
-  oneTap: "One-tap trading",
+  oneTap: "One-tap boosts",
+  orbs: "Orbs", orbsHelp: "Show each trade as an orb in flight. O in flight.",
+  bombs: "Dump bombs", bombsHelp: "Show dumps as bombs in flight. B in flight.",
   oneTapHelp: "BOOST and DUMP with one tap, no pop-up.",
   on: "On",
   maxMove: "Max price move per trade",
@@ -35,6 +38,10 @@ export const SETTINGS_COPY = {
   copy: "Copy", copied: "Copied",
   signedOut: "Sign in to see your account settings.",
 } as const;
+
+/** Flight effect switches (lib/config SETTINGS_KEYS, read by the flight screen; "off" = hidden). */
+function readFx(key: string) { try { return localStorage.getItem(key) !== "off"; } catch { return true; } }
+function writeFx(key: string, on: boolean) { try { localStorage.setItem(key, on ? "on" : "off"); } catch { /* ignore */ } }
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 /** a••••@gmail.com style: first 3 characters of the name, the domain kept. */
@@ -64,6 +71,8 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   const [view, setView] = useState<"main" | "2fa">("main");
   const [secBusy, setSecBusy] = useState("");
   const [secErr, setSecErr] = useState("");
+  const [fx, setFx] = useState({ orbs: true, bombs: true });
+  useEffect(() => { if (open) setFx({ orbs: readFx(SETTINGS_KEYS.orbs), bombs: readFx(SETTINGS_KEYS.bombs) }); }, [open]);
   useEffect(() => onWallet(setAddr), []);
   useEffect(() => { const read = () => { setAcct(privyAccount()); setSec(privySecurity()); }; read(); return onPrivy(read); }, []);
   useEffect(() => { if (!open) { setView("main"); setSecErr(""); } }, [open]);
@@ -143,22 +152,6 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
               </div>
             </div>
           </section>
-          <section className="p5-sgrp" aria-label={SETTINGS_COPY.security} data-testid="settings-security">
-            <span className="gh">{SETTINGS_COPY.security}</span>
-            <div className="p5-sbox">
-              <div className="p5-srow" data-testid="settings-export">
-                <div className="tx"><b>{SETTINGS_COPY.exportKey}</b><span>{sec ? SETTINGS_COPY.exportKeyHelp : SETTINGS_COPY.privyOnly}</span></div>
-                <button type="button" className="p5-btn sm" disabled={!sec?.exportWallet || !!secBusy} onClick={() => void exportKey()} data-testid="export-key">
-                  <Icon name="lock" size={16} /> {SETTINGS_COPY.exportBtn}
-                </button>
-              </div>
-              <button type="button" className="p5-srow p5-srow-link" onClick={() => { setView("2fa"); setSecErr(""); }} data-testid="settings-2fa">
-                <div className="tx"><b>{SETTINGS_COPY.twoFa}</b><span>{twoFaState}</span></div>
-                <Icon name="chevron-right" size={18} />
-              </button>
-            </div>
-            {secErr && <span className="p5-err" role="alert">{secErr}</span>}
-          </section>
           <section className="p5-sgrp" aria-label={SETTINGS_COPY.trading} data-testid="settings-trading">
             <span className="gh">{SETTINGS_COPY.trading}</span>
             <div className="p5-sbox">
@@ -176,7 +169,30 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                 </div>
                 {err && <span className="p5-err" role="alert">{err}</span>}
               </div>
+              {([["orbs", SETTINGS_COPY.orbs, SETTINGS_COPY.orbsHelp, "setOrbs"], ["bombs", SETTINGS_COPY.bombs, SETTINGS_COPY.bombsHelp, "setBombs"]] as const).map(([k, label, help, fn]) => (
+                <div className="p5-srow" key={k}>
+                  <div className="tx"><b>{label}</b><span>{help}</span></div>
+                  <button type="button" role="switch" aria-checked={fx[k]} aria-label={label} className={`p5-switch${fx[k] ? " on" : ""}`} data-testid={`settings-${k}`}
+                    onClick={() => setFx((v) => { const next = !v[k]; writeFx(SETTINGS_KEYS[k], next); (window as unknown as { __flight?: Record<string, (v: boolean) => void> }).__flight?.[fn]?.(next); return { ...v, [k]: next }; })}><span /></button>
+                </div>
+              ))}
             </div>
+          </section>
+          <section className="p5-sgrp" aria-label={SETTINGS_COPY.security} data-testid="settings-security">
+            <span className="gh">{SETTINGS_COPY.security}</span>
+            <div className="p5-sbox">
+              <div className="p5-srow" data-testid="settings-export">
+                <div className="tx"><b>{SETTINGS_COPY.exportKey}</b><span>{sec ? SETTINGS_COPY.exportKeyHelp : SETTINGS_COPY.privyOnly}</span></div>
+                <button type="button" className="p5-btn sm" disabled={!sec?.exportWallet || !!secBusy} onClick={() => void exportKey()} data-testid="export-key">
+                  <Icon name="lock" size={16} /> {SETTINGS_COPY.exportBtn}
+                </button>
+              </div>
+              <button type="button" className="p5-srow p5-srow-link" onClick={() => { setView("2fa"); setSecErr(""); }} data-testid="settings-2fa">
+                <div className="tx"><b>{SETTINGS_COPY.twoFa}</b><span>{twoFaState}</span></div>
+                <Icon name="chevron-right" size={18} />
+              </button>
+            </div>
+            {secErr && <span className="p5-err" role="alert">{secErr}</span>}
           </section>
           <button type="button" className="p5-logout" data-testid="settings-signout" onClick={() => { onClose(); void disconnect(); }}>
             <Icon name="log-out" size={18} /> {SETTINGS_COPY.logout}

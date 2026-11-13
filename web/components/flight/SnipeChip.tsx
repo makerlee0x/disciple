@@ -20,7 +20,7 @@ export default function SnipeChip({ state }: { state: SnipeState | null }) {
   if (!text || !state) return null;
   const hot = state.feePct >= 50;
   return (
-    <div className="ap-bc" style={{ bottom: "calc(142px + var(--ap-safe-bottom))", zIndex: 26, pointerEvents: "none" }}>
+    <div className="ap-bc" style={{ bottom: "calc(var(--ap-tb-h, 80px) + 62px + var(--ap-safe-bottom))", zIndex: 26, pointerEvents: "none" }}>
       <div role="status" aria-live="off" data-testid="snipe-chip" className="ap-pill"
         style={{ cursor: "default", display: "inline-flex", alignItems: "center", gap: 6, fontVariantNumeric: "tabular-nums",
           color: hot ? "#ff9fb8" : "#ffd9a0", borderColor: hot ? "rgba(255,120,150,.75)" : "rgba(255,210,74,.7)",

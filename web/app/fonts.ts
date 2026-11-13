@@ -1,4 +1,4 @@
-import { Instrument_Serif } from "next/font/google";
+import { Barlow_Condensed, Instrument_Serif } from "next/font/google";
 import localFont from "next/font/local";
 
 /** Brand v1 type: Instrument Serif (display/headings) + Geist (UI/body). Both SIL OFL. */
@@ -22,4 +22,16 @@ export const geist = localFont({
   variable: "--font-geist",
   fallback: ["system-ui", "-apple-system", "Segoe UI", "sans-serif"],
   adjustFontFallback: "Arial",
+});
+
+/** Brand v3 game display face (lobby headings, buttons, big numbers). SIL OFL. Not preloaded: it is used below the
+ *  first paint on most pages, and the swap is metric-matched so it doesn't shift layout. */
+export const barlowCondensed = Barlow_Condensed({
+  subsets: ["latin"],
+  weight: ["600", "700", "800"],
+  style: "normal",
+  display: "swap",
+  preload: false,
+  variable: "--font-barlow-condensed",
+  fallback: ["Arial Narrow", "sans-serif"],
 });

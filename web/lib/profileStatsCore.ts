@@ -17,15 +17,12 @@
 import type { Address } from "viem";
 import { computeStats, type PlayerStats, type StatsTrade } from "@/lib/stats";
 import { deriveIdentity, type DerivedIdentity } from "@/lib/identity";
-import { evaluateAchievements, topBadgesFromAchievements, type AchievementCategory, type AchievementView } from "@/lib/achievements";
 import { BOMB_PCT } from "@/lib/config";
 import { playerUsd, type Fill } from "@/lib/trades";
 import { prePriceOf } from "@/lib/home/trending";
 
-export type ProfileStats = PlayerStats & { identity: DerivedIdentity; achievements: AchievementView[] };
+export type ProfileStats = PlayerStats & { identity: DerivedIdentity };
 
-/** Achievement categories whose progress comes only from real fills. Seasonal (points / rank) and Tramps & Walls are out until they have a source. */
-export const REAL_ACHIEVEMENT_CATEGORIES: ReadonlySet<AchievementCategory> = new Set(["flight", "crew", "bombs", "conviction", "launcher", "trencher"]);
 
 /** Lowest bomb tier (grenade) in basis points. A sell at or above this is one bomb dropped. */
 export const BOMB_MIN_IMPACT_BPS = BOMB_PCT.GRENADE * 100;
@@ -53,14 +50,12 @@ export function statsTradeOf(f: FillWithImpact, meta: { ticker: string; name: st
   };
 }
 
-/** Stats from real trades only: no points, no rank, achievements limited to fill-based categories. */
+/** Stats from real trades only: no points, no rank. Milestones and XP come from the server (/api/achievements, /api/xp). */
 export function profileStatsFrom(trades: StatsTrade[], handle: string, now = Date.now()): ProfileStats {
   const stats = computeStats([...trades].sort((a, b) => a.ts - b.ts), {
     handle, persona: "", points: 0, leaderboardRank: 0, leaderboardSize: 0, firstPlacePoints: 0, now, showcaseIcon: null,
   });
-  const achievements = evaluateAchievements(stats).filter((a) => REAL_ACHIEVEMENT_CATEGORIES.has(a.category));
-  stats.topBadges = topBadgesFromAchievements(achievements, 3);
-  return { ...stats, identity: deriveIdentity(stats.metrics), achievements };
+  return { ...stats, identity: deriveIdentity(stats.metrics) };
 }
 
 /** The three public profile numbers. `closedTrades` 0 ⇒ win rate has no meaning (show "—"). */

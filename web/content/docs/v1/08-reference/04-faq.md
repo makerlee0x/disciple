@@ -52,7 +52,7 @@ The sniper tax. It's 99% at launch, 25% at 1 second, 3% at 2 seconds, and nothin
 Every DUMP drops one. Its size is set by price impact, from PUFF (under 2%) to ATOM (50%+). See [Bombs](/docs/trading/bombs).
 
 **Do upgrades or tiers change my trades?**
-No. Rocket upgrades, tiers, bombs and points are cosmetic or display only. A tier is a named step for how high a rocket's value has climbed. They never change the price, the trade, or the odds.
+No. Rocket upgrades, tiers, bombs and XP are cosmetic or display only. A tier is a named step for how high a rocket's value has climbed. They never change the price, the trade, or the odds.
 
 **What is the Simulator?**
 Free paper trading against bots on a private market, with no wallet and no transactions. Pick PvE, PvP or Trench Warfare. Open it at `/flight/sim`. See [Simulator](/docs/game/simulator).

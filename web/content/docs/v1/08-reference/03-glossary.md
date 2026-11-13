@@ -27,7 +27,6 @@ section: Reference
 | **Fee vault** | Where every share of the fees paid before orbit, except the liquidity share, waits until it's claimed. |
 | **First BOOST** | The creator's own buy, made as part of the launch. |
 | **GRENADE** | A bomb with 2–5% price impact. |
-| **Hold bonus** | A points multiplier, up to ×2.5, for holding a rocket in profit. Points only, never money. Coming soon: not yet applied to points. |
 | **Holding limit** | The most one wallet can hold of a rocket before orbit. Set by the launch mode. |
 | **Identity** | A playstyle tag earned from your trades, like Believer or Trencher. |
 | **King of the Hill** | A rocket's top boosters, ranked by total BOOST volume. |
@@ -46,11 +45,10 @@ section: Reference
 | **Private launch** | A launch where your name doesn't show as the creator. In beta. |
 | **PUFF** | The smallest bomb: under 2% price impact. |
 | **PvE / PvP** | Simulator difficulties: the crew climbing together, or every trader for themselves. |
-| **Rarity** | Common, Rare, Epic, Legendary or Mythic. One scale for achievements and rocket parts. |
+| **Rarity** | Common, Rare, Epic, Legendary or Mythic. One scale for milestones and rocket parts. |
 | **Rewards** | The chest on your profile. It shows what you've earned, including payouts made by hand, and lets you claim it. |
-| **rHALO** | Off-chain points from achievements and play. Not a token. |
+| **XP** | Off-chain progress from missions and milestones. Levels you up and unlocks rocket parts. Not a token. |
 | **Rocket** | The thing you launch on DISCIPLE. |
-| **Season rank** | Unranked to Divine, by rHALO points in the season. |
 | **Simulator** | Free paper trading against bots. |
 | **Thrust** | The visual force of a BOOST. |
 | **Touch grass** | A calm flight view that shows only how high the rocket's value has climbed. |

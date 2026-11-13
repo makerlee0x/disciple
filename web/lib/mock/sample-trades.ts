@@ -6,7 +6,6 @@ import type { Address } from "../protocol";
 import type { StatsTrade } from "../stats";
 import { computeStats, type PlayerStats } from "../stats";
 import { deriveIdentity } from "../identity";
-import { evaluateAchievements, topBadgesFromAchievements } from "../achievements";
 
 export type PersonaId = "believer" | "trencher" | "bomber";
 
@@ -184,7 +183,6 @@ export function sampleTrades(persona: PersonaId): StatsTrade[] {
 
 export type PersonaBundle = PlayerStats & {
   identity: ReturnType<typeof deriveIdentity>;
-  achievements: ReturnType<typeof evaluateAchievements>;
 };
 
 export function buildPersonaStats(persona: PersonaId): PersonaBundle {
@@ -195,9 +193,7 @@ export function buildPersonaStats(persona: PersonaId): PersonaBundle {
     firstPlacePoints: meta.firstPlacePoints, now: NOW, showcaseIcon: meta.showcaseIcon,
     sizePercentile: meta.sizePercentile, roiPercentile: meta.roiPercentile,
   });
-  const achievements = evaluateAchievements(stats);
-  stats.topBadges = topBadgesFromAchievements(achievements, 3);
-  return { ...stats, identity: deriveIdentity(stats.metrics), achievements };
+  return { ...stats, identity: deriveIdentity(stats.metrics) };
 }
 
 export const SAMPLE_DATA_LABEL = "SAMPLE DATA — seeded mock trade history (not live)";

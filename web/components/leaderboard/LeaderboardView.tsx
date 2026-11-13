@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import AchievementBadge, { EmptyBadge } from "@/components/profile/AchievementBadge";
 import { identityLabel } from "@/components/profile/IdentitySigil";
 import { rarityStyle } from "@/lib/achievements";
+import { milestoneXp, xpLabel } from "@/lib/xp";
 import { profileUrl } from "@/lib/profile";
 import { displayName } from "@/lib/defaultUsername";
 import {
@@ -58,7 +59,7 @@ function BadgeWithStats({ a }: { a: LeaderboardRow["badges"][number] }) {
         <strong>{a.name}</strong>
         <span style={{ color: r.border }}>{r.label}</span>
         <span>{a.description}</span>
-        <span className="muted">Target {a.target.toLocaleString()} · +{(a.reward.points ?? 0).toLocaleString()} pts</span>
+        <span className="muted">{xpLabel(milestoneXp(a.id, String(a.rarity)))}</span>
       </span>
     </span>
   );

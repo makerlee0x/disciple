@@ -1,0 +1,81 @@
+/* The bay, take A · Cinematic (components/hangar/HangarBay). --plate = hangar plate, --flame = equipped thruster colour. */
+.bay {
+  --ship-x: 68%; --pad-y: 112px; --ship-h: 420px;
+  position: relative; min-height: 600px; border-radius: 20px; overflow: hidden; isolation: isolate;
+  border: 1px solid rgba(243, 223, 168, .28); background: #05060A; color: #FFFFFF;
+}
+.stage { position: absolute; inset: 0; pointer-events: none; }
+.stage > span { position: absolute; display: block; }
+
+/* the room: the hangar plate pushed wide and graded cold on top, warm on the deck */
+.plate { inset: 0; background: var(--plate) 18% 30% / 150% auto no-repeat; opacity: .9; }
+.grade { inset: 0; background: linear-gradient(180deg, rgba(20, 34, 70, .55) 0%, rgba(5, 6, 10, .2) 45%, rgba(40, 20, 8, .35) 100%); }
+.back { left: var(--ship-x); top: -120px; width: 760px; height: 760px; margin-left: -380px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(180, 210, 255, .45), rgba(90, 120, 200, .12) 55%, transparent); }
+.streak { left: 0; right: 0; top: 168px; height: 40px;
+  background: linear-gradient(90deg, transparent 10%, rgba(150, 195, 255, .85) 68%, transparent 100%) center / 100% 3px no-repeat,
+    radial-gradient(40% 50% at 68% 50%, rgba(140, 185, 255, .3), transparent); filter: blur(1px); }
+.deck { left: 0; right: 0; bottom: 0; height: 140px; background: linear-gradient(180deg, rgba(14, 16, 22, .2), #07080B 85%); }
+.pool { left: var(--ship-x); bottom: 40px; width: 640px; height: 110px; margin-left: -320px; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--flame) 38%, transparent), transparent); }
+
+/* the plinth: a front wall under a lit top with a gold rim */
+.padWall { left: var(--ship-x); bottom: calc(var(--pad-y) - 42px); width: 380px; height: 44px; margin-left: -190px;
+  border-radius: 0 0 50% 50% / 0 0 100% 100%; background: linear-gradient(180deg, #15171D, #050608); box-shadow: 0 18px 40px rgba(0, 0, 0, .7); }
+.padTop { left: var(--ship-x); bottom: calc(var(--pad-y) - 20px); width: 380px; height: 48px; margin-left: -190px; border-radius: 50%;
+  background: radial-gradient(60% 70% at 50% 40%, #3A3D47, #16181E 70%);
+  box-shadow: 0 -1px 0 rgba(243, 223, 168, .9), 0 0 36px rgba(243, 223, 168, .16), inset 0 -6px 12px rgba(0, 0, 0, .6); }
+
+/* the rocket stands on the pad: its box's bottom edge is the contact line */
+.ship { left: var(--ship-x); bottom: var(--pad-y); height: var(--ship-h); aspect-ratio: 221 / 609; transform: translateX(-50%); }
+.rocket { position: absolute; inset: 0; z-index: 2; filter: drop-shadow(0 0 28px rgba(160, 195, 255, .35)) contrast(1.06); }
+.rocket img, .rocket canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; transition: opacity .25s; }
+.refl { position: absolute; left: 0; top: 100%; width: 100%; height: 100%; z-index: 1; opacity: .3;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 22%); mask-image: linear-gradient(180deg, #000 0%, transparent 22%); }
+.refl canvas { width: 100%; height: 100%; display: block; transform: scaleY(-1); filter: blur(1.5px) brightness(.8); }
+/* engines idling cold: a faint glow of the thruster's colour in the bells */
+.bells { position: absolute; left: 50%; bottom: -6px; width: 60%; height: 26px; margin-left: -30%; border-radius: 50%; z-index: 3;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--flame) 55%, transparent), transparent); filter: blur(4px); }
+.steam { left: var(--ship-x); bottom: calc(var(--pad-y) - 44px); width: 700px; height: 150px; margin-left: -350px; }
+.steam i { position: absolute; inset: 0; border-radius: 50%; filter: blur(14px);
+  background: radial-gradient(50% 60% at 30% 70%, rgba(200, 210, 230, .26), transparent 70%); animation: drift 9s ease-in-out infinite alternate; }
+.steam i:nth-child(2) { background: radial-gradient(45% 55% at 72% 65%, rgba(200, 210, 230, .22), transparent 70%); animation-duration: 11s; animation-direction: alternate-reverse; }
+.steam i:nth-child(3) { background: radial-gradient(35% 40% at 50% 80%, rgba(220, 226, 240, .2), transparent 70%); animation-duration: 7s; }
+@keyframes drift { from { transform: translateX(-18px) scale(1); opacity: .8; } to { transform: translateX(18px) scale(1.08); opacity: 1; } }
+.vignette { inset: 0; box-shadow: inset 0 0 180px 60px rgba(0, 0, 0, .75); }
+.bar { position: absolute; left: 0; right: 0; height: 28px; background: #000; z-index: 1; }
+.barTop { top: 0; }
+.barBot { bottom: 0; }
+
+/* the title card */
+.card { position: relative; z-index: 2; display: flex; flex-direction: column; gap: 16px; width: min(560px, 46%); min-height: 600px;
+  padding: 70px 0 64px 56px; box-sizing: border-box; }
+.eyebrow { display: flex; align-items: center; gap: 12px; font: 500 12px / 1 var(--dsc-font-mono, "JetBrains Mono", monospace);
+  letter-spacing: .08em; text-transform: uppercase; color: #A9C4FF; }
+.av { flex: none; width: 36px; height: 36px; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
+  border: 2px solid rgba(243, 223, 168, .7); background: #121327; }
+.av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bay .name { margin: 0; color: #FFFFFF; display: flex; flex-direction: column; font: 800 clamp(64px, 7.4vw, 112px) / .82 var(--dsc-font-game);
+  text-transform: uppercase; letter-spacing: -.01em; text-shadow: 0 6px 40px rgba(0, 0, 0, .6); overflow-wrap: anywhere; }
+.bio { max-width: 420px; font-size: 16px; line-height: 1.45; color: #D7D9E4; }
+.level { display: flex; align-items: center; gap: 14px; max-width: 420px; }
+.lbar { flex: 1; height: 6px; border-radius: 999px; background: rgba(232, 234, 238, .14); overflow: hidden; }
+.lbar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #A9C4FF, var(--dsc3-light-champagne, #F3DFA8)); }
+.lnext { font: 500 12px / 1 var(--dsc-font-mono, monospace); color: #BCC0CA; white-space: nowrap; }
+.actions { margin-top: auto; display: flex; flex-wrap: wrap; gap: 12px; }
+.spend { position: absolute; z-index: 2; right: 48px; top: 64px; text-align: right; display: flex; flex-direction: column; gap: 4px; }
+.spend span { font: 500 11px / 1 var(--dsc-font-mono, monospace); color: #9095A0; text-transform: uppercase; letter-spacing: .06em; }
+.spend b { font: 800 40px / 1 var(--dsc-font-game); color: var(--dsc3-light-champagne, #F3DFA8); }
+
+@media (max-width: 760px) {
+  .bay { --ship-x: 50%; --pad-y: 96px; --ship-h: 320px; display: flex; flex-direction: column; min-height: 0; border-radius: 16px; }
+  .stage { position: relative; height: 470px; flex: none; }
+  .stage > .plate { background-position: 30% 30%; background-size: auto 130%; }
+  .streak { top: 120px; }
+  .barBot { display: none; }
+  .card { width: auto; min-height: 0; padding: 0 18px 22px; margin-top: -40px; gap: 14px; }
+  .bay .name { font-size: 60px; }
+  .spend { right: 18px; top: 44px; }
+  .spend b { font-size: 30px; }
+}
+@media (prefers-reduced-motion: reduce) { .steam i { animation: none; } }

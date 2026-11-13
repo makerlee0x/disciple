@@ -25,7 +25,7 @@ The chart is the sky. **Altitude** is how high a rocket's value has climbed. The
 - **Paired with a coin, not ETH.** Every rocket is paired with a base coin. Today that's STRATEGY.
 - **One fee, split four ways.** Every BOOST and DUMP pays 1%. The creator, the rocket's locked liquidity and the treasury each get 33%, and the remaining 1% is a separate share. There's no gas to pay on trades.
 - **Liquidity locked forever.** Once a rocket reaches orbit, its liquidity is locked forever in the Uniswap v4 LP. Nobody can withdraw it.
-- **A game on top of the market.** Flight is the screen for one rocket. Bombs, crews, achievements and identities are part of that screen. Game features never change the price, the trade, or the odds.
+- **A game on top of the market.** Flight is the screen for one rocket. Bombs, crews, missions and identities are part of that screen. Game features never change the price, the trade, or the odds.
 
 ## Where to go next
 

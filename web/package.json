@@ -138,7 +138,9 @@
     "test:coin-labels": "node scripts/test-coin-labels.mjs",
     "test:ascension-warp": "node scripts/test-ascension-warp.mjs",
     "test:hud-layout": "node scripts/test-hud-layout.mjs && tsx scripts/test-chat-pill.mts && tsx scripts/test-slots.mts",
-    "test:mainnet-guards": "tsx --conditions=react-server --test scripts/test-mainnet-guards.mts"
+    "test:mainnet-guards": "tsx --conditions=react-server --test scripts/test-mainnet-guards.mts",
+    "test:x-link": "tsx --conditions=react-server --test scripts/test-x-link.mts",
+    "test:xp": "tsx --conditions=react-server --test scripts/test-xp.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",

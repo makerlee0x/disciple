@@ -1,12 +1,13 @@
 "use client";
 
+import XLinkControl from "./XLinkControl";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { onWallet } from "@/lib/wallet";
 import type { Address } from "@/lib/protocol";
 import {
-  checkUsername, claimUsername, fetchUsernameStatus, localUsername, localXHandle, normalizeUsername,
-  profileUrl, referralUrl, setLocalXHandle, USERNAME_MAX, validateUsername,
+  checkUsername, claimUsername, fetchUsernameStatus, localUsername, normalizeUsername,
+  profileUrl, referralUrl, USERNAME_MAX, validateUsername,
 } from "@/lib/profile";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 import { refLabel } from "@/lib/referral";
@@ -27,13 +28,10 @@ export default function ProfileIdentity({ hideUsername = false, usernameOnly = f
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
-  const [x, setX] = useState("");
-  const [xDraft, setXDraft] = useState("");
-  const [xOpen, setXOpen] = useState(false);
   const [copied, setCopied] = useState("");
 
   useEffect(() => onWallet(setAddr), []);
-  useEffect(() => { setUsername(localUsername()); setX(localXHandle()); }, []);
+  useEffect(() => { setUsername(localUsername()); }, []);
   // 24h username cooldown (server-enforced): when the next change is allowed, in the viewer's local time.
   const [nextNameAt, setNextNameAt] = useState<number | null>(null);
   useEffect(() => {
@@ -117,27 +115,17 @@ export default function ProfileIdentity({ hideUsername = false, usernameOnly = f
           </div>
         </div>
 
-        <div className="pid-block">
-          <span className="pid-label">X / TWITTER <span className="beta">BETA</span></span>
-          {x ? (
+        <XLinkControl wallet={addr} render={({ handle, action, note }) => (
+          <div className="pid-block">
+            <span className="pid-label">X</span>
             <div className="pid-value">
-              <a href={`https://x.com/${x}`} target="_blank" rel="noreferrer">@{x}</a>
-              <span className="pid-status ok">connected (self-reported)</span>
-              <button type="button" className="ds-btn" onClick={() => { setLocalXHandle(""); setX(""); }}>Disconnect</button>
+              {handle && <a href={`https://x.com/${handle}`} target="_blank" rel="noreferrer">@{handle}</a>}
+              {handle && <span className="pid-status ok">verified</span>}
+              {action}
             </div>
-          ) : xOpen ? (
-            <div className="pid-edit">
-              <span className="muted">@</span>
-              <input className="ds-input" value={xDraft} maxLength={15} placeholder="handle" onChange={(e) => setXDraft(e.target.value.replace(/[^A-Za-z0-9_]/g, ""))} />
-              <button type="button" className="ds-btn gold" disabled={xDraft.length < 1} onClick={() => { setLocalXHandle(xDraft); setX(xDraft); setXOpen(false); }}>Confirm</button>
-            </div>
-          ) : (
-            <div className="pid-value">
-              <button type="button" className="ds-btn x" onClick={() => setXOpen(true)}>𝕏 Connect X</button>
-            </div>
-          )}
-          {!x && xOpen && <span className="muted tiny">Linking accounts is coming soon.</span>}
-        </div>
+            {note && <span className="muted tiny" role="status">{note}</span>}
+          </div>
+        )} />
 
         <div className="pid-block">
           <span className="pid-label">REFERRAL LINK</span>

@@ -1,20 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { COINS, LOADOUT_KEY, SKINS, THRUSTERS, coinById, coinEmblem, thrusterById } from "@/lib/rocketSkin";
+import { LOADOUT_KEY, coinById, coinEmblem, thrusterById } from "@/lib/rocketSkin";
+import { PARTS, isFreePart, type Part, type PartStats, type Slot } from "@/lib/parts";
+import { buyPartWithXp, usePilotWallet, useXp } from "@/lib/xpClient";
 import SkinnedRocket from "@/components/SkinnedRocket";
 import HangarRocket from "@/components/factory/HangarRocket";
 import hs from "@/components/factory/hangar.module.css";
 import { withBase } from "@/lib/base-path";
 
 /**
- * Rocket factory (Forza "My Cars" layout): header with rocket + points, centre stage,
- * right-side stat bars, bottom part carousel. v1 is presentational — upgrades are cosmetic
- * only and never change price or fills. Part catalogue is SAMPLE until the cosmetics contract lands.
+ * Rocket factory (Forza "My Cars" layout): header with rocket + XP, centre stage, right-side stat bars, bottom part
+ * carousel. Parts are bought with XP (POST /api/shop/buy; catalogue in lib/parts.ts) and are cosmetic only: they never
+ * change price, fills or odds. The equipped loadout is kept in this browser.
  */
-type Slot = "body" | "thrusters" | "coin" | "trail" | "frame";
-type Stats = { thrust: number; handling: number; glow: number; aura: number; launch: number };
-type Part = { id: string; slot: Slot; ref: string; name: string; cost: number; tint: string; stats: Partial<Stats>; owned?: boolean };
+type Stats = PartStats;
 
 const SLOTS: { id: Slot; label: string }[] = [
   { id: "body", label: "Body skin" }, { id: "thrusters", label: "Thrusters" }, { id: "coin", label: "Nose coin" },
@@ -22,34 +22,7 @@ const SLOTS: { id: Slot; label: string }[] = [
 ];
 const BASE: Stats = { thrust: 5.0, handling: 5.0, glow: 4.0, aura: 3.5, launch: 5.5 };
 const STAT_LABEL: Record<keyof Stats, string> = { thrust: "THRUST", handling: "HANDLING", glow: "GLOW", aura: "AURA", launch: "LAUNCH" };
-
-const SKIN_COST: Record<string, [number, Partial<Stats>]> = {
-  chrome: [0, {}], gold: [2500, { glow: 1.6, aura: 1.2 }], rose: [1800, { aura: 1.4 }], green: [1500, { handling: 1.0, glow: 0.6 }],
-  cobalt: [1500, { handling: 1.2 }], violet: [3000, { aura: 2.0, glow: 0.8 }], matte: [2200, { handling: 1.6, launch: 0.6 }], crimson: [2000, { thrust: 0.8, glow: 0.8 }],
-};
-const THR_COST: Record<string, [number, Partial<Stats>]> = {
-  stock: [0, {}], seraph: [500, { thrust: 1.4, launch: 1.0 }], ion: [3000, { thrust: 2.4, launch: 1.8 }],
-  plasma: [2400, { thrust: 1.8, glow: 1.0 }], venom: [1600, { thrust: 1.2, handling: 0.8 }], inferno: [2800, { thrust: 2.2, launch: 1.2 }],
-};
-const COIN_COST: Record<string, [number, Partial<Stats>]> = {
-  halo: [0, {}], sun: [900, { glow: 1.0 }], star: [1200, { aura: 1.0 }], moon: [1400, { aura: 1.2, glow: 0.4 }],
-  diamond: [3500, { aura: 2.0, handling: 0.6 }], frog: [700, { launch: 0.8 }],
-};
-
-const PARTS: Part[] = [
-  ...SKINS.map((k) => ({ id: `body-${k.id}`, slot: "body" as Slot, ref: k.id, name: k.name, cost: SKIN_COST[k.id]?.[0] ?? 1000, tint: k.tint ?? "#c9d2e6", stats: SKIN_COST[k.id]?.[1] ?? {}, owned: k.id === "chrome" })),
-  ...THRUSTERS.map((t) => ({ id: `thr-${t.id}`, slot: "thrusters" as Slot, ref: t.id, name: t.name, cost: THR_COST[t.id]?.[0] ?? 1000, tint: t.flame, stats: THR_COST[t.id]?.[1] ?? {}, owned: t.id === "stock" })),
-  ...COINS.map((c) => ({ id: `coin-${c.id}`, slot: "coin" as Slot, ref: c.id, name: c.name, cost: COIN_COST[c.id]?.[0] ?? 1000, tint: c.bg[1], stats: COIN_COST[c.id]?.[1] ?? {}, owned: c.id === "halo" })),
-  { id: "trail-none", slot: "trail", ref: "", name: "Clean Exhaust", cost: 0, tint: "#7d879f", stats: {}, owned: true },
-  { id: "trail-wing", slot: "trail", ref: "", name: "Wing Halo Trail", cost: 1000, tint: "#fff7df", stats: { glow: 1.2 } },
-  { id: "trail-star", slot: "trail", ref: "", name: "Star Wake", cost: 1800, tint: "#c9b6f2", stats: { glow: 1.8, aura: 0.6 } },
-  { id: "trail-gold", slot: "trail", ref: "", name: "Halo Gold", cost: 5000, tint: "#ffd060", stats: { glow: 2.6, aura: 1.2 } },
-  { id: "frame-none", slot: "frame", ref: "", name: "No Frame", cost: 0, tint: "#7d879f", stats: {}, owned: true },
-  { id: "frame-pearly", slot: "frame", ref: "", name: "Pearly Frame", cost: 800, tint: "#E8EAEE", stats: { aura: 0.8 } },
-  { id: "frame-winged", slot: "frame", ref: "", name: "Winged Border", cost: 2200, tint: "#ffe7a3", stats: { aura: 1.6 } },
-];
 const DEFAULT_EQUIP: Record<Slot, string> = { body: "body-chrome", thrusters: "thr-stock", coin: "coin-halo", trail: "trail-none", frame: "frame-none" };
-const SAMPLE_POINTS = 12_400;
 
 function rating(s: Stats) { return Math.round((s.thrust + s.handling + s.glow + s.aura + s.launch) * 20); }
 function ratingClass(r: number) { return r >= 800 ? "S" : r >= 650 ? "A" : r >= 550 ? "B" : r >= 450 ? "C" : "D"; }
@@ -57,34 +30,46 @@ function ratingClass(r: number) { return r >= 800 ? "S" : r >= 650 ? "A" : r >= 
 export default function RocketFactory() {
   const [slot, setSlot] = useState<Slot>("body");
   const [equipped, setEquipped] = useState<Record<Slot, string>>(DEFAULT_EQUIP);
-  const [owned, setOwned] = useState<string[]>([]);
-  const [points, setPoints] = useState(SAMPLE_POINTS);
+  const wallet = usePilotWallet();
+  const { xp, ready } = useXp(wallet);
+  const owned = xp?.owned ?? [];
+  const points = xp?.spendableXp ?? 0;
+  const prestige = xp?.level.prestige ?? 0;
+  const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<string>("body-chrome");
   const [note, setNote] = useState("");
   const [loaded, setLoaded] = useState(false);
 
-  // Persist loadout + sample purchases in this browser.
+  // Persist the loadout in this browser.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LOADOUT_KEY);
       if (raw) {
-        const j = JSON.parse(raw) as { equipped?: Record<Slot, string>; owned?: string[]; points?: number };
+        const j = JSON.parse(raw) as { equipped?: Record<Slot, string> };
         if (j.equipped) {
           const eq = { ...DEFAULT_EQUIP, ...j.equipped };
           for (const k of Object.keys(eq) as Slot[]) if (!PARTS.some((p) => p.id === eq[k] && p.slot === k)) eq[k] = DEFAULT_EQUIP[k];
           setEquipped(eq); setPreview(eq.body);
         }
-        if (Array.isArray(j.owned)) setOwned(j.owned);
-        if (typeof j.points === "number") setPoints(j.points);
       }
     } catch { /* ignore */ }
     setLoaded(true);
   }, []);
   useEffect(() => {
     if (!loaded) return;
-    try { localStorage.setItem(LOADOUT_KEY, JSON.stringify({ equipped, owned, points })); } catch { /* ignore */ }
-  }, [equipped, owned, points, loaded]);
-  const isOwned = (p: Part) => p.owned || p.cost === 0 || owned.includes(p.id);
+    try { localStorage.setItem(LOADOUT_KEY, JSON.stringify({ equipped })); } catch { /* ignore */ }
+  }, [equipped, loaded]);
+  const isOwned = (p: Part) => isFreePart(p) || owned.includes(p.id);
+  const locked = (p: Part) => (p.minPrestige ?? 0) > prestige;
+  // A part equipped in this browser that this pilot doesn't own (signed out, or another pilot) goes back to stock.
+  useEffect(() => {
+    if (!loaded || (wallet && !ready)) return;
+    setEquipped((e) => {
+      let changed = false; const n = { ...e };
+      for (const k of Object.keys(n) as Slot[]) { const p = PARTS.find((x) => x.id === n[k]); if (!p || !(isFreePart(p) || (xp?.owned ?? []).includes(p.id))) { n[k] = DEFAULT_EQUIP[k]; changed = true; } }
+      return changed ? n : e;
+    });
+  }, [loaded, wallet, ready, xp]);
 
   const parts = PARTS.filter((p) => p.slot === slot);
   const previewPart = PARTS.find((p) => p.id === preview) ?? parts[0];
@@ -108,14 +93,20 @@ export default function RocketFactory() {
   const skinId = part(build.body)?.ref || "chrome";
   const coinId = part(build.coin)?.ref || "halo";
   const thr = thrusterById(part(build.thrusters)?.ref || "stock");
-  const buy = () => {
+  const buy = async () => {
     const p = previewPart;
     if (isOwned(p)) { setEquipped((e) => ({ ...e, [p.slot]: p.id })); setNote(`${p.name} equipped.`); return; }
-    if (points < p.cost) { setNote(`Need ${(p.cost - points).toLocaleString()} more pts for ${p.name}.`); return; }
-    setPoints((x) => x - p.cost); setOwned((o) => [...o, p.id]);
+    if (!wallet) { setNote("Sign in to unlock parts with XP."); return; }
+    if (locked(p)) { setNote(`${p.name} unlocks at prestige ${p.minPrestige}.`); return; }
+    if (points < p.cost) { setNote(`You need ${(p.cost - points).toLocaleString("en-US")} more XP for ${p.name}.`); return; }
+    setBusy(true); setNote("");
+    const r = await buyPartWithXp(wallet, p.id);
+    setBusy(false);
+    if (!r.ok) { setNote(r.reason || "Couldn't unlock that part."); return; }
     setEquipped((e) => ({ ...e, [p.slot]: p.id }));
-    setNote(`${p.name} unlocked & equipped (sample points — real checkout opens when cosmetics go live).`);
+    setNote(`${p.name} unlocked and equipped.`);
   };
+  const cta = (p: Part) => isOwned(p) ? "Equip" : locked(p) ? `Prestige ${p.minPrestige}` : `Unlock · ${p.cost.toLocaleString("en-US")} XP`;
 
   return (
     <div className={`factory-hangar ${hs.wrapOuter}`}>
@@ -172,8 +163,8 @@ export default function RocketFactory() {
               </div>
             </div>
             <div className={hs.pts}>
-              <div className={hs.ptsLab}>POINTS</div>
-              <div className={hs.ptsVal}>{points.toLocaleString()} <span>pts</span></div>
+              <div className={hs.ptsLab}>XP TO SPEND</div>
+              <div className={hs.ptsVal} data-testid="factory-xp">{wallet ? points.toLocaleString("en-US") : "–"} <span>XP</span></div>
             </div>
           </header>
           <div className={hs.cap}>
@@ -209,16 +200,17 @@ export default function RocketFactory() {
           <button
             type="button"
             className={`${hs.equip}${!isEquipped && !isOwned(previewPart) ? " " + hs.unlock : ""}`}
-            disabled={isEquipped}
+            disabled={isEquipped || busy}
             onClick={buy}
+            data-testid="factory-unlock"
           >
             {isEquipped && (
               <svg viewBox="0 0 14 14" aria-hidden><path d="M2.5 7.5 5.5 10.5 11.5 3.5" stroke="currentColor" strokeWidth="1.6" fill="none" /></svg>
             )}
-            {isEquipped ? "Equipped" : isOwned(previewPart) ? "Equip" : `Unlock · ${previewPart.cost.toLocaleString()} pts`}
+            {isEquipped ? "Equipped" : busy ? "Unlocking…" : cta(previewPart)}
           </button>
           {note && <p className={hs.status} role="status">{note}</p>}
-          <p className={hs.note}>Cosmetic only — upgrades never change price, fills or odds.</p>
+          <p className={hs.note}>Looks only. Parts never change price, fills or odds.</p>
         </aside>
       </div>
 
@@ -236,13 +228,13 @@ export default function RocketFactory() {
             onClick={() => { setPreview(p.id); setNote(""); }}>
             <PartSwatch p={p} />
             <span className="fc-name">{p.name}</span>
-            <span className="fc-cost">{equipped[p.slot] === p.id ? "EQUIPPED" : isOwned(p) ? "OWNED" : `${p.cost.toLocaleString()} pts`}</span>
+            <span className="fc-cost">{equipped[p.slot] === p.id ? "EQUIPPED" : isOwned(p) ? "OWNED" : locked(p) ? `PRESTIGE ${p.minPrestige}` : `${p.cost.toLocaleString("en-US")} XP`}</span>
           </button>
         ))}
       </div>
       <footer className="factory-foot">
-        <span><span className="tag mock">SAMPLE PARTS</span> · Prestige unlocks rarer parts</span>
-        <span className="muted tiny">Click a part to preview it live · Unlock with points · saved in this browser</span>
+        <span>Earn XP from missions. Prestige unlocks the rarest parts.</span>
+        <span className="muted tiny">Tap a part to try it on</span>
       </footer>
       </div>
     </div>

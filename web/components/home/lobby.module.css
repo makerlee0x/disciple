@@ -1,0 +1,147 @@
+/* The lobby (components/home/Lobby), after the brand v3 lobby mockup: night-sky page, door one + the side column, the
+ * shelves, the four steps. Each rocket card carries its light colour as --c. */
+.page {
+  position: relative; isolation: isolate; min-height: 100vh; padding-bottom: 64px;
+  background: var(--dsc3-page-bg);
+}
+.page::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image: var(--dsc3-grain); opacity: var(--dsc3-grain-opacity); mix-blend-mode: overlay;
+}
+.lobby { max-width: 1360px; margin: 0 auto; padding: 32px 40px 0; position: relative; z-index: 5; display: flex; flex-direction: column; gap: 56px; box-sizing: border-box; }
+.up { color: var(--dsc3-signal-up); font-style: normal; font-weight: 600; }
+.dn { color: var(--dsc3-signal-down); font-style: normal; font-weight: 600; }
+
+/* the coin's mark: image, else its initial on its light */
+.mark {
+  display: inline-flex; align-items: center; justify-content: center; overflow: hidden; flex: none; border-radius: 50%;
+  background: var(--c, var(--dsc3-light-champagne)); color: var(--dsc-sky-ink); font: 800 15px / 1 var(--dsc-font-game);
+}
+.mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* the chrome rocket on its light; .hull = the coin mark on the body */
+.rocket { position: relative; display: block; flex: none; }
+.bloom { position: absolute; left: 50%; top: 6%; width: 120%; aspect-ratio: 1; transform: translateX(-50%); border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--c) 48%, transparent), transparent); }
+.rocketImg { position: relative; display: block; height: 100%; width: auto; margin: 0 auto; filter: drop-shadow(0 -2px 14px rgba(243, 223, 168, .18)); }
+.hull { position: absolute; left: 50%; top: 40%; width: 24%; aspect-ratio: 1; transform: translate(-50%, -50%); border: 2px solid var(--dsc3-light-gold); font-size: 13px; }
+
+/* door one + the side column */
+.doors { display: flex; flex-wrap: wrap; gap: 24px; align-items: stretch; }
+.side { flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 24px; }
+
+/* door two */
+.join { position: relative; overflow: hidden; padding: 28px; display: flex; flex-direction: column; gap: 18px; }
+.joinBloom { position: absolute; right: -60px; top: -60px; width: 220px; height: 220px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(68, 212, 226, .35), rgba(68, 212, 226, 0)); }
+.live { position: relative; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dsc-muted-on-sky); }
+.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--dsc3-signal-up); }
+.joinTitle { position: relative; margin: 0; font: 800 48px / .95 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.ride { position: relative; display: flex; align-items: center; gap: 16px; color: var(--dsc-text); text-decoration: none; border-radius: 12px; min-width: 0; }
+.ride:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+.rideRocket { width: 72px; height: 96px; border-radius: 12px; overflow: hidden; padding: 6px 0;
+  background: var(--dsc-sky-ink); box-sizing: border-box; }
+.rideRocket .bloom { top: 10%; }
+.rideTx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.rideTx b { font: 700 26px / 1.05 var(--dsc-font-game); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ride:hover .rideTx b { color: #FFFFFF; text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
+.rideSub { font: 12px var(--dsc-font-mono); color: var(--dsc-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rideNums { font-size: 13px; color: var(--dsc-muted-on-sky); }
+.joinActions { position: relative; display: flex; gap: 12px; }
+.dropIn { flex: 1 1 auto; }
+.shuffle {
+  all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 52px; padding: 0 18px; border-radius: var(--dsc3-control-radius); border: 1px solid var(--dsc3-panel-border);
+  color: var(--dsc-text); font: 600 14px / 1 var(--dsc-font-ui);
+}
+.shuffle:hover { border-color: var(--dsc-border-color-strong, rgba(201, 206, 214, .45)); }
+.shuffle:focus-visible { box-shadow: var(--dsc-glow-focus-ring); }
+
+/* daily missions, the mockup's lighter list (MissionsPanel's .xp-* classes) */
+.missions { flex: 1; padding: 24px 28px; gap: 16px; background: var(--dsc3-panel-glass); }
+.missions :global(.xp-missions-head h2) { font: 800 26px / 1 var(--dsc-font-game); text-transform: uppercase; }
+.missions :global(.xp-mission-list) { gap: 14px; }
+.missions :global(.xp-mission) { padding: 0; gap: 6px; background: none; border: 0; border-radius: 0; }
+.missions :global(.xp-mission-title) { font-size: 14px; }
+.missions :global(.xp-mission-xp) { font: 12px var(--dsc-font-mono); }
+.missions :global(.dsc3-bar > i) { background: var(--dsc3-light-gold); }
+.missions :global(.xp-mission.done .dsc3-bar > i) { background: var(--dsc3-signal-up); }
+.more { margin-top: auto; align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; min-height: 40px;
+  font: 600 14px / 1 var(--dsc-font-ui); color: var(--dsc3-light-champagne); text-decoration: none; }
+.more:hover { color: #FFFFFF; }
+.more:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); border-radius: 6px; }
+
+/* shelves */
+.shelf { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.shelfHd { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; }
+.shelfT { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+.shelfT p { margin: 0; font-size: 14px; color: var(--dsc-muted); }
+.seeAll { display: inline-flex; align-items: center; min-height: 40px; padding: 0 8px; font: 600 14px / 1 var(--dsc-font-ui); color: var(--dsc3-light-champagne); text-decoration: none; }
+.seeAll:hover { color: #FFFFFF; }
+.allHd { margin-bottom: 4px; scroll-margin-top: calc(var(--lb-bar-h) + 16px); }
+
+/* climbing now */
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+/* about to reach orbit */
+.orbitGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.orbit {
+  display: flex; align-items: center; gap: 16px; padding: 16px; min-width: 0; border-radius: var(--dsc3-tile-radius);
+  background: linear-gradient(90deg, rgba(242, 193, 78, .10), rgba(22, 24, 28, .9) 60%); border: 1px solid rgba(242, 193, 78, .35);
+  color: var(--dsc-text); text-decoration: none; transition: transform 160ms var(--dsc3-ease);
+}
+.orbit:hover { transform: var(--dsc3-lift); }
+.orbit:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+.orbitRocket { --c: var(--dsc3-light-champagne); width: 56px; height: 80px; padding: 5px 0; box-sizing: border-box; border-radius: 10px; overflow: hidden; background: var(--dsc-sky-ink); }
+.orbitRocket .bloom { top: 12%; }
+.orbitRocket .hull { display: none; }
+.orbitTx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.orbitTop { display: flex; justify-content: space-between; gap: 8px; }
+.orbitTop b { font: 700 22px / 1.05 var(--dsc-font-game); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.orbitPct { font: 700 22px / 1.05 var(--dsc-font-game); color: var(--dsc3-light-gold); }
+.orbitFt { font-size: 12px; color: var(--dsc-muted); }
+
+/* fresh off the pad */
+.freshRow { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.freshRow::-webkit-scrollbar { display: none; }
+.fresh {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 10px 18px 10px 10px; border-radius: 999px;
+  background: #16181C; border: 1px solid var(--dsc3-panel-border); color: var(--dsc-text); text-decoration: none;
+}
+.fresh:hover { border-color: color-mix(in srgb, var(--c) 55%, transparent); }
+.fresh:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+.freshMark { width: 36px; height: 36px; font-size: 17px; }
+.freshTx { display: flex; flex-direction: column; }
+.freshTx b { font-weight: 600; font-size: 14px; white-space: nowrap; }
+.freshTx span { font-size: 12px; color: var(--dsc-muted); white-space: nowrap; }
+
+/* the four steps, at the foot of the lobby */
+.steps { max-width: 1280px; margin: 64px auto 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px;
+  border-radius: var(--dsc3-panel-radius); overflow: hidden; background: var(--dsc3-panel-border); border: 1px solid var(--dsc3-panel-border); }
+.stepCell { display: flex; flex-direction: column; gap: 8px; padding: 24px; background: #16181C; color: var(--dsc-text); text-decoration: none; }
+.stepCell:hover { background: #1B1E23; }
+.stepCell:focus-visible { outline: none; box-shadow: inset var(--dsc-glow-focus-ring); }
+.stepN { font: var(--dsc3-type-label); color: var(--dsc3-light-gold); }
+.stepCell b { font: var(--dsc3-type-h3); text-transform: uppercase; }
+.stepCell > span:last-child { font: var(--dsc3-type-small); color: var(--dsc-muted-on-sky); }
+
+@media (max-width: 1100px) {
+  .lobby { padding: 24px 24px 0; }
+  .steps { margin: 48px 24px 0; }
+}
+@media (max-width: 760px) {
+  .lobby { padding: 16px 16px 0; gap: 40px; }
+  .doors, .side { gap: 16px; }
+  .join { padding: 20px; gap: 14px; }
+  .joinTitle { font-size: 40px; }
+  .missions { padding: 20px; }
+  .tiles { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: 72%; overflow-x: auto; scroll-snap-type: x mandatory;
+    margin: 0 -16px; padding: 0 16px 4px; scrollbar-width: none; }
+  .tiles::-webkit-scrollbar { display: none; }
+  .tiles > * { scroll-snap-align: start; }
+  .orbitGrid { grid-template-columns: minmax(0, 1fr); }
+  .freshRow { margin: 0 -16px; padding: 0 16px 4px; }
+  .allHd { margin-bottom: 0; }
+  .steps { margin: 40px 16px 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stepCell { padding: 18px; }
+}
+@media (prefers-reduced-motion: reduce) { .orbit { transition: none; } .orbit:hover { transform: none; } }
