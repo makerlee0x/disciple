@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import LevelRing from "@/components/xp/LevelRing";
 import { usePilotWallet, useXp } from "@/lib/xpClient";
 import { FLIGHT_TIERS, GRAD_BADGE, tierIndexAt } from "@/lib/flight/tiers";
-import { WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, walletCtaLabel, walletId, type WalletId } from "@/lib/walletCta";
+import { WALLET_CTA_EVENT, WALLET_ID_EVENT, walletCtaLabel, walletId, type WalletId } from "@/lib/walletCta";
 
 /**
  * Phone flight HUD v2 (viewport ≤ PHONE_W / max-width:760px, not ?clean=1). Built from the approved boards
@@ -193,10 +193,8 @@ export default function PhoneHud() {
         <div data-testid="phone-toprow" style={{ position: "fixed", left: 12, right: 12, top: L.top, zIndex: 45, display: "flex", alignItems: "center", justifyContent: "space-between", pointerEvents: "none" }}>
           <button type="button" aria-label="Menu" data-testid="phone-menu" onClick={openMenu} style={{ ...sq, pointerEvents: "auto" }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 7h16M4 12h16M4 17h16" /></svg></button>
-          {cta ? <button type="button" data-testid="phone-signin" onClick={() => dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT))}
-            style={{ all: "unset", pointerEvents: "auto", cursor: "pointer", height: 44, boxSizing: "border-box", padding: "0 18px", borderRadius: 999, background: "#F2C14E", color: "#121327",
-              display: "flex", alignItems: "center", font: `800 17px/1 ${G}`, letterSpacing: ".04em", textTransform: "uppercase" }}>{cta}</button>
-            : name ? <Link href="/achievements" data-testid="phone-pilot" aria-label={xp ? `Level ${xp.level.level}, ${name}. See trophies` : name}
+          {/* signed out (maker 2026-11-13, "Sign in on the trade bar"): no pill up here; the trade bar's SIGN IN TO PLAY is the one action */}
+          {!cta && name ? <Link href="/achievements" data-testid="phone-pilot" aria-label={xp ? `Level ${xp.level.level}, ${name}. See trophies` : name}
               style={{ ...glass, pointerEvents: "auto", display: "flex", alignItems: "center", gap: 8, height: 44, padding: `0 12px 0 ${xp ? 6 : 12}px`, borderRadius: 999, color: "#F2F3F7", textDecoration: "none", maxWidth: "calc(100vw - 140px)" }}>
               {xp && <LevelRing info={xp.level} size={32} />}
               <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span></Link>

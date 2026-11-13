@@ -844,7 +844,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       onPickSell={(i) => { setSellCustom(""); selSell.current(i); }}
       buyWarn={warns.buy.map((w) => chipTag("buy", w))} sellWarn={warns.sell.map((w) => chipTag("sell", w))}
       warn={warnText} warnOver={warnOver}
-      hint={phoneHint} keyGuard={noKeyActivate} />
+      hint={phoneHint} keyGuard={noKeyActivate} noSignIn={token === "SIMULATOR"} />
     {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
       onClose={() => setShowCfg(false)}
       onSave={(n) => { setCfg(n); saveSettings(scope, n); setShowCfg(false); }} />}

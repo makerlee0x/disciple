@@ -2,6 +2,7 @@
 
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
+import { WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, walletCtaLabel } from "@/lib/walletCta";
 
 /**
  * Phone trade bar v2 (html.ap-phone; approved board "Phone v2 · 1 Flying", maker 2026-11-13). Layout only: every action is
@@ -38,6 +39,8 @@ export type PhoneTradeBarProps = {
   /** the side the user is touching (button, chip) → TradeBridge shows only that side's warning */
   onSide?: (side: "buy" | "sell") => void;
   keyGuard: { onKeyDown: (e: React.KeyboardEvent) => void; onKeyUp: (e: React.KeyboardEvent) => void };
+  /** the simulator plays without an account: never swap in SIGN IN TO PLAY there */
+  noSignIn?: boolean;
 };
 /** chip money: $10 · $2.50 · $1.20K (whole dollars drop the cents) */
 export const chipUsd = (v: number) => (!(v > 0) ? "$0" : v >= 1000 ? (v >= 1e6 ? `$${+(v / 1e6).toFixed(2)}M` : `$${+(v / 1e3).toFixed(2)}K`) : Number.isInteger(v) ? `$${v}` : `$${v.toFixed(2)}`);
@@ -62,6 +65,11 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
   const [holding, setHolding] = useState(false);
   const [holdHint, setHoldHint] = useState(false);
   const lastPart = useRef(-1);
+  // signed out (maker 2026-11-13, "Sign in on the trade bar"): the bar is ONE gold SIGN IN TO PLAY button (the wallet's own
+  // login, lib/walletCta); the amount chips and DUMP come back once you're in
+  const [cta, setCta] = useState<string | null>(null);
+  useEffect(() => { setCta(walletCtaLabel()); const c = (e: Event) => setCta((e as CustomEvent<{ label: string | null }>).detail?.label ?? null);
+    addEventListener(WALLET_CTA_EVENT, c); return () => removeEventListener(WALLET_CTA_EVENT, c); }, []);
   const endHold = () => { if (holdT.current != null) { clearTimeout(holdT.current); holdT.current = null; } setHolding(false); };
   useEffect(() => () => endHold(), []);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!holdHint) return; const t = setTimeout(() => setHoldHint(false), 1600); return () => clearTimeout(t); }, [holdHint]);
@@ -103,6 +111,19 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
       className={`ph-chip${o.sel ? " sel" : ""}${o.dump ? " dump" : ""}${o.over && !o.sel ? " over" : ""}`} data-over={o.over ? "1" : undefined}
       onClick={o.onTap}>{o.label}{o.tag ? <i className={`ph-chip-tag${o.tag.endsWith("!") ? " over" : ""}`} aria-hidden /> : null}</button>;
   const bw = p.buyWarn || [], sw = p.sellWarn || [];
+  if (cta && !p.noSignIn) return (
+    <div aria-label="trade bar" data-testid="trade-bar" data-signed-out="1" className="ph-bar">
+      <button type="button" className="ph-fire ph-boost ph-signin" data-testid="phone-signin" data-haptic="boost" onClick={() => dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT))}>
+        <span className="ph-lbl">SIGN IN TO PLAY</span></button>
+      <style jsx global>{`
+        .ph-bar { position: fixed; left: 12px; right: 12px; bottom: var(--ph-bar-bottom, 24px); z-index: 40; display: flex; }
+        .ph-signin { flex: 1 1 0; all: unset; box-sizing: border-box; flex: 1 1 0; height: 64px; border-radius: 16px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+          background: #F2C14E; color: #121327; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+        .ph-signin:active { transform: scale(.97); filter: brightness(1.1); }
+        .ph-signin:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+        .ph-signin .ph-lbl { font: 800 26px/1 var(--dsc-font-game, var(--font-barlow-condensed), 'Barlow Condensed', 'Arial Narrow', sans-serif); letter-spacing: 1px; }
+      `}</style>
+    </div>);
   return (
     <div aria-label="trade bar" data-testid="trade-bar" className="ph-bar">
       {holdHint ? <div data-testid="hold-hint" className="ph-hint">Hold to dump all</div>
