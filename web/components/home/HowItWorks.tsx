@@ -1,62 +1,92 @@
 "use client";
 /**
- * First-visit "How DISCIPLE works" (BRAND app-home r1, mock C; copy approved by lee). Opened by HowItWorksHost:
- * automatically once per visitor on the home page, and any time from Help in the sidebar.
- * Accessible dialog: aria-modal + labelled/described, focus moves in and is trapped, Esc / ✕ / backdrop / the primary
- * button (and "How it works →", which navigates to /how-it-works) close it, focus returns to where it was.
+ * Quick help (round 2 "Quick help" board, maker 2026-11-13): replaces the old "How DISCIPLE works" popup. The 20-second
+ * version for Help in flight (sidebar Help → HowItWorksHost), so a pilot can check the keys without leaving the rocket.
+ * Same words as the How to play page. Desktop: a popup with a sky header and three step cards (keys). Phone: a bottom
+ * sheet, taps instead of keys. Esc, ✕, the backdrop and "Back to the flight" close it; focus returns where it was
+ * (components/profile/Sheet).
  */
-import { useEffect, useRef } from "react";
 import Link from "next/link";
+import Sheet from "@/components/profile/Sheet";
 import { withBase } from "@/lib/base-path";
-import Icon from "@/components/icons/Icon";
-import HowItWorksSteps from "./HowItWorksSteps";
-import s from "./howItWorks.module.css";
+import { Warn } from "@/components/cash/bits";
 
-const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+export const QUICK_HELP_COPY = {
+  eyebrow: "How to play",
+  title: "Your first flight",
+  lede: "Seats cost real cash. Cash out for more than you paid in, and you win.",
+  steps: [
+    { tone: "up", tag: "Climb", title: "Boost", body: "Pick an amount, then hit Space. Your cash buys a seat and lifts the rocket.", keys: ["1", "2", "3", "4"], key: "Space",
+      phone: "Tap an amount, then BOOST. You buy a seat and lift the rocket." },
+    { tone: "down", tag: "Cash out", title: "Dump", body: "Pick how much, then hit Shift. You get cash back and drop a bomb.", keys: ["Z", "X", "C", "V"], key: "Shift",
+      phone: "Tap how much, then DUMP. Hold DUMP ALL to sell everything." },
+    { tone: "gold", tag: "Crew goal", title: "Reach orbit", body: "At $33,333 the rocket breaks into orbit and the sky opens up. Everyone aboard gets the moment.", keys: [], key: "$3,333 → $33,333",
+      phone: "At $33,333 the rocket breaks into orbit. That's the crew goal.", phoneTag: "Orbit" },
+  ],
+  warn: "If the rocket falls below where you boarded, your bag is worth less than you paid. Only fly with cash you're fine losing.",
+  warnPhone: "Only fly with cash you're fine losing.",
+  tutorial: "Full tutorial",
+  back: "Back to the flight",
+  backPhone: "Back to flight",
+} as const;
+
+function X() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg>;
+}
 
 export default function HowItWorks({ onClose }: { onClose: () => void }) {
-  const box = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    box.current?.focus({ preventScroll: true }); // the dialog itself; Tab moves to ✕ / To the moon
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
-      if (e.key !== "Tab" || !box.current) return;
-      const f = Array.from(box.current.querySelectorAll<HTMLElement>(FOCUSABLE));
-      if (!f.length) return;
-      const first = f[0], last = f[f.length - 1];
-      if (e.shiftKey && (document.activeElement === first || document.activeElement === box.current || !box.current.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && (document.activeElement === last || !box.current.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = overflow;
-      prev?.focus?.({ preventScroll: true });
-    };
-  }, [onClose]);
-
+  const C = QUICK_HELP_COPY;
+  const sky = withBase("/home/sky/t6.webp");
   return (
-    <div className={s.ov} onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div ref={box} className={s.card} role="dialog" aria-modal="true" tabIndex={-1} aria-labelledby="hiw-title" aria-describedby="hiw-steps">
-        <div className={s.hd} style={{ backgroundImage: `url(${withBase("/home/hiw-header.webp")})` }}>
-          <button type="button" className={s.close} onClick={onClose} aria-label="Close How DISCIPLE works"><Icon name="close" size={16} /></button>
-          <div className={s.hdTxt}>
-            <span className={s.eyebrow}>First flight</span>
-            <h2 id="hiw-title" className={s.title}>How DISCIPLE works</h2>
-          </div>
-        </div>
-        <div className={s.body}>
-          <HowItWorksSteps id="hiw-steps" />
-          <div className={s.foot}>
-            <button type="button" className={`${s.btn} ${s.pri}`} onClick={onClose}>To the moon</button>
-            <Link className={s.btn} href="/how-it-works" prefetch={false} onClick={onClose}>How it works →</Link>
-          </div>
+    <Sheet open onClose={onClose} label={C.title} className="r2-modal qh-modal" testId="quick-help">
+      {/* desktop */}
+      <div className="qh-hd cx-d" style={{ backgroundImage: `url(${sky})` }}>
+        <button type="button" className="r2-x qh-x" aria-label="Close" onClick={onClose}><X /></button>
+        <div className="qh-hdtxt">
+          <span className="r2-eb">{C.eyebrow}</span>
+          <h2 className="r2-g" id="qh-title">{C.title}</h2>
         </div>
       </div>
-    </div>
+      <div className="qh-body cx-d">
+        <p className="qh-lede">{C.lede}</p>
+        <div className="qh-steps">
+          {C.steps.map((s) => (
+            <div key={s.title} className={`qh-step ${s.tone}`}>
+              <span className="qh-tag"><span className="qh-dot" /><span className="r2-eb">{s.tag}</span></span>
+              <h3>{s.title}</h3>
+              <p>{s.body}</p>
+              <div className="qh-keys">
+                {s.keys.map((k) => <span key={k} className="qh-k">{k}</span>)}
+                <span className={`qh-k ${s.keys.length ? `wide ${s.tone}` : "txt"}`}>{s.key}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="qh-warn"><Warn /><span>{C.warn}</span></div>
+        <div className="qh-acts">
+          <Link className="qh-btn" href="/how-it-works" prefetch={false} onClick={onClose}>{C.tutorial}</Link>
+          <button type="button" className="r2-gold qh-gold" onClick={onClose} data-autofocus>{C.back}</button>
+        </div>
+      </div>
+      {/* phone: bottom sheet */}
+      <div className="qh-pbody cx-p">
+        <div className="qh-phead">
+          <div><span className="r2-eb">{C.eyebrow}</span><h2 className="r2-g">{C.title}</h2></div>
+          <button type="button" className="r2-x" aria-label="Close" onClick={onClose}><X /></button>
+        </div>
+        <p className="qh-lede">{C.lede}</p>
+        {C.steps.map((s) => (
+          <div key={s.title} className={`qh-step row ${s.tone}`}>
+            <span className="r2-g qh-chip">{"phoneTag" in s ? s.phoneTag : s.title}</span>
+            <p>{s.phone}</p>
+          </div>
+        ))}
+        <span className="qh-pwarn">{C.warnPhone}</span>
+        <div className="qh-pacts">
+          <Link className="qh-btn" href="/how-it-works" prefetch={false} onClick={onClose}>{C.tutorial}</Link>
+          <button type="button" className="r2-gold" onClick={onClose}>{C.backPhone}</button>
+        </div>
+      </div>
+    </Sheet>
   );
 }

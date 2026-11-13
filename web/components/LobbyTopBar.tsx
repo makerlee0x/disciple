@@ -15,7 +15,9 @@ import LevelChip from "@/components/xp/LevelChip";
 import Icon, { type IconName } from "@/components/icons/Icon";
 
 // icons show only in the phone bottom tab bar (≤760px, mobile plan option A); desktop keeps the text tabs
-type Tab = { href: string; key: string; label: string; icon: IconName; you?: boolean };
+// you: signed-in only. outPhone: on phones, signed-out only (round 2 Quick help board: How to play is the 4th phone tab
+// for signed-out pilots; signed-in phones keep their five tabs).
+type Tab = { href: string; key: string; label: string; icon: IconName; you?: boolean; outPhone?: boolean };
 
 const TABS: readonly Tab[] = [
   { href: "/", key: "lobby", label: "Lobby", icon: "home" },
@@ -23,6 +25,7 @@ const TABS: readonly Tab[] = [
   { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot", you: true },
   { href: "/leaderboard", key: "leader", label: "Leaderboard", icon: "leaderboard" },
   { href: "/achievements", key: "trophies", label: "Trophies", icon: "achievement", you: true },
+  { href: "/how-it-works", key: "hiw", label: "How to play", icon: "info", outPhone: true },
 ];
 
 export default function LobbyTopBar() {
@@ -55,15 +58,11 @@ export default function LobbyTopBar() {
       </Link>
       <nav className="lb-tabs" aria-label="Main">
         {tabs.map((t) => (
-          <Link key={t.key} href={t.href} className={isOn(t.href) ? "on" : ""} aria-current={isOn(t.href) ? "page" : undefined}>
+          <Link key={t.key} href={t.href} className={`${isOn(t.href) ? "on" : ""}${t.outPhone ? " lb-outphone" : ""}`} aria-current={isOn(t.href) ? "page" : undefined} data-testid={t.key === "hiw" ? "topbar-hiw" : undefined}>
             <Icon name={t.icon} size={22} className="lb-ico" />
             <span className="lb-lbl">{t.label}</span>
           </Link>
         ))}
-        <button type="button" className="lb-tab-btn" aria-haspopup="dialog" data-testid="topbar-hiw"
-          onClick={() => window.dispatchEvent(new Event("dsc:hiw"))}>
-          How to play
-        </button>
       </nav>
       {!you && (
         <Link href="/play" prefetch={false} className="lb-playnow" data-testid="topbar-play">Play now</Link>
