@@ -20,3 +20,19 @@ export const WALLET_ID_EVENT = "disciple:wallet-id";
 /** Last published identity (for a Sidebar that mounts after the pill). */
 export const walletId = (): WalletId | null =>
   typeof window === "undefined" ? null : ((window as unknown as { __walletId?: WalletId | null }).__walletId ?? null);
+
+/** Sign-in words (step 5 board): the Privy window's title + line, the setting-up button, the failure note, the first-landing toast. */
+export const SIGN_IN_COPY = {
+  header: "Sign in to DISCIPLE",
+  line: "One sign-in, then every boost is one tap. No wallet needed.",
+  signIn: "Sign in",
+  settingUp: "Setting up…",
+  failed: "Sign-in didn't finish. Nothing was charged.",
+  retry: "Try again",
+  welcomeTitle: "You're in, pilot",
+  welcomeBody: "Add cash to take your first seat. Your Hangar is ready.",
+  addCash: "Add cash",
+  later: "Later",
+} as const;
+/** PrivyMount: the account setup after the Privy window failed (WalletButton shows the pink retry line). */
+export const SIGN_IN_FAILED_EVENT = "disciple:signin-failed";
