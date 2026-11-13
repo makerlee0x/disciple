@@ -8,6 +8,7 @@ import { publicClient } from "@/lib/protocol-viem";
 import { probeCaps, staticCaps, type Caps } from "@/lib/claims/capabilities";
 import { DEMO_CAPS, demoEnabled, demoRedeploy } from "@/lib/claims/demo";
 import { fmtAmount, fmtUsd, toUsd, type Asset } from "@/lib/claims/common";
+import ClaimSheet, { type ClaimRow } from "./ClaimSheet";
 
 let pcInst: PublicClient | null = null;
 export const pc = () => (pcInst ??= publicClient());
@@ -51,34 +52,20 @@ export function TxLink({ hash, children }: { hash: Hex | string; children?: Reac
   return base ? <a className="cl-tx" href={`${base}/tx/${hash}`} target="_blank" rel="noreferrer noopener">{children ?? shortA(hash)}</a> : <span className="cl-tx">{children ?? shortA(hash)}</span>;
 }
 
-export type ConfirmLine = { label: string; raw: bigint; asset: Asset };
-/** Claim confirm state: what lands where, then Confirm. */
-export function ConfirmSheet({ title, lines, to, note, feeNote, busy, error, done, onConfirm, onClose, confirmLabel = "Confirm claim" }: {
-  title: string; lines: ConfirmLine[]; to: string | null; note?: string; feeNote?: string | null; busy?: boolean; error?: string | null; done?: Hex | null;
+export type ConfirmLine = { label: string; raw: bigint; asset: Asset; sub?: string | null };
+/** Is this asset cash (USDG, ~$1)? */
+export const isCashAsset = (a: Asset) => a.symbol === "USDG" || (a.usd != null && Math.abs(a.usd - 1) < 0.05 && /USD/i.test(a.symbol));
+/**
+ * Claim confirm (the round 2 claim sheet, components/claims/ClaimSheet): "You get $x", the split, Claim. Old props stay
+ * for callers; `to` and `note` are no longer shown (dollars and where they land, never addresses or contract names).
+ */
+export function ConfirmSheet({ title, lines, feeNote, busy, error, done, onConfirm, onClose, confirmLabel }: {
+  title: string; lines: ConfirmLine[]; to?: string | null; note?: string; feeNote?: string | null; busy?: boolean; error?: string | null; done?: Hex | null;
   onConfirm: () => void; onClose: () => void; confirmLabel?: string;
 }) {
-  return (
-    <div className="cl-sheet-wrap" role="dialog" aria-modal="true" aria-label={title} data-testid="claim-confirm">
-      <div className="cl-sheet">
-        <div className="cl-eyebrow">{done ? "Done" : "Confirm"}</div>
-        <h3 className="cl-display">{done ? "Claimed" : title}</h3>
-        <ul className="cl-lines">
-          {lines.map((l, i) => (
-            <li key={i}><span className="muted">{l.label}</span><Money raw={l.raw} asset={l.asset} /></li>
-          ))}
-        </ul>
-        {to && <div className="cl-to"><span className="muted">To</span><code>{shortA(to)}</code></div>}
-        {note && !done && <p className="cl-note">{note}</p>}
-        {feeNote && !done && <p className="cl-note" data-testid="claim-fee-note">{feeNote}</p>}
-        {error && <p className="cl-err" role="alert">{error}</p>}
-        {done && <p className="cl-ok">Sent · <TxLink hash={done} /></p>}
-        <div className="cl-actions">
-          <button type="button" className="cl-btn ghost" onClick={onClose}>{done ? "Close" : "Cancel"}</button>
-          {!done && <button type="button" className="cl-btn primary" disabled={busy} onClick={onConfirm} data-testid="claim-confirm-btn">{busy ? "Sending…" : confirmLabel}</button>}
-        </div>
-      </div>
-    </div>
-  );
+  const rows: ClaimRow[] = lines.map((l) => ({ label: l.label, sub: l.sub ?? (isCashAsset(l.asset) ? null : `Paid in ${l.asset.symbol}`), usd: toUsd(l.raw, l.asset) ?? 0 }));
+  return <ClaimSheet title={title} rows={rows} allCash={lines.every((l) => isCashAsset(l.asset))} feeNote={feeNote} busy={busy} error={error} done={done}
+    onConfirm={onConfirm} onClose={onClose} confirmLabel={confirmLabel && confirmLabel !== "Confirm claim" ? confirmLabel : undefined} />;
 }
 
 export function SampleTag({ show }: { show: boolean }) {

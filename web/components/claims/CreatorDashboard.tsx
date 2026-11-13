@@ -1,29 +1,80 @@
 "use client";
 /**
- * /creator — Rocket creator dashboard (v4): per rocket claimable fees (quote coin + USD), launch-token share
- * (post-grad), lifetime earned, claimed so far, recent accruals, Claim / Claim all, and verified-badge requests.
+ * /creator = Host earnings (round 2 "Claims + Host earnings" board, maker 2026-11-13). You earn a cut of every boost and
+ * dump on the rockets you launched; each rocket gets its own bay card. Dollars first; the coin it's paid in is a small
+ * note. Ready to claim + Claim all, Earned all time, Already claimed; per rocket: Ready, Claim $x (or Share it to get a
+ * crew), earned / claimed, Latest, and the verification row (Get verified popup).
  *   wallet launches  FeeRouter creatorAccrued + claimCreatorFees, creatorTokenAccrued + claimCreatorTokenFees
  *   private          the coin's AnonLauncher (v2, or v1 legacy) pending(token) + claimMany / claimManyBySig (stealth key)
- * Every claim is eth_call-simulated first so a revert shows plain copy before anything is signed.
+ * Every claim is eth_call-simulated first so a revert shows plain copy before anything is signed. Claim logic unchanged.
+ * Tier, crew and difficulty come from the lobby data (/api/home); Boost / Dump and names in Latest from /api/trades.
  */
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Hex } from "viem";
 import { creatorClaimCalls, creatorDashboard, sendCreatorClaims, signedAnonClaimCalls, type CreatorRocket } from "@/lib/claims/creatorFees";
 import { myStealthCoins, myStealthKeys } from "@/lib/privateLaunch";
-import { claimErrorText, fmtUsd, preflight, toUsd } from "@/lib/claims/common";
+import { claimErrorText, preflight, toUsd } from "@/lib/claims/common";
 import { demoRockets, demoRedeploy } from "@/lib/claims/demo";
 import { rocketsListView, walletPending, type WalletPhase } from "@/lib/claims/rocketsListView";
 import { connectedAddress, connectPrivy, onWallet, restoreSmart } from "@/lib/wallet";
 import { aaSession, onPrivy, privyAuthenticated, privyReady } from "@/lib/aa/session";
-import VerifiedBadge from "@/components/VerifiedBadge";
-import { ConfirmSheet, Money, SampleTag, TxLink, pc, shortA, useCaps, type ConfirmLine } from "./ui";
+import { withBase } from "@/lib/base-path";
+import { ROCKET_SRC, tierProgress, type HomeCoin, type HomeData } from "@/lib/home/trending";
+import { difficultyOf } from "@/lib/difficulty";
+import { lightOf } from "@/components/home/rocketBits";
+import { lookupName } from "@/lib/nameLookup";
+import { displayName } from "@/lib/defaultUsername";
+import { usd2 } from "@/components/cash/bits";
+import { ConfirmSheet, SampleTag, isCashAsset, pc, useCaps, type ConfirmLine } from "./ui";
 import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
 import { partitionRelayableCalls, blockedCallsMessage } from "@/lib/trade/gaslessAction";
 import { formatActionFeeNote, quoteGaslessAction } from "@/lib/trade/gaslessActionClient";
 import VerifyRequest from "./VerifyRequest";
 
+export const HOST_COPY = {
+  eyebrow: "Host earnings",
+  title: "Host earnings",
+  sub: "You earn a cut of every boost and dump on the rockets you launched. Each rocket gets its own bay card.",
+  back: "Back to your Hangar",
+  ready: "Ready to claim",
+  claimAll: (v: string) => `Claim all ${v}`,
+  claimAllShort: "Claim all",
+  fromN: (n: number) => (n === 1 ? "From 1 rocket." : `From ${n} rockets, in one go.`),
+  earned: "Earned all time", earnedShort: "All time",
+  claimed: "Already claimed", claimedShort: "Claimed",
+  readyRow: "Ready",
+  paidCash: "Paid in cash",
+  paidIn: (coin: string, share: boolean) => `Paid in ${coin}${share ? ", plus a rocket share" : ""}`,
+  paidShare: "Paid in cash, plus a rocket share",
+  paidPrivate: "Claimed privately to this account",
+  nothing: "Nothing new since your last claim",
+  claim: (v: string) => `Claim ${v}`,
+  claimShort: "Claim",
+  share: "Share it to get a crew",
+  shared: "Link copied",
+  earnedCard: "Earned all time", claimedCard: "Claimed",
+  latest: "Latest",
+  noBoosts: "No boosts yet. Earnings show up with the first one.",
+  privateFeed: "Private rocket. Earnings are claimed privately to this account.",
+  boost: (who: string) => `Boost by ${who}`,
+  dump: (who: string) => `Dump by ${who}`,
+  from: (who: string) => `From ${who}`,
+  legacy: "Part of this rocket's share sits on the older private launcher and can't be claimed.",
+  sheetAll: "Claim host earnings",
+  sheetOne: (name: string) => `Claim ${name}`,
+  signInTitle: "Sign in to see your host earnings",
+  signIn: "Sign in",
+  emptyTitle: "No rockets yet",
+  emptyBody: "Launch one and you earn a cut of every boost and dump on it.",
+  launch: "Launch a rocket",
+  pad: "On the pad",
+  tier: (n: number) => `Tier ${n}`,
+  aboard: (n: number) => `${n} aboard`,
+} as const;
+
 type Pending = { rows: CreatorRocket[]; title: string } | null;
+type Feed = { kind: "buy" | "sell" | null; who: string; usd: number; tx: string };
 
 function useSettledWallet(): { me: ReturnType<typeof connectedAddress>; phase: WalletPhase } {
   const [me, setMe] = useState(() => connectedAddress());
@@ -35,6 +86,108 @@ function useSettledWallet(): { me: ReturnType<typeof connectedAddress>; phase: W
   const pending = walletPending(me, privy, privyAuthenticated() || !!aaSession(), restored);
   const phase: WalletPhase = me ? "in" : pending ? "unknown" : "none";
   return { me, phase };
+}
+
+const ZERO = BigInt(0);
+const tokUsd = (r: CreatorRocket, on: boolean) => (on && r.tokenSide ? toUsd(r.tokenSide.claimable, r.tokenSide.asset) ?? 0 : 0);
+
+/** Lobby facts for the bay cards (tier, crew, difficulty), from the home data. */
+function useLobbyFacts(tokens: string[]) {
+  const [m, setM] = useState<Map<string, HomeCoin>>(new Map());
+  const key = tokens.join(",");
+  useEffect(() => {
+    if (!key) return;
+    let alive = true;
+    fetch(withBase("/api/home")).then((r) => (r.ok ? r.json() : null)).then((d: HomeData | null) => {
+      if (alive && d) setM(new Map(d.coins.map((c) => [c.token.toLowerCase(), c])));
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [key]);
+  return m;
+}
+
+/** Latest earnings with Boost / Dump and the pilot's name (trade index, by tx). */
+function useFeed(r: CreatorRocket) {
+  const [feed, setFeed] = useState<Feed[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const rows = r.recent.slice(0, 3);
+    if (!rows.length) { setFeed([]); return; }
+    (async () => {
+      const sides = new Map<string, "buy" | "sell">();
+      try {
+        const j = await fetch(withBase(`/api/trades?coin=${r.token}&limit=60&order=desc`)).then((x) => (x.ok ? x.json() : null)) as { fills?: { tx: string; side: "buy" | "sell" }[] } | null;
+        for (const f of j?.fills ?? []) sides.set(f.tx.toLowerCase(), f.side);
+      } catch { /* no index: "From …" */ }
+      const out = await Promise.all(rows.map(async (a) => {
+        const n = await lookupName(a.trader).catch(() => null);
+        const asset = a.side === "token" && r.tokenSide ? r.tokenSide.asset : r.quote;
+        return { kind: sides.get(a.tx.toLowerCase()) ?? null, who: displayName(n, a.trader), usd: toUsd(a.amount, asset) ?? 0, tx: a.tx };
+      }));
+      if (alive) setFeed(out);
+    })();
+    return () => { alive = false; };
+  }, [r]);
+  return feed;
+}
+
+function BayCard({ r, facts, tokenOn, onClaim, demo }: { r: CreatorRocket; facts?: HomeCoin; tokenOn: boolean; onClaim: () => void; demo: boolean }) {
+  const feed = useFeed(r);
+  const [copied, setCopied] = useState(false);
+  const readyUsd = (toUsd(r.claimable, r.quote) ?? 0) + tokUsd(r, tokenOn);
+  const earned = toUsd(r.lifetime, r.quote) ?? 0, claimed = toUsd(r.claimed, r.quote) ?? 0;
+  const can = r.claimable > ZERO || (tokenOn && (r.tokenSide?.claimable ?? ZERO) > ZERO);
+  const share = tokenOn && (r.tokenSide?.claimable ?? ZERO) > ZERO;
+  const paid = r.anon ? HOST_COPY.paidPrivate : !can ? HOST_COPY.nothing : isCashAsset(r.quote) ? (share ? HOST_COPY.paidShare : HOST_COPY.paidCash) : HOST_COPY.paidIn(r.quote.symbol, share);
+  const tier = facts ? tierProgress(facts.mcapUsd).index : null;
+  const diff = facts ? difficultyOf(facts.mode, facts.graduated) : null;
+  const rest = [tier == null ? null : tier === 0 ? HOST_COPY.pad : HOST_COPY.tier(tier), facts?.stats?.crew != null ? HOST_COPY.aboard(facts.stats.crew) : null].filter(Boolean).join(" · ");
+  const shareLink = async () => {
+    const url = `${window.location.origin}${withBase(`/coin/${r.token}`)}`;
+    try {
+      if (typeof navigator.share === "function") { await navigator.share({ title: r.name, url }); return; }
+      await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500);
+    } catch { /* closed */ }
+  };
+  return (
+    <article className="he-rk" data-testid="creator-rocket">
+      <div className={`he-bay${tier === 0 ? " pad" : ""}`}>
+        <span className="he-bl" style={{ background: lightOf(r.token) }} aria-hidden />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={withBase(ROCKET_SRC)} alt={`${r.name} rocket`} loading="lazy" decoding="async" />
+      </div>
+      <div className="he-rkbody">
+        <div className="he-rkhead">
+          <div className="he-rkname">
+            <Link href={`/coin/${r.token}`} className="r2-g">{r.name}</Link>
+            <span><span className="he-tk">${r.ticker}{rest ? " · " : ""}</span>{rest}</span>
+          </div>
+          {diff && <span className={`he-tag ${diff.key}`}>{diff.label}</span>}
+        </div>
+        <div className="r2-box he-ready">
+          <div className="r2-r"><div className="t"><b>{HOST_COPY.readyRow}</b><span>{paid}</span></div><span className={`r2-g he-readyv${can ? "" : " zero"}`}>{usd2(readyUsd)}</span></div>
+        </div>
+        <div className="he-pclaim">
+          <span className="r2-g">{usd2(readyUsd)}</span>
+          {can ? <button type="button" className="r2-gold" onClick={onClaim}>{HOST_COPY.claimShort}</button>
+            : <button type="button" className="r2-btn" onClick={shareLink}>{copied ? HOST_COPY.shared : HOST_COPY.share}</button>}
+        </div>
+        <div className="he-dclaim">
+          {can ? <button type="button" className="r2-gold he-claimbtn" onClick={onClaim} data-testid="claim-one">{HOST_COPY.claim(usd2(readyUsd))}</button>
+            : <button type="button" className="r2-btn he-sharebtn" onClick={shareLink}>{copied ? HOST_COPY.shared : HOST_COPY.share}</button>}
+        </div>
+        <div className="he-ec"><span>{HOST_COPY.earnedCard} <b>{usd2(earned)}</b></span><span>{HOST_COPY.claimedCard} <b>{usd2(claimed)}</b></span></div>
+        {r.anon && r.tokenUnclaimable && <span className="he-fine">{HOST_COPY.legacy}</span>}
+        <div className="he-latest">
+          <span className="r2-lbl">{HOST_COPY.latest}</span>
+          {feed && feed.length ? feed.map((f) => (
+            <div key={f.tx + f.who} className="he-feed"><span>{f.kind === "buy" ? HOST_COPY.boost(f.who) : f.kind === "sell" ? HOST_COPY.dump(f.who) : HOST_COPY.from(f.who)}</span><b>+{usd2(f.usd)}</b></div>
+          )) : feed ? <p className="he-none">{r.anon ? HOST_COPY.privateFeed : HOST_COPY.noBoosts}</p> : null}
+        </div>
+        <VerifyRequest token={r.token} name={r.name} demo={demo} />
+      </div>
+    </article>
+  );
 }
 
 export default function CreatorDashboard() {
@@ -57,19 +210,21 @@ export default function CreatorDashboard() {
     try { setRows(await creatorDashboard(pc(), me, caps, 6, stealth)); } catch (e) { setErr(claimErrorText(e)); setRows([]); }
   }, [me, demo, caps]);
   useEffect(() => { void load(); }, [load]);
+  const facts = useLobbyFacts((rows ?? []).map((r) => r.token.toLowerCase()));
 
+  const tokenOn = (r: CreatorRocket) => !!(r.anon || caps.creatorTokenFees);
   const totals = useMemo(() => {
     const t = { claimable: 0, lifetime: 0, claimed: 0, open: 0 };
     for (const r of rows ?? []) {
-      t.claimable += toUsd(r.claimable, r.quote) ?? 0; t.lifetime += toUsd(r.lifetime, r.quote) ?? 0; t.claimed += toUsd(r.claimed, r.quote) ?? 0;
-      if (r.claimable > BigInt(0) || (r.tokenSide?.claimable ?? BigInt(0)) > BigInt(0)) t.open++;
+      t.claimable += (toUsd(r.claimable, r.quote) ?? 0) + tokUsd(r, tokenOn(r)); t.lifetime += toUsd(r.lifetime, r.quote) ?? 0; t.claimed += toUsd(r.claimed, r.quote) ?? 0;
+      if (r.claimable > ZERO || (tokenOn(r) && (r.tokenSide?.claimable ?? ZERO) > ZERO)) t.open++;
     }
     return t;
-  }, [rows]);
+  }, [rows, caps]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const linesOf = (rs: CreatorRocket[]): ConfirmLine[] => rs.flatMap((r) => [
-    ...(r.claimable > BigInt(0) ? [{ label: `$${r.ticker} fees`, raw: r.claimable, asset: r.quote }] : []),
-    ...((r.anon || caps.creatorTokenFees) && r.tokenSide && r.tokenSide.claimable > BigInt(0) ? [{ label: `$${r.ticker} token share`, raw: r.tokenSide.claimable, asset: r.tokenSide.asset }] : []),
+    ...(r.claimable > ZERO ? [{ label: r.name || `$${r.ticker}`, sub: isCashAsset(r.quote) ? null : `Paid in ${r.quote.symbol}`, raw: r.claimable, asset: r.quote }] : []),
+    ...(tokenOn(r) && r.tokenSide && r.tokenSide.claimable > ZERO ? [{ label: `${r.name || `$${r.ticker}`} rocket share`, sub: `Paid in $${r.ticker}`, raw: r.tokenSide.claimable, asset: r.tokenSide.asset }] : []),
   ]);
   const open = (rs: CreatorRocket[], title: string) => {
     setSheetErr(null); setDone(null); setFeeNote(null); setPending({ rows: rs, title });
@@ -80,8 +235,8 @@ export default function CreatorDashboard() {
           const { relayable, blocked } = partitionRelayableCalls("anonClaim", calls.map((c) => ({ to: c.to, data: c.data })));
           if (!relayable.length) { setFeeNote(blockedCallsMessage(blocked.length ? blocked : calls.map((c) => ({ to: c.to, data: c.data })))); return; }
           const q = await quoteGaslessAction({ kind: "anonClaim", signer: me, callCount: relayable.length });
-          setFeeNote(formatActionFeeNote(q) + (blocked.length ? " Some wallet/crew/referral claims can't be relayed yet." : ""));
-        } catch (e) { setFeeNote((e as Error).message ?? "Could not quote the network fee."); }
+          setFeeNote(blocked.length ? blockedCallsMessage(blocked) : formatActionFeeNote(q));
+        } catch (e) { setFeeNote((e as Error).message ?? "fee quote failed"); }
       })();
     }
   };
@@ -98,99 +253,61 @@ export default function CreatorDashboard() {
       void load();
     } catch (e) { setSheetErr(claimErrorText(e)); } finally { setBusy(false); }
   };
-  const hasTok = (r: CreatorRocket) => (r.anon || caps.creatorTokenFees) && (r.tokenSide?.claimable ?? BigInt(0)) > BigInt(0);
-  const canClaim = (r: CreatorRocket) => r.claimable > BigInt(0) || hasTok(r);
+  const canClaim = (r: CreatorRocket) => r.claimable > ZERO || (tokenOn(r) && (r.tokenSide?.claimable ?? ZERO) > ZERO);
   const claimable = (rows ?? []).filter(canClaim);
   const view = rocketsListView(phase, rows, demo);
 
   return (
-    <div className="cl-page" data-testid="creator-dashboard" data-list={view}>
-      <header className="cl-head">
+    <div className="he-page" data-testid="creator-dashboard" data-list={view}>
+      <header className="he-head">
         <div>
-          <div className="cl-eyebrow">Creator</div>
-          <h1 className="cl-display">Your rockets</h1>
-          <p className="muted">Fees from every BOOST and DUMP on rockets you launched. Claim any time.</p>
+          <h1 className="r2-g">{HOST_COPY.title}</h1>
+          <p>{HOST_COPY.sub}</p>
+          <SampleTag show={demo} />
         </div>
-        <SampleTag show={demo} />
+        <Link href="/profile" className="he-back">{HOST_COPY.back}</Link>
       </header>
 
       {view === "signin" ? (
-        <section className="cl-card cl-empty" data-testid="rockets-signin">
-          <h3 className="cl-display sm">Sign in to see your rockets</h3>
-          <button type="button" className="cl-btn primary" onClick={() => connectPrivy()}>Sign in</button>
+        <section className="he-card he-empty" data-testid="rockets-signin">
+          <b className="r2-g">{HOST_COPY.signInTitle}</b>
+          <button type="button" className="r2-gold he-auto" onClick={() => connectPrivy()}>{HOST_COPY.signIn}</button>
         </section>
       ) : view === "loading" ? (
-        <section className="cl-card cl-empty" data-testid="rockets-loading" aria-busy="true"><div className="cl-skel" /><div className="cl-skel short" /></section>
+        <section className="he-card he-empty" data-testid="rockets-loading" aria-busy="true"><div className="he-skel" /><div className="he-skel short" /></section>
       ) : view === "empty" ? (
-        <section className="cl-card cl-empty" data-testid="rockets-empty">
-          <h3 className="cl-display sm">No rockets yet</h3>
-          <p className="muted">Launch one and its fees show up here.</p>
-          <Link className="cl-btn primary" href="/create">Launch a rocket</Link>
-          {err && <p className="cl-err">{err}</p>}
+        <section className="he-card he-empty" data-testid="rockets-empty">
+          <b className="r2-g">{HOST_COPY.emptyTitle}</b>
+          <span>{HOST_COPY.emptyBody}</span>
+          <Link className="r2-gold he-auto" href="/create">{HOST_COPY.launch}</Link>
+          {err && <div className="r2-note err" role="alert"><span>{err}</span></div>}
         </section>
       ) : (
         <>
-          <section className="cl-summary">
-            <div className="cl-stat hero"><span>Claimable now</span><strong>{fmtUsd(totals.claimable) || "—"}</strong><em>{totals.open} rocket{totals.open === 1 ? "" : "s"}</em></div>
-            <div className="cl-stat"><span>Lifetime earned</span><strong>{fmtUsd(totals.lifetime) || "—"}</strong></div>
-            <div className="cl-stat"><span>Claimed so far</span><strong>{fmtUsd(totals.claimed) || "—"}</strong></div>
-            <button type="button" className="cl-btn primary lg" disabled={!claimable.length} onClick={() => open(claimable, "Claim all creator fees")} data-testid="claim-all">
-              Claim all creator fees
-            </button>
+          <section className="he-stats">
+            <div className="he-stat hero">
+              <span className="r2-lbl gold">{HOST_COPY.ready}</span>
+              <div className="he-herorow">
+                <b>{usd2(totals.claimable)}</b>
+                <button type="button" className="r2-gold he-auto" disabled={!claimable.length} onClick={() => open(claimable, HOST_COPY.sheetAll)} data-testid="claim-all">
+                  <span className="tp-d">{HOST_COPY.claimAll(usd2(totals.claimable))}</span><span className="tp-p">{HOST_COPY.claimAllShort}</span>
+                </button>
+              </div>
+              {totals.open > 0 && <span className="he-herosub">{HOST_COPY.fromN(totals.open)}</span>}
+            </div>
+            <div className="he-stat"><span className="r2-lbl"><span className="tp-d">{HOST_COPY.earned}</span><span className="tp-p">{HOST_COPY.earnedShort}</span></span><b>{usd2(totals.lifetime)}</b></div>
+            <div className="he-stat"><span className="r2-lbl"><span className="tp-d">{HOST_COPY.claimed}</span><span className="tp-p">{HOST_COPY.claimedShort}</span></span><b>{usd2(totals.claimed)}</b></div>
           </section>
-          <p className="cl-fine muted">USD uses the live quote price. One transaction for Claim all.</p>
-
-          <div className="cl-grid">
+          <div className="he-grid">
             {(rows ?? []).map((r) => (
-              <article key={r.token} className="cl-card cl-rocket" data-testid="creator-rocket">
-                <div className="cl-rocket-top">
-                  <div>
-                    <Link href={`/coin/${r.token}`} className="cl-rocket-name">{r.name} <VerifiedBadge token={r.token} size={14} /></Link>
-                    <div className="muted cl-mono">${r.ticker} · {shortA(r.token)}{r.anon && <span className="cl-pill">Private</span>}</div>
-                  </div>
-                  <button type="button" className="cl-btn gold" disabled={!canClaim(r)}
-                    onClick={() => open([r], `Claim $${r.ticker} creator fees`)} data-testid="claim-one">Claim creator fees</button>
-                </div>
-                <div className="cl-claimable">
-                  <span className="cl-eyebrow">Claimable</span>
-                  <Money raw={r.claimable} asset={r.quote} big />
-                  {(r.anon || caps.creatorTokenFees) && r.tokenSide && (
-                    <div className="cl-token-side"><span className="muted">Token share</span><Money raw={r.tokenSide.claimable} asset={r.tokenSide.asset} /></div>
-                  )}
-                  {r.anon && r.tokenUnclaimable && (
-                    <div className="cl-token-side cl-pending-upgrade" data-testid="unclaimable-legacy"
-                      title="This rocket launched on the older private launcher. Fees paid in the rocket itself, after it reaches orbit, cannot be claimed from that launcher. Reaching orbit means the starting price path is finished and the rocket moves to the open market on Uniswap."
-                      aria-label="Token share unclaimable: legacy launcher.">
-                      <span className="muted">Token share <span className="cl-pill">Unclaimable (legacy launcher)</span></span>
-                      <Money raw={r.tokenUnclaimable.raw} asset={r.tokenUnclaimable.asset} />
-                    </div>
-                  )}
-                </div>
-                <dl className="cl-kv">
-                  <div><dt>Lifetime earned</dt><dd><Money raw={r.lifetime} asset={r.quote} /></dd></div>
-                  <div><dt>Claimed so far</dt><dd><Money raw={r.claimed} asset={r.quote} /></dd></div>
-                </dl>
-                <div className="cl-recent">
-                  <div className="cl-eyebrow">Recent fees</div>
-                  {r.recent.length ? (
-                    <ul>
-                      {r.recent.map((a) => (
-                        <li key={`${a.tx}${a.trader}${a.side}`}><span className="cl-mono muted">{shortA(a.trader)}</span><Money raw={a.amount} asset={a.side === "token" && r.tokenSide ? r.tokenSide.asset : r.quote} /><TxLink hash={a.tx}>tx</TxLink></li>
-                      ))}
-                    </ul>
-                  ) : <p className="muted">{r.anon ? "Private rocket. Fees are claimed privately to this account." : "No trades yet."}</p>}
-                </div>
-                <VerifyRequest token={r.token} demo={demo} />
-              </article>
+              <BayCard key={r.token} r={r} facts={facts.get(r.token.toLowerCase())} tokenOn={tokenOn(r)} demo={demo} onClaim={() => open([r], HOST_COPY.sheetOne(r.name || `$${r.ticker}`))} />
             ))}
           </div>
         </>
       )}
 
       {pending && (
-        <ConfirmSheet title={pending.title} lines={linesOf(pending.rows)} to={me ?? (demo ? "0x5a3c7743d365f770710fe15f4bbf1cec7bc41006" : null)}
-          note={pending.rows.length > 1 ? `${pending.rows.length} rockets in one transaction.` : pending.rows[0]?.anon ? "Claimed privately, paid to this account." : "Fees go to the wallet that launched the rocket."}
-          feeNote={feeNote} busy={busy} error={sheetErr} done={done} onConfirm={confirm} onClose={() => setPending(null)} />
+        <ConfirmSheet title={pending.title} lines={linesOf(pending.rows)} feeNote={feeNote} busy={busy} error={sheetErr} done={done} onConfirm={confirm} onClose={() => setPending(null)} />
       )}
     </div>
   );
