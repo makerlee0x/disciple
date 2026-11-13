@@ -348,7 +348,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
           </div>
         )}
         {/* account settings (one-tap session, max price move, Advanced, sign out) moved to Profile → Settings
-            (components/account/AccountSettings, SITE Oct 30); the chip opens this slim menu */}
+            (SITE Oct 30); the chip opens this slim menu */}
         {addr && acct && smart && (
           <AccountMenu wallet={addr} name={chipLabel(uname, addr)} initial={(uname || "P").replace(/^@/, "").charAt(0).toUpperCase()}
             cashUsd={pf?.cashUsd ?? 0} onClose={() => setAcct(false)} onSignOut={() => run("", disconnect)} />

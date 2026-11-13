@@ -28,6 +28,7 @@ import { creatorClaimCalls, signedAnonClaimCalls } from "@/lib/claims/creatorFee
 import { partitionRelayableCalls, blockedCallsMessage } from "@/lib/trade/gaslessAction";
 import { formatActionFeeNote, quoteGaslessAction } from "@/lib/trade/gaslessActionClient";
 import { SampleTag, isCashAsset, pc } from "./ui";
+import { CashHead, Check, ErrIcon } from "@/components/cash/bits";
 import { CLAIM_COPY, ClaimBody, type ClaimRow } from "./ClaimSheet";
 
 const ZERO_TX = `0x${"0".repeat(64)}` as Hex;
@@ -55,10 +56,27 @@ const T = {
   later: "A few more are ready to claim next time.",
   depositNote: "This is your own deposit, not earnings.",
   linkCopied: "Link copied",
+  ok: "Done",
+  // deposit + take-back sheets (Cash look, same words as the invite deposit's Lock it in sheet)
+  lock: "Lock it in",
+  lockTitle: "Lock in your invite",
+  lockAmt: (amt: string) => `Lock it in · ${amt}`,
+  locking: "Locking it in…",
+  depositLine: "Deposit",
+  depositSub: "Confirms the friend who invited you",
+  takeBack: (d: number) => `It's still yours: held ${d} days, then you can take it back here.`,
+  lockDone: "Invite locked in",
+  lockDoneSub: (d: number) => `Your deposit is held ${d} days, then it's yours to move.`,
+  takeTitle: "Take back your deposit",
+  takeBtn: "Take it back",
+  taking: "Taking it back…",
+  unlockedSub: "Unlocked",
+  takeNote: "Only unlocked deposits come back. It lands in your cash.",
+  takeDone: "Deposit back in your cash",
 } as const;
 type Tab = keyof typeof T.tabs;
 
-type DepSheet = { title: string; lines: { label: string; usd: string }[]; run: () => Promise<Hex>; note?: string; label?: string } | null;
+type DepSheet = { title: string; lines: { label: string; sub?: string; usd: string }[]; run: () => Promise<Hex>; note?: string; label: string; busyLabel: string; doneTitle: string; doneSub?: string } | null;
 
 function dayLabel(r: HistoryRow, nowSec: number) {
   const d = new Date(r.to * 1000), y = new Date(nowSec * 1000).getFullYear();
@@ -213,15 +231,19 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
                   const need = depositNeeded(gate)!;
                   return (
                     <button type="button" className="p5-btn" disabled={gate.balance < need} data-testid="deposit-btn"
-                      onClick={() => openDeposit({ title: "Lock your referrer", label: "Approve & deposit", lines: [{ label: "Deposit", usd: usdLabel(need, gate.usdg) }],
-                        note: `Held ${Math.round(gate.lockSec / 86400)} days in escrow, then withdraw it here.`, run: async () => (await deposit(pc(), me!, need)).txHash })}>
-                      {gate.balance < need ? `Need ${gate.usdg.symbol} to deposit` : "Deposit to qualify"}
+                      onClick={() => openDeposit({ title: T.lockTitle, label: T.lockAmt(usdLabel(need, gate.usdg)), busyLabel: T.locking,
+                        lines: [{ label: T.depositLine, sub: T.depositSub, usd: usdLabel(need, gate.usdg) }],
+                        note: T.takeBack(Math.round(gate.lockSec / 86400)), doneTitle: T.lockDone, doneSub: T.lockDoneSub(Math.round(gate.lockSec / 86400)),
+                        run: async () => (await deposit(pc(), me!, need)).txHash })}>
+                      {gate.balance < need ? `Add ${usdLabel(need, gate.usdg)} cash to lock it in` : T.lock}
                     </button>
                   );
                 })()}
                 <button type="button" className="p5-btn" disabled={!gate.escrows.some((e) => unlocked(e, nowSec))}
-                  onClick={() => { const ok = gate.escrows.filter((e) => unlocked(e, nowSec)); openDeposit({ title: "Withdraw deposit", label: "Withdraw", lines: ok.map((e) => ({ label: `Deposit #${e.id}`, usd: usdLabel(e.amount, gate.usdg) })), run: async () => { await preflight(pc(), [withdrawCall(ok.map((e) => e.id))], me!); return (await withdraw(ok)).txHash; }, note: "Only unlocked deposits are withdrawn." }); }}>
-                  Withdraw unlocked
+                  onClick={() => { const ok = gate.escrows.filter((e) => unlocked(e, nowSec)); openDeposit({ title: T.takeTitle, label: T.takeBtn, busyLabel: T.taking, doneTitle: T.takeDone,
+                    lines: ok.map((e) => ({ label: T.depositLine, sub: T.unlockedSub, usd: usdLabel(e.amount, gate.usdg) })),
+                    note: T.takeNote, run: async () => { await preflight(pc(), [withdrawCall(ok.map((e) => e.id))], me!); return (await withdraw(ok)).txHash; } }); }}>
+                  {T.takeBtn}
                 </button>
               </div>
             </div>
@@ -275,18 +297,33 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
         </div>
       )}
       {sheet && (
-        <div className="p5-inner" role="dialog" aria-modal="true" aria-label={sheet.title} data-testid="deposit-confirm">
-          <div className="p5-inner-box">
-            <span className="p5-l">{sDone ? "Done" : "Confirm"}</span>
-            <h3>{sheet.title}</h3>
-            <ul className="p5-lines">{sheet.lines.map((l, i) => <li key={i}><span className="muted">{l.label}</span><span>{l.usd}</span></li>)}</ul>
-            {sheet.note && !sDone && <p className="p5-fine">{sheet.note}</p>}
-            {sErr && <p className="p5-err" role="alert">{sErr}</p>}
-            <div className="p5-actions">
-              <button type="button" className="p5-btn" onClick={() => setSheet(null)}>{sDone ? "Close" : "Cancel"}</button>
-              {!sDone && <button type="button" className="p5-btn primary" disabled={sBusy} onClick={confirmDeposit}>{sBusy ? "Sending…" : sheet.label ?? "Confirm"}</button>}
-            </div>
-          </div>
+        <div className="p5-inner cs-over">
+          <section className="ds-modal r2-modal cs-inner" role="dialog" aria-modal="true" aria-label={sheet.title} data-testid="deposit-confirm">
+            {sDone ? (
+              <div className="r2-body cx-sent" role="status">
+                <div className="r2-ok"><Check /></div>
+                <div className="r2-g cx-senth">{sheet.doneTitle}</div>
+                {sheet.doneSub && <span className="cx-p14">{sheet.doneSub}</span>}
+                <button type="button" className="r2-btn r2-white cx-wide" onClick={() => setSheet(null)} data-autofocus>{T.ok}</button>
+              </div>
+            ) : (
+              <>
+                {!sBusy && <CashHead title={sheet.title} onClose={() => setSheet(null)} />}
+                <div className="r2-body">
+                  <div className="r2-box">
+                    {sheet.lines.map((l, i) => (
+                      <div className="r2-r" key={i}><div className="t"><b>{l.label}</b>{l.sub && <span>{l.sub}</span>}</div><span className="r2-g cx-v26">{l.usd}</span></div>
+                    ))}
+                  </div>
+                  {sheet.note && <span className="cx-fine left">{sheet.note}</span>}
+                  {sErr && <div className="r2-note err" role="alert"><ErrIcon /><span>{sErr}</span></div>}
+                  <button type="button" className="r2-gold" disabled={sBusy} onClick={confirmDeposit} data-testid="deposit-confirm-btn">
+                    {sBusy ? <><span className="r2-spin" aria-hidden />{sheet.busyLabel}</> : sheet.label}
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
         </div>
       )}
     </Sheet>

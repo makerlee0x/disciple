@@ -1,5 +1,5 @@
 /**
- * Rocket Factory parts catalogue: one list for the shop UI (components/RocketFactory.tsx) and the server purchase
+ * Rocket Factory parts catalogue: one list for the shop UI (held for v2) and the server purchase
  * (POST /api/shop/buy). Prices are in XP. Parts are cosmetic only: they never change price, fills or odds.
  * `minPrestige` locks the rarest parts until a pilot has prestiged that many times.
  */

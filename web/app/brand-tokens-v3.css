@@ -99,9 +99,7 @@
 .dsc3-label { font: var(--dsc3-type-label); color: var(--dsc-muted); }
 
 /* ── panels and tiles ───────────────────────────────────────────────────── */
-.dsc3-panel { background: var(--dsc3-panel); border: 1px solid var(--dsc3-panel-border); border-radius: var(--dsc3-panel-radius); }
-.dsc3-panel-glass { background: var(--dsc3-panel-glass); border: 1px solid var(--dsc3-panel-border); border-radius: var(--dsc3-panel-radius); }
-.dsc3-panel-hero { background: var(--dsc3-hero-sky); border: 1px solid var(--dsc3-panel-border-gold); border-radius: var(--dsc3-panel-radius); overflow: hidden; }
+.dsc3-panel { background: var(--dsc3-panel); border: 1px solid var(--dsc3-panel-border); border-radius: var(--dsc3-panel-radius); }.dsc3-panel-hero { background: var(--dsc3-hero-sky); border: 1px solid var(--dsc3-panel-border-gold); border-radius: var(--dsc3-panel-radius); overflow: hidden; }
 .dsc3-tile {
   display: flex; flex-direction: column; overflow: hidden; color: var(--dsc-text);
   background: var(--dsc-surface); border: 1px solid var(--dsc3-panel-border); border-radius: var(--dsc3-tile-radius);
@@ -218,9 +216,7 @@
   }
   .lb-tabs a.on { border-bottom: 0; border-top-color: var(--dsc3-light-gold); }
   .lb-tabs .lb-ico { display: block !important; box-sizing: content-box; padding: 5px 14px; border-radius: 999px; }
-  .lb-lbl { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-  .lb-tab-btn { display: none; }
-  /* Launch = host a match, the primary door: a gold rocket chip */
+  .lb-lbl { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }  /* Launch = host a match, the primary door: a gold rocket chip */
   .lb-tabs a[href="/create"] .lb-ico { background: var(--dsc3-light-gold); color: #121327; }
   .lb-tabs a[href="/create"].on { border-top-color: transparent; }
   .main-offset.main-offset-lobby, body.side-open .main-offset.main-offset-lobby { padding-bottom: calc(64px + var(--ap-safe-bottom, 0px)); }

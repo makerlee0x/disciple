@@ -2,7 +2,7 @@
 /**
  * Rewards data for the private profile (profile r3): the header's chest / Claim now and the Rewards popup read the same
  * load. Live reads only (lib/claims/rewardsData.loadRewards); ?demo=1 sample data on `next dev` only (lib/claims/demo).
- * Moved as-is from the old on-page Rewards section (components/claims/ProfileClaims).
+ * Moved as-is from the old on-page Rewards section (since removed).
  */
 import { useCallback, useEffect, useState } from "react";
 import { gateState, type GateState } from "@/lib/claims/referralGate";

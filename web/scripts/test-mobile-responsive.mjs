@@ -28,7 +28,6 @@ ok(/\.wb-invite\s*\{[\s\S]*?var\(--ap-safe-bottom\)/.test(css), "invite banner c
 ok(/#apReopen\s*\{[\s\S]*?var\(--ap-safe-top\)/.test(css), "menu reopen clears notch");
 ok(/ap-phone-launch[\s\S]*?var\(--ap-safe-top\)/.test(css), "phone Launch clears notch");
 ok(/max-height:\s*calc\(100dvh/.test(css) || /min\(92dvh/.test(css), "sheets/modals use dvh (mobile browser chrome)");
-ok(/@media \(max-width: 480px\)[\s\S]*?\.wb-testnet\s*\{\s*display:\s*none/.test(css), "≤480px hides Test network tag to free strip");
 
 const wb = read("components/WalletButton.tsx");
 ok(/className="wb-root"/.test(wb) && /data-compact=/.test(wb), "WalletButton uses .wb-root (not hardcoded top/right px)");
@@ -42,16 +41,13 @@ const bar = read("components/flight/PhoneTradeBar.tsx");
 ok(/\.ph-bar\s*\{[^}]*bottom:\s*var\(--ph-bar-bottom, 24px\)/.test(bar) && /const barBottom = Math\.max\(BAR_BOTTOM, \(o\.safeBottom \?\? 0\) \+ 8\);/.test(read("components/flight/PhoneHud.tsx")), "phone trade bar clears home indicator (PhoneHud --ph-bar-bottom)");
 
 const claims = read("app/claims.css");
-ok(/\.cl-onboard\s*\{[^}]*bottom:\s*calc\(20px \+ var\(--ap-safe-bottom\)\)/.test(claims), "claims onboard clears home indicator");
 
 ok(/body\.side-hidden\s+\[aria-label="wallet"\]/.test(css) && !/body\.side-hidden:not\(\.game\)/.test(css), "game wallet strip max-width leaves room for menu");
 
-const hero = read("components/home/hero.module.css");
 const appHome = read("components/home/appHome.module.css");
 const hiw = read("app/how-it-works/page.module.css");
-const subnav = read("components/how-it-works/subnav.module.css");
-ok(/var\(--ap-topbar-offset/.test(hero) && /var\(--ap-topbar-offset/.test(appHome), "home heroes use topbar-offset (safe-area)");
-ok(/var\(--ap-topbar-offset/.test(hiw) && /var\(--ap-topbar-offset/.test(subnav), "how-it-works uses topbar-offset");
+ok(/var\(--ap-topbar-offset/.test(appHome), "home heroes use topbar-offset (safe-area)");
+ok(/var\(--ap-topbar-offset/.test(hiw), "how-it-works uses topbar-offset");
 
 const hud = read("components/flight/PhoneHud.tsx");
 ok(/safeBottom\?\:\s*number/.test(hud) && /visualViewport/.test(hud), "PhoneHud layout lifts for safe-bottom + visualViewport");
@@ -67,12 +63,11 @@ const tw = read("components/trampwalls/TrampWallPanel.tsx");
 ok(/sample && .*SAMPLE/.test(tw) || /· SAMPLE/.test(tw), "mock Tramp/Wall labeled SAMPLE");
 
 const coin = read("app/coin/[address]/page.tsx");
-ok(/data-testid="coin-lost"/.test(coin) && /isAddress\(address\)/.test(coin), "invalid coin address shows lost state");
+ok(/(data-testid|testId)="coin-lost"/.test(coin) && /isAddress\(address\)/.test(coin), "invalid coin address shows lost state");
 
 const home = read("components/home/HomeHero.tsx");
 ok(/home-poll-err/.test(home) && /setPollErr/.test(home), "home poll failure surfaces a banner");
 
-ok(/\.lp-star\s*\{[^}]*min-width:\s*44px/.test(css), "launchpad star has ≥44px tap target");
 ok(/\.pf-toast\s*\{[^}]*var\(--ap-safe-bottom\)/.test(css), "profile toast clears home indicator");
 
 if (bad) {

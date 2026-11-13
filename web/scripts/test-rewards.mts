@@ -194,10 +194,10 @@ test("session policy: referral, creator and crew claims stay one-tap; a private-
   await assert.rejects(checkCalls(pcNoCurve, cfg, st(), [...fees, ...crew, ...priv], ME), PolicyError);
 });
 
-test("copy: Rewards strings are plain words, dollars only (static scan of ProfileClaims)", async () => {
+test("copy: Rewards strings are plain words, dollars only (static scan of RewardsPopup)", async () => {
   const { readFileSync } = await import("node:fs");
   const { JARGON } = await import("../lib/aa/relayOp");
-  const src = readFileSync(new URL("../components/claims/ProfileClaims.tsx", import.meta.url), "utf8");
+  const src = readFileSync(new URL("../components/claims/RewardsPopup.tsx", import.meta.url), "utf8");
   const block = src.slice(src.indexOf("const T = {"), src.indexOf("} as const;"));
   const strings = Array.from(block.matchAll(/:\s*"([^"]+)"/g), (m) => m[1]);
   assert.ok(strings.length >= 10);
@@ -216,7 +216,7 @@ test("referral deposit: dollars only, neutral dash when the coin has no live pri
   assert.equal(usdLabel(BigInt(10) * E6, { decimals: 6, usd: null }), NO_PRICE);
   assert.equal(NO_PRICE, "—");
   const { readFileSync } = await import("node:fs");
-  const src = readFileSync(new URL("../components/claims/ProfileClaims.tsx", import.meta.url), "utf8");
+  const src = readFileSync(new URL("../components/claims/RewardsPopup.tsx", import.meta.url), "utf8");
   assert.ok(!/<Money\b|ConfirmSheet|fmtAmount/.test(src), "no token amounts in the Rewards section");
 });
 
