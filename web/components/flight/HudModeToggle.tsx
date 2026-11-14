@@ -45,6 +45,10 @@ export default function HudModeToggle({ sim, onSim }: { sim?: Sim | null; onSim?
     addEventListener(WALLET_CTA_EVENT, c); addEventListener(WALLET_ID_EVENT, i); addEventListener(TW_STATE_EVENT, t);
     return () => { removeEventListener(WALLET_CTA_EVENT, c); removeEventListener(WALLET_ID_EVENT, i); removeEventListener(TW_STATE_EVENT, t); };
   }, []);
+  // the Pilot radio pill (GameRadio) sits just left of this bar: publish its width
+  useEffect(() => { const el = boxRef.current; if (!el || typeof ResizeObserver === "undefined") return; const root = document.documentElement;
+    const pub = () => root.style.setProperty("--ap-topbar-w", `${Math.round(el.getBoundingClientRect().width)}px`);
+    const ro = new ResizeObserver(pub); ro.observe(el); pub(); return () => { ro.disconnect(); root.style.removeProperty("--ap-topbar-w"); }; }, [desk]);
   useEffect(() => {
     if (!open) return;
     const down = (e: PointerEvent) => { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false); };

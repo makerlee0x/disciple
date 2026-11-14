@@ -263,13 +263,15 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
       </aside>);
   }
   if (hud !== "pro") {
-    // PILOT (approved mockup "Desktop · Pilot HUD"): no box, no tabs. A header (CREW · N on board · Holders), then the newest
+    // PILOT (approved mockup "Desktop · Pilot HUD"): no box, no tabs. Since board C (2026-11-14) it sits under the Pilot chart
+    // card (DeskChart sets --ap-pilot-chart-h and --ap-pilot-feed-w) and clips to the screen instead of running off it. A header (CREW · N on board · Holders), then the newest
     // rows first, fading with age: trades as small cards (avatar, name, ▲ BOOST $X / ▼ DUMP $X), chat as plain lines between them.
     const list = items.filter((it) => !it.chat || it.chat.msg.kind !== "system").slice(-PILOT_ROWS).reverse();
     const showHolders = tab === "holders";
     return (
       <aside ref={dockRef} tabIndex={-1} data-testid="chat-dock" data-card="chat" data-hud="pilot" aria-label="Crew feed"
-        style={{ transform: card.transform, position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 34px)", width: 300, zIndex: 32, display: "flex", flexDirection: "column", gap: 6,
+        style={{ transform: card.transform, position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 34px + var(--ap-pilot-chart-h, 0px))", width: "var(--ap-pilot-feed-w, 300px)",
+          maxHeight: "calc(100dvh - var(--ap-hud-rt, 58px) - 34px - var(--ap-pilot-chart-h, 0px) - 20px)", overflow: "hidden", zIndex: 32, display: "flex", flexDirection: "column", gap: 6,
           font: `13px/1.4 ${HUD.ui}`, color: HUD.text, outline: "none" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 4px 2px" }}>
           <span data-testid="chat-state" title={tradesOnly ? "trades" : `chat ${st.t}`} style={{ width: 7, height: 7, borderRadius: "50%", background: tradesOnly ? HUD.up : st.c, flex: "none" }} />
@@ -280,7 +282,7 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
             style={{ all: "unset", cursor: "pointer", fontSize: 12, color: HUD.champagne }}>{showHolders ? "Feed" : "Holders"}</button>
         </div>
         {showHolders ? <div role="tabpanel" id="community-panel-holders" style={{ maxHeight: 360, display: "flex", flexDirection: "column", borderRadius: 12, background: HUD.glass, border: `1px solid ${HUD.border}` }}><HoldersView h={holders} /></div>
-          : <div data-testid="chat-list" role="log" aria-live="polite" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          : <div data-testid="chat-list" role="log" aria-live="polite" style={{ display: "flex", flexDirection: "column", gap: 6, flex: "0 1 auto", minHeight: 0, overflow: "hidden" }}>
             {!api && !tradesOnly && <p role="status" style={{ opacity: 0.6, margin: "4px 6px" }}>Chat is connecting…</p>}
             {pending.map((p) => <PilotTrade key={"p" + p.id} buy={p.side === "buy"} who="You" own amt={p.amt} op={1} sent />)}
             {!list.length && !pending.length && (api || tradesOnly) && <p style={{ opacity: 0.6, margin: "4px 6px" }}>Quiet up here. Be the first boost.</p>}

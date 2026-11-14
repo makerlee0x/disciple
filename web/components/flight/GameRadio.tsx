@@ -24,7 +24,7 @@ import { useHudMode } from "@/lib/game/hudMode";
 import { HUD } from "@/lib/game/hudStyle";
 
 /* desktop (approved mockup, Nov 12): a one-line card "♫ House radio · Night Drive  R"; click it for the full controls.
-   Pilot: bottom right, above the Flight path card. Pro: bottom left. R plays / pauses (not while typing, not when bound to a trade). */
+   Pilot (board C, 2026-11-14): a CINEMATIC / HOUSE pill in the top bar, left of PILOT / PRO; click it for the full controls. Pro: bottom left. R plays / pauses (not while typing, not when bound to a trade). */
 const DESK: React.CSSProperties = { width: 300, padding: 0, borderRadius: 12, background: HUD.glass, border: `1px solid ${HUD.border}`, color: HUD.text, fontFamily: HUD.ui };
 
 const GOLD = "#ffe7a3";
@@ -187,7 +187,7 @@ export default function GameRadio() {
   const phoneBottom: React.CSSProperties = phone
     ? { right: 12, top: "var(--ph-radio-top, 314px)", bottom: "auto" }   /* phone v2 board: folded under the chat button */
     : hud === "pro" ? { ...DESK, right: "auto", left: "calc(var(--ap-rail-w, 64px) + 20px)", bottom: 20, width: 326 }
-    : { ...DESK, right: 20, bottom: 179 };
+    : { ...DESK, right: "calc(20px + var(--ap-topbar-w, 250px) + 8px)", top: 18, bottom: "auto", width: expanded ? 300 : "auto", borderRadius: expanded ? 14 : 999, zIndex: 61 };   // board C: a pill in the top bar
 
   const play = () => {
     const radio = getGameRadio();
@@ -239,7 +239,12 @@ export default function GameRadio() {
           display: hidePanel ? "none" : undefined,
         }}
       >
-        {!phone && <button type="button" data-testid="radio-line" aria-expanded={expanded} onClick={() => setExpanded((x) => !x)} title="Radio controls (R plays / pauses)"
+        {!phone && hud !== "pro" ? <button type="button" data-testid="radio-line" aria-expanded={expanded} onClick={() => setExpanded((x) => !x)} title="Radio controls (R plays / pauses)"
+          style={{ all: "unset", cursor: "pointer", boxSizing: "border-box", width: "100%", height: 42, display: "flex", alignItems: "center", gap: 9, padding: "0 6px 0 14px", color: HUD.champagne, whiteSpace: "nowrap" }}>
+          <Ico d={ICONS.note} size={15} />
+          <span style={{ flex: 1, font: `700 15px/1 ${HUD.game}`, letterSpacing: ".08em", textTransform: "uppercase", opacity: playing ? 1 : 0.7 }}>{station?.label ?? "House"}</span>
+          <span aria-hidden="true" style={{ width: 28, height: 28, borderRadius: "50%", border: `1.5px solid ${HUD.champagne}`, display: "grid", placeItems: "center", boxSizing: "border-box", font: `800 10px/1 ${HUD.game}` }}>{playing ? "II" : "▶"}</span>
+        </button> : !phone && <button type="button" data-testid="radio-line" aria-expanded={expanded} onClick={() => setExpanded((x) => !x)} title="Radio controls (R plays / pauses)"
           style={{ all: "unset", cursor: "pointer", boxSizing: "border-box", width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", fontSize: 14, color: HUD.text }}>
           <Ico d={ICONS.note} size={15} />
           <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: playing ? 1 : 0.7 }}>{station?.label ?? "House"} radio{playing ? "" : " · paused"}</span>

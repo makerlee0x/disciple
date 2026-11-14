@@ -1,6 +1,6 @@
 "use client";
 /**
- * Phone flight chart card (throttle prototype v3, maker 2026-11-14: "the chart is fantastic"; "otherwise it feels like
+ * Flight chart card, phones and desktop Pilot (throttle prototype v3, maker 2026-11-14: "the chart is fantastic"; "otherwise it feels like
  * you're trading blind"). A small market-cap line under the top row: 1M · 5M · 1H tabs, the live price tag on the right,
  * a dashed YOU BOARDED line at your entry, and a dot for each of your fills. Tap the card to make it taller.
  * The series is kept from the engine's disciple:mark while the flight is open (module store, so a re-render or a sheet
@@ -48,8 +48,10 @@ export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge 
     if (store.key !== key) { store.key = key; store.pts = []; store.dots = []; store.last = 0; }
     const onMark = (e: Event) => { const m = (e as CustomEvent<{ mcap?: number }>).detail?.mcap; if (m && m > 0) { store.last = m; pushMark(store.pts, Date.now(), m); } };
     const onFill = (e: Event) => { const d = (e as CustomEvent<{ side?: string }>).detail; if (store.last > 0 && (d?.side === "buy" || d?.side === "sell")) store.dots.push({ t: Date.now(), m: store.last, buy: d.side === "buy" }); if (store.dots.length > 60) store.dots.shift(); };
-    addEventListener("disciple:mark", onMark); addEventListener("disciple:fillreceipt", onFill);
-    return () => { removeEventListener("disciple:mark", onMark); removeEventListener("disciple:fillreceipt", onFill); };
+    // paper / Free play fills come from the engine (disciple:paperfill, with their fill mcap) instead of a chain receipt
+    const onPaper = (e: Event) => { const d = (e as CustomEvent<{ side?: string; mcap?: number }>).detail; const m = Number(d?.mcap) > 0 ? Number(d!.mcap) : store.last; if (m > 0 && (d?.side === "buy" || d?.side === "sell")) store.dots.push({ t: Date.now(), m, buy: d.side === "buy" }); if (store.dots.length > 60) store.dots.shift(); };
+    addEventListener("disciple:mark", onMark); addEventListener("disciple:fillreceipt", onFill); addEventListener("disciple:paperfill", onPaper);
+    return () => { removeEventListener("disciple:mark", onMark); removeEventListener("disciple:fillreceipt", onFill); removeEventListener("disciple:paperfill", onPaper); };
   }, []);
 
   useEffect(() => {

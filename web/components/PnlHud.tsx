@@ -268,22 +268,28 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   const lossShare = holding && putIn > 0 ? Math.max(0, Math.min(1, (putIn - v.valueUsd) / putIn)) : 0;
   const dumpAll = holding ? v.valueUsd * (1 - TRADE_FEE) : 0;
   const supplyPct = holding && mark.supply > 0 ? (v.size / mark.supply) * 100 : 0;
+  // board C (2026-11-14, desktop): while you hold, the card lights green / pink and the PnL sits in a solid chip next to the value
+  const lit = holding && !isPhone() && Math.abs(v.uPnl) > 0.005 ? (v.uPnl > 0 ? "up" : "down") : null;
+  const litC = lit === "up" ? GREEN : lit === "down" ? "#F0307F" : null;
 
   return (
     <aside ref={asideRef} aria-label="Holdings and PnL" className="pnl-hud" data-card="pnl" data-hud={hud}
       style={{ ...(card.hidden ? { display: "none" } : null), transform: card.transform, position: "fixed", ...(hud === "pro" ? { top: 212 } : { bottom: 16 }), left: "calc(var(--ap-rail-w, 64px) + 20px)", zIndex: 31, width: 300, padding: "14px 16px",
         borderRadius: HUD.radius, background: HUD.glass, backdropFilter: "blur(6px)",
-        border: `1px solid ${HUD.border}`, color: HUD.text, font: `13px/1.4 ${HUD.ui}`, boxSizing: "border-box" }}>
+        border: `1px solid ${litC ?? HUD.border}`, boxShadow: litC ? `0 0 0 3px ${lit === "up" ? "rgba(95,240,160,.16)" : "rgba(240,48,127,.18)"}` : undefined,
+        transition: "border-color .2s, box-shadow .2s", color: HUD.text, font: `13px/1.4 ${HUD.ui}`, boxSizing: "border-box" }} data-lit={lit ?? undefined}>
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} style={{ all: "unset", cursor: "pointer", ...row, width: "100%" }}>
         <span data-testid="pnl-title" style={hudLabel}>{t("pnl.yourBag")} <span style={{ color: modeLabel ? "#8fd8ff" : wallet ? HUD.up : HUD.champagne }}>· {modeLabel || (wallet ? t("pnl.live") : t("pnl.paper"))}</span></span>
-        <Num value={v.pnlPct} fmt={pct} style={{ font: `700 16px ${HUD.game}`, color: col(v.pnlPct) }} />
+        {!lit && <Num value={v.pnlPct} fmt={pct} style={{ font: `700 16px ${HUD.game}`, color: col(v.pnlPct) }} />}
       </button>
 
       {/* hero: what the bag is worth now + unrealized PnL. % = uPnL ÷ cost basis = MCAP ÷ AVG ENTRY MC − 1 (fees in the basis): it
           depends on how far the mcap moved since YOUR entry, not on the share of supply held; see docs in lib/pnl.ts. */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, margin: "4px 0 8px" }} title={t("pnl.pctTitle")}>
         <Num value={v.valueUsd} fmt={fmtMoney} style={{ font: `800 38px/1 ${HUD.game}`, color: HUD.text }} />
-        <Num value={v.uPnl} fmt={usd} style={{ font: `700 20px/1 ${HUD.game}`, color: col(v.uPnl) }} />
+        {lit ? <span data-testid="pnl-chip" style={{ alignSelf: "center", marginLeft: "auto", padding: "6px 10px", borderRadius: 10, background: litC!, color: lit === "up" ? "#0d2a1b" : "#fff", font: `800 20px/1 ${HUD.game}`, whiteSpace: "nowrap" }}>
+            <Num value={v.pnlPct} fmt={pct} style={{}} /> · <Num value={v.uPnl} fmt={usd} style={{}} /></span>
+          : <Num value={v.uPnl} fmt={usd} style={{ font: `700 20px/1 ${HUD.game}`, color: col(v.uPnl) }} />}
       </div>
       {holding ? <>
         <div aria-hidden="true" style={{ display: "flex", height: 8, borderRadius: 999, overflow: "hidden", background: "rgba(255,255,255,.1)" }}>
