@@ -88,6 +88,10 @@ export function routeFor(coin: CoinId, net: Net, cfg: DepositConfigLike | null, 
 
 export const DEPOSIT_CALL_EVENT = "disciple:deposit-call";
 export const DEPOSIT_REPLY_EVENT = "disciple:deposit-reply";
+/** CustomEvent<{ id }>: DepositBridge got call `id`. With no ack the Privy chunk isn't there (Privy off, still loading or
+ *  blocked) and the call fails fast, so Send crypto shows the plain cash address instead of "Getting your address…" for 20 s. */
+export const DEPOSIT_ACK_EVENT = "disciple:deposit-ack";
+export const DEPOSIT_ACK_MS = 4_000;
 export type DepositCall =
   | { id: string; op: "config" }
   | { id: string; op: "address"; sourceChain: string; sourceCurrency: string; destinationChain: string; destinationCurrency: string; destinationAddress: string }
@@ -102,14 +106,18 @@ function call<T>(body: CallBody, timeoutMs: number): Promise<T> {
   if (typeof window === "undefined") return Promise.reject(new Error("no window"));
   const id = `d${Date.now().toString(36)}${(seq++).toString(36)}`;
   return new Promise<T>((resolve, reject) => {
+    const off = () => { window.removeEventListener(DEPOSIT_REPLY_EVENT, on); window.removeEventListener(DEPOSIT_ACK_EVENT, ack); clearTimeout(t); clearTimeout(a); };
     const on = (e: Event) => {
       const r = (e as CustomEvent<DepositReply>).detail;
       if (r?.id !== id) return;
-      window.removeEventListener(DEPOSIT_REPLY_EVENT, on); clearTimeout(t);
+      off();
       if (r.ok) resolve(r.data as T); else reject(new Error(r.message || "deposit call failed"));
     };
-    const t = setTimeout(() => { window.removeEventListener(DEPOSIT_REPLY_EVENT, on); reject(new Error("timeout")); }, timeoutMs);
+    const ack = (e: Event) => { if ((e as CustomEvent<{ id: string }>).detail?.id === id) clearTimeout(a); };
+    const t = setTimeout(() => { off(); reject(new Error("timeout")); }, timeoutMs);
+    const a = setTimeout(() => { off(); reject(new Error("no deposit bridge")); }, Math.min(DEPOSIT_ACK_MS, timeoutMs));
     window.addEventListener(DEPOSIT_REPLY_EVENT, on);
+    window.addEventListener(DEPOSIT_ACK_EVENT, ack);
     window.dispatchEvent(new CustomEvent<DepositCall>(DEPOSIT_CALL_EVENT, { detail: { id, ...body } as DepositCall }));
   });
 }

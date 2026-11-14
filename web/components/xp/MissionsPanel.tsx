@@ -24,20 +24,22 @@ function Mission({ m }: { m: MissionStatus }) {
 
 export default function MissionsPanel({ xp, weekly = false, title = "Daily missions", footer, className }: { xp: XpSummary | null; weekly?: boolean; title?: string; footer?: ReactNode; className?: string }) {
   const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(t); }, []);
+  // the lobby is ISR (30 s) so the server's "New in …" can be minutes older than the browser's: keep the server text
+  // through hydration (no React #418, found by the e2e suite 2026-11-14), then correct it straight after mount
+  useEffect(() => { setNow(Date.now()); const t = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(t); }, []);
   if (!xp) return null;
   return (
     <section className={`dsc3-panel xp-missions${className ? " " + className : ""}`} aria-label={title} data-testid="missions-panel">
       <header className="xp-missions-head">
         <h2 className="dsc3-h3">{title}</h2>
-        <span className="xp-reset">New in {untilLabel(xp.daily.resetsAt, now)}</span>
+        <span className="xp-reset" suppressHydrationWarning>New in {untilLabel(xp.daily.resetsAt, now)}</span>
       </header>
       <ul className="xp-mission-list">{xp.daily.missions.map((m) => <Mission key={m.id} m={m} />)}</ul>
       {weekly && (
         <>
           <header className="xp-missions-head xp-missions-head-week">
             <h2 className="dsc3-h3">Weekly missions</h2>
-            <span className="xp-reset">New in {untilLabel(xp.weekly.resetsAt, now)}</span>
+            <span className="xp-reset" suppressHydrationWarning>New in {untilLabel(xp.weekly.resetsAt, now)}</span>
           </header>
           <ul className="xp-mission-list">{xp.weekly.missions.map((m) => <Mission key={m.id} m={m} />)}</ul>
         </>

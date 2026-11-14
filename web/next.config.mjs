@@ -14,6 +14,8 @@ const basePath = isStatic
   : "";
 
 const nextConfig = {
+  // e2e builds go to their own folder (NEXT_DIST_DIR=.next-e2e, see playwright.config.ts) so they never clobber `next dev`
+  ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   reactStrictMode: false, // flight engine IIFE must not double-mount
   // sdk/session-keys ships TypeScript source (workspace package)
   transpilePackages: ["@disciple/session-keys"],

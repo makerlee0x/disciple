@@ -9,6 +9,11 @@
 export const FUND_EVENT = "disciple:fund";
 /** CustomEvent<FundResult>: the flow closed (PrivyMount → Cash). */
 export const FUND_DONE_EVENT = "disciple:fund-done";
+/** Event (no detail): PrivyMount's FundBridge got the request. With no ack, nothing is listening (Privy off, its chunk
+ *  still loading or blocked), so Cash says checkout isn't available instead of holding "Opening checkout…". */
+export const FUND_ACK_EVENT = "disciple:fund-ack";
+/** how long startFunding waits for that ack */
+export const FUND_ACK_MS = 6_000;
 export type FundRequest = { address: string; usd?: number };
 export type FundResult = { ok: boolean; message?: string };
 
@@ -36,14 +41,18 @@ export const FUND_COPY = {
 } as const;
 
 /** Ask the Privy chunk to open its funding flow for `address`. Resolves when the flow closes. */
-export function startFunding(req: FundRequest, timeoutMs = 15 * 60_000): Promise<FundResult> {
+export function startFunding(req: FundRequest, timeoutMs = 15 * 60_000, ackMs = FUND_ACK_MS): Promise<FundResult> {
   if (typeof window === "undefined") return Promise.resolve({ ok: false, message: FUND_COPY.unavailable });
   return new Promise((resolve) => {
     let done = false;
-    const finish = (r: FundResult) => { if (done) return; done = true; window.removeEventListener(FUND_DONE_EVENT, on); clearTimeout(t); resolve(r); };
+    const finish = (r: FundResult) => { if (done) return; done = true; window.removeEventListener(FUND_DONE_EVENT, on); window.removeEventListener(FUND_ACK_EVENT, ack); clearTimeout(t); clearTimeout(a); resolve(r); };
     const on = (e: Event) => finish((e as CustomEvent<FundResult>).detail ?? { ok: false });
+    const ack = () => { clearTimeout(a); };
     const t = setTimeout(() => finish({ ok: false, message: FUND_COPY.closed }), timeoutMs);
+    // e2e (2026-11-14): with no FundBridge mounted the request went nowhere and the button sat on "Opening checkout…" for 15 min
+    const a = setTimeout(() => finish({ ok: false, message: FUND_COPY.unavailable }), ackMs);
     window.addEventListener(FUND_DONE_EVENT, on);
+    window.addEventListener(FUND_ACK_EVENT, ack);
     window.dispatchEvent(new CustomEvent<FundRequest>(FUND_EVENT, { detail: req }));
   });
 }

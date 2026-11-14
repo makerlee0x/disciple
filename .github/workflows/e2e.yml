@@ -1,0 +1,70 @@
+# End-to-end suite (web/e2e): the production build against a stand-in chain, desktop + phone, with screenshot checks.
+# Runs on every PR into main and on pushes to main. "Run workflow" with update_screens=true re-takes the screenshot
+# baselines on the CI machine and uploads them as the `e2e-screens` artifact (unzip into web/e2e/__screens__ and commit).
+name: e2e
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      update_screens:
+        description: "Re-take the screenshot baselines"
+        type: boolean
+        default: false
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - name: Cache the Playwright browser
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: pnpm exec playwright install --with-deps chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+      - run: pnpm exec playwright install-deps chromium
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+      - name: Build (e2e env)
+        run: pnpm e2e:build
+      - name: Run the suite
+        if: ${{ !inputs.update_screens }}
+        run: pnpm e2e
+      - name: Re-take screenshot baselines
+        if: ${{ inputs.update_screens }}
+        run: pnpm e2e:update
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.update_screens }}
+        with:
+          name: e2e-screens
+          path: web/e2e/__screens__
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-report
+          path: |
+            web/e2e/.report
+            web/e2e/.results
+          retention-days: 7
