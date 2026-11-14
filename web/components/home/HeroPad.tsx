@@ -49,7 +49,7 @@ export const LIFTOFF_MS = 1300;
 const srcset = (list: string) => list.split(", ").map((e) => { const [u, w] = e.split(" "); return `${withBase(u)} ${w}`; }).join(", ");
 const n = (k: number, c?: string) => Array.from({ length: k }, (_, i) => <i key={i} className={c} />);
 
-export default function HeroPad({ go, launching, icon, layout = "hero" }: { go: boolean; launching: boolean; icon?: string | null; layout?: "hero" | "create" | "card" }) {
+export default function HeroPad({ go, launching, icon, layout = "hero", moon = true }: { go: boolean; launching: boolean; icon?: string | null; layout?: "hero" | "create" | "card" | "turbo"; moon?: boolean }) {
   const rocket = withBase(ROCKET_SRC);
   const rocketMask = { WebkitMaskImage: `url(${rocket})`, maskImage: `url(${rocket})` };
   const lazy = go
@@ -60,12 +60,12 @@ export default function HeroPad({ go, launching, icon, layout = "hero" }: { go: 
       } as React.CSSProperties)
     : undefined;
   return (
-    <div className={`${s.pad}${layout === "create" ? " " + s.create : layout === "card" ? " " + s.card : ""}${go ? " " + s.go : ""}${launching ? " " + s.launching : ""}`} style={lazy} aria-hidden>
+    <div className={`${s.pad}${layout === "create" ? " " + s.create : layout === "card" ? " " + s.card : layout === "turbo" ? " " + s.turbo : ""}${go ? " " + s.go : ""}${launching ? " " + s.launching : ""}`} style={lazy} aria-hidden>
       <div className={s.plate}>
         {/* z0: sky plate (LCP; the inline LQIP under it is the frame's ::before) */}
         <picture>
-          <source media={SKY_MOBILE_MQ} type="image/avif" srcSet={srcset(SKY.mobileAvif)} sizes={SKY_SIZES} />
-          <source media={SKY_MOBILE_MQ} type="image/webp" srcSet={srcset(SKY.mobileWebp)} sizes={SKY_SIZES} />
+          {layout !== "turbo" && <source media={SKY_MOBILE_MQ} type="image/avif" srcSet={srcset(SKY.mobileAvif)} sizes={SKY_SIZES} />}
+          {layout !== "turbo" && <source media={SKY_MOBILE_MQ} type="image/webp" srcSet={srcset(SKY.mobileWebp)} sizes={SKY_SIZES} />}
           <source type="image/avif" srcSet={srcset(SKY.desktopAvif)} sizes={SKY_SIZES} />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className={s.sky} src={withBase(SKY.fallback)} srcSet={srcset(SKY.desktopWebp)} sizes={SKY_SIZES}
@@ -75,11 +75,11 @@ export default function HeroPad({ go, launching, icon, layout = "hero" }: { go: 
           <>
             {/* z1: twinkle tiles; z2: moon (disc + baked glow) */}
             <div className={s.stars}><i style={{ backgroundImage: `url(${withBase(STARS[0])})` }} /><i style={{ backgroundImage: `url(${withBase(STARS[1])})` }} /></div>
-            <div className={s.moon}>
+            {moon && <div className={s.moon}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={withBase(MOON_SRC)} srcSet={`${withBase(MOON_SRC)} 160w, ${withBase(MOON_2X_SRC)} 320w`}
                 sizes={`${SKY_MOBILE_MQ} 49vw, 27vw`} alt="" width={160} height={160} decoding="async" draggable={false} />
-            </div>
+            </div>}
             {/* z3: back smog bands drifting behind the deck (seamless tile, opposite directions) */}
             <i className={`${s.band} ${s.bandA}`} /><i className={`${s.band} ${s.bandB}`} />
           </>

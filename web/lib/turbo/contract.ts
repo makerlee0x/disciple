@@ -143,6 +143,21 @@ export function runAdapterContract(name: string, make: () => Promise<ContractHar
       assert.ok(TERMINAL.includes(last.type), "terminal event is last");
     }));
 
+    test("add (optional): more fuel at the same leverage, size grows, fuel leaves", withHarness(async (h, events) => {
+      if (!h.adapter.increase) return;
+      await h.fund(C * 3);
+      const id = await openFilled(h, events);
+      const f0 = (await h.adapter.getFuel()).usd;
+      await h.adapter.increase(id, C);
+      await h.settle(fillWithin);
+      const inc = events.find((e) => e.position.id === id && e.type === "increased");
+      assert.ok(inc && inc.addedUsd === C, "increased event with the fuel added");
+      const p = (await h.adapter.getPositions()).find((x) => x.id === id)!;
+      assert.ok(Math.abs(p.sizeUsd - 2 * C * L) < 1e-6 && Math.abs(p.collateralUsd - 2 * C) < 1e-6);
+      assert.ok(Math.abs((await h.adapter.getFuel()).usd - (f0 - C)) < 0.011);
+      await h.adapter.close(id, 100);
+    }));
+
     test("liquidation: price through the line liquidates with $0 back", withHarness(async (h, events) => {
       if (!h.setPrice) return; // staging can't move the price
       await h.fund(C * 2);
