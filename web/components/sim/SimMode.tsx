@@ -1,5 +1,6 @@
 "use client";
 
+import { HUD } from "@/lib/game/hudStyle";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FlightCanvas from "@/components/FlightCanvas";
 import PnlHud from "@/components/PnlHud";
@@ -30,6 +31,8 @@ type Summary = ReturnType<SimDriver["run"]["summary"]>;
 const DIFFS: DifficultyId[] = ["pve", "pvp", "trench"];
 const SPEEDS = [1, 2, 4];
 const mono: React.CSSProperties = { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" };
+/** phone layout now (same query as the phone state); read inside the run's event callback, which outlives renders */
+const phoneNow = () => typeof matchMedia !== "undefined" && matchMedia("(max-width: 760px)").matches;
 const panel: React.CSSProperties = { ...mono, background: "rgba(8,10,24,.86)", border: "1px solid rgba(143,216,255,.35)", borderRadius: 12, color: "#e8ecff", boxShadow: "0 10px 40px rgba(0,0,0,.45)" };
 const btn = (on = false, c = "#8fd8ff"): React.CSSProperties => ({ ...mono, cursor: "pointer", padding: "5px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700,
   border: `1px solid ${c}`, background: on ? c : "transparent", color: on ? "#0a0c1c" : c });
@@ -99,8 +102,10 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
     setPracticeXp(null);
     setAlert(null);
     d.onEvent((e) => {
-      if (e.kind === "tell" || e.kind === "graduate" || e.kind === "rug" || e.kind === "cto") showAlert({ text: e.text, good: e.kind === "graduate" || e.kind === "cto" });
-      if (e.kind === "rug" || e.kind === "cto" || e.kind === "graduate" || e.kind === "whale") { if (e.kind === "rug" || e.kind === "cto" || e.kind === "graduate" || e.kind === "whale") { setBanner(e); window.setTimeout(() => setBanner((b) => (b === e ? null : b)), e.kind === "whale" ? 2500 : 5000); } } });
+      // orbit: the flight's own IN ORBIT card says it (no Uniswap line: maker 2026-11-14, "irrelevant for free play").
+      // A big boost: the crew feed pill already names it, so phones get no second popup over the chart.
+      if (e.kind === "tell" || e.kind === "rug" || e.kind === "cto") showAlert({ text: e.text, good: e.kind === "cto" });
+      if (e.kind === "rug" || e.kind === "cto" || (e.kind === "whale" && !phoneNow())) { setBanner(e); window.setTimeout(() => setBanner((b) => (b === e ? null : b)), e.kind === "whale" ? 2500 : 5000); } });
     setSummary(null); setPaused(false); setRunN((n) => n + 1); setPhase("run");
   }, [cfg, difficulty, minutes, seedText, speed, initial.balance, showAlert]);
   /** open today's daily: its result if this device already flew it, otherwise the scored flight */
@@ -200,7 +205,9 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
           </> : undefined} />
       )}
       {banner && phase === "run" && (
-        <div data-testid={`sim-banner-${banner.kind}`} style={{ ...panel, position: "fixed", left: "50%", top: 150, transform: "translateX(-50%)", padding: "10px 18px", zIndex: 32, fontSize: banner.kind === "whale" ? 13 : 18, fontWeight: 800, letterSpacing: 1,
+        <div data-testid={`sim-banner-${banner.kind}`} style={{ ...panel, position: "fixed", left: "50%", transform: "translateX(-50%)", padding: "10px 18px", zIndex: 32, fontSize: banner.kind === "whale" ? 13 : 18, fontWeight: 800,
+          /* phone: in the open sky under the zone card (feed pill + 44 + card), between the icon column and the edge, in the game font */
+          ...(phone ? { top: "calc(var(--ph-feed-top, 188px) + 120px)", maxWidth: "calc(100vw - 128px)", width: "max-content", textAlign: "center", font: `800 18px/1.2 ${HUD.game}`, letterSpacing: ".04em" } : { top: 150, letterSpacing: 1 }),
           borderColor: banner.kind === "rug" ? "#ff6b7d" : banner.kind === "cto" ? "#8ff0c0" : "#ffd24a", color: banner.kind === "rug" ? "#ff8f9f" : banner.kind === "cto" ? "#8ff0c0" : "#ffe7a3" }}>
           <Icon name={banner.kind === "rug" ? "rug" : banner.kind === "cto" ? "cto" : banner.kind === "graduate" ? "graduation" : "whale"} size={banner.kind === "whale" ? 14 : 18} />{" "}{banner.text}
         </div>

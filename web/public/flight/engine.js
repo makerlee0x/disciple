@@ -1512,6 +1512,11 @@ function altAtY(y){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); return ba
    sky is the lobby's photo plate for the current zone (public/home/sky/tN.webp), cover-cropped, one plate at a time with a
    1.2 s cross-fade when you change zone, soft drifting clouds instead of the pixel cel clouds, and no wingman ships. */
 const PH_THR=()=>!!(window.__phoneHud&&window.__phoneHud.thr);
+/* phone throttle layout (maker 2026-11-14: "a lot of overlap with the tier and boost popups"): the open sky that big
+   moments may use. Top = just under the crew feed pill (feedTop + 44); x = between the icon column (64) and the screen edge
+   mirrored, so a card or label never runs under the side buttons, the chart card or the pill. null off the phone layout. */
+function phBand(){ const p=window.__phoneHud; if(!p||!p.thr) return null; const top=(p.feedTop!=null?p.feedTop:(p.toastTop||284)-96)+44; return {top, x0:64, x1:W-64}; }
+function phCardBusy(){ return S.tierBanner>0||(S.orbitFx!=null&&S.t-S.orbitFx<4.5); }   // zone / orbit card on screen: bomb labels sit under it
 const PHS={img:{}, cur:-1, prev:-1, fade:1, t:-1, clouds:null};
 function phSkyImg(i){ let im=PHS.img[i]; if(!im){ im=new Image(); im.decoding='async'; im.onerror=()=>{ im.bad=true; }; im.src=(window.__DISCIPLE_BASE_PATH__||'')+'/home/sky/t'+i+'.webp'; PHS.img[i]=im; }
   return !im.bad&&im.complete&&im.naturalWidth>0?im:null; }
@@ -1785,8 +1790,12 @@ function drawLevels(){
   // tier boundary lines
   for (let k=Math.floor(S.displayAlt)-1;k<=Math.floor(S.displayAlt)+2;k++){
     if(k<1||k>=TIERS.length) continue; const y=altToScreenY(k); if(y<-20||y>H+20) continue;
-    ctx.save(); ctx.strokeStyle='rgba(255,236,190,.55)'; ctx.setLineDash([2,10]); ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
-    ctx.setLineDash([]); ctx.fillStyle='rgba(255,236,190,.9)'; ctx.font='bold 13px ui-monospace,monospace'; ctx.fillText('▲ '+TIERS[k].name+'  '+fmtUsd(TIERS[k].lo),SAFE_LEFT,Math.max(HUD_BOTTOM+18,y-8)); ctx.restore();
+    const PB=phBand();   /* phone: the line and its label stay in the open sky (not under the icon column, chart card or lever) */
+    ctx.save(); ctx.strokeStyle='rgba(255,236,190,.55)'; ctx.setLineDash([2,10]); ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(PB?PB.x0:0,y); ctx.lineTo(PB?W-150:W,y); ctx.stroke();
+    ctx.setLineDash([]); ctx.fillStyle='rgba(255,236,190,.9)';
+    if(PB){ if(y-8>PB.top){ ctx.font=GF(13,700); if('letterSpacing' in ctx) ctx.letterSpacing='1px'; ctx.fillText('▲ '+TIERS[k].name+'  '+fmtUsd(TIERS[k].lo),PB.x0+4,y-8); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; } }
+    else { ctx.font='bold 13px ui-monospace,monospace'; ctx.fillText('▲ '+TIERS[k].name+'  '+fmtUsd(TIERS[k].lo),SAFE_LEFT,Math.max(HUD_BOTTOM+18,y-8)); }
+    ctx.restore();
   }
   // order-book levels are no longer drawn; only tramp/wall positions render (drawTrampWalls).
 }
@@ -2455,7 +2464,7 @@ function bfxSpawn(k,x,y,vx,vy,r,gr,life,drag,c,a,g){ const p=S.bfx.spawn(); p.k=
 function launchBomb(pct,f){
   const tier=bombTierOf(pct,f&&f.fullStack), T=BOMB_TIERS[tier], tp=tipPoint();
   S.lastBombT=S.t; HOOK('bomb',{tier,name:T.name,pct,mine:!!(f&&f.mine)});
-  const b={tier,T,pct,x:tp.x,alt:tp.alt,age:0,det:!T.fall,seed:Math.random()*1000,n:(f&&f.n)||1,usd:(f&&f.usd)||0,trader:f&&f.trader,fullStack:f&&f.fullStack};
+  const b={tier,T,pct,x:tp.x,alt:tp.alt,age:0,det:!T.fall,seed:Math.random()*1000,n:(f&&f.n)||1,usd:(f&&f.usd)||0,trader:f&&f.trader,fullStack:f&&f.fullStack,mine:!!(f&&f.mine)};
   if (T.k==='cruise'){ // inbound from above; smoke trail while streaking
     b.x0=tp.x+70; b.y0=bombY(b)-360; b.x1=tp.x; b.y1=bombY(b); }   // drops in from above (vertical world)
   S.bombs.push(b); if(b.det) detonate(b);
@@ -2472,9 +2481,10 @@ function burst(x,y,n,spd,opt){ const fn=typeof opt==='function';
 function detonate(b){ draftKnock();
   const x=b.x, y=bombY(b), k=b.T.k; b.y0=y; b.detAge=b.age; addShock(x,y,k);   // real blast point
   const who=b.trader||'—', lbl=`${b.T.name} −${b.pct>=10?b.pct.toFixed(0):b.pct.toFixed(1)}%${b.fullStack?' · FULL STACK':''} · ${who}${b.usd>0?' '+(b.usd<10?fmtShot(b.usd):fmtUsd(b.usd)):''}${b.n>1?' ×'+b.n:''}`;
-  if (!IS_TURBO&&(S.pro||b.tier>=4)){ if(!S.pro) S.bombLabels.length=0; S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0}); if(S.bombLabels.length>2) S.bombLabels.shift(); }
+  if (!IS_TURBO&&!PH_THR()&&(S.pro||b.tier>=4)){ if(!S.pro) S.bombLabels.length=0; S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0}); if(S.bombLabels.length>2) S.bombLabels.shift(); }
   { for(let i=0;i<Math.min(5,S.feed.length);i++){ const r=S.feed[i]; if(r&&r.t&&r.c==='#ffb0c8'&&!r.ic){ r.ic=BOMB_ICON[b.tier]||'bomb-puff'; r.bomb=b.T.name; break; } } }   /* crew feed: the sell row carries its bomb icon */
   sfx('bomb',{tier:b.tier});
+  if (PH_THR()&&!IS_TURBO){ phBlast(b,x,y); return; }   /* phone: the throttle prototype's blast + pop instead of the tiered set pieces */
   if (k==='grenade'){
     burst(x,y,16,320,{k:'streak',r:1.6,life:0.45,max:0.45,drag:5,c:'255,236,170'});
     burst(x,y,8,60,{k:'smoke',r:7,gr:30,life:0.9,max:0.9,drag:2,c:'90,80,80',a:0.45});
@@ -2497,13 +2507,64 @@ function detonate(b){ draftKnock();
     b.puffs=[...Array(26)].map((_,i)=>({a:Math.random()*6.2832,r:Math.random(),s:0.6+Math.random()*0.6,ph:Math.random()*6}));
   }
 }
+/* @phone-blast (throttle prototype, maker 2026-11-14: the boxed bomb labels and tiered set pieces are "the old style"):
+   on phones every sell drops the prototype's round bomb onto the rocket; it blows up as a white-gold-pink fireball with
+   sparks, smoke, debris and two rings, a short flash + pink vignette, and a floating "BOMB −$X" pop (Barlow, no box).
+   Size follows the bomb tier. Your own sells always pop; the crew's pop from CRUISE up (the feed pill names the rest). */
+const PHX={p:[],r:[],pops:[],red:0,t:-1};
+const PH_K=[0.12,0.25,0.42,0.62,0.82,1];
+function phPart(o){ if(PHX.p.length<260) PHX.p.push(o); }
+function phBlast(b,x,y){ const k=PH_K[b.tier]||0.3, m=b.mine?1:0.7, R=(a,c)=>a+Math.random()*(c-a);
+  PHX.red=Math.max(PHX.red,(0.3+k*0.55)*m); S.screenFlash={t0:S.t,dur:0.38,a:Math.min(0.8,(0.3+k*0.45)*m),c:'255,245,235'};
+  phPart({k:'ball',x,y,vx:0,vy:0,life:0.5,max:0.5,size:(60+k*130)*m,drag:0,g:0});
+  for(let i=0,n=Math.round((24+k*70)*m);i<n;i++){ const a=R(0,6.2832),sp=R(120,700)*(0.6+k*0.7); phPart({k:'spark',x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:R(0.4,1),max:1,size:R(2.5,6),c:Math.random()<0.4?'255,240,200':Math.random()<0.5?'255,150,60':'240,48,127',g:500,drag:0}); }
+  for(let i=0,n=Math.round((7+k*14)*m);i<n;i++){ const a=R(0,6.2832),sp=R(60,260); phPart({k:'smoke',x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:R(1,1.8),max:1.8,size:R(18,40)*(0.7+k*0.6),c:'70,62,80',g:0,drag:2.5}); }
+  for(let i=0,n=Math.round((4+k*9)*m);i<n;i++){ const a=R(0,6.2832),sp=R(250,600); phPart({k:'debris',x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-200,life:R(0.8,1.4),max:1.4,size:R(4,9),c:'190,195,210',g:900,drag:0.3,rot:R(0,6),vrot:R(-14,14)}); }
+  PHX.r.push({x,y,r:16,vr:700+k*900,life:0.55,max:0.55,w:10+k*10,c:'255,240,220'},{x,y,r:6,vr:380+k*500,life:0.7,max:0.7,w:5,c:'240,48,127'});
+  if (PHX.r.length>8) PHX.r.splice(0,PHX.r.length-8);
+  if (b.mine||b.tier>=2){ const amt=b.usd>0?'−'+(b.usd<10?fmtShot(b.usd):fmtUsd(b.usd)):'−'+(b.pct>=10?b.pct.toFixed(0):b.pct.toFixed(1))+'%';
+    const txt=b.mine?amt:(b.tier>=4?b.T.name:'BOMB')+' '+amt;
+    PHX.pops.length=Math.min(PHX.pops.length,1); PHX.pops.push({txt,x:x+(b.mine?0:40),y:y-50,age:0,max:1.4,size:b.mine?44+k*20:24+k*14}); }
+  haptic(b.mine?[40,30,80]:[18]); }
+function phBlastStep(){ const now=S.t, dt=PHX.t<0?0:clamp(now-PHX.t,0,0.05); PHX.t=now; if(!dt) return;
+  PHX.red=Math.max(0,PHX.red-dt*1.6);
+  for(const p of PHX.p){ p.life-=dt; p.vx*=Math.max(0,1-p.drag*dt); p.vy=p.vy*Math.max(0,1-p.drag*dt)+p.g*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; if(p.rot!=null) p.rot+=p.vrot*dt; }
+  keepIf(PHX.p,p=>p.life>0);
+  for(const q of PHX.r){ q.life-=dt; q.r+=q.vr*dt; q.vr*=Math.max(0,1-3*dt); } keepIf(PHX.r,q=>q.life>0);
+  for(const o of PHX.pops) o.age+=dt; keepIf(PHX.pops,o=>o.age<o.max); }
+function phDrawParts(top){ ctx.save();
+  for(const p of PHX.p){ const a=Math.max(0,p.life/p.max);
+    if(top!==(p.k==='ball')) continue;
+    if(p.k==='smoke'){ ctx.globalAlpha=a*0.35; ctx.fillStyle=`rgb(${p.c})`; ctx.beginPath(); ctx.arc(p.x,p.y,p.size*(1.6-a*0.6),0,6.2832); ctx.fill(); }
+    else if(p.k==='spark'){ ctx.globalAlpha=a; ctx.strokeStyle=`rgb(${p.c})`; ctx.lineWidth=p.size; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-p.vx*0.03,p.y-p.vy*0.03); ctx.stroke(); }
+    else if(p.k==='debris'){ ctx.globalAlpha=a; ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot); ctx.fillStyle=`rgb(${p.c})`; ctx.fillRect(-p.size,-p.size*0.4,p.size*2,p.size*0.8); ctx.restore(); }
+    else if(p.k==='ball'){ const r=p.size*(0.35+(1-a)*0.9), g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,r);
+      g.addColorStop(0,`rgba(255,255,240,${a})`); g.addColorStop(0.35,`rgba(255,190,90,${a*0.95})`); g.addColorStop(0.7,`rgba(240,48,127,${a*0.6})`); g.addColorStop(1,'rgba(240,48,127,0)');
+      ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=1; ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p.x,p.y,r,0,6.2832); ctx.fill(); ctx.globalCompositeOperation='source-over'; } }
+  if(top) for(const q of PHX.r){ const a=q.life/q.max; ctx.globalAlpha=a; ctx.strokeStyle=`rgb(${q.c})`; ctx.lineWidth=q.w*a+1; ctx.beginPath(); ctx.arc(q.x,q.y,q.r,0,6.2832); ctx.stroke(); }
+  ctx.restore(); ctx.globalAlpha=1; }
+function phDrawBomb(x,y,tier,u){ const r=10+(PH_K[tier]||0.3)*10, vy=200+u*900; ctx.save(); ctx.translate(x,y); ctx.rotate(S.t*8);
+  ctx.strokeStyle='rgba(255,143,189,.55)'; ctx.lineWidth=r*0.9; ctx.beginPath(); ctx.moveTo(0,-r); ctx.lineTo(0,-r-vy*0.06); ctx.stroke();
+  ctx.fillStyle='#17141f'; ctx.strokeStyle='#FF8FBD'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(0,0,r,0,6.2832); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(-r*0.35,-r*0.35,r*0.28,0,6.2832); ctx.fill();
+  ctx.fillStyle='#FFD36E'; ctx.beginPath(); ctx.arc(0,-r-3,3+Math.random()*2.5,0,6.2832); ctx.fill(); ctx.restore(); }
+function phDrawScreen(){
+  if(PHX.red>0){ const g=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.25,W/2,H/2,Math.max(W,H)*0.75); g.addColorStop(0,'rgba(240,48,127,0)'); g.addColorStop(1,`rgba(240,48,127,${Math.min(0.75,PHX.red)*0.6})`); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
+  const PB=phBand(), top=PB?PB.top+(phCardBusy()?64:0):0;
+  for(const p of PHX.pops){ const a=p.age, sc=Math.min(1,a*9)*(1+0.55*Math.exp(-a*7)), al=Math.min(1,(p.max-a)*3);
+    ctx.save(); ctx.font=GF(p.size,800); const tw=ctx.measureText(p.txt).width, half=tw*sc/2+8;
+    const x=clamp(p.x+Math.sin(a*60)*Math.max(0,4-a*12),(PB?PB.x0:16)+half,(PB?PB.x1:W-16)-half), y=Math.max(top+p.size*0.6,p.y-a*60);
+    ctx.translate(x,y); ctx.scale(sc,sc); ctx.globalAlpha=al; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.lineJoin='round';
+    ctx.lineWidth=Math.max(4,p.size*0.16); ctx.strokeStyle='#121327'; ctx.strokeText(p.txt,0,0); ctx.fillStyle='#FF8FBD'; ctx.fillText(p.txt,0,0); ctx.restore(); }
+  ctx.globalAlpha=1; }
 function drawBombs(){
+  phBlastStep(); if (PHX.p.length) phDrawParts(false);
   if (!S.bombs.length && !S.bfx.length && !S.bombLabels.length) return;
   ctx.save();
   for (const b of S.bombs){ const k=b.T.k, x=b.x, yT=bombY(b);
     if (!b.det){ // inbound: cruise streaks diagonally w/ smoke; others fall from above
       const u=b.age/b.T.fall;
-      if (k==='cruise'){
+      if (k==='cruise'&&!PH_THR()){
         const x1=b.x1!=null?b.x1:x, y1=b.y1!=null?b.y1:yT, x0=b.x0!=null?b.x0:x+280, y0=b.y0!=null?b.y0:yT-220;
         const mx=x0+(x1-x0)*u*u, my=y0+(y1-y0)*u*u, ang=Math.atan2(y1-y0,x1-x0);
         if ((b._trail|0)<Math.floor(u*18)){ b._trail=Math.floor(u*18);
@@ -2519,6 +2580,7 @@ function drawBombs(){
         ctx.restore(); continue;
       }
       const y=yT-(1-u*u)*320, s=k==='atom'?1.6:k==='nuke'?1.35:1;
+      if (PH_THR()){ phDrawBomb(x,y,b.tier,u); continue; }
       ctx.save(); ctx.translate(x,y); ctx.globalCompositeOperation='lighter';
       const g=ctx.createLinearGradient(0,-70*s,0,0); g.addColorStop(0,'rgba(255,230,160,0)'); g.addColorStop(1,'rgba(255,230,160,.7)'); ctx.fillStyle=g; ctx.fillRect(-3*s,-70*s,6*s,70*s);
       ctx.globalCompositeOperation='source-over'; ctx.fillStyle='#2a2730'; ctx.strokeStyle='#ffd77a'; ctx.lineWidth=1.5;
@@ -2526,6 +2588,7 @@ function drawBombs(){
       ctx.fillStyle='#ffd77a'; ctx.beginPath(); ctx.moveTo(-7*s,-12*s); ctx.lineTo(-12*s,-22*s); ctx.lineTo(12*s,-22*s); ctx.lineTo(7*s,-12*s); ctx.fill();
       ctx.restore(); continue; }
     const t=b.age-(b.T.fall||0), L=b.T.life, y=yT, u=t/L;
+    if (PH_THR()) continue;   // phone: phBlast particles carry the explosion
     ctx.globalCompositeOperation='lighter';
     if (k==='grenade'){ const r=10+70*(1-Math.exp(-t*9)), a=Math.max(0,1-t/0.5);
       fireball(x,y,r*0.7,a); ring(x,y,r,a*0.9,2,'255,236,170'); }
@@ -2585,11 +2648,13 @@ function drawMushroom(b,x,y,t){
 }
 function drawBombScreen(){ // un-shaken overlays: flash + label pops
   if (S.screenFlash){ const f=S.screenFlash, u=(S.t-f.t0)/f.dur; if(u>=1) S.screenFlash=null; else { ctx.fillStyle=`rgba(${f.c},${f.a*Math.pow(1-u,1.6)})`; ctx.fillRect(0,0,W,H); } }
+  if (PHX.red>0||PHX.pops.length) phDrawScreen();
   for (const l of S.bombLabels){ const pop=l.age<0.18?0.6+0.55*(l.age/0.18):1.15-0.15*Math.min(1,(l.age-0.18)/0.15), a=clamp((l.life-l.age)/0.5,0,1);
     const fs=[15,17,20,24,30,38][l.tier]; ctx.save(); ctx.globalAlpha=a; ctx.font=GF(fs,800); ctx.textAlign='center';
     // tier icon (DISCIPLE bomb family) + 6-orb tier meter (reached = solid) lead the label; text unchanged
     const tw=ctx.measureText(l.txt).width, ih=Math.round(fs*1.15), mh=Math.round(Math.max(12,fs*0.8)), iw=ih, mw=iconW('meter-orbs-1',mh), gap=Math.round(fs*0.3), lead=iw+gap+mw+gap*1.4;
-    const w=tw+lead, fit=Math.min(1,(W-40)/(w+24)), lx=clamp(l.x,Math.min(W/2,w*fit/2+20),Math.max(W/2,W-w*fit/2-20)), ly=clamp(l.y-90-l.age*18-(l.tier>=5?120:0),BANNER_Y+50,H-30);
+    const PB=phBand(), w=tw+lead, fit=Math.min(1,(PB?(PB.x1-PB.x0)/1.15:W-40)/(w+24)), lx=PB?W/2:clamp(l.x,Math.min(W/2,w*fit/2+20),Math.max(W/2,W-w*fit/2-20)),
+      ly=clamp(l.y-90-l.age*18-(l.tier>=5?120:0),PB?PB.top+(phCardBusy()?64:0)+fs*0.95*pop*fit+4:BANNER_Y+50,H-30);   /* phone: centred in the open sky, under the feed pill (and under a zone card) */
     ctx.translate(lx,ly); ctx.scale(pop*fit,pop*fit);   /* fit: never wider than the screen (phone: ATOM BOMB ran off the edge) */
     ctx.fillStyle='rgba(10,8,20,.62)'; ctx.beginPath(); ctx.roundRect?ctx.roundRect(-w/2-12,-fs*0.95,w+24,fs*1.45,8):ctx.rect(-w/2-12,-fs*0.95,w+24,fs*1.45); ctx.fill();
     const col=l.tier>=5?'#fffdf2':'#ffd77a', cy=-fs*0.95+fs*1.45/2, x0=-w/2;
@@ -3002,28 +3067,29 @@ function tierLineEnd(ti){ ctx.save(); ctx.font=GF(20,700); const e=36+ctx.measur
 function startOrbitFx(){ S.orbitFx=S.t; S.tierBanner=0; S.screenFlash={t0:S.t,dur:1.1,a:0.7,c:'255,246,220'}; sfx('orbit'); haptic([20,40,60]);
   try{ dispatchEvent(new CustomEvent('disciple:orbit',{detail:{at:Date.now()}})); }catch(_){} }
 function drawOrbitCard(){ const age=S.orbitFx!=null?S.t-S.orbitFx:99; if(age>4.5) return;
-  const a=clamp(age/0.3,0,1)*clamp((4.5-age)/0.8,0,1), BY=BANNER_Y+20;
+  const a=clamp(age/0.3,0,1)*clamp((4.5-age)/0.8,0,1), PB=phBand(), BY=PB?PB.top+52:BANNER_Y+20;
   ctx.save();
   { const u=clamp(age/1.6,0,1); ctx.globalAlpha=0.8*(1-u); ctx.strokeStyle='#F2C14E'; ctx.lineWidth=3*(1-u)+1; ctx.beginPath(); ctx.arc(S.x,S.ry,30+Math.max(W,H)*0.6*u,0,6.2832); ctx.stroke();
     ctx.globalAlpha=0.5*(1-u); ctx.strokeStyle='#FFF6DC'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(S.x,S.ry,20+Math.max(W,H)*0.42*u,0,6.2832); ctx.stroke(); }
   ctx.globalAlpha=a; ctx.textAlign='center';
-  let fs=Math.min(110,Math.max(52,W*0.1)); ctx.font=GF(fs,800); while(ctx.measureText('IN ORBIT').width>W-48&&fs>30){ fs-=4; ctx.font=GF(fs,800); }
-  ctx.font=GF(17,700); ctx.fillStyle='#F2C14E'; if('letterSpacing' in ctx) ctx.letterSpacing='5px'; ctx.fillText('GRADUATED',W/2,BY-fs*0.8-14); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.font=GF(fs,800);
-  ctx.fillStyle='#FFFFFF'; glowText('IN ORBIT',W/2,BY+(1-clamp(age/0.4,0,1))*18,'rgb(242,193,78)',18,0.32);
-  ctx.font=GF(18,600); ctx.fillStyle='rgba(243,223,168,.92)'; ctx.fillText('Caps off. Keep climbing.',W/2,BY+40);
+  let fs=PB?40:Math.min(110,Math.max(52,W*0.1)); ctx.font=GF(fs,800); while(ctx.measureText('IN ORBIT').width>(PB?PB.x1-PB.x0:W-48)&&fs>30){ fs-=4; ctx.font=GF(fs,800); }
+  ctx.font=GF(PB?13:17,700); ctx.fillStyle='#F2C14E'; if('letterSpacing' in ctx) ctx.letterSpacing=PB?'3px':'5px'; ctx.fillText('GRADUATED',W/2,PB?PB.top+12:BY-fs*0.8-14); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.font=GF(fs,800);
+  ctx.fillStyle='#FFFFFF'; glowText('IN ORBIT',W/2,BY+(1-clamp(age/0.4,0,1))*(PB?8:18),'rgb(242,193,78)',PB?12:18,0.32);
+  ctx.font=GF(PB?14:18,600); ctx.fillStyle='rgba(243,223,168,.92)'; ctx.fillText('Caps off. Keep climbing.',W/2,BY+(PB?20:40));
   ctx.restore(); }
 /* ZONE ARRIVAL CARD (phase 1): a game location reveal on every zone change, Barlow Condensed. A climb gets the gold
    kicker 'ZONE 06 / 18', a rule that draws out, a sound sting and a soft gold wash from the top (drawPost); a drop reads
    'DROPPED TO' in the dump colour, no sting. S.tierBanner counts down from 2.2 s (simStep). */
 function drawZoneCard(){ const k=S.tierShown, bn=tierName(k); if(!bn) return;
-  const age=2.2-S.tierBanner, inA=clamp(age/0.25,0,1), a=Math.min(inA,clamp(S.tierBanner/0.6,0,1)), up=S.tierUp!==false, BY=BANNER_Y+10;
+  const age=2.2-S.tierBanner, inA=clamp(age/0.25,0,1), a=Math.min(inA,clamp(S.tierBanner/0.6,0,1)), up=S.tierUp!==false, PB=phBand(), BY=PB?PB.top+48:BANNER_Y+10;
   ctx.save(); ctx.globalAlpha=a; ctx.textAlign='center';
-  const kick=up?`ZONE ${String(k+1).padStart(2,'0')} / ${TIERS.length}`:'DROPPED TO';
-  let fs=Math.min(84,Math.max(40,W*0.075)); ctx.font=GF(fs,800); while(ctx.measureText(bn).width>W-48&&fs>26){ fs-=4; ctx.font=GF(fs,800); }
-  ctx.font=GF(17,700); ctx.fillStyle=up?'#F2C14E':'#F0307F'; if('letterSpacing' in ctx) ctx.letterSpacing='4px'; ctx.fillText(kick,W/2,BY-fs*0.8-12); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.font=GF(fs,800);
-  const rise=(1-inA)*14; ctx.fillStyle='#FFFFFF'; glowText(bn,W/2,BY+rise,up?'rgb(242,193,78)':'rgb(240,48,127)',14,0.28);
-  const rw=Math.min(W-80,ctx.measureText(bn).width)*clamp(age/0.6,0,1); ctx.fillStyle=up?'rgba(243,223,168,.8)':'rgba(240,48,127,.7)'; ctx.fillRect(W/2-rw/2,BY+16,rw,2);
-  ctx.font=GF(16,600); ctx.fillStyle='rgba(215,217,228,.85)'; ctx.fillText(fmtUsd(TIERS[k].lo)+' ALTITUDE',W/2,BY+40);
+  /* phone: a compact two-line card in the open sky under the feed pill; the altitude joins the kicker so the card stays clear of the rocket */
+  const kick=(up?`ZONE ${String(k+1).padStart(2,'0')} / ${TIERS.length}`:'DROPPED TO')+(PB?' · '+fmtUsd(TIERS[k].lo):'');
+  let fs=PB?36:Math.min(84,Math.max(40,W*0.075)); ctx.font=GF(fs,800); while(ctx.measureText(bn).width>(PB?PB.x1-PB.x0:W-48)&&fs>26){ fs-=4; ctx.font=GF(fs,800); }
+  ctx.font=GF(PB?13:17,700); ctx.fillStyle=up?'#F2C14E':'#F0307F'; if('letterSpacing' in ctx) ctx.letterSpacing=PB?'3px':'4px'; ctx.fillText(kick,W/2,PB?PB.top+12:BY-fs*0.8-12); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.font=GF(fs,800);
+  const rise=(1-inA)*(PB?8:14); ctx.fillStyle='#FFFFFF'; glowText(bn,W/2,BY+rise,up?'rgb(242,193,78)':'rgb(240,48,127)',14,0.28);
+  const rw=Math.min(W-80,ctx.measureText(bn).width)*clamp(age/0.6,0,1); ctx.fillStyle=up?'rgba(243,223,168,.8)':'rgba(240,48,127,.7)'; ctx.fillRect(W/2-rw/2,BY+(PB?8:16),rw,2);
+  if(!PB){ ctx.font=GF(16,600); ctx.fillStyle='rgba(215,217,228,.85)'; ctx.fillText(fmtUsd(TIERS[k].lo)+' ALTITUDE',W/2,BY+40); }
   ctx.restore(); }
 /* @tier-name — ONE tier label for the sky, used by the desktop HUD, the phone pill and the tier banner: the tier NAME only,
    never a number (lee, Oct 30: "LAUNCH PAD", never "Tier 0"), from the TIERS ladder. The sky follows the CURRENT price, no
@@ -3395,7 +3461,7 @@ function render(dt){
   if (S.grass){ ctx.save(); drawBg(); drawClouds(); drawSpeedLines(); drawTickTrail(); drawRocket(dt); drawClouds(true); ctx.restore(); drawPost(); drawGrass(dt); return; }
   S._grassA=0;
   ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTurboLines(); drawWingmen(); drawGhost(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); if(!IS_TURBO){ drawHud(); drawChartMap(); } cardPublish();   // @turbo: the Turbo page draws its own dollar HUD (no market cap / tier card)
+  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTurboLines(); drawWingmen(); drawGhost(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); if(PHX.p.length||PHX.r.length) phDrawParts(true); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); if(!IS_TURBO){ drawHud(); drawChartMap(); } cardPublish();   // @turbo: the Turbo page draws its own dollar HUD (no market cap / tier card)
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
 }

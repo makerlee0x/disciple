@@ -258,7 +258,7 @@ export const POINTS = {
 };
 export interface SimAchievement { id: string; title: string; sub: string }
 export const SIM_ACHIEVEMENTS: SimAchievement[] = [
-  { id: "graduate", title: "OUTER SPACE", sub: "The rocket reached orbit and moved to the open market on Uniswap." },
+  { id: "graduate", title: "OUTER SPACE", sub: "The rocket reached orbit." },
   { id: "angels", title: "WINGS", sub: "The rocket's value climbed into the Morning Stars tier, which starts at $100,000. Altitude is that climb, shown as named tiers." },
   { id: "million", title: "URANUS", sub: "The rocket's value climbed into the URANUS tier, which starts at $1.2 million." },
   { id: "green", title: "IN THE GREEN", sub: "finished with positive PnL" },
