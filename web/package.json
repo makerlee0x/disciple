@@ -16,6 +16,7 @@
     "test:tier-labels": "node scripts/test-tier-labels.mjs",
     "test:default-username": "node scripts/test-default-username.mjs",
     "test:chat": "node scripts/test-chat.mjs",
+    "test:duel": "tsx --conditions=react-server --test scripts/test-duel.mts",
     "test:chat-no-trades": "tsx --conditions=react-server --test scripts/test-chat-no-trades.mts",
     "test:sim": "node scripts/test-sim.mjs",
     "test:daily": "node scripts/test-daily.mjs",
