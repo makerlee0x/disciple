@@ -38,19 +38,27 @@
   .card.on { flex-basis: 260px; height: 420px; }
   .row { min-height: 440px; gap: 14px; }
 }
-/* phones: a swipe carousel, one card centred, snapping */
+/* phones: a swipe carousel, one card centred, snapping. Every card keeps the same box so nothing reflows while the finger
+   is down (the old version grew the centred card mid-swipe, which moved the snap points and made the row jump); the
+   centred card is shown with transform + opacity only, which the compositor animates without layout. */
 @media (max-width: 760px) {
   .title { font-size: 28px; }
   .hint { display: none; }
   .row {
-    justify-content: flex-start; gap: 12px; min-height: 0; perspective: none; overflow-x: auto; scroll-snap-type: x mandatory;
-    margin: 0 -16px; padding: 10px calc(50vw - 125px); scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    justify-content: flex-start; gap: 4px; min-height: 0; perspective: none; overflow-x: auto; overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory; margin: 0 -16px; padding: 10px calc(50vw - 125px); scrollbar-width: none; -webkit-overflow-scrolling: touch;
   }
   .row::-webkit-scrollbar { display: none; }
-  .card, .card.left, .card.right { flex: 0 0 220px; height: 340px; transform: none; opacity: .72; scroll-snap-align: center; }
-  .card.on { flex-basis: 250px; height: 390px; opacity: 1; }
-  .name { font-size: 38px; }
-  .on .name { font-size: 46px; }
+  .card, .card.left, .card.right, .card.on {
+    flex: 0 0 250px; height: 390px; scroll-snap-align: center; scroll-snap-stop: always;
+    transform: scale(.88); opacity: .6; transition: transform .22s ease, opacity .22s ease; will-change: transform;
+  }
+  .card.on { transform: none; opacity: 1; }
+  .card:hover:not(.on) { opacity: .6; filter: none; }
+  .name, .on .name { font-size: 46px; }
+  .sub, .on .sub { font-size: 15px; }
+  .play { display: inline-flex; opacity: 0; transition: opacity .22s ease; }
+  .on .play { opacity: 1; }
   .dots { display: flex; }
 }
 @media (prefers-reduced-motion: reduce) { .card, .dots i { transition: none; } }
