@@ -451,6 +451,7 @@ test("Carry v0.3 settle: hourly, only when the epoch earned something and nobody
     return 0n;
   };
   const calls: string[] = [];
+  let hookDue: boolean | null = null; // null: this #132 build has no settleDue
   const pub = {
     getBlockNumber: async () => 1n,
     getStorageAt: async ({ slot }: { slot: Hex }) => pad(toHex(store(BigInt(slot) - base)), { size: 32 }),
@@ -458,6 +459,10 @@ test("Carry v0.3 settle: hourly, only when the epoch earned something and nobody
       calls.push(`${address.toLowerCase() === HL ? "L" : "3"}:${functionName}`);
       if (address.toLowerCase() === HL) throw new Error("execution reverted"); // launch hook: no settleEvery
       if (functionName === "settleEvery") return 21600;
+      if (functionName === "settleDue") {
+        if (hookDue === null) throw new Error("execution reverted");
+        return hookDue;
+      }
       return { ageOrBlock: 777n, sampleAt, coinReserve: 1000n, quoteReserve: 2000n };
     },
   };
@@ -490,6 +495,17 @@ test("Carry v0.3 settle: hourly, only when the epoch earned something and nobody
   pub.readContract = async (a) => (a.functionName === "poolState" ? { ageOrBlock: 777n, sampleAt: nowS - 99n, coinReserve: 1000n, quoteReserve: 2000n } : view(a));
   await again();
   assert.equal(settled.length, 2, "layout check failed: no guess");
+  // a hook with settleDue: its answer wins, storage is not consulted
+  pub.readContract = view;
+  (k as unknown as { noSettleUntil: Map<string, number> }).noSettleUntil.clear();
+  hookDue = true;
+  await again();
+  assert.equal(settled.length, 3, "settleDue yes: settle even though storage no longer matches");
+  hookDue = false;
+  dy = 7n;
+  sampleAt = nowS - 20n;
+  await again();
+  assert.equal(settled.length, 3, "settleDue no: skip even though storage says due");
   await k.settleDue(launch);
   await k.settleDue(launch);
   assert.deepEqual(calls.filter((c) => c.startsWith("L")), ["L:settleEvery"], "launch hook asked once, then left alone");

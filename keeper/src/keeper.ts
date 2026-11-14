@@ -1086,6 +1086,12 @@ export class Keeper {
         this.noSettleUntil.set(id, t + 6 * 3600); // launch hook: no epochs
         continue;
       }
+      // the hook's own answer when it has one (its hour, not settleEverySec); storage read only as a fallback
+      const due = await pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "settleDue", args: [id] }).catch(() => null);
+      if (due !== null) {
+        if (due) await this.settle(s, id);
+        continue;
+      }
       const e = await readEpoch(pub, s.hook, id);
       if (!e.layoutOk) {
         this.log.warn(`${s.name}: pool ${id.slice(0, 10)} storage does not match the hook's poolState (layout changed?); not settling`);

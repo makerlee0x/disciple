@@ -72,6 +72,8 @@ export const carryHookAbi = parseAbi([
   // backstop (6 h), and only a v0.3 hook has it, so the keeper uses it to tell the builds apart. The hook has no
   // "due" view (no bytes left): the keeper reads the epoch's start and its fees from storage (hook.ts readEpoch).
   "function settleEvery() view returns (uint32)",
+  // added to #132 later: true when live, book.dy != 0 and an hour passed since the last payout. Preferred when present.
+  "function settleDue(bytes32 id) view returns (bool)",
   "function settle(bytes32 id)",
 ]);
 

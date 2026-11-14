@@ -63,8 +63,8 @@ work the same line.
 and also on every deposit, withdraw and claim. A swap pays out only as a backstop, when nothing paid out for
 `settleEvery` (6 h). Every `sampling.settleCheckSec` (300 s) the keeper reads each pool's open epoch from storage:
 `settledAt` (+8, bits 64–127) and `book.dy` (+15, high 128 bits). It sends `settle(id)` only when the epoch earned
-something (dy ≠ 0) and nothing paid out for `sampling.settleEverySec` (3600 s). The hook has no room for a "due" view,
-so the keeper reads the slots. Each read is cross-checked against the hook's own `poolState` at the same block
+something (dy ≠ 0) and nothing paid out for `sampling.settleEverySec` (3600 s). If the hook has `settleDue(id)`, which
+is being added to #132, its answer is used. The slot read is only a fallback for a build without it. Each read is cross-checked against the hook's own `poolState` at the same block
 (settledBlock, sampleAt, both reserves). If they ever disagree (a layout change), the keeper warns and alerts, and doesn't
 settle. Layout from `forge inspect CarryStrategy storageLayout` on #132. The launch hook has no `settleEvery()`, so it is
 left alone.
