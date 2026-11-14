@@ -28,9 +28,24 @@ export interface PositionPnl {
   fills: Fill[];
 }
 
-export function pnlFromFills(wallet: string, coin: string, all: Fill[], nowMcapUsd: number | null, now = Date.now()): PositionPnl {
+/**
+ * Where the LAST trade starts (maker 2026-11-14: "the whole trade from entry to exit"): the buy that opened the position that is
+ * open now, or, if everything is sold, the buy that opened the last closed one. Earlier round trips on the same coin are left out.
+ * -1 = no buy. Pure (scripts/test-share-pnl).
+ */
+export function lastTradeStart(sorted: readonly Fill[]): number {
+  let held = 0, start = -1;
+  for (let i = 0; i < sorted.length; i++) {
+    const f = sorted[i];
+    if (f.side === "buy") { if (held <= 1e-9) start = i; held += f.tokens; }
+    else held = Math.max(0, held - f.tokens);
+  }
+  return start;
+}
+
+export function pnlFromFills(wallet: string, coin: string, all: Fill[], nowMcapUsd: number | null, now = Date.now(), opts: { trade?: "all" | "last" } = {}): PositionPnl {
   const sorted = [...all].sort((a, b) => a.block - b.block || a.logIndex - b.logIndex || a.ts - b.ts);
-  const first = sorted.findIndex((f) => f.side === "buy");
+  const first = opts.trade === "last" ? lastTradeStart(sorted) : sorted.findIndex((f) => f.side === "buy");
   const fills = first < 0 ? [] : sorted.slice(first);
   const base: PositionPnl = { wallet, coin, kind: "none", gainUsd: 0, gainPct: 0, investedUsd: 0, realizedUsd: 0, unrealizedUsd: 0, holding: 0, mcapEndUsd: nowMcapUsd ?? 0, mcapStartUsd: 0, startTs: 0, endTs: 0, fills };
   if (!fills.length) return base;

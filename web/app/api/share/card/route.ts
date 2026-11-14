@@ -40,7 +40,7 @@ export async function GET(req: Request) {
   let guildTag: string | null = null;
   let pnl = null as Awaited<ReturnType<typeof pnlForPosition>> | null;
   if (!(devDemo && q.get("demo") === "1") && isAddr(wallet) && isAddr(coin)) {
-    pnl = await pnlForPosition(wallet, coin, at).catch(() => null);
+    pnl = await pnlForPosition(wallet, coin, at, q.get("trade") === "last" ? "last" : "all").catch(() => null);
     username = (await usernameOf(wallet).catch(() => null)) ?? null;
     guildTag = (await guildTagsOf([wallet]))[wallet.toLowerCase()]?.tag ?? null;
     const sym = await serverPc().readContract({ address: coin as Address, abi: tokenAbi, functionName: "symbol" }).catch(() => null);
