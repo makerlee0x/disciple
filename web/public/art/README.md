@@ -12,6 +12,7 @@ Cinematic background plates from the BRAND hand-off. None of these images has an
 | `modes/duel.webp` | 1024×1536 | 219 | Mode card poster, 2:3. Badge goes top-left; title and text go in the dark bottom part. |
 | `modes/free.webp` | 1024×1536 | 228 | Mode card poster, 2:3. Badge goes top-left; title and text go in the dark bottom part. |
 | `modes/launch.webp` | 1024×1536 | 148 | Mode card poster, 2:3. Badge goes top-left; title and text go in the dark bottom part. |
+| `modes/last-pilot.webp` | 1024×1536 | 189 | Mode card poster for Last Pilot Standing, 2:3. Badge goes top-left; title and text go in the dark bottom part. |
 | `modes/live.webp` | 1024×1536 | 238 | Mode card poster, 2:3. Badge goes top-left; title and text go in the dark bottom part. |
 | `share/daily.webp` | 2400×1260 | 351 | Share card backdrop, 1.91:1. Text sits on the dark left half. |
 | `share/duel-loss.webp` | 2400×1260 | 261 | Share card backdrop, 1.91:1. Text sits on the dark left half. |
@@ -21,4 +22,4 @@ Cinematic background plates from the BRAND hand-off. None of these images has an
 | `system/podium-empty.webp` | 3000×1000 | 385 | Error and empty states. Message sits in the middle. On engine-trouble, keep it slightly left of the ship. On podium-empty, a soft dark scrim behind centered text helps. |
 | `trophies/room.webp` | 3000×1000 | 214 | Trophy room banner, 3:1. Meant to sit faded behind text on the left. |
 
-The Last Pilot Standing poster (M5) is on hold and not included.
+The Last Pilot Standing poster (M5) is included, made at lee's request on Nov 14.
