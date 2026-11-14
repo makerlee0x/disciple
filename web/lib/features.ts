@@ -62,4 +62,25 @@ export const LOGBOOK_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_LOGBOOK 
  * Off: no Crew tab or account-menu item, /crew and /fly 404, /fly/<user>/<ticker> still sets the referral cookie but opens
  * the rocket, and no crew push is sent or offered. The APIs stay. Override: NEXT_PUBLIC_FEATURE_CREW=1 (build-time).
  */
+/**
+ * Tramps and walls (limit orders on rockets in orbit): the coin-page / Free play panel, its ☰ menu items and the docs page.
+ * Hidden for launch (maker, 2026-11-14: "they may come back but we don't need them right now"). Off: TrampWallPanel is not
+ * mounted, so nothing is placed or drawn and the menu items stay hidden; the contracts, adapters and APIs are untouched.
+ * Override: NEXT_PUBLIC_FEATURE_TRAMP_WALLS=1 (build-time).
+ */
+export const TRAMP_WALLS_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_TRAMP_WALLS === "1" || process.env.NEXT_PUBLIC_FEATURE_TRAMP_WALLS === "true";
 export const CREW_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_CREW === "1" || process.env.NEXT_PUBLIC_FEATURE_CREW === "true";
+
+/**
+ * Pro HUD: the advanced trader view on desktop flight (loadout card, Pro chart, full position card, every bomb banner) and
+ * the PILOT / PRO switch that picks it. Hidden for launch (maker, 2026-11-14: "i dont think we need the advanced trader view
+ * any more for desktop"). Off: every flight runs Pilot, the top bar has no switch, a saved 'pro' choice is reset to Pilot,
+ * and How to play shows one panel without its Pilot / Pro tabs (#pro still opens the spec sheet). Price protection lives in
+ * Settings → Trading and in the trade settings popup (☰ → Trade settings). The Pro code stays so this can come back.
+ * Override: NEXT_PUBLIC_FEATURE_PRO=1 (build-time).
+ */
+export const PRO_HUD_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_PRO === "1" || process.env.NEXT_PUBLIC_FEATURE_PRO === "true";
+
+/** Trading Duel card in the lobby's "Pick a mode" row (game modes option A, maker 2026-11-14). The card shows whenever the
+ *  Turbo flag is on (lib/turbo/flag.ts) and opens the duel lobby, which sits behind the Turbo password. */
+export const DUEL_HREF = "/turbo/duel";

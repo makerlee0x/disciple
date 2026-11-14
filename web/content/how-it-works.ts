@@ -44,7 +44,7 @@ export const HIW_PILOT = {
     { title: "Boost", body: "Pick an amount with 1 to 4, then hit Space. Your cash buys a seat and lifts the rocket." },
     { title: "Dump", body: "Pick how much with Z, X, C or V, then hit Shift. You get cash back and drop a bomb." },
   ],
-  phone: "On a phone, tap the amounts and the BOOST and DUMP buttons.",
+  phone: "On a phone, slide the throttle up to boost and down to dump.",
   rules: {
     eyebrow: "The rules",
     h2: "How you win",
@@ -71,7 +71,7 @@ export const HIW_PRO = {
     rows: [
       ["Chain", "Robinhood Chain"],
       ["Supply", "1,000,000 · fixed, no mint"],
-      ["Quoted in", "USDG or STRATEGY"],
+      ["Pair coins", "12 to pick from · STRATEGY default"],
       ["Curve start", "$3,333 mcap"],
       ["Orbit (graduation)", "$33,333 mcap · 84.24% sold"],
       ["After orbit", "Uniswap v4 · LP locked forever"],
@@ -100,6 +100,7 @@ export const HIW_PRO = {
     ] as [string, string, string, string][],
     overcap: ["Over-cap buys", "Partial fill, unused input refunded. No max buy or sell."] as [string, string],
   },
+  /** shown only when PRO_HUD_ENABLED (the Pro trader view is hidden for launch) */
   hud: {
     title: "Pro HUD",
     rows: [
@@ -118,7 +119,7 @@ export const HIW_PRO = {
       { k: "Buy", keys: ["Space"], v: "" },
       { k: "Sell size", keys: ["Z", "X", "C", "V"], v: "10 · 25 · 50 · 100%" },
       { k: "Sell", keys: ["Shift"], v: "" },
-      { k: "Custom size", keys: [], v: "Type any $ or %" },
+      { k: "Custom boost", keys: [], v: "Type any $ amount" },
     ] as { k: string; keys: string[]; v: string }[],
   },
   verify: { title: "Verify it yourself", body: "The contracts, the curve formula and the full rules are in the docs.", contracts: "Contracts", docs: "Read the docs" },

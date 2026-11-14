@@ -3,7 +3,7 @@
 import XLinkControl from "./XLinkControl";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { onWallet } from "@/lib/wallet";
+import { onWallet } from "@/lib/walletState";
 import type { Address } from "@/lib/protocol";
 import {
   checkUsername, claimUsername, fetchUsernameStatus, localUsername, normalizeUsername,

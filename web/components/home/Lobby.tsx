@@ -62,7 +62,19 @@ function JoinFlight({ coins }: { coins: HomeCoin[] }) {
   }, [coins]);
   const [i, setI] = useState(0);
   const c = pool.length ? pool[i % pool.length] : null;
-  if (!c) return null;
+  // nothing live: same panel, pointing at the two ways to fly anyway (maker 2026-11-14)
+  if (!c) return (
+    <section className={`dsc3-panel ${s.join}`} aria-labelledby="lobby-join-title" data-testid="lobby-join" data-empty="1">
+      <span className={s.joinBloom} aria-hidden />
+      <span className={s.live}><i aria-hidden className={s.liveOff} />Nothing flying yet</span>
+      <h2 id="lobby-join-title" className={s.joinTitle}>Join a flight</h2>
+      <p className={s.joinEmpty}>No rockets are in the air right now. Host the first launch and your crew flies it up, or warm up in Free play.</p>
+      <div className={s.joinActions}>
+        <Link href="/create" className={`dsc3-btn dsc3-btn-white ${s.dropIn}`} data-testid="lobby-host">Host a launch</Link>
+        <Link href="/flight/sim" className={s.shuffle}>Free play</Link>
+      </div>
+    </section>
+  );
   const tier = tierProgress(c.mcapUsd);
   const crew = c.stats?.crew ?? null;
   const chg = c.stats?.chg24 ?? null;
@@ -127,16 +139,15 @@ export default function Lobby({ initial: init, hero }: { initial: HomeData; hero
     <CrewAboardProvider wallet={wallet ?? null} coins={CREW_ENABLED ? crewCoins : []}>
     <div className={s.lobby} data-testid="lobby">
       {LOGBOOK_ENABLED && <AwayCard wallet={wallet ?? null} />}
-      <div className={s.doors}>
-        {hero}
-        <div className={s.side}>
-          <JoinFlight coins={coins} />
-          <MissionsPanel
-            xp={missions}
-            className={s.missions}
-            footer={<Link href="/achievements" className={s.more}>{xp ? "All missions and trophies" : "This week's missions"} <Icon name="chevron-right" size={14} /></Link>}
-          />
-        </div>
+      {/* game modes board, option A (maker 2026-11-14): Pick a mode on top, then Join a flight beside today's missions */}
+      {hero}
+      <div className={`${s.doors} ${s.doorsUnder}`}>
+        <JoinFlight coins={coins} />
+        <MissionsPanel
+          xp={missions}
+          className={s.missions}
+          footer={<Link href="/achievements" className={s.more}>{xp ? "All missions and trophies" : "This week's missions"} <Icon name="chevron-right" size={14} /></Link>}
+        />
       </div>
 
       {climbing.length > 0 && (

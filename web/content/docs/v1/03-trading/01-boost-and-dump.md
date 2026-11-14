@@ -23,9 +23,9 @@ The buttons work the same in both phases.
 
 ## Choosing an amount
 
-**BOOST presets.** Four dollar amounts sit in the buy row. You can change them in **Swap settings** (the gear next to the sell sizes), or type your own amount. The smallest BOOST is $3.
+**BOOST presets.** Four dollar amounts sit in the buy row. You can change them in **Trade settings** (the ☰ menu in flight, then **Trade settings**), or type your own amount. The smallest BOOST is $3.
 
-**DUMP presets.** 10%, 25%, 50% or 100% of your bag. You can also type your own % or $ amount.
+**DUMP presets.** 10%, 25%, 50% or 100% of your bag.
 
 Selecting a preset never trades. Only BOOST and DUMP trade.
 

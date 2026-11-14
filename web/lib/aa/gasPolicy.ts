@@ -18,6 +18,7 @@ import { anonLauncherAbi } from "../abi/AnonLauncher";
 import { bondingCurveAbi } from "../abi/BondingCurve";
 import { discipleRouterAbi } from "../abi/DiscipleRouter";
 import { launchpadAbi } from "../abi/Launchpad";
+import { creatorFeeHarvestAbi } from "../creatorFeeHarvest";
 
 /** 0.001 gwei: the relayer's priority fee (RH testnet inclusion floor; also what rundler_maxPriorityFeePerGas answers). */
 export const RELAYER_TIP = BigInt(1_000_000);
@@ -71,7 +72,7 @@ export type GasCaps = { [K in keyof typeof GAS_CAPS]: bigint };
 /** User-callable launch entry points (Launchpad.launchFor is router-only, not listed). Exported for tests. */
 export const LAUNCH_FUNCTIONS = ["launch", "launchCoin", "launchWithMode", "launchAnon", "launchAnonWithUsdg", "launchWithUsdg"] as const;
 export const LAUNCH_SELECTORS: ReadonlySet<string> = new Set(
-  ([...launchpadAbi, ...anonLauncherAbi, ...discipleRouterAbi] as readonly AbiItem[])
+  ([...launchpadAbi, ...anonLauncherAbi, ...discipleRouterAbi, ...creatorFeeHarvestAbi] as readonly AbiItem[])
     .filter((f): f is AbiFunction => f.type === "function" && (LAUNCH_FUNCTIONS as readonly string[]).includes(f.name))
     .map((f) => toFunctionSelector(f).toLowerCase()),
 );

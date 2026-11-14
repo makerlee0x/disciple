@@ -175,9 +175,7 @@
 .lb-tabs a:hover, .lb-tab-btn:hover { color: var(--dsc-text); }
 .lb-tabs a.on { color: #FFFFFF; border-bottom-color: var(--dsc3-light-gold); }
 .lb-tabs a:focus-visible, .lb-tab-btn:focus-visible { color: #FFFFFF; box-shadow: var(--dsc-glow-focus-ring); border-radius: 4px; }
-/* a launch tab reads as the primary door */
-.lb-tabs a[href="/create"] { color: var(--dsc3-light-gold); }
-.lb-tabs a[href="/create"].on { color: #FFFFFF; }
+/* Launch reads like every other tab (maker 2026-11-14: "the launch tab coloring should be consistent"); phones keep its gold pill */
 /* signed out: the wallet pill is only Sign in, so less room is reserved; PLAY NOW sits just left of it */
 .lb-bar.lb-out { padding-right: calc(24px + 110px); }
 .lb-playnow {
@@ -261,3 +259,9 @@
   .wb-signin { min-height: 40px; padding: 0 16px; font-size: 18px; }
 }
 
+
+/* WalletButton placeholder (components/AppShell): same slot as Sign in while the wallet chunk loads */
+.wb-slot { pointer-events: none; }
+.wb-skel { display: block; width: 104px; height: 44px; border-radius: var(--dsc3-control-radius); background: rgba(255, 255, 255, 0.08); }
+@media (max-width: 760px) { .wb-skel { width: 80px; height: 40px; } }
+body.game .wb-slot { display: none; }

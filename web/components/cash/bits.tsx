@@ -21,10 +21,10 @@ export function Check({ size = 30 }: { size?: number }) {
 }
 
 /** Modal head: "Cash" + ✕ on desktop, back arrow + "Cash" on phones (CSS swaps them). */
-export function CashHead({ title, onClose }: { title: string; onClose: () => void }) {
+export function CashHead({ title, onClose, onBack }: { title: string; onClose: () => void; onBack?: () => void }) {
   return (
     <div className="r2-mh cx-mh">
-      <button type="button" className="r2-back" aria-label="Back" onClick={onClose}><Back /></button>
+      <button type="button" className="r2-back" aria-label="Back" onClick={onBack ?? onClose}><Back /></button>
       <h2>{title}</h2>
       <button type="button" className="r2-x" aria-label="Close" onClick={onClose}><X /></button>
     </div>

@@ -393,3 +393,28 @@
   .heroR .padStats { position: fixed; left: auto; right: 12px; top: calc(150px + env(safe-area-inset-top, 0px)); margin: 0; }
 }
 @media (max-width: 760px) { .rangeLo, .rangeHi { display: none; } }
+
+/* Load fuel + Leaving Turbo (Add cash boards 5 and 6, maker 2026-11-14) */
+.lfAmt { font-family: var(--t-game, 'Barlow Condensed', sans-serif); font-weight: 800; font-size: 64px; line-height: 1; color: #FFFFFF; font-variant-numeric: tabular-nums; }
+.lfPicks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.lfPicks button { min-height: 44px; border-radius: 10px; border: 1px solid var(--t-line, #2E323A); background: rgba(255,255,255,.04); color: #F2F3F7; font: 600 15px/1 var(--dsc-font-ui, 'Geist', sans-serif); cursor: pointer; }
+.lfPicks button.on { border-color: var(--r-acc, #F2C14E); background: color-mix(in srgb, var(--r-acc, #F2C14E) 14%, transparent); color: #FFFFFF; }
+.lfPicks button:disabled { opacity: .45; cursor: default; }
+.lfBox { border: 1px solid var(--t-line, #2E323A); border-radius: 14px; background: rgba(0,0,0,.25); }
+.lfBox > div { display: flex; justify-content: space-between; align-items: center; padding: 13px 16px; font-size: 14px; }
+.lfBox > div + div { border-top: 1px solid rgba(232,234,238,.08); }
+.lfBox span { color: rgba(215,217,228,.9); }
+.lfBox b { font-weight: 600; }
+.lfSub { margin-top: -6px; font-size: 12px; color: rgba(215,217,228,.75); text-align: center; }
+.lfLink { all: unset; cursor: pointer; text-decoration: underline; color: var(--r-acc, #F2C14E); }
+.lfCenter { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 28px 0; text-align: center; font-size: 15px; color: rgba(215,217,228,.95); }
+.lfSpin { width: 44px; height: 44px; border-radius: 50%; border: 4px solid var(--t-line, #2E323A); border-top-color: var(--r-acc, #F2C14E); animation: lfspin .9s linear infinite; }
+@keyframes lfspin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .lfSpin { animation: none; } }
+.lvSecond { min-height: 56px; border-radius: 14px; border: 1px solid var(--t-line, #2E323A); background: rgba(255,255,255,.04); color: #F2F3F7; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font: 600 15px/1.2 var(--dsc-font-ui, 'Geist', sans-serif); }
+.lvSecond small { font-size: 12px; font-weight: 400; color: rgba(215,217,228,.75); }
+.lvSecond:disabled { opacity: .55; cursor: default; }
+.lvAsk { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; color: rgba(215,217,228,.9); cursor: pointer; }
+.lvAsk input { width: 20px; height: 20px; accent-color: var(--r-acc, #F2C14E); }
+@media (max-width: 760px) { .drawer.drTall { max-height: 88vh; } }

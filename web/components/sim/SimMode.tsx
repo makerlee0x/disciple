@@ -9,6 +9,7 @@ import { snipeState } from "@/lib/snipe";
 import { SIM_LAUNCH_TS } from "@/lib/game/snipeCountdown";
 import Icon from "@/components/ui/Icon";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
+import { TRAMP_WALLS_ENABLED } from "@/lib/features";
 import { PLAYER, cloneConfig, mergeTune, resetSimStorage, SIM_STORAGE, type ArchetypeId, type DifficultyId, type SimConfig } from "@/lib/sim/config";
 import { SIM_POS_EVENT, SimDriver } from "@/lib/sim/driver";
 import { createSimTrampWallAdapter, SIM_ME } from "@/lib/sim/twAdapter";
@@ -183,7 +184,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
         <>
           <FlightCanvas key={runN} search={search} />
           <PnlHud coin={`run-${runN}`} storagePrefix={SIM_STORAGE.pnlPrefix} modeLabel="FREE PLAY" syncEvent={SIM_POS_EVENT} />
-          {!dailyRun && <TrampWallPanel key={runN} token="SIMULATOR" adapter={twAdapter} owner={SIM_ME} supply={run?.m.S} simulator />}
+          {TRAMP_WALLS_ENABLED && !dailyRun && <TrampWallPanel key={runN} token="SIMULATOR" adapter={twAdapter} owner={SIM_ME} supply={run?.m.S} simulator />}
           <TradeBridge token="SIMULATOR" storagePrefix={SIM_STORAGE.swapPrefix} />
           <SnipeChip state={snipe} />
         </>

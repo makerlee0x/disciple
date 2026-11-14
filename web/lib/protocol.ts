@@ -32,6 +32,11 @@ export interface LaunchCoinParams {
   creatorBuyUsdgIn?: bigint;
   /** Slippage on the creator buy's minTokensOut (default 1%). */
   slippageBps?: number;
+  /**
+   * 1 = creator fees go into the locked pool, 2 = they buy and burn the pair coin. The launch then goes through
+   * CreatorFeeHarvest (lib/creatorFeeHarvest), which records the choice for good. Unset = the creator keeps them.
+   */
+  creatorFeeDestination?: 1 | 2;
   /** Private launch (AnonLauncher v2, TRENCH only): stealth creator from lib/privateLaunch.newStealthOwner. */
   private?: { stealthOwner: Address; ephemeralPubKey: `0x${string}`; viewTag: `0x${string}` };
   // quotePriceUsd was REMOVED in PR #4: Launchpad prices the quote on-chain via QuotePricer.

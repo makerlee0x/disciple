@@ -157,7 +157,7 @@
   .side { width: 100%; }
   .fire { margin-left: auto; padding: 10px 14px; font-size: 18px; }
   .amt { padding: 6px 7px; font-size: 12px; }
-  .c1 { right: auto; left: -10px; }
+  .c1 { right: -10px; left: auto; }   /* top-right of the altitude card, clear of its label (was over "ALTITUDE ·") */
   .c2 { left: auto; right: -10px; }
   .tag { display: none; }
   .c4 { top: -12px; margin-top: 0; }

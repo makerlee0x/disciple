@@ -29,6 +29,7 @@ import { type Caps } from "./capabilities";
 import { ACTIVE_CHAIN } from "../chains";
 import { anonLaunchers, CLAIM_TYPES, claimDomain, isLegacyLauncher } from "../anon";
 import { assetMeta, lc, type Asset } from "./common";
+import { creatorFeeHarvestAbi } from "../creatorFeeHarvest";
 import { curveFeeVaultAbi, feeVaultOf, stackFeeVault, vaultClaimDomain, vaultCreatorClaimable } from "./vault";
 
 const ZERO = BigInt(0);
@@ -55,6 +56,9 @@ export type CreatorRocket = {
   /** the part of `claimable` in FeeRouter (wallet rockets) or AnonLauncher.pending quote side (private rockets).
    *  Absent ⇒ all of `claimable` (pre-lp-accrue rows). */
   baseClaimable?: bigint;
+  /** Launched with creator fees sent to the locked pool (1) or to buy-and-burn (2). Nothing here is claimable:
+   *  FeeRouter / CurveFeeVault / AnonLauncher refuse the creator, and CreatorFeeHarvest.route moves the fees. */
+  routed?: 1 | 2;
 };
 
 type Launch = { token: Address; name: string; ticker: string; quote: Address; block: bigint };
@@ -133,7 +137,26 @@ export async function creatorDashboard(pc: PublicClient, me: Address, caps: Caps
     return { token: r.token, name: r.name, ticker: r.ticker, quote, claimable, claimed, lifetime: claimed + claimable, recent, tokenSide,
       vault: split.vault, vaultClaimable: split.vaultClaimable, baseClaimable: split.baseClaimable };
   }));
-  return [...own, ...anon];
+  return markRouted(pc, [...own, ...anon]);
+}
+
+/**
+ * Coins launched with pool / burn (CreatorFeeHarvest.creatorFeeDestinationOf ≠ 0): zero every claimable part so no
+ * Claim button (or claim call) is offered for a claim that would revert, and tag the row with where the fees go.
+ */
+export async function markRouted(pc: PublicClient, rows: CreatorRocket[]): Promise<CreatorRocket[]> {
+  const harvest = deployment().creatorFeeHarvest;
+  if (!harvest || /^0x0{40}$/i.test(harvest) || !rows.length) return rows;
+  const dests = await Promise.all(rows.map((r) =>
+    (pc.readContract({ address: harvest, abi: creatorFeeHarvestAbi, functionName: "creatorFeeDestinationOf", args: [r.token] }) as Promise<number>).catch(() => 0)));
+  return rows.map((r, i) => {
+    const dest = Number(dests[i]);
+    if (dest !== 1 && dest !== 2) return r;
+    return {
+      ...r, routed: dest, claimable: ZERO, lifetime: r.claimed, vaultClaimable: ZERO, baseClaimable: ZERO,
+      tokenSide: r.tokenSide ? { ...r.tokenSide, claimable: ZERO } : null,
+    };
+  });
 }
 
 const uniqAddrs = (xs: (Address | null | undefined)[]) => Array.from(new Set(xs.filter((x): x is Address => !!x).map(lc))) as Address[];

@@ -178,6 +178,13 @@ export interface TurboAdapter {
   addFuel?(usd: number): Promise<{ usd: number }>;
   /** Stand-in: removes $ from Turbo fuel. Nova adapter: starts a withdraw. */
   withdrawFuel?(usd: number): Promise<{ usd: number }>;
+  /** Real adapter (Add cash plan A, maker 2026-11-14): move $ from DISCIPLE cash into Turbo fuel. USDG on our chain →
+   *  USDC on Arbitrum via Across (lib/bridge/across), one sponsored op. Resolves with the new fuel once it lands. */
+  loadFuel?(usd: number): Promise<{ usd: number }>;
+  /** Real adapter: move $ of fuel back to cash (Nova withdraw → Across back to USDG). Resolves when cash has it. */
+  unloadFuel?(usd: number): Promise<{ usd: number }>;
+  /** Real adapter: quoted cost of one move of `usd` ($). The screens show LEAVE MOVE_FEE_EST_USD until this answers. */
+  moveFeeUsd?(usd: number, dir: "toTurbo" | "toCash"): Promise<number>;
   getMarkets?(): MarketInfo[];
   /** Where Turbo fuel is deposited (Nova's funding sheet: USDC on Arbitrum). address null until Nova provides one. */
   depositInfo?(): DepositInfo;

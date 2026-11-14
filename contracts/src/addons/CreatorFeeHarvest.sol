@@ -138,6 +138,8 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     error ZeroAddress();
     error AlreadyWired();
     error BadDestination();
+    /// @notice A leftover refund cannot be sent to this contract, where nobody could take it out.
+    error BadRefundTo();
     error NotLauncher();
     error NothingToRoute();
     /// @notice Rocket-token fees are waiting for orbit. There is no quote fee to burn yet.
@@ -293,6 +295,9 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     }
 
     /// @notice Private launch whose First BOOST is paid in USDG. AnonLauncher stays `creatorOf`.
+    /// @param refundTo receives leftover USDG. address(0) means msg.sender. A relayer batch (Multicall3) passes the
+    ///        player here, the same rule as `AnonLauncher.launchAnonWithUsdg`, so a leftover is never left on the
+    ///        batch contract. The launch fee and First BOOST are still pulled from msg.sender.
     function launchAnonWithUsdg(
         ILaunchpad.LaunchParams calldata params,
         address stealthOwner,
@@ -302,9 +307,12 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         uint256 maxFee,
         uint256 usdgIn,
         uint256 minQuoteIn,
+        address refundTo,
         uint8 creatorFeeDestination
     ) external nonReentrant returns (ILaunchpad.LaunchResult memory result, uint256 usdgRefund) {
         if (creatorFeeDestination > 2) revert BadDestination();
+        address refund = refundTo == address(0) ? msg.sender : refundTo;
+        if (refund == address(this)) revert BadRefundTo();
         IHarvestAnon a = anon;
         if (address(a) == address(0)) revert ZeroAddress();
         address feeToken = a.feeToken();
@@ -314,9 +322,9 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
             IERC20(feeToken).safeTransferFrom(msg.sender, address(this), pull);
             IERC20(feeToken).forceApprove(address(a), pull);
         }
-        // Leftover USDG is refunded straight to the payer. AnonLauncher would otherwise refund this contract.
+        // Leftover USDG goes straight to `refund`. AnonLauncher would otherwise refund this contract.
         (result, usdgRefund) = a.launchAnonWithUsdg(
-            params, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee, usdgIn, minQuoteIn, msg.sender
+            params, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee, usdgIn, minQuoteIn, refund
         );
         _record(result.token, creatorFeeDestination);
     }

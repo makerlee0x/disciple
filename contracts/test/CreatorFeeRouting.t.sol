@@ -329,7 +329,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         router.setUsdgRouting(address(quote), address(launchpad));
         vm.prank(creator);
         (ILaunchpad.LaunchResult memory burnR,) =
-            harvest.launchAnonWithUsdg(_params(TAX, 0), stealth, stealth, "", bytes1(0), 0, 0, 0, 2);
+            harvest.launchAnonWithUsdg(_params(TAX, 0), stealth, stealth, "", bytes1(0), 0, 0, 0, address(0), 2);
 
         assertEq(launchpad.creatorOf(lp.token), address(anon), "AnonLauncher stays creatorOf");
         assertEq(Token(lp.token).creator(), address(anon));
@@ -379,6 +379,35 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         (,, string memory img, string memory desc,,,,) = launchpad.metaOf(lp.token);
         assertEq(img, "ipfs://private");
         assertEq(desc, "hidden");
+    }
+
+    /// @dev The relayer path: a batch contract (Multicall3) pays and calls the harvest, and the player is refundTo.
+    ///      An over-cap First BOOST leaves USDG over. It must reach the player, not stay on the batch or the harvest.
+    function test_anonWithUsdg_refundTo_sendsLeftoverToPlayer_notBatch() public {
+        _pointVaultAtAnon();
+        router.setUsdgRouting(address(quote), address(launchpad));
+        address batch = makeAddr("multicall3");
+        address player = makeAddr("player");
+        uint256 usdgIn = 1_000_000 * 10 ** quote.decimals();
+        quote.mint(batch, usdgIn);
+        vm.startPrank(batch);
+        quote.approve(address(harvest), usdgIn);
+        (ILaunchpad.LaunchResult memory r, uint256 refund) =
+            harvest.launchAnonWithUsdg(_params(0, 0), stealth, stealth, "", bytes1(0), 0, usdgIn, 1, player, 1);
+        vm.stopPrank();
+        assertGt(refund, 0, "over the First BOOST cap: some USDG is left over");
+        assertEq(quote.balanceOf(player), refund, "leftover went to refundTo");
+        assertEq(quote.balanceOf(batch), 0, "nothing stays on the batch contract");
+        assertEq(quote.balanceOf(address(harvest)), 0, "nothing stays on the harvest");
+        assertEq(harvest.creatorFeeDestinationOf(r.token), 1);
+        assertEq(launchpad.creatorOf(r.token), address(anon), "AnonLauncher stays creatorOf");
+        assertGt(Token(r.token).balanceOf(stealth), 0, "First BOOST coins went to the stealth owner");
+    }
+
+    function test_anonWithUsdg_refundToHarvest_reverts() public {
+        vm.prank(creator);
+        vm.expectRevert(CreatorFeeHarvest.BadRefundTo.selector);
+        harvest.launchAnonWithUsdg(_params(0, 0), stealth, stealth, "", bytes1(0), 0, 0, 0, address(harvest), 1);
     }
 
     function test_transferCreator_routedFees_followCurrentCreator_andCannotBeClaimed() public {

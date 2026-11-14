@@ -12,7 +12,9 @@
 import { useEffect, useMemo, useRef } from "react";
 import { PrivyProvider, getIdentityToken, toViemAccount, useCreateWallet, useExportWallet, useFundWallet, useMfaEnrollment, usePrivy, useWallets } from "@privy-io/react-auth";
 import { deployment, isDeployed } from "@/lib/chains";
-import { FUND_COPY, FUND_DEFAULT_USD, FUND_DONE_EVENT, FUND_EVENT, fundErrorLine, type FundRequest, type FundResult } from "@/lib/fund";
+import { useDepositAddress } from "@privy-io/react-auth/hooks";
+import { DEPOSIT_ACK_EVENT, DEPOSIT_CALL_EVENT, DEPOSIT_REPLY_EVENT, type DepositAddress, type DepositCall, type DepositOutcome, type DepositReply } from "@/lib/deposit";
+import { FUND_ACK_EVENT, FUND_COPY, FUND_DEFAULT_USD, FUND_DONE_EVENT, FUND_EVENT, fundErrorLine, type FundRequest, type FundResult } from "@/lib/fund";
 const FUND_CLOSED = FUND_COPY.closed;
 import { currentInApp } from "@/lib/inAppBrowser";
 import { needsEmbeddedWallet, ownerWalletAddress, type LinkedLike } from "@/lib/privyOwner";
@@ -103,6 +105,7 @@ function FundBridge() {
   useEffect(() => {
     const on = (e: Event) => {
       const req = (e as CustomEvent<FundRequest>).detail;
+      dispatchEvent(new Event(FUND_ACK_EVENT));
       if (!req?.address) return done({ ok: false });
       const usd = String(req.usd && req.usd > 0 ? req.usd : FUND_DEFAULT_USD);
       const usdg = isDeployed() ? (deployment().usdg as `0x${string}` | undefined) : undefined;
@@ -115,6 +118,40 @@ function FundBridge() {
     };
     addEventListener(FUND_EVENT, on);
     return () => removeEventListener(FUND_EVENT, on);
+  }, []);
+  return null;
+}
+
+/** "Send crypto instead" (lib/deposit): Privy's deposit addresses. Answers each DEPOSIT_CALL_EVENT with a
+ *  DEPOSIT_REPLY_EVENT of the same id: the live config, a fresh address for one send, or the deposit's outcome. */
+function DepositBridge() {
+  const dep = useDepositAddress();
+  const ref = useRef(dep); ref.current = dep;
+  useEffect(() => {
+    const reply = (r: DepositReply) => dispatchEvent(new CustomEvent<DepositReply>(DEPOSIT_REPLY_EVENT, { detail: r }));
+    const on = (e: Event) => {
+      const c = (e as CustomEvent<DepositCall>).detail;
+      if (!c?.id) return;
+      dispatchEvent(new CustomEvent(DEPOSIT_ACK_EVENT, { detail: { id: c.id } }));
+      const d = ref.current;
+      const run = async (): Promise<unknown> => {
+        if (c.op === "config") return d.getConfig();
+        if (c.op === "address") {
+          const q = await d.generateDepositAddress({ sourceChain: c.sourceChain, sourceCurrency: c.sourceCurrency, destinationChain: c.destinationChain,
+            destinationCurrency: c.destinationCurrency, destinationAddress: c.destinationAddress });
+          return { id: q.id, address: q.deposit_address, createdAt: q.created_at, etaSec: q.time_estimate_seconds } satisfies DepositAddress;
+        }
+        const got = await d.waitForDeposit({ depositAddressId: c.depositAddressId, quoteCreatedAt: c.quoteCreatedAt });
+        if (got.status !== "success") return { status: "timeout" } satisfies DepositOutcome;
+        const fin = got.order.status === "completed" ? got : await d.waitForCompletion({ orderId: got.order.id });
+        if (fin.status !== "success") return { status: "timeout" } satisfies DepositOutcome;
+        const o = fin.order;
+        return (o.status === "completed" ? { status: "completed", amount: o.destination_amount } : { status: o.status === "refunded" ? "refunded" : "failed" }) satisfies DepositOutcome;
+      };
+      run().then((data) => reply({ id: c.id, ok: true, data })).catch((err) => reply({ id: c.id, ok: false, message: String((err as Error)?.message ?? err) }));
+    };
+    addEventListener(DEPOSIT_CALL_EVENT, on);
+    return () => removeEventListener(DEPOSIT_CALL_EVENT, on);
   }, []);
   return null;
 }
@@ -142,6 +179,7 @@ export default function PrivyMount() {
     >
       <PrivyBridge />
       <FundBridge />
+      <DepositBridge />
     </PrivyProvider>
   );
 }

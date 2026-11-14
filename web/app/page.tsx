@@ -6,7 +6,7 @@
  * Signed-out visitors get the landing lobby instead (LobbySignedOut: lift-off hero, ticker, How it plays, Flying now,
  * Top pilots, Launch your own); HomeGate picks one before paint. Every rocket sits below both.
  */
-import HomeHero from "@/components/home/HomeHero";
+import ModeSelect from "@/components/home/ModeSelect";
 import HomeFeedLazy from "@/components/home/HomeFeedLazy";
 import Lobby, { LobbySteps } from "@/components/home/Lobby";
 import LobbySignedOut from "@/components/home/LobbySignedOut";
@@ -21,7 +21,7 @@ export default async function HomePage() {
   return (
     <div className={s.page}>
       <HomeGate
-        signedIn={<Lobby initial={data} hero={<HomeHero key="hero" data={data} />} />}
+        signedIn={<Lobby initial={data} hero={<ModeSelect key="modes" signedIn flying={data.coins.filter((c) => !c.graduated).length} />} />}
         signedOut={<LobbySignedOut initial={data} />}
       />
       {data.coins.length > 0 && <HomeFeedLazy initial={data.coins} />}

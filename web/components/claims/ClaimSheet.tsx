@@ -16,7 +16,7 @@ import { formatUnits } from "viem";
 import Sheet from "@/components/profile/Sheet";
 import { ACTIVE_CHAIN, deployment, isDeployed } from "@/lib/chains";
 import { decimalsOf, publicClient, tokenBalance } from "@/lib/protocol-viem";
-import { onWallet } from "@/lib/wallet";
+import { onWallet } from "@/lib/walletState";
 import type { Address } from "@/lib/protocol";
 import { CashHead, Check, ErrIcon, usd2 } from "@/components/cash/bits";
 

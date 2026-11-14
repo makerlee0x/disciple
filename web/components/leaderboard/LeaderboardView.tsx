@@ -11,7 +11,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { withBase } from "@/lib/base-path";
-import { onWallet } from "@/lib/wallet";
+import { onWallet } from "@/lib/walletState"; // = lib/wallet's, without viem
 import { displayName } from "@/lib/defaultUsername";
 import { profileUrl } from "@/lib/profile";
 import { ROCKET_SRC } from "@/lib/home/trending";

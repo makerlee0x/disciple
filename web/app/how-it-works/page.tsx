@@ -10,6 +10,7 @@ import type { CSSProperties } from "react";
 import { withBase } from "@/lib/base-path";
 import { skySrc } from "@/lib/home/trending";
 import { HIW_FINAL, HIW_META, HIW_PILOT, HIW_PRO, HIW_ROUTES } from "@/content/how-it-works";
+import { PRO_HUD_ENABLED } from "@/lib/features";
 import ModeTabs from "./ModeTabs";
 import s from "./page.module.css";
 
@@ -107,8 +108,8 @@ function Pro() {
           </table>
         </div>
       </div>
-      <div className={s.spec}><h3>{R.hud.title}</h3><Rows rows={R.hud.rows} /></div>
-      <div className={s.spec}>
+      {PRO_HUD_ENABLED && <div className={s.spec}><h3>{R.hud.title}</h3><Rows rows={R.hud.rows} /></div>}
+      <div className={`${s.spec}${PRO_HUD_ENABLED ? "" : ` ${s.wide}`}`}>
         <h3>{R.keys.title}</h3>
         <dl className={s.kvs}>
           {R.keys.rows.map((r) => (
