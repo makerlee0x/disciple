@@ -49,7 +49,7 @@ The sniper tax. It's 99% at launch, 25% at 1 second, 3% at 2 seconds, and nothin
 ## Game
 
 **What's a bomb?**
-Every DUMP drops one. Its size is set by price impact, from PUFF (under 2%) to ATOM (50%+). See [Bombs](/docs/trading/bombs).
+Every DUMP drops one. Its size is set by price impact, from GRENADE (under 2%) to NUKE (50%+). See [Bombs](/docs/trading/bombs).
 
 **Do upgrades or tiers change my trades?**
 No. Rocket looks, tiers, bombs and XP are cosmetic or display only. A tier is a named step for how high a rocket's value has climbed. They never change the price, the trade, or the odds.

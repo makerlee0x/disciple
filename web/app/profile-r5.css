@@ -159,6 +159,11 @@
 .p5-logout { all: unset; cursor: pointer; box-sizing: border-box; height: 52px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; border-radius: var(--dsc-radius-xl, 14px);
   border: 1px solid rgba(201,206,214,.18); color: var(--dsc-down); font-size: 15px; font-weight: 500; }
 .p5-logout:hover { background: rgba(240,48,127,.06); border-color: rgba(240,48,127,.35); }
+.p5-logout:disabled { opacity: .45; cursor: default; }
+/* Settings → Security → Delete account (App Review 5.1.1(v)) opens its own confirm view */
+.p5-input { box-sizing: border-box; width: 100%; height: 46px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(201,206,214,.22); background: rgba(255,255,255,.03);
+  color: var(--dsc-text, #E8E4D8); font: 600 15px/1 inherit; letter-spacing: .08em; outline: none; }
+.p5-input:focus { border-color: var(--dsc-primary); }
 
 @media (max-width: 720px) {
   .p5-desk { display: none !important; }

@@ -17,7 +17,7 @@ Your playstyle earns a tag. Tags are worked out from your trades and may change 
 | **Degen** | 15+ different rockets and 60+ trades |
 | **Whale** | Top 1% by trade size |
 | **Smart Money** | Top 10% ROI with 10+ closed trades |
-| **Bomber** | 8+ bombs of Grenade size or bigger |
+| **Bomber** | 8+ bombs of Bunker Buster size or bigger |
 | **Nuker** | 2+ Nukes or Atoms |
 | **Launcher** | 1+ rocket launched |
 | **Dev Supporter** | Launched at least one rocket that reached orbit. Reaching orbit means its starting price path finished and it moved to the open market on Uniswap. |

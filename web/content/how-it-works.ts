@@ -30,7 +30,7 @@ export const HIW_PILOT = {
     altitude: { k: "Altitude · Stratosphere", v: "$18.4K", orbit: "Orbit in $14.9K", fill: 0.45 },
     bag: { k: "Your bag", v: "$62.40", put: "Put in $50.00", gain: "+$12.40" },
     boost: "▲ +$25 · Nova",
-    bomb: "● Grenade −3%",
+    bomb: "● Bunker buster −3%",
     buys: [["1", "$10"], ["2", "$25"], ["3", "$50"], ["4", "$100"]] as [string, string][],
     sells: [["Z", "10%"], ["X", "25%"], ["C", "Half"], ["V", "All"]] as [string, string][],
     boostBtn: "▲ Boost $25",

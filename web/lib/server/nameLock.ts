@@ -218,6 +218,18 @@ export async function runNameLock(opts: {
     for (const l of launches) rows.push({ kind: "launch", block: Number(l.blockNumber ?? 0), logIndex: Number(l.logIndex ?? 0), log: l });
     for (const l of grads) rows.push({ kind: "ascend", block: Number(l.blockNumber ?? 0), logIndex: Number(l.logIndex ?? 0), log: l });
     rows.sort((a, b) => a.block - b.block || a.logIndex - b.logIndex);
+    // GraduatedToV4 is read from any emitter, so a chunk can be padded with forged logs. Look every graduating token's launch up
+    // in ONE batched read (not one KV read per log), so a dense forged batch can't run the tick out of time before the cursor
+    // is saved; launches seen in this same chunk are found in `here`.
+    const gradTokens: string[] = [];
+    for (const r of rows) {
+      if (r.kind !== "ascend") continue;
+      try { gradTokens.push((decodeEventLog({ abi: [GRADUATED], data: r.log.data, topics: r.log.topics as [Hex, ...Hex[]] }) as unknown as { args: GradArgs }).args.token.toLowerCase()); } catch { /* not ours */ }
+    }
+    const uniq = Array.from(new Set(gradTokens));
+    const metaOf = new Map<string, LaunchMeta>();
+    if (uniq.length) (await s.mget(uniq.map(launchKey))).forEach((v, i) => { const m = parse<LaunchMeta>(v); if (m) metaOf.set(uniq[i], m); });
+    const here = new Map<string, LaunchMeta>();
 
     for (const row of rows) {
       if (row.kind === "launch") {
@@ -229,6 +241,7 @@ export async function runNameLock(opts: {
         const at = await tsOf(BigInt(row.block));
         const meta: LaunchMeta = { name: a.name, ticker: a.ticker, curve: a.curve.toLowerCase(), block: row.block, logIndex: row.logIndex, at };
         await writeLaunch(s, { ...meta, token }, dryRun);
+        here.set(token, meta);
         out.launches++;
         const key = nameLockKey(a.name, a.ticker);
         const lock = await getLockByKey(key, s);
@@ -242,7 +255,7 @@ export async function runNameLock(opts: {
           a = (decodeEventLog({ abi: [GRADUATED], data: row.log.data, topics: row.log.topics as [Hex, ...Hex[]] }) as unknown as { args: GradArgs }).args;
         } catch { continue; }
         const token = a.token.toLowerCase();
-        const meta = parse<LaunchMeta>(await s.get(launchKey(token)));
+        const meta = here.get(token) ?? metaOf.get(token);
         if (!meta) continue;
         if (meta.curve !== row.log.address.toLowerCase()) continue; // spoofed / foreign curve
         const at = await tsOf(BigInt(row.block));

@@ -37,9 +37,9 @@ export interface IdentityDef {
 const T = IDENTITY_THRESHOLDS;
 
 export const IDENTITIES: readonly IdentityDef[] = [
-  { id: "nuker", label: "Nuker", blurb: "Dropped nukes / atom bombs — the sky went dark.", weight: 95,
+  { id: "nuker", label: "Nuker", blurb: "Dropped atom bombs and nukes — the sky went dark.", weight: 95,
     test: (m) => m.nukeCount >= T.nukerMinNukes },
-  { id: "bomber", label: "Bomber", blurb: "Lives for impact. Grenades and worse.", weight: 90,
+  { id: "bomber", label: "Bomber", blurb: "Lives for impact. Bunker busters and worse.", weight: 90,
     test: (m) => m.bombCount >= T.bomberMinBombs },
   { id: "smart_money", label: "Smart Money", blurb: "Top-decile ROI with enough closes to prove it.", weight: 88,
     test: (m) => m.roiPercentile >= T.smartMoneyRoiDecile && m.closedTrades >= T.smartMoneyMinTrades },
@@ -110,7 +110,7 @@ export function identityRuleText(id: IdentityId): string {
     case "degen": return `≥ ${T.degenMinRockets} rockets and ≥ ${T.degenMinTrades} trades`;
     case "bag_holder": return `Open uPnL ≤ −${T.bagHolderUpnlLoss * 100}% for ≥ ${T.bagHolderHoldHours}h`;
     case "jeet": return `≥3 dumps within ${T.jeetDumpMinutes}m after ≥${T.jeetPumpMultiple}× pump`;
-    case "bomber": return `≥ ${T.bomberMinBombs} bombs (impact ≥ grenade)`;
+    case "bomber": return `≥ ${T.bomberMinBombs} bombs (impact ≥ bunker buster)`;
     case "nuker": return `≥ ${T.nukerMinNukes} nukes/atoms (impact ≥ 25%)`;
     case "crew_captain": return `Top buyer on ${T.crewCaptainGradTop} or more rockets that have reached orbit`;
     case "gate_keeper": return `≥ ${T.gateKeeperAssists} Outer Space assists`;
@@ -128,7 +128,7 @@ export type PersonaBadgeId = "believer" | "trencher" | "bomber";
 export const PERSONA_BADGES: Record<PersonaBadgeId, { label: string; blurb: string; icon: string }> = {
   believer: { label: "Believer", blurb: "Long holds. Rides drawdowns with the crew.", icon: "/achievements/believer_badge.svg" },
   trencher: { label: "Trencher", blurb: "Seconds in, seconds out. High trade count.", icon: "/achievements/trench_warfare.svg" },
-  bomber: { label: "Bomber", blurb: "Lives for impact. Grenades and worse.", icon: "/achievements/carpet_bomber.svg" },
+  bomber: { label: "Bomber", blurb: "Lives for impact. Bunker busters and worse.", icon: "/achievements/carpet_bomber.svg" },
 };
 export function personaBadge(d: DerivedIdentity): PersonaBadgeId {
   const ids = d.matched.map((m) => m.id);

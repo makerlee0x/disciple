@@ -12,12 +12,13 @@ import "server-only";
  */
 import { createPublicClient, parseAbi, recoverTypedDataAddress, type Address, type Hex } from "viem";
 import { DEPLOYMENTS, robinhoodTestnet } from "../chains";
+import { encodeForwarderLaunch, relaySpender, type RelaySpender } from "../trade/permitForwarder";
 import { ANON_ADDONS } from "../anon";
 import { GaslessReject } from "../trade/gaslessPermit2";
 import { creatorFeeRoutingAvailable } from "../quickLaunch";
 import {
-  ANON_LAUNCH_TX_GAS_LIMIT, MULTICALL3, anonLaunchTypedData, checkGaslessAnonLaunchRequest,
-  encodeAnonLaunchCall, parseGaslessAnonLaunchRequest, type GaslessAnonLaunchRequest,
+  ANON_LAUNCH_TX_GAS_LIMIT, anonLaunchTypedData, checkGaslessAnonLaunchRequest,
+  parseGaslessAnonLaunchRequest, type GaslessAnonLaunchRequest,
 } from "../trade/gaslessAnonLaunch";
 import { requireGaslessMode, type GaslessConfirmed, type GaslessDeps } from "./gaslessRelay";
 import { shouldStrikeIncludedRevert } from "./gaslessStrike";
@@ -39,13 +40,13 @@ function deployedLauncher(): Address {
   return a;
 }
 
-async function admitLaunch(signer: Address, data: Hex, d: GaslessDeps): Promise<{ relayer: DirectRelayer; did: string }> {
+async function admitLaunch(signer: Address, to: Address, data: Hex, d: GaslessDeps): Promise<{ relayer: DirectRelayer; did: string }> {
   const m = d.metrics;
   const relayer = directRelayer(m);
   const session = timed(m, "authSession", () => verifySessionToken(d.idToken));
   const owner = session.then(x => timed(m, "authSessionWallet", () => requireSessionWallet(x, signer)));
   const gate = session.then(x => timed(m, "revokeStrikeGate", () => requireNotRevokedOrStruck(signer, Date.now(), x.did)));
-  const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, MULTICALL3, data)));
+  const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data)));
   const all = [session, owner, gate, d.ipGate ?? Promise.resolve(), sim, relayer];
   const res = await timed(m, "admissionSimulationWall", () => Promise.allSettled(all));
   for (const x of res) if (x.status === "rejected") throw notSent(x.reason);
@@ -55,19 +56,19 @@ async function admitLaunch(signer: Address, data: Hex, d: GaslessDeps): Promise<
   };
 }
 
-async function commitLaunch(signer: Address, data: Hex, gas: bigint, r: DirectRelayer, d: GaslessDeps, t0: number, tAdm: number, did?: string): Promise<GaslessConfirmed> {
+async function commitLaunch(signer: Address, to: Address, data: Hex, gas: bigint, r: DirectRelayer, d: GaslessDeps, t0: number, tAdm: number, did?: string): Promise<GaslessConfirmed> {
   const m = d.metrics;
   const tb = Date.now();
   const refund = await relaySendBudget(signer, m).catch(e => { throw notSent(e); });
   const budget = Date.now() - tb;
   let res;
-  try { res = await sendDirect(r, MULTICALL3, data, gas, d.onPending, m); }
+  try { res = await sendDirect(r, to, data, gas, d.onPending, m); }
   catch (e) { if ((e as { notSent?: boolean }).notSent) await refund().catch(() => undefined); throw e; }
   const success = res.rc.status === "0x1";
   const gasUsed = Number(BigInt(res.rc.gasUsed));
   if (!success) {
     let revertData: string | undefined;
-    try { await simulateDirect(r.address, MULTICALL3, data); }
+    try { await simulateDirect(r.address, to, data); }
     catch (e) { revertData = (e as { data?: string }).data; }
     if (shouldStrikeIncludedRevert({ revertData, gasUsed: BigInt(res.rc.gasUsed), gasLimit: gas })) strikeSender(signer, did);
     const price = res.rc.effectiveGasPrice ? BigInt(res.rc.effectiveGasPrice) : BigInt(0);
@@ -77,16 +78,21 @@ async function commitLaunch(signer: Address, data: Hex, gas: bigint, r: DirectRe
     t: { admission: tAdm, budget, send: res.sendMs + res.minedMs, total: Date.now() - t0 } };
 }
 
-/** disciple_gaslessAnonLaunch: one signed Permit2 witness → one Multicall3 relayer tx. */
+/**
+ * disciple_gaslessAnonLaunch: one signed Permit2 witness → DisciplePermitForwarder.launchAnon (it runs the signed launch itself
+ * and returns leftovers to the signed refund address). No Multicall3 fallback: without the forwarder this refuses, nothing sent.
+ */
 export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps = {}): Promise<GaslessConfirmed> {
   const t0 = Date.now();
   let q: GaslessAnonLaunchRequest;
+  let spender: RelaySpender;
   const dep = DEPLOYMENTS[46630];
   const launcher = deployedLauncher();
   try {
     requireGaslessMode();
     relayBreaker.assertClosed();
     q = parseGaslessAnonLaunchRequest(raw);
+    spender = relaySpender(robinhoodTestnet.id, { legacy: false });
     const [launchFee, feeToken] = await Promise.all([
       pc.readContract({ address: launcher, abi: launcherAbi, functionName: "launchFee" }),
       pc.readContract({ address: launcher, abi: launcherAbi, functionName: "feeToken" }),
@@ -95,10 +101,10 @@ export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps = {}):
     // Pool / burn routing goes through CreatorFeeHarvest. Only allowed once the harvest with refundTo is live.
     const harvest = creatorFeeRoutingAvailable({ private: true, harvest: dep.creatorFeeHarvest }) ? dep.creatorFeeHarvest : null;
     checkGaslessAnonLaunchRequest(q, { usdg: dep.usdg, launcher, harvest, nowSec: d.nowSec ?? Math.floor(Date.now() / 1000), launchFee });
-    const who = await recoverTypedDataAddress({ ...anonLaunchTypedData(robinhoodTestnet.id, q.permit, q.launch), signature: q.signature });
+    const who = await recoverTypedDataAddress({ ...anonLaunchTypedData(robinhoodTestnet.id, q.permit, q.launch, spender.address), signature: q.signature });
     if (who.toLowerCase() !== q.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
   } catch (e) { throw notSent(e); }
-  const data = encodeAnonLaunchCall(q, dep.usdg);
-  const { relayer, did } = await admitLaunch(q.signer, data, d);
-  return commitLaunch(q.signer, data, ANON_LAUNCH_TX_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
+  const data = encodeForwarderLaunch({ permit: q.permit, l: q.launch, owner: q.signer, signature: q.signature, approval: q.approval });
+  const { relayer, did } = await admitLaunch(q.signer, spender.address, data, d);
+  return commitLaunch(q.signer, spender.address, data, ANON_LAUNCH_TX_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
 }

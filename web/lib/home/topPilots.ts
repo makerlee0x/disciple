@@ -165,7 +165,7 @@ export type TickerItem = {
   trader: string;
   username?: string | null;
   usd: number;
-  /** bombs: the bomb's tier name (PUFF … ATOM BOMB) and the drop it made, % */
+  /** bombs: the bomb's tier name (GRENADE … NUKE) and the drop it made, % */
   bomb?: string;
   dropPct?: number;
   ts: number;

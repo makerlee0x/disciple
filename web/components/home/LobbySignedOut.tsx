@@ -123,15 +123,35 @@ function Hero({ data, hero }: { data: HomeData; hero: HomeCoin | null }) {
   );
 }
 
+/** One coin line for a quiet ticker: "HALO 12.4K ft +8%". */
+function CoinLine({ c }: { c: HomeCoin }) {
+  const chg = c.stats?.chg24;
+  return (
+    <span>
+      <b className={chg != null && chg < 0 ? s.dn : s.up}>{chg != null && chg < 0 ? "▼" : "▲"} {c.ticker || c.name}</b>
+      {altShort(c.mcapUsd)}{chg != null && Number.isFinite(chg) ? ` ${chg >= 0 ? "+" : "−"}${pct(Math.abs(chg))}` : ""}
+    </span>
+  );
+}
+
+/** Latest plays scrolling sideways. When fewer than 3 plays came in (a quiet day), it scrolls the rockets in the air
+ *  instead, so the banner never disappears (maker 2026-11-14: "didnt we also have a ticker… showing the coins"). */
 function Ticker({ data }: { data: HomeData }) {
   const items = data.ticker ?? [];
-  if (items.length < 3) return null;
+  const air = data.coins.filter((c) => !c.graduated).slice(0, 12);
+  const plays = items.length >= 3;
+  if (!plays && !air.length) return null;
+  // repeat short lists so one set is wider than the screen and the loop has no gap
+  const reps = plays ? 1 : Math.max(1, Math.ceil(8 / air.length));
+  const coins = Array.from({ length: reps }, () => air).flat();
   return (
-    <div className={s.ticker} aria-label="Latest plays" data-testid="so-ticker">
+    <div className={s.ticker} aria-label={plays ? "Latest plays" : "Rockets in the air"} data-testid="so-ticker">
       <div className={s.tickRow}>
         {[0, 1].map((k) => (
           <div key={k} className={s.tickSet} aria-hidden={k === 1 || undefined}>
-            {items.map((t) => <TickLine key={`${k}-${t.id}`} t={t} />)}
+            {plays
+              ? items.map((t) => <TickLine key={`${k}-${t.id}`} t={t} />)
+              : coins.map((c, i) => <CoinLine key={`${k}-${i}-${c.token}`} c={c} />)}
           </div>
         ))}
       </div>

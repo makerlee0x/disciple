@@ -602,7 +602,7 @@ const S = {
 /* GAME LAYER (phase 1 refresh, Nov 2026): brand v3 type + the Pilot / Pro HUD.
    GF(px,w) = the game display face (Barlow Condensed, handed in by FlightCanvas as __GAME_FONT; Arial Narrow fallback).
    S.pro = the Pro layout: today's trader cards (top preset panel, floating trade tags, a banner for every bomb).
-   Default = Pilot: one trade surface (the bottom bar), one crew feed, and only Nuke / Atom bombs get a centre banner.
+   Default = Pilot: one trade surface (the bottom bar), one crew feed, and only ATOM BOMB / NUKE tiers get a centre banner.
    Saved per browser (localStorage disciple.hud = 'pro' | 'pilot'); disciple:hudmode {pro} sets it, disciple:hudstate {pro}
    answers (and is sent on every change). */
 const GAME_FAMILY=((typeof __GAME_FONT!=='undefined'&&typeof __GAME_FONT==='string'&&__GAME_FONT.trim())?__GAME_FONT.trim()+',':'')+"'Barlow Condensed','Arial Narrow',sans-serif";
@@ -1242,7 +1242,7 @@ function submit(side,usd,force,opt,pct){
       if(p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }
       if(r.needsConfirm!=='walletcap') tradeNote(r.reason); S.pending=S.pending.filter(q=>q!==p); pushInFlight(); return; }   // wallet limit: the page's card says it (no sky banner too)
     p.state=r.ok?'confirmed':'failed'; lockResolve(p,r&&r.ok?'ok':r&&r.unknown?'gone':'fail');
-    if(r&&r.ok&&side==='buy'){ const [nx0,ny0]=nozzleXY(); S.floaters.push({x:nx0+70,y:ny0-120,txt:'+'+fmtShot(p.usd).replace(/\.00$/,'')+' aboard',c:'#F2C14E',life:1.4,game:24}); }
+    if(r&&r.ok&&side==='buy'){ const [nx0,ny0]=nozzleXY(); S.floaters.push({x:nx0+70,y:ny0-120,txt:'+'+fmtShot(p.usd).replace(/\.00$/,'')+' aboard',c:'#F2C14E',life:1.4,game:24}); styleFill(); }
     if(r&&r.ok&&side==='sell') S.kickV=(S.kickV||0)-120;   // @pressfeel: recoil, the rocket kicks up as the bomb leaves
     baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim, r&&r.txHash);
     if(!(r&&r.ok)&&p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }   // later ghosts drop by the failed step   // ok → completes to the ghost; fail → eases back (this trade's share only)
@@ -1312,6 +1312,7 @@ function onHotkey(e){
   if ((e.code==='ShiftLeft'||e.code==='ShiftRight')&&!mod){ if(!e.repeat){ if(!hasTokens()) noTokens(); else dispatchEvent(new CustomEvent('disciple:dump')); } return; }   // DUMP = sell the SELECTED % (TradeBridge sizes it from the ledger)
   const bi=HOTKEYS.buy.indexOf(e.code); if(bi>=0&&!mod){ if(!e.repeat){ S.mode=bi; S.pressFx={i:bi,t:S.t}; pushAmmo(); } return; }   // buy-preset key = SELECT only (SPACE / BOOST buys it)
   const si=HOTKEYS.sell.indexOf(e.code); if(si>=0&&!mod){ if(!e.repeat){ S.pressFx={i:6+si,t:S.t}; dispatchEvent(new CustomEvent('disciple:sellselect',{detail:{i:si}})); } return; }   // sell-size key = SELECT only (SHIFT / DUMP sells it)
+  if (!mod&&!e.repeat&&(e.code==='KeyQ'||e.code==='KeyE')){ trick(e.code==='KeyQ'?'spin':'flip'); return; }   /* @tricks (trade bindings above win) */
   if (e.code==='Equal'||e.code==='BracketRight'){ S.mode=Math.min(MODES.length-1,S.mode+1);  pushAmmo(); }
   if (e.code==='Minus'||e.code==='BracketLeft'){ S.mode=Math.max(0,S.mode-1);  pushAmmo(); }
   // A/D/←/→ (steer) and S/↓ (dive) are read from S.keys every sim step (hold-to-steer), not from key repeat.
@@ -1415,14 +1416,66 @@ function skyAt(x,y){ if(S.grass) return true; const P=phoneHud(W,CLEAN);
   return true; }
 cv.addEventListener('pointerdown',e=>{ if(!dragPointer(e)||S.menuOpen) return; const [x,y]=canvasXY(e);
   if(!skyAt(x,y)||(!S.grass&&(ammoAt(e)>=0||(typeof chartBtnAt==='function'&&chartBtnAt(e)!=null)))) return;
-  S.drag={id:e.pointerId,x0:x,sx:S.steer?S.steer.x:S.x,tx:null,on:false};
+  S.drag={id:e.pointerId,x0:x,y0:y,t0:performance.now(),dx:0,dy:0,sx:S.steer?S.steer.x:S.x,tx:null,on:false};
   try{ if(cv.setPointerCapture) cv.setPointerCapture(e.pointerId); }catch(_){} });
 cv.addEventListener('pointermove',e=>{ const d=S.drag; if(!d||e.pointerId!==d.id) return; if(S.menuOpen){ S.drag=null; return; }
-  const dx=canvasXY(e)[0]-d.x0; if(!d.on&&Math.abs(dx)<DRAG_SLOP) return; d.on=true;
+  const [mx,my]=canvasXY(e), dx=mx-d.x0; d.dx=dx; d.dy=my-d.y0; if(!d.on&&Math.abs(dx)<DRAG_SLOP) return; d.on=true;
   const m=steerMargin(W); d.tx=clamp(d.sx+dx,m,W-m); });
-function dragEnd(e){ const d=S.drag; if(d&&e.pointerId===d.id) S.drag=null; }
+function dragEnd(e){ const d=S.drag; if(!d||e.pointerId!==d.id) return; S.drag=null; if(e.type==='pointerup'&&typeof trickGesture==='function') trickGesture(d,e); }
 cv.addEventListener('pointerup',dragEnd); cv.addEventListener('pointercancel',dragEnd);
 /* @drag-steer-end */
+/* @tricks (maker 2026-11-14: bring the Trading duel's spin + flip into the main flight, phone and browser). Cosmetic only:
+   nothing trades, the altitude / PnL never move. Phone: a quick swipe UP on the sky = SPIN (barrel roll), a double-tap on the
+   sky = FLIP (a full loop about the body's middle). Desktop: Q = spin, E = flip (unless those keys are bound to a trade preset,
+   which wins). One trick at a time. Fires disciple:sfx 'trick' (sound + haptic on the page) and disciple:trick {kind}. */
+const TRICKS={spin:{dur:0.7,txt:'SPIN!',c:'#8FE3FF'},flip:{dur:0.85,txt:'FLIP!',c:'#F2C14E'}};
+S.trick=null; S.lastTap=0;
+function trickOn(){ const k=S.trick; return k&&S.t-k.t0<k.dur?k:null; }
+/* combos: a trick started within TRICK_CHAIN s of the last one ending chains (x2, x3 …, capped at x5). A BOOST that fills within
+   STYLE_WIN ms of a trick is a STYLE FILL: a callout here and disciple:stylefill {at, combo, kind}; the page (StyleXp) reports it
+   for a small, capped XP that the cron pays only if the fill is really there (lib/xp STYLE). */
+const TRICK_CHAIN=1.5, STYLE_WIN=6000;
+S.trickCombo=0; S.trickAt=0;
+function trick(kind){ if(!TRICKS[kind]||S.menuOpen||trickOn()) return false;
+  const T=TRICKS[kind], prev=S.trick, chained=prev&&S.t-(prev.t0+prev.dur)<TRICK_CHAIN;
+  S.trickCombo=chained?Math.min(5,S.trickCombo+1):1; S.trickAt=Date.now();
+  S.trick={kind,t0:S.t,dur:T.dur,dir:(S.steer&&S.steer.x<W/2)?-1:1,combo:S.trickCombo};
+  const [nx,ny]=nozzleXY(), txt=S.trickCombo>1?T.txt.replace('!','')+' x'+S.trickCombo:T.txt;
+  S.floaters.push({x:nx+70,y:ny-150,txt,c:T.c,life:1.1,game:S.trickCombo>1?34:30});
+  sfx('trick',{kind,combo:S.trickCombo}); try{ dispatchEvent(new CustomEvent('disciple:trick',{detail:{kind,combo:S.trickCombo}})); }catch(_){} return true; }
+function styleFill(){ if(!S.trickAt||Date.now()-S.trickAt>STYLE_WIN) return; const combo=S.trickCombo||1, kind=S.trick?S.trick.kind:'spin'; S.trickAt=0;
+  const [nx,ny]=nozzleXY(); S.floaters.push({x:nx+70,y:ny-190,txt:combo>1?'STYLE FILL x'+combo:'STYLE FILL',c:'#F3DFA8',life:1.6,game:30});
+  sfx('orbit'); try{ dispatchEvent(new CustomEvent('disciple:stylefill',{detail:{at:Date.now(),combo,kind}})); }catch(_){} }
+addEventListener('disciple:stylexp',e=>{ const d=e.detail||{}, [nx,ny]=nozzleXY();
+  if(d.state==='confirming') S.floaters.push({x:nx+70,y:ny-225,txt:'+'+(d.xp||5)+' XP · confirming',c:'#5FF0A0',life:1.6,game:20});
+  else if(d.state==='capped') S.floaters.push({x:nx+70,y:ny-225,txt:'Style XP capped for today',c:'#C8C4FF',life:1.6,game:18}); });
+/* @calm (phone full-screen flying): the page (CalmFlight) fades the HUD after a few idle seconds and sends disciple:calm {on};
+   the rocket eases up to CALM_ZOOM× its size while calm. Cosmetic only. */
+const CALM_ZOOM=1.2; S.calm=false; S.calmK=0;
+addEventListener('disciple:calm',e=>{ S.calm=!!(e.detail&&e.detail.on); });
+/* @tilt (phone setting "Tilt to steer"): the page (TiltSteer) sends disciple:tilt {g} with g ∈ [-1, 1] (null = off). It sets the
+   same steering target a finger drag does; a finger on the sky wins. */
+S.tilt=null;
+addEventListener('disciple:tilt',e=>{ const g=e.detail&&e.detail.g; S.tilt=typeof g==='number'&&Number.isFinite(g)?clamp(g,-1,1):null; });
+/* @rumble (iPhone app, NativeRumble): while on, ~10×/s disciple:thrust {v, climb} (v = engine flame 0..1, climb = -1..1) drives a
+   continuous Core Haptics rumble. Off by default, so the browser pays nothing. */
+S.rumble=false; S.rumbleT=0;
+addEventListener('disciple:rumble',e=>{ S.rumble=!!(e.detail&&e.detail.on); });
+function rumblePub(flame){ if(!S.rumble||S.t-S.rumbleT<0.1) return; S.rumbleT=S.t;
+  try{ dispatchEvent(new CustomEvent('disciple:thrust',{detail:{v:clamp(flame/1.4,0,1),climb:clamp((S.vyS||0)/600,-1,1),pending:tradePendingFx()?1:0}})); }catch(_){} }
+function trickGesture(d,e){ const dt=performance.now()-d.t0, dx=d.dx||0, dy=d.dy||0;
+  if(dy<-55&&Math.abs(dy)>Math.abs(dx)*1.3&&dt<450){ S.lastTap=0; trick('spin'); return; }
+  if(Math.abs(dx)<DRAG_SLOP&&Math.abs(dy)<DRAG_SLOP&&dt<250){ const now=performance.now();
+    if(now-S.lastTap<320){ S.lastTap=0; trick('flip'); } else S.lastTap=now; } }
+/* the trick's extra transform, applied after the rocket's own translate(nozzle) + rotate(heading) (pivot = nozzle, sprite spans
+   y ∈ [-pivotY, h-pivotY]). flip: one turn about the body's middle; spin: two barrel rolls (x-scale through cos). */
+function trickXform(h,pivotY){ const k=trickOn(); if(!k) return; const p=clamp((S.t-k.t0)/k.dur,0,1), e=p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+  if(k.kind==='flip'){ const cy=h/2-pivotY; ctx.translate(0,cy); ctx.rotate(k.dir*e*Math.PI*2); ctx.translate(0,-cy); }
+  else { const c=Math.cos(e*Math.PI*4); ctx.scale(Math.abs(c)<.08?.08*(Math.sign(c)||1):c,1); } }
+function drawTrickRing(x,y,h){ const k=trickOn(); if(!k) return; const p=(S.t-k.t0)/k.dur;
+  ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=0.6*(1-p); ctx.strokeStyle=k.kind==='spin'?'rgba(143,227,255,1)':'rgba(242,193,78,1)';
+  ctx.lineWidth=4*(1-p)+1; ctx.beginPath(); ctx.arc(x,y-h*0.45,30+90*p,0,6.2832); ctx.stroke(); ctx.restore(); }
+/* @tricks-end */
 addEventListener('resize',resize); addEventListener('apsidebar',()=>requestAnimationFrame(resize)); resize();
 
 const IMG={}; let loaded=0; const SKY_SRC=Object.fromEntries(TIERS.map(t=>[t.bg,t.sky]));   // tier plates load from TIERS[i].sky (lib/flight/tiers.ts)
@@ -1801,7 +1854,8 @@ function drawLevels(){
 }
 
 function drawRocket(dt){
-  const im=IMG.rocket, h=150, w=im.naturalWidth? h*im.naturalWidth/im.naturalHeight : 55;
+  S.calmK+=((S.calm?1:0)-S.calmK)*Math.min(1,(dt||0.016)*2.5);   // @calm: ease the zoom in and out
+  const im=IMG.rocket, h=150*(1+(CALM_ZOOM-1)*S.calmK), w=im.naturalWidth? h*im.naturalWidth/im.naturalHeight : 55;
   // (x,y) = nozzle / aft pivot — trail tip + rotation origin. Nose leads ahead of this point.
   const [x,y]=nozzleXY();
   const NOZZLE_FROM_TOP = 0.96; // fraction of sprite height: engine sits just above the bottom edge
@@ -1813,14 +1867,14 @@ function drawRocket(dt){
     ctx.fillText('ENGINES IDLE · THE CREW NEEDS A BOOST',x,y+96); ctx.restore(); }
   // exhaust (procedural): leaves the nozzle opposite the nose
   const braking=S.pending.some(p=>p.side==='sell'&&p.state==='pending');
-  const EP=exhaustParams(), flick=EP.flick, flame=EP.flame;
+  const EP=exhaustParams(), flick=EP.flick, flame=EP.flame; rumblePub(flame);
   const sa=Math.sin(S.heading), ca=Math.cos(S.heading), ang=rocketVisAngle();   // style stat scales only the drawn tilt
   const FXT=fxMul('thrust'), FXG=fxMul('glow'), FXH=fxMul('style');   /* loadout stats → cosmetic multipliers (all exactly 1 at stat 5) */
   ctx.save(); ctx.globalCompositeOperation='lighter';
   const TS=thrusterSprites(sigOn()?S.sig.id:null), HOT=TS.hot, COLD=TS.cold, FIRE_SPR=TS.fire, CORE_SPR=TS.core;   /* loadout thruster (stock = original sprites) */
   { const P=S.particles; for (let i=0;i<P.n;i++){ const p=P.a[i]; ctx.globalAlpha=clamp(0.32*p.life,0,1); blit(p.hot?HOT:COLD,p.x,p.y,p.s*(1.3-p.life*0.3)); } }
   // FLAME CONE — stretched hot sprites along the engine axis; length = volume / speed / climb, flickers, sputters
-  { ctx.save(); ctx.translate(x,y); ctx.rotate(ang); const pendPulse=tradePendingFx()?1+0.12*Math.abs(Math.sin(S.t*10)):1; const L=(34+170*flame)*(0.85+0.3*flick)*TS.l*FXT*pendPulse, Wf=(20+12*flame)*TS.w*pendPulse;
+  { ctx.save(); ctx.translate(x,y); ctx.rotate(ang); trickXform(h,pivotY); const pendPulse=tradePendingFx()?1+0.12*Math.abs(Math.sin(S.t*10)):1; const L=(34+170*flame)*(0.85+0.3*flick)*TS.l*FXT*pendPulse, Wf=(20+12*flame)*TS.w*pendPulse;
     ctx.globalAlpha=clamp(0.55+0.4*flame,0,0.95); ctx.drawImage(FIRE_SPR,-Wf/2,-Wf*0.25,Wf,L);
     ctx.globalAlpha=clamp(0.5+0.5*flame,0,1); ctx.drawImage(CORE_SPR,-Wf*0.28,-Wf*0.15,Wf*0.56,L*0.55);
     // shock diamonds on a strong burn
@@ -1834,16 +1888,17 @@ function drawRocket(dt){
   ctx.restore();
   { const ig=S.ignite, u=ig?(S.t-ig.t)/0.5:9; if(u<1){ ctx.save(); ctx.globalAlpha=0.75*(1-u)*(1-u);   /* @ignite shock ring */
       ctx.strokeStyle=ig.side==='buy'?'rgba(243,223,168,1)':'rgba(240,48,127,1)'; ctx.lineWidth=2.5*(1-u)+0.5; ctx.beginPath(); ctx.ellipse(x,y+6,14+64*u,5+20*u,ang,0,6.2832); ctx.stroke(); ctx.restore(); } }
-  // rocket — rotate about nozzle (aft). Nose leads; body trails. No center-spin / scaleX barrel-roll.
+  drawTrickRing(x,y,h);
+  // rocket — rotate about nozzle (aft). Nose leads; body trails. Spin / flip only as a player trick (@tricks).
   if(im.complete&&!im.bad){
     const ow=Math.ceil(w), oh=Math.ceil(h), RB=rocketSprite(im,ow,oh), P=RB.pad;
     // squash & stretch along the body: stretch on hard climbs, slight squash when sinking (≤6%)
     const st=clamp((S.vyS||0)/1400,-0.5,1)*0.06, sx=1-st*0.5, sy=1+st;
     // motion blur: two faint ghosts trailing along the velocity when fast
     const spd=Math.abs(S.vyS||0);
-    if (spd>260){ const bl=clamp((spd-260)/600,0,1); for(let k=2;k>=1;k--){ ctx.save(); ctx.globalAlpha=0.13*bl/k*FXH;
+    if (spd>260&&!trickOn()){ const bl=clamp((spd-260)/600,0,1); for(let k=2;k>=1;k--){ ctx.save(); ctx.globalAlpha=0.13*bl/k*FXH;
       ctx.translate(x, y+(S.vyS||0)*0.03*k); ctx.rotate(ang); ctx.scale(sx,sy); ctx.drawImage(RB.base,-w/2,-pivotY,w,h); ctx.restore(); } }
-    ctx.save(); ctx.translate(x,y); ctx.rotate(ang); ctx.scale(sx,sy);
+    ctx.save(); ctx.translate(x,y); ctx.rotate(ang); trickXform(h,pivotY); ctx.scale(sx,sy);
     // rim light from the sky colour: tinted silhouette offset toward the sky (up-left in world), additive
     const sky=skyNow(), RL=rimSprite(RB,ow,oh,sky); const lx=-1.6*Math.cos(ang)+1.6*Math.sin(ang), ly=-1.6*Math.sin(ang)-1.6*Math.cos(ang);
     ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=0.85; ctx.drawImage(RL,-w/2+lx*1.5,-pivotY+ly*1.5,w,h); ctx.restore();
@@ -2337,14 +2392,15 @@ function drawLoading(){ ctx.fillStyle='#05060c'; ctx.fillRect(0,0,W,H); ctx.fill
    ===================================================================== */
 const BOMB_PCT={GRENADE:2, BUNKER:5, CRUISE:12, NUKE:25, ATOM:50};
 const BOMB_TIERS=[
-  {k:'puff',    name:'PUFF',          min:0,                life:0.6, sf:0,   tau:0},
-  {k:'grenade', name:'GRENADE',       min:BOMB_PCT.GRENADE, life:0.9, sf:11,  tau:0.12},
-  {k:'bunker',  name:'BUNKER BUSTER', min:BOMB_PCT.BUNKER,  life:2.0, sf:9,   tau:0.22, fall:0.45},
-  {k:'cruise',  name:'CRUISE MISSILE',min:BOMB_PCT.CRUISE,  life:2.2, sf:7,   tau:0.40, fall:0.55},
-  {k:'nuke',    name:'NUKE',          min:BOMB_PCT.NUKE,    life:2.8, sf:5.5, tau:0.70, fall:0.30},
-  {k:'atom',    name:'ATOM BOMB',     min:BOMB_PCT.ATOM,    life:4.6, sf:3.2, tau:1.10, fall:0.40},
+  {k:'puff',    name:'GRENADE',          min:0,                life:0.6, sf:0,   tau:0},
+  {k:'grenade', name:'BUNKER BUSTER',       min:BOMB_PCT.GRENADE, life:0.9, sf:11,  tau:0.12},
+  {k:'bunker',  name:'WARHEAD', min:BOMB_PCT.BUNKER,  life:2.0, sf:9,   tau:0.22, fall:0.45},
+  {k:'cruise',  name:'MOAB',min:BOMB_PCT.CRUISE,  life:2.2, sf:7,   tau:0.40, fall:0.55},
+  {k:'nuke',    name:'ATOM BOMB',          min:BOMB_PCT.NUKE,    life:2.8, sf:5.5, tau:0.70, fall:0.30},
+  {k:'atom',    name:'NUKE',     min:BOMB_PCT.ATOM,    life:4.6, sf:3.2, tau:1.10, fall:0.40},
 ];
-const BOMB_ALIASES={daisy:'cruise', moab:'nuke'};
+/* names players see (maker 2026-11-14): GRENADE · BUNKER BUSTER · WARHEAD · MOAB · ATOM BOMB · NUKE, one per slot; keys unchanged */
+const BOMB_ALIASES={daisy:'cruise', warhead:'bunker', moab:'cruise', 'bunker buster':'grenade', 'atom bomb':'nuke'};
 const BOMB_MERGE_WIN=0.30;   // s (sim time): sells landing within this window merge into one bomb
 const BOMB_MIN_GAP=0.55;     // s between detonations (queue otherwise)
 const BOMB_MAX_ACTIVE=2;     // live blasts on screen (puffs excluded)
@@ -2510,7 +2566,7 @@ function detonate(b){ draftKnock();
 /* @phone-blast (throttle prototype, maker 2026-11-14: the boxed bomb labels and tiered set pieces are "the old style"):
    every sell (phone and desktop; Turbo keeps its own) drops the prototype's round bomb onto the rocket; it blows up as a white-gold-pink fireball with
    sparks, smoke, debris and two rings, a short flash + pink vignette, and a floating "BOMB −$X" pop (Barlow, no box).
-   Size follows the bomb tier. Your own sells always pop; the crew's pop from CRUISE up (the feed pill names the rest). */
+   Size follows the bomb tier. Your own sells always pop; the crew's pop from MOAB (key cruise) up (the feed pill names the rest). */
 const PHX={p:[],r:[],pops:[],red:0,t:-1};
 const NEW_BLAST=()=>!IS_TURBO;
 const phS=()=>W>HUD_NARROW_W?1.35:1;   // desktop: the same blast, a size up for the bigger sky
@@ -2666,7 +2722,7 @@ function drawBombScreen(){ // un-shaken overlays: flash + label pops
     ctx.fillStyle=col; glowText(l.txt,tx,0,'rgb(255,210,120)',9,0.3); ctx.restore(); }
 }
 /* Debug hooks: ?debugBomb=puff|grenade|bunker|cruise|nuke|atom|cycle  [&debugBombAt=1.2]
-   Aliases: daisy→cruise, moab→nuke. window.__flight.bomb('nuke') or bomb(7.5) (impact %). */
+   Aliases by shown name: warhead→bunker, moab→cruise, 'atom bomb'→nuke (keys are the old slot names). window.__flight.bomb('nuke') or bomb(7.5) (impact %). */
 function debugBomb(spec,opt){ opt=opt||{};
   if (typeof spec==='string'){ spec=spec.toLowerCase(); if(BOMB_ALIASES[spec]) spec=BOMB_ALIASES[spec]; }   // 'NUKE' and 'nuke' both work
   const i=typeof spec==='number'?null:BOMB_TIERS.findIndex(t=>t.k===spec);
@@ -2874,7 +2930,8 @@ function simStep(stepDt){
   S.drift=lerp(S.drift||0, imb*26 + 16*Math.sin(S.t*0.23) + 7*Math.sin(S.t*0.61+1.3), 1-Math.exp(-dt*0.8));
   const K=S.keys||{}; let dir=((K.KeyD||K.ArrowRight)?1:0)-((K.KeyA||K.ArrowLeft)?1:0);
   if (S.steer==null) S.steer={x:S.x,vx:0};
-  if (!dir&&S.drag&&S.drag.on&&S.drag.tx!=null){ dir=steerDragDir(S.steer,S.drag.tx-(S.drift||0)*0.35,W); S.steer.idle=0; }   // @drag-steer: finger held = steering input (no auto-centre until release)
+  if (!dir&&S.drag&&S.drag.on&&S.drag.tx!=null){ dir=steerDragDir(S.steer,S.drag.tx-(S.drift||0)*0.35,W); S.steer.idle=0; }
+  else if (!dir&&S.tilt!=null&&!S.drag&&Math.abs(S.tilt)>0.04){ const m=steerMargin(W); dir=steerDragDir(S.steer,clamp(W/2+S.tilt*(W/2-m),m,W-m)-(S.drift||0)*0.35,W); S.steer.idle=0; }   // @tilt   // @drag-steer: finger held = steering input (no auto-centre until release)
   stepSteerAuto(S.steer, dir*(steer/7), dt, W);     // hold-to-steer (VOID orb: weaker thrust); idle ⇒ auto-centre
   { const m=steerMargin(W); S.x=clamp(S.steer.x+S.drift*0.35+Math.sin(S.t*0.6)*14*(S.idle||0),m,W-m); S.vx=S.steer.vx; }
   { const TX=turboFx(), want=(K.KeyS||K.ArrowDown)?1:TX&&TX.dive?TURBO_DIVE:0;   // @turbo: a DUMP (short) flies as a nose-down dive run — same sprite, a controlled pose (never a flip)

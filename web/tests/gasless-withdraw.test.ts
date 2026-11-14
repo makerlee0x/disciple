@@ -172,7 +172,7 @@ describe("client sign (jsonSafe + two distinct nonces + optional EIP-2612)", () 
       fee: "5106", feeTo, gas: "200000", gasPrice: "11100000", rate: "2300000000",
       usdg, usdgDecimals: 6, minAmount: "5107", spender: MULTICALL3, permit2: PERMIT2,
     });
-    const q = await signGaslessWithdraw(mockPc(0n), owner, { amount: 10_000_000n, destination: dest, quote, nowSec: NOW });
+    const q = await signGaslessWithdraw(mockPc(0n), owner, { amount: 10_000_000n, destination: dest, quote, nowSec: NOW }) as GaslessWithdrawRequest;
     expect(q.fee).toBe(5_106n);
     expect(q.netPermit.nonce).not.toBe(q.feePermit.nonce);
     expect(q.approval?.value).toBe(2n ** 256n - 1n);

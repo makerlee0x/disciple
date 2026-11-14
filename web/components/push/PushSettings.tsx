@@ -2,14 +2,19 @@
 /**
  * Settings · Alerts (main mode hook loop, maker 2026-11-13): turn push alerts on for this device, and one switch per kind
  * (lib/push PUSH_KINDS: only orbit is on by default). At most 3 a day. Hidden until the server has VAPID keys.
+ * In the DISCIPLE iPhone app the device switch registers with Apple instead (lib/native; hidden until APNS_* keys are set).
  */
 import { useCallback, useEffect, useState } from "react";
 import Icon, { type IconName } from "@/components/icons/Icon";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import { CREW_ENABLED } from "@/lib/features";
 import { PUSH_KINDS, pushCopy, type PushKind, type PushPrefs } from "@/lib/push";
+import { isNativeApp, nativeDebugBuild, nativePushRegister, NATIVE_PUSH_TOKEN_KEY } from "@/lib/native";
 
-type State = { configured: boolean; publicKey: string | null; prefs: PushPrefs; devices: number };
+type State = { configured: boolean; web?: boolean; app?: boolean; publicKey: string | null; prefs: PushPrefs; devices: number };
+/** "here" = this browser's subscription, or the iPhone app's saved APNs token */
+type Here = { endpoint: string; unsubscribe?: () => Promise<boolean> } | { apns: string };
+const savedToken = () => { try { return localStorage.getItem(NATIVE_PUSH_TOKEN_KEY); } catch { return null; } };
 const SW = "/push-sw.js", SCOPE = "/push-sw/";
 /** row icons in the Settings v2 layout */
 const KIND_ICON: Partial<Record<PushKind, IconName>> = { orbit: "altitude", host: "rocket", crew: "crew" };
@@ -18,15 +23,17 @@ const keyBytes = (b64u: string) => { const s = atob(b64u.replace(/-/g, "+").repl
 export const PUSH_SETTINGS_COPY = {
   group: "Alerts",
   device: "Alerts on this device", deviceHelp: "Pushes for the switches below. You can turn them off here any time.",
-  on: "Turn on", off: "Turn off", blocked: "Alerts are blocked for this site in your browser settings.", unsupported: "This browser can't show push alerts. On iPhone, add DISCIPLE to your Home Screen first.",
+  on: "Turn on", off: "Turn off", blocked: "Alerts are blocked for this site in your browser settings.",
+  appBlocked: "Alerts are off for DISCIPLE in your iPhone Settings → Notifications.", unsupported: "This browser can't show push alerts. On iPhone, add DISCIPLE to your Home Screen first.",
 } as const;
 
 export default function PushSettings({ wallet }: { wallet: string | null }) {
   const [st, setSt] = useState<State | null>(null);
-  const [here, setHere] = useState<PushSubscription | null>(null);
+  const [here, setHere] = useState<Here | null>(null);
+  const native = isNativeApp();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const supported = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  const supported = native || (typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window);
   const call = useCallback(async (method: string, b?: object) => {
     if (!wallet) return null;
     const token = await privyAccessToken().catch(() => null);
@@ -40,15 +47,29 @@ export default function PushSettings({ wallet }: { wallet: string | null }) {
     (async () => {
       const r = await call("GET");
       if (alive && r?.ok) setSt((await r.json()) as State);
-      if (supported) { const reg = await navigator.serviceWorker.getRegistration(SCOPE).catch(() => undefined); const sub = await reg?.pushManager.getSubscription().catch(() => null); if (alive) setHere(sub ?? null); }
+      if (native) { const t = savedToken(); if (alive) setHere(t ? { apns: t } : null); }
+      else if (supported) { const reg = await navigator.serviceWorker.getRegistration(SCOPE).catch(() => undefined); const sub = await reg?.pushManager.getSubscription().catch(() => null); if (alive) setHere(sub ?? null); }
     })();
     return () => { alive = false; };
-  }, [call, supported]);
+  }, [call, supported, native]);
 
-  if (!wallet || !st?.configured) return null;
+  if (!wallet || !st?.configured || (native ? st.app === false : st.web === false)) return null;
 
   const turnOn = async () => {
     setErr(""); setBusy(true);
+    if (native) {
+      try {
+        const r = await nativePushRegister();
+        if ("error" in r) { setErr(r.error === "denied" ? PUSH_SETTINGS_COPY.appBlocked : "Couldn't turn alerts on."); return; }
+        // Xcode debug builds talk to Apple's sandbox; TestFlight and App Store builds to production
+        const env = nativeDebugBuild() ? "sandbox" : "production";
+        const res = await call("POST", { apns: r.token, env });
+        if (!res?.ok) { setErr(((await res?.json().catch(() => null)) as { error?: string } | null)?.error ?? "Couldn't turn alerts on."); return; }
+        try { localStorage.setItem(NATIVE_PUSH_TOKEN_KEY, r.token); } catch { /* ignore */ }
+        setHere({ apns: r.token });
+      } finally { setBusy(false); }
+      return;
+    }
     try {
       if ((await Notification.requestPermission()) !== "granted") { setErr(PUSH_SETTINGS_COPY.blocked); return; }
       const reg = await navigator.serviceWorker.register(SW, { scope: SCOPE });
@@ -62,8 +83,13 @@ export default function PushSettings({ wallet }: { wallet: string | null }) {
   const turnOff = async () => {
     if (!here) return;
     setBusy(true);
-    await call("DELETE", { endpoint: here.endpoint });
-    await here.unsubscribe().catch(() => false);
+    if ("apns" in here) {
+      await call("DELETE", { apns: here.apns });
+      try { localStorage.removeItem(NATIVE_PUSH_TOKEN_KEY); } catch { /* ignore */ }
+    } else {
+      await call("DELETE", { endpoint: here.endpoint });
+      await here.unsubscribe?.().catch(() => false);
+    }
     setHere(null); setBusy(false);
   };
   const flip = async (k: PushKind) => {

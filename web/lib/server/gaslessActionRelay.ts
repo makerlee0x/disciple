@@ -6,11 +6,12 @@ import "server-only";
  * Does not touch the trade path. New code uses deployment() (active chain).
  */
 import { createPublicClient, parseAbi, recoverTypedDataAddress, type Address, type Hex } from "viem";
+import { actionTypedData, relaySpender } from "../trade/permitForwarder";
 import { privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, deployment } from "../chains";
 import { GaslessReject, PERMIT2 } from "../trade/gaslessPermit2";
 import {
-  MULTICALL3, actionGas, actionTxGasLimit, checkGaslessActionRequest, encodeActionCall,
+  MULTICALL3, actionGas, actionTxGasLimit, actionWitness, checkGaslessActionRequest, encodeActionCall, encodeForwarderActionCall,
   parseGaslessActionRequest, transferTypedData, withdrawFeeRaw, type ActionKind, type GaslessActionRequest,
 } from "../trade/gaslessAction";
 import { rateFromEnv, unmarkedRate } from "./usdgEthRate";
@@ -41,7 +42,7 @@ export function actionFeeTo(): Address {
 export type ActionQuoteResult = {
   kind: ActionKind;
   fee: string; feeTo: Address; gas: string; gasPrice: string; rate: string;
-  usdg: Address; usdgDecimals: number; spender: typeof MULTICALL3; permit2: typeof PERMIT2;
+  usdg: Address; usdgDecimals: number; spender: Address; permit2: typeof PERMIT2;
   /** TrampWallManager.keeperTipBps, shown for trampPull (relayer is paid from proceeds; USDG fee is 0). */
   keeperTipBps: number;
 };
@@ -85,17 +86,18 @@ export async function quoteGaslessAction(raw: unknown = {}, opts: ActionQuoteOpt
   }
   return {
     kind, fee: fee.toString(), feeTo, gas: gas.toString(), gasPrice: baseFee.toString(), rate: rate.toString(),
-    usdg: dep.usdg, usdgDecimals: decimals, spender: MULTICALL3, permit2: PERMIT2, keeperTipBps,
+    // a fee is signed for the forwarder when deployed; with no fee (trampPull) nothing is signed and Multicall3 stays
+    usdg: dep.usdg, usdgDecimals: decimals, spender: fee > 0n ? relaySpender(ACTIVE_CHAIN.id).address : MULTICALL3, permit2: PERMIT2, keeperTipBps,
   };
 }
 
-async function admitAction(signer: Address, data: Hex, d: GaslessDeps): Promise<{ relayer: DirectRelayer; did: string }> {
+async function admitAction(signer: Address, to: Address, data: Hex, d: GaslessDeps): Promise<{ relayer: DirectRelayer; did: string }> {
   const m = d.metrics;
   const relayer = directRelayer(m);
   const session = timed(m, "authSession", () => verifySessionToken(d.idToken));
   const owner = session.then(x => timed(m, "authSessionWallet", () => requireSessionWallet(x, signer)));
   const gate = session.then(x => timed(m, "revokeStrikeGate", () => requireNotRevokedOrStruck(signer, Date.now(), x.did)));
-  const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, MULTICALL3, data)));
+  const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data)));
   const all = [session, owner, gate, d.ipGate ?? Promise.resolve(), sim, relayer];
   const res = await timed(m, "admissionSimulationWall", () => Promise.allSettled(all));
   for (const x of res) if (x.status === "rejected") throw notSent(x.reason);
@@ -105,19 +107,19 @@ async function admitAction(signer: Address, data: Hex, d: GaslessDeps): Promise<
   };
 }
 
-async function commitAction(signer: Address, data: Hex, gas: bigint, r: DirectRelayer, d: GaslessDeps, t0: number, tAdm: number, did?: string): Promise<GaslessConfirmed> {
+async function commitAction(signer: Address, to: Address, data: Hex, gas: bigint, r: DirectRelayer, d: GaslessDeps, t0: number, tAdm: number, did?: string): Promise<GaslessConfirmed> {
   const m = d.metrics;
   const tb = Date.now();
   const refund = await relaySendBudget(signer, m).catch(e => { throw notSent(e); });
   const budget = Date.now() - tb;
   let res;
-  try { res = await sendDirect(r, MULTICALL3, data, gas, d.onPending, m); }
+  try { res = await sendDirect(r, to, data, gas, d.onPending, m); }
   catch (e) { if ((e as { notSent?: boolean }).notSent) await refund().catch(() => undefined); throw e; }
   const success = res.rc.status === "0x1";
   const gasUsed = Number(BigInt(res.rc.gasUsed));
   if (!success) {
     let revertData: string | undefined;
-    try { await simulateDirect(r.address, MULTICALL3, data); }
+    try { await simulateDirect(r.address, to, data); }
     catch (e) { revertData = (e as { data?: string }).data; }
     if (shouldStrikeIncludedRevert({ revertData, gasUsed: BigInt(res.rc.gasUsed), gasLimit: gas })) strikeSender(signer, did);
     const price = res.rc.effectiveGasPrice ? BigInt(res.rc.effectiveGasPrice) : BigInt(0);
@@ -131,6 +133,8 @@ async function commitAction(signer: Address, data: Hex, gas: bigint, r: DirectRe
 export async function relayGaslessAction(raw: unknown, d: GaslessDeps = {}): Promise<GaslessConfirmed> {
   const t0 = Date.now();
   let q: GaslessActionRequest;
+  let target: Address = MULTICALL3;
+  let forwarder = false;
   const dep = deployment();
   try {
     requireGaslessMode();
@@ -144,13 +148,20 @@ export async function relayGaslessAction(raw: unknown, d: GaslessDeps = {}): Pro
     if (q.fee < current) throw new GaslessReject("fee changed, please retry");
     checkGaslessActionRequest(q, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec: d.nowSec ?? Math.floor(Date.now() / 1000), feeTo, minFee: current });
     if (q.fee > 0n && q.feePermit && q.feeSignature) {
-      const who = await recoverTypedDataAddress({ ...transferTypedData(ACTIVE_CHAIN.id, q.feePermit), signature: q.feeSignature });
+      // a signed fee: the forwarder when deployed; Multicall3 only on testnet (relaySpender throws on mainnet without it)
+      const spender = relaySpender(ACTIVE_CHAIN.id);
+      forwarder = spender.kind === "forwarder";
+      target = spender.address;
+      const typed = forwarder
+        ? actionTypedData(ACTIVE_CHAIN.id, spender.address, q.feePermit, actionWitness(q))
+        : transferTypedData(ACTIVE_CHAIN.id, q.feePermit);
+      const who = await recoverTypedDataAddress({ ...typed, signature: q.feeSignature } as Parameters<typeof recoverTypedDataAddress>[0]);
       if (who.toLowerCase() !== q.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
     }
   } catch (e) { throw notSent(e); }
-  const data = encodeActionCall(q, dep.usdg);
-  const { relayer, did } = await admitAction(q.signer, data, d);
-  return commitAction(q.signer, data, actionTxGasLimit(q.kind), relayer, d, t0, Date.now() - t0, did);
+  const data = forwarder ? encodeForwarderActionCall(q) : encodeActionCall(q, dep.usdg);
+  const { relayer, did } = await admitAction(q.signer, target, data, d);
+  return commitAction(q.signer, target, data, actionTxGasLimit(q.kind), relayer, d, t0, Date.now() - t0, did);
 }
 
 export type { OnPending };

@@ -10,6 +10,7 @@ import { DEFAULT_BUY, MIN_BOOST_USD, validBoost, type SwapSettings } from "@/lib
 import { setGameSettings, useGameSettings } from "@/lib/game/settings";
 import { getGameRadio } from "@/lib/game/radio";
 import { resumeAudio } from "@/lib/game/audio";
+import { requestTilt } from "./TiltSteer";
 
 const G = "var(--dsc-font-game, 'Barlow Condensed', sans-serif)";
 const QUICK = [{ k: "Small", v: [3, 5, 10, 20] }, { k: "Default", v: DEFAULT_BUY.slice() }, { k: "Big", v: [25, 50, 100, 250] }];
@@ -60,6 +61,9 @@ export default function PhoneBoostSheet({ initial, onChange, onClose }: {
     { k: "sfx", label: "Sound effects", on: gs.sfx.on, flip: () => setGameSettings((g) => ({ ...g, sfx: { ...g.sfx, on: !g.sfx.on } })) },
     { k: "music", label: "Music", on: gs.music.on, flip: music },
     { k: "haptics", label: "Vibration", on: gs.haptics, flip: () => { const v = !gs.haptics; setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); } },
+    // tilt asks for motion access inside this tap (iOS only allows that from a user gesture)
+    { k: "tilt", label: "Tilt to steer", on: gs.tilt, flip: () => { const v = !gs.tilt; if (v) void requestTilt().then((ok) => { if (ok) setGameSettings((g) => ({ ...g, tilt: true })); else setMsg({ t: "Motion access is off for DISCIPLE. Turn it on in Settings to tilt to steer.", err: true }); }); else setGameSettings((g) => ({ ...g, tilt: false })); } },
+    { k: "calm", label: "Full-screen flying", on: gs.calm, flip: () => setGameSettings((g) => ({ ...g, calm: !g.calm })) },
   ];
 
   return (
@@ -92,7 +96,7 @@ export default function PhoneBoostSheet({ initial, onChange, onClose }: {
         .pbs .tog[aria-checked="true"] .sw { background: #5FF0A0; }
         .pbs .tog[aria-checked="true"] .sw::after { transform: translateX(20px); }
       `}</style>
-      <div className="pbs" role="dialog" aria-label="Boost amounts and sound">
+      <div className="pbs" role="dialog" aria-label="Boost amounts, sound and controls">
         <header><h2>BOOST AMOUNTS</h2><button type="button" className="x" data-testid="swap-done" onClick={onClose}>DONE</button></header>
         <p className="p">The four notches on your lever, bottom to top.</p>
         <div className="amts">
@@ -105,7 +109,7 @@ export default function PhoneBoostSheet({ initial, onChange, onClose }: {
             onClick={() => { setVals(q.v.map(String)); setBad([false, false, false, false]); apply(q.v); }}>{q.k}</button>)}
         </div>
         <p className={`p${msg.err ? " err" : ""}`} data-testid="swap-msg" aria-live="polite">{msg.t}</p>
-        <h3>SOUND</h3>
+        <h3>SOUND AND CONTROLS</h3>
         <div data-testid="swap-game" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {rows.map((r) => <button key={r.k} type="button" role="switch" aria-checked={r.on} className="tog" data-testid={`swap-${r.k}`} onClick={r.flip}>
             {r.label}<span className="sw" aria-hidden /></button>)}

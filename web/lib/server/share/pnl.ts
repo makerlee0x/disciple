@@ -11,7 +11,7 @@ export async function currentMcap(coin: string): Promise<number | null> {
 }
 
 /** PnL for one wallet's position in one coin; the end point is "now" for open positions. */
-export async function pnlForPosition(wallet: string, coin: string, now = Date.now()): Promise<PositionPnl> {
+export async function pnlForPosition(wallet: string, coin: string, now = Date.now(), trade: "all" | "last" = "all"): Promise<PositionPnl> {
   const [fills, mcap] = await Promise.all([tradesOf(coin, wallet), currentMcap(coin)]);
-  return pnlFromFills(wallet.toLowerCase(), coin.toLowerCase(), fills, mcap, now);
+  return pnlFromFills(wallet.toLowerCase(), coin.toLowerCase(), fills, mcap, now, { trade });
 }

@@ -166,6 +166,16 @@ export const DRAFT = { xp: 10, perDay: 5, windowMs: 60_000, minHoldUsd: 5, minGa
 export interface DraftClaim { coin: string; wingmen: string[]; at: number }
 
 /**
+ * Style XP (maker 2026-11-14, phone flight option 2): a spin or flip (engine @tricks) within a few seconds of your own BOOST filling
+ * is a STYLE FILL. The game reports it (POST /api/xp/style); the cron pays it only when the fills show your own buy of at least
+ * `minBuyUsd` on that coin within `windowMs` of the report. A chained trick (x2 … x5) adds `comboXp` each, up to `maxCombo`.
+ * The server trusts only the timing of the trick itself, so the pay is small and capped per day.
+ */
+export const STYLE = { xp: 5, comboXp: 2, maxCombo: 5, perDay: 6, windowMs: 20_000, minBuyUsd: 5, minGapMs: 8_000 } as const;
+export interface StyleClaim { coin: string; at: number; combo: number }
+export const styleXp = (combo: number) => STYLE.xp + STYLE.comboXp * (Math.max(1, Math.min(STYLE.maxCombo, Math.floor(combo) || 1)) - 1);
+
+/**
  * Free play XP (maker 2026-11-13: reduced, signed-in pilots only, capped per day). Only runs the server re-flew pay:
  * the Daily flight (one a day, up to 150) and practice runs (up to 20 each). All Free play XP together stops at
  * `perDay` per UTC day. A signed-out pilot's daily can be saved after signing in for `claimDays` days.
@@ -234,9 +244,9 @@ export const MILESTONE_COPY: Record<string, { name: string; desc: string }> = {
   graduated_dev: { name: "Blessed Dev", desc: "Launch a rocket that reaches orbit." },
   through_pearly_gates: { name: "Outer Space", desc: "Be aboard with $10 or more when a rocket reaches orbit." },
   final_boost: { name: "Final Push", desc: "Make the boost that sends a rocket to orbit." },
-  first_grenade: { name: "Pin Pulled", desc: "Drop a grenade: a $10+ dump that moves the price 2%." },
-  cruise_missile_ach: { name: "Cruise Control", desc: "Drop a cruise missile: a $25+ dump that moves the price 12%." },
-  nuke_ach: { name: "Nuke", desc: "Drop a nuke: a $50+ dump that moves the price 25%." },
+  first_grenade: { name: "Bunker Buster", desc: "Drop a bunker buster: a $10+ dump that moves the price 2%." },
+  cruise_missile_ach: { name: "Mother of All Bombs", desc: "Drop a MOAB: a $25+ dump that moves the price 12%." },
+  nuke_ach: { name: "Atom Smasher", desc: "Drop an atom bomb: a $50+ dump that moves the price 25%." },
   unfumbled: { name: "Unfumbled", desc: "Take $500 profit in one sale." },
   best_x_10: { name: "Tenfold Halo", desc: "Sell at 10× what you paid, on $10 or more." },
 };

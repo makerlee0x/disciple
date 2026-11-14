@@ -27,7 +27,7 @@ test.describe("first visit", () => {
   });
 
   test("desktop: first click focuses a card, the second plays it", async ({ page }) => {
-    test.skip(isPhone(page), "phones tap straight through (next test)");
+    test.skip(isPhone(page), "phones: tap the middle card to play, a side card to centre it (below)");
     await page.goto("/");
     const live = out(page).getByTestId("mode-live");
     await hydrated(live);
@@ -54,12 +54,22 @@ test.describe("first visit", () => {
     await expect(page).toHaveURL(/\/flight\/sim/);
   });
 
-  test("phone: tapping a card goes straight to it", async ({ page }) => {
+  test("phone: tapping the middle card goes straight to it", async ({ page }) => {
     test.skip(!isPhone(page), "phone only");
     await page.goto("/");
     await out(page).getByTestId("mode-free").tap();
     await expect(page).toHaveURL(/\/flight\/sim/);
     await expect(page.getByTestId("sim-select")).toBeVisible();
+  });
+
+  test("phone: tapping a side card slides it to the middle instead of playing it", async ({ page }) => {
+    test.skip(!isPhone(page), "phone only");
+    await page.goto("/");
+    const live = out(page).getByTestId("mode-live");
+    await hydrated(live);
+    await live.tap({ position: { x: 20, y: 120 } });
+    await expect(live).toHaveAttribute("aria-current", "true");
+    await expect(page).toHaveURL(/\/$/);
   });
 
   test("the Trading duel card shows once the Turbo flag is on", async ({ page }) => {
