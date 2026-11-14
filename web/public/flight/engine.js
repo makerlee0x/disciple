@@ -2297,8 +2297,9 @@ function drawHud(){
   ctx.restore();
 }
 
-function drawLoading(){ ctx.fillStyle='#05060c'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#ccd'; ctx.font='16px ui-monospace,monospace'; ctx.textAlign='center';
-  ctx.fillText(S.confirmed.mcap===null?`waiting for first confirmed trade… (${source.name}) ${S.status.ok?'':S.status.msg}`:'Fueling up…',W/2,H/2); ctx.textAlign='left'; }
+// player copy (e2e sweep 2026-11-14: this used to print the source name and raw status, e.g. "(LIVE · RH RPC getLogs)"); the source + status stay on window.__flight for debugging
+function drawLoading(){ ctx.fillStyle='#05060c'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#C9CED6'; ctx.font=GF(16,600); ctx.textAlign='center';
+  ctx.fillText(S.confirmed.mcap===null?'Waiting for the first price…':'Fueling up…',W/2,H/2); ctx.textAlign='left'; }
 
 /* =====================================================================
    NUKE ON DUMP — sell bombs (visual layer only; never touches rocket motion/springs)

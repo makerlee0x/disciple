@@ -6,6 +6,10 @@
     "dev": "next dev",
     "build": "node scripts/minify-engine.mjs && next build",
     "start": "next start",
+    "e2e:build": "NEXT_DIST_DIR=.next-e2e NEXT_PUBLIC_AA_SIGNER=local NEXT_PUBLIC_RHT_RPC_URL=http://127.0.0.1:8545 NEXT_TELEMETRY_DISABLED=1 pnpm build",
+    "e2e": "rm -f /tmp/disciple-e2e-kv.json && playwright test",
+    "e2e:update": "rm -f /tmp/disciple-e2e-kv.json && playwright test --update-snapshots --grep @screens",
+    "e2e:typecheck": "tsc -p e2e/tsconfig.json",
     "lint": "next lint",
     "build:static-preview": "node scripts/build-static-preview.mjs",
     "test:heading": "node scripts/test-heading.mjs",
@@ -172,6 +176,7 @@
     "viem": "^2.57.7"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",

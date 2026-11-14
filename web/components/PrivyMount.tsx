@@ -13,8 +13,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { PrivyProvider, getIdentityToken, toViemAccount, useCreateWallet, useExportWallet, useFundWallet, useMfaEnrollment, usePrivy, useWallets } from "@privy-io/react-auth";
 import { deployment, isDeployed } from "@/lib/chains";
 import { useDepositAddress } from "@privy-io/react-auth/hooks";
-import { DEPOSIT_CALL_EVENT, DEPOSIT_REPLY_EVENT, type DepositAddress, type DepositCall, type DepositOutcome, type DepositReply } from "@/lib/deposit";
-import { FUND_COPY, FUND_DEFAULT_USD, FUND_DONE_EVENT, FUND_EVENT, fundErrorLine, type FundRequest, type FundResult } from "@/lib/fund";
+import { DEPOSIT_ACK_EVENT, DEPOSIT_CALL_EVENT, DEPOSIT_REPLY_EVENT, type DepositAddress, type DepositCall, type DepositOutcome, type DepositReply } from "@/lib/deposit";
+import { FUND_ACK_EVENT, FUND_COPY, FUND_DEFAULT_USD, FUND_DONE_EVENT, FUND_EVENT, fundErrorLine, type FundRequest, type FundResult } from "@/lib/fund";
 const FUND_CLOSED = FUND_COPY.closed;
 import { currentInApp } from "@/lib/inAppBrowser";
 import { needsEmbeddedWallet, ownerWalletAddress, type LinkedLike } from "@/lib/privyOwner";
@@ -105,6 +105,7 @@ function FundBridge() {
   useEffect(() => {
     const on = (e: Event) => {
       const req = (e as CustomEvent<FundRequest>).detail;
+      dispatchEvent(new Event(FUND_ACK_EVENT));
       if (!req?.address) return done({ ok: false });
       const usd = String(req.usd && req.usd > 0 ? req.usd : FUND_DEFAULT_USD);
       const usdg = isDeployed() ? (deployment().usdg as `0x${string}` | undefined) : undefined;
@@ -131,6 +132,7 @@ function DepositBridge() {
     const on = (e: Event) => {
       const c = (e as CustomEvent<DepositCall>).detail;
       if (!c?.id) return;
+      dispatchEvent(new CustomEvent(DEPOSIT_ACK_EVENT, { detail: { id: c.id } }));
       const d = ref.current;
       const run = async (): Promise<unknown> => {
         if (c.op === "config") return d.getConfig();
