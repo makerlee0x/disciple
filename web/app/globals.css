@@ -996,3 +996,6 @@ button, [role="button"], [role="tab"], [role="switch"], a, summary, label, selec
 html.ap-flight, html.ap-flight body { overscroll-behavior: none; }
 html.ap-flight body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 html.ap-flight input, html.ap-flight textarea, html.ap-flight [contenteditable="true"], html.ap-flight [data-selectable] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+
+/* warm moon mark (logo option B, picked by maker 2026-11-14): the moon glows softly, the words stay silver */
+.lb-brand img, #apSide .ap-mark { filter: drop-shadow(0 0 5px rgba(255, 214, 140, .5)); }
