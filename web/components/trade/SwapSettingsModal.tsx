@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { MODES } from "@/lib/config";
-import { AUTO_SLIPPAGE_PCT, DEFAULT_SELLS, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
+import { AUTO_SLIPPAGE_PCT, DEFAULT_SELLS, MIN_BOOST_USD, validBoost, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 import Icon from "@/components/icons/Icon";
 import OneTapSlippagePicker from "./OneTapSlippagePicker";
 
@@ -20,10 +20,13 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
   const t = tier;
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }; addEventListener("keydown", k); return () => removeEventListener("keydown", k); }, [onClose]);
   useEffect(() => { if (buyAuto) setBuy(autoUsd.map(String)); }, [buyAuto, autoUsd]);
+  const [err, setErr] = useState("");
   const save = () => {
     const b = buy.map((v) => +v);
+    // $3 minimum: a smaller boost can't cover the network fee (maker, 2026-11-14)
+    if (!buyAuto && !b.every(validBoost)) { setErr(`Each boost needs to be at least $${MIN_BOOST_USD}, which covers the network fee.`); return; }
     // sells are fixed (10/25/50/100% of the bag): never saved from here
-    onSave({ buy: buyAuto || !b.every((v) => v > 0 && Number.isFinite(v)) ? null : b, sells: DEFAULT_SELLS.slice() as SellSlot[], slippage: { mode: slipMode, pct: +slip > 0 ? Math.min(50, +slip) : AUTO_SLIPPAGE_PCT }, tag }, t);
+    onSave({ buy: buyAuto ? null : b, sells: DEFAULT_SELLS.slice() as SellSlot[], slippage: { mode: slipMode, pct: +slip > 0 ? Math.min(50, +slip) : AUTO_SLIPPAGE_PCT }, tag }, t);
   };
   const cell: React.CSSProperties = { width: "100%", boxSizing: "border-box", textAlign: "center", font: "bold 15px ui-monospace,monospace", color: "#fff", padding: "10px 4px",
     background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.12)", borderRadius: 10, outline: "none" };
@@ -44,11 +47,13 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
           {buy.map((v, i) => <label key={i} style={{ display: "grid", gap: 3, fontSize: 9, opacity: 0.95, fontFamily: "ui-monospace,monospace", color: "#ffe7a3" }}>
             <span>{MODES[i].key}</span>
             <input data-testid={`swap-buy-${i}`} inputMode="decimal" value={buyAuto ? (+v < 1 ? `$${(+v).toFixed(2)}` : `$${+v}`) : v} onFocus={() => { if (buyAuto) { setBuyAuto(false); } }}
-              onChange={(e) => { setBuyAuto(false); const n = [...buy]; n[i] = e.target.value.replace(/[^\d.]/g, ""); setBuy(n); }} style={{ ...cell, color: buyAuto ? "rgba(255,255,255,.6)" : "#fff" }} /></label>)}
+              onChange={(e) => { setBuyAuto(false); setErr(""); const n = [...buy]; n[i] = e.target.value.replace(/[^\d.]/g, ""); setBuy(n); }} style={{ ...cell, color: buyAuto ? "rgba(255,255,255,.6)" : "#fff" }} /></label>)}
         </div>
         <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 12, cursor: "pointer" }}>
           <input type="checkbox" data-testid="swap-autoscale" checked={buyAuto} onChange={(e) => setBuyAuto(e.target.checked)} />
           <span>Use defaults ($10 / $25 / $50 / $100): {buyAuto ? "on" : "off"}</span></label>
+        <div data-testid="swap-buy-note" role={err ? "alert" : undefined} style={{ marginTop: 6, fontSize: 12, color: err ? "#FF8FBD" : "rgba(207,211,230,.7)" }}>
+          {err || `Minimum $${MIN_BOOST_USD} per boost (covers the network fee).`}</div>
         {head("Sell sizes (% of bag, fixed)")}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
           {DEFAULT_SELLS.map((v, i) => <label key={i} style={{ display: "grid", gap: 3, fontSize: 9, fontFamily: "ui-monospace,monospace", color: "#ffb0c8" }}>

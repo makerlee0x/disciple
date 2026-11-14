@@ -244,6 +244,12 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
     (window as unknown as { __pnlView?: unknown }).__pnlView = detail;   // late listeners (phone HUD PnL line) read the current view
     dispatchEvent(new CustomEvent("disciple:pnlview", { detail }));
   }, [v.size, v.valueUsd, v.entryMcap, v.uPnl, v.pnlPct, v.realized]);
+  // phone bag card BANKED row: realized $ on this rocket, also after the whole bag is sold (pnlview is null then)
+  useEffect(() => {
+    const detail = { realized: Number.isFinite(v.realized) ? v.realized : 0, costBasis: basis };
+    (window as unknown as { __banked?: unknown }).__banked = detail;
+    dispatchEvent(new CustomEvent("disciple:banked", { detail }));
+  }, [v.realized, basis]);
 
   const holding = v.size > 0;
   // red only because of the buy fee inside the cost basis (price hasn't moved enough to cover it): say so, in dollars

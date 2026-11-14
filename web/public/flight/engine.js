@@ -1089,7 +1089,8 @@ function wingStep(dt){ if(!S.wing.size) return;
     w.hist.unshift(w.x); if(w.hist.length>90) w.hist.length=90; }
   for(const [k,t] of S.wingRecent) if(S.t-t>WING_TTL) S.wingRecent.delete(k); }
 function wingExtra(){ let n=0; for(const k of S.wingRecent.keys()) if(!S.wing.has(k)) n++; return n; }
-function drawWingmen(){ if(!S.wing.size&&!wingExtra()) return; const im=IMG.rocket, ok=im&&im.complete&&!im.bad&&im.naturalWidth;
+function drawWingmen(){ if(PH_THR()) return;   /* phone throttle layout (maker 2026-11-14, "yes, all of it"): no other ships in the phone sky */
+  if(!S.wing.size&&!wingExtra()) return; const im=IMG.rocket, ok=im&&im.complete&&!im.bad&&im.naturalWidth;
   ctx.save(); ctx.lineCap='round';
   for(const w of S.wing.values()){ const c=wingRgb(w.k), drafting=S.draftOn===w, n=w.hist.length;   // contrail: x history streamed downward
     for(let i=1;i<n;i++){ const a=(1-i/n)*(drafting?0.8:0.28); if(a<0.01) continue; ctx.strokeStyle=`rgba(${c},${a})`; ctx.lineWidth=(drafting?4.5:2.5)*(1+i/n*1.6);
@@ -1102,10 +1103,11 @@ function drawWingmen(){ if(!S.wing.size&&!wingExtra()) return; const im=IMG.rock
     ctx.globalCompositeOperation='source-over';
     if(ok){ const iw=h*im.naturalWidth/im.naturalHeight; ctx.globalAlpha=0.92; ctx.drawImage(im,-iw/2,-h*0.96,iw,h); ctx.globalAlpha=1; }
     ctx.restore();
-    if(!CLEAN){ const tag=S.t-w.tagT<1.6?w.tag:'', lab=w.peel!=null?nameOf(w.trader)+' · DUMPING':nameOf(w.trader)+(tag?' · '+tag:'');
+    const thrL=window.__phoneHud&&window.__phoneHud.thr, tag0=S.t-w.tagT<1.6?w.tag:'';   /* phone throttle layout (maker: "the mockup looks way cleaner"): a wingman is named only while it trades */
+    if(!CLEAN&&(!thrL||tag0||w.peel!=null)){ const tag=tag0, lab=w.peel!=null?nameOf(w.trader)+' · DUMPING':nameOf(w.trader)+(tag?' · '+tag:'');
       ctx.font=GF(13,700); ctx.textAlign='center'; ctx.lineWidth=3; ctx.lineJoin='round'; ctx.strokeStyle='rgba(8,9,20,.75)'; ctx.strokeText(lab,w.x,w.y-h-6);
       ctx.fillStyle=w.peel!=null||tag?'#FF8AB0':`rgb(${c})`; ctx.fillText(lab,w.x,w.y-h-6); } }
-  const more=wingExtra(); if(more&&!CLEAN){ const t='+'+more+' MORE ABOARD'; ctx.font=GF(14,700); const tw=ctx.measureText(t).width+22, px=W/2, py=Math.max(70,(S.ry||ROCKET_Y)-0.5*H);
+  const more=wingExtra(); if(more&&!CLEAN&&!(window.__phoneHud&&window.__phoneHud.thr)){ const t='+'+more+' MORE ABOARD'; ctx.font=GF(14,700); const tw=ctx.measureText(t).width+22, px=W/2, py=window.__phoneHud&&window.__phoneHud.thr?(S.ry||ROCKET_Y)-150:Math.max(70,(S.ry||ROCKET_Y)-0.5*H);   /* phone throttle layout: just over the nose, clear of the top row + chart card */
     ctx.fillStyle='rgba(14,16,34,.72)'; ctx.beginPath(); ctx.roundRect?ctx.roundRect(px-tw/2,py-13,tw,26,13):ctx.rect(px-tw/2,py-13,tw,26); ctx.fill();
     ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='rgba(230,232,255,.92)'; ctx.fillText(t,px,py+1); ctx.textBaseline='alphabetic'; }
   ctx.restore(); }
@@ -1489,6 +1491,30 @@ function bgTile(name){ const s=1.12, w=Math.round(W*s), h=Math.round(H*s), k=w+'
 function plateRows(T,y0,y1,oy,x0){ y0=Math.max(0,Math.floor(y0)); y1=Math.min(H,Math.ceil(y1)); const P=T.height, w=T.width;
   let y=y0; while(y<y1){ const r=(((y-oy)%P)+P)%P, seg=Math.min(y1-y,P-r); ctx.drawImage(T,0,r,w,seg,x0,y,w,seg); y+=seg; } }
 function altAtY(y){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); return base+((S.anch??ROCKET_Y)-y)/PX_PER_ALT; }
+/* @phone-sky (throttle prototype, maker 2026-11-14 "the mockup looks way cleaner"; picked "yes, all of it"): on phones the
+   sky is the lobby's photo plate for the current zone (public/home/sky/tN.webp), cover-cropped, one plate at a time with a
+   1.2 s cross-fade when you change zone, soft drifting clouds instead of the pixel cel clouds, and no wingman ships. */
+const PH_THR=()=>!!(window.__phoneHud&&window.__phoneHud.thr);
+const PHS={img:{}, cur:-1, prev:-1, fade:1, t:-1, clouds:null};
+function phSkyImg(i){ let im=PHS.img[i]; if(!im){ im=new Image(); im.decoding='async'; im.onerror=()=>{ im.bad=true; }; im.src=(window.__DISCIPLE_BASE_PATH__||'')+'/home/sky/t'+i+'.webp'; PHS.img[i]=im; }
+  return !im.bad&&im.complete&&im.naturalWidth>0?im:null; }
+function phCover(im,a){ const iw=im.naturalWidth, ih=im.naturalHeight, sc=Math.max(W/iw,H/ih)*1.08, dw=iw*sc, dh=ih*sc;
+  const py=clamp(((S.cloudY||0)*0.004)%24,-12,12), x0=(W-dw)/2-((S.camX!=null?S.camX:S.x)-W/2)*0.04;
+  ctx.globalAlpha=a; ctx.drawImage(im,x0,(H-dh)/2+py,dw,dh); ctx.globalAlpha=1; }
+function drawPhoneSky(){ S.bgU=tipPoint().alt; const k=clamp(Math.floor(S.bgU),0,TIERS.length-1);
+  if(k+1<TIERS.length) phSkyImg(k+1);   // warm the next zone
+  if(PHS.cur<0){ if(!phSkyImg(k)) return false; PHS.cur=k; PHS.fade=1; }
+  if(k!==PHS.cur&&phSkyImg(k)){ PHS.prev=PHS.cur; PHS.cur=k; PHS.fade=0; }
+  const dt=PHS.t<0?0:Math.min(0.1,Math.max(0,S.t-PHS.t)); PHS.t=S.t; PHS.fade=Math.min(1,PHS.fade+dt/1.2);
+  const a=phSkyImg(PHS.cur); if(!a) return false;
+  const b=PHS.fade<1?phSkyImg(PHS.prev):null; if(b) phCover(b,1); phCover(a,b?PHS.fade:1);
+  // soft clouds (prototype): five translucent puffs falling past as you climb
+  if(!PHS.clouds) PHS.clouds=Array.from({length:5},(_,i)=>({x:Math.random(),y:i/5,s:0.6+Math.random()*0.8}));
+  ctx.fillStyle='rgba(200,205,235,.22)';
+  for(const c of PHS.clouds){ const span=H+200, y=((((c.y*span)+(S.cloudY||0)*0.9*c.s)%span)+span)%span-100, x=c.x*W-((S.camX!=null?S.camX:S.x)-W/2)*0.2*c.s, sc=c.s;
+    ctx.beginPath(); for(const [dx,dy,r] of [[0,0,40],[34,-12,32],[64,0,36],[30,12,30]]){ ctx.moveTo(x+dx*sc+r*sc,y+dy*sc); ctx.arc(x+dx*sc,y+dy*sc,r*sc,0,Math.PI*2); } ctx.fill(); }
+  const gk=W+'x'+H; if(PHS.gk!==gk){ PHS.gk=gk; const v=ctx.createLinearGradient(0,0,0,H); v.addColorStop(0,'rgba(6,6,18,.40)'); v.addColorStop(0.45,'rgba(6,6,18,.06)'); v.addColorStop(1,'rgba(6,6,18,.45)'); PHS.g=v; }
+  ctx.fillStyle=PHS.g; ctx.fillRect(0,0,W,H); return true; }
 /* @turbo-route (maker, Nov 13 2026: "a completely different sky for BTC versus ETH, so the quest feels different"): in Turbo
    the page sends f.route = 'btc' | 'eth' and the sky is that route's own plate (public/turbo/sky-*.webp, re-graded from the
    tier art): Sun route = sunrise over the Earth, Moon route = a huge moon. One plate per run with a slow parallax, since a
@@ -1507,6 +1533,7 @@ function drawTurboSky(im,r){ const iw=im.width||im.naturalWidth, ih=im.height||i
   ctx.fillStyle=SKYG.tv; ctx.fillRect(0,0,W,H); return true; }
 function drawBg(){
   ctx.fillStyle='#0b0f22'; ctx.fillRect(0,0,W,H);
+  if(!IS_TURBO&&PH_THR()&&drawPhoneSky()) return;
   if(IS_TURBO){ const r=turboRoute(), im=turboSkyImg(r); if(im&&drawTurboSky(im,r)) return; }
   const F=H*0.5, oy=Math.round(((S.cloudY||0)*0.06)), w=Math.round(W*1.12), x0=Math.round((W-w)/2-((S.camX!=null?S.camX:S.x)-W/2)*0.03);
   S.bgU=tipPoint().alt;   // sky tint follows the rocket's own altitude
@@ -1634,7 +1661,7 @@ function cloudBlast(x,y,amp,R){
   for (const c of CLOUDS){ cloudBase(c); const dx=CB.x+c.ox-x, dy=CB.y+c.oy-y, d=Math.hypot(dx,dy)+1, f=1/(1+(d/R)*(d/R));
     c.vx+=dx/d*amp*f*(0.6+c.spd); c.vy+=dy/d*amp*f*(0.6+c.spd)-amp*0.15*f;   // pushed out and slightly lofted
     cloudThin(c,d,R,amp); } }
-function drawClouds(front){
+function drawClouds(front){ if(PH_THR()) return;   // phone: the photo sky draws its own soft clouds (drawPhoneSky)
   const ex=(S.camX!=null?S.camX:S.x), ey=S.ry, fl=exhaustParams().flame;
   const hi=CLOUD_STYLE==='cel'?celHi():0, sm0=ctx.imageSmoothingEnabled;
   for (const c of CLOUDS){ if((c.li===2)!==!!front) continue;
@@ -1900,10 +1927,11 @@ function drawTurboLines(){ const f=turboFx(); if(!f||S.displayAlt==null) return;
     if(d>0.5){ const [nx,ny]=nozzleXY(), r=40+60*d; ctx.save(); ctx.globalCompositeOperation='lighter';
       const g=ctx.createRadialGradient(nx,ny,0,nx,ny,r); g.addColorStop(0,d>0.8?'rgba(255,70,40,.55)':'rgba(255,140,40,.45)'); g.addColorStop(1,'rgba(255,90,30,0)');
       ctx.fillStyle=g; ctx.beginPath(); ctx.arc(nx,ny,r,0,Math.PI*2); ctx.fill(); ctx.restore(); } } }
-function drawEntryLine(){ const m=window.__entryMcap; if(IS_TURBO||!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
+function drawEntryLine(){ const m=window.__entryMcap; if(IS_TURBO||(window.__phoneHud&&window.__phoneHud.thr)||!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
   const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle='rgba(242,193,78,.5)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;   /* brand gold: where YOU boarded */
-  ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=up?'#F2C14E':'#FF9CC4'; ctx.font=GF(13,700); if('letterSpacing' in ctx) ctx.letterSpacing='1px';
-  ctx.fillText('YOU BOARDED '+fmtUsd(m),W/2+60,y-6); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.restore(); }
+  const thr=window.__phoneHud&&window.__phoneHud.thr, x0=thr?64:0, x1=thr?W-150:W;   /* phone throttle layout: only the open sky between the icon column and the lever */
+  ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=up?'#F2C14E':'#FF9CC4'; ctx.font=GF(13,700); if('letterSpacing' in ctx) ctx.letterSpacing='1px';
+  if(thr) ctx.textAlign='left'; ctx.fillText('YOU BOARDED '+fmtUsd(m),thr?x0+4:W/2+60,y-6); ctx.textAlign='start'; if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.restore(); }
 // ── TRAMPS & WALLS (graduated coins): individual small elements, sized by $ (log), compact $ tag.
 //    React pushes window.__trampWalls [{id,kind:'tramp'|'wall',mcap,lo,hi,sizeUsd,mine,status}] + window.__twPreview.
 //    Max ~8 nearest the price, same-level merged. Never over the rocket; no camera shake; heading untouched.
@@ -2894,7 +2922,7 @@ function rocketHits(px,py,rad){
 function orbHitsRocket(o){ return rocketHits(o.x,o.y,(ORB[o.k]&&ORB[o.k].r)||14); }
 /* @orb-hit-end */
   // (orb layer retired 2026-11-13: crew wingmen replace it, see @wingmen)
-  wingStep(dt); ghostStep(dt); draftStep(dt);
+  wingStep(dt); ghostStep(dt); if(!PH_THR()) draftStep(dt); else if(S.draft){ S.draft=0; S.draftLvl=0; S.draftWho.clear(); }   // no wingmen on the phone sky, so no drafting there
   bombStep(dt);
   for (const t of S.toasts) t.life-=dt*0.6; keepIf(S.toasts,ALIVE);
   if (!S.ach.koth){ let top=null, tv=-Infinity; if(S.holders){ const t=topFuelers()[0]; if(t) top=t[0]; } else for (const k in S.fuelers) if(S.fuelers[k]>tv){ tv=S.fuelers[k]; top=k; } if(top==='you') award('koth','KING OF THE HILL','top booster on this coin'); }

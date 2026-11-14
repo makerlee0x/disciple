@@ -136,6 +136,19 @@ export function FreePlayStrip({ mode, left, difficulty, goals, alert, phone, tun
 }) {
   const [open, setOpen] = useState(false);
   const d = fpDiff(difficulty), done = GOALS.filter((g) => goals[g.k]).length;
+  const dots = GOALS.map((g) => !!goals[g.k]).join(",");
+  // phones (maker 2026-11-14: "put the timer by the market cap"): the phone HUD shows mode · clock · goal dots in its top
+  // row from disciple:simclock and taps back with disciple:simgoals to open this panel; the chip stays as a fallback.
+  useEffect(() => {
+    if (!phone) return;
+    dispatchEvent(new CustomEvent("disciple:simclock", { detail: { mode, left, dots: dots.split(",").map((x) => x === "true") } }));
+  }, [phone, mode, left, dots]);
+  useEffect(() => {
+    if (!phone) return;
+    const f = () => setOpen((o) => !o);
+    addEventListener("disciple:simgoals", f);
+    return () => { removeEventListener("disciple:simgoals", f); dispatchEvent(new CustomEvent("disciple:simclock", { detail: null })); };
+  }, [phone]);
   if (phone && !open) return (
     <button type="button" className={s.chip} data-testid="sim-chip" aria-expanded={false} aria-label={`${mode}, ${left} left, ${done} of 3 goals. Show goals`} onClick={() => setOpen(true)}>
       <span style={{ color: "#F3DFA8" }}>{mode}</span><span>{left}</span><span className={s.chipDots} aria-hidden>{GOALS.map((g) => <i key={g.k} className={goals[g.k] ? "on" : ""} />)}</span>

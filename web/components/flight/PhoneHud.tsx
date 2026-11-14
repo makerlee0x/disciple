@@ -4,6 +4,8 @@ import type React from "react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import LevelRing from "@/components/xp/LevelRing";
+import PhoneChart from "./PhoneChart";
+import { openCash } from "@/lib/cashLink";
 import { usePilotWallet, useXp } from "@/lib/xpClient";
 import { FLIGHT_TIERS, GRAD_BADGE, tierIndexAt } from "@/lib/flight/tiers";
 import { WALLET_CTA_EVENT, WALLET_ID_EVENT, walletCtaLabel, walletId, type WalletId } from "@/lib/walletCta";
@@ -48,7 +50,7 @@ export function phoneLayout(o: { w: number; h: number; headBottom: number; safeT
 }
 
 type Rules = { ticker?: string; mode?: number; capBps?: number | null } | null;
-type PnlView = { valueUsd?: number; txt?: { pnl: string; pct: string; pos?: string }; uPnl?: number } | null;
+type PnlView = { valueUsd?: number; entryMcap?: number; pnlPct?: number; txt?: { pnl: string; pct: string; pos?: string }; uPnl?: number } | null;
 type HolderItem = { who: string; address: string; usd: number; pct: number; label?: string | null; mine: boolean };
 type Holders = { title: string; rows: [string, number][]; you: number; items?: HolderItem[] } | null;
 
@@ -76,6 +78,7 @@ export default function PhoneHud() {
   const [grad, setGrad] = useState(false);
   const [pnl, setPnl] = useState<PnlView>(null);
   const [stats, setStats] = useState<{ cash: number | null; room: number | null }>({ cash: null, room: null });
+  const [simClock, setSimClock] = useState<{ mode: string; left: string; dots: boolean[] } | null>(null);
   const [holders, setHolders] = useState<Holders>(null);
   const [cta, setCta] = useState<string | null>(null);
   const [me, setMe] = useState<WalletId | null>(null);
@@ -84,6 +87,12 @@ export default function PhoneHud() {
   const sheetRef = useRef<PhoneSheet | null>(null);
   const lastTab = useRef<PhoneSheet>("holders");
   const headRef = useRef<HTMLDivElement>(null);
+  const [chartTf, setChartTf] = useState(0);
+  const [chartBig, setChartBig] = useState(false);
+  const [banked, setBanked] = useState(0);
+  const [basis, setBasis] = useState(0);
+  const [floats, setFloats] = useState<{ id: number; t: string; k: string }[]>([]);
+  const [steerHint, setSteerHint] = useState(false);
 
   const setSheet = useCallback((id: PhoneSheet | null) => {
     const prev = sheetRef.current; if (prev === id) return;
@@ -125,7 +134,7 @@ export default function PhoneHud() {
     const vars: Record<string, number> = { top: L.top, "head-top": L.headTop, "feed-top": L.feedTop, "radio-top": L.radioTop, "pill-top": L.pillTop, "bar-bottom": L.barBottom,
       "bar-top": L.barTop, "d-top": L.dTop, bx: L.body.x, by: L.body.y, bw: L.body.w, bh: L.body.h };
     for (const [k, v] of Object.entries(vars)) de.style.setProperty(`--ph-${k}`, v + "px");
-    w.__phoneHud = { on: true, v2: true, sheet, drawer: !!sheet, pillTop: L.toastTop, toastTop: L.toastTop, hudTop: L.pillTop, dTop: sheet ? L.dTop : 0, body: L.body };
+    w.__phoneHud = { on: true, v2: true, thr: true, sheet, drawer: !!sheet, pillTop: L.toastTop, toastTop: L.toastTop, hudTop: L.pillTop, dTop: sheet ? L.dTop : 0, body: L.body };
   }, [phone, L, sheet]);
   useEffect(() => () => { const de = document.documentElement; de.classList.remove("ap-phone"); delete de.dataset.phSheet; (window as unknown as { __phoneHud?: unknown }).__phoneHud = undefined; }, []);
 
@@ -141,12 +150,44 @@ export default function PhoneHud() {
       ["disciple:pnlview", (d) => setPnl((d as PnlView) ?? null)],
       ["disciple:phonestats", (d) => { if (d) setStats(d as { cash: number | null; room: number | null }); }],
       ["disciple:holders", (d) => setHolders((d as Holders) ?? null)],
+      ["disciple:simclock", (d) => setSimClock((d as { mode: string; left: string; dots: boolean[] } | null) ?? null)],
       [WALLET_CTA_EVENT, (d) => setCta((d as { label: string | null } | null)?.label ?? null)],
       [WALLET_ID_EVENT, (d) => setMe((d as WalletId | null) ?? null)],
     ];
     const hs = ev.map(([n, f]) => { const h = (e: Event) => f((e as CustomEvent).detail); addEventListener(n, h); return [n, h] as const; });
     return () => { for (const [n, h] of hs) removeEventListener(n, h); };
   }, []);
+
+  // bag card: cost basis (disciple:position) and BANKED (PnlHud disciple:banked, realized $ on this rocket)
+  const lastReal = useRef<number | null>(null);
+  const float = useCallback((t: string, k: string) => {
+    const id = Date.now() + Math.random();
+    setFloats((f) => [...f.slice(-3), { id, t, k }]); setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 1400);
+  }, []);
+  useEffect(() => {
+    const W = window as unknown as { __banked?: { realized?: number; costBasis?: number } };
+    if (W.__banked) { setBanked(W.__banked.realized ?? 0); lastReal.current = W.__banked.realized ?? 0; }
+    const onBank = (e: Event) => {
+      const r = (e as CustomEvent<{ realized?: number }>).detail?.realized ?? 0;
+      const prev = lastReal.current; lastReal.current = r; setBanked(r);
+      if (prev != null && Math.abs(r - prev) >= 0.01) float(`BANKED ${r - prev >= 0 ? "+" : "-"}$${Math.abs(r - prev).toFixed(2)}`, r - prev >= 0 ? "bank" : "loss");
+    };
+    const onPos = (e: Event) => { const c = (e as CustomEvent<{ costBasis?: number }>).detail?.costBasis; setBasis(typeof c === "number" && c > 0 ? c : 0); };
+    // (a boost already gets the engine's own "+$X aboard" pop; a dump gets this BANKED one)
+    addEventListener("disciple:banked", onBank); addEventListener("disciple:position", onPos);
+    return () => { removeEventListener("disciple:banked", onBank); removeEventListener("disciple:position", onPos); };
+  }, [float]);
+  // first flights: "drag the sky to steer" for a few seconds, until the pilot has steered once
+  useEffect(() => {
+    if (!phone) return;
+    let seen = false; try { seen = localStorage.getItem("disciple.steerhint") === "1"; } catch { /* private mode */ }
+    if (seen) return;
+    const done = () => { setSteerHint(false); try { localStorage.setItem("disciple.steerhint", "1"); } catch { /* */ } removeEventListener("pointerdown", onDown, true); };
+    const onDown = (e: PointerEvent) => { if ((e.target as Element | null)?.tagName === "CANVAS") done(); };
+    const t0 = setTimeout(() => setSteerHint(true), 2500), t1 = setTimeout(() => setSteerHint(false), 9000);
+    addEventListener("pointerdown", onDown, true);
+    return () => { clearTimeout(t0); clearTimeout(t1); removeEventListener("pointerdown", onDown, true); };
+  }, [phone]);
 
   // sheet requests, Esc
   useEffect(() => {
@@ -174,9 +215,8 @@ export default function PhoneHud() {
   const bagUsd = pnl?.valueUsd ?? 0, bagPct = pnl?.txt?.pct ?? "", neg = (pnl?.uPnl ?? 0) < 0;
   const bag = <span>Your bag <b style={{ color: "#F2F3F7", fontWeight: 600 }}>{`$${bagUsd.toFixed(2)}`}</b>{bagUsd > 0 && bagPct ? <b style={{ color: neg ? "#FF7FB3" : "#5FF0A0", fontWeight: 600 }}> {bagPct}</b> : null}</span>;
   const glass: React.CSSProperties = { background: "rgba(18,19,39,.78)", border: "1px solid #2E323A", boxSizing: "border-box" };
-  const sq: React.CSSProperties = { ...glass, width: 44, height: 44, borderRadius: 12, display: "grid", placeItems: "center", cursor: "pointer", padding: 0, color: "#F2F3F7" };
+  const sq: React.CSSProperties = { ...glass, position: "relative", width: 44, height: 44, borderRadius: 12, display: "grid", placeItems: "center", cursor: "pointer", padding: 0, color: "#F2F3F7" };
   const name = me?.name ? me.name : me ? `${me.address.slice(0, 6)}…${me.address.slice(-4)}` : "";
-  const openMenu = () => { (document.getElementById("apReopen") as HTMLElement | null)?.click(); };
 
   // holders sheet: ranked real holders (pool / curve rows left out), or the session boosters on sim / paper
   const ranked = holders?.items ? holders.items.filter((r) => !r.label) : null;
@@ -190,42 +230,53 @@ export default function PhoneHud() {
       <div aria-hidden style={{ position: "fixed", left: 0, right: 0, bottom: 0, height: 260, zIndex: 24, pointerEvents: "none",
         background: "linear-gradient(to bottom, rgba(8,10,22,0) 0%, rgba(8,10,22,.6) 50%, rgba(8,10,22,.85) 100%)" }} />
       {!sheet && <>
-        <div data-testid="phone-toprow" style={{ position: "fixed", left: 12, right: 12, top: L.top, zIndex: 45, display: "flex", alignItems: "center", justifyContent: "space-between", pointerEvents: "none" }}>
-          <button type="button" aria-label="Menu" data-testid="phone-menu" onClick={openMenu} style={{ ...sq, pointerEvents: "auto" }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 7h16M4 12h16M4 17h16" /></svg></button>
-          {/* signed out (maker 2026-11-13, "Sign in on the trade bar"): no pill up here; the trade bar's SIGN IN TO PLAY is the one action */}
-          {!cta && name ? <Link href="/achievements" data-testid="phone-pilot" aria-label={xp ? `Level ${xp.level.level}, ${name}. See trophies` : name}
-              style={{ ...glass, pointerEvents: "auto", display: "flex", alignItems: "center", gap: 8, height: 44, padding: `0 12px 0 ${xp ? 6 : 12}px`, borderRadius: 999, color: "#F2F3F7", textDecoration: "none", maxWidth: "calc(100vw - 140px)" }}>
-              {xp && <LevelRing info={xp.level} size={32} />}
-              <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span></Link>
-            : <span />}
-          <Link href="/" aria-label="Leave flight" title="Leave flight" data-testid="flight-leave" style={{ ...sq, pointerEvents: "auto" }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg></Link>
-        </div>
-        <div ref={headRef} data-testid="phone-header" style={{ ...glass, position: "fixed", left: 12, right: 12, top: L.headTop, zIndex: 34, padding: "12px 14px", borderRadius: 16, display: "flex", flexDirection: "column", gap: 7, color: "#F2F3F7", pointerEvents: "none" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <span style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
-              <span data-testid="phone-mcap" style={{ font: `800 32px/1 ${G}` }}>{mcap > 0 ? shortUsd(mcap) : "…"}</span>
-              {ticker && <span style={{ font: `700 16px/1 ${G}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ticker}</span>}</span>
-            {badge && <span data-testid="phone-mode" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 8px", borderRadius: 6, border: `1px solid ${badge.c}`, font: `700 13px/1.2 ${G}`, whiteSpace: "nowrap" }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: badge.c }} />{badge.t}</span>}
+        {/* throttle layout (flight direction D, maker 2026-11-14; prototype v12): top row · chart card · icon column + crew feed ·
+            lever on the right (TradeBridge → PhoneThrottle) · YOUR BAG card bottom left */}
+        <div data-testid="phone-toprow" style={{ position: "fixed", left: 12, right: 12, top: L.top, zIndex: 45, height: 48, display: "flex", alignItems: "center", justifyContent: "space-between", pointerEvents: "none" }}>
+          {!cta && name ? <Link href="/profile" data-testid="phone-pilot" aria-label={xp ? `Level ${xp.level.level}, ${name}. Open your profile` : `${name}. Open your profile`}
+              style={{ ...glass, pointerEvents: "auto", width: 48, height: 48, borderRadius: "50%", display: "grid", placeItems: "center", color: "#F2F3F7", textDecoration: "none", font: `800 18px/1 ${G}` }}>
+              {xp ? <LevelRing info={xp.level} size={40} /> : name.slice(0, 1).toUpperCase()}</Link>
+            : <span style={{ width: 48 }} />}
+          <div data-testid="phone-mc" style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+            <span data-testid="phone-mcap" style={{ font: `800 30px/1 ${G}`, color: "#F2F3F7", textShadow: "0 2px 0 #121327", fontVariantNumeric: "tabular-nums" }}>{mcap > 0 ? shortUsd(mcap) : "…"}</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ width: simClock ? 72 : 120, height: 7, borderRadius: 4, background: "rgba(0,0,0,.45)", border: "1px solid rgba(255,255,255,.35)", overflow: "hidden" }}>
+                <span style={{ display: "block", width: `${Math.round(zl.f * 100)}%`, height: "100%", background: "#F2C14E" }} /></span>
+              {/* Free play: run clock + goal dots by the market cap (maker 2026-11-14); tap opens the goals */}
+              {simClock && <button type="button" data-testid="phone-simclock" aria-label={`${simClock.mode}, ${simClock.left} left, ${simClock.dots.filter(Boolean).length} of ${simClock.dots.length} goals. Show goals`}
+                onClick={() => dispatchEvent(new CustomEvent("disciple:simgoals"))}
+                style={{ all: "unset", pointerEvents: "auto", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, padding: "8px 2px", margin: "-8px -2px", font: `800 15px/1 ${G}`, color: "#F2F3F7", textShadow: "0 1px 2px rgba(0,0,0,.9)", fontVariantNumeric: "tabular-nums" }}>
+                {simClock.left}<span aria-hidden style={{ display: "flex", gap: 3 }}>{simClock.dots.map((on, i) => <i key={i} style={{ width: 7, height: 7, borderRadius: "50%", border: "1.5px solid #F2C14E", boxSizing: "border-box", background: on ? "#F2C14E" : "transparent" }} />)}</span></button>}
+            </span>
+            <span data-testid="phone-next" style={{ font: `700 12px/1 ${G}`, letterSpacing: ".5px", color: "#F3DFA8", textShadow: "0 1px 2px rgba(0,0,0,.9)", whiteSpace: "nowrap", textTransform: "uppercase" }}>
+              {zl.next || <span data-testid="phone-zone">{zl.zone}</span>}</span>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, font: `600 15px/1.1 ${G}` }}>
-            <span data-testid="phone-zone" style={{ color: "#F3DFA8", fontWeight: 700 }}>{zl.zone}</span>
-            {zl.next && <span data-testid="phone-next" style={{ color: "#5FF0A0" }}>{zl.next}</span>}</div>
-          <div style={{ height: 6, borderRadius: 999, background: "rgba(255,255,255,.12)" }}><div style={{ width: `${Math.round(zl.f * 100)}%`, height: 6, borderRadius: 999, background: "#F2C14E" }} /></div>
-          <div data-testid="phone-stats" style={{ display: "flex", justifyContent: "space-between", gap: 6, fontSize: 12, color: "rgba(215,217,228,.85)", whiteSpace: "nowrap" }}>
-            {bag}
-            {stats.cash != null && <span>Cash <b style={{ color: "#F2F3F7", fontWeight: 600 }}>{cashUsd(stats.cash)}</b></span>}
-            {stats.room != null && <span data-testid="phone-room" title="How much more you can boost before this rocket's wallet limit">Room <b style={{ color: "#F3DFA8", fontWeight: 600 }}>{shortUsd(stats.room)}</b></span>}
-          </div>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, pointerEvents: "auto" }}>
+            {stats.cash != null && <button type="button" data-testid="phone-cash" aria-label={`Cash ${cashUsd(stats.cash)}. Add cash`} onClick={() => openCash("add")}
+              style={{ ...glass, height: 40, borderRadius: 999, padding: "0 5px 0 11px", display: "flex", alignItems: "center", gap: 7, color: "#F2F3F7", font: `800 17px/1 ${G}`, cursor: "pointer", fontVariantNumeric: "tabular-nums" }}>
+              {cashUsd(stats.cash)}<span aria-hidden style={{ width: 28, height: 28, borderRadius: "50%", background: "#5FF0A0", color: "#121327", display: "grid", placeItems: "center", fontSize: 20 }}>+</span></button>}
+            <Link href="/" aria-label="Leave flight" title="Leave flight" data-testid="flight-leave" style={{ ...sq, width: 40, height: 40 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg></Link>
+          </span>
         </div>
-        <button type="button" data-testid="phone-handle" aria-label="Open holders and chart"
-          onPointerDown={downOpen} onPointerMove={moveOpen} onPointerUp={upOpen} onPointerCancel={() => { g.current = null; }}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSheet(lastTab.current); } }}
-          style={{ ...glass, position: "fixed", left: "50%", transform: "translateX(-50%)", top: L.pillTop, zIndex: 31, height: PILL_H, padding: "0 14px", borderRadius: 999,
-            display: "flex", alignItems: "center", gap: 8, color: "rgba(215,217,228,.9)", font: `700 14px/1 ${G}`, letterSpacing: 1, cursor: "pointer", touchAction: "none", whiteSpace: "nowrap" }}>
-          <span aria-hidden style={{ width: 28, height: 4, borderRadius: 2, background: "rgba(215,217,228,.5)" }} />HOLDERS · CHART</button>
+        <div ref={headRef} data-testid="phone-header" style={{ position: "fixed", left: 12, right: 12, top: L.top + 58, height: chartBig ? 200 : 104, zIndex: 34, transition: "height .25s ease" }}>
+          <PhoneChart tf={chartTf} onTf={setChartTf} big={chartBig} onBig={() => setChartBig((b) => !b)} entry={pnl?.entryMcap ?? null} ticker={ticker} badge={null} />
+        </div>
+        <nav data-testid="phone-side" aria-label="Flight tools" style={{ position: "fixed", left: 12, top: L.feedTop + 52, zIndex: 35, display: "flex", flexDirection: "column", gap: 8 }}>
+          <button type="button" data-testid="phone-handle" aria-label="Open holders and chart" title="Holders · chart"
+            onPointerDown={downOpen} onPointerMove={moveOpen} onPointerUp={upOpen} onPointerCancel={() => { g.current = null; }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSheet(lastTab.current); } }} style={{ ...sq, touchAction: "none" }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM2 20c.8-3 3.2-5 6-5s5.2 2 6 5M14 15.3c.6-.2 1.3-.3 2-.3 2.8 0 5.2 2 6 5" /></svg>
+            {count > 0 && <span aria-hidden style={{ position: "absolute", right: -5, top: -5, minWidth: 20, height: 20, padding: "0 5px", boxSizing: "border-box", borderRadius: 999, background: "#F2C14E", color: "#121327", font: `800 13px/20px ${G}`, textAlign: "center", border: "2px solid #121327" }}>{count >= 50 ? "50+" : count}</span>}
+          </button>
+          <button type="button" data-testid="phone-gear" aria-label="Boost amounts, sound and vibration" onClick={() => dispatchEvent(new CustomEvent("disciple:swapsettings", { detail: { open: true } }))} style={sq}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg></button>
+          <Link href="/achievements" data-testid="phone-missions" aria-label="Missions and trophies" style={sq}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z" /></svg></Link>
+        </nav>
+        {!(cta && !sim) && <PhoneBag value={bagUsd} cost={basis} pnl={pnl?.uPnl ?? 0} pct={pnl?.pnlPct ?? 0} room={stats.room} banked={banked} holding={bagUsd > 0} />}
+        {steerHint && <div data-testid="steer-hint" aria-hidden className="ph-steer">⟵ DRAG THE SKY TO STEER ⟶</div>}
+        {floats.map((f) => <span key={f.id} aria-hidden className={`ph-float ${f.k}`}>{f.t}</span>)}
       </>}
       {sheet && <>
         <div data-testid="phone-dim" onPointerDown={(e) => { e.preventDefault(); setSheet(null); }}
@@ -281,6 +332,58 @@ export default function PhoneHud() {
         html.ap-phone:not([data-ph-sheet=""]) [data-testid="radio-pill"],
         html.ap-phone:not([data-ph-sheet=""]) [data-testid="sim-chip"],
         html.ap-phone:not([data-ph-sheet=""]) [data-testid="sim-bar"] { display: none !important; }
+        /* throttle layout: crew feed next to the icon column, its chat button at the top of the column */
+        html.ap-phone [data-testid="chat-dock"]:not([data-open]) { left: 72px !important; }
+        /* Free play's timer chip: right side under the chart card (the chat button moved to the icon column) */
+        html.ap-phone [data-testid="sim-chip"] { display: none !important; }
+        /* no radio card in the phone flight (maker 2026-11-14: old design); Music in the gear sheet plays the house radio */
+        html.ap-phone [data-testid="radio-mini"], html.ap-phone [data-testid="radio-pill"] { display: none !important; }
+        html.ap-phone [data-testid="sim-bar"] { top: calc(var(--ph-top, 12px) + 56px) !important; left: 50% !important; right: auto !important; transform: translateX(-50%); z-index: 46 !important; }
+        html.ap-phone [data-testid="chat-dock"]:not([data-open]) [data-testid="chat-open"] { position: fixed !important; left: 12px !important; right: auto !important; top: var(--ph-feed-top) !important; }
+        html.ap-phone [data-testid="chat-dock"]:not([data-open]) [data-testid="chat-list"] { width: min(220px, calc(100vw - 230px)) !important; }
+        .pc { position: absolute; inset: 0; border-radius: 16px; background: rgba(12,13,28,.78); border: 2px solid rgba(255,255,255,.16); overflow: hidden; cursor: pointer; box-sizing: border-box; }
+        .pc canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+        .pc-lab { position: absolute; left: 10px; top: 8px; display: flex; gap: 8px; align-items: baseline; font: 700 12px/1 ${G}; letter-spacing: .8px; color: rgba(215,217,228,.85); pointer-events: none; }
+        .pc-lab b { font-weight: 800; color: #F2F3F7; letter-spacing: .3px; }
+        .pc-badge { position: absolute; left: 8px; bottom: 7px; display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 6px; border: 1px solid; background: rgba(12,13,28,.85);
+          font: 700 11px/1.3 ${G}; letter-spacing: .4px; color: #F2F3F7; pointer-events: none; white-space: nowrap; }
+        .pc-badge i { width: 5px; height: 5px; border-radius: 50%; }
+        .pc-tf { position: absolute; right: 4px; top: 3px; display: flex; gap: 2px; }
+        .pc-tf button { all: unset; box-sizing: border-box; min-width: 36px; height: 32px; padding: 0 8px; border-radius: 9px; text-align: center; background: rgba(255,255,255,.08); color: rgba(215,217,228,.85); font: 800 14px/32px ${G}; letter-spacing: .4px; cursor: pointer; }
+        .pc-tf button.on { background: #F2F3F7; color: #121327; }
+        .pc-tf button:focus-visible { outline: 2px solid #F2C14E; }
+        .ph-bag { position: fixed; left: 12px; right: calc(146px + env(safe-area-inset-right, 0px)); bottom: var(--ph-bar-bottom, 24px); z-index: 36; box-sizing: border-box; border-radius: 18px;
+          padding: 10px 10px 10px 13px; background: rgba(12,13,28,.94); border: 2px solid rgba(255,255,255,.22); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; align-items: center;
+          box-shadow: 0 10px 26px rgba(0,0,0,.45); color: #F2F3F7; transition: border-color .2s, box-shadow .2s; }
+        .ph-bag > small { font: 700 12px/1 ${G}; letter-spacing: .9px; color: rgba(215,217,228,.85); }
+        .ph-bagv { font: 800 clamp(28px, 8.6vw, 38px)/1 ${G}; font-variant-numeric: tabular-nums; white-space: nowrap; display: inline-block; transform-origin: left center; }
+        .ph-bagsub { grid-column: 1 / -1; font-size: 12px; color: rgba(215,217,228,.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ph-bagsub b { color: #F2F3F7; font-weight: 600; }
+        .ph-pnl { grid-row: 1 / 3; grid-column: 2; align-self: stretch; min-width: 70px; border-radius: 13px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 9px;
+          background: #23262F; color: rgba(215,217,228,.85); }
+        .ph-pnl b { font: 800 24px/1 ${G}; font-variant-numeric: tabular-nums; }
+        .ph-pnl small { font-size: 12px; opacity: .9; }
+        .ph-bag.up { border-color: #5FF0A0; box-shadow: 0 0 0 3px rgba(95,240,160,.18), 0 10px 26px rgba(0,0,0,.45); }
+        .ph-bag.up .ph-pnl { background: #5FF0A0; color: #0d2a1b; }
+        .ph-bag.dn { border-color: #F0307F; box-shadow: 0 0 0 3px rgba(240,48,127,.2), 0 10px 26px rgba(0,0,0,.45); }
+        .ph-bag.dn .ph-pnl { background: #F0307F; color: #FFFFFF; }
+        .ph-bank { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; padding: 6px 10px; border-radius: 11px;
+          background: rgba(95,240,160,.16); border: 1.5px solid rgba(95,240,160,.55); }
+        .ph-bank small { color: #5FF0A0; font: 800 15px/1 ${G}; letter-spacing: .6px; }
+        .ph-bank b { font: 800 24px/1 ${G}; font-variant-numeric: tabular-nums; color: #5FF0A0; display: inline-block; transform-origin: right center; }
+        .ph-bank.neg { background: rgba(240,48,127,.16); border-color: rgba(240,48,127,.6); }
+        .ph-bank.neg small, .ph-bank.neg b { color: #FF8FBD; }
+        .ph-bump { animation: ph-bump .35s ease-out; }
+        @keyframes ph-bump { 30% { transform: scale(1.16); } }
+        .ph-steer { position: fixed; left: 12px; right: 146px; bottom: calc(var(--ph-bar-bottom, 24px) + 150px); z-index: 33; text-align: center; font: 800 16px/1 ${G}; letter-spacing: .6px; color: #F2F3F7;
+          text-shadow: 0 2px 4px rgba(0,0,0,.9); pointer-events: none; animation: ph-hint 1.6s ease-in-out infinite; }
+        @keyframes ph-hint { 50% { transform: translateX(10px); } }
+        .ph-float { position: fixed; left: 50%; top: 46%; z-index: 37; transform: translate(-50%, 0); pointer-events: none; white-space: nowrap; font: 800 40px/1 ${G}; text-shadow: 0 3px 0 #121327, 0 0 18px rgba(0,0,0,.6);
+          animation: ph-float 1.4s ease-out forwards; }
+        .ph-float.bank { color: #5FF0A0; font-size: 34px; top: 52%; }
+        .ph-float.loss { color: #FF8FBD; font-size: 34px; top: 52%; }
+        @keyframes ph-float { 0% { opacity: 0; transform: translate(-50%, 10px) scale(.6); } 15% { opacity: 1; transform: translate(-50%, 0) scale(1.15); } 30% { transform: translate(-50%, -6px) scale(1); } 100% { opacity: 0; transform: translate(-50%, -80px) scale(1); } }
+        @media (prefers-reduced-motion: reduce) { .ph-steer, .ph-float, .ph-bump { animation: none; } }
         /* anti-snipe chip (#133): stays visible, just above the HOLDERS · CHART pill */
         html.ap-phone .ap-bc[data-testid="snipe-chip"],
         html.ap-phone .ap-bc:has(> [data-testid="snipe-chip"]) { bottom: calc(100dvh - var(--ph-pill-top) + 8px) !important; top: auto !important; z-index: 33 !important; }
@@ -288,6 +391,29 @@ export default function PhoneHud() {
     </>
   );
 }
+
+/** YOUR BAG card (throttle prototype v3-v5, maker: the bag and PnL are "the whole point"): the bag's value big, a PnL chip that
+ *  turns green / pink, what you put in and the Room left, and a BANKED row once you've sold some. */
+function PhoneBag({ value, cost, pnl, pct, room, banked, holding }: { value: number; cost: number; pnl: number; pct: number; room: number | null; banked: number; holding: boolean }) {
+  const up = holding && pnl >= 0, dn = holding && pnl < 0;
+  const vref = useRef<HTMLSpanElement>(null), bref = useRef<HTMLElement>(null);
+  const bump = (el: HTMLElement | null) => { if (!el) return; el.classList.remove("ph-bump"); void el.offsetWidth; el.classList.add("ph-bump"); };
+  const vTxt = value < 1000 ? `$${value.toFixed(2)}` : `$${Math.round(value).toLocaleString("en-US")}`;
+  const bTxt = `${banked >= 0 ? "+" : "-"}$${Math.abs(banked).toFixed(2)}`;
+  const lastV = useRef(vTxt), lastB = useRef(bTxt);
+  useEffect(() => { if (lastV.current !== vTxt && Math.abs(value - parseFloat(lastV.current.replace(/[$,]/g, ""))) > Math.max(0.5, value * 0.03)) bump(vref.current); lastV.current = vTxt; }, [vTxt, value]);
+  useEffect(() => { if (lastB.current !== bTxt) bump(bref.current); lastB.current = bTxt; }, [bTxt]);
+  return (
+    <div data-testid="phone-bag" className={`ph-bag${up ? " up" : dn ? " dn" : ""}`} aria-live="polite">
+      <small>YOUR BAG</small>
+      <div className="ph-pnl" data-testid="phone-bag-chip"><b>{holding ? `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%` : "--"}</b><small>{holding ? `${pnl >= 0 ? "+$" : "-$"}${Math.abs(pnl).toFixed(2)}` : "no bag"}</small></div>
+      <div style={{ minWidth: 0, overflow: "hidden" }}><span ref={vref} className="ph-bagv" data-testid="phone-bag-value">{vTxt}</span></div>
+      <div className="ph-bagsub">{holding && cost > 0 ? <>Put in <b>{cashUsdBag(cost)}</b></> : <>Slide up to board</>}{room != null ? <> · Room <b>{shortUsd(room)}</b></> : null}</div>
+      {Math.abs(banked) >= 0.01 && <div className={`ph-bank${banked < 0 ? " neg" : ""}`} data-testid="phone-banked"><small>BANKED</small><b ref={bref}>{bTxt}</b></div>}
+    </div>
+  );
+}
+const cashUsdBag = (v: number) => (v >= 100 ? `$${Math.round(v).toLocaleString("en-US")}` : `$${v.toFixed(2)}`);
 
 function HolderRow({ rank, who, mine, val, ring }: { rank: number; who: string; mine: boolean; val: string; ring: { level: number; progress: number; prestige: number } | null }) {
   return <div data-testid={mine ? "holder-mine" : "holder-row"} style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 48, borderBottom: "1px solid rgba(46,50,58,.7)",

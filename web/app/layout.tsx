@@ -34,6 +34,8 @@ export const metadata: Metadata = {
     apple: "/apple-touch-icon.png",
   },
   manifest: "/site.webmanifest",
+  // Add to Home Screen on iPhone (maker, 2026-11-14): open full screen with a dark status bar; web push needs this mode
+  appleWebApp: { capable: true, title: "DISCIPLE", statusBarStyle: "black-translucent" },
   openGraph: { title: SITE_TITLE, description: SITE_LINE, url: "/", siteName: "DISCIPLE", type: "website", images: [SITE_CARD] },
   twitter: { card: "summary_large_image", site: "@disciplevip", title: SITE_TITLE, description: SITE_LINE, images: [SITE_CARD.url] },
 };
