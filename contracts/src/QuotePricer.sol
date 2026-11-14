@@ -83,6 +83,7 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     error ZeroPrice();
     error BadParam();
     error NoRouteAboveFloor(address quote);
+    error QuoteNotListed(address quote);
 
     event PricePoolSet(address indexed quote, bytes32 indexed poolId, uint24 fee, int24 tickSpacing, address hooks);
     event PricePoolCleared(address indexed quote);
@@ -315,6 +316,13 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         uint256 priceX128 = Math.mulDiv(sp, sp, 1 << 64); // c1 per c0
         p = q0 ? Math.mulDiv(priceX128, usdgScale, 1 << 128) : Math.mulDiv(1 << 128, usdgScale, priceX128);
         if (p == 0) revert ZeroPrice();
+    }
+
+    /// @notice Launch-time price: like `quotePriceUsd`, but only USDG and listed quotes (`isAllowedQuote`, ignoring
+    ///         `allowAnyQuote`) can be launch quotes (maker 2026-11-14, external review F-M1).
+    function launchPriceUsd(address quote) external view returns (uint256) {
+        if (quote != usdg && !isAllowedQuote[quote]) revert QuoteNotListed(quote);
+        return this.quotePriceUsd(quote);
     }
 
     /// @notice Spot price (display only; flash-manipulable — never use for safety checks).

@@ -26,9 +26,8 @@ interface IPricerPoke {
     function poke(address quote) external;
 }
 
-interface IPricerListing {
-    function usdg() external view returns (address);
-    function isAllowedQuote(address quote) external view returns (bool);
+interface IPricerLaunch {
+    function launchPriceUsd(address quote) external view returns (uint256);
 }
 
 contract Launchpad is ILaunchpad, Owned2Step {
@@ -108,7 +107,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
     error BadMode();
     error MaxModeOutOfBounds();
     error LoginGateUnset();
-    error QuoteNotListed(address quote);
     error CrewTipThresholdOutOfBounds();
     error SnipeEscrowTimeoutOutOfBounds();
     error NotRouter();
@@ -132,7 +130,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
     event TrustedRouterSet(address indexed router, bool trusted);
     event CurveRouterKilled(address indexed curve, bool killed);
     event LoginGateSet(address indexed gate);
-    event CurveRouterSet(address indexed router);
     event CrewTipThresholdSet(uint256 bps);
     event SnipeEscrowTimeoutSet(uint256 secs);
     event MaxModeSet(uint8 mode);
@@ -180,26 +177,15 @@ contract Launchpad is ILaunchpad, Owned2Step {
         emit WalletCapSet(bps);
     }
 
-    /// @dev External review N-2: trusting a router no longer moves `curveRouter`. The first trusted router becomes it
-    ///      (deploy convenience); after that only `setCurveRouter` changes it. Untrusting the current one clears it.
+    /// @dev External review N-2: trusting a router no longer moves `curveRouter` (the primary router new curves snapshot
+    ///      and AnonLauncher's USDG launches call). It is the first trusted router; to replace it on purpose, untrust the
+    ///      current one (clears it), then trust the new one.
     function setTrustedRouter(address r, bool ok) external {
         if (msg.sender != owner) revert OnlyOwner();
         isTrustedRouter[r] = ok;
-        if (ok && curveRouter == address(0)) _setCurveRouter(r);
-        else if (!ok && curveRouter == r) _setCurveRouter(address(0));
+        if (ok && curveRouter == address(0)) curveRouter = r;
+        else if (!ok && curveRouter == r) curveRouter = address(0);
         emit TrustedRouterSet(r, ok);
-    }
-
-    /// @notice The primary router new curves snapshot and AnonLauncher's USDG launches call. Must be trusted.
-    function setCurveRouter(address r) external {
-        if (msg.sender != owner) revert OnlyOwner();
-        if (!isTrustedRouter[r]) revert NotRouter();
-        _setCurveRouter(r);
-    }
-
-    function _setCurveRouter(address r) internal {
-        curveRouter = r;
-        emit CurveRouterSet(r);
     }
 
     /// @notice Audit round 3 (ops) kill switch: existing curves snapshot their primary router as an immutable;
@@ -319,12 +305,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
             if (defaultQuote == address(0)) revert DefaultQuoteUnset();
             quote = defaultQuote;
         }
-        // Mainnet rule (maker 2026-11-14): only USDG and the owner-listed quotes can be launch quotes. A fee-on-transfer,
-        // rebasing or pausable quote would freeze a curve's funds for good (external review F-M1).
-        if (address(pricer) == address(0)) revert PricerUnset();
-        if (quote != IPricerListing(address(pricer)).usdg() && !IPricerListing(address(pricer)).isAllowedQuote(quote)) {
-            revert QuoteNotListed(quote);
-        }
         // (f) every non-USDG base, the default included, gets the buy/transfer round-trip probe.
         if (address(quoteProbe) != address(0)) {
             (IQuoteProbe.ProbeResult pr, string memory detail) = quoteProbe.probe(quote);
@@ -341,7 +321,9 @@ contract Launchpad is ILaunchpad, Owned2Step {
         if (address(pricer) == address(0)) revert PricerUnset();
         // SEC-03: keep the quote TWAP fresh; the poke is lagged, so a same-tx flash move has no effect.
         try IPricerPoke(address(pricer)).poke(quote) {} catch {}
-        uint256 quotePriceUsd = pricer.quotePriceUsd(quote);
+        // Mainnet rule (maker 2026-11-14): only USDG and listed quotes can launch; launchPriceUsd reverts QuoteNotListed
+        // otherwise (a fee-on-transfer, rebasing or pausable quote would freeze a curve's funds, review F-M1).
+        uint256 quotePriceUsd = IPricerLaunch(address(pricer)).launchPriceUsd(quote);
         if (address(curveDeployer) == address(0)) revert CurveDeployerUnset();
         uint256 wcap = walletCapBps;
         walletCapBpsOf[address(t)] = wcap;
@@ -478,7 +460,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
         if (quote == address(0)) quote = defaultQuote;
         if (quote == address(0)) revert DefaultQuoteUnset();
         if (address(pricer) == address(0)) revert PricerUnset();
-        quotePriceUsd = pricer.quotePriceUsd(quote);
+        quotePriceUsd = IPricerLaunch(address(pricer)).launchPriceUsd(quote);
         // Creator launch buy is anti-snipe exempt (LOCKED #27): snipeFee is always 0.
         uint256 afterSnipe = creatorBuyQuoteIn;
         fee = FeeMath.protocolFee(afterSnipe) + FeeMath.creatorTax(afterSnipe, creatorTaxBps);

@@ -233,7 +233,7 @@ contract FrontendApiTest is FrontendApiBase {
 
     function test_custom_quote_without_pool_reverts() public {
         MockUSDG other = new MockUSDG();
-        vm.expectRevert(abi.encodeWithSelector(Launchpad.QuoteNotListed.selector, address(other)));
+        vm.expectRevert(abi.encodeWithSelector(QuotePricer.QuoteNotListed.selector, address(other)));
         _launchWithQuote(address(other), 0, 0);
     }
 

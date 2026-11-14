@@ -56,7 +56,7 @@ contract ExternalReviewFixesTest is IntegrationBase {
         launchpad.launch(_params(address(quote)));
     }
 
-    /// N-2: trusting another router leaves curveRouter alone; only setCurveRouter moves it, and only to a trusted one.
+    /// N-2: trusting another router leaves curveRouter alone; replacing it takes an explicit untrust + trust.
     function test_N2_trustDoesNotMoveCurveRouter() public {
         address before = launchpad.curveRouter();
         address other = makeAddr("anotherTrustedRouter");
@@ -65,11 +65,10 @@ contract ExternalReviewFixesTest is IntegrationBase {
         assertEq(launchpad.curveRouter(), before, "unchanged");
         launchpad.setTrustedRouter(other, false);
         assertEq(launchpad.curveRouter(), before, "untrusting a non-primary router leaves it");
-        vm.expectRevert(Launchpad.NotRouter.selector);
-        launchpad.setCurveRouter(other);
+        launchpad.setTrustedRouter(before, false);
+        assertEq(launchpad.curveRouter(), address(0), "untrusting the primary clears it");
         launchpad.setTrustedRouter(other, true);
-        launchpad.setCurveRouter(other);
-        assertEq(launchpad.curveRouter(), other);
+        assertEq(launchpad.curveRouter(), other, "next trusted router becomes primary");
         vm.stopPrank();
     }
 
@@ -77,12 +76,12 @@ contract ExternalReviewFixesTest is IntegrationBase {
     function test_unlistedQuote_cannotLaunch() public {
         MockUSDG odd = new MockUSDG();
         vm.prank(creator);
-        vm.expectRevert(abi.encodeWithSelector(Launchpad.QuoteNotListed.selector, address(odd)));
+        vm.expectRevert(abi.encodeWithSelector(QuotePricer.QuoteNotListed.selector, address(odd)));
         launchpad.launch(_params(address(odd)));
         vm.prank(owner);
         pricer.setAllowedQuote(address(strategy), false);
         vm.prank(creator);
-        vm.expectRevert(abi.encodeWithSelector(Launchpad.QuoteNotListed.selector, address(strategy)));
+        vm.expectRevert(abi.encodeWithSelector(QuotePricer.QuoteNotListed.selector, address(strategy)));
         launchpad.launch(_params(address(strategy)));
     }
 

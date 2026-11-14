@@ -399,5 +399,5 @@ Do these in the same deploy, before the site points at the new stack. Details in
 8. **Launch quotes:** only USDG and listed quotes can launch. `Deploy.s.sol` lists the default quote; list the other
    coins with `script/whitelist` (`setAllowedQuote` + `setPriceRoute`). Check each with `isAllowedQuote`.
 9. **Primary router:** `launchpad.curveRouter()` must be DiscipleRouter (the first trusted router; later trusts don't
-   move it). Use `setCurveRouter` to change it on purpose.
+   move it). To change it on purpose, untrust the current one, then trust the new one.
 7. **FeeRouter:** `setLaunchpad` is one-shot. Set it once, to the final Launchpad.
