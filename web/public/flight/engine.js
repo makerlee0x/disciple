@@ -2481,10 +2481,10 @@ function burst(x,y,n,spd,opt){ const fn=typeof opt==='function';
 function detonate(b){ draftKnock();
   const x=b.x, y=bombY(b), k=b.T.k; b.y0=y; b.detAge=b.age; addShock(x,y,k);   // real blast point
   const who=b.trader||'—', lbl=`${b.T.name} −${b.pct>=10?b.pct.toFixed(0):b.pct.toFixed(1)}%${b.fullStack?' · FULL STACK':''} · ${who}${b.usd>0?' '+(b.usd<10?fmtShot(b.usd):fmtUsd(b.usd)):''}${b.n>1?' ×'+b.n:''}`;
-  if (!IS_TURBO&&!PH_THR()&&(S.pro||b.tier>=4)){ if(!S.pro) S.bombLabels.length=0; S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0}); if(S.bombLabels.length>2) S.bombLabels.shift(); }
+  if (!IS_TURBO&&!NEW_BLAST()&&(S.pro||b.tier>=4)){ if(!S.pro) S.bombLabels.length=0; S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0}); if(S.bombLabels.length>2) S.bombLabels.shift(); }
   { for(let i=0;i<Math.min(5,S.feed.length);i++){ const r=S.feed[i]; if(r&&r.t&&r.c==='#ffb0c8'&&!r.ic){ r.ic=BOMB_ICON[b.tier]||'bomb-puff'; r.bomb=b.T.name; break; } } }   /* crew feed: the sell row carries its bomb icon */
   sfx('bomb',{tier:b.tier});
-  if (PH_THR()&&!IS_TURBO){ phBlast(b,x,y); return; }   /* phone: the throttle prototype's blast + pop instead of the tiered set pieces */
+  if (NEW_BLAST()){ phBlast(b,x,y); return; }   /* the throttle prototype's blast + pop instead of the tiered set pieces (phone + desktop, maker 2026-11-14) */
   if (k==='grenade'){
     burst(x,y,16,320,{k:'streak',r:1.6,life:0.45,max:0.45,drag:5,c:'255,236,170'});
     burst(x,y,8,60,{k:'smoke',r:7,gr:30,life:0.9,max:0.9,drag:2,c:'90,80,80',a:0.45});
@@ -2508,23 +2508,25 @@ function detonate(b){ draftKnock();
   }
 }
 /* @phone-blast (throttle prototype, maker 2026-11-14: the boxed bomb labels and tiered set pieces are "the old style"):
-   on phones every sell drops the prototype's round bomb onto the rocket; it blows up as a white-gold-pink fireball with
+   every sell (phone and desktop; Turbo keeps its own) drops the prototype's round bomb onto the rocket; it blows up as a white-gold-pink fireball with
    sparks, smoke, debris and two rings, a short flash + pink vignette, and a floating "BOMB −$X" pop (Barlow, no box).
    Size follows the bomb tier. Your own sells always pop; the crew's pop from CRUISE up (the feed pill names the rest). */
 const PHX={p:[],r:[],pops:[],red:0,t:-1};
+const NEW_BLAST=()=>!IS_TURBO;
+const phS=()=>W>HUD_NARROW_W?1.35:1;   // desktop: the same blast, a size up for the bigger sky
 const PH_K=[0.12,0.25,0.42,0.62,0.82,1];
 function phPart(o){ if(PHX.p.length<260) PHX.p.push(o); }
-function phBlast(b,x,y){ const k=PH_K[b.tier]||0.3, m=b.mine?1:0.7, R=(a,c)=>a+Math.random()*(c-a);
-  PHX.red=Math.max(PHX.red,(0.3+k*0.55)*m); S.screenFlash={t0:S.t,dur:0.38,a:Math.min(0.8,(0.3+k*0.45)*m),c:'255,245,235'};
+function phBlast(b,x,y){ const k=PH_K[b.tier]||0.3, m=(b.mine?1:0.7)*phS(), R=(a,c)=>a+Math.random()*(c-a);
+  const mm=Math.min(1,m); PHX.red=Math.max(PHX.red,(0.3+k*0.55)*mm); S.screenFlash={t0:S.t,dur:0.38,a:Math.min(0.8,(0.3+k*0.45)*mm),c:'255,245,235'};
   phPart({k:'ball',x,y,vx:0,vy:0,life:0.5,max:0.5,size:(60+k*130)*m,drag:0,g:0});
   for(let i=0,n=Math.round((24+k*70)*m);i<n;i++){ const a=R(0,6.2832),sp=R(120,700)*(0.6+k*0.7); phPart({k:'spark',x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:R(0.4,1),max:1,size:R(2.5,6),c:Math.random()<0.4?'255,240,200':Math.random()<0.5?'255,150,60':'240,48,127',g:500,drag:0}); }
   for(let i=0,n=Math.round((7+k*14)*m);i<n;i++){ const a=R(0,6.2832),sp=R(60,260); phPart({k:'smoke',x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:R(1,1.8),max:1.8,size:R(18,40)*(0.7+k*0.6),c:'70,62,80',g:0,drag:2.5}); }
   for(let i=0,n=Math.round((4+k*9)*m);i<n;i++){ const a=R(0,6.2832),sp=R(250,600); phPart({k:'debris',x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-200,life:R(0.8,1.4),max:1.4,size:R(4,9),c:'190,195,210',g:900,drag:0.3,rot:R(0,6),vrot:R(-14,14)}); }
-  PHX.r.push({x,y,r:16,vr:700+k*900,life:0.55,max:0.55,w:10+k*10,c:'255,240,220'},{x,y,r:6,vr:380+k*500,life:0.7,max:0.7,w:5,c:'240,48,127'});
+  const rs=phS(); PHX.r.push({x,y,r:16,vr:(700+k*900)*rs,life:0.55,max:0.55,w:10+k*10,c:'255,240,220'},{x,y,r:6,vr:(380+k*500)*rs,life:0.7,max:0.7,w:5*rs,c:'240,48,127'});
   if (PHX.r.length>8) PHX.r.splice(0,PHX.r.length-8);
   if (b.mine||b.tier>=2){ const amt=b.usd>0?'−'+(b.usd<10?fmtShot(b.usd):fmtUsd(b.usd)):'−'+(b.pct>=10?b.pct.toFixed(0):b.pct.toFixed(1))+'%';
     const txt=b.mine?amt:(b.tier>=4?b.T.name:'BOMB')+' '+amt;
-    PHX.pops.length=Math.min(PHX.pops.length,1); PHX.pops.push({txt,x:x+(b.mine?0:40),y:y-50,age:0,max:1.4,size:b.mine?44+k*20:24+k*14}); }
+    PHX.pops.length=Math.min(PHX.pops.length,1); PHX.pops.push({txt,x:x+(b.mine?0:40),y:y-50,age:0,max:1.4,size:(b.mine?44+k*20:24+k*14)*phS()}); }
   haptic(b.mine?[40,30,80]:[18]); }
 function phBlastStep(){ const now=S.t, dt=PHX.t<0?0:clamp(now-PHX.t,0,0.05); PHX.t=now; if(!dt) return;
   PHX.red=Math.max(0,PHX.red-dt*1.6);
@@ -2543,14 +2545,14 @@ function phDrawParts(top){ ctx.save();
       ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=1; ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p.x,p.y,r,0,6.2832); ctx.fill(); ctx.globalCompositeOperation='source-over'; } }
   if(top) for(const q of PHX.r){ const a=q.life/q.max; ctx.globalAlpha=a; ctx.strokeStyle=`rgb(${q.c})`; ctx.lineWidth=q.w*a+1; ctx.beginPath(); ctx.arc(q.x,q.y,q.r,0,6.2832); ctx.stroke(); }
   ctx.restore(); ctx.globalAlpha=1; }
-function phDrawBomb(x,y,tier,u){ const r=10+(PH_K[tier]||0.3)*10, vy=200+u*900; ctx.save(); ctx.translate(x,y); ctx.rotate(S.t*8);
+function phDrawBomb(x,y,tier,u){ const r=(10+(PH_K[tier]||0.3)*10)*phS(), vy=200+u*900; ctx.save(); ctx.translate(x,y); ctx.rotate(S.t*8);
   ctx.strokeStyle='rgba(255,143,189,.55)'; ctx.lineWidth=r*0.9; ctx.beginPath(); ctx.moveTo(0,-r); ctx.lineTo(0,-r-vy*0.06); ctx.stroke();
   ctx.fillStyle='#17141f'; ctx.strokeStyle='#FF8FBD'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(0,0,r,0,6.2832); ctx.fill(); ctx.stroke();
   ctx.fillStyle='rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(-r*0.35,-r*0.35,r*0.28,0,6.2832); ctx.fill();
   ctx.fillStyle='#FFD36E'; ctx.beginPath(); ctx.arc(0,-r-3,3+Math.random()*2.5,0,6.2832); ctx.fill(); ctx.restore(); }
 function phDrawScreen(){
   if(PHX.red>0){ const g=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.25,W/2,H/2,Math.max(W,H)*0.75); g.addColorStop(0,'rgba(240,48,127,0)'); g.addColorStop(1,`rgba(240,48,127,${Math.min(0.75,PHX.red)*0.6})`); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
-  const PB=phBand(), top=PB?PB.top+(phCardBusy()?64:0):0;
+  const PB=phBand(), top=PB?PB.top+(phCardBusy()?64:0):BANNER_Y+50;
   for(const p of PHX.pops){ const a=p.age, sc=Math.min(1,a*9)*(1+0.55*Math.exp(-a*7)), al=Math.min(1,(p.max-a)*3);
     ctx.save(); ctx.font=GF(p.size,800); const tw=ctx.measureText(p.txt).width, half=tw*sc/2+8;
     const x=clamp(p.x+Math.sin(a*60)*Math.max(0,4-a*12),(PB?PB.x0:16)+half,(PB?PB.x1:W-16)-half), y=Math.max(top+p.size*0.6,p.y-a*60);
@@ -2564,7 +2566,7 @@ function drawBombs(){
   for (const b of S.bombs){ const k=b.T.k, x=b.x, yT=bombY(b);
     if (!b.det){ // inbound: cruise streaks diagonally w/ smoke; others fall from above
       const u=b.age/b.T.fall;
-      if (k==='cruise'&&!PH_THR()){
+      if (k==='cruise'&&!NEW_BLAST()){
         const x1=b.x1!=null?b.x1:x, y1=b.y1!=null?b.y1:yT, x0=b.x0!=null?b.x0:x+280, y0=b.y0!=null?b.y0:yT-220;
         const mx=x0+(x1-x0)*u*u, my=y0+(y1-y0)*u*u, ang=Math.atan2(y1-y0,x1-x0);
         if ((b._trail|0)<Math.floor(u*18)){ b._trail=Math.floor(u*18);
@@ -2580,7 +2582,7 @@ function drawBombs(){
         ctx.restore(); continue;
       }
       const y=yT-(1-u*u)*320, s=k==='atom'?1.6:k==='nuke'?1.35:1;
-      if (PH_THR()){ phDrawBomb(x,y,b.tier,u); continue; }
+      if (NEW_BLAST()){ phDrawBomb(x,y,b.tier,u); continue; }
       ctx.save(); ctx.translate(x,y); ctx.globalCompositeOperation='lighter';
       const g=ctx.createLinearGradient(0,-70*s,0,0); g.addColorStop(0,'rgba(255,230,160,0)'); g.addColorStop(1,'rgba(255,230,160,.7)'); ctx.fillStyle=g; ctx.fillRect(-3*s,-70*s,6*s,70*s);
       ctx.globalCompositeOperation='source-over'; ctx.fillStyle='#2a2730'; ctx.strokeStyle='#ffd77a'; ctx.lineWidth=1.5;
@@ -2588,7 +2590,7 @@ function drawBombs(){
       ctx.fillStyle='#ffd77a'; ctx.beginPath(); ctx.moveTo(-7*s,-12*s); ctx.lineTo(-12*s,-22*s); ctx.lineTo(12*s,-22*s); ctx.lineTo(7*s,-12*s); ctx.fill();
       ctx.restore(); continue; }
     const t=b.age-(b.T.fall||0), L=b.T.life, y=yT, u=t/L;
-    if (PH_THR()) continue;   // phone: phBlast particles carry the explosion
+    if (NEW_BLAST()) continue;   // phBlast particles carry the explosion
     ctx.globalCompositeOperation='lighter';
     if (k==='grenade'){ const r=10+70*(1-Math.exp(-t*9)), a=Math.max(0,1-t/0.5);
       fireball(x,y,r*0.7,a); ring(x,y,r,a*0.9,2,'255,236,170'); }
