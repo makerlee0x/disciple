@@ -30,7 +30,7 @@ for (const [w, h] of [[390, 844], [360, 780], [375, 667], [430, 932]]) {
 // 2) sheet: Holders / Chart (board copy), one at a time, closes on swipe down / dim tap / Esc
 const labels = [...hud.matchAll(/\{ id: "(\w+)", label: "([^"]+)"/g)].map((m) => m[2]);
 ok(labels.join() === "HOLDERS,CHART", "two sheet tabs: HOLDERS · CHART (Feed / Crew / Position gone, board n6)");
-ok(/HOLDERS · CHART<\/button>/.test(hud) && /aria-label="Open holders and chart"/.test(hud), "the pill reads HOLDERS · CHART");
+ok(/data-testid="phone-handle" aria-label="Open holders and chart"/.test(hud) && /data-testid="phone-side"/.test(hud), "throttle layout (maker 2026-11-14): the holders icon in the left column opens HOLDERS · CHART");
 ok(/data-testid="phone-dim" onPointerDown=\{\(e\) => \{ e\.preventDefault\(\); setSheet\(null\); \}\}/.test(hud), "tap the dimmed sky closes");
 ok(/e\.clientY - s\.y > 36\) setSheet\(null\)/.test(hud) && /e\.key === "Escape" && sheetRef\.current\) setSheet\(null\)/.test(hud), "swipe down / Esc close");
 ok(/dy < -18 \|\| Math\.abs\(dy\) < 8\) setSheet\(lastTab\.current\)/.test(hud), "swipe up / tap the pill opens");
@@ -40,7 +40,7 @@ ok(hud.match(/DRAWER_BG = "([^"]+)"/)[1] === eng.match(/const PH_DRAWER_BG='([^'
 ok(/html\.ap-phone \[data-testid="settings-btn"\]/.test(hud), "gear hidden on phone (Settings lives in the app menu)");
 ok(/data-testid="phone-menu" onClick=\{openMenu\}/.test(hud) && /getElementById\("apReopen"\)/.test(hud) && /html\.ap-phone #apReopen,/.test(hud), "☰ opens the app menu (Sidebar #apSide); the site's own menu button is hidden");
 ok(/href="\/" aria-label="Leave flight"[^\n]*data-testid="flight-leave"/.test(hud), "✕ leave is a plain lobby link (ExitConfirm guards it)");
-ok(/WALLET_CTA_CLICK_EVENT/.test(bar) && /SIGN IN TO PLAY/.test(bar) && /\{!cta && name \? <Link/.test(hud) && /noSignIn=\{token === "SIMULATOR"\}/.test(tb) && /data-testid="phone-pilot"/.test(hud) && /<LevelRing info=\{xp\.level\} size=\{32\} \/>/.test(hud), "pilot chip: level ring + name; signed out, the trade bar is SIGN IN TO PLAY (not on the simulator)");
+ok(/WALLET_CTA_CLICK_EVENT/.test(bar) && /SIGN IN TO PLAY/.test(bar) && /\{!cta && name \? <Link/.test(hud) && /noSignIn=\{token === "SIMULATOR"\}/.test(tb) && /data-testid="phone-pilot"/.test(hud) && /<LevelRing info=\{xp\.level\} size=\{40\} \/>/.test(hud) && /href="\/profile" data-testid="phone-pilot"/.test(hud), "pilot: level ring opens the profile (throttle layout); signed out, the trade bar is SIGN IN TO PLAY (not on the simulator)");
 // 3) engine gating: desktop branches unchanged, phone draws pill + the open drawer tab only
 const ph = new Function("window", `const HUD_NARROW_W=${PHONE_W};\n${eng.match(/function phoneHud\(w,clean\)\{[^\n]+/)[0]}\nreturn phoneHud;`);
 const P = { on: true, sheet: null };

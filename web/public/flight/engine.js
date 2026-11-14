@@ -1105,7 +1105,7 @@ function drawWingmen(){ if(!S.wing.size&&!wingExtra()) return; const im=IMG.rock
     if(!CLEAN){ const tag=S.t-w.tagT<1.6?w.tag:'', lab=w.peel!=null?nameOf(w.trader)+' · DUMPING':nameOf(w.trader)+(tag?' · '+tag:'');
       ctx.font=GF(13,700); ctx.textAlign='center'; ctx.lineWidth=3; ctx.lineJoin='round'; ctx.strokeStyle='rgba(8,9,20,.75)'; ctx.strokeText(lab,w.x,w.y-h-6);
       ctx.fillStyle=w.peel!=null||tag?'#FF8AB0':`rgb(${c})`; ctx.fillText(lab,w.x,w.y-h-6); } }
-  const more=wingExtra(); if(more&&!CLEAN){ const t='+'+more+' MORE ABOARD'; ctx.font=GF(14,700); const tw=ctx.measureText(t).width+22, px=W/2, py=Math.max(70,(S.ry||ROCKET_Y)-0.5*H);
+  const more=wingExtra(); if(more&&!CLEAN){ const t='+'+more+' MORE ABOARD'; ctx.font=GF(14,700); const tw=ctx.measureText(t).width+22, px=W/2, py=window.__phoneHud&&window.__phoneHud.thr?(S.ry||ROCKET_Y)-150:Math.max(70,(S.ry||ROCKET_Y)-0.5*H);   /* phone throttle layout: just over the nose, clear of the top row + chart card */
     ctx.fillStyle='rgba(14,16,34,.72)'; ctx.beginPath(); ctx.roundRect?ctx.roundRect(px-tw/2,py-13,tw,26,13):ctx.rect(px-tw/2,py-13,tw,26); ctx.fill();
     ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='rgba(230,232,255,.92)'; ctx.fillText(t,px,py+1); ctx.textBaseline='alphabetic'; }
   ctx.restore(); }
@@ -1902,8 +1902,9 @@ function drawTurboLines(){ const f=turboFx(); if(!f||S.displayAlt==null) return;
       ctx.fillStyle=g; ctx.beginPath(); ctx.arc(nx,ny,r,0,Math.PI*2); ctx.fill(); ctx.restore(); } } }
 function drawEntryLine(){ const m=window.__entryMcap; if(IS_TURBO||!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
   const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle='rgba(242,193,78,.5)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;   /* brand gold: where YOU boarded */
-  ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=up?'#F2C14E':'#FF9CC4'; ctx.font=GF(13,700); if('letterSpacing' in ctx) ctx.letterSpacing='1px';
-  ctx.fillText('YOU BOARDED '+fmtUsd(m),W/2+60,y-6); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.restore(); }
+  const thr=window.__phoneHud&&window.__phoneHud.thr, x0=thr?64:0, x1=thr?W-150:W;   /* phone throttle layout: only the open sky between the icon column and the lever */
+  ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=up?'#F2C14E':'#FF9CC4'; ctx.font=GF(13,700); if('letterSpacing' in ctx) ctx.letterSpacing='1px';
+  if(thr) ctx.textAlign='left'; ctx.fillText('YOU BOARDED '+fmtUsd(m),thr?x0+4:W/2+60,y-6); ctx.textAlign='start'; if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.restore(); }
 // ── TRAMPS & WALLS (graduated coins): individual small elements, sized by $ (log), compact $ tag.
 //    React pushes window.__trampWalls [{id,kind:'tramp'|'wall',mcap,lo,hi,sizeUsd,mine,status}] + window.__twPreview.
 //    Max ~8 nearest the price, same-level merged. Never over the rocket; no camera shake; heading untouched.
