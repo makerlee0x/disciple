@@ -124,7 +124,7 @@
 .modalPanel.wide { max-width: 720px; max-height: min(720px, 92dvh); padding: 16px 20px 20px; }
 .modalBody { overflow-y: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 14px; }
 .drawerHd { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; }
-.drawerHd h2 { font-family: var(--dsc-font-display, "Instrument Serif", serif); font-size: 22px; line-height: 1; font-weight: 400; margin: 0; }
+.drawerHd h2 { font: 800 24px/1 var(--dsc-font-game); text-transform: uppercase; margin: 0; }   /* brand v3 game type (was Instrument Serif) */
 .iconBtn { width: 32px; height: 32px; border: 0; color: var(--dsc-muted); background: none; cursor: pointer; display: inline-grid; place-items: center; }
 .pchips { display: flex; flex-wrap: wrap; gap: 8px; }
 .pchip { height: 32px; padding: 0 12px 0 8px; border-radius: 9999px; border: 1px solid var(--dsc-border); background: transparent; color: #B4B8C1; font: 500 13px/1 var(--dsc-font-ui); display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; cursor: pointer; }

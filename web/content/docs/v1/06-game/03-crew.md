@@ -17,4 +17,4 @@ Other pilots aboard also fly next to you as wingmen.
 
 ## Pilots
 
-Every trader is a **pilot**. Your Hangar shows your level, your rockets and your recent flights. See [Missions and XP](/docs/game/achievements).
+Every trader is a **pilot**. Your Hangar shows your level, your rockets and your recent activity. See [Missions and XP](/docs/game/achievements).

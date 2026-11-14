@@ -1,6 +1,6 @@
 /**
  * Shared chrome for /terms, /privacy, and /risk. Same docs skin as /security (app/docs/docs.css):
- * Instrument Serif headings, Geist body, --dsc-* tokens.
+ * game-type (Barlow Condensed) headings, Geist body, --dsc-* tokens.
  */
 import type { ReactNode } from "react";
 import "../docs/docs.css";

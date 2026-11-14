@@ -14,7 +14,7 @@ Press **Launch** and fill in:
 | Field | Required | Notes |
 |---|---|---|
 | **Name it** | Yes | The name and ticker. The ticker is your rocket's call sign, like $HALO: 1–10 letters or numbers. Both are set for good at launch. |
-| **Picture** | Yes | It goes on the hull. PNG, JPG, WEBP or GIF, up to 2 MB. You can change it later. |
+| **Badge** | Yes | Your rocket's picture. It goes on the hull. DISCIPLE makes one for you, or you can upload your own: PNG, JPG, WEBP or GIF, up to 2 MB. You can change it later. |
 | **Difficulty** | Yes | Easy, Hard or Expert. Easy is picked for you. Set for good at launch. See [Launch modes](/docs/launch/modes). |
 | **Your seat** | No | Your first boost: buy some of your own rocket at launch. See [Creator launch buy](/docs/launch/creator-buy). |
 | **Hide my name** | No | Launch without your name showing as the creator. See [Private launches](/docs/launch/pseudonymous). |

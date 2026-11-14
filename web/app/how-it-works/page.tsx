@@ -109,7 +109,7 @@ function Pro() {
         </div>
       </div>
       {PRO_HUD_ENABLED && <div className={s.spec}><h3>{R.hud.title}</h3><Rows rows={R.hud.rows} /></div>}
-      <div className={s.spec}>
+      <div className={`${s.spec}${PRO_HUD_ENABLED ? "" : ` ${s.wide}`}`}>
         <h3>{R.keys.title}</h3>
         <dl className={s.kvs}>
           {R.keys.rows.map((r) => (
