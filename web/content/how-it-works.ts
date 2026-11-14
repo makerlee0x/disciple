@@ -71,7 +71,7 @@ export const HIW_PRO = {
     rows: [
       ["Chain", "Robinhood Chain"],
       ["Supply", "1,000,000 · fixed, no mint"],
-      ["Quoted in", "USDG or STRATEGY"],
+      ["Pair coins", "12 to pick from · STRATEGY default"],
       ["Curve start", "$3,333 mcap"],
       ["Orbit (graduation)", "$33,333 mcap · 84.24% sold"],
       ["After orbit", "Uniswap v4 · LP locked forever"],
