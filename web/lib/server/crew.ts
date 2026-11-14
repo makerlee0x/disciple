@@ -8,12 +8,15 @@ import { coinFillsFor, coinMetas, crewOf, LOGBOOK_MAX_COINS, toLog } from "./log
 import { guilds } from "./guilds";
 import { coinsOf, tradesOf } from "./trades";
 import { usernameOf } from "./usernames";
+import { verifiedOuts } from "./transferCache";
 import { award } from "./xp";
 
 /** live rockets from the lobby list checked for crew aboard, on top of your own */
 const LOBBY_COINS = 30;
 const RECENT_FILLS = 2000;
 const SHOWN = 4;
+/** transfer scans read per rocket for the crew mission */
+const MISSION_CHECKS_MAX = 40;
 
 const named = async (ws: string[]): Promise<CrewMate[]> => Promise.all(ws.map(async (w) => ({ wallet: w, name: await usernameOf(w).catch(() => null) })));
 
@@ -31,7 +34,17 @@ export async function crewPageFor(walletIn: string, now = Date.now()): Promise<C
 
   const rows = await Promise.all(myCoins.map(async (c) => {
     const fills = await coinFillsFor(w, c).catch(() => []);
-    return { c, r: crewOnCoin(fills, w, members, now, wk.start, metas.get(c)!.graduated) };
+    const grad = metas.get(c)!.graduated;
+    // the mission first on fills alone (an upper bound, nothing paid from it); only rockets that could qualify load
+    // the transfer scans of you and the crewmates on them, and the mission is then recounted on checked holds
+    const traders = new Set(fills.map((f) => f.trader.toLowerCase()).filter((t) => t === w || members.has(t)));
+    const trustAll = new Map([...traders].map((t) => [t, { outs: [], verifiedTo: Infinity }]));
+    let r = crewOnCoin(fills, w, members, now, wk.start, grad, trustAll);
+    if (r.missionBest >= CREW_RULES.missionCrew) {
+      const checks = new Map(await Promise.all([...traders].slice(0, MISSION_CHECKS_MAX).map(async (t) => [t, await verifiedOuts(t, c, now - CREW_RULES.missionMs)] as const)));
+      r = { ...r, missionBest: crewOnCoin(fills, w, members, now, wk.start, grad, checks).missionBest };
+    }
+    return { c, r };
   }));
   const others = await Promise.all(lobby.map(async (c) => ({ c, aboard: crewAboardNow((await tradesOf(c, null, RECENT_FILLS, "desc").catch(() => [])).map(toLog), members, now) })));
 

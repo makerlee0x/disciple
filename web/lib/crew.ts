@@ -13,8 +13,10 @@ type Iv = [number, number];
 const overlap = (a: Iv, b: Iv): Iv | null => { const s = Math.max(a[0], b[0]), e = Math.min(a[1], b[1]); return e > s ? [s, e] : null; };
 
 /** each trader's $5+ hold intervals on one rocket */
-export function holdsByTrader(fills: readonly LogFill[], only?: ReadonlySet<string>): Map<string, Iv[]> {
+export function holdsByTrader(fills: readonly LogFill[], only?: ReadonlySet<string>, outs?: ReadonlyMap<string, readonly StreakFill[]>): Map<string, Iv[]> {
   const by = new Map<string, StreakFill[]>();
+  // transfers away count as $0 sells, so tokens sent to another wallet end the hold
+  if (outs) for (const [t, xs] of outs) if (!only || only.has(t)) by.set(t, [...xs]);
   for (const f of fills) {
     const t = f.trader.toLowerCase();
     if (only && !only.has(t)) continue;
@@ -38,8 +40,15 @@ export interface CrewCoin {
   missionBest: number;
 }
 
-/** One rocket, from your point of view: its fills (all traders), your crew (you excluded), and the week start. */
-export function crewOnCoin(fills: readonly LogFill[], wallet: string, crew: ReadonlySet<string>, now: number, weekStart: number, graduated: boolean): CrewCoin {
+/** Transfer scans per wallet (lib/server/transferCache): transfers away, and how far each scan reaches. */
+export type HoldChecks = ReadonlyMap<string, { outs: readonly StreakFill[]; verifiedTo: number }>;
+
+/**
+ * One rocket, from your point of view: its fills (all traders), your crew (you excluded), and the week start.
+ * The XP-paying mission uses only checked holds: transfers away end a hold, and a hold is trusted only as far as its
+ * wallet's transfer scan reaches (a wallet with no scan counts for nothing). Without `checks` the mission is 0.
+ */
+export function crewOnCoin(fills: readonly LogFill[], wallet: string, crew: ReadonlySet<string>, now: number, weekStart: number, graduated: boolean, checks?: HoldChecks): CrewCoin {
   const w = wallet.toLowerCase();
   const holds = holdsByTrader(fills, new Set([w, ...crew]));
   const mine = (holds.get(w) ?? []).map(([a, b]): Iv => [a, Math.min(b, now)]);
@@ -56,7 +65,18 @@ export function crewOnCoin(fills: readonly LogFill[], wallet: string, crew: Read
       if (orbitAt >= o[0] && orbitAt < o[1]) orbit = true;
     }
   }
-  return { together, orbit, longestMs, aboardNow, missionBest: missionBest(mine, holds, w, now, weekStart) };
+  let mission = 0;
+  if (checks) {
+    const outs = new Map([...checks].map(([t, c]) => [t, c.outs]));
+    const checked = new Map<string, Iv[]>();
+    for (const [t, ivs] of holdsByTrader(fills, new Set([w, ...crew]), outs)) {
+      const to = Math.min(now, checks.get(t)?.verifiedTo ?? -Infinity);
+      const cut = ivs.map(([a, b]): Iv => [a, Math.min(b, to)]).filter(([a, b]) => b > a);
+      if (cut.length) checked.set(t, cut);
+    }
+    mission = missionBest(checked.get(w) ?? [], checked, w, now, weekStart);
+  }
+  return { together, orbit, longestMs, aboardNow, missionBest: mission };
 }
 
 /** Sweep: the largest crew (you included) that sat aboard together for a full CREW_RULES.missionMs this week. */

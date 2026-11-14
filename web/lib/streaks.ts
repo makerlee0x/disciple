@@ -11,7 +11,9 @@
 export const DAY = 86_400_000;
 /** paid from the same day as the flight missions (nothing back-paid from before it) */
 export const STREAKS_FROM = Date.UTC(2026, 10, 16);
-export const STREAK_RULES = { minHoldUsd: 5, xpPerDay: 20, markEvery: 7, markXp: 100, windowDays: 60 } as const;
+export const STREAK_RULES = { minHoldUsd: 5, xpPerDay: 20, markEvery: 7, markXp: 100 } as const;
+// Streaks are counted from a FIXED origin (STREAKS_FROM), never a rolling window: a rolling start renumbered the days
+// of a long streak, so ordinary days became new 7-day marks with unpaid keys (Vercel Security Review on PR #355).
 
 export const dayIndex = (ts: number) => Math.floor(ts / DAY);
 /** UTC week id (Monday start): 1970-01-01 was a Thursday, so shift by 3 days */
@@ -51,15 +53,19 @@ export function heldIntervals(fills: readonly StreakFill[], minUsd: number = STR
   return out;
 }
 
-/** UTC days (as day indexes) fully covered by one rocket's $5+ hold, plus whether today is covered so far. */
-export function aboardDays(perCoin: readonly (readonly StreakFill[])[], now: number): { days: Set<number>; today: boolean } {
-  const days = new Set<number>(), t = dayIndex(now);
+/**
+ * UTC days (as day indexes) fully covered by one rocket's $5+ hold, plus whether today is covered so far. Each rocket's
+ * fills include its transfers away as $0 sells (lib/server/transferCache), and `verifiedTo` is how far that transfer
+ * scan reaches: a day only counts once it's checked to its end. `today` is display only and never pays.
+ */
+export function aboardDays(perCoin: readonly { fills: readonly StreakFill[]; verifiedTo?: number }[], now: number): { days: Set<number>; today: boolean } {
+  const days = new Set<number>(), t = dayIndex(now), from = dayIndex(STREAKS_FROM);
   let today = false;
-  for (const fills of perCoin) {
+  for (const { fills, verifiedTo = Infinity } of perCoin) {
     for (const [a, b] of heldIntervals(fills)) {
-      // a day counts when the hold started at or before its 00:00 and lasted to its end
-      const first = Math.ceil(a / DAY), last = Math.min(t, Math.floor(Math.min(b, now) / DAY));
-      for (let d = Math.max(first, t - STREAK_RULES.windowDays); d < last; d++) days.add(d);
+      // a day counts when the hold started at or before its 00:00 and lasted (checked) to its end
+      const first = Math.ceil(a / DAY), last = Math.min(t, Math.floor(Math.min(b, now, verifiedTo) / DAY));
+      for (let d = Math.max(first, from); d < last; d++) days.add(d);
       if (a <= t * DAY && b > now) today = true;
     }
   }
@@ -67,11 +73,11 @@ export function aboardDays(perCoin: readonly (readonly StreakFill[])[], now: num
 }
 
 /**
- * Walk the window day by day. `done` holds the days that count. Today never breaks a streak: it's added when done
+ * Walk every day from STREAKS_FROM to today. `done` holds the days that count. Today never breaks a streak: it's added when done
  * (check-in) and otherwise shown as open. A missed day spends the week's shield if the streak is alive, else resets it.
  */
-export function streakOf(done: ReadonlySet<number>, now: number, o: { todayCounts: boolean; todayOk: boolean; since?: number }): Streak {
-  const t = dayIndex(now), start = Math.max(t - STREAK_RULES.windowDays, o.since === undefined ? -Infinity : dayIndex(o.since));
+export function streakOf(done: ReadonlySet<number>, now: number, o: { todayCounts: boolean; todayOk: boolean }): Streak {
+  const t = dayIndex(now), start = dayIndex(STREAKS_FROM);
   const shields = new Set<number>();
   const states = new Map<number, DayState>();
   let cur = 0, best = 0, run: { day: number; n: number }[] = [], pausedDay: number | null = null;

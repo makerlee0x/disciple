@@ -20,10 +20,10 @@ describe("steady-hand streaks", () => {
   });
 
   it("a day counts only when held from its 00:00 to its end; a buy mid-day starts tomorrow", () => {
-    const { days, today } = aboardDays([[buy((t - 3) * DAY + 5000, 10)]], T);
+    const { days, today } = aboardDays([{ fills: [buy((t - 3) * DAY + 5000, 10)] }], T);
     expect([...days].sort()).toEqual([t - 2, t - 1]);
     expect(today).toBe(true);
-    const late = aboardDays([[buy(t * DAY + 1000, 10)]], T);
+    const late = aboardDays([{ fills: [buy(t * DAY + 1000, 10)] }], T);
     expect(late.days.size).toBe(0);
     expect(late.today).toBe(false);
   });
@@ -59,5 +59,24 @@ describe("steady-hand streaks", () => {
     expect(p.filter((x) => x.xp === 20)).toHaveLength(20);
     expect(p.filter((x) => x.xp === 100).length).toBeGreaterThan(0);
     expect(new Set(p.map((x) => x.src)).size).toBe(p.length);
+  });
+
+  it("a transfer away ends the hold, and days past the transfer scan don't count yet", () => {
+    const fills = [buy((t - 5) * DAY - 1000, 10), { ts: (t - 3) * DAY + 5000, side: "sell" as const, tokens: 10, usd: 0 }];
+    expect([...aboardDays([{ fills }], T).days].sort()).toEqual([t - 5, t - 4]);
+    const held = [buy((t - 5) * DAY - 1000, 10)];
+    expect([...aboardDays([{ fills: held, verifiedTo: (t - 3) * DAY }], T).days].sort()).toEqual([t - 5, t - 4]);
+    expect(aboardDays([{ fills: held, verifiedTo: -Infinity }], T).days.size).toBe(0);
+  });
+
+  it("day numbers stay fixed as time passes, so marks never move (no rolling window)", () => {
+    const done = new Set<number>();
+    const from = dayIndex(STREAKS_FROM);
+    for (let d = from; d < from + 200; d++) done.add(d);
+    const at = (days: number) => streakPays("checkin", streakOf(done, (from + days) * DAY + 3600_000, { todayCounts: true, todayOk: true }));
+    const early = new Map(at(70).map((p) => [p.src, p.xp])), late = at(140);
+    // every mark paid at day 70 is still a mark at day 140, and no day before 70 turned into a new mark
+    for (const p of late) if (p.xp === 100 && p.ts < (from + 70) * DAY) expect(early.get(p.src)).toBe(100);
+    expect(late.filter((p) => p.xp === 100)).toHaveLength(Math.floor(141 / 7));
   });
 });
