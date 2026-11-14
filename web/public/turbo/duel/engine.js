@@ -336,7 +336,7 @@ function mount(root,host){
   let LAY=null;
   function layout(){
     const c=$("sky").getBoundingClientRect(), ch=root.querySelector(".chart").getBoundingClientRect(), bt=root.querySelector(".bottom").getBoundingClientRect();
-    const cb=$("chatB").getBoundingClientRect(), under=(SW>=900?ch.bottom-c.top:cb.bottom-c.top)+8, barTop=bt.top-c.top-10;   // phones: clear the sound/chat buttons too
+    const cb=$("chatB").getBoundingClientRect(), under=(SW>=900?ch.bottom-c.top:cb.bottom-c.top)+8, barTop=bt.top-c.top-30;   // the trailer keeps a clear gap above the trade bar; phones: clear the sound/chat buttons too
     const rh0=Math.round(Math.max(56,Math.min(SW>=900?150:116,SH*.17,(barTop-under)*.42)));   // rocket size when level
     LAY=Object.assign(LAY||{h:rh0},{under,barTop,rh0});
   }
