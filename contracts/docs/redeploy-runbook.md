@@ -378,3 +378,22 @@ LEE DECISION 2026-10-24 11:28 CT: "$3-5 to start on mainnet".
    forgive (with lee's OK) before tightening.
 5. **Any `setBounds` broadcast needs lee's explicit OK** (value and timing). Never as part of a script run.
 
+
+## 13. Mainnet deploy steps from the 2026-11-14 audit (PR #371)
+
+Do these in the same deploy, before the site points at the new stack. Details in `docs/audit-2026-11-14.md`.
+
+1. **Ship CreatorFeeHarvest and LockedLP together** (LockedLP stores the harvest address as an immutable).
+2. **Paymaster V5 gas price caps (PM-2):** `setGasPriceCaps(maxFeePerGas, maxPriorityFee)` right after deploy. Without
+   them a self-bundler can empty the ETH float with high-fee ops.
+3. **Paymaster bootstrap codehash enforcement (PM-3):** `setBootstrapCodehash(<MAv2 proxy codehash>, true)`, then
+   `setBootstrapCodehashEnforced(true)`. Check: `cast call <V5> 'bootstrapCodehashEnforced()(bool)'` is `true`.
+4. **QuotePricer keeper (HK-02):** `setPoker(<relayer EOA>, true)` (the poke-pricer cron signs with `RELAYER_PRIVATE_KEY`). Pokes from anyone else, launches
+   included, are now ignored. The cron must also poke any new base on its `extra` list, since launches no longer
+   discover bases. Check: `cast call <QuotePricer> 'isPoker(address)(bool)' <wallet>` is `true`, and
+   `maxTickDelta()` is 200.
+5. **Listed quotes (LB-01):** call `setPriceRoute` for each listed quote at least one TWAP window (30 min) before
+   launches open, with the keeper running, so the route TWAPs have history.
+6. **Session policy:** if session keys ship at all (the app trades via gasless Permit2 today), deploy
+   `script/DeploySessionPolicyV144.s.sol` (1.4.4). Never deploy 1.4.3 to mainnet.
+7. **FeeRouter:** `setLaunchpad` is one-shot. Set it once, to the final Launchpad.

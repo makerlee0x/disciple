@@ -44,7 +44,7 @@ Core protocol:
 | `src/Launchpad.sol` | 353 | Permissionless coin factory. Registers coin, curve, creator; optional creator First BOOST buy (≤ 7.77%); `transferCreator`; owner config. |
 | `src/CurveDeployer.sol` | 86 | Deploys a `BondingCurve` per coin (size-limited factory). |
 | `src/Token.sol` | 78 | Fixed 1,000,000 supply ERC-20, 18 decimals, no further mint. |
-| `src/BondingCurve.sol` | 734 | Pump-style CPAMM curve per coin. Buys/sells, 1% fee, sniper tax, wallet cap, modes (TRENCH / Easy / Hard, PVE rewards), graduation trigger at 72% sold. |
+| `src/BondingCurve.sol` | 734 | Pump-style CPAMM curve per coin. Buys/sells, 1% fee, sniper tax, wallet cap, modes (TRENCH / Easy / Hard, PVE rewards), graduation trigger at 84.24% sold. |
 | `src/libraries/CurveMath.sol`, `McapMath.sol`, `FeeMath.sol`, `Constants.sol`, `Altitude.sol`, `FloorBands.sol`, `SqrtPrice.sol` | ~410 | Curve math, fee split, constants, tier/altitude, floor bands. |
 | `src/CurveFeeVault.sol` | 286 | Holds curve-phase fees for lp-accrue curves; settle, claims, stealth-owner claims by EIP-712 signature. |
 | `src/FeeRouter.sol` | 341 | Splits every 1% fee 33/33/33/1 (creator / LP / treasury / referral-or-KOL). Creator and referrer accruals, claim routers. |
@@ -52,12 +52,12 @@ Core protocol:
 | `src/DiscipleHook.sol` | 434 | v4 hook on every graduated pool. Pool LP fee is 0; the hook takes the 1% in the unspecified currency and routes it to FeeRouter; LP-add allowlist; EMA reference price; triggers LockedLP compounding. |
 | `src/LockedLP.sol` | 548 | Owns the graduated full-range position forever (no removal path). Compounds the LP share back into it; floor bands; receives creator fees routed to "lock". |
 | `src/TrampWallManager.sol` | 317 | User single-sided concentrated orders ("tramps"/"walls"); permissionless `pull` once filled, with a keeper tip. |
-| `src/QuotePricer.sol`, `libraries/TwapOracle.sol`, `PoolDepth.sol`, `BasePools.sol` | ~450 | Quote-token USD price used at launch and for display; lagged, truncated TWAP with permissionless `poke`; listed quotes priced via 1-2 hop routes. |
+| `src/QuotePricer.sol`, `libraries/TwapOracle.sol`, `PoolDepth.sol`, `BasePools.sol` | ~450 | Quote-token USD price used at launch and for display; lagged, truncated TWAP written by a keeper-only `poke` (others: no-op); listed quotes priced from per-pool TWAPs along 1-2 hop routes. |
 | `src/QuoteProbe.sol` | 120 | Launch-time honeypot / fee-on-transfer probe for custom quote tokens. |
 | `src/DiscipleRouter.sol`, `libraries/UsdgRouteLib.sol`, `CurrencySettler.sol` | ~1,050 | User entry point: curve and v4 buys/sells, USDG in/out via routed pools, Permit/Permit2 (gasless) paths, `launchWithUsdg`, `claimCreatorFeesToUsdg`. |
 | `src/ReferralRegistry.sol` | 84 | First-touch referrer, finalized by a ≥ $10 USDG deposit; attestors. |
 | `src/UsdgDepositNotifier.sol` | 96 | USDG deposit escrow / attestation feeding the referral gate. |
-| `src/LoginGate.sol` | 63 | Signed login epochs required for PVE coins. |
+| `src/LoginGate.sol` | 63 | Signed login epochs. **Not read on-chain** (Easy login is app-only by decision); kept for ABI compatibility. |
 | `src/RewardsVault.sol` | 35 | Receives timed-out sniper-tax escrow; owner distributes. |
 | `src/utils/Owned2Step.sol` | 27 | Two-step ownership used by most contracts. |
 
@@ -74,7 +74,7 @@ Account abstraction (EntryPoint v0.7, Alchemy Modular Account v2, ERC-6900):
 | File | nSLOC | Role |
 |---|---|---|
 | `src/paymaster/DisciplePaymasterV5.sol` | 682 | USDG gas paymaster: players pre-fund USDG credit; signer-quoted rate; reservations in validation, charge in postOp; one unsecured "setup" op per account. **This is the version that ships.** |
-| `src/session/DiscipleSessionPolicyV143.sol` | 666 | ERC-6900 session-key validation + execution hooks: target/selector allowlist, calldata parsing, spend caps (cap0 = gas, per-coin caps), expiry, revocation. **This is the version that ships.** |
+| `src/session/DiscipleSessionPolicyV144.sol` | ~680 | ERC-6900 session-key validation + execution hooks: target/selector allowlist, calldata parsing, spend caps (cap0 = gas, per-coin caps), expiry, revocation. 1.4.4: gas ceiling debited in validation, deposits counted, V5 paymaster required. **This is the version that ships** (if session keys ship at all: the app currently trades via gasless Permit2). V143 stays in the tree for the testnet record only. |
 
 Out of scope: `src/AntiSnipe.sol` (legacy, not deployed), `src/paymaster/DisciplePaymaster.sol` (retired v4),
 `src/session/DiscipleSessionPolicy.sol` (superseded), `src/interfaces/*` (except as they define behaviour), `script/`,
@@ -95,7 +95,7 @@ curve: it goes to LockedLP's compound bucket at graduation, or to RewardsVault i
 `snipeEscrowTimeout` (12 days). Modes add rules: optional wallet cap with partial fills and refunds, PVE "NET"
 bookkeeping and reward claims, an Easy-mode crew tip on large profitable sells, login gating.
 
-**Graduation.** When 72% of supply is sold, the curve calls `Migration.migrate`, which initializes the v4 pool
+**Graduation.** When 84.24% of supply is sold, the curve calls `Migration.migrate`, which initializes the v4 pool
 (only LockedLP may initialize, enforced in `beforeInitialize`) at the curve-end price and seeds LockedLP's permanent
 full-range position plus single-sided floor bands. Leftover quote goes to the compound bucket.
 
@@ -112,7 +112,7 @@ CurveFeeVault) and lock them into LockedLP or burn them; destination 2 also sell
 
 **Gas and sessions.** Players hold USDG credit in `DisciplePaymasterV5`. A backend signer quotes a USDG/ETH rate and
 a max token cost per op, either exact-op or as a reusable per-sender allowance. Validation reserves credit; postOp
-charges the actual cost. Session keys are installed on the player's MAv2 account with `DiscipleSessionPolicyV143`,
+charges the actual cost. Session keys are installed on the player's MAv2 account with `DiscipleSessionPolicyV144`,
 which limits what the key may call and how much it may spend.
 
 ## 5. Privileged roles and trust assumptions
@@ -126,7 +126,7 @@ which limits what the key may call and how much it may spend.
   `CreatorFeeHarvest.wire`.
 - **Off-chain signers:** the paymaster quote signer; the LoginGate attester; ReferralRegistry and UsdgDepositNotifier
   attestors (hot backend keys). Assume a signer key can leak; tell us what that costs.
-- **Keepers:** a minutely `QuotePricer.poke` cron, an hourly `CreatorFeeHarvest.route/routeWith` cron, tramp/wall
+- **Keepers:** a minutely `QuotePricer.poke` cron (the only allowed poker, `setPoker`), an hourly `CreatorFeeHarvest.route/routeWith` cron, tramp/wall
   `pull` bots. All are permissionless functions; assume anyone (including MEV searchers) can call them at any time.
 - **Tokens:** USDG is Paxos USDG (6 decimals on mainnet, upgradeable, can freeze). Quote tokens are assumed to be
   plain ERC-20s that transfer exact amounts; QuoteProbe is the only defence for custom quotes.
@@ -149,18 +149,24 @@ which limits what the key may call and how much it may spend.
 Full details and PoCs are in `contracts/docs/audit-2026-11-14.md` and `contracts/docs/security-review.md`.
 **We do want to hear if a proposed fix below is wrong, or if you find a cheaper or worse variant.**
 
-Still open, fix pending:
-- **SK-1 (High):** a stolen session key can sweep the whole wallet into paymaster credit (deposits aren't counted
-  against the cap) and burn it with ops that pass validation and revert in execution (the gas debit lives in the
-  execution hook, which a revert rolls back). PoC: `test/paymaster/OpenFinding_SK1.t.sol`.
-- **SK-2 (Medium):** the session policy doesn't check who pays gas; ops paid by other paymasters or by the account
-  aren't capped.
-- **HK-02 (Medium):** flash pump → `QuotePricer.poke` → dump persists in the lagged TWAP. PoC: `OpenFinding_HK02`.
-- **LB-01 / HK-03 (Medium):** listed quotes are priced from live 1-2 hop spot at launch (depth floor uses in-range
-  liquidity) and that price is fixed into the curve forever. PoC: `OpenFinding_LB01`.
+Fixed in the second commit after the maker's decisions (please check these fixes hardest):
+- **SK-1 (High) / SK-2:** a stolen session key could sweep the wallet into paymaster credit and burn it with ops that
+  revert in execution. Policy 1.4.4 debits the gas ceiling in the (now non-view) validation hook, counts deposits,
+  and requires the V5 paymaster. Is the validation-phase write ERC-7562-compliant under MAv2? Tests:
+  `SessionPaymasterV144.t.sol`, `SessionPolicyV144SK1.t.sol`.
+- **HK-02:** flash pump → `poke` → dump planted a tick in the TWAP. `poke` is now keeper-only (no-op for others),
+  clamp 200 ticks. Test: `test/audit/HK02_TwapFlashPoke.t.sol`.
+- **LB-01 / HK-03:** listed quotes were priced from live spot at launch. Now per-pool route TWAPs (`_routeOracle`).
+  Test: `test/LB01_ListedQuoteTwapAtLaunch.t.sol`.
+
+Accepted / deploy steps:
 - **RT-01 (Medium):** USDG buys of non-USDG-quoted coins have no minimum on the USDG→quote and refund legs; when the
-  curve output is capped, `minTokensOut` can't protect it. PoC: `OpenFinding_RT01`.
-- **PM-3 (Medium):** the unsecured setup op is sybil-able while bootstrap codehash enforcement is off.
+  curve output is capped, `minTokensOut` can't protect it. PoC: `OpenFinding_RT01`. **Accepted:** Robinhood Chain's
+  sequencer is first-come-first-served with no public mempool; tell us if you see a way to sandwich without the sequencer.
+- **PM-3 (Medium):** the unsecured setup op is sybil-able while bootstrap codehash enforcement is off. **Deploy step:**
+  enforcement is turned on at deploy.
+
+Still open:
 - Low/Info: LB-02 crew tip avoidable by splitting sells; CH-05 refund swap `minOut = 1`; HK-06 auto-discovered price
   pool squatting; HK-07 no TWAP staleness bound; HK-08 no minimum tramp/wall size; RT-03 router owner powers / one-step
   ownership; FR-03 vault applies config changes to already-owed fees; FR-05 pending referrer never expires; PM-4
@@ -190,7 +196,7 @@ display-only values (altitude, tier breaks, `Trade.mcapAfterUsd`, MarketLens) re
 
 ## 8. Where we most want your attention
 
-1. **Session policy V143 + paymaster V5 together.** Anything that lets a session key, a self-bundler, or a stranger
+1. **Session policy V144 + paymaster V5 together.** Anything that lets a session key, a self-bundler, or a stranger
    drain a player's USDG or the paymaster's ETH. Calldata parsing of `execute` / `executeBatch` / `executeUserOp`,
    approve/recipient pinning, cap accounting across validation vs execution, ERC-7562 rule compliance in validation.
 2. **Hook delta accounting and LockedLP compounding.** Sign conventions in `beforeSwap`/`afterSwap` for all four

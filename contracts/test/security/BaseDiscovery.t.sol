@@ -125,6 +125,15 @@ contract BaseDiscoveryTest is BaseTestBase {
         thinKey; // silence
     }
 
+    /// HK-02: discovery and observations are keeper-only; a stranger's poke (or a launch's) does nothing.
+    function test_stranger_poke_is_noop() public {
+        MockUSDG b = new MockUSDG();
+        _std(address(b), 3000, 60, 5e22);
+        vm.prank(rando());
+        pricer.poke(address(b));
+        assertFalse(pricer.hasPricePool(address(b)), "no discovery");
+    }
+
     function test_owner_can_tune_floor_and_warmup() public {
         vm.prank(rando());
         vm.expectRevert(Owned2Step.OnlyOwner.selector);

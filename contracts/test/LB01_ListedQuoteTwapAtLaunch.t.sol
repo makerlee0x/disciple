@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-// OPEN FINDING (docs/audit-2026-11-14.md): this test demonstrates a vulnerability that is NOT fixed yet and
-// passes while it exists. When the fix lands, invert its assertions into a regression test.
-
-// LB-01: a whitelisted ("listed") quote is priced from LIVE SPOT at launch. A pump of the quote's route pool around
-// Launchpad.launch bakes a wrong quote/USD price into the curve (and later into the hook) forever.
+// Regression for audit 2026-11-14 LB-01: a whitelisted ("listed") quote used to be priced from LIVE SPOT at launch,
+// so a pump of its route pool around Launchpad.launch baked a wrong quote/USD price into the curve forever. Listed
+// routes are now priced from per-pool TWAPs written by the keeper.
 // Place in contracts/test/ and run: forge test --match-contract LB01_ListedQuoteSpotAtLaunch -vv
 
 import {IntegrationBase} from "./integration/IntegrationBase.sol";
@@ -68,36 +66,53 @@ contract LB01_ListedQuoteSpotAtLaunch is IntegrationBase {
         return BondingCurve(r.curve);
     }
 
-    function test_flashPumpedQuotePriceIsBakedIntoCurve() public {
+    function _next(uint256 dt) internal {
+        vm.warp(vm.getBlockTimestamp() + dt);
+        vm.roll(vm.getBlockNumber() + 1);
+    }
+
+    function test_LB01_pumpedRouteAtLaunch_isNotBaked() public {
         _whitelistStrategy();
+        _next(1800);
+        pricer.poke(address(strategy)); // keeper
         uint256 fair = pricer.quotePriceUsd(address(strategy));
-        assertEq(fair, 1e18, "STRATEGY = $1");
+        assertApproxEqRel(fair, 1e18, 0.0001e18, "STRATEGY = $1");
 
-        BondingCurve honest = _launchStrategy(creator);
-        assertEq(honest.quotePriceUsd(), fair, "control launch");
-
-        // Attack (one tx in practice, via a helper contract): pump STRATEGY in its route pool, launch, dump.
         uint256 pump = 60_000 * U;
         quote.mint(attacker, pump);
         _swap(attacker, address(quote), pump);
+        assertGt(pricer.spotPriceUsd(address(strategy)), 2 * fair, "spot is pumped");
         BondingCurve evil = _launchStrategy(attacker);
         _swap(attacker, address(strategy), strategy.balanceOf(attacker));
+        assertApproxEqRel(evil.quotePriceUsd(), fair, 0.001e18, "launch baked the TWAP, not the pumped spot");
+    }
 
-        uint256 baked = evil.quotePriceUsd();
-        emit log_named_decimal_uint("baked quote/USD", baked, 18);
-        emit log_named_decimal_uint("attacker cost (USDG, swap fees)", pump - quote.balanceOf(attacker), 18);
-        assertGt(baked, 2 * fair, "pumped price baked into the curve (immutable)");
-        assertApproxEqRel(pricer.quotePriceUsd(address(strategy)), fair, 0.01e18, "live price back to fair");
+    /// A pump held across keeper pokes moves the listed price at most 200 ticks (~2%) per poke.
+    function test_LB01_heldPump_movesListedPriceSlowly() public {
+        _whitelistStrategy();
+        _next(1800);
+        pricer.poke(address(strategy));
+        uint256 fair = pricer.quotePriceUsd(address(strategy));
+        quote.mint(attacker, 60_000 * U);
+        _swap(attacker, address(quote), 60_000 * U);
+        for (uint256 i; i < 3; ++i) {
+            _next(60);
+            pricer.poke(address(strategy));
+        }
+        assertLt(pricer.quotePriceUsd(address(strategy)), fair * 102 / 100, "3 min held: under 2%");
+    }
 
-        // The curve REPORTS the constitution's $3,333 start mcap ...
-        assertApproxEqRel(evil.marketCapUsd(), 3_333e18, 0.001e18);
-        // ... but its real USD start mcap (at the fair quote price) is less than half of it,
-        uint256 realStartUsd = evil.marketCapQuote() * fair / 1e18;
-        emit log_named_decimal_uint("real start mcap USD", realStartUsd, 18);
-        assertLt(realStartUsd, uint256(3_333e18) / 2);
-        // and the whole curve (graduation raise, LP seed, floor) is > 2x smaller in real terms.
-        (,, uint256 x0h,) = honest.curveParams();
-        (,, uint256 x0e,) = evil.curveParams();
-        assertGt(x0h, 2 * x0e);
+    /// 2-hop listed routes are TWAP-priced too (per-pool route oracles).
+    function test_LB01_routeOracle_isWrittenByKeeperOnly() public {
+        _whitelistStrategy();
+        (int24 t0,) = pricer.routeTwapTick(strategyUsdgKey);
+        quote.mint(attacker, 60_000 * U);
+        _swap(attacker, address(quote), 60_000 * U);
+        _next(60);
+        vm.prank(attacker);
+        pricer.poke(address(strategy)); // not a keeper: no-op
+        _next(1800);
+        (int24 t1,) = pricer.routeTwapTick(strategyUsdgKey);
+        assertEq(t1, t0, "stranger's poke recorded nothing");
     }
 }

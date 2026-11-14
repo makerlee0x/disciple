@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-// OPEN FINDING (docs/audit-2026-11-14.md): this test demonstrates a vulnerability that is NOT fixed yet and
-// passes while it exists. When the fix lands, invert its assertions into a regression test.
-
-// HK-02 PoC. Place in contracts/test/audit/ (imports assume contracts/test/<dir>/).
+// Regression for audit 2026-11-14 HK-02 (docs/audit-2026-11-14.md): a flash pump + poke + dump used to plant a
+// tick that persisted in the QuotePricer TWAP. Pokes are now keeper-only (others are a no-op) and clamped to 200 ticks.
 // Run: forge test --mc HK02_TwapFlashPokeTest -vv
 
 import {IntegrationBase} from "../integration/IntegrationBase.sol";
@@ -78,9 +76,7 @@ contract FlashPoker is IUnlockCallback {
     }
 }
 
-/// @notice SEC-03 fix is incomplete: in lagged mode a poke snapshots the CURRENT spot and applies it to the future
-///         until the next poke. A same-tx pump+poke+dump leaves the reference pool untouched but the recorded tick
-///         persists, and the symmetric ±maxTickDelta clamp also slows honest pokes from undoing it.
+/// @notice HK-02 fixed: the attacker's poke inside the flash is ignored, so the TWAP never sees the pumped spot.
 contract HK02_TwapFlashPokeTest is IntegrationBase {
     FlashPoker fp;
 
@@ -95,23 +91,37 @@ contract HK02_TwapFlashPokeTest is IntegrationBase {
         vm.roll(vm.getBlockNumber() + 1);
     }
 
-    /// One ~$100 flash, no other pokes for 30 min (keeper down / sparse): launch bakes a ~22% overvalued quote.
-    function test_single_flash_poke_persists() public {
+    function test_HK02_flashPoke_isIgnored() public {
         _next(3600);
         pricer.poke(address(strategy));
         uint256 p0 = pricer.quotePriceUsd(address(strategy));
-        uint256 b0 = quote.balanceOf(address(fp));
         _next(1);
-        fp.run(15_000 * U); // ~+2,800 ticks transiently; recorded +2,000 (clamp)
+        fp.run(15_000 * U); // the same flash that used to move the TWAP +22%
         _next(1800);
-        uint256 spot = pricer.spotPriceUsd(address(strategy));
         uint256 twap = pricer.quotePriceUsd(address(strategy));
-        emit log_named_decimal_uint("attacker cost (USDG)", b0 - quote.balanceOf(address(fp)), 18);
-        emit log_named_decimal_uint("spot  USD", spot, 18);
-        emit log_named_decimal_uint("TWAP  USD", twap, 18);
-        assertApproxEqRel(spot, p0, 0.005e18, "reference pool restored");
-        assertGt(twap, p0 * 120 / 100, "TWAP > +20% from one atomic flash");
-        (BondingCurve c,) = _launchWithQuote(address(0), 0, 0); // default quote = STRATEGY
-        assertApproxEqRel(c.quotePriceUsd(), twap, 1e15, "curve baked the manipulated quote price");
+        assertApproxEqRel(twap, p0, 0.001e18, "TWAP unchanged by the flash");
+        (BondingCurve c,) = _launchWithQuote(address(0), 0, 0);
+        assertApproxEqRel(c.quotePriceUsd(), p0, 0.001e18, "launch bakes the fair price");
+    }
+
+    /// Even a keeper poke landing at a flashed price can record at most maxTickDelta (200 ticks ≈ 2%).
+    function test_HK02_keeperPokeAtFlashedPrice_isClampedTo2pct() public {
+        _next(3600);
+        pricer.poke(address(strategy));
+        uint256 p0 = pricer.quotePriceUsd(address(strategy));
+        vm.prank(owner);
+        pricer.setPoker(address(fp), true); // worst case: the keeper's poke lands inside a flash
+        _next(1);
+        fp.run(15_000 * U);
+        _next(1800);
+        uint256 twap = pricer.quotePriceUsd(address(strategy));
+        assertLt(twap, p0 * 1025 / 1000, "at most ~2% from one planted observation");
+    }
+
+    function test_HK02_onlyOwnerSetsPokers() public {
+        vm.expectRevert();
+        vm.prank(trader1);
+        pricer.setPoker(trader1, true);
+        assertFalse(pricer.isPoker(trader1));
     }
 }

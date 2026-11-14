@@ -1,18 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-// OPEN FINDING (docs/audit-2026-11-14.md): this test demonstrates a vulnerability that is NOT fixed yet and
-// passes while it exists. When the fix lands, invert its assertions into a regression test.
-
-// Place in contracts/test/paymaster/ (imports are relative to that folder).
-// Run: forge test --match-contract SessionGasCapBypassPoC -vv
-//
-// SK-1: a stolen session key drains the account's whole USDG balance through the v5 paymaster, far beyond the
-// session cap0. (1) One successful op moves all USDG into paymaster credit (deposit is not counted against the cap).
-// (2) Every following op is made to REVERT in the policy's execution hook. The paymaster still charges gas in postOp,
-// but the policy's gas debit lived in the reverted execution hook, so spent0 never moves. (3) The attacker submits
-// the ops itself (EntryPoint.handleOps is permissionless) with a high priority fee and itself as beneficiary, so
-// the ETH the paymaster pays out goes to the attacker, while the victim's USDG credit is debited at the signed rate.
+// Regression for audit 2026-11-14 SK-1 (docs/audit-2026-11-14.md) on session policy 1.4.4, with the real MAv2
+// account and EntryPoint. Formerly OpenFinding_SK1 (the drain PoC against 1.4.3).
+// Run: forge test --match-contract SessionPolicyV144SK1Test -vv
 
 import {PaymasterBootstrapFixture, BootstrapAccount, BootstrapFactory, BootstrapBuy} from "./PaymasterBootstrap.t.sol";
 import {RuntimeMarket} from "./PaymasterRuntime.t.sol";
@@ -21,13 +12,13 @@ import {PackedUserOperation as EpOp} from "../vendor/aa-v07/interfaces/PackedUse
 import {PackedUserOperation as PmOp} from "../../src/paymaster/IPaymasterV07.sol";
 import {IEntryPoint} from "../vendor/aa-v07/interfaces/IEntryPoint.sol";
 import {DisciplePaymasterV5 as PM} from "../../src/paymaster/DisciplePaymasterV5.sol";
-import {DiscipleSessionPolicyV143 as Policy} from "../../src/session/DiscipleSessionPolicyV143.sol";
+import {DiscipleSessionPolicyV144 as Policy} from "../../src/session/DiscipleSessionPolicyV144.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {console2} from "forge-std/console2.sol";
 
-contract SessionGasCapBypassPoC is PaymasterBootstrapFixture {
+contract SessionPolicyV144SK1Test is PaymasterBootstrapFixture {
     RuntimeMarket market;
     PM v5;
     Policy policy5;
@@ -164,45 +155,41 @@ contract SessionGasCapBypassPoC is PaymasterBootstrapFixture {
         }
     }
 
-    function test_stolenSessionKey_drainsBeyondCap() public {
-        // Owner onboarding: 5 USDG credit, session with a 5 USDG cap.
+    function test_SK1_stolenSessionKey_cannotDrainBeyondCap() public {
         assertTrue(_sendAs(bundler, _ownerSetup(5 ether)), "owner setup");
-        assertTrue(policy5.sessionOf(smart, ENTITY).active);
-        uint256 balBefore = usdg.balanceOf(smart);
-        uint256 creditBefore = v5.creditOf(smart);
-        console2.log("victim wallet USDG after setup", balBefore);
+        uint256 creditStart = v5.creditOf(smart);
+        uint256 walletStart = usdg.balanceOf(smart);
 
-        // (1) Session key moves (almost) the whole wallet into paymaster credit. Counted against cap0: only the gas ceiling.
+        // (1) The sweep now counts against cap0: execution reverts, nothing moves into credit.
         uint256 sweep = 9_000 ether;
         MiniAccount.Call[] memory calls = new MiniAccount.Call[](2);
         calls[0] = MiniAccount.Call(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(v5), sweep)));
         calls[1] = MiniAccount.Call(address(v5), 0, abi.encodeWithSelector(DEPOSIT_SEL, smart, sweep));
-        assertTrue(_sendAs(attacker, _sessionOp(abi.encodeCall(MiniAccount.executeBatch, (calls)), FEE)), "sweep op ok");
-        uint256 spentAfterSweep = policy5.sessionOf(smart, ENTITY).spent0;
-        assertLt(spentAfterSweep, CAP0, "sweep only debited the small gas ceiling");
-        assertGt(v5.creditOf(smart), sweep, "wallet USDG now sits in paymaster credit");
+        assertFalse(_sendAs(attacker, _sessionOp(abi.encodeCall(MiniAccount.executeBatch, (calls)), FEE)), "sweep refused");
+        assertEq(usdg.balanceOf(smart), walletStart, "wallet USDG untouched");
+        assertGt(policy5.sessionOf(smart, ENTITY).spent0, 0, "the reverted op still used up its gas ceiling");
 
-        // (2) Ops that the policy's EXECUTION hook rejects (USDG approve with no matching spend -> UsdgApproveNotExact).
-        // Validation (static check) passes, so the paymaster reserves and postOp charges anyway.
+        // (2) Reverting ops each debit their gas ceiling in validation; once cap0 is used up they can't be sent.
         bytes memory reverting = abi.encodeCall(
             MiniAccount.execute, (address(usdg), 0, abi.encodeCall(ERC20.approve, (address(trade), 1)))
         );
-        uint256 creditMid = v5.creditOf(smart);
-        uint256 ethBefore = attacker.balance;
-        uint256 n = 20;
-        for (uint256 i; i < n; ++i) {
-            bool ok = _sendAs(attacker, _sessionOp(reverting, ATTACK_FEE));
-            assertFalse(ok, "execution reverted in the session hook");
+        uint256 sent;
+        for (uint256 i; i < 20; ++i) {
+            EpOp memory op = _sessionOp(reverting, ATTACK_FEE);
+            EpOp[] memory ops = new EpOp[](1);
+            ops[0] = op;
+            vm.prank(attacker, attacker);
+            try ep.handleOps(ops, payable(attacker)) {
+                ++sent;
+            } catch {
+                sessionNonce--; // nonce not used
+                break;
+            }
         }
-        uint256 drained = creditMid - v5.creditOf(smart);
-        console2.log("victim credit drained by reverted ops", drained);
-        console2.log("session cap0", uint256(CAP0));
-        console2.log("spent0 after attack", policy5.sessionOf(smart, ENTITY).spent0);
-        console2.log("attacker ETH gained (wei)", attacker.balance - ethBefore);
-
-        assertEq(policy5.sessionOf(smart, ENTITY).spent0, spentAfterSweep, "reverted ops never debit the cap");
-        assertGt(drained, CAP0, "credit drained beyond the whole session cap");
-        assertGt(attacker.balance, ethBefore, "attacker-bundler receives the paymaster's ETH");
-        creditBefore; // silence
+        assertLt(sent, 20, "validation stops the drain");
+        assertLe(policy5.sessionOf(smart, ENTITY).spent0, CAP0, "spent0 never passes cap0");
+        assertLe(creditStart - v5.creditOf(smart), CAP0, "credit burned stays within the session cap");
+        console2.log("reverting ops accepted before the cap stopped them", sent);
+        console2.log("credit burned", creditStart - v5.creditOf(smart));
     }
 }
