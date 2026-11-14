@@ -10,7 +10,7 @@ failure scenario, and a suggested fix. A Foundry PoC is very welcome.
 | | |
 |---|---|
 | Repository | `makerlee0x/disciple` (private), folder `contracts/` |
-| Commit to review | `eba19231` on branch `claude/project-thread-x7onqo` (PR #371: `main` + the internal audit fixes) |
+| Commit to review | `bfbdf435` on branch `claude/project-thread-x7onqo` (PR #371: `main` + the internal audit fixes, the SK-1/HK-02/LB-01 fixes, and the fixes from the first external review round on `eba19231`) |
 | Chain | Robinhood Chain (EVM L2, Cancun). Single chain only. Centralized sequencer. |
 | Compiler | solc **0.8.26** exactly, `via_ir = true`, optimizer 200 runs, `evm_version = cancun` |
 | Dependencies | Uniswap v4-core **v4.0.0** (`e50237c`), v4-periphery `9969eec` (HookMiner only), OpenZeppelin **v5.7.0**, forge-std v1.17.0 (pins in `contracts/foundry.lock`, `DEPENDENCIES.md`) |
@@ -147,6 +147,9 @@ which limits what the key may call and how much it may spend.
 ## 7. Known issues: please don't re-report these as new
 
 Full details and PoCs are in `contracts/docs/audit-2026-11-14.md` and `contracts/docs/security-review.md`.
+The first external round (three reviews of `eba19231`) and what was decided are in the "External reviews" section
+of `audit-2026-11-14.md`. **Out of mainnet scope by decision:** session policy and paymaster V5 (not deployed; the app
+trades via gasless Permit2). Only USDG and the listed quotes can launch. Easy login is app-only.
 **We do want to hear if a proposed fix below is wrong, or if you find a cheaper or worse variant.**
 
 Fixed in the second commit after the maker's decisions (please check these fixes hardest):
