@@ -28,9 +28,12 @@
 
 /* door one + the side column */
 .doors { display: flex; flex-wrap: wrap; gap: 24px; align-items: stretch; }
-/* under Pick a mode: Join a flight (2 parts) beside today's missions (1 part); missions take the row when nothing is flying */
-.doorsUnder > * { flex: 1 1 380px; min-width: 0; }
-.doorsUnder > [data-testid="lobby-join"] { flex: 2 1 560px; }
+/* under Pick a mode (board: 2fr shelf, 1fr missions): Join a flight beside today's missions */
+.doorsUnder { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.doorsUnder > * { min-width: 0; }
+/* missions keep their one-third square even when nothing is flying (Join a flight renders nothing then) */
+.doorsUnder > :last-child { grid-column: 2; }
+@media (max-width: 900px) { .doorsUnder { grid-template-columns: minmax(0, 1fr); } .doorsUnder > :last-child { grid-column: 1; } }
 .side { flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 24px; }
 
 /* door two */

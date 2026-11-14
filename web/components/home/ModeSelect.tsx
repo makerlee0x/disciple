@@ -1,8 +1,8 @@
 "use client";
 /**
  * "Pick a mode" (lobby canvas board "Game modes", option A, maker picked 2026-11-14): the Fortnite-style row at the top of
- * the lobby. Tall poster cards with our art plates: Host a launch, Live flights, Trading duel (once Duels are live, see
- * DUELS_ENABLED) and Free play. The card in focus is bigger with Play; the others tilt away. Desktop: click a card to focus
+ * the lobby. Tall poster cards with our art plates: Host a launch, Live flights, Trading duel (only while the Turbo
+ * flag is on, see lib/turbo/flag.ts) and Free play. The card in focus is bigger with Play; the others tilt away. Desktop: click a card to focus
  * it, click it again (or Play) to go; ←/→ move focus and Enter plays while the row has focus. Phones (≤760px): a swipe
  * carousel that snaps to the middle, with dots; tapping a card goes. Signed in it opens on the last mode played (this
  * browser), else Live flights; signed out it opens on Free play.
@@ -11,7 +11,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { withBase } from "@/lib/base-path";
 import { ROCKET_SRC } from "@/lib/home/trending";
-import { DUELS_ENABLED, DUEL_HREF } from "@/lib/features";
+import { DUEL_HREF } from "@/lib/features";
+import { isTurboEnabled } from "@/lib/turbo/flag";
 import s from "./modeSelect.module.css";
 
 type ModeId = "launch" | "live" | "duel" | "free";
@@ -25,7 +26,7 @@ export const MODE_COPY = {
 
 const LAST = "disciple.lobby.mode";
 
-function modes(flying: number): Mode[] {
+function modes(flying: number, duel: boolean): Mode[] {
   const all: Mode[] = [
     { id: "launch", title: ["Host a", "launch"], sub: "Build a rocket. The crew flies it up.", tag: "Real coins", tone: "#F3DFA8", href: "/create", art: "/home/modes/launch.webp", pos: "50% 60%", rockets: [] },
     { id: "live", title: ["Live", "flights"], sub: "Jump on a rocket that's already climbing.", tag: flying > 0 ? `${flying} flying` : "Live", tone: "#5FF0A0", href: "/play", art: "/home/modes/live.webp", pos: "50% 40%",
@@ -35,11 +36,14 @@ function modes(flying: number): Mode[] {
     { id: "free", title: ["Free", "play"], sub: "No cash. Today's daily flight.", tag: "Free", tone: "#8FE3FF", href: "/flight/sim", art: "/home/modes/free.webp", pos: "50% 50%",
       rockets: [{ c: "#8FE3FF", x: 52, y: 12, h: 36, r: 8 }] },
   ];
-  return all.filter((m) => m.id !== "duel" || DUELS_ENABLED);
+  return all.filter((m) => m.id !== "duel" || duel);
 }
 
 export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; flying: number }) {
-  const list = useMemo(() => modes(flying), [flying]);
+  // Turbo flag reads localStorage, so check it after mount to keep server and first paint the same
+  const [duel, setDuel] = useState(false);
+  useEffect(() => { setDuel(isTurboEnabled()); }, []);
+  const list = useMemo(() => modes(flying, duel), [flying, duel]);
   const [focus, setFocus] = useState<ModeId>(signedIn ? "live" : "free");
   const track = useRef<HTMLDivElement>(null);
 
@@ -54,9 +58,9 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
     const el = track.current?.querySelector<HTMLElement>(`[data-mode="${focus}"]`);
     const t = track.current;
     if (el && t && t.scrollWidth > t.clientWidth) t.scrollLeft = el.offsetLeft - (t.clientWidth - el.clientWidth) / 2;
-    // only on mount and when the saved mode lands
+    // on mount, and again once the duel card appears (it shifts the cards)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [duel]);
 
   const go = (m: Mode) => { try { localStorage.setItem(LAST, m.id); } catch { /* */ } };
   const idx = Math.max(0, list.findIndex((m) => m.id === focus));

@@ -74,11 +74,6 @@ export const CREW_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_CREW === "1
  */
 export const PRO_HUD_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_PRO === "1" || process.env.NEXT_PUBLIC_FEATURE_PRO === "true";
 
-/**
- * Trading Duel card in the lobby's "Pick a mode" row (game modes board, option A, maker 2026-11-14). Off until Duels are live
- * (the Turbo work builds them); the row shows Host a launch, Live flights and Free play meanwhile.
- * Override: NEXT_PUBLIC_FEATURE_DUELS=1 (build-time).
- */
-export const DUELS_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_DUELS === "1" || process.env.NEXT_PUBLIC_FEATURE_DUELS === "true";
-/** Where the Duel card goes once Duels ship (the Turbo screen hosts them). */
-export const DUEL_HREF = "/turbo?mode=duel";
+/** Trading Duel card in the lobby's "Pick a mode" row (game modes option A, maker 2026-11-14). The card shows whenever the
+ *  Turbo flag is on (lib/turbo/flag.ts) and opens the duel lobby, which sits behind the Turbo password. */
+export const DUEL_HREF = "/turbo/duel";
