@@ -1,0 +1,12 @@
+/* Lobby "Since you were away" (main mode hook loop mockup board "Notifications"). Brand v3 tokens. */
+.card { margin-bottom: -28px; padding: 14px 16px; border-radius: 16px; background: linear-gradient(160deg, #1F2228 0%, #16181C 100%); border: 1px solid rgba(243,223,168,.35); display: flex; flex-direction: column; gap: 10px; font-family: var(--dsc-font-ui); }
+.top { display: flex; justify-content: space-between; align-items: center; }
+.h { margin: 0; font: 700 18px/1 var(--dsc-font-game); color: #FFF6DC; text-transform: uppercase; }
+.x { width: 32px; height: 32px; border-radius: 8px; border: 0; background: transparent; color: #9EA3B5; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.x:hover { color: #FFF6DC; }
+.x:focus-visible, .link:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+.line { font-size: 14px; color: #D7D9E4; }
+.gold { color: #F3DFA8; }
+.info { color: #44D4E2; }
+.link { align-self: flex-start; font-size: 14px; font-weight: 600; color: #F3DFA8; }
+.link:hover { color: #FFF6DC; }

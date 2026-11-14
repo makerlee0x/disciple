@@ -1,0 +1,69 @@
+/* Crew flights + Fly with me landing (main mode hook loop mockup board, maker 2026-11-13). Brand v3 tokens. */
+.page { max-width: 1280px; margin: 0 auto; padding: 36px 40px 72px; box-sizing: border-box; color: #D7D9E4; font-family: var(--dsc-font-ui); display: flex; flex-direction: column; gap: 16px; }
+.cols { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; }
+.main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.side { flex: 1 1 300px; max-width: 360px; display: flex; flex-direction: column; gap: 16px; }
+.head { display: flex; align-items: center; gap: 18px; }
+.mark { width: 72px; height: 72px; flex: none; border-radius: 18px; background: #3D4A79; border: 1px solid rgba(243,223,168,.35); display: inline-flex; align-items: center; justify-content: center; font: 800 26px var(--dsc-font-game); color: #F3DFA8; }
+.h1 { margin: 0; font: 800 48px/0.95 var(--dsc-font-game); color: #FFF6DC; text-transform: uppercase; }
+.sub { margin: 0; font-size: 14px; color: #9EA3B5; }
+.head .sub { margin-top: 6px; }
+.loading { height: 300px; border-radius: 16px; background: rgba(22,24,28,.5); border: 1px solid #2E323A; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.stat { padding: 16px; border-radius: 16px; background: linear-gradient(160deg, #1F2228 0%, #16181C 100%); border: 1px solid #2E323A; }
+.stat b { display: block; font: 700 34px/1 var(--dsc-font-game); color: #FFF6DC; }
+.stat b.goldTxt { color: #F3DFA8; }
+.stat span { display: block; font-size: 12px; color: #9EA3B5; margin-top: 4px; }
+.eb { font: 500 12px var(--dsc-font-mono); color: #9EA3B5; text-transform: uppercase; }
+.goldTxt { color: #F3DFA8; }
+.list { display: flex; flex-direction: column; gap: 10px; }
+.row { display: flex; align-items: center; gap: 16px; padding: 14px 18px; border-radius: 16px; background: linear-gradient(160deg, #1F2228 0%, #16181C 100%); border: 1px solid #2E323A; }
+.ticker { font: 700 22px/1 var(--dsc-font-game); color: #FFF6DC; width: 120px; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zone { font-size: 13px; color: #9EA3B5; width: 160px; flex: none; }
+.zone.goldTxt { color: #F3DFA8; }
+.faces { display: flex; align-items: center; flex-grow: 1; min-width: 0; }
+.face { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #16181C; color: #121327; font: 600 11px var(--dsc-font-ui); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.face + .face { margin-left: -8px; }
+.count { margin-left: 12px; font-size: 14px; color: #D7D9E4; }
+.ghost { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid #2E323A; color: #D7D9E4; text-decoration: none;
+  font: 700 16px var(--dsc-font-game); letter-spacing: .04em; text-transform: uppercase; flex: none; }
+.ghost:hover { color: #FFF6DC; border-color: rgba(243,223,168,.35); }
+.foot { margin: 0; font-size: 12px; color: #7D8296; }
+.sky { height: 150px; border-radius: 16px; background: linear-gradient(180deg, #3D4A79 0%, #202141 100%); border: 1px solid #2E323A; overflow: hidden; }
+.card { padding: 22px; border-radius: 20px; background: linear-gradient(160deg, #1F2228 0%, #16181C 100%); border: 1px solid #2E323A; display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+.flyCard { background: rgba(242,193,78,.08); border-color: rgba(243,223,168,.35); gap: 12px; }
+.missionCard { padding: 18px 22px; gap: 0; }
+.cardH { font: 800 30px/1 var(--dsc-font-game); color: #FFF6DC; text-transform: uppercase; }
+.seeH { font: 700 22px/1.1 var(--dsc-font-game); color: #FFF6DC; text-transform: uppercase; }
+.missionH { font: 700 20px/1.1 var(--dsc-font-game); color: #FFF6DC; margin-top: 8px; text-transform: uppercase; }
+.body { margin: 0; font-size: 14px; line-height: 1.45; color: #D7D9E4; }
+.small { font-size: 13px; color: #9EA3B5; line-height: 1.45; }
+.missionCard .small { font-size: 12px; margin-top: 6px; }
+.link { padding: 12px 14px; border-radius: 12px; background: #121327; border: 1px solid #2E323A; font: 500 13px var(--dsc-font-mono); color: #D7D9E4; overflow-wrap: anywhere; }
+.gold { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 18px; border: 0; border-radius: 12px; background: #F2C14E; color: #121327;
+  font: 800 18px var(--dsc-font-game); letter-spacing: .04em; text-transform: uppercase; text-decoration: none; cursor: pointer; }
+.gold:hover { background: #F3DFA8; color: #121327; }
+.gold:focus-visible, .ghost:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+.bar { height: 8px; border-radius: 4px; background: #2E323A; margin-top: 12px; overflow: hidden; }
+.bar > div { height: 8px; border-radius: 4px; background: #F2C14E; }
+.emptyT { font: 800 32px/1 var(--dsc-font-game); color: #FFF6DC; text-transform: uppercase; }
+.card .gold { align-self: flex-start; }
+.flyCard .gold, .card .ghost { align-self: stretch; }
+
+/* Fly with me landing (/fly) */
+.land { max-width: 480px; margin: 0 auto; padding: 40px 16px calc(96px + var(--ap-safe-bottom, 0px)); box-sizing: border-box; color: #D7D9E4; font-family: var(--dsc-font-ui); }
+.land .card { gap: 12px; }
+.landH { font: 800 40px/0.95 var(--dsc-font-game); color: #FFF6DC; text-transform: uppercase; }
+
+@media (max-width: 760px) {
+  .page { padding: 20px 16px calc(96px + var(--ap-safe-bottom, 0px)); }
+  .h1 { font-size: 34px; }
+  .mark { width: 56px; height: 56px; font-size: 20px; border-radius: 14px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .side { max-width: none; }
+  .row { flex-wrap: wrap; gap: 8px 12px; padding: 14px; }
+  .ticker { width: auto; }
+  .zone { width: auto; flex: 1 1 auto; }
+  .faces { flex-basis: 100%; }
+  .row .ghost { flex: 1 1 100%; }
+}

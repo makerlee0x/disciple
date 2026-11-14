@@ -90,7 +90,7 @@ export type TurboEventReason =
   | "invalid"
   | (string & {});
 
-export type TurboEventType = "pending" | "filled" | "partial-closed" | "closed" | "liquidated" | "failed";
+export type TurboEventType = "pending" | "filled" | "increased" | "partial-closed" | "closed" | "liquidated" | "failed";
 
 export interface TurboEvent {
   type: TurboEventType;
@@ -100,6 +100,8 @@ export interface TurboEvent {
   returnedUsd?: number;
   /** SITE extra: % closed for partial-closed / closed events. */
   pct?: ClosePct;
+  /** SITE extra: fuel ($) added by an `increased` event. */
+  addedUsd?: number;
 }
 
 export interface OpenParams {
@@ -162,6 +164,9 @@ export interface TurboAdapter {
   open(p: OpenParams): Promise<{ id: string }>;
   /** Close 25 / 50 / 100% of a position. 100 emits `closed`, otherwise `partial-closed`. */
   close(id: string, pct: ClosePct): Promise<void>;
+  /** SITE extra: add fuel to an open position at the same leverage (market order; entry becomes the size-weighted average).
+   *  Emits `increased`. Optional: the screen hides "Add" when an adapter has no increase(). Hand-off question for Nova. */
+  increase?(id: string, collateralUsd: number): Promise<void>;
   /** Pending and open positions. */
   getPositions(): Promise<Position[]>;
   onEvent(cb: (e: TurboEvent) => void): Unsub;

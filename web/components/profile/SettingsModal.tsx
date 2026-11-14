@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import PushSettings from "@/components/push/PushSettings";
 import { disconnect, onWallet } from "@/lib/wallet";
 import type { Address } from "@/lib/protocol";
 import { ONE_TAP_SLIPPAGE_CHOICES_BPS, onPrivy, onSessionChange, oneTapSlippageBps, privyAccount, privySecurity, setOneTapSlippageBps, type PrivyAccountInfo, type PrivyMfaMethod, type PrivySecurity } from "@/lib/aa/session";
@@ -157,24 +158,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                   </div>
                 </div>
               </section>
-              <section className="p5-sgrp" aria-label={SETTINGS_COPY.security} data-testid="settings-security">
-                <span className="gh">{SETTINGS_COPY.security}</span>
-                <div className="p5-sbox">
-                  <div className="p5-srow" data-testid="settings-export">
-                    <span className="p5-sic"><Icon name="key" size={18} /></span>
-                    <div className="tx"><b>{SETTINGS_COPY.exportKey}</b><span>{sec ? SETTINGS_COPY.exportKeyHelp : SETTINGS_COPY.privyOnly}</span></div>
-                    <button type="button" className="p5-btn sm" disabled={!sec?.exportWallet || !!secBusy} onClick={() => void exportKey()} data-testid="export-key">
-                      {SETTINGS_COPY.exportBtn}
-                    </button>
-                  </div>
-                  <button type="button" className="p5-srow p5-srow-link" onClick={() => { setView("2fa"); setSecErr(""); }} data-testid="settings-2fa">
-                    <span className="p5-sic"><Icon name="shield" size={18} /></span>
-                    <div className="tx"><b>{SETTINGS_COPY.twoFa}</b><span>{twoFaState === SETTINGS_COPY.twoFaOff ? `${twoFaState} · ${SETTINGS_COPY.twoFaHow}` : twoFaState}</span></div>
-                    <Icon name="chevron-right" size={18} />
-                  </button>
-                </div>
-                {secErr && <span className="p5-err" role="alert">{secErr}</span>}
-              </section>
+              <PushSettings wallet={addr ? addr.toLowerCase() : null} />
             </div>
             <div className="p5-s2col">
               <section className="p5-sgrp" aria-label={SETTINGS_COPY.trading} data-testid="settings-trading">
@@ -212,6 +196,24 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                       onClick={() => { const v = !gs.haptics; setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); }}><span /></button>
                   </div>
                 </div>
+              </section>
+              <section className="p5-sgrp" aria-label={SETTINGS_COPY.security} data-testid="settings-security">
+                <span className="gh">{SETTINGS_COPY.security}</span>
+                <div className="p5-sbox">
+                  <div className="p5-srow" data-testid="settings-export">
+                    <span className="p5-sic"><Icon name="key" size={18} /></span>
+                    <div className="tx"><b>{SETTINGS_COPY.exportKey}</b><span>{sec ? SETTINGS_COPY.exportKeyHelp : SETTINGS_COPY.privyOnly}</span></div>
+                    <button type="button" className="p5-btn sm" disabled={!sec?.exportWallet || !!secBusy} onClick={() => void exportKey()} data-testid="export-key">
+                      {SETTINGS_COPY.exportBtn}
+                    </button>
+                  </div>
+                  <button type="button" className="p5-srow p5-srow-link" onClick={() => { setView("2fa"); setSecErr(""); }} data-testid="settings-2fa">
+                    <span className="p5-sic"><Icon name="shield" size={18} /></span>
+                    <div className="tx"><b>{SETTINGS_COPY.twoFa}</b><span>{twoFaState === SETTINGS_COPY.twoFaOff ? `${twoFaState} · ${SETTINGS_COPY.twoFaHow}` : twoFaState}</span></div>
+                    <Icon name="chevron-right" size={18} />
+                  </button>
+                </div>
+                {secErr && <span className="p5-err" role="alert">{secErr}</span>}
               </section>
             </div>
           </div>

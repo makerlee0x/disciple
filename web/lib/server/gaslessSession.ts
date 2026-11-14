@@ -19,15 +19,15 @@ import "server-only";
  *     stringified `linked_accounts` claim. Local crypto only (keys cached 10 min) ⇒ ~1 ms. Missing / bad / expired ⇒
  *     rejected. No users-API fallback: a missing or invalid identity token is a clean refusal.
  *  2. The Permit2 signer must be one of the token's linked ethereum wallets (exact address match); the user must
- *     have a verified login (email / google_oauth / twitter_oauth — same SESSION_LOGIN_TYPES /api/pve/attest required);
- *     invite gate (same requireInviteUser as attest).
+ *     have a verified login (email / google_oauth / twitter_oauth — SESSION_LOGIN_TYPES);
+ *     invite gate (requireInviteUser).
  * Revoke/ban/strike (wallet + did), per-IP / per-sender / global caps, loss breaker and the exact eth_call stay in
  * gaslessRelay. Fail closed: no Privy config ⇒ every gasless trade is refused.
  */
 import { privyEnv, verificationKeys, verifyIdentityToken, type FetchLike, type PrivyEnv, type PrivyUser } from "./privyAuth";
 import { requireInviteUser } from "./inviteGate";
 
-/** Same set as lib/pveAttest VERIFIED_LOGIN_TYPES (what /api/pve/attest required for a LoginGate attestation). */
+/** Privy login types that count as a verified login for gasless trades (app-level gating, pump.fun / FOMO style). */
 export const SESSION_LOGIN_TYPES = new Set(["email", "google_oauth", "twitter_oauth"]);
 
 export type SessionDeps = { env: () => PrivyEnv; fetch?: FetchLike; invite: (did: string) => Promise<{ ok: boolean }>; nowMs?: () => number };

@@ -15,7 +15,7 @@ vi.mock("../lib/server/relayTrustStore", () => ({ kvTrustStore: () => ({ load: a
 vi.mock("../lib/server/syncSend", async original => ({ ...await original<typeof import("../lib/server/syncSend")>(), syncSend: h.send, jsonRpc: () => async () => null }));
 const KEY = generatePrivateKey();
 process.env.RELAYER_NONCE_SHARED = "0";
-import { relayGaslessLogin, relayGaslessTrade as relayTrade, requireGaslessMode, LEGACY_LOGIN_MESSAGE, LEGACY_PVE_CODE, NOT_VERIFIED_SELECTOR, MARKET_LOGIN, assertGaslessMarket, gaslessMarketCache, marketStatusKey, type GaslessDeps } from "../lib/server/gaslessRelay";
+import { relayGaslessTrade as relayTrade, requireGaslessMode, LEGACY_LOGIN_MESSAGE, LEGACY_PVE_CODE, NOT_VERIFIED_SELECTOR, gaslessMarketCache, marketStatusKey, type GaslessDeps } from "../lib/server/gaslessRelay";
 import { gaslessSessionDeps } from "../lib/server/gaslessSession";
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { relayBreaker } from "../lib/server/relayBreaker";
@@ -283,40 +283,63 @@ describe("H1/M1/M2/M3: permanent ban, DID keys, identity token, legacy Easy curv
     await expect(relayGaslessTrade(await wire())).resolves.toMatchObject({ success: true });
     expect(privyFetch).not.toHaveBeenCalled();
   });
-  it("KV-cached legacy status refuses with no on-chain curveOf/loginGate/mode read", async () => {
+  it("KV status from an older Easy entry (login:0x<curve>) no longer refuses; the curve is reused for the fill check (no curveOf)", async () => {
     const curve = "0x00000000000000000000000000000000000000c1";
-    h.mget.mockImplementation(async (ks: string[]) => ks.map(k => k === marketStatusKey(coin) ? `${MARKET_LOGIN}:${curve}` : null));
-    const forbidden = new Set(["curveOf", "loginGate", "mode"]);
+    h.mget.mockImplementation(async (ks: string[]) => ks.map(k => k === marketStatusKey(coin) ? `login:${curve}` : null));
     h.read.mockImplementation(async ({ functionName }: { functionName: string }) => {
-      if (forbidden.has(functionName)) throw new Error(`should not read ${functionName} when market status is in KV`);
-      if (functionName === "graduated") return false;   // still fresh: graduation is not immutable
-      return 0n;
+      if (functionName === "curveOf" || functionName === "loginGate" || functionName === "mode") throw new Error(`should not read ${functionName}`);
+      return functionName === "graduated" ? false : 0n;
     });
     gaslessMarketCache.clear();
-    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, code: LEGACY_PVE_CODE, message: LEGACY_LOGIN_MESSAGE });
+    await expect(relayGaslessTrade(await wire())).resolves.toMatchObject({ success: true });
     expect(h.read).not.toHaveBeenCalledWith(expect.objectContaining({ functionName: "curveOf" }));
     expect(h.read).not.toHaveBeenCalledWith(expect.objectContaining({ functionName: "loginGate" }));
     expect(h.read).not.toHaveBeenCalledWith(expect.objectContaining({ functionName: "mode" }));
-    expect(h.budget).not.toHaveBeenCalled(); expect(h.send).not.toHaveBeenCalled();
-  });
-  it("legacy Easy/PvE curve is refused before simulation with no budget/send", async () => {
-    const curve = "0x00000000000000000000000000000000000000c1", gate = DEPLOYMENTS[46630].loginGate;
-    h.read.mockImplementation(async ({ functionName }: { functionName: string }) => {
-      if (functionName === "curveOf") return curve;
-      if (functionName === "loginGate") return gate;
-      if (functionName === "mode") return 1;
-      if (functionName === "graduated") return false;
-      return 0n;
-    });
-    gaslessMarketCache.clear();
-    await expect(assertGaslessMarket(coin, true)).rejects.toMatchObject({ code: LEGACY_PVE_CODE, message: LEGACY_LOGIN_MESSAGE });
-    h.call.mockClear(); h.budget.mockClear(); h.send.mockClear();
-    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, code: LEGACY_PVE_CODE, message: LEGACY_LOGIN_MESSAGE });
-    expect(h.call).not.toHaveBeenCalled(); noChargeOrSend();
+    expect(h.call).toHaveBeenCalledTimes(1); expect(h.budget).toHaveBeenCalledTimes(1); expect(h.send).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("existing curves (still check LoginGate on-chain)", () => {
+describe("every coin uses the gasless path (lee Nov 12: no older-coin refusals)", () => {
+  // FSF1 shape: v6 Easy curve, loginGate() = v6 LoginGate, mode() = 1, not graduated.
+  const curve = "0x0cfbb7b54a94b8b7c36759c2f61b536f61d33a3d" as Address, gate = "0xd19e138851fb4de489a4de81531f813081a143a7";
+  const easyReads = () => h.read.mockImplementation(async ({ functionName }: { functionName: string }) => {
+    if (functionName === "curveOf") return curve;
+    if (functionName === "loginGate") return gate;
+    if (functionName === "mode") return 1;
+    if (functionName === "graduated") return false;
+    return 0n;
+  });
+  it("new ungraduated Easy coin (loginGate set, mode 1) ⇒ admitted: exact sim, budget, one relayer send", async () => {
+    easyReads(); gaslessMarketCache.clear();
+    const r = await relayGaslessTrade(await wire());
+    expect(r).toMatchObject({ kind: "confirmed", success: true });
+    expect(h.call).toHaveBeenCalledTimes(1); expect(h.budget).toHaveBeenCalledTimes(1); expect(h.send).toHaveBeenCalledTimes(1);
+    // No loginGate()/mode() pre-check at all; the curve is persisted for the fill check only.
+    expect(h.read).not.toHaveBeenCalledWith(expect.objectContaining({ functionName: "loginGate" }));
+    expect(h.read).not.toHaveBeenCalledWith(expect.objectContaining({ functionName: "mode" }));
+    expect(h.set).toHaveBeenCalledWith(marketStatusKey(coin), `none:${curve.toLowerCase()}`);
+  });
+  it("a second buy of the same Easy coin is admitted again (no cached refusal)", async () => {
+    easyReads(); gaslessMarketCache.clear();
+    await expect(relayGaslessTrade(await wire())).resolves.toMatchObject({ success: true });
+    await expect(relayGaslessTrade(await wire())).resolves.toMatchObject({ success: true });
+    expect(h.send).toHaveBeenCalledTimes(2);
+  });
+  it("still needs the Privy identity token and the $3 minimum on an Easy coin", async () => {
+    easyReads(); gaslessMarketCache.clear();
+    await expect(relayGaslessTrade(await wire(), { idToken: null })).rejects.toMatchObject({ notSent: true });
+    await expect(relayGaslessTrade(await wire({ amountIn: 2_000_000n }))).rejects.toMatchObject({ notSent: true });
+    expect(h.budget).not.toHaveBeenCalled(); expect(h.send).not.toHaveBeenCalled();
+  });
+  it("graduated curve observed by the fill check is persisted as grad:0x<curve>", async () => {
+    h.read.mockImplementation(async ({ functionName }: { functionName: string }) => functionName === "curveOf" ? curve : functionName === "graduated" ? true : 0n);
+    gaslessMarketCache.clear();
+    await expect(relayGaslessTrade(await wire())).resolves.toMatchObject({ success: true });
+    expect(h.set).toHaveBeenCalledWith(marketStatusKey(coin), `grad:${curve.toLowerCase()}`);
+  });
+});
+
+describe("sim-time backstop: a curve that still reverts NotVerified()", () => {
   it("existing Easy curve, wallet without a LoginGate attestation ⇒ exact sim reverts NotVerified ⇒ clear notSent, no budget/send", async () => {
     h.call.mockRejectedValue(Object.assign(new Error("execution reverted"), { walk: (f: (x: unknown) => boolean) => f({ data: NOT_VERIFIED_SELECTOR }) }));
     await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true, message: LEGACY_LOGIN_MESSAGE, data: NOT_VERIFIED_SELECTOR });
@@ -339,21 +362,6 @@ describe("client sends the Privy session", () => {
     expect(seen[0]?.["privy-id-token"]).toBe("tok.en.x"); expect(seen[1]?.["privy-id-token"]).toBeUndefined();
   });
 });
-
-describe("login relay (LoginGate.attest for a no-ETH EOA) — OFF by default, TODO delete", () => {
-  it("off unless GASLESS_LOGIN_RELAY=1 ⇒ refused notSent, nothing read or sent", async () => {
-    await expect(relayGaslessLogin({ wallet: user.address, expiry: NOW + 7200, signature: `0x${"11".repeat(65)}` })).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("login relay is off") });
-    expect(h.call).not.toHaveBeenCalled(); expect(h.send).not.toHaveBeenCalled();
-  });
-  it("bad attestation shape refused before RPC; per-wallet limit applies (when explicitly enabled)", async () => {
-      vi.stubEnv("GASLESS_LOGIN_RELAY", "1");
-      await expect(relayGaslessLogin({ wallet: user.address, expiry: NOW + 999_999_999, signature: `0x${"11".repeat(65)}` })).rejects.toThrow("bad expiry");
-      h.incr.mockResolvedValue(4);
-      await expect(relayGaslessLogin({ wallet: user.address, expiry: NOW + 7200, signature: `0x${"11".repeat(65)}` })).rejects.toMatchObject({ notSent: true });
-      expect(h.send).not.toHaveBeenCalled();
-  });
-});
-
 
 describe("included revert strike policy (trader-caused only)", () => {
   it("a revert that is not the trader's fault (Slippage) does not strike; the next trade is admitted", async () => {

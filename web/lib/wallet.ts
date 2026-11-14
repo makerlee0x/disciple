@@ -212,21 +212,3 @@ export async function execGasless(a: { coin: Address; isBuy: boolean; amountIn: 
     throw new AAError("Estimate", e.message, { revertData: e.data.revert, notSent: true });
   }
 }
-/** TODO(lee): DELETE with disciple_gaslessLogin (server relay is OFF; login is checked off-chain from the Privy session).
- *  No longer called by the trade path. Gasless mode login: LoginGate must verify the owner EOA (relay admission). Attestation from /api/pve/attest (Privy
- *  auth), relayed by disciple_gaslessLogin (no ETH needed). No-op while verified. */
-export async function ensureGaslessLogin(): Promise<void> {
-  const owner = gaslessSigner();
-  if (!owner) throw new SignInRequired();
-  const { createPublicClient, http, decodeFunctionData } = await import("viem");
-  const { ensurePveLogin } = await import("./pve");
-  const { loginGateAbi } = await import("./abi");
-  const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
-  const calls = await ensurePveLogin(pc as never, owner.address);
-  if (!calls.length) return;
-  const { args } = decodeFunctionData({ abi: loginGateAbi, data: calls[0].data }) as { args: readonly [Address, bigint, Hex] };
-  const r = await fetch("/api/gasless", { method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_gaslessLogin", params: [{ wallet: args[0], expiry: Number(args[1]), signature: args[2] }] }) });
-  const j = await r.json().catch(() => ({})) as { result?: { success?: boolean }; error?: { message?: string } };
-  if (!j.result?.success) throw Object.assign(new Error(j.error?.message ?? "login relay failed"), { code: "PveAttestFailed" });
-}

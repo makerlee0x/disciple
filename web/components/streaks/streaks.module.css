@@ -1,0 +1,36 @@
+/* Steady-hand streaks (main mode hook loop mockup board, maker 2026-11-13). Brand v3 tokens. Phone column, centred. */
+.page { max-width: 480px; margin: 0 auto; padding: 24px 16px calc(96px + var(--ap-safe-bottom, 0px)); box-sizing: border-box; display: flex; flex-direction: column; gap: 16px;
+  color: #D7D9E4; font-family: var(--dsc-font-ui); min-height: calc(100vh - 80px); }
+.h1 { margin: 0; font: 800 40px/0.95 var(--dsc-font-game); color: #FFF6DC; text-transform: uppercase; }
+.lede { margin: 0; font-size: 14px; line-height: 1.45; color: #9EA3B5; }
+.loading { height: 260px; border-radius: 18px; background: rgba(22,24,28,.5); border: 1px solid #2E323A; }
+.card { padding: 18px; border-radius: 18px; background: linear-gradient(160deg, #1F2228 0%, #16181C 100%); border: 1px solid #2E323A; display: flex; flex-direction: column; gap: 10px; }
+.cardGold { border-color: rgba(243,223,168,.35); gap: 14px; }
+.small { padding: 16px 18px; gap: 0; }
+.top { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.eb { font: 500 12px var(--dsc-font-mono); color: #9EA3B5; text-transform: uppercase; }
+.ebGold { color: #F3DFA8; }
+.big { font: 800 56px/0.9 var(--dsc-font-game); color: #FFF6DC; margin-top: 6px; }
+.mid { font-size: 40px; }
+.best { text-align: right; font-size: 12px; color: #9EA3B5; }
+.rule { font-size: 13px; color: #9EA3B5; }
+.strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.dayCol { text-align: center; }
+.pill { height: 34px; border-radius: 8px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; }
+.pDone { background: #F2C14E; }
+.pPaused { border: 2px dashed #44D4E2; color: #44D4E2; }
+.pToday { border: 1px solid #F2C14E; background: rgba(242,193,78,.15); }
+.pOpen { border: 1px dashed #F2C14E; }
+.pMissed { background: #1A1B22; border: 1px solid #2E323A; }
+.dayLbl { font-size: 11px; color: #9EA3B5; margin-top: 4px; }
+.lblInfo { color: #44D4E2; }
+.lblNow { color: #FFF6DC; }
+.shield { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 12px; background: rgba(68,212,226,.08); border: 1px solid rgba(68,212,226,.35); color: #44D4E2; }
+.shield div { font-size: 13px; color: #D7D9E4; line-height: 1.4; }
+.done, .todo { flex: none; font: 500 11px var(--dsc-font-mono); padding: 4px 8px; border-radius: 6px; }
+.done { background: rgba(95,240,160,.14); color: #5FF0A0; }
+.todo { background: rgba(242,193,78,.12); color: #F2C14E; text-decoration: none; }
+.todo:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+.xp { font-size: 14px; color: #D7D9E4; margin-top: 8px; line-height: 1.5; }
+.grow { flex-grow: 1; }
+.note { margin: 0; font-size: 11px; line-height: 1.4; color: #7D8296; }

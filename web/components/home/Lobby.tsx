@@ -18,6 +18,8 @@ import { blankXp, usePilotWallet, useXp } from "@/lib/xpClient";
 import Icon from "@/components/icons/Icon";
 import MissionsPanel from "@/components/xp/MissionsPanel";
 import LiveCard from "./LiveCard";
+import { CrewAboardProvider } from "@/components/crew/CrewAboard";
+import AwayCard from "@/components/push/AwayCard";
 import { flightHref, lit, Mark, orbitPct, pct } from "./rocketBits";
 import s from "./lobby.module.css";
 
@@ -118,8 +120,12 @@ export default function Lobby({ initial: init, hero }: { initial: HomeData; hero
   const orbit = useMemo(() => nearOrbit(coins), [coins]);
   const fresh = useMemo(() => freshOffPad(coins), [coins]);
 
+  const crewCoins = useMemo(() => climbing.map((c) => c.token), [climbing]);
+
   return (
+    <CrewAboardProvider wallet={wallet ?? null} coins={crewCoins}>
     <div className={s.lobby} data-testid="lobby">
+      <AwayCard wallet={wallet ?? null} />
       <div className={s.doors}>
         {hero}
         <div className={s.side}>
@@ -190,6 +196,7 @@ export default function Lobby({ initial: init, hero }: { initial: HomeData; hero
         </header>
       )}
     </div>
+    </CrewAboardProvider>
   );
 }
 

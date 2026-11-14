@@ -24,7 +24,7 @@ import { LOCALES, REVIEW_STATUS, useT, type I18nKey } from "@/lib/game/i18n";
 import { previewBlip } from "@/lib/game/audio";
 
 type Tab = "share" | "hotkeys" | "audio" | "lang" | "display" | "controls";
-const TABS: [Tab, I18nKey][] = [["share", "sec.share"], ["hotkeys", "sec.hotkeys"], ["audio", "sec.audio"], ["lang", "sec.lang"], ["display", "sec.display"], ["controls", "sec.controls"]];
+const TABS: [Tab, I18nKey][] = [["audio", "sec.audio"], ["share", "sec.share"], ["hotkeys", "sec.hotkeys"], ["lang", "sec.lang"], ["display", "sec.display"], ["controls", "sec.controls"]];
 type Slot = { kind: "buy" | "sell"; i: number };
 const typing = (t: EventTarget | null) => { const e = t as HTMLElement | null; return !!e && !!e.tagName && (e.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.tagName)); };
 const GOLD = "#ffe7a3", INK = "#fff7df", DIM = "rgba(220,228,255,.62)";
@@ -35,7 +35,7 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
   const gs = useGameSettings();
   const ctl = useControlsFeed();
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<Tab>("share");
+  const [tab, setTab] = useState<Tab>("audio");   // maker, Nov 13: sound first, so it is not a hunt
   const [listen, setListen] = useState<Slot | null>(null);
   const [note, setNote] = useState("");
   const [share, setShare] = useState<ShareTarget | null>(null);

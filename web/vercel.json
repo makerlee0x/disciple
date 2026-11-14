@@ -3,6 +3,7 @@
   "crons": [
     { "path": "/api/cron/poke-pricer", "schedule": "* * * * *" },
     { "path": "/api/cron/name-lock", "schedule": "*/5 * * * *" },
-    { "path": "/api/cron/achievements", "schedule": "*/2 * * * *" }
+    { "path": "/api/cron/achievements", "schedule": "*/2 * * * *" },
+    { "path": "/api/cron/push", "schedule": "*/5 * * * *" }
   ]
 }
