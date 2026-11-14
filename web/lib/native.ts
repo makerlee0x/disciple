@@ -174,6 +174,10 @@ export function installNativeShell(navigate: (path: string) => void): () => void
   const keep = (l: Promise<Listener> | Listener | undefined) => { if (l) void Promise.resolve(l).then((x) => subs.push(x)).catch(() => {}); };
   try { document.documentElement.dataset.native = cap()?.getPlatform?.() || "ios"; } catch { /* ignore */ }
 
+  // the launch screen (moon) covers the load; drop it once the page has painted
+  const splash = nativePlugin<{ hide(o?: { fadeOutDuration?: number }): Promise<void> }>("SplashScreen");
+  requestAnimationFrame(() => requestAnimationFrame(() => void splash?.hide({ fadeOutDuration: 250 }).catch(() => {})));
+
   const bar = nativePlugin<{ setStyle(o: { style: string }): Promise<void> }>("StatusBar");
   void bar?.setStyle({ style: "DARK" }).catch(() => {});
 

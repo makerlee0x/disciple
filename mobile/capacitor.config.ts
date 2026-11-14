@@ -47,7 +47,9 @@ const config: CapacitorConfig = {
     limitsNavigationsToAppBoundDomains: false,
   },
   plugins: {
-    SplashScreen: { launchShowDuration: 600, launchAutoHide: true, backgroundColor: "#0B0C0E", showSpinner: false },
+    // The moon stays up while disciple.vip loads (no black screen); the site hides it as soon as it has painted
+    // (web/lib/native.ts installNativeShell). 8 s is only the fallback if the site never says so.
+    SplashScreen: { launchShowDuration: 8000, launchAutoHide: true, launchFadeOutDuration: 250, backgroundColor: "#0B0C0E", showSpinner: false },
     StatusBar: { style: "DARK", overlaysWebView: true },
     PushNotifications: { presentationOptions: ["badge", "sound", "alert"] },
   },
