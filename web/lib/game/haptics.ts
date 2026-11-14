@@ -16,7 +16,7 @@
 import { getGameSettings } from "./settings";
 import { isNativeApp, nativeHaptic } from "../native";
 
-export type HapticKind = "tap" | "select" | "boost" | "dump" | "fill" | "fail" | "zone" | "hit" | "orbit" | "celebrate" | "hold";
+export type HapticKind = "tap" | "select" | "boost" | "dump" | "fill" | "fail" | "zone" | "hit" | "orbit" | "celebrate" | "hold" | "trick";
 
 export const HAPTIC_PATTERNS: Record<HapticKind, number | number[]> = {
   tap: 6,
@@ -30,9 +30,10 @@ export const HAPTIC_PATTERNS: Record<HapticKind, number | number[]> = {
   orbit: [20, 40, 60, 40, 90],
   celebrate: [12, 30, 12, 30, 40],
   hold: 3,
+  trick: [10, 30, 16],
 };
 /** Kinds that come from a finger on the glass (the only ones iPhone can tick for). */
-const TAP_KINDS = new Set<HapticKind>(["tap", "select", "boost", "dump", "hold"]);
+const TAP_KINDS = new Set<HapticKind>(["tap", "select", "boost", "dump", "hold", "trick"]);
 /** Engine sound cue → haptic. ignite carries the side; zone only buzzes on the way up. */
 export function kindForSfx(k: string, d?: { side?: string; up?: boolean }): HapticKind | null {
   switch (k) {
@@ -42,6 +43,7 @@ export function kindForSfx(k: string, d?: { side?: string; up?: boolean }): Hapt
     case "zone": return "zone";
     case "bomb": return "hit";
     case "orbit": return "orbit";
+    case "trick": return "trick";
     default: return null;
   }
 }

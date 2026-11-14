@@ -1312,6 +1312,7 @@ function onHotkey(e){
   if ((e.code==='ShiftLeft'||e.code==='ShiftRight')&&!mod){ if(!e.repeat){ if(!hasTokens()) noTokens(); else dispatchEvent(new CustomEvent('disciple:dump')); } return; }   // DUMP = sell the SELECTED % (TradeBridge sizes it from the ledger)
   const bi=HOTKEYS.buy.indexOf(e.code); if(bi>=0&&!mod){ if(!e.repeat){ S.mode=bi; S.pressFx={i:bi,t:S.t}; pushAmmo(); } return; }   // buy-preset key = SELECT only (SPACE / BOOST buys it)
   const si=HOTKEYS.sell.indexOf(e.code); if(si>=0&&!mod){ if(!e.repeat){ S.pressFx={i:6+si,t:S.t}; dispatchEvent(new CustomEvent('disciple:sellselect',{detail:{i:si}})); } return; }   // sell-size key = SELECT only (SHIFT / DUMP sells it)
+  if (!mod&&!e.repeat&&(e.code==='KeyQ'||e.code==='KeyE')){ trick(e.code==='KeyQ'?'spin':'flip'); return; }   /* @tricks (trade bindings above win) */
   if (e.code==='Equal'||e.code==='BracketRight'){ S.mode=Math.min(MODES.length-1,S.mode+1);  pushAmmo(); }
   if (e.code==='Minus'||e.code==='BracketLeft'){ S.mode=Math.max(0,S.mode-1);  pushAmmo(); }
   // A/D/←/→ (steer) and S/↓ (dive) are read from S.keys every sim step (hold-to-steer), not from key repeat.
@@ -1415,14 +1416,38 @@ function skyAt(x,y){ if(S.grass) return true; const P=phoneHud(W,CLEAN);
   return true; }
 cv.addEventListener('pointerdown',e=>{ if(!dragPointer(e)||S.menuOpen) return; const [x,y]=canvasXY(e);
   if(!skyAt(x,y)||(!S.grass&&(ammoAt(e)>=0||(typeof chartBtnAt==='function'&&chartBtnAt(e)!=null)))) return;
-  S.drag={id:e.pointerId,x0:x,sx:S.steer?S.steer.x:S.x,tx:null,on:false};
+  S.drag={id:e.pointerId,x0:x,y0:y,t0:performance.now(),dx:0,dy:0,sx:S.steer?S.steer.x:S.x,tx:null,on:false};
   try{ if(cv.setPointerCapture) cv.setPointerCapture(e.pointerId); }catch(_){} });
 cv.addEventListener('pointermove',e=>{ const d=S.drag; if(!d||e.pointerId!==d.id) return; if(S.menuOpen){ S.drag=null; return; }
-  const dx=canvasXY(e)[0]-d.x0; if(!d.on&&Math.abs(dx)<DRAG_SLOP) return; d.on=true;
+  const [mx,my]=canvasXY(e), dx=mx-d.x0; d.dx=dx; d.dy=my-d.y0; if(!d.on&&Math.abs(dx)<DRAG_SLOP) return; d.on=true;
   const m=steerMargin(W); d.tx=clamp(d.sx+dx,m,W-m); });
-function dragEnd(e){ const d=S.drag; if(d&&e.pointerId===d.id) S.drag=null; }
+function dragEnd(e){ const d=S.drag; if(!d||e.pointerId!==d.id) return; S.drag=null; if(e.type==='pointerup') trickGesture(d,e); }
 cv.addEventListener('pointerup',dragEnd); cv.addEventListener('pointercancel',dragEnd);
 /* @drag-steer-end */
+/* @tricks (maker 2026-11-14: bring the Trading duel's spin + flip into the main flight, phone and browser). Cosmetic only:
+   nothing trades, the altitude / PnL never move. Phone: a quick swipe UP on the sky = SPIN (barrel roll), a double-tap on the
+   sky = FLIP (a full loop about the body's middle). Desktop: Q = spin, E = flip (unless those keys are bound to a trade preset,
+   which wins). One trick at a time. Fires disciple:sfx 'trick' (sound + haptic on the page) and disciple:trick {kind}. */
+const TRICKS={spin:{dur:0.7,txt:'SPIN!',c:'#8FE3FF'},flip:{dur:0.85,txt:'FLIP!',c:'#F2C14E'}};
+S.trick=null; S.lastTap=0;
+function trickOn(){ const k=S.trick; return k&&S.t-k.t0<k.dur?k:null; }
+function trick(kind){ if(!TRICKS[kind]||S.menuOpen||trickOn()) return false;
+  const T=TRICKS[kind]; S.trick={kind,t0:S.t,dur:T.dur,dir:(S.steer&&S.steer.x<W/2)?-1:1};
+  const [nx,ny]=nozzleXY(); S.floaters.push({x:nx+70,y:ny-150,txt:T.txt,c:T.c,life:1.1,game:30});
+  sfx('trick',{kind}); try{ dispatchEvent(new CustomEvent('disciple:trick',{detail:{kind}})); }catch(_){} return true; }
+function trickGesture(d,e){ const dt=performance.now()-d.t0, dx=d.dx||0, dy=d.dy||0;
+  if(dy<-55&&Math.abs(dy)>Math.abs(dx)*1.3&&dt<450){ S.lastTap=0; trick('spin'); return; }
+  if(Math.abs(dx)<DRAG_SLOP&&Math.abs(dy)<DRAG_SLOP&&dt<250){ const now=performance.now();
+    if(now-S.lastTap<320){ S.lastTap=0; trick('flip'); } else S.lastTap=now; } }
+/* the trick's extra transform, applied after the rocket's own translate(nozzle) + rotate(heading) (pivot = nozzle, sprite spans
+   y ∈ [-pivotY, h-pivotY]). flip: one turn about the body's middle; spin: two barrel rolls (x-scale through cos). */
+function trickXform(h,pivotY){ const k=trickOn(); if(!k) return; const p=clamp((S.t-k.t0)/k.dur,0,1), e=p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+  if(k.kind==='flip'){ const cy=h/2-pivotY; ctx.translate(0,cy); ctx.rotate(k.dir*e*Math.PI*2); ctx.translate(0,-cy); }
+  else { const c=Math.cos(e*Math.PI*4); ctx.scale(Math.abs(c)<.08?.08*(Math.sign(c)||1):c,1); } }
+function drawTrickRing(x,y,h){ const k=trickOn(); if(!k) return; const p=(S.t-k.t0)/k.dur;
+  ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=0.6*(1-p); ctx.strokeStyle=k.kind==='spin'?'rgba(143,227,255,1)':'rgba(242,193,78,1)';
+  ctx.lineWidth=4*(1-p)+1; ctx.beginPath(); ctx.arc(x,y-h*0.45,30+90*p,0,6.2832); ctx.stroke(); ctx.restore(); }
+/* @tricks-end */
 addEventListener('resize',resize); addEventListener('apsidebar',()=>requestAnimationFrame(resize)); resize();
 
 const IMG={}; let loaded=0; const SKY_SRC=Object.fromEntries(TIERS.map(t=>[t.bg,t.sky]));   // tier plates load from TIERS[i].sky (lib/flight/tiers.ts)
@@ -1820,7 +1845,7 @@ function drawRocket(dt){
   const TS=thrusterSprites(sigOn()?S.sig.id:null), HOT=TS.hot, COLD=TS.cold, FIRE_SPR=TS.fire, CORE_SPR=TS.core;   /* loadout thruster (stock = original sprites) */
   { const P=S.particles; for (let i=0;i<P.n;i++){ const p=P.a[i]; ctx.globalAlpha=clamp(0.32*p.life,0,1); blit(p.hot?HOT:COLD,p.x,p.y,p.s*(1.3-p.life*0.3)); } }
   // FLAME CONE — stretched hot sprites along the engine axis; length = volume / speed / climb, flickers, sputters
-  { ctx.save(); ctx.translate(x,y); ctx.rotate(ang); const pendPulse=tradePendingFx()?1+0.12*Math.abs(Math.sin(S.t*10)):1; const L=(34+170*flame)*(0.85+0.3*flick)*TS.l*FXT*pendPulse, Wf=(20+12*flame)*TS.w*pendPulse;
+  { ctx.save(); ctx.translate(x,y); ctx.rotate(ang); trickXform(h,pivotY); const pendPulse=tradePendingFx()?1+0.12*Math.abs(Math.sin(S.t*10)):1; const L=(34+170*flame)*(0.85+0.3*flick)*TS.l*FXT*pendPulse, Wf=(20+12*flame)*TS.w*pendPulse;
     ctx.globalAlpha=clamp(0.55+0.4*flame,0,0.95); ctx.drawImage(FIRE_SPR,-Wf/2,-Wf*0.25,Wf,L);
     ctx.globalAlpha=clamp(0.5+0.5*flame,0,1); ctx.drawImage(CORE_SPR,-Wf*0.28,-Wf*0.15,Wf*0.56,L*0.55);
     // shock diamonds on a strong burn
@@ -1834,16 +1859,17 @@ function drawRocket(dt){
   ctx.restore();
   { const ig=S.ignite, u=ig?(S.t-ig.t)/0.5:9; if(u<1){ ctx.save(); ctx.globalAlpha=0.75*(1-u)*(1-u);   /* @ignite shock ring */
       ctx.strokeStyle=ig.side==='buy'?'rgba(243,223,168,1)':'rgba(240,48,127,1)'; ctx.lineWidth=2.5*(1-u)+0.5; ctx.beginPath(); ctx.ellipse(x,y+6,14+64*u,5+20*u,ang,0,6.2832); ctx.stroke(); ctx.restore(); } }
-  // rocket — rotate about nozzle (aft). Nose leads; body trails. No center-spin / scaleX barrel-roll.
+  drawTrickRing(x,y,h);
+  // rocket — rotate about nozzle (aft). Nose leads; body trails. Spin / flip only as a player trick (@tricks).
   if(im.complete&&!im.bad){
     const ow=Math.ceil(w), oh=Math.ceil(h), RB=rocketSprite(im,ow,oh), P=RB.pad;
     // squash & stretch along the body: stretch on hard climbs, slight squash when sinking (≤6%)
     const st=clamp((S.vyS||0)/1400,-0.5,1)*0.06, sx=1-st*0.5, sy=1+st;
     // motion blur: two faint ghosts trailing along the velocity when fast
     const spd=Math.abs(S.vyS||0);
-    if (spd>260){ const bl=clamp((spd-260)/600,0,1); for(let k=2;k>=1;k--){ ctx.save(); ctx.globalAlpha=0.13*bl/k*FXH;
+    if (spd>260&&!trickOn()){ const bl=clamp((spd-260)/600,0,1); for(let k=2;k>=1;k--){ ctx.save(); ctx.globalAlpha=0.13*bl/k*FXH;
       ctx.translate(x, y+(S.vyS||0)*0.03*k); ctx.rotate(ang); ctx.scale(sx,sy); ctx.drawImage(RB.base,-w/2,-pivotY,w,h); ctx.restore(); } }
-    ctx.save(); ctx.translate(x,y); ctx.rotate(ang); ctx.scale(sx,sy);
+    ctx.save(); ctx.translate(x,y); ctx.rotate(ang); trickXform(h,pivotY); ctx.scale(sx,sy);
     // rim light from the sky colour: tinted silhouette offset toward the sky (up-left in world), additive
     const sky=skyNow(), RL=rimSprite(RB,ow,oh,sky); const lx=-1.6*Math.cos(ang)+1.6*Math.sin(ang), ly=-1.6*Math.sin(ang)-1.6*Math.cos(ang);
     ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=0.85; ctx.drawImage(RL,-w/2+lx*1.5,-pivotY+ly*1.5,w,h); ctx.restore();
