@@ -81,6 +81,8 @@ function shade(o: SKRSContext2D, strength = 0.92) {
 async function brand(o: SKRSContext2D, y: number, size: number, color = "#E8EAEE") {
   const mark = await img("brand/disciple-mark-light.svg");
   if (mark) o.drawImage(mark, PAD, y - size * 0.82, size, size);
+  const word = await img("brand/disciple-wordmark-light-1200.png");   // brand E, the wide italic wordmark
+  if (word) { const h = size * 0.62, w = h * (word.width / word.height); o.drawImage(word, PAD + size + 12, y - size * 0.5 - h / 2, w, h); return; }
   o.fillStyle = color; o.font = `${size * 0.86}px ${F.g8}`; o.textBaseline = "alphabetic";
   o.fillText("DISCIPLE", PAD + size + 10, y);
 }

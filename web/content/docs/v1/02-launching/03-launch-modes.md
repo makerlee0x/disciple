@@ -7,11 +7,11 @@ section: Launching
 
 A launch mode sets the rules while a rocket is on its starting price path. People also call this path a bonding curve. The creator picks the mode at launch, and it can't be changed. The rules only apply before orbit. After a rocket reaches orbit, every rocket trades the same way on the open market on Uniswap.
 
-There are three modes: **Easy**, **Hard** and **Trench**. Easy is picked for you on the launch form.
+There are three modes: **Easy**, **Hard** and **Expert** (nicknamed Trench). On the launch form they're called **Difficulty**, and Easy is picked for you.
 
-![Holding caps by mode. On Easy, one wallet can hold 1% of a rocket at $3,333, rising to 3.33% at $33,333. On Hard, 3.33% rising to 7.77%. Trench has no cap.](/illustrations/docs/holding-caps.svg)
+![Holding caps by mode. On Easy, one wallet can hold 1% of a rocket at $3,333, rising to 3.33% at $33,333. On Hard, 3.33% rising to 7.77%. Expert has no cap.](/illustrations/docs/holding-caps.svg)
 
-| | **Easy** | **Hard** | **Trench** |
+| | **Easy** | **Hard** | **Expert** |
 |---|---|---|---|
 | Most one wallet can hold | 1% of the rocket at $3,333, rising to 3.33% at $33,333 | 3.33%, rising to 7.77% | No limit |
 | A BOOST over your limit | Fills up to your limit, and the rest of your money comes back | Same | No limit to hit |
@@ -31,9 +31,9 @@ There are three modes: **Easy**, **Hard** and **Trench**. Easy is picked for you
 
 Bigger positions and bigger swings. The holding limit grows from 3.33% to 7.77% as the rocket's value climbs. No sign-in check, no crew tip. The creator's First BOOST can be up to 3.33%.
 
-## Trench: no guardrails
+## Expert: no guardrails
 
-No holding limit and no sign-in check. Only the sniper tax applies. A private launch always uses Trench.
+No holding limit and no sign-in check. Only the sniper tax applies. A private launch always flies on Expert.
 
 ## Sniper tax: every mode
 
@@ -41,4 +41,4 @@ For the first 7 seconds after launch, BOOSTs pay a sniper tax: 99% at launch, 25
 
 ## Practice first
 
-[Free play](/docs/game/simulator) uses the same names, Easy, Hard and Expert. In Free play, the mode sets who you're flying against (the bots), not the rocket's rules. Free play doesn't use the holding limits or the crew tip. It's practice cash with no wallet.
+[Free play](/docs/game/simulator) uses the same names. In Free play, the mode sets who you're flying against (the bots), not the rocket's rules. Free play doesn't use the holding limits or the crew tip. It's practice cash with no wallet.

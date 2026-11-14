@@ -42,4 +42,4 @@ Bots only react to the public tape: your trades and your tramps and walls, each 
 
 ## Free play vs live rockets
 
-Live rockets use the same names, Easy, Hard and Trench (see [Launch modes](/docs/launch/modes)). On a live rocket, the mode sets the rocket's rules. In Free play, it sets who you're flying against. Free play doesn't use the holding limits or the crew tip.
+Live rockets use the same names, Easy, Hard and Expert (see [Launch modes](/docs/launch/modes)). On a live rocket, the mode sets the rocket's rules. In Free play, it sets who you're flying against. Free play doesn't use the holding limits or the crew tip.

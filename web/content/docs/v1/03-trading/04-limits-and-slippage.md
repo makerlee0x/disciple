@@ -10,7 +10,7 @@ section: Trading
 While a rocket is on its starting price path, there can be a limit on how much of it one wallet can hold.
 
 - **Easy and Hard rockets** have a holding limit that grows as the rocket's value climbs. See [Launch modes](/docs/launch/modes).
-- **Trench rockets** have no holding limit.
+- **Expert rockets** have no holding limit.
 - **After orbit** there's no holding limit on any rocket.
 - A BOOST that would take you over your limit fills up to the limit, and the rest of your money comes back.
 

@@ -63,6 +63,8 @@ export function allDocs(): DocMeta[] {
       const file = path.join(dir, f);
       const { data } = frontMatter(fs.readFileSync(path.join(ROOT, file), "utf8"));
       if (!data.slug || !data.slug.startsWith("/docs")) throw new Error(`docs: ${file} has no /docs slug`);
+      // `feature: real-progress` pages (e.g. Identities) stay out of the sidebar and 404 until that feature is live.
+      if (data.feature === "real-progress" && !REAL_PROGRESS_ENABLED) continue;
       out.push({ title: data.title || f, slug: data.slug.replace(/\/+$/, "") || "/docs", section: data.section || dir, file });
     }
   }

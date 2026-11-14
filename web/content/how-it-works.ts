@@ -44,7 +44,7 @@ export const HIW_PILOT = {
     { title: "Boost", body: "Pick an amount with 1 to 4, then hit Space. Your cash buys a seat and lifts the rocket." },
     { title: "Dump", body: "Pick how much with Z, X, C or V, then hit Shift. You get cash back and drop a bomb." },
   ],
-  phone: "On a phone, tap the amounts and the BOOST and DUMP buttons.",
+  phone: "On a phone, slide the throttle up to boost and down to dump.",
   rules: {
     eyebrow: "The rules",
     h2: "How you win",
@@ -100,6 +100,7 @@ export const HIW_PRO = {
     ] as [string, string, string, string][],
     overcap: ["Over-cap buys", "Partial fill, unused input refunded. No max buy or sell."] as [string, string],
   },
+  /** shown only when PRO_HUD_ENABLED (the Pro trader view is hidden for launch) */
   hud: {
     title: "Pro HUD",
     rows: [

@@ -1,24 +1,20 @@
 ---
-title: Crew and King of the Hill
+title: Crew
 slug: /docs/game/crew
 section: Game
 ---
-# Crew and King of the Hill
-
-## Crew
+# Crew
 
 Everyone who holds a rocket is aboard. That's its **crew**. Everyone aboard flies together: every BOOST lifts the same rocket, and every bomb lands on the same rocket.
 
-In flight, the crew panel shows:
+In flight, the crew feed shows:
 
+- **Trades**: every BOOST and DUMP as it lands.
+- **Chat**: talk to the crew while you fly. Press `Enter` to type.
 - **Holders**: who's aboard and how much they hold.
-- **Crew chat**: talk to the crew while you fly. Press `H` to switch between chat and holders.
-- **Your contribution**: what you've added.
 
-## King of the Hill
-
-**King of the Hill** ranks a rocket's top boosters by total BOOST volume in dollars. DUMPs don't lower your score. It sits in the flight view's side panel. *(Early version: the full-history ranking arrives with the indexer.)*
+Other pilots aboard also fly next to you as wingmen.
 
 ## Pilots
 
-Every trader is a **pilot**. Your profile shows your pilot stats, level, identity and milestones.
+Every trader is a **pilot**. Your Hangar shows your level, your rockets and your recent flights. See [Missions and XP](/docs/game/achievements).

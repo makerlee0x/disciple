@@ -19,7 +19,7 @@ See [Deposits, withdrawals and gas](/docs/funds).
 
 ## 3. Pick a rocket
 
-The **Launchpad** lists rockets. Open one to fly it. Flight is the screen for that rocket: the chart becomes the sky, and altitude is how high the rocket's value has climbed, shown as named tiers.
+The **Lobby** lists live rockets. Open one to fly it. Flight is the screen for that rocket: the chart becomes the sky, and altitude is how high the rocket's value has climbed, shown as named tiers.
 
 ## 4. BOOST
 
@@ -31,4 +31,8 @@ Pick a share of your bag (10%, 25%, 50% or 100%) and press **DUMP** (or `Shift`)
 
 ## Or launch your own
 
-Press **Launch a Rocket**. Give it a name, a ticker and a picture, pick a mode, and launch. See [Launch a rocket](/docs/launch).
+Press **Launch**. Give it a name, a ticker and a picture, pick a difficulty, and hit **Light the engines**. See [Launch a rocket](/docs/launch).
+
+## Or warm up first
+
+[Free play](/docs/game/simulator) is the same game with practice cash. No sign-in needed.
