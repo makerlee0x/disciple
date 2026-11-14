@@ -46,15 +46,14 @@ Every number in one place.
 | Parameter | Value |
 |---|---|
 | Smallest BOOST | $3 |
-| Creator launch buy (First BOOST) | Easy 1.2% · Hard 3.33% · Trench 7.77% (the team can lower the Trench limit, not raise it) |
+| Creator launch buy (First BOOST) | Easy 1.2% · Hard 3.33% · Expert 7.77% (the team can lower the Expert limit, not raise it) |
 | Extra holding limit on every new rocket | None (the team can set one, 0–100%) |
 | Router max price impact | 50% per trade (team can set 1–1,000%) |
-| Keeper tip (tramps and walls) | 0.1% (max 1%) |
 | Private launch fee | Set by the team, paid in USDG, up to $5 |
 
 ## Launch modes
 
-| | Easy | Hard | Trench |
+| | Easy | Hard | Expert |
 |---|---|---|---|
 | Holding limit | 1% → 3.33% as the rocket's value climbs | 3.33% → 7.77% | None |
 | BOOST over the limit | Partly filled, the rest refunded | Partly filled, the rest refunded | — |

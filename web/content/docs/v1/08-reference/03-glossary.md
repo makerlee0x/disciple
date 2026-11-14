@@ -29,14 +29,12 @@ section: Reference
 | **Free play** | The game with practice cash against bots: a daily flight and practice runs. |
 | **GRENADE** | A bomb with 2–5% price impact. |
 | **Holding limit** | The most one wallet can hold of a rocket before orbit. Set by the launch mode. |
-| **Identity** | A playstyle tag earned from your trades, like Believer or Trencher. |
-| **King of the Hill** | A rocket's top boosters, ranked by total BOOST volume. |
-| **Launch Pad** | The first named tier for how high a rocket's value has climbed ($3,333 to $12,000). Not the Launchpad page. |
-| **Launchpad** | The home page that lists rockets. |
-| **Launch mode** | Easy, Hard or Trench: a rocket's rules before orbit, picked at launch. |
+| **Launch Pad** | The first named tier for how high a rocket's value has climbed ($3,333 to $12,000). |
+| **Launch mode** | Easy, Hard or Expert: a rocket's rules before orbit, picked at launch as its difficulty. |
 | **LockedLP** | The contract that holds the liquidity after a rocket reaches orbit. It has no way to remove that liquidity. Liquidity is locked forever in the Uniswap v4 LP. |
-| **Near orbit** | A Launchpad filter for rockets at least 60% of the way to orbit. |
-| **Normie** | A pilot with no identity yet, and the prestige-0 label. |
+| **Lobby** | The home page that lists live rockets. |
+| **Near orbit** | A Lobby sort for rockets at least 60% of the way to orbit. |
+| **Normie** | The prestige-0 label. |
 | **NUKE** | A bomb with 25–50% price impact. |
 | **Orbit** | The moment the starting price path is finished and the rocket moves to the open market on Uniswap. That is a value of $33,333 with about 84% of the rocket bought. Liquidity is locked forever in the Uniswap v4 LP. |
 | **Outer Space** | The named tier where a rocket reaches orbit, starting at $33,333. |
@@ -45,15 +43,12 @@ section: Reference
 | **Price impact** | How far one trade moves the price, in %. |
 | **Private launch** | A launch where your name doesn't show as the creator. |
 | **PUFF** | The smallest bomb: under 2% price impact. |
-| **Rarity** | Common, Rare, Epic, Legendary or Mythic. One scale for milestones and rocket parts. |
-| **Rewards** | The chest on your profile. It shows what you've earned, including payouts made by hand, and lets you claim it. |
-| **XP** | Off-chain progress from missions and milestones. Levels you up and unlocks rocket parts. Not a token. |
+| **Rarity** | Common, Rare, Epic, Legendary or Mythic. The scale for milestones. |
+| **Rewards** | In your account menu. It shows what you've earned, including payouts made by hand, and lets you claim it. |
 | **Rocket** | The thing you launch on DISCIPLE. |
 | **Thrust** | The visual force of a BOOST. |
 | **Touch grass** | A calm flight view that shows only how high the rocket's value has climbed. |
-| **Tramp** | A buy waiting below the price, on a rocket that has reached orbit. |
-| **Trench** | The launch mode with no guardrails. In Free play, the hardest mode is called Expert. |
-| **Trencher** | A fast in-and-out trader. |
+| **Trench** | Nickname for Expert, the launch mode with no guardrails. |
 | **USDG** | A dollar stablecoin on Robinhood Chain. You BOOST with it, and DUMPs pay you in it. |
 | **Verified** | A checkmark the team grants after reviewing a rocket. |
-| **Wall** | A sell waiting above the price, on a rocket that has reached orbit. |
+| **XP** | Off-chain progress from missions and milestones. Levels you up and unlocks rocket looks. Not a token. |

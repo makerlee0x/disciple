@@ -22,7 +22,7 @@ Sign in with email, Google, X or a wallet. Then add cash from the cash button at
 ## Pairing
 
 **What coins can I pair with?**
-Right now, the launch form pairs new rockets with STRATEGY. Other pair coins are not available on the form yet. See [Pairing](/docs/launch/pairing).
+Any of the 12 on the launch form: STRATEGY, AI, SCHIFFY, BONER, MEME, MOO, PONS, ORBIO, HOOKR, CASHCAT, PRIORS and SPACEHOOD. STRATEGY is the default. See [Pairing](/docs/launch/pairing).
 
 **What does pairing do for my coin?**
 Your rocket is priced and traded in its base coin. When the rocket reaches orbit, the base is locked forever in the Uniswap v4 LP. Reaching orbit means the starting price path is finished and the rocket moves to the open market on Uniswap.
@@ -58,9 +58,6 @@ No. Rocket looks, tiers, bombs and XP are cosmetic or display only. A tier is a 
 It's the game with practice cash, flown against bots. You don't need a wallet, and nothing is sent onchain. Fly the daily flight or practice on Easy, Hard or Expert. Open it at `/flight/sim`. See [Free play](/docs/game/simulator).
 
 ## Safety
-
-**Is DISCIPLE audited?**
-Not yet. The contracts have had internal security reviews only, no third-party audit. A professional audit is required before mainnet.
 
 **Can the team pause trading?**
 No. There's no pause. The starting price path and the open market on Uniswap are always live.

@@ -38,6 +38,14 @@ export default function FirstRunHost() {
   const [cash, setCash] = useState<number | null>(null);
   const [cashCard, setCashCard] = useState(false);
   const [firstBoost, setFirstBoost] = useState(false);
+  // Lobby coach: on the signed-out landing the first screen is the hero (its own Play now), and a fixed pill there covered
+  // the hero's last line. Show it once the hero has scrolled away, or right away on the signed-in lobby (no landing hero).
+  const [coachRoom, setCoachRoom] = useState(false);
+  useEffect(() => {
+    const f = () => setCoachRoom(!document.getElementById("so-hero-title") || window.scrollY > window.innerHeight * 0.6);
+    f(); addEventListener("scroll", f, { passive: true }); const t = window.setInterval(f, 1500);
+    return () => { removeEventListener("scroll", f); clearInterval(t); };
+  }, [path]);
   // the phone flight HUD is up (PhoneHud sets html.ap-phone): a hub or loading screen on a game route doesn't count
   const [hud, setHud] = useState(false);
   useEffect(() => {
@@ -76,7 +84,7 @@ export default function FirstRunHost() {
 
   if (!phone && !phoneNow()) return null;
 
-  if (!game) return showPickCoach(run, true) && (path === "/" || path === "") ? (
+  if (!game) return showPickCoach(run, true) && (path === "/" || path === "") && coachRoom ? (
     <div className="fr-coach" role="status" data-testid="fr-coach"><span aria-hidden className="fr-dot" />Tap any rocket to jump in</div>
   ) : null;
 

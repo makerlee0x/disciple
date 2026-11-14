@@ -18,7 +18,7 @@ If you sign in with email, Google, or X, Privy creates a wallet inside the app f
 
 One-tap trading keeps an expiring permission in your browser, so a later BOOST or DUMP can be sent without asking you to approve every tap.
 
-To BOOST an Easy rocket, you need to be signed in with email, Google, or X. Signing in with a wallet alone does not pass that check. You can still DUMP without it. Easy, Hard, and Trench are the three modes a launcher picks when they create a rocket. The mode is fixed at launch.
+To BOOST an Easy rocket, you need to be signed in with email, Google, or X. Signing in with a wallet alone does not pass that check. You can still DUMP without it. Easy, Hard, and Expert are the three modes a launcher picks when they create a rocket. The mode is fixed at launch.
 
 You are responsible for your account, your devices, and anything done with them. Keep your login, and any recovery details you hold, private. We will never ask for your seed phrase, recovery phrase, or private keys.
 
@@ -48,7 +48,7 @@ Every BOOST and every DUMP pays a 1% fee.
 
 The person who launches a rocket can set a creator tax from 0% up to 7%. They choose it on the create page, and it does not change after launch. While the rocket is on its first market, that tax is taken from buys and sells on top of the 1% fee.
 
-On an Easy rocket, while it is still on its first market, a sell can also pay a crew tip of 0.777% of the amount that sell would pay you. The tip applies only when the profit on that sale is above a threshold set for that rocket. Hard and Trench do not charge this tip.
+On an Easy rocket, while it is still on its first market, a sell can also pay a crew tip of 0.777% of the amount that sell would pay you. The tip applies only when the profit on that sale is above a threshold set for that rocket. Hard and Expert do not charge this tip.
 
 In the first few seconds after a launch, a BOOST pays an extra tax that starts high and falls to nothing. The launcher's own first buy does not pay that extra tax.
 

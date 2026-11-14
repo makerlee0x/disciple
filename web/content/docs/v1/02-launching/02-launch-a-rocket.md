@@ -9,17 +9,18 @@ Anyone can launch. No permission needed.
 
 ## The form
 
-Press **Launch a Rocket** and fill in:
+Press **Launch** and fill in:
 
 | Field | Required | Notes |
 |---|---|---|
-| **Name** | Yes | Set for good at launch. |
-| **Ticker** | Yes | Your rocket's call sign, like $HALO. 1–10 letters or numbers. Set for good at launch. |
-| **Badge** | Yes | Your rocket's picture. DISCIPLE makes one for you, or you can upload your own. You can change it later. |
-| **Mode** | Yes | Easy, Hard or Trench. Easy is picked for you. Set for good at launch. See [Launch modes](/docs/launch/modes). |
-| **First BOOST** | No | Buy some of your own rocket at launch. See [Creator launch buy](/docs/launch/creator-buy). |
-| **Anon** switch | No | Launch without your name showing as the creator. See [Private launches](/docs/launch/pseudonymous). |
-| **Advanced** | No | The pair coin, links (X, website, Telegram), a creator tax of 0–7%, and who receives your creator fees. |
+| **Name it** | Yes | The name and ticker. The ticker is your rocket's call sign, like $HALO: 1–10 letters or numbers. Both are set for good at launch. |
+| **Badge** | Yes | Your rocket's picture. It goes on the hull. DISCIPLE makes one for you, or you can upload your own: PNG, JPG, WEBP or GIF, up to 2 MB. You can change it later. |
+| **Difficulty** | Yes | Easy, Hard or Expert. Easy is picked for you. Set for good at launch. See [Launch modes](/docs/launch/modes). |
+| **Your seat** | No | Your first boost: buy some of your own rocket at launch. See [Creator launch buy](/docs/launch/creator-buy). |
+| **Hide my name** | No | Launch without your name showing as the creator. See [Private launches](/docs/launch/pseudonymous). |
+| **More options** | No | The pair coin, links (X, website, Telegram), a creator tax of 0–7%, and who receives your creator fees. |
+
+Then press **Light the engines**.
 
 ## What happens when you launch
 

@@ -11,7 +11,7 @@ A creator tax is optional. It can be 0–7%, and you set it at launch, for good.
 |---|---|
 | Default | 0% |
 | Range | 0–7% |
-| Set | Once, at launch, under **Advanced** |
+| Set | Once, at launch, under **More options** |
 | Applies to | BOOSTs and DUMPs on the starting price path |
 | After the rocket reaches orbit | None |
 | Goes to | The creator |

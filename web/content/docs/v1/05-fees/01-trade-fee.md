@@ -43,7 +43,6 @@ A $100 BOOST pays a $1.00 fee:
 | Creator tax | BOOSTs and DUMPs before orbit only | 0–7%, set at launch | The creator |
 | Sniper tax | BOOSTs in a rocket's first 7 seconds (not the creator's First BOOST) | 99% at launch, 25% at 1 second, 3% at 2 seconds, nothing from 7 seconds | Locked liquidity if the rocket reaches orbit within 12 days of launch. Otherwise, community rewards. |
 | Crew tip | A DUMP on an Easy rocket, before orbit, at a profit above 0.5% of the rocket's value | 0.777% of what you get | The other holders |
-| Keeper tip | Closing a filled tramp or wall | 0.1% (up to 1%) | Whoever closes it |
 | Network fee | Withdrawals and claims | Shown in dollars before you confirm | The network |
 
 Trades have no separate gas cost. The network cost of a BOOST or DUMP is covered by the 1% trade fee.

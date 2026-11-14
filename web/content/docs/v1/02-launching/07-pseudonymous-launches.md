@@ -5,17 +5,15 @@ section: Launching
 ---
 # Private launches
 
-You can launch a rocket without your name showing as the creator. Turn on the **Anon** switch on the launch form, under First BOOST.
-
-The switch is called **Anon** when you launch with no First BOOST. If you add a First BOOST, it's called **Pseudo**, because your first buy can also be seen.
+You can launch a rocket without your name showing as the creator. Turn on **Hide my name** on the launch form, under Your seat. If you also make a first boost, that buy can be seen on the public record too.
 
 ## How it works
 
 - A launcher contract launches the rocket for you, so the contract shows as the creator, not you.
 - The creator role goes to a one-time address that only you control. DISCIPLE works it out from your wallet, so you can find your private rockets again from any device you sign in on.
-- Your creator fees are yours alone to claim. You can claim them from **Rewards** on your profile.
+- Your creator fees are yours alone to claim. You can claim them from **Rewards** in your account menu.
 - A small launch fee, paid in USDG, goes to the treasury. The team sets it, and it can't be more than $5.
-- A private launch always uses the Trench mode.
+- A private launch always flies on Expert.
 
 The fee split and creator tax work the same as on any other launch.
 

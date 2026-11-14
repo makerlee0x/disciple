@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Marked, type Tokens } from "marked";
 import { withBase } from "@/lib/base-path";
-import { REAL_PROGRESS_ENABLED } from "@/lib/features";
+import { REAL_PROGRESS_ENABLED, TRAMP_WALLS_ENABLED } from "@/lib/features";
 import { hideSeasonInDocs } from "@/lib/docs/hideSeason";
 
 const ROOT = path.join(process.cwd(), "content/docs/v1");
@@ -63,6 +63,9 @@ export function allDocs(): DocMeta[] {
       const file = path.join(dir, f);
       const { data } = frontMatter(fs.readFileSync(path.join(ROOT, file), "utf8"));
       if (!data.slug || !data.slug.startsWith("/docs")) throw new Error(`docs: ${file} has no /docs slug`);
+      // `feature: real-progress` pages (e.g. Identities) stay out of the sidebar and 404 until that feature is live.
+      if (data.feature === "real-progress" && !REAL_PROGRESS_ENABLED) continue;
+      if (data.feature === "tramp-walls" && !TRAMP_WALLS_ENABLED) continue;
       out.push({ title: data.title || f, slug: data.slug.replace(/\/+$/, "") || "/docs", section: data.section || dir, file });
     }
   }

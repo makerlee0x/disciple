@@ -124,7 +124,7 @@
 .modalPanel.wide { max-width: 720px; max-height: min(720px, 92dvh); padding: 16px 20px 20px; }
 .modalBody { overflow-y: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 14px; }
 .drawerHd { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; }
-.drawerHd h2 { font-family: var(--dsc-font-display, "Instrument Serif", serif); font-size: 22px; line-height: 1; font-weight: 400; margin: 0; }
+.drawerHd h2 { font: 800 24px/1 var(--dsc-font-game); text-transform: uppercase; margin: 0; }   /* brand v3 game type (was Instrument Serif) */
 .iconBtn { width: 32px; height: 32px; border: 0; color: var(--dsc-muted); background: none; cursor: pointer; display: inline-grid; place-items: center; }
 .pchips { display: flex; flex-wrap: wrap; gap: 8px; }
 .pchip { height: 32px; padding: 0 12px 0 8px; border-radius: 9999px; border: 1px solid var(--dsc-border); background: transparent; color: #B4B8C1; font: 500 13px/1 var(--dsc-font-ui); display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; cursor: pointer; }
@@ -206,3 +206,19 @@
   .fl { gap: 4px; }
 }
 
+
+/* More options on the Settings v2 shell (2026-11-14): the panel/header come from profile-r5.css (.p5-settings);
+   these scope the form's own groups to the same boxed, game-type look. */
+.moreModal { width: min(720px, 100%); max-height: min(820px, 92dvh); display: flex; flex-direction: column; }
+.moreModal .modalBody { gap: 18px; padding-right: 2px; }
+.moreModal .fl { gap: 10px; padding: 14px 16px; border: 1px solid #2A2E38; border-radius: 16px; background: rgba(8, 9, 14, .5); }
+.moreModal .lab { font: 700 14px/1 var(--dsc-font-game); letter-spacing: .12em; text-transform: uppercase; color: #9095A0; }
+.moreModal .help { font-size: 12px; line-height: 17px; color: #9095A0; }
+.moreModal .pchips { gap: 6px; }
+.moreModal .pchip, .moreModal .lchip { height: 36px; border-color: #2A2E38; background: rgba(8, 9, 14, .7); color: #BCC0CA; }
+.moreModal .pchip[aria-selected="true"] { border-color: rgba(243, 223, 168, .55); color: #F3DFA8; background: rgba(243, 223, 168, .08); }
+.moreModal .feeCard { --card-bg: rgba(8, 9, 14, .7); border-color: #2A2E38; border-radius: 14px; }
+.moreModal .feeCard.on { --card-bg: rgba(243, 223, 168, .06); border-color: rgba(243, 223, 168, .55); box-shadow: none; }
+.moreModal .inp { border-color: #2A2E38; background: rgba(8, 9, 14, .7); border-radius: 10px; }
+@media (max-width: 720px) { .moreModal { max-height: none; } }
+.moreModal .feeCard { aspect-ratio: auto; min-height: 148px; }
