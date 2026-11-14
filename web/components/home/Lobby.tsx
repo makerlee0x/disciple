@@ -20,6 +20,7 @@ import MissionsPanel from "@/components/xp/MissionsPanel";
 import LiveCard from "./LiveCard";
 import { CrewAboardProvider } from "@/components/crew/CrewAboard";
 import AwayCard from "@/components/push/AwayCard";
+import { CREW_ENABLED, LOGBOOK_ENABLED } from "@/lib/features";
 import { flightHref, lit, Mark, orbitPct, pct } from "./rocketBits";
 import s from "./lobby.module.css";
 
@@ -123,9 +124,9 @@ export default function Lobby({ initial: init, hero }: { initial: HomeData; hero
   const crewCoins = useMemo(() => climbing.map((c) => c.token), [climbing]);
 
   return (
-    <CrewAboardProvider wallet={wallet ?? null} coins={crewCoins}>
+    <CrewAboardProvider wallet={wallet ?? null} coins={CREW_ENABLED ? crewCoins : []}>
     <div className={s.lobby} data-testid="lobby">
-      <AwayCard wallet={wallet ?? null} />
+      {LOGBOOK_ENABLED && <AwayCard wallet={wallet ?? null} />}
       <div className={s.doors}>
         {hero}
         <div className={s.side}>

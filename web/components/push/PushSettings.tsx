@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Icon, { type IconName } from "@/components/icons/Icon";
 import { privyAccessToken } from "@/lib/aa/sessionState";
+import { CREW_ENABLED } from "@/lib/features";
 import { PUSH_KINDS, pushCopy, type PushKind, type PushPrefs } from "@/lib/push";
 
 type State = { configured: boolean; publicKey: string | null; prefs: PushPrefs; devices: number };
@@ -82,7 +83,7 @@ export default function PushSettings({ wallet }: { wallet: string | null }) {
           {supported && <button type="button" className="p5-btn sm" disabled={busy} onClick={() => void (here ? turnOff() : turnOn())} data-testid="settings-alerts-device">{here ? PUSH_SETTINGS_COPY.off : PUSH_SETTINGS_COPY.on}</button>}
         </div>
         {err && <span className="p5-err" role="alert">{err}</span>}
-        {PUSH_KINDS.map((x) => (
+        {PUSH_KINDS.filter((x) => CREW_ENABLED || x.k !== "crew").map((x) => (
           <div className="p5-srow" key={x.k}>
             <span className="p5-sic"><Icon name={KIND_ICON[x.k] ?? "bell"} size={18} /></span>
             <div className="tx"><b>{x.label}</b><span>{x.help}</span></div>

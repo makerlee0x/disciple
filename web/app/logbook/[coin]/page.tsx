@@ -1,3 +1,5 @@
+import { notFound } from "next/navigation";
+import { LOGBOOK_ENABLED } from "@/lib/features";
 import RocketStory from "@/components/logbook/RocketStory";
 
 export const metadata = { title: "Rocket story · DISCIPLE" };
@@ -7,6 +9,7 @@ export function generateStaticParams() {
 }
 
 export default async function Page({ params }: { params: Promise<{ coin: string }> }) {
+  if (!LOGBOOK_ENABLED) notFound();
   const { coin } = await params;
   return <RocketStory coin={coin.toLowerCase()} />;
 }

@@ -5,6 +5,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { REF_COOKIE, REF_TTL_MS, parseRef } from "@/lib/referral";
 import { resolveFly } from "@/lib/server/fly";
+import { CREW_ENABLED } from "@/lib/features";
 import { SITE_ORIGIN, isPreviewBot, previewPage } from "@/lib/server/og/botPage";
 
 export const runtime = "nodejs";
@@ -13,7 +14,8 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest, { params }: { params: Promise<{ user: string; coin: string }> }) {
   const { user, coin } = await params;
   const r = await resolveFly(user, coin).catch(() => null);
-  const to = new URL(r ? `/fly?u=${encodeURIComponent(r.username ?? r.wallet)}&c=${r.view.coin}` : "/", req.url);
+  // Crew off (until after launch): the invite still credits the inviter, then opens the rocket itself.
+  const to = new URL(!r ? "/" : CREW_ENABLED ? `/fly?u=${encodeURIComponent(r.username ?? r.wallet)}&c=${r.view.coin}` : `/coin/${r.view.coin}`, req.url);
   if (isPreviewBot(req.headers.get("user-agent"))) {
     const o = SITE_ORIGIN;
     return previewPage({

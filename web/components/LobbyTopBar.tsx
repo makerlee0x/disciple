@@ -13,22 +13,21 @@ import { aaSession, hasSavedSession, onPrivy, onSessionChange, privyAuthenticate
 import { WALLET_ID_EVENT, walletId } from "@/lib/walletCta";
 import LevelChip from "@/components/xp/LevelChip";
 import Icon, { type IconName } from "@/components/icons/Icon";
+import HelpButton from "@/components/HelpButton";
 
-// icons show only in the phone bottom tab bar (≤760px, mobile plan option A); desktop keeps the text tabs
-// you: signed-in only. outPhone: on phones, signed-out only (round 2 Quick help board: How to play is the 4th phone tab
-// for signed-out pilots; signed-in phones keep their five tabs).
-// deskOnly: desktop text tabs only (the phone bottom bar keeps its five; Logbook and Crew open from the Hangar there).
-type Tab = { href: string; key: string; label: string; icon: IconName; you?: boolean; outPhone?: boolean; deskOnly?: boolean };
+// Top bar nav option A (board "Top bar: fewer tabs", maker picked A 2026-11-14): desktop has three doors, Lobby, Launch
+// and Top pilots. Hangar and Missions + trophies live in the pilot menu (AccountMenu); How to play is the "?" (HelpButton).
+// Phones keep four bottom tabs: signed in the 4th is Hangar, signed out it is How to play.
+// icons show only in the phone bottom tab bar (≤760px); desktop keeps the text tabs.
+// phone: phone bottom bar only. you: signed-in only. out: signed-out only.
+type Tab = { href: string; key: string; label: string; icon: IconName; phone?: boolean; you?: boolean; out?: boolean };
 
 const TABS: readonly Tab[] = [
   { href: "/", key: "lobby", label: "Lobby", icon: "home" },
   { href: "/create", key: "launch", label: "Launch", icon: "rocket" },
-  { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot", you: true },
-  { href: "/logbook", key: "logbook", label: "Logbook", icon: "rocket", you: true, deskOnly: true },
-  { href: "/crew", key: "crew", label: "Crew", icon: "pilot", you: true, deskOnly: true },
-  { href: "/leaderboard", key: "leader", label: "Leaderboard", icon: "leaderboard" },
-  { href: "/achievements", key: "trophies", label: "Trophies", icon: "achievement", you: true },
-  { href: "/how-it-works", key: "hiw", label: "How to play", icon: "info", outPhone: true },
+  { href: "/leaderboard", key: "leader", label: "Top pilots", icon: "leaderboard" },
+  { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot", phone: true, you: true },
+  { href: "/how-it-works", key: "hiw", label: "How to play", icon: "info", phone: true, out: true },
 ];
 
 export default function LobbyTopBar() {
@@ -60,12 +59,11 @@ export default function LobbyTopBar() {
   }, []);
 
   const isOn = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
-  const tabs = TABS.filter((t) => !t.you || you);
 
   const nav = (dock: boolean) => (
     <nav className={`lb-tabs${dock ? " lb-dock" : " lb-top"}`} aria-label="Main">
-      {tabs.map((t) => (
-        <Link key={t.key} href={t.href} className={`${isOn(t.href) ? "on" : ""}${t.outPhone ? " lb-outphone" : ""}${t.deskOnly ? " lb-deskonly" : ""}`} aria-current={isOn(t.href) ? "page" : undefined} data-testid={t.key === "hiw" && !dock ? "topbar-hiw" : undefined}>
+      {TABS.filter((t) => (dock || !t.phone) && (!t.you || you) && (!t.out || !you)).map((t) => (
+        <Link key={t.key} href={t.href} className={isOn(t.href) ? "on" : undefined} aria-current={isOn(t.href) ? "page" : undefined}>
           <Icon name={t.icon} size={22} className="lb-ico" />
           <span className="lb-lbl">{t.label}</span>
         </Link>
@@ -80,6 +78,7 @@ export default function LobbyTopBar() {
         <img className="lb-lockup" src="/brand/disciple-lockup-horizontal-light.svg" alt="DISCIPLE" width={141} height={30} />
       </Link>
       {nav(false)}
+      {!you && <HelpButton className="lb-help-out" />}
       {!you && (
         <Link href="/play" prefetch={false} className="lb-playnow" data-testid="topbar-play">Play now</Link>
       )}
