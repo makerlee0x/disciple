@@ -44,10 +44,24 @@ for (const f of files) {
   ok(existsSync(p) && statSync(p).size > 100_000, `asset present: ${f}`);
 }
 
+const cineFiles = [
+  "viento-desierto.m4a", "vasta-negativa.m4a", "empty-night-city.m4a",
+  "mist-of-the-elvendeep.m4a", "northern-silence.m4a",
+];
+const cineDir = join(web, "public/audio/radio/cinematic");
+for (const f of cineFiles) {
+  const p = join(cineDir, f);
+  ok(existsSync(p) && statSync(p).size > 100_000, `asset present: ${f}`);
+}
+
 // ---- helpers ------------------------------------------------------------------------
 const { nextTrackIndex, radioShouldPlay, STATIONS, HOUSE_STATION, DEFAULT_STATION_ID, stationOf } = await import("../lib/game/stations.ts");
 ok(DEFAULT_STATION_ID === "house" && stationOf("missing").id === "house", "unknown station ids fall back to house");
-ok(HOUSE_STATION.tracks.length === 7 && STATIONS.house === HOUSE_STATION, "V1 ships one station, house, with 7 tracks");
+ok(HOUSE_STATION.tracks.length === 7 && STATIONS.house === HOUSE_STATION, "house still has 7 tracks");
+ok(STATIONS.cinematic?.id === "cinematic" && STATIONS.cinematic.label === "Cinematic" && STATIONS.cinematic.tracks.length === 5,
+  "Cinematic is a second station with 5 tracks");
+ok(STATIONS.cinematic.tracks.map((tr) => tr.title).join("|") === "Viento Desierto|Vasta Negativa|Empty Night City|Mist of the Elvendeep|Northern Silence",
+  "Cinematic track titles are the names lee sent, in that order");
 ok(nextTrackIndex(0, 7) === 1 && nextTrackIndex(6, 7) === 0, "playlist index wraps: last track → first");
 ok(radioShouldPlay(0.5, false) === false, "no play before unlock, even if music is on");
 ok(radioShouldPlay(0, true) === false, "no play when music level is 0 (muted or volume 0)");
@@ -152,9 +166,11 @@ made.length = 0;
 
 // ---- skip / pause / shuffle / repeat / station picker --------------------------------
 const { shuffledOrder, identityOrder, stepTrack, stationList } = await import("../lib/game/stations.ts");
-ok(stationList().length === 1 && stationList()[0].id === "house" && stationList()[0].label === "House",
-  "the station picker reads STATIONS: one station today, labeled House");
+ok(stationList().length === 2 && stationList()[0].id === "house" && stationList()[0].label === "House"
+  && stationList()[1].id === "cinematic" && stationList()[1].label === "Cinematic",
+  "the station picker reads STATIONS: House and Cinematic");
 ok(HOUSE_STATION.tracks.every((tr) => typeof tr.title === "string" && tr.title.length > 0), "every house track has a title");
+ok(STATIONS.cinematic.tracks.every((tr) => typeof tr.title === "string" && tr.title.length > 0), "every cinematic track has a title");
 
 const shuf = shuffledOrder(7, () => 0.99, 2);
 ok(shuf.length === 7 && new Set(shuf).size === 7 && shuf[0] === 2, "shuffle is a permutation and can keep the current track first");
