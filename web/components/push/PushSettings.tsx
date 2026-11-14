@@ -4,11 +4,14 @@
  * (lib/push PUSH_KINDS: only orbit is on by default). At most 3 a day. Hidden until the server has VAPID keys.
  */
 import { useCallback, useEffect, useState } from "react";
+import Icon, { type IconName } from "@/components/icons/Icon";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import { PUSH_KINDS, pushCopy, type PushKind, type PushPrefs } from "@/lib/push";
 
 type State = { configured: boolean; publicKey: string | null; prefs: PushPrefs; devices: number };
 const SW = "/push-sw.js", SCOPE = "/push-sw/";
+/** row icons in the Settings v2 layout */
+const KIND_ICON: Partial<Record<PushKind, IconName>> = { orbit: "altitude", host: "rocket", crew: "crew" };
 const keyBytes = (b64u: string) => { const s = atob(b64u.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64u.length + 3) % 4)); return Uint8Array.from(s, (c) => c.charCodeAt(0)); };
 
 export const PUSH_SETTINGS_COPY = {
@@ -74,12 +77,14 @@ export default function PushSettings({ wallet }: { wallet: string | null }) {
       <span className="gh">{PUSH_SETTINGS_COPY.group}</span>
       <div className="p5-sbox">
         <div className="p5-srow">
+          <span className="p5-sic"><Icon name="bell" size={18} /></span>
           <div className="tx"><b>{PUSH_SETTINGS_COPY.device}</b><span>{supported ? PUSH_SETTINGS_COPY.deviceHelp : PUSH_SETTINGS_COPY.unsupported}</span></div>
           {supported && <button type="button" className="p5-btn sm" disabled={busy} onClick={() => void (here ? turnOff() : turnOn())} data-testid="settings-alerts-device">{here ? PUSH_SETTINGS_COPY.off : PUSH_SETTINGS_COPY.on}</button>}
         </div>
         {err && <span className="p5-err" role="alert">{err}</span>}
         {PUSH_KINDS.map((x) => (
           <div className="p5-srow" key={x.k}>
+            <span className="p5-sic"><Icon name={KIND_ICON[x.k] ?? "bell"} size={18} /></span>
             <div className="tx"><b>{x.label}</b><span>{x.help}</span></div>
             <button type="button" role="switch" aria-checked={st.prefs[x.k]} aria-label={x.label} className={`p5-switch${st.prefs[x.k] ? " on" : ""}`} data-testid={`settings-alert-${x.k}`} onClick={() => void flip(x.k)}><span /></button>
           </div>

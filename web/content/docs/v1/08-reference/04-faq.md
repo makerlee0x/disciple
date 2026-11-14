@@ -54,8 +54,8 @@ Every DUMP drops one. Its size is set by price impact, from PUFF (under 2%) to A
 **Do upgrades or tiers change my trades?**
 No. Rocket looks, tiers, bombs and XP are cosmetic or display only. A tier is a named step for how high a rocket's value has climbed. They never change the price, the trade, or the odds.
 
-**What is the Simulator?**
-Free paper trading against bots on a private market, with no wallet and no transactions. Pick PvE, PvP or Trench Warfare. Open it at `/flight/sim`. See [Simulator](/docs/game/simulator).
+**What is Free play?**
+It's the game with practice cash, flown against bots. You don't need a wallet, and nothing is sent onchain. Fly the daily flight or practice on Easy, Hard or Expert. Open it at `/flight/sim`. See [Free play](/docs/game/simulator).
 
 ## Safety
 

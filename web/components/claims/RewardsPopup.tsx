@@ -14,7 +14,6 @@ import type { Hex } from "viem";
 import Sheet from "@/components/profile/Sheet";
 import Icon from "@/components/icons/Icon";
 import PairArt from "@/components/pairart/PairArt";
-import { ChestGlyph } from "@/components/profile/Glyphs";
 import { moneyParts, usd2 } from "@/components/profile/money";
 import { useCoinIcons } from "@/lib/useCoinIcons";
 import { deposit, depositNeeded, unlockLabel, unlocked, withdraw, withdrawCall } from "@/lib/claims/referralGate";
@@ -41,10 +40,18 @@ const T = {
   week: "this week",
   copy: "Copy",
   copied: "Copied",
-  tabs: { referral: ["Referral rewards", "Referral"], rocket: ["Rocket rewards", "Rockets"], history: ["History", "History"] },
+  ready: "Ready to claim",
+  allTime: "earned all time",
+  claim: "Claim",
+  tabs: { rocket: ["Rockets", "Rockets"], referral: ["Friends", "Friends"], history: ["History", "History"] },
+  friends: "Friends", hosting: "Hosting",
+  invitedN: (n: number) => `${n} invited`,
+  rocketsN: (n: number) => `${n} ${n === 1 ? "rocket" : "rockets"}`,
+  inviteLink: "Your invite link",
+  inviteHint: "You earn a cut of every trade your friends make",
   fromFriends: "Earned from friends",
   invited: "Friends invited",
-  creator: "Creator", creatorSub: "rockets you launched",
+  creator: "Host", creatorSub: "rockets you launched",
   crew: "Crew", crewSub: "rockets you hold",
   empty: "Nothing yet. Share your link to earn from friends' trades.",
   noRockets: "No rocket rewards yet.",
@@ -90,7 +97,7 @@ function Big({ v }: { v: number }) {
 
 export default function RewardsPopup({ open, onClose, r }: { open: boolean; onClose: () => void; r: Rewards }) {
   const { me, caps, demo, data, gate, username, canClaim } = r;
-  const [tab, setTab] = useState<Tab>("referral");
+  const [tab, setTab] = useState<Tab>("rocket");
   const [copied, setCopied] = useState("");
   // combined claim
   const [claimOpen, setClaimOpen] = useState(false);
@@ -106,7 +113,7 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
   const nowSec = Math.floor(Date.now() / 1000);
   const icons = useCoinIcons(open ? (data?.rockets ?? []).map((x) => x.token) : []);
 
-  useEffect(() => { if (open) { setTab("referral"); setCopied(""); } }, [open]);
+  useEffect(() => { if (open) { setTab("rocket"); setCopied(""); } }, [open]);
 
   useEffect(() => {
     if (!claimOpen || !data || !me || !clientGaslessMode() || done) return;
@@ -172,34 +179,39 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
   });
   const claimAllCash = !!data && data.claim.crew.length === 0 && data.claim.creator.every((x) => isCashAsset(x.quote) && !(x.tokenSide && x.tokenSide.claimable > BigInt(0)));
   const creatorUsd = s?.byKind.creator.earnedUsd ?? 0, crewUsd = s?.byKind.crew.earnedUsd ?? 0, refUsd = s?.byKind.referral.earnedUsd ?? 0;
+  const nRockets = (k: "creator" | "crew") => (data?.rockets ?? []).filter((x) => x.kind === k).length;
+  const tiles = kinds.map((k) => k === "referral" ? { k, label: T.friends, usd: refUsd, sub: T.invitedN(data?.friendsInvited ?? 0) }
+    : k === "creator" ? { k, label: T.hosting, usd: creatorUsd, sub: T.rocketsN(nRockets("creator")) }
+    : { k, label: T.crew, usd: crewUsd, sub: T.rocketsN(nRockets("crew")) });
 
   return (
     <Sheet open={open} onClose={() => { if (claimOpen) { setClaimOpen(false); return; } if (sheet) { setSheet(null); return; } onClose(); }} label={T.title} className="p5-modal p5-rewards" testId="rewards-popup">
       <header className="p5-mhead">
+        <button type="button" className="p5-icon p5-phone" aria-label="Back" onClick={onClose}><Icon name="chevron-left" size={20} /></button>
         <h2>{T.title}<SampleTag show={demo} /></h2>
         <div className="p5-mhead-acts">
-          <button type="button" className="p5-btn sm" onClick={share} disabled={!link} data-testid="rewards-share"><Icon name="share" size={16} /> {copied === "share" ? T.linkCopied : T.share}</button>
-          <button type="button" className="p5-icon" aria-label="Close" onClick={onClose}><Icon name="close" size={18} /></button>
+          <button type="button" className="p5-btn sm" onClick={share} disabled={!link} aria-label={T.share} data-testid="rewards-share"><Icon name="share" size={16} /> <span className="p5-desk">{copied === "share" ? T.linkCopied : T.share}</span></button>
+          <button type="button" className="p5-icon p5-desk" aria-label="Close" onClick={onClose}><Icon name="close" size={18} /></button>
         </div>
       </header>
 
-      <div className="p5-rw-hero" data-testid="rewards-total">
-        <span className="p5-l">{T.total}</span>
-        {s ? <Big v={s.totalUsd} /> : <span className="p5-skel big" />}
-        {s && <span className="p5-week" data-testid="rewards-week"><b>+{usd2(s.weekUsd)}</b> {T.week}</span>}
-        {canClaim && (
-          <button type="button" className="p5-btn gold wide" data-testid="claim-all-rewards"
-            onClick={() => { setErr(null); setDone(null); setFeeNote(null); setClaimOpen(true); }}>
-            <ChestGlyph size={18} /> Claim{claimUsd > 0 ? ` ${usd2(claimUsd)}` : ""}
-          </button>
-        )}
-        {data?.referralPaused && <p className="p5-fine" data-testid="referral-sink-note">{T.paused}</p>}
+      {/* Rewards v2 (Hangar popups v2 board): the claim leads, then where the money came from */}
+      <div className="p5-rw-claim" data-testid="rewards-total">
+        <div className="tx">
+          <span className="k">{T.ready}</span>
+          {s ? <Big v={claimUsd} /> : <span className="p5-skel big" />}
+          {s && <span className="sub"><span data-testid="rewards-total-usd">{usd2(s.totalUsd)}</span> {T.allTime} · <b className="up" data-testid="rewards-week">+{usd2(s.weekUsd)} {T.week}</b></span>}
+        </div>
+        <button type="button" className="p5-rw-go" disabled={!canClaim} data-testid="claim-all-rewards"
+          onClick={() => { setErr(null); setDone(null); setFeeNote(null); setClaimOpen(true); }}>{T.claim}</button>
       </div>
+      {data?.referralPaused && <p className="p5-fine" data-testid="referral-sink-note">{T.paused}</p>}
 
-      <div className="p5-ref" data-testid="referral-link">
-        <span className="u">{me ? refLabel(username || null, me, typeof window !== "undefined" ? window.location.host : undefined) : "disciple.vip/r/you"}</span>
-        <button type="button" className="p5-btn sm" onClick={copy} disabled={!link} data-testid="copy-ref"><Icon name="copy" size={16} /> {copied === "link" ? T.copied : T.copy}</button>
-      </div>
+      {tiles.length > 0 && <div className="p5-rw-tiles" style={{ gridTemplateColumns: `repeat(${Math.max(1, tiles.length)}, minmax(0, 1fr))` }}>
+        {tiles.map((x) => (
+          <div key={x.k} className="p5-rw-tile" data-testid={`rewards-tile-${x.k}`}><span className="k">{x.label}</span><b>{s ? usd2(x.usd) : "—"}</b><span>{x.sub}</span></div>
+        ))}
+      </div>}
 
       <div className="p5-tabs3" role="tablist" aria-label="Rewards">
         {(Object.keys(T.tabs) as Tab[]).map((k) => (
@@ -216,6 +228,11 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
             <div><span className="p5-l">{T.invited}</span><span className="p5-v" data-testid="referral-friends">{data?.friendsInvited ?? "—"}</span></div>
           </div>
           {data && refUsd < 0.005 && <p className="p5-fine" data-testid="rewards-empty">{T.empty}</p>}
+        </div>
+      )}
+
+      {tab === "history" && (
+        <div className="p5-tabbody" data-testid="rewards-history">
           {caps.referralGate && gate && (
             <div className="p5-card p5-deposit" data-testid="referral-deposit">
               <span className="p5-l">Referral deposit</span>
@@ -248,15 +265,21 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
               </div>
             </div>
           )}
+          {!data ? <span className="p5-skel" /> : data.history.length ? (
+            <ul className="p5-hist">
+              {data.history.map((h) => (
+                <li key={`${h.kind}${h.day}`} data-kind={h.kind}>
+                  <span className="n"><b>{REWARD_LABEL[h.kind]}</b><span>{dayLabel(h, nowSec)}</span></span>
+                  <span className="v up">+{usd2(h.usd)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="p5-fine">{T.noHistory}</p>}
         </div>
       )}
 
       {tab === "rocket" && (
         <div className="p5-tabbody" data-testid="rewards-rocket">
-          <div className="p5-mini">
-            <div><span className="p5-l"><Icon name="rocket" size={14} /> {T.creator} · {T.creatorSub}</span><span className="p5-v">{s ? usd2(creatorUsd) : "—"}</span></div>
-            <div><span className="p5-l"><Icon name="crew" size={14} /> {T.crew} · {T.crewSub}</span><span className="p5-v">{s ? usd2(crewUsd) : "—"}</span></div>
-          </div>
           {data && (data.rockets.length ? (
             <ul className="p5-plist">
               {data.rockets.map((x) => (
@@ -272,20 +295,13 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
         </div>
       )}
 
-      {tab === "history" && (
-        <div className="p5-tabbody" data-testid="rewards-history">
-          {!data ? <span className="p5-skel" /> : data.history.length ? (
-            <ul className="p5-hist">
-              {data.history.map((h) => (
-                <li key={`${h.kind}${h.day}`} data-kind={h.kind}>
-                  <span className="n"><b>{REWARD_LABEL[h.kind]}</b><span>{dayLabel(h, nowSec)}</span></span>
-                  <span className="v up">+{usd2(h.usd)}</span>
-                </li>
-              ))}
-            </ul>
-          ) : <p className="p5-fine">{T.noHistory}</p>}
+      <div className="p5-rw-invite">
+        <span className="lab">{T.inviteLink} <em>{T.inviteHint}</em></span>
+        <div className="p5-ref" data-testid="referral-link">
+          <span className="u">{me ? refLabel(username || null, me, typeof window !== "undefined" ? window.location.host : undefined) : "disciple.vip/r/you"}</span>
+          <button type="button" className="p5-btn sm" onClick={copy} disabled={!link} data-testid="copy-ref"><Icon name="copy" size={16} /> {copied === "link" ? T.copied : T.copy}</button>
         </div>
-      )}
+      </div>
 
       {claimOpen && data && (
         <div className="p5-inner cs-over">

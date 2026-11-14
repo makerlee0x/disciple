@@ -19,10 +19,10 @@ export const EDIT_COPY = {
   addBanner: "Add a banner",
   bio: "Bio",
   bioPlaceholder: "Tell people who you are.",
-  x: "X",
-  xConnect: "Connect your X account",
+  x: "X account",
+  xConnect: "Not linked",
   xButton: "Connect X",
-  save: "Save",
+  save: "Save changes",
   changePicture: "Change picture",
   changeBanner: "Change banner",
   removeBanner: "Remove banner",
@@ -39,8 +39,12 @@ const same = (a: ProfileMeta, b: ProfileMeta) =>
  * signed write (/api/profile/meta). Desktop modal / phone bottom sheet (Sheet).
  * X: link / unlink a verified X account through X's own OAuth (components/profile/XLinkControl, /api/x).
  */
-export default function EditProfileSheet({ open, onClose, wallet, meta, focus }: {
+export default function EditProfileSheet({ open, onClose, wallet, meta, focus, handle, level }: {
   open: boolean; onClose: (saved?: boolean) => void; wallet: string | null; meta: ProfileMeta; focus?: "bio" | null;
+  /** the name on the banner now, shown in the cockpit strip until a new call sign is typed */
+  handle?: string;
+  /** "Level 13 · Ace" under the name in the cockpit strip */
+  level?: string;
 }) {
   const [draft, setDraft] = useState<ProfileMeta>(EMPTY_META);
   const [busy, setBusy] = useState<"" | "pfp" | "banner" | "save">("");
@@ -91,10 +95,27 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
   const img = pfpUrl(draft.pfp);
   return (
     <Sheet open={open} onClose={tryClose} label={EDIT_COPY.title} className="p5-modal p5-edit" testId="edit-profile">
-      <header className="p5-mhead">
-        <h2>{EDIT_COPY.title}</h2>
-        <button type="button" className="p5-icon" aria-label="Close" onClick={tryClose}><Icon name="close" size={18} /></button>
+      {/* the cockpit strip (Hangar popups v2): your picture and name the way they look on your banner */}
+      <header className="p5-epstrip">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="bg" src={withBase("/hangar/cockpit-1200.webp")} alt="" aria-hidden />
+        <span className="sc" aria-hidden />
+        <button type="button" className="p5-icon p5-phone" aria-label="Back" onClick={tryClose}><Icon name="chevron-left" size={20} /></button>
+        <h2 className="k">{EDIT_COPY.title}</h2>
+        <button type="button" className="p5-icon p5-desk" aria-label="Close" onClick={tryClose}><Icon name="close" size={18} /></button>
+        {!confirm && <div className="who">
+          <button type="button" className="p5-epfp hg-epfp" aria-label={EDIT_COPY.changePicture} disabled={!!busy} onClick={() => pfpFile.current?.click()} data-testid="edit-pfp">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {img ? <img src={withBase(img)} alt="" width={84} height={84} /> : <IdentitySigil id={NO_IDENTITY.primary.id} size={44} tip={false} />}
+            <span className="pen">{busy === "pfp" ? "…" : <PencilGlyph size={14} />}</span>
+          </button>
+          <div className="nm">
+            <b>{uname.name ? uname.name : (handle || "").replace(/^@/, "")}</b>
+            {level && <span>{level}</span>}
+          </div>
+        </div>}
       </header>
+      <input ref={pfpFile} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => void pick("pfp", e.target.files?.[0])} data-testid="pfp-file" />
 
       {confirm ? (
         <div className="p5-confirm" role="alertdialog" aria-label={C["edit.discard.title"]}>
@@ -106,29 +127,13 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
         </div>
       ) : (
         <form className="p5-edit-body" onSubmit={(e) => { e.preventDefault(); if (dirty && valid && !busy) void save(); }}>
-          <input ref={pfpFile} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => void pick("pfp", e.target.files?.[0])} data-testid="pfp-file" />
-          <div className="hg-epic">
-            <button type="button" className="p5-epfp hg-epfp" aria-label={EDIT_COPY.changePicture} disabled={!!busy} onClick={() => pfpFile.current?.click()} data-testid="edit-pfp">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              {img ? <img src={withBase(img)} alt="" width={80} height={80} /> : <IdentitySigil id={NO_IDENTITY.primary.id} size={44} tip={false} />}
-              <span className="pen">{busy === "pfp" ? "…" : <PencilGlyph size={16} />}</span>
-            </button>
-            <div className="hg-epic-tx">
-              <button type="button" className="p5-btn sm" disabled={!!busy} onClick={() => pfpFile.current?.click()}>{EDIT_COPY.changePicture}</button>
-              <span>{C["edit.pfp.helper"]}</span>
-            </div>
-          </div>
-
           <UsernameField u={uname} disabled={!!busy} />
 
           <label className="p5-fld">
-            <span className="lab">{EDIT_COPY.bio}</span>
+            <span className="lab">{EDIT_COPY.bio} <em className={bioLen > BIO_MAX ? "bad" : ""}>{bioLen} / {BIO_MAX}</em></span>
             <textarea ref={bioRef} className="p5-inp ta" rows={3} maxLength={BIO_RAW_MAX} value={draft.bio} placeholder={EDIT_COPY.bioPlaceholder}
               onChange={(e) => setDraft((d) => ({ ...d, bio: e.target.value.replace(/[\r\n]+/g, " ") }))} data-testid="edit-bio" />
-            <span className="p5-help-row">
-              {bioLen > BIO_MAX ? <span className="p5-err" role="alert">{C["edit.bio.error.length"]}</span> : <span />}
-              <span className={`p5-count ${bioLen > BIO_MAX ? "bad" : ""}`}>{bioLen}/{BIO_MAX}</span>
-            </span>
+            {bioLen > BIO_MAX && <span className="p5-err" role="alert">{C["edit.bio.error.length"]}</span>}
           </label>
 
           <XLinkControl wallet={wallet} btnClass="p5-btn sm" render={({ handle, action, note }) => (
@@ -144,7 +149,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
           )} />
 
           {err && <p className="p5-err" role="alert">{err}</p>}
-          <button type="submit" className="p5-btn primary wide" disabled={!dirty || !valid || !!busy}>{busy === "save" ? C["edit.saving"] : EDIT_COPY.save}</button>
+          <button type="submit" className="p5-btn primary wide p5-gold" disabled={!dirty || !valid || !!busy}>{busy === "save" ? C["edit.saving"] : EDIT_COPY.save}</button>
         </form>
       )}
     </Sheet>

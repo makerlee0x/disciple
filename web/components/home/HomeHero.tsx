@@ -11,7 +11,6 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { TIERS } from "@/lib/config";
 import { withBase } from "@/lib/base-path";
 import { ROCKET_SRC, type HomeData } from "@/lib/home/trending";
 import Icon from "@/components/icons/Icon";
@@ -24,6 +23,9 @@ const LAUNCH_HREF = "/create";
 /** Tileable film grain (BRAND home-hero layers r1), overlay at .3; loaded after paint. */
 const GRAIN_SRC = "/home/pad/grain.webp";
 const baseSet = (list: string) => list.split(", ").map((e) => { const [u, w] = e.split(" "); return `${withBase(u)} ${w}`; }).join(", ");
+
+/** "$880K", "$622.6K", "$1.2M" */
+const short = (v: number) => { const [d, u] = v >= 1e9 ? [1e9, "B"] : v >= 1e6 ? [1e6, "M"] : v >= 1e3 ? [1e3, "K"] : [1, ""]; return `$${(v / d).toFixed(v >= 1e3 ? 1 : 0).replace(/\.0$/, "")}${u}`; };
 
 export default function HomeHero({ data: initial }: { data: HomeData }) {
   const router = useRouter();
@@ -72,8 +74,10 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
     launchTimer.current = setTimeout(() => router.push(LAUNCH_HREF), LIFTOFF_MS);
   };
 
-  const flying = data.coins.filter((c) => !c.graduated).length;
   const first = data.coins.length === 0;
+  // live facts (maker 2026-11-13: not "18 tiers / 1 flying"): the highest rocket right now and what traded in the last 24h
+  const top = data.coins.reduce<HomeData["coins"][number] | null>((b, c) => (!b || c.mcapUsd > b.mcapUsd ? c : b), null);
+  const vol24 = data.coins.reduce((a, c) => a + (c.stats?.vol24 ?? 0), 0);
 
   return (
     <>
@@ -94,9 +98,10 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
           <div className={s.grain} style={go ? { backgroundImage: `url(${withBase(GRAIN_SRC)})` } : undefined} aria-hidden />
           <div className={s.scrim} aria-hidden />
           <div className={s.panel}>
-            <span className={s.step}>{first ? "Be the first" : "Step one"}</span>
-            <h1 id="lobby-launch-title" className={`dsc3-hero ${s.title}`}>Launch<br />a rocket</h1>
-            <p className={s.lede}>You light the engines. The crew does the climbing.</p>
+            {first && <span className={s.step}>Be the first</span>}
+            {/* the X header's line (maker 2026-11-13) */}
+            <h1 id="lobby-launch-title" className={`dsc3-hero ${s.title}`}>To the<br />moon</h1>
+            <p className={s.lede}>Every coin is a rocket. Launch yours and the crew flies it up.</p>
             <div className={s.actions}>
               <Link href={LAUNCH_HREF} className="dsc3-btn dsc3-btn-primary dsc3-btn-lg" onMouseEnter={warm} onFocus={warm} onPointerDown={warm} onClick={liftOff} data-testid="lobby-start-launch">
                 Start a launch <Icon name="chevron-right" size={20} />
@@ -104,8 +109,8 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
               <Link href="/how-it-works" className={`dsc3-btn dsc3-btn-ghost ${s.ghostLg}`}>How to play</Link>
             </div>
             <dl className={s.facts}>
-              <div><dt>{TIERS.length} tiers</dt><dd>from the pad to Seventh Heaven</dd></div>
-              {flying > 0 && <div><dt>{flying.toLocaleString("en-US")} flying</dt><dd>{flying === 1 ? "rocket" : "rockets"} on the climb</dd></div>}
+              {top && <div><dt>{short(top.mcapUsd)}</dt><dd>${top.ticker} is the highest rocket</dd></div>}
+              {vol24 >= 1 && <div><dt>{short(vol24)}</dt><dd>traded in the last 24 hours</dd></div>}
             </dl>
           </div>
         </div>

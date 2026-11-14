@@ -327,7 +327,7 @@ export default function FlightCanvas({ search }: Props) {
       <HudModeToggle sim={!isSimulator ? sim : null} onSim={toggleSim} />
       <FlightSfx />
       <DraftXp coin={(() => { const c = new URLSearchParams(search).get("coin") || ""; return /^0x[0-9a-fA-F]{40}$/.test(c) ? c : null; })()} />
-      <FlightObjectives replay={isReplay} practice={isSimulator} />
+      {!isSimulator && <FlightObjectives replay={isReplay} practice={false} />}
       {!isReplay && <FlightLog coin={/^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") ? (q0.get("coin") as string) : null} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} practice={isSimulator} />}
       <FlightPath />
       <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />

@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import SimMode from "@/components/sim/SimMode";
 
-/** /flight/sim — SIMULATOR game mode (free paper trading on a local market; no wallet, no transactions).
+/** /flight/sim — Free play (free paper trading on a local market; no wallet, no transactions).
  *  ?difficulty=pve|pvp|trench  ?seed=N|text  ?speed=1|2|4  ?minutes=N  ?balance=N  ?tune=1  ?autostart=1  ?daily=1 (today's Daily flight)  ?c=runId[&d=day] (fly a challenger's ghost) */
 function Inner() {
   const sp = useSearchParams();
@@ -13,5 +13,5 @@ function Inner() {
     challenge: sp.get("c") || undefined, challengeDay: +(sp.get("d") || 0) || undefined }} />;
 }
 export default function SimPage() {
-  return <Suspense fallback={<div className="flex h-screen items-center justify-center text-[#ffe7a3]">Loading simulator…</div>}><Inner /></Suspense>;
+  return <Suspense fallback={<div className="flex h-screen items-center justify-center text-[#ffe7a3]">Loading Free play…</div>}><Inner /></Suspense>;
 }

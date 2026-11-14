@@ -176,6 +176,10 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
     return () => clearTimeout(t);
   }, [open, ready, storageKey, isGame, desktop]);
 
+  // AppShell swaps this sidebar for LobbyTopBar off the game routes, so the effect above never re-runs to clear these:
+  // a leftover body.game (overflow: hidden) froze lobby scrolling after leaving a flight.
+  useEffect(() => () => { document.body.classList.remove("game", "side-open", "side-hidden"); }, []);
+
   const toggle = useCallback((force?: boolean) => {
     if (!isGame && !isMobile()) return; // not collapsible here
     setOpen((o) => (typeof force === "boolean" ? force : !o));
@@ -214,7 +218,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
         <div className="ap-brand">
           <Link href="/" className="ap-logo" aria-label="DISCIPLE home" onClick={closeIfMobile}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="ap-lockup" src="/brand/disciple-lockup-horizontal-light.svg" alt="DISCIPLE" width={176} height={45} />
+            <img className="ap-lockup" src="/brand/disciple-lockup-horizontal-light.svg" alt="DISCIPLE" width={160} height={34} />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img className="ap-mark" src="/brand/disciple-mark-light.svg" alt="DISCIPLE" width={32} height={32} />
             <span className="ap-word" aria-hidden="true">DISCIPLE</span>

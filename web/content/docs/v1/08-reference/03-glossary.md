@@ -26,6 +26,7 @@ section: Reference
 | **DUMP** | Sell. It drops a bomb. |
 | **Fee vault** | Where every share of the fees paid before orbit, except the liquidity share, waits until it's claimed. |
 | **First BOOST** | The creator's own buy, made as part of the launch. |
+| **Free play** | The game with practice cash against bots: a daily flight and practice runs. |
 | **GRENADE** | A bomb with 2–5% price impact. |
 | **Holding limit** | The most one wallet can hold of a rocket before orbit. Set by the launch mode. |
 | **Identity** | A playstyle tag earned from your trades, like Believer or Trencher. |
@@ -44,16 +45,14 @@ section: Reference
 | **Price impact** | How far one trade moves the price, in %. |
 | **Private launch** | A launch where your name doesn't show as the creator. |
 | **PUFF** | The smallest bomb: under 2% price impact. |
-| **PvE / PvP** | Simulator difficulties: the crew climbing together, or every trader for themselves. |
 | **Rarity** | Common, Rare, Epic, Legendary or Mythic. One scale for milestones and rocket parts. |
 | **Rewards** | The chest on your profile. It shows what you've earned, including payouts made by hand, and lets you claim it. |
 | **XP** | Off-chain progress from missions and milestones. Levels you up and unlocks rocket parts. Not a token. |
 | **Rocket** | The thing you launch on DISCIPLE. |
-| **Simulator** | Free paper trading against bots. |
 | **Thrust** | The visual force of a BOOST. |
 | **Touch grass** | A calm flight view that shows only how high the rocket's value has climbed. |
 | **Tramp** | A buy waiting below the price, on a rocket that has reached orbit. |
-| **Trench** | The launch mode with no guardrails. In the Simulator, the hardest difficulty is called Trench Warfare. |
+| **Trench** | The launch mode with no guardrails. In Free play, the hardest mode is called Expert. |
 | **Trencher** | A fast in-and-out trader. |
 | **USDG** | A dollar stablecoin on Robinhood Chain. You BOOST with it, and DUMPs pay you in it. |
 | **Verified** | A checkmark the team grants after reviewing a rocket. |
