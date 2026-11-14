@@ -95,7 +95,7 @@
 /* ---------------------------------------------------------------- how it plays */
 .how { margin-top: 64px; display: flex; flex-wrap: wrap; gap: 32px; align-items: center; }
 .scene { position: relative; flex: 1 1 620px; height: 320px; min-width: 0; border-radius: 20px; overflow: hidden; border: 1px solid rgba(243, 223, 168, .28); background: #04050A; isolation: isolate; }
-.sceneSky { position: absolute; inset: -20px; background: 70% 20% / cover no-repeat; opacity: .85; }
+.sceneSky { position: absolute; inset: 0; background: var(--plate) 50% 0% / cover no-repeat; }
 .sceneGrade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(20, 34, 70, .6) 0%, rgba(5, 6, 10, .15) 50%, rgba(70, 28, 8, .55) 100%); }
 .sceneBack { position: absolute; left: 66%; top: -170px; width: 600px; height: 600px; margin-left: -300px; border-radius: 50%;
   background: radial-gradient(closest-side, rgba(180, 210, 255, .4), rgba(90, 120, 200, .1) 55%, transparent); }
@@ -207,6 +207,7 @@
   .actions .btn { flex: 1 1 auto; justify-content: center; min-height: 52px; font-size: 20px; padding: 0 18px; }
   .how { margin-top: 40px; gap: 20px; }
   .scene { flex-basis: 100%; height: 280px; }
+  .sceneSky { background-image: var(--plate-phone); background-position: 50% 24%; }
   .sceneShip { left: 72%; top: 34px; width: 66px; height: 182px; margin-left: -33px; }
   .sceneShip .flame { left: 22px; top: 170px; width: 24px; height: 80px; }
   .sceneTrail { left: calc(72% - 18px); top: 200px; }
