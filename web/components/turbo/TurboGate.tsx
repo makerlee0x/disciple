@@ -1,6 +1,6 @@
 "use client";
 /** Password screen in front of /turbo while it's pre-launch. On the right password the server sets a cookie and the page
- *  reloads as the play sample (live prices, sample fuel). */
+ *  reloads the page the pilot asked for (/turbo opens as the play sample: live prices, sample fuel). */
 import { useState } from "react";
 import { withBase } from "@/lib/base-path";
 import s from "./gate.module.css";
@@ -14,7 +14,12 @@ export default function TurboGate() {
     setState("busy");
     try {
       const r = await fetch(withBase("/api/turbo/pass"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: pw }) });
-      if (r.ok) { location.replace(withBase("/turbo?sample=1")); return; }
+      if (r.ok) {
+        // stay where the pilot was headed (a duel link keeps its ?c= code); plain /turbo opens as the play sample
+        const u = new URL(location.href);
+        if (/\/turbo\/?$/.test(u.pathname) && !u.searchParams.has("sample")) u.searchParams.set("sample", "1");
+        location.replace(u.toString()); return;
+      }
       setState(r.status === 429 ? "slow" : "wrong");
     } catch { setState("slow"); }
   };
