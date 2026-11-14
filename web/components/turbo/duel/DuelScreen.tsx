@@ -29,7 +29,7 @@ interface EngineApi {
 declare global { interface Window { DuelEngine?: { mount(root: HTMLElement, host: unknown): EngineApi } } }
 
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
-const ENGINE_SRC = "/turbo/duel/engine.js?v=10";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=11";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();

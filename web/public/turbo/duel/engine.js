@@ -309,7 +309,8 @@ function mount(root,host){
   function RH(){ return LAY?LAY.h:Math.round(Math.max(72,Math.min(SW>=900?150:116,SH*.17))); }   // current rocket size (shrinks as the gap opens)
   function lane0(pl){ if(SW>=900) return SW/2+(pl.me?-1:1)*Math.max(60,(LAY?LAY.rh0:RH())*.5);   // desktop: as close as on a phone (about one rocket height apart)
     return pl.me?SW*.30:SW*.70; }
-  const SYM=()=>LAY?LAY.barTop-LAY.under:300;   // fly up/down anywhere in the sky: drop to their level to gloat, the $ tag still shows the real gap
+  const SYM=()=>LAY?LAY.barTop-LAY.under:300;
+  function myOffRange(){ if(!LAY||LAY.sep==null) return [-20,20]; const lead=LAY.lead>=0.01; return lead?[-20,LAY.sep]:[-Math.min(20,LAY.sep*.3),SYM()]; }   // fly up/down anywhere in the sky: drop to their level to gloat, the $ tag still shows the real gap
   function lane(pl){ return lane0(pl)+(pl.sxo||0); }
   /* steering: drag the sky (phone) or hold A/D (desktop). Tricks: swipe up = spin, double-tap = flip, Q/E on desktop. */
   function steerTo(pl,off){ const b=lane0(pl); pl.sxt=Math.max(34-b,Math.min(SW-34-b,off)); }
@@ -345,11 +346,6 @@ function mount(root,host){
   function band(){ if(!LAY) layout(); return [LAY.under,LAY.barTop]; }
   const alt=pl=>profitOf(pl);                       // $ of altitude
   const worldY=pl=>-alt(pl)*K;                       // world px (springs + kicks live here), up is negative
-  /* gap scale, in rocket lengths: $1 of lead = 2 lengths, then it keeps growing (≈3.5 at $2, 6 at $5, 8.5 at $10, 10 at $16).
-   * The camera pulls back (both rockets shrink) so that many lengths fit between the chart and the trade bar;
-   * name tags sit beside the rockets, not above them, so the whole height is sky. */
-  const lengthsFor=ad=>ad<=1?2*ad:2+3*Math.log(1+(ad-1)/1.5);
-  const HMIN=()=>SW>=900?30:26;
   function part(o){ if(FX.parts.length>280) return; const p=Object.assign({life:1,size:4,g:0,drag:1.5,add:true},o); p.max=p.life; FX.parts.push(p); }
   function popAt(pl,txt,c){ FX.pops.push({txt,c,x:lane(pl),y:pl.y-RH()*.7,age:0,max:1.4,size:pl.me?30:22}); }
   function fxTrade(pl,side,stake){
@@ -465,19 +461,20 @@ function mount(root,host){
       }
       // camera: follow the middle of the pair, zoom out if the gap won't fit
       const top=LAY.under, bot=LAY.barTop, avail=bot-top;
-      const d=(G.bot.wy-G.me.wy)/K, ad=Math.abs(d), L=lengthsFor(ad);          // smoothed $ lead (kicks included) → rocket lengths
-      // your rocket stays big (you always know which one is you); the rival shrinks into the distance as the gap opens,
-      // ahead of you or left behind, so L of *their* rocket lengths fit between you
-      const fill=Math.min(1,L/8), meT=LAY.rh0*(1-.2*fill);
-      const rvT=Math.max(HMIN(),Math.min(LAY.rh0*.9,(avail-meT*.5)/(L+.5)));
-      LAY.h+=(meT-LAY.h)*Math.min(1,dt*3); LAY.hr=(LAY.hr||rvT)+(rvT-(LAY.hr||rvT))*Math.min(1,dt*3);
-      const h=LAY.h, hr=LAY.hr, sep=Math.min(Math.max(L*hr,ad>0?.6*(h+hr)*Math.min(1,ad*4)/2:0),avail-(h+hr)/2), mid=(top+bot)/2;
-      LAY.pxPer=ad>.3?sep/ad:2*h; LAY.pmid=-(G.me.wy+G.bot.wy)/2/K; LAY.mid=mid;
-      cam.z=hr/LAY.rh0;
+      const d=(G.bot.wy-G.me.wy)/K, ad=Math.abs(d);          // smoothed $ lead (kicks included)
+      // both rockets are the same size (the higher one is winning, always); a bigger lead opens the gap and pulls the camera
+      // back a little (rockets shrink to ~55% at most, never ants): $1 ≈ 40% of the room, $2 ≈ 65%, $5 ≈ 96%
+      const hT=LAY.rh0*(1-.45*Math.tanh(ad/4)); LAY.h+=(hT-LAY.h)*Math.min(1,dt*3); LAY.hr=LAY.h;
+      const h=LAY.h, hr=h, sep=(avail-h)*Math.tanh(ad/2.5), mid=(top+bot)/2;
+      LAY.pxPer=ad>.3?sep/ad:2*h; LAY.pmid=-(G.me.wy+G.bot.wy)/2/K; LAY.mid=mid; LAY.sep=sep; LAY.lead=d;
+      cam.z=h/LAY.rh0;
       const ct=(G.me.wy+G.bot.wy)/2, prev=cam.y; cam.vy+=((ct-cam.y)*9-cam.vy*5)*dt; cam.y+=cam.vy*dt; camDy=cam.y-prev;
       const lim=pl=>{ const hh=pl.me?h:hr; return [top+Math.max(hh*.5,34), bot-hh*.5]; };   // 34 = half the tag block beside the rocket
-      // place the pair so both fit: centre of the room, shifted so the bigger rocket (you) keeps its whole body on screen
-      const yMe0=mid+(d>=0?-1:1)*sep/2, yRv0=mid+(d>=0?1:-1)*sep/2;
+      // place the pair around the middle of the room
+      const yMe0=mid+(d>=0?-1:1)*sep/2, yRv0=mid+(d>=0?1:-1)*sep/2;   // + is down
+      // flying up/down: the leader can drop all the way to the loser's level to gloat; the loser can only sink, never climb
+      // to the leader (catch up by trading). A few px of wiggle either way so steering still feels alive.
+      const [oLo,oHi]=myOffRange(); G.me.syt=Math.max(oLo,Math.min(oHi,G.me.syt||0)); G.me.syo=Math.max(oLo,Math.min(oHi,G.me.syo||0));
       for(const [pl,y0] of [[G.me,yMe0],[G.bot,yRv0]]){ const [a,b]=lim(pl); pl.y=Math.max(a,Math.min(b,y0+(pl.syo||0))); }
     }
     sx.save(); if(sh) sx.translate(rnd(-sh,sh)*.5,rnd(-sh,sh)*.5);
