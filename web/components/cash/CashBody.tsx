@@ -9,7 +9,7 @@
  *  - Signed out: a sign-in moment.
  * Withdraw logic is the old CashPanel's (gasless quote + signed withdraw, or a plain USDG transfer), unchanged.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { encodeFunctionData, formatUnits, isAddress, parseAbi, parseUnits, type Hex } from "viem";
 import { ACTIVE_CHAIN, deployment, isDeployed } from "@/lib/chains";
 import { decimalsOf, publicClient, tokenBalance } from "@/lib/protocol-viem";
@@ -21,16 +21,23 @@ import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
 import { OPEN_CASH_EVENT, type CashTab } from "@/lib/cashLink";
 import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
 import { withBase } from "@/lib/base-path";
-import { qrMatrix, qrPath } from "@/lib/qr";
-import { CashHead, Check, ErrIcon, Warn, usd2 } from "./bits";
-import { FUND_COPY, FUND_DEFAULT_USD, FUND_PICKS, startFunding } from "@/lib/fund";
+import { CashHead, Check, ErrIcon, usd2 } from "./bits";
+import { FUND_CARD_FEE_EST, FUND_COPY, FUND_DEFAULT_USD, FUND_PICKS, startFunding } from "@/lib/fund";
+import { DEPOSIT_COPY } from "@/lib/deposit";
+import { onCashFuel, type CashFuel } from "@/lib/turbo/cashFuel";
+import SendCrypto from "./SendCrypto";
 
 const erc20 = parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]);
 
 export const CASH_COPY = {
   title: "Cash",
   yourCash: "Your cash",
-  balSub: "What boosts spend and dumps pay back.",
+  balSub: "Spend it on any coin, or load it into Turbo.",
+  ready: "Ready to spend",
+  inTurbo: "In Turbo fuel",
+  moveBack: "Move to cash",
+  moving: "Moving…",
+  moveFailed: "Couldn't move it right now. Your fuel is still in Turbo.",
   tabs: { add: "Add cash", out: "Cash out" },
   addTitle: "Send USDG to your cash address",
   addBody: "From an exchange or another wallet, on Robinhood Chain. It shows up as cash when it lands.",
@@ -65,23 +72,15 @@ export const CASH_COPY = {
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const PICKS = [["25%", 0.25], ["40%", 0.4], ["Half", 0.5], ["All", 1]] as const;
 
-function Qr({ text }: { text: string }) {
-  const p = useMemo(() => { try { return qrPath(qrMatrix(text)); } catch { return null; } }, [text]);
-  return (
-    <div className="cx-qr" role="img" aria-label="QR code of your cash address">
-      {p && <svg viewBox={`0 0 ${p.size} ${p.size}`} shapeRendering="crispEdges" aria-hidden><path d={p.d} fill="#121327" /></svg>}
-    </div>
-  );
-}
-
 function Amount({ v, big }: { v: number; big?: boolean }) {
   const [w, c] = usd2(v).split(".");
   return <div className={`cx-amt${big ? "" : " sm"}`}>{w}<small>.{c}</small></div>;
 }
 
-/** Add cash by card or Apple Pay (Privy's funding flow, lib/fund): an amount pick + one gold button. With no cash yet,
- *  a Free play link so a new player can fly while the payment lands. */
-function CardFund({ addr, empty, onPaid, onClose }: { addr: string; empty: boolean; onPaid: () => void; onClose: () => void }) {
+/** Add cash board 2 (maker 2026-11-14): How much (big number + $10/$25/$50/$100) → You pay / You get about → one gold
+ *  "Pay with card or Apple Pay" (Privy funding, MoonPay) → "or" → "Send crypto instead". With no cash yet, a Free play
+ *  link so a new player can fly while the payment lands. */
+function CardFund({ addr, empty, onPaid, onClose, onSend }: { addr: string; empty: boolean; onPaid: () => void; onClose: () => void; onSend: () => void }) {
   const [usd, setUsd] = useState<number>(FUND_DEFAULT_USD);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
@@ -94,15 +93,26 @@ function CardFund({ addr, empty, onPaid, onClose }: { addr: string; empty: boole
   };
   return (
     <div className="cx-card" data-testid="cash-card-fund">
+      <span className="r2-lbl">{FUND_COPY.howMuch}</span>
+      <div className="cx-amt" data-testid="cash-card-amount">${usd}</div>
       <div className="r2-chips" role="group" aria-label="Amount to add">
         {FUND_PICKS.map((v) => <button key={v} type="button" className={usd === v ? "on" : ""} aria-pressed={usd === v} onClick={() => setUsd(v)}>${v}</button>)}
       </div>
+      <div className="r2-box">
+        <div className="r2-r"><div className="t"><span>{FUND_COPY.youPay}</span></div><b>{usd2(usd)}</b></div>
+        <div className="r2-r"><div className="t"><span>{FUND_COPY.youGet}</span></div><b className="cx-get" data-testid="cash-card-get">{usd2(usd * (1 - FUND_CARD_FEE_EST))}</b></div>
+      </div>
       <button type="button" className="r2-gold cx-cardbtn" disabled={busy} onClick={go} data-testid="cash-card-btn">
-        {busy ? FUND_COPY.opening : `${FUND_COPY.button.replace("Buy", `Buy $${usd}`)}`}
+        {busy ? FUND_COPY.opening : FUND_COPY.button}
       </button>
-      <span className="cx-help">{FUND_COPY.sub}</span>
+      <span className="cx-help cx-center">{FUND_COPY.sub}</span>
       {note && <div className={`r2-note ${note.ok ? "ok" : "warn"}`} role="status"><span>{note.text}</span></div>}
       {empty && <a className="cx-freeplay" href={withBase("/flight/sim")} onClick={() => onClose()} data-testid="cash-freeplay">No cash yet? <b>Fly in Free play</b> while it lands.</a>}
+      <div className="cx-or" aria-hidden><span>{FUND_COPY.or}</span></div>
+      <button type="button" className="cx-sendrow" onClick={onSend} data-testid="cash-send-crypto-btn">
+        <span className="t"><b>{FUND_COPY.sendTitle}</b><span>{FUND_COPY.sendSub}</span></span>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M6 3l5 5-5 5" /></svg>
+      </button>
     </div>
   );
 }
@@ -125,7 +135,11 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [sent, setSent] = useState<{ recv: number; to: string; left: number; tx: Hex | null } | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [sendView, setSendView] = useState(false);
+  const [fuel, setFuel] = useState<CashFuel>(null);
+  const [fuelBusy, setFuelBusy] = useState(false);
+  const [fuelErr, setFuelErr] = useState<string | null>(null);
+  useEffect(() => onCashFuel(setFuel), []);
   const [quote, setQuote] = useState<{ fee: bigint; minAmount: bigint; feeTo: string; usdgDecimals: number } | null>(null);
   useEffect(() => onWallet(setAddr), []);
 
@@ -148,7 +162,7 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
   }, [addr, refresh]);
   // a cash link clicked while this body is already showing (e.g. on /wallet): switch tab in place
   useEffect(() => {
-    const f = (e: Event) => { const t = (e as CustomEvent<{ tab?: CashTab } | null>).detail?.tab; setSent(null); setTab(t ?? "add"); };
+    const f = (e: Event) => { const t = (e as CustomEvent<{ tab?: CashTab } | null>).detail?.tab; setSent(null); setSendView(false); setTab(t ?? "add"); };
     window.addEventListener(OPEN_CASH_EVENT, f);
     return () => window.removeEventListener(OPEN_CASH_EVENT, f);
   }, []);
@@ -235,43 +249,38 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
 
   return (
     <>
-      <CashHead title={CASH_COPY.title} onClose={onClose} />
+      <CashHead title={sendView ? DEPOSIT_COPY.title : CASH_COPY.title} onClose={onClose} onBack={sendView ? () => setSendView(false) : undefined} />
       <div className="r2-body">
-        {tab === "add" && (
+        {tab === "add" && !sendView && (
           <div className="cx-bal" data-testid="cash-balance">
             <span className="r2-lbl up">{CASH_COPY.yourCash}</span>
-            <Amount v={balUsd} big />
+            <Amount v={balUsd + (fuel?.usd ?? 0)} big />
             <span className="cx-balsub">{CASH_COPY.balSub}</span>
           </div>
         )}
-        <div className="r2-tabs" role="tablist" aria-label="Cash">
+        {tab === "add" && !sendView && fuel && (
+          <div className="r2-box" data-testid="cash-fuel-rows">
+            <div className="r2-r"><div className="t"><span>{CASH_COPY.ready}</span></div><b>{usd2(balUsd)}</b></div>
+            <div className="r2-r"><div className="t"><span>{CASH_COPY.inTurbo}</span></div>
+              <span className="cx-fuelr"><b>{usd2(fuel.usd)}</b>
+                <button type="button" className="r2-btn" disabled={fuelBusy} data-testid="cash-fuel-back"
+                  onClick={async () => {
+                    if (!fuel.toCash) { onClose(); window.location.assign(withBase("/turbo")); return; }
+                    setFuelErr(null); setFuelBusy(true);
+                    try { await fuel.toCash(fuel.usd); void refresh(addr); } catch { setFuelErr(CASH_COPY.moveFailed); } finally { setFuelBusy(false); }
+                  }}>{fuelBusy ? CASH_COPY.moving : CASH_COPY.moveBack}</button></span></div>
+            {fuelErr && <div className="r2-r"><span className="cx-help">{fuelErr}</span></div>}
+          </div>
+        )}
+        {sendView && <button type="button" className="cx-backlink" onClick={() => setSendView(false)} data-testid="cash-send-back">← {CASH_COPY.tabs.add}</button>}
+        {!sendView && <div className="r2-tabs" role="tablist" aria-label="Cash">
           {(["add", "out"] as const).map((t) => (
             <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => { setTab(t); setErr(null); }} data-testid={`cash-tab-${t}`}>{CASH_COPY.tabs[t]}</button>
           ))}
-        </div>
+        </div>}
         {tab === "add" ? (
-          <>
-            <CardFund addr={addr} empty={balUsd < 0.01} onPaid={() => { void refresh(addr); }} onClose={onClose} />
-            <div className="cx-or" aria-hidden><span>{FUND_COPY.or}</span></div>
-            <div className="cx-addhow">
-              <Qr text={addr} />
-              <div className="cx-addtxt">
-                <b className="cx-d">{CASH_COPY.addTitle}</b>
-                <span className="cx-d">{CASH_COPY.addBody}</span>
-                <span className="cx-p">{CASH_COPY.addBodyPhone}</span>
-              </div>
-            </div>
-            <div className="cx-d">
-              <label className="r2-lbl" htmlFor="cx-addr">{CASH_COPY.addrLabel}</label>
-              <div className="cx-inrow">
-                <input id="cx-addr" className="r2-field r2-mono cx-addr" readOnly value={addr} onFocus={(e) => e.currentTarget.select()} data-testid="cash-address" />
-                <button type="button" className="r2-btn r2-white cx-copy" onClick={() => { navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>{copied ? CASH_COPY.copied : CASH_COPY.copy}</button>
-              </div>
-            </div>
-            <div className="cx-p r2-field r2-mono cx-addrwrap">{addr}</div>
-            <button type="button" className="cx-p r2-btn r2-white" onClick={() => { navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>{copied ? CASH_COPY.copied : CASH_COPY.copyAddr}</button>
-            <div className="r2-note warn"><Warn /><span><span className="cx-d">{CASH_COPY.warn}</span><span className="cx-p">{CASH_COPY.warnPhone}</span></span></div>
-          </>
+          sendView ? <SendCrypto cashAddr={addr} />
+            : <CardFund addr={addr} empty={balUsd < 0.01} onPaid={() => { void refresh(addr); }} onClose={onClose} onSend={() => setSendView(true)} />
         ) : (
           <>
             <div>
