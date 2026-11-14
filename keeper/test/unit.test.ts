@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { privateKeyToAccount } from "viem/accounts";
 import { concat, pad, toHex, type Hex } from "viem";
 import { batch, judge, Keeper, selfPayRoom, sweepNeeded, type Due } from "../src/keeper.ts";
-import { decodeSource, jarValue, OFF, POOLS_SLOT, readLeaderSpot, type PoolDyn, type PoolSource } from "../src/hook.ts";
+import { decodeSource, jarValue, OFF, poolBase as poolBaseOf, POOLS_SLOT, readLeaderSpot, type PoolDyn, type PoolSource } from "../src/hook.ts";
 import { loadConfig } from "../src/config.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -116,7 +116,7 @@ test("config: same-chain sets, sampling and jar policy defaults", () => {
   assert.equal(c.sameChain[0].hook, "0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88");
   assert.deepEqual(c.sameChain[0].pools, ["0xabcd"]);
   assert.equal(c.sameChain[0].scanPools, true);
-  assert.deepEqual(c.sampling, { everySec: 13, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayBpsCarry: 15, selfPayMaxPerHour: 60, sweepEverySec: 60, sweepBandBps: 20_000, matchEverySec: 60, matchSteps: 20, matchSampleMaxPerHour: 12, settleEverySec: 300 });
+  assert.deepEqual(c.sampling, { everySec: 13, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayBpsCarry: 15, selfPayMaxPerHour: 60, sweepEverySec: 60, sweepBandBps: 20_000, matchEverySec: 60, matchSteps: 20, matchSampleMaxPerHour: 12, settleEverySec: 3600, settleCheckSec: 300 });
   assert.deepEqual(c.alerts, { minEth: 3_000_000_000_000_000n, balanceEverySec: 600, errorsBeforeAlert: 10 });
   assert.equal(c.sameChain[0].abi, "disciple");
   assert.equal(c.policy.minJar, 0n);
@@ -419,23 +419,46 @@ test("Carry stock queue: two entries on one queue each match only their own pool
   assert.equal(k.ownsPool(n, C), false);
 });
 
-test("Carry v0.3 settle: only when the hook says due; a hook without settleDue is left alone", async () => {
+test("Carry v0.3 settle: hourly, only when the epoch earned something and nobody paid out; launch hooks left alone", async () => {
   const dir = mkdtempSync(join(tmpdir(), "keeper-u-"));
   const f = join(dir, "c.json");
   const A = ("0x" + "aa".repeat(32)) as Hex, B = ("0x" + "bb".repeat(32)) as Hex;
-  writeFileSync(f, JSON.stringify({ chains: { robinhood: { rpcEnv: "RH_RPC", chainId: 4663 } }, sameChain: [{ name: "carry", chain: "robinhood", hook: "0xcedc3c312c5b3c4310f0fba0323ddec797e4aa88", abi: "carry" }], sampling: { settleEverySec: 300 } }));
+  const H3 = "0xcedc3c312c5b3c4310f0fba0323ddec797e4aa88", HL = "0x3333333333333333333333333333333333333333";
+  writeFileSync(
+    f,
+    JSON.stringify({
+      chains: { robinhood: { rpcEnv: "RH_RPC", chainId: 4663 } },
+      sameChain: [
+        { name: "v03", chain: "robinhood", hook: H3, abi: "carry" },
+        { name: "launch", chain: "robinhood", hook: HL, abi: "carry" },
+      ],
+    }),
+  );
   const cfg = loadConfig(f, { RH_RPC: "http://127.0.0.1:1" });
-  assert.equal(cfg.sampling.settleEverySec, 300);
-  const state = { routes: { carry: { pools: { [A]: {}, [B]: {} } } } };
+  assert.equal(cfg.sampling.settleEverySec, 3600);
+  assert.equal(cfg.sampling.settleCheckSec, 300);
+  const state = { routes: { v03: { pools: { [A]: {} } }, launch: { pools: { [B]: {} } } } };
   const k = new Keeper(cfg, state as never, privateKeyToAccount(("0x" + "11".repeat(32)) as Hex), { info() {}, warn() {} } as never);
-  const asked: Hex[] = [];
-  let dueA = true;
+  const nowS = BigInt(Math.floor(Date.now() / 1000));
+  // pool A's storage: +8 = settledBlock | settledAt | sampleBlock | sampleAt, +13/+14 = book x/y, +15 = dx | dy
+  let settledAt = nowS - 4000n, dy = 5n, sampleAt = nowS - 20n;
+  const base = poolBaseOf(A);
+  const store = (o: bigint): bigint => {
+    if (o === 8n) return 777n | (settledAt << 64n) | (778n << 128n) | (sampleAt << 192n);
+    if (o === 13n) return 1000n;
+    if (o === 14n) return 2000n;
+    if (o === 15n) return BigInt.asUintN(128, 3n) | (BigInt.asUintN(128, dy) << 128n);
+    return 0n;
+  };
+  const calls: string[] = [];
   const pub = {
-    readContract: async ({ functionName, args }: { functionName: string; args: Hex[] }) => {
-      assert.equal(functionName, "settleDue");
-      asked.push(args[0]);
-      if (args[0] === B) throw new Error("execution reverted"); // launch hook: no such function
-      return dueA;
+    getBlockNumber: async () => 1n,
+    getStorageAt: async ({ slot }: { slot: Hex }) => pad(toHex(store(BigInt(slot) - base)), { size: 32 }),
+    readContract: async ({ address, functionName }: { address: string; functionName: string }) => {
+      calls.push(`${address.toLowerCase() === HL ? "L" : "3"}:${functionName}`);
+      if (address.toLowerCase() === HL) throw new Error("execution reverted"); // launch hook: no settleEvery
+      if (functionName === "settleEvery") return 21600;
+      return { ageOrBlock: 777n, sampleAt, coinReserve: 1000n, quoteReserve: 2000n };
     },
   };
   (k as unknown as { clients: Map<string, unknown> }).clients.set("robinhood", { pub, wal: {}, chain: {} });
@@ -443,18 +466,33 @@ test("Carry v0.3 settle: only when the hook says due; a hook without settleDue i
   (k as unknown as { settle: (s: unknown, id: Hex) => Promise<void> }).settle = async (_s, id) => {
     settled.push(id);
   };
-  await k.settleDue(cfg.sameChain[0]);
-  assert.deepEqual(settled, [A]);
-  assert.deepEqual(asked, [A, B]);
-  // within settleEverySec: no calls at all
-  await k.settleDue(cfg.sameChain[0]);
-  assert.deepEqual(asked, [A, B]);
-  // later: A asked again (not due now), B still resting after its revert
-  (k as unknown as { lastSettleCheck: Map<string, number> }).lastSettleCheck.clear();
-  dueA = false;
-  await k.settleDue(cfg.sameChain[0]);
-  assert.deepEqual(asked, [A, B, A]);
-  assert.deepEqual(settled, [A]);
+  const [v03, launch] = cfg.sameChain;
+  const again = async () => {
+    (k as unknown as { lastSettleCheck: Map<string, number> }).lastSettleCheck.clear();
+    await k.settleDue(v03);
+  };
+  await k.settleDue(v03);
+  assert.deepEqual(settled, [A], "fees earned, last payout over an hour ago: settle");
+  await k.settleDue(v03);
+  assert.equal(settled.length, 1, "not checked again within settleCheckSec");
+  settledAt = nowS - 600n; // a deposit / withdraw / claim paid out 10 min ago
+  await again();
+  assert.equal(settled.length, 1, "paid out within the hour: skip");
+  settledAt = nowS - 4000n;
+  dy = 0n;
+  await again();
+  assert.equal(settled.length, 1, "nothing earned: skip");
+  dy = -9n; // a sell-heavy epoch still has fees to pay
+  await again();
+  assert.equal(settled.length, 2);
+  sampleAt = nowS - 1n; // storage no longer matches poolState
+  const view = pub.readContract;
+  pub.readContract = async (a) => (a.functionName === "poolState" ? { ageOrBlock: 777n, sampleAt: nowS - 99n, coinReserve: 1000n, quoteReserve: 2000n } : view(a));
+  await again();
+  assert.equal(settled.length, 2, "layout check failed: no guess");
+  await k.settleDue(launch);
+  await k.settleDue(launch);
+  assert.deepEqual(calls.filter((c) => c.startsWith("L")), ["L:settleEvery"], "launch hook asked once, then left alone");
 });
 
 test("low ETH: warns below alerts.minEth, at most every balanceEverySec", async () => {

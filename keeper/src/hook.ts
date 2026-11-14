@@ -98,6 +98,38 @@ export async function readDyn(c: PublicClient, hook: Hex, id: Hex, abi: typeof h
   };
 }
 
+/** Carry v0.3 Pool slots (carry #132, `forge inspect CarryStrategy storageLayout`): +8 packs settledBlock,
+ *  settledAt, sampleBlock, sampleAt (uint64 each, low to high); the book starts at +13 (x, y, then dx|dy in one slot). */
+export const CARRY_V03 = { times: 8n, bookX: 13n, bookY: 14n, bookD: 15n } as const;
+
+export interface Epoch {
+  /** timestamp of the last payout (keeper settle, deposit, withdraw, claim, or the swap backstop) */
+  settledAt: bigint;
+  /** quote moved since that payout (book.dy); 0 = nothing earned, nothing to pay */
+  dy: bigint;
+  /** the storage reads agree with the hook's own poolState (settledBlock, sampleAt and both reserves); false = the layout moved */
+  layoutOk: boolean;
+}
+
+/** Reads a Carry v0.3 pool's open fee epoch from storage, cross-checked against poolState at the same block. */
+export async function readEpoch(c: PublicClient, hook: Hex, id: Hex): Promise<Epoch> {
+  const b = poolBase(id);
+  const blockNumber = await c.getBlockNumber();
+  const [t, bx, by, d, v] = await Promise.all([
+    slot(c, hook, b + CARRY_V03.times, blockNumber),
+    slot(c, hook, b + CARRY_V03.bookX, blockNumber),
+    slot(c, hook, b + CARRY_V03.bookY, blockNumber),
+    slot(c, hook, b + CARRY_V03.bookD, blockNumber),
+    c.readContract({ address: hook, abi: carryHookAbi, functionName: "poolState", args: [id], blockNumber }),
+  ]);
+  const m64 = (1n << 64n) - 1n;
+  return {
+    settledAt: (t >> 64n) & m64,
+    dy: BigInt.asIntN(128, d >> 128n),
+    layoutOk: (t & m64) === v.ageOrBlock && (t >> 192n) === BigInt(v.sampleAt) && bx === v.coinReserve && by === v.quoteReserve,
+  };
+}
+
 /** v4 PoolManager storage slot of a pool's Slot0 (StateLibrary: keccak256(poolId, POOLS_SLOT = 6)). */
 export const v4Slot0 = (v4Id: Hex): Hex => keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [v4Id, 6n]));
 

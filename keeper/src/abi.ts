@@ -68,10 +68,10 @@ export const carryHookAbi = parseAbi([
   "event Created(bytes32 indexed id, address indexed coin, address quote, address indexed creator, uint32 remoteEid, uint24 fee)",
   "event Tipped(bytes32 indexed id, address indexed to, uint256 x, uint256 y)",
   "event TailMoved(address indexed vault, uint256 toVault, uint256 toHot)",
-  // v0.3 epoch fee payout (staged: the v0.3 hook is not built yet). settleDue answers yes when the open epoch has
-  // fees to pay and no payout (keeper settle, deposit, withdraw or claim) ran for an epoch; settle pays it out.
-  // Hooks without them (the live v0.2 build) revert, and the keeper then leaves settling alone for that pool.
-  "function settleDue(bytes32 id) view returns (bool)",
+  // v0.3 epoch fee payout (carry #132): settle pays the open epoch out to every lot; settleEvery is the swap-path
+  // backstop (6 h), and only a v0.3 hook has it, so the keeper uses it to tell the builds apart. The hook has no
+  // "due" view (no bytes left): the keeper reads the epoch's start and its fees from storage (hook.ts readEpoch).
+  "function settleEvery() view returns (uint32)",
   "function settle(bytes32 id)",
 ]);
 

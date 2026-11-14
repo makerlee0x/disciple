@@ -19,7 +19,7 @@ import {
 import { alert, heartbeat } from "./alert.ts";
 import { carryHookAbi, carryQueueAbi, carryVaultV2Abi, endpointAbi, erc20Abi, hookAbi, receiverAbi, senderAbi, ulnAbi } from "./abi.ts";
 import type { ChainCfg, Config, RouteCfg, SameChainCfg } from "./config.ts";
-import { jarValue, readDyn, readLeaderSpot, readSource, type PoolDyn, type PoolSource } from "./hook.ts";
+import { jarValue, readDyn, readEpoch, readLeaderSpot, readSource, type PoolDyn, type PoolSource } from "./hook.ts";
 import { decodeMessage, messageLength, packetsFromLogs, payloadHash } from "./packet.ts";
 import { HEARTBEAT, moveBps, moved, shift, spotX128 } from "./price.ts";
 import { routeState, saveState, type Packet, type State } from "./state.ts";
@@ -1065,28 +1065,37 @@ export class Keeper {
     return peers[0] === s;
   }
 
-  /** Carry v0.3 (staged): pay out each pool's fee epoch. Every `settleEverySec`, one `settleDue(id)` eth_call per
-   *  pool; the hook says yes only when the open epoch has fees and no payout ran for an epoch (a deposit, withdraw,
-   *  claim or earlier settle resets it). A hook without settleDue (the live launch hook) reverts the call: that pool is
-   *  then left alone for 6 h before asking again, so the job costs nothing until a v0.3 hook is in the config. */
+  /** Carry v0.3: pay out each pool's fee epoch hourly. Every `settleCheckSec`, per pool: is the hook a v0.3 build
+   *  (`settleEvery()` answers; the launch hook reverts and is left alone for 6 h), then read the epoch from storage
+   *  (readEpoch). Send `settle(id)` only when the epoch earned something (book.dy != 0) and no payout ran for
+   *  `settleEverySec`: a deposit, withdraw, claim or the swap backstop that already paid restarts the epoch. If the
+   *  storage reads stop matching the hook's own view (a layout change), warn and do not guess. */
   async settleDue(s: SameChainCfg): Promise<void> {
-    const every = this.cfg.sampling.settleEverySec;
-    if (every <= 0) return;
+    const sm = this.cfg.sampling;
+    if (sm.settleEverySec <= 0) return;
     const rs = routeState(this.state, s.name);
     const { pub } = this.c(s.chain);
     const t = now();
     for (const id of Object.keys(rs.pools) as Hex[]) {
       if ((this.noSettleUntil.get(id) ?? 0) > t) continue;
-      if ((this.lastSettleCheck.get(id) ?? 0) + every > t) continue;
+      if ((this.lastSettleCheck.get(id) ?? 0) + sm.settleCheckSec > t) continue;
       this.lastSettleCheck.set(id, t);
-      let due: boolean;
       try {
-        due = await pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "settleDue", args: [id] });
+        await pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "settleEvery" });
       } catch {
-        this.noSettleUntil.set(id, t + 6 * 3600);
+        this.noSettleUntil.set(id, t + 6 * 3600); // launch hook: no epochs
         continue;
       }
-      if (due) await this.settle(s, id);
+      const e = await readEpoch(pub, s.hook, id);
+      if (!e.layoutOk) {
+        this.log.warn(`${s.name}: pool ${id.slice(0, 10)} storage does not match the hook's poolState (layout changed?); not settling`);
+        await alert(`layout:${id}`, `${s.name}: pool ${id.slice(0, 10)} storage layout changed, hourly payout off until the keeper is updated`);
+        this.noSettleUntil.set(id, t + 3600);
+        continue;
+      }
+      if (e.dy === 0n) continue; // nothing earned since the last payout
+      if (BigInt(t) < e.settledAt + BigInt(sm.settleEverySec)) continue; // paid out within the epoch already
+      await this.settle(s, id);
     }
   }
 

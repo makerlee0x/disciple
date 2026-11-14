@@ -81,11 +81,13 @@ export interface Sampling {
    *  the keeper samples the pool, at its own gas, and tries again next round (a second reading in a later block
    *  clears the last-block half of the check). */
   matchSampleMaxPerHour: number;
-  /** Carry v0.3 epoch fee payout (staged; the live hook has no settle and is left alone): how often to ask each
-   *  pool's hook `settleDue(id)`, seconds (0 = never settle). The hook decides: yes only when the open epoch has
-   *  fees and no payout ran for an epoch (about an hour), so a deposit, withdraw or claim that already paid out, or
-   *  an epoch with no fees, costs one eth_call. Then the keeper sends `settle(id)` at its own gas. */
+  /** Carry v0.3 epoch fee payout: pay a pool's fees out once no payout ran for this many seconds (default 3600,
+   *  hourly; 0 = never). A deposit, withdraw or claim pays out too and restarts the epoch, and an epoch that earned
+   *  nothing is skipped, so `settle(id)` is sent only when it pays something nobody else paid. Launch hooks (no
+   *  settle) are left alone. */
   settleEverySec: number;
+  /** How often to look at each pool's epoch, seconds (5 storage reads + 1 eth_call per pool). */
+  settleCheckSec: number;
 }
 
 export interface Alerts {
@@ -223,7 +225,8 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       matchEverySec: Number(sm.matchEverySec ?? 60),
       matchSteps: Number(sm.matchSteps ?? 20),
       matchSampleMaxPerHour: Number(sm.matchSampleMaxPerHour ?? 12),
-      settleEverySec: Number(sm.settleEverySec ?? 300),
+      settleEverySec: Number(sm.settleEverySec ?? 3600),
+      settleCheckSec: Number(sm.settleCheckSec ?? 300),
     },
     policy: {
       moveBps: b(p.moveBps, 102n),

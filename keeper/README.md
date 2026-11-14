@@ -59,13 +59,15 @@ reads either layout, so one build runs against the launch vault and the new one.
 `sameChain` entry (same `stockQueue`): each entry matches only the markets whose pool it lists, so two entries never
 work the same line.
 
-**Carry v0.3 fee payout (staged).** Every `sampling.settleEverySec` (default 300 s) the keeper asks each Carry pool's
-hook `settleDue(id)`, and sends `settle(id)` at its own gas when the answer is yes. The hook decides: yes only when the
-open fee epoch has fees and no payout ran for an epoch (about an hour). A deposit, withdraw or claim that already paid
-out resets it, so the call is skipped then, and also when there are no fees. The launch hook has no `settleDue`: the call
-reverts, and the keeper leaves that pool alone and asks again in 6 h. So this does nothing until a v0.3 hook with these
-two functions is in the config. **The v0.3 hook must expose exactly `settleDue(bytes32) view returns (bool)` and
-`settle(bytes32)`**, or this part changes with it.
+**Carry v0.3 hourly fee payout** (carry #132). The v0.3 hook pays a pool's fees out to its lots on `settle(id)`,
+and also on every deposit, withdraw and claim. A swap pays out only as a backstop, when nothing paid out for
+`settleEvery` (6 h). Every `sampling.settleCheckSec` (300 s) the keeper reads each pool's open epoch from storage:
+`settledAt` (+8, bits 64–127) and `book.dy` (+15, high 128 bits). It sends `settle(id)` only when the epoch earned
+something (dy ≠ 0) and nothing paid out for `sampling.settleEverySec` (3600 s). The hook has no room for a "due" view,
+so the keeper reads the slots. Each read is cross-checked against the hook's own `poolState` at the same block
+(settledBlock, sampleAt, both reserves). If they ever disagree (a layout change), the keeper warns and alerts, and doesn't
+settle. Layout from `forge inspect CarryStrategy storageLayout` on #132. The launch hook has no `settleEvery()`, so it is
+left alone.
 
 **Alerts.** `ALERT_URL` (ntfy.sh topic, Discord or Slack webhook) gets: low gas (below `alerts.minEth`, default
 0.003 ETH, checked every `alerts.balanceEverySec`), `alerts.errorsBeforeAlert` failed rounds in a row (default 10) and
@@ -232,7 +234,8 @@ on the Robinhood side, or use a plan with a larger range (and raise `logChunk`).
 | `sampling.selfPayBpsCarry` | 15 | `selfPayBps` for Carry pools (`abi: "carry"`): the vault takes deposits only while the centre is within the pool fee (at most 0.25%) of the leader, so the keeper keeps it within 0.15%, at its own gas (about 80k a sample). 0 = off |
 | `sampling.matchSteps` | 20 | Carry stock queue: most orders one `matchOrders` call works through |
 | `sampling.matchSampleMaxPerHour` | 12 | Carry stock queue: most unpaid samples per pool per hour to unblock waiting stock (the vault takes deposits only while the pool's centre is within its fee, at most 0.25%, of the leader; 0 = never) |
-| `sampling.settleEverySec` | 300 | Carry v0.3: how often to ask each pool's hook `settleDue` (0 = never settle; hooks without it are skipped) |
+| `sampling.settleEverySec` | 3600 | Carry v0.3: pay a pool's fees out once nothing paid out for this long and it earned something (0 = never) |
+| `sampling.settleCheckSec` | 300 | Carry v0.3: how often to read each pool's epoch |
 | `alerts.minEth` | 0.003 | warn and alert (`ALERT_URL`) when the keeper's ETH on a chain is below this |
 | `alerts.balanceEverySec` | 600 | how often to read the keeper's balance |
 | `alerts.errorsBeforeAlert` | 10 | alert after this many failed same-chain rounds in a row |
