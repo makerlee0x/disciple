@@ -88,7 +88,7 @@ export function runAdapterContract(name: string, make: () => Promise<ContractHar
         assert.ok(Math.abs(q.sizeUsd - C * L) < 1e-6);
         assert.ok(q.openFeeUsd >= 0 && q.closeFeeUsd >= 0);
         if (side === "long") assert.ok(q.liqPrice < q.entryEst); else assert.ok(q.liqPrice > q.entryEst);
-        // the H-BOMB line is near: at L× the distance is under 1/L of the price
+        // the NUKE line is near: at L× the distance is under 1/L of the price
         assert.ok(Math.abs(q.entryEst - q.liqPrice) / q.entryEst < 1 / L + 1e-9);
       }
     }));

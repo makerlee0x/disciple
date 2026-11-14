@@ -71,14 +71,14 @@ export const isBigWin = (profitUsd: number) => profitUsd > 0;
 
 /* ---------------------------------------------------------------------------------------------------------------
  * Run-zoomed sky (maker, Nov 13 2026: "Zoom the sky to the run"). Replaces the Nov 12 rule that height = the whole
- * market cap. The sky is scaled to the run: the H-BOMB line sits SKY_LIQ_FRAC of the screen below the boarding line,
+ * market cap. The sky is scaled to the run: the NUKE line sits SKY_LIQ_FRAC of the screen below the boarding line,
  * so a 0.06% move at 1000× is as visible as a 0.78% move at 100×. Market cap is still shown as a number.
  * With no run open, the same scale is previewed for the selected gear around a slowly re-centring anchor.
  * ------------------------------------------------------------------------------------------------------------- */
 
 /** Mid-sky altitude the run is anchored at (engine alt units). */
 export const SKY_BASE_ALT = 4.5;
-/** Share of the screen height between the boarding line and the H-BOMB line. */
+/** Share of the screen height between the boarding line and the NUKE line. */
 export const SKY_LIQ_FRAC = 0.22;   // v2.1: was 0.16; with the camera held during a run the rocket now travels this band itself
 
 /** Pixel offset of a price from the anchor on the zoomed sky (+ = up). `liqDist` = |liq/entry − 1| (fraction). */

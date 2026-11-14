@@ -1,6 +1,6 @@
 /**
  * One duel room.
- * GET ?after=<seq> → { ok, room, events, now }  (anyone with the room id; also runs the H-BOMB / buzzer check)
+ * GET ?after=<seq> → { ok, room, events, now }  (anyone with the room id; also runs the NUKE / buzzer check)
  * POST { op } as a seated, signed-in pilot:
  *   ready · leave · rematch
  *   trade { action: boost|dump|close, usd }   fills at the server's live price

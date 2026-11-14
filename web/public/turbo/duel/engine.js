@@ -22,7 +22,7 @@ function mount(root,host){
   const mmss=ms=>{const s=Math.max(0,Math.ceil(ms/1000));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");};
 
   /* ---------- rules ---------- */
-  const LEV=500, FEE=0.00005 /* 0.5 bp a side: placeholder until Nova confirms duel fees */, LIQ=0.8 /* H-BOMB at 80% of the fuel in it lost */;
+  const LEV=500, FEE=0.00005 /* 0.5 bp a side: placeholder until Nova confirms duel fees */, LIQ=0.8 /* NUKE at 80% of the fuel in it lost */;
   let FUEL0=20;
   const TIERS={rookie:{fuel:20,sizes:[1,2,5,10,0]},pro:{fuel:50,sizes:[2,5,10,25,0]},shark:{fuel:150,sizes:[5,10,25,50,0]}};
   const BOTS={
@@ -73,8 +73,8 @@ function mount(root,host){
   }
   function vBomb(pl,side,lost,price){
     G.marks.push({t:G.t,p:price,me:pl.me,k:"x"});
-    moment(pl,`${pl.me?"you":esc(pl.name)} H-BOMB'd on a ${side>0?"BOOST":"DUMP"}`,-lost);
-    fxBomb(pl); feed(pl,"r",`${pl.me?"you":esc(pl.name)} <b>H-BOMB'd</b>`);
+    moment(pl,`${pl.me?"you":esc(pl.name)} got NUKED on a ${side>0?"BOOST":"DUMP"}`,-lost);
+    fxBomb(pl); feed(pl,"r",`${pl.me?"you":esc(pl.name)} got <b>NUKED</b>`);
     if(pl.me){sfx("bomb");buzz([60,40,90]);}
   }
   function open(pl,side,stake,why){
@@ -297,7 +297,7 @@ function mount(root,host){
    * If the gap gets too big for the screen, the camera zooms out. */
   const sky=$("sky"), sx=sky.getContext("2d"); let SW=0,SH=0,DPR=1;
   const FX={parts:[],pops:[],rings:[],shake:0,flash:0,flashC:"255,255,255"};
-  let stars=[], cam={y:0,vy:0,z:1}, K=70;
+  let stars=[], cam={y:0,vy:0,z:1}, K=200;   // world px per $ (only for the springs)
   const SKY_ORDER=["sky0","sky1","sky2","sky3","sky4"];
   function resize(){
     DPR=Math.min(2,devicePixelRatio||1); SW=sky.clientWidth; SH=sky.clientHeight; sky.width=Math.round(SW*DPR); sky.height=Math.round(SH*DPR);
@@ -305,8 +305,8 @@ function mount(root,host){
     resizeK();
   }
   on(window,"resize",resize);
-  function resizeK(){ LAY=null; if(SW) layout(); }
-  function RH(){ return LAY?LAY.rh:Math.round(Math.max(72,Math.min(SW>=900?150:116,SH*.17))); }   // rocket size comes from the room between the chart and the trade bar
+  function resizeK(){ if(SW) layout(); }
+  function RH(){ return LAY?LAY.h:Math.round(Math.max(72,Math.min(SW>=900?150:116,SH*.17))); }   // current rocket size (shrinks as the gap opens)
   function lane0(pl){ const wide=SW>=900; return pl.me?SW*(wide?.40:.30):SW*(wide?.60:.70); }
   function lane(pl){ return lane0(pl)+(pl.sxo||0); }
   /* steering: drag the sky (phone) or hold A/D (desktop). Tricks: swipe up = spin, double-tap = flip, Q/E on desktop. */
@@ -336,20 +336,18 @@ function mount(root,host){
   let LAY=null;
   function layout(){
     const c=$("sky").getBoundingClientRect(), ch=root.querySelector(".chart").getBoundingClientRect(), bt=root.querySelector(".bottom").getBoundingClientRect();
-    const f=$("feed").getBoundingClientRect(), under=SW>=900?ch.bottom-c.top+8:f.top-c.top+56, barTop=bt.top-c.top, space=barTop-under;
-    const rh=Math.round(Math.max(56,Math.min(SW>=900?150:116,SH*.17,(space-70)*.4)));
-    const top=under+rh*.5+50, bot=Math.max(top+40,barTop-rh*.5-12);   // the trailer's whole rocket stays above the trade bar
-    LAY={rh,top,bot}; K=rh*2;   // $1 of lead = two rocket lengths of sky
+    const cb=$("chatB").getBoundingClientRect(), under=(SW>=900?ch.bottom-c.top:cb.bottom-c.top)+8, barTop=bt.top-c.top-10;   // phones: clear the sound/chat buttons too
+    const rh0=Math.round(Math.max(56,Math.min(SW>=900?150:116,SH*.17,(barTop-under)*.42)));   // rocket size when level
+    LAY=Object.assign(LAY||{h:rh0},{under,barTop,rh0});
   }
-  function band(){ if(!LAY) layout(); return [LAY.top,LAY.bot]; }
+  function band(){ if(!LAY) layout(); return [LAY.under,LAY.barTop]; }
   const alt=pl=>profitOf(pl);                       // $ of altitude
-  const worldY=pl=>-alt(pl)*K;                       // world px, up is negative
-  /* gap scale: altitude in $ maps through a soft S-curve around the pair's middle. Near even, $1 is ~2 rocket lengths;
-   * bigger leads keep opening the gap (a $2 lead uses ~40% of the room, $5 ~75%, $10 ~95%)
-   * so a $10 lead looks far bigger than a $2 one, and nobody ever slides under the trade bar. */
-  const GAPD=2.5;   // $ that sets how fast the curve fills the room
-  function screenY(wy){ const [top,bot]=band(), H=(bot-top)/2; return (top+bot)/2+H*Math.tanh(((wy-cam.y)/K)/GAPD); }
-  const gapFill=()=>G?Math.tanh(Math.abs(G.me.wy-G.bot.wy)/K/(2*GAPD)):0;   // 0 = level, 1 = as far apart as the screen allows
+  const worldY=pl=>-alt(pl)*K;                       // world px (springs + kicks live here), up is negative
+  /* gap scale, in rocket lengths: $1 of lead = 2 lengths, then it keeps growing (≈3.5 at $2, 6 at $5, 8.5 at $10, 10 at $16).
+   * The camera pulls back (both rockets shrink) so that many lengths fit between the chart and the trade bar;
+   * name tags sit beside the rockets, not above them, so the whole height is sky. */
+  const lengthsFor=ad=>ad<=1?2*ad:2+3*Math.log(1+(ad-1)/1.5);
+  const HMIN=()=>SW>=900?30:26;
   function part(o){ if(FX.parts.length>280) return; const p=Object.assign({life:1,size:4,g:0,drag:1.5,add:true},o); p.max=p.life; FX.parts.push(p); }
   function popAt(pl,txt,c){ FX.pops.push({txt,c,x:lane(pl),y:pl.y-RH()*.7,age:0,max:1.4,size:pl.me?30:22}); }
   function fxTrade(pl,side,stake){
@@ -367,7 +365,7 @@ function mount(root,host){
     for(let i=0;i<90;i++){const a=rnd(0,Math.PI*2), sp=rnd(140,700); part({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:rnd(.4,1),size:rnd(2.5,6),col:Math.random()<.4?"255,240,200":"255,120,60"});}
     for(let i=0;i<16;i++){const a=rnd(0,Math.PI*2), sp=rnd(60,240); part({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:rnd(1,1.8),size:rnd(18,40),col:"70,62,80",kind:"smoke",add:false});}
     FX.rings.push({x,y,r:16,vr:900,life:.55,max:.55,w:14,col:"255,240,220"}); FX.rings.push({x,y,r:6,vr:520,life:.7,max:.7,w:6,col:"240,48,127"});
-    FX.pops.push({txt:"H-BOMB",c:"#F0307F",x,y:y-80,age:0,max:1.6,size:34});
+    FX.pops.push({txt:"NUKE",c:"#F0307F",x,y:y-80,age:0,max:1.6,size:34});
     if(pl.me){ FX.red=1; FX.warn=0; if(!reduce){FX.shake=26; FX.flash=.35; FX.flashC="255,245,235";} }
     pl.kick+=500; pl.sq=.25; pl.vr+=(Math.random()<.5?-1:1)*3;
   }
@@ -382,13 +380,13 @@ function mount(root,host){
     sx.fillStyle="rgba(11,10,22,.28)"; sx.fillRect(0,0,SW,SH);
   }
   function drawRuler(){
-    // altitude marks: a line every step dollars, labelled; EVEN is the start line
-    const [top,bot]=band(); const pxPer=K*cam.z; let step=[1,2,5,10,25,50,100].find(v=>v*pxPer>60)||100;
-    const mid=-cam.y/K, span=GAPD*3;     // $ around the middle that the curve can show
-    sx.font="700 11px "+GF+",sans-serif"; sx.textAlign="right"; sx.textBaseline="bottom"; let lastY=-1e9;
-    for(let v=Math.ceil((mid-span)/step)*step; v<=mid+span; v+=step){
-      const y=screenY(-v*K); if(y<top-RH()*.5-20||y>SH) continue;
-      if(v!==0&&Math.abs(y-lastY)<26) continue; lastY=y;
+    // altitude marks in $, on the same scale as the gap between the rockets; START is the even line
+    if(!LAY||LAY.pxPer==null) return; const pxPer=LAY.pxPer, top=LAY.under-10;
+    let step=[1,2,5,10,25,50,100].find(v=>v*pxPer>44)||100;
+    const lo=LAY.pmid-(LAY.mid-top)/pxPer, hi=LAY.pmid+(SH-LAY.mid)/pxPer;
+    sx.font="700 11px "+GF+",sans-serif"; sx.textAlign="right"; sx.textBaseline="bottom";
+    for(let v=Math.ceil(Math.min(lo,hi)/step)*step-step*40, n=0; n<200; v+=step, n++){
+      const y=LAY.mid+(LAY.pmid-v)*pxPer; if(y>SH) continue; if(y<top) break;
       const even=v===0; sx.strokeStyle=even?"rgba(255,255,255,.45)":"rgba(255,255,255,.12)"; sx.lineWidth=even?1.5:1; sx.setLineDash(even?[6,5]:[3,7]);
       sx.beginPath(); sx.moveTo(0,y); sx.lineTo(SW,y); sx.stroke(); sx.setLineDash([]);
       sx.fillStyle=even?"rgba(242,243,247,.85)":v>0?"rgba(95,240,160,.7)":"rgba(255,143,189,.7)";
@@ -397,8 +395,8 @@ function mount(root,host){
   }
   function drawGap(){
     if(!G||!G.started) return; const a=G.me, b=G.bot, d=profitOf(a)-profitOf(b); if(Math.abs(d)<0.05) return;
-    const top=Math.min(a.y,b.y), bot=Math.max(a.y,b.y); if(bot-top<40) return;
-    const x=Math.max(30,Math.min(lane(a),lane(b))-74), col=d>0?"95,240,160":"255,143,189";
+    const top=Math.min(a.y,b.y), bot=Math.max(a.y,b.y); if(bot-top<30) return;
+    const x=(lane(a)+lane(b))/2, col=d>0?"95,240,160":"255,143,189";
     sx.strokeStyle=`rgba(${col},.55)`; sx.lineWidth=2; sx.setLineDash([4,5]);
     sx.beginPath(); sx.moveTo(x,top); sx.lineTo(x,bot); sx.stroke(); sx.setLineDash([]);
     sx.beginPath(); sx.moveTo(x-6,top); sx.lineTo(x+6,top); sx.moveTo(x-6,bot); sx.lineTo(x+6,bot); sx.stroke();
@@ -407,7 +405,7 @@ function mount(root,host){
     sx.fillStyle="#121327"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(t,x,my+1);
   }
   function drawRocket(pl,now,leader){
-    let x=lane(pl)+pl.dx, y=pl.y, img=imgs.rocket, h=(pl.me?RH():RH()*.82)*(1-.15*gapFill()), w=h*221/609;
+    let x=lane(pl)+pl.dx, y=pl.y, img=imgs.rocket, h=(pl.me?RH():RH()*.9), w=h*221/609;
     const lean=Math.max(-.22,Math.min(.22,pl.rot));
     // flame grows while climbing, sputters while falling
     const thrust=Math.max(.25,Math.min(2.4,.6+pl.flame*.6-pl.wvy*.004)), fl=thrust+Math.sin(now/40+(pl.me?0:2))*.08;
@@ -422,18 +420,22 @@ function mount(root,host){
     sx.scale(1-pl.sq*.3,1+pl.sq);
     if(img.complete) sx.drawImage(img,-w/2,-h/2,w,h);
     sx.restore();
-    // tags
+    // tags sit beside the rocket (on the side away from the rival), so the height between chart and bar is all race
+    const other=pl.me?G.bot:G.me, side=lane(pl)<=lane(other)?-1:1;
     const pr=profitOf(pl), txt=(pl.me?"YOU ":pl.name+" ")+usd(pr,true);
-    sx.font=`800 ${pl.me?15:13}px ${GF},sans-serif`; const tw=sx.measureText(txt).width+14; const X0=x; x=Math.max(tw/2+6,Math.min(SW-tw/2-6,X0));
-    let ty=y-h/2-30; sx.fillStyle="rgba(11,10,22,.86)"; rr(x-tw/2,ty,tw,22,7); sx.fill();
-    sx.fillStyle=pr>0?"#5FF0A0":pr<0?"#FF8FBD":"#F2F3F7"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(txt,x,ty+11.5);
-    if(leader){ sx.font="800 12px "+GF+",sans-serif"; const lw=sx.measureText("LEADING").width+12; sx.fillStyle="#F2C14E"; rr(x-lw/2,ty-20,lw,17,6); sx.fill(); sx.fillStyle="#121327"; sx.fillText("LEADING",x,ty-11); }
-    if(pl.say&&now<pl.say.until){ const a=Math.min(1,(pl.say.until-now)/300); sx.globalAlpha=a; sx.font="700 15px "+GU+",system-ui,sans-serif"; const sw=Math.min(220,sx.measureText(pl.say.txt).width+20), by=ty-(leader?50:30);
-      const bx=Math.max(sw/2+6,Math.min(SW-sw/2-6,x)); sx.fillStyle=pl.me?"#F2C14E":"#F0307F"; rr(bx-sw/2,by-26,sw,28,12); sx.fill();
+    sx.font=`800 ${pl.me?15:13}px ${GF},sans-serif`; const tw=sx.measureText(txt).width+14;
+    const t2=pl.pos?`${pl.pos.side>0?"BOOST \u25b2":"DUMP \u25bc"} ${LEV}\u00d7`:"";
+    const bw=Math.max(tw,leader?70:0,pl.pos?90:0); let cx=x+side*(w/2+14+bw/2); cx=Math.max(bw/2+6,Math.min(SW-bw/2-6,cx));
+    const rows=(leader?1:0)+1+(pl.pos?1:0), blockH=(leader?20:0)+22+(pl.pos?20:0); let ty=y-blockH/2;
+    if(leader){ sx.font="800 12px "+GF+",sans-serif"; const lw=sx.measureText("LEADING").width+12; sx.fillStyle="#F2C14E"; rr(cx-lw/2,ty,lw,17,6); sx.fill(); sx.fillStyle="#121327"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText("LEADING",cx,ty+9); ty+=20; }
+    sx.font=`800 ${pl.me?15:13}px ${GF},sans-serif`; sx.fillStyle="rgba(11,10,22,.86)"; rr(cx-tw/2,ty,tw,22,7); sx.fill();
+    sx.fillStyle=pr>0?"#5FF0A0":pr<0?"#FF8FBD":"#F2F3F7"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(txt,cx,ty+11.5); ty+=25;
+    if(pl.pos){ sx.font="700 12px "+GF+",sans-serif"; const w2=sx.measureText(t2).width+12;
+      sx.fillStyle=pl.pos.side>0?"rgba(242,193,78,.92)":"rgba(240,48,127,.92)"; rr(cx-w2/2,ty,w2,17,6); sx.fill(); sx.fillStyle=pl.pos.side>0?"#121327":"#fff"; sx.fillText(t2,cx,ty+9); }
+    if(pl.say&&now<pl.say.until){ const a=Math.min(1,(pl.say.until-now)/300); sx.globalAlpha=a; sx.font="700 15px "+GU+",system-ui,sans-serif"; const sw=Math.min(220,sx.measureText(pl.say.txt).width+20), by=y-blockH/2-8;
+      const bx=Math.max(sw/2+6,Math.min(SW-sw/2-6,cx)); sx.fillStyle=pl.me?"#F2C14E":"#F0307F"; rr(bx-sw/2,by-26,sw,28,12); sx.fill();
       sx.beginPath(); sx.moveTo(bx-6,by+1); sx.lineTo(bx+6,by+1); sx.lineTo(bx,by+8); sx.fill();
       sx.fillStyle=pl.me?"#121327":"#fff"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(pl.say.txt,bx,by-12,sw-14); sx.globalAlpha=1; }
-    if(pl.pos){ const t2=`${pl.pos.side>0?"BOOST \u25b2":"DUMP \u25bc"} ${LEV}\u00d7`; sx.font="700 12px "+GF+",sans-serif"; const w2=sx.measureText(t2).width+12;
-      sx.fillStyle=pl.pos.side>0?"rgba(242,193,78,.92)":"rgba(240,48,127,.92)"; rr(x-w2/2,ty+25,w2,17,6); sx.fill(); sx.fillStyle=pl.pos.side>0?"#121327":"#fff"; sx.fillText(t2,x,ty+34); }
   }
   function drawSky(dt,now){
     if(!SW) resize();
@@ -460,10 +462,15 @@ function mount(root,host){
         pl.dx=Math.sin(now/900+(pl.me?0:2.1))*6; pl.flame=Math.max(0,pl.flame-dt*1.5); pl.sq+=(0-pl.sq)*Math.min(1,dt*10);
       }
       // camera: follow the middle of the pair, zoom out if the gap won't fit
-      const [top,bot]=band();
-      cam.z=Math.min(1,(bot-top)/2/(K*GAPD));   // screen px per world px around the middle (particles ride the camera with it)
+      const top=LAY.under, bot=LAY.barTop, avail=bot-top;
+      const d=(G.bot.wy-G.me.wy)/K, ad=Math.abs(d), L=lengthsFor(ad);          // smoothed $ lead (kicks included) → rocket lengths
+      const hT=Math.max(HMIN(),Math.min(LAY.rh0,avail/(L+1)));                  // zoom out until L lengths fit
+      LAY.h+=(hT-LAY.h)*Math.min(1,dt*3); const h=LAY.h, sep=Math.min(L*h,avail-h), mid=(top+bot)/2;
+      LAY.pxPer=ad>.3?sep/ad:2*h; LAY.pmid=-(G.me.wy+G.bot.wy)/2/K; LAY.mid=mid;
+      cam.z=h/LAY.rh0;
       const ct=(G.me.wy+G.bot.wy)/2, prev=cam.y; cam.vy+=((ct-cam.y)*9-cam.vy*5)*dt; cam.y+=cam.vy*dt; camDy=cam.y-prev;
-      for(const pl of [G.me,G.bot]) pl.y=Math.max(top,Math.min(bot,screenY(pl.wy)+(pl.syo||0)));   // the curve never passes top/bot; the gap tag shows the exact $
+      const lim=pl=>{ const hh=pl.me?h:h*.9; return [top+Math.max(hh*.5,34), bot-hh*.5]; };   // 34 = half the tag block beside the rocket
+      for(const pl of [G.me,G.bot]){ const ahead=pl.me?d>=0:d<0, y0=mid+(ahead?-1:1)*sep/2, [a,b]=lim(pl); pl.y=Math.max(a,Math.min(b,y0+(pl.syo||0))); }
     }
     sx.save(); if(sh) sx.translate(rnd(-sh,sh)*.5,rnd(-sh,sh)*.5);
     const camAlt=-cam.y/K; drawBackdrop(camAlt);
@@ -493,7 +500,7 @@ function mount(root,host){
       sx.lineWidth=5; sx.strokeStyle="rgba(11,10,22,.85)"; sx.strokeText(p.txt,p.x,p.y-p.age*40); sx.fillStyle=p.c; sx.fillText(p.txt,p.x,p.y-p.age*40); sx.globalAlpha=1;}
     sx.restore();
     if(FX.flash>0){ sx.fillStyle=`rgba(${FX.flashC},${FX.flash*.35})`; sx.fillRect(0,0,SW,SH); FX.flash=Math.max(0,FX.flash-dt*2.2); }
-    // red warning: your open trade has lost 40% of what sets off an H-BOMB; the edges glow and pulse faster as it gets closer
+    // red warning: your open trade has lost 40% of what sets off an NUKE; the edges glow and pulse faster as it gets closer
     let warn=0; if(G&&G.started&&!G.over&&G.me.pos){ const r=-pnlOf(G.me.pos,G.price)/(LIQ*G.me.pos.coll); if(r>.4) warn=Math.min(1,(r-.4)/.5); }
     FX.warn=(FX.warn||0)+(warn-(FX.warn||0))*Math.min(1,dt*6);
     const red=Math.max(FX.warn*(.75+.25*Math.sin(now/(reduce?400:(260-140*FX.warn)))), FX.red||0);

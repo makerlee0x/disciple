@@ -2,7 +2,7 @@
 
 Live front end for Turbo: BTC and ETH, BOOST (long) / DUMP (short), leverage presets 100× / 250× / 500× / 1000× plus a
 custom field, four dollar fuel chips plus a custom field, market orders only, one-tap close at 25 / 50 / 100 percent,
-liquidation price always on screen, H-BOMB on liquidation, share cards in dollars. Hidden `/turbo` lives in the existing DISCIPLE game chrome (collapsed rail, full-bleed sky, ticket, trade bar) — not a Nova terminal. The rocket follows live BTC/ETH market cap even with no position open (Hyperliquid public mid + trades streams as the stand-in). No take-profit, stop-loss or limit orders. No geoblock. Not in the public nav.
+liquidation price always on screen, NUKE on liquidation, share cards in dollars. Hidden `/turbo` lives in the existing DISCIPLE game chrome (collapsed rail, full-bleed sky, ticket, trade bar) — not a Nova terminal. The rocket follows live BTC/ETH market cap even with no position open (Hyperliquid public mid + trades streams as the stand-in). No take-profit, stop-loss or limit orders. No geoblock. Not in the public nav.
 
 ## Turn it on (this device only)
 Visit `/turbo?turbo=1` once (sets localStorage `disciple.turbo.enabled.v1`). `/turbo?turbo=0` turns it off. Without the
@@ -22,7 +22,7 @@ it on; it is not set anywhere and must not be set on Vercel.
 | `lib/turbo/prefs.ts` | fuel / leverage presets and the player's picks |
 | `lib/turbo/copy.ts` | every player-facing string (for lee / Brand) |
 | `lib/turbo/useTurbo.ts` | screen hook: prices, fuel, positions, events |
-| `components/turbo/*` | screen, flight mount, funding sheet, share card, H-BOMB overlay, How Turbo works |
+| `components/turbo/*` | screen, flight mount, funding sheet, share card, NUKE overlay, How Turbo works |
 | `public/flight/engine.js` | current-main flight engine; `?source=turbo` mode (`@turbo` block) |
 | `scripts/test-turbo.mts` | `npm run test:turbo` |
 
@@ -43,13 +43,13 @@ it on; it is not set anywhere and must not be set on Vercel.
 each with its own pad plate, flight sky (`public/turbo/sky-*.webp`, sent to the engine as `__turboFx.route`) and accent colour
 (CSS vars `--r-*`). With no position, Turbo opens on the pre-launch pad (rocket on the pad, Flight plan console). Firing plays a
 3-2-1 on the pad while the order fills (it never waits to send the order), then the pad fades into the flight. The sky draws
-H-BOMB, break-even and 2× lines (`multiplePrice`). No fuel turns the fire buttons into Add fuel to fire; Add fuel is a right
+NUKE, break-even and 2× lines (`multiplePrice`). No fuel turns the fire buttons into Add fuel to fire; Add fuel is a right
 drawer on desktop and a bottom sheet on phone.
 - Sky zoomed to the run (maker, Nov 13 2026; replaces the Nov 12 "height = actual market cap" rule): the page marks
-  `skyMcap(price)` (lib/turbo/flight.ts `skyAlt`), so the H-BOMB line sits 16% of the screen below the boarding line
+  `skyMcap(price)` (lib/turbo/flight.ts `skyAlt`), so the NUKE line sits 16% of the screen below the boarding line
   at any gear. With no run open, the selected gear's scale is previewed around a slowly re-centring price. Market cap
   stays a number on the market tab. A short does not flip the sky.
-- Lines: `__turboFx.lines` = H-BOMB (pink), break-even (green dashed), boarded (cream dashed), placed relative to the
+- Lines: `__turboFx.lines` = NUKE (pink), break-even (green dashed), boarded (cream dashed), placed relative to the
   rocket as drawn.
 - Runs (v2 screens): every position is a run; results, streak and best live in `lib/turbo/runs.ts` (this device).
 - Live mids come from Hyperliquid's public `allMids` WebSocket (HTTP poll only as a fallback if the socket is down).
@@ -60,7 +60,7 @@ drawer on desktop and a bottom sheet on phone.
   pinned to the screen edge if far away. Entry line uses `window.__entryMcap` the same way.
 - Profit after fees is a dollar figure on the ticket and HUD only.
 - Jetstream `L = log10(lev)/3` and danger 50/80/95 still apply while a position is open. Liquidation: engine ATOM bomb
-  under the H-BOMB overlay, then the share card. Keep the existing background; do not add new skies.
+  under the NUKE overlay, then the share card. Keep the existing background; do not add new skies.
 - The engine never trades in Turbo mode; BOOST / DUMP / CLOSE call the adapter first and never wait on a frame.
 
 ## Nova-shaped sample and the adapter contract (Nov 13 2026)

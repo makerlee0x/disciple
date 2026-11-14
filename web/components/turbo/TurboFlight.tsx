@@ -10,10 +10,10 @@
  *                  Buys become boosts and sells become bombs via the engine's existing ammo / impact path.
  *  - window.__turboFx = { open, pending, side, lev, danger, dive:false, liqMcap, liqLabel }
  *  - ignite(): flame on at the player's own tap, before the fill arrives
- *  - supernova(): the engine's ATOM bomb under the page's H-BOMB overlay (TurboHBomb)
+ *  - supernova(): the engine's ATOM bomb under the page's NUKE overlay (TurboHBomb)
  * The engine never places trades. A short does not flip the sky.
  * @turbo-sky (maker, Nov 13 2026): the page now marks the ZOOMED sky market cap (skyMcap) instead of the whole BTC/ETH
- * market cap, so the H-BOMB line sits ~16% of the screen below the boarding line at any gear.
+ * market cap, so the NUKE line sits ~16% of the screen below the boarding line at any gear.
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { brandedRocket } from "@/lib/decal";
@@ -29,7 +29,7 @@ export interface TurboFx {
   /** Always false: a short does not dive or invert the sky (lee, Nov 12 2026 10:40 AM CT). */
   dive: boolean;
   liqMcap?: number; liqLabel?: string;
-  /** @turbo-sky: lines drawn across the zoomed sky (H-BOMB, break-even, boarded), at their sky market cap. */
+  /** @turbo-sky: lines drawn across the zoomed sky (NUKE, break-even, boarded), at their sky market cap. */
   lines?: { mcap: number; kind: "hbomb" | "even" | "boarded" | "two"; label: string }[];
   /** v2.1 route sky: "btc" = Sun route plate, "eth" = Moon route plate (public/turbo/sky-*.webp). */
   route?: "btc" | "eth";

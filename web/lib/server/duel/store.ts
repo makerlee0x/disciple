@@ -4,7 +4,7 @@ import "server-only";
  * Everything lives in the shared KV (lib/server/kv). A room is one JSON value changed only under its lock; every
  * change appends an event (zset scored by seq) that GET /api/duel/room/[id] and the SSE stream hand out.
  *
- * Trust: fills use the server's price (./price), never the client's. H-BOMBs and the buzzer are checked on every
+ * Trust: fills use the server's price (./price), never the client's. NUKEs and the buzzer are checked on every
  * request and on the stream's 1 s tick, so a pilot who closes their tab still gets settled.
  * Not yet: Nova orders. Until Nova's SDK lands, duel fuel is a duel-only book (lib/duel/rules) at live prices.
  */
@@ -230,7 +230,7 @@ function bombAll(r: DuelRoom, price: number, evs: NewDuelEvent[]) {
   }
 }
 /**
- * H-BOMBs, then the buzzer (overtime once if it's close). Every price used is one from before the buzzer:
+ * NUKEs, then the buzzer (overtime once if it's close). Every price used is one from before the buzzer:
  *  - a gap nobody watched is checked against the tape's lows/highs (a bomb can't be dodged by closing the tab),
  *  - the buzzer settles at the price AT the buzzer: the live price if we're on time, the last mark if it's right
  *    before the buzzer, else the tape's price at that moment. Never a price from after it.
@@ -322,7 +322,7 @@ async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> 
   for (const p of r.players) await s.delIfEq(K.active(p.pid), r.id);
   return { type: "end", result: r.result };
 }
-/** Run H-BOMB + buzzer checks (any request, or the stream's tick, can call this; the lock makes it once). */
+/** Run NUKE + buzzer checks (any request, or the stream's tick, can call this; the lock makes it once). */
 export async function tick(id: string, price: number | null, s: Kv = kv()) {
   const pre = await getRoom(id, s);
   if (!pre || pre.status !== "live") return null;
@@ -393,7 +393,7 @@ export async function activeRoomOf(pid: string, s: Kv = kv()): Promise<DuelRoom 
   return r;
 }
 /**
- * The referee: a server-side loop that ticks a live duel every second until it settles, so H-BOMBs and the buzzer
+ * The referee: a server-side loop that ticks a live duel every second until it settles, so NUKEs and the buzzer
  * never depend on a pilot keeping a tab open. One per room (lease in KV, renewed each second; if the instance dies,
  * the next request or stream starts a new one). Runs inside `after()` from the routes that start or watch a duel.
  */

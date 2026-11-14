@@ -1,4 +1,4 @@
-// Trading Duel: rules (fills, flips, H-BOMB, overtime, ratings, codes) and the server (queue pairing, invites,
+// Trading Duel: rules (fills, flips, NUKE, overtime, ratings, codes) and the server (queue pairing, invites,
 // ready → live, server-price fills, buzzer settle + ratings once, rematch).
 //   pnpm test:duel   (local KV file in /tmp, injected price, no network)
 import { test } from "node:test";
@@ -33,7 +33,7 @@ test("rules: boost, add averages the entry, flip keeps the fuel, close books fee
   assert.equal(b.pos, null); assert.equal(b.trades, 5);
   assert.equal(R.applyTrade(b, "close", 0, 68020, 4), null);         // nothing open
 });
-test("rules: ALL uses everything, H-BOMB at 80% of the fuel in it", () => {
+test("rules: ALL uses everything, NUKE at 80% of the fuel in it", () => {
   let b = R.applyTrade(R.newBook(20), "boost", 0, 68000, 0)!.book;
   assert.ok(b.fuel < 0.01);
   const lp = R.liqPrice(b.pos!); assert.ok(lp < 68000);
@@ -149,7 +149,7 @@ test("server: a late settle uses the price at the buzzer, never the price when s
   TAPE = null;
 });
 
-test("server: an H-BOMB inside a gap nobody watched still lands", async () => {
+test("server: an NUKE inside a gap nobody watched still lands", async () => {
   const { a, id } = await liveRanked("6", "7");
   const now = Date.now(), T0 = Math.floor((now - 3 * 60_000) / 60_000) * 60_000;
   const book = R.applyTrade(R.newBook(50), "boost", 0, 68000, 0)!.book;
@@ -164,7 +164,7 @@ test("server: an H-BOMB inside a gap nobody watched still lands", async () => {
     { t: T0 + 60_000, T: T0 + 119_999, o: 68000, c: 68000, h: 68005, l: 67995 },
   ];
   const t = await S.tick(id, 68000); // price is back where it was
-  assert.ok(t!.events.some((e) => e.type === "bomb" && e.pid === a.pid), "the dip below the H-BOMB line counts");
+  assert.ok(t!.events.some((e) => e.type === "bomb" && e.pid === a.pid), "the dip below the NUKE line counts");
   assert.equal(t!.room.books[a.pid].pos, null);
   TAPE = null;
 });
