@@ -5,7 +5,6 @@ import { MODES } from "@/lib/config";
 import { AUTO_SLIPPAGE_PCT, DEFAULT_SELLS, MIN_BOOST_USD, validBoost, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 import Icon from "@/components/icons/Icon";
 import OneTapSlippagePicker from "./OneTapSlippagePicker";
-import { setGameSettings, useGameSettings } from "@/lib/game/settings";
 
 /** Swap settings modal (gear in the ammo panel's SELL row): 4 editable buy presets (default $10/$25/$50/$100), the fixed
  *  sell sizes (10/25/50/100% — read-only), slippage, tag. */
@@ -22,10 +21,6 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }; addEventListener("keydown", k); return () => removeEventListener("keydown", k); }, [onClose]);
   useEffect(() => { if (buyAuto) setBuy(autoUsd.map(String)); }, [buyAuto, autoUsd]);
   const [err, setErr] = useState("");
-  // phones: the flight has no ☰ menu (maker 2026-11-14), so sound + vibration live here; they save on tap like the menu's
-  const gs = useGameSettings();
-  const [phone, setPhone] = useState(false);
-  useEffect(() => setPhone(document.documentElement.classList.contains("ap-phone")), []);
   const save = () => {
     const b = buy.map((v) => +v);
     // $3 minimum: a smaller boost can't cover the network fee (maker, 2026-11-14)
@@ -82,14 +77,6 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
         {scope.startsWith("live") && <div style={{ marginTop: 12 }}><OneTapSlippagePicker /></div>}
         <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, cursor: "pointer" }}>
           <input type="checkbox" data-testid="swap-tag" checked={tag} onChange={(e) => setTag(e.target.checked)} /> Position tag next to the rocket <span style={{ opacity: 0.55 }}>(P)</span></label>
-        {phone && <div data-testid="swap-game" style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed rgba(255,255,255,.12)", display: "flex", flexDirection: "column", gap: 10 }}>
-          {([["sfx", "Sound effects", gs.sfx.on, () => setGameSettings((g) => ({ ...g, sfx: { ...g.sfx, on: !g.sfx.on } }))],
-            ["music", "Music", gs.music.on, () => setGameSettings((g) => ({ ...g, music: { ...g.music, on: !g.music.on } }))],
-            ["haptics", "Vibration", gs.haptics, () => { const v = !gs.haptics; setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); }],
-          ] as const).map(([k, label, on, flip]) => (
-            <label key={k} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", minHeight: 32 }}>
-              <input type="checkbox" data-testid={`swap-${k}`} checked={on} onChange={flip} /> {label}</label>))}
-        </div>}
         <button type="button" data-testid="swap-save" onClick={save}
           style={{ all: "unset", cursor: "pointer", display: "block", textAlign: "center", width: "100%", boxSizing: "border-box", marginTop: 16, padding: "12px 0", borderRadius: 12, fontWeight: 700, fontSize: 15,
             background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.1)", color: "#eef0ff" }}>Save</button>

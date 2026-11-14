@@ -336,6 +336,8 @@ export default function PhoneHud() {
         html.ap-phone [data-testid="chat-dock"]:not([data-open]) { left: 72px !important; }
         /* Free play's timer chip: right side under the chart card (the chat button moved to the icon column) */
         html.ap-phone [data-testid="sim-chip"] { display: none !important; }
+        /* no radio card in the phone flight (maker 2026-11-14: old design); Music in the gear sheet plays the house radio */
+        html.ap-phone [data-testid="radio-mini"], html.ap-phone [data-testid="radio-pill"] { display: none !important; }
         html.ap-phone [data-testid="sim-bar"] { top: calc(var(--ph-top, 12px) + 56px) !important; left: 50% !important; right: auto !important; transform: translateX(-50%); z-index: 46 !important; }
         html.ap-phone [data-testid="chat-dock"]:not([data-open]) [data-testid="chat-open"] { position: fixed !important; left: 12px !important; right: auto !important; top: var(--ph-feed-top) !important; }
         html.ap-phone [data-testid="chat-dock"]:not([data-open]) [data-testid="chat-list"] { width: min(220px, calc(100vw - 230px)) !important; }

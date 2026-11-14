@@ -27,6 +27,7 @@ import { capRoomUsd, COPY_PENDING_LEE, nextAlert, type TradeAlert } from "@/lib/
 import AmmoTierNotice from "./AmmoTierNotice";
 import { fmtMoney } from "@/lib/pnl";
 import SwapSettingsModal from "./trade/SwapSettingsModal";
+import PhoneBoostSheet from "./flight/PhoneBoostSheet";
 import PhoneThrottle from "./flight/PhoneThrottle";
 import { DEFAULT_BUY, SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettings, sellLabel, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 import { keyLabel, useGameSettings } from "@/lib/game/settings";
@@ -850,9 +851,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       buyWarn={warns.buy.map((w) => chipTag("buy", w))} sellWarn={warns.sell.map((w) => chipTag("sell", w))}
       warn={warnText} warnOver={warnOver}
       hint={phoneHint} keyGuard={noKeyActivate} noSignIn={token === "SIMULATOR"} />
-    {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
-      onClose={() => setShowCfg(false)}
-      onSave={(n) => { setCfg(n); saveSettings(scope, n); setShowCfg(false); }} />}
+    {showCfg && <PhoneBoostSheet initial={cfg} onClose={() => setShowCfg(false)} onChange={(n) => { setCfg(n); saveSettings(scope, n); }} />}
     </>
   );
   // desktop trade bar (brand v3, approved mockup Nov 12): two sides, ONE rule each — pick an amount, then fire.
