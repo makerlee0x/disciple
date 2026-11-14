@@ -16,6 +16,7 @@ import { curveOf, publicClient, quoteRawToUsd, readMarket } from "./protocol-vie
 import { coinBasis, hookMcapUsd as hookSqrtMcapUsd, readCoinMcap } from "./mcap";
 import { blockOf, txBlock, type BlockLike } from "./fillBook";
 import { NOT_GRADUATED, type Address, type GradState, type ProtocolEvent } from "./protocol";
+import { longHidden, onTabVisible } from "./tabIdle";
 
 type Cb = (e: ProtocolEvent) => void;
 type L = Log & { eventName: string; args: Record<string, unknown> };
@@ -188,6 +189,7 @@ export function pollLogs(o: {
     return inflight;
   };
   const run = async () => {
+    if (longHidden()) return;   // long-hidden tab: no polling (lib/tabIdle); onTabVisible below polls on return
     try {
       const h = await o.pc.getBlockNumber();
       if (h > head) head = h;
@@ -205,9 +207,10 @@ export function pollLogs(o: {
     } catch { /* RPC hiccup: the rescan window covers it next poll */ }
   };
   const iv = setInterval(tick, o.everyMs ?? LIVE_POLL_MS);
+  const offVis = onTabVisible(() => { void tick(); });
   void tick();
   return {
-    stop: () => { alive = false; clearInterval(iv); }, kick: () => { void tick(); }, tick, head: () => head,
+    stop: () => { alive = false; clearInterval(iv); offVis(); }, kick: () => { void tick(); }, tick, head: () => head,
     has: (tx) => { const p = String(tx).toLowerCase() + ":"; for (const k of seen.keys()) if (k.toLowerCase().startsWith(p)) return true; return false; },
   };
 }
@@ -390,13 +393,14 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
 export function reconcileMcap(token: Address, order: McapOrderer, pc: PublicClient = publicClient(), everyMs = 8000, read: (b: bigint) => Promise<number | null> = (b) => readMcapAt(pc, token, b)): () => void {
   let alive = true, busy = false;
   const tick = async () => {
-    if (!alive || busy) return; busy = true;
+    if (!alive || busy || longHidden()) return; busy = true;
     try { const b = await pc.getBlockNumber(); const m = await read(b); if (alive && m) order.state(m, b); } catch { /* next tick */ } finally { busy = false; }
   };
   const iv = setInterval(tick, everyMs);
+  const offVis = onTabVisible(() => { void tick(); });
   const after = () => { setTimeout(tick, 1200); setTimeout(tick, 4000); };
   if (typeof window !== "undefined") window.addEventListener("disciple:livetrade", after);
-  return () => { alive = false; clearInterval(iv); if (typeof window !== "undefined") window.removeEventListener("disciple:livetrade", after); };
+  return () => { alive = false; clearInterval(iv); offVis(); if (typeof window !== "undefined") window.removeEventListener("disciple:livetrade", after); };
 }
 
 export interface LaunchedCoin {

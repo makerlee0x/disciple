@@ -10,7 +10,7 @@ import { fetchProfileMeta } from "@/lib/profileMetaClient";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
 import { NO_IDENTITY } from "@/lib/identity";
 import { withBase } from "@/lib/base-path";
-import { onWallet } from "@/lib/wallet";
+import { onWallet } from "@/lib/walletState";
 import { DEPOSIT_HREF, LEGACY_CASH_HASH, OPEN_SETTINGS_EVENT, SETTINGS_HASHES } from "@/lib/cashLink";
 import SettingsModal from "./SettingsModal";
 import EditProfileSheet from "./EditProfileSheet";

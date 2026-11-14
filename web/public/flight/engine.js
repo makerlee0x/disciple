@@ -1089,12 +1089,15 @@ function wingStep(dt){ if(!S.wing.size) return;
     w.hist.unshift(w.x); if(w.hist.length>90) w.hist.length=90; }
   for(const [k,t] of S.wingRecent) if(S.t-t>WING_TTL) S.wingRecent.delete(k); }
 function wingExtra(){ let n=0; for(const k of S.wingRecent.keys()) if(!S.wing.has(k)) n++; return n; }
+const WING_SEG=3;
 function drawWingmen(){ if(PH_THR()) return;   /* phone throttle layout (maker 2026-11-14, "yes, all of it"): no other ships in the phone sky */
   if(!S.wing.size&&!wingExtra()) return; const im=IMG.rocket, ok=im&&im.complete&&!im.bad&&im.naturalWidth;
-  ctx.save(); ctx.lineCap='round';
+  ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round';
   for(const w of S.wing.values()){ const c=wingRgb(w.k), drafting=S.draftOn===w, n=w.hist.length;   // contrail: x history streamed downward
-    for(let i=1;i<n;i++){ const a=(1-i/n)*(drafting?0.8:0.28); if(a<0.01) continue; ctx.strokeStyle=`rgba(${c},${a})`; ctx.lineWidth=(drafting?4.5:2.5)*(1+i/n*1.6);
-      ctx.beginPath(); ctx.moveTo(w.hist[i-1],w.y+8+(i-1)*WING_SP); ctx.lineTo(w.hist[i],w.y+8+i*WING_SP); ctx.stroke(); } }
+    /* speed pass (2026-11-14): one stroke per WING_SEG history points, not per point (12 wingmen × 89 points was ~600 strokes a
+       frame on desktop); alpha and width still taper along the trail, sampled at each run's middle */
+    for(let i=1;i<n;i+=WING_SEG){ const e=Math.min(n-1,i+WING_SEG-1), m=(i+e)/2, a=(1-m/n)*(drafting?0.8:0.28); if(a<0.01) continue; ctx.strokeStyle=`rgba(${c},${a})`; ctx.lineWidth=(drafting?4.5:2.5)*(1+m/n*1.6);
+      ctx.beginPath(); ctx.moveTo(w.hist[i-1],w.y+8+(i-1)*WING_SP); for(let j=i;j<=e;j++) ctx.lineTo(w.hist[j],w.y+8+j*WING_SP); ctx.stroke(); } }
   for(const w of S.wing.values()){ const c=wingRgb(w.k), boosting=S.t-w.boostT<1.1, usd=S.fuelers[w.k]||S.fuelers[short(w.trader)]||10;
     const h=(46+Math.min(22,Math.log10(1+usd)*9))*(W<640?0.75:1), fw=h*0.11, fl=h*0.55*(boosting?1.6:0.8)*(0.9+0.12*Math.sin(S.t*40+w.slot));
     ctx.save(); ctx.translate(w.x,w.y); ctx.rotate(w.rot||0);
@@ -1435,11 +1438,21 @@ function loadAsset(n){ if(started[n]) return; started[n]=1; inflight++; const im
   im.onerror=()=>{ im.bad=true; console.warn('asset failed',n); fin(); }; IMG[n]=im; im.src=(window.__DISCIPLE_BASE_PATH__||'')+(SKY_SRC[n]||'/assets/'+n+'.png'); }
 function tierIxOf(mcap){ if(!(mcap>0)) return 0; for(let i=TIERS.length-1;i>=0;i--) if(mcap>=TIERS[i].lo) return i; return 0; }
 function nearTiers(){ const c=tierIxOf(S&&S.confirmed?S.confirmed.mcap:0); return [c,c+1,c-1].filter(i=>i>=0&&i<TIERS.length).map(i=>TIERS[i].bg); }
-function pumpAssets(){ const c=tierIxOf(S&&S.confirmed?S.confirmed.mcap:0);
-  const q=['rocket',...TIERS.map((t,i)=>[t.bg,Math.abs(i-c)+(i<c?0.5:0)]).sort((a,b)=>a[1]-b[1]).map(x=>x[0])];
+/* Speed pass (2026-11-14): the plates only stream in a window around the current zone (PLATE_AHEAD tiers either side, re-centred
+   as you climb), not all 18, and not at all on the phone throttle layout, which draws the lobby photo skies instead (@phone-sky)
+   and was downloading ~3.3 MB of plates it never showed. ALL_PLATES = the old "everything" stream, for the replay/test tools
+   (window.__flight.assetsReady turns it on). A plate that is needed but not in yet still draws as the plain night fill. */
+const PLATE_AHEAD=3; let ALL_PLATES=false, pumpTier=-1;
+function platesWanted(){ return ALL_PLATES||!(window.__phoneHud&&window.__phoneHud.thr); }   // = !PH_THR() (declared further down)
+function pumpAssets(){ const c=tierIxOf(S&&S.confirmed?S.confirmed.mcap:0); pumpTier=c;
+  const want=platesWanted(), q=['rocket',...TIERS.map((t,i)=>[t.bg,Math.abs(i-c)+(i<c?0.5:0)]).filter(x=>want&&(ALL_PLATES||x[1]<=PLATE_AHEAD+0.5)).sort((a,b)=>a[1]-b[1]).map(x=>x[0])];
   for(const n of q){ if(inflight>=3) break; if(!started[n]) loadAsset(n); } }
-function skyReady(){ if(!done.rocket) return false; for(const n of nearTiers()){ if(!done[n]){ loadAsset(n); return false; } } return true; }
-pumpAssets();
+function skyReady(){ if(!done.rocket) return false;
+  if(!IS_TURBO&&window.__phoneHud&&window.__phoneHud.thr){ const k=tierIxOf(S&&S.confirmed?S.confirmed.mcap:0), im=phSkyImg(k); if(im||PHS.img[k].bad) return true; return false; }   // phone: wait for its own photo sky, not the plates
+  let ok=true; for(const n of nearTiers()) if(!done[n]){ loadAsset(n); ok=false; } if(!ok) return false;
+  if(tierIxOf(S&&S.confirmed?S.confirmed.mcap:0)!==pumpTier) pumpAssets();   // climbed (or fell) into a new zone: slide the window
+  return true; }
+if(W>HUD_NARROW_W) pumpAssets(); else loadAsset('rocket');   // a phone-width canvas may get the photo-sky layout: its plates wait for skyReady
 
 // film grain: pre-rendered noise tiles
 const grain=[...Array(4)].map(()=>{ const g=document.createElement('canvas'); g.width=g.height=256; const gx=g.getContext('2d'), id=gx.createImageData(256,256);
@@ -1478,14 +1491,18 @@ const plateOf=i=>TIERS[clamp(Math.floor(i),0,TIERS.length-1)].bg;
    the camera caps (CAM_VMAX) — fast swings scroll, never strobe. The texture itself drifts down slowly with
    the world scroll (altitude + airspeed) for parallax. */
 const BG_STRIPS=12;
+/* speed pass (2026-11-14): skyGrade's multiply by SKY_MUL is a constant per pixel, so it is baked into each cached plate tile (and
+   the night fill under them is pre-multiplied) instead of being a full-screen multiply every frame; the result is the same. */
+const SKY_MUL='rgb(150,165,225)', NIGHT_FILL_GRADED='rgb(6,10,30)';   // = '#0b0f22' × SKY_MUL
 const BGC={key:'', tiles:new Map()};
 function bgTile(name){ const s=1.12, w=Math.round(W*s), h=Math.round(H*s), k=w+'x'+h;
   if(BGC.key!==k){ BGC.key=k; BGC.tiles.clear(); }
   let t=BGC.tiles.get(name); if(t){ BGC.tiles.delete(name); BGC.tiles.set(name,t); return t; }   // LRU touch
-  const im=IMG[name]; if(!im||!im.complete||im.bad) return null;
+  const im=IMG[name]; if(!im){ loadAsset(name); return null; } if(!im.complete||im.bad) return null;
   t=document.createElement('canvas'); t.width=w; t.height=2*h; const g=t.getContext('2d');
   const sx=im.naturalWidth*0.1, sw=im.naturalWidth*0.8, ih=im.naturalHeight;
   g.drawImage(im,sx,0,sw,ih,0,0,w,h); g.save(); g.translate(0,2*h); g.scale(1,-1); g.drawImage(im,sx,0,sw,ih,0,0,w,h); g.restore();
+  g.globalCompositeOperation='multiply'; g.fillStyle=SKY_MUL; g.fillRect(0,0,w,2*h); g.globalCompositeOperation='source-over';   // skyGrade's cool-down, baked in once
   BGC.tiles.set(name,t); while(BGC.tiles.size>3) BGC.tiles.delete(BGC.tiles.keys().next().value);
   return t; }
 function plateRows(T,y0,y1,oy,x0){ y0=Math.max(0,Math.floor(y0)); y1=Math.min(H,Math.ceil(y1)); const P=T.height, w=T.width;
@@ -1532,13 +1549,14 @@ function drawTurboSky(im,r){ const iw=im.width||im.naturalWidth, ih=im.height||i
   const k=W+'x'+H; if(SKYG.tk!==k){ SKYG.tk=k; const v=ctx.createLinearGradient(0,0,0,H); v.addColorStop(0,'rgba(6,6,18,.38)'); v.addColorStop(0.5,'rgba(6,6,18,.05)'); v.addColorStop(1,'rgba(6,6,18,.32)'); SKYG.tv=v; }
   ctx.fillStyle=SKYG.tv; ctx.fillRect(0,0,W,H); return true; }
 function drawBg(){
-  ctx.fillStyle='#0b0f22'; ctx.fillRect(0,0,W,H);
+  /* speed pass (2026-11-14): the night fill is only painted when nothing opaque covers the whole frame (the photo sky, the Turbo
+     plate and the bottom tier plate all do), saving one full-screen fill a frame */
   if(!IS_TURBO&&PH_THR()&&drawPhoneSky()) return;
   if(IS_TURBO){ const r=turboRoute(), im=turboSkyImg(r); if(im&&drawTurboSky(im,r)) return; }
   const F=H*0.5, oy=Math.round(((S.cloudY||0)*0.06)), w=Math.round(W*1.12), x0=Math.round((W-w)/2-((S.camX!=null?S.camX:S.x)-W/2)*0.03);
   S.bgU=tipPoint().alt;   // sky tint follows the rocket's own altitude
   const kb=Math.floor(altAtY(H+F/2)), kt=Math.floor(altAtY(-F/2));
-  const B=bgTile(plateOf(Math.max(0,kb))); if(B) plateRows(B,0,H,oy,x0);
+  const B=bgTile(plateOf(Math.max(0,kb))); if(B) plateRows(B,0,H,oy,x0); else { ctx.fillStyle=NIGHT_FILL_GRADED; ctx.fillRect(0,0,W,H); }
   for(let k=Math.max(1,kb+1);k<=kt;k++){ if(plateOf(k)===plateOf(k-1)) continue; const T=bgTile(plateOf(k)); if(!T) continue;
     const yk=altToScreenY(k), top=yk-F/2;
     if(top>0) plateRows(T,0,top,oy,x0);
@@ -1554,13 +1572,16 @@ const SKYG={k:''};
 function skyGrade(){ const k=W+'x'+H; if(SKYG.k!==k){ SKYG.k=k;
     const v=ctx.createLinearGradient(0,0,0,H); v.addColorStop(0,'rgba(6,8,22,.42)'); v.addColorStop(0.55,'rgba(10,12,30,.16)'); v.addColorStop(1,'rgba(11,12,14,.30)'); SKYG.v=v;
     const r=Math.max(W,H); const gk=ctx.createRadialGradient(W*0.78,H*0.08,0,W*0.78,H*0.08,r*0.75); gk.addColorStop(0,'rgba(242,193,78,.20)'); gk.addColorStop(0.35,'rgba(242,193,78,.07)'); gk.addColorStop(1,'rgba(242,193,78,0)'); SKYG.g=gk; }
-  ctx.save(); ctx.globalCompositeOperation='multiply'; ctx.fillStyle='rgb(150,165,225)'; ctx.fillRect(0,0,W,H);
+  ctx.save();   // (the multiply by SKY_MUL is baked into the plate tiles: bgTile)
   ctx.globalCompositeOperation='source-over'; ctx.fillStyle=SKYG.v; ctx.fillRect(0,0,W,H);
   ctx.globalCompositeOperation='screen'; ctx.fillStyle=SKYG.g; ctx.fillRect(0,0,W,H); ctx.restore(); }
 /* Sky tint per tier plate (average colour, sampled once per image) → rocket rim light + cloud shading */
 const SKY_RGB=new Map();
+/* the same 4×4 average, measured once from each plate in Chromium (speed pass 2026-11-14): used until that plate is loaded, so a
+   phone (which no longer downloads the plates) keeps the rim light it had, and a desktop zone has its tint before its plate lands */
+const SKY_RGB_PRE={"tier0":[170,165,188],"tier1":[145,148,174],"tier2":[154,153,168],"tier3":[137,136,153],"tier4":[150,146,169],"tier5":[212,210,222],"tier6":[152,150,165],"tier7":[155,150,176],"tier8":[155,150,167],"tier9":[147,137,154],"tier10":[154,155,167],"tier11":[175,170,193],"tier12":[194,186,202],"tier13":[174,174,194],"tier14":[190,181,203],"tier15":[174,172,199],"tier16":[209,205,226],"tier17":[219,215,226]};
 function skyRGB(idx){ const key=plateOf(idx); let c=SKY_RGB.get(key); if(c) return c;
-  const im=IMG[key]; c=[200,205,255]; if(im&&im.complete&&!im.bad){ try{ const t=document.createElement('canvas'); t.width=t.height=4; const g=t.getContext('2d');
+  const im=IMG[key]; c=SKY_RGB_PRE[key]||[200,205,255]; if(im&&im.complete&&!im.bad){ try{ const t=document.createElement('canvas'); t.width=t.height=4; const g=t.getContext('2d');
     g.drawImage(im,0,0,4,4); const d=g.getImageData(0,0,4,2).data; let r=0,gg=0,b=0; for(let k=0;k<d.length;k+=4){ r+=d[k]; gg+=d[k+1]; b+=d[k+2]; } const n=d.length/4;
     // lift toward pastel so the rim reads as light, not as paint
     c=[Math.round(r/n*0.5+128),Math.round(gg/n*0.5+124),Math.round(b/n*0.5+128)]; SKY_RGB.set(key,c); }catch(_){ } }
@@ -3387,7 +3408,7 @@ function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){
   else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
   S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
 window.__flightOrbit=()=>startOrbitFx();   // preview / test hook for the graduation set piece
-window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,setFlares,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>loaded>=names.length&&ACC.state!=='loading',accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,setFlares,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>{ if(!ALL_PLATES){ ALL_PLATES=true; pumpAssets(); } return loaded>=names.length&&ACC.state!=='loading'; },accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 /* @boot-ammo — announce the presets + mode once this run's listeners are live. TradeBridge's mount-time ammo-query
    usually fires BEFORE this script loads (FlightCanvas fetches /replay.json first) and AMMO_TIERS is null (no tier

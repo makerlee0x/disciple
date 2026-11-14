@@ -17,6 +17,8 @@ import IconSprite from "@/components/icons/IconSprite";
 import { sponsorshipConfig } from "@/lib/server/sponsorshipConfig";
 import { SPONSORSHIP_CONFIG_ID } from "@/lib/aa/sponsorshipMode";
 
+const GAME_ROUTE_JS = `(function(){try{var b=${JSON.stringify(process.env.NEXT_PUBLIC_BASE_PATH || "")},p=location.pathname;if(b&&p.indexOf(b)===0)p=p.slice(b.length)||"/";if(/^\\/(coin\\/|flight|turbo(\\/|$))/.test(p))document.body.classList.add("game")}catch(e){}})()`;
+
 const SITE_TITLE = "DISCIPLE · Ride it to orbit";
 const SITE_LINE = "Every rocket is a live match. The crew boosts it up, and anyone can bomb it down.";
 /** Site card (step 7): drawn by /api/og/site (lib/server/og/card.ts). Rocket, pilot and invite pages carry their own. */
@@ -55,7 +57,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geist.variable} ${instrumentSerif.variable} ${barlowCondensed.variable}`}>
-      <body className="antialiased">
+      <body className="antialiased" suppressHydrationWarning>
+        {/* speed pass (2026-11-14): Sidebar sets body.game (no rail on desktop flight) only after hydration, so the full-screen
+            flight canvas first painted 64 px to the right and then jumped left: a 0.31 layout shift on every desktop flight
+            load. Same test as Sidebar's isCollapsibleRoute, before the first paint; Sidebar keeps it in sync after that. */}
+        <script dangerouslySetInnerHTML={{ __html: GAME_ROUTE_JS }} />
         <script id={SPONSORSHIP_CONFIG_ID} type="application/json" dangerouslySetInnerHTML={{ __html: JSON.stringify(sponsorshipConfig()) }} />
         <IconSprite />
         <PrivyProviders>

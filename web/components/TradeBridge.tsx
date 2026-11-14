@@ -44,6 +44,7 @@ const gasUsd = () => { try { return rawToUsd(ownWalletGasRaw()); } catch { retur
 const CASH_RAW: { v: bigint | null } = { v: null };
 import { activeWarning, chipTag, moveWarnings, plainTradeMessage, type MoveWarn, type TradeSide } from "@/lib/flight/tradeGate";
 import { graduationStatus, liveMaxImpactBps } from "@/lib/flight/gradAdapter";
+import { longHidden, onTabVisible } from "@/lib/tabIdle";
 
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 
@@ -597,7 +598,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   useEffect(() => {
     if (!live) { setLiveHas(null); dispatchEvent(new CustomEvent("disciple:holdings", { detail: null })); return; }
     let alive = true; const pc = publicClient();
-    const poll = async () => { try { const me = await activeAddress(); if (!me) return;
+    const poll = async () => { if (longHidden()) return; try { const me = await activeAddress(); if (!me) return;
       const b = await freshSellBalance(() => ownBalance(pc, token as Address, me, () => tokenBalance(pc, token as Address, me)), () => ownHint(pc, token as Address, me, 60_000), lastOwnTradeAt.current);
       const inFlight = (window.__disciplePendingTrades?.buy || 0) + (window.__disciplePendingTrades?.sell || 0);
       const settled = inFlight === 0 && Date.now() - lastOwnTradeAt.current > 15_000;
@@ -610,9 +611,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       if (alive && b !== undefined) { liveTokens.current = units(b); setLiveHas(b > BigInt(0)); dispatchEvent(new CustomEvent("disciple:holdings", { detail: { has: b > BigInt(0), tokens: liveTokens.current, settled: false } })); } } catch { /* poll */ } };
     const soon = () => { void fromLedger(); later(1100); };
     const afterTrade = () => { void poll(); later(16_000); };   // now + once settled
-    void poll(); const iv = setInterval(poll, 10_000);
+    void poll(); const iv = setInterval(poll, 10_000); const offVis = onTabVisible(() => void poll());
     addEventListener("disciple:livetrade", afterTrade); addEventListener("disciple:ownbalance", soon);
-    return () => { alive = false; clearInterval(iv); tos.forEach(clearTimeout); removeEventListener("disciple:livetrade", afterTrade); removeEventListener("disciple:ownbalance", soon); };
+    return () => { alive = false; clearInterval(iv); offVis(); tos.forEach(clearTimeout); removeEventListener("disciple:livetrade", afterTrade); removeEventListener("disciple:ownbalance", soon); };
   }, [live, token]);
   // CASH for the BOOST check. Live: the trading account's USDG (the header's "cash"), polled + after each trade, also pushed
   // to the engine (disciple:cash) so SPACE is blocked the same way. Paper: the engine's paper balance (disciple:papercash).
@@ -620,7 +621,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   useEffect(() => {
     if (!live) { CASH_RAW.v = null; setLiveCash(null); dispatchEvent(new CustomEvent("disciple:cash", { detail: { usd: null } })); return; }
     let alive = true; const pc = publicClient();
-    const poll = async () => { try { const me = await activeAddress(); if (!me) return; const usdg = deployment().usdg;
+    const poll = async () => { if (longHidden()) return; try { const me = await activeAddress(); if (!me) return; const usdg = deployment().usdg;
       void warmGasPrice(pc);   // gas reserve: live gas price, off the trade path
       const [raw, dec] = await Promise.all([ownBalance(pc, usdg, me, () => balanceHint(pc, usdg, me, 4000)), decimalsOf(pc, usdg), warmGasCredit(pc, me)]);
       const usd = Number(raw) / 10 ** dec;
@@ -631,9 +632,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     const tos = new Set<ReturnType<typeof setTimeout>>();
     const at = (ms: number) => { const id = setTimeout(() => { tos.delete(id); void poll(); }, ms); tos.add(id); };
     const own = () => { void fromLedger(); at(1100); };
-    void poll(); const iv = setInterval(poll, 5_000); const later = () => at(2500);
+    void poll(); const iv = setInterval(poll, 5_000); const later = () => at(2500); const offVis = onTabVisible(() => void poll());
     addEventListener("disciple:livetrade", later); addEventListener("disciple:ownbalance", own);
-    return () => { alive = false; clearInterval(iv); tos.forEach(clearTimeout); removeEventListener("disciple:livetrade", later); removeEventListener("disciple:ownbalance", own); };
+    return () => { alive = false; clearInterval(iv); offVis(); tos.forEach(clearTimeout); removeEventListener("disciple:livetrade", later); removeEventListener("disciple:ownbalance", own); };
   }, [live]);
   const [paperCash, setPaperCash] = useState<number | null>(null);
   useEffect(() => { const h = (e: Event) => { const u = (e as CustomEvent<{ usd: number | null }>).detail?.usd; setPaperCash(typeof u === "number" && Number.isFinite(u) ? u : null); };
@@ -642,11 +643,11 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   useEffect(() => {
     if (!valid) { dispatchEvent(new CustomEvent("disciple:coinrules", { detail: null })); return; }
     let alive = true; const pc = publicClient();
-    const poll = async () => { try { const r = await readCoinRules(pc, token as Address); if (alive) rulesRef.current = r; if (alive) dispatchEvent(new CustomEvent("disciple:coinrules", { detail: r })); } catch { /* keep last */ } };
-    void poll(); const iv = setInterval(poll, 15_000); const again = () => { n = 0; void poll(); }; let n = 0;
+    const poll = async () => { if (longHidden()) return; try { const r = await readCoinRules(pc, token as Address); if (alive) rulesRef.current = r; if (alive) dispatchEvent(new CustomEvent("disciple:coinrules", { detail: r })); } catch { /* keep last */ } };
+    void poll(); const iv = setInterval(poll, 15_000); const again = () => { n = 0; void poll(); }; let n = 0; const offVis = onTabVisible(() => void poll());
     const boot = () => { if (n++ < 3) void poll(); };   // engine may boot after mount (worker): re-send on its first ammo announcements
     addEventListener("disciple:ammo", boot); addEventListener("disciple:livetrade", again);
-    return () => { alive = false; clearInterval(iv); removeEventListener("disciple:ammo", boot); removeEventListener("disciple:livetrade", again); };
+    return () => { alive = false; clearInterval(iv); offVis(); removeEventListener("disciple:ammo", boot); removeEventListener("disciple:livetrade", again); };
   }, [valid, token]);
   const has = live && liveHas != null ? liveHas : pos.size > 0;
   // in-flight trades (engine disciple:inflight, only real pending ones) + reservation changes ⇒ re-render the greyed state
@@ -742,7 +743,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         if (alive) setWarns({ max, buy: wb.slice(0, 4), sell: wsl.slice(0, 4), customBuy: customUsd ? wb[4] : null, customSell: customSellPct ? wsl[4] : null });
       } catch { /* keep last */ }
     };
-    const id = setTimeout(run, 150); const iv = setInterval(run, 4000);
+    const id = setTimeout(run, 150); const iv = setInterval(() => { if (!document.hidden) void run(); }, 4000);   // price-impact quotes: visible tabs only (the hot-path warmer skips hidden too)
     const soon = () => setTimeout(() => void run(), 300);
     addEventListener("disciple:livetrade", soon); addEventListener("disciple:ownbalance", soon);
     return () => { alive = false; clearTimeout(id); clearInterval(iv); removeEventListener("disciple:livetrade", soon); removeEventListener("disciple:ownbalance", soon); };

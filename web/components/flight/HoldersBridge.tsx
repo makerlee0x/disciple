@@ -7,7 +7,7 @@ import { holderKinds, protocolLabels } from "@/lib/holders";
 import type { Address } from "@/lib/protocol";
 import { curveOf, publicClient } from "@/lib/protocol-viem";
 import { tokenAbi } from "@/lib/abi";
-import { onWallet } from "@/lib/wallet";
+import { onWallet } from "@/lib/walletState";
 import { DEFAULT_SUPPLY } from "@/lib/pnl";
 import { fetchHolders, overlayOwn, type BuildOpts, type HolderLabel, type HoldersSnapshot } from "@/lib/flight/holders";
 import { OWN, ownRead } from "@/lib/flight/ownLedger";

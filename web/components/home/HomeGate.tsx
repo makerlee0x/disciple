@@ -6,7 +6,7 @@
  * live sign-in state decides (Privy, the smart session, the wallet pill) and the other lobby is unmounted.
  */
 import { useEffect, useState, type ReactNode } from "react";
-import { aaSession, hasSavedSession, onPrivy, onSessionChange, privyAuthenticated, privyLoaded } from "@/lib/aa/session";
+import { aaSession, hasSavedSession, onPrivy, onSessionChange, privyAuthenticated, privyLoaded } from "@/lib/aa/sessionState"; // not lib/aa/session: that pulls viem into the lobby
 import { WALLET_ID_EVENT, walletId } from "@/lib/walletCta";
 import s from "./homeGate.module.css";
 

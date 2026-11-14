@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { Address, Hex, PublicClient } from "viem";
 import { ACTIVE_CHAIN, isDeployed } from "@/lib/chains";
-import { onWallet } from "@/lib/wallet";
+import { onWallet } from "@/lib/walletState";
 import { publicClient } from "@/lib/protocol-viem";
 import { probeCaps, staticCaps, type Caps } from "@/lib/claims/capabilities";
 import { DEMO_CAPS, demoEnabled, demoRedeploy } from "@/lib/claims/demo";

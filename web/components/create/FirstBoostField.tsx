@@ -11,7 +11,7 @@ import { DEFAULT_LAUNCH_MODE, LaunchMode, modesActive, readPveLoginVerified } fr
 import type { Address } from "@/lib/protocol";
 import { launchUsdg, publicClient, quoteUsdgPairSwap, readCreatorBuyQuote } from "@/lib/protocol-viem";
 import { usdgDecimals, usdgRawToUsd } from "@/lib/usdg";
-import { onWallet } from "@/lib/wallet";
+import { onWallet } from "@/lib/walletState";
 import { maxBoostChipLabel, QUICK_LAUNCH_COPY } from "@/lib/quickLaunch";
 import s from "./quickLaunch.module.css";
 import L from "./launch.module.css";

@@ -5,13 +5,37 @@
  */
 import { chatStore, historyOf, messagesAfter } from "@/lib/server/chat/store";
 import { catchUp } from "@/lib/server/chat/chain";
-import { isCoin } from "@/lib/chat/types";
+import { isCoin, type ChatMsg } from "@/lib/chat/types";
 import { kv } from "@/lib/server/kv";
 import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 const LIFETIME_MS = 50_000, POLL_MS = 800, CHAIN_MS = 3000, PING_MS = 15_000;
+
+/* Speed pass (2026-11-14): every open flight held one of these streams, and each one read the coin's last 100 messages from
+   KV every 800 ms and ran the chain catch-up (lock, RPC block number + getLogs, ZADD) every 3 s, so the cost grew with
+   viewers, not with chat activity. Streams for the same coin on one server instance now share one store read per
+   SHARED_READ_MS and one chain step per CHAIN_MS (catchUp's own lock still keeps instances from overlapping). Messages
+   still arrive within POLL_MS + SHARED_READ_MS. */
+const SHARED_READ_MS = 400;
+const reads = new Map<string, { t: number; p: Promise<ChatMsg[]> }>();
+function sharedRecent(coin: string): Promise<ChatMsg[]> {
+  const now = Date.now(), hit = reads.get(coin);
+  if (hit && now - hit.t < SHARED_READ_MS) return hit.p;
+  const p = messagesAfter(coin, "");
+  reads.set(coin, { t: now, p });
+  p.catch(() => { if (reads.get(coin)?.p === p) reads.delete(coin); });
+  if (reads.size > 500) for (const [k, v] of reads) if (now - v.t > 5_000) reads.delete(k);
+  return p;
+}
+const chainAt = new Map<string, number>();
+function chainStepDue(coin: string, now: number): boolean {
+  if (now - (chainAt.get(coin) ?? 0) < CHAIN_MS) return false;
+  chainAt.set(coin, now);
+  if (chainAt.size > 500) for (const [k, t] of chainAt) if (now - t > 60_000) chainAt.delete(k);
+  return true;
+}
 
 export async function GET(req: Request) {
   const rl = await hitLimit(kv(), `chatread:ip:${clientIp(req.headers)}`, PUBLIC_GET_LIMITS.chatReadPerIp.limit, PUBLIC_GET_LIMITS.chatReadPerIp.windowSec);
@@ -39,12 +63,14 @@ export async function GET(req: Request) {
         const now = Date.now();
         if (chain && now - lastChain > CHAIN_MS) {
           lastChain = now;
-          st.touchActive(coin, now).catch(() => {});
-          await catchUp(coin);
+          if (chainStepDue(coin, now)) {
+            st.touchActive(coin, now).catch(() => {});
+            await catchUp(coin);
+          }
         }
         try {
           // `cursor` is a fixed floor; the `sent` set dedupes, so late writes with a slightly older ulid (clock skew between lambdas) still go out.
-          const msgs = await messagesAfter(coin, cursor);
+          const msgs = (await sharedRecent(coin)).filter((m) => m.id > cursor);
           for (const m of msgs) {
             if (sent.has(m.id)) continue;
             sent.add(m.id);
