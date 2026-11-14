@@ -114,7 +114,8 @@ export interface Epoch {
 /** Reads a Carry v0.3 pool's open fee epoch from storage, cross-checked against poolState at the same block. */
 export async function readEpoch(c: PublicClient, hook: Hex, id: Hex): Promise<Epoch> {
   const b = poolBase(id);
-  const blockNumber = await c.getBlockNumber();
+  // a few blocks back: a load-balanced RPC can answer "latest" from one node and the read from a node not there yet
+  const blockNumber = (await c.getBlockNumber()) - 4n;
   const [t, bx, by, d, v] = await Promise.all([
     slot(c, hook, b + CARRY_V03.times, blockNumber),
     slot(c, hook, b + CARRY_V03.bookX, blockNumber),

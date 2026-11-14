@@ -16,7 +16,8 @@ Cost: about $7.40 a month in us-east-1:
 
 The public IPv4 address can't be avoided cheaply. An IPv6-only instance would need github.com (no IPv6 at all), the
 Robinhood RPC and the AWS endpoints to all answer over IPv6, and a NAT gateway instead costs ~$33 a month. The keeper itself
-uses ~130 MB of RAM. The installer adds a 1 GB swap file so the nano has headroom for `npm ci` and updates.
+uses ~130 MB of RAM. There is no swap on purpose: the secrets live only in memory, and swap could write them to the
+disk. The installer refuses to run if swap is on, and the service also sets `MemorySwapMax=0`.
 
 You can only run **one keeper per wallet** at a time. Two keepers on the same wallet send clashing nonces, so stop the Mac
 keeper before you start this one (step 6).

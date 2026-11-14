@@ -1092,7 +1092,14 @@ export class Keeper {
         if (due) await this.settle(s, id);
         continue;
       }
-      const e = await readEpoch(pub, s.hook, id);
+      let e;
+      try {
+        e = await readEpoch(pub, s.hook, id);
+      } catch (err) {
+        this.log.warn(`${s.name}: epoch read for ${id.slice(0, 10)} failed, next check: ${(err as Error).message?.split("\n")[0]}`);
+        this.lastSettleCheck.set(id, t - sm.settleCheckSec + 60); // retry in a minute
+        continue;
+      }
       if (!e.layoutOk) {
         this.log.warn(`${s.name}: pool ${id.slice(0, 10)} storage does not match the hook's poolState (layout changed?); not settling`);
         await alert(`layout:${id}`, `${s.name}: pool ${id.slice(0, 10)} storage layout changed, hourly payout off until the keeper is updated`);
@@ -1211,6 +1218,8 @@ export class Keeper {
         /* other logs */
       }
     }
+    // a Tipped(0, 0) (a dust jar rounds the tip to nothing) paid nothing: count it as unpaid, so the backoff holds
+    if (tipped && tipped.x === 0n && tipped.y === 0n) tipped = null;
     if (!tipped && !paid) {
       this.log.info(`${s.name}: self-paid sample ${id.slice(0, 10)} tx ${hash} (below the tip line), spent ${formatEther(spent)} ETH (gas ${rc.gasUsed})`);
       return;

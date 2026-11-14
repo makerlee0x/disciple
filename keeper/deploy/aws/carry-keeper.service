@@ -31,6 +31,8 @@ ProtectKernelTunables=true
 ProtectControlGroups=true
 # a t4g.nano has 0.5 GB; the keeper uses ~130 MB
 MemoryMax=350M
+# never swap this service's memory (keystore, password and key), even if swap is added to the box later
+MemorySwapMax=0
 
 [Install]
 WantedBy=multi-user.target
