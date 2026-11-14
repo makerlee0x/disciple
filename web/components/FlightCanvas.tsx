@@ -21,7 +21,7 @@ import FlightSfx from "@/components/flight/FlightSfx";
 import FlightObjectives from "@/components/flight/FlightObjectives";
 import FlightLog from "@/components/flight/FlightLog";
 import DraftXp from "@/components/flight/DraftXp";
-import FlightPath from "@/components/flight/FlightPath";
+import DeskChart from "@/components/flight/DeskChart";
 import HoldersBridge from "@/components/flight/HoldersBridge";
 import PhoneHud from "@/components/flight/PhoneHud";
 import { publishUsernameDisplayCap } from "@/lib/defaultUsername";
@@ -329,7 +329,8 @@ export default function FlightCanvas({ search }: Props) {
       <DraftXp coin={(() => { const c = new URLSearchParams(search).get("coin") || ""; return /^0x[0-9a-fA-F]{40}$/.test(c) ? c : null; })()} />
       {!isSimulator && <FlightObjectives replay={isReplay} practice={false} />}
       {!isReplay && <FlightLog coin={/^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") ? (q0.get("coin") as string) : null} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} practice={isSimulator} />}
-      <FlightPath />
+      {/* desktop Pilot (board C, 2026-11-14): the phone chart card at the top of the right column; the crew feed sits under it */}
+      <DeskChart ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} />
       <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />
       {/* the crew feed: trades + chat + holders on a coin; trades + holders where there is no coin chat (simulator, mock) */}
       <GameChat coin={chatCoin || ""} tradesOnly={!chatCoin} />
