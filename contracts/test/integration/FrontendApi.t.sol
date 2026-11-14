@@ -218,19 +218,22 @@ contract FrontendApiTest is FrontendApiBase {
         uint256 p = pricer.quotePriceUsd(address(strat));
         assertApproxEqRel(p, 18e14, 1e12); // ~$0.0018
 
-        vm.prank(owner);
+        vm.startPrank(owner);
         quoteProbe.setAlwaysPass(address(strat), true);
-        (BondingCurve curve,) = _launchWithQuote(address(strat), 0, 0);
-        assertEq(curve.quotePriceUsd(), p);
-        assertApproxEqRel(curve.mcapNow(), Constants.START_MCAP_USD, 0.001e18);
-        // in STRATEGY terms the start mcap is ~ 7000 / 0.0018 = 3.89M STRATEGY
-        (,, uint256 x0, uint256 y0) = curve.curveParams();
-        assertApproxEqRel(Math.mulDiv(x0, Constants.TOTAL_SUPPLY, y0), Constants.START_MCAP_USD * 1e18 / p, 0.001e18);
+        pricer.setAllowedQuote(address(strat), true); // only listed quotes launch (maker 2026-11-14)
+        vm.stopPrank();
+        // Listed quotes must clear the $10k/side depth floor; this thin test pool doesn't, so the launch is refused.
+        vm.expectRevert(abi.encodeWithSelector(QuotePricer.NoRouteAboveFloor.selector, address(strat)));
+        _launchWithQuote(address(strat), 0, 0);
+        // Unlisted, the registered-pool TWAP still prices it (it just can't be a launch quote).
+        vm.prank(owner);
+        pricer.setAllowedQuote(address(strat), false);
+        assertApproxEqRel(pricer.quotePriceUsd(address(strat)), 18e14, 1e12);
     }
 
     function test_custom_quote_without_pool_reverts() public {
         MockUSDG other = new MockUSDG();
-        vm.expectRevert(abi.encodeWithSelector(QuotePricer.NoPricePool.selector, address(other)));
+        vm.expectRevert(abi.encodeWithSelector(Launchpad.QuoteNotListed.selector, address(other)));
         _launchWithQuote(address(other), 0, 0);
     }
 
@@ -246,8 +249,10 @@ contract FrontendApiTest is FrontendApiBase {
         QuotePricer p6 = new QuotePricer(owner, manager, address(u6));
         assertEq(p6.quotePriceUsd(address(u6)), 1e30); // 1e18 raw = 1e12 USDG = $1e12
 
-        vm.prank(owner);
+        vm.startPrank(owner);
+        pricer.setAllowedQuote(address(strategy), false); // minLiquidity guards the unlisted TWAP path
         pricer.setMinLiquidity(type(uint128).max);
+        vm.stopPrank();
         vm.expectRevert();
         pricer.quotePriceUsd(address(strategy));
     }

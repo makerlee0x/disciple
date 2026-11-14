@@ -388,12 +388,16 @@ Do these in the same deploy, before the site points at the new stack. Details in
    them a self-bundler can empty the ETH float with high-fee ops.
 3. **Paymaster bootstrap codehash enforcement (PM-3):** `setBootstrapCodehash(<MAv2 proxy codehash>, true)`, then
    `setBootstrapCodehashEnforced(true)`. Check: `cast call <V5> 'bootstrapCodehashEnforced()(bool)'` is `true`.
-4. **QuotePricer keeper (HK-02):** `setPoker(<relayer EOA>, true)` (the poke-pricer cron signs with `RELAYER_PRIVATE_KEY`). Pokes from anyone else, launches
+4. **QuotePricer keeper (HK-02):** `setPoker(<relayer EOA>, true)` (or `PRICER_POKER=<relayer EOA>` for `Deploy.s.sol`) (the poke-pricer cron signs with `RELAYER_PRIVATE_KEY`). Pokes from anyone else, launches
    included, are now ignored. The cron must also poke any new base on its `extra` list, since launches no longer
    discover bases. Check: `cast call <QuotePricer> 'isPoker(address)(bool)' <wallet>` is `true`, and
    `maxTickDelta()` is 200.
 5. **Listed quotes (LB-01):** call `setPriceRoute` for each listed quote at least one TWAP window (30 min) before
    launches open, with the keeper running, so the route TWAPs have history.
-6. **Session policy:** if session keys ship at all (the app trades via gasless Permit2 today), deploy
-   `script/DeploySessionPolicyV144.s.sol` (1.4.4). Never deploy 1.4.3 to mainnet.
+6. **Session policy and paymaster V5: not deployed on mainnet** (maker 2026-11-14: the app trades via gasless Permit2,
+   the 4337 path is retired). Steps 2 and 3 apply only if that ever changes; then deploy policy 1.4.4, never 1.4.3.
+8. **Launch quotes:** only USDG and listed quotes can launch. `Deploy.s.sol` lists the default quote; list the other
+   coins with `script/whitelist` (`setAllowedQuote` + `setPriceRoute`). Check each with `isAllowedQuote`.
+9. **Primary router:** `launchpad.curveRouter()` must be DiscipleRouter (the first trusted router; later trusts don't
+   move it). Use `setCurveRouter` to change it on purpose.
 7. **FeeRouter:** `setLaunchpad` is one-shot. Set it once, to the final Launchpad.

@@ -184,6 +184,7 @@ abstract contract IntegrationBase is Test {
         vm.startPrank(owner);
         pricer.setPricePool(address(strategy), strategyUsdgKey);
         pricer.setPoker(address(this), true); // the test contract plays the keeper (audit HK-02: pokes are keeper-only)
+        pricer.setAllowedQuote(address(strategy), true); // mainnet rule: only USDG + listed quotes can launch
         // Real round-trip probe ($1 of USDG); the default (strategy) is probed too, no allowlist.
         quoteProbe = new QuoteProbe(owner, manager, address(quote), address(pricer), U);
         launchpad.setQuoteProbe(address(quoteProbe));

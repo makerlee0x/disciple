@@ -259,7 +259,7 @@ contract AuditFixes202611Test is IntegrationBase {
         (, Token tok) = _launch(0, 0);
         MockUSDG other = new MockUSDG();
         vm.startPrank(owner);
-        vm.expectRevert(FeeRouter.QuoteAlreadySet.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector); // N-1: Launchpad only now
         feeRouter.registerTokenQuote(address(tok), address(other));
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
         feeRouter.registerTokenLaunch(address(tok), address(other), creator);

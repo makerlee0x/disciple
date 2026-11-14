@@ -105,7 +105,7 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     }
 
     function setAutoWarmup(uint32 w) external onlyOwner {
-        if (w > 7 days) revert BadParam();
+        if (w > 7 days || w < twapWindow) revert BadParam(); // F-I7: warm-up at least one TWAP window
         autoWarmup = w;
         emit AutoWarmupSet(w);
     }
@@ -116,7 +116,8 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     }
 
     function setTwapParams(uint32 window, int24 maxDelta) external onlyOwner {
-        if (window == 0 || window > 7 days || maxDelta <= 0) revert BadParam();
+        // F-I7: no near-spot windows and no clamp wider than the old 2000-tick default.
+        if (window < 300 || window > 7 days || maxDelta <= 0 || maxDelta > 2000) revert BadParam();
         twapWindow = window;
         maxTickDelta = maxDelta;
         emit TwapParamsSet(window, maxDelta);
@@ -129,6 +130,7 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     }
 
     function setMinLiquidity(uint128 l) external onlyOwner {
+        if (l == 0) revert BadParam(); // F-I7
         minLiquidity = l;
         emit MinLiquiditySet(l);
     }
@@ -183,8 +185,10 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         isAutoPool[quote] = false;
         delete _routeOf[quote];
         _routeOf[quote].push(key);
-        // (Re)start the oracle at the owner-registration spot.
+        // (Re)start the oracles at the owner-registration spot (the route oracle prices it once listed, LB-01).
         TwapOracle.initialize(_oracle[quote], _usdTick(quote, key));
+        (, int24 rawTick,,) = poolManager.getSlot0(key.toId());
+        TwapOracle.initialize(_routeOracle[key.toId()], rawTick);
         emit PricePoolSet(quote, PoolId.unwrap(key.toId()), key.fee, key.tickSpacing, address(key.hooks));
     }
 
@@ -193,6 +197,11 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         hasPricePool[quote] = false;
         isAutoPool[quote] = false;
         delete _routeOf[quote];
+        // F-L9: clearing also unlists, so a listed quote can't fall back to permissionless discovery.
+        if (isAllowedQuote[quote]) {
+            isAllowedQuote[quote] = false;
+            emit AllowedQuoteSet(quote, false);
+        }
         emit PricePoolCleared(quote);
     }
 

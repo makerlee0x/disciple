@@ -121,6 +121,7 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         if (msg.sender != owner) revert OnlyOwner();
         if (launchpad != address(0)) revert LaunchpadAlreadySet();
         if (launchpad_ == address(0)) revert ZeroAddress();
+        if (launchpad_.code.length == 0) revert NotAContract(); // F-L11: one-shot, so refuse an EOA / typo
         launchpad = launchpad_;
     }
 
@@ -412,8 +413,9 @@ contract FeeRouter is IFeeRouter, Owned2Step {
 
     /// @dev Audit FR-02: write-once. Re-registering a live token's quote would pay creators in the wrong asset
     ///      and leave this contract insolvent against the accruals already booked in the old quote.
+    /// @dev External review N-1: Launchpad only. An owner call on the next CREATE address used to block every launch.
     function registerTokenQuote(address token, address quote) external {
-        if (msg.sender != launchpad && msg.sender != owner) revert OnlyOwner();
+        if (msg.sender != launchpad) revert OnlyOwner();
         if (tokenQuote[token] != address(0)) revert QuoteAlreadySet();
         tokenQuote[token] = quote;
     }

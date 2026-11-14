@@ -195,7 +195,7 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
     ///         set in the constructor) so it cannot be front-run between hook deploy and wiring.
     function setMigration(address m) external {
         if (msg.sender != admin) revert OnlyAdmin();
-        require(migration == address(0) && m != address(0), "DiscipleHook: mig");
+        require(migration == address(0) && m.code.length != 0, "DiscipleHook: mig"); // F-L11: contract only
         migration = m;
     }
 
@@ -253,6 +253,7 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
 
     function transferAdmin(address a) external {
         if (msg.sender != admin) revert OnlyAdmin();
+        require(a != address(0), "DiscipleHook: admin"); // F-I4
         admin = a;
         emit AdminTransferred(a);
     }

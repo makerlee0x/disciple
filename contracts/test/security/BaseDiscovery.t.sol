@@ -139,11 +139,13 @@ contract BaseDiscoveryTest is BaseTestBase {
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
         pricer.setAutoWarmup(10);
         vm.startPrank(owner);
-        pricer.setAutoWarmup(600);
+        pricer.setAutoWarmup(7200);
         vm.expectRevert(QuotePricer.BadParam.selector);
         pricer.setAutoWarmup(8 days);
+        vm.expectRevert(QuotePricer.BadParam.selector);
+        pricer.setAutoWarmup(600); // F-I7: shorter than the 1800 s TWAP window
         vm.stopPrank();
-        assertEq(pricer.autoWarmup(), 600);
+        assertEq(pricer.autoWarmup(), 7200);
     }
 
     function rando() internal returns (address) {

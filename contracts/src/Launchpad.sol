@@ -26,6 +26,11 @@ interface IPricerPoke {
     function poke(address quote) external;
 }
 
+interface IPricerListing {
+    function usdg() external view returns (address);
+    function isAllowedQuote(address quote) external view returns (bool);
+}
+
 contract Launchpad is ILaunchpad, Owned2Step {
     using SafeERC20 for IERC20;
 
@@ -103,6 +108,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
     error BadMode();
     error MaxModeOutOfBounds();
     error LoginGateUnset();
+    error QuoteNotListed(address quote);
     error CrewTipThresholdOutOfBounds();
     error SnipeEscrowTimeoutOutOfBounds();
     error NotRouter();
@@ -126,6 +132,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
     event TrustedRouterSet(address indexed router, bool trusted);
     event CurveRouterKilled(address indexed curve, bool killed);
     event LoginGateSet(address indexed gate);
+    event CurveRouterSet(address indexed router);
     event CrewTipThresholdSet(uint256 bps);
     event SnipeEscrowTimeoutSet(uint256 secs);
     event MaxModeSet(uint8 mode);
@@ -173,12 +180,26 @@ contract Launchpad is ILaunchpad, Owned2Step {
         emit WalletCapSet(bps);
     }
 
+    /// @dev External review N-2: trusting a router no longer moves `curveRouter`. The first trusted router becomes it
+    ///      (deploy convenience); after that only `setCurveRouter` changes it. Untrusting the current one clears it.
     function setTrustedRouter(address r, bool ok) external {
         if (msg.sender != owner) revert OnlyOwner();
         isTrustedRouter[r] = ok;
-        if (ok) curveRouter = r;
-        else if (curveRouter == r) curveRouter = address(0);
+        if (ok && curveRouter == address(0)) _setCurveRouter(r);
+        else if (!ok && curveRouter == r) _setCurveRouter(address(0));
         emit TrustedRouterSet(r, ok);
+    }
+
+    /// @notice The primary router new curves snapshot and AnonLauncher's USDG launches call. Must be trusted.
+    function setCurveRouter(address r) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (!isTrustedRouter[r]) revert NotRouter();
+        _setCurveRouter(r);
+    }
+
+    function _setCurveRouter(address r) internal {
+        curveRouter = r;
+        emit CurveRouterSet(r);
     }
 
     /// @notice Audit round 3 (ops) kill switch: existing curves snapshot their primary router as an immutable;
@@ -286,11 +307,8 @@ contract Launchpad is ILaunchpad, Owned2Step {
         returns (LaunchResult memory result)
     {
         if (mode > maxMode) revert BadMode();
-        address gate;
-        if (mode == Constants.MODE_PVE) {
-            gate = loginGate;
-            if (gate == address(0)) revert LoginGateUnset();
-        }
+        // Easy login is app-only (maker 2026-11-14): new curves never read the gate, so it is no longer required.
+        address gate = mode == Constants.MODE_PVE ? loginGate : address(0);
         if (bytes(params.name).length == 0 || bytes(params.ticker).length == 0 || bytes(params.imageURI).length == 0) {
             revert InvalidMetadata();
         }
@@ -300,6 +318,12 @@ contract Launchpad is ILaunchpad, Owned2Step {
         if (quote == address(0)) {
             if (defaultQuote == address(0)) revert DefaultQuoteUnset();
             quote = defaultQuote;
+        }
+        // Mainnet rule (maker 2026-11-14): only USDG and the owner-listed quotes can be launch quotes. A fee-on-transfer,
+        // rebasing or pausable quote would freeze a curve's funds for good (external review F-M1).
+        if (address(pricer) == address(0)) revert PricerUnset();
+        if (quote != IPricerListing(address(pricer)).usdg() && !IPricerListing(address(pricer)).isAllowedQuote(quote)) {
+            revert QuoteNotListed(quote);
         }
         // (f) every non-USDG base, the default included, gets the buy/transfer round-trip probe.
         if (address(quoteProbe) != address(0)) {

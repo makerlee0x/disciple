@@ -187,6 +187,11 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
             launchpad_ == address(0) || feeRouter_ == address(0) || lockedLP_ == address(0) || router_ == address(0)
                 || hook_ == address(0) || poolManager_ == address(0)
         ) revert ZeroAddress();
+        // F-L11: one-shot (LockedLP stores this harvest as an immutable), so every pointer must be a contract.
+        if (
+            launchpad_.code.length == 0 || feeRouter_.code.length == 0 || lockedLP_.code.length == 0
+                || router_.code.length == 0 || hook_.code.length == 0 || poolManager_.code.length == 0
+        ) revert ZeroAddress();
         launchpad = ILaunchpadFor(launchpad_);
         feeRouter = IFeePull(feeRouter_);
         lockedLP = ILockedDeposit(lockedLP_);
