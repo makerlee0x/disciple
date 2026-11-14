@@ -77,6 +77,7 @@ test("server: fills at the server price, buzzer settles once, ratings move, rema
   await assert.rejects(S.trade(room.id, A.pid, "boost", 3, PRICE), /trade size/);
   PRICE = 68040; // A up, B down
   const ch = await S.chat(room.id, B.pid, "gg"); assert.equal(ch.events[0].type, "chat");
+  await S.tick(room.id, PRICE); // the stream's tick marks 68040 just before the buzzer
   const r2 = JSON.parse(JSON.stringify(await S.getRoom(room.id))); r2.endAt = Date.now() - 10; await kv().set(S._keys.room(room.id), JSON.stringify(r2));
   const done = await S.tick(room.id, PRICE); assert.equal(done!.room.status, "done");
   const res = done!.room.result!; assert.equal(res.winner, A.pid); assert.ok(res.profit[A.pid] > 0 && res.profit[B.pid] < 0);
@@ -159,4 +160,24 @@ test("server: an H-BOMB inside a gap nobody watched still lands", async () => {
   assert.ok(t!.events.some((e) => e.type === "bomb" && e.pid === a.pid), "the dip below the H-BOMB line counts");
   assert.equal(t!.room.books[a.pid].pos, null);
   TAPE = null;
+});
+
+test("server: the tape never invents a bomb from before the entry, and never prices the buzzer from an open minute", async () => {
+  const { a, b, id } = await liveRanked("8", "9");
+  const now = Date.now(), M = Math.floor(now / 60_000) * 60_000;
+  const book = R.applyTrade(R.newBook(50), "boost", 0, 68000, 0)!.book;
+  const lp = R.liqPrice(book.pos!);
+  // entered 20 s into the previous minute; that minute's low (before the entry) is below the H-BOMB line
+  const entry = M - 40_000;
+  await patch(id, (r) => { r.startAt = M - 120_000; r.endAt = now + 60_000; r.mark = { p: 68000, at: entry }; (r.books as Record<string, unknown>)[a.pid] = book; });
+  TAPE = [{ t: M - 60_000, T: M - 1, o: 68000, c: 68000, h: 68005, l: lp - 50 }];
+  const t = await S.tick(id, 68000);
+  assert.ok(!t!.events.some((e) => e.type === "bomb"), "a low from before the entry can't liquidate");
+  assert.ok(t!.room.books[a.pid].pos, "still flying");
+  // buzzer landed in the current (still open) minute and nobody ticked near it: wait, don't read the open candle
+  await patch(id, (r) => { r.endAt = Date.now() - 1500; r.mark = { p: 68000, at: Date.now() - 20_000 }; });
+  TAPE = [{ t: M, T: M + 59_999, o: 68000, c: 69000, h: 69000, l: 68000 }];
+  const w = await S.tick(id, 69000);
+  if (Date.now() - M < 60_000 + 2000) assert.equal(w!.room.status, "live", "open minute: wait");
+  void b; TAPE = null;
 });

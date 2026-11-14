@@ -38,6 +38,10 @@ const K = {
 const GAP_MS = 3000;
 /** past the buzzer by this much with no tape: settle at the last price seen rather than hold the room forever */
 const LATE_GIVEUP_MS = 10 * 60_000;
+/** a live tick this close after the buzzer counts as the buzzer (the stream ticks every second) */
+const ONTIME_MS = 1000;
+/** a candle counts as closed this long after its minute ends */
+const TAPE_LAG_MS = 2000;
 const ACTIVE_TTL = 15 * 60;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const parse = <T,>(s: string | null): T | null => { if (!s) return null; try { return JSON.parse(s) as T; } catch { return null; } };
@@ -234,10 +238,15 @@ function bombAll(r: DuelRoom, price: number, evs: NewDuelEvent[]) {
 function tickInto(r: DuelRoom, now: number, price: number | null, evs: NewDuelEvent[], tape: Candle[] | null): number | "wait" | null {
   if (r.status !== "live" || now < (r.startAt ?? 0)) return null;
   const fuel0 = TIERS[r.tier].fuel;
-  if (tape && now - gapFrom(r) > GAP_MS) {
+  // only finished minutes count: an open candle's close is just today's price
+  const closed = tape?.filter((c) => c.t + 60_000 <= now - TAPE_LAG_MS) ?? null;
+  if (closed && now - gapFrom(r) > GAP_MS) {
+    // only minutes wholly inside the gap: every open position was entered at or before gapFrom (a trade marks the
+    // room first), so these highs/lows all came after entry and before the buzzer. Partial minutes are skipped:
+    // a bomb can be missed there, but never invented.
     const from = gapFrom(r), to = Math.min(now, r.endAt ?? now);
-    for (const c of tape) {
-      if (c.t + 60_000 <= from || c.t > to) continue;
+    for (const c of closed) {
+      if (c.t < from || c.t + 60_000 > to) continue;
       bombAll(r, c.l, evs); bombAll(r, c.h, evs);
     }
   }
@@ -248,12 +257,16 @@ function tickInto(r: DuelRoom, now: number, price: number | null, evs: NewDuelEv
       bombAll(r, price, evs); r.mark = { p: price, at: now };
       return null;
     }
-    let p: number | null;
-    if (price && now - endAt <= GAP_MS) p = price;                                   // on time
-    else if (r.mark && r.mark.at <= endAt && endAt - r.mark.at <= GAP_MS) p = r.mark.p; // seen right before it
-    else p = priceAt(tape, endAt);                                                       // from the tape
-    if (!p) { if (now - endAt < LATE_GIVEUP_MS) return "wait"; p = r.mark?.p ?? price; if (!p) return "wait"; }
-    if (p === price && now - endAt <= GAP_MS) bombAll(r, p, evs);
+    // The buzzer price is fixed by what happened before the buzzer, never by when someone shows up afterwards.
+    let p: number | null = null;
+    if (r.mark && r.mark.at <= endAt && endAt - r.mark.at <= GAP_MS) p = r.mark.p;     // seen right before it
+    else if (price && now - endAt <= ONTIME_MS) { p = price; bombAll(r, p, evs); }     // this tick IS the buzzer
+    else p = priceAt(closed, endAt);                                                   // the buzzer's minute, once it's closed
+    if (!p) {
+      if (now - endAt < LATE_GIVEUP_MS) return "wait";
+      p = r.mark?.p ?? r.players.map((q) => r.books[q.pid].pos?.entry).find((e) => !!e) ?? null; // last pre-buzzer price
+      if (!p) { if (r.players.some((q) => r.books[q.pid].pos)) return "wait"; p = price ?? 1; } // nothing open: price is moot
+    }
     const [a, b] = r.players;
     const diff = profitOf(r.books[a.pid], p, fuel0) - profitOf(r.books[b.pid], p, fuel0);
     if (needsOvertime(diff, fuel0, !!r.ot)) {
