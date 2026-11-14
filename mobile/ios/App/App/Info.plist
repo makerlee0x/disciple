@@ -2,12 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CAPACITOR_DEBUG</key>
+	<key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>DISCIPLE</string>
+	<string>DISCIPLE</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -20,108 +20,6 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<key>UIApplicationSceneManifest</key>
-	<dict>
-		<key>UIApplicationSupportsMultipleScenes</key>
-    <false/>
-    <key>UISceneConfigurations</key>
-    <dict>
-      <key>UIWindowSceneSessionRoleApplication</key>
-      <array>
-        <dict>
-            <key>UISceneConfigurationName</key>
-            <string>Default Configuration</string>
-            <key>UISceneDelegateClassName</key>
-            <string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
-            <key>UISceneStoryboardFile</key>
-            <string>Main</string>
-        </dict>
-      </array>
-    </dict>
-	</dict>
-	<key>UILaunchStoryboardName</key>
-	<string>LaunchScreen</string>
-	<key>UIMainStoryboardFile</key>
-	<string>Main</string>
-	<key>UIRequiredDeviceCapabilities</key>
-	<array>
-		<string>arm64</string>
-	</array>
-	<key>UISupportedInterfaceOrientations</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-	</array>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>remote-notification</string>
-	</array>
-	<key>UIApplicationShortcutItems</key>
-	<array>
-		<dict>
-			<key>UIApplicationShortcutItemType</key>
-			<string>vip.disciple.play</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>Play now</string>
-			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>Board the top rocket</string>
-			<key>UIApplicationShortcutItemIconSymbolName</key>
-			<string>flame.fill</string>
-			<key>UIApplicationShortcutItemUserInfo</key>
-			<dict>
-				<key>path</key>
-				<string>/play</string>
-			</dict>
-		</dict>
-		<dict>
-			<key>UIApplicationShortcutItemType</key>
-			<string>vip.disciple.freeplay</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>Free play</string>
-			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>Today's daily challenge</string>
-			<key>UIApplicationShortcutItemIconSymbolName</key>
-			<string>gamecontroller.fill</string>
-			<key>UIApplicationShortcutItemUserInfo</key>
-			<dict>
-				<key>path</key>
-				<string>/flight/sim</string>
-			</dict>
-		</dict>
-		<dict>
-			<key>UIApplicationShortcutItemType</key>
-			<string>vip.disciple.launch</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>Launch a coin</string>
-			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>Build your rocket</string>
-			<key>UIApplicationShortcutItemIconSymbolName</key>
-			<string>paperplane.fill</string>
-			<key>UIApplicationShortcutItemUserInfo</key>
-			<dict>
-				<key>path</key>
-				<string>/create</string>
-			</dict>
-		</dict>
-		<dict>
-			<key>UIApplicationShortcutItemType</key>
-			<string>vip.disciple.duel</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>Trading Duel</string>
-			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>Practice duel</string>
-			<key>UIApplicationShortcutItemIconSymbolName</key>
-			<string>bolt.fill</string>
-			<key>UIApplicationShortcutItemUserInfo</key>
-			<dict>
-				<key>path</key>
-				<string>/turbo/duel</string>
-			</dict>
-		</dict>
-	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -133,10 +31,118 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSMotionUsageDescription</key>
+	<string>DISCIPLE uses motion so you can tilt your phone to steer the rocket.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>flame.fill</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>Board the top rocket</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Play now</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>vip.disciple.play</string>
+			<key>UIApplicationShortcutItemUserInfo</key>
+			<dict>
+				<key>path</key>
+				<string>/play</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>gamecontroller.fill</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>Today's daily challenge</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Free play</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>vip.disciple.freeplay</string>
+			<key>UIApplicationShortcutItemUserInfo</key>
+			<dict>
+				<key>path</key>
+				<string>/flight/sim</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>paperplane.fill</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>Build your rocket</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Launch a coin</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>vip.disciple.launch</string>
+			<key>UIApplicationShortcutItemUserInfo</key>
+			<dict>
+				<key>path</key>
+				<string>/create</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>bolt.fill</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>Practice duel</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Trading Duel</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>vip.disciple.duel</string>
+			<key>UIApplicationShortcutItemUserInfo</key>
+			<dict>
+				<key>path</key>
+				<string>/turbo/duel</string>
+			</dict>
+		</dict>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
 	<key>UIStatusBarStyle</key>
 	<string>UIStatusBarStyleLightContent</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

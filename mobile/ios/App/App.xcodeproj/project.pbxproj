@@ -7,7 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1154520AD597FAC8D0381C6A /* FlightWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 8E129CE9D7A1D0FA7717643D /* FlightWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		128F433F10E4AEE3552FD4B6 /* DiscipleNative.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85ACEA7CDD07FB8FE26BD0B4 /* DiscipleNative.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
+		461C8BBAA894F57A1AEBE7EF /* FlightWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F706DD819B87F508551D589 /* FlightWidget.swift */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
@@ -15,11 +18,42 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		6F25664CBCFC238AF60FFC0F /* FlightActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B3FC1C0DF4DEBAFC8D3868C /* FlightActivity.swift */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
+		C8AE6A8D308ACB609A3079E8 /* FlightActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B3FC1C0DF4DEBAFC8D3868C /* FlightActivity.swift */; };
+		DD88ADF0D1C5A6D1CF292885 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A425D79374781102A14B329 /* Foundation.framework */; };
+		F1BAB4B0B93D77F7CAD40C7D /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D862ADBE8F85B523C7EAA3F6 /* WidgetKit.framework */; };
+		F379ADC103C43017A39D87EB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 89DA4850151D23CBD0E64BB2 /* SwiftUI.framework */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		FC26A212CF3910F923D58A52 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5EA5B9B3E8E3D1EB98A29930;
+			remoteInfo = FlightWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		0F0C8361BDABE5BF66ABD2A8 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				1154520AD597FAC8D0381C6A /* FlightWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		1F706DD819B87F508551D589 /* FlightWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FlightWidget.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
+		3A425D79374781102A14B329 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -28,8 +62,14 @@
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
+		6B3FC1C0DF4DEBAFC8D3868C /* FlightActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FlightActivity.swift; sourceTree = "<group>"; };
+		85ACEA7CDD07FB8FE26BD0B4 /* DiscipleNative.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DiscipleNative.swift; sourceTree = "<group>"; };
+		89DA4850151D23CBD0E64BB2 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.0.sdk/System/Library/Frameworks/SwiftUI.framework; sourceTree = DEVELOPER_DIR; };
+		8E129CE9D7A1D0FA7717643D /* FlightWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FlightWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		AD82C5390CBE8A70E4B82F31 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		D862ADBE8F85B523C7EAA3F6 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.0.sdk/System/Library/Frameworks/WidgetKit.framework; sourceTree = DEVELOPER_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -41,15 +81,46 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B4F79CBD5BFFC2449B83B3A2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DD88ADF0D1C5A6D1CF292885 /* Foundation.framework in Frameworks */,
+				F1BAB4B0B93D77F7CAD40C7D /* WidgetKit.framework in Frameworks */,
+				F379ADC103C43017A39D87EB /* SwiftUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		3A1BCBC3876BD2BFD662A93F /* FlightWidget */ = {
+			isa = PBXGroup;
+			children = (
+				1F706DD819B87F508551D589 /* FlightWidget.swift */,
+				AD82C5390CBE8A70E4B82F31 /* Info.plist */,
+			);
+			name = FlightWidget;
+			path = FlightWidget;
+			sourceTree = "<group>";
+		};
+		41304F5F7C6682E37F36D8BF /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				57C6119F82F27F8BAE04BA6F /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
 				504EC3051FED79650016851F /* Products */,
+				C44AAA3CCE10F5E102245FA8 /* Shared */,
+				41304F5F7C6682E37F36D8BF /* Frameworks */,
+				3A1BCBC3876BD2BFD662A93F /* FlightWidget */,
 			);
 			sourceTree = "<group>";
 		};
@@ -57,6 +128,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				8E129CE9D7A1D0FA7717643D /* FlightWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -73,8 +145,28 @@
 				504EC3131FED79650016851F /* Info.plist */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
+				85ACEA7CDD07FB8FE26BD0B4 /* DiscipleNative.swift */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		57C6119F82F27F8BAE04BA6F /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				3A425D79374781102A14B329 /* Foundation.framework */,
+				D862ADBE8F85B523C7EAA3F6 /* WidgetKit.framework */,
+				89DA4850151D23CBD0E64BB2 /* SwiftUI.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+		C44AAA3CCE10F5E102245FA8 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				6B3FC1C0DF4DEBAFC8D3868C /* FlightActivity.swift */,
+			);
+			name = Shared;
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -87,10 +179,12 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				0F0C8361BDABE5BF66ABD2A8 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				54B555009305569E7E5B8055 /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -99,6 +193,23 @@
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";
+		};
+		5EA5B9B3E8E3D1EB98A29930 /* FlightWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B92FEC9545683D4AD45ADF29 /* Build configuration list for PBXNativeTarget "FlightWidget" */;
+			buildPhases = (
+				EEA4E92DE57C4347B8DBA6B0 /* Sources */,
+				B4F79CBD5BFFC2449B83B3A2 /* Frameworks */,
+				C8DC587FBA5C0BAA13CB57D7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FlightWidget;
+			productName = FlightWidget;
+			productReference = 8E129CE9D7A1D0FA7717643D /* FlightWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -133,6 +244,7 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				5EA5B9B3E8E3D1EB98A29930 /* FlightWidget */,
 			);
 		};
 /* End PBXProject section */
@@ -151,6 +263,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C8DC587FBA5C0BAA13CB57D7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -160,10 +279,30 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
+				C8AE6A8D308ACB609A3079E8 /* FlightActivity.swift in Sources */,
+				128F433F10E4AEE3552FD4B6 /* DiscipleNative.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EEA4E92DE57C4347B8DBA6B0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				461C8BBAA894F57A1AEBE7EF /* FlightWidget.swift in Sources */,
+				6F25664CBCFC238AF60FFC0F /* FlightActivity.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		54B555009305569E7E5B8055 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = FlightWidget;
+			target = 5EA5B9B3E8E3D1EB98A29930 /* FlightWidget */;
+			targetProxy = FC26A212CF3910F923D58A52 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
@@ -340,6 +479,59 @@
 			};
 			name = Release;
 		};
+		61C5807A00EF17B8AC752F1B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FlightWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "DISCIPLE Flight";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = vip.disciple.app.FlightWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		6C5D339598F78B82435B1951 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FlightWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "DISCIPLE Flight";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = vip.disciple.app.FlightWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -357,6 +549,15 @@
 			buildConfigurations = (
 				504EC3171FED79650016851F /* Debug */,
 				504EC3181FED79650016851F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B92FEC9545683D4AD45ADF29 /* Build configuration list for PBXNativeTarget "FlightWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6C5D339598F78B82435B1951 /* Release */,
+				61C5807A00EF17B8AC752F1B /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
