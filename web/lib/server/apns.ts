@@ -80,3 +80,45 @@ export async function sendApns(token: string, env: ApnsEnv, msg: { title: string
     });
   } catch { return "error"; } finally { try { client?.close(); } catch { /* ignore */ } }
 }
+
+/**
+ * Live Activity update (ActivityKit push, maker 2026-11-14): the token is the activity's own push token (not the device token),
+ * the topic is "<bundle>.push-type.liveactivity". `state` must match the app's FlightAttributes.ContentState
+ * (mobile/ios/App/Shared/FlightActivity.swift); updatedAt is seconds since 2001 (Swift Date's default Codable form).
+ */
+export async function sendLiveActivity(token: string, env: ApnsEnv, body: { event: "update" | "end"; state: Record<string, unknown>; staleSec?: number; dismissSec?: number }, k: ApnsKeys): Promise<"ok" | "gone" | "error"> {
+  if (!validApnsToken(token)) return "gone";
+  const now = Math.floor(Date.now() / 1000);
+  const aps: Record<string, unknown> = { timestamp: now, event: body.event, "content-state": { ...body.state, updatedAt: now - 978_307_200 } };
+  if (body.staleSec) aps["stale-date"] = now + body.staleSec;
+  if (body.event === "end") aps["dismissal-date"] = now + (body.dismissSec ?? 300);
+  let client: ClientHttp2Session | null = null;
+  try {
+    client = connect(HOST[env]);
+    const c = client;
+    return await new Promise<"ok" | "gone" | "error">((resolve) => {
+      const t = setTimeout(() => resolve("error"), 6000);
+      c.on("error", () => { clearTimeout(t); resolve("error"); });
+      const req = c.request({
+        [constants.HTTP2_HEADER_METHOD]: "POST",
+        [constants.HTTP2_HEADER_PATH]: `/3/device/${token}`,
+        authorization: `bearer ${apnsJwt(k)}`,
+        "apns-topic": `${k.bundleId}.push-type.liveactivity`,
+        "apns-push-type": "liveactivity",
+        "apns-priority": "5",
+        "content-type": "application/json",
+      });
+      let status = 0, data = "";
+      req.on("response", (h) => { status = Number(h[constants.HTTP2_HEADER_STATUS]) || 0; });
+      req.on("data", (d: Buffer) => { data += d.toString(); });
+      req.on("end", () => {
+        clearTimeout(t);
+        if (status === 200) return resolve("ok");
+        if (status === 410 || (status === 400 && /BadDeviceToken|DeviceTokenNotForTopic/.test(data))) return resolve("gone");
+        resolve("error");
+      });
+      req.on("error", () => { clearTimeout(t); resolve("error"); });
+      req.end(JSON.stringify({ aps }));
+    });
+  } catch { return "error"; } finally { try { client?.close(); } catch { /* ignore */ } }
+}

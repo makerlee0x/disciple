@@ -75,6 +75,11 @@ const lastAt: Partial<Record<HapticKind, number>> = {};
 /** Same kind within this window = one buzz (a button tap and the engine's ignite cue for the same BOOST). */
 const DEDUPE_MS = 140;
 
+/** NativeRumble (iPhone app, Core Haptics) plays its own richer patterns for these engine moments; skip the plain ones then. */
+const RICH_KINDS = new Set<HapticKind>(["hit", "zone", "orbit", "fill", "trick"]);
+let rich = false;
+export function setRichHaptics(on: boolean) { rich = on; }
+
 export function hapticsEnabled(): boolean {
   try { return getGameSettings().haptics !== false; } catch { return true; }
 }
@@ -90,6 +95,7 @@ export function haptic(kind: HapticKind, fromTap = false): boolean {
   // a boost/dump tap already buzzed: the plain tap from the same finger is redundant
   if (kind === "tap" && (now - (lastAt.boost ?? -1e9) < DEDUPE_MS || now - (lastAt.dump ?? -1e9) < DEDUPE_MS)) return false;
   lastAt[kind] = now;
+  if (rich && RICH_KINDS.has(kind)) return true;
   if (nativeHaptic(kind)) return true;
   if (canVibrate()) {
     try { return navigator.vibrate(HAPTIC_PATTERNS[kind]); } catch { return false; }

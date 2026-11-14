@@ -80,6 +80,44 @@ export function nativeHaptic(kind: string): boolean {
   } catch { return false; }
 }
 
+// ---------------------------------------------------------------- engine rumble (Core Haptics, mobile/ios/App/App/DiscipleNative.swift)
+
+type RumblePlugin = { rumble(o: { intensity: number; sharpness: number }): Promise<{ supported?: boolean }>; stop(): Promise<void>; play(o: { pattern: string }): Promise<{ supported?: boolean }>; supported(): Promise<{ supported: boolean }> };
+const rumbleP = () => nativePlugin<RumblePlugin>("DiscipleHaptics");
+/** true inside an app build that ships the DiscipleHaptics plugin and a phone with a Taptic Engine. */
+export async function nativeRumbleSupported(): Promise<boolean> {
+  const p = rumbleP(); if (!p) return false;
+  try { return (await p.supported()).supported === true; } catch { return false; }
+}
+/** Continuous engine rumble level (0 = silent; the loop keeps running until nativeRumbleStop). */
+export function nativeRumble(intensity: number, sharpness: number): void { void rumbleP()?.rumble({ intensity, sharpness }).catch(() => {}); }
+export function nativeRumbleStop(): void { void rumbleP()?.stop().catch(() => {}); }
+/** One-shot Core Haptics pattern: bomb · zone · orbit · trick · fill · stylefill. false outside the app. */
+export function nativePattern(pattern: string): boolean { const p = rumbleP(); if (!p) return false; void p.play({ pattern }).catch(() => {}); return true; }
+
+// ---------------------------------------------------------------- Live Activity (lock screen + Dynamic Island)
+
+export type LiveFlightState = { mcap: number; valueUsd: number; pnlUsd: number; pnlPct: number; zone: string; nextZone: string; zoneProgress: number; closed?: boolean };
+export type LiveFlightStart = LiveFlightState & { coin: string; ticker: string; investedUsd: number; entryMcap: number; url: string };
+type LivePlugin = {
+  supported(): Promise<{ supported: boolean }>;
+  start(o: LiveFlightStart): Promise<{ id: string }>;
+  update(o: LiveFlightState & { coin?: string }): Promise<{ running: boolean }>;
+  end(o: LiveFlightState & { coin?: string }): Promise<void>;
+  addListener?: Plugin["addListener"];
+};
+const liveP = () => nativePlugin<LivePlugin>("LiveFlight");
+export async function liveFlightSupported(): Promise<boolean> { const p = liveP(); if (!p) return false; try { return (await p.supported()).supported === true; } catch { return false; } }
+export async function liveFlightStart(o: LiveFlightStart): Promise<string | null> { const p = liveP(); if (!p) return null; try { return (await p.start(o)).id; } catch { return null; } }
+export function liveFlightUpdate(o: LiveFlightState & { coin?: string }): void { void liveP()?.update(o).catch(() => {}); }
+export function liveFlightEnd(o: LiveFlightState & { coin?: string }): void { void liveP()?.end(o).catch(() => {}); }
+/** Apple's push token for the running activity (hex), so the server can keep it fresh while the app is closed. */
+export function onLiveFlightToken(cb: (d: { id: string; coin: string; token: string }) => void): () => void {
+  const p = liveP(); if (!p?.addListener) return () => {};
+  const l = p.addListener("pushToken", cb as never);
+  return () => { void Promise.resolve(l).then((x) => x.remove()).catch(() => {}); };
+}
+
 // ---------------------------------------------------------------- deep links
 
 /** An in-site path, never another site: "//evil.com" or "/\\evil.com" would leave the app's site. */
@@ -183,7 +221,12 @@ export function installNativeShell(navigate: (path: string) => void): () => void
   void bar?.setStyle({ style: "DARK" }).catch(() => {});
 
   const app = nativePlugin("App");
-  keep(app?.addListener?.("appUrlOpen", ((d: { url: string }) => { const p = deepLinkPath(d.url); if (p) navigate(p); }) as never));
+  keep(app?.addListener?.("appUrlOpen", ((d: { url: string }) => {
+    const p = deepLinkPath(d.url);
+    // Xcode debug builds: a link with liveDemo=1 shows the sample Live Activity on the next flight (components/flight/LiveFlight)
+    if (p && nativeDebugBuild() && /[?&]liveDemo=1\b/.test(p)) { try { sessionStorage.setItem("disciple.liveDemo", "1"); } catch { /* ignore */ } }
+    if (p) navigate(p);
+  }) as never));
 
   const push = nativePlugin("PushNotifications");
   keep(push?.addListener?.("pushNotificationActionPerformed", ((d: { notification?: { data?: { url?: string } } }) => {
