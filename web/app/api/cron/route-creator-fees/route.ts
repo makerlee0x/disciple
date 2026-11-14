@@ -15,7 +15,8 @@ import { ACTIVE_CHAIN, deployment, ZERO } from "@/lib/chains";
 import { creatorFeeHarvestAbi } from "@/lib/creatorFeeHarvest";
 import { kv } from "@/lib/server/kv";
 import { relayerKey, isRelayerNotConfigured, withRelayer } from "@/lib/server/relayer";
-import { MAX_ROUTES_PER_RUN, isQuietRouteError, rotate, routedTokensFromLogs } from "@/lib/feeRouteKeeper";
+import { launchpadAbi } from "@/lib/abi";
+import { MAX_ROUTES_PER_RUN, isQuietRouteError, pastCreatorKeys, rotate, routedTokensFromLogs, splitPastKey } from "@/lib/feeRouteKeeper";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,6 +60,21 @@ export async function GET(req: Request) {
     if (fresh.length) await store.sadd(tokensKey, ...fresh);
     await store.set(curKey, cur.toString());
 
+    // 1b) past creators of those coins (Launchpad CreatorTransferred), routed with routeWith (audit CH-04)
+    const pastCurKey = `feeroute:pastcur:${h}`, pastKey = `feeroute:past:${h}`;
+    let pc0 = BigInt((await store.get(pastCurKey)) ?? (d.fromBlock - BigInt(1)).toString());
+    const pastNew: string[] = [];
+    while (pc0 < latest) {
+      const to = pc0 + SCAN_CHUNK > latest ? latest : pc0 + SCAN_CHUNK;
+      const logs = await pc.getContractEvents({ address: d.launchpad, abi: launchpadAbi, eventName: "CreatorTransferred", fromBlock: pc0 + BigInt(1), toBlock: to });
+      pastNew.push(...pastCreatorKeys(logs as never, known));
+      pc0 = to;
+    }
+    if (pastNew.length) await store.sadd(pastKey, ...pastNew);
+    await store.set(pastCurKey, pc0.toString());
+    const past = new Map<string, string[]>();
+    for (const k of await store.smembers(pastKey)) { const { token, creator } = splitPastKey(k); past.set(token, [...(past.get(token) ?? []), creator]); }
+
     // 2) route each coin (simulate → send), a rotating window of MAX_ROUTES_PER_RUN
     const turn = Number((await store.get(turnKey)) ?? "0") || 0;
     const all = rotate(Array.from(known).sort(), turn);
@@ -66,17 +82,24 @@ export async function GET(req: Request) {
     await store.set(turnKey, String(turn + batch.length));
     const results: Record<string, string> = {};
     let gasUsed = BigInt(0);
+    // route(token), then routeWith(token, pastCreator) for each past creator. A harvest without routeWith (v6
+    // testnet) fails that simulation, which is reported as "unsupported" and costs nothing.
+    const jobs: { label: string; fn: "route" | "routeWith"; args: readonly [Address] | readonly [Address, Address] }[] = [];
     for (const token of batch) {
+      jobs.push({ label: token, fn: "route", args: [token as Address] });
+      for (const c of past.get(token) ?? []) jobs.push({ label: `${token}:${c}`, fn: "routeWith", args: [token as Address, c as Address] });
+    }
+    for (const j of jobs) {
       try {
-        const { request } = await pc.simulateContract({ account: relayer, address: harvest, abi: creatorFeeHarvestAbi, functionName: "route", args: [token as Address] });
+        const { request } = await pc.simulateContract({ account: relayer, address: harvest, abi: creatorFeeHarvestAbi, functionName: j.fn, args: j.args as never });
         // the relayer EOA's shared nonce allocator (same as /api/cron/poke-pricer)
-        const hash = await withRelayer(async () => (await import("@/lib/server/fastRelay")).sendWithRelayerNonce((nonce) => wc.writeContract({ ...request, nonce })), 0);
+        const hash = await withRelayer(async () => (await import("@/lib/server/fastRelay")).sendWithRelayerNonce((nonce) => wc.writeContract({ ...request, nonce } as never)), 0);
         const rc = await pc.waitForTransactionReceipt({ hash, timeout: 15_000 });
         gasUsed += rc.gasUsed;
-        results[token] = rc.status === "success" ? hash : `reverted ${hash}`;
+        results[j.label] = rc.status === "success" ? hash : `reverted ${hash}`;
       } catch (e) {
         const m = errText(e);
-        results[token] = isQuietRouteError(m) ? "nothing yet" : `error: ${m.slice(0, 160)}`;
+        results[j.label] = isQuietRouteError(m) ? "nothing yet" : j.fn === "routeWith" ? `unsupported or failed: ${m.slice(0, 120)}` : `error: ${m.slice(0, 160)}`;
       }
     }
     const bal = await pc.getBalance({ address: relayer.address }).catch(() => BigInt(0));

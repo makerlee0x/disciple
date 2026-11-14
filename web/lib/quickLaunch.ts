@@ -190,7 +190,7 @@ export const PRIVATE_FEE_ROUTING_LIVE = false;
 /**
  * CreatorFeeHarvest.launchWithUsdg reverts when usdgIn > 0 on the deployed harvest (audit CH-02: its leftover check
  * reads the balance after the USDG swap, then underflows once the Launchpad pulls the First BOOST). Until a fixed
- * harvest is deployed, pool / burn launches can't take a First BOOST paid in dollars. Flip with the redeploy.
+ * harvest is deployed (fix in PR #371), pool / burn launches can't take a First BOOST paid in dollars. Flip with the redeploy.
  */
 export const HARVEST_USDG_BOOST_LIVE = false;
 

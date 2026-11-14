@@ -43,3 +43,19 @@ test("the cron is scheduled, authenticated, and simulates before sending", () =>
   assert.ok(route.indexOf("simulateContract") < route.indexOf("writeContract"), "simulate first");
   assert.match(route, /FEE_ROUTE_KEEPER_DISABLED/);
 });
+
+test("past creators of routed coins become routeWith jobs (audit CH-04)", async () => {
+  const { pastCreatorKeys, splitPastKey } = await import("../lib/feeRouteKeeper");
+  const routed = new Set([A]);
+  const keys = pastCreatorKeys([
+    { args: { token: A, previousCreator: B } },
+    { args: { token: A, previousCreator: B } },
+    { args: { token: C, previousCreator: B } },
+    { args: { token: A, previousCreator: "0x" + "0".repeat(40) } },
+  ], routed);
+  assert.deepEqual(keys, [`${A}:${B.toLowerCase()}`]);
+  assert.deepEqual(splitPastKey(keys[0]), { token: A, creator: B.toLowerCase() });
+  const route = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../app/api/cron/route-creator-fees/route.ts"), "utf8");
+  assert.match(route, /"CreatorTransferred"/);
+  assert.match(route, /"routeWith"/);
+});
