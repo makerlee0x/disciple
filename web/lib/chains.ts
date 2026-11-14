@@ -154,7 +154,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_RHT_USDG_DEPOSIT_NOTIFIER, "0x8cfc1917699aaa0f87d6bbee3ad459c285fd46bf"),
     curveFeeVault: addr(process.env.NEXT_PUBLIC_RHT_CURVE_FEE_VAULT),
     creatorFeeHarvest: addr(process.env.NEXT_PUBLIC_RHT_CREATOR_FEE_HARVEST, "0x4e94a3e9900b435b7c91d0a7cd53a22c8a9f8a03"), // v6 extraContracts.CreatorFeeHarvest
-    permitForwarder: addr(process.env.NEXT_PUBLIC_RHT_PERMIT_FORWARDER), // not deployed yet: contracts/script/DeployPermitForwarder.s.sol
+    permitForwarder: addr(process.env.NEXT_PUBLIC_RHT_PERMIT_FORWARDER, "0x18c2375c08b992b704124c2d37151a27d81e7c55"), // DisciplePermitForwarder, deployed 2026-11-14 (extraContracts.DisciplePermitForwarder)
     ...RH_V4,
     defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xF5eB226F7f0890c36A06Cbd0Ff843292b7b1a88C"), // test STRATEGY (18 dec, tokens.STRATEGY, reused by v6)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D"), // test USDG (6 dec, tokens.USDG, reused by v6)

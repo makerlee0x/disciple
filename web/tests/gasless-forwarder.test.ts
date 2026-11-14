@@ -3,7 +3,8 @@
  * (contracts/test/security/PermitForwarder.t.sol pins the same vectors), the EIP-712 type strings are in the order viem signs,
  * and the mainnet lock: no forwarder ⇒ Multicall3 only on testnet, and mainnet refuses.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+vi.hoisted(() => { process.env.NEXT_PUBLIC_RHT_PERMIT_FORWARDER = "0x0000000000000000000000000000000000000000"; }); // "not deployed" for the lock tests
 import { concat, decodeFunctionData, encodeAbiParameters, hashStruct, hashTypedData, keccak256, toBytes, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import {

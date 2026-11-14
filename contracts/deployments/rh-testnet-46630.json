@@ -973,6 +973,13 @@
     "CreatorFeeHarvest": {
       "address": "0x4e94a3e9900b435b7c91d0a7cd53a22c8a9f8a03",
       "deployTx": "0xb074babaf4a2bd645f77aecd23998fdbd9456d3622fe7d3b2f8b81a9ed04167d"
+    },
+    "DisciplePermitForwarder": {
+      "address": "0x18c2375c08b992b704124c2d37151a27d81e7c55",
+      "deployTx": "0x2ecb9ae691937cda6a256c5f2ff58ebeea578d5a7b8dea74dd0b504090f9b5bb",
+      "via": "CREATE2 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"DISCIPLE.DisciplePermitForwarder.v1\")",
+      "source": "contracts/src/addons/DisciplePermitForwarder.sol (PR #384)",
+      "note": "Permit2 spender for gasless withdraw / action fee / private launch. No owner, no constructor args."
     }
   },
   "deployTxs": {
