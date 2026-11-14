@@ -143,9 +143,12 @@ export async function scoreXp(
       if (res?.doneAt !== undefined && !(ctx.holdsUnverified && HOLDING_KINDS.has(m.kind))) await pay({ src: `m:${p.id}:${m.id}`, kind: "mission", xp: m.xp, label: m.title, ts: res.doneAt });
     }
   }
-  // drafting slingshots (lib/xp DRAFT): checked against the fills, at most DRAFT.perDay paid per day (src index 0..perDay-1)
+  // drafting slingshots (lib/xp DRAFT): checked against the fills, at most DRAFT.perDay paid per day (src index 0..perDay-1).
+  // The check needs the bag to have been held, so like the holding missions it waits while the wallet's transfer scan is
+  // incomplete (holdsUnverified: outgoing transfers missing ⇒ an old buy would look held after the bag was sent away).
+  // The claims stay queued and are paid on a later pass once the scan is complete.
   const claims = (await s.zrange(XPK.drafts(w), 500, true)).map((m) => parse<DraftClaim>(m)).filter((c): c is DraftClaim => !!c && typeof c.at === "number" && typeof c.coin === "string" && Array.isArray(c.wingmen));
-  if (claims.length) {
+  if (claims.length && !ctx.holdsUnverified) {
     const cf = new Map<string, { ts: number; trader: string; side: string }[]>();
     for (const [c, fs] of Array.from(ctx.coinFills?.entries() ?? [])) cf.set(c.toLowerCase(), fs.map((f) => ({ ts: f.ts, trader: f.trader, side: f.side })));
     for (const p of [dayPeriod(now), dayPeriod(now - 86_400_000)]) {
