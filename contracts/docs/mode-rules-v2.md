@@ -6,14 +6,14 @@ It ships in **one combined testnet redeploy** together with the paymaster (#106)
 Mode ids are unchanged: `TRENCH = 0`, `PVE = 1` (**Easy**), `PVP = 2` (**Hard**). The creator picks the mode at launch
 (`Launchpad.launchWithMode`, or `DiscipleRouter.launchWithUsdg`). Every rule below applies **on the bonding curve
 only** and switches off at graduation (the hook, the v4 pool, LockedLP and the router's v4 paths contain no mode logic).
-Curve facts: 1M supply (no burn, LOCKED #7 rev. 2026-10-23), 72% sold on the curve (pending lee's pick: 72% / 67.4% / 50%), $7,777 → $33,333 mcap.
+Curve facts: 1M supply (no burn, LOCKED #7 rev. 2026-10-23), 84.24% sold on the curve, $3,333 → $33,333 mcap (docs follow the code, 2026-11-14).
 
 ## Rules at a glance
 
 | | Easy (PVE, 1) | Hard (PVP, 2) | TRENCH (0) |
 |---|---|---|---|
-| Login | LoginGate attestation required to **buy** (sells never) | none | none |
-| Holding cap (NET curve position) | **1% → 3.33%** linear in mcap $7,777 → $33,333 | **3.33% → 7.77%** linear in mcap $7,777 → $33,333 | legacy owner `walletCapBps` (default 0 = none) |
+| Login | app-only (site / relay), not on-chain | none | none |
+| Holding cap (NET curve position) | **1% → 3.33%** linear in mcap $3,333 → $33,333 | **3.33% → 7.77%** linear in mcap $3,333 → $33,333 | legacy owner `walletCapBps` (default 0 = none) |
 | Over-cap buy | **partial fill** + refund | **partial fill** + refund | partial fill + refund (if a legacy cap is set) |
 | Max single buy / sell | none | none | none |
 | 7-min window / launch-block rule | **removed** | — | — |
@@ -29,7 +29,7 @@ Constants: `src/libraries/Constants.sol` (`PVE_CAP_START_BPS=100`, `PVE_CAP_END_
 
 ## Holding cap (Easy and Hard)
 
-* `cap(mcap) = start + (end − start) × clamp(mcap − $7,777, 0, $25,556) / $25,556`, in bps of total supply, applied to the
+* `cap(mcap) = start + (end − start) × clamp(mcap − $3,333, 0, $30,000) / $30,000`, in bps of total supply, applied to the
   wallet's NET curve position (`balanceOnCurve`: bought − sold, transfers follow it in Easy, see bonding-modes.md).
 * `mcap` is the curve's mcap **before** the trade (`marketCapUsd()`, quote/USD price fixed at launch).
 * Views: `curve.netCapNow()` (tokens), `curve.capRoom(wallet)` = `min(cap − NET, curve supply left)`,
@@ -70,7 +70,7 @@ Constants: `src/libraries/Constants.sol` (`PVE_CAP_START_BPS=100`, `PVE_CAP_END_
 * The First BOOST is exempt from the holding cap **for that buy only**; it counts in NET afterwards. Easy: 1.2% is
   above the 1% start cap, so the creator has no buy room until the cap grows past their NET (they can always sell
   unlocked tokens).
-* It still needs a login in Easy, and it is sniper-tax exempt in every mode.
+* It is sniper-tax exempt in every mode (Easy login is app-only).
 * Easy creator lock: `Token.creatorLocked()` = the First BOOST amount, enforced in `Token._update`: until graduation
   the **original creator** (`Token.creator`, immutable) cannot move their balance below the locked amount (transfer
   or sell → `CreatorLocked()`). Tokens bought later stay free. Graduation lifts it (`creatorLockActive()` false).
@@ -118,7 +118,7 @@ Constants: `src/libraries/Constants.sol` (`PVE_CAP_START_BPS=100`, `PVE_CAP_END_
    field names kept for ABI compatibility.
 5. Escrow at graduation goes into the locked LP via migration; excess → locked compound bucket.
 6. Escrow timeout release goes to `FeeRouter.rewardsVault()`; races graduation.
-7. First BOOST needs login in Easy and counts in NET; it can exceed the start cap (creator then has no room).
+7. First BOOST counts in NET; it can exceed the start cap (creator then has no room).
 8. Creator lock is keyed on the immutable `Token.creator`.
 9. `launchFor`: the router is the payer and receives the refund (swapped back to USDG).
 10. Kept as compat stubs: `maxBuyNow()` / `maxSellNow()` return `type(uint256).max`, `launchBlock` stays. `AntiSnipe`

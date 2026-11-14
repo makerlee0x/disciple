@@ -481,6 +481,8 @@ contract DiscipleRouter is IUnlockCallback {
                 IERC20(u).safeTransferFrom(msg.sender, address(this), usdgIn);
                 quoteAmt = usdgIn;
             } else {
+                // Audit RT-02: the USDG -> pair swap must carry a real minimum (same rule as every other swap here).
+                if (minQuoteIn == 0) revert ZeroMinOut();
                 Hop[] memory h = _quoteHops(u, q, true);
                 quoteAmt = _route(msg.sender, address(this), h, usdgIn);
             }
@@ -505,6 +507,8 @@ contract DiscipleRouter is IUnlockCallback {
     ///      quote fees, and every fee of older curves) as before. With nothing in the vault the FeeRouter call runs
     ///      unconditionally, so "nothing to claim" still reverts FeeRouter.NothingToClaim exactly as before.
     function claimCreatorFeesToUsdg(address token, uint256 minUsdgOut) external returns (uint256 usdgOut) {
+        // Audit RT-02: the pair -> USDG swap must carry a real minimum.
+        if (minUsdgOut == 0) revert ZeroMinOut();
         _enter();
         address u = usdg;
         address lp = launchpad;

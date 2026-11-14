@@ -72,6 +72,7 @@ contract Migration is IMigration, Owned2Step {
     function setLaunchpad(address launchpad_) external {
         if (msg.sender != owner) revert OnlyOwner();
         if (launchpad != address(0)) revert LaunchpadAlreadySet();
+        require(launchpad_.code.length != 0, "Migration: launchpad"); // F-L11: one-shot, refuse an EOA / zero
         launchpad = launchpad_;
         emit LaunchpadSet(launchpad_);
     }

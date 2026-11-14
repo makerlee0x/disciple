@@ -26,6 +26,10 @@ interface IPricerPoke {
     function poke(address quote) external;
 }
 
+interface IPricerLaunch {
+    function launchPriceUsd(address quote) external view returns (uint256);
+}
+
 contract Launchpad is ILaunchpad, Owned2Step {
     using SafeERC20 for IERC20;
 
@@ -173,11 +177,14 @@ contract Launchpad is ILaunchpad, Owned2Step {
         emit WalletCapSet(bps);
     }
 
+    /// @dev External review N-2: trusting a router no longer moves `curveRouter` (the primary router new curves snapshot
+    ///      and AnonLauncher's USDG launches call). It is the first trusted router; to replace it on purpose, untrust the
+    ///      current one (clears it), then trust the new one.
     function setTrustedRouter(address r, bool ok) external {
         if (msg.sender != owner) revert OnlyOwner();
         isTrustedRouter[r] = ok;
-        if (ok) curveRouter = r;
-        else if (curveRouter == r) curveRouter = address(0);
+        if (ok && curveRouter == address(0)) curveRouter = r;
+        else if (!ok && curveRouter == r) curveRouter = address(0);
         emit TrustedRouterSet(r, ok);
     }
 
@@ -286,11 +293,8 @@ contract Launchpad is ILaunchpad, Owned2Step {
         returns (LaunchResult memory result)
     {
         if (mode > maxMode) revert BadMode();
-        address gate;
-        if (mode == Constants.MODE_PVE) {
-            gate = loginGate;
-            if (gate == address(0)) revert LoginGateUnset();
-        }
+        // Easy login is app-only (maker 2026-11-14): new curves never read the gate, so it is no longer required.
+        address gate = mode == Constants.MODE_PVE ? loginGate : address(0);
         if (bytes(params.name).length == 0 || bytes(params.ticker).length == 0 || bytes(params.imageURI).length == 0) {
             revert InvalidMetadata();
         }
@@ -317,7 +321,9 @@ contract Launchpad is ILaunchpad, Owned2Step {
         if (address(pricer) == address(0)) revert PricerUnset();
         // SEC-03: keep the quote TWAP fresh; the poke is lagged, so a same-tx flash move has no effect.
         try IPricerPoke(address(pricer)).poke(quote) {} catch {}
-        uint256 quotePriceUsd = pricer.quotePriceUsd(quote);
+        // Mainnet rule (maker 2026-11-14): only USDG and listed quotes can launch; launchPriceUsd reverts QuoteNotListed
+        // otherwise (a fee-on-transfer, rebasing or pausable quote would freeze a curve's funds, review F-M1).
+        uint256 quotePriceUsd = IPricerLaunch(address(pricer)).launchPriceUsd(quote);
         if (address(curveDeployer) == address(0)) revert CurveDeployerUnset();
         uint256 wcap = walletCapBps;
         walletCapBpsOf[address(t)] = wcap;
@@ -454,7 +460,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
         if (quote == address(0)) quote = defaultQuote;
         if (quote == address(0)) revert DefaultQuoteUnset();
         if (address(pricer) == address(0)) revert PricerUnset();
-        quotePriceUsd = pricer.quotePriceUsd(quote);
+        quotePriceUsd = IPricerLaunch(address(pricer)).launchPriceUsd(quote);
         // Creator launch buy is anti-snipe exempt (LOCKED #27): snipeFee is always 0.
         uint256 afterSnipe = creatorBuyQuoteIn;
         fee = FeeMath.protocolFee(afterSnipe) + FeeMath.creatorTax(afterSnipe, creatorTaxBps);

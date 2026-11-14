@@ -131,14 +131,14 @@ contract BondingModesTest is IntegrationBase {
         assertEq(c2.mode(), Constants.MODE_TRENCH);
     }
 
-    function test_badModeAndGateRequired() public {
+    /// Easy login is app-only (maker 2026-11-14): an Easy launch no longer needs a LoginGate.
+    function test_badMode_andEasyNeedsNoGate() public {
         vm.prank(creator);
         vm.expectRevert(Launchpad.BadMode.selector);
         launchpad.launchWithMode(_params(0), 3);
         vm.prank(owner);
         launchpad.setLoginGate(address(0));
         vm.prank(creator);
-        vm.expectRevert(Launchpad.LoginGateUnset.selector);
         launchpad.launchWithMode(_params(0), Constants.MODE_PVE);
     }
 
