@@ -14,6 +14,8 @@ import { usd2 } from "@/components/cash/bits";
 
 export const ACCOUNT_COPY = {
   hangar: "Your Hangar",
+  logbook: "Logbook",
+  crew: "Crew",
   cash: "Cash",
   rewards: "Rewards",
   ready: (v: string) => `${v} ready`,
@@ -28,6 +30,8 @@ export const REWARDS_HREF = "/profile#rewards";
 
 const I = {
   hangar: <path d="M3 10l9-6 9 6v10H3zM9 20v-6h6v6" />,
+  logbook: <path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11M9 8h6" />,
+  crew: <><circle cx="9" cy="9" r="3" /><circle cx="17" cy="10" r="2.5" /><path d="M3 20a6 6 0 0 1 12 0M14 20a4 4 0 0 1 7-2.6" /></>,
   cash: <><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></>,
   rewards: <><rect x="3" y="9" width="18" height="11" rx="2" /><path d="M3 13h18M12 9v11M7 9a3 3 0 0 1 5-3 3 3 0 0 1 5 3" /></>,
   settings: <><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z" /></>,
@@ -60,6 +64,8 @@ export default function AccountMenu({ wallet, name, initial, cashUsd, onClose, o
         </div>
         <span className="am-sep" />
         <a role="menuitem" className="am-i" href="/profile" onClick={onClose}><Ico d={I.hangar} />{ACCOUNT_COPY.hangar}</a>
+        <Link role="menuitem" className="am-i" href="/logbook" onClick={onClose}><Ico d={I.logbook} />{ACCOUNT_COPY.logbook}</Link>
+        <Link role="menuitem" className="am-i" href="/crew" onClick={onClose}><Ico d={I.crew} />{ACCOUNT_COPY.crew}</Link>
         <button role="menuitem" type="button" className="am-i" onClick={() => { onClose(); openCash("add"); }}><Ico d={I.cash} />{ACCOUNT_COPY.cash}{cashUsd != null && <span className="am-r">{usd2(cashUsd)}</span>}</button>
         <a role="menuitem" className="am-i" href={REWARDS_HREF} onClick={onClose} data-testid="account-rewards"><Ico d={I.rewards} />{ACCOUNT_COPY.rewards}{ready > 0.004 && <span className="am-r gold">{ACCOUNT_COPY.ready(usd2(ready))}</span>}</a>
         <Link role="menuitem" className="am-i" href={SETTINGS_HREF} scroll={false} onClick={(e) => { onClose(); onSettingsClick(e); }}><Ico d={I.settings} />{ACCOUNT_COPY.settings}</Link>

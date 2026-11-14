@@ -37,6 +37,7 @@ export const HOST_COPY = {
   title: "Host earnings",
   sub: "You earn a cut of every boost and dump on the rockets you launched. Each rocket gets its own bay card.",
   back: "Back to your Hangar",
+  missionControl: "Mission control",
   ready: "Ready to claim",
   claimAll: (v: string) => `Claim all ${v}`,
   claimAllShort: "Claim all",
@@ -161,6 +162,7 @@ function BayCard({ r, facts, tokenOn, onClaim, demo }: { r: CreatorRocket; facts
           <div className="he-rkname">
             <Link href={`/coin/${r.token}`} className="r2-g">{r.name}</Link>
             <span><span className="he-tk">${r.ticker}{rest ? " · " : ""}</span>{rest}</span>
+            <Link href={`/host?coin=${r.token}`} className="he-mc" data-testid="creator-mission-control">{HOST_COPY.missionControl}</Link>
           </div>
           {diff && <span className={`he-tag ${diff.key}`}>{diff.label}</span>}
         </div>
