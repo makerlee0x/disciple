@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { MODES } from "@/lib/config";
-import { AUTO_SLIPPAGE_PCT, DEFAULT_SELLS, MIN_BOOST_USD, validBoost, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
+import { DEFAULT_SELLS, MIN_BOOST_USD, validBoost, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 import Icon from "@/components/icons/Icon";
 import OneTapSlippagePicker from "./OneTapSlippagePicker";
 
@@ -14,8 +14,6 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
 }) {
   const [buy, setBuy] = useState<string[]>((initial.buy || autoUsd).map(String));
   const [buyAuto, setBuyAuto] = useState(!initial.buy);
-  const [slipMode, setSlipMode] = useState(initial.slippage.mode);
-  const [slip, setSlip] = useState(String(initial.slippage.pct));
   const [tag, setTag] = useState(initial.tag);
   const t = tier;
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }; addEventListener("keydown", k); return () => removeEventListener("keydown", k); }, [onClose]);
@@ -26,7 +24,7 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
     // $3 minimum: a smaller boost can't cover the network fee (maker, 2026-11-14)
     if (!buyAuto && !b.every(validBoost)) { setErr(`Each boost needs to be at least $${MIN_BOOST_USD}, which covers the network fee.`); return; }
     // sells are fixed (10/25/50/100% of the bag): never saved from here
-    onSave({ buy: buyAuto ? null : b, sells: DEFAULT_SELLS.slice() as SellSlot[], slippage: { mode: slipMode, pct: +slip > 0 ? Math.min(50, +slip) : AUTO_SLIPPAGE_PCT }, tag }, t);
+    onSave({ buy: buyAuto ? null : b, sells: DEFAULT_SELLS.slice() as SellSlot[], slippage: initial.slippage, tag }, t);
   };
   const cell: React.CSSProperties = { width: "100%", boxSizing: "border-box", textAlign: "center", font: "bold 15px ui-monospace,monospace", color: "#fff", padding: "10px 4px",
     background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.12)", borderRadius: 10, outline: "none" };
@@ -63,18 +61,11 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
             </label>)}
         </div>
         <div style={{ borderTop: "1px dashed rgba(255,255,255,.12)", margin: "16px 0 12px" }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span title="Price protection: the most the price may move between your tap and the fill, or the trade is cancelled (live trades only). Auto = 1%.">Price protection <Icon name="info" size={12} /></span>
-          {slipMode === "custom" && <input data-testid="swap-slip" inputMode="decimal" value={slip} onChange={(e) => setSlip(e.target.value.replace(/[^\d.]/g, ""))}
-            style={{ ...cell, width: 64, padding: "5px 4px", fontSize: 13, marginLeft: "auto" }} />}
-          {slipMode === "custom" && <span>%</span>}
-          <div style={{ display: "flex", marginLeft: slipMode === "custom" ? 0 : "auto", padding: 3, borderRadius: 9, background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)" }}>
-            {(["auto", "custom"] as const).map((m) => <button key={m} type="button" data-testid={`swap-slip-${m}`} onClick={() => setSlipMode(m)}
-              style={{ all: "unset", cursor: "pointer", padding: "4px 12px", borderRadius: 7, fontWeight: 600, background: slipMode === m ? "#2b2f6e" : "transparent", color: slipMode === m ? "#aab4ff" : "rgba(255,255,255,.55)" }}>{m === "auto" ? "Auto" : "Custom"}</button>)}
-          </div>
-        </div>
-        {/* SITE (lee, Oct 30): one-tap session's on-chain max price move; saved on tap (a live session is renewed) */}
-        {scope.startsWith("live") && <div style={{ marginTop: 12 }}><OneTapSlippagePicker /></div>}
+        {/* Price protection = the one-tap session's on-chain max price move (lee, Oct 30), the same control as Settings → Flying.
+            The old Auto / Custom % row is gone (2026-11-14): trades never read it (TradeBridge prices with the session cap). */}
+        <div data-testid="swap-protection" style={{ fontWeight: 600 }}>Price protection</div>
+        {scope.startsWith("live") ? <div style={{ marginTop: 8 }}><OneTapSlippagePicker /></div>
+          : <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>Applies to live trades. Set it when you fly for real, here or in Settings.</div>}
         <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, cursor: "pointer" }}>
           <input type="checkbox" data-testid="swap-tag" checked={tag} onChange={(e) => setTag(e.target.checked)} /> Position tag next to the rocket <span style={{ opacity: 0.55 }}>(P)</span></label>
         <button type="button" data-testid="swap-save" onClick={save}

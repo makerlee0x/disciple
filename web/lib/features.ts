@@ -63,3 +63,13 @@ export const LOGBOOK_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_LOGBOOK 
  * the rocket, and no crew push is sent or offered. The APIs stay. Override: NEXT_PUBLIC_FEATURE_CREW=1 (build-time).
  */
 export const CREW_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_CREW === "1" || process.env.NEXT_PUBLIC_FEATURE_CREW === "true";
+
+/**
+ * Pro HUD: the advanced trader view on desktop flight (loadout card, Pro chart, full position card, every bomb banner) and
+ * the PILOT / PRO switch that picks it. Hidden for launch (maker, 2026-11-14: "i dont think we need the advanced trader view
+ * any more for desktop"). Off: every flight runs Pilot, the top bar has no switch, a saved 'pro' choice is reset to Pilot,
+ * and How to play shows one panel without its Pilot / Pro tabs (#pro still opens the spec sheet). Price protection lives in
+ * Settings → Trading and in the trade settings popup (☰ → Trade settings). The Pro code stays so this can come back.
+ * Override: NEXT_PUBLIC_FEATURE_PRO=1 (build-time).
+ */
+export const PRO_HUD_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_PRO === "1" || process.env.NEXT_PUBLIC_FEATURE_PRO === "true";

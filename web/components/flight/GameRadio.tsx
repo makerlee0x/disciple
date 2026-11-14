@@ -24,7 +24,7 @@ import { useHudMode } from "@/lib/game/hudMode";
 import { HUD } from "@/lib/game/hudStyle";
 
 /* desktop (approved mockup, Nov 12): a one-line card "♫ House radio · Night Drive  R"; click it for the full controls.
-   Pilot (board C, 2026-11-14): a CINEMATIC / HOUSE pill in the top bar, left of PILOT / PRO; click it for the full controls. Pro: bottom left. R plays / pauses (not while typing, not when bound to a trade). */
+   Pilot (board C, 2026-11-14): a CINEMATIC / HOUSE pill in the top bar, left of the ☰ menu (PILOT / PRO too when lib/features PRO_HUD_ENABLED); click it for the full controls. Pro: bottom left. R plays / pauses (not while typing, not when bound to a trade). */
 const DESK: React.CSSProperties = { width: 300, padding: 0, borderRadius: 12, background: HUD.glass, border: `1px solid ${HUD.border}`, color: HUD.text, fontFamily: HUD.ui };
 
 const GOLD = "#ffe7a3";
