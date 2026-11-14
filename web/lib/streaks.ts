@@ -35,16 +35,23 @@ export interface Streak {
   run: { day: number; n: number }[];
 }
 
-export interface StreakFill { ts: number; block?: number; logIndex?: number; side: "buy" | "sell"; tokens: number; usd: number }
+/** `out`: a plain transfer away (lib/server/transferCache), not a trade */
+export interface StreakFill { ts: number; block?: number; logIndex?: number; side: "buy" | "sell"; tokens: number; usd: number; out?: boolean }
 
 /** Intervals [from, to) where one rocket's remaining cost stayed at $5+ (to = Infinity while it still does). */
 export function heldIntervals(fills: readonly StreakFill[], minUsd: number = STREAK_RULES.minHoldUsd): [number, number][] {
   const fs = [...fills].sort((a, b) => a.ts - b.ts || (a.block ?? 0) - (b.block ?? 0) || (a.logIndex ?? 0) - (b.logIndex ?? 0));
   const out: [number, number][] = [];
-  let tokens = 0, cost = 0, from: number | null = null;
+  // debt: tokens a transfer away sent beyond the fill-based bag. The transfer scan folds its oldest records into one
+  // earlier transfer (lib/xpTransfers capOuts), so a later exit can show up before the rebuy it followed; the excess
+  // is carried and cancels the next buys, so a folded history never revives an empty position (Vercel Security Review)
+  let tokens = 0, cost = 0, debt = 0, from: number | null = null;
   for (const f of fs) {
-    if (f.side === "buy") { tokens += f.tokens; cost += Math.max(0, f.usd); }
-    else if (tokens > 0) { const k = Math.min(1, f.tokens / tokens); cost -= cost * k; tokens -= Math.min(tokens, f.tokens); if (tokens <= 1e-9) { tokens = 0; cost = 0; } }
+    if (f.side === "buy") {
+      const owed = Math.min(debt, f.tokens), keep = f.tokens > 0 ? (f.tokens - owed) / f.tokens : 0;
+      debt -= owed; tokens += f.tokens - owed; cost += Math.max(0, f.usd) * keep;
+    } else if (f.out && f.tokens > tokens) debt += f.tokens - tokens;
+    if (f.side === "sell" && tokens > 0) { const k = Math.min(1, f.tokens / tokens); cost -= cost * k; tokens -= Math.min(tokens, f.tokens); if (tokens <= 1e-9) { tokens = 0; cost = 0; } }
     const ok = cost >= minUsd;
     if (ok && from === null) from = f.ts;
     else if (!ok && from !== null) { out.push([from, f.ts]); from = null; }

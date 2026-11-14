@@ -79,4 +79,13 @@ describe("steady-hand streaks", () => {
     for (const p of late) if (p.xp === 100 && p.ts < (from + 70) * DAY) expect(early.get(p.src)).toBe(100);
     expect(late.filter((p) => p.xp === 100)).toHaveLength(Math.floor(141 / 7));
   });
+
+  it("a folded transfer history (two exits merged into one earlier one) never revives the rebought bag", () => {
+    const out = (ts: number, tokens: number) => ({ ts, side: "sell" as const, tokens, usd: 0, out: true });
+    // real order: buy 10, send 10 away, rebuy 10, send 10 away. The scan folded both sends into one 20 at the first
+    const folded = [buy(0, 10), out(100, 20), buy(200, 10)];
+    expect(heldIntervals(folded)).toEqual([[0, 100]]);
+    // a real top-up after the debt is paid still counts
+    expect(heldIntervals([...folded, buy(300, 10)])).toEqual([[0, 100], [300, Infinity]]);
+  });
 });

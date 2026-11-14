@@ -31,6 +31,6 @@ export async function verifiedOuts(walletIn: string, coin: string, needTs: numbe
   let verifiedTo = -Infinity;
   if (c?.cursor && /^\d+$/.test(c.cursor)) verifiedTo = await tsOf(c.cursor).catch(() => -Infinity);
   if (verifiedTo < needTs) await s.zadd(ACH.dirty(), [{ score: Date.now(), member: `${w}|hold-check` }]).catch(() => {});
-  const outs = (c?.outs ?? []).filter((x) => x.tokens > 0).map((x): StreakFill => ({ ts: x.ts, block: x.block, logIndex: x.logIndex, side: "sell", tokens: x.tokens, usd: 0 }));
+  const outs = (c?.outs ?? []).filter((x) => x.tokens > 0).map((x): StreakFill => ({ ts: x.ts, block: x.block, logIndex: x.logIndex, side: "sell", tokens: x.tokens, usd: 0, out: true }));
   return { outs, verifiedTo };
 }
