@@ -389,7 +389,7 @@ function mount(root,host){
     sx.fillStyle="#121327"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(t,x,my+1);
   }
   function drawRocket(pl,now,leader){
-    let x=lane(pl)+pl.dx, y=pl.y, img=imgs.rocket, h=(pl.me?RH():RH()*.82)*Math.max(.5,Math.pow(cam.z,.3)), w=h*221/609;
+    let x=lane(pl)+pl.dx, y=pl.y, img=imgs.rocket, h=(pl.me?RH():RH()*.82), w=h*221/609;
     const lean=Math.max(-.22,Math.min(.22,pl.rot));
     // flame grows while climbing, sputters while falling
     const thrust=Math.max(.25,Math.min(2.4,.6+pl.flame*.6-pl.wvy*.004)), fl=thrust+Math.sin(now/40+(pl.me?0:2))*.08;
@@ -442,9 +442,9 @@ function mount(root,host){
       }
       // camera: follow the middle of the pair, zoom out if the gap won't fit
       const [top,bot]=band(), room=(bot-top)*.9, gap=Math.abs(G.me.wy-G.bot.wy);
-      const zt=Math.min(1,room/Math.max(1,gap)); cam.z+=(zt-cam.z)*Math.min(1,dt*2.5);
+      const zt=Math.max(.6,Math.min(1,room/Math.max(1,gap)));   // pull back a little, never so far the race looks tiny cam.z+=(zt-cam.z)*Math.min(1,dt*2.5);
       const ct=(G.me.wy+G.bot.wy)/2, prev=cam.y; cam.vy+=((ct-cam.y)*9-cam.vy*5)*dt; cam.y+=cam.vy*dt; camDy=cam.y-prev;
-      for(const pl of [G.me,G.bot]) pl.y=screenY(pl.wy)+(pl.syo||0);
+      for(const pl of [G.me,G.bot]) pl.y=Math.max(top+RH()*.55,Math.min(bot-RH()*.2,screenY(pl.wy)+(pl.syo||0)));   // a huge lead pins to the edges; the gap tag shows the $
     }
     sx.save(); if(sh) sx.translate(rnd(-sh,sh)*.5,rnd(-sh,sh)*.5);
     const camAlt=-cam.y/K; drawBackdrop(camAlt);

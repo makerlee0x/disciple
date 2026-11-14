@@ -6,17 +6,10 @@ import type { DuelEvent, DuelRoom } from "./types";
 export type Res<T> = ({ ok: true } & T) | { ok: false; reason: string; status?: number };
 export interface RoomRes { room: DuelRoom; events: DuelEvent[]; now: number }
 
-/** Local two-browser testing only: the server ignores this unless DUEL_DEV_AUTH=1 outside production. */
-export function devPid(): string | null {
-  if (process.env.NODE_ENV === "production") return null;
-  try { const v = localStorage.getItem("duel.devPid"); return v && /^0x[0-9a-f]{40}$/.test(v) ? v : null; } catch { return null; }
-}
 async function call<T>(method: "GET" | "POST" | "DELETE", path: string, body?: unknown, auth = true): Promise<Res<T>> {
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
-    const dev = devPid();
-    if (dev) headers["x-duel-dev"] = dev;
-    else if (auth) { const t = await privyAccessToken(); if (!t) return { ok: false, reason: "Sign in to duel.", status: 401 }; headers.authorization = `Bearer ${t}`; }
+    if (auth) { const t = await privyAccessToken(); if (!t) return { ok: false, reason: "Sign in to duel.", status: 401 }; headers.authorization = `Bearer ${t}`; }
     const r = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), cache: "no-store" });
     const j = await r.json().catch(() => null);
     if (!r.ok || !j?.ok) return { ok: false, reason: (j && typeof j.reason === "string" && j.reason) || "Couldn't reach the duel server.", status: r.status };

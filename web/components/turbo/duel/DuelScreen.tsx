@@ -8,7 +8,7 @@
 import { useEffect, useRef } from "react";
 import { getTurboAdapter } from "@/lib/turbo";
 import { onPrivy, privyAuthenticated, privyLogin } from "@/lib/aa/sessionState";
-import { devPid, duelApi, followRoom, type Follow, type RoomRes, type Res } from "@/lib/duel/client";
+import { duelApi, followRoom, type Follow, type RoomRes, type Res } from "@/lib/duel/client";
 import { parseCode, type LengthMs, type TierId, type TradeAction } from "@/lib/duel/rules";
 import type { DuelEvent, DuelRoom } from "@/lib/duel/types";
 
@@ -74,7 +74,7 @@ export default function DuelScreen() {
       qTimer = setTimeout(pollQueue, 1500);
     };
     const refreshMe = async () => {
-      if (!privyAuthenticated() && !devPid()) { me = null; api?.setMe(null, false); return; }
+      if (!privyAuthenticated()) { me = null; api?.setMe(null, false); return; }
       const r = await duelApi.me();
       if (dead) return;
       if (!r.ok) { me = null; api?.setMe(null, false); return; }
