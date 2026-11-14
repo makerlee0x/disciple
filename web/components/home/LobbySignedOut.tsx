@@ -21,8 +21,7 @@ import { altShort, flightHref, lightOf, orbitPct, pct } from "./rocketBits";
 import s from "./lobbySignedOut.module.css";
 
 const HERO_SKY = "/home/sky/t6.webp";
-const HOW_PLATE = "/art/launch/live.webp";
-const HOW_PLATE_PHONE = "/art/modes/live.webp";
+const HOW_PLATE = "/art/lobby/how-it-plays.webp";
 const HOST_PLATE = "/art/hero/hero-desktop.webp";
 const HOST_PLATE_PHONE = "/art/hero/hero-phone.webp";
 const POLL_MS = 30_000;
@@ -164,8 +163,8 @@ function HowItPlays() {
   return (
     <section className={s.how} aria-labelledby="so-how-title">
       <div className={s.scene} aria-hidden>
-        {/* Grok art (PR #380), no sprite on the sky: the climbing rocket on wide screens, the crew boosting one ship on phones */}
-        <div className={s.sceneSky} style={{ ["--plate" as string]: `url(${withBase(HOW_PLATE)})`, ["--plate-phone" as string]: `url(${withBase(HOW_PLATE_PHONE)})` }} />
+        {/* the crew boosting one ship up (Grok art B1, PR #385): no sprite on the sky */}
+        <div className={s.sceneSky} style={{ backgroundImage: `url(${withBase(HOW_PLATE)})` }} />
         <span className={`${s.float} ${s.fUp} ${s.sf0}`}>▲ +$25</span>
         <span className={`${s.float} ${s.fUp} ${s.sf1}`}>▲ +$50</span>
         <div className={s.sceneVignette} />

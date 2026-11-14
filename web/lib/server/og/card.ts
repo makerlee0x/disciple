@@ -9,6 +9,7 @@ import fs from "fs";
 import path from "path";
 import { createCanvas, GlobalFonts, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
 import { FLIGHT_TIERS, tierIndexAt } from "@/lib/flight/tiers";
+import { skyBand } from "@/lib/share/scene";
 
 const ROOT = process.cwd();
 const W = 1200, H = 630, PAD = 72;
@@ -34,11 +35,8 @@ function img(rel: string): Promise<Image | null> {
   return p;
 }
 
-/** Sky band for the rocket card plates (handover doc): 1 ground … 5 heavens. */
-export function bandOf(mcap: number): 1 | 2 | 3 | 4 | 5 {
-  const i = tierIndexAt(mcap);
-  return i <= 1 ? 1 : i <= 3 ? 2 : i <= 6 ? 3 : i <= 10 ? 4 : 5;
-}
+/** Sky band for the rocket card plates (handover doc): 1 ground … 5 heavens. Shared with the Flight log card. */
+export const bandOf = skyBand;
 export const tierName = (mcap: number) => FLIGHT_TIERS[tierIndexAt(mcap)].name;
 
 export type OgCard =
@@ -163,8 +161,7 @@ export async function renderOgCard(c: OgCard): Promise<Buffer> {
   }
 
   if (c.kind === "pilot") {
-    const hull = c.hull && ["chrome", "matte", "violet", "gold"].includes(c.hull) ? c.hull : "chrome";
-    await plate(o, `pilot-${hull}`, "assets/tier5.webp", { rot: 0, x: 900, h: 500 });
+    await plate(o, "pilot", "assets/tier5.webp", { rot: 0, x: 900, h: 500 });   // one plate for every pilot (Grok art O8, PR #385)
     shade(o, 0.95);
     await brand(o, 100, 26, "#BCC0CA");
     // ring
