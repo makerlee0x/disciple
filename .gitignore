@@ -19,3 +19,4 @@ disciple-shots
 tracker/
 __pycache__/
 keeper/trades.csv
+contracts/replay-data/

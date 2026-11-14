@@ -84,11 +84,28 @@ contract DiscipleFlatMathTest is Test {
     function testFuzz_flat_anyLam_exactOutCoversExactIn(uint256 seed) public view {
         uint256 sh = hs.shape(_lam(seed));
         (uint256 u, uint256 v, uint256 t, uint256 k, uint256 a) = _state(seed, true);
+        // Both directions round for the pool with a margin sized on the RESERVE (1e-12 per pow), so exact-out may
+        // charge slightly less than the exact-in input that produced `out` (exact-in already paid out less than the
+        // true amount). Tolerance: 1e-9 of the trade plus 1e-11 of the reserve, as in test_flat_vectorsMatchSim
+        // (v0.3 audit I-01 / L-2: the old trade-only bound failed at lam ~0.25 on a 1e-4-of-reserve trade).
+        // Each direction is checked against the exact curve in test_flat_vectorsMatchSim; round trips and splits
+        // never profit (the other anyLam fuzz tests).
         uint256 out = hs.fill(0, u, v, k, 0, t, a, sh);
-        if (out > 1e6) assertGe(hs.fill(1, u, v, k, 0, t, out, sh), a - a / 1e9, "buy");
+        if (out > 1e6) {
+            uint256 inQ = hs.fill(1, u, v, k, 0, t, out, sh);
+            assertGe(inQ, a - a / 1e9 - v / 1e11, "buy");
+        }
         (u, v, t, k, a) = _state(seed ^ 7, false);
         out = hs.fill(2, u, v, k, 0, t, a, sh);
-        if (out > 1e6) assertGe(hs.fill(3, u, v, k, 0, t, out, sh), a - a / 1e9, "sell");
+        if (out > 1e6) {
+            uint256 inC = hs.fill(3, u, v, k, 0, t, out, sh);
+            assertGe(inC, a - a / 1e9 - u / 1e11, "sell");
+        }
+    }
+
+    /// v0.3 audit (I-01 / L-2) counterexample at lam ~0.248: exact-out must still cover exact-in.
+    function test_flat_auditCounterexampleExactOutCovers() public view {
+        testFuzz_flat_anyLam_exactOutCoversExactIn(4122963194318678682658782080789381120);
     }
 
     /// With a match boundary set (the live-leader bound), at any flatness: a buy never pays below p.

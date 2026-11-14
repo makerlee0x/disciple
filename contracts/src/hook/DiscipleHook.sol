@@ -31,7 +31,7 @@ import {DiscipleBooks as BK} from "./DiscipleBooks.sol";
 ///         the centre by no more than the fee. There is no lag premium. Every fill respects the live source
 ///         boundary (ask >= source ask * 0.9999, bid <= source bid * 1.0001), read in the same call.
 ///         Tip jar: 12% of each interval's earnings goes to the pool's own jar (both tokens, pro rata) until it
-///         holds about JAR_TIPS tips. sample() pays its caller gas + 20% from the jar, but only while the centre
+///         holds about JAR_TIPS tips. sample() pays its caller gas x the pool's tipBps from the jar, but only while the centre
 ///         is at least 1% from the leader, so the pool catches up after a move even with no trades.
 ///
 ///         Cross chain (new chain, anchor pushed from the home chain over LayerZero by a DisciplePushSender there
@@ -64,18 +64,18 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     uint256 internal constant WAD = 1e18;
     /// @dev sample() pays a tip only while the centre is at least this far (bps) from the live leader price.
     uint256 internal constant DUE_BPS = 100;
-    /// @dev Jar cap: this many reference tips (TIP_GAS_REF gas at the current basefee, +20%).
+    /// @dev Jar cap: this many reference tips (TIP_GAS_REF gas at the current basefee, times the pool's tipBps).
     uint256 internal constant JAR_TIPS = 320;
     /// @dev Cross-chain jar cap: this many pushes at the last keeper cost, +20% (7 days of 59.5-min heartbeats).
     uint256 internal constant JAR_PUSHES = 170;
     uint256 internal constant TIP_GAS_REF = 150_000;
     /// @dev Gas a tipped sample() spends outside the measured span (calldata, the payout itself), plus the 21k
     ///      transaction intrinsic counted once per transaction, so a batch of samples is not paid it N times
-    ///      (audit L-2 / GPT batching). Measured on anvil (keeper/test/local, real per-transaction accounting): a
-    ///      repeat tipped sample was ~116k gas with ~84k outside the span. v0.2 moved the reentrancy flag to
-    ///      transient storage (~2k less outside the span), and a batch of 8 in one transaction then measured 124%
-    ///      at 63k, so it is 58k: a batch is paid <= 120%, a single repeat sample ~117%, a first tip ~103%.
-    uint256 internal constant TIP_OVERHEAD = 58_000;
+    ///      (audit L-2 / GPT batching). v0.2 used 58k (from anvil); live Robinhood receipts then showed the count
+    ///      ~15% under the real gasUsed (~134k per keeper sample), so a tip at 1.2x only just covered gas.
+    ///      v0.3 recalibrates to 76k so the count matches live gas: tipBps 10,500 (maker 2026-11-14) pays ~1.05x
+    ///      on a single sample, and a batch stays near v0.2's accepted ~1.2x.
+    uint256 internal constant TIP_OVERHEAD = 76_000;
     uint256 internal constant TIP_INTRINSIC = 21_000;
     /// @dev Transient flag: the intrinsic was already paid to a sample() in this transaction.
     uint256 internal constant TIP_TX_SLOT = uint256(keccak256("disciple.tip.tx"));
@@ -143,7 +143,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint64 settledBlock; // same chain: last block the ledger settled
         uint64 sampleBlock; // (the four block/time fields share one slot: one read per swap)
         uint64 sampleAt; // timestamp of sampleX128
-        uint256 sampleX128; // same chain: last source spot sampled
+        uint256 sampleX128; // same chain: last source spot sampled; cross chain: last accepted pushed price (v0.3)
         uint256 jarX; // same chain tip jar, coin raw (held as claims, outside the book)
         uint256 jarY; // tip jar, quote raw
         BK.Tvl tvl; // source TVL readings for graduation and the creator cut (DiscipleBooks.observe / judge)
@@ -171,10 +171,10 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     /// @notice v0.3 per-pool settings (maker 2026-11-14: the creator picks them at launch within hard bounds; nothing
     ///         can change them later). v0.2's values: edge 1, lam 50,000, tip 12,000, skim 1,200.
     struct Tune {
-        uint16 edgeBps; // same chain: how far inside the leader's live bid/ask a fill may go, 0..MAX_EDGE_BPS
+        uint16 edgeBps; // same chain: how far inside the leader's live quote a fill may go (never past its mid)
         uint32 lamPpm; // curve flatness inside the band, MIN_LAM..MAX_LAM of DiscipleFlatMath (5,000..250,000)
         uint16 tipBps; // sample() tip as a share of its gas cost, MIN_TIP_BPS..MAX_TIP_BPS (10,000 = break-even)
-        uint16 skimBps; // share of earnings into the tip jar until full, 0..MAX_SKIM_BPS
+        uint16 skimBps; // share of earnings into the tip jar until full, 0..MAX_SKIM_BPS (cross chain: > 0)
     }
 
     /// @dev One token movement inside an unlock: `into` the pool's claims from `who`, or out of them to `who`.
@@ -349,8 +349,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         Tune calldata tn = cp.tune;
         if (
             tn.edgeBps > MAX_EDGE_BPS || tn.tipBps < MIN_TIP_BPS || tn.tipBps > MAX_TIP_BPS
-                || tn.skimBps > MAX_SKIM_BPS
-        ) revert BadParams();
+                || tn.skimBps > MAX_SKIM_BPS || (tn.skimBps == 0 && cp.src.remoteEid != 0)
+        ) revert BadParams(); // a cross-chain pool refunds keepers only from the jar (v0.3 audit I-1)
         uint256 sh = BK.shape(uint256(tn.lamPpm) * 1e12); // BadLam outside the bounds
         Source calldata s = cp.src;
         if (s.kind < SRC_V2 || s.kind > SRC_V4 || s.kind2 > SRC_V4) revert BadParams();
@@ -655,7 +655,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         } else {
             uint256 age = block.timestamp - p.obsAt;
             if (age >= PR.LOCAL_AFTER && !p.local) t = PR.recentre(u, v);
-            (kb, ks, pb, ps) = BK.crossQuote(p.anchorX128, t, p.fee, age);
+            (kb, ks, pb, ps) = BK.crossQuote(p.anchorX128, t, p.fee, age, p.sampleX128);
         }
         bool exactIn = amountSpecified < 0;
         bool sell = zeroForOne == p.coinIs0;
@@ -771,10 +771,10 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     }
 
     /// @dev Fills follow the live leader (match bounds) while the anchor may trail it, so marking a fill at the
-    ///      anchor alone would book the gap as fees, paid out of principal. Each fill is marked at the less
-    ///      favourable of the anchor and the leader, where the leader counts only as far as this block's first-touch
-    ///      sample and the live spot agree: a leader pushed for the sample alone (or for the spot alone) and put
-    ///      back cannot book a made-up gain.
+    ///      anchor alone would book the gap as fees, paid out of principal. Each fill is marked at the least
+    ///      favourable for the LPs of the anchor, this block's first-touch sample and the live spot (v0.3 audit
+    ///      fix, M-01 / M-1 / L-1 / R376-03): a reading that moves inside the block, honestly or pushed, can then
+    ///      only lower booked earnings (a carried loss that stays in the pool pro rata), never raise them.
     function _prepareSame(Pool storage p)
         internal
         returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps, uint256 lo, uint256 hi)
@@ -782,9 +782,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         (uint256 spot, uint24 srcFee) = _latchSame(p, true);
         uint256 a = p.anchorX128;
         uint256 sm = p.sampleX128;
-        (uint256 sLo, uint256 sHi) = sm < spot ? (sm, spot) : (spot, sm);
-        lo = a < sHi ? a : sHi; // pool buys coin: value it low
-        hi = a > sLo ? a : sLo; // pool sells coin: value it high
+        (lo, hi) = sm < spot ? (sm, spot) : (spot, sm);
+        if (a < lo) lo = a; // pool buys coin: value it at the lowest reading
+        if (a > hi) hi = a; // pool sells coin: value it at the highest reading
         (kb, ks, pb, ps) = BK.sameQuote(a, p.tX128, p.fee, spot, srcFee, p.edgeBps);
     }
 
@@ -825,7 +825,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             p.tX128 = PR.recentre(p.book.x, p.book.y);
             emit LocalMode(id, true);
         }
-        return BK.crossQuote(a, p.tX128, p.fee, age);
+        return BK.crossQuote(a, p.tX128, p.fee, age, p.sampleX128);
     }
 
     /// @notice A pushed price over LayerZero (caller = pushReceiver, `srcEid` = the home chain, which must be the
@@ -889,6 +889,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
                 return;
             }
             p.anchorX128 = price;
+            p.sampleX128 = price;
             p.obsAt = observedAt;
             p.tvl.srcTvl = tvl;
             p.tvl.warmEnd = uint64(block.timestamp + WARM_UP);
@@ -919,8 +920,13 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 a = SM.stepToward(old, price, minStep);
         // the open interval's net flow is valued at the worse of the old and new centre for the pool, so a pushed
         // price cannot book made-up fees (coin taken in valued low, coin paid out valued high)
-        uint256 mark = p.book.dx >= 0 ? (a < old ? a : old) : (a > old ? a : old);
+        // v0.3 audit fix (R376-02): the pushed price bounds the mark too, so a capped push after a real move books
+        // the arbitrage it suffered as the loss it is, not as fees
+        uint256 mark = p.book.dx >= 0 ? _min3(old, a, price) : _max3(old, a, price);
         p.anchorX128 = a; // the jar is valued at the new centre
+        // v0.3 audit fix (M-1 / M-2 / R376-01): fills are bounded by the pushed price on the protective side until
+        // the capped centre catches up (also after recovery from local mode); see BK.crossQuote
+        p.sampleX128 = price;
         _settleSame(p, mark, !wasLocal);
         p.obsAt = observedAt;
         if (wasLocal) {
@@ -940,6 +946,16 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             refund = cy + Math.mulDiv(cx, a, Q128);
         }
         emit PriceAccepted(id, a, observedAt, refund, wasLocal);
+    }
+
+    function _min3(uint256 a, uint256 b, uint256 c) internal pure returns (uint256 m) {
+        m = a < b ? a : b;
+        if (c < m) m = c;
+    }
+
+    function _max3(uint256 a, uint256 b, uint256 c) internal pure returns (uint256 m) {
+        m = a > b ? a : b;
+        if (c > m) m = c;
     }
 
     /// @dev v * 10^sh; |sh| <= MAX_SHIFT (checked at creation). An overflowing product reads as 0 (refused).

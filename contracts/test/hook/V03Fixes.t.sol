@@ -86,7 +86,8 @@ contract V03FixesTest is DiscipleTest {
     }
 
     /// N-1, the push-for-the-sample case: the leader is pushed down for this block's first-touch sample and put
-    /// back. A sell the pool then buys is still marked at the honest price (it never counts the low sample alone).
+    /// back. v0.3 audit fix: the sell is marked at the LOWEST reading, so the push can only lower what is booked
+    /// (here the fill becomes a carried loss, which stays in the pool pro rata), never raise it.
     function test_v03_pushedSampleAloneDoesNotMoveTheMark() public {
         (PoolKey memory key, PoolId id) = _createSame(300_000e18, 600_000e18);
         _ready(id);
@@ -105,18 +106,20 @@ contract V03FixesTest is DiscipleTest {
         _step(12);
         pair.set(1_000_000e18, 2_000_000e18);
         hook.withdraw(id, 1, 0, 0);
-        // the payout is split into tokens at the settle's mark (the anchor did take its one 1% step toward the
-        // pushed sample, as v0.2 allows), so value what was paid at that mark
         uint256 a1 = hook.poolState(id).anchorX128;
         uint256 paid = _paid(id, v0.jarY + Math.mulDiv(v0.jarX, a1, Q128), a1);
         uint256 fair = Math.mulDiv(c, a0, Q128) - q;
-        assertLe(paid, fair);
-        assertApproxEqRel(paid, fair, 0.01e18, "marked at the honest price, not the pushed sample");
+        assertLe(paid, fair, "never more than the honest mark");
+        assertEq(paid, 0, "marked at the pushed low sample: a carried loss, nothing paid");
     }
 
     /// M-01: trades earlier in a block, then a capital move in the same block after the leader was pushed. The
     /// capital move settles at the stored anchor; the per-fill marks are unchanged by the push.
     function test_v03_capitalMoveAfterPushIsNotRevalued() public {
+        // v0.3 audit I-4: the push must come BEFORE the block's first touch (the previous version pushed after it,
+        // so the sample could not move and the test passed on v0.2 too). Trades in one block, then in the next
+        // block the leader is pushed and a withdraw is the first touch: v0.2 settled at a step toward the pushed
+        // sample; v0.3 settles at the stored anchor, which only an earlier block's sample can move.
         (PoolKey memory key, PoolId id) = _createSame(300_000e18, 600_000e18);
         _ready(id);
         hook.claim(id, 1);
@@ -126,24 +129,28 @@ contract V03FixesTest is DiscipleTest {
         uint256 jar0 = _jar(id, a0);
         _swap(key, true, -int256(500e18));
         _swap(key, false, -int256(200e18));
-        pair.set(1_000_000e18, 2_200_000e18); // pushed +10% after this block's sample
+        _step(12);
         uint256 snap = vm.snapshotState();
-        hook.withdraw(id, 1, 0, 0); // same block: settles at the stored anchor
+        pair.set(1_000_000e18, 2_200_000e18); // pushed +10% before this block's first touch
+        hook.withdraw(id, 1, 0, 0);
         uint256 pushed = _paid(id, jar0, a0);
         vm.revertToState(snap);
-        pair.set(1_000_000e18, 2_000_000e18);
         hook.withdraw(id, 1, 0, 0);
         uint256 honest = _paid(id, jar0, a0);
         assertGt(honest, 0);
-        assertApproxEqRel(pushed, honest, 0.001e18, "a push after the sample does not move the payout");
+        assertApproxEqRel(pushed, honest, 0.001e18, "a push before the first touch does not move the payout");
     }
 
-    /// N-2: on a leader with a fee under the edge the match bounds never sit inside the leader's own bid/ask.
-    function test_v03_edgeClampAtLeaderBidAsk() public pure {
+    /// N-2 / audit L-4: no edge, leader fee or leader-fee mismodelling puts a fill past the leader's mid.
+    function test_v03_edgeClampAtLeaderMid() public pure {
         uint256 spot = 2 * Q128;
         (,, uint256 pb, uint256 ps) = BK.sameQuote(spot, Q128, 3000, spot, 0, 1);
         assertGe(pb, spot, "ask never below the zero-fee leader's ask");
         assertLe(ps, spot, "bid never above the zero-fee leader's bid");
+        // the widest edge on a leader whose stored fee overstates its real one: still never past the mid
+        (,, pb, ps) = BK.sameQuote(spot, Q128, 3000, spot, 3000, 500);
+        assertEq(pb, spot, "ask clamped at the mid");
+        assertEq(ps, spot, "bid clamped at the mid");
         // a normal leader fee: the clamp changes nothing
         (,, pb, ps) = BK.sameQuote(spot, Q128, 3000, spot, 3000, 1);
         uint256 srcAsk = Math.mulDiv(spot, 1e6, 1e6 - 3000, Math.Rounding.Ceil);
@@ -250,6 +257,18 @@ contract V03CrossTest is DiscipleTest {
         assertLt(q, Math.mulDiv(c, a1, Q128, Math.Rounding.Ceil), "a loss at the new centre");
         assertGt(q, Math.mulDiv(c, a0, Q128, Math.Rounding.Ceil), "a gain at the old one");
         assertEq(b1, b0, "nothing booked as fees");
+        // audit I-5 / R376-02: measure the booked loss itself. Coin the pool paid out is valued at the highest of
+        // the old centre, the capped new centre and the pushed price (2.2), so it is the loss at the pushed price.
+        uint256 pushed = Math.mulDiv(2_200_000e18, Q128, 1_000_000e18);
+        uint256 want = Math.mulDiv(c, pushed, Q128, Math.Rounding.Ceil) - q;
+        assertApproxEqAbs(_lossCarry(id), want, 2, "loss booked at the pushed price");
+    }
+
+    /// @dev Book.lossCarry: pools mapping at slot 1, book at pool + 23, lossCarry at book + 3 (x, y, dx|dy first).
+    function _lossCarry(PoolId id) internal view returns (uint256) {
+        uint256 base = uint256(keccak256(abi.encode(PoolId.unwrap(id), uint256(1))));
+        require(uint256(vm.load(address(hook), bytes32(base + 23))) == hook.poolState(id).coinReserve, "layout");
+        return uint256(vm.load(address(hook), bytes32(base + 26)));
     }
 }
 

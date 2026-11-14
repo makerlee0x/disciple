@@ -1654,8 +1654,24 @@ contract DiscipleTest is Test {
         vm.fee(1 gwei);
         uint256 n = 8;
         PoolId[] memory ids = new PoolId[](n);
+        // v0.3: TIP_OVERHEAD recalibrated to live receipts (76k) with the launch tip of 1.05x (tipBps 10,500); a
+        // batch must still stay under gas + 20% at that tip (creators may choose up to 1.5x: audit v0.3 I-6)
+        DiscipleHook.Tune memory tn = _v02Tune();
+        tn.tipBps = 10_500;
         for (uint256 i = 0; i < n; i++) {
-            (, ids[i]) = _createSame(1000e18, 2000e18);
+            (, ids[i]) = hook.createPool(
+                DiscipleHook.CreateParams({
+                    coin: address(coin),
+                    quote: address(usd),
+                    fee: FEE,
+                    src: _src(0),
+                    coinIn: 1000e18,
+                    quoteIn: 2000e18,
+                    srcKey: _noKey(),
+                    srcKey2: _noKey(),
+                    tune: tn
+                })
+            );
             hook.fundJar(ids[i], 0, 5000e18);
         }
         pair.set(1_000_000e18, 2_100_000e18);

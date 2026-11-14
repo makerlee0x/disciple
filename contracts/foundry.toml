@@ -40,3 +40,6 @@ localhost = "http://127.0.0.1:8545"
 line_length = 120
 tab_width = 4
 bracket_spacing = false
+
+[profile.replay]
+fs_permissions = [{ access = "read", path = "./replay-data" }]
