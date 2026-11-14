@@ -11,7 +11,7 @@ pnpm e2e:update     # re-take the screenshot baselines after a design change is 
 pnpm exec playwright show-report e2e/.report  # the last run: steps, traces, screenshot diffs
 ```
 
-CI: `.github/workflows/e2e.yml` runs it on every PR into `main`. A failed run uploads the report as `e2e-report`.
+CI: `.github/workflows/e2e.yml` runs it once a night on `main` (08:00 UTC) and whenever you press "Run workflow" in the Actions tab. A failed run uploads the report as `e2e-report`.
 "Run workflow" with *update_screens* re-takes the baselines on the CI machine (artifact `e2e-screens`).
 
 Screenshots depend on fonts, so the baselines are taken in the official Playwright image that CI runs in

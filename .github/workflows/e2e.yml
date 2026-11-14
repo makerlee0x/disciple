@@ -1,13 +1,12 @@
 # End-to-end suite (web/e2e): the production build against a stand-in chain, desktop + phone, with screenshot checks.
-# Runs on every PR into main and on pushes to main. "Run workflow" with update_screens=true re-takes the screenshot
+# Runs once a night on main (08:00 UTC, 2 AM Central) and on demand (maker 2026-11-14: not on every PR or merge).
+# "Run workflow" (Actions tab, or on a branch) runs it now; with update_screens=true it re-takes the screenshot
 # baselines on the CI machine and uploads them as the `e2e-screens` artifact (unzip into web/e2e/__screens__ and commit).
 name: e2e
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+  schedule:
+    - cron: "0 8 * * *"
   workflow_dispatch:
     inputs:
       update_screens:
