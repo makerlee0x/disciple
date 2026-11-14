@@ -100,8 +100,10 @@ library TwapOracle {
         Observation memory b = s.obs[(oldestIdx + hi) % CARDINALITY];
         if (a.ts == target) return (a.tickCumulative, target);
         // each segment has a constant tick, so linear interpolation of the cumulative is exact
-        int56 seg = b.tickCumulative - a.tickCumulative;
-        return (a.tickCumulative + (seg * int56(uint56(target - a.ts))) / int56(uint56(b.ts - a.ts)), target);
+        // F-L7: widen before multiplying; the int56 product overflowed after multi-day gaps between observations.
+        int256 seg = int256(b.tickCumulative) - int256(a.tickCumulative);
+        int256 interp = (seg * int256(uint256(target - a.ts))) / int256(uint256(b.ts - a.ts));
+        return (int56(int256(a.tickCumulative) + interp), target);
     }
 
     /// @notice Time-weighted mean tick over `window` seconds ending now.

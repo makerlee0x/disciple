@@ -35,7 +35,7 @@ export async function duelPrice(now = Date.now()): Promise<number | null> {
 /* ---------- the tape: 1-minute candles, for gaps nobody was watching ---------- */
 /**
  * When no request or stream ticked a live duel for a while (both pilots closed their tabs), the server must not
- * judge that gap by whatever the price is when someone finally comes back. Candles let it check H-BOMBs against the
+ * judge that gap by whatever the price is when someone finally comes back. Candles let it check NUKEs against the
  * gap's highs/lows and price the buzzer at the buzzer's own minute. Source: Hyperliquid candleSnapshot (1m).
  */
 export interface Candle { t: number; T: number; o: number; c: number; h: number; l: number }

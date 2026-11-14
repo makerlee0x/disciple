@@ -306,11 +306,11 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         // nothing left anywhere: still FeeRouter.NothingToClaim (unchanged revert)
         vm.prank(creator);
         vm.expectRevert(FeeRouter.NothingToClaim.selector);
-        router.claimCreatorFeesToUsdg(address(t), 0);
+        router.claimCreatorFeesToUsdg(address(t), 1);
         // not the creator
         vm.prank(trader1);
         vm.expectRevert(FeeRouter.NothingToClaim.selector);
-        router.claimCreatorFeesToUsdg(address(t), 0);
+        router.claimCreatorFeesToUsdg(address(t), 1);
         // the vault's router entry is FeeRouter.isClaimRouter-only
         vm.prank(creator);
         vm.expectRevert(CurveFeeVault.OnlyClaimRouter.selector);

@@ -29,7 +29,7 @@ function gameFont() {
 }
 
 /** v2 card (canvas "Turbo mockups" › Share card): text on the left, the chrome rocket climbing on the right.
- *  A win leads with the multiple; an H-BOMB leads with how long you lasted, never the loss. */
+ *  A win leads with the multiple; an NUKE leads with how long you lasted, never the loss. */
 function draw(cv: HTMLCanvasElement, d: TurboShare, rocket: HTMLImageElement | null) {
   cv.width = W; cv.height = H;
   const g = cv.getContext("2d"); if (!g) return;
@@ -62,7 +62,7 @@ function draw(cv: HTMLCanvasElement, d: TurboShare, rocket: HTMLImageElement | n
     g.fillStyle = (d.multiple ?? 1) >= 1 ? "#F2C14E" : "#FF7FB2"; g.font = `800 200px ${GAME}`; g.fillText(multipleLabel(d.multiple ?? 1 + d.profitUsd / d.fuelUsd), L - 6, 352);
     g.fillStyle = d.profitUsd >= 0 ? "#5FF0A0" : "#FF7FB2"; g.font = `800 52px ${GAME}`; g.fillText(signedUsd(d.profitUsd), L, 418);
   } else {
-    g.fillStyle = "#F2F3F7"; g.font = `800 64px ${GAME}`; g.fillText("H-BOMB'D", L, 190);
+    g.fillStyle = "#F2F3F7"; g.font = `800 64px ${GAME}`; g.fillText("NUKED", L, 190);
     g.fillStyle = "#FFE1EC"; g.font = `700 30px ${GAME}`; g.fillText("LASTED", L, 236);
     g.fillStyle = "#F2C14E"; g.font = `800 180px ${GAME}`; g.fillText(lasted || "—", L - 6, 398);
   }

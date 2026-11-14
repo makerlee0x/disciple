@@ -6,7 +6,7 @@ buzzer = one 30 s overtime. No cash pot: rewards are rating, XP and trophies onl
 
 | Path | What |
 |---|---|
-| `lib/duel/rules.ts` | pure rules: fills, flip, H-BOMB (80%), settle, overtime, Elo, match window, invite codes |
+| `lib/duel/rules.ts` | pure rules: fills, flip, NUKE (80%), settle, overtime, Elo, match window, invite codes |
 | `lib/duel/types.ts` | room + event shapes |
 | `lib/duel/client.ts` | browser API calls + `followRoom` (SSE, polling fallback) |
 | `lib/server/duel/store.ts` | KV: ranked queue, friend codes, rooms (locked JSON), event log, ratings |
@@ -18,7 +18,7 @@ buzzer = one 30 s overtime. No cash pot: rewards are rating, XP and trophies onl
 
 Flow: quick match polls `POST /api/duel/queue` every 1.5 s; the window widens 15 rating points a second (cap 400); after
 20 s the lobby offers a bot match (labelled, unrated, runs in the browser). Friend: `POST /api/duel/invite` → code +
-`/turbo/duel?c=CODE` link (30 min). Both tap READY (auto-ready after 10 s) → 3-2-1 → live. The buzzer and H-BOMBs are
+`/turbo/duel?c=CODE` link (30 min). Both tap READY (auto-ready after 10 s) → 3-2-1 → live. The buzzer and NUKEs are
 checked on every request and on the stream's 1 s tick, so closing the tab still settles. Ranked moves rating once per room;
 friendly duels don't. Rematch = both tap it → a new room with the same seats.
 

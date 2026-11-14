@@ -1,6 +1,6 @@
 /**
  * Turbo run log (this device only, `disciple.turbo.runs.v1`). Every position is a run: it starts at the fill and ends at
- * a full cash out or an H-BOMB. The result screens read streak, best multiple today and longest run per gear from here.
+ * a full cash out or an NUKE. The result screens read streak, best multiple today and longest run per gear from here.
  * A server board (best multiple per gear, fed by Nova fills) can replace the "today" numbers later.
  */
 import type { Market, Side } from "./types";
@@ -16,7 +16,7 @@ export interface TurboRun {
   leverage: number;
   /** Fuel put in at the start ($). */
   fuelUsd: number;
-  /** Everything that came back to fuel over the run ($, partial banks included). 0 on an H-BOMB with nothing banked. */
+  /** Everything that came back to fuel over the run ($, partial banks included). 0 on an NUKE with nothing banked. */
   backUsd: number;
   /** backUsd / fuelUsd. */
   multiple: number;

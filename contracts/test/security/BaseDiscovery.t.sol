@@ -125,16 +125,27 @@ contract BaseDiscoveryTest is BaseTestBase {
         thinKey; // silence
     }
 
+    /// HK-02: discovery and observations are keeper-only; a stranger's poke (or a launch's) does nothing.
+    function test_stranger_poke_is_noop() public {
+        MockUSDG b = new MockUSDG();
+        _std(address(b), 3000, 60, 5e22);
+        vm.prank(rando());
+        pricer.poke(address(b));
+        assertFalse(pricer.hasPricePool(address(b)), "no discovery");
+    }
+
     function test_owner_can_tune_floor_and_warmup() public {
         vm.prank(rando());
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
         pricer.setAutoWarmup(10);
         vm.startPrank(owner);
-        pricer.setAutoWarmup(600);
+        pricer.setAutoWarmup(7200);
         vm.expectRevert(QuotePricer.BadParam.selector);
         pricer.setAutoWarmup(8 days);
+        vm.expectRevert(QuotePricer.BadParam.selector);
+        pricer.setAutoWarmup(600); // F-I7: shorter than the 1800 s TWAP window
         vm.stopPrank();
-        assertEq(pricer.autoWarmup(), 600);
+        assertEq(pricer.autoWarmup(), 7200);
     }
 
     function rando() internal returns (address) {

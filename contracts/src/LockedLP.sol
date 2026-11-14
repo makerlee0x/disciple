@@ -140,7 +140,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     error BadParams();
     error SwappedInTx();
     error CompoundOverspend();
-    error CompoundCredit();
+    error QuoteMismatch();
     error FloorNotSingleSided();
     error FloorOverspend();
 
@@ -249,6 +249,12 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         returns (uint256)
     {
         if (msg.sender != creatorFeeHarvest) revert Unauthorized();
+        // Audit HK-04/HK-05: rocket tokens before orbit would land in the informational `tokenAmount` and be
+        // overwritten by `seedV4Position` (stranded forever); and quote balances are pooled across coins, so a
+        // wrong `quote` would let a later compound spend another coin's quote.
+        Position storage p = _positions[token];
+        if (tokenAmount > 0 && !p.graduated) revert NotGraduated();
+        if (p.quote != address(0) && quote != p.quote) revert QuoteMismatch();
         if (quoteAmount > 0) {
             IERC20(quote).safeTransferFrom(msg.sender, address(this), quoteAmount);
         }
@@ -497,20 +503,24 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
             }),
             ""
         );
-        int128 d0 = delta.amount0();
-        int128 d1 = delta.amount1();
-        if (d0 > 0 || d1 > 0) revert CompoundCredit(); // pool fee 0 → never; never leave a credit open
-        uint256 used0 = uint256(int256(-d0));
-        uint256 used1 = uint256(int256(-d1));
-        (uint256 tokenUsed, uint256 quoteUsed) = tokenIsC0 ? (used0, used1) : (used1, used0);
+        // Audit HK-01: the delta nets principal against fees accrued on the position. The pool fee is 0, but anyone
+        // can PoolManager.donate to in-range liquidity (essentially only this position), so a side can come back
+        // positive. Reverting on a credit would roll back the fee collection and brick compounding forever; instead
+        // take any credit into that side's bucket and pay any debt.
+        (uint256 pay0, uint256 get0) = _split(delta.amount0());
+        (uint256 pay1, uint256 get1) = _split(delta.amount1());
+        (uint256 tokenUsed, uint256 quoteUsed) = tokenIsC0 ? (pay0, pay1) : (pay1, pay0);
+        (uint256 tokenGot, uint256 quoteGot) = tokenIsC0 ? (get0, get1) : (get1, get0);
         if (tokenUsed > b.token || quoteUsed > b.quote) revert CompoundOverspend();
 
         // Settle each currency immediately and completely (sync → transfer → settle, no interleaving).
-        if (used0 > 0) key.currency0.settle(poolManager, address(this), used0, false);
-        if (used1 > 0) key.currency1.settle(poolManager, address(this), used1, false);
+        if (pay0 > 0) key.currency0.settle(poolManager, address(this), pay0, false);
+        if (pay1 > 0) key.currency1.settle(poolManager, address(this), pay1, false);
+        if (get0 > 0) key.currency0.take(poolManager, address(this), get0, false);
+        if (get1 > 0) key.currency1.take(poolManager, address(this), get1, false);
 
-        uint128 tCarry = b.token - uint128(tokenUsed);
-        uint128 qCarry = b.quote - uint128(quoteUsed);
+        uint128 tCarry = SafeCast.toUint128(b.token - tokenUsed + tokenGot);
+        uint128 qCarry = SafeCast.toUint128(b.quote - quoteUsed + quoteGot);
         _buckets[token] = Bucket({token: tCarry, quote: qCarry});
         p.liquidity += liq;
         used += Math.ceilDiv(uint256(liq) * 1e6, posL);
@@ -520,6 +530,12 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         p.tokenAmount += tokenUsed;
         p.quoteAmount += quoteUsed;
         emit LiquidityCompounded(token, liq, tokenUsed, quoteUsed, tCarry, qCarry);
+    }
+
+    /// @dev Splits a caller delta into (owed to the pool, credited to us).
+    function _split(int128 d) internal pure returns (uint256 pay, uint256 get) {
+        if (d < 0) pay = uint256(int256(-d));
+        else get = uint256(int256(d));
     }
 
     /// @dev |(hi/lo)^2 - 1| in bps from two sqrt prices (direction-agnostic, slightly conservative).

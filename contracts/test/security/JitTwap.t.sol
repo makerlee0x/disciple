@@ -246,9 +246,10 @@ contract JitTwapTest is IntegrationBase {
         _next(60);
         pricer.poke(address(strategy));
         (int24 t1,) = pricer.twapTick(address(strategy));
-        // one 60s interval at ≤ +2000 ticks out of a 1800s window → ≤ 2000*60/1800 ≈ 67 ticks
-        assertLe(t1 - t0, 68);
-        for (uint256 i; i < 40; i++) {
+        // one 60s interval at ≤ +200 ticks (HK-02 default) out of a 1800s window → ≤ 200*60/1800 ≈ 7 ticks
+        assertLe(t1 - t0, 7);
+        // ~4x move ≈ 13.9k ticks: 70 keeper pokes at 200 ticks each, then a full 30 min window at the new level
+        for (uint256 i; i < 110; i++) {
             _next(60);
             pricer.poke(address(strategy));
         }
