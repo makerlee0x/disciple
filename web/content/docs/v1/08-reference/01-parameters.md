@@ -69,4 +69,4 @@ Altitude is how high a rocket's value has climbed, shown as 18 named tiers from 
 
 ## Bombs
 
-PUFF < 2% · GRENADE 2–5% · BUNKER 5–12% · CRUISE 12–25% · NUKE 25–50% · ATOM ≥ 50% price impact.
+GRENADE < 2% · BUNKER BUSTER 2–5% · WARHEAD 5–12% · MOAB 12–25% · ATOM BOMB 25–50% · NUKE ≥ 50% price impact.

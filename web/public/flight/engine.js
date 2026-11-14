@@ -602,7 +602,7 @@ const S = {
 /* GAME LAYER (phase 1 refresh, Nov 2026): brand v3 type + the Pilot / Pro HUD.
    GF(px,w) = the game display face (Barlow Condensed, handed in by FlightCanvas as __GAME_FONT; Arial Narrow fallback).
    S.pro = the Pro layout: today's trader cards (top preset panel, floating trade tags, a banner for every bomb).
-   Default = Pilot: one trade surface (the bottom bar), one crew feed, and only Nuke / Atom bombs get a centre banner.
+   Default = Pilot: one trade surface (the bottom bar), one crew feed, and only ATOM BOMB / NUKE tiers get a centre banner.
    Saved per browser (localStorage disciple.hud = 'pro' | 'pilot'); disciple:hudmode {pro} sets it, disciple:hudstate {pro}
    answers (and is sent on every change). */
 const GAME_FAMILY=((typeof __GAME_FONT!=='undefined'&&typeof __GAME_FONT==='string'&&__GAME_FONT.trim())?__GAME_FONT.trim()+',':'')+"'Barlow Condensed','Arial Narrow',sans-serif";
@@ -2337,14 +2337,15 @@ function drawLoading(){ ctx.fillStyle='#05060c'; ctx.fillRect(0,0,W,H); ctx.fill
    ===================================================================== */
 const BOMB_PCT={GRENADE:2, BUNKER:5, CRUISE:12, NUKE:25, ATOM:50};
 const BOMB_TIERS=[
-  {k:'puff',    name:'PUFF',          min:0,                life:0.6, sf:0,   tau:0},
-  {k:'grenade', name:'GRENADE',       min:BOMB_PCT.GRENADE, life:0.9, sf:11,  tau:0.12},
-  {k:'bunker',  name:'BUNKER BUSTER', min:BOMB_PCT.BUNKER,  life:2.0, sf:9,   tau:0.22, fall:0.45},
-  {k:'cruise',  name:'CRUISE MISSILE',min:BOMB_PCT.CRUISE,  life:2.2, sf:7,   tau:0.40, fall:0.55},
-  {k:'nuke',    name:'NUKE',          min:BOMB_PCT.NUKE,    life:2.8, sf:5.5, tau:0.70, fall:0.30},
-  {k:'atom',    name:'ATOM BOMB',     min:BOMB_PCT.ATOM,    life:4.6, sf:3.2, tau:1.10, fall:0.40},
+  {k:'puff',    name:'GRENADE',          min:0,                life:0.6, sf:0,   tau:0},
+  {k:'grenade', name:'BUNKER BUSTER',       min:BOMB_PCT.GRENADE, life:0.9, sf:11,  tau:0.12},
+  {k:'bunker',  name:'WARHEAD', min:BOMB_PCT.BUNKER,  life:2.0, sf:9,   tau:0.22, fall:0.45},
+  {k:'cruise',  name:'MOAB',min:BOMB_PCT.CRUISE,  life:2.2, sf:7,   tau:0.40, fall:0.55},
+  {k:'nuke',    name:'ATOM BOMB',          min:BOMB_PCT.NUKE,    life:2.8, sf:5.5, tau:0.70, fall:0.30},
+  {k:'atom',    name:'NUKE',     min:BOMB_PCT.ATOM,    life:4.6, sf:3.2, tau:1.10, fall:0.40},
 ];
-const BOMB_ALIASES={daisy:'cruise', moab:'nuke'};
+/* names players see (maker 2026-11-14): GRENADE · BUNKER BUSTER · WARHEAD · MOAB · ATOM BOMB · NUKE, one per slot; keys unchanged */
+const BOMB_ALIASES={daisy:'cruise', warhead:'bunker', moab:'cruise', 'bunker buster':'grenade', 'atom bomb':'nuke'};
 const BOMB_MERGE_WIN=0.30;   // s (sim time): sells landing within this window merge into one bomb
 const BOMB_MIN_GAP=0.55;     // s between detonations (queue otherwise)
 const BOMB_MAX_ACTIVE=2;     // live blasts on screen (puffs excluded)
@@ -2510,7 +2511,7 @@ function detonate(b){ draftKnock();
 /* @phone-blast (throttle prototype, maker 2026-11-14: the boxed bomb labels and tiered set pieces are "the old style"):
    every sell (phone and desktop; Turbo keeps its own) drops the prototype's round bomb onto the rocket; it blows up as a white-gold-pink fireball with
    sparks, smoke, debris and two rings, a short flash + pink vignette, and a floating "BOMB −$X" pop (Barlow, no box).
-   Size follows the bomb tier. Your own sells always pop; the crew's pop from CRUISE up (the feed pill names the rest). */
+   Size follows the bomb tier. Your own sells always pop; the crew's pop from MOAB (key cruise) up (the feed pill names the rest). */
 const PHX={p:[],r:[],pops:[],red:0,t:-1};
 const NEW_BLAST=()=>!IS_TURBO;
 const phS=()=>W>HUD_NARROW_W?1.35:1;   // desktop: the same blast, a size up for the bigger sky
@@ -2666,7 +2667,7 @@ function drawBombScreen(){ // un-shaken overlays: flash + label pops
     ctx.fillStyle=col; glowText(l.txt,tx,0,'rgb(255,210,120)',9,0.3); ctx.restore(); }
 }
 /* Debug hooks: ?debugBomb=puff|grenade|bunker|cruise|nuke|atom|cycle  [&debugBombAt=1.2]
-   Aliases: daisy→cruise, moab→nuke. window.__flight.bomb('nuke') or bomb(7.5) (impact %). */
+   Aliases by shown name: warhead→bunker, moab→cruise, 'atom bomb'→nuke (keys are the old slot names). window.__flight.bomb('nuke') or bomb(7.5) (impact %). */
 function debugBomb(spec,opt){ opt=opt||{};
   if (typeof spec==='string'){ spec=spec.toLowerCase(); if(BOMB_ALIASES[spec]) spec=BOMB_ALIASES[spec]; }   // 'NUKE' and 'nuke' both work
   const i=typeof spec==='number'?null:BOMB_TIERS.findIndex(t=>t.k===spec);

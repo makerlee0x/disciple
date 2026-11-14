@@ -1,7 +1,7 @@
 /**
  * Bomb tier = price impact only, the SAME rule as public/flight/engine.js (estimateImpactPct + bombTierOf) on the
- * shared constitution thresholds lib/config BOMB_PCT / BOMB_TIERS (PUFF <2 · GRENADE 2 · BUNKER 5 · CRUISE 12 ·
- * NUKE 25 · ATOM ≥50 %). test:gamechat checks engine.js against this file so chat rows and in-game blasts agree.
+ * shared constitution thresholds lib/config BOMB_PCT / BOMB_TIERS (names: GRENADE <2 · BUNKER BUSTER 2 · WARHEAD 5 · MOAB 12 ·
+ * ATOM BOMB 25 · NUKE ≥50 %; keys puff…atom). test:gamechat checks engine.js against this file so chat rows and in-game blasts agree.
  */
 import { BOMB_TIERS } from "../config";
 

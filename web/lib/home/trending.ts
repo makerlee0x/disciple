@@ -25,7 +25,7 @@ export type CoinStats = {
   /** $ volume over the last 24h (sum of fill notionals) */
   vol24: number;
   trades24: number;
-  /** DUMPs in the last 24h: every sell drops a bomb (PUFF and up), same as the flight engine */
+  /** DUMPs in the last 24h: every sell drops a bomb (GRENADE and up), same as the flight engine */
   bombs24: number;
   /** % change over 24h (live mcap vs the price at the 24h mark); null = not derivable */
   chg24: number | null;

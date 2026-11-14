@@ -234,9 +234,9 @@ export const MILESTONE_COPY: Record<string, { name: string; desc: string }> = {
   graduated_dev: { name: "Blessed Dev", desc: "Launch a rocket that reaches orbit." },
   through_pearly_gates: { name: "Outer Space", desc: "Be aboard with $10 or more when a rocket reaches orbit." },
   final_boost: { name: "Final Push", desc: "Make the boost that sends a rocket to orbit." },
-  first_grenade: { name: "Pin Pulled", desc: "Drop a grenade: a $10+ dump that moves the price 2%." },
-  cruise_missile_ach: { name: "Cruise Control", desc: "Drop a cruise missile: a $25+ dump that moves the price 12%." },
-  nuke_ach: { name: "Nuke", desc: "Drop a nuke: a $50+ dump that moves the price 25%." },
+  first_grenade: { name: "Bunker Buster", desc: "Drop a bunker buster: a $10+ dump that moves the price 2%." },
+  cruise_missile_ach: { name: "Mother of All Bombs", desc: "Drop a MOAB: a $25+ dump that moves the price 12%." },
+  nuke_ach: { name: "Atom Smasher", desc: "Drop an atom bomb: a $50+ dump that moves the price 25%." },
   unfumbled: { name: "Unfumbled", desc: "Take $500 profit in one sale." },
   best_x_10: { name: "Tenfold Halo", desc: "Sell at 10× what you paid, on $10 or more." },
 };

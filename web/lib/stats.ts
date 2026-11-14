@@ -107,7 +107,7 @@ export function tierAt(mcap: number): { name: string; index: number } {
 }
 
 export function bombName(impactPct: number): string {
-  let name = "PUFF";
+  let name = "GRENADE";
   for (const b of BOMB_TIERS) if (impactPct >= b.min) name = b.name;
   return name;
 }
@@ -197,7 +197,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
         bombs++; p.bombs++;
         activity.push({ id: `${t.ts}-${t.token}-x`, ts: t.ts, kind: "bomb", text: `Dropped ${bombName(imp)} on ${t.ticker}`, usd: t.usd, ticker: t.ticker, bomb: bombTierOf(imp) });
       } else {
-        activity.push({ id: `${t.ts}-${t.token}-s`, ts: t.ts, kind: "sell", text: `Puffed ${t.ticker}`, usd: t.usd, ticker: t.ticker });
+        activity.push({ id: `${t.ts}-${t.token}-s`, ts: t.ts, kind: "sell", text: `Grenade on ${t.ticker}`, usd: t.usd, ticker: t.ticker });
       }
       if (imp >= BOMB_TIERS[4].min) nukes++;
       if (p.size > 0) {
@@ -305,7 +305,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
   const rings: PlayerStats["rings"] = [
     { key: "lpnl", label: "Lifetime PnL", value: cum + upnl, max: Math.max(1000, Math.abs(cum + upnl) * 1.4), format: "usd", sub: `${(roi * 100).toFixed(0)}% ROI` },
     { key: "fueled", label: "Rockets Boosted", value: pos.size, max: 20, format: "number", sub: `${buys} BOOSTs` },
-    { key: "bombs", label: "Bombs Dropped", value: bombs, max: 25, format: "number", sub: `${nukes} nuke+` },
+    { key: "bombs", label: "Bombs Dropped", value: bombs, max: 25, format: "number", sub: `${nukes} atom bomb+` },
     { key: "crews", label: "Crews Joined", value: all.filter((p) => p.entries > 0 && p.firstBuyTs - p.launchTs > 0).length, max: 20, format: "number", sub: `${grads} reached orbit` },
     { key: "bestx", label: "Best ×", value: bestX, max: 20, format: "multiple", sub: "biggest multiple" },
     { key: "rank", label: "Leaderboard", value: o.leaderboardRank, max: o.leaderboardSize, format: "rank", sub: `Top ${topPct.toFixed(1)}%` },

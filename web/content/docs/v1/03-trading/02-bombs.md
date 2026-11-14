@@ -11,12 +11,12 @@ Every DUMP drops a bomb. Its size depends on how hard the sell moves the price, 
 
 | Bomb | Price impact |
 |---|---|
-| **PUFF** | under 2% |
-| **GRENADE** | 2–5% |
-| **BUNKER** | 5–12% |
-| **CRUISE** | 12–25% |
-| **NUKE** | 25–50% |
-| **ATOM** | 50% or more |
+| **GRENADE** | under 2% |
+| **BUNKER BUSTER** | 2–5% |
+| **WARHEAD** | 5–12% |
+| **MOAB** | 12–25% |
+| **ATOM BOMB** | 25–50% |
+| **NUKE** | 50% or more |
 
 Price impact is measured on-chain, at full precision, for every trade. Every BOOST shows thrust the same way: the bigger its impact, the bigger the flame.
 

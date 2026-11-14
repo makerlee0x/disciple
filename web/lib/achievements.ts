@@ -70,9 +70,9 @@ export const V1_RULES: readonly AchievementRule[] = [
   { id: "graduated_dev", name: "Blessed Dev", rarity: "EPIC", criteria: { kind: "launch_graduated" } },
   { id: "through_pearly_gates", name: "Outer Space", rarity: "RARE", criteria: { kind: "held_through_graduation", minCurveBuyUsd: 10 } },
   { id: "final_boost", name: "Final Push", rarity: "RARE", criteria: { kind: "graduating_buy", minUsd: 1 } },
-  { id: "first_grenade", name: "Pin Pulled", rarity: "COMMON", criteria: { kind: "sell_impact", minImpactBps: 200, minUsd: 10 } },
-  { id: "cruise_missile_ach", name: "Cruise Control", rarity: "RARE", criteria: { kind: "sell_impact", minImpactBps: 1200, minUsd: 25 } },
-  { id: "nuke_ach", name: "Nuke", rarity: "EPIC", criteria: { kind: "sell_impact", minImpactBps: 2500, minUsd: 50 } },
+  { id: "first_grenade", name: "Bunker Buster", rarity: "COMMON", criteria: { kind: "sell_impact", minImpactBps: 200, minUsd: 10 } },
+  { id: "cruise_missile_ach", name: "Mother of All Bombs", rarity: "RARE", criteria: { kind: "sell_impact", minImpactBps: 1200, minUsd: 25 } },
+  { id: "nuke_ach", name: "Atom Smasher", rarity: "EPIC", criteria: { kind: "sell_impact", minImpactBps: 2500, minUsd: 50 } },
   { id: "unfumbled", name: "Unfumbled", rarity: "EPIC", criteria: { kind: "realized_profit", minProfitUsd: 500 } },
   { id: "best_x_10", name: "Tenfold Halo", rarity: "EPIC", criteria: { kind: "realized_multiple", minMultiple: 10, minBasisUsd: 10 } },
 ];
