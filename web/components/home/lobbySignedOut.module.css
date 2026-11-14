@@ -259,3 +259,6 @@
 @media (pointer: coarse), (max-width: 760px) {
   .link, .trader a { display: inline-flex; align-items: center; min-height: 44px; }
 }
+
+/* Pick a mode (components/home/ModeSelect), under the ticker */
+.modes { margin-top: 48px; }

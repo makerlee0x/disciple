@@ -73,3 +73,7 @@ export const CREW_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_CREW === "1
  * Override: NEXT_PUBLIC_FEATURE_PRO=1 (build-time).
  */
 export const PRO_HUD_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_PRO === "1" || process.env.NEXT_PUBLIC_FEATURE_PRO === "true";
+
+/** Trading Duel card in the lobby's "Pick a mode" row (game modes option A, maker 2026-11-14). The card shows whenever the
+ *  Turbo flag is on (lib/turbo/flag.ts) and opens the duel lobby, which sits behind the Turbo password. */
+export const DUEL_HREF = "/turbo/duel";

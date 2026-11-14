@@ -7,6 +7,7 @@
  * (components/home/HomeGate). Every name and number is live HomeData: chain launches + the indexed trades; a section
  * with nothing to show is left out or says so.
  */
+import ModeSelect from "@/components/home/ModeSelect";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { withBase } from "@/lib/base-path";
@@ -56,6 +57,8 @@ function TickLine({ t }: { t: TickerItem }) {
   return <span><b className={s.dn}>● {titleCase(t.bomb ?? "Bomb")}</b> hit {t.coinName}{t.dropPct ? ` −${pct(t.dropPct)}` : ""}</span>;
 }
 
+// unused since Pick a mode replaced it (2026-11-14); kept so it can come back
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function Hero({ data, hero }: { data: HomeData; hero: HomeCoin | null }) {
   const live = data.coins.filter((c) => !c.graduated);
   const pilots = live.reduce((n, c) => n + (c.stats?.crew ?? 0), 0);
@@ -262,7 +265,6 @@ function LaunchYourOwn() {
 export default function LobbySignedOut({ initial }: { initial: HomeData }) {
   const data = useLiveHome(initial);
   const coins = data.coins;
-  const hero = useMemo(() => coins.find((c) => c.token === data.hero) ?? coins.find((c) => !c.graduated) ?? null, [coins, data.hero]);
   const flying = useMemo(() => {
     const up = climbingNow(coins, 5);
     if (up.length >= 5) return up;
@@ -271,8 +273,10 @@ export default function LobbySignedOut({ initial }: { initial: HomeData }) {
   }, [coins]);
   return (
     <div className={s.wrap} data-testid="lobby-signed-out">
-      <Hero data={data} hero={hero} />
-      <Ticker data={data} />
+      {/* game modes board, option A (maker 2026-11-14): Pick a mode replaces the hero; signed out it opens on Free play.
+          The old "Ride it to orbit" Hero below is kept in the file, unused, in case it comes back. */}
+      <ModeSelect signedIn={false} flying={coins.filter((c) => !c.graduated).length} />
+      <div className={s.modes}><Ticker data={data} /></div>
       <HowItPlays />
       {flying.length > 0 && (
         <section className={s.flying} aria-labelledby="so-flying-title">

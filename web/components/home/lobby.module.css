@@ -28,6 +28,12 @@
 
 /* door one + the side column */
 .doors { display: flex; flex-wrap: wrap; gap: 24px; align-items: stretch; }
+/* under Pick a mode (board: 2fr shelf, 1fr missions): Join a flight beside today's missions */
+.doorsUnder { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.doorsUnder > * { min-width: 0; }
+/* missions keep their one-third square even when nothing is flying (Join a flight renders nothing then) */
+.doorsUnder > :last-child { grid-column: 2; }
+@media (max-width: 900px) { .doorsUnder { grid-template-columns: minmax(0, 1fr); } .doorsUnder > :last-child { grid-column: 1; } }
 .side { flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 24px; }
 
 /* door two */
@@ -36,6 +42,9 @@
   background: radial-gradient(closest-side, rgba(68, 212, 226, .35), rgba(68, 212, 226, 0)); }
 .live { position: relative; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dsc-muted-on-sky); }
 .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--dsc3-signal-up); }
+.live i.liveOff { background: var(--dsc-muted); }
+.joinEmpty { position: relative; margin: 0; max-width: 46ch; font-size: 15px; line-height: 1.5; color: var(--dsc-muted-on-sky); }
+.join[data-empty] .shuffle { text-decoration: none; }
 .joinTitle { position: relative; margin: 0; font: 800 48px / .95 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
 .ride { position: relative; display: flex; align-items: center; gap: 16px; color: var(--dsc-text); text-decoration: none; border-radius: 12px; min-width: 0; }
 .ride:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
