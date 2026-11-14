@@ -4,7 +4,7 @@
  * same history gives the same answer, so the cron can replay a wallet from scratch every time it changes.
  */
 import { TIERS } from "./config";
-import { DRAFT, FAIR, type DraftClaim, type MissionDef, type Period } from "./xp";
+import { DRAFT, FAIR, STYLE, type DraftClaim, type MissionDef, type Period, type StyleClaim } from "./xp";
 
 const DUST = 1e-9;
 
@@ -285,6 +285,27 @@ export function evaluateDrafts(inp: { wallet: string; fills: readonly MissionFil
     const boosted = (inp.coinFills.get(coin) ?? []).some((f) => f.side === "buy" && pilots.has(f.trader.toLowerCase()) && f.ts <= c.at && f.ts >= c.at - DRAFT.windowMs);
     if (!boosted) continue;
     out.push(c); lastAt = c.at;
+  }
+  return out;
+}
+
+/**
+ * Style fills (lib/xp STYLE) that the fills back up in `period`: the wallet's own buy of STYLE.minBuyUsd+ on that coin within
+ * STYLE.windowMs of the report, at least STYLE.minGapMs apart, one buy backs one claim, at most STYLE.perDay. Pure, tested.
+ */
+export function evaluateStyle(inp: { wallet: string; fills: readonly MissionFill[]; claims: readonly StyleClaim[]; asOf: number }, period: Period): StyleClaim[] {
+  const claims = inp.claims.filter((c) => c.at >= period.start && c.at < period.end && c.at <= inp.asOf).slice().sort((a, b) => a.at - b.at);
+  const buys = inp.fills.filter((f) => f.side === "buy" && Number.isFinite(f.usd) && f.usd >= STYLE.minBuyUsd);
+  const used = new Set<MissionFill>();
+  const out: StyleClaim[] = [];
+  let lastAt = -Infinity;
+  for (const c of claims) {
+    if (out.length >= STYLE.perDay) break;
+    if (c.at - lastAt < STYLE.minGapMs) continue;
+    const coin = c.coin.toLowerCase();
+    const f = buys.find((b) => !used.has(b) && b.coin === coin && Math.abs(b.ts - c.at) <= STYLE.windowMs);
+    if (!f) continue;
+    used.add(f); out.push(c); lastAt = c.at;
   }
   return out;
 }

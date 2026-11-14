@@ -44,6 +44,7 @@ export function kindForSfx(k: string, d?: { side?: string; up?: boolean }): Hapt
     case "bomb": return "hit";
     case "orbit": return "orbit";
     case "trick": return "trick";
+    case "stylefill": return "celebrate";
     default: return null;
   }
 }

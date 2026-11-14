@@ -45,8 +45,15 @@ export function apnsPayload(msg: { title: string; body: string; url: string; id?
 
 const HOST: Record<ApnsEnv, string> = { production: "https://api.push.apple.com", sandbox: "https://api.sandbox.push.apple.com" };
 
-/** "gone": the token is no longer valid for this app (drop it). */
-export async function sendApns(token: string, env: ApnsEnv, msg: { title: string; body: string; url: string; id?: string }, k: ApnsKeys): Promise<"ok" | "gone" | "error"> {
+/** Live Activity update / end (DiscipleWidgets FlightLiveActivity). `state` keys = FlightActivityAttributes.ContentState. */
+export function liveActivityPayload(state: Record<string, unknown>, event: "update" | "end", now = Date.now()): string {
+  const ts = Math.floor(now / 1000);
+  return JSON.stringify({ aps: { timestamp: ts, event, "content-state": state, "stale-date": ts + 15 * 60, ...(event === "end" ? { "dismissal-date": ts + 30 * 60 } : {}) } });
+}
+
+/** "gone": the token is no longer valid for this app (drop it). `live`: send a Live Activity payload (push type liveactivity) instead of an alert. */
+export async function sendApns(token: string, env: ApnsEnv, msg: { title: string; body: string; url: string; id?: string } | { live: string }, k: ApnsKeys): Promise<"ok" | "gone" | "error"> {
+  const live = "live" in msg;
   if (!validApnsToken(token)) return "gone";
   let client: ClientHttp2Session | null = null;
   try {
@@ -59,9 +66,9 @@ export async function sendApns(token: string, env: ApnsEnv, msg: { title: string
         [constants.HTTP2_HEADER_METHOD]: "POST",
         [constants.HTTP2_HEADER_PATH]: `/3/device/${token}`,
         authorization: `bearer ${apnsJwt(k)}`,
-        "apns-topic": k.bundleId,
-        "apns-push-type": "alert",
-        "apns-priority": "10",
+        "apns-topic": live ? `${k.bundleId}.push-type.liveactivity` : k.bundleId,
+        "apns-push-type": live ? "liveactivity" : "alert",
+        "apns-priority": live ? "5" : "10",
         "apns-expiration": String(Math.floor(Date.now() / 1000) + 86400),
         "content-type": "application/json",
       });
@@ -76,7 +83,7 @@ export async function sendApns(token: string, env: ApnsEnv, msg: { title: string
         resolve("error");
       });
       req.on("error", () => { clearTimeout(t); resolve("error"); });
-      req.end(apnsPayload(msg));
+      req.end(live ? msg.live : apnsPayload(msg));
     });
   } catch { return "error"; } finally { try { client?.close(); } catch { /* ignore */ } }
 }

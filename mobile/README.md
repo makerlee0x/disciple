@@ -21,11 +21,17 @@ store build.
 | Delete account inside the app (App Review 5.1.1(v)) | Settings → Security → Delete account, `POST /api/account/delete` |
 | Dark status bar, launch screen, offline screen, portrait only, iPhone only | `capacitor.config.ts`, `Info.plist`, `www/offline.html` |
 | Turbo stays on practice fuel in the app (App Review 3.1.5(iv)) | `web/lib/turbo/index.ts` `realTurboAllowed()` |
+| Engine rumble that follows the thrust, a heavy thud on bomb hits, rising ticks on zones (Core Haptics) | `ios/App/App/DiscipleHapticsPlugin.swift`, `web/components/flight/NativeRumble.tsx`, `web/lib/native.ts` `CORE_FEEL` |
+| Your flight on the lock screen and in the Dynamic Island (ticker, zone, mcap, bag, PnL), kept current by the server once a minute while the app is closed | `ios/App/DiscipleWidgets/` (widget extension), `ios/App/App/DiscipleFlightPlugin.swift`, `web/components/flight/LiveFlight.tsx`, `web/lib/server/liveActivity.ts`, `/api/cron/live-activity` |
 
 No Face ID on trades (maker: it slows trading down).
 
-Next native pieces, not built yet: a Live Activity on the lock screen and Dynamic Island while you're aboard a rocket
-(bag value and PnL), and a home screen widget (Free play timer, best rocket). Both are Swift targets added in Xcode.
+The flight also got phone-wide pieces that work in the browser too: spin / flip tricks, style fills (XP), full-screen flying,
+tilt to steer (Settings) and the trade clip (the Clip button on the flight screen).
+
+The two app plugins live in the App target and are registered by `DiscipleBridgeViewController.swift`. The widget
+extension target `DiscipleWidgets` (bundle id `vip.disciple.app.widgets`, iOS 16.2+) is embedded in the app; in Xcode pick
+your team for it too (Signing & Capabilities). A home screen widget (Free play timer, best rocket) can join the same extension later.
 
 ## One-time setup (maker)
 
@@ -46,7 +52,7 @@ npx cap sync ios        # copies capacitor.config into the Xcode project and lin
 npx cap open ios        # opens Xcode
 ```
 
-In Xcode: select the **App** target → Signing & Capabilities → pick your team. Xcode turns on Push Notifications,
+In Xcode: select the **App** target → Signing & Capabilities → pick your team, then the same for **DiscipleWidgets**. Xcode turns on Push Notifications,
 Associated Domains and Sign in with Apple from `App.entitlements`. Plug in an iPhone and press Run.
 
 To point the app at a preview deploy or your Mac while testing: `DISCIPLE_APP_URL=https://<preview>.vercel.app npx cap sync ios`

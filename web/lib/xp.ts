@@ -166,6 +166,16 @@ export const DRAFT = { xp: 10, perDay: 5, windowMs: 60_000, minHoldUsd: 5, minGa
 export interface DraftClaim { coin: string; wingmen: string[]; at: number }
 
 /**
+ * Style XP (maker 2026-11-14, "tricks with stakes"): a boost that fills while a spin or flip is in the air (or just landed) is
+ * a STYLE FILL; chained tricks raise its multiplier. The game reports it (POST /api/xp/style); the cron pays it only when the
+ * fills show that wallet's own buy of `minBuyUsd`+ on that coin within `windowMs` of the report. Tricks themselves are only
+ * steering, so the pay is small and capped: `base` × the multiplier (up to `maxMult`), at most `perDay` a UTC day.
+ */
+export const STYLE = { base: 5, maxMult: 3, perDay: 5, windowMs: 10_000, minBuyUsd: 5, minGapMs: 15_000 } as const;
+export interface StyleClaim { coin: string; at: number; mult: number }
+export const styleXp = (mult: number) => STYLE.base * Math.max(1, Math.min(STYLE.maxMult, Math.floor(Number.isFinite(mult) ? mult : 1)));
+
+/**
  * Free play XP (maker 2026-11-13: reduced, signed-in pilots only, capped per day). Only runs the server re-flew pay:
  * the Daily flight (one a day, up to 150) and practice runs (up to 20 each). All Free play XP together stops at
  * `perDay` per UTC day. A signed-out pilot's daily can be saved after signing in for `claimDays` days.

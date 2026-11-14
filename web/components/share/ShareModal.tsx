@@ -18,7 +18,9 @@ type Pnl = PositionPnl & { sample?: boolean; log?: SceneData["log"]; badge?: Sce
 /** Sample share cards are `next dev` only; production shows the real position, or "no trades yet". */
 const DEV_DEMO = process.env.NODE_ENV === "development";
 
-export default function ShareModal({ target, onClose }: { target: ShareTarget; onClose: () => void }) {
+/** autoVideo: start the trade clip as soon as the position loads (the phone flight's Clip button, maker 2026-11-14: the whole trade,
+ *  entry to exit, or entry to now while the bag is still open, replayed from the coin's fills; no screen recording). */
+export default function ShareModal({ target, onClose, autoVideo = false }: { target: ShareTarget; onClose: () => void; autoVideo?: boolean }) {
   const [at] = useState(() => Date.now()); // "now" = the moment Share was pressed
   const [pnl, setPnl] = useState<Pnl | null>(null);
   const [msg, setMsg] = useState("");
@@ -73,6 +75,9 @@ export default function ShareModal({ target, onClose }: { target: ShareTarget; o
     finally { setVp(null); }
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (autoVideo && pnl && pnl.kind !== "none" && !video && !vp && canEncodeVideo()) void makeVideo(); }, [autoVideo, pnl]);
+
   async function webShare() {
     try {
       const blob = await media.blob();
@@ -117,7 +122,7 @@ export default function ShareModal({ target, onClose }: { target: ShareTarget; o
             ) : <p className="muted tiny">{demo === null ? "Loading position…" : "No trades yet"}</p>}
             {canEncodeVideo() && !video && (
               <button type="button" className="ds-btn share-video-btn" data-testid="share-make-video" onClick={makeVideo} disabled={!pnl || pnl.kind === "none" || !!vp}>
-                {vp ? "Rendering video…" : <><Icon name="video" size={16} /> Make video (15s)</>}
+                {vp ? "Rendering video…" : <><Icon name="video" size={16} /> {pnl?.kind === "unrealized" ? "Make clip (entry to now)" : "Make clip (entry to exit)"}</>}
               </button>
             )}
             {vp && (

@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		062F0BA1BF29AABEEA9260EF /* DiscipleFlightPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8CD5E2A166971A429F9FF2A /* DiscipleFlightPlugin.swift */; };
+		079F3AAF5D897AB0974DFA7D /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D2D26AE8E61F9DEC0C141054 /* WidgetKit.framework */; };
+		27D4E4FB08216838C804D424 /* DiscipleHapticsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1719C6388EE2E3AF786F87D3 /* DiscipleHapticsPlugin.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
@@ -15,11 +18,52 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		58F3A1E2CE76D705AB088C5B /* FlightActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48314D12FB2C7E0EA10DA1B4 /* FlightActivityAttributes.swift */; };
+		7D8B538A6A6A3666EEE3D17F /* FlightLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F9E5C3C235BC11861123EA /* FlightLiveActivity.swift */; };
+		82C188813AE6ED39FA355B42 /* DiscipleWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1382F1FD765CBB5F06D9B99F /* DiscipleWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		8CC30D606F1F35EC8FF100B1 /* DiscipleBridgeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE97A4F3B175889B60357EA8 /* DiscipleBridgeViewController.swift */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
+		D2689366D1403114634D5CBE /* FlightActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48314D12FB2C7E0EA10DA1B4 /* FlightActivityAttributes.swift */; };
+		D4CCD71EBEDB464CEEE508E8 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 29A17866C662A5D83976862C /* Foundation.framework */; };
+		D800D8F80674956886EC28B3 /* DiscipleWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 390D637973BAE4763404D201 /* DiscipleWidgetsBundle.swift */; };
+		E4693BBA9D0A7CAA459059CF /* ActivityKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1C0F275292810DACDF24A189 /* ActivityKit.framework */; };
+		FBAF2D7ACA20E5C7884F672B /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1025501153CAE9884B75E8A9 /* SwiftUI.framework */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		13B8949DC6C417248C52A837 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1B5112965EC3F25CC146A40C;
+			remoteInfo = DiscipleWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		EC2FF1CC2E34D028D56CBA5F /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				82C188813AE6ED39FA355B42 /* DiscipleWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		1025501153CAE9884B75E8A9 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/SwiftUI.framework; sourceTree = DEVELOPER_DIR; };
+		1382F1FD765CBB5F06D9B99F /* DiscipleWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DiscipleWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		1719C6388EE2E3AF786F87D3 /* DiscipleHapticsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DiscipleHapticsPlugin.swift; sourceTree = "<group>"; };
+		1C0F275292810DACDF24A189 /* ActivityKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ActivityKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/ActivityKit.framework; sourceTree = DEVELOPER_DIR; };
+		29A17866C662A5D83976862C /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
+		390D637973BAE4763404D201 /* DiscipleWidgetsBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DiscipleWidgetsBundle.swift; sourceTree = "<group>"; };
+		39F9E5C3C235BC11861123EA /* FlightLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FlightLiveActivity.swift; sourceTree = "<group>"; };
+		48314D12FB2C7E0EA10DA1B4 /* FlightActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FlightActivityAttributes.swift; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -30,6 +74,10 @@
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		A10432BEAFF814794EF4463C /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AE97A4F3B175889B60357EA8 /* DiscipleBridgeViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DiscipleBridgeViewController.swift; sourceTree = "<group>"; };
+		C8CD5E2A166971A429F9FF2A /* DiscipleFlightPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DiscipleFlightPlugin.swift; sourceTree = "<group>"; };
+		D2D26AE8E61F9DEC0C141054 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/WidgetKit.framework; sourceTree = DEVELOPER_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -41,15 +89,36 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		583D0E4A053011F8CA53DE03 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D4CCD71EBEDB464CEEE508E8 /* Foundation.framework in Frameworks */,
+				079F3AAF5D897AB0974DFA7D /* WidgetKit.framework in Frameworks */,
+				FBAF2D7ACA20E5C7884F672B /* SwiftUI.framework in Frameworks */,
+				E4693BBA9D0A7CAA459059CF /* ActivityKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1FCF37A112CAC4DAC6EA2960 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				D01A702607F94ADE88890AF2 /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
 				504EC3051FED79650016851F /* Products */,
+				1FCF37A112CAC4DAC6EA2960 /* Frameworks */,
+				5618288115E31D6E71C78F5B /* DiscipleWidgets */,
 			);
 			sourceTree = "<group>";
 		};
@@ -57,6 +126,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				1382F1FD765CBB5F06D9B99F /* DiscipleWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -73,13 +143,56 @@
 				504EC3131FED79650016851F /* Info.plist */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
+				AE97A4F3B175889B60357EA8 /* DiscipleBridgeViewController.swift */,
+				1719C6388EE2E3AF786F87D3 /* DiscipleHapticsPlugin.swift */,
+				C8CD5E2A166971A429F9FF2A /* DiscipleFlightPlugin.swift */,
+				48314D12FB2C7E0EA10DA1B4 /* FlightActivityAttributes.swift */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		5618288115E31D6E71C78F5B /* DiscipleWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				390D637973BAE4763404D201 /* DiscipleWidgetsBundle.swift */,
+				39F9E5C3C235BC11861123EA /* FlightLiveActivity.swift */,
+				A10432BEAFF814794EF4463C /* Info.plist */,
+			);
+			name = DiscipleWidgets;
+			path = DiscipleWidgets;
+			sourceTree = "<group>";
+		};
+		D01A702607F94ADE88890AF2 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				29A17866C662A5D83976862C /* Foundation.framework */,
+				D2D26AE8E61F9DEC0C141054 /* WidgetKit.framework */,
+				1025501153CAE9884B75E8A9 /* SwiftUI.framework */,
+				1C0F275292810DACDF24A189 /* ActivityKit.framework */,
+			);
+			name = iOS;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		1B5112965EC3F25CC146A40C /* DiscipleWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B085E84421820E295900A7F3 /* Build configuration list for PBXNativeTarget "DiscipleWidgets" */;
+			buildPhases = (
+				8FD9256804B39E9C10EEA770 /* Sources */,
+				583D0E4A053011F8CA53DE03 /* Frameworks */,
+				1889C1492007FC6D6632C6B0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DiscipleWidgets;
+			productName = DiscipleWidgets;
+			productReference = 1382F1FD765CBB5F06D9B99F /* DiscipleWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		504EC3031FED79650016851F /* App */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 504EC3161FED79650016851F /* Build configuration list for PBXNativeTarget "App" */;
@@ -87,10 +200,12 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				EC2FF1CC2E34D028D56CBA5F /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				FD552C103D042D63AA8E1F5D /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -133,11 +248,19 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				1B5112965EC3F25CC146A40C /* DiscipleWidgets */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		1889C1492007FC6D6632C6B0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		504EC3021FED79650016851F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -160,10 +283,33 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
+				8CC30D606F1F35EC8FF100B1 /* DiscipleBridgeViewController.swift in Sources */,
+				27D4E4FB08216838C804D424 /* DiscipleHapticsPlugin.swift in Sources */,
+				062F0BA1BF29AABEEA9260EF /* DiscipleFlightPlugin.swift in Sources */,
+				58F3A1E2CE76D705AB088C5B /* FlightActivityAttributes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8FD9256804B39E9C10EEA770 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D800D8F80674956886EC28B3 /* DiscipleWidgetsBundle.swift in Sources */,
+				7D8B538A6A6A3666EEE3D17F /* FlightLiveActivity.swift in Sources */,
+				D2689366D1403114634D5CBE /* FlightActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		FD552C103D042D63AA8E1F5D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = DiscipleWidgets;
+			target = 1B5112965EC3F25CC146A40C /* DiscipleWidgets */;
+			targetProxy = 13B8949DC6C417248C52A837 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
@@ -340,6 +486,57 @@
 			};
 			name = Release;
 		};
+		66BE6483873010EEA42D4EB2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DiscipleWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = vip.disciple.app.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		EA94BAA3086FAE323ACBF554 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DiscipleWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = vip.disciple.app.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -357,6 +554,15 @@
 			buildConfigurations = (
 				504EC3171FED79650016851F /* Debug */,
 				504EC3181FED79650016851F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B085E84421820E295900A7F3 /* Build configuration list for PBXNativeTarget "DiscipleWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				66BE6483873010EEA42D4EB2 /* Release */,
+				EA94BAA3086FAE323ACBF554 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
