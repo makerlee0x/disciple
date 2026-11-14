@@ -307,7 +307,8 @@ function mount(root,host){
   on(window,"resize",resize);
   function resizeK(){ if(SW) layout(); }
   function RH(){ return LAY?LAY.h:Math.round(Math.max(72,Math.min(SW>=900?150:116,SH*.17))); }   // current rocket size (shrinks as the gap opens)
-  function lane0(pl){ const wide=SW>=900; return pl.me?SW*(wide?.40:.30):SW*(wide?.60:.70); }
+  function lane0(pl){ if(SW>=900) return SW/2+(pl.me?-1:1)*Math.max(60,(LAY?LAY.rh0:RH())*.5);   // desktop: as close as on a phone (about one rocket height apart)
+    return pl.me?SW*.30:SW*.70; }
   function lane(pl){ return lane0(pl)+(pl.sxo||0); }
   /* steering: drag the sky (phone) or hold A/D (desktop). Tricks: swipe up = spin, double-tap = flip, Q/E on desktop. */
   function steerTo(pl,off){ const b=lane0(pl); pl.sxt=Math.max(34-b,Math.min(SW-34-b,off)); }
@@ -453,7 +454,7 @@ function mount(root,host){
           if(keys.u) pl.syt=Math.max(-70,(pl.syt||0)-300*dt); if(keys.dn) pl.syt=Math.min(70,(pl.syt||0)+300*dt);
           if(!keys.u&&!keys.dn&&!drag) pl.syt=(pl.syt||0)*Math.max(0,1-dt*1.2); }
         else { // the bot drifts around and keeps out of your way
-          if(!pl.wander||now>pl.wander){ pl.wander=now+rnd(1200,3200); steerTo(pl,rnd(-SW*.12,SW*.12)); }
+          if(!pl.wander||now>pl.wander){ pl.wander=now+rnd(1200,3200); { const r=Math.min(SW*.12,45); steerTo(pl,rnd(-r,r)); } }
           const gap=lane(pl)-lane(G.me); if(Math.abs(gap)<90){ const roomR=SW-lane(G.me), roomL=lane(G.me); const dir=(gap>=0?(roomR>110?1:-1):(roomL>110?-1:1)); steerTo(pl,(pl.sxt||0)+dir*320*dt); }
         }
         pl.syo=(pl.syo||0)+((pl.syt||0)-(pl.syo||0))*Math.min(1,dt*8);
