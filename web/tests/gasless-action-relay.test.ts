@@ -4,6 +4,7 @@ import { encodeFunctionData, keccak256, parseTransaction, slice, toBytes, type A
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 const h = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_CHAIN_ID = "46630";
+  process.env.NEXT_PUBLIC_RHT_PERMIT_FORWARDER = "0x0000000000000000000000000000000000000000"; // the legacy (no forwarder) testnet path
   process.env.NEXT_PUBLIC_RHT_GASLESS_ROUTER = "0x00000000000000000000000000000000000000bb";
   process.env.PAYMASTER_USD_PER_ETH = "2300";
   return { chain: vi.fn(), block: vi.fn(), read: vi.fn(), call: vi.fn(), count: vi.fn(), balance: vi.fn(), incr: vi.fn(), mget: vi.fn(), budget: vi.fn(), refund: vi.fn(), send: vi.fn(), setNX: vi.fn(), set: vi.fn(), get: vi.fn(), incrBy: vi.fn() };
