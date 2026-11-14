@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {_v02Tune} from "./NoKey.sol";
 
 import {Test, console2} from "forge-std/Test.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -191,8 +190,7 @@ contract LaunchGateForkTest is Test {
                 coinIn: _coinFor(100e6) * 11 / 10, // trimmed to 50/50 at the source price
                 quoteIn: 100e6,
                 srcKey: _leg1Key(),
-                srcKey2: _leg2Key(),
-                tune: _v02Tune()
+                srcKey2: _leg2Key()
             })
         );
         DiscipleHook.PoolView memory v = h.poolState(id);

@@ -8,7 +8,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
-import {_noKey, _v02Tune} from "./NoKey.sol";
+import {_noKey} from "./NoKey.sol";
 
 /// @notice v0.3 audit fixes, same chain: each fill is marked at the least LP-favourable of the anchor, the block's
 ///         first-touch sample and the live spot. The reviews' reproductions (M-01, M-1, L-1, R376-03), now asserting
@@ -188,26 +188,22 @@ contract V03AuditCrossTest is V03CrossTest {
         assertGt(worth, paid * 98 / 100, "back to a normal spread around the centre");
     }
 
-    /// I-1: a cross-chain pool must skim something, or keepers are never refunded.
-    function test_audit_crossChainNeedsSkim() public {
-        DiscipleHook.Source memory s = _src(0);
-        s.remoteEid = HOME_EID;
-        s.push = true;
-        DiscipleHook.Tune memory t = _v02Tune();
-        t.skimBps = 0;
-        vm.expectRevert(DiscipleHook.BadParams.selector);
-        hook.createPool(
-            DiscipleHook.CreateParams({
-                coin: address(coin),
-                quote: address(usd),
-                fee: FEE,
-                src: s,
-                coinIn: 1000e18,
-                quoteIn: 2000e18,
-                srcKey: _noKey(),
-                srcKey2: _noKey(),
-                tune: t
-            })
-        );
+    /// I-1: a cross-chain pool must skim something, or keepers are never refunded. Every pool now skims the
+    /// fixed 6%, so the jar of a cross-chain pool fills from its earnings.
+    function test_audit_crossChainSkims() public {
+        (PoolKey memory key, PoolId id) = _create();
+        _push(id);
+        for (uint256 i; i < 6; i++) {
+            vm.roll(block.number + 1);
+            vm.warp(block.timestamp + 12);
+            uint256 c0 = coin.balanceOf(address(this));
+            _swap(key, true, -int256(100e18));
+            vm.roll(block.number + 1);
+            vm.warp(block.timestamp + 12);
+            _swap(key, false, -int256(coin.balanceOf(address(this)) - c0));
+            _push(id);
+        }
+        DiscipleHook.PoolView memory v = hook.poolState(id);
+        assertGt(v.jarX + v.jarY, 0, "the jar fills from the 6% skim");
     }
 }

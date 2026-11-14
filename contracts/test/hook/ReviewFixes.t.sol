@@ -4,7 +4,7 @@ pragma solidity 0.8.26;
 import {DiscipleTest} from "./Disciple.t.sol";
 import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
-import {_noKey, _v02Tune} from "./NoKey.sol";
+import {_noKey} from "./NoKey.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 
@@ -364,8 +364,7 @@ contract ReviewFixesTest is DiscipleTest {
                 coinIn: 1000e6,
                 quoteIn: 2000e18,
                 srcKey: _noKey(),
-                srcKey2: _noKey(),
-                tune: _v02Tune()
+                srcKey2: _noKey()
             })
         );
         _lzPush(id, address(0xC0FFEE), 0, HOME_EID);

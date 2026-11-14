@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {_v02Tune} from "./NoKey.sol";
 
 import {Test, console2} from "forge-std/Test.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -161,8 +160,7 @@ contract CompetitivenessForkTest is Test {
                 coinIn: 30_000_000e18,
                 quoteIn: 50_000e6,
                 srcKey: k1,
-                srcKey2: k2,
-                tune: _v02Tune()
+                srcKey2: k2
             })
         );
         DiscipleHook.PoolView memory v = h.poolState(id);
@@ -272,8 +270,7 @@ contract CompetitivenessForkTest is Test {
                 coinIn: 30_000_000e18,
                 quoteIn: 50_000e6,
                 srcKey: k1,
-                srcKey2: _leg2Key(),
-                tune: _v02Tune()
+                srcKey2: _leg2Key()
             })
         );
         console2.log("G8_basefee", block.basefee);

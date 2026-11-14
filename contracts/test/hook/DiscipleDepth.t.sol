@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {_noKey, _v02Tune} from "./NoKey.sol";
+import {_noKey} from "./NoKey.sol";
 import {Test} from "forge-std/Test.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
@@ -271,13 +271,12 @@ contract DiscipleDepthTest is Test {
         return DiscipleHook.CreateParams({
             coin: address(coin),
             quote: address(usd),
-            fee: 3000,
+            fee: 2500,
             src: s,
             coinIn: c,
             quoteIn: q,
             srcKey: k,
-            srcKey2: _noKey(),
-            tune: _v02Tune()
+            srcKey2: _noKey()
         });
     }
 

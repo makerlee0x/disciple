@@ -6,7 +6,7 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
 import {MockERC20} from "../../test/hook/mocks/Mocks.sol";
-import {_noKey, _v02Tune} from "../../test/hook/NoKey.sol";
+import {_noKey} from "../../test/hook/NoKey.sol";
 
 /// @title Keeper fork test helper: create a cross-chain Disciple pool priced from an Ethereum source
 /// @notice FOR LOCAL FORKS ONLY (keeper/test/fork). Deploys two mock tokens on the destination chain and creates a
@@ -55,8 +55,7 @@ contract KeeperForkPool is Script {
                 coinIn: 1000e18,
                 quoteIn: quoteIn,
                 srcKey: _noKey(),
-                srcKey2: _noKey(),
-                tune: _v02Tune()
+                srcKey2: _noKey()
             })
         );
         hook.fundJar(id, 0, vm.envOr("JAR", uint256(1 ether))); // keeper tips come from the pool's jar

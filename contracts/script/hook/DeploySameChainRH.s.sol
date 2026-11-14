@@ -79,21 +79,11 @@ contract DeploySameChainRH is Script {
         _pool(hook());
     }
 
-    /// @dev v0.3 creator settings, fixed for the pool's life. Defaults (maker 2026-11-14, after the replay): edge 1bp,
-    ///      curve 0.05 (v0.2's), tip gas x 1.05 on the recalibrated count, skim 6%. Pool fee stays FEE (1%).
-    ///      Override with EDGE_BPS, LAM_PPM, TIP_BPS, SKIM_BPS.
-    function _tune() internal view returns (DiscipleHook.Tune memory t) {
-        t.edgeBps = uint16(vm.envOr("EDGE_BPS", uint256(1)));
-        t.lamPpm = uint32(vm.envOr("LAM_PPM", uint256(50_000)));
-        t.tipBps = uint16(vm.envOr("TIP_BPS", uint256(10_500)));
-        t.skimBps = uint16(vm.envOr("SKIM_BPS", uint256(600)));
-    }
-
     function _pool(DiscipleHook h) internal {
         require(block.chainid == 4663, "run on Robinhood Chain");
         uint256 coinIn = vm.envUint("COIN_IN");
         uint256 quoteIn = vm.envUint("QUOTE_IN");
-        uint24 fee = uint24(vm.envOr("FEE", uint256(10_000)));
+        uint24 fee = uint24(vm.envOr("FEE", uint256(10_000))); // 2500, 5000, 10,000 or 20,000; the rest is fixed
         DiscipleHook.Source memory s;
         s.kind = 3; // v4
         s.coinIs0 = true; // STRATEGY is currency0 of STRATEGY/MSTR
@@ -111,7 +101,7 @@ contract DeploySameChainRH is Script {
         IERC20(USDG).approve(address(h), quoteIn);
         (, PoolId id) = h.createPool(
             DiscipleHook.CreateParams({
-                coin: STRATEGY, quote: USDG, fee: fee, src: s, coinIn: coinIn, quoteIn: quoteIn, srcKey: k1, srcKey2: k2, tune: _tune()
+                coin: STRATEGY, quote: USDG, fee: fee, src: s, coinIn: coinIn, quoteIn: quoteIn, srcKey: k1, srcKey2: k2
             })
         );
         vm.stopBroadcast();

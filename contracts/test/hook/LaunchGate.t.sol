@@ -6,7 +6,7 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
-import {_noKey, _v02Tune} from "./NoKey.sol";
+import {_noKey} from "./NoKey.sol";
 import {DiscipleTest} from "./Disciple.t.sol";
 
 /// @notice LAUNCH GATE: is the pool still USEFUL (priced so a router would pick it) at the real launch size, after
@@ -49,8 +49,7 @@ contract LaunchGateTest is DiscipleTest {
                 coinIn: 50e18,
                 quoteIn: 100e18,
                 srcKey: _noKey(),
-                srcKey2: _noKey(),
-                tune: _v02Tune()
+                srcKey2: _noKey()
             })
         );
     }

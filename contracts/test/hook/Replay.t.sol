@@ -10,6 +10,7 @@ import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {_noKey} from "./NoKey.sol";
+import {FixedPointMathLib as FPM} from "../../src/hook/libraries/vendor/FixedPointMathLib.sol";
 
 /// @notice REPLAY (offline research tool, not a unit test). Drives the real hook through a recorded leader history:
 ///         price rows move a v2 mock leader to the recorded mid, a keeper samples while the centre is 1%+ off, and
@@ -31,8 +32,17 @@ contract ReplayTest is DiscipleTest {
     uint256 gainSum;
     uint256 part;
     uint256 partSalt;
+    // RP_IMPACT=1: the leader only moves by the part of each order it really took (the rest filled here), and the
+    // router compares against the leader's average price over the order, not its mid (leader slippage)
+    bool impact;
+    uint256 afterRec;
+    uint256 adj = 1e18; // leader price vs the recorded history, from flow this pool absorbed
+    uint256 rec; // last recorded mid
+    uint256 lMul = 1e18; // leader average price over the current order vs its mid (1e18 = no slippage)
 
-    function _setMid(uint256 m) internal {
+    function _setMid(uint256 m0) internal {
+        rec = m0;
+        uint256 m = Math.mulDiv(m0, adj, 1e18);
         mid = m;
         pair.set(uint112(1e27), uint112(m * 1e9)); // spot = r1 / r0 = m / 1e18
     }
@@ -55,9 +65,9 @@ contract ReplayTest is DiscipleTest {
         uint256 o = _q(buy, x);
         if (o == 0) return type(int256).min;
         if (buy) {
-            return int256(Math.mulDiv(o, mid, 1e18)) - int256(Math.mulDiv(x, 1e6 - feePpm, 1e6));
+            return int256(Math.mulDiv(o, Math.mulDiv(mid, lMul, 1e18), 1e18)) - int256(Math.mulDiv(x, 1e6 - feePpm, 1e6));
         }
-        return int256(o) - int256(Math.mulDiv(Math.mulDiv(x, mid, 1e18), 1e6 - feePpm, 1e6));
+        return int256(o) - int256(Math.mulDiv(Math.mulDiv(x, Math.mulDiv(mid, lMul, 1e18), 1e18), 1e6 - feePpm, 1e6));
     }
 
     function _keeper(uint256 toL1) internal {
@@ -107,6 +117,12 @@ contract ReplayTest is DiscipleTest {
         if (best < int256(gainMin) || bestX == 0) return;
         (int128 dc, int128 dq) = _cqSwap(buy, bestX);
         uint256 c_ = uint256(int256(dc < 0 ? -dc : dc));
+        if (impact && rec != 0 && afterRec != 0) {
+            // the leader never saw this share of the order: take that share of its move out of the path
+            uint256 sh = c_ >= coinAmt ? 1e18 : Math.mulDiv(c_, 1e18, coinAmt);
+            int256 r = FPM.powWad(int256(Math.mulDiv(afterRec, 1e18, rec)), -int256(sh));
+            adj = Math.mulDiv(adj, uint256(r), 1e18);
+        }
         uint256 q_ = uint256(int256(dq < 0 ? -dq : dq));
         nFill++;
         volUsd += q_;
@@ -154,16 +170,11 @@ contract ReplayTest is DiscipleTest {
         string memory f = vm.envOr("RP_FILE", string(""));
         if (bytes(f).length == 0) return;
         uint24 fee = uint24(vm.envOr("RP_FEE", uint256(10_000)));
-        DiscipleHook.Tune memory tn = DiscipleHook.Tune({
-            edgeBps: uint16(vm.envOr("RP_EDGE", uint256(1))),
-            lamPpm: uint32(vm.envOr("RP_LAM", uint256(50_000))),
-            tipBps: uint16(vm.envOr("RP_TIP", uint256(12_000))),
-            skimBps: uint16(vm.envOr("RP_SKIM", uint256(1200)))
-        });
         uint256 seedUsd = vm.envOr("RP_USD", uint256(200e18));
         gainMin = vm.envOr("RP_GAIN", uint256(0.03e18));
         part = vm.envOr("RP_PART", uint256(1e6));
         partSalt = vm.envOr("RP_SALT", uint256(0));
+        impact = vm.envOr("RP_IMPACT", uint256(0)) == 1;
         vm.fee(vm.envOr("RP_BASEFEE", uint256(0.02 gwei)));
 
         // first row must be a price row
@@ -184,8 +195,7 @@ contract ReplayTest is DiscipleTest {
                 coinIn: coinIn,
                 quoteIn: seedUsd / 2,
                 srcKey: _noKey(),
-                srcKey2: _noKey(),
-                tune: tn
+                srcKey2: _noKey()
             })
         );
         hook.fundJar(rid, 0, vm.envOr("RP_JAR", uint256(1e18)));
@@ -214,6 +224,12 @@ contract ReplayTest is DiscipleTest {
                     nSample++;
                 }
             } else {
+                afterRec = w.length > 6 ? vm.parseUint(w[6]) : 0;
+                lMul = 1e18;
+                if (impact && afterRec != 0 && rec != 0) {
+                    // average price over the order ~ geometric mean of before and after (per coin, vs mid)
+                    lMul = Math.sqrt(Math.mulDiv(afterRec, 1e36, rec));
+                }
                 _order(vm.parseUint(w[3]) == 1, vm.parseUint(w[4]), vm.parseUint(w[5]));
             }
         }

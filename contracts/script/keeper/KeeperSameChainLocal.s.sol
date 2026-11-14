@@ -10,7 +10,7 @@ import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
 import {MockERC20} from "../../test/hook/mocks/Mocks.sol";
 import {MockPair, MockV2Factory} from "../../test/hook/Disciple.t.sol";
-import {_noKey, _v02Tune} from "../../test/hook/NoKey.sol";
+import {_noKey} from "../../test/hook/NoKey.sol";
 
 /// @title Keeper same-chain test helper: a whole same-chain Disciple setup on a plain local anvil
 /// @notice FOR LOCAL ANVIL ONLY (keeper/test/local). Deploys a PoolManager, mock tokens, a mock v2 leader pair
@@ -57,8 +57,7 @@ contract KeeperSameChainLocal is Script {
                 coinIn: 1000e18,
                 quoteIn: 2000e18,
                 srcKey: _noKey(),
-                srcKey2: _noKey(),
-                tune: _v02Tune()
+                srcKey2: _noKey()
             })
         );
         hook.fundJar(id, 0, 10e18);

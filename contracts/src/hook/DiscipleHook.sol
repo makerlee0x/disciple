@@ -81,14 +81,18 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     uint256 internal constant TIP_TX_SLOT = uint256(keccak256("disciple.tip.tx"));
     /// @dev One tip is at most this fraction of the jar, so a basefee spike cannot empty it in a few calls.
     uint256 internal constant TIP_DIV = 32;
-    /// @dev Pool fee bounds, in pips.
-    uint24 internal constant MAX_FEE = 100_000;
-    /// @dev Hard bounds on the creator's settings (v0.3). The edge is also clamped at the leader's own bid/ask in
-    ///      every quote, so no edge allows a round trip against the leader.
-    uint256 internal constant MAX_EDGE_BPS = 500;
-    uint256 internal constant MIN_TIP_BPS = 10_000;
-    uint256 internal constant MAX_TIP_BPS = 15_000;
-    uint256 internal constant MAX_SKIM_BPS = 2000;
+    /// @dev v0.3 pool settings, the same for every pool (maker 2026-11-14). The creator picks only the fee, from
+    ///      FEE_A..FEE_D (0.25%, 0.5%, 1%, 2%), and it is fixed for the pool's life. The rest is v0.2's tested setup
+    ///      with the replay's tip and skim: match edge 1bp inside the leader's live quote (never past its mid), curve
+    ///      flatness 0.05, sample() tip at 1.05x its gas, 6% of earnings into the tip jar until it is full.
+    uint24 internal constant FEE_A = 2500;
+    uint24 internal constant FEE_B = 5000;
+    uint24 internal constant FEE_C = 10_000;
+    uint24 internal constant FEE_D = 20_000;
+    uint16 internal constant EDGE_BPS = 1;
+    uint32 internal constant LAM_PPM = 50_000;
+    uint16 internal constant TIP_BPS = 10_500;
+    uint16 internal constant SKIM_BPS = 600;
     /// @dev v4 source depth counter: storage reads per block (first touch) and at createPool (creator pays).
     uint256 internal constant WALK_STEPS = 4;
     /// @dev Largest cross-chain decimal shift (10^36 fits any realistic price or TVL product).
@@ -131,7 +135,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         bool local; // cross chain local mode
         uint24 fee; // pips
         address coin;
-        uint16 edgeBps; // v0.3 creator settings (fixed at createPool): match edge vs the leader's live quote
+        uint16 edgeBps; // v0.3 settings, the same fixed values for every pool (EDGE_BPS..SKIM_BPS): match edge
         uint16 tipBps; // sample() tip = gas cost * tipBps / 10,000
         address quote;
         uint32 lamPpm; // curve flatness inside the band (ppm); ewb = expWad(W * (1 - lam)), precomputed
@@ -159,22 +163,12 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     struct CreateParams {
         address coin;
         address quote; // any ERC20 other than the coin
-        uint24 fee; // Disciple fee in pips
+        uint24 fee; // Disciple fee in pips: 2500, 5000, 10,000 or 20,000 (0.25%, 0.5%, 1%, 2%), fixed for life
         Source src;
         uint256 coinIn;
         uint256 quoteIn;
         PoolKey srcKey; // same-chain v4 leg 1 only: its key, which must hash to `src.v4Id`
         PoolKey srcKey2; // same-chain v4 leg 2 only: its key, which must hash to `src.v4Id2`
-        Tune tune; // v0.3: the creator's settings, fixed for the pool's life
-    }
-
-    /// @notice v0.3 per-pool settings (maker 2026-11-14: the creator picks them at launch within hard bounds; nothing
-    ///         can change them later). v0.2's values: edge 1, lam 50,000, tip 12,000, skim 1,200.
-    struct Tune {
-        uint16 edgeBps; // same chain: how far inside the leader's live quote a fill may go (never past its mid)
-        uint32 lamPpm; // curve flatness inside the band, MIN_LAM..MAX_LAM of DiscipleFlatMath (5,000..250,000)
-        uint16 tipBps; // sample() tip as a share of its gas cost, MIN_TIP_BPS..MAX_TIP_BPS (10,000 = break-even)
-        uint16 skimBps; // share of earnings into the tip jar until full, 0..MAX_SKIM_BPS (cross chain: > 0)
     }
 
     /// @dev One token movement inside an unlock: `into` the pool's claims from `who`, or out of them to `who`.
@@ -232,8 +226,6 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     event Created(
         PoolId indexed id, address indexed coin, address quote, address indexed creator, uint32 remoteEid, uint24 fee
     );
-    /// @notice The creator's fixed settings, emitted once with Created (v0.3).
-    event Tuned(PoolId indexed id, uint16 edgeBps, uint32 lamPpm, uint16 tipBps, uint16 skimBps);
     /// @dev Standard hook events (OpenZeppelin IHookEvents) so indexers see a custom-curve pool's flow. Amounts
     ///      are the pool's view per currency: positive = into the pool, negative = out. Fee is the LP fee, in the
     ///      input currency.
@@ -345,13 +337,10 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     function createPool(CreateParams calldata cp) external lock returns (PoolKey memory key, PoolId id) {
         address quote = cp.quote;
         if (cp.coin == address(0) || quote == address(0) || cp.coin == quote) revert BadParams();
-        if (cp.fee == 0 || cp.fee > MAX_FEE || cp.coinIn == 0 || cp.quoteIn == 0) revert BadParams();
-        Tune calldata tn = cp.tune;
-        if (
-            tn.edgeBps > MAX_EDGE_BPS || tn.tipBps < MIN_TIP_BPS || tn.tipBps > MAX_TIP_BPS
-                || tn.skimBps > MAX_SKIM_BPS || (tn.skimBps == 0 && cp.src.remoteEid != 0)
-        ) revert BadParams(); // a cross-chain pool refunds keepers only from the jar (v0.3 audit I-1)
-        uint256 sh = BK.shape(uint256(tn.lamPpm) * 1e12); // BadLam outside the bounds
+        uint24 fee = cp.fee;
+        if (fee != FEE_A && fee != FEE_B && fee != FEE_C && fee != FEE_D) revert BadParams();
+        if (cp.coinIn == 0 || cp.quoteIn == 0) revert BadParams();
+        uint256 sh = BK.shape(uint256(LAM_PPM) * 1e12);
         Source calldata s = cp.src;
         if (s.kind < SRC_V2 || s.kind > SRC_V4 || s.kind2 > SRC_V4) revert BadParams();
         if (s.push != (s.remoteEid != 0) || (s.push && (pushReceiver == address(0) || s.kind2 != 0))) {
@@ -384,12 +373,13 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         p.coinIs0 = coinIs0;
         p.coin = cp.coin;
         p.quote = quote;
-        p.fee = cp.fee;
-        p.edgeBps = tn.edgeBps;
-        p.tipBps = tn.tipBps;
-        p.lamPpm = tn.lamPpm;
+        p.fee = fee;
+        // the fixed settings are kept per pool, so the fill and jar code read them as before (no slot moves)
+        p.edgeBps = EDGE_BPS;
+        p.tipBps = TIP_BPS;
+        p.lamPpm = LAM_PPM;
         p.ewb = uint64(sh);
-        p.skimBps = tn.skimBps;
+        p.skimBps = SKIM_BPS;
         p.src = s;
         p.book.creator = msg.sender;
 
@@ -420,7 +410,6 @@ contract DiscipleHook is IHooks, IUnlockCallback {
 
         poolManager.initialize(key, uint160(1 << 96));
         emit Created(id, cp.coin, quote, msg.sender, s.remoteEid, cp.fee);
-        emit Tuned(id, tn.edgeBps, tn.lamPpm, tn.tipBps, tn.skimBps);
     }
 
     /// @dev A same-chain source is real pools only: leg 1 holds the coin and X (the quote when there is no leg 2),

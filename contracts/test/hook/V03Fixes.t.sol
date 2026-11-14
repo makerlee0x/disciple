@@ -14,7 +14,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {DisciplePushSender} from "../../src/hook/routes/DisciplePushSender.sol";
-import {_noKey, _v02Tune} from "./NoKey.sol";
+import {_noKey} from "./NoKey.sol";
 
 /// @notice v0.3 step-1 fixes ported from the Carry v0.3 audit (rounds 6 and 7). Inherits DiscipleTest for its
 ///         helpers (its own tests run here too).
@@ -215,8 +215,7 @@ contract V03CrossTest is DiscipleTest {
                 coinIn: 1000e18,
                 quoteIn: 2000e18,
                 srcKey: _noKey(),
-                srcKey2: _noKey(),
-                tune: _v02Tune()
+                srcKey2: _noKey()
             })
         );
     }
@@ -272,126 +271,58 @@ contract V03CrossTest is DiscipleTest {
     }
 }
 
-/// @notice v0.3 creator settings (maker 2026-11-14: picked at createPool within hard bounds, then fixed).
-contract V03TuneTest is DiscipleTest {
-    event Tuned(PoolId indexed id, uint16 edgeBps, uint32 lamPpm, uint16 tipBps, uint16 skimBps);
-
-    function _params(DiscipleHook.Tune memory t) internal view returns (DiscipleHook.CreateParams memory) {
+/// @notice v0.3 settings (maker 2026-11-14): the creator picks only the fee, 0.25%, 0.5%, 1% or 2%, fixed for the
+///         pool's life. Edge, curve, tip and skim are the same for every pool.
+contract V03SettingsTest is DiscipleTest {
+    function _params(uint24 f) internal view returns (DiscipleHook.CreateParams memory) {
         return DiscipleHook.CreateParams({
             coin: address(coin),
             quote: address(usd),
-            fee: FEE,
+            fee: f,
             src: _src(0),
             coinIn: 1000e18,
             quoteIn: 2000e18,
             srcKey: _noKey(),
-            srcKey2: _noKey(),
-            tune: t
+            srcKey2: _noKey()
         });
     }
 
-    function _make(DiscipleHook.Tune memory t) internal returns (PoolKey memory key, PoolId id) {
-        (key, id) = hook.createPool(_params(t));
-    }
-
-    function _bad(DiscipleHook.Tune memory t) internal {
-        DiscipleHook.CreateParams memory cp = _params(t);
-        vm.expectRevert();
-        hook.createPool(cp);
-    }
-
-    function test_v03_tuneBounds() public {
-        DiscipleHook.Tune memory t = _v02Tune();
-        t.edgeBps = 501;
-        _bad(t);
-        t = _v02Tune();
-        t.lamPpm = 4999;
-        _bad(t);
-        t.lamPpm = 250_001;
-        _bad(t);
-        t = _v02Tune();
-        t.tipBps = 9999;
-        _bad(t);
-        t.tipBps = 15_001;
-        _bad(t);
-        t = _v02Tune();
-        t.skimBps = 2001;
-        _bad(t);
-        // the bounds themselves are allowed
-        _make(DiscipleHook.Tune({edgeBps: 500, lamPpm: 5000, tipBps: 10_000, skimBps: 0}));
-        _make(DiscipleHook.Tune({edgeBps: 0, lamPpm: 250_000, tipBps: 15_000, skimBps: 2000}));
-    }
-
-    function test_v03_tunedEventAtCreate() public {
-        DiscipleHook.Tune memory t = DiscipleHook.Tune({edgeBps: 20, lamPpm: 20_000, tipBps: 10_500, skimBps: 300});
-        vm.recordLogs();
-        (, PoolId id) = _make(t);
-        bool seen;
-        bytes32 sig = keccak256("Tuned(bytes32,uint16,uint32,uint16,uint16)");
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        for (uint256 i; i < logs.length; i++) {
-            if (logs[i].topics[0] == sig && logs[i].topics[1] == PoolId.unwrap(id)) {
-                (uint16 e, uint32 l, uint16 tp, uint16 sk) = abi.decode(logs[i].data, (uint16, uint32, uint16, uint16));
-                assertEq(e, 20);
-                assertEq(l, 20_000);
-                assertEq(tp, 10_500);
-                assertEq(sk, 300);
-                seen = true;
-            }
+    function test_v03_onlyTheFourFees() public {
+        uint24[4] memory ok = [uint24(2500), 5000, 10_000, 20_000];
+        for (uint256 i; i < 4; i++) {
+            hook.createPool(_params(ok[i]));
         }
-        assertTrue(seen, "Tuned emitted");
-    }
-
-    /// A flatter curve (lower lam) moves less on a one-way buy, so the same buy gets more coin.
-    function test_v03_flatterCurveGivesMoreOnABigBuy() public {
-        DiscipleHook.Tune memory t = _v02Tune();
-        (PoolKey memory k5,) = _make(t);
-        t.lamPpm = 20_000;
-        (PoolKey memory k2,) = _make(t);
-        _nextBlock();
-        bool c0 = Currency.unwrap(k5.currency0) == address(coin);
-        BalanceDelta d5 = _swap(k5, true, -int256(300e18));
-        BalanceDelta d2 = _swap(k2, true, -int256(300e18));
-        uint256 o5 = uint256(int256(c0 ? d5.amount0() : d5.amount1()));
-        uint256 o2 = uint256(int256(c0 ? d2.amount0() : d2.amount1()));
-        assertGt(o2, o5, "flatter: more coin for the same quote");
-    }
-
-    /// While the anchor trails a rising leader the fill sits on the leader's bound; a wider edge lets it go further
-    /// inside the leader's ask (never past its bid).
-    function test_v03_widerEdgeFillsFurtherInsideTheLeader() public {
-        DiscipleHook.Tune memory t = _v02Tune();
-        (PoolKey memory k1,) = _make(t);
-        t.edgeBps = 50;
-        (PoolKey memory k50,) = _make(t);
-        pair.set(1_000_000e18, 2_018_000e18); // +0.9%: both anchors trail
-        _nextBlock();
-        bool c0 = Currency.unwrap(k1.currency0) == address(coin);
-        BalanceDelta d1 = _swap(k1, true, -int256(10e18));
-        BalanceDelta d50 = _swap(k50, true, -int256(10e18));
-        uint256 o1 = uint256(int256(c0 ? d1.amount0() : d1.amount1()));
-        uint256 o50 = uint256(int256(c0 ? d50.amount0() : d50.amount1()));
-        assertGt(o50, o1, "wider edge: a better price for the buyer");
-        // still not below the leader's bid: 10 quote buys at most 10 / (2.018 * 0.997) coin
-        assertLe(o50, uint256(10e18) * 1e6 * 1e6 / (2_018_000 * 997_000));
-    }
-
-    /// skim 0: trading never fills the jar.
-    function test_v03_zeroSkimLeavesTheJarEmpty() public {
-        vm.fee(0.01 gwei);
-        DiscipleHook.Tune memory t = _v02Tune();
-        t.skimBps = 0;
-        (PoolKey memory key, PoolId id) = _make(t);
-        for (uint256 i; i < 5; i++) {
-            _nextBlock();
-            uint256 c0 = coin.balanceOf(address(this));
-            _swap(key, true, -int256(100e18));
-            _nextBlock();
-            _swap(key, false, -int256(coin.balanceOf(address(this)) - c0));
+        uint24[7] memory bad = [uint24(0), 1, 2499, 3000, 9999, 20_001, 100_000];
+        for (uint256 i; i < 7; i++) {
+            DiscipleHook.CreateParams memory cp = _params(bad[i]);
+            vm.expectRevert(DiscipleHook.BadParams.selector);
+            hook.createPool(cp);
         }
+    }
+
+    /// The fixed settings land in every pool: edge 1bp, flatness 0.05, tip 1.05x (skim 6%: the jar tests).
+    function test_v03_fixedSettingsStored() public {
+        (, PoolId id) = hook.createPool(_params(5000));
+        // Pool slot 0 packs: exists, coinIs0, fee (uint24), coin, edgeBps, tipBps; see DiscipleHook.Pool
+        uint256 base = uint256(keccak256(abi.encode(PoolId.unwrap(id), uint256(1))));
+        uint256 s0 = uint256(vm.load(address(hook), bytes32(base)));
+        uint256 s1 = uint256(vm.load(address(hook), bytes32(base + 1)));
+        assertEq(uint24(s0 >> 32), 5000, "fee");
+        assertEq(uint16(s0 >> 216), 1, "edge 1bp");
+        assertEq(uint16(s0 >> 232), 10_500, "tip 1.05x");
+        assertEq(uint32(s1 >> 160), 50_000, "flatness 0.05");
+    }
+
+    /// A lower fee gives the buyer more coin for the same quote, at the same centre.
+    function test_v03_lowerFeeGivesMore() public {
+        (PoolKey memory kLo,) = hook.createPool(_params(2500));
+        (PoolKey memory kHi,) = hook.createPool(_params(20_000));
         _nextBlock();
-        _swap(key, true, -int256(1e12));
-        DiscipleHook.PoolView memory v = hook.poolState(id);
-        assertEq(v.jarX + v.jarY, 0);
+        bool c0 = Currency.unwrap(kLo.currency0) == address(coin);
+        BalanceDelta dLo = _swap(kLo, true, -int256(10e18));
+        BalanceDelta dHi = _swap(kHi, true, -int256(10e18));
+        uint256 oLo = uint256(int256(c0 ? dLo.amount0() : dLo.amount1()));
+        uint256 oHi = uint256(int256(c0 ? dHi.amount0() : dHi.amount1()));
+        assertGt(oLo, oHi);
     }
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {_noKey, _v02Tune} from "./NoKey.sol";
+import {_noKey} from "./NoKey.sol";
 import {Test, Vm} from "forge-std/Test.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -327,13 +327,12 @@ contract PushForkReverseTest is Test {
             DiscipleHook.CreateParams({
                 coin: address(coin),
                 quote: address(quote),
-                fee: 3000,
+                fee: 2500,
                 src: s,
                 coinIn: 1e24,
                 quoteIn: 1e20,
                 srcKey: _noKey(),
-                srcKey2: _noKey(),
-                tune: _v02Tune()
+                srcKey2: _noKey()
             })
         );
         quoteOf[PoolId.unwrap(id)] = address(quote);

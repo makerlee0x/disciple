@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {_noKey, _v02Tune} from "./NoKey.sol";
+import {_noKey} from "./NoKey.sol";
 import {Test, Vm} from "forge-std/Test.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -229,13 +229,12 @@ contract PushForkTest is Test {
             DiscipleHook.CreateParams({
                 coin: address(coin),
                 quote: address(quote),
-                fee: 3000,
+                fee: 2500,
                 src: s,
                 coinIn: 1000e18,
                 quoteIn: 1e29,
                 srcKey: _noKey(),
-                srcKey2: _noKey(),
-                tune: _v02Tune()
+                srcKey2: _noKey()
             })
         );
         hook.fundJar(pid, 0, 1 ether); // keeper tips come from the pool's jar
