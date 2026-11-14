@@ -14,12 +14,12 @@ export function nameColor(addr: string) {
 /** Chat display for bomb tiers (names/colours unchanged). WHICH tier = lib/flight/bombTier (engine rule + shared
  *  lib/config thresholds, impact-based); `min` is in bps (= BOMB_PCT × 100, same as docs/bombs.md). */
 export const BOMB_TIERS = [
-  { name: "ATOM", min: BOMB_PCT.ATOM * 100, color: "#ff3b6b", idx: 5 }, { name: "NUKE", min: BOMB_PCT.NUKE * 100, color: "#ff6b3b", idx: 4 },
-  { name: "CRUISE", min: BOMB_PCT.CRUISE * 100, color: "#ffa04a", idx: 3 }, { name: "BUNKER", min: BOMB_PCT.BUNKER * 100, color: "#ffc46b", idx: 2 },
-  { name: "GRENADE", min: BOMB_PCT.GRENADE * 100, color: "#ffd98a", idx: 1 },
+  { name: "NUKE", min: BOMB_PCT.ATOM * 100, color: "#ff3b6b", idx: 5 }, { name: "ATOM BOMB", min: BOMB_PCT.NUKE * 100, color: "#ff6b3b", idx: 4 },
+  { name: "MOAB", min: BOMB_PCT.CRUISE * 100, color: "#ffa04a", idx: 3 }, { name: "WARHEAD", min: BOMB_PCT.BUNKER * 100, color: "#ffc46b", idx: 2 },
+  { name: "BUNKER BUSTER", min: BOMB_PCT.GRENADE * 100, color: "#ffd98a", idx: 1 },
 ] as const;
 /** Chat bomb row for a sell: same tier as the in-game blast. Accepts the event meta (impactPct / prePrice+postPrice /
- *  impactBps, engine precedence) or a bare impactBps number. PUFF (<2 %) or no impact data → null (plain sell row). */
+ *  impactBps, engine precedence) or a bare impactBps number. the GRENADE slot (<2 %, key puff) or no impact data → null (plain sell row). */
 export function bombTier(x: number | ImpactInput | null | undefined) {
   const pct = typeof x === "number" ? Math.abs(x) / 100 : impactPctOf(x);
   if (pct == null) return null;

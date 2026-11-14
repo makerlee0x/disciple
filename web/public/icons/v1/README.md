@@ -18,6 +18,6 @@ Icons use `stroke/fill="currentColor"`, so set color with CSS `color`. They inhe
 16, 20 and 24px (24 is native). Larger sizes are fine for display use. Don't change the stroke width.
 
 ## Bomb tiers
-`bomb-puff`, `bomb-grenade`, `bomb-bunker`, `bomb-cruise`, `bomb-nuke`, `bomb-atom`. Tier is set purely by price impact: PUFF <2% · GRENADE 2–5% · BUNKER 5–12% · CRUISE 12–25% · NUKE 25–50% · ATOM ≥50%.
+`bomb-puff`, `bomb-grenade`, `bomb-bunker`, `bomb-cruise`, `bomb-nuke`, `bomb-atom`. Shown names (2026-11-14): GRENADE <2% · BUNKER BUSTER 2–5% · WARHEAD 5–12% · MOAB 12–25% · ATOM BOMB 25–50% · NUKE ≥50% (icon ids keep the old keys). Old: PUFF <2% · GRENADE 2–5% · BUNKER 5–12% · CRUISE 12–25% · NUKE 25–50% · ATOM ≥50%.
 Orb meter `meter-orbs-N` (N = tier 1–6): 6 orbs, reached = solid, unreached = thin outline. The artwork is 40×16 (viewBox 0 0 40 16); set it at 16px height in-line after the bomb icon, width 40px.
 Generic `bomb` and `nuke` remain for non-tier use.

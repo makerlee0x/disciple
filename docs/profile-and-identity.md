@@ -89,7 +89,7 @@ Unmatched pilots fall back to **Normie**.
 
 44 framed trophies in Flight, Crew, Bombs, Conviction, Launcher, Trencher, Seasonal. Rarity frames: Common → Blessed → Anointed → Glorified → Divine. States: locked / in-progress / unlocked. Season pass XP track at top of `/achievements`.
 
-Bomb impact tiers: Puff <2%, Grenade ≥2%, Bunker ≥5%, Cruise ≥12%, Nuke ≥25%, Atom ≥50%.
+Bomb impact tiers: Grenade <2%, Bunker Buster ≥2%, Warhead ≥5%, MOAB ≥12%, Atom Bomb ≥25%, Nuke ≥50%.
 
 ## Demo personas
 

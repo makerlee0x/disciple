@@ -16,12 +16,12 @@ if (F.nameColor(a) !== F.nameColor(a.toUpperCase().replace("0X", "0x"))) bad("co
 const cols = new Set(Array.from({ length: 50 }, (_, i) => F.nameColor("0x" + i.toString(16).padStart(40, "0")))); if (cols.size < 35) bad(`colours collide (${cols.size}/50)`);
 const doc = fs.readFileSync(path.join(dir, "../../docs/bombs.md"), "utf8");
 for (const t of F.BOMB_TIERS) { const m = doc.match(new RegExp(`\\|\\s*${t.name}\\s*\\|[^|]*\\|\\s*(?:≥\\s*)?(\\d+)`)); if (!m || +m[1] !== t.min) bad(`${t.name} threshold ${t.min} ≠ docs/bombs.md ${m && m[1]}`); }
-const cases = [[199, null], [200, "GRENADE"], [-499, "GRENADE"], [-500, "BUNKER"], [1200, "CRUISE"], [-2500, "NUKE"], [-4999, "NUKE"], [-5000, "ATOM"]];
+const cases = [[199, null], [200, "BUNKER BUSTER"], [-499, "BUNKER BUSTER"], [-500, "WARHEAD"], [1200, "MOAB"], [-2500, "ATOM BOMB"], [-4999, "ATOM BOMB"], [-5000, "NUKE"]];
 for (const [b, n] of cases) { const t = F.bombTier(b); if ((t ? t.name : null) !== n) bad(`bombTier(${b}) = ${t && t.name}, want ${n}`); }
 const ev = (i, side, bps, ts, usd = 10) => ({ id: String(i).padStart(6, "0"), coin: "c", kind: "event", from: null, text: "", ts, meta: { event: side, usd, impactBps: side === "buy" ? bps : -bps } });
 let rows = F.appendRows([], [ev(1, "buy", 10, 0), ev(2, "buy", 10, 500), ev(3, "buy", 10, 900), ev(4, "sell", 10, 1000), ev(5, "sell", 3000, 1100), ev(6, "sell", 10, 1200), ev(7, "buy", 10, 9000)]);
 const shape = rows.map((r) => (r.group ? `${r.group.side}×${r.group.n}` : r.msg.meta.event + (F.bombTier(r.msg.meta.impactBps) ? "!" : ""))).join(" ");
-if (shape !== "buy×3 sell sell! sell buy") bad(`grouping: ${shape}`); else console.log(`grouping: ${shape} (3 small buys folded; NUKE stays standalone; gap > 2.5 s splits)`);
+if (shape !== "buy×3 sell sell! sell buy") bad(`grouping: ${shape}`); else console.log(`grouping: ${shape} (3 small buys folded; big bomb stays standalone; gap > 2.5 s splits)`);
 if (rows[0].group.usd !== 30) bad("group usd");
 rows = F.appendRows([], Array.from({ length: 500 }, (_, i) => ({ id: String(i).padStart(6, "0"), coin: "c", kind: "user", from: { addr: a }, text: "x", ts: i })));
 if (rows.length !== 200 || rows[199].msg.id !== "000499") bad("row cap");
@@ -48,8 +48,8 @@ if (JSON.stringify(parts.map((p) => p.t === "emote" ? p.code : p.v)) !== JSON.st
     const ei = eng.bombTierOf(engPct), bi = B.bombTierIndex(B.impactPctOf(t)), ct = F.bombTier(t), ci = ct ? ct.idx : 0;
     if (ei !== bi || ei !== ci) bad(`tier mismatch for ${JSON.stringify(t)}: engine ${ei}, lib ${bi}, chat ${ci}`); else n++;
   }
-  if (F.bombTier(-3000) !== F.BOMB_TIERS.find((t) => t.name === "NUKE") || F.bombTier({ usd: 9999 }) !== null) bad("bombTier: bare bps / no-impact handling");
-  if (F.bombTier({ prePrice: 2e-6, postPrice: 1e-6, impactBps: -300 }).name !== "ATOM") bad("pre/post price must win over impactBps (engine precedence)");
+  if (F.bombTier(-3000) !== F.BOMB_TIERS.find((t) => t.name === "ATOM BOMB") || F.bombTier({ usd: 9999 }) !== null) bad("bombTier: bare bps / no-impact handling");
+  if (F.bombTier({ prePrice: 2e-6, postPrice: 1e-6, impactBps: -300 }).name !== "NUKE") bad("pre/post price must win over impactBps (engine precedence)");
   console.log(`chat tier == engine tier: ${n}/${trades.length} trades (impactPct · pre/post price · impactBps; big-$ low-impact stays small)`);
 }
 fs.rmSync(tmp, { recursive: true, force: true });

@@ -30,7 +30,7 @@ export default function Icon({ name, size = 20, label, className, style }: Props
 }
 
 /**
- * Bomb-tier orb meter (tier 1–6 = PUFF…ATOM), 40×16 at 16px height. Same geometry as the sprite's meter-orbs-N,
+ * Bomb-tier orb meter (tier 1–6 = GRENADE…NUKE; keys puff…atom), 40×16 at 16px height. Same geometry as the sprite's meter-orbs-N,
  * drawn inline so the brand v2 tokens apply: reached orbs = --dsc-bomb-meter-fill, unreached = --dsc-bomb-meter-track
  * (see .orb-meter in globals.css). Pair it with the bomb icon + name; never color alone.
  */

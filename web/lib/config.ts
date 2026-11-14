@@ -70,7 +70,9 @@ export const MODES = [
  *  (keeper close after a full cross); cancelled or partly filled orders earn 0. Live, paper/mock and SIMULATOR. */
 export const TRAMP_WALL_POINTS_PER_USD = 1;
 
-/** Sell bomb tiers by price impact % (constitution LOCKED) */
+/** Sell bomb tiers by price impact % (constitution LOCKED). The thresholds keep their old constant names; the names
+ *  players see were renamed and shifted one slot (maker 2026-11-14): GRENADE <2 · BUNKER BUSTER 2 · WARHEAD 5 · MOAB 12 ·
+ *  ATOM BOMB 25 · NUKE ≥50 %. Keys (k) stay as they were so CSS tokens, icons and stored ids don't move. */
 export const BOMB_PCT = {
   GRENADE: 2,
   BUNKER: 5,
@@ -80,12 +82,12 @@ export const BOMB_PCT = {
 } as const;
 
 export const BOMB_TIERS = [
-  { k: "puff", name: "PUFF", min: 0 },
-  { k: "grenade", name: "GRENADE", min: BOMB_PCT.GRENADE },
-  { k: "bunker", name: "BUNKER BUSTER", min: BOMB_PCT.BUNKER },
-  { k: "cruise", name: "CRUISE MISSILE", min: BOMB_PCT.CRUISE },
-  { k: "nuke", name: "NUKE", min: BOMB_PCT.NUKE },
-  { k: "atom", name: "ATOM BOMB", min: BOMB_PCT.ATOM },
+  { k: "puff", name: "GRENADE", min: 0 },
+  { k: "grenade", name: "BUNKER BUSTER", min: BOMB_PCT.GRENADE },
+  { k: "bunker", name: "WARHEAD", min: BOMB_PCT.BUNKER },
+  { k: "cruise", name: "MOAB", min: BOMB_PCT.CRUISE },
+  { k: "nuke", name: "ATOM BOMB", min: BOMB_PCT.NUKE },
+  { k: "atom", name: "NUKE", min: BOMB_PCT.ATOM },
 ] as const;
 
 export const GAS = {
