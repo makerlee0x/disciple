@@ -84,6 +84,7 @@ export const QUICK_LAUNCH_COPY = {
   /** Under the fee cards when pool / burn can't be picked (private launch before PRIVATE_FEE_ROUTING_LIVE, or no harvest on this chain). */
   creatorFeesPrivateLater: "Private launches keep the creator fees for now.",
   creatorFeesNotHere: "Pool and burn aren't switched on here yet.",
+  creatorFeesNoBoost: "Pool and burn can't take a first boost yet. Launch without one, or keep the creator fees.",
   creatorFeesHelp: "You pick this when you launch. It applies only to this rocket, including private launches, and it cannot be changed later. It covers all creator fees, including any extra creator tax.",
   creatorFeesPending: "This choice will be available once the new contracts are live.",
   // Image rejected after a generated badge is in use (Oct 17 Quick Launch spec; not on the r4 boards).
@@ -186,6 +187,12 @@ export const CREATOR_FEE_DESTINATION_LIVE = true;
  * has it is deployed (mainnet deploy, or a testnet redeploy), then flip.
  */
 export const PRIVATE_FEE_ROUTING_LIVE = false;
+/**
+ * CreatorFeeHarvest.launchWithUsdg reverts when usdgIn > 0 on the deployed harvest (audit CH-02: its leftover check
+ * reads the balance after the USDG swap, then underflows once the Launchpad pulls the First BOOST). Until a fixed
+ * harvest is deployed (fix in PR #371), pool / burn launches can't take a First BOOST paid in dollars. Flip with the redeploy.
+ */
+export const HARVEST_USDG_BOOST_LIVE = false;
 
 /** Can this launch send creator fees to the pool or the burn? Needs the flag(s) and a harvest address on this chain. */
 export function creatorFeeRoutingAvailable(o: { private?: boolean; harvest?: string | null }): boolean {

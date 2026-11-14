@@ -35,7 +35,7 @@ You can also give your creator fees away to the rocket itself. There are two cho
 
 You pick this when you launch, and it can't be changed later, even if you hand off the rocket. Trades still build up your share as usual. Every so often DISCIPLE sends what has built up to the pool or the burn, and anyone can trigger that send on-chain too. Rewards shows these rockets with nothing to claim, and says where the fees go.
 
-Private launches keep the creator fees for now.
+Private launches keep the creator fees for now, and a rocket that sends its fees to the pool or the burn launches without a first boost for now.
 
 ## Hand-offs
 

@@ -20,6 +20,7 @@ import {
 } from "viem";
 import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
 import { creatorFeeHarvestAbi, routesThroughHarvest } from "./creatorFeeHarvest";
+import { HARVEST_USDG_BOOST_LIVE, QUICK_LAUNCH_COPY } from "./quickLaunch";
 import { readCoinMcap } from "./mcap";
 import { fillBook, readAtOrAfter } from "./fillBook";
 import { NETWORK_MSG, NO_PRICE_MSG, PENDING_MSG, REJECTED_MSG, isTransportError, logTradeError, plainText } from "./aa/relayOp";
@@ -1228,6 +1229,8 @@ export function createViemProtocol(): ProtocolClient {
       const feeDest = routesThroughHarvest(lp.creatorFeeDestination) ? lp.creatorFeeDestination : undefined;
       const harvest = feeDest ? deployment().creatorFeeHarvest : undefined;
       if (feeDest && (!harvest || harvest === ZERO_ADDRESS)) throw new ProtocolError("NotDeployed", "Sending creator fees to the pool or the burn isn't available on this network yet.");
+      // Deployed harvest's launchWithUsdg reverts when usdgIn > 0 (audit CH-02): refuse before anything is signed.
+      if (feeDest && !lp.private && usdgIn > B(0) && !HARVEST_USDG_BOOST_LIVE) throw new ProtocolError("LaunchFailed", QUICK_LAUNCH_COPY.creatorFeesNoBoost);
       const params = {
         name: lp.name, ticker: lp.ticker, imageURI: lp.imageUri,
         description: lp.description || "", socialsURI: lp.socials ? JSON.stringify(lp.socials) : "",
