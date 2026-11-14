@@ -1512,6 +1512,11 @@ function altAtY(y){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); return ba
    sky is the lobby's photo plate for the current zone (public/home/sky/tN.webp), cover-cropped, one plate at a time with a
    1.2 s cross-fade when you change zone, soft drifting clouds instead of the pixel cel clouds, and no wingman ships. */
 const PH_THR=()=>!!(window.__phoneHud&&window.__phoneHud.thr);
+/* phone throttle layout (maker 2026-11-14: "a lot of overlap with the tier and boost popups"): the open sky that big
+   moments may use. Top = just under the crew feed pill (feedTop + 44); x = between the icon column (64) and the screen edge
+   mirrored, so a card or label never runs under the side buttons, the chart card or the pill. null off the phone layout. */
+function phBand(){ const p=window.__phoneHud; if(!p||!p.thr) return null; const top=(p.feedTop!=null?p.feedTop:(p.toastTop||284)-96)+44; return {top, x0:64, x1:W-64}; }
+function phCardBusy(){ return S.tierBanner>0||(S.orbitFx!=null&&S.t-S.orbitFx<4.5); }   // zone / orbit card on screen: bomb labels sit under it
 const PHS={img:{}, cur:-1, prev:-1, fade:1, t:-1, clouds:null};
 function phSkyImg(i){ let im=PHS.img[i]; if(!im){ im=new Image(); im.decoding='async'; im.onerror=()=>{ im.bad=true; }; im.src=(window.__DISCIPLE_BASE_PATH__||'')+'/home/sky/t'+i+'.webp'; PHS.img[i]=im; }
   return !im.bad&&im.complete&&im.naturalWidth>0?im:null; }
@@ -1785,8 +1790,12 @@ function drawLevels(){
   // tier boundary lines
   for (let k=Math.floor(S.displayAlt)-1;k<=Math.floor(S.displayAlt)+2;k++){
     if(k<1||k>=TIERS.length) continue; const y=altToScreenY(k); if(y<-20||y>H+20) continue;
-    ctx.save(); ctx.strokeStyle='rgba(255,236,190,.55)'; ctx.setLineDash([2,10]); ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
-    ctx.setLineDash([]); ctx.fillStyle='rgba(255,236,190,.9)'; ctx.font='bold 13px ui-monospace,monospace'; ctx.fillText('▲ '+TIERS[k].name+'  '+fmtUsd(TIERS[k].lo),SAFE_LEFT,Math.max(HUD_BOTTOM+18,y-8)); ctx.restore();
+    const PB=phBand();   /* phone: the line and its label stay in the open sky (not under the icon column, chart card or lever) */
+    ctx.save(); ctx.strokeStyle='rgba(255,236,190,.55)'; ctx.setLineDash([2,10]); ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(PB?PB.x0:0,y); ctx.lineTo(PB?W-150:W,y); ctx.stroke();
+    ctx.setLineDash([]); ctx.fillStyle='rgba(255,236,190,.9)';
+    if(PB){ if(y-8>PB.top){ ctx.font=GF(13,700); if('letterSpacing' in ctx) ctx.letterSpacing='1px'; ctx.fillText('▲ '+TIERS[k].name+'  '+fmtUsd(TIERS[k].lo),PB.x0+4,y-8); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; } }
+    else { ctx.font='bold 13px ui-monospace,monospace'; ctx.fillText('▲ '+TIERS[k].name+'  '+fmtUsd(TIERS[k].lo),SAFE_LEFT,Math.max(HUD_BOTTOM+18,y-8)); }
+    ctx.restore();
   }
   // order-book levels are no longer drawn; only tramp/wall positions render (drawTrampWalls).
 }
@@ -2589,7 +2598,8 @@ function drawBombScreen(){ // un-shaken overlays: flash + label pops
     const fs=[15,17,20,24,30,38][l.tier]; ctx.save(); ctx.globalAlpha=a; ctx.font=GF(fs,800); ctx.textAlign='center';
     // tier icon (DISCIPLE bomb family) + 6-orb tier meter (reached = solid) lead the label; text unchanged
     const tw=ctx.measureText(l.txt).width, ih=Math.round(fs*1.15), mh=Math.round(Math.max(12,fs*0.8)), iw=ih, mw=iconW('meter-orbs-1',mh), gap=Math.round(fs*0.3), lead=iw+gap+mw+gap*1.4;
-    const w=tw+lead, fit=Math.min(1,(W-40)/(w+24)), lx=clamp(l.x,Math.min(W/2,w*fit/2+20),Math.max(W/2,W-w*fit/2-20)), ly=clamp(l.y-90-l.age*18-(l.tier>=5?120:0),BANNER_Y+50,H-30);
+    const PB=phBand(), w=tw+lead, fit=Math.min(1,(PB?(PB.x1-PB.x0)/1.15:W-40)/(w+24)), lx=PB?W/2:clamp(l.x,Math.min(W/2,w*fit/2+20),Math.max(W/2,W-w*fit/2-20)),
+      ly=clamp(l.y-90-l.age*18-(l.tier>=5?120:0),PB?PB.top+(phCardBusy()?64:0)+fs*0.95*pop*fit+4:BANNER_Y+50,H-30);   /* phone: centred in the open sky, under the feed pill (and under a zone card) */
     ctx.translate(lx,ly); ctx.scale(pop*fit,pop*fit);   /* fit: never wider than the screen (phone: ATOM BOMB ran off the edge) */
     ctx.fillStyle='rgba(10,8,20,.62)'; ctx.beginPath(); ctx.roundRect?ctx.roundRect(-w/2-12,-fs*0.95,w+24,fs*1.45,8):ctx.rect(-w/2-12,-fs*0.95,w+24,fs*1.45); ctx.fill();
     const col=l.tier>=5?'#fffdf2':'#ffd77a', cy=-fs*0.95+fs*1.45/2, x0=-w/2;
@@ -3002,28 +3012,29 @@ function tierLineEnd(ti){ ctx.save(); ctx.font=GF(20,700); const e=36+ctx.measur
 function startOrbitFx(){ S.orbitFx=S.t; S.tierBanner=0; S.screenFlash={t0:S.t,dur:1.1,a:0.7,c:'255,246,220'}; sfx('orbit'); haptic([20,40,60]);
   try{ dispatchEvent(new CustomEvent('disciple:orbit',{detail:{at:Date.now()}})); }catch(_){} }
 function drawOrbitCard(){ const age=S.orbitFx!=null?S.t-S.orbitFx:99; if(age>4.5) return;
-  const a=clamp(age/0.3,0,1)*clamp((4.5-age)/0.8,0,1), BY=BANNER_Y+20;
+  const a=clamp(age/0.3,0,1)*clamp((4.5-age)/0.8,0,1), PB=phBand(), BY=PB?PB.top+52:BANNER_Y+20;
   ctx.save();
   { const u=clamp(age/1.6,0,1); ctx.globalAlpha=0.8*(1-u); ctx.strokeStyle='#F2C14E'; ctx.lineWidth=3*(1-u)+1; ctx.beginPath(); ctx.arc(S.x,S.ry,30+Math.max(W,H)*0.6*u,0,6.2832); ctx.stroke();
     ctx.globalAlpha=0.5*(1-u); ctx.strokeStyle='#FFF6DC'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(S.x,S.ry,20+Math.max(W,H)*0.42*u,0,6.2832); ctx.stroke(); }
   ctx.globalAlpha=a; ctx.textAlign='center';
-  let fs=Math.min(110,Math.max(52,W*0.1)); ctx.font=GF(fs,800); while(ctx.measureText('IN ORBIT').width>W-48&&fs>30){ fs-=4; ctx.font=GF(fs,800); }
-  ctx.font=GF(17,700); ctx.fillStyle='#F2C14E'; if('letterSpacing' in ctx) ctx.letterSpacing='5px'; ctx.fillText('GRADUATED',W/2,BY-fs*0.8-14); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.font=GF(fs,800);
-  ctx.fillStyle='#FFFFFF'; glowText('IN ORBIT',W/2,BY+(1-clamp(age/0.4,0,1))*18,'rgb(242,193,78)',18,0.32);
-  ctx.font=GF(18,600); ctx.fillStyle='rgba(243,223,168,.92)'; ctx.fillText('Caps off. Keep climbing.',W/2,BY+40);
+  let fs=PB?40:Math.min(110,Math.max(52,W*0.1)); ctx.font=GF(fs,800); while(ctx.measureText('IN ORBIT').width>(PB?PB.x1-PB.x0:W-48)&&fs>30){ fs-=4; ctx.font=GF(fs,800); }
+  ctx.font=GF(PB?13:17,700); ctx.fillStyle='#F2C14E'; if('letterSpacing' in ctx) ctx.letterSpacing=PB?'3px':'5px'; ctx.fillText('GRADUATED',W/2,PB?PB.top+12:BY-fs*0.8-14); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.font=GF(fs,800);
+  ctx.fillStyle='#FFFFFF'; glowText('IN ORBIT',W/2,BY+(1-clamp(age/0.4,0,1))*(PB?8:18),'rgb(242,193,78)',PB?12:18,0.32);
+  ctx.font=GF(PB?14:18,600); ctx.fillStyle='rgba(243,223,168,.92)'; ctx.fillText('Caps off. Keep climbing.',W/2,BY+(PB?20:40));
   ctx.restore(); }
 /* ZONE ARRIVAL CARD (phase 1): a game location reveal on every zone change, Barlow Condensed. A climb gets the gold
    kicker 'ZONE 06 / 18', a rule that draws out, a sound sting and a soft gold wash from the top (drawPost); a drop reads
    'DROPPED TO' in the dump colour, no sting. S.tierBanner counts down from 2.2 s (simStep). */
 function drawZoneCard(){ const k=S.tierShown, bn=tierName(k); if(!bn) return;
-  const age=2.2-S.tierBanner, inA=clamp(age/0.25,0,1), a=Math.min(inA,clamp(S.tierBanner/0.6,0,1)), up=S.tierUp!==false, BY=BANNER_Y+10;
+  const age=2.2-S.tierBanner, inA=clamp(age/0.25,0,1), a=Math.min(inA,clamp(S.tierBanner/0.6,0,1)), up=S.tierUp!==false, PB=phBand(), BY=PB?PB.top+48:BANNER_Y+10;
   ctx.save(); ctx.globalAlpha=a; ctx.textAlign='center';
-  const kick=up?`ZONE ${String(k+1).padStart(2,'0')} / ${TIERS.length}`:'DROPPED TO';
-  let fs=Math.min(84,Math.max(40,W*0.075)); ctx.font=GF(fs,800); while(ctx.measureText(bn).width>W-48&&fs>26){ fs-=4; ctx.font=GF(fs,800); }
-  ctx.font=GF(17,700); ctx.fillStyle=up?'#F2C14E':'#F0307F'; if('letterSpacing' in ctx) ctx.letterSpacing='4px'; ctx.fillText(kick,W/2,BY-fs*0.8-12); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.font=GF(fs,800);
-  const rise=(1-inA)*14; ctx.fillStyle='#FFFFFF'; glowText(bn,W/2,BY+rise,up?'rgb(242,193,78)':'rgb(240,48,127)',14,0.28);
-  const rw=Math.min(W-80,ctx.measureText(bn).width)*clamp(age/0.6,0,1); ctx.fillStyle=up?'rgba(243,223,168,.8)':'rgba(240,48,127,.7)'; ctx.fillRect(W/2-rw/2,BY+16,rw,2);
-  ctx.font=GF(16,600); ctx.fillStyle='rgba(215,217,228,.85)'; ctx.fillText(fmtUsd(TIERS[k].lo)+' ALTITUDE',W/2,BY+40);
+  /* phone: a compact two-line card in the open sky under the feed pill; the altitude joins the kicker so the card stays clear of the rocket */
+  const kick=(up?`ZONE ${String(k+1).padStart(2,'0')} / ${TIERS.length}`:'DROPPED TO')+(PB?' · '+fmtUsd(TIERS[k].lo):'');
+  let fs=PB?36:Math.min(84,Math.max(40,W*0.075)); ctx.font=GF(fs,800); while(ctx.measureText(bn).width>(PB?PB.x1-PB.x0:W-48)&&fs>26){ fs-=4; ctx.font=GF(fs,800); }
+  ctx.font=GF(PB?13:17,700); ctx.fillStyle=up?'#F2C14E':'#F0307F'; if('letterSpacing' in ctx) ctx.letterSpacing=PB?'3px':'4px'; ctx.fillText(kick,W/2,PB?PB.top+12:BY-fs*0.8-12); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.font=GF(fs,800);
+  const rise=(1-inA)*(PB?8:14); ctx.fillStyle='#FFFFFF'; glowText(bn,W/2,BY+rise,up?'rgb(242,193,78)':'rgb(240,48,127)',14,0.28);
+  const rw=Math.min(W-80,ctx.measureText(bn).width)*clamp(age/0.6,0,1); ctx.fillStyle=up?'rgba(243,223,168,.8)':'rgba(240,48,127,.7)'; ctx.fillRect(W/2-rw/2,BY+(PB?8:16),rw,2);
+  if(!PB){ ctx.font=GF(16,600); ctx.fillStyle='rgba(215,217,228,.85)'; ctx.fillText(fmtUsd(TIERS[k].lo)+' ALTITUDE',W/2,BY+40); }
   ctx.restore(); }
 /* @tier-name — ONE tier label for the sky, used by the desktop HUD, the phone pill and the tier banner: the tier NAME only,
    never a number (lee, Oct 30: "LAUNCH PAD", never "Tier 0"), from the TIERS ladder. The sky follows the CURRENT price, no

@@ -134,7 +134,7 @@ export default function PhoneHud() {
     const vars: Record<string, number> = { top: L.top, "head-top": L.headTop, "feed-top": L.feedTop, "radio-top": L.radioTop, "pill-top": L.pillTop, "bar-bottom": L.barBottom,
       "bar-top": L.barTop, "d-top": L.dTop, bx: L.body.x, by: L.body.y, bw: L.body.w, bh: L.body.h };
     for (const [k, v] of Object.entries(vars)) de.style.setProperty(`--ph-${k}`, v + "px");
-    w.__phoneHud = { on: true, v2: true, thr: true, sheet, drawer: !!sheet, pillTop: L.toastTop, toastTop: L.toastTop, hudTop: L.pillTop, dTop: sheet ? L.dTop : 0, body: L.body };
+    w.__phoneHud = { on: true, v2: true, thr: true, sheet, drawer: !!sheet, pillTop: L.toastTop, toastTop: L.toastTop, feedTop: L.feedTop, hudTop: L.pillTop, dTop: sheet ? L.dTop : 0, body: L.body };
   }, [phone, L, sheet]);
   useEffect(() => () => { const de = document.documentElement; de.classList.remove("ap-phone"); delete de.dataset.phSheet; (window as unknown as { __phoneHud?: unknown }).__phoneHud = undefined; }, []);
 
