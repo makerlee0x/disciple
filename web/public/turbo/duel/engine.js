@@ -251,11 +251,16 @@ function mount(root,host){
     const w=cc.clientWidth,h=cc.clientHeight; if(!w) return; const d=Math.min(2,devicePixelRatio||1);
     if(cc.width!==Math.round(w*d)||cc.height!==Math.round(h*d)){cc.width=Math.round(w*d);cc.height=Math.round(h*d);}
     cx.setTransform(d,0,0,d,0,0); cx.clearRect(0,0,w,h);
-    const now=G.t, from=now-60000; const T0=G.ticks.findIndex(k=>k.t>=from); const pts=G.ticks.slice(Math.max(0,T0-1));
+    // the window starts where the price data does (after any long gap in the feed), so a short history fills the card
+    // instead of hugging the right edge; it grows to the last 60 s once there's that much
+    const now=G.t; let T0=G.ticks.findIndex(k=>k.t>=now-60000); if(T0<0) T0=G.ticks.length-1; T0=Math.max(0,T0);
+    for(let i=G.ticks.length-1;i>T0;i--) if(G.ticks[i].t-G.ticks[i-1].t>10000){ T0=i; break; }
+    const from=Math.max(now-60000,Math.min(G.ticks[T0].t,now-20000)), span=now-from;
+    const pts=G.ticks.slice(Math.max(0,T0-1));
     let lo=Infinity,hi=-Infinity; pts.forEach(k=>{lo=Math.min(lo,k.p);hi=Math.max(hi,k.p);});
     for(const pl of [G.me,G.bot]) if(pl.pos){lo=Math.min(lo,pl.pos.entry);hi=Math.max(hi,pl.pos.entry);}
     const pad=Math.max(4,(hi-lo)*.15); lo-=pad; hi+=pad;
-    const L=8,Rr=66,T=24,B=8, X=t=>L+Math.max(0,(t-from))/60000*(w-L-Rr), Y=p=>T+(1-(p-lo)/(hi-lo))*(h-T-B);
+    const L=8,Rr=66,T=24,B=8, X=t=>L+Math.max(0,(t-from))/span*(w-L-Rr), Y=p=>T+(1-(p-lo)/(hi-lo))*(h-T-B);
     const first=pts[0].p, lastp=G.price, up=lastp>=first, col=up?"95,240,160":"240,48,127";
     // grid
     cx.font="500 10px "+GU+",sans-serif"; cx.fillStyle="rgba(215,217,228,.6)"; cx.textAlign="left"; cx.textBaseline="middle";
@@ -263,7 +268,7 @@ function mount(root,host){
     for(let v=Math.ceil(lo/step)*step; v<hi; v+=step){const y=Y(v); cx.strokeStyle="rgba(255,255,255,.07)"; cx.setLineDash([3,5]); cx.beginPath(); cx.moveTo(L,y); cx.lineTo(w-Rr,y); cx.stroke(); cx.setLineDash([]); cx.fillText(Math.round(v).toLocaleString("en-US"),w-Rr+8,y);}
     // stepped line + area
     cx.beginPath(); let py=null;
-    pts.forEach((k,i)=>{const x=X(k.t),y=Y(k.p); if(!i){cx.moveTo(x,y);} else {cx.lineTo(x,py); cx.lineTo(x,y);} py=y;});
+    pts.forEach((k,i)=>{const x=X(k.t),y=Y(k.p); if(!i){cx.moveTo(L,y); cx.lineTo(x,y);} else {cx.lineTo(x,py); cx.lineTo(x,y);} py=y;});
     const lx=X(now), ly=Y(lastp); cx.lineTo(lx,ly);
     cx.lineWidth=2.5; cx.strokeStyle=`rgb(${col})`; cx.lineJoin="miter"; cx.stroke();
     cx.lineTo(lx,h); cx.lineTo(L,h); cx.closePath();
@@ -285,7 +290,7 @@ function mount(root,host){
     const tag=px(lastp); cx.font="800 15px "+GF+",sans-serif";
     const tw=Rr-6, ty=Math.max(T-4,Math.min(h-B-20,ly-10)); cx.fillStyle=`rgb(${col})`; cx.beginPath(); cx.roundRect?cx.roundRect(w-Rr+3,ty,tw,20,6):cx.rect(w-Rr+3,ty,tw,20); cx.fill();
     cx.fillStyle=up?"#0d2a1b":"#fff"; cx.textAlign="center"; cx.textBaseline="middle"; cx.fillText(tag,w-Rr+3+tw/2,ty+10.5);
-    const ch=(lastp-first); $("chLab").textContent=`BTC \u00b7 TICKS \u00b7 60S  ${ch>=0?"+":"\u2212"}$${Math.abs(ch).toFixed(1)}`;
+    const ch=(lastp-first); $("chLab").textContent=`BTC \u00b7 TICKS \u00b7 ${Math.round(span/1000)}S  ${ch>=0?"+":"\u2212"}$${Math.abs(ch).toFixed(1)}`;
   }
   function niceStep(r){const p=Math.pow(10,Math.floor(Math.log10(r)));const n=r/p;return (n<1.5?1:n<3.5?2:n<7.5?5:10)*p;}
   function toggleChart(){$("app").classList.toggle("big"); $("chart").setAttribute("aria-label",$("app").classList.contains("big")?"BTC tick chart. Tap to make it smaller.":"BTC tick chart, last 60 seconds. Tap to make it bigger.");}
