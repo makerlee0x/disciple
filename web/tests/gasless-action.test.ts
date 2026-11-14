@@ -7,10 +7,11 @@ import { DEPLOYMENTS } from "../lib/chains";
 import {
   ACTION_GAS, actionGas, blockedActionMessage, blockedCallsMessage, checkGaslessActionRequest,
   describeBlockedCall, encodeActionCall, isRelayableCall,
-  parseGaslessActionRequest, partitionRelayableCalls, transferTypedData, withdrawFeeRaw,
+  parseGaslessActionRequest, partitionRelayableCalls, actionFeeTypedDataOf, withdrawFeeRaw,
   type ActionCall, type GaslessActionRequest,
 } from "../lib/trade/gaslessAction";
 import { multicall3Abi } from "../lib/trade/gaslessWithdraw";
+import { forwarderAbi, hashCalls } from "../lib/trade/gaslessForwarder";
 import { curveFeeVaultAbi } from "../lib/claims/vault";
 import { unmarkedRate } from "../lib/server/usdgEthRate";
 import { rateFromEnv } from "../lib/server/usdgEthRate";
@@ -20,6 +21,7 @@ const feeTo = "0x00000000000000000000000000000000000000ee" as Address;
 const usdg = DEPLOYMENTS[46630].usdg;
 const launcher = "0x00000000000000000000000000000000000000aa" as Address;
 const NOW = 1_000_000;
+const FWD = "0x00000000000000000000000000000000000000F0" as Address;
 
 function claimCall(to = user.address): ActionCall {
   return {
@@ -93,7 +95,7 @@ describe("request + multicall shape", () => {
     const bad = parseGaslessActionRequest({ kind: "anonClaim", signer: user.address, calls: [pullCall()], fee: 0n, feeTo });
     expect(() => checkGaslessActionRequest(bad, { usdg, usdgDecimals: 6, nowSec: NOW, feeTo })).toThrow(/not a relayable/);
   });
-  it("fee=0 tramp pull encodes only the action; fee>0 prepends Permit2 transfer", async () => {
+  it("fee=0 tramp pull encodes only the action; fee>0 goes through forwarder.payFeeAndCall bound to the calls", async () => {
     const pull = parseGaslessActionRequest({ kind: "trampPull", signer: user.address, calls: [pullCall()], fee: 0n, feeTo });
     checkGaslessActionRequest(pull, { usdg, usdgDecimals: 6, nowSec: NOW, feeTo });
     const dec0 = decodeFunctionData({ abi: multicall3Abi, data: encodeActionCall(pull, usdg) });
@@ -102,16 +104,26 @@ describe("request + multicall shape", () => {
     const deadline = BigInt(NOW + 120);
     const fee = 5_750n;
     const feePermit = { permitted: { token: usdg, amount: fee }, nonce: 0n, deadline };
-    const feeSignature = await user.signTypedData(transferTypedData(46630, feePermit));
-    const who = await recoverTypedDataAddress({ ...transferTypedData(46630, feePermit), signature: feeSignature });
+    const calls = [claimCall()];
+    const feeSignature = await user.signTypedData(actionFeeTypedDataOf(46630, FWD, { fee, feeTo, calls, feePermit }));
+    const who = await recoverTypedDataAddress({ ...actionFeeTypedDataOf(46630, FWD, { fee, feeTo, calls, feePermit }), signature: feeSignature });
     expect(who.toLowerCase()).toBe(user.address.toLowerCase());
-    const q: GaslessActionRequest = { kind: "anonClaim", signer: user.address, calls: [claimCall()], fee, feeTo, feePermit, feeSignature };
+    // the fee signature does not cover other calls or another fee recipient
+    const other = await recoverTypedDataAddress({ ...actionFeeTypedDataOf(46630, FWD, { fee, feeTo, calls: [claimCall(feeTo)], feePermit }), signature: feeSignature });
+    expect(other.toLowerCase()).not.toBe(user.address.toLowerCase());
+    const q: GaslessActionRequest = { kind: "anonClaim", signer: user.address, calls, fee, feeTo, feePermit, feeSignature };
     checkGaslessActionRequest(q, { usdg, usdgDecimals: 6, nowSec: NOW, feeTo, minFee: fee });
-    const dec = decodeFunctionData({ abi: multicall3Abi, data: encodeActionCall(q, usdg) });
-    const targets = (dec.args[0] as unknown as { target: Address }[]).map((c) => c.target.toLowerCase());
-    expect(targets[0]).toBe("0x000000000022d473030f116ddee9f6b43ac78ba3"); // PERMIT2
-    expect(targets[1]).toBe(launcher.toLowerCase());
-    expect(encodeActionCall(q, usdg).startsWith("0x")).toBe(true);
+    expect(() => encodeActionCall(q, usdg)).toThrow(/aren't available/);
+    const dec = decodeFunctionData({ abi: multicall3Abi, data: encodeActionCall(q, usdg, FWD) });
+    const mc = dec.args[0] as unknown as { target: Address; callData: Hex }[];
+    expect(mc.map((c) => c.target.toLowerCase())).toEqual([FWD.toLowerCase()]);
+    const f = decodeFunctionData({ abi: forwarderAbi, data: mc[0].callData });
+    expect(f.functionName).toBe("payFeeAndCall");
+    const [, owner, witness, fwdCalls] = f.args as unknown as [unknown, Address, { fee: bigint; feeTo: Address; callsHash: Hex }, { target: Address; data: Hex }[]];
+    expect(owner.toLowerCase()).toBe(user.address.toLowerCase());
+    expect(witness.fee).toBe(fee);
+    expect(witness.callsHash).toBe(hashCalls(calls));
+    expect(fwdCalls.map((c) => c.target.toLowerCase())).toEqual([launcher.toLowerCase()]);
   });
   it("amount-style minFee refusal when the signed fee is below the live quote", () => {
     const q = parseGaslessActionRequest({ kind: "anonClaim", signer: user.address, calls: [claimCall()], fee: 1n, feeTo,

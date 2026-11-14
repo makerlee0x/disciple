@@ -27,13 +27,12 @@ Private launches stay in Trench mode. The player is the signed-in wallet (the sa
 
 1. The front end reads the live Trench cap (`Launchpad.firstBoostMaxBps` / `creatorBuyMaxBps` and `quoteCreatorBuy`) and refuses an amount over the cap. MAX fills the cap and never more than that. On a USDG-paired coin the dollar max is exact (1:1). On a swapped pair (the default STRATEGY pair) the dollar max is the reverse-quoted cap, haircut 1% so a live quote at the cap is not already over.
 2. The player signs one Permit2 witness. The signed amount is exactly `launchFee + usdgIn`, fixed up front. Every launch field is in the witness, including `refundTo = the player` and the AnonLauncher address. If Permit2 is not yet approved for USDG, a one-time EIP-2612 permit of USDG to Permit2 is included, the same way gasless trades and withdrawals do it.
-3. The website POSTs `disciple_gaslessAnonLaunch` to `/api/gasless`. The server checks the session wallet, the revoke / strike / blocklist gate, the live `launchFee` (it must still match what was signed), the witness signature, and the request rules. It then simulates the Multicall3 transaction from the relayer. Nothing is sent if simulation fails.
-4. The relayer submits one transaction to Multicall3:
-   1. Optional `USDG.permit(owner, Permit2, …)`.
-   2. `Permit2.permitWitnessTransferFrom`: pull exactly `launchFee + usdgIn` USDG from the player to Multicall3.
-   3. `USDG.approve(AnonLauncher, amount)` from Multicall3.
-   4. `AnonLauncher.launchAnonWithUsdg(..., refundTo = the player)`. AnonLauncher pulls the launch fee from Multicall3 to the treasury, pulls the First BOOST USDG from Multicall3, approves the trusted router, and calls `DiscipleRouter.launchWithUsdg` in Trench mode.
-   5. `USDG.approve(AnonLauncher, 0)` so no leftover allowance sits on Multicall3.
+3. The website POSTs `disciple_gaslessAnonLaunch` to `/api/gasless`. The server checks the session wallet, the revoke / strike / blocklist gate, the live `launchFee` (it must still match what was signed), the witness signature, and the request rules. It then simulates the relayer transaction (Multicall3 → GaslessForwarder). Nothing is sent if simulation fails.
+4. The relayer submits one `Multicall3.aggregate3` transaction (Multicall3 only batches; it is never a Permit2 spender):
+   1. Optional `USDG.permit(owner, Permit2, …)` (allowed to fail if someone already submitted it).
+   2. `GaslessForwarder.launchAnon(permit, owner, launch, signature)` (`contracts/src/addons/GaslessForwarder.sol`). The forwarder is the signed Permit2 spender. It calls `Permit2.permitWitnessTransferFrom` with the launch as the witness, pulling exactly `launchFee + usdgIn` to itself, approves the signed launcher (AnonLauncher, or CreatorFeeHarvest for pool / burn), calls `launchAnonWithUsdg(..., refundTo)` with the signed fields, resets the approval to 0, and sends anything left on it to the signed `refundTo`.
+
+   Until 2026-11-14 Multicall3 was the spender and the batch did the approve and launch itself. Nothing on-chain checked that those calls matched the signed witness, so anyone holding an unused signature could redeem it to their own address (Vercel finding "Public Multicall3 permits let observers redirect gasless withdrawals"). The forwarder closes that: it only ever pays what was signed, so anyone may submit a signature without being able to change it.
 5. Inside `launchWithUsdg`, the router swaps USDG to the pair token when needed (skipped when the pair is USDG), calls `Launchpad.launchFor(AnonLauncher, …)`, and if the buy is over the cap or the swap leaves unused pair token, it swaps that leftover back to USDG and sends the USDG to its caller (AnonLauncher).
 6. AnonLauncher then forwards every leftover USDG it holds above its prior balance to `refundTo` (the player). `address(0)` means `msg.sender`, so a direct call from the player's wallet still refunds the player. `refundTo` cannot be the launcher itself.
 7. AnonLauncher forwards bought coins to the stealth owner (or `buyRecipient`).
@@ -46,7 +45,7 @@ If any step reverts, the whole transaction reverts. The Permit2 transfer, the ap
 | --- | --- |
 | Simulation fails (bad signature, missing USDG, cap already exceeded at current price, slippage, fee too high, etc.) | Nothing is sent. The player's dollars do not move. |
 | The included transaction reverts | The whole Multicall3 batch reverts. The player's dollars do not move. The existing strike policy may strike the sender only when the revert is sender-caused, same as a gasless trade. |
-| First BOOST over the cap, but the tx is included (front end bypassed or the cap moved) | The curve fills only up to the cap. Unused USDG is refunded to the player (`refundTo`). Nothing stays on AnonLauncher or Multicall3. |
+| First BOOST over the cap, but the tx is included (front end bypassed or the cap moved) | The curve fills only up to the cap. Unused USDG is refunded to the player (`refundTo`). Nothing stays on AnonLauncher or the forwarder. |
 | Swap slippage / `minQuoteIn` | `DiscipleRouter` reverts `Slippage`. Whole tx reverts. Dollars do not move. |
 | Owner raises `launchFee` after the player signs | Admission re-reads the live fee and rejects (`launch fee changed, please retry`) if it no longer matches. If it still changed in the same block after simulation, AnonLauncher reverts `FeeTooHigh`. Whole tx reverts. |
 | Owner lowers `launchFee` in the same block after simulation | AnonLauncher pulls the lower live fee, not `maxFee`. The difference would otherwise stay on Multicall3. Admission already requires the signed `maxFee` to equal the live fee, so this only happens if the owner changes the fee in the same block. Residual risk, see below. |
@@ -58,13 +57,13 @@ If any step reverts, the whole transaction reverts. The Permit2 transfer, the ap
 
 ## Trust assumptions
 
-- The relayer is lee's server. Permit2 authorizes Multicall3 to pull the signed USDG amount once; the `to` of that transfer and the later `launchAnonWithUsdg` call are not enforced by a dedicated on-chain verifier the way `DiscipleRouter.buyWithPermit2` enforces a trade witness. A compromised relayer could pull the signed USDG in one Multicall3 transaction and send it somewhere other than the launch. This is the same trust model as gasless withdrawals, which also use Multicall3 as the Permit2 spender. The signed witness still binds the player's intent, the server rebuilds the batch from those fields, and simulation runs before submit.
+- The relayer is lee's server, but it is not trusted with the money: Permit2 authorizes only GaslessForwarder to pull the signed USDG, and the forwarder enforces the signed witness on-chain (launcher, every launch field, `refundTo`), the way `DiscipleRouter.buyWithPermit2` enforces a trade witness. A compromised relayer, or anyone who sees the signature, can submit the launch the player signed or nothing. Gasless withdrawals and paid actions use the same forwarder.
 - The player trusts the front end to set `refundTo` to their own address and to block amounts over the cap. The server also requires `refundTo == signer`.
-- USDG, Permit2, Multicall3, DiscipleRouter, Launchpad, and AnonLauncher behave as in this repository. No new token or new verifier contract.
+- USDG, Permit2, Multicall3, GaslessForwarder, DiscipleRouter, Launchpad, and AnonLauncher behave as in this repository. GaslessForwarder has no owner and holds nothing between transactions.
 
 ## What is visible on-chain
 
-- The player's wallet appears in the same transaction as the launch: a Permit2 transfer of USDG from the player to Multicall3, then from Multicall3 into AnonLauncher. A visible payment involving the relayer's submission is expected and accepted (lee: "a visible payment to the relayer is OK"). These launches stay pseudonymous, not anonymous. That link already existed on `flow/anon-first-buy` when the player's own wallet paid in the same transaction.
+- The player's wallet appears in the same transaction as the launch: a Permit2 transfer of USDG from the player to GaslessForwarder, then from the forwarder into AnonLauncher. A visible payment involving the relayer's submission is expected and accepted (lee: "a visible payment to the relayer is OK"). These launches stay pseudonymous, not anonymous. That link already existed on `flow/anon-first-buy` when the player's own wallet paid in the same transaction.
 - `Token.creator` and the Launchpad creator stay AnonLauncher. Fee claims later are signed by the stealth owner and can pay out to any address.
 - `DiscipleRouter`'s `UsdgRefund` / `UsdgLaunch` events still index AnonLauncher as the router caller, not the player. The USDG refund transfer itself is to the player.
 

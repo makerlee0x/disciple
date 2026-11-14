@@ -1,12 +1,12 @@
 /**
- * Gasless withdraw, client side. The Privy embedded EOA signs two Permit2 transfers (and, on the first USDG
+ * Gasless withdraw, client side. The Privy embedded EOA signs one Permit2 witness transfer to GaslessForwarder (and, on the first USDG
  * withdrawal, an EIP-2612 permit of USDG to PERMIT2) silently, then POSTs /api/gasless. No ETH, no approve tx.
  */
 import { type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { ACTIVE_CHAIN } from "../chains";
 import { bigintToDecimal, GASLESS_MAX_DEADLINE_SEC, jsonSafe, PERMIT2, type Permit } from "./gaslessPermit2";
 import { permitFor, permit2NonceBook, GaslessError, type GaslessSendResult } from "./gaslessClient";
-import { transferTypedData, type GaslessWithdrawRequest } from "./gaslessWithdraw";
+import { withdrawTypedDataOf, type GaslessWithdrawRequest } from "./gaslessWithdraw";
 
 export type WithdrawQuote = {
   fee: bigint;
@@ -44,17 +44,13 @@ export async function quoteGaslessWithdraw(input: { amount?: bigint; signer?: Ad
 export async function signGaslessWithdraw(pc: PublicClient, owner: LocalAccount, a: { amount: bigint; destination: Address; quote: WithdrawQuote; nowSec?: number }): Promise<GaslessWithdrawRequest> {
   const now = BigInt(a.nowSec ?? Math.floor(Date.now() / 1000));
   const deadline = now + BigInt(GASLESS_MAX_DEADLINE_SEC - 30);
-  const fee = a.quote.fee, net = a.amount - fee;
+  const fee = a.quote.fee;
   const book = permit2NonceBook(pc);
-  const [n1, approval] = await Promise.all([book.next(owner.address), permitFor(pc, owner, a.quote.usdg, deadline)]);
-  const n2 = await book.next(owner.address);
-  const netPermit: Permit = { permitted: { token: a.quote.usdg, amount: net }, nonce: n1, deadline };
-  const feePermit: Permit = { permitted: { token: a.quote.usdg, amount: fee }, nonce: n2, deadline };
-  const [netSignature, feeSignature] = await Promise.all([
-    owner.signTypedData(jsonSafe(transferTypedData(ACTIVE_CHAIN.id, netPermit))),
-    owner.signTypedData(jsonSafe(transferTypedData(ACTIVE_CHAIN.id, feePermit))),
-  ]);
-  return { signer: owner.address, destination: a.destination, amount: a.amount, fee, feeTo: a.quote.feeTo, netPermit, feePermit, netSignature, feeSignature, ...(approval ? { approval } : {}) };
+  const [nonce, approval] = await Promise.all([book.next(owner.address), permitFor(pc, owner, a.quote.usdg, deadline)]);
+  const permit: Permit = { permitted: { token: a.quote.usdg, amount: a.amount }, nonce, deadline };
+  const q = { destination: a.destination, amount: a.amount, fee, feeTo: a.quote.feeTo, permit };
+  const signature = await owner.signTypedData(jsonSafe(withdrawTypedDataOf(ACTIVE_CHAIN.id, a.quote.spender, q)));
+  return { signer: owner.address, ...q, signature, ...(approval ? { approval } : {}) };
 }
 
 const json = (q: GaslessWithdrawRequest) => JSON.stringify(q, bigintToDecimal);

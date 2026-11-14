@@ -11,7 +11,7 @@ import { gaslessSigner } from "../wallet";
 import { privyIdentityToken } from "../aa/session";
 import { formatUsdgFee } from "./gaslessWithdrawClient";
 import {
-  parseGaslessActionRequest, transferTypedData, type ActionCall, type ActionKind, type GaslessActionRequest,
+  parseGaslessActionRequest, actionFeeTypedDataOf, type ActionCall, type ActionKind, type GaslessActionRequest,
 } from "./gaslessAction";
 import type { Permit } from "./gaslessPermit2";
 
@@ -56,14 +56,15 @@ export async function quoteGaslessAction(input: { kind: ActionKind; signer?: Add
   return parseActionQuote(j.result);
 }
 
-export async function signActionFee(pc: PublicClient, owner: LocalAccount, q: ActionQuote): Promise<Pick<GaslessActionRequest, "fee" | "feeTo" | "feePermit" | "feeSignature" | "approval">> {
+/** Signs the fee for exactly `calls` (the witness binds them), with spender = the quote's GaslessForwarder. */
+export async function signActionFee(pc: PublicClient, owner: LocalAccount, q: ActionQuote, calls: ActionCall[]): Promise<Pick<GaslessActionRequest, "fee" | "feeTo" | "feePermit" | "feeSignature" | "approval">> {
   if (q.fee === 0n) return { fee: 0n, feeTo: q.feeTo };
   const now = BigInt(Math.floor(Date.now() / 1000));
   const deadline = now + BigInt(GASLESS_MAX_DEADLINE_SEC - 30);
   const book = permit2NonceBook(pc);
   const [nonce, approval] = await Promise.all([book.next(owner.address), permitFor(pc, owner, q.usdg, deadline)]);
   const feePermit: Permit = { permitted: { token: q.usdg, amount: q.fee }, nonce, deadline };
-  const feeSignature = await owner.signTypedData(jsonSafe(transferTypedData(ACTIVE_CHAIN.id, feePermit)));
+  const feeSignature = await owner.signTypedData(jsonSafe(actionFeeTypedDataOf(ACTIVE_CHAIN.id, q.spender, { fee: q.fee, feeTo: q.feeTo, calls, feePermit })));
   return { fee: q.fee, feeTo: q.feeTo, feePermit, feeSignature, ...(approval ? { approval } : {}) };
 }
 
@@ -82,7 +83,7 @@ export async function sendGaslessAction(kind: ActionKind, calls: ActionCall[], p
   if (!owner) throw new GaslessError("Sign in to continue.");
   if (!calls.length) throw new GaslessError("Nothing to send.");
   const q = await quoteGaslessAction({ kind, signer: owner.address, callCount: calls.length, calls }, url, fetchFn);
-  const fee = await signActionFee(pc, owner, q);
+  const fee = await signActionFee(pc, owner, q, calls);
   const tokenP = privyIdentityToken().catch(() => null);
   const req = parseGaslessActionRequest({ kind, signer: owner.address, calls, fee: fee.fee, feeTo: fee.feeTo, feePermit: fee.feePermit, feeSignature: fee.feeSignature, approval: fee.approval });
   return submitGaslessAction(req, url, fetchFn, await tokenP);

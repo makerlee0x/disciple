@@ -51,6 +51,12 @@ export interface Deployment {
   router: Address;
   /** Gasless router (DiscipleRouter with buyWithPermit2/sellWithPermit2, flow/gasless-permit2). Zero ⇒ gasless off. */
   gaslessRouter: Address;
+  /**
+   * GaslessForwarder (contracts/src/addons/GaslessForwarder.sol): the Permit2 spender for gasless withdrawals, action fees
+   * and private launches; every payout is in the signed witness. Zero ⇒ those relays refuse (the mainnet lock until it is
+   * deployed; the old public-Multicall3 spender let anyone redirect a leaked signature).
+   */
+  gaslessForwarder: Address;
   feeRouter: Address;
   referralRegistry: Address;
   lockedLP: Address;
@@ -104,6 +110,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     hook: addr(process.env.NEXT_PUBLIC_RH_HOOK),
     router: addr(process.env.NEXT_PUBLIC_RH_ROUTER),
     gaslessRouter: addr(process.env.NEXT_PUBLIC_RH_GASLESS_ROUTER),
+    gaslessForwarder: addr(process.env.NEXT_PUBLIC_RH_GASLESS_FORWARDER),
     feeRouter: addr(process.env.NEXT_PUBLIC_RH_FEE_ROUTER),
     referralRegistry: addr(process.env.NEXT_PUBLIC_RH_REFERRAL_REGISTRY),
     lockedLP: addr(process.env.NEXT_PUBLIC_RH_LOCKED_LP),
@@ -134,6 +141,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     hook: addr(process.env.NEXT_PUBLIC_RHT_HOOK, "0xff68befdf795a2fa574e4a891fa066f59533a8c4"),
     router: addr(process.env.NEXT_PUBLIC_RHT_ROUTER, "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"),
     gaslessRouter: addr(process.env.NEXT_PUBLIC_RHT_GASLESS_ROUTER, "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"), // v6 DiscipleRouter (also the Permit2-witness gasless router)
+    gaslessForwarder: addr(process.env.NEXT_PUBLIC_RHT_GASLESS_FORWARDER),
     feeRouter: addr(process.env.NEXT_PUBLIC_RHT_FEE_ROUTER, "0x7db57795ee2611881890b53f15f94fbd598bcf26"),
     referralRegistry: addr(process.env.NEXT_PUBLIC_RHT_REFERRAL_REGISTRY, "0x2c933d015815169900074e202c855276bbc0cc3a"),
     lockedLP: addr(process.env.NEXT_PUBLIC_RHT_LOCKED_LP, "0x9e8106897e96739388c4582adfa92cf31538125e"),
@@ -159,6 +167,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     hook: addr(process.env.NEXT_PUBLIC_ANVIL_HOOK),
     router: addr(process.env.NEXT_PUBLIC_ANVIL_ROUTER),
     gaslessRouter: addr(process.env.NEXT_PUBLIC_ANVIL_GASLESS_ROUTER),
+    gaslessForwarder: addr(process.env.NEXT_PUBLIC_ANVIL_GASLESS_FORWARDER),
     feeRouter: addr(process.env.NEXT_PUBLIC_ANVIL_FEE_ROUTER),
     referralRegistry: addr(process.env.NEXT_PUBLIC_ANVIL_REFERRAL_REGISTRY),
     lockedLP: addr(process.env.NEXT_PUBLIC_ANVIL_LOCKED_LP),

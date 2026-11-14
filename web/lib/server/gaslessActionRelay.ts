@@ -8,10 +8,11 @@ import "server-only";
 import { createPublicClient, parseAbi, recoverTypedDataAddress, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, deployment } from "../chains";
+import { requireForwarder } from "../trade/gaslessForwarder";
 import { GaslessReject, PERMIT2 } from "../trade/gaslessPermit2";
 import {
   MULTICALL3, actionGas, actionTxGasLimit, checkGaslessActionRequest, encodeActionCall,
-  parseGaslessActionRequest, transferTypedData, withdrawFeeRaw, type ActionKind, type GaslessActionRequest,
+  parseGaslessActionRequest, actionFeeTypedDataOf, withdrawFeeRaw, type ActionKind, type GaslessActionRequest,
 } from "../trade/gaslessAction";
 import { rateFromEnv, unmarkedRate } from "./usdgEthRate";
 import { requireGaslessMode, type GaslessConfirmed, type GaslessDeps } from "./gaslessRelay";
@@ -41,7 +42,9 @@ export function actionFeeTo(): Address {
 export type ActionQuoteResult = {
   kind: ActionKind;
   fee: string; feeTo: Address; gas: string; gasPrice: string; rate: string;
-  usdg: Address; usdgDecimals: number; spender: typeof MULTICALL3; permit2: typeof PERMIT2;
+  usdg: Address; usdgDecimals: number;
+  /** Permit2 spender the fee is signed to: GaslessForwarder (zero for free actions on a chain without one). */
+  spender: Address; permit2: typeof PERMIT2;
   /** TrampWallManager.keeperTipBps, shown for trampPull (relayer is paid from proceeds; USDG fee is 0). */
   keeperTipBps: number;
 };
@@ -78,6 +81,8 @@ export async function quoteGaslessAction(raw: unknown = {}, opts: ActionQuoteOpt
   const baseFee = opts.baseFee ?? (await directRelayer()).fee;
   const rate = opts.rate ?? actionUsdgPerEth();
   const fee = kind === "trampPull" ? 0n : withdrawFeeRaw(gas, baseFee, rate, decimals);
+  // paid actions need the forwarder (the mainnet lock: no public-Multicall3 spender, ever)
+  const spender = fee > 0n ? requireForwarder(dep) : dep.gaslessForwarder;
   let keeperTipBps = 0;
   if (kind === "trampPull") {
     try { keeperTipBps = Number(await pc.readContract({ address: dep.trampWallManager, abi: parseAbi(["function keeperTipBps() view returns (uint16)"]), functionName: "keeperTipBps" })); }
@@ -85,7 +90,7 @@ export async function quoteGaslessAction(raw: unknown = {}, opts: ActionQuoteOpt
   }
   return {
     kind, fee: fee.toString(), feeTo, gas: gas.toString(), gasPrice: baseFee.toString(), rate: rate.toString(),
-    usdg: dep.usdg, usdgDecimals: decimals, spender: MULTICALL3, permit2: PERMIT2, keeperTipBps,
+    usdg: dep.usdg, usdgDecimals: decimals, spender, permit2: PERMIT2, keeperTipBps,
   };
 }
 
@@ -127,15 +132,17 @@ async function commitAction(signer: Address, data: Hex, gas: bigint, r: DirectRe
     t: { admission: tAdm, budget, send: res.sendMs + res.minedMs, total: Date.now() - t0 } };
 }
 
-/** disciple_gaslessAction: optional USDG fee Permit2 + allowlisted action calls, one Multicall3 relayer tx. */
+/** disciple_gaslessAction: allowlisted action calls, paid ones through GaslessForwarder.payFeeAndCall; one Multicall3 relayer tx. */
 export async function relayGaslessAction(raw: unknown, d: GaslessDeps = {}): Promise<GaslessConfirmed> {
   const t0 = Date.now();
   let q: GaslessActionRequest;
   const dep = deployment();
+  let forwarder: Address | undefined;
   try {
     requireGaslessMode();
     relayBreaker.assertClosed();
     q = parseGaslessActionRequest(raw);
+    if (q.fee > 0n) forwarder = requireForwarder(dep);
     const feeTo = actionFeeTo();
     const needsPermit = !!(q.approval && q.approval.value > BigInt(0));
     const gas = actionGas(q.kind, q.calls.length, needsPermit);
@@ -144,11 +151,11 @@ export async function relayGaslessAction(raw: unknown, d: GaslessDeps = {}): Pro
     if (q.fee < current) throw new GaslessReject("fee changed, please retry");
     checkGaslessActionRequest(q, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec: d.nowSec ?? Math.floor(Date.now() / 1000), feeTo, minFee: current });
     if (q.fee > 0n && q.feePermit && q.feeSignature) {
-      const who = await recoverTypedDataAddress({ ...transferTypedData(ACTIVE_CHAIN.id, q.feePermit), signature: q.feeSignature });
+      const who = await recoverTypedDataAddress({ ...actionFeeTypedDataOf(ACTIVE_CHAIN.id, forwarder!, { ...q, feePermit: q.feePermit }), signature: q.feeSignature });
       if (who.toLowerCase() !== q.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
     }
   } catch (e) { throw notSent(e); }
-  const data = encodeActionCall(q, dep.usdg);
+  const data = encodeActionCall(q, dep.usdg, forwarder);
   const { relayer, did } = await admitAction(q.signer, data, d);
   return commitAction(q.signer, data, actionTxGasLimit(q.kind), relayer, d, t0, Date.now() - t0, did);
 }

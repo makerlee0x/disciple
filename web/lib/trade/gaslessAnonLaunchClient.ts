@@ -4,7 +4,8 @@
  * (disciple_gaslessAnonLaunch). Same session token as a gasless trade.
  */
 import { type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
-import { ACTIVE_CHAIN } from "../chains";
+import { ACTIVE_CHAIN, deployment } from "../chains";
+import { requireForwarder } from "./gaslessForwarder";
 import { bigintToDecimal, GASLESS_MAX_DEADLINE_SEC, jsonSafe, PERMIT2 } from "./gaslessPermit2";
 import { permitFor, permit2NonceBook, GaslessError, type GaslessSendResult } from "./gaslessClient";
 import { gaslessSigner } from "../wallet";
@@ -28,7 +29,8 @@ export async function signAnonLaunch(
   const amount = permitAmount(launch);
   const [nonce, approval] = await Promise.all([permit2NonceBook(pc).next(owner.address), permitFor(pc, owner, usdg, deadline)]);
   const permit: Permit = { permitted: { token: usdg, amount }, nonce, deadline };
-  const signature = await owner.signTypedData(jsonSafe(anonLaunchTypedData(ACTIVE_CHAIN.id, permit, launch)));
+  const forwarder = requireForwarder(deployment());
+  const signature = await owner.signTypedData(jsonSafe(anonLaunchTypedData(ACTIVE_CHAIN.id, forwarder, permit, launch)));
   return { signer: owner.address, permit, launch, signature, ...(approval ? { approval } : {}) };
 }
 

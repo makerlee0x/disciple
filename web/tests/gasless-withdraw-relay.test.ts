@@ -1,10 +1,11 @@
-/** flow/gasless-withdraw relay: same Privy/revoke/strike gate as trades, Multicall3 submit, no-strike on relayer-side failure. */
+/** flow/gasless-withdraw relay: same Privy/revoke/strike gate as trades, forwarder via Multicall3 submit, no-strike on relayer-side failure. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeFunctionData, parseTransaction, toBytes, keccak256, slice, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 const h = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_CHAIN_ID = "46630";
   process.env.NEXT_PUBLIC_RHT_GASLESS_ROUTER = "0x00000000000000000000000000000000000000bb";
+  process.env.NEXT_PUBLIC_RHT_GASLESS_FORWARDER = "0x00000000000000000000000000000000000000f0";
   process.env.PAYMASTER_USD_PER_ETH = "2300";
   return { chain: vi.fn(), block: vi.fn(), read: vi.fn(), call: vi.fn(), count: vi.fn(), balance: vi.fn(), incr: vi.fn(), mget: vi.fn(), budget: vi.fn(), refund: vi.fn(), send: vi.fn(), setNX: vi.fn(), set: vi.fn(), get: vi.fn(), incrBy: vi.fn() };
 });
@@ -19,7 +20,7 @@ import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { relayGaslessWithdraw, quoteGaslessWithdraw, withdrawFeeTo, withdrawUsdgPerEth } from "../lib/server/gaslessWithdrawRelay";
 import { gaslessSessionDeps } from "../lib/server/gaslessSession";
 import { strikeSource } from "../lib/server/relayLockdown";
-import { MULTICALL3, multicall3Abi, transferTypedData, WITHDRAW_TX_GAS_LIMIT, withdrawFeeRaw, withdrawGas } from "../lib/trade/gaslessWithdraw";
+import { MULTICALL3, multicall3Abi, withdrawTypedDataOf, WITHDRAW_TX_GAS_LIMIT, withdrawFeeRaw, withdrawGas } from "../lib/trade/gaslessWithdraw";
 import { DEPLOYMENTS } from "../lib/chains";
 import type { GaslessDeps } from "../lib/server/gaslessRelay";
 
@@ -47,6 +48,7 @@ let TOKEN = "";
 const relay = (b: unknown, d: GaslessDeps = {}) => relayGaslessWithdraw(b, { idToken: TOKEN, ...d });
 const usdg = DEPLOYMENTS[46630].usdg;
 const dest = "0x00000000000000000000000000000000000000dd" as Address;
+const FWD = "0x00000000000000000000000000000000000000f0" as Address;
 const NOW = Math.floor(Date.now() / 1000);
 const BASE = 11_100_000n;
 const errSel = (sig: string) => slice(keccak256(toBytes(sig)), 0, 4);
@@ -57,13 +59,10 @@ function feeNow(needsPermit = false) {
 }
 async function wire(o: { signer?: typeof user; amount?: bigint; fee?: bigint; dest?: Address } = {}) {
   const s = o.signer ?? user, fee = o.fee ?? feeNow(), amount = o.amount ?? fee + 1_000_000n, deadline = BigInt(NOW + 120);
-  const netPermit = { permitted: { token: usdg, amount: amount - fee }, nonce: 0n, deadline };
-  const feePermit = { permitted: { token: usdg, amount: fee }, nonce: 1n, deadline };
+  const permit = { permitted: { token: usdg, amount }, nonce: 0n, deadline };
+  const base = { destination: o.dest ?? dest, amount, fee, feeTo: feeTo(), permit };
   return JSON.parse(JSON.stringify({
-    signer: s.address, destination: o.dest ?? dest, amount, fee, feeTo: feeTo(),
-    netPermit, feePermit,
-    netSignature: await s.signTypedData(transferTypedData(46630, netPermit)),
-    feeSignature: await s.signTypedData(transferTypedData(46630, feePermit)),
+    signer: s.address, ...base, signature: await s.signTypedData(withdrawTypedDataOf(46630, FWD, base)),
   }, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
 }
 beforeEach(() => {
@@ -85,7 +84,7 @@ describe("quote (no signature)", () => {
   it("returns fee = gas × base fee × 1.0x paymaster rate, rounded up, and feeTo = the relayer", async () => {
     const q = await quoteGaslessWithdraw({ signer: user.address }, { needsPermit: false, baseFee: BASE, rate: withdrawUsdgPerEth(), feeTo: feeTo() });
     expect(q.feeTo.toLowerCase()).toBe(feeTo().toLowerCase());
-    expect(q.spender.toLowerCase()).toBe(MULTICALL3.toLowerCase());
+    expect(q.spender.toLowerCase()).toBe(FWD.toLowerCase());
     expect(BigInt(q.fee)).toBe(feeNow(false));
     expect(BigInt(q.minAmount)).toBe(feeNow(false) + 1n);
   });
@@ -132,9 +131,13 @@ describe("admission + exact simulation", () => {
   });
   it("signature by another key ⇒ refused before send", async () => {
     const w = await wire();
-    const deadline = BigInt(NOW + 120), fee = feeNow();
-    const netPermit = { permitted: { token: usdg, amount: BigInt(w.amount) - fee }, nonce: 0n, deadline };
-    w.netSignature = await other.signTypedData(transferTypedData(46630, netPermit));
+    w.signature = (await wire({ signer: other })).signature;
+    await expect(relay(w)).rejects.toThrow("signature is not the signer's");
+    expect(h.send).not.toHaveBeenCalled();
+  });
+  it("a destination changed after signing ⇒ refused before send (the Multicall3 finding)", async () => {
+    const w = await wire();
+    w.destination = "0x0000000000000000000000000000000000000bad";
     await expect(relay(w)).rejects.toThrow("signature is not the signer's");
     expect(h.send).not.toHaveBeenCalled();
   });

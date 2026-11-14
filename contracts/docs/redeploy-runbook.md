@@ -378,3 +378,20 @@ LEE DECISION 2026-10-24 11:28 CT: "$3-5 to start on mainnet".
    forgive (with lee's OK) before tightening.
 5. **Any `setBounds` broadcast needs lee's explicit OK** (value and timing). Never as part of a script run.
 
+
+## GaslessForwarder (gasless withdrawals, action fees, private launches)
+
+Added 2026-11-14 for the Vercel finding "Public Multicall3 permits let observers redirect gasless withdrawals". The app used to
+sign Permit2 transfers with the public Multicall3 as spender, so anyone holding an unused signature could choose the recipient.
+`src/addons/GaslessForwarder.sol` is now the only spender the app signs for, and every payout is in the signed witness.
+
+1. Deploy (no args, no owner, no on-chain wiring): `forge script script/gasless/DeployGaslessForwarder.s.sol --rpc-url $RPC_URL --broadcast`.
+2. Set the web env and redeploy the site: testnet `NEXT_PUBLIC_RHT_GASLESS_FORWARDER`, mainnet `NEXT_PUBLIC_RH_GASLESS_FORWARDER`.
+   Until it is set, the withdraw / paid-action / private-launch relays refuse ("gasless transfers aren't available on this chain yet").
+   That is the mainnet lock: there is no fallback to Multicall3 as spender. Free actions (tramp pull, fee 0) keep working.
+3. Smoke on testnet: one gasless withdrawal (destination gets net, relayer gets fee, forwarder balance 0), one paid claim,
+   one private launch with a First BOOST.
+4. Signatures made before the switch (spender Multicall3) do not work with the forwarder. In-flight ones just fail with
+   "signature is not the signer's" and the player signs again; nothing moves.
+5. Review it with the other mainnet contracts before the mainnet deploy (it moves player funds). Tests:
+   `test/addons/GaslessForwarder.t.sol` (Permit2 runtime etched, same as DiscipleRouterPermit2.t.sol).

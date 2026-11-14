@@ -5,6 +5,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 const h = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_CHAIN_ID = "46630";
   process.env.NEXT_PUBLIC_RHT_GASLESS_ROUTER = "0x00000000000000000000000000000000000000bb";
+  process.env.NEXT_PUBLIC_RHT_GASLESS_FORWARDER = "0x00000000000000000000000000000000000000f0";
   process.env.PAYMASTER_USD_PER_ETH = "2300";
   return { chain: vi.fn(), block: vi.fn(), read: vi.fn(), call: vi.fn(), count: vi.fn(), balance: vi.fn(), incr: vi.fn(), mget: vi.fn(), budget: vi.fn(), refund: vi.fn(), send: vi.fn(), setNX: vi.fn(), set: vi.fn(), get: vi.fn(), incrBy: vi.fn() };
 });
@@ -19,7 +20,8 @@ import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { quoteGaslessAction, relayGaslessAction, actionFeeTo, actionUsdgPerEth } from "../lib/server/gaslessActionRelay";
 import { gaslessSessionDeps } from "../lib/server/gaslessSession";
 import { strikeSource } from "../lib/server/relayLockdown";
-import { ACTION_TX_GAS_LIMIT, actionGas, transferTypedData, withdrawFeeRaw } from "../lib/trade/gaslessAction";
+import { ACTION_TX_GAS_LIMIT, actionGas, actionFeeTypedDataOf, withdrawFeeRaw } from "../lib/trade/gaslessAction";
+const FWD = "0x00000000000000000000000000000000000000f0" as Address;
 import { trampWallManagerAbi, anonLauncherAbi } from "../lib/abi";
 import { DEPLOYMENTS } from "../lib/chains";
 import type { GaslessDeps } from "../lib/server/gaslessRelay";
@@ -63,9 +65,10 @@ function claimCall() {
 async function wireClaim(o: { signer?: typeof user; fee?: bigint } = {}) {
   const s = o.signer ?? user, fee = o.fee ?? feeNow(), deadline = BigInt(NOW + 120);
   const feePermit = { permitted: { token: usdg, amount: fee }, nonce: 0n, deadline };
+  const calls = [claimCall()] as { to: Address; data: Hex }[];
   return JSON.parse(JSON.stringify({
-    kind: "anonClaim", signer: s.address, calls: [claimCall()], fee, feeTo: actionFeeTo(),
-    feePermit, feeSignature: await s.signTypedData(transferTypedData(46630, feePermit)),
+    kind: "anonClaim", signer: s.address, calls, fee, feeTo: actionFeeTo(),
+    feePermit, feeSignature: await s.signTypedData(actionFeeTypedDataOf(46630, FWD, { fee, feeTo: actionFeeTo(), calls, feePermit })),
   }, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
 }
 function wirePull() {
@@ -92,6 +95,7 @@ describe("quote (no signature)", () => {
     const q = await quoteGaslessAction({ kind: "anonClaim", signer: user.address }, { baseFee: BASE, needsPermit: false });
     expect(BigInt(q.fee)).toBe(feeNow());
     expect(q.feeTo).toBe(actionFeeTo());
+    expect(q.spender.toLowerCase()).toBe(FWD.toLowerCase());
     h.read.mockResolvedValueOnce(10); // keeperTipBps
     const p = await quoteGaslessAction({ kind: "trampPull" }, { baseFee: BASE });
     expect(p.fee).toBe("0");
@@ -125,7 +129,7 @@ describe("admission + exact simulation", () => {
   });
   it("signature by another key ⇒ refused before send", async () => {
     const body = await wireClaim();
-    body.feeSignature = await other.signTypedData(transferTypedData(46630, { permitted: { token: usdg, amount: BigInt(body.fee) }, nonce: 0n, deadline: BigInt(NOW + 120) }));
+    body.feeSignature = (await wireClaim({ signer: other })).feeSignature;
     await expect(relay(body)).rejects.toMatchObject({ notSent: true });
     expect(h.send).not.toHaveBeenCalled();
   });

@@ -1,6 +1,8 @@
 /**
- * Gasless non-trade actions (claims / tramp pull / anon creator transfer) on the same Permit2 + Multicall3
+ * Gasless non-trade actions (claims / tramp pull / anon creator transfer) on the same Permit2 + GaslessForwarder
  * relayer path as withdrawals (0x Gasless / Permit2 fee-in-token). The relayer never holds the player's funds.
+ * A paid action's fee is a Permit2 witness transfer to GaslessForwarder whose witness binds the fee recipient and the
+ * exact calls (lib/trade/gaslessForwarder: ActionFee), so a leaked fee signature can only pay that fee for those calls.
  *
  * Only actions whose contracts already have an on-behalf or signature variant, or that are permissionless, are
  * relayable. msg.sender-only functions are rejected here (see blockedActionMessage) and are not given a new
@@ -8,13 +10,16 @@
  */
 import { decodeFunctionData, encodeFunctionData, toFunctionSelector, type Address, type Hex } from "viem";
 import { deployment } from "../chains";
-import { GaslessReject, PERMIT2, type Erc2612, type Permit } from "./gaslessPermit2";
-import {
-  erc2612PermitAbi, microUsdg, multicall3Abi, permit2TransferAbi,
-  WITHDRAW_GAS_PAD, WITHDRAW_GAS_PERMIT,
-} from "./gaslessWithdraw";
+import { GaslessReject, type Erc2612, type Permit } from "./gaslessPermit2";
+import { microUsdg, WITHDRAW_GAS_PAD, WITHDRAW_GAS_PERMIT } from "./gaslessWithdraw";
+import { actionFeeTypedData, batchWithPermit, forwarderActionData, hashCalls, multicall3Abi } from "./gaslessForwarder";
 
-export { MULTICALL3, transferTypedData, withdrawFeeRaw, minWithdrawAmount } from "./gaslessWithdraw";
+export { MULTICALL3, withdrawFeeRaw, minWithdrawAmount } from "./gaslessWithdraw";
+
+/** What the player signs for a paid action's fee: spender = GaslessForwarder, witness = fee, fee recipient, the calls. */
+export function actionFeeTypedDataOf(chainId: number, forwarder: Address, q: Pick<GaslessActionRequest, "fee" | "feeTo" | "calls"> & { feePermit: Permit }) {
+  return actionFeeTypedData(chainId, forwarder, q.feePermit, { fee: q.fee, feeTo: q.feeTo, callsHash: hashCalls(q.calls) });
+}
 
 export const ACTION_KINDS = ["anonClaim", "anonTransferCreator", "trampPull"] as const;
 export type ActionKind = (typeof ACTION_KINDS)[number];
@@ -190,26 +195,17 @@ export function checkGaslessActionRequest(q: GaslessActionRequest, o: { usdg: Ad
   void microUsdg(o.usdgDecimals);
 }
 
-const transferCall = (permit: Permit, to: Address, owner: Address, signature: Hex): Hex =>
-  encodeFunctionData({
-    abi: permit2TransferAbi,
-    functionName: "permitTransferFrom",
-    args: [{ permitted: permit.permitted, nonce: permit.nonce, deadline: permit.deadline }, { to, requestedAmount: permit.permitted.amount }, owner, signature],
-  });
-
-/** Multicall3.aggregate3 of [optional USDG.permit, optional fee Permit2 transfer, ...action calls]. */
-export function encodeActionCall(q: GaslessActionRequest, usdg: Address): Hex {
-  const calls: { target: Address; allowFailure: boolean; callData: Hex }[] = [];
-  if (q.approval && q.approval.value > BigInt(0)) {
-    const a = q.approval;
-    calls.push({
-      target: usdg, allowFailure: false,
-      callData: encodeFunctionData({ abi: erc2612PermitAbi, functionName: "permit", args: [q.signer, PERMIT2, a.value, a.deadline, a.v, a.r, a.s] }),
-    });
+/**
+ * Relayer calldata, one Multicall3.aggregate3. Paid: [optional USDG.permit, forwarder.payFeeAndCall(fee, calls)].
+ * Free (fee 0, e.g. trampPull): the allowlisted calls themselves (no Permit2 transfer at all).
+ */
+export function encodeActionCall(q: GaslessActionRequest, usdg: Address, forwarder?: Address): Hex {
+  if (q.fee > BigInt(0)) {
+    if (!q.feePermit || !q.feeSignature) throw new GaslessReject("fee permit required");
+    if (!forwarder) throw new GaslessReject("gasless transfers aren't available on this chain yet");
+    const f = { fee: q.fee, feeTo: q.feeTo, callsHash: hashCalls(q.calls) };
+    return batchWithPermit(q.signer, usdg, q.approval, forwarder, forwarderActionData(q.feePermit, q.signer, f, q.calls, q.feeSignature));
   }
-  if (q.fee > BigInt(0) && q.feePermit && q.feeSignature) {
-    calls.push({ target: PERMIT2, allowFailure: false, callData: transferCall(q.feePermit, q.feeTo, q.signer, q.feeSignature) });
-  }
-  for (const c of q.calls) calls.push({ target: c.to, allowFailure: false, callData: c.data });
+  const calls = q.calls.map((c) => ({ target: c.to, allowFailure: false, callData: c.data }));
   return encodeFunctionData({ abi: multicall3Abi, functionName: "aggregate3", args: [calls] });
 }

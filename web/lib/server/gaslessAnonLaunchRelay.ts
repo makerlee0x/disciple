@@ -13,6 +13,7 @@ import "server-only";
 import { createPublicClient, parseAbi, recoverTypedDataAddress, type Address, type Hex } from "viem";
 import { DEPLOYMENTS, robinhoodTestnet } from "../chains";
 import { ANON_ADDONS } from "../anon";
+import { requireForwarder } from "../trade/gaslessForwarder";
 import { GaslessReject } from "../trade/gaslessPermit2";
 import { creatorFeeRoutingAvailable } from "../quickLaunch";
 import {
@@ -77,14 +78,16 @@ async function commitLaunch(signer: Address, data: Hex, gas: bigint, r: DirectRe
     t: { admission: tAdm, budget, send: res.sendMs + res.minedMs, total: Date.now() - t0 } };
 }
 
-/** disciple_gaslessAnonLaunch: one signed Permit2 witness → one Multicall3 relayer tx. */
+/** disciple_gaslessAnonLaunch: one signed Permit2 witness → forwarder.launchAnon, in one Multicall3 relayer tx. */
 export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps = {}): Promise<GaslessConfirmed> {
   const t0 = Date.now();
   let q: GaslessAnonLaunchRequest;
   const dep = DEPLOYMENTS[46630];
   const launcher = deployedLauncher();
+  let forwarder: Address;
   try {
     requireGaslessMode();
+    forwarder = requireForwarder(dep);
     relayBreaker.assertClosed();
     q = parseGaslessAnonLaunchRequest(raw);
     const [launchFee, feeToken] = await Promise.all([
@@ -95,10 +98,10 @@ export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps = {}):
     // Pool / burn routing goes through CreatorFeeHarvest. Only allowed once the harvest with refundTo is live.
     const harvest = creatorFeeRoutingAvailable({ private: true, harvest: dep.creatorFeeHarvest }) ? dep.creatorFeeHarvest : null;
     checkGaslessAnonLaunchRequest(q, { usdg: dep.usdg, launcher, harvest, nowSec: d.nowSec ?? Math.floor(Date.now() / 1000), launchFee });
-    const who = await recoverTypedDataAddress({ ...anonLaunchTypedData(robinhoodTestnet.id, q.permit, q.launch), signature: q.signature });
+    const who = await recoverTypedDataAddress({ ...anonLaunchTypedData(robinhoodTestnet.id, forwarder, q.permit, q.launch), signature: q.signature });
     if (who.toLowerCase() !== q.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
   } catch (e) { throw notSent(e); }
-  const data = encodeAnonLaunchCall(q, dep.usdg);
+  const data = encodeAnonLaunchCall(q, dep.usdg, forwarder);
   const { relayer, did } = await admitLaunch(q.signer, data, d);
   return commitLaunch(q.signer, data, ANON_LAUNCH_TX_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
 }

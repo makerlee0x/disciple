@@ -14,10 +14,11 @@ import { DEPLOYMENTS, robinhoodTestnet } from "../chains";
 import { GaslessReject } from "../trade/gaslessPermit2";
 import {
   MULTICALL3, checkGaslessWithdrawRequest, encodeWithdrawCall, minWithdrawAmount,
-  parseGaslessWithdrawRequest, transferTypedData, withdrawFeeRaw, withdrawGas, WITHDRAW_TX_GAS_LIMIT,
+  parseGaslessWithdrawRequest, withdrawTypedDataOf, withdrawFeeRaw, withdrawGas, WITHDRAW_TX_GAS_LIMIT,
   type GaslessWithdrawRequest,
 } from "../trade/gaslessWithdraw";
 import { PERMIT2 } from "../trade/gaslessPermit2";
+import { requireForwarder } from "../trade/gaslessForwarder";
 import { rateFromEnv, unmarkedRate } from "./usdgEthRate";
 import { requireGaslessMode, type GaslessConfirmed, type GaslessDeps } from "./gaslessRelay";
 import { shouldStrikeIncludedRevert } from "./gaslessStrike";
@@ -47,7 +48,7 @@ export function withdrawFeeTo(): Address {
 
 export type WithdrawQuoteResult = {
   fee: string; feeTo: Address; gas: string; gasPrice: string; rate: string;
-  usdg: Address; usdgDecimals: number; minAmount: string; spender: typeof MULTICALL3; permit2: typeof PERMIT2;
+  usdg: Address; usdgDecimals: number; minAmount: string; spender: Address; permit2: typeof PERMIT2;
 };
 
 export type QuoteOpts = {
@@ -63,6 +64,7 @@ export type QuoteOpts = {
 export async function quoteGaslessWithdraw(raw: unknown = {}, opts: QuoteOpts = {}): Promise<WithdrawQuoteResult> {
   requireGaslessMode();
   const dep = DEPLOYMENTS[46630];
+  const forwarder = requireForwarder(dep);
   const decimals = opts.usdgDecimals ?? dep.usdgDecimals;
   const o = (raw ?? {}) as { amount?: unknown; signer?: unknown };
   let needsPermit = opts.needsPermit;
@@ -81,7 +83,7 @@ export async function quoteGaslessWithdraw(raw: unknown = {}, opts: QuoteOpts = 
   return {
     fee: fee.toString(), feeTo, gas: gas.toString(), gasPrice: baseFee.toString(), rate: rate.toString(),
     usdg: dep.usdg, usdgDecimals: decimals, minAmount: minWithdrawAmount(fee, decimals).toString(),
-    spender: MULTICALL3, permit2: PERMIT2,
+    spender: forwarder, permit2: PERMIT2,
   };
 }
 
@@ -123,13 +125,15 @@ async function commitWithdraw(signer: Address, data: Hex, gas: bigint, r: Direct
     t: { admission: tAdm, budget, send: res.sendMs + res.minedMs, total: Date.now() - t0 } };
 }
 
-/** disciple_gaslessWithdraw: two signed Permit2 transfers → one Multicall3 relayer tx. */
+/** disciple_gaslessWithdraw: one signed Permit2 witness transfer → forwarder.withdraw, in one Multicall3 relayer tx. */
 export async function relayGaslessWithdraw(raw: unknown, d: GaslessDeps = {}): Promise<GaslessConfirmed> {
   const t0 = Date.now();
   let q: GaslessWithdrawRequest;
   const dep = DEPLOYMENTS[46630];
+  let forwarder: Address;
   try {
     requireGaslessMode();
+    forwarder = requireForwarder(dep);
     relayBreaker.assertClosed();
     q = parseGaslessWithdrawRequest(raw);
     const feeTo = withdrawFeeTo();
@@ -140,12 +144,10 @@ export async function relayGaslessWithdraw(raw: unknown, d: GaslessDeps = {}): P
     const current = withdrawFeeRaw(gas, (await directRelayer()).fee, rate, dep.usdgDecimals);
     if (q.fee < current) throw new GaslessReject("fee changed, please retry");
     checkGaslessWithdrawRequest(q, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec: d.nowSec ?? Math.floor(Date.now() / 1000), feeTo, minFee: current });
-    const netWho = await recoverTypedDataAddress({ ...transferTypedData(robinhoodTestnet.id, q.netPermit), signature: q.netSignature });
-    const feeWho = await recoverTypedDataAddress({ ...transferTypedData(robinhoodTestnet.id, q.feePermit), signature: q.feeSignature });
-    if (netWho.toLowerCase() !== q.signer.toLowerCase() || feeWho.toLowerCase() !== q.signer.toLowerCase())
-      throw new GaslessReject("signature is not the signer's");
+    const who = await recoverTypedDataAddress({ ...withdrawTypedDataOf(robinhoodTestnet.id, forwarder, q), signature: q.signature });
+    if (who.toLowerCase() !== q.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
   } catch (e) { throw notSent(e); }
-  const data = encodeWithdrawCall(q, dep.usdg);
+  const data = encodeWithdrawCall(q, dep.usdg, forwarder);
   const { relayer, did } = await admitWithdraw(q.signer, data, d);
   return commitWithdraw(q.signer, data, WITHDRAW_TX_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
 }
