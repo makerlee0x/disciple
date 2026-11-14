@@ -48,7 +48,10 @@ export default async function DailyChallenge(p: P) {
       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(11,12,14,0.35) 0%, rgba(11,12,14,0.1) 30%, rgba(11,12,14,0.85) 62%, #0B0C0E 78%)" }} />
       <div style={{ position: "relative", minHeight: "100%", maxWidth: 440, margin: "0 auto", boxSizing: "border-box", padding: "calc(env(safe-area-inset-top, 0px) + 52px) 16px calc(env(safe-area-inset-bottom, 0px) + 32px)", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <Link href="/flight/sim" style={{ ...game, fontWeight: 800, fontSize: 22, letterSpacing: 3, color: "#F2F3F7", textDecoration: "none" }}>DISCIPLE</Link>
+          <Link href="/flight/sim" aria-label="DISCIPLE" style={{ display: "inline-flex", textDecoration: "none" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- brand lockup (warm moon + wide italic wordmark) */}
+            <img src="/brand/disciple-lockup-horizontal-light.svg" alt="DISCIPLE" width={132} height={28} />
+          </Link>
           <span style={{ padding: "5px 10px", borderRadius: 999, background: "rgba(18,19,39,0.78)", border: "1px solid #2E323A", fontSize: 12, color: "#D7D9E4" }}>Free play</span>
         </div>
         <div style={{ marginTop: "auto", paddingTop: 200, paddingLeft: 4, paddingRight: 4, display: "flex", flexDirection: "column", gap: 14 }}>

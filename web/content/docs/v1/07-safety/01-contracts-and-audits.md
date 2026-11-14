@@ -1,19 +1,11 @@
 ---
-title: Contracts and audits
+title: How the contracts work
 slug: /docs/safety
 section: Safety and trust
 ---
-# Contracts and audits
+# How the contracts work
 
-## Audit status
-
-Not yet. The contracts have had internal security reviews only, no third-party audit. A professional audit is required before mainnet.
-
-## What the internal reviews covered
-
-The latest internal review (Oct 15, 2026) covered every core contract: the bonding curve, Launchpad, fee router, hook, router, LockedLP, migration, pricer, rewards vault, tramps-and-walls manager and the pseudonymous launcher. It used manual review, fuzz and invariant tests, static analysis and a fork test against the live contracts.
-
-## How the contracts are built
+## The contracts
 
 | Contract | Job |
 |---|---|

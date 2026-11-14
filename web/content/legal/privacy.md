@@ -36,7 +36,7 @@ Rockets, BOOST trades, DUMP trades, launches, balances, and wallet addresses are
 
 ## Your profile
 
-You can add a username, a short bio, a guild tag, and a profile picture. A guild tag is a short name you choose to wear next to yours. On a rocket you launch, you can also add an X handle or a website link. These are public on your profile and next to your name. You can change them or clear them. You can change your username once every 24 hours. You can switch guilds once every 24 hours.
+You can add a username, a short bio, and a profile picture. On a rocket you launch, you can also add an X handle or a website link. These are public on your profile and next to your name. You can change them or clear them. You can change your username once every 24 hours.
 
 Your profile also shows figures worked out from trades that are already public: profit and loss, win rate, and bombs dropped. Bombs dropped is a game count of sells that moved the price. Anyone who opens your profile can see these figures.
 

@@ -2,6 +2,7 @@
 title: Tramps and walls
 slug: /docs/trading/tramps-and-walls
 section: Trading
+feature: tramp-walls
 ---
 # Tramps and walls
 

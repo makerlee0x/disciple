@@ -62,6 +62,13 @@ export const LOGBOOK_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_LOGBOOK 
  * Off: no Crew tab or account-menu item, /crew and /fly 404, /fly/<user>/<ticker> still sets the referral cookie but opens
  * the rocket, and no crew push is sent or offered. The APIs stay. Override: NEXT_PUBLIC_FEATURE_CREW=1 (build-time).
  */
+/**
+ * Tramps and walls (limit orders on rockets in orbit): the coin-page / Free play panel, its ☰ menu items and the docs page.
+ * Hidden for launch (maker, 2026-11-14: "they may come back but we don't need them right now"). Off: TrampWallPanel is not
+ * mounted, so nothing is placed or drawn and the menu items stay hidden; the contracts, adapters and APIs are untouched.
+ * Override: NEXT_PUBLIC_FEATURE_TRAMP_WALLS=1 (build-time).
+ */
+export const TRAMP_WALLS_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_TRAMP_WALLS === "1" || process.env.NEXT_PUBLIC_FEATURE_TRAMP_WALLS === "true";
 export const CREW_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_CREW === "1" || process.env.NEXT_PUBLIC_FEATURE_CREW === "true";
 
 /**

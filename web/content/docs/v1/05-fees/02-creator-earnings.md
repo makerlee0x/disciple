@@ -20,13 +20,13 @@ Your earnings build up on every trade. There's no deadline and no minimum, and t
 
 Before your rocket reaches orbit, your share is kept for you in DISCIPLE's fee vault. After orbit, the fee router keeps it. You claim from both in the same place.
 
-Open **Rewards** (the chest on your profile) to see your total. The total counts what you've earned from trades on the chain, plus any payouts the team has sent you by hand outside the chain.
+Open **Rewards** (in your account menu, or on your Hangar) to see your total. The total counts what you've earned from trades on the chain, plus any payouts the team has sent you by hand outside the chain.
 
 When something is ready to claim, a gold **Claim** button shows the amount. Press it to claim. This works for every rocket you launched, whether you launched it publicly or privately. Before you confirm, Rewards shows the small network fee, in dollars.
 
 ## Choosing where your fees go
 
-Under **Advanced** on the launch form, you can name another account to receive your creator fees.
+Under **More options** on the launch form, you can name another account to receive your creator fees.
 
 You can also give your creator fees away to the rocket itself. There are two choices:
 

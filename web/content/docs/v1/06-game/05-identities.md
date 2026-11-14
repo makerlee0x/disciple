@@ -2,6 +2,7 @@
 title: Identities
 slug: /docs/game/identities
 section: Game
+feature: real-progress
 ---
 # Identities
 

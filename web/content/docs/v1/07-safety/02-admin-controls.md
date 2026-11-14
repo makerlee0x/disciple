@@ -13,7 +13,7 @@ We list them here so you know exactly what the team can and can't do.
 
 | Area | Settings |
 |---|---|
-| Launch settings | Default base, base pricer and probe, curve deployer, Trench First BOOST cap (7.77%, and it can only be lowered), protocol wallet cap, sniper-tax window (12 days, can be set from 1 to 365 days). **New rockets only.** |
+| Launch settings | Default base, base pricer and probe, curve deployer, Expert First BOOST cap (7.77%, and it can only be lowered), protocol wallet cap, sniper-tax window (12 days, can be set from 1 to 365 days). **New rockets only.** |
 | Fee routing | Treasury address, community rewards address, where the 1% share goes, which contracts may route fees |
 | Ascended pools | Which routers the hook trusts, the hook's pricer |
 | LockedLP wiring | Links to the pool manager, migration, fee router, hook and treasury |

@@ -67,6 +67,7 @@ export const HOST_COPY = {
   sheetAll: "Claim host earnings",
   sheetOne: (name: string) => `Claim ${name}`,
   signInTitle: "Sign in to see your host earnings",
+  loading: "Finding your rockets…",
   signIn: "Sign in",
   emptyTitle: "No rockets yet",
   emptyBody: "Launch one and you earn a cut of every boost and dump on it.",
@@ -86,7 +87,11 @@ function useSettledWallet(): { me: ReturnType<typeof connectedAddress>; phase: W
   useEffect(() => onWallet(setMe), []);
   useEffect(() => onPrivy(() => setPrivy(true)), []);
   useEffect(() => { void restoreSmart().finally(() => setRestored(true)); }, []);
-  const pending = walletPending(me, privy, privyAuthenticated() || !!aaSession(), restored);
+  // Sign-in can't stay "still checking" forever (Privy slow or blocked): after a few seconds with no wallet, show the
+  // signed-out card. A wallet that turns up later still flips the page to your rockets (onWallet).
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => { const t = window.setTimeout(() => setGaveUp(true), 4000); return () => clearTimeout(t); }, []);
+  const pending = !gaveUp && walletPending(me, privy, privyAuthenticated() || !!aaSession(), restored);
   const phase: WalletPhase = me ? "in" : pending ? "unknown" : "none";
   return { me, phase };
 }
@@ -279,7 +284,7 @@ export default function CreatorDashboard() {
           <button type="button" className="r2-gold he-auto" onClick={() => connectPrivy()}>{HOST_COPY.signIn}</button>
         </section>
       ) : view === "loading" ? (
-        <section className="he-card he-empty" data-testid="rockets-loading" aria-busy="true"><div className="he-skel" /><div className="he-skel short" /></section>
+        <section className="he-card he-empty" data-testid="rockets-loading" aria-busy="true"><span>{HOST_COPY.loading}</span><div className="he-skel" /><div className="he-skel short" /></section>
       ) : view === "empty" ? (
         <section className="he-card he-empty" data-testid="rockets-empty">
           <b className="r2-g">{HOST_COPY.emptyTitle}</b>
