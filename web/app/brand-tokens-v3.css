@@ -261,3 +261,9 @@
   .wb-signin { min-height: 40px; padding: 0 16px; font-size: 18px; }
 }
 
+
+/* WalletButton placeholder (components/AppShell): same slot as Sign in while the wallet chunk loads */
+.wb-slot { pointer-events: none; }
+.wb-skel { display: block; width: 104px; height: 44px; border-radius: var(--dsc3-control-radius); background: rgba(255, 255, 255, 0.08); }
+@media (max-width: 760px) { .wb-skel { width: 80px; height: 40px; } }
+body.game .wb-slot { display: none; }
