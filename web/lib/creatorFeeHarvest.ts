@@ -38,6 +38,8 @@ export const creatorFeeHarvestAbi = parseAbi([
   "function launchAnon((string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline) params, address stealthOwner, address buyRecipient, bytes ephemeralPubKey, bytes1 viewTag, uint256 maxFee, uint8 creatorFeeDestination) returns ((address token,address curve,uint256 creatorTokensBought))",
   "function launchAnonWithUsdg((string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline) params, address stealthOwner, address buyRecipient, bytes ephemeralPubKey, bytes1 viewTag, uint256 maxFee, uint256 usdgIn, uint256 minQuoteIn, address refundTo, uint8 creatorFeeDestination) returns ((address token,address curve,uint256 creatorTokensBought), uint256 usdgRefund)",
   "function route(address token) returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)",
+  // Audit PR #371: routes fees that accrued to a past creator (after transferCreator). Not on the v6 testnet harvest.
+  "function routeWith(address token, address pastCreator) returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)",
   "function depositRocketTokens(address token, uint256 amount)",
   "function creatorFeeDestinationOf(address token) view returns (uint8)",
   "event CreatorFeeDestinationSet(address indexed token, address indexed launcher, uint8 destination)",
