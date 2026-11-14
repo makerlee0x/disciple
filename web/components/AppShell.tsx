@@ -20,6 +20,11 @@ const FunnelBeacon = dynamic(() => import("./FunnelBeacon"), { ssr: false });
 const ReferralOnboarding = dynamic(() => import("./claims/ReferralOnboarding"), { ssr: false });
 // The Cash popup (round 2 "Cash" board): opened by any cash link (lib/cashLink OPEN_CASH_EVENT). Its body loads on open.
 const CashHost = dynamic(() => import("./cash/CashHost"), { ssr: false });
+// Phone first run (maker, 2026-11-14): app-browser banner, pick-a-rocket coach / throttle intro / $0 card / first boost,
+// and the Add to Home Screen sheet. Client-only, own chunks, nothing until they have something to show.
+const InAppBanner = dynamic(() => import("./mobile/InAppBanner"), { ssr: false });
+const FirstRunHost = dynamic(() => import("./mobile/FirstRunHost"), { ssr: false });
+const InstallPrompt = dynamic(() => import("./mobile/InstallPrompt"), { ssr: false });
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -32,6 +37,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <ReferralOnboarding />
       <HowItWorksHost />
       <CashHost />
+      {!IS_STATIC_PREVIEW && <InAppBanner />}
+      {!IS_STATIC_PREVIEW && <FirstRunHost />}
+      {!IS_STATIC_PREVIEW && <InstallPrompt />}
       {/* the plain "Test network" marker lives in the wallet strip (WalletButton), so it shows on every route incl. the game */}
       {!isGame && !IS_STATIC_PREVIEW && <InviteBanner />}
       {/* profile r3: no cash pill on a profile (the page's portfolio block shows Cash); every other route unchanged */}

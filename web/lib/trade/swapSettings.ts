@@ -18,6 +18,10 @@ export interface SwapSettings {
 export const SELL_KEYS = ["KeyZ", "KeyX", "KeyC", "KeyV"] as const;
 export const DEFAULT_SELLS: SellSlot[] = [10, 25, 50, 100];
 export const DEFAULT_BUY: number[] = [10, 25, 50, 100];
+/** The smallest boost a preset may hold: $3 covers the network fee (maker, 2026-11-14; = gaslessPermit2 MIN_TRADE_USD). */
+export const MIN_BOOST_USD = 3;
+/** a preset amount is usable: a finite number of dollars, at least MIN_BOOST_USD */
+export const validBoost = (v: number) => Number.isFinite(v) && v >= MIN_BOOST_USD;
 /** v4 (2026-10, GAME trade-ui-fixes): 4 buy presets (was 6 mcap-scaled tiers) and fixed sell sizes. An older 6-slot `buy`
  *  save described the old FEATHER…GLORY ladder, so it resets to the new defaults; every old `sells` save → the fixed sizes. */
 export const SETTINGS_VERSION = 4;
@@ -34,7 +38,7 @@ export function slippageBps(s: SwapSettings): number | undefined {
 }
 export function sanitize(x: unknown): SwapSettings {
   const o = (x && typeof x === "object" ? x : {}) as Partial<SwapSettings>;
-  const buy = Array.isArray(o.buy) && o.buy.length === DEFAULT_BUY.length && o.buy.every((v) => +v > 0 && Number.isFinite(+v)) ? o.buy.map(Number) : null;
+  const buy = Array.isArray(o.buy) && o.buy.length === DEFAULT_BUY.length && o.buy.every((v) => validBoost(+v)) ? o.buy.map(Number) : null;
   const sells = DEFAULT_SELLS.slice();   // fixed: 10 / 25 / 50 / 100% of the bag
   const sl = o.slippage && (o.slippage.mode === "custom" || o.slippage.mode === "auto") ? { mode: o.slippage.mode, pct: +o.slippage.pct > 0 ? Math.min(50, +o.slippage.pct) : AUTO_SLIPPAGE_PCT } : DEFAULT_SETTINGS.slippage;
   return { buy, sells, slippage: sl, tag: o.tag !== false, v: SETTINGS_VERSION };

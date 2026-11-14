@@ -10,7 +10,11 @@
  * Robinhood Chain testnet (46630) is a custom viem defineChain (lib/chains.ts) passed as default/supported chain.
  */
 import { useEffect, useMemo, useRef } from "react";
-import { PrivyProvider, getIdentityToken, toViemAccount, useCreateWallet, useExportWallet, useMfaEnrollment, usePrivy, useWallets } from "@privy-io/react-auth";
+import { PrivyProvider, getIdentityToken, toViemAccount, useCreateWallet, useExportWallet, useFundWallet, useMfaEnrollment, usePrivy, useWallets } from "@privy-io/react-auth";
+import { deployment, isDeployed } from "@/lib/chains";
+import { FUND_COPY, FUND_DEFAULT_USD, FUND_DONE_EVENT, FUND_EVENT, fundErrorLine, type FundRequest, type FundResult } from "@/lib/fund";
+const FUND_CLOSED = FUND_COPY.closed;
+import { currentInApp } from "@/lib/inAppBrowser";
 import { needsEmbeddedWallet, ownerWalletAddress, type LinkedLike } from "@/lib/privyOwner";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { PRIVY_APP_ID, aaSession, registerPrivy, type PrivyAccountInfo, type PrivySecurity } from "@/lib/aa/session";
@@ -89,13 +93,42 @@ function PrivyBridge() {
   return null;
 }
 
+/** Card / Apple Pay on-ramp (lib/fund): opens Privy's funding flow for the player's cash address, buying USDG on the
+ *  active chain. Answers every request with FUND_DONE_EVENT so Cash can show what happened. */
+function FundBridge() {
+  const done = (r: FundResult) => dispatchEvent(new CustomEvent<FundResult>(FUND_DONE_EVENT, { detail: r }));
+  // closing the window says nothing about a payment that's still settling, so Cash shows the neutral "closed" line
+  const { fundWallet } = useFundWallet({ onUserExited: () => done({ ok: false, message: FUND_CLOSED }) });
+  const fundRef = useRef(fundWallet); fundRef.current = fundWallet;
+  useEffect(() => {
+    const on = (e: Event) => {
+      const req = (e as CustomEvent<FundRequest>).detail;
+      if (!req?.address) return done({ ok: false });
+      const usd = String(req.usd && req.usd > 0 ? req.usd : FUND_DEFAULT_USD);
+      const usdg = isDeployed() ? (deployment().usdg as `0x${string}` | undefined) : undefined;
+      fundRef.current({
+        address: req.address,
+        options: usdg
+          ? { chain: ACTIVE_CHAIN, amount: usd, asset: { erc20: usdg }, defaultFundingMethod: "card", uiConfig: { receiveFundsTitle: "Add cash" } }
+          : { chain: ACTIVE_CHAIN, amount: usd, defaultFundingMethod: "card" },
+      }).then(() => done({ ok: true })).catch((err) => done({ ok: false, message: fundErrorLine(err) }));
+    };
+    addEventListener(FUND_EVENT, on);
+    return () => removeEventListener(FUND_EVENT, on);
+  }, []);
+  return null;
+}
+
+/** Google refuses sign-in inside app browsers (X, Telegram, Instagram…): don't offer a button that can't work there. */
+const IN_APP = !!currentInApp();
+
 /** Loaded lazily by PrivyProviders (own chunk). Holds no app children: the app talks to Privy via lib/aa/session. */
 export default function PrivyMount() {
   return (
     <PrivyProvider
       appId={PRIVY_APP_ID}
       config={{
-        loginMethods: ["email", "google", "twitter", "wallet"],
+        loginMethods: ["email", "google", "twitter", "wallet"].filter((m) => m !== "google" || !IN_APP) as ("email" | "google" | "twitter" | "wallet")[],
         // step 5 board "Sign in, account menu, Hangar signed out": the window in DISCIPLE gold with our mark and words
         appearance: {
           theme: "#14151B", accentColor: "#F2C14E", showWalletLoginFirst: false,
@@ -108,6 +141,7 @@ export default function PrivyMount() {
       }}
     >
       <PrivyBridge />
+      <FundBridge />
     </PrivyProvider>
   );
 }

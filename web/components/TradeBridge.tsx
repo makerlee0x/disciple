@@ -3,7 +3,7 @@
 import { tapPending } from "@/lib/trade/tapPending";
 import { TRADE_PENDING_EVENT } from "@/lib/game/exitGuard";
 import { useEffect, useRef, useState } from "react";
-import PhoneTradeBar, { chipUsd } from "./flight/PhoneTradeBar";
+import { chipUsd } from "./flight/PhoneTradeBar";
 import { useIsPhoneHud } from "./flight/PhoneHud";
 import { deployment, isDeployed, usdgRouters } from "@/lib/chains";
 import { MODES } from "@/lib/config";
@@ -27,6 +27,7 @@ import { capRoomUsd, COPY_PENDING_LEE, nextAlert, type TradeAlert } from "@/lib/
 import AmmoTierNotice from "./AmmoTierNotice";
 import { fmtMoney } from "@/lib/pnl";
 import SwapSettingsModal from "./trade/SwapSettingsModal";
+import PhoneThrottle from "./flight/PhoneThrottle";
 import { DEFAULT_BUY, SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettings, sellLabel, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 import { keyLabel, useGameSettings } from "@/lib/game/settings";
 import { useT } from "@/lib/game/i18n";
@@ -834,7 +835,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     <>
     <AmmoTierNotice />
     {alertStrip}
-    <PhoneTradeBar buyLabel={chipUsd(shotUsd)} sellLabel={phoneDumpAll ? "ALL" : customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
+    <PhoneThrottle buyLabel={chipUsd(shotUsd)} sellLabel={phoneDumpAll ? "ALL" : customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
       onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()}
       dumpAll={phoneDumpAll} dumpSub={has ? (phoneDumpUsd > 0 ? `≈ ${chipUsd(+phoneDumpUsd.toFixed(2))}` : "") : "no bag yet"}
       boostDisabled={short} dumpDisabled={!has} inFlightFull={full} boostTitle={boostTitle} dumpTitle={dumpTitle}
@@ -844,6 +845,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       onPickBuy={(i) => { setCustom(""); setMode(i); window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: i } })); }}
       sellOpts={SELLS.map((x) => x.label)} sellFracs={SELLS.map((x) => x.frac)} sellSel={sellCustomN ? -1 : sellSel}
       onPickSell={(i) => { setSellCustom(""); selSell.current(i); }}
+      onBoostAt={(i) => shoot("buy", { usd: ammo.usd[i] ?? MODES[i].usd })}
+      onDumpAt={(i) => { const x = SELLS[i]; if (x) sell(x); }}
       buyWarn={warns.buy.map((w) => chipTag("buy", w))} sellWarn={warns.sell.map((w) => chipTag("sell", w))}
       warn={warnText} warnOver={warnOver}
       hint={phoneHint} keyGuard={noKeyActivate} noSignIn={token === "SIMULATOR"} />

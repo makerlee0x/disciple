@@ -23,6 +23,7 @@ import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
 import { withBase } from "@/lib/base-path";
 import { qrMatrix, qrPath } from "@/lib/qr";
 import { CashHead, Check, ErrIcon, Warn, usd2 } from "./bits";
+import { FUND_COPY, FUND_DEFAULT_USD, FUND_PICKS, startFunding } from "@/lib/fund";
 
 const erc20 = parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]);
 
@@ -76,6 +77,34 @@ function Qr({ text }: { text: string }) {
 function Amount({ v, big }: { v: number; big?: boolean }) {
   const [w, c] = usd2(v).split(".");
   return <div className={`cx-amt${big ? "" : " sm"}`}>{w}<small>.{c}</small></div>;
+}
+
+/** Add cash by card or Apple Pay (Privy's funding flow, lib/fund): an amount pick + one gold button. With no cash yet,
+ *  a Free play link so a new player can fly while the payment lands. */
+function CardFund({ addr, empty, onPaid, onClose }: { addr: string; empty: boolean; onPaid: () => void; onClose: () => void }) {
+  const [usd, setUsd] = useState<number>(FUND_DEFAULT_USD);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const go = async () => {
+    setBusy(true); setNote(null);
+    const r = await startFunding({ address: addr, usd });
+    setBusy(false);
+    setNote(r.ok ? { ok: true, text: FUND_COPY.done } : { ok: false, text: r.message || FUND_COPY.unavailable });
+    if (r.ok) onPaid();
+  };
+  return (
+    <div className="cx-card" data-testid="cash-card-fund">
+      <div className="r2-chips" role="group" aria-label="Amount to add">
+        {FUND_PICKS.map((v) => <button key={v} type="button" className={usd === v ? "on" : ""} aria-pressed={usd === v} onClick={() => setUsd(v)}>${v}</button>)}
+      </div>
+      <button type="button" className="r2-gold cx-cardbtn" disabled={busy} onClick={go} data-testid="cash-card-btn">
+        {busy ? FUND_COPY.opening : `${FUND_COPY.button.replace("Buy", `Buy $${usd}`)}`}
+      </button>
+      <span className="cx-help">{FUND_COPY.sub}</span>
+      {note && <div className={`r2-note ${note.ok ? "ok" : "warn"}`} role="status"><span>{note.text}</span></div>}
+      {empty && <a className="cx-freeplay" href={withBase("/flight/sim")} onClick={() => onClose()} data-testid="cash-freeplay">No cash yet? <b>Fly in Free play</b> while it lands.</a>}
+    </div>
+  );
 }
 
 /** A thrown withdraw error in plain words: relay / quote / server trouble reads as "down for a moment". */
@@ -222,6 +251,8 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
         </div>
         {tab === "add" ? (
           <>
+            <CardFund addr={addr} empty={balUsd < 0.01} onPaid={() => { void refresh(addr); }} onClose={onClose} />
+            <div className="cx-or" aria-hidden><span>{FUND_COPY.or}</span></div>
             <div className="cx-addhow">
               <Qr text={addr} />
               <div className="cx-addtxt">
@@ -238,7 +269,7 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
               </div>
             </div>
             <div className="cx-p r2-field r2-mono cx-addrwrap">{addr}</div>
-            <button type="button" className="cx-p r2-gold" onClick={() => { navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>{copied ? CASH_COPY.copied : CASH_COPY.copyAddr}</button>
+            <button type="button" className="cx-p r2-btn r2-white" onClick={() => { navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>{copied ? CASH_COPY.copied : CASH_COPY.copyAddr}</button>
             <div className="r2-note warn"><Warn /><span><span className="cx-d">{CASH_COPY.warn}</span><span className="cx-p">{CASH_COPY.warnPhone}</span></span></div>
           </>
         ) : (
