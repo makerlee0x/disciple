@@ -108,7 +108,7 @@ export default function FirstRunHost() {
           </button>
         </div>
       )}
-      {firstBoost && <div className="fr-first" role="status" data-testid="fr-first"><b>FIRST BOOST!</b><span>You're aboard, pilot.</span></div>}
+      {firstBoost && <div className="fr-first" role="status" data-testid="fr-first"><b>FIRST BOOST!</b><span>You&apos;re aboard, pilot.</span></div>}
     </>
   );
 }
