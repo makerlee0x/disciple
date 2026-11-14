@@ -29,7 +29,8 @@ PrivateTmp=true
 PrivateDevices=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
-MemoryMax=600M
+# a t4g.nano has 0.5 GB; the keeper uses ~130 MB
+MemoryMax=350M
 
 [Install]
 WantedBy=multi-user.target

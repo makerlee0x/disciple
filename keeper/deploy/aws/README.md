@@ -5,7 +5,18 @@ The keeper wallet's keystore and password are kept in SSM Parameter Store, encry
 them. At start they are copied into a private in-memory folder (`/run/carry-keeper`) and are never written to disk. The
 instance has no open ports: you get a shell through Session Manager in the browser, so there's no SSH key to manage.
 
-Cost: about $7 a month (t4g.micro ~$6.10, 8 GB disk ~$0.65; Parameter Store standard tier is free).
+Cost: about $7.40 a month in us-east-1:
+
+| Item | Monthly |
+|---|---|
+| t4g.nano (2 vCPU burst, 0.5 GB RAM, Arm) | ~$3.07 |
+| 8 GB gp3 disk | ~$0.64 |
+| Public IPv4 address | ~$3.65 |
+| Parameter Store (standard), Session Manager | free |
+
+The public IPv4 address can't be avoided cheaply. An IPv6-only instance would need github.com (no IPv6 at all), the
+Robinhood RPC and the AWS endpoints to all answer over IPv6, and a NAT gateway instead costs ~$33 a month. The keeper itself
+uses ~130 MB of RAM. The installer adds a 1 GB swap file so the nano has headroom for `npm ci` and updates.
 
 You can only run **one keeper per wallet** at a time. Two keepers on the same wallet send clashing nonces, so stop the Mac
 keeper before you start this one (step 6).
@@ -37,11 +48,11 @@ Go to **IAM → Roles → Create role**, choose **AWS service → EC2**, and the
 Go to **EC2 → Launch instance**:
 - **Name**: `carry-keeper`
 - **AMI**: Amazon Linux 2023, **64-bit (Arm)**
-- **Instance type**: `t4g.micro`
+- **Instance type**: `t4g.nano`
 - **Key pair**: Proceed without a key pair
-- **Network settings → Edit**: Create a security group, and **untick "Allow SSH traffic"**, so there are no inbound rules. Outbound
-  stays open (the instance needs it to reach the RPC).
-- **Storage**: 8 GiB gp3 (the default)
+- **Network settings → Edit**: Leave **Auto-assign public IP** on (outbound needs it). Create a security group, and **untick
+  "Allow SSH traffic"**, so there are no inbound rules. Outbound stays open (the instance needs it to reach the RPC).
+- **Storage**: 8 GiB gp3 (the default; the install uses about 2.5 GB)
 - **Advanced details → IAM instance profile**: `carry-keeper`
 - **Advanced details → Termination protection**: Enable
 

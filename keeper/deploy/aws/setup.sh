@@ -9,6 +9,13 @@ REGION="$(TOKEN=$(curl -fsS -X PUT http://169.254.169.254/latest/api/token -H 'X
 
 dnf install -y -q git tar xz >/dev/null
 
+# 1 GB swap: a t4g.nano has 0.5 GB RAM, and npm ci needs more than the keeper does
+if ! swapon --show | grep -q /swapfile; then
+  [ -f /swapfile ] || { dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none; chmod 600 /swapfile; mkswap /swapfile >/dev/null; }
+  swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap defaults 0 0' >> /etc/fstab
+fi
+
 # Node 22 from nodejs.org, newest 22.x, checked against its SHASUMS256
 case "$(uname -m)" in aarch64) ARCH=arm64 ;; x86_64) ARCH=x64 ;; *) echo "unsupported $(uname -m)"; exit 1 ;; esac
 cd /tmp

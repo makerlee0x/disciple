@@ -20,4 +20,4 @@ export KEEPER_CONFIG="${KEEPER_CONFIG:-/etc/carry-keeper/carry-keeper.json}"
 export KEEPER_NAME="${KEEPER_NAME:-carry keeper (aws)}"
 
 cd /opt/carry-keeper/keeper
-exec /opt/node/bin/node src/main.ts
+exec /opt/node/bin/node --max-old-space-size=200 src/main.ts
