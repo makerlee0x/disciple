@@ -11,7 +11,7 @@ import {
   ACTION_WITNESS_TYPE, MULTICALL3_ADDR, WITHDRAW_WITNESS_TYPE, actionTypedData, callsHash, encodeForwarderLaunch, forwarderAbi,
   hashAction, hashWithdraw, relaySpender, withdrawTypedData,
 } from "../lib/trade/permitForwarder";
-import { ANON_LAUNCH_WITNESS_TYPE, anonLaunchTypedData, anonLaunchTypes, anonLaunchWitnessHash, type AnonLaunch } from "../lib/trade/gaslessAnonLaunch";
+import { ANON_LAUNCH_LIMITS, ANON_LAUNCH_WITNESS_TYPE, anonLaunchTooLong, anonLaunchTypedData, anonLaunchTypes, anonLaunchWitnessHash, type AnonLaunch } from "../lib/trade/gaslessAnonLaunch";
 import { actionWitness } from "../lib/trade/gaslessAction";
 import { PERMIT2, type Permit } from "../lib/trade/gaslessPermit2";
 
@@ -100,5 +100,18 @@ describe("signatures recover through the forwarder typed data", () => {
     expect(dec.functionName).toBe("launchAnon");
     expect((dec.args[1] as AnonLaunch).name).toBe("Halo Runner");
     expect((dec.args[1] as AnonLaunch).creatorFeeDestination).toBe(1);
+  });
+});
+
+describe("private-launch metadata caps (keep a signed launch under the 8.5M gas limit)", () => {
+  it("normal metadata passes; each oversized field is refused with a plain message", () => {
+    expect(anonLaunchTooLong(launch)).toBeNull();
+    expect(anonLaunchTooLong({ ...launch, description: "x".repeat(ANON_LAUNCH_LIMITS.description) })).toBeNull();
+    expect(anonLaunchTooLong({ ...launch, description: "x".repeat(ANON_LAUNCH_LIMITS.description + 1) })).toMatch(/description is too long/);
+    expect(anonLaunchTooLong({ ...launch, name: "n".repeat(65) })).toMatch(/name is too long/);
+    expect(anonLaunchTooLong({ ...launch, imageURI: "i".repeat(513) })).toMatch(/image link is too long/);
+    expect(anonLaunchTooLong({ ...launch, socialsURI: "s".repeat(501) })).toMatch(/socials is too long/);
+    // bytes, not characters: 3-byte characters count three times
+    expect(anonLaunchTooLong({ ...launch, ticker: "€".repeat(6) })).toMatch(/ticker is too long/);
   });
 });

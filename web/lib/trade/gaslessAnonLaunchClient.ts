@@ -11,7 +11,7 @@ import { permitFor, permit2NonceBook, GaslessError, type GaslessSendResult } fro
 import { gaslessSigner } from "../wallet";
 import { privyIdentityToken } from "../aa/session";
 import {
-  anonLaunchTypedData, parseGaslessAnonLaunchRequest, permitAmount,
+  anonLaunchTooLong, anonLaunchTypedData, parseGaslessAnonLaunchRequest, permitAmount,
   type AnonLaunch, type GaslessAnonLaunchRequest,
 } from "./gaslessAnonLaunch";
 import type { Permit } from "./gaslessPermit2";
@@ -26,6 +26,8 @@ export async function signAnonLaunch(
   const now = BigInt(nowSec ?? Math.floor(Date.now() / 1000));
   const deadline = now + BigInt(GASLESS_MAX_DEADLINE_SEC - 30);
   // The launch deadline is already set by the caller; the permit uses a live window.
+  const tooLong = anonLaunchTooLong(launch);
+  if (tooLong) throw new GaslessError(tooLong, { notSent: true });   // the relay refuses it anyway; say so before signing
   const amount = permitAmount(launch);
   const [nonce, approval] = await Promise.all([permit2NonceBook(pc).next(owner.address), permitFor(pc, owner, usdg, deadline)]);
   const permit: Permit = { permitted: { token: usdg, amount }, nonce, deadline };
