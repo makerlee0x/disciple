@@ -1,5 +1,5 @@
 /**
- * In-game radio stations. V1 ships House only. Add a later station by appending to STATIONS
+ * In-game radio stations. Add a later station by appending to STATIONS
  * (id, label, track srcs) — the player and the mini-player picker already look up by id and
  * loop that list, so no rewrite.
  */
@@ -20,7 +20,19 @@ export const HOUSE_STATION: RadioStation = {
   ],
 };
 
-export const STATIONS: Record<string, RadioStation> = { house: HOUSE_STATION };
+export const CINEMATIC_STATION: RadioStation = {
+  id: "cinematic",
+  label: "Cinematic",
+  tracks: [
+    { src: "/audio/radio/cinematic/viento-desierto.m4a", title: "Viento Desierto" },
+    { src: "/audio/radio/cinematic/vasta-negativa.m4a", title: "Vasta Negativa" },
+    { src: "/audio/radio/cinematic/empty-night-city.m4a", title: "Empty Night City" },
+    { src: "/audio/radio/cinematic/mist-of-the-elvendeep.m4a", title: "Mist of the Elvendeep" },
+    { src: "/audio/radio/cinematic/northern-silence.m4a", title: "Northern Silence" },
+  ],
+};
+
+export const STATIONS: Record<string, RadioStation> = { house: HOUSE_STATION, cinematic: CINEMATIC_STATION };
 export const DEFAULT_STATION_ID = "house";
 
 export function stationOf(id: string = DEFAULT_STATION_ID): RadioStation {

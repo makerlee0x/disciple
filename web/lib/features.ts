@@ -47,3 +47,19 @@ export const GUILDS_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_GUILDS ==
 /** Alias: product docs and lee still say "clans"; same flag as GUILDS_ENABLED. */
 export const CLANS_ENABLED: boolean = GUILDS_ENABLED;
 
+
+/**
+ * Logbook: your closed flights (/logbook), one rocket's story (/logbook/[coin]), the steady-hand streaks page it links to
+ * (/streaks) and the lobby "while you were away" card. Built in PR #355; hidden until after launch (maker, 2026-11-14).
+ * Off: no Logbook tab or account-menu item, the routes 404, Top pilots' Best call opens the pilot's profile, and orbit pushes
+ * open the rocket. The APIs stay so this can come back. Override: NEXT_PUBLIC_FEATURE_LOGBOOK=1 (build-time).
+ */
+export const LOGBOOK_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_LOGBOOK === "1" || process.env.NEXT_PUBLIC_FEATURE_LOGBOOK === "true";
+
+/**
+ * Crew: your crew page (/crew), the "Fly with me" invite landing (/fly), "N of your crew aboard" on lobby cards, the Crews
+ * sort on Top pilots and crew-zone pushes. Built in PR #355; hidden until after launch (maker, 2026-11-14).
+ * Off: no Crew tab or account-menu item, /crew and /fly 404, /fly/<user>/<ticker> still sets the referral cookie but opens
+ * the rocket, and no crew push is sent or offered. The APIs stay. Override: NEXT_PUBLIC_FEATURE_CREW=1 (build-time).
+ */
+export const CREW_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_CREW === "1" || process.env.NEXT_PUBLIC_FEATURE_CREW === "true";
