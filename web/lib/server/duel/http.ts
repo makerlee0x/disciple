@@ -21,6 +21,8 @@ export async function pilotOf(req: Request): Promise<Pilot> {
   const rl = await hitLimit(kv(), `duel:ip:${clientIp(req.headers)}`, 240, 60);
   if (!rl.ok) throw new DuelError(429, "Slow down a little.");
   requirePass(req);
+  const dev = req.headers.get("x-duel-dev");
+  if (dev && process.env.NODE_ENV !== "production" && process.env.DUEL_DEV_AUTH === "1" && isAddr(dev)) return { pid: dev.toLowerCase(), name: "@dev-" + dev.slice(2, 6) };
   const auth = await authenticate(bearer(req.headers), privyEnv());
   if (!auth.ok) throw new DuelError(auth.status, "Sign in to duel.");
   const wallets = auth.user.wallets.map((w) => w.toLowerCase());
