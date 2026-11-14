@@ -27,12 +27,19 @@ export function forwarderFor(chainId: number): Address | null {
   return a && a.toLowerCase() !== ZERO ? a : null;
 }
 
-/** Who the player's Permit2 signature names as spender. Throws (nothing is signed or sent) on mainnet without a forwarder. */
-export function relaySpender(chainId: number): RelaySpender {
+/**
+ * Who the player's Permit2 signature names as spender. Throws (nothing is signed or sent) on mainnet without a forwarder.
+ * `legacy: false` (the private launch) never falls back to Multicall3, not even on testnet: that path was never working
+ * (its witness type string was mis-ordered), and once the string was fixed it would have been exploitable the same way
+ * (Vercel finding on PR #384, "Corrected launch witnesses expose payments through the Multicall3 fallback").
+ */
+export function relaySpender(chainId: number, o: { legacy?: boolean } = {}): RelaySpender {
   const f = forwarderFor(chainId);
   if (f) return { kind: "forwarder", address: f };
-  if (chainId === TESTNET) return { kind: "multicall3", address: MULTICALL3_ADDR };
-  throw new GaslessReject("Gasless withdrawals and relayed actions aren't available on this network yet.");
+  if (chainId === TESTNET && o.legacy !== false) return { kind: "multicall3", address: MULTICALL3_ADDR };
+  throw new GaslessReject(o.legacy === false
+    ? "Gasless private launches aren't available on this network yet."
+    : "Gasless withdrawals and relayed actions aren't available on this network yet.");
 }
 
 // ───────── witness types (must match the contract's constants byte for byte) ─────────

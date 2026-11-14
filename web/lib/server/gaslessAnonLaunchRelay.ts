@@ -18,7 +18,7 @@ import { GaslessReject } from "../trade/gaslessPermit2";
 import { creatorFeeRoutingAvailable } from "../quickLaunch";
 import {
   ANON_LAUNCH_TX_GAS_LIMIT, anonLaunchTypedData, checkGaslessAnonLaunchRequest,
-  encodeAnonLaunchCall, parseGaslessAnonLaunchRequest, type GaslessAnonLaunchRequest,
+  parseGaslessAnonLaunchRequest, type GaslessAnonLaunchRequest,
 } from "../trade/gaslessAnonLaunch";
 import { requireGaslessMode, type GaslessConfirmed, type GaslessDeps } from "./gaslessRelay";
 import { shouldStrikeIncludedRevert } from "./gaslessStrike";
@@ -79,8 +79,8 @@ async function commitLaunch(signer: Address, to: Address, data: Hex, gas: bigint
 }
 
 /**
- * disciple_gaslessAnonLaunch: one signed Permit2 witness → DisciplePermitForwarder.launchAnon when deployed (it runs the signed
- * launch itself and returns leftovers to the signed refund address), else (testnet only) one Multicall3 relayer tx.
+ * disciple_gaslessAnonLaunch: one signed Permit2 witness → DisciplePermitForwarder.launchAnon (it runs the signed launch itself
+ * and returns leftovers to the signed refund address). No Multicall3 fallback: without the forwarder this refuses, nothing sent.
  */
 export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps = {}): Promise<GaslessConfirmed> {
   const t0 = Date.now();
@@ -92,7 +92,7 @@ export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps = {}):
     requireGaslessMode();
     relayBreaker.assertClosed();
     q = parseGaslessAnonLaunchRequest(raw);
-    spender = relaySpender(robinhoodTestnet.id);
+    spender = relaySpender(robinhoodTestnet.id, { legacy: false });
     const [launchFee, feeToken] = await Promise.all([
       pc.readContract({ address: launcher, abi: launcherAbi, functionName: "launchFee" }),
       pc.readContract({ address: launcher, abi: launcherAbi, functionName: "feeToken" }),
@@ -104,9 +104,7 @@ export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps = {}):
     const who = await recoverTypedDataAddress({ ...anonLaunchTypedData(robinhoodTestnet.id, q.permit, q.launch, spender.address), signature: q.signature });
     if (who.toLowerCase() !== q.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
   } catch (e) { throw notSent(e); }
-  const data = spender.kind === "forwarder"
-    ? encodeForwarderLaunch({ permit: q.permit, l: q.launch, owner: q.signer, signature: q.signature, approval: q.approval })
-    : encodeAnonLaunchCall(q, dep.usdg);
+  const data = encodeForwarderLaunch({ permit: q.permit, l: q.launch, owner: q.signer, signature: q.signature, approval: q.approval });
   const { relayer, did } = await admitLaunch(q.signer, spender.address, data, d);
   return commitLaunch(q.signer, spender.address, data, ANON_LAUNCH_TX_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
 }

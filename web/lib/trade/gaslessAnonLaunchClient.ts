@@ -29,8 +29,8 @@ export async function signAnonLaunch(
   const amount = permitAmount(launch);
   const [nonce, approval] = await Promise.all([permit2NonceBook(pc).next(owner.address), permitFor(pc, owner, usdg, deadline)]);
   const permit: Permit = { permitted: { token: usdg, amount }, nonce, deadline };
-  // the forwarder when deployed (it runs exactly this launch); Multicall3 only on testnet. Mainnet without it: throws, nothing signed.
-  const spender = relaySpender(ACTIVE_CHAIN.id).address;
+  // only the forwarder (it runs exactly this launch); no Multicall3 fallback on any chain. Not deployed: throws, nothing signed.
+  const spender = relaySpender(ACTIVE_CHAIN.id, { legacy: false }).address;
   const signature = await owner.signTypedData(jsonSafe(anonLaunchTypedData(ACTIVE_CHAIN.id, permit, launch, spender)));
   return { signer: owner.address, permit, launch, signature, ...(approval ? { approval } : {}) };
 }

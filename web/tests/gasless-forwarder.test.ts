@@ -67,6 +67,10 @@ describe("mainnet lock (relaySpender)", () => {
   it("mainnet without a forwarder refuses: nothing is signed or sent", () => {
     expect(() => relaySpender(4663)).toThrow(/aren't available on this network/);
   });
+  it("private launches never fall back to Multicall3, not even on testnet", () => {
+    expect(() => relaySpender(46630, { legacy: false })).toThrow(/private launches aren't available/);
+    expect(() => relaySpender(4663, { legacy: false })).toThrow();
+  });
   it("an unknown chain refuses too", () => {
     expect(() => relaySpender(1)).toThrow();
   });

@@ -171,7 +171,12 @@ export function permitAmount(l: AnonLaunch): bigint {
 
 const call = (target: Address, callData: Hex) => ({ target, allowFailure: false, callData });
 
-/** Relayer tx calldata: one Multicall3.aggregate3. Never holds funds across transactions. */
+/**
+ * Old relayer tx calldata (one Multicall3.aggregate3). NOT used by the relay any more: with Multicall3 as spender the signature
+ * doesn't bind where the pulled USDG goes, so the relay only submits DisciplePermitForwarder.launchAnon (lib/trade/permitForwarder).
+ * Kept for the decoding tests only.
+ * @deprecated
+ */
 export function encodeAnonLaunchCall(q: GaslessAnonLaunchRequest, usdg: Address): Hex {
   const amount = permitAmount(q.launch);
   const calls: { target: Address; allowFailure: boolean; callData: Hex }[] = [];
