@@ -17,7 +17,8 @@ import { myStealthCoins, myStealthKeys } from "@/lib/privateLaunch";
 import { claimErrorText, preflight, toUsd } from "@/lib/claims/common";
 import { demoRockets, demoRedeploy } from "@/lib/claims/demo";
 import { rocketsListView, walletPending, type WalletPhase } from "@/lib/claims/rocketsListView";
-import { connectedAddress, connectPrivy, onWallet, restoreSmart } from "@/lib/wallet";
+import { connectedAddress, onWallet, restoreSmart } from "@/lib/wallet";
+import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
 import { aaSession, onPrivy, privyAuthenticated, privyReady } from "@/lib/aa/session";
 import { withBase } from "@/lib/base-path";
 import { ROCKET_SRC, tierProgress, type HomeCoin, type HomeData } from "@/lib/home/trending";
@@ -281,7 +282,7 @@ export default function CreatorDashboard() {
       {view === "signin" ? (
         <section className="he-card he-empty" data-testid="rockets-signin">
           <b className="r2-g">{HOST_COPY.signInTitle}</b>
-          <button type="button" className="r2-gold he-auto" onClick={() => connectPrivy()}>{HOST_COPY.signIn}</button>
+          <button type="button" className="r2-gold he-auto" onClick={() => dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT))}>{HOST_COPY.signIn}</button>
         </section>
       ) : view === "loading" ? (
         <section className="he-card he-empty" data-testid="rockets-loading" aria-busy="true"><span>{HOST_COPY.loading}</span><div className="he-skel" /><div className="he-skel short" /></section>
