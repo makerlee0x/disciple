@@ -3,11 +3,15 @@ import { withBase } from "@/lib/base-path";
 
 /**
  * Lost-page shell for the 404 and the page error boundary (step 7 board "Link previews, 404 and invites", maker
- * 2026-11-13): the lobby sky behind one centred card, under the normal top bar. The card holds a short eyebrow, a
+ * 2026-11-13): an art plate behind one centred card (Grok plates, PR #380: lost ship for the 404, engine trouble for errors), under the normal top bar. The card holds a short eyebrow, a
  * Barlow headline, one line about what happened, and a way back.
  */
+export const LOST_PLATE = "/art/system/lost.webp";
+export const TROUBLE_PLATE = "/art/system/engine-trouble.webp";
+
 export default function LostSky({
   art,
+  plate = LOST_PLATE,
   eyebrow,
   tone = "blue",
   title,
@@ -15,7 +19,8 @@ export default function LostSky({
   children,
   testId,
 }: {
-  art: ReactNode;
+  art?: ReactNode;
+  plate?: string;
   eyebrow: string;
   tone?: "blue" | "pink";
   title: string;
@@ -28,7 +33,7 @@ export default function LostSky({
       <div className="ls-sky" aria-hidden="true">
         {/* withBase prefixes the static preview; next/image would rewrite that path. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={withBase("/home/sky/t6.webp")} alt="" />
+        <img src={withBase(plate)} alt="" />
       </div>
       <div className="ls-card">
         {art}
@@ -39,12 +44,6 @@ export default function LostSky({
       </div>
     </section>
   );
-}
-
-/** The chrome rocket drifting sideways, off course (404). */
-export function LostRocket() {
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img className="ls-rocket" src={withBase("/assets/rocket-hi.webp")} alt="" />;
 }
 
 /** The pink warning ring (page error). */

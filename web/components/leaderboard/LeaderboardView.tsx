@@ -14,7 +14,6 @@ import { withBase } from "@/lib/base-path";
 import { onWallet } from "@/lib/walletState"; // = lib/wallet's, without viem
 import { displayName } from "@/lib/defaultUsername";
 import { profileUrl } from "@/lib/profile";
-import { ROCKET_SRC } from "@/lib/home/trending";
 import { lightOf } from "@/components/home/rocketBits";
 import { tierAt } from "@/lib/flight/tiers";
 import { BOARD_WINDOWS, type BestCall, type BoardPilot, type BoardSort, type BoardWindow } from "@/lib/home/topPilots";
@@ -276,7 +275,6 @@ export default function LeaderboardView() {
           ) : isCrews ? (
             crews && crews.crews.length ? <CrewTable d={crews} /> : (
               <section className="tp-card tp-empty" data-testid="lb-empty">
-                <div className="tp-emptybloom" aria-hidden />
                 <span className="r2-eb">{BOARD_WINDOWS.find((w) => w.k === win)!.label}</span>
                 <b className="r2-g">No crews on the board yet</b>
                 <span className="tp-emptybody">Join a crew and fly together. Crews rank by orbits aboard, then green rockets.</span>
@@ -285,9 +283,6 @@ export default function LeaderboardView() {
             )
           ) : rows.length === 0 ? (
             <section className="tp-card tp-empty" data-testid="lb-empty">
-              <div className="tp-emptybloom" aria-hidden />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={withBase(ROCKET_SRC)} alt="" aria-hidden />
               <span className="r2-eb">{BOARD_WINDOWS.find((w) => w.k === win)!.label}</span>
               <b className="r2-g">{LEADERBOARD_COPY.emptyTitle}</b>
               <span className="tp-emptybody">{LEADERBOARD_COPY.emptyBody(win)}</span>

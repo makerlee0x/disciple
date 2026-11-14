@@ -1,5 +1,5 @@
 import Link from "next/link";
-import LostSky, { LostRocket } from "@/components/LostSky";
+import LostSky from "@/components/LostSky";
 
 export const LOST_COPY = {
   eyebrow: "404 · Off course",
@@ -12,7 +12,7 @@ export const LOST_COPY = {
 export default function NotFound() {
   const C = LOST_COPY;
   return (
-    <LostSky art={<LostRocket />} eyebrow={C.eyebrow} title={C.title} body={C.body} testId="not-found">
+    <LostSky eyebrow={C.eyebrow} title={C.title} body={C.body} testId="not-found">
       <Link href="/" className="r2-gold ls-gold">{C.home}</Link>
       <Link href="/create" className="r2-btn ls-btn">{C.launch}</Link>
     </LostSky>
