@@ -11,7 +11,7 @@ import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {_noKey} from "./NoKey.sol";
+import {_noKey, _v02Tune} from "./NoKey.sol";
 import {LaunchGateTest} from "./LaunchGate.t.sol";
 
 /// @notice ROUTING + EXECUTION checks at launch size (2026-11-08, maker: "is that enough?").
@@ -52,7 +52,8 @@ contract RoutingGateTest is LaunchGateTest {
                 coinIn: usdSide / 2,
                 quoteIn: usdSide,
                 srcKey: k,
-                srcKey2: _noKey()
+                srcKey2: _noKey(),
+                tune: _v02Tune()
             })
         );
     }

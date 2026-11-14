@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {_noKey} from "./NoKey.sol";
+import {_noKey, _v02Tune} from "./NoKey.sol";
 import {Test, Vm} from "forge-std/Test.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -235,7 +235,8 @@ contract DiscipleTest is Test {
                 coinIn: coinIn,
                 quoteIn: quoteIn,
                 srcKey: _noKey(),
-                srcKey2: _noKey()
+                srcKey2: _noKey(),
+                tune: _v02Tune()
             })
         );
     }
@@ -253,7 +254,8 @@ contract DiscipleTest is Test {
                 coinIn: coinIn,
                 quoteIn: quoteIn,
                 srcKey: _noKey(),
-                srcKey2: _noKey()
+                srcKey2: _noKey(),
+                tune: _v02Tune()
             })
         );
         if (eth > 0) hook.fundJar(id, 0, eth * 10_000);
@@ -397,7 +399,8 @@ contract DiscipleTest is Test {
             coinIn: 1000e18,
             quoteIn: 2000e18,
             srcKey: _noKey(),
-            srcKey2: _noKey()
+            srcKey2: _noKey(),
+            tune: _v02Tune()
         });
         (, PoolId id) = hook.createPool(cp);
         uint256 a = hook.poolState(id).anchorX128;
@@ -660,7 +663,8 @@ contract DiscipleTest is Test {
                 coinIn: 1000e18,
                 quoteIn: 2000e18,
                 srcKey: _noKey(),
-                srcKey2: _noKey()
+                srcKey2: _noKey(),
+                tune: _v02Tune()
             })
         );
         key;
@@ -813,7 +817,8 @@ contract DiscipleTest is Test {
             coinIn: 1000e18,
             quoteIn: 3000e18,
             srcKey: k,
-            srcKey2: _noKey()
+            srcKey2: _noKey(),
+            tune: _v02Tune()
         });
     }
 
@@ -1002,7 +1007,8 @@ contract DiscipleTest is Test {
             coinIn: 100e18,
             quoteIn: 1000e18,
             srcKey: src,
-            srcKey2: _noKey()
+            srcKey2: _noKey(),
+            tune: _v02Tune()
         });
         (, PoolId id) = h.createPool(cp);
         assertTrue(h.poolState(id).live);
@@ -1023,7 +1029,8 @@ contract DiscipleTest is Test {
             coinIn: 3000e18,
             quoteIn: 1000e18,
             srcKey: _noKey(),
-            srcKey2: _noKey()
+            srcKey2: _noKey(),
+            tune: _v02Tune()
         });
         (PoolKey memory k1,) = hook.createPool(cp);
         (PoolKey memory k2,) = _createSame(1000e18, 2000e18);
@@ -1102,7 +1109,8 @@ contract DiscipleTest is Test {
                 coinIn: 1000e18,
                 quoteIn: 3000e18,
                 srcKey: _noKey(),
-                srcKey2: _noKey()
+                srcKey2: _noKey(),
+                tune: _v02Tune()
             })
         );
         if (eth > 0) hook.fundJar(id, 0, eth * 10_000);
@@ -1293,7 +1301,8 @@ contract DiscipleTest is Test {
                 coinIn: 1e18,
                 quoteIn: 3e18,
                 srcKey: _noKey(),
-                srcKey2: _noKey()
+                srcKey2: _noKey(),
+                tune: _v02Tune()
             })
         );
         s = _pushSrc(HOME_EID);
@@ -1308,7 +1317,8 @@ contract DiscipleTest is Test {
                 coinIn: 1e18,
                 quoteIn: 3e18,
                 srcKey: _noKey(),
-                srcKey2: _noKey()
+                srcKey2: _noKey(),
+                tune: _v02Tune()
             })
         );
     }
@@ -1329,7 +1339,8 @@ contract DiscipleTest is Test {
                 coinIn: 1000e18,
                 quoteIn: 3000e18,
                 srcKey: _noKey(),
-                srcKey2: _noKey()
+                srcKey2: _noKey(),
+                tune: _v02Tune()
             })
         );
         MockERC20 c3 = usd2();
@@ -1343,7 +1354,8 @@ contract DiscipleTest is Test {
                 coinIn: 1000e18,
                 quoteIn: 3000e18,
                 srcKey: _noKey(),
-                srcKey2: _noKey()
+                srcKey2: _noKey(),
+                tune: _v02Tune()
             })
         );
         hook.fundJar(p2, 0, 500e18);
@@ -1470,7 +1482,8 @@ contract DiscipleTest is Test {
                 coinIn: 1000e18,
                 quoteIn: 3000e18,
                 srcKey: _noKey(),
-                srcKey2: _noKey()
+                srcKey2: _noKey(),
+                tune: _v02Tune()
             })
         );
         bytes32 to = bytes32(uint256(uint160(address(receiver))));

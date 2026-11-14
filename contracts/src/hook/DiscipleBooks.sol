@@ -64,12 +64,17 @@ library DiscipleBooks {
 
     /// @notice Close the interval at `markX128`, judging the creator cut and graduation from `t`. `skimRoom` (quote
     ///         raw at the mark) is how much the pool's tip jar can still take; returns the coin/quote skimmed for it.
-    function settle(LG.Book storage bk, Tvl storage t, uint256 markX128, bool dist, uint256 skimRoom)
+    function settle(LG.Book storage bk, Tvl storage t, uint256 markX128, bool dist, uint256 skimRoom, uint256 skimBps)
         public
         returns (uint256 jx, uint256 jy)
     {
         (uint256 on, uint256 off, uint256 g) = _judge(t);
-        (, jx, jy) = bk.settle(markX128, on, off, g, dist, skimRoom);
+        (, jx, jy) = bk.settle(markX128, on, off, g, dist, skimRoom, skimBps);
+    }
+
+    /// @notice The packed curve shape for flatness `lam` (WAD), bounds checked (v0.3; see DiscipleFlatMath.shape).
+    function shape(uint256 lam) public pure returns (uint256) {
+        return FM.shape(lam);
     }
 
     /// @dev Source TVL against manipulation (review D-02). Spot TVL can be pushed down or up for one transaction,
@@ -156,7 +161,7 @@ library DiscipleBooks {
     /// @notice Same-chain slopes and match bounds. No lag premium: both sides pay the pool fee, and the centre
     ///         itself only moves toward the leader by a bounded step per reading (see DiscipleSwapMath.stepToward).
     ///         The live leader price, read in the same call, bounds every fill.
-    function sameQuote(uint256 anchorX128, uint256 tX128, uint24 fee, uint256 spot, uint24 srcFee)
+    function sameQuote(uint256 anchorX128, uint256 tX128, uint24 fee, uint256 spot, uint24 srcFee, uint256 edgeBps)
         public
         pure
         returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps)
@@ -165,7 +170,7 @@ library DiscipleBooks {
         (kb, ks) = SM.slopes(anchorX128, tX128, g, g);
         uint256 srcAsk = Math.mulDiv(spot, 1e6, 1e6 - srcFee, Math.Rounding.Ceil);
         uint256 srcBid = Math.mulDiv(spot, 1e6 - srcFee, 1e6);
-        (pb, ps) = SM.matchBounds(srcAsk, srcBid, 1);
+        (pb, ps) = SM.matchBounds(srcAsk, srcBid, edgeBps);
         // never fill inside the leader's own bid/ask: otherwise buying here and selling to the leader (or the
         // reverse) is a riskless round trip on a leader with a fee under the edge (v0.3, Carry audit N-2)
         if (pb < srcBid) pb = srcBid;
@@ -180,11 +185,12 @@ library DiscipleBooks {
         Tvl storage t,
         uint256 markX128,
         uint256 skimRoom,
+        uint256 skimBps,
         uint256 cur,
         bool fresh
     ) public view returns (uint256 ox, uint256 oy) {
         (uint256 on, uint256 off) = _judgeAfter(t, cur, fresh);
-        return bk.settlePreview(markX128, skimRoom, on, off);
+        return bk.settlePreview(markX128, skimRoom, skimBps, on, off);
     }
 
     /// @dev `_judge` after `observe(t, cur, fresh)`, without writing (the creator-cut TVLs only).
@@ -216,17 +222,27 @@ library DiscipleBooks {
     }
 
     /// @notice One fill on the v0.2 flat-centre curve (DiscipleFlatMath). Returns (coin, quote) amounts.
-    function fill(uint256 u, uint256 v, uint256 t, uint256 k, uint256 b, bool sell, bool exactIn, uint256 spec)
+    function fill(
+        uint256 u,
+        uint256 v,
+        uint256 t,
+        uint256 k,
+        uint256 b,
+        bool sell,
+        bool exactIn,
+        uint256 spec,
+        uint256 sh
+    )
         public
         pure
         returns (uint256 coinAmt, uint256 quoteAmt)
     {
         if (sell) {
             (coinAmt, quoteAmt) =
-                exactIn ? (spec, FM.sellExactIn(u, v, k, b, t, spec)) : (FM.sellExactOut(u, v, k, b, t, spec), spec);
+                exactIn ? (spec, FM.sellExactIn(u, v, k, b, t, spec, sh)) : (FM.sellExactOut(u, v, k, b, t, spec, sh), spec);
         } else {
             (quoteAmt, coinAmt) =
-                exactIn ? (spec, FM.buyExactIn(u, v, k, b, t, spec)) : (FM.buyExactOut(u, v, k, b, t, spec), spec);
+                exactIn ? (spec, FM.buyExactIn(u, v, k, b, t, spec, sh)) : (FM.buyExactOut(u, v, k, b, t, spec, sh), spec);
         }
     }
 

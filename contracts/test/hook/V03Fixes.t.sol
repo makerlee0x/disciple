@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {DiscipleTest} from "./Disciple.t.sol";
+import {Vm} from "forge-std/Test.sol";
 import {DiscipleHook} from "../../src/hook/DiscipleHook.sol";
 import {DiscipleBooks as BK} from "../../src/hook/DiscipleBooks.sol";
 import {DiscipleSwapMath as SM} from "../../src/hook/libraries/DiscipleSwapMath.sol";
@@ -13,7 +14,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {DisciplePushSender} from "../../src/hook/routes/DisciplePushSender.sol";
-import {_noKey} from "./NoKey.sol";
+import {_noKey, _v02Tune} from "./NoKey.sol";
 
 /// @notice v0.3 step-1 fixes ported from the Carry v0.3 audit (rounds 6 and 7). Inherits DiscipleTest for its
 ///         helpers (its own tests run here too).
@@ -140,11 +141,11 @@ contract V03FixesTest is DiscipleTest {
     /// N-2: on a leader with a fee under the edge the match bounds never sit inside the leader's own bid/ask.
     function test_v03_edgeClampAtLeaderBidAsk() public pure {
         uint256 spot = 2 * Q128;
-        (,, uint256 pb, uint256 ps) = BK.sameQuote(spot, Q128, 3000, spot, 0);
+        (,, uint256 pb, uint256 ps) = BK.sameQuote(spot, Q128, 3000, spot, 0, 1);
         assertGe(pb, spot, "ask never below the zero-fee leader's ask");
         assertLe(ps, spot, "bid never above the zero-fee leader's bid");
         // a normal leader fee: the clamp changes nothing
-        (,, pb, ps) = BK.sameQuote(spot, Q128, 3000, spot, 3000);
+        (,, pb, ps) = BK.sameQuote(spot, Q128, 3000, spot, 3000, 1);
         uint256 srcAsk = Math.mulDiv(spot, 1e6, 1e6 - 3000, Math.Rounding.Ceil);
         uint256 srcBid = Math.mulDiv(spot, 1e6 - 3000, 1e6);
         (uint256 eb, uint256 es) = SM.matchBounds(srcAsk, srcBid, 1);
@@ -207,7 +208,8 @@ contract V03CrossTest is DiscipleTest {
                 coinIn: 1000e18,
                 quoteIn: 2000e18,
                 srcKey: _noKey(),
-                srcKey2: _noKey()
+                srcKey2: _noKey(),
+                tune: _v02Tune()
             })
         );
     }
@@ -248,5 +250,129 @@ contract V03CrossTest is DiscipleTest {
         assertLt(q, Math.mulDiv(c, a1, Q128, Math.Rounding.Ceil), "a loss at the new centre");
         assertGt(q, Math.mulDiv(c, a0, Q128, Math.Rounding.Ceil), "a gain at the old one");
         assertEq(b1, b0, "nothing booked as fees");
+    }
+}
+
+/// @notice v0.3 creator settings (maker 2026-11-14: picked at createPool within hard bounds, then fixed).
+contract V03TuneTest is DiscipleTest {
+    event Tuned(PoolId indexed id, uint16 edgeBps, uint32 lamPpm, uint16 tipBps, uint16 skimBps);
+
+    function _params(DiscipleHook.Tune memory t) internal view returns (DiscipleHook.CreateParams memory) {
+        return DiscipleHook.CreateParams({
+            coin: address(coin),
+            quote: address(usd),
+            fee: FEE,
+            src: _src(0),
+            coinIn: 1000e18,
+            quoteIn: 2000e18,
+            srcKey: _noKey(),
+            srcKey2: _noKey(),
+            tune: t
+        });
+    }
+
+    function _make(DiscipleHook.Tune memory t) internal returns (PoolKey memory key, PoolId id) {
+        (key, id) = hook.createPool(_params(t));
+    }
+
+    function _bad(DiscipleHook.Tune memory t) internal {
+        DiscipleHook.CreateParams memory cp = _params(t);
+        vm.expectRevert();
+        hook.createPool(cp);
+    }
+
+    function test_v03_tuneBounds() public {
+        DiscipleHook.Tune memory t = _v02Tune();
+        t.edgeBps = 501;
+        _bad(t);
+        t = _v02Tune();
+        t.lamPpm = 4999;
+        _bad(t);
+        t.lamPpm = 250_001;
+        _bad(t);
+        t = _v02Tune();
+        t.tipBps = 9999;
+        _bad(t);
+        t.tipBps = 15_001;
+        _bad(t);
+        t = _v02Tune();
+        t.skimBps = 2001;
+        _bad(t);
+        // the bounds themselves are allowed
+        _make(DiscipleHook.Tune({edgeBps: 500, lamPpm: 5000, tipBps: 10_000, skimBps: 0}));
+        _make(DiscipleHook.Tune({edgeBps: 0, lamPpm: 250_000, tipBps: 15_000, skimBps: 2000}));
+    }
+
+    function test_v03_tunedEventAtCreate() public {
+        DiscipleHook.Tune memory t = DiscipleHook.Tune({edgeBps: 20, lamPpm: 20_000, tipBps: 10_500, skimBps: 300});
+        vm.recordLogs();
+        (, PoolId id) = _make(t);
+        bool seen;
+        bytes32 sig = keccak256("Tuned(bytes32,uint16,uint32,uint16,uint16)");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].topics[0] == sig && logs[i].topics[1] == PoolId.unwrap(id)) {
+                (uint16 e, uint32 l, uint16 tp, uint16 sk) = abi.decode(logs[i].data, (uint16, uint32, uint16, uint16));
+                assertEq(e, 20);
+                assertEq(l, 20_000);
+                assertEq(tp, 10_500);
+                assertEq(sk, 300);
+                seen = true;
+            }
+        }
+        assertTrue(seen, "Tuned emitted");
+    }
+
+    /// A flatter curve (lower lam) moves less on a one-way buy, so the same buy gets more coin.
+    function test_v03_flatterCurveGivesMoreOnABigBuy() public {
+        DiscipleHook.Tune memory t = _v02Tune();
+        (PoolKey memory k5,) = _make(t);
+        t.lamPpm = 20_000;
+        (PoolKey memory k2,) = _make(t);
+        _nextBlock();
+        bool c0 = Currency.unwrap(k5.currency0) == address(coin);
+        BalanceDelta d5 = _swap(k5, true, -int256(300e18));
+        BalanceDelta d2 = _swap(k2, true, -int256(300e18));
+        uint256 o5 = uint256(int256(c0 ? d5.amount0() : d5.amount1()));
+        uint256 o2 = uint256(int256(c0 ? d2.amount0() : d2.amount1()));
+        assertGt(o2, o5, "flatter: more coin for the same quote");
+    }
+
+    /// While the anchor trails a rising leader the fill sits on the leader's bound; a wider edge lets it go further
+    /// inside the leader's ask (never past its bid).
+    function test_v03_widerEdgeFillsFurtherInsideTheLeader() public {
+        DiscipleHook.Tune memory t = _v02Tune();
+        (PoolKey memory k1,) = _make(t);
+        t.edgeBps = 50;
+        (PoolKey memory k50,) = _make(t);
+        pair.set(1_000_000e18, 2_018_000e18); // +0.9%: both anchors trail
+        _nextBlock();
+        bool c0 = Currency.unwrap(k1.currency0) == address(coin);
+        BalanceDelta d1 = _swap(k1, true, -int256(10e18));
+        BalanceDelta d50 = _swap(k50, true, -int256(10e18));
+        uint256 o1 = uint256(int256(c0 ? d1.amount0() : d1.amount1()));
+        uint256 o50 = uint256(int256(c0 ? d50.amount0() : d50.amount1()));
+        assertGt(o50, o1, "wider edge: a better price for the buyer");
+        // still not below the leader's bid: 10 quote buys at most 10 / (2.018 * 0.997) coin
+        assertLe(o50, uint256(10e18) * 1e6 * 1e6 / (2_018_000 * 997_000));
+    }
+
+    /// skim 0: trading never fills the jar.
+    function test_v03_zeroSkimLeavesTheJarEmpty() public {
+        vm.fee(0.01 gwei);
+        DiscipleHook.Tune memory t = _v02Tune();
+        t.skimBps = 0;
+        (PoolKey memory key, PoolId id) = _make(t);
+        for (uint256 i; i < 5; i++) {
+            _nextBlock();
+            uint256 c0 = coin.balanceOf(address(this));
+            _swap(key, true, -int256(100e18));
+            _nextBlock();
+            _swap(key, false, -int256(coin.balanceOf(address(this)) - c0));
+        }
+        _nextBlock();
+        _swap(key, true, -int256(1e12));
+        DiscipleHook.PoolView memory v = hook.poolState(id);
+        assertEq(v.jarX + v.jarY, 0);
     }
 }

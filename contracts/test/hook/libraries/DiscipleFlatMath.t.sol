@@ -13,10 +13,10 @@ contract FlatHarness {
         pure
         returns (uint256)
     {
-        if (fn == 0) return F.buyExactIn(u, v, k, p, t, a);
-        if (fn == 1) return F.buyExactOut(u, v, k, p, t, a);
-        if (fn == 2) return F.sellExactIn(u, v, k, p, t, a);
-        return F.sellExactOut(u, v, k, p, t, a);
+        if (fn == 0) return F.buyExactIn(u, v, k, p, t, a, F.DEFAULT_SHAPE);
+        if (fn == 1) return F.buyExactOut(u, v, k, p, t, a, F.DEFAULT_SHAPE);
+        if (fn == 2) return F.sellExactIn(u, v, k, p, t, a, F.DEFAULT_SHAPE);
+        return F.sellExactOut(u, v, k, p, t, a, F.DEFAULT_SHAPE);
     }
 }
 
@@ -54,6 +54,11 @@ contract DiscipleFlatMathTest is Test {
             else assertGe(got + noise + x.exp / 1e10, x.exp, "exact out: pool side");
         }
         console2.log("worst relative diff (1e-18)", worst);
+    }
+
+    /// v0.3: the per-pool shape at the v0.2 flatness is exactly the v0.2 constants, so default fills are unchanged.
+    function test_flat_defaultShapeIsV02() public pure {
+        assertEq(F.shape(F.LAM), F.DEFAULT_SHAPE);
     }
 
     function test_flat_expConstants() public pure {

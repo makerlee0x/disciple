@@ -37,7 +37,8 @@ library DiscipleLedger {
     uint256 internal constant BPS = 10_000;
     uint256 internal constant TARGET_BPS = 1200;
     uint256 internal constant CREATOR_BPS = 1200;
-    /// @dev Share of each interval's earnings that goes to the pool's tip jar while the jar is below its cap.
+    /// @dev v0.2's share of each interval's earnings into the pool's tip jar while the jar is below its cap. v0.3:
+    ///      each pool sets its own (`skimBps`, chosen by the creator); this is the v0.2 value, kept for reference.
     uint256 internal constant JAR_SKIM_BPS = 1200;
     /// @dev Shares that can never be withdrawn, so the pool never drains to rounding dust.
     uint256 internal constant MIN_SHARES = 1e6;
@@ -146,7 +147,14 @@ library DiscipleLedger {
     /// @notice The (coin, quote) amounts that `settle(.., onTvl, offTvl, gradTvl, true, skimRoom)` would move out of
     ///         the tradable reserves now: the jar skim, and on a graduated pool the LP escrow and (if the creator does
     ///         not compound) the creator claim. View; same arithmetic as settle and _distribute.
-    function settlePreview(Book storage bk, uint256 markX128, uint256 skimRoom, uint256 onTvl, uint256 offTvl)
+    function settlePreview(
+        Book storage bk,
+        uint256 markX128,
+        uint256 skimRoom,
+        uint256 skimBps,
+        uint256 onTvl,
+        uint256 offTvl
+    )
         internal
         view
         returns (uint256 ox, uint256 oy)
@@ -169,7 +177,7 @@ library DiscipleLedger {
         }
         if (2 * q > v) return (0, 0);
         if (skimRoom > 0) {
-            uint256 sk = Math.mulDiv(q, JAR_SKIM_BPS, BPS);
+            uint256 sk = Math.mulDiv(q, skimBps, BPS);
             if (sk > skimRoom) sk = skimRoom;
             ox = Math.mulDiv(x, sk, v);
             oy = Math.mulDiv(y, sk, v);
@@ -198,10 +206,10 @@ library DiscipleLedger {
         internal
         returns (uint256 q)
     {
-        (q,,) = settle(bk, markX128, onTvl, offTvl, gradTvl, distribute, 0);
+        (q,,) = settle(bk, markX128, onTvl, offTvl, gradTvl, distribute, 0, 0);
     }
 
-    /// @notice As above, and first skims `JAR_SKIM_BPS` of the interval's earnings Q (at most `skimRoom`, quote
+    /// @notice As above, and first skims `skimBps` of the interval's earnings Q (at most `skimRoom`, quote
     ///         wei at the mark) out of the reserves, pro rata in both tokens, for the pool's tip jar. Returns the
     ///         distributable Q after the skim and the coin/quote amounts taken (the caller adds them to the jar).
     function settle(
@@ -211,7 +219,8 @@ library DiscipleLedger {
         uint256 offTvl,
         uint256 gradTvl,
         bool distribute,
-        uint256 skimRoom
+        uint256 skimRoom,
+        uint256 skimBps
     ) internal returns (uint256 q, uint256 jx, uint256 jy) {
         int256 dx = bk.dx;
         int256 e = int256(bk.dy)
@@ -243,7 +252,7 @@ library DiscipleLedger {
         // the 1/(V - D) terms stay bounded.
         if (q > 0 && 2 * q <= v) {
             if (skimRoom > 0) {
-                uint256 sk = Math.mulDiv(q, JAR_SKIM_BPS, BPS);
+                uint256 sk = Math.mulDiv(q, skimBps, BPS);
                 if (sk > skimRoom) sk = skimRoom;
                 jx = Math.mulDiv(bk.x, sk, v);
                 jy = Math.mulDiv(bk.y, sk, v);

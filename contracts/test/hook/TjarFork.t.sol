@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {_noKey} from "./NoKey.sol";
+import {_noKey, _v02Tune} from "./NoKey.sol";
 import {Test} from "forge-std/Test.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -155,7 +155,8 @@ contract TjarForkTest is Test {
                 coinIn: 1000e18,
                 quoteIn: 1e28,
                 srcKey: _noKey(),
-                srcKey2: _noKey()
+                srcKey2: _noKey(),
+                tune: _v02Tune()
             })
         );
     }

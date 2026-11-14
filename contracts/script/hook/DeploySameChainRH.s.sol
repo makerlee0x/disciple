@@ -79,6 +79,15 @@ contract DeploySameChainRH is Script {
         _pool(hook());
     }
 
+    /// @dev v0.3 creator settings, fixed for the pool's life. Defaults are v0.2's behaviour (edge 1bp, curve 0.05,
+    ///      tip gas + 20%, skim 12%); override with EDGE_BPS, LAM_PPM, TIP_BPS, SKIM_BPS.
+    function _tune() internal view returns (DiscipleHook.Tune memory t) {
+        t.edgeBps = uint16(vm.envOr("EDGE_BPS", uint256(1)));
+        t.lamPpm = uint32(vm.envOr("LAM_PPM", uint256(50_000)));
+        t.tipBps = uint16(vm.envOr("TIP_BPS", uint256(12_000)));
+        t.skimBps = uint16(vm.envOr("SKIM_BPS", uint256(1200)));
+    }
+
     function _pool(DiscipleHook h) internal {
         require(block.chainid == 4663, "run on Robinhood Chain");
         uint256 coinIn = vm.envUint("COIN_IN");
@@ -101,7 +110,7 @@ contract DeploySameChainRH is Script {
         IERC20(USDG).approve(address(h), quoteIn);
         (, PoolId id) = h.createPool(
             DiscipleHook.CreateParams({
-                coin: STRATEGY, quote: USDG, fee: fee, src: s, coinIn: coinIn, quoteIn: quoteIn, srcKey: k1, srcKey2: k2
+                coin: STRATEGY, quote: USDG, fee: fee, src: s, coinIn: coinIn, quoteIn: quoteIn, srcKey: k1, srcKey2: k2, tune: _tune()
             })
         );
         vm.stopBroadcast();
