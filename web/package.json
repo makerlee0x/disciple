@@ -116,6 +116,7 @@
     "test:grad": "tsx --test scripts/test-grad.mts",
     "test:name-lock": "tsx --test scripts/test-name-lock.mts",
     "test:quick-launch": "tsx --test scripts/test-quick-launch.mts",
+    "test:fee-route-keeper": "tsx --test scripts/test-fee-route-keeper.mts",
     "test:player-errors": "tsx --conditions=react-server --test scripts/test-player-errors.mts",
     "test:relay-op": "tsx --conditions=react-server --test scripts/test-relay-op.mts",
     "test:mcap": "tsx --conditions=react-server --test scripts/test-mcap.mts",

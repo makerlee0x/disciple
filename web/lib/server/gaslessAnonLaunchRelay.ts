@@ -14,6 +14,7 @@ import { createPublicClient, parseAbi, recoverTypedDataAddress, type Address, ty
 import { DEPLOYMENTS, robinhoodTestnet } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { GaslessReject } from "../trade/gaslessPermit2";
+import { creatorFeeRoutingAvailable } from "../quickLaunch";
 import {
   ANON_LAUNCH_TX_GAS_LIMIT, MULTICALL3, anonLaunchTypedData, checkGaslessAnonLaunchRequest,
   encodeAnonLaunchCall, parseGaslessAnonLaunchRequest, type GaslessAnonLaunchRequest,
@@ -91,7 +92,9 @@ export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps = {}):
       pc.readContract({ address: launcher, abi: launcherAbi, functionName: "feeToken" }),
     ]);
     if (feeToken.toLowerCase() !== dep.usdg.toLowerCase()) throw new GaslessReject("private First BOOST expects the launch fee to be charged in USDG");
-    checkGaslessAnonLaunchRequest(q, { usdg: dep.usdg, launcher, nowSec: d.nowSec ?? Math.floor(Date.now() / 1000), launchFee });
+    // Pool / burn routing goes through CreatorFeeHarvest. Only allowed once the harvest with refundTo is live.
+    const harvest = creatorFeeRoutingAvailable({ private: true, harvest: dep.creatorFeeHarvest }) ? dep.creatorFeeHarvest : null;
+    checkGaslessAnonLaunchRequest(q, { usdg: dep.usdg, launcher, harvest, nowSec: d.nowSec ?? Math.floor(Date.now() / 1000), launchFee });
     const who = await recoverTypedDataAddress({ ...anonLaunchTypedData(robinhoodTestnet.id, q.permit, q.launch), signature: q.signature });
     if (who.toLowerCase() !== q.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
   } catch (e) { throw notSent(e); }

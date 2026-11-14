@@ -36,7 +36,7 @@ import {
 import {
   QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_CARD, seatLabel, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION,
   CREATOR_FEE_DESTINATIONS, CREATOR_TAX_HELP, DEFAULT_CREATOR_FEE_DESTINATION,
-  buildLaunchSocials, launchNeedsSignIn, liveCreatorFeeDestination,
+  buildLaunchSocials, creatorFeeRoutingAvailable, launchNeedsSignIn, liveCreatorFeeDestination,
   normalizeTelegram, normalizeTwitter, normalizeWebsite, privateLaunchHelp,
   readStoredCreatorFeeDestination, readStoredCreatorTax, readStoredUpload, snapCreatorTax,
   storeCreatorFeeDestination, storeCreatorTax, storeUpload, type CreatorFeeDestination,
@@ -292,15 +292,19 @@ export default function LaunchRocketPage() {
       return;
     }
     // Payout only applies when the creator keeps the fees. The typed value stays in
-    // state if they switch back to keep. Do not send a non-default destination to the
-    // live Launchpad — liveCreatorFeeDestination() is undefined until contracts are live.
+    // state if they switch back to keep. Pool / burn (1, 2) go through CreatorFeeHarvest;
+    // liveCreatorFeeDestination() is undefined for keep, or where routing isn't available.
     const keepFees = feeDestination === CREATOR_FEE_DESTINATION.creator;
     const fr = keepFees ? feeReceiver.trim() : "";
     if (fr && !isAddr(fr)) {
       setMsg("Fee receiver must be a 0x wallet address (or leave it empty to use your own).");
       return;
     }
-    void liveCreatorFeeDestination(feeDestination);
+    const sendFeeDest = liveCreatorFeeDestination(feeDestination, { private: privateLaunch, harvest: deployment().creatorFeeHarvest });
+    if (!keepFees && sendFeeDest === undefined) {
+      setMsg(privateLaunch ? `${C.creatorFeesPrivateLater} Pick "${CREATOR_FEE_COPY[0].sentence}" or turn off Hide my name.` : C.creatorFeesNotHere);
+      return;
+    }
     const web = normalizeWebsite(website) ?? "";
     if (web !== website.trim()) setWebsite(web);
     if (web && !/^https?:\/\/\S+\.\S+/.test(web)) {
@@ -340,6 +344,7 @@ export default function LaunchRocketPage() {
         socials: buildLaunchSocials({ twitter, telegram, website: web }),
         mode: priv ? LaunchMode.TRENCH_WARFARE : LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
         private: priv,
+        creatorFeeDestination: sendFeeDest,
       });
       keepLockedRef.current = true;   // the coin exists: never launch it again from this page
       setLaunchDone(true);
@@ -385,6 +390,7 @@ export default function LaunchRocketPage() {
   const liveCard = live ? modeCard(MODE_LABEL[live.mode] ?? "Easy") : card;
   const pairSet = quote.label !== defaultPairLabel;
   const linksSet = !!(twitter.trim() || website.trim() || telegram.trim());
+  const feeRoutingOk = creatorFeeRoutingAvailable({ private: privateLaunch, harvest: deployment().creatorFeeHarvest });
   const feesSet = tax > 0 || feeDestination !== DEFAULT_CREATOR_FEE_DESTINATION || (!privateLaunch && !!feeReceiver.trim());
 
   return (
@@ -563,12 +569,14 @@ export default function LaunchRocketPage() {
                 <div className={s.feeCards} role="radiogroup" aria-label={C.creatorFees}>
                   {CREATOR_FEE_DESTINATIONS.map((id) => {
                     const on = feeDestination === id;
+                    const off = id !== CREATOR_FEE_DESTINATION.creator && !feeRoutingOk;
                     return (
                       <button
                         key={id}
                         type="button"
                         role="radio"
                         aria-checked={on}
+                        disabled={off}
                         data-testid={`fee-destination-${id}`}
                         className={`${s.feeCard} ${on ? s.on : ""}`}
                         onClick={() => setFeeDest(id)}
@@ -580,6 +588,9 @@ export default function LaunchRocketPage() {
                     );
                   })}
                 </div>
+                {!feeRoutingOk && (
+                  <div className={s.help} data-testid="fee-destination-later">{privateLaunch ? C.creatorFeesPrivateLater : C.creatorFeesNotHere}</div>
+                )}
                 <div className={`${s.help} ${s.feePerm}`}>{C.creatorFeesPerm}</div>
               </div>
               {!privateLaunch && feeDestination === CREATOR_FEE_DESTINATION.creator && (

@@ -162,3 +162,25 @@ test("lp-accrue: creator / private / referral claims hit the CurveFeeVault side 
   assert.deepEqual(referralClaimCalls([{ asset, claimable: BigInt(4), vault: VAULT, vaultClaimable: BigInt(4) }]).map((c) => c.to), [VAULT]);
   assert.deepEqual(referralClaimCalls([{ asset, claimable: BigInt(4) }]).map((c) => c.to), [fr]);
 });
+
+test("pool / burn coins show nothing to claim (the claim would revert) and say where the fees go", async () => {
+  const { markRouted } = await import("../lib/claims/creatorFees");
+  const asset = { address: A(5), symbol: "USDG", decimals: 6, usd: 1 } as never;
+  const row = (token: `0x${string}`) => ({
+    token, name: "R", ticker: "R", quote: asset, claimable: BigInt(9), claimed: BigInt(4), lifetime: BigInt(13), recent: [],
+    tokenSide: { asset, claimable: BigInt(3), claimed: BigInt(0) }, vaultClaimable: BigInt(5), baseClaimable: BigInt(4),
+  });
+  const pc = { readContract: async ({ args }: { args: [string] }) => (args[0] === A(1) ? 1 : args[0] === A(2) ? 2 : 0) } as never;
+  const [pool, burn, keep] = await markRouted(pc, [row(A(1)), row(A(2)), row(A(3))]);
+  assert.equal(pool.routed, 1);
+  assert.equal(burn.routed, 2);
+  assert.equal(keep.routed, undefined);
+  for (const r of [pool, burn]) {
+    assert.equal(r.claimable, BigInt(0));
+    assert.equal(r.baseClaimable, BigInt(0));
+    assert.equal(r.vaultClaimable, BigInt(0));
+    assert.equal(r.tokenSide?.claimable, BigInt(0));
+    assert.equal(r.lifetime, r.claimed);
+  }
+  assert.equal(keep.claimable, BigInt(9));
+});

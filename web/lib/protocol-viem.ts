@@ -19,6 +19,7 @@ import {
   BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, maxUint256, parseAbi, type Hex, type PublicClient,
 } from "viem";
 import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
+import { creatorFeeHarvestAbi, routesThroughHarvest } from "./creatorFeeHarvest";
 import { readCoinMcap } from "./mcap";
 import { fillBook, readAtOrAfter } from "./fillBook";
 import { NETWORK_MSG, NO_PRICE_MSG, PENDING_MSG, REJECTED_MSG, isTransportError, logTradeError, plainText } from "./aa/relayOp";
@@ -1223,6 +1224,10 @@ export function createViemProtocol(): ProtocolClient {
       const anonL = lp.private ? ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher : undefined;
       if (lp.private && !anonL) throw new ProtocolError("NotDeployed", "Private launches aren't available on this chain.");
       const mode = lp.private ? LaunchMode.TRENCH_WARFARE : lp.mode ?? DEFAULT_LAUNCH_MODE;
+      // Pool / burn: every launch path goes through CreatorFeeHarvest, which records the choice in this transaction.
+      const feeDest = routesThroughHarvest(lp.creatorFeeDestination) ? lp.creatorFeeDestination : undefined;
+      const harvest = feeDest ? deployment().creatorFeeHarvest : undefined;
+      if (feeDest && (!harvest || harvest === ZERO_ADDRESS)) throw new ProtocolError("NotDeployed", "Sending creator fees to the pool or the burn isn't available on this network yet.");
       const params = {
         name: lp.name, ticker: lp.ticker, imageURI: lp.imageUri,
         description: lp.description || "", socialsURI: lp.socials ? JSON.stringify(lp.socials) : "",
@@ -1258,8 +1263,9 @@ export function createViemProtocol(): ProtocolClient {
           // Exact approve of creatorBuyQuoteIn (Launchpad pulls exactly that): no slack, never unlimited, and a leftover
           // larger allowance is set back down to the exact amount. Skipped only when it already equals creatorBuyQuoteIn.
           if (!anonL) {
-            const cur = await pc.readContract({ address: q, abi: tokenAbi, functionName: "allowance", args: [me, launchpad] });
-            if (cur !== creatorBuy) calls.push({ to: q, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [launchpad, creatorBuy] }) });
+            const spender = harvest ?? launchpad;   // the harvest pulls the First BOOST and approves the Launchpad itself
+            const cur = await pc.readContract({ address: q, abi: tokenAbi, functionName: "allowance", args: [me, spender] });
+            if (cur !== creatorBuy) calls.push({ to: q, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [spender, creatorBuy] }) });
           }
         }
         let launchCall: Call | null = null;
@@ -1307,6 +1313,9 @@ export function createViemProtocol(): ProtocolClient {
             if (clientGaslessMode()) {
               if (!gaslessSigner()) throw new ProtocolError("NotSignedIn", "Sign in to launch this private rocket.");
               privateRelay = { fee, minQuoteIn };
+            } else if (harvest && feeDest) {
+              calls.push({ to: usdg, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [harvest, need] }) });
+              launchCall = { to: harvest, data: encodeFunctionData({ abi: creatorFeeHarvestAbi, functionName: "launchAnonWithUsdg", args: [params, stealthOwner, stealthOwner, ephemeralPubKey, viewTag, fee, usdgIn, minQuoteIn, me, feeDest] }) };
             } else {
               calls.push({ to: usdg, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [anonL, need] }) });
               launchCall = { to: anonL, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "launchAnonWithUsdg", args: [params, stealthOwner, stealthOwner, ephemeralPubKey, viewTag, fee, usdgIn, minQuoteIn, me] }) };
@@ -1314,8 +1323,14 @@ export function createViemProtocol(): ProtocolClient {
           } else {
             if (have < usdgIn) throw new ProtocolError("InsufficientBalance", FIRST_BOOST_CASH_MSG(usdgRawToUsd(usdgIn), usdgRawToUsd(have)));
             // Exact USDG approve to the router (it pulls exactly usdgIn); the swap leg is guarded by minQuoteIn.
-            calls.push({ to: usdg, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [router, usdgIn] }) });
-            launchCall = { to: router, data: encodeFunctionData({ abi: discipleRouterAbi, functionName: "launchWithUsdg", args: [params, mode, usdgIn, minQuoteIn] }) };
+            if (harvest && feeDest) {
+              // CreatorFeeHarvest.launchWithUsdg: same swap + launch, with this account as creator, and records the choice
+              calls.push({ to: usdg, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [harvest, usdgIn] }) });
+              launchCall = { to: harvest, data: encodeFunctionData({ abi: creatorFeeHarvestAbi, functionName: "launchWithUsdg", args: [params, mode, usdgIn, minQuoteIn, feeDest] }) };
+            } else {
+              calls.push({ to: usdg, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [router, usdgIn] }) });
+              launchCall = { to: router, data: encodeFunctionData({ abi: discipleRouterAbi, functionName: "launchWithUsdg", args: [params, mode, usdgIn, minQuoteIn] }) };
+            }
           }
         }
         if (launchCall) {
@@ -1334,16 +1349,22 @@ export function createViemProtocol(): ProtocolClient {
           const need = new Map<string, bigint>();
           if (fee > B(0)) need.set(feeToken.toLowerCase(), fee);
           if (creatorBuy > B(0)) need.set(q.toLowerCase(), (need.get(q.toLowerCase()) ?? B(0)) + creatorBuy);
+          const spender = harvest ?? anonL;   // the harvest pulls both and approves AnonLauncher itself
           for (const [tok, amt] of Array.from(need.entries())) {
             const have = await pc.readContract({ address: tok as Address, abi: tokenAbi, functionName: "balanceOf", args: [me] });
             if (have < amt) throw new ProtocolError("InsufficientBalance", `Not enough ${tok.toLowerCase() === feeToken.toLowerCase() ? "USDG" : "balance"} for this private launch: need ${fmtUnits(amt, await decimalsOf(pc, tok as Address))}, have ${fmtUnits(have, await decimalsOf(pc, tok as Address))}.`);
-            calls.push({ to: tok as Address, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [anonL, amt] }) });
+            calls.push({ to: tok as Address, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [spender, amt] }) });
           }
           const { stealthOwner, ephemeralPubKey, viewTag } = lp.private;
-          calls.push({ to: anonL, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "launchAnon", args: [params, stealthOwner, me, ephemeralPubKey, viewTag, fee] }) });
+          calls.push(harvest && feeDest
+            ? { to: harvest, data: encodeFunctionData({ abi: creatorFeeHarvestAbi, functionName: "launchAnon", args: [params, stealthOwner, me, ephemeralPubKey, viewTag, fee, feeDest] }) }
+            : { to: anonL, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "launchAnon", args: [params, stealthOwner, me, ephemeralPubKey, viewTag, fee] }) });
         } else {
           // launchCoin on the pre-modes ABI; launchWithMode(params, mode) for every launch on the modes (v4) ABI (lib/launchAbi.ts).
-          calls.push({ to: launchpad, data: encodeLaunchCall(params, mode) });
+          // Pool / burn: CreatorFeeHarvest.launchWithMode (Launchpad.launchFor with this account as creator).
+          calls.push(harvest && feeDest
+            ? { to: harvest, data: encodeFunctionData({ abi: creatorFeeHarvestAbi, functionName: "launchWithMode", args: [params, mode, feeDest] }) }
+            : { to: launchpad, data: encodeLaunchCall(params, mode) });
         }
         const sentAt = Date.now();
         let r: Pick<ExecResult, "txHash" | "logs">;
@@ -1369,7 +1390,8 @@ export function createViemProtocol(): ProtocolClient {
               usdgIn,
               minQuoteIn: privateRelay.minQuoteIn,
               refundTo: me,
-              launcher: anonL,
+              launcher: harvest && feeDest ? harvest : anonL,
+              creatorFeeDestination: feeDest ?? 0,
             });
           } catch (e) {
             if (e instanceof GaslessError) throw new ProtocolError("LaunchFailed", e.message);
@@ -1401,7 +1423,7 @@ export function createViemProtocol(): ProtocolClient {
             const quoteIn = ev.args.quoteAmt as bigint, tokens = ev.args.tokenAmt as bigint;
             // private First BOOST: AnonLauncher forwards the coins to the stealth owner, not this account.
             // public launchWithUsdg: Launchpad.launchFor(me, …) buys for the creator (this account).
-            const recipient = privateBoostTo ?? (anonL || usdg ? me : (ev.args.trader as Address));
+            const recipient = privateBoostTo ?? (anonL || usdg || harvest ? me : (ev.args.trader as Address));
             launched.creatorBuy = { recipient, tokens, quoteIn, usd: quoteRawToUsd(quoteIn, qp) };
             if (recipient.toLowerCase() === me.toLowerCase()) {
               seedCreatorBuyPosition(pnlKey("disciple.pnl.", me, launched.token), Number(tokens) / 1e18, launched.creatorBuy.usd, supply || undefined);

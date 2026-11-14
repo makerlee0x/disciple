@@ -114,6 +114,7 @@
 .feeArt svg { width: 100%; height: 100%; max-height: 118px; display: block; overflow: visible; }
 .feeLab { font-size: 14px; line-height: 19px; color: #A3A8B2; font-weight: 500; text-wrap: balance; }
 .feeCard.on .feeLab { color: var(--dsc-text); }
+.feeCard:disabled { opacity: .45; cursor: not-allowed; }
 .feePerm { margin-top: 2px; }
 
 /* Centered popup modal (mode + Advanced). Only an X — no drag/minimize bar. */
