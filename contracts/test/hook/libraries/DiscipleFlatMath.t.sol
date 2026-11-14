@@ -20,13 +20,85 @@ contract FlatHarness {
     }
 }
 
+contract FlatHarnessShaped {
+    function fill(uint8 fn, uint256 u, uint256 v, uint256 k, uint256 p, uint256 t, uint256 a, uint256 sh)
+        external
+        pure
+        returns (uint256)
+    {
+        if (fn == 0) return F.buyExactIn(u, v, k, p, t, a, sh);
+        if (fn == 1) return F.buyExactOut(u, v, k, p, t, a, sh);
+        if (fn == 2) return F.sellExactIn(u, v, k, p, t, a, sh);
+        return F.sellExactOut(u, v, k, p, t, a, sh);
+    }
+
+    function shape(uint256 lam) external pure returns (uint256) {
+        return F.shape(lam);
+    }
+}
+
 contract DiscipleFlatMathTest is Test {
     uint256 internal constant WAD = 1e18;
     uint256 internal constant Q128 = 1 << 128;
     FlatHarness internal h;
 
+    FlatHarnessShaped internal hs;
+
     function setUp() public {
         h = new FlatHarness();
+        hs = new FlatHarnessShaped();
+    }
+
+    /// v0.3: the per-pool flatness anywhere in [MIN_LAM, MAX_LAM] (seeded, including both bounds).
+    function _lam(uint256 seed) internal pure returns (uint256) {
+        uint256 r = uint256(keccak256(abi.encode(seed, "lam"))) % 10;
+        if (r == 0) return F.MIN_LAM;
+        if (r == 1) return F.MAX_LAM;
+        return F.MIN_LAM + uint256(keccak256(abi.encode(seed, "lam2"))) % (F.MAX_LAM - F.MIN_LAM);
+    }
+
+    function testFuzz_flat_anyLam_splitNeverBeatsWhole(uint256 seed) public view {
+        uint256 sh = hs.shape(_lam(seed));
+        (uint256 u, uint256 v, uint256 t, uint256 k, uint256 a) = _state(seed, true);
+        uint256 whole = hs.fill(0, u, v, k, 0, t, a, sh);
+        uint256 a1 = a / 3;
+        uint256 o1 = hs.fill(0, u, v, k, 0, t, a1, sh);
+        uint256 o2 = hs.fill(0, u - o1, v + a1, k, 0, t, a - a1, sh);
+        assertLe(o1 + o2, whole + 1, "buy split");
+        (u, v, t, k, a) = _state(seed ^ 1, false);
+        whole = hs.fill(2, u, v, k, 0, t, a, sh);
+        o1 = hs.fill(2, u, v, k, 0, t, a1 = a / 3, sh);
+        o2 = hs.fill(2, u + a1, v - o1, k, 0, t, a - a1, sh);
+        assertLe(o1 + o2, whole + 1, "sell split");
+    }
+
+    function testFuzz_flat_anyLam_roundTripLoses(uint256 seed) public view {
+        uint256 sh = hs.shape(_lam(seed));
+        (uint256 u, uint256 v, uint256 t,, uint256 a) = _state(seed, true);
+        uint256 c = hs.fill(0, u, v, 1010101010101010102, 0, t, a, sh);
+        if (c == 0) return;
+        uint256 back = hs.fill(2, u - c, v + a, 990000000000000000, 0, t, c, sh);
+        assertLe(back, a, "buy then sell never profits");
+    }
+
+    function testFuzz_flat_anyLam_exactOutCoversExactIn(uint256 seed) public view {
+        uint256 sh = hs.shape(_lam(seed));
+        (uint256 u, uint256 v, uint256 t, uint256 k, uint256 a) = _state(seed, true);
+        uint256 out = hs.fill(0, u, v, k, 0, t, a, sh);
+        if (out > 1e6) assertGe(hs.fill(1, u, v, k, 0, t, out, sh), a - a / 1e9, "buy");
+        (u, v, t, k, a) = _state(seed ^ 7, false);
+        out = hs.fill(2, u, v, k, 0, t, a, sh);
+        if (out > 1e6) assertGe(hs.fill(3, u, v, k, 0, t, out, sh), a - a / 1e9, "sell");
+    }
+
+    /// With a match boundary set (the live-leader bound), at any flatness: a buy never pays below p.
+    function testFuzz_flat_anyLam_boundaryHolds(uint256 seed) public view {
+        uint256 sh = hs.shape(_lam(seed));
+        (uint256 u, uint256 v, uint256 t, uint256 k, uint256 a) = _state(seed, true);
+        uint256 p = Math.mulDiv(v, Q128, u) * (1000 + (seed % 50)) / 1000; // 0-5% above the spot ratio
+        uint256 out = hs.fill(0, u, v, k, p, t, a, sh);
+        if (out == 0) return;
+        assertGe(Math.mulDiv(a, Q128, out), p - p / 1e12, "average buy price at or above the boundary");
     }
 
     /// @dev Matches the float sim within 1e-9 of the fill plus 1e-11 of the reserve (the pow margins are relative to
