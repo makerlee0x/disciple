@@ -11,6 +11,7 @@ import { useEffect } from "react";
 import { liveFlightNumbers } from "@/lib/liveFlight";
 import { isNativeApp, liveFlightEnd, liveFlightStart, liveFlightSupported, liveFlightUpdate, nativeDebugBuild, onLiveFlightToken } from "@/lib/native";
 import { onWallet } from "@/lib/walletState";
+import { privyAccessToken } from "@/lib/aa/sessionState";
 
 const UPDATE_MS = 4000;
 
@@ -37,9 +38,13 @@ export default function LiveFlight({ coin }: { coin: string | null }) {
     let mcap = 0, ticker = "", size = 0, value = 0, basis = 0, bankedAt0: number | null = null, banked = 0, lastPush = 0;
     const offWallet = onWallet((a) => { wallet = a ? a.toLowerCase() : null; });
     const register = () => {
-      if (!token || !(mcap > 0) || !(basis > 0)) return;
-      void fetch("/api/live-activity", { method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token, env: nativeDebugBuild() ? "sandbox" : "production", coin: c, ticker, investedUsd: basis, share: value / mcap, wallet }) }).catch(() => {});
+      if (!token || !wallet || !(mcap > 0) || !(basis > 0)) return;
+      const t = token, w = wallet;
+      void privyAccessToken().then((at) => {
+        if (!at) return;
+        return fetch("/api/live-activity", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${at}` },
+          body: JSON.stringify({ token: t, env: nativeDebugBuild() ? "sandbox" : "production", coin: c, ticker, investedUsd: basis, share: value / mcap, wallet: w }) });
+      }).catch(() => {});
     };
     const drop = () => { if (token) void fetch("/api/live-activity", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) }).catch(() => {}); token = null; };
     const offToken = onLiveFlightToken((d) => { if (d.coin === c) { token = d.token; register(); } });

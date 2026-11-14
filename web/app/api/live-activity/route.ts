@@ -2,13 +2,15 @@ export const runtime = "nodejs";
 /**
  * The iPhone app's flight Live Activity (lib/server/liveActivity). POST registers one, DELETE drops it.
  * POST { token, env: "production" | "sandbox", coin, ticker, investedUsd, share, wallet? } · DELETE { token }
- * The token is the activity's own push token (it can only update that one lock-screen card), so no sign-in is needed;
- * requests are rate limited per IP.
+ * POST needs the Privy session (Authorization: Bearer) and a wallet on that account, so nobody can fill the cron's list with
+ * made-up activities; one activity per wallet (a new one replaces the old). DELETE only needs the token (only that phone has
+ * it, and dropping it just stops lock-screen updates). Rate limited per IP.
  */
 import { NextResponse } from "next/server";
 import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { validApnsToken } from "@/lib/server/apns";
+import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
 import { dropLive, registerLive } from "@/lib/server/liveActivity";
 
 export const dynamic = "force-dynamic";
@@ -25,9 +27,13 @@ export async function POST(req: Request) {
   const token = typeof b?.token === "string" ? b.token.toLowerCase() : "";
   const investedUsd = num(b?.investedUsd, 1e9), share = num(b?.share, 1);
   if (!b || !validApnsToken(token) || !isAddr(b.coin) || investedUsd === null || share === null) return out(400, { ok: false, reason: "token, coin, investedUsd and share required" });
+  if (!isAddr(b.wallet)) return out(400, { ok: false, reason: "wallet required" });
+  const auth = await authenticate(bearer(req.headers), privyEnv());
+  if (!auth.ok) return out(auth.status, { ok: false, reason: auth.reason });
+  if (!auth.user.wallets.map((x) => x.toLowerCase()).includes(b.wallet.toLowerCase())) return out(403, { ok: false, reason: "That wallet isn't on your account." });
   const env = b.env === "sandbox" ? "sandbox" : "production";
   const ticker = typeof b.ticker === "string" ? b.ticker.replace(/[^A-Za-z0-9$]/g, "").slice(0, 12) : "";
-  await registerLive({ token, env, wallet: isAddr(b.wallet) ? b.wallet.toLowerCase() : null, coin: b.coin.toLowerCase(), ticker, investedUsd, share, at: Date.now() });
+  await registerLive({ token, env, wallet: b.wallet.toLowerCase(), coin: b.coin.toLowerCase(), ticker, investedUsd, share, at: Date.now() });
   return out(200, { ok: true });
 }
 

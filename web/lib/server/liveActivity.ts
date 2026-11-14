@@ -12,12 +12,17 @@ import { getHomeData } from "./home";
 import { kv, type Kv } from "./kv";
 
 export type LiveRec = { token: string; env: ApnsEnv; wallet: string | null; coin: string; ticker: string; investedUsd: number; share: number; at: number; lastMcap?: number };
-const K = { active: "la:active", rec: (t: string) => `la:rec:${t}` };
+const K = { active: "la:active", rec: (t: string) => `la:rec:${t}`, wallet: (w: string) => `la:w:${w}` };
 export const LIVE_MAX_AGE_MS = 8 * 3_600_000;
 const parse = (s: string | null): LiveRec | null => { try { return s ? (JSON.parse(s) as LiveRec) : null; } catch { return null; } };
 
 export async function registerLive(r: LiveRec, s: Kv = kv()): Promise<void> {
   if (!validApnsToken(r.token)) return;
+  if (r.wallet) {   // one activity per wallet: a new flight replaces the last one's entry
+    const prev = await s.get(K.wallet(r.wallet));
+    if (prev && prev !== r.token) await dropLive(prev, s);
+    await s.set(K.wallet(r.wallet), r.token);
+  }
   await s.set(K.rec(r.token), JSON.stringify(r));
   await s.zadd(K.active, [{ score: r.at, member: r.token }]);
 }
