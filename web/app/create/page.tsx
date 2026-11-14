@@ -523,13 +523,13 @@ export default function LaunchRocketPage() {
 
       {advanced && (
         <>
-          <div className={s.scrim} onClick={() => setAdvanced(false)} />
-          <div className={s.modal} role="dialog" aria-label={C.advanced} data-testid="advanced-modal">
-            <div className={`${s.modalPanel} ${s.wide}`}>
-              <div className={s.drawerHd}>
+          {/* Settings v2 shell (Hangar popups v2 / Trade settings): gold-edged panel, game-type header, boxed groups */}
+          <div className="ds-modal-backdrop p5-settings-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) setAdvanced(false); }}>
+            <div className={`ds-modal p5-modal p5-settings ${s.moreModal}`} role="dialog" aria-modal="true" aria-label={C.advanced} data-testid="advanced-modal">
+              <header className="p5-mhead">
                 <h2>{C.advanced}</h2>
-                <button type="button" className={s.iconBtn} aria-label="Close" onClick={() => setAdvanced(false)}><Icon name="close" size={16} /></button>
-              </div>
+                <button type="button" className="p5-icon" aria-label="Close" onClick={() => setAdvanced(false)}><Icon name="close" size={18} /></button>
+              </header>
               <div className={s.modalBody}>
               <div className={s.fl}>
                 <div className={s.lab}>{C.pairCoin}</div>
