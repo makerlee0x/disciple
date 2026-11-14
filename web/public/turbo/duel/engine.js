@@ -269,8 +269,8 @@ function mount(root,host){
     // entry lines
     const entry=(pl,color,label,below)=>{ if(!pl.pos) return; const y=Y(pl.pos.entry);
       cx.setLineDash(pl.me?[5,4]:[3,4]); cx.strokeStyle=color; cx.lineWidth=pl.me?1.5:1; cx.beginPath(); cx.moveTo(L,y); cx.lineTo(w-Rr,y); cx.stroke(); cx.setLineDash([]);
-      cx.font="700 11px "+GF+",sans-serif"; cx.fillStyle=color; cx.textAlign=pl.me?"left":"right"; cx.textBaseline=below?"top":"bottom"; cx.fillText(label,pl.me?L+2:w-Rr-4,below?y+2:y-2); };
-    entry(G.bot,"rgba(185,188,203,.75)",`${G.bot.name.toUpperCase()} ${G.bot.pos&&G.bot.pos.side>0?"BOOSTED":"DUMPED"}`,true);
+      if(!label) return; cx.font="700 11px "+GF+",sans-serif"; cx.fillStyle=color; cx.textAlign=pl.me?"left":"right"; cx.textBaseline=below?"top":"bottom"; cx.fillText(label,pl.me?L+2:w-Rr-4,below?y+2:y-2); };
+    entry(G.bot,"rgba(185,188,203,.75)","",true);   // rival: line only (their trades are in the feed and the dots)
     entry(G.me,"rgba(242,193,78,.95)",`YOU ${G.me.pos&&G.me.pos.side>0?"BOOSTED":"DUMPED"}`,false);
     // trade dots
     // yours are round, the rival's are diamonds; both the same size so you can read their timing
