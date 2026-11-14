@@ -1,5 +1,5 @@
 /**
- * Every player-facing Turbo string in one place, for lee / Brand. Placeholders until Brand's pass (H-BOMB included).
+ * Every player-facing Turbo string in one place, for lee / Brand. Placeholders until Brand's pass (NUKE included).
  * Rules: plain full sentences, dollars on the main surfaces, no "practice" or "test" labels, no real-money / loss /
  * 1000× warnings (lee, Nov 12 2026 9:42 AM CT), no take-profit / stop-loss / limit wording.
  */
@@ -46,7 +46,7 @@ export const TURBO_COPY = {
   leverageMax: (max: number, m: string) => `Up to ${max}× on ${m} right now.`,
   closedToast: (usd: string) => `Closed. ${usd} went back to your Turbo fuel.`,
   partialToast: (pct: number, usd: string) => `Closed ${pct}%. ${usd} went back to your Turbo fuel.`,
-  liquidatedToast: (lev: string) => `Got H-BOMB'd at ${lev}.`,
+  liquidatedToast: (lev: string) => `Got NUKED at ${lev}.`,
   // Funding sheet (follows Nova's "Fund your Nova wallet" sheet)
   fundTitle1: "Add",
   fundTitle2: "fuel",
@@ -63,14 +63,14 @@ export const TURBO_COPY = {
   fundStandInButton: (usd: string) => `Add ${usd} stand-in fuel`,
   // Share cards
   shareWinTitle: "Big win",
-  shareLiqTitle: (lev: string) => `Got H-BOMB'd at ${lev}`,
+  shareLiqTitle: (lev: string) => `Got NUKED at ${lev}`,
   shareDownload: "Download image",
   shareCopyText: "Copy text",
   shareCopied: "Copied",
   sharePostX: "Post on X",
   shareClose: "Close",
   shareWinText: (usd: string, lev: string, m: string, side: string) => `I just made ${usd} on a ${lev} ${side} on ${m} with DISCIPLE Turbo.`,
-  shareLiqText: (lev: string, m: string) => `Got H-BOMB'd at ${lev} on ${m} with DISCIPLE Turbo.`,
+  shareLiqText: (lev: string, m: string) => `Got NUKED at ${lev} on ${m} with DISCIPLE Turbo.`,
   newPosition: "New position",
   sizeHint: "Your fuel × leverage",
   estLiq: "Estimated liquidation price",
@@ -100,7 +100,7 @@ export const RUN_COPY = {
   gearHint: "Higher gear, faster run",
   fuel: "Fuel",
   inPlay: (usd: string) => `${usd} in play`,
-  bombNote: (m: string, pct: string) => `H-BOMB if ${m} moves ${pct} against you`,
+  bombNote: (m: string, pct: string) => `NUKE if ${m} moves ${pct} against you`,
   boost: "BOOST ▲",
   dump: "DUMP ▼",
   boostSub: "Price goes up",
@@ -129,11 +129,11 @@ export const RUN_COPY = {
   inPlayK: "In play",
   boardedAt: "Boarded at",
   evenAt: "Break-even at",
-  bombAt: "H-BOMB at",
+  bombAt: "NUKE at",
   feesSoFar: "Nova fees so far",
   feesLink: "Fees and funding",
-  lineBomb: (p: string) => `H-BOMB ${p}`,
-  lineBombAway: (p: string, away: string) => `H-BOMB ${p} · ${away} away`,
+  lineBomb: (p: string) => `NUKE ${p}`,
+  lineBombAway: (p: string, away: string) => `NUKE ${p} · ${away} away`,
   lineEven: "BREAK-EVEN",
   lineBoarded: (p: string) => `YOU BOARDED ${p}`,
   banked: (usd: string) => `Banked ${usd}.`,
@@ -143,7 +143,7 @@ export const RUN_COPY = {
   boarded: "Boarded",
   peak: (m: string) => `Peak ${m}`,
   you: "You",
-  bombLine: "H-BOMB line",
+  bombLine: "NUKE line",
   streak: "Win streak",
   streakV: (n: number) => `${n}`,
   bestToday: "Your best today",
@@ -152,7 +152,7 @@ export const RUN_COPY = {
   runSub: (fuel: string, lev: string, side: string) => `${fuel} · ${lev} · ${side}`,
   share: (v: string) => `SHARE ${v}`,
   changeSetup: "CHANGE SETUP",
-  hbombed: "H-BOMB'D",
+  hbombed: "NUKED",
   lasted: "You lasted",
   lastedLine: (lev: string, m: string, fuel: string) => `at ${lev} on ${m} · ${fuel} fuel gone`,
   longest: (lev: string, t: string) => `Your longest at ${lev} is ${t}.`,
@@ -171,7 +171,7 @@ export const RUN_COPY = {
   longestAt: (lev: string) => `Longest at ${lev}`,
   liftoffIn: "LIFTOFF IN",
   liftoff: "LIFTOFF",
-  boardingAt: (p: string, b: string) => `Boarding at ${p} · H-BOMB at ${b}`,
+  boardingAt: (p: string, b: string) => `Boarding at ${p} · NUKE at ${b}`,
   addFuelToFire: "ADD FUEL TO FIRE",
   needFuelSub: (have: string, need: string) => `You have ${have}, this run needs ${need}`,
   line2x: (p: string) => `2× ${p}`,
@@ -195,5 +195,5 @@ export const RUN_COPY = {
   // share card
   shareFooter: "Think you can beat it? disciple.vip/turbo",
   shareWinText: (mult: string, usd: string, lev: string, side: string, m: string, t: string) => `Cashed out ${mult} (+${usd}) on a ${lev} ${side} on ${m}, lasted ${t}. DISCIPLE Turbo.`,
-  shareBombText: (t: string, lev: string, m: string) => `Lasted ${t} at ${lev} on ${m} before the H-BOMB. DISCIPLE Turbo.`,
+  shareBombText: (t: string, lev: string, m: string) => `Lasted ${t} at ${lev} on ${m} before the NUKE. DISCIPLE Turbo.`,
 } as const;

@@ -12,7 +12,7 @@ default Maker lee can change before the redeploy (it is a constant, so changing 
   `Launchpad` emits `LaunchMode(token, curve, mode)` at launch.
 * Applies **only on the bonding curve**. Nothing changes after graduation: the hook, the v4 pool, LockedLP and the
   router's v4 paths contain no mode logic.
-* Curve facts: 1M supply, 72% (720K) sold on the curve, $7,777 → $33,333 mcap at graduation.
+* Curve facts: 1M supply, 84.24% (842,400) sold on the curve, $3,333 → $33,333 mcap at graduation.
 
 | id | mode | difficulty |
 |----|------|-----------|
@@ -32,14 +32,18 @@ partial fill, sniper escrow, creator lock, crew tip). Summary:
 
 | rule | value | notes |
 |------|-------|-------|
-| holding cap (NET) | **1% → 3.33%** of supply, linear in mcap $7,777 → $33,333 (pre-trade mcap) | `PVE_CAP_START_BPS = 100`, `PVE_CAP_END_BPS = 333` |
+| holding cap (NET) | **1% → 3.33%** of supply, linear in mcap $3,333 → $33,333 (pre-trade mcap) | `PVE_CAP_START_BPS = 100`, `PVE_CAP_END_BPS = 333` |
 | over-cap buy | partial fill to the cap, rest refunded (`BuyRefunded`); room 0 → `WalletCap` | |
-| login | verified Privy login required to **buy** | EIP-712 attestation, see below |
+| login | app-only: the site / relay requires a Privy login; **not checked on-chain** (maker 2026-11-14) | see below |
 | launch block / 7-min window / 0.25% per buy / 0.5% max sell | **removed** in v2 | `maxBuyNow`/`maxSellNow` return max (compat) |
 | crew tip | **0.777%** of sell proceeds when realized profit > `crewTipThresholdBps` (default 0.5%) of mcap | replaces the 77% profit trigger |
 | First BOOST | max **1.2%**, cap-exempt for that buy only, then counts in NET; **locked until graduation** | `FIRST_BOOST_MAX_BPS_PVE = 120`, `Token.creatorLocked()` |
 
-### Login attestation (`src/LoginGate.sol`)
+### Login attestation (`src/LoginGate.sol`): legacy, not read by new curves
+
+New curves never read LoginGate (lee 2026-11-09, confirmed by maker 2026-11-14). The text below describes the
+contract as it exists; direct buyers on-chain are permissionless.
+
 
 * EIP-712 domain `{name: "DisciplePVE", version: "1", chainId, verifyingContract: LoginGate}`.
 * Type `LoginAttestation(address wallet,uint64 expiry,uint64 epoch)`. Every login is global; no coin-scoped API remains.
@@ -81,7 +85,7 @@ partial fill, sniper escrow, creator lock, crew tip). Summary:
 
 | rule | value |
 |------|-------|
-| holding cap (NET) | **3.33% → 7.77%** linear in mcap $7,777 → $33,333 (pre-trade), partial fill |
+| holding cap (NET) | **3.33% → 7.77%** linear in mcap $3,333 → $33,333 (pre-trade), partial fill |
 | max single buy | none (v2) |
 | login | none |
 | First BOOST | max **3.33%**; no lock; no crew tip |

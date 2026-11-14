@@ -79,6 +79,11 @@ contract DisciplePaymasterV5 is IPaymasterV07, Owned2Step {
     uint256 public postOpGas;
     bool public paused;
     bool public bootstrapCodehashEnforced;
+    /// @notice Audit PM-2: owner caps on the userOp's signed gas prices (0 = no cap). The signed allowance does not
+    ///         bind gas prices, so without a cap a self-bundled op can set a huge priority fee, convert the
+    ///         player's credit into this paymaster's ETH at the signed rate, and pay it to its own beneficiary.
+    uint128 public maxFeePerGasCap;
+    uint128 public maxPriorityFeeCap;
 
     /// @notice Player gas credit, including amounts reserved by pending ops. Not withdrawable while reserved.
     mapping(address => uint256) public creditOf;
@@ -103,6 +108,7 @@ contract DisciplePaymasterV5 is IPaymasterV07, Owned2Step {
     event PausedSet(bool paused);
     event BootstrapCodehashSet(bytes32 indexed codehash, bool allowed);
     event BootstrapCodehashEnforcedSet(bool enforced);
+    event GasPriceCapsSet(uint256 maxFeePerGas, uint256 maxPriorityFeePerGas);
     event Deposited(address indexed account, address indexed payer, uint256 amount);
     event Reserved(bytes32 indexed userOpHash, address indexed sender, uint256 amount);
     event UserOperationCharged(
@@ -138,6 +144,7 @@ contract DisciplePaymasterV5 is IPaymasterV07, Owned2Step {
     error RecoveryNotReady();
     error Reentered();
     error CodehashNotAllowed(bytes32 codehash);
+    error GasPriceAboveCap(uint256 maxFeePerGas, uint256 maxPriorityFeePerGas);
 
     uint256 private _lock;
 
@@ -281,6 +288,15 @@ contract DisciplePaymasterV5 is IPaymasterV07, Owned2Step {
             + uint128(uint256(op.accountGasLimits)) + _pmVerificationGasLimit(op.paymasterAndData)
             + _pmPostOpGasLimit(op.paymasterAndData);
         if (gasUnits > gasCap) revert GasLimitAboveCap(gasUnits, gasCap);
+        {
+            uint256 feeCap = maxFeePerGasCap;
+            uint256 prioCap = maxPriorityFeeCap;
+            uint256 maxFee = uint128(uint256(op.gasFees));
+            uint256 maxPrio = uint256(op.gasFees) >> 128;
+            if ((feeCap != 0 && maxFee > feeCap) || (prioCap != 0 && maxPrio > prioCap)) {
+                revert GasPriceAboveCap(maxFee, maxPrio);
+            }
+        }
         uint256 dynamicWeiCap = gasCap * uint128(uint256(op.gasFees));
         if (maxCost > dynamicWeiCap) revert MaxCostAboveCap(maxCost, dynamicWeiCap);
 
@@ -580,6 +596,15 @@ contract DisciplePaymasterV5 is IPaymasterV07, Owned2Step {
         _setPostOpGas(g);
     }
 
+    /// @notice Audit PM-2: cap the gas prices a sponsored op may sign (0 = no cap). Set both on mainnet, with
+    ///         headroom over the chain's normal base fee, so a self-bundler cannot drain the ETH float.
+    function setGasPriceCaps(uint128 maxFeePerGas_, uint128 maxPriorityFeePerGas_) external {
+        _checkOwner();
+        maxFeePerGasCap = maxFeePerGas_;
+        maxPriorityFeeCap = maxPriorityFeePerGas_;
+        emit GasPriceCapsSet(maxFeePerGas_, maxPriorityFeePerGas_);
+    }
+
     function setPaused(bool p) external {
         _checkOwner();
         paused = p;
@@ -595,7 +620,10 @@ contract DisciplePaymasterV5 is IPaymasterV07, Owned2Step {
         if (shape == 3) revert BadCreditCall();
         if (shape == KIND_WITHDRAW) return (KIND_WITHDRAW, 0);
         if (
-            shape == KIND_BOOTSTRAP && creditOf[sender] == 0 && reservedOf[sender] == 0 && !bootstrapUsed[sender]
+            // Audit PM-1: "cannot already pay for this op" rather than "credit is exactly 0", so a 1-unit
+            // deposit(victim, 1) by a stranger cannot lock a USDG-only account out of its one setup op.
+            // `bootstrapUsed` stays the once-only guard.
+            shape == KIND_BOOTSTRAP && reservedOf[sender] == 0 && creditOf[sender] < maxTokenCost && !bootstrapUsed[sender]
                 && dep >= SETUP_DEPOSIT && dep >= maxTokenCost && maxBootstrapGasPerOp != 0
         ) {
             return (KIND_BOOTSTRAP, dep);

@@ -1,32 +1,32 @@
 # DISCIPLE Bonding Curve (Pump-style CPAMM)
 
 **Status:** `src/libraries/CurveMath.sol` + `src/BondingCurve.sol`  
-**Constitution:** §2 / LOCKED #5–#7 (revised 2026-10-15; endpoints + 1M supply rev. 2026-10-23) — single steep CPAMM, $7,777 → $33,333 at exactly `CURVE_SOLD_BPS` sold (72% today, pending)
+**Constitution:** §2 / LOCKED #5–#7. Numbers follow the code (`src/libraries/Constants.sol`): $3,333 → $33,333 at
+exactly `CURVE_SOLD_BPS = 8424` (84.24%) sold. Docs revised 2026-11-14 to match the code (maker: "docs should follow code").
 
 ## Formula
 
-Constant-product virtual reserves \(x\,y = k = x_0 y_0\):
+Constant-product part plus a steep tail near graduation:
 
 \[
-p(s)=\frac{x_0 y_0}{(y_0-s)^2},\qquad
-M(s)=p(s)\,S=M_0\Bigl(\frac{y_0}{y_0-s}\Bigr)^2
+g=\frac{s}{s_{\mathrm{curve}}},\qquad
+M(s)=M_0\Bigl(\frac{y_0}{y_0-s}\Bigr)^2+T\,g^{30},\qquad p(s)=M(s)/S
 \]
 
-Fit \(y_0\) so graduation hits \(M_1\) at \(s_{\mathrm{curve}}=0.72\,S\):
+The constant-product part is fitted to reach $15,000 at \(s_{\mathrm{curve}}\); the tail adds the last \(T\):
 
 \[
-r=\frac{M_1}{M_0},\qquad
-y_0=s_{\mathrm{curve}}\frac{\sqrt{r}}{\sqrt{r}-1},\qquad
-x_0=\frac{M_0}{S}\,y_0
+r=\frac{15{,}000}{M_0},\qquad
+y_0=s_{\mathrm{curve}}\frac{\sqrt{r}}{\sqrt{r}-1},\qquad T=M_1-15{,}000
 \]
 
 | Parameter | Value |
 |-----------|-------|
 | \(S\) | 1,000,000 (18 decimals; no burn) |
-| \(s_{\mathrm{curve}}\) | 72% of \(S\) |
-| \(M_0\) | $7,777 (Launch Pad) |
+| \(s_{\mathrm{curve}}\) | 84.24% of \(S\) (842,400); 15.76% (157,600) seeds the v4 pool |
+| \(M_0\) | $3,333 (Launch Pad) |
 | \(M_1\) | $33,333 (graduation, Outer Space) |
-| \(r\) | \(33{,}333/7{,}777 \approx 4.286\) |
+| \(T\) | $18,333 |
 
 ### Trades (round against user)
 
@@ -49,11 +49,12 @@ The price is never caller-supplied and 0 never means $1: launch reverts if the q
 
 | % of supply sold | Market cap | Cum. quote raised (net of fees on curve) |
 |------------------|------------|------------------------------------------|
-| 0% | $7,777 | $0 |
-| 10% | ≈ $9,027 | ≈ $838 |
-| 25% | ≈ $11,552 | ≈ $2,370 |
-| 50% | ≈ $18,928 | ≈ $6,066 |
-| 72% | $33,333 | ≈ **$11,592** |
+| 0% | $3,333 | $0 |
+| 10% | ≈ $3,794 | ≈ $356 |
+| 25% | ≈ $4,689 | ≈ $988 |
+| 50% | ≈ $7,078 | ≈ $2,428 |
+| 75% | ≈ $12,456 | ≈ $4,736 |
+| 84.24% | $33,333 | ≈ **$6,455** |
 
 Gross buys to graduate are higher once the 1% trade fee (+ anti-snipe) is included.
 
@@ -61,7 +62,8 @@ Gross buys to graduate are higher once the 1% trade fee (+ anti-snipe) is includ
 
 - 1% trade fee (33/33/33/1), optional creator tax ≤7%
 - Sniper tax 99% → 0% over 7s (per-second: 99/25/3/1/0.3/0.1/0.03%, 0 from 7s) (mode rules v2; escrowed → LockedLP compound bucket at graduation)
-- Per-wallet curve cap is configurable (`Launchpad.walletCapBps`), default 0 = no cap
+- Wallet cap per mode (see mode-rules-v2.md). It is a **buy cap** on the wallet's net curve position: plain token
+  transfers between wallets are not tracked outside Easy (maker 2026-11-14: no transfer hook)
 - Optional creator buy ≤7.77% at launch (TRENCH default; Easy 1.2%, Hard 3.33%)
 - Atomic graduate → locked v4 (stub)
 

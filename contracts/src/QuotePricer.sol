@@ -32,6 +32,11 @@ import {PoolDepth} from "./libraries/PoolDepth.sol";
 ///        auto-discovered pool prices only after `autoWarmup` seconds of TWAP history (its first observation is the
 ///        discovery-time spot, which a flash move could skew; truncated keeper/launch pokes wash that out).
 ///      - Owner registration (`setPricePool`) stays as an override and is never replaced by discovery.
+///      - Audit 2026-11-14 HK-02: only owner-approved pokers (the keeper) write observations or discover pools.
+///        `poke` from anyone else (including Launchpad.launch) is a silent no-op, so a flash pump + poke + dump can
+///        no longer plant a tick. Default `maxTickDelta` is 200 ticks (~2%) per recorded observation.
+///      - Audit 2026-11-14 LB-01: listed quotes (1- or 2-hop routes) are priced from a TWAP of every route pool
+///        (`_routeOracle`, written by the same keeper pokes), not from live spot. Spot stays for display only.
 contract QuotePricer is IQuotePricer, Owned2Step {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -63,9 +68,13 @@ contract QuotePricer is IQuotePricer, Owned2Step {
 
     /// @notice TWAP window, seconds (owner-settable). Default 30 minutes.
     uint32 public twapWindow = 1800;
-    /// @notice Max |tick move| recorded per poke. Default 2000 ticks ≈ ±22% per observation.
-    int24 public maxTickDelta = 2000;
+    /// @notice Max |tick move| recorded per poke. Default 200 ticks ≈ ±2% per observation (HK-02).
+    int24 public maxTickDelta = 200;
     mapping(address => TwapOracle.State) internal _oracle;
+    /// @notice Addresses allowed to record observations (the keeper). Owner always may (HK-02).
+    mapping(address => bool) public isPoker;
+    /// @dev Per-pool TWAP for listed routes, native pool orientation (currency1 per currency0) (LB-01).
+    mapping(PoolId => TwapOracle.State) internal _routeOracle;
 
     error NoPricePool(address quote);
     error TwapWarmingUp(uint256 readyAt);
@@ -74,6 +83,7 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     error ZeroPrice();
     error BadParam();
     error NoRouteAboveFloor(address quote);
+    error QuoteNotListed(address quote);
 
     event PricePoolSet(address indexed quote, bytes32 indexed poolId, uint24 fee, int24 tickSpacing, address hooks);
     event PricePoolCleared(address indexed quote);
@@ -85,6 +95,7 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     event AllowAnyQuoteSet(bool allowed);
     event AllowedQuoteSet(address indexed quote, bool allowed);
     event PriceRouteSet(address indexed quote, PoolKey[] keys);
+    event PokerSet(address indexed poker, bool allowed);
 
     constructor(address owner_, IPoolManager poolManager_, address usdg_) Owned2Step(owner_) {
         poolManager = poolManager_;
@@ -95,7 +106,7 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     }
 
     function setAutoWarmup(uint32 w) external onlyOwner {
-        if (w > 7 days) revert BadParam();
+        if (w > 7 days || w < twapWindow) revert BadParam(); // F-I7: warm-up at least one TWAP window
         autoWarmup = w;
         emit AutoWarmupSet(w);
     }
@@ -106,13 +117,21 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     }
 
     function setTwapParams(uint32 window, int24 maxDelta) external onlyOwner {
-        if (window == 0 || window > 7 days || maxDelta <= 0) revert BadParam();
+        // F-I7: no near-spot windows and no clamp wider than the old 2000-tick default.
+        if (window < 300 || window > 7 days || maxDelta <= 0 || maxDelta > 2000) revert BadParam();
         twapWindow = window;
         maxTickDelta = maxDelta;
         emit TwapParamsSet(window, maxDelta);
     }
 
+    function setPoker(address who, bool allowed) external onlyOwner {
+        if (who == address(0)) revert BadParam();
+        isPoker[who] = allowed;
+        emit PokerSet(who, allowed);
+    }
+
     function setMinLiquidity(uint128 l) external onlyOwner {
+        if (l == 0) revert BadParam(); // F-I7
         minLiquidity = l;
         emit MinLiquiditySet(l);
     }
@@ -134,6 +153,8 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         delete _routeOf[quote];
         for (uint256 i; i < keys.length; ++i) {
             _routeOf[quote].push(keys[i]);
+            (, int24 tick,,) = poolManager.getSlot0(keys[i].toId());
+            TwapOracle.initialize(_routeOracle[keys[i].toId()], tick); // LB-01: route TWAP starts at owner-time spot
         }
         emit PriceRouteSet(quote, keys);
         if (keys.length == 1) {
@@ -165,8 +186,10 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         isAutoPool[quote] = false;
         delete _routeOf[quote];
         _routeOf[quote].push(key);
-        // (Re)start the oracle at the owner-registration spot.
+        // (Re)start the oracles at the owner-registration spot (the route oracle prices it once listed, LB-01).
         TwapOracle.initialize(_oracle[quote], _usdTick(quote, key));
+        (, int24 rawTick,,) = poolManager.getSlot0(key.toId());
+        TwapOracle.initialize(_routeOracle[key.toId()], rawTick);
         emit PricePoolSet(quote, PoolId.unwrap(key.toId()), key.fee, key.tickSpacing, address(key.hooks));
     }
 
@@ -175,15 +198,29 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         hasPricePool[quote] = false;
         isAutoPool[quote] = false;
         delete _routeOf[quote];
+        // F-L9: clearing also unlists, so a listed quote can't fall back to permissionless discovery.
+        if (isAllowedQuote[quote]) {
+            isAllowedQuote[quote] = false;
+            emit AllowedQuoteSet(quote, false);
+        }
         emit PricePoolCleared(quote);
     }
 
-    /// @notice Permissionless: record a (lagged, truncated) observation for `quote`. If `quote` has no pool yet,
-    ///         discover and auto-register the deepest standard (quote, USDG) v4 pool meeting minLiquidity.
+    /// @notice Keeper only (HK-02): record a (lagged, truncated) observation for `quote` and for every pool on its
+    ///         listed route. If `quote` has no pool yet, discover and auto-register the deepest standard
+    ///         (quote, USDG) v4 pool meeting minLiquidity. A call from anyone else is a no-op (never reverts, so
+    ///         Launchpad.launch's try-poke keeps working).
     function poke(address quote) public {
         if (quote == usdg) return;
-        // 2-hop listed routes are priced live; do not auto-register a direct USDG pool over them.
-        if (_routeOf[quote].length > 1) return;
+        if (!isPoker[msg.sender] && msg.sender != owner) return;
+        uint256 n = _routeOf[quote].length;
+        for (uint256 i; i < n; ++i) {
+            PoolKey memory k = _routeOf[quote][i];
+            (, int24 tick,,) = poolManager.getSlot0(k.toId());
+            TwapOracle.write(_routeOracle[k.toId()], tick, maxTickDelta, true);
+        }
+        // 2-hop listed routes are priced from the route oracles; do not auto-register a direct USDG pool over them.
+        if (n > 1) return;
         // Discover if unset, or re-discover if the AUTO pool fell below the floor (e.g. a thin/narrow-range pool
         // that was arbitraged out of range). Owner-registered pools are never replaced.
         if (!hasPricePool[quote] || (isAutoPool[quote] && poolManager.getLiquidity(_poolOf[quote].toId()) < minLiquidity)) {
@@ -252,13 +289,14 @@ contract QuotePricer is IQuotePricer, Owned2Step {
 
     /// @inheritdoc IQuotePricer
     /// @dev TWAP (manipulation-resistant). Used for curve USD targets at launch and live mcap.
+    ///      Listed quotes with an owner route use the per-pool route TWAPs (LB-01); a listed quote without one
+    ///      (allow-any) falls through to the registered-pool TWAP below and needs a registered pool.
     function quotePriceUsd(address quote) external view override returns (uint256 p) {
         uint256 usdgScale = 10 ** (36 - uint256(usdgDecimals));
         if (quote == usdg) return usdgScale;
         if (_listed(quote)) {
-            (bool ok, PoolKey[] memory keys) = _routeFor(quote);
-            if (!ok) revert NoRouteAboveFloor(quote);
-            return _liveRoutePrice(keys, usdgScale, quote);
+            if (_routeOf[quote].length > 0) return _twapRoutePrice(_routeOf[quote], usdgScale, quote);
+            if (!hasPricePool[quote]) revert NoRouteAboveFloor(quote);
         }
         if (!hasPricePool[quote]) revert NoPricePool(quote);
         uint128 liq = poolManager.getLiquidity(_poolOf[quote].toId());
@@ -278,6 +316,13 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         uint256 priceX128 = Math.mulDiv(sp, sp, 1 << 64); // c1 per c0
         p = q0 ? Math.mulDiv(priceX128, usdgScale, 1 << 128) : Math.mulDiv(1 << 128, usdgScale, priceX128);
         if (p == 0) revert ZeroPrice();
+    }
+
+    /// @notice Launch-time price: like `quotePriceUsd`, but only USDG and listed quotes (`isAllowedQuote`, ignoring
+    ///         `allowAnyQuote`) can be launch quotes (maker 2026-11-14, external review F-M1).
+    function launchPriceUsd(address quote) external view returns (uint256) {
+        if (quote != usdg && !isAllowedQuote[quote]) revert QuoteNotListed(quote);
+        return this.quotePriceUsd(quote);
     }
 
     /// @notice Spot price (display only; flash-manipulable — never use for safety checks).
@@ -311,7 +356,40 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         if (p == 0) revert ZeroPrice();
     }
 
-    /// @dev Live spot along a USDG-first 1- or 2-hop route, with a $10k-per-side floor on every pool.
+    /// @dev TWAP along a USDG-first 1- or 2-hop route (LB-01), with the $10k-per-side floor on every pool valued
+    ///      at the TWAP prices.
+    function _twapRoutePrice(PoolKey[] memory keys, uint256 usdgScale, address quote) internal view returns (uint256 p) {
+        uint256 midUsd = usdgScale;
+        if (keys.length == 2) {
+            address mid = UsdgRouteLib.other(keys[0], usdg);
+            midUsd = _priceAtSqrt(keys[0], mid, usdg, usdgScale, _routeTwapSqrt(keys[0], quote));
+            _assertFloor(keys[0], usdg, usdgScale, midUsd, quote);
+            p = _priceAtSqrt(keys[1], quote, mid, midUsd, _routeTwapSqrt(keys[1], quote));
+            _assertFloor(keys[1], mid, midUsd, p, quote);
+        } else {
+            p = _priceAtSqrt(keys[0], quote, usdg, usdgScale, _routeTwapSqrt(keys[0], quote));
+            _assertFloor(keys[0], usdg, usdgScale, p, quote);
+        }
+        if (p == 0) revert ZeroPrice();
+    }
+
+    /// @dev sqrt price at the route pool's TWAP tick (native orientation). The tail since the last keeper write is
+    ///      the last recorded tick (lagged), so a same-block move has no weight.
+    function _routeTwapSqrt(PoolKey memory key, address quote) internal view returns (uint160) {
+        TwapOracle.State storage o = _routeOracle[key.toId()];
+        if (!TwapOracle.isInitialized(o)) revert NoPricePool(quote);
+        (int24 t,) = TwapOracle.consult(o, twapWindow, TwapOracle.last(o).tick);
+        return TickMath.getSqrtPriceAtTick(t);
+    }
+
+    /// @notice Route-pool TWAP tick (native orientation) and the seconds covered. For keepers / monitoring.
+    function routeTwapTick(PoolKey calldata key) external view returns (int24 tick, uint32 actualWindow) {
+        TwapOracle.State storage o = _routeOracle[key.toId()];
+        if (!TwapOracle.isInitialized(o)) revert BadPool();
+        return TwapOracle.consult(o, twapWindow, TwapOracle.last(o).tick);
+    }
+
+    /// @dev Live spot along a USDG-first 1- or 2-hop route, with a $10k-per-side floor on every pool (display).
     function _liveRoutePrice(PoolKey[] memory keys, uint256 usdgScale, address quote) internal view returns (uint256 p) {
         uint256 midUsd = usdgScale;
         if (keys.length == 2) {
@@ -335,6 +413,14 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     {
         (uint160 sqrtP,,,) = poolManager.getSlot0(key.toId());
         if (sqrtP == 0) revert BadPool();
+        return _priceAtSqrt(key, token, other, otherUsd, sqrtP);
+    }
+
+    function _priceAtSqrt(PoolKey memory key, address token, address other, uint256 otherUsd, uint160 sqrtP)
+        internal
+        pure
+        returns (uint256)
+    {
         uint256 priceX128 = Math.mulDiv(sqrtP, sqrtP, 1 << 64);
         if (Currency.unwrap(key.currency0) == token) {
             // other raw per token raw

@@ -11,7 +11,7 @@
 export const LEV = 500;
 /** 0.5 bp a side on notional. Placeholder until Nova confirms what a duel trade costs. */
 export const FEE = 0.00005;
-/** H-BOMB when the open position has lost 80% of the fuel in it. */
+/** NUKE when the open position has lost 80% of the fuel in it. */
 export const LIQ = 0.8;
 export const OT_MS = 30_000;
 export const COUNTDOWN_MS = 3_500;
@@ -39,10 +39,10 @@ export const pnlOf = (pos: DuelPos | null, p: number) => (pos ? (pos.size * (p -
 export const valueOf = (b: Book, p: number) => (b.pos ? Math.max(0, b.pos.coll + pnlOf(b.pos, p)) : 0);
 export const profitOf = (b: Book, p: number, fuel0: number) => b.fuel + valueOf(b, p) - fuel0;
 export const isLiquidated = (b: Book, p: number) => !!b.pos && pnlOf(b.pos, p) <= -LIQ * b.pos.coll;
-/** price at which the open position H-BOMBs */
+/** price at which the open position NUKEs */
 export const liqPrice = (pos: DuelPos) => pos.entry * (1 - (pos.side * LIQ * pos.coll) / pos.size);
 
-/** One step that happened to a book: what the screen shows (burst, banked pop, H-BOMB). */
+/** One step that happened to a book: what the screen shows (burst, banked pop, NUKE). */
 export type BookStep =
   | { kind: "open"; side: SideN; usd: number; price: number }
   | { kind: "close"; side: SideN; net: number; price: number }
@@ -72,7 +72,7 @@ function closeStep(b: Book, price: number, steps: BookStep[]): number {
   steps.push({ kind: "close", side: pos.side, net, price });
   return net;
 }
-/** H-BOMB check at a price: the fuel in the position is gone. Returns the new book and the step, or null. */
+/** NUKE check at a price: the fuel in the position is gone. Returns the new book and the step, or null. */
 export function bombAt(b0: Book, price: number): { book: Book; step: BookStep } | null {
   if (!isLiquidated(b0, price)) return null;
   const b = clone(b0), pos = b.pos!;
@@ -85,7 +85,7 @@ export function bombAt(b0: Book, price: number): { book: Book; step: BookStep } 
  * - boost / dump with nothing open or the same side open: put `usd` in (0 = ALL fuel left; adds average the entry)
  * - boost / dump with the other side open: FLIP (close, then open the other side with the same fuel)
  * - close: cash out
- * An H-BOMB at this price is applied first. Returns null when nothing could happen (no fuel, nothing to close).
+ * An NUKE at this price is applied first. Returns null when nothing could happen (no fuel, nothing to close).
  */
 export function applyTrade(b0: Book, action: TradeAction, usd: number, price: number, t: number): { book: Book; steps: BookStep[] } | null {
   if (!(price > 0)) return null;

@@ -355,8 +355,10 @@ contract TrampWallReentrancyTest is IntegrationBase {
         quoteProbe.setAlwaysPass(address(rq), true);
         vm.stopPrank();
         PoolKey memory k = _initRefPool(address(rq), address(quote), uint160(1) << 96);
-        vm.prank(owner);
+        vm.startPrank(owner);
         pricer.setPricePool(address(rq), k);
+        pricer.setAllowedQuote(address(rq), true); // only listed quotes launch
+        vm.stopPrank();
         (BondingCurve c, Token t) = _launchWithQuote(address(rq), 0, 0);
         _graduateWith(c, MockUSDG(address(rq)));
         TrampWallManager twm = new TrampWallManager(manager, lockedLP, address(hook));

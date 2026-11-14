@@ -1,6 +1,6 @@
 /**
  * One duel room.
- * GET ?after=<seq> → { ok, room, events, now }  (anyone with the room id; also runs the H-BOMB / buzzer check)
+ * GET ?after=<seq> → { ok, room, events, now }  (anyone with the room id; also runs the NUKE / buzzer check)
  * POST { op } as a seated, signed-in pilot:
  *   ready · leave · rematch
  *   trade { action: boost|dump|close, usd }   fills at the server's live price
@@ -14,7 +14,7 @@ import { filterText } from "@/lib/chat/filter";
 import { DUEL_CHAT_MAX } from "@/lib/duel/types";
 import { duelPrice } from "@/lib/server/duel/price";
 import { after } from "next/server";
-import { chat, eventsAfter, getRoom, leave, referee, refereeRunning, rematch, setReady, tick, trade, trick, DuelError } from "@/lib/server/duel/store";
+import { chat, eventsAfter, getRoom, leave, referee, refereeRunning, rematch, reportDuel, setReady, tick, trade, trick, DuelError } from "@/lib/server/duel/store";
 import { body, fail, out, pilotOf, requirePass } from "@/lib/server/duel/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,6 +69,12 @@ export async function POST(req: Request, { params }: P) {
         const rl = await hitLimit(kv(), `duel:trick:${me.pid}`, 6, 10);
         if (!rl.ok) return out(200, { ok: true });
         res = await trick(id, me.pid, b.kind); break;
+      }
+      case "report": {
+        const rl = await hitLimit(kv(), `duel:report:${me.pid}`, 5, 3600);
+        if (!rl.ok) throw new DuelError(429, "You've sent a lot of reports. Try again later.");
+        const r = await reportDuel(id, me.pid);
+        return out(200, { ok: true, already: r.already });
       }
       default: throw new DuelError(400, "Unknown op.");
     }

@@ -228,6 +228,11 @@ contract Deploy is NetworkConfig {
             hasRef = true;
         }
         if (hasRef) pricer.setPricePool(o.defaultQuote, refKey);
+        // Only USDG and listed quotes can launch (maker 2026-11-14), so the default quote must be listed. The other
+        // listed coins go through script/whitelist. The poke-pricer cron (relayer EOA) is the only TWAP writer (HK-02).
+        if (o.defaultQuote != o.usdg) pricer.setAllowedQuote(o.defaultQuote, true);
+        address poker = vm.envOr("PRICER_POKER", address(0));
+        if (poker != address(0)) pricer.setPoker(poker, true);
         // USDG-in/out routing (buyWithUsdg / sellToUsdg): USDG + curve registry, and the USDG/defaultQuote hop pool.
         router.setUsdgRouting(o.usdg, address(launchpad));
         // Curve trades via the router act for the real trader (bonding modes: caps / cost basis / attribution).
@@ -238,8 +243,8 @@ contract Deploy is NetworkConfig {
             address(launchpad), address(feeRouter), address(lockedLP), address(router), address(hook), address(manager)
         );
         launchpad.setTrustedRouter(address(harvest), true);
-        // setTrustedRouter also stores curveRouter. DiscipleRouter must remain that pointer.
-        launchpad.setTrustedRouter(address(router), true);
+        // curveRouter is the first trusted router (DiscipleRouter, above); later trusts no longer move it (review N-2).
+        require(launchpad.curveRouter() == address(router), "curveRouter");
         feeRouter.setClaimRouter(address(harvest), true);
         // Self-claims read this pointer. Trades do not. Destination 1 or 2 then cannot be claimed by the launcher.
         feeRouter.setCreatorFeeHarvest_51(address(harvest));

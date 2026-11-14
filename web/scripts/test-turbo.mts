@@ -311,7 +311,7 @@ import { breakEvenPrice, cashOutNowUsd, liqDistance, paceLabel, skyOffsetPx, SKY
 import { bestToday, clock, createRunStore, longestAt, multipleLabel, streak, type TurboRun } from "../lib/turbo/runs";
 import { RUN_COPY } from "../lib/turbo/copy";
 
-test("sky: the H-BOMB line sits SKY_LIQ_FRAC of the screen below boarding at every gear", () => {
+test("sky: the NUKE line sits SKY_LIQ_FRAC of the screen below boarding at every gear", () => {
   for (const lv of LEVERAGE_PRESETS) {
     const a = createMockAdapter({ autoStart: false, startPrices: { BTC: 97_250 } }); a.setPrice("BTC", 97_250);
     const q = a.quote({ market: "BTC", side: "long", collateralUsd: 10, leverage: lv });
