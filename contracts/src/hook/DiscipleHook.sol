@@ -81,14 +81,11 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     uint256 internal constant TIP_TX_SLOT = uint256(keccak256("disciple.tip.tx"));
     /// @dev One tip is at most this fraction of the jar, so a basefee spike cannot empty it in a few calls.
     uint256 internal constant TIP_DIV = 32;
-    /// @dev v0.3 pool settings, the same for every pool (maker 2026-11-14). The creator picks only the fee, from
-    ///      FEE_A..FEE_D (0.25%, 0.5%, 1%, 2%), and it is fixed for the pool's life. The rest is v0.2's tested setup
-    ///      with the replay's tip and skim: match edge 1bp inside the leader's live quote (never past its mid), curve
-    ///      flatness 0.05, sample() tip at 1.05x its gas, 6% of earnings into the tip jar until it is full.
-    uint24 internal constant FEE_A = 2500;
-    uint24 internal constant FEE_B = 5000;
-    uint24 internal constant FEE_C = 10_000;
-    uint24 internal constant FEE_D = 20_000;
+    /// @dev v0.3 pool settings, the same for every pool (maker 2026-11-14: "1%. build it."). Nothing is chosen per
+    ///      pool: fee 1%, match edge 1bp inside the leader's live quote (never past its mid), curve flatness 0.05,
+    ///      sample() tip at 1.05x its gas, 6% of earnings into the tip jar until it is full. CreateParams.fee must
+    ///      equal POOL_FEE (kept in the params so a creator states the fee they are signing up for).
+    uint24 internal constant POOL_FEE = 10_000;
     uint16 internal constant EDGE_BPS = 1;
     uint32 internal constant LAM_PPM = 50_000;
     uint16 internal constant TIP_BPS = 10_500;
@@ -163,7 +160,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     struct CreateParams {
         address coin;
         address quote; // any ERC20 other than the coin
-        uint24 fee; // Disciple fee in pips: 2500, 5000, 10,000 or 20,000 (0.25%, 0.5%, 1%, 2%), fixed for life
+        uint24 fee; // Disciple fee in pips: must be POOL_FEE (10,000 = 1%), the same for every pool
         Source src;
         uint256 coinIn;
         uint256 quoteIn;
@@ -338,7 +335,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         address quote = cp.quote;
         if (cp.coin == address(0) || quote == address(0) || cp.coin == quote) revert BadParams();
         uint24 fee = cp.fee;
-        if (fee != FEE_A && fee != FEE_B && fee != FEE_C && fee != FEE_D) revert BadParams();
+        if (fee != POOL_FEE) revert BadParams();
         if (cp.coinIn == 0 || cp.quoteIn == 0) revert BadParams();
         uint256 sh = BK.shape(uint256(LAM_PPM) * 1e12);
         Source calldata s = cp.src;

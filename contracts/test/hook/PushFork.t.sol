@@ -229,7 +229,7 @@ contract PushForkTest is Test {
             DiscipleHook.CreateParams({
                 coin: address(coin),
                 quote: address(quote),
-                fee: 2500,
+                fee: 10_000,
                 src: s,
                 coinIn: 1000e18,
                 quoteIn: 1e29,
