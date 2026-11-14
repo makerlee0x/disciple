@@ -15,26 +15,28 @@ export const SETTINGS_COPY = {
   account: "Account",
   trading: "Flying",
   signedIn: (m: string) => `Signed in with ${m}`,
-  wallet: "Your wallet",
+  wallet: "Wallet",
   walletHelp: "Deposit and withdraw on the Wallet page.",
   oneTap: "One-tap boosts",
-  bombs: "Dump bombs", bombsHelp: "Show dumps as bombs in flight. B in flight.",
-  oneTapHelp: "BOOST and DUMP with one tap, no pop-up.",
-  on: "On",
-  maxMove: "Max price move per trade",
-  maxMoveHelp: "If the price moves more than this, the trade is cancelled.",
-  choice: (bps: number) => (bps >= 5000 ? "50% (most allowed)" : `${bps / 100}%`),
+  bombs: "Dump bombs", bombsHelp: "Show dumps as bombs · B",
+  haptics: "Vibration", hapticsHelp: "Buzz on taps and big moments",
+  oneTapHelp: "BOOST and DUMP fire with no pop-up",
+  on: "ON",
+  maxMove: "Max price move",
+  maxMoveHelp: "Bigger moves cancel the trade",
+  choice: (bps: number) => `${bps / 100}%`,
   security: "Security",
   exportKey: "Export key",
-  exportKeyHelp: "See your wallet's private key. Anyone who has it controls your money.",
+  exportKeyHelp: "Whoever has it controls your money",
   exportBtn: "Export",
-  twoFa: "Two-factor authentication",
+  twoFa: "Two-factor",
+  twoFaHow: "Authenticator or passkey",
   twoFaOff: "Off",
   totp: "Authenticator app",
   passkey: "Passkey",
   passkeyHelp: "Sign in with your device's biometrics",
   privyOnly: "Available when you sign in with email, Google, X or a wallet.",
-  logout: "Log out",
+  logout: "Sign out",
   copy: "Copy", copied: "Copied",
   signedOut: "Sign in to see your account settings.",
 } as const;
@@ -137,77 +139,88 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
           <button type="button" className="p5-icon p5-desk" aria-label="Close settings" onClick={onClose}><Icon name="close" size={18} /></button>
         </header>
         {!addr ? <p className="p5-fine">{SETTINGS_COPY.signedOut}</p> : <>
-          <section className="p5-sgrp" aria-label={SETTINGS_COPY.account}>
-            <span className="gh">{SETTINGS_COPY.account}</span>
-            <div className="p5-sbox">
-              {acct?.method && (
-                <div className="p5-srow" data-testid="settings-signin">
-                  <div className="tx"><b>{SETTINGS_COPY.signedIn(acct.method)}</b>{acct.email && <span>{maskEmail(acct.email)}</span>}</div>
+          <div className="p5-s2">
+            <div className="p5-s2col">
+              <section className="p5-sgrp" aria-label={SETTINGS_COPY.account}>
+                <span className="gh">{SETTINGS_COPY.account}</span>
+                <div className="p5-sbox">
+                  {acct?.method && (
+                    <div className="p5-srow" data-testid="settings-signin">
+                      <span className="p5-sic"><Icon name="profile" size={18} /></span>
+                      <div className="tx"><b>{SETTINGS_COPY.signedIn(acct.method)}</b>{acct.email && <span>{maskEmail(acct.email)}</span>}</div>
+                    </div>
+                  )}
+                  <div className="p5-srow" data-testid="settings-wallet">
+                    <span className="p5-sic"><Icon name="wallet" size={18} /></span>
+                    <div className="tx"><b>{SETTINGS_COPY.wallet}</b><span title={addr}>{short(addr)}</span></div>
+                    <button type="button" className="p5-btn sm" onClick={copy}><Icon name="copy" size={16} /> {copied ? SETTINGS_COPY.copied : SETTINGS_COPY.copy}</button>
+                  </div>
                 </div>
-              )}
-              <div className="p5-srow p5-srow-wallet" data-testid="settings-wallet">
-                <div className="tx"><b>{SETTINGS_COPY.wallet}</b><span>{SETTINGS_COPY.walletHelp}</span></div>
-                <div className="p5-walletbox"><span className="val" title={addr}>{short(addr)}</span>
-                  <button type="button" className="p5-btn sm" onClick={copy}><Icon name="copy" size={16} /> {copied ? SETTINGS_COPY.copied : SETTINGS_COPY.copy}</button>
-                </div>
-              </div>
-            </div>
-          </section>
-          <section className="p5-sgrp" aria-label="Game" data-testid="settings-game">
-            <span className="gh">Game</span>
-            <div className="p5-sbox">
-              <div className="p5-srow">
-                <div className="tx"><b>Vibration</b><span>Buzz on taps and big moments. iPhone gets a light tick.</span></div>
-                <button type="button" role="switch" aria-checked={gs.haptics} aria-label="Vibration" className={`p5-switch${gs.haptics ? " on" : ""}`} data-testid="settings-haptics"
-                  onClick={() => { const v = !gs.haptics; setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); }}><span /></button>
-              </div>
-            </div>
-          </section>
-          <section className="p5-sgrp" aria-label={SETTINGS_COPY.trading} data-testid="settings-trading">
-            <span className="gh">{SETTINGS_COPY.trading}</span>
-            <div className="p5-sbox">
-              <div className="p5-srow">
-                <div className="tx"><b>{SETTINGS_COPY.oneTap} <span className="p5-pill on">{SETTINGS_COPY.on}</span></b><span>{SETTINGS_COPY.oneTapHelp}</span></div>
-              </div>
-              <div className="p5-srow col">
-                <div className="tx"><b>{SETTINGS_COPY.maxMove}</b><span>{SETTINGS_COPY.maxMoveHelp}</span></div>
-                <div className="p5-seg" role="radiogroup" aria-label={SETTINGS_COPY.maxMove} data-testid="onetap-slippage">
-                  {ONE_TAP_SLIPPAGE_CHOICES_BPS.map((b) => (
-                    <button key={b} type="button" role="radio" aria-checked={bps === b} className={bps === b ? "on" : ""} disabled={busy} onClick={() => void pick(b)} data-testid={`onetap-slip-${b}`}>
-                      {SETTINGS_COPY.choice(b)}
+              </section>
+              <section className="p5-sgrp" aria-label={SETTINGS_COPY.security} data-testid="settings-security">
+                <span className="gh">{SETTINGS_COPY.security}</span>
+                <div className="p5-sbox">
+                  <div className="p5-srow" data-testid="settings-export">
+                    <span className="p5-sic"><Icon name="key" size={18} /></span>
+                    <div className="tx"><b>{SETTINGS_COPY.exportKey}</b><span>{sec ? SETTINGS_COPY.exportKeyHelp : SETTINGS_COPY.privyOnly}</span></div>
+                    <button type="button" className="p5-btn sm" disabled={!sec?.exportWallet || !!secBusy} onClick={() => void exportKey()} data-testid="export-key">
+                      {SETTINGS_COPY.exportBtn}
                     </button>
+                  </div>
+                  <button type="button" className="p5-srow p5-srow-link" onClick={() => { setView("2fa"); setSecErr(""); }} data-testid="settings-2fa">
+                    <span className="p5-sic"><Icon name="shield" size={18} /></span>
+                    <div className="tx"><b>{SETTINGS_COPY.twoFa}</b><span>{twoFaState === SETTINGS_COPY.twoFaOff ? `${twoFaState} · ${SETTINGS_COPY.twoFaHow}` : twoFaState}</span></div>
+                    <Icon name="chevron-right" size={18} />
+                  </button>
+                </div>
+                {secErr && <span className="p5-err" role="alert">{secErr}</span>}
+              </section>
+            </div>
+            <div className="p5-s2col">
+              <section className="p5-sgrp" aria-label={SETTINGS_COPY.trading} data-testid="settings-trading">
+                <span className="gh">{SETTINGS_COPY.trading}</span>
+                <div className="p5-sbox">
+                  <div className="p5-srow">
+                    <span className="p5-sic"><Icon name="bolt" size={18} /></span>
+                    <div className="tx"><b>{SETTINGS_COPY.oneTap}</b><span>{SETTINGS_COPY.oneTapHelp}</span></div>
+                    <span className="p5-on">{SETTINGS_COPY.on}</span>
+                  </div>
+                  <div className="p5-srow wrap">
+                    <span className="p5-sic"><Icon name="chart" size={18} /></span>
+                    <div className="tx"><b>{SETTINGS_COPY.maxMove}</b><span>{SETTINGS_COPY.maxMoveHelp}</span></div>
+                    <div className="p5-seg" role="radiogroup" aria-label={SETTINGS_COPY.maxMove} data-testid="onetap-slippage">
+                      {ONE_TAP_SLIPPAGE_CHOICES_BPS.map((b) => (
+                        <button key={b} type="button" role="radio" aria-checked={bps === b} className={bps === b ? "on" : ""} disabled={busy} onClick={() => void pick(b)} data-testid={`onetap-slip-${b}`}>
+                          {SETTINGS_COPY.choice(b)}
+                        </button>
+                      ))}
+                    </div>
+                    {err && <span className="p5-err" role="alert">{err}</span>}
+                  </div>
+                  {([["bombs", SETTINGS_COPY.bombs, SETTINGS_COPY.bombsHelp, "setBombs"]] as const).map(([k, label, help, fn]) => (
+                    <div className="p5-srow" key={k}>
+                      <span className="p5-sic"><Icon name="bomb" size={18} /></span>
+                      <div className="tx"><b>{label}</b><span>{help}</span></div>
+                      <button type="button" role="switch" aria-checked={fx[k]} aria-label={label} className={`p5-switch${fx[k] ? " on" : ""}`} data-testid={`settings-${k}`}
+                        onClick={() => setFx((v) => { const next = !v[k]; writeFx(SETTINGS_KEYS[k], next); (window as unknown as { __flight?: Record<string, (v: boolean) => void> }).__flight?.[fn]?.(next); return { ...v, [k]: next }; })}><span /></button>
+                    </div>
                   ))}
+                  <div className="p5-srow" data-testid="settings-game">
+                    <span className="p5-sic"><Icon name="bell" size={18} /></span>
+                    <div className="tx"><b>{SETTINGS_COPY.haptics}</b><span>{SETTINGS_COPY.hapticsHelp}</span></div>
+                    <button type="button" role="switch" aria-checked={gs.haptics} aria-label={SETTINGS_COPY.haptics} className={`p5-switch${gs.haptics ? " on" : ""}`} data-testid="settings-haptics"
+                      onClick={() => { const v = !gs.haptics; setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); }}><span /></button>
+                  </div>
                 </div>
-                {err && <span className="p5-err" role="alert">{err}</span>}
-              </div>
-              {([["bombs", SETTINGS_COPY.bombs, SETTINGS_COPY.bombsHelp, "setBombs"]] as const).map(([k, label, help, fn]) => (
-                <div className="p5-srow" key={k}>
-                  <div className="tx"><b>{label}</b><span>{help}</span></div>
-                  <button type="button" role="switch" aria-checked={fx[k]} aria-label={label} className={`p5-switch${fx[k] ? " on" : ""}`} data-testid={`settings-${k}`}
-                    onClick={() => setFx((v) => { const next = !v[k]; writeFx(SETTINGS_KEYS[k], next); (window as unknown as { __flight?: Record<string, (v: boolean) => void> }).__flight?.[fn]?.(next); return { ...v, [k]: next }; })}><span /></button>
-                </div>
-              ))}
+              </section>
             </div>
-          </section>
-          <section className="p5-sgrp" aria-label={SETTINGS_COPY.security} data-testid="settings-security">
-            <span className="gh">{SETTINGS_COPY.security}</span>
-            <div className="p5-sbox">
-              <div className="p5-srow" data-testid="settings-export">
-                <div className="tx"><b>{SETTINGS_COPY.exportKey}</b><span>{sec ? SETTINGS_COPY.exportKeyHelp : SETTINGS_COPY.privyOnly}</span></div>
-                <button type="button" className="p5-btn sm" disabled={!sec?.exportWallet || !!secBusy} onClick={() => void exportKey()} data-testid="export-key">
-                  <Icon name="lock" size={16} /> {SETTINGS_COPY.exportBtn}
-                </button>
-              </div>
-              <button type="button" className="p5-srow p5-srow-link" onClick={() => { setView("2fa"); setSecErr(""); }} data-testid="settings-2fa">
-                <div className="tx"><b>{SETTINGS_COPY.twoFa}</b><span>{twoFaState}</span></div>
-                <Icon name="chevron-right" size={18} />
-              </button>
-            </div>
-            {secErr && <span className="p5-err" role="alert">{secErr}</span>}
-          </section>
-          <button type="button" className="p5-logout" data-testid="settings-signout" onClick={() => { onClose(); void disconnect(); }}>
-            <Icon name="log-out" size={18} /> {SETTINGS_COPY.logout}
-          </button>
+          </div>
+          <footer className="p5-sfoot">
+            <span>{SETTINGS_COPY.walletHelp}</span>
+            <button type="button" className="p5-logout" data-testid="settings-signout" onClick={() => { onClose(); void disconnect(); }}>
+              <Icon name="log-out" size={18} /> {SETTINGS_COPY.logout}
+            </button>
+          </footer>
         </>}
         </>}
       </div>

@@ -213,17 +213,25 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       ? <button type="button" className="dsc3-btn dsc3-btn-primary hg-claim" onClick={() => setRewardsOpen(true)} data-testid="claim-now"><ChestGlyph size={18} /> Claim rewards</button>
       : <button type="button" className="hg-ghost" onClick={() => setRewardsOpen(true)} data-testid="rewards-chest"><ChestGlyph size={18} /> Rewards</button>}
     <button type="button" className="hg-ghost" onClick={() => setEdit({ focus: null })} data-testid="edit-profile-btn">{C["profile.action.edit"]}</button>
+    <button type="button" className="hg-ghost" onClick={() => setSettingsOpen(true)} data-testid="hangar-settings-btn">Settings</button>
   </> : null;
+  // the cockpit dash (Hangar banner take A): only numbers we really have
+  const dash = [
+    xp ? { k: "Total XP", v: xp.totalXp.toLocaleString("en-US") } : null,
+    trophies ? { k: trophies.size === 1 ? "Trophy" : "Trophies", v: String(trophies.size) } : null,
+    launched && launched.length ? { k: launched.length === 1 ? "Rocket launched" : "Rockets launched", v: String(launched.length) } : null,
+  ].filter((x): x is { k: string; v: string } => !!x);
 
   return (
     <div className="profile-page hg">
       {isPrivate && <SettingsModal open={settingsOpen} onClose={closeSettings} />}
       {isPrivate && <EditProfileSheet open={!!edit} focus={edit?.focus} wallet={wallet} meta={meta}
+        handle={handle} level={xp?.level ? `Level ${xp.level.level} · ${xp.level.prestigeName}` : undefined}
         onClose={(saved) => { setEdit(null); if (saved) flash(C["edit.saved"]); }} />}
       {isPrivate && <RewardsPopup open={rewardsOpen} onClose={closeRewards} r={rewards} />}
       {toast && <div className="pf-toast" role="status">{toast}</div>}
 
-      <HangarBay handle={handle} bio={bio} avatar={avatar} xp={xp} loadout={loadout} actions={actions} spend={false} />
+      <HangarBay handle={handle} bio={bio} avatar={avatar} xp={xp} actions={actions} spend={false} stats={dash} />
 
       <ServiceRecord pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} aboard={holdings ? holdings.length : null} launched={launched} isPrivate={isPrivate} />
 
