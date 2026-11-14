@@ -309,6 +309,7 @@ function mount(root,host){
   function RH(){ return LAY?LAY.h:Math.round(Math.max(72,Math.min(SW>=900?150:116,SH*.17))); }   // current rocket size (shrinks as the gap opens)
   function lane0(pl){ if(SW>=900) return SW/2+(pl.me?-1:1)*Math.max(60,(LAY?LAY.rh0:RH())*.5);   // desktop: as close as on a phone (about one rocket height apart)
     return pl.me?SW*.30:SW*.70; }
+  const SYM=()=>LAY?LAY.barTop-LAY.under:300;   // fly up/down anywhere in the sky: drop to their level to gloat, the $ tag still shows the real gap
   function lane(pl){ return lane0(pl)+(pl.sxo||0); }
   /* steering: drag the sky (phone) or hold A/D (desktop). Tricks: swipe up = spin, double-tap = flip, Q/E on desktop. */
   function steerTo(pl,off){ const b=lane0(pl); pl.sxt=Math.max(34-b,Math.min(SW-34-b,off)); }
@@ -323,7 +324,7 @@ function mount(root,host){
   }
   let drag=null, lastTap=0;
   function skyDown(e){ if(!G||!G.started||G.over) return; drag={x:e.clientX,y:e.clientY,t:performance.now(),off:G.me.sxt||0,offY:G.me.syt||0,moved:false}; try{sky.setPointerCapture(e.pointerId);}catch(_){} }
-  function skyMove(e){ if(!drag) return; const dx=e.clientX-drag.x, dy=e.clientY-drag.y; if(Math.abs(dx)>8) drag.moved=true; steerTo(G.me,drag.off+dx*1.15); if(performance.now()-drag.t>200) G.me.syt=Math.max(-70,Math.min(70,(drag.offY||0)+dy*.6)); }
+  function skyMove(e){ if(!drag) return; const dx=e.clientX-drag.x, dy=e.clientY-drag.y; if(Math.abs(dx)>8) drag.moved=true; steerTo(G.me,drag.off+dx*1.15); if(performance.now()-drag.t>200) G.me.syt=Math.max(-SYM(),Math.min(SYM(),(drag.offY||0)+dy*.9)); }
   function skyUp(e){ if(!drag) return; const dx=e.clientX-drag.x, dy=e.clientY-drag.y, dt=performance.now()-drag.t, now=performance.now();
     if(dy<-55&&Math.abs(dy)>Math.abs(dx)*1.3&&dt<450) trick(G.me,"spin");
     else if(Math.abs(dx)<10&&Math.abs(dy)<10&&dt<250){ if(now-lastTap<320){trick(G.me,"flip"); lastTap=0;} else lastTap=now; }
@@ -406,7 +407,7 @@ function mount(root,host){
     sx.fillStyle="#121327"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(t,x,my+1);
   }
   function drawRocket(pl,now,leader){
-    let x=lane(pl)+pl.dx, y=pl.y, img=imgs.rocket, h=(pl.me?RH():RH()*.9), w=h*221/609;
+    let x=lane(pl)+pl.dx, y=pl.y, img=imgs.rocket, h=pl.me?RH():(LAY&&LAY.hr||RH()*.9), w=h*221/609;
     const lean=Math.max(-.22,Math.min(.22,pl.rot));
     // flame grows while climbing, sputters while falling
     const thrust=Math.max(.25,Math.min(2.4,.6+pl.flame*.6-pl.wvy*.004)), fl=thrust+Math.sin(now/40+(pl.me?0:2))*.08;
@@ -451,8 +452,8 @@ function mount(root,host){
         const tgt=worldY(pl); pl.wvy+=((tgt-pl.wy)*14-pl.wvy*5.5)*dt + pl.kick*dt*6; pl.kick*=Math.max(0,1-dt*6); pl.wy+=pl.wvy*dt;
         pl.rot+= (Math.max(-.2,Math.min(.2,-pl.wvy*.0006*(pl.me?1:-1))) - pl.rot)*Math.min(1,dt*4) + pl.vr*dt; pl.vr*=Math.max(0,1-dt*3);
         if(pl.me){ if(keys.l) steerTo(pl,(pl.sxt||0)-460*dt); if(keys.r) steerTo(pl,(pl.sxt||0)+460*dt);
-          if(keys.u) pl.syt=Math.max(-70,(pl.syt||0)-300*dt); if(keys.dn) pl.syt=Math.min(70,(pl.syt||0)+300*dt);
-          if(!keys.u&&!keys.dn&&!drag) pl.syt=(pl.syt||0)*Math.max(0,1-dt*1.2); }
+          if(keys.u) pl.syt=Math.max(-SYM(),(pl.syt||0)-420*dt); if(keys.dn) pl.syt=Math.min(SYM(),(pl.syt||0)+420*dt);
+          if(!keys.u&&!keys.dn&&!drag) pl.syt=(pl.syt||0)*Math.max(0,1-dt*.35); }   // drifts back slowly, so you can hold a spot
         else { // the bot drifts around and keeps out of your way
           if(!pl.wander||now>pl.wander){ pl.wander=now+rnd(1200,3200); { const r=Math.min(SW*.12,45); steerTo(pl,rnd(-r,r)); } }
           const gap=lane(pl)-lane(G.me); if(Math.abs(gap)<90){ const roomR=SW-lane(G.me), roomL=lane(G.me); const dir=(gap>=0?(roomR>110?1:-1):(roomL>110?-1:1)); steerTo(pl,(pl.sxt||0)+dir*320*dt); }
@@ -465,13 +466,19 @@ function mount(root,host){
       // camera: follow the middle of the pair, zoom out if the gap won't fit
       const top=LAY.under, bot=LAY.barTop, avail=bot-top;
       const d=(G.bot.wy-G.me.wy)/K, ad=Math.abs(d), L=lengthsFor(ad);          // smoothed $ lead (kicks included) → rocket lengths
-      const hT=Math.max(HMIN(),Math.min(LAY.rh0,avail/(L+1)));                  // zoom out until L lengths fit
-      LAY.h+=(hT-LAY.h)*Math.min(1,dt*3); const h=LAY.h, sep=Math.min(L*h,avail-h), mid=(top+bot)/2;
+      // your rocket stays big (you always know which one is you); the rival shrinks into the distance as the gap opens,
+      // ahead of you or left behind, so L of *their* rocket lengths fit between you
+      const fill=Math.min(1,L/8), meT=LAY.rh0*(1-.2*fill);
+      const rvT=Math.max(HMIN(),Math.min(LAY.rh0*.9,(avail-meT*.5)/(L+.5)));
+      LAY.h+=(meT-LAY.h)*Math.min(1,dt*3); LAY.hr=(LAY.hr||rvT)+(rvT-(LAY.hr||rvT))*Math.min(1,dt*3);
+      const h=LAY.h, hr=LAY.hr, sep=Math.min(Math.max(L*hr,ad>0?.6*(h+hr)*Math.min(1,ad*4)/2:0),avail-(h+hr)/2), mid=(top+bot)/2;
       LAY.pxPer=ad>.3?sep/ad:2*h; LAY.pmid=-(G.me.wy+G.bot.wy)/2/K; LAY.mid=mid;
-      cam.z=h/LAY.rh0;
+      cam.z=hr/LAY.rh0;
       const ct=(G.me.wy+G.bot.wy)/2, prev=cam.y; cam.vy+=((ct-cam.y)*9-cam.vy*5)*dt; cam.y+=cam.vy*dt; camDy=cam.y-prev;
-      const lim=pl=>{ const hh=pl.me?h:h*.9; return [top+Math.max(hh*.5,34), bot-hh*.5]; };   // 34 = half the tag block beside the rocket
-      for(const pl of [G.me,G.bot]){ const ahead=pl.me?d>=0:d<0, y0=mid+(ahead?-1:1)*sep/2, [a,b]=lim(pl); pl.y=Math.max(a,Math.min(b,y0+(pl.syo||0))); }
+      const lim=pl=>{ const hh=pl.me?h:hr; return [top+Math.max(hh*.5,34), bot-hh*.5]; };   // 34 = half the tag block beside the rocket
+      // place the pair so both fit: centre of the room, shifted so the bigger rocket (you) keeps its whole body on screen
+      const yMe0=mid+(d>=0?-1:1)*sep/2, yRv0=mid+(d>=0?1:-1)*sep/2;
+      for(const [pl,y0] of [[G.me,yMe0],[G.bot,yRv0]]){ const [a,b]=lim(pl); pl.y=Math.max(a,Math.min(b,y0+(pl.syo||0))); }
     }
     sx.save(); if(sh) sx.translate(rnd(-sh,sh)*.5,rnd(-sh,sh)*.5);
     const camAlt=-cam.y/K; drawBackdrop(camAlt);
@@ -527,8 +534,10 @@ function mount(root,host){
     else if(k==="ot"){tone(520,780,.2,.08,"square"); setTimeout(()=>tone(520,780,.2,.08,"square"),220);}
   }
   function buzz(p){ try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
-  function setMute(m){ muted=m; $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); $("mute").setAttribute("aria-label",m?"Unmute sound":"Mute sound"); try{localStorage.setItem("duel.mute",m?"1":"0");}catch(e){} }
+  function setMute(m){ muted=m; try{ host.mute&&host.mute(m); }catch(e){} $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); $("mute").setAttribute("aria-label",m?"Unmute sound":"Mute sound"); try{localStorage.setItem("duel.mute",m?"1":"0");}catch(e){} }
   $("mute").addEventListener("click",()=>{ensureAudio(); setMute(!muted);});
+  // a clicked button keeps focus, and Space/Enter would press it again (mute would un-mute on your next BOOST)
+  root.addEventListener("click",e=>{ const b=e.target&&e.target.closest&&e.target.closest("button"); if(b&&e.detail>0) b.blur(); });
 
   /* ---------- flow ---------- */
   function start(){
