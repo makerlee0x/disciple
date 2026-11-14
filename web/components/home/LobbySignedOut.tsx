@@ -21,7 +21,8 @@ import { altShort, flightHref, lightOf, orbitPct, pct } from "./rocketBits";
 import s from "./lobbySignedOut.module.css";
 
 const HERO_SKY = "/home/sky/t6.webp";
-const BAY_PLATE = "/hangar/plate-1280.webp";
+const HOST_PLATE = "/art/hero/hero-desktop.webp";
+const HOST_PLATE_PHONE = "/art/hero/hero-phone.webp";
 const POLL_MS = 30_000;
 
 const money = (v: number) => "$" + Math.round(v).toLocaleString("en-US");
@@ -238,17 +239,12 @@ function TopPilotsBoard({ data }: { data: HomeData }) {
 function LaunchYourOwn() {
   return (
     <section className={s.host} aria-labelledby="so-host-title">
-      <div className={s.hostPlate} style={{ backgroundImage: `url(${withBase(BAY_PLATE)})` }} aria-hidden />
-      <div className={s.hostGrade} aria-hidden />
-      <div className={s.hostBack} aria-hidden />
-      <div className={s.hostStreak} aria-hidden />
-      <div className={s.hostFloor} aria-hidden />
-      <div className={s.hostPadGlow} aria-hidden />
-      <div className={s.hostPadBase} aria-hidden />
-      <div className={s.hostPad} aria-hidden />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img className={s.hostRocket} src={withBase(ROCKET_SRC)} alt="" loading="lazy" decoding="async" />
-      <span className={`${s.smoke} ${s.hostSmoke}`} aria-hidden />
+      {/* liftoff plate (Grok art, PR #380): no sprite outside flight */}
+      <picture>
+        <source media="(max-width: 760px)" srcSet={withBase(HOST_PLATE_PHONE)} />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className={s.hostArt} src={withBase(HOST_PLATE)} alt="" loading="lazy" decoding="async" />
+      </picture>
       <div className={s.hostVignette} aria-hidden />
       <div className={s.hostScrim} aria-hidden />
       <span className={`${s.bar} ${s.barTopH}`} aria-hidden />

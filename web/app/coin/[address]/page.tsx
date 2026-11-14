@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import LostSky, { LostRocket } from "@/components/LostSky";
+import LostSky from "@/components/LostSky";
 import { useSearchParams } from "next/navigation";
 import { Suspense, use, useEffect, useMemo, useState } from "react";
 import { erc20Abi, isAddress, type Address } from "viem";
@@ -84,7 +84,6 @@ function CoinLost() {
   return (
     <LostSky
       testId="coin-lost"
-      art={<LostRocket />}
       eyebrow="404 · Off course"
       title="No rocket at this address"
       body="Check the link, or pick a live rocket in the Lobby."

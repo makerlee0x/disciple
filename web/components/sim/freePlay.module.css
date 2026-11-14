@@ -19,8 +19,7 @@
 
 .top { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); gap: 24px; }
 .daily { position: relative; min-height: 404px; border-radius: 20px; overflow: hidden; border: 1px solid rgba(243,223,168,.35); background: #121327; }
-.dailyArt { position: absolute; inset: 0; background: url(/home/sky/t3.webp) center / cover no-repeat; }
-.dailyRocket { position: absolute; right: 13%; top: 8%; height: 84%; width: auto; filter: drop-shadow(0 18px 30px rgba(0,0,0,.5)); }
+.dailyArt { position: absolute; inset: 0; background: url(/art/share/daily.webp) 70% 50% / cover no-repeat; } /* dawn training ship plate (Grok art S1, PR #380) */
 .dailyShade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(18,19,39,.94) 0%, rgba(18,19,39,.7) 42%, rgba(18,19,39,0) 72%); }
 .dailyBody { position: relative; height: 100%; min-height: 404px; box-sizing: border-box; padding: 36px; max-width: 480px; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; }
 .tags { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -85,7 +84,7 @@
   .top { grid-template-columns: 1fr; }
   .board { display: none; }
   .daily, .dailyBody { min-height: 312px; }
-  .dailyRocket { right: 50%; transform: translateX(50%); top: 4%; height: 62%; }
+  .dailyArt { background-position: 62% 30%; }
   .dailyShade { background: linear-gradient(180deg, rgba(18,19,39,.1) 0%, rgba(18,19,39,.2) 40%, rgba(18,19,39,.92) 78%); }
   .dailyBody { padding: 14px 16px 16px; max-width: none; }
   .dailyH { font-size: 40px; line-height: .95; margin: 2px 0 0; }

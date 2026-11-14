@@ -75,8 +75,6 @@ export function FreePlayHub({ dailyId, msg, onDaily, onPractice, tune }: {
         <div className={s.top}>
           <section className={s.daily} aria-label={`Daily flight #${dailyId}`}>
             <div className={s.dailyArt} aria-hidden />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className={s.dailyRocket} src="/assets/rocket-hi.webp" alt="" aria-hidden />
             <div className={s.dailyShade} aria-hidden />
             <div className={s.dailyBody}>
               <div className={s.tags}><span className={`${s.tag} ${s.tagHard}`} style={{ borderColor: diff.c }}>{diff.label}</span><span className={s.tag}>NEW FLIGHT IN {untilText(dailyEndsAt(dailyId) - now)}</span></div>

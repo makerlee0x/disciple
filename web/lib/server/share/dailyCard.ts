@@ -18,8 +18,9 @@ function fonts() {
   GlobalFonts.registerFromPath(f("BarlowCondensed-ExtraBold.ttf"), F.b800);
   GlobalFonts.registerFromPath(f("Inter-SemiBold.ttf"), F.ui);
 }
+// Grok plate S1 (PR #380): the dawn training ship, dark left side for the score
 let skyP: Promise<Image | null> | null = null;
-const sky = () => (skyP ??= loadImage(path.join(ROOT, "public/free-play/share-sky.webp")).catch(() => null));
+const sky = () => (skyP ??= loadImage(path.join(ROOT, "public/art/share/daily.webp")).catch(() => null));
 let wordP: Promise<Image | null> | null = null;   // brand E, the wide italic wordmark
 const word = () => (wordP ??= loadImage(path.join(ROOT, "public/brand/disciple-wordmark-light-1200.png")).catch(() => null));
 
@@ -50,9 +51,9 @@ export async function renderDailyCard(d: DailyCardData): Promise<Buffer> {
   const W = 1200, H = 630, c = createCanvas(W, H), g = c.getContext("2d");
   g.fillStyle = "#0B0C0E"; g.fillRect(0, 0, W, H);
   const bg = await sky();
-  if (bg) {   // object-fit: cover into right -120px, top -60px, 900×750
-    const bw = 900, bh = 750, k = Math.max(bw / bg.width, bh / bg.height), sw = bw / k, sh = bh / k;
-    g.drawImage(bg, (bg.width - sw) / 2, (bg.height - sh) / 2, sw, sh, W + 120 - bw, -60, bw, bh);
+  if (bg) {   // full bleed, object-fit: cover (the plate is drawn 1.91:1 for this card)
+    const k = Math.max(W / bg.width, H / bg.height), sw = W / k, sh = H / k;
+    g.drawImage(bg, (bg.width - sw) / 2, (bg.height - sh) / 2, sw, sh, 0, 0, W, H);
   }
   const gr = g.createLinearGradient(0, 0, W, 0);
   gr.addColorStop(0, "#0B0C0E"); gr.addColorStop(0.38, "rgba(11,12,14,0.96)"); gr.addColorStop(0.7, "rgba(11,12,14,0.4)"); gr.addColorStop(1, "rgba(11,12,14,0.1)");

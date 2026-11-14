@@ -21,7 +21,7 @@
 
 /* pilot card */
 .pilot { position: relative; overflow: hidden; padding: 28px; display: flex; flex-direction: column; gap: 22px; min-width: 0; }
-.pilotSky { position: absolute; inset: 0; background: url(/home/sky/t6.webp) 50% 30% / cover no-repeat; opacity: .28; }
+.pilotSky { position: absolute; inset: 0; background: url(/art/trophies/room.webp) 70% 50% / cover no-repeat; opacity: .55; } /* trophy room plate (Grok art T2, PR #380) */
 .pilotShade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(18, 19, 39, .2), rgba(14, 15, 22, .95) 70%); }
 .pilot > *:not(.pilotSky):not(.pilotShade) { position: relative; }
 .pilotId, .empty { display: flex; align-items: center; gap: 22px; }

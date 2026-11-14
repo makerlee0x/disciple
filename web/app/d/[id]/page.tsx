@@ -44,7 +44,7 @@ export default async function DailyChallenge(p: P) {
   return (
     <div data-testid="daily-challenge" style={{ position: "fixed", inset: 0, zIndex: 60, background: "#0B0C0E", color: "#F2F3F7", fontFamily: "var(--dsc-font-ui)", overflow: "auto" }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/free-play/challenge-sky.webp" alt="The chrome rocket climbing through night clouds" style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "78.7%", objectFit: "cover" }} />
+      <img src="/art/modes/free.webp" alt="" style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "78.7%", objectFit: "cover", objectPosition: "50% 30%" }} />
       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(11,12,14,0.35) 0%, rgba(11,12,14,0.1) 30%, rgba(11,12,14,0.85) 62%, #0B0C0E 78%)" }} />
       <div style={{ position: "relative", minHeight: "100%", maxWidth: 440, margin: "0 auto", boxSizing: "border-box", padding: "calc(env(safe-area-inset-top, 0px) + 52px) 16px calc(env(safe-area-inset-bottom, 0px) + 32px)", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
