@@ -6,7 +6,7 @@
  */
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { onWallet } from "@/lib/wallet";
+import { onWallet } from "@/lib/walletState";
 import { devSample } from "@/lib/devSample";
 import { difficultyOf } from "@/lib/difficulty";
 import { headlineMark, hostLogLine, type HostView as Host } from "@/lib/host";

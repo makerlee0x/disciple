@@ -174,7 +174,7 @@ export class SimRun {
     this.trades.push(tr); if (this.trades.length > 4000) this.trades.splice(0, 1000);
     this.notify({ trade: tr, player: !who });
     if (react && who) { this.reactLog.push({ t: this.t, usd: f.usd }); this.noteReact(react, who); }
-    if (wasCurve && this.m.phase === "pool") this.emitEvent("graduate", `Reached orbit. This rocket now trades on the open market on Uniswap, at ${fmt(this.m.mcap())}.`);
+    if (wasCurve && this.m.phase === "pool") this.emitEvent("graduate", `Reached orbit at ${fmt(this.m.mcap())}`);
     if (who && !this.inBeat && f.usd > Math.max(250, this.m.depth() * 0.08) && side === "buy") this.emitEvent("whale", `${who.name} boosts ${fmt(f.usd)}`, false, who);
     return f;
   }

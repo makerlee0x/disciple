@@ -30,13 +30,13 @@ Anyone can launch a rocket. We do not check that a rocket is a real project, or 
 
 A launcher can set a creator tax from 0% up to 7%. They choose it at launch, and it stays at that number.
 
-The launcher picks a mode at launch, and it does not change. The modes are Easy, Hard, and Trench. Before the rocket moves to the shared pool, the mode limits how much one wallet can hold.
+The launcher picks a mode at launch, and it does not change. The modes are Easy, Hard, and Expert. Before the rocket moves to the shared pool, the mode limits how much one wallet can hold.
 
 On Easy, each wallet can hold up to 1% of the supply. That limit rises to 3.33% as the rocket climbs.
 
 On Hard, each wallet can hold up to 3.33% of the supply. That limit rises to 7.77% as the rocket climbs.
 
-On Trench, one wallet has no holding limit.
+On Expert, one wallet has no holding limit.
 
 These limits make one wallet's sell smaller. They do not stop many wallets from selling at the same time. After the rocket moves to the shared pool, these holding limits stop applying.
 

@@ -20,7 +20,7 @@ Your rocket is priced in its base. If the base falls, the rocket's dollar value 
 
 ## Smart-contract risk
 
-The contracts are not audited by a third party. Bugs are possible. See [Contracts and audits](/docs/safety).
+Smart contracts can have bugs. See [How the contracts work](/docs/safety).
 
 ## Admin risk
 

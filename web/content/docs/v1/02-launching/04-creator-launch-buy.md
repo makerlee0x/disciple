@@ -9,7 +9,7 @@ You can BOOST your own rocket as part of the launch. The launch form calls this 
 
 | Rule | Today |
 |---|---|
-| Most you can buy | 1.2% of the rocket on Easy, 3.33% on Hard and 7.77% on Trench |
+| Most you can buy | 1.2% of the rocket on Easy, 3.33% on Hard and 7.77% on Expert |
 | Sniper tax | You don't pay it. You pay only the 1% trade fee, plus your own creator tax if you set one. |
 | Set at launch | The limit that applies is the one in force when you launch. A later change only affects new rockets. |
 

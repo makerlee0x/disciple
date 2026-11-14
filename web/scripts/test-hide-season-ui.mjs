@@ -39,7 +39,7 @@ ok(!docsStillShowSeason(hideSeasonInDocs(readFileSync(join(root, "08-reference/0
 ok(!docsStillShowSeason(hideSeasonInDocs(readFileSync(join(root, "06-game/03-crew.md"), "utf8"))), "Crew: 'season rank' hidden, rest of the pilot sentence kept");
 
 const crew = hideSeasonInDocs(readFileSync(join(root, "06-game/03-crew.md"), "utf8"));
-ok(/Your profile shows your pilot stats, level, identity and milestones\./.test(crew), "crew sentence still reads naturally after the hide");
+ok(/Your Hangar shows your level, your rockets and your recent activity\./.test(crew), "crew sentence still reads naturally after the hide");
 const ach = hideSeasonInDocs(readFileSync(join(root, "06-game/04-achievements-and-points.md"), "utf8"));
 ok(!/rHALO/.test(ach), "missions page has no rHALO");
 ok(/^## Level and prestige/m.test(ach), "Level and prestige section is kept");

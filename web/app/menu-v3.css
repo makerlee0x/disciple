@@ -15,9 +15,10 @@
   #apSide .ap-foot button, #apSide .ap-foot a { font-size: 18px; }
   #apSide .ap-join-btn { height: 48px; background: #FFFFFF; border-color: #FFFFFF; color: var(--dsc-sky-ink, #121327); }
 }
-/* brand row = the lobby's: mark + game-font word (not the old serif lockup) */
-#apSide .ap-lockup { display: none !important; }
-#apSide .ap-mark { display: block !important; width: 28px; height: 28px; }
+/* brand row = the lobby's: the warm moon + wide italic DISCIPLE lockup (brand B + E); collapsed rail keeps the mark */
+#apSide .ap-lockup { display: block !important; height: 28px; width: auto; margin-left: 0; }
+#apSide .ap-mark { display: none !important; width: 28px; height: 28px; }
+#apSide.collapsed .ap-lockup { display: none !important; }
+#apSide.collapsed .ap-mark { display: block !important; }
 #apSide .ap-logo { gap: 10px; color: var(--dsc-text); }
-#apSide .ap-word { font: 800 24px / 1 var(--dsc-font-game); letter-spacing: .04em; }
-#apSide.collapsed .ap-word { display: none; }
+#apSide .ap-word { display: none; }

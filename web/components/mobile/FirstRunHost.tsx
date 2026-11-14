@@ -1,7 +1,7 @@
 "use client";
 /**
  * First run on phones (maker, 2026-11-14; lib/firstRun). One host, mounted by AppShell:
- *  - Lobby: a "Tap a rocket to fly" coach line above the tab bar until the first flight opens.
+ *  - Lobby: a "Swipe to pick a mode, tap to play" coach line (matches Pick a mode) above the tab bar until the first flight opens.
  *  - First flight: the throttle intro card (BOOST = BUY, DUMP = SELL, STEER), closed with FLY.
  *  - Signed in with $0 on a flight: an "Add cash to board" card (card checkout or Free play), once per flight.
  *  - The first live boost that fills: a big "FIRST BOOST" moment.
@@ -24,6 +24,8 @@ export const INTRO_COPY = {
   dump: ["DUMP", "= SELL", "slide down"],
   steer: ["STEER", "", "drag the sky"],
   line: "Every boost and dump is a real trade.",
+  /** Free play's practice cash (e2e sweep 2026-11-14: the first Free play flight on a phone said "a real trade") */
+  lineSim: "Practice cash here, real market rules.",
   line2: "Let go of the lever to fire.",
   go: "FLY",
 } as const;
@@ -38,6 +40,14 @@ export default function FirstRunHost() {
   const [cash, setCash] = useState<number | null>(null);
   const [cashCard, setCashCard] = useState(false);
   const [firstBoost, setFirstBoost] = useState(false);
+  // Lobby coach: on the signed-out landing the first screen is the hero (its own Play now), and a fixed pill there covered
+  // the hero's last line. Show it once the hero has scrolled away, or right away on the signed-in lobby (no landing hero).
+  const [coachRoom, setCoachRoom] = useState(false);
+  useEffect(() => {
+    const f = () => setCoachRoom(!document.getElementById("so-hero-title") || window.scrollY > window.innerHeight * 0.6);
+    f(); addEventListener("scroll", f, { passive: true }); const t = window.setInterval(f, 1500);
+    return () => { removeEventListener("scroll", f); clearInterval(t); };
+  }, [path]);
   // the phone flight HUD is up (PhoneHud sets html.ap-phone): a hub or loading screen on a game route doesn't count
   const [hud, setHud] = useState(false);
   useEffect(() => {
@@ -76,8 +86,8 @@ export default function FirstRunHost() {
 
   if (!phone && !phoneNow()) return null;
 
-  if (!game) return showPickCoach(run, true) && (path === "/" || path === "") ? (
-    <div className="fr-coach" role="status" data-testid="fr-coach"><span aria-hidden className="fr-dot" />Tap any rocket to jump in</div>
+  if (!game) return showPickCoach(run, true) && (path === "/" || path === "") && coachRoom ? (
+    <div className="fr-coach" role="status" data-testid="fr-coach"><span aria-hidden className="fr-dot" />Swipe to pick a mode, tap to play</div>
   ) : null;
 
   return (
@@ -91,7 +101,7 @@ export default function FirstRunHost() {
                 <div key={k} className={`fr-hw ${k}`}><i aria-hidden>{ic}</i><b>{t}</b><em>{eq || " "}</em><small>{sub}</small></div>
               ))}
             </div>
-            <p className="fr-one">{INTRO_COPY.line}<br />{INTRO_COPY.line2}</p>
+            <p className="fr-one">{sim ? INTRO_COPY.lineSim : INTRO_COPY.line}<br />{INTRO_COPY.line2}</p>
             <button type="button" className="r2-gold fr-go" data-testid="fr-go" onClick={() => { saveRun({ intro: true }); haptic("tap", true); }}>{INTRO_COPY.go}</button>
           </div>
         </div>

@@ -16,7 +16,8 @@ import { LAUNCH_ABI_SHAPE, LaunchMode } from "@/lib/launchAbi";
 import { DEFAULT_MODE, MODE_LABEL, MODE_ORDER } from "@/lib/modeRules";
 import { ACTIVE_CHAIN, deployment, isDeployed } from "@/lib/chains";
 import { nextTicker, randomRocketName, tickerVariants } from "@/lib/rocketNames";
-import { activeAddress, aaAvailable, canTransact, connectPrivy, connectWallet, execCalls, onWallet } from "@/lib/wallet";
+import { activeAddress, aaAvailable, canTransact, connectWallet, execCalls, onWallet } from "@/lib/wallet";
+import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
 import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
 import { blockedActionMessage } from "@/lib/trade/gaslessAction";
 import { launchpadAbi } from "@/lib/abi";
@@ -36,7 +37,7 @@ import {
 import {
   QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_CARD, seatLabel, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION,
   CREATOR_FEE_DESTINATIONS, CREATOR_TAX_HELP, DEFAULT_CREATOR_FEE_DESTINATION,
-  buildLaunchSocials, creatorFeeRoutingAvailable, launchNeedsSignIn, liveCreatorFeeDestination,
+  HARVEST_USDG_BOOST_LIVE, buildLaunchSocials, creatorFeeRoutingAvailable, launchNeedsSignIn, liveCreatorFeeDestination,
   normalizeTelegram, normalizeTwitter, normalizeWebsite, privateLaunchHelp,
   readStoredCreatorFeeDestination, readStoredCreatorTax, readStoredUpload, snapCreatorTax,
   storeCreatorFeeDestination, storeCreatorTax, storeUpload, type CreatorFeeDestination,
@@ -131,7 +132,9 @@ export default function LaunchRocketPage() {
   const needsSignIn = launchNeedsSignIn({ deployed: isDeployed(), staticPreview: IS_STATIC_PREVIEW, signedIn });
   const signIn = () => {
     setMsg(null);
-    if (aaAvailable()) connectPrivy();
+    // the same sign-in the top bar runs (WalletButton: Privy window, or the local signer in dev/e2e builds), so Launch
+    // also counts as a sign-in start; before (e2e 2026-11-14) it called connectPrivy() directly, a no-op without Privy
+    if (aaAvailable()) dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT));
     else connectWallet().catch((err) => setMsg(playerError(err)));
   };
 
@@ -305,6 +308,7 @@ export default function LaunchRocketPage() {
       setMsg(privateLaunch ? `${C.creatorFeesPrivateLater} Pick "${CREATOR_FEE_COPY[0].sentence}" or turn off Hide my name.` : C.creatorFeesNotHere);
       return;
     }
+    if (sendFeeDest && !HARVEST_USDG_BOOST_LIVE && boostState.usdgIn != null && boostState.usdgIn > BigInt(0)) { setMsg(C.creatorFeesNoBoost); return; }
     const web = normalizeWebsite(website) ?? "";
     if (web !== website.trim()) setWebsite(web);
     if (web && !/^https?:\/\/\S+\.\S+/.test(web)) {
@@ -523,13 +527,13 @@ export default function LaunchRocketPage() {
 
       {advanced && (
         <>
-          <div className={s.scrim} onClick={() => setAdvanced(false)} />
-          <div className={s.modal} role="dialog" aria-label={C.advanced} data-testid="advanced-modal">
-            <div className={`${s.modalPanel} ${s.wide}`}>
-              <div className={s.drawerHd}>
+          {/* Settings v2 shell (Hangar popups v2 / Trade settings): gold-edged panel, game-type header, boxed groups */}
+          <div className="ds-modal-backdrop p5-settings-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) setAdvanced(false); }}>
+            <div className={`ds-modal p5-modal p5-settings ${s.moreModal}`} role="dialog" aria-modal="true" aria-label={C.advanced} data-testid="advanced-modal">
+              <header className="p5-mhead">
                 <h2>{C.advanced}</h2>
-                <button type="button" className={s.iconBtn} aria-label="Close" onClick={() => setAdvanced(false)}><Icon name="close" size={16} /></button>
-              </div>
+                <button type="button" className="p5-icon" aria-label="Close" onClick={() => setAdvanced(false)}><Icon name="close" size={18} /></button>
+              </header>
               <div className={s.modalBody}>
               <div className={s.fl}>
                 <div className={s.lab}>{C.pairCoin}</div>

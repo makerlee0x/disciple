@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { MODES } from "@/lib/config";
 import { DEFAULT_SELLS, MIN_BOOST_USD, validBoost, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 import { ONE_TAP_SLIPPAGE_CHOICES_BPS, oneTapSlippageBps, onSessionChange, setOneTapSlippageBps } from "@/lib/aa/session";
@@ -20,6 +20,10 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
   const t = tier;
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }; addEventListener("keydown", k); return () => removeEventListener("keydown", k); }, [onClose]);
   useEffect(() => { if (buyAuto) setBuy(autoUsd.map(String)); }, [buyAuto, autoUsd]);
+  // Leaving the default amounts by focusing a box selects its value, so the first key replaces it. Done in a layout effect,
+  // after React writes the raw number in but before the browser takes the next keystroke.
+  const selectRef = useRef<HTMLInputElement | null>(null);
+  useLayoutEffect(() => { if (!buyAuto && selectRef.current) { selectRef.current.select(); selectRef.current = null; } }, [buyAuto]);
   const [err, setErr] = useState("");
   const save = () => {
     const b = buy.map((v) => +v);
@@ -57,7 +61,7 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
                 {buy.map((v, i) => <label key={i} className="p5-trade-cell">
                   <kbd>{MODES[i].key}</kbd>
                   <input data-testid={`swap-buy-${i}`} inputMode="decimal" aria-label={`Boost amount ${i + 1}`} className={buyAuto ? "auto" : ""}
-                    value={buyAuto ? (+v < 1 ? `$${(+v).toFixed(2)}` : `$${+v}`) : v} onFocus={() => { if (buyAuto) setBuyAuto(false); }}
+                    value={buyAuto ? (+v < 1 ? `$${(+v).toFixed(2)}` : `$${+v}`) : v} onFocus={(e) => { if (buyAuto) { selectRef.current = e.currentTarget; setBuyAuto(false); } }}
                     onChange={(e) => { setBuyAuto(false); setErr(""); const n = [...buy]; n[i] = e.target.value.replace(/[^\d.]/g, ""); setBuy(n); }} /></label>)}
               </div>
               <span data-testid="swap-buy-note" role={err ? "alert" : undefined} className={err ? "p5-err" : "p5-fine"}>

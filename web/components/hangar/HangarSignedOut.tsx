@@ -13,7 +13,7 @@ import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
 export const HANGAR_OUT_COPY = {
   eyebrow: "Your hangar",
   lines: ["This bay", "is yours"],
-  body: "Sign in to park your rocket here. Your level, your fleet, your flight log and your trophies all live in the Hangar.",
+  body: "Sign in to park your rocket here. Your level, your fleet and your trophies all live in the Hangar.",
   perks: [
     { dot: "#5FF0A0", text: "Level up from your first boost" },
     { dot: "#A9C4FF", text: "See every rocket you're aboard in one place" },

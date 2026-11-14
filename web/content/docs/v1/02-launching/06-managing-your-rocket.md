@@ -19,7 +19,7 @@ section: Launching
 
 ## Your earnings
 
-Your creator fees build up on every trade. Open **Rewards** (the chest on your profile) to see them. See [Creator earnings](/docs/fees/creators).
+Your creator fees build up on every trade. Open **Rewards** (in your account menu) to see them. See [Creator earnings](/docs/fees/creators).
 
 ## Hand off a rocket
 

@@ -55,8 +55,10 @@ export default function HudModeToggle({ sim, onSim }: { sim?: Sim | null; onSim?
     if (!open) return;
     const down = (e: PointerEvent) => { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false); };
     const key = (e: KeyboardEvent) => { if (e.code === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); setOpen(false); } };
-    addEventListener("pointerdown", down, true); addEventListener("keydown", key, true);
-    return () => { removeEventListener("pointerdown", down, true); removeEventListener("keydown", key, true); };
+    // another overlay took over (the flight log opening from "Back to the lobby", a confirm): close, don't sit behind it
+    const other = (e: Event) => { if ((e as CustomEvent<{ open?: boolean }>).detail?.open) setOpen(false); };
+    addEventListener("pointerdown", down, true); addEventListener("keydown", key, true); addEventListener("disciple:menu", other);
+    return () => { removeEventListener("pointerdown", down, true); removeEventListener("keydown", key, true); removeEventListener("disciple:menu", other); };
   }, [open]);
   if (!desk) return null;
   const opt = (m: HudMode, label: string, hint: string) => (

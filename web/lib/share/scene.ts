@@ -199,7 +199,8 @@ export function drawShareScene(ctx: Ctx, mk: MakeCanvas, d: SceneData, a: SceneA
     ship(ctx, a.rocket, x, y + 40 * (1 - ease(t * 1.4)), w, h, 8, 1, { w: Y.trailW, l: Y.trailL, col: "242,193,78", head: "rgba(255,246,220,1)" }, { w: Y.flame[0], h: Y.flame[1], col: "242,193,78" }, `rgba(242,193,78,${good ? 0.35 : 0.18})`); }
 
   // header: DISCIPLE · FLIGHT LOG · <day>
-  ctx.fillStyle = "#F2F3F7"; ctx.font = BC(800, Y.wordPx); tracked(ctx, "DISCIPLE", L, Y.headTop, Y.wordPx * 0.22);
+  if (a.wordmark) { const h = Y.wordPx * 0.9, w = h * (a.wordmark.width / a.wordmark.height); ctx.drawImage(a.wordmark, L, Y.headTop + (Y.wordPx - h) / 2, w, h); }   // brand E wordmark
+  else { ctx.fillStyle = "#F2F3F7"; ctx.font = BC(800, Y.wordPx); tracked(ctx, "DISCIPLE", L, Y.headTop, Y.wordPx * 0.22); }
   ctx.fillStyle = CHAMP; ctx.font = BC(600, Y.datePx); tracked(ctx, `FLIGHT LOG · ${dayLabel(d.endTs || Date.now())}`, L + Y.headW, Y.headTop + (Y.wordPx - Y.datePx) / 2, Y.datePx * 0.14, "right");
   if (Y.rule !== null) { ctx.fillStyle = "rgba(243,223,168,0.35)"; ctx.fillRect(L, Y.rule, W - 2 * L, 2); }
   if (d.sample) { ctx.save(); ctx.translate(W - L - 120, Y.coinTop + 20); ctx.rotate(0.05); ctx.fillStyle = "#FFD84D"; ctx.fillRect(-120, -26, 240, 46); ctx.fillStyle = "#0a0a0a"; ctx.font = BC(800, 26); tracked(ctx, "SAMPLE DATA", -96, -14, 4); ctx.restore(); }

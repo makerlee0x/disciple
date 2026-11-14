@@ -19,9 +19,9 @@ That's the whole relationship. A rocket follows its base on the chart because it
 
 ## Which coins can be a base
 
-Right now, the launch form pairs every new rocket with **STRATEGY**. It's the default, and it's the only pair coin the form offers today.
+The launch form offers 12 pair coins: STRATEGY, AI, SCHIFFY, BONER, MEME, MOO, PONS, ORBIO, HOOKR, CASHCAT, PRIORS and SPACEHOOD. **STRATEGY** is picked for you. Pick another under **More options** on the launch form.
 
-The contracts can also take USDG or another coin as the base, as long as that coin has a registered dollar price. A longer list of pair coins is built, but those coins are not available on the launch form yet.
+Every pair coin needs a registered dollar price, which the team sets up before a coin joins the list.
 
 ## How the dollar price is set
 

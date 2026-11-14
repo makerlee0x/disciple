@@ -11,6 +11,7 @@ import { CREW_CARD_ENABLED } from "@/lib/features";
 import PnlHud from "@/components/PnlHud";
 import DiscipleFeed from "@/components/DiscipleFeed";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
+import { TRAMP_WALLS_ENABLED } from "@/lib/features";
 import TradeBridge from "@/components/TradeBridge";
 import SnipeCountdown from "@/components/flight/SnipeCountdown";
 import CoinIdentity from "@/components/pairart/CoinIdentity";
@@ -67,7 +68,7 @@ function FlightInner({ address }: { address: string }) {
       {/* DEX-style mcap chart (GAME, Oct 30): lightweight-charts card; the engine's canvas chart stays for the v3 demo / replays */}
       {isDeployed() && !demo0 && isAddress(address) && sp.get("replay") !== "1" && sp.get("clean") !== "1" && <DexChart coin={address} ticker={sp.get("ticker") || sp.get("cs")} />}
       <DiscipleFeed token={address} />
-      <TrampWallPanel token={address} />
+      {TRAMP_WALLS_ENABLED && <TrampWallPanel token={address} />}
       <TradeBridge token={address} />
       <SnipeCountdown token={address} />
       <CoinIdentity address={address} sp={new URLSearchParams(sp.toString())} />
