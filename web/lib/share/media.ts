@@ -2,7 +2,7 @@
  * Share media abstraction: PNG from /api/share/card (imageMedia) or an MP4/WebM rendered in the browser from the
  * deterministic replay + end card (lib/share/video.ts → videoMedia). ShareModal shares/downloads either unchanged.
  */
-export interface ShareParams { wallet: string | null; coin: string; ticker?: string; username?: string | null; demo?: boolean; at?: number; loadout?: { skin: string; coin: string; thruster: string } }
+export interface ShareParams { wallet: string | null; coin: string; /** "last": only the latest trade, entry → exit (or now) */ trade?: "all" | "last"; ticker?: string; username?: string | null; demo?: boolean; at?: number; loadout?: { skin: string; coin: string; thruster: string } }
 export interface ShareMedia {
   kind: "image" | "video";
   mime: string;
@@ -17,6 +17,7 @@ export function cardQuery(p: ShareParams, format: "story" | "og") {
   if (p.ticker) q.set("ticker", p.ticker);
   if (p.username) q.set("username", p.username);
   if (p.demo) q.set("demo", "1");
+  if (p.trade === "last") q.set("trade", "last");
   if (p.at) q.set("at", String(p.at));
   if (p.loadout) { q.set("skin", p.loadout.skin); q.set("nose", p.loadout.coin); q.set("thruster", p.loadout.thruster); }
   return q.toString();

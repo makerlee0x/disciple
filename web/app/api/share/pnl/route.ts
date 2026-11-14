@@ -24,7 +24,8 @@ export async function GET(req: Request) {
   }
   if (!isAddr(wallet) || !isAddr(coin)) return NextResponse.json({ error: "wallet and coin required" }, { status: 400 });
   await indexTrades(5_000).catch(() => {});
-  const pnl = await pnlForPosition(wallet, coin);
+  // trade=last: only the latest trade (entry → exit, or → now while it is open), the flight's Share button
+  const pnl = await pnlForPosition(wallet, coin, Date.now(), u.searchParams.get("trade") === "last" ? "last" : "all");
   // flight log stats + badge for the video end card (same as the PNG card)
   return NextResponse.json({ ...pnl, ...(await flightCardParts(wallet, coin, pnl, Date.now()).catch(() => ({}))) });
 }
