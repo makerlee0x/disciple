@@ -38,7 +38,8 @@ ok(/\[data-testid="phone-drawer"\](, \[data-testid="flight-menu"\])?'\);/.test(s
 ok(/new URLSearchParams\(location\.search\)\.get\("clean"\) === "1"\) return/.test(hud) && /if \(!phone \|\| !L\) return null;/.test(hud), "?clean=1 / desktop render nothing");
 ok(hud.match(/DRAWER_BG = "([^"]+)"/)[1] === eng.match(/const PH_DRAWER_BG='([^']+)'/)[1], "sheet tint == engine body tint");
 ok(/html\.ap-phone \[data-testid="settings-btn"\]/.test(hud), "gear hidden on phone (Settings lives in the app menu)");
-ok(/data-testid="phone-menu" onClick=\{openMenu\}/.test(hud) && /getElementById\("apReopen"\)/.test(hud) && /html\.ap-phone #apReopen,/.test(hud), "☰ opens the app menu (Sidebar #apSide); the site's own menu button is hidden");
+ok(!/data-testid="phone-menu"/.test(hud) && /html\.ap-phone #apReopen,/.test(hud), "no ☰ in flight (maker 2026-11-14): the site's own menu button stays hidden");
+ok(/data-testid="swap-game"/.test(rd("components/trade/SwapSettingsModal.tsx")) && /swap-\$\{k\}/.test(rd("components/trade/SwapSettingsModal.tsx")), "sound + vibration toggles sit in the gear sheet on phones");
 ok(/href="\/" aria-label="Leave flight"[^\n]*data-testid="flight-leave"/.test(hud), "✕ leave is a plain lobby link (ExitConfirm guards it)");
 ok(/WALLET_CTA_CLICK_EVENT/.test(bar) && /SIGN IN TO PLAY/.test(bar) && /\{!cta && name \? <Link/.test(hud) && /noSignIn=\{token === "SIMULATOR"\}/.test(tb) && /data-testid="phone-pilot"/.test(hud) && /<LevelRing info=\{xp\.level\} size=\{40\} \/>/.test(hud) && /href="\/profile" data-testid="phone-pilot"/.test(hud), "pilot: level ring opens the profile (throttle layout); signed out, the trade bar is SIGN IN TO PLAY (not on the simulator)");
 // 3) engine gating: desktop branches unchanged, phone draws pill + the open drawer tab only

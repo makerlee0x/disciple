@@ -78,6 +78,7 @@ export default function PhoneHud() {
   const [grad, setGrad] = useState(false);
   const [pnl, setPnl] = useState<PnlView>(null);
   const [stats, setStats] = useState<{ cash: number | null; room: number | null }>({ cash: null, room: null });
+  const [simClock, setSimClock] = useState<{ mode: string; left: string; dots: boolean[] } | null>(null);
   const [holders, setHolders] = useState<Holders>(null);
   const [cta, setCta] = useState<string | null>(null);
   const [me, setMe] = useState<WalletId | null>(null);
@@ -149,6 +150,7 @@ export default function PhoneHud() {
       ["disciple:pnlview", (d) => setPnl((d as PnlView) ?? null)],
       ["disciple:phonestats", (d) => { if (d) setStats(d as { cash: number | null; room: number | null }); }],
       ["disciple:holders", (d) => setHolders((d as Holders) ?? null)],
+      ["disciple:simclock", (d) => setSimClock((d as { mode: string; left: string; dots: boolean[] } | null) ?? null)],
       [WALLET_CTA_EVENT, (d) => setCta((d as { label: string | null } | null)?.label ?? null)],
       [WALLET_ID_EVENT, (d) => setMe((d as WalletId | null) ?? null)],
     ];
@@ -215,7 +217,6 @@ export default function PhoneHud() {
   const glass: React.CSSProperties = { background: "rgba(18,19,39,.78)", border: "1px solid #2E323A", boxSizing: "border-box" };
   const sq: React.CSSProperties = { ...glass, position: "relative", width: 44, height: 44, borderRadius: 12, display: "grid", placeItems: "center", cursor: "pointer", padding: 0, color: "#F2F3F7" };
   const name = me?.name ? me.name : me ? `${me.address.slice(0, 6)}…${me.address.slice(-4)}` : "";
-  const openMenu = () => { (document.getElementById("apReopen") as HTMLElement | null)?.click(); };
 
   // holders sheet: ranked real holders (pool / curve rows left out), or the session boosters on sim / paper
   const ranked = holders?.items ? holders.items.filter((r) => !r.label) : null;
@@ -238,8 +239,15 @@ export default function PhoneHud() {
             : <span style={{ width: 48 }} />}
           <div data-testid="phone-mc" style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
             <span data-testid="phone-mcap" style={{ font: `800 30px/1 ${G}`, color: "#F2F3F7", textShadow: "0 2px 0 #121327", fontVariantNumeric: "tabular-nums" }}>{mcap > 0 ? shortUsd(mcap) : "…"}</span>
-            <span style={{ width: 120, height: 7, borderRadius: 4, background: "rgba(0,0,0,.45)", border: "1px solid rgba(255,255,255,.35)", overflow: "hidden" }}>
-              <span style={{ display: "block", width: `${Math.round(zl.f * 100)}%`, height: "100%", background: "#F2C14E" }} /></span>
+            <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ width: simClock ? 72 : 120, height: 7, borderRadius: 4, background: "rgba(0,0,0,.45)", border: "1px solid rgba(255,255,255,.35)", overflow: "hidden" }}>
+                <span style={{ display: "block", width: `${Math.round(zl.f * 100)}%`, height: "100%", background: "#F2C14E" }} /></span>
+              {/* Free play: run clock + goal dots by the market cap (maker 2026-11-14); tap opens the goals */}
+              {simClock && <button type="button" data-testid="phone-simclock" aria-label={`${simClock.mode}, ${simClock.left} left, ${simClock.dots.filter(Boolean).length} of ${simClock.dots.length} goals. Show goals`}
+                onClick={() => dispatchEvent(new CustomEvent("disciple:simgoals"))}
+                style={{ all: "unset", pointerEvents: "auto", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, padding: "8px 2px", margin: "-8px -2px", font: `800 15px/1 ${G}`, color: "#F2F3F7", textShadow: "0 1px 2px rgba(0,0,0,.9)", fontVariantNumeric: "tabular-nums" }}>
+                {simClock.left}<span aria-hidden style={{ display: "flex", gap: 3 }}>{simClock.dots.map((on, i) => <i key={i} style={{ width: 7, height: 7, borderRadius: "50%", border: "1.5px solid #F2C14E", boxSizing: "border-box", background: on ? "#F2C14E" : "transparent" }} />)}</span></button>}
+            </span>
             <span data-testid="phone-next" style={{ font: `700 12px/1 ${G}`, letterSpacing: ".5px", color: "#F3DFA8", textShadow: "0 1px 2px rgba(0,0,0,.9)", whiteSpace: "nowrap", textTransform: "uppercase" }}>
               {zl.next || <span data-testid="phone-zone">{zl.zone}</span>}</span>
           </div>
@@ -261,12 +269,10 @@ export default function PhoneHud() {
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM2 20c.8-3 3.2-5 6-5s5.2 2 6 5M14 15.3c.6-.2 1.3-.3 2-.3 2.8 0 5.2 2 6 5" /></svg>
             {count > 0 && <span aria-hidden style={{ position: "absolute", right: -5, top: -5, minWidth: 20, height: 20, padding: "0 5px", boxSizing: "border-box", borderRadius: 999, background: "#F2C14E", color: "#121327", font: `800 13px/20px ${G}`, textAlign: "center", border: "2px solid #121327" }}>{count >= 50 ? "50+" : count}</span>}
           </button>
-          <button type="button" data-testid="phone-gear" aria-label="Boost amounts and trade settings" onClick={() => dispatchEvent(new CustomEvent("disciple:swapsettings", { detail: { open: true } }))} style={sq}>
+          <button type="button" data-testid="phone-gear" aria-label="Boost amounts, sound and vibration" onClick={() => dispatchEvent(new CustomEvent("disciple:swapsettings", { detail: { open: true } }))} style={sq}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg></button>
           <Link href="/achievements" data-testid="phone-missions" aria-label="Missions and trophies" style={sq}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z" /></svg></Link>
-          <button type="button" aria-label="Menu" data-testid="phone-menu" onClick={openMenu} style={sq}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 7h16M4 12h16M4 17h16" /></svg></button>
         </nav>
         {!(cta && !sim) && <PhoneBag value={bagUsd} cost={basis} pnl={pnl?.uPnl ?? 0} pct={pnl?.pnlPct ?? 0} room={stats.room} banked={banked} holding={bagUsd > 0} />}
         {steerHint && <div data-testid="steer-hint" aria-hidden className="ph-steer">⟵ DRAG THE SKY TO STEER ⟶</div>}
@@ -329,7 +335,8 @@ export default function PhoneHud() {
         /* throttle layout: crew feed next to the icon column, its chat button at the top of the column */
         html.ap-phone [data-testid="chat-dock"]:not([data-open]) { left: 72px !important; }
         /* Free play's timer chip: right side under the chart card (the chat button moved to the icon column) */
-        html.ap-phone [data-testid="sim-chip"] { top: var(--ph-feed-top) !important; }
+        html.ap-phone [data-testid="sim-chip"] { display: none !important; }
+        html.ap-phone [data-testid="sim-bar"] { top: calc(var(--ph-top, 12px) + 56px) !important; left: 50% !important; right: auto !important; transform: translateX(-50%); z-index: 46 !important; }
         html.ap-phone [data-testid="chat-dock"]:not([data-open]) [data-testid="chat-open"] { position: fixed !important; left: 12px !important; right: auto !important; top: var(--ph-feed-top) !important; }
         html.ap-phone [data-testid="chat-dock"]:not([data-open]) [data-testid="chat-list"] { width: min(220px, calc(100vw - 230px)) !important; }
         .pc { position: absolute; inset: 0; border-radius: 16px; background: rgba(12,13,28,.78); border: 2px solid rgba(255,255,255,.16); overflow: hidden; cursor: pointer; box-sizing: border-box; }
