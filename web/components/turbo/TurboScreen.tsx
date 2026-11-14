@@ -14,7 +14,7 @@
  * The engine never places trades; every tap goes to the adapter first.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useTurbo } from "@/lib/turbo/useTurbo";
 import type { ClosePct, Market, MarketInfo, MarketTrade, Position, Side, TurboEvent } from "@/lib/turbo";
 import { RUN_COPY as R, TURBO_COPY as C } from "@/lib/turbo/copy";
@@ -36,6 +36,9 @@ import TurboFundingSheet from "./TurboFundingSheet";
 import TurboHowItWorks from "./TurboHowItWorks";
 import TurboShareCard, { type TurboShare } from "./TurboShareCard";
 import TurboHBomb from "./TurboHBomb";
+import TurboLeaveSheet from "./TurboLeaveSheet";
+import { leaveAction, loadLeavePref } from "@/lib/turbo/leave";
+import { setCashFuel } from "@/lib/turbo/cashFuel";
 import s from "./run.module.css";
 import old from "./turbo.module.css";
 
@@ -160,7 +163,22 @@ export default function TurboScreen() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const flash = useCallback((txt: string) => { setToast(txt); setTimeout(() => setToast((t) => (t === txt ? null : t)), 3200); }, []);
-  const [sheet, setSheet] = useState<null | "fund" | "how" | "detail">(null);
+  const [sheet, setSheet] = useState<null | "fund" | "how" | "detail" | "leave">(null);
+  const router = useRouter();
+  // Real fuel counts in the Cash total (lib/turbo/cashFuel). Practice fuel never does.
+  useEffect(() => {
+    if (adapter.kind === "practice" || !adapter.kind || fuel == null) return;
+    setCashFuel({ usd: fuel, toCash: adapter.unloadFuel ? (v: number) => adapter.unloadFuel!(v) : undefined });
+  }, [adapter, fuel]);
+  /* Leaving Turbo (Add cash board 6): fuel left → ask, or do what "Don't ask again" saved. */
+  const leave = () => {
+    const act = leaveAction(fuel, loadLeavePref());
+    const out = () => router.push("/");
+    if (act === "ask") return setSheet("leave");
+    const unload = adapter.kind === "practice" || !adapter.kind ? null : adapter.unloadFuel;
+    if (act === "move" && unload && fuel) { unload(fuel).catch(() => undefined).finally(out); return; }
+    out();
+  };
   const [share, setShare] = useState<TurboShare | null>(null);
   const [nova, setNova] = useState<null | { short: boolean; label: string; result: Result }>(null);
   const [result, setResult] = useState<Result | null>(null);
@@ -451,7 +469,7 @@ export default function TurboScreen() {
         {fuelChip}
         {soundBtn}
         <button type="button" className={`${s.iconBtn} ${s.deskOnly}`} aria-label="Menu" onClick={menu}><MenuIcon /></button>
-        <Link href="/" className={`${s.iconBtn} ${s.deskOnly}`} aria-label="Leave Turbo"><XIcon /></Link>
+        <button type="button" className={`${s.iconBtn} ${s.deskOnly}`} aria-label="Leave Turbo" onClick={leave} data-testid="turbo-leave"><XIcon /></button>
       </header>
 
       {standIn && <div className={`${s.notice} ${active || padOn ? s.deskOnly : ""}`} data-testid="turbo-standin-notice">{sample ? C.sampleNotice : C.notConnected}</div>}
@@ -585,6 +603,7 @@ export default function TurboScreen() {
           profitUsd: result.run.backUsd - result.run.fuelUsd, fuelUsd: result.run.fuelUsd, entry: result.entry, exit: result.exit, multiple: result.run.multiple, lastedMs: result.run.endedAt - result.run.startedAt })} />}
 
       {sheet === "fund" && <TurboFundingSheet adapter={adapter} fuel={fuel} onClose={() => setSheet(null)} />}
+      {sheet === "leave" && fuel != null && <TurboLeaveSheet adapter={adapter} fuel={fuel} onLeave={() => { setSheet(null); router.push("/"); }} onClose={() => setSheet(null)} />}
       {sheet === "how" && <TurboHowItWorks onClose={() => setSheet(null)} />}
       {sheet === "detail" && active && <DetailSheet p={active} onClose={() => setSheet(null)} />}
       {nova && <TurboHBomb short={nova.short} label={nova.label} onDone={() => { setResult(nova.result); setNova(null); }} />}

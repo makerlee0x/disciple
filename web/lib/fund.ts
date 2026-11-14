@@ -16,10 +16,18 @@ export const FUND_DEFAULT_USD = 25;
 /** quick picks on the Add cash card button */
 export const FUND_PICKS = [10, 25, 50, 100] as const;
 
+/** "You get about": MoonPay's card fee is roughly 3 to 5%. An estimate for the board; checkout shows the real quote. */
+export const FUND_CARD_FEE_EST = 0.045;
+
 export const FUND_COPY = {
-  button: "Buy with card or Apple Pay",
-  sub: "Lands as cash in a few minutes.",
-  or: "Or send USDG yourself",
+  howMuch: "How much",
+  youPay: "You pay",
+  youGet: "You get about",
+  button: "Pay with card or Apple Pay",
+  sub: "Checkout by MoonPay. Lands in a few minutes.",
+  or: "or",
+  sendTitle: "Send crypto instead",
+  sendSub: "From an exchange or wallet. Any coin works.",
   opening: "Opening checkout…",
   done: "Payment sent. Your cash shows up in a few minutes.",
   closed: "Checkout closed. If you paid, your cash shows up in a few minutes.",

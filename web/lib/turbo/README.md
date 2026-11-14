@@ -73,3 +73,16 @@ drawer on desktop and a bottom sheet on phone.
   `timeout` / `slippage` / `market-full` gets its own line too.
 - `contract.ts` is the behaviour the screen relies on, as a test suite. `npm run test:turbo-contract` runs it on the
   stand-in; Nova's adapter runs the same suite against staging with a harness that funds a test wallet and waits for real fills.
+
+## Fuel and cash (Add cash plan A, maker 2026-11-14)
+
+One Cash balance (USDG on Robinhood Chain). Turbo fuel is loaded from it and goes back to it; players never see an address
+or a chain in Turbo. A real adapter implements:
+
+- `loadFuel(usd)`: cash → fuel. Quote with `lib/bridge/across` `moveQuote({ ...legs(chainId, usdg).toTurbo, amount, depositor, recipient })`,
+  sign `quote.calls` with `execCalls` (one sponsored op), resolve once Nova shows the fuel. `recipient` = the player's Nova account on Arbitrum.
+- `unloadFuel(usd)`: fuel → cash (Nova withdraw, then the `toCash` leg, signed on Arbitrum).
+- `moveFeeUsd(usd, dir)`: `quote.feeUsd`. The screens show `MOVE_FEE_EST_USD` ($0.25) until this answers.
+
+Open question for Nova: can Turbo trade from our Privy wallet on Arbitrum, or only from Nova's own wallet? That decides `recipient` and how `unloadFuel` withdraws.
+Real fuel is published to Cash through `lib/turbo/cashFuel` (practice fuel never is). Leaving Turbo asks Keep / Move (`lib/turbo/leave`).

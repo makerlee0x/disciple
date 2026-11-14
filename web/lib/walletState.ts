@@ -10,3 +10,5 @@ const subs = new Set<(a: Addr | null) => void>();
 export function _emitWallet(a: Addr | null) { current = a; subs.forEach((f) => f(a)); }
 export function connectedAddress() { return current; }
 export function onWallet(f: (a: Addr | null) => void) { subs.add(f); f(current); return () => { subs.delete(f); }; }
+// dev only (screenshots): window.__walletDev("0x…") shows the signed-in screens with no Privy, like window.__turboDev
+if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") (window as unknown as { __walletDev?: typeof _emitWallet }).__walletDev = _emitWallet;

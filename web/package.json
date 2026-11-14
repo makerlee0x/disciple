@@ -42,6 +42,7 @@
     "test:trades-order": "node scripts/test-trades-order.mjs",
     "test:snipe": "node scripts/test-snipe.mjs",
     "test:turbo": "tsx --test scripts/test-turbo.mts scripts/test-turbo-contract.mts",
+    "test:funding": "tsx --test scripts/test-funding.mts",
     "test:turbo-contract": "tsx --test scripts/test-turbo-contract.mts",
     "test:snipe-countdown": "node scripts/test-snipe-countdown.mjs",
     "gen:flight": "node scripts/gen-flight-data.mjs",

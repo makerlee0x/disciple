@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import PushSettings from "@/components/push/PushSettings";
 import { disconnect, onWallet } from "@/lib/wallet";
 import type { Address } from "@/lib/protocol";
+import { LEAVE_COPY, LEAVE_PREFS, loadLeavePref, onLeavePref, saveLeavePref, type LeavePref } from "@/lib/turbo/leave";
 import { ONE_TAP_SLIPPAGE_CHOICES_BPS, onPrivy, onSessionChange, oneTapSlippageBps, privyAccount, privySecurity, setOneTapSlippageBps, type PrivyAccountInfo, type PrivyMfaMethod, type PrivySecurity } from "@/lib/aa/session";
 import { playerError } from "@/lib/playerError";
 import Icon from "@/components/icons/Icon";
@@ -80,6 +81,8 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   useEffect(() => onWallet(setAddr), []);
   useEffect(() => { const read = () => { setAcct(privyAccount()); setSec(privySecurity()); }; read(); return onPrivy(read); }, []);
   useEffect(() => { if (!open) { setView("main"); setSecErr(""); } }, [open]);
+  const [leavePref, setLeavePref] = useState<LeavePref>("ask");
+  useEffect(() => { setLeavePref(loadLeavePref()); return onLeavePref(setLeavePref); }, []);
   useEffect(() => { setBps(oneTapSlippageBps()); return onSessionChange(() => setBps(oneTapSlippageBps())); }, []);
   useEffect(() => {
     if (!open) return;
@@ -194,6 +197,17 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                     <div className="tx"><b>{SETTINGS_COPY.haptics}</b><span>{SETTINGS_COPY.hapticsHelp}</span></div>
                     <button type="button" role="switch" aria-checked={gs.haptics} aria-label={SETTINGS_COPY.haptics} className={`p5-switch${gs.haptics ? " on" : ""}`} data-testid="settings-haptics"
                       onClick={() => { const v = !gs.haptics; setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); }}><span /></button>
+                  </div>
+                  <div className="p5-srow wrap" data-testid="settings-turbo-leave">
+                    <span className="p5-sic"><Icon name="bolt" size={18} /></span>
+                    <div className="tx"><b>{LEAVE_COPY.setting}</b><span>{LEAVE_COPY.settingHelp}</span></div>
+                    <div className="p5-seg" role="radiogroup" aria-label={LEAVE_COPY.setting}>
+                      {LEAVE_PREFS.map((p) => (
+                        <button key={p} type="button" role="radio" aria-checked={leavePref === p} className={leavePref === p ? "on" : ""} onClick={() => saveLeavePref(p)} data-testid={`turbo-leave-${p}`}>
+                          {LEAVE_COPY.choice[p]}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </section>
