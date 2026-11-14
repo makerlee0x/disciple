@@ -16,7 +16,8 @@ import { LAUNCH_ABI_SHAPE, LaunchMode } from "@/lib/launchAbi";
 import { DEFAULT_MODE, MODE_LABEL, MODE_ORDER } from "@/lib/modeRules";
 import { ACTIVE_CHAIN, deployment, isDeployed } from "@/lib/chains";
 import { nextTicker, randomRocketName, tickerVariants } from "@/lib/rocketNames";
-import { activeAddress, aaAvailable, canTransact, connectPrivy, connectWallet, execCalls, onWallet } from "@/lib/wallet";
+import { activeAddress, aaAvailable, canTransact, connectWallet, execCalls, onWallet } from "@/lib/wallet";
+import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
 import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
 import { blockedActionMessage } from "@/lib/trade/gaslessAction";
 import { launchpadAbi } from "@/lib/abi";
@@ -131,7 +132,9 @@ export default function LaunchRocketPage() {
   const needsSignIn = launchNeedsSignIn({ deployed: isDeployed(), staticPreview: IS_STATIC_PREVIEW, signedIn });
   const signIn = () => {
     setMsg(null);
-    if (aaAvailable()) connectPrivy();
+    // the same sign-in the top bar runs (WalletButton: Privy window, or the local signer in dev/e2e builds), so Launch
+    // also counts as a sign-in start; before (e2e 2026-11-14) it called connectPrivy() directly, a no-op without Privy
+    if (aaAvailable()) dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT));
     else connectWallet().catch((err) => setMsg(playerError(err)));
   };
 
