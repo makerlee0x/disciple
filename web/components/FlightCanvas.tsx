@@ -18,11 +18,6 @@ import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
 import HudModeToggle from "@/components/flight/HudModeToggle";
 import FlightSfx from "@/components/flight/FlightSfx";
-import FlyCalm from "@/components/flight/FlyCalm";
-import StyleXp from "@/components/flight/StyleXp";
-import TiltSteer from "@/components/flight/TiltSteer";
-import NativeRumble from "@/components/flight/NativeRumble";
-import LiveFlight from "@/components/flight/LiveFlight";
 import FlightObjectives from "@/components/flight/FlightObjectives";
 import FlightLog from "@/components/flight/FlightLog";
 import DraftXp from "@/components/flight/DraftXp";
@@ -332,11 +327,6 @@ export default function FlightCanvas({ search }: Props) {
       <HudModeToggle sim={!isSimulator ? sim : null} onSim={toggleSim} />
       <FlightSfx />
       <DraftXp coin={(() => { const c = new URLSearchParams(search).get("coin") || ""; return /^0x[0-9a-fA-F]{40}$/.test(c) ? c : null; })()} />
-      <StyleXp coin={isReplay || isSimulator ? null : (() => { const c = new URLSearchParams(search).get("coin") || ""; return /^0x[0-9a-fA-F]{40}$/.test(c) ? c : null; })()} />
-      {!isReplay && <FlyCalm />}
-      {!isReplay && <TiltSteer />}
-      {!isReplay && <NativeRumble />}
-      {!isReplay && !isSimulator && <LiveFlight coin={/^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") ? (q0.get("coin") as string) : null} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} />}
       {!isSimulator && <FlightObjectives replay={isReplay} practice={false} />}
       {!isReplay && <FlightLog coin={/^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") ? (q0.get("coin") as string) : null} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} practice={isSimulator} />}
       {/* desktop Pilot (board C, 2026-11-14): the phone chart card at the top of the right column; the crew feed sits under it */}

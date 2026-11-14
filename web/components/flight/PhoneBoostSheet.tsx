@@ -5,7 +5,6 @@
  * Big quick sets, then Sound effects, Music (plays the house radio) and Vibration, which used to live behind the ☰ menu.
  * Desktop keeps SwapSettingsModal.
  */
-import { requestTiltAccess } from "./TiltSteer";
 import { useEffect, useState } from "react";
 import { DEFAULT_BUY, MIN_BOOST_USD, validBoost, type SwapSettings } from "@/lib/trade/swapSettings";
 import { setGameSettings, useGameSettings } from "@/lib/game/settings";
@@ -61,9 +60,6 @@ export default function PhoneBoostSheet({ initial, onChange, onClose }: {
     { k: "sfx", label: "Sound effects", on: gs.sfx.on, flip: () => setGameSettings((g) => ({ ...g, sfx: { ...g.sfx, on: !g.sfx.on } })) },
     { k: "music", label: "Music", on: gs.music.on, flip: music },
     { k: "haptics", label: "Vibration", on: gs.haptics, flip: () => { const v = !gs.haptics; setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); } },
-    { k: "fullscreen", label: "Full-screen flying", on: gs.fullscreen, flip: () => setGameSettings((g) => ({ ...g, fullscreen: !g.fullscreen })) },
-    { k: "tilt", label: "Tilt to steer", on: gs.tilt, flip: () => { if (gs.tilt) { setGameSettings((g) => ({ ...g, tilt: false })); return; }
-      void requestTiltAccess().then((ok) => { if (ok) setGameSettings((g) => ({ ...g, tilt: true })); }); } },
   ];
 
   return (
@@ -109,7 +105,7 @@ export default function PhoneBoostSheet({ initial, onChange, onClose }: {
             onClick={() => { setVals(q.v.map(String)); setBad([false, false, false, false]); apply(q.v); }}>{q.k}</button>)}
         </div>
         <p className={`p${msg.err ? " err" : ""}`} data-testid="swap-msg" aria-live="polite">{msg.t}</p>
-        <h3>SOUND AND FLYING</h3>
+        <h3>SOUND</h3>
         <div data-testid="swap-game" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {rows.map((r) => <button key={r.k} type="button" role="switch" aria-checked={r.on} className="tog" data-testid={`swap-${r.k}`} onClick={r.flip}>
             {r.label}<span className="sw" aria-hidden /></button>)}

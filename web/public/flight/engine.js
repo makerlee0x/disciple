@@ -1242,7 +1242,7 @@ function submit(side,usd,force,opt,pct){
       if(p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }
       if(r.needsConfirm!=='walletcap') tradeNote(r.reason); S.pending=S.pending.filter(q=>q!==p); pushInFlight(); return; }   // wallet limit: the page's card says it (no sky banner too)
     p.state=r.ok?'confirmed':'failed'; lockResolve(p,r&&r.ok?'ok':r&&r.unknown?'gone':'fail');
-    if(r&&r.ok&&side==='buy'){ const [nx0,ny0]=nozzleXY(); S.floaters.push({x:nx0+70,y:ny0-120,txt:'+'+fmtShot(p.usd).replace(/\.00$/,'')+' aboard',c:'#F2C14E',life:1.4,game:24}); styleFill(); }
+    if(r&&r.ok&&side==='buy'){ const [nx0,ny0]=nozzleXY(); S.floaters.push({x:nx0+70,y:ny0-120,txt:'+'+fmtShot(p.usd).replace(/\.00$/,'')+' aboard',c:'#F2C14E',life:1.4,game:24}); }
     if(r&&r.ok&&side==='sell') S.kickV=(S.kickV||0)-120;   // @pressfeel: recoil, the rocket kicks up as the bomb leaves
     baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim, r&&r.txHash);
     if(!(r&&r.ok)&&p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }   // later ghosts drop by the failed step   // ok → completes to the ghost; fail → eases back (this trade's share only)
@@ -1433,8 +1433,7 @@ S.trick=null; S.lastTap=0;
 function trickOn(){ const k=S.trick; return k&&S.t-k.t0<k.dur?k:null; }
 function trick(kind){ if(!TRICKS[kind]||S.menuOpen||trickOn()) return false;
   const T=TRICKS[kind]; S.trick={kind,t0:S.t,dur:T.dur,dir:(S.steer&&S.steer.x<W/2)?-1:1};
-  const st=S.style; st.mult=S.t-st.land<STYLE_CHAIN_S?Math.min(STYLE_MAX,st.mult+1):1; st.land=S.t+T.dur; st.kind=kind;   // @style: chain within the window = multiplier up
-  const [nx,ny]=nozzleXY(); S.floaters.push({x:nx+70,y:ny-150,txt:st.mult>1?`${T.txt} x${st.mult}`:T.txt,c:st.mult>=3?'#FFE08A':T.c,life:1.1,game:st.mult>1?34:30});
+  const [nx,ny]=nozzleXY(); S.floaters.push({x:nx+70,y:ny-150,txt:T.txt,c:T.c,life:1.1,game:30});
   sfx('trick',{kind}); try{ dispatchEvent(new CustomEvent('disciple:trick',{detail:{kind}})); }catch(_){} return true; }
 function trickGesture(d,e){ const dt=performance.now()-d.t0, dx=d.dx||0, dy=d.dy||0;
   if(dy<-55&&Math.abs(dy)>Math.abs(dx)*1.3&&dt<450){ S.lastTap=0; trick('spin'); return; }
@@ -1448,29 +1447,6 @@ function trickXform(h,pivotY){ const k=trickOn(); if(!k) return; const p=clamp((
 function drawTrickRing(x,y,h){ const k=trickOn(); if(!k) return; const p=(S.t-k.t0)/k.dur;
   ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=0.6*(1-p); ctx.strokeStyle=k.kind==='spin'?'rgba(143,227,255,1)':'rgba(242,193,78,1)';
   ctx.lineWidth=4*(1-p)+1; ctx.beginPath(); ctx.arc(x,y-h*0.45,30+90*p,0,6.2832); ctx.stroke(); ctx.restore(); }
-/* @style (maker 2026-11-14 "tricks with stakes"): tricks chained within STYLE_CHAIN_S of the last one landing build a style
-   multiplier (x2 … x5, shown on the callout). A boost that FILLS while a trick is in the air, or within STYLE_FILL_S of it
-   landing, is a STYLE FILL: a big callout, and on a live coin with a signed-in pilot the page reports it (disciple:stylefill
-   {mult, at} → components/flight/StyleXp → /api/xp/style). XP only, never money: the cron pays it only if the fills show that
-   wallet's own boost of $5+ on this coin at that moment, small and capped per day (lib/xp STYLE). */
-const STYLE_CHAIN_S=1.6, STYLE_FILL_S=1.0, STYLE_MAX=5;
-S.style={mult:1,land:-99,kind:null,fillAt:-99};
-function styleFill(){ const st=S.style, air=trickOn(); if(!air&&!(S.t-st.land<STYLE_FILL_S)) return; if(S.t-st.fillAt<2) return;
-  st.fillAt=S.t; const m=st.mult, [nx,ny]=nozzleXY();
-  S.floaters.push({x:nx+70,y:ny-200,txt:m>1?`STYLE FILL x${m}`:'STYLE FILL',c:'#FFE08A',life:1.6,game:36});
-  S.screenFlash={t0:S.t,dur:0.35,a:0.25,c:'255,224,138'}; sfx('stylefill',{mult:m});
-  try{ dispatchEvent(new CustomEvent('disciple:stylefill',{detail:{mult:m,at:Date.now()}})); }catch(_){} }
-addEventListener('disciple:stylexp',e=>{ const d=e.detail||{}; const [nx,ny]=nozzleXY();
-  if(d.state==='confirming') S.floaters.push({x:nx+70,y:ny-240,txt:'+'+(d.xp||5)+' XP · confirming',c:'#5FF0A0',life:1.6,game:20});
-  else if(d.state==='capped') S.floaters.push({x:nx+70,y:ny-240,txt:'Style XP capped for today',c:'#C8C4FF',life:1.6,game:18}); });
-/* @calm (phones, components/flight/FlyCalm): the HUD fades when you leave the screen alone and the rocket grows a little.
-   disciple:calm {on}. The size eases in drawRocket (S.calmK 0 → 1). */
-S.calmOn=false; S.calmK=0;
-addEventListener('disciple:calm',e=>{ S.calmOn=!!(e.detail&&e.detail.on); });
-/* @tilt (phones, components/flight/TiltSteer, a setting): disciple:tilt {x} with x in -1…1 (null = off). Tilt sets a steering
-   target across the sky; a finger on the sky or A/D still wins. */
-S.tilt=null;
-addEventListener('disciple:tilt',e=>{ const x=e.detail&&e.detail.x; S.tilt=typeof x==='number'&&Number.isFinite(x)?clamp(x,-1,1):null; });
 /* @tricks-end */
 addEventListener('resize',resize); addEventListener('apsidebar',()=>requestAnimationFrame(resize)); resize();
 
@@ -1849,14 +1825,7 @@ function drawLevels(){
   // order-book levels are no longer drawn; only tramp/wall positions render (drawTrampWalls).
 }
 
-/* @calm: the rocket (with its flame and rings) grows ~22% about the nozzle while the HUD rests. Scaled as a whole so the cached
-   sprite keeps one size. */
 function drawRocket(dt){
-  S.calmK+=((S.calmOn?1:0)-S.calmK)*Math.min(1,(dt||0.016)*3);
-  const k=1+0.22*S.calmK; if(k<1.002) return drawRocketBody(dt);
-  const [x,y]=nozzleXY(); ctx.save(); ctx.translate(x,y); ctx.scale(k,k); ctx.translate(-x,-y);
-  try{ return drawRocketBody(dt); } finally{ ctx.restore(); } }
-function drawRocketBody(dt){
   const im=IMG.rocket, h=150, w=im.naturalWidth? h*im.naturalWidth/im.naturalHeight : 55;
   // (x,y) = nozzle / aft pivot — trail tip + rotation origin. Nose leads ahead of this point.
   const [x,y]=nozzleXY();
@@ -1870,7 +1839,6 @@ function drawRocketBody(dt){
   // exhaust (procedural): leaves the nozzle opposite the nose
   const braking=S.pending.some(p=>p.side==='sell'&&p.state==='pending');
   const EP=exhaustParams(), flick=EP.flick, flame=EP.flame;
-  { const now=S.t, r=S._rmb||(S._rmb={v:-1,t:-9}); if(Math.abs(flame-r.v)>0.05||now-r.t>1){ r.v=flame; r.t=now; try{ dispatchEvent(new CustomEvent('disciple:rumble',{detail:{v:+clamp(flame,0,1).toFixed(2)}})); }catch(_){} } }   // @rumble: the iPhone app's engine rumble follows the thrust (components/flight/NativeRumble)
   const sa=Math.sin(S.heading), ca=Math.cos(S.heading), ang=rocketVisAngle();   // style stat scales only the drawn tilt
   const FXT=fxMul('thrust'), FXG=fxMul('glow'), FXH=fxMul('style');   /* loadout stats → cosmetic multipliers (all exactly 1 at stat 5) */
   ctx.save(); ctx.globalCompositeOperation='lighter';
@@ -2933,7 +2901,6 @@ function simStep(stepDt){
   const K=S.keys||{}; let dir=((K.KeyD||K.ArrowRight)?1:0)-((K.KeyA||K.ArrowLeft)?1:0);
   if (S.steer==null) S.steer={x:S.x,vx:0};
   if (!dir&&S.drag&&S.drag.on&&S.drag.tx!=null){ dir=steerDragDir(S.steer,S.drag.tx-(S.drift||0)*0.35,W); S.steer.idle=0; }   // @drag-steer: finger held = steering input (no auto-centre until release)
-  else if (!dir&&S.tilt!=null){ const m=steerMargin(W); dir=steerDragDir(S.steer,W/2+S.tilt*(W/2-m),W); S.steer.idle=0; }   // @tilt
   stepSteerAuto(S.steer, dir*(steer/7), dt, W);     // hold-to-steer (VOID orb: weaker thrust); idle ⇒ auto-centre
   { const m=steerMargin(W); S.x=clamp(S.steer.x+S.drift*0.35+Math.sin(S.t*0.6)*14*(S.idle||0),m,W-m); S.vx=S.steer.vx; }
   { const TX=turboFx(), want=(K.KeyS||K.ArrowDown)?1:TX&&TX.dive?TURBO_DIVE:0;   // @turbo: a DUMP (short) flies as a nose-down dive run — same sprite, a controlled pose (never a flip)

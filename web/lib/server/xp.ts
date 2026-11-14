@@ -15,13 +15,13 @@ import "server-only";
  */
 import { randomUUID } from "node:crypto";
 import { ACTIVE_CHAIN } from "@/lib/chains";
-import { evaluateDrafts, evaluateMissions, evaluateStyle, type CoinFill, type MissionCoin, type MissionFill } from "@/lib/missionsEval";
+import { evaluateDrafts, evaluateMissions, type CoinFill, type MissionCoin, type MissionFill } from "@/lib/missionsEval";
 import { partById } from "@/lib/parts";
 import { playerUsd, type Fill } from "@/lib/trades";
 import { V1_RULES, type AchievementUnlockRecord } from "@/lib/achievements";
 import {
-  DRAFT, FREE_PLAY_XP, STYLE, styleXp, dayPeriod, levelInfo, milestoneXp, MILESTONE_COPY, missionsFor, weekPeriod, MAX_PRESTIGE,
-  type DraftClaim, type StyleClaim, type MissionStatus, type Period, type XpSummary,
+  DRAFT, FREE_PLAY_XP, dayPeriod, levelInfo, milestoneXp, MILESTONE_COPY, missionsFor, weekPeriod, MAX_PRESTIGE,
+  type DraftClaim, type MissionStatus, type Period, type XpSummary,
 } from "@/lib/xp";
 import { kv, type Kv } from "./kv";
 import { ACH } from "./achKeys";
@@ -39,8 +39,6 @@ export const XPK = {
   timers: () => `${ns()}:timers`,
   /** zset score=at ms, member=DraftClaim JSON: drafting slingshots reported by the game, paid by the cron once checked */
   drafts: (w: string) => `${ns()}:draft:${w.toLowerCase()}`,
-  /** zset score=at ms, member=StyleClaim JSON: style fills reported by the game, paid by the cron once a fill backs them */
-  styles: (w: string) => `${ns()}:style:${w.toLowerCase()}`,
   /** zset score=day index, member=day index: UTC days the pilot opened their logbook or crew (lib/streaks check-in) */
   checkins: (w: string) => `${ns()}:ci:${w.toLowerCase()}`,
 };
@@ -50,7 +48,7 @@ export const XP_NONCE_PREFIX = "xp:nonce";
 /** Ledger rows read per wallet (a daily player writes ~10 a day; this is years of play). */
 const LEDGER_MAX = 20_000;
 
-export type LedgerKind = "mission" | "milestone" | "buy" | "prestige" | "draft" | "freeplay" | "streak" | "style";
+export type LedgerKind = "mission" | "milestone" | "buy" | "prestige" | "draft" | "freeplay" | "streak";
 export interface LedgerRow { src: string; kind: LedgerKind; xp: number; label: string; ts: number }
 
 const parse = <T>(s: string | null): T | null => { if (!s) return null; try { return JSON.parse(s) as T; } catch { return null; } };
@@ -153,14 +151,6 @@ export async function scoreXp(
       for (let i = 0; i < ok.length; i++) await pay({ src: `draft:${p.id}:${i}`, kind: "draft", xp: DRAFT.xp, label: "Drafting slingshot", ts: ok[i].at });
     }
   }
-  // style fills (lib/xp STYLE): a reported trick + boost, paid only when the wallet's own fill backs it
-  const styles = (await s.zrange(XPK.styles(w), 200, true)).map((m) => parse<StyleClaim>(m)).filter((c): c is StyleClaim => !!c && typeof c.at === "number" && typeof c.coin === "string");
-  if (styles.length) {
-    for (const p of [dayPeriod(now), dayPeriod(now - 86_400_000)]) {
-      const ok = evaluateStyle({ wallet: w, fills, claims: styles, asOf: now }, p);
-      for (let i = 0; i < ok.length; i++) await pay({ src: `style:${p.id}:${i}`, kind: "style", xp: styleXp(ok[i].mult), label: ok[i].mult > 1 ? `Style fill x${Math.min(ok[i].mult, STYLE.maxMult)}` : "Style fill", ts: ok[i].at });
-    }
-  }
   if (!o.dryRun) {
     await s.set(XPK.missions(w), JSON.stringify({ at: now, periods: stored }));
     if (recheck !== undefined) await s.zadd(XPK.timers(), [{ score: recheck, member: `${w}|${recheck}` }]);
@@ -257,21 +247,6 @@ export async function queueDraft(walletIn: string, claim: DraftClaim, now = Date
   if (recent.some((c) => Math.abs(c.at - claim.at) < DRAFT.minGapMs)) return { ok: false, reason: "Too soon after the last slingshot." };
   await s.zadd(XPK.drafts(w), [{ score: claim.at, member: JSON.stringify(claim) }]);
   await s.zadd(ACH.dirty(), [{ score: now, member: `${w}|draft:${claim.at}` }]);   // the cron re-scores this wallet on its next pass
-  return { ok: true, paidToday, queuedToday: recent.length + 1, capped: false };
-}
-
-/* ------------------------------------------------------ style --------------------------------------------------------- */
-
-export type StyleQueueResult = { ok: true; paidToday: number; queuedToday: number; capped: boolean } | { ok: false; reason: string };
-/** Queue one reported style fill for the cron (POST /api/xp/style). scoreXp checks it against the wallet's own fills. */
-export async function queueStyle(walletIn: string, claim: StyleClaim, now = Date.now(), s: Kv = kv()): Promise<StyleQueueResult> {
-  const w = walletIn.toLowerCase(), day = dayPeriod(now);
-  const paidToday = (await ledgerOf(w, s)).filter((r) => r.kind === "style" && r.src.startsWith(`style:${day.id}:`)).length;
-  const recent = (await s.zrange(XPK.styles(w), 200, true)).map((m) => parse<StyleClaim>(m)).filter((c): c is StyleClaim => !!c && c.at >= day.start);
-  if (paidToday >= STYLE.perDay || recent.length >= STYLE.perDay * 4) return { ok: true, paidToday, queuedToday: recent.length, capped: true };
-  if (recent.some((c) => Math.abs(c.at - claim.at) < STYLE.minGapMs)) return { ok: false, reason: "Too soon after the last style fill." };
-  await s.zadd(XPK.styles(w), [{ score: claim.at, member: JSON.stringify(claim) }]);
-  await s.zadd(ACH.dirty(), [{ score: now, member: `${w}|style:${claim.at}` }]);
   return { ok: true, paidToday, queuedToday: recent.length + 1, capped: false };
 }
 

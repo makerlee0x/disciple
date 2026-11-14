@@ -12,7 +12,6 @@ const CUES: Record<string, Note[]> = {
   bomb: [{ f: 120, to: 40, d: 0.45, type: "sawtooth", g: 0.4 }],
   zone: [{ f: 520, d: 0.1, type: "sine" }, { f: 780, d: 0.16, type: "sine", at: 0.09 }],
   trick: [{ f: 500, to: 1400, d: 0.28, type: "triangle", g: 0.2 }],
-  stylefill: [{ f: 784, d: 0.1, type: "triangle", g: 0.22 }, { f: 1047, d: 0.12, type: "triangle", at: 0.08, g: 0.22 }, { f: 1568, d: 0.22, type: "sine", at: 0.16, g: 0.18 }],
   orbit: [{ f: 523, d: 0.16, type: "triangle" }, { f: 659, d: 0.16, type: "triangle", at: 0.12 }, { f: 784, d: 0.3, type: "triangle", at: 0.24 }],
 };
 

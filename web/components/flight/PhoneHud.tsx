@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import LevelRing from "@/components/xp/LevelRing";
 import PhoneChart from "./PhoneChart";
-import ShareModal from "@/components/share/ShareModal";
 import { openCash } from "@/lib/cashLink";
 import { usePilotWallet, useXp } from "@/lib/xpClient";
 import { FLIGHT_TIERS, GRAD_BADGE, tierIndexAt } from "@/lib/flight/tiers";
@@ -82,7 +81,6 @@ export default function PhoneHud() {
   const [simClock, setSimClock] = useState<{ mode: string; left: string; dots: boolean[] } | null>(null);
   const [holders, setHolders] = useState<Holders>(null);
   const [cta, setCta] = useState<string | null>(null);
-  const [clip, setClip] = useState(false);   // the trade clip (ShareModal autoVideo)
   const [me, setMe] = useState<WalletId | null>(null);
   const wallet = usePilotWallet();
   const { xp } = useXp(wallet);
@@ -218,10 +216,6 @@ export default function PhoneHud() {
   const bag = <span>Your bag <b style={{ color: "#F2F3F7", fontWeight: 600 }}>{`$${bagUsd.toFixed(2)}`}</b>{bagUsd > 0 && bagPct ? <b style={{ color: neg ? "#FF7FB3" : "#5FF0A0", fontWeight: 600 }}> {bagPct}</b> : null}</span>;
   const glass: React.CSSProperties = { background: "rgba(18,19,39,.78)", border: "1px solid #2E323A", boxSizing: "border-box" };
   const sq: React.CSSProperties = { ...glass, position: "relative", width: 44, height: 44, borderRadius: 12, display: "grid", placeItems: "center", cursor: "pointer", padding: 0, color: "#F2F3F7" };
-  // Clip (maker 2026-11-14): the whole trade, entry to exit (or to now while the bag is open), replayed from the coin's fills
-  const coinQ = typeof location !== "undefined" ? new URLSearchParams(location.search).get("coin") || "" : "";
-  const clipCoin = !sim && /^0x[0-9a-fA-F]{40}$/.test(coinQ) && wallet ? coinQ : null;
-  const traded = bagUsd > 0 || Math.abs(banked) >= 0.01, closed = bagUsd <= 0 && Math.abs(banked) >= 0.01;
   const name = me?.name ? me.name : me ? `${me.address.slice(0, 6)}…${me.address.slice(-4)}` : "";
 
   // holders sheet: ranked real holders (pool / curve rows left out), or the session boosters on sim / paper
@@ -279,11 +273,7 @@ export default function PhoneHud() {
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg></button>
           <Link href="/achievements" data-testid="phone-missions" aria-label="Missions and trophies" style={sq}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z" /></svg></Link>
-          {clipCoin && traded && <button type="button" data-testid="phone-clip" aria-label="Make a clip of this trade" onClick={() => setClip(true)}
-            className={closed ? "ph-clip-hot" : undefined} style={sq}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2C14E" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="6" width="13" height="12" rx="2" /><path d="M16 10l5-3v10l-5-3z" /></svg></button>}
         </nav>
-        {clip && clipCoin && <ShareModal autoVideo target={{ coin: clipCoin, ticker: ticker.replace(/^\$/, ""), wallet: wallet ?? null, username: null }} onClose={() => setClip(false)} />}
         {!(cta && !sim) && <PhoneBag value={bagUsd} cost={basis} pnl={pnl?.uPnl ?? 0} pct={pnl?.pnlPct ?? 0} room={stats.room} banked={banked} holding={bagUsd > 0} />}
         {steerHint && <div data-testid="steer-hint" aria-hidden className="ph-steer">⟵ DRAG THE SKY TO STEER ⟶</div>}
         {floats.map((f) => <span key={f.id} aria-hidden className={`ph-float ${f.k}`}>{f.t}</span>)}
@@ -385,9 +375,6 @@ export default function PhoneHud() {
         .ph-bank.neg small, .ph-bank.neg b { color: #FF8FBD; }
         .ph-bump { animation: ph-bump .35s ease-out; }
         @keyframes ph-bump { 30% { transform: scale(1.16); } }
-        .ph-clip-hot { border-color: #F2C14E !important; animation: phClip 1.4s ease-in-out infinite; }
-        @keyframes phClip { 50% { box-shadow: 0 0 0 6px rgba(242,193,78,.18); } }
-        @media (prefers-reduced-motion: reduce) { .ph-clip-hot { animation: none; } }
         .ph-steer { position: fixed; left: 12px; right: 146px; bottom: calc(var(--ph-bar-bottom, 24px) + 150px); z-index: 33; text-align: center; font: 800 16px/1 ${G}; letter-spacing: .6px; color: #F2F3F7;
           text-shadow: 0 2px 4px rgba(0,0,0,.9); pointer-events: none; animation: ph-hint 1.6s ease-in-out infinite; }
         @keyframes ph-hint { 50% { transform: translateX(10px); } }

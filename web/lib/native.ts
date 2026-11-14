@@ -66,17 +66,8 @@ type HapticsPlugin = {
   selectionStart(): Promise<void>; selectionChanged(): Promise<void>; selectionEnd(): Promise<void>;
 };
 
-// Core Haptics (mobile/ios/App/App/DiscipleHapticsPlugin.swift, maker 2026-11-14 "make the rocket feel alive"): the flight's
-// big moments get shaped patterns, and a looping engine rumble follows the thrust (components/flight/NativeRumble).
-type CoreHapticsPlugin = { start(): Promise<void>; stop(): Promise<void>; setLevel(o: { level: number }): Promise<void>; play(o: { kind: string; count?: number }): Promise<void> };
-export const coreHaptics = () => nativePlugin<CoreHapticsPlugin>("DiscipleHaptics");
-/** lib/game/haptics kinds that have a Core Haptics pattern */
-export const CORE_FEEL: Record<string, { kind: string; count?: number }> = { hit: { kind: "thud" }, zone: { kind: "tick", count: 3 }, fill: { kind: "fill" }, orbit: { kind: "orbit" } };
-
 /** Play one haptic kind on the native Taptic Engine. Returns false outside the app (callers fall back to the web path). */
 export function nativeHaptic(kind: string): boolean {
-  const core = coreHaptics(), f = CORE_FEEL[kind];
-  if (core && f) { void core.play(f).catch(() => {}); return true; }
   const h = nativePlugin<HapticsPlugin>("Haptics");
   const b = NATIVE_HAPTICS[kind];
   if (!h || !b) return false;
@@ -168,17 +159,6 @@ export function nativeKeepAwake(on: boolean): boolean {
   void (on ? k.keepAwake() : k.allowSleep()).catch(() => {});
   return true;
 }
-
-// ---------------------------------------------------------------- lock screen / Dynamic Island
-
-/** mobile/ios/App/App/DiscipleFlightPlugin.swift (Live Activity). State keys = lib/liveFlight LiveState. */
-type FlightPlugin = {
-  start(o: { ticker: string; path: string; state: Record<string, unknown> }): Promise<{ id: string | null }>;
-  update(o: { state: Record<string, unknown> }): Promise<void>;
-  end(o: { state?: Record<string, unknown> }): Promise<void>;
-  addListener(ev: "pushToken", cb: (d: { id: string; token: string }) => void): Promise<Listener>;
-};
-export const nativeFlight = () => nativePlugin<FlightPlugin>("DiscipleFlight");
 
 // ---------------------------------------------------------------- shell wiring
 
