@@ -11,6 +11,8 @@ import { useXp } from "@/lib/xpClient";
 
 const PENDING = "disciple.signin.pending";
 const SEEN = "disciple.welcomed.v1";
+/** Fired when a top-bar popover opens (help card, pilot menu): the toast steps aside so they never stack. */
+export const TOPBAR_POPOVER_EVENT = "disciple:topbar-popover";
 /** Mark that this tab just started a sign-in (the toast only follows a real sign-in, never a restored session). */
 export function markSignInStarted() { try { sessionStorage.setItem(PENDING, "1"); } catch { /* private mode */ } }
 
@@ -32,7 +34,9 @@ export default function WelcomeToast({ wallet }: { wallet: string | null }) {
   useEffect(() => {
     if (!show) return;
     const t = setTimeout(() => setShow(false), 8000);
-    return () => clearTimeout(t);
+    const hide = () => setShow(false);
+    addEventListener(TOPBAR_POPOVER_EVENT, hide);
+    return () => { clearTimeout(t); removeEventListener(TOPBAR_POPOVER_EVENT, hide); };
   }, [show]);
   if (!show) return null;
   const L = xp?.level ?? levelInfo(0);

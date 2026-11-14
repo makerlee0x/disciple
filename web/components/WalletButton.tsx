@@ -22,7 +22,7 @@ import { bookedPortfolio, loadPortfolio, type Portfolio } from "@/lib/portfolio"
 import { SIGN_IN_COPY, SIGN_IN_FAILED_EVENT, WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, type WalletId } from "@/lib/walletCta";
 import { onPrivy, privyAuthenticated } from "@/lib/aa/sessionState";
 import AccountMenu from "@/components/account/AccountMenu";
-import WelcomeToast, { markSignInStarted } from "@/components/account/WelcomeToast";
+import WelcomeToast, { TOPBAR_POPOVER_EVENT, markSignInStarted } from "@/components/account/WelcomeToast";
 import { COIN_DECIMALS, knownDecimals, usdgDecimals } from "@/lib/usdg";
 import { BOOKED_EVENT, blockOf, bookFill, fillBook, readAtOrAfter, txBlock, type FillReceiptDetail } from "@/lib/fillBook";
 import { pct } from "@/lib/aa/slippage";
@@ -291,7 +291,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
                     </a>
                   )}
                   <button type="button" className="wb-pilot" aria-label="Your pilot menu" aria-haspopup={smart ? "menu" : undefined} aria-expanded={smart ? acct : undefined}
-                    onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
+                    onClick={() => { if (smart) { if (!acct) dispatchEvent(new Event(TOPBAR_POPOVER_EVENT)); setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
                     <PilotRing wallet={addr} />
                     <span>{copied ? "Copied" : chipLabel(uname, addr)}</span>
                     {smart && <svg className="wb-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M6 9l6 6 6-6" /></svg>}

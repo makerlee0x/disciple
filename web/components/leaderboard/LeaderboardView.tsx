@@ -37,9 +37,9 @@ export const LEADERBOARD_COPY = {
   sub: "Banked profit in real money, losses included. Same board as the lobby shelf, all the way down.",
   cols: { rank: "#", pilot: "Pilot", flights: "Flights", record: "Record", banked: "Banked", crew: "Crew", green: "Green rockets", pilots: "Pilots" },
   rules: {
-    title: "What counts",
-    items: ["Banked profit only, after fees. Losses net out.", "Your own launches don't count.", "Cash-outs count after 2 minutes aboard.", "Best % needs $20 or more put in."],
-    note: "Tap a pilot to open their logbook of closed flights. Open bags are never shown here.",
+    title: "How you rank",
+    items: ["Only cashed-out profit counts, after fees. Red flights count against you.", "Rockets you launched don't count.", "Stay aboard at least 2 minutes or the cash-out doesn't count.", "Best % only counts flights with $20 or more in."],
+    note: LOGBOOK_ENABLED ? "Tap a pilot to open their logbook. Open bags stay private." : "Tap a pilot to see their Hangar. Open bags stay private.",
   },
   bestCall: { eyebrow: { day: "Best call today", week: "Best call of the week", month: "Best call of the month", all: "Best call of the month" } as Record<BoardWindow, string>, boarded: "Boarded", cashed: "Cashed out", put: (v: string) => `on ${v} put in`, aboard: "aboard", open: (n: string) => (LOGBOOK_ENABLED ? `See ${n}'s logbook` : `See ${n}'s profile`) },
   youWeek: { title: { day: "You today", week: "You this week", month: "You this month", all: "You, all time" } as Record<BoardWindow, string>, banked: "banked $", red: (n: number, v: string) => `${n} red ${n === 1 ? "flight" : "flights"}, -${v}`, none: "No cash-outs yet in this window." },

@@ -7,6 +7,7 @@
  */
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { TOPBAR_POPOVER_EVENT } from "@/components/account/WelcomeToast";
 
 export const HELP_COPY = {
   label: "Help",
@@ -29,7 +30,7 @@ export default function HelpButton({ className }: { className?: string }) {
   const C = HELP_COPY;
   return (
     <span ref={root} className={`lb-help${className ? ` ${className}` : ""}`}>
-      <button type="button" className={`lb-help-btn${open ? " on" : ""}`} aria-label={C.label} aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((v) => !v)} data-testid="topbar-help">
+      <button type="button" className={`lb-help-btn${open ? " on" : ""}`} aria-label={C.label} aria-expanded={open} aria-haspopup="dialog" onClick={() => { if (!open) dispatchEvent(new Event(TOPBAR_POPOVER_EVENT)); setOpen((v) => !v); }} data-testid="topbar-help">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6" /><circle cx="12" cy="17" r=".6" fill="currentColor" />
         </svg>
