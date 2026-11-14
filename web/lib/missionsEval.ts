@@ -4,7 +4,7 @@
  * same history gives the same answer, so the cron can replay a wallet from scratch every time it changes.
  */
 import { TIERS } from "./config";
-import { DRAFT, FAIR, type DraftClaim, type MissionDef, type Period } from "./xp";
+import { DRAFT, FAIR, STYLE, type DraftClaim, type MissionDef, type Period, type StyleClaim } from "./xp";
 
 const DUST = 1e-9;
 
@@ -260,6 +260,23 @@ export function evaluateMissions(inp: MissionInput, period: Period, missions: re
  *  - at least one drafted pilot (never the wallet itself) has a buy fill on that coin in the DRAFT.windowMs before it.
  * `coinFills` = every trader's fills per coin. Pure: the same inputs always pay the same claims.
  */
+/** STYLE FILL claims the fills back up (lib/xp STYLE): your own buy of $minBuyUsd+ on that coin within windowMs of the claim. */
+export function evaluateStyles(inp: { wallet: string; fills: readonly MissionFill[]; claims: readonly StyleClaim[]; asOf: number }, period: Period): StyleClaim[] {
+  const buys = inp.fills.filter((f) => f.side === "buy" && Number.isFinite(f.usd) && f.usd >= STYLE.minBuyUsd);
+  const claims = inp.claims.filter((c) => c.at >= period.start && c.at < period.end && c.at <= inp.asOf).slice().sort((a, b) => a.at - b.at);
+  const out: StyleClaim[] = [], used = new Set<MissionFill>();
+  let lastAt = -Infinity;
+  for (const c of claims) {
+    if (out.length >= STYLE.perDay) break;
+    if (c.at - lastAt < STYLE.minGapMs) continue;
+    const coin = c.coin.toLowerCase();
+    const fill = buys.find((f) => !used.has(f) && f.coin === coin && Math.abs(f.ts - c.at) <= STYLE.windowMs);
+    if (!fill) continue;
+    used.add(fill); out.push(c); lastAt = c.at;
+  }
+  return out;
+}
+
 export function evaluateDrafts(inp: { wallet: string; fills: readonly MissionFill[]; coinFills: ReadonlyMap<string, readonly { ts: number; trader: string; side: string }[]>; claims: readonly DraftClaim[]; asOf: number }, period: Period): DraftClaim[] {
   const wallet = inp.wallet.toLowerCase();
   const fills = [...inp.fills].filter((f) => f.side !== "out" || f.tokens > 0).sort(order);
