@@ -1,5 +1,5 @@
 "use client";
-/* Flight sound cues: the engine fires disciple:sfx {k} (ignite, fill, fail, bomb, zone, orbit); this plays a short WebAudio synth
+/* Flight sound cues: the engine fires disciple:sfx {k} (ignite, fill, fail, bomb, zone, orbit, trick); this plays a short WebAudio synth
    for each one, at the SFX volume from game settings (muted = silent). No audio files, nothing loads until the first cue. */
 import { useEffect } from "react";
 import { audioLevel } from "@/lib/game/settings";
@@ -11,6 +11,7 @@ const CUES: Record<string, Note[]> = {
   fail: [{ f: 300, to: 150, d: 0.22, type: "square", g: 0.18 }],
   bomb: [{ f: 120, to: 40, d: 0.45, type: "sawtooth", g: 0.4 }],
   zone: [{ f: 520, d: 0.1, type: "sine" }, { f: 780, d: 0.16, type: "sine", at: 0.09 }],
+  trick: [{ f: 500, to: 1400, d: 0.28, type: "triangle", g: 0.2 }],
   orbit: [{ f: 523, d: 0.16, type: "triangle" }, { f: 659, d: 0.16, type: "triangle", at: 0.12 }, { f: 784, d: 0.3, type: "triangle", at: 0.24 }],
 };
 
