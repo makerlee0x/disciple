@@ -59,9 +59,6 @@ It's the game with practice cash, flown against bots. You don't need a wallet, a
 
 ## Safety
 
-**Is DISCIPLE audited?**
-Not yet. The contracts have had internal security reviews only, no third-party audit. A professional audit is required before mainnet.
-
 **Can the team pause trading?**
 No. There's no pause. The starting price path and the open market on Uniswap are always live.
 
