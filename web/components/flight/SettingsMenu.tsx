@@ -17,7 +17,7 @@ import ShareModal, { type ShareTarget } from "@/components/share/ShareModal";
 import ControlsReference, { useControlsFeed } from "@/components/ControlsPill";
 import { MODES } from "@/lib/config";
 import { DEFAULT_BUY, DEFAULT_SELLS } from "@/lib/trade/swapSettings";
-import { onWallet } from "@/lib/wallet";
+import { onWallet } from "@/lib/walletState";
 import { localUsername } from "@/lib/profile";
 import { DEFAULT_BUY_KEYS, DEFAULT_SELL_KEYS, bindKey, broadcast, isBindable, keyLabel, setGameSettings, useGameSettings } from "@/lib/game/settings";
 import { LOCALES, REVIEW_STATUS, useT, type I18nKey } from "@/lib/game/i18n";

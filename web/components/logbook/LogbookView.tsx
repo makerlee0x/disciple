@@ -7,7 +7,7 @@
  */
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { onWallet } from "@/lib/wallet";
+import { onWallet } from "@/lib/walletState"; // = lib/wallet's, without viem (the lobby's away card imports this file)
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import { devSample } from "@/lib/devSample";
 import type { LogEntry, LogRecord } from "@/lib/logbook";

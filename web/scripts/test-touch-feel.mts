@@ -50,7 +50,10 @@ test("engine streams sky plates and starts on the near ones", () => {
   const eng = rd("public/flight/engine.js");
   assert.match(eng, /S\.confirmed\.mcap===null \|\| !skyReady\(\)/, "frame gate = rocket + plates near the current altitude");
   assert.match(eng, /if\(inflight>=3\) break;/, "background plates load 3 at a time");
-  assert.match(eng, /assetsReady:\(\)=>loaded>=names\.length/, "assetsReady still = everything (replay / tests)");
+  assert.match(eng, /assetsReady:\(\)=>\{ if\(!ALL_PLATES\)\{ ALL_PLATES=true; pumpAssets\(\); \} return loaded>=names\.length/, "assetsReady still = everything (replay / tests): asking turns the full stream on");
+  // speed pass 2026-11-14: plates stream only near the current zone, and not at all on the phone photo-sky layout
+  assert.match(eng, /x\[1\]<=PLATE_AHEAD\+0\.5/, "background plates: a window around the current zone, not all 18");
+  assert.match(eng, /function platesWanted\(\)\{ return ALL_PLATES\|\|!\(window\.__phoneHud&&window\.__phoneHud\.thr\); \}/, "phone throttle layout skips the plates");
   assert.match(eng, /^function haptic\(\)\{\}/m, "engine haptic is a no-op: the page owns haptics (works in worker mode too)");
 });
 

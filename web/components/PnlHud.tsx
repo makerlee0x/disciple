@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { fmtUsd, HOLD_BONUS } from "@/lib/config";
 import { applyExactFill, applyFill, bookPending, emptyPosition, pnlKey, positionFromFills, type ChainFill, type ChainTransfer, reconcileFill, shrinkToWallet, view, walletView, type ExactFill, type PendingFill, type Position, type PositionView, type WalletView, fmtMoney, fmtPct, fmtPnl, fmtTokens, DEFAULT_SUPPLY, rebase, redFromBuyFees } from "@/lib/pnl";
 import { useT } from "@/lib/game/i18n";
-import { onWallet } from "@/lib/wallet";
+import { onWallet } from "@/lib/walletState";
 import { isDeployed } from "@/lib/chains";
 import { withBase } from "@/lib/base-path";
 import { POINTS_ENABLED } from "@/lib/features";
