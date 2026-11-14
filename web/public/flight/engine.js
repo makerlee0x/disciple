@@ -1242,7 +1242,7 @@ function submit(side,usd,force,opt,pct){
       if(p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }
       if(r.needsConfirm!=='walletcap') tradeNote(r.reason); S.pending=S.pending.filter(q=>q!==p); pushInFlight(); return; }   // wallet limit: the page's card says it (no sky banner too)
     p.state=r.ok?'confirmed':'failed'; lockResolve(p,r&&r.ok?'ok':r&&r.unknown?'gone':'fail');
-    if(r&&r.ok&&side==='buy'){ const [nx0,ny0]=nozzleXY(); S.floaters.push({x:nx0+70,y:ny0-120,txt:'+'+fmtShot(p.usd).replace(/\.00$/,'')+' aboard',c:'#F2C14E',life:1.4,game:24}); }
+    if(r&&r.ok&&side==='buy'){ const [nx0,ny0]=nozzleXY(); S.floaters.push({x:nx0+70,y:ny0-120,txt:'+'+fmtShot(p.usd).replace(/\.00$/,'')+' aboard',c:'#F2C14E',life:1.4,game:24}); styleFill(); }
     if(r&&r.ok&&side==='sell') S.kickV=(S.kickV||0)-120;   // @pressfeel: recoil, the rocket kicks up as the bomb leaves
     baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim, r&&r.txHash);
     if(!(r&&r.ok)&&p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }   // later ghosts drop by the failed step   // ok → completes to the ghost; fail → eases back (this trade's share only)
@@ -1421,7 +1421,7 @@ cv.addEventListener('pointerdown',e=>{ if(!dragPointer(e)||S.menuOpen) return; c
 cv.addEventListener('pointermove',e=>{ const d=S.drag; if(!d||e.pointerId!==d.id) return; if(S.menuOpen){ S.drag=null; return; }
   const [mx,my]=canvasXY(e), dx=mx-d.x0; d.dx=dx; d.dy=my-d.y0; if(!d.on&&Math.abs(dx)<DRAG_SLOP) return; d.on=true;
   const m=steerMargin(W); d.tx=clamp(d.sx+dx,m,W-m); });
-function dragEnd(e){ const d=S.drag; if(!d||e.pointerId!==d.id) return; S.drag=null; if(e.type==='pointerup') trickGesture(d,e); }
+function dragEnd(e){ const d=S.drag; if(!d||e.pointerId!==d.id) return; S.drag=null; if(e.type==='pointerup'&&typeof trickGesture==='function') trickGesture(d,e); }
 cv.addEventListener('pointerup',dragEnd); cv.addEventListener('pointercancel',dragEnd);
 /* @drag-steer-end */
 /* @tricks (maker 2026-11-14: bring the Trading duel's spin + flip into the main flight, phone and browser). Cosmetic only:
@@ -1431,10 +1431,38 @@ cv.addEventListener('pointerup',dragEnd); cv.addEventListener('pointercancel',dr
 const TRICKS={spin:{dur:0.7,txt:'SPIN!',c:'#8FE3FF'},flip:{dur:0.85,txt:'FLIP!',c:'#F2C14E'}};
 S.trick=null; S.lastTap=0;
 function trickOn(){ const k=S.trick; return k&&S.t-k.t0<k.dur?k:null; }
+/* combos: a trick started within TRICK_CHAIN s of the last one ending chains (x2, x3 …, capped at x5). A BOOST that fills within
+   STYLE_WIN ms of a trick is a STYLE FILL: a callout here and disciple:stylefill {at, combo, kind}; the page (StyleXp) reports it
+   for a small, capped XP that the cron pays only if the fill is really there (lib/xp STYLE). */
+const TRICK_CHAIN=1.5, STYLE_WIN=6000;
+S.trickCombo=0; S.trickAt=0;
 function trick(kind){ if(!TRICKS[kind]||S.menuOpen||trickOn()) return false;
-  const T=TRICKS[kind]; S.trick={kind,t0:S.t,dur:T.dur,dir:(S.steer&&S.steer.x<W/2)?-1:1};
-  const [nx,ny]=nozzleXY(); S.floaters.push({x:nx+70,y:ny-150,txt:T.txt,c:T.c,life:1.1,game:30});
-  sfx('trick',{kind}); try{ dispatchEvent(new CustomEvent('disciple:trick',{detail:{kind}})); }catch(_){} return true; }
+  const T=TRICKS[kind], prev=S.trick, chained=prev&&S.t-(prev.t0+prev.dur)<TRICK_CHAIN;
+  S.trickCombo=chained?Math.min(5,S.trickCombo+1):1; S.trickAt=Date.now();
+  S.trick={kind,t0:S.t,dur:T.dur,dir:(S.steer&&S.steer.x<W/2)?-1:1,combo:S.trickCombo};
+  const [nx,ny]=nozzleXY(), txt=S.trickCombo>1?T.txt.replace('!','')+' x'+S.trickCombo:T.txt;
+  S.floaters.push({x:nx+70,y:ny-150,txt,c:T.c,life:1.1,game:S.trickCombo>1?34:30});
+  sfx('trick',{kind,combo:S.trickCombo}); try{ dispatchEvent(new CustomEvent('disciple:trick',{detail:{kind,combo:S.trickCombo}})); }catch(_){} return true; }
+function styleFill(){ if(!S.trickAt||Date.now()-S.trickAt>STYLE_WIN) return; const combo=S.trickCombo||1, kind=S.trick?S.trick.kind:'spin'; S.trickAt=0;
+  const [nx,ny]=nozzleXY(); S.floaters.push({x:nx+70,y:ny-190,txt:combo>1?'STYLE FILL x'+combo:'STYLE FILL',c:'#F3DFA8',life:1.6,game:30});
+  sfx('orbit'); try{ dispatchEvent(new CustomEvent('disciple:stylefill',{detail:{at:Date.now(),combo,kind}})); }catch(_){} }
+addEventListener('disciple:stylexp',e=>{ const d=e.detail||{}, [nx,ny]=nozzleXY();
+  if(d.state==='confirming') S.floaters.push({x:nx+70,y:ny-225,txt:'+'+(d.xp||5)+' XP · confirming',c:'#5FF0A0',life:1.6,game:20});
+  else if(d.state==='capped') S.floaters.push({x:nx+70,y:ny-225,txt:'Style XP capped for today',c:'#C8C4FF',life:1.6,game:18}); });
+/* @calm (phone full-screen flying): the page (CalmFlight) fades the HUD after a few idle seconds and sends disciple:calm {on};
+   the rocket eases up to CALM_ZOOM× its size while calm. Cosmetic only. */
+const CALM_ZOOM=1.2; S.calm=false; S.calmK=0;
+addEventListener('disciple:calm',e=>{ S.calm=!!(e.detail&&e.detail.on); });
+/* @tilt (phone setting "Tilt to steer"): the page (TiltSteer) sends disciple:tilt {g} with g ∈ [-1, 1] (null = off). It sets the
+   same steering target a finger drag does; a finger on the sky wins. */
+S.tilt=null;
+addEventListener('disciple:tilt',e=>{ const g=e.detail&&e.detail.g; S.tilt=typeof g==='number'&&Number.isFinite(g)?clamp(g,-1,1):null; });
+/* @rumble (iPhone app, NativeRumble): while on, ~10×/s disciple:thrust {v, climb} (v = engine flame 0..1, climb = -1..1) drives a
+   continuous Core Haptics rumble. Off by default, so the browser pays nothing. */
+S.rumble=false; S.rumbleT=0;
+addEventListener('disciple:rumble',e=>{ S.rumble=!!(e.detail&&e.detail.on); });
+function rumblePub(flame){ if(!S.rumble||S.t-S.rumbleT<0.1) return; S.rumbleT=S.t;
+  try{ dispatchEvent(new CustomEvent('disciple:thrust',{detail:{v:clamp(flame/1.4,0,1),climb:clamp((S.vyS||0)/600,-1,1),pending:tradePendingFx()?1:0}})); }catch(_){} }
 function trickGesture(d,e){ const dt=performance.now()-d.t0, dx=d.dx||0, dy=d.dy||0;
   if(dy<-55&&Math.abs(dy)>Math.abs(dx)*1.3&&dt<450){ S.lastTap=0; trick('spin'); return; }
   if(Math.abs(dx)<DRAG_SLOP&&Math.abs(dy)<DRAG_SLOP&&dt<250){ const now=performance.now();
@@ -1826,7 +1854,8 @@ function drawLevels(){
 }
 
 function drawRocket(dt){
-  const im=IMG.rocket, h=150, w=im.naturalWidth? h*im.naturalWidth/im.naturalHeight : 55;
+  S.calmK+=((S.calm?1:0)-S.calmK)*Math.min(1,(dt||0.016)*2.5);   // @calm: ease the zoom in and out
+  const im=IMG.rocket, h=150*(1+(CALM_ZOOM-1)*S.calmK), w=im.naturalWidth? h*im.naturalWidth/im.naturalHeight : 55;
   // (x,y) = nozzle / aft pivot — trail tip + rotation origin. Nose leads ahead of this point.
   const [x,y]=nozzleXY();
   const NOZZLE_FROM_TOP = 0.96; // fraction of sprite height: engine sits just above the bottom edge
@@ -1838,7 +1867,7 @@ function drawRocket(dt){
     ctx.fillText('ENGINES IDLE · THE CREW NEEDS A BOOST',x,y+96); ctx.restore(); }
   // exhaust (procedural): leaves the nozzle opposite the nose
   const braking=S.pending.some(p=>p.side==='sell'&&p.state==='pending');
-  const EP=exhaustParams(), flick=EP.flick, flame=EP.flame;
+  const EP=exhaustParams(), flick=EP.flick, flame=EP.flame; rumblePub(flame);
   const sa=Math.sin(S.heading), ca=Math.cos(S.heading), ang=rocketVisAngle();   // style stat scales only the drawn tilt
   const FXT=fxMul('thrust'), FXG=fxMul('glow'), FXH=fxMul('style');   /* loadout stats → cosmetic multipliers (all exactly 1 at stat 5) */
   ctx.save(); ctx.globalCompositeOperation='lighter';
@@ -2900,7 +2929,8 @@ function simStep(stepDt){
   S.drift=lerp(S.drift||0, imb*26 + 16*Math.sin(S.t*0.23) + 7*Math.sin(S.t*0.61+1.3), 1-Math.exp(-dt*0.8));
   const K=S.keys||{}; let dir=((K.KeyD||K.ArrowRight)?1:0)-((K.KeyA||K.ArrowLeft)?1:0);
   if (S.steer==null) S.steer={x:S.x,vx:0};
-  if (!dir&&S.drag&&S.drag.on&&S.drag.tx!=null){ dir=steerDragDir(S.steer,S.drag.tx-(S.drift||0)*0.35,W); S.steer.idle=0; }   // @drag-steer: finger held = steering input (no auto-centre until release)
+  if (!dir&&S.drag&&S.drag.on&&S.drag.tx!=null){ dir=steerDragDir(S.steer,S.drag.tx-(S.drift||0)*0.35,W); S.steer.idle=0; }
+  else if (!dir&&S.tilt!=null&&!S.drag&&Math.abs(S.tilt)>0.04){ const m=steerMargin(W); dir=steerDragDir(S.steer,clamp(W/2+S.tilt*(W/2-m),m,W-m)-(S.drift||0)*0.35,W); S.steer.idle=0; }   // @tilt   // @drag-steer: finger held = steering input (no auto-centre until release)
   stepSteerAuto(S.steer, dir*(steer/7), dt, W);     // hold-to-steer (VOID orb: weaker thrust); idle ⇒ auto-centre
   { const m=steerMargin(W); S.x=clamp(S.steer.x+S.drift*0.35+Math.sin(S.t*0.6)*14*(S.idle||0),m,W-m); S.vx=S.steer.vx; }
   { const TX=turboFx(), want=(K.KeyS||K.ArrowDown)?1:TX&&TX.dive?TURBO_DIVE:0;   // @turbo: a DUMP (short) flies as a nose-down dive run — same sprite, a controlled pose (never a flip)
