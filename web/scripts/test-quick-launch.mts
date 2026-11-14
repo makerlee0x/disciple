@@ -14,7 +14,7 @@ import {
   buildLaunchSocials, boostHasAmount, creatorTaxSteps, launchButtonLabel, launchNeedsSignIn, maxBoostChipLabel,
   isPseudoLaunch, normalizeTelegram, normalizeTwitter, normalizeWebsite, parseCreatorFeeDestination, privateLaunchHelp, privateLaunchTitle,
   readStoredCreatorFeeDestination, readStoredCreatorTax, readStoredUpload, snapCreatorTax, socialsURI, storeCreatorFeeDestination, storeCreatorTax, storeUpload, withHttps,
-  QUICK_LAUNCH_COPY, QUICK_LAUNCH_MODE_CARD, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION, CREATOR_FEE_DESTINATIONS, CREATOR_FEE_DESTINATION_LIVE, CREATOR_FEE_FIELD, CREATOR_FEE_STORE_KEY, CREATOR_TAX_HELP, CREATOR_TAX_STORE_KEY, DEFAULT_CREATOR_FEE_DESTINATION, UPLOAD_STORE_KEY, liveCreatorFeeDestination,
+  QUICK_LAUNCH_COPY, QUICK_LAUNCH_MODE_CARD, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION, CREATOR_FEE_DESTINATIONS, CREATOR_FEE_DESTINATION_LIVE, PRIVATE_FEE_ROUTING_LIVE, creatorFeeRoutingAvailable, CREATOR_FEE_FIELD, CREATOR_FEE_STORE_KEY, CREATOR_TAX_HELP, CREATOR_TAX_STORE_KEY, DEFAULT_CREATOR_FEE_DESTINATION, UPLOAD_STORE_KEY, liveCreatorFeeDestination,
 } from "../lib/quickLaunch";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -248,10 +248,13 @@ test("creator fee copy matches the r7 card labels and tax helpers, with no jargo
   assert.equal(QUICK_LAUNCH_COPY.creatorFeesPerm, "You pick this when you launch, and you can't change it later.");
   assert.equal(QUICK_LAUNCH_COPY.rewards, "Send your creator fees to a different account");
   assert.equal(QUICK_LAUNCH_COPY.rewardsHelp, "Your creator fees go to this account instead of you. You'll confirm this one extra time.");
-  assert.equal(CREATOR_FEE_DESTINATION_LIVE, false);
-  assert.equal(liveCreatorFeeDestination(0), undefined);
-  assert.equal(liveCreatorFeeDestination(1), undefined);
-  assert.equal(liveCreatorFeeDestination(2), undefined);
+  const H = "0x4e94a3e9900b435b7c91d0a7cd53a22c8a9f8a03";
+  assert.equal(CREATOR_FEE_DESTINATION_LIVE, true);
+  assert.equal(liveCreatorFeeDestination(0, { harvest: H }), undefined, "keep never goes through the harvest");
+  assert.equal(liveCreatorFeeDestination(1, { harvest: H }), 1);
+  assert.equal(liveCreatorFeeDestination(2, { harvest: H }), 2);
+  assert.equal(liveCreatorFeeDestination(1), undefined, "no harvest on this chain");
+  assert.equal(liveCreatorFeeDestination(2, { harvest: "0x0000000000000000000000000000000000000000" }), undefined);
   assert.equal(CREATOR_FEE_COPY[0].sentence, "You keep the creator fees.");
   assert.equal(CREATOR_FEE_COPY[0].chip, "");
   assert.equal(CREATOR_FEE_COPY[1].sentence, "Fees go into the locked pool.");
@@ -272,13 +275,13 @@ test("creator fee copy matches the r7 card labels and tax helpers, with no jargo
   ].join("\n");
   assert.doesNotMatch(visible, /\bLP\b|quote token|renounced|\buint\b|\bhalf\b|creator rewards|available once the new contracts are live/i);
   assert.doesNotMatch(page, /available once the new contracts are live|creator rewards|creatorFeesPending/i);
-  assert.doesNotMatch(page, /client\.launchCoin\(\{[^}]*creatorFeeDestination/);
+  assert.match(page, /creatorFeeDestination: sendFeeDest/, "the launch sends the chosen destination");
   const feeCss = css.slice(css.indexOf(".feeCards"), css.indexOf(".feePerm") + 80);
   assert.match(feeCss, /grid-template-columns:\s*repeat\(3,/);
   assert.doesNotMatch(feeCss, /#F2C14E|#FF7A3D|gold|orange/i);
   assert.match(page, /data-testid=\{\`fee-destination-\$\{id\}\`\}/);
   assert.match(page, /CREATOR_TAX_HELP\[feeDestination\]/);
-  assert.match(page, /liveCreatorFeeDestination\(feeDestination\)/);
+  assert.match(page, /liveCreatorFeeDestination\(feeDestination, \{ private: privateLaunch/);
 });
 
 
@@ -301,8 +304,20 @@ test("the creator fee split is on the closed Quick Launch page and in Advanced, 
   assert.equal(CREATOR_TAX_HELP[0], "You already get 33% of every trading fee. Creator tax is an extra cut on top of that. Higher tax can scare off players.");
   assert.equal(CREATOR_TAX_HELP[1], "The 33% of every trading fee goes into the locked pool. Creator tax is an extra cut on top of that, and it goes there too. Higher tax can scare off players.");
   assert.equal(CREATOR_TAX_HELP[2], "The 33% of every trading fee is used to buy and burn the pair coin. Creator tax is an extra cut on top of that, and it is used the same way. Higher tax can scare off players.");
-  assert.equal(CREATOR_FEE_DESTINATION_LIVE, false);
-  assert.equal(liveCreatorFeeDestination(1), undefined);
+  assert.equal(CREATOR_FEE_DESTINATION_LIVE, true);
+});
+
+test("private launches can't pick pool or burn until the harvest with refundTo is live", () => {
+  const H = "0x4e94a3e9900b435b7c91d0a7cd53a22c8a9f8a03";
+  assert.equal(PRIVATE_FEE_ROUTING_LIVE, false);
+  assert.equal(creatorFeeRoutingAvailable({ harvest: H }), true);
+  assert.equal(creatorFeeRoutingAvailable({ private: true, harvest: H }), false);
+  assert.equal(liveCreatorFeeDestination(1, { private: true, harvest: H }), undefined);
+  const here = dirname(fileURLToPath(import.meta.url));
+  const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
+  assert.match(page, /disabled=\{off\}/, "pool and burn cards are disabled where they can't be sent");
+  assert.match(page, /data-testid="fee-destination-later"/);
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeesPrivateLater, "Private launches keep the creator fees for now.");
 });
 test("Difficulty is three cards with the caps written on them (canvas board \"Launch: build your rocket\")", () => {
   const here = dirname(fileURLToPath(import.meta.url));

@@ -40,7 +40,7 @@ Tickers aren't unique, so two rockets can share one. Check that you're on the ri
 
 As the creator, you get 33% of every 1% trade fee on your rocket, for as long as it trades. See [Creator earnings](/docs/fees/creators).
 
-Under **Advanced**, the form also shows other places your creator fees could go: into the rocket's locked pool, or into a buy-and-burn. Those two choices are not available yet. Today, creator fees always go to you, or to the account you name.
+Under **More options**, you can also send your creator fees somewhere else: into the rocket's locked pool, or into a buy-and-burn of the pair coin. You pick this when you launch, and it can't be changed later. See [Creator earnings](/docs/fees/creators#choosing-where-your-fees-go). Private launches keep the creator fees for now.
 
 ## Private launch
 

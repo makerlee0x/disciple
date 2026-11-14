@@ -81,6 +81,9 @@ export const QUICK_LAUNCH_COPY = {
   creatorFees: "Creator fees",
   creatorFeeSplit: "You earn 33% of every trading fee, forever.",
   creatorFeesPerm: "You pick this when you launch, and you can't change it later.",
+  /** Under the fee cards when pool / burn can't be picked (private launch before PRIVATE_FEE_ROUTING_LIVE, or no harvest on this chain). */
+  creatorFeesPrivateLater: "Private launches keep the creator fees for now.",
+  creatorFeesNotHere: "Pool and burn aren't switched on here yet.",
   creatorFeesHelp: "You pick this when you launch. It applies only to this rocket, including private launches, and it cannot be changed later. It covers all creator fees, including any extra creator tax.",
   creatorFeesPending: "This choice will be available once the new contracts are live.",
   // Image rejected after a generated badge is in use (Oct 17 Quick Launch spec; not on the r4 boards).
@@ -126,18 +129,12 @@ export function storeCreatorTax(pct: number, storage?: Pick<Storage, "setItem"> 
 }
 
 /**
- * Where creator fees go. HOOK locked this as LaunchParams.creatorFeeDestination
- * (uint8, appended after deadline): 0 keep, 1 locked pool, 2 buy-and-burn quote.
- * It will later be passed on every path that already takes LaunchParams, and on
- * the gasless AnonLaunch EIP-712 type after deadline and before stealthOwner.
- *
- * This Preview stores the choice in form state and localStorage only (same
- * remembered-between-launches pattern as creator tax). Do not add the field to
- * live launch calldata, ABI encodings, or EIP-712 types until HOOK's contract
- * branch is up — an extra struct field would break today's testnet Launchpad.
- * Applies to new coins only, including private launches, and covers the whole
- * creator fee (the 33% creator share and the creator tax). Options 1 and 2 stay
- * separate exclusive choices. Default is 0.
+ * Where creator fees go: 0 keep, 1 locked pool, 2 buy-and-burn the pair coin.
+ * This is not a LaunchParams field. A launch with 1 or 2 goes through CreatorFeeHarvest
+ * (lib/creatorFeeHarvest, contracts/src/addons/CreatorFeeHarvest.sol), which records the
+ * choice in the launch transaction. 0 keeps today's Launchpad / router / AnonLauncher path.
+ * The choice is remembered between launches (same pattern as creator tax). It applies to
+ * the whole creator fee (the 33% creator share and the creator tax) and is fixed for good.
  */
 export const CREATOR_FEE_FIELD = "creatorFeeDestination" as const;
 export const CREATOR_FEE_STORE_KEY = "disciple.create.creatorFeeDestination.v1";
@@ -181,12 +178,29 @@ export const CREATOR_TAX_HELP: Record<CreatorFeeDestination, string> = {
   2: "The 33% of every trading fee is used to buy and burn the pair coin. Creator tax is an extra cut on top of that, and it is used the same way. Higher tax can scare off players.",
 };
 
-/** False until HOOK's contracts are live and lee says they can be used. The menu is shown; 1 and 2 are not sent on a live launch. */
-export const CREATOR_FEE_DESTINATION_LIVE = false;
+/** Public launches can send 1 and 2 (through CreatorFeeHarvest) on any chain whose deployment has a harvest address. */
+export const CREATOR_FEE_DESTINATION_LIVE = true;
+/**
+ * Private launches go through the gasless relayer, which calls CreatorFeeHarvest.launchAnonWithUsdg with refundTo.
+ * That argument is new in this harvest; the v6 testnet harvest does not have it. Keep false until the harvest that
+ * has it is deployed (mainnet deploy, or a testnet redeploy), then flip.
+ */
+export const PRIVATE_FEE_ROUTING_LIVE = false;
 
-/** The live testnet Launchpad ABI has no creatorFeeDestination yet. Only return a value when the new contracts are live. */
-export function liveCreatorFeeDestination(dest: CreatorFeeDestination): CreatorFeeDestination | undefined {
-  return CREATOR_FEE_DESTINATION_LIVE ? dest : undefined;
+/** Can this launch send creator fees to the pool or the burn? Needs the flag(s) and a harvest address on this chain. */
+export function creatorFeeRoutingAvailable(o: { private?: boolean; harvest?: string | null }): boolean {
+  if (!CREATOR_FEE_DESTINATION_LIVE) return false;
+  if (o.private && !PRIVATE_FEE_ROUTING_LIVE) return false;
+  return !!o.harvest && !/^0x0{40}$/i.test(o.harvest);
+}
+
+/** The destination to send with the launch, or undefined to keep today's path (0, or routing not available here). */
+export function liveCreatorFeeDestination(
+  dest: CreatorFeeDestination,
+  o: { private?: boolean; harvest?: string | null } = {},
+): 1 | 2 | undefined {
+  if (dest === CREATOR_FEE_DESTINATION.creator) return undefined;
+  return creatorFeeRoutingAvailable(o) ? dest : undefined;
 }
 
 export function isCreatorFeeDestination(value: number): value is CreatorFeeDestination {

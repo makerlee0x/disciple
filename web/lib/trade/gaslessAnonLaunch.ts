@@ -11,9 +11,13 @@
  * Atomic batch, submitted by the relayer:
  *   [optional USDG EIP-2612 permit of Permit2,
  *    Permit2.permitWitnessTransferFrom (player → Multicall3),
- *    USDG.approve(AnonLauncher, amount),
- *    AnonLauncher.launchAnonWithUsdg(..., refundTo = the player),
- *    USDG.approve(AnonLauncher, 0)]
+ *    USDG.approve(launcher, amount),
+ *    launcher.launchAnonWithUsdg(..., refundTo = the player),
+ *    USDG.approve(launcher, 0)]
+ * `launcher` is AnonLauncher when creatorFeeDestination is 0 (keep). For 1 (locked pool) or
+ * 2 (buy-and-burn) it is CreatorFeeHarvest, which calls AnonLauncher and records the choice
+ * in the same transaction. The destination is part of the signed witness, so the relayer
+ * cannot change it.
  * Amount and every launch field are fixed in the signed witness. A failed launch
  * reverts the whole transaction, so the player's dollars never move (the refund path).
  * No leftover stays on Multicall3 when refundTo is the player and the launch fee is
@@ -36,7 +40,7 @@ export { MULTICALL3 };
 export const ANON_LAUNCH_TX_GAS_LIMIT = BigInt(8_500_000);
 
 export const ANON_LAUNCH_TYPE =
-  "AnonLaunch(string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline,address stealthOwner,address buyRecipient,bytes ephemeralPubKey,bytes1 viewTag,uint256 maxFee,uint256 usdgIn,uint256 minQuoteIn,address refundTo,address launcher)";
+  "AnonLaunch(string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline,address stealthOwner,address buyRecipient,bytes ephemeralPubKey,bytes1 viewTag,uint256 maxFee,uint256 usdgIn,uint256 minQuoteIn,address refundTo,address launcher,uint8 creatorFeeDestination)";
 export const ANON_LAUNCH_WITNESS_TYPE =
   `AnonLaunch witness)TokenPermissions(address token,uint256 amount)${ANON_LAUNCH_TYPE}`;
 export const ANON_LAUNCH_TYPEHASH = keccak256(toBytes(ANON_LAUNCH_TYPE));
@@ -64,6 +68,8 @@ export type AnonLaunch = LaunchParams & {
   minQuoteIn: bigint;
   refundTo: Address;
   launcher: Address;
+  /** 0 keep (launcher = AnonLauncher), 1 locked pool or 2 buy-and-burn (launcher = CreatorFeeHarvest). */
+  creatorFeeDestination: number;
 };
 
 export type GaslessAnonLaunchRequest = {
@@ -82,6 +88,11 @@ export const erc20ApproveAbi = parseAbi([
 ]);
 export const launchAnonWithUsdgAbi = parseAbi([
   "function launchAnonWithUsdg((string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline) p, address stealthOwner, address buyRecipient, bytes ephemeralPubKey, bytes1 viewTag, uint256 maxFee, uint256 usdgIn, uint256 minQuoteIn, address refundTo) returns ((address token,address curve,uint256 creatorTokensBought) r, uint256 usdgRefund)",
+]);
+
+/** CreatorFeeHarvest.launchAnonWithUsdg: same arguments plus the destination (lib/creatorFeeHarvest). */
+export const harvestLaunchAnonWithUsdgAbi = parseAbi([
+  "function launchAnonWithUsdg((string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline) p, address stealthOwner, address buyRecipient, bytes ephemeralPubKey, bytes1 viewTag, uint256 maxFee, uint256 usdgIn, uint256 minQuoteIn, address refundTo, uint8 creatorFeeDestination) returns ((address token,address curve,uint256 creatorTokensBought) r, uint256 usdgRefund)",
 ]);
 
 export const anonLaunchTypes = {
@@ -113,6 +124,7 @@ export const anonLaunchTypes = {
     { name: "minQuoteIn", type: "uint256" },
     { name: "refundTo", type: "address" },
     { name: "launcher", type: "address" },
+    { name: "creatorFeeDestination", type: "uint8" },
   ],
 } as const;
 
@@ -136,13 +148,13 @@ export function anonLaunchWitnessHash(l: AnonLaunch): Hex {
       { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" },
       { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" },
       { type: "address" }, { type: "address" }, { type: "bytes32" }, { type: "bytes1" },
-      { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "address" }, { type: "address" },
+      { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "address" }, { type: "address" }, { type: "uint8" },
     ],
     [
       ANON_LAUNCH_TYPEHASH, hashStr(l.name), hashStr(l.ticker), hashStr(l.imageURI), hashStr(l.description), hashStr(l.socialsURI),
       l.quote, l.creatorTaxBps, l.creatorBuyQuoteIn, l.creatorBuyMinTokensOut, l.deadline,
       l.stealthOwner, l.buyRecipient, hashBytes(l.ephemeralPubKey), l.viewTag,
-      l.maxFee, l.usdgIn, l.minQuoteIn, l.refundTo, l.launcher,
+      l.maxFee, l.usdgIn, l.minQuoteIn, l.refundTo, l.launcher, l.creatorFeeDestination,
     ],
   ));
 }
@@ -178,17 +190,20 @@ export function encodeAnonLaunchCall(q: GaslessAnonLaunchRequest, usdg: Address)
   })));
   calls.push(call(usdg, encodeFunctionData({ abi: erc20ApproveAbi, functionName: "approve", args: [q.launch.launcher, amount] })));
   const l = q.launch;
-  calls.push(call(l.launcher, encodeFunctionData({
-    abi: launchAnonWithUsdgAbi, functionName: "launchAnonWithUsdg",
-    args: [
-      {
-        name: l.name, ticker: l.ticker, imageURI: l.imageURI, description: l.description, socialsURI: l.socialsURI,
-        quote: l.quote, creatorTaxBps: l.creatorTaxBps, creatorBuyQuoteIn: l.creatorBuyQuoteIn,
-        creatorBuyMinTokensOut: l.creatorBuyMinTokensOut, deadline: l.deadline,
-      },
-      l.stealthOwner, l.buyRecipient, l.ephemeralPubKey, l.viewTag, l.maxFee, l.usdgIn, l.minQuoteIn, l.refundTo,
-    ],
-  })));
+  const p = {
+    name: l.name, ticker: l.ticker, imageURI: l.imageURI, description: l.description, socialsURI: l.socialsURI,
+    quote: l.quote, creatorTaxBps: l.creatorTaxBps, creatorBuyQuoteIn: l.creatorBuyQuoteIn,
+    creatorBuyMinTokensOut: l.creatorBuyMinTokensOut, deadline: l.deadline,
+  };
+  calls.push(call(l.launcher, l.creatorFeeDestination === 0
+    ? encodeFunctionData({
+      abi: launchAnonWithUsdgAbi, functionName: "launchAnonWithUsdg",
+      args: [p, l.stealthOwner, l.buyRecipient, l.ephemeralPubKey, l.viewTag, l.maxFee, l.usdgIn, l.minQuoteIn, l.refundTo],
+    })
+    : encodeFunctionData({
+      abi: harvestLaunchAnonWithUsdgAbi, functionName: "launchAnonWithUsdg",
+      args: [p, l.stealthOwner, l.buyRecipient, l.ephemeralPubKey, l.viewTag, l.maxFee, l.usdgIn, l.minQuoteIn, l.refundTo, l.creatorFeeDestination],
+    })));
   // Clear the leftover allowance so a later Multicall3 call cannot spend from a stale approve.
   calls.push(call(usdg, encodeFunctionData({ abi: erc20ApproveAbi, functionName: "approve", args: [q.launch.launcher, BigInt(0)] })));
   return encodeFunctionData({ abi: multicall3Abi, functionName: "aggregate3", args: [calls] });
@@ -207,6 +222,11 @@ const addr = (v: unknown, what: string): Address => {
 const hex = (v: unknown, what: string): Hex => {
   if (typeof v !== "string" || !HEX.test(v) || v.length % 2 !== 0) throw new GaslessReject(`bad ${what}`);
   return v as Hex;
+};
+const dest = (v: unknown): number => {
+  if (v === 0 || v === 1 || v === 2) return v;
+  if (v === "0" || v === "1" || v === "2") return Number(v);
+  throw new GaslessReject("bad creatorFeeDestination");
 };
 const str = (v: unknown, what: string): string => {
   if (typeof v !== "string") throw new GaslessReject(`bad ${what}`);
@@ -248,6 +268,7 @@ export function parseGaslessAnonLaunchRequest(x: unknown): GaslessAnonLaunchRequ
       minQuoteIn: big(l.minQuoteIn, "minQuoteIn"),
       refundTo: addr(l.refundTo, "refundTo"),
       launcher: addr(l.launcher, "launcher"),
+      creatorFeeDestination: dest(l.creatorFeeDestination ?? 0),
     },
     signature: sig as Hex,
   };
@@ -269,9 +290,16 @@ const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
  */
 export function checkGaslessAnonLaunchRequest(q: GaslessAnonLaunchRequest, o: {
   usdg: Address; launcher: Address; nowSec: number; launchFee: bigint;
+  /** CreatorFeeHarvest, only when private fee routing is live (lib/quickLaunch PRIVATE_FEE_ROUTING_LIVE). */
+  harvest?: Address | null;
 }): void {
   const l = q.launch;
-  if (!eq(l.launcher, o.launcher)) throw new GaslessReject("launcher mismatch");
+  if (l.creatorFeeDestination === 0) {
+    if (!eq(l.launcher, o.launcher)) throw new GaslessReject("launcher mismatch");
+  } else {
+    if (!o.harvest || /^0x0{40}$/i.test(o.harvest)) throw new GaslessReject("private fee routing isn't available yet");
+    if (!eq(l.launcher, o.harvest)) throw new GaslessReject("launcher mismatch");
+  }
   if (!eq(q.permit.permitted.token, o.usdg)) throw new GaslessReject("permit token mismatch");
   if (q.permit.permitted.amount !== permitAmount(l)) throw new GaslessReject("permit amount mismatch");
   if (l.maxFee !== o.launchFee) throw new GaslessReject("launch fee changed, please retry");

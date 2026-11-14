@@ -62,6 +62,8 @@ export const HOST_COPY = {
   dump: (who: string) => `Dump by ${who}`,
   from: (who: string) => `From ${who}`,
   legacy: "Part of this rocket's share sits on the older private launcher and can't be claimed.",
+  /** coins launched with pool / burn: nothing to claim, the fees go there instead */
+  routed: { 1: "Your creator fees go into this rocket's locked pool.", 2: "Your creator fees buy and burn the pair coin." } as Record<1 | 2, string>,
   sheetAll: "Claim host earnings",
   sheetOne: (name: string) => `Claim ${name}`,
   signInTitle: "Sign in to see your host earnings",
@@ -180,6 +182,7 @@ function BayCard({ r, facts, tokenOn, onClaim, demo }: { r: CreatorRocket; facts
         </div>
         <div className="he-ec"><span>{HOST_COPY.earnedCard} <b>{usd2(earned)}</b></span><span>{HOST_COPY.claimedCard} <b>{usd2(claimed)}</b></span></div>
         {r.anon && r.tokenUnclaimable && <span className="he-fine">{HOST_COPY.legacy}</span>}
+        {r.routed && <span className="he-fine" data-testid="fees-routed">{HOST_COPY.routed[r.routed]}</span>}
         <div className="he-latest">
           <span className="r2-lbl">{HOST_COPY.latest}</span>
           {feed && feed.length ? feed.map((f) => (
