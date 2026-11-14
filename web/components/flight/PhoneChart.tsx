@@ -86,7 +86,7 @@ export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge 
       if (ent && ent >= lo && ent <= hi) {
         const ey = Y(ent); x.setLineDash([5, 4]); x.strokeStyle = "rgba(243,223,168,.85)"; x.lineWidth = 1.4;
         x.beginPath(); x.moveTo(L0, ey); x.lineTo(L0 + w, ey); x.stroke(); x.setLineDash([]);
-        x.font = G; x.fillStyle = "#F3DFA8"; x.textAlign = "left"; x.fillText("YOU BOARDED", L0 + 4, ey - 4);
+        x.font = "700 11px 'Barlow Condensed', 'Arial Narrow', sans-serif"; x.fillStyle = "rgba(243,223,168,.8)"; x.textAlign = "left"; x.fillText("YOU BOARDED", L0 + 2, ey + 12);
       }
       // your fills
       for (const d of store.dots) { if (d.t < now - ms) continue; x.beginPath(); x.arc(X(d.t), Y(d.m), 4, 0, Math.PI * 2); x.fillStyle = d.buy ? "#F2C14E" : "#F0307F"; x.fill(); x.lineWidth = 1.5; x.strokeStyle = "#121327"; x.stroke(); }

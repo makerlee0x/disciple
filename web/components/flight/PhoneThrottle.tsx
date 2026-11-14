@@ -65,6 +65,8 @@ export default function PhoneThrottle(p: PhoneThrottleProps) {
   const d = useRef<{ id: number; y0: number; p0: number; t0: number; moved: boolean } | null>(null);
   const spring = useRef<number | null>(null);
   const lastNotch = useRef("");
+  // prototype: "Slide up to buy" sits by the handle until the first trade, then the lever is clean at rest
+  const [used, setUsed] = useState(false);
   useLayoutEffect(() => {
     const el = track.current; if (!el) return;
     const f = () => setH(el.clientHeight); f();
@@ -98,6 +100,7 @@ export default function PhoneThrottle(p: PhoneThrottleProps) {
     spring.current = requestAnimationFrame(st); lastNotch.current = "";
   };
   const fire = (k: Exclude<ThrNotch, null>) => {
+    setUsed(true);
     if (k.side === "buy") { if (p.boostDisabled) return; p.onPickBuy(k.i); p.onBoostAt(k.i); haptic("boost", true); }
     else { if (p.dumpDisabled) return; p.onPickSell(k.i); p.onDumpAt(k.i); haptic("dump", true); }
   };
@@ -117,7 +120,7 @@ export default function PhoneThrottle(p: PhoneThrottleProps) {
     const g = d.current; if (!g || g.id !== e.pointerId) return;
     d.current = null; setDrag(false);
     const tap = !g.moved && performance.now() - g.t0 < TAP_MS;
-    if (tap) { if (!p.boostDisabled) { p.onBoost(); haptic("boost", true); } }
+    if (tap) { if (!p.boostDisabled) { setUsed(true); p.onBoost(); haptic("boost", true); } }
     else { const k = notchAt(pos, up, down, nBuy, nSell); if (k) fire(k); }
     back();
   };
@@ -132,7 +135,7 @@ export default function PhoneThrottle(p: PhoneThrottleProps) {
   };
 
   const tipText = full ? "3 IN FLIGHT"
-    : !n ? (drag ? (pos < 0 ? "Keep going up" : pos > 0 ? "Keep going down" : "") : `Tap: boost ${p.buyLabel}`)
+    : !n ? (drag ? (pos < 0 ? "Keep going up" : pos > 0 ? "Keep going down" : "") : used ? "" : "Slide up to buy")
     : n.side === "buy" ? (p.boostDisabled ? p.boostTitle || "Can't boost" : p.buyOver?.[n.i] ? "WALLET LIMIT: LET GO FOR MAX" : `LET GO TO BUY ${p.buyOpts[n.i]}`)
     : p.dumpDisabled ? "NO BAG YET" : `LET GO TO SELL ${p.sellFracs[n.i] >= 0.999 ? "ALL" : p.sellOpts[n.i]}`;
   const line = p.hint || p.warn || "";
@@ -167,7 +170,7 @@ export default function PhoneThrottle(p: PhoneThrottleProps) {
       </button>
       <style jsx global>{`
         .thr { position: fixed; right: max(8px, env(safe-area-inset-right, 0px)); bottom: var(--ph-bar-bottom, 24px); z-index: 40; width: 128px;
-          height: clamp(280px, calc(100dvh - var(--ph-radio-top, 330px) - var(--ph-bar-bottom, 24px) - 60px), 440px);
+          height: clamp(280px, calc(100dvh - var(--ph-feed-top, 260px) - var(--ph-bar-bottom, 24px) - 116px), 520px);
           font-family: var(--dsc-font-game, var(--font-barlow-condensed), 'Barlow Condensed', 'Arial Narrow', sans-serif); touch-action: none; pointer-events: none; }
         .thr-track { position: absolute; right: 14px; top: 0; bottom: 0; width: 38px; border-radius: 19px; background: rgba(10,12,24,.72); border: 2px solid rgba(255,255,255,.3); overflow: hidden; box-sizing: border-box; }
         .thr-up, .thr-dn { position: absolute; left: 0; right: 0; }

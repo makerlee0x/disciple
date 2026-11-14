@@ -252,7 +252,7 @@ export default function PhoneHud() {
           </span>
         </div>
         <div ref={headRef} data-testid="phone-header" style={{ position: "fixed", left: 12, right: 12, top: L.top + 58, height: chartBig ? 200 : 104, zIndex: 34, transition: "height .25s ease" }}>
-          <PhoneChart tf={chartTf} onTf={setChartTf} big={chartBig} onBig={() => setChartBig((b) => !b)} entry={pnl?.entryMcap ?? null} ticker={ticker} badge={badge} />
+          <PhoneChart tf={chartTf} onTf={setChartTf} big={chartBig} onBig={() => setChartBig((b) => !b)} entry={pnl?.entryMcap ?? null} ticker={ticker} badge={null} />
         </div>
         <nav data-testid="phone-side" aria-label="Flight tools" style={{ position: "fixed", left: 12, top: L.feedTop + 52, zIndex: 35, display: "flex", flexDirection: "column", gap: 8 }}>
           <button type="button" data-testid="phone-handle" aria-label="Open holders and chart" title="Holders · chart"

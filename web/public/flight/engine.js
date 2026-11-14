@@ -1102,10 +1102,11 @@ function drawWingmen(){ if(!S.wing.size&&!wingExtra()) return; const im=IMG.rock
     ctx.globalCompositeOperation='source-over';
     if(ok){ const iw=h*im.naturalWidth/im.naturalHeight; ctx.globalAlpha=0.92; ctx.drawImage(im,-iw/2,-h*0.96,iw,h); ctx.globalAlpha=1; }
     ctx.restore();
-    if(!CLEAN){ const tag=S.t-w.tagT<1.6?w.tag:'', lab=w.peel!=null?nameOf(w.trader)+' · DUMPING':nameOf(w.trader)+(tag?' · '+tag:'');
+    const thrL=window.__phoneHud&&window.__phoneHud.thr, tag0=S.t-w.tagT<1.6?w.tag:'';   /* phone throttle layout (maker: "the mockup looks way cleaner"): a wingman is named only while it trades */
+    if(!CLEAN&&(!thrL||tag0||w.peel!=null)){ const tag=tag0, lab=w.peel!=null?nameOf(w.trader)+' · DUMPING':nameOf(w.trader)+(tag?' · '+tag:'');
       ctx.font=GF(13,700); ctx.textAlign='center'; ctx.lineWidth=3; ctx.lineJoin='round'; ctx.strokeStyle='rgba(8,9,20,.75)'; ctx.strokeText(lab,w.x,w.y-h-6);
       ctx.fillStyle=w.peel!=null||tag?'#FF8AB0':`rgb(${c})`; ctx.fillText(lab,w.x,w.y-h-6); } }
-  const more=wingExtra(); if(more&&!CLEAN){ const t='+'+more+' MORE ABOARD'; ctx.font=GF(14,700); const tw=ctx.measureText(t).width+22, px=W/2, py=window.__phoneHud&&window.__phoneHud.thr?(S.ry||ROCKET_Y)-150:Math.max(70,(S.ry||ROCKET_Y)-0.5*H);   /* phone throttle layout: just over the nose, clear of the top row + chart card */
+  const more=wingExtra(); if(more&&!CLEAN&&!(window.__phoneHud&&window.__phoneHud.thr)){ const t='+'+more+' MORE ABOARD'; ctx.font=GF(14,700); const tw=ctx.measureText(t).width+22, px=W/2, py=window.__phoneHud&&window.__phoneHud.thr?(S.ry||ROCKET_Y)-150:Math.max(70,(S.ry||ROCKET_Y)-0.5*H);   /* phone throttle layout: just over the nose, clear of the top row + chart card */
     ctx.fillStyle='rgba(14,16,34,.72)'; ctx.beginPath(); ctx.roundRect?ctx.roundRect(px-tw/2,py-13,tw,26,13):ctx.rect(px-tw/2,py-13,tw,26); ctx.fill();
     ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='rgba(230,232,255,.92)'; ctx.fillText(t,px,py+1); ctx.textBaseline='alphabetic'; }
   ctx.restore(); }
@@ -1900,7 +1901,7 @@ function drawTurboLines(){ const f=turboFx(); if(!f||S.displayAlt==null) return;
     if(d>0.5){ const [nx,ny]=nozzleXY(), r=40+60*d; ctx.save(); ctx.globalCompositeOperation='lighter';
       const g=ctx.createRadialGradient(nx,ny,0,nx,ny,r); g.addColorStop(0,d>0.8?'rgba(255,70,40,.55)':'rgba(255,140,40,.45)'); g.addColorStop(1,'rgba(255,90,30,0)');
       ctx.fillStyle=g; ctx.beginPath(); ctx.arc(nx,ny,r,0,Math.PI*2); ctx.fill(); ctx.restore(); } } }
-function drawEntryLine(){ const m=window.__entryMcap; if(IS_TURBO||!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
+function drawEntryLine(){ const m=window.__entryMcap; if(IS_TURBO||(window.__phoneHud&&window.__phoneHud.thr)||!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
   const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle='rgba(242,193,78,.5)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;   /* brand gold: where YOU boarded */
   const thr=window.__phoneHud&&window.__phoneHud.thr, x0=thr?64:0, x1=thr?W-150:W;   /* phone throttle layout: only the open sky between the icon column and the lever */
   ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=up?'#F2C14E':'#FF9CC4'; ctx.font=GF(13,700); if('letterSpacing' in ctx) ctx.letterSpacing='1px';
