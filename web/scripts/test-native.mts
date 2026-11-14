@@ -98,7 +98,14 @@ test("push devices: a browser and the app share one wallet; removing one keeps t
   assert.equal((await P.subsOf(W)).length, 2);
   await P.unsubscribe(W, { apns: TOKEN });
   assert.deepEqual(await P.subsOf(W), [{ endpoint: EP }]);
-  assert.equal(await kv().get(`push:ep:${(await import("node:crypto")).createHash("sha256").update(EP).digest("hex")}`), W);
+  const epKey = `push:ep:${(await import("node:crypto")).createHash("sha256").update(EP).digest("hex")}`;
+  assert.equal(await kv().get(epKey), W);
+  // cleanup after a 410 passes the stored device object: the endpoint→wallet capability must go too
+  assert.deepEqual(P.readDevice({ endpoint: EP }), { endpoint: EP });
+  await P.unsubscribe(W, { endpoint: EP });
+  assert.deepEqual(await P.subsOf(W), []);
+  assert.equal(await kv().get(epKey), null);
+  assert.equal(await P.latestFor(EP), null);
 });
 
 test("delete account: wipes name, profile and alerts for every wallet, then deletes the Privy user", async () => {

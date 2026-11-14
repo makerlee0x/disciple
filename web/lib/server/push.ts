@@ -37,10 +37,11 @@ export async function subsOf(w: string, s: Kv = kv()): Promise<PushDevice[]> { r
 export async function prefsOf(w: string, s: Kv = kv()): Promise<PushPrefs> { return readPrefs(parse(await s.get(K.prefs(w.toLowerCase())))); }
 export async function setPrefs(w: string, p: unknown, s: Kv = kv()): Promise<PushPrefs> { const v = readPrefs(p); await s.set(K.prefs(w.toLowerCase()), JSON.stringify(v)); return v; }
 
-/** A browser subscription (endpoint string) or the iPhone app ({ apns, env }). */
+/** A browser subscription (endpoint string or { endpoint }) or the iPhone app ({ apns, env }). */
 export function readDevice(v: unknown): PushDevice | null {
   if (validEndpoint(v)) return { endpoint: v };
-  const o = v as { apns?: unknown; env?: unknown } | null;
+  const o = v as { endpoint?: unknown; apns?: unknown; env?: unknown } | null;
+  if (o && typeof o === "object" && validEndpoint(o.endpoint)) return { endpoint: o.endpoint };
   if (o && typeof o === "object" && validApnsToken(o.apns)) return { apns: o.apns, env: o.env === "sandbox" ? "sandbox" : "production" };
   return null;
 }
@@ -57,7 +58,11 @@ export async function subscribe(walletIn: string, device: unknown, s: Kv = kv())
   return true;
 }
 export async function unsubscribe(walletIn: string, device: unknown, s: Kv = kv()) {
-  const d = typeof device === "string" ? ({ endpoint: device } as WebDevice) : readDevice(device);
+  // a stored device object (cleanup after a 404/410), an endpoint string, or { apns }; strings that aren't valid endpoints
+  // are still matched exactly so an old bad entry can always be removed
+  const d = typeof device === "string" ? ({ endpoint: device } as WebDevice)
+    : device && typeof device === "object" && typeof (device as WebDevice).endpoint === "string" ? ({ endpoint: (device as WebDevice).endpoint } as WebDevice)
+    : readDevice(device);
   if (!d) return;
   const w = walletIn.toLowerCase();
   await s.set(K.subs(w), JSON.stringify((await subsOf(w, s)).filter((x) => !sameDevice(x, d))));
