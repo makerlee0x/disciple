@@ -61,7 +61,7 @@ export interface Deployment {
   trampWallManager: Address;
   /** Read-only MarketLens add-on: live v4 mcap/price for graduated coins (curve mcapNow freezes post-grad). */
   marketLens: Address;
-  /** v4: PVE login gate (EIP-712 'DisciplePVE' v1 attestations, lib/pve.ts). Zero ⇒ PVE buys unavailable. */
+  /** LoginGate address the Launchpad writes into curves. v6 curves do not read it on buys (login is checked off-chain). */
   loginGate: Address;
   /** v4: USDG referral-gate escrow (ReferralRegistry.depositHook). */
   usdgDepositNotifier: Address;
@@ -118,32 +118,33 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     paymaster: addr(process.env.NEXT_PUBLIC_RH_PAYMASTER), // PREPAY_VERSION=5 + stake checked server-side; no legacy default
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RH_FROM_BLOCK || "0"),
   },
-  // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json (v5 + wave #241 LoginGate, paymaster v5
-  // 0x5C3f…1136 / session policy 1.4.3 0xD2cF…E4d2 (v4 + 1.4.2 retired Nov 9); startBlock 142064001). Prod sets every NEXT_PUBLIC_RHT_* in Vercel env; these literals are the
+  // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json (v6, deployed Nov 11–12; v6 startBlock
+  // 152153375). fromBlock stays at the v5 start (142064001) so older private-launch announcements and claims are still
+  // found. Gas is paid by the gasless relayer (no paymaster / session policy). Prod sets every NEXT_PUBLIC_RHT_* in Vercel env; these literals are the
   // fallbacks (and are inlined into the bundle), so they must match the live stack too.
   // After a redeploy, edit these defaults or set NEXT_PUBLIC_RHT_* env. Do NOT send new launches to the old v2 stack (SEC-01).
   [robinhoodTestnet.id]: {
-    launchpad: addr(process.env.NEXT_PUBLIC_RHT_LAUNCHPAD, "0x8a92e51940909424b3aacefff99b4834588c0988"),
-    hook: addr(process.env.NEXT_PUBLIC_RHT_HOOK, "0x2ac264a620edd05ba78381c51539650c40e2e8c4"),
-    router: addr(process.env.NEXT_PUBLIC_RHT_ROUTER, "0x688160633b22012717661545df6299d3d3174ad2"),
-    gaslessRouter: addr(process.env.NEXT_PUBLIC_RHT_GASLESS_ROUTER, "0x0C21C3B9bb01A8245Cd6B9659c727aFfACC46D7e"), // gasless DiscipleRouter (Permit2 witness), Launchpad-trusted Nov 9
-    feeRouter: addr(process.env.NEXT_PUBLIC_RHT_FEE_ROUTER, "0xa5aaddd75f1bc3b8fb3ecc8845eab0cfa5faed8c"),
-    referralRegistry: addr(process.env.NEXT_PUBLIC_RHT_REFERRAL_REGISTRY, "0xfe529086b25c4e0724b88780e5ba9b4ace785aaf"),
-    lockedLP: addr(process.env.NEXT_PUBLIC_RHT_LOCKED_LP, "0x61efff9f0dbdd818317858074bcf80e4dcc39646"),
-    quotePricer: addr(process.env.NEXT_PUBLIC_RHT_QUOTE_PRICER, "0xbb757b8270a3fff15db2ff7694508a4ea4488078"),
-    quoteProbe: addr(process.env.NEXT_PUBLIC_RHT_QUOTE_PROBE, "0xf7a91d5d32cccb053dfbd8a56ddacc6fab7a96c9"),
-    migration: addr(process.env.NEXT_PUBLIC_RHT_MIGRATION, "0x32790b0a28871984300f3bc75e1b3a8ea7b8bb1a"),
-    antiSnipe: addr(process.env.NEXT_PUBLIC_RHT_ANTI_SNIPE), // v5 has no AntiSnipe contract (snipe escrow lives in the curve) ⇒ zero
-    trampWallManager: addr(process.env.NEXT_PUBLIC_RHT_TRAMP_WALL_MANAGER, "0xe9e98e149b43ff20dc7db665eefc387a8926e618"),
-    marketLens: addr(process.env.NEXT_PUBLIC_RHT_MARKET_LENS, "0xd89da17e3aee9a7b1cba359666f0feb5382421fa"),
-    loginGate: addr(process.env.NEXT_PUBLIC_RHT_LOGIN_GATE, "0xebDD6Ad15a6B838eE15Dc7d5871F09EFB284317D"), // wave #241 global LoginGate
-    usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_RHT_USDG_DEPOSIT_NOTIFIER, "0xf7b3c09cae8c914530424c5882a24a4160013e9c"),
+    launchpad: addr(process.env.NEXT_PUBLIC_RHT_LAUNCHPAD, "0x7918167753b8ec0be07fb9e8c3061bc3516bd608"),
+    hook: addr(process.env.NEXT_PUBLIC_RHT_HOOK, "0xff68befdf795a2fa574e4a891fa066f59533a8c4"),
+    router: addr(process.env.NEXT_PUBLIC_RHT_ROUTER, "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"),
+    gaslessRouter: addr(process.env.NEXT_PUBLIC_RHT_GASLESS_ROUTER, "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"), // v6 DiscipleRouter (also the Permit2-witness gasless router)
+    feeRouter: addr(process.env.NEXT_PUBLIC_RHT_FEE_ROUTER, "0x7db57795ee2611881890b53f15f94fbd598bcf26"),
+    referralRegistry: addr(process.env.NEXT_PUBLIC_RHT_REFERRAL_REGISTRY, "0x2c933d015815169900074e202c855276bbc0cc3a"),
+    lockedLP: addr(process.env.NEXT_PUBLIC_RHT_LOCKED_LP, "0x9e8106897e96739388c4582adfa92cf31538125e"),
+    quotePricer: addr(process.env.NEXT_PUBLIC_RHT_QUOTE_PRICER, "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"),
+    quoteProbe: addr(process.env.NEXT_PUBLIC_RHT_QUOTE_PROBE, "0x551a88430144cd08a8f5fd4d7a2e630ca64b6381"),
+    migration: addr(process.env.NEXT_PUBLIC_RHT_MIGRATION, "0x4bf424a07ccfd94825695ee1a82ccba827f2f600"),
+    antiSnipe: addr(process.env.NEXT_PUBLIC_RHT_ANTI_SNIPE), // v5/v6 have no AntiSnipe contract (snipe escrow lives in the curve) ⇒ zero
+    trampWallManager: addr(process.env.NEXT_PUBLIC_RHT_TRAMP_WALL_MANAGER, "0x3d851837f1835b95b387cba050a6a9dfe6bbbb06"),
+    marketLens: addr(process.env.NEXT_PUBLIC_RHT_MARKET_LENS, "0x60f774706e0b275c47cca610d3e9123128baa880"),
+    loginGate: addr(process.env.NEXT_PUBLIC_RHT_LOGIN_GATE, "0xd19e138851fb4de489a4de81531f813081a143a7"), // v6 LoginGate (stored in v6 curves; not read on buys)
+    usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_RHT_USDG_DEPOSIT_NOTIFIER, "0x8cfc1917699aaa0f87d6bbee3ad459c285fd46bf"),
     curveFeeVault: addr(process.env.NEXT_PUBLIC_RHT_CURVE_FEE_VAULT),
     ...RH_V4,
-    defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xF5eB226F7f0890c36A06Cbd0Ff843292b7b1a88C"), // test STRATEGY (18 dec, v5 tokens.STRATEGY)
-    usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D"), // test USDG (6 dec, v5 tokens.USDG)
+    defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xF5eB226F7f0890c36A06Cbd0Ff843292b7b1a88C"), // test STRATEGY (18 dec, tokens.STRATEGY, reused by v6)
+    usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D"), // test USDG (6 dec, tokens.USDG, reused by v6)
     usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_RHT_USDG_DECIMALS, 6),
-    paymaster: addr(process.env.NEXT_PUBLIC_RHT_PAYMASTER), // v5 gas-credit paymaster via env (0x5C3f…1136); no v4 fallback
+    paymaster: addr(process.env.NEXT_PUBLIC_RHT_PAYMASTER), // env only, no fallback (gas is paid by the gasless relayer)
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "142064001"),
   },
   [anvil.id]: {

@@ -451,9 +451,11 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       };
       addEventListener("disciple:op", onSent);
       if (side === "buy") pendingBuyUsd.current += usd;
-      const real = runTrade(side, usd, { ...o, onPress: (id) => { pid = id; flow.bind(id); tapPending(id, side); } }).finally(() => {
+      let landed = false;   // a refused / failed boost never filled: give its room back at once (no stale "Boost max $0.97")
+      const real = runTrade(side, usd, { ...o, onPress: (id) => { pid = id; flow.bind(id); tapPending(id, side); } })
+        .then((r) => { landed = r.ok || !!r.pending || !!r.unknown; return r; }).finally(() => {
         removeEventListener("disciple:op", onSent);
-        if (side === "buy") setTimeout(() => { pendingBuyUsd.current = Math.max(0, pendingBuyUsd.current - usd); }, 1600);   // after the balance re-read
+        if (side === "buy") setTimeout(() => { pendingBuyUsd.current = Math.max(0, pendingBuyUsd.current - usd); }, landed ? 1600 : 0);   // after the balance re-read
       });
       let first: { r: BridgeResult; early: boolean };
       try { first = await Promise.race([real.then((r) => ({ r, early: false })), earlyP.then((r) => ({ r, early: true }))]); }
@@ -810,7 +812,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   };
   const alertStrip = alert && alert.a.kind === "walletcap" ? (
     <div role="alertdialog" aria-label="trade alert" data-testid="trade-alert" data-kind={alert.a.kind}
-      style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: phone ? "calc(var(--ph-bar-bottom, 24px) + 108px)" : "calc(var(--ap-tb-h, 80px) + 16px)", zIndex: 40,
+      style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: phone ? "calc(var(--ph-bar-bottom, 24px) + 108px)" : "calc(var(--ap-tb-h, 80px) + 16px)", zIndex: phone ? 48 : 40,   // phone: above the open crew feed (46)
         display: "flex", flexDirection: phone ? "column" : "row", gap: phone ? 10 : 8, alignItems: phone ? "stretch" : "center", boxSizing: "border-box",
         width: phone ? "calc(100vw - 24px)" : undefined, maxWidth: "min(92vw, 520px)", padding: phone ? "16px 16px 14px" : "8px 10px", borderRadius: phone ? 16 : 12,
         background: "rgba(18,19,39,.97)", border: "1px solid #F0307F", boxShadow: phone ? "0 16px 40px rgba(0,0,0,.45)" : undefined, color: "#F2F3F7", fontSize: phone ? 14 : 13, lineHeight: 1.4, fontFamily: HUD.ui }}>

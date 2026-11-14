@@ -239,7 +239,7 @@
 
 /* mobile: portrait plate window (plate x 530…1020, y -40…1020), anchored to the top of the stage */
 @media (max-width: 760px) {
-  .pad { width: 100cqw; aspect-ratio: 828 / 1792; top: 0; }
+  .pad { width: 100cqw; aspect-ratio: 828 / 1792; top: var(--pad-shift, 0px); }
   .plate {
     --u: calc(199.2cqw / 1070);
     --seat-y: 118.6cqw; /* 54.81% of 1792/828 */
@@ -288,7 +288,7 @@
   top: calc(var(--hero-h, 560px) * .8 - var(--fw) * .4227);
 }
 @media (max-width: 760px) {
-  .pad.card { left: 0; top: 0; }
+  .pad.card { left: 0; top: var(--pad-shift, 0px); }
 }
 
 /* Turbo pre-launch pad (components/turbo): the desktop registration at every width, the seat placed at (--ax, --ay) of

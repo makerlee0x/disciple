@@ -66,7 +66,11 @@
 /* mobile: the card's top is the seated rocket (portrait plate, seat = 118.6% of the card width); door one flows below it */
 @media (max-width: 760px) {
   .hero { flex-basis: 100%; height: auto; }
-  .stage { position: relative; height: auto; padding: calc(118.6% + 24px) 0 22px; overflow: hidden; background: var(--dsc-sky-ink); }
+  /* the title, line and buttons fit above the tab bar on the first screen (maker 2026-11-13: "the hero title is cut off"):
+     the art above the panel is at most what the small viewport (Safari bars shown) leaves, and the plate slides up to match */
+  .stage { --hero-cap: max(220px, calc(100svh - var(--lb-bar-h, 60px) - var(--ap-safe-top, 0px) - 64px - var(--ap-safe-bottom, 0px) - 340px));
+    --pad-shift: min(0px, calc(var(--hero-cap) - 118.6cqw - 24px));
+    position: relative; height: auto; padding: min(calc(118.6% + 24px), var(--hero-cap)) 0 22px; overflow: hidden; background: var(--dsc-sky-ink); }
   .scrim { background: linear-gradient(0deg, rgba(11, 12, 14, 1) 0, rgba(11, 12, 14, .9) 260px, rgba(11, 12, 14, .55) 360px, rgba(11, 12, 14, 0) 440px); }
   .panel { position: relative; left: auto; right: auto; top: auto; bottom: auto; width: auto; margin: 0 18px; gap: 14px; }
   .title { font-size: 60px; }

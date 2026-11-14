@@ -39,7 +39,7 @@ export type GradReads = {
   usdg?: string;
   /** DisciplePaymaster: a USDG-gas op's leading usdg.approve(paymaster) is allowed only when the op names it. */
   paymaster?: string;
-  /** Optional grad-buy prefix targets (protocol-viem referralCall / pve ensurePveLogin): only these addresses count. */
+  /** Optional grad-buy prefix targets (protocol-viem referralCall): only these addresses count. */
   referralRegistry?: string;
   loginGate?: string;
   /** Launchpad.curveOf(token) (router path, step 1). */

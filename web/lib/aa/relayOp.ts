@@ -5,7 +5,7 @@
  * bundle) may still have landed, so the relay returns both ids in JSON-RPC error.data and the client keeps them, looks
  * the op up on-chain and shows the right id. Never an id from an earlier op: the client only trusts a hash that matches
  * the op it just signed.
- * Shared by server (lib/server/fastRelay, selfBundler, /api/bundler) and client (lib/aa/mav2). No server-only imports.
+ * Shared by server (lib/server/fastRelay) and client. No server-only imports.
  */
 import type { Hex } from "viem";
 

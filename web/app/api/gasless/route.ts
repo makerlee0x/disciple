@@ -4,7 +4,7 @@ import { kv } from "@/lib/server/kv";
 import { clientIp } from "@/lib/server/limits";
 import { RelayMetrics } from "@/lib/server/relayMetrics";
 import { flushRelayTrust } from "@/lib/server/fastRelay";
-import { relayGaslessLogin, relayGaslessTrade, requireGaslessMode, warmGasless } from "@/lib/server/gaslessRelay";
+import { relayGaslessTrade, requireGaslessMode, warmGasless } from "@/lib/server/gaslessRelay";
 import { quoteGaslessWithdraw, relayGaslessWithdraw } from "@/lib/server/gaslessWithdrawRelay";
 import { quoteGaslessAction, relayGaslessAction } from "@/lib/server/gaslessActionRelay";
 import { relayGaslessAnonLaunch } from "@/lib/server/gaslessAnonLaunchRelay";
@@ -12,7 +12,7 @@ import { relayGaslessAnonLaunch } from "@/lib/server/gaslessAnonLaunchRelay";
  * POST /api/gasless — gasless swaps (flow/gasless-permit2). Admitted when the resolved mode is gasless
  * (the default in every environment, including production); otherwise every method is refused notSent.
  * Methods: disciple_gaslessTrade [request] (needs `privy-id-token`, the Privy identity token; the session's wallet must
- * be the signer) · disciple_gaslessLogin [{wallet, expiry, signature}] (OFF unless GASLESS_LOGIN_RELAY=1; TODO delete) ·
+ * be the signer) ·
  * disciple_gaslessWarm [wallet] · disciple_gaslessWithdrawQuote [{amount?, signer?}] (no signature) ·
  * disciple_gaslessWithdraw [request] (same Privy / revoke / strike gate as a trade) ·
  * disciple_gaslessActionQuote [{kind, callCount?, signer?}] (no signature) ·
@@ -35,7 +35,7 @@ function identityToken(req: Request): string | null {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const METHODS = new Set(["disciple_gaslessTrade", "disciple_gaslessLogin", "disciple_gaslessWarm", "disciple_gaslessWithdrawQuote", "disciple_gaslessWithdraw", "disciple_gaslessActionQuote", "disciple_gaslessAction", "disciple_gaslessAnonLaunch"]);
+const METHODS = new Set(["disciple_gaslessTrade", "disciple_gaslessWarm", "disciple_gaslessWithdrawQuote", "disciple_gaslessWithdraw", "disciple_gaslessActionQuote", "disciple_gaslessAction", "disciple_gaslessAnonLaunch"]);
 const GASLESS_IP_LIMIT = 120;   // same relay:ip window as the self-bundler route (per minute)
 
 export async function POST(req: Request) {
@@ -56,9 +56,7 @@ export async function POST(req: Request) {
     if (body.method === "disciple_gaslessWarm") { await ipGate; return NextResponse.json({ jsonrpc: "2.0", id, result: await warmGasless(body.params[0], metrics) }); }
     if (body.method === "disciple_gaslessWithdrawQuote") { await ipGate; return NextResponse.json({ jsonrpc: "2.0", id, result: await quoteGaslessWithdraw(body.params[0]) }); }
     if (body.method === "disciple_gaslessActionQuote") { await ipGate; return NextResponse.json({ jsonrpc: "2.0", id, result: await quoteGaslessAction(body.params[0]) }); }
-    const result = body.method === "disciple_gaslessLogin"
-      ? await relayGaslessLogin(body.params[0], { ipGate, metrics })
-      : body.method === "disciple_gaslessWithdraw"
+    const result = body.method === "disciple_gaslessWithdraw"
         ? await relayGaslessWithdraw(body.params[0], { ipGate, metrics, idToken: identityToken(req) })
         : body.method === "disciple_gaslessAction"
           ? await relayGaslessAction(body.params[0], { ipGate, metrics, idToken: identityToken(req) })

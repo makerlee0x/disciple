@@ -47,7 +47,7 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
     ]).then(([name, symbol, pair]) => { if (alive) setChain({ name: String(name), symbol: String(symbol), pair: pair ? String(pair) : undefined }); }).catch(() => undefined);
     return () => { alive = false; };
   }, [needRead, address]);
-  // Legacy / archived (lee option B): curve.loginGate() ≠ live LoginGate — badge only; gated buys blocked in protocol-viem.
+  // Legacy / archived (lee option B): curve.loginGate() ≠ live LoginGate — badge only; trades are never blocked by it.
   useEffect(() => {
     setLegacy(false);
     if (demo || !isDeployed() || !isAddress(address)) return;

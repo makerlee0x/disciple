@@ -46,28 +46,44 @@ export default function LobbyTopBar() {
     return () => document.body.classList.remove("lobby");
   }, []);
 
+  // phones: hide the bottom tab bar while typing. With the iOS keyboard up, fixed bars ride up into the page and the
+  // header scrolls away (maker 2026-11-13: "it floated all the way up to the top")
+  useEffect(() => {
+    const field = (t: EventTarget | null) => t instanceof HTMLElement && (t.matches("input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=button]):not([type=submit]), textarea, select") || t.isContentEditable);
+    const on = (e: FocusEvent) => { if (field(e.target)) document.documentElement.classList.add("lb-typing"); };
+    const off = () => { window.setTimeout(() => { if (!field(document.activeElement)) document.documentElement.classList.remove("lb-typing"); }, 50); };
+    addEventListener("focusin", on); addEventListener("focusout", off);
+    return () => { removeEventListener("focusin", on); removeEventListener("focusout", off); document.documentElement.classList.remove("lb-typing"); };
+  }, []);
+
   const isOn = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
   const tabs = TABS.filter((t) => !t.you || you);
 
-  return (
+  const nav = (dock: boolean) => (
+    <nav className={`lb-tabs${dock ? " lb-dock" : " lb-top"}`} aria-label="Main">
+      {tabs.map((t) => (
+        <Link key={t.key} href={t.href} className={`${isOn(t.href) ? "on" : ""}${t.outPhone ? " lb-outphone" : ""}`} aria-current={isOn(t.href) ? "page" : undefined} data-testid={t.key === "hiw" && !dock ? "topbar-hiw" : undefined}>
+          <Icon name={t.icon} size={22} className="lb-ico" />
+          <span className="lb-lbl">{t.label}</span>
+        </Link>
+      ))}
+    </nav>
+  );
+
+  return (<>
     <header className={`lb-bar${you ? "" : " lb-out"}`} data-testid="lobby-topbar">
       <Link href="/" className="lb-brand" aria-label="DISCIPLE lobby">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/brand/disciple-mark-light.svg" alt="" width={28} height={28} />
         <span className="lb-word">DISCIPLE</span>
       </Link>
-      <nav className="lb-tabs" aria-label="Main">
-        {tabs.map((t) => (
-          <Link key={t.key} href={t.href} className={`${isOn(t.href) ? "on" : ""}${t.outPhone ? " lb-outphone" : ""}`} aria-current={isOn(t.href) ? "page" : undefined} data-testid={t.key === "hiw" ? "topbar-hiw" : undefined}>
-            <Icon name={t.icon} size={22} className="lb-ico" />
-            <span className="lb-lbl">{t.label}</span>
-          </Link>
-        ))}
-      </nav>
+      {nav(false)}
       {!you && (
         <Link href="/play" prefetch={false} className="lb-playnow" data-testid="topbar-play">Play now</Link>
       )}
       <LevelChip toastOnly />
     </header>
-  );
+    {/* phones: the bottom tab bar lives outside the header, so nothing about the header (scroll, compositing) can move it */}
+    <div className={you ? "" : "lb-out"} style={{ display: "contents" }}>{nav(true)}</div>
+  </>);
 }

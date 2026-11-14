@@ -79,10 +79,10 @@ test("portfolio: 24h price = last fill at/before now−24h, else launch price; t
   assert.ok(Math.abs(p.totalUsd - 279.46) < 1e-9 && Math.abs(p.change24hUsd - 3) < 1e-9);
 });
 
-test("loginGate stays the live testnet gate; paymaster v5 has no hardcoded address", async () => {
+test("loginGate fallback is the v6 testnet gate; paymaster has no hardcoded address", async () => {
   const { DEPLOYMENTS } = await import("../lib/chains");
   const d = DEPLOYMENTS[46630];
-  assert.equal(d.loginGate.toLowerCase(), "0xebdd6ad15a6b838ee15dc7d5871f09efb284317d");
+  assert.equal(d.loginGate.toLowerCase(), "0xd19e138851fb4de489a4de81531f813081a143a7");
   assert.equal(d.paymaster.toLowerCase(), "0x0000000000000000000000000000000000000000");
   assert.equal(DEPLOYMENTS[4663].usdg.toLowerCase(), "0x5fc5360d0400a0fd4f2af552add042d716f1d168");
   assert.equal(d.usdg.toLowerCase(), "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d");
@@ -92,7 +92,7 @@ test("legacyGate: live gate matches itself; different gate is legacy", async () 
   const { _resetLegacyGateCache, isLegacyCurve, liveLoginGate } = await import("../lib/legacyGate");
   _resetLegacyGateCache();
   const live = liveLoginGate().toLowerCase();
-  assert.ok(live.startsWith("0xebdd"));
+  assert.ok(live.startsWith("0xd19e"));
   const pc = {
     readContract: async ({ functionName }: { functionName: string }) => {
       if (functionName !== "loginGate") throw new Error(functionName);

@@ -12,7 +12,7 @@ import { erc2612PermitAbi, multicall3Abi } from "../lib/trade/gaslessWithdraw";
 import { GASLESS_GAS_LIMIT } from "../lib/trade/gaslessPermit2";
 
 const usdg = "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D" as Address;
-const launcher = "0x73a2a6e049aa21A5C440F3bc358dE37FE3f7C509" as Address;
+const launcher = "0x526784706e5ef369412abe65213ed65256182c6b" as Address; // v6 AnonLauncher
 const quote = "0x1111111111111111111111111111111111111111" as Address;
 const stealth = "0x2222222222222222222222222222222222222222" as Address;
 const NOW = 1_000_000;
