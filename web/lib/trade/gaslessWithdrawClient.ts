@@ -6,7 +6,8 @@ import { type Address, type Hex, type LocalAccount, type PublicClient } from "vi
 import { ACTIVE_CHAIN } from "../chains";
 import { bigintToDecimal, GASLESS_MAX_DEADLINE_SEC, jsonSafe, PERMIT2, type Permit } from "./gaslessPermit2";
 import { permitFor, permit2NonceBook, GaslessError, type GaslessSendResult } from "./gaslessClient";
-import { transferTypedData, type GaslessWithdrawRequest } from "./gaslessWithdraw";
+import { transferTypedData, type AnyWithdrawRequest } from "./gaslessWithdraw";
+import { MULTICALL3_ADDR, withdrawTypedData } from "./permitForwarder";
 
 export type WithdrawQuote = {
   fee: bigint;
@@ -40,12 +41,22 @@ export async function quoteGaslessWithdraw(input: { amount?: bigint; signer?: Ad
   return parseWithdrawQuote(j.result);
 }
 
-/** Build + sign one gasless withdraw request (no network beyond reads / the optional EIP-2612 permit). */
-export async function signGaslessWithdraw(pc: PublicClient, owner: LocalAccount, a: { amount: bigint; destination: Address; quote: WithdrawQuote; nowSec?: number }): Promise<GaslessWithdrawRequest> {
+/**
+ * Build + sign one gasless withdraw request (no network beyond reads / the optional EIP-2612 permit). The quote's spender
+ * decides the shape: the forwarder (one signature whose witness fixes destination, fee and fee recipient) or, on testnet
+ * before it is deployed, the old two Multicall3-spender transfers.
+ */
+export async function signGaslessWithdraw(pc: PublicClient, owner: LocalAccount, a: { amount: bigint; destination: Address; quote: WithdrawQuote; nowSec?: number }): Promise<AnyWithdrawRequest> {
   const now = BigInt(a.nowSec ?? Math.floor(Date.now() / 1000));
   const deadline = now + BigInt(GASLESS_MAX_DEADLINE_SEC - 30);
   const fee = a.quote.fee, net = a.amount - fee;
   const book = permit2NonceBook(pc);
+  if (a.quote.spender && a.quote.spender.toLowerCase() !== MULTICALL3_ADDR.toLowerCase()) {
+    const [nonce, approval] = await Promise.all([book.next(owner.address), permitFor(pc, owner, a.quote.usdg, deadline)]);
+    const permit: Permit = { permitted: { token: a.quote.usdg, amount: a.amount }, nonce, deadline };
+    const signature = await owner.signTypedData(jsonSafe(withdrawTypedData(ACTIVE_CHAIN.id, a.quote.spender, permit, { to: a.destination, fee, feeTo: a.quote.feeTo })));
+    return { signer: owner.address, destination: a.destination, amount: a.amount, fee, feeTo: a.quote.feeTo, permit, signature, ...(approval ? { approval } : {}) };
+  }
   const [n1, approval] = await Promise.all([book.next(owner.address), permitFor(pc, owner, a.quote.usdg, deadline)]);
   const n2 = await book.next(owner.address);
   const netPermit: Permit = { permitted: { token: a.quote.usdg, amount: net }, nonce: n1, deadline };
@@ -57,10 +68,10 @@ export async function signGaslessWithdraw(pc: PublicClient, owner: LocalAccount,
   return { signer: owner.address, destination: a.destination, amount: a.amount, fee, feeTo: a.quote.feeTo, netPermit, feePermit, netSignature, feeSignature, ...(approval ? { approval } : {}) };
 }
 
-const json = (q: GaslessWithdrawRequest) => JSON.stringify(q, bigintToDecimal);
+const json = (q: AnyWithdrawRequest) => JSON.stringify(q, bigintToDecimal);
 
 /** POST one signed withdraw; resolves with the receipt or throws GaslessError (data.notSent ⇒ nothing sent). */
-export async function submitGaslessWithdraw(q: GaslessWithdrawRequest, url = "/api/gasless", fetchFn: typeof fetch = fetch, idToken?: string | null): Promise<GaslessSendResult> {
+export async function submitGaslessWithdraw(q: AnyWithdrawRequest, url = "/api/gasless", fetchFn: typeof fetch = fetch, idToken?: string | null): Promise<GaslessSendResult> {
   const headers: Record<string, string> = { "content-type": "application/json", ...(idToken ? { "privy-id-token": idToken } : {}) };
   const r = await fetchFn(url, { method: "POST", headers, body: `{"jsonrpc":"2.0","id":1,"method":"disciple_gaslessWithdraw","params":[${json(q)}]}` });
   const j = await r.json().catch(() => ({})) as { result?: { txHash: Hex; success: boolean; receipt: { logs: GaslessSendResult["logs"] }; gasUsed: number; server?: unknown }; error?: { message?: string; data?: GaslessError["data"] } };

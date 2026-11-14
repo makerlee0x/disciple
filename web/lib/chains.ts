@@ -76,6 +76,12 @@ export interface Deployment {
    * (1) or to buy-and-burn (2) go through it, and its `route` later moves those fees. Zero ⇒ only "keep" is offered.
    */
   creatorFeeHarvest: Address;
+  /**
+   * DisciplePermitForwarder (contracts/src/addons/DisciplePermitForwarder.sol): the Permit2 spender for gasless withdrawals,
+   * relayed actions' fee and the private-launch payment, with every recipient in the signed witness. Zero ⇒ not deployed:
+   * the relays refuse to send on mainnet, and testnet keeps the old Multicall3 path (lib/trade/permitForwarder spenderFor).
+   */
+  permitForwarder: Address;
   poolManager: Address;
   v4Quoter: Address;
   stateView: Address;
@@ -117,6 +123,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_RH_USDG_DEPOSIT_NOTIFIER),
     curveFeeVault: addr(process.env.NEXT_PUBLIC_RH_CURVE_FEE_VAULT),
     creatorFeeHarvest: addr(process.env.NEXT_PUBLIC_RH_CREATOR_FEE_HARVEST),
+    permitForwarder: addr(process.env.NEXT_PUBLIC_RH_PERMIT_FORWARDER),
     ...RH_V4,
     defaultQuote: STRATEGY_TOKEN.address,
     usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
@@ -147,6 +154,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_RHT_USDG_DEPOSIT_NOTIFIER, "0x8cfc1917699aaa0f87d6bbee3ad459c285fd46bf"),
     curveFeeVault: addr(process.env.NEXT_PUBLIC_RHT_CURVE_FEE_VAULT),
     creatorFeeHarvest: addr(process.env.NEXT_PUBLIC_RHT_CREATOR_FEE_HARVEST, "0x4e94a3e9900b435b7c91d0a7cd53a22c8a9f8a03"), // v6 extraContracts.CreatorFeeHarvest
+    permitForwarder: addr(process.env.NEXT_PUBLIC_RHT_PERMIT_FORWARDER), // not deployed yet: contracts/script/DeployPermitForwarder.s.sol
     ...RH_V4,
     defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xF5eB226F7f0890c36A06Cbd0Ff843292b7b1a88C"), // test STRATEGY (18 dec, tokens.STRATEGY, reused by v6)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D"), // test USDG (6 dec, tokens.USDG, reused by v6)
@@ -160,6 +168,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     router: addr(process.env.NEXT_PUBLIC_ANVIL_ROUTER),
     gaslessRouter: addr(process.env.NEXT_PUBLIC_ANVIL_GASLESS_ROUTER),
     feeRouter: addr(process.env.NEXT_PUBLIC_ANVIL_FEE_ROUTER),
+    permitForwarder: addr(process.env.NEXT_PUBLIC_ANVIL_PERMIT_FORWARDER),
     referralRegistry: addr(process.env.NEXT_PUBLIC_ANVIL_REFERRAL_REGISTRY),
     lockedLP: addr(process.env.NEXT_PUBLIC_ANVIL_LOCKED_LP),
     quotePricer: addr(process.env.NEXT_PUBLIC_ANVIL_QUOTE_PRICER),

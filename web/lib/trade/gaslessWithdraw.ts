@@ -13,6 +13,7 @@
  */
 import { encodeFunctionData, parseAbi, type Address, type Hex } from "viem";
 import { GaslessReject, GASLESS_MAX_DEADLINE_SEC, PERMIT2, type Erc2612, type Permit } from "./gaslessPermit2";
+import { encodeForwarderWithdraw } from "./permitForwarder";
 
 /** Canonical Multicall3 (Robinhood Chain testnet 46630; same address as web/lib/server/gradBuy.ts). */
 export const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
@@ -96,6 +97,28 @@ export type GaslessWithdrawRequest = {
   approval?: Erc2612;
 };
 
+/**
+ * Forwarder withdrawal (DisciplePermitForwarder, lib/trade/permitForwarder): ONE signature for amount = net + fee whose
+ * Permit2 witness fixes the destination, fee and fee recipient. Used whenever the forwarder is deployed on the chain.
+ */
+export type ForwarderWithdrawRequest = {
+  signer: Address;
+  destination: Address;
+  amount: bigint;
+  fee: bigint;
+  feeTo: Address;
+  permit: Permit;
+  signature: Hex;
+  approval?: Erc2612;
+};
+export type AnyWithdrawRequest = GaslessWithdrawRequest | ForwarderWithdrawRequest;
+export const isForwarderWithdraw = (q: AnyWithdrawRequest): q is ForwarderWithdrawRequest => "permit" in q && !!(q as ForwarderWithdrawRequest).permit;
+
+/** Relayer tx calldata for the forwarder: DisciplePermitForwarder.withdraw (target = the forwarder). */
+export function encodeForwarderWithdrawCall(q: ForwarderWithdrawRequest): Hex {
+  return encodeForwarderWithdraw({ permit: q.permit, w: { to: q.destination, fee: q.fee, feeTo: q.feeTo }, owner: q.signer, signature: q.signature, approval: q.approval });
+}
+
 export const permit2TransferAbi = parseAbi([
   "function permitTransferFrom(((address token,uint256 amount) permitted,uint256 nonce,uint256 deadline) permit, (address to,uint256 requestedAmount) transferDetails, address owner, bytes signature)",
 ]);
@@ -155,6 +178,41 @@ const permitOf = (o: Record<string, unknown>, what: string): Permit => {
   const perm = (p.permitted ?? {}) as Record<string, unknown>;
   return { permitted: { token: addr(perm.token, `${what} token`), amount: big(perm.amount, `${what} amount`) }, nonce: big(p.nonce, `${what} nonce`), deadline: big(p.deadline, `${what} deadline`) };
 };
+
+const approvalOf = (a: any): Erc2612 => { // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (typeof a.r !== "string" || typeof a.s !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(a.r) || !/^0x[0-9a-fA-F]{64}$/.test(a.s) || (a.v !== 27 && a.v !== 28))
+    throw new GaslessReject("bad approval");
+  return { value: big(a.value, "approval value"), deadline: big(a.deadline, "approval deadline"), v: a.v, r: a.r, s: a.s };
+};
+
+/** JSON → a forwarder request (one `permit` + `signature`) or the old two-permit Multicall3 request. Shape only. */
+export function parseAnyWithdrawRequest(x: unknown): AnyWithdrawRequest {
+  const o = (x ?? {}) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (o.permit === undefined) return parseGaslessWithdrawRequest(x);
+  const q: ForwarderWithdrawRequest = {
+    signer: addr(o.signer, "signer"),
+    destination: addr(o.destination, "destination"),
+    amount: big(o.amount, "amount"),
+    fee: big(o.fee, "fee"),
+    feeTo: addr(o.feeTo, "feeTo"),
+    permit: permitOf(o.permit ?? {}, "permit"),
+    signature: sig(o.signature, "signature"),
+  };
+  if (o.approval !== undefined && o.approval !== null) q.approval = approvalOf(o.approval);
+  return q;
+}
+
+/** Same rules as checkGaslessWithdrawRequest for the one-permit forwarder request: the permit covers net + fee exactly. */
+export function checkForwarderWithdrawRequest(q: ForwarderWithdrawRequest, o: { usdg: Address; usdgDecimals: number; nowSec: number; feeTo: Address; minFee?: bigint }): void {
+  if (q.feeTo.toLowerCase() !== o.feeTo.toLowerCase()) throw new GaslessReject("fee recipient is not the relayer");
+  if (q.fee < (o.minFee ?? BigInt(0))) throw new GaslessReject("fee too low");
+  if (q.amount < minWithdrawAmount(q.fee, o.usdgDecimals)) throw new GaslessReject("amount must exceed the network fee");
+  if (q.permit.permitted.token.toLowerCase() !== o.usdg.toLowerCase()) throw new GaslessReject("permit token mismatch");
+  if (q.permit.permitted.amount !== q.amount) throw new GaslessReject("permit amount mismatch");
+  const now = BigInt(o.nowSec), max = now + BigInt(GASLESS_MAX_DEADLINE_SEC);
+  if (q.permit.deadline <= now || q.permit.deadline > max) throw new GaslessReject("deadline out of range");
+  if (q.approval && q.approval.value > BigInt(0) && q.approval.deadline <= now) throw new GaslessReject("approval expired");
+}
 
 /** JSON (bigints as decimal/hex strings) → typed request. Shape only. */
 export function parseGaslessWithdrawRequest(x: unknown): GaslessWithdrawRequest {

@@ -41,8 +41,14 @@ export const ANON_LAUNCH_TX_GAS_LIMIT = BigInt(8_500_000);
 
 export const ANON_LAUNCH_TYPE =
   "AnonLaunch(string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline,address stealthOwner,address buyRecipient,bytes ephemeralPubKey,bytes1 viewTag,uint256 maxFee,uint256 usdgIn,uint256 minQuoteIn,address refundTo,address launcher,uint8 creatorFeeDestination)";
+/**
+ * EIP-712 lists referenced structs alphabetically after the primary type, so AnonLaunch comes BEFORE TokenPermissions (the
+ * opposite of Trade, where "TokenPermissions" < "Trade"). The earlier string had them the other way round, so Permit2 hashed a
+ * different type than the one players signed (viem sorts) and rejected every relayed private launch as InvalidSigner
+ * (found 2026-11-14 while building DisciplePermitForwarder; pinned in tests/gasless-forwarder.test.ts).
+ */
 export const ANON_LAUNCH_WITNESS_TYPE =
-  `AnonLaunch witness)TokenPermissions(address token,uint256 amount)${ANON_LAUNCH_TYPE}`;
+  `AnonLaunch witness)${ANON_LAUNCH_TYPE}TokenPermissions(address token,uint256 amount)`;
 export const ANON_LAUNCH_TYPEHASH = keccak256(toBytes(ANON_LAUNCH_TYPE));
 
 export type LaunchParams = {
@@ -128,13 +134,13 @@ export const anonLaunchTypes = {
   ],
 } as const;
 
-/** EIP-712 typed data the player signs. spender = Multicall3 (the Permit2 caller). */
-export function anonLaunchTypedData(chainId: number, permit: Permit, launch: AnonLaunch) {
+/** EIP-712 typed data the player signs. spender = the Permit2 caller: DisciplePermitForwarder when deployed (lib/trade/permitForwarder relaySpender), else Multicall3 (testnet only). */
+export function anonLaunchTypedData(chainId: number, permit: Permit, launch: AnonLaunch, spender: Address = MULTICALL3) {
   return {
     domain: { name: "Permit2", chainId, verifyingContract: PERMIT2 },
     types: anonLaunchTypes,
     primaryType: "PermitWitnessTransferFrom" as const,
-    message: { permitted: permit.permitted, spender: MULTICALL3, nonce: permit.nonce, deadline: permit.deadline, witness: launch },
+    message: { permitted: permit.permitted, spender, nonce: permit.nonce, deadline: permit.deadline, witness: launch },
   };
 }
 
