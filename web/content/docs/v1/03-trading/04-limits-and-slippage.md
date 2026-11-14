@@ -18,11 +18,9 @@ The app shows the limit only when a rocket has one. The team also has a setting 
 
 ## Slippage
 
-Slippage is how far the price is allowed to move against you before a trade is refused. Every trade sets a minimum amount you must receive. If the price moves past that before the trade lands, the trade is refused and you keep your money. Set it in **Swap settings** (the gear next to the sell sizes).
+Slippage is how far the price is allowed to move against you before a trade is refused. Every trade sets a minimum amount you must receive. If the price moves past that before the trade lands, the trade is refused and you keep your money.
 
-- **Default: Auto (1%).**
-- **Custom:** any value up to 50%.
-- **One-tap trading:** trades also stay within **Max price move per trade** in Settings: 5%, 15%, 30% or 50%. The default is 15%.
+Set it as **Max price move**: 5%, 15%, 30% or 50%. The default is 15%. It's in **Settings**, and in flight under ☰ → **Trade settings**.
 
 ## Deadline
 

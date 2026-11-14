@@ -119,7 +119,7 @@ export const HIW_PRO = {
       { k: "Buy", keys: ["Space"], v: "" },
       { k: "Sell size", keys: ["Z", "X", "C", "V"], v: "10 · 25 · 50 · 100%" },
       { k: "Sell", keys: ["Shift"], v: "" },
-      { k: "Custom size", keys: [], v: "Type any $ or %" },
+      { k: "Custom boost", keys: [], v: "Type any $ amount" },
     ] as { k: string; keys: string[]; v: string }[],
   },
   verify: { title: "Verify it yourself", body: "The contracts, the curve formula and the full rules are in the docs.", contracts: "Contracts", docs: "Read the docs" },
