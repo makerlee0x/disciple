@@ -20,7 +20,7 @@ import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { relayGaslessWithdraw, quoteGaslessWithdraw, withdrawFeeTo, withdrawUsdgPerEth } from "../lib/server/gaslessWithdrawRelay";
 import { gaslessSessionDeps } from "../lib/server/gaslessSession";
 import { strikeSource } from "../lib/server/relayLockdown";
-import { transferTypedData, withdrawFeeRaw, withdrawGas } from "../lib/trade/gaslessWithdraw";
+import { transferTypedData, withdrawFeeRaw, withdrawGas, WITHDRAW_TX_GAS_LIMIT } from "../lib/trade/gaslessWithdraw";
 import { forwarderAbi, withdrawTypedData } from "../lib/trade/permitForwarder";
 import { DEPLOYMENTS } from "../lib/chains";
 import type { GaslessDeps } from "../lib/server/gaslessRelay";
@@ -110,6 +110,8 @@ describe("forwarder deployed", () => {
     expect(w.fee).toBe(feeNow());
     expect(w.feeTo.toLowerCase()).toBe(feeTo().toLowerCase());
     expect(parseTransaction(raw!).to?.toLowerCase()).toBe(FWD);
+    // simulated at the tx's own gas limit, so a call that needs more fails here (unsent) instead of on chain
+    expect((sim as { gas?: bigint }).gas).toBe(WITHDRAW_TX_GAS_LIMIT);
   });
   it("a destination other than the signed one is refused before send", async () => {
     await expect(relay(await wireFwd({ dest: "0x00000000000000000000000000000000000000ee", signedDest: dest }))).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("signature is not the signer's") });

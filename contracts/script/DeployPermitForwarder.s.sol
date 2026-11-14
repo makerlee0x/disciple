@@ -6,11 +6,14 @@ import {NetworkConfig} from "./config/NetworkConfig.sol";
 import {DisciplePermitForwarder} from "../src/addons/DisciplePermitForwarder.sol";
 
 /// @notice Deploys DisciplePermitForwarder (no owner, no admin, no constructor args) with CREATE2 through the standard
-///         deterministic deployer, so it lands on the SAME address on Robinhood testnet (46630) and mainnet (4663).
-///         Then set NEXT_PUBLIC_RHT_PERMIT_FORWARDER / NEXT_PUBLIC_RH_PERMIT_FORWARDER in Vercel: the gasless relays switch from
-///         the public Multicall3 to it (web/lib/trade/permitForwarder relaySpender). Mainnet relays refuse until it is set.
-///         Dry run:  forge script script/DeployPermitForwarder.s.sol --rpc-url robinhood_testnet
-///         Deploy:   forge script script/DeployPermitForwarder.s.sol --rpc-url robinhood_testnet --broadcast
+///         deterministic deployer. The address follows the exact bytecode, which includes the compiler's metadata hash
+///         (source paths, settings), so it only matches across chains when the SAME build deploys both: use the address this
+///         script prints. Testnet (46630): 0x18c2375C08b992B704124c2D37151a27d81e7c55 (2026-11-14, deployments/rh-testnet-46630.json).
+///         Then set NEXT_PUBLIC_RHT_PERMIT_FORWARDER / NEXT_PUBLIC_RH_PERMIT_FORWARDER (or the default in web/lib/chains.ts): the
+///         gasless relays switch from the public Multicall3 to it (web/lib/trade/permitForwarder relaySpender). Mainnet relays
+///         refuse until it is set.
+///         Dry run:  forge script script/DeployPermitForwarder.s.sol --rpc-url https://rpc.testnet.chain.robinhood.com
+///         Deploy:   forge script script/DeployPermitForwarder.s.sol --rpc-url https://rpc.testnet.chain.robinhood.com --broadcast <signer flags>
 contract DeployPermitForwarder is NetworkConfig {
     bytes32 constant SALT = keccak256("DISCIPLE.DisciplePermitForwarder.v1");
 

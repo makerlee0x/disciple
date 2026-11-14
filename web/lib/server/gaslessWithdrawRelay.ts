@@ -94,7 +94,7 @@ async function admitWithdraw(signer: Address, to: Address, data: Hex, d: Gasless
   const session = timed(m, "authSession", () => verifySessionToken(d.idToken));
   const owner = session.then(x => timed(m, "authSessionWallet", () => requireSessionWallet(x, signer)));
   const gate = session.then(x => timed(m, "revokeStrikeGate", () => requireNotRevokedOrStruck(signer, Date.now(), x.did)));
-  const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data)));
+  const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data, WITHDRAW_TX_GAS_LIMIT)));
   const all = [session, owner, gate, d.ipGate ?? Promise.resolve(), sim, relayer];
   const res = await timed(m, "admissionSimulationWall", () => Promise.allSettled(all));
   for (const x of res) if (x.status === "rejected") throw notSent(x.reason);
@@ -116,7 +116,7 @@ async function commitWithdraw(signer: Address, to: Address, data: Hex, gas: bigi
   const gasUsed = Number(BigInt(res.rc.gasUsed));
   if (!success) {
     let revertData: string | undefined;
-    try { await simulateDirect(r.address, to, data); }
+    try { await simulateDirect(r.address, to, data, gas); }
     catch (e) { revertData = (e as { data?: string }).data; }
     if (shouldStrikeIncludedRevert({ revertData, gasUsed: BigInt(res.rc.gasUsed), gasLimit: gas })) strikeSender(signer, did);
     const price = res.rc.effectiveGasPrice ? BigInt(res.rc.effectiveGasPrice) : BigInt(0);

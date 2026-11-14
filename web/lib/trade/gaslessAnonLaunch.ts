@@ -299,12 +299,29 @@ const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
  * exactly fee + First BOOST, refundTo and the signer are the same player, leftover cannot
  * be aimed at the launcher, deadlines are live and within GASLESS_MAX_DEADLINE_SEC.
  */
+/**
+ * Byte caps on a relayed private launch's metadata (UTF-8). Every byte is stored on chain, and a launch already uses ~7M of
+ * the 8.5M ANON_LAUNCH_TX_GAS_LIMIT, so unbounded fields could push a signed launch over the limit (Vercel finding on PR #386).
+ * The relay also simulates at the exact limit (fastRelay simulateDirect gas), so anything still too big is refused unsent.
+ */
+export const ANON_LAUNCH_LIMITS = { name: 64, ticker: 16, imageURI: 512, description: 500, socialsURI: 500, ephemeralPubKey: 65 } as const;
+const utf8Len = (s: string) => new TextEncoder().encode(s).length;
+/** The first metadata field over its cap, as the player-facing message, or null. Used before signing and by the relay. */
+export function anonLaunchTooLong(l: Pick<AnonLaunch, "name" | "ticker" | "imageURI" | "description" | "socialsURI">): string | null {
+  for (const k of ["name", "ticker", "imageURI", "description", "socialsURI"] as const)
+    if (utf8Len(l[k]) > ANON_LAUNCH_LIMITS[k]) return `${k === "imageURI" ? "image link" : k === "socialsURI" ? "socials" : k} is too long for a gasless private launch (max ${ANON_LAUNCH_LIMITS[k]} bytes)`;
+  return null;
+}
+
 export function checkGaslessAnonLaunchRequest(q: GaslessAnonLaunchRequest, o: {
   usdg: Address; launcher: Address; nowSec: number; launchFee: bigint;
   /** CreatorFeeHarvest, only when private fee routing is live (lib/quickLaunch PRIVATE_FEE_ROUTING_LIVE). */
   harvest?: Address | null;
 }): void {
   const l = q.launch;
+  const tooLong = anonLaunchTooLong(l);
+  if (tooLong) throw new GaslessReject(tooLong);
+  if ((l.ephemeralPubKey.length - 2) / 2 > ANON_LAUNCH_LIMITS.ephemeralPubKey) throw new GaslessReject("bad ephemeralPubKey");
   if (l.creatorFeeDestination === 0) {
     if (!eq(l.launcher, o.launcher)) throw new GaslessReject("launcher mismatch");
   } else {

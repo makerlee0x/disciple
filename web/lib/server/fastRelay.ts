@@ -169,8 +169,13 @@ export async function directRelayer(metrics?: RelayMetrics): Promise<DirectRelay
   return { address: st.account.address, fee, st };
 }
 /** Exact eth_call of the relayer tx from the relayer address (pending block). Throws with the revert data kept. */
-export async function simulateDirect(from: Hex, to: Hex, data: Hex): Promise<void> {
-  try { await pc.call({ account: from, to, data, blockTag: "pending" }); }
+/**
+ * eth_call the exact relayer tx before sending. Pass `gas` = the tx's gas limit: without it the RPC simulates with its own
+ * (larger) allowance, so a call that needs more than the limit passes admission and then fails on chain as an included
+ * revert, which counts toward the shared relay breaker (Vercel finding on PR #386: oversized private-launch metadata).
+ */
+export async function simulateDirect(from: Hex, to: Hex, data: Hex, gas?: bigint): Promise<void> {
+  try { await pc.call({ account: from, to, data, blockTag: "pending", ...(gas !== undefined ? { gas } : {}) }); }
   catch (e) {
     let rd: string | undefined;
     (e as { walk?: (f: (x: unknown) => boolean) => unknown }).walk?.((x) => { const v = (x as { data?: unknown }).data; if (typeof v === "string" && /^0x[0-9a-fA-F]{8,}$/.test(v)) { rd = v; return true; } return false; });
