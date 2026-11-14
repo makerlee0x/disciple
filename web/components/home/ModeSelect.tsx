@@ -114,8 +114,10 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
               }}
               onFocus={() => { if (!phone()) setFocus(m.id); }}
             >
+              {/* speed pass (2026-11-14): every card is on the first screen (the phone carousel opens on the focused one, often Free play,
+                  the 4th), so none is lazy, and the focused card's art is the page's largest paint: fetch it first */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img className={s.art} src={withBase(m.art)} alt="" style={{ objectPosition: m.pos }} loading={i < 2 ? "eager" : "lazy"} decoding="async" />
+              <img className={s.art} src={withBase(m.art)} alt="" style={{ objectPosition: m.pos }} loading="eager" fetchPriority={on ? "high" : "auto"} decoding={on ? "sync" : "async"} />
               {m.rockets.map((r, k) => (
                 <span key={k} className={s.rk} style={{ left: `${r.x}%`, top: `${r.y}%`, height: `${r.h}%`, transform: `rotate(${r.r}deg)`, ["--c" as string]: r.c }} aria-hidden>
                   <i className={s.plume} />

@@ -51,11 +51,22 @@ export function subscribe(coin: string, onMsg: (m: ChatMsg) => void, opts: { onS
       try { onMsg(m); } catch (e) { console.error(e); }
     });
     // Server closes every ~50s (Vercel limit). Reopen ourselves so we control `after` + state.
-    es.onerror = () => { es?.close(); es = null; if (stopped) return; state("reconnecting"); timer = setTimeout(open, wasLive ? 300 : 2000); };
+    es.onerror = () => { es?.close(); es = null; if (stopped || paused) return; state("reconnecting"); timer = setTimeout(open, wasLive ? 300 : 2000); };
   };
+  /* speed pass (2026-11-14): a tab left in the background for HIDDEN_PAUSE_MS drops its stream (each one keeps a server
+     function and its KV polling busy); coming back reopens it with `after`, so nothing said meanwhile is missed. */
+  let pauseT: ReturnType<typeof setTimeout> | null = null, paused = false;
+  const onVis = () => {
+    if (stopped) return;
+    if (document.hidden) { if (!pauseT && !paused) pauseT = setTimeout(() => { pauseT = null; if (!document.hidden || stopped) return; paused = true; if (timer) { clearTimeout(timer); timer = null; } es?.close(); es = null; }, HIDDEN_PAUSE_MS); return; }
+    if (pauseT) { clearTimeout(pauseT); pauseT = null; }
+    if (paused) { paused = false; open(); }
+  };
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVis);
   open();
-  return () => { stopped = true; if (timer) clearTimeout(timer); es?.close(); state("closed"); };
+  return () => { stopped = true; if (timer) clearTimeout(timer); if (pauseT) clearTimeout(pauseT); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVis); es?.close(); state("closed"); };
 }
+const HIDDEN_PAUSE_MS = 60_000;
 
 type Tok = { token: string; exp: number; addr: string };
 function cachedToken(addr: string): Tok | null {

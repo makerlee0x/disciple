@@ -5,7 +5,7 @@
  */
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { onWallet } from "@/lib/wallet";
+import { onWallet } from "@/lib/walletState";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import { devSample } from "@/lib/devSample";
 import { DAY, STREAK_RULES, type Streak } from "@/lib/streaks";

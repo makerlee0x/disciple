@@ -7,6 +7,7 @@ import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
+const INDEX_EVERY_SEC = 2;
 const isAddr = (a: string | null): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.test(a);
 
 export async function GET(req: Request) {
@@ -21,7 +22,11 @@ export async function GET(req: Request) {
   if (wallet !== null && !isAddr(wallet)) return NextResponse.json({ error: "bad wallet" }, { status: 400 });
   if (!coin && !wallet) return NextResponse.json({ error: "coin or wallet required" }, { status: 400 });
   // later pages of a history read (offset > 0) skip the catch-up: page 0 just ran it
-  if (offset === 0) await indexTrades(5_000).catch((e) => console.warn("[trades] index failed", (e as Error).message));
+  // speed pass (2026-11-14): every flight open (PnL card) and profile read lands here, and each one ran an index pass (RPC block
+  // number + 3 getLogs) one after another. One pass per INDEX_EVERY_SEC is enough: a read inside that window uses the index
+  // as it stands (at most a couple of seconds behind; PnlHud already retries until its own fill is in).
+  if (offset === 0 && (await kv().setNX("trades:idx:recent", "1", INDEX_EVERY_SEC).catch(() => true)))
+    await indexTrades(5_000).catch((e) => console.warn("[trades] index failed", (e as Error).message));
   if (!coin) return NextResponse.json({ wallet: wallet!.toLowerCase(), coins: await coinsOf(wallet!) });
   return NextResponse.json({ coin: coin.toLowerCase(), wallet: wallet?.toLowerCase() ?? null, fills: await tradesOf(coin, wallet, limit, order, offset) });
 }
