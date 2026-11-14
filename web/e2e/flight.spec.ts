@@ -49,6 +49,9 @@ test("the flight menu has the way back to the lobby", async ({ page, pilot }) =>
   // leaving shows the flight log first; Leave goes on to the lobby
   const leave = page.getByRole("button", { name: /^leave$/i });
   await expect(leave).toBeVisible();
+  // the menu closes instead of sitting behind the log, and no ride is claimed before a boost of yours has landed
+  await expect(page.getByTestId("flight-menu")).toBeHidden();
+  await expect(page.locator("#flog-title")).not.toHaveText(/rode it/i);
   await leave.click();
   await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/);
 });

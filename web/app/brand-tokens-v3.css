@@ -175,9 +175,7 @@
 .lb-tabs a:hover, .lb-tab-btn:hover { color: var(--dsc-text); }
 .lb-tabs a.on { color: #FFFFFF; border-bottom-color: var(--dsc3-light-gold); }
 .lb-tabs a:focus-visible, .lb-tab-btn:focus-visible { color: #FFFFFF; box-shadow: var(--dsc-glow-focus-ring); border-radius: 4px; }
-/* a launch tab reads as the primary door */
-.lb-tabs a[href="/create"] { color: var(--dsc3-light-gold); }
-.lb-tabs a[href="/create"].on { color: #FFFFFF; }
+/* Launch reads like every other tab (maker 2026-11-14: "the launch tab coloring should be consistent"); phones keep its gold pill */
 /* signed out: the wallet pill is only Sign in, so less room is reserved; PLAY NOW sits just left of it */
 .lb-bar.lb-out { padding-right: calc(24px + 110px); }
 .lb-playnow {

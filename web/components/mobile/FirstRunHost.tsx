@@ -1,7 +1,7 @@
 "use client";
 /**
  * First run on phones (maker, 2026-11-14; lib/firstRun). One host, mounted by AppShell:
- *  - Lobby: a "Tap a rocket to fly" coach line above the tab bar until the first flight opens.
+ *  - Lobby: a "Swipe to pick a mode, tap to play" coach line (matches Pick a mode) above the tab bar until the first flight opens.
  *  - First flight: the throttle intro card (BOOST = BUY, DUMP = SELL, STEER), closed with FLY.
  *  - Signed in with $0 on a flight: an "Add cash to board" card (card checkout or Free play), once per flight.
  *  - The first live boost that fills: a big "FIRST BOOST" moment.
@@ -87,7 +87,7 @@ export default function FirstRunHost() {
   if (!phone && !phoneNow()) return null;
 
   if (!game) return showPickCoach(run, true) && (path === "/" || path === "") && coachRoom ? (
-    <div className="fr-coach" role="status" data-testid="fr-coach"><span aria-hidden className="fr-dot" />Tap any rocket to jump in</div>
+    <div className="fr-coach" role="status" data-testid="fr-coach"><span aria-hidden className="fr-dot" />Swipe to pick a mode, tap to play</div>
   ) : null;
 
   return (
