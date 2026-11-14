@@ -4,7 +4,7 @@
  * the lobby. Tall poster cards with our art plates: Host a launch, Live flights, Trading duel (only while the Turbo
  * flag is on, see lib/turbo/flag.ts) and Free play. The card in focus is bigger with Play; the others tilt away. Desktop: click a card to focus
  * it, click it again (or Play) to go; ←/→ move focus and Enter plays while the row has focus. Phones (≤760px): a swipe
- * carousel that snaps to the middle, with dots; tapping a card goes. Signed in it opens on the last mode played (this
+ * carousel that snaps to the middle, with dots; tapping the middle card goes, tapping a side card slides it to the middle. Signed in it opens on the last mode played (this
  * browser), else Live flights; signed out it opens on Free play.
  */
 import Link from "next/link";
@@ -75,10 +75,9 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
     }
     // Enter on a focused card follows its link (native)
   };
-  // phones: the card nearest the middle is the focused one (dots follow the swipe). Measured once per frame, not on
-  // every scroll event, so the swipe stays smooth.
+  // phones: the card nearest the middle is the focused one (dots follow the swipe). Read once per frame: cards never change
+  // size, so this costs no layout, and focus only flips when another card's centre passes the middle.
   const raf = useRef(0);
-  useEffect(() => () => cancelAnimationFrame(raf.current), []);
   const onScroll = () => {
     if (raf.current) return;
     raf.current = requestAnimationFrame(() => {
@@ -87,11 +86,17 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
       const mid = t.scrollLeft + t.clientWidth / 2;
       let best = list[0].id, d = Infinity;
       t.querySelectorAll<HTMLElement>("[data-mode]").forEach((el) => {
-        const dd = Math.abs(el.offsetLeft + el.clientWidth / 2 - mid);
+        const dd = Math.abs(el.offsetLeft + el.offsetWidth / 2 - mid);
         if (dd < d) { d = dd; best = el.dataset.mode as ModeId; }
       });
       setFocus((f) => (f === best ? f : best));
     });
+  };
+  useEffect(() => () => cancelAnimationFrame(raf.current), []);
+  // phones: a tap on a side card slides it to the middle instead of playing it
+  const centre = (id: ModeId) => {
+    const t = track.current; const el = t?.querySelector<HTMLElement>(`[data-mode="${id}"]`);
+    if (t && el) t.scrollTo({ left: el.offsetLeft - (t.clientWidth - el.offsetWidth) / 2, behavior: "smooth" });
   };
 
   return (
@@ -116,7 +121,7 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
               data-testid={`mode-${m.id}`}
               onClick={(e) => {
                 // desktop: the first click on a card brings it into focus; the next one plays
-                if (!on && !phone()) { e.preventDefault(); setFocus(m.id); return; }
+                if (!on) { e.preventDefault(); if (phone()) centre(m.id); else setFocus(m.id); return; }
                 go(m);
               }}
               // keyboard focus (Tab) only: a mouse press focuses the link too, and taking focus there made the
