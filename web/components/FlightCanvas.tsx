@@ -24,6 +24,12 @@ import DraftXp from "@/components/flight/DraftXp";
 import DeskChart from "@/components/flight/DeskChart";
 import HoldersBridge from "@/components/flight/HoldersBridge";
 import PhoneHud from "@/components/flight/PhoneHud";
+import CalmFlight from "@/components/flight/CalmFlight";
+import TiltSteer from "@/components/flight/TiltSteer";
+import NativeRumble from "@/components/flight/NativeRumble";
+import StyleXp from "@/components/flight/StyleXp";
+import LiveFlight from "@/components/flight/LiveFlight";
+import ShareTrade from "@/components/flight/ShareTrade";
 import { publishUsernameDisplayCap } from "@/lib/defaultUsername";
 
 if (typeof window !== "undefined") publishUsernameDisplayCap();
@@ -336,6 +342,14 @@ export default function FlightCanvas({ search }: Props) {
       <GameChat coin={chatCoin || ""} tradesOnly={!chatCoin} />
       {/* phones (≤760px): v3 HUD — mcap pill, handle + PnL line, one swipe-up drawer (Feed/Holders/Chart/Crew/Chat/Position); desktop renders nothing */}
       <PhoneHud />
+      {/* phone flight upgrades (maker 2026-11-14): full-screen flying, tilt to steer, the Core Haptics rumble (app), style XP,
+          the lock-screen / Dynamic Island Live Activity (app, live coins only) */}
+      <CalmFlight />
+      <TiltSteer />
+      <NativeRumble />
+      <StyleXp coin={!isSimulator && /^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") && q0.get("source") !== "sim" ? (q0.get("coin") as string) : null} />
+      <LiveFlight coin={!isSimulator && !isReplay && /^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") && q0.get("source") !== "sim" ? (q0.get("coin") as string) : null} />
+      <ShareTrade coin={!isSimulator && !isReplay && /^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") && q0.get("source") !== "sim" ? (q0.get("coin") as string) : null} />
       {/^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") && q0.get("source") !== "sim" && <HoldersBridge coin={q0.get("coin") as string} />}
       {/* desktop (approved mockup): no simulated-market pill over the trade bar; it lives in the top bar's menu. Phones keep the pill */}
       <div className="ap-bc" data-testid="flight-pills" style={{ bottom: "calc(var(--ap-tb-h, 80px) + 62px + var(--ap-safe-bottom))", zIndex: 25, display: "flex", gap: 8 }} data-desk-hide="1">

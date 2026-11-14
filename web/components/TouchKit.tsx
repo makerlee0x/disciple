@@ -1,11 +1,13 @@
 "use client";
 /* Phone feel, installed once for every route (mobile plan 2026-11-13). Renders nothing.
    - Haptics on taps and engine moments (lib/game/haptics.ts).
+   - In the DISCIPLE iPhone app: the native shell wiring (lib/native.ts installNativeShell).
    - Flight routes (/coin/…, /flight/…): html.ap-flight turns off pull-to-refresh, rubber-band scroll and the long-press
      text menu (globals.css), and a screen wake lock keeps the phone from dimming mid-flight while the tab is visible. */
 import { useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { installHaptics } from "@/lib/game/haptics";
+import { installNativeShell, nativeKeepAwake } from "@/lib/native";
 // same rule as Sidebar.isCollapsibleRoute, inlined so this tiny component does not pull the sidebar into its chunk
 const isCollapsibleRoute = (p: string) => p.startsWith("/coin/") || p.startsWith("/flight");
 
@@ -15,7 +17,10 @@ type WakeNav = Navigator & { wakeLock?: { request: (t: "screen") => Promise<Wake
 export default function TouchKit() {
   const pathname = usePathname() || "";
   const flight = isCollapsibleRoute(pathname);
+  const router = useRouter();
   useEffect(() => installHaptics(), []);
+  // iPhone app only: status bar, universal links and push taps open inside the site (lib/native)
+  useEffect(() => installNativeShell((p) => router.push(p)), [router]);
   useEffect(() => {
     if (!flight) return;
     const de = document.documentElement;
@@ -28,11 +33,13 @@ export default function TouchKit() {
     };
     const onVis = () => { if (!document.hidden) void acquire(); };
     void acquire();
+    nativeKeepAwake(true);
     // some browsers only grant the lock after a tap
     addEventListener("pointerdown", acquire, { passive: true });
     document.addEventListener("visibilitychange", onVis);
     return () => {
       alive = false; de.classList.remove("ap-flight");
+      nativeKeepAwake(false);
       removeEventListener("pointerdown", acquire);
       document.removeEventListener("visibilitychange", onVis);
       if (lock && !lock.released) void lock.release().catch(() => {});

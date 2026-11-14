@@ -17,6 +17,7 @@ import { DEPOSIT_ACK_EVENT, DEPOSIT_CALL_EVENT, DEPOSIT_REPLY_EVENT, type Deposi
 import { FUND_ACK_EVENT, FUND_COPY, FUND_DEFAULT_USD, FUND_DONE_EVENT, FUND_EVENT, fundErrorLine, type FundRequest, type FundResult } from "@/lib/fund";
 const FUND_CLOSED = FUND_COPY.closed;
 import { currentInApp } from "@/lib/inAppBrowser";
+import { isNativeApp } from "@/lib/native";
 import { needsEmbeddedWallet, ownerWalletAddress, type LinkedLike } from "@/lib/privyOwner";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { PRIVY_APP_ID, aaSession, registerPrivy, type PrivyAccountInfo, type PrivySecurity } from "@/lib/aa/session";
@@ -158,6 +159,16 @@ function DepositBridge() {
 
 /** Google refuses sign-in inside app browsers (X, Telegram, Instagram…): don't offer a button that can't work there. */
 const IN_APP = !!currentInApp();
+/**
+ * DISCIPLE iPhone app: Google refuses embedded web views too, so it is hidden there. Apple requires Sign in with Apple
+ * whenever another social login (X) is offered (App Review 4.8), so the app adds it. Privy dashboard: enable Apple.
+ */
+const NATIVE = isNativeApp();
+type LoginMethod = "email" | "google" | "twitter" | "wallet" | "apple";
+export function loginMethodsFor(o: { inApp: boolean; native: boolean }): LoginMethod[] {
+  if (o.native) return ["email", "apple", "twitter", "wallet"];
+  return o.inApp ? ["email", "twitter", "wallet"] : ["email", "google", "twitter", "wallet"];
+}
 
 /** Loaded lazily by PrivyProviders (own chunk). Holds no app children: the app talks to Privy via lib/aa/session. */
 export default function PrivyMount() {
@@ -165,7 +176,7 @@ export default function PrivyMount() {
     <PrivyProvider
       appId={PRIVY_APP_ID}
       config={{
-        loginMethods: ["email", "google", "twitter", "wallet"].filter((m) => m !== "google" || !IN_APP) as ("email" | "google" | "twitter" | "wallet")[],
+        loginMethods: loginMethodsFor({ inApp: IN_APP, native: NATIVE }),
         // step 5 board "Sign in, account menu, Hangar signed out": the window in DISCIPLE gold with our mark and words
         appearance: {
           theme: "#14151B", accentColor: "#F2C14E", showWalletLoginFirst: false,

@@ -3,16 +3,18 @@
 .head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .title { margin: 0; font: 800 40px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
 .hint { font-size: 13px; color: #9095A0; }
-.row { display: flex; align-items: center; justify-content: center; gap: 18px; min-height: 480px; perspective: 900px; }
+/* desktop: the cards share the row's width (maker 2026-11-14: fixed 230/300px cards left the row mostly empty on a wide screen);
+   the focused one grows, the others tilt away. Heights follow the width so the posters keep their shape. */
+.row { display: flex; align-items: center; justify-content: center; gap: 22px; min-height: 0; padding: 8px 0 14px; perspective: 1200px; }
 .card {
-  position: relative; flex: 0 0 230px; height: 360px; border-radius: 18px; overflow: hidden; box-sizing: border-box; isolation: isolate;
+  position: relative; flex: 1 1 0; min-width: 0; max-width: 440px; height: clamp(380px, 31vw, 540px); border-radius: 20px; overflow: hidden; box-sizing: border-box; isolation: isolate;
   background: #121327; border: 1px solid rgba(232, 234, 238, .14); box-shadow: 0 20px 50px rgba(0, 0, 0, .5);
   color: #FFFFFF; text-decoration: none; transition: transform .25s ease, flex-basis .25s ease, height .25s ease, opacity .25s ease, box-shadow .25s ease;
 }
 .card.left { transform: rotateY(18deg); }
 .card.right { transform: rotateY(-18deg); }
 .card:hover:not(.on) { opacity: 1; filter: brightness(1.08); }
-.card.on { flex-basis: 300px; height: 460px; border: 2px solid #F2C14E; box-shadow: 0 0 0 6px rgba(242, 193, 78, .12), 0 30px 70px rgba(0, 0, 0, .6); }
+.card.on { flex-grow: 1.3; max-width: 560px; height: clamp(440px, 36vw, 620px); border: 2px solid #F2C14E; box-shadow: 0 0 0 6px rgba(242, 193, 78, .12), 0 30px 70px rgba(0, 0, 0, .6); }
 .card:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring), 0 30px 70px rgba(0, 0, 0, .6); }
 .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; }
 .rk { position: absolute; aspect-ratio: .36; z-index: -1; }
@@ -23,10 +25,10 @@
 .tag { position: absolute; left: 12px; top: 12px; padding: 5px 10px; border-radius: 999px; background: rgba(11, 12, 14, .66); border: 1px solid rgba(232, 234, 238, .18);
   font: 700 13px / 1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .08em; }
 .body { position: absolute; left: 0; right: 0; bottom: 0; padding: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
-.name { font: italic 800 42px / .86 var(--dsc-font-game); text-transform: uppercase; text-shadow: 0 4px 24px rgba(0, 0, 0, .6); }
-.on .name { font-size: 56px; }
-.sub { font-size: 13px; line-height: 1.35; color: #D7D9E4; }
-.on .sub { font-size: 15px; }
+.name { font: italic 800 clamp(40px, 3.4vw, 60px) / .86 var(--dsc-font-game); text-transform: uppercase; text-shadow: 0 4px 24px rgba(0, 0, 0, .6); }
+.on .name { font-size: clamp(52px, 4.4vw, 78px); }
+.sub { font-size: clamp(13px, 1vw, 16px); line-height: 1.35; color: #D7D9E4; }
+.on .sub { font-size: clamp(15px, 1.15vw, 18px); }
 .play { display: none; margin-top: 4px; padding: 11px 22px; border-radius: 10px; background: linear-gradient(180deg, #F3DFA8, #F2C14E); color: #121327;
   font: 800 24px / 1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .04em; }
 .on .play { display: inline-flex; }
@@ -34,23 +36,31 @@
 .dots i { width: 7px; height: 7px; border-radius: 50%; background: rgba(232, 234, 238, .25); transition: width .2s ease; }
 .dots i.dotOn { width: 20px; border-radius: 4px; background: #F2C14E; }
 @media (max-width: 1100px) {
-  .card { flex-basis: 190px; height: 320px; }
-  .card.on { flex-basis: 260px; height: 420px; }
-  .row { min-height: 440px; gap: 14px; }
+  .card { height: clamp(320px, 34vw, 380px); }
+  .card.on { height: clamp(400px, 42vw, 460px); }
+  .row { gap: 14px; }
 }
-/* phones: a swipe carousel, one card centred, snapping */
+/* phones: a swipe carousel, one card centred, snapping. Every card keeps the same box so nothing reflows while the finger
+   is down (the old version grew the centred card mid-swipe, which moved the snap points and made the row jump); the
+   centred card is shown with transform + opacity only, which the compositor animates without layout. */
 @media (max-width: 760px) {
   .title { font-size: 28px; }
   .hint { display: none; }
   .row {
-    justify-content: flex-start; gap: 12px; min-height: 0; perspective: none; overflow-x: auto; scroll-snap-type: x mandatory;
-    margin: 0 -16px; padding: 10px calc(50vw - 125px); scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    justify-content: flex-start; gap: 4px; min-height: 0; perspective: none; overflow-x: auto; overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory; margin: 0 -16px; padding: 10px calc(50vw - 125px); scrollbar-width: none; -webkit-overflow-scrolling: touch;
   }
   .row::-webkit-scrollbar { display: none; }
-  .card, .card.left, .card.right { flex: 0 0 220px; height: 340px; transform: none; opacity: .72; scroll-snap-align: center; }
-  .card.on { flex-basis: 250px; height: 390px; opacity: 1; }
-  .name { font-size: 38px; }
-  .on .name { font-size: 46px; }
+  .card, .card.left, .card.right, .card.on {
+    flex: 0 0 250px; height: 390px; scroll-snap-align: center; scroll-snap-stop: always;
+    transform: scale(.88); opacity: .6; transition: transform .22s ease, opacity .22s ease; will-change: transform;
+  }
+  .card.on { transform: none; opacity: 1; }
+  .card:hover:not(.on) { opacity: .6; filter: none; }
+  .name, .on .name { font-size: 46px; }
+  .sub, .on .sub { font-size: 15px; }
+  .play { display: inline-flex; opacity: 0; transition: opacity .22s ease; }
+  .on .play { opacity: 1; }
   .dots { display: flex; }
 }
 @media (prefers-reduced-motion: reduce) { .card, .dots i { transition: none; } }

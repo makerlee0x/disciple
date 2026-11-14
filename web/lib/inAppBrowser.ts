@@ -18,6 +18,8 @@ const RULES: [InAppKind, RegExp][] = [
 
 /** Which app's built-in browser this is, or null for a real browser. */
 export function inAppKind(ua: string): InAppKind {
+  // the DISCIPLE iPhone app (lib/native) is ours: no "Open in Safari" banner there
+  if (ua.includes("DiscipleApp/")) return null;
   for (const [k, re] of RULES) if (re.test(ua)) return k;
   // Android WebView marks itself "; wv)"; it isn't a browser the player picked
   if (/Android/i.test(ua) && /;\s?wv\)/i.test(ua)) return "other";

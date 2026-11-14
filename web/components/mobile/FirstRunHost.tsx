@@ -27,6 +27,8 @@ export const INTRO_COPY = {
   /** Free play's practice cash (e2e sweep 2026-11-14: the first Free play flight on a phone said "a real trade") */
   lineSim: "Practice cash here, real market rules.",
   line2: "Let go of the lever to fire.",
+  /** @tricks: cosmetic spin / flip, never a trade */
+  tricks: "Swipe up to spin. Double-tap to flip.",
   go: "FLY",
 } as const;
 
@@ -101,7 +103,7 @@ export default function FirstRunHost() {
                 <div key={k} className={`fr-hw ${k}`}><i aria-hidden>{ic}</i><b>{t}</b><em>{eq || " "}</em><small>{sub}</small></div>
               ))}
             </div>
-            <p className="fr-one">{sim ? INTRO_COPY.lineSim : INTRO_COPY.line}<br />{INTRO_COPY.line2}</p>
+            <p className="fr-one">{sim ? INTRO_COPY.lineSim : INTRO_COPY.line}<br />{INTRO_COPY.line2}<br />{INTRO_COPY.tricks}</p>
             <button type="button" className="r2-gold fr-go" data-testid="fr-go" onClick={() => { saveRun({ intro: true }); haptic("tap", true); }}>{INTRO_COPY.go}</button>
           </div>
         </div>

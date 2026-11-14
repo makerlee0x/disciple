@@ -4,6 +4,8 @@
  * - Android Chrome and most Android wallet browsers: navigator.vibrate with the patterns below.
  * - iPhone: Safari has no Vibration API. Toggling a hidden <input type="checkbox" switch> inside a tap plays
  *   the system tick (iOS 18+), so taps get a light tick; non-tap moments (fills, zones, orbit) stay silent there.
+ * - DISCIPLE iPhone app (mobile/, Capacitor): the native Taptic Engine plays every kind (lib/native NATIVE_HAPTICS),
+ *   on finger down like Android, so trades and engine moments all buzz.
  * - The flight engine fires `disciple:sfx` cues (forwarded to the page in ?render=worker mode too, where navigator.vibrate
  *   does not exist), and the page maps those cues to haptics here, on the main thread, with one dedupe for both modes.
  * - Off when Settings → Sound → Vibration is off (lib/game/settings.ts `haptics`, on by default).
@@ -12,8 +14,9 @@
  * Any other button, link or toggle gets the light "tap".
  */
 import { getGameSettings } from "./settings";
+import { isNativeApp, nativeHaptic } from "../native";
 
-export type HapticKind = "tap" | "select" | "boost" | "dump" | "fill" | "fail" | "zone" | "hit" | "orbit" | "celebrate" | "hold";
+export type HapticKind = "tap" | "select" | "boost" | "dump" | "fill" | "fail" | "zone" | "hit" | "orbit" | "celebrate" | "hold" | "trick";
 
 export const HAPTIC_PATTERNS: Record<HapticKind, number | number[]> = {
   tap: 6,
@@ -27,9 +30,10 @@ export const HAPTIC_PATTERNS: Record<HapticKind, number | number[]> = {
   orbit: [20, 40, 60, 40, 90],
   celebrate: [12, 30, 12, 30, 40],
   hold: 3,
+  trick: [10, 30, 16],
 };
 /** Kinds that come from a finger on the glass (the only ones iPhone can tick for). */
-const TAP_KINDS = new Set<HapticKind>(["tap", "select", "boost", "dump", "hold"]);
+const TAP_KINDS = new Set<HapticKind>(["tap", "select", "boost", "dump", "hold", "trick"]);
 /** Engine sound cue → haptic. ignite carries the side; zone only buzzes on the way up. */
 export function kindForSfx(k: string, d?: { side?: string; up?: boolean }): HapticKind | null {
   switch (k) {
@@ -39,6 +43,7 @@ export function kindForSfx(k: string, d?: { side?: string; up?: boolean }): Hapt
     case "zone": return "zone";
     case "bomb": return "hit";
     case "orbit": return "orbit";
+    case "trick": return "trick";
     default: return null;
   }
 }
@@ -70,6 +75,11 @@ const lastAt: Partial<Record<HapticKind, number>> = {};
 /** Same kind within this window = one buzz (a button tap and the engine's ignite cue for the same BOOST). */
 const DEDUPE_MS = 140;
 
+/** NativeRumble (iPhone app, Core Haptics) plays its own richer patterns for these engine moments; skip the plain ones then. */
+const RICH_KINDS = new Set<HapticKind>(["hit", "zone", "orbit", "fill", "trick"]);
+let rich = false;
+export function setRichHaptics(on: boolean) { rich = on; }
+
 export function hapticsEnabled(): boolean {
   try { return getGameSettings().haptics !== false; } catch { return true; }
 }
@@ -85,6 +95,8 @@ export function haptic(kind: HapticKind, fromTap = false): boolean {
   // a boost/dump tap already buzzed: the plain tap from the same finger is redundant
   if (kind === "tap" && (now - (lastAt.boost ?? -1e9) < DEDUPE_MS || now - (lastAt.dump ?? -1e9) < DEDUPE_MS)) return false;
   lastAt[kind] = now;
+  if (rich && RICH_KINDS.has(kind)) return true;
+  if (nativeHaptic(kind)) return true;
   if (canVibrate()) {
     try { return navigator.vibrate(HAPTIC_PATTERNS[kind]); } catch { return false; }
   }
@@ -106,7 +118,7 @@ let installed = false;
 export function installHaptics(): () => void {
   if (installed || typeof window === "undefined") return () => {};
   installed = true;
-  const vib = canVibrate();
+  const vib = canVibrate() || isNativeApp();
   // Android: buzz on finger down (same frame as the press visual). iPhone: the tick needs a click to count as a tap.
   const onDown = (e: PointerEvent) => {
     if (e.pointerType === "mouse") return;

@@ -13,7 +13,7 @@ import type { SceneData } from "@/lib/share/scene";
 import type { Fill } from "@/lib/trades";
 import Icon from "@/components/icons/Icon";
 
-export interface ShareTarget { coin: string; ticker: string; wallet: string | null; username: string | null; sample?: boolean }
+export interface ShareTarget { coin: string; ticker: string; wallet: string | null; username: string | null; sample?: boolean; /** "last": the flight's Share, only the latest trade (entry → exit, or → now) */ trade?: "all" | "last" }
 type Pnl = PositionPnl & { sample?: boolean; log?: SceneData["log"]; badge?: SceneData["badge"] };
 /** Sample share cards are `next dev` only; production shows the real position, or "no trades yet". */
 const DEV_DEMO = process.env.NODE_ENV === "development";
@@ -30,7 +30,7 @@ export default function ShareModal({ target, onClose }: { target: ShareTarget; o
   const [video, setVideo] = useState<ShareMedia | null>(null);
   const [vp, setVp] = useState<{ p: number; stage: string } | null>(null);
   const [vNote, setVNote] = useState("");
-  const params: ShareParams = { coin: target.coin, wallet: target.wallet, ticker: target.ticker, username: target.username, demo: !!demo, at, loadout: ids };
+  const params: ShareParams = { coin: target.coin, wallet: target.wallet, ticker: target.ticker, username: target.username, demo: !!demo, at, loadout: ids, trade: target.trade };
   const png = useMemo(() => shareMediaFor(params), [target.coin, target.wallet, target.username, demo, at]); // eslint-disable-line react-hooks/exhaustive-deps
   const og = useMemo(() => imageMedia(params, "og"), [png]); // eslint-disable-line react-hooks/exhaustive-deps
   const media = video ?? png;
@@ -38,7 +38,7 @@ export default function ShareModal({ target, onClose }: { target: ShareTarget; o
 
   useEffect(() => {
     if (demo === false || (demo === true && pnl)) return;
-    const q = demo ? `demo=1&at=${at}&wallet=${target.wallet ?? ""}&coin=${target.coin}` : `wallet=${target.wallet}&coin=${target.coin}`;
+    const q = demo ? `demo=1&at=${at}&wallet=${target.wallet ?? ""}&coin=${target.coin}` : `wallet=${target.wallet}&coin=${target.coin}${target.trade === "last" ? "&trade=last" : ""}`;
     fetch(`/api/share/pnl?${q}`).then((r) => (r.ok ? r.json() : null))
       .then((p: Pnl | null) => {
         if (demo) { setPnl(p); return; }

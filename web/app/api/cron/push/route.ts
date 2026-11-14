@@ -1,6 +1,6 @@
 /**
  * GET /api/cron/push: finds orbit, host milestone and crew zone events and sends the pushes (lib/server/pushEvents).
- * Scheduled in vercel.json every 5 minutes. Does nothing until VAPID keys are set. Auth: Bearer CRON_SECRET
+ * Scheduled in vercel.json every 5 minutes. Does nothing until VAPID keys (web) or APNS_* keys (iPhone app) are set. Auth: Bearer CRON_SECRET
  * (constant-time); in production an unset CRON_SECRET ⇒ 503.
  */
 import { NextResponse } from "next/server";
