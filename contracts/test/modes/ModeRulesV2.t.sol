@@ -865,10 +865,10 @@ contract ModeRulesV2Test is IntegrationBase {
         // nothing left / not the creator
         vm.prank(alice);
         vm.expectRevert(FeeRouter.NothingToClaim.selector);
-        router.claimCreatorFeesToUsdg(ru.token, 0);
+        router.claimCreatorFeesToUsdg(ru.token, 1);
         vm.prank(bob);
         vm.expectRevert(FeeRouter.NothingToClaim.selector);
-        router.claimCreatorFeesToUsdg(rs.token, 0);
+        router.claimCreatorFeesToUsdg(rs.token, 1);
         // FeeRouter entry is router-only
         vm.prank(alice);
         vm.expectRevert(FeeRouter.OnlyAuthorized.selector);
@@ -914,7 +914,7 @@ contract ModeRulesV2Test is IntegrationBase {
         feeRouter.setClaimRouter(address(router), false);
         vm.prank(alice);
         vm.expectRevert(CurveFeeVault.OnlyClaimRouter.selector); // the vault checks FeeRouter.isClaimRouter
-        router.claimCreatorFeesToUsdg(ru.token, 0);
+        router.claimCreatorFeesToUsdg(ru.token, 1);
         assertTrue(launchpad.isTrustedRouter(address(router)));
         // re-allow: the creator claims in full
         vm.prank(owner);

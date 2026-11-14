@@ -155,6 +155,7 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
 
     function transferOwnership(address o) external {
         if (msg.sender != owner) revert OnlyOwner();
+        if (o == address(0)) revert BadParam(); // Audit HK-11: never strand the protocol owner role
         owner = o;
         emit OwnerTransferred(o);
     }

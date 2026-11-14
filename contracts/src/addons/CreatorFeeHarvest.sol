@@ -7,6 +7,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {ILaunchpad} from "../interfaces/ILaunchpad.sol";
@@ -116,6 +117,14 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     uint256 public constant MAX_DEV_BPS = 300;
     /// @notice Minimum quote out of the sell, versus a same-transaction quote of that exact sell.
     uint256 public constant SLIPPAGE_BPS = 100;
+    /// @notice Audit CH-01: one burn sell may move the pool at most this much. A larger balance is halved until a
+    ///         chunk fits (up to MAX_SELL_HALVINGS times); the rest stays parked for a later `route`.
+    uint256 public constant MAX_SELL_IMPACT_BPS = MAX_DEV_BPS;
+    uint256 public constant MAX_SELL_HALVINGS = 12;
+    /// @notice Audit CH-01: the sell must also return at least the EMA value of the chunk, less this many bps
+    ///         (the 3% guard band, the 3% impact cap and the 1% swap fee). A same-transaction quote cannot
+    ///         protect a sell whose pool was pushed in an earlier transaction; the EMA can.
+    uint256 public constant EMA_FLOOR_SLACK_BPS = 2 * MAX_DEV_BPS + MAX_SELL_IMPACT_BPS + 100;
 
     ILaunchpadFor public launchpad;
     IFeePull public feeRouter;
@@ -234,6 +243,8 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         ILaunchpad.LaunchParams memory m = params;
         m.quote = q;
         address u = rtr.usdg();
+        // Audit CH-02: snapshot before any USDG or quote arrives, so `left` is only the unspent First BOOST.
+        uint256 bal0 = IERC20(q).balanceOf(address(this));
         uint256 quoteAmt;
         if (usdgIn != 0) {
             if (u == address(0)) revert ZeroAddress();
@@ -241,13 +252,14 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
             if (q == u) {
                 quoteAmt = usdgIn;
             } else {
+                // Audit RT-02: the swap leg needs a real minimum.
+                if (minQuoteIn == 0) revert Slippage();
                 IERC20(u).forceApprove(address(rtr), usdgIn);
                 quoteAmt = rtr.swapUsdgToQuote(q, usdgIn, minQuoteIn, address(this), params.deadline);
             }
             if (quoteAmt < minQuoteIn) revert Slippage();
         }
         m.creatorBuyQuoteIn = quoteAmt;
-        uint256 bal0 = IERC20(q).balanceOf(address(this));
         if (quoteAmt != 0) IERC20(q).forceApprove(address(pad), quoteAmt);
         result = pad.launchFor(msg.sender, m, mode);
         uint256 left = IERC20(q).balanceOf(address(this)) - bal0;
@@ -279,14 +291,16 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         address q = params.quote == address(0) ? launchpad.defaultQuote() : params.quote;
         uint256 bal0 = IERC20(q).balanceOf(address(this));
         uint256 fee = a.launchFee();
+        address feeToken = fee != 0 ? a.feeToken() : address(0);
         if (fee != 0) {
-            address feeToken = a.feeToken();
             IERC20(feeToken).safeTransferFrom(msg.sender, address(this), fee);
             IERC20(feeToken).forceApprove(address(a), fee);
         }
         if (params.creatorBuyQuoteIn != 0) {
             IERC20(q).safeTransferFrom(msg.sender, address(this), params.creatorBuyQuoteIn);
-            IERC20(q).forceApprove(address(a), params.creatorBuyQuoteIn);
+            // Audit CH-03: when the fee is paid in the pair coin, one approval must cover both pulls.
+            uint256 allow = feeToken == q ? fee + params.creatorBuyQuoteIn : params.creatorBuyQuoteIn;
+            IERC20(q).forceApprove(address(a), allow);
         }
         result = a.launchAnon(params, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee);
         uint256 left = IERC20(q).balanceOf(address(this)) - bal0;
@@ -336,6 +350,8 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         if (dest != DEST_LOCKED_LP && dest != DEST_BURN_QUOTE) revert BadDestination();
         if (msg.sender != launchpad.creatorOf(token)) revert NotLauncher();
         if (amount == 0) revert NothingToRoute();
+        // Audit CH-06: LockedLP only has a position to add rocket tokens to after orbit.
+        if (dest == DEST_LOCKED_LP && !lockedLP.isGraduated(token)) revert AwaitingOrbit();
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         rocketDeposited[token] += amount;
         emit RocketTokensDeposited(token, msg.sender, amount);
@@ -358,8 +374,27 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         nonReentrant
         returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)
     {
+        return _route(token, address(0));
+    }
+
+    /// @notice Same as `route`, also pulling the fees that accrued to `pastCreator`. Audit CH-04: after two
+    ///         `transferCreator` calls (A -> B -> C), `route` only reaches C (current) and A (recorded at launch),
+    ///         so B's fees would be stranded: B cannot self-claim a destination-1/2 coin either. Anyone may call
+    ///         this; an address that never held the role has nothing accrued, so `who` cannot misdirect anything.
+    function routeWith(address token, address pastCreator)
+        external
+        nonReentrant
+        returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)
+    {
+        return _route(token, pastCreator);
+    }
+
+    function _route(address token, address extra)
+        internal
+        returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)
+    {
         uint8 dest = creatorFeeDestinationOf[token];
-        Pulled memory pulled = _pull(token, dest);
+        Pulled memory pulled = _pull(token, dest, extra);
         address quote = feeRouter.tokenQuote(token);
         if (dest == DEST_LOCKED_LP) {
             _lock(token, quote, pulled.rockets, pulled.quoteAmount);
@@ -373,7 +408,8 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
             }
             if (pulled.sellNow) {
                 try this.executeSell(token, pulled.rockets, pulled.current) returns (uint256 sold, uint256 bought) {
-                    rocketDeposited[token] = 0;
+                    // Audit CH-01: a chunked sell leaves the unsold rest parked for the next `route`.
+                    rocketDeposited[token] = pulled.rockets - sold;
                     rocketTokenAmount = sold;
                     quoteBought = bought;
                 } catch {
@@ -386,24 +422,31 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     }
 
     /// @dev Reads both creators, decides whether a burn-destination sell is allowed, then pulls both halves.
-    function _pull(address token, uint8 dest) internal returns (Pulled memory pulled) {
+    function _pull(address token, uint8 dest, address extra) internal returns (Pulled memory pulled) {
         if (dest != DEST_LOCKED_LP && dest != DEST_BURN_QUOTE) revert BadDestination();
         pulled.current = launchpad.creatorOf(token);
         address original = launcherOf[token];
+        if (original == pulled.current) original = address(0);
+        if (extra == pulled.current || extra == original) extra = address(0);
         IFeePull fr = feeRouter;
         uint256 qCurrent = fr.creatorAccrued(token, pulled.current);
         uint256 tCurrent = fr.creatorTokenAccrued(token, pulled.current);
         uint256 qOriginal;
         uint256 tOriginal;
-        if (original != address(0) && original != pulled.current) {
+        if (original != address(0)) {
             qOriginal = fr.creatorAccrued(token, original);
             tOriginal = fr.creatorTokenAccrued(token, original);
         }
+        uint256 qExtra;
+        uint256 tExtra;
+        if (extra != address(0)) {
+            qExtra = fr.creatorAccrued(token, extra);
+            tExtra = fr.creatorTokenAccrued(token, extra);
+        }
         uint256 parked = rocketDeposited[token];
-        uint256 qVault = _pullVault(token, pulled.current);
-        if (original != address(0) && original != pulled.current) qVault += _pullVault(token, original);
-        pulled.quoteAmount = qCurrent + qOriginal + qVault;
-        pulled.rockets = tCurrent + tOriginal + parked;
+        uint256 qVault = _pullVault(token, pulled.current) + _pullVault(token, original) + _pullVault(token, extra);
+        pulled.quoteAmount = qCurrent + qOriginal + qExtra + qVault;
+        pulled.rockets = tCurrent + tOriginal + tExtra + parked;
         if (pulled.quoteAmount == 0 && pulled.rockets == 0) revert NothingToRoute();
         if (dest == DEST_BURN_QUOTE && pulled.rockets != 0) {
             if (!lockedLP.isGraduated(token)) {
@@ -416,10 +459,12 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         }
         if (qCurrent != 0) qCurrent = fr.claimCreatorFeesFor(token, pulled.current);
         if (qOriginal != 0) qOriginal = fr.claimCreatorFeesFor(token, original);
-        pulled.quoteAmount = qCurrent + qOriginal + qVault;
+        if (qExtra != 0) qExtra = fr.claimCreatorFeesFor(token, extra);
+        pulled.quoteAmount = qCurrent + qOriginal + qExtra + qVault;
         if (tCurrent != 0) tCurrent = fr.claimCreatorTokenFeesFor_15(token, pulled.current);
         if (tOriginal != 0) tOriginal = fr.claimCreatorTokenFeesFor_15(token, original);
-        pulled.rockets = tCurrent + tOriginal + parked;
+        if (tExtra != 0) tExtra = fr.claimCreatorTokenFeesFor_15(token, extra);
+        pulled.rockets = tCurrent + tOriginal + tExtra + parked;
         if (pulled.rockets != 0) rocketDeposited[token] = pulled.rockets;
     }
 
@@ -439,11 +484,28 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     {
         if (msg.sender != address(this)) revert NotLauncher();
         address quote = feeRouter.tokenQuote(token);
-        (uint256 quoted,,) = router.quoteExactIn(token, false, amount);
+        IHarvestRouter rtr = router;
+        // Audit CH-01: sell at most a chunk that moves the pool <= MAX_SELL_IMPACT_BPS (halving a lump that the
+        // router would refuse or that would move the price too far), and floor the output at the EMA value.
+        uint256 quoted;
+        for (uint256 i;; ++i) {
+            try rtr.quoteExactIn(token, false, amount) returns (uint256 out, uint256 impactBps, uint256) {
+                if (impactBps <= MAX_SELL_IMPACT_BPS) {
+                    quoted = out;
+                    break;
+                }
+            } catch {}
+            if (i == MAX_SELL_HALVINGS) revert PriceGuard();
+            amount /= 2;
+            if (amount == 0) revert PriceGuard();
+        }
         uint256 minOut = quoted - Math.mulDiv(quoted, SLIPPAGE_BPS, 10_000);
+        uint256 emaFloor = _emaValue(token, amount);
+        emaFloor -= Math.mulDiv(emaFloor, EMA_FLOOR_SLACK_BPS, 10_000);
+        if (emaFloor > minOut) minOut = emaFloor;
         if (minOut == 0) revert PriceGuard();
-        IERC20(token).forceApprove(address(router), amount);
-        uint256 got = router.sellExactIn(token, amount, minOut, address(this), block.timestamp);
+        IERC20(token).forceApprove(address(rtr), amount);
+        uint256 got = rtr.sellExactIn(token, amount, minOut, address(this), block.timestamp);
         uint256 extra = feeRouter.creatorAccrued(token, launcher);
         if (extra != 0) extra = feeRouter.claimCreatorFeesFor(token, launcher);
         quoteBurned = got + extra;
@@ -503,6 +565,19 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         if (_deviationBps(sqrtP, refEma) > MAX_DEV_BPS) return false;
         if (refBlock != 0 && _deviationBps(sqrtP, refBlock) > MAX_DEV_BPS) return false;
         return true;
+    }
+
+    /// @dev Quote value of `amount` rocket tokens at the hook's EMA price (0 when the hook has no EMA yet, in which
+    ///      case `_priceOk` already refused the sell).
+    function _emaValue(address token, uint256 amount) internal view returns (uint256) {
+        PoolKey memory key = lockedLP.getPoolKey(token);
+        (, uint160 ema) = hook.compoundRefs(key.toId());
+        if (ema == 0) return 0;
+        uint256 q96 = 1 << 96;
+        if (Currency.unwrap(key.currency0) == token) {
+            return Math.mulDiv(Math.mulDiv(amount, ema, q96), ema, q96);
+        }
+        return Math.mulDiv(Math.mulDiv(amount, q96, ema), q96, ema);
     }
 
     /// @dev |(hi/lo)^2 - 1| in bps. Same conversion LockedLP uses for its compound guard.
