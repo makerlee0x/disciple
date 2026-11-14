@@ -5,9 +5,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { test, expect, isPhone } from "./support/fixtures";
+import { REAL_PROGRESS_ENABLED, TRAMP_WALLS_ENABLED } from "../lib/features";
 
 const ROOT = path.join(__dirname, "../content/docs/v1");
 type Doc = { title: string; slug: string };
+const FEATURE_ON: Record<string, boolean> = { "real-progress": REAL_PROGRESS_ENABLED, "tramp-walls": TRAMP_WALLS_ENABLED };
 function docs(): Doc[] {
   const out: Doc[] = [];
   for (const dir of fs.readdirSync(ROOT).sort()) {
@@ -15,6 +17,8 @@ function docs(): Doc[] {
     for (const f of fs.readdirSync(d).filter((x) => x.endsWith(".md")).sort()) {
       const src = fs.readFileSync(path.join(d, f), "utf8"), fm = /^---\n([\s\S]*?)\n---/.exec(src)?.[1] ?? "";
       const get = (k: string) => new RegExp(`^${k}:\\s*(.+)$`, "m").exec(fm)?.[1].trim().replace(/^["']|["']$/g, "") ?? "";
+      // a `feature:` page is left out of the docs (404) while its flag is off, the same rule as lib/docs/content.ts
+      if (get("feature") && !FEATURE_ON[get("feature")]) continue;
       out.push({ title: get("title"), slug: get("slug").replace(/\/+$/, "") || "/docs" });
     }
   }

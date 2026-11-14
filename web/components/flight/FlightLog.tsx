@@ -87,7 +87,8 @@ export default function FlightLog({ coin, ticker, practice }: { coin: string | n
     ["Bag now", bag?.valueUsd != null ? fmtMoney(bag.valueUsd).replace(/^\+/, "") : "$0.00"],
     ["Banked", fmtMoney(bag?.realized ?? 0)],
   ];
-  const title = log?.peakMcap ? `Peak ${fmtMcap(log.peakMcap)} · ${titleCase(log.peakTier || "")}` : log ? "You rode it from Launch Pad" : failed ? "Flight log" : "Reading your flight…";
+  // no peak = no indexed fill of yours yet (a boost still landing, or a bag held from an earlier flight): never claim a ride
+  const title = log?.peakMcap ? `Peak ${fmtMcap(log.peakMcap)} · ${titleCase(log.peakTier || "")}` : log ? (log.boosts ? "Your flight so far" : "No boosts this flight yet") : failed ? "Flight log" : "Reading your flight…";
   const btn: React.CSSProperties = { all: "unset", cursor: "pointer", boxSizing: "border-box", textAlign: "center", padding: "12px 16px", borderRadius: HUD.control, font: `800 18px/1 ${HUD.game}`, letterSpacing: ".04em" };
 
   return (
