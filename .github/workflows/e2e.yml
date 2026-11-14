@@ -23,6 +23,11 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # The official Playwright image, so fonts and the browser match the screenshot baselines (re-take them in the
+    # same image locally: see web/e2e/README.md). Keep the tag in step with @playwright/test in web/package.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host
     defaults:
       run:
         working-directory: web
@@ -37,16 +42,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
         working-directory: .
-      - name: Cache the Playwright browser
-        id: pw-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: pw-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-      - run: pnpm exec playwright install --with-deps chromium
-        if: steps.pw-cache.outputs.cache-hit != 'true'
-      - run: pnpm exec playwright install-deps chromium
-        if: steps.pw-cache.outputs.cache-hit == 'true'
       - name: Build (e2e env)
         run: pnpm e2e:build
       - name: Run the suite
@@ -60,6 +55,7 @@ jobs:
         with:
           name: e2e-screens
           path: web/e2e/__screens__
+          include-hidden-files: true
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -67,4 +63,5 @@ jobs:
           path: |
             web/e2e/.report
             web/e2e/.results
+          include-hidden-files: true
           retention-days: 7
