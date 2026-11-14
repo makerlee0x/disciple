@@ -14,7 +14,7 @@ import {
   buildLaunchSocials, boostHasAmount, creatorTaxSteps, launchButtonLabel, launchNeedsSignIn, maxBoostChipLabel,
   isPseudoLaunch, normalizeTelegram, normalizeTwitter, normalizeWebsite, parseCreatorFeeDestination, privateLaunchHelp, privateLaunchTitle,
   readStoredCreatorFeeDestination, readStoredCreatorTax, readStoredUpload, snapCreatorTax, socialsURI, storeCreatorFeeDestination, storeCreatorTax, storeUpload, withHttps,
-  QUICK_LAUNCH_COPY, QUICK_LAUNCH_MODE_CARD, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION, CREATOR_FEE_DESTINATIONS, CREATOR_FEE_DESTINATION_LIVE, PRIVATE_FEE_ROUTING_LIVE, creatorFeeRoutingAvailable, CREATOR_FEE_FIELD, CREATOR_FEE_STORE_KEY, CREATOR_TAX_HELP, CREATOR_TAX_STORE_KEY, DEFAULT_CREATOR_FEE_DESTINATION, UPLOAD_STORE_KEY, liveCreatorFeeDestination,
+  QUICK_LAUNCH_COPY, QUICK_LAUNCH_MODE_CARD, QUICK_LAUNCH_MODE_COPY, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION, CREATOR_FEE_DESTINATIONS, CREATOR_FEE_DESTINATION_LIVE, HARVEST_USDG_BOOST_LIVE, PRIVATE_FEE_ROUTING_LIVE, creatorFeeRoutingAvailable, CREATOR_FEE_FIELD, CREATOR_FEE_STORE_KEY, CREATOR_TAX_HELP, CREATOR_TAX_STORE_KEY, DEFAULT_CREATOR_FEE_DESTINATION, UPLOAD_STORE_KEY, liveCreatorFeeDestination,
 } from "../lib/quickLaunch";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -332,4 +332,14 @@ test("Difficulty is three cards with the caps written on them (canvas board \"La
   assert.match(QUICK_LAUNCH_MODE_CARD.Trench.blurb, /No caps/);
   assert.equal(QUICK_LAUNCH_MODE_CARD.Trench.label, "Expert");
   assert.doesNotMatch(page, /modesFoot|mode-modal|modeBtn|modeOpen/);
+});
+
+test("pool / burn with a first boost in dollars is refused until the fixed harvest is live (audit CH-02)", () => {
+  assert.equal(HARVEST_USDG_BOOST_LIVE, false);
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeesNoBoost, "Pool and burn can't take a first boost yet. Launch without one, or keep the creator fees.");
+  const here = dirname(fileURLToPath(import.meta.url));
+  const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
+  const proto = readFileSync(join(here, "../lib/protocol-viem.ts"), "utf8");
+  assert.ok(page.indexOf("C.creatorFeesNoBoost") < page.indexOf("storeImage(badge)"), "checked before the image upload");
+  assert.match(proto, /feeDest && !lp\.private && usdgIn > B\(0\) && !HARVEST_USDG_BOOST_LIVE/);
 });

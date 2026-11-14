@@ -36,7 +36,7 @@ import {
 import {
   QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_CARD, seatLabel, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION,
   CREATOR_FEE_DESTINATIONS, CREATOR_TAX_HELP, DEFAULT_CREATOR_FEE_DESTINATION,
-  buildLaunchSocials, creatorFeeRoutingAvailable, launchNeedsSignIn, liveCreatorFeeDestination,
+  HARVEST_USDG_BOOST_LIVE, buildLaunchSocials, creatorFeeRoutingAvailable, launchNeedsSignIn, liveCreatorFeeDestination,
   normalizeTelegram, normalizeTwitter, normalizeWebsite, privateLaunchHelp,
   readStoredCreatorFeeDestination, readStoredCreatorTax, readStoredUpload, snapCreatorTax,
   storeCreatorFeeDestination, storeCreatorTax, storeUpload, type CreatorFeeDestination,
@@ -305,6 +305,7 @@ export default function LaunchRocketPage() {
       setMsg(privateLaunch ? `${C.creatorFeesPrivateLater} Pick "${CREATOR_FEE_COPY[0].sentence}" or turn off Hide my name.` : C.creatorFeesNotHere);
       return;
     }
+    if (sendFeeDest && !HARVEST_USDG_BOOST_LIVE && boostState.usdgIn != null && boostState.usdgIn > BigInt(0)) { setMsg(C.creatorFeesNoBoost); return; }
     const web = normalizeWebsite(website) ?? "";
     if (web !== website.trim()) setWebsite(web);
     if (web && !/^https?:\/\/\S+\.\S+/.test(web)) {
