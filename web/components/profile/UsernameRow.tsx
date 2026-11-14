@@ -60,15 +60,14 @@ export function useUsernameDraft(wallet: string | null, open = true): UsernameDr
 export function UsernameField({ u, disabled }: { u: UsernameDraft; disabled?: boolean }) {
   return (
     <label className="p5-fld" data-testid="edit-username">
-      <span className="lab">Username</span>
+      <span className="lab">Call sign {!u.locked && <em data-testid="username-cooldown">Change once a day</em>}</span>
       <span className="p5-inp p5-inp-name"><span className="pre">@</span>
         <input value={u.name} maxLength={USERNAME_MAX} placeholder="your_name" autoComplete="off" spellCheck={false} disabled={u.locked || disabled}
-          aria-label="Username" onChange={(e) => u.setName(e.target.value)} />
+          aria-label="Call sign" onChange={(e) => u.setName(e.target.value)} />
+        {u.status?.ok && <span className="p5-uok" role="status" data-testid="username-status">✓ {u.status.text}</span>}
       </span>
-      <span className="p5-help-row">
-        {u.status ? <span className={`p5-fine ${u.status.ok ? "ok" : u.status.bad ? "bad" : ""}`} role="status" data-testid="username-status">{u.status.text}</span>
-          : <span className="p5-fine" data-testid="username-cooldown">{u.locked ? C["username.cooldown.note"](formatLocalWhen(u.nextAt!)) : "Once every 24 hours."}</span>}
-      </span>
+      {u.status && !u.status.ok ? <span className={`p5-fine ${u.status.bad ? "bad" : ""}`} role="status" data-testid="username-status">{u.status.text}</span>
+        : u.locked && <span className="p5-fine" data-testid="username-cooldown">{C["username.cooldown.note"](formatLocalWhen(u.nextAt!))}</span>}
     </label>
   );
 }

@@ -1,12 +1,13 @@
 "use client";
 /** The Pilot / Pro switch on How to play. Both panels are server-rendered; this only picks which one shows. #pro opens Pro. */
-import { useEffect, useState, type ReactNode } from "react";
-import { HIW_TABS } from "@/content/how-it-works";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { HIW_FINAL, HIW_TABS } from "@/content/how-it-works";
 import s from "./page.module.css";
 
 type Panel = { eyebrow: string; h1: string; sub: string; body: ReactNode };
 
-export default function ModeTabs({ pilot, pro }: { pilot: Panel; pro: Panel }) {
+/** `final`: the Ready up banner. It repeats the switch (approved 2026-11-13: "add the pilot/pro toggle down at the ready up banner"). */
+export default function ModeTabs({ pilot, pro, final, finalStyle }: { pilot: Panel; pro: Panel; final?: ReactNode; finalStyle?: CSSProperties }) {
   const [tab, setTab] = useState<"pilot" | "pro">("pilot");
   useEffect(() => {
     const read = () => setTab(location.hash === "#pro" ? "pro" : "pilot");
@@ -36,6 +37,22 @@ export default function ModeTabs({ pilot, pro }: { pilot: Panel; pro: Panel }) {
       </header>
       <div role="tabpanel" id="hiw-panel-pilot" aria-labelledby="hiw-tab-pilot" hidden={tab !== "pilot"}>{pilot.body}</div>
       <div role="tabpanel" id="hiw-panel-pro" aria-labelledby="hiw-tab-pro" hidden={tab !== "pro"}>{pro.body}</div>
+      {final && (
+        <section className={s.final} style={finalStyle} aria-labelledby="hiw-final">
+          <div className={s.finalC}>
+            {final}
+            <div className={s.finalTog}>
+              <span>{HIW_FINAL.tog}</span>
+              <div className={s.tog} role="group" aria-label={HIW_TABS.label}>
+                {(["pilot", "pro"] as const).map((t) => (
+                  <button key={t} type="button" aria-pressed={tab === t} className={tab === t ? s.on : ""} data-testid={`hiw-final-tab-${t}`}
+                    onClick={() => { pick(t); scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); }}>{HIW_TABS[t]}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
     </>
   );
 }

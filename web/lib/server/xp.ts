@@ -39,6 +39,8 @@ export const XPK = {
   timers: () => `${ns()}:timers`,
   /** zset score=at ms, member=DraftClaim JSON: drafting slingshots reported by the game, paid by the cron once checked */
   drafts: (w: string) => `${ns()}:draft:${w.toLowerCase()}`,
+  /** zset score=day index, member=day index: UTC days the pilot opened their logbook or crew (lib/streaks check-in) */
+  checkins: (w: string) => `${ns()}:ci:${w.toLowerCase()}`,
 };
 /** Nonce prefix for the signed shop / prestige requests (lib/server/nonces). */
 export const XP_NONCE_PREFIX = "xp:nonce";
@@ -46,7 +48,7 @@ export const XP_NONCE_PREFIX = "xp:nonce";
 /** Ledger rows read per wallet (a daily player writes ~10 a day; this is years of play). */
 const LEDGER_MAX = 20_000;
 
-export type LedgerKind = "mission" | "milestone" | "buy" | "prestige" | "draft" | "freeplay";
+export type LedgerKind = "mission" | "milestone" | "buy" | "prestige" | "draft" | "freeplay" | "streak";
 export interface LedgerRow { src: string; kind: LedgerKind; xp: number; label: string; ts: number }
 
 const parse = <T>(s: string | null): T | null => { if (!s) return null; try { return JSON.parse(s) as T; } catch { return null; } };

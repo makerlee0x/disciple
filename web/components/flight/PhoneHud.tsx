@@ -169,7 +169,7 @@ export default function PhoneHud() {
   const sim = /\/flight\/sim/.test(typeof location !== "undefined" ? location.pathname : "");
   const zl = zoneLine(mcap);
   const badge = grad ? { t: GRAD_BADGE, c: "#F3DFA8" } : rules && Number.isInteger(rules.mode) && MODE[rules.mode!] ? { t: MODE[rules.mode!].t + (rules.capBps ? ` · ${capTxt(rules.capBps)} CAP` : ""), c: MODE[rules.mode!].c }
-    : sim ? { t: "SIM", c: "#C9B6F2" } : null;
+    : sim ? { t: "FREE PLAY", c: "#C9B6F2" } : null;
   const ticker = rules?.ticker ? `$${rules.ticker.replace(/^\$/, "")}` : "";
   const bagUsd = pnl?.valueUsd ?? 0, bagPct = pnl?.txt?.pct ?? "", neg = (pnl?.uPnl ?? 0) < 0;
   const bag = <span>Your bag <b style={{ color: "#F2F3F7", fontWeight: 600 }}>{`$${bagUsd.toFixed(2)}`}</b>{bagUsd > 0 && bagPct ? <b style={{ color: neg ? "#FF7FB3" : "#5FF0A0", fontWeight: 600 }}> {bagPct}</b> : null}</span>;
