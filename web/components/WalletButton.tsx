@@ -1,5 +1,6 @@
 "use client";
 
+import HelpButton from "@/components/HelpButton";
 import Link from "next/link";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
@@ -280,6 +281,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
               {compact ? (
                 <>
                   {/* lobby routes (brand v3 lobby mockup): one cash chip + the pilot chip (level ring + name) */}
+                  <HelpButton />
                   {/* always shown when signed in: $0.00 until (or unless) the cash read lands */}
                   {!hideCash && (
                     <a href={DEPOSIT_HREF} onClick={onDepositClick} className="wb-cash" data-testid="cash-card" aria-label="Your cash: open Cash" title="Your cash: what BOOST spends and DUMP pays out in. Tap to add more.">

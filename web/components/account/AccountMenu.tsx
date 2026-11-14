@@ -15,6 +15,8 @@ import { usd2 } from "@/components/cash/bits";
 
 export const ACCOUNT_COPY = {
   hangar: "Your Hangar",
+  trophies: "Missions + trophies",
+  missionsLeft: (n: number) => `${n} left today`,
   logbook: "Logbook",
   crew: "Crew",
   cash: "Cash",
@@ -31,6 +33,7 @@ export const REWARDS_HREF = "/profile#rewards";
 
 const I = {
   hangar: <path d="M3 10l9-6 9 6v10H3zM9 20v-6h6v6" />,
+  trophies: <path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 20h8" />,
   logbook: <path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11M9 8h6" />,
   crew: <><circle cx="9" cy="9" r="3" /><circle cx="17" cy="10" r="2.5" /><path d="M3 20a6 6 0 0 1 12 0M14 20a4 4 0 0 1 7-2.6" /></>,
   cash: <><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></>,
@@ -46,6 +49,7 @@ export default function AccountMenu({ wallet, name, initial, cashUsd, onClose, o
   const { xp } = useXp(wallet);
   const L = xp?.level ?? levelInfo(0);
   const r = useRewards(true);
+  const left = xp ? xp.daily.missions.filter((m) => !m.done).length : 0;
   const ready = useMemo(() => {
     const k = r.data?.claimableByKind;
     return k ? k.referral + k.creator + k.crew : 0;
@@ -65,6 +69,7 @@ export default function AccountMenu({ wallet, name, initial, cashUsd, onClose, o
         </div>
         <span className="am-sep" />
         <a role="menuitem" className="am-i" href="/profile" onClick={onClose}><Ico d={I.hangar} />{ACCOUNT_COPY.hangar}</a>
+        <Link role="menuitem" className={`am-i${left > 0 ? " am-gold" : ""}`} href="/achievements" onClick={onClose} data-testid="account-trophies"><Ico d={I.trophies} />{ACCOUNT_COPY.trophies}{left > 0 && <span className="am-r gold">{ACCOUNT_COPY.missionsLeft(left)}</span>}</Link>
         {LOGBOOK_ENABLED && <Link role="menuitem" className="am-i" href="/logbook" onClick={onClose}><Ico d={I.logbook} />{ACCOUNT_COPY.logbook}</Link>}
         {CREW_ENABLED && <Link role="menuitem" className="am-i" href="/crew" onClick={onClose}><Ico d={I.crew} />{ACCOUNT_COPY.crew}</Link>}
         <button role="menuitem" type="button" className="am-i" onClick={() => { onClose(); openCash("add"); }}><Ico d={I.cash} />{ACCOUNT_COPY.cash}{cashUsd != null && <span className="am-r">{usd2(cashUsd)}</span>}</button>
