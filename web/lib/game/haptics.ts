@@ -4,6 +4,8 @@
  * - Android Chrome and most Android wallet browsers: navigator.vibrate with the patterns below.
  * - iPhone: Safari has no Vibration API. Toggling a hidden <input type="checkbox" switch> inside a tap plays
  *   the system tick (iOS 18+), so taps get a light tick; non-tap moments (fills, zones, orbit) stay silent there.
+ * - DISCIPLE iPhone app (mobile/, Capacitor): the native Taptic Engine plays every kind (lib/native NATIVE_HAPTICS),
+ *   on finger down like Android, so trades and engine moments all buzz.
  * - The flight engine fires `disciple:sfx` cues (forwarded to the page in ?render=worker mode too, where navigator.vibrate
  *   does not exist), and the page maps those cues to haptics here, on the main thread, with one dedupe for both modes.
  * - Off when Settings → Sound → Vibration is off (lib/game/settings.ts `haptics`, on by default).
@@ -12,6 +14,7 @@
  * Any other button, link or toggle gets the light "tap".
  */
 import { getGameSettings } from "./settings";
+import { isNativeApp, nativeHaptic } from "../native";
 
 export type HapticKind = "tap" | "select" | "boost" | "dump" | "fill" | "fail" | "zone" | "hit" | "orbit" | "celebrate" | "hold";
 
@@ -85,6 +88,7 @@ export function haptic(kind: HapticKind, fromTap = false): boolean {
   // a boost/dump tap already buzzed: the plain tap from the same finger is redundant
   if (kind === "tap" && (now - (lastAt.boost ?? -1e9) < DEDUPE_MS || now - (lastAt.dump ?? -1e9) < DEDUPE_MS)) return false;
   lastAt[kind] = now;
+  if (nativeHaptic(kind)) return true;
   if (canVibrate()) {
     try { return navigator.vibrate(HAPTIC_PATTERNS[kind]); } catch { return false; }
   }
@@ -106,7 +110,7 @@ let installed = false;
 export function installHaptics(): () => void {
   if (installed || typeof window === "undefined") return () => {};
   installed = true;
-  const vib = canVibrate();
+  const vib = canVibrate() || isNativeApp();
   // Android: buzz on finger down (same frame as the press visual). iPhone: the tick needs a click to count as a tap.
   const onDown = (e: PointerEvent) => {
     if (e.pointerType === "mouse") return;

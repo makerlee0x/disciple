@@ -9,12 +9,13 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { loadRun, saveRun, shouldOfferInstall } from "@/lib/firstRun";
 import { currentInApp, isIOS } from "@/lib/inAppBrowser";
+import { isNativeApp } from "@/lib/native";
 import { isCollapsibleRoute } from "@/components/Sidebar";
 
 type BIP = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
 const isPhone = () => typeof window !== "undefined" && (document.documentElement.classList.contains("ap-phone") || matchMedia("(max-width: 760px) and (pointer: coarse)").matches);
-const isStandalone = () => typeof window !== "undefined" && (matchMedia("(display-mode: standalone)").matches || (navigator as unknown as { standalone?: boolean }).standalone === true);
+const isStandalone = () => typeof window !== "undefined" && (isNativeApp() || matchMedia("(display-mode: standalone)").matches || (navigator as unknown as { standalone?: boolean }).standalone === true);
 
 export default function InstallPrompt() {
   const path = usePathname();

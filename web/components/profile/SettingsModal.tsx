@@ -7,6 +7,7 @@ import type { Address } from "@/lib/protocol";
 import { LEAVE_COPY, LEAVE_PREFS, loadLeavePref, onLeavePref, saveLeavePref, type LeavePref } from "@/lib/turbo/leave";
 import { ONE_TAP_SLIPPAGE_CHOICES_BPS, onPrivy, onSessionChange, oneTapSlippageBps, privyAccount, privySecurity, setOneTapSlippageBps, type PrivyAccountInfo, type PrivyMfaMethod, type PrivySecurity } from "@/lib/aa/session";
 import { playerError } from "@/lib/playerError";
+import { privyAccessToken } from "@/lib/aa/sessionState";
 import Icon from "@/components/icons/Icon";
 import { SETTINGS_KEYS } from "@/lib/config";
 import { setGameSettings, useGameSettings } from "@/lib/game/settings";
@@ -39,6 +40,14 @@ export const SETTINGS_COPY = {
   passkeyHelp: "Sign in with your device's biometrics",
   privyOnly: "Available when you sign in with email, Google, X or a wallet.",
   logout: "Sign out",
+  deleteAcct: "Delete account",
+  deleteHelp: "Remove your profile and sign-in",
+  deleteTitle: "Delete your account?",
+  deleteLead: "This removes your username, profile, X link and alerts, and closes your sign-in. It can't be undone.",
+  deleteWallet: "Your wallet lives on the blockchain, so anything in it stays there. Withdraw your cash or export your key first, or you lose access to it.",
+  deleteType: "Type DELETE to confirm",
+  deleteGo: "Delete my account",
+  deleteBusy: "Deleting…",
   copy: "Copy", copied: "Copied",
   signedOut: "Sign in to see your account settings.",
 } as const;
@@ -73,14 +82,16 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   const gs = useGameSettings();
   const [err, setErr] = useState("");
   const [sec, setSec] = useState<PrivySecurity | null>(null);
-  const [view, setView] = useState<"main" | "2fa">("main");
+  const [view, setView] = useState<"main" | "2fa" | "delete">("main");
+  const [delText, setDelText] = useState("");
+  const [delBusy, setDelBusy] = useState(false);
   const [secBusy, setSecBusy] = useState("");
   const [secErr, setSecErr] = useState("");
   const [fx, setFx] = useState({ bombs: true });
   useEffect(() => { if (open) setFx({ bombs: readFx(SETTINGS_KEYS.bombs) }); }, [open]);
   useEffect(() => onWallet(setAddr), []);
   useEffect(() => { const read = () => { setAcct(privyAccount()); setSec(privySecurity()); }; read(); return onPrivy(read); }, []);
-  useEffect(() => { if (!open) { setView("main"); setSecErr(""); } }, [open]);
+  useEffect(() => { if (!open) { setView("main"); setSecErr(""); setDelText(""); } }, [open]);
   const [leavePref, setLeavePref] = useState<LeavePref>("ask");
   useEffect(() => { setLeavePref(loadLeavePref()); return onLeavePref(setLeavePref); }, []);
   useEffect(() => { setBps(oneTapSlippageBps()); return onSessionChange(() => setBps(oneTapSlippageBps())); }, []);
@@ -114,12 +125,42 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   };
   const twoFaState = !sec ? SETTINGS_COPY.twoFaOff
     : [has("totp") && SETTINGS_COPY.totp, has("passkey") && SETTINGS_COPY.passkey].filter(Boolean).join(" · ") || SETTINGS_COPY.twoFaOff;
+  const deleteAcct = async () => {
+    if (delText !== "DELETE" || delBusy) return;
+    setDelBusy(true); setSecErr("");
+    try {
+      const token = await privyAccessToken().catch(() => null);
+      const r = await fetch("/api/account/delete", { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ confirm: "DELETE" }), cache: "no-store" });
+      if (!r.ok) { setSecErr(((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? "Couldn't delete your account. Try again."); return; }
+      onClose(); void disconnect();
+    } catch { setSecErr("Couldn't delete your account. Try again."); } finally { setDelBusy(false); }
+  };
   const copy = () => { if (!addr) return; navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); };
 
   return (
     <div className="ds-modal-backdrop p5-settings-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="p5-modal p5-settings" role="dialog" aria-modal="true" aria-label={SETTINGS_COPY.title} data-testid="settings-modal">
-        {view === "2fa" ? <>
+        {view === "delete" ? <>
+          <header className="p5-mhead p5-subhead">
+            <button type="button" className="p5-icon" aria-label="Back" onClick={() => { setView("main"); setSecErr(""); setDelText(""); }} data-testid="delete-back"><Icon name="chevron-left" size={20} /></button>
+            <h2>{SETTINGS_COPY.deleteAcct}</h2>
+            <button type="button" className="p5-icon p5-desk" aria-label="Close settings" onClick={onClose}><Icon name="close" size={18} /></button>
+          </header>
+          <div className="p5-sbox" data-testid="delete-view">
+            <div className="p5-srow wrap"><div className="tx"><b>{SETTINGS_COPY.deleteTitle}</b><span>{SETTINGS_COPY.deleteLead}</span></div></div>
+            <div className="p5-srow wrap"><div className="tx"><span>{SETTINGS_COPY.deleteWallet}</span></div></div>
+            <div className="p5-srow wrap">
+              <input className="p5-input" aria-label={SETTINGS_COPY.deleteType} placeholder={SETTINGS_COPY.deleteType} value={delText} autoCapitalize="characters" autoComplete="off"
+                onChange={(e) => setDelText(e.target.value.trim().toUpperCase())} data-testid="delete-input" />
+            </div>
+          </div>
+          {secErr && <p className="p5-err" role="alert">{secErr}</p>}
+          <footer className="p5-sfoot">
+            <button type="button" className="p5-logout" disabled={delText !== "DELETE" || delBusy} onClick={() => void deleteAcct()} data-testid="delete-go">
+              {delBusy ? SETTINGS_COPY.deleteBusy : SETTINGS_COPY.deleteGo}
+            </button>
+          </footer>
+        </> : view === "2fa" ? <>
           <header className="p5-mhead p5-subhead">
             <button type="button" className="p5-icon" aria-label="Back" onClick={() => { setView("main"); setSecErr(""); }} data-testid="twofa-back"><Icon name="chevron-left" size={20} /></button>
             <h2>{SETTINGS_COPY.twoFa}</h2>
@@ -224,6 +265,11 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                   <button type="button" className="p5-srow p5-srow-link" onClick={() => { setView("2fa"); setSecErr(""); }} data-testid="settings-2fa">
                     <span className="p5-sic"><Icon name="shield" size={18} /></span>
                     <div className="tx"><b>{SETTINGS_COPY.twoFa}</b><span>{twoFaState === SETTINGS_COPY.twoFaOff ? `${twoFaState} · ${SETTINGS_COPY.twoFaHow}` : twoFaState}</span></div>
+                    <Icon name="chevron-right" size={18} />
+                  </button>
+                  <button type="button" className="p5-srow p5-srow-link" onClick={() => { setView("delete"); setSecErr(""); }} data-testid="settings-delete">
+                    <span className="p5-sic"><Icon name="close" size={18} /></span>
+                    <div className="tx"><b>{SETTINGS_COPY.deleteAcct}</b><span>{SETTINGS_COPY.deleteHelp}</span></div>
                     <Icon name="chevron-right" size={18} />
                   </button>
                 </div>
