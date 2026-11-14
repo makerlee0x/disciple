@@ -26,6 +26,9 @@ contract ReferralRegistry is IReferralRegistry {
     error SelfReferral();
     error AlreadyAttributed();
     error NotWalletOrAttestor();
+    error ZeroAddress();
+
+    event OwnerTransferred(address indexed owner);
 
     event ReferrerPending(address indexed wallet, address indexed referrer);
     event ReferrerAttributed(address indexed wallet, address indexed referrer);
@@ -34,6 +37,8 @@ contract ReferralRegistry is IReferralRegistry {
     event UsdgDepositRecorded(address indexed wallet, uint256 amount, uint256 total);
 
     constructor(address owner_, address usdg_) {
+        // Audit FR-04: an address(0) owner can never be recovered.
+        if (owner_ == address(0)) revert ZeroAddress();
         owner = owner_;
         usdgGate = Constants.REFERRAL_GATE_USD * 10 ** uint256(IERC20Metadata(usdg_).decimals());
     }
@@ -52,7 +57,9 @@ contract ReferralRegistry is IReferralRegistry {
 
     function transferOwnership(address newOwner) external {
         if (msg.sender != owner) revert OnlyOwner();
+        if (newOwner == address(0)) revert ZeroAddress(); // Audit FR-04
         owner = newOwner;
+        emit OwnerTransferred(newOwner);
     }
 
     /// @inheritdoc IReferralRegistry

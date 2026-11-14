@@ -58,6 +58,9 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     error ZeroAddress();
     error NothingToClaim();
     error KolShareTooHigh();
+    error LaunchpadAlreadySet();
+    error QuoteAlreadySet();
+    error NotAContract();
     /// @notice Destination 1 or 2. The later-send contract pulls these fees. The launcher cannot claim them.
     error CreatorFeesRouted();
 
@@ -110,8 +113,14 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         referrals = IReferralRegistry(referrals_);
     }
 
+    /// @dev Audit FR-01 / LB-03: one-shot, like `Migration.setLaunchpad`. CurveFeeVault authenticates curves and
+    ///      finds creators through this pointer, so repointing it would make every live curve of the old Launchpad
+    ///      unable to settle fees or graduate, and strand their curve-phase fees. A new Launchpad needs a new stack
+    ///      anyway (Migration's launchpad is already one-shot).
     function setLaunchpad(address launchpad_) external {
         if (msg.sender != owner) revert OnlyOwner();
+        if (launchpad != address(0)) revert LaunchpadAlreadySet();
+        if (launchpad_ == address(0)) revert ZeroAddress();
         launchpad = launchpad_;
     }
 
@@ -401,14 +410,19 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     ///         Not `public`: the auto-getter selector sorts before `routeTradeFee` and would add gas to every trade.
     address internal creatorFeeHarvest;
 
+    /// @dev Audit FR-02: write-once. Re-registering a live token's quote would pay creators in the wrong asset
+    ///      and leave this contract insolvent against the accruals already booked in the old quote.
     function registerTokenQuote(address token, address quote) external {
         if (msg.sender != launchpad && msg.sender != owner) revert OnlyOwner();
+        if (tokenQuote[token] != address(0)) revert QuoteAlreadySet();
         tokenQuote[token] = quote;
     }
 
     /// @notice Launchpad registers quote + freezes creator's referrer as KOL-on-creates (LOCKED #21).
+    /// @dev Audit FR-02: Launchpad only and write-once, so neither the quote nor the launch KOL can be repointed.
     function registerTokenLaunch(address token, address quote, address launchingCreator) external {
-        if (msg.sender != launchpad && msg.sender != owner) revert OnlyOwner();
+        if (msg.sender != launchpad) revert OnlyOwner();
+        if (tokenQuote[token] != address(0)) revert QuoteAlreadySet();
         tokenQuote[token] = quote;
         address kol = referrals.referrerOf(launchingCreator);
         if (kol != address(0)) tokenLaunchKol[token] = kol;
@@ -432,6 +446,8 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     ///         walk an extra dispatcher comparison.
     function setCreatorFeeHarvest_51(address harvest) external {
         if (msg.sender != owner) revert OnlyOwner();
+        // Audit FR-02: self-claims call into this address; an EOA would brick every creator self-claim.
+        if (harvest != address(0) && harvest.code.length == 0) revert NotAContract();
         creatorFeeHarvest = harvest;
     }
 
