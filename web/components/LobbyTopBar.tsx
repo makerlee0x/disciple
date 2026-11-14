@@ -53,8 +53,7 @@ export default function LobbyTopBar() {
     <header className={`lb-bar${you ? "" : " lb-out"}`} data-testid="lobby-topbar">
       <Link href="/" className="lb-brand" aria-label="DISCIPLE lobby">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brand/disciple-mark-light.svg" alt="" width={28} height={28} />
-        <span className="lb-word">DISCIPLE</span>
+        <img className="lb-lockup" src="/brand/disciple-lockup-horizontal-light.svg" alt="DISCIPLE" width={141} height={30} />
       </Link>
       <nav className="lb-tabs" aria-label="Main">
         {tabs.map((t) => (

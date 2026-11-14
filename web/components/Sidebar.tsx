@@ -218,7 +218,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
         <div className="ap-brand">
           <Link href="/" className="ap-logo" aria-label="DISCIPLE home" onClick={closeIfMobile}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="ap-lockup" src="/brand/disciple-lockup-horizontal-light.svg" alt="DISCIPLE" width={176} height={45} />
+            <img className="ap-lockup" src="/brand/disciple-lockup-horizontal-light.svg" alt="DISCIPLE" width={160} height={34} />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img className="ap-mark" src="/brand/disciple-mark-light.svg" alt="DISCIPLE" width={32} height={32} />
             <span className="ap-word" aria-hidden="true">DISCIPLE</span>

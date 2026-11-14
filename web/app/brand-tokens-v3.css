@@ -164,6 +164,7 @@
 .lb-bar::after { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: var(--dsc3-grain); opacity: 0.12; mix-blend-mode: overlay; }
 .lb-brand { display: flex; align-items: center; gap: 10px; color: var(--dsc-text); text-decoration: none; flex: 0 0 auto; }
 .lb-word { font: 800 24px / 1 var(--dsc-font-game); letter-spacing: 0.04em; }
+.lb-lockup { display: block; height: 30px; width: auto; }
 .lb-tabs { display: flex; align-items: stretch; gap: 28px; height: 100%; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .lb-tabs::-webkit-scrollbar { display: none; }
 .lb-tabs a, .lb-tab-btn {

@@ -146,7 +146,7 @@ export default function HowItWorksPage() {
 
       <footer className={s.footer}>
         {/* eslint-disable-next-line @next/next/no-img-element -- static SVG lockup, no optimisation needed */}
-        <img src={withBase("/brand/disciple-lockup-horizontal-light.svg")} alt={HIW_FINAL.logoAlt} width={120} height={31} loading="lazy" />
+        <img src={withBase("/brand/disciple-lockup-horizontal-light.svg")} alt={HIW_FINAL.logoAlt} width={146} height={31} loading="lazy" />
         <span className={s.sp} />
         <span>{HIW_FINAL.footer}</span>
         <span className={s.footLinks}>
