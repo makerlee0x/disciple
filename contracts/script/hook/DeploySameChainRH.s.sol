@@ -83,7 +83,7 @@ contract DeploySameChainRH is Script {
         require(block.chainid == 4663, "run on Robinhood Chain");
         uint256 coinIn = vm.envUint("COIN_IN");
         uint256 quoteIn = vm.envUint("QUOTE_IN");
-        uint24 fee = 10_000; // 1%: the one v0.3 fee (every other setting is fixed in the hook too)
+        uint24 fee = uint24(vm.envOr("FEE", uint256(10_000))); // 2500, 5000, 10,000 or 20,000; the rest is fixed
         DiscipleHook.Source memory s;
         s.kind = 3; // v4
         s.coinIs0 = true; // STRATEGY is currency0 of STRATEGY/MSTR

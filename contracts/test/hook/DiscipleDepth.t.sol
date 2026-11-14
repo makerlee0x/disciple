@@ -271,7 +271,7 @@ contract DiscipleDepthTest is Test {
         return DiscipleHook.CreateParams({
             coin: address(coin),
             quote: address(usd),
-            fee: 10_000,
+            fee: 2500,
             src: s,
             coinIn: c,
             quoteIn: q,

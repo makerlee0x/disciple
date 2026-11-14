@@ -188,7 +188,7 @@ contract DiscipleForkTest is Test {
             DiscipleHook.CreateParams({
                 coin: coin,
                 quote: quote,
-                fee: 10_000,
+                fee: 2500,
                 src: s,
                 coinIn: coinSeed,
                 quoteIn: _bal(quote) / 4,

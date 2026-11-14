@@ -327,7 +327,7 @@ contract PushForkReverseTest is Test {
             DiscipleHook.CreateParams({
                 coin: address(coin),
                 quote: address(quote),
-                fee: 10_000,
+                fee: 2500,
                 src: s,
                 coinIn: 1e24,
                 quoteIn: 1e20,

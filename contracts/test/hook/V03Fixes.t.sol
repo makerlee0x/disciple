@@ -251,9 +251,9 @@ contract V03CrossTest is DiscipleTest {
         uint256 a1 = hook.poolState(id).anchorX128;
         assertGt(a1, a0);
         uint256 b1 = hook.poolState(id).compounded;
-        // the +10% move is more than the 1% the fill earned: at the pushed price the fill is a loss (carried), while
+        // the 1% step is more than the 0.3% the fill earned: at the new centre the fill is a loss (carried), while
         // the old centre would have booked a gain made of the price move
-        assertLt(q, Math.mulDiv(c, Math.mulDiv(2_200_000e18, Q128, 1_000_000e18), Q128, Math.Rounding.Ceil), "a loss at the pushed price");
+        assertLt(q, Math.mulDiv(c, a1, Q128, Math.Rounding.Ceil), "a loss at the new centre");
         assertGt(q, Math.mulDiv(c, a0, Q128, Math.Rounding.Ceil), "a gain at the old one");
         assertEq(b1, b0, "nothing booked as fees");
         // audit I-5 / R376-02: measure the booked loss itself. Coin the pool paid out is valued at the highest of
@@ -271,8 +271,8 @@ contract V03CrossTest is DiscipleTest {
     }
 }
 
-/// @notice v0.3 settings (maker 2026-11-14): every pool is the same. Fee 1%, edge 1bp, curve 0.05, tip 1.05x,
-///         skim 6%. Nothing is chosen per pool.
+/// @notice v0.3 settings (maker 2026-11-14): the creator picks only the fee, 0.25%, 0.5%, 1% or 2%, fixed for the
+///         pool's life. Edge, curve, tip and skim are the same for every pool.
 contract V03SettingsTest is DiscipleTest {
     function _params(uint24 f) internal view returns (DiscipleHook.CreateParams memory) {
         return DiscipleHook.CreateParams({
@@ -287,10 +287,13 @@ contract V03SettingsTest is DiscipleTest {
         });
     }
 
-    function test_v03_onlyOnePercent() public {
-        hook.createPool(_params(10_000));
-        uint24[8] memory bad = [uint24(0), 1, 2500, 3000, 5000, 9999, 10_001, 20_000];
-        for (uint256 i; i < 8; i++) {
+    function test_v03_onlyTheFourFees() public {
+        uint24[4] memory ok = [uint24(2500), 5000, 10_000, 20_000];
+        for (uint256 i; i < 4; i++) {
+            hook.createPool(_params(ok[i]));
+        }
+        uint24[7] memory bad = [uint24(0), 1, 2499, 3000, 9999, 20_001, 100_000];
+        for (uint256 i; i < 7; i++) {
             DiscipleHook.CreateParams memory cp = _params(bad[i]);
             vm.expectRevert(DiscipleHook.BadParams.selector);
             hook.createPool(cp);
@@ -299,14 +302,27 @@ contract V03SettingsTest is DiscipleTest {
 
     /// The fixed settings land in every pool: edge 1bp, flatness 0.05, tip 1.05x (skim 6%: the jar tests).
     function test_v03_fixedSettingsStored() public {
-        (, PoolId id) = hook.createPool(_params(10_000));
+        (, PoolId id) = hook.createPool(_params(5000));
         // Pool slot 0 packs: exists, coinIs0, fee (uint24), coin, edgeBps, tipBps; see DiscipleHook.Pool
         uint256 base = uint256(keccak256(abi.encode(PoolId.unwrap(id), uint256(1))));
         uint256 s0 = uint256(vm.load(address(hook), bytes32(base)));
         uint256 s1 = uint256(vm.load(address(hook), bytes32(base + 1)));
-        assertEq(uint24(s0 >> 32), 10_000, "fee 1%");
+        assertEq(uint24(s0 >> 32), 5000, "fee");
         assertEq(uint16(s0 >> 216), 1, "edge 1bp");
         assertEq(uint16(s0 >> 232), 10_500, "tip 1.05x");
         assertEq(uint32(s1 >> 160), 50_000, "flatness 0.05");
+    }
+
+    /// A lower fee gives the buyer more coin for the same quote, at the same centre.
+    function test_v03_lowerFeeGivesMore() public {
+        (PoolKey memory kLo,) = hook.createPool(_params(2500));
+        (PoolKey memory kHi,) = hook.createPool(_params(20_000));
+        _nextBlock();
+        bool c0 = Currency.unwrap(kLo.currency0) == address(coin);
+        BalanceDelta dLo = _swap(kLo, true, -int256(10e18));
+        BalanceDelta dHi = _swap(kHi, true, -int256(10e18));
+        uint256 oLo = uint256(int256(c0 ? dLo.amount0() : dLo.amount1()));
+        uint256 oHi = uint256(int256(c0 ? dHi.amount0() : dHi.amount1()));
+        assertGt(oLo, oHi);
     }
 }
