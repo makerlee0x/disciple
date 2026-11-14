@@ -13,6 +13,7 @@ import {
   erc2612PermitAbi, microUsdg, multicall3Abi, permit2TransferAbi,
   WITHDRAW_GAS_PAD, WITHDRAW_GAS_PERMIT,
 } from "./gaslessWithdraw";
+import { callsHash, encodeForwarderAction, type ForwarderAction, type ForwarderCall } from "./permitForwarder";
 
 export { MULTICALL3, transferTypedData, withdrawFeeRaw, minWithdrawAmount } from "./gaslessWithdraw";
 
@@ -196,6 +197,20 @@ const transferCall = (permit: Permit, to: Address, owner: Address, signature: He
     functionName: "permitTransferFrom",
     args: [{ permitted: permit.permitted, nonce: permit.nonce, deadline: permit.deadline }, { to, requestedAmount: permit.permitted.amount }, owner, signature],
   });
+
+/** The relayed calls as the forwarder sees them (and hashes into the signed witness). */
+export const forwarderCalls = (calls: readonly ActionCall[]): ForwarderCall[] => calls.map((c) => ({ target: c.to, data: c.data }));
+/** The fee witness for a forwarder action: the fee recipient and exactly these calls. */
+export const actionWitness = (q: Pick<GaslessActionRequest, "feeTo" | "calls">): ForwarderAction => ({ feeTo: q.feeTo, callsHash: callsHash(forwarderCalls(q.calls)) });
+
+/**
+ * Relayer tx calldata for the forwarder (a fee is due): DisciplePermitForwarder.action pays the signed fee to the signed
+ * fee recipient and runs exactly the signed calls. A fee of 0 has no Permit2 signature at all and keeps encodeActionCall.
+ */
+export function encodeForwarderActionCall(q: GaslessActionRequest): Hex {
+  if (!(q.fee > 0n) || !q.feePermit || !q.feeSignature) throw new GaslessReject("fee permit required");
+  return encodeForwarderAction({ permit: q.feePermit, a: actionWitness(q), calls: forwarderCalls(q.calls), owner: q.signer, signature: q.feeSignature, approval: q.approval });
+}
 
 /** Multicall3.aggregate3 of [optional USDG.permit, optional fee Permit2 transfer, ...action calls]. */
 export function encodeActionCall(q: GaslessActionRequest, usdg: Address): Hex {

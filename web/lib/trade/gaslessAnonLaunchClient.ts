@@ -5,6 +5,7 @@
  */
 import { type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { ACTIVE_CHAIN } from "../chains";
+import { relaySpender } from "./permitForwarder";
 import { bigintToDecimal, GASLESS_MAX_DEADLINE_SEC, jsonSafe, PERMIT2 } from "./gaslessPermit2";
 import { permitFor, permit2NonceBook, GaslessError, type GaslessSendResult } from "./gaslessClient";
 import { gaslessSigner } from "../wallet";
@@ -28,7 +29,9 @@ export async function signAnonLaunch(
   const amount = permitAmount(launch);
   const [nonce, approval] = await Promise.all([permit2NonceBook(pc).next(owner.address), permitFor(pc, owner, usdg, deadline)]);
   const permit: Permit = { permitted: { token: usdg, amount }, nonce, deadline };
-  const signature = await owner.signTypedData(jsonSafe(anonLaunchTypedData(ACTIVE_CHAIN.id, permit, launch)));
+  // only the forwarder (it runs exactly this launch); no Multicall3 fallback on any chain. Not deployed: throws, nothing signed.
+  const spender = relaySpender(ACTIVE_CHAIN.id, { legacy: false }).address;
+  const signature = await owner.signTypedData(jsonSafe(anonLaunchTypedData(ACTIVE_CHAIN.id, permit, launch, spender)));
   return { signer: owner.address, permit, launch, signature, ...(approval ? { approval } : {}) };
 }
 
