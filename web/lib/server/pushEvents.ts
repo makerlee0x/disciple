@@ -6,6 +6,7 @@ import "server-only";
  *  - crew:  a rocket climbed into a zone at or past the Kármán Line with 2+ of a crew aboard; that crew hears about it
  * The first run only records where everything stands, so nothing old is announced.
  */
+import { CREW_ENABLED, LOGBOOK_ENABLED } from "@/lib/features";
 import { pushCopy, type PushKind } from "@/lib/push";
 import { hostStats, PASSENGER_MARKS } from "@/lib/host";
 import { ORBIT_MCAP, zoneIndex, zoneName } from "@/lib/logbook";
@@ -59,7 +60,7 @@ export async function runPushEvents(budgetMs = 45_000, now = Date.now()): Promis
         held.set(t, Math.max(0, (held.get(t) ?? 0) + (f.side === "buy" ? f.tokens : -f.tokens)));
       }
       const aboard = [...held.entries()].filter(([t, v]) => v > DUST && t !== creator).map(([t]) => t).slice(0, MAX_PER_EVENT);
-      for (const w of aboard) count("orbit")(await notify(w, "orbit", `orbit:${coin}`, { ...pushCopy.orbit(c.ticker, zoneName(firstMcap.get(w) ?? 0)), url: `/logbook/${coin}` }, now).catch(() => "error"));
+      for (const w of aboard) count("orbit")(await notify(w, "orbit", `orbit:${coin}`, { ...pushCopy.orbit(c.ticker, zoneName(firstMcap.get(w) ?? 0)), url: LOGBOOK_ENABLED ? `/logbook/${coin}` : `/coin/${coin}` }, now).catch(() => "error"));
     }
 
     // host passenger milestones
@@ -77,7 +78,7 @@ export async function runPushEvents(budgetMs = 45_000, now = Date.now()): Promis
     // crew zones at or past the Kármán Line
     const z = zoneIndex(c.mcapUsd ?? 0), prevZ = await s.get(S.zone(coin));
     if (prevZ === null || z !== Number(prevZ)) await s.set(S.zone(coin), String(z));
-    if (prevZ !== null && z > Number(prevZ) && z >= CREW_ZONE_FROM) {
+    if (CREW_ENABLED && prevZ !== null && z > Number(prevZ) && z >= CREW_ZONE_FROM) {
       const held = new Map<string, number>();
       for (const f of fills) { const t = f.trader.toLowerCase(); held.set(t, Math.max(0, (held.get(t) ?? 0) + (f.side === "buy" ? f.tokens : -f.tokens))); }
       const aboard = [...held.entries()].filter(([t, v]) => v > DUST && t !== creator).map(([t]) => t).slice(0, 1000);

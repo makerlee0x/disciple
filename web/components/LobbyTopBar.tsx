@@ -13,23 +13,24 @@ import { aaSession, hasSavedSession, onPrivy, onSessionChange, privyAuthenticate
 import { WALLET_ID_EVENT, walletId } from "@/lib/walletCta";
 import LevelChip from "@/components/xp/LevelChip";
 import Icon, { type IconName } from "@/components/icons/Icon";
+import { CREW_ENABLED, LOGBOOK_ENABLED } from "@/lib/features";
 
 // icons show only in the phone bottom tab bar (≤760px, mobile plan option A); desktop keeps the text tabs
 // you: signed-in only. outPhone: on phones, signed-out only (round 2 Quick help board: How to play is the 4th phone tab
 // for signed-out pilots; signed-in phones keep their five tabs).
 // deskOnly: desktop text tabs only (the phone bottom bar keeps its five; Logbook and Crew open from the Hangar there).
-type Tab = { href: string; key: string; label: string; icon: IconName; you?: boolean; outPhone?: boolean; deskOnly?: boolean };
+type Tab = { href: string; key: string; label: string; icon: IconName; you?: boolean; outPhone?: boolean; deskOnly?: boolean; off?: boolean };
 
-const TABS: readonly Tab[] = [
+const TABS: readonly Tab[] = ([
   { href: "/", key: "lobby", label: "Lobby", icon: "home" },
   { href: "/create", key: "launch", label: "Launch", icon: "rocket" },
   { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot", you: true },
-  { href: "/logbook", key: "logbook", label: "Logbook", icon: "rocket", you: true, deskOnly: true },
-  { href: "/crew", key: "crew", label: "Crew", icon: "pilot", you: true, deskOnly: true },
+  { href: "/logbook", key: "logbook", label: "Logbook", icon: "rocket", you: true, deskOnly: true, off: !LOGBOOK_ENABLED },
+  { href: "/crew", key: "crew", label: "Crew", icon: "pilot", you: true, deskOnly: true, off: !CREW_ENABLED },
   { href: "/leaderboard", key: "leader", label: "Leaderboard", icon: "leaderboard" },
   { href: "/achievements", key: "trophies", label: "Trophies", icon: "achievement", you: true },
   { href: "/how-it-works", key: "hiw", label: "How to play", icon: "info", outPhone: true },
-];
+] as Tab[]).filter((t) => !t.off);
 
 export default function LobbyTopBar() {
   const pathname = usePathname() ?? "/";

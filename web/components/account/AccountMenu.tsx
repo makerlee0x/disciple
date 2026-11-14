@@ -4,6 +4,7 @@
  * level bar on top, then Your Hangar, Cash (balance), Rewards (what's ready), Settings, and Sign out on its own.
  * Opens under the chip on desktop; a bottom sheet over the tab bar on phones (CSS, ≤720px).
  */
+import { CREW_ENABLED, LOGBOOK_ENABLED } from "@/lib/features";
 import Link from "next/link";
 import { useMemo, type ReactNode } from "react";
 import { useXp } from "@/lib/xpClient";
@@ -64,8 +65,8 @@ export default function AccountMenu({ wallet, name, initial, cashUsd, onClose, o
         </div>
         <span className="am-sep" />
         <a role="menuitem" className="am-i" href="/profile" onClick={onClose}><Ico d={I.hangar} />{ACCOUNT_COPY.hangar}</a>
-        <Link role="menuitem" className="am-i" href="/logbook" onClick={onClose}><Ico d={I.logbook} />{ACCOUNT_COPY.logbook}</Link>
-        <Link role="menuitem" className="am-i" href="/crew" onClick={onClose}><Ico d={I.crew} />{ACCOUNT_COPY.crew}</Link>
+        {LOGBOOK_ENABLED && <Link role="menuitem" className="am-i" href="/logbook" onClick={onClose}><Ico d={I.logbook} />{ACCOUNT_COPY.logbook}</Link>}
+        {CREW_ENABLED && <Link role="menuitem" className="am-i" href="/crew" onClick={onClose}><Ico d={I.crew} />{ACCOUNT_COPY.crew}</Link>}
         <button role="menuitem" type="button" className="am-i" onClick={() => { onClose(); openCash("add"); }}><Ico d={I.cash} />{ACCOUNT_COPY.cash}{cashUsd != null && <span className="am-r">{usd2(cashUsd)}</span>}</button>
         <a role="menuitem" className="am-i" href={REWARDS_HREF} onClick={onClose} data-testid="account-rewards"><Ico d={I.rewards} />{ACCOUNT_COPY.rewards}{ready > 0.004 && <span className="am-r gold">{ACCOUNT_COPY.ready(usd2(ready))}</span>}</a>
         <Link role="menuitem" className="am-i" href={SETTINGS_HREF} scroll={false} onClick={(e) => { onClose(); onSettingsClick(e); }}><Ico d={I.settings} />{ACCOUNT_COPY.settings}</Link>
