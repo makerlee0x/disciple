@@ -41,7 +41,8 @@ RPC after each receipt, which a lagging node behind a load balancer can answer w
 `sampleDue()` and pool storage head, but a shorter `poolState`. Set `"abi": "carry"` on its `sameChain` entry.
 On Carry pools the keeper also puts USDG back into Morpho: swaps only pull USDG out of a pool's Morpho tail (a sell
 that needs more than the hot part holds), so every `sampling.sweepEverySec` (default 60 s) it reads each pool's
-`tailState` and calls `sweep(id)` once the hot quote is above `sampling.sweepBandBps` of its target (default 20000 =
+`tailState` and calls `sweep(id)` (a pool with its tail closed, or a hook with no tail such as the v0.3 plan, is
+skipped) once the hot quote is above `sampling.sweepBandBps` of its target (default 20000 =
 2x: past 40% hot at the 20% launch target, trimmed back to 20%). Sweeps are at the keeper's own gas (about 290k).
 With `"stockQueue"` set on the entry (the `CarryStockQueue` address from the Carry deploy), the keeper also matches
 stock waiting there for lender USDG: every `sampling.matchEverySec` (default 60 s), for each market with stock waiting,
@@ -52,6 +53,26 @@ its fee (at most 0.25%) of the leader, live and at the last block's reading, but
 So in a quiet market waiting stock can be blocked with USDG free. Then the keeper samples the pool at its own gas
 (about 80k), once when the centre is 0.1% or more off and once more a block later, and matches on the next round. At
 most `sampling.matchSampleMaxPerHour` (default 12) such samples per pool per hour.
+
+**Carry per-market-hook vault.** From carry #130 on, the vault's `markets(i)` also returns the market's hook. The keeper
+reads either layout, so one build runs against the launch vault and the new one. Give each market's hook its own
+`sameChain` entry (same `stockQueue`): each entry matches only the markets whose pool it lists, so two entries never
+work the same line.
+
+**Carry v0.3 hourly fee payout** (carry #132). The v0.3 hook pays a pool's fees out to its lots on `settle(id)`,
+and also on every deposit, withdraw and claim. A swap pays out only as a backstop, when nothing paid out for
+`settleEvery` (6 h). Every `sampling.settleCheckSec` (300 s) the keeper reads each pool's open epoch from storage:
+`settledAt` (+8, bits 64–127) and `book.dy` (+15, high 128 bits). It sends `settle(id)` only when the epoch earned
+something (dy ≠ 0) and nothing paid out for `sampling.settleEverySec` (3600 s). If the hook has `settleDue(id)`, which
+is being added to #132, its answer is used. The slot read is only a fallback for a build without it. Each read is cross-checked against the hook's own `poolState` at the same block
+(settledBlock, sampleAt, both reserves). If they ever disagree (a layout change), the keeper warns and alerts, and doesn't
+settle. Layout from `forge inspect CarryStrategy storageLayout` on #132. The launch hook has no `settleEvery()`, so it is
+left alone.
+
+**Alerts.** `ALERT_URL` (ntfy.sh topic, Discord or Slack webhook) gets: low gas (below `alerts.minEth`, default
+0.003 ETH, checked every `alerts.balanceEverySec`), `alerts.errorsBeforeAlert` failed rounds in a row (default 10) and
+the recovery, start, and a fatal stop. `HEARTBEAT_URL` (for example healthchecks.io) is pinged once a minute while rounds
+succeed, so it alerts when they stop. Both are optional. Running it on a server: [deploy/aws](deploy/aws/README.md).
 
 On the local anvil test, with plain tokens, a tip came to about gas + 26% (the hook adds a fixed 90k for the gas
 it cannot measure, sized for heavier real tokens). The first tip in a token pays about gas + 10%, because the
@@ -213,6 +234,11 @@ on the Robinhood side, or use a plan with a larger range (and raise `logChunk`).
 | `sampling.selfPayBpsCarry` | 15 | `selfPayBps` for Carry pools (`abi: "carry"`): the vault takes deposits only while the centre is within the pool fee (at most 0.25%) of the leader, so the keeper keeps it within 0.15%, at its own gas (about 80k a sample). 0 = off |
 | `sampling.matchSteps` | 20 | Carry stock queue: most orders one `matchOrders` call works through |
 | `sampling.matchSampleMaxPerHour` | 12 | Carry stock queue: most unpaid samples per pool per hour to unblock waiting stock (the vault takes deposits only while the pool's centre is within its fee, at most 0.25%, of the leader; 0 = never) |
+| `sampling.settleEverySec` | 3600 | Carry v0.3: pay a pool's fees out once nothing paid out for this long and it earned something (0 = never) |
+| `sampling.settleCheckSec` | 300 | Carry v0.3: how often to read each pool's epoch |
+| `alerts.minEth` | 0.003 | warn and alert (`ALERT_URL`) when the keeper's ETH on a chain is below this |
+| `alerts.balanceEverySec` | 600 | how often to read the keeper's balance |
+| `alerts.errorsBeforeAlert` | 10 | alert after this many failed same-chain rounds in a row |
 | `routes[].pools` | `[]` | extra pool ids to serve |
 | `routes[].scanPools` / `scanPushes` | true | scan for new pools / for other keepers' packets |
 | `policy.moveBps` | 102 | move trigger in bps |

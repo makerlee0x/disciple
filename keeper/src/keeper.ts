@@ -16,9 +16,10 @@ import {
   type PublicClient,
   type WalletClient,
 } from "viem";
-import { carryHookAbi, carryQueueAbi, endpointAbi, erc20Abi, hookAbi, receiverAbi, senderAbi, ulnAbi } from "./abi.ts";
+import { alert, heartbeat } from "./alert.ts";
+import { carryHookAbi, carryQueueAbi, carryVaultV2Abi, endpointAbi, erc20Abi, hookAbi, receiverAbi, senderAbi, ulnAbi } from "./abi.ts";
 import type { ChainCfg, Config, RouteCfg, SameChainCfg } from "./config.ts";
-import { jarValue, readDyn, readLeaderSpot, readSource, type PoolDyn, type PoolSource } from "./hook.ts";
+import { jarValue, readDyn, readEpoch, readLeaderSpot, readSource, type PoolDyn, type PoolSource } from "./hook.ts";
 import { decodeMessage, messageLength, packetsFromLogs, payloadHash } from "./packet.ts";
 import { HEARTBEAT, moveBps, moved, shift, spotX128 } from "./price.ts";
 import { routeState, saveState, type Packet, type State } from "./state.ts";
@@ -155,6 +156,13 @@ export function toReqs(ds: Due[]) {
   return [...m.values()];
 }
 
+/** One market of a Carry vault, as the keeper needs it. `hook` only on the per-market-hook vault. */
+export interface CarryMarket {
+  pool: Hex;
+  active: boolean;
+  hook?: Hex;
+}
+
 export class Keeper {
   private clients = new Map<string, Clients>();
   private hooks = new Map<string, Hex>();
@@ -180,6 +188,12 @@ export class Keeper {
   private selfPaid = new Map<string, number[]>();
   /** Carry: unpaid samples taken to unblock the stock queue, by pool id, and when the last one was taken */
   private matchSampled = new Map<string, number[]>();
+  /** Carry v0.3 settle: last settleDue check per pool, and pools whose hook has no settle (until this time). */
+  private lastSettleCheck = new Map<string, number>();
+  private noSettleUntil = new Map<string, number>();
+  /** Failed same-chain rounds in a row, per entry; last balance read per chain. */
+  private failures = new Map<string, number>();
+  private lastBalanceCheck = new Map<string, number>();
 
   private cfg: Config;
   private state: State;
@@ -310,18 +324,41 @@ export class Keeper {
 
   /** One same-chain round: every same-chain set. */
   async sampleTick(): Promise<void> {
+    let ok = true;
     for (const s of this.cfg.sameChain) {
       try {
         await this.discoverSame(s);
         await this.sampleDue(s);
         if (s.abi === "carry") await this.sweepDue(s);
         if (s.abi === "carry" && s.stockQueue) await this.matchDue(s);
+        if (s.abi === "carry") await this.settleDue(s);
+        await this.balanceDue(s.chain);
+        if ((this.failures.get(s.name) ?? 0) >= this.cfg.alerts.errorsBeforeAlert) await alert(`fail:${s.name}`, `${s.name} is working again`, 0);
+        this.failures.set(s.name, 0);
       } catch (e) {
-        this.log.warn(`${s.name}: ${(e as Error).message?.split("\n")[0] ?? e}`);
+        ok = false;
+        const msg = (e as Error).message?.split("\n")[0] ?? String(e);
+        this.log.warn(`${s.name}: ${msg}`);
+        const n = (this.failures.get(s.name) ?? 0) + 1;
+        this.failures.set(s.name, n);
+        if (n === this.cfg.alerts.errorsBeforeAlert) await alert(`fail:${s.name}`, `${s.name}: ${n} rounds in a row failed, last: ${msg}`, 0);
       } finally {
         saveState(this.cfg.stateFile, this.state);
       }
     }
+    if (ok) await heartbeat();
+  }
+
+  /** Every `alerts.balanceEverySec`: warn and alert when the keeper's ETH on `chain` is below `alerts.minEth`. */
+  async balanceDue(chain: ChainCfg): Promise<void> {
+    const t = now();
+    if ((this.lastBalanceCheck.get(chain.name) ?? 0) + this.cfg.alerts.balanceEverySec > t) return;
+    this.lastBalanceCheck.set(chain.name, t);
+    const bal = await this.c(chain).pub.getBalance({ address: this.account.address });
+    if (bal >= this.cfg.alerts.minEth) return;
+    const m = `keeper ${this.account.address} has ${formatEther(bal)} ETH on ${chain.name}, below ${formatEther(this.cfg.alerts.minEth)}: top it up`;
+    this.log.warn(m);
+    await alert(`low:${chain.name}`, m);
   }
 
   // ------------------------------------------------------------------ discovery
@@ -893,6 +930,8 @@ export class Keeper {
     for (let m = 0n; m < n; m++) {
       const waiting = await pub.readContract({ address: q, abi: carryQueueAbi, functionName: "waiting", args: [m] });
       if (waiting === 0n) continue;
+      const mk = await this.market(s, vault, m);
+      if (mk && !this.ownsPool(s, mk.pool)) continue; // another sameChain entry (that market's hook) serves it
       let would = 0n;
       try {
         const r = await pub.simulateContract({ address: q, abi: carryQueueAbi, functionName: "matchOrders", args: [m, BigInt(sm.matchSteps)], account: this.account });
@@ -902,7 +941,7 @@ export class Keeper {
         continue;
       }
       if (would === 0n) {
-        await this.unblockMatch(s, vault, m);
+        await this.unblockMatch(s, vault, m, mk);
         continue;
       }
       await this.matchOrders(s, q, m, BigInt(sm.matchSteps), would);
@@ -914,16 +953,13 @@ export class Keeper {
    *  MATCH_SAMPLE_BPS off the leader, or once more right after such a sample (the check also wants the last block's
    *  reading near), then check the line again next round. Capped at matchSampleMaxPerHour per pool. A sample only
    *  moves the centre toward the real leader price; the vault's check itself is unchanged. */
-  async unblockMatch(s: SameChainCfg, vault: Hex, market: bigint): Promise<void> {
+  async unblockMatch(s: SameChainCfg, vault: Hex, market: bigint, mk: CarryMarket | null): Promise<void> {
     const sm = this.cfg.sampling;
     if (sm.matchSampleMaxPerHour <= 0) return;
     const { pub } = this.c(s.chain);
-    const [free, mk] = await Promise.all([
-      pub.readContract({ address: vault, abi: carryQueueAbi, functionName: "freeUsdg" }).catch(() => 0n),
-      pub.readContract({ address: vault, abi: carryQueueAbi, functionName: "markets", args: [market] }).catch(() => null),
-    ]);
+    const free = await pub.readContract({ address: vault, abi: carryQueueAbi, functionName: "freeUsdg" }).catch(() => 0n);
     if (free === 0n || !mk || !mk.active) return;
-    const id = (mk.pool as string).toLowerCase() as Hex;
+    const id = mk.pool;
     const src = routeState(this.state, s.name).pools[id] as PoolSource | undefined;
     if (!src) return;
     const t = now();
@@ -1001,6 +1037,122 @@ export class Keeper {
     this.lastMatchCheck.delete(s.name);
   }
 
+  /** A Carry vault market, from either vault build: the per-market-hook vault (carry #130 on, `hook` field) first,
+   *  then the launch vault. null when neither decodes. */
+  async market(s: SameChainCfg, vault: Hex, m: bigint): Promise<CarryMarket | null> {
+    const { pub } = this.c(s.chain);
+    try {
+      const r = await pub.readContract({ address: vault, abi: carryVaultV2Abi, functionName: "markets", args: [m] });
+      return { pool: r.pool.toLowerCase() as Hex, active: r.active, hook: r.hook };
+    } catch {
+      /* launch vault: no hook field */
+    }
+    try {
+      const r = await pub.readContract({ address: vault, abi: carryQueueAbi, functionName: "markets", args: [m] });
+      return { pool: r.pool.toLowerCase() as Hex, active: r.active };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Whether entry `s` serves `pool`: it is one of its pools, or no other entry on the same stock queue has it (then
+   *  the first entry on that queue takes it, as before per-market hooks). Keeps two entries from matching one line. */
+  ownsPool(s: SameChainCfg, pool: Hex): boolean {
+    const p = pool.toLowerCase();
+    if (routeState(this.state, s.name).pools[p as Hex]) return true;
+    const peers = this.cfg.sameChain.filter((o) => o.stockQueue && s.stockQueue && o.stockQueue.toLowerCase() === s.stockQueue.toLowerCase());
+    if (peers.some((o) => o !== s && routeState(this.state, o.name).pools[p as Hex])) return false;
+    return peers[0] === s;
+  }
+
+  /** Carry v0.3: pay out each pool's fee epoch hourly. Every `settleCheckSec`, per pool: is the hook a v0.3 build
+   *  (`settleEvery()` answers; the launch hook reverts and is left alone for 6 h), then read the epoch from storage
+   *  (readEpoch). Send `settle(id)` only when the epoch earned something (book.dy != 0) and no payout ran for
+   *  `settleEverySec`: a deposit, withdraw, claim or the swap backstop that already paid restarts the epoch. If the
+   *  storage reads stop matching the hook's own view (a layout change), warn and do not guess. */
+  async settleDue(s: SameChainCfg): Promise<void> {
+    const sm = this.cfg.sampling;
+    if (sm.settleEverySec <= 0) return;
+    const rs = routeState(this.state, s.name);
+    const { pub } = this.c(s.chain);
+    const t = now();
+    for (const id of Object.keys(rs.pools) as Hex[]) {
+      if ((this.noSettleUntil.get(id) ?? 0) > t) continue;
+      if ((this.lastSettleCheck.get(id) ?? 0) + sm.settleCheckSec > t) continue;
+      this.lastSettleCheck.set(id, t);
+      try {
+        await pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "settleEvery" });
+      } catch {
+        this.noSettleUntil.set(id, t + 6 * 3600); // launch hook: no epochs
+        continue;
+      }
+      // the hook's own answer when it has one (its hour, not settleEverySec); storage read only as a fallback
+      const due = await pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "settleDue", args: [id] }).catch(() => null);
+      if (due !== null) {
+        if (due) await this.settle(s, id);
+        continue;
+      }
+      let e;
+      try {
+        e = await readEpoch(pub, s.hook, id);
+      } catch (err) {
+        this.log.warn(`${s.name}: epoch read for ${id.slice(0, 10)} failed, next check: ${(err as Error).message?.split("\n")[0]}`);
+        this.lastSettleCheck.set(id, t - sm.settleCheckSec + 60); // retry in a minute
+        continue;
+      }
+      if (!e.layoutOk) {
+        this.log.warn(`${s.name}: pool ${id.slice(0, 10)} storage does not match the hook's poolState (layout changed?); not settling`);
+        await alert(`layout:${id}`, `${s.name}: pool ${id.slice(0, 10)} storage layout changed, hourly payout off until the keeper is updated`);
+        this.noSettleUntil.set(id, t + 3600);
+        continue;
+      }
+      if (e.dy === 0n) continue; // nothing earned since the last payout
+      if (BigInt(t) < e.settledAt + BigInt(sm.settleEverySec)) continue; // paid out within the epoch already
+      await this.settle(s, id);
+    }
+  }
+
+  async settle(s: SameChainCfg, id: Hex): Promise<void> {
+    const { pub, wal, chain } = this.c(s.chain);
+    const blk = await pub.getBlock({ blockTag: "latest" });
+    const base = blk.baseFeePerGas ?? 0n;
+    if (base > s.chain.maxFee) {
+      this.log.warn(`${s.name}: ${s.chain.name} basefee ${base} above maxFee, settle waits`);
+      this.lastSettleCheck.delete(id);
+      return;
+    }
+    let est: bigint;
+    try {
+      est = await pub.estimateContractGas({ address: s.hook, abi: carryHookAbi, functionName: "settle", args: [id], account: this.account });
+    } catch (e) {
+      this.log.warn(`${s.name}: settle ${id.slice(0, 10)} would revert: ${(e as Error).message?.split("\n")[0]}`);
+      return;
+    }
+    const tip = s.chain.priorityFee;
+    const maxFee = base * 2n + tip < s.chain.maxFee ? base * 2n + tip : s.chain.maxFee;
+    const { hash, rc } = await this.serial(s.chain, async (nonce) => {
+      const hash = await wal.writeContract({
+        chain,
+        account: this.account,
+        nonce,
+        address: s.hook,
+        abi: carryHookAbi,
+        functionName: "settle",
+        args: [id],
+        gas: (est * 13n) / 10n,
+        maxFeePerGas: maxFee,
+        maxPriorityFeePerGas: tip,
+      });
+      return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
+    });
+    const spent = rc.gasUsed * rc.effectiveGasPrice;
+    if (rc.status !== "success") {
+      this.log.warn(`${s.name}: settle ${id.slice(0, 10)} reverted, tx ${hash}, spent ${formatEther(spent)} ETH`);
+      return;
+    }
+    this.log.info(`${s.name}: settled ${id.slice(0, 10)} fee epoch, tx ${hash}, spent ${formatEther(spent)} ETH (gas ${rc.gasUsed})`);
+  }
+
   /** How far (bps) a pool's centre is from its leader's live spot; 0 when either cannot be read. */
   private async leaderGapBps(s: SameChainCfg, id: Hex, src: PoolSource): Promise<number> {
     const { pub } = this.c(s.chain);
@@ -1066,6 +1218,8 @@ export class Keeper {
         /* other logs */
       }
     }
+    // a Tipped(0, 0) (a dust jar rounds the tip to nothing) paid nothing: count it as unpaid, so the backoff holds
+    if (tipped && tipped.x === 0n && tipped.y === 0n) tipped = null;
     if (!tipped && !paid) {
       this.log.info(`${s.name}: self-paid sample ${id.slice(0, 10)} tx ${hash} (below the tip line), spent ${formatEther(spent)} ETH (gas ${rc.gasUsed})`);
       return;

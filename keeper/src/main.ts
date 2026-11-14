@@ -2,8 +2,10 @@
 // Disciple keeper. Usage:
 //   node src/main.ts [--config keeper.config.json] [--once | --status | --collect]
 // Env: ETH_RPC, RH_RPC (RPC URLs), KEEPER_ACCOUNT (cast keystore name, default "disciple"),
-//      KEEPER_PASSWORD_FILE (or KEEPER_PASSWORD, else asked on the terminal).
+//      KEEPER_PASSWORD_FILE (or KEEPER_PASSWORD, else asked on the terminal),
+//      ALERT_URL / HEARTBEAT_URL (optional, see src/alert.ts), KEEPER_NAME (label in alerts).
 import { privateKeyToAccount } from "viem/accounts";
+import { alert } from "./alert.ts";
 import { loadConfig } from "./config.ts";
 import { Keeper } from "./keeper.ts";
 import { loadKey } from "./keystore.ts";
@@ -42,6 +44,7 @@ async function main() {
     for (const r of cfg.routes) await k.collectDue(r, true);
     return;
   }
+  await alert("start", `started, wallet ${account.address}`, 0);
   let stop = false;
   process.on("SIGINT", () => {
     log.info("stopping after this tick");
@@ -64,7 +67,9 @@ async function main() {
   ]);
 }
 
-main().catch((e) => {
-  console.error(`${stamp()} FATAL ${(e as Error).message ?? e}`);
+main().catch(async (e) => {
+  const m = (e as Error).message?.split("\n")[0] ?? String(e);
+  console.error(`${stamp()} FATAL ${m}`);
+  await alert("fatal", `stopped: ${m}`, 0);
   process.exit(1);
 });

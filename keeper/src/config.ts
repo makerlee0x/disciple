@@ -81,6 +81,22 @@ export interface Sampling {
    *  the keeper samples the pool, at its own gas, and tries again next round (a second reading in a later block
    *  clears the last-block half of the check). */
   matchSampleMaxPerHour: number;
+  /** Carry v0.3 epoch fee payout: pay a pool's fees out once no payout ran for this many seconds (default 3600,
+   *  hourly; 0 = never). A deposit, withdraw or claim pays out too and restarts the epoch, and an epoch that earned
+   *  nothing is skipped, so `settle(id)` is sent only when it pays something nobody else paid. Launch hooks (no
+   *  settle) are left alone. */
+  settleEverySec: number;
+  /** How often to look at each pool's epoch, seconds (5 storage reads + 1 eth_call per pool). */
+  settleCheckSec: number;
+}
+
+export interface Alerts {
+  /** Alert (ALERT_URL) and warn when the keeper's ETH on a chain it sends on drops below this. */
+  minEth: bigint;
+  /** How often to read the keeper's balance, seconds. */
+  balanceEverySec: number;
+  /** Alert after this many same-chain rounds in a row fail for one entry (RPC down, say). */
+  errorsBeforeAlert: number;
 }
 
 export interface Policy {
@@ -113,6 +129,7 @@ export interface Config {
   sameChain: SameChainCfg[];
   sampling: Sampling;
   policy: Policy;
+  alerts: Alerts;
 }
 
 const DEFAULT_CHAINS: Record<string, Partial<ChainCfg> & { rpcEnv: string }> = {
@@ -187,6 +204,7 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
   });
   const sm = raw.sampling ?? {};
   const p = raw.policy ?? {};
+  const al = raw.alerts ?? {};
   return {
     account: env.KEEPER_ACCOUNT ?? raw.account ?? "disciple",
     stateFile: env.KEEPER_STATE ?? raw.stateFile ?? "keeper-state.json",
@@ -207,6 +225,8 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       matchEverySec: Number(sm.matchEverySec ?? 60),
       matchSteps: Number(sm.matchSteps ?? 20),
       matchSampleMaxPerHour: Number(sm.matchSampleMaxPerHour ?? 12),
+      settleEverySec: Number(sm.settleEverySec ?? 3600),
+      settleCheckSec: Number(sm.settleCheckSec ?? 300),
     },
     policy: {
       moveBps: b(p.moveBps, 102n),
@@ -218,6 +238,11 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       maxPoolsPerPush: Math.min(64, Number(p.maxPoolsPerPush ?? 64)),
       maxPushCost: parseEther(String(p.maxPushCostEth ?? "0.003")),
       packetTtlSec: Number(p.packetTtlSec ?? 6 * 3600),
+    },
+    alerts: {
+      minEth: parseEther(String(al.minEth ?? "0.003")),
+      balanceEverySec: Number(al.balanceEverySec ?? 600),
+      errorsBeforeAlert: Number(al.errorsBeforeAlert ?? 10),
     },
   };
 }

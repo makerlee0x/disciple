@@ -68,6 +68,13 @@ export const carryHookAbi = parseAbi([
   "event Created(bytes32 indexed id, address indexed coin, address quote, address indexed creator, uint32 remoteEid, uint24 fee)",
   "event Tipped(bytes32 indexed id, address indexed to, uint256 x, uint256 y)",
   "event TailMoved(address indexed vault, uint256 toVault, uint256 toHot)",
+  // v0.3 epoch fee payout (carry #132): settle pays the open epoch out to every lot; settleEvery is the swap-path
+  // backstop (6 h), and only a v0.3 hook has it, so the keeper uses it to tell the builds apart. The hook has no
+  // "due" view (no bytes left): the keeper reads the epoch's start and its fees from storage (hook.ts readEpoch).
+  "function settleEvery() view returns (uint32)",
+  // added to #132 later: true when live, book.dy != 0 and an hour passed since the last payout. Preferred when present.
+  "function settleDue(bytes32 id) view returns (bool)",
+  "function settle(bytes32 id)",
 ]);
 
 /** Carry's stock queue (CarryStockQueue) and the bits of its vault the keeper reads. */
@@ -80,6 +87,13 @@ export const carryQueueAbi = parseAbi([
   "function marketCount() view returns (uint256)",
   "function freeUsdg() view returns (uint256)",
   "function markets(uint256 market) view returns ((address token, bytes32 pool, bool active, uint256 cap, uint256 lent, uint256 shares, uint256 owed))",
+]);
+
+/** The per-market-hook vault (carry #130 on): Market gained `hook` (the market's ICarryHook, e.g. its
+ *  CarryStrategyAdapter) after `token`. The keeper tries this shape first and falls back to the one above, so one
+ *  build runs against both vaults (an old 7-word answer does not decode as 8 words). */
+export const carryVaultV2Abi = parseAbi([
+  "function markets(uint256 market) view returns ((address token, address hook, bytes32 pool, bool active, uint256 cap, uint256 lent, uint256 shares, uint256 owed))",
 ]);
 
 /** Leader (same-chain source) reads: v2 pair, v3 pool, v4 PoolManager. */
