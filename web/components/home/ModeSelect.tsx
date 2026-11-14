@@ -75,16 +75,23 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
     }
     // Enter on a focused card follows its link (native)
   };
-  // phones: the card nearest the middle is the focused one (dots follow the swipe)
+  // phones: the card nearest the middle is the focused one (dots follow the swipe). Measured once per frame, not on
+  // every scroll event, so the swipe stays smooth.
+  const raf = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(raf.current), []);
   const onScroll = () => {
-    const t = track.current; if (!t || !phone()) return;
-    const mid = t.scrollLeft + t.clientWidth / 2;
-    let best = list[0].id, d = Infinity;
-    t.querySelectorAll<HTMLElement>("[data-mode]").forEach((el) => {
-      const dd = Math.abs(el.offsetLeft + el.clientWidth / 2 - mid);
-      if (dd < d) { d = dd; best = el.dataset.mode as ModeId; }
+    if (raf.current) return;
+    raf.current = requestAnimationFrame(() => {
+      raf.current = 0;
+      const t = track.current; if (!t || !phone()) return;
+      const mid = t.scrollLeft + t.clientWidth / 2;
+      let best = list[0].id, d = Infinity;
+      t.querySelectorAll<HTMLElement>("[data-mode]").forEach((el) => {
+        const dd = Math.abs(el.offsetLeft + el.clientWidth / 2 - mid);
+        if (dd < d) { d = dd; best = el.dataset.mode as ModeId; }
+      });
+      setFocus((f) => (f === best ? f : best));
     });
-    if (best !== focus) setFocus(best);
   };
 
   return (

@@ -9,7 +9,7 @@
  */
 import type { CapacitorConfig } from "@capacitor/cli";
 
-const url = process.env.DISCIPLE_APP_URL || "https://disciple.vip";
+const url = process.env.DISCIPLE_APP_URL || "https://www.disciple.vip"; // www: disciple.vip redirects there, so starting on www saves a round trip each launch
 const host = new URL(url).hostname;
 
 const config: CapacitorConfig = {
