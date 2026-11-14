@@ -44,6 +44,13 @@ test("deep links: universal links and disciple:// open inside the site; other ho
   assert.equal(N.deepLinkPath("https://evil.example/coin/0xabc"), null);
   assert.equal(N.deepLinkPath("http://disciple.vip/coin"), null);
   assert.equal(N.deepLinkPath("not a url"), null);
+  // never a protocol-relative path that would leave the site
+  assert.equal(N.deepLinkPath("https://disciple.vip//evil.example/x"), "/evil.example/x");
+  assert.equal(N.deepLinkPath("disciple:////evil.example"), "/evil.example");
+  assert.equal(N.safeInSitePath("//evil.example"), "/evil.example");
+  assert.equal(N.safeInSitePath("/\\evil.example"), "/evil.example");
+  assert.equal(N.safeInSitePath("https://evil.example"), null);
+  assert.equal(N.safeInSitePath(42), null);
 });
 
 test("apple-app-site-association: lists the app only with a team id, never the API", () => {

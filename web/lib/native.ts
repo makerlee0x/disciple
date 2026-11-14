@@ -81,6 +81,14 @@ export function nativeHaptic(kind: string): boolean {
 
 // ---------------------------------------------------------------- deep links
 
+/** An in-site path, never another site: "//evil.com" or "/\\evil.com" would leave the app's site. */
+export function safeInSitePath(p: unknown): string | null {
+  if (typeof p !== "string" || !p.startsWith("/")) return null;
+  const clean = p.replace(/^[/\\]+/, "/");
+  if (/[\u0000-\u001f]/.test(clean)) return null;
+  return clean;
+}
+
 /**
  * A link that opened the app (universal link https://disciple.vip/... or disciple://...) → the in-site path to show,
  * or null when it isn't ours. Pure (scripts/test-native.mts).
@@ -91,10 +99,10 @@ export function deepLinkPath(url: string, hosts: string[] = ["disciple.vip", "ww
     if (u.protocol === "disciple:") {
       // disciple://coin/0x… → /coin/0x…
       const p = `/${u.host}${u.pathname}`.replace(/\/+$/, "") || "/";
-      return `${p}${u.search}${u.hash}`;
+      return safeInSitePath(`${p}${u.search}${u.hash}`);
     }
     if (u.protocol !== "https:" || !hosts.includes(u.hostname)) return null;
-    return `${u.pathname || "/"}${u.search}${u.hash}`;
+    return safeInSitePath(`${u.pathname || "/"}${u.search}${u.hash}`);
   } catch { return null; }
 }
 
@@ -174,8 +182,8 @@ export function installNativeShell(navigate: (path: string) => void): () => void
 
   const push = nativePlugin("PushNotifications");
   keep(push?.addListener?.("pushNotificationActionPerformed", ((d: { notification?: { data?: { url?: string } } }) => {
-    const p = d.notification?.data?.url;
-    if (typeof p === "string" && p.startsWith("/")) navigate(p);
+    const p = safeInSitePath(d.notification?.data?.url);
+    if (p) navigate(p);
   }) as never));
 
   return () => { installed = false; subs.forEach((l) => void l.remove()); };

@@ -16,7 +16,7 @@ export type DeleteResult = { ok: true; wallets: number; privyDeleted: boolean } 
 async function wipeWallet(walletIn: string, s: Kv): Promise<void> {
   const w = walletIn.toLowerCase();
   const name = await s.get(`user:addr:${w}`);
-  if (name) await s.del(`user:name:${name}`);
+  if (name) await s.delIfEq(`user:name:${name}`, w);
   await s.del(`user:addr:${w}`);
   await s.del(`user:meta:${w}`);
   await unlink(w).catch(() => {});

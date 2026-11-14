@@ -23,11 +23,11 @@ const config: CapacitorConfig = {
     hostname: host,
     cleartext: url.startsWith("http://"),
     errorPath: "offline.html",
-    // Pages that must stay inside the app (sign-in round trips). Any other site opens in Safari.
+    // Pages that must stay inside the app (sign-in round trips). Any other site opens in Safari. Keep this list short:
+    // pages on it can reach the native plugins. A preview deploy is added through DISCIPLE_APP_URL (host above).
     allowNavigation: [
       host,
       "*.disciple.vip",
-      "*.vercel.app",
       "auth.privy.io",
       "*.privy.io",
       "appleid.apple.com",
