@@ -11,7 +11,9 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 ///         the exact rational model (fast.py, ledger2.py) by compare_int.py. Keep them in step.
 ///
 ///         Decided design (maker, 2026-11-03/04):
-///         - Earnings are marked at the anchor: e = dy + M * dx over each settlement interval, minus nothing else
+///         - Earnings are marked at the anchor: e = dy + M * dx over each settlement interval, minus nothing else.
+///           v0.3: same-chain fills are booked one by one at their own mark (`swapAt`; dx stays 0), so M at the
+///           settle only values the pool. Cross-chain pools keep net flows marked at the pushed price.
 ///           (keeper refunds come from the separate ETH tank). Losses carry forward pool-wide.
 ///         - Settle every block and before any deposit, withdrawal or restake. The hook passes `distribute = false`
 ///           while a cross-chain pool is in local mode: results then stay in share value pro rata.
@@ -126,6 +128,19 @@ library DiscipleLedger {
         bk.y = _addSigned(bk.y, dy);
         bk.dx = SafeCast.toInt128(int256(bk.dx) + dx);
         bk.dy = SafeCast.toInt128(int256(bk.dy) + dy);
+    }
+
+    /// @notice Record a fill and book its earnings at its own mark `markX128`: the open interval's dy grows by
+    ///      dy + dx * mark (coin in rounded down, coin out rounded up, against the LP) and dx stays as it is. A
+    ///      settle then pays what each fill earned at its own price, whatever mark closes the interval (v0.3).
+    function swapAt(Book storage bk, int256 dx, int256 dy, uint256 markX128) internal {
+        bk.x = _addSigned(bk.x, dx);
+        bk.y = _addSigned(bk.y, dy);
+        int256 e = dy
+            + (dx >= 0
+                    ? int256(Math.mulDiv(uint256(dx), markX128, Q128))
+                    : -int256(Math.mulDiv(uint256(-dx), markX128, Q128, Math.Rounding.Ceil)));
+        bk.dy = SafeCast.toInt128(int256(bk.dy) + e);
     }
 
     /// @notice The (coin, quote) amounts that `settle(.., onTvl, offTvl, gradTvl, true, skimRoom)` would move out of

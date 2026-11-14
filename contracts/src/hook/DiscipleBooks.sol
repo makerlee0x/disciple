@@ -166,6 +166,10 @@ library DiscipleBooks {
         uint256 srcAsk = Math.mulDiv(spot, 1e6, 1e6 - srcFee, Math.Rounding.Ceil);
         uint256 srcBid = Math.mulDiv(spot, 1e6 - srcFee, 1e6);
         (pb, ps) = SM.matchBounds(srcAsk, srcBid, 1);
+        // never fill inside the leader's own bid/ask: otherwise buying here and selling to the leader (or the
+        // reverse) is a riskless round trip on a leader with a fee under the edge (v0.3, Carry audit N-2)
+        if (pb < srcBid) pb = srcBid;
+        if (ps > srcAsk) ps = srcAsk;
     }
 
     /// @notice What the next same-chain settle (`observe(t, cur, fresh)` then `settle(bk, t, markX128, true,
@@ -315,9 +319,14 @@ library DiscipleBooks {
             (spot,) = _concentrated(sqrtP, 0, baseIs0);
             fee = IV3S(target).fee();
         } else {
-            (uint160 sqrtP,,, uint24 lpFee) = StateLibrary.getSlot0(pm, PoolId.wrap(v4Id));
+            (uint160 sqrtP,, uint24 pf, uint24 lpFee) = StateLibrary.getSlot0(pm, PoolId.wrap(v4Id));
             (spot,) = _concentrated(sqrtP, 0, baseIs0);
-            fee = lpFee;
+            // the Uniswap protocol fee is part of the leader's real cost; take the smaller direction (12 bits each)
+            // so both modelled quotes stay inside the leader's real ones, compounded as v4 does (v0.3, Carry r7).
+            // A hook's per-swap fee override on the leg is still not seen.
+            uint256 a = pf & 0xfff;
+            if (pf >> 12 < a) a = pf >> 12;
+            fee = uint24(a + lpFee - a * lpFee / 1e6);
         }
         if (fee >= 1e6) fee = 999_999;
     }
