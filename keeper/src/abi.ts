@@ -68,6 +68,11 @@ export const carryHookAbi = parseAbi([
   "event Created(bytes32 indexed id, address indexed coin, address quote, address indexed creator, uint32 remoteEid, uint24 fee)",
   "event Tipped(bytes32 indexed id, address indexed to, uint256 x, uint256 y)",
   "event TailMoved(address indexed vault, uint256 toVault, uint256 toHot)",
+  // v0.3 epoch fee payout (staged: the v0.3 hook is not built yet). settleDue answers yes when the open epoch has
+  // fees to pay and no payout (keeper settle, deposit, withdraw or claim) ran for an epoch; settle pays it out.
+  // Hooks without them (the live v0.2 build) revert, and the keeper then leaves settling alone for that pool.
+  "function settleDue(bytes32 id) view returns (bool)",
+  "function settle(bytes32 id)",
 ]);
 
 /** Carry's stock queue (CarryStockQueue) and the bits of its vault the keeper reads. */
@@ -80,6 +85,13 @@ export const carryQueueAbi = parseAbi([
   "function marketCount() view returns (uint256)",
   "function freeUsdg() view returns (uint256)",
   "function markets(uint256 market) view returns ((address token, bytes32 pool, bool active, uint256 cap, uint256 lent, uint256 shares, uint256 owed))",
+]);
+
+/** The per-market-hook vault (carry #130 on): Market gained `hook` (the market's ICarryHook, e.g. its
+ *  CarryStrategyAdapter) after `token`. The keeper tries this shape first and falls back to the one above, so one
+ *  build runs against both vaults (an old 7-word answer does not decode as 8 words). */
+export const carryVaultV2Abi = parseAbi([
+  "function markets(uint256 market) view returns ((address token, address hook, bytes32 pool, bool active, uint256 cap, uint256 lent, uint256 shares, uint256 owed))",
 ]);
 
 /** Leader (same-chain source) reads: v2 pair, v3 pool, v4 PoolManager. */

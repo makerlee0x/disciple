@@ -1,0 +1,36 @@
+{
+  "account": "/run/carry-keeper/keystore.json",
+  "stateFile": "/var/lib/carry-keeper/carry-keeper-state.json",
+  "pollSeconds": 12,
+  "chains": {
+    "robinhood": {
+      "rpcEnv": "RH_RPC",
+      "logChunk": 10,
+      "logCallsPerTick": 20,
+      "priorityFeeGwei": "0",
+      "maxFeeGwei": "1"
+    }
+  },
+  "routes": [],
+  "sameChain": [
+    {
+      "name": "carry",
+      "chain": "robinhood",
+      "abi": "carry",
+      "hook": "0xA52e64806d56dCd399E6204937A131f02D33aA88",
+      "stockQueue": "0x563d8e343e9e0f0e9c9ce772d6f032f78c76e08d",
+      "fromBlock": 112951448,
+      "scanPools": false,
+      "pools": [
+        "0x170b347bc7088e580d0e3eedae7e4674b0cb373f3abd9726c990b91f4eb8bd6c"
+      ]
+    }
+  ],
+  "sampling": {
+    "selfPayBps": 15,
+    "selfPayMaxPerHour": 12
+  },
+  "alerts": {
+    "minEth": "0.003"
+  }
+}

@@ -116,7 +116,8 @@ test("config: same-chain sets, sampling and jar policy defaults", () => {
   assert.equal(c.sameChain[0].hook, "0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88");
   assert.deepEqual(c.sameChain[0].pools, ["0xabcd"]);
   assert.equal(c.sameChain[0].scanPools, true);
-  assert.deepEqual(c.sampling, { everySec: 13, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayBpsCarry: 15, selfPayMaxPerHour: 60, sweepEverySec: 60, sweepBandBps: 20_000, matchEverySec: 60, matchSteps: 20, matchSampleMaxPerHour: 12 });
+  assert.deepEqual(c.sampling, { everySec: 13, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayBpsCarry: 15, selfPayMaxPerHour: 60, sweepEverySec: 60, sweepBandBps: 20_000, matchEverySec: 60, matchSteps: 20, matchSampleMaxPerHour: 12, settleEverySec: 300 });
+  assert.deepEqual(c.alerts, { minEth: 3_000_000_000_000_000n, balanceEverySec: 600, errorsBeforeAlert: 10 });
   assert.equal(c.sameChain[0].abi, "disciple");
   assert.equal(c.policy.minJar, 0n);
   assert.equal(c.policy.collectEverySec, 86_400);
@@ -353,16 +354,128 @@ test("Carry stock queue: a blocked match with USDG free samples the pool (unpaid
     sampled.push(paid);
   };
   const V = "0x2222222222222222222222222222222222222222" as Hex;
-  await k.unblockMatch(cfg.sameChain[0], V, 0n);
+  await k.unblockMatch(cfg.sameChain[0], V, 0n, { pool: P, active: true });
   assert.deepEqual(sampled, [false], "off the leader with USDG free: one unpaid sample");
   gap = 2;
-  await k.unblockMatch(cfg.sameChain[0], V, 0n);
+  await k.unblockMatch(cfg.sameChain[0], V, 0n, { pool: P, active: true });
   assert.deepEqual(sampled, [false, false], "right after: one more reading, even though the centre is now close");
-  await k.unblockMatch(cfg.sameChain[0], V, 0n);
+  await k.unblockMatch(cfg.sameChain[0], V, 0n, { pool: P, active: true });
   assert.equal(sampled.length, 2, "capped at matchSampleMaxPerHour");
   free = 0n;
   gap = 50;
   (k as unknown as { matchSampled: Map<string, number[]> }).matchSampled.clear();
-  await k.unblockMatch(cfg.sameChain[0], V, 0n);
+  await k.unblockMatch(cfg.sameChain[0], V, 0n, { pool: P, active: true });
   assert.equal(sampled.length, 2, "no free USDG: a sample would not help");
+});
+
+test("Carry vault markets: per-market-hook layout first, launch layout as fallback", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "keeper-u-"));
+  const f = join(dir, "c.json");
+  const P = ("0x" + "AB".repeat(32)) as Hex;
+  const H = "0x3333333333333333333333333333333333333333" as Hex;
+  writeFileSync(f, JSON.stringify({ chains: { robinhood: { rpcEnv: "RH_RPC", chainId: 4663 } }, sameChain: [{ name: "carry", chain: "robinhood", hook: "0xcedc3c312c5b3c4310f0fba0323ddec797e4aa88", abi: "carry" }] }));
+  const cfg = loadConfig(f, { RH_RPC: "http://127.0.0.1:1" });
+  const k = new Keeper(cfg, { routes: {} } as never, privateKeyToAccount(("0x" + "11".repeat(32)) as Hex), { info() {}, warn() {} } as never);
+  let newVault = true;
+  const pub = {
+    readContract: async ({ abi }: { abi: { name?: string; outputs?: { components?: unknown[] }[] }[] }) => {
+      const words = abi.find((x) => x.name === "markets")!.outputs![0].components!.length;
+      if (newVault && words === 8) return { token: H, hook: H, pool: P, active: true };
+      if (!newVault && words === 7) return { token: H, pool: P, active: false };
+      throw new Error("decode: data too small");
+    },
+  };
+  (k as unknown as { clients: Map<string, unknown> }).clients.set("robinhood", { pub, wal: {}, chain: {} });
+  const V = "0x2222222222222222222222222222222222222222" as Hex;
+  assert.deepEqual(await k.market(cfg.sameChain[0], V, 0n), { pool: P.toLowerCase(), active: true, hook: H });
+  newVault = false;
+  assert.deepEqual(await k.market(cfg.sameChain[0], V, 0n), { pool: P.toLowerCase(), active: false });
+});
+
+test("Carry stock queue: two entries on one queue each match only their own pools", () => {
+  const dir = mkdtempSync(join(tmpdir(), "keeper-u-"));
+  const f = join(dir, "c.json");
+  const A = ("0x" + "aa".repeat(32)) as Hex, B = ("0x" + "bb".repeat(32)) as Hex, C = ("0x" + "cc".repeat(32)) as Hex;
+  const Q = "0x1111111111111111111111111111111111111111";
+  writeFileSync(
+    f,
+    JSON.stringify({
+      chains: { robinhood: { rpcEnv: "RH_RPC", chainId: 4663 } },
+      sameChain: [
+        { name: "mstr", chain: "robinhood", hook: "0xcedc3c312c5b3c4310f0fba0323ddec797e4aa88", abi: "carry", stockQueue: Q },
+        { name: "nvda", chain: "robinhood", hook: "0x3333333333333333333333333333333333333333", abi: "carry", stockQueue: Q },
+      ],
+    }),
+  );
+  const cfg = loadConfig(f, { RH_RPC: "http://127.0.0.1:1" });
+  const state = { routes: { mstr: { pools: { [A]: {} } }, nvda: { pools: { [B]: {} } } } };
+  const k = new Keeper(cfg, state as never, privateKeyToAccount(("0x" + "11".repeat(32)) as Hex), { info() {}, warn() {} } as never);
+  const [m, n] = cfg.sameChain;
+  assert.equal(k.ownsPool(m, A), true);
+  assert.equal(k.ownsPool(m, B), false);
+  assert.equal(k.ownsPool(n, B), true);
+  assert.equal(k.ownsPool(n, A), false);
+  assert.equal(k.ownsPool(m, C), true, "a pool nobody lists goes to the first entry on the queue");
+  assert.equal(k.ownsPool(n, C), false);
+});
+
+test("Carry v0.3 settle: only when the hook says due; a hook without settleDue is left alone", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "keeper-u-"));
+  const f = join(dir, "c.json");
+  const A = ("0x" + "aa".repeat(32)) as Hex, B = ("0x" + "bb".repeat(32)) as Hex;
+  writeFileSync(f, JSON.stringify({ chains: { robinhood: { rpcEnv: "RH_RPC", chainId: 4663 } }, sameChain: [{ name: "carry", chain: "robinhood", hook: "0xcedc3c312c5b3c4310f0fba0323ddec797e4aa88", abi: "carry" }], sampling: { settleEverySec: 300 } }));
+  const cfg = loadConfig(f, { RH_RPC: "http://127.0.0.1:1" });
+  assert.equal(cfg.sampling.settleEverySec, 300);
+  const state = { routes: { carry: { pools: { [A]: {}, [B]: {} } } } };
+  const k = new Keeper(cfg, state as never, privateKeyToAccount(("0x" + "11".repeat(32)) as Hex), { info() {}, warn() {} } as never);
+  const asked: Hex[] = [];
+  let dueA = true;
+  const pub = {
+    readContract: async ({ functionName, args }: { functionName: string; args: Hex[] }) => {
+      assert.equal(functionName, "settleDue");
+      asked.push(args[0]);
+      if (args[0] === B) throw new Error("execution reverted"); // launch hook: no such function
+      return dueA;
+    },
+  };
+  (k as unknown as { clients: Map<string, unknown> }).clients.set("robinhood", { pub, wal: {}, chain: {} });
+  const settled: Hex[] = [];
+  (k as unknown as { settle: (s: unknown, id: Hex) => Promise<void> }).settle = async (_s, id) => {
+    settled.push(id);
+  };
+  await k.settleDue(cfg.sameChain[0]);
+  assert.deepEqual(settled, [A]);
+  assert.deepEqual(asked, [A, B]);
+  // within settleEverySec: no calls at all
+  await k.settleDue(cfg.sameChain[0]);
+  assert.deepEqual(asked, [A, B]);
+  // later: A asked again (not due now), B still resting after its revert
+  (k as unknown as { lastSettleCheck: Map<string, number> }).lastSettleCheck.clear();
+  dueA = false;
+  await k.settleDue(cfg.sameChain[0]);
+  assert.deepEqual(asked, [A, B, A]);
+  assert.deepEqual(settled, [A]);
+});
+
+test("low ETH: warns below alerts.minEth, at most every balanceEverySec", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "keeper-u-"));
+  const f = join(dir, "c.json");
+  writeFileSync(f, JSON.stringify({ chains: { robinhood: { rpcEnv: "RH_RPC", chainId: 4663 } }, sameChain: [{ name: "carry", chain: "robinhood", hook: "0xcedc3c312c5b3c4310f0fba0323ddec797e4aa88", abi: "carry" }], alerts: { minEth: "0.003" } }));
+  const cfg = loadConfig(f, { RH_RPC: "http://127.0.0.1:1" });
+  assert.equal(cfg.alerts.minEth, 3_000_000_000_000_000n);
+  const warns: string[] = [];
+  const k = new Keeper(cfg, { routes: {} } as never, privateKeyToAccount(("0x" + "11".repeat(32)) as Hex), { info() {}, warn: (m: string) => warns.push(m) } as never);
+  let bal = 2_000_000_000_000_000n;
+  let reads = 0;
+  const pub = { getBalance: async () => (reads++, bal) };
+  (k as unknown as { clients: Map<string, unknown> }).clients.set("robinhood", { pub, wal: {}, chain: {} });
+  await k.balanceDue(cfg.sameChain[0].chain);
+  assert.equal(warns.length, 1);
+  assert.match(warns[0], /0\.002 ETH on robinhood/);
+  await k.balanceDue(cfg.sameChain[0].chain);
+  assert.equal(reads, 1, "read again only after balanceEverySec");
+  (k as unknown as { lastBalanceCheck: Map<string, number> }).lastBalanceCheck.clear();
+  bal = 5_000_000_000_000_000n;
+  await k.balanceDue(cfg.sameChain[0].chain);
+  assert.equal(warns.length, 1, "enough ETH: quiet");
 });

@@ -81,6 +81,20 @@ export interface Sampling {
    *  the keeper samples the pool, at its own gas, and tries again next round (a second reading in a later block
    *  clears the last-block half of the check). */
   matchSampleMaxPerHour: number;
+  /** Carry v0.3 epoch fee payout (staged; the live hook has no settle and is left alone): how often to ask each
+   *  pool's hook `settleDue(id)`, seconds (0 = never settle). The hook decides: yes only when the open epoch has
+   *  fees and no payout ran for an epoch (about an hour), so a deposit, withdraw or claim that already paid out, or
+   *  an epoch with no fees, costs one eth_call. Then the keeper sends `settle(id)` at its own gas. */
+  settleEverySec: number;
+}
+
+export interface Alerts {
+  /** Alert (ALERT_URL) and warn when the keeper's ETH on a chain it sends on drops below this. */
+  minEth: bigint;
+  /** How often to read the keeper's balance, seconds. */
+  balanceEverySec: number;
+  /** Alert after this many same-chain rounds in a row fail for one entry (RPC down, say). */
+  errorsBeforeAlert: number;
 }
 
 export interface Policy {
@@ -113,6 +127,7 @@ export interface Config {
   sameChain: SameChainCfg[];
   sampling: Sampling;
   policy: Policy;
+  alerts: Alerts;
 }
 
 const DEFAULT_CHAINS: Record<string, Partial<ChainCfg> & { rpcEnv: string }> = {
@@ -187,6 +202,7 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
   });
   const sm = raw.sampling ?? {};
   const p = raw.policy ?? {};
+  const al = raw.alerts ?? {};
   return {
     account: env.KEEPER_ACCOUNT ?? raw.account ?? "disciple",
     stateFile: env.KEEPER_STATE ?? raw.stateFile ?? "keeper-state.json",
@@ -207,6 +223,7 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       matchEverySec: Number(sm.matchEverySec ?? 60),
       matchSteps: Number(sm.matchSteps ?? 20),
       matchSampleMaxPerHour: Number(sm.matchSampleMaxPerHour ?? 12),
+      settleEverySec: Number(sm.settleEverySec ?? 300),
     },
     policy: {
       moveBps: b(p.moveBps, 102n),
@@ -218,6 +235,11 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       maxPoolsPerPush: Math.min(64, Number(p.maxPoolsPerPush ?? 64)),
       maxPushCost: parseEther(String(p.maxPushCostEth ?? "0.003")),
       packetTtlSec: Number(p.packetTtlSec ?? 6 * 3600),
+    },
+    alerts: {
+      minEth: parseEther(String(al.minEth ?? "0.003")),
+      balanceEverySec: Number(al.balanceEverySec ?? 600),
+      errorsBeforeAlert: Number(al.errorsBeforeAlert ?? 10),
     },
   };
 }

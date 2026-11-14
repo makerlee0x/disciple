@@ -1,0 +1,35 @@
+[Unit]
+Description=Carry keeper (samples, stock-queue matches, fee payouts)
+Wants=network-online.target
+After=network-online.target
+# keep retrying forever: never give up after a burst of crashes (an RPC outage, say)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=keeper
+Group=keeper
+ExecStart=/opt/carry-keeper/keeper/deploy/aws/start.sh
+Restart=always
+RestartSec=20
+# the keeper finishes its current transaction on SIGTERM
+TimeoutStopSec=90
+# /run/carry-keeper: tmpfs, only this user, removed when the service stops (keystore + password live here)
+RuntimeDirectory=carry-keeper
+RuntimeDirectoryMode=0700
+# /var/lib/carry-keeper: the keeper's state file
+StateDirectory=carry-keeper
+StateDirectoryMode=0700
+Environment=AWS_REGION=__REGION__
+Environment=PARAM_PREFIX=/carry-keeper
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+MemoryMax=600M
+
+[Install]
+WantedBy=multi-user.target
