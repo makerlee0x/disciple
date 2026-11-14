@@ -47,7 +47,8 @@ ok(/body\.side-hidden\s+\[aria-label="wallet"\]/.test(css) && !/body\.side-hidde
 const appHome = read("components/home/appHome.module.css");
 const hiw = read("app/how-it-works/page.module.css");
 ok(/var\(--ap-topbar-offset/.test(appHome), "home heroes use topbar-offset (safe-area)");
-ok(/var\(--ap-topbar-offset/.test(hiw), "how-it-works uses topbar-offset");
+// How to play sits in the lobby shell since brand v3: .main-offset-lobby pads it below the bar + the notch
+ok(!/padding-top:\s*0/.test(hiw) && /\.main-offset\.main-offset-lobby[^}]*padding-top:\s*calc\(var\(--lb-bar-h\) \+ var\(--ap-safe-top/.test(read("app/brand-tokens-v3.css")), "how-it-works clears the top bar + notch (lobby shell offset)");
 
 const hud = read("components/flight/PhoneHud.tsx");
 ok(/safeBottom\?\:\s*number/.test(hud) && /visualViewport/.test(hud), "PhoneHud layout lifts for safe-bottom + visualViewport");

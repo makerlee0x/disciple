@@ -920,7 +920,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         <button type="button" data-testid="loadout-settings" onClick={() => setShowCfg(true)} style={{ all: "unset", cursor: "pointer", color: HUD.champagne }}>Settings</button>
       </div>
     </div>}
-    <div ref={barRef} aria-label="trade bar" data-testid="trade-bar" data-hud={hud} className="ap-bc" style={{ bottom: 16, zIndex: 31, width: pro ? 560 : 700, maxWidth: "calc(100vw - var(--ap-rail-w, 64px) - 40px)", boxSizing: "border-box",
+    <div ref={barRef} aria-label="trade bar" data-testid="trade-bar" data-hud={hud} className="ap-bc" style={{ bottom: "calc(14px + var(--ap-safe-bottom))", zIndex: 31, width: pro ? 560 : 700, maxWidth: "calc(100vw - var(--ap-rail-w, 64px) - 40px)", boxSizing: "border-box",
       display: "flex", flexDirection: "column", gap: 8, padding: 12, borderRadius: 20, background: "rgba(18,19,39,.82)", border: `1px solid ${HUD.borderGold}`, color: HUD.text, fontFamily: HUD.ui }}>
       <div style={{ display: "flex", gap: 12 }}>
         <div style={{ flex: pro ? 1.2 : 1.25, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
