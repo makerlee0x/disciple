@@ -39,6 +39,10 @@ export interface DuelRoom {
   ot?: boolean;
   /** last price the server saw while the duel was live (and when): the buzzer settles at the buzzer's price, not a later one */
   mark?: { p: number; at: number };
+  /** a stretch nobody ticked, waiting for its 1-minute candles to close and be replayed (trading pauses meanwhile) */
+  gap?: { from: number; to: number };
+  /** when each pilot last traded (abs ms): the tape never checks a position against prices from before it */
+  lastTradeAt?: Record<string, number>;
   books: Record<string, Book>;
   result?: DuelResult;
   rematch?: { by: string[]; roomId?: string };

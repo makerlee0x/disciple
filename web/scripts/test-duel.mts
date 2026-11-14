@@ -92,9 +92,9 @@ test("server: ranked buzzer within the overtime gap adds 30 s once, then rates",
   await S.pollQueue(a, "shark", 180_000); const m = await S.pollQueue(b, "shark", 180_000) as { room: { id: string } };
   await S.setReady(m.room.id, a.pid); await S.setReady(m.room.id, b.pid);
   const { kv } = await import("../lib/server/kv");
-  const r = JSON.parse(JSON.stringify(await S.getRoom(m.room.id))); r.startAt = Date.now() - 200_000; r.endAt = Date.now() - 5; await kv().set(S._keys.room(m.room.id), JSON.stringify(r));
+  const r = JSON.parse(JSON.stringify(await S.getRoom(m.room.id))); r.startAt = Date.now() - 200_000; r.endAt = Date.now() - 5; r.mark = { p: 68000, at: Date.now() - 50 }; await kv().set(S._keys.room(m.room.id), JSON.stringify(r));
   const ot = await S.tick(m.room.id, 68000); assert.equal(ot!.room.ot, true); assert.equal(ot!.room.status, "live");
-  const r2 = JSON.parse(JSON.stringify(ot!.room)); r2.endAt = Date.now() - 5; await kv().set(S._keys.room(m.room.id), JSON.stringify(r2));
+  const r2 = JSON.parse(JSON.stringify(ot!.room)); r2.endAt = Date.now() - 5; r2.mark = { p: 68000, at: Date.now() - 50 }; await kv().set(S._keys.room(m.room.id), JSON.stringify(r2));
   const end = await S.tick(m.room.id, 68000); assert.equal(end!.room.status, "done"); assert.equal(end!.room.result!.winner, null);
   assert.equal((await S.ratingOf(a.pid)).games, 1);
 });
@@ -151,11 +151,18 @@ test("server: a late settle uses the price at the buzzer, never the price when s
 
 test("server: an H-BOMB inside a gap nobody watched still lands", async () => {
   const { a, id } = await liveRanked("6", "7");
-  const now = Date.now(), T0 = Math.floor((now - 2 * 60_000) / 60_000) * 60_000;
+  const now = Date.now(), T0 = Math.floor((now - 3 * 60_000) / 60_000) * 60_000;
   const book = R.applyTrade(R.newBook(50), "boost", 0, 68000, 0)!.book;
   const lp = R.liqPrice(book.pos!);
-  await patch(id, (r) => { r.startAt = T0 - 60_000; r.endAt = now + 60_000; r.mark = { p: 68000, at: T0 - 1000 }; (r.books as Record<string, unknown>)[a.pid] = book; });
-  TAPE = [{ t: T0, T: T0 + 59_999, o: 68000, c: 68000, h: 68005, l: lp - 5 }];
+  await patch(id, (r) => {
+    r.startAt = T0 - 120_000; r.endAt = now + 60_000; r.mark = { p: 68000, at: now - 500 };
+    r.gap = { from: T0 - 1000, to: T0 + 60_500 }; r.lastTradeAt = { [a.pid]: T0 - 90_000 }; (r.books as Record<string, unknown>)[a.pid] = book;
+  });
+  TAPE = [
+    { t: T0 - 60_000, T: T0 - 1, o: 68000, c: 68000, h: 68005, l: 67995 },
+    { t: T0, T: T0 + 59_999, o: 68000, c: 68000, h: 68005, l: lp - 5 },
+    { t: T0 + 60_000, T: T0 + 119_999, o: 68000, c: 68000, h: 68005, l: 67995 },
+  ];
   const t = await S.tick(id, 68000); // price is back where it was
   assert.ok(t!.events.some((e) => e.type === "bomb" && e.pid === a.pid), "the dip below the H-BOMB line counts");
   assert.equal(t!.room.books[a.pid].pos, null);
@@ -163,21 +170,58 @@ test("server: an H-BOMB inside a gap nobody watched still lands", async () => {
 });
 
 test("server: the tape never invents a bomb from before the entry, and never prices the buzzer from an open minute", async () => {
-  const { a, b, id } = await liveRanked("8", "9");
+  const { a, id } = await liveRanked("8", "9");
+  const now = Date.now(), T0 = Math.floor((now - 3 * 60_000) / 60_000) * 60_000;
+  const book = R.applyTrade(R.newBook(50), "boost", 0, 68000, 0)!.book;
+  const lp = R.liqPrice(book.pos!);
+  // entered 30 s into minute T0-60s; that minute's low (maybe before the entry) is under the line
+  await patch(id, (r) => {
+    r.startAt = T0 - 120_000; r.endAt = now + 60_000; r.mark = { p: 68000, at: now - 500 };
+    r.gap = { from: T0 - 20_000, to: T0 + 60_500 }; r.lastTradeAt = { [a.pid]: T0 - 30_000 }; (r.books as Record<string, unknown>)[a.pid] = book;
+  });
+  TAPE = [
+    { t: T0 - 60_000, T: T0 - 1, o: 68000, c: 68000, h: 68005, l: lp - 50 },
+    { t: T0, T: T0 + 59_999, o: 68000, c: 68000, h: 68005, l: 67995 },
+    { t: T0 + 60_000, T: T0 + 119_999, o: 68000, c: 68000, h: 68005, l: 67995 },
+  ];
+  const t = await S.tick(id, 68000);
+  assert.ok(!t!.events.some((e) => e.type === "bomb"), "a low from before the entry can't liquidate");
+  assert.ok(t!.room.books[a.pid].pos, "still flying"); assert.equal(t!.room.gap, undefined);
+  // buzzer passed with nobody ticking near it: hold, don't read the still-open minute
+  await patch(id, (r) => { r.endAt = Date.now() - 1500; r.mark = { p: 68000, at: Date.now() - 20_000 }; });
+  const M = Math.floor(Date.now() / 60_000) * 60_000;
+  TAPE = [{ t: M, T: M + 59_999, o: 68000, c: 69000, h: 69000, l: 68000 }];
+  const w = await S.tick(id, 69000);
+  assert.equal(w!.room.status, "live", "wait for the tape");
+  TAPE = null;
+});
+
+test("server: a live tick after a gap can't skip its replay (trading pauses, the dip still lands once the minute closes)", async () => {
+  const { a, b, id } = await liveRanked("a", "b");
   const now = Date.now(), M = Math.floor(now / 60_000) * 60_000;
   const book = R.applyTrade(R.newBook(50), "boost", 0, 68000, 0)!.book;
   const lp = R.liqPrice(book.pos!);
-  // entered 20 s into the previous minute; that minute's low (before the entry) is below the H-BOMB line
-  const entry = M - 40_000;
-  await patch(id, (r) => { r.startAt = M - 120_000; r.endAt = now + 60_000; r.mark = { p: 68000, at: entry }; (r.books as Record<string, unknown>)[a.pid] = book; });
-  TAPE = [{ t: M - 60_000, T: M - 1, o: 68000, c: 68000, h: 68005, l: lp - 50 }];
-  const t = await S.tick(id, 68000);
-  assert.ok(!t!.events.some((e) => e.type === "bomb"), "a low from before the entry can't liquidate");
-  assert.ok(t!.room.books[a.pid].pos, "still flying");
-  // buzzer landed in the current (still open) minute and nobody ticked near it: wait, don't read the open candle
-  await patch(id, (r) => { r.endAt = Date.now() - 1500; r.mark = { p: 68000, at: Date.now() - 20_000 }; });
-  TAPE = [{ t: M, T: M + 59_999, o: 68000, c: 69000, h: 69000, l: 68000 }];
-  const w = await S.tick(id, 69000);
-  if (Date.now() - M < 60_000 + 2000) assert.equal(w!.room.status, "live", "open minute: wait");
+  // a traded well before; ticks stopped 10 s ago inside the current minute, BTC dipped through the line and came back
+  await patch(id, (r) => { r.startAt = M - 120_000; r.endAt = now + 120_000; r.mark = { p: 68000, at: now - 10_000 }; r.lastTradeAt = { [a.pid]: M - 90_000 }; (r.books as Record<string, unknown>)[a.pid] = book; });
+  TAPE = null;
+  const t1 = await S.tick(id, 68000); // recovery tick: minute still open
+  assert.ok(t1!.room.gap, "the gap is pending");
+  assert.ok(t1!.room.books[a.pid].pos, "not judged yet");
+  const t2 = await S.tick(id, 68000); // another live tick right after: the gap must survive it
+  assert.ok(t2!.room.gap, "a later live tick doesn't cancel the replay");
+  await assert.rejects(S.trade(id, a.pid, "close", 0, 68000), /Catching up/);
+  // the minute closes: its low was under the line
+  await patch(id, (r) => { (r.gap as { from: number; to: number }).from = M - 60_000 + 30_000; (r.gap as { from: number; to: number }).to = M - 60_000 + 50_000; r.mark = { p: 68000, at: Date.now() }; });
+  TAPE = [{ t: M - 60_000, T: M - 1, o: 68000, c: 68000, h: 68005, l: lp - 5 }];
+  const t3 = await S.tick(id, 68000);
+  assert.ok(t3!.events.some((e) => e.type === "bomb" && e.pid === a.pid), "the dip lands");
+  assert.equal(t3!.room.gap, undefined);
   void b; TAPE = null;
+});
+
+test("server: the referee settles a duel nobody is watching", async () => {
+  const { id } = await liveRanked("c", "d");
+  await patch(id, (r) => { r.startAt = Date.now() - 61_000; r.endAt = Date.now() + 1200; r.ot = true; r.mark = { p: 68000, at: Date.now() - 500 }; });
+  await S.referee(id, async () => 68000, undefined, 6000);
+  const r = await S.getRoom(id); assert.equal(r!.status, "done");
 });

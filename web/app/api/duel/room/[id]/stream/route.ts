@@ -6,11 +6,12 @@
 import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { duelPrice } from "@/lib/server/duel/price";
-import { eventsAfter, getRoom, tick } from "@/lib/server/duel/store";
+import { after } from "next/server";
+import { eventsAfter, getRoom, referee, refereeRunning, tick } from "@/lib/server/duel/store";
 import { requirePass } from "@/lib/server/duel/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 const LIFETIME_MS = 50_000;
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -18,7 +19,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const rl = await hitLimit(kv(), `duel:sse:${clientIp(req.headers)}`, 60, 60);
   if (!rl.ok) return new Response("rate limited", { status: 429 });
   const { id } = await params;
-  if (!(await getRoom(id))) return new Response("gone", { status: 404 });
+  const r0 = await getRoom(id);
+  if (!r0) return new Response("gone", { status: 404 });
+  if (r0.status === "live" && !(await refereeRunning(id))) after(() => referee(id, duelPrice));
   let cursor = Number(req.headers.get("last-event-id") || new URL(req.url).searchParams.get("after")) || 0;
   const enc = new TextEncoder(); let closed = false;
   req.signal.addEventListener("abort", () => { closed = true; });

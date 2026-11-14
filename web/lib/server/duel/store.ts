@@ -217,10 +217,11 @@ export async function leave(id: string, pid: string, s: Kv = kv()) {
 /** Where a gap starts: the last price the server saw (or GO). */
 const gapFrom = (r: DuelRoom) => Math.max(r.mark?.at ?? 0, r.startAt ?? 0);
 /** Does this tick need the candle tape? (nobody ticked the room for a while) */
-function needsTape(r: DuelRoom, now: number): boolean { return r.status === "live" && now > (r.startAt ?? Infinity) && now - gapFrom(r) > GAP_MS; }
+function needsTape(r: DuelRoom, now: number): boolean { return r.status === "live" && now > (r.startAt ?? Infinity) && (!!r.gap || now - gapFrom(r) > GAP_MS); }
 async function tapeFor(r: DuelRoom | null, now: number): Promise<Candle[] | null> {
   if (!r || !needsTape(r, now)) return null;
-  return duelCandles(gapFrom(r) - 60_000, Math.min(now, (r.endAt ?? now) + OT_MS));
+  const from = r.gap?.from ?? gapFrom(r);
+  return duelCandles(from - 60_000, Math.min(now, (r.endAt ?? now) + OT_MS));
 }
 function bombAll(r: DuelRoom, price: number, evs: NewDuelEvent[]) {
   for (const p of r.players) {
@@ -240,15 +241,29 @@ function tickInto(r: DuelRoom, now: number, price: number | null, evs: NewDuelEv
   const fuel0 = TIERS[r.tier].fuel;
   // only finished minutes count: an open candle's close is just today's price
   const closed = tape?.filter((c) => c.t + 60_000 <= now - TAPE_LAG_MS) ?? null;
-  if (closed && now - gapFrom(r) > GAP_MS) {
-    // only minutes wholly inside the gap: every open position was entered at or before gapFrom (a trade marks the
-    // room first), so these highs/lows all came after entry and before the buzzer. Partial minutes are skipped:
-    // a bomb can be missed there, but never invented.
-    const from = gapFrom(r), to = Math.min(now, r.endAt ?? now);
-    for (const c of closed) {
-      if (c.t < from || c.t + 60_000 > to) continue;
-      bombAll(r, c.l, evs); bombAll(r, c.h, evs);
-    }
+  // A stretch nobody ticked becomes a pending gap. It stays pending (trading paused, buzzer held) until every minute
+  // it touches has closed, then each of those minutes' lows/highs is checked against the open positions. A live
+  // tick after the gap never cancels it: the replay always happens. The one minute skipped for a pilot is the gap's
+  // first minute if they traded inside it (its extremes may be from before their entry); trades pause during the
+  // gap, so no other position can have been opened inside it.
+  if (now - gapFrom(r) > GAP_MS) r.gap = { from: r.gap?.from ?? gapFrom(r), to: now };
+  if (r.gap) {
+    const m0 = Math.floor(r.gap.from / 60_000) * 60_000;
+    const mEnd = Math.floor(Math.min(r.gap.to, r.endAt ?? r.gap.to) / 60_000) * 60_000;
+    const mins = closed?.filter((c) => c.t >= m0 && c.t <= mEnd) ?? [];
+    const complete = mins.length === (mEnd - m0) / 60_000 + 1;
+    if (complete) {
+      for (const c of mins.sort((x, y) => x.t - y.t)) {
+        for (const q of r.players) {
+          if (c.t === m0 && (r.lastTradeAt?.[q.pid] ?? 0) >= m0) continue;
+          for (const px of [c.l, c.h]) {
+            const bb = bombAt(r.books[q.pid], px);
+            if (bb) { r.books[q.pid] = bb.book; evs.push({ type: "bomb", pid: q.pid, price: px, steps: [bb.step], book: bb.book }); }
+          }
+        }
+      }
+      r.gap = undefined;
+    } else if (now - r.gap.to > LATE_GIVEUP_MS) r.gap = undefined; // the tape never came: stop holding the duel
   }
   for (;;) {
     const endAt = r.endAt ?? Infinity;
@@ -257,6 +272,7 @@ function tickInto(r: DuelRoom, now: number, price: number | null, evs: NewDuelEv
       bombAll(r, price, evs); r.mark = { p: price, at: now };
       return null;
     }
+    if (r.gap) return "wait"; // replay the gap before anyone can win or lose
     // The buzzer price is fixed by what happened before the buzzer, never by when someone shows up afterwards.
     let p: number | null = null;
     if (r.mark && r.mark.at <= endAt && endAt - r.mark.at <= GAP_MS) p = r.mark.p;     // seen right before it
@@ -323,22 +339,27 @@ export async function tick(id: string, price: number | null, s: Kv = kv()) {
 export async function trade(id: string, pid: string, action: TradeAction, usd: number, price: number | null, s: Kv = kv()) {
   if (!price) throw new DuelError(503, "Price feed is catching up, try again.");
   const tape = await tapeFor(await getRoom(id, s), Date.now());
-  return mutate(id, async (r, now) => {
+  let held = false;
+  const res = await mutate(id, async (r, now) => {
     if (!seatOf(r, pid)) throw new DuelError(403, "You're not in this duel.");
     if (r.status !== "live") throw new DuelError(409, r.status === "done" ? "The duel is over." : "The duel hasn't started.");
     if (now < (r.startAt ?? 0)) throw new DuelError(409, "Wait for GO.");
     const evs: NewDuelEvent[] = [];
     const p = tickInto(r, now, price, evs, tape);
     if (typeof p === "number") { evs.push(await settle(r, p, s)); return evs; }
+    if (r.gap && now < (r.endAt ?? Infinity)) { held = true; return evs; } // keep the gap (and any bombs), refuse the trade
     if (p === "wait" || now >= (r.endAt ?? Infinity)) throw new DuelError(409, "Time's up.");
     const sizes = TIERS[r.tier].sizes;
     if (action !== "close" && !sizes.includes(usd)) throw new DuelError(400, "Pick a trade size.");
     const out = applyTrade(r.books[pid], action, usd, price, now - (r.startAt ?? now));
     if (!out) throw new DuelError(409, action === "close" ? "Nothing open." : "Out of duel fuel. Cash out to free some.");
     r.books[pid] = out.book;
+    (r.lastTradeAt ??= {})[pid] = now;
     evs.push({ type: "trade", pid, action, price, steps: out.steps, book: out.book });
     return evs;
   }, s);
+  if (held) throw new DuelError(409, "Catching up on the price, one sec.");
+  return res;
 }
 export async function chat(id: string, pid: string, text: string, s: Kv = kv()) {
   return mutate(id, (r) => { if (!seatOf(r, pid)) throw new DuelError(403, "You're not in this duel."); return [{ type: "chat", pid, text }]; }, s);
@@ -371,5 +392,24 @@ export async function activeRoomOf(pid: string, s: Kv = kv()): Promise<DuelRoom 
   if (!r || r.status === "done" || r.status === "cancelled") { await s.delIfEq(K.active(pid), id); return null; }
   return r;
 }
+/**
+ * The referee: a server-side loop that ticks a live duel every second until it settles, so H-BOMBs and the buzzer
+ * never depend on a pilot keeping a tab open. One per room (lease in KV, renewed each second; if the instance dies,
+ * the next request or stream starts a new one). Runs inside `after()` from the routes that start or watch a duel.
+ */
+export async function referee(id: string, price: () => Promise<number | null>, s: Kv = kv(), maxMs = 280_000) {
+  const key = `duel:ref:${id}`, tok = ulid(), t0 = Date.now();
+  if (!(await s.setNX(key, tok, 5))) return; // someone is already refereeing
+  try {
+    while (Date.now() - t0 < maxMs) {
+      const r = await getRoom(id, s);
+      if (!r || r.status !== "live") break;
+      if (Date.now() >= (r.startAt ?? 0)) await tick(id, await price(), s).catch(() => null);
+      if (!(await s.expireIfEq(key, tok, 5))) break; // lost the lease
+      await sleep(1000);
+    }
+  } finally { await s.delIfEq(key, tok).catch(() => false); }
+}
+export async function refereeRunning(id: string, s: Kv = kv()) { return !!(await s.get(`duel:ref:${id}`)); }
 export const _keys = K;
 export { opponentOf };
