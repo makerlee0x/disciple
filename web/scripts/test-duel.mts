@@ -10,7 +10,11 @@ delete process.env.UPSTASH_REDIS_REST_URL; delete process.env.KV_REST_API_URL;
 process.env.KV_LOCAL_FILE = join(tmpdir(), `duel-test-${process.pid}.json`);
 const R = await import("../lib/duel/rules");
 const S = await import("../lib/server/duel/store");
-const { setDuelPriceSource } = await import("../lib/server/duel/price");
+const { setDuelPriceSource, setDuelCandleSource } = await import("../lib/server/duel/price");
+type Candle = { t: number; T: number; o: number; c: number; h: number; l: number };
+let TAPE: Candle[] | null = null;
+setDuelCandleSource(async () => TAPE);
+const pilot = (ch: string) => ({ pid: "0x" + ch.repeat(40), name: "@" + ch });
 
 let PRICE = 68000;
 setDuelPriceSource(async () => PRICE);
@@ -57,6 +61,7 @@ test("server: two pilots in the queue get paired, then ready → live", async ()
 });
 
 test("server: fills at the server price, buzzer settles once, ratings move, rematch makes a new room", async () => {
+  const A = pilot("e"), B = pilot("f");
   const room = await S.createInvite(A, "rookie", 60_000);
   await assert.rejects(S.joinInvite(B, "ZZZZ"), /isn't open/);
   const joined = await S.joinInvite(B, room.code!); assert.equal(joined.players.length, 2);
@@ -91,4 +96,67 @@ test("server: ranked buzzer within the overtime gap adds 30 s once, then rates",
   const r2 = JSON.parse(JSON.stringify(ot!.room)); r2.endAt = Date.now() - 5; await kv().set(S._keys.room(m.room.id), JSON.stringify(r2));
   const end = await S.tick(m.room.id, 68000); assert.equal(end!.room.status, "done"); assert.equal(end!.room.result!.winner, null);
   assert.equal((await S.ratingOf(a.pid)).games, 1);
+});
+
+test("server: one duel at a time (no second ranked room, invite or join while seated)", async () => {
+  const a = pilot("1"), b = pilot("2"), c = pilot("3");
+  await S.pollQueue(a, "rookie", 60_000); const m = await S.pollQueue(b, "rookie", 60_000) as { room: { id: string } };
+  assert.ok(m.room);
+  // a is seated: queueing again (any tier) hands back the same room, never a new one
+  const again = await S.pollQueue(a, "pro", 180_000) as { room?: { id: string } };
+  assert.equal(again.room?.id, m.room.id);
+  await assert.rejects(S.createInvite(a, "pro", 60_000), /already in a duel/);
+  const inv = await S.createInvite(c, "pro", 60_000);
+  await assert.rejects(S.joinInvite(b, inv.code!), /already in a duel/);
+  // after leaving the lobby the seat frees up
+  await S.leave(m.room.id, a.pid); await S.leave(m.room.id, b.pid);
+  const j = await S.joinInvite(a, inv.code!); assert.equal(j.players.length, 2);
+});
+
+async function liveRanked(x: string, y: string) {
+  const a = pilot(x), b = pilot(y);
+  await S.pollQueue(a, "pro", 60_000); const m = await S.pollQueue(b, "pro", 60_000) as { room: { id: string } };
+  await S.setReady(m.room.id, a.pid); await S.setReady(m.room.id, b.pid);
+  return { a, b, id: m.room.id };
+}
+async function patch(id: string, f: (r: Record<string, unknown>) => void) {
+  const { kv } = await import("../lib/server/kv");
+  const r = JSON.parse(JSON.stringify(await S.getRoom(id))); f(r); await kv().set(S._keys.room(id), JSON.stringify(r));
+}
+
+test("server: a late settle uses the price at the buzzer, never the price when someone comes back", async () => {
+  const { a, b, id } = await liveRanked("4", "5");
+  const now = Date.now(), T0 = Math.floor((now - 6 * 60_000) / 60_000) * 60_000;
+  await patch(id, (r) => { r.startAt = T0 - 60_000; r.endAt = T0 + 30_000; r.mark = { p: 68000, at: T0 - 59_000 }; });
+  PRICE = 68000;
+  await patch(id, (r) => {
+    const books = r.books as Record<string, unknown>;
+    books[a.pid] = R.applyTrade(R.newBook(50), "boost", 10, 68000, 0)!.book;
+    books[b.pid] = R.applyTrade(R.newBook(50), "dump", 10, 68000, 0)!.book;
+  });
+  // nobody watched; BTC drifts to 68100 by the buzzer, then rips to 70000 later
+  TAPE = null;
+  const wait = await S.tick(id, 70_000); assert.equal(wait!.room.status, "live", "no tape yet: wait, don't guess");
+  TAPE = [
+    { t: T0 - 60_000, T: T0 - 1, o: 68000, c: 68000, h: 68010, l: 67990 },
+    { t: T0, T: T0 + 59_999, o: 68000, c: 68200, h: 68210, l: 67995 },
+  ];
+  const done = await S.tick(id, 70_000);
+  assert.equal(done!.room.status, "done");
+  near(done!.room.result!.price, 68100, 1e-6);
+  assert.equal(done!.room.result!.winner, a.pid);
+  TAPE = null;
+});
+
+test("server: an H-BOMB inside a gap nobody watched still lands", async () => {
+  const { a, id } = await liveRanked("6", "7");
+  const now = Date.now(), T0 = Math.floor((now - 2 * 60_000) / 60_000) * 60_000;
+  const book = R.applyTrade(R.newBook(50), "boost", 0, 68000, 0)!.book;
+  const lp = R.liqPrice(book.pos!);
+  await patch(id, (r) => { r.startAt = T0 - 60_000; r.endAt = now + 60_000; r.mark = { p: 68000, at: T0 - 1000 }; (r.books as Record<string, unknown>)[a.pid] = book; });
+  TAPE = [{ t: T0, T: T0 + 59_999, o: 68000, c: 68000, h: 68005, l: lp - 5 }];
+  const t = await S.tick(id, 68000); // price is back where it was
+  assert.ok(t!.events.some((e) => e.type === "bomb" && e.pid === a.pid), "the dip below the H-BOMB line counts");
+  assert.equal(t!.room.books[a.pid].pos, null);
+  TAPE = null;
 });

@@ -37,6 +37,8 @@ export interface DuelRoom {
   /** buzzer; moves 30 s later once on overtime */
   endAt?: number;
   ot?: boolean;
+  /** last price the server saw while the duel was live (and when): the buzzer settles at the buzzer's price, not a later one */
+  mark?: { p: number; at: number };
   books: Record<string, Book>;
   result?: DuelResult;
   rematch?: { by: string[]; roomId?: string };

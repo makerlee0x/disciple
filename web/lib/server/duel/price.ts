@@ -31,3 +31,39 @@ export async function duelPrice(now = Date.now()): Promise<number | null> {
   else if (cache && now - cache.at < 3000) return cache.p;
   return p;
 }
+
+/* ---------- the tape: 1-minute candles, for gaps nobody was watching ---------- */
+/**
+ * When no request or stream ticked a live duel for a while (both pilots closed their tabs), the server must not
+ * judge that gap by whatever the price is when someone finally comes back. Candles let it check H-BOMBs against the
+ * gap's highs/lows and price the buzzer at the buzzer's own minute. Source: Hyperliquid candleSnapshot (1m).
+ */
+export interface Candle { t: number; T: number; o: number; c: number; h: number; l: number }
+type CandleSource = (from: number, to: number) => Promise<Candle[] | null>;
+let candleOverride: CandleSource | null = null;
+/** tests: inject a candle source (null = back to Hyperliquid) */
+export function setDuelCandleSource(f: CandleSource | null) { candleOverride = f; }
+
+export async function duelCandles(from: number, to: number): Promise<Candle[] | null> {
+  if (candleOverride) return candleOverride(from, to);
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 2500);
+  try {
+    const startTime = Math.floor(from / 60_000) * 60_000;
+    const r = await fetch(HL_INFO, {
+      method: "POST", headers: { "content-type": "application/json" }, signal: ctl.signal, cache: "no-store",
+      body: JSON.stringify({ type: "candleSnapshot", req: { coin: "BTC", interval: "1m", startTime, endTime: to } }),
+    });
+    if (!r.ok) return null;
+    const j = (await r.json()) as Array<Record<string, unknown>>;
+    if (!Array.isArray(j)) return null;
+    const out = j.map((c) => ({ t: Number(c.t), T: Number(c.T), o: Number(c.o), c: Number(c.c), h: Number(c.h), l: Number(c.l) }))
+      .filter((c) => c.t > 0 && c.o > 0 && c.c > 0 && c.h > 0 && c.l > 0);
+    return out.length ? out : null;
+  } catch { return null; } finally { clearTimeout(t); }
+}
+/** Price at time `t` from the tape: inside its minute, open → close by how far into the minute `t` is. */
+export function priceAt(tape: Candle[] | null, t: number): number | null {
+  const c = tape?.find((k) => t >= k.t && t < k.t + 60_000);
+  if (!c) return null;
+  return c.o + (c.c - c.o) * Math.min(1, Math.max(0, (t - c.t) / 60_000));
+}

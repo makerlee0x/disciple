@@ -14,6 +14,7 @@ import {
   COUNTDOWN_MS, OT_MS, TIERS, applyTrade, bombAt, makeCode, matchWindow, needsOvertime, newBook, newRating, profitOf, rate, settleBook,
   type LengthMs, type Rating, type TierId, type TradeAction,
 } from "@/lib/duel/rules";
+import { duelCandles, priceAt, type Candle } from "./price";
 import type { DuelEvent, DuelMode, DuelPlayer, DuelResult, DuelRoom, NewDuelEvent } from "@/lib/duel/types";
 
 const K = {
@@ -31,7 +32,13 @@ const K = {
   rating: (pid: string) => `duel:rating:${pid}`,
   rated: (id: string) => `duel:rated:${id}`,
   active: (pid: string) => `duel:active:${pid}`,
+  rlock: (pid: string) => `duel:rlock:${pid}`,
 };
+/** a live duel nobody ticked for longer than this is judged from the candle tape, not today's price */
+const GAP_MS = 3000;
+/** past the buzzer by this much with no tape: settle at the last price seen rather than hold the room forever */
+const LATE_GIVEUP_MS = 10 * 60_000;
+const ACTIVE_TTL = 15 * 60;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const parse = <T,>(s: string | null): T | null => { if (!s) return null; try { return JSON.parse(s) as T; } catch { return null; } };
 
@@ -74,13 +81,27 @@ async function playerOf(p: Pilot, s: Kv): Promise<DuelPlayer> {
   const r = await ratingOf(p.pid, s);
   return { pid: p.pid, name: p.name, rating: r.r, record: { w: r.w, l: r.l }, ready: false };
 }
+/** One duel at a time: claim the pilot's seat for room `id`, or false if they're already in another live/lobby duel. */
+async function claimSeat(pid: string, id: string, s: Kv): Promise<boolean> {
+  if (await s.setNX(K.active(pid), id, ACTIVE_TTL)) return true;
+  const cur = await s.get(K.active(pid));
+  if (cur === id) return true;
+  if (cur && !(await activeRoomOf(pid, s))) return s.setNX(K.active(pid), id, ACTIVE_TTL); // stale claim, cleared above
+  return false;
+}
+const busy = () => new DuelError(409, "You're already in a duel. Finish or leave it first.");
 async function createRoom(mode: DuelMode, tier: TierId, lenMs: LengthMs, players: DuelPlayer[], s: Kv, code?: string): Promise<DuelRoom> {
   const id = ulid(), now = Date.now();
+  const got: string[] = [];
+  for (const p of players) {
+    if (await claimSeat(p.pid, id, s)) { got.push(p.pid); continue; }
+    for (const q of got) await s.delIfEq(K.active(q), id);
+    throw busy();
+  }
   const room: DuelRoom = { id, mode, tier, lenMs, code, createdAt: now, players, status: "lobby", books: {}, seq: 0 };
   for (const p of players) room.books[p.pid] = newBook(TIERS[tier].fuel);
   await s.set(K.room(id), JSON.stringify(room));
   await s.zadd(K.rooms(), [{ score: now, member: id }]);
-  for (const p of players) await s.setNX(K.active(p.pid), id, 15 * 60).catch(() => false);
   return room;
 }
 export const seatOf = (r: DuelRoom, pid: string) => r.players.find((p) => p.pid === pid) ?? null;
@@ -98,6 +119,8 @@ export async function ratingOf(pid: string, s: Kv = kv()): Promise<Rating> { ret
 export async function pollQueue(me: Pilot, tier: TierId, lenMs: LengthMs, s: Kv = kv()): Promise<{ room: DuelRoom } | { waitedMs: number; window: number }> {
   const already = await s.get(K.matched(me.pid));
   if (already) { const r = await getRoom(already, s); if (r && r.status === "lobby") return { room: r }; await s.del(K.matched(me.pid)); }
+  const act = await activeRoomOf(me.pid, s);
+  if (act) return { room: act }; // already seated somewhere: go back to it, never a second ranked room
   return withLockKey(s, K.qlock(tier, lenMs), async () => {
     const now = Date.now();
     await s.setNX(K.qsince(me.pid), String(now), 120);
@@ -111,6 +134,7 @@ export async function pollQueue(me: Pilot, tier: TierId, lenMs: LengthMs, s: Kv 
       if (!e || e.pid === me.pid) continue;
       const seen = (await s.get(K.qseen(e.pid))) || (await s.get(K.qseenPrev(e.pid)));
       if (!seen) { await s.zrem(K.queue(tier, lenMs), m); continue; } // stopped polling: gone
+      if (await activeRoomOf(e.pid, s)) { await s.zrem(K.queue(tier, lenMs), m); continue; } // seated elsewhere
       const theirSince = Number(await s.get(K.qsince(e.pid))) || now;
       const gap = Math.abs(e.r - mine.r);
       if (gap <= matchWindow(now - since) && gap <= matchWindow(now - theirSince) && (!best || gap < best.gap)) best = { pid: e.pid, name: e.name, gap };
@@ -138,10 +162,12 @@ export async function leaveQueue(pid: string, tier: TierId, lenMs: LengthMs, s: 
 
 /* ---------- challenge a friend ---------- */
 export async function createInvite(me: Pilot, tier: TierId, lenMs: LengthMs, s: Kv = kv()): Promise<DuelRoom> {
+  if (await activeRoomOf(me.pid, s)) throw busy();
   for (let i = 0; i < 6; i++) {
     const code = makeCode();
     if (!(await s.setNX(K.code(code), "pending", 30 * 60))) continue;
-    const room = await createRoom("friend", tier, lenMs, [await playerOf(me, s)], s, code);
+    let room: DuelRoom;
+    try { room = await createRoom("friend", tier, lenMs, [await playerOf(me, s)], s, code); } catch (e) { await s.del(K.code(code)); throw e; }
     await s.del(K.code(code)); await s.setNX(K.code(code), room.id, 30 * 60);
     return room;
   }
@@ -153,6 +179,7 @@ export async function joinInvite(me: Pilot, code: string, s: Kv = kv()): Promise
   const { room } = await mutate(id, async (r) => {
     if (seatOf(r, me.pid)) return [];
     if (r.status !== "lobby" || r.players.length >= 2) throw new DuelError(409, "That duel already has two pilots.");
+    if (!(await claimSeat(me.pid, r.id, s))) throw busy();
     r.players.push(await playerOf(me, s)); r.books[me.pid] = newBook(TIERS[r.tier].fuel);
     return [{ type: "join", pid: me.pid }];
   }, s);
@@ -168,6 +195,7 @@ export async function setReady(id: string, pid: string, s: Kv = kv()) {
     if (r.players.length === 2 && r.players.every((p) => p.ready)) {
       r.status = "live"; r.startAt = now + COUNTDOWN_MS; r.endAt = r.startAt + r.lenMs;
       evs.push({ type: "start", startAt: r.startAt, endAt: r.endAt });
+      for (const p of r.players) void s.expireIfEq(K.active(p.pid), r.id, ACTIVE_TTL).catch(() => false);
     }
     return evs;
   }, s);
@@ -182,19 +210,70 @@ export async function leave(id: string, pid: string, s: Kv = kv()) {
   return out;
 }
 
-/** H-BOMBs at `price`, then the buzzer (overtime once if it's close, else settle + ratings). */
-function tickInto(r: DuelRoom, now: number, price: number | null, evs: NewDuelEvent[]): boolean {
-  if (r.status !== "live" || !price || now < (r.startAt ?? 0)) return false;
+/** Where a gap starts: the last price the server saw (or GO). */
+const gapFrom = (r: DuelRoom) => Math.max(r.mark?.at ?? 0, r.startAt ?? 0);
+/** Does this tick need the candle tape? (nobody ticked the room for a while) */
+function needsTape(r: DuelRoom, now: number): boolean { return r.status === "live" && now > (r.startAt ?? Infinity) && now - gapFrom(r) > GAP_MS; }
+async function tapeFor(r: DuelRoom | null, now: number): Promise<Candle[] | null> {
+  if (!r || !needsTape(r, now)) return null;
+  return duelCandles(gapFrom(r) - 60_000, Math.min(now, (r.endAt ?? now) + OT_MS));
+}
+function bombAll(r: DuelRoom, price: number, evs: NewDuelEvent[]) {
   for (const p of r.players) {
     const b = bombAt(r.books[p.pid], price);
     if (b) { r.books[p.pid] = b.book; evs.push({ type: "bomb", pid: p.pid, price, steps: [b.step], book: b.book }); }
   }
-  if (now < (r.endAt ?? Infinity)) return false;
+}
+/**
+ * H-BOMBs, then the buzzer (overtime once if it's close). Every price used is one from before the buzzer:
+ *  - a gap nobody watched is checked against the tape's lows/highs (a bomb can't be dodged by closing the tab),
+ *  - the buzzer settles at the price AT the buzzer: the live price if we're on time, the last mark if it's right
+ *    before the buzzer, else the tape's price at that moment. Never a price from after it.
+ * → the settle price, "wait" (late, tape not ready yet), or null (still live).
+ */
+function tickInto(r: DuelRoom, now: number, price: number | null, evs: NewDuelEvent[], tape: Candle[] | null): number | "wait" | null {
+  if (r.status !== "live" || now < (r.startAt ?? 0)) return null;
   const fuel0 = TIERS[r.tier].fuel;
+  if (tape && now - gapFrom(r) > GAP_MS) {
+    const from = gapFrom(r), to = Math.min(now, r.endAt ?? now);
+    for (const c of tape) {
+      if (c.t + 60_000 <= from || c.t > to) continue;
+      bombAll(r, c.l, evs); bombAll(r, c.h, evs);
+    }
+  }
+  for (;;) {
+    const endAt = r.endAt ?? Infinity;
+    if (now < endAt) {
+      if (!price) return null;
+      bombAll(r, price, evs); r.mark = { p: price, at: now };
+      return null;
+    }
+    let p: number | null;
+    if (price && now - endAt <= GAP_MS) p = price;                                   // on time
+    else if (r.mark && r.mark.at <= endAt && endAt - r.mark.at <= GAP_MS) p = r.mark.p; // seen right before it
+    else p = priceAt(tape, endAt);                                                       // from the tape
+    if (!p) { if (now - endAt < LATE_GIVEUP_MS) return "wait"; p = r.mark?.p ?? price; if (!p) return "wait"; }
+    if (p === price && now - endAt <= GAP_MS) bombAll(r, p, evs);
+    const [a, b] = r.players;
+    const diff = profitOf(r.books[a.pid], p, fuel0) - profitOf(r.books[b.pid], p, fuel0);
+    if (needsOvertime(diff, fuel0, !!r.ot)) {
+      r.ot = true; r.mark = { p, at: endAt }; r.endAt = endAt + OT_MS;
+      evs.push({ type: "overtime", endAt: r.endAt });
+      continue; // the overtime buzzer may already be behind us too
+    }
+    return p;
+  }
+}
+/** Rating write for one ranked duel: both pilots' ratings change under both pilots' locks (sorted order, no deadlock). */
+async function rateDuel(r: DuelRoom, scoreA: 0 | 0.5 | 1, s: Kv) {
   const [a, b] = r.players;
-  const diff = profitOf(r.books[a.pid], price, fuel0) - profitOf(r.books[b.pid], price, fuel0);
-  if (needsOvertime(diff, fuel0, !!r.ot)) { r.ot = true; r.endAt = (r.endAt ?? now) + OT_MS; evs.push({ type: "overtime", endAt: r.endAt }); return false; }
-  return true; // settle outside (needs ratings I/O)
+  const [k1, k2] = [a.pid, b.pid].sort().map(K.rlock);
+  return withLockKey(s, k1, () => withLockKey(s, k2, async () => {
+    const ra = await ratingOf(a.pid, s), rb = await ratingOf(b.pid, s);
+    const out = rate(ra, rb, scoreA);
+    await s.set(K.rating(a.pid), JSON.stringify(out.a)); await s.set(K.rating(b.pid), JSON.stringify(out.b));
+    return out;
+  }));
 }
 async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> {
   const fuel0 = TIERS[r.tier].fuel;
@@ -205,9 +284,8 @@ async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> 
   const winner = tie ? null : d > 0 ? a.pid : b.pid;
   const delta: Record<string, number> = { [a.pid]: 0, [b.pid]: 0 }, rating: Record<string, number> = { [a.pid]: a.rating, [b.pid]: b.rating };
   if (r.mode === "ranked" && (await s.setNX(K.rated(r.id), "1", 7 * 86400))) {
-    const ra = await ratingOf(a.pid, s), rb = await ratingOf(b.pid, s);
-    const out = rate(ra, rb, tie ? 0.5 : d > 0 ? 1 : 0);
-    await s.set(K.rating(a.pid), JSON.stringify(out.a)); await s.set(K.rating(b.pid), JSON.stringify(out.b));
+    let out: Awaited<ReturnType<typeof rateDuel>>;
+    try { out = await rateDuel(r, tie ? 0.5 : d > 0 ? 1 : 0, s); } catch (e) { await s.del(K.rated(r.id)); throw e; } // retry next tick
     delta[a.pid] = out.da; delta[b.pid] = out.db; rating[a.pid] = out.a.r; rating[b.pid] = out.b.r;
   }
   r.books = books; r.status = "done";
@@ -218,22 +296,28 @@ async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> 
 /** Run H-BOMB + buzzer checks (any request, or the stream's tick, can call this; the lock makes it once). */
 export async function tick(id: string, price: number | null, s: Kv = kv()) {
   const pre = await getRoom(id, s);
-  if (!pre || pre.status !== "live" || !price) return null;
+  if (!pre || pre.status !== "live") return null;
+  const tape = await tapeFor(pre, Date.now());
+  if (!price && !tape && Date.now() < (pre.endAt ?? 0) + LATE_GIVEUP_MS) return null;
   return mutate(id, async (r, now) => {
     const evs: NewDuelEvent[] = [];
-    if (tickInto(r, now, price, evs)) evs.push(await settle(r, price, s));
+    const p = tickInto(r, now, price, evs, tape);
+    if (typeof p === "number") evs.push(await settle(r, p, s));
     return evs;
   }, s);
 }
 
 export async function trade(id: string, pid: string, action: TradeAction, usd: number, price: number | null, s: Kv = kv()) {
   if (!price) throw new DuelError(503, "Price feed is catching up, try again.");
+  const tape = await tapeFor(await getRoom(id, s), Date.now());
   return mutate(id, async (r, now) => {
     if (!seatOf(r, pid)) throw new DuelError(403, "You're not in this duel.");
     if (r.status !== "live") throw new DuelError(409, r.status === "done" ? "The duel is over." : "The duel hasn't started.");
     if (now < (r.startAt ?? 0)) throw new DuelError(409, "Wait for GO.");
     const evs: NewDuelEvent[] = [];
-    if (tickInto(r, now, price, evs)) { evs.push(await settle(r, price, s)); return evs; }
+    const p = tickInto(r, now, price, evs, tape);
+    if (typeof p === "number") { evs.push(await settle(r, p, s)); return evs; }
+    if (p === "wait" || now >= (r.endAt ?? Infinity)) throw new DuelError(409, "Time's up.");
     const sizes = TIERS[r.tier].sizes;
     if (action !== "close" && !sizes.includes(usd)) throw new DuelError(400, "Pick a trade size.");
     const out = applyTrade(r.books[pid], action, usd, price, now - (r.startAt ?? now));
