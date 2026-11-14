@@ -3,13 +3,13 @@
  * DISCIPLE Turbo — live trade screen (hidden /turbo; not in the public nav).
  *
  * v2 (maker signed off the "Turbo mockups" canvas, Nov 13 2026): every position is a RUN.
- *  - Ready: market, GEAR tiles (leverage presets with 1–4 chevrons and a typical run length), FUEL chips, the H-BOMB
+ *  - Ready: market, GEAR tiles (leverage presets with 1–4 chevrons and a typical run length), FUEL chips, the NUKE
  *    distance, then BOOST ▲ (long) / DUMP ▼ (short) in one tap.
- *  - Run: cash out now + multiple, heat (share of the way to the H-BOMB), market flow, BANK HALF and CASH OUT.
+ *  - Run: cash out now + multiple, heat (share of the way to the NUKE), market flow, BANK HALF and CASH OUT.
  *    Desktop adds the Your run card. Space = cash out, Q = bank half.
- *  - Result: Cashed out (multiple, money, run chart, streak, best today) or H-BOMB'd (how long you lasted), each with
+ *  - Result: Cashed out (multiple, money, run chart, streak, best today) or NUKED (how long you lasted), each with
  *    RUN IT BACK (same fuel, gear and side; never raised) and Share.
- *  - Sky: zoomed to the run (lib/turbo/flight.ts skyAlt). The H-BOMB, break-even and boarding lines are drawn by the
+ *  - Sky: zoomed to the run (lib/turbo/flight.ts skyAlt). The NUKE, break-even and boarding lines are drawn by the
  *    engine from __turboFx.lines. Market cap stays a number on the market tab.
  * The engine never places trades; every tap goes to the adapter first.
  */
@@ -209,7 +209,7 @@ export default function TurboScreen() {
 
   useEffect(() => { document.body.classList.add("turbo-game"); return () => document.body.classList.remove("turbo-game"); }, []);
 
-  /* ---- quotes per gear (pace labels, H-BOMB distance) ---- */
+  /* ---- quotes per gear (pace labels, NUKE distance) ---- */
   const gearQuotes = useMemo(() => LEVERAGE_PRESETS.map((lv) => {
     if (!hasPx) return null;
     const q = adapter.quote({ market, side: "long", collateralUsd: fuelUsd, leverage: lv });
@@ -274,7 +274,7 @@ export default function TurboScreen() {
     }
   }, [active, open_, tr, multiple, now]);
 
-  /* ---- events → toasts, H-BOMB, results ---- */
+  /* ---- events → toasts, NUKE, results ---- */
   const seen = useRef<TurboEvent | null>(null);
   useEffect(() => {
     const e = lastEvent; if (!e || e === seen.current) return; seen.current = e;
@@ -306,8 +306,8 @@ export default function TurboScreen() {
 
   /* ---- zoomed sky: anchor + scale, rocket mark, lines ----
    * Rollercoaster (maker, Nov 13: "the scale for the liquidation and dips and pumps needs to be way more exaggerated"):
-   * the sky is zoomed to how much the market moves in a typical minute, not to the H-BOMB distance. A normal minute
-   * swings the rocket about a third of the screen; the H-BOMB line is usually off the bottom (pinned there with its
+   * the sky is zoomed to how much the market moves in a typical minute, not to the NUKE distance. A normal minute
+   * swings the rocket about a third of the screen; the NUKE line is usually off the bottom (pinned there with its
    * price) until it gets close. When the rocket nears the top or bottom edge the view chases it. */
   const anchor = useRef<{ px: number; t: number } | null>(null);
   const skyRef = useRef({ a: 0, dist: 0 });
@@ -522,7 +522,7 @@ export default function TurboScreen() {
         </div>
         <div className={s.bombNote} data-testid="turbo-bomb-note">
           <svg viewBox="0 0 24 24" fill="none" stroke="#FF7FB2" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="12" cy="13" r="7" /><path d="M12 6V3M15 4l-1.5 2" /></svg>
-          <span>{selLiqDist > 0 ? <>H-BOMB if {market} moves <b>{pctMove(selLiqDist)}</b> against you</> : C.waitingPrice}
+          <span>{selLiqDist > 0 ? <>NUKE if {market} moves <b>{pctMove(selLiqDist)}</b> against you</> : C.waitingPrice}
             {selLiqDist > 0 && (stats[market]?.typMin ?? 0) > 0 && <small className={s.typMin}>{R.typMin(pctMove(stats[market]!.typMin))}</small>}</span>
         </div>
         {standIn && <p className={`${s.planNotice} ${s.phoneOnly}`} data-testid="turbo-standin-notice">{sample ? C.sampleNotice : C.notConnected}</p>}

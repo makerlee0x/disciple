@@ -1,6 +1,6 @@
 "use client";
 /**
- * H-BOMB: the liquidation overlay on top of the engine's ATOM bomb.
+ * NUKE: the liquidation overlay on top of the engine's ATOM bomb.
  * Sequence (~6 s): hull white-hot → short freeze → implosion → white-out → shockwave + second ring → star-collapse
  * glow with debris → scorched sky → onDone (the share card). Bombs off ⇒ a short (~1.2 s) version that still makes the
  * liquidation obvious. Purely cosmetic: it never blocks a tap (pointer-events: none).

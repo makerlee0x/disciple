@@ -21,7 +21,7 @@ import { BOARD_WINDOWS, type BestCall, type BoardPilot, type BoardSort, type Boa
 import type { BoardResponse, CrewBoardResponse } from "@/lib/server/leaderboard";
 import { CREW_ENABLED, LOGBOOK_ENABLED } from "@/lib/features";
 
-type Sort = BoardSort | "crews";
+type Sort = BoardSort | "crews" | "duel";
 const SORTS: { k: Sort; label: string; col: string }[] = [
   { k: "pnl", label: "Banked $", col: "Banked" },
   { k: "pctGain", label: "Best % ($20+ in)", col: "Best %" },
@@ -184,15 +184,52 @@ function CrewTable({ d }: { d: CrewBoardResponse }) {
   );
 }
 
-function Rules() {
-  const r = LEADERBOARD_COPY.rules;
+/** Trading Duel board: ranked duel rating, all time (GET /api/duel/board; behind the Turbo pass until launch, so the tab only shows when it answers). */
+interface DuelRow { rank: number; wallet: string; name: string; rating: number; w: number; l: number; games: number; streak: number; peak: number }
+interface DuelBoardRes { ok: boolean; rows: DuelRow[]; total: number; me: DuelRow | null }
+export const DUEL_BOARD_COPY = {
+  tab: "Duels",
+  sub: "Trading Duel rating from ranked duels. Win to climb, lose and you drop. Friendly duels don't count.",
+  cols: { rank: "#", pilot: "Pilot", rating: "Rating", record: "Record", peak: "Best" },
+  emptyTitle: "No ranked duels yet",
+  emptyBody: "Win a ranked duel and your name goes up here.",
+  play: "Find a duel",
+  rules: { title: "How duel rating works", items: ["Everyone starts at 1,200.", "Beat a higher-rated pilot and you gain more. Lose to a lower one and you drop more.", "Your first 10 duels move your rating faster, so you find your level quickly.", "Only ranked duels count. Friendly duels and bot matches don't."] },
+} as const;
+const recTxt = (r: DuelRow) => `${r.w}-${r.l}`;
+function DuelTable({ d, meLc }: { d: DuelBoardRes; meLc?: string }) {
+  const c = DUEL_BOARD_COPY.cols;
+  const pinned = d.me && !d.rows.some((r) => r.wallet === d.me!.wallet) ? d.me : null;
+  const row = (r: DuelRow, self: boolean) => (
+    <Link key={r.wallet} href={`/u/${r.wallet}`} prefetch={false} className={`tp-row${self ? " tp-me" : ""}`} aria-label={`#${r.rank} ${r.name}`}>
+      <span className="tp-rk">{r.rank}</span>
+      <div className="tp-who">
+        <span className="tp-av sm" style={{ background: lightOf(r.wallet) }} aria-hidden>{(r.name.replace(/^@/, "")[0] ?? "?").toUpperCase()}</span>
+        <div><b>{self ? `${LEADERBOARD_COPY.you} · ${r.name}` : r.name}{r.streak >= 3 && <span className="tp-tag"> · {r.streak} win streak</span>}</b><span className="tp-p">{recTxt(r)}</span></div>
+      </div>
+      <span className="tp-num up">{r.rating.toLocaleString("en-US")}</span>
+      <span className="tp-rec tp-d">{recTxt(r)}</span>
+      <span className="tp-num tp-d tp-dim">{r.peak.toLocaleString("en-US")}</span>
+    </Link>
+  );
+  return (
+    <section className="tp-card tp-table" aria-label="Duel rankings" data-testid="lb-duels">
+      <div className="tp-th tp-d" aria-hidden><span>{c.rank}</span><span>{c.pilot}</span><span>{c.rating}</span><span>{c.record}</span><span>{c.peak}</span></div>
+      <div className="tp-rows">{d.rows.map((r) => row(r, r.wallet === meLc))}</div>
+      {pinned && row(pinned, true)}
+    </section>
+  );
+}
+
+function Rules({ duel }: { duel?: boolean }) {
+  const r = duel ? { ...DUEL_BOARD_COPY.rules, note: "" } : LEADERBOARD_COPY.rules;
   return (
     <>
       <section className="tp-rules" aria-label={r.title}>
         <span className="tp-eb">{r.title}</span>
         <ul>{r.items.map((x) => <li key={x}>{x}</li>)}</ul>
       </section>
-      <p className="tp-note">{r.note}</p>
+      {r.note && <p className="tp-note">{r.note}</p>}
     </>
   );
 }
@@ -205,10 +242,20 @@ export default function LeaderboardView() {
   const [crews, setCrews] = useState<CrewBoardResponse | null>(null);
   const [mine, setMine] = useState<(BoardPilot & { rank: number }) | null>(null);
   const [shown, setShown] = useState(10);
+  const [duel, setDuel] = useState<DuelBoardRes | null>(null);
   const picked = useRef(false);
   useEffect(() => onWallet((a) => setMe(a ?? null)), []);
+  const duelOpen = sort === "duel";
+  // Duels tab: only when the duel board answers (Turbo pass), refreshed when it opens
+  useEffect(() => {
+    let alive = true;
+    const q = me ? `?me=${me}` : "";
+    fetch(withBase(`/api/duel/board${q}`)).then((r) => (r.ok ? r.json() : null)).then((d: DuelBoardRes | null) => { if (alive && d?.ok) setDuel(d); }).catch(() => {});
+    return () => { alive = false; };
+  }, [me, duelOpen]);
 
   useEffect(() => {
+    if (sort === "duel") return;
     let alive = true;
     const q = new URLSearchParams({ window: win, sort });
     if (me) q.set("me", me);
@@ -228,51 +275,62 @@ export default function LeaderboardView() {
   }, [win, sort, me]);
   // You this week always shows the Banked rank: fetch it once per window when another tab is open
   useEffect(() => {
-    if (!me || sort === "pnl") return;
+    if (!me || sort === "pnl" || sort === "duel") return;
     let alive = true;
     fetch(withBase(`/api/leaderboard?${new URLSearchParams({ window: win, sort: "pnl", me })}`)).then((r) => (r.ok ? r.json() : null)).then((d: BoardResponse | null) => { if (alive && d) setMine(d.me); }).catch(() => {});
     return () => { alive = false; };
   }, [win, me, sort]);
   useEffect(() => { setShown(10); }, [win, sort]);
 
-  const isCrews = sort === "crews";
-  const ps: BoardSort = isCrews ? "pnl" : sort;
+  const isCrews = sort === "crews", isDuel = sort === "duel";
+  const ps: BoardSort = isCrews || isDuel ? "pnl" : sort;
   const rows = data && data.sort === ps ? data.rows : [];
   const rest = useMemo(() => rows.slice(3, shown), [rows, shown]);
   const meRow = data?.me ?? null;
   const meLc = me?.toLowerCase();
   const pinned = meRow && meRow.rank > Math.min(shown, rows.length) ? meRow : null;
   const meNote = meRow ? [lvl(meRow), meRow.rank > 1 && meRow.gap > 0 ? `${gapTxt(meRow.gap, ps)} to pass #${meRow.rank - 1}` : ""].filter(Boolean).join(" · ") : "";
-  const col = SORTS.find((s) => s.k === sort)!.col;
+  const col = SORTS.find((s) => s.k === sort)?.col ?? "";
   const last = ps === "pnl" ? LEADERBOARD_COPY.cols.flights : LEADERBOARD_COPY.cols.banked;
   const call = (isCrews ? crews?.bestCall : data?.bestCall) ?? null;
-  const loading = isCrews ? !crews || crews.window !== win : !data;
+  const loading = isDuel ? !duel : isCrews ? !crews || crews.window !== win : !data;
 
   return (
     <div className="tp-page" data-testid="leaderboard">
       <div className="tp-head">
         <div>
           <h1 className="r2-g">{LEADERBOARD_COPY.title}</h1>
-          <p>{LEADERBOARD_COPY.sub}</p>
+          <p>{isDuel ? DUEL_BOARD_COPY.sub : LEADERBOARD_COPY.sub}</p>
         </div>
-        <div className="tp-seg" role="tablist" aria-label="Time window">
+        {!isDuel && <div className="tp-seg" role="tablist" aria-label="Time window">
           {BOARD_WINDOWS.map((w) => (
             <button key={w.k} type="button" role="tab" aria-selected={win === w.k} className={win === w.k ? "on" : ""} onClick={() => { picked.current = true; setWin(w.k); }}>
               <span className="tp-d">{w.label}</span><span className="tp-p">{WIN_SHORT[w.k]}</span>
             </button>
           ))}
-        </div>
+        </div>}
       </div>
       <div className="tp-sorts" role="tablist" aria-label="Rank by">
         {SORTS.map((s) => (
           <button key={s.k} type="button" role="tab" aria-selected={sort === s.k} className={sort === s.k ? "on" : ""} onClick={() => setSort(s.k)}>{s.label}</button>
         ))}
+        {duel && <button type="button" role="tab" aria-selected={isDuel} className={isDuel ? "on" : ""} onClick={() => setSort("duel")} data-testid="lb-duel-tab">{DUEL_BOARD_COPY.tab}</button>}
       </div>
 
       <div className="tp-cols">
         <div className="tp-main">
           {loading ? (
             <div className="tp-loading" aria-busy="true" />
+          ) : isDuel ? (
+            duel && duel.rows.length ? <DuelTable d={duel} meLc={me?.toLowerCase()} /> : (
+              <section className="tp-card tp-empty" data-testid="lb-empty">
+                <div className="tp-emptybloom" aria-hidden />
+                <span className="r2-eb">All time</span>
+                <b className="r2-g">{DUEL_BOARD_COPY.emptyTitle}</b>
+                <span className="tp-emptybody">{DUEL_BOARD_COPY.emptyBody}</span>
+                <Link href="/turbo/duel" prefetch={false} className="r2-gold tp-play">{DUEL_BOARD_COPY.play}</Link>
+              </section>
+            )
           ) : isCrews ? (
             crews && crews.crews.length ? <CrewTable d={crews} /> : (
               <section className="tp-card tp-empty" data-testid="lb-empty">
@@ -321,11 +379,11 @@ export default function LeaderboardView() {
               )}
             </>
           )}
-          <Rules />
+          <Rules duel={isDuel} />
         </div>
         <aside className="tp-side">
-          {call && <BestCallCard c={call} win={win} />}
-          {me && <YouCard me={mine} win={win} />}
+          {!isDuel && call && <BestCallCard c={call} win={win} />}
+          {!isDuel && me && <YouCard me={mine} win={win} />}
         </aside>
       </div>
     </div>

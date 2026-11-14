@@ -11,6 +11,7 @@ import { onPrivy, privyAuthenticated, privyLogin } from "@/lib/aa/sessionState";
 import { duelApi, followRoom, type Follow, type RoomRes, type Res } from "@/lib/duel/client";
 import { parseCode, type LengthMs, type TierId, type TradeAction } from "@/lib/duel/rules";
 import type { DuelEvent, DuelRoom } from "@/lib/duel/types";
+import { getGameRadio } from "@/lib/game/radio";
 
 type Tick = { ts: number; p: number };
 interface EngineApi {
@@ -28,7 +29,7 @@ interface EngineApi {
 declare global { interface Window { DuelEngine?: { mount(root: HTMLElement, host: unknown): EngineApi } } }
 
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
-const ENGINE_SRC = "/turbo/duel/engine.js?v=3";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=13";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
@@ -108,7 +109,10 @@ export default function DuelScreen() {
       toLobby: () => { unfollow(); void refreshMe(); },
       trade: (action: TradeAction, usd: number) => op({ op: "trade", action, usd }),
       chat: (text: string) => op({ op: "chat", text }),
+      report: async () => { if (!roomId) return { error: "Not in a duel." }; const r = await duelApi.op(roomId, { op: "report" }); return r.ok ? {} : { error: r.reason }; },
       trick: (kind: "spin" | "flip") => { void op({ op: "trick", kind }); },
+      // the duel mute button also silences the game radio if it carried over from another screen
+      mute: (m: boolean) => { try { const r = getGameRadio(); if (m) r.pause(); else r.clearPause(); } catch { /* no radio */ } },
     };
 
     loadEngine().then(() => {

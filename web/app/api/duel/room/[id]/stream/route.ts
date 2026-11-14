@@ -1,6 +1,6 @@
 /**
  * GET ?after=<seq>  Server-Sent Events for one duel (same pattern as /api/chat/stream): polls the room's event log
- * every 250 ms while live (1 s otherwise), runs the H-BOMB / buzzer check once a second, closes after ~50 s and the
+ * every 250 ms while live (1 s otherwise), runs the NUKE / buzzer check once a second, closes after ~50 s and the
  * EventSource reconnects with Last-Event-ID (= seq). Events: `event: ev` data DuelEvent · `event: price` {p, ts} · pings.
  */
 import { kv } from "@/lib/server/kv";

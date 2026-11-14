@@ -1936,7 +1936,7 @@ const TURBO_LINE_STYLE={
   two:{col:'rgba(242,243,247,.5)',w:1,dash:[6,5],bg:'rgba(11,10,22,.85)',fg:'#F2F3F7',right:'center'},   // v2.1: the 2× (double your fuel) line
 };
 /* lines are placed relative to the rocket as drawn (its screen y is soft-limited to a band), so the rocket body sits
-   exactly on the line of the price it is at: at the boarding line on fill, on the H-BOMB line when it fires. */
+   exactly on the line of the price it is at: at the boarding line on fill, on the NUKE line when it fires. */
 function turboYOff(){ return (S.ry!=null&&S.displayAlt!=null)?S.ry-altToScreenY(S.displayAlt):0; }
 function turboLine(m,col,label,dash,w,st,alpha){ if(!(m>0)) return; const y0=altToScreenY(mcapToAlt(m))+turboYOff(), y=clamp(y0,W<=760?150:84,H-14), pinned=y!==y0;   // phone: below the run HUD
   ctx.save(); if(alpha!=null) ctx.globalAlpha=alpha; ctx.strokeStyle=col; ctx.lineWidth=w||2; if(st&&st.glow){ ctx.shadowColor=st.glow; ctx.shadowBlur=14; }
@@ -2929,7 +2929,7 @@ function simStep(stepDt){
   if (S.cine){ if(S.cinePx==null){ S.cinePx=S.camPx; S.cineV=0; } const w=2.4, e=S.camPx-S.cinePx; S.cineV+=(w*w*e-2*w*S.cineV)*dt; S.cinePx+=S.cineV*dt;
     S.camAlt=(S.cinePx+Math.sin(S.t*0.21)*10+Math.sin(S.t*0.083)*16)/PX_PER_ALT; } else S.cinePx=null;
   /* @turbo-hold (maker, Nov 13 2026: "the price is barely moving"): during a run the camera holds at the boarding
-     altitude (f.holdAlt) instead of locking to the price, so the H-BOMB / break-even / 2× lines stay put on screen and
+     altitude (f.holdAlt) instead of locking to the price, so the NUKE / break-even / 2× lines stay put on screen and
      the ROCKET moves between them on every tick. Eases back to the normal locked camera when the run ends. */
   if (IS_TURBO){ const f=turboFx(), hold=f&&(f.open||f.pending)&&Number.isFinite(+f.holdAlt)?+f.holdAlt:null;
     if (hold!=null){ S.tHold=S.tHold==null?S.camAlt:lerp(S.tHold,hold,1-Math.exp(-dt*6)); S.camAlt=S.tHold; S.tHeld=1; }
