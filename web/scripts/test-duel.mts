@@ -99,6 +99,30 @@ test("server: ranked buzzer within the overtime gap adds 30 s once, then rates",
   assert.equal((await S.ratingOf(a.pid)).games, 1);
 });
 
+test("server: ranked results land on the duel board (rating order, names, my row)", async () => {
+  const c = "0x" + "c".repeat(40), d = "0x" + "d".repeat(40);
+  const b = await S.duelBoard(50, c);
+  assert.ok(b.rows.some((r) => r.wallet === c && r.name === "@c" && r.games === 1));
+  assert.ok(b.rows.some((r) => r.wallet === d));
+  assert.equal(b.me?.wallet, c); assert.equal(b.total, b.rows.length);
+  for (let i = 1; i < b.rows.length; i++) assert.ok(b.rows[i - 1].rating >= b.rows[i].rating);
+  assert.equal((await S.duelBoard(50, "0x" + "9".repeat(40))).me, null, "no row for someone who never played ranked");
+});
+
+test("server: report saves once per duel with the chat, only from a seated pilot", async () => {
+  const a = pilot("7"), b = pilot("8");
+  const room = await S.createInvite(a, "rookie", 60_000); await S.joinInvite(b, room.code!);
+  await S.chat(room.id, b.pid, "you suck");
+  const r1 = await S.reportDuel(room.id, a.pid); assert.equal(r1.already, false);
+  const r2 = await S.reportDuel(room.id, a.pid); assert.equal(r2.already, true);
+  await assert.rejects(S.reportDuel(room.id, pilot("6").pid), /not in this duel/);
+  const { kv } = await import("../lib/server/kv");
+  const saved = (await kv().zrange(S._keys.reports(), 10, true)).map((m) => JSON.parse(m));
+  const mine = saved.find((x) => x.room === room.id)!;
+  assert.equal(mine.who, b.pid); assert.equal(mine.chat[0].text, "you suck");
+  await S.leave(room.id, a.pid).catch(() => {});
+});
+
 test("server: one duel at a time (no second ranked room, invite or join while seated)", async () => {
   const a = pilot("1"), b = pilot("2"), c = pilot("3");
   await S.pollQueue(a, "rookie", 60_000); const m = await S.pollQueue(b, "rookie", 60_000) as { room: { id: string } };

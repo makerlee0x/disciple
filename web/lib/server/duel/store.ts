@@ -33,6 +33,11 @@ const K = {
   rated: (id: string) => `duel:rated:${id}`,
   active: (pid: string) => `duel:active:${pid}`,
   rlock: (pid: string) => `duel:rlock:${pid}`,
+  board: () => `duel:board`,
+  pname: (pid: string) => `duel:pname:${pid}`,
+  reports: () => `duel:reports`,
+  reported: (id: string, pid: string) => `duel:rep:${id}:${pid}`,
+  repCount: (pid: string) => `duel:repn:${pid}`,
 };
 /** a live duel nobody ticked for longer than this is judged from the candle tape, not today's price */
 const GAP_MS = 3000;
@@ -293,6 +298,46 @@ function tickInto(r: DuelRoom, now: number, price: number | null, evs: NewDuelEv
     return p;
   }
 }
+/** Keep the duel board (sorted set, score = rating) in step. Kv zadd is NX, so drop the old entry first. */
+async function onBoard(p: { pid: string; name: string }, r: number, s: Kv) {
+  await s.zrem(K.board(), p.pid);
+  await s.zadd(K.board(), [{ score: r, member: p.pid }]);
+  await s.set(K.pname(p.pid), p.name);
+}
+export interface DuelBoardRow { rank: number; wallet: string; name: string; rating: number; w: number; l: number; games: number; streak: number; peak: number }
+/** Top ranked duelists by rating (ranked duels only; friendly duels never touch it). `me` adds that pilot's own row. */
+export async function duelBoard(limit = 50, me: string | null = null, s: Kv = kv()): Promise<{ rows: DuelBoardRow[]; total: number; me: DuelBoardRow | null }> {
+  const ids = await s.zrange(K.board(), Math.max(1, Math.min(100, limit)), true);
+  const rowsOf = async (pids: string[]) => {
+    if (!pids.length) return [];
+    const [rs, ns] = await Promise.all([s.mget(pids.map(K.rating)), s.mget(pids.map(K.pname))]);
+    return pids.map((pid, i) => { const r = parse<Rating>(rs[i]) ?? newRating(); return { rank: 0, wallet: pid, name: ns[i] || `@pilot-${pid.slice(2, 6)}`, rating: r.r, w: r.w, l: r.l, games: r.games, streak: r.streak, peak: r.peak }; });
+  };
+  const rows = await rowsOf(ids);
+  rows.forEach((r, i) => { r.rank = i > 0 && rows[i - 1].rating === r.rating ? rows[i - 1].rank : i + 1; });
+  let mine: DuelBoardRow | null = rows.find((r) => r.wallet === me) ?? null;
+  if (!mine && me) {
+    const [m] = await rowsOf([me]);
+    if (m && m.games > 0) { m.rank = (await s.zcountAbove(K.board(), m.rating)) + 1; mine = m; }
+  }
+  return { rows, total: await s.zcard(K.board()), me: mine };
+}
+
+/** Report the other pilot in a duel: once per duel per reporter, with the last chat lines kept for review. */
+export async function reportDuel(id: string, pid: string, s: Kv = kv()): Promise<{ ok: true; already: boolean }> {
+  const r = await getRoom(id, s); if (!r) throw new DuelError(404, "That duel is gone.");
+  const me = seatOf(r, pid); if (!me) throw new DuelError(403, "You're not in this duel.");
+  const them = r.players.find((p) => p.pid !== pid); if (!them) throw new DuelError(409, "Nobody to report.");
+  if (!(await s.setNX(K.reported(id, pid), "1", 30 * 86400))) return { ok: true, already: true };
+  const chat = (await eventsAfter(id, 0, s)).filter((e) => e.type === "chat").slice(-30)
+    .map((e) => { const c = e as Extract<DuelEvent, { type: "chat" }>; return { pid: c.pid, text: c.text, ts: c.ts }; });
+  const now = Date.now();
+  await s.zadd(K.reports(), [{ score: now, member: JSON.stringify({ room: id, by: pid, byName: me.name, who: them.pid, whoName: them.name, mode: r.mode, status: r.status, chat, ts: now }) }]);
+  const n = await s.incrEx(K.repCount(them.pid), 30 * 86400);
+  console.warn(`[duel] report room=${id} who=${them.pid} (${n} in 30d)`);
+  return { ok: true, already: false };
+}
+
 /** Rating write for one ranked duel: both pilots' ratings change under both pilots' locks (sorted order, no deadlock). */
 async function rateDuel(r: DuelRoom, scoreA: 0 | 0.5 | 1, s: Kv) {
   const [a, b] = r.players;
@@ -301,6 +346,7 @@ async function rateDuel(r: DuelRoom, scoreA: 0 | 0.5 | 1, s: Kv) {
     const ra = await ratingOf(a.pid, s), rb = await ratingOf(b.pid, s);
     const out = rate(ra, rb, scoreA);
     await s.set(K.rating(a.pid), JSON.stringify(out.a)); await s.set(K.rating(b.pid), JSON.stringify(out.b));
+    await onBoard(a, out.a.r, s); await onBoard(b, out.b.r, s);
     return out;
   }));
 }
