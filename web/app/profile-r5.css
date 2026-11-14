@@ -306,3 +306,23 @@
   .p5-rw-tile { padding: 10px 12px; } .p5-rw-tile b { font-size: 22px; }
   .p5-rw-invite .lab { flex-direction: column; gap: 2px; } .p5-rw-invite .lab em { text-align: left; font-size: 12px; }
 }
+
+/* Trade settings (desktop flight ☰ → Trade settings; components/trade/SwapSettingsModal), on the Settings v2 shell, 2026-11-14 */
+.p5-trade-backdrop { z-index: 120; }
+.p5-settings.p5-modal.p5-trade { width: min(520px, 100%); gap: 16px; }
+.p5-trade .p5-mhead h2 { flex: 0 1 auto; }
+.p5-trade-where { margin-right: auto; font: 700 13px/1 var(--dsc-font-game); letter-spacing: .1em; text-transform: uppercase; color: #F3DFA8; background: rgba(243,223,168,.1); border-radius: 6px; padding: 5px 8px; }
+.p5-trade-gh { display: flex; align-items: center; justify-content: space-between; }
+.p5-settings.p5-modal.p5-trade .p5-trade-gh .gh { font: 700 14px/1 var(--dsc-font-game); letter-spacing: .12em; text-transform: uppercase; color: #9095A0; }
+.p5-trade-reset { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #BCC0CA; }
+.p5-trade-reset:hover { color: #F2F3F7; }
+.p5-trade-cells { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.p5-trade-cell { position: relative; display: block; }
+.p5-trade-cell kbd { position: absolute; left: 8px; top: 7px; font: 700 11px/1 var(--dsc-font-game); letter-spacing: .06em; color: #9095A0; pointer-events: none; }
+.p5-trade-cell input, .p5-trade-cell output { display: block; width: 100%; box-sizing: border-box; height: 48px; padding: 12px 6px 0; text-align: center; border-radius: 12px; outline: none;
+  font: 800 20px/1 var(--dsc-font-game); color: #F2F3F7; background: rgba(8,9,14,.7); border: 1px solid #2A2E38; }
+.p5-trade-cell output { line-height: 36px; padding-top: 6px; }
+.p5-trade-cell input.auto { color: #BCC0CA; }
+.p5-trade-cell input:focus { border-color: #F2C14E; box-shadow: 0 0 0 3px rgba(242,193,78,.18); }
+.p5-trade-cell.dump output { color: #FFB0C8; border-color: rgba(240,48,127,.28); background: rgba(240,48,127,.06); }
+.p5-trade .p5-srow.col .p5-fine, .p5-trade .p5-srow.col .p5-err { font-size: 12px; line-height: 17px; }

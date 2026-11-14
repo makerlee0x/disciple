@@ -1,7 +1,8 @@
 "use client";
 /**
  * FLIGHT TOP BAR (desktop; approved mockup boards "Desktop · Pilot HUD" / "Desktop · Pro HUD", maker Nov 12):
- * PILOT / PRO switch + ☰ menu (Esc) + ✕ leave flight, top right. There is no sidebar rail and no wallet strip on the
+ * PILOT / PRO switch + ☰ menu (Esc) + ✕ leave flight, top right. The switch is hidden for launch (lib/features PRO_HUD_ENABLED,
+ * maker 2026-11-14): every flight runs Pilot, and ☰ → Trade settings opens the boost amounts + price protection popup. There is no sidebar rail and no wallet strip on the
  * flight screen: sign in / your account, Settings, Tramp / Wall and the simulated market all live in the ☰ menu.
  * Phones stay on Pilot with their own HUD (components/flight/PhoneHud), so this renders nothing there.
  *
@@ -12,6 +13,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { isPhoneUI } from "@/lib/game/cardLayoutStore";
 import { setHudMode, useHudMode, type HudMode } from "@/lib/game/hudMode";
+import { PRO_HUD_ENABLED } from "@/lib/features";
 import { HUD } from "@/lib/game/hudStyle";
 import { SETTINGS_OPEN_EVENT, WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, walletCtaLabel, walletId, type WalletId } from "@/lib/walletCta";
 import { disconnect } from "@/lib/wallet";
@@ -65,10 +67,10 @@ export default function HudModeToggle({ sim, onSim }: { sim?: Sim | null; onSim?
   const go = (f: () => void) => () => { setOpen(false); f(); };
   return (
     <div ref={boxRef} data-testid="flight-topbar" style={{ position: "fixed", right: 20, top: 18, zIndex: 62, display: "flex", gap: 8, alignItems: "center" }}>
-      <div role="radiogroup" aria-label="HUD layout" data-testid="hud-mode" style={{ display: "flex", padding: 3, borderRadius: 999, background: HUD.glass, border: `1px solid ${HUD.border}` }}>
+      {PRO_HUD_ENABLED && <div role="radiogroup" aria-label="HUD layout" data-testid="hud-mode" style={{ display: "flex", padding: 3, borderRadius: 999, background: HUD.glass, border: `1px solid ${HUD.border}` }}>
         {opt("pilot", "PILOT", "Pilot: one trade bar, one crew feed, big bombs only")}
         {opt("pro", "PRO", "Pro: loadout, chart, full position and every bomb")}
-      </div>
+      </div>}
       <button type="button" aria-label="Menu (Esc)" aria-haspopup="menu" aria-expanded={open} data-testid="flight-menu-btn" onClick={() => setOpen((v) => !v)}
         style={{ ...sq, background: open ? "#F2F3F7" : HUD.glass, color: open ? HUD.ink : "#F2F3F7" }}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 7h16M4 12h16M4 17h16" /></svg>
@@ -98,6 +100,9 @@ export default function HudModeToggle({ sim, onSim }: { sim?: Sim | null; onSim?
             title="Random buys and sells keep the rocket moving when the pool is quiet. Visual only: never touches balances or PnL.">
             <span>Simulated market</span><span style={{ ...tag, color: sim.on ? HUD.ink : HUD.dim, background: sim.on ? "#5FF0A0" : "rgba(255,255,255,.08)" }}>{sim.on ? (sim.mode === "auto" ? "AUTO" : "ON") : "OFF"}</span></button>}
           <div style={{ height: 1, background: HUD.border, margin: "6px 8px" }} />
+          <button type="button" role="menuitem" data-testid="flight-menu-trade" onClick={go(() => dispatchEvent(new CustomEvent("disciple:swapsettings", { detail: { open: true } })))} style={row}
+            title="Boost amounts, price protection and the rocket position tag">
+            <span>Trade settings</span><span style={{ color: HUD.dim, fontSize: 12 }}>amounts, price protection</span></button>
           <button type="button" role="menuitem" data-testid="flight-menu-settings" onClick={go(() => dispatchEvent(new Event(SETTINGS_OPEN_EVENT)))} style={row}>
             <span>Settings</span><span style={{ ...tag, color: HUD.dim, background: "rgba(255,255,255,.08)" }}>ESC</span></button>
           <Link role="menuitem" href="/" data-testid="flight-menu-lobby" style={row}>Back to the lobby</Link>
