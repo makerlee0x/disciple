@@ -45,8 +45,6 @@ import { activeAddress, connectedAddress, execCalls, execGasless, gaslessSigner,
 import { clientGaslessMode } from "./aa/sponsorshipMode";
 import { sendPrivateLaunchRelayer } from "./trade/gaslessAnonLaunchClient";
 import { GaslessError } from "./trade/gaslessClient";
-import { ensurePveLogin, ensurePveLoginOnchain, PveError } from "./pve";
-import { isLegacyCurve, LEGACY_COIN_MSG } from "./legacyGate";
 import { pnlKey, seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
 import type { RelayTimeoutExtra } from "./aa/relayTypes";
@@ -982,17 +980,15 @@ export function createViemProtocol(): ProtocolClient {
       ]);
       const recipient = t.recipient || me;
       const deadline = B(t.deadline || now() + 120);
-      // v4 PVE: the curve checks LoginGate.verifiedUntil(trader) on buys (trader = token recipient; router: msg.sender).
       // USDG router (#65) when the flag is on — and ALWAYS for USDG-quoted coins once the router supports it, so we
       // never emit a USDG approve to a curve (policy 1.3.0 rejects those)
       const uNow = usdgRouteNow(pc, t.token, { curve, graduated, quote: quoteAsset, mode, quoteDecimals: 0 });
       const usdg = uNow !== undefined ? uNow : await labelRead("route", tapRead(reads, "route", () => usdgRouteFor(coldClient(), t.token), COLD_READ_BUDGET_MS));
       // graduation check for ANY quote: USDG-quoted ⇒ usdgIn is the curve's quoteIn; else converted on-chain (gradNeed)
       const gradCurve = usdg && side === "buy" && !graduated ? { curve, mode, quote: quoteAsset } : undefined;
-      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE, gradCurve, reads, fresh: o.fresh }, tt, tap, handoff);
-      // Legacy coins (curve.loginGate ≠ live LoginGate): no gated Easy buys — show archived, do not attest.
-      if (side === "buy" && !graduated && mode === MODE.PVE && await isLegacyCurve(pc, curve)) throw new ProtocolError("LegacyCoin", LEGACY_COIN_MSG);
-      const pveCalls = side === "buy" && !graduated && mode === MODE.PVE ? await labelRead("pve-login", ensurePveLogin(pc, recipient)) : [];
+      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, gradCurve, reads, fresh: o.fresh }, tt, tap, handoff);
+      // Easy (PVE) coins need no on-chain login: v6 curves do not read LoginGate on buys (app-level Privy gating,
+      // pump.fun / FOMO style). Every coin trades on the same path.
       const spendAsset = side === "buy" ? quoteAsset : t.token;
       const outAsset = side === "buy" ? t.token : quoteAsset;
       const held = holdSpend(t.pressId!, side, t.token, spendAsset, t.amountIn, ckey("coin", t.token, side));
@@ -1040,7 +1036,7 @@ export function createViemProtocol(): ProtocolClient {
       }
       // Smart account: exact approve batched into the same op, always (no allowance read on the hot path).
       const approveCalls = smart ? [{ to: spendAsset, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [target, t.amountIn] }) }] : (approve ?? []);
-      const calls = [...pveCalls, ...refCalls, ...approveCalls, { to: target, data }];
+      const calls = [...refCalls, ...approveCalls, { to: target, data }];
       // no optimistic balance write: displayed balances stay real; the pending spend is held in RESERVATIONS (#144)
       const ik = ckey("coin", t.token, side);
       let done = addInflight(ik, t.amountIn);
@@ -1071,7 +1067,7 @@ export function createViemProtocol(): ProtocolClient {
     } catch (e) {
       // GAME: the press's reservation id survives the friendly re-wrap (aaSend tagged the original error)
       const pid = (e as { pressId?: string } | null)?.pressId ?? t.pressId;
-      const out = e instanceof ProtocolError ? e : e instanceof PveError ? new ProtocolError(e.code, e.message) : tradeNetworkError(e) ?? friendlyError(e);
+      const out = e instanceof ProtocolError ? e : tradeNetworkError(e) ?? friendlyError(e);
       if (pid) tagPress(out, pid);
       // the op went out (reverted on-chain / outcome unknown): mark it so trade() never resends it
       const ac = (e as { code?: unknown; constructor?: { name?: string } } | null);
@@ -1089,23 +1085,11 @@ export function createViemProtocol(): ProtocolClient {
    * centered in the policy window, queuePricing tradeMinOut). Pre- and post-grad alike (the router picks curve or v4 pool).
    * Recipient is pinned to the account on-chain, so t.recipient is ignored on this path.
    */
-  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean; gradCurve?: { curve: Address; mode: number; quote: Address }; reads?: TapReads; fresh?: boolean }, tt?: TradeTiming, tap?: CoinTap, handoff?: { done: boolean }): Promise<TradeResult> {
+  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; gradCurve?: { curve: Address; mode: number; quote: Address }; reads?: TapReads; fresh?: boolean }, tt?: TradeTiming, tap?: CoinTap, handoff?: { done: boolean }): Promise<TradeResult> {
     const router = deployment().router, isBuy = side === "buy";
     const reads: TapReads = c.reads ?? {};
-    // Router path: the curve trades for msg.sender (the account) ⇒ PVE login is checked for `me`.
-    // A trader-aware USDG quote needs a live on-chain login. The user pays for this owner-signed setup,
-    // waits for inclusion, then gets the normal quote/buy; no server-funded or public relay transaction.
-    // Legacy coins: block gated Easy buys before any attest / owner-signed login setup.
-    if (isBuy && c.pve) {
-      const curve = c.gradCurve?.curve ?? await curveOf(pc, t.token);
-      if (await isLegacyCurve(pc, curve)) throw new ProtocolError("LegacyCoin", LEGACY_COIN_MSG);
-    }
-    // Gasless mode (flow/gasless-permit2): login is checked OFF-CHAIN by the relay from the Privy session (lee 7:37 PM
-    // CT: no on-chain login record) ⇒ no LoginGate.attest here. An existing Easy curve that still checks LoginGate
-    // on-chain is caught by the relay's exact simulation (NotVerified, nothing sent). Otherwise today's PVE login.
+    // Login is checked off-chain (Privy identity token at the gasless relay); no LoginGate.attest on any trade path.
     const gasless = !!gaslessSigner();
-    if (!gasless && isBuy && c.pve) await labelRead("pve-login", ensurePveLoginOnchain(pc, c.me, (calls) => execCalls(calls)));
-
     const spend = isBuy ? c.usdg : t.token, outAsset = isBuy ? t.token : c.usdg;
     const g = isBuy ? c.gradCurve : undefined;
     // Graduating buy? (mav2 estimates its gas fresh.) Warmed remaining-to-graduate at any age (GRAD_NEAR_BPS margin),
@@ -1265,10 +1249,6 @@ export function createViemProtocol(): ProtocolClient {
           if (eff.by === "mode" && cq.tokensOut > creatorBuyMaxTokens(eff.bps)) {
             throw new ProtocolError("BuyTooLarge", `${LAUNCH_MODE_NAME[mode]} launches allow a First BOOST of at most ${eff.bps / 100}% of the coins. Lower it.`);
           }
-          // v4 PVE: the First BOOST is a curve buy by the creator ⇒ it needs a live GLOBAL LoginGate attestation.
-          // ensurePveLogin (#99) gets one from /api/pve/attest and prepends a user-paid LoginGate.attest; it throws
-          // a friendly PveError when the Privy login isn't verified.
-          if (modesActive() && mode === LaunchMode.PVE) calls.unshift(...(await ensurePveLogin(pc, me)));
           params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS); // quote − 1%
           const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken
             : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });
@@ -1306,7 +1286,6 @@ export function createViemProtocol(): ProtocolClient {
               logTradeError("launch buy over cap (usdg)", { launchpadCapBps, effectiveBps: eff.bps, by: eff.by });
               throw new ProtocolError("CreatorBuyTooLarge", CREATOR_BUY_MSG(pct > 0 ? pct : undefined));
             }
-            if (modesActive() && mode === LaunchMode.PVE) calls.unshift(...(await ensurePveLogin(pc, me)));
             params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, slip);
             minQuoteIn = applySlippage(quoteAmt, slip);
           }
@@ -1432,7 +1411,6 @@ export function createViemProtocol(): ProtocolClient {
         }
         return launched;
       } catch (e) {
-        if (e instanceof PveError) throw new ProtocolError(e.code, e.message);
         throw e instanceof ProtocolError ? e : friendlyError(e);
       }
     },

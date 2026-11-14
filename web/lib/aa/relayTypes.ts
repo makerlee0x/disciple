@@ -1,7 +1,6 @@
 /**
- * Wire contract of the trade relay (POST /api/bundler, method disciple_sendUserOperationSync). Single source of truth
- * for the server (lib/server/fastRelay, app/api/bundler) and every client (lib/aa/mav2 → lib/wallet.execCalls →
- * lib/flight/tradeSpeed.noteReceipt). Pure types + tiny helpers, no imports beyond viem's Hex.
+ * Receipt / timing types shared by the gasless relay (lib/server/fastRelay, gaslessRelay, POST /api/gasless) and the
+ * client (lib/wallet.execGasless → lib/flight/tradeSpeed.noteReceipt). The 4337 /api/bundler route is gone. Pure types + tiny helpers, no imports beyond viem's Hex.
  *
  * PRIMARY PATH: the relay sends handleOps with eth_sendRawTransactionSync (sequencer endpoint when RHT_SEQUENCER_URL
  * is set) and answers the SAME request with a RelayConfirmed carrying the FULL receipt incl. logs. The client never

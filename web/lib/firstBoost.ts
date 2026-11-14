@@ -26,7 +26,6 @@ export const FIRST_BOOST_COPY = {
   easyLock: "On Easy, that first buy stays locked until the rocket moves to the open market. Later buys you can sell anytime.",
   pveLogin: "On Easy, sign in with email, Google, or X before you launch with a first buy.",
   pveLoginUnverified: "On Easy, sign in with email, Google, or X before you launch with a first buy.",
-  // #99: /api/pve/attest verifies the Privy login; your owner-signed batch submits the global LoginGate.attest.
   pveLoginAttest: "On Easy, sign in with email, Google, or X before you launch with a first buy.",
   pveLoginUnknown: "On Easy, sign in with email, Google, or X before you launch with a first buy.",
   overCap: (pct: string, maxUsd: string) => `Over the First BOOST cap: you can buy at most ${pct} of supply. Lower it to ${maxUsd} or less.`,

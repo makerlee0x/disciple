@@ -131,7 +131,7 @@ export function createMockAdapter(o: MockAdapterOptions = {}): MockTurboAdapter 
     const { fillAt, lastFundingAt, ...rest } = p;
     return { ...rest };
   };
-  const emit = (type: TurboEvent["type"], p: Internal, extra: { reason?: TurboEventReason; returnedUsd?: number; pct?: ClosePct } = {}) => {
+  const emit = (type: TurboEvent["type"], p: Internal, extra: { reason?: TurboEventReason; returnedUsd?: number; pct?: ClosePct; addedUsd?: number } = {}) => {
     const e: TurboEvent = { type, position: pub(p), ...extra };
     eventSubs.forEach((cb) => { try { cb(e); } catch (err) { console.warn("[disciple] turbo event listener threw", err); } });
   };
@@ -326,6 +326,22 @@ export function createMockAdapter(o: MockAdapterOptions = {}): MockTurboAdapter 
       fuel.set(fuel.get() + s.returnedUsd);
       refresh(p);
       emit("partial-closed", p, { reason: "manual", returnedUsd: s.returnedUsd, pct });
+    },
+
+    async increase(id, collateralUsd) {
+      const p = get(id);
+      if (p.status !== "open") throw new TurboError("unknown", "Wait for the run to start, then add.");
+      if (!(Number.isFinite(collateralUsd) && collateralUsd > 0)) throw new TurboError("bad-amount", "Enter an amount above $0.");
+      if (collateralUsd > fuel.get() + 1e-9) throw new TurboError("no-fuel", "You don't have enough Turbo fuel for that. Add fuel or pick a smaller amount.");
+      const add = collateralUsd * p.leverage, mp = MP(p.market), px = prices[p.market];
+      if (mp && oiOf(p.market) + add > mp.oiCapUsd) throw new TurboError("market-full", `${p.market} is full right now. Try a smaller amount or come back in a bit.`);
+      // same leverage, more size at the current price: entry = notional-weighted (size / units), open fee on the added part
+      const units = p.sizeUsd / p.entry + add / px;
+      p.sizeUsd += add; p.entry = p.sizeUsd / units; p.collateralUsd += collateralUsd;
+      p.bps = costBps(p.market, p.sizeUsd); p.openFeeUsd += feeUsd(add, p.bps);
+      fuel.set(fuel.get() - collateralUsd);
+      refresh(p);
+      emit("increased", p, { addedUsd: collateralUsd });
     },
 
     getPositions: async () => Array.from(positions.values()).map(pub),

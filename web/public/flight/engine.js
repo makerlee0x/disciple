@@ -1235,7 +1235,7 @@ function submit(side,usd,force,opt,pct){
     // back (no fill), the slot frees. The note's own strip offers the one tap to go ahead. (Also with SITE #201's unknown:true.)
     if(r&&!r.ok&&r.needsConfirm){ p.state='held'; lockResolve(p,'gone'); baResolve(ba,false,performance.now(),S.boostAnim);
       if(p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }
-      tradeNote(r.reason); S.pending=S.pending.filter(q=>q!==p); pushInFlight(); return; }
+      if(r.needsConfirm!=='walletcap') tradeNote(r.reason); S.pending=S.pending.filter(q=>q!==p); pushInFlight(); return; }   // wallet limit: the page's card says it (no sky banner too)
     p.state=r.ok?'confirmed':'failed'; lockResolve(p,r&&r.ok?'ok':r&&r.unknown?'gone':'fail');
     if(r&&r.ok&&side==='buy'){ const [nx0,ny0]=nozzleXY(); S.floaters.push({x:nx0+70,y:ny0-120,txt:'+'+fmtShot(p.usd).replace(/\.00$/,'')+' aboard',c:'#F2C14E',life:1.4,game:24}); }
     if(r&&r.ok&&side==='sell') S.kickV=(S.kickV||0)-120;   // @pressfeel: recoil, the rocket kicks up as the bomb leaves
@@ -1881,7 +1881,7 @@ const TURBO_LINE_STYLE={
 /* lines are placed relative to the rocket as drawn (its screen y is soft-limited to a band), so the rocket body sits
    exactly on the line of the price it is at: at the boarding line on fill, on the H-BOMB line when it fires. */
 function turboYOff(){ return (S.ry!=null&&S.displayAlt!=null)?S.ry-altToScreenY(S.displayAlt):0; }
-function turboLine(m,col,label,dash,w,st,alpha){ if(!(m>0)) return; const y0=altToScreenY(mcapToAlt(m))+turboYOff(), y=clamp(y0,W<=760?150:22,H-14), pinned=y!==y0;   // phone: below the run HUD
+function turboLine(m,col,label,dash,w,st,alpha){ if(!(m>0)) return; const y0=altToScreenY(mcapToAlt(m))+turboYOff(), y=clamp(y0,W<=760?150:84,H-14), pinned=y!==y0;   // phone: below the run HUD
   ctx.save(); if(alpha!=null) ctx.globalAlpha=alpha; ctx.strokeStyle=col; ctx.lineWidth=w||2; if(st&&st.glow){ ctx.shadowColor=st.glow; ctx.shadowBlur=14; }
   if(dash||pinned) ctx.setLineDash(dash||[14,10]); ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]); ctx.shadowBlur=0;
   if(label){ const t=(pinned?(y0>y?'↓ ':'↑ '):'')+label, ly=y0>y||!pinned?y-14:y+14;
@@ -2422,7 +2422,7 @@ function burst(x,y,n,spd,opt){ const fn=typeof opt==='function';
 function detonate(b){ draftKnock();
   const x=b.x, y=bombY(b), k=b.T.k; b.y0=y; b.detAge=b.age; addShock(x,y,k);   // real blast point
   const who=b.trader||'—', lbl=`${b.T.name} −${b.pct>=10?b.pct.toFixed(0):b.pct.toFixed(1)}%${b.fullStack?' · FULL STACK':''} · ${who}${b.usd>0?' '+(b.usd<10?fmtShot(b.usd):fmtUsd(b.usd)):''}${b.n>1?' ×'+b.n:''}`;
-  if (S.pro||b.tier>=4){ if(!S.pro) S.bombLabels.length=0; S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0}); if(S.bombLabels.length>2) S.bombLabels.shift(); }
+  if (!IS_TURBO&&(S.pro||b.tier>=4)){ if(!S.pro) S.bombLabels.length=0; S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0}); if(S.bombLabels.length>2) S.bombLabels.shift(); }
   { for(let i=0;i<Math.min(5,S.feed.length);i++){ const r=S.feed[i]; if(r&&r.t&&r.c==='#ffb0c8'&&!r.ic){ r.ic=BOMB_ICON[b.tier]||'bomb-puff'; r.bomb=b.T.name; break; } } }   /* crew feed: the sell row carries its bomb icon */
   sfx('bomb',{tier:b.tier});
   if (k==='grenade'){

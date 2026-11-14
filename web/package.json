@@ -108,7 +108,6 @@
     "test:achievements-server": "tsx --conditions=react-server --test scripts/test-achievements-server.mts",
     "test:usdg-refund": "tsx --conditions=react-server --test scripts/test-usdg-refund.mts",
     "test:denylist": "tsx --conditions=react-server --test scripts/test-denylist.mts",
-    "test:pve-attest": "tsx --test scripts/test-pve-attest.mts",
     "test:pricer-keeper": "tsx --test scripts/test-pricer-keeper.mts",
     "test:holders": "tsx --test scripts/test-holders.mts",
     "test:trade-value": "tsx --conditions=react-server --test scripts/test-trade-value.mts",

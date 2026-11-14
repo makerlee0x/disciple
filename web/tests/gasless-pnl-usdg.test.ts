@@ -67,8 +67,11 @@ const sellIdx = fx.fills.findIndex((f) => !f.isBuy);
 
 describe("gasless UsdgTrade PnL (GTNEAR fixture)", () => {
   it("usdgRouters watches gaslessRouter with the same d.router pattern", () => {
-    const r = usdgRouters(DEPLOYMENTS[46630]);
+    // GTNEAR fixture stack (v5: separate regular and gasless routers)
+    const r = usdgRouters({ router: REGULAR, gaslessRouter: GASLESS });
     expect(r.map((a) => a.toLowerCase())).toEqual([REGULAR.toLowerCase(), GASLESS.toLowerCase()]);
+    // v6 fallbacks: one DiscipleRouter is both ⇒ watched once
+    expect(usdgRouters(DEPLOYMENTS[46630]).map((a) => a.toLowerCase())).toEqual([DEPLOYMENTS[46630].router.toLowerCase()]);
     expect(usdgRouters({ router: ZERO, gaslessRouter: GASLESS }).map((a) => a.toLowerCase())).toEqual([GASLESS.toLowerCase()]);
     expect(usdgRouters({ router: REGULAR, gaslessRouter: ZERO })).toEqual([REGULAR]);
   });
