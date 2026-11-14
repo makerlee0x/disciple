@@ -48,9 +48,7 @@ section: Reference
 | **Rocket** | The thing you launch on DISCIPLE. |
 | **Thrust** | The visual force of a BOOST. |
 | **Touch grass** | A calm flight view that shows only how high the rocket's value has climbed. |
-| **Tramp** | A buy waiting below the price, on a rocket that has reached orbit. |
 | **Trench** | Nickname for Expert, the launch mode with no guardrails. |
 | **USDG** | A dollar stablecoin on Robinhood Chain. You BOOST with it, and DUMPs pay you in it. |
 | **Verified** | A checkmark the team grants after reviewing a rocket. |
-| **Wall** | A sell waiting above the price, on a rocket that has reached orbit. |
 | **XP** | Off-chain progress from missions and milestones. Levels you up and unlocks rocket looks. Not a token. |

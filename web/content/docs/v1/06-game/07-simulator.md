@@ -38,7 +38,7 @@ Signed-in pilots earn XP from Free play. A daily flight pays up to 150 XP and a 
 
 ## Reading the tells
 
-Bots only react to the public tape: your trades and your tramps and walls, each after its own short delay. They never see a trade before it lands. Before a bot makes a big dump, it peels off, and the feed warns you a moment ahead of time. Reading those tells is the skill.
+Bots only react to the public tape: your trades, each after its own short delay. They never see a trade before it lands. Before a bot makes a big dump, it peels off, and the feed warns you a moment ahead of time. Reading those tells is the skill.
 
 ## Free play vs live rockets
 

@@ -16,7 +16,6 @@ Open any rocket to fly it. The chart becomes the sky.
 - **Wingmen.** Other pilots aboard fly alongside you, up to 12 at a time.
 - **The HUD.** Altitude and distance to orbit, the live chart, your bag and PnL, flight objectives, and the BOOST and DUMP controls.
 - **The crew feed.** Live trades and crew chat. See [Crew](/docs/game/crew).
-- **Tramps and walls** on rockets that have reached orbit, drawn as lines on the sky. Reaching orbit means the starting price path is finished and the rocket trades on the open market on Uniswap.
 
 On a phone, one throttle does both: slide up to BOOST, down to DUMP, or tap to BOOST your selected amount.
 

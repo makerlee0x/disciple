@@ -28,7 +28,6 @@ The BOOST that crosses the line makes the rocket reach orbit in the same trade. 
 | Fee | 1% + optional creator tax | 1% |
 | Sniper tax | First 7 seconds | None |
 | Wallet cap | If set at launch | None |
-| Tramps and walls | No | Yes |
 
 ## After orbit
 
