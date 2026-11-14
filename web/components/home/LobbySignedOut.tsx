@@ -7,6 +7,7 @@
  * (components/home/HomeGate). Every name and number is live HomeData: chain launches + the indexed trades; a section
  * with nothing to show is left out or says so.
  */
+import ModeSelect from "@/components/home/ModeSelect";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { withBase } from "@/lib/base-path";
@@ -273,6 +274,8 @@ export default function LobbySignedOut({ initial }: { initial: HomeData }) {
     <div className={s.wrap} data-testid="lobby-signed-out">
       <Hero data={data} hero={hero} />
       <Ticker data={data} />
+      {/* game modes board, option A: signed out, the row opens on Free play */}
+      <div className={s.modes}><ModeSelect signedIn={false} flying={coins.filter((c) => !c.graduated).length} /></div>
       <HowItPlays />
       {flying.length > 0 && (
         <section className={s.flying} aria-labelledby="so-flying-title">

@@ -127,16 +127,15 @@ export default function Lobby({ initial: init, hero }: { initial: HomeData; hero
     <CrewAboardProvider wallet={wallet ?? null} coins={CREW_ENABLED ? crewCoins : []}>
     <div className={s.lobby} data-testid="lobby">
       {LOGBOOK_ENABLED && <AwayCard wallet={wallet ?? null} />}
-      <div className={s.doors}>
-        {hero}
-        <div className={s.side}>
-          <JoinFlight coins={coins} />
-          <MissionsPanel
-            xp={missions}
-            className={s.missions}
-            footer={<Link href="/achievements" className={s.more}>{xp ? "All missions and trophies" : "This week's missions"} <Icon name="chevron-right" size={14} /></Link>}
-          />
-        </div>
+      {/* game modes board, option A (maker 2026-11-14): Pick a mode on top, then Join a flight beside today's missions */}
+      {hero}
+      <div className={`${s.doors} ${s.doorsUnder}`}>
+        <JoinFlight coins={coins} />
+        <MissionsPanel
+          xp={missions}
+          className={s.missions}
+          footer={<Link href="/achievements" className={s.more}>{xp ? "All missions and trophies" : "This week's missions"} <Icon name="chevron-right" size={14} /></Link>}
+        />
       </div>
 
       {climbing.length > 0 && (

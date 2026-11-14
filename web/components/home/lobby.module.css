@@ -28,6 +28,9 @@
 
 /* door one + the side column */
 .doors { display: flex; flex-wrap: wrap; gap: 24px; align-items: stretch; }
+/* under Pick a mode: Join a flight (2 parts) beside today's missions (1 part); missions take the row when nothing is flying */
+.doorsUnder > * { flex: 1 1 380px; min-width: 0; }
+.doorsUnder > [data-testid="lobby-join"] { flex: 2 1 560px; }
 .side { flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 24px; }
 
 /* door two */
