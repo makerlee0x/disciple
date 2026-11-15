@@ -643,7 +643,7 @@ function mount(root,host){
     const iv=setInterval(()=>{ if(dead){clearInterval(iv);return;} const left=G.startAt-now_(); const n=Math.ceil(left/1000);
       if(left>0){ if(n!==shown){ shown=n; pc.textContent=n; pc.style.animation="none"; void pc.offsetWidth; pc.style.animation=""; if(n<=3) sfx("count"); } return; }
       clearInterval(iv); const pre=$("pre"); pre.classList.add("out"); setTimeout(()=>{ if(pre.classList.contains("out")) pre.hidden=true; },380);
-      c.hidden=false; c.textContent="GO"; sfx("go"); buzz(30); G.started=true; setTimeout(()=>c.hidden=true,450);
+      c.hidden=false; c.textContent="GO"; sfx("go"); buzz(30); G.started=true; music(true); setTimeout(()=>c.hidden=true,450);
       if(!(M&&M.net)&&Math.random()<.6) botSay(pick(["glhf","let's go","you're going down","\ud83e\udee1"]),1500);
       toast(SW>=900?"WASD to fly \u00b7 Space boost \u00b7 Shift dump \u00b7 Enter cash out \u00b7 T chat \u00b7 Q spin \u00b7 E flip":"Drag the sky to steer \u00b7 swipe up to spin \u00b7 double-tap to flip"); },100);
   }
@@ -694,7 +694,9 @@ function mount(root,host){
     $("go").textContent=SIGNED?"FIND A MATCH":"SIGN IN TO DUEL"; $("mkLink").textContent=SIGNED?"CREATE DUEL LINK":"SIGN IN TO DUEL"; }
   /* the pre-match lobby is its own full screen (the board stays hidden and the chart doesn't draw until GO) */
   const PANES=["intro","search","invite","vs","launch"], STEP={intro:1,search:2,invite:2,vs:3,launch:4};
-  function show(id){ for(const k of [...PANES,"result"]) $(k).hidden=k!==id; bed(id==="launch"?"amb_wind_high":"amb_mission_control");
+  // music only plays in a match (lib/game/turboMusic): on at GO, off back in the lobby
+  function music(on){ try{ dispatchEvent(new CustomEvent("disciple:turbomusic",{detail:{on}})); }catch(e){} }
+  function show(id){ for(const k of [...PANES,"result"]) $(k).hidden=k!==id; if(id!=="launch"&&id!=="result") music(false); bed(id==="launch"?"amb_wind_high":"amb_mission_control");
     const pre=PANES.includes(id); $("pre").hidden=!pre; $("pre").classList.remove("out"); if(pre) stage(id);
     if(id==="intro"){ paintLobby(); lerr(""); } }
   function stage(id){ $("arena").dataset.stage=id; const n=STEP[id];

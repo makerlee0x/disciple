@@ -616,9 +616,9 @@ function finishVote(){
 let dropT=0, dropIv=0;
 function prePane(id){ for(const k of ["pIntro","pFill","pDrop"]) $(k).hidden=k!==id; $("stLobby").classList.toggle("on",id!=="pDrop"); $("stDrop").classList.toggle("on",id==="pDrop"); }
 let fillIv=0;
-function showIntro(){ clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pIntro"); $("dIn").textContent="12"; bed("amb_mission_control"); }
+function showIntro(){ toParent({type:"disciple:music",on:false}); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pIntro"); $("dIn").textContent="12"; bed("amb_mission_control"); }
 // a lobby that fills up: you first, then the 11 bots drop in over ~3 s, then the map pick and its 15 s timer
-function fillLobby(){ ensureAudio(); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pFill"); bed("amb_mission_control");
+function fillLobby(){ toParent({type:"disciple:music",on:false}); ensureAudio(); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pFill"); bed("amb_mission_control");
   const g=$("fGrid"); g.innerHTML=""; const slots=[]; for(let i=0;i<12;i++){ const d=document.createElement("div"); d.textContent="···"; g.appendChild(d); slots.push(d); }
   slots[0].className="me"; slots[0].textContent="YOU"; let n=1; $("fN").textContent=n; $("dIn").textContent=n+" / 12"; $("fSub").textContent="FINDING PILOTS";
   const order=NAMES.slice().sort(()=>Math.random()-.5);
@@ -626,7 +626,7 @@ function fillLobby(){ ensureAudio(); clearInterval(dropIv); clearInterval(fillIv
     $("fN").textContent=n; $("dIn").textContent=n+" / 12"; sfx("tick",.5);
     if(n>=12){ clearInterval(fillIv); $("fSub").textContent="LOBBY FULL"; sfx("lock"); buzz([20,40,20]); setTimeout(showDrop,900); } },300);
 }
-function showDrop(){ $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; buildDrop(); newVote(); dropT=15; $("dT").textContent=mmss(dropT);
+function showDrop(){ toParent({type:"disciple:music",on:false}); $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; buildDrop(); newVote(); dropT=15; $("dT").textContent=mmss(dropT);
   clearInterval(dropIv); dropIv=setInterval(()=>{ dropT--; $("dT").textContent=mmss(dropT); voteTick(15-dropT); if(dropT<=0){ clearInterval(dropIv); go(); } },1000); }
 $("dGo").addEventListener("click",()=>{ ensureAudio(); clearInterval(dropIv); go(); });
 function go(){
@@ -635,7 +635,7 @@ function go(){
   $("feed").innerHTML=""; buildJump(); const c=$("count"); c.hidden=false; let n=3;
   const show=()=>{ c.innerHTML=`<div><small>DROPPING INTO ${G.me.mk}</small><small class="cmap">${mapLine}</small>${n}</div>`; };
   show(); sfx("count"); bed("amb_wind_high"); oneShotAmb("amb_mothership_pass",.7);
-  const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("count"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); sfx("drop",.8); buzz(30); G.started=true; setTimeout(()=>c.hidden=true,450);
+  const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("count"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); sfx("drop",.8); buzz(30); G.started=true; toParent({type:"disciple:music",on:true}); setTimeout(()=>c.hidden=true,450);
     feed("m","☁",`${inMk(G.me.mk).length} pilots in ${G.me.mk} · 12 in the game`);
     feed("m","🗳",vr.tie?`Map vote tied ${vr.n[0]}-${vr.n[1]}. Random sky: <b>${MAP.n}</b>`:`Map vote ${Math.max(...vr.n)}-${Math.min(...vr.n)}: <b>${MAP.n}</b>`); },800);
 }
