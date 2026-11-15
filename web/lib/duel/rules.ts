@@ -30,15 +30,17 @@ export const isTier = (t: unknown): t is TierId => t === "rookie" || t === "pro"
 export const isLength = (l: unknown): l is LengthMs => l === 60_000 || l === 180_000;
 
 /* ---- custom budgets (maker, 2026-11-15: "challenge someone to a $100 budget, or a $1k, or whatever") ----
- * Friend duels can set their own fuel, whole dollars from $20 to $10,000. Ranked keeps the three tiers, so matchmaking
+ * Friend duels can set their own fuel, whole dollars from $5 to $10,000 (maker: "as low as $5"). Ranked keeps the three tiers, so matchmaking
  * pools stay fixed. It's each pilot's own budget, never a pot: nobody pays the winner. Trade sizes scale with it: the
  * biggest button is half the budget rounded down to a 1-2-5 step, then the three steps below it, plus ALL
  * ($20 → 1/2/5/10, $100 → 5/10/20/50, $1,000 → 50/100/200/500). */
-export const CUSTOM_FUEL_MIN = 20, CUSTOM_FUEL_MAX = 10_000;
+export const CUSTOM_FUEL_MIN = 5, CUSTOM_FUEL_MAX = 10_000;
 export const isCustomFuel = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= CUSTOM_FUEL_MIN && n <= CUSTOM_FUEL_MAX;
 const nice = (v: number) => { if (v < 1) return 1; const k = 10 ** Math.floor(Math.log10(v)), m = v / k; return (m >= 5 ? 5 : m >= 2 ? 2 : 1) * k; };
 const stepDown = (v: number) => { const k = 10 ** Math.floor(Math.log10(v)), m = Math.round(v / k); return m === 5 ? 2 * k : m === 2 ? k : 5 * (k / 10); };
 export function sizesFor(fuel: number): number[] {
+  // under $20 the 1-2-5 ladder would dip below the $1 minimum trade, so small budgets get whole dollars: $5 → $1/$2/$3/$4
+  if (fuel < 20) return [1, 2, 3, Math.max(4, Math.floor(fuel / 2)), 0];
   const out = [nice(fuel / 2)];
   while (out.length < 4) out.unshift(stepDown(out[0]));
   return [...out, 0];
