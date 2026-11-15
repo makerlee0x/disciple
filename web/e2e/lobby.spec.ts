@@ -14,6 +14,7 @@ test.describe("first visit", () => {
     for (const id of ["launch", "live", "free"]) await expect(out(page).getByTestId(`mode-${id}`)).toBeAttached();
     // Trading duel stays hidden until the Turbo flag is on
     await expect(out(page).getByTestId("mode-duel")).toHaveCount(0);
+    await expect(out(page).getByTestId("mode-royale")).toHaveCount(0);
   });
 
   test("the top bar has Lobby, Launch and Top pilots", async ({ page }) => {
@@ -63,6 +64,7 @@ test.describe("first visit", () => {
     await page.goto("/?turbo=1");
     await expect(out(page).getByTestId("mode-duel")).toBeAttached();
     await expect(out(page).getByTestId("mode-duel")).toHaveAttribute("href", /\/turbo\/duel/);
+    await expect(out(page).getByTestId("mode-royale")).toHaveAttribute("href", /\/turbo\/royale/);
   });
 
   test("the help button opens How to play and Docs", async ({ page }) => {
