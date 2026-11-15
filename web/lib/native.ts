@@ -222,6 +222,11 @@ export function installNativeShell(navigate: (path: string) => void): () => void
 
   const app = nativePlugin("App");
   keep(app?.addListener?.("appUrlOpen", ((d: { url: string }) => {
+    // sign-in coming back on disciple://oauth?privy_oauth_… outside the system sheet: finish it on the current page
+    if (/^disciple:\/\/oauth\b/i.test(d.url)) {
+      try { const q = new URL(d.url).searchParams, u = new URL(location.href); q.forEach((v, k) => u.searchParams.set(k, v)); location.replace(u.toString()); } catch { /* ignore */ }
+      return;
+    }
     const p = deepLinkPath(d.url);
     // Xcode debug builds: a link with liveDemo=1 shows the sample Live Activity on the next flight (components/flight/LiveFlight)
     if (p && nativeDebugBuild() && /[?&]liveDemo=1\b/.test(p)) { try { sessionStorage.setItem("disciple.liveDemo", "1"); } catch { /* ignore */ } }

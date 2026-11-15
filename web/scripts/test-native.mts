@@ -54,7 +54,7 @@ test("deep links: universal links and disciple:// open inside the site; other ho
 });
 
 test("apple-app-site-association: lists the app only with a team id, never the API", () => {
-  assert.deepEqual(aasa({}).applinks.details, []);
+  assert.equal(aasa({}).webcredentials.apps[0], "TR25MUSP7V.vip.disciple.app", "no env: Cuppa Inc's team (the signing team)");
   assert.deepEqual(aasa({ APPLE_TEAM_ID: "bad" }).applinks.details, []);
   const f = aasa({ APPLE_TEAM_ID: "ABCDE12345" });
   assert.deepEqual(f.applinks.details[0].appIDs, ["ABCDE12345.vip.disciple.app"]);
