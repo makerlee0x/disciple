@@ -14,6 +14,17 @@ function mount(root,host){
   const A=host.assets;
   const $=id=>document.getElementById(id);
   const imgs={}; for(const k in A){const i=new Image(); i.src=A[k]; imgs[k]=i;}
+  // bot rockets: 8 hull shapes x 10 rival skins (PR 399/402 art, web/public/turbo/hulls). [aspect w/h, nozzles [x, y, size] as 0..1 of the image]
+  const HULLS={"bullet":[0.454,[[0.498,0.988,1.0],[0.103,0.982,0.7],[0.892,0.982,0.7]]],"needle":[0.368,[[0.481,0.989,1.0]]],"pulp":[0.557,[[0.472,0.99,1.0]]],"twin-booster":[0.436,[[0.498,0.984,0.8],[0.193,0.99,1.0],[0.798,0.99,1.0]]],"shuttle":[0.575,[[0.5,0.984,1.0],[0.427,0.965,0.7],[0.573,0.965,0.7]]],"hauler":[0.432,[[0.498,0.99,1.0],[0.27,0.989,0.85],[0.734,0.989,0.85]]],"ring-tail":[0.432,[[0.502,0.99,1.0]]],"wedge":[0.732,[[0.501,0.959,1.0]]]}, HSKINS=["chrome-pink-stripe","matte-black","pearl-mint","titanium-ice","candy-pink","gunmetal-pink","oilslick","carbon","scorched","navy-chevron"], HULL_BASE=A.hullBase||"/turbo/hulls/", hullImgs={};
+  function hullFor(used){ const ks=Object.keys(HULLS); let h,s,n=0; do{ h=ks[Math.floor(Math.random()*ks.length)]; s=HSKINS[Math.floor(Math.random()*HSKINS.length)]; } while(used&&used.has(h+s)&&++n<20); if(used) used.add(h+s);
+    const k="hull-"+h+"--"+s; if(!hullImgs[k]){ const i=new Image(); i.src=HULL_BASE+k+".webp"; hullImgs[k]=i; } return {k,img:hullImgs[k],a:HULLS[h][0],nz:HULLS[h][1]}; }
+  // flames at each nozzle of a hull (or the chrome rocket's one), then the sprite; ctx is already at the rocket's centre
+  function drawShip(c2,hull,img,h,fl,col,sq){ const w=hull?h*hull.a:h*221/609, fk=Math.min(1,h/120), nz=hull?hull.nz:[[.5,.97,1]];
+    c2.globalCompositeOperation="lighter";
+    for(const [nx,ny,ns] of nz){ const x0=(nx-.5)*w, fy=(ny-.5)*h-h*.02, k=fk*ns; const g=c2.createRadialGradient(x0,fy,2,x0,fy+30*fl*k,72*fl*k); g.addColorStop(0,"rgba(255,250,235,.95)"); g.addColorStop(.25,`rgba(${col},.85)`); g.addColorStop(1,`rgba(${col},0)`);
+      c2.fillStyle=g; c2.beginPath(); c2.ellipse(x0,fy+36*fl*k,(15*fl+5)*k,(60*fl+8)*k,0,0,Math.PI*2); c2.fill(); }
+    c2.globalCompositeOperation="source-over"; c2.scale(1-sq*.3,1+sq);
+    const im=hull&&hull.img.complete&&hull.img.naturalWidth?hull.img:img, ww=im===img?h*221/609:w; if(im&&im.complete) c2.drawImage(im,-ww/2,-h/2,ww,h); return w; }
   $("preBg").style.backgroundImage=`url("${A.art||"/art/modes/duel.webp"}")`;
   const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
   const rnd=(a,b)=>a+Math.random()*(b-a);
@@ -44,6 +55,7 @@ function mount(root,host){
     const startAt=M&&M.startAt||Date.now()+3500, h=host.history();
     G={t:now_()-startAt,startAt,len:(M&&M.endAt?M.endAt-startAt:LEN),ot:false,over:false,price:h.length?h[h.length-1].p:0,ticks:[],marks:[],
        me:newPlayer("you",true),bot:newPlayer(M&&M.opp?M.opp.name:BOTS[botKey].name,false),cfg:BOTS[botKey],started:false};
+    if(!(M&&M.opp&&!M.opp.bot)) G.bot.hull=hullFor();   // bots fly a random hull + skin; a real rival keeps the chrome rocket for now
     for(const k of h) G.ticks.push({t:k.ts-startAt,p:k.p});
     if(!G.ticks.length) G.ticks.push({t:G.t,p:0});
   }
@@ -461,7 +473,7 @@ function mount(root,host){
     sx.fillStyle="#121327"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(t,x,my+1);
   }
   function drawRocket(pl,now,leader){
-    let x=lane(pl)+pl.dx, y=pl.y, img=imgs.rocket, h=pl.me?RH():(LAY&&LAY.hr||RH()*.9), w=h*221/609;
+    let x=lane(pl)+pl.dx, y=pl.y, img=imgs.rocket, h=pl.me?RH():(LAY&&LAY.hr||RH()*.9), w=pl.hull?h*pl.hull.a:h*221/609;
     const lean=Math.max(-.22,Math.min(.22,pl.rot));
     // flame grows while climbing, sputters while falling
     const thrust=Math.max(.25,Math.min(2.4,.6+pl.flame*.6-pl.wvy*.004)), fl=thrust+Math.sin(now/40+(pl.me?0:2))*.08;
@@ -469,12 +481,7 @@ function mount(root,host){
     const tr=pl.trick&&pl.trick.t<pl.trick.dur?pl.trick:null, tp=tr?tr.t/tr.dur:0, ease=tp<.5?2*tp*tp:1-Math.pow(-2*tp+2,2)/2;
     sx.save(); sx.translate(x,y); sx.rotate(lean+Math.max(-.35,Math.min(.35,pl.steerLean||0))+(tr&&tr.kind==="flip"?ease*Math.PI*2:0));
     if(tr&&tr.kind==="spin"){ const c=Math.cos(ease*Math.PI*4); sx.scale(Math.abs(c)<.08?.08*Math.sign(c||1):c,1); }
-    sx.globalCompositeOperation="lighter";
-    const fy=h*.47, fk=Math.min(1,h/120); const g=sx.createRadialGradient(0,fy,2,0,fy+30*fl*fk,72*fl*fk); g.addColorStop(0,"rgba(255,250,235,.95)"); g.addColorStop(.25,`rgba(${c},.85)`); g.addColorStop(1,`rgba(${c},0)`);
-    sx.fillStyle=g; sx.beginPath(); sx.ellipse(0,fy+36*fl*fk,(15*fl+5)*fk,(60*fl+8)*fk,0,0,Math.PI*2); sx.fill();   // flame scales with the rocket
-    sx.globalCompositeOperation="source-over";
-    sx.scale(1-pl.sq*.3,1+pl.sq);
-    if(img.complete) sx.drawImage(img,-w/2,-h/2,w,h);
+    drawShip(sx,pl.hull,img,h,fl,c,pl.sq);   // flames scale with the rocket
     sx.restore();
     // tags sit beside the rocket (on the side away from the rival), so the height between chart and bar is all race
     const other=pl.me?G.bot:G.me, side=lane(pl)<=lane(other)?-1:1;
