@@ -5,7 +5,9 @@
  * lands, a short chase-cam liftoff (LIFTOFF_MS) plays and the page goes straight to the flight. Sharing lives on the
  * flight as a toast that never blocks the trade bar (components/flight/LaunchedToast).
  */
+import { useEffect } from "react";
 import { withBase } from "@/lib/base-path";
+import { playSfx } from "@/lib/game/sfx";
 import s from "./liftoff.module.css";
 
 /** signing: the launch is being sent and confirmed. fuelling: it landed, the fee receiver step runs. lifting: away. */
@@ -24,6 +26,8 @@ export function LaunchIgnition({ name, ticker, mode, modeColor, phase }: {
 }) {
   const c = COPY[phase];
   const lifting = phase === "lifting";
+  // ignition rumble while the launch confirms, the liftoff roar the moment it lands
+  useEffect(() => { playSfx(lifting ? "launch_liftoff" : "launch_ignite", { gapMs: 1500 }); }, [lifting]);
   return (
     <div className={`${s.stage}${lifting ? ` ${s.lift}` : ""}`} role="status" aria-live="polite" data-testid="liftoff-overlay" data-phase={phase}
       style={{ ["--plate-d" as string]: `url(${withBase("/art/hero/hero-desktop.webp")})`, ["--plate-p" as string]: `url(${withBase("/art/hero/hero-phone.webp")})` }}>

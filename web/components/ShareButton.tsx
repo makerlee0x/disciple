@@ -46,7 +46,7 @@ export default function ShareButton({ callSign, icon, label = "Download rocket c
   }
   return (
     <>
-      <button type="button" onClick={onShare} aria-label="Share rocket card" data-testid="share-card" style={style}>
+      <button type="button" onClick={onShare} data-sfx="share_shutter" aria-label="Share rocket card" data-testid="share-card" style={style}>
         <Icon name="share" size={14} style={{ verticalAlign: -2 }} /> {label}
       </button>
       {url && (

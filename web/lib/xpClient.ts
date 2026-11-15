@@ -1,5 +1,6 @@
 "use client";
 /** Client side of /api/xp, /api/shop/buy and /api/xp/prestige (lib/server/xp.ts has the ledger). */
+import { playSfx } from "./game/sfx";
 import { useCallback, useEffect, useState } from "react";
 import { IS_STATIC_PREVIEW } from "./base-path";
 import { onWallet } from "./walletState";   // light: no viem in the lobby level chip (mobile plan speed fix 1)
@@ -24,11 +25,21 @@ export function usePilotWallet(): string | null {
   return w;
 }
 
+const lastLevel = new Map<string, number>(), lastDone = new Map<string, number>();
 /** XP summary for a wallet: loads, re-polls every minute and on XP_CHANGED_EVENT. */
 export function useXp(wallet: string | null) {
   const [xp, setXp] = useState<XpSummary | null>(null);
   const [ready, setReady] = useState(false);
-  const load = useCallback(() => { fetchXp(wallet).then((x) => { setXp(x); setReady(true); }); }, [wallet]);
+  const load = useCallback(() => {
+    fetchXp(wallet).then((x) => {
+      // a level gained while the app is open plays the level-up sting (the same key from two cards plays once)
+      const lv = x?.level?.level;
+      if (wallet && typeof lv === "number") { const was = lastLevel.get(wallet); if (was && lv > was) playSfx("level_up", { gapMs: 3000 }); lastLevel.set(wallet, lv); }
+      const done = x ? [...x.daily.missions, ...x.weekly.missions].filter((m) => m.done).length : 0;
+      if (wallet && x) { const was = lastDone.get(wallet); if (was !== undefined && done > was) playSfx("mission_done", { gapMs: 3000 }); lastDone.set(wallet, done); }
+      setXp(x); setReady(true);
+    });
+  }, [wallet]);
   useEffect(() => {
     setXp(null); setReady(false); load();
     const t = setInterval(() => { if (document.visibilityState === "visible") load(); }, POLL_MS);

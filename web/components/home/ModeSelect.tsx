@@ -13,6 +13,7 @@ import { withBase } from "@/lib/base-path";
 import { DUEL_HREF } from "@/lib/features";
 import { isTurboEnabled } from "@/lib/turbo/flag";
 import s from "./modeSelect.module.css";
+import { playSfx } from "@/lib/game/sfx";
 
 type ModeId = "launch" | "live" | "duel" | "royale" | "free";
 type Mode = { id: ModeId; title: [string, string]; sub: string; tag: string; tone: string; href: string; art: string; pos: string };
@@ -43,6 +44,9 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
   const list = useMemo(() => modes(flying, duel), [flying, duel]);
   const [start, setStart] = useState<ModeId>(signedIn ? "live" : "free");
   const [seen, setSeen] = useState<ModeId>(start);
+  // sounds: a whoosh each time a new card reaches the middle, a soft snap when the row settles (only after the player moves it)
+  const moved = useRef(false), snapT = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => { if (moved.current) playSfx("mode_swipe", { gapMs: 90 }); }, [seen]);
   const [edge, setEdge] = useState({ prev: false, next: false });
   const track = useRef<HTMLDivElement>(null);
 
@@ -77,6 +81,7 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
     setSeen((f) => (f === best ? f : best));
   };
   const onScroll = () => {
+    if (moved.current) { if (snapT.current) clearTimeout(snapT.current); snapT.current = setTimeout(() => playSfx("mode_snap"), 150); }
     if (raf.current) return;
     raf.current = requestAnimationFrame(() => { raf.current = 0; measure(); });
   };
@@ -94,6 +99,7 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     e.preventDefault();
+    moved.current = true;
     const cards = Array.from(track.current?.querySelectorAll<HTMLElement>("[data-mode]") ?? []);
     const i = cards.indexOf(document.activeElement as HTMLElement);
     const n = cards[(Math.max(0, i) + (e.key === "ArrowRight" ? 1 : cards.length - 1)) % cards.length];
@@ -108,12 +114,12 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
         <h2 id="modes-title" className={s.title}>{MODE_COPY.title}</h2>
         <span className={s.hint}>{MODE_COPY.hint}</span>
         <span className={s.arrows}>
-          <button type="button" className={s.arrow} onClick={() => step(-1)} disabled={!edge.prev} aria-label="Previous modes" data-testid="modes-prev">‹</button>
-          <button type="button" className={s.arrow} onClick={() => step(1)} disabled={!edge.next} aria-label="More modes" data-testid="modes-next">›</button>
+          <button type="button" className={s.arrow} onClick={() => { moved.current = true; step(-1); }} disabled={!edge.prev} aria-label="Previous modes" data-testid="modes-prev">‹</button>
+          <button type="button" className={s.arrow} onClick={() => { moved.current = true; step(1); }} disabled={!edge.next} aria-label="More modes" data-testid="modes-next">›</button>
         </span>
       </header>
       <div className={s.rail} data-prev={edge.prev ? "1" : undefined} data-next={edge.next ? "1" : undefined}>
-        <div className={s.row} ref={track} onKeyDown={onKey} onScroll={onScroll}>
+        <div className={s.row} ref={track} onKeyDown={onKey} onScroll={onScroll} onPointerDown={() => { moved.current = true; }} onWheel={() => { moved.current = true; }}>
           {list.map((m) => (
             <Link
               key={m.id}
@@ -123,6 +129,7 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
               className={s.card}
               aria-label={`${m.title.join(" ")}. ${m.sub}`}
               data-testid={`mode-${m.id}`}
+              data-sfx="mode_select"
               onClick={() => go(m)}
             >
               {/* every card can be on the first screen, so none is lazy; the starting card's art is fetched first */}
