@@ -412,7 +412,7 @@ function mount(root,host){
     for(let i=0;i<Math.round(10*m);i++) part({x:x+rnd(-10,10),y:y+rnd(0,20),vx:rnd(-90,90),vy:rnd(60,200),life:rnd(.8,1.5),size:rnd(14,26),col:"235,232,245",kind:"smoke",add:false});
     FX.rings.push({x,y:y+6,r:8,vr:380+k*320,life:.45,max:.45,w:6+k*4,col:c1});
     if(pl.me){ FX.flash=Math.max(FX.flash,.12+k*.15); FX.flashC=side>0?"255,206,100":"240,48,127"; sfx(side>0?(k>=1?"boostBig":"boost"):"dump"); buzz(side>0?18:[10,20,10]); }
-    else rivalSfx(side>0?(k>=1?"boostBig":"boost"):"dump",.45,(lane(pl)/SW)*2-1);
+    else rivalSfx(side>0?(k>=1?"boostBig":"boost"):"dump",.75,(lane(pl)/SW)*2-1);
   }
   function fxBomb(pl){
     const x=lane(pl), y=pl.y;
@@ -606,7 +606,7 @@ function mount(root,host){
   function bedSync(){ if(!ac||(bedOn&&bedOn.n)===bedWant) return; const old=bedOn; bedOn=null;
     if(old){ try{ old.g.gain.setTargetAtTime(0,ac.currentTime,.6); setTimeout(()=>{ try{old.s.stop();}catch(e){} },3000); }catch(e){} }
     const n=bedWant; if(!n||muted) return; const key="bed:"+n;
-    const go=b=>{ if(bedWant!==n||(bedOn&&bedOn.n===n)) return; try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; src.loop=true; src.loopStart=0; src.loopEnd=Math.min(BEDS[n],b.duration); g.gain.value=0; src.connect(g); g.connect(outBus()); src.start(); g.gain.setTargetAtTime(.5,ac.currentTime,.7); bedOn={n,s:src,g}; }catch(e){} };
+    const go=b=>{ if(bedWant!==n||(bedOn&&bedOn.n===n)) return; try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; src.loop=true; src.loopStart=0; src.loopEnd=Math.min(BEDS[n],b.duration); g.gain.value=0; src.connect(g); g.connect(outBus()); src.start(); g.gain.setTargetAtTime(.9,ac.currentTime,.7); bedOn={n,s:src,g}; }catch(e){} };
     if(BUF[key]) return go(BUF[key]); if(key in BUF) return; BUF[key]=null;
     fetch(SFX_BASE.replace(/sfx\/$/,"amb/")+n+".m4a").then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{ BUF[key]=b; go(b); }).catch(()=>{ BUF[key]=false; }); }
   // engine hum: a gapless loop under everything while you fly, louder and higher while the flame is lit
@@ -621,6 +621,7 @@ function mount(root,host){
   function buzz(p){ try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
   function setMute(m){ muted=m; if(m){ const o=bedOn; bedOn=null; if(o) try{o.s.stop();}catch(e){} } else bedSync(); try{ host.mute&&host.mute(m); }catch(e){} $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); $("mute").setAttribute("aria-label",m?"Unmute sound":"Mute sound"); try{localStorage.setItem("duel.mute",m?"1":"0");}catch(e){} }
   $("mute").addEventListener("click",()=>{ensureAudio(); setMute(!muted);});
+  root.addEventListener("pointerdown",()=>ensureAudio(),true);   // the ambience starts on the first tap anywhere, not only on a launch button
   // a clicked button keeps focus, and Space/Enter would press it again (mute would un-mute on your next BOOST)
   root.addEventListener("click",e=>{ const b=e.target&&e.target.closest&&e.target.closest("button"); if(b&&e.detail>0) b.blur(); });
 
