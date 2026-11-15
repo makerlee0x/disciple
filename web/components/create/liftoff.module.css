@@ -1,0 +1,71 @@
+/* Launch → flight handoff (components/create/LaunchLive.tsx). Full-screen cinematic plate, real status, a short
+   chase-cam liftoff, then the flight. No sprite here: the chrome rocket only appears in flight (option D). */
+.stage { --lift-ms: 850ms; --ox: 76%; --oy: 74%; --rx: 76%; --ry: 42%;
+  position: fixed; inset: 0; z-index: 900; overflow: hidden; background: #04050A; isolation: isolate; color: #FFFFFF;
+  animation: stageIn .35s ease-out both; }
+.stage > div, .cam > div { position: absolute; }
+
+/* the camera: holds with a slow push-in and a low rumble, then chases the rocket up on liftoff */
+.cam { inset: -4%; transform-origin: var(--rx) var(--ry); animation: push 14s cubic-bezier(.2, .6, .3, 1) both; }
+.plate { inset: 0; background: var(--plate-d) 72% 60% / cover no-repeat; animation: rumble .12s steps(2) infinite; }
+.burn { left: var(--ox); top: var(--oy); width: 46vmin; height: 46vmin; margin: -23vmin 0 0 -23vmin; border-radius: 50%; mix-blend-mode: screen;
+  background: radial-gradient(closest-side, rgba(255, 236, 190, .55), rgba(255, 170, 80, .28) 45%, transparent 75%); animation: burn .16s steps(2) infinite alternate; }
+.streaks { inset: 0; opacity: 0; mix-blend-mode: screen;
+  background: repeating-linear-gradient(90deg, transparent 0 46px, rgba(255, 240, 210, .16) 46px 47px, transparent 47px 120px, rgba(255, 255, 255, .08) 120px 121px, transparent 121px 190px); background-size: 100% 220%; }
+.scrim { inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, rgba(4, 5, 10, .88) 0%, rgba(4, 5, 10, .5) 34%, rgba(4, 5, 10, 0) 56%), radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(0, 0, 0, .6) 100%); }
+.flash { inset: 0; opacity: 0; pointer-events: none; mix-blend-mode: screen;
+  background: radial-gradient(55% 70% at var(--ox) 70%, #FFF6DE, rgba(255, 200, 130, .7) 40%, transparent 75%); }
+/* the last beat goes to the flight's dark sky, so the flight's own fade-in picks up from the same frame */
+.out { inset: 0; opacity: 0; pointer-events: none; background: #04050A; }
+
+.copy { left: clamp(20px, 6vw, 96px); bottom: clamp(72px, 14vh, 160px); max-width: min(620px, 48vw); display: flex; flex-direction: column; gap: 14px; }
+.eb { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; font: 500 13px / 1.2 var(--dsc-font-mono, 'JetBrains Mono', ui-monospace, monospace); letter-spacing: .08em; text-transform: uppercase; color: #C9CED6; }
+.eb b { font-weight: 600; color: #F3DFA8; }
+.eb i { font-style: normal; font-weight: 600; }
+.h { margin: 0; font: 800 clamp(52px, 7.4vw, 112px) / .86 var(--dsc-font-game); text-transform: uppercase; text-shadow: 0 12px 50px rgba(0, 0, 0, .6); animation: hIn .45s cubic-bezier(.2, .8, .2, 1) both; }
+.sub { margin: 0; font-size: 17px; line-height: 1.45; color: #D7D9E4; max-width: 460px; }
+
+/* a slim progress line: indeterminate while the chain confirms, fills on liftoff */
+.bar { left: 0; right: 0; bottom: 0; height: 3px; background: rgba(243, 223, 168, .12); overflow: hidden; }
+.bar span { position: absolute; top: 0; bottom: 0; left: 0; width: 34%; background: linear-gradient(90deg, transparent, #F3DFA8, transparent); animation: scan 1.4s ease-in-out infinite; }
+
+/* ---- liftoff: chase cam up through the burn, streaks, flash, fade to the flight sky */
+.lift .cam { animation: chase var(--lift-ms) cubic-bezier(.5, 0, .5, 1) forwards; }
+.lift .plate { animation: rumbleHard .06s steps(2) infinite; }
+.lift .burn { animation: burnUp var(--lift-ms) ease-in forwards; }
+.lift .streaks { animation: streak var(--lift-ms) linear forwards; }
+.lift .flash { animation: flash var(--lift-ms) ease-out forwards; }
+.lift .out { animation: out var(--lift-ms) ease-in forwards; }
+.lift .copy { animation: copyOut var(--lift-ms) ease-in forwards; }
+.lift .bar span { left: 0; width: 100%; background: #F3DFA8; animation: none; transition: width var(--lift-ms); }
+
+@keyframes stageIn { from { opacity: 0; } }
+@keyframes push { from { transform: scale(1); } to { transform: scale(1.08); } }
+@keyframes rumble { 0% { transform: translate(0, 0); } 100% { transform: translate(.6px, -.6px); } }
+@keyframes rumbleHard { 0% { transform: translate(-2px, 1px); } 100% { transform: translate(2px, -2px); } }
+@keyframes burn { from { opacity: .75; transform: scale(.96); } to { opacity: 1; transform: scale(1.04); } }
+@keyframes chase {
+  0% { transform: scale(1.08) translateY(0); filter: blur(0) brightness(1); }
+  70% { filter: blur(3px) brightness(1.5); }
+  100% { transform: scale(2.6) translateY(14%); filter: blur(8px) brightness(1.8); } }
+@keyframes burnUp { 0% { opacity: 1; transform: scale(1); } 100% { opacity: 1; transform: scale(4.5); } }
+@keyframes streak { 0% { opacity: 0; background-position: 0 0; } 30% { opacity: .9; } 100% { opacity: 1; background-position: 0 260%; } }
+@keyframes flash { 0%, 30% { opacity: 0; } 62% { opacity: 1; } 100% { opacity: .3; } }
+@keyframes out { 0%, 62% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes copyOut { 0%, 45% { opacity: 1; transform: none; } 75%, 100% { opacity: 0; transform: translateY(24px); } }
+@keyframes hIn { from { opacity: 0; transform: translateY(14px); } }
+@keyframes scan { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+
+@media (max-width: 760px) {
+  .stage { --ox: 50%; --oy: 70%; --rx: 49%; --ry: 46%; }
+  .plate { background-image: var(--plate-p); background-position: 50% 40%; }
+  .scrim { background: linear-gradient(0deg, rgba(4, 5, 10, .92) 0%, rgba(4, 5, 10, .55) 34%, rgba(4, 5, 10, 0) 58%); }
+  .copy { left: 20px; right: 20px; bottom: 48px; max-width: none; gap: 10px; }
+  .sub { font-size: 15px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cam, .plate, .burn, .lift .cam, .lift .plate, .lift .burn, .lift .streaks, .bar span { animation: none; }
+  .lift .out { animation: out var(--lift-ms) linear forwards; }
+  .lift .flash { animation: none; }
+}

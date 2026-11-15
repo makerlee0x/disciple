@@ -9,7 +9,8 @@ import { BADGE_TAKES, badgeDataUri, badgeSpecs } from "@/lib/badgeForge";
 import { precheckWithin, preloadModeration } from "@/lib/moderation-client";
 import { cropSquare } from "@/components/create/SquareCrop";
 import LaunchPad from "@/components/create/LaunchPad";
-import { LaunchCountdown, LaunchLiveNow, type LaunchPhase } from "@/components/create/LaunchLive";
+import { LIFTOFF_MS, LaunchIgnition, type LaunchPhase } from "@/components/create/LaunchLive";
+import { saveLaunchHandoff } from "@/lib/launchHandoff";
 import FirstBoostField, { type FirstBoostState } from "@/components/create/FirstBoostField";
 import { exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap } from "@/lib/firstBoost";
 import { protocolStub, type Address } from "@/lib/protocol";
@@ -62,7 +63,6 @@ export default function LaunchRocketPage() {
   const router = useRouter();
   const [howOpen, setHowOpen] = useState(false);
   const [phase, setPhase] = useState<LaunchPhase | null>(null);
-  const [live, setLive] = useState<{ token: string; dest: string; name: string; ticker: string; mode: number; seat: string; note: string | null } | null>(null);
   const [name, setName] = useState("");
   const [callSign, setCallSign] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -345,7 +345,6 @@ export default function LaunchRocketPage() {
     }
     if (boostState.error) { setMsg(boostState.error); return; }
     if (!boostState.ready) { setMsg("Still reading the First BOOST cap. Try again in a moment."); return; }
-    const seat = seatLabel(boost);
     const launchMode = privateLaunch ? LaunchMode.TRENCH_WARFARE : gameMode;
     try {
       setPhase("signing");
@@ -382,16 +381,15 @@ export default function LaunchRocketPage() {
             setLaunched(note);
           }
         }
-      } else {
-        await new Promise((r) => window.setTimeout(r, 700));
       }
-      const dest = `/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}&liftoff=1`;
-      setPhase("lifting");
+      // straight to trading (maker, 2026-11-15): a short liftoff, then the flight. Sharing waits there as a toast.
+      const ticker = callSign.trim().toUpperCase();
+      const dest = `/coin/${res.token}?cs=${encodeURIComponent(ticker)}`;
+      saveLaunchHandoff(res.token, { name: name.trim(), ticker, mode: MODE_LABEL[launchMode] ?? "Easy", note });
       router.prefetch(dest);
-      await new Promise((r) => window.setTimeout(r, 1400));
-      setLive({ token: res.token, dest, name: name.trim(), ticker: callSign.trim().toUpperCase(), mode: launchMode, seat, note });
-      setPhase(null);
-      window.scrollTo({ top: 0 });
+      setPhase("lifting");
+      await new Promise((r) => window.setTimeout(r, LIFTOFF_MS));
+      router.push(dest);
     } catch (err) {
       setPhase(null);
       if (!isDeployed()) { setMsg("Launches aren't open on this network yet."); return; }
@@ -405,7 +403,6 @@ export default function LaunchRocketPage() {
 
   const modeLabel = MODE_LABEL[privateLaunch ? LaunchMode.TRENCH_WARFARE : gameMode] ?? "Easy";
   const card = modeCard(modeLabel);
-  const liveCard = live ? modeCard(MODE_LABEL[live.mode] ?? "Easy") : card;
   const pairSet = quote.label !== defaultPairLabel;
   const linksSet = !!(twitter.trim() || website.trim() || telegram.trim());
   const feeRoutingOk = creatorFeeRoutingAvailable({ private: privateLaunch, harvest: deployment().creatorFeeHarvest });
@@ -505,10 +502,6 @@ export default function LaunchRocketPage() {
 
   return (
     <div className={`${L.page} launch-v3`}>
-      {live ? (
-        <LaunchLiveNow name={live.name} ticker={live.ticker} mode={liveCard.label} modeColor={liveCard.color} seat={live.seat}
-          href={live.dest} token={live.token} note={live.note} onOpen={() => router.push(live.dest)} />
-      ) : (
       <form className={L.grid} onSubmit={onSubmit}>
         <LaunchPad name={name} ticker={callSign} icon={previewIcon} mode={card.label} modeColor={card.color} seat={seatLabel(boost)} />
 
@@ -648,9 +641,8 @@ export default function LaunchRocketPage() {
           {advanced && moreOptions}
         </section>
       </form>
-      )}
 
-      {phase && <LaunchCountdown name={name.trim() || "Your rocket"} mode={card.label} phase={phase} />}
+      {phase && <LaunchIgnition name={name.trim() || "Your rocket"} ticker={callSign.trim().toUpperCase()} mode={card.label} modeColor={card.color} phase={phase} />}
     </div>
   );
 }
