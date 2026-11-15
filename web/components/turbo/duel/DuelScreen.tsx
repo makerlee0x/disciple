@@ -12,6 +12,7 @@ import { duelApi, followRoom, type Follow, type RoomRes, type Res } from "@/lib/
 import { parseCode, type LengthMs, type TierId, type TradeAction } from "@/lib/duel/rules";
 import type { DuelEvent, DuelRoom } from "@/lib/duel/types";
 import { getGameRadio } from "@/lib/game/radio";
+import { useTurboMusic } from "@/lib/game/turboMusic";
 
 type Tick = { ts: number; p: number };
 interface EngineApi {
@@ -31,7 +32,7 @@ declare global { interface Window { DuelEngine?: { mount(root: HTMLElement, host
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
 /** extra plates for the random sky each duel (engine SKY_THEMES) */
 const EXTRA_SKIES = { skyEth: "/turbo/sky-eth.webp", skyBtc: "/turbo/sky-btc.webp", skyPad: "/home/pad/sky-1280.webp" };
-const ENGINE_SRC = "/turbo/duel/engine.js?v=17";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=18";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
@@ -43,6 +44,7 @@ function loadEngine(): Promise<void> {
 
 export default function DuelScreen() {
   const ref = useRef<HTMLDivElement>(null);
+  useTurboMusic();
   useEffect(() => {
     let dead = false, api: EngineApi | null = null, me: string | null = null, roomId: string | null = null;
     let fol: Follow | null = null, qTimer: ReturnType<typeof setTimeout> | null = null, queued: { tier: TierId; len: LengthMs } | null = null;

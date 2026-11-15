@@ -68,3 +68,23 @@ test("the /settings link opens the same popup", async ({ page, pilot }) => {
   await page.goto("/settings");
   await expect(page.getByTestId("settings-modal")).toBeVisible();
 });
+
+test("settings: Music and Sound effects switches and volume stick after a reload", async ({ page, pilot }) => {
+  await pilot.signIn();
+  await page.goto("/");
+  let m = await openSettings(page);
+  const snd = m.getByTestId("settings-sound");
+  await expect(snd).toBeVisible();
+  await m.getByTestId("settings-music").click();
+  await expect(m.getByTestId("settings-music")).toHaveAttribute("aria-checked", "false");
+  await expect(m.getByTestId("settings-music-vol")).toBeDisabled();
+  await m.getByTestId("settings-sfx-vol").fill("30");
+  await page.keyboard.press("Escape");
+  await page.reload();
+  m = await openSettings(page);
+  await expect(m.getByTestId("settings-music")).toHaveAttribute("aria-checked", "false");
+  await expect(m.getByTestId("settings-sfx-vol")).toHaveValue("30");
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("disciple.game.settings.v1") || "{}"));
+  expect(saved.music.on).toBe(false);
+  expect(saved.sfx.vol).toBeCloseTo(0.3);
+});

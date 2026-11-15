@@ -76,7 +76,7 @@ function mount(root,host){
     G.marks.push({t:G.t,p:price,me:pl.me,k:"x"});
     moment(pl,`${pl.me?"you":esc(pl.name)} got NUKED on a ${side>0?"BOOST":"DUMP"}`,-lost);
     fxBomb(pl); feed(pl,"r",`${pl.me?"you":esc(pl.name)} got <b>NUKED</b>`);
-    if(pl.me){sfx("bomb");buzz([60,40,90]);}
+    if(pl.me){sfx("bomb");buzz([60,40,90]);} else sfx("bomb",.5,(lane(pl)/SW)*2-1);
   }
   function open(pl,side,stake,why){
     stake=Math.min(stake,pl.fuel/(1+LEV*FEE));
@@ -185,6 +185,7 @@ function mount(root,host){
   let last=0, cdUntil=0; const preEl=$("pre");
   function frame(now){
     const dt=Math.min(.05,(now-(last||now))/1000); last=now;
+    humTick(!!(G&&G.started&&!G.over), G&&G.me?Math.min(1,(G.me.flame||0)/2.2):0);
     if(G&&G.started&&!G.over){
       G.t=now_()-G.startAt;
       if(!(M&&M.net)){
@@ -410,6 +411,7 @@ function mount(root,host){
     for(let i=0;i<Math.round(10*m);i++) part({x:x+rnd(-10,10),y:y+rnd(0,20),vx:rnd(-90,90),vy:rnd(60,200),life:rnd(.8,1.5),size:rnd(14,26),col:"235,232,245",kind:"smoke",add:false});
     FX.rings.push({x,y:y+6,r:8,vr:380+k*320,life:.45,max:.45,w:6+k*4,col:c1});
     if(pl.me){ FX.flash=Math.max(FX.flash,.12+k*.15); FX.flashC=side>0?"255,206,100":"240,48,127"; sfx(side>0?(k>=1?"boostBig":"boost"):"dump"); buzz(side>0?18:[10,20,10]); }
+    else rivalSfx(side>0?(k>=1?"boostBig":"boost"):"dump",.45,(lane(pl)/SW)*2-1);
   }
   function fxBomb(pl){
     const x=lane(pl), y=pl.y;
@@ -575,7 +577,7 @@ function mount(root,host){
   /* ---------- sound + haptics ---------- */
   let ac=null, muted=false;
   try{muted=localStorage.getItem("duel.mute")==="1";}catch(e){}
-  function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx();}catch(e){} } if(ac&&ac.state==="suspended") ac.resume(); }
+  function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx(); loadLoop("engine_loop");}catch(e){} } if(ac&&ac.state==="suspended") ac.resume(); }
   // recorded CC0 sounds (web/public/audio/sfx, see its README/SOURCES.csv). Each event picks one take at random.
   const SFX_BASE=A.sfxBase||"/audio/sfx/", BUF={};
   const SND={boost:["boost_small_01","boost_small_02","boost_small_03"],boostBig:["boost_big_01","boost_big_02"],dump:["bomb_fall_01","bomb_fall_02"],
@@ -584,8 +586,27 @@ function mount(root,host){
   const VOL={dump:.7,tick:.6,nukeWarn:.55};
   function loadS(n){ if(!ac||n in BUF) return; BUF[n]=null; fetch(SFX_BASE+n+".m4a").then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{BUF[n]=b;}).catch(()=>{BUF[n]=false;}); }
   function preloadSfx(){ for(const k in SND) SND[k].forEach(loadS); }
-  function sfx(k){ if(!ac||muted) return; const list=SND[k]; if(!list) return; const n=list[Math.floor(Math.random()*list.length)], b=BUF[n]; if(!b){ loadS(n); return; }
-    try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; g.gain.value=VOL[k]||1; src.connect(g); g.connect(ac.destination); src.start(); }catch(e){} }
+  // Settings › Sound › Sound effects (lib/game/settings, same localStorage key) sets the level of every sound here
+  const SETK="disciple.game.settings.v1"; let sfxLvl=.7, bus=null, lastRival=0;
+  function readLvl(){ try{ const o=JSON.parse(localStorage.getItem(SETK)||"null"); if(o&&o.sfx) sfxLvl=o.sfx.on===false?0:(typeof o.sfx.vol==="number"?o.sfx.vol:.7); }catch(e){} if(bus) bus.gain.value=sfxLvl*1.3; }
+  readLvl(); const onStore=e=>{ if(e.key===SETK) readLvl(); }, onLvl=e=>{ if(e.detail&&typeof e.detail.sfx==="number"){ sfxLvl=e.detail.sfx; if(bus) bus.gain.value=sfxLvl*1.3; } };
+  addEventListener("storage",onStore); addEventListener("disciple:audio",onLvl);
+  function outBus(){ if(!bus&&ac){ bus=ac.createGain(); bus.gain.value=sfxLvl*1.3; bus.connect(ac.destination); } return bus; }
+  // vol: 1 for you; a rival's boosts and blasts play quieter and panned to their side (pan -1 left … 1 right)
+  function sfx(k,vol,pan){ if(!ac||muted||sfxLvl<=0) return; const list=SND[k]; if(!list) return; const n=list[Math.floor(Math.random()*list.length)], b=BUF[n]; if(!b){ loadS(n); return; }
+    try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; g.gain.value=(VOL[k]||1)*(vol==null?1:vol); src.connect(g);
+      if(pan&&ac.createStereoPanner){ const pn=ac.createStereoPanner(); pn.pan.value=Math.max(-1,Math.min(1,pan)); g.connect(pn); pn.connect(outBus()); } else g.connect(outBus()); src.start(); }catch(e){} }
+  // rivals: at most one sound every 0.2 s, so a busy sky doesn't drown out your own
+  function rivalSfx(k,vol,pan){ const t=performance.now(); if(t-lastRival<200) return; lastRival=t; sfx(k,vol,pan); }
+  // engine hum: a gapless loop under everything while you fly, louder and higher while the flame is lit
+  let hum=null, humV=-1, humR=-1;
+  function loadLoop(n){ const key="loop:"+n; if(!ac||key in BUF) return; BUF[key]=null; fetch(SFX_BASE+"loops-wav/"+n+".wav").then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{BUF[key]=b;}).catch(()=>{BUF[key]=false;}); }
+  function humTick(on,boost){ if(!ac) return;
+    if(!on||muted||sfxLvl<=0){ if(hum){ const h=hum; hum=null; try{ h.g.gain.setTargetAtTime(0,ac.currentTime,.12); setTimeout(()=>{ try{h.s.stop();}catch(e){} },700); }catch(e){} } return; }
+    const b=BUF["loop:engine_loop"]; if(!b){ loadLoop("engine_loop"); return; }
+    if(!hum){ try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; src.loop=true; g.gain.value=0; src.connect(g); g.connect(outBus()); src.start(); hum={s:src,g}; humV=humR=-1; }catch(e){ return; } }
+    const v=Math.round((.16+.2*boost)*50)/50, r=Math.round((.92+.3*boost)*50)/50;
+    if(v!==humV){ humV=v; hum.g.gain.setTargetAtTime(v,ac.currentTime,.15); } if(r!==humR){ humR=r; hum.s.playbackRate.setTargetAtTime(r,ac.currentTime,.2); } }
   function buzz(p){ try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
   function setMute(m){ muted=m; try{ host.mute&&host.mute(m); }catch(e){} $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); $("mute").setAttribute("aria-label",m?"Unmute sound":"Mute sound"); try{localStorage.setItem("duel.mute",m?"1":"0");}catch(e){} }
   $("mute").addEventListener("click",()=>{ensureAudio(); setMute(!muted);});
@@ -823,7 +844,7 @@ function mount(root,host){
     error:(t)=>{ if(!$("intro").hidden) lerr(t); else toast(t); if(!$("search").hidden||!$("invite").hidden){ show("intro"); lerr(t); } if(!$("result").hidden){ $("rAgain").disabled=false; $("rAgain").textContent="REMATCH"; } },
     toLobby:()=>{ M=null; show("intro"); },
     _state:()=>G,
-    destroy:()=>{ dead=true; offs.forEach(f=>f()); try{ if(ac) ac.close(); }catch(e){} root.innerHTML=""; root.classList.remove("duel-root"); },
+    destroy:()=>{ dead=true; offs.forEach(f=>f()); removeEventListener("storage",onStore); removeEventListener("disciple:audio",onLvl); try{ if(ac) ac.close(); }catch(e){} root.innerHTML=""; root.classList.remove("duel-root"); },
   };
 }
 window.DuelEngine={mount};
