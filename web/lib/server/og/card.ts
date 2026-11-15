@@ -9,6 +9,7 @@ import fs from "fs";
 import path from "path";
 import { createCanvas, GlobalFonts, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
 import { FLIGHT_TIERS, tierIndexAt } from "@/lib/flight/tiers";
+import { skyBand } from "@/lib/share/scene";
 
 const ROOT = process.cwd();
 const W = 1200, H = 630, PAD = 72;
@@ -34,11 +35,8 @@ function img(rel: string): Promise<Image | null> {
   return p;
 }
 
-/** Sky band for the rocket card plates (handover doc): 1 ground … 5 heavens. */
-export function bandOf(mcap: number): 1 | 2 | 3 | 4 | 5 {
-  const i = tierIndexAt(mcap);
-  return i <= 1 ? 1 : i <= 3 ? 2 : i <= 6 ? 3 : i <= 10 ? 4 : 5;
-}
+/** Sky band for the rocket card plates (handover doc): 1 ground … 5 heavens. Shared with the Flight log card. */
+export const bandOf = skyBand;
 export const tierName = (mcap: number) => FLIGHT_TIERS[tierIndexAt(mcap)].name;
 
 export type OgCard =
@@ -52,7 +50,7 @@ const cover = (o: SKRSContext2D, im: Image, x = 0.5, y = 0.5) => {
   o.drawImage(im, (W - w) * x, (H - h) * y, w, h);
 };
 
-/** The art plate, or the stand-in (tier sky + chrome rocket on the right). */
+/** The art plate, or the stand-in: a site art plate (site, invite) or the tier sky + chrome rocket (rocket, pilot cards). */
 async function plate(o: SKRSContext2D, name: string, sky: string, rocket: { rot: number; x: number; h: number } | null) {
   const art = await img(`og/${name}.png`);
   if (art) { cover(o, art); return true; }
@@ -109,7 +107,7 @@ export async function renderOgCard(c: OgCard): Promise<Buffer> {
   o.imageSmoothingQuality = "high";
 
   if (c.kind === "site") {
-    await plate(o, "site", "home/sky/t6.webp", { rot: 8, x: 900, h: 520 });
+    await plate(o, "site", "art/hero/hero-desktop.webp", null);   // stand-in: the liftoff plate (Grok art, PR #380)
     shade(o);
     await brand(o, 118, 34);
     o.fillStyle = "#FFFFFF"; o.font = `118px ${F.g8}`;
@@ -163,8 +161,7 @@ export async function renderOgCard(c: OgCard): Promise<Buffer> {
   }
 
   if (c.kind === "pilot") {
-    const hull = c.hull && ["chrome", "matte", "violet", "gold"].includes(c.hull) ? c.hull : "chrome";
-    await plate(o, `pilot-${hull}`, "assets/tier5.webp", { rot: 0, x: 900, h: 500 });
+    await plate(o, "pilot", "assets/tier5.webp", { rot: 0, x: 900, h: 500 });   // one plate for every pilot (Grok art O8, PR #385)
     shade(o, 0.95);
     await brand(o, 100, 26, "#BCC0CA");
     // ring
@@ -182,7 +179,7 @@ export async function renderOgCard(c: OgCard): Promise<Buffer> {
   }
 
   if (c.kind === "invite") {
-    await plate(o, "invite", "assets/tier3.webp", { rot: 10, x: 910, h: 540 });
+    await plate(o, "invite", "art/invite/squadron.webp", null);   // stand-in: the squadron plate (Grok art, PR #380)
     const warm = o.createRadialGradient(880, 315, 20, 880, 315, 420);
     warm.addColorStop(0, "rgba(242,193,78,0.20)"); warm.addColorStop(1, "rgba(242,193,78,0)");
     o.fillStyle = warm; o.fillRect(0, 0, W, H);

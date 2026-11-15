@@ -36,7 +36,24 @@ export interface SceneData {
   badge?: { text: string; color: string } | null;
 }
 /** coinIcon: the coin's own moderated image (lib/server/share/coinIcon). None ⇒ the ticker block draws as before. */
-export interface SceneAssets { bg: Img | null; rocket: Img | null; wordmark?: Img | null; coinIcon?: Img | null; /** untinted chrome rocket for the wingmen ships */ wing?: Img | null }
+export interface SceneAssets { bg: Img | null; rocket: Img | null; wordmark?: Img | null; coinIcon?: Img | null; /** untinted chrome rocket for the wingmen ships */ wing?: Img | null;
+  /** full-art plate for the peak's sky band (pnlPlate). When it loads, the card draws it instead of the sky + sprite rocket + wingmen. */ plate?: Img | null }
+
+/** Sky band of a peak, 1 ground … 5 heavens (same split as the rocket link previews, lib/server/og/card.ts). */
+export function skyBand(mcap: number): 1 | 2 | 3 | 4 | 5 {
+  const i = tierIndexAt(mcap);
+  return i <= 1 ? 1 : i <= 3 ? 2 : i <= 6 ? 3 : i <= 10 ? 4 : 5;
+}
+/** where each plate's engines burn, as a fraction of the frame: the player's flare colour glows there */
+const PNL_ENGINE: Record<"story" | "og", Record<1 | 2 | 3 | 4 | 5, [number, number]>> = {
+  story: { 1: [0.744, 0.491], 2: [0.817, 0.391], 3: [0.694, 0.478], 4: [0.672, 0.478], 5: [0.645, 0.5] },
+  og: { 1: [0.8, 0.737], 2: [0.837, 0.704], 3: [0.793, 0.756], 4: [0.778, 0.607], 5: [0.683, 0.533] },
+};
+/**
+ * Flight log plate (Grok art, PR #385; maker chose full art with no sprite, 2026-11-14): one per sky band and shape,
+ * a real ship with its engines lit. Path is under public/.
+ */
+export const pnlPlate = (mcap: number, format: "story" | "og") => `/art/pnl/pnl-${format === "og" ? "square" : "story"}-band${skyBand(mcap)}.webp`;
 export const FONT = { black: "GeistBlack", mono: "GeistMonoBold", monoMed: "GeistMonoMed", game600: "BarlowCondensedSemiBold", game700: "BarlowCondensedBold", game800: "BarlowCondensedExtraBold", ui600: "InterSemiBold" };
 
 const GREEN = "#5FF0A0", RED = "#F0307F";
@@ -169,7 +186,7 @@ function ship(ctx: Ctx, im: Img | null, x: number, y: number, w: number, h: numb
 export const scenePeak = (d: SceneData) => d.log?.peakMcap ?? Math.max(d.mcapStart || 0, d.mcapEnd || 0, ...d.fills.map((f) => f.mcapUsd || 0));
 
 export function drawShareScene(ctx: Ctx, mk: MakeCanvas, d: SceneData, a: SceneAssets, lo: Loadout, o: DrawOpts) {
-  void mk; void lo;
+  void mk;
   const story = o.format === "story", W = 1080, H = story ? 1920 : 1080, t = o.t ?? 1, Y = story ? STORY : SQUARE, L = Y.pad;
   const ease = (x: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
   const log = d.log, peak = scenePeak(d);
@@ -178,25 +195,39 @@ export function drawShareScene(ctx: Ctx, mk: MakeCanvas, d: SceneData, a: SceneA
   ctx.save(); ctx.textBaseline = "top";
   ctx.fillStyle = "#121327"; ctx.fillRect(0, 0, W, H);
 
-  // sky: the tier you peaked in, dimmed (brightness .8, saturate .85), then the scrim
-  if (a.bg) { ctx.save(); ctx.filter = "saturate(0.85) brightness(0.8)"; cover(ctx, a.bg, 0, 0, W, H, 1, story ? 0.5 : 0.6, 0.4); ctx.restore(); }
-  const g = story ? ctx.createLinearGradient(0, 0, 0, H) : ctx.createLinearGradient(0, 0, W, 0);
-  if (story) { g.addColorStop(0, "rgba(18,19,39,0.55)"); g.addColorStop(0.3, "rgba(18,19,39,0.05)"); g.addColorStop(0.52, "rgba(18,19,39,0.2)"); g.addColorStop(0.74, "rgba(11,12,14,0.92)"); g.addColorStop(1, "#0B0C0E"); }
-  else { g.addColorStop(0, "rgba(11,12,14,0.94)"); g.addColorStop(0.46, "rgba(11,12,14,0.78)"); g.addColorStop(0.72, "rgba(18,19,39,0.1)"); g.addColorStop(1, "rgba(18,19,39,0.1)"); }
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  { const [gx, gy, gr] = Y.glow, rg = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
-    rg.addColorStop(0, `rgba(255,246,220,${story ? 0.32 : 0.3})`); rg.addColorStop(0.4, "rgba(242,193,78,0.10)"); rg.addColorStop(0.7, "rgba(242,193,78,0)"); rg.addColorStop(1, "rgba(242,193,78,0)");
-    ctx.fillStyle = rg; ctx.fillRect(gx - gr, gy - gr, gr * 2, gr * 2); }
+  if (a.plate) {
+    // full art: the band's plate, a scrim that keeps the text side calm, and the player's flare colour on the engines
+    cover(ctx, a.plate, 0, 0, W, H);
+    const g = story ? ctx.createLinearGradient(0, 0, 0, H) : ctx.createLinearGradient(0, 0, W, 0);
+    if (story) { g.addColorStop(0, "rgba(11,12,14,0.55)"); g.addColorStop(0.14, "rgba(11,12,14,0)"); g.addColorStop(0.5, "rgba(11,12,14,0)"); g.addColorStop(0.62, "rgba(11,12,14,0.6)"); g.addColorStop(0.78, "rgba(11,12,14,0.9)"); g.addColorStop(1, "#0B0C0E"); }
+    else { g.addColorStop(0, "rgba(11,12,14,0.9)"); g.addColorStop(0.5, "rgba(11,12,14,0.65)"); g.addColorStop(0.66, "rgba(11,12,14,0)"); g.addColorStop(1, "rgba(11,12,14,0)"); }
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    const [ex, ey] = PNL_ENGINE[o.format][skyBand(peak)], x = ex * W, y = ey * H, r = W * (story ? 0.16 : 0.14), c = lo.thruster.flame;
+    ctx.save(); ctx.globalCompositeOperation = "screen"; ctx.globalAlpha = 0.25 + 0.6 * ease(t * 1.4);
+    const eg = ctx.createRadialGradient(x, y, 0, x, y, r);
+    eg.addColorStop(0, hexA(c, 0.85)); eg.addColorStop(0.35, hexA(c, 0.4)); eg.addColorStop(1, hexA(c, 0));
+    ctx.fillStyle = eg; ctx.fillRect(x - r, y - r, r * 2, r * 2); ctx.restore();
+  } else {
+    // sky: the tier you peaked in, dimmed (brightness .8, saturate .85), then the scrim
+    if (a.bg) { ctx.save(); ctx.filter = "saturate(0.85) brightness(0.8)"; cover(ctx, a.bg, 0, 0, W, H, 1, story ? 0.5 : 0.6, 0.4); ctx.restore(); }
+    const g = story ? ctx.createLinearGradient(0, 0, 0, H) : ctx.createLinearGradient(0, 0, W, 0);
+    if (story) { g.addColorStop(0, "rgba(18,19,39,0.55)"); g.addColorStop(0.3, "rgba(18,19,39,0.05)"); g.addColorStop(0.52, "rgba(18,19,39,0.2)"); g.addColorStop(0.74, "rgba(11,12,14,0.92)"); g.addColorStop(1, "#0B0C0E"); }
+    else { g.addColorStop(0, "rgba(11,12,14,0.94)"); g.addColorStop(0.46, "rgba(11,12,14,0.78)"); g.addColorStop(0.72, "rgba(18,19,39,0.1)"); g.addColorStop(1, "rgba(18,19,39,0.1)"); }
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    { const [gx, gy, gr] = Y.glow, rg = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+      rg.addColorStop(0, `rgba(255,246,220,${story ? 0.32 : 0.3})`); rg.addColorStop(0.4, "rgba(242,193,78,0.10)"); rg.addColorStop(0.7, "rgba(242,193,78,0)"); rg.addColorStop(1, "rgba(242,193,78,0)");
+      ctx.fillStyle = rg; ctx.fillRect(gx - gr, gy - gr, gr * 2, gr * 2); }
 
-  // wingmen: one ship per pilot who boosted while you were aboard (up to 12), each with its own trail
-  const wing = a.wing ?? null, n = Math.max(0, Math.min(12, log?.wingmen ?? 0));
-  for (let i = 0; i < n; i++) {
-    const [x, y, s] = Y.slots[i], w = Math.round(221 * s * 0.45), h = Math.round(609 * s * 0.45), c = WING_COLS[i];
-    ship(ctx, wing, x - w / 2, y + 20 * (1 - ease(t * 1.3)), w, h, i % 2 ? 6 : 10, 0.55 + s * 0.4, { w: 4, l: Y.wingTrail, col: c, head: "rgba(255,246,220,0.95)" }, { w: 14, h: 22, col: c });
+    // wingmen: one ship per pilot who boosted while you were aboard (up to 12), each with its own trail
+    const wing = a.wing ?? null, n = Math.max(0, Math.min(12, log?.wingmen ?? 0));
+    for (let i = 0; i < n; i++) {
+      const [x, y, s] = Y.slots[i], w = Math.round(221 * s * 0.45), h = Math.round(609 * s * 0.45), c = WING_COLS[i];
+      ship(ctx, wing, x - w / 2, y + 20 * (1 - ease(t * 1.3)), w, h, i % 2 ? 6 : 10, 0.55 + s * 0.4, { w: 4, l: Y.wingTrail, col: c, head: "rgba(255,246,220,0.95)" }, { w: 14, h: 22, col: c });
+    }
+    // your rocket (your hull) with the gold trail
+    { const [x, y, w, h] = Y.rocket;
+      ship(ctx, a.rocket, x, y + 40 * (1 - ease(t * 1.4)), w, h, 8, 1, { w: Y.trailW, l: Y.trailL, col: "242,193,78", head: "rgba(255,246,220,1)" }, { w: Y.flame[0], h: Y.flame[1], col: "242,193,78" }, `rgba(242,193,78,${good ? 0.35 : 0.18})`); }
   }
-  // your rocket (your hull) with the gold trail
-  { const [x, y, w, h] = Y.rocket;
-    ship(ctx, a.rocket, x, y + 40 * (1 - ease(t * 1.4)), w, h, 8, 1, { w: Y.trailW, l: Y.trailL, col: "242,193,78", head: "rgba(255,246,220,1)" }, { w: Y.flame[0], h: Y.flame[1], col: "242,193,78" }, `rgba(242,193,78,${good ? 0.35 : 0.18})`); }
 
   // header: DISCIPLE · FLIGHT LOG · <day>
   if (a.wordmark) { const h = Y.wordPx * 0.9, w = h * (a.wordmark.width / a.wordmark.height); ctx.drawImage(a.wordmark, L, Y.headTop + (Y.wordPx - h) / 2, w, h); }   // brand E wordmark

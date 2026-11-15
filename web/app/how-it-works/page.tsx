@@ -133,7 +133,7 @@ export default function HowItWorksPage() {
       <ModeTabs
         pilot={{ eyebrow: HIW_PILOT.eyebrow, h1: HIW_PILOT.h1, sub: HIW_PILOT.sub, body: <Pilot /> }}
         pro={{ eyebrow: HIW_PRO.eyebrow, h1: HIW_PRO.h1, sub: HIW_PRO.sub, body: <Pro /> }}
-        finalStyle={sky(1)}
+        finalStyle={{ backgroundImage: `url(${withBase("/art/launch/live.webp")})`, backgroundPosition: "50% 45%" }}
         final={<>
           <h2 id="hiw-final">{HIW_FINAL.h2}</h2>
           <p>{HIW_FINAL.sub}</p>

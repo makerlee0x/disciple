@@ -69,16 +69,8 @@ export function LaunchLiveNow({ name, ticker, mode, modeColor, seat, href, token
   };
   return (
     <section className={`${s.frame} ${s.liveFrame}`} aria-labelledby="live-title" data-testid="launch-live">
+      {/* liftoff plate (Grok art, PR #380), no sprite: the rocket is away, the crew takes over */}
       <div className={s.liveSky} aria-hidden />
-      <div className={s.liveTint} aria-hidden />
-      <div className={s.liveHalo} aria-hidden />
-      <div className={s.liveLine} aria-hidden />
-      <div className={s.trail} aria-hidden />
-      <div className={s.liveRocket} aria-hidden>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={withBase(ROCKET_SRC)} alt="" />
-        <span className={s.flame} />
-      </div>
       <div className={s.vignette2} aria-hidden />
       <div className={s.liveScrim} aria-hidden />
       <span className={`${s.bar} ${s.barT}`} aria-hidden />

@@ -28,29 +28,19 @@ function gameFont() {
   try { const v = getComputedStyle(document.documentElement).getPropertyValue("--font-barlow-condensed").trim() || getComputedStyle(document.body).getPropertyValue("--font-barlow-condensed").trim(); if (v) GAME = `${v}, ${GAME}`; } catch { /* default */ }
 }
 
-/** v2 card (canvas "Turbo mockups" › Share card): text on the left, the chrome rocket climbing on the right.
- *  A win leads with the multiple; an NUKE leads with how long you lasted, never the loss. */
-function draw(cv: HTMLCanvasElement, d: TurboShare, rocket: HTMLImageElement | null) {
+/** v2 card (canvas "Turbo mockups" › Share card): text on the left, a Grok art plate on the right (PR #380): the gold ship
+ *  breaking out of the clouds on a win, the rival climbing away seen from the cockpit on a NUKE. No sprite outside flight.
+ *  A win leads with the multiple; a NUKE leads with how long you lasted, never the loss. */
+function draw(cv: HTMLCanvasElement, d: TurboShare, plate: HTMLImageElement | null) {
   cv.width = W; cv.height = H;
   const g = cv.getContext("2d"); if (!g) return;
   const win = d.kind === "win";
   g.fillStyle = "#121327"; g.fillRect(0, 0, W, H);
-  // sky on the right
-  const sky = g.createRadialGradient(930, 260, 20, 930, 300, 520);
-  if (win) { sky.addColorStop(0, "#3B4A8C"); sky.addColorStop(0.55, "#232A5C"); sky.addColorStop(1, "rgba(18,19,39,0)"); }
-  else { sky.addColorStop(0, "rgba(255,214,150,.9)"); sky.addColorStop(0.3, "rgba(240,48,127,.55)"); sky.addColorStop(0.7, "rgba(26,14,31,.6)"); sky.addColorStop(1, "rgba(18,19,39,0)"); }
-  g.fillStyle = sky; g.fillRect(560, 0, W - 560, H);
-  if (win && rocket) {
-    const h = 430, w = (h * rocket.width) / rocket.height;
-    g.save(); g.translate(930, 300); g.rotate((6 * Math.PI) / 180);
-    const fl = g.createLinearGradient(0, h / 2, 0, h / 2 + 240); fl.addColorStop(0, "rgba(255,210,110,.95)"); fl.addColorStop(1, "rgba(255,90,40,0)");
-    g.fillStyle = fl; g.beginPath(); g.moveTo(-w * 0.16, h / 2 - 12); g.lineTo(w * 0.16, h / 2 - 12); g.lineTo(0, h / 2 + 240); g.closePath(); g.fill();
-    g.drawImage(rocket, -w / 2, -h / 2, w, h); g.restore();
-  } else if (!win) {
-    g.strokeStyle = "rgba(255,230,200,.5)"; g.lineWidth = 6; g.beginPath(); g.arc(930, 290, 220, 0, Math.PI * 2); g.stroke();
-    g.strokeStyle = "rgba(255,230,200,.25)"; g.lineWidth = 3; g.beginPath(); g.arc(930, 290, 300, 0, Math.PI * 2); g.stroke();
+  if (plate) {   // full bleed, object-fit: cover (the plates are drawn 1.91:1 for this card)
+    const k = Math.max(W / plate.width, H / plate.height), sw = W / k, sh = H / k;
+    g.drawImage(plate, (plate.width - sw) / 2, (plate.height - sh) / 2, sw, sh, 0, 0, W, H);
   }
-  const fade = g.createLinearGradient(0, 0, W, 0); fade.addColorStop(0, "#121327"); fade.addColorStop(0.46, "#121327"); fade.addColorStop(0.72, "rgba(18,19,39,.2)"); fade.addColorStop(1, "rgba(18,19,39,0)");
+  const fade = g.createLinearGradient(0, 0, W, 0); fade.addColorStop(0, "#121327"); fade.addColorStop(0.38, "rgba(18,19,39,.94)"); fade.addColorStop(0.68, "rgba(18,19,39,.25)"); fade.addColorStop(1, "rgba(18,19,39,0)");
   g.fillStyle = fade; g.fillRect(0, 0, W, H);
 
   const L = 72;
@@ -94,7 +84,7 @@ export default function TurboShareCard({ data, onClose }: { data: TurboShare; on
     const cv = document.createElement("canvas");
     const img = new Image();
     const done = async (im: HTMLImageElement | null) => { gameFont(); try { await document.fonts?.ready; } catch { /* ignore */ } if (!alive) return; draw(cv, data, im); try { setUrl(cv.toDataURL("image/png")); } catch { /* ignore */ } };
-    img.onload = () => done(img); img.onerror = () => done(null); img.src = withBase("/assets/rocket-hi.webp");
+    img.onload = () => done(img); img.onerror = () => done(null); img.src = withBase(data.kind === "win" ? "/art/share/duel-win.webp" : "/art/share/duel-loss.webp");
     return () => { alive = false; };
   }, [data]);
   useEffect(() => { const k = (e: KeyboardEvent) => e.key === "Escape" && onClose(); addEventListener("keydown", k); return () => removeEventListener("keydown", k); }, [onClose]);

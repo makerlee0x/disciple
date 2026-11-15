@@ -1,7 +1,7 @@
 "use client";
 /**
  * "Pick a mode" (lobby canvas board "Game modes", option A, maker picked 2026-11-14): the Fortnite-style row at the top of
- * the lobby. Tall poster cards with our art plates: Host a launch, Live flights, Trading duel (only while the Turbo
+ * the lobby. Tall 2:3 poster cards (Grok art plates, PR #380, web/public/art/modes; no sprite outside flight): Host a launch, Live flights, Trading duel (only while the Turbo
  * flag is on, see lib/turbo/flag.ts) and Free play. The card in focus is bigger with Play; the others tilt away. Desktop: click a card to focus
  * it, click it again (or Play) to go; ←/→ move focus and Enter plays while the row has focus. Phones (≤760px): a swipe
  * carousel that snaps to the middle, with dots; tapping the middle card goes, tapping a side card slides it to the middle. Signed in it opens on the last mode played (this
@@ -10,13 +10,12 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { withBase } from "@/lib/base-path";
-import { ROCKET_SRC } from "@/lib/home/trending";
 import { DUEL_HREF } from "@/lib/features";
 import { isTurboEnabled } from "@/lib/turbo/flag";
 import s from "./modeSelect.module.css";
 
 type ModeId = "launch" | "live" | "duel" | "free";
-type Mode = { id: ModeId; title: [string, string]; sub: string; tag: string; tone: string; href: string; art: string; pos: string; rockets: { c: string; x: number; y: number; h: number; r: number }[] };
+type Mode = { id: ModeId; title: [string, string]; sub: string; tag: string; tone: string; href: string; art: string; pos: string };
 
 export const MODE_COPY = {
   title: "Pick a mode",
@@ -28,13 +27,10 @@ const LAST = "disciple.lobby.mode";
 
 function modes(flying: number, duel: boolean): Mode[] {
   const all: Mode[] = [
-    { id: "launch", title: ["Host a", "launch"], sub: "Build a rocket. The crew flies it up.", tag: "Real coins", tone: "#F3DFA8", href: "/create", art: "/home/modes/launch.webp", pos: "50% 60%", rockets: [] },
-    { id: "live", title: ["Live", "flights"], sub: "Jump on a rocket that's already climbing.", tag: flying > 0 ? `${flying} flying` : "Live", tone: "#5FF0A0", href: "/play", art: "/home/modes/live.webp", pos: "50% 40%",
-      rockets: [{ c: "#F2C14E", x: 52, y: 12, h: 36, r: 8 }] },
-    { id: "duel", title: ["Trading", "duel"], sub: "1v1. Three minutes. Most profit wins.", tag: "Ranked", tone: "#FF9CC4", href: DUEL_HREF, art: "/home/modes/duel.webp", pos: "50% 30%",
-      rockets: [{ c: "#F2C14E", x: 30, y: 16, h: 32, r: -4 }, { c: "#F0307F", x: 58, y: 24, h: 26, r: 8 }] },
-    { id: "free", title: ["Free", "play"], sub: "No cash. Today's daily flight.", tag: "Free", tone: "#8FE3FF", href: "/flight/sim", art: "/home/modes/free.webp", pos: "50% 50%",
-      rockets: [{ c: "#8FE3FF", x: 52, y: 12, h: 36, r: 8 }] },
+    { id: "launch", title: ["Host a", "launch"], sub: "Build a rocket. The crew flies it up.", tag: "Real coins", tone: "#F3DFA8", href: "/create", art: "/art/modes/launch.webp", pos: "50% 30%" },
+    { id: "live", title: ["Live", "flights"], sub: "Jump on a rocket that's already climbing.", tag: flying > 0 ? `${flying} flying` : "Live", tone: "#5FF0A0", href: "/play", art: "/art/modes/live.webp", pos: "50% 30%" },
+    { id: "duel", title: ["Trading", "duel"], sub: "1v1. Three minutes. Most profit wins.", tag: "Ranked", tone: "#FF9CC4", href: DUEL_HREF, art: "/art/modes/duel.webp", pos: "50% 30%" },
+    { id: "free", title: ["Free", "play"], sub: "No cash. Today's daily flight.", tag: "Free", tone: "#8FE3FF", href: "/flight/sim", art: "/art/modes/free.webp", pos: "50% 30%" },
   ];
   return all.filter((m) => m.id !== "duel" || duel);
 }
@@ -132,13 +128,6 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
                   the 4th), so none is lazy, and the focused card's art is the page's largest paint: fetch it first */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img className={s.art} src={withBase(m.art)} alt="" style={{ objectPosition: m.pos }} loading="eager" fetchPriority={on ? "high" : "auto"} decoding={on ? "sync" : "async"} />
-              {m.rockets.map((r, k) => (
-                <span key={k} className={s.rk} style={{ left: `${r.x}%`, top: `${r.y}%`, height: `${r.h}%`, transform: `rotate(${r.r}deg)`, ["--c" as string]: r.c }} aria-hidden>
-                  <i className={s.plume} />
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={withBase(ROCKET_SRC)} alt="" />
-                </span>
-              ))}
               <span className={s.scrim} aria-hidden />
               <span className={s.tag} style={{ color: m.tone }}>{m.tag}</span>
               <span className={s.body}>

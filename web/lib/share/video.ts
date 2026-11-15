@@ -5,7 +5,7 @@
  * engine.js instance), so the profile page never mounts the game.
  */
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
-import { drawShareScene, composeRocket, scenePeak, tierAt, FONT, type SceneData, type MakeCanvas, type Loadout } from "./scene";
+import { drawShareScene, composeRocket, scenePeak, tierAt, pnlPlate, FONT, type SceneData, type MakeCanvas, type Loadout } from "./scene";
 import type { Fill } from "../trades";
 import { CURVE } from "../config";
 import type { LoadoutIds } from "./loadout";
@@ -62,7 +62,9 @@ export function loadShareFonts() {
 }
 export async function endCardAssets(mcapEnd: number, lo: Loadout) {
   await loadShareFonts();
-  const [bg, base, wordmark] = await Promise.all([img(`${BASE()}${tierAt(mcapEnd).sky}`), img(`${BASE()}/assets/rocket.png`), img(`${BASE()}/brand/disciple-wordmark-light-1200.png`)]);
+  const [plate, wordmark] = await Promise.all([img(`${BASE()}${pnlPlate(mcapEnd, "story")}`), img(`${BASE()}/brand/disciple-wordmark-light-1200.png`)]);
+  if (plate) return { bg: null, rocket: null, wordmark, plate };   // full art (Grok plate, PR #385): no sprite
+  const [bg, base] = await Promise.all([img(`${BASE()}${tierAt(mcapEnd).sky}`), img(`${BASE()}/assets/rocket.png`)]);
   return { bg, rocket: base ? composeRocket(mkDom, base, lo, 4) : null, wordmark, wing: base };
 }
 

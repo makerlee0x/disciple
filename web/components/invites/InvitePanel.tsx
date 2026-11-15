@@ -105,7 +105,7 @@ export default function InvitePanel() {
     <section className="ls-page iv-page" data-testid="invite-page">
       <div className="ls-sky" aria-hidden="true">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={withBase("/home/sky/t6.webp")} alt="" />
+        <img src={withBase("/art/invite/squadron.webp")} alt="" />
       </div>
       {body}
     </section>

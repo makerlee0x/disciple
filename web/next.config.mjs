@@ -37,10 +37,11 @@ const nextConfig = {
   // outputFileTracingIncludes moved out of experimental.
   serverExternalPackages: ["sharp", "nsfwjs", "@tensorflow/tfjs", "@napi-rs/canvas", "undici"],
   outputFileTracingIncludes: {
-    "/api/share/card": ["./public/fonts/share/**", "./public/assets/**"],
-    "/api/daily/card": ["./public/fonts/share/**", "./public/free-play/**"],
+    // the art plates (public/art) are read from disk by these routes, so they must ship with the functions
+    "/api/share/card": ["./public/fonts/share/**", "./public/assets/**", "./public/brand/**", "./public/art/pnl/**"],
+    "/api/daily/card": ["./public/fonts/share/**", "./public/free-play/**", "./public/brand/**", "./public/art/share/**"],
     // link preview cards: fonts, tier skies, rocket, mark, and the art plates in public/og once they land
-    "/api/og/[kind]": ["./public/fonts/share/**", "./public/assets/**", "./public/home/sky/**", "./public/brand/**", "./public/og/**"],
+    "/api/og/[kind]": ["./public/fonts/share/**", "./public/assets/**", "./public/home/sky/**", "./public/brand/**", "./public/og/**", "./public/art/hero/**", "./public/art/invite/**"],
   },
   env: {
     // lets the client pick NEXT_PUBLIC_PRIVY_APP_ID_PREVIEW on Vercel preview deployments
