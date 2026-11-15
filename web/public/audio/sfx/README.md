@@ -30,3 +30,14 @@ Every source is public domain (CC0 1.0): Freesound uploads marked "Creative Comm
 The ambience beds from the same batch are in `../amb/`.
 
 The full-quality originals and the edit recipes are kept outside the repo.
+
+## v3 batch 2: the fights
+
+20 sounds for Turbo Royale, the Trading Duel and trade confirmations. They're all CC0, from Freesound and Kenney, and each source is listed in `SOURCES.csv`.
+
+- Royale guns: `gun_pistol_01/02`, `gun_machine_01/02` (one burst each), `gun_minigun` (spin-up, fire and spin-down as one shot), `gun_minigun_loop` (the firing part as a 2.000 s loop for holding the trigger), `gun_shotgun_01/02`, `gun_sniper`, `gun_rocket` and `gun_railgun`. They're sci-fi energy weapons, not real guns.
+- Royale hits: `hit_marker_01/02`, a tight metallic tick.
+- Duel: `match_found`, `countdown_beep` (one beep used for 3, 2 and 1) and `race_go`.
+- Trading: `trade_fill_buy`, `trade_fill_sell`, `tx_fail` and `ath_reached` (new all-time high).
+- `loops-wav/gun_minigun_loop.wav` is the gapless copy to use when the minigun loops.
+- Loudness is the same as before. One-shots and stings sit around -16 LUFS. Short clicks like the hit marker, beep, buy chime and fail are matched by peak. True peak is at or below -1 dBTP.
