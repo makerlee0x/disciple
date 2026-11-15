@@ -1,4 +1,4 @@
-# Sound effects (v1)
+# Sound effects
 
 Sound effects for flight and Turbo: boosts, engine loops, lever clicks, explosions, nukes, pod drops, weapon pickups, cash-out and more. Nothing in the game uses them yet; wiring them in is a separate step.
 
@@ -17,5 +17,16 @@ Every source is public domain (CC0 1.0): Freesound uploads marked "Creative Comm
 - One-shots: about -16 LUFS (very short clicks and hits are matched by peak instead).
 - Loops and crew boosts: about -20 LUFS, so they sit under the one-shots.
 - True peak at or below -1 dBTP. Everything was checked on phone speakers, so the low-mid punch is kept.
+
+## v3 batch 1: menus and crates
+
+23 more files from the v3 brief, same rules (all CC0, no credit needed, rows added to `SOURCES.csv` with `brief_no` = `v3 batch 1`):
+
+- Taps: `ui_tap_01`-`03`, `ui_tap_primary` (PLAY, LAUNCH, FIND A MATCH), `ui_back_01`-`02`. One family: a tapped wire sculpture, soft and a little metallic.
+- Sheets and mode cards: `sheet_open`, `sheet_close`, `mode_swipe_01`-`03`, `mode_snap_01`-`02`, `mode_select`.
+- Crates: `crate_land_01`-`02`, `crate_shake` (builds into the open), `crate_open`, then `reveal_common`, `reveal_rare`, `reveal_epic`, `reveal_legendary`, `reveal_mythic`.
+- Levels: UI sounds are quiet on purpose (peaks around -3 to -6 dBFS, about 6 dB under the one-shots). Crates and reveals sit at about -16 LUFS like the flight one-shots. Every file is under 0.45 s (UI) or 2.5 s (stings). Mono, except the epic, legendary and mythic reveals.
+
+The ambience beds from the same batch are in `../amb/`.
 
 The full-quality originals and the edit recipes are kept outside the repo.
