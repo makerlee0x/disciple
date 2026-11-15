@@ -22,6 +22,10 @@ test("haptics: patterns, sfx mapping, dedupe, settings toggle", async () => {
   assert.equal(s.DEFAULT_GAME_SETTINGS.haptics, true, "vibration on by default (maker 2026-11-13)");
   assert.equal(s.sanitizeGameSettings({}).haptics, true, "old saves without the key stay on");
   assert.equal(s.sanitizeGameSettings({ haptics: false }).haptics, false);
+  // full-screen flying (calm): off by default since the 2026-11-14 TestFlight pass; a v1 save's stored "on" was the old default
+  assert.equal(s.DEFAULT_GAME_SETTINGS.calm, false);
+  assert.equal(s.sanitizeGameSettings({ v: 1, calm: true }).calm, false, "v1 saves drop the old on-by-default");
+  assert.equal(s.sanitizeGameSettings({ v: 2, calm: true }).calm, true, "an explicit v2 choice sticks");
   assert.equal(h.kindForSfx("ignite", { side: "buy" }), "boost");
   assert.equal(h.kindForSfx("ignite", { side: "sell" }), "dump");
   assert.equal(h.kindForSfx("orbit"), "orbit");

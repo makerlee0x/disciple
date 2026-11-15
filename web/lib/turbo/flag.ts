@@ -3,12 +3,16 @@
  *
  * On when ANY of these is true:
  *  1. Build-time NEXT_PUBLIC_TURBO=1 (not set anywhere today; optional for a preview build).
- *  2. Client-side localStorage "disciple.turbo.enabled.v1" === "1". Visiting any page that calls
+ *  2. Inside the iPhone app (maker 2026-11-14: Trading Duel is the viral mode and belongs on mobile). The app has no URL bar for
+ *     ?turbo=1. The password screen (TurboGate) and practice fuel (realTurboAllowed) still apply there.
+ *  3. Client-side localStorage "disciple.turbo.enabled.v1" === "1". Visiting any page that calls
  *     `syncTurboFlagFromUrl()` (or `isTurboEnabled()`) with `?turbo=1` sets it; `?turbo=0` clears it.
  *
  * Server-side (no window) only rule 1 applies, so call isTurboEnabled() from an effect in client components to avoid a
  * hydration mismatch, and render notFound()/nothing until it says true.
  */
+
+import { isNativeApp } from "@/lib/native";
 
 export const TURBO_FLAG_KEY = "disciple.turbo.enabled.v1";
 
@@ -32,7 +36,8 @@ export function syncTurboFlagFromUrl(search?: string): boolean {
 
 export function isTurboEnabled(): boolean {
   if (envOn()) return true;
-  return syncTurboFlagFromUrl();
+  const stored = syncTurboFlagFromUrl();
+  return stored || isNativeApp();
 }
 
 /** Play sample link (/turbo?sample=1, for Nova and play-testers): also turns Turbo on, and on a device with no stand-in
