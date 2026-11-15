@@ -35,8 +35,12 @@ const InstallPrompt = dynamic(() => import("./mobile/InstallPrompt"), { ssr: fal
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isGame = isCollapsibleRoute(pathname);
+  // Trading Duel + Turbo Royale show their own fuel in the HUD; the wallet pill sat on top of the duel title, rating, clock
+  // and PnL on phones (app audit 2026-11-15). Kept mounted (sign-in, wallet id events), just not drawn.
+  const hideWallet = /^\/turbo\/(duel|royale)(\/|$)/.test(pathname ?? "");
   return (
     <>
+      {hideWallet && <style>{".wb-root{display:none!important}"}</style>}
       {/* brand v3: game routes keep the sidebar rail; every other route gets the lobby tab bar */}
       {isGame ? <Sidebar /> : <LobbyTopBar />}
       <RefCapture />

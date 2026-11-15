@@ -5,16 +5,15 @@ import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
 import { usernameOf } from "@/lib/server/usernames";
-import { hasTurboPass, TURBO_PASS_COOKIE } from "@/lib/server/turboPass";
+import { turboOpenReq } from "@/lib/server/turboPass";
 import { DuelError, type Pilot } from "./store";
 
 export const out = (status: number, b: Record<string, unknown>) => NextResponse.json(b, { status, headers: { "cache-control": "no-store" } });
 const isAddr = (a: unknown): a is string => typeof a === "string" && /^0x[0-9a-fA-F]{40}$/.test(a);
 
-/** Duels sit behind the same pre-launch Turbo password as /turbo. */
+/** Duels sit behind the same pre-launch Turbo gate as /turbo (password, the iPhone app, or a friend's live invite). */
 export function requirePass(req: Request) {
-  const c = (req.headers.get("cookie") || "").split(/;\s*/).find((x) => x.startsWith(TURBO_PASS_COOKIE + "="));
-  if (!hasTurboPass(c ? decodeURIComponent(c.slice(TURBO_PASS_COOKIE.length + 1)) : undefined)) throw new DuelError(403, "Turbo isn't open yet.");
+  if (!turboOpenReq(req)) throw new DuelError(403, "Turbo isn't open yet.");
 }
 /** The signed-in pilot. Optional `x-wallet` picks which of their wallets (must be on their account). */
 export async function pilotOf(req: Request): Promise<Pilot> {

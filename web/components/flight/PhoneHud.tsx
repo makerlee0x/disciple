@@ -237,10 +237,12 @@ export default function PhoneHud() {
               style={{ ...glass, pointerEvents: "auto", width: 48, height: 48, borderRadius: "50%", display: "grid", placeItems: "center", color: "#F2F3F7", textDecoration: "none", font: `800 18px/1 ${G}` }}>
               {xp ? <LevelRing info={xp.level} size={40} /> : name.slice(0, 1).toUpperCase()}</Link>
             : <span style={{ width: 48 }} />}
-          <div data-testid="phone-mc" style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-            <span data-testid="phone-mcap" style={{ font: `800 30px/1 ${G}`, color: "#F2F3F7", textShadow: "0 2px 0 #121327", fontVariantNumeric: "tabular-nums" }}>{mcap > 0 ? shortUsd(mcap) : "…"}</span>
+          {/* centred in the room between the pilot chip and the cash + leave buttons, not on the screen centre: on a 393 px phone a
+              $94.2M cap ran under the cash pill (app audit 2026-11-15) */}
+          <div data-testid="phone-mc" style={{ flex: "1 1 0", minWidth: 0, alignSelf: "flex-start", margin: "0 6px", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+            <span data-testid="phone-mcap" style={{ font: `800 clamp(24px, 7.4vw, 30px)/1 ${G}`, whiteSpace: "nowrap", color: "#F2F3F7", textShadow: "0 2px 0 #121327", fontVariantNumeric: "tabular-nums" }}>{mcap > 0 ? shortUsd(mcap) : "…"}</span>
             <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
-              <span style={{ width: simClock ? 72 : 120, height: 7, borderRadius: 4, background: "rgba(0,0,0,.45)", border: "1px solid rgba(255,255,255,.35)", overflow: "hidden" }}>
+              <span style={{ width: simClock ? 72 : 120, maxWidth: "100%", height: 7, borderRadius: 4, background: "rgba(0,0,0,.45)", border: "1px solid rgba(255,255,255,.35)", overflow: "hidden" }}>
                 <span style={{ display: "block", width: `${Math.round(zl.f * 100)}%`, height: "100%", background: "#F2C14E" }} /></span>
               {/* Free play: run clock + goal dots by the market cap (maker 2026-11-14); tap opens the goals */}
               {simClock && <button type="button" data-testid="phone-simclock" aria-label={`${simClock.mode}, ${simClock.left} left, ${simClock.dots.filter(Boolean).length} of ${simClock.dots.length} goals. Show goals`}

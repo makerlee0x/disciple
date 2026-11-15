@@ -218,6 +218,7 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .stats b{font:800 20px/1 var(--f-game)}
 .duel-root .rrow{display:flex;gap:8px}
 .duel-root .rrow .go{flex:2}
+.duel-root .res .save{width:100%;margin-top:8px;height:50px;font-size:19px;background:transparent;color:var(--gold);border:2px solid var(--gold);box-shadow:none}
 .duel-root .rrow .sec{flex:1;height:58px;border-radius:16px;background:#23262F;border:2px solid #2E323A;font:800 20px/1 var(--f-game)}
 .duel-root .toast{position:absolute;left:50%;top:calc(var(--ch) + 150px);transform:translateX(-50%);padding:9px 14px;border-radius:12px;background:rgba(18,19,39,.94);border:1px solid var(--line);font-size:13px;white-space:nowrap;opacity:0;transition:opacity .2s;pointer-events:none}
 .duel-root .toast.show{opacity:1}
@@ -320,7 +321,13 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .mkb.on{border-color:var(--gold)!important;background:rgba(242,193,78,.16)!important}
 .duel-root .mkb .t em{font-size:13px!important;letter-spacing:.6px}
 .duel-root #drop .panel{margin:auto 0}
+.duel-root #drop .mk{grid-template-columns:repeat(2,minmax(0,1fr))}
+.duel-root #drop .mkb{min-width:0;overflow:hidden;box-sizing:border-box}
+.duel-root #drop .mkb .t{flex-wrap:wrap;gap:2px 8px}
+.duel-root #drop .mkb .tg,.duel-root #drop .mkb small{overflow-wrap:anywhere}
+@media (max-width:430px){.duel-root #drop .mkb b{font-size:22px}.duel-root #drop .mkb small{font-size:11.5px}}
 .duel-root #drop .pane{gap:12px}
+@media (hover:none),(pointer:coarse){.duel-root .kbd{display:none}}
 .duel-root .how summary{cursor:pointer;list-style:none;text-align:center;font:700 13px/1 var(--f-game);letter-spacing:.8px;color:var(--muted);padding:4px 0}
 .duel-root .how summary::-webkit-details-marker{display:none}
 .duel-root .how[open] summary{margin-bottom:8px}
@@ -338,10 +345,14 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .banner{position:absolute;left:12px;right:12px;top:calc(var(--ch) + 86px + env(safe-area-inset-top,0px));display:flex;justify-content:center;pointer-events:none}
 .duel-root .banner span{display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:12px;background:rgba(18,19,39,.94);border:1px solid rgba(255,255,255,.22);font-size:12px;max-width:100%;text-align:center}
 .duel-root .banner span b{font:800 14px/1 var(--f-game);letter-spacing:.5px;white-space:nowrap}
+/* two short lines (title, then the rule) so the banner never runs into the feed or MAP on a phone (app audit 2026-11-15) */
+.duel-root .banner span{flex-direction:column;gap:3px;padding:6px 12px;box-sizing:border-box}
+.duel-root .banner span small{font:500 11px/1.2 var(--f-ui);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;color:var(--muted)}
 .duel-root .banner.pink span{border-color:rgba(255,143,189,.55)}.duel-root .banner.pink span b{color:var(--pinkl)}
 .duel-root .banner.gold span{border-color:rgba(242,193,78,.55)}.duel-root .banner.gold span b{color:var(--gold)}
-.duel-root .feed{top:calc(var(--ch) + 128px + env(safe-area-inset-top,0px))}
-.duel-root .mute{top:calc(var(--ch) + 128px + env(safe-area-inset-top,0px))}
+.duel-root .feed{top:calc(var(--ch) + 136px + env(safe-area-inset-top,0px));max-width:calc(100% - 210px)}
+.duel-root .feed>*{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.duel-root .mute{top:calc(var(--ch) + 136px + env(safe-area-inset-top,0px))}
 .duel-root .jump{position:absolute;left:12px;right:12px;bottom:calc(168px + env(safe-area-inset-bottom,0px));padding:10px;border-radius:18px;background:rgba(12,13,28,.94);border:2px solid rgba(255,143,189,.55);display:flex;flex-direction:column;gap:8px;box-shadow:0 10px 26px rgba(0,0,0,.45)}
 .duel-root .jump>small{font:700 12px/1 var(--f-game);letter-spacing:.8px;color:var(--pinkl)}
 .duel-root .jump .jb{display:flex;gap:6px}
@@ -452,13 +463,13 @@ html,body{margin:0;height:100%;background:#07080c}
       <button class="go" type="button" id="dGo">DROP INTO HYPE</button>
       <details class="how"><summary>HOW IT WORKS</summary>
       <ul class="rules">
-        <li><b>START WITH A PISTOL</b> ($10 spot, 1×). Fly into loot crates for leverage weapons. Each one is a trade size × leverage with limited shots. Tap a slot or press 1–3 to switch.</li>
+        <li><b>START WITH A PISTOL</b> ($10 spot, 1×). Fly into loot crates for leverage weapons. Each one is a trade size × leverage with limited shots. Tap a slot to switch<span class="kbd"> (or press 1–3)</span>.</li>
         <li><b>HOTBAR FULL?</b> A pop-up asks which gun to swap out (even the pistol), or leave it. Same gun again = more ammo.</li>
-        <li><b>FLY ANYWHERE.</b> Drag to move up, down and sideways (WASD or arrows on a keyboard). Your tag always shows your real PnL.</li>
+        <li><b>FLY ANYWHERE.</b> Drag anywhere to fly up, down and sideways<span class="kbd"> (WASD or arrows on a keyboard)</span>. Your tag always shows your real PnL.</li>
         <li><b>MAPS CLOSE</b> one by one and the storm cuts the lowest PnL. Tap MAP to jump, your PnL comes with you.</li>
         <li><b>DOGFIGHT</b> when you're within $1 of a pilot. Win it and you take their best weapon. A <b>NUKE</b> blows up the gun that fired it.</li>
       </ul></details>
-      <p class="fine">Practice round · fake money · 11 bots on simulated charts · last 2 duel on BTC</p>
+      <p class="fine">Practice round · fake money · you + 11 bots on simulated charts · last 2 duel on BTC</p>
     </div>
   </div>
 </div>
@@ -470,7 +481,7 @@ html,body{margin:0;height:100%;background:#07080c}
     <p class="sub" id="rSub"></p>
     <div class="moments" id="rMom"></div>
     <div class="stats"><div><small>Dogfights</small><b id="rDf">0-0</b></div><div><small>Weapons looted</small><b id="rSh">0</b></div><div><small>Best trade</small><b id="rBest">$0</b></div></div>
-    <div class="rrow"><button class="sec" type="button" id="rWatch">WATCH</button><button class="go" type="button" id="rAgain">DROP AGAIN</button></div>
+    <div class="rrow"><button class="sec" type="button" id="rWatch">WATCH</button><button class="sec" type="button" id="rShare">SHARE</button><button class="go" type="button" id="rAgain">DROP AGAIN</button></div>
   </div>
 </div>
 </div></div>
@@ -816,6 +827,7 @@ function endMe(){
     const why=me.why||"knocked out"; $("rSub").textContent=win?"You won the final duel. Everyone else is grounded.":(why.startsWith("lost")?"You "+why+" to "+(G.champ?G.champ.name:"your rival"):"You were "+why)+".";
     const mo=G.moments.slice().sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)).slice(0,5).sort((a,b)=>a.t-b.t);
     $("rMom").innerHTML=mo.length?mo.map(m=>`<div><span><span class="t">${mmss(m.t)}</span>${m.txt}</span><b style="color:${m.v>=0?"var(--green)":"var(--pinkl)"}">${usd(m.v,true)}</b></div>`).join(""):"<div><span>No big moments this time.</span></div>";
+    LASTR={place,win,pr,mk:me.mk,df:me.dfW,champ:G.champ?G.champ.name:null};
     $("rDf").textContent=me.dfW+"-"+me.dfL; $("rSh").textContent=me.grab; $("rBest").textContent=usd0(me.best);
     $("rWatch").hidden=win||alive().length<2;
     $("result").hidden=false;
@@ -824,6 +836,41 @@ function endMe(){
   },win?300:900);
 }
 $("rAgain").addEventListener("click",()=>showDrop());
+/* ---- share the result (maker 2026-11-15: share card; bragging rights only, never rewards) ---- */
+let LASTR=null;
+function royaleLine(r){
+  if(r.win) return `last pilot standing in turbo royale. 11 bots got rekt, i didn't. ${usd(r.pr,true)} on the day`;
+  if(r.place<=3) return `#${r.place} of 12 in turbo royale. ${r.df?`won ${r.df} dogfight${r.df>1?"s":""}, `:""}so close to the W`;
+  return `#${r.place} of 12 in turbo royale. the storm doesn't care about your thesis`;
+}
+function royaleCard(r){
+  const W=1080,H=1350,c=document.createElement("canvas"); c.width=W; c.height=H; const x=c.getContext("2d");
+  const sky=imgs.sky3&&imgs.sky3.complete&&imgs.sky3.width?imgs.sky3:imgs.sky1;
+  if(sky&&sky.complete&&sky.width){ const k=Math.max(W/sky.width,H/sky.height); x.drawImage(sky,(W-sky.width*k)/2,(H-sky.height*k)/2,sky.width*k,sky.height*k); } else { x.fillStyle="#0B0C1E"; x.fillRect(0,0,W,H); }
+  const g=x.createLinearGradient(0,0,0,H); g.addColorStop(0,"rgba(7,8,12,.8)"); g.addColorStop(.45,"rgba(7,8,12,.2)"); g.addColorStop(1,"rgba(7,8,12,.92)"); x.fillStyle=g; x.fillRect(0,0,W,H);
+  const rk=imgs.rocket, rh=460, rw=rh*221/609, cx=W/2, cy=720;
+  const fg=x.createRadialGradient(cx,cy+rh*.55,4,cx,cy+rh*.75,180); fg.addColorStop(0,"rgba(255,250,235,.95)"); fg.addColorStop(.3,"rgba(242,193,78,.85)"); fg.addColorStop(1,"rgba(242,193,78,0)");
+  x.globalCompositeOperation="lighter"; x.fillStyle=fg; x.beginPath(); x.ellipse(cx,cy+rh*.72,66,200,0,0,Math.PI*2); x.fill(); x.globalCompositeOperation="source-over";
+  if(rk&&rk.complete&&rk.width) x.drawImage(rk,cx-rw/2,cy-rh/2,rw,rh);
+  x.textAlign="center";
+  x.font=`italic 800 64px ${GF},sans-serif`; x.fillStyle="#F2F3F7"; x.fillText("DISCIPLE",W/2,110);
+  x.font=`800 30px ${GF},sans-serif`; x.fillStyle="rgba(215,217,228,.85)"; x.fillText(`TURBO ROYALE · DROPPED INTO ${r.mk}`,W/2,160);
+  x.font=`800 170px ${GF},sans-serif`; x.fillStyle=r.win?"#F2C14E":"#F2F3F7"; x.fillText(r.win?"#1 PILOT":`#${r.place} OF 12`,W/2,340);
+  x.font=`800 56px ${GF},sans-serif`; x.fillStyle=r.pr>=0?"#5FF0A0":"#FF8FBD"; x.fillText(usd(r.pr,true)+" PNL",W/2,412);
+  x.font=`600 34px ${GU},sans-serif`; x.fillStyle="#D7D9E4"; const words=royaleLine(r).split(" "); let row="", y=1150;
+  for(const w of words){ const t=row?row+" "+w:w; if(x.measureText(t).width>W-160){ x.fillText(row,W/2,y); row=w; y+=46; } else row=t; } if(row) x.fillText(row,W/2,y);
+  x.font=`800 38px ${GF},sans-serif`; x.fillStyle="#F2C14E"; x.fillText("DROP IN · DISCIPLE.VIP",W/2,H-60);
+  return c;
+}
+$("rShare").addEventListener("click",async()=>{
+  if(!LASTR) return; const btn=$("rShare"), was=btn.textContent; btn.disabled=true; btn.textContent="…";
+  try{
+    const url=(top===self?location.origin:(()=>{ try{ return top.location.origin; }catch(e){ return location.origin; } })())+"/", text=royaleLine(LASTR);
+    let file=null; try{ const blob=await new Promise(res=>royaleCard(LASTR).toBlob(res,"image/png")); if(blob) file=new File([blob],"disciple-royale.png",{type:"image/png"}); }catch(e){}
+    if(navigator.share){ const d=file&&navigator.canShare&&navigator.canShare({files:[file]})?{files:[file],text:text+" "+url}:{text,url}; try{ await navigator.share(d); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
+    try{ await navigator.clipboard.writeText(text+" "+url); toast("Copied. Paste it anywhere."); }catch(e){ toast(url); }
+  } finally { btn.disabled=false; btn.textContent=was; }
+});
 $("rWatch").addEventListener("click",()=>{ $("result").hidden=true; G.watch=true; G.over=false; G.watchFrom=G.pilots.find(p=>p.alive&&p.mk===G.me.mk)||alive()[0]; toast("Spectating"); });
 
 /* ---------- HUD ---------- */
@@ -851,10 +898,10 @@ function hud(){
   else { pill.disabled=true; pill.className="pill"; $("posLab").textContent="FUEL · "+wOf(me).k+" READY"; $("posV").textContent="$"+Math.max(0,me.fuel).toFixed(2); $("pnlP").hidden=true; $("bOutS").textContent=me.alive?"pick a side":"grounded"; }
   // banner
   const bn=$("banner"), bt=$("bannerT");
-  if(G.duel&&(G.duel.a===me||G.duel.b===me)){ bn.hidden=false; bn.className="banner gold"; bt.innerHTML=`<b>LAST 2</b>Most PnL before the clock runs out wins`; }
-  else if(d){ bn.hidden=false; bn.className="banner pink"; const o=d.a===me?d.b:d.a; bt.innerHTML=`<b>LOCKED ON ${o.name.toUpperCase()}</b>Most PnL in ${G.P.df} s wins · ${o.inv.some(x=>x.k!=="PISTOL")?"win to take their "+o.inv.filter(x=>x.k!=="PISTOL").sort((a,b)=>W(b).r-W(a).r)[0].k:"loser drops their best weapon"}`; }
+  if(G.duel&&(G.duel.a===me||G.duel.b===me)){ bn.hidden=false; bn.className="banner gold"; bt.innerHTML=`<b>LAST 2</b><small>Most PnL before the clock runs out wins</small>`; }
+  else if(d){ bn.hidden=false; bn.className="banner pink"; const o=d.a===me?d.b:d.a; bt.innerHTML=`<b>LOCKED ON ${o.name.toUpperCase()}</b><small>Most PnL in ${G.P.df} s wins · ${o.inv.some(x=>x.k!=="PISTOL")?"win to take their "+o.inv.filter(x=>x.k!=="PISTOL").sort((a,b)=>W(b).r-W(a).r)[0].k:"loser drops their best weapon"}</small>`; }
   else if(G.final){ bn.hidden=false; bn.className="banner pink"; const out=pr<bandBot();
-    bt.innerHTML=out?`<b>BELOW THE BAND</b>burning $1/s · get within $${(2*G.band.w).toFixed(0)} of the leader`:`<b>BAND SHRINKS IN ${mmss(G.final.next-G.t)}</b>stay within $${(2*G.band.w).toFixed(0)} of the leader · below it you burn $1/s`; }
+    bt.innerHTML=out?`<b>BELOW THE BAND</b><small>burning $1/s · get within $${(2*G.band.w).toFixed(0)} of the leader</small>`:`<b>BAND SHRINKS IN ${mmss(G.final.next-G.t)}</b><small>stay within $${(2*G.band.w).toFixed(0)} of the leader · below it you burn $1/s</small>`; }
   else bn.hidden=true;
   // jump row
   const m=G.M[me.mk], warn=me.alive&&!G.final&&!G.duel&&m.closeAt!=null&&G.t>=m.closeAt-G.P.warn, mapv=me.alive&&!G.final&&!G.duel&&G.mapOpen, jv=warn||mapv;
@@ -987,19 +1034,41 @@ function drawRocket(pl,now){
   sx.globalCompositeOperation="source-over"; sx.scale(1-pl.sq*.3,1+pl.sq);
   if(img.complete) sx.drawImage(img,-w/2,-h/2,w,h);
   sx.restore();
-  // tags beside the rocket, on the side with more room
+  // tags beside the rocket, on the side with more room; drawn after every rocket so no sprite covers a tag
+  (G._tagQ=G._tagQ||[]).push(()=>{
   const nb=(G._shown||[]).filter(o=>o!==pl&&o.y!=null).sort((u,v)=>Math.hypot(xOf(u)-x,u.y-y)-Math.hypot(xOf(v)-x,v.y-y))[0];
   const pr=alt(pl), side=nb?(xOf(nb)>x?-1:1):(x<SW/2?-1:1);
   const txt=(pl.me?"YOU ":pl.name+" ")+usd(pr,true), t2=wOf(pl).k, t2c=rarOf(wOf(pl)).c, lq=liqPct(pl), t3=pl.pos?(lq>=.7?`NUKE ${Math.min(99,Math.floor(lq*100))}%`:`${pl.pos.side>0?"BOOST ▲":"DUMP ▼"} ${pl.pos.w?W(pl.pos.w).lev:1}×`):"";
   sx.font=`800 ${pl.me?15:13}px ${GF},sans-serif`; const tw=sx.measureText(txt).width+14;
-  const bw=Math.max(tw,90); let cx2=x+side*(w/2+14+bw/2); cx2=Math.max(bw/2+6,Math.min(SW-bw/2-6,cx2));
-  const lock=fight&&!pl.me, blockH=(lock?20:0)+22+20+(t3?20:0); let ty=y-blockH/2;
+  const bw=Math.max(tw,90), lock=fight&&!pl.me;
+  let full=true, blockH=(lock?20:0)+22+20+(t3?20:0);
+  const place=(sd)=>{ const c=Math.max(bw/2+6,Math.min(SW-bw/2-6,x+sd*(w/2+14+bw/2))); return {x:c-bw/2,y:y-blockH/2,w:bw,h:blockH,c}; };
+  let box=pl.me?(G._tags||[])[0]||place(side):null;
+  if(!box){
+    const tries=[place(side),place(-side)];
+    for(const b of tries.slice()){ for(const dy of [1,-1]){ const hit=(G._tags||[]).find(o=>overlap(o,b)); if(hit){ const nb2=Object.assign({},b); nb2.y=dy>0?hit.y+hit.h+4:hit.y-b.h-4; tries.push(nb2); } } }
+    box=tries.find(b=>!(G._tags||[]).some(o=>overlap(o,b)));
+    if(!box&&!lock){ full=false; blockH=22; const sm=[place(side),place(-side)].map(b=>Object.assign(b,{h:22,y:y-11})); box=sm.find(b=>!(G._tags||[]).some(o=>overlap(o,b)))||sm[0]; }
+    if(!box) box=tries[0];
+    (G._tags=G._tags||[]).push(box);
+  }
+  const cx2=box.c; let ty=box.y;
   if(lock){ sx.font="800 12px "+GF+",sans-serif"; const lw=sx.measureText(G.duel?"FINAL DUEL":"LOCKED ON").width+12; sx.fillStyle="#F0307F"; rr(cx2-lw/2,ty,lw,17,6); sx.fill(); sx.fillStyle="#fff"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(G.duel?"FINAL DUEL":"LOCKED ON",cx2,ty+9); ty+=20; }
   sx.font=`800 ${pl.me?15:13}px ${GF},sans-serif`; sx.fillStyle="rgba(11,10,22,.86)"; rr(cx2-tw/2,ty,tw,22,7); sx.fill();
   sx.fillStyle=pr>0.004?"#5FF0A0":pr<-0.004?"#FF8FBD":"#F2F3F7"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(txt,cx2,ty+11.5); ty+=25;
+  if(!full) return;
   sx.font="700 11px "+GF+",sans-serif"; const w2=sx.measureText(t2).width+12; sx.fillStyle="rgba(11,10,22,.7)"; rr(cx2-w2/2,ty,w2,16,6); sx.fill();
   sx.fillStyle=t2c; sx.fillText(t2,cx2,ty+8.5); ty+=20;
   if(t3){ sx.font="700 12px "+GF+",sans-serif"; const w3=sx.measureText(t3).width+12; const hot=lq>=.7; sx.fillStyle=hot?(Math.sin(now/90)>0?"#F0307F":"#B0105A"):pl.pos.side>0?"rgba(242,193,78,.92)":"rgba(240,48,127,.92)"; rr(cx2-w3/2,ty,w3,17,6); sx.fill(); sx.fillStyle=!hot&&pl.pos.side>0?"#121327":"#fff"; sx.fillText(t3,cx2,ty+9); }
+  });
+}
+function overlap(a,b){ return a.x<b.x+b.w&&b.x<a.x+a.w&&a.y<b.y+b.h&&b.y<a.y+a.h; }
+/** your own tag's box, worked out before the rivals' tags so theirs move out of its way (same maths as drawRocket) */
+function tagBox(pl){
+  const x=xOf(pl), y=pl.y, h=LAY.rh, w=h*221/609, nb=(G._shown||[]).filter(o=>o!==pl&&o.y!=null).sort((u,v)=>Math.hypot(xOf(u)-x,u.y-y)-Math.hypot(xOf(v)-x,v.y-y))[0];
+  const side=nb?(xOf(nb)>x?-1:1):(x<SW/2?-1:1);
+  sx.font=`800 15px ${GF},sans-serif`; const bw=Math.max(sx.measureText("YOU "+usd(alt(pl),true)).width+14,90), bh=22+20+(pl.pos?20:0);
+  const c=Math.max(bw/2+6,Math.min(SW-bw/2-6,x+side*(w/2+14+bw/2))); return {x:c-bw/2,y:y-bh/2,w:bw,h:bh,c};
 }
 function drawGap(a,b){
   const d=G.duel?alt(a)-alt(b):a.df?dfGain(a.df,a)-dfGain(a.df,b):profit(a)-profit(b), top=Math.min(a.y,b.y), bot=Math.max(a.y,b.y); if(bot-top<30) return;
@@ -1107,9 +1176,11 @@ function drawSky(dt,now){
     const fight=G.me.df?[G.me.df.a,G.me.df.b]:G.duel&&(G.duel.a===G.me||G.duel.b===G.me)?[G.duel.a,G.duel.b]:null;
     if(fight&&fight[0].y!=null&&fight[1].y!=null) drawGap(fight[0]===G.me?fight[0]:fight[1],fight[0]===G.me?fight[1]:fight[0]);
     for(const pl of shown){ if(Math.random()<.6) part({x:xOf(pl)+rnd(-4,4),y:pl.y+(pl.me?LAY.rh:LAY.rh*.8)*.55,vx:rnd(-20,20),vy:rnd(120,220),life:rnd(.5,.9),size:rnd(8,15),col:pl.me?"255,226,160":"255,170,210",kind:"smoke",add:false}); }
-    G._shown=shown;
+    G._shown=shown; G._tags=[];
+    if(G.me.alive&&G.me.y!=null) G._tags.push(tagBox(G.me));
     for(const pl of shown.filter(p=>!p.me)) drawRocket(pl,now);
     if(G.me.alive&&G.me.y!=null) drawRocket(G.me,now);
+    { const q=G._tagQ||[]; G._tagQ=[]; for(const f of q) f(); }
     drawCrate(dt,now);
     drawFog();
     drawPings(pings);
