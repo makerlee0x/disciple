@@ -39,5 +39,5 @@ export async function renderSharePng(d: SceneData, ids: Partial<LoadoutIds>, for
   const H = format === "story" ? 1920 : 1080;
   const c = createCanvas(1080, H);
   drawShareScene(c.getContext("2d"), mk, d, { bg, rocket, wordmark: wm, coinIcon: ic, wing: base, plate }, lo, { format });
-  return c.encode("png");
+  return c.encode("jpeg", 88); // full-art card: ~300 KB JPEG vs ~2.4 MB PNG
 }

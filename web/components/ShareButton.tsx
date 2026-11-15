@@ -30,7 +30,7 @@ export async function renderShareCard(callSign: string, icon?: string | null): P
   g.fillStyle = "#C9CED6"; g.font = "bold 30px ui-monospace,monospace"; g.fillText("TIER · " + tier, 620, 350);
   g.fillStyle = "#ffffff"; g.font = "bold 72px ui-monospace,monospace"; g.fillText(fmtUsd(mcap), 620, 450);
   g.fillStyle = "rgba(232,234,238,.7)"; g.font = "24px ui-monospace,monospace"; g.fillText("Board my rocket on DISCIPLE · disciple.vip", 620, 540);
-  return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("toBlob failed"))), "image/png"));
+  return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("toBlob failed"))), "image/jpeg", 0.9));
 }
 
 /** Rocket card download (inline button; lives in the ESC settings menu's Share section; was a floating SHARE pill
@@ -42,7 +42,7 @@ export default function ShareButton({ callSign, icon, label = "Download rocket c
     const u = URL.createObjectURL(blob);
     setUrl(u);
     const a = document.createElement("a");
-    a.href = u; a.download = `disciple-${callSign}.png`; a.click();
+    a.href = u; a.download = `disciple-${callSign}.jpg`; a.click();
   }
   return (
     <>

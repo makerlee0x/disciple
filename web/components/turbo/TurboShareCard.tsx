@@ -83,7 +83,7 @@ export default function TurboShareCard({ data, onClose }: { data: TurboShare; on
     let alive = true;
     const cv = document.createElement("canvas");
     const img = new Image();
-    const done = async (im: HTMLImageElement | null) => { gameFont(); try { await document.fonts?.ready; } catch { /* ignore */ } if (!alive) return; draw(cv, data, im); try { setUrl(cv.toDataURL("image/png")); } catch { /* ignore */ } };
+    const done = async (im: HTMLImageElement | null) => { gameFont(); try { await document.fonts?.ready; } catch { /* ignore */ } if (!alive) return; draw(cv, data, im); try { setUrl(cv.toDataURL("image/jpeg", 0.9)); } catch { /* ignore */ } };
     img.onload = () => done(img); img.onerror = () => done(null); img.src = withBase(data.kind === "win" ? "/art/share/duel-win.webp" : "/art/share/duel-loss.webp");
     return () => { alive = false; };
   }, [data]);
@@ -95,7 +95,7 @@ export default function TurboShareCard({ data, onClose }: { data: TurboShare; on
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {url ? <img src={url} alt={text} className={s.shareImg} /> : <div className={s.shareImg} />}
         <div className={s.shareBtns}>
-          <a className={s.ghostBtn} href={url || undefined} download={`disciple-turbo-${data.kind}.png`}>{C.shareDownload}</a>
+          <a className={s.ghostBtn} href={url || undefined} download={`disciple-turbo-${data.kind}.jpg`}>{C.shareDownload}</a>
           <button type="button" className={s.ghostBtn} onClick={async () => { try { await navigator.clipboard.writeText(text); setMsg(C.shareCopied); setTimeout(() => setMsg(""), 1500); } catch { /* ignore */ } }}>{msg || C.shareCopyText}</button>
           <a className={s.ghostBtn} href={`https://x.com/intent/post?text=${encodeURIComponent(text)}`} target="_blank" rel="noreferrer">{C.sharePostX}</a>
         </div>

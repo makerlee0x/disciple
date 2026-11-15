@@ -59,7 +59,7 @@ async function saveImage(h: Host) {
   g.fillStyle = "#FFF6DC"; g.font = font(800, 96, "--dsc-font-game"); g.fillText(`${headlineMark(h.passengers)} PASSENGERS`, 40, 300);
   g.fillStyle = "#D7D9E4"; g.font = font(400, 24, "--dsc-font-ui"); g.fillText(hostLogLine({ passengers: h.passengers, crews: h.crews, zone: h.zone, day: h.day }), 40, 345);
   g.fillStyle = "#9EA3B5"; g.font = font(500, 18, "--dsc-font-mono"); g.fillText("disciple.vip", w - 150, 60);
-  const a = document.createElement("a"); a.href = c.toDataURL("image/png"); a.download = `host-log-${h.ticker.toLowerCase()}.png`; a.click();
+  const a = document.createElement("a"); a.href = c.toDataURL("image/jpeg", 0.9); a.download = `host-log-${h.ticker.toLowerCase()}.jpg`; a.click();
 }
 
 export default function HostView() {

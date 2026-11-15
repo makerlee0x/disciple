@@ -91,5 +91,5 @@ export async function renderDailyCard(d: DailyCardData): Promise<Buffer> {
     if (r.outAtS != null) { const i = Math.min(P.length - 1, Math.round(r.outAtS)); g.fillStyle = GOLD; g.beginPath(); g.arc(X(i), Y(P[i]), 7, 0, Math.PI * 2); g.fill(); }
   }
   g.fillStyle = TXT; g.font = `34px ${F.b800}`; g.letterSpacing = "1px"; g.fillText(`Beat it at ${d.host}/d/${d.id}`, 72 + 260 + 20, fy + 44);
-  return c.encode("png");
+  return c.encode("jpeg", 88); // small enough to share and save quickly
 }
