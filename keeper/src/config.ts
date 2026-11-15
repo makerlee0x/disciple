@@ -95,7 +95,7 @@ export interface Policy {
   minJar: bigint;
   /** How often to take the jar credits the hook keeps for this keeper (owed -> collect), seconds. */
   collectEverySec: number;
-  /** Deliver other keepers' packets that are still undelivered after this many seconds. */
+  /** With route scanPushes on: deliver other keepers' packets for pools we serve, still undelivered after this many seconds. */
   takeoverAfterSec: number;
   maxPoolsPerPush: number;
   /** Do not send a push whose LayerZero fee + home gas at the current max fee is above this. */
@@ -168,7 +168,7 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       senderFromBlock: b(r.senderFromBlock, 0n),
       pools: ((r.pools as string[]) ?? []).map((p) => p.toLowerCase() as Hex),
       scanPools: r.scanPools !== false,
-      scanPushes: r.scanPushes !== false,
+      scanPushes: r.scanPushes === true, // off by default: delivering others' packets never refunds us (Vercel review)
     };
   });
   const sameChain: SameChainCfg[] = (raw.sameChain ?? []).map((r: Record<string, unknown>) => {

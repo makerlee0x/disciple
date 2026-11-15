@@ -86,8 +86,9 @@ contract V03FixesTest is DiscipleTest {
     }
 
     /// N-1, the push-for-the-sample case: the leader is pushed down for this block's first-touch sample and put
-    /// back. v0.3 audit fix: the sell is marked at the LOWEST reading, so the push can only lower what is booked
-    /// (here the fill becomes a carried loss, which stays in the pool pro rata), never raise it.
+    /// back. v0.3 audit fix: the sell is marked at the LOWEST reading, so the push can only lower what is booked,
+    /// never raise it; and (Vercel review) the sample is clamped to one step from the centre, so it lowers it by
+    /// at most 1%.
     function test_v03_pushedSampleAloneDoesNotMoveTheMark() public {
         (PoolKey memory key, PoolId id) = _createSame(300_000e18, 600_000e18);
         _ready(id);
@@ -110,7 +111,10 @@ contract V03FixesTest is DiscipleTest {
         uint256 paid = _paid(id, v0.jarY + Math.mulDiv(v0.jarX, a1, Q128), a1);
         uint256 fair = Math.mulDiv(c, a0, Q128) - q;
         assertLe(paid, fair, "never more than the honest mark");
-        assertEq(paid, 0, "marked at the pushed low sample: a carried loss, nothing paid");
+        // Vercel review: the sample is clamped to one step (1%) from the centre, so the -5% push marks the sell at
+        // most 1% low. The fill's 1% fee about covers that: almost nothing is paid, and never more than the honest
+        // mark allows.
+        assertLe(paid * 100, fair, "marked at the clamped low sample: at most 1% of what the honest mark pays");
     }
 
     /// M-01: trades earlier in a block, then a capital move in the same block after the leader was pushed. The
@@ -224,7 +228,7 @@ contract V03CrossTest is DiscipleTest {
     function test_v03_pushedJumpIsStepCapped() public {
         (, PoolId id) = _create();
         _push(id);
-        assertEq(hook.poolState(id).anchorX128, 2 * Q128, "the first price opens the pool in full");
+        assertEq(hook.poolState(id).anchorX128, 2 * Q128, "seeded at the source price, so the first push opens it there");
         pair.set(1_000_000e18, 2_400_000e18); // +20%, flash-moved at home
         _push(id);
         uint256 a = hook.poolState(id).anchorX128;
@@ -251,9 +255,9 @@ contract V03CrossTest is DiscipleTest {
         uint256 a1 = hook.poolState(id).anchorX128;
         assertGt(a1, a0);
         uint256 b1 = hook.poolState(id).compounded;
-        // the 1% step is more than the 0.3% the fill earned: at the new centre the fill is a loss (carried), while
+        // the +10% move is more than the 1% the fill earned: at the pushed price the fill is a loss (carried), while
         // the old centre would have booked a gain made of the price move
-        assertLt(q, Math.mulDiv(c, a1, Q128, Math.Rounding.Ceil), "a loss at the new centre");
+        assertLt(q, Math.mulDiv(c, Math.mulDiv(2_200_000e18, Q128, 1_000_000e18), Q128, Math.Rounding.Ceil), "a loss at the pushed price");
         assertGt(q, Math.mulDiv(c, a0, Q128, Math.Rounding.Ceil), "a gain at the old one");
         assertEq(b1, b0, "nothing booked as fees");
         // audit I-5 / R376-02: measure the booked loss itself. Coin the pool paid out is valued at the highest of

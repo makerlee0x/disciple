@@ -158,6 +158,11 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 seedX; // cross chain: creator's seed, held until the first price
         uint256 seedY;
         LG.Book book;
+        // v0.3 (Vercel review): the WETH -> token rate tips are valued at. It follows the live rate down at once and
+        // up by at most minStep per block, so a flash-moved reference pool cannot inflate a tip (see _gasRate).
+        // Appended after the book, so no earlier slot moves (the keeper's offsets hold).
+        uint256 gasRateX128;
+        uint64 gasRateBlock;
     }
 
     struct CreateParams {
@@ -339,6 +344,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         if (cp.coin == address(0) || quote == address(0) || cp.coin == quote) revert BadParams();
         uint24 fee = cp.fee;
         if (fee != FEE_A && fee != FEE_B && fee != FEE_C && fee != FEE_D) revert BadParams();
+        // v0.3 (Vercel review): a cross-chain push moves the centre up to minStep at once, so a cross-chain fee must
+        // cover one step or a single high push lifts the bid above the fair price (Robinhood: 1% or 2% only)
+        if (cp.src.remoteEid != 0 && fee < minStep) revert BadParams();
         if (cp.coinIn == 0 || cp.quoteIn == 0) revert BadParams();
         uint256 sh = BK.shape(uint256(LAM_PPM) * 1e12);
         Source calldata s = cp.src;
@@ -408,6 +416,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             p.seedY = cp.quoteIn;
         }
 
+        (p.gasRateX128,) = _liveGasRate(p);
+        p.gasRateBlock = uint64(block.number);
         poolManager.initialize(key, uint160(1 << 96));
         emit Created(id, cp.coin, quote, msg.sender, s.remoteEid, cp.fee);
     }
@@ -683,7 +693,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
                 tstore(slot, 1)
             }
         }
-        uint256 q = _weiToQuote(p, (g0 - gasleft() + o) * block.basefee * p.tipBps / 10_000, p.anchorX128);
+        (uint256 gr, bool gq) = _gasRatePay(p);
+        uint256 q = _weiToQuote((g0 - gasleft() + o) * block.basefee * p.tipBps / 10_000, gr, gq, p.anchorX128);
         if (q == 0) return;
         (uint256 cx, uint256 cy) = BK.tip(p.jarX, p.jarY, a0, q, TIP_DIV);
         p.jarX -= cx;
@@ -701,27 +712,51 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         return SM.movedBeyond(p.anchorX128, spot, DUE_BPS);
     }
 
-    /// @dev `w` wei in the pool's quote, at the pool's centre and the reference pool (0 = cannot value).
-    /// @dev `a`: the pool's centre to value at (the stored anchor, or the stepped one in quoteView: audit v0.2 I-1).
-    function _weiToQuote(Pool storage p, uint256 w, uint256 a) internal view returns (uint256) {
+    /// @dev The live WETH -> token rate (X128) for valuing gas, and whether it lands in the quote (false: in the
+    ///      coin, valued at the centre). 0 = this pool cannot value gas (it pays no tips). Read from the chain's
+    ///      reference pool, or leg 2 of a two-hop source through WETH; WETH itself is 1.
+    function _liveGasRate(Pool storage p) internal view returns (uint256 r, bool toQuote) {
         address q = p.quote;
         address c = p.coin;
-        if (q == weth) return w;
-        bool viaRef = q == refToken || c == refToken;
-        if (viaRef) {
-            if (refKind == 0) return 0;
+        if (q == weth) return (Q128, true);
+        if (q == refToken || c == refToken) {
+            if (refKind == 0) return (0, true);
             // fail-soft: a reference pool that cannot be read pays no tip and never reverts a swap (audit I-2)
-            uint256 r = BK.refSpot(poolManager, refKind, refTarget, refV4Id, refWethIs0);
-            w = Math.mulDiv(w, r, Q128);
-            if (q == refToken) return w;
-        } else if (c != weth) {
-            // a two-hop source through WETH prices it: leg 2 is WETH/quote
-            Source storage s = p.src;
-            if (s.kind2 == 0 || p.x != weth) return 0;
-            (uint256 r2,) = _leg(s.kind2, s.target2, s.v4Id2, s.xIs0);
-            return Math.mulDiv(w, r2, Q128);
+            return (BK.refSpot(poolManager, refKind, refTarget, refV4Id, refWethIs0), q == refToken);
         }
-        return Math.mulDiv(w, a, Q128);
+        if (c == weth) return (Q128, false);
+        // a two-hop source through WETH prices it: leg 2 is WETH/quote
+        Source storage s = p.src;
+        if (s.kind2 == 0 || p.x != weth) return (0, true);
+        (r,) = _leg(s.kind2, s.target2, s.v4Id2, s.xIs0);
+        toQuote = true;
+    }
+
+    /// @dev The rate tips are paid at (v0.3, Vercel review): the stored rate, which follows the live rate down at
+    ///      once and up by at most minStep per block, and never above the live rate. A flash-moved reference pool
+    ///      can then only lower a tip; raising one takes a move held block after block.
+    function _gasRate(Pool storage p) internal view returns (uint256 r, bool toQuote) {
+        uint256 live;
+        (live, toQuote) = _liveGasRate(p);
+        r = p.gasRateX128;
+        if (p.gasRateBlock < block.number) r = live < r ? live : SM.stepToward(r, live, minStep);
+        if (live < r) r = live;
+    }
+
+    /// @dev _gasRate, and store it as this block's rate (paths that pay a tip or refund).
+    function _gasRatePay(Pool storage p) internal returns (uint256 r, bool toQuote) {
+        (r, toQuote) = _gasRate(p);
+        if (p.gasRateBlock < block.number) {
+            p.gasRateX128 = r;
+            p.gasRateBlock = uint64(block.number);
+        }
+    }
+
+    /// @dev `w` wei in the pool's quote at rate `r` (see _gasRate) and the pool's centre `a` (0 = cannot value).
+    /// @dev `a`: the pool's centre to value at (the stored anchor, or the stepped one in quoteView: audit v0.2 I-1).
+    function _weiToQuote(uint256 w, uint256 r, bool toQuote, uint256 a) internal pure returns (uint256) {
+        w = Math.mulDiv(w, r, Q128);
+        return toQuote ? w : Math.mulDiv(w, a, Q128);
     }
 
     /// @dev Room left in the jar, in quote raw, less what it holds. Same chain: JAR_TIPS reference tips at today's
@@ -730,7 +765,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 w = p.src.remoteEid == 0
             ? JAR_TIPS * TIP_GAS_REF * block.basefee * p.tipBps / 10_000
             : JAR_PUSHES * p.pushCost * 12 / 10;
-        uint256 cap = _weiToQuote(p, w, a);
+        (uint256 gr, bool gq) = _gasRate(p);
+        uint256 cap = _weiToQuote(w, gr, gq, a);
         uint256 have = Math.mulDiv(p.jarX, mark, Q128) + p.jarY; // at the settle mark (audit L-1)
         return cap > have ? cap - have : 0;
     }
@@ -770,7 +806,9 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     {
         (uint256 spot, uint24 srcFee) = _latchSame(p, true);
         uint256 a = p.anchorX128;
-        uint256 sm = p.sampleX128;
+        // v0.3 (Vercel review): the block's first-touch sample counts at most one step from the centre, so a
+        // flash-moved sample can book at most a one-step loss on a fill (the live spot still bounds real moves)
+        uint256 sm = SM.stepToward(a, p.sampleX128, minStep);
         (lo, hi) = sm < spot ? (sm, spot) : (spot, sm);
         if (a < lo) lo = a; // pool buys coin: value it at the lowest reading
         if (a > hi) hi = a; // pool sells coin: value it at the highest reading
@@ -877,16 +915,21 @@ contract DiscipleHook is IHooks, IUnlockCallback {
                 emit PriceRejected(id, bytes32(0));
                 return;
             }
-            p.anchorX128 = price;
+            uint256 sx = p.seedX;
+            uint256 sy = p.seedY;
+            // v0.3 (Vercel review): the opening push is capped like any other. The pool opens one step from the
+            // creator's own seed price (quote per coin of the seed) toward the pushed price, so a flash-moved
+            // opening push cannot trade against a mispriced seed; the pushed price still bounds fills on the
+            // protective side (BK.crossQuote) while the centre catches up
+            uint256 open = SM.stepToward(Math.mulDiv(sy, Q128, sx), price, minStep);
+            p.anchorX128 = open;
             p.sampleX128 = price;
             p.obsAt = observedAt;
             p.tvl.srcTvl = tvl;
             p.tvl.warmEnd = uint64(block.timestamp + WARM_UP);
-            uint256 sx = p.seedX;
-            uint256 sy = p.seedY;
             p.seedX = 0;
             p.seedY = 0;
-            _goLive(id, p, sx, sy, price, address(this));
+            _goLive(id, p, sx, sy, open, address(this));
             emit PriceAccepted(id, price, observedAt, 0, false);
             return;
         }
@@ -926,7 +969,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 refund;
         if (keeper != address(0)) {
             // cost + 20% if due, from the jar in the pool's tokens, credited to the keeper
-            refund = _weiToQuote(p, PR.refund(old, price, ageAtRequest, cost), p.anchorX128);
+            (uint256 gr, bool gq) = _gasRatePay(p);
+            refund = _weiToQuote(PR.refund(old, price, ageAtRequest, cost), gr, gq, p.anchorX128);
             (uint256 cx, uint256 cy) = BK.tip(p.jarX, p.jarY, a, refund, TIP_DIV);
             p.jarX -= cx;
             p.jarY -= cy;

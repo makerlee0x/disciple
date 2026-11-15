@@ -384,10 +384,14 @@ export class Keeper {
         if (known.has(l.args.guid!.toLowerCase())) continue;
         const rc = await pub.getTransactionReceipt({ hash: l.transactionHash! });
         const blk = await pub.getBlock({ blockNumber: rc.blockNumber });
+        const ours = l.args.keeper!.toLowerCase() === this.account.address.toLowerCase();
         for (const pk of packetsFromLogs(rc.logs, r.home.endpoint)) {
           if (pk.guid.toLowerCase() !== l.args.guid!.toLowerCase()) continue;
           if (pk.receiver.toLowerCase() !== r.receiver.toLowerCase()) continue;
           if (await this.isDelivered(r, pk.nonce)) continue;
+          // the hook refunds the packet's own keeper, never the one who delivers it, so take over only packets
+          // whose every pool we serve (a packet for unknown or missing pools would burn our gas: Vercel review)
+          if (!ours && !this.servesAll(r, pk.message)) continue;
           this.state.packets.push({
             route: r.name,
             nonce: pk.nonce,
@@ -399,7 +403,7 @@ export class Keeper {
             srcEid: pk.srcEid,
             sentAt: Number(blk.timestamp),
             homeTx: l.transactionHash!,
-            ours: l.args.keeper!.toLowerCase() === this.account.address.toLowerCase(),
+            ours,
             pools: [],
             tries: 0,
           });
@@ -410,6 +414,20 @@ export class Keeper {
       from = to + 1n;
       rs.pushCursor = from;
     }
+  }
+
+  /** Every pool in a pushed message is one this keeper serves on that route. */
+  private servesAll(r: RouteCfg, message: Hex): boolean {
+    const rs = routeState(this.state, r.name);
+    let msg;
+    try {
+      msg = decodeMessage(message);
+    } catch {
+      return false;
+    }
+    const served = new Set(Object.keys(rs.pools).map((x) => x.toLowerCase()));
+    const ids = msg.obs.flatMap((o) => o.pools.map((x) => x.toLowerCase()));
+    return ids.length > 0 && ids.every((x) => served.has(x));
   }
 
   // ------------------------------------------------------------------ planning and pushing
@@ -584,7 +602,6 @@ export class Keeper {
     if (mine.length === 0) return;
     const { pub, wal, chain } = this.c(r.dest);
     const lib = await this.receiveLib(r);
-    const maxOurs = mine.filter((p) => p.ours).reduce((m, p) => (p.nonce > m ? p.nonce : m), 0n);
     // packet ages use chain time (home and destination clocks agree to within seconds), not this machine's clock
     const t = Number((await pub.getBlock({ blockTag: "latest" })).timestamp);
     const drop = new Set<Packet>();
@@ -597,7 +614,8 @@ export class Keeper {
         if (p.ours) this.log.info(`${r.name}: nonce ${p.nonce} was delivered by someone else`);
         continue;
       }
-      const eligible = p.ours || p.nonce < maxOurs || t - p.sentAt >= this.cfg.policy.takeoverAfterSec;
+      // the receiver is unordered, so another keeper's packet never blocks ours: deliver it only once it is stuck
+      const eligible = p.ours || t - p.sentAt >= this.cfg.policy.takeoverAfterSec;
       if (!eligible) continue;
       if (t - p.sentAt > this.cfg.policy.packetTtlSec) {
         drop.add(p);

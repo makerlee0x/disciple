@@ -72,8 +72,9 @@ keeper's balance slot for that token is new.
 3. **Pushes.** Groups due pools by source into as few messages as possible (at most 64 pools and 10 kB each), quotes
    the LayerZero fee, refuses anything above `maxPushCostEth`, and sends `push`.
 4. **Delivers.** Once the DVNs have signed, it sends `commitVerification` and then `endpoint.lzReceive` on the
-   destination, in nonce order. If another keeper's packet is stuck in front of ours (same pathway, lower nonce), it
-   delivers that one too; others' packets older than `takeoverAfterSec` are also delivered. Every delivery logs each
+   destination. The receiver is unordered, so another keeper's packet never blocks ours. Others' packets are
+   delivered only with the route's `scanPushes: true`, only when every pool in them is one this keeper serves, and
+   only once they are older than `takeoverAfterSec` (the hook refunds a packet's own keeper, never the deliverer). Every delivery logs each
    pool's result, the credit (in that pool's quote token), and what the keeper spent on that packet in ETH.
 5. **Collects.** Every `collectEverySec` (default a day) it reads `owed(keeper, token)` for each served pool's tokens
    and calls `collect(token)` for anything owed. `npm run collect` does it now.
@@ -214,13 +215,13 @@ on the Robinhood side, or use a plan with a larger range (and raise `logChunk`).
 | `sampling.matchSteps` | 20 | Carry stock queue: most orders one `matchOrders` call works through |
 | `sampling.matchSampleMaxPerHour` | 12 | Carry stock queue: most unpaid samples per pool per hour to unblock waiting stock (the vault takes deposits only while the pool's centre is within its fee, at most 0.25%, of the leader; 0 = never) |
 | `routes[].pools` | `[]` | extra pool ids to serve |
-| `routes[].scanPools` / `scanPushes` | true | scan for new pools / for other keepers' packets |
+| `routes[].scanPools` / `scanPushes` | true / false | scan for new pools / for other keepers' packets |
 | `policy.moveBps` | 102 | move trigger in bps |
 | `policy.firstPrice` | true | push opening prices |
 | `policy.unpaidHeartbeats` | false | also heartbeat pools that did not trade |
 | `policy.minJar` | 0 | skip cross-chain pools whose jar (quote raw units) is below this |
 | `policy.collectEverySec` | 86400 | how often to collect cross-chain credits |
-| `policy.takeoverAfterSec` | 900 | deliver others' packets stuck this long |
+| `policy.takeoverAfterSec` | 900 | with `scanPushes`, deliver others' packets (for pools we serve) stuck this long |
 | `policy.maxPushCostEth` | 0.003 | refuse a push that would cost more |
 | `policy.packetTtlSec` | 21600 | stop retrying a packet after this long |
 

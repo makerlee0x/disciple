@@ -94,6 +94,72 @@ contract V03AuditSameTest is V03FixesTest {
         assertLe(paid, q - Math.mulDiv(c, lead, Q128, Math.Rounding.Ceil), "never more than earned vs the leader");
     }
 
+    // ---------------------------------------------------------------------------------------------------------
+    // Vercel review (2026-11-15)
+    // ---------------------------------------------------------------------------------------------------------
+
+    /// Vercel #3: the leader is flash-moved +20% for the block's first-touch sample and put back, then a buy. The
+    /// sample is clamped to one step from the centre, so the coin paid out is marked at most 1% high and no
+    /// fictitious 20% loss is carried.
+    function test_vercel_flashSampleBooksNoFakeLoss() public {
+        (PoolKey memory key, PoolId id) = _createSame(300_000e18, 600_000e18);
+        _ready(id);
+        hook.claim(id, 1);
+        hook.claimCreator(id);
+        uint256 a0 = hook.poolState(id).anchorX128;
+        _step(12);
+        pair.set(1_000_000e18, 2_400_000e18); // flash +20% for the sample
+        hook.sample(id);
+        pair.set(1_000_000e18, 2_000_000e18); // put back
+        BalanceDelta d = _swap(key, true, -int256(1000e18)); // buy 1000 coin
+        (int128 dc,) = _cq(key, d);
+        uint256 c = uint256(int256(dc));
+        _step(12);
+        hook.withdraw(id, 1, 0, 0);
+        uint256 worth = Math.mulDiv(c, a0, Q128);
+        assertLe(_lossCarrySame(id), worth / 100, "at most the one-step mark, not 20%");
+    }
+
+    /// Vercel #4: the reference pool (WETH/USD) is flash-moved x10 for one sample. The tip is paid at the stored
+    /// gas rate, which may rise at most one step per block, so it stays about the honest tip.
+    function test_vercel_flashRefDoesNotInflateTip() public {
+        vm.fee(1 gwei);
+        (, PoolId a) = _createSame(300_000e18, 600_000e18);
+        (, PoolId b) = _createSame(300_000e18, 600_000e18);
+        _ready(a);
+        _ready(b);
+        hook.fundJar(a, 0, 5000e18);
+        hook.fundJar(b, 0, 5000e18);
+        pair.set(1_000_000e18, 2_040_000e18); // +2%: both pools due
+        _step(12);
+        address bot = address(0xB07);
+        vm.prank(bot);
+        hook.sample(a);
+        uint256 honest = usd.balanceOf(bot);
+        assertGt(honest, 0, "honest tip paid");
+        refPair.set(1_000e18, 30_000_000e18); // ETH flash-moved x10
+        vm.prank(bot);
+        hook.sample(b);
+        refPair.set(1_000e18, 3_000_000e18);
+        uint256 flashed = usd.balanceOf(bot) - honest;
+        assertGt(flashed, 0);
+        assertLt(flashed, honest * 12 / 10, "about the honest tip, not 10x");
+        // a lower reference price lowers a tip at once
+        pair.set(1_000_000e18, 2_100_000e18);
+        _step(12);
+        refPair.set(1_000e18, 300_000e18); // ETH /10
+        uint256 before = usd.balanceOf(bot);
+        vm.prank(bot);
+        hook.sample(a);
+        assertLt(usd.balanceOf(bot) - before, honest / 5, "follows the reference down at once");
+    }
+
+    function _lossCarrySame(PoolId id) internal view returns (uint256) {
+        uint256 base = uint256(keccak256(abi.encode(PoolId.unwrap(id), uint256(1))));
+        require(uint256(vm.load(address(hook), bytes32(base + 23))) == hook.poolState(id).coinReserve, "layout");
+        return uint256(vm.load(address(hook), bytes32(base + 26)));
+    }
+
     function _sellAfterDrop(bool push) internal returns (uint256 paid, uint256 atLeader) {
         (PoolKey memory key, PoolId id) = _createSame(300_000e18, 600_000e18);
         _ready(id);
@@ -205,5 +271,40 @@ contract V03AuditCrossTest is V03CrossTest {
         }
         DiscipleHook.PoolView memory v = hook.poolState(id);
         assertGt(v.jarX + v.jarY, 0, "the jar fills from the 6% skim");
+    }
+
+    /// Vercel #1: the home price is flash-moved +20% for the very first push. The opening centre is one step from
+    /// the creator's seed price, not the pushed price, and the pool still sells no coin below the pushed price.
+    function test_vercel_openingPushIsStepCapped() public {
+        (PoolKey memory key, PoolId id) = _create(); // seeded at 2.0
+        pair.set(1_000_000e18, 2_400_000e18);
+        _push(id);
+        assertTrue(hook.poolState(id).live, "the push opens the pool");
+        assertEq(hook.poolState(id).anchorX128, Math.mulDiv(2 * Q128, 1e6 + hook.minStep(), 1e6), "one step");
+        (uint256 paid, uint256 worth) = _buy100(key, Math.mulDiv(2_400_000e18, Q128, 1_000_000e18));
+        assertLe(worth, paid, "no coin sold below the pushed price");
+    }
+
+    /// Vercel #2: a cross-chain pool's fee must be at least the step (1% on Robinhood), so one manipulated push
+    /// cannot move its bid further than the fee covers. 0.25% and 0.5% stay open to same-chain pools.
+    function test_vercel_crossChainNeedsFeeOfAtLeastTheStep() public {
+        DiscipleHook.Source memory s = _src(0);
+        s.remoteEid = HOME_EID;
+        s.push = true;
+        uint24[4] memory fees = [uint24(2500), 5000, 10_000, 20_000];
+        for (uint256 i; i < 4; i++) {
+            DiscipleHook.CreateParams memory cp = DiscipleHook.CreateParams({
+                coin: address(coin),
+                quote: address(usd),
+                fee: fees[i],
+                src: s,
+                coinIn: 1000e18,
+                quoteIn: 2000e18,
+                srcKey: _noKey(),
+                srcKey2: _noKey()
+            });
+            if (fees[i] < hook.minStep()) vm.expectRevert(DiscipleHook.BadParams.selector);
+            hook.createPool(cp);
+        }
     }
 }
