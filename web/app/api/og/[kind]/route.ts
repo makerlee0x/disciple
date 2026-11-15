@@ -35,6 +35,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ kind: st
   }
   const png = await renderOgCard(card);
   return new Response(new Uint8Array(png), {
-    headers: { "content-type": "image/png", "cache-control": `public, max-age=${Math.min(maxAge, 300)}, s-maxage=${maxAge}, stale-while-revalidate=86400` },
+    headers: { "content-type": "image/jpeg", "cache-control": `public, max-age=${Math.min(maxAge, 300)}, s-maxage=${maxAge}, stale-while-revalidate=86400` },
   });
 }

@@ -1,6 +1,6 @@
 /**
  * GET /api/share/card?wallet&coin[&format=story|og][&ticker][&username][&demo=1][&skin&coin_skin&thruster][&demoMcap]
- * PNG share card (story 1080×1920, og 1080×1080): the flight log card drawn by lib/share/scene.ts on the tier sky of the peak.
+ * JPEG share card (story 1080×1920, og 1080×1080): the flight log card drawn by lib/share/scene.ts on the tier sky of the peak.
  * Numbers come from indexed fills (pnlForPosition), never the query; loadout params are cosmetic only.
  * No fills → a "no trades yet" card with real zeros. The stamped SAMPLE DATA card (demo=1, or no fills) is
  * `next dev` only: production never draws sample numbers.
@@ -64,5 +64,5 @@ export async function GET(req: Request) {
   };
   const icon = sample || !isAddr(coin) ? null : await coinIconBuffer(coin);
   const png = await renderSharePng(d, { skin: q.get("skin") || undefined, coin: q.get("nose") || undefined, thruster: q.get("thruster") || undefined }, format, icon);
-  return new Response(new Uint8Array(png), { headers: { "content-type": "image/png", "cache-control": "public, max-age=60, s-maxage=60" } });
+  return new Response(new Uint8Array(png), { headers: { "content-type": "image/jpeg", "cache-control": "public, max-age=60, s-maxage=60" } });
 }

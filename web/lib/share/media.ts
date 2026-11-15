@@ -1,5 +1,5 @@
 /**
- * Share media abstraction: PNG from /api/share/card (imageMedia) or an MP4/WebM rendered in the browser from the
+ * Share media abstraction: JPEG from /api/share/card (imageMedia) or an MP4/WebM rendered in the browser from the
  * deterministic replay + end card (lib/share/video.ts → videoMedia). ShareModal shares/downloads either unchanged.
  */
 export interface ShareParams { wallet: string | null; coin: string; /** "last": only the latest trade, entry → exit (or now) */ trade?: "all" | "last"; ticker?: string; username?: string | null; demo?: boolean; at?: number; loadout?: { skin: string; coin: string; thruster: string } }
@@ -26,15 +26,15 @@ export function imageMedia(p: ShareParams, format: "story" | "og" = "story"): Sh
   const url = `/api/share/card?${cardQuery(p, format)}`;
   let cached: Promise<Blob> | null = null;
   return {
-    kind: "image", mime: "image/png", url,
-    filename: `disciple-${(p.ticker || "trade").toLowerCase()}-${format}.png`,
+    kind: "image", mime: "image/jpeg", url,
+    filename: `disciple-${(p.ticker || "trade").toLowerCase()}-${format}.jpg`,
     blob: () => (cached ??= fetch(url).then((r) => { if (!r.ok) throw new Error(`card ${r.status}`); return r.blob(); })),
   };
 }
 /** Single entry point the modal uses; swap the body for a video producer later. */
 export function shareMediaFor(p: ShareParams): ShareMedia { return imageMedia(p, "story"); }
 
-/** Wrap an encoded video as ShareMedia (same interface as the PNG, so the modal shares/downloads it unchanged). */
+/** Wrap an encoded video as ShareMedia (same interface as the image, so the modal shares/downloads it unchanged). */
 export function videoMedia(blob: Blob, mime: string, ext: string, ticker?: string): ShareMedia {
   return { kind: "video", mime, url: URL.createObjectURL(blob), filename: `disciple-${(ticker || "trade").toLowerCase()}.${ext}`, blob: async () => blob };
 }

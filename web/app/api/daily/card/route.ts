@@ -30,5 +30,5 @@ export async function GET(req: Request) {
     id, difficulty: cloneConfig().difficulties[DAILY.difficulty].label.toUpperCase(), host, rank, count: board.me && !board.me.boarded ? 0 : board.count,   // a run not on the board yet shows no rank
     run: run && rc ? { name: pilot?.name ?? run.name, multiple: rc.score.multiple, goals: rc.score.goals, path: rc.path, outAtS: rc.score.outAtS } : null,
   });
-  return new Response(new Uint8Array(png), { headers: { "content-type": "image/png", "cache-control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600" } });
+  return new Response(new Uint8Array(png), { headers: { "content-type": "image/jpeg", "cache-control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600" } });
 }

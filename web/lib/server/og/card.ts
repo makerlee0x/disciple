@@ -1,7 +1,7 @@
 import "server-only";
 /**
  * Link preview cards, 1200×630 PNG (step 7, maker 2026-11-13): site, rocket, pilot and invite. Each card is an art
- * plate with the live layer drawn on top. The plate is `public/og/<name>.png` once the art lands (text-free, 2400×1260;
+ * plate with the live layer drawn on top. The plate is `public/og/<name>.webp` (text-free, 1200×630 WebP to keep the function small;
  * names in the handover doc); until then a stand-in is drawn from the game's own tier sky and the chrome rocket.
  * Numbers come from the caller (live data at fetch time); any that are missing are left off, never invented.
  */
@@ -52,7 +52,7 @@ const cover = (o: SKRSContext2D, im: Image, x = 0.5, y = 0.5) => {
 
 /** The art plate, or the stand-in: a site art plate (site, invite) or the tier sky + chrome rocket (rocket, pilot cards). */
 async function plate(o: SKRSContext2D, name: string, sky: string, rocket: { rot: number; x: number; h: number } | null) {
-  const art = await img(`og/${name}.png`);
+  const art = await img(`og/${name}.webp`);
   if (art) { cover(o, art); return true; }
   const bg = await img(sky);
   if (bg) cover(o, bg, 0.5, 0.35); else { o.fillStyle = "#121327"; o.fillRect(0, 0, W, H); }
@@ -193,5 +193,5 @@ export async function renderOgCard(c: OgCard): Promise<Buffer> {
     lines(o, "Sign in, take your seat and boost your first rocket.", PAD, 456, 520, 36);
   }
 
-  return cv.encode("png");
+  return cv.encode("jpeg", 88); // JPEG: ~80 KB vs ~900 KB PNG, quick to unfurl, share and save
 }
