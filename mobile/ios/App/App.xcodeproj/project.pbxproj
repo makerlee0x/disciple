@@ -100,7 +100,6 @@
 				1F706DD819B87F508551D589 /* FlightWidget.swift */,
 				AD82C5390CBE8A70E4B82F31 /* Info.plist */,
 			);
-			name = FlightWidget;
 			path = FlightWidget;
 			sourceTree = "<group>";
 		};
@@ -165,7 +164,6 @@
 			children = (
 				6B3FC1C0DF4DEBAFC8D3868C /* FlightActivity.swift */,
 			);
-			name = Shared;
 			path = Shared;
 			sourceTree = "<group>";
 		};
@@ -441,6 +439,7 @@
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TR25MUSP7V;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -464,6 +463,7 @@
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TR25MUSP7V;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -485,6 +485,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TR25MUSP7V;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FlightWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "DISCIPLE Flight";
@@ -511,6 +512,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TR25MUSP7V;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FlightWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "DISCIPLE Flight";
