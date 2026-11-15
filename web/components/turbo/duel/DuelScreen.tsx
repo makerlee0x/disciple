@@ -29,7 +29,9 @@ interface EngineApi {
 declare global { interface Window { DuelEngine?: { mount(root: HTMLElement, host: unknown): EngineApi } } }
 
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
-const ENGINE_SRC = "/turbo/duel/engine.js?v=15";
+/** extra plates for the random sky each duel (engine SKY_THEMES) */
+const EXTRA_SKIES = { skyEth: "/turbo/sky-eth.webp", skyBtc: "/turbo/sky-btc.webp", skyPad: "/home/pad/sky-1280.webp" };
+const ENGINE_SRC = "/turbo/duel/engine.js?v=16";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
@@ -92,16 +94,25 @@ export default function DuelScreen() {
     };
 
     const host = {
-      assets: { ...Object.fromEntries(["rocket", ...SKIES].map((k) => [k, `/turbo/duel/${k}.webp`])), art: "/art/modes/duel.webp" },
+      assets: { ...Object.fromEntries(["rocket", ...SKIES].map((k) => [k, `/turbo/duel/${k}.webp`])), ...EXTRA_SKIES, art: "/art/modes/duel.webp" },
       history: () => hist.filter((h) => h.ts > Date.now() - 60_000),
       signIn: () => { try { privyLogin(); } catch (e) { api?.error((e as Error).message); } },
       quickMatch: (tier: TierId, len: LengthMs) => { stopQueue(); queued = { tier, len }; void pollQueue(); },
       cancelSearch: () => { const q = stopQueue(); if (q) void duelApi.cancel(q.tier, q.len); },
-      createLink: async (tier: TierId, len: LengthMs) => {
-        const r = await duelApi.invite(tier, len);
+      createLink: async (tier: TierId, len: LengthMs, fuel?: number) => {
+        const r = await duelApi.invite(tier, len, fuel);
         if (!r.ok) { api?.error(r.reason); return; }
         api?.invite(r.code, location.origin + r.path); follow(r.room.id);
       },
+      // the result card's SHARE (engine shareResult): a fresh friend link the shared post points at; the room is followed so a
+      // friend who taps it pulls this pilot into the match
+      challengeLink: async (tier: TierId, len: LengthMs, fuel?: number): Promise<string | null> => {
+        const r = await duelApi.invite(tier, len, fuel);
+        if (!r.ok) return null;
+        follow(r.room.id); return location.origin + r.path;
+      },
+      // first launch of the app: WelcomeIntro sends a new pilot to /turbo/duel?first=1 and the engine starts a bot duel
+      first: (() => { const u = new URL(location.href); const on = u.searchParams.get("first") === "1"; if (on) { u.searchParams.delete("first"); history.replaceState(history.state, "", u.toString()); } return on; })(),
       join: async (code: string) => { const r = await duelApi.join(code); if (r.ok) follow(r.room.id); else api?.error(r.reason); },
       ready: async () => { const r = await op({ op: "ready" }); if (r.error) api?.error(r.error); },
       leave: async () => { const id = roomId; unfollow(); if (id) await duelApi.op(id, { op: "leave" }); },

@@ -21,7 +21,7 @@ export const duelApi = {
   me: () => call<{ pid: string; name: string; rating: { r: number; w: number; l: number; streak: number }; active: DuelRoom | null }>("GET", "/api/duel/me"),
   poll: (tier: TierId, len: LengthMs) => call<{ room?: DuelRoom; waitedMs?: number; window?: number; botOfferMs: number }>("POST", "/api/duel/queue", { tier, len }),
   cancel: (tier: TierId, len: LengthMs) => call<object>("DELETE", "/api/duel/queue", { tier, len }),
-  invite: (tier: TierId, len: LengthMs) => call<{ room: DuelRoom; code: string; path: string }>("POST", "/api/duel/invite", { tier, len }),
+  invite: (tier: TierId, len: LengthMs, fuel?: number) => call<{ room: DuelRoom; code: string; path: string }>("POST", "/api/duel/invite", fuel ? { tier, len, fuel } : { tier, len }),
   join: (code: string) => call<{ room: DuelRoom }>("POST", "/api/duel/join", { code }),
   room: (id: string, after = 0) => call<RoomRes>("GET", `/api/duel/room/${id}?after=${after}`, undefined, false),
   op: (id: string, body: { op: "ready" | "leave" | "rematch" | "report" } | { op: "trade"; action: TradeAction; usd: number } | { op: "chat"; text: string } | { op: "trick"; kind: "spin" | "flip" }, after = 0) =>

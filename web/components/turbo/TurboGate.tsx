@@ -1,13 +1,22 @@
 "use client";
 /** Password screen in front of /turbo while it's pre-launch. On the right password the server sets a cookie and the page
  *  reloads the page the pilot asked for (/turbo opens as the play sample: live prices, sample fuel). */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { withBase } from "@/lib/base-path";
 import s from "./gate.module.css";
 
 export default function TurboGate() {
   const [pw, setPw] = useState("");
   const [state, setState] = useState<"idle" | "busy" | "wrong" | "slow">("idle");
+  // A friend's duel link (/turbo/duel?c=CODE) skips the password: /api/turbo/invite checks the code and lets them in
+  // (maker, 2026-11-15). ?closed=1 means the code wasn't open, so show the password form with a note instead of looping.
+  const [closed, setClosed] = useState(false);
+  useEffect(() => {
+    const q = new URLSearchParams(location.search);
+    if (q.get("closed") === "1") { setClosed(true); return; }
+    const c = q.get("c");
+    if (c && /\/turbo\/duel\/?$/.test(location.pathname)) location.replace(withBase(`/api/turbo/invite?c=${encodeURIComponent(c)}`));
+  }, []);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pw.trim() || state === "busy") return;
@@ -27,7 +36,7 @@ export default function TurboGate() {
     <main className={s.page} data-testid="turbo-gate">
       <form className={s.card} onSubmit={submit}>
         <span className={s.word}>TURBO</span>
-        <p className={s.lead}>Early access. Enter the password to play.</p>
+        <p className={s.lead}>{closed ? "That duel link has closed. Ask your friend for a fresh one, or enter the password." : "Early access. Enter the password to play."}</p>
         <input className={s.input} type="password" autoFocus autoComplete="current-password" aria-label="Password" placeholder="Password"
           value={pw} onChange={(e) => { setPw(e.target.value); if (state !== "busy") setState("idle"); }} data-testid="turbo-gate-input" />
         <button className={s.go} type="submit" disabled={!pw.trim() || state === "busy"} data-testid="turbo-gate-go">{state === "busy" ? "Checking…" : "Enter"}</button>

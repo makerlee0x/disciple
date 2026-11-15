@@ -27,6 +27,8 @@ export interface DuelRoom {
   id: string;
   mode: DuelMode;
   tier: TierId;
+  /** friend duels only: a custom budget in whole dollars (lib/duel/rules isCustomFuel); unset = the tier's fuel */
+  fuel?: number;
   lenMs: LengthMs;
   code?: string;
   createdAt: number;
