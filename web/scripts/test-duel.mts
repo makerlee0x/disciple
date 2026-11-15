@@ -251,11 +251,13 @@ test("server: the referee settles a duel nobody is watching", async () => {
 });
 
 test("custom budgets: sizes scale on 1-2-5 steps; friend room books start at the budget; trade sizes follow it", async () => {
+  assert.deepEqual(R.sizesFor(5), [1, 2, 3, 4, 0]);
+  assert.deepEqual(R.sizesFor(12), [1, 2, 3, 6, 0]);
   assert.deepEqual(R.sizesFor(20), [1, 2, 5, 10, 0]);
   assert.deepEqual(R.sizesFor(100), [5, 10, 20, 50, 0]);
   assert.deepEqual(R.sizesFor(1000), [50, 100, 200, 500, 0]);
   assert.deepEqual(R.sizesFor(10_000), [500, 1000, 2000, 5000, 0]);
-  assert.ok(!R.isCustomFuel(19) && !R.isCustomFuel(10_001) && !R.isCustomFuel(99.5) && R.isCustomFuel(250));
+  assert.ok(!R.isCustomFuel(4) && R.isCustomFuel(5) && !R.isCustomFuel(10_001) && !R.isCustomFuel(99.5) && R.isCustomFuel(250));
   const a = pilot("c"), b = pilot("d");
   const room = await S.createInvite(a, "pro", 60_000, undefined, 1000);
   assert.equal(room.fuel, 1000); assert.equal(room.books[a.pid].fuel, 1000);
@@ -267,6 +269,18 @@ test("custom budgets: sizes scale on 1-2-5 steps; friend room books start at the
   await assert.rejects(S.trade(room.id, b.pid, "boost", 25, PRICE), /trade size/);   // a tier size, not this budget's
   // a bad budget never sticks: the room falls back to the tier
   await S.leave(room.id, a.pid); await S.leave(room.id, b.pid);
-  const c = pilot("5"); const odd = await S.createInvite(c, "rookie", 60_000, undefined, 5);
+  const c = pilot("5"); const odd = await S.createInvite(c, "rookie", 60_000, undefined, 4);
   assert.equal(odd.fuel, undefined); assert.equal(odd.books[c.pid].fuel, 20);
+});
+
+test("custom budgets: a $5 duel trades in whole dollars ($1 / $2 / $3 / $4)", async () => {
+  const a = pilot("0"), b = { pid: "0x" + "01".repeat(20), name: "@zero1" };
+  const room = await S.createInvite(a, "rookie", 60_000, undefined, 5);
+  assert.equal(room.books[a.pid].fuel, 5);
+  await S.joinInvite(b, room.code!); await S.setReady(room.id, a.pid); await S.setReady(room.id, b.pid);
+  await patch(room.id, (r) => { r.startAt = Date.now() - 1000; r.endAt = Date.now() + 60_000; });
+  PRICE = 68000;
+  await S.trade(room.id, a.pid, "boost", 4, PRICE);
+  await S.trade(room.id, b.pid, "dump", 1, PRICE);
+  await assert.rejects(S.trade(room.id, b.pid, "dump", 2.5, PRICE), /trade size/);
 });
