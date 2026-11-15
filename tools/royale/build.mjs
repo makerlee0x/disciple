@@ -17,6 +17,7 @@ const assets = {
   ...Object.fromEntries(["rocket", "sky0", "sky1", "sky2", "sky3", "sky4"].map((k) => [k, `../duel/${k}.webp`])),
   skyEth: "../sky-eth.webp",
   skyBtc: "../sky-btc.webp",
+  skyPad: "../../home/pad/sky-1280.webp",
   art: "../../art/modes/last-pilot.webp",
 };
 // rival skins, air-drop pods and gun icons (PR 399 art, shrunk to game size as WebP in ./art)

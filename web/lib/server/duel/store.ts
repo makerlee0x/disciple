@@ -11,7 +11,7 @@ import "server-only";
 import { kv, type Kv } from "@/lib/server/kv";
 import { ulid } from "@/lib/chat/ulid";
 import {
-  COUNTDOWN_MS, OT_MS, TIERS, applyTrade, bombAt, makeCode, matchWindow, needsOvertime, newBook, newRating, profitOf, rate, settleBook,
+  COUNTDOWN_MS, OT_MS, applyTrade, bombAt, makeCode, matchWindow, needsOvertime, newBook, newRating, profitOf, rate, settleBook, fuelOf, sizesOf, isCustomFuel,
   type LengthMs, type Rating, type TierId, type TradeAction,
 } from "@/lib/duel/rules";
 import { duelCandles, priceAt, type Candle } from "./price";
@@ -99,7 +99,7 @@ async function claimSeat(pid: string, id: string, s: Kv): Promise<boolean> {
   return false;
 }
 const busy = () => new DuelError(409, "You're already in a duel. Finish or leave it first.");
-async function createRoom(mode: DuelMode, tier: TierId, lenMs: LengthMs, players: DuelPlayer[], s: Kv, code?: string): Promise<DuelRoom> {
+async function createRoom(mode: DuelMode, tier: TierId, lenMs: LengthMs, players: DuelPlayer[], s: Kv, code?: string, fuel?: number): Promise<DuelRoom> {
   const id = ulid(), now = Date.now();
   const got: string[] = [];
   for (const p of players) {
@@ -108,7 +108,8 @@ async function createRoom(mode: DuelMode, tier: TierId, lenMs: LengthMs, players
     throw busy();
   }
   const room: DuelRoom = { id, mode, tier, lenMs, code, createdAt: now, players, status: "lobby", books: {}, seq: 0 };
-  for (const p of players) room.books[p.pid] = newBook(TIERS[tier].fuel);
+  if (mode === "friend" && isCustomFuel(fuel)) room.fuel = fuel;
+  for (const p of players) room.books[p.pid] = newBook(fuelOf(room));
   await s.set(K.room(id), JSON.stringify(room));
   await s.zadd(K.rooms(), [{ score: now, member: id }]);
   return room;
@@ -170,13 +171,13 @@ export async function leaveQueue(pid: string, tier: TierId, lenMs: LengthMs, s: 
 }
 
 /* ---------- challenge a friend ---------- */
-export async function createInvite(me: Pilot, tier: TierId, lenMs: LengthMs, s: Kv = kv()): Promise<DuelRoom> {
+export async function createInvite(me: Pilot, tier: TierId, lenMs: LengthMs, s: Kv = kv(), fuel?: number): Promise<DuelRoom> {
   if (await activeRoomOf(me.pid, s)) throw busy();
   for (let i = 0; i < 6; i++) {
     const code = makeCode();
     if (!(await s.setNX(K.code(code), "pending", 30 * 60))) continue;
     let room: DuelRoom;
-    try { room = await createRoom("friend", tier, lenMs, [await playerOf(me, s)], s, code); } catch (e) { await s.del(K.code(code)); throw e; }
+    try { room = await createRoom("friend", tier, lenMs, [await playerOf(me, s)], s, code, fuel); } catch (e) { await s.del(K.code(code)); throw e; }
     await s.del(K.code(code)); await s.setNX(K.code(code), room.id, 30 * 60);
     return room;
   }
@@ -189,7 +190,7 @@ export async function joinInvite(me: Pilot, code: string, s: Kv = kv()): Promise
     if (seatOf(r, me.pid)) return [];
     if (r.status !== "lobby" || r.players.length >= 2) throw new DuelError(409, "That duel already has two pilots.");
     if (!(await claimSeat(me.pid, r.id, s))) throw busy();
-    r.players.push(await playerOf(me, s)); r.books[me.pid] = newBook(TIERS[r.tier].fuel);
+    r.players.push(await playerOf(me, s)); r.books[me.pid] = newBook(fuelOf(r));
     return [{ type: "join", pid: me.pid }];
   }, s);
   return room;
@@ -243,7 +244,7 @@ function bombAll(r: DuelRoom, price: number, evs: NewDuelEvent[]) {
  */
 function tickInto(r: DuelRoom, now: number, price: number | null, evs: NewDuelEvent[], tape: Candle[] | null): number | "wait" | null {
   if (r.status !== "live" || now < (r.startAt ?? 0)) return null;
-  const fuel0 = TIERS[r.tier].fuel;
+  const fuel0 = fuelOf(r);
   // only finished minutes count: an open candle's close is just today's price
   const closed = tape?.filter((c) => c.t + 60_000 <= now - TAPE_LAG_MS) ?? null;
   // A stretch nobody ticked becomes a pending gap. It stays pending (trading paused, buzzer held) until every minute
@@ -351,7 +352,7 @@ async function rateDuel(r: DuelRoom, scoreA: 0 | 0.5 | 1, s: Kv) {
   }));
 }
 async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> {
-  const fuel0 = TIERS[r.tier].fuel;
+  const fuel0 = fuelOf(r);
   const books: DuelResult["books"] = {}, profit: DuelResult["profit"] = {};
   for (const p of r.players) { books[p.pid] = settleBook(r.books[p.pid], price); profit[p.pid] = Math.round((books[p.pid].fuel - fuel0) * 100) / 100; }
   const [a, b] = r.players;
@@ -395,7 +396,7 @@ export async function trade(id: string, pid: string, action: TradeAction, usd: n
     if (typeof p === "number") { evs.push(await settle(r, p, s)); return evs; }
     if (r.gap && now < (r.endAt ?? Infinity)) { held = true; return evs; } // keep the gap (and any bombs), refuse the trade
     if (p === "wait" || now >= (r.endAt ?? Infinity)) throw new DuelError(409, "Time's up.");
-    const sizes = TIERS[r.tier].sizes;
+    const sizes = sizesOf(r);
     if (action !== "close" && !sizes.includes(usd)) throw new DuelError(400, "Pick a trade size.");
     const out = applyTrade(r.books[pid], action, usd, price, now - (r.startAt ?? now));
     if (!out) throw new DuelError(409, action === "close" ? "Nothing open." : "Out of duel fuel. Cash out to free some.");
@@ -424,7 +425,7 @@ export async function rematch(id: string, pid: string, s: Kv = kv()) {
     if (!r.rematch.by.includes(pid)) r.rematch.by.push(pid);
     if (r.players.every((p) => r.rematch!.by.includes(p.pid))) {
       const seats = await Promise.all(r.players.map((p) => playerOf(p, s)));
-      make = await createRoom(r.mode, r.tier, r.lenMs, seats, s);
+      make = await createRoom(r.mode, r.tier, r.lenMs, seats, s, undefined, r.fuel);
       r.rematch.roomId = make.id;
     }
     return [{ type: "rematch", pid, roomId: r.rematch.roomId }];

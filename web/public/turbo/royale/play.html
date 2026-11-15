@@ -183,6 +183,14 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .rdy{font:800 12px/1 var(--f-game);font-style:normal;letter-spacing:.8px;padding:4px 8px;border-radius:7px;background:#2a2d3a;color:var(--muted)}
 .duel-root .rdy.on{background:var(--green);color:#121327}
 .duel-root .opts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.duel-root .budget{flex-wrap:nowrap}
+.duel-root .budget .opt{min-width:0}
+.duel-root .budget .bud{flex:1.25;min-width:0;display:flex;align-items:center;height:48px;border-radius:12px;background:#23262F;border:2px solid #2E323A;padding:0 8px;box-sizing:border-box;cursor:text}
+.duel-root .budget .bud.on{border-color:var(--gold);background:rgba(242,193,78,.16)}
+.duel-root .budget .bud i{font:800 17px/1 var(--f-game);color:var(--muted);font-style:normal}
+.duel-root .budget .bud input{width:100%;min-width:0;background:transparent;border:0;color:var(--text);font:800 17px/1 var(--f-game);outline:none;padding:0 0 0 3px}
+.duel-root .budget .bud input::placeholder{color:var(--muted)}
+.duel-root .alab em{display:block;margin-top:4px;font:800 11px/1 var(--f-game);letter-spacing:1px;color:var(--gold);font-style:normal}
 .duel-root .opts span{font:700 12px/1 var(--f-game);letter-spacing:.6px;color:var(--muted);width:56px}
 .duel-root .opt{flex:1;height:40px;border-radius:12px;background:#23262F;border:2px solid #2E323A;font:800 17px/1 var(--f-game)}
 .duel-root .opt{height:48px!important;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
@@ -327,6 +335,18 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root #drop .mkb .tg,.duel-root #drop .mkb small{overflow-wrap:anywhere}
 @media (max-width:430px){.duel-root #drop .mkb b{font-size:22px}.duel-root #drop .mkb small{font-size:11.5px}}
 .duel-root #drop .pane{gap:12px}
+/* map vote (maker 2026-11-15): two skies, every pilot votes, a tie goes to a random sky */
+.duel-root .vote{display:flex;flex-direction:column;gap:6px}
+.duel-root .vrow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.duel-root .vopt{position:relative;height:78px;border-radius:14px;border:2px solid #2E323A;background:#23262F center/cover no-repeat;overflow:hidden;color:var(--text);text-align:left;padding:0;cursor:pointer}
+.duel-root .vopt::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,8,12,.15),rgba(7,8,12,.78))}
+.duel-root .vopt.on{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold) inset}
+.duel-root .vopt .vn{position:absolute;left:10px;bottom:9px;font:800 18px/1 var(--f-game);letter-spacing:.4px}
+.duel-root .vopt .vc{position:absolute;right:10px;bottom:8px;font:800 22px/1 var(--f-game);color:var(--gold);font-variant-numeric:tabular-nums}
+.duel-root .vopt .vy{position:absolute;left:10px;top:8px;font:800 10px/1 var(--f-game);letter-spacing:1px;color:var(--gold)}
+.duel-root .vopt .vbar{position:absolute;left:0;bottom:0;height:3px;background:var(--gold);transition:width .3s}
+.duel-root .vst{font:500 11.5px/1.3 var(--f-ui);color:var(--muted)}
+@media (max-width:430px){.duel-root .vopt{height:66px}.duel-root .vopt .vn{font-size:16px}}
 @media (hover:none),(pointer:coarse){.duel-root .kbd{display:none}}
 .duel-root .how summary{cursor:pointer;list-style:none;text-align:center;font:700 13px/1 var(--f-game);letter-spacing:.8px;color:var(--muted);padding:4px 0}
 .duel-root .how summary::-webkit-details-marker{display:none}
@@ -377,6 +397,7 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .rules b{font:700 13px/1 var(--f-game);letter-spacing:.4px;color:var(--text)}
 .duel-root .count small{display:block;font:800 22px/1 var(--f-game);letter-spacing:1px;text-align:center;color:var(--champ);margin-bottom:6px}
 .duel-root .count{text-align:center}
+.duel-root .count small.cmap{font-size:14px;line-height:1.25;color:var(--gold);margin:0 auto 12px;max-width:92vw;white-space:normal}
 .duel-root .card h1.big{font-size:52px;text-align:center}
 .duel-root{--font-barlow-condensed:'Barlow Condensed';--font-geist:'Geist'}
 .duel-root .feed{max-width:calc(100% - 130px)}
@@ -455,7 +476,8 @@ html,body{margin:0;height:100%;background:#07080c}
   <ol class="steps" aria-label="Match steps"><li class="on">PICK DROP</li><li>LOOT UP</li><li>SURVIVE</li><li>LAST PILOT</li></ol>
   <div class="panel">
     <div class="pane">
-      <div class="dtime"><span>PICK YOUR DROP</span><b id="dT">0:15</b></div>
+      <div class="dtime"><span>VOTE THE MAP · PICK YOUR DROP</span><b id="dT">0:15</b></div>
+      <div class="vote" role="group" aria-label="Map vote"><div class="vrow" id="vRow"></div><small class="vst" id="vSt">12 pilots vote. A tie goes to a random sky.</small></div>
       <div class="mk" id="mkPick"></div>
       <div class="opts" role="group" aria-label="Length"><span>LENGTH</span>
         <button class="opt" type="button" data-len="quick">QUICK<small class="ob">about 3 min</small></button><button class="opt on" type="button" data-len="full">FULL<small class="ob">about 5 min</small></button>
@@ -488,7 +510,7 @@ html,body{margin:0;height:100%;background:#07080c}
 </div>
 <script>
 (function(){
-const A={"rocket":"../duel/rocket.webp","sky0":"../duel/sky0.webp","sky1":"../duel/sky1.webp","sky2":"../duel/sky2.webp","sky3":"../duel/sky3.webp","sky4":"../duel/sky4.webp","skyEth":"../sky-eth.webp","skyBtc":"../sky-btc.webp","art":"../../art/modes/last-pilot.webp","airdrop-machine-gun-glow":"art/airdrop-machine-gun-glow.webp","airdrop-machine-gun":"art/airdrop-machine-gun.webp","airdrop-minigun-glow":"art/airdrop-minigun-glow.webp","airdrop-minigun":"art/airdrop-minigun.webp","airdrop-pistol-glow":"art/airdrop-pistol-glow.webp","airdrop-pistol":"art/airdrop-pistol.webp","airdrop-railgun-glow":"art/airdrop-railgun-glow.webp","airdrop-railgun":"art/airdrop-railgun.webp","airdrop-rocket-launcher-glow":"art/airdrop-rocket-launcher-glow.webp","airdrop-rocket-launcher":"art/airdrop-rocket-launcher.webp","airdrop-shotgun-glow":"art/airdrop-shotgun-glow.webp","airdrop-shotgun":"art/airdrop-shotgun.webp","airdrop-sniper-glow":"art/airdrop-sniper-glow.webp","airdrop-sniper":"art/airdrop-sniper.webp","fx-boom-small":"art/fx-boom-small.webp","fx-cashout":"art/fx-cashout.webp","fx-nuke":"art/fx-nuke.webp","fx-pod-open":"art/fx-pod-open.webp","fx-weapon-break":"art/fx-weapon-break.webp","map-btc":"art/map-btc.webp","map-eth":"art/map-eth.webp","map-hype":"art/map-hype.webp","map-sol":"art/map-sol.webp","skin-candy-pink":"art/skin-candy-pink.webp","skin-carbon":"art/skin-carbon.webp","skin-chrome-pink-stripe":"art/skin-chrome-pink-stripe.webp","skin-gunmetal-pink":"art/skin-gunmetal-pink.webp","skin-matte-black":"art/skin-matte-black.webp","skin-navy-chevron":"art/skin-navy-chevron.webp","skin-oilslick":"art/skin-oilslick.webp","skin-pearl-mint":"art/skin-pearl-mint.webp","skin-scorched":"art/skin-scorched.webp","skin-titanium-ice":"art/skin-titanium-ice.webp","skyHype":"art/skyHype.webp","skySol":"art/skySol.webp","weapon-machine-gun":"art/weapon-machine-gun.webp","weapon-minigun":"art/weapon-minigun.webp","weapon-pistol":"art/weapon-pistol.webp","weapon-railgun":"art/weapon-railgun.webp","weapon-rocket-launcher":"art/weapon-rocket-launcher.webp","weapon-shotgun":"art/weapon-shotgun.webp","weapon-sniper":"art/weapon-sniper.webp"};
+const A={"rocket":"../duel/rocket.webp","sky0":"../duel/sky0.webp","sky1":"../duel/sky1.webp","sky2":"../duel/sky2.webp","sky3":"../duel/sky3.webp","sky4":"../duel/sky4.webp","skyEth":"../sky-eth.webp","skyBtc":"../sky-btc.webp","skyPad":"../../home/pad/sky-1280.webp","art":"../../art/modes/last-pilot.webp","airdrop-machine-gun-glow":"art/airdrop-machine-gun-glow.webp","airdrop-machine-gun":"art/airdrop-machine-gun.webp","airdrop-minigun-glow":"art/airdrop-minigun-glow.webp","airdrop-minigun":"art/airdrop-minigun.webp","airdrop-pistol-glow":"art/airdrop-pistol-glow.webp","airdrop-pistol":"art/airdrop-pistol.webp","airdrop-railgun-glow":"art/airdrop-railgun-glow.webp","airdrop-railgun":"art/airdrop-railgun.webp","airdrop-rocket-launcher-glow":"art/airdrop-rocket-launcher-glow.webp","airdrop-rocket-launcher":"art/airdrop-rocket-launcher.webp","airdrop-shotgun-glow":"art/airdrop-shotgun-glow.webp","airdrop-shotgun":"art/airdrop-shotgun.webp","airdrop-sniper-glow":"art/airdrop-sniper-glow.webp","airdrop-sniper":"art/airdrop-sniper.webp","fx-boom-small":"art/fx-boom-small.webp","fx-cashout":"art/fx-cashout.webp","fx-nuke":"art/fx-nuke.webp","fx-pod-open":"art/fx-pod-open.webp","fx-weapon-break":"art/fx-weapon-break.webp","map-btc":"art/map-btc.webp","map-eth":"art/map-eth.webp","map-hype":"art/map-hype.webp","map-sol":"art/map-sol.webp","skin-candy-pink":"art/skin-candy-pink.webp","skin-carbon":"art/skin-carbon.webp","skin-chrome-pink-stripe":"art/skin-chrome-pink-stripe.webp","skin-gunmetal-pink":"art/skin-gunmetal-pink.webp","skin-matte-black":"art/skin-matte-black.webp","skin-navy-chevron":"art/skin-navy-chevron.webp","skin-oilslick":"art/skin-oilslick.webp","skin-pearl-mint":"art/skin-pearl-mint.webp","skin-scorched":"art/skin-scorched.webp","skin-titanium-ice":"art/skin-titanium-ice.webp","skyHype":"art/skyHype.webp","skySol":"art/skySol.webp","weapon-machine-gun":"art/weapon-machine-gun.webp","weapon-minigun":"art/weapon-minigun.webp","weapon-pistol":"art/weapon-pistol.webp","weapon-railgun":"art/weapon-railgun.webp","weapon-rocket-launcher":"art/weapon-rocket-launcher.webp","weapon-shotgun":"art/weapon-shotgun.webp","weapon-sniper":"art/weapon-sniper.webp"};
 document.addEventListener("DOMContentLoaded",()=>{ const b=document.getElementById("preBg"); if(b) b.style.backgroundImage=`url("${A.art}")`; });
 
 const SKINS=Object.keys(A).filter(k=>k.startsWith("skin-")); const imgs={}; for(const k in A){const i=new Image(); i.src=A[k]; imgs[k]=i;}
@@ -802,17 +824,49 @@ function buildDrop(){
   $("dGo").textContent="DROP INTO "+dropMk; paintSizes();
 }
 document.querySelectorAll("[data-len]").forEach(b=>b.addEventListener("click",()=>{ LENK=b.dataset.len; document.querySelectorAll("[data-len]").forEach(x=>x.classList.toggle("on",x===b)); buildDrop(); }));
+/* ---------- map vote (maker 2026-11-15: "give them two options and then people vote. a 6-6 tiebreaker would go for a random sky") ----------
+ * Two skies from the pool, never last match's. All 12 pilots vote during the drop timer (the 11 bots trickle in);
+ * you can change your vote until the drop. Most votes wins; a tie goes to a random sky from the whole pool. */
+const MAPS=[{n:"MOONRISE",k:"sky0"},{n:"THE PAD",k:"skyPad"},{n:"CLOUD DECK",k:"sky2"},{n:"BLUE MOON",k:"skyEth"},
+  {n:"ORANGE ORBIT",k:"skyBtc"},{n:"DEEP SPACE",k:"sky4"},{n:"PINK DUSK",k:"sky1",g:"240,48,127,.38"}].filter(m=>A[m.k]);
+let VOTE=null, MAP=MAPS[0];
+function newVote(){
+  let last=null; try{ last=localStorage.getItem("royale.map"); }catch(e){}
+  const pool=MAPS.filter(m=>m.n!==last).sort(()=>Math.random()-.5);
+  VOTE={opts:[pool[0],pool[1]||pool[0]],mine:-1,bots:NAMES.map(()=>({at:rnd(1.5,12),pick:Math.random()<.5?0:1,done:false})),res:null};
+  $("vRow").innerHTML=""; VOTE.opts.forEach((m,i)=>{ const b=document.createElement("button"); b.type="button"; b.className="vopt"; b.dataset.i=i;
+    b.style.backgroundImage=`url("${A[m.k]}")`; b.setAttribute("aria-label","Vote for "+m.n);
+    b.innerHTML=`<span class="vy" hidden>YOUR VOTE</span><span class="vn">${m.n}</span><b class="vc">0</b><i class="vbar"></i>`;
+    b.addEventListener("click",()=>{ if(!VOTE||VOTE.res) return; VOTE.mine=i; sfx("tick"); buzz(10); paintVote(); }); $("vRow").appendChild(b); });
+  paintVote();
+}
+function tally(){ const n=[0,0]; for(const b of VOTE.bots) if(b.done) n[b.pick]++; if(VOTE.mine>=0) n[VOTE.mine]++; return n; }
+function paintVote(){ if(!VOTE) return; const n=tally(), tot=n[0]+n[1];
+  $("vRow").querySelectorAll(".vopt").forEach(b=>{ const i=+b.dataset.i; b.classList.toggle("on",VOTE.mine===i); b.querySelector(".vy").hidden=VOTE.mine!==i;
+    b.querySelector(".vc").textContent=n[i]; b.querySelector(".vbar").style.width=(tot?n[i]/12*100:0)+"%"; });
+  $("vSt").textContent=VOTE.mine<0?`${tot} of 12 voted · tap a sky to vote · a tie goes random`:`${tot} of 12 voted · you can switch until the drop`; }
+function voteTick(el){ if(!VOTE||VOTE.res) return; let ch=false; for(const b of VOTE.bots) if(!b.done&&el>=b.at){ b.done=true; ch=true; } if(ch) paintVote(); }
+function finishVote(){
+  if(!VOTE) newVote(); if(VOTE.res) return VOTE.res;
+  for(const b of VOTE.bots) b.done=true;
+  const n=tally(); let tie=n[0]===n[1];
+  MAP=tie?MAPS[Math.floor(Math.random()*MAPS.length)]:VOTE.opts[n[0]>n[1]?0:1];
+  try{ localStorage.setItem("royale.map",MAP.n); }catch(e){}
+  paintVote(); VOTE.res={tie,n,map:MAP}; return VOTE.res;
+}
 let dropT=0, dropIv=0;
-function showDrop(){ $("result").hidden=true; $("drop").hidden=false; G=null; buildDrop(); dropT=15; $("dT").textContent=mmss(dropT);
-  clearInterval(dropIv); dropIv=setInterval(()=>{ dropT--; $("dT").textContent=mmss(dropT); if(dropT<=0){ clearInterval(dropIv); go(); } },1000); }
+function showDrop(){ $("result").hidden=true; $("drop").hidden=false; G=null; buildDrop(); newVote(); dropT=15; $("dT").textContent=mmss(dropT);
+  clearInterval(dropIv); dropIv=setInterval(()=>{ dropT--; $("dT").textContent=mmss(dropT); voteTick(15-dropT); if(dropT<=0){ clearInterval(dropIv); go(); } },1000); }
 $("dGo").addEventListener("click",()=>{ ensureAudio(); clearInterval(dropIv); go(); });
 function go(){
+  const vr=finishVote(), mapLine=vr.tie?`VOTE TIED ${vr.n[0]}-${vr.n[1]} · RANDOM SKY: ${MAP.n}`:`MAP · ${MAP.n} (${Math.max(...vr.n)}-${Math.min(...vr.n)})`;
   $("drop").hidden=true; newGame(); G.me.y=null; FX.parts.length=FX.pops.length=FX.rings.length=0;
   $("feed").innerHTML=""; buildJump(); const c=$("count"); c.hidden=false; let n=3;
-  const show=()=>{ c.innerHTML=`<div><small>DROPPING INTO ${G.me.mk}</small>${n}</div>`; };
+  const show=()=>{ c.innerHTML=`<div><small>DROPPING INTO ${G.me.mk}</small><small class="cmap">${mapLine}</small>${n}</div>`; };
   show(); sfx("tick");
   const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("tick"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); buzz(30); G.started=true; setTimeout(()=>c.hidden=true,450);
-    feed("m","☁",`${inMk(G.me.mk).length} pilots in ${G.me.mk} · 12 in the game`); },800);
+    feed("m","☁",`${inMk(G.me.mk).length} pilots in ${G.me.mk} · 12 in the game`);
+    feed("m","🗳",vr.tie?`Map vote tied ${vr.n[0]}-${vr.n[1]}. Random sky: <b>${MAP.n}</b>`:`Map vote ${Math.max(...vr.n)}-${Math.min(...vr.n)}: <b>${MAP.n}</b>`); },800);
 }
 function endMe(){
   if(G.resShown) return; G.resShown=true;
@@ -845,7 +899,7 @@ function royaleLine(r){
 }
 function royaleCard(r){
   const W=1080,H=1350,c=document.createElement("canvas"); c.width=W; c.height=H; const x=c.getContext("2d");
-  const sky=imgs.sky3&&imgs.sky3.complete&&imgs.sky3.width?imgs.sky3:imgs.sky1;
+  const sm=imgs[MAP.k], sky=sm&&sm.complete&&sm.width?sm:imgs.sky1;
   if(sky&&sky.complete&&sky.width){ const k=Math.max(W/sky.width,H/sky.height); x.drawImage(sky,(W-sky.width*k)/2,(H-sky.height*k)/2,sky.width*k,sky.height*k); } else { x.fillStyle="#0B0C1E"; x.fillRect(0,0,W,H); }
   const g=x.createLinearGradient(0,0,0,H); g.addColorStop(0,"rgba(7,8,12,.8)"); g.addColorStop(.45,"rgba(7,8,12,.2)"); g.addColorStop(1,"rgba(7,8,12,.92)"); x.fillStyle=g; x.fillRect(0,0,W,H);
   const rk=imgs.rocket, rh=460, rw=rh*221/609, cx=W/2, cy=720;
@@ -997,12 +1051,13 @@ const xOf=pl=>pl.x!=null?pl.x:pl.lane*SW+pl.xo;
 
 let skyMix={k:"sky0",prev:null,t:1};
 // every map has its own sky; the final circle and last duel happen in BTC's
-function skyName(){ if(!G||!G.started) return "sky0"; if(G.duel||G.final) return MKD.BTC.sky; return MKD[G.me.mk].sky; }
+function skyName(){ if(!G||!G.started) return "sky0"; return MAP.k; }
 function drawBackdrop(dt){
   const want=skyName(); if(want!==skyMix.k){ skyMix={k:want,prev:skyMix.k,t:0}; } skyMix.t=Math.min(1,skyMix.t+dt*1.5);
   const draw=(k,a)=>{const im=imgs[k]; if(!im||!im.complete||a<=0) return; const s=Math.max(SW/im.width,SH/im.height)*1.12; sx.globalAlpha=a; sx.drawImage(im,(SW-im.width*s)/2,(SH-im.height*s)/2,im.width*s,im.height*s); sx.globalAlpha=1;};
   sx.fillStyle="#121327"; sx.fillRect(0,0,SW,SH);
   if(skyMix.prev) draw(skyMix.prev,1); draw(skyMix.k,skyMix.t);
+  if(G&&G.started&&MAP.g){ sx.globalCompositeOperation="overlay"; sx.fillStyle=`rgba(${MAP.g})`; sx.fillRect(0,0,SW,SH); sx.globalCompositeOperation="source-over"; }
   sx.fillStyle="rgba(11,10,22,.28)"; sx.fillRect(0,0,SW,SH);
 }
 let pxPer=20, pCam=0;
