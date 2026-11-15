@@ -10,6 +10,10 @@
 html,body{margin:0;height:100%;background:#07080c}
 /*DUELCSS*/
 /* royale additions, same tokens as the duel */
+.duel-root .gi{display:block;height:20px;max-width:100%;object-fit:contain;pointer-events:none}
+.duel-root .size button{height:58px!important;gap:2px!important}
+.duel-root .sw-row button{height:76px!important}.duel-root .sw-row .gi{height:26px}
+.duel-root #swN{display:flex;flex-direction:column;align-items:center;gap:6px}.duel-root .gi.big{height:56px}
 .duel-root .swapc{position:absolute;left:0;right:0;top:calc(var(--ch) + 150px + env(safe-area-inset-top,0px));display:flex;justify-content:center;z-index:12;pointer-events:none;padding:0 16px}
 .duel-root .sw-card{pointer-events:auto;width:100%;max-width:360px;border-radius:20px;background:rgba(21,22,27,.95);border:2px solid var(--rc,#2E323A);box-shadow:0 0 40px rgba(var(--rgb,255,255,255),.25);padding:14px 14px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;animation:pop .3s cubic-bezier(.3,1.6,.5,1)}
 .duel-root .sw-k{font:700 12px/1 var(--f-game);letter-spacing:1px;color:var(--rc)}
@@ -188,7 +192,7 @@ html,body{margin:0;height:100%;background:#07080c}
 const A=%%ASSETS%%;
 document.addEventListener("DOMContentLoaded",()=>{ const b=document.getElementById("preBg"); if(b) b.style.backgroundImage=`url("${A.art}")`; });
 
-const imgs={}; for(const k in A){const i=new Image(); i.src=A[k]; imgs[k]=i;}
+const SKINS=Object.keys(A).filter(k=>k.startsWith("skin-")); const imgs={}; for(const k in A){const i=new Image(); i.src=A[k]; imgs[k]=i;}
 const $=id=>document.getElementById(id);
 const GF="'Barlow Condensed'", GU="Geist";
 const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -217,7 +221,7 @@ const WPN={
   "SNIPER":{usd:5,lev:50,ammo:5,r:3},
   "ROCKET LAUNCHER":{usd:10,lev:50,ammo:3,r:3},
   "RAILGUN":{usd:20,lev:100,ammo:2,r:4}};
-const RAR=[{n:"COMMON",c:"#D7D9E4",rgb:"215,217,228"},{n:"UNCOMMON",c:"#5FF0A0",rgb:"95,240,160"},{n:"RARE",c:"#8FB8FF",rgb:"143,184,255"},{n:"EPIC",c:"#FF8FBD",rgb:"255,143,189"},{n:"LEGENDARY",c:"#F2C14E",rgb:"242,193,78"}];
+const RAR=[{n:"COMMON",c:"#A7AFBE",rgb:"167,175,190"},{n:"UNCOMMON",c:"#5FF0A0",rgb:"95,240,160"},{n:"RARE",c:"#4F8BFF",rgb:"79,139,255"},{n:"EPIC",c:"#A066FF",rgb:"160,102,255"},{n:"LEGENDARY",c:"#FF9A3C",rgb:"255,154,60"}];
 const wOf=pl=>pl.inv[pl.sel]||pl.inv[0], W=w=>WPN[w.k], rarOf=w=>RAR[W(w).r];
 const wLine=w=>`$${W(w).usd} × ${W(w).lev}×`;
 function rollLoot(k){ const wt=MKD[k].loot, tot=wt.reduce((a,b)=>a+b,0); let x=Math.random()*tot, r=1; for(let i=0;i<wt.length;i++){ x-=wt[i]; if(x<=0){ r=i+1; break; } }
@@ -240,7 +244,7 @@ const liqPct=pl=>pl.pos?Math.max(0,-pnlOf(pl.pos,price(pl))/(LIQ*pl.pos.coll)):0
 
 /* ---------- state ---------- */
 let G=null;
-function newPilot(name,me,mk){ return {name,me,mk,fuel:FUEL0,pos:null,shields:0,inv:[{k:"PISTOL",ammo:Infinity}],sel:0,alive:true,lane:.5,jit:me?0:rnd(-34,34),arrive:me?0:rnd(1,18),xo:0,xt:0,wander:0,
+function newPilot(name,me,mk){ return {skin:me?null:SKINS[Math.floor(Math.random()*SKINS.length)],name,me,mk,fuel:FUEL0,pos:null,shields:0,inv:[{k:"PISTOL",ammo:Infinity}],sel:0,alive:true,lane:.5,jit:me?0:rnd(-34,34),arrive:me?0:rnd(1,18),xo:0,xt:0,wander:0,
   dfW:0,dfL:0,best:0,grab:0,cool:rnd(10,22),df:null,y:null,vy:0,flame:0,sq:0,kick:0,rot:0,steer:0,jumpAt:null,place:0,
   bot:me?null:{skill:rnd(.25,.9),react:[rnd(.4,.8),rnd(.9,1.8)],next:0,thr:rnd(2.2,3.6),tp:rnd(.25,.6),sl:-rnd(.25,.75),hold:rnd(6,16)}}; }
 function newGame(){
@@ -334,7 +338,7 @@ function paintHot(){ const inv=G?G.me.inv:[{k:"PISTOL",ammo:Infinity}], sel=G?G.
     if(!w){ b.className="empty"; b.innerHTML="<b>EMPTY</b><small>fly into loot</small>"; return; }
     b.style.setProperty("--rc",rarOf(w).c);
     b.className=i===sel?"on":"";
-    b.innerHTML=`<b>${w.k}</b><small>${wLine(w)}${w.ammo===Infinity?"":" · "+w.ammo}</small>`; });
+    b.innerHTML=`${gunImg(w.k)}<b>${w.k}</b><small>${wLine(w)}${w.ammo===Infinity?"":" · "+w.ammo}</small>`; });
 
   const w=inv[sel]||inv[0]; $("bBoostA").textContent=$("bDumpA").textContent=wLine(w); }
 const keys={};
@@ -683,7 +687,7 @@ function drawBand(){
   if(yT>0&&yT<SH) sx.fillRect(0,yT-1,SW,2); if(yB>0&&yB<SH) sx.fillRect(0,yB-1,SW,2); sx.restore();
 }
 function drawRocket(pl,now){
-  const x=xOf(pl), y=pl.y, img=imgs.rocket, h=pl.me?LAY.rh:LAY.rh*.8, w=h*221/609, fight=G.me.df&&(G.me.df.a===pl||G.me.df.b===pl)||G.duel&&(G.duel.a===pl||G.duel.b===pl);
+  const x=xOf(pl), y=pl.y, img=(pl.skin&&imgs[pl.skin])||imgs.rocket, h=pl.me?LAY.rh:LAY.rh*.8, w=h*221/609, fight=G.me.df&&(G.me.df.a===pl||G.me.df.b===pl)||G.duel&&(G.duel.a===pl||G.duel.b===pl);
   const thrust=Math.max(.3,Math.min(1.7,.6+pl.flame*.5-pl.vy*.0015)), fl=thrust+Math.sin(now/40+(pl.me?0:pl.lane*9))*.08;
   const c=pl.me?"255,200,80":"255,95,170";
   sx.save(); sx.globalAlpha=pl.me||fight?1:.92; sx.translate(x,y); sx.rotate(Math.max(-.35,Math.min(.35,pl.rot+pl.steer)));
@@ -737,6 +741,11 @@ function drawCrate(dt,now){
   const rc=rarOf(c.item), touch=Math.abs(mx-c.x)<40&&Math.abs(my-c.y)<LAY.rh*.6;
   if(touch){ G.crate=null; me.grab++; FX.rings.push({x:c.x,y:c.y,r:10,vr:420,life:.5,max:.5,w:6,col:rc.rgb}); loot(c.item,"crate"); return; }
   const r=16+Math.sin(now/200)*1.5, left=c.until-G.t, a=left<2?(Math.sin(now/80)>0?1:.4):1;
+  const pod=imgs["airdrop-"+slugW(c.item.k)], glow=imgs["airdrop-"+slugW(c.item.k)+"-glow"];
+  if(pod&&pod.complete){ const S=LAY.rh*1.25; sx.save(); sx.globalAlpha=a*(.55+.45*Math.sin(now/260)**2); sx.drawImage(glow,c.x-S/2,c.y-S*.72,S,S); sx.globalAlpha=a; sx.drawImage(pod,c.x-S/2,c.y-S*.72,S,S);
+    sx.font="800 13px "+GF+",sans-serif"; sx.textAlign="center"; sx.textBaseline="top"; const l1=c.item.k, l2=wLine(c.item)+" · "+c.item.ammo+" shots";
+    const tw=Math.max(sx.measureText(l1).width,(sx.font="600 10px "+GU+",sans-serif",sx.measureText(l2).width))+12, ty=c.y+S*.26; sx.fillStyle="rgba(11,10,22,.88)"; rr(c.x-tw/2,ty,tw,30,6); sx.fill();
+    sx.font="800 13px "+GF+",sans-serif"; sx.fillStyle=rc.c; sx.fillText(l1,c.x,ty+3); sx.font="600 10px "+GU+",sans-serif"; sx.fillStyle="rgba(215,217,228,.9)"; sx.fillText(l2,c.x,ty+18); sx.restore(); return; }
   sx.save(); sx.globalAlpha=a;
   sx.strokeStyle="rgba(242,243,247,.45)"; sx.lineWidth=1.2; sx.beginPath(); sx.moveTo(c.x-14,c.y-12); sx.lineTo(c.x-22,c.y-38); sx.moveTo(c.x+14,c.y-12); sx.lineTo(c.x+22,c.y-38); sx.stroke();
   sx.fillStyle=`rgba(${rc.rgb},.85)`; sx.beginPath(); sx.ellipse(c.x,c.y-40,26,10,0,Math.PI,0); sx.fill();
@@ -756,11 +765,12 @@ function loot(item,from){ const me=G.me, rc=rarOf(item), same=me.inv.find(w=>w.k
   openOffer(item,from); }
 function openOffer(item,from){ const rc=rarOf(item); G.offer={item,until:G.t+6,len:6};
   const card=document.querySelector("#swapC .sw-card"); card.style.setProperty("--rc",rc.c); card.style.setProperty("--rgb",rc.rgb);
-  $("swK").textContent=(from==="dogfight"?"WON IN THE DOGFIGHT · ":"LOOT · ")+RAR[W(item).r].n; $("swN").textContent=item.k; $("swL").textContent=wLine(item)+(item.ammo===Infinity?"":" · "+item.ammo+" shots");
+  $("swK").textContent=(from==="dogfight"?"WON IN THE DOGFIGHT · ":"LOOT · ")+RAR[W(item).r].n; $("swN").innerHTML=gunImg(item.k).replace("gi","gi big")+item.k; $("swL").textContent=wLine(item)+(item.ammo===Infinity?"":" · "+item.ammo+" shots");
   const row=$("swR"); row.innerHTML="";
   G.me.inv.forEach((w,i)=>{ const b=document.createElement("button"); b.type="button"; b.style.setProperty("--wc",rarOf(w).c);
-    b.innerHTML=`<b>${w.k}</b><small>${wLine(w)}${w.ammo===Infinity?"":" · "+w.ammo}</small>`; tap(b,()=>takeOffer(i)); row.appendChild(b); });
+    b.innerHTML=`${gunImg(w.k)}<b>${w.k}</b><small>${wLine(w)}${w.ammo===Infinity?"":" · "+w.ammo}</small>`; tap(b,()=>takeOffer(i)); row.appendChild(b); });
   $("swapC").hidden=false; sfx("lock"); buzz([15,30,15]); }
+const slugW=k=>k.toLowerCase().replace(/ /g,"-"), gunImg=k=>A["weapon-"+slugW(k)]?`<img class="gi" src="${A["weapon-"+slugW(k)]}" alt="">`:"";
 function takeOffer(i){ const o=G.offer; if(!o) return; const me=G.me, old=me.inv[i], rc=rarOf(o.item); me.inv[i]=o.item; me.sel=i; closeOffer();
   sfx("grab"); buzz(25); paintHot(); FX.pops.push({txt:o.item.k,c:rc.c,x:xOf(me),y:me.y-LAY.rh*.8,age:0,max:1.5,size:26});
   feed("w","◆",`Swapped your ${old.k} for <b style="color:${rc.c}">${o.item.k}</b> · ${wLine(o.item)} · now in use`); }
