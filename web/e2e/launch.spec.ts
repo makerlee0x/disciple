@@ -1,5 +1,5 @@
 /** Host a launch: the builder (launch flow board, signed off 2026-11-13) and what happens when you light the engines. */
-import { test, expect, hydrated } from "./support/fixtures";
+import { test, expect, hydrated, isPhone } from "./support/fixtures";
 
 test("the pad preview follows what you type and pick", async ({ page, pilot }) => {
   await pilot.signIn({ cash: 25 });
@@ -73,6 +73,7 @@ test("right after a launch the flight opens with the trade bar and a small share
   await expect(toast).toBeVisible();
   await expect(toast).toContainText(/\$COMET is flying/i);
   await expect(page.getByTestId("trade-bar").filter({ visible: true }).first()).toBeVisible();
+  if (isPhone(page)) { const go = page.getByTestId("fr-go"); await go.waitFor({ state: "visible", timeout: 8_000 }).then(() => go.tap()).catch(() => {}); }
   await toast.getByRole("button", { name: "Close" }).click();
   await expect(toast).toHaveCount(0);
 });
