@@ -41,3 +41,29 @@ The full-quality originals and the edit recipes are kept outside the repo.
 - Trading: `trade_fill_buy`, `trade_fill_sell`, `tx_fail` and `ath_reached` (new all-time high).
 - `loops-wav/gun_minigun_loop.wav` is the gapless copy to use when the minigun loops.
 - Loudness is the same as before. One-shots and stings sit around -16 LUFS. Short clicks like the hit marker, beep, buy chime and fail are matched by peak. True peak is at or below -1 dBTP.
+## v3 batch 3, P2 and P3: money, menus and the rest
+
+51 sounds and 4 ambience beds. That covers batch 3 of the v3 brief plus every P2 and P3 sound. They're all CC0, from Freesound and Kenney, and each source is listed in `SOURCES.csv`.
+
+- Money and launches: `deposit_start`, `deposit_done`, `withdraw_sent`, `balance_tick`, `fee_claim`, `launch_ignite`, `launch_liftoff`, `signin_welcome`
+- Progress: `level_up`, `rank_up`, `mission_done`, `trophy_unlock`, `streak_up`, `xp_tick`, `skin_equip`
+- Menus: `ui_success`, `ui_error`, `ui_toggle_on`, `ui_toggle_off`, `ui_tab`, `ui_slider_tick`, `ui_refresh`, `toast_in`, `chat_ping`
+- Royale: `shield_hit`, `shield_break`, `gun_empty`, `drop_in`, `map_jump`, `storm_warning`, `zone_shrink`, `knock_feed`, `royale_out_sting`
+- Duel: `ready_lock`, `lead_swap`, `overtime_horn`, `duel_lose_sting`, `rating_up`, `rating_down`, `share_shutter`
+- Main flight: `tx_pending` (a soft 1.900 s loop), `rug_alarm`, `whale_pass`, `trick_whoosh`, `steer_whoosh` (levelled very quiet on purpose), `crew_join`
+- Dump bombs, smallest to biggest: `bomb_grenade`, `bomb_bunker`, `bomb_warhead`, `bomb_moab`, `bomb_atom`
+- `loops-wav/tx_pending.wav` is the gapless copy to use when the pending sound loops.
+
+### Ambience in `../amb/`
+
+| File | Where it plays | Loop length |
+| --- | --- | --- |
+| `amb_orbit_hum.m4a` | Flight once you climb high or hit a new high | 90.000 s |
+| `amb_hangar.m4a` | Hangar, Rocket Factory, crate opening (mono) | 84.000 s |
+| `amb_mission_control.m4a` | Duel and Royale lobbies, waiting for a rival | 57.000 s |
+| `amb_tension.m4a` | Royale final circle, Duel overtime | 57.000 s |
+| `amb_mothership_pass.m4a` | Royale drop-in. This one is a 7.5 s one-shot, not a loop | — |
+
+The beds are levelled to about -23 LUFS. AAC pads the end of each file with a few milliseconds of silence, so loop them in Web Audio with `loopEnd` set to the loop length above.
+
+Loudness is otherwise the same as before. One-shots and stings sit around -16 LUFS, short UI clicks are matched by peak, and true peak is at or below -1 dBTP.
