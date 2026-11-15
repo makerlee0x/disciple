@@ -420,6 +420,40 @@ describe("gasless gas cap: graduating buy only", () => {
   });
 });
 
+describe("play-test fixes (maker 2026-11-14: buys stuck on \"didn't go through\")", () => {
+  it("the exact simulation runs AT the 900k tx gas limit", async () => {
+    let raw: Hex | undefined;
+    h.send.mockImplementation(async (r: Hex) => { raw = r; return okRc(); });
+    await relayGaslessTrade(await wire());
+    expect((h.call.mock.calls[0][0] as { gas?: bigint }).gas).toBe(GASLESS_GAS_LIMIT);
+    expect(parseTransaction(raw!).gas).toBe(GASLESS_GAS_LIMIT);
+  });
+
+  it("a trade that only runs out of gas at 900k is re-simulated and sent at the 3M cap (never an included OOG)", async () => {
+    h.call.mockImplementation(async ({ gas }: { gas?: bigint }) => {
+      if (gas === GASLESS_GAS_LIMIT) throw Object.assign(new Error("out of gas"), { walk: () => undefined });
+      return { data: "0x" };
+    });
+    let raw: Hex | undefined;
+    h.send.mockImplementation(async (r: Hex) => { raw = r; return okRc(); });
+    await relayGaslessTrade(await wire());
+    expect(parseTransaction(raw!).gas).toBe(GASLESS_GRAD_GAS_LIMIT);
+  });
+
+  it("an included SLIPPAGE revert (rapid taps) is reported to the client and does not count toward the 2-revert breaker", async () => {
+    const slip = keccak256(toBytes("Slippage()")).slice(0, 10) as Hex;
+    let sims = 0;
+    h.call.mockImplementation(async () => { if (++sims > 1) throw Object.assign(new Error("execution reverted"), { walk: (f: (x: unknown) => boolean) => f({ data: slip }) }); return { data: "0x" }; });
+    h.send.mockResolvedValue(okRc("0x0"));
+    h.incr.mockClear(); h.incrBy.mockClear();
+    const r = await relayGaslessTrade(await wire());
+    expect(r.success).toBe(false);
+    expect(r.revert).toBe(slip);
+    expect(h.incr).not.toHaveBeenCalledWith("relay:breaker:reverts", expect.anything());
+    expect(relayBreaker.isOpen()).toBe(false);
+  });
+});
+
 describe("loss breaker (runs last: it stays open for this module)", () => {
   it("included revert ⇒ loss breaker record; 2 reverts open the breaker ⇒ next request refused notSent", async () => {
     h.send.mockResolvedValue(okRc("0x0"));

@@ -1,21 +1,29 @@
 "use client";
 /**
  * Flight chart card, phones and desktop Pilot (throttle prototype v3, maker 2026-11-14: "the chart is fantastic"; "otherwise it feels like
- * you're trading blind"). A small market-cap line under the top row: 1M · 5M · 1H tabs, the live price tag on the right,
- * a dashed YOU BOARDED line at your entry, and a dot for each of your fills. Tap the card to make it taller.
- * The series is kept from the engine's disciple:mark while the flight is open (module store, so a re-render or a sheet
- * open never loses it). Drawn at ~4 fps on a small canvas, paused while the tab is hidden.
+ * you're trading blind"). Market-cap CANDLES under the top row: 1M · 5M · 1H = how much time the card shows (30 candles each:
+ * 2 s, 10 s, 2 min), the live price tag on the right and a dashed YOU BOARDED line at your entry.
+ *
+ * Fixes from maker's live play-test (2026-11-14 8:15 PM CT):
+ *  - "the chart took forever to load" / "I can't see the history": a live coin's card is seeded from its full fill history
+ *    (/api/trades, lib/chart/history, the same feed as the Pro chart), not only marks seen since the page opened.
+ *  - "the chart went away": marks only arrive when the price moves, so a quiet minute emptied the 1M window ("Reading the
+ *    market…"). The last price now carries forward: a quiet stretch draws flat candles instead of nothing.
+ *  - "what are the yellow dots?": the per-fill dots (placed at the pre-trade mark, so they floated off the line) are gone.
+ *  - line → candles ("see candles").
+ * The series is kept in a module store while the flight is open (a re-render or a sheet open never loses it). Drawn at
+ * ~4 fps on a small canvas, paused while the tab is hidden.
  */
 import { useEffect, useRef } from "react";
+import { fetchHistory } from "@/lib/chart/history";
 
 export const CHART_TFS = [{ k: "1M", ms: 60_000 }, { k: "5M", ms: 300_000 }, { k: "1H", ms: 3_600_000 }] as const;
-const KEEP_MS = 3_600_000, MIN_GAP_MS = 250;
+const KEEP_MS = 6 * 3_600_000, MIN_GAP_MS = 250, BARS = 30;
 
 type Pt = { t: number; m: number };
-type Dot = { t: number; m: number; buy: boolean };
-const store: { key: string; pts: Pt[]; dots: Dot[]; last: number } = { key: "", pts: [], dots: [], last: 0 };
+const store: { key: string; pts: Pt[]; hist: Pt[]; histFor: string; last: number } = { key: "", pts: [], hist: [], histFor: "", last: 0 };
 
-/** Push a mark, thinning to one point per MIN_GAP_MS and keeping an hour. Pure on the arrays passed in; tested. */
+/** Push a mark, thinning to one point per MIN_GAP_MS and keeping KEEP_MS. Pure on the arrays passed in; tested. */
 export function pushMark(pts: Pt[], t: number, m: number): Pt[] {
   if (!(m > 0)) return pts;
   const prev = pts[pts.length - 1];
@@ -24,12 +32,44 @@ export function pushMark(pts: Pt[], t: number, m: number): Pt[] {
   let cut = 0; while (cut < pts.length && pts[cut].t < t - KEEP_MS) cut++;
   return cut ? pts.splice(0, cut) && pts : pts;
 }
-/** The window's % change, first point in the window → last. Pure, tested. */
+/** The window's % change: the price at the window's start (carried forward from before it) → the last price. Pure, tested. */
 export function windowChange(pts: Pt[], now: number, ms: number): number | null {
-  const w = pts.filter((p) => p.t >= now - ms);
-  if (w.length < 2 || !(w[0].m > 0)) return null;
-  return (w[w.length - 1].m / w[0].m - 1) * 100;
+  if (!pts.length) return null;
+  let first: number | null = null;
+  for (const p of pts) { if (p.t <= now - ms) first = p.m; else { if (first == null) first = p.m; break; } }
+  const last = pts[pts.length - 1].m;
+  if (first == null || !(first > 0) || pts.length < 2) return null;
+  return (last / first - 1) * 100;
 }
+export type Bar = { o: number; h: number; l: number; c: number; empty: boolean };
+/**
+ * `n` candles covering [now − ms, now] from a time-sorted series. Each opens at the previous close; a bucket with no point
+ * is a flat bar at the carried-forward price (empty: true); buckets before the first known price are null (not drawn).
+ * Pure, tested.
+ */
+export function windowBars(pts: Pt[], now: number, ms: number, n = BARS): (Bar | null)[] {
+  const out: (Bar | null)[] = [], step = ms / n, t0 = now - ms;
+  let i = 0, prev: number | null = null;
+  while (i < pts.length && pts[i].t < t0) { prev = pts[i].m; i++; }
+  for (let b = 0; b < n; b++) {
+    const end = t0 + (b + 1) * step;
+    let bar: Bar | null = prev != null ? { o: prev, h: prev, l: prev, c: prev, empty: true } : null;
+    while (i < pts.length && pts[i].t < end) {
+      const m = pts[i].m;
+      if (!bar) bar = { o: m, h: m, l: m, c: m, empty: false };
+      bar.h = Math.max(bar.h, m); bar.l = Math.min(bar.l, m); bar.c = m; bar.empty = false; i++;
+    }
+    out.push(bar); if (bar) prev = bar.c;
+  }
+  return out;
+}
+/** history fills + live marks as one time-sorted series (marks after the last fill win for the live price) */
+function series(): Pt[] {
+  if (!store.hist.length) return store.pts;
+  const lastH = store.hist[store.hist.length - 1].t;
+  return [...store.hist, ...store.pts.filter((p) => p.t > lastH)];
+}
+const coinOfPath = () => (/^\/coin\/(0x[0-9a-fA-F]{40})/.exec(location.pathname)?.[1] ?? "").toLowerCase();
 
 const money = (v: number) => (!(v > 0) ? "$0" : v >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(2)}K` : `$${v.toFixed(0)}`);
 const G = "800 13px 'Barlow Condensed', 'Arial Narrow', sans-serif";
@@ -45,13 +85,20 @@ export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge 
 
   useEffect(() => {
     const key = location.pathname + location.search;
-    if (store.key !== key) { store.key = key; store.pts = []; store.dots = []; store.last = 0; }
+    if (store.key !== key) { store.key = key; store.pts = []; store.last = 0; }
+    const coin = coinOfPath();
+    if (coin && store.histFor !== coin) {
+      store.histFor = coin; store.hist = [];
+      // a live coin: seed the card with the coin's whole flight (indexed fills), so history is there at once
+      fetchHistory(coin, (u) => fetch(u, { cache: "no-store" })).then(({ ticks }) => {
+        if (store.histFor !== coin) return;
+        store.hist = ticks.filter((t) => t.mcapUsd > 0).map((t) => ({ t: t.ts, m: t.mcapUsd })).sort((a, b) => a.t - b.t);
+        if (!store.last && store.hist.length) store.last = store.hist[store.hist.length - 1].m;
+      }).catch((e) => { console.warn("[chart] card history failed", e); if (store.histFor === coin) store.histFor = ""; });
+    }
     const onMark = (e: Event) => { const m = (e as CustomEvent<{ mcap?: number }>).detail?.mcap; if (m && m > 0) { store.last = m; pushMark(store.pts, Date.now(), m); } };
-    const onFill = (e: Event) => { const d = (e as CustomEvent<{ side?: string }>).detail; if (store.last > 0 && (d?.side === "buy" || d?.side === "sell")) store.dots.push({ t: Date.now(), m: store.last, buy: d.side === "buy" }); if (store.dots.length > 60) store.dots.shift(); };
-    // paper / Free play fills come from the engine (disciple:paperfill, with their fill mcap) instead of a chain receipt
-    const onPaper = (e: Event) => { const d = (e as CustomEvent<{ side?: string; mcap?: number }>).detail; const m = Number(d?.mcap) > 0 ? Number(d!.mcap) : store.last; if (m > 0 && (d?.side === "buy" || d?.side === "sell")) store.dots.push({ t: Date.now(), m, buy: d.side === "buy" }); if (store.dots.length > 60) store.dots.shift(); };
-    addEventListener("disciple:mark", onMark); addEventListener("disciple:fillreceipt", onFill); addEventListener("disciple:paperfill", onPaper);
-    return () => { removeEventListener("disciple:mark", onMark); removeEventListener("disciple:fillreceipt", onFill); removeEventListener("disciple:paperfill", onPaper); };
+    addEventListener("disciple:mark", onMark);
+    return () => { removeEventListener("disciple:mark", onMark); };
   }, []);
 
   useEffect(() => {
@@ -64,37 +111,43 @@ export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge 
       const x = c.getContext("2d"); if (!x) return;
       x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, r.width, r.height);
       const now = Date.now(), ms = CHART_TFS[tfRef.current].ms;
-      const pts = store.pts.filter((p) => p.t >= now - ms);
-      const ch = windowChange(store.pts, now, ms);
+      const all = series();
+      const ch = windowChange(all, now, ms);
       if (lab.current) { const t = `MARKET CAP${ch == null ? "" : ` ${ch >= 0 ? "+" : ""}${ch.toFixed(1)}%`}`; if (lab.current.textContent !== t) lab.current.textContent = t; lab.current.style.color = ch == null ? "" : ch >= 0 ? "#5FF0A0" : "#FF8FBD"; }
       const T = 38, B = 8, L0 = 8, Rr = 66, w = r.width - L0 - Rr, h = r.height - T - B;
-      if (pts.length < 2 || w <= 0 || h <= 0) {
+      const bars = windowBars(all, now, ms);
+      const shown = bars.filter((x): x is Bar => !!x);
+      if (!shown.length || w <= 0 || h <= 0) {
         x.fillStyle = "rgba(215,217,228,.55)"; x.font = "500 12px system-ui, sans-serif"; x.textAlign = "center";
-        x.fillText(store.last > 0 ? "Reading the market…" : "Waiting for the first price…", r.width / 2, T + h / 2 + 4); return;
+        x.fillText("Waiting for the first price…", r.width / 2, T + h / 2 + 4); return;
       }
       const ent = entryRef.current && entryRef.current > 0 ? entryRef.current : null;
-      let lo = Infinity, hi = -Infinity; for (const p of pts) { if (p.m < lo) lo = p.m; if (p.m > hi) hi = p.m; }
+      let lo = Infinity, hi = -Infinity; for (const c of shown) { if (c.l < lo) lo = c.l; if (c.h > hi) hi = c.h; }
       if (ent && ent > lo * 0.7 && ent < hi * 1.3) { lo = Math.min(lo, ent); hi = Math.max(hi, ent); }
-      const pad = Math.max((hi - lo) * 0.12, hi * 0.002); lo -= pad; hi += pad;
-      const X = (t: number) => L0 + ((t - (now - ms)) / ms) * w, Y = (m: number) => T + (1 - (m - lo) / (hi - lo)) * h;
-      const up = pts[pts.length - 1].m >= pts[0].m, col = up ? "95,240,160" : "240,48,127";
-      // area + line
-      x.beginPath(); x.moveTo(X(pts[0].t), Y(pts[0].m)); for (const p of pts) x.lineTo(X(p.t), Y(p.m));
-      const lx = X(pts[pts.length - 1].t), ly = Y(pts[pts.length - 1].m);
-      x.strokeStyle = `rgb(${col})`; x.lineWidth = 2.2; x.lineJoin = "round"; x.stroke();
-      x.lineTo(lx, T + h); x.lineTo(X(pts[0].t), T + h); x.closePath();
-      const gr = x.createLinearGradient(0, T, 0, T + h); gr.addColorStop(0, `rgba(${col},.32)`); gr.addColorStop(1, `rgba(${col},0)`); x.fillStyle = gr; x.fill();
+      const pad = Math.max((hi - lo) * 0.12, hi * 0.01); lo -= pad; hi += pad;
+      const Y = (m: number) => T + (1 - (m - lo) / (hi - lo)) * h;
+      const slot = w / bars.length, bw = Math.max(2, Math.min(14, slot * 0.66));
+      const lastBar = shown[shown.length - 1], up = ch == null ? true : ch >= 0, col = up ? "95,240,160" : "240,48,127";
       // you boarded
       if (ent && ent >= lo && ent <= hi) {
         const ey = Y(ent); x.setLineDash([5, 4]); x.strokeStyle = "rgba(243,223,168,.85)"; x.lineWidth = 1.4;
         x.beginPath(); x.moveTo(L0, ey); x.lineTo(L0 + w, ey); x.stroke(); x.setLineDash([]);
         x.font = "700 11px 'Barlow Condensed', 'Arial Narrow', sans-serif"; x.fillStyle = "rgba(243,223,168,.8)"; x.textAlign = "left"; x.fillText("YOU BOARDED", L0 + 2, ey + 12);
       }
-      // your fills
-      for (const d of store.dots) { if (d.t < now - ms) continue; x.beginPath(); x.arc(X(d.t), Y(d.m), 4, 0, Math.PI * 2); x.fillStyle = d.buy ? "#F2C14E" : "#F0307F"; x.fill(); x.lineWidth = 1.5; x.strokeStyle = "#121327"; x.stroke(); }
+      // candles (green up, pink down; a quiet stretch is a thin flat tick at the carried price)
+      bars.forEach((c, i) => {
+        if (!c) return;
+        const cx = L0 + slot * (i + 0.5), g = c.c >= c.o;
+        x.strokeStyle = x.fillStyle = c.empty ? "rgba(215,217,228,.35)" : g ? "#5FF0A0" : "#F0307F";
+        x.lineWidth = 1.2; x.beginPath(); x.moveTo(cx, Y(c.h)); x.lineTo(cx, Y(c.l)); x.stroke();
+        const y1 = Y(Math.max(c.o, c.c)), y2 = Y(Math.min(c.o, c.c));
+        x.fillRect(cx - bw / 2, y1, bw, Math.max(1.5, y2 - y1));
+      });
+      const lx = L0 + slot * (bars.length - 0.5), ly = Y(lastBar.c);
+      x.setLineDash([2, 3]); x.strokeStyle = `rgba(${col},.55)`; x.lineWidth = 1; x.beginPath(); x.moveTo(L0, ly); x.lineTo(L0 + w, ly); x.stroke(); x.setLineDash([]);
       // live dot + price tag
-      x.beginPath(); x.arc(lx, ly, 3.5, 0, Math.PI * 2); x.fillStyle = `rgb(${col})`; x.fill();
-      const tag = money(pts[pts.length - 1].m); x.font = "800 15px 'Barlow Condensed', 'Arial Narrow', sans-serif";
+      void lx;
+      const tag = money(lastBar.c); x.font = "800 15px 'Barlow Condensed', 'Arial Narrow', sans-serif";
       const tw = x.measureText(tag).width + 12, tx = r.width - tw - 6, ty = Math.max(T, Math.min(T + h - 20, ly - 10));
       x.fillStyle = `rgb(${col})`; x.beginPath(); x.roundRect(tx, ty, tw, 20, 6); x.fill();
       x.fillStyle = up ? "#0d2a1b" : "#FFFFFF"; x.textAlign = "left"; x.fillText(tag, tx + 6, ty + 15);

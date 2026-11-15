@@ -305,7 +305,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         setLast(txt);
         if (!txt) { setRows((rs) => rs.filter((r) => r.id !== pressId)); return; }
         setRows((rs) => upsertRow(rs, pressId, txt));
-        if (!rowLive(txt)) setTimeout(() => setRows((rs) => rs.filter((r) => !(r.id === pressId && r.txt === txt))), ROW_LINGER_MS);
+        // a finished line fades with its row: the single status line used to keep "▼ $487.12 ✓ done" up until the NEXT
+        // trade (maker play-test 2026-11-14 "why is 487 still there long after the transaction already went through?")
+        if (!rowLive(txt)) setTimeout(() => { setRows((rs) => rs.filter((r) => !(r.id === pressId && r.txt === txt))); setLast((l) => (l === txt ? "" : l)); }, ROW_LINGER_MS);
       };
       let releaseAfter: Promise<unknown> | undefined, keep = false, bag: number | undefined, rel: "filled" | "error" | "cancel" = "error";
       // AUDIT: SITE 'pending_unknown' (receipt / relay timeout) = sent, still confirming — NOT failed. SITE keeps the hold

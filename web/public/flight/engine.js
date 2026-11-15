@@ -1182,7 +1182,9 @@ function pressFeelStep(dt){
   S.kickV=(S.kickV||0)+(-170*(S.kick||0)-22*(S.kickV||0))*dt; S.kick=(S.kick||0)+S.kickV*dt;
   if(Math.abs(S.kick)<0.02&&Math.abs(S.kickV)<0.2){ S.kick=0; S.kickV=0; }
   const last=S.confirmed.lastSwapTs||0, quiet=last?(performance.now()-last)/1000:0, busy=S.pending.length>0;
-  const tgt=busy?0:clamp((quiet-IDLE_AFTER)/IDLE_RAMP,0,1); S.idle=lerp(S.idle||0,tgt,1-Math.exp(-dt*(tgt<(S.idle||0)?6:1.2)));
+  // maker 2026-11-14: the idle-down read as the rocket "going limp" (flame cut, sideways sway, tilt) plus a caption nobody
+  // could read. Off: a quiet market keeps a steady hover. (The ramp stays wired so it can come back as a tuned effect.)
+  void quiet; void busy; S.idle=0;
   if(S.locks&&S.locks.length) keepIf(S.locks,lockLive);
 }
 const lockLive=L=>L.st==='pend'?S.t-L.t0<40:S.t-L.tr<0.6;
@@ -1554,7 +1556,12 @@ function bgTile(name){ const s=1.12, w=Math.round(W*s), h=Math.round(H*s), k=w+'
   const im=IMG[name]; if(!im){ loadAsset(name); return null; } if(!im.complete||im.bad) return null;
   t=document.createElement('canvas'); t.width=w; t.height=2*h; const g=t.getContext('2d');
   const sx=im.naturalWidth*0.1, sw=im.naturalWidth*0.8, ih=im.naturalHeight;
-  g.drawImage(im,sx,0,sw,ih,0,0,w,h); g.save(); g.translate(0,2*h); g.scale(1,-1); g.drawImage(im,sx,0,sw,ih,0,0,w,h); g.restore();
+  g.drawImage(im,sx,0,sw,ih,0,0,w,h); g.save(); g.translate(0,2*h); g.scale(1,-1);
+  // the LAUNCH PAD plate has the pad + tower on its bottom edge: mirroring the whole plate hung it upside down in the sky
+  // (maker 2026-11-14 "why is the launchpad upside down?"). Its filler half is the plate's plain top sky, stretched and
+  // flipped so the wrap seam still matches row 0; every other plate (sky only) keeps the full mirror.
+  if(name==='tier0') g.drawImage(im,sx,0,sw,Math.round(ih*0.14),0,0,w,h); else g.drawImage(im,sx,0,sw,ih,0,0,w,h);
+  g.restore();
   g.globalCompositeOperation='multiply'; g.fillStyle=SKY_MUL; g.fillRect(0,0,w,2*h); g.globalCompositeOperation='source-over';   // skyGrade's cool-down, baked in once
   BGC.tiles.set(name,t); while(BGC.tiles.size>3) BGC.tiles.delete(BGC.tiles.keys().next().value);
   return t; }
@@ -1863,8 +1870,6 @@ function drawRocket(dt){
   // @pressfeel lock rings (replace the ghost rocket + dashed line): one per press, at the projected fill (never applied to the
   // confirmed altitude). Pending = the arc closes; ok = a gold snap; fail = it cracks; gone (held / unknown) = it fades.
   drawLocks(x,h); drawDraftMeter(x,y,h);
-  if ((S.idle||0)>0.6&&!CLEAN){ ctx.save(); ctx.globalAlpha=clamp((S.idle-0.6)*2.5,0,1); ctx.font=GF(15,700); ctx.textAlign='center'; ctx.fillStyle='rgba(230,232,255,.92)';
-    ctx.fillText('ENGINES IDLE · THE CREW NEEDS A BOOST',x,y+96); ctx.restore(); }
   // exhaust (procedural): leaves the nozzle opposite the nose
   const braking=S.pending.some(p=>p.side==='sell'&&p.state==='pending');
   const EP=exhaustParams(), flick=EP.flick, flame=EP.flame; rumblePub(flame);

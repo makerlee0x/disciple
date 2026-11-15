@@ -207,7 +207,7 @@ export async function execGasless(a: { coin: Address; isBuy: boolean; amountIn: 
   } catch (e) {
     if (!(e instanceof GaslessError)) throw e;
     if (e.data.unclear) throw new AAError("Timeout", e.message, { txHash: e.data.txHash });
-    if (e.data.txHash && e.data.notSent !== true) throw new AAError("Reverted", e.message, { txHash: e.data.txHash });
+    if (e.data.txHash && e.data.notSent !== true) throw new AAError("Reverted", e.message, { txHash: e.data.txHash, ...(e.data.revert ? { revertData: e.data.revert } : {}) });
     if (/InvalidNonce|0x756688fe/i.test(e.message + (e.data.revert ?? ""))) resetGaslessNonces(owner.address);
     throw new AAError("Estimate", e.message, { revertData: e.data.revert, notSent: true });
   }
