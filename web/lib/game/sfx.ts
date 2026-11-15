@@ -28,7 +28,7 @@ export const BEDS: Record<string, number> = {
 /** Loops with a gapless WAV copy in sfx/loops-wav (name → loop length, 0 = the whole file). */
 const LOOPS: Record<string, number> = { engine_loop: 0, tx_pending: 1.9, gun_minigun_loop: 2 };
 
-const BED_GAIN = 0.55;   // beds sit under the music and the one-shots
+const BED_GAIN = 0.85;   // beds sit under the music and the one-shots
 
 let bus: GainNode | null = null;
 const bufs = new Map<string, Promise<AudioBuffer | null>>();

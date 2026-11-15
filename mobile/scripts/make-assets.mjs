@@ -13,17 +13,20 @@ const mark = readFileSync(path.join(root, "web/public/brand/disciple-mark-light.
 const set = path.join(root, "mobile/ios/App/App/Assets.xcassets");
 const BG = "#0B0C0E";
 
-const page = (size, markPct, glow) => `<!doctype html><html><body style="margin:0;width:${size}px;height:${size}px;background:${BG};display:flex;align-items:center;justify-content:center">
-<div style="width:${markPct}%;height:${markPct}%;display:flex;${glow ? "filter:drop-shadow(0 0 " + size * 0.03 + "px rgba(242,214,160,.35))" : ""}">${mark.replace(/<svg/, '<svg width="100%" height="100%"')}</div></body></html>`;
+// The mark's own viewBox leaves ~13% air on each side; the icon crops to the drawing so markPct is the size you see.
+const TIGHT = 'viewBox="12 12 76 76"';
+const page = (size, markPct, glow, tight) => `<!doctype html><html><body style="margin:0;width:${size}px;height:${size}px;background:${BG};display:flex;align-items:center;justify-content:center">
+<div style="width:${markPct}%;height:${markPct}%;display:flex;${glow ? "filter:drop-shadow(0 0 " + size * 0.03 + "px rgba(242,214,160,.35))" : ""}">${(tight ? mark.replace(/viewBox="[^"]*"/, TIGHT) : mark).replace(/<svg/, '<svg width="100%" height="100%"')}</div></body></html>`;
 
 const browser = await chromium.launch();
-const shot = async (size, pct, glow, out) => {
+const shot = async (size, pct, glow, out, tight = false) => {
   const p = await browser.newPage({ viewport: { width: size, height: size }, deviceScaleFactor: 1 });
-  await p.setContent(page(size, pct, glow));
+  await p.setContent(page(size, pct, glow, tight));
   await p.screenshot({ path: out, omitBackground: false, type: "png" });
   await p.close();
 };
-await shot(1024, 72, true, path.join(set, "AppIcon.appiconset/AppIcon-512@2x.png"));
+// The mark fills ~76% of the tile, so it sits as big as the other apps on the home screen (it was ~52%).
+await shot(1024, 76, true, path.join(set, "AppIcon.appiconset/AppIcon-512@2x.png"), true);
 for (const f of ["splash-2732x2732.png", "splash-2732x2732-1.png", "splash-2732x2732-2.png"]) await shot(2732, 14, true, path.join(set, "Splash.imageset", f));
 await browser.close();
 console.log("icon + splash written");
