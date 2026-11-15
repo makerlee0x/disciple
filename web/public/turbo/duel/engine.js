@@ -378,7 +378,7 @@ function mount(root,host){
     for(let i=0;i<Math.round((24+k*46)*m);i++){const a=Math.PI/2+rnd(-.6,.6), sp=rnd(220,620); part({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:rnd(.35,.85),size:rnd(2,4.8),col:Math.random()<.5?c1:c2});}
     for(let i=0;i<Math.round(10*m);i++) part({x:x+rnd(-10,10),y:y+rnd(0,20),vx:rnd(-90,90),vy:rnd(60,200),life:rnd(.8,1.5),size:rnd(14,26),col:"235,232,245",kind:"smoke",add:false});
     FX.rings.push({x,y:y+6,r:8,vr:380+k*320,life:.45,max:.45,w:6+k*4,col:c1});
-    if(pl.me){ FX.flash=Math.max(FX.flash,.12+k*.15); FX.flashC=side>0?"255,206,100":"240,48,127"; sfx(side>0?"boost":"dump"); buzz(side>0?18:[10,20,10]); }
+    if(pl.me){ FX.flash=Math.max(FX.flash,.12+k*.15); FX.flashC=side>0?"255,206,100":"240,48,127"; sfx(side>0?(k>=1?"boostBig":"boost"):"dump"); buzz(side>0?18:[10,20,10]); }
   }
   function fxBomb(pl){
     const x=lane(pl), y=pl.y;
@@ -533,7 +533,7 @@ function mount(root,host){
     sx.restore();
     if(FX.flash>0){ sx.fillStyle=`rgba(${FX.flashC},${FX.flash*.35})`; sx.fillRect(0,0,SW,SH); FX.flash=Math.max(0,FX.flash-dt*2.2); }
     // red warning: your open trade has lost 40% of what sets off an NUKE; the edges glow and pulse faster as it gets closer
-    let warn=0; if(G&&G.started&&!G.over&&G.me.pos){ const r=-pnlOf(G.me.pos,G.price)/(LIQ*G.me.pos.coll); if(r>.4) warn=Math.min(1,(r-.4)/.5); }
+    let warn=0; if(G&&G.started&&!G.over&&G.me.pos){ const r=-pnlOf(G.me.pos,G.price)/(LIQ*G.me.pos.coll); if(r>.4) warn=Math.min(1,(r-.4)/.5); if(r>.85&&now>=(FX.warnAt||0)){ FX.warnAt=now+1200; sfx("nukeWarn"); } }
     FX.warn=(FX.warn||0)+(warn-(FX.warn||0))*Math.min(1,dt*6);
     const red=Math.max(FX.warn*(.75+.25*Math.sin(now/(reduce?400:(260-140*FX.warn)))), FX.red||0);
     const rv=$("redv"), ro=red>.01?red.toFixed(2):"0"; if(rv.style.opacity!==ro) rv.style.opacity=ro;   // the vignette sits over everything, chart and buttons too
@@ -543,20 +543,17 @@ function mount(root,host){
   /* ---------- sound + haptics ---------- */
   let ac=null, muted=false;
   try{muted=localStorage.getItem("duel.mute")==="1";}catch(e){}
-  function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)();}catch(e){} } if(ac&&ac.state==="suspended") ac.resume(); }
-  function tone(f0,f1,d,v,type){ if(!ac||muted) return; try{const o=ac.createOscillator(),g=ac.createGain(); o.type=type||"sine"; o.frequency.setValueAtTime(f0,ac.currentTime); o.frequency.exponentialRampToValueAtTime(f1,ac.currentTime+d); g.gain.setValueAtTime(v,ac.currentTime); g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+d); o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime+d);}catch(e){} }
-  function noise(d,f,v){ if(!ac||muted) return; try{const b=ac.createBuffer(1,ac.sampleRate*d,ac.sampleRate),c=b.getChannelData(0); for(let i=0;i<c.length;i++)c[i]=Math.random()*2-1; const s=ac.createBufferSource(),fl=ac.createBiquadFilter(),g=ac.createGain(); s.buffer=b; fl.type="lowpass"; fl.frequency.value=f; g.gain.setValueAtTime(v,ac.currentTime); g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+d); s.connect(fl).connect(g).connect(ac.destination); s.start();}catch(e){} }
-  function sfx(k){
-    if(k==="boost"){noise(.35,1800,.18); tone(160,520,.3,.05,"sawtooth");}
-    else if(k==="dump"){noise(.3,900,.2); tone(700,180,.25,.05,"square");}
-    else if(k==="win"){tone(660,990,.12,.08,"triangle"); setTimeout(()=>tone(990,1320,.16,.07,"triangle"),90);}
-    else if(k==="lose"){tone(300,180,.25,.06,"triangle");}
-    else if(k==="bomb"){noise(1.1,500,.5); tone(120,40,.8,.12,"sawtooth");}
-    else if(k==="tick"){tone(880,880,.05,.04,"square");}
-    else if(k==="go"){tone(440,880,.25,.08,"triangle");}
-    else if(k==="trick"){tone(500,1400,.28,.06,"triangle"); noise(.25,3000,.06);}
-    else if(k==="ot"){tone(520,780,.2,.08,"square"); setTimeout(()=>tone(520,780,.2,.08,"square"),220);}
-  }
+  function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx();}catch(e){} } if(ac&&ac.state==="suspended") ac.resume(); }
+  // recorded CC0 sounds (web/public/audio/sfx, see its README/SOURCES.csv). Each event picks one take at random.
+  const SFX_BASE=A.sfxBase||"/audio/sfx/", BUF={};
+  const SND={boost:["boost_small_01","boost_small_02","boost_small_03"],boostBig:["boost_big_01","boost_big_02"],dump:["bomb_fall_01","bomb_fall_02"],
+    win:["cash_out"],lose:["explosion_small_01","explosion_small_02","explosion_small_03"],bomb:["nuke"],tick:["lever_notch_01","lever_notch_02","lever_notch_03"],
+    go:["boost_big_01"],trick:["zone_up"],ot:["lock_on"],matchWin:["champion_01","champion_02"],matchLose:["explosion_big_01","explosion_big_02"],nukeWarn:["nuke_warning_02"]};
+  const VOL={dump:.7,tick:.6,nukeWarn:.55};
+  function loadS(n){ if(!ac||n in BUF) return; BUF[n]=null; fetch(SFX_BASE+n+".m4a").then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{BUF[n]=b;}).catch(()=>{BUF[n]=false;}); }
+  function preloadSfx(){ for(const k in SND) SND[k].forEach(loadS); }
+  function sfx(k){ if(!ac||muted) return; const list=SND[k]; if(!list) return; const n=list[Math.floor(Math.random()*list.length)], b=BUF[n]; if(!b){ loadS(n); return; }
+    try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; g.gain.value=VOL[k]||1; src.connect(g); g.connect(ac.destination); src.start(); }catch(e){} }
   function buzz(p){ try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
   function setMute(m){ muted=m; try{ host.mute&&host.mute(m); }catch(e){} $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); $("mute").setAttribute("aria-label",m?"Unmute sound":"Mute sound"); try{localStorage.setItem("duel.mute",m?"1":"0");}catch(e){} }
   $("mute").addEventListener("click",()=>{ensureAudio(); setMute(!muted);});
@@ -611,7 +608,7 @@ function mount(root,host){
     $("rMom").innerHTML=all.length?all.map(m=>`<div><span><span class="t">${mmss(m.t)}</span>${m.txt}</span><b style="color:${m.v>=0?"var(--green)":"var(--pinkl)"}">${usd(m.v,true)}</b></div>`).join(""):`<div><span>No trades this time.</span></div>`;
     $("rRec").textContent=`${rec.w}-${rec.l}`; $("rRat").parentElement.querySelector("small").textContent=net&&M.ranked?"Rating":"Rating (unranked)"; $("rRat").innerHTML=`${rec.rating.toLocaleString("en-US")} <span style="font-size:14px;color:${dr>=0?"var(--green)":"var(--pinkl)"}">${dr>=0?"+":"\u2212"}${Math.abs(dr)}</span>`; $("rStr").textContent=rec.streak;
     $("rAgain").textContent="REMATCH";
-    sfx(win?"win":"lose"); buzz(win?[20,40,20,40,60]:[80]);
+    sfx(win?"matchWin":"matchLose"); buzz(win?[20,40,20,40,60]:[80]);
     if(win&&!tie&&!reduce){ const cols=["242,193,78","95,240,160","255,255,255","255,143,189","143,184,255"]; for(let k=0;k<3;k++) setTimeout(()=>{ for(let i=0;i<70;i++) part({x:SW*(.2+Math.random()*.6),y:SH*.25,vx:rnd(-260,260),vy:rnd(-520,-120),g:520,drag:.6,life:rnd(1.6,2.6),size:rnd(3,6),col:cols[i%cols.length],add:false}); },k*350); }
     setTimeout(()=>{$("result").hidden=false; $("rAgain").focus();},700);
   }
