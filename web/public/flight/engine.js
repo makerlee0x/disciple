@@ -1455,8 +1455,8 @@ const CALM_ZOOM=1.2; S.calm=false; S.calmK=0;
 addEventListener('disciple:calm',e=>{ S.calm=!!(e.detail&&e.detail.on); });
 /* @tilt (phone setting "Tilt to steer"): the page (TiltSteer) sends disciple:tilt {g} with g ∈ [-1, 1] (null = off). It sets the
    same steering target a finger drag does; a finger on the sky wins. */
-S.tilt=null;
-addEventListener('disciple:tilt',e=>{ const g=e.detail&&e.detail.g; S.tilt=typeof g==='number'&&Number.isFinite(g)?clamp(g,-1,1):null; });
+S.tiltIn=null;   // not S.tilt: the render loop reuses S.tilt for the heading every frame (that clobbered this, so tilt only ever steered right)
+addEventListener('disciple:tilt',e=>{ const g=e.detail&&e.detail.g; S.tiltIn=typeof g==='number'&&Number.isFinite(g)?clamp(g,-1,1):null; });
 /* @rumble (iPhone app, NativeRumble): while on, ~10×/s disciple:thrust {v, climb} (v = engine flame 0..1, climb = -1..1) drives a
    continuous Core Haptics rumble. Off by default, so the browser pays nothing. */
 S.rumble=false; S.rumbleT=0;
@@ -2931,7 +2931,7 @@ function simStep(stepDt){
   const K=S.keys||{}; let dir=((K.KeyD||K.ArrowRight)?1:0)-((K.KeyA||K.ArrowLeft)?1:0);
   if (S.steer==null) S.steer={x:S.x,vx:0};
   if (!dir&&S.drag&&S.drag.on&&S.drag.tx!=null){ dir=steerDragDir(S.steer,S.drag.tx-(S.drift||0)*0.35,W); S.steer.idle=0; }
-  else if (!dir&&S.tilt!=null&&!S.drag&&Math.abs(S.tilt)>0.04){ const m=steerMargin(W); dir=steerDragDir(S.steer,clamp(W/2+S.tilt*(W/2-m),m,W-m)-(S.drift||0)*0.35,W); S.steer.idle=0; }   // @tilt   // @drag-steer: finger held = steering input (no auto-centre until release)
+  else if (!dir&&S.tiltIn!=null&&!S.drag&&Math.abs(S.tiltIn)>0.04){ const m=steerMargin(W); dir=steerDragDir(S.steer,clamp(W/2+S.tiltIn*(W/2-m),m,W-m)-(S.drift||0)*0.35,W); S.steer.idle=0; }   // @tilt   // @drag-steer: finger held = steering input (no auto-centre until release)
   stepSteerAuto(S.steer, dir*(steer/7), dt, W);     // hold-to-steer (VOID orb: weaker thrust); idle ⇒ auto-centre
   { const m=steerMargin(W); S.x=clamp(S.steer.x+S.drift*0.35+Math.sin(S.t*0.6)*14*(S.idle||0),m,W-m); S.vx=S.steer.vx; }
   { const TX=turboFx(), want=(K.KeyS||K.ArrowDown)?1:TX&&TX.dive?TURBO_DIVE:0;   // @turbo: a DUMP (short) flies as a nose-down dive run — same sprite, a controlled pose (never a flip)

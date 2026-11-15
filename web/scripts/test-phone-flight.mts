@@ -80,6 +80,10 @@ test("engine hooks: tricks, combos, style fill, calm zoom, tilt, rumble", () => 
   assert.match(e, /@tricks/); assert.match(e, /function trickGesture/); assert.match(e, /e\.code==='KeyQ'\|\|e\.code==='KeyE'/);
   assert.match(e, /styleFill\(\); \}/, "a confirmed BOOST checks for a style fill");
   assert.match(e, /disciple:calm/); assert.match(e, /h=150\*\(1\+\(CALM_ZOOM-1\)\*S\.calmK\)/);
-  assert.match(e, /disciple:tilt/); assert.match(e, /S\.tilt!=null&&!S\.drag/, "a finger on the sky wins over tilt");
+  assert.match(e, /disciple:tilt/); assert.match(e, /S\.tiltIn!=null&&!S\.drag/, "a finger on the sky wins over tilt");
+  // TestFlight 2026-11-14: tilt only ever steered right. The render loop writes S.tilt=S.heading (~π/2) every frame, which
+  // clobbered the input. The input lives in S.tiltIn, and nothing but the disciple:tilt listener may write it.
+  assert.equal((e.match(/S\.tiltIn=/g) || []).length, 2, "S.tiltIn is set only by its init and the disciple:tilt listener");
+  assert.doesNotMatch(e, /S\.tilt!=null/, "steering must not read S.tilt (that holds the heading)");
   assert.match(e, /disciple:thrust/); assert.match(e, /if\(!S\.rumble\|\|/, "nothing is published unless the app asks");
 });
