@@ -1,0 +1,258 @@
+{
+ "canvas_note": "RGBA, 1024 tall, bottom-aligned (8px pad), centred; nozzles are exhaust exit centres, y down from top",
+ "skins": [
+  "chrome",
+  "chrome-pink-stripe",
+  "matte-black",
+  "pearl-mint",
+  "titanium-ice",
+  "candy-pink",
+  "gunmetal-pink",
+  "oilslick",
+  "carbon",
+  "scorched",
+  "navy-chevron"
+ ],
+ "hulls": {
+  "bullet": {
+   "w": 464,
+   "h": 1024,
+   "files": {
+    "chrome": "bullet/hull-bullet-chrome.png",
+    "chrome-pink-stripe": "bullet/hull-bullet-chrome-pink-stripe.png",
+    "matte-black": "bullet/hull-bullet-matte-black.png",
+    "pearl-mint": "bullet/hull-bullet-pearl-mint.png",
+    "titanium-ice": "bullet/hull-bullet-titanium-ice.png",
+    "candy-pink": "bullet/hull-bullet-candy-pink.png",
+    "gunmetal-pink": "bullet/hull-bullet-gunmetal-pink.png",
+    "oilslick": "bullet/hull-bullet-oilslick.png",
+    "carbon": "bullet/hull-bullet-carbon.png",
+    "scorched": "bullet/hull-bullet-scorched.png",
+    "navy-chevron": "bullet/hull-bullet-navy-chevron.png"
+   },
+   "nozzles": [
+    {
+     "x": 231,
+     "y": 1012,
+     "scale": 1.0
+    },
+    {
+     "x": 48,
+     "y": 1006,
+     "scale": 0.7
+    },
+    {
+     "x": 414,
+     "y": 1006,
+     "scale": 0.7
+    }
+   ],
+   "player_dir": "bullet/player"
+  },
+  "needle": {
+   "w": 300,
+   "h": 1024,
+   "files": {
+    "chrome": "needle/hull-needle-chrome.png",
+    "chrome-pink-stripe": "needle/hull-needle-chrome-pink-stripe.png",
+    "matte-black": "needle/hull-needle-matte-black.png",
+    "pearl-mint": "needle/hull-needle-pearl-mint.png",
+    "titanium-ice": "needle/hull-needle-titanium-ice.png",
+    "candy-pink": "needle/hull-needle-candy-pink.png",
+    "gunmetal-pink": "needle/hull-needle-gunmetal-pink.png",
+    "oilslick": "needle/hull-needle-oilslick.png",
+    "carbon": "needle/hull-needle-carbon.png",
+    "scorched": "needle/hull-needle-scorched.png",
+    "navy-chevron": "needle/hull-needle-navy-chevron.png"
+   },
+   "nozzles": [
+    {
+     "x": 147,
+     "y": 1014,
+     "scale": 1.0
+    }
+   ],
+   "player_dir": "needle/player"
+  },
+  "pulp": {
+   "w": 572,
+   "h": 1024,
+   "files": {
+    "chrome": "pulp/hull-pulp-chrome.png",
+    "chrome-pink-stripe": "pulp/hull-pulp-chrome-pink-stripe.png",
+    "matte-black": "pulp/hull-pulp-matte-black.png",
+    "pearl-mint": "pulp/hull-pulp-pearl-mint.png",
+    "titanium-ice": "pulp/hull-pulp-titanium-ice.png",
+    "candy-pink": "pulp/hull-pulp-candy-pink.png",
+    "gunmetal-pink": "pulp/hull-pulp-gunmetal-pink.png",
+    "oilslick": "pulp/hull-pulp-oilslick.png",
+    "carbon": "pulp/hull-pulp-carbon.png",
+    "scorched": "pulp/hull-pulp-scorched.png",
+    "navy-chevron": "pulp/hull-pulp-navy-chevron.png"
+   },
+   "nozzles": [
+    {
+     "x": 270,
+     "y": 1014,
+     "scale": 1.0
+    }
+   ],
+   "player_dir": "pulp/player"
+  },
+  "twin-booster": {
+   "w": 446,
+   "h": 1024,
+   "files": {
+    "chrome": "twin-booster/hull-twin-booster-chrome.png",
+    "chrome-pink-stripe": "twin-booster/hull-twin-booster-chrome-pink-stripe.png",
+    "matte-black": "twin-booster/hull-twin-booster-matte-black.png",
+    "pearl-mint": "twin-booster/hull-twin-booster-pearl-mint.png",
+    "titanium-ice": "twin-booster/hull-twin-booster-titanium-ice.png",
+    "candy-pink": "twin-booster/hull-twin-booster-candy-pink.png",
+    "gunmetal-pink": "twin-booster/hull-twin-booster-gunmetal-pink.png",
+    "oilslick": "twin-booster/hull-twin-booster-oilslick.png",
+    "carbon": "twin-booster/hull-twin-booster-carbon.png",
+    "scorched": "twin-booster/hull-twin-booster-scorched.png",
+    "navy-chevron": "twin-booster/hull-twin-booster-navy-chevron.png"
+   },
+   "nozzles": [
+    {
+     "x": 222,
+     "y": 1008,
+     "scale": 0.8
+    },
+    {
+     "x": 86,
+     "y": 1014,
+     "scale": 1.0
+    },
+    {
+     "x": 356,
+     "y": 1014,
+     "scale": 1.0
+    }
+   ],
+   "player_dir": "twin-booster/player"
+  },
+  "shuttle": {
+   "w": 590,
+   "h": 1024,
+   "files": {
+    "chrome": "shuttle/hull-shuttle-chrome.png",
+    "chrome-pink-stripe": "shuttle/hull-shuttle-chrome-pink-stripe.png",
+    "matte-black": "shuttle/hull-shuttle-matte-black.png",
+    "pearl-mint": "shuttle/hull-shuttle-pearl-mint.png",
+    "titanium-ice": "shuttle/hull-shuttle-titanium-ice.png",
+    "candy-pink": "shuttle/hull-shuttle-candy-pink.png",
+    "gunmetal-pink": "shuttle/hull-shuttle-gunmetal-pink.png",
+    "oilslick": "shuttle/hull-shuttle-oilslick.png",
+    "carbon": "shuttle/hull-shuttle-carbon.png",
+    "scorched": "shuttle/hull-shuttle-scorched.png",
+    "navy-chevron": "shuttle/hull-shuttle-navy-chevron.png"
+   },
+   "nozzles": [
+    {
+     "x": 295,
+     "y": 1008,
+     "scale": 1.0
+    },
+    {
+     "x": 252,
+     "y": 988,
+     "scale": 0.7
+    },
+    {
+     "x": 338,
+     "y": 988,
+     "scale": 0.7
+    }
+   ],
+   "player_dir": "shuttle/player"
+  },
+  "hauler": {
+   "w": 444,
+   "h": 1024,
+   "files": {
+    "chrome": "hauler/hull-hauler-chrome.png",
+    "chrome-pink-stripe": "hauler/hull-hauler-chrome-pink-stripe.png",
+    "matte-black": "hauler/hull-hauler-matte-black.png",
+    "pearl-mint": "hauler/hull-hauler-pearl-mint.png",
+    "titanium-ice": "hauler/hull-hauler-titanium-ice.png",
+    "candy-pink": "hauler/hull-hauler-candy-pink.png",
+    "gunmetal-pink": "hauler/hull-hauler-gunmetal-pink.png",
+    "oilslick": "hauler/hull-hauler-oilslick.png",
+    "carbon": "hauler/hull-hauler-carbon.png",
+    "scorched": "hauler/hull-hauler-scorched.png",
+    "navy-chevron": "hauler/hull-hauler-navy-chevron.png"
+   },
+   "nozzles": [
+    {
+     "x": 221,
+     "y": 1014,
+     "scale": 1.0
+    },
+    {
+     "x": 120,
+     "y": 1013,
+     "scale": 0.85
+    },
+    {
+     "x": 326,
+     "y": 1013,
+     "scale": 0.85
+    }
+   ],
+   "player_dir": "hauler/player"
+  },
+  "ring-tail": {
+   "w": 444,
+   "h": 1024,
+   "files": {
+    "chrome": "ring-tail/hull-ring-tail-chrome.png",
+    "chrome-pink-stripe": "ring-tail/hull-ring-tail-chrome-pink-stripe.png",
+    "matte-black": "ring-tail/hull-ring-tail-matte-black.png",
+    "pearl-mint": "ring-tail/hull-ring-tail-pearl-mint.png",
+    "titanium-ice": "ring-tail/hull-ring-tail-titanium-ice.png",
+    "candy-pink": "ring-tail/hull-ring-tail-candy-pink.png",
+    "gunmetal-pink": "ring-tail/hull-ring-tail-gunmetal-pink.png",
+    "oilslick": "ring-tail/hull-ring-tail-oilslick.png",
+    "carbon": "ring-tail/hull-ring-tail-carbon.png",
+    "scorched": "ring-tail/hull-ring-tail-scorched.png",
+    "navy-chevron": "ring-tail/hull-ring-tail-navy-chevron.png"
+   },
+   "nozzles": [
+    {
+     "x": 223,
+     "y": 1014,
+     "scale": 1.0
+    }
+   ],
+   "player_dir": "ring-tail/player"
+  },
+  "wedge": {
+   "w": 748,
+   "h": 1024,
+   "files": {
+    "chrome": "wedge/hull-wedge-chrome.png",
+    "chrome-pink-stripe": "wedge/hull-wedge-chrome-pink-stripe.png",
+    "matte-black": "wedge/hull-wedge-matte-black.png",
+    "pearl-mint": "wedge/hull-wedge-pearl-mint.png",
+    "titanium-ice": "wedge/hull-wedge-titanium-ice.png",
+    "candy-pink": "wedge/hull-wedge-candy-pink.png",
+    "gunmetal-pink": "wedge/hull-wedge-gunmetal-pink.png",
+    "oilslick": "wedge/hull-wedge-oilslick.png",
+    "carbon": "wedge/hull-wedge-carbon.png",
+    "scorched": "wedge/hull-wedge-scorched.png",
+    "navy-chevron": "wedge/hull-wedge-navy-chevron.png"
+   },
+   "nozzles": [
+    {
+     "x": 375,
+     "y": 982,
+     "scale": 1.0
+    }
+   ],
+   "player_dir": "wedge/player"
+  }
+ }
+}

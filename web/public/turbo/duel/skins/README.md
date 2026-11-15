@@ -31,3 +31,16 @@ The game draws its own exhaust, so trails are color pairs and a style. `trails-p
 | Plasma | `#FFFFFF` → `#8FB8FF` | Thin and fast, electric flicker. Least pink, so the pink name tag carries the rival read. |
 
 Comet (champagne) and Ember (orange) were dropped because they sit too close to the player's gold `#F2C14E`. The lilac and grey are suggested values, not brand tokens.
+
+## Default starter
+
+Silver chrome is the starter skin. It is the current player rocket at `../rocket.webp`, and everyone has it unlocked. These ten files are rival skins only.
+
+## Related folders (also assets only; nothing is wired up)
+
+- `player/` — 18 player unlock skins for this same original hull, earned with XP. XP costs are left blank for lee.
+- `../hulls/` — eight more hull shapes. Each hull's chrome file is that hull's starter. Rival skins and the same 18 player skins are included for every hull.
+- `../../../royale/chests/` and `../../../royale/weapons/` — supply-drop crates and Turbo Royale weapons.
+- `../../../../../docs/brand/turbo-skins/` — contact sheets and mockups, kept out of the public game folder.
+
+Nothing in this folder, or the folders above, is wired into the game yet.
