@@ -222,6 +222,19 @@ export function tradeNetworkError(e: unknown): ProtocolError | null {
   logTradeError("trade failed before sending (network)", { read: f.read ?? "unlabeled", name: (e as Error)?.name, message: String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300), url: f.url, attempts: f.attempts });
   return new ProtocolError("Network", NETWORK_MSG);
 }
+/**
+ * The gasless relay's refusals (nothing sent) used to all read "That didn't go through. Try again." even when trying again
+ * could not work for minutes (maker play-test Nov 14: "its not letting me buy anymore"). Plain lines per reason; the raw
+ * text still goes to the console. null = not a known relay refusal.
+ */
+export function relayRefusalCopy(m: string | undefined): { code: string; msg: string } | null {
+  const t = String(m ?? "");
+  if (/relay paused|circuit open/i.test(t)) return { code: "Paused", msg: "Trading is paused for a few minutes. Nothing was taken. Try again shortly." };
+  if (/rate limited|too many/i.test(t)) return { code: "rate_limited", msg: "Slow down" };
+  if (/strike backoff/i.test(t)) return { code: "Backoff", msg: "Too many failed trades in a row. Wait a minute, then try again." };
+  if (/identity token|session wallet|privy/i.test(t)) return { code: "SignIn", msg: "Your sign-in expired. Sign in again to trade." };
+  return null;
+}
 export function friendlyError(e: unknown): ProtocolError {
   let name: string | undefined, args: unknown[] | undefined;
   // duck-typed as well as instanceof: AAError can arrive from a second module instance (tests, split chunks)
@@ -236,6 +249,8 @@ export function friendlyError(e: unknown): ProtocolError {
     // "simulation failed: …" text and the selector go to the console (AAError keeps message + extra for retry logic)
     else if (est) {
       logTradeError("trade pre-check failed", { message: est.message, ...(raw && raw.length >= 10 ? { selector: raw.slice(0, 10), revertData: raw } : {}) });
+      const relay = relayRefusalCopy(est.message);
+      if (relay) return new ProtocolError(relay.code, relay.msg);
       return new ProtocolError("Estimate", REJECTED_MSG);
     }
     // Reverted: players see the plain line only; the unknown selector goes to the console (never hex in copy)

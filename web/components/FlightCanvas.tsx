@@ -61,7 +61,13 @@ export default function FlightCanvas({ search }: Props) {
   const [status, setStatus] = useState("Loading flight…");
   const [err, setErr] = useState<string | null>(null);
 
+  // Boot key: the engine reboots (fresh canvas, script reload, chart + rocket state lost) only when a param it READS changes.
+  // The coin page fills ?quote= from a chain read a moment after load (and ?feeBps=); the engine never reads either, but the
+  // changed string re-ran this effect ⇒ a second boot ~1 s in: the "flashing" + slow first load maker saw (2026-11-14).
+  const searchRef = useRef(search); searchRef.current = search;
+  const bootKey = (() => { const q = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search); q.delete("quote"); q.delete("feeBps"); q.sort(); return q.toString(); })();
   useEffect(() => {
+    const search = searchRef.current;
     let cancelled = false;
     let scriptEl: HTMLScriptElement | null = null;
     let stopWorker: (() => void) | null = null;
@@ -120,7 +126,7 @@ export default function FlightCanvas({ search }: Props) {
           const url = new URL(window.location.href);
           const incoming = new URLSearchParams(qs.slice(1));
           incoming.forEach((v, k) => url.searchParams.set(k, v));
-          window.history.replaceState({}, "", url.pathname + "?" + url.searchParams.toString());
+          window.history.replaceState(window.history.state, "", url.pathname + "?" + url.searchParams.toString());   // keep the router's own state
         }
 
         const needReplay =
@@ -236,7 +242,7 @@ export default function FlightCanvas({ search }: Props) {
         /* ignore */
       }
     };
-  }, [search]);
+  }, [bootKey]);
 
   // The engine's DISCIPLE status box (top of the right column, 100px slot) is not drawn on coin pages (?source=disciple,
   // lee Oct 30 cleanup: engine.js STATUS_BOX) → GameChat (stacked on --ap-hud-rt + --ap-status-h) moves up into its slot.

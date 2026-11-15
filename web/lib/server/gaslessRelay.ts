@@ -34,10 +34,10 @@ import { createPublicClient, parseAbi, toFunctionSelector, recoverTypedDataAddre
 import { deployment, robinhoodTestnet } from "../chains";
 import { gaslessMode } from "../aa/sponsorshipMode";
 import type { RelayReceipt } from "../aa/relayTypes";
-import { checkGaslessRequest, encodeGaslessCall, gaslessTxGasLimit, GaslessReject, parseGaslessRequest, tradeTypedData, type GaslessRequest } from "../trade/gaslessPermit2";
+import { checkGaslessRequest, encodeGaslessCall, GASLESS_GAS_LIMIT, GASLESS_GRAD_GAS_LIMIT, gaslessTxGasLimit, GaslessReject, parseGaslessRequest, tradeTypedData, type GaslessRequest } from "../trade/gaslessPermit2";
 import { usdgBuyFillsCurve, usdgBuyGraduates } from "../trade/gradNeed";
 import { bondingCurveAbi } from "../abi/BondingCurve";
-import { shouldStrikeIncludedRevert } from "./gaslessStrike";
+import { isMarketMoveRevert, shouldStrikeIncludedRevert } from "./gaslessStrike";
 import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
 import { gaslessReferralHooks, referralDoneKey, referrerFromRaw, REFERRAL_DONE } from "./gaslessReferral";
 import { relayReadTransport } from "./relayReadTransport";
@@ -57,6 +57,8 @@ export function requireGaslessMode() {
 }
 
 export type GaslessConfirmed = { kind: "confirmed"; txHash: Hex; success: boolean; receipt: RelayReceipt; gasUsed: number; via: string;
+  /** included revert only: the re-simulated revert data (so the player sees "Price moved" instead of a bare failure) */
+  revert?: string;
   t: { admission: number; budget: number; send: number; total: number } };
 export type GaslessDeps = { ipGate?: Promise<void>; onPending?: OnPending; metrics?: RelayMetrics; nowSec?: number;
   /** Privy identity token from the `privy-id-token` header (or cookie). Required for trades. */
@@ -147,7 +149,7 @@ async function gaslessFillsCurve(coin: Address, usdgIn: bigint, kvStatus?: strin
   }
 }
 
-async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: Address, isBuy: boolean, amountIn: bigint, extra: Promise<unknown>[] = []): Promise<{ relayer: DirectRelayer; did: string; fillsCurve: boolean; refDone: string | null }> {
+async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: Address, isBuy: boolean, amountIn: bigint, extra: Promise<unknown>[] = []): Promise<{ relayer: DirectRelayer; did: string; fillsCurve: boolean; refDone: string | null; simGas: bigint }> {
   const m = d.metrics;
   const relayer = directRelayer(m);
   const session = timed(m, "authSession", () => verifySessionToken(d.idToken));
@@ -164,7 +166,18 @@ async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: 
   // relayer (needed for `from`) are ready — it does not wait for the gate.
   // admit() still joins every gate before returning, so commit cannot run if a gate failed; a finished simulation is
   // then discarded. The gate is listed before sim in `all` so its error wins the throw if both fail.
-  const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data).catch(e => { throw legacyLogin(e); })));
+  // Simulated AT the tx gas limit (same fix as the launch relay, 5794f02c): without a cap the RPC simulates with its own
+  // larger allowance, so a trade that needs more than 900k passed admission, ran out of gas on chain, and two of those
+  // tripped the shared breaker (every player's buys then failed "didn't go through" for 15 min). A trade that only
+  // fails at 900k is re-simulated at the 3M cap and, if that passes, is sent with 3M.
+  const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", async (): Promise<bigint> => {
+    try { await simulateDirect(r.address, to, data, GASLESS_GAS_LIMIT); return GASLESS_GAS_LIMIT; }
+    catch (e) {
+      if ((e as { data?: string }).data) throw legacyLogin(e);   // a real revert reason: refuse as before
+      await simulateDirect(r.address, to, data, GASLESS_GRAD_GAS_LIMIT).catch(e2 => { throw legacyLogin(e2); });
+      return GASLESS_GRAD_GAS_LIMIT;
+    }
+  }));
   // Graduation-fill check ∥ sim. Starts after the gate MGET so a cached curve is reused (no extra curveOf).
   // Never fails admission. Sells and already-graduated markets skip the reads.
   const fillsP = !isBuy ? Promise.resolve(false)
@@ -181,6 +194,7 @@ async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: 
     did: (res[all.indexOf(session)] as PromiseFulfilledResult<{ did: string }>).value.did,
     fillsCurve: (res[all.indexOf(fillsP)] as PromiseFulfilledResult<boolean>).value,
     refDone: refVal(gateVals),
+    simGas: (res[all.indexOf(sim)] as PromiseFulfilledResult<bigint>).value,
   };
 }
 
@@ -195,16 +209,17 @@ async function commit(signer: Address, to: Hex, data: Hex, gas: bigint, r: Direc
   catch (e) { if ((e as { notSent?: boolean }).notSent) await refund().catch(() => undefined); throw e; }
   const success = res.rc.status === "0x1";
   const gasUsed = Number(BigInt(res.rc.gasUsed));
+  let revertData: string | undefined;
   if (!success) {
     // Failure-path only: re-simulate to read the revert selector. Never delays a successful send.
-    let revertData: string | undefined;
     try { await simulateDirect(r.address, to, data); }
     catch (e) { revertData = (e as { data?: string }).data; }
     if (shouldStrikeIncludedRevert({ revertData, gasUsed: BigInt(res.rc.gasUsed), gasLimit: gas })) strikeSender(signer, did);
     const price = res.rc.effectiveGasPrice ? BigInt(res.rc.effectiveGasPrice) : BigInt(0);
-    await relayBreaker.record({ reverted: true, lossWei: BigInt(res.rc.gasUsed) * price }).catch(() => false);
+    // market-move reverts (slippage on rapid taps) count toward the loss threshold only, not the 2-revert trip
+    await relayBreaker.record({ reverted: !isMarketMoveRevert(revertData), lossWei: BigInt(res.rc.gasUsed) * price }).catch(() => false);
   }
-  return { kind: "confirmed", txHash: res.txHash, success, receipt: res.rc, gasUsed, via: String(res.via),
+  return { kind: "confirmed", txHash: res.txHash, success, receipt: res.rc, gasUsed, via: String(res.via), ...(revertData ? { revert: revertData } : {}),
     t: { admission: tAdm, budget, send: res.sendMs + res.minedMs, total: Date.now() - t0 } };
 }
 
@@ -224,8 +239,9 @@ export async function relayGaslessTrade(raw: unknown, d: GaslessDeps = {}): Prom
     if (who.toLowerCase() !== q.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
   } catch (e) { throw notSent(e); }
   const data = encodeGaslessCall(q);
-  const { relayer, did, fillsCurve, refDone } = await admit(q.signer, router, data, d, q.trade.coin, q.trade.isBuy, q.trade.amountIn);
-  const result = await commit(q.signer, router, data, gaslessTxGasLimit(fillsCurve), relayer, d, t0, Date.now() - t0, did);
+  const { relayer, did, fillsCurve, refDone, simGas } = await admit(q.signer, router, data, d, q.trade.coin, q.trade.isBuy, q.trade.amountIn);
+  const gas = gaslessTxGasLimit(fillsCurve) > simGas ? gaslessTxGasLimit(fillsCurve) : simGas;
+  const result = await commit(q.signer, router, data, gas, relayer, d, t0, Date.now() - t0, did);
   // After the trade result is ready (route then sends it): fire-and-forget attach, never awaited, never strikes.
   const ref = referrerFromRaw(raw);
   if (result.success && ref && refDone !== REFERRAL_DONE) {

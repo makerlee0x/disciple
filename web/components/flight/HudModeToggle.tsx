@@ -83,13 +83,29 @@ export default function HudModeToggle({ sim, onSim }: { sim?: Sim | null; onSim?
       {open && (
         <div role="menu" aria-label="Flight menu" data-testid="flight-menu" style={{ position: "absolute", right: 0, top: 52, width: 300, boxSizing: "border-box", padding: 6,
           borderRadius: HUD.radius, background: "rgba(18,19,39,.94)", border: `1px solid ${HUD.border}`, boxShadow: "0 16px 40px rgba(0,0,0,.45)", backdropFilter: "blur(8px)" }}>
+          <style>{`[data-testid="flight-menu"] [role^="menuitem"]:hover, [data-testid="flight-menu"] [role^="menuitem"]:focus-visible { background-color: rgba(255,255,255,.08) !important; }
+            [data-testid="flight-menu"] .fm-btn[data-testid="flight-menu-hangar"]:hover { background-color: rgba(242,193,78,.22) !important; }`}</style>
           <div style={head}>PILOT</div>
           {cta ? (
             <button type="button" role="menuitem" data-testid="flight-menu-signin" onClick={() => { dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT)); setOpen(false); }}
               style={{ ...row, background: "#F2C14E", color: HUD.ink, justifyContent: "center", font: `700 16px/1 ${HUD.game}`, letterSpacing: ".04em" }}>{cta.toUpperCase()}</button>
           ) : me ? (<>
-            <Link role="menuitem" href="/profile" data-testid="flight-menu-hangar" style={row}><span>{me.name ? `@${me.name}` : `${me.address.slice(0, 6)}…${me.address.slice(-4)}`}</span><span style={{ color: HUD.dim, fontSize: 12 }}>Hangar</span></Link>
-            <button type="button" role="menuitem" data-testid="flight-menu-signout" onClick={go(() => { void disconnect(); })} style={{ ...row, color: HUD.dim }}>Sign out</button>
+            {/* maker 2026-11-14: "Hangar doesn't even look like a button, I thought it was my username" ⇒ who you are is a plain
+                card, and Hangar is its own gold-outlined button next to a quiet Sign out */}
+            <div data-testid="flight-menu-pilot" style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 12px 10px" }}>
+              <span aria-hidden style={{ width: 34, height: 34, borderRadius: 999, flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "center",
+                background: "linear-gradient(135deg, #F3DFA8, #C99A3E)", color: HUD.ink, font: `800 16px/1 ${HUD.game}` }}>{(me.name || me.address.slice(2, 3)).slice(0, 1).toUpperCase()}</span>
+              <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                <span style={{ font: `600 15px/1.2 ${HUD.ui}`, color: HUD.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{me.name ? `@${me.name}` : `${me.address.slice(0, 6)}…${me.address.slice(-4)}`}</span>
+                <span style={{ font: `500 12px/1.2 ${HUD.ui}`, color: HUD.dim }}>Signed in</span>
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 8, padding: "0 6px 6px" }}>
+              <Link role="menuitem" href="/profile" data-testid="flight-menu-hangar" className="fm-btn"
+                style={{ ...row, flex: 1, justifyContent: "center", border: "1px solid rgba(242,193,78,.7)", background: "rgba(242,193,78,.12)", color: "#F3DFA8", font: `700 16px/1 ${HUD.game}`, letterSpacing: ".06em" }}>HANGAR</Link>
+              <button type="button" role="menuitem" data-testid="flight-menu-signout" className="fm-btn" onClick={go(() => { void disconnect(); })}
+                style={{ ...row, width: "auto", justifyContent: "center", border: `1px solid ${HUD.border}`, color: HUD.dim }}>Sign out</button>
+            </div>
           </>) : <div style={{ ...row, cursor: "default", color: HUD.dim }}>Playing on paper</div>}
           {(tw?.on || (sim && sim.available)) && <div style={head}>FLIGHT</div>}
           {tw?.on && <>

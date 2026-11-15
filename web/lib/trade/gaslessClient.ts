@@ -74,9 +74,9 @@ export async function submitGasless(q: GaslessRequest, url = "/api/gasless", fet
   const ref = referrerWallet(q.signer);
   const payload = ref ? { ...q, referrer: ref } : q;
   const r = await fetchFn(url, { method: "POST", headers, body: `{"jsonrpc":"2.0","id":1,"method":"disciple_gaslessTrade","params":[${JSON.stringify(payload, bigintToDecimal)}]}` });
-  const j = await r.json().catch(() => ({})) as { result?: { txHash: Hex; success: boolean; receipt: { logs: GaslessSendResult["logs"] }; gasUsed: number; server?: unknown }; error?: { message?: string; data?: GaslessError["data"] } };
+  const j = await r.json().catch(() => ({})) as { result?: { txHash: Hex; success: boolean; receipt: { logs: GaslessSendResult["logs"] }; gasUsed: number; server?: unknown; revert?: Hex }; error?: { message?: string; data?: GaslessError["data"] } };
   if (!j.result) throw new GaslessError(j.error?.message ?? `gasless relay HTTP ${r.status}`, j.error?.data ?? {}, r.status);
-  if (!j.result.success) throw new GaslessError("trade reverted on-chain", { notSent: false, txHash: j.result.txHash }, r.status);
+  if (!j.result.success) throw new GaslessError("trade reverted on-chain", { notSent: false, txHash: j.result.txHash, ...(j.result.revert ? { revert: j.result.revert } : {}) }, r.status);
   const k = `${(q.trade.isBuy ? q.permit.permitted.token : q.trade.coin).toLowerCase()}:${q.signer.toLowerCase()}`;
   if (q.approval) approved.set(k, true);
   return { txHash: j.result.txHash, logs: j.result.receipt.logs, gasUsed: j.result.gasUsed, server: j.result.server };

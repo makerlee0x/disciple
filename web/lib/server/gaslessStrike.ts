@@ -34,3 +34,21 @@ export function shouldStrikeIncludedRevert(o: { revertData?: string | null; gasU
   const sel = revertSelector(o.revertData);
   return !!sel && TRADER_FAULT_SELECTORS.has(sel);
 }
+
+/**
+ * Included reverts caused by the market moving between the exact simulation and inclusion (rapid taps on a thin
+ * curve, another pilot's buy landing first). Not the trader's fault and not a relayer fault: they still cost the
+ * relayer gas (counted by the breaker's loss threshold) but do not count as a breaker "revert", so a couple of
+ * fast taps can no longer pause every player's trades for 15 minutes (maker play-test Nov 14 8:18 PM CT).
+ */
+export const MARKET_MOVE_SELECTORS: ReadonlySet<string> = new Set([
+  selector("Slippage()"),
+  selector("Expired()"),
+  selector("PriceImpactTooHigh(uint256,uint256)"),
+  selector("V4TooLittleReceived(uint256,uint256)"),
+  selector("V4TooMuchRequested(uint256,uint256)"),
+]);
+export const isMarketMoveRevert = (data: string | null | undefined): boolean => {
+  const sel = revertSelector(data);
+  return !!sel && MARKET_MOVE_SELECTORS.has(sel);
+};
