@@ -1,5 +1,5 @@
 /** Host a launch: the builder (launch flow board, signed off 2026-11-13) and what happens when you light the engines. */
-import { test, expect, hydrated } from "./support/fixtures";
+import { test, expect, hydrated, isPhone } from "./support/fixtures";
 
 test("the pad preview follows what you type and pick", async ({ page, pilot }) => {
   await pilot.signIn({ cash: 25 });
@@ -59,4 +59,21 @@ test("signed out, the launch button signs you in", async ({ page }) => {
   await hydrated(btn);
   await btn.click();
   await expect(page.getByTestId("create-launch")).toBeVisible();
+});
+
+test("right after a launch the flight opens with the trade bar and a small share toast, no share screen", async ({ page, pilot }) => {
+  const COIN = "0xc4a21f9d6485fc5893dd4a491b320a83daf4da1d";
+  await pilot.signIn({ cash: 25 });
+  // what /create leaves behind when the launch lands (lib/launchHandoff.ts), then it goes straight to the flight
+  await page.addInitScript((c) => {
+    try { sessionStorage.setItem(`disciple:launched:${c}`, JSON.stringify({ name: "E2E Comet", ticker: "COMET", mode: "Easy", note: null, at: Date.now() })); } catch { /* blocked */ }
+  }, COIN);
+  await page.goto(`/coin/${COIN}`);
+  const toast = page.getByTestId("launched-toast");
+  await expect(toast).toBeVisible();
+  await expect(toast).toContainText(/\$COMET is flying/i);
+  await expect(page.getByTestId("trade-bar").filter({ visible: true }).first()).toBeVisible();
+  if (isPhone(page)) { const go = page.getByTestId("fr-go"); await go.waitFor({ state: "visible", timeout: 8_000 }).then(() => go.tap()).catch(() => {}); }
+  await toast.getByRole("button", { name: "Close" }).click();
+  await expect(toast).toHaveCount(0);
 });

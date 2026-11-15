@@ -14,6 +14,7 @@ import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
 import { TRAMP_WALLS_ENABLED } from "@/lib/features";
 import TradeBridge from "@/components/TradeBridge";
 import SnipeCountdown from "@/components/flight/SnipeCountdown";
+import LaunchedToast from "@/components/flight/LaunchedToast";
 import CoinIdentity from "@/components/pairart/CoinIdentity";
 import CoinClaims from "@/components/claims/CoinClaims";
 import CardChrome from "@/components/flight/CardChrome";
@@ -71,6 +72,8 @@ function FlightInner({ address }: { address: string }) {
       {TRAMP_WALLS_ENABLED && <TrampWallPanel token={address} />}
       <TradeBridge token={address} />
       <SnipeCountdown token={address} />
+      {/* fresh launch from /create: arrival fade + "you're live" share toast (no share screen before trading) */}
+      <LaunchedToast token={address} />
       <CoinIdentity address={address} sp={new URLSearchParams(sp.toString())} />
       <CoinClaims token={address} />
       {/* pass 3 #4 (GAME): drag / minimize / close every desktop card + LAYOUT menu (per-account, localStorage) */}
