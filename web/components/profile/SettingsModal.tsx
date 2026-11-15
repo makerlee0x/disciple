@@ -10,7 +10,8 @@ import { playerError } from "@/lib/playerError";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import Icon from "@/components/icons/Icon";
 import { SETTINGS_KEYS } from "@/lib/config";
-import { setGameSettings, useGameSettings } from "@/lib/game/settings";
+import { setGameSettings, useGameSettings, type AudioChannel } from "@/lib/game/settings";
+import { previewBlip } from "@/lib/game/audio";
 
 /** Settings copy (profile r3 README copy list). */
 export const SETTINGS_COPY = {
@@ -23,6 +24,9 @@ export const SETTINGS_COPY = {
   oneTap: "One-tap boosts",
   bombs: "Dump bombs", bombsHelp: "Show dumps as bombs · B",
   haptics: "Vibration", hapticsHelp: "Buzz on taps and big moments",
+  sound: "Sound",
+  music: "Music", musicHelp: "Plays while you fly and duel",
+  sfx: "Sound effects", sfxHelp: "Engines, boosts and blasts",
   oneTapHelp: "BOOST and DUMP fire with no pop-up",
   on: "ON",
   maxMove: "Price protection",
@@ -250,6 +254,27 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                       ))}
                     </div>
                   </div>
+                </div>
+              </section>
+              <section className="p5-sgrp" aria-label={SETTINGS_COPY.sound} data-testid="settings-sound">
+                <span className="gh">{SETTINGS_COPY.sound}</span>
+                <div className="p5-sbox">
+                  {([["music", "play", SETTINGS_COPY.music, SETTINGS_COPY.musicHelp], ["sfx", "boost", SETTINGS_COPY.sfx, SETTINGS_COPY.sfxHelp]] as const).map(([ch, ic, label, help]) => {
+                    const c: AudioChannel = gs[ch];
+                    const set = (n: Partial<AudioChannel>) => setGameSettings((g) => ({ ...g, [ch]: { ...g[ch], ...n } }));
+                    return (
+                      <div className="p5-srow wrap snd" key={ch}>
+                        <span className="p5-sic"><Icon name={ic} size={18} /></span>
+                        <div className="tx"><b>{label}</b><span>{help}</span></div>
+                        <button type="button" role="switch" aria-checked={c.on} aria-label={label} className={`p5-switch${c.on ? " on" : ""}`} data-testid={`settings-${ch}`}
+                          onClick={() => set({ on: !c.on })}><span /></button>
+                        <input type="range" className="p5-vol" min={0} max={100} step={5} value={Math.round(c.vol * 100)} disabled={!c.on}
+                          aria-label={`${label} volume`} data-testid={`settings-${ch}-vol`}
+                          onChange={(e) => set({ vol: Number(e.target.value) / 100 })}
+                          onPointerUp={() => { if (ch === "sfx") previewBlip(c.vol); }} />
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
               <section className="p5-sgrp" aria-label={SETTINGS_COPY.security} data-testid="settings-security">

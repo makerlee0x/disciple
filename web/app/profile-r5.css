@@ -331,3 +331,7 @@
 .p5-trade-cell input:focus { border-color: #F2C14E; box-shadow: 0 0 0 3px rgba(242,193,78,.18); }
 .p5-trade-cell.dump output { color: #FFB0C8; border-color: rgba(240,48,127,.28); background: rgba(240,48,127,.06); }
 .p5-trade .p5-srow.col .p5-fine, .p5-trade .p5-srow.col .p5-err { font-size: 12px; line-height: 17px; }
+/* Settings › Sound: switch on the title line, volume slider under it */
+.p5-settings .p5-srow.snd .tx { flex: 1 1 calc(100% - 124px); }
+.p5-settings .p5-vol { flex: 1 1 100%; margin: 0 0 0 48px; max-width: calc(100% - 48px); accent-color: var(--dsc3-signal-up, #5FF0A0); height: 28px; cursor: pointer; }
+.p5-settings .p5-vol:disabled { opacity: .35; cursor: default; }
