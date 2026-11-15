@@ -32,6 +32,10 @@ const pctOfSupply = (tokens: bigint) => `${(Number((tokens * BigInt(1000000)) / 
  * The legacy pair-token pull only runs on a network whose router has no USDG routing. Private launches use the same
  * dollar field; the cap is the Trench cap. The field blocks amounts over the cap, and MAX never exceeds it.
  */
+/** Short Easy rules for the launch builder's seat line (the long forms stay in FIRST_BOOST_COPY for the other variants). */
+const SEAT_EASY_LOCK = "It stays locked until the open market.";
+const SEAT_EASY_SIGN_IN = "Sign in with email, Google or X first.";
+
 export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker, value, onChange, onState, mode = DEFAULT_LAUNCH_MODE, privateLaunch = false, variant = "field" }: {
   pair: Address | null; pairLabel: string; creatorTaxBps: number; ticker: string;
   value: string; onChange: (v: string) => void; onState: (s: FirstBoostState) => void; mode?: number; privateLaunch?: boolean;
@@ -207,11 +211,16 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
             <button type="button" className={c(isCustom, true)} data-testid="first-boost-custom-open" onClick={() => { setCustomOpen(true); if (value === "" || isAmt(0) || isAmt(5) || isAmt(20) || isMaxSel) onChange(""); }}>{QUICK_LAUNCH_COPY.custom}</button>
           )}
         </div>
-        <span className={L.help}>{QUICK_LAUNCH_COPY.seatHelp}</span>
-        {limits?.capBy === "mode" && pct && <span className={L.note}>{COPY.modeCap(modeName(limits.mode), pct)}</span>}
-        {pve && raw != null && raw > BigInt(0) && <span className={L.note}>{COPY.easyLock}</span>}
-        {pve && raw != null && raw > BigInt(0) && (!me || pveVerified === false) && <span className={L.note}>{COPY.pveLoginUnknown}</span>}
-        {error && <span role="alert" className={`${L.help} ${L.bad}`}>{error}</span>}
+        {/* one short line under the chips (the launch builder fits on one screen): the error, else the cap + Easy rules */}
+        {error ? <span role="alert" className={`${L.help} ${L.bad}`}>{error}</span> : (
+          <span className={L.note} data-testid="seat-note">
+            {[
+              limits?.capBy === "mode" && pct ? COPY.modeCap(modeName(limits.mode), pct) : QUICK_LAUNCH_COPY.seatHelp,
+              pve && raw != null && raw > BigInt(0) ? SEAT_EASY_LOCK : null,
+              pve && raw != null && raw > BigInt(0) && (!me || pveVerified === false) ? SEAT_EASY_SIGN_IN : null,
+            ].filter(Boolean).join(" ")}
+          </span>
+        )}
       </div>
     );
   }
