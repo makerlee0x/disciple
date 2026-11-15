@@ -506,17 +506,15 @@ html,body{margin:0;height:100%;background:#07080c}
   <ol class="steps" aria-label="Match steps"><li id="stLobby" class="on">LOBBY</li><li id="stDrop">PICK DROP</li><li>LOOT UP</li><li>LAST PILOT</li></ol>
   <div class="panel">
     <div class="pane" id="pIntro">
-      <div class="ihead"><small>12 PILOTS · ONE SURVIVES</small><b>LAST PILOT STANDING</b></div>
+      <div class="ihead"><small>12 PILOTS · 12 MIN · ONE SURVIVES</small><b>LAST PILOT STANDING</b></div>
       <ol class="ihow">
         <li><i>1</i><b>DROP</b><span>Pick a coin to land on</span></li>
         <li><i>2</i><b>LOOT</b><span>Fly into crates for guns</span></li>
         <li><i>3</i><b>SURVIVE</b><span>The storm cuts the lowest PnL</span></li>
         <li><i>4</i><b>WIN</b><span>Be the last rocket flying</span></li>
       </ol>
-      <div class="opts" role="group" aria-label="Length"><span>LENGTH</span>
-        <button class="opt" type="button" data-len="quick">QUICK<small class="ob">about 3 min</small></button><button class="opt on" type="button" data-len="full">FULL<small class="ob">about 5 min</small></button>
-      </div>
       <button class="go" type="button" id="iGo" data-sfx="primary">FIND A LOBBY</button>
+      <button class="practice" type="button" id="iBots">or play with bots now</button>
       <details class="how"><summary>HOW IT WORKS</summary>
       <ul class="rules">
         <li><b>START WITH A PISTOL</b> ($10 spot, 1×). Crates drop leverage guns: each is a trade size × leverage with limited shots<span class="kbd"> (switch with 1–3)</span>.</li>
@@ -555,10 +553,21 @@ html,body{margin:0;height:100%;background:#07080c}
 </div>
 <script>
 (function(){
-const A={"rocket":"../duel/rocket.webp","sky0":"../duel/sky0.webp","sky1":"../duel/sky1.webp","sky2":"../duel/sky2.webp","sky3":"../duel/sky3.webp","sky4":"../duel/sky4.webp","skyEth":"../sky-eth.webp","skyBtc":"../sky-btc.webp","skyPad":"../../home/pad/sky-1280.webp","art":"../../art/modes/last-pilot.webp","airdrop-machine-gun-glow":"art/airdrop-machine-gun-glow.webp","airdrop-machine-gun":"art/airdrop-machine-gun.webp","airdrop-minigun-glow":"art/airdrop-minigun-glow.webp","airdrop-minigun":"art/airdrop-minigun.webp","airdrop-pistol-glow":"art/airdrop-pistol-glow.webp","airdrop-pistol":"art/airdrop-pistol.webp","airdrop-railgun-glow":"art/airdrop-railgun-glow.webp","airdrop-railgun":"art/airdrop-railgun.webp","airdrop-rocket-launcher-glow":"art/airdrop-rocket-launcher-glow.webp","airdrop-rocket-launcher":"art/airdrop-rocket-launcher.webp","airdrop-shotgun-glow":"art/airdrop-shotgun-glow.webp","airdrop-shotgun":"art/airdrop-shotgun.webp","airdrop-sniper-glow":"art/airdrop-sniper-glow.webp","airdrop-sniper":"art/airdrop-sniper.webp","fx-boom-small":"art/fx-boom-small.webp","fx-cashout":"art/fx-cashout.webp","fx-nuke":"art/fx-nuke.webp","fx-pod-open":"art/fx-pod-open.webp","fx-weapon-break":"art/fx-weapon-break.webp","map-btc":"art/map-btc.webp","map-eth":"art/map-eth.webp","map-hype":"art/map-hype.webp","map-sol":"art/map-sol.webp","skin-candy-pink":"art/skin-candy-pink.webp","skin-carbon":"art/skin-carbon.webp","skin-chrome-pink-stripe":"art/skin-chrome-pink-stripe.webp","skin-gunmetal-pink":"art/skin-gunmetal-pink.webp","skin-matte-black":"art/skin-matte-black.webp","skin-navy-chevron":"art/skin-navy-chevron.webp","skin-oilslick":"art/skin-oilslick.webp","skin-pearl-mint":"art/skin-pearl-mint.webp","skin-scorched":"art/skin-scorched.webp","skin-titanium-ice":"art/skin-titanium-ice.webp","skyHype":"art/skyHype.webp","skySol":"art/skySol.webp","weapon-machine-gun":"art/weapon-machine-gun.webp","weapon-minigun":"art/weapon-minigun.webp","weapon-pistol":"art/weapon-pistol.webp","weapon-railgun":"art/weapon-railgun.webp","weapon-rocket-launcher":"art/weapon-rocket-launcher.webp","weapon-shotgun":"art/weapon-shotgun.webp","weapon-sniper":"art/weapon-sniper.webp"};
+const A={"rocket":"../duel/rocket.webp","sky0":"../duel/sky0.webp","sky1":"../duel/sky1.webp","sky2":"../duel/sky2.webp","sky3":"../duel/sky3.webp","sky4":"../duel/sky4.webp","skyEth":"../sky-eth.webp","skyBtc":"../sky-btc.webp","skyPad":"../../home/pad/sky-1280.webp","art":"../../art/modes/last-pilot.webp","airdrop-machine-gun-glow":"art/airdrop-machine-gun-glow.webp","airdrop-machine-gun":"art/airdrop-machine-gun.webp","airdrop-minigun-glow":"art/airdrop-minigun-glow.webp","airdrop-minigun":"art/airdrop-minigun.webp","airdrop-pistol-glow":"art/airdrop-pistol-glow.webp","airdrop-pistol":"art/airdrop-pistol.webp","airdrop-railgun-glow":"art/airdrop-railgun-glow.webp","airdrop-railgun":"art/airdrop-railgun.webp","airdrop-rocket-launcher-glow":"art/airdrop-rocket-launcher-glow.webp","airdrop-rocket-launcher":"art/airdrop-rocket-launcher.webp","airdrop-shotgun-glow":"art/airdrop-shotgun-glow.webp","airdrop-shotgun":"art/airdrop-shotgun.webp","airdrop-sniper-glow":"art/airdrop-sniper-glow.webp","airdrop-sniper":"art/airdrop-sniper.webp","fx-boom-small":"art/fx-boom-small.webp","fx-cashout":"art/fx-cashout.webp","fx-nuke":"art/fx-nuke.webp","fx-pod-open":"art/fx-pod-open.webp","fx-weapon-break":"art/fx-weapon-break.webp","map-btc":"art/map-btc.webp","map-eth":"art/map-eth.webp","map-hype":"art/map-hype.webp","map-sol":"art/map-sol.webp","skyHype":"art/skyHype.webp","skySol":"art/skySol.webp","weapon-machine-gun":"art/weapon-machine-gun.webp","weapon-minigun":"art/weapon-minigun.webp","weapon-pistol":"art/weapon-pistol.webp","weapon-railgun":"art/weapon-railgun.webp","weapon-rocket-launcher":"art/weapon-rocket-launcher.webp","weapon-shotgun":"art/weapon-shotgun.webp","weapon-sniper":"art/weapon-sniper.webp"};
 document.addEventListener("DOMContentLoaded",()=>{ const b=document.getElementById("preBg"); if(b) b.style.backgroundImage=`url("${A.art}")`; });
 
-const SKINS=Object.keys(A).filter(k=>k.startsWith("skin-")); const imgs={}; for(const k in A){const i=new Image(); i.src=A[k]; imgs[k]=i;}
+// bot rockets: 8 hull shapes x 10 rival skins (PR 399/402 art, web/public/turbo/hulls). [aspect w/h, nozzles [x, y, size] as 0..1 of the image]
+const HULLS={"bullet":[0.454,[[0.498,0.988,1.0],[0.103,0.982,0.7],[0.892,0.982,0.7]]],"needle":[0.368,[[0.481,0.989,1.0]]],"pulp":[0.557,[[0.472,0.99,1.0]]],"twin-booster":[0.436,[[0.498,0.984,0.8],[0.193,0.99,1.0],[0.798,0.99,1.0]]],"shuttle":[0.575,[[0.5,0.984,1.0],[0.427,0.965,0.7],[0.573,0.965,0.7]]],"hauler":[0.432,[[0.498,0.99,1.0],[0.27,0.989,0.85],[0.734,0.989,0.85]]],"ring-tail":[0.432,[[0.502,0.99,1.0]]],"wedge":[0.732,[[0.501,0.959,1.0]]]}, HSKINS=["chrome-pink-stripe","matte-black","pearl-mint","titanium-ice","candy-pink","gunmetal-pink","oilslick","carbon","scorched","navy-chevron"], HULL_BASE="../hulls/", hullImgs={};
+function hullFor(used){ const ks=Object.keys(HULLS); let h,s,n=0; do{ h=ks[Math.floor(Math.random()*ks.length)]; s=HSKINS[Math.floor(Math.random()*HSKINS.length)]; } while(used&&used.has(h+s)&&++n<20); if(used) used.add(h+s);
+  const k="hull-"+h+"--"+s; if(!hullImgs[k]){ const i=new Image(); i.src=HULL_BASE+k+".webp"; hullImgs[k]=i; } return {k,img:hullImgs[k],a:HULLS[h][0],nz:HULLS[h][1]}; }
+// flames at each nozzle of a hull (or the chrome rocket's one), then the sprite; ctx is already at the rocket's centre
+function drawShip(c2,hull,img,h,fl,col,sq){ const w=hull?h*hull.a:h*221/609, fk=Math.min(1,h/120), nz=hull?hull.nz:[[.5,.97,1]];
+  c2.globalCompositeOperation="lighter";
+  for(const [nx,ny,ns] of nz){ const x0=(nx-.5)*w, fy=(ny-.5)*h-h*.02, k=fk*ns; const g=c2.createRadialGradient(x0,fy,2,x0,fy+30*fl*k,72*fl*k); g.addColorStop(0,"rgba(255,250,235,.95)"); g.addColorStop(.25,`rgba(${col},.85)`); g.addColorStop(1,`rgba(${col},0)`);
+    c2.fillStyle=g; c2.beginPath(); c2.ellipse(x0,fy+36*fl*k,(15*fl+5)*k,(60*fl+8)*k,0,0,Math.PI*2); c2.fill(); }
+  c2.globalCompositeOperation="source-over"; c2.scale(1-sq*.3,1+sq);
+  const im=hull&&hull.img.complete&&hull.img.naturalWidth?hull.img:img, ww=im===img?h*221/609:w; if(im&&im.complete) c2.drawImage(im,-ww/2,-h/2,ww,h); return w; }
+const imgs={}; for(const k in A){const i=new Image(); i.src=A[k]; imgs[k]=i;}
 const $=id=>document.getElementById(id);
 const GF="'Barlow Condensed'", GU="Geist";
 const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -604,13 +613,14 @@ function dropWeapon(pl,w){ const i=pl.inv.indexOf(w); if(i<0||w.k==="PISTOL") re
   if(pl.sel===i) pl.sel=pl.me?0:bestSlot(pl); else if(pl.sel>i) pl.sel--; if(pl.sel>=pl.inv.length) pl.sel=0; }
 const START={HYPE:2,SOL:4,ETH:3,BTC:2};
 const NAMES=["@moonmath","@solwhale","@lev_larry","@chartmonk","@0xrekt","@pumpqueen","@degenpilot","@wickhunter","@fadeking","@gmgn_andy","@bagholdr"];
-let LENK="full", dropMk="HYPE";
-function plan(){ const q=LENK==="quick"; return {close:q?{HYPE:50,SOL:90,ETH:130}:{HYPE:90,SOL:150,ETH:210},warn:q?10:15,target:{HYPE:9,SOL:6,ETH:4},shrink:q?12:18,df:q?12:15,duel:q?30:45,w0:6}; }
+let dropMk="HYPE";
+// one length: about 12 minutes (maps close at 3:00, 5:30 and 8:00, then about 3 min of final circle and a 1 min duel)
+function plan(){ return {close:{HYPE:180,SOL:330,ETH:480},warn:20,target:{HYPE:9,SOL:6,ETH:4},shrink:40,df:15,duel:60,w0:6}; }
 const liqPct=pl=>pl.pos?Math.max(0,-pnlOf(pl.pos,price(pl))/(LIQ*pl.pos.coll)):0;
 
 /* ---------- state ---------- */
 let G=null;
-function newPilot(name,me,mk){ return {skin:me?null:SKINS[Math.floor(Math.random()*SKINS.length)],name,me,mk,fuel:FUEL0,pos:null,shields:0,inv:[{k:"PISTOL",ammo:Infinity}],sel:0,alive:true,lane:.5,jit:me?0:rnd(-34,34),arrive:me?0:rnd(1,18),xo:0,xt:0,wander:0,
+function newPilot(name,me,mk,used){ return {hull:me?null:hullFor(used),name,me,mk,fuel:FUEL0,pos:null,shields:0,inv:[{k:"PISTOL",ammo:Infinity}],sel:0,alive:true,lane:.5,jit:me?0:rnd(-34,34),arrive:me?0:rnd(1,18),xo:0,xt:0,wander:0,
   dfW:0,dfL:0,best:0,grab:0,cool:rnd(10,22),df:null,y:null,vy:0,flame:0,sq:0,kick:0,rot:0,steer:0,jumpAt:null,place:0,
   bot:me?null:{skill:rnd(.25,.9),react:[rnd(.4,.8),rnd(.9,1.8)],next:0,thr:rnd(2.2,3.6),tp:rnd(.25,.6),sl:-rnd(.25,.75),hold:rnd(6,16)}}; }
 function newGame(){
@@ -619,7 +629,7 @@ function newGame(){
   // 60 s of history so the chart is full at GO
   for(const k of ORDER){ const m=M[k]; for(let i=-300;i<=0;i++){ stepFeed(m,i*TICK); } }
   const pilots=[], names=NAMES.slice().sort(()=>Math.random()-.5); let n=0;
-  for(const k of ORDER) for(let i=0;i<START[k];i++) pilots.push(newPilot(names[n++],false,k));
+  const used=new Set(); for(const k of ORDER) for(let i=0;i<START[k];i++) pilots.push(newPilot(names[n++],false,k,used));
   const me=newPilot("you",true,dropMk); me.lane=.5; pilots.push(me);
   G={t:0,P,M,pilots,me,started:false,over:false,phase:"early",final:null,duel:null,dfs:[],nextCrate:rnd(3,5),crate:null,acc:0,
      marks:[],moments:[],cutLog:[],band:null,watch:false,mapOpen:false,jumpCool:0};
@@ -845,7 +855,7 @@ function simTick(){
   if(G.duel&&G.t>=G.duel.end) endDuel();
   // supply drops near you
   if(!G.final&&!G.duel&&G.me.alive&&!G.crate&&G.t>=G.nextCrate&&!G.me.df){ const side=G.me.lane*SW+G.me.xo<SW/2?1:-1;
-    const item=rollLoot(G.me.mk); G.crate={x:Math.max(40,Math.min(SW-40,G.me.lane*SW+G.me.xo+side*rnd(110,170))),y:-1,until:G.t+10,item}; G.nextCrate=G.t+rnd(11,16)*MKD[G.me.mk].drop; sfx("pod");
+    const item=rollLoot(G.me.mk); G.crate={x:Math.max(40,Math.min(SW-40,G.me.lane*SW+G.me.xo+side*rnd(110,170))),y:-1,until:G.t+10,item}; G.nextCrate=G.t+rnd(16,24)*MKD[G.me.mk].drop; sfx("pod");
     feed("g","◆",`LOOT · <b style="color:${rarOf(item).c}">${item.k}</b> ${wLine(item)} · steer into it`); }
   if(G.crate&&G.t>G.crate.until) G.crate=null;
   if(G.offer){ if(G.t>G.offer.until||!G.me.alive) leaveOffer(); else { const t=$("swT"); if(t) t.style.transform=`scaleX(${Math.max(0,(G.offer.until-G.t)/G.offer.len)})`; } }
@@ -869,7 +879,6 @@ function buildDrop(){
     b.addEventListener("click",()=>{ dropMk=k; sfx("tick"); buildDrop(); }); box.appendChild(b); }
   $("dGo").textContent="DROP INTO "+dropMk; paintSizes();
 }
-document.querySelectorAll("[data-len]").forEach(b=>b.addEventListener("click",()=>{ LENK=b.dataset.len; document.querySelectorAll("[data-len]").forEach(x=>x.classList.toggle("on",x===b)); buildDrop(); }));
 /* ---------- map vote (maker 2026-11-15: "give them two options and then people vote. a 6-6 tiebreaker would go for a random sky") ----------
  * Two skies from the pool, never last match's. All 12 pilots vote during the drop timer (the 11 bots trickle in);
  * you can change your vote until the drop. Most votes wins; a tie goes to a random sky from the whole pool. */
@@ -903,9 +912,9 @@ function finishVote(){
 let dropT=0, dropIv=0;
 function prePane(id){ for(const k of ["pIntro","pFill","pDrop"]) $(k).hidden=k!==id; $("stLobby").classList.toggle("on",id!=="pDrop"); $("stDrop").classList.toggle("on",id==="pDrop"); }
 let fillIv=0;
-function showIntro(){ clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pIntro"); $("dIn").textContent="12"; bed("amb_mission_control"); }
+function showIntro(){ toParent({type:"disciple:music",on:false}); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pIntro"); $("dIn").textContent="12"; bed("amb_mission_control"); }
 // a lobby that fills up: you first, then the 11 bots drop in over ~3 s, then the map pick and its 15 s timer
-function fillLobby(){ ensureAudio(); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pFill"); bed("amb_mission_control");
+function fillLobby(){ toParent({type:"disciple:music",on:false}); ensureAudio(); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pFill"); bed("amb_mission_control");
   const g=$("fGrid"); g.innerHTML=""; const slots=[]; for(let i=0;i<12;i++){ const d=document.createElement("div"); d.textContent="···"; g.appendChild(d); slots.push(d); }
   slots[0].className="me"; slots[0].textContent="YOU"; let n=1; $("fN").textContent=n; $("dIn").textContent=n+" / 12"; $("fSub").textContent="FINDING PILOTS";
   const order=NAMES.slice().sort(()=>Math.random()-.5);
@@ -913,7 +922,7 @@ function fillLobby(){ ensureAudio(); clearInterval(dropIv); clearInterval(fillIv
     $("fN").textContent=n; $("dIn").textContent=n+" / 12"; sfx("tick",.5);
     if(n>=12){ clearInterval(fillIv); $("fSub").textContent="LOBBY FULL"; sfx("lock"); buzz([20,40,20]); setTimeout(showDrop,900); } },300);
 }
-function showDrop(){ $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; buildDrop(); newVote(); dropT=15; $("dT").textContent=mmss(dropT);
+function showDrop(){ toParent({type:"disciple:music",on:false}); $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; buildDrop(); newVote(); dropT=15; $("dT").textContent=mmss(dropT);
   clearInterval(dropIv); dropIv=setInterval(()=>{ dropT--; $("dT").textContent=mmss(dropT); voteTick(15-dropT); if(dropT<=0){ clearInterval(dropIv); go(); } },1000); }
 $("dGo").addEventListener("click",()=>{ ensureAudio(); clearInterval(dropIv); go(); });
 function go(){
@@ -922,7 +931,7 @@ function go(){
   $("feed").innerHTML=""; buildJump(); const c=$("count"); c.hidden=false; let n=3;
   const show=()=>{ c.innerHTML=`<div><small>DROPPING INTO ${G.me.mk}</small><small class="cmap">${mapLine}</small>${n}</div>`; };
   show(); sfx("count"); bed("amb_wind_high"); oneShotAmb("amb_mothership_pass",.7);
-  const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("count"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); sfx("drop",.8); buzz(30); G.started=true; setTimeout(()=>c.hidden=true,450);
+  const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("count"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); sfx("drop",.8); buzz(30); G.started=true; toParent({type:"disciple:music",on:true}); setTimeout(()=>c.hidden=true,450);
     feed("m","☁",`${inMk(G.me.mk).length} pilots in ${G.me.mk} · 12 in the game`);
     feed("m","🗳",vr.tie?`Map vote tied ${vr.n[0]}-${vr.n[1]}. Random sky: <b>${MAP.n}</b>`:`Map vote ${Math.max(...vr.n)}-${Math.min(...vr.n)}: <b>${MAP.n}</b>`); },800);
 }
@@ -949,6 +958,7 @@ function endMe(){
 }
 $("rAgain").addEventListener("click",()=>fillLobby());
 $("iGo").addEventListener("click",()=>fillLobby());
+$("iBots").addEventListener("click",()=>{ ensureAudio(); clearInterval(fillIv); showDrop(); });   // skip the lobby: straight to the drop pick with 11 bots
 $("fCancel").addEventListener("click",()=>showIntro());
 /* ---- share the result (maker 2026-11-15: share card; bragging rights only, never rewards) ---- */
 let LASTR=null;
@@ -1141,15 +1151,11 @@ function drawBand(){
   if(yT>0&&yT<SH) sx.fillRect(0,yT-1,SW,2); if(yB>0&&yB<SH) sx.fillRect(0,yB-1,SW,2); sx.restore();
 }
 function drawRocket(pl,now){
-  const x=xOf(pl), y=pl.y, img=(pl.skin&&imgs[pl.skin])||imgs.rocket, h=pl.me?LAY.rh:LAY.rh*.8, w=h*221/609, fight=G.me.df&&(G.me.df.a===pl||G.me.df.b===pl)||G.duel&&(G.duel.a===pl||G.duel.b===pl);
+  const x=xOf(pl), y=pl.y, img=imgs.rocket, h=pl.me?LAY.rh:LAY.rh*.8, w=pl.hull?h*pl.hull.a:h*221/609, fight=G.me.df&&(G.me.df.a===pl||G.me.df.b===pl)||G.duel&&(G.duel.a===pl||G.duel.b===pl);
   const thrust=Math.max(.3,Math.min(1.7,.6+pl.flame*.5-pl.vy*.0015)), fl=thrust+Math.sin(now/40+(pl.me?0:pl.lane*9))*.08;
   const c=pl.me?"255,200,80":"255,95,170";
   sx.save(); sx.globalAlpha=pl.me||fight?1:.92; sx.translate(x,y); sx.rotate(Math.max(-.35,Math.min(.35,pl.rot+pl.steer)));
-  sx.globalCompositeOperation="lighter";
-  const fy=h*.47, fk=Math.min(1,h/120); const g=sx.createRadialGradient(0,fy,2,0,fy+30*fl*fk,72*fl*fk); g.addColorStop(0,"rgba(255,250,235,.95)"); g.addColorStop(.25,`rgba(${c},.85)`); g.addColorStop(1,`rgba(${c},0)`);
-  sx.fillStyle=g; sx.beginPath(); sx.ellipse(0,fy+36*fl*fk,(15*fl+5)*fk,(60*fl+8)*fk,0,0,Math.PI*2); sx.fill();
-  sx.globalCompositeOperation="source-over"; sx.scale(1-pl.sq*.3,1+pl.sq);
-  if(img.complete) sx.drawImage(img,-w/2,-h/2,w,h);
+  drawShip(sx,pl.hull,img,h,fl,c,pl.sq);
   sx.restore();
   // tags beside the rocket, on the side with more room; drawn after every rocket so no sprite covers a tag
   (G._tagQ=G._tagQ||[]).push(()=>{
