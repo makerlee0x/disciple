@@ -49,7 +49,7 @@ export const LIFTOFF_MS = 1300;
 const srcset = (list: string) => list.split(", ").map((e) => { const [u, w] = e.split(" "); return `${withBase(u)} ${w}`; }).join(", ");
 const n = (k: number, c?: string) => Array.from({ length: k }, (_, i) => <i key={i} className={c} />);
 
-export default function HeroPad({ go, launching, icon, layout = "hero", moon = true }: { go: boolean; launching: boolean; icon?: string | null; layout?: "hero" | "create" | "card" | "turbo"; moon?: boolean }) {
+export default function HeroPad({ go, launching, icon, layout = "hero", moon = true }: { go: boolean; launching: boolean; icon?: string | null; layout?: "hero" | "create" | "card" | "turbo" | "launch"; moon?: boolean }) {
   const rocket = withBase(ROCKET_SRC);
   const rocketMask = { WebkitMaskImage: `url(${rocket})`, maskImage: `url(${rocket})` };
   const lazy = go
@@ -60,12 +60,12 @@ export default function HeroPad({ go, launching, icon, layout = "hero", moon = t
       } as React.CSSProperties)
     : undefined;
   return (
-    <div className={`${s.pad}${layout === "create" ? " " + s.create : layout === "card" ? " " + s.card : layout === "turbo" ? " " + s.turbo : ""}${go ? " " + s.go : ""}${launching ? " " + s.launching : ""}`} style={lazy} aria-hidden>
+    <div className={`${s.pad}${layout === "create" ? " " + s.create : layout === "card" ? " " + s.card : layout === "turbo" ? " " + s.turbo : layout === "launch" ? " " + s.card + " " + s.launch : ""}${go ? " " + s.go : ""}${launching ? " " + s.launching : ""}`} style={lazy} aria-hidden>
       <div className={s.plate}>
         {/* z0: sky plate (LCP; the inline LQIP under it is the frame's ::before) */}
         <picture>
-          {layout !== "turbo" && <source media={SKY_MOBILE_MQ} type="image/avif" srcSet={srcset(SKY.mobileAvif)} sizes={SKY_SIZES} />}
-          {layout !== "turbo" && <source media={SKY_MOBILE_MQ} type="image/webp" srcSet={srcset(SKY.mobileWebp)} sizes={SKY_SIZES} />}
+          {layout !== "turbo" && layout !== "launch" && <source media={SKY_MOBILE_MQ} type="image/avif" srcSet={srcset(SKY.mobileAvif)} sizes={SKY_SIZES} />}
+          {layout !== "turbo" && layout !== "launch" && <source media={SKY_MOBILE_MQ} type="image/webp" srcSet={srcset(SKY.mobileWebp)} sizes={SKY_SIZES} />}
           <source type="image/avif" srcSet={srcset(SKY.desktopAvif)} sizes={SKY_SIZES} />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className={s.sky} src={withBase(SKY.fallback)} srcSet={srcset(SKY.desktopWebp)} sizes={SKY_SIZES}
@@ -112,6 +112,8 @@ export default function HeroPad({ go, launching, icon, layout = "hero", moon = t
               <div className={s.burn} style={rocketMask} />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               {icon ? <img className={s.decal} src={icon} alt="" width={64} height={64} draggable={false} /> : null}
+              {/* the badge is lit like the hull: night tint, cylinder shading, the amber bounce from the deck */}
+              {icon ? <span className={s.decalShade} /> : null}
             </div>
           </div>
           {/* z6: idle exhaust glow; z7: front lip of the ring; z8: glow spill over the lip */}

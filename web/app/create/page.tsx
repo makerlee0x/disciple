@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { newStealthOwner } from "@/lib/privateLaunch";
 import { CURVE, MODERATION, type ModerationVerdict } from "@/lib/config";
 import { contrastWarning } from "@/lib/decal";
 import { houseBadgeDataUri } from "@/lib/decalDefault";
+import { BADGE_TAKES, badgeDataUri, badgeSpecs } from "@/lib/badgeForge";
 import { precheckWithin, preloadModeration } from "@/lib/moderation-client";
 import { cropSquare } from "@/components/create/SquareCrop";
 import LaunchPad from "@/components/create/LaunchPad";
@@ -70,7 +71,6 @@ export default function LaunchRocketPage() {
   const [contrast, setContrast] = useState<string | null>(null);
   const [mod, setMod] = useState<{ state: "idle" | "checking" | ModerationVerdict; uri?: string; note?: string }>({ state: "idle" });
   const [advanced, setAdvanced] = useState(false);
-  const [editingLink, setEditingLink] = useState<"twitter" | "website" | "telegram" | null>(null);
   const [gameMode, setGameMode] = useState<number>(DEFAULT_MODE);
   const defaultPair = defaultLaunchPair();
   const defaultPairAddr = addressOn(defaultPair, ACTIVE_CHAIN.id, deployment().defaultQuote);
@@ -83,6 +83,10 @@ export default function LaunchRocketPage() {
   const [croppedUri, setCroppedUri] = useState<string | null>(null);
   const [uploadedUri, setUploadedUri] = useState<string | null>(null);
   const [badgeUri, setBadgeUri] = useState<string | null>(null);
+  // generated badge takes (lib/badgeForge): six looks from the name; shuffle rolls a new set
+  const [badgeSeed, setBadgeSeed] = useState(0);
+  const [badgePick, setBadgePick] = useState(0);
+  const [badgeThumbs, setBadgeThumbs] = useState<string[]>([]);
   const [tax, setTax] = useState(0);
   const [privateLaunch, setPrivateLaunch] = useState(false);
   const [boost, setBoost] = useState("");
@@ -158,12 +162,22 @@ export default function LaunchRocketPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    setBadgeUri(houseBadgeDataUri(callSign) ?? houseBadgeDataUri("ROCKET"));
-  }, [callSign]);
+    // redraw after a beat while typing; fonts first so the ticker ribbon uses the game face
+    const t = setTimeout(() => {
+      const draw = () => {
+        const specs = badgeSpecs(name || "Rocket", callSign || "ROCKET", badgeSeed);
+        setBadgeThumbs(specs.map((sp) => badgeDataUri(sp, 128) ?? ""));
+        setBadgeUri(badgeDataUri(specs[Math.min(badgePick, specs.length - 1)]) ?? houseBadgeDataUri(callSign) ?? houseBadgeDataUri("ROCKET"));
+      };
+      if (typeof document !== "undefined" && document.fonts?.ready) document.fonts.ready.then(draw).catch(draw); else draw();
+    }, 120);
+    return () => clearTimeout(t);
+  }, [name, callSign, badgeSeed, badgePick]);
 
   function shuffleName() {
     const n = randomRocketName();
     setName(n);
+    setBadgePick(0);
     setCallSign(tickerVariants(n)[0] ?? "");
   }
 
@@ -397,6 +411,98 @@ export default function LaunchRocketPage() {
   const feeRoutingOk = creatorFeeRoutingAvailable({ private: privateLaunch, harvest: deployment().creatorFeeHarvest });
   const feesSet = tax > 0 || feeDestination !== DEFAULT_CREATOR_FEE_DESTINATION || (!privateLaunch && !!feeReceiver.trim());
 
+  const linkGlyph = {
+    twitter: <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden><path d="M13.8 11.2L21 3h-2.4l-5.5 6.3L8.4 3H3l7.5 10.1L3 21h2.4l6-6.8L15.6 21H21L13.8 11.2zM6 4.5h1.7L18 19.5h-1.7L6 4.5z"/></svg>,
+    website: <Icon name="external-link" size={15} />,
+    telegram: <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden><path d="M20.8 4.2L2.9 11.1c-1.2.5-1.2 1.1-.2 1.4l4.6 1.4 10.7-6.7c.5-.3.9 0 .6.3l-8.6 7.8-.3 4.7c.5 0 .7-.2 1-.5l2.3-2.2 4.7 3.5c.9.5 1.5.2 1.7-.8l3.1-14.6c.3-1.3-.5-1.9-1.4-1.5z"/></svg>,
+  };
+  // More options opens over Launch control, in its design (numbered-step type, the same chips and cards), no scroll
+  const moreOptions = (
+    <div className={L.mo} role="dialog" aria-modal="true" aria-label={C.advanced} data-testid="advanced-modal"
+      onKeyDown={(e) => { if (e.key === "Escape") setAdvanced(false); }}>
+      <header className={L.moHead}>
+        <h2>{C.advanced}</h2>
+        <span>All optional. Locked in when you launch.</span>
+        <button type="button" className={L.moClose} aria-label="Close" onClick={() => setAdvanced(false)}><Icon name="close" size={18} /></button>
+      </header>
+      <div className={L.moBody}>
+        <div className={L.moCol}>
+          <div className={L.sec}>
+            <div className={L.sh}><span className={L.st}>{C.pairCoin}</span><span className={L.sub}>{C.pairHelp}</span></div>
+            <div className={L.pairs} role="listbox" aria-label={C.pairCoin}>
+              {launchPairsForChain(ACTIVE_CHAIN.id).map((coin) => {
+                const addr = addressOn(coin, ACTIVE_CHAIN.id, deployment().defaultQuote);
+                const on = quote.address?.toLowerCase() === addr.toLowerCase();
+                return (
+                  <button key={coin.symbol} type="button" role="option" aria-selected={on} className={`${L.pair}${on ? ` ${L.pairOn}` : ""}`}
+                    onClick={() => setQuote({ address: addr, label: coin.symbol })}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={withBase(coin.image)} alt="" width={20} height={20} />
+                    <span>{coin.symbol}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className={L.sec}>
+            <div className={L.sh}><span className={L.st}>{C.links}</span><span className={L.sub}>Shown on your rocket</span></div>
+            <div className={L.links}>
+              <label className={L.linkRow}>{linkGlyph.twitter}<input value={twitter} placeholder={C.linkX} aria-label={C.linkX}
+                onChange={(e) => setTwitter(e.target.value)} onBlur={() => setTwitter((v) => normalizeTwitter(v) ?? "")} /></label>
+              <label className={L.linkRow}>{linkGlyph.website}<input value={website} placeholder={C.linkWebsite} aria-label={C.linkWebsite}
+                onChange={(e) => setWebsite(e.target.value)} onBlur={() => setWebsite((w) => normalizeWebsite(w) ?? "")} /></label>
+              <label className={L.linkRow}>{linkGlyph.telegram}<input value={telegram} placeholder={C.linkTelegram} aria-label={C.linkTelegram}
+                onChange={(e) => setTelegram(e.target.value)} onBlur={() => setTelegram((v) => normalizeTelegram(v) ?? "")} /></label>
+            </div>
+          </div>
+          <div className={L.sec}>
+            <div className={L.sh}><span className={L.st}>{C.creatorTax}</span><span className={L.sub}>Extra cut on every trade</span></div>
+            <div className={L.tax}>
+              <button type="button" className={L.taxStep} aria-label="Lower creator tax" disabled={tax <= 0} onClick={() => setTaxStepped(tax - 0.5)}>−</button>
+              <span className={L.taxVal} data-testid="creator-tax-value">{tax}%</span>
+              <button type="button" className={L.taxStep} aria-label="Raise creator tax" disabled={tax >= CURVE.creatorTaxMaxPct} onClick={() => setTaxStepped(tax + 0.5)}>+</button>
+              <input className={L.track} type="range" min={0} max={CURVE.creatorTaxMaxPct} step={0.5} value={tax} aria-label={C.creatorTax}
+                onChange={(e) => setTaxStepped(Number(e.target.value))} />
+            </div>
+            <span className={L.note} data-testid="creator-tax-help">{CREATOR_TAX_HELP[feeDestination]}</span>
+          </div>
+        </div>
+        <div className={L.moCol}>
+          <div className={L.sec} data-testid="creator-fee-destination">
+            <div className={L.sh}><span className={L.st}>{C.creatorFees}</span><span className={L.sub} data-testid="creator-fee-split-advanced"><FeeLine text={C.creatorFeeSplit} /></span></div>
+            <div className={L.fees} role="radiogroup" aria-label={C.creatorFees}>
+              {CREATOR_FEE_DESTINATIONS.map((id) => {
+                const on = feeDestination === id;
+                const off = id !== CREATOR_FEE_DESTINATION.creator && !feeRoutingOk;
+                return (
+                  <button key={id} type="button" role="radio" aria-checked={on} disabled={off} data-testid={`fee-destination-${id}`}
+                    className={`${L.fee}${on ? ` ${L.feeOn}` : ""}`} onClick={() => setFeeDest(id)}>
+                    <span className={L.feeArt}><CreatorFeeArt dest={id} /></span>
+                    <span>{CREATOR_FEE_COPY[id].sentence}</span>
+                    <span className={L.feeRadio} aria-hidden />
+                  </button>
+                );
+              })}
+            </div>
+            {!feeRoutingOk && <span className={L.note} data-testid="fee-destination-later">{privateLaunch ? C.creatorFeesPrivateLater : C.creatorFeesNotHere}</span>}
+            <span className={L.note}>{C.creatorFeesPerm}</span>
+          </div>
+          {!privateLaunch && feeDestination === CREATOR_FEE_DESTINATION.creator && (
+            <div className={L.sec} data-testid="fee-payout">
+              <div className={L.sh}><span className={L.st}>Fee payout</span><span className={L.sub}>Optional</span></div>
+              <label className={L.linkRow}><Icon name="wallet" size={15} />
+                <input value={feeReceiver} onChange={(e) => setFeeReceiver(e.target.value.trim())} placeholder="Send fees to another 0x account (default: you)" aria-label={C.rewards} /></label>
+              <span className={L.note}>{C.rewardsHelp}</span>
+            </div>
+          )}
+        </div>
+      </div>
+      <footer className={L.moFoot}>
+        <button type="button" className={L.moDone} data-testid="advanced-done" onClick={() => setAdvanced(false)}>Done</button>
+      </footer>
+    </div>
+  );
+
   return (
     <div className={`${L.page} launch-v3`}>
       {live ? (
@@ -412,7 +518,7 @@ export default function LaunchRocketPage() {
             <span>4 steps · about a minute</span>
           </div>
 
-          <div className={L.sec}>
+          <div className={`${L.sec} ${L.aName}`}>
             <div className={L.sh}><span className={L.num}>1</span><span className={L.st}>Name it</span><span className={L.sub}>Shuffle for ideas</span></div>
             <div className={L.field}>
               <label className={`${L.inp} ${L.inpBig}`}>
@@ -432,26 +538,41 @@ export default function LaunchRocketPage() {
             {nameLockMsg && <p role="status" data-testid="name-lock-taken" className={`${L.help} ${L.bad}`}>{nameLockMsg}</p>}
           </div>
 
-          <div className={L.sec}>
-            <div className={L.sh}><span className={L.num}>2</span><span className={L.st}>{C.icon}</span><span className={L.sub}>Goes on the hull</span></div>
+          <div className={`${L.sec} ${L.aBadge}`}>
+            <div className={L.sh}><span className={L.num}>2</span><span className={L.st}>{C.icon}</span><span className={L.sub}>Made from your name</span></div>
             <div className={L.badgeRow}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <span className={L.badgeBig}>{previewIcon && <img src={previewIcon} alt="" width={64} height={64} />}</span>
-              <div className={L.chips}>
-                <button type="button" className={`${L.chip} ${L.chipTx}${usingUpload ? ` ${L.on}` : ""}`} onClick={() => fileRef.current?.click()}>{usingUpload ? C.changeImage : C.uploadImage}</button>
-                <button type="button" className={`${L.chip} ${L.chipTx}${usingUpload ? "" : ` ${L.on}`}`} onClick={() => { if (usingUpload) clearUpload(); }} aria-pressed={!usingUpload}>{C.useGenerated}</button>
+              <span className={L.badgeBig}>{previewIcon && <img src={previewIcon} alt="" width={96} height={96} />}</span>
+              <div className={L.takes} role="radiogroup" aria-label="Badge">
+                {Array.from({ length: BADGE_TAKES }, (_, i) => (
+                  <button key={i} type="button" role="radio" aria-checked={!usingUpload && badgePick === i} aria-label={`Badge ${i + 1}`} data-testid={`badge-take-${i}`}
+                    className={`${L.take}${!usingUpload && badgePick === i ? ` ${L.takeOn}` : ""}`}
+                    onClick={() => { setBadgePick(i); if (usingUpload) clearUpload(); }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {badgeThumbs[i] ? <img src={badgeThumbs[i]} alt="" width={52} height={52} /> : null}
+                  </button>
+                ))}
+                <button type="button" className={`${L.take} ${L.takeUp}${usingUpload ? ` ${L.takeOn}` : ""}`} title={usingUpload ? C.changeImage : C.uploadImage}
+                  aria-label={usingUpload ? C.changeImage : C.uploadImage} data-testid="badge-upload" onClick={() => fileRef.current?.click()}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {usingUpload && previewIcon ? <img src={previewIcon} alt="" width={52} height={52} /> : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M12 16V4M6 10l6-6 6 6M4 20h16" /></svg>
+                  )}
+                </button>
+                <button type="button" className={`${L.take} ${L.takeShuffle}`} title="New set of badges" aria-label="New set of badges" data-testid="badge-shuffle"
+                  onClick={() => { setBadgeSeed((n) => n + 1); setBadgePick(0); if (usingUpload) clearUpload(); }}><Shuffle /></button>
               </div>
               <input ref={fileRef} className={s.file} type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="upload rocket icon" onChange={(e) => onPickFile(e.target.files?.[0] || null)} />
             </div>
-            <span className={L.note}>PNG, JPG, WEBP or GIF, up to 2 MB. Every image is checked before it flies.</span>
-            {mod.state === "checking" && <span className={L.help}>Checking image…</span>}
-            {mod.state === "allow" && usingUpload && <span className={`${L.help} ${L.ok}`}><Icon name="check" size={12} /> Image saved</span>}
-            {blocked && <span role="alert" className={`${L.help} ${L.bad}`}>{mod.note || C.imageReverted}</span>}
-            {contrast && <span className={`${L.help} ${L.bad}`}><Icon name="warning" size={12} /> {contrast}</span>}
+            {mod.state === "checking" ? <span className={L.help}>Checking image…</span>
+              : blocked ? <span role="alert" className={`${L.help} ${L.bad}`}>{mod.note || C.imageReverted}</span>
+              : contrast ? <span className={`${L.help} ${L.bad}`}><Icon name="warning" size={12} /> {contrast}</span>
+              : mod.state === "allow" && usingUpload ? <span className={`${L.help} ${L.ok}`}><Icon name="check" size={12} /> Image saved</span>
+              : <span className={L.note}>Or upload your own: PNG, JPG, WEBP or GIF, up to 2 MB.</span>}
           </div>
 
-          <div className={L.sec} data-testid="mode-cards">
-            <div className={L.sh}><span className={L.num}>3</span><span className={L.st}>Difficulty</span><span className={L.sub}>Locked at launch</span></div>
+          <div className={`${L.sec} ${L.aDiff}`} data-testid="mode-cards">
+            <div className={L.sh}><span className={L.num}>3</span><span className={L.st}>Difficulty</span><span className={L.sub}>Locked at launch. {QUICK_LAUNCH_MODE_CARD.footer}</span></div>
             <div className={L.diffs} role="radiogroup" aria-label="Difficulty">
               {MODE_ORDER.map((id) => {
                 const label = MODE_LABEL[id];
@@ -463,18 +584,16 @@ export default function LaunchRocketPage() {
                     onClick={() => { setGameMode(id); if (privateLaunch && id !== MODE_ORDER[MODE_ORDER.length - 1]) setPrivateLaunch(false); }}>
                     <span className={L.band} />
                     {on && <span className={L.tick}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#121327" strokeWidth="3.5" aria-hidden><path d="M5 12l5 5 9-10" /></svg></span>}
-                    <span className={L.lbl}>{c.label}</span>
-                    {c.nick && <span className={L.nick}>{c.nick}</span>}
+                    <span className={L.dHead}><span className={L.lbl}>{c.label}</span>{c.nick && <span className={L.nick}>{c.nick}</span>}</span>
                     <p>{c.blurb}</p>
                     <span className={L.meter} aria-hidden>{[1, 2, 3].map((n) => <i key={n} className={n <= c.meter ? L.lit : ""} />)}</span>
                   </button>
                 );
               })}
             </div>
-            <span className={L.note}>{QUICK_LAUNCH_MODE_CARD.footer}</span>
           </div>
 
-          <div className={L.sec}>
+          <div className={`${L.sec} ${L.aSeat}`}>
             <div className={L.sh}><span className={L.num}>4</span><span className={L.st}>Your seat</span><span className={L.sub}>First boost, at launch</span></div>
             <FirstBoostField
               variant="seat"
@@ -482,6 +601,10 @@ export default function LaunchRocketPage() {
               ticker={callSign.trim().toUpperCase()} value={boost} onChange={setBoost} onState={setBoostState}
               mode={LAUNCH_ABI_SHAPE === "modes" && !privateLaunch ? gameMode : LaunchMode.TRENCH_WARFARE} privateLaunch={privateLaunch}
             />
+          </div>
+
+          <div className={`${L.sec} ${L.aMore}`}>
+            <div className={L.sh}><span className={L.st}>Extras</span><span className={L.sub}>Optional</span></div>
             <button type="button" className={L.hide} role="switch" aria-checked={privateLaunch} data-testid="private-launch" onClick={() => setPrivateLaunch((v) => !v)}>
               <span className={L.tog} aria-hidden />
               <span className={L.hideTx}>
@@ -490,17 +613,17 @@ export default function LaunchRocketPage() {
               </span>
             </button>
             {privateLaunch && <span className={L.note} data-testid="private-launch-help">Hidden launches fly on Expert.</span>}
-          </div>
-
-          <button type="button" className={L.adv} data-testid="advanced-open" onClick={() => setAdvanced(true)}>
+            <button type="button" className={L.adv} data-testid="advanced-open" onClick={() => setAdvanced(true)}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M4 6h16M4 12h10M4 18h6" /></svg>
             <b>{C.advanced}</b>
             <span className={`${L.pill}${pairSet ? ` ${L.pillOn}` : ""}`}>{pairSet ? `Pair: ${quote.label}` : C.pairCoin}</span>
             <span className={`${L.pill}${linksSet ? ` ${L.pillOn}` : ""}`}>{C.links}</span>
             <span className={`${L.pill}${feesSet ? ` ${L.pillOn}` : ""}`} data-testid="fee-destination-chip">{CREATOR_FEE_COPY[feeDestination].chip || "Host fees"}</span>
-            <svg className={L.advGo} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
-          </button>
+              <svg className={L.advGo} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
+            </button>
+          </div>
 
+          <div className={L.aCta}>
           <button
             type="submit"
             disabled={launching}
@@ -521,142 +644,14 @@ export default function LaunchRocketPage() {
             )}
           </div>
           {status && <p role="status" className={`${L.status} ${status.ok ? L.ok : L.bad}`}>{status.text}</p>}
+          </div>
+          {advanced && moreOptions}
         </section>
       </form>
       )}
 
-      {advanced && (
-        <>
-          {/* Settings v2 shell (Hangar popups v2 / Trade settings): gold-edged panel, game-type header, boxed groups */}
-          <div className="ds-modal-backdrop p5-settings-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) setAdvanced(false); }}>
-            <div className={`ds-modal p5-modal p5-settings ${s.moreModal}`} role="dialog" aria-modal="true" aria-label={C.advanced} data-testid="advanced-modal">
-              <header className="p5-mhead">
-                <h2>{C.advanced}</h2>
-                <button type="button" className="p5-icon" aria-label="Close" onClick={() => setAdvanced(false)}><Icon name="close" size={18} /></button>
-              </header>
-              <div className={s.modalBody}>
-              <div className={s.fl}>
-                <div className={s.lab}>{C.pairCoin}</div>
-                <div className={s.pchips} role="listbox" aria-label={C.pairCoin}>
-                  {launchPairsForChain(ACTIVE_CHAIN.id).map((coin) => {
-                    const addr = addressOn(coin, ACTIVE_CHAIN.id, deployment().defaultQuote);
-                    const on = quote.address?.toLowerCase() === addr.toLowerCase();
-                    return (
-                      <button key={coin.symbol} type="button" role="option" aria-selected={on} className={`${s.pchip} ${on ? s.on : ""}`}
-                        onClick={() => setQuote({ address: addr, label: coin.symbol })}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={withBase(coin.image)} alt="" width={20} height={20} />
-                        {coin.symbol}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className={s.help}>{C.pairHelp}</div>
-              </div>
-              <div className={s.fl}>
-                <div className={s.lab}>{C.links}</div>
-                <div className={s.lchips}>
-                  <LinkChip kind="twitter" label={C.linkX} short={C.linkXShort} value={twitter} editing={editingLink} setEditing={setEditingLink} onChange={setTwitter}
-                    onBlur={() => setTwitter((v) => normalizeTwitter(v) ?? "")}
-                    glyph={<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden><path d="M13.8 11.2L21 3h-2.4l-5.5 6.3L8.4 3H3l7.5 10.1L3 21h2.4l6-6.8L15.6 21H21L13.8 11.2zM6 4.5h1.7L18 19.5h-1.7L6 4.5z"/></svg>} />
-                  <LinkChip kind="website" label={C.linkWebsite} short={C.linkWebsite} value={website} editing={editingLink} setEditing={setEditingLink}
-                    onChange={setWebsite} onBlur={() => setWebsite((w) => normalizeWebsite(w) ?? "")}
-                    glyph={<Icon name="external-link" size={14} />} />
-                  <LinkChip kind="telegram" label={C.linkTelegram} short={C.linkTelegram} value={telegram} editing={editingLink} setEditing={setEditingLink} onChange={setTelegram}
-                    onBlur={() => setTelegram((v) => normalizeTelegram(v) ?? "")}
-                    glyph={<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden><path d="M20.8 4.2L2.9 11.1c-1.2.5-1.2 1.1-.2 1.4l4.6 1.4 10.7-6.7c.5-.3.9 0 .6.3l-8.6 7.8-.3 4.7c.5 0 .7-.2 1-.5l2.3-2.2 4.7 3.5c.9.5 1.5.2 1.7-.8l3.1-14.6c.3-1.3-.5-1.9-1.4-1.5z"/></svg>} />
-                </div>
-              </div>
-              <div className={s.fl} data-testid="creator-fee-destination">
-                <div className={s.lab}>{C.creatorFees}</div>
-                <div className={s.help} data-testid="creator-fee-split-advanced">{C.creatorFeeSplit}</div>
-                <div className={s.feeCards} role="radiogroup" aria-label={C.creatorFees}>
-                  {CREATOR_FEE_DESTINATIONS.map((id) => {
-                    const on = feeDestination === id;
-                    const off = id !== CREATOR_FEE_DESTINATION.creator && !feeRoutingOk;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        role="radio"
-                        aria-checked={on}
-                        disabled={off}
-                        data-testid={`fee-destination-${id}`}
-                        className={`${s.feeCard} ${on ? s.on : ""}`}
-                        onClick={() => setFeeDest(id)}
-                      >
-                        <span className={s.feeRadio}><i /></span>
-                        <div className={s.feeArt}><CreatorFeeArt dest={id} /></div>
-                        <div className={s.feeLab}>{CREATOR_FEE_COPY[id].sentence}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-                {!feeRoutingOk && (
-                  <div className={s.help} data-testid="fee-destination-later">{privateLaunch ? C.creatorFeesPrivateLater : C.creatorFeesNotHere}</div>
-                )}
-                <div className={`${s.help} ${s.feePerm}`}>{C.creatorFeesPerm}</div>
-              </div>
-              {!privateLaunch && feeDestination === CREATOR_FEE_DESTINATION.creator && (
-                <div className={s.fl} data-testid="fee-payout">
-                  <div className={s.lab}>{C.rewards}</div>
-                  <div className={s.row}>
-                    <input className={s.inp} value={feeReceiver} onChange={(e) => setFeeReceiver(e.target.value.trim())} placeholder={C.rewardsPlaceholder} aria-label={C.rewards} />
-                  </div>
-                  <div className={s.help}>{C.rewardsHelp}</div>
-                </div>
-              )}
-              <div className={s.fl}>
-                <div className={s.lab}>{C.creatorTax}</div>
-                <div className={s.tax}>
-                  <button type="button" className={s.taxStep} aria-label="Lower creator tax" disabled={tax <= 0} onClick={() => setTaxStepped(tax - 0.5)}>−</button>
-                  <span className={s.taxVal} data-testid="creator-tax-value">{tax}%</span>
-                  <button type="button" className={s.taxStep} aria-label="Raise creator tax" disabled={tax >= CURVE.creatorTaxMaxPct} onClick={() => setTaxStepped(tax + 0.5)}>+</button>
-                  <input className={s.track} type="range" min={0} max={CURVE.creatorTaxMaxPct} step={0.5} value={tax}
-                    aria-label={C.creatorTax}
-                    onChange={(e) => setTaxStepped(Number(e.target.value))} />
-                </div>
-                <div className={s.help} data-testid="creator-tax-help">{CREATOR_TAX_HELP[feeDestination]}</div>
-              </div>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
       {phase && <LaunchCountdown name={name.trim() || "Your rocket"} mode={card.label} phase={phase} />}
     </div>
-  );
-}
-
-function LinkChip({ kind, label, short, value, editing, setEditing, onChange, onBlur, glyph }: {
-  kind: "twitter" | "website" | "telegram";
-  label: string; short: string; value: string;
-  editing: "twitter" | "website" | "telegram" | null;
-  setEditing: (k: "twitter" | "website" | "telegram" | null) => void;
-  onChange: (v: string) => void; onBlur?: () => void; glyph: ReactNode;
-}) {
-  const filled = !!value.trim();
-  const open = editing === kind;
-  return (
-    <button type="button" className={`${s.lchip} ${filled || open ? s.filled : ""}`}
-      onClick={() => setEditing(kind)} aria-label={label}>
-      <span className={s.g}>{glyph}</span>
-      {open ? (
-        <input autoFocus value={value} placeholder={label} aria-label={label}
-          onChange={(e) => onChange(e.target.value)}
-          onBlur={() => { onBlur?.(); setEditing(null); }}
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }} />
-      ) : filled ? (
-        <span data-testid={`link-value-${kind}`}>{value}</span>
-      ) : (
-        <>
-          <span className={s.full}>{label}</span>
-          <span className={s.short}>{short}</span>
-          <span className={s.plus}>+</span>
-        </>
-      )}
-    </button>
   );
 }
 

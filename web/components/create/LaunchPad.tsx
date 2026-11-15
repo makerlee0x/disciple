@@ -1,35 +1,29 @@
+"use client";
 /**
- * The launch builder's pad stage (canvas board "Launch: build your rocket", left): the rocket on the mount ring with the
- * badge on its hull, engines warm, and the nameplate that follows what the host types and picks.
+ * The launch builder's pad stage: the real lobby pad scene (HeroPad) with the host's rocket seated in the mount ring,
+ * lit like the plate (night tint, amber bounce, cool rim), idle exhaust smog rolling round the base, and the badge on
+ * the hull shaded with it. The nameplate follows what the host types and picks.
  */
+import { useEffect, useState } from "react";
+import HeroPad from "@/components/home/HeroPad";
 import { withBase } from "@/lib/base-path";
-import { ROCKET_SRC } from "@/lib/home/trending";
 import s from "./launch.module.css";
+
+const GRAIN_SRC = "/home/pad/grain.webp";
 
 export default function LaunchPad({ name, ticker, icon, mode, modeColor, seat }: {
   name: string; ticker: string; icon: string | null; mode: string; modeColor: string; seat: string;
 }) {
+  // idle layers (smog, glow, stars) load after first paint, like the lobby
+  const [go, setGo] = useState(false);
+  useEffect(() => { const id = requestAnimationFrame(() => setGo(true)); return () => cancelAnimationFrame(id); }, []);
   return (
     <section className={s.stage} aria-label="Your rocket on the pad" data-testid="create-pad-preview" style={{ ["--mc" as string]: modeColor }}>
-      <div className={s.sky} aria-hidden />
-      <div className={s.tint} aria-hidden />
-      <div className={s.halo} aria-hidden />
-      <div className={s.horizon} aria-hidden />
-      <div className={s.padGlow} aria-hidden />
-      <div className={s.rocket} aria-hidden>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={withBase(ROCKET_SRC)} alt="" />
-        <span className={s.badge}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          {icon && <img src={icon} alt="" />}
-        </span>
-        <span className={s.pilotLight} />
+      <div className={s.padScene} aria-hidden>
+        <HeroPad go={go} launching={false} icon={icon} layout="launch" moon={false} />
       </div>
-      <span className={`${s.smoke} ${s.smokeA}`} aria-hidden />
-      <span className={`${s.smoke} ${s.smokeB}`} aria-hidden />
-      <div className={s.vignette} aria-hidden />
-      <span className={`${s.bar} ${s.barT}`} aria-hidden />
-      <span className={`${s.bar} ${s.barB}`} aria-hidden />
+      <div className={s.grain} style={go ? { backgroundImage: `url(${withBase(GRAIN_SRC)})` } : undefined} aria-hidden />
+      <div className={s.stageScrim} aria-hidden />
       <div className={s.stageTop}>
         <div className={s.stageTitle}>
           <span className={s.eb}>Host a match</span>
@@ -40,9 +34,9 @@ export default function LaunchPad({ name, ticker, icon, mode, modeColor, seat }:
       <div className={s.plate}>
         <div className={s.plateName}>
           <b data-testid="pad-name">{name.trim() || "Your rocket"}</b>
-          <span>{ticker ? `$${ticker}` : "$TICKER"} · On the pad · Ready for lift-off</span>
+          <span>{ticker ? `$${ticker}` : "$TICKER"} · On the pad</span>
         </div>
-        <div className={s.seatCard}><span>Your seat at launch</span><b data-testid="pad-seat">{seat}</b></div>
+        <div className={s.seatCard}><span>Your seat</span><b data-testid="pad-seat">{seat}</b></div>
       </div>
     </section>
   );
