@@ -44,9 +44,9 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
   const list = useMemo(() => modes(flying, duel), [flying, duel]);
   const [start, setStart] = useState<ModeId>(signedIn ? "live" : "free");
   const [seen, setSeen] = useState<ModeId>(start);
-  // sounds: a whoosh each time a new card reaches the middle, a soft snap when the row settles (only after the player moves it)
-  const moved = useRef(false), snapT = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => { if (moved.current) playSfx("mode_swipe", { gapMs: 90 }); }, [seen]);
+  // no sound while swiping the row (maker found it odd); a card plays mode_select only when it is actually opened (click, not
+  // the pointerdown that starts a swipe)
+  const moved = useRef(false);
   const [edge, setEdge] = useState({ prev: false, next: false });
   const track = useRef<HTMLDivElement>(null);
 
@@ -81,7 +81,6 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
     setSeen((f) => (f === best ? f : best));
   };
   const onScroll = () => {
-    if (moved.current) { if (snapT.current) clearTimeout(snapT.current); snapT.current = setTimeout(() => playSfx("mode_snap"), 150); }
     if (raf.current) return;
     raf.current = requestAnimationFrame(() => { raf.current = 0; measure(); });
   };
@@ -129,8 +128,8 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
               className={s.card}
               aria-label={`${m.title.join(" ")}. ${m.sub}`}
               data-testid={`mode-${m.id}`}
-              data-sfx="mode_select"
-              onClick={() => go(m)}
+              data-sfx="none"
+              onClick={() => { playSfx("mode_select"); go(m); }}
             >
               {/* every card can be on the first screen, so none is lazy; the starting card's art is fetched first */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
