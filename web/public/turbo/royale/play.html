@@ -297,6 +297,7 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .panel{max-width:560px;padding:20px}}
 
 /* royale additions, same tokens as the duel */
+.duel-root .mkb{position:relative}.duel-root .mkb .lim{padding-right:36px}.duel-root .mkb .emb{position:absolute;right:8px;bottom:8px;width:34px;height:34px;opacity:.95;pointer-events:none}
 .duel-root .gi{display:block;height:20px;max-width:100%;object-fit:contain;pointer-events:none}
 .duel-root .size button{height:58px!important;gap:2px!important}
 .duel-root .sw-row button{height:76px!important}.duel-root .sw-row .gi{height:26px}
@@ -476,7 +477,7 @@ html,body{margin:0;height:100%;background:#07080c}
 </div>
 <script>
 (function(){
-const A={"rocket":"../duel/rocket.webp","sky0":"../duel/sky0.webp","sky1":"../duel/sky1.webp","sky2":"../duel/sky2.webp","sky3":"../duel/sky3.webp","sky4":"../duel/sky4.webp","skyEth":"../sky-eth.webp","skyBtc":"../sky-btc.webp","art":"../../art/modes/last-pilot.webp","airdrop-machine-gun-glow":"art/airdrop-machine-gun-glow.webp","airdrop-machine-gun":"art/airdrop-machine-gun.webp","airdrop-minigun-glow":"art/airdrop-minigun-glow.webp","airdrop-minigun":"art/airdrop-minigun.webp","airdrop-pistol-glow":"art/airdrop-pistol-glow.webp","airdrop-pistol":"art/airdrop-pistol.webp","airdrop-railgun-glow":"art/airdrop-railgun-glow.webp","airdrop-railgun":"art/airdrop-railgun.webp","airdrop-rocket-launcher-glow":"art/airdrop-rocket-launcher-glow.webp","airdrop-rocket-launcher":"art/airdrop-rocket-launcher.webp","airdrop-shotgun-glow":"art/airdrop-shotgun-glow.webp","airdrop-shotgun":"art/airdrop-shotgun.webp","airdrop-sniper-glow":"art/airdrop-sniper-glow.webp","airdrop-sniper":"art/airdrop-sniper.webp","skin-candy-pink":"art/skin-candy-pink.webp","skin-carbon":"art/skin-carbon.webp","skin-chrome-pink-stripe":"art/skin-chrome-pink-stripe.webp","skin-gunmetal-pink":"art/skin-gunmetal-pink.webp","skin-matte-black":"art/skin-matte-black.webp","skin-navy-chevron":"art/skin-navy-chevron.webp","skin-oilslick":"art/skin-oilslick.webp","skin-pearl-mint":"art/skin-pearl-mint.webp","skin-scorched":"art/skin-scorched.webp","skin-titanium-ice":"art/skin-titanium-ice.webp","weapon-machine-gun":"art/weapon-machine-gun.webp","weapon-minigun":"art/weapon-minigun.webp","weapon-pistol":"art/weapon-pistol.webp","weapon-railgun":"art/weapon-railgun.webp","weapon-rocket-launcher":"art/weapon-rocket-launcher.webp","weapon-shotgun":"art/weapon-shotgun.webp","weapon-sniper":"art/weapon-sniper.webp"};
+const A={"rocket":"../duel/rocket.webp","sky0":"../duel/sky0.webp","sky1":"../duel/sky1.webp","sky2":"../duel/sky2.webp","sky3":"../duel/sky3.webp","sky4":"../duel/sky4.webp","skyEth":"../sky-eth.webp","skyBtc":"../sky-btc.webp","art":"../../art/modes/last-pilot.webp","airdrop-machine-gun-glow":"art/airdrop-machine-gun-glow.webp","airdrop-machine-gun":"art/airdrop-machine-gun.webp","airdrop-minigun-glow":"art/airdrop-minigun-glow.webp","airdrop-minigun":"art/airdrop-minigun.webp","airdrop-pistol-glow":"art/airdrop-pistol-glow.webp","airdrop-pistol":"art/airdrop-pistol.webp","airdrop-railgun-glow":"art/airdrop-railgun-glow.webp","airdrop-railgun":"art/airdrop-railgun.webp","airdrop-rocket-launcher-glow":"art/airdrop-rocket-launcher-glow.webp","airdrop-rocket-launcher":"art/airdrop-rocket-launcher.webp","airdrop-shotgun-glow":"art/airdrop-shotgun-glow.webp","airdrop-shotgun":"art/airdrop-shotgun.webp","airdrop-sniper-glow":"art/airdrop-sniper-glow.webp","airdrop-sniper":"art/airdrop-sniper.webp","fx-boom-small":"art/fx-boom-small.webp","fx-cashout":"art/fx-cashout.webp","fx-nuke":"art/fx-nuke.webp","fx-pod-open":"art/fx-pod-open.webp","fx-weapon-break":"art/fx-weapon-break.webp","map-btc":"art/map-btc.webp","map-eth":"art/map-eth.webp","map-hype":"art/map-hype.webp","map-sol":"art/map-sol.webp","skin-candy-pink":"art/skin-candy-pink.webp","skin-carbon":"art/skin-carbon.webp","skin-chrome-pink-stripe":"art/skin-chrome-pink-stripe.webp","skin-gunmetal-pink":"art/skin-gunmetal-pink.webp","skin-matte-black":"art/skin-matte-black.webp","skin-navy-chevron":"art/skin-navy-chevron.webp","skin-oilslick":"art/skin-oilslick.webp","skin-pearl-mint":"art/skin-pearl-mint.webp","skin-scorched":"art/skin-scorched.webp","skin-titanium-ice":"art/skin-titanium-ice.webp","skyHype":"art/skyHype.webp","skySol":"art/skySol.webp","weapon-machine-gun":"art/weapon-machine-gun.webp","weapon-minigun":"art/weapon-minigun.webp","weapon-pistol":"art/weapon-pistol.webp","weapon-railgun":"art/weapon-railgun.webp","weapon-rocket-launcher":"art/weapon-rocket-launcher.webp","weapon-shotgun":"art/weapon-shotgun.webp","weapon-sniper":"art/weapon-sniper.webp"};
 document.addEventListener("DOMContentLoaded",()=>{ const b=document.getElementById("preBg"); if(b) b.style.backgroundImage=`url("${A.art}")`; });
 
 const SKINS=Object.keys(A).filter(k=>k.startsWith("skin-")); const imgs={}; for(const k in A){const i=new Image(); i.src=A[k]; imgs[k]=i;}
@@ -495,8 +496,8 @@ const FEE=0.00005, LIQ=0.8, FUEL0=50, TICK=0.2;
 const ORDER=["HYPE","SOL","ETH","BTC"];
 /* each market is a different map: aggressive at the top, defensive at the bottom */
 const MKD={
-  HYPE:{p:31.42,vol:.0007,dr:.30,dec:2,loot:[1,3,4,2],drop:.6,best:"LEGENDARY",tag:"AGGRESSIVE",pro:"Best loot · most crates",con:"Closes first · wildest chart",sky:"sky3"},
-  SOL:{p:182.40,vol:.00046,dr:.32,dec:2,loot:[3,4,2,.6],drop:.8,best:"EPIC",tag:"FAST",pro:"Busiest map · most dogfights",con:"Closes second",sky:"sky2"},
+  HYPE:{p:31.42,vol:.0007,dr:.30,dec:2,loot:[1,3,4,2],drop:.6,best:"LEGENDARY",tag:"AGGRESSIVE",pro:"Best loot · most crates",con:"Closes first · wildest chart",sky:A.skyHype?"skyHype":"sky3"},
+  SOL:{p:182.40,vol:.00046,dr:.32,dec:2,loot:[3,4,2,.6],drop:.8,best:"EPIC",tag:"FAST",pro:"Busiest map · most dogfights",con:"Closes second",sky:A.skySol?"skySol":"sky2"},
   ETH:{p:3412.5,vol:.0003,dr:.48,dec:1,loot:[4,3,1.2,.2],drop:1,best:"RARE",tag:"STEADY",pro:"Trends hold longer",con:"Mostly common loot",sky:"skyEth"},
   BTC:{p:97214,vol:.0002,dr:.36,dec:0,loot:[6,2,.4,0],drop:1.4,best:"UNCOMMON",tag:"DEFENSIVE",pro:"Never closes · calm chart",con:"Weak loot · cuts take the lowest PnL",sky:"skyBtc"}};
 /* weapons = trade size × leverage. You start with the spot pistol; everything else is loot. */
@@ -581,7 +582,7 @@ function open(pl,side){
 function close(pl,why){
   if(!pl.pos) return 0; const p=price(pl), pos=pl.pos, fee=pos.size*FEE, net=Math.max(0,pos.coll+pnlOf(pos,p))-fee;
   pl.fuel+=net; pl.pos=null; const res=net-pos.coll; if(res>pl.best) pl.best=res;
-  if(pl.me){ G.marks.push({t:G.t,p,k:"x",mk:pl.mk}); if(why!=="flip"&&why!=="jump"&&why!=="storm"&&why!=="duel"){ popAt(pl,usd(res,true),res>=0?"#5FF0A0":"#FF8FBD"); sfx(res>=0?"cash":"lose"); }
+  if(pl.me){ G.marks.push({t:G.t,p,k:"x",mk:pl.mk}); if(why!=="flip"&&why!=="jump"&&why!=="storm"&&why!=="duel"){ popAt(pl,usd(res,true),res>=0?"#5FF0A0":"#FF8FBD"); if(res>0.05) sheet("cashout",xOf(pl),pl.y-LAY.rh*.3,LAY.rh*1.6,.7); sfx(res>=0?"cash":"lose"); }
     if(Math.abs(res)>=1.5) G.moments.push({t:G.t,txt:(res>=0?"Cashed out ":"Took a loss ")+"in "+pl.mk,v:res}); }
   return res;
 }
@@ -591,7 +592,7 @@ function liqCheck(pl){
   if(pl.me||visible(pl)) fxBomb(pl);
   // a NUKE costs the stake and blows up the weapon that fired it; you fly on with what's left
   const gun=pl.pos===null&&arguments.length?null:null; const w=pl._lastW;
-  if(w&&w.k!=="PISTOL"&&pl.inv.includes(w)){ dropWeapon(pl,w); if(pl.me){ feed("p","☢",`NUKE · your <b>${w.k}</b> blew up`); paintHot(); } else if(pl.mk===G.me.mk&&visible(pl)) feed("p","☢",`<b>${pl.name}</b>'s ${w.k} blew up`); }
+  if(w&&w.k!=="PISTOL"&&pl.inv.includes(w)){ dropWeapon(pl,w); if(pl.me){ feed("p","☢",`NUKE · your <b>${w.k}</b> blew up`); sheet("weapon-break",xOf(pl),pl.y+LAY.rh*.2,LAY.rh*1.3,.7); paintHot(); } else if(pl.mk===G.me.mk&&visible(pl)) feed("p","☢",`<b>${pl.name}</b>'s ${w.k} blew up`); }
   else if(pl.me) feed("p","☢",`NUKE · you lost $${lost.toFixed(2)}`);
 }
 // a shield is an extra life: it takes the hit from one NUKE or one storm cut
@@ -715,7 +716,7 @@ function endDf(d,abort){
   if(lw){ dropWeapon(l,lw); if(w.me) loot(lw,"dogfight"); else give(w,lw); note=lw.k; } else { l.fuel-=2; note=null; }
   if(w.me) paintHot(); if(l.me) paintHot();
   if(w.me){ feed("w","W",`You won the dogfight vs <b>${l.name}</b> · ${note?"took their <b>"+note+"</b>":"they had no loot, −$2 for them"}`); sfx("win"); buzz([20,30,40]); popAt(w,"WON","#F2C14E"); G.moments.push({t:G.t,txt:"Won a dogfight vs "+l.name,v:dfGain(d,w)-dfGain(d,l)}); }
-  else if(l.me){ feed("p","L",`You lost the dogfight to <b>${w.name}</b> · ${note?"they took your <b>"+note+"</b>":"−$2"}`); sfx("lose"); G.moments.push({t:G.t,txt:"Lost a dogfight to "+w.name,v:dfGain(d,l)-dfGain(d,w)}); }
+  else if(l.me){ sheet("boom-small",xOf(l),l.y,LAY.rh*1.2,.6); feed("p","L",`You lost the dogfight to <b>${w.name}</b> · ${note?"they took your <b>"+note+"</b>":"−$2"}`); sfx("lose"); G.moments.push({t:G.t,txt:"Lost a dogfight to "+w.name,v:dfGain(d,l)-dfGain(d,w)}); }
   else feed("w","W",`<b>${w.name}</b> won a dogfight in ${w.mk}`);
 }
 
@@ -785,7 +786,7 @@ function buildDrop(){
   for(const k of ORDER){ const n=START[k]+(k===dropMk?1:0), cl=plan().close[k];
     const b=document.createElement("button"); b.type="button"; b.className="mkb"+(k===dropMk?" on":"");
     const d=MKD[k];
-    b.innerHTML=`<span class="t"><b>${k}</b><em style="color:${RAR.find(x=>x.n===d.best).c}!important">${d.best}</em></span><span class="tg">${d.tag} · ${n} PILOTS · ${cl!=null?"CLOSES "+mmss(cl):"FINAL CIRCLE"}</span><small class="pro">+ ${d.pro}</small><small class="con">− ${d.con}</small><small class="lim">Loot up to ${d.best.toLowerCase()}</small>`;
+    b.innerHTML=`${A["map-"+k.toLowerCase()]?`<img class="emb" src="${A["map-"+k.toLowerCase()]}" alt="">`:""}<span class="t"><b>${k}</b><em style="color:${RAR.find(x=>x.n===d.best).c}!important">${d.best}</em></span><span class="tg">${d.tag} · ${n} PILOTS · ${cl!=null?"CLOSES "+mmss(cl):"FINAL CIRCLE"}</span><small class="pro">+ ${d.pro}</small><small class="con">− ${d.con}</small><small class="lim">Loot up to ${d.best.toLowerCase()}</small>`;
     b.addEventListener("click",()=>{ dropMk=k; buildDrop(); }); box.appendChild(b); }
   $("dGo").textContent="DROP INTO "+dropMk; paintSizes();
 }
@@ -915,7 +916,9 @@ function drawChart(){
 
 /* ---------- sky ---------- */
 let SW=0,SH=0,DPR=1, stars=[];
-const FX={parts:[],pops:[],rings:[],shake:0,flash:0,flashC:"255,255,255"};
+const FX={parts:[],pops:[],rings:[],sheets:[],shake:0,flash:0,flashC:"255,255,255"};
+const SHEET={nuke:10,"weapon-break":6,"pod-open":6,"boom-small":6,cashout:6};
+function sheet(k,x,y,size,dur){ const img=imgs["fx-"+k]; if(!img) return false; FX.sheets.push({img,n:SHEET[k],x,y,size,age:0,dur:dur||.8}); return true; }
 function resize(){ DPR=Math.min(2,devicePixelRatio||1); SW=sky.clientWidth; SH=sky.clientHeight; sky.width=Math.round(SW*DPR); sky.height=Math.round(SH*DPR);
   stars=Array.from({length:70},()=>({x:Math.random()*SW,y:Math.random()*SH,z:rnd(.25,1)})); }
 addEventListener("resize",resize);
@@ -935,7 +938,7 @@ function fxTrade(pl,side,st){ if(pl.y==null) return;
   FX.rings.push({x,y:y+6,r:8,vr:380+k*300,life:.45,max:.45,w:6+k*4,col:c1});
   if(pl.me){ FX.flash=Math.max(FX.flash,.12+k*.15); FX.flashC=side>0?"255,206,100":"240,48,127"; sfx(side>0?"boost":"dump"); buzz(side>0?18:[10,20,10]); }
 }
-function fxBomb(pl){ if(pl.y==null) return; const x=xOf(pl), y=pl.y;
+function fxBomb(pl){ if(pl.y==null) return; const x=xOf(pl), y=pl.y; if(sheet("nuke",x,y-LAY.rh*.35,pl.me?LAY.rh*3.2:LAY.rh*2.2,1.5)){ FX.shake=Math.max(FX.shake,14); FX.pops.push({txt:"NUKE",c:"#F0307F",x,y:y-80,age:0,max:1.6,size:34}); return; }
   part({x,y,vx:0,vy:0,life:.5,size:150,kind:"ball",drag:0});
   for(let i=0;i<90;i++){const a=rnd(0,Math.PI*2), sp=rnd(140,700); part({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:rnd(.4,1),size:rnd(2.5,6),col:Math.random()<.4?"255,240,200":"255,120,60"});}
   FX.rings.push({x,y,r:16,vr:900,life:.55,max:.55,w:14,col:"255,240,220"});
@@ -1047,6 +1050,7 @@ function drawCrate(dt,now){
 function loot(item,from){ const me=G.me, rc=rarOf(item), same=me.inv.find(w=>w.k===item.k);
   if(same){ if(same.ammo!==Infinity) same.ammo+=item.ammo; sfx("grab"); buzz(20); paintHot();
     feed("w","◆",`+${item.ammo===Infinity?"":item.ammo} ammo for your <b style="color:${rc.c}">${item.k}</b>${same.ammo===Infinity?"":" · "+same.ammo+" shots"}`); FX.pops.push({txt:"+"+item.ammo+" AMMO",c:rc.c,x:xOf(me),y:me.y-LAY.rh*.8,age:0,max:1.3,size:24}); return; }
+  if(from==="crate") sheet("pod-open",xOf(me)+40,me.y-LAY.rh*.3,LAY.rh*1.4,.6);
   if(me.inv.length<3){ me.inv.push(item); sfx("grab"); buzz(25); paintHot(); FX.pops.push({txt:item.k,c:rc.c,x:xOf(me),y:me.y-LAY.rh*.8,age:0,max:1.5,size:26});
     feed("w","◆",`Picked up <b style="color:${rc.c}">${item.k}</b> · ${wLine(item)} · ${item.ammo} shots`); return; }
   openOffer(item,from); }
@@ -1122,6 +1126,8 @@ function drawSky(dt,now){
     else {sx.fillStyle=`rgba(${p.col},${a})`; sx.beginPath(); sx.arc(p.x,p.y,p.size*a,0,7); sx.fill();}
     sx.restore();}
   for(let i=FX.rings.length-1;i>=0;i--){const r=FX.rings[i]; r.life-=dt; if(r.life<=0){FX.rings.splice(i,1);continue;} r.r+=r.vr*dt; const a=r.life/r.max; sx.strokeStyle=`rgba(${r.col},${a})`; sx.lineWidth=r.w*a; sx.beginPath(); sx.arc(r.x,r.y,r.r,0,7); sx.stroke();}
+  for(let i=FX.sheets.length-1;i>=0;i--){ const f=FX.sheets[i]; f.age+=dt; if(f.age>=f.dur){ FX.sheets.splice(i,1); continue; }
+    const fr=Math.min(f.n-1,Math.floor(f.age/f.dur*f.n)), fs=f.img.height; if(f.img.complete) sx.drawImage(f.img,fr*fs,0,fs,fs,f.x-f.size/2,f.y-f.size/2,f.size,f.size); }
   for(let i=FX.pops.length-1;i>=0;i--){const p=FX.pops[i]; p.age+=dt; if(p.age>p.max){FX.pops.splice(i,1);continue;} const a=1-p.age/p.max, s=p.age<.12?p.age/.12:1;
     sx.font=`800 ${Math.round(p.size*(0.8+.2*s))}px ${GF},sans-serif`; sx.textAlign="center"; sx.textBaseline="middle"; sx.globalAlpha=a;
     sx.lineWidth=5; sx.strokeStyle="rgba(11,10,22,.85)"; sx.strokeText(p.txt,p.x,p.y-p.age*40); sx.fillStyle=p.c; sx.fillText(p.txt,p.x,p.y-p.age*40); sx.globalAlpha=1;}
