@@ -131,7 +131,7 @@ contract DiscipleTest is Test {
             | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
     );
     uint256 internal constant Q128 = 1 << 128;
-    uint24 internal constant FEE = 3000; // 0.3%
+    uint24 internal constant FEE = 10_000; // 1% (the launch fee; cross-chain pools need at least the 1% step)
 
     IPoolManager manager;
     DiscipleHook hook;
@@ -387,12 +387,12 @@ contract DiscipleTest is Test {
         assertEq(hook.poolState(id).anchorX128, Math.mulDiv(a, 990_000, 1_000_000, Math.Rounding.Ceil), "down 1%");
     }
 
-    /// The step is minStep whatever the pool fee (audit M-3): a 3% fee pool still moves 1% per reading.
+    /// The step is minStep whatever the pool fee (audit M-3): a 2% fee pool still moves 1% per reading.
     function test_stepIgnoresPoolFee() public {
         DiscipleHook.CreateParams memory cp = DiscipleHook.CreateParams({
             coin: address(coin),
             quote: address(usd),
-            fee: 30_000,
+            fee: 20_000,
             src: _src(0),
             coinIn: 1000e18,
             quoteIn: 2000e18,
@@ -419,8 +419,8 @@ contract DiscipleTest is Test {
         uint256 sellOut = _coinsOut(key, false, 1e18);
         uint256 buyPx = Math.mulDiv(2e18, Q128, buyOut);
         uint256 sellPx = Math.mulDiv(sellOut, Q128, 1e18);
-        assertLe(buyPx, Math.mulDiv(a, 1_005_000, 1_000_000), "buy within fee + 0.2% of the centre");
-        assertGe(sellPx, Math.mulDiv(a, 995_000, 1_000_000), "sell within fee + 0.2% of the centre");
+        assertLe(buyPx, Math.mulDiv(a, 1_000_000 + FEE + 2000, 1_000_000), "buy within fee + 0.2% of the centre");
+        assertGe(sellPx, Math.mulDiv(a, 1_000_000 - FEE - 2000, 1_000_000), "sell within fee + 0.2% of the centre");
         assertGt(buyPx, a, "buy above the centre");
         assertLt(sellPx, a, "sell below the centre");
         // idle 30 minutes: same quotes
@@ -499,9 +499,9 @@ contract DiscipleTest is Test {
         return Math.mulDiv(v.jarX, v.anchorX128, Q128) + v.jarY;
     }
 
-    /// cap = 320 tips x 150k gas x basefee x 1.2, in USD at 3000 per ETH.
+    /// cap = 320 tips x 150k gas x basefee x 1.05 (the fixed v0.3 tip), in USD at 3000 per ETH.
     function _cap() internal view returns (uint256) {
-        return 320 * 150_000 * block.basefee * 12 / 10 * 3000;
+        return 320 * 150_000 * block.basefee * 105 / 100 * 3000;
     }
 
     function test_jarFillsFromSkimAndStopsAtCap() public {
@@ -548,8 +548,8 @@ contract DiscipleTest is Test {
         uint256 t1 = usd.balanceOf(bot);
         assertGt(t1, 0, "tip paid while 1% or more behind");
         assertLe(t1, j0 / 32, "at most 1/32 of the jar");
-        // roughly (measured gas + overhead) x basefee x 1.2 at 3000 USD per ETH: well under a cent here
-        assertLt(t1, 0.02e18, "about gas + 20%");
+        // roughly (measured gas + overhead) x basefee x 1.05 at 3000 USD per ETH: well under a cent here
+        assertLt(t1, 0.02e18, "about gas + 5%");
         vm.prank(bot);
         hook.sample(id); // same block again
         assertEq(usd.balanceOf(bot), t1, "one tip per block");
@@ -753,10 +753,10 @@ contract DiscipleTest is Test {
         bool coinIs0 = Currency.unwrap(key.currency0) == address(coin);
         _nextBlock();
         uint256 out = _coinsOut(key, true, 20e18);
-        // buy: quote in, coin out; fee = 0.3% of the input
+        // buy: quote in, coin out; fee = 1% of the input
         (int128 a0, int128 a1) =
             coinIs0 ? (-int128(uint128(out)), int128(20e18)) : (int128(20e18), -int128(uint128(out)));
-        (uint128 f0, uint128 f1) = coinIs0 ? (uint128(0), uint128(0.06e18)) : (uint128(0.06e18), uint128(0));
+        (uint128 f0, uint128 f1) = coinIs0 ? (uint128(0), uint128(0.2e18)) : (uint128(0.2e18), uint128(0));
         vm.expectEmit(true, true, false, true, address(hook));
         emit HookSwap(PoolId.unwrap(id), address(swapper), a0, a1, f0, f1);
         _swap(key, true, -int256(20e18));
@@ -1100,7 +1100,7 @@ contract DiscipleTest is Test {
                 fee: FEE,
                 src: _pushSrc(eid),
                 coinIn: 1000e18,
-                quoteIn: 3000e18,
+                quoteIn: 2000e18, // seeded at the source price (2.0): the opening push steps at most minStep from the seed
                 srcKey: _noKey(),
                 srcKey2: _noKey()
             })
@@ -1147,7 +1147,8 @@ contract DiscipleTest is Test {
         Keeper k = new Keeper();
         vm.fee(5 gwei);
         _lzPush(id, address(k), 60, HOME_EID);
-        assertEq(hook.poolState(id).anchorX128, Q128 * 206 / 100);
+        // v0.3: one push moves the centre at most minStep (1% in these tests)
+        assertEq(hook.poolState(id).anchorX128, Math.mulDiv(Q128 * 2, 101, 100));
         uint256 carried = _msgCost(home.lastMessage());
         assertGt(carried, home.FEE() + 50_000 * 5 gwei, "home gas is counted");
         assertLt(carried, home.FEE() + 250_000 * 5 gwei);
@@ -1242,7 +1243,7 @@ contract DiscipleTest is Test {
         pair.set(1_000_000e18, 2_100_000e18);
         Keeper k = new Keeper();
         _lzPush(id, address(k), 40, HYPE_EID);
-        assertEq(hook.poolState(id).anchorX128, Q128 * 21 / 10);
+        assertEq(hook.poolState(id).anchorX128, Math.mulDiv(Q128 * 2, 101, 100), "one step (v0.3)");
         assertEq(address(k).balance, 1 ether - home.FEE(), "HYPE cost is not refunded");
         assertEq(hook.owed(address(k), address(usd)), 0, "nor credited");
     }
@@ -1275,7 +1276,7 @@ contract DiscipleTest is Test {
         _lzPush(id, address(0xC0FFEE), 30, HOME_EID);
         DiscipleHook.PoolView memory v = hook.poolState(id);
         assertFalse(v.local, "recovered");
-        assertEq(v.anchorX128, Q128 * 21 / 10);
+        assertEq(v.anchorX128, Math.mulDiv(Q128 * 2, 101, 100), "one step (v0.3)");
         vm.prank(lp);
         hook.deposit(id, 10e18, 30e18);
     }
@@ -1326,7 +1327,7 @@ contract DiscipleTest is Test {
                 fee: 10_000,
                 src: s,
                 coinIn: 1000e18,
-                quoteIn: 3000e18,
+                quoteIn: 2000e18,
                 srcKey: _noKey(),
                 srcKey2: _noKey()
             })
@@ -1340,7 +1341,7 @@ contract DiscipleTest is Test {
                 fee: FEE,
                 src: s,
                 coinIn: 1000e18,
-                quoteIn: 3000e18,
+                quoteIn: 5000e18,
                 srcKey: _noKey(),
                 srcKey2: _noKey()
             })
@@ -1640,8 +1641,21 @@ contract DiscipleTest is Test {
         vm.fee(1 gwei);
         uint256 n = 8;
         PoolId[] memory ids = new PoolId[](n);
+        // v0.3: TIP_OVERHEAD recalibrated to live receipts (76k) with the fixed tip of 1.05x (tipBps 10,500); a
+        // batch must still stay under gas + 20% at that tip
         for (uint256 i = 0; i < n; i++) {
-            (, ids[i]) = _createSame(1000e18, 2000e18);
+            (, ids[i]) = hook.createPool(
+                DiscipleHook.CreateParams({
+                    coin: address(coin),
+                    quote: address(usd),
+                    fee: FEE,
+                    src: _src(0),
+                    coinIn: 1000e18,
+                    quoteIn: 2000e18,
+                    srcKey: _noKey(),
+                    srcKey2: _noKey()
+                })
+            );
             hook.fundJar(ids[i], 0, 5000e18);
         }
         pair.set(1_000_000e18, 2_100_000e18);

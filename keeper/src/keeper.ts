@@ -364,8 +364,9 @@ export class Keeper {
 
   /** Pushed events from the sender on the home chain, so other keepers' stuck packets can be delivered too. */
   async scanPushes(r: RouteCfg): Promise<void> {
-    if (!r.scanPushes) return;
     const rs = routeState(this.state, r.name);
+    // without scanPushes, scan only while one of our packets is blocked by an earlier nonce (see deliver)
+    if (!r.scanPushes && !rs.unblocking) return;
     const { pub } = this.c(r.home);
     const latest = await pub.getBlockNumber();
     let from = rs.pushCursor ?? (r.senderFromBlock > 0n ? r.senderFromBlock : latest);
@@ -384,10 +385,16 @@ export class Keeper {
         if (known.has(l.args.guid!.toLowerCase())) continue;
         const rc = await pub.getTransactionReceipt({ hash: l.transactionHash! });
         const blk = await pub.getBlock({ blockNumber: rc.blockNumber });
+        const ours = l.args.keeper!.toLowerCase() === this.account.address.toLowerCase();
         for (const pk of packetsFromLogs(rc.logs, r.home.endpoint)) {
           if (pk.guid.toLowerCase() !== l.args.guid!.toLowerCase()) continue;
           if (pk.receiver.toLowerCase() !== r.receiver.toLowerCase()) continue;
           if (await this.isDelivered(r, pk.nonce)) continue;
+          // Every packet on our path is tracked: LayerZero needs each earlier nonce committed before a later one
+          // can execute, so a foreign packet below one of ours is committed (cheap, no lzReceive). Only with the
+          // route's scanPushes, and only when we serve every pool in it, is a foreign packet also executed
+          // (the hook refunds the packet's own keeper, never the deliverer: Vercel review).
+          const exec = ours || (r.scanPushes && this.servesAll(r, pk.message));
           this.state.packets.push({
             route: r.name,
             nonce: pk.nonce,
@@ -399,17 +406,33 @@ export class Keeper {
             srcEid: pk.srcEid,
             sentAt: Number(blk.timestamp),
             homeTx: l.transactionHash!,
-            ours: l.args.keeper!.toLowerCase() === this.account.address.toLowerCase(),
+            homeBlock: rc.blockNumber,
+            ours,
+            exec,
             pools: [],
             tries: 0,
           });
           known.add(pk.guid.toLowerCase());
-          this.log.info(`${r.name}: saw packet nonce ${pk.nonce} from ${l.args.keeper}`);
+          this.log.info(`${r.name}: saw packet nonce ${pk.nonce} from ${l.args.keeper}${exec ? "" : " (commit only)"}`);
         }
       }
       from = to + 1n;
       rs.pushCursor = from;
     }
+  }
+
+  /** Every pool in a pushed message is one this keeper serves on that route. */
+  private servesAll(r: RouteCfg, message: Hex): boolean {
+    const rs = routeState(this.state, r.name);
+    let msg;
+    try {
+      msg = decodeMessage(message);
+    } catch {
+      return false;
+    }
+    const served = new Set(Object.keys(rs.pools).map((x) => x.toLowerCase()));
+    const ids = msg.obs.flatMap((o) => o.pools.map((x) => x.toLowerCase()));
+    return ids.length > 0 && ids.every((x) => served.has(x));
   }
 
   // ------------------------------------------------------------------ planning and pushing
@@ -535,6 +558,7 @@ export class Keeper {
       srcEid: pk.srcEid,
       sentAt: Number(tb.timestamp),
       homeTx: hash,
+      homeBlock: rc.blockNumber,
       ours: true,
       pools: ds.map((d) => ({ id: d.id, price: d.price.toString() })),
       tries: 0,
@@ -584,6 +608,7 @@ export class Keeper {
     if (mine.length === 0) return;
     const { pub, wal, chain } = this.c(r.dest);
     const lib = await this.receiveLib(r);
+    const rs = routeState(this.state, r.name);
     const maxOurs = mine.filter((p) => p.ours).reduce((m, p) => (p.nonce > m ? p.nonce : m), 0n);
     // packet ages use chain time (home and destination clocks agree to within seconds), not this machine's clock
     const t = Number((await pub.getBlock({ blockTag: "latest" })).timestamp);
@@ -597,15 +622,20 @@ export class Keeper {
         if (p.ours) this.log.info(`${r.name}: nonce ${p.nonce} was delivered by someone else`);
         continue;
       }
-      const eligible = p.ours || p.nonce < maxOurs || t - p.sentAt >= this.cfg.policy.takeoverAfterSec;
-      if (!eligible) continue;
-      if (t - p.sentAt > this.cfg.policy.packetTtlSec) {
+      // LayerZero executes a nonce only once every earlier one is committed (whatever the receiver's ordering), so
+      // a foreign packet below one of ours is committed; one we may execute is taken over once it is stuck
+      const exec = p.exec !== false;
+      const blocksOurs = !p.ours && p.nonce < maxOurs; // kept past the TTL: ours cannot execute until it is committed
+      if (t - p.sentAt > this.cfg.policy.packetTtlSec && !blocksOurs) {
         drop.add(p);
         this.log.warn(`${r.name}: giving up on nonce ${p.nonce} after ${t - p.sentAt}s`);
         continue;
       }
+      const eligible = p.ours || p.nonce < maxOurs || (exec && t - p.sentAt >= this.cfg.policy.takeoverAfterSec);
+      if (!eligible) continue;
       if (st.committed) {
         p.committed = true;
+        if (p.exec === false) drop.add(p); // committed: it no longer blocks ours, and we never execute it
         continue;
       }
       const ph = payloadHash(p.guid, p.message);
@@ -630,12 +660,14 @@ export class Keeper {
       if (rc.status !== "success") throw new Error(`commit ${hash} reverted`);
       p.committed = true;
       p.spent = (BigInt(p.spent ?? "0") + rc.gasUsed * rc.effectiveGasPrice).toString();
-      this.log.info(`${r.name}: committed nonce ${p.nonce} (${t - p.sentAt}s after push) tx ${hash}`);
+      this.log.info(`${r.name}: committed nonce ${p.nonce} (${t - p.sentAt}s after push) tx ${hash}${p.exec === false ? " (commit only, unblocks ours)" : ""}`);
+      if (p.exec === false) drop.add(p);
     }
 
     // 2. execute in nonce order (the endpoint needs every earlier nonce at least committed)
     for (const p of mine) {
-      if (drop.has(p) || !p.committed) continue;
+      if (drop.has(p) || p.exec === false || !p.committed) continue;
+      if (!p.ours && t - p.sentAt < this.cfg.policy.takeoverAfterSec) continue; // its own keeper still has time
       const msg = decodeMessage(p.message);
       const n = msg.obs.reduce((s, o) => s + o.pools.length, 0);
       const args = [{ srcEid: p.srcEid, sender: p.sender, nonce: p.nonce }, r.receiver, p.guid, p.message, "0x"] as const;
@@ -646,6 +678,13 @@ export class Keeper {
         p.tries++;
         const m = (e as Error).message ?? "";
         const blocked = /LZ_InvalidNonce\D*(\d+)/.exec(m);
+        if (blocked && p.ours && !r.scanPushes && !rs.unblocking) {
+          // an earlier nonce on our path is not committed (another sender's packet): find it in the home chain's
+          // Pushed logs, from just after our last executed packet, and commit it (never execute it)
+          rs.unblocking = true;
+          rs.pushCursor = rs.lastOwnHomeBlock !== undefined ? rs.lastOwnHomeBlock + 1n : r.senderFromBlock > 0n ? r.senderFromBlock : p.homeBlock;
+          this.log.warn(`${r.name}: nonce ${p.nonce} is blocked by uncommitted nonce ${blocked[1]}: scanning for it`);
+        }
         this.log.warn(`${r.name}: nonce ${p.nonce} cannot execute yet${blocked ? `: waiting for nonce ${blocked[1]}` : `: ${m.split("\n")[0]}`}`);
         break;
       }
@@ -665,6 +704,10 @@ export class Keeper {
       });
       if (rc.status !== "success") throw new Error(`lzReceive ${hash} reverted`);
       drop.add(p);
+      if (p.ours) {
+        if (p.homeBlock !== undefined) rs.lastOwnHomeBlock = p.homeBlock;
+        rs.unblocking = false;
+      }
       const spent = BigInt(p.spent ?? "0") + rc.gasUsed * rc.effectiveGasPrice;
       const hook = await this.hookOf(r);
       const notes: string[] = [];

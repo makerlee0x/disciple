@@ -64,12 +64,17 @@ library DiscipleBooks {
 
     /// @notice Close the interval at `markX128`, judging the creator cut and graduation from `t`. `skimRoom` (quote
     ///         raw at the mark) is how much the pool's tip jar can still take; returns the coin/quote skimmed for it.
-    function settle(LG.Book storage bk, Tvl storage t, uint256 markX128, bool dist, uint256 skimRoom)
+    function settle(LG.Book storage bk, Tvl storage t, uint256 markX128, bool dist, uint256 skimRoom, uint256 skimBps)
         public
         returns (uint256 jx, uint256 jy)
     {
         (uint256 on, uint256 off, uint256 g) = _judge(t);
-        (, jx, jy) = bk.settle(markX128, on, off, g, dist, skimRoom);
+        (, jx, jy) = bk.settle(markX128, on, off, g, dist, skimRoom, skimBps);
+    }
+
+    /// @notice The packed curve shape for flatness `lam` (WAD), bounds checked (v0.3; see DiscipleFlatMath.shape).
+    function shape(uint256 lam) public pure returns (uint256) {
+        return FM.shape(lam);
     }
 
     /// @dev Source TVL against manipulation (review D-02). Spot TVL can be pushed down or up for one transaction,
@@ -156,7 +161,7 @@ library DiscipleBooks {
     /// @notice Same-chain slopes and match bounds. No lag premium: both sides pay the pool fee, and the centre
     ///         itself only moves toward the leader by a bounded step per reading (see DiscipleSwapMath.stepToward).
     ///         The live leader price, read in the same call, bounds every fill.
-    function sameQuote(uint256 anchorX128, uint256 tX128, uint24 fee, uint256 spot, uint24 srcFee)
+    function sameQuote(uint256 anchorX128, uint256 tX128, uint24 fee, uint256 spot, uint24 srcFee, uint256 edgeBps)
         public
         pure
         returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps)
@@ -165,7 +170,12 @@ library DiscipleBooks {
         (kb, ks) = SM.slopes(anchorX128, tX128, g, g);
         uint256 srcAsk = Math.mulDiv(spot, 1e6, 1e6 - srcFee, Math.Rounding.Ceil);
         uint256 srcBid = Math.mulDiv(spot, 1e6 - srcFee, 1e6);
-        (pb, ps) = SM.matchBounds(srcAsk, srcBid, 1);
+        (pb, ps) = SM.matchBounds(srcAsk, srcBid, edgeBps);
+        // never fill past the leader's mid: otherwise buying here and selling to the leader (or the reverse) can be
+        // a riskless round trip (v0.3, Carry audit N-2). The mid, not the modelled bid/ask, because a dynamic-fee
+        // leader's real per-swap fee can be below its stored fee (v0.3 audit L-4); the true bid <= mid <= true ask.
+        if (pb < spot) pb = spot;
+        if (ps > spot) ps = spot;
     }
 
     /// @notice What the next same-chain settle (`observe(t, cur, fresh)` then `settle(bk, t, markX128, true,
@@ -176,11 +186,12 @@ library DiscipleBooks {
         Tvl storage t,
         uint256 markX128,
         uint256 skimRoom,
+        uint256 skimBps,
         uint256 cur,
         bool fresh
     ) public view returns (uint256 ox, uint256 oy) {
         (uint256 on, uint256 off) = _judgeAfter(t, cur, fresh);
-        return bk.settlePreview(markX128, skimRoom, on, off);
+        return bk.settlePreview(markX128, skimRoom, skimBps, on, off);
     }
 
     /// @dev `_judge` after `observe(t, cur, fresh)`, without writing (the creator-cut TVLs only).
@@ -201,7 +212,7 @@ library DiscipleBooks {
     }
 
     /// @notice Cross chain: slopes and band edges for a pushed anchor of age `age` (DisciplePrice markup and band).
-    function crossQuote(uint256 anchorX128, uint256 tX128, uint24 fee, uint256 age)
+    function crossQuote(uint256 anchorX128, uint256 tX128, uint24 fee, uint256 age, uint256 pushedX128)
         public
         pure
         returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps)
@@ -209,20 +220,42 @@ library DiscipleBooks {
         (uint256 g, bool bandOn) = PR.markup(fee, age);
         (kb, ks) = SM.slopes(anchorX128, tX128, g, g);
         (pb, ps) = PR.band(anchorX128, g, bandOn);
+        // v0.3 audit fix (M-1 / M-2 / R376-01): the centre moves at most one step per push, so after a real move
+        // it trails the pushed price for a few pushes. Bound fills by the pushed price on the protective side
+        // meanwhile: a real move is protected at once, and a flash-moved push can only make the pool stricter.
+        if (bandOn && pushedX128 != 0) {
+            if (pushedX128 > anchorX128) {
+                uint256 f = Math.mulDiv(pushedX128, g, 1e18, Math.Rounding.Ceil);
+                if (f > pb) pb = f;
+            } else if (pushedX128 < anchorX128) {
+                uint256 c = Math.mulDiv(pushedX128, 1e18, g);
+                if (c < ps) ps = c;
+            }
+        }
     }
 
     /// @notice One fill on the v0.2 flat-centre curve (DiscipleFlatMath). Returns (coin, quote) amounts.
-    function fill(uint256 u, uint256 v, uint256 t, uint256 k, uint256 b, bool sell, bool exactIn, uint256 spec)
+    function fill(
+        uint256 u,
+        uint256 v,
+        uint256 t,
+        uint256 k,
+        uint256 b,
+        bool sell,
+        bool exactIn,
+        uint256 spec,
+        uint256 sh
+    )
         public
         pure
         returns (uint256 coinAmt, uint256 quoteAmt)
     {
         if (sell) {
             (coinAmt, quoteAmt) =
-                exactIn ? (spec, FM.sellExactIn(u, v, k, b, t, spec)) : (FM.sellExactOut(u, v, k, b, t, spec), spec);
+                exactIn ? (spec, FM.sellExactIn(u, v, k, b, t, spec, sh)) : (FM.sellExactOut(u, v, k, b, t, spec, sh), spec);
         } else {
             (quoteAmt, coinAmt) =
-                exactIn ? (spec, FM.buyExactIn(u, v, k, b, t, spec)) : (FM.buyExactOut(u, v, k, b, t, spec), spec);
+                exactIn ? (spec, FM.buyExactIn(u, v, k, b, t, spec, sh)) : (FM.buyExactOut(u, v, k, b, t, spec, sh), spec);
         }
     }
 
@@ -315,9 +348,14 @@ library DiscipleBooks {
             (spot,) = _concentrated(sqrtP, 0, baseIs0);
             fee = IV3S(target).fee();
         } else {
-            (uint160 sqrtP,,, uint24 lpFee) = StateLibrary.getSlot0(pm, PoolId.wrap(v4Id));
+            (uint160 sqrtP,, uint24 pf, uint24 lpFee) = StateLibrary.getSlot0(pm, PoolId.wrap(v4Id));
             (spot,) = _concentrated(sqrtP, 0, baseIs0);
-            fee = lpFee;
+            // the Uniswap protocol fee is part of the leader's real cost; take the smaller direction (12 bits each)
+            // so both modelled quotes stay inside the leader's real ones, compounded as v4 does (v0.3, Carry r7).
+            // A hook's per-swap fee override on the leg is still not seen.
+            uint256 a = pf & 0xfff;
+            if (pf >> 12 < a) a = pf >> 12;
+            fee = uint24(a + lpFee - a * lpFee / 1e6);
         }
         if (fee >= 1e6) fee = 999_999;
     }

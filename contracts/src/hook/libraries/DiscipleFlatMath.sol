@@ -37,6 +37,11 @@ library DiscipleFlatMath {
     /// @dev expWad(W) and expWad(W * BETA / WAD), precomputed (gas); DiscipleFlatMath.t.sol checks them.
     uint256 internal constant EW = 2718281828459045235;
     uint256 internal constant EWB = 2585709659315846199;
+    /// @dev v0.3: per-pool flatness. A shape packs (lam << 128) | expWad(W * (1 - lam)), so fills never run an exp.
+    ///      DEFAULT_SHAPE is the v0.2 curve (LAM 0.05); MIN_LAM/MAX_LAM bound what a creator may pick.
+    uint256 internal constant DEFAULT_SHAPE = (LAM << 128) | EWB;
+    uint256 internal constant MIN_LAM = 0.005e18;
+    uint256 internal constant MAX_LAM = 0.25e18;
 
     uint8 internal constant LOW = 0;
     uint8 internal constant BAND = 1;
@@ -51,11 +56,24 @@ library DiscipleFlatMath {
         uint256 kHigh; // WAD
         uint256 rL; // X128 lower band edge
         uint256 rH; // X128 upper band edge
+        uint256 lam; // WAD
+        uint256 beta; // WAD - lam
     }
 
-    function curve(uint256 tX128, uint256 k) internal pure returns (Curve memory c) {
+    error BadLam();
+
+    /// @notice The packed shape for flatness `lam` (WAD), within [MIN_LAM, MAX_LAM].
+    function shape(uint256 lam) internal pure returns (uint256) {
+        if (lam < MIN_LAM || lam > MAX_LAM) revert BadLam();
+        uint256 ewb = uint256(FPM.expWad(int256(Math.mulDiv(W, WAD - lam, WAD))));
+        return (lam << 128) | ewb;
+    }
+
+    function curve(uint256 tX128, uint256 k, uint256 sh) internal pure returns (Curve memory c) {
         uint256 eW = EW;
-        uint256 eWB = EWB;
+        uint256 eWB = sh & type(uint128).max;
+        c.lam = sh >> 128;
+        c.beta = WAD - c.lam;
         c.t = tX128;
         c.k = k;
         c.kLow = Math.mulDiv(k, eWB, WAD);
@@ -69,13 +87,13 @@ library DiscipleFlatMath {
     // ---------------------------------------------------------------------------------------------
 
     /// @notice Quote in -> coin out, rounded down.
-    function buyExactIn(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 tX128, uint256 q)
+    function buyExactIn(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 tX128, uint256 q, uint256 sh)
         internal
         pure
         returns (uint256)
     {
         if (q == 0) return 0;
-        Curve memory c = curve(tX128, k);
+        Curve memory c = curve(tX128, k, sh);
         uint256 u = u0;
         uint256 v = v0;
         uint8 reg = _region(c, Math.mulDiv(v, Q128, u));
@@ -108,14 +126,14 @@ library DiscipleFlatMath {
     }
 
     /// @notice Coin out -> quote in, rounded up.
-    function buyExactOut(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 tX128, uint256 out)
+    function buyExactOut(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 tX128, uint256 out, uint256 sh)
         internal
         pure
         returns (uint256)
     {
         if (out == 0) return 0;
         if (out >= u0) revert SM.InsufficientReserve();
-        Curve memory c = curve(tX128, k);
+        Curve memory c = curve(tX128, k, sh);
         uint256 u = u0;
         uint256 v = v0;
         uint8 reg = _region(c, Math.mulDiv(v, Q128, u));
@@ -149,13 +167,13 @@ library DiscipleFlatMath {
     }
 
     /// @notice Coin in -> quote out, rounded down.
-    function sellExactIn(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 tX128, uint256 q)
+    function sellExactIn(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 tX128, uint256 q, uint256 sh)
         internal
         pure
         returns (uint256)
     {
         if (q == 0) return 0;
-        Curve memory c = curve(tX128, k);
+        Curve memory c = curve(tX128, k, sh);
         uint256 u = u0;
         uint256 v = v0;
         uint8 reg = _region(c, Math.mulDiv(v, Q128, u));
@@ -188,14 +206,14 @@ library DiscipleFlatMath {
     }
 
     /// @notice Quote out -> coin in, rounded up.
-    function sellExactOut(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 tX128, uint256 out)
+    function sellExactOut(uint256 u0, uint256 v0, uint256 k, uint256 p, uint256 tX128, uint256 out, uint256 sh)
         internal
         pure
         returns (uint256)
     {
         if (out == 0) return 0;
         if (out >= v0) revert SM.InsufficientReserve();
-        Curve memory c = curve(tX128, k);
+        Curve memory c = curve(tX128, k, sh);
         uint256 u = u0;
         uint256 v = v0;
         uint8 reg = _region(c, Math.mulDiv(v, Q128, u));
@@ -233,7 +251,7 @@ library DiscipleFlatMath {
         uint8 reg = _region(c, r);
         if (reg == LOW) return Math.mulDiv(r, c.kLow, WAD);
         if (reg == HIGH) return Math.mulDiv(r, c.kHigh, WAD);
-        return Math.mulDiv(Math.mulDiv(c.t, c.k, WAD), _pow(Math.mulDiv(r, WAD, c.t), LAM, true), WAD);
+        return Math.mulDiv(Math.mulDiv(c.t, c.k, WAD), _pow(Math.mulDiv(r, WAD, c.t), c.lam, true), WAD);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -260,10 +278,10 @@ library DiscipleFlatMath {
             re = c.rH;
             if (r >= re) return 0;
             // k u^B + (v/T)^B const  ->  (ue/u)^B = (k + (r/T)^B) / (k + (re/T)^B)
-            uint256 zb = _pow(Math.mulDiv(r, WAD, c.t), BETA, false);
-            uint256 zeb = _pow(Math.mulDiv(re, WAD, c.t), BETA, true);
+            uint256 zb = _pow(Math.mulDiv(r, WAD, c.t), c.beta, false);
+            uint256 zeb = _pow(Math.mulDiv(re, WAD, c.t), c.beta, true);
             uint256 x = Math.mulDiv(c.k + zb, WAD, c.k + zeb);
-            ue = Math.mulDiv(u, _pow(x, Math.mulDiv(WAD, WAD, BETA), false), WAD);
+            ue = Math.mulDiv(u, _pow(x, Math.mulDiv(WAD, WAD, c.beta), false), WAD);
         }
         uint256 ve = Math.mulDiv(re, ue, Q128);
         return ve > v ? ve - v : 0;
@@ -278,10 +296,10 @@ library DiscipleFlatMath {
             ue = Math.mulDiv(u, _pow(Math.mulDiv(r, WAD, c.rH), Math.mulDiv(WAD, WAD, WAD + c.kHigh), false), WAD);
         } else {
             if (r <= c.rL) return 0;
-            uint256 zb = _pow(Math.mulDiv(r, WAD, c.t), BETA, false);
-            uint256 zeb = _pow(Math.mulDiv(c.rL, WAD, c.t), BETA, true);
+            uint256 zb = _pow(Math.mulDiv(r, WAD, c.t), c.beta, false);
+            uint256 zeb = _pow(Math.mulDiv(c.rL, WAD, c.t), c.beta, true);
             uint256 x = Math.mulDiv(c.k + zb, WAD, c.k + zeb);
-            ue = Math.mulDiv(u, _pow(x, Math.mulDiv(WAD, WAD, BETA), false), WAD);
+            ue = Math.mulDiv(u, _pow(x, Math.mulDiv(WAD, WAD, c.beta), false), WAD);
         }
         return ue > u ? ue - u : 0;
     }
@@ -292,11 +310,11 @@ library DiscipleFlatMath {
         if (reg == LOW) return SM.buyExactIn(u, v, c.kLow, 0, q);
         // (u1/u)^B = 1 - rho ((v+q)/v)^B - 1),  rho = (r/T)^B / k   (rho and the pow rounded down)
         uint256 rho = _rho(c, u, v, false);
-        uint256 g = _pow(Math.mulDiv(v + q, WAD, v), BETA, false);
+        uint256 g = _pow(Math.mulDiv(v + q, WAD, v), c.beta, false);
         if (g <= WAD) return 0;
         uint256 d = Math.mulDiv(rho, g - WAD, WAD);
         if (d >= WAD) revert TradeTooLarge();
-        uint256 u1 = Math.mulDiv(u, _pow(WAD - d, Math.mulDiv(WAD, WAD, BETA), true), WAD, Math.Rounding.Ceil);
+        uint256 u1 = Math.mulDiv(u, _pow(WAD - d, Math.mulDiv(WAD, WAD, c.beta), true), WAD, Math.Rounding.Ceil);
         return u1 < u ? u - u1 : 0;
     }
 
@@ -305,10 +323,10 @@ library DiscipleFlatMath {
         if (reg == LOW) return SM.buyExactOut(u, v, c.kLow, 0, out);
         // (v1/v)^B = 1 + (1 - ((u-out)/u)^B) / rho   (rho down, pow down)
         uint256 rho = _rho(c, u, v, false);
-        uint256 h = _pow(Math.mulDiv(u - out, WAD, u), BETA, false);
+        uint256 h = _pow(Math.mulDiv(u - out, WAD, u), c.beta, false);
         uint256 y = WAD + Math.mulDiv(h < WAD ? WAD - h : 0, WAD, rho, Math.Rounding.Ceil);
         uint256 v1 =
-            Math.mulDiv(v, _pow(y, Math.mulDiv(WAD, WAD, BETA, Math.Rounding.Ceil), true), WAD, Math.Rounding.Ceil);
+            Math.mulDiv(v, _pow(y, Math.mulDiv(WAD, WAD, c.beta, Math.Rounding.Ceil), true), WAD, Math.Rounding.Ceil);
         return v1 - v;
     }
 
@@ -318,11 +336,11 @@ library DiscipleFlatMath {
         if (reg == HIGH) return SM.sellExactIn(u, v, c.kHigh, 0, q);
         // (v1/v)^B = 1 - (((u+q)/u)^B - 1) / rho   (rho up, pow down)
         uint256 rho = _rho(c, u, v, true);
-        uint256 g = _pow(Math.mulDiv(u + q, WAD, u), BETA, false);
+        uint256 g = _pow(Math.mulDiv(u + q, WAD, u), c.beta, false);
         if (g <= WAD) return 0;
         uint256 d = Math.mulDiv(g - WAD, WAD, rho);
         if (d >= WAD) revert TradeTooLarge();
-        uint256 v1 = Math.mulDiv(v, _pow(WAD - d, Math.mulDiv(WAD, WAD, BETA), true), WAD, Math.Rounding.Ceil);
+        uint256 v1 = Math.mulDiv(v, _pow(WAD - d, Math.mulDiv(WAD, WAD, c.beta), true), WAD, Math.Rounding.Ceil);
         return v1 < v ? v - v1 : 0;
     }
 
@@ -331,20 +349,20 @@ library DiscipleFlatMath {
         if (reg == HIGH) return SM.sellExactOut(u, v, c.kHigh, 0, out);
         // (u1/u)^B = 1 + rho (1 - ((v-out)/v)^B)   (rho up, pow down)
         uint256 rho = _rho(c, u, v, true);
-        uint256 h = _pow(Math.mulDiv(v - out, WAD, v), BETA, false);
+        uint256 h = _pow(Math.mulDiv(v - out, WAD, v), c.beta, false);
         uint256 y = WAD + Math.mulDiv(rho, h < WAD ? WAD - h : 0, WAD, Math.Rounding.Ceil);
         uint256 u1 =
-            Math.mulDiv(u, _pow(y, Math.mulDiv(WAD, WAD, BETA, Math.Rounding.Ceil), true), WAD, Math.Rounding.Ceil);
+            Math.mulDiv(u, _pow(y, Math.mulDiv(WAD, WAD, c.beta, Math.Rounding.Ceil), true), WAD, Math.Rounding.Ceil);
         return u1 - u;
     }
 
-    /// @dev rho = (r/T)^BETA / k, WAD.
+    /// @dev rho = (r/T)^beta / k, WAD.
     function _rho(Curve memory c, uint256 u, uint256 v, bool up) private pure returns (uint256) {
         Math.Rounding rd = up ? Math.Rounding.Ceil : Math.Rounding.Floor;
         // ratio in X128 first, then scale: v*WAD/u floors to 0 on low-price pools (audit v0.2 H-1). In the band
         // r is within e of T, so it fits wherever T does.
         uint256 z = Math.mulDiv(Math.mulDiv(v, Q128, u, rd), WAD, c.t, rd);
-        return Math.mulDiv(_pow(z, BETA, up), WAD, c.k, rd);
+        return Math.mulDiv(_pow(z, c.beta, up), WAD, c.k, rd);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -357,9 +375,9 @@ library DiscipleFlatMath {
         uint256 highBot = Math.mulDiv(c.rH, c.kHigh, WAD); // price at rH
         if (p < lowTop) return (Math.mulDiv(p, WAD, c.kLow), LOW);
         if (p >= highBot) return (Math.mulDiv(p, WAD, c.kHigh), HIGH);
-        // p = k T (r/T)^LAM  ->  r = T (p / (k T))^(1/LAM)
+        // p = k T (r/T)^lam  ->  r = T (p / (k T))^(1/lam)
         uint256 x = Math.mulDiv(p, WAD, Math.mulDiv(c.t, c.k, WAD));
-        rb = Math.mulDiv(c.t, _pow(x, Math.mulDiv(WAD, WAD, LAM), false), WAD);
+        rb = Math.mulDiv(c.t, _pow(x, Math.mulDiv(WAD, WAD, c.lam), false), WAD);
         reg = BAND;
     }
 
