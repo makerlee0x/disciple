@@ -19,7 +19,7 @@ export interface AudioChannel { on: boolean; vol: number }
 /** Shuffle / Repeat for the in-game radio. Pause itself is session-local and is not saved. */
 export interface RadioPrefs { station: string; shuffle: boolean; repeat: RepeatMode }
 export interface GameSettings {
-  v: 2;
+  v: 1;
   /** KeyboardEvent.code per slot: 4 buy presets (select only) + 4 sell sizes (select only) */
   keys: { buy: string[]; sell: string[] };
   sfx: AudioChannel;
@@ -36,9 +36,9 @@ export interface GameSettings {
 export const DEFAULT_BUY_KEYS = ["Digit1", "Digit2", "Digit3", "Digit4"];   // 4 buy presets (was 6: an older 6-key save keeps its first 4)
 export const DEFAULT_SELL_KEYS = ["KeyZ", "KeyX", "KeyC", "KeyV"];
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
-  v: 2, keys: { buy: DEFAULT_BUY_KEYS, sell: DEFAULT_SELL_KEYS },
+  v: 1, keys: { buy: DEFAULT_BUY_KEYS, sell: DEFAULT_SELL_KEYS },
   sfx: { on: true, vol: 0.7 }, music: { on: true, vol: 0.5 },
-  radio: { station: DEFAULT_STATION_ID, shuffle: false, repeat: "station" }, lang: "en", haptics: true, tilt: false, calm: false,
+  radio: { station: DEFAULT_STATION_ID, shuffle: false, repeat: "station" }, lang: "en", haptics: true, tilt: false, calm: true,
 };
 /** Keys the game already uses for something else (SPACE boost, SHIFT dump, steering, toggles, chat, menu). Not bindable. */
 export const RESERVED_CODES = new Set([
@@ -81,15 +81,13 @@ export function sanitizeGameSettings(x: unknown): GameSettings {
   const station = typeof r.station === "string" && STATIONS[r.station] ? r.station : DEFAULT_STATION_ID;
   const radio: RadioPrefs = { station, shuffle: r.shuffle === true, repeat: r.repeat === "one" ? "one" : "station" };
   return {
-    v: 2, keys: { buy, sell },
+    v: 1, keys: { buy, sell },
     sfx: chan(o.sfx, DEFAULT_GAME_SETTINGS.sfx), music: chan(o.music, DEFAULT_GAME_SETTINGS.music),
     radio,
     lang: LOCALE_IDS.includes(o.lang as Locale) ? (o.lang as Locale) : "en",
     haptics: o.haptics !== false,
     tilt: o.tilt === true,
-    // v2 (maker 2026-11-14, TestFlight): full-screen flying is off by default. v1 saves stored the old "on" default, so only a
-    // v2 save (an explicit choice) can turn it on.
-    calm: (o as { v?: number }).v === 2 && o.calm === true,
+    calm: o.calm !== false,
   };
 }
 
