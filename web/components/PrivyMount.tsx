@@ -17,7 +17,7 @@ import { DEPOSIT_ACK_EVENT, DEPOSIT_CALL_EVENT, DEPOSIT_REPLY_EVENT, type Deposi
 import { FUND_ACK_EVENT, FUND_COPY, FUND_DEFAULT_USD, FUND_DONE_EVENT, FUND_EVENT, fundErrorLine, type FundRequest, type FundResult } from "@/lib/fund";
 const FUND_CLOSED = FUND_COPY.closed;
 import { currentInApp } from "@/lib/inAppBrowser";
-import { isNativeApp } from "@/lib/native";
+import { isNativeApp, nativePlugin } from "@/lib/native";
 import { needsEmbeddedWallet, ownerWalletAddress, type LinkedLike } from "@/lib/privyOwner";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { PRIVY_APP_ID, aaSession, registerPrivy, type PrivyAccountInfo, type PrivySecurity } from "@/lib/aa/session";
@@ -168,6 +168,8 @@ const IN_APP = !!currentInApp();
  */
 const NATIVE = isNativeApp();
 export const NATIVE_OAUTH_REDIRECT = "disciple://oauth";
+// tell the app's NativeAuthPlugin that sign-in comes back on its scheme, so it may take provider pages into the system sheet
+if (NATIVE) void (nativePlugin("NativeAuth") as { enable?: (o: { redirect: string }) => Promise<unknown> } | null)?.enable?.({ redirect: NATIVE_OAUTH_REDIRECT })?.catch?.(() => {});
 type LoginMethod = "email" | "google" | "twitter" | "wallet" | "apple";
 export function loginMethodsFor(o: { inApp: boolean; native: boolean }): LoginMethod[] {
   if (o.native) return ["email", "google", "apple", "twitter", "wallet"];

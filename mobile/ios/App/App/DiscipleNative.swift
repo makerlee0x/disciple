@@ -215,11 +215,18 @@ public class LiveFlightPlugin: CAPPlugin, CAPBridgedPlugin {
 public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentationContextProviding {
   public let identifier = "NativeAuthPlugin"
   public let jsName = "NativeAuth"
-  public let pluginMethods: [CAPPluginMethod] = [CAPPluginMethod(name: "supported", returnType: CAPPluginReturnPromise)]
+  public let pluginMethods: [CAPPluginMethod] = [
+    CAPPluginMethod(name: "supported", returnType: CAPPluginReturnPromise),
+    CAPPluginMethod(name: "enable", returnType: CAPPluginReturnPromise),
+  ]
   static let scheme = "disciple"
   private var session: ASWebAuthenticationSession?
+  /// Off until the page says Privy returns to disciple://oauth (web/components/PrivyMount.tsx calls enable). A site build
+  /// without that would return to https:// inside the sheet and never close it, so nothing is taken over before then.
+  private var enabled = false
 
   @objc func supported(_ call: CAPPluginCall) { call.resolve(["supported": true, "scheme": Self.scheme]) }
+  @objc func enable(_ call: CAPPluginCall) { enabled = call.getString("redirect")?.hasPrefix(Self.scheme + "://") ?? false; call.resolve(["enabled": enabled]) }
 
   /// An OAuth authorize request headed back to Privy (the only thing this plugin takes over).
   static func isPrivyAuthorize(_ url: URL) -> Bool {
@@ -229,7 +236,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
   }
 
   override public func shouldOverrideLoad(_ navigationAction: WKNavigationAction) -> NSNumber? {
-    guard let url = navigationAction.request.url, Self.isPrivyAuthorize(url) else { return nil }
+    guard enabled, let url = navigationAction.request.url, Self.isPrivyAuthorize(url) else { return nil }
     DispatchQueue.main.async { self.open(url) }
     return true   // cancel the in-web-view load: the system sheet takes it
   }
