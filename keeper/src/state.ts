@@ -14,7 +14,10 @@ export interface Packet {
   srcEid: number;
   sentAt: number; // unix seconds (home block time)
   homeTx: Hex;
+  homeBlock?: bigint; // home block the packet was sent in
   ours: boolean;
+  /** false: another keeper's packet we only commit (when it blocks one of ours), never execute */
+  exec?: boolean;
   pools: { id: Hex; price: string }[]; // what we expect the pool to take (ours only)
   committed?: boolean;
   /** ours: what this keeper has spent on the packet so far, wei (home tx incl. LayerZero fee, then commit) */
@@ -25,6 +28,10 @@ export interface Packet {
 export interface RouteState {
   poolCursor?: bigint; // next destination block to scan for Created
   pushCursor?: bigint; // next home block to scan for Pushed
+  /** set while one of our packets waits on an earlier, uncommitted nonce: scan Pushed to find and commit it */
+  unblocking?: boolean;
+  /** home block of our last executed packet: a blocking nonce was sent after it */
+  lastOwnHomeBlock?: bigint;
   pools: Record<string, PoolSource>; // id -> source (sources are immutable)
 }
 

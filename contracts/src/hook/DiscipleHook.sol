@@ -158,8 +158,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         uint256 seedX; // cross chain: creator's seed, held until the first price
         uint256 seedY;
         LG.Book book;
-        // v0.3 (Vercel review): the WETH -> token rate tips are valued at. It follows the live rate down at once and
-        // up by at most minStep per block, so a flash-moved reference pool cannot inflate a tip (see _gasRate).
+        // v0.3 (Vercel review): a stored WETH -> token rate that moves toward the live one by at most minStep per
+        // paying block, either way. Tips use the lower of it and the live rate (see _gasRate).
         // Appended after the book, so no earlier slot moves (the keeper's offsets hold).
         uint256 gasRateX128;
         uint64 gasRateBlock;
@@ -732,22 +732,30 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         toQuote = true;
     }
 
-    /// @dev The rate tips are paid at (v0.3, Vercel review): the stored rate, which follows the live rate down at
-    ///      once and up by at most minStep per block, and never above the live rate. A flash-moved reference pool
-    ///      can then only lower a tip; raising one takes a move held block after block.
+    /// @dev The rate tips are paid at (v0.3, Vercel review): the lower of the live rate and a stored rate that moves
+    ///      toward the live one by at most minStep per paying block, in either direction. A flash rise of the
+    ///      reference pool can lift a tip by at most one step; a flash dip lowers only the tip paid in that block
+    ///      (at the live rate) and moves the stored rate one step, so it cannot hold tips down afterwards.
     function _gasRate(Pool storage p) internal view returns (uint256 r, bool toQuote) {
-        uint256 live;
-        (live, toQuote) = _liveGasRate(p);
-        r = p.gasRateX128;
-        if (p.gasRateBlock < block.number) r = live < r ? live : SM.stepToward(r, live, minStep);
-        if (live < r) r = live;
+        uint256 next;
+        (r, toQuote, next) = _gasRateNext(p);
     }
 
-    /// @dev _gasRate, and store it as this block's rate (paths that pay a tip or refund).
+    /// @dev The paid rate, and the stored rate after this block (stored only on paths that pay a tip or refund).
+    function _gasRateNext(Pool storage p) internal view returns (uint256 r, bool toQuote, uint256 next) {
+        uint256 live;
+        (live, toQuote) = _liveGasRate(p);
+        next = p.gasRateX128;
+        if (p.gasRateBlock < block.number) next = SM.stepToward(next, live, minStep);
+        r = live < next ? live : next;
+    }
+
+    /// @dev _gasRate, and store the moved rate as this block's (paths that pay a tip or refund).
     function _gasRatePay(Pool storage p) internal returns (uint256 r, bool toQuote) {
-        (r, toQuote) = _gasRate(p);
+        uint256 next;
+        (r, toQuote, next) = _gasRateNext(p);
         if (p.gasRateBlock < block.number) {
-            p.gasRateX128 = r;
+            p.gasRateX128 = next;
             p.gasRateBlock = uint64(block.number);
         }
     }

@@ -120,19 +120,10 @@ contract V03AuditSameTest is V03FixesTest {
         assertLe(_lossCarrySame(id), worth / 100, "at most the one-step mark, not 20%");
     }
 
-    /// Vercel #4: the reference pool (WETH/USD) is flash-moved x10 for one sample. The tip is paid at the stored
-    /// gas rate, which may rise at most one step per block, so it stays about the honest tip.
+    /// Vercel #4: the reference pool (WETH/USD) is flash-moved x10 for one sample. The tip is paid at the lower of
+    /// the live rate and a stored rate that moves one step per block, so it stays about the honest tip.
     function test_vercel_flashRefDoesNotInflateTip() public {
-        vm.fee(1 gwei);
-        (, PoolId a) = _createSame(300_000e18, 600_000e18);
-        (, PoolId b) = _createSame(300_000e18, 600_000e18);
-        _ready(a);
-        _ready(b);
-        hook.fundJar(a, 0, 5000e18);
-        hook.fundJar(b, 0, 5000e18);
-        pair.set(1_000_000e18, 2_040_000e18); // +2%: both pools due
-        _step(12);
-        address bot = address(0xB07);
+        (PoolId a, PoolId b, address bot) = _tipPools();
         vm.prank(bot);
         hook.sample(a);
         uint256 honest = usd.balanceOf(bot);
@@ -144,14 +135,44 @@ contract V03AuditSameTest is V03FixesTest {
         uint256 flashed = usd.balanceOf(bot) - honest;
         assertGt(flashed, 0);
         assertLt(flashed, honest * 12 / 10, "about the honest tip, not 10x");
-        // a lower reference price lowers a tip at once
-        pair.set(1_000_000e18, 2_100_000e18);
+    }
+
+    /// Vercel #4 follow-up: a flash dip of the reference lowers only the tip paid in that block. The stored rate
+    /// moves one step, so the next block's tip is back to about the honest one.
+    function test_vercel_flashRefDipDoesNotSuppressLaterTips() public {
+        (PoolId a, PoolId b, address bot) = _tipPools();
+        vm.prank(bot);
+        hook.sample(a); // the transaction's first tip (it carries the intrinsic gas), so later ones compare alike
+        uint256 t0 = usd.balanceOf(bot);
+        refPair.set(1_000e18, 300_000e18); // ETH flash-moved /10 for b's sample
+        vm.prank(bot);
+        hook.sample(b);
+        refPair.set(1_000e18, 3_000_000e18);
+        uint256 dipped = usd.balanceOf(bot) - t0;
+        pair.set(1_000_000e18, 2_100_000e18); // both still due next block
         _step(12);
-        refPair.set(1_000e18, 300_000e18); // ETH /10
-        uint256 before = usd.balanceOf(bot);
+        uint256 t1 = usd.balanceOf(bot);
         vm.prank(bot);
         hook.sample(a);
-        assertLt(usd.balanceOf(bot) - before, honest / 5, "follows the reference down at once");
+        uint256 honestA = usd.balanceOf(bot) - t1;
+        vm.prank(bot);
+        hook.sample(b);
+        uint256 afterB = usd.balanceOf(bot) - t1 - honestA;
+        assertLt(dipped * 5, afterB, "the dip lowered only its own block's tip");
+        assertGe(afterB * 100, honestA * 97, "next block: within a step of the honest tip");
+    }
+
+    function _tipPools() internal returns (PoolId a, PoolId b, address bot) {
+        vm.fee(1 gwei);
+        (, a) = _createSame(300_000e18, 600_000e18);
+        (, b) = _createSame(300_000e18, 600_000e18);
+        _ready(a);
+        _ready(b);
+        hook.fundJar(a, 0, 5000e18);
+        hook.fundJar(b, 0, 5000e18);
+        pair.set(1_000_000e18, 2_040_000e18); // +2%: both pools due
+        _step(12);
+        bot = address(0xB07);
     }
 
     function _lossCarrySame(PoolId id) internal view returns (uint256) {
