@@ -5,6 +5,8 @@
 import UIKit
 import Capacitor
 import CoreHaptics
+import AuthenticationServices
+import WebKit
 #if canImport(ActivityKit)
 import ActivityKit
 #endif
@@ -14,6 +16,7 @@ class MainViewController: CAPBridgeViewController {
   override open func capacitorDidLoad() {
     bridge?.registerPluginInstance(DiscipleHapticsPlugin())
     bridge?.registerPluginInstance(LiveFlightPlugin())
+    bridge?.registerPluginInstance(NativeAuthPlugin())
   }
 }
 
@@ -195,5 +198,74 @@ public class LiveFlightPlugin: CAPPlugin, CAPBridgedPlugin {
     #else
     call.resolve()
     #endif
+  }
+}
+
+// MARK: - Sign-in (X / Google / Apple through the system sheet)
+
+/// Social sign-in in the app (TestFlight build 1 feedback: X opened a browser, Google wasn't offered, Apple failed).
+/// Google refuses OAuth inside embedded web views, and inside the web view X can't reuse the login you already have. So when
+/// the site (Privy) navigates to a provider's authorize page, this cancels that load and opens the same page in iOS's
+/// ASWebAuthenticationSession instead: the system sign-in sheet, which shares Safari's logins (one tap when already signed
+/// in) and which Google allows. Privy's customOAuthRedirectUrl (web/components/PrivyMount.tsx) sends the result to
+/// disciple://oauth?…, which ends the sheet; the app then reloads the page it was on with those parameters, and the Privy
+/// SDK finishes signing in with the PKCE verifier it kept in the web view. Recognised: any authorize URL whose
+/// redirect_uri is Privy's (auth.privy.io), so no provider list needs keeping.
+@objc(NativeAuthPlugin)
+public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentationContextProviding {
+  public let identifier = "NativeAuthPlugin"
+  public let jsName = "NativeAuth"
+  public let pluginMethods: [CAPPluginMethod] = [
+    CAPPluginMethod(name: "supported", returnType: CAPPluginReturnPromise),
+    CAPPluginMethod(name: "enable", returnType: CAPPluginReturnPromise),
+  ]
+  static let scheme = "disciple"
+  private var session: ASWebAuthenticationSession?
+  /// Off until the page says Privy returns to disciple://oauth (web/components/PrivyMount.tsx calls enable). A site build
+  /// without that would return to https:// inside the sheet and never close it, so nothing is taken over before then.
+  private var enabled = false
+
+  @objc func supported(_ call: CAPPluginCall) { call.resolve(["supported": true, "scheme": Self.scheme]) }
+  @objc func enable(_ call: CAPPluginCall) { enabled = call.getString("redirect")?.hasPrefix(Self.scheme + "://") ?? false; call.resolve(["enabled": enabled]) }
+
+  /// An OAuth authorize request headed back to Privy (the only thing this plugin takes over).
+  static func isPrivyAuthorize(_ url: URL) -> Bool {
+    guard let c = URLComponents(url: url, resolvingAgainstBaseURL: false), c.host != "auth.privy.io" else { return false }
+    guard let r = c.queryItems?.first(where: { $0.name == "redirect_uri" })?.value, let ru = URL(string: r) else { return false }
+    return ru.host == "auth.privy.io"
+  }
+
+  override public func shouldOverrideLoad(_ navigationAction: WKNavigationAction) -> NSNumber? {
+    guard enabled, let url = navigationAction.request.url, Self.isPrivyAuthorize(url) else { return nil }
+    DispatchQueue.main.async { self.open(url) }
+    return true   // cancel the in-web-view load: the system sheet takes it
+  }
+
+  private func open(_ url: URL) {
+    session?.cancel()
+    let back = bridge?.webView?.url   // the page that started sign-in
+    let s = ASWebAuthenticationSession(url: url, callbackURLScheme: Self.scheme) { [weak self] callback, error in
+      DispatchQueue.main.async {
+        self?.session = nil
+        guard let wv = self?.bridge?.webView else { return }
+        guard error == nil, let cb = callback, var page = URLComponents(url: back ?? wv.url ?? URL(string: "https://www.disciple.vip/")!, resolvingAgainstBaseURL: false) else {
+          // cancelled or failed: reload the page so Privy's window isn't left spinning
+          wv.reload(); return
+        }
+        // privy_oauth_code / privy_oauth_state / privy_oauth_provider onto the page that started it
+        let extra = URLComponents(url: cb, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let keep = (page.queryItems ?? []).filter { q in !extra.contains(where: { $0.name == q.name }) }
+        page.queryItems = keep + extra
+        if let u = page.url { wv.load(URLRequest(url: u)) }
+      }
+    }
+    s.presentationContextProvider = self
+    s.prefersEphemeralWebBrowserSession = false   // share Safari's cookies: already signed in to X / Google = one tap
+    session = s
+    if !s.start() { session = nil; bridge?.webView?.reload() }
+  }
+
+  public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+    bridge?.webView?.window ?? ASPresentationAnchor()
   }
 }

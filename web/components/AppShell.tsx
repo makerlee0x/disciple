@@ -29,6 +29,7 @@ const CashHost = dynamic(() => import("./cash/CashHost"), { ssr: false });
 // and the Add to Home Screen sheet. Client-only, own chunks, nothing until they have something to show.
 const InAppBanner = dynamic(() => import("./mobile/InAppBanner"), { ssr: false });
 const FirstRunHost = dynamic(() => import("./mobile/FirstRunHost"), { ssr: false });
+const WelcomeIntro = dynamic(() => import("./mobile/WelcomeIntro"), { ssr: false });
 const InstallPrompt = dynamic(() => import("./mobile/InstallPrompt"), { ssr: false });
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -44,6 +45,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <CashHost />
       {!IS_STATIC_PREVIEW && <InAppBanner />}
       {!IS_STATIC_PREVIEW && <FirstRunHost />}
+      {!IS_STATIC_PREVIEW && <WelcomeIntro />}
       {!IS_STATIC_PREVIEW && <InstallPrompt />}
       {/* the plain "Test network" marker lives in the wallet strip (WalletButton), so it shows on every route incl. the game */}
       {!isGame && !IS_STATIC_PREVIEW && <InviteBanner />}

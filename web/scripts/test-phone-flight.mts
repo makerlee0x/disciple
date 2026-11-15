@@ -15,6 +15,22 @@ test("tilt: dead zone, linear, clamped, sign", async () => {
   assert.equal(tiltShare(NaN, 0), 0);
 });
 
+test("tilt from gravity: left and right both register, upright or flat, either axis convention", async () => {
+  const { rollDeg } = await import("../components/flight/TiltSteer.tsx");
+  const G = 9.81, d = (a: number) => (a * Math.PI) / 180;
+  // spec convention, phone upright (gravity reaction +y): right side down => x negative
+  const specUp = (deg: number) => rollDeg(-G * Math.sin(d(deg)), G * Math.cos(d(deg)), 0);
+  // iOS reports every axis inverted
+  const iosUp = (deg: number) => rollDeg(G * Math.sin(d(deg)), -G * Math.cos(d(deg)), 0);
+  const iosFlat = (deg: number) => rollDeg(G * Math.sin(d(deg)), 0, -G * Math.cos(d(deg)));
+  for (const f of [specUp, iosUp, iosFlat]) {
+    assert.ok(Math.abs(f(20) - 20) < 0.5, "right tilt reads right");
+    assert.ok(Math.abs(f(-20) + 20) < 0.5, "left tilt reads left (build 1 only steered right)");
+    assert.ok(Math.abs(f(0)) < 0.01);
+  }
+  assert.ok(Number.isNaN(rollDeg(NaN, 1, 1)));
+});
+
 test("rumble: coasting hum < hard climb, sinking near silent, capped", async () => {
   const { rumbleLevel } = await import("../components/flight/NativeRumble.tsx");
   const coast = rumbleLevel({ v: 0.3, climb: 0 }), climb = rumbleLevel({ v: 1, climb: 1, pending: 1 }), sink = rumbleLevel({ v: 0.5, climb: -0.6 });

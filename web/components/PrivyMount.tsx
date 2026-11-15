@@ -17,7 +17,7 @@ import { DEPOSIT_ACK_EVENT, DEPOSIT_CALL_EVENT, DEPOSIT_REPLY_EVENT, type Deposi
 import { FUND_ACK_EVENT, FUND_COPY, FUND_DEFAULT_USD, FUND_DONE_EVENT, FUND_EVENT, fundErrorLine, type FundRequest, type FundResult } from "@/lib/fund";
 const FUND_CLOSED = FUND_COPY.closed;
 import { currentInApp } from "@/lib/inAppBrowser";
-import { isNativeApp } from "@/lib/native";
+import { isNativeApp, nativePlugin } from "@/lib/native";
 import { needsEmbeddedWallet, ownerWalletAddress, type LinkedLike } from "@/lib/privyOwner";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { PRIVY_APP_ID, aaSession, registerPrivy, type PrivyAccountInfo, type PrivySecurity } from "@/lib/aa/session";
@@ -160,13 +160,19 @@ function DepositBridge() {
 /** Google refuses sign-in inside app browsers (X, Telegram, Instagram…): don't offer a button that can't work there. */
 const IN_APP = !!currentInApp();
 /**
- * DISCIPLE iPhone app: Google refuses embedded web views too, so it is hidden there. Apple requires Sign in with Apple
- * whenever another social login (X) is offered (App Review 4.8), so the app adds it. Privy dashboard: enable Apple.
+ * DISCIPLE iPhone app: X, Google and Apple sign in through iOS's system sign-in sheet (ASWebAuthenticationSession,
+ * mobile/ios/App/App/DiscipleNative.swift NativeAuthPlugin), not the web view: Google refuses embedded web views, and the
+ * sheet shares Safari's logins (one tap when already signed in). Privy returns to NATIVE_OAUTH_REDIRECT, which ends the
+ * sheet. Privy dashboard: add disciple://oauth to the allowed OAuth redirect URLs, and enable Google, Apple and X.
+ * Apple is required whenever another social login is offered (App Review 4.8).
  */
 const NATIVE = isNativeApp();
+export const NATIVE_OAUTH_REDIRECT = "disciple://oauth";
+// tell the app's NativeAuthPlugin that sign-in comes back on its scheme, so it may take provider pages into the system sheet
+if (NATIVE) void (nativePlugin("NativeAuth") as { enable?: (o: { redirect: string }) => Promise<unknown> } | null)?.enable?.({ redirect: NATIVE_OAUTH_REDIRECT })?.catch?.(() => {});
 type LoginMethod = "email" | "google" | "twitter" | "wallet" | "apple";
 export function loginMethodsFor(o: { inApp: boolean; native: boolean }): LoginMethod[] {
-  if (o.native) return ["email", "apple", "twitter", "wallet"];
+  if (o.native) return ["email", "google", "apple", "twitter", "wallet"];
   return o.inApp ? ["email", "twitter", "wallet"] : ["email", "google", "twitter", "wallet"];
 }
 
@@ -177,6 +183,8 @@ export default function PrivyMount() {
       appId={PRIVY_APP_ID}
       config={{
         loginMethods: loginMethodsFor({ inApp: IN_APP, native: NATIVE }),
+        // the app: OAuth runs in the system sheet and comes back on the app's own scheme (see NATIVE above)
+        ...(NATIVE ? { customOAuthRedirectUrl: NATIVE_OAUTH_REDIRECT, allowOAuthInEmbeddedBrowsers: true } : {}),
         // step 5 board "Sign in, account menu, Hangar signed out": the window in DISCIPLE gold with our mark and words
         appearance: {
           theme: "#14151B", accentColor: "#F2C14E", showWalletLoginFirst: false,

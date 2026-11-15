@@ -2,6 +2,8 @@
  * TURBO visibility gate. Hidden everywhere by default (prod included) with no env or Vercel changes needed.
  *
  * On when ANY of these is true:
+ *  0. Inside the DISCIPLE iPhone app (maker 2026-11-14: "Turbo 1v1 duel is our viral game, we want it on mobile"). The app
+ *     only ever gets practice duels (lib/turbo realTurboAllowed), and /turbo keeps its pre-launch password (TurboGate).
  *  1. Build-time NEXT_PUBLIC_TURBO=1 (not set anywhere today; optional for a preview build).
  *  2. Client-side localStorage "disciple.turbo.enabled.v1" === "1". Visiting any page that calls
  *     `syncTurboFlagFromUrl()` (or `isTurboEnabled()`) with `?turbo=1` sets it; `?turbo=0` clears it.
@@ -9,6 +11,8 @@
  * Server-side (no window) only rule 1 applies, so call isTurboEnabled() from an effect in client components to avoid a
  * hydration mismatch, and render notFound()/nothing until it says true.
  */
+
+import { isNativeApp } from "../native";
 
 export const TURBO_FLAG_KEY = "disciple.turbo.enabled.v1";
 
@@ -31,7 +35,7 @@ export function syncTurboFlagFromUrl(search?: string): boolean {
 }
 
 export function isTurboEnabled(): boolean {
-  if (envOn()) return true;
+  if (envOn() || isNativeApp()) return true;
   return syncTurboFlagFromUrl();
 }
 
