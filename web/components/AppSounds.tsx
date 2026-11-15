@@ -15,7 +15,7 @@ import { playSfx, preloadSfx, setBed } from "@/lib/game/sfx";
 import { resumeAudio } from "@/lib/game/audio";
 import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
 
-const UI = ["ui_tap", "ui_tap_primary", "ui_back", "sheet_open", "sheet_close", "ui_toggle_on", "ui_toggle_off", "ui_tab", "mode_swipe", "mode_snap", "mode_select"];
+const UI = ["ui_tap", "ui_tap_primary", "ui_back", "sheet_open", "sheet_close", "ui_toggle_on", "ui_toggle_off", "ui_tab", "mode_select"];
 const BACK = /^(back|close|cancel|dismiss|not now|done|close settings|close menu)\b/i;
 
 function bedFor(path: string): string | null {
