@@ -36,35 +36,7 @@
 @media (max-width: 900px) { .doorsUnder { grid-template-columns: minmax(0, 1fr); } .doorsUnder > :last-child { grid-column: 1; } }
 .side { flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 24px; }
 
-/* door two */
-.join { position: relative; overflow: hidden; padding: 28px; display: flex; flex-direction: column; gap: 18px; }
-.joinBloom { position: absolute; right: -60px; top: -60px; width: 220px; height: 220px; border-radius: 50%; pointer-events: none;
-  background: radial-gradient(closest-side, rgba(68, 212, 226, .35), rgba(68, 212, 226, 0)); }
-.live { position: relative; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dsc-muted-on-sky); }
-.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--dsc3-signal-up); }
-.live i.liveOff { background: var(--dsc-muted); }
-.joinEmpty { position: relative; margin: 0; max-width: 46ch; font-size: 15px; line-height: 1.5; color: var(--dsc-muted-on-sky); }
-.join[data-empty] .shuffle { text-decoration: none; }
-.joinTitle { position: relative; margin: 0; font: 800 48px / .95 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
-.ride { position: relative; display: flex; align-items: center; gap: 16px; color: var(--dsc-text); text-decoration: none; border-radius: 12px; min-width: 0; }
-.ride:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
-.rideRocket { width: 72px; height: 96px; border-radius: 12px; overflow: hidden; padding: 6px 0;
-  background: var(--dsc-sky-ink); box-sizing: border-box; }
-.rideRocket .bloom { top: 10%; }
-.rideTx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.rideTx b { font: 700 26px / 1.05 var(--dsc-font-game); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ride:hover .rideTx b { color: #FFFFFF; text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
-.rideSub { font: 12px var(--dsc-font-mono); color: var(--dsc-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rideNums { font-size: 13px; color: var(--dsc-muted-on-sky); }
-.joinActions { position: relative; display: flex; gap: 12px; }
-.dropIn { flex: 1 1 auto; }
-.shuffle {
-  all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  min-height: 52px; padding: 0 18px; border-radius: var(--dsc3-control-radius); border: 1px solid var(--dsc3-panel-border);
-  color: var(--dsc-text); font: 600 14px / 1 var(--dsc-font-ui);
-}
-.shuffle:hover { border-color: var(--dsc-border-color-strong, rgba(201, 206, 214, .45)); }
-.shuffle:focus-visible { box-shadow: var(--dsc-glow-focus-ring); }
+/* door two: components/home/JoinFlight (joinFlight.module.css) */
 
 /* daily missions, the mockup's lighter list (MissionsPanel's .xp-* classes) */
 .missions { flex: 1; padding: 24px 28px; gap: 16px; background: var(--dsc3-panel-glass); }
@@ -142,8 +114,6 @@
 @media (max-width: 760px) {
   .lobby { padding: 16px 16px 0; gap: 40px; }
   .doors, .side { gap: 16px; }
-  .join { padding: 20px; gap: 14px; }
-  .joinTitle { font-size: 40px; }
   .missions { padding: 20px; }
   .tiles { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: 72%; overflow-x: auto; scroll-snap-type: x mandatory;
     margin: 0 -16px; padding: 0 16px 4px; scrollbar-width: none; }
