@@ -12,6 +12,7 @@ import "./refresh-r2.css";
 import { barlowCondensed, geist, instrumentSerif } from "./fonts";
 import AppShell from "@/components/AppShell";
 import ChatBridge from "@/components/chat/ChatBridge";
+import AppSounds from "@/components/AppSounds";
 import PrivyProviders from "@/components/PrivyProviders";
 import IconSprite from "@/components/icons/IconSprite";
 import { sponsorshipConfig } from "@/lib/server/sponsorshipConfig";
@@ -64,6 +65,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: GAME_ROUTE_JS }} />
         <script id={SPONSORSHIP_CONFIG_ID} type="application/json" dangerouslySetInnerHTML={{ __html: JSON.stringify(sponsorshipConfig()) }} />
         <IconSprite />
+        <AppSounds />
         <PrivyProviders>
           <AppShell>{children}</AppShell>
           <ChatBridge />

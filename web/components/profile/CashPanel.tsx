@@ -11,6 +11,7 @@ import type { Address } from "@/lib/protocol";
 import TestCashButton from "@/components/TestCashButton";
 import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
 import { OPEN_CASH_EVENT } from "@/lib/cashLink";
+import { playSfx } from "@/lib/game/sfx";
 
 const erc20 = parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]);
 type Row = { symbol: string; address: Address; bal: bigint; dec: number };
@@ -37,6 +38,7 @@ export default function CashPanel() {
   const [amt, setAmt] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => { if (msg) playSfx(msg.ok ? "withdraw_sent" : "ui_error"); }, [msg]);
   const [copied, setCopied] = useState(false);
   const [quote, setQuote] = useState<{ fee: bigint; minAmount: bigint; feeTo: string; usdgDecimals: number } | null>(null);
   const [quoteErr, setQuoteErr] = useState<string | null>(null);

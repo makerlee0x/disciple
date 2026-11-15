@@ -1,51 +1,55 @@
 "use client";
-/* Flight sound cues: the engine fires disciple:sfx {k} (ignite, fill, fail, bomb, zone, orbit, trick); this plays a short WebAudio synth
-   for each one, at the SFX volume from game settings (muted = silent). No audio files, nothing loads until the first cue. */
+/* Flight sounds for the main trading flight (recorded CC0 pack, lib/game/sfx). The engine fires disciple:sfx {k}:
+     ignite  a BOOST (boost_small, boost_big from $50) or a DUMP (bomb_fall) press
+     fill    the trade landed (trade_fill_buy / trade_fill_sell)        fail   it didn't (tx_fail)
+     bomb    a dump bomb goes off, by tier: GRENADE … NUKE (bomb_grenade … nuke)
+     zone    a new tier (zone_up); tier 0 = wingmen drafting in (crew_join)
+     trick   spin / flip (trick_whoosh)                                 orbit  you reached orbit (ath_reached)
+   and, while disciple:thrustsfx is on, ~10×/s disciple:thrust {v, pending}: the engine hum follows the flame, and soft
+   blips loop while a trade is pending. The ambience bed is wind (AppSounds), and turns to the thin-air hum at orbit.
+   All of it runs at the Sound effects level from Settings. */
 import { useEffect } from "react";
-import { audioLevel } from "@/lib/game/settings";
+import { playSfx, setBed, startLoop, type LoopHandle } from "@/lib/game/sfx";
 
-type Note = { f: number; to?: number; d: number; type?: OscillatorType; at?: number; g?: number };
-const CUES: Record<string, Note[]> = {
-  ignite: [{ f: 180, to: 520, d: 0.18, type: "sawtooth", g: 0.25 }],
-  fill: [{ f: 660, d: 0.08, type: "triangle" }, { f: 990, d: 0.12, type: "triangle", at: 0.07 }],
-  fail: [{ f: 300, to: 150, d: 0.22, type: "square", g: 0.18 }],
-  bomb: [{ f: 120, to: 40, d: 0.45, type: "sawtooth", g: 0.4 }],
-  zone: [{ f: 520, d: 0.1, type: "sine" }, { f: 780, d: 0.16, type: "sine", at: 0.09 }],
-  trick: [{ f: 500, to: 1400, d: 0.28, type: "triangle", g: 0.2 }],
-  orbit: [{ f: 523, d: 0.16, type: "triangle" }, { f: 659, d: 0.16, type: "triangle", at: 0.12 }, { f: 784, d: 0.3, type: "triangle", at: 0.24 }],
-};
+const BOMBS = ["bomb_grenade", "bomb_bunker", "bomb_warhead", "bomb_moab", "bomb_atom", "nuke"];
 
 export default function FlightSfx() {
   useEffect(() => {
-    let ac: AudioContext | null = null;
-    let last = 0;
+    let hum: LoopHandle | null = null, pend: LoopHandle | null = null, humV = -1, pendOn = false;
     const on = (e: Event) => {
-      const k = String((e as CustomEvent).detail?.k || "");
-      const notes = CUES[k];
-      const vol = audioLevel("sfx");
-      if (!notes || vol <= 0) return;
-      const now = performance.now();
-      if (now - last < 40) return;   // rapid fills: one cue per 40ms
-      last = now;
-      try {
-        ac = ac || new AudioContext();
-        if (ac.state === "suspended") void ac.resume();
-        const t0 = ac.currentTime;
-        for (const n of notes) {
-          const o = ac.createOscillator(), g = ac.createGain(), t = t0 + (n.at || 0);
-          o.type = n.type || "sine";
-          o.frequency.setValueAtTime(n.f, t);
-          if (n.to) o.frequency.exponentialRampToValueAtTime(n.to, t + n.d);
-          g.gain.setValueAtTime(0.0001, t);
-          g.gain.exponentialRampToValueAtTime(Math.max(0.0002, (n.g ?? 0.2) * vol), t + 0.01);
-          g.gain.exponentialRampToValueAtTime(0.0001, t + n.d);
-          o.connect(g).connect(ac.destination);
-          o.start(t); o.stop(t + n.d + 0.02);
-        }
-      } catch { /* no audio: stay silent */ }
+      const d = ((e as CustomEvent).detail || {}) as { k?: string; side?: string; usd?: number; tier?: number };
+      switch (d.k) {
+        case "ignite": playSfx(d.side === "sell" ? "bomb_fall" : (d.usd || 0) >= 50 ? "boost_big" : "boost_small", { gapMs: 40 }); break;
+        case "fill": playSfx(d.side === "sell" ? "trade_fill_sell" : "trade_fill_buy", { gapMs: 40 }); break;
+        case "fail": playSfx("tx_fail"); break;
+        case "bomb": playSfx(BOMBS[Math.max(0, Math.min(BOMBS.length - 1, d.tier || 0))], { gapMs: 30 }); break;
+        case "zone": playSfx(d.tier ? "zone_up" : "crew_join"); break;
+        case "trick": playSfx("trick_whoosh"); break;
+        case "orbit": playSfx("ath_reached"); setBed("amb_orbit_hum"); break;
+      }
+    };
+    const onThrust = (e: Event) => {
+      const d = ((e as CustomEvent).detail || {}) as { v?: number; pending?: number };
+      const v = Math.round((0.14 + 0.22 * Math.max(0, Math.min(1, d.v || 0))) * 40) / 40;
+      if (!hum) hum = startLoop("engine_loop");
+      if (v !== humV) { humV = v; hum.set(v, 0.9 + 0.35 * (d.v || 0)); }
+      const p = !!d.pending;
+      if (p !== pendOn) {
+        pendOn = p;
+        if (p) { pend = startLoop("tx_pending"); pend.set(0.5); } else { pend?.stop(); pend = null; }
+      }
     };
     addEventListener("disciple:sfx", on);
-    return () => { removeEventListener("disciple:sfx", on); void ac?.close(); };
+    addEventListener("disciple:thrust", onThrust);
+    const ask = () => dispatchEvent(new CustomEvent("disciple:thrustsfx", { detail: { on: true } }));
+    ask(); const iv = setInterval(ask, 2000);   // the engine script may load after this mounts
+    return () => {
+      clearInterval(iv);
+      removeEventListener("disciple:sfx", on);
+      removeEventListener("disciple:thrust", onThrust);
+      dispatchEvent(new CustomEvent("disciple:thrustsfx", { detail: { on: false } }));
+      hum?.stop(); pend?.stop();
+    };
   }, []);
   return null;
 }

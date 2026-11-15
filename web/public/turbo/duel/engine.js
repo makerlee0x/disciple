@@ -148,7 +148,7 @@ function mount(root,host){
       setBook(pl,ev.book); pushPrice(ev.price,ev.ts); ui();
     } else if(ev.type==="chat"){ say(pl,ev.text); }
     else if(ev.type==="trick"){ if(!pl.me) trick(pl,ev.kind); }
-    else if(ev.type==="overtime"){ G.ot=true; G.len=ev.endAt-G.startAt; toast("Overtime! 30 more seconds."); sfx("ot"); }
+    else if(ev.type==="overtime"){ G.ot=true; G.len=ev.endAt-G.startAt; toast("Overtime! 30 more seconds."); sfx("ot"); bed("amb_tension"); }
     else if(ev.type==="leave"){ if(!pl.me) toast(`${esc(G.bot.name)} left. Their trades still count.`); }
     else if(ev.type==="end"){ endNet(ev.result); }
   }
@@ -186,6 +186,7 @@ function mount(root,host){
   function frame(now){
     const dt=Math.min(.05,(now-(last||now))/1000); last=now;
     humTick(!!(G&&G.started&&!G.over), G&&G.me?Math.min(1,(G.me.flame||0)/2.2):0);
+    if(G&&G.started&&!G.over&&G.bot){ const ld=profitOf(G.me)-profitOf(G.bot), side=ld>0.05?1:ld<-0.05?-1:0; if(side&&G.leadSide&&side!==G.leadSide&&now>(G.leadAt||0)){ G.leadAt=now+2500; sfx("lead"); } if(side) G.leadSide=side; }
     if(G&&G.started&&!G.over){
       G.t=now_()-G.startAt;
       if(!(M&&M.net)){
@@ -194,7 +195,7 @@ function mount(root,host){
       }
       if(!(M&&M.net)&&G.t>=G.len){
         const d=profitOf(G.me)-profitOf(G.bot);
-        if(!G.ot&&Math.abs(d)<0.25*FUEL0/20){ G.ot=true; G.len+=30000; toast("Overtime! 30 more seconds."); sfx("ot"); }
+        if(!G.ot&&Math.abs(d)<0.25*FUEL0/20){ G.ot=true; G.len+=30000; toast("Overtime! 30 more seconds."); sfx("ot"); bed("amb_tension"); }
         else end();
       }
       ui();
@@ -577,12 +578,13 @@ function mount(root,host){
   /* ---------- sound + haptics ---------- */
   let ac=null, muted=false;
   try{muted=localStorage.getItem("duel.mute")==="1";}catch(e){}
-  function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx(); loadLoop("engine_loop");}catch(e){} } if(ac&&ac.state==="suspended") ac.resume(); }
+  function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx(); loadLoop("engine_loop");}catch(e){} } bedSync(); if(ac&&ac.state==="suspended") ac.resume(); }
   // recorded CC0 sounds (web/public/audio/sfx, see its README/SOURCES.csv). Each event picks one take at random.
   const SFX_BASE=A.sfxBase||"/audio/sfx/", BUF={};
   const SND={boost:["boost_small_01","boost_small_02","boost_small_03"],boostBig:["boost_big_01","boost_big_02"],dump:["bomb_fall_01","bomb_fall_02"],
     win:["cash_out"],lose:["explosion_small_01","explosion_small_02","explosion_small_03"],bomb:["nuke"],tick:["lever_notch_01","lever_notch_02","lever_notch_03"],
-    go:["boost_big_01"],trick:["zone_up"],ot:["lock_on"],matchWin:["champion_01","champion_02"],matchLose:["explosion_big_01","explosion_big_02"],nukeWarn:["nuke_warning_02"]};
+    go:["race_go"],trick:["trick_whoosh"],ot:["overtime_horn"],matchWin:["champion_01","champion_02"],matchLose:["duel_lose_sting"],nukeWarn:["nuke_warning_02"],
+    count:["countdown_beep"],found:["match_found"],ready:["ready_lock"],lead:["lead_swap"],rateUp:["rating_up"],rateDn:["rating_down"],shutter:["share_shutter"],boom:["explosion_big_01","explosion_big_02"]};
   const VOL={dump:.7,tick:.6,nukeWarn:.55};
   function loadS(n){ if(!ac||n in BUF) return; BUF[n]=null; fetch(SFX_BASE+n+".m4a").then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{BUF[n]=b;}).catch(()=>{BUF[n]=false;}); }
   function preloadSfx(){ for(const k in SND) SND[k].forEach(loadS); }
@@ -598,6 +600,15 @@ function mount(root,host){
       if(pan&&ac.createStereoPanner){ const pn=ac.createStereoPanner(); pn.pan.value=Math.max(-1,Math.min(1,pan)); g.connect(pn); pn.connect(outBus()); } else g.connect(outBus()); src.start(); }catch(e){} }
   // rivals: at most one sound every 0.2 s, so a busy sky doesn't drown out your own
   function rivalSfx(k,vol,pan){ const t=performance.now(); if(t-lastRival<200) return; lastRival=t; sfx(k,vol,pan); }
+  // ambience beds (public/audio/amb): mission control in the lobby, wind in the race, tension in overtime
+  const BEDS={amb_mission_control:57,amb_wind_high:58,amb_tension:57}; let bedWant=null, bedOn=null;
+  function bed(n){ bedWant=n; bedSync(); }
+  function bedSync(){ if(!ac||(bedOn&&bedOn.n)===bedWant) return; const old=bedOn; bedOn=null;
+    if(old){ try{ old.g.gain.setTargetAtTime(0,ac.currentTime,.6); setTimeout(()=>{ try{old.s.stop();}catch(e){} },3000); }catch(e){} }
+    const n=bedWant; if(!n||muted) return; const key="bed:"+n;
+    const go=b=>{ if(bedWant!==n||(bedOn&&bedOn.n===n)) return; try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; src.loop=true; src.loopStart=0; src.loopEnd=Math.min(BEDS[n],b.duration); g.gain.value=0; src.connect(g); g.connect(outBus()); src.start(); g.gain.setTargetAtTime(.5,ac.currentTime,.7); bedOn={n,s:src,g}; }catch(e){} };
+    if(BUF[key]) return go(BUF[key]); if(key in BUF) return; BUF[key]=null;
+    fetch(SFX_BASE.replace(/sfx\/$/,"amb/")+n+".m4a").then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{ BUF[key]=b; go(b); }).catch(()=>{ BUF[key]=false; }); }
   // engine hum: a gapless loop under everything while you fly, louder and higher while the flame is lit
   let hum=null, humV=-1, humR=-1;
   function loadLoop(n){ const key="loop:"+n; if(!ac||key in BUF) return; BUF[key]=null; fetch(SFX_BASE+"loops-wav/"+n+".wav").then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{BUF[key]=b;}).catch(()=>{BUF[key]=false;}); }
@@ -608,7 +619,7 @@ function mount(root,host){
     const v=Math.round((.16+.2*boost)*50)/50, r=Math.round((.92+.3*boost)*50)/50;
     if(v!==humV){ humV=v; hum.g.gain.setTargetAtTime(v,ac.currentTime,.15); } if(r!==humR){ humR=r; hum.s.playbackRate.setTargetAtTime(r,ac.currentTime,.2); } }
   function buzz(p){ try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
-  function setMute(m){ muted=m; try{ host.mute&&host.mute(m); }catch(e){} $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); $("mute").setAttribute("aria-label",m?"Unmute sound":"Mute sound"); try{localStorage.setItem("duel.mute",m?"1":"0");}catch(e){} }
+  function setMute(m){ muted=m; if(m){ const o=bedOn; bedOn=null; if(o) try{o.s.stop();}catch(e){} } else bedSync(); try{ host.mute&&host.mute(m); }catch(e){} $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); $("mute").setAttribute("aria-label",m?"Unmute sound":"Mute sound"); try{localStorage.setItem("duel.mute",m?"1":"0");}catch(e){} }
   $("mute").addEventListener("click",()=>{ensureAudio(); setMute(!muted);});
   // a clicked button keeps focus, and Space/Enter would press it again (mute would un-mute on your next BOOST)
   root.addEventListener("click",e=>{ const b=e.target&&e.target.closest&&e.target.closest("button"); if(b&&e.detail>0) b.blur(); });
@@ -622,7 +633,7 @@ function mount(root,host){
     FX.parts.length=0; FX.pops.length=0; cam={y:0,vy:0,z:1}; ui();
     const c=$("count"), pc=$("preCount"); c.hidden=true; let shown=null;
     const iv=setInterval(()=>{ if(dead){clearInterval(iv);return;} const left=G.startAt-now_(); const n=Math.ceil(left/1000);
-      if(left>0){ if(n!==shown){ shown=n; pc.textContent=n; pc.style.animation="none"; void pc.offsetWidth; pc.style.animation=""; if(n<=3) sfx("tick"); } return; }
+      if(left>0){ if(n!==shown){ shown=n; pc.textContent=n; pc.style.animation="none"; void pc.offsetWidth; pc.style.animation=""; if(n<=3) sfx("count"); } return; }
       clearInterval(iv); const pre=$("pre"); pre.classList.add("out"); setTimeout(()=>{ if(pre.classList.contains("out")) pre.hidden=true; },380);
       c.hidden=false; c.textContent="GO"; sfx("go"); buzz(30); G.started=true; setTimeout(()=>c.hidden=true,450);
       if(!(M&&M.net)&&Math.random()<.6) botSay(pick(["glhf","let's go","you're going down","\ud83e\udee1"]),1500);
@@ -664,7 +675,7 @@ function mount(root,host){
     $("rMom").innerHTML=all.length?all.map(m=>`<div><span><span class="t">${mmss(m.t)}</span>${m.txt}</span><b style="color:${m.v>=0?"var(--green)":"var(--pinkl)"}">${usd(m.v,true)}</b></div>`).join(""):`<div><span>No trades this time.</span></div>`;
     $("rRec").textContent=`${rec.w}-${rec.l}`; $("rRat").parentElement.querySelector("small").textContent=net&&M.ranked?"Rating":"Rating (unranked)"; $("rRat").innerHTML=`${rec.rating.toLocaleString("en-US")} <span style="font-size:14px;color:${dr>=0?"var(--green)":"var(--pinkl)"}">${dr>=0?"+":"\u2212"}${Math.abs(dr)}</span>`; $("rStr").textContent=rec.streak;
     $("rAgain").textContent="REMATCH";
-    sfx(win?"matchWin":"matchLose"); buzz(win?[20,40,20,40,60]:[80]);
+    sfx(win?"matchWin":"matchLose"); buzz(win?[20,40,20,40,60]:[80]); if(dr) setTimeout(()=>sfx(dr>0?"rateUp":"rateDn"),1400);
     if(win&&!tie&&!reduce){ const cols=["242,193,78","95,240,160","255,255,255","255,143,189","143,184,255"]; for(let k=0;k<3;k++) setTimeout(()=>{ for(let i=0;i<70;i++) part({x:SW*(.2+Math.random()*.6),y:SH*.25,vx:rnd(-260,260),vy:rnd(-520,-120),g:520,drag:.6,life:rnd(1.6,2.6),size:rnd(3,6),col:cols[i%cols.length],add:false}); },k*350); }
     setTimeout(()=>{$("result").hidden=false; $("rAgain").focus();},700);
   }
@@ -675,7 +686,7 @@ function mount(root,host){
     $("go").textContent=SIGNED?"FIND A MATCH":"SIGN IN TO DUEL"; $("mkLink").textContent=SIGNED?"CREATE DUEL LINK":"SIGN IN TO DUEL"; }
   /* the pre-match lobby is its own full screen (the board stays hidden and the chart doesn't draw until GO) */
   const PANES=["intro","search","invite","vs","launch"], STEP={intro:1,search:2,invite:2,vs:3,launch:4};
-  function show(id){ for(const k of [...PANES,"result"]) $(k).hidden=k!==id;
+  function show(id){ for(const k of [...PANES,"result"]) $(k).hidden=k!==id; bed(id==="launch"?"amb_wind_high":"amb_mission_control");
     const pre=PANES.includes(id); $("pre").hidden=!pre; $("pre").classList.remove("out"); if(pre) stage(id);
     if(id==="intro"){ paintLobby(); lerr(""); } }
   function stage(id){ $("arena").dataset.stage=id; const n=STEP[id];
@@ -702,14 +713,14 @@ function mount(root,host){
   $("joinF").addEventListener("submit",e=>{ e.preventDefault(); if(!SIGNED){ host.signIn(); return; } const v=$("joinI").value.trim(); if(!v) return; ensureAudio(); mode="friend"; lerr(""); host.join(v); });
   function practice(){ M={net:false,ranked:false}; OFF=0; opp={name:BOTS[botKey].name,bot:true}; openVs("BOT MATCH",{name:BOTS[botKey].name,bot:true},"bot match \u00b7 no rating"); }
   let opp=null;
-  function openVs(tag,o,kind){ show("vs"); opp=o; $("vTag").textContent=tag; $("vName").textContent=o.name; $("vAv").textContent=o.name.replace("@","").slice(0,2).toUpperCase();
+  function openVs(tag,o,kind){ show("vs"); sfx("found"); opp=o; $("vTag").textContent=tag; $("vName").textContent=o.name; $("vAv").textContent=o.name.replace("@","").slice(0,2).toUpperCase();
     $("vMe").textContent=`${REC.rating.toLocaleString("en-US")} \u00b7 ${REC.w}-${REC.l}`; $("vThem").textContent=o.bot?"bot":`${(o.rating||1200).toLocaleString("en-US")} \u00b7 ${o.w||0}-${o.l||0}`;
     $("vSub").textContent=`${M&&M.fuel?"FRIEND":botKey.toUpperCase()} \u00b7 ${money(curFuel())} fuel each \u00b7 ${lenTxt()} \u00b7 ${kind}`;
     for(const id of ["vMeR","vThemR"]){ $(id).classList.toggle("on",!!(id==="vThemR"&&o.ready)); $(id).textContent=id==="vThemR"&&o.ready?"READY":"NOT READY"; }
     if(o.bot){ $("vThemR").classList.add("on"); $("vThemR").textContent="READY"; }   // a bot is always ready
     $("vReady").disabled=false; $("vReady").textContent="READY"; $("vAuto").hidden=!!o.bot;
     let n=10; $("vT").textContent=n; clearInterval(vIv); if(!o.bot) vIv=setInterval(()=>{ n--; $("vT").textContent=Math.max(0,n); if(n<=0){ clearInterval(vIv); meReady(); } },1000); }
-  function meReady(){ clearInterval(vIv); $("vMeR").classList.add("on"); $("vMeR").textContent="READY"; $("vReady").disabled=true; $("vReady").textContent="WAITING\u2026"; sfx("tick");
+  function meReady(){ clearInterval(vIv); $("vMeR").classList.add("on"); $("vMeR").textContent="READY"; $("vReady").disabled=true; $("vReady").textContent="WAITING\u2026"; sfx("ready");
     if(M&&!M.net){ setTimeout(()=>{ M.startAt=Date.now()+3500; M.endAt=M.startAt+LEN; start(); },350); return; }
     host.ready(); }
   $("vReady").addEventListener("click",meReady);
@@ -804,7 +815,7 @@ function mount(root,host){
     x.font=`800 38px ${GF},sans-serif`; x.fillStyle="#F2C14E"; x.fillText("1V1 ME · DISCIPLE.VIP",W/2,H-60);
     return c;
   }
-  async function shareResult(){
+  async function shareResult(){ sfx("shutter");
     if(!LAST) return;
     const btn=$("rShare"); btn.disabled=true; const was=btn.textContent; btn.textContent="…";
     try{

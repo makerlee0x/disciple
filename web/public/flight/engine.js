@@ -1463,7 +1463,9 @@ addEventListener('disciple:tilt',e=>{ const g=e.detail&&e.detail.g; S.tiltIn=typ
    continuous Core Haptics rumble. Off by default, so the browser pays nothing. */
 S.rumble=false; S.rumbleT=0;
 addEventListener('disciple:rumble',e=>{ S.rumble=!!(e.detail&&e.detail.on); });
-function rumblePub(flame){ if(!S.rumble||S.t-S.rumbleT<0.1) return; S.rumbleT=S.t;
+/* FlightSfx (engine hum + pending-trade blips) listens to the same thrust reading: disciple:thrustsfx {on} */
+S.thrustSfx=false; addEventListener('disciple:thrustsfx',e=>{ S.thrustSfx=!!(e.detail&&e.detail.on); });
+function rumblePub(flame){ if((!S.rumble&&!S.thrustSfx)||S.t-S.rumbleT<0.1) return; S.rumbleT=S.t;
   try{ dispatchEvent(new CustomEvent('disciple:thrust',{detail:{v:clamp(flame/1.4,0,1),climb:clamp((S.vyS||0)/600,-1,1),pending:tradePendingFx()?1:0}})); }catch(_){} }
 function trickGesture(d,e){ const dt=performance.now()-d.t0, dx=d.dx||0, dy=d.dy||0;
   if(dy<-55&&Math.abs(dy)>Math.abs(dx)*1.3&&dt<450){ S.lastTap=0; trick('spin'); return; }

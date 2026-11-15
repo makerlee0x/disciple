@@ -307,7 +307,7 @@ function open(pl,side){
   if(pl.pos&&pl.pos.side!==side) close(pl,"flip");
   let st=Math.min(ww.usd,Math.floor(pl.fuel*100)/100); if(st<.5){ if(pl.me) toast("Out of fuel. Cash out first."); return; }
   const p=price(pl), size=st*ww.lev, fee=size*FEE; pl.fuel-=st+fee; w.ammo--;
-  if(w.ammo<=0&&w.k!=="PISTOL"){ dropWeapon(pl,w); if(pl.me){ feed("m","∅",`Your <b>${w.k}</b> is out of ammo`); paintHot(); } }
+  if(w.ammo<=0&&w.k!=="PISTOL"){ dropWeapon(pl,w); if(pl.me){ feed("m","∅",`Your <b>${w.k}</b> is out of ammo`); paintHot(); setTimeout(()=>sfx("empty"),180); } }
   else if(pl.me) paintHot();
   if(pl.pos){ const tot=pl.pos.size+size; pl.pos.entry=tot/(pl.pos.size/pl.pos.entry+size/p); pl.pos.size=tot; pl.pos.coll+=st; }
   else pl.pos={side,coll:st,size,entry:p,t:G.t,w};
@@ -335,7 +335,7 @@ function liqCheck(pl){
 // a shield is an extra life: it takes the hit from one NUKE or one storm cut
 function saved(pl,what){ pl.shields--;
   if(pl.me){ feed("s","◆",`Your shield took the ${what} · you're still in`); FX.pops.push({txt:"SHIELD SAVED YOU",c:"#8FB8FF",x:SW/2,y:LAY.mid-LAY.rh*.9,age:0,max:2,size:30});
-    FX.rings.push({x:xOf(pl),y:pl.y||LAY.mid,r:20,vr:520,life:.7,max:.7,w:10,col:"143,184,255"}); sfx("grab"); buzz([30,30,60]); }
+    FX.rings.push({x:xOf(pl),y:pl.y||LAY.mid,r:20,vr:520,life:.7,max:.7,w:10,col:"143,184,255"}); sfx(pl.shields>0?"shHit":"shBrk"); buzz([30,30,60]); }
   else if(pl.mk===G.me.mk||what!=="NUKE") feed("s","◆",`<b>${pl.name}</b>'s shield took the ${what}`); }
 function stormCut(why){ if(G&&G.me.alive) sfx("storm"); for(const pl of alive().sort((a,b)=>profit(a)-profit(b))){ if(pl.shields>0){ saved(pl,"storm cut"); continue; } knockOut(pl,why(pl)); return; } }
 function knockOut(pl,why){
@@ -343,7 +343,7 @@ function knockOut(pl,why){
   if(pl.df) endDf(pl.df,true);
   if(pl.me){ feed("p","☢",`You were ${why}`); sfx("out"); endMe(); }
   else if(pl.y!=null) rivalSfx("lose",.45,(xOf(pl)/SW)*2-1);
-  else feed("p","☢",`<b>${pl.name}</b> ${why}`);
+  else { feed("p","☢",`<b>${pl.name}</b> ${why}`); rivalSfx("knock",.6); }
 }
 
 /* ---------- your controls ---------- */
@@ -465,7 +465,7 @@ function startFinal(){
   { const L=[.14,.86,.3,.7,.1,.9]; let i=0; for(const pl of alive()){ if(pl.me){ pl.lane=.5; } else pl.lane=L[i++%L.length]; pl.xt=pl.xo=0; } }
   G.mapOpen=false;
   G.final={next:G.t+G.P.shrink}; G.band={top:topP(),w:G.P.w0};
-  feed("m","◎",`<b>FINAL CIRCLE</b> on BTC · ${alive().length} left`); sfx("ot"); 
+  feed("m","◎",`<b>FINAL CIRCLE</b> on BTC · ${alive().length} left`); sfx("ot"); bed("amb_tension"); 
   if(alive().length<=2) startDuel();
 }
 const topP=()=>Math.max(...alive().map(profit))+.6;
@@ -473,7 +473,7 @@ const bandBot=()=>G.band.top-2*G.band.w;
 function shrink(){
   G.band.w=Math.max(1.5,G.band.w*.7); G.final.next=G.t+G.P.shrink;
   if(alive().length>2) stormCut(p=>"stormed out at "+usd(profit(p),true));
-  if(G.over) return; if(alive().length<=2) startDuel(); else { feed("p","◎",`Band shrinks · ${alive().length} left`); sfx("ot"); }
+  if(G.over) return; if(alive().length<=2) startDuel(); else { feed("p","◎",`Band shrinks · ${alive().length} left`); sfx("shrink"); }
 }
 function startDuel(){
   const [a,b]=alive(); if(!b){ winner(a); return; }
@@ -560,7 +560,7 @@ function finishVote(){
   paintVote(); VOTE.res={tie,n,map:MAP}; return VOTE.res;
 }
 let dropT=0, dropIv=0;
-function showDrop(){ $("result").hidden=true; $("drop").hidden=false; G=null; buildDrop(); newVote(); dropT=15; $("dT").textContent=mmss(dropT);
+function showDrop(){ $("result").hidden=true; $("drop").hidden=false; bed("amb_mission_control"); G=null; buildDrop(); newVote(); dropT=15; $("dT").textContent=mmss(dropT);
   clearInterval(dropIv); dropIv=setInterval(()=>{ dropT--; $("dT").textContent=mmss(dropT); voteTick(15-dropT); if(dropT<=0){ clearInterval(dropIv); go(); } },1000); }
 $("dGo").addEventListener("click",()=>{ ensureAudio(); clearInterval(dropIv); go(); });
 function go(){
@@ -568,8 +568,8 @@ function go(){
   $("drop").hidden=true; newGame(); G.me.y=null; FX.parts.length=FX.pops.length=FX.rings.length=0;
   $("feed").innerHTML=""; buildJump(); const c=$("count"); c.hidden=false; let n=3;
   const show=()=>{ c.innerHTML=`<div><small>DROPPING INTO ${G.me.mk}</small><small class="cmap">${mapLine}</small>${n}</div>`; };
-  show(); sfx("tick");
-  const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("tick"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); buzz(30); G.started=true; setTimeout(()=>c.hidden=true,450);
+  show(); sfx("count"); bed("amb_wind_high"); oneShotAmb("amb_mothership_pass",.7);
+  const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("count"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); sfx("drop",.8); buzz(30); G.started=true; setTimeout(()=>c.hidden=true,450);
     feed("m","☁",`${inMk(G.me.mk).length} pilots in ${G.me.mk} · 12 in the game`);
     feed("m","🗳",vr.tie?`Map vote tied ${vr.n[0]}-${vr.n[1]}. Random sky: <b>${MAP.n}</b>`:`Map vote ${Math.max(...vr.n)}-${Math.min(...vr.n)}: <b>${MAP.n}</b>`); },800);
 }
@@ -591,7 +591,7 @@ function endMe(){
     $("rWatch").hidden=win||alive().length<2;
     $("result").hidden=false;
     if(win&&!reduce){ const cols=["242,193,78","95,240,160","255,255,255","255,143,189"]; for(let k=0;k<3;k++) setTimeout(()=>{ for(let i=0;i<70;i++) part({x:SW*(.2+Math.random()*.6),y:SH*.25,vx:rnd(-260,260),vy:rnd(-520,-120),g:520,drag:.6,life:rnd(1.6,2.6),size:rnd(3,6),col:cols[i%cols.length],add:false}); },k*350); }
-    sfx(win?"champ":"out");
+    sfx(win?"champ":"outSting"); if(!win) bed(null);
   },win?300:900);
 }
 $("rAgain").addEventListener("click",()=>showDrop());
@@ -664,7 +664,7 @@ function hud(){
   else bn.hidden=true;
   // jump row
   const m=G.M[me.mk], warn=me.alive&&!G.final&&!G.duel&&m.closeAt!=null&&G.t>=m.closeAt-G.P.warn, mapv=me.alive&&!G.final&&!G.duel&&G.mapOpen, jv=warn||mapv;
-  if(warn&&!G.warned){ G.warned=me.mk; sfx("warn"); buzz([40,60,40]); } if(!warn) G.warned=null;
+  if(warn&&!G.warned){ G.warned=me.mk; sfx("stormWarn"); bed("amb_storm_wall"); buzz([40,60,40]); } if(!warn){ if(G.warned&&!G.final) bed("amb_wind_high"); G.warned=null; }
   if($("jump").hidden===jv){ $("jump").hidden=!jv; if(jv) buildJump(); }
   $("jump").classList.toggle("map",!warn); $("jX").hidden=warn; $("mapB").classList.toggle("on",jv); $("mapB").hidden=!!(G.final||G.duel||!me.alive);
   if(jv){ $("jT").textContent=warn?`THE STORM TAKES ${me.mk} IN ${mmss(m.closeAt-G.t)} · JUMP, YOUR PNL COMES WITH YOU`:(G.t<G.jumpCool?`ENGINES COOLING · ${Math.ceil(G.jumpCool-G.t)} S`:"JUMP TO · YOUR PNL COMES WITH YOU · AN OPEN TRADE CASHES OUT"); paintJump(); }
@@ -742,8 +742,9 @@ function fxTrade(pl,side,st){ if(pl.y==null) return;
   for(let i=0;i<Math.round((24+k*40)*m);i++){const a=Math.PI/2+rnd(-.6,.6), sp=rnd(220,600); part({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:rnd(.35,.85),size:rnd(2,4.8),col:Math.random()<.5?c1:c2});}
   for(let i=0;i<Math.round(8*m);i++) part({x:x+rnd(-10,10),y:y+rnd(0,20),vx:rnd(-90,90),vy:rnd(60,200),life:rnd(.8,1.5),size:rnd(14,26),col:"235,232,245",kind:"smoke",add:false});
   FX.rings.push({x,y:y+6,r:8,vr:380+k*300,life:.45,max:.45,w:6+k*4,col:c1});
-  if(pl.me){ FX.flash=Math.max(FX.flash,.12+k*.15); FX.flashC=side>0?"255,206,100":"240,48,127"; sfx(side>0?(st>=20?"boostBig":"boost"):"dump"); buzz(side>0?18:[10,20,10]); }
-  else rivalSfx(side>0?(st>=20?"boostBig":"boost"):"dump",.3,(xOf(pl)/SW)*2-1);
+  const gk="g:"+((pl.pos&&pl.pos.w&&pl.pos.w.k)||"PISTOL");
+  if(pl.me){ FX.flash=Math.max(FX.flash,.12+k*.15); FX.flashC=side>0?"255,206,100":"240,48,127"; sfx(gk); sfx(side>0?(st>=20?"boostBig":"boost"):"dump",.45); buzz(side>0?18:[10,20,10]); }
+  else rivalSfx(SND[gk]?gk:"g:PISTOL",.3,(xOf(pl)/SW)*2-1);
 }
 function fxBomb(pl){ if(pl.y==null) return; const x=xOf(pl), y=pl.y; if(!pl.me) sfx("nuke",.4,(x/SW)*2-1); if(sheet("nuke",x,y-LAY.rh*.35,pl.me?LAY.rh*3.2:LAY.rh*2.2,1.5)){ FX.shake=Math.max(FX.shake,14); FX.pops.push({txt:"NUKE",c:"#F0307F",x,y:y-80,age:0,max:1.6,size:34}); return; }
   part({x,y,vx:0,vy:0,life:.5,size:150,kind:"ball",drag:0});
@@ -973,14 +974,18 @@ function drawSky(dt,now){
 
 /* ---------- sound ---------- */
 let ac=null, muted=false; try{muted=localStorage.getItem("royale.mute")==="1";}catch(e){}
-function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx(); loadLoop("engine_loop");}catch(e){} } if(ac&&ac.state==="suspended") ac.resume(); }
+function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx(); loadLoop("engine_loop");}catch(e){} } bedSync(); if(ac&&ac.state==="suspended") ac.resume(); }
 // recorded CC0 sounds (PR 404, web/public/audio/sfx). Each event picks one take at random; no synth beeps.
-const SFX_BASE=A.sfxBase||"../../audio/sfx/", BUF={};
+const SFX_BASE=A.sfxBase||"../../audio/sfx/", AMB_BASE=A.ambBase||"../../audio/amb/", BUF={};
 const SND={boost:["boost_small_01","boost_small_02","boost_small_03"],boostBig:["boost_big_01","boost_big_02"],dump:["bomb_fall_01","bomb_fall_02"],
-  cash:["cash_out"],lose:["explosion_small_01","explosion_small_02","explosion_small_03"],tick:["lever_notch_01","lever_notch_02","lever_notch_03"],go:["boost_big_01"],
-  lock:["lock_on"],win:["zone_up"],warn:["nuke_warning_01"],ot:["lock_on"],jump:["zone_up"],grab:["weapon_pickup_common"],grabRare:["weapon_pickup_rare"],grabLeg:["weapon_pickup_legendary"],
+  cash:["cash_out"],lose:["explosion_small_01","explosion_small_02","explosion_small_03"],tick:["lever_notch_01","lever_notch_02","lever_notch_03"],go:["race_go"],
+  lock:["lock_on"],win:["hit_marker_01","hit_marker_02"],warn:["nuke_warning_01"],ot:["lock_on"],jump:["map_jump"],grab:["weapon_pickup_common"],grabRare:["weapon_pickup_rare"],grabLeg:["weapon_pickup_legendary"],
   ammo:["lever_notch_02"],pod:["pod_land_01","pod_land_02","pod_land_03"],nuke:["nuke"],brk:["weapon_break_01","weapon_break_02"],nukeWarn:["nuke_warning_02"],
-  out:["explosion_big_01","explosion_big_02"],storm:["storm_close"],champ:["champion_01","champion_02"],full:["wallet_full"],swap:["lever_cancel"]};
+  out:["explosion_big_01","explosion_big_02"],storm:["storm_close"],champ:["champion_01","champion_02"],full:["wallet_full"],swap:["lever_cancel"],
+  count:["countdown_beep"],hit:["hit_marker_01","hit_marker_02"],shHit:["shield_hit"],shBrk:["shield_break"],empty:["gun_empty"],drop:["drop_in"],
+  stormWarn:["storm_warning"],shrink:["zone_shrink"],knock:["knock_feed"],outSting:["royale_out_sting"],
+  "g:PISTOL":["gun_pistol_01","gun_pistol_02"],"g:MACHINE GUN":["gun_machine_01","gun_machine_02"],"g:MINIGUN":["gun_minigun"],"g:SHOTGUN":["gun_shotgun_01","gun_shotgun_02"],
+  "g:SNIPER":["gun_sniper"],"g:ROCKET LAUNCHER":["gun_rocket"],"g:RAILGUN":["gun_railgun"]};
 const VOL={dump:.7,tick:.6,ammo:.7,nukeWarn:.55,warn:.8,swap:.8};
 const srcOf=n=>A["sfx:"+n]||SFX_BASE+n+".m4a";
 function loadS(n){ if(!ac||n in BUF) return; BUF[n]=null; fetch(srcOf(n)).then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{BUF[n]=b;}).catch(()=>{BUF[n]=false;}); }
@@ -998,6 +1003,17 @@ function sfx(k,vol,pan){ if(!ac||muted||sfxLvl<=0) return; const list=SND[k]; if
     if(pan&&ac.createStereoPanner){ const pn=ac.createStereoPanner(); pn.pan.value=Math.max(-1,Math.min(1,pan)); g.connect(pn); pn.connect(outBus()); } else g.connect(outBus()); src.start(); }catch(e){} }
 // rivals: at most one sound every 0.2 s, so a busy sky doesn't drown out your own
 function rivalSfx(k,vol,pan){ const t=performance.now(); if(t-lastRival<200) return; lastRival=t; sfx(k,vol,pan); }
+// ambience beds (public/audio/amb): mission control at the drop, wind in the sky, the storm wall while a market is closing,
+// tension in the final circle and the last dogfight. One at a time, crossfaded, looped on its exact length.
+const BEDS={amb_mission_control:57,amb_wind_high:58,amb_storm_wall:72,amb_tension:57}; let bedWant=null, bedOn=null;
+function bed(n){ if(bedWant===n) return; bedWant=n; bedSync(); }
+function bedSync(){ if(!ac||(bedOn&&bedOn.n)===bedWant) return; const old=bedOn; bedOn=null;
+  if(old){ try{ old.g.gain.setTargetAtTime(0,ac.currentTime,.6); setTimeout(()=>{ try{old.s.stop();}catch(e){} },3000); }catch(e){} }
+  const n=bedWant; if(!n||muted) return; const key="bed:"+n;
+  const go=b=>{ if(bedWant!==n||(bedOn&&bedOn.n===n)) return; try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; src.loop=true; src.loopStart=0; src.loopEnd=Math.min(BEDS[n],b.duration); g.gain.value=0; src.connect(g); g.connect(outBus()); src.start(); g.gain.setTargetAtTime(.5,ac.currentTime,.7); bedOn={n,s:src,g}; }catch(e){} };
+  if(BUF[key]) return go(BUF[key]); if(key in BUF) return; BUF[key]=null;
+  fetch(AMB_BASE+n+".m4a").then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{ BUF[key]=b; go(b); }).catch(()=>{ BUF[key]=false; }); }
+function oneShotAmb(n,vol){ if(!ac||muted||sfxLvl<=0) return; fetch(AMB_BASE+n+".m4a").then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{ try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; g.gain.value=vol||.8; src.connect(g); g.connect(outBus()); src.start(); }catch(e){} }).catch(()=>{}); }
 // engine hum: a gapless loop under everything while you fly, louder and higher while the flame is lit
 let hum=null, humV=-1, humR=-1;
 function loadLoop(n){ const key="loop:"+n; if(!ac||key in BUF) return; BUF[key]=null; fetch(SFX_BASE+"loops-wav/"+n+".wav").then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{BUF[key]=b;}).catch(()=>{BUF[key]=false;}); }
@@ -1010,7 +1026,7 @@ function humTick(on,boost){ if(!ac) return;
 function buzz(p){ try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
 function toParent(d){ try{ if(parent!==window) parent.postMessage(d,location.origin); }catch(e){} }
 let unlockSent=false; addEventListener("pointerdown",()=>{ if(!unlockSent){ unlockSent=true; toParent({type:"disciple:unlock"}); } },true);
-function setMute(m){ muted=m; toParent({type:"disciple:mute",m}); $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); try{localStorage.setItem("royale.mute",m?"1":"0");}catch(e){} }
+function setMute(m){ muted=m; if(m){ const o=bedOn; bedOn=null; if(o) try{o.s.stop();}catch(e){} } else bedSync(); toParent({type:"disciple:mute",m}); $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); try{localStorage.setItem("royale.mute",m?"1":"0");}catch(e){} }
 $("mute").addEventListener("click",()=>{ensureAudio(); setMute(!muted);}); setMute(muted);
 function toggleMap(){ if(!G||!G.started||!G.me.alive||G.final||G.duel) return; G.mapOpen=!G.mapOpen; hud(); }
 $("mapB").addEventListener("click",toggleMap); $("jX").addEventListener("click",()=>{ if(G){ G.mapOpen=false; hud(); } });
