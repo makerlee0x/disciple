@@ -219,17 +219,21 @@ const STEPS = [
   { n: "04", t: "Reach orbit", d: "Climb past the Kármán Line and the rocket graduates." },
 ];
 
-/** The four beats of a match, at the foot of the lobby (full guide on How to play). */
+/** The four beats of a match, at the foot of the lobby. Plain text (maker 2026-11-15: four cells that all opened the same page
+ * read as four different buttons); one link to the full guide on How to play. */
 export function LobbySteps() {
   return (
-    <nav className={s.steps} aria-label="How to play">
-      {STEPS.map((x) => (
-        <Link key={x.n} href="/how-it-works" className={s.stepCell}>
-          <span className={s.stepN}>{x.n}</span>
-          <b>{x.t}</b>
-          <span>{x.d}</span>
-        </Link>
-      ))}
-    </nav>
+    <section className={s.stepsWrap} aria-label="How to play">
+      <ol className={s.steps}>
+        {STEPS.map((x) => (
+          <li key={x.n} className={s.stepCell}>
+            <span className={s.stepN}>{x.n}</span>
+            <b>{x.t}</b>
+            <span>{x.d}</span>
+          </li>
+        ))}
+      </ol>
+      <Link href="/how-it-works" className={s.stepsMore} data-testid="lobby-steps-how">How to play <Icon name="chevron-right" size={14} /></Link>
+    </section>
   );
 }

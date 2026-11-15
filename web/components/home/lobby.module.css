@@ -124,18 +124,20 @@
 .freshTx span { font-size: 12px; color: var(--dsc-muted); white-space: nowrap; }
 
 /* the four steps, at the foot of the lobby */
-.steps { max-width: 1280px; margin: 64px auto 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px;
+.stepsWrap { max-width: 1280px; margin: 64px auto 0; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+.stepsMore { display: inline-flex; align-items: center; gap: 4px; font: var(--dsc3-type-small); font-weight: 600; color: var(--dsc3-light-gold); text-decoration: none; }
+.stepsMore:hover { text-decoration: underline; }
+.stepsMore:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); border-radius: 4px; }
+.steps { width: 100%; margin: 0; padding: 0; list-style: none; box-sizing: border-box; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px;
   border-radius: var(--dsc3-panel-radius); overflow: hidden; background: var(--dsc3-panel-border); border: 1px solid var(--dsc3-panel-border); }
 .stepCell { display: flex; flex-direction: column; gap: 8px; padding: 24px; background: #16181C; color: var(--dsc-text); text-decoration: none; }
-.stepCell:hover { background: #1B1E23; }
-.stepCell:focus-visible { outline: none; box-shadow: inset var(--dsc-glow-focus-ring); }
 .stepN { font: var(--dsc3-type-label); color: var(--dsc3-light-gold); }
 .stepCell b { font: var(--dsc3-type-h3); text-transform: uppercase; }
 .stepCell > span:last-child { font: var(--dsc3-type-small); color: var(--dsc-muted-on-sky); }
 
 @media (max-width: 1100px) {
   .lobby { padding: 24px 24px 0; }
-  .steps { margin: 48px 24px 0; }
+  .stepsWrap { margin: 48px 24px 0; }
 }
 @media (max-width: 760px) {
   .lobby { padding: 16px 16px 0; gap: 40px; }
@@ -150,7 +152,8 @@
   .orbitGrid { grid-template-columns: minmax(0, 1fr); }
   .freshRow { margin: 0 -16px; padding: 0 16px 4px; }
   .allHd { margin-bottom: 0; }
-  .steps { margin: 40px 16px 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stepsWrap { margin: 40px 16px 0; }
+  .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stepCell { padding: 18px; }
 }
 @media (prefers-reduced-motion: reduce) { .orbit { transition: none; } .orbit:hover { transform: none; } }

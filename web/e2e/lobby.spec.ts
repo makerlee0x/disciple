@@ -6,14 +6,12 @@ import type { Page } from "@playwright/test";
 const out = (page: Page) => page.getByTestId("lobby-signed-out");
 
 test.describe("first visit", () => {
-  test("lobby opens on Pick a mode with Free play in focus", async ({ page }) => {
+  test("lobby opens on Pick a mode as a carousel", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByTestId("lobby-signed-out")).toBeVisible();
     const modes = out(page).getByTestId("mode-select");
     await expect(modes.getByRole("heading", { name: "Pick a mode" })).toBeVisible();
     for (const id of ["launch", "live", "free"]) await expect(out(page).getByTestId(`mode-${id}`)).toBeAttached();
-    // signed out it opens on Free play
-    await expect(out(page).getByTestId("mode-free")).toHaveAttribute("aria-current", "true");
     // Trading duel stays hidden until the Turbo flag is on
     await expect(out(page).getByTestId("mode-duel")).toHaveCount(0);
   });
@@ -26,50 +24,39 @@ test.describe("first visit", () => {
     for (const name of [/lobby/i, /launch/i, /top pilots/i]) await expect(bar.getByRole("link", { name }).first()).toBeVisible();
   });
 
-  test("desktop: first click focuses a card, the second plays it", async ({ page }) => {
-    test.skip(isPhone(page), "phones: tap the middle card to play, a side card to centre it (below)");
+  test("one click on any card opens it", async ({ page }) => {
+    test.skip(isPhone(page), "phones: see the tap test below");
     await page.goto("/");
     const live = out(page).getByTestId("mode-live");
     await hydrated(live);
-    await live.click();
-    await expect(live).toHaveAttribute("aria-current", "true");
-    await expect(page).toHaveURL(/\/$/);
     await live.click();
     // nothing is flying on the stand-in chain, so /play falls back to the launch builder
     await expect(page).toHaveURL(/\/(create|coin\/)/);
   });
 
-  test("desktop: arrow keys move focus and Enter plays", async ({ page }) => {
+  test("desktop: arrow keys move between cards and Enter plays", async ({ page }) => {
     test.skip(isPhone(page), "keyboard row is desktop only");
     await page.goto("/");
     await hydrated(out(page).getByTestId("mode-free"));
     await out(page).getByTestId("mode-free").focus();
     await page.keyboard.press("ArrowLeft");
-    await expect(out(page).getByTestId("mode-live")).toHaveAttribute("aria-current", "true");
+    await expect(out(page).getByTestId("mode-live")).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowRight"); // wraps round
+    await expect(out(page).getByTestId("mode-launch")).toBeFocused();
     await page.keyboard.press("ArrowLeft");
-    await expect(out(page).getByTestId("mode-launch")).toHaveAttribute("aria-current", "true");
-    await page.keyboard.press("ArrowLeft"); // wraps round
-    await expect(out(page).getByTestId("mode-free")).toHaveAttribute("aria-current", "true");
+    await expect(out(page).getByTestId("mode-free")).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/flight\/sim/);
   });
 
-  test("phone: tapping the middle card goes straight to it", async ({ page }) => {
-    test.skip(!isPhone(page), "phone only");
-    await page.goto("/");
-    await out(page).getByTestId("mode-free").tap();
-    await expect(page).toHaveURL(/\/flight\/sim/);
-    await expect(page.getByTestId("sim-select")).toBeVisible();
-  });
-
-  test("phone: tapping a side card slides it to the middle instead of playing it", async ({ page }) => {
+  test("phone: one tap on a card opens it, even one at the side", async ({ page }) => {
     test.skip(!isPhone(page), "phone only");
     await page.goto("/");
     const live = out(page).getByTestId("mode-live");
     await hydrated(live);
     await live.tap({ position: { x: 20, y: 120 } });
-    await expect(live).toHaveAttribute("aria-current", "true");
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/(create|coin\/)/);
   });
 
   test("the Trading duel card shows once the Turbo flag is on", async ({ page }) => {

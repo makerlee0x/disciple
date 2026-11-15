@@ -16,8 +16,8 @@ test("sign in from the lobby, see the welcome toast and the pilot chip, then sig
   // the signed-in lobby replaces the landing page
   await expect(page.getByTestId("lobby")).toBeVisible();
   await expect(page.getByTestId("lobby-signed-out")).toHaveCount(0);
-  // signed in, Pick a mode opens on Live flights
-  await expect(page.getByTestId("mode-live")).toHaveAttribute("aria-current", "true");
+  // signed in, Pick a mode is on the lobby
+  await expect(page.getByTestId("mode-live")).toBeVisible();
 
   // the key survives a reload (same pilot, no second welcome)
   await page.reload();
