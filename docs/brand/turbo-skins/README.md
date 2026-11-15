@@ -4,14 +4,21 @@ Contact sheets and mockups for draft PR #399. These files are here so they are n
 
 Nothing is wired up. This folder is art review only.
 
+Round 2 explosions, skin fixes, emblems, skies, opened chests, props and icons are in `r2/`.
+
 ## Game sprite folders
 
 - `web/public/turbo/duel/skins/` — 10 rival skins for the original hull, plus trail colour notes
 - `web/public/turbo/duel/skins/player/` — 18 player unlock skins for the original hull
 - `web/public/turbo/duel/hulls/<hull>/` — chrome starter and 10 rival skins for each of 8 hulls
 - `web/public/turbo/duel/hulls/<hull>/player/` — the same 18 player skins on each hull
-- `web/public/turbo/royale/chests/` — six supply-drop crates and an opened Legendary
+- `web/public/turbo/royale/chests/` — six supply-drop crates and an opened state for every tier (opened Common through Mythic, and the champagne Mythic closed crate, are from round 2)
 - `web/public/turbo/royale/weapons/` and `weapons/pods/` — 7 sci-fi weapons, windowed pods and glow layers
+- `web/public/turbo/fx/` — explosion sprite sheets (round 2)
+- `web/public/turbo/royale/maps/` — map emblems (round 2)
+- `web/public/turbo/sky-hype.png` and `sky-sol.png` — vertical HYPE and SOL skies (round 2)
+- `web/public/turbo/royale/` — also the storm wall, mothership and Last Pilot trophy (round 2)
+- `web/public/turbo/icons/` — ammo, map and lock-on icons (round 2)
 
 Silver chrome is the starter skin. Each hull's chrome file is that hull's starter. XP costs, chest prices and drop odds are left blank for lee.
 

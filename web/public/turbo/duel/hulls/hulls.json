@@ -50,7 +50,7 @@
    "player_dir": "bullet/player"
   },
   "needle": {
-   "w": 300,
+   "w": 376,
    "h": 1024,
    "files": {
     "chrome": "needle/hull-needle-chrome.png",
@@ -67,8 +67,8 @@
    },
    "nozzles": [
     {
-     "x": 147,
-     "y": 1014,
+     "x": 181,
+     "y": 1013,
      "scale": 1.0
     }
    ],

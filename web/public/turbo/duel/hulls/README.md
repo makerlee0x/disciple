@@ -15,7 +15,7 @@ Each hull has its own folder. Files are named `hull-<hull>-<skin>.png` for chrom
 | Hull | Size (px) | Chrome starter | Nozzles |
 |---|---|---|---|
 | `bullet/` | 464×1024 | `hull-bullet-chrome.png` | Centre, plus two smaller side nozzles |
-| `needle/` | 300×1024 | `hull-needle-chrome.png` | One centre nozzle. Very thin; every skin is hard to read at in-game size. |
+| `needle/` | 376×1024 | `hull-needle-chrome.png` | One centre nozzle. Widened in round 2 by about 27% (mid-body 130 px vs 102 px), with the same nose and fins. Canvas is 376 px wide, up from 300. |
 | `pulp/` | 572×1024 | `hull-pulp-chrome.png` | One centre nozzle |
 | `twin-booster/` | 446×1024 | `hull-twin-booster-chrome.png` | Two main boosters and a smaller centre nozzle |
 | `shuttle/` | 590×1024 | `hull-shuttle-chrome.png` | Centre, plus two smaller nozzles just above it |
@@ -37,6 +37,8 @@ The same 18 XP unlock skins as `../skins/player/`, fitted to each hull's chrome 
 
 ## Rarity colours
 
-Common grey `#A7AFBE`, Uncommon mint `#5FF0A0`, Rare blue `#4F8BFF`, Epic purple `#A066FF`, Legendary orange `#FF9A3C`, Mythic gold `#F2C14E` or champagne `#F3DFA8` (lee to decide). These colours mark skin and chest tiers. Hull rarity itself is for lee to set.
+Common grey `#A7AFBE`, Uncommon mint `#5FF0A0`, Rare blue `#4F8BFF`, Epic purple `#A066FF`, Legendary orange `#FF9A3C`, Mythic champagne `#F3DFA8`. These colours mark skin and chest tiers. Hull rarity itself is for lee to set. `hulls.json` lists the needle at 376×1024, with its centre nozzle at 181,1013.
 
 Previews: `../../../../../docs/brand/turbo-skins/hulls-chrome.webp`, `hulls-overview.webp`, `hulls-sheet-<hull>.webp`, and `player-hulls-overview.webp`.
+
+Round 2 needle and dark-skin previews: `../../../../../docs/brand/turbo-skins/r2/skins-fix-needle.webp` and `skins-fix-hulls.webp`.
