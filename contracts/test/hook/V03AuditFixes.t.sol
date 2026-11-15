@@ -120,6 +120,37 @@ contract V03AuditSameTest is V03FixesTest {
         assertLe(_lossCarrySame(id), worth / 100, "at most the one-step mark, not 20%");
     }
 
+    /// Vercel #3 follow-up: on a 0.25% pool the sample counts at most 0.25% from the centre, so the same flash
+    /// books (almost) no loss: the fee covers the clamped mark.
+    function test_vercel_flashSampleLowFeeBooksNoFakeLoss() public {
+        (PoolKey memory key, PoolId id) = hook.createPool(
+            DiscipleHook.CreateParams({
+                coin: address(coin),
+                quote: address(usd),
+                fee: 2500,
+                src: _src(0),
+                coinIn: 300_000e18,
+                quoteIn: 600_000e18,
+                srcKey: _noKey(),
+                srcKey2: _noKey()
+            })
+        );
+        _ready(id);
+        hook.claim(id, 1);
+        hook.claimCreator(id);
+        uint256 a0 = hook.poolState(id).anchorX128;
+        _step(12);
+        pair.set(1_000_000e18, 2_400_000e18); // flash +20% for the sample
+        hook.sample(id);
+        pair.set(1_000_000e18, 2_000_000e18); // put back
+        BalanceDelta d = _swap(key, true, -int256(1000e18));
+        (int128 dc,) = _cq(key, d);
+        uint256 c = uint256(int256(dc));
+        _step(12);
+        hook.withdraw(id, 1, 0, 0);
+        assertLe(_lossCarrySame(id), Math.mulDiv(c, a0, Q128) / 10_000, "at most 1bp of the fill, not 20%");
+    }
+
     /// Vercel #4: the reference pool (WETH/USD) is flash-moved x10 for one sample. The tip is paid at the lower of
     /// the live rate and a stored rate that moves one step per block, so it stays about the honest tip.
     function test_vercel_flashRefDoesNotInflateTip() public {

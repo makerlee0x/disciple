@@ -814,9 +814,10 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     {
         (uint256 spot, uint24 srcFee) = _latchSame(p, true);
         uint256 a = p.anchorX128;
-        // v0.3 (Vercel review): the block's first-touch sample counts at most one step from the centre, so a
-        // flash-moved sample can book at most a one-step loss on a fill (the live spot still bounds real moves)
-        uint256 sm = SM.stepToward(a, p.sampleX128, minStep);
+        // v0.3 (Vercel review): the block's first-touch sample counts at most the pool's fee (and at most one step)
+        // from the centre, so a flash-moved sample cannot book a loss the fee does not cover. Real moves are still
+        // marked in full: the live spot is the other reading.
+        uint256 sm = SM.stepToward(a, p.sampleX128, p.fee < minStep ? p.fee : minStep);
         (lo, hi) = sm < spot ? (sm, spot) : (spot, sm);
         if (a < lo) lo = a; // pool buys coin: value it at the lowest reading
         if (a > hi) hi = a; // pool sells coin: value it at the highest reading
