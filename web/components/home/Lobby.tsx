@@ -1,8 +1,8 @@
 "use client";
 /**
  * The lobby (brand v3 lobby mockup, https://claude.ai/artifact/7wmDkSPQft2uUxTB1j99ZL): door one (`hero`, HomeHero's
- * LAUNCH A ROCKET card, about 3/4 of the row) beside a column with door two (JOIN A FLIGHT: a live rocket to drop into,
- * with Shuffle) and today's missions; then the shelves (Climbing now, About to reach orbit, Fresh off the pad) and the
+ * LAUNCH A ROCKET card, about 3/4 of the row) beside a column with door two (JOIN A FLIGHT, components/home/JoinFlight: today's top rocket,
+ * live chart and crew) and today's missions; then the shelves (Climbing now, About to reach orbit, Fresh off the pad) and the
  * header for every rocket. Every number comes from the HomeData the hero paints with (chain launches + indexed trades),
  * refreshed by the hero's poll ("dsc:home-data"). A shelf with nothing to show is left out.
  */
@@ -10,7 +10,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { fmtUsd } from "@/lib/config";
 import {
-  climbingNow, fmtAgeShort, freshOffPad, nearOrbit, rankTrending, ROCKET_SRC, tierProgress,
+  climbingNow, fmtAgeShort, freshOffPad, nearOrbit, ROCKET_SRC,
   type HomeCoin, type HomeData,
 } from "@/lib/home/trending";
 import { withBase } from "@/lib/base-path";
@@ -18,6 +18,7 @@ import { blankXp, usePilotWallet, useXp } from "@/lib/xpClient";
 import Icon from "@/components/icons/Icon";
 import MissionsPanel from "@/components/xp/MissionsPanel";
 import LiveCard from "./LiveCard";
+import JoinFlight from "./JoinFlight";
 import { CrewAboardProvider } from "@/components/crew/CrewAboard";
 import AwayCard from "@/components/push/AwayCard";
 import { CREW_ENABLED, LOGBOOK_ENABLED } from "@/lib/features";
@@ -50,68 +51,6 @@ function ShelfHead({ id, title, sub, children }: { id: string; title: string; su
       </div>
       {children}
     </header>
-  );
-}
-
-/** Door two: one live rocket to drop into. Shuffle walks the trending list (then the newest), never a graduated one. */
-function JoinFlight({ coins }: { coins: HomeCoin[] }) {
-  const pool = useMemo(() => {
-    const live = coins.filter((c) => !c.graduated);
-    const hot = rankTrending(live).slice(0, 8);
-    return hot.length ? hot : [...live].sort((a, b) => b.block - a.block).slice(0, 8);
-  }, [coins]);
-  const [i, setI] = useState(0);
-  const c = pool.length ? pool[i % pool.length] : null;
-  // nothing live: same panel, pointing at the two ways to fly anyway (maker 2026-11-14)
-  if (!c) return (
-    <section className={`dsc3-panel ${s.join}`} aria-labelledby="lobby-join-title" data-testid="lobby-join" data-empty="1">
-      <span className={s.joinBloom} aria-hidden />
-      <span className={s.live}><i aria-hidden className={s.liveOff} />Nothing flying yet</span>
-      <h2 id="lobby-join-title" className={s.joinTitle}>Join a flight</h2>
-      <p className={s.joinEmpty}>No rockets are in the air right now. Host the first launch and your crew flies it up, or warm up in Free play.</p>
-      <div className={s.joinActions}>
-        <Link href="/create" className={`dsc3-btn dsc3-btn-white ${s.dropIn}`} data-testid="lobby-host">Host a launch</Link>
-        <Link href="/flight/sim" className={s.shuffle}>Free play</Link>
-      </div>
-    </section>
-  );
-  const tier = tierProgress(c.mcapUsd);
-  const crew = c.stats?.crew ?? null;
-  const chg = c.stats?.chg24 ?? null;
-  const orbit = c.progressBps == null && !c.graduated ? null : orbitPct(c);
-  return (
-    <section className={`dsc3-panel ${s.join}`} aria-labelledby="lobby-join-title" data-testid="lobby-join" style={lit(c)}>
-      <span className={s.joinBloom} aria-hidden />
-      <span className={s.live}><i aria-hidden />Live now{crew ? ` · ${crew.toLocaleString("en-US")} ${crew === 1 ? "pilot" : "pilots"} aboard` : ""}</span>
-      <h2 id="lobby-join-title" className={s.joinTitle}>Join a flight</h2>
-      <Link href={flightHref(c)} prefetch={false} className={s.ride} aria-label={`${c.name}, open its flight`}>
-        <Rocket c={c} className={s.rideRocket} />
-        <span className={s.rideTx}>
-          <b>{c.name}</b>
-          <span className={s.rideSub}>{c.ticker} · Tier {tier.index + 1} · {tier.title}</span>
-          {orbit != null && (
-            <span className="dsc3-bar dsc3-bar-climb" role="progressbar" aria-label="Progress to orbit" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(orbit)}>
-              <i style={{ width: `${orbit}%` }} />
-            </span>
-          )}
-          {(orbit != null || chg != null) && (
-            <span className={s.rideNums}>
-              {orbit != null ? `${pct(orbit)} to orbit` : null}
-              {orbit != null && chg != null ? " · " : null}
-              {chg != null ? <em className={chg >= 0 ? s.up : s.dn}>{chg >= 0 ? "+" : "−"}{pct(Math.abs(chg))} today</em> : null}
-            </span>
-          )}
-        </span>
-      </Link>
-      <div className={s.joinActions}>
-        <Link href={flightHref(c)} prefetch={false} className={`dsc3-btn dsc3-btn-white ${s.dropIn}`} data-testid="lobby-drop-in">Drop in</Link>
-        {pool.length > 1 && (
-          <button type="button" className={s.shuffle} onClick={() => setI((n) => n + 1)} aria-label="Show another live rocket" data-testid="lobby-shuffle">
-            <Icon name="shuffle" size={15} /> Shuffle
-          </button>
-        )}
-      </div>
-    </section>
   );
 }
 
@@ -219,17 +158,21 @@ const STEPS = [
   { n: "04", t: "Reach orbit", d: "Climb past the Kármán Line and the rocket graduates." },
 ];
 
-/** The four beats of a match, at the foot of the lobby (full guide on How to play). */
+/** The four beats of a match, at the foot of the lobby. Plain text (maker 2026-11-15: four cells that all opened the same page
+ * read as four different buttons); one link to the full guide on How to play. */
 export function LobbySteps() {
   return (
-    <nav className={s.steps} aria-label="How to play">
-      {STEPS.map((x) => (
-        <Link key={x.n} href="/how-it-works" className={s.stepCell}>
-          <span className={s.stepN}>{x.n}</span>
-          <b>{x.t}</b>
-          <span>{x.d}</span>
-        </Link>
-      ))}
-    </nav>
+    <section className={s.stepsWrap} aria-label="How to play">
+      <ol className={s.steps}>
+        {STEPS.map((x) => (
+          <li key={x.n} className={s.stepCell}>
+            <span className={s.stepN}>{x.n}</span>
+            <b>{x.t}</b>
+            <span>{x.d}</span>
+          </li>
+        ))}
+      </ol>
+      <Link href="/how-it-works" className={s.stepsMore} data-testid="lobby-steps-how">How to play <Icon name="chevron-right" size={14} /></Link>
+    </section>
   );
 }
