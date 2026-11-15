@@ -29,7 +29,7 @@ interface EngineApi {
 declare global { interface Window { DuelEngine?: { mount(root: HTMLElement, host: unknown): EngineApi } } }
 
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
-const ENGINE_SRC = "/turbo/duel/engine.js?v=13";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=14";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
@@ -92,7 +92,7 @@ export default function DuelScreen() {
     };
 
     const host = {
-      assets: Object.fromEntries(["rocket", ...SKIES].map((k) => [k, `/turbo/duel/${k}.webp`])),
+      assets: { ...Object.fromEntries(["rocket", ...SKIES].map((k) => [k, `/turbo/duel/${k}.webp`])), art: "/art/modes/duel.webp" },
       history: () => hist.filter((h) => h.ts > Date.now() - 60_000),
       signIn: () => { try { privyLogin(); } catch (e) { api?.error((e as Error).message); } },
       quickMatch: (tier: TierId, len: LengthMs) => { stopQueue(); queued = { tier, len }; void pollQueue(); },
