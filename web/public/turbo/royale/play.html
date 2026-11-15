@@ -828,7 +828,7 @@ document.querySelectorAll("[data-len]").forEach(b=>b.addEventListener("click",()
  * Two skies from the pool, never last match's. All 12 pilots vote during the drop timer (the 11 bots trickle in);
  * you can change your vote until the drop. Most votes wins; a tie goes to a random sky from the whole pool. */
 const MAPS=[{n:"MOONRISE",k:"sky0"},{n:"THE PAD",k:"skyPad"},{n:"CLOUD DECK",k:"sky2"},{n:"BLUE MOON",k:"skyEth"},
-  {n:"ORANGE ORBIT",k:"skyBtc"},{n:"DEEP SPACE",k:"sky4"},{n:"PINK DUSK",k:"sky1",g:"240,48,127,.38"}].filter(m=>A[m.k]);
+  {n:"ORANGE ORBIT",k:"skyBtc"},{n:"DEEP SPACE",k:"sky4"},{n:"AURORA",k:"skyHype"},{n:"TEAL ORBIT",k:"skySol"},{n:"PINK DUSK",k:"sky1",g:"240,48,127,.38"}].filter(m=>A[m.k]);
 let VOTE=null, MAP=MAPS[0];
 function newVote(){
   let last=null; try{ last=localStorage.getItem("royale.map"); }catch(e){}
