@@ -104,7 +104,7 @@ function mount(root,host){
   function vClose(pl,side,net,price){
     if(!pl.me&&net>0&&Math.random()<.45&&!(M&&M.net)) setTimeout(()=>trick(pl,Math.random()<.5?"spin":"flip"),350);
     G.marks.push({t:G.t,p:price,me:pl.me,k:"x"});
-    moment(pl,`${pl.me?"you":esc(pl.name)} closed ${side>0?"BOOST":"DUMP"}`,net);
+    moment(pl,`${pl.me?"you":esc(pl.name)} cashed out a ${side>0?"BOOST":"DUMP"}`,net);
     popAt(pl,usd(net,true),net>=0?"#5FF0A0":"#FF8FBD");
     feed(pl,net>=0?"g":"r",`${pl.me?"you":esc(pl.name)} banked <b>${usd(net,true)}</b>`);
     if(pl.me){ sfx(net>=0?"win":"lose"); buzz(net>=0?[12,30,12]:[30]); }
