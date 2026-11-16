@@ -504,33 +504,65 @@ html,body{margin:0;height:100%;background:#07080c}
 }
 @media (max-height:760px){ .duel-root #drop .mkc{height:88px} .duel-root #drop .mkc .nm{font-size:24px} .duel-root .lmsgs{height:60px} }
 @media (prefers-reduced-motion:reduce){ .duel-root #pDrop.hot .dtime b{animation:none} }
-/* jump map as a mini map (maker 2026-11-16: "why is it full screen length? just make it like a clickable mini map"):
- * a small 2×2 map under the MAP button. Every coin keeps its spot (close order), yours is marked, closed ones go dark. */
-.duel-root .jump{left:auto;right:12px;bottom:auto;top:calc(var(--ch) + 190px + env(safe-area-inset-top,0px));width:204px;padding:8px;gap:6px;border-radius:16px}
-@media (min-width:900px){ .duel-root .jump{right:24px;width:280px} }
-.duel-root .jump>small#jT{padding-right:32px;line-height:1.25;letter-spacing:.6px}
-.duel-root .jump .jx{width:24px;height:24px;top:7px;right:7px;font-size:13px}
-.duel-root .jump .jb{display:grid;grid-template-columns:1fr 1fr;gap:5px}
-.duel-root .jump .jb button.jm{position:relative;height:66px;padding:7px 8px;align-items:flex-start;justify-content:flex-end;gap:3px;border-radius:11px;border:2px solid #2E323A;background:#1d1f2e center/cover no-repeat;overflow:hidden;text-align:left}
-@media (min-width:900px){ .duel-root .jump .jb button.jm{height:78px} }
-.duel-root .jump .jb button.jm::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,8,12,.15),rgba(7,8,12,.85))}
-.duel-root .jump .jb button.jm>*{position:relative}
-.duel-root .jump .jb button.jm b{font-size:16px;color:var(--text)}
-@media (min-width:900px){ .duel-root .jump .jb button.jm b{font-size:19px} }
-@media (max-width:899px){ .duel-root .jump .jb button.jm small .pw{display:none} .duel-root .jump .jh{display:none} .duel-root .jump .jb button.jm .jt{font-size:8.5px} }
-.duel-root .jump .jb button.jm small{white-space:nowrap}
-.duel-root .jump .jb button.jm small{font:700 11px/1 var(--f-game);letter-spacing:.5px;color:var(--champ)}
-.duel-root .jump .jb button.jm .jt{position:absolute;left:7px;top:6px;font:800 9.5px/1 var(--f-game);letter-spacing:.8px;padding:3px 5px;border-radius:999px;background:rgba(7,8,12,.7);color:var(--muted)}
-.duel-root .jump .jb button.jm.fin{border-color:rgba(242,193,78,.6)}
-.duel-root .jump .jb button.jm.fin .jt{background:var(--gold);color:#121327}
-.duel-root .jump .jb button.jm.here{border-color:var(--gold);cursor:default}
-.duel-root .jump .jb button.jm.here .jt{background:var(--gold);color:#121327}
-.duel-root .jump .jb button.jm.best{border-color:var(--green);box-shadow:0 0 14px rgba(95,240,160,.3)}
-.duel-root .jump .jb button.jm.best .jt{background:var(--green);color:#121327}
-.duel-root .jump .jb button.jm.fin .jt{background:var(--gold);color:#121327}
-.duel-root .jump .jb button.jm.off{filter:grayscale(1) brightness(.45);cursor:default}
-.duel-root .jump .jb button.jm.soon small{color:var(--pinkl)}
-.duel-root .jump .jh{font:500 11px/1.2 var(--f-ui);color:var(--muted)}
+/* star map (maker 2026-11-16: "make it the token logos ... as points in space. like constellations"): always on, top right beside a
+ * narrower chart. Coins sit where the storm path takes them (the final coin in the middle), lines join them in close order.
+ * Mute, chat and the weapons toggle are docked on its ring. */
+.duel-root .smap{position:absolute;right:12px;top:calc(76px + env(safe-area-inset-top,0px));width:132px;height:132px;z-index:6}
+.duel-root .smap[hidden]{display:none}
+.duel-root .sm-c{position:absolute;inset:0;border-radius:50%;overflow:hidden;border:2px solid rgba(242,193,78,.7);box-shadow:0 0 0 3px rgba(12,13,28,.85),0 8px 24px rgba(0,0,0,.5);
+  background:radial-gradient(circle at 50% 55%,rgba(64,52,120,.55),rgba(10,11,24,.96) 70%),#0a0b18}
+.duel-root .sm-c::before{content:"";position:absolute;inset:0;background-image:radial-gradient(1px 1px at 18% 22%,#fff,transparent),radial-gradient(1px 1px at 72% 14%,#fff,transparent),radial-gradient(1px 1px at 84% 62%,#cfd6ff,transparent),radial-gradient(1px 1px at 30% 80%,#fff,transparent),radial-gradient(1.5px 1.5px at 55% 38%,#ffe9b0,transparent),radial-gradient(1px 1px at 10% 55%,#cfd6ff,transparent),radial-gradient(1px 1px at 62% 88%,#fff,transparent),radial-gradient(1px 1px at 40% 10%,#fff,transparent);opacity:.75}
+.duel-root .smap.warn .sm-c{border-color:var(--pink);animation:smw .8s ease-in-out infinite alternate}
+@keyframes smw{to{box-shadow:0 0 0 3px rgba(12,13,28,.85),0 0 26px rgba(240,48,127,.65)}}
+.duel-root .sm-l{position:absolute;inset:0;width:100%;height:100%}
+.duel-root .sm-l line{stroke:rgba(207,214,255,.35);stroke-width:.8;stroke-dasharray:2 2;vector-effect:non-scaling-stroke}
+.duel-root .sm-l line.done{stroke:rgba(207,214,255,.12)}
+.duel-root .sm-n{position:absolute;inset:0}
+.duel-root .sm-s{position:absolute;transform:translate(-50%,-50%);width:34px;height:34px;padding:0;border:0;background:none;border-radius:50%;display:block;cursor:pointer}
+.duel-root .sm-s img{width:100%;height:100%;border-radius:50%;display:block;filter:drop-shadow(0 0 6px rgba(207,214,255,.45))}
+.duel-root .sm-s::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:1.5px solid transparent}
+.duel-root .sm-s.fin::after{border:1.5px dashed rgba(242,193,78,.85);animation:smr 9s linear infinite}
+@keyframes smr{to{transform:rotate(360deg)}}
+.duel-root .sm-s.here::after{border:2px solid var(--gold);box-shadow:0 0 12px rgba(242,193,78,.7);animation:none}
+.duel-root .sm-s.soon img{filter:drop-shadow(0 0 7px rgba(240,48,127,.9))}
+.duel-root .sm-s.off{cursor:default}.duel-root .sm-s.off img{filter:grayscale(1) brightness(.4)}
+.duel-root .sm-s .sm-k{position:absolute;left:50%;top:100%;transform:translateX(-50%);margin-top:3px;font:800 9.5px/1 var(--f-game);letter-spacing:.4px;color:var(--text);white-space:nowrap;text-shadow:0 1px 2px #000}
+.duel-root .sm-s.soon .sm-k{color:var(--pinkl)}.duel-root .sm-s.here .sm-k{color:var(--gold)}.duel-root .sm-s.off .sm-k{color:var(--muted)}
+.duel-root .sm-s .sm-p{position:absolute;z-index:2;left:-13px;top:50%;transform:translateY(-50%);min-width:15px;height:15px;border-radius:8px;padding:0 3px;background:#23262F;border:1px solid rgba(255,255,255,.25);font:800 9.5px/13px var(--f-game);color:var(--text);text-align:center}
+.duel-root .sm-s.off .sm-p{display:none}
+.duel-root .sm-t{position:absolute;left:50%;top:-9px;transform:translateX(-50%);z-index:2;white-space:nowrap;font:800 9.5px/1 var(--f-game);letter-spacing:.7px;padding:4px 7px;border-radius:999px;background:#121327;border:1.5px solid rgba(242,193,78,.7);color:var(--champ)}
+.duel-root .smap.warn .sm-t{border-color:var(--pink);color:#fff;background:var(--pink)}
+.duel-root .sm-b{position:absolute;width:34px;height:34px;border-radius:50%;padding:0;background:#121327;border:2px solid rgba(242,193,78,.6);display:grid;place-items:center;z-index:2;box-shadow:0 4px 10px rgba(0,0,0,.45)}
+.duel-root .sm-b svg{width:17px;height:17px}
+.duel-root .sm-mute{left:-12px;bottom:-4px}
+.duel-root .sm-gun{left:50%;bottom:-17px;transform:translateX(-50%);width:44px;height:30px;border-radius:15px}
+.duel-root .sm-gun .gi{width:30px;height:18px;object-fit:contain}
+.duel-root .sm-gun kbd{position:absolute;right:-6px;top:-7px;font:800 9px/1 var(--f-game);padding:2px 4px;border-radius:5px;background:var(--gold);color:#121327}
+.duel-root .sm-gun[aria-pressed="false"]{border-color:var(--gold);background:rgba(242,193,78,.18)}
+.duel-root .sm-chat{right:-12px;bottom:-4px}
+.duel-root .sm-chat .dot{position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:var(--pink)}
+.duel-root .sm-chat .dot[hidden]{display:none}
+.duel-root .fchat{position:absolute;right:12px;top:calc(76px + 132px + 28px + env(safe-area-inset-top,0px));width:min(300px,calc(100% - 24px));padding:9px;border-radius:14px;background:rgba(12,13,28,.92);border:1px solid #2E323A;display:flex;flex-direction:column;gap:6px;z-index:7}
+.duel-root .fchat[hidden]{display:none}
+.duel-root .fchat .lmsgs{height:96px}
+.duel-root .fchat .quick{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.duel-root .fchat .quick::-webkit-scrollbar{display:none}
+.duel-root .fchat .quick button{flex:none;height:28px;font-size:13px;padding:0 8px}
+.duel-root .fchat .say input{height:34px;font-size:16px}.duel-root .fchat .say button{height:34px;font-size:14px}
+/* weapons bar collapsed into the star map's gun button */
+.duel-root.wcol .bottom .size{display:none}
+/* narrower chart beside the star map (maker: "i still think the chart can be not as wide") */
+.duel-root .chart{right:calc(12px + 132px + 14px)!important}
+.duel-root .feed{max-width:calc(100% - 24px)}
+@media (min-width:900px){
+  .duel-root .smap{right:24px;width:176px;height:176px}
+  .duel-root .sm-s{width:42px;height:42px}
+  .duel-root .sm-s .sm-k{font-size:11px}
+  .duel-root .sm-t{font-size:10.5px}
+  .duel-root .sm-b{width:38px;height:38px}
+  .duel-root .fchat{right:24px;top:calc(76px + 176px + 30px)}
+  .duel-root .chart{left:max(24px,calc(50% - 320px))!important;right:max(236px,calc(50% - 320px))!important}
+}
+@media (prefers-reduced-motion:reduce){ .duel-root .sm-s.fin::after,.duel-root .smap.warn .sm-c{animation:none} }
 </style>
 </head>
 <body>
@@ -548,10 +580,19 @@ html,body{margin:0;height:100%;background:#07080c}
 <div class="chart" id="chart"><canvas id="cc"></canvas><span class="lab" id="chLab">HYPE · TICKS · LAST 60S</span></div>
 <div class="banner" id="banner" hidden><span id="bannerT"></span></div>
 <div class="feed" id="feed"></div>
-<button class="mute" id="mapB" type="button" aria-label="Markets map: jump to another market">MAP</button>
-<button class="mute" id="mute" type="button" aria-label="Mute sound"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path id="mWave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/><path id="mX" d="M16 9l5 6M21 9l-5 6" hidden/></svg></button>
 
-<div class="jump" id="jump" hidden><small id="jT">MAP</small><button class="jx" id="jX" type="button" aria-label="Close map">✕</button><div class="jb" id="jB"></div><small class="jh">Tap a coin to jump. Your PnL comes with you; an open trade cashes out.</small></div>
+<div class="smap" id="smap" hidden>
+  <small class="sm-t" id="smT">TAP A STAR TO JUMP</small>
+  <div class="sm-c" id="smC" role="group" aria-label="Star map: tap a coin to jump there, your PnL comes with you"><svg class="sm-l" id="smL" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg><div class="sm-n" id="smN"></div></div>
+  <button class="sm-b sm-mute" id="mute" type="button" aria-label="Mute sound"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path id="mWave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/><path id="mX" d="M16 9l5 6M21 9l-5 6" hidden/></svg></button>
+  <button class="sm-b sm-gun" id="gunB" type="button" aria-label="Show or hide the weapons bar" aria-pressed="true"><span id="gunI"></span><kbd>R</kbd></button>
+  <button class="sm-b sm-chat" id="chatB" type="button" aria-label="Chat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg><i class="dot" id="chatDot" hidden></i></button>
+</div>
+<div class="fchat" id="fChat" hidden>
+  <div class="lmsgs" id="fMsgs" aria-live="polite"></div>
+  <div class="quick" id="fQuick"></div>
+  <form class="say" id="fSay" autocomplete="off"><input id="fIn" maxlength="60" placeholder="Say something" aria-label="Chat message" enterkeyhint="send"><button type="submit">SEND</button></form>
+</div>
 
 <div class="bottom">
   <div class="size" role="group" aria-label="Weapons">
@@ -603,7 +644,7 @@ html,body{margin:0;height:100%;background:#07080c}
         <li><b>HOTBAR FULL?</b> A pop-up asks which gun to swap out, or leave it. Same gun again = more ammo.</li>
         <li><b>FLY ANYWHERE.</b> Drag to fly up, down and sideways<span class="kbd"> (WASD or arrows)</span>. Your tag shows your real PnL.</li>
         <li><b>TAUNT.</b> Swipe up to spin, double-tap to flip<span class="kbd"> (Q and E)</span>.</li>
-        <li><b>MAPS CLOSE</b> one by one and the storm cuts the lowest PnL. The final circle is a different coin every game. Tap MAP to jump; your PnL comes with you.</li>
+        <li><b>MAPS CLOSE</b> one by one and the storm cuts the lowest PnL. The final circle is a different coin every game. Tap a coin on the star map to jump; your PnL comes with you.</li>
         <li><b>DOGFIGHT</b> within $1 of a pilot. Win it and take their best gun. A <b>NUKE</b> blows up the gun that fired it.</li>
       </ul></details>
       <p class="fine">Practice · fake money · you + 11 bots</p>
@@ -807,7 +848,7 @@ tap($("bBoost"),()=>act("b")); tap($("bDump"),()=>act("d")); tap($("bOut"),()=>a
 document.querySelectorAll(".size button").forEach(b=>tap(b,()=>selSlot(+b.dataset.i)));
 function selSlot(i){ if(!G||!G.me.inv[i]) return; if(G.offer){ takeOffer(i); return; } G.me.sel=i; paintHot(); }
 const paintSizes=()=>paintHot();
-function paintHot(){ const inv=G?G.me.inv:[{k:"PISTOL",ammo:Infinity}], sel=G?G.me.sel:0;
+function paintHot(){ const inv=G?G.me.inv:[{k:"PISTOL",ammo:Infinity}], sel=G?G.me.sel:0; paintGun(inv[sel]||inv[0]);
   document.querySelectorAll(".size button").forEach(b=>{ const i=+b.dataset.i, w=inv[i];
     if(!w){ b.className="empty"; b.innerHTML="<b>EMPTY</b><small>fly into loot</small>"; return; }
     b.style.setProperty("--rc",rarOf(w).c);
@@ -821,6 +862,7 @@ addEventListener("keydown",e=>{
   if(e.repeat&&(e.code==="Space"||e.key==="Shift"||e.key==="Enter")) return;
   if(e.code==="Space"){e.preventDefault(); act("b");} else if(e.key==="Shift"){act("d");} else if(e.key==="Enter"){ if(!$("drop").hidden) $("dGo").click(); else act("x"); }
   else if(e.key==="1"||e.key==="2"||e.key==="3"){ selSlot(+e.key-1); }
+  else if(e.key==="r"||e.key==="R"){ if(G&&G.me.inv.length>1) selSlot((G.me.sel+1)%G.me.inv.length); }
   else if((e.key==="Escape"||e.key==="q"||e.key==="Q")&&G&&G.offer){ leaveOffer(); }
   else if(!e.repeat&&(e.key==="q"||e.key==="Q")){ trick(G&&G.me,"spin"); } else if(!e.repeat&&(e.key==="e"||e.key==="E")){ trick(G&&G.me,"flip"); }
   else if(e.key==="m"||e.key==="M"){ toggleMap(); }
@@ -1016,7 +1058,8 @@ function lzSetup(){
   LZ={bots,talk,el:0,hot:false,reply:0};
   $("lMsgs").innerHTML=""; lzSys(`12 pilots in · the storm ends on ${fk}`);
 }
-function lzLine(html,cls){ const m=$("lMsgs"), d=document.createElement("div"); if(cls) d.className=cls; d.innerHTML=html; m.appendChild(d); while(m.children.length>12) m.firstChild.remove(); }
+function lzLine(html,cls){ for(const id of ["lMsgs","fMsgs"]){ const m=$(id), d=document.createElement("div"); if(cls) d.className=cls; d.innerHTML=html; m.appendChild(d); while(m.children.length>12) m.firstChild.remove(); }
+  if(G&&G.started&&$("fChat").hidden&&cls!=="me") $("chatDot").hidden=false; }
 function lzSys(t){ lzLine(esc(t),"sys"); }
 function lzSay(who,t,me){ lzLine(`<b>${me?"you":esc(who)}</b>${esc(t)}`,me?"me":""); if(!me) sfx("tick",.35); }
 function lzTick(){ if(!LZ) return; LZ.el+=.25; const el=LZ.el;
@@ -1025,7 +1068,7 @@ function lzTick(){ if(!LZ) return; LZ.el+=.25; const el=LZ.el;
   if(LZ.reply&&el>=LZ.reply.at){ lzSay(LZ.reply.who,LZ.reply.t); LZ.reply=0; }
   paintLZ(); }
 function lzMe(t){ t=(t||"").trim().slice(0,60); if(!t||!LZ) return; lzSay("you",t,true); sfx("tick",.5);
-  if(!LZ.reply&&Math.random()<.6) LZ.reply={at:LZ.el+rnd(.8,2.2),who:pick(LZ.bots).name,t:pick(["lol","bet","see you there","gl","👀","say less","you're going down","😂","respect"])}; }
+  if(!LZ.reply&&Math.random()<.6){ const dl=rnd(.8,2.2); LZ.reply={at:LZ.el+dl,ms:performance.now()+dl*1000,who:pick(LZ.bots).name,t:pick(["lol","bet","see you there","gl","👀","say less","you're going down","😂","respect"])}; } }
 $("lQuick").innerHTML=LQUICK.map(q=>`<button type="button">${q}</button>`).join("");
 $("lQuick").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b) lzMe(b.textContent); });
 $("lSay").addEventListener("submit",e=>{ e.preventDefault(); lzMe($("lIn").value); $("lIn").value=""; });
@@ -1033,9 +1076,9 @@ const esc=t=>String(t).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"
 let dropT=0, dropIv=0;
 function prePane(id){ for(const k of ["pIntro","pFill","pDrop"]) $(k).hidden=k!==id; $("stLobby").classList.toggle("on",id!=="pDrop"); $("stDrop").classList.toggle("on",id==="pDrop"); }
 let fillIv=0;
-function showIntro(){ toParent({type:"disciple:music",on:false}); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pIntro"); $("dIn").textContent="12"; bed("amb_mission_control"); }
+function showIntro(){ $("smap").hidden=true; $("fChat").hidden=true; toParent({type:"disciple:music",on:false}); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pIntro"); $("dIn").textContent="12"; bed("amb_mission_control"); }
 // a lobby that fills up: you first, then the 11 bots drop in over ~3 s, then the map pick and its 15 s timer
-function fillLobby(){ toParent({type:"disciple:music",on:false}); ensureAudio(); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pFill"); bed("amb_mission_control");
+function fillLobby(){ $("smap").hidden=true; $("fChat").hidden=true; toParent({type:"disciple:music",on:false}); ensureAudio(); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pFill"); bed("amb_mission_control");
   const g=$("fGrid"); g.innerHTML=""; const slots=[]; for(let i=0;i<12;i++){ const d=document.createElement("div"); d.textContent="···"; g.appendChild(d); slots.push(d); }
   slots[0].className="me"; slots[0].textContent="YOU"; let n=1; $("fN").textContent=n; $("dIn").textContent=n+" / 12"; $("fSub").textContent="FINDING PILOTS";
   const order=NAMES.slice().sort(()=>Math.random()-.5);
@@ -1043,7 +1086,7 @@ function fillLobby(){ toParent({type:"disciple:music",on:false}); ensureAudio();
     $("fN").textContent=n; $("dIn").textContent=n+" / 12"; sfx("tick",.5);
     if(n>=12){ clearInterval(fillIv); $("fSub").textContent="LOBBY FULL"; sfx("lock"); buzz([20,40,20]); setTimeout(showDrop,900); } },300);
 }
-function showDrop(){ toParent({type:"disciple:music",on:false}); $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; rollMaps(); lzSetup(); buildDrop(); dropT=15; $("dT").textContent=mmss(dropT); $("dBar").style.width="100%"; $("pDrop").classList.remove("hot");
+function showDrop(){ $("smap").hidden=true; $("fChat").hidden=true; toParent({type:"disciple:music",on:false}); $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; rollMaps(); lzSetup(); buildDrop(); dropT=15; $("dT").textContent=mmss(dropT); $("dBar").style.width="100%"; $("pDrop").classList.remove("hot");
   clearInterval(dropIv); let q=0; dropIv=setInterval(()=>{ lzTick(); if(++q%4) return; dropT--; $("dT").textContent=mmss(dropT); $("dBar").style.width=(dropT/15*100)+"%";
     // the last five seconds: the clock goes pink and pulses, a tick every second
     if(dropT<=5&&dropT>0){ $("pDrop").classList.add("hot"); sfx("count",.7); buzz(12); if(dropT===5) lzSys("DOORS OPEN IN 5"); }
@@ -1124,7 +1167,7 @@ $("rWatch").addEventListener("click",()=>{ $("result").hidden=true; G.watch=true
 /* ---------- HUD ---------- */
 function rankOf(pl){ return alive().sort((a,b)=>profit(b)-profit(a)).indexOf(pl)+1; }
 let hudT=0;
-function hud(){
+function hud(){ fchatTick();
   const me=G.me, pr=profit(me), al=alive().length; const lw=$("leadW"), mid=$("mid");
   const d=me.df||null;
   if(G.duel&&(G.duel.a===me||G.duel.b===me)){ const o=G.duel.a===me?G.duel.b:G.duel.a, gm=duelGain(me), go=duelGain(o);
@@ -1154,9 +1197,10 @@ function hud(){
   // jump row
   const m=G.M[me.mk], warn=me.alive&&!G.final&&!G.duel&&m.closeAt!=null&&G.t>=m.closeAt-G.P.warn, mapv=me.alive&&!G.final&&!G.duel&&G.mapOpen, jv=warn||mapv;
   if(warn&&!G.warned){ G.warned=me.mk; sfx("stormWarn"); bed("amb_storm_wall"); buzz([40,60,40]); } if(!warn){ if(G.warned&&!G.final) bed("amb_wind_high"); G.warned=null; }
-  if($("jump").hidden===jv){ $("jump").hidden=!jv; if(jv) buildJump(); }
-  $("jump").classList.toggle("map",!warn); $("jX").hidden=warn; $("mapB").classList.toggle("on",jv); $("mapB").hidden=!!(G.final||G.duel||!me.alive);
-  if(jv){ $("jT").textContent=warn?`STORM TAKES ${me.mk} IN ${mmss(m.closeAt-G.t)} · JUMP`:(G.t<G.jumpCool?`ENGINES COOLING · ${Math.ceil(G.jumpCool-G.t)} S`:"MAP"); paintJump(); }
+  if($("smap").hidden){ $("smap").hidden=false; buildJump(); }
+  $("smap").classList.toggle("warn",!!warn);
+  $("smT").textContent=G.final||G.duel?"FINAL CIRCLE":!me.alive?"SPECTATING":warn?`STORM ${mmss(m.closeAt-G.t)} · JUMP`:G.t<G.jumpCool?`COOLING ${Math.ceil(G.jumpCool-G.t)} S`:"TAP A STAR TO JUMP";
+  paintJump();
   $("storm").style.opacity=warn?String(Math.min(1,.35+.65*(1-(m.closeAt-G.t)/G.P.warn))):"0";
   $("chLab").textContent=`${me.mk} · TICKS · LAST 60S`;
 }
@@ -1164,18 +1208,36 @@ function sbSet(l,lv,lvn,r,rv,rvn){ $("sbL").textContent=l; const L=$("sbLV"); L.
   $("sbR").textContent=r; const R=$("sbRV"); R.textContent=rv; R.style.color=rvn==null?"var(--text)":rvn>0.004?"var(--green)":rvn<-0.004?"var(--pinkl)":"var(--text)"; }
 function clock(s,t,hot){ $("clock").textContent=mmss(s); $("clockT").textContent=t; $("clock").style.color=hot?"var(--pinkl)":""; $("clockT").style.color=hot?"var(--pinkl)":""; }
 function lead(d){ const w=$("leadW"), i=$("leadI"); w.hidden=false; const f=Math.max(-1,Math.min(1,d/3))*50; i.style.left=(f>=0?50:50+f)+"%"; i.style.width=Math.abs(f)+"%"; i.style.background=d>=0?"var(--green)":"var(--pink)"; }
-function buildJump(){ const box=$("jB"); box.innerHTML=""; if(!G) return;
-  for(const k of lzOrder()){ const b=document.createElement("button"); b.type="button"; b.dataset.k=k; b.className="jm";
-    b.style.backgroundImage=`url("${A[MKD[k].sky]}")`;
-    b.innerHTML=`<span class="jt"></span><b>${k}</b><small></small>`; b.addEventListener("click",()=>{ const m=G.M[k]; if(k===G.me.mk||m.closed) return; jump(G.me,k); }); box.appendChild(b); }
+// star positions (in % of the map): the three coins that close sit around the edge in close order, the final coin in the middle
+const STARS=[[28,27],[72,25],[70,61],[30,66]];
+function buildJump(){ const box=$("smN"); box.innerHTML=""; if(!G) return; const o=lzOrder();
+  $("smL").innerHTML=o.slice(1).map((k,i)=>{ const a=STARS[i], b=STARS[i+1]; return `<line data-k="${o[i]}" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`; }).join("");
+  o.forEach((k,i)=>{ const b=document.createElement("button"); b.type="button"; b.className="sm-s"; b.dataset.k=k; b.style.left=STARS[i][0]+"%"; b.style.top=STARS[i][1]+"%";
+    const em=A["map-"+k.toLowerCase()]; b.innerHTML=`${em?`<img src="${em}" alt="">`:""}<span class="sm-p"></span><span class="sm-k"></span>`;
+    b.addEventListener("click",()=>{ const m=G&&G.M[k]; if(!m||k===G.me.mk||m.closed||!G.me.alive||G.final||G.duel) return; jump(G.me,k); }); box.appendChild(b); });
   paintJump(); }
-function paintJump(){ if(!G) return; const best=bestJump(G.me.mk);
-  document.querySelectorAll("#jB button").forEach(b=>{ const k=b.dataset.k, m=G.M[k], n=inMk(k).length, here=k===G.me.mk, left=m.closeAt!=null?m.closeAt-G.t:null;
-    const tag=here?"YOU":m.closed?"CLOSED":m.closeAt==null?"FINAL CIRCLE":k===best?"BEST":MKD[k].best;
-    b.className="jm"+(here?" here":"")+(m.closed?" off":"")+(m.closeAt==null?" fin":"")+(!here&&!m.closed&&k===best?" best":"")+(left!=null&&left<=G.P.warn+5?" soon":"");
-    b.disabled=m.closed; b.querySelector(".jt").textContent=tag;
-    b.querySelector("small").innerHTML=m.closed?"storm":`${n}<span class="pw"> pilot${n===1?"":"s"}</span> · `+(left!=null?mmss(left):"final");
-    b.setAttribute("aria-label",`${k}: ${tag.toLowerCase()}, ${n} pilots`+(m.closed?"":left!=null?`, closes in ${mmss(left)}`:", the final circle")); }); }
+function paintJump(){ if(!G) return;
+  document.querySelectorAll("#smN .sm-s").forEach(b=>{ const k=b.dataset.k, m=G.M[k], n=inMk(k).length, here=k===G.me.mk, left=m.closeAt!=null?m.closeAt-G.t:null;
+    b.className="sm-s"+(here?" here":"")+(m.closed?" off":"")+(m.closeAt==null?" fin":"")+(left!=null&&left<=G.P.warn+5&&!m.closed?" soon":"");
+    b.querySelector(".sm-p").textContent=n;
+    b.querySelector(".sm-k").textContent=m.closed?k:`${here?"YOU ":""}${left!=null?mmss(left):"FINAL"}`;
+    b.setAttribute("aria-label",`${k}: ${here?"you are here, ":""}${n} pilots`+(m.closed?", closed":left!=null?`, closes in ${mmss(left)}`:", the final circle")); });
+  $("smL").querySelectorAll("line").forEach(l=>l.classList.toggle("done",G.M[l.dataset.k].closed)); }
+// the weapons bar folds into the gun button on the star map; 1-3 pick a slot and R cycles either way
+let gunsHidden=false; try{ gunsHidden=localStorage.getItem("royale.guns")==="0"; }catch(e){}
+function applyGuns(){ $("root").classList.toggle("wcol",gunsHidden); $("gunB").setAttribute("aria-pressed",String(!gunsHidden)); try{ localStorage.setItem("royale.guns",gunsHidden?"0":"1"); }catch(e){} resize(); }
+function toggleGuns(){ gunsHidden=!gunsHidden; sfx("tick"); applyGuns(); }
+function paintGun(w){ const el=$("gunI"); if(el&&w) el.innerHTML=gunImg(w.k)||`<b style="font:800 10px/1 var(--f-game)">${w.k.slice(0,4)}</b>`; }
+$("gunB").addEventListener("click",toggleGuns);
+// in-flight chat: same lines as the lobby chat, bots keep talking now and then
+const FLINES=["storm's coming","who has the railgun","nice nuke lol","I'm out of fuel","catch me if you can","🚀","gg soon","stay close to the leader","that dump was clean","👀"];
+let fchatT=0;
+function fchatTick(){ if(!G||!G.started||G.over) return; if(G.t>=fchatT){ fchatT=G.t+rnd(14,26); const al=G.pilots.filter(p=>p.alive&&!p.me); if(al.length) lzSay(pick(al).name,pick(FLINES)); }
+  if(LZ&&LZ.reply&&performance.now()>=LZ.reply.ms){ lzSay(LZ.reply.who,LZ.reply.t); LZ.reply=0; } }
+$("fQuick").innerHTML=LQUICK.map(q=>`<button type="button">${q}</button>`).join("");
+$("fQuick").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b) lzMe(b.textContent); });
+$("fSay").addEventListener("submit",e=>{ e.preventDefault(); lzMe($("fIn").value); $("fIn").value=""; });
+$("chatB").addEventListener("click",()=>{ const c=$("fChat"); c.hidden=!c.hidden; $("chatDot").hidden=true; sfx("tick"); });
 const FEEDI={p:"#F0307F",w:"#F2C14E",g:"#5FF0A0",m:"#2E323A",s:"#8FB8FF"};
 function feed(k,ic,html){ const f=$("feed"); const e=document.createElement("div"); e.className="ev";
   e.innerHTML=`<i style="background:${FEEDI[k]||"#2E323A"};color:${k==="p"||k==="m"?"#fff":"#121327"}">${ic}</i><span>${html}</span>`;
@@ -1253,8 +1315,8 @@ function resize(){ DPR=Math.min(2,devicePixelRatio||1); SW=sky.clientWidth; SH=s
 addEventListener("resize",resize);
 let LAY={under:300,barTop:600,mid:450,rh:110};
 function layout(){
-  const c=sky.getBoundingClientRect(), fb=$("mute").getBoundingClientRect(), bt=document.querySelector(".bottom").getBoundingClientRect(), jp=$("jump");
-  const under=fb.bottom-c.top+6; let barTop=(jp.hidden?bt.top:jp.getBoundingClientRect().top)-c.top-18;
+  const c=sky.getBoundingClientRect(), ch=$("chart").getBoundingClientRect(), sm=$("smap").getBoundingClientRect(), bt=document.querySelector(".bottom").getBoundingClientRect();
+  const under=Math.max(ch.bottom+104,sm.bottom+12)-c.top; let barTop=bt.top-c.top-18;
   const rh=Math.round(Math.max(60,Math.min(SW>=900?140:112,(barTop-under)*.36)));
   LAY={under,barTop,mid:(under+barTop)/2,rh};
 }
@@ -1555,8 +1617,8 @@ function toParent(d){ try{ if(parent!==window) parent.postMessage(d,location.ori
 let unlockSent=false; addEventListener("pointerdown",()=>{ ensureAudio(); if(!unlockSent){ unlockSent=true; toParent({type:"disciple:unlock"}); } },true);
 function setMute(m){ muted=m; if(m){ const o=bedOn; bedOn=null; if(o) try{o.s.stop();}catch(e){} } else bedSync(); toParent({type:"disciple:mute",m}); $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); try{localStorage.setItem("royale.mute",m?"1":"0");}catch(e){} }
 $("mute").addEventListener("click",()=>{ensureAudio(); setMute(!muted);}); setMute(muted);
-function toggleMap(){ if(!G||!G.started||!G.me.alive||G.final||G.duel) return; G.mapOpen=!G.mapOpen; hud(); }
-$("mapB").addEventListener("click",toggleMap); $("jX").addEventListener("click",()=>{ if(G){ G.mapOpen=false; hud(); } });
+// M hides the weapons bar too (same as the gun button on the star map)
+function toggleMap(){ toggleGuns(); }
 document.addEventListener("click",e=>{ const b=e.target&&e.target.closest&&e.target.closest("button"); if(b&&e.detail>0) b.blur(); });
 
 /* ---------- main loop ---------- */
@@ -1567,7 +1629,7 @@ function frame(now){
   drawSky(dt,now);
   if(G&&G.started){ drawChart(); hudT-=dt; if(hudT<=0){ hudT=.1; hud(); } }
 }
-paintSizes(); resize(); buildDrop(); showIntro(); raf=requestAnimationFrame(frame);
+paintSizes(); resize(); applyGuns(); buildDrop(); showIntro(); raf=requestAnimationFrame(frame);
 window.__royale={get G(){return G;},act,jump:k=>jump(G.me,k),simTick};
 })();
 </script>
