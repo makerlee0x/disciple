@@ -182,6 +182,33 @@ html,body{margin:0;height:100%;background:#07080c}
 }
 @media (max-height:760px){ .duel-root #drop .mkc{height:88px} .duel-root #drop .mkc .nm{font-size:24px} .duel-root .lmsgs{height:60px} }
 @media (prefers-reduced-motion:reduce){ .duel-root #pDrop.hot .dtime b{animation:none} }
+/* jump map as a mini map (maker 2026-11-16: "why is it full screen length? just make it like a clickable mini map"):
+ * a small 2×2 map under the MAP button. Every coin keeps its spot (close order), yours is marked, closed ones go dark. */
+.duel-root .jump{left:auto;right:12px;bottom:auto;top:calc(var(--ch) + 190px + env(safe-area-inset-top,0px));width:204px;padding:8px;gap:6px;border-radius:16px}
+@media (min-width:900px){ .duel-root .jump{right:24px;width:280px} }
+.duel-root .jump>small#jT{padding-right:32px;line-height:1.25;letter-spacing:.6px}
+.duel-root .jump .jx{width:24px;height:24px;top:7px;right:7px;font-size:13px}
+.duel-root .jump .jb{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.duel-root .jump .jb button.jm{position:relative;height:66px;padding:7px 8px;align-items:flex-start;justify-content:flex-end;gap:3px;border-radius:11px;border:2px solid #2E323A;background:#1d1f2e center/cover no-repeat;overflow:hidden;text-align:left}
+@media (min-width:900px){ .duel-root .jump .jb button.jm{height:78px} }
+.duel-root .jump .jb button.jm::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,8,12,.15),rgba(7,8,12,.85))}
+.duel-root .jump .jb button.jm>*{position:relative}
+.duel-root .jump .jb button.jm b{font-size:16px;color:var(--text)}
+@media (min-width:900px){ .duel-root .jump .jb button.jm b{font-size:19px} }
+@media (max-width:899px){ .duel-root .jump .jb button.jm small .pw{display:none} .duel-root .jump .jh{display:none} .duel-root .jump .jb button.jm .jt{font-size:8.5px} }
+.duel-root .jump .jb button.jm small{white-space:nowrap}
+.duel-root .jump .jb button.jm small{font:700 11px/1 var(--f-game);letter-spacing:.5px;color:var(--champ)}
+.duel-root .jump .jb button.jm .jt{position:absolute;left:7px;top:6px;font:800 9.5px/1 var(--f-game);letter-spacing:.8px;padding:3px 5px;border-radius:999px;background:rgba(7,8,12,.7);color:var(--muted)}
+.duel-root .jump .jb button.jm.fin{border-color:rgba(242,193,78,.6)}
+.duel-root .jump .jb button.jm.fin .jt{background:var(--gold);color:#121327}
+.duel-root .jump .jb button.jm.here{border-color:var(--gold);cursor:default}
+.duel-root .jump .jb button.jm.here .jt{background:var(--gold);color:#121327}
+.duel-root .jump .jb button.jm.best{border-color:var(--green);box-shadow:0 0 14px rgba(95,240,160,.3)}
+.duel-root .jump .jb button.jm.best .jt{background:var(--green);color:#121327}
+.duel-root .jump .jb button.jm.fin .jt{background:var(--gold);color:#121327}
+.duel-root .jump .jb button.jm.off{filter:grayscale(1) brightness(.45);cursor:default}
+.duel-root .jump .jb button.jm.soon small{color:var(--pinkl)}
+.duel-root .jump .jh{font:500 11px/1.2 var(--f-ui);color:var(--muted)}
 </style>
 </head>
 <body>
@@ -202,7 +229,7 @@ html,body{margin:0;height:100%;background:#07080c}
 <button class="mute" id="mapB" type="button" aria-label="Markets map: jump to another market">MAP</button>
 <button class="mute" id="mute" type="button" aria-label="Mute sound"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path id="mWave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/><path id="mX" d="M16 9l5 6M21 9l-5 6" hidden/></svg></button>
 
-<div class="jump" id="jump" hidden><small id="jT">JUMP</small><button class="jx" id="jX" type="button" aria-label="Close map">✕</button><div class="jb" id="jB"></div></div>
+<div class="jump" id="jump" hidden><small id="jT">MAP</small><button class="jx" id="jX" type="button" aria-label="Close map">✕</button><div class="jb" id="jB"></div><small class="jh">Tap a coin to jump. Your PnL comes with you; an open trade cashes out.</small></div>
 
 <div class="bottom">
   <div class="size" role="group" aria-label="Weapons">
@@ -807,7 +834,7 @@ function hud(){
   if(warn&&!G.warned){ G.warned=me.mk; sfx("stormWarn"); bed("amb_storm_wall"); buzz([40,60,40]); } if(!warn){ if(G.warned&&!G.final) bed("amb_wind_high"); G.warned=null; }
   if($("jump").hidden===jv){ $("jump").hidden=!jv; if(jv) buildJump(); }
   $("jump").classList.toggle("map",!warn); $("jX").hidden=warn; $("mapB").classList.toggle("on",jv); $("mapB").hidden=!!(G.final||G.duel||!me.alive);
-  if(jv){ $("jT").textContent=warn?`THE STORM TAKES ${me.mk} IN ${mmss(m.closeAt-G.t)} · JUMP, YOUR PNL COMES WITH YOU`:(G.t<G.jumpCool?`ENGINES COOLING · ${Math.ceil(G.jumpCool-G.t)} S`:"JUMP TO · YOUR PNL COMES WITH YOU · AN OPEN TRADE CASHES OUT"); paintJump(); }
+  if(jv){ $("jT").textContent=warn?`STORM TAKES ${me.mk} IN ${mmss(m.closeAt-G.t)} · JUMP`:(G.t<G.jumpCool?`ENGINES COOLING · ${Math.ceil(G.jumpCool-G.t)} S`:"MAP"); paintJump(); }
   $("storm").style.opacity=warn?String(Math.min(1,.35+.65*(1-(m.closeAt-G.t)/G.P.warn))):"0";
   $("chLab").textContent=`${me.mk} · TICKS · LAST 60S`;
 }
@@ -816,13 +843,17 @@ function sbSet(l,lv,lvn,r,rv,rvn){ $("sbL").textContent=l; const L=$("sbLV"); L.
 function clock(s,t,hot){ $("clock").textContent=mmss(s); $("clockT").textContent=t; $("clock").style.color=hot?"var(--pinkl)":""; $("clockT").style.color=hot?"var(--pinkl)":""; }
 function lead(d){ const w=$("leadW"), i=$("leadI"); w.hidden=false; const f=Math.max(-1,Math.min(1,d/3))*50; i.style.left=(f>=0?50:50+f)+"%"; i.style.width=Math.abs(f)+"%"; i.style.background=d>=0?"var(--green)":"var(--pink)"; }
 function buildJump(){ const box=$("jB"); box.innerHTML=""; if(!G) return;
-  const opts=openMks().filter(k=>k!==G.me.mk), best=bestJump(G.me.mk);
-  opts.sort((a,c)=>(G.M[a].closeAt??1e9)-(G.M[c].closeAt??1e9));
-  for(const k of opts){ const b=document.createElement("button"); b.type="button"; b.dataset.k=k; b.className=k===best?"best":"";
-    b.className+=" jm"; b.innerHTML=`<b>${k}</b><em>${G.M[k].closeAt==null?"FINAL CIRCLE":MKD[k].tag} · ${MKD[k].best}</em><small></small>`; b.addEventListener("click",()=>jump(G.me,k)); box.appendChild(b); }
+  for(const k of lzOrder()){ const b=document.createElement("button"); b.type="button"; b.dataset.k=k; b.className="jm";
+    b.style.backgroundImage=`url("${A[MKD[k].sky]}")`;
+    b.innerHTML=`<span class="jt"></span><b>${k}</b><small></small>`; b.addEventListener("click",()=>{ const m=G.M[k]; if(k===G.me.mk||m.closed) return; jump(G.me,k); }); box.appendChild(b); }
   paintJump(); }
-function paintJump(){ document.querySelectorAll("#jB button").forEach(b=>{ const k=b.dataset.k, m=G.M[k], n=inMk(k).length;
-  b.querySelector("small").textContent=`${n} pilot${n===1?"":"s"}`+(m.closeAt!=null?" · closes "+mmss(m.closeAt-G.t):" · storm ends here"); }); }
+function paintJump(){ if(!G) return; const best=bestJump(G.me.mk);
+  document.querySelectorAll("#jB button").forEach(b=>{ const k=b.dataset.k, m=G.M[k], n=inMk(k).length, here=k===G.me.mk, left=m.closeAt!=null?m.closeAt-G.t:null;
+    const tag=here?"YOU":m.closed?"CLOSED":m.closeAt==null?"FINAL CIRCLE":k===best?"BEST":MKD[k].best;
+    b.className="jm"+(here?" here":"")+(m.closed?" off":"")+(m.closeAt==null?" fin":"")+(!here&&!m.closed&&k===best?" best":"")+(left!=null&&left<=G.P.warn+5?" soon":"");
+    b.disabled=m.closed; b.querySelector(".jt").textContent=tag;
+    b.querySelector("small").innerHTML=m.closed?"storm":`${n}<span class="pw"> pilot${n===1?"":"s"}</span> · `+(left!=null?mmss(left):"final");
+    b.setAttribute("aria-label",`${k}: ${tag.toLowerCase()}, ${n} pilots`+(m.closed?"":left!=null?`, closes in ${mmss(left)}`:", the final circle")); }); }
 const FEEDI={p:"#F0307F",w:"#F2C14E",g:"#5FF0A0",m:"#2E323A",s:"#8FB8FF"};
 function feed(k,ic,html){ const f=$("feed"); const e=document.createElement("div"); e.className="ev";
   e.innerHTML=`<i style="background:${FEEDI[k]||"#2E323A"};color:${k==="p"||k==="m"?"#fff":"#121327"}">${ic}</i><span>${html}</span>`;
