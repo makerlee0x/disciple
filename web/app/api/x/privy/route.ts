@@ -8,8 +8,9 @@ export const runtime = "nodejs";
  * (usePrivy().linkTwitter), which runs in iOS's system sign-in sheet (mobile/ios/App/App/DiscipleNative.swift
  * NativeAuthPlugin). Privy has then verified the X account through X's OAuth; this route reads it from Privy's API
  * (twitter_oauth: subject = X user id, username) and stores the same link as /api/x/callback does.
- * Two proofs: the wallet signature + single-use nonce (same message as /api/x/connect) proves the wallet, and the Privy
- * access token proves the X account belongs to the signed-in player.
+ * Proofs: the wallet signature + single-use nonce (same message as /api/x/connect) proves the wallet; the Privy access
+ * token proves the X account belongs to the signed-in player; and the wallet's signer (smart account owner, or the wallet
+ * itself) must be one of that Privy user's wallets, so a Privy session can only link X onto its own wallet.
  */
 import { NextResponse } from "next/server";
 import { kv } from "@/lib/server/kv";
@@ -39,6 +40,9 @@ export async function POST(req: Request) {
   // fresh: the X account was linked to the Privy user moments ago
   const a = await authenticate(bearer(req.headers), privyEnv(), undefined, undefined, true);
   if (!a.ok) return out(a.status, { ok: false, reason: a.reason });
+  // the signed-in Privy user must own this wallet: its embedded owner (smart account) or the wallet itself
+  const signer = (owner || addr).toLowerCase();
+  if (!a.user.wallets.some((w) => w.toLowerCase() === signer)) return out(403, { ok: false, reason: "Sign in with the account that owns this wallet." });
   if (!a.user.x) return out(409, { ok: false, reason: X_RESULT_COPY.error, error: "no_x" });
   if (!(await consumeNonce(kv(), X_NONCE_PREFIX, nonce, addr))) return out(401, { ok: false, reason: "Sign-in expired. Try again." });
   const r = await saveLink(addr, a.user.x.id, a.user.x.username);
