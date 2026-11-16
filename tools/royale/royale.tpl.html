@@ -290,7 +290,7 @@ const MKD={
   HYPE:{p:31.42,vol:.0007,dr:.30,dec:2,loot:[1,3,4,2],drop:.6,best:"LEGENDARY",tag:"AGGRESSIVE",pro:"Best loot · most crates",con:"Closes first · wildest chart",sky:A.skyHype?"skyHype":"sky3"},
   SOL:{p:182.40,vol:.00046,dr:.32,dec:2,loot:[3,4,2,.6],drop:.8,best:"EPIC",tag:"FAST",pro:"Busiest map · most dogfights",con:"Closes second",sky:A.skySol?"skySol":"sky2"},
   ETH:{p:3412.5,vol:.0003,dr:.48,dec:1,loot:[4,3,1.2,.2],drop:1,best:"RARE",tag:"STEADY",pro:"Trends hold longer",con:"Mostly common loot",sky:"skyEth"},
-  BTC:{p:97214,vol:.0002,dr:.36,dec:0,loot:[6,2,.4,0],drop:1.4,best:"UNCOMMON",tag:"DEFENSIVE",pro:"Never closes · calm chart",con:"Weak loot · cuts take the lowest PnL",sky:"skyBtc"}};
+  BTC:{p:97214,vol:.0002,dr:.36,dec:0,loot:[6,2,.4,0],drop:1.4,best:"UNCOMMON",tag:"DEFENSIVE",pro:"Calm chart",con:"Weak loot · cuts take the lowest PnL",sky:"skyBtc"}};
 /* weapons = trade size × leverage. You start with the spot pistol; everything else is loot. */
 const WPN={
   "PISTOL":{usd:10,lev:1,ammo:Infinity,r:0},
@@ -320,7 +320,12 @@ const NAMES=["@moonmath","@solwhale","@lev_larry","@chartmonk","@0xrekt","@pumpq
 let dropMk="HYPE";
 // one length: 3 minutes at most (maker, 2026-11-16: "3 mins max for royale"). Maps close at 0:45, 1:20 and 1:55, the final circle
 // shrinks every 15 s (4 → 3 → 2 by 2:25), then a 30 s duel ends it by about 2:55.
-function plan(){ return {close:{HYPE:45,SOL:80,ETH:115},warn:10,target:{HYPE:9,SOL:6,ETH:4},shrink:15,df:10,duel:30,w0:6,dfCool:12,jumpCool:5}; }
+// the final circle is a random coin each game (maker, 2026-11-16: "its not always in bitcoin"); the other three close in a random order
+let ROLL=null;
+function rollMaps(){ const o=ORDER.slice().sort(()=>Math.random()-.5); ROLL={final:o[3],order:o.slice(0,3)}; return ROLL; }
+const finalMk=()=>(ROLL||rollMaps()).final;
+function plan(){ const r=ROLL||rollMaps(), close={}, target={}; r.order.forEach((k,i)=>{ close[k]=[45,80,115][i]; target[k]=[9,6,4][i]; });
+  return {close,warn:10,target,shrink:15,df:10,duel:30,w0:6,dfCool:12,jumpCool:5}; }
 const liqPct=pl=>pl.pos?Math.max(0,-pnlOf(pl.pos,price(pl))/(LIQ*pl.pos.coll)):0;
 
 /* ---------- state ---------- */
@@ -516,12 +521,12 @@ function endDf(d,abort){
 
 /* ---------- final circle + duel ---------- */
 function startFinal(){
-  for(const pl of alive()) if(pl.mk!=="BTC") jump(pl,"BTC");
+  { const fk=finalMk(); for(const pl of alive()) if(pl.mk!==fk) jump(pl,fk); }
   for(const d of G.dfs.slice()) endDf(d,true);
   { const L=[.14,.86,.3,.7,.1,.9]; let i=0; for(const pl of alive()){ if(pl.me){ pl.lane=.5; } else pl.lane=L[i++%L.length]; pl.xt=pl.xo=0; } }
   G.mapOpen=false;
   G.final={next:G.t+G.P.shrink}; G.band={top:topP(),w:G.P.w0};
-  feed("m","◎",`<b>FINAL CIRCLE</b> on BTC · ${alive().length} left`); sfx("ot"); bed("amb_tension"); 
+  feed("m","◎",`<b>FINAL CIRCLE</b> on ${finalMk()} · ${alive().length} left`); sfx("ot"); bed("amb_tension"); 
   if(alive().length<=2) startDuel();
 }
 const topP=()=>Math.max(...alive().map(profit))+.6;
@@ -627,7 +632,7 @@ function fillLobby(){ toParent({type:"disciple:music",on:false}); ensureAudio();
     $("fN").textContent=n; $("dIn").textContent=n+" / 12"; sfx("tick",.5);
     if(n>=12){ clearInterval(fillIv); $("fSub").textContent="LOBBY FULL"; sfx("lock"); buzz([20,40,20]); setTimeout(showDrop,900); } },300);
 }
-function showDrop(){ toParent({type:"disciple:music",on:false}); $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; buildDrop(); newVote(); dropT=15; $("dT").textContent=mmss(dropT);
+function showDrop(){ toParent({type:"disciple:music",on:false}); $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; rollMaps(); buildDrop(); newVote(); dropT=15; $("dT").textContent=mmss(dropT);
   clearInterval(dropIv); dropIv=setInterval(()=>{ dropT--; $("dT").textContent=mmss(dropT); voteTick(15-dropT); if(dropT<=0){ clearInterval(dropIv); go(); } },1000); }
 $("dGo").addEventListener("click",()=>{ ensureAudio(); clearInterval(dropIv); go(); });
 function go(){
@@ -713,7 +718,7 @@ function hud(){
   else if(d){ const o=d.a===me?d.b:d.a, gm=dfGain(d,me), go=dfGain(d,o);
     sbSet("YOU",usd(gm,true),gm,o.name.toUpperCase(),usd(go,true),go); clock(d.end-G.t,"DOGFIGHT",false); lead(gm-go); }
   else { sbSet(me.alive?`YOU · #${rankOf(me)} OF ${al}`:"OUT",usd(pr,true),pr,"ALIVE",String(al),null); lw.hidden=true;
-    if(G.final) clock(G.final.next-G.t,"FINAL CIRCLE · BTC",G.final.next-G.t<6);
+    if(G.final) clock(G.final.next-G.t,"FINAL CIRCLE · "+finalMk(),G.final.next-G.t<6);
     else if(G.duel) clock(G.duel.end-G.t,"FINAL DUEL",false);
     else { const m=G.M[me.mk]; if(m.closeAt!=null) clock(m.closeAt-G.t,me.mk+(m.closeAt-G.t<=G.P.warn?" CLOSING":" CLOSES"),m.closeAt-G.t<=G.P.warn);
       else { const nx=openMks().map(k=>G.M[k]).filter(x=>x.closeAt!=null).sort((a,b)=>a.closeAt-b.closeAt)[0]; if(nx) clock(nx.closeAt-G.t,nx.k+" CLOSES",false); else clock(0,"",false); } } }
@@ -827,7 +832,7 @@ function rr(x,y,w,h,r){sx.beginPath(); sx.roundRect?sx.roundRect(x,y,w,h,r):sx.r
 const xOf=pl=>pl.x!=null?pl.x:pl.lane*SW+pl.xo;
 
 let skyMix={k:"sky0",prev:null,t:1};
-// every map has its own sky; the final circle and last duel happen in BTC's
+// every game has its own voted sky
 function skyName(){ if(!G||!G.started) return "sky0"; return MAP.k; }
 function drawBackdrop(dt){
   const want=skyName(); if(want!==skyMix.k){ skyMix={k:want,prev:skyMix.k,t:0}; } skyMix.t=Math.min(1,skyMix.t+dt*1.5);
