@@ -224,7 +224,6 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
       )}
       {phase === "select" && (
         <FreePlayHub dailyId={dailyId} msg={dailyMsg} onDaily={openDaily}
-          onPractice={(id) => { if (cd.n != null) return; setDifficulty(id); countThen(() => start(tuneOpen && seedText.trim() ? undefined : (Math.random() * 2 ** 31) >>> 0, { difficulty: id })); }}
           tune={tuneOpen ? (
             <div className={"fp-tune"} style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", fontSize: 12, color: "#D7D9E4", padding: "12px 14px", border: "1px dashed #2E323A", borderRadius: 12 }}>
               <b style={{ color: "#F3DFA8" }}>Tuning</b>
@@ -245,7 +244,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
           ghost={ghost && ghost.day === dailyId ? { name: ghost.name, multiple: ghost.multiple, outAtS: ghost.outAtS } : null}
           onClose={() => { drv.current?.stop(); setDailyRun(false); setPhase("select"); }}
           onAgain={() => { setPhase("select"); countThen(() => start(dailyRes.seed, { difficulty: DAILY.difficulty, minutes: PLAYER.dailyMinutes })); }}
-          onPractice={() => { setSeedText(""); setPhase("select"); countThen(() => start((Math.random() * 2 ** 31) >>> 0, { difficulty: DAILY.difficulty })); }} />
+          />
       )}
       {phase === "summary" && summary && d && (() => { const sc = scoreRun(d.run); return (
         <PracticeResult difficulty={summary.difficulty} score={sc} rank={summary.you.rank} of={summary.you.of}

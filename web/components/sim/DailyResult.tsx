@@ -1,7 +1,7 @@
 "use client";
 /**
  * Daily flight result (the approved ResultPhone board): the multiple, practice cash, today's rank, the three goals, the
- * flight chart (boarded, your best exit, the peak, the dump after it) and Challenge a friend / Fly it again / Practice.
+ * flight chart (boarded, your best exit, the peak, the dump after it) and Challenge a friend / Fly it again.
  * Numbers are the server's verdict; the chart is drawn from a local replay of the same input log (lib/sim/daily dailyRecap).
  * The XP card: a signed-in pilot's daily is saved to their level at once (POST /api/freeplay/xp); a signed-out pilot sees
  * the XP waiting and SAVE XP signs them in, then saves it.
@@ -43,9 +43,9 @@ function storyLine(s: DailyScore, dumper: string | null) {
 
 export interface DailyGhost { name: string; multiple: number; outAtS: number | null }
 
-export default function DailyResult({ id, seed, inputs, verdict, error, ghost, onClose, onAgain, onPractice }: {
+export default function DailyResult({ id, seed, inputs, verdict, error, ghost, onClose, onAgain }: {
   id: number; seed: number; inputs: PlayerInput[]; verdict: DailyVerdict | null; error?: string | null; ghost?: DailyGhost | null;
-  onClose: () => void; onAgain: () => void; onPractice: () => void;
+  onClose: () => void; onAgain: () => void;
 }) {
   const rc = useMemo(() => dailyRecap(seed, inputs), [seed, inputs]);
   const s = verdict?.score ?? rc.score;
@@ -147,11 +147,8 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
           <button type="button" data-testid="daily-challenge-friend" onClick={challenge} disabled={!verdict} style={{ ...game, height: 60, borderRadius: 16, background: GOLD, color: "#121327", border: 0, cursor: verdict ? "pointer" : "default", opacity: verdict ? 1 : 0.55, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontWeight: 800, fontSize: 24, letterSpacing: 1 }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#121327" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 12v7h16v-7M12 3v12M7 8l5-5 5 5" /></svg>CHALLENGE A FRIEND</button>
           {note && <span data-testid="daily-note" style={{ textAlign: "center", fontSize: 12, color: "#BFF8D8", wordBreak: "break-all" }}>{note}</span>}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
-            <button type="button" data-testid="daily-again" onClick={onAgain} style={{ ...game, height: 52, borderRadius: 14, background: "rgba(18,19,39,0.78)", border: "1px solid #2E323A", color: "#F2F3F7", cursor: "pointer", fontWeight: 800, fontSize: 20, letterSpacing: 0.5 }}>FLY IT AGAIN</button>
-            <button type="button" data-testid="daily-practice" onClick={onPractice} style={{ ...game, height: 52, borderRadius: 14, background: "rgba(18,19,39,0.78)", border: "1px solid rgba(255,122,61,0.55)", color: "#FFB48F", cursor: "pointer", fontWeight: 800, fontSize: 20, letterSpacing: 0.5 }}>PRACTICE</button>
-          </div>
-          <span style={{ textAlign: "center", fontSize: 12, color: "#D7D9E4" }}>Replays are practice. Your daily score is locked in.</span>
+          <button type="button" data-testid="daily-again" onClick={onAgain} style={{ ...game, height: 52, borderRadius: 14, background: "rgba(18,19,39,0.78)", border: "1px solid #2E323A", color: "#F2F3F7", cursor: "pointer", fontWeight: 800, fontSize: 20, letterSpacing: 0.5 }}>FLY IT AGAIN</button>
+          <span style={{ textAlign: "center", fontSize: 12, color: "#D7D9E4" }}>Replays don\u2019t count. Your daily score is locked in.</span>
         </div>
       </div>
     </div>

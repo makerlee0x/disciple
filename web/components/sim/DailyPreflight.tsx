@@ -64,7 +64,7 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
     const ok = await onLaunch(); setBusy(false);
     if (ok) { setCounting(true); cd.run(); }
   };
-  const pilots = board && board.count > 0 ? `${board.count.toLocaleString("en-US")} pilot${board.count === 1 ? "" : "s"} today` : "No one on the board yet";
+  const pilots = board && board.count > 0 ? `${board.count.toLocaleString("en-US")} pilot${board.count === 1 ? "" : "s"}` : "";
 
   return (
     <div className={s.pre} data-testid="daily-pre">
@@ -78,10 +78,10 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
       </header>
 
       <div className={s.hero}>
-        <h1 className={s.h}>One market.<br />Everyone flies it.</h1>
-        <p className={s.p}>Same coin, same bots, same chart for every pilot today. Board the rocket, ride it up, cash out before the dump. Your best cash-out multiple goes on the board.</p>
+        <h1 className={s.h}>Same chart.<br />Everyone apes it.</h1>
+        <p className={s.p}>One shot. Best cash-out takes the board.</p>
         <div className={s.facts}>
-          <span><b>2:00</b>flight</span><span><b>$250</b>practice cash</span><span><b>1</b>scored run</span>
+          <span><b>2 min</b></span><span><b>$250</b>fake cash</span><span><b>1</b>shot</span>
         </div>
       </div>
 
@@ -90,25 +90,25 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
           <div className={s.bHead}><span className={s.bT}>TODAY&apos;S BOARD</span><span className={s.bMeta}>{pilots}</span></div>
           {board && board.top.length ? board.top.map((r, i) => (
             <div key={r.runId} className={s.row}><span><b className={`${s.rank} ${i === 0 ? s.rank1 : ""}`}>{i + 1}</b>{r.name}</span><span className={s.mult}>{fmtMultiple(r.multiple)}</span></div>
-          )) : <div className={s.empty}>{board ? "Nobody has posted a score yet. Fly first and take #1." : "Loading the board…"}</div>}
-          <span className={s.note}>{pilot ? "You're signed in, so your score goes on the board." : "Only signed-in pilots go on the board. You can sign in after you land."}</span>
+          )) : <div className={s.empty}>{board ? "Empty. Go take #1." : "Loading the board…"}</div>}
+          <span className={s.note}>{pilot ? "You're signed in. Your score counts." : "Sign in to make the board. You can do it after you land."}</span>
         </section>
         <section className={s.ctl} aria-label="Controls">
-          <span className={s.bT}>HOW TO FLY</span>
+          <span className={s.bT}>CONTROLS</span>
           <div className={s.keys}>
-            <div><kbd>SPACE</kbd><span>Boost (buy in)</span></div>
-            <div><kbd>SHIFT</kbd><span>Dump (cash out)</span></div>
-            <div><kbd>W</kbd><kbd>S</kbd><span>Fly up and down</span></div>
-            <div><kbd>A</kbd><kbd>D</kbd><span>Steer left and right</span></div>
+            <div><kbd>SPACE</kbd><span>Buy</span></div>
+            <div><kbd>SHIFT</kbd><span>Sell</span></div>
+            <div><kbd>W</kbd><kbd>S</kbd><span>Up / down</span></div>
+            <div><kbd>A</kbd><kbd>D</kbd><span>Left / right</span></div>
           </div>
-          <div className={s.touch}>Drag the sky to fly anywhere. BOOST and DUMP are at the bottom.</div>
+          <div className={s.touch}>Drag to fly. Buy and sell at the bottom.</div>
         </section>
       </div>
 
       <div className={s.foot}>
         {msg && <p className={s.err} role="status" data-testid="daily-pre-msg">{msg}</p>}
-        <button type="button" className={s.go} data-testid="daily-launch" onClick={launch} disabled={busy || counting}>{busy ? "GETTING TODAY'S MARKET…" : counting ? "LAUNCHING" : "LAUNCH"}</button>
-        <span className={s.fine}>Practice cash only. Replays after your scored run don&apos;t count.</span>
+        <button type="button" className={s.go} data-testid="daily-launch" onClick={launch} disabled={busy || counting}>{busy ? "LOADING…" : counting ? "LAUNCHING" : "LAUNCH"}</button>
+        <span className={s.fine}>Fake money. Only your first run counts.</span>
       </div>
       <CountOverlay n={cd.n} />
     </div>
