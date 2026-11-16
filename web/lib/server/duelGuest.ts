@@ -17,6 +17,8 @@ const GUEST_RE = /^g_[0-9a-f]{12}$/;
 let secretP: Promise<string> | null = null;
 async function secret(s: Kv): Promise<string> {
   const env = process.env.DUEL_GUEST_SECRET; if (env && env.length >= 16) return env;
+  // a server secret that's already set in every deployment, so guests don't depend on a KV round trip
+  for (const k of ["PRIVY_APP_SECRET", "CRON_SECRET"]) { const v = (process.env[k] || "").trim(); if (v.length >= 16) return `duel-guest:${k}:${v}`; }
   if (!secretP) secretP = (async () => {
     const have = await s.get("duel:guest:secret"); if (have) return have;
     const fresh = randomBytes(32).toString("hex"); await s.setNX("duel:guest:secret", fresh);

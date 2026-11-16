@@ -7,7 +7,7 @@ import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { duelPrice } from "@/lib/server/duel/price";
 import { after } from "next/server";
-import { eventsAfter, getRoom, referee, refereeRunning, tick } from "@/lib/server/duel/store";
+import { eventsAfter, getRoom, referee, refereeRunning } from "@/lib/server/duel/store";
 import { requirePass } from "@/lib/server/duel/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +21,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const { id } = await params;
   const r0 = await getRoom(id);
   if (!r0) return new Response("gone", { status: 404 });
+  // a finished room has nothing to stream: 204 tells EventSource to stop reconnecting (it used to reconnect every ~3 s
+  // for as long as a result screen stayed open, which burned the KV request quota)
+  if (r0.status === "done" || r0.status === "cancelled") return new Response(null, { status: 204 });
   if (r0.status === "live" && !(await refereeRunning(id))) after(() => referee(id, duelPrice));
   let cursor = Number(req.headers.get("last-event-id") || new URL(req.url).searchParams.get("after")) || 0;
   const enc = new TextEncoder(); let closed = false;
@@ -29,20 +32,23 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     async start(ctl) {
       const write = (s: string) => { if (!closed) try { ctl.enqueue(enc.encode(s)); } catch { closed = true; } };
       write("retry: 1000\n: live\n\n");
-      const t0 = Date.now(); let lastTick = 0, lastPing = Date.now();
+      // KV budget (2026-11-16, Upstash cap hit): the referee alone ticks the room (streams no longer do), events are read
+      // every 500 ms while live (1.5 s in the lobby), and the room itself only every 2 s or when an event arrives.
+      const t0 = Date.now(); let lastPrice = 0, lastPing = Date.now(), lastRoom = 0, lastRef = Date.now(), room = r0;
       while (!closed && Date.now() - t0 < LIFETIME_MS) {
-        const room = await getRoom(id).catch(() => null);
-        if (!room) break;
         const now = Date.now();
-        if (room.status === "live" && now - lastTick > 1000) {
-          lastTick = now;
+        const evs = await eventsAfter(id, cursor).catch(() => []);
+        for (const e of evs) { cursor = e.seq; write(`id: ${e.seq}\nevent: ev\ndata: ${JSON.stringify(e)}\n\n`); }
+        if (evs.length || now - lastRoom > 2000) { const r = await getRoom(id).catch(() => null); if (!r) break; room = r; lastRoom = now; }
+        if (room.status === "done" || room.status === "cancelled") { write("event: end\ndata: {}\n\n"); break; }
+        if (room.status === "live" && now - lastPrice > 1000) {
+          lastPrice = now;
           const p = await duelPrice();
-          if (p) { write(`event: price\ndata: ${JSON.stringify({ p, ts: now })}\n\n`); await tick(id, p).catch(() => null); }
+          if (p) write(`event: price\ndata: ${JSON.stringify({ p, ts: now })}\n\n`);
         }
-        for (const e of await eventsAfter(id, cursor).catch(() => [])) { cursor = e.seq; write(`id: ${e.seq}\nevent: ev\ndata: ${JSON.stringify(e)}\n\n`); }
-        if (room.status === "done" || room.status === "cancelled") { if (Date.now() - t0 > 2000) break; }
+        if (room.status === "live" && now - lastRef > 5000) { lastRef = now; if (!(await refereeRunning(id).catch(() => true))) void referee(id, duelPrice).catch(() => null); }
         if (now - lastPing > 15_000) { lastPing = now; write(": ping\n\n"); }
-        await new Promise((r) => setTimeout(r, room.status === "live" ? 250 : 1000));
+        await new Promise((r) => setTimeout(r, room.status === "live" ? 500 : 1500));
       }
       closed = true; try { ctl.close(); } catch { /* closed */ }
     },

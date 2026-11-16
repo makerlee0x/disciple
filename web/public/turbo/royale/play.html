@@ -1749,7 +1749,9 @@ function drawSky(dt,now){
 
 /* ---------- sound ---------- */
 let ac=null, muted=false; try{muted=localStorage.getItem("royale.mute")==="1";}catch(e){}
-function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx(); loadLoop("engine_loop");}catch(e){} } bedSync(); if(ac&&ac.state==="suspended") ac.resume(); }
+// the engine hum plays in the iPhone app only (maker, 2026-11-16); its web view adds "DiscipleApp/" to the user agent
+const APP_FEEL=/DiscipleApp\//.test(navigator.userAgent)||!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx(); if(APP_FEEL) loadLoop("engine_loop");}catch(e){} } bedSync(); if(ac&&ac.state==="suspended") ac.resume(); }
 // recorded CC0 sounds (PR 404, web/public/audio/sfx). Each event picks one take at random; no synth beeps.
 const SFX_BASE=A.sfxBase||"../../audio/sfx/", AMB_BASE=A.ambBase||"../../audio/amb/", BUF={};
 const SND={trick:["trick_whoosh"],boost:["boost_small_01","boost_small_02","boost_small_03"],boostBig:["boost_big_01","boost_big_02"],dump:["bomb_fall_01","bomb_fall_02"],
@@ -1792,7 +1794,7 @@ function oneShotAmb(n,vol){ if(!ac||muted||sfxLvl<=0) return; fetch(AMB_BASE+n+"
 // engine hum: a gapless loop under everything while you fly, louder and higher while the flame is lit
 let hum=null, humV=-1, humR=-1;
 function loadLoop(n){ const key="loop:"+n; if(!ac||key in BUF) return; BUF[key]=null; fetch(SFX_BASE+"loops-wav/"+n+".wav").then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{BUF[key]=b;}).catch(()=>{BUF[key]=false;}); }
-function humTick(on,boost){ if(!ac) return;
+function humTick(on,boost){ if(!ac) return; if(!APP_FEEL) on=false;
   if(!on||muted||sfxLvl<=0){ if(hum){ const h=hum; hum=null; try{ h.g.gain.setTargetAtTime(0,ac.currentTime,.12); setTimeout(()=>{ try{h.s.stop();}catch(e){} },700); }catch(e){} } return; }
   const b=BUF["loop:engine_loop"]; if(!b){ loadLoop("engine_loop"); return; }
   if(!hum){ try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; src.loop=true; g.gain.value=0; src.connect(g); g.connect(outBus()); src.start(); hum={s:src,g}; humV=humR=-1; }catch(e){ return; } }

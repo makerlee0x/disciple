@@ -1,5 +1,5 @@
 /**
- * Turbo (hidden behind the flag + the early-access password): the gate, the archived solo /turbo link landing on
+ * Turbo (on for everyone since 2026-11-16, still behind the early-access password): the gate, the archived solo /turbo link landing on
  * Trading Duel, and the duel lobby. The solo run was archived 2026-11-16 (only Duels and Royale remain).
  */
 import { test, expect } from "./support/fixtures";
@@ -46,5 +46,5 @@ test("Trading duel lobby opens (after PR #364 lands)", async ({ page, pilot }) =
   test.skip(r.status() === 404, "/turbo/duel isn't on this branch yet (PR #364)");
   await pass(page, "/turbo/duel?turbo=1");
   // the engine draws the lobby into its own root; it must mount without errors and offer a match
-  await expect(page.getByText(/quick match|find a match|play a bot|ranked/i).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/quick match|find a match|play a bot|ranked/i).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
 });

@@ -34,6 +34,7 @@ import {
   type Collection, type Copy, type Crate, type Item, type Opened, type Rarity, type Slot,
 } from "@/lib/collection";
 import { ensureCatalog } from "./catalog";
+import { lookAllowed } from "@/lib/coinLook";
 import { kv, type Kv } from "./kv";
 import { award, withLock, xpSummary } from "./xp";
 
@@ -387,6 +388,25 @@ export async function equip(walletIn: string, skin: string, trail: string, tag =
   const rec = { ...prev, skin: sk.item.id, trail: tr.item.id, tag: tg.item.id, flourish: fl?.item.id ?? "", copy, fx: { skin: fx(sk.copy), trail: fx(tr.copy) } };
   await s.set(COLK.looks(w), JSON.stringify(rec));
   return { ok: true, equipped: { skin: sk.item.id, trail: tr.item.id, tag: tg.item.id, flourish: fl?.item.id ?? "", copy } };
+}
+
+/**
+ * A coin's launch look (lib/coinLook), checked for this host: each slot must be out (lib/coinLook lookAllowed) or owned
+ * by them. The host's least burnt copy of each, when they have one, is credited on the coin. Nothing is used up.
+ */
+export async function lookCopies(walletIn: string | null, skin: string, trail: string, s: Kv = kv()): Promise<{ ok: true; skin?: Copy; trail?: Copy } | { ok: false; reason: string }> {
+  await ensureCatalog(s);
+  const now = Date.now();
+  let inv: Copy[] = [], owned = new Set<string>();
+  if (walletIn) {
+    const w = lc(walletIn), prestige = (await xpSummary(w, now, s)).level.prestige;
+    inv = (await readInv(w, s)) ?? STARTERS.map((id) => starterCopy(id, now));
+    owned = await ownedItems(w, s, prestige, inv);
+  }
+  if (!lookAllowed(skin, "skin", owned, now)) return { ok: false, reason: "That skin isn't out yet." };
+  if (!lookAllowed(trail, "trail", owned, now)) return { ok: false, reason: "That trail isn't out yet." };
+  const best = (id: string) => inv.filter((c) => c.item === id).sort((a, b) => a.burn - b.burn)[0];
+  return { ok: true, ...(skin !== "classic" && best(skin) ? { skin: best(skin) } : {}), ...(best(trail) ? { trail: best(trail) } : {}) };
 }
 
 /** The engine's flame colour for a trail id. */

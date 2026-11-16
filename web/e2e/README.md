@@ -27,7 +27,7 @@ docker run --rm --network host --ipc=host -v "$PWD/..:/repo" -w /repo/web mcr.mi
 
 | File | Flow |
 |---|---|
-| `lobby.spec.ts` | first visit, Pick a mode (focus, click-to-play, ← → Enter, phone tap), Duel card behind the Turbo flag, ? help |
+| `lobby.spec.ts` | first visit, Pick a mode (focus, click-to-play, ← → Enter, phone tap), Duel + Royale cards, Turbo menu, ? help |
 | `signin.spec.ts` | Sign in, welcome toast, signed-in lobby, account menu, sign out; returning pilot |
 | `cash.spec.ts` | Cash balance, Add cash quote, card checkout unavailable, Send crypto, Cash out checks + refused send |
 | `freeplay.spec.ts` | hub, practice run with BOOST + DUMP to a result, Trade settings, **Daily flight scored by the real server** (2 min) |

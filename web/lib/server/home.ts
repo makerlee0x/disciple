@@ -7,6 +7,8 @@ import "server-only";
  * Known test coins (lib/home/hiddenCoins) are left out before anything is ranked.
  * Cached in-process for CACHE_MS; every step is time-boxed so a slow RPC degrades to the newest coin / empty state.
  */
+import { coinLooksOf } from "./coinLooks";
+import type { CoinLook } from "@/lib/coinLook";
 import type { PublicClient } from "viem";
 import { isDeployed } from "@/lib/chains";
 import { listLaunches } from "@/lib/events";
@@ -79,6 +81,9 @@ async function build(): Promise<HomeData> {
       stats: statsFromFills(fills, now, x.mcapUsd, fills.length >= FILLS_CAP),
     };
   });
+  // each coin's launch look (lib/coinLook), for the cards, the pad and the hero
+  const looks = await timeout(coinLooksOf(coins.map((c) => c.token)).catch(() => ({} as Record<string, CoinLook>)), 1_500, {} as Record<string, CoinLook>);
+  for (const c of coins) if (looks[c.token]) c.look = looks[c.token];
   const pick = pickHero(coins);
   // launch time (age) for the hero, the trending list and the newest launches (lobby shelves)
   const need = lobbyAgeTokens(coins, pick);

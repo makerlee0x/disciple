@@ -11,5 +11,5 @@ export async function POST(req: Request) {
     const code = parseCode((await body<{ code?: unknown }>(req)).code);
     if (!code) throw new DuelError(400, "That code doesn't look right.");
     return out(200, { ok: true, room: await joinInvite(me, code) });
-  } catch (e) { return fail(e); }
+  } catch (e) { return fail(e, req); }
 }

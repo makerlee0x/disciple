@@ -5,6 +5,9 @@ export const runtime = "nodejs";
  *   catalog is the live catalogue overlay (lib/collection applyCatalog), null when there is none.
  * GET ?copy=<uid> → { ok, record }   one copy's permanent record (as made, holder, history), public like a token would be.
  * GET ?proof=1 → { ok, proof }   today's and tomorrow's roll-seed hashes and the last 7 days' revealed seeds.
+ * GET ?coins=0x…,0x… → { ok, looks: { token: CoinLook } }   coins' launch looks (lib/coinLook); coins with none are left out.
+ * POST { op: "coinlook", token, skin, trail, sig? } stamps a coin's launch look (its host only, once; items out or owned).
+ *   sig = a hidden host's stealth-owner signature over lib/coinLook coinLookMessage, in place of the session.
  * POST { op: "open", crate } | { op: "equip", skin, trail, tag?, flourish? } | { op: "scrap", copy } | { op: "tradeup", copies }  with the Privy session (Bearer), like
  *   the duel API, so opening a crate needs no wallet signature. Optional x-wallet picks one of the account's wallets.
  */
@@ -14,6 +17,7 @@ import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
 import { collectionOf, copyRecord, equip, openCrate, rollProof, scrapCopy, tradeUp } from "@/lib/server/collection";
 import { ensureCatalog } from "@/lib/server/catalog";
+import { coinLooksOf, setCoinLook } from "@/lib/server/coinLooks";
 
 export const dynamic = "force-dynamic";
 const isAddr = (a: unknown): a is string => typeof a === "string" && /^0x[0-9a-fA-F]{40}$/.test(a);
@@ -27,6 +31,8 @@ export async function GET(req: Request) {
   // the public copy leaves out who saved it (an admin's email) and when
   const full = await ensureCatalog().catch(() => null);
   const catalog = full ? { ...full, by: undefined, at: undefined } : null;
+  const coins = new URL(req.url).searchParams.get("coins");
+  if (coins != null) { try { return NextResponse.json({ ok: true, looks: await coinLooksOf(coins.split(",")) }, { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60" } }); } catch (e) { return out(503, { ok: false, reason: (e as Error).message }); } }
   const uid = new URL(req.url).searchParams.get("copy");
   if (uid) { const record = await copyRecord(uid).catch(() => null); return out(record ? 200 : 404, record ? { ok: true, record } : { ok: false, reason: "No copy with that id." }); }
   if (new URL(req.url).searchParams.get("proof")) { try { return out(200, { ok: true, proof: await rollProof() }); } catch (e) { return out(503, { ok: false, reason: (e as Error).message }); } }
@@ -38,15 +44,26 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const rl = await hitLimit(kv(), `col:post:ip:${clientIp(req.headers)}`, 60, 60);
   if (!rl.ok) return out(429, { ok: false, reason: "Too many requests, try again shortly." });
+  let b: { op?: unknown; token?: unknown; sig?: unknown; crate?: unknown; item?: unknown; skin?: unknown; trail?: unknown; tag?: unknown; flourish?: unknown; copy?: unknown; copies?: unknown };
+  try { b = await req.json(); } catch { return out(400, { ok: false, reason: "Bad JSON" }); }
+  // a hidden host paints their coin with the stealth owner's signature (no session: the server never links them to it)
+  if (b.op === "coinlook" && typeof b.sig === "string" && /^0x[0-9a-fA-F]{130}$/.test(b.sig)) {
+    const skin = b.skin === "classic" ? "classic" : id(b.skin);
+    try { const r = await setCoinLook(typeof b.token === "string" ? b.token : "", { sig: b.sig as `0x${string}` }, skin, id(b.trail)); return r.ok ? out(200, r) : out(r.status, { ok: false, reason: r.reason }); }
+    catch (e) { console.error("[collection]", e); return out(500, { ok: false, reason: "Something broke. Try again." }); }
+  }
   const auth = await authenticate(bearer(req.headers), privyEnv());
   if (!auth.ok) return out(auth.status, { ok: false, reason: "Sign in to use your Hangar." });
   const wallets = auth.user.wallets.map((x) => x.toLowerCase());
   const want = req.headers.get("x-wallet");
   const wallet = isAddr(want) && wallets.includes(want.toLowerCase()) ? want.toLowerCase() : wallets[0];
   if (!wallet) return out(403, { ok: false, reason: "Your account needs a wallet." });
-  let b: { op?: unknown; crate?: unknown; item?: unknown; skin?: unknown; trail?: unknown; tag?: unknown; flourish?: unknown; copy?: unknown; copies?: unknown };
-  try { b = await req.json(); } catch { return out(400, { ok: false, reason: "Bad JSON" }); }
   try {
+    if (b.op === "coinlook") {
+      const skin = b.skin === "classic" ? "classic" : id(b.skin);
+      const r = await setCoinLook(typeof b.token === "string" ? b.token : "", { wallets }, skin, id(b.trail));
+      return r.ok ? out(200, r) : out(r.status, { ok: false, reason: r.reason });
+    }
     if (b.op === "open") { const r = await openCrate(wallet, id(b.crate)); return out(r.ok ? 200 : 409, r); }
     if (b.op === "equip") { const r = await equip(wallet, id(b.skin), id(b.trail), id(b.tag), id(b.flourish)); return out(r.ok ? 200 : 409, r); }
     if (b.op === "scrap") { const r = await scrapCopy(wallet, id(b.copy)); return out(r.ok ? 200 : 409, r); }

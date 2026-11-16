@@ -10,6 +10,8 @@ import { ROCKET_SRC, skySrc, tierProgress, type HomeCoin } from "@/lib/home/tren
 import { withBase } from "@/lib/base-path";
 import { altShort, crewFaces, flightHref, lit, Mark, orbitPct, pct } from "./rocketBits";
 import { useCrewAboard } from "@/components/crew/CrewAboard";
+import CoinRocket from "./CoinRocket";
+import { isClassic, trailRgb } from "@/lib/coinLook";
 import s from "./liveCard.module.css";
 
 /** `seat` (Hangar fleet): the pilot's holding in dollars, shown in place of altitude. */
@@ -20,7 +22,8 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
   const mates = useCrewAboard(c.token);
   const d = difficultyOf(c.mode, c.graduated);
   const orbit = c.progressBps == null && !c.graduated ? null : orbitPct(c);
-  const style = { ...lit(c), ["--sky" as string]: `url(${withBase(skySrc(t.index))})` };
+  const skinned = !!c.look && !isClassic(c.look);
+  const style = { ...lit(c), ["--sky" as string]: `url(${withBase(skySrc(t.index))})`, ...(c.look ? { ["--trail" as string]: trailRgb(c.look.trail) } : {}) };
   return (
     <Link href={flightHref(c)} prefetch={false} className={s.card} style={style} data-testid={testId} aria-label={`${c.name}, tier ${t.index + 1}${chg != null ? `, ${chg >= 0 ? "up" : "down"} ${pct(Math.abs(chg))} today` : ""}. Drop in`}>
       <span className={s.sky} aria-hidden />
@@ -28,8 +31,9 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
       <span className={s.glow} aria-hidden />
       <span className={s.flight} aria-hidden>
         <span className={s.trail} />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img className={s.rocket} src={withBase(ROCKET_SRC)} alt="" loading="lazy" decoding="async" />
+        {skinned ? <CoinRocket look={c.look!} icon={c.icon} />
+          // eslint-disable-next-line @next/next/no-img-element
+          : <img className={s.rocket} src={withBase(ROCKET_SRC)} alt="" loading="lazy" decoding="async" />}
       </span>
 
       <span className={s.top}>
