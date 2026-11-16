@@ -253,6 +253,7 @@ html,body{margin:0;height:100%;background:#07080c}
         <li><b>START WITH A PISTOL</b> ($10 spot, 1×). Crates drop leverage guns: each is a trade size × leverage with limited shots<span class="kbd"> (switch with 1–3)</span>.</li>
         <li><b>HOTBAR FULL?</b> A pop-up asks which gun to swap out, or leave it. Same gun again = more ammo.</li>
         <li><b>FLY ANYWHERE.</b> Drag to fly up, down and sideways<span class="kbd"> (WASD or arrows)</span>. Your tag shows your real PnL.</li>
+        <li><b>TAUNT.</b> Swipe up to spin, double-tap to flip<span class="kbd"> (Q and E)</span>.</li>
         <li><b>MAPS CLOSE</b> one by one and the storm cuts the lowest PnL. The final circle is a different coin every game. Tap MAP to jump; your PnL comes with you.</li>
         <li><b>DOGFIGHT</b> within $1 of a pilot. Win it and take their best gun. A <b>NUKE</b> blows up the gun that fired it.</li>
       </ul></details>
@@ -472,6 +473,7 @@ addEventListener("keydown",e=>{
   if(e.code==="Space"){e.preventDefault(); act("b");} else if(e.key==="Shift"){act("d");} else if(e.key==="Enter"){ if(!$("drop").hidden) $("dGo").click(); else act("x"); }
   else if(e.key==="1"||e.key==="2"||e.key==="3"){ selSlot(+e.key-1); }
   else if((e.key==="Escape"||e.key==="q"||e.key==="Q")&&G&&G.offer){ leaveOffer(); }
+  else if(!e.repeat&&(e.key==="q"||e.key==="Q")){ trick(G&&G.me,"spin"); } else if(!e.repeat&&(e.key==="e"||e.key==="E")){ trick(G&&G.me,"flip"); }
   else if(e.key==="m"||e.key==="M"){ toggleMap(); }
   else if(e.key==="a"||e.key==="ArrowLeft") keys.l=1; else if(e.key==="d"||e.key==="ArrowRight") keys.r=1;
   else if(e.key==="w"||e.key==="ArrowUp"){ e.preventDefault(); keys.u=1; } else if(e.key==="s"||e.key==="ArrowDown"){ e.preventDefault(); keys.dn=1; }
@@ -480,12 +482,26 @@ addEventListener("keyup",e=>{ if(e.key==="a"||e.key==="ArrowLeft") keys.l=0; if(
 let drag=null;
 const sky=$("sky"), sx=sky.getContext("2d");
 sky.style.touchAction="none";
-sky.addEventListener("pointerdown",e=>{ if(!G||!G.started||drag) return; drag={id:e.pointerId,x:e.clientX,y:e.clientY,off:G.me.xt,offY:G.me.yt||0}; try{sky.setPointerCapture(e.pointerId);}catch(_){} });
+sky.addEventListener("pointerdown",e=>{ if(!G||!G.started||drag) return; drag={id:e.pointerId,x:e.clientX,y:e.clientY,t:performance.now(),off:G.me.xt,offY:G.me.yt||0}; try{sky.setPointerCapture(e.pointerId);}catch(_){} });
 sky.addEventListener("pointermove",e=>{ if(!drag||e.pointerId!==drag.id) return; steer(drag.off+(e.clientX-drag.x)*1.15); lift(drag.offY+(e.clientY-drag.y)*1.1); });
-const endDrag=e=>{ if(drag&&e.pointerId===drag.id) drag=null; };
+let lastTap=0;
+const endDrag=e=>{ if(!drag||e.pointerId!==drag.id) return; const dx=e.clientX-drag.x, dy=e.clientY-drag.y, dt=performance.now()-(drag.t||0), now=performance.now();
+  if(e.type==="pointerup"&&G&&G.started){ if(dy<-55&&Math.abs(dy)>Math.abs(dx)*1.3&&dt<450) trick(G.me,"spin");
+    else if(Math.abs(dx)<10&&Math.abs(dy)<10&&dt<250){ if(now-lastTap<320){ trick(G.me,"flip"); lastTap=0; } else lastTap=now; } }
+  drag=null; };
+/* tricks (the duel's taunts): a spin or a flip, with a pop and a ring; bots throw one back now and then */
+const TRICKS={spin:{dur:.7,txt:"SPIN!",c:"#8FE3FF"},flip:{dur:.85,txt:"FLIP!",c:"#F2C14E"}};
+function trick(pl,kind){ if(!G||!G.started||G.over||!pl||pl.y==null||(pl.me&&!pl.alive)) return; if(pl.trick&&performance.now()-pl.trick.t0<pl.trick.dur*1000) return;
+  pl.trick={kind,t0:performance.now(),dur:TRICKS[kind].dur}; FX.pops.push({txt:TRICKS[kind].txt,c:TRICKS[kind].c,x:xOf(pl),y:pl.y-LAY.rh*.75,age:0,max:1.1,size:pl.me?28:22});
+  FX.rings.push({x:xOf(pl),y:pl.y,r:20,vr:420,life:.5,max:.5,w:5,col:kind==="spin"?"143,227,255":"242,193,78"});
+  for(let i=0;i<24;i++){ const a=rnd(0,Math.PI*2), sp=rnd(120,320); part({x:xOf(pl),y:pl.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:rnd(.4,.8),size:rnd(2,3.5),col:kind==="spin"?"143,227,255":"255,214,120"}); }
+  if(pl.me){ sfx("trick"); buzz(12);
+    const near=(G._shown||[]).filter(o=>!o.me&&o.alive&&o.y!=null).sort((u,v)=>Math.abs(u.y-pl.y)-Math.abs(v.y-pl.y))[0];
+    if(near&&Math.random()<.35) setTimeout(()=>trick(near,Math.random()<.5?"spin":"flip"),rnd(500,1200)); }
+  else feed("t","\u2605",`${pl.name} did a <b>${kind}</b> on you`); }
 sky.addEventListener("pointerup",endDrag); sky.addEventListener("pointercancel",endDrag);
 // up/down is free flying around your PnL line: your altitude still reads your PnL, you can just sit above or below it
-const yRange=()=>LAY.rh*.9+(LAY.barTop-LAY.under)*.9;
+const yRange=()=>(LAY.barTop-LAY.under)*8;   // uncapped feel (maker 2026-11-16: "like im capped it doesnt feel like im flying"): about eight screens either way
 function lift(off){ G.me.yt=Math.max(-yRange(),Math.min(yRange(),off)); }
 function steer(off){ const b=G.me.lane*SW; G.me.xt=Math.max(30-b,Math.min(SW-30-b,off)); }
 
@@ -603,7 +619,7 @@ function simTick(){
   if(G.duel&&G.t>=G.duel.end) endDuel();
   // supply drops near you
   if(!G.final&&!G.duel&&G.me.alive&&!G.crate&&G.t>=G.nextCrate&&!G.me.df){ const side=G.me.lane*SW+G.me.xo<SW/2?1:-1;
-    const item=rollLoot(G.me.mk); G.crate={x:Math.max(40,Math.min(SW-40,G.me.lane*SW+G.me.xo+side*rnd(110,170))),y:-1,until:G.t+10,item}; G.nextCrate=G.t+rnd(8,12)*MKD[G.me.mk].drop; sfx("pod");
+    const item=rollLoot(G.me.mk); G.crate={x:Math.max(40,Math.min(SW-40,G.me.lane*SW+G.me.xo+side*rnd(110,170))),y:-1,until:G.t+60,item}; G.nextCrate=G.t+rnd(8,12)*MKD[G.me.mk].drop; sfx("pod");
     feed("g","◆",`LOOT · <b style="color:${rarOf(item).c}">${item.k}</b> ${wLine(item)} · steer into it`); }
   if(G.crate&&G.t>G.crate.until) G.crate=null;
   if(G.offer){ if(G.t>G.offer.until||!G.me.alive) leaveOffer(); else { const t=$("swT"); if(t) t.style.transform=`scaleX(${Math.max(0,(G.offer.until-G.t)/G.offer.len)})`; } }
@@ -823,8 +839,9 @@ function drawChart(){
   const m=G.M[G.me.mk], dec=MKD[m.k].dec, now=G.t, from=now-60, pts=m.ticks.filter(k=>k.t>=from-TICK);
   let lo=Infinity,hi=-Infinity; pts.forEach(k=>{lo=Math.min(lo,k.p);hi=Math.max(hi,k.p);});
   const pos=G.me.pos; if(pos){lo=Math.min(lo,pos.entry);hi=Math.max(hi,pos.entry);}
-  const pad=Math.max(m.p*.0004,(hi-lo)*.15); lo-=pad; hi+=pad;
-  const L=8,Rr=72,T=24,B=8, X=t=>L+Math.max(0,t-from)/60*(w-L-Rr), Y=p=>T+(1-(p-lo)/(hi-lo))*(h-T-B);
+  // the live price sits in the middle of the card, across and up/down (maker 2026-11-16), like the duel chart
+  const pad=Math.max(m.p*.0004,(hi-lo)*.15), half=Math.max(m.p-lo,hi-m.p)+pad; lo=m.p-half; hi=m.p+half;
+  const L=8,Rr=72,T=24,B=8, XM=Math.round(w*.5), X=t=>L+Math.max(0,t-from)/60*(XM-L), Y=p=>T+(1-(p-lo)/(hi-lo))*(h-T-B);
   const first=pts[0].p, lastp=m.p, up=lastp>=first, col=up?"95,240,160":"240,48,127";
   cx.font="500 10px "+GU+",sans-serif"; cx.fillStyle="rgba(215,217,228,.6)"; cx.textAlign="left"; cx.textBaseline="middle";
   const step=niceStep((hi-lo)/3);
@@ -839,14 +856,17 @@ function drawChart(){
     cx.font="700 11px "+GF+",sans-serif"; cx.fillStyle="rgba(242,193,78,.95)"; cx.textAlign="left"; cx.textBaseline="bottom"; cx.fillText(`YOU ${pos.side>0?"BOOSTED":"DUMPED"}`,L+2,y-2); }
   G.marks.forEach(k=>{ if(k.t<from||k.mk!==m.k) return; const x=X(k.t),y=Y(k.p); cx.beginPath(); cx.arc(x,y,5.5,0,Math.PI*2);
     cx.fillStyle=k.k==="x"?"#FFFFFF":k.k==="b"?"#F2C14E":"#F0307F"; cx.fill(); cx.lineWidth=2; cx.strokeStyle="#121327"; cx.stroke(); });
-  cx.fillStyle=`rgb(${col})`; cx.beginPath(); cx.arc(lx,ly,4.5,0,Math.PI*2); cx.fill();
-  const tag=lastp.toLocaleString("en-US",{minimumFractionDigits:dec,maximumFractionDigits:dec}); cx.font="800 15px "+GF+",sans-serif";
-  const tw=Rr-6, ty=Math.max(T-4,Math.min(h-B-20,ly-10)); cx.fillStyle=`rgb(${col})`; cx.beginPath(); cx.roundRect?cx.roundRect(w-Rr+3,ty,tw,20,6):cx.rect(w-Rr+3,ty,tw,20); cx.fill();
-  cx.fillStyle=up?"#0d2a1b":"#fff"; cx.textAlign="center"; cx.textBaseline="middle"; cx.fillText(tag,w-Rr+3+tw/2,ty+10.5);
+  cx.setLineDash([2,5]); cx.strokeStyle=`rgba(${col},.45)`; cx.lineWidth=1; cx.beginPath(); cx.moveTo(lx,ly); cx.lineTo(w-Rr,ly); cx.stroke(); cx.setLineDash([]);
+  if(!reduce){ const pr=(performance.now()%1400)/1400; cx.strokeStyle=`rgba(${col},${(1-pr)*.7})`; cx.lineWidth=2; cx.beginPath(); cx.arc(lx,ly,4.5+pr*10,0,Math.PI*2); cx.stroke(); }
+  cx.fillStyle=`rgb(${col})`; cx.beginPath(); cx.arc(lx,ly,5,0,Math.PI*2); cx.fill();
+  const tag=lastp.toLocaleString("en-US",{minimumFractionDigits:dec,maximumFractionDigits:dec}); cx.font="800 16px "+GF+",sans-serif";
+  const tw=cx.measureText(tag).width+14, ty=Math.max(T-4,Math.min(h-B-22,ly-11)); cx.fillStyle=`rgb(${col})`; cx.beginPath(); cx.roundRect?cx.roundRect(lx+12,ty,tw,22,7):cx.rect(lx+12,ty,tw,22); cx.fill();
+  cx.fillStyle=up?"#0d2a1b":"#fff"; cx.textAlign="center"; cx.textBaseline="middle"; cx.fillText(tag,lx+12+tw/2,ty+11.5);
 }
 
 /* ---------- sky ---------- */
-let SW=0,SH=0,DPR=1, stars=[];
+/*FLYSKY*/
+let SW=0,SH=0,DPR=1, stars=[]; const FLY=flySky(rnd,reduce); let bgOff=0, lastCamV=0;
 const FX={parts:[],pops:[],rings:[],sheets:[],shake:0,flash:0,flashC:"255,255,255"};
 const SHEET={nuke:10,"weapon-break":6,"pod-open":6,"boom-small":6,cashout:6};
 function sheet(k,x,y,size,dur){ const img=imgs["fx-"+k]; if(!img) return false; FX.sheets.push({img,n:SHEET[k],x,y,size,age:0,dur:dur||.8}); return true; }
@@ -886,7 +906,7 @@ let skyMix={k:"sky0",prev:null,t:1};
 function skyName(){ if(!G||!G.started) return "sky0"; return MAP.k; }
 function drawBackdrop(dt){
   const want=skyName(); if(want!==skyMix.k){ skyMix={k:want,prev:skyMix.k,t:0}; } skyMix.t=Math.min(1,skyMix.t+dt*1.5);
-  const draw=(k,a)=>{const im=imgs[k]; if(!im||!im.complete||a<=0) return; const s=Math.max(SW/im.width,SH/im.height)*1.12; sx.globalAlpha=a; sx.drawImage(im,(SW-im.width*s)/2,(SH-im.height*s)/2,im.width*s,im.height*s); sx.globalAlpha=1;};
+  const draw=(k,a)=>{const im=imgs[k]; if(!im||!im.complete||a<=0) return; const s=Math.max(SW/im.width,SH/im.height)*1.3, sl=(im.height*s-SH)/2; bgOff=Math.max(-sl,Math.min(sl,bgOff+lastCamV*.04*(1-Math.min(1,dt*.2)))); sx.globalAlpha=a; sx.drawImage(im,(SW-im.width*s)/2,(SH-im.height*s)/2+bgOff,im.width*s,im.height*s); sx.globalAlpha=1;};
   sx.fillStyle="#121327"; sx.fillRect(0,0,SW,SH);
   if(skyMix.prev) draw(skyMix.prev,1); draw(skyMix.k,skyMix.t);
   if(G&&G.started&&MAP.g){ sx.globalCompositeOperation="overlay"; sx.fillStyle=`rgba(${MAP.g})`; sx.fillRect(0,0,SW,SH); sx.globalCompositeOperation="source-over"; }
@@ -914,7 +934,9 @@ function drawRocket(pl,now){
   const x=xOf(pl), y=pl.y, img=imgs.rocket, h=pl.me?LAY.rh:LAY.rh*.8, w=pl.hull?h*pl.hull.a:h*221/609, fight=G.me.df&&(G.me.df.a===pl||G.me.df.b===pl)||G.duel&&(G.duel.a===pl||G.duel.b===pl);
   const thrust=Math.max(.3,Math.min(1.7,.6+pl.flame*.5-pl.vy*.0015)), fl=thrust+Math.sin(now/40+(pl.me?0:pl.lane*9))*.08;
   const c=pl.me?"255,200,80":"255,95,170";
-  sx.save(); sx.globalAlpha=pl.me||fight?1:.92; sx.translate(x,y); sx.rotate(Math.max(-.35,Math.min(.35,pl.rot+pl.steer)));
+  const tk=pl.trick?(performance.now()-pl.trick.t0)/1000/pl.trick.dur:1, tr=tk<1?pl.trick:null, tp=tr?tk:0, ease=tp<.5?2*tp*tp:1-Math.pow(-2*tp+2,2)/2;
+  sx.save(); sx.globalAlpha=pl.me||fight?1:.92; sx.translate(x,y); sx.rotate(Math.max(-.35,Math.min(.35,pl.rot+pl.steer))+(tr&&tr.kind==="flip"?ease*Math.PI*2:0));
+  if(tr&&tr.kind==="spin"){ const k=Math.cos(ease*Math.PI*4); sx.scale(Math.abs(k)<.08?.08*Math.sign(k||1):k,1); }
   drawShip(sx,pl.hull,img,h,fl,c,pl.sq);
   sx.restore();
   // tags beside the rocket, on the side with more room; drawn after every rocket so no sprite covers a tag
@@ -978,11 +1000,14 @@ function drawPings(list){
 function drawCrate(dt,now){
   if(G.offer){ G.crate=null; return; }
   const c=G.crate; if(!c||G.me.y==null) return;
-  if(c.ty==null) c.ty=LAY.mid+rnd(-1.15,1.15)*LAY.rh; if(c.y<0) c.y=LAY.under+40; c.y=Math.min(c.ty,c.y+40*dt);
+  if(c.y<0){ c.y=LAY.under+30; c.vy=rnd(46,60); } c.vy=Math.min(90,(c.vy||50)+4*dt); c.y+=c.vy*dt; c.sw=(c.sw||rnd(0,6))+dt;
+  c.x+=Math.sin(c.sw*1.3)*14*dt;                                     // a slow sway under the chute
+  if(c.y>LAY.barTop+LAY.rh*.4){ G.crate=null; return; }               // fell past you: gone
+  if(c.y<LAY.under-LAY.rh*1.5){ G.crate=null; return; }               // you flew far below it
   const me=G.me, mx=xOf(me), my=me.y;
   const rc=rarOf(c.item), touch=Math.abs(mx-c.x)<40&&Math.abs(my-c.y)<LAY.rh*.6;
   if(touch){ G.crate=null; me.grab++; FX.rings.push({x:c.x,y:c.y,r:10,vr:420,life:.5,max:.5,w:6,col:rc.rgb}); loot(c.item,"crate"); return; }
-  const r=16+Math.sin(now/200)*1.5, left=c.until-G.t, a=left<2?(Math.sin(now/80)>0?1:.4):1;
+  const r=16+Math.sin(now/200)*1.5, low=c.y>LAY.barTop-LAY.rh*.6, a=low?(Math.sin(now/80)>0?1:.4):1;
   const pod=imgs["airdrop-"+slugW(c.item.k)], glow=imgs["airdrop-"+slugW(c.item.k)+"-glow"];
   if(pod&&pod.complete){ const S=LAY.rh*1.25; sx.save(); sx.globalAlpha=a*(.55+.45*Math.sin(now/260)**2); sx.drawImage(glow,c.x-S/2,c.y-S*.72,S,S); sx.globalAlpha=a; sx.drawImage(pod,c.x-S/2,c.y-S*.72,S,S);
     sx.font="800 13px "+GF+",sans-serif"; sx.textAlign="center"; sx.textBaseline="top"; const l1=c.item.k, l2=wLine(c.item)+" · "+c.item.ammo+" shots";
@@ -1037,7 +1062,9 @@ function drawSky(dt,now){
     const R=radarR(), avail=(LAY.barTop-LAY.under)/2-LAY.rh*.45; const want=Math.max(4,avail/R); pxPer+=(want-pxPer)*Math.min(1,dt*3);
     // past the screen edge, flying further up or down pans the view: see pilots and loot above or below your PnL
     const yo=me===G.me?(G.me.yo||0):0, scrOff=Math.max(-LAY.rh*.9,Math.min(LAY.rh*.9,yo)), pan=yo-scrOff;
-    const tgt=alt(me)-pan/pxPer, prev=pCam; pCam+=(tgt-pCam)*Math.min(1,dt*5); camV=(pCam-prev)*pxPer;
+    const tgt=alt(me)-pan/pxPer, prev=pCam; pCam+=(tgt-pCam)*Math.min(1,dt*5); camV=(pCam-prev)*pxPer; lastCamV=camV;
+    if(G.crate&&G.crate.y>0) G.crate.y+=camV;   // loot is in the world: it slides with the camera too
+    FLY.step(sx,SW,SH,dt,camV,G.final?.45:1,[0,1],G.over?12:34);
     drawRuler(); drawBand();
     const shown=[], pings=[];
     for(const pl of G.pilots){ if(!pl.alive&&pl!==G.me) continue; if(pl!==G.me&&pl.mk!==me.mk) continue; if(!pl.me&&G.t<pl.arrive){ pl.y=null; continue; } if(pl===G.me&&!pl.alive) continue;
@@ -1048,7 +1075,7 @@ function drawSky(dt,now){
       pl.vy+=((ty-pl.y)*16-pl.vy*6)*dt+pl.kick*dt*6; pl.kick*=Math.max(0,1-dt*6); pl.y+=pl.vy*dt;
       const lim=[LAY.under+LAY.rh*.5,LAY.barTop-LAY.rh*.35]; pl.y=Math.max(lim[0],Math.min(lim[1],pl.y));
       // drift sideways
-      if(pl.me){ if(keys.l) steer(pl.xt-460*dt); if(keys.r) steer(pl.xt+460*dt); if(keys.u) lift((pl.yt||0)-380*dt); if(keys.dn) lift((pl.yt||0)+380*dt); }
+      if(pl.me){ if(keys.l) steer(pl.xt-460*dt); if(keys.r) steer(pl.xt+460*dt); const vs=520+Math.min(900,Math.abs(pl.yt||0)*.6); if(keys.u) lift((pl.yt||0)-vs*dt); if(keys.dn) lift((pl.yt||0)+vs*dt); }
       else { if(now>pl.wander){ pl.wander=now+rnd(1500,3500); pl.xt=rnd(-40,40); }
         const gap=xOf(pl)-xOf(G.me); if(G.me.alive&&Math.abs(gap)<70&&Math.abs(pl.y-G.me.y)<LAY.rh) pl.xt+=(gap>=0?1:-1)*240*dt;
         pl.xt=Math.max(30-pl.lane*SW,Math.min(SW-30-pl.lane*SW,pl.xt)); }
@@ -1063,6 +1090,7 @@ function drawSky(dt,now){
     if(G.me.alive&&G.me.y!=null) G._tags.push(tagBox(G.me));
     for(const pl of shown.filter(p=>!p.me)) drawRocket(pl,now);
     if(G.me.alive&&G.me.y!=null) drawRocket(G.me,now);
+    FLY.step(sx,SW,SH,dt,camV,G.final?.35:.8,[2],G.over?12:34);
     { const q=G._tagQ||[]; G._tagQ=[]; for(const f of q) f(); }
     drawCrate(dt,now);
     drawFog();
@@ -1098,7 +1126,7 @@ let ac=null, muted=false; try{muted=localStorage.getItem("royale.mute")==="1";}c
 function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx(); loadLoop("engine_loop");}catch(e){} } bedSync(); if(ac&&ac.state==="suspended") ac.resume(); }
 // recorded CC0 sounds (PR 404, web/public/audio/sfx). Each event picks one take at random; no synth beeps.
 const SFX_BASE=A.sfxBase||"../../audio/sfx/", AMB_BASE=A.ambBase||"../../audio/amb/", BUF={};
-const SND={boost:["boost_small_01","boost_small_02","boost_small_03"],boostBig:["boost_big_01","boost_big_02"],dump:["bomb_fall_01","bomb_fall_02"],
+const SND={trick:["trick_whoosh"],boost:["boost_small_01","boost_small_02","boost_small_03"],boostBig:["boost_big_01","boost_big_02"],dump:["bomb_fall_01","bomb_fall_02"],
   cash:["cash_out"],lose:["explosion_small_01","explosion_small_02","explosion_small_03"],tick:["lever_notch_01","lever_notch_02","lever_notch_03"],go:["race_go"],
   lock:["lock_on"],win:["hit_marker_01","hit_marker_02"],warn:["nuke_warning_01"],ot:["lock_on"],jump:["map_jump"],grab:["weapon_pickup_common"],grabRare:["weapon_pickup_rare"],grabLeg:["weapon_pickup_legendary"],
   ammo:["lever_notch_02"],pod:["pod_land_01","pod_land_02","pod_land_03"],nuke:["nuke"],brk:["weapon_break_01","weapon_break_02"],nukeWarn:["nuke_warning_02"],
