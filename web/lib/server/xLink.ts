@@ -104,22 +104,31 @@ export async function finishLink(state: string, code: string, origin: string, f:
     const { data } = (await me.json()) as { data?: { id?: string; username?: string } };
     if (!data?.id || !/^\d{1,25}$/.test(data.id) || !isXUsername(data.username)) return { ok: false, reason: "error", returnTo };
 
-    // One X account ↔ one wallet. Claim the reverse index first (NX), so two wallets can't race onto one account.
-    const wallet = st.wallet;
-    const claimed = await kv().setNX(idKey(data.id), wallet, 0);
-    if (!claimed) {
-      const holder = await kv().get(idKey(data.id));
-      if (holder !== wallet) return { ok: false, reason: "taken", returnTo };
-    }
-    // A wallet relinking a different X account frees its old one.
-    const prev = await linkOf(wallet);
-    if (prev && prev.id !== data.id) await kv().delIfEq(idKey(prev.id), wallet);
-    const link: XLink = { id: data.id, username: data.username, linkedAt: Date.now() };
-    await kv().set(linkKey(wallet), JSON.stringify(link));
-    return { ok: true, link, returnTo };
+    const r = await saveLink(st.wallet, data.id, data.username);
+    return r.ok ? { ok: true, link: r.link, returnTo } : { ok: false, reason: "taken", returnTo };
   } catch {
     return { ok: false, reason: "error", returnTo };
   }
+}
+
+/**
+ * Store a verified X account on a wallet (X's own OAuth above, or Privy's X link in the iPhone app: app/api/x/privy).
+ * One X account ↔ one wallet: the reverse index is claimed first (NX), so two wallets can't race onto one account.
+ */
+export async function saveLink(wallet: string, id: string, username: string): Promise<{ ok: true; link: XLink } | { ok: false; reason: "taken" | "error" }> {
+  if (!/^\d{1,25}$/.test(id) || !isXUsername(username)) return { ok: false, reason: "error" };
+  wallet = wallet.toLowerCase();
+  const claimed = await kv().setNX(idKey(id), wallet, 0);
+  if (!claimed) {
+    const holder = await kv().get(idKey(id));
+    if (holder !== wallet) return { ok: false, reason: "taken" };
+  }
+  // A wallet relinking a different X account frees its old one.
+  const prev = await linkOf(wallet);
+  if (prev && prev.id !== id) await kv().delIfEq(idKey(prev.id), wallet);
+  const link: XLink = { id, username, linkedAt: Date.now() };
+  await kv().set(linkKey(wallet), JSON.stringify(link));
+  return { ok: true, link };
 }
 
 export async function linkOf(wallet: string): Promise<XLink | null> {

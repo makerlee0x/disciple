@@ -34,7 +34,9 @@ export type PrivySecurity = {
   enrollMfa: () => void;
   unenrollMfa: (m: PrivyMfaMethod) => Promise<void>;
 };
-export type PrivyHooks = { /** Privy finished loading (usePrivy().ready) */ ready?: boolean; login: () => void; logout: () => Promise<void>; getAccessToken?: () => Promise<string | null>; getIdentityToken?: () => Promise<string | null>; authenticated?: boolean; account?: PrivyAccountInfo | null; security?: PrivySecurity | null };
+export type PrivyHooks = { /** Privy finished loading (usePrivy().ready) */ ready?: boolean; login: () => void; logout: () => Promise<void>; getAccessToken?: () => Promise<string | null>; getIdentityToken?: () => Promise<string | null>; authenticated?: boolean; account?: PrivyAccountInfo | null; security?: PrivySecurity | null;
+  /** Link an X account to the signed-in Privy user (usePrivy().linkTwitter). In the app this runs in the system sign-in sheet and reloads the page. */
+  linkX?: () => void };
 let privyHooks: PrivyHooks | null = null;
 const privySubs = new Set<() => void>();
 export function registerPrivy(h: PrivyHooks | null) { privyHooks = h; privySubs.forEach((f) => f()); }

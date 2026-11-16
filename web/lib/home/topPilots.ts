@@ -14,11 +14,11 @@ import { DAY_MS, prePriceOf } from "./trending";
 /**
  * Board guardrails (maker 2026-11-13, main mode hook loop): the board keeps PnL and % gain, but only for good calls.
  *  - a pilot's buys and sells on a rocket they launched never count (no "launched and dumped" winners)
- *  - a sell counts only after `minAboardMs` aboard (the position's first buy), so same-block snipes and flips don't top it
+ *  - no minimum time aboard: any cash-out counts (maker, 2026-11-16: "2 min hold time is not a requirement")
  *  - Best % needs at least `minPctBasisUsd` put in on that rocket, so a $1 ticket that went 80x can't win
  *  - every row carries its record (green / red flights, losses), and the board's Best call names the climb
  */
-export const BOARD_RULES = { minAboardMs: 2 * 60_000, minPctBasisUsd: 20 } as const;
+export const BOARD_RULES = { minPctBasisUsd: 20 } as const;
 /** Rocket facts the guardrails need: who launched it, and whether it reached orbit. */
 export type BoardOpts = { creators?: ReadonlyMap<string, string>; graduated?: ReadonlySet<string>; orbitMcap?: number };
 
@@ -52,7 +52,7 @@ function walk(fillsByCoin: Fill[][], now: number, o: BoardOpts = {}) {
         const sold = Math.min(f.tokens, b.size);
         const basis = b.cost * (sold / b.size);
         const pnl = usd * (sold / f.tokens) - basis;
-        if (w !== creator && f.ts - b.since >= BOARD_RULES.minAboardMs) closes.push({ wallet: w, coin, ts: f.ts, pnl, basis, since: b.since, openMcap: b.openMcap, mcap: f.mcapUsd });
+        if (w !== creator) closes.push({ wallet: w, coin, ts: f.ts, pnl, basis, since: b.since, openMcap: b.openMcap, mcap: f.mcapUsd });
         b.size -= sold; b.cost -= basis;
         if (b.size < 1e-9) { if (w !== creator) stays.push({ wallet: w, coin, since: b.since, end: f.ts }); b.size = 0; b.cost = 0; }
         books.set(w, b);
