@@ -55,7 +55,7 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
   useEffect(() => { if (verdict) refreshRank(id, verdict.runId).then((r) => { if (r) setRank(r); }); }, [id, verdict]);
   // today's top plays (maker 2026-11-16: the end screen "could just be better … maybe show the leaderboard of top plays that day")
   const [board, setBoard] = useState<Board>(null);
-  useEffect(() => { const load = () => fetchDailyBoard(id).then(setBoard); load(); const iv = setInterval(load, 30_000); return () => clearInterval(iv); }, [id, rank?.boarded]);
+  useEffect(() => { fetchDailyBoard(id).then(setBoard); }, [id, rank?.boarded]);   // once, and again when your run posts (every board read costs KV requests)
 
   // XP: saved as soon as there is a scored run and a signed-in pilot
   const pilot = usePilotWallet(), waiting = freePlayXp("daily", s);

@@ -56,7 +56,7 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
   const cd = useCountdown(onGo);
   useEffect(() => {
     const load = () => fetchDailyBoard(dailyId).then(setBoard); load();
-    const iv = setInterval(() => { setNow(Date.now()); load(); }, 20_000); return () => clearInterval(iv);
+    let n = 0; const iv = setInterval(() => { setNow(Date.now()); if (++n % 4 === 0 && !document.hidden) load(); }, 30_000);   // board every 2 min, only while visible (KV request budget) return () => clearInterval(iv);
   }, [dailyId]);
   useEffect(() => { document.body.classList.add("fp-hub"); return () => document.body.classList.remove("fp-hub"); }, []);
   const launch = async () => {
