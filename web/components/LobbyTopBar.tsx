@@ -14,6 +14,7 @@ import { WALLET_ID_EVENT, walletId } from "@/lib/walletCta";
 import LevelChip from "@/components/xp/LevelChip";
 import Icon, { type IconName } from "@/components/icons/Icon";
 import HelpButton from "@/components/HelpButton";
+import { QUICK_PLAY_EVENT } from "@/components/app/events";
 
 // Top bar nav option A (board "Top bar: fewer tabs", maker picked A 2026-11-14): desktop has three doors, Lobby, Launch
 // and Top pilots. Hangar and Missions + trophies live in the pilot menu (AccountMenu); How to play is the "?" (HelpButton).
@@ -28,6 +29,14 @@ const TABS: readonly Tab[] = [
   { href: "/leaderboard", key: "leader", label: "Top pilots", icon: "leaderboard" },
   { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot", phone: true, you: true },
   { href: "/how-it-works", key: "hiw", label: "How to play", icon: "info", phone: true, out: true },
+];
+
+// The iPhone app's own tab bar (app home concept C, maker 2026-11-16): Hangar, Play (the app home, big in the middle) and
+// Top pilots. Shown only with html.app (root layout APP_JS); the website's bars are hidden there. Launch lives on the Play tab.
+const APP_TABS: readonly Tab[] = [
+  { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot" },
+  { href: "/", key: "play", label: "Play", icon: "rocket" },
+  { href: "/leaderboard", key: "leader", label: "Top pilots", icon: "leaderboard" },
 ];
 
 export default function LobbyTopBar() {
@@ -86,5 +95,15 @@ export default function LobbyTopBar() {
     </header>
     {/* phones: the bottom tab bar lives outside the header, so nothing about the header (scroll, compositing) can move it */}
     <div className={you ? "" : "lb-out"} style={{ display: "contents" }}>{nav(true)}</div>
+    <nav className="lb-tabs lb-dock lb-appdock" aria-label="Main">
+      {APP_TABS.map((t) => (
+        <Link key={t.key} href={t.href} className={`${t.key === "play" ? "lb-play " : ""}${isOn(t.href) ? "on" : ""}`.trim() || undefined}
+          aria-current={isOn(t.href) ? "page" : undefined} data-testid={`app-tab-${t.key}`}
+          onClick={t.key === "play" && pathname === "/" ? (e) => { e.preventDefault(); dispatchEvent(new Event(QUICK_PLAY_EVENT)); } : undefined}>
+          <Icon name={t.icon} size={t.key === "play" ? 26 : 22} className="lb-ico" />
+          <span className="lb-lbl">{t.label}</span>
+        </Link>
+      ))}
+    </nav>
   </>);
 }

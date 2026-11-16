@@ -35,6 +35,8 @@ import { Fleet, ServiceRecord, TrophyCase } from "@/components/hangar/HangarSect
 import { useHomeCoins, useLoadout, useTrophies } from "@/components/hangar/hangarData";
 
 const PAGE = { activity: 12 } as const;
+/** The app's Hangar jump row: section heading id → label. */
+const HANGAR_JUMPS = [["hg-looks", "Your rocket"], ["hg-fleet", "Fleet"], ["hg-trophies", "Trophies"], ["hg-log", "Flight log"]] as const;
 
 /** Activity (real trades only): ↑ BOOST / ↓ DUMP · rocket · dollars · when. */
 function Activity({ rows, isPrivate, owner }: { rows: ActivityItem[] | null; isPrivate: boolean; owner: string }) {
@@ -232,6 +234,15 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       {toast && <div className="pf-toast" role="status">{toast}</div>}
 
       <HangarBay handle={handle} bio={bio} avatar={avatar} xp={xp} actions={actions} spend={false} stats={dash} />
+
+      {/* iPhone app only (html.app): the desktop Hangar is one long page on a phone, so a sticky row jumps to each part */}
+      {isPrivate && (
+        <nav className="hg-appjump" aria-label="Hangar sections" data-testid="hangar-jump">
+          {HANGAR_JUMPS.map(([id, label]) => (
+            <button key={id} type="button" onClick={() => document.getElementById(id)?.closest("section")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{label}</button>
+          ))}
+        </nav>
+      )}
 
       <ServiceRecord pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} aboard={holdings ? holdings.length : null} launched={launched} isPrivate={isPrivate} />
 
