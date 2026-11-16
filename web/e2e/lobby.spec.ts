@@ -17,12 +17,32 @@ test.describe("first visit", () => {
     await expect(out(page).getByTestId("mode-royale")).toHaveCount(0);
   });
 
-  test("the top bar has Lobby, Launch and Top pilots", async ({ page }) => {
+  test("the top bar has Live flights, Launch, Top pilots and Play now (the mark is the lobby)", async ({ page }) => {
     await page.goto("/");
     const bar = page.getByTestId("lobby-topbar");
     await expect(bar).toBeVisible();
     if (isPhone(page)) return; // phones use the bottom tab bar (see below)
-    for (const name of [/lobby/i, /launch/i, /top pilots/i]) await expect(bar.getByRole("link", { name }).first()).toBeVisible();
+    for (const name of [/live flights/i, /launch/i, /top pilots/i, /play now/i]) await expect(bar.getByRole("link", { name }).first()).toBeVisible();
+    await expect(bar.getByRole("link", { name: /^lobby$/i })).toHaveCount(0);
+    // Turbo only shows with the Turbo flag on
+    await expect(bar.getByTestId("nav-turbo")).toHaveCount(0);
+  });
+
+  test("Turbo tab opens a menu with Trading duel and Turbo royale", async ({ page }) => {
+    await page.goto("/?turbo=1");
+    const btn = page.locator(isPhone(page) ? ".lb-dock [data-testid=nav-turbo]" : ".lb-top [data-testid=nav-turbo]").first();
+    await hydrated(btn);
+    await btn.click();
+    const menu = page.getByTestId("turbo-menu");
+    await expect(menu.getByRole("menuitem", { name: /trading duel/i })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: /turbo royale/i })).toHaveAttribute("href", "/turbo/royale");
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+  });
+
+  test("Live flights opens every rocket", async ({ page }) => {
+    await page.goto("/live");
+    await expect(page.getByRole("heading", { name: /live flights/i })).toBeVisible();
   });
 
   test("one click on any card opens it", async ({ page }) => {
@@ -31,8 +51,8 @@ test.describe("first visit", () => {
     const live = out(page).getByTestId("mode-live");
     await hydrated(live);
     await live.click();
-    // nothing is flying on the stand-in chain, so /play falls back to the launch builder
-    await expect(page).toHaveURL(/\/(create|coin\/)/);
+    // Live flights opens the list of every rocket, not one random rocket
+    await expect(page).toHaveURL(/\/live$/);
   });
 
   test("desktop: arrow keys move between cards and Enter plays", async ({ page }) => {
@@ -57,7 +77,7 @@ test.describe("first visit", () => {
     const live = out(page).getByTestId("mode-live");
     await hydrated(live);
     await live.tap({ position: { x: 20, y: 120 } });
-    await expect(page).toHaveURL(/\/(create|coin\/)/);
+    await expect(page).toHaveURL(/\/live$/);
   });
 
   test("the Trading duel card shows once the Turbo flag is on", async ({ page }) => {

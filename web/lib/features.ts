@@ -84,3 +84,12 @@ export const PRO_HUD_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_PRO === 
 /** Trading Duel card in the lobby's "Pick a mode" row (game modes option A, maker 2026-11-14). The card shows whenever the
  *  Turbo flag is on (lib/turbo/flag.ts) and opens the duel lobby, which sits behind the Turbo password. */
 export const DUEL_HREF = "/turbo/duel";
+
+/**
+ * Market tab in the top bar and the phone tab bar (nav rework, maker 2026-11-16: "we need the marketplace now in the nav
+ * bar"). The /market page itself comes with PR #433; until that is on main the tab stays hidden so it can't open a 404.
+ * Flip this on in the same change that ships /market. Override: NEXT_PUBLIC_FEATURE_MARKET=1 (build-time).
+ */
+export const MARKET_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_MARKET === "1" || process.env.NEXT_PUBLIC_FEATURE_MARKET === "true";
+/** Where the Live flights tab and the lobby's Live flights card go: every rocket, with its sort chips (not one random rocket). */
+export const FLIGHTS_HREF = "/live";
