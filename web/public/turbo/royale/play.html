@@ -331,10 +331,6 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root #drop .mkc .nm{position:absolute;left:11px;bottom:27px;font:800 28px/1 var(--f-game);letter-spacing:.5px}
 .duel-root #drop .mkc .ft{position:absolute;left:11px;right:10px;bottom:10px;font:700 11.5px/1 var(--f-game);letter-spacing:.6px;color:var(--champ);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .duel-root #drop .mkc .you{position:absolute;right:10px;bottom:9px;font:800 10px/1 var(--f-game);letter-spacing:1px;color:#121327;background:var(--gold);padding:4px 6px;border-radius:6px}
-.duel-root .vhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
-.duel-root .vhead span{font:800 12px/1 var(--f-game);letter-spacing:1.2px;color:var(--muted)}
-.duel-root #drop .vopt{height:52px}
-.duel-root #drop .vopt .vn{font-size:15px;bottom:8px}.duel-root #drop .vopt .vc{font-size:18px;bottom:7px}
 @media (max-width:430px){.duel-root .ihead b{font-size:28px}.duel-root #drop .mkc{height:104px}.duel-root #drop .mkc .nm{font-size:24px}.duel-root #drop .vopt{height:46px}}
 .duel-root .mkb{position:relative}.duel-root .mkb .lim{padding-right:36px}.duel-root .mkb .emb{position:absolute;right:8px;bottom:8px;width:34px;height:34px;opacity:.95;pointer-events:none}
 .duel-root .gi{display:block;height:20px;max-width:100%;object-fit:contain;pointer-events:none}
@@ -366,15 +362,6 @@ html,body{margin:0;height:100%;background:#07080c}
 @media (max-width:430px){.duel-root #drop .mkb b{font-size:22px}.duel-root #drop .mkb small{font-size:11.5px}}
 .duel-root #drop .pane{gap:12px}
 /* map vote (maker 2026-11-15): two skies, every pilot votes, a tie goes to a random sky */
-.duel-root .vote{display:flex;flex-direction:column;gap:6px}
-.duel-root .vrow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.duel-root .vopt{position:relative;height:78px;border-radius:14px;border:2px solid #2E323A;background:#23262F 50% 60%/cover no-repeat;overflow:hidden;color:var(--text);text-align:left;padding:0;cursor:pointer}
-.duel-root .vopt::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,8,12,.15),rgba(7,8,12,.78))}
-.duel-root .vopt.on{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold) inset}
-.duel-root .vopt .vn{position:absolute;left:10px;bottom:9px;font:800 18px/1 var(--f-game);letter-spacing:.4px}
-.duel-root .vopt .vc{position:absolute;right:10px;bottom:8px;font:800 22px/1 var(--f-game);color:var(--gold);font-variant-numeric:tabular-nums}
-.duel-root .vopt .vy{position:absolute;left:10px;top:8px;font:800 10px/1 var(--f-game);letter-spacing:1px;color:var(--gold)}
-.duel-root .vopt .vbar{position:absolute;left:0;bottom:0;height:3px;background:var(--gold);transition:width .3s}
 .duel-root .vst{font:500 11.5px/1.3 var(--f-ui);color:var(--muted)}
 @media (max-width:430px){.duel-root .vopt{height:66px}.duel-root .vopt .vn{font-size:16px}}
 @media (hover:none),(pointer:coarse){.duel-root .kbd{display:none}}
@@ -521,6 +508,48 @@ html,body{margin:0;height:100%;background:#07080c}
   .duel-root .pod-dots{display:flex}
 }
 @media (max-width:760px) and (max-height:720px){.duel-root .pk-ship,.duel-root .pk.p1 .pk-ship{flex-basis:112px}.duel-root .pk-st div{height:28px}.duel-root .pk-st div.big{height:36px}.duel-root .pk-st div.big b{font-size:26px}}
+/* landing zone (maker, 2026-11-16): no sky vote (the sky is random), lobby chat while the doors count down */
+.duel-root .dbar{height:4px;border-radius:4px;background:#23262F;overflow:hidden;margin-top:-4px}
+.duel-root .dbar i{display:block;height:100%;width:100%;background:var(--gold);transition:width 1s linear,background .3s}
+.duel-root #pDrop.hot .dbar i{background:var(--pink)}
+.duel-root #pDrop.hot .dtime b{color:var(--pinkl);animation:dpulse 1s ease-out infinite}
+.duel-root #pDrop.hot .dtime span{color:var(--pinkl)}
+@keyframes dpulse{0%{transform:scale(1.45)}60%{transform:scale(1)}}
+.duel-root .dtime b{display:inline-block;transform-origin:right center}
+.duel-root .dwrap{display:flex;flex-direction:column;gap:10px;min-height:0}
+.duel-root #drop .mkc{height:104px}
+.duel-root #drop .mkc .fin{position:absolute;left:10px;top:10px;font:800 11px/1 var(--f-game);letter-spacing:.8px;padding:4px 7px;border-radius:999px;background:var(--gold);color:#121327}
+.duel-root #drop .mkc.final{border-color:rgba(242,193,78,.55)}
+.duel-root #drop .mkc.final.on{border-color:var(--gold)}
+.duel-root #drop .mkc .rar.r2{left:auto;right:58px}
+@media (max-width:600px){ .duel-root #drop .mkc .rar.r2{display:none} }
+.duel-root #drop .mkc .pips{display:inline-flex;gap:3px;margin-left:8px;vertical-align:middle;position:relative;top:-3px}
+.duel-root #drop .mkc .pips i{width:8px;height:8px;border-radius:50%;background:var(--pinkl);box-shadow:0 0 6px rgba(255,143,189,.6);animation:fpop .28s ease-out}
+.duel-root #drop .mkc .pips i.me{background:var(--gold);box-shadow:0 0 6px rgba(242,193,78,.7)}
+.duel-root .lchat{display:flex;flex-direction:column;gap:7px;padding:10px;border-radius:16px;background:rgba(12,13,28,.7);border:1px solid #2E323A;min-height:0}
+.duel-root .lhead{display:flex;justify-content:space-between;align-items:baseline}
+.duel-root .lhead span{font:800 12px/1 var(--f-game);letter-spacing:1.2px;color:var(--muted)}
+.duel-root .lhead small{font:600 11px/1 var(--f-ui);color:var(--muted)}
+.duel-root .lmsgs{height:84px;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;gap:4px;-webkit-mask-image:linear-gradient(180deg,transparent,#000 30%);mask-image:linear-gradient(180deg,transparent,#000 30%)}
+.duel-root .lmsgs div{flex:none;font:500 13px/1.25 var(--f-ui);color:var(--text);animation:fpop .2s ease-out;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.duel-root .lmsgs b{font-weight:700;color:var(--pinkl);margin-right:5px}
+.duel-root .lmsgs .me b{color:var(--gold)}
+.duel-root .lmsgs .sys{color:var(--champ);font:800 12px/1.3 var(--f-game);letter-spacing:.8px}
+.duel-root .lchat .quick{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -2px;padding:0 2px}.duel-root .lchat .quick::-webkit-scrollbar{display:none}
+.duel-root .lchat .quick button{flex:none;height:30px;font-size:14px;padding:0 9px}
+.duel-root #drop .mkc.on .ft{right:50px}
+.duel-root .lchat .say input{height:36px;font-size:16px}
+.duel-root .lchat .say button{height:36px;font-size:15px}
+@media (min-width:900px){
+  .duel-root #drop .panel:has(#pDrop:not([hidden])){max-width:920px}
+  .duel-root .dwrap{flex-direction:row;align-items:stretch}
+  .duel-root .dwrap .mk{flex:1.25;min-width:0;grid-auto-rows:1fr}
+  .duel-root #drop .dwrap .mkc{height:auto;min-height:104px}
+  .duel-root .dwrap .lchat{flex:1;min-width:0}
+  .duel-root .lmsgs{height:auto;flex:1}
+}
+@media (max-height:760px){ .duel-root #drop .mkc{height:88px} .duel-root #drop .mkc .nm{font-size:24px} .duel-root .lmsgs{height:60px} }
+@media (prefers-reduced-motion:reduce){ .duel-root #pDrop.hot .dtime b{animation:none} }
 </style>
 </head>
 <body>
@@ -578,7 +607,7 @@ html,body{margin:0;height:100%;background:#07080c}
   <ol class="steps" aria-label="Match steps"><li id="stLobby" class="on">LOBBY</li><li id="stDrop">PICK DROP</li><li>LOOT UP</li><li>LAST PILOT</li></ol>
   <div class="panel">
     <div class="pane" id="pIntro">
-      <div class="ihead"><small>12 PILOTS · 12 MIN · ONE SURVIVES</small><b>LAST PILOT STANDING</b></div>
+      <div class="ihead"><small>12 PILOTS · 3 MIN · ONE SURVIVES</small><b>LAST PILOT STANDING</b></div>
       <ol class="ihow">
         <li><i>1</i><b>DROP</b><span>Pick a coin to land on</span></li>
         <li><i>2</i><b>LOOT</b><span>Fly into crates for guns</span></li>
@@ -592,7 +621,7 @@ html,body{margin:0;height:100%;background:#07080c}
         <li><b>START WITH A PISTOL</b> ($10 spot, 1×). Crates drop leverage guns: each is a trade size × leverage with limited shots<span class="kbd"> (switch with 1–3)</span>.</li>
         <li><b>HOTBAR FULL?</b> A pop-up asks which gun to swap out, or leave it. Same gun again = more ammo.</li>
         <li><b>FLY ANYWHERE.</b> Drag to fly up, down and sideways<span class="kbd"> (WASD or arrows)</span>. Your tag shows your real PnL.</li>
-        <li><b>MAPS CLOSE</b> one by one and the storm cuts the lowest PnL. Tap MAP to jump; your PnL comes with you.</li>
+        <li><b>MAPS CLOSE</b> one by one and the storm cuts the lowest PnL. The final circle is a different coin every game. Tap MAP to jump; your PnL comes with you.</li>
         <li><b>DOGFIGHT</b> within $1 of a pilot. Win it and take their best gun. A <b>NUKE</b> blows up the gun that fired it.</li>
       </ul></details>
       <p class="fine">Practice · fake money · you + 11 bots</p>
@@ -603,9 +632,17 @@ html,body{margin:0;height:100%;background:#07080c}
       <button class="sec" type="button" id="fCancel" data-sfx="back">CANCEL</button>
     </div>
     <div class="pane" id="pDrop" hidden>
-      <div class="dtime"><span>PICK YOUR DROP</span><b id="dT">0:15</b></div>
-      <div class="mk" id="mkPick"></div>
-      <div class="vote" role="group" aria-label="Sky vote"><div class="vhead"><span>SKY VOTE</span><small class="vst" id="vSt"></small></div><div class="vrow" id="vRow"></div></div>
+      <div class="dtime"><span>PICK YOUR LANDING ZONE</span><b id="dT">0:15</b></div>
+      <div class="dbar" aria-hidden="true"><i id="dBar"></i></div>
+      <div class="dwrap">
+        <div class="mk" id="mkPick"></div>
+        <div class="lchat" id="lChat">
+          <div class="lhead"><span>LOBBY CHAT</span><small id="lN">12 pilots</small></div>
+          <div class="lmsgs" id="lMsgs" aria-live="polite"></div>
+          <div class="quick" id="lQuick"></div>
+          <form class="say" id="lSay" autocomplete="off"><input id="lIn" maxlength="60" placeholder="Say something to the lobby" aria-label="Lobby chat message" enterkeyhint="send"><button type="submit">SEND</button></form>
+        </div>
+      </div>
       <button class="go" type="button" id="dGo" data-sfx="primary">DROP INTO HYPE</button>
     </div>
   </div>
@@ -668,7 +705,7 @@ const MKD={
   HYPE:{p:31.42,vol:.0007,dr:.30,dec:2,loot:[1,3,4,2],drop:.6,best:"LEGENDARY",tag:"AGGRESSIVE",pro:"Best loot · most crates",con:"Closes first · wildest chart",sky:A.skyHype?"skyHype":"sky3"},
   SOL:{p:182.40,vol:.00046,dr:.32,dec:2,loot:[3,4,2,.6],drop:.8,best:"EPIC",tag:"FAST",pro:"Busiest map · most dogfights",con:"Closes second",sky:A.skySol?"skySol":"sky2"},
   ETH:{p:3412.5,vol:.0003,dr:.48,dec:1,loot:[4,3,1.2,.2],drop:1,best:"RARE",tag:"STEADY",pro:"Trends hold longer",con:"Mostly common loot",sky:"skyEth"},
-  BTC:{p:97214,vol:.0002,dr:.36,dec:0,loot:[6,2,.4,0],drop:1.4,best:"UNCOMMON",tag:"DEFENSIVE",pro:"Never closes · calm chart",con:"Weak loot · cuts take the lowest PnL",sky:"skyBtc"}};
+  BTC:{p:97214,vol:.0002,dr:.36,dec:0,loot:[6,2,.4,0],drop:1.4,best:"UNCOMMON",tag:"DEFENSIVE",pro:"Calm chart",con:"Weak loot · cuts take the lowest PnL",sky:"skyBtc"}};
 /* weapons = trade size × leverage. You start with the spot pistol; everything else is loot. */
 const WPN={
   "PISTOL":{usd:10,lev:1,ammo:Infinity,r:0},
@@ -696,14 +733,20 @@ function dropWeapon(pl,w){ const i=pl.inv.indexOf(w); if(i<0||w.k==="PISTOL") re
 const START={HYPE:2,SOL:4,ETH:3,BTC:2};
 const NAMES=["@moonmath","@solwhale","@lev_larry","@chartmonk","@0xrekt","@pumpqueen","@degenpilot","@wickhunter","@fadeking","@gmgn_andy","@bagholdr"];
 let dropMk="HYPE";
-// one length: about 12 minutes (maps close at 3:00, 5:30 and 8:00, then about 3 min of final circle and a 1 min duel)
-function plan(){ return {close:{HYPE:180,SOL:330,ETH:480},warn:20,target:{HYPE:9,SOL:6,ETH:4},shrink:40,df:15,duel:60,w0:6}; }
+// one length: 3 minutes at most (maker, 2026-11-16: "3 mins max for royale"). Maps close at 0:45, 1:20 and 1:55, the final circle
+// shrinks every 15 s (4 → 3 → 2 by 2:25), then a 30 s duel ends it by about 2:55.
+// the final circle is a random coin each game (maker, 2026-11-16: "its not always in bitcoin"); the other three close in a random order
+let ROLL=null;
+function rollMaps(){ const o=ORDER.slice().sort(()=>Math.random()-.5); ROLL={final:o[3],order:o.slice(0,3)}; return ROLL; }
+const finalMk=()=>(ROLL||rollMaps()).final;
+function plan(){ const r=ROLL||rollMaps(), close={}, target={}; r.order.forEach((k,i)=>{ close[k]=[45,80,115][i]; target[k]=[9,6,4][i]; });
+  return {close,warn:10,target,shrink:15,df:10,duel:30,w0:6,dfCool:12,jumpCool:5}; }
 const liqPct=pl=>pl.pos?Math.max(0,-pnlOf(pl.pos,price(pl))/(LIQ*pl.pos.coll)):0;
 
 /* ---------- state ---------- */
 let G=null;
-function newPilot(name,me,mk,used){ return {hull:me?null:hullFor(used),name,me,mk,fuel:FUEL0,pos:null,shields:0,inv:[{k:"PISTOL",ammo:Infinity}],sel:0,alive:true,lane:.5,jit:me?0:rnd(-34,34),arrive:me?0:rnd(1,18),xo:0,xt:0,wander:0,
-  dfW:0,dfL:0,best:0,grab:0,cool:rnd(10,22),df:null,y:null,vy:0,flame:0,sq:0,kick:0,rot:0,steer:0,jumpAt:null,place:0,
+function newPilot(name,me,mk,used){ return {hull:me?null:hullFor(used),name,me,mk,fuel:FUEL0,pos:null,shields:0,inv:[{k:"PISTOL",ammo:Infinity}],sel:0,alive:true,lane:.5,jit:me?0:rnd(-34,34),arrive:me?0:rnd(1,8),xo:0,xt:0,wander:0,
+  dfW:0,dfL:0,best:0,grab:0,cool:rnd(5,10),df:null,y:null,vy:0,flame:0,sq:0,kick:0,rot:0,steer:0,jumpAt:null,place:0,
   bot:me?null:{skill:rnd(.25,.9),react:[rnd(.4,.8),rnd(.9,1.8)],next:0,thr:rnd(2.2,3.6),tp:rnd(.25,.6),sl:-rnd(.25,.75),hold:rnd(6,16)}}; }
 function newGame(){
   const P=plan(), M={};
@@ -711,7 +754,7 @@ function newGame(){
   // 60 s of history so the chart is full at GO
   for(const k of ORDER){ const m=M[k]; for(let i=-300;i<=0;i++){ stepFeed(m,i*TICK); } }
   const pilots=[], names=NAMES.slice().sort(()=>Math.random()-.5); let n=0;
-  const used=new Set(); for(const k of ORDER) for(let i=0;i<START[k];i++) pilots.push(newPilot(names[n++],false,k,used));
+  const used=new Set(); for(const k of ORDER) for(let i=0;i<START[k];i++){ const lz=LZ&&LZ.bots.filter(b=>b.mk===k)[i]; pilots.push(newPilot(lz?lz.name:names[n++],false,k,used)); }
   const me=newPilot("you",true,dropMk); me.lane=.5; pilots.push(me);
   G={t:0,P,M,pilots,me,started:false,over:false,phase:"early",final:null,duel:null,dfs:[],nextCrate:rnd(3,5),crate:null,acc:0,
      marks:[],moments:[],cutLog:[],band:null,watch:false,mapOpen:false,jumpCool:0};
@@ -802,6 +845,7 @@ function paintHot(){ const inv=G?G.me.inv:[{k:"PISTOL",ammo:Infinity}], sel=G?G.
   const w=inv[sel]||inv[0]; $("bBoostA").textContent=$("bDumpA").textContent=wLine(w); }
 const keys={};
 addEventListener("keydown",e=>{
+  if(e.target&&e.target.tagName==="INPUT") return;
   if(e.repeat&&(e.code==="Space"||e.key==="Shift"||e.key==="Enter")) return;
   if(e.code==="Space"){e.preventDefault(); act("b");} else if(e.key==="Shift"){act("d");} else if(e.key==="Enter"){ if(!$("drop").hidden) $("dGo").click(); else act("x"); }
   else if(e.key==="1"||e.key==="2"||e.key==="3"){ selSlot(+e.key-1); }
@@ -844,7 +888,7 @@ function jump(pl,k){
   if(pl.pos) close(pl,"jump");
   const from=pl.mk; pl.mk=k; pl.jumpAt=null; pl.y=null; pl.x=null; pl.arrive=Math.min(pl.arrive,G.t); pl.lane=laneFor(pl);
   if(pl.df) endDf(pl.df,true);
-  if(pl.me){ G.me.lane=.5; G.me.xo=G.me.xt=0; G.me.yo=G.me.yt=0; G.jumpCool=G.t+8; G.mapOpen=false; feed("g","↑",`Jumped to <b>${k}</b> · ${MKD[k].best.toLowerCase()} loot · your PnL came with you`); sfx("jump"); G.crate=null; buildJump(); paintSizes(); }
+  if(pl.me){ G.me.lane=.5; G.me.xo=G.me.xt=0; G.me.yo=G.me.yt=0; G.jumpCool=G.t+G.P.jumpCool; G.mapOpen=false; feed("g","↑",`Jumped to <b>${k}</b> · ${MKD[k].best.toLowerCase()} loot · your PnL came with you`); sfx("jump"); G.crate=null; buildJump(); paintSizes(); }
   else if(from===G.me.mk||k===G.me.mk) feed("m","→",`<b>${pl.name}</b> jumped ${from} → ${k}`);
 }
 function bestJump(exclude){ const o=openMks().filter(k=>k!==exclude); if(!o.length) return null;
@@ -879,7 +923,7 @@ function startDf(a,b){
 }
 const dfGain=(d,pl)=>profit(pl)-(pl===d.a?d.base.a:d.base.b);
 function endDf(d,abort){
-  const i=G.dfs.indexOf(d); if(i<0) return; G.dfs.splice(i,1); d.a.df=d.b.df=null; d.a.cool=d.b.cool=G.t+25;
+  const i=G.dfs.indexOf(d); if(i<0) return; G.dfs.splice(i,1); d.a.df=d.b.df=null; d.a.cool=d.b.cool=G.t+G.P.dfCool;
   if(abort) return;
   const ga=dfGain(d,d.a), gb=dfGain(d,d.b); if(Math.abs(ga-gb)<0.005) { if(d.a.me||d.b.me) feed("m","=","Dogfight tied, nobody drops a weapon"); return; }
   const w=ga>gb?d.a:d.b, l=w===d.a?d.b:d.a; w.dfW++; l.dfL++;
@@ -893,12 +937,12 @@ function endDf(d,abort){
 
 /* ---------- final circle + duel ---------- */
 function startFinal(){
-  for(const pl of alive()) if(pl.mk!=="BTC") jump(pl,"BTC");
+  { const fk=finalMk(); for(const pl of alive()) if(pl.mk!==fk) jump(pl,fk); }
   for(const d of G.dfs.slice()) endDf(d,true);
   { const L=[.14,.86,.3,.7,.1,.9]; let i=0; for(const pl of alive()){ if(pl.me){ pl.lane=.5; } else pl.lane=L[i++%L.length]; pl.xt=pl.xo=0; } }
   G.mapOpen=false;
   G.final={next:G.t+G.P.shrink}; G.band={top:topP(),w:G.P.w0};
-  feed("m","◎",`<b>FINAL CIRCLE</b> on BTC · ${alive().length} left`); sfx("ot"); bed("amb_tension"); 
+  feed("m","◎",`<b>FINAL CIRCLE</b> on ${finalMk()} · ${alive().length} left`); sfx("ot"); bed("amb_tension"); 
   if(alive().length<=2) startDuel();
 }
 const topP=()=>Math.max(...alive().map(profit))+.6;
@@ -938,12 +982,12 @@ function simTick(){
   if(G.duel&&G.t>=G.duel.end) endDuel();
   // supply drops near you
   if(!G.final&&!G.duel&&G.me.alive&&!G.crate&&G.t>=G.nextCrate&&!G.me.df){ const side=G.me.lane*SW+G.me.xo<SW/2?1:-1;
-    const item=rollLoot(G.me.mk); G.crate={x:Math.max(40,Math.min(SW-40,G.me.lane*SW+G.me.xo+side*rnd(110,170))),y:-1,until:G.t+10,item}; G.nextCrate=G.t+rnd(16,24)*MKD[G.me.mk].drop; sfx("pod");
+    const item=rollLoot(G.me.mk); G.crate={x:Math.max(40,Math.min(SW-40,G.me.lane*SW+G.me.xo+side*rnd(110,170))),y:-1,until:G.t+10,item}; G.nextCrate=G.t+rnd(8,12)*MKD[G.me.mk].drop; sfx("pod");
     feed("g","◆",`LOOT · <b style="color:${rarOf(item).c}">${item.k}</b> ${wLine(item)} · steer into it`); }
   if(G.crate&&G.t>G.crate.until) G.crate=null;
   if(G.offer){ if(G.t>G.offer.until||!G.me.alive) leaveOffer(); else { const t=$("swT"); if(t) t.style.transform=`scaleX(${Math.max(0,(G.offer.until-G.t)/G.offer.len)})`; } }
   // other bots find loot sometimes
-  for(const pl of G.pilots) if(pl.alive&&!pl.me&&!G.final&&!G.duel&&Math.random()<TICK/(14*MKD[pl.mk].drop)){ const it=rollLoot(pl.mk); give(pl,it);
+  for(const pl of G.pilots) if(pl.alive&&!pl.me&&!G.final&&!G.duel&&Math.random()<TICK/(6*MKD[pl.mk].drop)){ const it=rollLoot(pl.mk); give(pl,it);
     if(pl.mk===G.me.mk&&visible(pl)&&W(it).r>=3) feed("s","◆",`<b>${pl.name}</b> picked up a <b style="color:${rarOf(it).c}">${it.k}</b>`); }
   // arrivals: pilots drop into your map one at a time
   for(const pl of G.pilots) if(!pl.me&&pl.alive&&!pl.arrived&&G.t>=pl.arrive){ pl.arrived=true; if(pl.mk===G.me.mk&&G.me.alive) feed("m","↓",`<b>${pl.name}</b> dropped into ${pl.mk}`); }
@@ -953,45 +997,53 @@ function simTick(){
 
 /* ---------- start / end ---------- */
 let raf=0,last=0;
+function lzOrder(){ const r=ROLL||rollMaps(); return r.order.concat([r.final]); }
+function lzAt(k){ if(!LZ) return START[k]; let n=0; for(const b of LZ.bots){ const mk=b.first&&LZ.el>=b.at*.4&&LZ.el<b.at?b.first:LZ.el>=b.at?b.mk:null; if(mk===k) n++; } return n; }
 function buildDrop(){
-  const box=$("mkPick"); box.innerHTML="";
-  for(const k of ORDER){ const n=START[k]+(k===dropMk?1:0), cl=plan().close[k], d=MKD[k], rc=RAR.find(x=>x.n===d.best).c, em=A["map-"+k.toLowerCase()];
-    const b=document.createElement("button"); b.type="button"; b.className="mkc"+(k===dropMk?" on":""); b.setAttribute("aria-pressed",k===dropMk);
-    b.style.backgroundImage=`url("${A[d.sky]}")`; b.setAttribute("aria-label",`${k}: loot up to ${d.best.toLowerCase()}, ${n} pilots, ${cl!=null?"closes at "+mmss(cl):"the final circle"}`);
-    b.innerHTML=`<span class="rar" style="color:${rc}">${d.best}</span>${em?`<img class="emb" src="${em}" alt="">`:""}<b class="nm">${k}</b><span class="ft">${n} PILOTS · ${cl!=null?"CLOSES "+mmss(cl):"FINAL CIRCLE"}</span>${k===dropMk?'<span class="you">YOU</span>':""}`;
-    b.addEventListener("click",()=>{ dropMk=k; sfx("tick"); buildDrop(); }); box.appendChild(b); }
-  $("dGo").textContent="DROP INTO "+dropMk; paintSizes();
+  const box=$("mkPick"); box.innerHTML=""; const fk=finalMk();
+  for(const k of lzOrder()){ const cl=plan().close[k], d=MKD[k], rc=RAR.find(x=>x.n===d.best).c, em=A["map-"+k.toLowerCase()], fin=k===fk;
+    const b=document.createElement("button"); b.type="button"; b.dataset.k=k; b.className="mkc"+(k===dropMk?" on":"")+(fin?" final":""); b.setAttribute("aria-pressed",k===dropMk);
+    b.style.backgroundImage=`url("${A[d.sky]}")`; b.setAttribute("aria-label",`${k}: loot up to ${d.best.toLowerCase()}, ${fin?"the final circle":"closes at "+mmss(cl)}`);
+    b.innerHTML=`${fin?'<span class="fin">FINAL CIRCLE</span>':""}<span class="rar${fin?" r2":""}" style="color:${rc}">${d.best}</span>${em?`<img class="emb" src="${em}" alt="">`:""}<b class="nm">${k}<span class="pips"></span></b><span class="ft"></span>${k===dropMk?'<span class="you">YOU</span>':""}`;
+    b.addEventListener("click",()=>{ if(dropMk===k) return; dropMk=k; sfx("tick"); buzz(10); buildDrop(); }); box.appendChild(b); }
+  $("dGo").textContent="DROP INTO "+dropMk; paintLZ(); paintSizes();
 }
-/* ---------- map vote (maker 2026-11-15: "give them two options and then people vote. a 6-6 tiebreaker would go for a random sky") ----------
- * Two skies from the pool, never last match's. All 12 pilots vote during the drop timer (the 11 bots trickle in);
- * you can change your vote until the drop. Most votes wins; a tie goes to a random sky from the whole pool. */
+// the dots on each card are the pilots dropping there; bots make up their minds (and sometimes switch) while the doors count down
+function paintLZ(){ const fk=finalMk(); document.querySelectorAll("#mkPick .mkc").forEach(b=>{ const k=b.dataset.k, n=lzAt(k), me=k===dropMk, pp=b.querySelector(".pips"), want=n+(me?1:0);
+    if(pp.children.length!==want){ pp.innerHTML=(me?'<i class="me"></i>':"")+"<i></i>".repeat(n); }
+    b.querySelector(".ft").textContent=k===fk?"LAST MAP":"CLOSES "+mmss(plan().close[k]); pp.setAttribute("aria-label",`${want} pilot${want===1?"":"s"} dropping here`); }); }
+/* ---------- the sky is random each game (maker 2026-11-16: "remove the sky screen voting, and just make it random"), never last game's ---------- */
 const MAPS=[{n:"MOONRISE",k:"sky0"},{n:"THE PAD",k:"skyPad"},{n:"CLOUD DECK",k:"sky2"},{n:"BLUE MOON",k:"skyEth"},
   {n:"ORANGE ORBIT",k:"skyBtc"},{n:"DEEP SPACE",k:"sky4"},{n:"AURORA",k:"skyHype"},{n:"TEAL ORBIT",k:"skySol"},{n:"PINK DUSK",k:"sky1",g:"240,48,127,.38"}].filter(m=>A[m.k]);
-let VOTE=null, MAP=MAPS[0];
-function newVote(){
-  let last=null; try{ last=localStorage.getItem("royale.map"); }catch(e){}
-  const pool=MAPS.filter(m=>m.n!==last).sort(()=>Math.random()-.5);
-  VOTE={opts:[pool[0],pool[1]||pool[0]],mine:-1,bots:NAMES.map(()=>({at:rnd(1.5,12),pick:Math.random()<.5?0:1,done:false})),res:null};
-  $("vRow").innerHTML=""; VOTE.opts.forEach((m,i)=>{ const b=document.createElement("button"); b.type="button"; b.className="vopt"; b.dataset.i=i;
-    b.style.backgroundImage=`url("${A[m.k]}")`; b.setAttribute("aria-label","Vote for "+m.n);
-    b.innerHTML=`<span class="vy" hidden>YOUR VOTE</span><span class="vn">${m.n}</span><b class="vc">0</b><i class="vbar"></i>`;
-    b.addEventListener("click",()=>{ if(!VOTE||VOTE.res) return; VOTE.mine=i; sfx("tick"); buzz(10); paintVote(); }); $("vRow").appendChild(b); });
-  paintVote();
+let MAP=MAPS[0];
+function rollSky(){ let last=null; try{ last=localStorage.getItem("royale.map"); }catch(e){}
+  const pool=MAPS.filter(m=>m.n!==last); MAP=pick(pool.length?pool:MAPS); try{ localStorage.setItem("royale.map",MAP.n); }catch(e){} return MAP; }
+/* ---------- landing zone lobby chat (maker 2026-11-16: "global chat starting on the landing zone selector ... make that countdown fun") ----------
+ * Practice lobby: the 11 bots pick coins, trash talk and answer you while the doors count down. Nothing leaves your device. */
+let LZ=null;
+const LQUICK=["gl hf","🚀","send it","see you in the storm","lol","👀"];
+function lzSetup(){
+  const names=NAMES.slice().sort(()=>Math.random()-.5), slots=[]; for(const k of ORDER) for(let i=0;i<START[k];i++) slots.push(k);
+  const bots=names.slice(0,slots.length).map((n,i)=>({name:n,mk:slots[i],at:rnd(.8,11.5),first:Math.random()<.3?pick(ORDER.filter(k=>k!==slots[i])):null,done:false,said:false}));
+  const fk=finalMk(), o=ROLL.order, lines=[`final circle on ${fk}?? ok`,`${o[0]} closes first, don't land there`,"gl all","first one out buys the next round",`${fk} gang`,"I'm taking the railgun","HYPE loot is insane","don't follow me","who's camping the final","🚀🚀🚀","nuke incoming","ez","new pilot? stay close to the leader lol","5x ape mode"];
+  const talk=lines.sort(()=>Math.random()-.5).slice(0,6).map(t=>({t,at:rnd(.6,12.5),who:pick(bots).name,done:false}));
+  LZ={bots,talk,el:0,hot:false,reply:0};
+  $("lMsgs").innerHTML=""; lzSys(`12 pilots in · the storm ends on ${fk}`);
 }
-function tally(){ const n=[0,0]; for(const b of VOTE.bots) if(b.done) n[b.pick]++; if(VOTE.mine>=0) n[VOTE.mine]++; return n; }
-function paintVote(){ if(!VOTE) return; const n=tally(), tot=n[0]+n[1];
-  $("vRow").querySelectorAll(".vopt").forEach(b=>{ const i=+b.dataset.i; b.classList.toggle("on",VOTE.mine===i); b.querySelector(".vy").hidden=VOTE.mine!==i;
-    b.querySelector(".vc").textContent=n[i]; b.querySelector(".vbar").style.width=(tot?n[i]/12*100:0)+"%"; });
-  $("vSt").textContent=VOTE.mine<0?`${tot}/12 voted · tap one`:`${tot}/12 voted`; }
-function voteTick(el){ if(!VOTE||VOTE.res) return; let ch=false; for(const b of VOTE.bots) if(!b.done&&el>=b.at){ b.done=true; ch=true; } if(ch) paintVote(); }
-function finishVote(){
-  if(!VOTE) newVote(); if(VOTE.res) return VOTE.res;
-  for(const b of VOTE.bots) b.done=true;
-  const n=tally(); let tie=n[0]===n[1];
-  MAP=tie?MAPS[Math.floor(Math.random()*MAPS.length)]:VOTE.opts[n[0]>n[1]?0:1];
-  try{ localStorage.setItem("royale.map",MAP.n); }catch(e){}
-  paintVote(); VOTE.res={tie,n,map:MAP}; return VOTE.res;
-}
+function lzLine(html,cls){ const m=$("lMsgs"), d=document.createElement("div"); if(cls) d.className=cls; d.innerHTML=html; m.appendChild(d); while(m.children.length>12) m.firstChild.remove(); }
+function lzSys(t){ lzLine(esc(t),"sys"); }
+function lzSay(who,t,me){ lzLine(`<b>${me?"you":esc(who)}</b>${esc(t)}`,me?"me":""); if(!me) sfx("tick",.35); }
+function lzTick(){ if(!LZ) return; LZ.el+=.25; const el=LZ.el;
+  for(const b of LZ.bots) if(!b.done&&el>=b.at){ b.done=true; if(!b.said&&Math.random()<.3){ b.said=true; lzSay(b.name,b.first?`nvm switching to ${b.mk}`:`dropping ${b.mk} 🔥`); } }
+  for(const c of LZ.talk) if(!c.done&&el>=c.at){ c.done=true; lzSay(c.who,c.t); }
+  if(LZ.reply&&el>=LZ.reply.at){ lzSay(LZ.reply.who,LZ.reply.t); LZ.reply=0; }
+  paintLZ(); }
+function lzMe(t){ t=(t||"").trim().slice(0,60); if(!t||!LZ) return; lzSay("you",t,true); sfx("tick",.5);
+  if(!LZ.reply&&Math.random()<.6) LZ.reply={at:LZ.el+rnd(.8,2.2),who:pick(LZ.bots).name,t:pick(["lol","bet","see you there","gl","👀","say less","you're going down","😂","respect"])}; }
+$("lQuick").innerHTML=LQUICK.map(q=>`<button type="button">${q}</button>`).join("");
+$("lQuick").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b) lzMe(b.textContent); });
+$("lSay").addEventListener("submit",e=>{ e.preventDefault(); lzMe($("lIn").value); $("lIn").value=""; });
+const esc=t=>String(t).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let dropT=0, dropIv=0;
 function prePane(id){ $("podium").hidden=true; podStop(); victoryMusic(false); for(const k of ["pIntro","pFill","pDrop"]) $(k).hidden=k!==id; $("stLobby").classList.toggle("on",id!=="pDrop"); $("stDrop").classList.toggle("on",id==="pDrop"); }
 let fillIv=0;
@@ -1005,18 +1057,21 @@ function fillLobby(){ toParent({type:"disciple:music",on:false}); ensureAudio();
     $("fN").textContent=n; $("dIn").textContent=n+" / 12"; sfx("tick",.5);
     if(n>=12){ clearInterval(fillIv); $("fSub").textContent="LOBBY FULL"; sfx("lock"); buzz([20,40,20]); setTimeout(showDrop,900); } },300);
 }
-function showDrop(){ toParent({type:"disciple:music",on:false}); $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; buildDrop(); newVote(); dropT=15; $("dT").textContent=mmss(dropT);
-  clearInterval(dropIv); dropIv=setInterval(()=>{ dropT--; $("dT").textContent=mmss(dropT); voteTick(15-dropT); if(dropT<=0){ clearInterval(dropIv); go(); } },1000); }
+function showDrop(){ toParent({type:"disciple:music",on:false}); $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; rollMaps(); lzSetup(); buildDrop(); dropT=15; $("dT").textContent=mmss(dropT); $("dBar").style.width="100%"; $("pDrop").classList.remove("hot");
+  clearInterval(dropIv); let q=0; dropIv=setInterval(()=>{ lzTick(); if(++q%4) return; dropT--; $("dT").textContent=mmss(dropT); $("dBar").style.width=(dropT/15*100)+"%";
+    // the last five seconds: the clock goes pink and pulses, a tick every second
+    if(dropT<=5&&dropT>0){ $("pDrop").classList.add("hot"); sfx("count",.7); buzz(12); if(dropT===5) lzSys("DOORS OPEN IN 5"); }
+    if(dropT<=0){ clearInterval(dropIv); go(); } },250); }
 $("dGo").addEventListener("click",()=>{ ensureAudio(); clearInterval(dropIv); go(); });
 function go(){
-  const vr=finishVote(), mapLine=vr.tie?`VOTE TIED ${vr.n[0]}-${vr.n[1]} · RANDOM SKY: ${MAP.n}`:`MAP · ${MAP.n} (${Math.max(...vr.n)}-${Math.min(...vr.n)})`;
+  rollSky(); const mapLine=`SKY · ${MAP.n} · FINAL CIRCLE ON ${finalMk()}`;
   $("drop").hidden=true; newGame(); G.me.y=null; FX.parts.length=FX.pops.length=FX.rings.length=0;
   $("feed").innerHTML=""; buildJump(); const c=$("count"); c.hidden=false; let n=3;
   const show=()=>{ c.innerHTML=`<div><small>DROPPING INTO ${G.me.mk}</small><small class="cmap">${mapLine}</small>${n}</div>`; };
   show(); sfx("count"); bed("amb_wind_high"); oneShotAmb("amb_mothership_pass",.7);
   const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("count"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); sfx("drop",.8); buzz(30); G.started=true; toParent({type:"disciple:music",on:true}); setTimeout(()=>c.hidden=true,450);
     feed("m","☁",`${inMk(G.me.mk).length} pilots in ${G.me.mk} · 12 in the game`);
-    feed("m","🗳",vr.tie?`Map vote tied ${vr.n[0]}-${vr.n[1]}. Random sky: <b>${MAP.n}</b>`:`Map vote ${Math.max(...vr.n)}-${Math.min(...vr.n)}: <b>${MAP.n}</b>`); },800);
+    feed("m","☁",`Sky: <b>${MAP.n}</b> · the storm ends on <b>${finalMk()}</b>`); },800);
 }
 function endMe(){
   if(G.resShown) return; G.resShown=true;
@@ -1179,7 +1234,7 @@ function hud(){
     sbSet("YOU",usd(gm,true),gm,o.name.toUpperCase(),usd(go,true),go); clock(d.end-G.t,"DOGFIGHT",false); lead(gm-go); }
   else { const wf=G.watch&&!me.alive&&G.watchFrom; if(wf) sbSet(`${wf.name.toUpperCase()} · #${rankOf(wf)}`,usd(profit(wf),true),profit(wf),"ALIVE",String(al),null);
     else sbSet(me.alive?`YOU · #${rankOf(me)} OF ${al}`:"OUT",usd(pr,true),pr,"ALIVE",String(al),null); lw.hidden=true;
-    if(G.final) clock(G.final.next-G.t,"FINAL CIRCLE · BTC",G.final.next-G.t<6);
+    if(G.final) clock(G.final.next-G.t,"FINAL CIRCLE · "+finalMk(),G.final.next-G.t<6);
     else if(G.duel) clock(G.duel.end-G.t,"FINAL DUEL",false);
     else { const m=G.M[me.mk]; if(m.closeAt!=null) clock(m.closeAt-G.t,me.mk+(m.closeAt-G.t<=G.P.warn?" CLOSING":" CLOSES"),m.closeAt-G.t<=G.P.warn);
       else { const nx=openMks().map(k=>G.M[k]).filter(x=>x.closeAt!=null).sort((a,b)=>a.closeAt-b.closeAt)[0]; if(nx) clock(nx.closeAt-G.t,nx.k+" CLOSES",false); else clock(0,"",false); } } }
@@ -1213,11 +1268,12 @@ function clock(s,t,hot){ $("clock").textContent=mmss(s); $("clockT").textContent
 function lead(d){ const w=$("leadW"), i=$("leadI"); w.hidden=false; const f=Math.max(-1,Math.min(1,d/3))*50; i.style.left=(f>=0?50:50+f)+"%"; i.style.width=Math.abs(f)+"%"; i.style.background=d>=0?"var(--green)":"var(--pink)"; }
 function buildJump(){ const box=$("jB"); box.innerHTML=""; if(!G) return;
   const opts=openMks().filter(k=>k!==G.me.mk), best=bestJump(G.me.mk);
+  opts.sort((a,c)=>(G.M[a].closeAt??1e9)-(G.M[c].closeAt??1e9));
   for(const k of opts){ const b=document.createElement("button"); b.type="button"; b.dataset.k=k; b.className=k===best?"best":"";
-    b.className+=" jm"; b.innerHTML=`<b>${k}</b><em>${MKD[k].tag} · ${MKD[k].best}</em><small></small>`; b.addEventListener("click",()=>jump(G.me,k)); box.appendChild(b); }
+    b.className+=" jm"; b.innerHTML=`<b>${k}</b><em>${G.M[k].closeAt==null?"FINAL CIRCLE":MKD[k].tag} · ${MKD[k].best}</em><small></small>`; b.addEventListener("click",()=>jump(G.me,k)); box.appendChild(b); }
   paintJump(); }
 function paintJump(){ document.querySelectorAll("#jB button").forEach(b=>{ const k=b.dataset.k, m=G.M[k], n=inMk(k).length;
-  b.querySelector("small").textContent=`${n} pilot${n===1?"":"s"}`+(m.closeAt!=null?" · closes "+mmss(m.closeAt-G.t):" · final"); }); }
+  b.querySelector("small").textContent=`${n} pilot${n===1?"":"s"}`+(m.closeAt!=null?" · closes "+mmss(m.closeAt-G.t):" · storm ends here"); }); }
 const FEEDI={p:"#F0307F",w:"#F2C14E",g:"#5FF0A0",m:"#2E323A",s:"#8FB8FF"};
 function feed(k,ic,html){ if(G&&G.ff) return; const f=$("feed"); const e=document.createElement("div"); e.className="ev";
   e.innerHTML=`<i style="background:${FEEDI[k]||"#2E323A"};color:${k==="p"||k==="m"?"#fff":"#121327"}">${ic}</i><span>${html}</span>`;
@@ -1293,7 +1349,7 @@ function rr(x,y,w,h,r){sx.beginPath(); sx.roundRect?sx.roundRect(x,y,w,h,r):sx.r
 const xOf=pl=>pl.x!=null?pl.x:pl.lane*SW+pl.xo;
 
 let skyMix={k:"sky0",prev:null,t:1};
-// every map has its own sky; the final circle and last duel happen in BTC's
+// every game has its own voted sky
 function skyName(){ if(!G||!G.started) return "sky0"; return MAP.k; }
 function drawBackdrop(dt){
   const want=skyName(); if(want!==skyMix.k){ skyMix={k:want,prev:skyMix.k,t:0}; } skyMix.t=Math.min(1,skyMix.t+dt*1.5);
