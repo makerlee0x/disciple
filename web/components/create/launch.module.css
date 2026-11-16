@@ -28,7 +28,7 @@
 .seatCard span { display: block; font: 500 10px / 1 var(--dsc-font-mono, 'JetBrains Mono', ui-monospace, monospace); color: #9095A0; text-transform: uppercase; }
 .seatCard b { display: block; margin-top: 4px; font: 800 26px / 1 var(--dsc-font-game); color: #FFFFFF; }
 /* rocket look (LookPicker): the chip under the difficulty tag, and the tray over the lower stage */
-.stageSide { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.lookDock { position: absolute; z-index: 5; right: 24px; bottom: 112px; }
 .lookChipRow { display: flex; align-items: stretch; gap: 6px; }
 .lookShuffle { flex: none; width: 40px; display: grid; place-items: center; border-radius: 12px; cursor: pointer; color: #E8EAEE; background: rgba(10, 12, 18, .8); border: 1px solid rgba(232, 234, 238, .14); }
 .lookShuffle:hover { border-color: rgba(243, 223, 168, .5); color: #F2C14E; }
@@ -260,9 +260,12 @@
   .plate { left: 16px; right: 16px; bottom: 16px; }
   .plateName b { font-size: 28px; }
   .seatCard b { font-size: 22px; }
-  .lookChip { padding: 5px 8px 5px 5px; gap: 8px; max-width: 200px; }
-  .lookChipArt { width: 30px; height: 40px; } .lookChipArt img { height: 36px; }
-  .lookChipTx b { font-size: 14px; } .lookChipTx i { display: none; }
+  .lookDock { right: 16px; bottom: 96px; }
+  /* phone: two small square buttons (shuffle, and the rocket that opens the tray) clear of the rocket */
+  .lookChip { padding: 5px; gap: 0; }
+  .lookChipArt { width: 40px; height: 50px; } .lookChipArt img { height: 44px; }
+  .lookChipTx { display: none; }
+  .lookShuffle { width: 40px; }
   .lookChipGo { display: none; }
   .lookTray { left: 8px; right: 8px; bottom: 8px; max-height: calc(100% - 96px); padding: 12px; }
   .lookGrid { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); }

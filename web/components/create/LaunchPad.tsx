@@ -12,7 +12,7 @@ import s from "./launch.module.css";
 
 const GRAIN_SRC = "/home/pad/grain.webp";
 
-/** `look` puts the picked skin on the pad; `chip` (the look chip) sits over the seat card; `tray` (the look picker) opens over the stage. */
+/** `look` puts the picked skin on the pad; `chip` (the look chip) sits on the right, above the nameplate; `tray` (the look picker) opens over the stage. */
 export default function LaunchPad({ name, ticker, icon, mode, modeColor, seat, look, chip, tray }: {
   name: string; ticker: string; icon: string | null; mode: string; modeColor: string; seat: string; look?: CoinLook | null; chip?: ReactNode; tray?: ReactNode;
 }) {
@@ -33,15 +33,13 @@ export default function LaunchPad({ name, ticker, icon, mode, modeColor, seat, l
         </div>
         <span className={s.modeTag} data-testid="pad-mode">● {mode}</span>
       </div>
+      {chip && <div className={s.lookDock}>{chip}</div>}
       <div className={s.plate}>
         <div className={s.plateName}>
           <b data-testid="pad-name">{name.trim() || "Your rocket"}</b>
           <span>{ticker ? `$${ticker}` : "$TICKER"} · On the pad</span>
         </div>
-        <div className={s.stageSide}>
-          {chip}
-          <div className={s.seatCard}><span>Your seat</span><b data-testid="pad-seat">{seat}</b></div>
-        </div>
+        <div className={s.seatCard}><span>Your seat</span><b data-testid="pad-seat">{seat}</b></div>
       </div>
       {tray}
     </section>

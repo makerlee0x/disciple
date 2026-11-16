@@ -58,7 +58,7 @@ const n = (k: number, c?: string) => Array.from({ length: k }, (_, i) => <i key=
 export default function HeroPad({ go, launching, icon, layout = "hero", moon = true, look }: { go: boolean; launching: boolean; icon?: string | null; layout?: "hero" | "create" | "card" | "turbo" | "launch"; moon?: boolean; look?: CoinLook | null }) {
   const art = lookArt(look);
   const rocket = withBase(art.src ?? ROCKET_SRC);
-  const k = art.src ? Math.min(1, Math.sqrt(0.45 / art.aspect)) : 1;
+  const k = art.src ? 0.86 * Math.min(1, Math.sqrt(0.45 / art.aspect)) : 1;   // skins are fuller than the chrome sprite: a touch smaller keeps the nose clear of the title
   const liftStyle = art.src ? ({ ["--rk-h" as string]: `calc(362 * var(--u) * ${k.toFixed(3)})`, ["--rk-w" as string]: `calc(362 * var(--u) * ${(k * art.aspect).toFixed(3)})` } as React.CSSProperties) : undefined;
   const badgeStyle = art.src ? ({ left: `${art.badge[0] * 100}%`, top: `${art.badge[1] * 100}%`, width: `${art.badge[2] * 200}%` } as React.CSSProperties) : undefined;
   const rocketMask = { WebkitMaskImage: `url(${rocket})`, maskImage: `url(${rocket})` };
