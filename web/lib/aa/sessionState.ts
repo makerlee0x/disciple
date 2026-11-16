@@ -40,6 +40,8 @@ export type PrivyHooks = { /** Privy finished loading (usePrivy().ready) */ read
 let privyHooks: PrivyHooks | null = null;
 const privySubs = new Set<() => void>();
 export function registerPrivy(h: PrivyHooks | null) { privyHooks = h; privySubs.forEach((f) => f()); }
+// dev only (screenshots of signed-in screens, like window.__walletDev): a stand-in session whose token the page sends to /api
+if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") (window as unknown as { __privyDev?: (t: string) => void }).__privyDev = (t: string) => registerPrivy({ ready: true, authenticated: true, getAccessToken: async () => t, getIdentityToken: async () => t } as unknown as PrivyHooks);
 export function privyHooksNow(): PrivyHooks | null { return privyHooks; }
 export function privyReady() { return !!privyHooks; }
 /** Privy has loaded and knows whether this visitor is signed in. */
