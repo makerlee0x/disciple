@@ -1,6 +1,6 @@
 /**
- * Turbo (leverage mode, hidden behind the flag + the early-access password): the gate, a stand-in run (BOOST = long,
- * cash out → result), and the Trading duel lobby once PR #364's /turbo/duel is on main.
+ * Turbo (hidden behind the flag + the early-access password): the gate, the archived solo /turbo link landing on
+ * Trading Duel, and the duel lobby. The solo run was archived 2026-11-16 (only Duels and Royale remain).
  */
 import { test, expect } from "./support/fixtures";
 import { fakeVenue } from "./support/venue";
@@ -8,7 +8,7 @@ import type { Page } from "@playwright/test";
 
 const PASSWORD = "e2e-turbo";
 
-async function pass(page: Page, path = "/turbo?sample=1") {
+async function pass(page: Page, path = "/turbo/duel?turbo=1") {
   await page.goto(path);
   const gate = page.getByTestId("turbo-gate");
   if (await gate.isVisible().catch(() => false)) {
@@ -20,7 +20,7 @@ async function pass(page: Page, path = "/turbo?sample=1") {
 
 test("the early-access gate turns away a wrong password and lets the right one in", async ({ page }) => {
   await fakeVenue(page);
-  await page.goto("/turbo?sample=1");
+  await page.goto("/turbo/duel?turbo=1");
   await expect(page.getByTestId("turbo-gate")).toBeVisible();
   await page.getByTestId("turbo-gate-input").fill("not-it");
   await page.getByTestId("turbo-gate-go").click();
@@ -28,29 +28,15 @@ test("the early-access gate turns away a wrong password and lets the right one i
   await expect(page.getByTestId("turbo-gate").getByRole("alert").or(page.getByTestId("turbo-gate").locator("[class*=err]"))).toBeVisible();
   await page.getByTestId("turbo-gate-input").fill(PASSWORD);
   await page.getByTestId("turbo-gate-go").click();
-  await expect(page.getByTestId("turbo-screen")).toBeVisible();
+  await expect(page.getByTestId("turbo-gate")).toBeHidden();
 });
 
-test("a sample run: fuel tops up, BOOST opens a long, cash out shows the result", async ({ page, pilot }) => {
+test("the old solo /turbo link lands on Trading Duel", async ({ page, pilot }) => {
   await pilot.signIn();
   await fakeVenue(page);
   await pass(page);
-  const screen = page.getByTestId("turbo-screen");
-  await expect(screen).toBeVisible();
-  await expect(page.getByTestId("turbo-standin-notice").filter({ visible: true }).first()).toBeVisible();
-  await expect(page.getByTestId("turbo-fuel")).toHaveText(/\$100/);
-  await expect(page.getByTestId("turbo-ready")).toBeVisible();
-  await page.getByTestId("turbo-boost").click();
-  await expect(page.getByTestId("turbo-hud")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("turbo-cashout")).toBeEnabled({ timeout: 15_000 });
-  await page.waitForTimeout(1_500);
-  await page.getByTestId("turbo-cashout").click();
-  const res = page.getByTestId("turbo-result");
-  await expect(res).toBeVisible({ timeout: 15_000 });
-  await expect(res).toHaveAttribute("data-kind", "cashed");
-  await expect(res.getByTestId("turbo-result-multiple")).toHaveText(/\d/);
-  await res.getByTestId("turbo-result-close").click();
-  await expect(page.getByTestId("turbo-ready")).toBeVisible();
+  await page.goto("/turbo?turbo=1");
+  await expect(page).toHaveURL(/\/turbo\/duel\?turbo=1$/);
 });
 
 test("Trading duel lobby opens (after PR #364 lands)", async ({ page, pilot }) => {

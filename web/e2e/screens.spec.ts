@@ -7,7 +7,6 @@
  * other live numbers masked, every image loaded before the shot.
  */
 import { test, expect, setCash, settle, isPhone, OWNER_KEY } from "./support/fixtures";
-import { fakeVenue } from "./support/venue";
 import type { Locator, Page } from "@playwright/test";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -130,16 +129,6 @@ test.describe("@screens signed-off screens", () => {
   test("404", async ({ page }) => {
     await page.goto("/no-such-page");
     await shot(page, "not-found");
-  });
-
-  test("Turbo ready screen", async ({ page }) => {
-    await signIn(page);
-    await fakeVenue(page, { drift: 0 });
-    await page.goto("/turbo?sample=1");
-    const gate = page.getByTestId("turbo-gate");
-    if (await gate.isVisible().catch(() => false)) { await page.getByTestId("turbo-gate-input").fill("e2e-turbo"); await page.getByTestId("turbo-gate-go").click(); }
-    await expect(page.getByTestId("turbo-ready")).toBeVisible();
-    await shot(page, "turbo-ready", { mask: [page.getByTestId("turbo-tape"), page.locator("canvas")] });
   });
 
   test("phone: lobby tab bar", async ({ page }) => {
