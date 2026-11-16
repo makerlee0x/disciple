@@ -7,6 +7,8 @@ import ExitConfirm from "./flight/ExitConfirm";
 import { useT } from "@/lib/game/i18n";
 import { exitConfirmArms } from "@/lib/game/exitGuard";
 import { LOADOUT_KEY } from "@/lib/rocketSkin";
+import { ownHull, type OwnLooks } from "@/lib/coinLookClient";
+import { activeAddress } from "@/lib/wallet";
 import { useEffect, useRef, useState } from "react";
 import { brandedRocket } from "@/lib/decal";
 import { gateFlightIcon } from "@/lib/flight/iconGate";
@@ -192,11 +194,14 @@ export default function FlightCanvas({ search }: Props) {
       }
     }
 
-    /* Rocket looks (Hangar "Your rocket", GET /api/looks): a live coin flies its HOST's hull and flare; the viewer's own flare
-       and every other booster's (asked for by the engine as their boosts arrive, batched) fire as the boost signature. */
+    /* Rocket looks (Hangar "Your rocket", GET /api/looks): in a live coin's flight every trader flies THEIR OWN rocket
+       (maker, 2026-11-16: "a trader would fly using their own rocket, just the launch rocket is updated"): the Hangar skin
+       + trail you wear (lib/collection; the starter Bullet keeps the chrome rocket), else your own hull grade and flare.
+       The coin's launch look (lib/coinLook) shows on its pad and cards, not here. Every booster's flare (asked for by the
+       engine as their boosts arrive, batched) fires as the boost signature. */
     let askT: number | null = null;
     const asked = new Set<string>();
-    const flight = () => window.__flight as { setLoadout?: (l: unknown) => unknown; setFlares?: (m: Record<string, string>) => unknown } | undefined;
+    const flight = () => window.__flight as { setLoadout?: (l: unknown) => unknown; setFlares?: (m: Record<string, string>) => unknown; setHull?: (h: unknown) => unknown } | undefined;
     const pull = async (wallets: string[], coin?: string) => {
       const q = new URLSearchParams(); if (wallets.length) q.set("wallets", wallets.join(",")); if (coin) q.set("coin", coin);
       const r = await fetch(withBase(`/api/looks?${q}`)).catch(() => null);
@@ -213,11 +218,15 @@ export default function FlightCanvas({ search }: Props) {
           pull(ws).then((j) => { if (cancelled || !j) return; const m: Record<string, string> = {}; for (const w2 of ws) m[w2] = j.looks?.[w2]?.flare ?? "stock"; flight()?.setFlares?.(m); });
         }, 400);
       };
-      if (coin && /^0x[0-9a-fA-F]{40}$/.test(coin)) pull([], coin.toLowerCase()).then((j) => {
-        if (cancelled || !j?.host) return;
+      if (coin && /^0x[0-9a-fA-F]{40}$/.test(coin)) activeAddress().then((me) => me && /^0x[0-9a-fA-F]{40}$/.test(me) ? pull([me.toLowerCase()]).then((j) => ({ me: me.toLowerCase(), j })) : null).then((r) => {
+        if (cancelled || !r?.j) return;
+        const l = r.j.looks?.[r.me] as (OwnLooks & { hull: string; flare: string }) | undefined;
+        if (!l) return;
+        const own = ownHull(l);
+        if (own) { flight()?.setHull?.(own); return; }
         const cur = (flight() as { getLoadout?: () => Record<string, unknown> | null } | undefined)?.getLoadout?.() || {};
-        flight()?.setLoadout?.({ ...cur, skin: j.host.hull, thruster: j.host.flare });
-      });
+        flight()?.setLoadout?.({ ...cur, skin: l.hull, thruster: l.flare });
+      }).catch(() => { /* signed out: the chrome rocket */ });
     };
     boot();
     // Token decal loads in parallel with the engine; never blocks flight.

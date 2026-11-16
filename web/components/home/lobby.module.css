@@ -127,3 +127,4 @@
   .stepCell { padding: 18px; }
 }
 @media (prefers-reduced-motion: reduce) { .orbit { transition: none; } .orbit:hover { transform: none; } }
+.skinned { isolation: isolate; }
