@@ -210,7 +210,7 @@ html,body{margin:0;height:100%;background:#07080c}
   <ol class="steps" aria-label="Match steps"><li id="stLobby" class="on">LOBBY</li><li id="stDrop">PICK DROP</li><li>LOOT UP</li><li>LAST PILOT</li></ol>
   <div class="panel">
     <div class="pane" id="pIntro">
-      <div class="ihead"><small>12 PILOTS · 12 MIN · ONE SURVIVES</small><b>LAST PILOT STANDING</b></div>
+      <div class="ihead"><small>12 PILOTS · 3 MIN · ONE SURVIVES</small><b>LAST PILOT STANDING</b></div>
       <ol class="ihow">
         <li><i>1</i><b>DROP</b><span>Pick a coin to land on</span></li>
         <li><i>2</i><b>LOOT</b><span>Fly into crates for guns</span></li>
@@ -318,14 +318,15 @@ function dropWeapon(pl,w){ const i=pl.inv.indexOf(w); if(i<0||w.k==="PISTOL") re
 const START={HYPE:2,SOL:4,ETH:3,BTC:2};
 const NAMES=["@moonmath","@solwhale","@lev_larry","@chartmonk","@0xrekt","@pumpqueen","@degenpilot","@wickhunter","@fadeking","@gmgn_andy","@bagholdr"];
 let dropMk="HYPE";
-// one length: about 12 minutes (maps close at 3:00, 5:30 and 8:00, then about 3 min of final circle and a 1 min duel)
-function plan(){ return {close:{HYPE:180,SOL:330,ETH:480},warn:20,target:{HYPE:9,SOL:6,ETH:4},shrink:40,df:15,duel:60,w0:6}; }
+// one length: 3 minutes at most (maker, 2026-11-16: "3 mins max for royale"). Maps close at 0:45, 1:20 and 1:55, the final circle
+// shrinks every 15 s (4 → 3 → 2 by 2:25), then a 30 s duel ends it by about 2:55.
+function plan(){ return {close:{HYPE:45,SOL:80,ETH:115},warn:10,target:{HYPE:9,SOL:6,ETH:4},shrink:15,df:10,duel:30,w0:6,dfCool:12,jumpCool:5}; }
 const liqPct=pl=>pl.pos?Math.max(0,-pnlOf(pl.pos,price(pl))/(LIQ*pl.pos.coll)):0;
 
 /* ---------- state ---------- */
 let G=null;
-function newPilot(name,me,mk,used){ return {hull:me?null:hullFor(used),name,me,mk,fuel:FUEL0,pos:null,shields:0,inv:[{k:"PISTOL",ammo:Infinity}],sel:0,alive:true,lane:.5,jit:me?0:rnd(-34,34),arrive:me?0:rnd(1,18),xo:0,xt:0,wander:0,
-  dfW:0,dfL:0,best:0,grab:0,cool:rnd(10,22),df:null,y:null,vy:0,flame:0,sq:0,kick:0,rot:0,steer:0,jumpAt:null,place:0,
+function newPilot(name,me,mk,used){ return {hull:me?null:hullFor(used),name,me,mk,fuel:FUEL0,pos:null,shields:0,inv:[{k:"PISTOL",ammo:Infinity}],sel:0,alive:true,lane:.5,jit:me?0:rnd(-34,34),arrive:me?0:rnd(1,8),xo:0,xt:0,wander:0,
+  dfW:0,dfL:0,best:0,grab:0,cool:rnd(5,10),df:null,y:null,vy:0,flame:0,sq:0,kick:0,rot:0,steer:0,jumpAt:null,place:0,
   bot:me?null:{skill:rnd(.25,.9),react:[rnd(.4,.8),rnd(.9,1.8)],next:0,thr:rnd(2.2,3.6),tp:rnd(.25,.6),sl:-rnd(.25,.75),hold:rnd(6,16)}}; }
 function newGame(){
   const P=plan(), M={};
@@ -466,7 +467,7 @@ function jump(pl,k){
   if(pl.pos) close(pl,"jump");
   const from=pl.mk; pl.mk=k; pl.jumpAt=null; pl.y=null; pl.x=null; pl.arrive=Math.min(pl.arrive,G.t); pl.lane=laneFor(pl);
   if(pl.df) endDf(pl.df,true);
-  if(pl.me){ G.me.lane=.5; G.me.xo=G.me.xt=0; G.me.yo=G.me.yt=0; G.jumpCool=G.t+8; G.mapOpen=false; feed("g","↑",`Jumped to <b>${k}</b> · ${MKD[k].best.toLowerCase()} loot · your PnL came with you`); sfx("jump"); G.crate=null; buildJump(); paintSizes(); }
+  if(pl.me){ G.me.lane=.5; G.me.xo=G.me.xt=0; G.me.yo=G.me.yt=0; G.jumpCool=G.t+G.P.jumpCool; G.mapOpen=false; feed("g","↑",`Jumped to <b>${k}</b> · ${MKD[k].best.toLowerCase()} loot · your PnL came with you`); sfx("jump"); G.crate=null; buildJump(); paintSizes(); }
   else if(from===G.me.mk||k===G.me.mk) feed("m","→",`<b>${pl.name}</b> jumped ${from} → ${k}`);
 }
 function bestJump(exclude){ const o=openMks().filter(k=>k!==exclude); if(!o.length) return null;
@@ -501,7 +502,7 @@ function startDf(a,b){
 }
 const dfGain=(d,pl)=>profit(pl)-(pl===d.a?d.base.a:d.base.b);
 function endDf(d,abort){
-  const i=G.dfs.indexOf(d); if(i<0) return; G.dfs.splice(i,1); d.a.df=d.b.df=null; d.a.cool=d.b.cool=G.t+25;
+  const i=G.dfs.indexOf(d); if(i<0) return; G.dfs.splice(i,1); d.a.df=d.b.df=null; d.a.cool=d.b.cool=G.t+G.P.dfCool;
   if(abort) return;
   const ga=dfGain(d,d.a), gb=dfGain(d,d.b); if(Math.abs(ga-gb)<0.005) { if(d.a.me||d.b.me) feed("m","=","Dogfight tied, nobody drops a weapon"); return; }
   const w=ga>gb?d.a:d.b, l=w===d.a?d.b:d.a; w.dfW++; l.dfL++;
@@ -559,12 +560,12 @@ function simTick(){
   if(G.duel&&G.t>=G.duel.end) endDuel();
   // supply drops near you
   if(!G.final&&!G.duel&&G.me.alive&&!G.crate&&G.t>=G.nextCrate&&!G.me.df){ const side=G.me.lane*SW+G.me.xo<SW/2?1:-1;
-    const item=rollLoot(G.me.mk); G.crate={x:Math.max(40,Math.min(SW-40,G.me.lane*SW+G.me.xo+side*rnd(110,170))),y:-1,until:G.t+10,item}; G.nextCrate=G.t+rnd(16,24)*MKD[G.me.mk].drop; sfx("pod");
+    const item=rollLoot(G.me.mk); G.crate={x:Math.max(40,Math.min(SW-40,G.me.lane*SW+G.me.xo+side*rnd(110,170))),y:-1,until:G.t+10,item}; G.nextCrate=G.t+rnd(8,12)*MKD[G.me.mk].drop; sfx("pod");
     feed("g","◆",`LOOT · <b style="color:${rarOf(item).c}">${item.k}</b> ${wLine(item)} · steer into it`); }
   if(G.crate&&G.t>G.crate.until) G.crate=null;
   if(G.offer){ if(G.t>G.offer.until||!G.me.alive) leaveOffer(); else { const t=$("swT"); if(t) t.style.transform=`scaleX(${Math.max(0,(G.offer.until-G.t)/G.offer.len)})`; } }
   // other bots find loot sometimes
-  for(const pl of G.pilots) if(pl.alive&&!pl.me&&!G.final&&!G.duel&&Math.random()<TICK/(14*MKD[pl.mk].drop)){ const it=rollLoot(pl.mk); give(pl,it);
+  for(const pl of G.pilots) if(pl.alive&&!pl.me&&!G.final&&!G.duel&&Math.random()<TICK/(6*MKD[pl.mk].drop)){ const it=rollLoot(pl.mk); give(pl,it);
     if(pl.mk===G.me.mk&&visible(pl)&&W(it).r>=3) feed("s","◆",`<b>${pl.name}</b> picked up a <b style="color:${rarOf(it).c}">${it.k}</b>`); }
   // arrivals: pilots drop into your map one at a time
   for(const pl of G.pilots) if(!pl.me&&pl.alive&&!pl.arrived&&G.t>=pl.arrive){ pl.arrived=true; if(pl.mk===G.me.mk&&G.me.alive) feed("m","↓",`<b>${pl.name}</b> dropped into ${pl.mk}`); }
