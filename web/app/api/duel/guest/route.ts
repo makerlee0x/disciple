@@ -19,5 +19,5 @@ export async function POST(req: Request) {
     }
     (await cookies()).set(DUEL_GUEST_COOKIE, await guestToken(pid), { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: DUEL_GUEST_MAX_AGE });
     return out(200, { ok: true, pid, name: guestName(pid) });
-  } catch (e) { return fail(e); }
+  } catch (e) { return fail(e, req); }
 }
