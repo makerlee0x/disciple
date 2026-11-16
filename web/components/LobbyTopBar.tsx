@@ -24,7 +24,7 @@ import { isTurboEnabled } from "@/lib/turbo/flag";
 // live, MARKET_ENABLED) and Top pilots, with PLAY NOW (straight into the hottest flight) on the right, signed in or out.
 // Hangar and Missions + trophies stay in the pilot menu (AccountMenu); How to play is the "?" (HelpButton).
 // Phones get five bottom tabs: Flights, Turbo, Launch, Market and Hangar (signed out: How to play). Top pilots moves to the
-// pilot menu there. Turbo shows only while the Turbo flag is on (lib/turbo/flag.ts), like its lobby cards.
+// pilot menu there. Turbo shows for everyone now (lib/turbo/flag.ts, on since 2026-11-16).
 // icons show only in the phone bottom tab bar (≤760px); desktop keeps the text tabs.
 // phone: phone bottom bar only. desk: desktop top bar only. you: signed-in only. out: signed-out only.
 type Tab = { href: string; key: string; label: string; short?: string; icon: IconName; phone?: boolean; desk?: boolean; you?: boolean; out?: boolean; menu?: boolean };

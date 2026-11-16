@@ -2,7 +2,7 @@
 /**
  * "Pick a mode" (lobby canvas board "Game modes", option A, maker picked 2026-11-14): the poster row at the top of the
  * lobby. Tall poster cards (Grok art plates, PR #380, web/public/art/modes; no sprite outside flight): Host a launch, Live
- * flights, Trading duel and Turbo royale (only while the Turbo flag is on, see lib/turbo/flag.ts) and Free play.
+ * flights, Trading duel and Turbo royale (Turbo is on for everyone since 2026-11-16, see lib/turbo/flag.ts) and Free play.
  * Carousel (maker 2026-11-15): one sideways-scrolling, snapping row on every screen size, and a click or tap anywhere on a
  * card opens that mode straight away (no focus step first). Desktop gets ‹ › buttons when the row overflows; phones get
  * dots. On phones the row opens centred on the last mode played (this browser), else Live flights signed in and Free play signed out.
@@ -20,7 +20,6 @@ type Mode = { id: ModeId; title: [string, string]; sub: string; tag: string; ton
 
 export const MODE_COPY = {
   title: "Pick a mode",
-  hint: "Scroll for more · click a card to play",
   play: "Play",
 } as const;
 
@@ -86,7 +85,10 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
   };
   useEffect(() => {
     window.addEventListener("resize", onScroll);
-    return () => { window.removeEventListener("resize", onScroll); cancelAnimationFrame(raf.current); };
+    // the lobby can mount hidden (HomeGate) and show later: measure again whenever the row gets its real size
+    const t = track.current, ro = t && typeof ResizeObserver !== "undefined" ? new ResizeObserver(onScroll) : null;
+    if (t && ro) ro.observe(t);
+    return () => { window.removeEventListener("resize", onScroll); ro?.disconnect(); cancelAnimationFrame(raf.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -111,11 +113,6 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
     <section className={s.wrap} aria-labelledby="modes-title" aria-roledescription="carousel" data-testid="mode-select">
       <header className={s.head}>
         <h2 id="modes-title" className={s.title}>{MODE_COPY.title}</h2>
-        <span className={s.hint}>{MODE_COPY.hint}</span>
-        <span className={s.arrows}>
-          <button type="button" className={s.arrow} onClick={() => { moved.current = true; step(-1); }} disabled={!edge.prev} aria-label="Previous modes" data-testid="modes-prev">‹</button>
-          <button type="button" className={s.arrow} onClick={() => { moved.current = true; step(1); }} disabled={!edge.next} aria-label="More modes" data-testid="modes-next">›</button>
-        </span>
       </header>
       <div className={s.rail} data-prev={edge.prev ? "1" : undefined} data-next={edge.next ? "1" : undefined}>
         <div className={s.row} ref={track} onKeyDown={onKey} onScroll={onScroll} onPointerDown={() => { moved.current = true; }} onWheel={() => { moved.current = true; }}>
@@ -145,6 +142,13 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
           ))}
         </div>
       </div>
+      {/* ‹ › centred under the row (maker 2026-11-16: no "scroll for more" hint, people know a carousel); only when it overflows */}
+      {(edge.prev || edge.next) && (
+        <div className={s.arrows}>
+          <button type="button" className={s.arrow} onClick={() => { moved.current = true; step(-1); }} disabled={!edge.prev} aria-label="Previous modes" data-testid="modes-prev">‹</button>
+          <button type="button" className={s.arrow} onClick={() => { moved.current = true; step(1); }} disabled={!edge.next} aria-label="More modes" data-testid="modes-next">›</button>
+        </div>
+      )}
       <div className={s.dots} aria-hidden>{list.map((m) => <i key={m.id} className={m.id === seen ? s.dotOn : undefined} />)}</div>
     </section>
   );
