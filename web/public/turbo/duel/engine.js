@@ -380,14 +380,18 @@ function mount(root,host){
   /* a different sky every duel, never the same one twice in a row (maker 2026-11-15). Each sky is a stack of layers the
    * race climbs through, plus an optional colour grade. Ranked and friend duels pick from the room's start time, so both
    * pilots usually fly the same sky; bot duels pick at random. */
+  /* the race is a journey (maker 2026-11-16: "it feels like a race and a journey"): the sky moves through the theme's
+   * layers on the race clock, from the ground toward space, and the last 12 seconds are always the same final sky,
+   * THE MOON, whatever theme you got. Flying up or down nudges you a little ahead or behind on the way. */
+  const FINAL_SKY="skyEth", FINAL_MS=12000;
   const SKY_THEMES=[
     {n:"MOONRISE",s:["sky0","sky1","sky2","sky3","sky4"]},
     {n:"THE PAD",s:["skyPad","sky1","sky2","sky3","sky4"]},
-    {n:"CLOUD DECK",s:["sky2","sky3","sky4"]},
-    {n:"BLUE MOON",s:["sky1","sky2","skyEth","sky4"],g:"70,110,255,.32"},
+    {n:"CLOUD DECK",s:["sky1","sky2","sky3","sky4"]},
+    {n:"BLUE HOUR",s:["sky1","sky2","sky3","sky4"],g:"70,110,255,.32"},
     {n:"ORANGE ORBIT",s:["sky1","sky2","skyBtc","sky4"],g:"255,140,50,.28"},
     {n:"PINK DUSK",s:["sky0","sky1","sky2","sky3","sky4"],g:"240,48,127,.38"},
-    {n:"DEEP SPACE",s:["sky3","sky4"],g:"120,80,255,.22"}];
+    {n:"DEEP SPACE",s:["sky2","sky3","sky4"],g:"120,80,255,.22"}];
   const THEMES=SKY_THEMES.filter(t=>t.s.every(k=>A[k]));
   let THEME=THEMES[0], SKY_ORDER=THEME.s;
   function pickSky(seed){
@@ -469,16 +473,23 @@ function mount(root,host){
   }
   function rr(x,y,w,h,r){sx.beginPath(); sx.roundRect?sx.roundRect(x,y,w,h,r):sx.rect(x,y,w,h);}
   const SPACE=new Set(["sky3","sky4"]);
-  function skyDens(a){ const f=Math.max(0,Math.min(SKY_ORDER.length-1,(a+3)/2.5)), i0=Math.floor(f), t=f-i0, sp=k=>k&&SPACE.has(k)?1:0;
-    return 1-.88*(sp(SKY_ORDER[i0])*(1-t)+sp(SKY_ORDER[Math.min(SKY_ORDER.length-1,i0+1)])*t); }   // clouds thin out as the sky turns to space
+  // where the journey is: f = position in the theme's layers (0 = ground), fin = 0..1 fade into the final sky
+  function skyStage(pan){ const N=SKY_ORDER.length; if(!G||!G.started) return {f:0,fin:0};
+    const run=Math.max(1,G.len-FINAL_MS), p=Math.max(0,Math.min(1,G.t/run));
+    if(G.finalAt==null&&G.t>=run&&!G.over){ G.finalAt=G.t; toast("Final 12 seconds"); }   // latched: overtime stays on the moon
+    const fin=G.finalAt!=null?Math.min(1,(G.t-G.finalAt)/1500):0;
+    const nudge=Math.max(-.6,Math.min(.6,-(pan||0)/Math.max(1,SH)*.5));
+    return {f:Math.max(0,Math.min(N-1,p*(N-1)+nudge)),fin}; }
+  function skyDens(pan){ const {f,fin}=skyStage(pan), i0=Math.floor(f), t=f-i0, sp=k=>k&&SPACE.has(k)?1:0;
+    return (1-.88*(sp(SKY_ORDER[i0])*(1-t)+sp(SKY_ORDER[Math.min(SKY_ORDER.length-1,i0+1)])*t))*(1-.85*fin); }   // clouds thin out toward space, all but gone at the moon
   function drawBackdrop(camAlt,pan){
-    // sky layers by altitude: losing drops you toward the pad, winning climbs to space
-    const f=Math.max(0,Math.min(SKY_ORDER.length-1,(camAlt+3)/2.5)), i0=Math.floor(f), t=f-i0;
+    const st=skyStage(pan), f=st.f, i0=Math.floor(f), t=f-i0;
     const draw=(k,a)=>{const im=imgs[k]; if(!im||!im.complete||a<=0) return; const s=Math.max(SW/im.width,SH/im.height)*1.12;
       const sl=(im.height*s*1.18-SH)/2, par=Math.max(-sl,Math.min(sl,-(pan||0)*.05)); sx.globalAlpha=a; sx.drawImage(im,(SW-im.width*s*1.18)/2,(SH-im.height*s*1.18)/2+par,im.width*s*1.18,im.height*s*1.18); sx.globalAlpha=1;};
     sx.fillStyle="#121327"; sx.fillRect(0,0,SW,SH);
     draw(SKY_ORDER[i0],1); if(t>0&&i0+1<SKY_ORDER.length) draw(SKY_ORDER[i0+1],t);
-    if(THEME.g){ sx.globalCompositeOperation="overlay"; sx.fillStyle=`rgba(${THEME.g})`; sx.fillRect(0,0,SW,SH); sx.globalCompositeOperation="source-over"; }
+    if(THEME.g&&st.fin<1){ sx.globalAlpha=1-st.fin; sx.globalCompositeOperation="overlay"; sx.fillStyle=`rgba(${THEME.g})`; sx.fillRect(0,0,SW,SH); sx.globalCompositeOperation="source-over"; sx.globalAlpha=1; }
+    if(st.fin>0) draw(A[FINAL_SKY]?FINAL_SKY:"sky4",st.fin);   // the same final sky every race
     sx.fillStyle="rgba(11,10,22,.28)"; sx.fillRect(0,0,SW,SH);
   }
   function drawRuler(){
@@ -595,7 +606,7 @@ function mount(root,host){
     const pan=LAY&&G?LAY.pan||0:0, dPan=LAY&&G?LAY.dPan||0:0; if(LAY) LAY.dPan=0;
     const camAlt=-cam.y/K, viewAlt=camAlt-pan/Math.max(60,LAY&&LAY.pxPer||60); drawBackdrop(viewAlt,pan);
     const speed=G&&G.started&&!G.over?34:12, cdy=-camDy*.7-dPan;
-    FLY.step(sx,SW,SH,dt,cdy,skyDens(viewAlt),[0,1],speed);
+    FLY.step(sx,SW,SH,dt,cdy,skyDens(pan),[0,1],speed);
     // stars stream with the camera: climbing makes them rush down past you
     const base=G&&G.started?50:25, v=base*dt - camDy*1.4 - dPan*.5;
     sx.fillStyle="rgba(255,255,255,.75)";
@@ -608,7 +619,7 @@ function mount(root,host){
         if(Math.random()<(climbing?.9:.5)) part({x:lane(pl)+pl.dx+rnd(-4,4),y:pl.y+(pl.me?RH():RH()*.82)*.55,vx:rnd(-20,20),vy:rnd(120,220)+Math.max(0,-pl.wvy*.3),life:rnd(.5,.9),size:rnd(8,15),col:pl.me?"255,226,160":"255,170,210",kind:"smoke",add:false});
         drawRocket(pl,now,lead===pl);
       }
-      FLY.step(sx,SW,SH,dt,cdy,skyDens(viewAlt)*.8,[2],speed);
+      FLY.step(sx,SW,SH,dt,cdy,skyDens(pan)*.8,[2],speed);
       offPointer();
     }
     for(let i=FX.parts.length-1;i>=0;i--){const p=FX.parts[i]; p.life-=dt; if(p.life<=0){FX.parts.splice(i,1);continue;}
