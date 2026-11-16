@@ -75,13 +75,27 @@ export default function DuelScreen({ guest = false }: { guest?: boolean } = {}) 
         for (const [w, l] of Object.entries(j.looks ?? {})) if (l.skin) ships.set(w, { skin: l.skin, rgb: l.art?.rgb ?? trailRgb(l.trail), trail: l.trail, tag: l.tag, flourish: l.flourish, fx: l.fx, art: l.art });
       } catch { /* the chrome rocket flies */ }
     };
+    // /duel demo guests own no Hangar looks, so each guest flies a skin picked from their id, and a guest rival never
+    // shares your hull (maker 2026-11-16: "make sure they're two different looking rockets")
+    const G_HULLS = ["bullet", "hauler", "needle", "pulp", "shuttle", "twin-booster", "wedge"];
+    const G_PAINTS = ["red-classic", "sky-blue", "safety-orange", "teal-racer", "white-gloss", "racing-green", "amethyst", "hazard", "carbon-gold", "koi"];
+    const hashOf = (t: string) => { let h = 2166136261; for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 16777619); return h >>> 0; };
+    const baseHull = (pid: string) => hashOf(pid) % G_HULLS.length;
+    /** same answer on both screens: if both guests land on one hull, the higher id moves to another */
+    const guestLook = (pid: string, other: string | null) => {
+      const h = hashOf(pid); let hi = baseHull(pid);
+      if (other && other.startsWith("g_") && pid > other && hi === baseHull(other)) hi = (hi + 1 + (h >>> 8) % (G_HULLS.length - 1)) % G_HULLS.length;
+      return { skin: `${G_HULLS[hi]}--${G_PAINTS[(h >>> 16) % G_PAINTS.length]}` };
+    };
+    let rival: string | null = null;
+    const lookOf = (pid: string | null, other: string | null) => (pid ? ships.get(pid) ?? (pid.startsWith("g_") ? guestLook(pid, other) : null) : null);
     const unfollow = () => { fol?.stop(); fol = null; roomId = null; };
     const follow = (id: string) => {
       if (roomId === id) return; unfollow(); roomId = id;
       fol = followRoom(id, (e) => api?.event(e), (room, now) => {
         if (dead || !me) return;
         void loadShips(room.players.map((p) => p.pid));
-        api?.setClock(now); api?.room(room, me);
+        rival = room.players.find((p) => p.pid !== me)?.pid ?? null; api?.setClock(now); api?.room(room, me);
         if (room.status === "done" && room.rematch?.roomId && room.rematch.roomId !== id) follow(room.rematch.roomId);
         if (room.status === "cancelled") unfollow();
       });
@@ -96,14 +110,16 @@ export default function DuelScreen({ guest = false }: { guest?: boolean } = {}) 
       api?.searching(r.waitedMs ?? 0, r.window ?? 50, (r.waitedMs ?? 0) >= r.botOfferMs);
       qTimer = setTimeout(pollQueue, 1500);
     };
+    // guest pilot (the /duel demo): fetched once, and again before any friend-link action if the first try failed
     let guestReady = false;
+    const ensureGuest = async (): Promise<boolean> => {
+      if (!guest || guestReady) return true;
+      const g = await duelApi.guest();
+      if (!g.ok) { api?.error(g.reason); return false; }
+      guestReady = true; return true;
+    };
     const refreshMe = async () => {
-      if (guest && !guestReady) {
-        const g = await duelApi.guest();
-        if (dead) return;
-        if (!g.ok) { me = null; api?.setMe(null, false); api?.error(g.reason); return; }
-        guestReady = true;
-      }
+      if (guest && !(await ensureGuest())) { if (!dead) { me = null; api?.setMe(null, false); } return; }
       if (!guest && !privyAuthenticated()) { me = null; api?.setMe(null, false); return; }
       const r = await duelApi.me();
       if (dead) return;
@@ -128,6 +144,8 @@ export default function DuelScreen({ guest = false }: { guest?: boolean } = {}) 
       quickMatch: (tier: TierId, len: LengthMs) => { stopQueue(); queued = { tier, len }; void pollQueue(); },
       cancelSearch: () => { const q = stopQueue(); if (q) void duelApi.cancel(q.tier, q.len); },
       createLink: async (tier: TierId, len: LengthMs, fuel?: number) => {
+        if (!(await ensureGuest())) return;
+        if (guest && !me) await refreshMe();
         const r = await duelApi.invite(tier, len, fuel);
         if (!r.ok) { api?.error(r.reason); return; }
         api?.invite(r.code, location.origin + r.path); follow(r.room.id);
@@ -135,13 +153,14 @@ export default function DuelScreen({ guest = false }: { guest?: boolean } = {}) 
       // the result card's SHARE (engine shareResult): a fresh friend link the shared post points at; the room is followed so a
       // friend who taps it pulls this pilot into the match
       challengeLink: async (tier: TierId, len: LengthMs, fuel?: number): Promise<string | null> => {
+        if (!(await ensureGuest())) return null;
         const r = await duelApi.invite(tier, len, fuel);
         if (!r.ok) return null;
         follow(r.room.id); return location.origin + r.path;
       },
       // first launch of the app: WelcomeIntro sends a new pilot to /turbo/duel?first=1 and the engine starts a bot duel
       first: (() => { const u = new URL(location.href); const on = u.searchParams.get("first") === "1"; if (on) { u.searchParams.delete("first"); history.replaceState(history.state, "", u.toString()); } return on; })(),
-      join: async (code: string) => { const r = await duelApi.join(code); if (r.ok) follow(r.room.id); else api?.error(r.reason); },
+      join: async (code: string) => { if (!(await ensureGuest())) return; if (guest && !me) await refreshMe(); const r = await duelApi.join(code); if (r.ok) follow(r.room.id); else api?.error(r.reason); },
       ready: async () => { const r = await op({ op: "ready" }); if (r.error) api?.error(r.error); },
       leave: async () => { const id = roomId; unfollow(); if (id) await duelApi.op(id, { op: "leave" }); },
       rematch: async () => { const r = await op({ op: "rematch" }); if (r.error) api?.error(r.error); },
@@ -151,8 +170,8 @@ export default function DuelScreen({ guest = false }: { guest?: boolean } = {}) 
       report: async () => { if (!roomId) return { error: "Not in a duel." }; const r = await duelApi.op(roomId, { op: "report" }); return r.ok ? {} : { error: r.reason }; },
       trick: (kind: "spin" | "flip") => { void op({ op: "trick", kind }); },
       // the duel mute button also silences the game radio if it carried over from another screen
-      myShip: () => (me ? ships.get(me) ?? null : null),
-      shipOf: (pid: string) => ships.get(pid) ?? null,
+      myShip: () => lookOf(me, rival),
+      shipOf: (pid: string) => lookOf(pid, me),
       mute: (m: boolean) => { try { const r = getGameRadio(); if (m) r.pause(); else r.clearPause(); } catch { /* no radio */ } },
     };
 
