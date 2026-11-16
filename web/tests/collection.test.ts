@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import {
-  CRATE, ITEMS, PAINTS, RARITIES, SERIES, STARTER_SKIN, STARTER_TAG, TRAILS, crateBurstArt, crateOdds, dropPool, duelCrateTier, glintArt, itemById, rollCrate,
+  BURN_GRADES, CRATE, ITEMS, TRADE_UP_N, burnGrade, rollsFromDigest, tradeUpPool, tradeUpTarget, PAINTS, RARITIES, SERIES, STARTER_SKIN, STARTER_TAG, TRAILS, crateBurstArt, crateOdds, dropPool, duelCrateTier, glintArt, itemById, rollCrate,
   seriesArt, shopStock, skinArt, tagArt, trailArt, DAY_MS,
 } from "@/lib/collection";
 import { existsSync } from "node:fs";
@@ -50,7 +50,8 @@ describe("collection catalogue", () => {
       expect(o[0].rar).toBe(CRATE[t].floor);
       expect(o.reduce((a, r) => a + r.pct, 0)).toBeCloseTo(100, 6);
     }
-    expect(crateOdds("common").find((r) => r.rar === "mythic")!.pct).toBeCloseTo(0.2, 6);
+    expect(crateOdds("common").find((r) => r.rar === "mythic")!.pct).toBeCloseTo(0.1, 6);
+    expect(crateOdds("common").find((r) => r.rar === "legendary")!.pct).toBeCloseTo(0.6, 6);
   });
 
   it("a roll respects the floor and the pool, and falls back when a rarity is empty", () => {
@@ -82,6 +83,20 @@ describe("collection catalogue", () => {
     expect(duelCrateTier(7)).toBe("epic");
   });
 
+  it("copies: burn grades, digest rolls and trade-up targets", () => {
+    expect(burnGrade(0.01).name).toBe("Factory Fresh");
+    expect(burnGrade(0.2).name).toBe("Flight Worn");
+    expect(burnGrade(0.999).name).toBe("Burnt Out");
+    expect(BURN_GRADES.map((g) => g.name)).toEqual(["Factory Fresh", "Test Flown", "Flight Worn", "Re-entry Scorched", "Burnt Out"]);
+    const r = rollsFromDigest("ff".repeat(32)), z = rollsFromDigest("00".repeat(32));
+    expect(r.r1).toBeLessThan(1); expect(z.r1).toBe(0); expect(z.trak).toBe(true); expect(r.trak).toBe(false);
+    expect(r.seed).toBeGreaterThanOrEqual(0); expect(r.seed).toBeLessThan(1000);
+    expect(tradeUpTarget("legendary")).toBeNull();     // never into Mythic
+    expect(tradeUpTarget("rare")).toBe("epic");
+    expect(tradeUpPool(1, "rare").every((i) => i.series === 1 && i.rar === "epic" && !i.prestige)).toBe(true);
+    expect(itemById("flourish-gold-rush")?.kind).toBe("flourish");
+  });
+
   it("ring-tail skins resolve for any paint (prestige hull)", () => {
     expect(itemById("ring-tail--nebula")?.rar).toBe("legendary");
     expect(itemById("ring-tail--nope")).toBeUndefined();
@@ -106,7 +121,13 @@ describe("collection server (local KV)", () => {
     expect(again.crates.filter((x) => x.src === "welcome")).toHaveLength(1);
     const r = await col.openCrate(W, c.crates[0].id);
     expect(r.ok).toBe(true);
-    if (r.ok) { expect(r.opened.xp).toBeGreaterThanOrEqual(CRATE.rare.xp); expect(r.opened.item).toBeTruthy(); }
+    if (r.ok) {
+      expect(r.opened.xp).toBe(CRATE.rare.xp); expect(r.opened.item).toBeTruthy();
+      const cp = r.opened.copy!;
+      expect(cp.serial).toBeGreaterThanOrEqual(1); expect(cp.bound).toBe(true);   // welcome crate items never trade
+      expect(cp.burn).toBeGreaterThanOrEqual(0); expect(cp.burn).toBeLessThan(1); expect(cp.fe).toBe(true);
+      expect(r.opened.proof?.input).toBe(c.crates[0].id);
+    }
     expect((await col.openCrate(W, c.crates[0].id)).ok).toBe(false);
     expect((await col.collectionOf(W)).crates).toHaveLength(0);
   });
@@ -118,6 +139,58 @@ describe("collection server (local KV)", () => {
     await col.onDuelSettled("room-c", W, null);
     const tiers = (await col.collectionOf(W)).crates.map((c) => c.tier);
     expect(tiers).toEqual(["uncommon", "uncommon", "rare"]);
+  });
+
+  it("duel crate copies trade; dupes are kept; a roll can be checked against the revealed seed", async () => {
+    const c = await col.collectionOf(W);
+    for (const cr of c.crates) expect((await col.openCrate(W, cr.id)).ok).toBe(true);
+    const after = await col.collectionOf(W);
+    expect(after.copies.filter((x) => x.origin === "crate" && !x.bound).length).toBe(3);
+    for (const id of new Set(after.copies.map((x) => x.item))) expect(after.supply[id] ?? 0).toBeGreaterThanOrEqual(after.copies.some((x) => x.item === id && x.serial) ? 1 : 0);
+    // the roll is HMAC(day seed, crate id): recompute it from the stored seed and get the same numbers
+    const { createHmac } = await import("node:crypto");
+    const { kv } = await import("@/lib/server/kv");
+    const o = after.recent[0];
+    const seed = (await kv().get(col.COLK.seed(o.proof!.day)))!;
+    expect(col.seedHash(seed)).toBe(o.proof!.hash);
+    const r = rollsFromDigest(createHmac("sha256", seed).update(o.proof!.input).digest("hex"));
+    expect(o.copy!.seed).toBe(r.seed);
+    const pr = await col.rollProof();
+    expect(pr.tomorrow.day).toBe(pr.today.day + 1);
+    expect(pr.revealed.every((x) => x.day < pr.today.day)).toBe(true);
+  });
+
+  it("scrap gives XP and destroys the copy; trade-up turns 10 into 1 of the next rarity", async () => {
+    const T = "0x" + "7e".repeat(20);
+    const { kv } = await import("@/lib/server/kv");
+    await col.collectionOf(T);
+    const commons = ITEMS.filter((i) => i.series === 1 && i.rar === "common" && i.kind === "skin" && i.id !== STARTER_SKIN).slice(0, 5);
+    for (const i of commons) await kv().sadd(col.COLK.own(T), i.id);   // legacy ids migrate into copies
+    await kv().del(col.COLK.inv(T));
+    let cur = await col.collectionOf(T);
+    expect(cur.copies.filter((x) => x.origin === "migrated")).toHaveLength(5);
+    const victim = cur.copies.find((x) => x.origin === "migrated")!;
+    const sc = await col.scrapCopy(T, victim.uid);
+    expect(sc.ok).toBe(true);
+    expect((await col.scrapCopy(T, victim.uid)).ok).toBe(false);
+    expect((await col.collectionOf(T)).owned).not.toContain(victim.item);
+    expect((await col.scrapCopy(T, cur.copies.find((x) => x.origin === "starter")!.uid)).ok).toBe(false);
+    // build 10 Series 1 commons and trade them up
+    cur = await col.collectionOf(T);
+    const inv = cur.copies.filter((x) => x.origin === "migrated");
+    const raw = JSON.parse((await kv().get(col.COLK.inv(T)))!);
+    for (let k = inv.length; k < TRADE_UP_N; k++) raw.push({ ...inv[0], uid: `extra-${k}`, serial: 900 + k });
+    await kv().set(col.COLK.inv(T), JSON.stringify(raw));
+    cur = await col.collectionOf(T);
+    const ten = cur.copies.filter((x) => x.origin === "migrated").map((x) => x.uid);
+    expect(ten).toHaveLength(TRADE_UP_N);
+    expect((await col.tradeUp(T, ten.slice(0, 9))).ok).toBe(false);
+    const tu = await col.tradeUp(T, ten);
+    expect(tu.ok).toBe(true);
+    if (tu.ok) { expect(tu.item.rar).toBe("uncommon"); expect(tu.item.series).toBe(1); expect(tu.copy.origin).toBe("tradeup"); }
+    const end = await col.collectionOf(T);
+    expect(end.copies.filter((x) => x.origin === "migrated")).toHaveLength(0);
+    expect(end.copies.filter((x) => x.origin === "tradeup")).toHaveLength(1);
   });
 
   it("the shop checks stock, balance and ownership; equip checks ownership", async () => {
@@ -136,6 +209,8 @@ describe("collection server (local KV)", () => {
     expect((await col.equip(W, STARTER_SKIN, "trail-gold", "tag-mythic")).ok).toBe(false);
     const e = await col.equip(W, STARTER_SKIN, "trail-gold", STARTER_TAG);
     expect(e.ok && e.equipped.tag).toBe(STARTER_TAG);
+    expect(e.ok && e.equipped.copy.skin).toBe(`st-${STARTER_SKIN}`);
+    expect((await col.scrapCopy(W, (await col.collectionOf(W)).copies.find((x) => x.item === s.daily[0].id)!.uid)).ok).toBe(true);   // shop copy, not worn
     const crate = await col.buyItem(W, "crate-common");
     expect(crate.ok).toBe(true);
   });

@@ -19,8 +19,19 @@ function mount(root,host){
   function hullFor(used){ const ks=Object.keys(HULLS); let h,s,n=0; do{ h=ks[Math.floor(Math.random()*ks.length)]; s=HSKINS[Math.floor(Math.random()*HSKINS.length)]; } while(used&&used.has(h+s)&&++n<20); if(used) used.add(h+s);
     const k="hull-"+h+"--"+s; if(!hullImgs[k]){ const i=new Image(); i.src=HULL_BASE+k+".webp"; hullImgs[k]=i; } return {k,img:hullImgs[k],a:HULLS[h][0],nz:HULLS[h][1]}; }
   // a pilot's own skin from the Hangar collection (lib/collection: "<hull>--<paint>", art in /turbo/skins/)
-  function skinShip(id){ const h=String(id||"").split("--")[0]; if(!HULLS[h]) return null; const src=(A.skinBase||"/turbo/skins/")+id+".webp";
-    if(!hullImgs[src]){ const i=new Image(); i.src=src; hullImgs[src]=i; } return {k:id,img:hullImgs[src],a:HULLS[h][0],nz:HULLS[h][1]}; }
+  // fx = that copy's {burn 0..1, seed 0..999}: soot drawn over the paint, and a hue shift on pattern paints (lib/collection copyLook)
+  const PATTERN=new Set(["nebula","marble-gilt","aurora","damascus","holo-foil"]);
+  function skinShip(id,fx){ const [h,paint]=String(id||"").split("--"); if(!HULLS[h]) return null; const src=(A.skinBase||"/turbo/skins/")+id+".webp";
+    if(!hullImgs[src]){ const i=new Image(); i.src=src; hullImgs[src]=i; }
+    const look=fx&&isFinite(fx.burn)?{hue:PATTERN.has(paint)?((fx.seed*37)%41)-20:0,soot:Math.min(.85,Math.max(0,(fx.burn-.05)*1.1)),seed:fx.seed|0}:null;
+    return {k:id,img:hullImgs[src],a:HULLS[h][0],nz:HULLS[h][1],look,cv:null}; }
+  // bake a copy's look into a canvas once the art has loaded (so drawing stays one drawImage a frame)
+  function bake(hull){ const im=hull.img, L=hull.look, c=document.createElement("canvas"); c.width=im.naturalWidth; c.height=im.naturalHeight; const x=c.getContext("2d");
+    if(L.hue) x.filter=`hue-rotate(${L.hue}deg)`; x.drawImage(im,0,0); x.filter="none";
+    if(L.soot>0.01){ x.globalCompositeOperation="source-atop"; const g=x.createLinearGradient(0,0,0,c.height); g.addColorStop(0,`rgba(20,14,10,${L.soot*.35})`); g.addColorStop(.7,`rgba(20,14,10,${L.soot*.6})`); g.addColorStop(1,`rgba(10,6,4,${L.soot*.9})`);
+      x.fillStyle=g; x.fillRect(0,0,c.width,c.height); let r=L.seed*9301+49297; const rr2=()=>((r=(r*9301+49297)%233280)/233280);
+      for(let i=0;i<Math.round(L.soot*90);i++){ x.fillStyle=`rgba(8,5,3,${.25+rr2()*.4})`; x.beginPath(); x.arc(rr2()*c.width,c.height*(.35+rr2()*.65),1+rr2()*c.width*.03,0,7); x.fill(); } }
+    return c; }
   // collection art: trails (6-frame plume + 3 particles, black = clear, drawn additively), name-tag plates, the win flourish
   const ART=A.art2||"/turbo/", artImgs={};
   const artImg=src=>{ if(!artImgs[src]){ const i=new Image(); i.src=ART+src; artImgs[src]=i; } return artImgs[src]; };
@@ -38,7 +49,8 @@ function mount(root,host){
     else for(const [nx,ny,ns] of nz){ const x0=(nx-.5)*w, fy=(ny-.5)*h-h*.02, k=fk*ns; const g=c2.createRadialGradient(x0,fy,2,x0,fy+30*fl*k,72*fl*k); g.addColorStop(0,"rgba(255,250,235,.95)"); g.addColorStop(.25,`rgba(${col},.85)`); g.addColorStop(1,`rgba(${col},0)`);
       c2.fillStyle=g; c2.beginPath(); c2.ellipse(x0,fy+36*fl*k,(15*fl+5)*k,(60*fl+8)*k,0,0,Math.PI*2); c2.fill(); }
     c2.globalCompositeOperation="source-over"; c2.scale(1-sq*.3,1+sq);
-    const im=hull&&hull.img.complete&&hull.img.naturalWidth?hull.img:img, ww=im===img?h*221/609:w; if(im&&im.complete) c2.drawImage(im,-ww/2,-h/2,ww,h); return w; }
+    if(hull&&hull.look&&!hull.cv&&ready(hull.img)) hull.cv=bake(hull);
+    const im=hull&&hull.cv?hull.cv:hull&&hull.img.complete&&hull.img.naturalWidth?hull.img:img, ww=im===img?h*221/609:w; if(im&&(im.tagName==="CANVAS"||im.complete)) c2.drawImage(im,-ww/2,-h/2,ww,h); return w; }
   $("preBg").style.backgroundImage=`url("${A.art||"/art/modes/duel.webp"}")`;
   const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
   const rnd=(a,b)=>a+Math.random()*(b-a);
@@ -63,6 +75,12 @@ function mount(root,host){
 
   /* ---------- state ---------- */
   let G=null;
+  // a Hangar look: {skin, trail, tag, flourish, rgb, fx:{skin:{burn,seed,trak}, trail:{burn,seed}}}
+  const FLOURISH_ART={"flourish-gold-rush":"flourish/win-flourish.webp"};
+  function wearLook(pl,l){ const fx=l.fx||{}; pl.hull=skinShip(l.skin,fx.skin)||pl.hull;
+    if(l.trail){ pl.tf=trailFx(l.trail); if(pl.tf&&fx.trail) pl.tf.seed=fx.trail.seed|0;
+      if(l.rgb){ const b=fx.trail&&isFinite(fx.trail.burn)?Math.min(.6,fx.trail.burn*.7):0; pl.flameC=l.rgb.split(",").map(v=>Math.round(+v*(1-b)+90*b)).join(","); } }   // a burnt trail smokes greyer
+    pl.tag=tagFx(l.tag); pl.trak=fx.skin&&fx.skin.trak!=null?fx.skin.trak:null; pl.fl=FLOURISH_ART[l.flourish]||null; }
   function newPlayer(name,me){return {name,me,fuel:FUEL0,pos:null,fees:0,trades:0,up:0,dn:0,green:0,best:0,y:0,vy:0,flame:0,flameC:"255,200,120",sq:0,lastTrade:-1e9,next:0,moments:[]};}
   function newGame(){
     FUEL0=curFuel(); SIZES=curSizes(); if(!SIZES.includes(stake)) stake=SIZES[2]; paintSizes(); resizeK();
@@ -70,8 +88,8 @@ function mount(root,host){
     G={t:now_()-startAt,startAt,len:(M&&M.endAt?M.endAt-startAt:LEN),ot:false,over:false,price:h.length?h[h.length-1].p:0,ticks:[],marks:[],
        me:newPlayer("you",true),bot:newPlayer(M&&M.opp?M.opp.name:BOTS[botKey].name,false),cfg:BOTS[botKey],started:false};
     if(!(M&&M.opp&&!M.opp.bot)) G.bot.hull=hullFor();   // bots fly a random hull + skin
-    else if(host.shipOf){ const os=host.shipOf(M.opp.pid); if(os){ G.bot.hull=skinShip(os.skin); if(os.trail){ G.bot.tf=trailFx(os.trail); if(os.rgb) G.bot.flameC=os.rgb; } G.bot.tag=tagFx(os.tag); } }   // a real rival flies their own look
-    { const ms=host.myShip&&host.myShip(); if(ms){ G.me.hull=skinShip(ms.skin); if(ms.rgb) G.me.flameC=ms.rgb; G.me.tf=trailFx(ms.trail); G.me.tag=tagFx(ms.tag); } }   // your Hangar skin + trail + name tag
+    else if(host.shipOf){ const os=host.shipOf(M.opp.pid); if(os) wearLook(G.bot,os); }   // a real rival flies their own look
+    { const ms=host.myShip&&host.myShip(); if(ms) wearLook(G.me,ms); }   // your Hangar skin + trail + name tag + flourish
     for(const k of h) G.ticks.push({t:k.ts-startAt,p:k.p});
     if(!G.ticks.length) G.ticks.push({t:G.t,p:0});
   }
@@ -492,7 +510,7 @@ function mount(root,host){
   function bitsTick(pl,x,y,h,w,thrust,now){ const bi=pl.tf.bits; if(!ready(bi)) return; const b=pl.bits||(pl.bits=[]), dt=Math.min(.05,(now-(pl.bitT||now))/1000); pl.bitT=now;
     pl.bitAcc=(pl.bitAcc||0)+dt*(6+8*Math.min(2,thrust)); const nz=pl.hull?pl.hull.nz:[[.5,.97,1]];
     while(pl.bitAcc>=1&&b.length<40){ pl.bitAcc--; const n=nz[Math.floor(Math.random()*nz.length)];
-      b.push({x:x+(n[0]-.5)*w+rnd(-3,3),y:y+h*.5+rnd(4,h*.35),vx:rnd(-14,14),vy:rnd(70,150),r:rnd(0,6.28),vr:rnd(-2,2),s:h*rnd(.18,.3)*n[2],f:Math.floor(Math.random()*3),t:0,life:rnd(.6,1.1)}); }
+      b.push({x:x+(n[0]-.5)*w+rnd(-3,3),y:y+h*.5+rnd(4,h*.35),vx:rnd(-14,14),vy:rnd(70,150),r:rnd(0,6.28),vr:rnd(-2,2),s:h*rnd(.18,.3)*n[2],f:pl.tf.seed!=null&&Math.random()<.5?pl.tf.seed%3:Math.floor(Math.random()*3),t:0,life:rnd(.6,1.1)}); }
     if(pl.bitAcc>1) pl.bitAcc=1;
     const fw=bi.naturalWidth/3, fh=bi.naturalHeight; sx.globalCompositeOperation="lighter";
     for(let i=b.length-1;i>=0;i--){ const p=b[i]; p.t+=dt; if(p.t>=p.life){ b.splice(i,1); continue; } p.x+=p.vx*dt; p.y+=p.vy*dt; p.r+=p.vr*dt;
@@ -510,7 +528,7 @@ function mount(root,host){
     if(tr&&tr.kind==="spin"){ const c=Math.cos(ease*Math.PI*4); sx.scale(Math.abs(c)<.08?.08*Math.sign(c||1):c,1); }
     drawShip(sx,pl.hull,img,h,fl,c,pl.sq,pl.tf,now);   // flames scale with the rocket
     sx.restore();
-    if(pl.me&&G.flourish!=null){ const ft=(now-G.flourish)/75, fi=artImg("flourish/win-flourish.webp");   // your win: confetti + starburst over the rocket
+    if(pl.me&&G.flourish!=null&&pl.fl){ const ft=(now-G.flourish)/75, fi=artImg(pl.fl);   // your win: confetti + starburst over the rocket
       if(ft>=8) G.flourish=null; else if(ready(fi)){ const fw=fi.naturalWidth/8, s2=h*2.4; sx.globalCompositeOperation="lighter"; sx.drawImage(fi,Math.floor(ft)*fw,0,fw,fi.naturalHeight,x-s2/2,y-s2/2,s2,s2); sx.globalCompositeOperation="source-over"; } }
     // tags sit beside the rocket (on the side away from the rival), so the height between chart and bar is all race
     const other=pl.me?G.bot:G.me, side=lane(pl)<=lane(other)?-1:1;
@@ -520,11 +538,13 @@ function mount(root,host){
     // a collected name-tag plate replaces the dark pill (the middle of each plate is empty; prestige plates have an emblem on the left)
     const tg=pl.tag&&ready(pl.tag.img)?pl.tag:null, inner=tg&&tg.pr?.6:.72, pw=tg?Math.max((pl.me?30:26)*600/140,tw/inner):0, ph=tg?pw*140/600:22;
     const bw=Math.max(tw,pw,leader?70:0,pl.pos?90:0); let cx=x+side*(w/2+14+bw/2); const cramped=cx-bw/2<6||cx+bw/2>SW-6; cx=Math.max(bw/2+6,Math.min(SW-bw/2-6,cramped?x:cx));
-    const rows=(leader?1:0)+1+(pl.pos?1:0), blockH=(leader?20:0)+ph+(pl.pos?20:0); let ty=cramped?y-h/2-blockH-4:y-blockH/2;   // no room beside it: the tag rides above the nose
+    const trk=pl.trak!=null?`FLIGHTTRAK ${pl.trak}`:"";
+    const rows=(leader?1:0)+1+(pl.pos?1:0), blockH=(leader?20:0)+ph+(pl.pos?20:0)+(trk?18:0); let ty=cramped?y-h/2-blockH-4:y-blockH/2;   // no room beside it: the tag rides above the nose
     if(leader){ sx.font="800 12px "+GF+",sans-serif"; const lw=sx.measureText("LEADING").width+12; sx.fillStyle="#F2C14E"; rr(cx-lw/2,ty,lw,17,6); sx.fill(); sx.fillStyle="#121327"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText("LEADING",cx,ty+9); ty+=20; }
     sx.font=`800 ${pl.me?15:13}px ${GF},sans-serif`;
     let tx=cx; if(tg){ sx.drawImage(tg.img,cx-pw/2,ty,pw,ph); if(tg.pr) tx=cx+pw*.13; } else { sx.fillStyle="rgba(11,10,22,.86)"; rr(cx-tw/2,ty,tw,22,7); sx.fill(); }
     sx.fillStyle=pr>0?"#5FF0A0":pr<0?"#FF8FBD":"#F2F3F7"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(txt,tx,ty+ph/2+.5); ty+=ph+3;
+    if(trk){ sx.font="800 11px "+GF+",sans-serif"; const kw=sx.measureText(trk).width+12; sx.fillStyle="rgba(11,10,22,.86)"; rr(cx-kw/2,ty,kw,15,5); sx.fill(); sx.fillStyle="#F2C14E"; sx.fillText(trk,cx,ty+8); ty+=18; sx.font=`800 ${pl.me?15:13}px ${GF},sans-serif`; }
     if(pl.pos){ sx.font="700 12px "+GF+",sans-serif"; const w2=sx.measureText(t2).width+12;
       sx.fillStyle=pl.pos.side>0?"rgba(242,193,78,.92)":"rgba(240,48,127,.92)"; rr(cx-w2/2,ty,w2,17,6); sx.fill(); sx.fillStyle=pl.pos.side>0?"#121327":"#fff"; sx.fillText(t2,cx,ty+9); }
     if(pl.say&&now<pl.say.until){ const a=Math.min(1,(pl.say.until-now)/300); sx.globalAlpha=a; sx.font="700 15px "+GU+",system-ui,sans-serif"; const sw=Math.min(220,sx.measureText(pl.say.txt).width+20), by=y-blockH/2-8;

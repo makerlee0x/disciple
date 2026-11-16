@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import { withBase, IS_STATIC_PREVIEW } from "@/lib/base-path";
 import { XP_CHANGED_EVENT } from "@/lib/xpClient";
-import type { Collection, CollectionAction, Opened, ShopStock } from "@/lib/collection";
+import type { Collection, CollectionAction, Copy, Item, Opened, ShopStock } from "@/lib/collection";
 
 export const COLLECTION_CHANGED_EVENT = "disciple:collection-changed";
 
@@ -25,13 +25,15 @@ export function useCollection(wallet: string | null) {
   return { col, shop, reload: load };
 }
 
-export async function collectionAction(wallet: string, a: CollectionAction): Promise<{ ok: boolean; reason?: string; opened?: Opened }> {
+/** item/copy come back from a trade-up; xp from a scrap */
+export type ActionResult = { ok: boolean; reason?: string; opened?: Opened; item?: Item; copy?: Copy; xp?: number };
+export async function collectionAction(wallet: string, a: CollectionAction): Promise<ActionResult> {
   try {
     const t = await privyAccessToken();
     if (!t) return { ok: false, reason: "Sign in to use your Hangar." };
     const r = await fetch(withBase("/api/collection"), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${t}`, "x-wallet": wallet }, body: JSON.stringify(a) });
-    const j = (await r.json().catch(() => null)) as { ok?: boolean; reason?: string; opened?: Opened } | null;
+    const j = (await r.json().catch(() => null)) as (Omit<ActionResult, "ok"> & { ok?: boolean }) | null;
     if (j?.ok) { dispatchEvent(new Event(COLLECTION_CHANGED_EVENT)); if (a.op !== "equip") dispatchEvent(new Event(XP_CHANGED_EVENT)); }
-    return { ok: !!j?.ok, reason: j?.reason ?? (j?.ok ? undefined : "Couldn't reach the Hangar. Try again."), opened: j?.opened };
+    return { ok: !!j?.ok, reason: j?.reason ?? (j?.ok ? undefined : "Couldn't reach the Hangar. Try again."), opened: j?.opened, item: j?.item, copy: j?.copy, xp: j?.xp };
   } catch { return { ok: false, reason: "Couldn't reach the Hangar. Try again." }; }
 }

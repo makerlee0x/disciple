@@ -262,3 +262,39 @@ body:has(.profile-page.hg) { background: var(--dsc3-page-bg); }
 .hgu-owned { margin-top: 6px; font: 600 12px / 1 var(--dsc-font-mono); color: var(--dsc3-signal-up, #5FF0A0); text-transform: uppercase; letter-spacing: .06em; }
 .hgu-hulls button[aria-selected="true"] { background: var(--dsc-text); color: var(--dsc-sky-ink); border-color: transparent; }
 .hgu-crates li { padding: 0; } .hgu-crates li button { padding: 14px 10px; }
+
+/* ---------- item copies: burn + pattern look, copy list, scrap, trade-up (lib/collection Copy) ---------- */
+.hgu-copy-look { position: relative; display: inline-grid; place-items: center; line-height: 0; }
+.hgu-soot { position: absolute; inset: 0; pointer-events: none; mask: no-repeat center / contain; -webkit-mask: no-repeat center / contain;
+  background: radial-gradient(40% 18% at 40% 62%, rgba(10, 6, 4, .9), transparent 70%), radial-gradient(30% 12% at 62% 40%, rgba(10, 6, 4, .7), transparent 70%),
+    linear-gradient(180deg, rgba(24, 16, 10, .35), rgba(24, 16, 10, .65) 70%, rgba(8, 5, 3, .95)); mix-blend-mode: multiply; }
+.hgu-copies { margin-top: 2px; }
+.hgu-copy-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.hgu-copy-rows li { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--dsc3-panel-border); background: rgba(22, 24, 28, .6); }
+.hgu-copy-rows li.on { border-color: color-mix(in srgb, var(--sw) 60%, #262A33); }
+.hgu-copy-art { display: grid; place-items: center; height: 60px; overflow: hidden; }
+.hgu-copy-art .hgu-plate { width: 52px !important; height: auto !important; aspect-ratio: 600 / 140; font-size: 0 !important; }
+.hgu-copy-tx { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.hgu-copy-tx b { font: 800 18px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.hgu-copy-tx b em { font-style: normal; color: var(--dsc-muted); font-weight: 600; }
+.hgu-copy-tx > span:not(.hgu-copy-tags) { font: 500 12px / 1.3 var(--dsc-font-mono); color: #BCC0CA; }
+.hgu-copy-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.hgu-copy-tags i { font: 700 10px / 1 var(--dsc-font-mono); font-style: normal; letter-spacing: .06em; text-transform: uppercase; padding: 4px 6px; border-radius: 6px; color: #BCC0CA; background: #24262D; }
+.hgu-copy-tags i.fe { color: #121327; background: var(--dsc3-light-champagne, #F3DFA8); }
+.hgu-copy-tags i.trak { color: #121327; background: var(--dsc3-light-gold, #F2C14E); }
+.hgu-copy-act { display: flex; gap: 8px; align-items: center; }
+.hgu-scrap { height: 34px; padding: 0 12px; font-size: 13px; background: transparent; border: 1px solid var(--dsc3-panel-border); color: #BCC0CA; border-radius: 10px; }
+.hgu-tu-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.hgu-tu-rows li { display: grid; grid-template-columns: minmax(140px, auto) minmax(80px, 1fr) auto auto; align-items: center; gap: 14px; }
+.hgu-tu-rows b { font: 800 18px / 1 var(--dsc-font-game); }
+.hgu-burst-still { display: block; width: 90px; height: 90px; background: no-repeat 42.857% 0 / 800% 100%; mix-blend-mode: screen; }
+.hgu-none { display: block; width: 40px; height: 40px; border-radius: 50%; border: 2px dashed #3A3D46; }
+.hgu-proof { margin: 10px 0 0; font-size: 12px; color: var(--dsc-muted); }
+.hgu-proof code { font: 600 12px var(--dsc-font-mono); color: var(--dsc3-light-champagne, #F3DFA8); }
+.hgu-reveal-copy { font: 500 12px / 1.3 var(--dsc-font-mono) !important; }
+@media (max-width: 720px) {
+  .hgu-copy-rows li { grid-template-columns: 44px minmax(0, 1fr); }
+  .hgu-copy-act { grid-column: 1 / -1; justify-content: flex-end; }
+  .hgu-tu-rows li { grid-template-columns: 1fr auto; }
+  .hgu-tu-rows .hgu-meter { grid-column: 1 / -1; order: 3; }
+}

@@ -11,8 +11,15 @@ import { unlocksOf } from "./achievements";
 import { kv, type Kv } from "./kv";
 import { xpSummary } from "./xp";
 
-/** skin + trail + tag: the equipped collection look (lib/server/collection equip), flown in Turbo modes */
-export type Looks = { hull: string; flare: string; skin?: string; trail?: string; tag?: string };
+/** skin + trail + tag + flourish: the equipped collection look (lib/server/collection equip), flown in Turbo modes.
+ *  fx: the equipped copies' burn, pattern seed and FlightTrak count, so other pilots' engines draw them. */
+type CopyFx = { burn: number; seed: number; trak?: number };
+export type Looks = { hull: string; flare: string; skin?: string; trail?: string; tag?: string; flourish?: string; fx?: { skin?: CopyFx; trail?: CopyFx } };
+const num = (v: unknown, lo: number, hi: number) => (typeof v === "number" && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : undefined);
+const cfx = (v: unknown): CopyFx | undefined => {
+  const o = v as Partial<CopyFx> | null; const burn = num(o?.burn, 0, 1), seed = num(o?.seed, 0, 999), trak = num(o?.trak, 0, 1e9);
+  return burn == null || seed == null ? undefined : { burn, seed: Math.round(seed), ...(trak != null ? { trak: Math.round(trak) } : {}) };
+};
 export const STOCK_LOOKS: Looks = { hull: HULLS[0].id, flare: FLARES[0].id };
 const key = (w: string) => `looks:${ACTIVE_CHAIN.id}:${w.toLowerCase()}`;
 
@@ -23,6 +30,8 @@ function parse(raw: string | null): Looks | null {
     return {
       hull: HULLS.some((h) => h.id === j.hull) ? j.hull! : STOCK_LOOKS.hull, flare: FLARES.some((f) => f.id === j.flare) ? j.flare! : STOCK_LOOKS.flare,
       ...(j.skin && itemById(j.skin) ? { skin: j.skin } : {}), ...(j.trail && itemById(j.trail) ? { trail: j.trail } : {}), ...(j.tag && itemById(j.tag)?.kind === "tag" ? { tag: j.tag } : {}),
+      ...(j.flourish && itemById(j.flourish)?.kind === "flourish" ? { flourish: j.flourish } : {}),
+      ...(j.fx ? { fx: { ...(cfx(j.fx.skin) ? { skin: cfx(j.fx.skin) } : {}), ...(cfx(j.fx.trail) ? { trail: cfx(j.fx.trail) } : {}) } } : {}),
     };
   } catch { return null; }
 }
@@ -49,8 +58,9 @@ export async function saveLooks(wallet: string, hull: string, flare: string, s: 
   const p = await progressOf(wallet, s);
   if (!isUnlocked(h.rule, p)) return { ok: false, reason: `${h.name} isn't unlocked yet.` };
   if (!isUnlocked(f.rule, p)) return { ok: false, reason: `${f.name} isn't unlocked yet.` };
-  const prev = parse(await s.get(key(wallet)));
-  const looks: Looks = { ...(prev ?? {}), hull: h.id, flare: f.id };   // keeps the equipped skin + trail
+  let prev: Record<string, unknown> = {};
+  try { prev = JSON.parse((await s.get(key(wallet))) || "{}") ?? {}; } catch { /* a bad record is replaced */ }
+  const looks = { ...prev, hull: h.id, flare: f.id } as Looks;   // keeps the equipped collection look (and its copy ids)
   await s.set(key(wallet), JSON.stringify(looks));
-  return { ok: true, looks };
+  return { ok: true, looks: parse(JSON.stringify(looks)) ?? looks };
 }

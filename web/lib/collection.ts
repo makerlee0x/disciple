@@ -78,9 +78,14 @@ export const trailArt = (id: string, part: "plume" | "bits" = "plume") => `/turb
 export const PRESTIGE_TAGS = 9;
 const PRESTIGE_NAMES = ["Acolyte", "Disciple", "Herald", "Seeker", "Warden", "Ascendant", "Exalted", "Celestial", "Empyrean"];
 export const tagArt = (id: string) => `/turbo/tags/${id}.webp`;
+
+/** Win flourishes: an 8-frame burst over your rocket when you win a duel (256x256 frames, black = clear). They drop in a series. */
+export const FLOURISHES: readonly { id: string; name: string; rar: Rarity; series: number; art: string }[] = [
+  { id: "flourish-gold-rush", name: "Gold Rush", rar: "epic", series: 1, art: "/turbo/flourish/win-flourish.webp" },
+];
 export const tagPrestige = (id: string) => { const m = /^tag-prestige-(\d)$/.exec(id); return m ? Number(m[1]) : 0; };
 
-export type ItemKind = "skin" | "trail" | "tag";
+export type ItemKind = "skin" | "trail" | "tag" | "flourish";
 /** series 0 = not tied to a series. prestige = never drops or sells; it unlocks at that Prestige. */
 export interface Item { id: string; kind: ItemKind; name: string; rar: Rarity; series: number; hull?: string; paint?: string; prestige?: number }
 
@@ -109,6 +114,7 @@ function buildItems(): Item[] {
   TRAILS.forEach((t) => out.push({ id: trailId(t.id), kind: "trail", name: t.name, rar: t.rar, series: t.series, ...(t.prestige ? { prestige: t.prestige } : {}) }));
   const TAG_NAMES: Record<Rarity, string> = { common: "Steel", uncommon: "Enamel", rare: "Chrome", epic: "Crystal", legendary: "Reactor", mythic: "Marble & Gold" };
   RARITIES.forEach((r) => out.push({ id: `tag-${r}`, kind: "tag", name: TAG_NAMES[r], rar: r, series: 0 }));
+  FLOURISHES.forEach((f) => out.push({ id: f.id, kind: "flourish", name: f.name, rar: f.rar, series: f.series }));
   PRESTIGE_NAMES.forEach((n, k) => out.push({ id: `tag-prestige-${k + 1}`, kind: "tag", name: n, rar: k >= 6 ? "mythic" : k >= 3 ? "legendary" : "epic", series: 0, prestige: k + 1 }));
   return out;
 }
@@ -120,7 +126,7 @@ function prestigeSkin(id: string): Item | undefined {
   if (h !== PRESTIGE_HULL || !PAINTS[p]) return undefined;
   return { id, kind: "skin", name: PAINTS[p].name, rar: PAINTS[p].rar, series: 0, hull: h, paint: p };
 }
-export const itemTitle = (i: Item) => (i.kind === "skin" ? `${HULL_NAMES[i.hull!] ?? i.hull} | ${i.name}` : i.kind === "trail" ? `${i.name} trail` : `${i.name} name tag`);
+export const itemTitle = (i: Item) => (i.kind === "skin" ? `${HULL_NAMES[i.hull!] ?? i.hull} | ${i.name}` : i.kind === "trail" ? `${i.name} trail` : i.kind === "tag" ? `${i.name} name tag` : `${i.name} win flourish`);
 /** Items you get by reaching a Prestige rather than finding them. */
 export const prestigeUnlocked = (i: Item, prestige: number) => !!i.prestige && prestige >= i.prestige;
 
@@ -135,12 +141,13 @@ export function dropPool(now: number): Item[] {
 /* ---------------------------------------------------------------- crates ---------------------------------------------------------------- */
 
 /** The chance of each rarity before a crate's floor. A crate drops 1 item at its floor or better, plus XP. */
-export const BASE_ODDS: Record<Rarity, number> = { common: 52, uncommon: 28, rare: 13, epic: 5.5, legendary: 1.3, mythic: 0.2 };
+/** Tightened before items can trade (maker, 16 Nov): Legendary 0.6%, Mythic 0.1%. Never change these once items trade. */
+export const BASE_ODDS: Record<Rarity, number> = { common: 52.8, uncommon: 28, rare: 13, epic: 5.5, legendary: 0.6, mythic: 0.1 };
 export const CRATE: Record<Rarity, { floor: Rarity; xp: number }> = {
   common: { floor: "common", xp: 20 }, uncommon: { floor: "uncommon", xp: 40 }, rare: { floor: "uncommon", xp: 80 },
   epic: { floor: "rare", xp: 150 }, legendary: { floor: "epic", xp: 300 }, mythic: { floor: "legendary", xp: 600 },
 };
-/** XP a duplicate turns into. */
+/** XP for scrapping a copy (duplicates are kept; scrapping is the player's choice). */
 export const DUPE_XP: Record<Rarity, number> = { common: 25, uncommon: 50, rare: 100, epic: 250, legendary: 600, mythic: 1500 };
 
 /** The odds a crate shows, in percent (floor and up, renormalised; rounded for display). */
@@ -203,8 +210,8 @@ export function shopStock(now: number): ShopStock {
 export const EARN = {
   /** ranked duel win; a win streak of 3 gives Rare, 5+ gives Epic */
   duelWin: "uncommon" as Rarity, streak3: "rare" as Rarity, streak5: "epic" as Rarity,
-  /** duel crates per pilot per UTC day */
-  duelPerDay: 5,
+  /** duel crates per pilot per week (Monday 00:00 UTC), so a grind can't out-print the series */
+  duelPerWeek: 15,
   /** each level gained: Common; every 5th level Rare; levels 25 and 50 Epic */
   level: (lv: number): Rarity => (lv === 25 || lv === 50 ? "epic" : lv % 5 === 0 ? "rare" : "common"),
   /** all of the week's missions done */
@@ -214,18 +221,80 @@ export const EARN = {
 };
 export function duelCrateTier(streak: number): Rarity { return streak >= 5 ? EARN.streak5 : streak >= 3 ? EARN.streak3 : EARN.duelWin; }
 
+/* ---------------------------------------------------------------- copies ---------------------------------------------------------------- */
+
+/**
+ * Every drop is its own copy (like a CS2 skin with its float and pattern): a serial ("#14 of 312"), a burn roll, a pattern
+ * seed, maybe FlightTrak, maybe first edition. Duplicates are kept. bound copies (XP shop buys, level-up and welcome
+ * crates, starters) never trade. Starter copies have serial 0. Prestige items aren't copies; they come with the Prestige.
+ */
+export interface Copy {
+  uid: string; item: string; serial: number;
+  /** 0..1, how scorched it looks (grades in BURN_GRADES) */ burn: number;
+  /** 0..999, shifts the paint (PATTERN_PAINTS) or the trail's particle mix */ seed: number;
+  /** FlightTrak: ranked duel wins flown with it; null = not a FlightTrak copy */ trak: number | null;
+  /** dropped in its series' first 7 days */ fe: boolean;
+  origin: "crate" | "shop" | "tradeup" | "starter" | "migrated"; at: number; bound: boolean;
+}
+export const BURN_GRADES: readonly { name: string; short: string; max: number }[] = [
+  { name: "Factory Fresh", short: "FF", max: 0.07 }, { name: "Test Flown", short: "TF", max: 0.15 }, { name: "Flight Worn", short: "FW", max: 0.38 },
+  { name: "Re-entry Scorched", short: "RS", max: 0.45 }, { name: "Burnt Out", short: "BO", max: 1.0001 },
+];
+export const burnGrade = (b: number) => BURN_GRADES.find((g) => b < g.max) ?? BURN_GRADES[BURN_GRADES.length - 1];
+/** Paints whose pattern seed visibly shifts the paint. (Gem seeds get picked by hand later and are never published ahead.) */
+export const PATTERN_PAINTS = new Set(["nebula", "marble-gilt", "aurora", "damascus", "holo-foil"]);
+export const FLIGHTTRAK_PCT = 10;
+export const FIRST_EDITION_MS = 7 * DAY_MS;
+export const copyTitle = (c: Copy) => `${burnGrade(c.burn).name} · ${c.serial ? `#${c.serial}` : "Starter"}`;
+/** How a copy looks, for the Hangar and the duel engine: hue shift (deg) for pattern paints, and soot strength. */
+export function copyLook(c: Pick<Copy, "item" | "burn" | "seed">): { hue: number; soot: number; sheen: number } {
+  const paint = c.item.split("--")[1];
+  const pat = !!paint && PATTERN_PAINTS.has(paint);
+  return { hue: pat ? ((c.seed * 37) % 41) - 20 : 0, sheen: pat ? 0.85 + ((c.seed * 13) % 31) / 100 : 1, soot: Math.min(0.85, Math.max(0, (c.burn - 0.05) * 1.1)) };
+}
+
+/**
+ * Provable rolls: each UTC day has a server seed whose sha256 is published a day ahead; a crate opened that day rolls from
+ * HMAC-SHA256(seed, crateId) and the seed is revealed the next day, so anyone can check the roll. This turns the digest
+ * into the numbers (pure, so a checker in the browser gets the same result).
+ */
+export function rollsFromDigest(hex: string): { r1: number; r2: number; burn: number; seed: number; trak: boolean } {
+  const u = (i: number) => parseInt(hex.slice(i * 8, i * 8 + 8), 16) / 4294967296;
+  return { r1: u(0), r2: u(1), burn: u(2), seed: parseInt(hex.slice(24, 32), 16) % 1000, trak: u(4) * 100 < FLIGHTTRAK_PCT };
+}
+
+/** Trade-ups: 10 copies of one rarity from one series become 1 copy of the next rarity from that series. Never into Mythic. */
+export const TRADE_UP_N = 10;
+export function tradeUpTarget(rar: Rarity): Rarity | null { const k = rank(rar); return k + 1 < rank("mythic") ? RARITIES[k + 1] : null; }
+export function tradeUpPool(series: number, rar: Rarity): Item[] {
+  const to = tradeUpTarget(rar);
+  return to ? ITEMS.filter((i) => i.series === series && i.rar === to && !i.prestige) : [];
+}
+
 /* ---------------------------------------------------------------- types ---------------------------------------------------------------- */
 
 export interface Crate { id: string; tier: Rarity; src: string; label: string; at: number }
-export interface Opened { crate: Crate; item: Item | null; dupe: boolean; xp: number; at: number }
+/** proof: the day whose seed rolled it (revealed after that day) and the HMAC input */
+export interface Opened { crate: Crate; item: Item | null; copy?: Copy; dupe: boolean; xp: number; at: number; proof?: { day: number; input: string; hash: string } }
+export type Slot = "skin" | "trail" | "tag" | "flourish";
 export interface Collection {
   wallet: string;
+  /** item ids you own (copies, starters, prestige items) */
   owned: string[];
+  copies: Copy[];
+  /** total copies ever made, per item you own */
+  supply: Record<string, number>;
   crates: Crate[];
-  equipped: { skin: string; trail: string; tag: string };
+  /** item ids; flourish "" = none */
+  equipped: { skin: string; trail: string; tag: string; flourish: string };
+  /** the copy behind each equipped slot (absent for prestige items) */
+  equippedCopy: Partial<Record<Slot, string>>;
   spendableXp: number;
   prestige: number;
   recent: Opened[];
 }
-/** POST /api/collection actions */
-export type CollectionAction = { op: "open"; crate: string } | { op: "buy"; item: string } | { op: "equip"; skin: string; trail: string; tag?: string };
+/** POST /api/collection actions. equip slots take a copy uid, or an item id (prestige items; or your best copy of it). */
+export type CollectionAction =
+  | { op: "open"; crate: string } | { op: "buy"; item: string }
+  | { op: "equip"; skin: string; trail: string; tag?: string; flourish?: string }
+  | { op: "scrap"; copy: string } | { op: "tradeup"; copies: string[] };
