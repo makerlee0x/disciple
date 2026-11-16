@@ -15,6 +15,7 @@ import { privyLogin, privyReady } from "@/lib/aa/sessionState";
 import { dailyRecap, fmtMultiple as mult, type DailyScore } from "@/lib/sim/daily";
 import { claimFreePlayXp, deviceId, refreshRank, type DailyVerdict, type FreePlayXpResult } from "@/lib/sim/dailyClient";
 import { fmt, type PlayerInput } from "@/lib/sim/run";
+import { fetchDailyBoard, type Board } from "./FreePlay";
 
 const game: React.CSSProperties = { fontFamily: "var(--dsc-font-game)" };
 const GOLD = "#F2C14E";
@@ -43,15 +44,18 @@ function storyLine(s: DailyScore, dumper: string | null) {
 
 export interface DailyGhost { name: string; multiple: number; outAtS: number | null }
 
-export default function DailyResult({ id, seed, inputs, verdict, error, ghost, onClose, onAgain }: {
+export default function DailyResult({ id, seed, inputs, verdict, error, ghost, onClose, onAgain, onRetry }: {
   id: number; seed: number; inputs: PlayerInput[]; verdict: DailyVerdict | null; error?: string | null; ghost?: DailyGhost | null;
-  onClose: () => void; onAgain: () => void;
+  onClose: () => void; onAgain: () => void; onRetry?: () => void;
 }) {
   const rc = useMemo(() => dailyRecap(seed, inputs), [seed, inputs]);
   const s = verdict?.score ?? rc.score;
   const [rank, setRank] = useState(verdict ? { rank: verdict.rank, count: verdict.count, topPct: verdict.topPct, boarded: !!verdict.boarded } : null);
   const [note, setNote] = useState<string | null>(null);
   useEffect(() => { if (verdict) refreshRank(id, verdict.runId).then((r) => { if (r) setRank(r); }); }, [id, verdict]);
+  // today's top plays (maker 2026-11-16: the end screen "could just be better … maybe show the leaderboard of top plays that day")
+  const [board, setBoard] = useState<Board>(null);
+  useEffect(() => { const load = () => fetchDailyBoard(id).then(setBoard); load(); const iv = setInterval(load, 30_000); return () => clearInterval(iv); }, [id, rank?.boarded]);
 
   // XP: saved as soon as there is a scored run and a signed-in pilot
   const pilot = usePilotWallet(), waiting = freePlayXp("daily", s);
@@ -91,9 +95,25 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
   };
 
   return (
-    <div data-testid="daily-result" style={{ position: "fixed", inset: 0, zIndex: 40, overflow: "auto", color: "#F2F3F7", fontFamily: "var(--dsc-font-ui)",
-      background: "radial-gradient(420px 360px at 50% 8%, rgba(243,223,168,0.22) 0%, rgba(242,193,78,0.06) 40%, rgba(18,19,39,0) 70%), radial-gradient(520px 420px at 70% -6%, #26274B 0%, #121327 52%, #0B0C0E 100%)" }}>
-      <div style={{ maxWidth: 390, minHeight: "100%", margin: "0 auto", padding: "calc(env(safe-area-inset-top, 0px) + 52px) 16px calc(env(safe-area-inset-bottom, 0px) + 28px)", boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
+    <div data-testid="daily-result" className="dr" style={{ position: "fixed", inset: 0, zIndex: 40, overflow: "auto", color: "#F2F3F7", fontFamily: "var(--dsc-font-ui)", background: "#07080c" }}>
+      <style>{`
+        .dr-bg { position: fixed; inset: 0; background: url(/art/share/daily.webp) 62% 30% / cover no-repeat; opacity: .55; pointer-events: none; }
+        .dr-bg::after { content: ""; position: absolute; inset: 0; background: radial-gradient(520px 380px at 50% 12%, rgba(242,193,78,.22), rgba(7,8,12,0) 70%), linear-gradient(180deg, rgba(7,8,12,.45) 0%, rgba(7,8,12,.55) 35%, rgba(7,8,12,.92) 70%, #07080c 100%); }
+        .dr-wrap { position: relative; max-width: 390px; min-height: 100%; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 52px) 16px calc(env(safe-area-inset-bottom, 0px) + 28px); box-sizing: border-box; display: flex; flex-direction: column; }
+        .dr-board { margin-top: 14px; padding: 14px 16px; border-radius: 16px; background: rgba(18,19,39,.82); border: 1px solid rgba(255,255,255,.14); display: flex; flex-direction: column; gap: 6px; }
+        .dr-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 30px; font-size: 14px; padding: 0 8px; margin: 0 -8px; border-radius: 8px; }
+        .dr-row.me { background: rgba(242,193,78,.14); outline: 1px solid rgba(242,193,78,.5); }
+        .dr-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        @media (min-width: 900px) {
+          .dr-wrap { max-width: 980px; display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: auto 1fr; column-gap: 28px; align-content: start; padding-top: 40px; }
+          .dr-main { grid-column: 1; display: flex; flex-direction: column; }
+          .dr-side { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; }
+          .dr-side .dr-board { margin-top: 58px; }
+        }
+        @media (max-width: 899px) { .dr-main, .dr-side { display: contents; } }
+      `}</style>
+      <div className="dr-bg" aria-hidden />
+      <div className="dr-wrap"><div className="dr-main">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span style={{ ...game, fontWeight: 700, fontSize: 15, letterSpacing: 1.5, color: "#F3DFA8" }}>DAILY FLIGHT #{id}</span>
           <button type="button" data-testid="daily-close" aria-label="Close and go to Free play" onClick={onClose} style={{ width: 44, height: 44, boxSizing: "border-box", borderRadius: 12, background: "rgba(18,19,39,0.78)", border: "1px solid #2E323A", display: "grid", placeItems: "center", cursor: "pointer" }}>
@@ -108,7 +128,7 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
             Would place #{rank.rank.toLocaleString("en-US")} of {rank.count.toLocaleString("en-US")} today</span>
             : rank ? <span data-testid="daily-rank" style={{ marginTop: 6, padding: "5px 12px", borderRadius: 999, background: "rgba(95,240,160,0.12)", border: "1px solid rgba(95,240,160,0.5)", fontSize: 13, color: "#BFF8D8" }}>
             Top {rank.topPct}% today · #{rank.rank.toLocaleString("en-US")} of {rank.count.toLocaleString("en-US")}</span>
-            : <span data-testid="daily-rank-error" style={{ marginTop: 6, padding: "5px 12px", borderRadius: 999, border: "1px solid #2E323A", fontSize: 13, color: "#D7D9E4" }}>{error || "Saving your score…"}</span>}
+            : <span data-testid="daily-rank-error" style={{ marginTop: 6, padding: "5px 12px", borderRadius: 999, border: "1px solid #2E323A", fontSize: 13, color: "#D7D9E4" }}>{error || "Saving your score…"}{error && onRetry && <button type="button" data-testid="daily-retry" onClick={onRetry} style={{ marginLeft: 8, padding: "2px 10px", borderRadius: 999, border: `1px solid ${GOLD}`, background: "transparent", color: GOLD, cursor: "pointer", font: "800 13px var(--dsc-font-game)", letterSpacing: 0.5 }}>RETRY</button>}</span>}
         </div>
 
         <div style={{ marginTop: 20, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
@@ -133,6 +153,24 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
           {ghost && <div data-testid="daily-ghost-line" style={{ marginTop: 4, fontSize: 12, color: "#F3DFA8" }}>{ghost.name} {ghost.outAtS != null ? `cashed out at ${mult(ghost.multiple)}, ${Math.round(ghost.outAtS)} s in` : `finished at ${mult(ghost.multiple)}`}. {s.multiple > ghost.multiple ? "You beat them." : s.multiple === ghost.multiple ? "Dead even." : "They beat you."}</div>}
         </div>
 
+        </div>
+        <div className="dr-side">
+        <section className="dr-board" aria-label="Today's board" data-testid="daily-result-board">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+            <span style={{ ...game, fontWeight: 700, fontSize: 20, letterSpacing: 1, color: "#F3DFA8" }}>TODAY&apos;S TOP PLAYS</span>
+            <span style={{ fontSize: 13, color: "#D7D9E4" }}>{board && board.count > 0 ? `${board.count.toLocaleString("en-US")} pilot${board.count === 1 ? "" : "s"}` : ""}</span>
+          </div>
+          {board && board.top.length ? board.top.map((r, i) => (
+            <div key={r.runId} className={`dr-row${verdict && r.runId === verdict.runId ? " me" : ""}`} data-testid={verdict && r.runId === verdict.runId ? "daily-board-me" : "daily-board-row"}>
+              <span><b style={{ ...game, display: "inline-block", width: 26, fontWeight: 700, fontSize: 15, color: i === 0 ? GOLD : "#D7D9E4" }}>{i + 1}</b>{verdict && r.runId === verdict.runId ? "You" : r.name}</span>
+              <span style={{ ...game, fontWeight: 700, fontSize: 18, color: "#5FF0A0" }}>{mult(r.multiple)}</span>
+            </div>)) : <div style={{ fontSize: 14, color: "#D7D9E4" }}>{board ? "Nobody on it yet. Sign in and take #1." : "Loading the board…"}</div>}
+          {rank && board && !board.top.some((r) => verdict && r.runId === verdict.runId) && (
+            <div className="dr-row me" data-testid="daily-board-me" style={{ marginTop: 4 }}>
+              <span><b style={{ ...game, display: "inline-block", minWidth: 26, fontWeight: 700, fontSize: 15, color: GOLD }}>{rank.rank.toLocaleString("en-US")}</b>You{rank.boarded ? "" : " (not posted)"}</span>
+              <span style={{ ...game, fontWeight: 700, fontSize: 18, color: "#5FF0A0" }}>{mult(s.multiple)}</span>
+            </div>)}
+        </section>
         {showCard && <div data-testid="daily-xp" style={{ marginTop: 14, minHeight: 72, boxSizing: "border-box", padding: "10px 14px", borderRadius: 16, background: "rgba(243,223,168,0.08)", border: "1px solid rgba(243,223,168,0.4)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
           <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <span data-testid="daily-xp-head" style={{ ...game, fontWeight: 800, fontSize: 22, color: "#F3DFA8" }}>{xpHead}</span>
@@ -148,7 +186,8 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#121327" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 12v7h16v-7M12 3v12M7 8l5-5 5 5" /></svg>CHALLENGE A FRIEND</button>
           {note && <span data-testid="daily-note" style={{ textAlign: "center", fontSize: 12, color: "#BFF8D8", wordBreak: "break-all" }}>{note}</span>}
           <button type="button" data-testid="daily-again" onClick={onAgain} style={{ ...game, height: 52, borderRadius: 14, background: "rgba(18,19,39,0.78)", border: "1px solid #2E323A", color: "#F2F3F7", cursor: "pointer", fontWeight: 800, fontSize: 20, letterSpacing: 0.5 }}>FLY IT AGAIN</button>
-          <span style={{ textAlign: "center", fontSize: 12, color: "#D7D9E4" }}>Replays don\u2019t count. Your daily score is locked in.</span>
+          <span style={{ textAlign: "center", fontSize: 12, color: "#D7D9E4" }}>Replays don’t count. Your daily score is locked in.</span>
+        </div>
         </div>
       </div>
     </div>

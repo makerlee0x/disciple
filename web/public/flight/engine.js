@@ -1090,6 +1090,16 @@ function wingStep(dt){ if(!S.wing.size) return;
   for(const [k,t] of S.wingRecent) if(S.t-t>WING_TTL) S.wingRecent.delete(k); }
 function wingExtra(){ let n=0; for(const k of S.wingRecent.keys()) if(!S.wing.has(k)) n++; return n; }
 const WING_SEG=3;
+/* @bot-hulls (maker 2026-11-16: "all the rockets look the same, but they're bots"): in Free play every bot flies its own
+   hull + rival skin from public/turbo/hulls (8 hulls x 10 skins, the Duel / Royale bot art), picked from its name so a bot
+   keeps the same ship all flight. Real coins keep the chrome rocket (their looks come from the Hangar). */
+const BOT_HULLS=['bullet','hauler','needle','pulp','ring-tail','shuttle','twin-booster','wedge'];
+const BOT_SKINS=['candy-pink','carbon','chrome-pink-stripe','gunmetal-pink','matte-black','navy-chevron','oilslick','pearl-mint','scorched','titanium-ice'];
+const BOT_IMG={};
+function botHullImg(k){ if(!(source&&source.isSim)) return null; let h=0; for(let i=0;i<k.length;i++) h=(h*131+k.charCodeAt(i))>>>0;
+  const id=BOT_HULLS[h%BOT_HULLS.length]+'--'+BOT_SKINS[Math.floor(h/BOT_HULLS.length)%BOT_SKINS.length];
+  let im=BOT_IMG[id]; if(!im){ im=new Image(); im.decoding='async'; im.onerror=()=>{ im.bad=true; }; im.src=(window.__DISCIPLE_BASE_PATH__||'')+'/turbo/hulls/hull-'+id+'.webp'; BOT_IMG[id]=im; }
+  return im.complete&&!im.bad&&im.naturalWidth?im:null; }
 function drawWingmen(){ if(PH_THR()) return;   /* phone throttle layout (maker 2026-11-14, "yes, all of it"): no other ships in the phone sky */
   if(!S.wing.size&&!wingExtra()) return; const im=IMG.rocket, ok=im&&im.complete&&!im.bad&&im.naturalWidth;
   ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round';
@@ -1104,7 +1114,7 @@ function drawWingmen(){ if(PH_THR()) return;   /* phone throttle layout (maker 2
     ctx.globalCompositeOperation='lighter'; const g=ctx.createLinearGradient(0,0,0,fl); g.addColorStop(0,'rgba(255,255,255,.95)'); g.addColorStop(0.35,`rgba(${c},.9)`); g.addColorStop(1,`rgba(${c},0)`);
     ctx.fillStyle=g; ctx.beginPath(); ctx.moveTo(-fw,0); ctx.quadraticCurveTo(-fw*0.7,fl*0.5,0,fl); ctx.quadraticCurveTo(fw*0.7,fl*0.5,fw,0); ctx.closePath(); ctx.fill();
     ctx.globalCompositeOperation='source-over';
-    if(ok){ const iw=h*im.naturalWidth/im.naturalHeight; ctx.globalAlpha=0.92; ctx.drawImage(im,-iw/2,-h*0.96,iw,h); ctx.globalAlpha=1; }
+    { const bi=botHullImg(w.k), hh=bi?h*1.15:h; if(bi||ok){ const pic=bi||im, iw=hh*pic.naturalWidth/pic.naturalHeight; ctx.globalAlpha=bi?1:0.92; ctx.drawImage(pic,-iw/2,-hh*0.96,iw,hh); ctx.globalAlpha=1; } }
     ctx.restore();
     const thrL=window.__phoneHud&&window.__phoneHud.thr, tag0=S.t-w.tagT<1.6?w.tag:'';   /* phone throttle layout (maker: "the mockup looks way cleaner"): a wingman is named only while it trades */
     if(!CLEAN&&(!thrL||tag0||w.peel!=null)){ const tag=tag0, lab=w.peel!=null?nameOf(w.trader)+' · DUMPING':nameOf(w.trader)+(tag?' · '+tag:'');

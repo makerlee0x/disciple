@@ -97,7 +97,8 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
           <span className={s.bT}>CONTROLS</span>
           <div className={s.keys}>
             <div><kbd>SPACE</kbd><span>Buy</span></div>
-            <div><kbd>SHIFT</kbd><span>Sell</span></div>
+            <div><kbd>SHIFT</kbd><span>Sell half</span></div>
+            <div><kbd>ENTER</kbd><span>Cash out</span></div>
             <div><kbd>W</kbd><kbd>S</kbd><span>Up / down</span></div>
             <div><kbd>A</kbd><kbd>D</kbd><span>Left / right</span></div>
           </div>
