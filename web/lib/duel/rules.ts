@@ -1,7 +1,7 @@
 /**
  * Trading Duel rules (shared by the server, the live match screen and the practice bot). Pure, no I/O.
  *
- * A duel: two pilots, same tier fuel, same live BTC price, 1 or 3 minutes. Each pilot BOOSTs (long) or DUMPs (short)
+ * A duel: two pilots, same tier fuel, same live BTC price, 1 minute. Each pilot BOOSTs (long) or DUMPs (short)
  * at 500×, as often as they like; pressing the other side flips with the same fuel. Most profit at the buzzer wins.
  * If it's within OT_GAP of a tie at the buzzer, the duel gets one 30 s overtime.
  *
@@ -24,10 +24,14 @@ export const TIERS: Record<TierId, Tier> = {
   pro: { id: "pro", label: "PRO", fuel: 50, sizes: [2, 5, 10, 25, 0] },
   shark: { id: "shark", label: "SHARK", fuel: 150, sizes: [5, 10, 25, 50, 0] },
 };
-export const LENGTHS = [60_000, 180_000] as const;
+/** One length: 1 minute (maker, 2026-11-16: "3 minutes is way too long"). The old 3-minute option is gone. */
+export const DUEL_LEN_MS = 60_000;
+export const LENGTHS = [DUEL_LEN_MS] as const;
 export type LengthMs = (typeof LENGTHS)[number];
 export const isTier = (t: unknown): t is TierId => t === "rookie" || t === "pro" || t === "shark";
-export const isLength = (l: unknown): l is LengthMs => l === 60_000 || l === 180_000;
+export const isLength = (l: unknown): l is LengthMs => l === DUEL_LEN_MS;
+/** a request length: an old client may still send 180000 (3 min); it plays 1 minute like everyone else, in the same queue */
+export const toLength = (l: unknown): LengthMs | null => (l === DUEL_LEN_MS || l === 180_000 ? DUEL_LEN_MS : null);
 
 /* ---- custom budgets (maker, 2026-11-15: "challenge someone to a $100 budget, or a $1k, or whatever") ----
  * Friend duels can set their own fuel, whole dollars from $5 to $10,000 (maker: "as low as $5"). Ranked keeps the three tiers, so matchmaking

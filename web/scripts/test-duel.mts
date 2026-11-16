@@ -89,7 +89,7 @@ test("server: fills at the server price, buzzer settles once, ratings move, rema
 
 test("server: ranked buzzer within the overtime gap adds 30 s once, then rates", async () => {
   const a = { pid: "0x" + "c".repeat(40), name: "@c" }, b = { pid: "0x" + "d".repeat(40), name: "@d" };
-  await S.pollQueue(a, "shark", 180_000); const m = await S.pollQueue(b, "shark", 180_000) as { room: { id: string } };
+  await S.pollQueue(a, "shark", 60_000); const m = await S.pollQueue(b, "shark", 60_000) as { room: { id: string } };
   await S.setReady(m.room.id, a.pid); await S.setReady(m.room.id, b.pid);
   const { kv } = await import("../lib/server/kv");
   const r = JSON.parse(JSON.stringify(await S.getRoom(m.room.id))); r.startAt = Date.now() - 200_000; r.endAt = Date.now() - 5; r.mark = { p: 68000, at: Date.now() - 50 }; await kv().set(S._keys.room(m.room.id), JSON.stringify(r));
@@ -128,7 +128,7 @@ test("server: one duel at a time (no second ranked room, invite or join while se
   await S.pollQueue(a, "rookie", 60_000); const m = await S.pollQueue(b, "rookie", 60_000) as { room: { id: string } };
   assert.ok(m.room);
   // a is seated: queueing again (any tier) hands back the same room, never a new one
-  const again = await S.pollQueue(a, "pro", 180_000) as { room?: { id: string } };
+  const again = await S.pollQueue(a, "pro", 60_000) as { room?: { id: string } };
   assert.equal(again.room?.id, m.room.id);
   await assert.rejects(S.createInvite(a, "pro", 60_000), /already in a duel/);
   const inv = await S.createInvite(c, "pro", 60_000);
