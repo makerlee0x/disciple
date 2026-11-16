@@ -1,9 +1,11 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import {
-  CRATE, ITEMS, PAINTS, RARITIES, SERIES, STARTER_SKIN, crateOdds, dropPool, duelCrateTier, itemById, rollCrate, shopStock, skinArt, DAY_MS,
+  CRATE, ITEMS, PAINTS, RARITIES, SERIES, STARTER_SKIN, STARTER_TAG, TRAILS, crateBurstArt, crateOdds, dropPool, duelCrateTier, glintArt, itemById, rollCrate,
+  seriesArt, shopStock, skinArt, tagArt, trailArt, DAY_MS,
 } from "@/lib/collection";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 describe("collection catalogue", () => {
   it("every skin in a series has art, and ids are unique", () => {
@@ -11,6 +13,27 @@ describe("collection catalogue", () => {
     for (const i of ITEMS) { expect(ids.has(i.id)).toBe(false); ids.add(i.id); }
     for (const i of ITEMS.filter((x) => x.kind === "skin")) expect(existsSync(join(__dirname, "..", "public", skinArt(i.id)))).toBe(true);
     for (const s of SERIES) for (const p of s.paints) expect(PAINTS[p]).toBeTruthy();
+  });
+
+  it("every trail, tag, burst, banner and glint has art", () => {
+    const pub = (p: string) => existsSync(join(__dirname, "..", "public", p));
+    expect(TRAILS).toHaveLength(17);
+    for (const t of TRAILS) { expect(pub(trailArt(t.id))).toBe(true); expect(pub(trailArt(t.id, "bits"))).toBe(true); }
+    for (const i of ITEMS.filter((x) => x.kind === "tag")) expect(pub(tagArt(i.id))).toBe(true);
+    for (const r of RARITIES) expect(pub(crateBurstArt(r))).toBe(true);
+    for (const s of SERIES) expect(pub(seriesArt(s.n))).toBe(true);
+    for (const h of ["bullet", "needle", "pulp", "wedge", "ring-tail"]) expect(pub(glintArt(h))).toBe(true);
+  });
+
+  it("trails drop with their series, prestige items never drop or sell, tags drop in any series", () => {
+    const pool = dropPool(Date.UTC(2026, 10, 20));
+    const trails = pool.filter((i) => i.kind === "trail").map((i) => i.id);
+    expect(trails).toContain("trail-comet");
+    expect(trails).not.toContain("trail-toxic");   // Series 2
+    expect(trails).not.toContain("trail-halo");    // Prestige 2
+    expect(pool.filter((i) => i.kind === "tag").map((i) => i.id).sort()).toEqual(RARITIES.map((r) => `tag-${r}`).sort());
+    for (let d = 0; d < 60; d++) { const s = shopStock(Date.UTC(2026, 10, 1) + d * DAY_MS); for (const i of [s.featured!, ...s.daily]) { expect(i.prestige).toBeFalsy(); expect(i.id).not.toBe(STARTER_TAG); } }
+    expect(SERIES[1].paints).toEqual(expect.arrayContaining(["koi", "aurora", "holo-foil", "stained-glass"]));
   });
 
   it("only the live series drops (Series 1 at launch: 2 hulls x 13 paints, plus trails)", () => {
@@ -69,7 +92,7 @@ describe("collection server (local KV)", () => {
   let col: typeof import("@/lib/server/collection");
   let xp: typeof import("@/lib/server/xp");
   beforeAll(async () => {
-    process.env.KV_LOCAL_FILE = join(require("node:os").tmpdir(), `col-test-${Date.now()}.json`);
+    process.env.KV_LOCAL_FILE = join(tmpdir(), `col-test-${Date.now()}.json`);
     col = await import("@/lib/server/collection");
     xp = await import("@/lib/server/xp");
   });
@@ -108,6 +131,11 @@ describe("collection server (local KV)", () => {
     expect((await col.buyItem(W, s.daily[0].id)).ok).toBe(false);
     expect((await col.equip(W, "needle--nebula", "trail-gold")).ok).toBe(false);
     expect((await col.equip(W, STARTER_SKIN, "trail-gold")).ok).toBe(true);
+    expect((await col.equip(W, STARTER_SKIN, "trail-halo")).ok).toBe(false);          // Prestige 2
+    expect((await col.equip(W, STARTER_SKIN, "trail-gold", "tag-prestige-1")).ok).toBe(false);
+    expect((await col.equip(W, STARTER_SKIN, "trail-gold", "tag-mythic")).ok).toBe(false);
+    const e = await col.equip(W, STARTER_SKIN, "trail-gold", STARTER_TAG);
+    expect(e.ok && e.equipped.tag).toBe(STARTER_TAG);
     const crate = await col.buyItem(W, "crate-common");
     expect(crate.ok).toBe(true);
   });

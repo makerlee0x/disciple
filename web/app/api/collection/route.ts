@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 /**
  * Rocket collection (lib/server/collection.ts).
  * GET ?wallet=0x… → { ok, collection, shop }   anyone's collection is public (it's what they fly); shop is today's stock.
- * POST { op: "open", crate } | { op: "buy", item } | { op: "equip", skin, trail }  with the Privy session (Bearer), like
+ * POST { op: "open", crate } | { op: "buy", item } | { op: "equip", skin, trail, tag? }  with the Privy session (Bearer), like
  *   the duel API, so opening a crate needs no wallet signature. Optional x-wallet picks one of the account's wallets.
  */
 import { NextResponse } from "next/server";
@@ -36,12 +36,12 @@ export async function POST(req: Request) {
   const want = req.headers.get("x-wallet");
   const wallet = isAddr(want) && wallets.includes(want.toLowerCase()) ? want.toLowerCase() : wallets[0];
   if (!wallet) return out(403, { ok: false, reason: "Your account needs a wallet." });
-  let b: { op?: unknown; crate?: unknown; item?: unknown; skin?: unknown; trail?: unknown };
+  let b: { op?: unknown; crate?: unknown; item?: unknown; skin?: unknown; trail?: unknown; tag?: unknown };
   try { b = await req.json(); } catch { return out(400, { ok: false, reason: "Bad JSON" }); }
   try {
     if (b.op === "open") { const r = await openCrate(wallet, id(b.crate)); return out(r.ok ? 200 : 409, r); }
     if (b.op === "buy") { const r = await buyItem(wallet, id(b.item)); return out(r.ok ? 200 : 409, r); }
-    if (b.op === "equip") { const r = await equip(wallet, id(b.skin), id(b.trail)); return out(r.ok ? 200 : 409, r); }
+    if (b.op === "equip") { const r = await equip(wallet, id(b.skin), id(b.trail), id(b.tag)); return out(r.ok ? 200 : 409, r); }
     return out(400, { ok: false, reason: "Unknown action." });
   } catch (e) {
     console.error("[collection]", e);

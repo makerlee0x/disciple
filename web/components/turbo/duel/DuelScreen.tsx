@@ -35,7 +35,7 @@ declare global { interface Window { DuelEngine?: { mount(root: HTMLElement, host
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
 /** extra plates for the random sky each duel (engine SKY_THEMES) */
 const EXTRA_SKIES = { skyEth: "/turbo/sky-eth.webp", skyBtc: "/turbo/sky-btc.webp", skyPad: "/home/pad/sky-1280.webp" };
-const ENGINE_SRC = "/turbo/duel/engine.js?v=23";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=27";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
@@ -61,14 +61,14 @@ export default function DuelScreen() {
       api?.price(t.price, ts);
     });
 
-    // Hangar skins (lib/collection): yours, and a real rival's, from /api/looks; the engine reads them as each duel starts
-    const ships = new Map<string, { skin: string; rgb?: string }>();
+    // Hangar looks (lib/collection: skin, trail, name tag): yours, and a real rival's, from /api/looks; the engine reads them as each duel starts
+    const ships = new Map<string, { skin: string; rgb?: string; trail?: string; tag?: string }>();
     const loadShips = async (pids: string[]) => {
       const want = pids.filter((p) => p && !ships.has(p));
       if (!want.length) return;
       try {
-        const j = (await (await fetch(`/api/looks?wallets=${want.join(",")}`)).json()) as { looks?: Record<string, { skin?: string; trail?: string }> };
-        for (const [w, l] of Object.entries(j.looks ?? {})) if (l.skin) ships.set(w, { skin: l.skin, rgb: trailRgb(l.trail) });
+        const j = (await (await fetch(`/api/looks?wallets=${want.join(",")}`)).json()) as { looks?: Record<string, { skin?: string; trail?: string; tag?: string }> };
+        for (const [w, l] of Object.entries(j.looks ?? {})) if (l.skin) ships.set(w, { skin: l.skin, rgb: trailRgb(l.trail), trail: l.trail, tag: l.tag });
       } catch { /* the chrome rocket flies */ }
     };
     const unfollow = () => { fol?.stop(); fol = null; roomId = null; };

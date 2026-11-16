@@ -11,8 +11,8 @@ import { unlocksOf } from "./achievements";
 import { kv, type Kv } from "./kv";
 import { xpSummary } from "./xp";
 
-/** skin + trail: the equipped collection look (lib/server/collection equip), flown in Turbo modes */
-export type Looks = { hull: string; flare: string; skin?: string; trail?: string };
+/** skin + trail + tag: the equipped collection look (lib/server/collection equip), flown in Turbo modes */
+export type Looks = { hull: string; flare: string; skin?: string; trail?: string; tag?: string };
 export const STOCK_LOOKS: Looks = { hull: HULLS[0].id, flare: FLARES[0].id };
 const key = (w: string) => `looks:${ACTIVE_CHAIN.id}:${w.toLowerCase()}`;
 
@@ -22,7 +22,7 @@ function parse(raw: string | null): Looks | null {
     if (!j) return null;
     return {
       hull: HULLS.some((h) => h.id === j.hull) ? j.hull! : STOCK_LOOKS.hull, flare: FLARES.some((f) => f.id === j.flare) ? j.flare! : STOCK_LOOKS.flare,
-      ...(j.skin && itemById(j.skin) ? { skin: j.skin } : {}), ...(j.trail && itemById(j.trail) ? { trail: j.trail } : {}),
+      ...(j.skin && itemById(j.skin) ? { skin: j.skin } : {}), ...(j.trail && itemById(j.trail) ? { trail: j.trail } : {}), ...(j.tag && itemById(j.tag)?.kind === "tag" ? { tag: j.tag } : {}),
     };
   } catch { return null; }
 }

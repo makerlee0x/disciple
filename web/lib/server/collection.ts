@@ -1,7 +1,8 @@
 import "server-only";
 /**
  * Rocket collection server (rules in lib/collection.ts): what each pilot owns, their unopened crates, opening them with
- * server randomness, the daily shop, and the equipped skin + trail (kept in the looks record so other pilots see it).
+ * server randomness, the daily shop, and the equipped skin + trail + name tag (kept in the looks record so others see it).
+ * Prestige items (the Halo trail, prestige name tags) aren't stored: a pilot owns them while their Prestige is high enough.
  *
  * KV keys (chain-namespaced):
  *   col:<chain>:own:<wallet>         set   item ids (skins "needle--nebula", trails "trail-mint")
@@ -16,7 +17,7 @@ import "server-only";
 import { randomInt, randomUUID } from "node:crypto";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import {
-  CRATE, CRATE_PRICE, DUPE_XP, EARN, PRESTIGE_HULL, PRICE, SHOP_CRATE_ID, STARTER_SKIN, STARTER_TRAIL, dayIndex, dropPool, duelCrateTier, itemById,
+  CRATE, CRATE_PRICE, DUPE_XP, EARN, PRESTIGE_HULL, PRICE, SHOP_CRATE_ID, STARTER_SKIN, STARTER_TAG, STARTER_TRAIL, ITEMS, prestigeUnlocked, dayIndex, dropPool, duelCrateTier, itemById,
   itemTitle, rollCrate, shopStock, trailId, RARITY_NAME, TRAILS,
   type Collection, type Crate, type Item, type Opened, type Rarity,
 } from "@/lib/collection";
@@ -88,24 +89,27 @@ async function syncEarned(w: string, now: number, s: Kv) {
 
 /* --------------------------------------------------------------- reading --------------------------------------------------------------- */
 
-export async function ownedItems(w: string, s: Kv = kv()): Promise<Set<string>> {
+/** What a pilot owns: found and bought items, the starters, and (with their Prestige) the prestige items. */
+export async function ownedItems(w: string, s: Kv = kv(), prestige = 0): Promise<Set<string>> {
   const set = new Set(await s.smembers(COLK.own(lc(w))));
-  set.add(STARTER_SKIN); set.add(STARTER_TRAIL);
+  set.add(STARTER_SKIN); set.add(STARTER_TRAIL); set.add(STARTER_TAG);
+  for (const i of ITEMS) if (prestigeUnlocked(i, prestige)) set.add(i.id);
   return set;
 }
 async function cratesOf(w: string, s: Kv): Promise<Crate[]> {
   return (await s.zrange(COLK.crates(w), 200)).map((m) => parse<Crate>(m)).filter((c): c is Crate => !!c && !!CRATE[c.tier]);
 }
-export type Equipped = { skin: string; trail: string };
+export type Equipped = { skin: string; trail: string; tag: string };
 export async function equippedOf(w: string, s: Kv = kv()): Promise<Equipped> {
-  const j = parse<{ skin?: string; trail?: string }>(await s.get(COLK.looks(lc(w))));
-  return { skin: j?.skin && itemById(j.skin) ? j.skin : STARTER_SKIN, trail: j?.trail && itemById(j.trail) ? j.trail : STARTER_TRAIL };
+  const j = parse<{ skin?: string; trail?: string; tag?: string }>(await s.get(COLK.looks(lc(w))));
+  const ok = (id: string | undefined, kind: string) => !!id && itemById(id)?.kind === kind;
+  return { skin: ok(j?.skin, "skin") ? j!.skin! : STARTER_SKIN, trail: ok(j?.trail, "trail") ? j!.trail! : STARTER_TRAIL, tag: ok(j?.tag, "tag") ? j!.tag! : STARTER_TAG };
 }
 
 export async function collectionOf(walletIn: string, now = Date.now(), s: Kv = kv()): Promise<Collection> {
   const w = lc(walletIn);
   const xp = await syncEarned(w, now, s);
-  const [owned, crates, equipped, log] = await Promise.all([ownedItems(w, s), cratesOf(w, s), equippedOf(w, s), s.zrange(COLK.log(w), 10, true)]);
+  const [owned, crates, equipped, log] = await Promise.all([ownedItems(w, s, xp.level.prestige), cratesOf(w, s), equippedOf(w, s), s.zrange(COLK.log(w), 10, true)]);
   return {
     wallet: w, owned: [...owned], crates, equipped, spendableXp: xp.spendableXp, prestige: xp.level.prestige,
     recent: log.map((m) => parse<Opened>(m)).filter((o): o is Opened => !!o),
@@ -163,21 +167,27 @@ export async function buyItem(walletIn: string, id: string, now = Date.now(), s:
 
 export type EquipResult = { ok: true; equipped: Equipped } | { ok: false; reason: string };
 
-/** Equip a skin + trail the pilot owns. Ring-tail skins need Prestige 1 and the same paint found on another hull. */
-export async function equip(walletIn: string, skin: string, trail: string, s: Kv = kv()): Promise<EquipResult> {
+/**
+ * Equip a skin + trail (+ name tag; left out keeps the current one) the pilot owns. Ring-tail skins need Prestige 1 and
+ * the same paint found on another hull; prestige trails and tags need that Prestige.
+ */
+export async function equip(walletIn: string, skin: string, trail: string, tag = "", s: Kv = kv()): Promise<EquipResult> {
   const w = lc(walletIn);
-  const sk = itemById(skin), tr = itemById(trail);
+  const sk = itemById(skin), tr = itemById(trail), tg = tag ? itemById(tag) : undefined;
   if (!sk || sk.kind !== "skin" || !tr || tr.kind !== "trail") return { ok: false, reason: "Pick a skin and a trail." };
-  const owned = await ownedItems(w, s);
+  if (tag && (!tg || tg.kind !== "tag")) return { ok: false, reason: "Pick a name tag." };
+  const prestige = (await xpSummary(w, Date.now(), s)).level.prestige;
+  const owned = await ownedItems(w, s, prestige);
   if (sk.hull === PRESTIGE_HULL) {
-    const xp = await xpSummary(w, Date.now(), s);
-    if (xp.level.prestige < 1) return { ok: false, reason: "Ring-tail unlocks at Prestige 1." };
+    if (prestige < 1) return { ok: false, reason: "Ring-tail unlocks at Prestige 1." };
     if (![...owned].some((id) => id.endsWith(`--${sk.paint}`) && !id.startsWith(PRESTIGE_HULL))) return { ok: false, reason: `Find ${sk.name} on another hull first.` };
   } else if (!owned.has(sk.id)) return { ok: false, reason: "You haven't found that skin yet." };
-  if (!owned.has(tr.id)) return { ok: false, reason: "You haven't found that trail yet." };
+  if (!owned.has(tr.id)) return { ok: false, reason: tr.prestige ? `${tr.name} unlocks at Prestige ${tr.prestige}.` : "You haven't found that trail yet." };
+  if (tg && !owned.has(tg.id)) return { ok: false, reason: tg.prestige ? `That tag unlocks at Prestige ${tg.prestige}.` : "You haven't found that name tag yet." };
   const prev = parse<Record<string, unknown>>(await s.get(COLK.looks(w))) ?? {};
-  await s.set(COLK.looks(w), JSON.stringify({ ...prev, skin: sk.id, trail: tr.id }));
-  return { ok: true, equipped: { skin: sk.id, trail: tr.id } };
+  const tagId = tg?.id ?? (typeof prev.tag === "string" && owned.has(prev.tag) ? prev.tag : STARTER_TAG);
+  await s.set(COLK.looks(w), JSON.stringify({ ...prev, skin: sk.id, trail: tr.id, tag: tagId }));
+  return { ok: true, equipped: { skin: sk.id, trail: tr.id, tag: tagId } };
 }
 
 /** The engine's flame colour for a trail id. */

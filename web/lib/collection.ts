@@ -5,7 +5,7 @@
  * player art are 144 separate items. They come out a series at a time: only the live series drops from crates and shows
  * in the shop, and a series that has ended stops dropping. Trails (gold core, so you stay easy to spot) drop alongside.
  * Everything here is pure and shared by the server (lib/server/collection.ts) and the Hangar. Cosmetic only.
- * Art: public/turbo/skins/<hull>--<paint>.webp, public/turbo/crates/<tier>[-open].webp.
+ * Art: public/turbo/skins/<hull>--<paint>.webp, crates/<tier>[-open|-burst].webp, trails/, tags/, series/, glint/, flourish/.
  */
 
 export type Rarity = "common" | "uncommon" | "rare" | "epic" | "legendary" | "mythic";
@@ -26,6 +26,10 @@ export const PAINTS: Record<string, { name: string; rar: Rarity }> = {
   "neon-circuit": { name: "Neon Circuit", rar: "epic" }, amethyst: { name: "Amethyst", rar: "epic" }, molten: { name: "Molten", rar: "epic" },
   nebula: { name: "Nebula", rar: "legendary" }, "seraph-wing": { name: "Seraph Wing", rar: "legendary" },
   "marble-gilt": { name: "Marble & Gold Leaf", rar: "mythic" },
+  // new for Series 2 (PR 422 art)
+  "racing-green": { name: "Racing Green", rar: "common" }, "carbon-gold": { name: "Carbon & Gold", rar: "uncommon" },
+  koi: { name: "Koi", rar: "rare" }, damascus: { name: "Damascus", rar: "rare" }, "stained-glass": { name: "Stained Glass", rar: "epic" },
+  aurora: { name: "Aurora", rar: "legendary" }, "holo-foil": { name: "Holo Foil", rar: "legendary" },
 };
 
 export interface Series { n: number; name: string; hulls: string[]; paints: string[]; /** UTC ms; null = not out yet */ start: number | null; /** UTC ms crates stop dropping it; null = open-ended */ end: number | null }
@@ -34,32 +38,67 @@ export const SERIES: readonly Series[] = [
   { n: 1, name: "First Light", hulls: ["bullet", "needle"], start: 0, end: null,
     paints: ["white-gloss", "red-classic", "sky-blue", "safety-orange", "hazard", "checkered", "teal-racer", "walnut-brass", "copper-verdigris", "neon-circuit", "molten", "nebula", "marble-gilt"] },
   { n: 2, name: "Series 2", hulls: ["pulp", "wedge"], start: null, end: null,
-    paints: ["white-gloss", "olive-drab", "sky-blue", "arctic-camo", "hazard", "checkered", "delft-porcelain", "copper-verdigris", "amethyst", "molten", "seraph-wing", "marble-gilt"] },
+    paints: ["racing-green", "olive-drab", "carbon-gold", "arctic-camo", "koi", "damascus", "delft-porcelain", "stained-glass", "amethyst", "aurora", "holo-foil", "seraph-wing", "marble-gilt"] },
 ];
 /** Ring-tail is never in a series: it's the Prestige 1 hull (with every paint the pilot has found on another hull). */
 export const PRESTIGE_HULL = "ring-tail";
 
-export interface Trail { id: string; name: string; rar: Rarity; color: string; /** engine flame rgb */ rgb: string }
+/**
+ * Trails: an animated plume (public/turbo/trails/trail-<id>-plume.webp, 6 frames of 128x384, black = clear) plus 3
+ * particles (-bits.webp, 64x64 each) sprinkled down the contrail. Every one keeps a gold-white core and none is pink.
+ * series 0 = always in the pool (the starter); a trail drops with its series; prestige = never drops, unlocks at that Prestige.
+ */
+export interface Trail { id: string; name: string; rar: Rarity; color: string; /** fallback flame rgb */ rgb: string; series: number; prestige?: number }
 export const TRAILS: readonly Trail[] = [
-  { id: "gold", name: "Gold", rar: "common", color: "#F3DFA8", rgb: "255,200,120" },
-  { id: "mint", name: "Mint Wake", rar: "uncommon", color: "#5FF0A0", rgb: "95,240,160" },
-  { id: "ice", name: "Ice Wake", rar: "rare", color: "#8FB8FF", rgb: "143,184,255" },
-  { id: "violet", name: "Violet Arc", rar: "epic", color: "#A066FF", rgb: "160,102,255" },
-  { id: "solar", name: "Solar Flare", rar: "legendary", color: "#FF9A3C", rgb: "255,154,60" },
+  { id: "gold", name: "Gold", rar: "common", color: "#F3DFA8", rgb: "255,200,120", series: 0 },
+  { id: "smoke", name: "Old Smoke", rar: "common", color: "#A7AFBE", rgb: "190,194,204", series: 1 },
+  { id: "mint", name: "Mint Wake", rar: "uncommon", color: "#5FF0A0", rgb: "95,240,160", series: 1 },
+  { id: "ember", name: "Ember", rar: "uncommon", color: "#FF6A3C", rgb: "255,106,60", series: 1 },
+  { id: "ice", name: "Ice Wake", rar: "rare", color: "#8FB8FF", rgb: "143,184,255", series: 1 },
+  { id: "comet", name: "Comet", rar: "rare", color: "#F3DFA8", rgb: "243,223,168", series: 1 },
+  { id: "violet", name: "Violet Arc", rar: "epic", color: "#A066FF", rgb: "160,102,255", series: 1 },
+  { id: "glitch", name: "Glitch", rar: "epic", color: "#5FE8FF", rgb: "95,232,255", series: 1 },
+  { id: "solar", name: "Solar Flare", rar: "legendary", color: "#FF9A3C", rgb: "255,154,60", series: 1 },
+  { id: "stardust", name: "Stardust", rar: "legendary", color: "#8C7BFF", rgb: "140,123,255", series: 1 },
+  { id: "toxic", name: "Toxic Drip", rar: "uncommon", color: "#9CFF3C", rgb: "156,255,60", series: 2 },
+  { id: "frost", name: "Frost", rar: "rare", color: "#BFE3FF", rgb: "191,227,255", series: 2 },
+  { id: "lightning", name: "Storm", rar: "epic", color: "#CFE6FF", rgb: "207,230,255", series: 2 },
+  { id: "lava", name: "Lava", rar: "epic", color: "#FF7A2A", rgb: "255,122,42", series: 2 },
+  { id: "prism", name: "Prism", rar: "legendary", color: "#BFF4FF", rgb: "200,240,255", series: 2 },
+  { id: "feather", name: "Seraph", rar: "mythic", color: "#FFF6DC", rgb: "255,246,220", series: 2 },
+  { id: "halo", name: "Halo", rar: "legendary", color: "#F2C14E", rgb: "242,193,78", series: 0, prestige: 2 },
 ];
+export const trailArt = (id: string, part: "plume" | "bits" = "plume") => `/turbo/trails/trail-${id}-${part}.webp`;
 
-export type ItemKind = "skin" | "trail";
-export interface Item { id: string; kind: ItemKind; name: string; rar: Rarity; series: number; hull?: string; paint?: string }
+/**
+ * Name tags: the plate behind your name over your rocket. One per rarity (common is the starter steel plate; the rest
+ * drop from crates and sell in the shop, any series), plus 9 prestige plates you get by reaching that Prestige.
+ * Art: public/turbo/tags/tag-<tier>.webp and tag-prestige-<n>.webp, 600x140 with an empty middle.
+ */
+export const PRESTIGE_TAGS = 9;
+const PRESTIGE_NAMES = ["Acolyte", "Disciple", "Herald", "Seeker", "Warden", "Ascendant", "Exalted", "Celestial", "Empyrean"];
+export const tagArt = (id: string) => `/turbo/tags/${id}.webp`;
+export const tagPrestige = (id: string) => { const m = /^tag-prestige-(\d)$/.exec(id); return m ? Number(m[1]) : 0; };
+
+export type ItemKind = "skin" | "trail" | "tag";
+/** series 0 = not tied to a series. prestige = never drops or sells; it unlocks at that Prestige. */
+export interface Item { id: string; kind: ItemKind; name: string; rar: Rarity; series: number; hull?: string; paint?: string; prestige?: number }
 
 /** "needle--walnut-brass" */
 export const skinId = (hull: string, paint: string) => `${hull}--${paint}`;
 export const skinArt = (id: string) => `/turbo/skins/${id}.webp`;
 export const crateArt = (tier: Rarity, open = false) => `/turbo/crates/${tier}${open ? "-open" : ""}.webp`;
+/** 8 frames of light bursting out of an opened crate (256x256 each, black = clear) */
+export const crateBurstArt = (tier: Rarity) => `/turbo/crates/${tier}-burst.webp`;
+export const seriesArt = (n: number) => (n === 1 ? "/turbo/series/series-1-first-light.webp" : `/turbo/series/series-${n}.webp`);
+/** 4-frame gold glint sweeping up a Marble & Gold Leaf skin (same size per frame as the skin) */
+export const glintArt = (hull: string) => `/turbo/glint/${hull}--marble-gilt.webp`;
 export const trailId = (id: string) => `trail-${id}`;
 
 /** The starter look every pilot owns. */
 export const STARTER_SKIN = skinId("bullet", "white-gloss");
 export const STARTER_TRAIL = trailId("gold");
+export const STARTER_TAG = "tag-common";
 
 function buildItems(): Item[] {
   const out: Item[] = [];
@@ -67,7 +106,10 @@ function buildItems(): Item[] {
     const pt = PAINTS[p]; if (!pt) continue;
     out.push({ id: skinId(h, p), kind: "skin", name: pt.name, rar: pt.rar, series: s.n, hull: h, paint: p });
   }
-  TRAILS.forEach((t) => out.push({ id: trailId(t.id), kind: "trail", name: t.name, rar: t.rar, series: 0 }));
+  TRAILS.forEach((t) => out.push({ id: trailId(t.id), kind: "trail", name: t.name, rar: t.rar, series: t.series, ...(t.prestige ? { prestige: t.prestige } : {}) }));
+  const TAG_NAMES: Record<Rarity, string> = { common: "Steel", uncommon: "Enamel", rare: "Chrome", epic: "Crystal", legendary: "Reactor", mythic: "Marble & Gold" };
+  RARITIES.forEach((r) => out.push({ id: `tag-${r}`, kind: "tag", name: TAG_NAMES[r], rar: r, series: 0 }));
+  PRESTIGE_NAMES.forEach((n, k) => out.push({ id: `tag-prestige-${k + 1}`, kind: "tag", name: n, rar: k >= 6 ? "mythic" : k >= 3 ? "legendary" : "epic", series: 0, prestige: k + 1 }));
   return out;
 }
 export const ITEMS: readonly Item[] = buildItems();
@@ -78,14 +120,16 @@ function prestigeSkin(id: string): Item | undefined {
   if (h !== PRESTIGE_HULL || !PAINTS[p]) return undefined;
   return { id, kind: "skin", name: PAINTS[p].name, rar: PAINTS[p].rar, series: 0, hull: h, paint: p };
 }
-export const itemTitle = (i: Item) => (i.kind === "skin" ? `${HULL_NAMES[i.hull!] ?? i.hull} | ${i.name}` : `${i.name} trail`);
+export const itemTitle = (i: Item) => (i.kind === "skin" ? `${HULL_NAMES[i.hull!] ?? i.hull} | ${i.name}` : i.kind === "trail" ? `${i.name} trail` : `${i.name} name tag`);
+/** Items you get by reaching a Prestige rather than finding them. */
+export const prestigeUnlocked = (i: Item, prestige: number) => !!i.prestige && prestige >= i.prestige;
 
 export const liveSeries = (now: number): Series | null => [...SERIES].reverse().find((s) => s.start != null && s.start <= now && (s.end == null || now < s.end)) ?? null;
 export const releasedSeries = (now: number) => SERIES.filter((s) => s.start != null && s.start <= now);
-/** What crates can drop right now: the live series' skins plus every trail. */
+/** What crates can drop right now: the live series' skins and trails, plus the any-series items. Prestige items never drop. */
 export function dropPool(now: number): Item[] {
   const live = liveSeries(now);
-  return ITEMS.filter((i) => i.kind === "trail" || (live && i.series === live.n));
+  return ITEMS.filter((i) => !i.prestige && (i.series === 0 || (live && i.series === live.n)));
 }
 
 /* ---------------------------------------------------------------- crates ---------------------------------------------------------------- */
@@ -142,7 +186,8 @@ export interface ShopStock { day: number; endsAt: number; featured: Item | null;
  */
 export function shopStock(now: number): ShopStock {
   const day = dayIndex(now), live = liveSeries(now);
-  const pool = ITEMS.filter((i) => (i.kind === "trail" || (live && i.series === live.n)) && i.rar !== "mythic" && i.id !== STARTER_SKIN && i.id !== STARTER_TRAIL);
+  const starters = new Set([STARTER_SKIN, STARTER_TRAIL, STARTER_TAG]);
+  const pool = ITEMS.filter((i) => !i.prestige && (i.series === 0 || (live && i.series === live.n)) && i.rar !== "mythic" && !starters.has(i.id));
   const big = pool.filter((i) => i.kind === "skin" && (i.rar === "epic" || i.rar === "legendary"));
   const small = pool.filter((i) => rank(i.rar) <= rank("rare"));
   const f = rng(0x5eed + Math.floor(day / 2) * 7919);
@@ -177,10 +222,10 @@ export interface Collection {
   wallet: string;
   owned: string[];
   crates: Crate[];
-  equipped: { skin: string; trail: string };
+  equipped: { skin: string; trail: string; tag: string };
   spendableXp: number;
   prestige: number;
   recent: Opened[];
 }
 /** POST /api/collection actions */
-export type CollectionAction = { op: "open"; crate: string } | { op: "buy"; item: string } | { op: "equip"; skin: string; trail: string };
+export type CollectionAction = { op: "open"; crate: string } | { op: "buy"; item: string } | { op: "equip"; skin: string; trail: string; tag?: string };

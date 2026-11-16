@@ -15,16 +15,27 @@ function mount(root,host){
   const $=id=>document.getElementById(id);
   const imgs={}; for(const k in A){const i=new Image(); i.src=A[k]; imgs[k]=i;}
   // bot rockets: 8 hull shapes x 10 rival skins (PR 399/402 art, web/public/turbo/hulls). [aspect w/h, nozzles [x, y, size] as 0..1 of the image]
-  const HULLS={"bullet":[0.454,[[0.498,0.988,1.0],[0.103,0.982,0.7],[0.892,0.982,0.7]]],"needle":[0.368,[[0.481,0.989,1.0]]],"pulp":[0.557,[[0.472,0.99,1.0]]],"twin-booster":[0.436,[[0.498,0.984,0.8],[0.193,0.99,1.0],[0.798,0.99,1.0]]],"shuttle":[0.575,[[0.5,0.984,1.0],[0.427,0.965,0.7],[0.573,0.965,0.7]]],"hauler":[0.432,[[0.498,0.99,1.0],[0.27,0.989,0.85],[0.734,0.989,0.85]]],"ring-tail":[0.432,[[0.502,0.99,1.0]]],"wedge":[0.732,[[0.501,0.959,1.0]]]}, HSKINS=["chrome-pink-stripe","matte-black","pearl-mint","titanium-ice","candy-pink","gunmetal-pink","oilslick","carbon","scorched","navy-chevron"], HULL_BASE=A.hullBase||"/turbo/hulls/", hullImgs={};
+  const HULLS={"bullet":[0.454,[[0.498,0.988,1.0],[0.103,0.982,0.7],[0.892,0.982,0.7]]],"needle":[0.400,[[0.480,0.989,1.0]]],"pulp":[0.557,[[0.472,0.99,1.0]]],"twin-booster":[0.436,[[0.498,0.984,0.8],[0.193,0.99,1.0],[0.798,0.99,1.0]]],"shuttle":[0.575,[[0.5,0.984,1.0],[0.427,0.965,0.7],[0.573,0.965,0.7]]],"hauler":[0.432,[[0.498,0.99,1.0],[0.27,0.989,0.85],[0.734,0.989,0.85]]],"ring-tail":[0.432,[[0.502,0.99,1.0]]],"wedge":[0.732,[[0.501,0.959,1.0]]]}, HSKINS=["chrome-pink-stripe","matte-black","pearl-mint","titanium-ice","candy-pink","gunmetal-pink","oilslick","carbon","scorched","navy-chevron"], HULL_BASE=A.hullBase||"/turbo/hulls/", hullImgs={};
   function hullFor(used){ const ks=Object.keys(HULLS); let h,s,n=0; do{ h=ks[Math.floor(Math.random()*ks.length)]; s=HSKINS[Math.floor(Math.random()*HSKINS.length)]; } while(used&&used.has(h+s)&&++n<20); if(used) used.add(h+s);
     const k="hull-"+h+"--"+s; if(!hullImgs[k]){ const i=new Image(); i.src=HULL_BASE+k+".webp"; hullImgs[k]=i; } return {k,img:hullImgs[k],a:HULLS[h][0],nz:HULLS[h][1]}; }
   // a pilot's own skin from the Hangar collection (lib/collection: "<hull>--<paint>", art in /turbo/skins/)
   function skinShip(id){ const h=String(id||"").split("--")[0]; if(!HULLS[h]) return null; const src=(A.skinBase||"/turbo/skins/")+id+".webp";
     if(!hullImgs[src]){ const i=new Image(); i.src=src; hullImgs[src]=i; } return {k:id,img:hullImgs[src],a:HULLS[h][0],nz:HULLS[h][1]}; }
+  // collection art: trails (6-frame plume + 3 particles, black = clear, drawn additively), name-tag plates, the win flourish
+  const ART=A.art2||"/turbo/", artImgs={};
+  const artImg=src=>{ if(!artImgs[src]){ const i=new Image(); i.src=ART+src; artImgs[src]=i; } return artImgs[src]; };
+  const ready=i=>i&&i.complete&&i.naturalWidth>0;
+  function trailFx(id){ const t=String(id||"").replace(/^trail-/,""); if(!/^[a-z0-9-]{1,24}$/.test(t)) return null;
+    return {id:t,plume:artImg("trails/trail-"+t+"-plume.webp"),bits:artImg("trails/trail-"+t+"-bits.webp")}; }
+  function tagFx(id){ const t=String(id||""); if(!/^tag-[a-z0-9-]{1,20}$/.test(t)||t==="tag-common") return null; return {img:artImg("tags/"+t+".webp"),pr:/prestige/.test(t)}; }
   // flames at each nozzle of a hull (or the chrome rocket's one), then the sprite; ctx is already at the rocket's centre
-  function drawShip(c2,hull,img,h,fl,col,sq){ const w=hull?h*hull.a:h*221/609, fk=Math.min(1,h/120), nz=hull?hull.nz:[[.5,.97,1]];
+  function drawShip(c2,hull,img,h,fl,col,sq,tf,now){ if(!isFinite(fl)) fl=1; const w=hull?h*hull.a:h*221/609, fk=Math.min(1,h/120), nz=hull?hull.nz:[[.5,.97,1]];
+    if(!isFinite(h+w)) return w;   // before the first layout
     c2.globalCompositeOperation="lighter";
-    for(const [nx,ny,ns] of nz){ const x0=(nx-.5)*w, fy=(ny-.5)*h-h*.02, k=fk*ns; const g=c2.createRadialGradient(x0,fy,2,x0,fy+30*fl*k,72*fl*k); g.addColorStop(0,"rgba(255,250,235,.95)"); g.addColorStop(.25,`rgba(${col},.85)`); g.addColorStop(1,`rgba(${col},0)`);
+    if(tf&&ready(tf.plume)){ const fw=tf.plume.naturalWidth/6, fh=tf.plume.naturalHeight, f=Math.floor((now||0)/70)%6;   // the trail's plume, flickering at ~14 fps
+      for(const [nx,ny,ns] of nz){ const k=fk*ns, L=(90+70*Math.min(2.4,fl))*k, W2=L*fw/fh*1.7, x0=(nx-.5)*w, fy=(ny-.5)*h-L*.04;
+        c2.drawImage(tf.plume,f*fw,0,fw,fh,x0-W2/2,fy,W2,L); } }
+    else for(const [nx,ny,ns] of nz){ const x0=(nx-.5)*w, fy=(ny-.5)*h-h*.02, k=fk*ns; const g=c2.createRadialGradient(x0,fy,2,x0,fy+30*fl*k,72*fl*k); g.addColorStop(0,"rgba(255,250,235,.95)"); g.addColorStop(.25,`rgba(${col},.85)`); g.addColorStop(1,`rgba(${col},0)`);
       c2.fillStyle=g; c2.beginPath(); c2.ellipse(x0,fy+36*fl*k,(15*fl+5)*k,(60*fl+8)*k,0,0,Math.PI*2); c2.fill(); }
     c2.globalCompositeOperation="source-over"; c2.scale(1-sq*.3,1+sq);
     const im=hull&&hull.img.complete&&hull.img.naturalWidth?hull.img:img, ww=im===img?h*221/609:w; if(im&&im.complete) c2.drawImage(im,-ww/2,-h/2,ww,h); return w; }
@@ -59,8 +70,8 @@ function mount(root,host){
     G={t:now_()-startAt,startAt,len:(M&&M.endAt?M.endAt-startAt:LEN),ot:false,over:false,price:h.length?h[h.length-1].p:0,ticks:[],marks:[],
        me:newPlayer("you",true),bot:newPlayer(M&&M.opp?M.opp.name:BOTS[botKey].name,false),cfg:BOTS[botKey],started:false};
     if(!(M&&M.opp&&!M.opp.bot)) G.bot.hull=hullFor();   // bots fly a random hull + skin
-    else if(host.shipOf){ const os=host.shipOf(M.opp.pid); if(os){ G.bot.hull=skinShip(os.skin); } }   // a real rival flies their own skin
-    { const ms=host.myShip&&host.myShip(); if(ms){ G.me.hull=skinShip(ms.skin); if(ms.rgb) G.me.flameC=ms.rgb; } }   // your Hangar skin + trail
+    else if(host.shipOf){ const os=host.shipOf(M.opp.pid); if(os){ G.bot.hull=skinShip(os.skin); if(os.trail){ G.bot.tf=trailFx(os.trail); if(os.rgb) G.bot.flameC=os.rgb; } G.bot.tag=tagFx(os.tag); } }   // a real rival flies their own look
+    { const ms=host.myShip&&host.myShip(); if(ms){ G.me.hull=skinShip(ms.skin); if(ms.rgb) G.me.flameC=ms.rgb; G.me.tf=trailFx(ms.trail); G.me.tag=tagFx(ms.tag); } }   // your Hangar skin + trail + name tag
     for(const k of h) G.ticks.push({t:k.ts-startAt,p:k.p});
     if(!G.ticks.length) G.ticks.push({t:G.t,p:0});
   }
@@ -477,27 +488,43 @@ function mount(root,host){
     const w=sx.measureText(t).width+12, my=(top+bot)/2; sx.fillStyle=`rgba(${col},.95)`; rr(x-w/2,my-11,w,22,8); sx.fill();
     sx.fillStyle="#121327"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(t,x,my+1);
   }
+  // the trail's particles, shed from the nozzle and left behind as the sky streams past (screen space, additive)
+  function bitsTick(pl,x,y,h,w,thrust,now){ const bi=pl.tf.bits; if(!ready(bi)) return; const b=pl.bits||(pl.bits=[]), dt=Math.min(.05,(now-(pl.bitT||now))/1000); pl.bitT=now;
+    pl.bitAcc=(pl.bitAcc||0)+dt*(6+8*Math.min(2,thrust)); const nz=pl.hull?pl.hull.nz:[[.5,.97,1]];
+    while(pl.bitAcc>=1&&b.length<40){ pl.bitAcc--; const n=nz[Math.floor(Math.random()*nz.length)];
+      b.push({x:x+(n[0]-.5)*w+rnd(-3,3),y:y+h*.5+rnd(4,h*.35),vx:rnd(-14,14),vy:rnd(70,150),r:rnd(0,6.28),vr:rnd(-2,2),s:h*rnd(.18,.3)*n[2],f:Math.floor(Math.random()*3),t:0,life:rnd(.6,1.1)}); }
+    if(pl.bitAcc>1) pl.bitAcc=1;
+    const fw=bi.naturalWidth/3, fh=bi.naturalHeight; sx.globalCompositeOperation="lighter";
+    for(let i=b.length-1;i>=0;i--){ const p=b[i]; p.t+=dt; if(p.t>=p.life){ b.splice(i,1); continue; } p.x+=p.vx*dt; p.y+=p.vy*dt; p.r+=p.vr*dt;
+      const k=1-p.t/p.life; sx.globalAlpha=Math.min(1,k*1.4); sx.save(); sx.translate(p.x,p.y); sx.rotate(p.r); const sz=p.s*(.6+.4*k); sx.drawImage(bi,p.f*fw,0,fw,fh,-sz/2,-sz/2,sz,sz); sx.restore(); }
+    sx.globalAlpha=1; sx.globalCompositeOperation="source-over"; }
   function drawRocket(pl,now,leader){
     let x=lane(pl)+pl.dx, y=pl.y, img=imgs.rocket, h=pl.me?RH():(LAY&&LAY.hr||RH()*.9), w=pl.hull?h*pl.hull.a:h*221/609;
     const lean=Math.max(-.22,Math.min(.22,pl.rot));
     // flame grows while climbing, sputters while falling
     const thrust=Math.max(.25,Math.min(2.4,.6+pl.flame*.6-pl.wvy*.004)), fl=thrust+Math.sin(now/40+(pl.me?0:2))*.08;
-    const c=pl.me?"255,200,80":"255,95,170";   // team colours: gold = you, pink = rival
+    const c=pl.me||pl.tf?pl.flameC:"255,95,170";   // team colours: gold = you, pink = rival (a real rival's trail keeps its gold core)
+    if(pl.tf&&!reduce) bitsTick(pl,x,y,h,w,thrust,now);
     const tr=pl.trick&&pl.trick.t<pl.trick.dur?pl.trick:null, tp=tr?tr.t/tr.dur:0, ease=tp<.5?2*tp*tp:1-Math.pow(-2*tp+2,2)/2;
     sx.save(); sx.translate(x,y); sx.rotate(lean+Math.max(-.35,Math.min(.35,pl.steerLean||0))+(tr&&tr.kind==="flip"?ease*Math.PI*2:0));
     if(tr&&tr.kind==="spin"){ const c=Math.cos(ease*Math.PI*4); sx.scale(Math.abs(c)<.08?.08*Math.sign(c||1):c,1); }
-    drawShip(sx,pl.hull,img,h,fl,c,pl.sq);   // flames scale with the rocket
+    drawShip(sx,pl.hull,img,h,fl,c,pl.sq,pl.tf,now);   // flames scale with the rocket
     sx.restore();
+    if(pl.me&&G.flourish!=null){ const ft=(now-G.flourish)/75, fi=artImg("flourish/win-flourish.webp");   // your win: confetti + starburst over the rocket
+      if(ft>=8) G.flourish=null; else if(ready(fi)){ const fw=fi.naturalWidth/8, s2=h*2.4; sx.globalCompositeOperation="lighter"; sx.drawImage(fi,Math.floor(ft)*fw,0,fw,fi.naturalHeight,x-s2/2,y-s2/2,s2,s2); sx.globalCompositeOperation="source-over"; } }
     // tags sit beside the rocket (on the side away from the rival), so the height between chart and bar is all race
     const other=pl.me?G.bot:G.me, side=lane(pl)<=lane(other)?-1:1;
     const pr=profitOf(pl), txt=(pl.me?"YOU ":pl.name+" ")+usd(pr,true);
     sx.font=`800 ${pl.me?15:13}px ${GF},sans-serif`; const tw=sx.measureText(txt).width+14;
     const t2=pl.pos?`${pl.pos.side>0?"BOOST \u25b2":"DUMP \u25bc"} ${LEV}\u00d7`:"";
-    const bw=Math.max(tw,leader?70:0,pl.pos?90:0); let cx=x+side*(w/2+14+bw/2); cx=Math.max(bw/2+6,Math.min(SW-bw/2-6,cx));
-    const rows=(leader?1:0)+1+(pl.pos?1:0), blockH=(leader?20:0)+22+(pl.pos?20:0); let ty=y-blockH/2;
+    // a collected name-tag plate replaces the dark pill (the middle of each plate is empty; prestige plates have an emblem on the left)
+    const tg=pl.tag&&ready(pl.tag.img)?pl.tag:null, inner=tg&&tg.pr?.6:.72, pw=tg?Math.max((pl.me?30:26)*600/140,tw/inner):0, ph=tg?pw*140/600:22;
+    const bw=Math.max(tw,pw,leader?70:0,pl.pos?90:0); let cx=x+side*(w/2+14+bw/2); const cramped=cx-bw/2<6||cx+bw/2>SW-6; cx=Math.max(bw/2+6,Math.min(SW-bw/2-6,cramped?x:cx));
+    const rows=(leader?1:0)+1+(pl.pos?1:0), blockH=(leader?20:0)+ph+(pl.pos?20:0); let ty=cramped?y-h/2-blockH-4:y-blockH/2;   // no room beside it: the tag rides above the nose
     if(leader){ sx.font="800 12px "+GF+",sans-serif"; const lw=sx.measureText("LEADING").width+12; sx.fillStyle="#F2C14E"; rr(cx-lw/2,ty,lw,17,6); sx.fill(); sx.fillStyle="#121327"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText("LEADING",cx,ty+9); ty+=20; }
-    sx.font=`800 ${pl.me?15:13}px ${GF},sans-serif`; sx.fillStyle="rgba(11,10,22,.86)"; rr(cx-tw/2,ty,tw,22,7); sx.fill();
-    sx.fillStyle=pr>0?"#5FF0A0":pr<0?"#FF8FBD":"#F2F3F7"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(txt,cx,ty+11.5); ty+=25;
+    sx.font=`800 ${pl.me?15:13}px ${GF},sans-serif`;
+    let tx=cx; if(tg){ sx.drawImage(tg.img,cx-pw/2,ty,pw,ph); if(tg.pr) tx=cx+pw*.13; } else { sx.fillStyle="rgba(11,10,22,.86)"; rr(cx-tw/2,ty,tw,22,7); sx.fill(); }
+    sx.fillStyle=pr>0?"#5FF0A0":pr<0?"#FF8FBD":"#F2F3F7"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(txt,tx,ty+ph/2+.5); ty+=ph+3;
     if(pl.pos){ sx.font="700 12px "+GF+",sans-serif"; const w2=sx.measureText(t2).width+12;
       sx.fillStyle=pl.pos.side>0?"rgba(242,193,78,.92)":"rgba(240,48,127,.92)"; rr(cx-w2/2,ty,w2,17,6); sx.fill(); sx.fillStyle=pl.pos.side>0?"#121327":"#fff"; sx.fillText(t2,cx,ty+9); }
     if(pl.say&&now<pl.say.until){ const a=Math.min(1,(pl.say.until-now)/300); sx.globalAlpha=a; sx.font="700 15px "+GU+",system-ui,sans-serif"; const sw=Math.min(220,sx.measureText(pl.say.txt).width+20), by=y-blockH/2-8;
@@ -562,7 +589,7 @@ function mount(root,host){
       const lead=Math.abs(profitOf(G.me)-profitOf(G.bot))>0.005?(profitOf(G.me)>profitOf(G.bot)?G.me:G.bot):null;
       for(const pl of [G.bot,G.me]){
         const climbing=pl.wvy<-20;
-        if(Math.random()<(climbing?.9:.5)) part({x:lane(pl)+pl.dx+rnd(-4,4),y:pl.y+(pl.me?RH():RH()*.82)*.55,vx:rnd(-20,20),vy:rnd(120,220)+Math.max(0,-pl.wvy*.3),life:rnd(.5,.9),size:rnd(8,15),col:pl.me?"255,226,160":"255,170,210",kind:"smoke",add:false});
+        if(Math.random()<(climbing?.9:.5)*(pl.tf?.35:1)) part({x:lane(pl)+pl.dx+rnd(-4,4),y:pl.y+(pl.me?RH():RH()*.82)*.55,vx:rnd(-20,20),vy:rnd(120,220)+Math.max(0,-pl.wvy*.3),life:rnd(.5,.9),size:rnd(8,15),col:pl.tf?pl.flameC:pl.me?"255,226,160":"255,170,210",kind:"smoke",add:false});
         drawRocket(pl,now,lead===pl);
       }
     }
@@ -688,6 +715,7 @@ function mount(root,host){
     $("rMom").innerHTML=all.length?all.map(m=>`<div><span><span class="t">${mmss(m.t)}</span>${m.txt}</span><b style="color:${m.v>=0?"var(--green)":"var(--pinkl)"}">${usd(m.v,true)}</b></div>`).join(""):`<div><span>No trades this time.</span></div>`;
     $("rRec").textContent=`${rec.w}-${rec.l}`; $("rRat").parentElement.querySelector("small").textContent=net&&M.ranked?"Rating":"Rating (unranked)"; $("rRat").innerHTML=`${rec.rating.toLocaleString("en-US")} <span style="font-size:14px;color:${dr>=0?"var(--green)":"var(--pinkl)"}">${dr>=0?"+":"\u2212"}${Math.abs(dr)}</span>`; $("rStr").textContent=rec.streak;
     $("rAgain").textContent="REMATCH";
+    if(win&&!tie&&!reduce) G.flourish=performance.now();
     sfx(win?"matchWin":"matchLose"); buzz(win?[20,40,20,40,60]:[80]); if(dr) setTimeout(()=>sfx(dr>0?"rateUp":"rateDn"),1400);
     if(win&&!tie&&!reduce){ const cols=["242,193,78","95,240,160","255,255,255","255,143,189","143,184,255"]; for(let k=0;k<3;k++) setTimeout(()=>{ for(let i=0;i<70;i++) part({x:SW*(.2+Math.random()*.6),y:SH*.25,vx:rnd(-260,260),vy:rnd(-520,-120),g:520,drag:.6,life:rnd(1.6,2.6),size:rnd(3,6),col:cols[i%cols.length],add:false}); },k*350); }
     setTimeout(()=>{$("result").hidden=false; $("rAgain").focus();},700);
