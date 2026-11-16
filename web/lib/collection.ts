@@ -33,12 +33,24 @@ export const PAINTS: Record<string, { name: string; rar: Rarity }> = {
 };
 
 export interface Series { n: number; name: string; hulls: string[]; paints: string[]; /** UTC ms; null = not out yet */ start: number | null; /** UTC ms crates stop dropping it; null = open-ended */ end: number | null }
-/** Series 1 is live from launch. Later series get their dates when they're ready (set start, and end the one before). */
-export const SERIES: readonly Series[] = [
+/**
+ * Series 1 is live from launch. Later series get their dates when they're ready (set start, and end the one before).
+ * Dates and new series can also be set live from /admin/catalog (see Catalog below), with no deploy.
+ */
+export const SERIES: Series[] = [
   { n: 1, name: "First Light", hulls: ["bullet", "needle"], start: 0, end: null,
-    paints: ["white-gloss", "red-classic", "sky-blue", "safety-orange", "hazard", "checkered", "teal-racer", "walnut-brass", "copper-verdigris", "neon-circuit", "molten", "nebula", "marble-gilt"] },
+    paints: ["white-gloss", "red-classic", "sky-blue", "hazard", "checkered", "walnut-brass", "neon-circuit", "nebula", "marble-gilt"] },
   { n: 2, name: "Series 2", hulls: ["pulp", "wedge"], start: null, end: null,
     paints: ["racing-green", "olive-drab", "carbon-gold", "arctic-camo", "koi", "damascus", "delft-porcelain", "stained-glass", "amethyst", "aurora", "holo-foil", "seraph-wing", "marble-gilt"] },
+];
+/**
+ * Drops: a batch added to a series part way through (Fortnite-style), on that series' hulls. Nothing in a drop shows, drops
+ * or sells before its start; it stops dropping with its series. start null = no date yet (set it in /admin/catalog).
+ */
+export interface Drop { id: string; series: number; name: string; start: number | null; paints?: string[]; trails?: string[]; flourishes?: string[] }
+export const DROPS: Drop[] = [
+  { id: "s1-afterburn", series: 1, name: "Afterburn", start: null,
+    paints: ["safety-orange", "teal-racer", "copper-verdigris", "molten"], trails: ["ember", "comet", "glitch", "stardust"] },
 ];
 /** Ring-tail is never in a series: it's the Prestige 1 hull (with every paint the pilot has found on another hull). */
 export const PRESTIGE_HULL = "ring-tail";
@@ -49,7 +61,7 @@ export const PRESTIGE_HULL = "ring-tail";
  * series 0 = always in the pool (the starter); a trail drops with its series; prestige = never drops, unlocks at that Prestige.
  */
 export interface Trail { id: string; name: string; rar: Rarity; color: string; /** fallback flame rgb */ rgb: string; series: number; prestige?: number }
-export const TRAILS: readonly Trail[] = [
+export const TRAILS: Trail[] = [
   { id: "gold", name: "Gold", rar: "common", color: "#F3DFA8", rgb: "255,200,120", series: 0 },
   { id: "smoke", name: "Old Smoke", rar: "common", color: "#A7AFBE", rgb: "190,194,204", series: 1 },
   { id: "mint", name: "Mint Wake", rar: "uncommon", color: "#5FF0A0", rgb: "95,240,160", series: 1 },
@@ -68,7 +80,7 @@ export const TRAILS: readonly Trail[] = [
   { id: "feather", name: "Seraph", rar: "mythic", color: "#FFF6DC", rgb: "255,246,220", series: 2 },
   { id: "halo", name: "Halo", rar: "legendary", color: "#F2C14E", rgb: "242,193,78", series: 0, prestige: 2 },
 ];
-export const trailArt = (id: string, part: "plume" | "bits" = "plume") => `/turbo/trails/trail-${id}-${part}.webp`;
+export const trailArt = (id: string, part: "plume" | "bits" = "plume") => ART[`trail-${id}${part === "bits" ? ":bits" : ""}`] ?? `/turbo/trails/trail-${id}-${part}.webp`;
 
 /**
  * Name tags: the plate behind your name over your rocket. One per rarity (common is the starter steel plate; the rest
@@ -80,22 +92,23 @@ const PRESTIGE_NAMES = ["Acolyte", "Disciple", "Herald", "Seeker", "Warden", "As
 export const tagArt = (id: string) => `/turbo/tags/${id}.webp`;
 
 /** Win flourishes: an 8-frame burst over your rocket when you win a duel (256x256 frames, black = clear). They drop in a series. */
-export const FLOURISHES: readonly { id: string; name: string; rar: Rarity; series: number; art: string }[] = [
+export interface Flourish { id: string; name: string; rar: Rarity; series: number; art: string }
+export const FLOURISHES: Flourish[] = [
   { id: "flourish-gold-rush", name: "Gold Rush", rar: "epic", series: 1, art: "/turbo/flourish/win-flourish.webp" },
 ];
 export const tagPrestige = (id: string) => { const m = /^tag-prestige-(\d)$/.exec(id); return m ? Number(m[1]) : 0; };
 
 export type ItemKind = "skin" | "trail" | "tag" | "flourish";
 /** series 0 = not tied to a series. prestige = never drops or sells; it unlocks at that Prestige. */
-export interface Item { id: string; kind: ItemKind; name: string; rar: Rarity; series: number; hull?: string; paint?: string; prestige?: number }
+export interface Item { id: string; kind: ItemKind; name: string; rar: Rarity; series: number; hull?: string; paint?: string; prestige?: number; /** in this drop (DROPS) */ drop?: string }
 
 /** "needle--walnut-brass" */
 export const skinId = (hull: string, paint: string) => `${hull}--${paint}`;
-export const skinArt = (id: string) => `/turbo/skins/${id}.webp`;
+export const skinArt = (id: string) => ART[id] ?? `/turbo/skins/${id}.webp`;
 export const crateArt = (tier: Rarity, open = false) => `/turbo/crates/${tier}${open ? "-open" : ""}.webp`;
 /** 8 frames of light bursting out of an opened crate (256x256 each, black = clear) */
 export const crateBurstArt = (tier: Rarity) => `/turbo/crates/${tier}-burst.webp`;
-export const seriesArt = (n: number) => (n === 1 ? "/turbo/series/series-1-first-light.webp" : `/turbo/series/series-${n}.webp`);
+export const seriesArt = (n: number) => ART[`series-${n}`] ?? (n === 1 ? "/turbo/series/series-1-first-light.webp" : `/turbo/series/series-${n}.webp`);
 /** 4-frame gold glint sweeping up a Marble & Gold Leaf skin (same size per frame as the skin) */
 export const glintArt = (hull: string) => `/turbo/glint/${hull}--marble-gilt.webp`;
 export const trailId = (id: string) => `trail-${id}`;
@@ -106,19 +119,25 @@ export const STARTER_TRAIL = trailId("gold");
 export const STARTER_TAG = "tag-common";
 
 function buildItems(): Item[] {
-  const out: Item[] = [];
-  for (const s of SERIES) for (const h of s.hulls) for (const p of s.paints) {
-    const pt = PAINTS[p]; if (!pt) continue;
-    out.push({ id: skinId(h, p), kind: "skin", name: pt.name, rar: pt.rar, series: s.n, hull: h, paint: p });
+  const out: Item[] = [], seen = new Set<string>();
+  const push = (i: Item) => { if (!seen.has(i.id)) { seen.add(i.id); out.push(i); } };
+  const dropOf = (kind: "paints" | "trails" | "flourishes", series: number, id: string) => DROPS.find((d) => d.series === series && d[kind]?.includes(id))?.id;
+  for (const s of SERIES) {
+    const extra = DROPS.filter((d) => d.series === s.n).flatMap((d) => d.paints ?? []);
+    for (const h of s.hulls) for (const p of [...s.paints, ...extra]) {
+      const pt = PAINTS[p]; if (!pt) continue;
+      const drop = s.paints.includes(p) ? undefined : dropOf("paints", s.n, p);
+      push({ id: skinId(h, p), kind: "skin", name: pt.name, rar: pt.rar, series: s.n, hull: h, paint: p, ...(drop ? { drop } : {}) });
+    }
   }
-  TRAILS.forEach((t) => out.push({ id: trailId(t.id), kind: "trail", name: t.name, rar: t.rar, series: t.series, ...(t.prestige ? { prestige: t.prestige } : {}) }));
+  TRAILS.forEach((t) => { const drop = dropOf("trails", t.series, t.id); push({ id: trailId(t.id), kind: "trail", name: t.name, rar: t.rar, series: t.series, ...(t.prestige ? { prestige: t.prestige } : {}), ...(drop ? { drop } : {}) }); });
   const TAG_NAMES: Record<Rarity, string> = { common: "Steel", uncommon: "Enamel", rare: "Chrome", epic: "Crystal", legendary: "Reactor", mythic: "Marble & Gold" };
-  RARITIES.forEach((r) => out.push({ id: `tag-${r}`, kind: "tag", name: TAG_NAMES[r], rar: r, series: 0 }));
-  FLOURISHES.forEach((f) => out.push({ id: f.id, kind: "flourish", name: f.name, rar: f.rar, series: f.series }));
-  PRESTIGE_NAMES.forEach((n, k) => out.push({ id: `tag-prestige-${k + 1}`, kind: "tag", name: n, rar: k >= 6 ? "mythic" : k >= 3 ? "legendary" : "epic", series: 0, prestige: k + 1 }));
+  RARITIES.forEach((r) => push({ id: `tag-${r}`, kind: "tag", name: TAG_NAMES[r], rar: r, series: 0 }));
+  FLOURISHES.forEach((f) => { const drop = dropOf("flourishes", f.series, f.id); push({ id: f.id, kind: "flourish", name: f.name, rar: f.rar, series: f.series, ...(drop ? { drop } : {}) }); });
+  PRESTIGE_NAMES.forEach((n, k) => push({ id: `tag-prestige-${k + 1}`, kind: "tag", name: n, rar: k >= 6 ? "mythic" : k >= 3 ? "legendary" : "epic", series: 0, prestige: k + 1 }));
   return out;
 }
-export const ITEMS: readonly Item[] = buildItems();
+export const ITEMS: Item[] = buildItems();
 export const itemById = (id: string): Item | undefined => ITEMS.find((i) => i.id === id) ?? prestigeSkin(id);
 /** Ring-tail skins (prestige hull): any catalogue paint. */
 function prestigeSkin(id: string): Item | undefined {
@@ -132,10 +151,22 @@ export const prestigeUnlocked = (i: Item, prestige: number) => !!i.prestige && p
 
 export const liveSeries = (now: number): Series | null => [...SERIES].reverse().find((s) => s.start != null && s.start <= now && (s.end == null || now < s.end)) ?? null;
 export const releasedSeries = (now: number) => SERIES.filter((s) => s.start != null && s.start <= now);
-/** What crates can drop right now: the live series' skins and trails, plus the any-series items. Prestige items never drop. */
+const dropOut = (id: string | undefined, now: number) => { if (!id) return true; const d = DROPS.find((x) => x.id === id); return !!d && d.start != null && d.start <= now; };
+/** Out yet: its series has started and, for a drop item, its drop has too. Items that aren't out never show anywhere. */
+export function itemOut(i: Item, now: number): boolean {
+  if (i.series > 0) { const s = SERIES.find((x) => x.n === i.series); if (!s || s.start == null || s.start > now) return false; }
+  return dropOut(i.drop, now);
+}
+/** The next drop or series with a date that hasn't come yet (for "next drop in 3 days"). */
+export function nextDrop(now: number): { name: string; series: number; start: number } | null {
+  const c = [...DROPS.map((d) => ({ name: d.name, series: d.series, start: d.start })), ...SERIES.map((s) => ({ name: s.name, series: s.n, start: s.start }))]
+    .filter((x): x is { name: string; series: number; start: number } => x.start != null && x.start > now).sort((a, b) => a.start - b.start);
+  return c[0] ?? null;
+}
+/** What crates can drop right now: the live series' skins and trails that are out, plus the any-series items. Prestige items never drop. */
 export function dropPool(now: number): Item[] {
   const live = liveSeries(now);
-  return ITEMS.filter((i) => !i.prestige && (i.series === 0 || (live && i.series === live.n)));
+  return ITEMS.filter((i) => !i.prestige && (i.series === 0 || (live && i.series === live.n)) && itemOut(i, now));
 }
 
 /* ---------------------------------------------------------------- crates ---------------------------------------------------------------- */
@@ -194,7 +225,7 @@ export interface ShopStock { day: number; endsAt: number; featured: Item | null;
 export function shopStock(now: number): ShopStock {
   const day = dayIndex(now), live = liveSeries(now);
   const starters = new Set([STARTER_SKIN, STARTER_TRAIL, STARTER_TAG]);
-  const pool = ITEMS.filter((i) => !i.prestige && (i.series === 0 || (live && i.series === live.n)) && i.rar !== "mythic" && !starters.has(i.id));
+  const pool = ITEMS.filter((i) => !i.prestige && (i.series === 0 || (live && i.series === live.n)) && itemOut(i, now) && i.rar !== "mythic" && !starters.has(i.id));
   const big = pool.filter((i) => i.kind === "skin" && (i.rar === "epic" || i.rar === "legendary"));
   const small = pool.filter((i) => rank(i.rar) <= rank("rare"));
   const f = rng(0x5eed + Math.floor(day / 2) * 7919);
@@ -266,9 +297,9 @@ export function rollsFromDigest(hex: string): { r1: number; r2: number; burn: nu
 /** Trade-ups: 10 copies of one rarity from one series become 1 copy of the next rarity from that series. Never into Mythic. */
 export const TRADE_UP_N = 10;
 export function tradeUpTarget(rar: Rarity): Rarity | null { const k = rank(rar); return k + 1 < rank("mythic") ? RARITIES[k + 1] : null; }
-export function tradeUpPool(series: number, rar: Rarity): Item[] {
+export function tradeUpPool(series: number, rar: Rarity, now = Date.now()): Item[] {
   const to = tradeUpTarget(rar);
-  return to ? ITEMS.filter((i) => i.series === series && i.rar === to && !i.prestige) : [];
+  return to ? ITEMS.filter((i) => i.series === series && i.rar === to && !i.prestige && itemOut(i, now)) : [];
 }
 
 /* ---------------------------------------------------------------- types ---------------------------------------------------------------- */
@@ -298,3 +329,129 @@ export type CollectionAction =
   | { op: "open"; crate: string } | { op: "buy"; item: string }
   | { op: "equip"; skin: string; trail: string; tag?: string; flourish?: string }
   | { op: "scrap"; copy: string } | { op: "tradeup"; copies: string[] };
+
+/* ------------------------------------------------------------ live catalogue ------------------------------------------------------------ */
+
+/**
+ * The live catalogue: an overlay kept on the server (edited at /admin/catalog) and merged over the lists above, so a new
+ * drop, a new series, a new paint, hull or trail, or a date change needs no deploy. It only adds: code-defined paints,
+ * trails and flourishes can't be renamed or re-rated here, and once any copy of an item exists its name, rarity and art
+ * are frozen and it can't be pulled back (the server refuses that save), because a copy may later be a token whose
+ * metadata must never move. New art is uploaded to blob storage and referenced here by URL.
+ */
+type Geo = [number, [number, number, number][]];
+export interface CatalogSeries { n: number; name?: string; start?: number | null; end?: number | null; hulls?: string[]; paints?: string[] }
+export interface Catalog {
+  /** bumps on every save */ v: number; at?: number; by?: string;
+  /** date changes for any series, paints added to a series, or a whole new series (n = next number) */ series?: CatalogSeries[];
+  /** new drops, or dates and additions for an existing one (by id) */ drops?: Drop[];
+  paints?: Record<string, { name: string; rar: Rarity }>;
+  /** new hull shapes: name and engine geometry [aspect w/h, nozzles [x, y, size] as 0..1 of the image] */
+  hulls?: Record<string, { name: string; geo: Geo }>;
+  trails?: Trail[];
+  flourishes?: Flourish[];
+  /** art URLs for catalogue items: skin id → image; "trail-<id>" → plume sheet; "trail-<id>:bits" → particles */
+  art?: Record<string, string>;
+}
+/** art URLs from the catalogue (only for items the catalogue added) */
+export const ART: Record<string, string> = {};
+/** new hull shapes from the catalogue, for the duel engine */
+export const HULL_GEO: Record<string, Geo> = {};
+let CURRENT: Catalog | null = null;
+export const catalogVersion = () => CURRENT?.v ?? 0;
+export const currentCatalog = () => CURRENT;
+
+const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
+const BASE = { paints: clone(PAINTS), hulls: clone(HULL_NAMES), series: clone(SERIES), drops: clone(DROPS), trails: clone(TRAILS), flourishes: clone(FLOURISHES) };
+const BASE_IDS = new Set(ITEMS.map((i) => i.id));
+/** In the code list (not added by the catalogue). */
+export const isBaseItem = (id: string) => BASE_IDS.has(id);
+const reset = <T,>(arr: T[], to: T[]) => { arr.length = 0; arr.push(...clone(to)); };
+const resetObj = <T,>(o: Record<string, T>, to: Record<string, T>) => { for (const k of Object.keys(o)) delete o[k]; Object.assign(o, clone(to)); };
+const union = (a: string[], b: string[] | undefined) => [...a, ...(b ?? []).filter((x) => !a.includes(x))];
+
+/** Merge a catalogue over the code lists (null = code only). Pure data in, so client and server end up the same. */
+export function applyCatalog(c: Catalog | null): void {
+  resetObj(PAINTS, BASE.paints); resetObj(HULL_NAMES, BASE.hulls); reset(SERIES, BASE.series); reset(DROPS, BASE.drops);
+  reset(TRAILS, BASE.trails); reset(FLOURISHES, BASE.flourishes); resetObj(ART, {}); resetObj(HULL_GEO, {});
+  CURRENT = c;
+  if (c) {
+    for (const [k, p] of Object.entries(c.paints ?? {})) if (!BASE.paints[k]) PAINTS[k] = { name: p.name, rar: p.rar };
+    for (const [k, h] of Object.entries(c.hulls ?? {})) if (!BASE.hulls[k]) { HULL_NAMES[k] = h.name; HULL_GEO[k] = h.geo; }
+    for (const cs of c.series ?? []) {
+      const s = SERIES.find((x) => x.n === cs.n);
+      if (s) {
+        if (cs.name) s.name = cs.name;
+        if (cs.start !== undefined) s.start = cs.start;
+        if (cs.end !== undefined) s.end = cs.end;
+        s.hulls = union(s.hulls, cs.hulls); s.paints = union(s.paints, cs.paints);
+      } else if (cs.n === SERIES.length + 1 && cs.hulls?.length) {
+        SERIES.push({ n: cs.n, name: cs.name || `Series ${cs.n}`, hulls: [...cs.hulls], paints: [...(cs.paints ?? [])], start: cs.start ?? null, end: cs.end ?? null });
+      }
+    }
+    for (const d of c.drops ?? []) {
+      const e = DROPS.find((x) => x.id === d.id);
+      if (e) { e.name = d.name || e.name; e.start = d.start; e.paints = union(e.paints ?? [], d.paints); e.trails = union(e.trails ?? [], d.trails); e.flourishes = union(e.flourishes ?? [], d.flourishes); }
+      else if (SERIES.some((s) => s.n === d.series)) DROPS.push(clone(d));
+    }
+    for (const t of c.trails ?? []) if (!TRAILS.some((x) => x.id === t.id)) TRAILS.push(clone(t));
+    for (const f of c.flourishes ?? []) if (!FLOURISHES.some((x) => x.id === f.id)) FLOURISHES.push(clone(f));
+  }
+  ITEMS.length = 0; ITEMS.push(...buildItems());
+  if (c?.art) for (const [k, url] of Object.entries(c.art)) if (!BASE_IDS.has(k.replace(/:bits$/, ""))) ART[k] = url;
+}
+
+/** An item as it would be minted: what may never change once a copy exists. */
+export interface Frozen { id: string; name: string; rar: Rarity; kind: ItemKind; art: string }
+export const frozenOf = (i: Item): Frozen => ({
+  id: i.id, name: i.name, rar: i.rar, kind: i.kind,
+  art: i.kind === "skin" ? skinArt(i.id) : i.kind === "trail" ? `${trailArt(i.id.slice(6))} ${trailArt(i.id.slice(6), "bits")}` : i.kind === "flourish" ? FLOURISHES.find((f) => f.id === i.id)?.art ?? "" : tagArt(i.id),
+});
+/** Items a catalogue gives (applied, read, then the current one put back). */
+export function itemsUnder(c: Catalog | null, now: number): { item: Frozen; out: boolean }[] {
+  const keep = CURRENT;
+  applyCatalog(c);
+  const rows = ITEMS.map((i) => ({ item: frozenOf(i), out: itemOut(i, now) }));
+  applyCatalog(keep);
+  return rows;
+}
+
+const RX_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const isRar = (r: unknown): r is Rarity => RARITIES.includes(r as Rarity);
+const okDate = (v: unknown) => v === null || (typeof v === "number" && Number.isFinite(v) && v >= 0 && v < 4e12);
+const okUrl = (u: unknown) => typeof u === "string" && u.length < 400 && /^(https:\/\/[a-z0-9.-]+\/|\/turbo\/)[\w\-./%]+\.(webp|png)$/i.test(u);
+const okName = (n: unknown) => typeof n === "string" && n.trim().length >= 1 && n.length <= 32 && !/[<>]/.test(n);
+const okIds = (a: unknown, max = 64) => Array.isArray(a) && a.length <= max && a.every((x) => typeof x === "string" && x.length <= 32 && RX_ID.test(x));
+
+/** Shape check for a catalogue an admin sends (rules about what's frozen live on the server, which knows the supply). */
+export function catalogShapeProblems(c: Catalog): string[] {
+  const bad: string[] = [];
+  const p = (cond: boolean, why: string) => { if (!cond) bad.push(why); };
+  p(typeof c === "object" && c !== null, "Catalogue must be an object.");
+  if (bad.length) return bad;
+  for (const [k, v] of Object.entries(c.paints ?? {})) { p(RX_ID.test(k) && k.length <= 32, `Paint id "${k}" must be lower-case-with-dashes.`); p(okName(v?.name) && isRar(v?.rar), `Paint "${k}" needs a name and a rarity.`); }
+  for (const [k, v] of Object.entries(c.hulls ?? {})) {
+    p(RX_ID.test(k) && k.length <= 24, `Hull id "${k}" must be lower-case-with-dashes.`);
+    const g = v?.geo, geoOk = Array.isArray(g) && typeof g[0] === "number" && g[0] > 0.1 && g[0] < 2 && Array.isArray(g[1]) && g[1].length >= 1 && g[1].length <= 4
+      && g[1].every((n) => Array.isArray(n) && n.length === 3 && n.every((x) => typeof x === "number" && x >= 0 && x <= 1.5));
+    p(okName(v?.name) && geoOk, `Hull "${k}" needs a name and its shape (aspect and 1 to 4 nozzles).`);
+  }
+  for (const s of c.series ?? []) {
+    p(Number.isInteger(s?.n) && s.n >= 1 && s.n <= 99, "Each series needs its number.");
+    p((s.start === undefined || okDate(s.start)) && (s.end === undefined || okDate(s.end)), `Series ${s.n}: dates must be times or empty.`);
+    p((s.hulls === undefined || okIds(s.hulls, 8)) && (s.paints === undefined || okIds(s.paints)), `Series ${s.n}: hulls and paints are id lists.`);
+    p(s.name === undefined || okName(s.name), `Series ${s.n}: name is 1 to 32 characters.`);
+  }
+  for (const d of c.drops ?? []) {
+    p(RX_ID.test(d?.id ?? "") && d.id.length <= 32 && okName(d.name) && Number.isInteger(d.series) && okDate(d.start), `Drop "${d?.id}" needs an id, a name, a series and a date (or empty).`);
+    p((d.paints === undefined || okIds(d.paints)) && (d.trails === undefined || okIds(d.trails)) && (d.flourishes === undefined || okIds(d.flourishes)), `Drop "${d?.id}": paints, trails and flourishes are id lists.`);
+  }
+  for (const t of c.trails ?? []) {
+    p(RX_ID.test(t?.id ?? "") && t.id.length <= 24 && okName(t.name) && isRar(t.rar) && Number.isInteger(t.series) && t.series >= 1, `Trail "${t?.id}" needs an id, a name, a rarity and a series.`);
+    p(/^#[0-9a-f]{6}$/i.test(t?.color ?? "") && /^\d{1,3},\d{1,3},\d{1,3}$/.test(t?.rgb ?? ""), `Trail "${t?.id}": colour is #rrggbb and rgb is "r,g,b".`);
+    p(t?.prestige === undefined, `Trail "${t?.id}": prestige items stay in code.`);
+  }
+  for (const f of c.flourishes ?? []) p(/^flourish-[a-z0-9-]{1,24}$/.test(f?.id ?? "") && okName(f.name) && isRar(f.rar) && Number.isInteger(f.series) && f.series >= 1 && okUrl(f.art), `Flourish "${f?.id}" needs flourish-<id>, a name, a rarity, a series and its art URL.`);
+  for (const [k, u] of Object.entries(c.art ?? {})) p(k.length <= 64 && /^[a-z0-9-]+(--[a-z0-9-]+)?(:bits)?$/.test(k) && okUrl(u), `Art for "${k}" must be an https .webp or .png URL.`);
+  return bad;
+}

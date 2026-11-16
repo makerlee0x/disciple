@@ -9,8 +9,8 @@ import { withBase } from "@/lib/base-path";
 import { playSfx } from "@/lib/game/sfx";
 import {
   CRATE, CRATE_PRICE, DUPE_XP, FLOURISHES, HULL_NAMES, ITEMS, PAINTS, PRESTIGE_HULL, PRICE, RARITY_COLOR as SW, RARITY_NAME as RL, SERIES, SHOP_CRATE_ID, STARTER_TAG,
-  TRADE_UP_N, TRAILS, burnGrade, copyLook, crateArt, crateBurstArt, crateOdds, glintArt, itemById, itemTitle, liveSeries, pctLabel, seriesArt, skinArt, skinId,
-  tagArt, tradeUpTarget, trailArt, trailId,
+  TRADE_UP_N, burnGrade, releasedSeries, copyLook, crateArt, crateBurstArt, crateOdds, glintArt, itemById, itemTitle, liveSeries, pctLabel, seriesArt, skinArt, skinId,
+  tagArt, tradeUpTarget, trailArt, trailId, itemOut, nextDrop,
   type Collection as Col, type CollectionAction, type Copy, type Crate, type Item, type Opened, type Rarity, type ShopStock, type Slot,
 } from "@/lib/collection";
 import { collectionAction } from "@/lib/collectionClient";
@@ -119,7 +119,7 @@ export function YourRocket({ col, wallet, handle }: { col: Col | null; wallet: s
   const eqItem = itemById(eq.skin)!;
   const copyById = (uid?: string) => (uid ? col?.copies?.find((c) => c.uid === uid) : undefined);
   const live = liveSeries(now) ?? SERIES[0];
-  const released = SERIES.filter((s) => s.start != null && s.start <= now);
+  const released = releasedSeries(now);
   const hullTabs = [...new Set(released.flatMap((s) => s.hulls))];
   const [hull, setHull] = useState<string>(eqItem.hull ?? hullTabs[0]);
   const [note, setNote] = useState("");
@@ -133,9 +133,10 @@ export function YourRocket({ col, wallet, handle }: { col: Col | null; wallet: s
 
   const skins: Item[] = hull === PRESTIGE_HULL
     ? Object.keys(PAINTS).map((p) => itemById(skinId(PRESTIGE_HULL, p))!).filter(Boolean)
-    : ITEMS.filter((i) => i.kind === "skin" && i.hull === hull && released.some((s) => s.n === i.series));
+    : ITEMS.filter((i) => i.kind === "skin" && i.hull === hull && itemOut(i, now));
   const has = (i: Item) => (i.hull === PRESTIGE_HULL ? prestige >= 1 && paintsFound.has(i.paint!) : owned.has(i.id));
-  const liveSkins = ITEMS.filter((i) => i.kind === "skin" && i.series === live.n);
+  const liveSkins = ITEMS.filter((i) => i.kind === "skin" && i.series === live.n && itemOut(i, now));
+  const next = nextDrop(now);
   const found = liveSkins.filter((i) => owned.has(i.id)).length;
   const daysLeft = live.end ? Math.max(0, Math.ceil((live.end - now) / 86_400_000)) : null;
 
@@ -157,10 +158,10 @@ export function YourRocket({ col, wallet, handle }: { col: Col | null; wallet: s
   const sub = (i: Item, on: boolean) => { const n = copiesOf(col, i.id).length; return on ? `Flying${n > 1 ? ` · ×${n}` : ""}` : n > 1 ? `×${n} copies` : "Tap to see it"; };
   const panel = (list: Item[]) => { const it = list.find((i) => i.id === insp); return it ? <CopyList col={col} item={it} busy={busy} onEquip={(v) => wear(it.kind as Slot, v)} onScrap={scrap} /> : null; };
   // trails from the series that are out (later ones stay a surprise), the prestige trail; tags: the 6 plates, the prestige plates you have and the next one
-  const trails = TRAILS.filter((t) => t.series === 0 || released.some((r) => r.n === t.series)).map((t) => itemById(trailId(t.id))!);
+  const trails = ITEMS.filter((i) => i.kind === "trail" && (!!i.prestige || itemOut(i, now)));
   const tags = ITEMS.filter((i) => i.kind === "tag" && (!i.prestige || i.prestige <= prestige + 1));
-  const flourishes = ITEMS.filter((i) => i.kind === "flourish" && released.some((r) => r.n === i.series));
-  const count = (h: string) => { const all = ITEMS.filter((i) => i.kind === "skin" && i.hull === h && released.some((s) => s.n === i.series)); return `${all.filter((i) => owned.has(i.id)).length}/${all.length}`; };
+  const flourishes = ITEMS.filter((i) => i.kind === "flourish" && itemOut(i, now));
+  const count = (h: string) => { const all = ITEMS.filter((i) => i.kind === "skin" && i.hull === h && itemOut(i, now)); return `${all.filter((i) => owned.has(i.id)).length}/${all.length}`; };
   const best = (i: Item) => (i.id === eq.skin || i.id === eq.trail ? copyById(i.kind === "skin" ? eqc.skin : eqc.trail) : undefined) ?? copiesOf(col, i.id)[0];
 
   // trade-ups: spare copies grouped by series and rarity
@@ -197,7 +198,7 @@ export function YourRocket({ col, wallet, handle }: { col: Col | null; wallet: s
       <div className="hgu-series">
         <div><span className="hg-look-r" style={{ color: "var(--dsc3-light-champagne)" }}>Series {live.n} · {live.name}</span><b>{found} of {liveSkins.length} found</b></div>
         <span className="hgu-meter"><i style={{ width: `${Math.round((found / Math.max(1, liveSkins.length)) * 100)}%` }} /></span>
-        <span className="hgu-leaves">{daysLeft != null ? `Series ${live.n} crates stop dropping in ${daysLeft} days` : `Series ${live.n} is dropping now`}</span>
+        <span className="hgu-leaves">{next && next.series === live.n ? `${next.name} drops in ${untilDays(next.start - now)}, with new paints and trails` : daysLeft != null ? `Series ${live.n} crates stop dropping in ${daysLeft} days` : `Series ${live.n} is dropping now`}</span>
       </div>
       <div className="hg-ranges hgu-hulls" role="tablist" aria-label="Hulls">
         {hullTabs.map((h) => <button key={h} type="button" role="tab" aria-selected={hull === h} className={hull === h ? "on" : ""} onClick={() => setHull(h)}>{HULL_NAMES[h]} · {count(h)}</button>)}
@@ -352,6 +353,11 @@ export function Crates({ col, wallet }: { col: Col | null; wallet: string | null
     </section>
   );
 }
+/** "3 days", "5 hours", "20 minutes" */
+function untilDays(ms: number) {
+  const m = Math.max(1, Math.round(ms / 60_000)), d = Math.round(m / 1440), h = Math.round(m / 60);
+  return m >= 1440 * 1.5 ? `${d} days` : m >= 1440 ? "1 day" : h >= 2 ? `${h} hours` : `${m} minutes`;
+}
 const RARITY_RANK = (r: Rarity) => ["common", "uncommon", "rare", "epic", "legendary", "mythic"].indexOf(r);
 
 /* ----------------------------------------------------------------- Shop ----------------------------------------------------------------- */
@@ -385,7 +391,7 @@ export function Shop({ col, shop, wallet }: { col: Col | null; shop: ShopStock |
     return <button type="button" className={`dsc3-btn dsc3-btn-primary hgu-buy${big ? "" : " sm"}`} disabled={!wallet || short || busy === id} onClick={() => buy(id)} data-testid={`buy-${id}`}>
       {busy === id ? "Buying…" : confirm === id ? `Buy for ${fmt(price)}?` : `${fmt(price)} XP`}</button>;
   };
-  const f = shop.featured, live = liveSeries(Date.now());
+  const f = shop.featured, live = liveSeries(Date.now()), nd = nextDrop(Date.now());
   const fp = f ? PRICE[f.rar]! : 0;
 
   return (
@@ -398,7 +404,8 @@ export function Shop({ col, shop, wallet }: { col: Col | null; shop: ShopStock |
         <div className="hgu-banner" style={{ backgroundImage: `url(${withBase(seriesArt(live.n))})` }} data-testid="series-banner">
           <span className="hg-look-r">Series {live.n} · dropping now</span>
           <b>{live.name}</b>
-          <span>{live.hulls.map((h) => HULL_NAMES[h]).join(" and ")} hulls, {live.paints.length} paints each</span>
+          <span>{live.hulls.map((h) => HULL_NAMES[h]).join(" and ")} hulls, {ITEMS.filter((i) => i.kind === "skin" && i.series === live.n && i.hull === live.hulls[0] && itemOut(i, Date.now())).length} paints each</span>
+          {nd && nd.series === live.n && <span className="hg-look-r" data-testid="next-drop">{nd.name} drops in {untilDays(nd.start - Date.now())}</span>}
         </div>
       )}
       {f && (

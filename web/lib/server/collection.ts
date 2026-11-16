@@ -27,6 +27,7 @@ import {
   rollsFromDigest, shopStock, tradeUpPool, tradeUpTarget, trailId,
   type Collection, type Copy, type Crate, type Item, type Opened, type Rarity, type Slot,
 } from "@/lib/collection";
+import { ensureCatalog } from "./catalog";
 import { kv, type Kv } from "./kv";
 import { award, ledgerOf, totals, withLock, xpSummary } from "./xp";
 
@@ -35,7 +36,7 @@ export const COLK = {
   inv: (w: string) => `${ns()}:inv:${w}`,
   own: (w: string) => `${ns()}:own:${w}`,
   supply: (item: string) => `${ns()}:supply:${item}`,
-  sfirst: (n: number) => `${ns()}:sfirst:${n}`,
+  sfirst: (n: number | string) => `${ns()}:sfirst:${n}`,
   seed: (day: number) => `${ns()}:seed:${day}`,
   crates: (w: string) => `${ns()}:crates:${w}`,
   once: (src: string, w: string) => `${ns()}:once:${src}:${w}`,
@@ -84,9 +85,9 @@ const freshRolls = () => rollsFromDigest(randomBytes(32).toString("hex"));
 async function readInv(w: string, s: Kv): Promise<Copy[] | null> { return parse<Copy[]>(await s.get(COLK.inv(w))); }
 const writeInv = (w: string, inv: Copy[], s: Kv) => s.set(COLK.inv(w), JSON.stringify(inv));
 
-/** First edition: within 7 days of the first copy of its series ever dropping (series-0 items count from Series 1). */
+/** First edition: within 7 days of the first copy of its series (or its mid-series drop) ever dropping (series-0 items count from Series 1). */
 async function firstEdition(item: Item, now: number, s: Kv): Promise<boolean> {
-  const n = item.series || 1;
+  const n = item.drop ?? (item.series || 1);
   await s.setNX(COLK.sfirst(n), String(now));
   return now - Number(await s.get(COLK.sfirst(n))) < FIRST_EDITION_MS;
 }
@@ -139,6 +140,7 @@ export async function grantCrate(walletIn: string, tier: Rarity, src: string, la
  * win, and they get a crate (15 a week at most); the loser's streak resets. Friend duels and ties drop nothing.
  */
 export async function onDuelSettled(roomId: string, winner: string | null, loser: string | null, now = Date.now(), s: Kv = kv()): Promise<void> {
+  await ensureCatalog(s);
   if (loser) await s.set(COLK.streak(lc(loser)), "0");
   if (!winner) return;
   const w = lc(winner);
@@ -204,6 +206,7 @@ export async function equippedOf(w: string, s: Kv = kv()): Promise<Equipped> {
 }
 
 export async function collectionOf(walletIn: string, now = Date.now(), s: Kv = kv()): Promise<Collection> {
+  await ensureCatalog(s);
   const w = lc(walletIn);
   const xp = await syncEarned(w, now, s);
   let inv = await readInv(w, s);
@@ -225,6 +228,7 @@ export type OpenResult = { ok: true; opened: Opened } | { ok: false; reason: str
 
 /** Open one crate: a provable roll picks the rarity, the item (live series) and the copy's burn/seed/FlightTrak, plus XP. */
 export async function openCrate(walletIn: string, crateId: string, now = Date.now(), s: Kv = kv()): Promise<OpenResult> {
+  await ensureCatalog(s);
   const w = lc(walletIn);
   return withLock(w, s, async (): Promise<OpenResult> => {
     const raw = await s.zrange(COLK.crates(w), 200);
@@ -250,6 +254,7 @@ export type BuyResult = { ok: true; item: string; spendableXp: number; crate?: C
 
 /** Buy from today's shop with XP to spend (or the Common crate, always in stock). Shop copies are bound: they never trade. */
 export async function buyItem(walletIn: string, id: string, now = Date.now(), s: Kv = kv()): Promise<BuyResult> {
+  await ensureCatalog(s);
   const w = lc(walletIn);
   const stock = shopStock(now);
   const isCrate = id === SHOP_CRATE_ID;
@@ -279,6 +284,7 @@ export type ScrapResult = { ok: true; xp: number } | { ok: false; reason: string
 
 /** Scrap a copy for XP (the copy is destroyed). Not the one you fly, and not a starter. */
 export async function scrapCopy(walletIn: string, uid: string, now = Date.now(), s: Kv = kv()): Promise<ScrapResult> {
+  await ensureCatalog(s);
   const w = lc(walletIn);
   return withLock(w, s, async (): Promise<ScrapResult> => {
     const inv = await invOf(w, now, s), k = inv.findIndex((c) => c.uid === uid);
@@ -300,6 +306,7 @@ export type TradeUpResult = { ok: true; copy: Copy; item: Item } | { ok: false; 
  * from that series, with their burn averaged. Bound if any input was bound. Never into Mythic.
  */
 export async function tradeUp(walletIn: string, uids: string[], now = Date.now(), s: Kv = kv()): Promise<TradeUpResult> {
+  await ensureCatalog(s);
   const w = lc(walletIn);
   const want = [...new Set(uids)];
   if (want.length !== TRADE_UP_N) return { ok: false, reason: `A trade-up takes ${TRADE_UP_N} copies.` };
@@ -314,7 +321,7 @@ export async function tradeUp(walletIn: string, uids: string[], now = Date.now()
     if (!tradeUpTarget(rar)) return { ok: false, reason: `${RARITY_NAME[rar]} can't be traded up. Mythic only comes from crates.` };
     const eq = Object.values((await equippedOf(w, s)).copy);
     if (copies.some((c) => eq.includes(c.uid))) return { ok: false, reason: "Take off what you're flying first." };
-    const pool = tradeUpPool(series, rar);
+    const pool = tradeUpPool(series, rar, now);
     if (!pool.length) return { ok: false, reason: "Nothing to trade up into for that series yet." };
     const out = pool[randomInt(0, pool.length)];
     const r = freshRolls();
@@ -334,6 +341,7 @@ export type EquipResult = { ok: true; equipped: Omit<Equipped, "copy"> & { copy:
  * found on another hull; prestige trails and tags need that Prestige.
  */
 export async function equip(walletIn: string, skin: string, trail: string, tag = "", flourish = "", s: Kv = kv()): Promise<EquipResult> {
+  await ensureCatalog(s);
   const w = lc(walletIn);
   const now = Date.now(), prestige = (await xpSummary(w, now, s)).level.prestige;
   const inv = (await readInv(w, s)) ?? STARTERS.map((id) => starterCopy(id, now));

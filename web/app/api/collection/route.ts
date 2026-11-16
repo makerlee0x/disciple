@@ -1,7 +1,8 @@
 export const runtime = "nodejs";
 /**
  * Rocket collection (lib/server/collection.ts).
- * GET ?wallet=0x… → { ok, collection, shop }   anyone's collection is public (it's what they fly); shop is today's stock.
+ * GET ?wallet=0x… → { ok, collection, shop, catalog }   anyone's collection is public (it's what they fly); shop is today's stock;
+ *   catalog is the live catalogue overlay (lib/collection applyCatalog), null when there is none.
  * GET ?proof=1 → { ok, proof }   today's and tomorrow's roll-seed hashes and the last 7 days' revealed seeds.
  * POST { op: "open", crate } | { op: "buy", item } | { op: "equip", skin, trail, tag?, flourish? } | { op: "scrap", copy } | { op: "tradeup", copies }  with the Privy session (Bearer), like
  *   the duel API, so opening a crate needs no wallet signature. Optional x-wallet picks one of the account's wallets.
@@ -12,6 +13,7 @@ import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
 import { buyItem, collectionOf, equip, openCrate, rollProof, scrapCopy, tradeUp } from "@/lib/server/collection";
 import { shopStock } from "@/lib/collection";
+import { ensureCatalog } from "@/lib/server/catalog";
 
 export const dynamic = "force-dynamic";
 const isAddr = (a: unknown): a is string => typeof a === "string" && /^0x[0-9a-fA-F]{40}$/.test(a);
@@ -22,10 +24,11 @@ export async function GET(req: Request) {
   const w = new URL(req.url).searchParams.get("wallet");
   const rl = await hitLimit(kv(), `col:get:ip:${clientIp(req.headers)}`, 120, 60);
   if (!rl.ok) return out(429, { ok: false, reason: "Too many requests, try again shortly." });
+  const catalog = await ensureCatalog().catch(() => null);
   const shop = shopStock(Date.now());
   if (new URL(req.url).searchParams.get("proof")) { try { return out(200, { ok: true, proof: await rollProof() }); } catch (e) { return out(503, { ok: false, reason: (e as Error).message }); } }
-  if (!isAddr(w)) return out(200, { ok: true, collection: null, shop });
-  try { return out(200, { ok: true, collection: await collectionOf(w), shop }); }
+  if (!isAddr(w)) return out(200, { ok: true, collection: null, shop, catalog });
+  try { return out(200, { ok: true, collection: await collectionOf(w), shop, catalog }); }
   catch (e) { return out(503, { ok: false, reason: (e as Error).message }); }
 }
 

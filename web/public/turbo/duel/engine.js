@@ -21,10 +21,14 @@ function mount(root,host){
   // a pilot's own skin from the Hangar collection (lib/collection: "<hull>--<paint>", art in /turbo/skins/)
   // fx = that copy's {burn 0..1, seed 0..999}: soot drawn over the paint, and a hue shift on pattern paints (lib/collection copyLook)
   const PATTERN=new Set(["nebula","marble-gilt","aurora","damascus","holo-foil"]);
-  function skinShip(id,fx){ const [h,paint]=String(id||"").split("--"); if(!HULLS[h]) return null; const src=(A.skinBase||"/turbo/skins/")+id+".webp";
+  // art = {skin: url, geo: [aspect, nozzles]} for a skin the live catalogue added (not in this file)
+  const okGeo=g=>Array.isArray(g)&&isFinite(g[0])&&g[0]>.1&&g[0]<2&&Array.isArray(g[1])&&g[1].length>0&&g[1].length<5&&g[1].every(n=>Array.isArray(n)&&n.length===3&&n.every(isFinite));
+  const okSrc=u=>typeof u==="string"&&/^(https:\/\/|\/)[\w\-./%:]+\.(webp|png)$/i.test(u);
+  function skinShip(id,fx,art){ const [h,paint]=String(id||"").split("--"); const geo=HULLS[h]||(art&&okGeo(art.geo)?art.geo:null); if(!geo) return null;
+    const src=art&&okSrc(art.skin)?art.skin:(A.skinBase||"/turbo/skins/")+id+".webp";
     if(!hullImgs[src]){ const i=new Image(); i.src=src; hullImgs[src]=i; }
     const look=fx&&isFinite(fx.burn)?{hue:PATTERN.has(paint)?((fx.seed*37)%41)-20:0,soot:Math.min(.85,Math.max(0,(fx.burn-.05)*1.1)),seed:fx.seed|0}:null;
-    return {k:id,img:hullImgs[src],a:HULLS[h][0],nz:HULLS[h][1],look,cv:null}; }
+    return {k:id,img:hullImgs[src],a:geo[0],nz:geo[1],look,cv:null}; }
   // bake a copy's look into a canvas once the art has loaded (so drawing stays one drawImage a frame)
   function bake(hull){ const im=hull.img, L=hull.look, c=document.createElement("canvas"); c.width=im.naturalWidth; c.height=im.naturalHeight; const x=c.getContext("2d");
     if(L.hue) x.filter=`hue-rotate(${L.hue}deg)`; x.drawImage(im,0,0); x.filter="none";
@@ -34,10 +38,11 @@ function mount(root,host){
     return c; }
   // collection art: trails (6-frame plume + 3 particles, black = clear, drawn additively), name-tag plates, the win flourish
   const ART=A.art2||"/turbo/", artImgs={};
-  const artImg=src=>{ if(!artImgs[src]){ const i=new Image(); i.src=ART+src; artImgs[src]=i; } return artImgs[src]; };
+  const artImg=src=>{ if(!artImgs[src]){ const i=new Image(); i.src=/^(https:\/\/|\/)/.test(src)?src:ART+src; artImgs[src]=i; } return artImgs[src]; };
   const ready=i=>i&&i.complete&&i.naturalWidth>0;
-  function trailFx(id){ const t=String(id||"").replace(/^trail-/,""); if(!/^[a-z0-9-]{1,24}$/.test(t)) return null;
-    return {id:t,plume:artImg("trails/trail-"+t+"-plume.webp"),bits:artImg("trails/trail-"+t+"-bits.webp")}; }
+  function trailFx(id,art){ const t=String(id||"").replace(/^trail-/,""); if(!/^[a-z0-9-]{1,24}$/.test(t)) return null;
+    const own=art&&okSrc(art.plume)&&okSrc(art.bits);
+    return {id:t,plume:artImg(own?art.plume:"trails/trail-"+t+"-plume.webp"),bits:artImg(own?art.bits:"trails/trail-"+t+"-bits.webp")}; }
   function tagFx(id){ const t=String(id||""); if(!/^tag-[a-z0-9-]{1,20}$/.test(t)||t==="tag-common") return null; return {img:artImg("tags/"+t+".webp"),pr:/prestige/.test(t)}; }
   // flames at each nozzle of a hull (or the chrome rocket's one), then the sprite; ctx is already at the rocket's centre
   function drawShip(c2,hull,img,h,fl,col,sq,tf,now){ if(!isFinite(fl)) fl=1; const w=hull?h*hull.a:h*221/609, fk=Math.min(1,h/120), nz=hull?hull.nz:[[.5,.97,1]];
@@ -77,10 +82,10 @@ function mount(root,host){
   let G=null;
   // a Hangar look: {skin, trail, tag, flourish, rgb, fx:{skin:{burn,seed,trak}, trail:{burn,seed}}}
   const FLOURISH_ART={"flourish-gold-rush":"flourish/win-flourish.webp"};
-  function wearLook(pl,l){ const fx=l.fx||{}; pl.hull=skinShip(l.skin,fx.skin)||pl.hull;
-    if(l.trail){ pl.tf=trailFx(l.trail); if(pl.tf&&fx.trail) pl.tf.seed=fx.trail.seed|0;
+  function wearLook(pl,l){ const fx=l.fx||{}, art=l.art||null; pl.hull=skinShip(l.skin,fx.skin,art)||pl.hull;
+    if(l.trail){ pl.tf=trailFx(l.trail,art); if(pl.tf&&fx.trail) pl.tf.seed=fx.trail.seed|0;
       if(l.rgb){ const b=fx.trail&&isFinite(fx.trail.burn)?Math.min(.6,fx.trail.burn*.7):0; pl.flameC=l.rgb.split(",").map(v=>Math.round(+v*(1-b)+90*b)).join(","); } }   // a burnt trail smokes greyer
-    pl.tag=tagFx(l.tag); pl.trak=fx.skin&&fx.skin.trak!=null?fx.skin.trak:null; pl.fl=FLOURISH_ART[l.flourish]||null; }
+    pl.tag=tagFx(l.tag); pl.trak=fx.skin&&fx.skin.trak!=null?fx.skin.trak:null; pl.fl=FLOURISH_ART[l.flourish]||(art&&okSrc(art.flourish)?art.flourish:null); }
   function newPlayer(name,me){return {name,me,fuel:FUEL0,pos:null,fees:0,trades:0,up:0,dn:0,green:0,best:0,y:0,vy:0,flame:0,flameC:"255,200,120",sq:0,lastTrade:-1e9,next:0,moments:[]};}
   function newGame(){
     FUEL0=curFuel(); SIZES=curSizes(); if(!SIZES.includes(stake)) stake=SIZES[2]; paintSizes(); resizeK();

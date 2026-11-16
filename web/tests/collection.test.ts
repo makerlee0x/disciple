@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   BURN_GRADES, CRATE, ITEMS, TRADE_UP_N, burnGrade, rollsFromDigest, tradeUpPool, tradeUpTarget, PAINTS, RARITIES, SERIES, STARTER_SKIN, STARTER_TAG, TRAILS, crateBurstArt, crateOdds, dropPool, duelCrateTier, glintArt, itemById, rollCrate,
-  seriesArt, shopStock, skinArt, tagArt, trailArt, DAY_MS,
+  seriesArt, shopStock, skinArt, tagArt, trailArt, DAY_MS, applyCatalog, nextDrop,
 } from "@/lib/collection";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -28,7 +28,8 @@ describe("collection catalogue", () => {
   it("trails drop with their series, prestige items never drop or sell, tags drop in any series", () => {
     const pool = dropPool(Date.UTC(2026, 10, 20));
     const trails = pool.filter((i) => i.kind === "trail").map((i) => i.id);
-    expect(trails).toContain("trail-comet");
+    expect(trails).toContain("trail-ice");
+    expect(trails).not.toContain("trail-comet");   // Afterburn drop, no date yet
     expect(trails).not.toContain("trail-toxic");   // Series 2
     expect(trails).not.toContain("trail-halo");    // Prestige 2
     expect(pool.filter((i) => i.kind === "tag").map((i) => i.id).sort()).toEqual(RARITIES.map((r) => `tag-${r}`).sort());
@@ -36,10 +37,11 @@ describe("collection catalogue", () => {
     expect(SERIES[1].paints).toEqual(expect.arrayContaining(["koi", "aurora", "holo-foil", "stained-glass"]));
   });
 
-  it("only the live series drops (Series 1 at launch: 2 hulls x 13 paints, plus trails)", () => {
+  it("only the live series drops (Series 1 at launch: 2 hulls x 9 paints, 5 trails + gold)", () => {
     const pool = dropPool(Date.UTC(2026, 10, 20));
     const skins = pool.filter((i) => i.kind === "skin");
-    expect(skins.length).toBe(26);
+    expect(skins.length).toBe(18);
+    expect(pool.filter((i) => i.kind === "trail").map((i) => i.id).sort()).toEqual(["gold", "ice", "mint", "smoke", "solar", "violet"].map((t) => `trail-${t}`).sort());
     expect(new Set(skins.map((s) => s.hull))).toEqual(new Set(["bullet", "needle"]));
     expect(pool.some((i) => i.hull === "pulp")).toBe(false);
   });
@@ -95,6 +97,42 @@ describe("collection catalogue", () => {
     expect(tradeUpTarget("rare")).toBe("epic");
     expect(tradeUpPool(1, "rare").every((i) => i.series === 1 && i.rar === "epic" && !i.prestige)).toBe(true);
     expect(itemById("flourish-gold-rush")?.kind).toBe("flourish");
+  });
+
+  it("a dated drop joins its series on its date, and never before", () => {
+    const at = Date.UTC(2026, 11, 14);
+    applyCatalog({ v: 1, drops: [{ id: "s1-afterburn", series: 1, name: "Afterburn", start: at }] });
+    try {
+      expect(dropPool(at - 1).filter((i) => i.kind === "skin")).toHaveLength(18);
+      const after = dropPool(at);
+      expect(after.filter((i) => i.kind === "skin")).toHaveLength(26);
+      expect(after.map((i) => i.id)).toEqual(expect.arrayContaining(["trail-comet", "needle--molten"]));
+      expect(itemById("needle--molten")?.drop).toBe("s1-afterburn");
+      expect(nextDrop(at - DAY_MS)?.name).toBe("Afterburn");
+      for (let d = 0; d < 30; d++) for (const i of [shopStock(at - (d + 1) * DAY_MS).featured, ...shopStock(at - (d + 1) * DAY_MS).daily]) expect(i?.drop).toBeUndefined();
+    } finally { applyCatalog(null); }
+  });
+
+  it("the catalogue adds a series, paint, hull and trail with their art, and resets cleanly", () => {
+    const art = (id: string) => `https://example.blob.vercel-storage.com/catalog/${id}.webp`;
+    applyCatalog({
+      v: 2, paints: { "sunset-fade": { name: "Sunset Fade", rar: "epic" } }, hulls: { lancer: { name: "Lancer", geo: [0.4, [[0.5, 0.98, 1]]] } },
+      series: [{ n: 1, end: Date.UTC(2027, 0, 1) }, { n: 2, start: Date.UTC(2027, 0, 1), end: Date.UTC(2027, 2, 1) }, { n: 3, name: "Deep Space", hulls: ["lancer"], paints: ["sunset-fade", "nebula"], start: Date.UTC(2027, 2, 1), end: null }],
+      trails: [{ id: "aurora-wake", name: "Aurora Wake", rar: "legendary", color: "#8FF0D0", rgb: "143,240,208", series: 3 }],
+      art: { "lancer--sunset-fade": art("lancer--sunset-fade"), "lancer--nebula": art("lancer--nebula"), "trail-aurora-wake": art("p"), "trail-aurora-wake:bits": art("b"), "bullet--white-gloss": art("nope") },
+    });
+    try {
+      expect(SERIES).toHaveLength(3);
+      expect(itemById("lancer--sunset-fade")).toMatchObject({ rar: "epic", series: 3 });
+      expect(skinArt("lancer--sunset-fade")).toBe(art("lancer--sunset-fade"));
+      expect(skinArt(STARTER_SKIN)).toBe("/turbo/skins/bullet--white-gloss.webp");   // code items keep their art
+      expect(trailArt("aurora-wake", "bits")).toBe(art("b"));
+      const s3 = dropPool(Date.UTC(2027, 3, 1)).filter((i) => i.kind !== "tag").map((i) => i.id);
+      expect(s3).toEqual(expect.arrayContaining(["lancer--sunset-fade", "lancer--nebula", "trail-aurora-wake"]));
+      expect(s3.some((id) => id.startsWith("needle--"))).toBe(false);
+      expect(dropPool(Date.UTC(2026, 11, 1)).some((i) => i.series === 3)).toBe(false);
+    } finally { applyCatalog(null); }
+    expect(SERIES).toHaveLength(2); expect(itemById("lancer--sunset-fade")).toBeUndefined(); expect(PAINTS["sunset-fade"]).toBeUndefined();
   });
 
   it("ring-tail skins resolve for any paint (prestige hull)", () => {
@@ -195,13 +233,15 @@ describe("collection server (local KV)", () => {
 
   it("the shop checks stock, balance and ownership; equip checks ownership", async () => {
     const s = shopStock(Date.now());
+    const mine = new Set((await col.collectionOf(W)).copies.map((x) => x.item));
+    const pick = [...s.daily, s.featured!].find((i) => i && !mine.has(i.id))!;   // earlier crates may have dropped some of today's stock
     expect((await col.buyItem(W, "needle--marble-gilt")).ok).toBe(false);   // never sold
-    const r = await col.buyItem(W, s.daily[0].id);
+    const r = await col.buyItem(W, pick.id);
     expect(r.ok).toBe(false);   // not enough XP yet
     await xp.award(W, { src: "test:grant", kind: "mission", xp: 20000, label: "test", ts: Date.now() });
-    const b = await col.buyItem(W, s.daily[0].id);
+    const b = await col.buyItem(W, pick.id);
     expect(b.ok).toBe(true);
-    expect((await col.buyItem(W, s.daily[0].id)).ok).toBe(false);
+    expect((await col.buyItem(W, pick.id)).ok).toBe(false);
     expect((await col.equip(W, "needle--nebula", "trail-gold")).ok).toBe(false);
     expect((await col.equip(W, STARTER_SKIN, "trail-gold")).ok).toBe(true);
     expect((await col.equip(W, STARTER_SKIN, "trail-halo")).ok).toBe(false);          // Prestige 2
@@ -210,8 +250,33 @@ describe("collection server (local KV)", () => {
     const e = await col.equip(W, STARTER_SKIN, "trail-gold", STARTER_TAG);
     expect(e.ok && e.equipped.tag).toBe(STARTER_TAG);
     expect(e.ok && e.equipped.copy.skin).toBe(`st-${STARTER_SKIN}`);
-    expect((await col.scrapCopy(W, (await col.collectionOf(W)).copies.find((x) => x.item === s.daily[0].id)!.uid)).ok).toBe(true);   // shop copy, not worn
+    expect((await col.scrapCopy(W, (await col.collectionOf(W)).copies.find((x) => x.item === pick.id && x.origin === "shop")!.uid)).ok).toBe(true);   // shop copy, not worn
     const crate = await col.buyItem(W, "crate-common");
     expect(crate.ok).toBe(true);
+  });
+
+  it("a catalogue save can't change or pull back an item that has copies, and new items need art", async () => {
+    const cat = await import("@/lib/server/catalog");
+    const { kv } = await import("@/lib/server/kv");
+    expect((await col.collectionOf(W)).copies.some((x) => x.serial > 0 && itemById(x.item)?.series === 1)).toBe(true);
+    const now = Date.now();
+    const ok = await cat.saveCatalog({ v: 0, drops: [{ id: "s1-afterburn", series: 1, name: "Afterburn", start: now + 28 * DAY_MS }] }, 0, "test", kv(), now);
+    expect(ok.ok).toBe(true);
+    const stale = await cat.saveCatalog({ v: 0 }, 0, "test", kv(), now);
+    expect(stale.ok).toBe(false);
+    const hide = await cat.saveCatalog({ v: 0, series: [{ n: 1, start: now + DAY_MS }] }, 1, "test", kv(), now);
+    expect(hide.ok).toBe(false);
+    if (!hide.ok) expect(hide.problems?.some((p) => p.includes("pulled back"))).toBe(true);   // Series 1 copies exist
+    const noArt = await cat.saveCatalog({ v: 0, series: [{ n: 3, hulls: ["pulp"], paints: ["nebula"], start: null, end: null }] }, 1, "test", kv(), now);
+    expect(noArt.ok).toBe(false);
+    const clash = await cat.saveCatalog({ v: 0, series: [{ n: 3, hulls: ["needle"], paints: ["nebula"], start: null, end: null }] }, 1, "test", kv(), now);
+    expect(!clash.ok && clash.problems?.some((p) => p.includes("already in Series 1"))).toBe(true);
+    const recode = await cat.saveCatalog({ v: 0, paints: { nebula: { name: "Nebula II", rar: "mythic" } } }, 1, "test", kv(), now);
+    expect(recode.ok).toBe(false);
+    cat.resetCatalogCache();
+    expect((await cat.ensureCatalog(kv()))?.v).toBe(1);
+    const { DROPS } = await import("@/lib/collection");
+    expect(DROPS[0].start).toBe(now + 28 * DAY_MS);
+    await kv().del(cat.CATK.catalog()); cat.resetCatalogCache(); await cat.ensureCatalog(kv());
   });
 });

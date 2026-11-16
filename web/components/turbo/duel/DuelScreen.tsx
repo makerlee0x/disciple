@@ -35,7 +35,7 @@ declare global { interface Window { DuelEngine?: { mount(root: HTMLElement, host
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
 /** extra plates for the random sky each duel (engine SKY_THEMES) */
 const EXTRA_SKIES = { skyEth: "/turbo/sky-eth.webp", skyBtc: "/turbo/sky-btc.webp", skyPad: "/home/pad/sky-1280.webp" };
-const ENGINE_SRC = "/turbo/duel/engine.js?v=28";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=29";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
@@ -63,13 +63,15 @@ export default function DuelScreen() {
 
     // Hangar looks (lib/collection: skin, trail, name tag): yours, and a real rival's, from /api/looks; the engine reads them as each duel starts
     type Fx = { burn: number; seed: number; trak?: number };
-    const ships = new Map<string, { skin: string; rgb?: string; trail?: string; tag?: string; flourish?: string; fx?: { skin?: Fx; trail?: Fx } }>();
+    type Art = { skin?: string; geo?: unknown; plume?: string; bits?: string; rgb?: string; flourish?: string };
+    const ships = new Map<string, { skin: string; rgb?: string; trail?: string; tag?: string; flourish?: string; fx?: { skin?: Fx; trail?: Fx }; art?: Art }>();
     const loadShips = async (pids: string[]) => {
       const want = pids.filter((p) => p && !ships.has(p));
       if (!want.length) return;
       try {
-        const j = (await (await fetch(`/api/looks?wallets=${want.join(",")}`)).json()) as { looks?: Record<string, { skin?: string; trail?: string; tag?: string; flourish?: string; fx?: { skin?: Fx; trail?: Fx } }> };
-        for (const [w, l] of Object.entries(j.looks ?? {})) if (l.skin) ships.set(w, { skin: l.skin, rgb: trailRgb(l.trail), trail: l.trail, tag: l.tag, flourish: l.flourish, fx: l.fx });
+        const j = (await (await fetch(`/api/looks?wallets=${want.join(",")}`)).json()) as { looks?: Record<string, { skin?: string; trail?: string; tag?: string; flourish?: string; fx?: { skin?: Fx; trail?: Fx }; art?: Art }> };
+        // art: new items from the live catalogue carry their own art URLs (and a new hull its shape)
+        for (const [w, l] of Object.entries(j.looks ?? {})) if (l.skin) ships.set(w, { skin: l.skin, rgb: l.art?.rgb ?? trailRgb(l.trail), trail: l.trail, tag: l.tag, flourish: l.flourish, fx: l.fx, art: l.art });
       } catch { /* the chrome rocket flies */ }
     };
     const unfollow = () => { fol?.stop(); fol = null; roomId = null; };
