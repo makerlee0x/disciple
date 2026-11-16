@@ -9,8 +9,8 @@
  */
 
 export const LEV = 500;
-/** 1 bp a side on notional (Nova HYPE1000 rate, 2 bp round trip). Trial until Nova confirms what a duel trade costs. */
-export const FEE = 0.0001;
+/** 0.5 bp a side on notional. Placeholder until Nova confirms what a duel trade costs (a 1 bp trial felt too harsh). */
+export const FEE = 0.00005;
 /** NUKE when the open position has lost 80% of the fuel in it. */
 export const LIQ = 0.8;
 export const OT_MS = 30_000;
