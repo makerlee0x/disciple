@@ -284,3 +284,18 @@ test("custom budgets: a $5 duel trades in whole dollars ($1 / $2 / $3 / $4)", as
   await S.trade(room.id, b.pid, "dump", 1, PRICE);
   await assert.rejects(S.trade(room.id, b.pid, "dump", 2.5, PRICE), /trade size/);
 });
+
+test("guest pilots (/duel demo page): signed cookie, forged or wrong ids refused", async () => {
+  const G = await import("../lib/server/duelGuest");
+  const id = G.newGuestId(); assert.ok(G.isGuestPid(id)); assert.ok(!G.isGuestPid("0x" + "a".repeat(40)));
+  const tok = G.guestToken(id);
+  assert.equal(G.guestOf(tok), id);
+  assert.equal(G.guestOf(tok.slice(0, -1) + (tok.endsWith("0") ? "1" : "0")), null);   // forged signature
+  assert.equal(G.guestOf(`${G.newGuestId()}.${tok.split(".")[1]}`), null);           // someone else's signature
+  assert.equal(G.guestOf(undefined), null);
+  const req = new Request("http://x/", { headers: { cookie: `a=1; ${G.DUEL_GUEST_COOKIE}=${encodeURIComponent(tok)}` } });
+  assert.equal(G.guestFromReq(req), id); assert.ok(G.guestName(id).startsWith("@guest-"));
+  // a guest can sit in a friend duel against a signed-in pilot
+  const room = await S.createInvite({ pid: id, name: G.guestName(id) }, "rookie", 60_000);
+  const j = await S.joinInvite({ pid: G.newGuestId(), name: "@friend" }, room.code!); assert.equal(j.players.length, 2);
+});
