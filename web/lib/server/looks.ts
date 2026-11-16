@@ -5,12 +5,14 @@ import "server-only";
  * is checked against lib/unlocks with the pilot's level, prestige and trophies. Cosmetic only.
  */
 import { ACTIVE_CHAIN } from "@/lib/chains";
+import { itemById } from "@/lib/collection";
 import { FLARES, HULLS, isUnlocked, type Progress } from "@/lib/unlocks";
 import { unlocksOf } from "./achievements";
 import { kv, type Kv } from "./kv";
 import { xpSummary } from "./xp";
 
-export type Looks = { hull: string; flare: string };
+/** skin + trail: the equipped collection look (lib/server/collection equip), flown in Turbo modes */
+export type Looks = { hull: string; flare: string; skin?: string; trail?: string };
 export const STOCK_LOOKS: Looks = { hull: HULLS[0].id, flare: FLARES[0].id };
 const key = (w: string) => `looks:${ACTIVE_CHAIN.id}:${w.toLowerCase()}`;
 
@@ -18,7 +20,10 @@ function parse(raw: string | null): Looks | null {
   try {
     const j = raw ? (JSON.parse(raw) as Partial<Looks>) : null;
     if (!j) return null;
-    return { hull: HULLS.some((h) => h.id === j.hull) ? j.hull! : STOCK_LOOKS.hull, flare: FLARES.some((f) => f.id === j.flare) ? j.flare! : STOCK_LOOKS.flare };
+    return {
+      hull: HULLS.some((h) => h.id === j.hull) ? j.hull! : STOCK_LOOKS.hull, flare: FLARES.some((f) => f.id === j.flare) ? j.flare! : STOCK_LOOKS.flare,
+      ...(j.skin && itemById(j.skin) ? { skin: j.skin } : {}), ...(j.trail && itemById(j.trail) ? { trail: j.trail } : {}),
+    };
   } catch { return null; }
 }
 
@@ -44,7 +49,8 @@ export async function saveLooks(wallet: string, hull: string, flare: string, s: 
   const p = await progressOf(wallet, s);
   if (!isUnlocked(h.rule, p)) return { ok: false, reason: `${h.name} isn't unlocked yet.` };
   if (!isUnlocked(f.rule, p)) return { ok: false, reason: `${f.name} isn't unlocked yet.` };
-  const looks = { hull: h.id, flare: f.id };
+  const prev = parse(await s.get(key(wallet)));
+  const looks: Looks = { ...(prev ?? {}), hull: h.id, flare: f.id };   // keeps the equipped skin + trail
   await s.set(key(wallet), JSON.stringify(looks));
   return { ok: true, looks };
 }

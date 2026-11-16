@@ -18,6 +18,9 @@ function mount(root,host){
   const HULLS={"bullet":[0.454,[[0.498,0.988,1.0],[0.103,0.982,0.7],[0.892,0.982,0.7]]],"needle":[0.368,[[0.481,0.989,1.0]]],"pulp":[0.557,[[0.472,0.99,1.0]]],"twin-booster":[0.436,[[0.498,0.984,0.8],[0.193,0.99,1.0],[0.798,0.99,1.0]]],"shuttle":[0.575,[[0.5,0.984,1.0],[0.427,0.965,0.7],[0.573,0.965,0.7]]],"hauler":[0.432,[[0.498,0.99,1.0],[0.27,0.989,0.85],[0.734,0.989,0.85]]],"ring-tail":[0.432,[[0.502,0.99,1.0]]],"wedge":[0.732,[[0.501,0.959,1.0]]]}, HSKINS=["chrome-pink-stripe","matte-black","pearl-mint","titanium-ice","candy-pink","gunmetal-pink","oilslick","carbon","scorched","navy-chevron"], HULL_BASE=A.hullBase||"/turbo/hulls/", hullImgs={};
   function hullFor(used){ const ks=Object.keys(HULLS); let h,s,n=0; do{ h=ks[Math.floor(Math.random()*ks.length)]; s=HSKINS[Math.floor(Math.random()*HSKINS.length)]; } while(used&&used.has(h+s)&&++n<20); if(used) used.add(h+s);
     const k="hull-"+h+"--"+s; if(!hullImgs[k]){ const i=new Image(); i.src=HULL_BASE+k+".webp"; hullImgs[k]=i; } return {k,img:hullImgs[k],a:HULLS[h][0],nz:HULLS[h][1]}; }
+  // a pilot's own skin from the Hangar collection (lib/collection: "<hull>--<paint>", art in /turbo/skins/)
+  function skinShip(id){ const h=String(id||"").split("--")[0]; if(!HULLS[h]) return null; const src=(A.skinBase||"/turbo/skins/")+id+".webp";
+    if(!hullImgs[src]){ const i=new Image(); i.src=src; hullImgs[src]=i; } return {k:id,img:hullImgs[src],a:HULLS[h][0],nz:HULLS[h][1]}; }
   // flames at each nozzle of a hull (or the chrome rocket's one), then the sprite; ctx is already at the rocket's centre
   function drawShip(c2,hull,img,h,fl,col,sq){ const w=hull?h*hull.a:h*221/609, fk=Math.min(1,h/120), nz=hull?hull.nz:[[.5,.97,1]];
     c2.globalCompositeOperation="lighter";
@@ -55,7 +58,9 @@ function mount(root,host){
     const startAt=M&&M.startAt||Date.now()+3500, h=host.history();
     G={t:now_()-startAt,startAt,len:(M&&M.endAt?M.endAt-startAt:LEN),ot:false,over:false,price:h.length?h[h.length-1].p:0,ticks:[],marks:[],
        me:newPlayer("you",true),bot:newPlayer(M&&M.opp?M.opp.name:BOTS[botKey].name,false),cfg:BOTS[botKey],started:false};
-    if(!(M&&M.opp&&!M.opp.bot)) G.bot.hull=hullFor();   // bots fly a random hull + skin; a real rival keeps the chrome rocket for now
+    if(!(M&&M.opp&&!M.opp.bot)) G.bot.hull=hullFor();   // bots fly a random hull + skin
+    else if(host.shipOf){ const os=host.shipOf(M.opp.pid); if(os){ G.bot.hull=skinShip(os.skin); } }   // a real rival flies their own skin
+    { const ms=host.myShip&&host.myShip(); if(ms){ G.me.hull=skinShip(ms.skin); if(ms.rgb) G.me.flameC=ms.rgb; } }   // your Hangar skin + trail
     for(const k of h) G.ticks.push({t:k.ts-startAt,p:k.p});
     if(!G.ticks.length) G.ticks.push({t:G.t,p:0});
   }

@@ -15,6 +15,7 @@ import {
   type LengthMs, type Rating, type TierId, type TradeAction,
 } from "@/lib/duel/rules";
 import { duelCandles, priceAt, type Candle } from "./price";
+import { onDuelSettled } from "@/lib/server/collection";
 import type { DuelEvent, DuelMode, DuelPlayer, DuelResult, DuelRoom, NewDuelEvent } from "@/lib/duel/types";
 
 const K = {
@@ -366,6 +367,8 @@ async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> 
   }
   r.books = books; r.status = "done";
   r.result = { winner, profit, delta, rating, books, price };
+  // collection crates (lib/server/collection): a ranked win drops a crate; never let it break settling
+  if (r.mode === "ranked") await onDuelSettled(r.id, winner, winner ? (winner === a.pid ? b.pid : a.pid) : null, Date.now(), s).catch((e) => console.error("[duel] crate", e));
   for (const p of r.players) await s.delIfEq(K.active(p.pid), r.id);
   return { type: "end", result: r.result };
 }

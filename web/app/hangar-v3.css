@@ -156,3 +156,84 @@ body:has(.profile-page.hg) { background: var(--dsc3-page-bg); }
 .hg-look.on .hg-look-s { color: var(--sw); font-weight: 600; }
 .hg-look-r { font: 500 10px / 1 var(--dsc-font-mono); letter-spacing: .1em; text-transform: uppercase; }
 .r-common .hg-look-r { color: #BCC0CA; } .r-rare .hg-look-r { color: #5FB7FF; } .r-epic .hg-look-r { color: #B48CFF; } .r-legendary .hg-look-r { color: #F3C969; }
+
+/* ---------- rocket collection: Your rocket, Crates, Shop (components/hangar/Collection; lib/collection) ---------- */
+.hg-look .hg-look-art { overflow: hidden; }
+.hgu-sec .hg-look.locked .hg-look-art, .hgu-sec .hg-look:disabled .hg-look-art { filter: none; }
+.hg-look em, .hgu-equip-tx em, .hgu-feat em, .hgu-reveal em { font-style: normal; color: var(--dsc-muted); font-weight: 600; padding: 0 2px; }
+
+.hgu-equip { display: flex; align-items: center; gap: 24px; padding: 20px 24px; border-radius: 20px; border: 1px solid color-mix(in srgb, var(--sw) 45%, #262A33);
+  background: radial-gradient(60% 90% at 18% 50%, color-mix(in srgb, var(--sw) 22%, transparent), transparent 70%), var(--dsc3-panel, #16181C); }
+.hgu-equip-art { flex: none; width: 150px; height: 220px; display: grid; place-items: center; }
+.hgu-equip-tx { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.hgu-equip-tx b { font: 800 36px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.hgu-equip-tx > span:not(.hg-look-r):not(.hgu-tag) { font-size: 14px; color: #BCC0CA; }
+.hgu-equip-tx p { margin: 2px 0 0; font-size: 13px; color: var(--dsc-muted); max-width: 40ch; }
+.hgu-tag { margin-top: 6px; font: 600 12px / 1 var(--dsc-font-mono); color: #121327; background: var(--dsc3-light-gold, #F2C14E); border-radius: 6px; padding: 4px 8px; }
+
+.hgu-series { display: grid; grid-template-columns: auto minmax(120px, 1fr) auto; align-items: center; gap: 8px 20px; padding: 14px 18px; border-radius: 14px;
+  border: 1px solid var(--dsc3-panel-border); background: rgba(22, 24, 28, .6); }
+.hgu-series > div { display: flex; flex-direction: column; gap: 6px; }
+.hgu-series b { font: 800 22px / 1 var(--dsc-font-game); text-transform: uppercase; }
+.hgu-meter { height: 8px; border-radius: 5px; background: #24262D; overflow: hidden; }
+.hgu-meter i { display: block; height: 100%; background: linear-gradient(90deg, #F2C14E, #F3DFA8); }
+.hgu-leaves { font-size: 13px; color: var(--dsc3-light-champagne, #F3DFA8); }
+.hgu-hulls { flex-wrap: wrap; }
+.hgu-hulls button:disabled { opacity: .45; cursor: default; }
+
+.hgu-crates { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.hgu-crates li { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 10px; border-radius: 16px; text-align: center;
+  border: 1px solid #262A33; background: radial-gradient(70% 60% at 50% 40%, color-mix(in srgb, var(--sw) 20%, transparent), transparent 70%), linear-gradient(180deg, #15171C, #101115); }
+.hgu-crates li.on { border-color: var(--sw); }
+.hgu-crates small { font-size: 12px; color: #A9ADB8; }
+.hgu-odds { border-color: color-mix(in srgb, var(--sw) 45%, var(--dsc3-panel-border)); }
+.hgu-odds-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px 28px; align-items: start; }
+.hgu-odds ol { list-style: none; margin: 0; padding: 0; }
+.hgu-odds li { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 10px; min-height: 36px; border-top: 1px solid rgba(232, 234, 238, .08); font-size: 14px; }
+.hgu-odds li i { width: 10px; height: 10px; border-radius: 3px; }
+.hgu-odds li b { font: 500 13px / 1 var(--dsc-font-mono); font-variant-numeric: tabular-nums; }
+.hgu-odds li.off { opacity: .4; }
+.hgu-odds-note p { margin: 0 0 14px; font-size: 13px; color: #BCC0CA; }
+.hgu-reveal { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 18px; padding: 16px 22px; border-radius: 20px;
+  border: 1px solid var(--sw); background: radial-gradient(60% 100% at 50% 50%, color-mix(in srgb, var(--sw) 26%, transparent), transparent 75%), #121318; }
+.hgu-reveal > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.hgu-reveal b { font: 800 30px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.hgu-reveal span:not(.hg-look-r) { font-size: 13px; color: #BCC0CA; }
+
+.hgu-timer { font: 500 13px / 1 var(--dsc-font-mono); color: var(--dsc3-light-champagne, #F3DFA8); }
+.hgu-feat { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 22px 26px; border-radius: 20px; border: 1px solid var(--sw);
+  background: radial-gradient(55% 100% at 80% 50%, color-mix(in srgb, var(--sw) 28%, transparent), transparent 70%), linear-gradient(160deg, #1A1C24, #121318); }
+.hgu-feat-tx { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.hgu-feat-tx b { font: 800 42px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.hgu-feat-tx > span:not(.hg-look-r) { font-size: 14px; color: #BCC0CA; }
+.hgu-feat-art { display: grid; place-items: center; width: 170px; }
+.hgu-buy { margin-top: 6px; font-family: var(--dsc-font-game); font-weight: 800; text-transform: uppercase; font-size: 20px; min-width: 150px; }
+.hgu-buy:disabled { background: #2A2C33; color: #8C90A6; cursor: default; }
+.hgu-buy.sm { font-size: 15px; min-width: 0; min-height: 36px; padding: 0 14px; margin-top: 4px; }
+.hgu-short { font-size: 12px; color: var(--dsc-muted); }
+.hgu-when { display: block; margin-top: 6px; font-size: 11.5px; color: var(--dsc-muted); }
+.hgu-note { margin: 0; }
+
+@media (max-width: 760px) {
+  .hgu-equip { gap: 14px; padding: 14px; }
+  .hgu-equip-art { width: 96px; height: 170px; }
+  .hgu-equip-art img { height: 160px !important; }
+  .hgu-equip-tx b { font-size: 26px; }
+  .hgu-series { grid-template-columns: 1fr; }
+  .hgu-crates { gap: 8px; }
+  .hgu-crates img { height: 78px !important; }
+  .hgu-odds-grid { grid-template-columns: 1fr; }
+  .hgu-reveal { grid-template-columns: auto minmax(0, 1fr); padding: 14px; }
+  .hgu-reveal > img:first-child { display: none; }
+  .hgu-reveal b { font-size: 24px; }
+  .hgu-feat { padding: 16px; }
+  .hgu-feat-tx b { font-size: 30px; }
+  .hgu-feat-art { width: 96px; }
+  .hgu-feat-art img { height: 170px !important; }
+  .hg-look .hg-look-tx b { font-size: 19px; }
+}
+.hgu-crates button { all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.hgu-crates button:focus-visible { box-shadow: var(--dsc-glow-focus-ring); border-radius: 12px; }
+.hgu-owned { margin-top: 6px; font: 600 12px / 1 var(--dsc-font-mono); color: var(--dsc3-signal-up, #5FF0A0); text-transform: uppercase; letter-spacing: .06em; }
+.hgu-hulls button[aria-selected="true"] { background: var(--dsc-text); color: var(--dsc-sky-ink); border-color: transparent; }
+.hgu-crates li { padding: 0; } .hgu-crates li button { padding: 14px 10px; }

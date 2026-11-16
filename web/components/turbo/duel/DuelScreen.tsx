@@ -12,6 +12,9 @@ import { duelApi, followRoom, type Follow, type RoomRes, type Res } from "@/lib/
 import { parseCode, type LengthMs, type TierId, type TradeAction } from "@/lib/duel/rules";
 import type { DuelEvent, DuelRoom } from "@/lib/duel/types";
 import { getGameRadio } from "@/lib/game/radio";
+import { TRAILS, trailId } from "@/lib/collection";
+
+const trailRgb = (id?: string) => TRAILS.find((t) => trailId(t.id) === id)?.rgb;
 import { useTurboMusic } from "@/lib/game/turboMusic";
 
 type Tick = { ts: number; p: number };
@@ -32,7 +35,7 @@ declare global { interface Window { DuelEngine?: { mount(root: HTMLElement, host
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
 /** extra plates for the random sky each duel (engine SKY_THEMES) */
 const EXTRA_SKIES = { skyEth: "/turbo/sky-eth.webp", skyBtc: "/turbo/sky-btc.webp", skyPad: "/home/pad/sky-1280.webp" };
-const ENGINE_SRC = "/turbo/duel/engine.js?v=22";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=23";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
@@ -58,11 +61,22 @@ export default function DuelScreen() {
       api?.price(t.price, ts);
     });
 
+    // Hangar skins (lib/collection): yours, and a real rival's, from /api/looks; the engine reads them as each duel starts
+    const ships = new Map<string, { skin: string; rgb?: string }>();
+    const loadShips = async (pids: string[]) => {
+      const want = pids.filter((p) => p && !ships.has(p));
+      if (!want.length) return;
+      try {
+        const j = (await (await fetch(`/api/looks?wallets=${want.join(",")}`)).json()) as { looks?: Record<string, { skin?: string; trail?: string }> };
+        for (const [w, l] of Object.entries(j.looks ?? {})) if (l.skin) ships.set(w, { skin: l.skin, rgb: trailRgb(l.trail) });
+      } catch { /* the chrome rocket flies */ }
+    };
     const unfollow = () => { fol?.stop(); fol = null; roomId = null; };
     const follow = (id: string) => {
       if (roomId === id) return; unfollow(); roomId = id;
       fol = followRoom(id, (e) => api?.event(e), (room, now) => {
         if (dead || !me) return;
+        void loadShips(room.players.map((p) => p.pid));
         api?.setClock(now); api?.room(room, me);
         if (room.status === "done" && room.rematch?.roomId && room.rematch.roomId !== id) follow(room.rematch.roomId);
         if (room.status === "cancelled") unfollow();
@@ -83,7 +97,7 @@ export default function DuelScreen() {
       const r = await duelApi.me();
       if (dead) return;
       if (!r.ok) { me = null; api?.setMe(null, false); return; }
-      me = r.pid; api?.setMe({ w: r.rating.w, l: r.rating.l, rating: r.rating.r, streak: r.rating.streak }, true);
+      me = r.pid; void loadShips([r.pid]); api?.setMe({ w: r.rating.w, l: r.rating.l, rating: r.rating.r, streak: r.rating.streak }, true);
       if (r.active) follow(r.active.id);
       else if (pendingCode) { const c = pendingCode; pendingCode = null; const j = await duelApi.join(c); if (j.ok) follow(j.room.id); else api?.error(j.reason); }
     };
@@ -125,6 +139,8 @@ export default function DuelScreen() {
       report: async () => { if (!roomId) return { error: "Not in a duel." }; const r = await duelApi.op(roomId, { op: "report" }); return r.ok ? {} : { error: r.reason }; },
       trick: (kind: "spin" | "flip") => { void op({ op: "trick", kind }); },
       // the duel mute button also silences the game radio if it carried over from another screen
+      myShip: () => (me ? ships.get(me) ?? null : null),
+      shipOf: (pid: string) => ships.get(pid) ?? null,
       mute: (m: boolean) => { try { const r = getGameRadio(); if (m) r.pause(); else r.clearPause(); } catch { /* no radio */ } },
     };
 
