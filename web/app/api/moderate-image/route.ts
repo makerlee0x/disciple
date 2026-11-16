@@ -73,7 +73,8 @@ async function check(req: NextRequest) {
     return NextResponse.json({ verdict: "block", error: msg }, { status: 415 });
   }
 
-  const hit = await isDenied(img.sha256, img.phash).catch((e) => { console.warn("[disciple] moderate-image denylist read failed", String(e?.message ?? e).slice(0, 200)); return false; });
+  // fail closed: if the denylist can't be read, nothing is allowed (the outer catch answers 503)
+  const hit = await isDenied(img.sha256, img.phash);
   if (hit) return NextResponse.json({ verdict: "block", provider: "denylist", sha256: img.sha256, phash: img.phash });
 
   const provider = pickProvider();
