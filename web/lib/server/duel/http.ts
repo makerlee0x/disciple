@@ -41,8 +41,10 @@ export async function body<T>(req: Request, max = 4000): Promise<T> {
   const raw = await req.text(); if (raw.length > max) throw new DuelError(413, "Too big.");
   try { return (raw ? JSON.parse(raw) : {}) as T; } catch { throw new DuelError(400, "Bad JSON"); }
 }
-export function fail(e: unknown) {
+export function fail(e: unknown, req?: Request) {
   if (e instanceof DuelError) return out(e.status, { ok: false, reason: e.message });
   console.error("[duel]", e);
-  return out(500, { ok: false, reason: "Something broke. Try again." });
+  // the /duel demo (guest) shows a short error tag, so a failure there can be traced without the server logs
+  const tag = req?.headers.get("x-duel-guest") === "1" ? ` (${String((e as Error)?.name || "Error")}: ${String((e as Error)?.message || e).replace(/https?:\/\/\S+/g, "…").slice(0, 80)})` : "";
+  return out(500, { ok: false, reason: "Something broke. Try again." + tag });
 }
