@@ -23,6 +23,6 @@ checked on every request and on the stream's 1 s tick, so closing the tab still 
 friendly duels don't. Rematch = both tap it → a new room with the same seats.
 
 Not yet (needs Nova, see the hand-off doc): real orders. Duel fuel is a duel-only book at live prices until Nova's SDK
-can place, flip and settle positions server-side. Fee is 0.5 bp/side, a placeholder until Nova confirms.
+can place, flip and settle positions server-side. Fee is 1 bp/side (2 bp round trip, Nova HYPE1000 rate), a trial until Nova confirms.
 
 Tests: `pnpm test:duel` drives the server end to end (local KV, injected price). `DUEL_PRICE_URL` points the server price at a stub.
