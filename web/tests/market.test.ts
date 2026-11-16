@@ -36,9 +36,16 @@ describe("market server (local KV)", () => {
     for (const c of (await col.collectionOf(w)).crates) await col.openCrate(w, c.id);
     return (await col.collectionOf(w)).copies.filter((c) => !c.bound && c.origin === "crate");
   }
-  const raw = (o: { signer: string; destination: string; amount: bigint; fee: bigint }) => o;
-  const deps = (relay: (r: unknown) => Promise<{ success: boolean; txHash?: string }>) => ({
-    parse: (r: unknown) => r as { signer: string; destination: string; amount: bigint; fee: bigint },
+  type Pay = { signer: string; destination: string; amount: bigint; fee: bigint };
+  const TREASURY = "0x" + "7e".repeat(20);
+  /** the buyer's two signed withdraws: pay (seller's share + network fee) and cut (7% to the treasury) */
+  const buy = (signer: string, seller: string, t: { sellerRaw: string; feeRaw: string }, net: bigint) => ({
+    pay: { signer, destination: seller, amount: BigInt(t.sellerRaw) + net, fee: net },
+    cut: { signer, destination: TREASURY, amount: BigInt(t.feeRaw), fee: BigInt(0) },
+  });
+  const deps = (relay: (r: unknown) => Promise<{ success: boolean; txHash?: string }>, treasury: string | null = TREASURY) => ({
+    parse: (r: unknown) => r as { pay: Pay; cut: Pay },
+    treasury: () => treasury,
     networkFee: async () => BigInt(20_000),   // $0.02
     relay,
   });
@@ -75,21 +82,29 @@ describe("market server (local KV)", () => {
     expect((await mkt.listings()).some((r) => r.uid === mine[0].uid)).toBe(false);
   });
 
-  it("buying checks the payment, pays the seller price minus 7%, and moves the copy with its history", async () => {
+  it("buying checks the payment, pays the seller price minus 7% and the treasury 7%, and moves the copy with its history", async () => {
     const mine = (await col.collectionOf(A)).copies.filter((c) => !c.bound && c.origin === "crate");
     const l = await mkt.listCopy(A, mine[0].uid, 1000);
     if (!l.ok) throw new Error(l.reason);
     const t = await mkt.buyTerms(l.listing.id);
     if ("ok" in t) throw new Error(t.reason);
-    const net = BigInt(20_000), price = BigInt(t.priceRaw), fee = BigInt(t.feeRaw);
-    const good = raw({ signer: B, destination: A, amount: price + net, fee: fee + net });
+    const net = BigInt(20_000);
+    expect(BigInt(t.sellerRaw) + BigInt(t.feeRaw)).toBe(BigInt(t.priceRaw));
+    const good = buy(B, A, t, net);
     let sent = 0;
     const ok = deps(async () => { sent++; return { success: true, txHash: "0xabc" }; });
+    const bad = [
+      { ...good, pay: { ...good.pay, destination: C } },                                   // not to the seller
+      { ...good, pay: { ...good.pay, amount: good.pay.amount - BigInt(1) } },              // seller short
+      { ...good, pay: { ...good.pay, fee: BigInt(0), amount: BigInt(t.sellerRaw) } },      // no network fee
+      { ...good, pay: { ...good.pay, signer: C } },                                        // someone else's wallet
+      { ...good, cut: { ...good.cut, destination: C } },                                   // 7% not to the treasury
+      { ...good, cut: { ...good.cut, amount: good.cut.amount - BigInt(1) } },              // 7% short
+      { ...good, cut: { ...good.cut, signer: C } },
+    ];
     expect((await mkt.buyListing(A, l.listing.id, good, ok)).ok).toBe(false);   // own listing
-    expect((await mkt.buyListing(B, l.listing.id, { ...good, destination: C }, ok)).ok).toBe(false);
-    expect((await mkt.buyListing(B, l.listing.id, { ...good, amount: good.amount - BigInt(1) }, ok)).ok).toBe(false);
-    expect((await mkt.buyListing(B, l.listing.id, { ...good, fee: fee, amount: price }, ok)).ok).toBe(false);   // no network fee
-    expect((await mkt.buyListing(B, l.listing.id, { ...good, signer: C }, ok)).ok).toBe(false);
+    for (const b of bad) expect((await mkt.buyListing(B, l.listing.id, b, ok)).ok).toBe(false);
+    expect((await mkt.buyListing(B, l.listing.id, good, deps(async () => ({ success: true }), null))).ok).toBe(false);   // no treasury: off
     expect(sent).toBe(0);
     const r = await mkt.buyListing(B, l.listing.id, good, ok);
     expect(r.ok).toBe(true);
@@ -111,7 +126,7 @@ describe("market server (local KV)", () => {
     if (!l.ok) throw new Error(l.reason);
     const t = await mkt.buyTerms(l.listing.id);
     if ("ok" in t) throw new Error(t.reason);
-    const net = BigInt(20_000), req = raw({ signer: C, destination: A, amount: BigInt(t.priceRaw) + net, fee: BigInt(t.feeRaw) + net });
+    const req = buy(C, A, t, BigInt(20_000));
     const notSent = deps(async () => { throw Object.assign(new Error("fee changed, please retry"), { notSent: true }); });
     expect((await mkt.buyListing(C, l.listing.id, req, notSent)).ok).toBe(false);
     expect((await mkt.listingById(l.listing.id))?.state).toBe("open");
@@ -123,7 +138,7 @@ describe("market server (local KV)", () => {
     expect(r.ok).toBe(false); if (!r.ok) expect(r.pending).toBe(true);
     expect((await mkt.listingById(l.listing.id))?.state).toBe("pending");
     expect((await mkt.unlist(A, l.listing.id)).ok).toBe(false);
-    expect((await mkt.buyListing(B, l.listing.id, { ...req, signer: B }, deps(async () => ({ success: true })))).ok).toBe(false);
+    expect((await mkt.buyListing(B, l.listing.id, buy(B, A, t, BigInt(20_000)), deps(async () => ({ success: true })))).ok).toBe(false);
     const s = await mkt.settleSale(l.listing.id, C, "0xfeed");
     expect("state" in s && s.state).toBe("sold");
     expect((await col.collectionOf(C)).copies.some((c) => c.uid === mine[0].uid)).toBe(true);

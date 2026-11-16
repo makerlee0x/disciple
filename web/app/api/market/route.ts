@@ -5,7 +5,7 @@ export const runtime = "nodejs";
  *
  * GET                      → { ok, listings, sales }            open listings (filters: item, kind, rar, series, trak=1, sort)
  * GET ?listing=<id>        → { ok, listing, sales }             one listing and its item's price history
- * GET ?terms=<id>&signer=  → { ok, terms, quote }               what to sign to buy it (price, 7% fee, network fee quote)
+ * GET ?terms=<id>&signer=  → { ok, terms, treasury, quote }     what to sign to buy it (seller's share, 7% to the treasury, network fee)
  * GET ?mine=1  (Bearer)    → { ok, listings, offers }           your listings and trade offers
  * GET ?pilot=<name|0x…>    → { ok, wallet }                     who a trade offer goes to
  * POST (Bearer) { op: "list", copy, price } | { op: "unlist", listing } | { op: "offer", to, give, want }
@@ -71,10 +71,13 @@ export async function GET(req: Request) {
       const terms = await buyTerms(tid);
       if ("ok" in terms) return out(409, terms);
       const signer = q.get("signer");
-      const { quoteGaslessWithdraw } = await import("@/lib/server/gaslessWithdrawRelay");
-      const quote = await quoteGaslessWithdraw(isAddr(signer) ? { signer } : {}).catch((e) => ({ error: (e as Error).message }));
+      const { quoteGaslessWithdraw, marketTreasury } = await import("@/lib/server/gaslessWithdrawRelay");
+      const treasury = marketTreasury();
+      const quote = treasury
+        ? await quoteGaslessWithdraw(isAddr(signer) ? { signer } : {}, { extraWithdraws: 1 }).catch((e) => ({ error: (e as Error).message }))
+        : { error: "no treasury" };
       if ("error" in quote) return out(503, { ok: false, reason: "Buying is switched off right now. Try again later." });
-      return out(200, { ok: true, terms, quote });
+      return out(200, { ok: true, terms, treasury, quote });
     }
     const sort = (["new", "price-asc", "price-desc", "burn-asc"] as const).find((x) => x === q.get("sort")) as MarketSort | undefined;
     const f: MarketFilter = {
@@ -110,11 +113,12 @@ export async function POST(req: Request) {
       if (app) return out(403, { ok: false, reason: APP_ONLY });
       const idToken = identityToken(req);
       if (!idToken) return out(401, { ok: false, reason: "Sign in again to pay." });
-      const [{ parseAnyWithdrawRequest }, relay] = await Promise.all([import("@/lib/trade/gaslessWithdraw"), import("@/lib/server/gaslessWithdrawRelay")]);
+      const relay = await import("@/lib/server/gaslessWithdrawRelay");
       const deps: BuyDeps = {
-        parse: (raw) => parseAnyWithdrawRequest(raw),
-        networkFee: async (signer) => BigInt((await relay.quoteGaslessWithdraw({ signer })).fee),
-        relay: async (raw) => { const r = await relay.relayGaslessWithdraw(raw, { idToken }); return { success: r.success, txHash: r.txHash }; },
+        parse: (raw) => relay.parseMarketBuyRequest(raw),
+        treasury: () => relay.marketTreasury(),
+        networkFee: async (signer) => BigInt((await relay.quoteGaslessWithdraw({ signer }, { extraWithdraws: 1 })).fee),
+        relay: async (raw) => { const r = await relay.relayMarketBuy(raw, { idToken }); return { success: r.success, txHash: r.txHash }; },
       };
       const r = await buyListing(a.wallet, hex(b.listing), b.request, deps);
       return out(r.ok ? 200 : r.pending ? 202 : 409, r);

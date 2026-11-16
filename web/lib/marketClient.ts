@@ -74,8 +74,9 @@ export async function buyQuote(id: string): Promise<{ priceRaw: bigint; networkR
 }
 
 /**
- * Buy a listing: one silent signature from your Disciple wallet (the same gasless USDG transfer the Cash panel uses). It pays
- * the seller the price minus 7% and covers the 7% and the network fee, then the server moves the copy to you.
+ * Buy a listing: two silent signatures from your Disciple wallet, sent as one transaction so both land or neither does.
+ * One pays the seller the price minus 7% plus the network fee (to the relayer); the other sends the 7% to the treasury.
+ * Then the server moves the copy to you.
  */
 export async function buyListing(id: string): Promise<MarketResult> {
   try {
@@ -84,12 +85,12 @@ export async function buyListing(id: string): Promise<MarketResult> {
     if (!owner) return { ok: false, reason: "Sign in to buy." };
     const j = await (await fetch(withBase(`/api/market?terms=${id}&signer=${owner.address}`), { cache: "no-store" })).json();
     if (!j?.ok) return { ok: false, reason: j?.reason ?? "That listing is gone." };
-    const [{ parseWithdrawQuote, signGaslessWithdraw }, { publicClient }, { bigintToDecimal }] = await Promise.all([
+    const [{ parseWithdrawQuote, signMarketBuy }, { publicClient }, { bigintToDecimal }] = await Promise.all([
       import("@/lib/trade/gaslessWithdrawClient"), import("@/lib/protocol-viem"), import("@/lib/trade/gaslessPermit2"),
     ]);
-    const q = parseWithdrawQuote(j.quote);
-    const net = q.fee, fee = net + BigInt(j.terms.feeRaw), amount = BigInt(j.terms.priceRaw) + net;
-    const req = await signGaslessWithdraw(publicClient() as never, owner, { amount, destination: j.terms.seller, quote: { ...q, fee } });
+    const req = await signMarketBuy(publicClient() as never, owner, {
+      seller: j.terms.seller, sellerRaw: BigInt(j.terms.sellerRaw), treasury: j.treasury, feeRaw: BigInt(j.terms.feeRaw), quote: parseWithdrawQuote(j.quote),
+    });
     const idToken = await privyIdentityToken().catch(() => null);
     return post(owner.address, { op: "buy", listing: id, request: JSON.parse(JSON.stringify(req, bigintToDecimal)) }, idToken ? { "privy-id-token": idToken } : {});
   } catch (e) {

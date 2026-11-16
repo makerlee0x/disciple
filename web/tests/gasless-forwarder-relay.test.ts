@@ -17,10 +17,10 @@ vi.mock("../lib/server/syncSend", async original => ({ ...await original<typeof 
 const KEY = generatePrivateKey();
 process.env.RELAYER_NONCE_SHARED = "0";
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
-import { relayGaslessWithdraw, quoteGaslessWithdraw, withdrawFeeTo, withdrawUsdgPerEth } from "../lib/server/gaslessWithdrawRelay";
+import { relayGaslessWithdraw, relayMarketBuy, quoteGaslessWithdraw, withdrawFeeTo, withdrawUsdgPerEth } from "../lib/server/gaslessWithdrawRelay";
 import { gaslessSessionDeps } from "../lib/server/gaslessSession";
 import { strikeSource } from "../lib/server/relayLockdown";
-import { transferTypedData, withdrawFeeRaw, withdrawGas, WITHDRAW_TX_GAS_LIMIT } from "../lib/trade/gaslessWithdraw";
+import { MULTICALL3, multicall3Abi, transferTypedData, withdrawFeeRaw, withdrawGas, WITHDRAW_TX_GAS_LIMIT } from "../lib/trade/gaslessWithdraw";
 import { forwarderAbi, withdrawTypedData } from "../lib/trade/permitForwarder";
 import { DEPLOYMENTS } from "../lib/chains";
 import type { GaslessDeps } from "../lib/server/gaslessRelay";
@@ -125,5 +125,54 @@ describe("forwarder deployed", () => {
     const w = await wireFwd();
     w.amount = (BigInt(w.amount) + 1n).toString();
     await expect(relay(w)).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("permit amount mismatch") });
+  });
+});
+
+
+describe("market buy: seller + treasury in one tx", () => {
+  const TREASURY = "0x00000000000000000000000000000000000007e5" as Address;
+  const seller = "0x00000000000000000000000000000000000000aa" as Address;
+  const buyFee = () => withdrawFeeRaw(withdrawGas(false) + withdrawGas(false), BASE, withdrawUsdgPerEth(), DEPLOYMENTS[46630].usdgDecimals);
+  const j = (x: unknown) => JSON.parse(JSON.stringify(x, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
+  async function one(to: Address, amount: bigint, fee: bigint, nonce: bigint, s = user) {
+    const permit = { permitted: { token: usdg, amount }, nonce, deadline: BigInt(NOW + 120) };
+    const signature = await s.signTypedData(withdrawTypedData(46630, FWD, permit, { to, fee, feeTo: feeTo() }));
+    return { signer: s.address, destination: to, amount, fee, feeTo: feeTo(), permit, signature };
+  }
+  const pair = async (o: { cutTo?: Address; cutFee?: bigint; cutNonce?: bigint; cutSigner?: typeof user } = {}) => j({
+    pay: await one(seller, 9_300_000n + buyFee(), buyFee(), 1n),
+    cut: await one(o.cutTo ?? TREASURY, 700_000n, o.cutFee ?? 0n, o.cutNonce ?? 2n, o.cutSigner),
+  });
+  beforeEach(() => { process.env.MARKET_TREASURY_ADDRESS = TREASURY; });
+  afterEach(() => { delete process.env.MARKET_TREASURY_ADDRESS; });
+
+  it("quote covers both withdraws", async () => {
+    const q = await quoteGaslessWithdraw({ signer: user.address }, { needsPermit: false, baseFee: BASE, rate: withdrawUsdgPerEth(), feeTo: feeTo(), extraWithdraws: 1 });
+    expect(BigInt(q.fee)).toBe(buyFee());
+  });
+  it("sends one Multicall3 tx with two forwarder withdraws: seller (fee to relayer) and treasury (no fee)", async () => {
+    let raw: Hex | undefined;
+    h.send.mockImplementation(async (r: Hex) => { raw = r; return okRc(); });
+    const r = await relayMarketBuy(await pair(), { idToken: TOKEN });
+    expect(r).toMatchObject({ kind: "confirmed", success: true });
+    const tx = parseTransaction(raw!);
+    expect(tx.to?.toLowerCase()).toBe(MULTICALL3.toLowerCase());
+    const agg = decodeFunctionData({ abi: multicall3Abi, data: tx.data! });
+    const calls = agg.args[0] as readonly { target: Address; allowFailure: boolean; callData: Hex }[];
+    expect(calls).toHaveLength(2);
+    expect(calls.every((c) => c.target.toLowerCase() === FWD && !c.allowFailure)).toBe(true);
+    const [a, b] = calls.map((c) => decodeFunctionData({ abi: forwarderAbi, data: c.callData }).args[1] as { to: Address; fee: bigint; feeTo: Address });
+    expect(a.to.toLowerCase()).toBe(seller); expect(a.fee).toBe(buyFee()); expect(a.feeTo.toLowerCase()).toBe(feeTo().toLowerCase());
+    expect(b.to.toLowerCase()).toBe(TREASURY); expect(b.fee).toBe(0n);
+    expect(tx.gas).toBe(WITHDRAW_TX_GAS_LIMIT * 2n);
+  });
+  it("refuses a cut that isn't to the treasury, carries a fee, reuses the nonce or comes from another wallet", async () => {
+    for (const o of [{ cutTo: seller }, { cutFee: 1n }, { cutNonce: 1n }, { cutSigner: other }])
+      await expect(relayMarketBuy(await pair(o), { idToken: TOKEN })).rejects.toMatchObject({ notSent: true });
+    expect(h.send).not.toHaveBeenCalled();
+  });
+  it("is off without a treasury address", async () => {
+    delete process.env.MARKET_TREASURY_ADDRESS;
+    await expect(relayMarketBuy(await pair(), { idToken: TOKEN })).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("switched off") });
   });
 });

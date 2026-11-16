@@ -169,7 +169,7 @@ export async function salesOf(item?: string, limit = 50, s: Kv = kv()): Promise<
 
 /* ----------------------------------------------------------------- buying ----------------------------------------------------------------- */
 
-/** What the buyer signs for: the seller is paid priceRaw - feeRaw; amount and fee also carry the network fee. */
+/** What the buyer signs for: the seller gets sellerRaw (price - 7%) plus nothing else; the 7% (feeRaw) goes to the treasury. */
 export interface BuyTerms { listing: string; seller: string; price: number; fee: number; sellerGets: number; priceRaw: string; feeRaw: string; sellerRaw: string; decimals: number }
 export async function buyTerms(id: string, s: Kv = kv()): Promise<BuyTerms | Fail> {
   const l = await readListing(id, s);
@@ -182,22 +182,27 @@ export async function buyTerms(id: string, s: Kv = kv()): Promise<BuyTerms | Fai
   };
 }
 
-/** The slice of a signed gasless withdraw request the market checks (lib/trade/gaslessWithdraw AnyWithdrawRequest). */
+/** The slice of a signed gasless withdraw the market checks (lib/trade/gaslessWithdraw ForwarderWithdrawRequest). */
 export interface PayRequest { signer: string; destination: string; amount: bigint; fee: bigint }
+/** A buy is two withdraws sent together: pay (seller's share + network fee) and cut (the 7%, to the treasury, no fee). */
+export interface BuyRequest { pay: PayRequest; cut: PayRequest }
 export interface RelayOutcome { success: boolean; txHash?: string }
 export interface BuyDeps {
-  /** parse the raw signed request (lib/trade/gaslessWithdraw parseAnyWithdrawRequest) */
-  parse: (raw: unknown) => PayRequest;
-  /** today's network fee for this transfer, raw USDG */
+  /** parse the raw signed pair (lib/server/gaslessWithdrawRelay parseMarketBuyRequest) */
+  parse: (raw: unknown) => BuyRequest;
+  /** where the 7% goes; null ⇒ buying is off */
+  treasury: () => string | null;
+  /** today's network fee for both transfers, raw USDG */
   networkFee: (signer: string) => Promise<bigint>;
-  /** submit it (lib/server/gaslessWithdrawRelay relayGaslessWithdraw). Throws with notSent: true when nothing was sent. */
+  /** submit both in one tx (lib/server/gaslessWithdrawRelay relayMarketBuy). Throws with notSent: true when nothing was sent. */
   relay: (raw: unknown) => Promise<RelayOutcome>;
 }
 export type BuyResult = { ok: true; listing: Listing; tx?: string } | { ok: false; reason: string; pending?: boolean };
 
 /**
- * Buy a listing with a signed USDG transfer. One buyer at a time (hold), the request must pay the seller exactly the price
- * minus 7% and cover 7% plus today's network fee, and the copy moves only once the transfer is confirmed.
+ * Buy a listing with two signed USDG transfers sent in one tx. One buyer at a time (hold). pay must give the seller exactly
+ * the price minus 7% and cover today's network fee; cut must send exactly the 7% to the treasury. The copy moves only once
+ * the payment is confirmed.
  */
 export async function buyListing(buyerIn: string, id: string, raw: unknown, deps: BuyDeps, now = Date.now(), s: Kv = kv()): Promise<BuyResult> {
   const buyer = lc(buyerIn);
@@ -205,16 +210,20 @@ export async function buyListing(buyerIn: string, id: string, raw: unknown, deps
   if (!l || l.state !== "open") return fail("That listing is gone.");
   if (l.seller === buyer) return fail("That's your own listing.");
   if (await s.get(COLK.frozen(l.uid))) return fail("That copy is frozen while we look into it.");
-  let q: PayRequest;
+  const treasury = deps.treasury();
+  if (!treasury) return fail("Buying is switched off right now. Try again later.");
+  let q: BuyRequest;
   try { q = deps.parse(raw); } catch { return fail("That payment didn't read right. Try again."); }
   const t = await buyTerms(id, s);
   if (isFail(t)) return t;
-  if (lc(q.signer) !== buyer) return fail("Pay from the wallet you're signed in with.");
-  if (lc(q.destination) !== l.seller) return fail("That payment isn't to the seller.");
-  const priceRaw = BigInt(t.priceRaw), feeRaw = BigInt(t.feeRaw);
-  if (q.amount - q.fee !== priceRaw - feeRaw) return fail("That payment doesn't match the price. Try again.");
+  if (lc(q.pay.signer) !== buyer || lc(q.cut.signer) !== buyer) return fail("Pay from the wallet you're signed in with.");
+  if (lc(q.pay.destination) !== l.seller) return fail("That payment isn't to the seller.");
+  if (lc(q.cut.destination) !== lc(treasury)) return fail("That payment doesn't match the price. Try again.");
+  const sellerRaw = BigInt(t.sellerRaw), feeRaw = BigInt(t.feeRaw);
+  if (q.pay.amount - q.pay.fee !== sellerRaw) return fail("That payment doesn't match the price. Try again.");
+  if (q.cut.amount !== feeRaw || q.cut.fee !== BigInt(0)) return fail("That payment doesn't match the price. Try again.");
   const net = await deps.networkFee(buyer);
-  if (q.fee < feeRaw + net) return fail("The network fee changed. Try again.");
+  if (q.pay.fee < net) return fail("The network fee changed. Try again.");
 
   // one buyer at a time: the hold outlives a slow relay, and the listing shows as pending so the seller can't pull it
   if (!(await s.setNX(MKT.hold(id), buyer, 600))) return fail("Someone else is buying it right now.");
