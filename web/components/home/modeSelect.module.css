@@ -2,8 +2,7 @@
 .wrap { display: flex; flex-direction: column; gap: 14px; }
 .head { display: flex; align-items: center; gap: 16px; }
 .title { margin: 0; font: 800 40px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
-.hint { margin-left: auto; font-size: 13px; color: #9095A0; }
-.arrows { display: flex; gap: 8px; }
+.arrows { display: flex; gap: 12px; justify-content: center; margin-top: 4px; }
 .arrow {
   width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; padding: 0 0 3px;
   background: rgba(18, 19, 39, .8); border: 1px solid rgba(232, 234, 238, .2); color: #FFFFFF; font: 600 26px / 1 var(--dsc-font-game);
@@ -49,7 +48,7 @@
 /* phones: swipe, one card centred with the next peeking, dots instead of arrows */
 @media (max-width: 760px) {
   .title { font-size: 28px; }
-  .hint, .arrows { display: none; }
+  .arrows { display: none; }
   .rail::before, .rail::after { display: none; }
   .row { gap: 12px; margin: 0 -16px; padding: 10px calc(50vw - 125px); scroll-padding: 0; }
   .card { flex: 0 0 250px; height: 390px; scroll-snap-align: center; scroll-snap-stop: always; }

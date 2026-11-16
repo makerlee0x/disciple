@@ -12,17 +12,37 @@ test.describe("first visit", () => {
     const modes = out(page).getByTestId("mode-select");
     await expect(modes.getByRole("heading", { name: "Pick a mode" })).toBeVisible();
     for (const id of ["launch", "live", "free"]) await expect(out(page).getByTestId(`mode-${id}`)).toBeAttached();
-    // Trading duel stays hidden until the Turbo flag is on
-    await expect(out(page).getByTestId("mode-duel")).toHaveCount(0);
-    await expect(out(page).getByTestId("mode-royale")).toHaveCount(0);
+    // Turbo is on for everyone: Trading duel and Turbo royale are in the row
+    await expect(out(page).getByTestId("mode-duel")).toBeAttached();
+    await expect(out(page).getByTestId("mode-royale")).toBeAttached();
   });
 
-  test("the top bar has Lobby, Launch and Top pilots", async ({ page }) => {
+  test("the top bar has Live flights, Launch, Top pilots and Play now (the mark is the lobby)", async ({ page }) => {
     await page.goto("/");
     const bar = page.getByTestId("lobby-topbar");
     await expect(bar).toBeVisible();
     if (isPhone(page)) return; // phones use the bottom tab bar (see below)
-    for (const name of [/lobby/i, /launch/i, /top pilots/i]) await expect(bar.getByRole("link", { name }).first()).toBeVisible();
+    for (const name of [/live flights/i, /launch/i, /top pilots/i, /play now/i]) await expect(bar.getByRole("link", { name }).first()).toBeVisible();
+    await expect(bar.getByRole("link", { name: /^lobby$/i })).toHaveCount(0);
+    // Turbo is on for everyone
+    await expect(bar.getByTestId("nav-turbo").first()).toBeVisible();
+  });
+
+  test("Turbo tab opens a menu with Trading duel and Turbo royale", async ({ page }) => {
+    await page.goto("/");
+    const btn = page.locator(isPhone(page) ? ".lb-dock [data-testid=nav-turbo]" : ".lb-top [data-testid=nav-turbo]").first();
+    await hydrated(btn);
+    await btn.click();
+    const menu = page.getByTestId("turbo-menu");
+    await expect(menu.getByRole("menuitem", { name: /trading duel/i })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: /turbo royale/i })).toHaveAttribute("href", "/turbo/royale");
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+  });
+
+  test("Live flights opens every rocket", async ({ page }) => {
+    await page.goto("/live");
+    await expect(page.getByRole("heading", { name: /live flights/i })).toBeVisible();
   });
 
   test("one click on any card opens it", async ({ page }) => {
@@ -31,8 +51,8 @@ test.describe("first visit", () => {
     const live = out(page).getByTestId("mode-live");
     await hydrated(live);
     await live.click();
-    // nothing is flying on the stand-in chain, so /play falls back to the launch builder
-    await expect(page).toHaveURL(/\/(create|coin\/)/);
+    // Live flights opens the list of every rocket, not one random rocket
+    await expect(page).toHaveURL(/\/live$/);
   });
 
   test("desktop: arrow keys move between cards and Enter plays", async ({ page }) => {
@@ -41,7 +61,7 @@ test.describe("first visit", () => {
     await hydrated(out(page).getByTestId("mode-free"));
     await out(page).getByTestId("mode-free").focus();
     await page.keyboard.press("ArrowLeft");
-    await expect(out(page).getByTestId("mode-live")).toBeFocused();
+    await expect(out(page).getByTestId("mode-royale")).toBeFocused();
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("ArrowRight"); // wraps round
     await expect(out(page).getByTestId("mode-launch")).toBeFocused();
@@ -57,11 +77,11 @@ test.describe("first visit", () => {
     const live = out(page).getByTestId("mode-live");
     await hydrated(live);
     await live.tap({ position: { x: 20, y: 120 } });
-    await expect(page).toHaveURL(/\/(create|coin\/)/);
+    await expect(page).toHaveURL(/\/live$/);
   });
 
-  test("the Trading duel card shows once the Turbo flag is on", async ({ page }) => {
-    await page.goto("/?turbo=1");
+  test("the Trading duel and Turbo royale cards open their modes", async ({ page }) => {
+    await page.goto("/");
     await expect(out(page).getByTestId("mode-duel")).toBeAttached();
     await expect(out(page).getByTestId("mode-duel")).toHaveAttribute("href", /\/turbo\/duel/);
     await expect(out(page).getByTestId("mode-royale")).toHaveAttribute("href", /\/turbo\/royale/);

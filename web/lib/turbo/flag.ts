@@ -1,7 +1,9 @@
 /**
- * TURBO visibility gate. Hidden everywhere by default (prod included) with no env or Vercel changes needed.
+ * TURBO visibility gate. ON for everyone since 2026-11-16 (maker: "turn turbo on. it can be on now"): the Turbo tab and
+ * the Duel / Royale lobby cards show on every device. The early-access password on /turbo (TurboGate) is separate and
+ * unchanged. A build with NEXT_PUBLIC_TURBO=0 hides it again.
  *
- * On when ANY of these is true:
+ * Before that it was on only when ANY of these was true:
  *  0. Inside the DISCIPLE iPhone app (maker 2026-11-14: "Turbo 1v1 duel is our viral game, we want it on mobile"). The app
  *     only ever gets practice duels (lib/turbo realTurboAllowed), and /turbo keeps its pre-launch password (TurboGate).
  *  1. Build-time NEXT_PUBLIC_TURBO=1 (not set anywhere today; optional for a preview build).
@@ -18,7 +20,7 @@ export const TURBO_FLAG_KEY = "disciple.turbo.enabled.v1";
 
 function envOn(): boolean {
   const v = process.env.NEXT_PUBLIC_TURBO;
-  return v === "1" || v === "true";
+  return v !== "0" && v !== "false";   // on unless a build turns it off
 }
 
 /** Reads ?turbo=1 / ?turbo=0 from the current URL and persists it. Returns the stored value. No-op on the server. */

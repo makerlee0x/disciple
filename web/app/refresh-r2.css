@@ -536,6 +536,7 @@ textarea.he-ta { min-height: 76px; padding: 12px 14px; resize: none; display: bl
 .am-bar { display: block; height: 5px; margin-top: 4px; border-radius: 999px; background: rgba(232,234,238,0.14); overflow: hidden; }
 .am-bar > i { display: block; height: 100%; background: linear-gradient(90deg,#44D4E2,#5FF0A0); }
 .am-sep { display: block; height: 1px; margin: 6px 4px; background: rgba(232,234,238,0.08); }
+@media (min-width: 761px) { .am-i.am-phone { display: none; } }
 .am-i { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; cursor: pointer;
   color: #E8EAEE; font: 600 15px / 1.2 var(--dsc-font-ui); }
 .am-i svg { color: #9095A0; flex: none; }

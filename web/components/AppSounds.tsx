@@ -6,12 +6,16 @@
  *     range sliders tick.
  *   - sheets: a dialog (role="dialog") appearing or leaving plays sheet_open / sheet_close.
  *   - money: cash arriving (CASH_ARRIVED_EVENT) plays deposit_done.
- *   - the ambience bed for the screen: hangar tone in the Hangar, wind in a flight (FlightSfx swaps it as you climb),
- *     none in the Duel and Royale (their engines run their own), the deep space drone everywhere else.
+ *   - the ambience bed for the screen: wind in a flight (FlightSfx swaps it as you climb), the hangar tone in the Hangar
+ *     (app only), none in the Duel and Royale (their engines run their own) and none in the lobby and menus.
+ *     The deep space drone used to play on every other screen; its low hum sounded like a broken cable (maker, 2026-11-16).
+ *
+ * The taps, tab/toggle clicks, slider ticks and sheet sounds play in the iPhone app only (appFeel). The website keeps the
+ * game sounds (boosts, cash, level up, crates) but not the clicks.
  */
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { playSfx, preloadSfx, setBed } from "@/lib/game/sfx";
+import { appFeel, playSfx, preloadSfx, setBed } from "@/lib/game/sfx";
 import { resumeAudio } from "@/lib/game/audio";
 import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
 
@@ -21,8 +25,8 @@ const BACK = /^(back|close|cancel|dismiss|not now|done|close settings|close menu
 function bedFor(path: string): string | null {
   if (path.startsWith("/turbo/duel") || path.startsWith("/turbo/royale")) return null;
   if (path.startsWith("/coin/") || path.startsWith("/flight") || path.startsWith("/fly") || path === "/turbo") return "amb_wind_high";
-  if (path.startsWith("/profile")) return "amb_hangar";   // the Hangar
-  return "amb_space_drone";
+  if (path.startsWith("/profile") && appFeel()) return "amb_hangar";   // the Hangar
+  return null;
 }
 
 function soundFor(el: Element): string | null {
@@ -41,6 +45,13 @@ export default function AppSounds() {
   useEffect(() => { setBed(bedFor(path)); }, [path]);
 
   useEffect(() => {
+    const onCash = () => playSfx("deposit_done");
+    addEventListener(CASH_ARRIVED_EVENT, onCash);
+    if (!appFeel()) {   // website: no clicks, just wake the audio on the first press so game sounds can play
+      const wake = () => { void resumeAudio(); };
+      addEventListener("pointerdown", wake, true);
+      return () => { removeEventListener("pointerdown", wake, true); removeEventListener(CASH_ARRIVED_EVENT, onCash); };
+    }
     let primed = false;
     const onDown = (e: PointerEvent) => {
       void resumeAudio();
@@ -59,7 +70,6 @@ export default function AppSounds() {
       const n = performance.now(); if (n - lastTick < 70) return; lastTick = n;
       playSfx("ui_slider_tick", { gapMs: 0 });
     };
-    const onCash = () => playSfx("deposit_done");
 
     // sheets and popups: watch dialogs come and go
     let count = 0, queued = 0;
@@ -75,7 +85,6 @@ export default function AppSounds() {
 
     addEventListener("pointerdown", onDown, true);
     addEventListener("input", onInput, true);
-    addEventListener(CASH_ARRIVED_EVENT, onCash);
     return () => {
       removeEventListener("pointerdown", onDown, true);
       removeEventListener("input", onInput, true);
