@@ -59,7 +59,9 @@ export default function AppSounds() {
       const n = performance.now(); if (n - lastTick < 70) return; lastTick = n;
       playSfx("ui_slider_tick", { gapMs: 0 });
     };
-    const onCash = () => playSfx("deposit_done");
+    // only a real arrival (lib/testCash: detail.account). TradeBridge reuses the same "disciple:cash" event name for its 5 s
+    // balance poll on live coins ({usd}), which made this chime every 5 seconds in flight (maker 2026-11-16).
+    const onCash = (e: Event) => { if ((e as CustomEvent<{ account?: string }>).detail?.account) playSfx("deposit_done"); };
 
     // sheets and popups: watch dialogs come and go
     let count = 0, queued = 0;
