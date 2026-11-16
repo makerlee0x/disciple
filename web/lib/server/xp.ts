@@ -50,7 +50,7 @@ export const XP_NONCE_PREFIX = "xp:nonce";
 /** Ledger rows read per wallet (a daily player writes ~10 a day; this is years of play). */
 const LEDGER_MAX = 20_000;
 
-export type LedgerKind = "mission" | "milestone" | "buy" | "prestige" | "draft" | "freeplay" | "streak" | "style";
+export type LedgerKind = "mission" | "milestone" | "buy" | "prestige" | "draft" | "freeplay" | "streak" | "style" | "crate";
 export interface LedgerRow { src: string; kind: LedgerKind; xp: number; label: string; ts: number }
 
 const parse = <T>(s: string | null): T | null => { if (!s) return null; try { return JSON.parse(s) as T; } catch { return null; } };
@@ -208,7 +208,8 @@ export async function xpSummary(walletIn: string, now = Date.now(), s: Kv = kv()
 
 /* ------------------------------------------------------ writes -------------------------------------------------------- */
 
-async function withLock<T>(w: string, s: Kv, f: () => Promise<T>): Promise<T | { ok: false; reason: string }> {
+/** The per-wallet XP lock (spend / prestige; lib/server/collection buys and crate XP too). */
+export async function withLock<T>(w: string, s: Kv, f: () => Promise<T>): Promise<T | { ok: false; reason: string }> {
   const token = randomUUID();
   if (!(await s.setNX(XPK.lock(w), token, 10))) return { ok: false, reason: "Busy, try again." };
   try { return await f(); } finally { await s.delIfEq(XPK.lock(w), token).catch(() => {}); }

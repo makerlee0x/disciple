@@ -168,6 +168,7 @@
     "@noble/curves": "^1.9.0",
     "@privy-io/react-auth": "^3.50.0",
     "@tensorflow/tfjs": "^4.22.0",
+    "@vercel/blob": "^2.9.0",
     "lightweight-charts": "^5.2.1",
     "marked": "^18.1.1",
     "mp4-muxer": "^5.2.2",
