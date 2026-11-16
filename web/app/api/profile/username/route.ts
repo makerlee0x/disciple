@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 /**
  * Username registry (Upstash via lib/server/usernames; local file fallback without KV env).
- * GET  ?u=name            → { available, reason? }
+ * GET  ?u=name[&address=0x…] → { available, reason?, mine? }   (mine: that wallet already holds the name)
  * GET  ?address=0x…       → { username | null, nextAllowedAt | null }   (nextAllowedAt: ms epoch of the next allowed rename)
  * GET  ?resolve=name      → { address | null }        (reverse lookup username → wallet)
  * GET  ?nonce=1&address=0x… → { nonce, ttlSec }   (fresh random nonce per request, bound to address, 10 min;
@@ -48,7 +48,7 @@ export async function GET(req: Request) {
   // Lookups (?address / ?resolve / ?u=) share one bucket — caps enumeration without blocking a normal profile page.
   const look = await hitLimit(kv(), `user:lookup:ip:${clientIp(req.headers)}`, PUBLIC_GET_LIMITS.usernameLookupPerIp.limit, PUBLIC_GET_LIMITS.usernameLookupPerIp.windowSec);
   if (!look.ok) return tooMany(look.retryAfterSec);
-  if (address) {
+  if (address && url.searchParams.get("u") === null) {
     if (!isAddr(address)) return NextResponse.json({ username: null, nextAllowedAt: null });
     const [username, last] = await Promise.all([usernameOf(address), lastUsernameChangeAt(address).catch(() => null)]);
     return NextResponse.json({ username, nextAllowedAt: nextUsernameChangeAt(last, Date.now()) }, { headers: { "cache-control": "no-store" } });
@@ -61,8 +61,11 @@ export async function GET(req: Request) {
   const u = norm(url.searchParams.get("u"));
   const badU = validateUsername(u);
   if (badU) return NextResponse.json({ available: false, reason: badU });
-  const taken = !!(await walletOf(u));
-  return NextResponse.json({ available: !taken, reason: taken ? "Username taken." : undefined });
+  const holder = await walletOf(u);
+  // ?u=name&address=0x…: the asking wallet already holds it (not "taken")
+  if (holder && address && isAddr(address) && holder.toLowerCase() === address.toLowerCase()) return NextResponse.json({ available: true, mine: true });
+  const taken = !!holder;
+  return NextResponse.json({ available: !taken, reason: taken ? PROFILE_COPY["edit.username.taken"] : undefined });
 }
 
 export async function POST(req: Request) {

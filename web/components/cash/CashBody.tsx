@@ -265,7 +265,7 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
               <span className="cx-fuelr"><b>{usd2(fuel.usd)}</b>
                 <button type="button" className="r2-btn" disabled={fuelBusy} data-testid="cash-fuel-back"
                   onClick={async () => {
-                    if (!fuel.toCash) { onClose(); window.location.assign(withBase("/turbo")); return; }
+                    if (!fuel.toCash) { onClose(); window.location.assign(withBase("/turbo/duel")); return; }
                     setFuelErr(null); setFuelBusy(true);
                     try { await fuel.toCash(fuel.usd); void refresh(addr); } catch { setFuelErr(CASH_COPY.moveFailed); } finally { setFuelBusy(false); }
                   }}>{fuelBusy ? CASH_COPY.moving : CASH_COPY.moveBack}</button></span></div>

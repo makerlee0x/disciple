@@ -7,8 +7,9 @@
  * Desktop: one row (mark, tabs, then the wallet pill's space). Phones: the mark row, then the tabs scroll sideways.
  */
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { haptic } from "@/lib/game/haptics";
 import { aaSession, hasSavedSession, onPrivy, onSessionChange, privyAuthenticated, privyLoaded } from "@/lib/aa/sessionState";
 import { WALLET_ID_EVENT, walletId } from "@/lib/walletCta";
 import LevelChip from "@/components/xp/LevelChip";
@@ -67,12 +68,26 @@ export default function LobbyTopBar() {
     return () => { removeEventListener("focusin", on); removeEventListener("focusout", off); document.documentElement.classList.remove("lb-typing"); };
   }, []);
 
-  const isOn = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
+  // Tab bar taps feel instant (maker 2026-11-16: "there's a delay when you press the buttons footer"): the tapped tab
+  // lights up on touch, before the next page has rendered, and the tab pages are prefetched up front so the switch
+  // itself has nothing to wait for. The app dock also navigates on touch-down, like a native tab bar.
+  const router = useRouter();
+  const [pressed, setPressed] = useState<string | null>(null);
+  const pushedOnDown = useRef<string | null>(null);
+  useEffect(() => { setPressed(null); }, [pathname]);
+  useEffect(() => {
+    const t = window.setTimeout(() => { for (const h of ["/", "/profile", "/leaderboard", "/create"]) { try { router.prefetch(h); } catch { /* ignore */ } } }, 600);
+    return () => window.clearTimeout(t);
+  }, [router]);
+  const at = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
+  const isOn = (href: string) => (pressed != null ? pressed === href : at(href));
+  const press = (href: string) => { if (!at(href)) setPressed(href); };
 
   const nav = (dock: boolean) => (
     <nav className={`lb-tabs${dock ? " lb-dock" : " lb-top"}`} aria-label="Main">
       {TABS.filter((t) => (dock || !t.phone) && (!t.you || you) && (!t.out || !you)).map((t) => (
-        <Link key={t.key} href={t.href} className={isOn(t.href) ? "on" : undefined} aria-current={isOn(t.href) ? "page" : undefined}>
+        <Link key={t.key} href={t.href} className={isOn(t.href) ? "on" : undefined} aria-current={at(t.href) ? "page" : undefined}
+          onPointerDown={dock ? () => press(t.href) : undefined}>
           <Icon name={t.icon} size={22} className="lb-ico" />
           <span className="lb-lbl">{t.label}</span>
         </Link>
@@ -98,8 +113,16 @@ export default function LobbyTopBar() {
     <nav className="lb-tabs lb-dock lb-appdock" aria-label="Main">
       {APP_TABS.map((t) => (
         <Link key={t.key} href={t.href} className={`${t.key === "play" ? "lb-play " : ""}${isOn(t.href) ? "on" : ""}`.trim() || undefined}
-          aria-current={isOn(t.href) ? "page" : undefined} data-testid={`app-tab-${t.key}`}
-          onClick={t.key === "play" && pathname === "/" ? (e) => { e.preventDefault(); dispatchEvent(new Event(QUICK_PLAY_EVENT)); } : undefined}>
+          aria-current={at(t.href) ? "page" : undefined} data-testid={`app-tab-${t.key}`}
+          onPointerDown={(e) => {
+            if (e.button !== 0 || (t.key === "play" && pathname === "/") || at(t.href)) return;
+            haptic("tap", true); press(t.href); pushedOnDown.current = t.href; router.push(t.href);
+          }}
+          onClick={(e) => {
+            if (t.key === "play" && pathname === "/") { e.preventDefault(); dispatchEvent(new Event(QUICK_PLAY_EVENT)); return; }
+            // already on its way from the touch-down: don't navigate twice
+            if (pushedOnDown.current === t.href) { e.preventDefault(); pushedOnDown.current = null; }
+          }}>
           <Icon name={t.icon} size={t.key === "play" ? 26 : 22} className="lb-ico" />
           <span className="lb-lbl">{t.label}</span>
         </Link>

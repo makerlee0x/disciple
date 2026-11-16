@@ -8,6 +8,8 @@ import TouchKit from "./TouchKit";
 import InviteBanner from "./invites/InviteBanner";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
+import { NATIVE_UA_TAG } from "@/lib/native";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 
 // The wallet pill (viem, @noble/curves, AA session; ~140 KB of JS) is position:fixed chrome, so it loads in its own chunk
@@ -38,6 +40,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // Trading Duel + Turbo Royale show their own fuel in the HUD; the wallet pill sat on top of the duel title, rating, clock
   // and PnL on phones (app audit 2026-11-15). Kept mounted (sign-in, wallet id events), just not drawn.
   const hideWallet = /^\/turbo\/(duel|royale)(\/|$)/.test(pathname ?? "");
+  // html.app (root layout APP_JS) is set before paint, but a page that calls notFound() re-renders the root <html> on the
+  // client and React writes its className back without it: the website's 4-tab bar and Play now then showed in the app.
+  // Put it back whenever anything rewrites the class.
+  useEffect(() => {
+    if (!navigator.userAgent.includes(NATIVE_UA_TAG)) return;
+    const html = document.documentElement;
+    const keep = () => { if (!html.classList.contains("app")) html.classList.add("app"); };
+    keep();
+    const mo = new MutationObserver(keep);
+    mo.observe(html, { attributes: true, attributeFilter: ["class"] });
+    return () => mo.disconnect();
+  }, []);
   return (
     <>
       {hideWallet && <style>{".wb-root{display:none!important}"}</style>}

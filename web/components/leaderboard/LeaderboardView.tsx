@@ -37,7 +37,7 @@ export const LEADERBOARD_COPY = {
   cols: { rank: "#", pilot: "Pilot", flights: "Flights", record: "Record", banked: "Banked", crew: "Crew", green: "Green rockets", pilots: "Pilots" },
   rules: {
     title: "How you rank",
-    items: ["Only cashed-out profit counts, after fees. Red flights count against you.", "Rockets you launched don't count.", "Stay aboard at least 2 minutes or the cash-out doesn't count.", "Best % only counts flights with $20 or more in."],
+    items: ["Only cashed-out profit counts, after fees. Red flights count against you.", "Rockets you launched don't count.", "Best % only counts flights with $20 or more in."],
     note: LOGBOOK_ENABLED ? "Tap a pilot to open their logbook. Open bags stay private." : "Tap a pilot to see their Hangar. Open bags stay private.",
   },
   bestCall: { eyebrow: { day: "Best call today", week: "Best call of the week", month: "Best call of the month", all: "Best call of the month" } as Record<BoardWindow, string>, boarded: "Boarded", cashed: "Cashed out", put: (v: string) => `on ${v} put in`, aboard: "aboard", open: (n: string) => (LOGBOOK_ENABLED ? `See ${n}'s logbook` : `See ${n}'s profile`) },

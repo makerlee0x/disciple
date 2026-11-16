@@ -203,7 +203,9 @@
   :root { --lb-bar-h: 60px; }
   body.lobby { --ap-bottom-nav: 64px; }
   /* no backdrop-filter here: it would make the header the containing block of the fixed bottom bar */
-  .lb-bar { flex-direction: row; align-items: center; backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(11,12,14,0.96); }
+  /* solid on phones (maker 2026-11-16): at 0.96 the page showed through under the status bar and the mark while scrolling */
+  .lb-bar { flex-direction: row; align-items: center; backdrop-filter: none; -webkit-backdrop-filter: none; background: #0B0C0E; }
+  .lb-bar::after { mix-blend-mode: normal; opacity: 0.05; }
   .lb-bar .lb-tabs.lb-top { display: none; }
   html.lb-typing .lb-tabs.lb-dock { display: none; }
   .lb-tabs {
@@ -275,6 +277,7 @@ html.app .app-only { display: block; }
 html.app .lb-tabs.lb-dock:not(.lb-appdock) { display: none; }
 html.app .lb-tabs.lb-appdock { display: grid; grid-template-columns: 1fr 1.2fr 1fr; grid-auto-flow: row; }
 html.app.lb-typing .lb-tabs.lb-appdock, html.app.app-sheet .lb-tabs.lb-appdock { display: none; }
+html.app .lb-appdock a { touch-action: manipulation; -webkit-tap-highlight-color: transparent; transition: none; }
 html.app .lb-appdock a.on { border-top-color: transparent; color: #fff; }
 html.app .lb-appdock .lb-play .lb-ico { background: #23263A; color: #fff; padding: 8px 22px; border-radius: 16px; margin-top: -14px; }
 html.app .lb-appdock .lb-play.on .lb-ico { background: var(--dsc3-light-gold); color: #121327; box-shadow: 0 4px 0 #8A5F0D; }
@@ -284,8 +287,23 @@ html.app .lb-playnow, html.app .fr-coach { display: none !important; }
 /* the app's Hangar tab is the website Hangar (/profile) with a sticky jump row under the top bar */
 .hg-appjump { display: none; }
 html.app .hg-appjump { position: sticky; top: calc(var(--lb-bar-h) + var(--ap-safe-top, 0px)); z-index: 20; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
-  margin: 0 -16px; padding: 10px 16px; background: rgba(11,12,14,.94); border-bottom: 1px solid rgba(232,234,238,.08); }
+  margin: 0 -16px; padding: 10px 16px; background: #0B0C0E; border-bottom: 1px solid rgba(232,234,238,.08); }
 html.app .hg-appjump::-webkit-scrollbar { display: none; }
 html.app .hg-appjump button { flex: none; padding: 9px 14px; border-radius: 999px; border: 1px solid #2E323A; background: #15172A; color: #E8EAEE;
   font: 700 14px/1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .05em; cursor: pointer; }
 html.app .hg-sec, html.app .hg-panel { scroll-margin-top: calc(var(--lb-bar-h) + var(--ap-safe-top, 0px) + 64px); }
+
+/* ── Free play hub on phones (body.fp-hub, set by components/sim/FreePlay while the hub or the daily pre-flight shows) ──
+   The hub draws its own back arrow and title, and Free play runs on practice cash, so the game shell's old chrome (the
+   menu button and the cash / total / account pills) goes: it sat on top of the FREE PLAY title (maker 2026-11-16). */
+@media (max-width: 760px) {
+  body.fp-hub #apReopen, body.fp-hub #apSide, body.fp-hub .ap-scrim, body.fp-hub .wb-root,
+  body:has([data-testid="sim-select"]) #apReopen, body:has([data-testid="sim-select"]) #apSide,
+  body:has([data-testid="sim-select"]) .ap-scrim, body:has([data-testid="sim-select"]) .wb-root { display: none !important; }
+}
+
+/* Trophies on phones: the fixed full-screen grain with mix-blend-mode overlay can make WebKit stop painting a tall page
+   (same fix as the launch page, PR #416). A plain faint grain instead. */
+@media (max-width: 760px) {
+  html body:has(.xp-trophies)::after { mix-blend-mode: normal; opacity: 0.05; }
+}

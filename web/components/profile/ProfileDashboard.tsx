@@ -232,7 +232,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       {isPrivate && <SettingsModal open={settingsOpen} onClose={closeSettings} />}
       {isPrivate && <EditProfileSheet open={!!edit} focus={edit?.focus} wallet={wallet} meta={meta}
         handle={handle} level={xp?.level ? `Level ${xp.level.level} · ${xp.level.prestigeName}` : undefined}
-        onClose={(saved) => { setEdit(null); if (saved) flash(C["edit.saved"]); }} />}
+        onClose={(saved) => { setEdit(null); if (saved) flash(typeof saved === "string" ? saved : C["edit.saved"]); }} />}
       {isPrivate && <RewardsPopup open={rewardsOpen} onClose={closeRewards} r={rewards} />}
       {toast && <div className="pf-toast" role="status">{toast}</div>}
 

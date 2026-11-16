@@ -146,7 +146,6 @@ export default function LaunchRocketPage() {
   const usingUpload = !!uploadedUri && !blocked;
   const previewIcon = usingUpload ? (croppedUri || uploadedUri) : badgeUri;
 
-  useEffect(() => { preloadModeration(); }, []);
   useEffect(() => {
     shuffleName();
     setTax(readStoredCreatorTax(CURVE.creatorTaxMaxPct));
@@ -248,17 +247,24 @@ export default function LaunchRocketPage() {
 
   async function storeImage(dataUri: string): Promise<string | null> {
     if (IS_STATIC_PREVIEW) return dataUri;
-    const fd = new FormData(); fd.append("uri", dataUri);
-    const v = await fetch("/api/moderate-image", { method: "POST", body: fd })
-      .then(async (r) => (await r.json().catch(() => null)) as ModerateResponse)
-      .catch((err) => { console.warn("[disciple] launch image upload failed", { message: String((err as Error)?.message ?? err).slice(0, 300) }); return null; });
-    const li = launchImageFrom(v);
-    if (!li.ok) {
-      console.warn("[disciple] launch image not usable", { reason: li.reason, detail: li.detail, verdict: v?.verdict });
-      setMsg(IMAGE_COPY[li.reason]);
-      return null;
+    // One retry: a cold image check can miss on the first try (maker 2026-11-16: "Your icon didn't upload").
+    let li: ReturnType<typeof launchImageFrom> = { ok: false, reason: "upload", detail: "not tried" };
+    let verdict: string | undefined;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const fd = new FormData(); fd.append("uri", dataUri);
+      let status = 0;
+      const v = await fetch("/api/moderate-image", { method: "POST", body: fd, signal: AbortSignal.timeout?.(65_000) })
+        .then(async (r) => { status = r.status; return (await r.json().catch(() => null)) as ModerateResponse; })
+        .catch((err) => { console.warn("[disciple] launch image upload failed", { attempt, message: String((err as Error)?.message ?? err).slice(0, 300) }); return null; });
+      li = launchImageFrom(v);
+      verdict = v?.verdict;
+      if (li.ok) return li.uri;
+      console.warn("[disciple] launch image not usable", { attempt, status, reason: li.reason, detail: li.detail, verdict });
+      if (li.reason === "block" || status === 429) break;   // a block won't change; a rate limit won't clear in a second
+      if (attempt === 1) await new Promise((r) => window.setTimeout(r, 800));
     }
-    return li.uri;
+    if (!li.ok) setMsg(IMAGE_COPY[li.reason]);
+    return null;
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -418,14 +424,16 @@ export default function LaunchRocketPage() {
     <div className={L.mo} role="dialog" aria-modal="true" aria-label={C.advanced} data-testid="advanced-modal"
       onKeyDown={(e) => { if (e.key === "Escape") setAdvanced(false); }}>
       <header className={L.moHead}>
-        <h2>{C.advanced}</h2>
-        <span>All optional. Locked in when you launch.</span>
+        <div className={L.moTitle}>
+          <h2>{C.advanced}</h2>
+          <span>All optional. Locked in when you launch.</span>
+        </div>
         <button type="button" className={L.moClose} aria-label="Close" onClick={() => setAdvanced(false)}><Icon name="close" size={18} /></button>
       </header>
       <div className={L.moBody}>
         <div className={L.moCol}>
           <div className={L.sec}>
-            <div className={L.sh}><span className={L.st}>{C.pairCoin}</span><span className={L.sub}>{C.pairHelp}</span></div>
+            <div className={L.sh}><span className={L.moIco}><Icon name="base-pair" size={15} /></span><span className={L.st}>{C.pairCoin}</span><span className={L.sub}>{C.pairHelp}</span></div>
             <div className={L.pairs} role="listbox" aria-label={C.pairCoin}>
               {launchPairsForChain(ACTIVE_CHAIN.id).map((coin) => {
                 const addr = addressOn(coin, ACTIVE_CHAIN.id, deployment().defaultQuote);
@@ -442,7 +450,7 @@ export default function LaunchRocketPage() {
             </div>
           </div>
           <div className={L.sec}>
-            <div className={L.sh}><span className={L.st}>{C.links}</span><span className={L.sub}>Shown on your rocket</span></div>
+            <div className={L.sh}><span className={L.moIco}><Icon name="external-link" size={15} /></span><span className={L.st}>{C.links}</span><span className={L.sub}>Shown on your rocket</span></div>
             <div className={L.links}>
               <label className={L.linkRow}>{linkGlyph.twitter}<input value={twitter} placeholder={C.linkX} aria-label={C.linkX}
                 onChange={(e) => setTwitter(e.target.value)} onBlur={() => setTwitter((v) => normalizeTwitter(v) ?? "")} /></label>
@@ -453,7 +461,7 @@ export default function LaunchRocketPage() {
             </div>
           </div>
           <div className={L.sec}>
-            <div className={L.sh}><span className={L.st}>{C.creatorTax}</span><span className={L.sub}>Extra cut on every trade</span></div>
+            <div className={L.sh}><span className={L.moIco}><Icon name="chart" size={15} /></span><span className={L.st}>{C.creatorTax}</span><span className={L.sub}>Extra cut on every trade</span></div>
             <div className={L.tax}>
               <button type="button" className={L.taxStep} aria-label="Lower creator tax" disabled={tax <= 0} onClick={() => setTaxStepped(tax - 0.5)}>−</button>
               <span className={L.taxVal} data-testid="creator-tax-value">{tax}%</span>
@@ -466,7 +474,7 @@ export default function LaunchRocketPage() {
         </div>
         <div className={L.moCol}>
           <div className={L.sec} data-testid="creator-fee-destination">
-            <div className={L.sh}><span className={L.st}>{C.creatorFees}</span><span className={L.sub} data-testid="creator-fee-split-advanced"><FeeLine text={C.creatorFeeSplit} /></span></div>
+            <div className={L.sh}><span className={L.moIco}><Icon name="fees" size={15} /></span><span className={L.st}>{C.creatorFees}</span><span className={L.sub} data-testid="creator-fee-split-advanced"><FeeLine text={C.creatorFeeSplit} /></span></div>
             <div className={L.fees} role="radiogroup" aria-label={C.creatorFees}>
               {CREATOR_FEE_DESTINATIONS.map((id) => {
                 const on = feeDestination === id;
@@ -476,7 +484,7 @@ export default function LaunchRocketPage() {
                     className={`${L.fee}${on ? ` ${L.feeOn}` : ""}`} onClick={() => setFeeDest(id)}>
                     <span className={L.feeArt}><CreatorFeeArt dest={id} /></span>
                     <span>{CREATOR_FEE_COPY[id].sentence}</span>
-                    <span className={L.feeRadio} aria-hidden />
+                    {on && <span className={L.tick} aria-hidden><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#121327" strokeWidth="3.5"><path d="M5 12l5 5 9-10" /></svg></span>}
                   </button>
                 );
               })}
@@ -486,7 +494,7 @@ export default function LaunchRocketPage() {
           </div>
           {!privateLaunch && feeDestination === CREATOR_FEE_DESTINATION.creator && (
             <div className={L.sec} data-testid="fee-payout">
-              <div className={L.sh}><span className={L.st}>Fee payout</span><span className={L.sub}>Optional</span></div>
+              <div className={L.sh}><span className={L.moIco}><Icon name="wallet" size={15} /></span><span className={L.st}>Fee payout</span><span className={L.sub}>Optional</span></div>
               <label className={L.linkRow}><Icon name="wallet" size={15} />
                 <input value={feeReceiver} onChange={(e) => setFeeReceiver(e.target.value.trim())} placeholder="Send fees to another 0x account (default: you)" aria-label={C.rewards} /></label>
               <span className={L.note}>{C.rewardsHelp}</span>
@@ -495,7 +503,7 @@ export default function LaunchRocketPage() {
         </div>
       </div>
       <footer className={L.moFoot}>
-        <button type="button" className={L.moDone} data-testid="advanced-done" onClick={() => setAdvanced(false)}>Done</button>
+        <button type="button" className={`${L.cta} ${L.moDone}`} data-testid="advanced-done" onClick={() => setAdvanced(false)}>Done</button>
       </footer>
     </div>
   );
@@ -546,7 +554,7 @@ export default function LaunchRocketPage() {
                   </button>
                 ))}
                 <button type="button" className={`${L.take} ${L.takeUp}${usingUpload ? ` ${L.takeOn}` : ""}`} title={usingUpload ? C.changeImage : C.uploadImage}
-                  aria-label={usingUpload ? C.changeImage : C.uploadImage} data-testid="badge-upload" onClick={() => fileRef.current?.click()}>
+                  aria-label={usingUpload ? C.changeImage : C.uploadImage} data-testid="badge-upload" onPointerEnter={preloadModeration} onClick={() => { preloadModeration(); fileRef.current?.click(); }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   {usingUpload && previewIcon ? <img src={previewIcon} alt="" width={52} height={52} /> : (
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M12 16V4M6 10l6-6 6 6M4 20h16" /></svg>

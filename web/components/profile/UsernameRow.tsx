@@ -41,11 +41,14 @@ export function useUsernameDraft(wallet: string | null, open = true): UsernameDr
     setStatus({ ok: false, text: C["edit.username.checking"] });
     let alive = true;
     const t = setTimeout(async () => {
-      const r = await checkUsername(name);
-      if (alive) setStatus({ ok: r.available, text: r.available ? `Available${r.reason ? ` (${r.reason})` : ""}` : r.reason || "Taken", bad: !r.available });
+      const r = await checkUsername(name, wallet);
+      if (!alive) return;
+      // the server says this wallet already holds it (the local cache was just behind): it's the current name, not a change
+      if (r.mine) { setMe(normalizeUsername(name)); setStatus(null); return; }
+      setStatus({ ok: r.available, text: r.available ? `Available${r.reason ? ` (${r.reason})` : ""}` : r.reason || C["edit.username.taken"], bad: !r.available });
     }, 300);
     return () => { alive = false; clearTimeout(t); };
-  }, [name, changed]);
+  }, [name, changed, wallet]);
 
   async function claim() {
     const r = await claimUsername(name, wallet);
