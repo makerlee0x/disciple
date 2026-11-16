@@ -19,7 +19,7 @@ That's the whole relationship. A rocket follows its base on the chart because it
 
 ## Which coins can be a base
 
-The launch form offers 12 pair coins: STRATEGY, AI, SCHIFFY, BONER, MEME, PONS, ORBIO, HOOKR, CASHCAT, PRIORS, PENGU and HMM. **STRATEGY** is picked for you. Pick another under **More options** on the launch form.
+The launch form offers 12 pair coins: STRATEGY, AI, SCHIFFY, BONER, MEME, MOO, PONS, ORBIO, HOOKR, CASHCAT, PRIORS and PENGU. **STRATEGY** is picked for you. Pick another under **More options** on the launch form.
 
 Every pair coin needs a registered dollar price, which the team sets up before a coin joins the list.
 

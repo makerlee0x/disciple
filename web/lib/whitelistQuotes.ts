@@ -3,7 +3,7 @@
  * 12 coins. Owner wiring of router/pricer routes is a separate on-chain step
  * (see contracts/script/whitelist/README.md) and is never sent from the web app.
  *
- * Nov 16, 2026 (maker): MOO and SPACEHOOD removed, PENGU and HMM added.
+ * Nov 16, 2026 (maker): SPACEHOOD removed and PENGU added. HMM was added, then swapped back out for MOO.
  * Images live at /whitelist/<SYMBOL>.png (256×256 PNGs).
  *
  * USDG and ETH are built as optional pairs (OPTIONAL_QUOTES) that are OFF at launch.
@@ -54,6 +54,13 @@ export const WHITELIST_QUOTES: readonly WhitelistQuote[] = [
     imagePath: "/whitelist/MEME.png",
   },
   {
+    symbol: "MOO",
+    name: "Memory cow Moo",
+    address: "0xD9dB30BB0D2b8d2eae3826A1372117E058791e18",
+    decimals: 18,
+    imagePath: "/whitelist/MOO.png",
+  },
+  {
     symbol: "PONS",
     name: "Pons",
     address: "0x39dBED3a2bd333467115dE45665cC57F813C4571",
@@ -94,13 +101,6 @@ export const WHITELIST_QUOTES: readonly WhitelistQuote[] = [
     address: "0x74BE72AFFAFbC8de30F0C11247814036314D625f",
     decimals: 18,
     imagePath: "/whitelist/PENGU.png",
-  },
-  {
-    symbol: "HMM",
-    name: "Thinking Cat",
-    address: "0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f",
-    decimals: 18,
-    imagePath: "/whitelist/HMM.png",
   },
 ] as const;
 
