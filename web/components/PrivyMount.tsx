@@ -24,6 +24,7 @@ import { PRIVY_APP_ID, aaSession, registerPrivy, type PrivyAccountInfo, type Pri
 import { connectPrivyOwner, disconnect } from "@/lib/wallet";
 import { withPrivyTxType } from "@/lib/aa/privyTx";
 import { syncLocalIdentity } from "@/lib/profile";
+import { finishPendingXLink } from "@/lib/xLinkClient";
 import { withBase } from "@/lib/base-path";
 import { SIGN_IN_COPY, SIGN_IN_FAILED_EVENT } from "@/lib/walletCta";
 
@@ -43,7 +44,7 @@ function accountInfo(user: { linkedAccounts?: unknown[] } | null | undefined): P
 }
 
 function PrivyBridge() {
-  const { ready, authenticated, login, logout, getAccessToken, user } = usePrivy();
+  const { ready, authenticated, login, logout, getAccessToken, user, linkTwitter } = usePrivy();
   const { wallets, ready: walletsReady } = useWallets();
   const { createWallet } = useCreateWallet();
   const linked = useRef<string | null>(null);
@@ -66,7 +67,11 @@ function PrivyBridge() {
   }, [user, linkedAccounts, exportWallet, showMfaEnrollmentModal, unenrollWithTotp, unenrollWithPasskey]);
 
   // getAccessToken: Privy session for our API routes (verification requests / admin review), no wallet signature
-  useEffect(() => { registerPrivy({ ready, login, logout, getAccessToken, getIdentityToken, authenticated: ready && authenticated, account: accountInfo(user), security }); return () => registerPrivy(null); }, [login, logout, getAccessToken, ready, authenticated, user, security]);
+  useEffect(() => { registerPrivy({ ready, login, logout, getAccessToken, getIdentityToken, authenticated: ready && authenticated, account: accountInfo(user), security, linkX: linkTwitter }); return () => registerPrivy(null); }, [login, logout, getAccessToken, ready, authenticated, user, security, linkTwitter]);
+
+  // iPhone app, Connect X: back from X's sign-in sheet with X now linked to this Privy user → finish the profile link
+  const xUser = accountInfo(user)?.xUsername ?? null;
+  useEffect(() => { if (ready && authenticated && xUser) void finishPendingXLink(); }, [ready, authenticated, xUser]);
 
   useEffect(() => {
     if (!ready || !walletsReady) return;

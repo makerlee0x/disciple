@@ -40,7 +40,7 @@ const same = (a: ProfileMeta, b: ProfileMeta) =>
  * X: link / unlink a verified X account through X's own OAuth (components/profile/XLinkControl, /api/x).
  */
 export default function EditProfileSheet({ open, onClose, wallet, meta, focus, handle, level }: {
-  open: boolean; onClose: (saved?: boolean) => void; wallet: string | null; meta: ProfileMeta; focus?: "bio" | null;
+  open: boolean; /** saved: true, or the line to flash instead of the usual "Saved" */ onClose: (saved?: boolean | string) => void; wallet: string | null; meta: ProfileMeta; focus?: "bio" | null;
   /** the name on the banner now, shown in the cockpit strip until a new call sign is typed */
   handle?: string;
   /** "Level 13 · Ace" under the name in the cockpit strip */
@@ -64,7 +64,10 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
   const bioLen = bioLength(sanitizeBio(draft.bio));
   const metaDirty = !same(draft, meta);
   const dirty = metaDirty || uname.changed;
-  const valid = bioLen <= BIO_MAX && (!uname.changed || !!uname.status?.ok);
+  // a call sign that can't be claimed (taken / bad) must not hold back the picture and bio (maker 2026-11-16: "bio didn't
+  // save" while the call sign said taken). Save then writes the rest and leaves the call sign as it was.
+  const nameOk = !uname.changed || !!uname.status?.ok;
+  const valid = bioLen <= BIO_MAX && (nameOk || metaDirty);
   const tryClose = () => { if (dirty && !busy) setConfirm(true); else onClose(); };
 
   async function pick(kind: "pfp" | "banner", f: File | undefined) {
@@ -80,7 +83,8 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
 
   async function save() {
     setBusy("save"); setErr("");
-    if (uname.changed) {
+    const skipName = uname.changed && !uname.status?.ok;
+    if (uname.changed && !skipName) {
       const u = await uname.claim();
       if (!u.ok) { setBusy(""); setErr(u.reason || C["edit.error.save"]); return; }
       if (!metaDirty) { setBusy(""); onClose(true); return; }
@@ -89,7 +93,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
     const r = await saveProfileMeta({ ...draft, bio: sanitizeBio(draft.bio), title: "" }, wallet);
     setBusy("");
     if (!r.ok) { setErr(r.reason || C["edit.error.save"]); return; }
-    onClose(true);
+    onClose(skipName ? C["edit.username.skipped"] : true);
   }
 
   const img = pfpUrl(draft.pfp);

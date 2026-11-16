@@ -72,3 +72,8 @@ body:has(.xp-trophies)::after, body:has(.launch-v3)::after {
   content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background-image: var(--dsc3-grain); opacity: var(--dsc3-grain-opacity); mix-blend-mode: overlay;
 }
+/* Phones: no blend on the full-screen grain over the tall launch page. iOS WebKit dropped the page's tiles under the
+   blended fixed layer and painted only grain below Extras (maker's iPhone, 2026-11-16). A faint plain grain instead. */
+@media (max-width: 1100px), (pointer: coarse) {
+  body:has(.launch-v3)::after { mix-blend-mode: normal; opacity: calc(var(--dsc3-grain-opacity) * .35); }
+}

@@ -48,12 +48,10 @@ describe("board guardrails (maker, Nov 13)", () => {
     expect(pilotBoard(fills, NOW, o).day.find((p) => p.wallet === "0xh")).toBeUndefined();
     expect(topPilots(fills, NOW).day[0].wallet).toBe("0xh"); // without the rule it would win
   });
-  it("a cash-out counts only after 2 minutes aboard", () => {
+  it("a quick cash-out counts (no minimum time aboard)", () => {
     const t = NOW - H;
-    const quick = [[f("0xq", "c5", "buy", 10, 50, t), f("0xq", "c5", "sell", 10, 90, t + BOARD_RULES.minAboardMs - 1)]];
-    const slow = [[f("0xq", "c5", "buy", 10, 50, t), f("0xq", "c5", "sell", 10, 90, t + BOARD_RULES.minAboardMs)]];
-    expect(topPilots(quick, NOW).day).toEqual([]);
-    expect(topPilots(slow, NOW).day[0]).toMatchObject({ wallet: "0xq", pnlUsd: 40, flights: 1, green: 1 });
+    const quick = [[f("0xq", "c5", "buy", 10, 50, t), f("0xq", "c5", "sell", 10, 90, t + 1000)]];
+    expect(topPilots(quick, NOW).day[0]).toMatchObject({ wallet: "0xq", pnlUsd: 40, flights: 1, green: 1 });
   });
   it("Best % needs $20 put in", () => {
     const tiny = [[f("0xt", "c6", "buy", 10, 1, NOW - 5 * H), f("0xt", "c6", "sell", 10, 80, NOW - 4 * H)]];

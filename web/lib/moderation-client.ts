@@ -40,14 +40,26 @@ export async function precheck(img: HTMLImageElement): Promise<{ verdict: Modera
   return { verdict: decideNsfw(scores), scores };
 }
 
-/** Start loading the model in the background (call on page mount) so the first check is instant. */
+/**
+ * The in-browser check runs on desktop only. On phones (and in the iPhone app) loading tfjs + the MobileNet model and
+ * warming its WebGL shaders blocks the page for seconds: the Launch page froze and stopped painting below the fold
+ * (maker, 2026-11-16). Phones go straight to the server check, which decides anyway.
+ */
+export function clientPrecheckOn(): boolean {
+  if (typeof window === "undefined") return false;
+  try { return !window.matchMedia("(pointer: coarse)").matches; } catch { return false; }
+}
+
+/** Start loading the model in the background so the first check is instant. Desktop only, and only once the player
+ *  reaches for the upload button (never on page load). */
 export function preloadModeration() {
-  if (typeof window === "undefined") return;
+  if (!clientPrecheckOn()) return;
   model().catch(() => { modelP = null; });
 }
 
 /** precheck with a hard timeout. Resolves "timeout" instead of hanging. */
 export async function precheckWithin(img: HTMLImageElement, ms = 3000) {
+  if (!clientPrecheckOn() && !mockScores()) return "timeout" as const;
   return Promise.race([
     precheck(img),
     new Promise<"timeout">((r) => setTimeout(() => r("timeout"), ms)),

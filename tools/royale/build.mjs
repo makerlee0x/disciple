@@ -11,6 +11,9 @@ const engine = readFileSync(join(root, "web/public/turbo/duel/engine.js"), "utf8
 const m = engine.match(/const CSS=(".*?");\n/s);
 if (!m) throw new Error("duel CSS not found in engine.js");
 const css = JSON.parse(m[1]);
+// the flying clouds are shared too: the block between /*FLYSKY{*/ and /*}FLYSKY*/ in the duel engine
+const fly = engine.match(/\/\*FLYSKY\{\*\/[\s\S]*?\/\*\}FLYSKY\*\//);
+if (!fly) throw new Error("FLYSKY block not found in engine.js");
 
 // relative to /turbo/royale/play.html, so it works under any base path
 const assets = {
@@ -24,6 +27,6 @@ const assets = {
 for (const f of readdirSync(join(root, "web/public/turbo/royale/art"))) if (f.endsWith(".webp")) assets[f.slice(0, -5)] = `art/${f}`;
 
 let s = readFileSync(join(here, "royale.tpl.html"), "utf8");
-s = s.replace("/*DUELCSS*/", () => css).replace("%%ASSETS%%", () => JSON.stringify(assets));
+s = s.replace("/*FLYSKY*/", () => fly[0]).replace("/*DUELCSS*/", () => css).replace("%%ASSETS%%", () => JSON.stringify(assets));
 writeFileSync(join(root, "web/public/turbo/royale/play.html"), s);
 console.log("wrote web/public/turbo/royale/play.html", s.length, "bytes");

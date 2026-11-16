@@ -19,7 +19,8 @@
 import { createPublicKey, verify as cryptoVerify, type KeyObject } from "crypto";
 
 export type PrivyClaims = { sub: string; sid?: string; exp: number; iat?: number };
-export type PrivyUser = { id: string; emails: string[]; wallets: string[]; /** linked account types (email, google_oauth, twitter_oauth, wallet, …) */ logins?: string[] };
+export type PrivyUser = { id: string; emails: string[]; wallets: string[]; /** linked account types (email, google_oauth, twitter_oauth, wallet, …) */ logins?: string[];
+  /** the X account linked to this Privy user (twitter_oauth: subject = X user id), verified by Privy through X's OAuth */ x?: { id: string; username: string } | null };
 export type PrivyEnv = { appId: string; appSecret?: string; verificationKey?: string };
 export type FetchLike = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
@@ -81,16 +82,18 @@ export function verifyAccessToken(token: string, keys: KeyObject[], appId: strin
 export function userFromLinkedAccounts(did: string, accounts: unknown): PrivyUser | null {
   if (!Array.isArray(accounts)) return null;
   const emails = new Set<string>(), wallets = new Set<string>(), logins = new Set<string>();
+  let x: { id: string; username: string } | null = null;
   for (const raw of accounts) {
     if (!raw || typeof raw !== "object") continue;
     const a = raw as Record<string, unknown>;
     if (typeof a.type === "string") logins.add(a.type);
     if (a.type === "email" && typeof a.address === "string") emails.add(a.address.trim().toLowerCase());
     if (a.type === "google_oauth" && typeof a.email === "string") emails.add(a.email.trim().toLowerCase());
+    if (a.type === "twitter_oauth" && typeof a.subject === "string" && typeof a.username === "string") x = { id: a.subject, username: a.username.replace(/^@/, "") };
     if (a.type === "wallet" && (a.chain_type === "ethereum" || a.chainType === "ethereum") && typeof a.address === "string" && /^0x[0-9a-fA-F]{40}$/.test(a.address))
       wallets.add(a.address.toLowerCase());
   }
-  return { id: did, emails: Array.from(emails), wallets: Array.from(wallets), logins: Array.from(logins) };
+  return { id: did, emails: Array.from(emails), wallets: Array.from(wallets), logins: Array.from(logins), x };
 }
 
 /**
@@ -129,10 +132,10 @@ export function verifyIdentityToken(token: string, keys: KeyObject[], appId: str
 
 const userCache = new Map<string, { at: number; u: PrivyUser }>();
 /** Linked emails (lowercased) + ethereum wallets of a Privy user, from the Privy REST API. null on any failure. */
-export async function fetchPrivyUser(did: string, pe: PrivyEnv, f: FetchLike = fetch as unknown as FetchLike, now = Date.now()): Promise<PrivyUser | null> {
+export async function fetchPrivyUser(did: string, pe: PrivyEnv, f: FetchLike = fetch as unknown as FetchLike, now = Date.now(), fresh = false): Promise<PrivyUser | null> {
   if (!DID_RE.test(did) || !pe.appSecret || !APP_RE.test(pe.appId)) return null;
   const hit = userCache.get(did);
-  if (hit && now - hit.at < 60_000) return hit.u;
+  if (!fresh && hit && now - hit.at < 60_000) return hit.u;
   try {
     const r = await f(`https://api.privy.io/v1/users/${encodeURIComponent(did)}`, {
       headers: { authorization: "Basic " + Buffer.from(`${pe.appId}:${pe.appSecret}`).toString("base64"), "privy-app-id": pe.appId },
@@ -163,7 +166,8 @@ export const bearer = (h: { get(n: string): string | null }) => {
 
 export type AuthResult = { ok: true; user: PrivyUser } | { ok: false; status: 401 | 403 | 503; reason: string };
 /** Token → verified Privy user (with emails/wallets). */
-export async function authenticate(token: string | null, pe: PrivyEnv, f: FetchLike = fetch as unknown as FetchLike, nowMs = Date.now()): Promise<AuthResult> {
+/** `fresh`: skip the 60 s user cache (right after the user linked a new account). */
+export async function authenticate(token: string | null, pe: PrivyEnv, f: FetchLike = fetch as unknown as FetchLike, nowMs = Date.now(), fresh = false): Promise<AuthResult> {
   if (!pe.appId) return { ok: false, status: 503, reason: "Login isn't configured." };
   if (!token) return { ok: false, status: 401, reason: "Sign in first." };
   const keys = await verificationKeys(pe, f, nowMs);
@@ -171,7 +175,7 @@ export async function authenticate(token: string | null, pe: PrivyEnv, f: FetchL
   const c = verifyAccessToken(token, keys, pe.appId, Math.floor(nowMs / 1000));
   if (!c) return { ok: false, status: 401, reason: "Session expired. Sign in again." };
   if (!pe.appSecret) return { ok: false, status: 503, reason: "Login check isn't configured." };
-  const user = await fetchPrivyUser(c.sub, pe, f, nowMs);
+  const user = await fetchPrivyUser(c.sub, pe, f, nowMs, fresh);
   if (!user) return { ok: false, status: 401, reason: "Couldn't load your account." };
   return { ok: true, user };
 }

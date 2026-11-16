@@ -1,18 +1,14 @@
-"use client";
+import { redirect } from "next/navigation";
+
 /**
- * /turbo — DISCIPLE Turbo (live front end; Nova adapter plugs in at lib/turbo getTurboAdapter()).
- * Hidden: renders nothing until isTurboEnabled() says yes on the client (visit /turbo?turbo=1 once on this device;
- * /turbo?turbo=0 turns it off). Server render and first paint are empty, so nothing leaks without the flag.
+ * /turbo: the solo Turbo run is archived (maker 2026-11-16: "there is no solo turbo mode anymore. only duels and royale").
+ * Old links land on Trading Duel, query kept (?turbo=1 still turns Turbo on for this device). The solo screen's code
+ * (components/turbo/TurboScreen and friends) stays in the repo but nothing routes to it.
  */
-import { useEffect, useState } from "react";
-import dynamic from "next/dynamic";
-import { isTurboEnabled } from "@/lib/turbo/flag";
-
-const TurboScreen = dynamic(() => import("@/components/turbo/TurboScreen"), { ssr: false });
-
-export default function TurboPage() {
-  const [on, setOn] = useState<boolean | null>(null);
-  useEffect(() => { setOn(isTurboEnabled()); }, []);
-  if (!on) return null;
-  return <TurboScreen />;
+export default async function TurboPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const sp = await searchParams;
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) for (const x of Array.isArray(v) ? v : v != null ? [v] : []) q.append(k, x);
+  const qs = q.toString();
+  redirect(`/turbo/duel${qs ? `?${qs}` : ""}`);
 }

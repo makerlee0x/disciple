@@ -10,6 +10,14 @@ import { launchImageUrl } from "@/lib/launchImage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// The server-side check (nsfwjs on pure-JS tfjs when no hosted provider is set) takes ~3 s warm-up on a cold function,
+// more on a small one. The 10-15 s default cut it off on cold starts, so launches and profile photos failed with
+// "didn't upload" (maker, 2026-11-16). The provider itself is time-boxed below.
+export const maxDuration = 60;
+const PROVIDER_TIMEOUT_MS = 25_000;
+
+const withTimeout = <T,>(p: Promise<T>, ms: number) =>
+  Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`timeout ${ms} ms`)), ms))]);
 
 const DATA_URI = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/;
 
@@ -24,6 +32,16 @@ const DATA_URI = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$
  * the render allowlist so a coin launched with it renders. Block → hash added to denylist. Per-IP limit.
  */
 export async function POST(req: NextRequest) {
+  try {
+    return await check(req);
+  } catch (e) {
+    // never an HTML 500: the create page and Edit profile read JSON and show plain copy
+    console.error("[disciple] moderate-image failed", String((e as Error)?.message ?? e).slice(0, 300));
+    return NextResponse.json({ error: "unavailable" }, { status: 503 });
+  }
+}
+
+async function check(req: NextRequest) {
   const rl = await hitLimit(kv(), `moderate:ip:${clientIp(req.headers)}`, 30, 60);
   if (!rl.ok) return NextResponse.json({ verdict: "review", error: "Too many checks, try again shortly." }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   let file: File | null = null, uri: string | null = null;
@@ -55,18 +73,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ verdict: "block", error: msg }, { status: 415 });
   }
 
+  // fail closed: if the denylist can't be read, nothing is allowed (the outer catch answers 503)
   const hit = await isDenied(img.sha256, img.phash);
   if (hit) return NextResponse.json({ verdict: "block", provider: "denylist", sha256: img.sha256, phash: img.phash });
 
   const provider = pickProvider();
   let res;
   try {
-    res = await provider.check(img.buf, img.mime);
-  } catch {
+    res = await withTimeout(provider.check(img.buf, img.mime), PROVIDER_TIMEOUT_MS);
+  } catch (e) {
+    console.warn("[disciple] moderate-image provider failed", { provider: provider.name, message: String((e as Error)?.message ?? e).slice(0, 200) });
     // Fail closed: provider outage → review, never allow.
     return NextResponse.json({ verdict: "review", provider: provider.name, sha256: img.sha256, phash: img.phash });
   }
-  if (res.verdict === "block") await deny(img.sha256, img.phash, `${res.provider}:${JSON.stringify(res.scores || {})}`);
+  if (res.verdict === "block") await deny(img.sha256, img.phash, `${res.provider}:${JSON.stringify(res.scores || {})}`).catch(() => {});
 
   let imageUri: string | undefined, imageUrl: string | undefined;
   if (res.verdict === "allow") {
@@ -78,7 +98,12 @@ export async function POST(req: NextRequest) {
         if (uri) await allowUri(uri, id);
         imageUri = `/api/image/${id}`; imageUrl = abs;
       }
-    } catch { /* storage unavailable: the verdict still returns, the image just won't render until re-checked */ }
+      else console.warn("[disciple] moderate-image not stored: over the size cap", { bytes: img.buf.byteLength });
+    } catch (e) {
+      // storage unavailable: the verdict still returns, but there is nothing to launch with or show as a photo
+      console.error("[disciple] moderate-image store failed", String((e as Error)?.message ?? e).slice(0, 300));
+    }
+    if (!imageUri) return NextResponse.json({ verdict: res.verdict, error: "not stored", sha256: img.sha256 }, { status: 503 });
   }
   return NextResponse.json({
     verdict: res.verdict, provider: res.provider, scores: res.scores,

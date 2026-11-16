@@ -13,6 +13,7 @@ import { ulid } from "@/lib/chat/ulid";
 import {
   COUNTDOWN_MS, OT_MS, applyTrade, bombAt, makeCode, matchWindow, needsOvertime, newBook, newRating, profitOf, rate, settleBook, fuelOf, sizesOf, isCustomFuel,
   type LengthMs, type Rating, type TierId, type TradeAction,
+  DUEL_LEN_MS,
 } from "@/lib/duel/rules";
 import { duelCandles, priceAt, type Candle } from "./price";
 import type { DuelEvent, DuelMode, DuelPlayer, DuelResult, DuelRoom, NewDuelEvent } from "@/lib/duel/types";
@@ -425,7 +426,7 @@ export async function rematch(id: string, pid: string, s: Kv = kv()) {
     if (!r.rematch.by.includes(pid)) r.rematch.by.push(pid);
     if (r.players.every((p) => r.rematch!.by.includes(p.pid))) {
       const seats = await Promise.all(r.players.map((p) => playerOf(p, s)));
-      make = await createRoom(r.mode, r.tier, r.lenMs, seats, s, undefined, r.fuel);
+      make = await createRoom(r.mode, r.tier, DUEL_LEN_MS, seats, s, undefined, r.fuel);
       r.rematch.roomId = make.id;
     }
     return [{ type: "rematch", pid, roomId: r.rematch.roomId }];

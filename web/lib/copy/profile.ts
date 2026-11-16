@@ -61,6 +61,11 @@ export const PROFILE_COPY = {
   "edit.pfp.error.failed": "Couldn't upload your picture. Try again.",
   "edit.username.label": "Username",
   "edit.username.checking": "Checking…",
+  // the typed call sign belongs to another account. Most often that's the same person signed in a different way (Google
+  // on the website, email in the app: two logins, two accounts), so say how to get back to it.
+  "edit.username.taken": "Taken. If it's yours, sign in the way you first did (Google, X or email).",
+  "edit.username.mine": "That's you",
+  "edit.username.skipped": "Saved. Your call sign didn't change: that one is taken.",
   "edit.username.error.short": "Usernames need at least 3 characters.",
   // Username: one change per 24h (lee 2026-10-24). `when` is the viewer's local date + time.
   "username.cooldown.note": (when: string) => `You can change your username again on ${when}.`,

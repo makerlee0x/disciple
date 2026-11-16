@@ -1,6 +1,6 @@
 # Trading Duel (`/turbo/duel`, hidden with Turbo)
 
-1v1, same live BTC price, 1 or 3 minutes, most profit at the buzzer wins. Tiers: Rookie $20, Pro $50, Shark $150 duel
+1v1, same live BTC price, 1 minute, most profit at the buzzer wins. Tiers: Rookie $20, Pro $50, Shark $150 duel
 fuel, 500×, trade sizes per tier (ALL = everything left). Press the other side to flip; within 25¢ per $20 of fuel at the
 buzzer = one 30 s overtime. No cash pot: rewards are rating, XP and trophies only (maker, Nov 14 2026).
 
@@ -23,6 +23,6 @@ checked on every request and on the stream's 1 s tick, so closing the tab still 
 friendly duels don't. Rematch = both tap it → a new room with the same seats.
 
 Not yet (needs Nova, see the hand-off doc): real orders. Duel fuel is a duel-only book at live prices until Nova's SDK
-can place, flip and settle positions server-side. Fee is 0.5 bp/side, a placeholder until Nova confirms.
+can place, flip and settle positions server-side. Fee is 1 bp/side (2 bp round trip, Nova HYPE1000 rate), a trial until Nova confirms.
 
 Tests: `pnpm test:duel` drives the server end to end (local KV, injected price). `DUEL_PRICE_URL` points the server price at a stub.
