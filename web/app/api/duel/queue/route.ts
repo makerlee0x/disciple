@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    const me = await pilotOf(req);
+    const me = await pilotOf(req, { guestOk: false });
     const b = await body<{ tier?: unknown; len?: unknown }>(req);
     const len = toLength(b.len);
     if (!isTier(b.tier) || !len) throw new DuelError(400, "Pick a tier and a length.");

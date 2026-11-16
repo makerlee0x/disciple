@@ -17,7 +17,9 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const u = new URL(req.url);
   const code = parseCode(u.searchParams.get("c"));
-  const to = (q: string) => NextResponse.redirect(new URL(withBase(`/turbo/duel?${q}`), u.origin), { status: 303, headers: { "cache-control": "no-store" } });
+  // ?to=duel: the link came from the duel-only demo page (/duel), so send them back there
+  const page = u.searchParams.get("to") === "duel" ? "/duel" : "/turbo/duel";
+  const to = (q: string) => NextResponse.redirect(new URL(withBase(`${page}?${q}`), u.origin), { status: 303, headers: { "cache-control": "no-store" } });
   if (!code) return to("closed=1");
   try {
     const ipTag = createHash("sha256").update(clientIp(req.headers)).digest("hex").slice(0, 16);

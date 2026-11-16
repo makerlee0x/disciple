@@ -6,10 +6,15 @@ import type { DuelEvent, DuelRoom } from "./types";
 export type Res<T> = ({ ok: true } & T) | { ok: false; reason: string; status?: number };
 export interface RoomRes { room: DuelRoom; events: DuelEvent[]; now: number }
 
+/** Duel-only demo page (/duel): every call uses the signed guest cookie instead of a Privy token (lib/server/duelGuest). */
+let guest = false;
+export const setDuelGuest = (on: boolean) => { guest = on; };
+
 async function call<T>(method: "GET" | "POST" | "DELETE", path: string, body?: unknown, auth = true): Promise<Res<T>> {
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
-    if (auth) { const t = await privyAccessToken(); if (!t) return { ok: false, reason: "Sign in to duel.", status: 401 }; headers.authorization = `Bearer ${t}`; }
+    if (auth && guest) headers["x-duel-guest"] = "1";
+    else if (auth) { const t = await privyAccessToken(); if (!t) return { ok: false, reason: "Sign in to duel.", status: 401 }; headers.authorization = `Bearer ${t}`; }
     const r = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), cache: "no-store" });
     const j = await r.json().catch(() => null);
     if (!r.ok || !j?.ok) return { ok: false, reason: (j && typeof j.reason === "string" && j.reason) || "Couldn't reach the duel server.", status: r.status };
@@ -18,6 +23,7 @@ async function call<T>(method: "GET" | "POST" | "DELETE", path: string, body?: u
 }
 
 export const duelApi = {
+  guest: () => call<{ pid: string; name: string }>("POST", "/api/duel/guest", {}, false),
   me: () => call<{ pid: string; name: string; rating: { r: number; w: number; l: number; streak: number }; active: DuelRoom | null }>("GET", "/api/duel/me"),
   poll: (tier: TierId, len: LengthMs) => call<{ room?: DuelRoom; waitedMs?: number; window?: number; botOfferMs: number }>("POST", "/api/duel/queue", { tier, len }),
   cancel: (tier: TierId, len: LengthMs) => call<object>("DELETE", "/api/duel/queue", { tier, len }),

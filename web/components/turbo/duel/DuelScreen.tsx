@@ -8,7 +8,7 @@
 import { useEffect, useRef } from "react";
 import { getTurboAdapter } from "@/lib/turbo";
 import { onPrivy, privyAuthenticated, privyLogin } from "@/lib/aa/sessionState";
-import { duelApi, followRoom, type Follow, type RoomRes, type Res } from "@/lib/duel/client";
+import { duelApi, followRoom, setDuelGuest, type Follow, type RoomRes, type Res } from "@/lib/duel/client";
 import { parseCode, type LengthMs, type TierId, type TradeAction } from "@/lib/duel/rules";
 import type { DuelEvent, DuelRoom } from "@/lib/duel/types";
 import { getGameRadio } from "@/lib/game/radio";
@@ -35,7 +35,7 @@ declare global { interface Window { DuelEngine?: { mount(root: HTMLElement, host
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
 /** extra plates for the random sky each duel (engine SKY_THEMES) */
 const EXTRA_SKIES = { skyEth: "/turbo/sky-eth.webp", skyBtc: "/turbo/sky-btc.webp", skyPad: "/home/pad/sky-1280.webp" };
-const ENGINE_SRC = "/turbo/duel/engine.js?v=30";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=31";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
@@ -45,7 +45,8 @@ function loadEngine(): Promise<void> {
   });
 }
 
-export default function DuelScreen() {
+/** `guest`: the duel-only demo page (/duel). No sign-in: a guest pilot from /api/duel/guest, bots and friend links only. */
+export default function DuelScreen({ guest = false }: { guest?: boolean } = {}) {
   const ref = useRef<HTMLDivElement>(null);
   useTurboMusic();
   useEffect(() => {
@@ -95,8 +96,15 @@ export default function DuelScreen() {
       api?.searching(r.waitedMs ?? 0, r.window ?? 50, (r.waitedMs ?? 0) >= r.botOfferMs);
       qTimer = setTimeout(pollQueue, 1500);
     };
+    let guestReady = false;
     const refreshMe = async () => {
-      if (!privyAuthenticated()) { me = null; api?.setMe(null, false); return; }
+      if (guest && !guestReady) {
+        const g = await duelApi.guest();
+        if (dead) return;
+        if (!g.ok) { me = null; api?.setMe(null, false); api?.error(g.reason); return; }
+        guestReady = true;
+      }
+      if (!guest && !privyAuthenticated()) { me = null; api?.setMe(null, false); return; }
       const r = await duelApi.me();
       if (dead) return;
       if (!r.ok) { me = null; api?.setMe(null, false); return; }
@@ -115,7 +123,8 @@ export default function DuelScreen() {
     const host = {
       assets: { ...Object.fromEntries(["rocket", ...SKIES].map((k) => [k, `/turbo/duel/${k}.webp`])), ...EXTRA_SKIES, art: "/art/modes/duel.webp" },
       history: () => hist.filter((h) => h.ts > Date.now() - 60_000),
-      signIn: () => { try { privyLogin(); } catch (e) { api?.error((e as Error).message); } },
+      guest,
+      signIn: () => { if (guest) { guestReady = false; void refreshMe(); return; } try { privyLogin(); } catch (e) { api?.error((e as Error).message); } },
       quickMatch: (tier: TierId, len: LengthMs) => { stopQueue(); queued = { tier, len }; void pollQueue(); },
       cancelSearch: () => { const q = stopQueue(); if (q) void duelApi.cancel(q.tier, q.len); },
       createLink: async (tier: TierId, len: LengthMs, fuel?: number) => {
@@ -152,9 +161,10 @@ export default function DuelScreen() {
       api = window.DuelEngine.mount(ref.current, host);
       void refreshMe();
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load the duel. Refresh to try again."; });
-    const offPrivy = onPrivy(() => { void refreshMe(); });
+    setDuelGuest(guest);
+    const offPrivy = guest ? () => {} : onPrivy(() => { void refreshMe(); });
 
-    return () => { dead = true; stopQueue(); unfollow(); stopPrice(); offPrivy(); api?.destroy(); };
+    return () => { dead = true; setDuelGuest(false); stopQueue(); unfollow(); stopPrice(); offPrivy(); api?.destroy(); };
   }, []);
   return <div ref={ref} />;
 }

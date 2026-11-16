@@ -839,6 +839,9 @@ function mount(root,host){
   $("sCancel").addEventListener("click",()=>{ host.cancelSearch(); show("intro"); });
   $("sBot").addEventListener("click",()=>{ host.cancelSearch(); practice(); });
   $("lPractice").addEventListener("click",()=>{ ensureAudio(); practice(); });
+  // the duel-only demo page (/duel, host.guest): guests play a bot or a friend's link; no ranked queue, no sign-in
+  if(host.guest){ $("go").hidden=true; const bk=root.querySelector(".pre-back"); if(bk) bk.style.visibility="hidden"; const mc=root.querySelector(".me-chip"); if(mc) mc.style.visibility="hidden"; const tb=document.querySelectorAll(".duel-root .tab"); if(tb[0]) tb[0].textContent="VS BOT"; if(tb[1]) tb[1].textContent="VS FRIEND";
+    $("botSub").textContent="A bot at this tier. Play money, no sign-in."; }
   $("mkLink").addEventListener("click",()=>{ ensureAudio(); if(!SIGNED){ host.signIn(); return; } mode="friend"; lerr(""); host.createLink(botKey,LEN,CFUEL); });
   $("iCopy").addEventListener("click",()=>{ const t=$("iLink").dataset.url||""; try{navigator.clipboard.writeText(t); toast("Link copied");}catch(e){ toast(t); } });
   $("iX").addEventListener("click",()=>{ const t=encodeURIComponent(`1v1 me in a trading duel on DISCIPLE \u2694\ufe0f ${$("iCode").textContent}`), u=encodeURIComponent($("iLink").dataset.url||""); window.open(`https://x.com/intent/post?text=${t}&url=${u}`,"_blank","noopener"); });
@@ -954,7 +957,7 @@ function mount(root,host){
     const btn=$("rShare"); btn.disabled=true; const was=btn.textContent; btn.textContent="…";
     try{
       // signed in: a fresh friend link, so whoever taps it lands in a duel against you (30 min); otherwise the site
-      let url=location.origin+"/";
+      let url=location.origin+(host.guest?"/duel":"/");
       if(SIGNED&&host.challengeLink){ try{ const u=await host.challengeLink(botKey,LEN,M&&M.fuel||undefined); if(u) url=u; }catch(e){} }
       const text=shareLine(LAST)+(url.includes("?c=")?" 1v1 me:":"");
       let file=null; try{ const blob=await new Promise(res=>shareCard(LAST).toBlob(res,"image/png")); if(blob) file=new File([blob],"disciple-duel.png",{type:"image/png"}); }catch(e){}
