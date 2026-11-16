@@ -30,7 +30,7 @@ function modes(flying: number, duel: boolean): Mode[] {
   const all: Mode[] = [
     { id: "launch", title: ["Host a", "launch"], sub: "Build a rocket. The crew flies it up.", tag: "Real coins", tone: "#F3DFA8", href: "/create", art: "/art/modes/launch.webp", pos: "50% 30%" },
     { id: "live", title: ["Live", "flights"], sub: "Jump on a rocket that's already climbing.", tag: flying > 0 ? `${flying} flying` : "Live", tone: "#5FF0A0", href: "/play", art: "/art/modes/live.webp", pos: "50% 30%" },
-    { id: "duel", title: ["Trading", "duel"], sub: "1v1. Three minutes. Most profit wins.", tag: "Ranked", tone: "#FF9CC4", href: DUEL_HREF, art: "/art/modes/duel.webp", pos: "50% 30%" },
+    { id: "duel", title: ["Trading", "duel"], sub: "1v1. One minute. Most profit wins.", tag: "Ranked", tone: "#FF9CC4", href: DUEL_HREF, art: "/art/modes/duel.webp", pos: "50% 30%" },
     { id: "royale", title: ["Turbo", "royale"], sub: "12 pilots. Loot leverage. Last one flying wins.", tag: "Practice", tone: "#F2C14E", href: "/turbo/royale", art: "/art/modes/last-pilot.webp", pos: "50% 30%" },
     { id: "free", title: ["Free", "play"], sub: "No cash. Today's daily flight.", tag: "Free", tone: "#8FE3FF", href: "/flight/sim", art: "/art/modes/free.webp", pos: "50% 30%" },
   ];

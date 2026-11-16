@@ -1,6 +1,6 @@
 # Trading Duel (`/turbo/duel`, hidden with Turbo)
 
-1v1, same live BTC price, 1 or 3 minutes, most profit at the buzzer wins. Tiers: Rookie $20, Pro $50, Shark $150 duel
+1v1, same live BTC price, 1 minute, most profit at the buzzer wins. Tiers: Rookie $20, Pro $50, Shark $150 duel
 fuel, 500×, trade sizes per tier (ALL = everything left). Press the other side to flip; within 25¢ per $20 of fuel at the
 buzzer = one 30 s overtime. No cash pot: rewards are rating, XP and trophies only (maker, Nov 14 2026).
 
