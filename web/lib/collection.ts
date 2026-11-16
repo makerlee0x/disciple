@@ -1,9 +1,10 @@
 /**
- * Rocket collection (Hangar "Your rocket", Crates, Shop; maker's pick 2026-11-16: series + crates + daily shop).
+ * Rocket collection (Hangar "Your rocket" and Crates; maker's pick 2026-11-16: series + crates. The daily XP shop and
+ * level-up crates were cut the same day: crates from wins are where tradable items come from).
  *
  * A skin is one hull in one paint ("Needle | Walnut & Brass"), like a CS:GO weapon skin, so the 8 hulls x 18 paints of
  * player art are 144 separate items. They come out a series at a time: only the live series drops from crates and shows
- * in the shop, and a series that has ended stops dropping. Trails (gold core, so you stay easy to spot) drop alongside.
+ * in its crates, and a series that has ended stops dropping. Trails (gold core, so you stay easy to spot) drop alongside.
  * Everything here is pure and shared by the server (lib/server/collection.ts) and the Hangar. Cosmetic only.
  * Art: public/turbo/skins/<hull>--<paint>.webp, crates/<tier>[-open|-burst].webp, trails/, tags/, series/, glint/, flourish/.
  */
@@ -84,7 +85,7 @@ export const trailArt = (id: string, part: "plume" | "bits" = "plume") => ART[`t
 
 /**
  * Name tags: the plate behind your name over your rocket. One per rarity (common is the starter steel plate; the rest
- * drop from crates and sell in the shop, any series), plus 9 prestige plates you get by reaching that Prestige.
+ * drop from crates, any series), plus 9 prestige plates you get by reaching that Prestige.
  * Art: public/turbo/tags/tag-<tier>.webp and tag-prestige-<n>.webp, 600x140 with an empty middle.
  */
 export const PRESTIGE_TAGS = 9;
@@ -205,35 +206,8 @@ export function rollCrate(tier: Rarity, pool: readonly Item[], r1: number, r2: n
   return null;
 }
 
-/* ----------------------------------------------------------------- shop ----------------------------------------------------------------- */
-
-/** XP to spend. Mythic is never sold. Only the Common crate is sold; better crates are earned. */
-export const PRICE: Partial<Record<Rarity, number>> = { common: 800, uncommon: 1500, rare: 3000, epic: 6000, legendary: 12000 };
-export const CRATE_PRICE = 800;
-export const SHOP_CRATE_ID = "crate-common";
-
 export const DAY_MS = 86_400_000;
 export const dayIndex = (now: number) => Math.floor(now / DAY_MS);
-
-function rng(seed: number) { let s = seed >>> 0; return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; }
-
-export interface ShopStock { day: number; endsAt: number; featured: Item | null; featuredEndsAt: number; daily: Item[] }
-/**
- * The day's stock, the same for every pilot (UTC). The featured Epic or Legendary skin changes every 2 days; three
- * Common to Rare items change every day. Mythic never shows. Pilots see owned items marked as owned.
- */
-export function shopStock(now: number): ShopStock {
-  const day = dayIndex(now), live = liveSeries(now);
-  const starters = new Set([STARTER_SKIN, STARTER_TRAIL, STARTER_TAG]);
-  const pool = ITEMS.filter((i) => !i.prestige && (i.series === 0 || (live && i.series === live.n)) && itemOut(i, now) && i.rar !== "mythic" && !starters.has(i.id));
-  const big = pool.filter((i) => i.kind === "skin" && (i.rar === "epic" || i.rar === "legendary"));
-  const small = pool.filter((i) => rank(i.rar) <= rank("rare"));
-  const f = rng(0x5eed + Math.floor(day / 2) * 7919);
-  const featured = big.length ? big[Math.floor(f() * big.length)] : null;
-  const d = rng(0xc0ffee + day * 104729), left = small.filter((i) => i.id !== featured?.id), daily: Item[] = [];
-  while (daily.length < 3 && left.length) daily.push(left.splice(Math.floor(d() * left.length), 1)[0]);
-  return { day, endsAt: (day + 1) * DAY_MS, featured, featuredEndsAt: (Math.floor(day / 2) * 2 + 2) * DAY_MS, daily };
-}
 
 /* --------------------------------------------------------------- earning --------------------------------------------------------------- */
 
@@ -243,8 +217,6 @@ export const EARN = {
   duelWin: "uncommon" as Rarity, streak3: "rare" as Rarity, streak5: "epic" as Rarity,
   /** duel crates per pilot per week (Monday 00:00 UTC), so a grind can't out-print the series */
   duelPerWeek: 15,
-  /** each level gained: Common; every 5th level Rare; levels 25 and 50 Epic */
-  level: (lv: number): Rarity => (lv === 25 || lv === 50 ? "epic" : lv % 5 === 0 ? "rare" : "common"),
   /** all of the week's missions done */
   weekly: "epic" as Rarity,
   /** first visit after collections launch */
@@ -256,7 +228,7 @@ export function duelCrateTier(streak: number): Rarity { return streak >= 5 ? EAR
 
 /**
  * Every drop is its own copy (like a CS2 skin with its float and pattern): a serial ("#14 of 312"), a burn roll, a pattern
- * seed, maybe FlightTrak, maybe first edition. Duplicates are kept. bound copies (XP shop buys, level-up and welcome
+ * seed, maybe FlightTrak, maybe first edition. Duplicates are kept. bound copies (the welcome crate,
  * crates, starters) never trade. Starter copies have serial 0. Prestige items aren't copies; they come with the Prestige.
  */
 export interface Copy {
@@ -326,7 +298,7 @@ export interface Collection {
 }
 /** POST /api/collection actions. equip slots take a copy uid, or an item id (prestige items; or your best copy of it). */
 export type CollectionAction =
-  | { op: "open"; crate: string } | { op: "buy"; item: string }
+  | { op: "open"; crate: string }
   | { op: "equip"; skin: string; trail: string; tag?: string; flourish?: string }
   | { op: "scrap"; copy: string } | { op: "tradeup"; copies: string[] };
 

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   BURN_GRADES, CRATE, ITEMS, TRADE_UP_N, burnGrade, rollsFromDigest, tradeUpPool, tradeUpTarget, PAINTS, RARITIES, SERIES, STARTER_SKIN, STARTER_TAG, TRAILS, crateBurstArt, crateOdds, dropPool, duelCrateTier, glintArt, itemById, rollCrate,
-  seriesArt, shopStock, skinArt, tagArt, trailArt, DAY_MS, applyCatalog, nextDrop,
+  seriesArt, skinArt, tagArt, trailArt, DAY_MS, applyCatalog, nextDrop,
 } from "@/lib/collection";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -33,7 +33,6 @@ describe("collection catalogue", () => {
     expect(trails).not.toContain("trail-toxic");   // Series 2
     expect(trails).not.toContain("trail-halo");    // Prestige 2
     expect(pool.filter((i) => i.kind === "tag").map((i) => i.id).sort()).toEqual(RARITIES.map((r) => `tag-${r}`).sort());
-    for (let d = 0; d < 60; d++) { const s = shopStock(Date.UTC(2026, 10, 1) + d * DAY_MS); for (const i of [s.featured!, ...s.daily]) { expect(i.prestige).toBeFalsy(); expect(i.id).not.toBe(STARTER_TAG); } }
     expect(SERIES[1].paints).toEqual(expect.arrayContaining(["koi", "aurora", "holo-foil", "stained-glass"]));
   });
 
@@ -68,17 +67,6 @@ describe("collection catalogue", () => {
     expect(rollCrate("common", onlyCommon, 0.999, 0.5)!.rar).toBe("common");
   });
 
-  it("the shop is the same for everyone each day, never sells Mythic or the starter, and the featured slot lasts 2 days", () => {
-    const d = Date.UTC(2026, 10, 20, 9);
-    expect(shopStock(d)).toEqual(shopStock(d + 3600_000));
-    const s = shopStock(d);
-    expect(s.daily).toHaveLength(3);
-    for (const i of [s.featured!, ...s.daily]) { expect(i.rar).not.toBe("mythic"); expect(i.id).not.toBe(STARTER_SKIN); }
-    expect(["epic", "legendary"]).toContain(s.featured!.rar);
-    const even = Math.floor(d / DAY_MS) % 2 === 0 ? d : d + DAY_MS;
-    expect(shopStock(even).featured!.id).toBe(shopStock(even + DAY_MS).featured!.id);
-  });
-
   it("win streaks upgrade the duel crate", () => {
     expect(duelCrateTier(1)).toBe("uncommon");
     expect(duelCrateTier(3)).toBe("rare");
@@ -109,7 +97,6 @@ describe("collection catalogue", () => {
       expect(after.map((i) => i.id)).toEqual(expect.arrayContaining(["trail-comet", "needle--molten"]));
       expect(itemById("needle--molten")?.drop).toBe("s1-afterburn");
       expect(nextDrop(at - DAY_MS)?.name).toBe("Afterburn");
-      for (let d = 0; d < 30; d++) for (const i of [shopStock(at - (d + 1) * DAY_MS).featured, ...shopStock(at - (d + 1) * DAY_MS).daily]) expect(i?.drop).toBeUndefined();
     } finally { applyCatalog(null); }
   });
 
@@ -165,6 +152,9 @@ describe("collection server (local KV)", () => {
       expect(cp.serial).toBeGreaterThanOrEqual(1); expect(cp.bound).toBe(true);   // welcome crate items never trade
       expect(cp.burn).toBeGreaterThanOrEqual(0); expect(cp.burn).toBeLessThan(1); expect(cp.fe).toBe(true);
       expect(r.opened.proof?.input).toBe(c.crates[0].id);
+      const rec = await col.copyRecord(cp.uid);
+      expect(rec?.copy).toEqual(cp); expect(rec?.owner).toBe(W.toLowerCase());
+      expect(rec?.history[0]).toMatchObject({ ev: "made", origin: "crate", crate: c.crates[0].id, proofDay: r.opened.proof?.day });
     }
     expect((await col.openCrate(W, c.crates[0].id)).ok).toBe(false);
     expect((await col.collectionOf(W)).crates).toHaveLength(0);
@@ -211,6 +201,9 @@ describe("collection server (local KV)", () => {
     const sc = await col.scrapCopy(T, victim.uid);
     expect(sc.ok).toBe(true);
     expect((await col.scrapCopy(T, victim.uid)).ok).toBe(false);
+    const vr = await col.copyRecord(victim.uid);   // the record outlives the copy, so its uid and serial are never reused
+    expect(vr?.burned).toBe(true); expect(vr?.copy.serial).toBe(victim.serial);
+    expect(vr?.history.map((e) => e.ev)).toEqual(["made", "burned"]);
     expect((await col.collectionOf(T)).owned).not.toContain(victim.item);
     expect((await col.scrapCopy(T, cur.copies.find((x) => x.origin === "starter")!.uid)).ok).toBe(false);
     // build 10 Series 1 commons and trade them up
@@ -226,22 +219,22 @@ describe("collection server (local KV)", () => {
     const tu = await col.tradeUp(T, ten);
     expect(tu.ok).toBe(true);
     if (tu.ok) { expect(tu.item.rar).toBe("uncommon"); expect(tu.item.series).toBe(1); expect(tu.copy.origin).toBe("tradeup"); }
+    if (tu.ok) {
+      expect(tu.copy.uid).toMatch(/^[a-f0-9]{16}$/); expect(tu.copy.fe).toBe(false);
+      const r = await col.copyRecord(tu.copy.uid);
+      expect(r?.owner).toBe(T); expect(r?.history[0]).toMatchObject({ ev: "made", origin: "tradeup", from: ten });
+      const fromReal = (await col.copyRecord(ten.find((u) => /^[a-f0-9]{16}$/.test(u))!))!;
+      expect(fromReal.history.at(-1)).toMatchObject({ ev: "burned", why: "tradeup", into: tu.copy.uid });
+    }
     const end = await col.collectionOf(T);
     expect(end.copies.filter((x) => x.origin === "migrated")).toHaveLength(0);
     expect(end.copies.filter((x) => x.origin === "tradeup")).toHaveLength(1);
   });
 
-  it("the shop checks stock, balance and ownership; equip checks ownership", async () => {
-    const s = shopStock(Date.now());
-    const mine = new Set((await col.collectionOf(W)).copies.map((x) => x.item));
-    const pick = [...s.daily, s.featured!].find((i) => i && !mine.has(i.id))!;   // earlier crates may have dropped some of today's stock
-    expect((await col.buyItem(W, "needle--marble-gilt")).ok).toBe(false);   // never sold
-    const r = await col.buyItem(W, pick.id);
-    expect(r.ok).toBe(false);   // not enough XP yet
+  it("levels don't drop crates (cut with the XP shop); equip checks ownership", async () => {
+    const before = (await col.collectionOf(W)).crates.length;
     await xp.award(W, { src: "test:grant", kind: "mission", xp: 20000, label: "test", ts: Date.now() });
-    const b = await col.buyItem(W, pick.id);
-    expect(b.ok).toBe(true);
-    expect((await col.buyItem(W, pick.id)).ok).toBe(false);
+    expect((await col.collectionOf(W)).crates.length).toBe(before);
     expect((await col.equip(W, "needle--nebula", "trail-gold")).ok).toBe(false);
     expect((await col.equip(W, STARTER_SKIN, "trail-gold")).ok).toBe(true);
     expect((await col.equip(W, STARTER_SKIN, "trail-halo")).ok).toBe(false);          // Prestige 2
@@ -250,9 +243,6 @@ describe("collection server (local KV)", () => {
     const e = await col.equip(W, STARTER_SKIN, "trail-gold", STARTER_TAG);
     expect(e.ok && e.equipped.tag).toBe(STARTER_TAG);
     expect(e.ok && e.equipped.copy.skin).toBe(`st-${STARTER_SKIN}`);
-    expect((await col.scrapCopy(W, (await col.collectionOf(W)).copies.find((x) => x.item === pick.id && x.origin === "shop")!.uid)).ok).toBe(true);   // shop copy, not worn
-    const crate = await col.buyItem(W, "crate-common");
-    expect(crate.ok).toBe(true);
   });
 
   it("a catalogue save can't change or pull back an item that has copies, and new items need art", async () => {

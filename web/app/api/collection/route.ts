@@ -1,18 +1,18 @@
 export const runtime = "nodejs";
 /**
  * Rocket collection (lib/server/collection.ts).
- * GET ?wallet=0x… → { ok, collection, shop, catalog }   anyone's collection is public (it's what they fly); shop is today's stock;
+ * GET ?wallet=0x… → { ok, collection, catalog }   anyone's collection is public (it's what they fly);
  *   catalog is the live catalogue overlay (lib/collection applyCatalog), null when there is none.
+ * GET ?copy=<uid> → { ok, record }   one copy's permanent record (as made, holder, history), public like a token would be.
  * GET ?proof=1 → { ok, proof }   today's and tomorrow's roll-seed hashes and the last 7 days' revealed seeds.
- * POST { op: "open", crate } | { op: "buy", item } | { op: "equip", skin, trail, tag?, flourish? } | { op: "scrap", copy } | { op: "tradeup", copies }  with the Privy session (Bearer), like
+ * POST { op: "open", crate } | { op: "equip", skin, trail, tag?, flourish? } | { op: "scrap", copy } | { op: "tradeup", copies }  with the Privy session (Bearer), like
  *   the duel API, so opening a crate needs no wallet signature. Optional x-wallet picks one of the account's wallets.
  */
 import { NextResponse } from "next/server";
 import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
-import { buyItem, collectionOf, equip, openCrate, rollProof, scrapCopy, tradeUp } from "@/lib/server/collection";
-import { shopStock } from "@/lib/collection";
+import { collectionOf, copyRecord, equip, openCrate, rollProof, scrapCopy, tradeUp } from "@/lib/server/collection";
 import { ensureCatalog } from "@/lib/server/catalog";
 
 export const dynamic = "force-dynamic";
@@ -25,10 +25,11 @@ export async function GET(req: Request) {
   const rl = await hitLimit(kv(), `col:get:ip:${clientIp(req.headers)}`, 120, 60);
   if (!rl.ok) return out(429, { ok: false, reason: "Too many requests, try again shortly." });
   const catalog = await ensureCatalog().catch(() => null);
-  const shop = shopStock(Date.now());
+  const uid = new URL(req.url).searchParams.get("copy");
+  if (uid) { const record = await copyRecord(uid).catch(() => null); return out(record ? 200 : 404, record ? { ok: true, record } : { ok: false, reason: "No copy with that id." }); }
   if (new URL(req.url).searchParams.get("proof")) { try { return out(200, { ok: true, proof: await rollProof() }); } catch (e) { return out(503, { ok: false, reason: (e as Error).message }); } }
-  if (!isAddr(w)) return out(200, { ok: true, collection: null, shop, catalog });
-  try { return out(200, { ok: true, collection: await collectionOf(w), shop, catalog }); }
+  if (!isAddr(w)) return out(200, { ok: true, collection: null, catalog });
+  try { return out(200, { ok: true, collection: await collectionOf(w), catalog }); }
   catch (e) { return out(503, { ok: false, reason: (e as Error).message }); }
 }
 
@@ -45,7 +46,6 @@ export async function POST(req: Request) {
   try { b = await req.json(); } catch { return out(400, { ok: false, reason: "Bad JSON" }); }
   try {
     if (b.op === "open") { const r = await openCrate(wallet, id(b.crate)); return out(r.ok ? 200 : 409, r); }
-    if (b.op === "buy") { const r = await buyItem(wallet, id(b.item)); return out(r.ok ? 200 : 409, r); }
     if (b.op === "equip") { const r = await equip(wallet, id(b.skin), id(b.trail), id(b.tag), id(b.flourish)); return out(r.ok ? 200 : 409, r); }
     if (b.op === "scrap") { const r = await scrapCopy(wallet, id(b.copy)); return out(r.ok ? 200 : 409, r); }
     if (b.op === "tradeup") { const r = await tradeUp(wallet, Array.isArray(b.copies) ? b.copies.slice(0, 20).map(id).filter(Boolean) : []); return out(r.ok ? 200 : 409, r); }

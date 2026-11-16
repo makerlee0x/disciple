@@ -1,17 +1,17 @@
 "use client";
 /**
- * Hangar collection (maker's pick 2026-11-16: series + crates + daily shop; static screens in
+ * Hangar collection (maker's pick 2026-11-16: series + crates; the daily XP shop was cut the same day; static screens in
  * /mnt/project-files/hangar/unlocks): "Your rocket" (skins found per hull, trail, what you fly), "Crates" (open with
- * odds shown) and "Shop" (today's stock for XP to spend). Rules in lib/collection.ts, server in lib/server/collection.ts.
+ * odds shown). Rules in lib/collection.ts, server in lib/server/collection.ts.
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { withBase } from "@/lib/base-path";
 import { playSfx } from "@/lib/game/sfx";
 import {
-  CRATE, CRATE_PRICE, DUPE_XP, FLOURISHES, HULL_NAMES, ITEMS, PAINTS, PRESTIGE_HULL, PRICE, RARITY_COLOR as SW, RARITY_NAME as RL, SERIES, SHOP_CRATE_ID, STARTER_TAG,
+  CRATE, DUPE_XP, FLOURISHES, HULL_NAMES, ITEMS, PAINTS, PRESTIGE_HULL, RARITY_COLOR as SW, RARITY_NAME as RL, SERIES, STARTER_TAG,
   TRADE_UP_N, burnGrade, releasedSeries, copyLook, crateArt, crateBurstArt, crateOdds, glintArt, itemById, itemTitle, liveSeries, pctLabel, seriesArt, skinArt, skinId,
   tagArt, tradeUpTarget, trailArt, trailId, itemOut, nextDrop,
-  type Collection as Col, type CollectionAction, type Copy, type Crate, type Item, type Opened, type Rarity, type ShopStock, type Slot,
+  type Collection as Col, type CollectionAction, type Copy, type Crate, type Item, type Opened, type Rarity, type Slot,
 } from "@/lib/collection";
 import { collectionAction } from "@/lib/collectionClient";
 
@@ -283,7 +283,7 @@ export function Crates({ col, wallet }: { col: Col | null; wallet: string | null
   useEffect(() => { if (!sel || !crates.some((c) => c.id === sel)) setSel(crates[0]?.id ?? null); }, [crates, sel]);
   useEffect(() => { if (!opened && col?.recent?.[0]) setOpened(col.recent[0]); }, [col, opened]);
   const cur: Crate | undefined = crates.find((c) => c.id === sel);
-  const live = liveSeries(Date.now()) ?? SERIES[0];
+  const live = liveSeries(Date.now()) ?? SERIES[0], nd = nextDrop(Date.now());
   const [proof, setProof] = useState<string | null>(null);
   useEffect(() => { fetch(withBase("/api/collection?proof=1"), { cache: "no-store" }).then((r) => r.json()).then((j: { proof?: { today?: { hash?: string } } }) => setProof(j?.proof?.today?.hash ?? null)).catch(() => {}); }, []);
 
@@ -298,7 +298,15 @@ export function Crates({ col, wallet }: { col: Col | null; wallet: string | null
 
   return (
     <section className="hg-sec hgu-sec" aria-labelledby="hg-crates" data-testid="rocket-crates">
-      <header className="hg-sech"><div><h2 id="hg-crates" className="dsc3-h2">Crates</h2><span>Win a ranked duel and a crate drops. Levels and weekly missions drop them too.</span></div></header>
+      <header className="hg-sech"><div><h2 id="hg-crates" className="dsc3-h2">Crates</h2><span>Win a ranked duel and a crate drops. Finishing your weekly missions drops one too.</span></div></header>
+      {live && (
+        <div className="hgu-banner" style={{ backgroundImage: `url(${withBase(seriesArt(live.n))})` }} data-testid="series-banner">
+          <span className="hg-look-r">Series {live.n} · dropping now</span>
+          <b>{live.name}</b>
+          <span>{live.hulls.map((h) => HULL_NAMES[h]).join(" and ")} hulls, {ITEMS.filter((i) => i.kind === "skin" && i.series === live.n && i.hull === live.hulls[0] && itemOut(i, Date.now())).length} paints each</span>
+          {nd && nd.series === live.n && <span className="hg-look-r" data-testid="next-drop">{nd.name} drops in {untilDays(nd.start - Date.now())}</span>}
+        </div>
+      )}
       {crates.length ? (
         <ul className="hgu-crates">
           {crates.slice(0, 6).map((c) => (
@@ -312,7 +320,7 @@ export function Crates({ col, wallet }: { col: Col | null; wallet: string | null
           ))}
         </ul>
       ) : (
-        <div className="hg-empty"><b>No crates yet</b><p>Win a ranked duel, level up or finish your weekly missions to get one.</p></div>
+        <div className="hg-empty"><b>No crates yet</b><p>Win a ranked duel or finish your weekly missions to get one.</p></div>
       )}
       {crates.length > 6 && <p className="hg-sub">+{crates.length - 6} more to open</p>}
       {cur && (
@@ -326,7 +334,7 @@ export function Crates({ col, wallet }: { col: Col | null; wallet: string | null
               })}
             </ol>
             <div className="hgu-odds-note">
-              <p>Odds are shown on every crate. Crates hold skins, trails and flourishes from the series that&apos;s live now, plus name tags. Copies from level-up and welcome crates never trade.</p>
+              <p>Odds are shown on every crate. Crates hold skins, trails and flourishes from the series that&apos;s live now, plus name tags. Copies from your welcome crate never trade.</p>
               {proof && <p className="hgu-proof" data-testid="roll-proof">Every roll is provable. Today&apos;s seed hash is <code>{proof.slice(0, 10)}…{proof.slice(-6)}</code>, and the seed is revealed tomorrow so you can check any crate you open today.</p>}
               <button type="button" className="dsc3-btn dsc3-btn-primary hgu-buy" onClick={open} disabled={busy || !wallet} data-testid="crate-open">{busy ? "Opening…" : "Open crate"}</button>
               {note && <p className="hg-sub" role="status" style={{ marginTop: 10 }}>{note}</p>}
@@ -360,76 +368,3 @@ function untilDays(ms: number) {
 }
 const RARITY_RANK = (r: Rarity) => ["common", "uncommon", "rare", "epic", "legendary", "mythic"].indexOf(r);
 
-/* ----------------------------------------------------------------- Shop ----------------------------------------------------------------- */
-
-function untilLabel(ts: number) {
-  const m = Math.max(0, Math.round((ts - Date.now()) / 60_000)), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
-  return d ? `${d} day${d > 1 ? "s" : ""} left` : h ? `${h}h ${m % 60}m` : `${m % 60}m`;
-}
-
-export function Shop({ col, shop, wallet }: { col: Col | null; shop: ShopStock | null; wallet: string | null }) {
-  const owned = new Set(col?.owned ?? []);
-  const spend = col?.spendableXp ?? 0;
-  const [confirm, setConfirm] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [note, setNote] = useState("");
-  const [, tick] = useState(0);
-  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 60_000); return () => clearInterval(t); }, []);
-  if (!shop) return null;
-
-  const buy = async (id: string) => {
-    if (!wallet || busy) return;
-    if (confirm !== id) { setConfirm(id); return; }
-    setBusy(id); setNote("");
-    const r = await collectionAction(wallet, { op: "buy", item: id });
-    setBusy(null); setConfirm(null);
-    setNote(r.ok ? (id === SHOP_CRATE_ID ? "Crate added. Open it under Crates." : "It's yours. Equip it in Your rocket.") : r.reason || "Couldn't buy that. Try again.");
-  };
-  const btn = (id: string, price: number, big = false) => {
-    if (id !== SHOP_CRATE_ID && owned.has(id)) return <span className="hgu-owned">Owned</span>;
-    const short = spend < price;
-    return <button type="button" className={`dsc3-btn dsc3-btn-primary hgu-buy${big ? "" : " sm"}`} disabled={!wallet || short || busy === id} onClick={() => buy(id)} data-testid={`buy-${id}`}>
-      {busy === id ? "Buying…" : confirm === id ? `Buy for ${fmt(price)}?` : `${fmt(price)} XP`}</button>;
-  };
-  const f = shop.featured, live = liveSeries(Date.now()), nd = nextDrop(Date.now());
-  const fp = f ? PRICE[f.rar]! : 0;
-
-  return (
-    <section className="hg-sec hgu-sec" aria-labelledby="hg-shop" data-testid="rocket-shop">
-      <header className="hg-sech">
-        <div><h2 id="hg-shop" className="dsc3-h2">Shop</h2><span>A few skins a day, the same for every pilot. When they leave, there&apos;s no telling when they come back.</span></div>
-        <span className="hgu-timer">New stock in {untilLabel(shop.endsAt)}</span>
-      </header>
-      {live && (
-        <div className="hgu-banner" style={{ backgroundImage: `url(${withBase(seriesArt(live.n))})` }} data-testid="series-banner">
-          <span className="hg-look-r">Series {live.n} · dropping now</span>
-          <b>{live.name}</b>
-          <span>{live.hulls.map((h) => HULL_NAMES[h]).join(" and ")} hulls, {ITEMS.filter((i) => i.kind === "skin" && i.series === live.n && i.hull === live.hulls[0] && itemOut(i, Date.now())).length} paints each</span>
-          {nd && nd.series === live.n && <span className="hg-look-r" data-testid="next-drop">{nd.name} drops in {untilDays(nd.start - Date.now())}</span>}
-        </div>
-      )}
-      {f && (
-        <div className="hgu-feat" style={{ ["--sw" as string]: SW[f.rar] }}>
-          <div className="hgu-feat-tx">
-            <span className="hg-look-r" style={{ color: SW[f.rar] }}>Featured · {RL[f.rar]} · {untilLabel(shop.featuredEndsAt)}</span>
-            <b>{title(f)}</b>
-            <span>Otherwise only in {f.rar === "legendary" ? "Epic" : "Rare"} crates and up.</span>
-            {btn(f.id, fp, true)}
-            {!owned.has(f.id) && spend < fp && <span className="hgu-short">{fmt(fp - spend)} more XP to buy</span>}
-          </div>
-          <span className="hgu-feat-art">{itemArt(f, 230)}</span>
-        </div>
-      )}
-      <ul className="hg-looks hgu-stock">
-        {shop.daily.map((it) => (
-          <Card key={it.id} wide={it.kind === "tag"} rar={it.rar} name={it.name} label={`${RL[it.rar]} · ${kindLabel(it)}`} a={itemArt(it, 98, false, col?.wallet ? "YOU" : "PILOT")}
-            sub={<>{btn(it.id, PRICE[it.rar]!)}<span className="hgu-when">Leaves in {untilLabel(shop.endsAt)}</span></>} />
-        ))}
-        <Card rar="common" name="Common crate" label="Crate" a={<Img src={crateArt("common")} h={70} />}
-          sub={<>{btn(SHOP_CRATE_ID, CRATE_PRICE)}<span className="hgu-when">Rare and up are earned only</span></>} />
-      </ul>
-      {note && <p className="hg-sub" role="status">{note}</p>}
-      <p className="hg-sub hgu-note">Paid with XP to spend ({fmt(spend)} now), which never lowers your level. Mythic skins are never sold, and shop copies never trade.</p>
-    </section>
-  );
-}

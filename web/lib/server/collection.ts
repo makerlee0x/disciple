@@ -1,7 +1,7 @@
 import "server-only";
 /**
  * Rocket collection server (rules in lib/collection.ts): each pilot's copies, their unopened crates, opening them with
- * provable server rolls, the daily shop, scrapping, trade-ups, and the equipped look (kept in the looks record so other
+ * provable server rolls, scrapping, trade-ups, and the equipped look (kept in the looks record so other
  * pilots see it). Prestige items (Ring-tail paints, the Halo trail, prestige name tags) aren't copies: a pilot has them
  * while their Prestige is high enough.
  *
@@ -13,18 +13,24 @@ import "server-only";
  *   col:<chain>:seed:<day>           hex   that UTC day's roll seed         sha256 published a day ahead, seed revealed after
  *   col:<chain>:crates:<wallet>      zset  score=at, member=Crate JSON      unopened crates
  *   col:<chain>:once:<src>:<wallet>  SET NX                                a crate source pays once ever
- *   col:<chain>:base:<wallet>        JSON  { p, l }                         level baseline: crates pay for levels after it
+ *   col:<chain>:base:<wallet>        JSON  { p, l }                         first visit marker (the welcome crate pays once)
+ *   col:<chain>:copy:<uid>           JSON  CopyRecord                       one copy's permanent record (never deleted or reused)
  *   col:<chain>:log:<wallet>         zset  score=at, member=Opened JSON     recent openings
  *   col:<chain>:streak:<wallet>      ranked duel win streak
  *   col:<chain>:dc:<week>:<wallet>   duel crates this week (counter)
- * Crate XP and scrap XP are ledger rows (kind "crate"); shop buys are negative ledger rows (kind "buy").
+ * Crate XP and scrap XP are ledger rows (kind "crate").
+ *
+ * Ready for NFTs later (maker, 16 Nov: trade in our database first, then move to tokens): every copy keeps a uid that is
+ * never reused, its serial (never renumbered), its rolls and a permanent record of where it came from, who has held it
+ * and how it ended (scrapped or traded up), so each copy can become exactly one token with its history. Starter copies
+ * (serial 0, uid st-<item>, the same for every pilot) are bound and never become tokens.
  */
 import { createHash, createHmac, randomBytes, randomInt, randomUUID } from "node:crypto";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import {
-  CRATE, CRATE_PRICE, DUPE_XP, EARN, FIRST_EDITION_MS, FLIGHTTRAK_PCT, ITEMS, PRESTIGE_HULL, PRICE, RARITY_NAME, SHOP_CRATE_ID,
+  CRATE, DUPE_XP, EARN, FIRST_EDITION_MS, FLIGHTTRAK_PCT, ITEMS, PRESTIGE_HULL, RARITY_NAME,
   STARTER_SKIN, STARTER_TAG, STARTER_TRAIL, TRADE_UP_N, TRAILS, dayIndex, dropPool, duelCrateTier, itemById, itemTitle, prestigeUnlocked, rollCrate,
-  rollsFromDigest, shopStock, tradeUpPool, tradeUpTarget, trailId,
+  rollsFromDigest, tradeUpPool, tradeUpTarget, trailId,
   type Collection, type Copy, type Crate, type Item, type Opened, type Rarity, type Slot,
 } from "@/lib/collection";
 import { ensureCatalog } from "./catalog";
@@ -45,15 +51,14 @@ export const COLK = {
   streak: (w: string) => `${ns()}:streak:${w}`,
   dc: (week: number, w: string) => `${ns()}:dc:${week}:${w}`,
   looks: (w: string) => `looks:${ACTIVE_CHAIN.id}:${w}`,
+  copy: (uid: string) => `${ns()}:copy:${uid}`,
 };
 const parse = <T,>(s: string | null): T | null => { if (!s) return null; try { return JSON.parse(s) as T; } catch { return null; } };
 const lc = (w: string) => w.toLowerCase();
 const FOREVER = 10 * 365 * 86400;
-/** at most this many level crates per sync (a big jump still pays, over a few visits) */
-const LEVEL_BATCH = 10;
 /** the week a duel crate counts toward (Monday 00:00 UTC) */
 export const weekIndex = (now: number) => Math.floor((dayIndex(now) + 3) / 7);
-/** crate sources whose items never trade: level-ups, the welcome crate, shop crates */
+/** crate sources whose items never trade: the welcome crate (and level-up and shop crates, if any were made before the cut) */
 const boundSrc = (src: string) => src === "welcome" || src.startsWith("lvl:") || src.startsWith("shopcrate:");
 const STARTERS = [STARTER_SKIN, STARTER_TRAIL, STARTER_TAG];
 
@@ -91,9 +96,26 @@ async function firstEdition(item: Item, now: number, s: Kv): Promise<boolean> {
   await s.setNX(COLK.sfirst(n), String(now));
   return now - Number(await s.get(COLK.sfirst(n))) < FIRST_EDITION_MS;
 }
-async function makeCopy(item: Item, origin: Copy["origin"], bound: boolean, r: { burn: number; seed: number; trak: boolean }, now: number, s: Kv): Promise<Copy> {
+/** One event in a copy's life. made: where it came from; burned: scrapped or traded up (into = the new copy). Later: moved (trades), minted. */
+export type CopyEvent =
+  | { ev: "made"; at: number; owner: string; origin: Copy["origin"]; crate?: string; proofDay?: number; from?: string[] }
+  | { ev: "burned"; at: number; owner: string; why: "scrap" | "tradeup"; into?: string };
+/** A copy's permanent record: the copy as made, who holds it now, and its history. Kept after it's burned. */
+export interface CopyRecord { copy: Copy; owner: string; burned: boolean; history: CopyEvent[] }
+export async function copyRecord(uid: string, s: Kv = kv()): Promise<CopyRecord | null> { return /^[a-f0-9]{16}$/.test(uid) ? parse<CopyRecord>(await s.get(COLK.copy(uid))) : null; }
+async function addEvent(uid: string, e: CopyEvent, s: Kv) {
+  const r = await copyRecord(uid, s); if (!r) return;
+  r.history.push(e); if (e.ev === "burned") r.burned = true;
+  await s.set(COLK.copy(uid), JSON.stringify(r));
+}
+/** A new copy: a fresh uid (claimed with SET NX, so never reused), the next serial for its item, and its record. */
+async function makeCopy(item: Item, origin: Copy["origin"], bound: boolean, r: { burn: number; seed: number; trak: boolean }, now: number, s: Kv,
+  owner: string, how: { crate?: string; proofDay?: number; from?: string[] } = {}, fe?: boolean): Promise<Copy> {
   const serial = await s.incrEx(COLK.supply(item.id), FOREVER);
-  return { uid: randomUUID().slice(0, 12), item: item.id, serial, burn: Math.round(r.burn * 1e6) / 1e6, seed: r.seed, trak: r.trak ? 0 : null, fe: await firstEdition(item, now, s), origin, at: now, bound };
+  const copy: Copy = { uid: "", item: item.id, serial, burn: Math.round(r.burn * 1e6) / 1e6, seed: r.seed, trak: r.trak ? 0 : null, fe: fe ?? (await firstEdition(item, now, s)), origin, at: now, bound };
+  const rec: CopyRecord = { copy, owner, burned: false, history: [{ ev: "made", at: now, owner, origin, ...how }] };
+  for (;;) { copy.uid = randomBytes(8).toString("hex"); if (await s.setNX(COLK.copy(copy.uid), JSON.stringify(rec))) break; }
+  return copy;
 }
 const starterCopy = (item: string, now: number): Copy => ({ uid: `st-${item}`.slice(0, 40), item, serial: 0, burn: 0, seed: 0, trak: null, fe: false, origin: "starter", at: now, bound: true });
 
@@ -107,7 +129,7 @@ async function invOf(w: string, now: number, s: Kv): Promise<Copy[]> {
   inv = STARTERS.map((id) => starterCopy(id, now));
   for (const id of await s.smembers(COLK.own(w))) {
     const it = itemById(id); if (!it || it.prestige || STARTERS.includes(id)) continue;
-    inv.push(await makeCopy(it, "migrated", false, freshRolls(), now, s));
+    inv.push(await makeCopy(it, "migrated", false, freshRolls(), now, s, w));
   }
   await writeInv(w, inv, s);
   await s.del(COLK.own(w));   // copies are the record from now on
@@ -170,21 +192,11 @@ async function countFlightTrak(w: string, now: number, s: Kv) {
   }
 }
 
-/** Level, weekly-mission and welcome crates, worked out from the XP summary. Idempotent; run on every read. */
+/** Weekly-mission and welcome crates, worked out from the XP summary. Idempotent; run on every read. Levels don't drop
+ *  crates (maker cut them 2026-11-16, with the XP shop): wins are how you find things. */
 async function syncEarned(w: string, now: number, s: Kv) {
   const xp = await xpSummary(w, now, s);
-  const lv = xp.level.level, p = xp.level.prestige;
-  const base = parse<{ p: number; l: number }>(await s.get(COLK.base(w)));
-  if (!base) {
-    await s.set(COLK.base(w), JSON.stringify({ p, l: lv }));
-    await grantCrate(w, EARN.welcome, "welcome", "Welcome to the Hangar", now, s);
-  } else {
-    let n = 0;
-    const from = base.p === p ? base.l + 1 : 2;
-    let l = from;
-    for (; l <= lv && n < LEVEL_BATCH; l++) if (await grantCrate(w, EARN.level(l), `lvl:p${p}:${l}`, `Level ${l}`, now, s)) n++;
-    if (base.p !== p || l - 1 !== base.l) await s.set(COLK.base(w), JSON.stringify({ p, l: l - 1 }));
-  }
+  if (await s.setNX(COLK.base(w), JSON.stringify({ p: xp.level.prestige, l: xp.level.level }))) await grantCrate(w, EARN.welcome, "welcome", "Welcome to the Hangar", now, s);
   if (xp.weekly.missions.length && xp.weekly.missions.every((m) => m.done)) await grantCrate(w, EARN.weekly, `week:${xp.weekly.period}`, "Weekly missions", now, s);
   return xp;
 }
@@ -241,7 +253,7 @@ export async function openCrate(walletIn: string, crateId: string, now = Date.no
     const inv = await invOf(w, now, s);
     const dupe = !!item && inv.some((c) => c.item === item.id);
     let copy: Copy | undefined;
-    if (item) { copy = await makeCopy(item, "crate", boundSrc(crate.src), rolls, now, s); inv.push(copy); await writeInv(w, inv, s); }
+    if (item) { copy = await makeCopy(item, "crate", boundSrc(crate.src), rolls, now, s, w, { crate: crate.id, ...(proof ? { proofDay: proof.day } : {}) }); inv.push(copy); await writeInv(w, inv, s); }
     const xp = CRATE[crate.tier].xp;
     await award(w, { src: `crate:${crate.id}`, kind: "crate", xp, label: `${RARITY_NAME[crate.tier]} crate`, ts: now }, s);
     const opened: Opened = { crate, item, copy, dupe, xp, at: now, proof };
@@ -250,35 +262,6 @@ export async function openCrate(walletIn: string, crateId: string, now = Date.no
   }) as Promise<OpenResult>;
 }
 
-export type BuyResult = { ok: true; item: string; spendableXp: number; crate?: Crate; copy?: Copy } | { ok: false; reason: string };
-
-/** Buy from today's shop with XP to spend (or the Common crate, always in stock). Shop copies are bound: they never trade. */
-export async function buyItem(walletIn: string, id: string, now = Date.now(), s: Kv = kv()): Promise<BuyResult> {
-  await ensureCatalog(s);
-  const w = lc(walletIn);
-  const stock = shopStock(now);
-  const isCrate = id === SHOP_CRATE_ID;
-  const item: Item | undefined = isCrate ? undefined : [stock.featured, ...stock.daily].find((i) => i?.id === id) ?? undefined;
-  if (!isCrate && !item) return { ok: false, reason: "That's not in the shop today." };
-  const price = isCrate ? CRATE_PRICE : PRICE[item!.rar];
-  if (!price) return { ok: false, reason: "That can't be bought." };
-  return withLock(w, s, async (): Promise<BuyResult> => {
-    const inv = await invOf(w, now, s);
-    if (item && inv.some((c) => c.item === item.id)) return { ok: false, reason: "You already own that." };
-    const t = totals(await ledgerOf(w, s));
-    if (t.spendable < price) return { ok: false, reason: `You need ${(price - t.spendable).toLocaleString("en-US")} more XP.` };
-    const src = isCrate ? `shopcrate:${randomUUID().slice(0, 12)}` : `skin:${item!.id}`;
-    if (!(await award(w, { src, kind: "buy", xp: -price, label: isCrate ? "Common crate" : itemTitle(item!), ts: now }, s))) return { ok: false, reason: "You already own that." };
-    if (item) {
-      const copy = await makeCopy(item, "shop", true, freshRolls(), now, s);
-      inv.push(copy); await writeInv(w, inv, s);
-      return { ok: true, item: item.id, spendableXp: t.spendable - price, copy };
-    }
-    const c: Crate = { id: randomUUID().slice(0, 12), tier: "common", src, label: "Bought in the shop", at: now };
-    await s.zadd(COLK.crates(w), [{ score: now, member: JSON.stringify(c) }]);
-    return { ok: true, item: SHOP_CRATE_ID, spendableXp: t.spendable - price, crate: c };
-  }) as Promise<BuyResult>;
-}
 
 export type ScrapResult = { ok: true; xp: number } | { ok: false; reason: string };
 
@@ -293,6 +276,7 @@ export async function scrapCopy(walletIn: string, uid: string, now = Date.now(),
     if (!it || c.origin === "starter") return { ok: false, reason: "Starter items can't be scrapped." };
     if (Object.values((await equippedOf(w, s)).copy).includes(uid)) return { ok: false, reason: "Take it off before you scrap it." };
     inv.splice(k, 1); await writeInv(w, inv, s);
+    await addEvent(uid, { ev: "burned", at: now, owner: w, why: "scrap" }, s);
     const xp = DUPE_XP[it.rar];
     await award(w, { src: `scrap:${uid}`, kind: "crate", xp, label: `Scrapped ${itemTitle(it)}`, ts: now }, s);
     return { ok: true, xp };
@@ -325,10 +309,11 @@ export async function tradeUp(walletIn: string, uids: string[], now = Date.now()
     if (!pool.length) return { ok: false, reason: "Nothing to trade up into for that series yet." };
     const out = pool[randomInt(0, pool.length)];
     const r = freshRolls();
-    const copy = await makeCopy(out, "tradeup", copies.some((c) => c.bound), { burn: copies.reduce((a, c) => a + c.burn, 0) / copies.length, seed: r.seed, trak: randomInt(0, 100) < FLIGHTTRAK_PCT }, now, s);
-    copy.fe = false;   // first edition only comes out of crates
+    // first edition only comes out of crates
+    const copy = await makeCopy(out, "tradeup", copies.some((c) => c.bound), { burn: copies.reduce((a, c) => a + c.burn, 0) / copies.length, seed: r.seed, trak: randomInt(0, 100) < FLIGHTTRAK_PCT }, now, s, w, { from: want }, false);
     const left = inv.filter((c) => !want.includes(c.uid)); left.push(copy);
     await writeInv(w, left, s);
+    for (const u of want) await addEvent(u, { ev: "burned", at: now, owner: w, why: "tradeup", into: copy.uid }, s);
     return { ok: true, copy, item: out };
   }) as Promise<TradeUpResult>;
 }
