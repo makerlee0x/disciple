@@ -3,9 +3,11 @@
  * 12 coins. Owner wiring of router/pricer routes is a separate on-chain step
  * (see contracts/script/whitelist/README.md) and is never sent from the web app.
  *
- * BUN was removed on lee's instruction (Nov 10, 2026) and replaced the same day
- * with SPACEHOOD (stock-pool route via SPCX). Images live at /whitelist/<SYMBOL>.png
- * (256×256 PNGs).
+ * Nov 16, 2026 (maker): MOO and SPACEHOOD removed, PENGU and HMM added.
+ * Images live at /whitelist/<SYMBOL>.png (256×256 PNGs).
+ *
+ * USDG and ETH are built as optional pairs (OPTIONAL_QUOTES) that are OFF at launch.
+ * Switch them on with NEXT_PUBLIC_PAIR_USDG=1 / NEXT_PUBLIC_PAIR_ETH=1 (lib/launchWhitelist.ts).
  */
 export type WhitelistQuote = {
   symbol: string;
@@ -52,13 +54,6 @@ export const WHITELIST_QUOTES: readonly WhitelistQuote[] = [
     imagePath: "/whitelist/MEME.png",
   },
   {
-    symbol: "MOO",
-    name: "Memory cow Moo",
-    address: "0xD9dB30BB0D2b8d2eae3826A1372117E058791e18",
-    decimals: 18,
-    imagePath: "/whitelist/MOO.png",
-  },
-  {
     symbol: "PONS",
     name: "Pons",
     address: "0x39dBED3a2bd333467115dE45665cC57F813C4571",
@@ -94,11 +89,40 @@ export const WHITELIST_QUOTES: readonly WhitelistQuote[] = [
     imagePath: "/whitelist/PRIORS.png",
   },
   {
-    symbol: "SPACEHOOD",
-    name: "SPACEHOOD",
-    address: "0xFe7E19CbCe2f896C6C528BC355bAF5a768291E18",
+    symbol: "PENGU",
+    name: "Pudgy Penguins",
+    address: "0x74BE72AFFAFbC8de30F0C11247814036314D625f",
     decimals: 18,
-    imagePath: "/whitelist/SPACEHOOD.png",
+    imagePath: "/whitelist/PENGU.png",
+  },
+  {
+    symbol: "HMM",
+    name: "Thinking Cat",
+    address: "0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f",
+    decimals: 18,
+    imagePath: "/whitelist/HMM.png",
+  },
+] as const;
+
+/**
+ * Optional pairs, built but OFF at launch (maker, Nov 16 2026). Not part of WHITELIST_QUOTES, so the
+ * picker never shows them unless their switch is on (lib/launchWhitelist.ts).
+ * ETH is listed as WETH (an ERC-20); address(0) as a quote means "launchpad default" on-chain.
+ */
+export const OPTIONAL_QUOTES: readonly WhitelistQuote[] = [
+  {
+    symbol: "USDG",
+    name: "Global Dollar",
+    address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    decimals: 6,
+    imagePath: "/whitelist/USDG.png",
+  },
+  {
+    symbol: "ETH",
+    name: "Ether",
+    address: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    decimals: 18,
+    imagePath: "/whitelist/ETH.png",
   },
 ] as const;
 

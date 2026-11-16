@@ -2,19 +2,19 @@
  * Launch pair whitelist for the Quick Launch pair picker.
  *
  * Coins, names, addresses, decimals, and images come from main's
- * `web/lib/whitelistQuotes.ts` (the 12-coin list FLOW shipped). The router
- * already knows the quote route for each coin (a two-swap route for the seven
- * LONG coins STRATEGY, AI, SCHIFFY, BONER, MEME, MOO, and SPACEHOOD, and a
- * single USDG swap for the other five). This file does not invent a second
- * quote path.
+ * `web/lib/whitelistQuotes.ts` (12 coins, updated Nov 16 2026). Routes are
+ * wired on-chain by the owner (contracts/script/whitelist/routes.json); this
+ * file does not invent a second quote path.
  *
- * STRATEGY is the default. USDG is intentionally not listed.
+ * STRATEGY is the default. USDG and ETH are built but OFF at launch: they join
+ * the list only when NEXT_PUBLIC_PAIR_USDG=1 / NEXT_PUBLIC_PAIR_ETH=1 is set at
+ * build time (and their routes are wired).
  * On testnet, only STRATEGY works: `addressOn()` uses the chain's defaultQuote,
  * and `launchPairsForChain()` offers only STRATEGY. There are no mock testnet coins.
  */
 import type { Address } from "./protocol";
 import { MAINNET_CHAIN_ID } from "./networkConfig";
-import { WHITELIST_QUOTES } from "./whitelistQuotes";
+import { OPTIONAL_QUOTES, WHITELIST_QUOTES, type WhitelistQuote } from "./whitelistQuotes";
 
 export type LaunchWhitelistCoin = {
   symbol: string;
@@ -25,13 +25,28 @@ export type LaunchWhitelistCoin = {
   decimals: number;
 };
 
-export const LAUNCH_WHITELIST: readonly LaunchWhitelistCoin[] = WHITELIST_QUOTES.map((q) => ({
+const on = (v: string | undefined) => v === "1" || v === "true";
+
+/** Switches for the optional pairs. Both off at launch (maker, Nov 16 2026). */
+export const OPTIONAL_PAIR_SWITCHES: Record<string, boolean> = {
+  USDG: on(process.env.NEXT_PUBLIC_PAIR_USDG),
+  ETH: on(process.env.NEXT_PUBLIC_PAIR_ETH),
+};
+
+const toCoin = (q: WhitelistQuote): LaunchWhitelistCoin => ({
   symbol: q.symbol,
   name: q.name,
   address: q.address,
   image: q.imagePath,
   decimals: q.decimals,
-}));
+});
+
+/** Pair list with the given switches applied (exported for tests). */
+export function buildLaunchWhitelist(switches: Record<string, boolean> = OPTIONAL_PAIR_SWITCHES): readonly LaunchWhitelistCoin[] {
+  return [...WHITELIST_QUOTES, ...OPTIONAL_QUOTES.filter((q) => switches[q.symbol])].map(toCoin);
+}
+
+export const LAUNCH_WHITELIST: readonly LaunchWhitelistCoin[] = buildLaunchWhitelist();
 
 /** The chip selected when the form opens. */
 export const DEFAULT_LAUNCH_PAIR_SYMBOL = "STRATEGY" as const;
@@ -50,7 +65,7 @@ export function launchPairsForChain(chainId: number): readonly LaunchWhitelistCo
 
 export const isUsdgSymbol = (symbol: string) => /^m?usdg$/i.test(symbol.trim());
 
-/** True when this list contains a USDG / mUSDG option (it must not). */
+/** True when this list contains a USDG / mUSDG option (only allowed with NEXT_PUBLIC_PAIR_USDG on). */
 export const whitelistIncludesUsdg = (list: readonly LaunchWhitelistCoin[] = LAUNCH_WHITELIST) =>
   list.some((c) => isUsdgSymbol(c.symbol));
 
