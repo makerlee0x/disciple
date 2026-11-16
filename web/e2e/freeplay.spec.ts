@@ -31,12 +31,19 @@ test("the Free play hub shows today's daily and the three practice levels", asyn
   await expect(hub.getByRole("heading", { name: "FREE PLAY" })).toBeVisible();
   await expect(hub.getByTestId("sim-daily")).toHaveText("FLY TODAY'S FLIGHT");
   for (const d of ["pve", "pvp", "trench"]) await expect(hub.getByTestId(`sim-diff-${d}`)).toBeVisible();
-  await expect(hub.getByLabel(/^Daily flight #\d+$/)).toBeVisible();
+  const daily = hub.getByLabel(/^Daily flight #\d+$/);
+  await expect(daily).toBeVisible();
+  // one level for everyone: no difficulty on the daily
+  await expect(daily).not.toContainText(/\b(EASY|HARD|EXPERT)\b/);
+  // today's board shows on phones too
+  await expect(hub.getByLabel("Today's board")).toBeVisible();
 });
 
 test("practice run: boost buys a seat, dump cashes it out, the run ends on a result", async ({ page }) => {
   await page.goto("/flight/sim?speed=4&minutes=1");
   await page.getByTestId("sim-diff-pve").click();
+  // 3 · 2 · 1 · GO before the market starts
+  await expect(page.getByTestId("fp-countdown")).toBeVisible();
   await pastIntro(page);
   await expectRun(page, /PRACTICE/);
   await expect(page.getByTestId("trade-bar")).toBeVisible();
@@ -112,6 +119,14 @@ test("Daily flight: fly it, get scored by the server, and see the same result ne
   test.setTimeout(4 * 60_000);
   await page.goto("/flight/sim");
   await page.getByTestId("sim-daily").click();
+  // the pre-flight screen: today's board and the controls, nothing flying until LAUNCH and the countdown
+  const pre = page.getByTestId("daily-pre");
+  await expect(pre).toBeVisible();
+  await expect(pre.getByTestId("daily-pre-board")).toBeVisible();
+  await expect(pre).not.toContainText(/\b(EASY|HARD|EXPERT)\b/);
+  await expect(page.getByTestId("sim-bar").or(page.getByTestId("sim-chip"))).toHaveCount(0);
+  await pre.getByTestId("daily-launch").click();
+  await expect(page.getByTestId("fp-countdown")).toBeVisible();
   await pastIntro(page);
   await expectRun(page, /DAILY #\d+/);
   await page.waitForFunction(() => (window as unknown as { __flight?: { assetsReady?: () => boolean } }).__flight?.assetsReady?.() === true, null, { timeout: 20_000 });

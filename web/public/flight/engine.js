@@ -731,7 +731,7 @@ function momentumStep(dt){
   MOM.buy=b; MOM.sell=se; MOM.vol=b+se; const pr=b+se>0?b/(b+se):0.5; MOM.press+=(pr-MOM.press)*(1-Math.exp(-dt*3));
   S.fight=(S.fight||0)*Math.exp(-dt/1.6); S.flare=(S.flare||0)*Math.exp(-dt/0.6);
   S.buyBoost=(S.buyBoost||0)*Math.exp(-dt/0.8);   // BUY = TURBO BOOST (τ 0.8 s)
-  { const held=S.keys&&(S.keys.KeyW||S.keys.ArrowUp); S.wBoost=held?lerp(S.wBoost||0,1,1-Math.exp(-dt/0.12)):(S.wBoost||0)*Math.exp(-dt/0.35); }   // W = mini acceleration, off-chain
+  { const held=!FREE_FLY&&S.keys&&(S.keys.KeyW||S.keys.ArrowUp); S.wBoost=held?lerp(S.wBoost||0,1,1-Math.exp(-dt/0.12)):(S.wBoost||0)*Math.exp(-dt/0.35); }   // W = mini acceleration, off-chain
 }
 function impactNorm(pct){ pct=Math.abs(+pct||0); return clamp(Math.log10(1+pct/0.05)/Math.log10(1+10/0.05),0,1); }
 function queueThrust(side, usd, pct){
@@ -1411,6 +1411,7 @@ cv.addEventListener('pointerdown',e=>{ if(S.grass) return; const ctf=typeof char
    pointerdown/move/up/cancel with pointerId + pointerType. */
 S.drag=null;
 const DRAG_SLOP=8;
+function ffOn(){ return typeof FREE_FLY!=='undefined'&&FREE_FLY; }   // @free-fly (below)
 function dragPointer(e){ return e.pointerType==='touch'||e.pointerType==='pen'; }
 function canvasXY(e){ const r=cv.getBoundingClientRect(); return [(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height]; }
 function skyAt(x,y){ if(S.grass) return true; const P=phoneHud(W,CLEAN);
@@ -1418,14 +1419,28 @@ function skyAt(x,y){ if(S.grass) return true; const P=phoneHud(W,CLEAN);
   return true; }
 cv.addEventListener('pointerdown',e=>{ if(!dragPointer(e)||S.menuOpen) return; const [x,y]=canvasXY(e);
   if(!skyAt(x,y)||(!S.grass&&(ammoAt(e)>=0||(typeof chartBtnAt==='function'&&chartBtnAt(e)!=null)))) return;
-  S.drag={id:e.pointerId,x0:x,y0:y,t0:performance.now(),dx:0,dy:0,sx:S.steer?S.steer.x:S.x,tx:null,on:false};
+  S.drag={id:e.pointerId,x0:x,y0:y,t0:performance.now(),dx:0,dy:0,sx:S.steer?S.steer.x:S.x,sy:S.lift?S.lift.yt:0,tx:null,on:false};
   try{ if(cv.setPointerCapture) cv.setPointerCapture(e.pointerId); }catch(_){} });
 cv.addEventListener('pointermove',e=>{ const d=S.drag; if(!d||e.pointerId!==d.id) return; if(S.menuOpen){ S.drag=null; return; }
-  const [mx,my]=canvasXY(e), dx=mx-d.x0; d.dx=dx; d.dy=my-d.y0; if(!d.on&&Math.abs(dx)<DRAG_SLOP) return; d.on=true;
-  const m=steerMargin(W); d.tx=clamp(d.sx+dx,m,W-m); });
+  const [mx,my]=canvasXY(e), dx=mx-d.x0; d.dx=dx; d.dy=my-d.y0; if(!d.on&&Math.abs(dx)<DRAG_SLOP&&!(ffOn()&&Math.abs(d.dy)>=DRAG_SLOP)) return; d.on=true;
+  const m=steerMargin(W); d.tx=clamp(d.sx+dx,m,W-m); if(ffOn()) liftTo(d.sy+d.dy); });
 function dragEnd(e){ const d=S.drag; if(!d||e.pointerId!==d.id) return; S.drag=null; if(e.type==='pointerup'&&typeof trickGesture==='function') trickGesture(d,e); }
 cv.addEventListener('pointerup',dragEnd); cv.addEventListener('pointercancel',dragEnd);
 /* @drag-steer-end */
+/* @free-fly (maker 2026-11-16: "let me go up and down like we added in royale"). Free play only (the SIMULATOR source):
+   W/↑ and S/↓ (held) or a vertical drag on the sky fly the rocket up and down the screen, like Turbo Royale. It holds where
+   you leave it (no auto-centre). Cosmetic: the price, PnL and trades never move; the camera stays on the price, so the
+   rocket rides above or below its price line. In free fly W is not the mini boost, S is not the dive and a swipe up
+   doesn't spin (Q still does). */
+const FREE_FLY=!!(source&&source.isSim);
+S.lift={yt:0,yo:0};
+function liftRange(){ const P=phoneHud(W,CLEAN), bottom=P&&P.hudTop?P.hudTop:H-60, ay=S.anch==null?ROCKET_Y:S.anch;
+  const top=P?H*0.42:200;   // the nozzle: keeps the nose under the chart card (phone) and the top HUD (desktop)
+  return [Math.min(0,top-ay), Math.max(0,bottom-60-ay)]; }
+function liftTo(y){ const [lo,hi]=liftRange(); S.lift.yt=clamp(y,lo,hi); }
+function freeFlyStep(dt){ const K=S.keys||{}, L=S.lift;
+  if(!S.menuOpen){ if(K.KeyW||K.ArrowUp) liftTo(L.yt-380*dt); if(K.KeyS||K.ArrowDown) liftTo(L.yt+380*dt); }
+  liftTo(L.yt); L.yo+=(L.yt-L.yo)*Math.min(1,dt*8); S.ry+=L.yo; }
 /* @tricks (maker 2026-11-14: bring the Trading duel's spin + flip into the main flight, phone and browser). Cosmetic only:
    nothing trades, the altitude / PnL never move. Phone: a quick swipe UP on the sky = SPIN (barrel roll), a double-tap on the
    sky = FLIP (a full loop about the body's middle). Desktop: Q = spin, E = flip (unless those keys are bound to a trade preset,
@@ -1468,7 +1483,7 @@ S.thrustSfx=false; addEventListener('disciple:thrustsfx',e=>{ S.thrustSfx=!!(e.d
 function rumblePub(flame){ if((!S.rumble&&!S.thrustSfx)||S.t-S.rumbleT<0.1) return; S.rumbleT=S.t;
   try{ dispatchEvent(new CustomEvent('disciple:thrust',{detail:{v:clamp(flame/1.4,0,1),climb:clamp((S.vyS||0)/600,-1,1),pending:tradePendingFx()?1:0}})); }catch(_){} }
 function trickGesture(d,e){ const dt=performance.now()-d.t0, dx=d.dx||0, dy=d.dy||0;
-  if(dy<-55&&Math.abs(dy)>Math.abs(dx)*1.3&&dt<450){ S.lastTap=0; trick('spin'); return; }
+  if(!ffOn()&&dy<-55&&Math.abs(dy)>Math.abs(dx)*1.3&&dt<450){ S.lastTap=0; trick('spin'); return; }
   if(Math.abs(dx)<DRAG_SLOP&&Math.abs(dy)<DRAG_SLOP&&dt<250){ const now=performance.now();
     if(now-S.lastTap<320){ S.lastTap=0; trick('flip'); } else S.lastTap=now; } }
 /* the trick's extra transform, applied after the rocket's own translate(nozzle) + rotate(heading) (pivot = nozzle, sprite spans
@@ -2941,7 +2956,7 @@ function simStep(stepDt){
   else if (!dir&&S.tiltIn!=null&&!S.drag&&Math.abs(S.tiltIn)>0.04){ const m=steerMargin(W); dir=steerDragDir(S.steer,clamp(W/2+S.tiltIn*(W/2-m),m,W-m)-(S.drift||0)*0.35,W); S.steer.idle=0; }   // @tilt   // @drag-steer: finger held = steering input (no auto-centre until release)
   stepSteerAuto(S.steer, dir*(steer/7), dt, W);     // hold-to-steer (VOID orb: weaker thrust); idle ⇒ auto-centre
   { const m=steerMargin(W); S.x=clamp(S.steer.x+S.drift*0.35+Math.sin(S.t*0.6)*14*(S.idle||0),m,W-m); S.vx=S.steer.vx; }
-  { const TX=turboFx(), want=(K.KeyS||K.ArrowDown)?1:TX&&TX.dive?TURBO_DIVE:0;   // @turbo: a DUMP (short) flies as a nose-down dive run — same sprite, a controlled pose (never a flip)
+  { const TX=turboFx(), want=(!FREE_FLY&&(K.KeyS||K.ArrowDown))?1:TX&&TX.dive?TURBO_DIVE:0;   // @turbo: a DUMP (short) flies as a nose-down dive run — same sprite, a controlled pose (never a flip)
     S.dive=lerp(S.dive||0,want,1-Math.exp(-dt*(want>0?(TX&&TX.dive?3:8):4))); }   // S/↓ = dive (cosmetic, off-chain)
   const bankTarget=clamp(-S.vx/900,-0.38,0.38);
   S.bank=lerp(S.bank||0,bankTarget,1-Math.exp(-dt*6));
@@ -3005,6 +3020,7 @@ function simStep(stepDt){
   // rocket screen y: true altitude vs camera, soft-limited to the safe band (tanh, never a hard stop)
   pressFeelStep(dt);
   S.ry=(IS_TURBO&&S.tHeld)? clamp(S.anch-(S.displayAlt-S.camAlt)*PX_PER_ALT, 70, H-40) : rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) + (IS_TURBO?0:40*(S.dive||0)) + (S.kick||0);   // @turbo-hold: linear in a run, so the rocket sits exactly on its price line
+  if (FREE_FLY) freeFlyStep(dt);   // @free-fly: W/S or a drag moves the rocket up / down the screen
   turboShudder(dt);   // @altfollow: no buy/W hop (they decayed back = a sink); S/↓ dive only while held
   // idle bob / sway / micro-rot — attenuated during thrust so they don't fight heading
   const thrustHold=sinceThrust<1.2? clamp(1-sinceThrust/1.2,0,1) : 0;

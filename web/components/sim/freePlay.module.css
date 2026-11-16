@@ -48,6 +48,7 @@
 .rank1 { color: #F2C14E; }
 .mult { font: 700 18px var(--dsc-font-game); color: #5FF0A0; }
 .rule { height: 1px; background: #2E323A; margin: 4px 0; }
+.boardNote { font-size: 12px; color: rgba(215,217,228,.75); }
 .empty { font-size: 14px; color: #D7D9E4; line-height: 1.45; }
 
 .practiceHead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
@@ -74,7 +75,7 @@
 
 @media (max-width: 760px) {
   .hub { left: 0; }
-  .wrap { padding: calc(var(--ap-safe-top, 0px) + 52px) 16px 110px; gap: 20px; }
+  .wrap { padding: calc(var(--ap-safe-top, 0px) + 14px) 16px 110px; gap: 20px; }
   .head { align-items: center; }
   .back { display: grid; place-items: center; width: 44px; height: 44px; box-sizing: border-box; border-radius: 12px; background: rgba(18,19,39,.78); border: 1px solid #2E323A; flex: none; }
   .titleBox { align-items: center; }
@@ -82,7 +83,8 @@
   .sub { display: none; }
   .streak { height: 44px; padding: 0 12px; font-size: 18px; }
   .top { grid-template-columns: 1fr; }
-  .board { display: none; }
+  .board { padding: 16px; border-radius: 16px; gap: 8px; }
+  .boardT { font-size: 18px; }
   .daily, .dailyBody { min-height: 312px; }
   .dailyArt { background-position: 62% 30%; }
   .dailyShade { background: linear-gradient(180deg, rgba(18,19,39,.1) 0%, rgba(18,19,39,.2) 40%, rgba(18,19,39,.92) 78%); }

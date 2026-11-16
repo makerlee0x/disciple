@@ -277,7 +277,7 @@ export default function PhoneHud() {
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z" /></svg></Link>
         </nav>
         {!(cta && !sim) && <PhoneBag value={bagUsd} cost={basis} pnl={pnl?.uPnl ?? 0} pct={pnl?.pnlPct ?? 0} room={stats.room} banked={banked} holding={bagUsd > 0} />}
-        {steerHint && <div data-testid="steer-hint" aria-hidden className="ph-steer">⟵ DRAG THE SKY TO STEER ⟶</div>}
+        {steerHint && <div data-testid="steer-hint" aria-hidden className="ph-steer">{typeof location !== "undefined" && location.pathname.includes("/flight/sim") ? "DRAG THE SKY TO FLY ANYWHERE" : "⟵ DRAG THE SKY TO STEER ⟶"}</div>}
         {floats.map((f) => <span key={f.id} aria-hidden className={`ph-float ${f.k}`}>{f.t}</span>)}
       </>}
       {sheet && <>

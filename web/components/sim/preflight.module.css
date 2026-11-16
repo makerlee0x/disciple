@@ -1,0 +1,73 @@
+/* Daily flight pre-flight screen: the Trading Duel's pre-match lobby look (duel .pre), 2026-11-16 */
+.pre {
+  position: fixed; inset: 0; z-index: 40; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; background: #07080c; color: #F2F3F7;
+  display: flex; flex-direction: column; align-items: center; gap: 22px;
+  padding: calc(18px + var(--ap-safe-top, env(safe-area-inset-top, 0px))) 16px calc(22px + env(safe-area-inset-bottom, 0px));
+  font-family: var(--dsc-font-ui, "Geist", system-ui, sans-serif); box-sizing: border-box;
+}
+.pre > *:not(.bg) { position: relative; z-index: 1; width: 100%; max-width: 980px; }
+.bg { position: absolute; inset: 0; z-index: 0; background: url(/art/share/daily.webp) 62% 30% / cover no-repeat; opacity: .5; }
+.bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7,8,12,.55) 0%, rgba(7,8,12,.3) 26%, rgba(7,8,12,.9) 56%, #07080c 100%); }
+.top { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; }
+.back {
+  justify-self: start; display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 12px 0 8px; border-radius: 12px; cursor: pointer;
+  background: rgba(18,19,39,.7); border: 1px solid rgba(255,255,255,.22); color: #F2F3F7; font: 800 15px/1 var(--dsc-font-game); letter-spacing: .6px;
+}
+.back:disabled { opacity: .4; cursor: default; }
+.title { font: 800 34px/1 var(--dsc-font-game); letter-spacing: 1px; white-space: nowrap; }
+.chip { justify-self: end; padding: 6px 12px; border-radius: 999px; background: rgba(18,19,39,.7); border: 1px solid rgba(255,255,255,.22); font: 700 14px var(--dsc-font-game); letter-spacing: .5px; color: #F3DFA8; white-space: nowrap; }
+.hero { display: flex; flex-direction: column; gap: 10px; padding-top: 6vh; }
+.h { margin: 0; font: 800 64px/.92 var(--dsc-font-game); }
+.p { margin: 0; max-width: 560px; font-size: 15px; line-height: 1.5; color: rgba(215,217,228,.92); }
+.facts { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.facts span { display: inline-flex; align-items: baseline; gap: 6px; padding: 8px 14px; border-radius: 12px; background: rgba(18,19,39,.78); border: 1px solid #2E323A; font-size: 13px; color: #D7D9E4; }
+.facts b { font: 800 22px var(--dsc-font-game); color: #F2F3F7; }
+.cols { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; }
+.board, .ctl { box-sizing: border-box; padding: 18px 20px; border-radius: 18px; background: rgba(18,19,39,.82); border: 1px solid rgba(255,255,255,.14); display: flex; flex-direction: column; gap: 8px; }
+.bHead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+.bT { font: 700 20px var(--dsc-font-game); letter-spacing: 1px; color: #F3DFA8; }
+.bMeta { font-size: 13px; color: #D7D9E4; }
+.row { display: flex; justify-content: space-between; align-items: center; font-size: 14px; gap: 10px; }
+.row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank { display: inline-block; width: 24px; font: 700 15px var(--dsc-font-game); color: #D7D9E4; }
+.rank1 { color: #F2C14E; }
+.mult { font: 700 18px var(--dsc-font-game); color: #5FF0A0; }
+.empty { font-size: 14px; color: #D7D9E4; line-height: 1.45; }
+.note { margin-top: 4px; font-size: 12px; color: rgba(215,217,228,.75); }
+.keys { display: grid; gap: 8px; margin-top: 2px; }
+.keys > div { display: flex; align-items: center; gap: 6px; font-size: 14px; color: #D7D9E4; }
+.keys span { margin-left: 6px; }
+.keys kbd { min-width: 28px; height: 28px; box-sizing: border-box; padding: 0 8px; border-radius: 7px; display: inline-grid; place-items: center; background: #121327; border: 1px solid #3A3F4B; border-bottom-width: 2px; font: 700 13px var(--dsc-font-game); letter-spacing: .5px; color: #F2F3F7; }
+.touch { display: none; font-size: 14px; line-height: 1.45; color: #D7D9E4; }
+.foot { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: auto; }
+.go {
+  width: 100%; max-width: 420px; height: 60px; border-radius: 16px; border: 0; cursor: pointer; background: #F2C14E; color: #121327;
+  font: 800 26px var(--dsc-font-game); letter-spacing: 1.5px; box-shadow: 0 10px 30px rgba(242,193,78,.22);
+}
+.go:hover:not(:disabled) { background: #F6CF6B; }
+.go:disabled { opacity: .7; cursor: default; }
+.go:focus-visible, .back:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+.err { margin: 0; font-size: 13px; color: #FFB48F; text-align: center; }
+.fine { font-size: 12px; color: rgba(215,217,228,.7); text-align: center; }
+
+/* the 3 · 2 · 1 · GO count (the duel's .count, popped in) */
+.count { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; pointer-events: none; background: radial-gradient(closest-side, rgba(7,8,12,.55), rgba(7,8,12,0)); }
+.count b { font: 800 160px/1 var(--dsc-font-game); color: #F2F3F7; text-shadow: 0 6px 30px rgba(0,0,0,.6); animation: pop .32s cubic-bezier(.2,1.4,.4,1); }
+.count b.countGo { color: #F2C14E; }
+@keyframes pop { 0% { transform: scale(.55); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .count b { animation: none; } }
+
+@media (max-width: 760px) {
+  .pre { gap: 16px; }
+  .title { font-size: 22px; }
+  .chip { font-size: 12px; padding: 5px 9px; }
+  .hero { padding-top: 18vh; }
+  .h { font-size: 44px; }
+  .p { font-size: 14px; }
+  .facts b { font-size: 19px; }
+  .cols { grid-template-columns: 1fr; }
+  .ctl .keys { display: none; }
+  .touch { display: block; }
+  .count b { font-size: 120px; }
+}
+@media (hover: none) and (min-width: 761px) { .ctl .keys { display: none; } .touch { display: block; } }

@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { DifficultyId } from "@/lib/sim/config";
-import { DAILY, dailyEndsAt, fmtMultiple, type DailyScore } from "@/lib/sim/daily";
+import { dailyEndsAt, fmtMultiple, type DailyScore } from "@/lib/sim/daily";
 import { savedDaily } from "@/lib/sim/dailyClient";
 import s from "./freePlay.module.css";
 
@@ -42,7 +42,10 @@ function Chevrons({ n, c, size }: { n: number; c: string; size: number }) {
 }
 const Flame = ({ size = 18 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#F2C14E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-3 2-4 2-7 2 1 3 2 3 4" /></svg>;
 
-type Board = { count: number; top: { runId: string; name: string; multiple: number }[] } | null;
+export type Board = { count: number; top: { runId: string; name: string; multiple: number }[] } | null;
+/** today's board (GET /api/daily): the top 10 and how many pilots are on it */
+export const fetchDailyBoard = (id: number): Promise<NonNullable<Board>> =>
+  fetch(`/api/daily?id=${id}`).then((r) => (r.ok ? r.json() : null)).then((j) => (j && Array.isArray(j.top) ? { count: j.count ?? 0, top: j.top } : { count: 0, top: [] })).catch(() => ({ count: 0, top: [] }));
 const untilText = (ms: number) => { const m = Math.max(0, Math.floor(ms / 60000)); return `${Math.floor(m / 60)}H ${m % 60}M`; };
 
 export function FreePlayHub({ dailyId, msg, onDaily, onPractice, tune }: {
@@ -56,11 +59,13 @@ export function FreePlayHub({ dailyId, msg, onDaily, onPractice, tune }: {
   useEffect(() => {
     setBests(practiceBests()); setStreak(dailyStreak(dailyId));
     const v = savedDaily(dailyId)?.verdict; if (v) setMine({ multiple: v.score.multiple, rank: v.rank });
-    fetch(`/api/daily?id=${dailyId}`).then((r) => (r.ok ? r.json() : null)).then((j) => setBoard(j && Array.isArray(j.top) ? { count: j.count ?? 0, top: j.top } : { count: 0, top: [] })).catch(() => setBoard({ count: 0, top: [] }));
-    const iv = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(iv);
+    const load = () => fetchDailyBoard(dailyId).then(setBoard);
+    load();
+    const iv = setInterval(() => { setNow(Date.now()); load(); }, 30_000); return () => clearInterval(iv);
   }, [dailyId]);
+  // the old-design sweep hides the app chrome (sidebar, wallet pills) while Free play's own screens are up
+  useEffect(() => { document.body.classList.add("fp-hub"); return () => document.body.classList.remove("fp-hub"); }, []);
   const best = board?.top[0];
-  const diff = fpDiff(DAILY.difficulty);
   const pilots = board && board.count > 0 ? `${board.count.toLocaleString("en-US")} pilot${board.count === 1 ? "" : "s"}` : "";
 
   return (
@@ -77,7 +82,7 @@ export function FreePlayHub({ dailyId, msg, onDaily, onPractice, tune }: {
             <div className={s.dailyArt} aria-hidden />
             <div className={s.dailyShade} aria-hidden />
             <div className={s.dailyBody}>
-              <div className={s.tags}><span className={`${s.tag} ${s.tagHard}`} style={{ borderColor: diff.c }}>{diff.label}</span><span className={s.tag}>NEW FLIGHT IN {untilText(dailyEndsAt(dailyId) - now)}</span></div>
+              <div className={s.tags}><span className={s.tag}>SAME MARKET FOR EVERYONE</span><span className={s.tag}>NEW FLIGHT IN {untilText(dailyEndsAt(dailyId) - now)}</span></div>
               <div>
                 <span className={s.kicker}>DAILY FLIGHT #{dailyId}</span>
                 <div className={s.dailyH}>One market.<br />Everyone flies it.</div>
@@ -93,12 +98,13 @@ export function FreePlayHub({ dailyId, msg, onDaily, onPractice, tune }: {
           </section>
 
           <aside className={s.board} aria-label="Today's board">
-            <div className={s.boardHead}><span className={s.boardT}>TODAY&apos;S BOARD</span></div>
+            <div className={s.boardHead}><span className={s.boardT}>TODAY&apos;S BOARD</span><span className={s.meta}>{pilots || `Daily #${dailyId}`}</span></div>
             {board && board.top.length ? board.top.slice(0, 5).map((r, i) => (
               <div key={r.runId} className={s.row}><span><b className={`${s.rank} ${i === 0 ? s.rank1 : ""}`}>{i + 1}</b>{r.name}</span><span className={s.mult}>{fmtMultiple(r.multiple)}</span></div>
             )) : <div className={s.empty}>{board ? "No one is on the board yet. Fly first and take the top spot." : "Loading the board…"}</div>}
             <div className={s.rule} />
             <div className={s.row} style={{ color: "#D7D9E4" }}><span>{mine ? `You · #${mine.rank}` : "You haven't flown today"}</span><span className={s.mult} style={{ color: mine ? "#5FF0A0" : "#D7D9E4" }}>{mine ? fmtMultiple(mine.multiple) : "–"}</span></div>
+            <span className={s.boardNote}>Signed-in pilots only. Scores reset at midnight UTC.</span>
           </aside>
         </div>
 
@@ -156,7 +162,7 @@ export function FreePlayStrip({ mode, left, difficulty, goals, alert, phone, tun
     <div className={s.strip} data-testid="sim-bar" role="status" aria-label={`${mode}, ${left} left`}>
       <div className={s.stripHead}>
         <span className={s.stripMode}>{mode}</span><span className={s.stripClock}>{left}</span>
-        <span className={s.stripDiff} style={{ "--c": d.c } as React.CSSProperties}><i />{d.label}</span>
+        {!mode.startsWith("DAILY") && <span className={s.stripDiff} style={{ "--c": d.c } as React.CSSProperties}><i />{d.label}</span>}
         {phone && <button type="button" className={s.stripFold} data-testid="sim-chip-close" aria-label="Fold the goals" onClick={() => setOpen(false)}>▴</button>}
       </div>
       <div className={s.goals}>{GOALS.map((g) => <span key={g.k} className={`${s.goal} ${goals[g.k] ? s.goalOn : ""}`}><Check on={goals[g.k]} />{g.label}</span>)}</div>

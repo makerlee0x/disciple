@@ -1,7 +1,7 @@
 "use client";
 /**
  * Daily flight result (the approved ResultPhone board): the multiple, practice cash, today's rank, the three goals, the
- * flight chart (boarded, your best exit, the peak, the dump after it) and Challenge a friend / Fly it again / Practice Hard.
+ * flight chart (boarded, your best exit, the peak, the dump after it) and Challenge a friend / Fly it again / Practice.
  * Numbers are the server's verdict; the chart is drawn from a local replay of the same input log (lib/sim/daily dailyRecap).
  * The XP card: a signed-in pilot's daily is saved to their level at once (POST /api/freeplay/xp); a signed-out pilot sees
  * the XP waiting and SAVE XP signs them in, then saves it.
@@ -43,8 +43,8 @@ function storyLine(s: DailyScore, dumper: string | null) {
 
 export interface DailyGhost { name: string; multiple: number; outAtS: number | null }
 
-export default function DailyResult({ id, seed, label, inputs, verdict, error, ghost, onClose, onAgain, onPractice }: {
-  id: number; seed: number; label: string; inputs: PlayerInput[]; verdict: DailyVerdict | null; error?: string | null; ghost?: DailyGhost | null;
+export default function DailyResult({ id, seed, inputs, verdict, error, ghost, onClose, onAgain, onPractice }: {
+  id: number; seed: number; inputs: PlayerInput[]; verdict: DailyVerdict | null; error?: string | null; ghost?: DailyGhost | null;
   onClose: () => void; onAgain: () => void; onPractice: () => void;
 }) {
   const rc = useMemo(() => dailyRecap(seed, inputs), [seed, inputs]);
@@ -95,7 +95,7 @@ export default function DailyResult({ id, seed, label, inputs, verdict, error, g
       background: "radial-gradient(420px 360px at 50% 8%, rgba(243,223,168,0.22) 0%, rgba(242,193,78,0.06) 40%, rgba(18,19,39,0) 70%), radial-gradient(520px 420px at 70% -6%, #26274B 0%, #121327 52%, #0B0C0E 100%)" }}>
       <div style={{ maxWidth: 390, minHeight: "100%", margin: "0 auto", padding: "calc(env(safe-area-inset-top, 0px) + 52px) 16px calc(env(safe-area-inset-bottom, 0px) + 28px)", boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ ...game, fontWeight: 700, fontSize: 15, letterSpacing: 1.5, color: "#F3DFA8" }}>DAILY FLIGHT #{id} · <span style={{ color: "#FFB48F" }}>{label}</span></span>
+          <span style={{ ...game, fontWeight: 700, fontSize: 15, letterSpacing: 1.5, color: "#F3DFA8" }}>DAILY FLIGHT #{id}</span>
           <button type="button" data-testid="daily-close" aria-label="Close and go to Free play" onClick={onClose} style={{ width: 44, height: 44, boxSizing: "border-box", borderRadius: 12, background: "rgba(18,19,39,0.78)", border: "1px solid #2E323A", display: "grid", placeItems: "center", cursor: "pointer" }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg></button>
         </div>
@@ -149,7 +149,7 @@ export default function DailyResult({ id, seed, label, inputs, verdict, error, g
           {note && <span data-testid="daily-note" style={{ textAlign: "center", fontSize: 12, color: "#BFF8D8", wordBreak: "break-all" }}>{note}</span>}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
             <button type="button" data-testid="daily-again" onClick={onAgain} style={{ ...game, height: 52, borderRadius: 14, background: "rgba(18,19,39,0.78)", border: "1px solid #2E323A", color: "#F2F3F7", cursor: "pointer", fontWeight: 800, fontSize: 20, letterSpacing: 0.5 }}>FLY IT AGAIN</button>
-            <button type="button" data-testid="daily-practice" onClick={onPractice} style={{ ...game, height: 52, borderRadius: 14, background: "rgba(18,19,39,0.78)", border: "1px solid rgba(255,122,61,0.55)", color: "#FFB48F", cursor: "pointer", fontWeight: 800, fontSize: 20, letterSpacing: 0.5 }}>PRACTICE {label}</button>
+            <button type="button" data-testid="daily-practice" onClick={onPractice} style={{ ...game, height: 52, borderRadius: 14, background: "rgba(18,19,39,0.78)", border: "1px solid rgba(255,122,61,0.55)", color: "#FFB48F", cursor: "pointer", fontWeight: 800, fontSize: 20, letterSpacing: 0.5 }}>PRACTICE</button>
           </div>
           <span style={{ textAlign: "center", fontSize: 12, color: "#D7D9E4" }}>Replays are practice. Your daily score is locked in.</span>
         </div>
