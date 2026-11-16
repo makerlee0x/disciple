@@ -1158,7 +1158,13 @@ $("rShare").addEventListener("click",async()=>{
     try{ await navigator.clipboard.writeText(text+" "+url); toast("Copied. Paste it anywhere."); }catch(e){ toast(url); }
   } finally { btn.disabled=false; btn.textContent=was; }
 });
-$("rWatch").addEventListener("click",()=>{ $("result").hidden=true; G.watch=true; G.over=false; G.watchFrom=G.pilots.find(p=>p.alive&&p.mk===G.me.mk)||alive()[0]; toast("Spectating"); });
+$("rWatch").addEventListener("click",()=>{ $("result").hidden=true; G.watch=true; G.over=false; G.watchFrom=null; watchTarget(); });
+// spectating follows the leader (maker 2026-11-16): the top PnL alive, then the duel's leader once it's the last 2.
+// A new leader takes the camera only when they're clearly ahead ($0.50) or the one you watch is out, so it doesn't flicker.
+function watchTarget(){ const cur=G.watchFrom, pool=G.duel?[G.duel.a,G.duel.b].filter(p=>p.alive):alive(); if(!pool.length) return cur;
+  const score=p=>G.duel?duelGain(p):profit(p), lead=pool.slice().sort((a,b)=>score(b)-score(a))[0];
+  if(!cur||!cur.alive||!pool.includes(cur)||score(lead)-score(cur)>.5){ if(lead!==cur){ G.watchFrom=lead; toast(`Watching ${lead.name} · ${G.duel?"leads the final duel":"#1 on PnL"}`); } }
+  return G.watchFrom; }
 
 /* ---------- HUD ---------- */
 function rankOf(pl){ return alive().sort((a,b)=>profit(b)-profit(a)).indexOf(pl)+1; }
@@ -1170,7 +1176,8 @@ function hud(){
     sbSet("YOU",usd(gm,true),gm,o.name.toUpperCase(),usd(go,true),go); clock(G.duel.end-G.t,"LAST 2 · DUEL",false); lead(gm-go); }
   else if(d){ const o=d.a===me?d.b:d.a, gm=dfGain(d,me), go=dfGain(d,o);
     sbSet("YOU",usd(gm,true),gm,o.name.toUpperCase(),usd(go,true),go); clock(d.end-G.t,"DOGFIGHT",false); lead(gm-go); }
-  else { sbSet(me.alive?`YOU · #${rankOf(me)} OF ${al}`:"OUT",usd(pr,true),pr,"ALIVE",String(al),null); lw.hidden=true;
+  else { const wf=G.watch&&!me.alive&&G.watchFrom; if(wf) sbSet(`${wf.name.toUpperCase()} · #${rankOf(wf)}`,usd(profit(wf),true),profit(wf),"ALIVE",String(al),null);
+    else sbSet(me.alive?`YOU · #${rankOf(me)} OF ${al}`:"OUT",usd(pr,true),pr,"ALIVE",String(al),null); lw.hidden=true;
     if(G.final) clock(G.final.next-G.t,"FINAL CIRCLE · BTC",G.final.next-G.t<6);
     else if(G.duel) clock(G.duel.end-G.t,"FINAL DUEL",false);
     else { const m=G.M[me.mk]; if(m.closeAt!=null) clock(m.closeAt-G.t,me.mk+(m.closeAt-G.t<=G.P.warn?" CLOSING":" CLOSES"),m.closeAt-G.t<=G.P.warn);
@@ -1197,7 +1204,7 @@ function hud(){
   $("jump").classList.toggle("map",!warn); $("jX").hidden=warn; $("mapB").classList.toggle("on",jv); $("mapB").hidden=!!(G.final||G.duel||!me.alive);
   if(jv){ $("jT").textContent=warn?`THE STORM TAKES ${me.mk} IN ${mmss(m.closeAt-G.t)} · JUMP, YOUR PNL COMES WITH YOU`:(G.t<G.jumpCool?`ENGINES COOLING · ${Math.ceil(G.jumpCool-G.t)} S`:"JUMP TO · YOUR PNL COMES WITH YOU · AN OPEN TRADE CASHES OUT"); paintJump(); }
   $("storm").style.opacity=warn?String(Math.min(1,.35+.65*(1-(m.closeAt-G.t)/G.P.warn))):"0";
-  $("chLab").textContent=`${me.mk} · TICKS · LAST 60S`;
+  $("chLab").textContent=`${(G.watch&&!me.alive&&G.watchFrom||me).mk} · TICKS · LAST 60S`;
 }
 function sbSet(l,lv,lvn,r,rv,rvn){ $("sbL").textContent=l; const L=$("sbLV"); L.textContent=lv; L.style.color=lvn>0.004?"var(--green)":lvn<-0.004?"var(--pinkl)":"var(--text)";
   $("sbR").textContent=r; const R=$("sbRV"); R.textContent=rv; R.style.color=rvn==null?"var(--text)":rvn>0.004?"var(--green)":rvn<-0.004?"var(--pinkl)":"var(--text)"; }
@@ -1223,7 +1230,7 @@ function drawChart(){
   const w=cc.clientWidth,h=cc.clientHeight; if(!w) return; const d=Math.min(2,devicePixelRatio||1);
   if(cc.width!==Math.round(w*d)||cc.height!==Math.round(h*d)){cc.width=Math.round(w*d);cc.height=Math.round(h*d);}
   cx.setTransform(d,0,0,d,0,0); cx.clearRect(0,0,w,h);
-  const m=G.M[G.me.mk], dec=MKD[m.k].dec, now=G.t, from=now-60, pts=m.ticks.filter(k=>k.t>=from-TICK);
+  const wf=G.watch&&!G.me.alive&&G.watchFrom, m=G.M[wf?wf.mk:G.me.mk], dec=MKD[m.k].dec, now=G.t, from=now-60, pts=m.ticks.filter(k=>k.t>=from-TICK);
   let lo=Infinity,hi=-Infinity; pts.forEach(k=>{lo=Math.min(lo,k.p);hi=Math.max(hi,k.p);});
   const pos=G.me.pos; if(pos){lo=Math.min(lo,pos.entry);hi=Math.max(hi,pos.entry);}
   const pad=Math.max(m.p*.0004,(hi-lo)*.15); lo-=pad; hi+=pad;
@@ -1435,7 +1442,7 @@ function drawSky(dt,now){
   drawBackdrop(dt);
   let camV=0;
   if(G&&G.started){
-    const me=G.watch&&!G.me.alive?(G.watchFrom&&G.watchFrom.alive?G.watchFrom:(G.watchFrom=alive().find(p=>p.mk===G.me.mk)||alive()[0])):G.me;
+    const me=G.watch&&!G.me.alive?watchTarget():G.me;
     if(me){
     const R=radarR(), avail=(LAY.barTop-LAY.under)/2-LAY.rh*.45; const want=Math.max(4,avail/R); pxPer+=(want-pxPer)*Math.min(1,dt*3);
     // past the screen edge, flying further up or down pans the view: see pilots and loot above or below your PnL
