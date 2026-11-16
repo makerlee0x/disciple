@@ -53,7 +53,7 @@ export function FreePlayHub({ dailyId, msg, onDaily, tune }: {
     const v = savedDaily(dailyId)?.verdict; if (v) setMine({ multiple: v.score.multiple, rank: v.rank });
     const load = () => fetchDailyBoard(dailyId).then(setBoard);
     load();
-    const iv = setInterval(() => { setNow(Date.now()); load(); }, 30_000); return () => clearInterval(iv);
+    let n = 0; const iv = setInterval(() => { setNow(Date.now()); if (++n % 4 === 0 && !document.hidden) load(); }, 30_000); return () => clearInterval(iv);   // board every 2 min, only while visible (KV request budget)
   }, [dailyId]);
   // the old-design sweep hides the app chrome (sidebar, wallet pills) while Free play's own screens are up
   useEffect(() => { document.body.classList.add("fp-hub"); return () => document.body.classList.remove("fp-hub"); }, []);

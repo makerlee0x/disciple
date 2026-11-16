@@ -7,7 +7,8 @@ import type { Page } from "@playwright/test";
 
 // phones fly with the throttle lever (a drag), which the engine reads the same way as SPACE / SHIFT, so both sizes use the keys
 const boost = (page: Page) => page.keyboard.press("Space");
-const dump = (page: Page) => page.keyboard.press("Shift");
+/** Free play: ENTER cashes the whole bag out (SHIFT sells half) */
+const dump = (page: Page) => page.keyboard.press("Enter");
 /** phones: the first flight opens with the How to fly card; FLY closes it */
 async function pastIntro(page: Page) {
   if (!isPhone(page)) return;
@@ -107,6 +108,10 @@ test("Daily flight: fly it, get scored by the server, and see the same result ne
   await expect.poll(async () => (await runState(page)).tokens, { timeout: 10_000 }).toBeGreaterThan(0);
   await page.waitForTimeout(20_000);
   await dump(page);
+  await expect.poll(async () => (await runState(page)).tokens, { timeout: 10_000 }).toBe(0);
+  // the cash-out is the score: BANKED is a big tile on desktop, the phone bag card turns into CASHED OUT
+  if (isPhone(page)) await expect(page.getByTestId("phone-bag")).toHaveAttribute("data-cashed", "1");
+  else await expect(page.getByTestId("pnl-banked")).toContainText(/[+-]\$\d/);
 
   // the daily is two minutes at 1×; the server won't score a faster one
   const res = page.getByTestId("daily-result");
@@ -117,6 +122,7 @@ test("Daily flight: fly it, get scored by the server, and see the same result ne
   await expect(rank).toHaveText(/Would place #\d+ of \d+ today/);
   await expect(res.getByTestId("daily-rank-error")).toHaveCount(0);
   await expect(res.getByTestId("daily-multiple")).toHaveText(/\d+(\.\d+)?×/);
+  await expect(res.getByTestId("daily-result-board")).toBeVisible();
 
   // one scored run per device a day: the hub now offers the result, not a second flight
   await res.getByTestId("daily-close").click();

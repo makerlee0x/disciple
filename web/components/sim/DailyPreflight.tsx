@@ -56,7 +56,7 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
   const cd = useCountdown(onGo);
   useEffect(() => {
     const load = () => fetchDailyBoard(dailyId).then(setBoard); load();
-    const iv = setInterval(() => { setNow(Date.now()); load(); }, 20_000); return () => clearInterval(iv);
+    let n = 0; const iv = setInterval(() => { setNow(Date.now()); if (++n % 4 === 0 && !document.hidden) load(); }, 30_000); return () => clearInterval(iv);   // board every 2 min, only while visible (KV request budget)
   }, [dailyId]);
   useEffect(() => { document.body.classList.add("fp-hub"); return () => document.body.classList.remove("fp-hub"); }, []);
   const launch = async () => {
@@ -97,7 +97,8 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
           <span className={s.bT}>CONTROLS</span>
           <div className={s.keys}>
             <div><kbd>SPACE</kbd><span>Buy</span></div>
-            <div><kbd>SHIFT</kbd><span>Sell</span></div>
+            <div><kbd>SHIFT</kbd><span>Sell half</span></div>
+            <div><kbd>ENTER</kbd><span>Cash out</span></div>
             <div><kbd>W</kbd><kbd>S</kbd><span>Up / down</span></div>
             <div><kbd>A</kbd><kbd>D</kbd><span>Left / right</span></div>
           </div>

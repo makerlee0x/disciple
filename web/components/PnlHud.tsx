@@ -272,6 +272,34 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   const lit = holding && !isPhone() && Math.abs(v.uPnl) > 0.005 ? (v.uPnl > 0 ? "up" : "down") : null;
   const litC = lit === "up" ? GREEN : lit === "down" ? "#F0307F" : null;
 
+  // Free play (maker 2026-11-16: "i cashed out $300 … it sits so little and tiny down there"): the run's score card, Turbo
+  // style. RUN PNL = open + banked is the hero (it is what the daily board scores), with OPEN and BANKED side by side
+  // underneath, each as big as the other, so a cash-out never shrinks to a 12 px footnote.
+  if (syncEvent && modeLabel) {
+    const runPnl = (holding ? v.uPnl : 0) + (Number.isFinite(v.realized) ? v.realized : 0);
+    const tile = (k: string, lab: string, val: number, sub: React.ReactNode, on: boolean) => (
+      <div data-testid={k} style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 12, background: on ? (val >= 0 ? "rgba(95,240,160,.14)" : "rgba(240,48,127,.16)") : "rgba(255,255,255,.05)",
+        border: `1px solid ${on ? (val >= 0 ? "rgba(95,240,160,.45)" : "rgba(240,48,127,.5)") : "rgba(46,50,58,.9)"}`, transition: "background .2s, border-color .2s" }}>
+        <div style={{ ...hudLabel, fontSize: 11 }}>{lab}</div>
+        <Num value={val} fmt={usd} style={{ display: "block", font: `800 24px/1.1 ${HUD.game}`, color: on ? col(val) : HUD.dim, whiteSpace: "nowrap" }} />
+        <div style={{ fontSize: 11, color: HUD.dim, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>
+      </div>);
+    return (
+      <aside ref={asideRef} aria-label="Run PnL" className="pnl-hud" data-card="pnl" data-hud={hud} data-testid="run-pnl"
+        style={{ ...(card.hidden ? { display: "none" } : null), transform: card.transform, position: "fixed", bottom: 16, left: "calc(var(--ap-rail-w, 64px) + 20px)", zIndex: 31, width: 340, padding: "14px 16px",
+          borderRadius: HUD.radius, background: HUD.glass, backdropFilter: "blur(6px)", border: `1px solid ${Math.abs(runPnl) > 0.005 ? (runPnl > 0 ? "rgba(95,240,160,.55)" : "rgba(240,48,127,.55)") : HUD.border}`,
+          transition: "border-color .2s", color: HUD.text, font: `13px/1.4 ${HUD.ui}`, boxSizing: "border-box" }}>
+        <div style={row}><span data-testid="pnl-title" style={hudLabel}>RUN PNL <span style={{ color: "#8fd8ff" }}>· {modeLabel}</span></span>
+          {holding && <Num value={v.pnlPct} fmt={pct} style={{ font: `700 15px ${HUD.game}`, color: col(v.pnlPct) }} />}</div>
+        <Num value={runPnl} fmt={usd} style={{ display: "block", margin: "2px 0 10px", font: `800 46px/1 ${HUD.game}`, color: col(runPnl), fontVariantNumeric: "tabular-nums" }} />
+        <div style={{ display: "flex", gap: 8 }}>
+          {tile("pnl-open", "OPEN", holding ? v.uPnl : 0, holding ? <>Bag {fmtMoney(v.valueUsd)} · in {fmtMoney(putIn)}</> : "No bag", holding)}
+          {tile("pnl-banked", "BANKED", Number.isFinite(v.realized) ? v.realized : 0, Math.abs(v.realized) > 0.005 ? "Locked in" : "Sell to lock it in", Math.abs(v.realized) > 0.005)}
+        </div>
+      </aside>
+    );
+  }
+
   return (
     <aside ref={asideRef} aria-label="Holdings and PnL" className="pnl-hud" data-card="pnl" data-hud={hud}
       style={{ ...(card.hidden ? { display: "none" } : null), transform: card.transform, position: "fixed", ...(hud === "pro" ? { top: 212 } : { bottom: 16 }), left: "calc(var(--ap-rail-w, 64px) + 20px)", zIndex: 31, width: 300, padding: "14px 16px",

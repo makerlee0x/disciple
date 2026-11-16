@@ -101,6 +101,18 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
   const dockRef = useRef<HTMLElement>(null);
   // One visible Holders / Chat card. Layout chrome can restore it as Holders; no standalone Chat pill.
   const card = useDomCard("chat", dockRef);
+  // narrow desktop windows (maker 2026-11-16 "it also overlaps"): when the bottom trade bar reaches under this card, the card
+  // stops 12 px above the bar instead of running behind it
+  const [barClear, setBarClear] = useState<number | null>(null);
+  useEffect(() => {
+    const fit = () => { const d = dockRef.current, b = document.querySelector<HTMLElement>('[data-testid="trade-bar"]');
+      if (!d || !b) { setBarClear(null); return; }
+      const dr = d.getBoundingClientRect(), br = b.getBoundingClientRect();
+      const under = br.width > 0 && br.right > dr.left && br.left < dr.right;
+      setBarClear(under ? Math.max(120, Math.round(br.top - dr.top - 12)) : null); };
+    fit(); const iv = setInterval(fit, 1000); addEventListener("resize", fit);
+    return () => { clearInterval(iv); removeEventListener("resize", fit); };
+  }, []);
   const open = !card.hidden;
   const c = coin.toLowerCase();
 
@@ -269,17 +281,27 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
     const list = items.filter((it) => !it.chat || it.chat.msg.kind !== "system").slice(-PILOT_ROWS).reverse();
     const showHolders = tab === "holders";
     return (
-      <aside ref={dockRef} tabIndex={-1} data-testid="chat-dock" data-card="chat" data-hud="pilot" aria-label="Crew feed"
+      <aside ref={dockRef} tabIndex={-1} data-testid="chat-dock" data-card="chat" data-hud="pilot" aria-label="Crew feed" data-bar-clear={barClear ?? undefined}
         style={{ transform: card.transform, position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 34px + var(--ap-pilot-chart-h, 0px))", width: "var(--ap-pilot-feed-w, 300px)",
-          maxHeight: "calc(100dvh - var(--ap-hud-rt, 58px) - 34px - var(--ap-pilot-chart-h, 0px) - 20px)", overflow: "hidden", zIndex: 32, display: "flex", flexDirection: "column", gap: 6,
+          maxHeight: barClear != null ? barClear : "calc(100dvh - var(--ap-hud-rt, 58px) - 34px - var(--ap-pilot-chart-h, 0px) - 20px)", overflow: "hidden", zIndex: 32, display: "flex", flexDirection: "column", gap: 6,
           font: `13px/1.4 ${HUD.ui}`, color: HUD.text, outline: "none" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 4px 2px" }}>
           <span data-testid="chat-state" title={tradesOnly ? "trades" : `chat ${st.t}`} style={{ width: 7, height: 7, borderRadius: "50%", background: tradesOnly ? HUD.up : st.c, flex: "none" }} />
           <span style={{ font: `700 16px/1 ${HUD.game}`, letterSpacing: "1.5px", color: HUD.champagne }}>CREW</span>
           <span style={{ fontSize: 12, color: "rgba(215,217,228,.7)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{onBoard > 0 ? `${onBoard >= 50 ? "50+" : onBoard} on board · ` : ""}{tradesOnly ? "trades" : "chat and trades"}</span>
           <span style={{ flex: 1 }} />
-          <button type="button" data-testid={showHolders ? "chat-tab-all" : "chat-tab-holders"} onClick={() => setTab(showHolders ? (tradesOnly ? "trades" : "all") : "holders")}
-            style={{ all: "unset", cursor: "pointer", fontSize: 12, color: HUD.champagne }}>{showHolders ? "Feed" : "Holders"}</button>
+          {/* maker 2026-11-16: "the feed isnt obvious that thats chat. add a chat icon": two labelled tabs with icons, not a bare "Feed" link */}
+          <span role="tablist" aria-label="Crew card" style={{ display: "flex", gap: 2, padding: 2, borderRadius: 10, background: "rgba(255,255,255,.06)", border: `1px solid ${HUD.border}`, flex: "none" }}>
+            {([[false, tradesOnly ? "Trades" : "Chat", showHolders ? "chat-tab-all" : "chat-tab-feed"], [true, "Holders", showHolders ? "chat-tab-holders-on" : "chat-tab-holders"]] as const).map(([h, lab, id]) => {
+              const on = showHolders === h;
+              return <button key={lab} type="button" role="tab" aria-selected={on} data-testid={id} onClick={() => setTab(h ? "holders" : tradesOnly ? "trades" : "all")}
+                style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5, height: 26, padding: "0 9px", borderRadius: 8, boxSizing: "border-box",
+                  background: on ? HUD.champagne : "transparent", color: on ? "#121327" : HUD.champagne, font: `700 13px/1 ${HUD.game}`, letterSpacing: ".04em" }}>
+                {h ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM2 20c.8-3 3.2-5 6-5s5.2 2 6 5M14 15.3c.6-.2 1.3-.3 2-.3 2.8 0 5.2 2 6 5" /></svg>
+                  : tradesOnly ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 17l6-6 4 4 8-8M15 7h6v6" /></svg>
+                  : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /></svg>}
+                {lab.toUpperCase()}</button>; })}
+          </span>
         </div>
         {showHolders ? <div role="tabpanel" id="community-panel-holders" style={{ maxHeight: 360, display: "flex", flexDirection: "column", borderRadius: 12, background: HUD.glass, border: `1px solid ${HUD.border}` }}><HoldersView h={holders} /></div>
           : <div data-testid="chat-list" role="log" aria-live="polite" style={{ display: "flex", flexDirection: "column", gap: 6, flex: "0 1 auto", minHeight: 0, overflow: "hidden" }}>

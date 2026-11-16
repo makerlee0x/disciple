@@ -45,7 +45,9 @@ export default function AppSounds() {
   useEffect(() => { setBed(bedFor(path)); }, [path]);
 
   useEffect(() => {
-    const onCash = () => playSfx("deposit_done");
+    // only a real arrival (lib/testCash: detail.account). TradeBridge reuses the same "disciple:cash" event name for its 5 s
+    // balance poll on live coins ({usd}), which made this chime every 5 seconds in flight (maker 2026-11-16).
+    const onCash = (e: Event) => { if ((e as CustomEvent<{ account?: string }>).detail?.account) playSfx("deposit_done"); };
     addEventListener(CASH_ARRIVED_EVENT, onCash);
     if (!appFeel()) {   // website: no clicks, just wake the audio on the first press so game sounds can play
       const wake = () => { void resumeAudio(); };
