@@ -231,6 +231,21 @@ describe("collection server (local KV)", () => {
     expect(end.copies.filter((x) => x.origin === "tradeup")).toHaveLength(1);
   });
 
+  it("a look saved before copies is tied to its copy on migration, so the copy you fly can't be scrapped", async () => {
+    const { kv } = await import("@/lib/server/kv");
+    const L = "0x" + "1e".repeat(20), item = "bullet--hazard";
+    await kv().sadd(col.COLK.own(L), item);
+    await kv().set(col.COLK.looks(L), JSON.stringify({ hull: "classic", flare: "gold", skin: item, trail: "trail-gold" }));
+    const c = await col.collectionOf(L);
+    const cp = c.copies.find((x) => x.item === item)!;
+    expect(c.equippedCopy.skin).toBe(cp.uid);
+    expect(JSON.parse((await kv().get(col.COLK.looks(L)))!).copy.skin).toBe(cp.uid);
+    expect((await col.scrapCopy(L, cp.uid)).ok).toBe(false);
+    // and with the link missing (an old record), the scrap still refuses
+    await kv().set(col.COLK.looks(L), JSON.stringify({ hull: "classic", flare: "gold", skin: item, trail: "trail-gold" }));
+    expect((await col.scrapCopy(L, cp.uid)).ok).toBe(false);
+  });
+
   it("levels don't drop crates (cut with the XP shop); equip checks ownership", async () => {
     const before = (await col.collectionOf(W)).crates.length;
     await xp.award(W, { src: "test:grant", kind: "mission", xp: 20000, label: "test", ts: Date.now() });
