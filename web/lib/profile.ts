@@ -63,12 +63,14 @@ export function referralUrl(username: string | null, wallet?: string | null) {
   return refLink(username ? normalizeUsername(username) : null, wallet);
 }
 
-export async function checkUsername(u: string): Promise<{ available: boolean; reason?: string }> {
+/** Is `u` free? With `address`, a name that wallet already holds comes back { available: true, mine: true }. */
+export async function checkUsername(u: string, address?: string | null): Promise<{ available: boolean; reason?: string; mine?: boolean }> {
   const bad = validateUsername(u);
   if (bad) return { available: false, reason: bad };
   if (IS_STATIC_PREVIEW) return { available: true, reason: "preview: not checked server-side" };
   try {
-    const r = await fetch(`/api/profile/username?u=${encodeURIComponent(normalizeUsername(u))}`);
+    const me = address && /^0x[0-9a-fA-F]{40}$/.test(address) ? `&address=${address.toLowerCase()}` : "";
+    const r = await fetch(`/api/profile/username?u=${encodeURIComponent(normalizeUsername(u))}${me}`, { cache: "no-store" });
     return await r.json();
   } catch { return { available: false, reason: "Could not reach username service." }; }
 }

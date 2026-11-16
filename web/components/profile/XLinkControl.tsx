@@ -6,7 +6,7 @@
  * configured (so there's never a dead button). Reads the ?x= result the OAuth callback adds, shows it once, then drops it.
  */
 import { useCallback, useEffect, useState } from "react";
-import { fetchXLink, startXLink, unlinkX, X_CHANGED_EVENT } from "@/lib/xLinkClient";
+import { fetchXLink, startXLink, unlinkX, X_CHANGED_EVENT, X_NOTE_EVENT } from "@/lib/xLinkClient";
 import { isXResult, X_RESULT_COPY, X_RESULT_PARAM, type XLinkStatus } from "@/lib/xLink";
 
 export default function XLinkControl({ wallet, btnClass = "ds-btn", render }: {
@@ -21,6 +21,13 @@ export default function XLinkControl({ wallet, btnClass = "ds-btn", render }: {
 
   const load = useCallback(() => { fetchXLink(wallet).then(setSt).catch(() => {}); }, [wallet]);
   useEffect(() => { load(); addEventListener(X_CHANGED_EVENT, load); return () => removeEventListener(X_CHANGED_EVENT, load); }, [load]);
+
+  // iPhone app: the X link finished after the sign-in sheet (lib/xLinkClient finishPendingXLink)
+  useEffect(() => {
+    const on = (e: Event) => setNote(String((e as CustomEvent<string>).detail || ""));
+    addEventListener(X_NOTE_EVENT, on);
+    return () => removeEventListener(X_NOTE_EVENT, on);
+  }, []);
 
   // The OAuth callback lands back here with ?x=<result>: say it once, then clean the URL.
   useEffect(() => {
