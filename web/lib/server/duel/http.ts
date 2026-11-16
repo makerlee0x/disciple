@@ -24,7 +24,7 @@ export async function pilotOf(req: Request, o: { guestOk?: boolean } = { guestOk
   requirePass(req);
   if (req.headers.get("x-duel-guest") === "1") {
     if (!o.guestOk) throw new DuelError(403, "Ranked duels need a signed-in pilot.");
-    const g = guestFromReq(req);
+    const g = await guestFromReq(req);
     if (!g) throw new DuelError(401, "Your guest pass expired. Refresh the page.");
     return { pid: g, name: guestName(g) };
   }

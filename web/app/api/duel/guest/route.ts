@@ -12,12 +12,12 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
     requirePass(req);
-    let pid = guestFromReq(req);
+    let pid = await guestFromReq(req);
     if (!pid) {
       if (!(await hitLimit(kv(), `duel:guest:ip:${clientIp(req.headers)}`, 30, 3600)).ok) throw new DuelError(429, "Slow down a little.");
       pid = newGuestId();
     }
-    (await cookies()).set(DUEL_GUEST_COOKIE, guestToken(pid), { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: DUEL_GUEST_MAX_AGE });
+    (await cookies()).set(DUEL_GUEST_COOKIE, await guestToken(pid), { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: DUEL_GUEST_MAX_AGE });
     return out(200, { ok: true, pid, name: guestName(pid) });
   } catch (e) { return fail(e); }
 }
