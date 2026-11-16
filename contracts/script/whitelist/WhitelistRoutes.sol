@@ -34,7 +34,7 @@ library WhitelistRoutes {
     address internal constant CASHCAT = 0x020bfC650A365f8BB26819deAAbF3E21291018b4;
     address internal constant PRIORS = 0xeDBf91223639800BCd5756815CAf908Df3b890bE;
     address internal constant PENGU = 0x74BE72AFFAFbC8de30F0C11247814036314D625f;
-    address internal constant HMM = 0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f;
+    address internal constant MOO = 0xD9dB30BB0D2b8d2eae3826A1372117E058791e18;
     address internal constant WETH = 0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73;
 
     address internal constant MSTR = 0xec262a75e413fAfD0dF80480274532C79D42da09;
@@ -42,6 +42,7 @@ library WhitelistRoutes {
     address internal constant GLD = 0xC9a981FEE1F9DEc688bb123ccDeCc63D0deBFC4e;
     address internal constant HIMS = 0xCceE82fE024c36fA15E1005edE3E9e4787e23D09;
     address internal constant AMC = 0x05a3d1Cd21d0C88145E82600E62e7E496e0F222B;
+    address internal constant MU = 0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD;
 
     struct Route {
         string symbol;
@@ -119,37 +120,38 @@ library WhitelistRoutes {
             _pk(AMC, USDG, 1000, 10, address(0)), 0x7499938c352d5b5b8f0c648722aca5ee964ef9b85c3a3041f1ec379726291d9d,
             _pk(AMC, MEME, DYN, 8, LONG_HOOK), 0x27ccf0a6d1ee74840220715bcca7d3b01e0d33aa30d0259b47ae1585b3f4c071
         );
-        r[5] = _r1(
+        // MOO is back instead of HMM (maker, Nov 16 2026): USDG -> MU -> MOO, leg 2 is the pool maker gave.
+        r[5] = _r2(
+            "MOO", MOO, true,
+            _pk(USDG, MU, 10_000, 200, address(0)), 0x6fa3ee0048e78bf0a513eb0ab56f482944a767c21db990fcf555605e69f05659,
+            _pk(MOO, MU, DYN, 8, LONG_HOOK), 0xc3cc877a8a7d28efdb5dbec9ae71724652431e6411aa1a9fc8928028da554aa1
+        );
+        r[6] = _r1(
             "PONS", PONS, true,
             _pk(PONS, USDG, DYN, 60, PONS_USDG_HOOK), 0x486435a1f76cd58193f854c6e6213cd05fd58d637865d02065ff558b387fa6ea
         );
-        r[6] = _r1(
+        r[7] = _r1(
             "ORBIO", ORBIO, true,
             _pk(USDG, ORBIO, 8000, 80, address(0)), 0xea9f200e13055b82f175f44f592c4c13dd8c9d9320a66487d3c5cd90d68550ef
         );
         // HOOKR moved off the single 1% USDG pool (0x0b362d89...) to its native-ETH pool (maker, Nov 16 2026).
-        r[7] = _r2(
+        r[8] = _r2(
             "HOOKR", HOOKR, true,
             usdgEth(), usdgEthId,
             _pk(ETH, HOOKR, 2500, 25, address(0)), 0x590dcb6a87828bf688b48089a62239b693378f1fb64d2286e6a399ed8c005fdf
         );
-        r[8] = _r1(
+        r[9] = _r1(
             "CASHCAT", CASHCAT, true,
             _pk(CASHCAT, USDG, 2690, 54, address(0)), 0xa92a3df27a00a276183ff7265fd8affa11df1fe8bb23ddfaf13f6c879a3f818b
         );
-        r[9] = _r1(
+        r[10] = _r1(
             "PRIORS", PRIORS, true,
             _pk(USDG, PRIORS, 0, 200, PRIORS_USDG_HOOK), 0xff7b3bd2db34d9ed8160e6dedf1d448777abaa1fa6fc8a31144930a1a656fd92
         );
-        r[10] = _r2(
+        r[11] = _r2(
             "PENGU", PENGU, true,
             usdgEth(), usdgEthId,
             _pk(ETH, PENGU, 10_000, 100, address(0)), 0x38cbd4b134c801b6d534600ccf5c59ff06e5e5058f108ddef85aa66c15ffb086
-        );
-        // HMM's linked pool is Uniswap v3 HMM/WETH; the router is v4 only, so HMM uses the v4 HMM/USDG pool (3.4267%).
-        r[11] = _r1(
-            "HMM", HMM, true,
-            _pk(USDG, HMM, 34_267, 666, address(0)), 0xbe59bf5d48335718349b76aaba718fd677ce10a7c2ecec2f2b96bc8b6ed81e53
         );
         // Optional pair, OFF at launch: routes only, not listed. ETH is quoted as WETH (an ERC-20).
         r[12] = _r2(

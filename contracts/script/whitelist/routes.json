@@ -1,5 +1,5 @@
 {
-  "note": "Owner wiring only. Do not broadcast. Nov 16 2026 (maker): MOO and SPACEHOOD dropped (see dropped), PENGU and HMM added, HOOKR moved to its native-ETH pool, ETH (WETH) and USDG are optional pairs that start OFF. script/whitelist/WhitelistRoutes.sol holds the same rows in Solidity for WireWhitelistRoutes.s.sol; test/fork/WhitelistRoutes.t.sol checks the two match. Every PoolKey below was confirmed from the Uniswap v4 PoolManager 0x8366a39CC670B4001A1121B8F6A443A643e40951 Initialize event (topic0 0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438) and by ABI-hashing the key to the pool id. Fee flag 0x800000 means dynamic fee; hooks other than the DISCIPLE hook are passed through as-is. A 2-hop route may use native ETH (address(0)) as the mid token. Depths and quotes in 'measured' are from StateView and the v4 Quoter 0x8dc178efb8111bb0973dd9d722ebeff267c98f94 on mainnet at block 115878193 (Nov 16, 2026). They will move.",
+  "note": "Owner wiring only. Do not broadcast. Nov 16 2026 (maker): SPACEHOOD dropped, PENGU added; HMM was added and then swapped back out for MOO the same morning (see dropped), HOOKR moved to its native-ETH pool, ETH (WETH) and USDG are optional pairs that start OFF. script/whitelist/WhitelistRoutes.sol holds the same rows in Solidity for WireWhitelistRoutes.s.sol; test/fork/WhitelistRoutes.t.sol checks the two match. Every PoolKey below was confirmed from the Uniswap v4 PoolManager 0x8366a39CC670B4001A1121B8F6A443A643e40951 Initialize event (topic0 0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438) and by ABI-hashing the key to the pool id. Fee flag 0x800000 means dynamic fee; hooks other than the DISCIPLE hook are passed through as-is. A 2-hop route may use native ETH (address(0)) as the mid token. Depths and quotes in 'measured' are from StateView and the v4 Quoter 0x8dc178efb8111bb0973dd9d722ebeff267c98f94 on mainnet at block 115888826 (Nov 16, 2026). They will move.",
   "usdg": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
   "poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
   "quotes": [
@@ -34,7 +34,7 @@
           "note": "stock pool; virtual depth ~$201,368 per side"
         }
       ],
-      "measured": "block 115878193 (Nov 16 2026): $100 -> 55300.4, $1,000 -> 550119; price impact vs a $1 quote 5.8 bps / 57.9 bps; all-in cost vs pool mid (fees + impact) 184.1 bps / 235.4 bps"
+      "measured": "block 115888826 (Nov 16 2026): $100 -> 55292, $1,000 -> 550035; price impact vs a $1 quote 5.8 bps / 57.9 bps; all-in cost vs pool mid (fees + impact) 184.1 bps / 235.4 bps"
     },
     {
       "symbol": "AI",
@@ -67,7 +67,7 @@
           "note": "stock pool; virtual depth ~$745,020 per side"
         }
       ],
-      "measured": "block 115878193 (Nov 16 2026): $100 -> 3725.11, $1,000 -> 37173.3; price impact vs a $1 quote 2.3 bps / 23.2 bps; all-in cost vs pool mid (fees + impact) 206.0 bps / 226.4 bps"
+      "measured": "block 115888826 (Nov 16 2026): $100 -> 3770.01, $1,000 -> 37621.2; price impact vs a $1 quote 2.3 bps / 23.3 bps; all-in cost vs pool mid (fees + impact) 206.0 bps / 226.5 bps"
     },
     {
       "symbol": "SCHIFFY",
@@ -100,7 +100,7 @@
           "note": "stock pool; virtual depth ~$194,597 per side"
         }
       ],
-      "measured": "block 115878193 (Nov 16 2026): $100 -> 64261.9, $1,000 -> 638902; price impact vs a $1 quote 6.4 bps / 64.2 bps; all-in cost vs pool mid (fees + impact) 171.0 bps / 227.8 bps"
+      "measured": "block 115888826 (Nov 16 2026): $100 -> 64319.3, $1,000 -> 639470; price impact vs a $1 quote 6.4 bps / 64.3 bps; all-in cost vs pool mid (fees + impact) 171.0 bps / 227.9 bps"
     },
     {
       "symbol": "BONER",
@@ -133,7 +133,7 @@
           "note": "stock pool; virtual depth ~$280,788 per side"
         }
       ],
-      "measured": "block 115878193 (Nov 16 2026): $100 -> 33544.2, $1,000 -> 333910; price impact vs a $1 quote 5.0 bps / 50.7 bps; all-in cost vs pool mid (fees + impact) 253.2 bps / 297.8 bps"
+      "measured": "block 115888826 (Nov 16 2026): $100 -> 34218.1, $1,000 -> 340605; price impact vs a $1 quote 5.1 bps / 51.1 bps; all-in cost vs pool mid (fees + impact) 253.3 bps / 298.2 bps"
     },
     {
       "symbol": "MEME",
@@ -166,7 +166,44 @@
           "note": "stock pool; virtual depth ~$415,097 per side"
         }
       ],
-      "measured": "block 115878193 (Nov 16 2026): $100 -> 32462.6, $1,000 -> 323662; price impact vs a $1 quote 3.3 bps / 33.0 bps; all-in cost vs pool mid (fees + impact) 164.9 bps / 194.1 bps"
+      "measured": "block 115888826 (Nov 16 2026): $100 -> 32777.1, $1,000 -> 326790; price impact vs a $1 quote 3.3 bps / 33.2 bps; all-in cost vs pool mid (fees + impact) 164.9 bps / 194.3 bps"
+    },
+    {
+      "symbol": "MOO",
+      "address": "0xD9dB30BB0D2b8d2eae3826A1372117E058791e18",
+      "decimals": 18,
+      "hops": 2,
+      "via": "MU",
+      "viaAddress": "0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD",
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0x6fa3ee0048e78bf0a513eb0ab56f482944a767c21db990fcf555605e69f05659",
+          "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "currency1": "0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD",
+          "fee": 10000,
+          "tickSpacing": 200,
+          "hooks": "0x0000000000000000000000000000000000000000",
+          "hookName": "none",
+          "note": "deepest v4 USDG/MU (1%); virtual depth ~$1,355,099 per side at block 115888826"
+        },
+        {
+          "leg": 2,
+          "poolId": "0xc3cc877a8a7d28efdb5dbec9ae71724652431e6411aa1a9fc8928028da554aa1",
+          "currency0": "0xD9dB30BB0D2b8d2eae3826A1372117E058791e18",
+          "currency1": "0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD",
+          "fee": "0x800000",
+          "tickSpacing": 8,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
+          "hookName": "long.xyz",
+          "note": "stock pool maker gave (MOO/MU, long.xyz); virtual depth ~$105,795 per side"
+        }
+      ],
+      "alternative": {
+        "route": "direct v4 USDG/MOO 0x50b29d33... (3.94%) or 0x85a3cd05... (2%)",
+        "note": "not used: 3.94% block 115888826 (Nov 16 2026): $100 -> 135830, $1,000 -> 1.19555e+06; price impact vs a $1 quote 149.7 bps / 1330.0 bps; all-in cost vs pool mid (fees + impact) 548.8 bps / 1681.2 bps; 2% block 115888826 (Nov 16 2026): $100 -> 139476, $1,000 -> 1.10947e+06; price impact vs a $1 quote 280.6 bps / 2268.6 bps; all-in cost vs pool mid (fees + impact) 487.3 bps / 2433.1 bps"
+      },
+      "measured": "block 115888826 (Nov 16 2026): $100 -> 143677, $1,000 -> 1.42395e+06; price impact vs a $1 quote 9.9 bps / 99.0 bps; all-in cost vs pool mid (fees + impact) 287.1 bps / 373.7 bps"
     },
     {
       "symbol": "PONS",
@@ -196,7 +233,7 @@
         "hooks": "0x0000000000000000000000000000000000000000",
         "note": "unhooked 0.3% USDG pool, virtual depth ~$316,928 per side; USDG-only fallback if the deeper hooked pool fails the fork, floor, or probe"
       },
-      "measured": "block 115878193 (Nov 16 2026): $100 -> 824.303, $1,000 -> 8229.96; price impact vs a $1 quote 1.8 bps / 17.6 bps; all-in cost vs pool mid (fees + impact) 19.3 bps / 35.1 bps"
+      "measured": "block 115888826 (Nov 16 2026): $100 -> 826.626, $1,000 -> 8253.05; price impact vs a $1 quote 1.8 bps / 17.7 bps; all-in cost vs pool mid (fees + impact) 19.3 bps / 35.2 bps"
     },
     {
       "symbol": "ORBIO",
@@ -217,7 +254,7 @@
           "note": "deepest v4 USDG/ORBIO (0.8%); virtual depth ~$703,912 per side"
         }
       ],
-      "measured": "block 115878193 (Nov 16 2026): $100 -> 5041.97, $1,000 -> 50306.6; price impact vs a $1 quote 2.5 bps / 24.9 bps; all-in cost vs pool mid (fees + impact) 92.4 bps / 114.6 bps"
+      "measured": "block 115888826 (Nov 16 2026): $100 -> 5040.66, $1,000 -> 50293.6; price impact vs a $1 quote 2.5 bps / 24.9 bps; all-in cost vs pool mid (fees + impact) 92.4 bps / 114.6 bps"
     },
     {
       "symbol": "HOOKR",
@@ -254,7 +291,7 @@
         "poolId": "0x0b362d89fcae933d150e735d28c70e13469a4e14d3b3a36ac05eb5a1a77f2474",
         "note": "old single 1% USDG/HOOKR pool (~$48,488 per side); block 115878193 (Nov 16 2026): $100 -> 10760.8, $1,000 -> 105682; price impact vs a $1 quote 20.1 bps / 198.7 bps; all-in cost vs pool mid (fees + impact) 129.9 bps / 306.6 bps"
       },
-      "measured": "block 115878193 (Nov 16 2026): $100 -> 10909.8, $1,000 -> 108782; price impact vs a $1 quote 3.2 bps / 32.2 bps; all-in cost vs pool mid (fees + impact) 38.4 bps / 67.3 bps"
+      "measured": "block 115888826 (Nov 16 2026): $100 -> 10904.3, $1,000 -> 108727; price impact vs a $1 quote 3.2 bps / 32.2 bps; all-in cost vs pool mid (fees + impact) 38.4 bps / 67.3 bps"
     },
     {
       "symbol": "CASHCAT",
@@ -275,7 +312,7 @@
           "note": "deepest v4 USDG/CASHCAT (0.269%); virtual depth ~$323,007 per side"
         }
       ],
-      "measured": "block 115878193 (Nov 16 2026): $100 -> 1909.02, $1,000 -> 19052.7; price impact vs a $1 quote 2.2 bps / 21.8 bps; all-in cost vs pool mid (fees + impact) 33.5 bps / 53.1 bps"
+      "measured": "block 115888826 (Nov 16 2026): $100 -> 1943.28, $1,000 -> 19397.5; price impact vs a $1 quote 2.0 bps / 20.2 bps; all-in cost vs pool mid (fees + impact) 33.3 bps / 51.4 bps"
     },
     {
       "symbol": "PRIORS",
@@ -296,7 +333,7 @@
           "note": "Uniswap v4 USDG/PRIORS on the official PoolManager (Initialize confirmed; some indexers label this pons-v2). Static fee 0 with hook. Virtual depth ~$124,816 per side."
         }
       ],
-      "measured": "block 115878193 (Nov 16 2026): $100 -> 15465.6, $1,000 -> 153302; price impact vs a $1 quote 9.7 bps / 97.2 bps; all-in cost vs pool mid (fees + impact) 309.5 bps / 394.4 bps"
+      "measured": "block 115888826 (Nov 16 2026): $100 -> 15465.6, $1,000 -> 153302; price impact vs a $1 quote 9.7 bps / 97.2 bps; all-in cost vs pool mid (fees + impact) 309.5 bps / 394.4 bps"
     },
     {
       "symbol": "PENGU",
@@ -329,31 +366,7 @@
           "note": "v4 native ETH / PENGU (1%), the only PENGU/ETH v4 pool; virtual depth ~$188,758 per side"
         }
       ],
-      "measured": "block 115878193 (Nov 16 2026): $100 -> 20100.9, $1,000 -> 200031; price impact vs a $1 quote 5.4 bps / 54.0 bps; all-in cost vs pool mid (fees + impact) 121.4 bps / 169.5 bps"
-    },
-    {
-      "symbol": "HMM",
-      "address": "0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f",
-      "decimals": 18,
-      "hops": 1,
-      "keys": [
-        {
-          "leg": 1,
-          "poolId": "0xbe59bf5d48335718349b76aaba718fd677ce10a7c2ecec2f2b96bc8b6ed81e53",
-          "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
-          "currency1": "0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f",
-          "fee": 34267,
-          "tickSpacing": 666,
-          "hooks": "0x0000000000000000000000000000000000000000",
-          "hookName": "none",
-          "note": "v4 USDG / HMM, fee 34267 (3.4267%); the linked pool 0x2b0D0183...0E9e is Uniswap v3 HMM/WETH and the router is v4 only. THIN: virtual depth ~$15,887 per side (pricer floor is $10k)"
-        }
-      ],
-      "alternative": {
-        "route": "USDG -> ETH (0x387bf619...) -> HMM (v4 ETH/HMM 0x0aa0a74e..., fee 10030)",
-        "note": "not used: block 115878193 (Nov 16 2026): $100 -> 13488.5, $1,000 -> 126652; price impact vs a $1 quote 73.9 bps / 679.7 bps; all-in cost vs pool mid (fees + impact) 190.1 bps / 788.9 bps"
-      },
-      "measured": "block 115878193 (Nov 16 2026): $100 -> 13543.5, $1,000 -> 128273; price impact vs a $1 quote 59.8 bps / 585.4 bps; all-in cost vs pool mid (fees + impact) 410.6 bps / 917.7 bps"
+      "measured": "block 115888826 (Nov 16 2026): $100 -> 20141.7, $1,000 -> 200435; price impact vs a $1 quote 5.4 bps / 54.1 bps; all-in cost vs pool mid (fees + impact) 121.5 bps / 169.6 bps"
     }
   ],
   "optionalQuotes": [
@@ -394,7 +407,7 @@
         "poolId": "0x84bd4e2d8be11aeb0afc1195b38f587b61e90068548f1063fdbe448fb8cad0b6",
         "note": "direct v4 WETH/USDG 0.02% (~$114k per side), not used: block 115878193 (Nov 16 2026): $100 -> 0.0549435, $1,000 -> 0.545443; price impact vs a $1 quote 8.6 bps / 81.2 bps; all-in cost vs pool mid (fees + impact) 11.2 bps / 83.8 bps"
       },
-      "measured": "block 115878193 (Nov 16 2026): $100 -> 0.0549335, $1,000 -> 0.549235; price impact vs a $1 quote 0.2 bps / 2.0 bps; all-in cost vs pool mid (fees + impact) 12.7 bps / 14.5 bps"
+      "measured": "block 115888826 (Nov 16 2026): $100 -> 0.055045, $1,000 -> 0.55035; price impact vs a $1 quote 0.2 bps / 2.0 bps; all-in cost vs pool mid (fees + impact) 12.7 bps / 14.5 bps"
     },
     {
       "symbol": "USDG",
@@ -407,35 +420,6 @@
     }
   ],
   "dropped": [
-    {
-      "symbol": "MOO",
-      "address": "0xD9dB30BB0D2b8d2eae3826A1372117E058791e18",
-      "note": "dropped by maker Nov 16 2026; not wired. Old keys kept here for reference.",
-      "keys": [
-        {
-          "leg": 1,
-          "poolId": "0x6fa3ee0048e78bf0a513eb0ab56f482944a767c21db990fcf555605e69f05659",
-          "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
-          "currency1": "0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD",
-          "fee": 10000,
-          "tickSpacing": 200,
-          "hooks": "0x0000000000000000000000000000000000000000",
-          "hookName": "none",
-          "note": "deepest v4 USDG/MU (1%); virtual depth ~$1,148,112 per side"
-        },
-        {
-          "leg": 2,
-          "poolId": "0xc3cc877a8a7d28efdb5dbec9ae71724652431e6411aa1a9fc8928028da554aa1",
-          "currency0": "0xD9dB30BB0D2b8d2eae3826A1372117E058791e18",
-          "currency1": "0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD",
-          "fee": "0x800000",
-          "tickSpacing": 8,
-          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
-          "hookName": "long.xyz",
-          "note": "stock pool; virtual depth ~$110,039 per side"
-        }
-      ]
-    },
     {
       "symbol": "SPACEHOOD",
       "address": "0xFe7E19CbCe2f896C6C528BC355bAF5a768291E18",
@@ -462,6 +446,24 @@
           "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
           "hookName": "long.xyz",
           "note": "stock pool; afterSwap-returns-delta; official virtual depth ~$86,736 per side"
+        }
+      ]
+    },
+    {
+      "symbol": "HMM",
+      "address": "0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f",
+      "note": "added then dropped by maker Nov 16 2026 (\"just do moo instead of hmm\"); not wired. Key kept for reference. Thin: block 115888826 (Nov 16 2026): $100 -> 12786.7, $1,000 -> 120975; price impact vs a $1 quote 59.4 bps / 595.1 bps; all-in cost vs pool mid (fees + impact) 410.2 bps / 927.0 bps",
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0xbe59bf5d48335718349b76aaba718fd677ce10a7c2ecec2f2b96bc8b6ed81e53",
+          "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "currency1": "0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f",
+          "fee": 34267,
+          "tickSpacing": 666,
+          "hooks": "0x0000000000000000000000000000000000000000",
+          "hookName": "none",
+          "note": "v4 USDG / HMM, fee 34267 (3.4267%); the linked pool 0x2b0D0183...0E9e is Uniswap v3 HMM/WETH and the router is v4 only. THIN: virtual depth ~$15,887 per side (pricer floor is $10k)"
         }
       ]
     }
