@@ -697,7 +697,7 @@ function finishVote(){
   paintVote(); VOTE.res={tie,n,map:MAP}; return VOTE.res;
 }
 let dropT=0, dropIv=0;
-function prePane(id){ $("podium").hidden=true; podStop(); for(const k of ["pIntro","pFill","pDrop"]) $(k).hidden=k!==id; $("stLobby").classList.toggle("on",id!=="pDrop"); $("stDrop").classList.toggle("on",id==="pDrop"); }
+function prePane(id){ $("podium").hidden=true; podStop(); victoryMusic(false); for(const k of ["pIntro","pFill","pDrop"]) $(k).hidden=k!==id; $("stLobby").classList.toggle("on",id!=="pDrop"); $("stDrop").classList.toggle("on",id==="pDrop"); }
 let fillIv=0;
 function showIntro(){ toParent({type:"disciple:music",on:false}); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pIntro"); $("dIn").textContent="12"; bed("amb_mission_control"); }
 // a lobby that fills up: you first, then the 11 bots drop in over ~3 s, then the map pick and its 15 s timer
@@ -816,6 +816,7 @@ function showPodium(){ if(!G||!$("podium").hidden) return;
   $("podium").hidden=false; row.scrollLeft=0; podStop(); podT0=performance.now()+400; podRaf=requestAnimationFrame(podDraw);
   toParent({type:"disciple:music",on:false}); bed(null);
   if(!champ.me) sfx("champ",.55);
+  victoryMusic(true,2600);   // after the 3-4 s champion sting has hit
 }
 $("podRow").addEventListener("scroll",()=>{ const r=$("podRow"), cs=[...r.children]; if(!cs.length) return; const mid=r.scrollLeft+r.clientWidth/2;
   let best=cs[0]; for(const c of cs) if(Math.abs(c.offsetLeft+c.offsetWidth/2-mid)<Math.abs(best.offsetLeft+best.offsetWidth/2-mid)) best=c;
@@ -1259,9 +1260,19 @@ function humTick(on,boost){ if(!ac) return;
   const v=Math.round((.16+.2*boost)*50)/50, r=Math.round((.92+.3*boost)*50)/50;
   if(v!==humV){ humV=v; hum.g.gain.setTargetAtTime(v,ac.currentTime,.15); } if(r!==humR){ humR=r; hum.s.playbackRate.setTargetAtTime(r,ac.currentTime,.2); } }
 function buzz(p){ try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
+// victory music under the podium (maker 2026-11-16): a CC0 loop (public/audio/music) after the champion sting, on the Music
+// channel of the game settings (Music switch + slider), fading in over 1.5 s and out when you leave the podium
+const MUSIC_BASE=A.musicBase||"../../audio/music/"; let vic=null, vicTimer=0;
+function musicLvl(){ try{ const o=JSON.parse(localStorage.getItem(SETK)||"null"); if(o&&o.music) return o.music.on===false?0:(typeof o.music.vol==="number"?o.music.vol:.5); }catch(e){} return .5; }
+function victoryMusic(on,delay){ clearTimeout(vicTimer);
+  if(!on){ if(vic){ const v=vic; vic=null; try{ v.g.gain.setTargetAtTime(0,ac.currentTime,.35); setTimeout(()=>{ try{v.s.stop();}catch(e){} },1600); }catch(e){} } return; }
+  vicTimer=setTimeout(()=>{ if(!ac||muted||vic||$("podium").hidden) return; const lv=musicLvl(); if(lv<=0) return; const key="music:victory_loop";
+    const go=b=>{ if(vic||$("podium").hidden||muted) return; try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; src.loop=true; g.gain.value=0; src.connect(g); g.connect(ac.destination); src.start(); g.gain.setTargetAtTime(lv*.9,ac.currentTime,.5); vic={s:src,g}; }catch(e){} };
+    if(BUF[key]) return go(BUF[key]); if(key in BUF) return; BUF[key]=null;
+    fetch(MUSIC_BASE+"victory_loop.wav").then(r=>{ if(!r.ok) throw 0; return r.arrayBuffer(); }).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{ BUF[key]=b; go(b); }).catch(()=>{ BUF[key]=false; }); },delay||0); }
 function toParent(d){ try{ if(parent!==window) parent.postMessage(d,location.origin); }catch(e){} }
 let unlockSent=false; addEventListener("pointerdown",()=>{ ensureAudio(); if(!unlockSent){ unlockSent=true; toParent({type:"disciple:unlock"}); } },true);
-function setMute(m){ muted=m; if(m){ const o=bedOn; bedOn=null; if(o) try{o.s.stop();}catch(e){} } else bedSync(); toParent({type:"disciple:mute",m}); $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); try{localStorage.setItem("royale.mute",m?"1":"0");}catch(e){} }
+function setMute(m){ muted=m; if(m){ const o=bedOn; bedOn=null; if(o) try{o.s.stop();}catch(e){} victoryMusic(false); } else bedSync(); toParent({type:"disciple:mute",m}); $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); try{localStorage.setItem("royale.mute",m?"1":"0");}catch(e){} }
 $("mute").addEventListener("click",()=>{ensureAudio(); setMute(!muted);}); setMute(muted);
 function toggleMap(){ if(!G||!G.started||!G.me.alive||G.final||G.duel) return; G.mapOpen=!G.mapOpen; hud(); }
 $("mapB").addEventListener("click",toggleMap); $("jX").addEventListener("click",()=>{ if(G){ G.mapOpen=false; hud(); } });
