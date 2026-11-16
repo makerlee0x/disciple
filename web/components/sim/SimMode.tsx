@@ -20,6 +20,7 @@ import { dailyToday, fmtMultiple, DAILY } from "@/lib/sim/daily";
 import { claimFreePlayXp, saveDaily, savedDaily, startDaily, submitDaily, type DailyVerdict, type FreePlayXpResult } from "@/lib/sim/dailyClient";
 import { usePilotWallet, XP_CHANGED_EVENT } from "@/lib/xpClient";
 import DailyResult from "@/components/sim/DailyResult";
+import DailyPreflight, { CountOverlay, useCountdown } from "@/components/sim/DailyPreflight";
 import { FreePlayHub, FreePlayStrip, PracticeResult, savePracticeBest, type StripAlert } from "@/components/sim/FreePlay";
 import { scoreRun } from "@/lib/sim/daily";
 
@@ -52,7 +53,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
   const [seedText, setSeedText] = useState(initial.seed || "");
   const [speed, setSpeed] = useState(SPEEDS.includes(initial.speed || 0) ? initial.speed! : 1);
   const [minutes, setMinutes] = useState(initial.minutes || PLAYER.defaultMinutes);
-  const [phase, setPhase] = useState<"select" | "run" | "summary" | "daily">("select");
+  const [phase, setPhase] = useState<"select" | "pre" | "run" | "summary" | "daily">("select");
   // Daily flight: today's fixed seed on the default config (never the tuning panel's), Hard, 2 min, 1×; one scored run per device
   const [dailyRun, setDailyRun] = useState(false);
   const dailyId = useMemo(() => dailyToday(), []);
@@ -108,23 +109,32 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
       if (e.kind === "rug" || e.kind === "cto" || (e.kind === "whale" && !phoneNow())) { setBanner(e); window.setTimeout(() => setBanner((b) => (b === e ? null : b)), e.kind === "whale" ? 2500 : 5000); } });
     setSummary(null); setPaused(false); setRunN((n) => n + 1); setPhase("run");
   }, [cfg, difficulty, minutes, seedText, speed, initial.balance, showAlert]);
-  /** open today's daily: its result if this device already flew it, otherwise the scored flight */
-  const openDaily = useCallback(async () => {
+  /** open today's daily: its result if this device already flew it, otherwise the pre-flight screen (LAUNCH, then 3·2·1·GO) */
+  const openDaily = useCallback(() => {
     setDailyMsg(null);
     const have = savedDaily(dailyId);
     if (have?.verdict) { drv.current?.stop(); todaySeed.current = have.seed; setDailyRes({ seed: have.seed, inputs: have.inputs, verdict: have.verdict, error: null }); setPhase("daily"); return; }
+    drv.current?.stop(); setPhase("pre");
+  }, [dailyId]);
+  /** LAUNCH on the pre-flight screen: today's seed + start ticket. true = count down and fly */
+  const launchDaily = useCallback(async () => {
+    setDailyMsg(null);
     const t = await startDaily(dailyId);
-    if (!t.ok) { setDailyMsg(t.error); setPhase("select"); return; }
+    if (!t.ok) { setDailyMsg(t.error); return false; }
     todaySeed.current = t.seed;
     if (t.already) {   // flown on this device before (local data cleared): the board has the scored run
       const r = await submitDaily(dailyId, [], "");
       if (r.ok) { const v = r.verdict, ins = v.inputs ?? []; saveDaily({ id: dailyId, seed: t.seed, inputs: ins, verdict: { ...v, inputs: undefined } }); setDailyRes({ seed: t.seed, inputs: ins, verdict: v, error: null }); setPhase("daily"); }
       else setDailyMsg(r.error);
-      return;
+      return false;
     }
     ticketRef.current = { seed: t.seed, ticket: t.ticket };
-    start(t.seed, { daily: true });
-  }, [dailyId, start]);
+    return true;
+  }, [dailyId]);
+  // practice runs count down too (3·2·1·GO over the screen they start from)
+  const pending = useRef<(() => void) | null>(null);
+  const cd = useCountdown(() => { const f = pending.current; pending.current = null; f?.(); });
+  const countThen = useCallback((f: () => void) => { pending.current = f; cd.run(); }, [cd]);
   const finishDaily = useCallback(async (inputs: PlayerInput[]) => {
     const tk = ticketRef.current, seed = tk?.seed ?? todaySeed.current ?? 0; ticketRef.current = null;
     setDailyRes({ seed, inputs, verdict: null, error: null }); setPhase("daily");
@@ -214,7 +224,6 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
       )}
       {phase === "select" && (
         <FreePlayHub dailyId={dailyId} msg={dailyMsg} onDaily={openDaily}
-          onPractice={(id) => { setDifficulty(id); start(tuneOpen && seedText.trim() ? undefined : (Math.random() * 2 ** 31) >>> 0, { difficulty: id }); }}
           tune={tuneOpen ? (
             <div className={"fp-tune"} style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", fontSize: 12, color: "#D7D9E4", padding: "12px 14px", border: "1px dashed #2E323A", borderRadius: 12 }}>
               <b style={{ color: "#F3DFA8" }}>Tuning</b>
@@ -225,18 +234,23 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
               <button type="button" data-testid="sim-start" onClick={() => start()} style={{ ...btn(true, D.color), padding: "6px 14px", marginLeft: "auto" }}>START {D.label.toUpperCase()}</button>
             </div>) : undefined} />
       )}
+      {phase === "pre" && (
+        <DailyPreflight dailyId={dailyId} msg={dailyMsg} onBack={() => { ticketRef.current = null; setPhase("select"); }}
+          onLaunch={launchDaily} onGo={() => { const tk = ticketRef.current; if (tk) start(tk.seed, { daily: true }); }} />
+      )}
+      <CountOverlay n={phase === "pre" ? null : cd.n} />
       {phase === "daily" && dailyRes && (
-        <DailyResult id={dailyId} seed={dailyRes.seed} label={cfg.difficulties[DAILY.difficulty].label.toUpperCase()} inputs={dailyRes.inputs} verdict={dailyRes.verdict} error={dailyRes.error}
+        <DailyResult id={dailyId} seed={dailyRes.seed} inputs={dailyRes.inputs} verdict={dailyRes.verdict} error={dailyRes.error}
           ghost={ghost && ghost.day === dailyId ? { name: ghost.name, multiple: ghost.multiple, outAtS: ghost.outAtS } : null}
           onClose={() => { drv.current?.stop(); setDailyRun(false); setPhase("select"); }}
-          onAgain={() => start(dailyRes.seed, { difficulty: DAILY.difficulty, minutes: PLAYER.dailyMinutes })}
-          onPractice={() => { setSeedText(""); start((Math.random() * 2 ** 31) >>> 0, { difficulty: DAILY.difficulty }); }} />
+          onAgain={() => { setPhase("select"); countThen(() => start(dailyRes.seed, { difficulty: DAILY.difficulty, minutes: PLAYER.dailyMinutes })); }}
+          />
       )}
       {phase === "summary" && summary && d && (() => { const sc = scoreRun(d.run); return (
         <PracticeResult difficulty={summary.difficulty} score={sc} rank={summary.you.rank} of={summary.you.of}
           xp={practiceXp?.ok ? (practiceXp.already ? "XP for this flight is already saved." : practiceXp.xp > 0 ? `+${practiceXp.xp} XP saved to your level${practiceXp.capped ? ` (Free play XP stops at ${practiceXp.perDay} a day)` : ""}.` : practiceXp.capped ? `Free play XP is capped at ${practiceXp.perDay} a day. Come back tomorrow.` : "Board a flight to earn XP.")
             : practiceXp && !practiceXp.ok ? practiceXp.reason : pilot ? "Saving XP…" : "Sign in to earn XP from Free play."}
-          onAgain={() => start(summary.seed)} onNew={() => { setSeedText(""); start((Math.random() * 2 ** 31) >>> 0); }} onHub={() => { drv.current?.stop(); setPhase("select"); }}
+          onAgain={() => { const k = summary.seed; drv.current?.stop(); setPhase("select"); countThen(() => start(k)); }} onNew={() => { setSeedText(""); drv.current?.stop(); setPhase("select"); countThen(() => start((Math.random() * 2 ** 31) >>> 0)); }} onHub={() => { drv.current?.stop(); setPhase("select"); }}
           extra={tuneOpen ? <button type="button" style={{ ...btn(false, "#ffd24a"), alignSelf: "flex-start" }} onClick={exportRun}>export JSON · seed {summary.seed}</button> : undefined} />); })()}
       {tuneOpen && <TunePanel cfg={cfg} difficulty={difficulty} onApply={(c) => { setCfg(c); try { localStorage.setItem(SIM_STORAGE.tune, JSON.stringify(c)); } catch { /* ignore */ } }}
         onReset={() => { const c = cloneConfig(); setCfg(c); try { localStorage.removeItem(SIM_STORAGE.tune); } catch { /* ignore */ } }} onExport={exportRun} live={!!run} onClose={() => setTuneOpen(false)} />}

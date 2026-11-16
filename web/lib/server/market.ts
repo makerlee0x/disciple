@@ -27,7 +27,7 @@ import {
   MAX_PRICE_CENTS, MIN_PRICE_CENTS, OFFER_MAX, OFFER_TTL_MS, cantMove, centsToRaw, marketFeeCents, sellerCents,
   type Listing, type MarketFilter, type Offer, type Sale,
 } from "@/lib/market";
-import { COLK, copyStore, equippedOf } from "./collection";
+import { COLK, copyStore, wornCopies } from "./collection";
 import { kv, type Kv } from "./kv";
 import { usernameOf, walletOf } from "./usernames";
 import { withLock } from "./xp";
@@ -63,7 +63,7 @@ async function withBoth<T>(a: string, b: string, s: Kv, f: () => Promise<T>, tri
 
 /** Why each of these copies (held by w) can't move, or null when they all can. */
 async function checkMovable(w: string, inv: Copy[], uids: string[], s: Kv, o: { listing?: string } = {}): Promise<string | null> {
-  const worn = new Set(Object.values((await equippedOf(w, s)).copy));
+  const worn = new Set(Object.values(await wornCopies(w, inv, s)));
   for (const u of uids) {
     const c = inv.find((x) => x.uid === u);
     const [listed, frozen] = await Promise.all([s.get(COLK.listed(u)), s.get(COLK.frozen(u))]);

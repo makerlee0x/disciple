@@ -35,7 +35,7 @@ import {
 } from "@/lib/collection";
 import { ensureCatalog } from "./catalog";
 import { kv, type Kv } from "./kv";
-import { award, ledgerOf, totals, withLock, xpSummary } from "./xp";
+import { award, withLock, xpSummary } from "./xp";
 
 const ns = () => `col:${ACTIVE_CHAIN.id}`;
 export const COLK = {
@@ -141,6 +141,7 @@ async function invOf(w: string, now: number, s: Kv): Promise<Copy[]> {
   }
   await writeInv(w, inv, s);
   await s.del(COLK.own(w));   // copies are the record from now on
+  await wornCopies(w, inv, s, true);   // a look saved before copies points at item ids: tie each to its copy now
   return inv;
 }
 
@@ -234,6 +235,29 @@ export async function equippedOf(w: string, s: Kv = kv()): Promise<Equipped> {
   };
 }
 
+const SLOTS: Slot[] = ["skin", "trail", "tag", "flourish"];
+/**
+ * The copy behind each equipped slot. A look saved before copies existed names only item ids, so those slots are matched
+ * to a copy of that item here (and saved, when write is set): what a pilot flies always has a copy behind it, and that
+ * copy can't be scrapped or traded up while it's worn.
+ */
+export async function wornCopies(w: string, inv: Copy[], s: Kv, write = false): Promise<Partial<Record<Slot, string>>> {
+  const eq = await equippedOf(w, s), out: Partial<Record<Slot, string>> = {};
+  let linked = false;
+  for (const slot of SLOTS) {
+    const id = eq[slot]; if (!id) continue;
+    const cur = eq.copy[slot];
+    if (cur && inv.some((c) => c.uid === cur && c.item === id)) { out[slot] = cur; continue; }
+    const c = inv.find((x) => x.item === id);
+    if (c) { out[slot] = c.uid; linked = true; }
+  }
+  if (write && linked) {
+    const rec = parse<LooksRec>(await s.get(COLK.looks(w)));
+    if (rec) { rec.copy = { ...(rec.copy ?? {}), ...out }; await s.set(COLK.looks(w), JSON.stringify(rec)); }
+  }
+  return out;
+}
+
 export async function collectionOf(walletIn: string, now = Date.now(), s: Kv = kv()): Promise<Collection> {
   await ensureCatalog(s);
   const w = lc(walletIn);
@@ -245,7 +269,7 @@ export async function collectionOf(walletIn: string, now = Date.now(), s: Kv = k
   const sup = ids.length ? await s.mget(ids.map((id) => COLK.supply(id))) : [];
   return {
     wallet: w, owned: [...owned], copies: inv, supply: Object.fromEntries(ids.map((id, k) => [id, Number(sup[k]) || 0])), crates,
-    equipped: { skin: eq.skin, trail: eq.trail, tag: eq.tag, flourish: eq.flourish }, equippedCopy: eq.copy,
+    equipped: { skin: eq.skin, trail: eq.trail, tag: eq.tag, flourish: eq.flourish }, equippedCopy: await wornCopies(w, inv, s),
     spendableXp: xp.spendableXp, prestige: xp.level.prestige,
     recent: log.map((m) => parse<Opened>(m)).filter((o): o is Opened => !!o),
   };
@@ -291,7 +315,7 @@ export async function scrapCopy(walletIn: string, uid: string, now = Date.now(),
     if (k < 0) return { ok: false, reason: "You don't have that copy." };
     const c = inv[k], it = itemById(c.item);
     if (!it || c.origin === "starter") return { ok: false, reason: "Starter items can't be scrapped." };
-    if (Object.values((await equippedOf(w, s)).copy).includes(uid)) return { ok: false, reason: "Take it off before you scrap it." };
+    if (Object.values(await wornCopies(w, inv, s)).includes(uid)) return { ok: false, reason: "Take it off before you scrap it." };
     if (await isListed(uid, s)) return { ok: false, reason: "Take it off the market before you scrap it." };
     inv.splice(k, 1); await writeInv(w, inv, s);
     await addEvent(uid, { ev: "burned", at: now, owner: w, why: "scrap" }, s);
@@ -321,7 +345,7 @@ export async function tradeUp(walletIn: string, uids: string[], now = Date.now()
     const rar = items[0].rar, series = items[0].series;
     if (items.some((i) => i.rar !== rar || i.series !== series)) return { ok: false, reason: "All 10 must be the same rarity from the same series." };
     if (!tradeUpTarget(rar)) return { ok: false, reason: `${RARITY_NAME[rar]} can't be traded up. Mythic only comes from crates.` };
-    const eq = Object.values((await equippedOf(w, s)).copy);
+    const eq = Object.values(await wornCopies(w, inv, s));
     if (copies.some((c) => eq.includes(c.uid))) return { ok: false, reason: "Take off what you're flying first." };
     for (const c of copies) if (await isListed(c.uid, s)) return { ok: false, reason: "One of those is on the market. Take it off first." };
     const pool = tradeUpPool(series, rar, now);

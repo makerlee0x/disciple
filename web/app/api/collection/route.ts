@@ -24,7 +24,9 @@ export async function GET(req: Request) {
   const w = new URL(req.url).searchParams.get("wallet");
   const rl = await hitLimit(kv(), `col:get:ip:${clientIp(req.headers)}`, 120, 60);
   if (!rl.ok) return out(429, { ok: false, reason: "Too many requests, try again shortly." });
-  const catalog = await ensureCatalog().catch(() => null);
+  // the public copy leaves out who saved it (an admin's email) and when
+  const full = await ensureCatalog().catch(() => null);
+  const catalog = full ? { ...full, by: undefined, at: undefined } : null;
   const uid = new URL(req.url).searchParams.get("copy");
   if (uid) { const record = await copyRecord(uid).catch(() => null); return out(record ? 200 : 404, record ? { ok: true, record } : { ok: false, reason: "No copy with that id." }); }
   if (new URL(req.url).searchParams.get("proof")) { try { return out(200, { ok: true, proof: await rollProof() }); } catch (e) { return out(503, { ok: false, reason: (e as Error).message }); } }
