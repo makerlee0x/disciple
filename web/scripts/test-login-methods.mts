@@ -1,5 +1,5 @@
-// Sign-in methods (lee 2026-10-29): email, Google, X/Twitter and external wallets. An external wallet is only the
-// login: every player gets an embedded wallet, which owns the smart account (one-tap signs the same for everyone).
+// Sign-in methods: email, Google, X/Twitter (Apple in the app). No external-wallet sign-in (maker 2026-11-16, Privy only).
+// Every player gets an embedded wallet, which owns the smart account (one-tap signs the same for everyone).
 //   pnpm test:login-methods   (pure: reads the Privy config source, no Privy SDK)
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -8,11 +8,12 @@ import { needsEmbeddedWallet, ownerWalletAddress } from "../lib/privyOwner";
 
 const mount = readFileSync(new URL("../components/PrivyMount.tsx", import.meta.url), "utf8");
 
-test("Privy config: email, Google, X/Twitter and external wallet sign-in", () => {
-  const m = mount.match(/loginMethods:\s*\[([^\]]*)\]/);
-  assert.ok(m, "loginMethods present");
-  const methods = m![1].split(",").map((x) => x.trim().replace(/["']/g, "")).filter(Boolean);
-  assert.deepEqual(methods.sort(), ["email", "google", "twitter", "wallet"]);
+test("Privy config: email and social logins only, no external-wallet sign-in (maker 2026-11-16)", () => {
+  assert.match(mount, /loginMethods:\s*loginMethodsFor\(/, "loginMethods comes from loginMethodsFor");
+  const fn = mount.slice(mount.indexOf("export function loginMethodsFor"), mount.indexOf("/** Loaded lazily"));
+  const lists = [...fn.matchAll(/\[([^\]]*)\]/g)].map((m) => m[1].split(",").map((x) => x.trim().replace(/["']/g, "")).filter(Boolean).sort()).filter((l) => l.length);
+  assert.deepEqual(lists, [["apple", "email", "google", "twitter"], ["email", "twitter"], ["email", "google", "twitter"]]);
+  assert.ok(!/"wallet"/.test(fn), "no wallet login method");
 });
 
 test("Privy config: ONE embedded wallet per user (it owns the smart account), external-wallet logins too", () => {
