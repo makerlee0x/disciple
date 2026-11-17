@@ -87,9 +87,9 @@ export const DUEL_HREF = "/turbo/duel";
 
 /**
  * Market tab in the top bar and the phone tab bar (nav rework, maker 2026-11-16: "we need the marketplace now in the nav
- * bar"). The /market page itself comes with PR #433; until that is on main the tab stays hidden so it can't open a 404.
- * Flip this on in the same change that ships /market. Override: NEXT_PUBLIC_FEATURE_MARKET=1 (build-time).
+ * bar"). /market shipped with PR #444 and holds your crates too (PR #446), so the tab is on (maker 2026-11-17: "turn it on").
+ * Kill switch: NEXT_PUBLIC_FEATURE_MARKET=0 (build-time) hides it.
  */
-export const MARKET_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_MARKET === "1" || process.env.NEXT_PUBLIC_FEATURE_MARKET === "true";
+export const MARKET_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_MARKET !== "0" && process.env.NEXT_PUBLIC_FEATURE_MARKET !== "false";
 /** Where the Live flights tab and the lobby's Live flights card go: every rocket, with its sort chips (not one random rocket). */
 export const FLIGHTS_HREF = "/live";
