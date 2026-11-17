@@ -123,7 +123,7 @@ export default function FirstRunHost() {
       )}
       {cashCard && (
         <div className="fr-cash" role="region" aria-label="Add cash" data-testid="fr-cash">
-          <div className="fr-cash-t"><b>Add cash to board</b><span>Boosts spend your cash. Card or Apple Pay works.</span></div>
+          <div className="fr-cash-t"><b>Add cash to board</b><span>Card or Apple Pay</span></div>
           <div className="fr-cash-b">
             <button type="button" className="r2-gold" onClick={() => { setCashCard(false); openCash("add"); }}>Add cash</button>
             <a className="r2-btn" href={withBase("/flight/sim")}>Free play</a>
@@ -133,7 +133,7 @@ export default function FirstRunHost() {
           </button>
         </div>
       )}
-      {firstBoost && <div className="fr-first" role="status" data-testid="fr-first"><b>FIRST BOOST!</b><span>You&apos;re aboard, pilot.</span></div>}
+      {firstBoost && <div className="fr-first" role="status" data-testid="fr-first"><b>FIRST BOOST!</b></div>}
     </>
   );
 }

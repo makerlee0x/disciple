@@ -211,10 +211,27 @@ Every subtitle, helper line, caption and empty-state blurb that the subcopy pass
 | web/components/app/AppHome.tsx:149 | Turbo royale tile `12 pilots. Last one flying.` | Removed (`Practice` tag stays) |
 | web/components/app/AppHome.tsx:155 | Free play tile `No cash. Today's flight.` | Removed (`Free` tag stays) |
 | web/components/app/AppHome.tsx:171 | Quick play, Real coins `{n} flying · search and join` / `Host or join a launch` | `{n} flying` / `Nothing flying` |
-| AppHome.tsx:168-170 | Quick play subs `1v1 · 1 minute`, `12 pilots · practice money`, `Today's flight · no cash` | KEEP, unchanged (short facts, two are money lines) |
 | web/components/app/LiveRockets.tsx:73 | All rockets sheet empty `Host one yourself and the crew flies it up.` | Removed (Host a launch row sits right below) |
 | web/components/app/LiveRockets.tsx:78 | Host a launch row `Build a rocket. The crew flies it up.` | Removed |
 | WelcomeIntro.tsx, FirstRunHost.tsx (`SLIDE UP TO BOOST / let go to fire`, `Swipe to pick a mode, tap to play`) | First-run copy | KEEP, unchanged (maker's welcome copy from #453; first-run coach lines show once) |
+
+## Native shell, Quick play, first run (Grok mobile audit; main 0d63d2b3, line numbers from that commit)
+| File:line (main 0d63d2b3) | Original | Now |
+|---|---|---|
+| mobile/ios/App/App/Info.plist:71 | Shortcut subtitle under Play now: `Board the top rocket` | Removed (title + flame icon). Ships with the next native build |
+| mobile/ios/App/App/Info.plist:86 | Shortcut subtitle under Free play: `Today's daily challenge` | Removed |
+| mobile/ios/App/App/Info.plist:101 | Shortcut subtitle under Launch a coin: `Build your rocket` | Removed |
+| mobile/ios/App/App/Info.plist:116 | Shortcut subtitle under Trading Duel: `Practice duel` | `Practice` |
+| web/components/app/AppHome.tsx:165 | Quick play, Trading duel `1v1 · 1 minute` | `Practice` (duels in the app are practice money) |
+| web/components/app/AppHome.tsx:166 | Quick play, Turbo royale `12 pilots · practice money` | `Practice` |
+| web/components/app/AppHome.tsx:167 | Quick play, Free play `Today's flight · no cash` | `Free` |
+| web/components/app/AppHome.tsx:168 | Quick play, Real coins `{n} flying` / `Nothing flying` (set in #455; was `{n} flying · search and join` / `Host or join a launch`) | Live dot + `{n} flying`; nothing when empty |
+| web/components/mobile/FirstRunHost.tsx:136 | First boost toast sub `You're aboard, pilot.` | Removed (`FIRST BOOST!` stays) |
+| web/components/mobile/FirstRunHost.tsx:126 | Cash gate `Boosts spend your cash. Card or Apple Pay works.` | `Card or Apple Pay` |
+| web/components/mobile/InstallPrompt.tsx:54 | Add to Home Screen `Opens full screen in one tap, and you get alerts when your crew needs you.` | Removed (the Share / Add to Home Screen steps stay) |
+| web/components/cash/CashBody.tsx:314 | `Sent cash can't be pulled back, so check the address.` had class `cx-d` (hidden on phones and in the app) | Now shows on every screen size (class `cx-fine` only) |
+| Info.plist motion string, offline.html, Live Activity labels, LiveRockets `{n} flying now`, welcome line, first-run coaches, practice-fuel lead, market gate, push errors, phone USDG warnings | — | KEEP, unchanged |
+| web/app/layout.tsx:30 + web/public/site.webmanifest:5 | `Every rocket is a live match. The crew boosts it up, and anyone can bomb it down.` | Not changed: it's the site's search / link-preview description (meta, Open Graph, X card), not in-app copy |
 
 ## Not changed (follow-ups)
 
