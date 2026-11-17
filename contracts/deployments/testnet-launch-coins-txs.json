@@ -1,0 +1,858 @@
+{
+ "seed": [
+  {
+   "hash": "0x61d8112f0bf58065645224e1483943c67729284ee21dca4aebdb3d27b857fbe7",
+   "call": "create PoolModifyLiquidityTest",
+   "to": null,
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x8f3268847dcd8bdfe936bd2cb8f4f8729502ebf704d63b9129831e6d5b834dbf",
+   "call": "approve(address,uint256)",
+   "to": "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d",
+   "created": "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d"
+  },
+  {
+   "hash": "0xb47a3df2689d5f627b4aa1c6b208b21827e469d9c0a60166b0a391397a8f5869",
+   "call": "mint(address,uint256)",
+   "to": "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d",
+   "created": "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d"
+  },
+  {
+   "hash": "0xbaff48cb2f78aa88a29051eae3f92d2b3115a60dc30b7caa942a9649aff92415",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0xc1dc444e842511fc77d35c2803cfbfbbbd4478ff"
+  },
+  {
+   "hash": "0xd422e5f1a843a2c0510f66db0c962fb794a45e8d9bd2f21a4fcddcbf895bd031",
+   "call": "approve(address,uint256)",
+   "to": "0xc1dc444e842511fc77d35c2803cfbfbbbd4478ff",
+   "created": "0xc1dc444e842511fc77d35c2803cfbfbbbd4478ff"
+  },
+  {
+   "hash": "0xe9b0ff0cab5d689f81362b7743116bfd62854ab8f98e0ecac6f99dc5114aaf53",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0x6c77ae4941ca2e788df47ff922a582564b8ef36492795c415217caf2d65d8faa",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x6e00f2fff7736e768b3c5fb94bacd553a86a06bc17a7127856edc8183ee2085f",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0x5bfdd54d52276c3bf5c32d627548337437c338b1"
+  },
+  {
+   "hash": "0x51ddba2d77f3793a2930ffbcbb9674d72bee4bb01930c4323512fa9119b5c8fd",
+   "call": "approve(address,uint256)",
+   "to": "0x5bfdd54d52276c3bf5c32d627548337437c338b1",
+   "created": "0x5bfdd54d52276c3bf5c32d627548337437c338b1"
+  },
+  {
+   "hash": "0x0785e78a22b1cff04265cfd30b8d272accc278c04d711b965dc4522b9c8014fd",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0x1beac8a812cc74325f305756044fa7bc3062319044bb46cc9c54220c103f67e8",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x6065c29b15ec8616c16561b3a1c54030cb3386227b9dd8a85d8c3b981d0ce438",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0xc455fcdd981a7efcab1140f7028007f85aa8d1d2"
+  },
+  {
+   "hash": "0xfbb9a8deea102dc726db4c201fc056d74188c42bd8607ba2de470ab07c3a9db1",
+   "call": "approve(address,uint256)",
+   "to": "0xc455fcdd981a7efcab1140f7028007f85aa8d1d2",
+   "created": "0xc455fcdd981a7efcab1140f7028007f85aa8d1d2"
+  },
+  {
+   "hash": "0xacb38559e01fbf04e478b85a8e0007ac4400139e8e9362130f0e4940aaf0cde6",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0x0f72f4ced0ee2f6f042f7c1fb5fa7be5ef8b2617b1bc43c578dd1ab6e68d7c40",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0xa68fa9a95d36e41f318b5e4d47b97415198c97454bf8832174611508b120b043",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0x59aed5093638d22dbab46a2b5c6be5a31584e0f1"
+  },
+  {
+   "hash": "0xaef907ca4a01a11df1540d441cab93e9a917fce80863e217c4cd4709e3a3adab",
+   "call": "approve(address,uint256)",
+   "to": "0x59aed5093638d22dbab46a2b5c6be5a31584e0f1",
+   "created": "0x59aed5093638d22dbab46a2b5c6be5a31584e0f1"
+  },
+  {
+   "hash": "0xd2b017454cd3e7370323cf22d7f618c4cd1ae1014baf2e065c324cf3b13a9cdc",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0x2a59a6f62412d9bcb371117515cc20be68f67c0a45def67845ca6cfbb9f59144",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0xe14ee9c36c081771f35aedf09f95979b86c65f28b0073cedab276d7ae5393c80",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0x38a7d507e967700376f7deae63e847e3b069542e"
+  },
+  {
+   "hash": "0xf0925153ca9dd401325fe6c7488627d4586f516d1a1258422fcc99195cd25672",
+   "call": "approve(address,uint256)",
+   "to": "0x38a7d507e967700376f7deae63e847e3b069542e",
+   "created": "0x38a7d507e967700376f7deae63e847e3b069542e"
+  },
+  {
+   "hash": "0xf77b04dad97c9049b83f4297af99e164835930f8b9a554d179720fcad5e619cd",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0x72f103e8d2f118816e436e95d58a5afe4aedeead1b0d66b21f1179eab3a84365",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x11d296669e5f32718b773b69a0b7fe6314ce7685e029d675be0768239195a2b4",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0xec39a6b92b8f4e5b4035da357372177fef3b3fe759c8052b80f017699a5fa9b3",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x7ac7988e0e3e9091a390f95f859fbe4470f9c42bfcb19596596d9dec1b2280a1",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0x242bb0b81336bb8a81fb8bbd05f075170bb6f982"
+  },
+  {
+   "hash": "0x0c459755e2c68cc14c3bed033d6133d9854e32ae235eb1962092a439a56735cc",
+   "call": "approve(address,uint256)",
+   "to": "0x242bb0b81336bb8a81fb8bbd05f075170bb6f982",
+   "created": "0x242bb0b81336bb8a81fb8bbd05f075170bb6f982"
+  },
+  {
+   "hash": "0x60a0ff92c5ba69245a3128ecb44e1d12f0d929d2b71126caba40ebd9c69ca8ef",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0x6755b19288d9d3ff1ae4b827aff5adff2854644095ceca23cd6811d39933b056",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x4d33d2c391176ef89cfebddb0f717060fae873c483a6a43774f1dc78c8ac363f",
+   "call": "setAllowedQuote(address,bool)",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0x55bf422822e1e453f0c84245d6ac47276d07d65f8ab0f51dca91122c9a0c5062",
+   "call": "setPriceRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0x98a3fba6fae6f0b4bc63661c034834bb2c5e99e95acad8affdedbaf4f8cbe15f",
+   "call": "setUsdgRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839",
+   "created": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"
+  },
+  {
+   "hash": "0x92828cc7956bfc85c45fb5fb2cdbb431ced2196dc706bb34a256f33d6dbc9922",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0xa6f590e1e933ed1cb069e6189d26be894468fd1f"
+  },
+  {
+   "hash": "0x1727933310a4ad95c873315afeb53ed6c2e0038636e34640022b09532b38142a",
+   "call": "approve(address,uint256)",
+   "to": "0xa6f590e1e933ed1cb069e6189d26be894468fd1f",
+   "created": "0xa6f590e1e933ed1cb069e6189d26be894468fd1f"
+  },
+  {
+   "hash": "0x9bc54850985ab9c0171b5aabf72aeb0f95486ad916b700856d2f53d2c642f5d8",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0x161aab13e4e23392ce2d9b3bca423ed26c0275b3555cc7f3e8d69cbdb2ef2cfc",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x3da6f67ff0b7e61ec3acbf7e2b360ecba2cccd9528b82bb5117a19604533473e",
+   "call": "setAllowedQuote(address,bool)",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0x66f3fa96e3592128ffaca5a6ce390ef983386b327b447c6c8e72d49ef7a8b081",
+   "call": "setPriceRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0x926053877a0cdbff226ff518921bbf51d85310040b05572837b3fe4793a7d98b",
+   "call": "setUsdgRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839",
+   "created": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"
+  },
+  {
+   "hash": "0x417c7413e285a7c54a528aab0c469774e92aeefde1c8db5c6ff35975eff10db9",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0x9605eee2ee3acbed13b0e543258bcd45855b4ec4"
+  },
+  {
+   "hash": "0x615e72e802889a3824ab42cf74e06b245952b3bc77e704152291998a207ad6db",
+   "call": "approve(address,uint256)",
+   "to": "0x9605eee2ee3acbed13b0e543258bcd45855b4ec4",
+   "created": "0x9605eee2ee3acbed13b0e543258bcd45855b4ec4"
+  },
+  {
+   "hash": "0x5fab661c5ca725c051f8405b1f114d02fdc13527fe093851e6873f2c0fd5a32a",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0xf1967698e6efa83ec75ee3c5cb825a40d7548660878ee4338f7def67fea5adda",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x37818f4014960137cde81dc0489db9391ca9cd2e12d00216ad5c857cf8149451",
+   "call": "setAllowedQuote(address,bool)",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0x64a75681b19a1e1b0a6eea5cef838dc2ca610a88a44b62c973f828a35366b717",
+   "call": "setPriceRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0xcacc52b03b11d3108aa9d628940c8e3670ff0a02623747b71bc3350215cdfc5b",
+   "call": "setUsdgRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839",
+   "created": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"
+  },
+  {
+   "hash": "0x07429d47079591454af287b92dda15e52d1a03a738c01d31b033ba370c0832d5",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0x8a1d4bea07db5660cfc296037c70f57658f431a1"
+  },
+  {
+   "hash": "0x2fec7fe19ed99a0cd9535ffa6dd5764a78c922823178dc1d1fa5aa21e57d408f",
+   "call": "approve(address,uint256)",
+   "to": "0x8a1d4bea07db5660cfc296037c70f57658f431a1",
+   "created": "0x8a1d4bea07db5660cfc296037c70f57658f431a1"
+  },
+  {
+   "hash": "0xc54158208dc5f2667383ebd08caa6599e220921547f22d63458ae558b1f6f575",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0xa72c76833f7a54f67f55ca54fc5169b4ee78e8a567d1c7b5e057125b63e1076d",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x45ba3413977b517d27c06401ae1fc3ece1530f19793a6edca06743555a1782c7",
+   "call": "setAllowedQuote(address,bool)",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0xfddc5723ef08d7520793e4e755cf5d18eeaec3821953258c1d188e3c251591e6",
+   "call": "setPriceRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0x5bcdecd8867e5d9ca5ec60242cc119db0db104ef9f17a80945658e598335a786",
+   "call": "setUsdgRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839",
+   "created": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"
+  },
+  {
+   "hash": "0xabb9f12a0cf8263a2ca370e6a4318852270ebf545ecaeb40be7613df34a0022f",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0x79c4ba81aad571819d9ee96ec8a5c2faf3bf7763"
+  },
+  {
+   "hash": "0x913d722f2c9fa05276b31ebdcdb48ad9863472b58566ac824b699f587e889e54",
+   "call": "approve(address,uint256)",
+   "to": "0x79c4ba81aad571819d9ee96ec8a5c2faf3bf7763",
+   "created": "0x79c4ba81aad571819d9ee96ec8a5c2faf3bf7763"
+  },
+  {
+   "hash": "0xaf3f22a68908b76c583a8ea78bf8cc951bae64ff0e72f99bcf159bb13f461069",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0x2c098bb0aa6e4914c071b3445fe7cdb11209d3aad6812e963a81d6b5ddbb4e57",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0xee6e841fc9cfcf509fad82f4e45a79cfd8b83e06a803b7edbe7aea32dbe1fc96",
+   "call": "setAllowedQuote(address,bool)",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0x3074a98442b301f1975e8834eb0d5bd79101e4691afada91e60502c6844384a7",
+   "call": "setPriceRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0xea0cb0e71b235884942fc64ad03df635a893dba695f9723f61349ecf896d005b",
+   "call": "setUsdgRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839",
+   "created": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"
+  },
+  {
+   "hash": "0x4a273ff5f93c82927203d887cad136b8a67ae66e8240342cebeda0439a9e60a8",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0xf2824658e380c3c772ced713efafa08754c25ac7"
+  },
+  {
+   "hash": "0x2cb9de0cb3f39bd4d44402917283e3452e788d3f9e561e4da69ce5be2e5856d1",
+   "call": "approve(address,uint256)",
+   "to": "0xf2824658e380c3c772ced713efafa08754c25ac7",
+   "created": "0xf2824658e380c3c772ced713efafa08754c25ac7"
+  },
+  {
+   "hash": "0xe045cfbeaaa15b557da7e871252a4de33978cd2fee30db4b3e6535ce94fcaf24",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0xdc82d20862e9933f43c31d93ee0d0b232b56c1b1f4cb9545617c35da55362f66",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x3327a7ef0e22cc89d8668cdb4083944ed2ca6def09cd77a94bc7f387f763541b",
+   "call": "setAllowedQuote(address,bool)",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0xc8d7d1d4f8b95cbd42879963d28d5478ccc0f4673d68bb60f3c9fc7bc7034f96",
+   "call": "setPriceRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0xb9f06f7e2211299f82ed19fb703e1f6eaf0e0b466887eea58da6d19427978bc5",
+   "call": "setUsdgRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839",
+   "created": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"
+  },
+  {
+   "hash": "0xdbd76f9998ce787b5ed440161f468ac5907b1467382aff89bf2ac04eca34df1d",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0x1989598a72114c2b13fcdbf3723dcc6d51c99a1b"
+  },
+  {
+   "hash": "0xdc834f83e34398f6e281a2db684432c63953e87910bc5f2babb0fe43349ae563",
+   "call": "approve(address,uint256)",
+   "to": "0x1989598a72114c2b13fcdbf3723dcc6d51c99a1b",
+   "created": "0x1989598a72114c2b13fcdbf3723dcc6d51c99a1b"
+  },
+  {
+   "hash": "0xe9b78fc07b7169ac6cc94720e8180734bceb03c8d54edaf92570fb0a91d9a9b4",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0x5066780bd95d22888688b076c18a36d3f8c977371477e556344b39c63ad173fb",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x88bfcdf877bc58615dbdd0cc0425273e155ff5027e61fc523fcae1756af78c59",
+   "call": "setAllowedQuote(address,bool)",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0xfc7a3b2b6a57f2733d5453bdf82fd1ea75088a3f3c0125020b53a96bb889ba62",
+   "call": "setPriceRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0xdc7bda085b87105a4c5da97922e7138678a248d60fc69b1f95b11521cbe8bca5",
+   "call": "setUsdgRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839",
+   "created": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"
+  },
+  {
+   "hash": "0x9d7dcd342cf814b38f93afa9c8c5456dc2d3d6be86d1edb9415e6aa5e3b5845d",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0x000cec153598d1bbf5bb485a9b4f9a976826b5fc"
+  },
+  {
+   "hash": "0x75a235e6560363cd3c9ee5982535141221432562d81ad695385b32db8172059c",
+   "call": "approve(address,uint256)",
+   "to": "0x000cec153598d1bbf5bb485a9b4f9a976826b5fc",
+   "created": "0x000cec153598d1bbf5bb485a9b4f9a976826b5fc"
+  },
+  {
+   "hash": "0xf4e64ee36f08f00207555ff9e464f41ab77db448be707d862cb50e79ffeb231b",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0x214ce27005b54a31adfb1954bb531f2a238a9a2e050f89597fbd5f93bc643564",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x44a357392c1a1c1ef6deecc2b9c5803eeef7a33548d72ef2d2ecc186a02af746",
+   "call": "setAllowedQuote(address,bool)",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0x0025d93ab64d21c1971f6ea81b04e086d0542109e90b90abb8d64e79747d3916",
+   "call": "setPriceRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0x28839be3f51696cc4f96252101b5996823a3af6c2aa8eed84bc4f66792bf9734",
+   "call": "setUsdgRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839",
+   "created": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"
+  },
+  {
+   "hash": "0xee887454b06c53e123c0c47ce67951f33d77bf56c36277af7cb98b6719241a27",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0x965d5141e1a07dd219450b311728a51822dcfce1"
+  },
+  {
+   "hash": "0xe3b4254f682f8736f60d104db1810fec7c6e7537d7b622d27d104746b41018b1",
+   "call": "approve(address,uint256)",
+   "to": "0x965d5141e1a07dd219450b311728a51822dcfce1",
+   "created": "0x965d5141e1a07dd219450b311728a51822dcfce1"
+  },
+  {
+   "hash": "0x6c6ad5d9fa2822df6a7cf81fe1fecddbfdca8e8d4753e9e5ed62f9a6f88d2b44",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0x89a08c88ac11a7c9c50b38128a3f6d7d83c3b297011e7c4eadd20c2e3522e0e6",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0xe31f73da63d434f891205cf27f809ddca012911c5b20e12ce1c16f055e6d4087",
+   "call": "setAllowedQuote(address,bool)",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0x2a4e82420f6ec47fc461b44e3cb02a31f6badd284e62df969cd7e748a401fcad",
+   "call": "setPriceRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0xb9535fef549bc5d2b4cf4c3fd2f33065c7721705714c4932a74c1446996be908",
+   "call": "setUsdgRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839",
+   "created": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"
+  },
+  {
+   "hash": "0x8a2a55b75e34ab4b28e2b9b5945422ef98b22be9e39732a18b3fa5c108cd58d6",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0x7097bcbed36d4de0f72e3bd93d943e2ebd4914f1"
+  },
+  {
+   "hash": "0x846cec109d60c25ef0e216b17fe281c643f12d26ff91ac2e9decf982f6cf5613",
+   "call": "approve(address,uint256)",
+   "to": "0x7097bcbed36d4de0f72e3bd93d943e2ebd4914f1",
+   "created": "0x7097bcbed36d4de0f72e3bd93d943e2ebd4914f1"
+  },
+  {
+   "hash": "0x9d49d35eff33e616deef450572a28057bc078fa5517b781bd8987613004563d8",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0x2212604ff3016e377d453adf9f1fa5a3077fb828e6519ed39ae0cb1302f31436",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x77b9ba45bda5ed04068e63fd00074178c50b2030772aa5ad3f39d5df744d71cc",
+   "call": "setAllowedQuote(address,bool)",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0x025c5430b6b2ebdb7657ad3b725d42809393ec572f687ba045f83311ef83b92f",
+   "call": "setPriceRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0x5994708c6db83fe2067362a1e171b71ed54c369c93865962f0163976584ef195",
+   "call": "setUsdgRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839",
+   "created": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"
+  },
+  {
+   "hash": "0xfed61fe52bb18f4f136a85b4d27c53dedbdd2b9948f406509c28f232fb0f4903",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0x5e73fe55007db8223ab5954b41899a013b94b73d"
+  },
+  {
+   "hash": "0xfa1a734e1654a6c1c24f910a731acd4ff30200e185caa3f8b81d9f5df00c4108",
+   "call": "approve(address,uint256)",
+   "to": "0x5e73fe55007db8223ab5954b41899a013b94b73d",
+   "created": "0x5e73fe55007db8223ab5954b41899a013b94b73d"
+  },
+  {
+   "hash": "0x6867f22acf9fc769ac542f8dd7bbfc06e35db071c19d0f831d05ac712322191d",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0x53f932b708307c8f6a5692602063c7cc3764de6c5314114d91842338871bf7ef",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x54e8575f228b7794d164aa6b5044440db485bb430bc40248fa104a0ab64a35b7",
+   "call": "setAllowedQuote(address,bool)",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0x915510e2c5446f9b81cd1fe12d844d4d6b007dfdb9d4614eb5ca2fb87ffaf8a1",
+   "call": "setPriceRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0x7ff277c9022501f03fd9c09695fa5cd61e8b4fd94e51bea4d2cb08868e18910d",
+   "call": "setUsdgRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839",
+   "created": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"
+  },
+  {
+   "hash": "0xc132b8751c6bf7aae1067b67f4bd295ef12726107c282194a83bf8e997c370fe",
+   "call": "create DevToken",
+   "to": null,
+   "created": "0x8bd5206cd809cc3dcc195445ccd24804511ff8ca"
+  },
+  {
+   "hash": "0xe7db54ab729eeab9d2cb52298dd6f62dfd3ec44810ff5a487922957778978cb1",
+   "call": "approve(address,uint256)",
+   "to": "0x8bd5206cd809cc3dcc195445ccd24804511ff8ca",
+   "created": "0x8bd5206cd809cc3dcc195445ccd24804511ff8ca"
+  },
+  {
+   "hash": "0x25d7a2dd11cf5383340ed7562a0d8049e46df1da1f2158d30082eea6cbed2cdc",
+   "call": "initialize((address,address,uint24,int24,address),uint160)",
+   "to": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+   "created": "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+  },
+  {
+   "hash": "0x110e5bbb50f9c3e5750812326005d8ede39f801dc023a6a7ebf64400fba615c6",
+   "call": "modifyLiquidity((address,address,uint24,int24,address),(int24,int24,int256,bytes32),bytes)",
+   "to": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a",
+   "created": "0xdd261cd08dd14a64c0f7c242f15f750816ce540a"
+  },
+  {
+   "hash": "0x878a1b16502528581966ddfd242a8eee8d994821dba0a970502a1d716344698f",
+   "call": "setAllowedQuote(address,bool)",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0xe60730e5bdcb6669edcc70d728223f2634eb55e2f7b5891ff03e06450baec2ee",
+   "call": "setPriceRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573",
+   "created": "0x5dd0f529c215c610f9498f4dae0d7f36b49fd573"
+  },
+  {
+   "hash": "0xfc8f0aa7f0047ea4b8163f2b89688c6d7563816dedb146e3ab73ee7fef44057a",
+   "call": "setUsdgRoute(address,(address,address,uint24,int24,address)[])",
+   "to": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839",
+   "created": "0xb8f4356759f7bc1351f2d36037ad69ed82b8d839"
+  }
+ ],
+ "launch": {
+  "STRATEGY": "0x90117ce9bb8573e0f952226c040a8175f5b07139c1439f53c229675e8c071fbd",
+  "AI": "0x3b083ed2f49b3b287102fcbf4d04f1ca23f11a3ee597ec45d593afdaf849a52d",
+  "SCHIFFY": "0xe701f524d513d78a917f6777abe4b4ef87e41baec163050fc5543fb006bdd7f2",
+  "BONER": "0xbe23b0bc642d1c542389b872e94d505fb614ffbab8956939e959711e45f93a65",
+  "MEME": "0x2e38598ee2f99de60a64a0176a595a2406531ceea199d94edbc550db2ba951ec",
+  "MOO": "0xe8b5bce951d955d00875196f5eaa809adce8542699e053c616be14e2c293d053",
+  "PONS": "0xe9cc5d8ee41214fa8e06fb869b2c8b874ec297751427c8ce397fd545e891dae2",
+  "ORBIO": "0xb122ca21481ce66c3473501e5a2e2df591a6704ef3dbfa7c550d00f4575ddd97",
+  "HOOKR": "0x5d92e78f377ee8f62082bdb2c23177207b587997a3aabd4e47cec7a5879b2628",
+  "CASHCAT": "0x1d012c71d3bc4892299b9f8696fdc45834e1037f626778adc5457d1c36fbc6aa",
+  "PRIORS": "0x527ea9c7da7056b0f868f1ab1348d93c43c3994e5352ef40646ea8061cd8db3b",
+  "PENGU": "0x03d4b38dafd04a75f783adcc53333b702907f8a03afb186f2c6d3749274d7cde",
+  "HMM": "0x885623b79aed359c1f028982a7d372efbd0d14820bab4910585ce67b0ad7456d",
+  "AI_pool": "0xefd74c885f2a7fdab36542585cb2a5babe75c4b64ddaeb4bb89d66c21865e64b",
+  "HOOKR_burn": "0xe91dc74441c2a173269b5a9a9add27504117a9ab9923f26a237e4d111d0fbb66"
+ },
+ "trade": {
+  "approveUsdg": "0x0c1fe11962bb072f8a65f0419fa9c503d1e37f156ac111125cc09d6696edfba2",
+  "STRATEGY": {
+   "buyWithUsdg": "0x39439057f876e71b41bc0c31df02ef3d49c9849e97af446a436215e25c4bcb35",
+   "approve": "0x947d148a81fa322dab1565ea395869149f54cd5e7a7985835aa456821a55528d",
+   "sellToUsdg": "0xe7d8a83212df85e2c3468a8d6fcb7cd4183de0c67928a2f9bcb1afd628389e8f",
+   "claimCreatorFees": "0xd109b4156e3228014750aafa872c6568003c6d8ec50fcda5f22a506a3e4f2f5e",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "claimCreatorFees(address)"
+   ]
+  },
+  "AI": {
+   "buyWithUsdg": "0x6e4f589c0f2c9ce962783091e69c898565f46e9ebd124450ad4e1be424ae0148",
+   "approve": "0x22e858110ea9a2c79efa087184069d9712bd10761922384ccb06c07c6206b6af",
+   "sellToUsdg": "0xfbdeb3c87bea6e03ac8db4e8eca2b09c2207bc362ef2adc04ee9ed8289636133",
+   "claimCreatorFees": "0x5fad8e922764582f3db7e15d5e19ccaed9d5c1e6160fe2a81b00227e5b717327",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "claimCreatorFees(address)"
+   ]
+  },
+  "SCHIFFY": {
+   "buyWithUsdg": "0x1f1b9487e669c1fa675ab8f45739d4abe7a8fd80b209916a8f498ee89862718c",
+   "approve": "0x466da863306237dd894bb108c010cca52395f724be40bc922943831239c54be8",
+   "sellToUsdg": "0x03f43ab1c04270d46ea0922a1873ea7d5f820e8dbae57921d55a5018bff154ab",
+   "claimCreatorFees": "0x59ed61bfece96a43e12c5fcd3149c83a058aa73f4f3b3ed04e50c94d373ed56c",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "claimCreatorFees(address)"
+   ]
+  },
+  "BONER": {
+   "buyWithUsdg": "0x96f059f0fa49f2d385b868f610d3f9e0c2184baaec39474b4334e6cd451132e6",
+   "approve": "0x4e6e9b6d4d21d6bfdaf7062345e0e52c949ea3aac619327103088b3b4551d930",
+   "sellToUsdg": "0x30546f6a46c44d51cfb74b0adf84c9d1b21511e011df3a6d81bb96d400877935",
+   "claimCreatorFees": "0x3b2ca692314a6052c620a3e6a724455531843bae12d86f3edc1a1e552d071e6d",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "claimCreatorFees(address)"
+   ]
+  },
+  "MEME": {
+   "buyWithUsdg": "0x0ab5a6500dd329b47952ad000346b41fd3b83736ab56f7486572465f31c06b44",
+   "approve": "0x5f24d34c166e416e1e9cce5b80b23f8ddd60d60989193169ec43a8e82c296ce6",
+   "sellToUsdg": "0x21a8f75efabdf01869f3444e83703d34abe960d14df54049408c14283e790ca3",
+   "claimCreatorFees": "0x94185c8686c60993f5f60c70cda3c5a3f540021e741c30424730608d9f4147b0",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "claimCreatorFees(address)"
+   ]
+  },
+  "MOO": {
+   "buyWithUsdg": "0x2a0aea074642b6ff59dfa5b4f0c24959c4ce9cb26aff28ada5c5b03af93caed6",
+   "approve": "0xad71904ec2264ce10e42dd734c0c2ce3eff2a67bdc5a0ca5efef7e0a371ee105",
+   "sellToUsdg": "0x7feac07e32b7404f612e82942eff7a381d4a289fc04ab5212844ea81c5f6e42e",
+   "claimCreatorFees": "0x66f7e269c06c7b258328c3d69fe021fb3140e26d0f6e60335bc6a19539358369",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "claimCreatorFees(address)"
+   ]
+  },
+  "PONS": {
+   "buyWithUsdg": "0xfe29515f6cd29ce3b4dcfd7acf6020d6df80b98a6c9e94c63e7921718bfef77e",
+   "approve": "0x6713431892b3acf2abd2c6393c2be160f14ffed11ae901de5451610afae4f7b8",
+   "sellToUsdg": "0x7c56bf3f85ac70946692a2f695782f6b8996db5785ec4323bd2a15f7ba466953",
+   "claimCreatorFees": "0xbebe6a4d5484aff25c975a50a91b0ce4fbd83e87ee14a937c9a99d972d884bfd",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "claimCreatorFees(address)"
+   ]
+  },
+  "ORBIO": {
+   "buyWithUsdg": "0x5f497a7c46229fec53a7b05141b5235cca9fd6aba13e58716d13b1e8fef91b88",
+   "approve": "0xabd6409f2c1e03582a5a9093f7f294899e096dac4287802e98cd5d7796471ca8",
+   "sellToUsdg": "0x990b501ded04c95c0fa27bbbe3d109f7655fe8c8ddf0c1147fb84186626b3111",
+   "claimCreatorFees": "0x5f2537cd6276d21b83bd1dc404d0c86fdf94c452e6e4060d27bc6ff1e8c458a9",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "claimCreatorFees(address)"
+   ]
+  },
+  "HOOKR": {
+   "buyWithUsdg": "0x4c8055f4b713c31668bb91054eb47a886ac1472cbc23ec771bb25baa0969ae74",
+   "approve": "0x588c21ee6a788546976c564737c457248278182b37d734689cc73450e941dfb6",
+   "sellToUsdg": "0x31d2b640c6bd2c69dd012f420e6b7ede4847093ea07eb1d143412736c9da8ee9",
+   "claimCreatorFees": "0x6e10749e743a450cfdae8eee16e0059e61c21eed788899eebaa200d8a94548fd",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "claimCreatorFees(address)"
+   ]
+  },
+  "CASHCAT": {
+   "buyWithUsdg": "0xdf3dc842e3ce2ab54aeb9ae80a8b33eef1d19cbda05b68e416be3363cd4fc05e",
+   "approve": "0x73082fe154e2b4204e7ed82d50ab5ac2cc5dbd96e7343790bf148a612a5755c0",
+   "sellToUsdg": "0x6b82706c881f80094f62ad07b8be577545a7328fecc421e7e6c6c6695c52f2d0",
+   "claimCreatorFees": "0x9e7707c378a46ecf7e1d202aced35e6b19ba2c82347fb9cd6dd024634f1cae6a",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "claimCreatorFees(address)"
+   ]
+  },
+  "PRIORS": {
+   "buyWithUsdg": "0xfd7b576d36e144940fe403f388a5da534ef26d1d01983d53fbec015e2bd34567",
+   "approve": "0x722d47c97d922af04f138c6421e4268563bd401a0633614a519148d8179938fe",
+   "sellToUsdg": "0x071131f1959267bbb230bcb347a205e4baffc5ff319bfe9287e57c626c40ead3",
+   "claimCreatorFees": "0xabfe5ccd88ed196575f1fa0c311ad9c7282b91cd6cf65615a4f73d5eca24c858",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "claimCreatorFees(address)"
+   ]
+  },
+  "PENGU": {
+   "buyWithUsdg": "0xd813abdb9de3fa1738d05ec605d40e7708bf81eff606e771d8286bf8d5340992",
+   "approve": "0x5290235d4892208645b799db0754d45dc54de5b731f46800ab50a6ea2daf26cc",
+   "sellToUsdg": "0x74fec9dc75cc038a5ac7de89f9a27e9f51991ec6131033d46368c0d76229eb74",
+   "claimCreatorFees": "0x17908e99e904402297783de684162be7bad650b945650c5be04c59970665a46c",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "claimCreatorFees(address)"
+   ]
+  },
+  "HMM": {
+   "buyWithUsdg": "0xcde9804af86d4fc657c75814f1497702163368cfa569f26863636d78c26ac6ea",
+   "approve": "0x10c1c10dd1606a98283e59c5840226ba246c7572027dc83b17a7fa20fe126b36",
+   "sellToUsdg": "0x648db91e6d84308db23b565c8654fca4af3531ae673347328e6f372148403978",
+   "claimCreatorFees": "0x3c249f1162632d5b64f167e71d99248b50bcc33e725efbe0e385a46cd63916cf",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "claimCreatorFees(address)"
+   ]
+  },
+  "AI_pool": {
+   "buyWithUsdg": "0xf434787c5631df4d46def179d44f9443a662695218280c0a99ef5d1a02a00820",
+   "approve": "0xc7ac4a8705a9919b4e8ff81893682dd5141458792cb3ea161db6e310f3188c69",
+   "sellToUsdg": "0x8ec3905948f082bd85d8198f88469199121c5a08a78862fca33808824c5777f9",
+   "harvestRoute": "0x8a56acb75902da0ebd7354b14a9ac25e5ed9a318c6e92885e1004fab08f9bb09",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "route(address)"
+   ]
+  },
+  "HOOKR_burn": {
+   "buyWithUsdg": "0xb0be73efed0a1686c1e67e1c5480569fc21ebb22f7c2345e69168aaa0f4bf638",
+   "approve": "0x7eb747729ec5010292f2aab833cf2982e835d47ec73588d2f43140bb22b4ff57",
+   "sellToUsdg": "0x14062d3f425c3be60f1c89b28515ba3901f5c29fc36dec28abf5d131396e0686",
+   "harvestRoute": "0xac3b7d745f1ef71c9d53c54f62a8f5ed95760b7cc5a24584bfeaf4408a4722e5",
+   "_fns": [
+    "buyWithUsdg(address,uint256,uint256,uint256)",
+    "approve(address,uint256)",
+    "sellToUsdg(address,uint256,uint256,uint256)",
+    "route(address)"
+   ]
+  }
+ }
+}

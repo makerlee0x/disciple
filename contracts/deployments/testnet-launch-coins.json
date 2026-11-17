@@ -1,0 +1,226 @@
+{
+  "coins": {
+    "AI": {
+      "address": "0x242bb0b81336bb8A81fB8bBD05f075170bB6F982",
+      "leg1": {
+        "currency0": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+        "currency1": "0xc1DC444E842511fc77D35C2803CfbFbBbD4478FF",
+        "fee": 3000,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0x187f4018b4eb6e94ed45349210c76e35d1fe6b64a605b1540b9612fbdd221b0f",
+        "tickSpacing": 60
+      },
+      "leg2": {
+        "currency0": "0x242bb0b81336bb8A81fB8bBD05f075170bB6F982",
+        "currency1": "0xc1DC444E842511fc77D35C2803CfbFbBbD4478FF",
+        "fee": 10000,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0xf4955178eb071594339c167b1e74272212199e3ea936827b8a59897c25fbf20c",
+        "tickSpacing": 8
+      },
+      "via": "NVDA"
+    },
+    "BONER": {
+      "address": "0x9605EEE2Ee3acBED13b0e543258bcD45855B4eC4",
+      "leg1": {
+        "currency0": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+        "currency1": "0xc455FCdD981A7EfcAB1140f7028007f85AA8D1d2",
+        "fee": 9000,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0xf34d1d8533c5a549059b5e3e994a63d338d018127a1a181e00c4211204104640",
+        "tickSpacing": 90
+      },
+      "leg2": {
+        "currency0": "0x9605EEE2Ee3acBED13b0e543258bcD45855B4eC4",
+        "currency1": "0xc455FCdD981A7EfcAB1140f7028007f85AA8D1d2",
+        "fee": 10000,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0x2862e6946bebced15e98660b12e5050338f76345c57302253313dfeec078e145",
+        "tickSpacing": 8
+      },
+      "via": "HIMS"
+    },
+    "CASHCAT": {
+      "address": "0x965d5141e1a07dD219450b311728a51822dCFce1",
+      "leg1": {
+        "currency0": "0x965d5141e1a07dD219450b311728a51822dCFce1",
+        "currency1": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+        "fee": 2690,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0xa2412f9224e5e04326b61d85e86fd8a63e8810dab7fe2b7600f030c74c435644",
+        "tickSpacing": 54
+      },
+      "leg2": "none",
+      "via": "USDG"
+    },
+    "HMM": {
+      "address": "0x8Bd5206Cd809cc3DcC195445ccD24804511Ff8cA",
+      "leg1": {
+        "currency0": "0x8Bd5206Cd809cc3DcC195445ccD24804511Ff8cA",
+        "currency1": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+        "fee": 34267,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0x0bb630c82bff6d4f7785888997df061e97e01cdb10b52cb6d3fde8897cec8c9f",
+        "tickSpacing": 666
+      },
+      "leg2": "none",
+      "via": "USDG"
+    },
+    "HOOKR": {
+      "address": "0x000ceC153598d1bbF5Bb485a9B4F9A976826B5fc",
+      "leg1": {
+        "currency0": "0x0000000000000000000000000000000000000000",
+        "currency1": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+        "fee": 500,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0x276edebde816aed95ab73d9ce715fdee6fa75e69e9f2ef1fd325f20c3e35063c",
+        "tickSpacing": 10
+      },
+      "leg2": {
+        "currency0": "0x0000000000000000000000000000000000000000",
+        "currency1": "0x000ceC153598d1bbF5Bb485a9B4F9A976826B5fc",
+        "fee": 2500,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0xbe6893ee3a8eb3b9f3f0158c93df7c387d7a3207f4d5a99ed03537241a66c7ff",
+        "tickSpacing": 25
+      },
+      "via": "ETH"
+    },
+    "MEME": {
+      "address": "0x8a1D4BEA07DB5660cFC296037C70F57658f431A1",
+      "leg1": {
+        "currency0": "0x59Aed5093638D22dBAb46A2B5C6be5a31584E0F1",
+        "currency1": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+        "fee": 1000,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0x18b38304fc17914496814b5e696783e709bb484c4cd8bc1e15c4f9e192f35706",
+        "tickSpacing": 10
+      },
+      "leg2": {
+        "currency0": "0x59Aed5093638D22dBAb46A2B5C6be5a31584E0F1",
+        "currency1": "0x8a1D4BEA07DB5660cFC296037C70F57658f431A1",
+        "fee": 10000,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0x30c1e4a9519c13e74e9a168d97ce726776a07e222dfae0379053a882ff6c53ab",
+        "tickSpacing": 8
+      },
+      "via": "AMC"
+    },
+    "MOO": {
+      "address": "0x79C4ba81AAd571819d9Ee96eC8A5c2fAF3bf7763",
+      "leg1": {
+        "currency0": "0x38A7D507e967700376f7DeAE63E847e3B069542E",
+        "currency1": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+        "fee": 10000,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0x69a3722f2d67abd915d33cba5fc3d78d7f9b173a357773eb7f5fd10301d56afb",
+        "tickSpacing": 200
+      },
+      "leg2": {
+        "currency0": "0x38A7D507e967700376f7DeAE63E847e3B069542E",
+        "currency1": "0x79C4ba81AAd571819d9Ee96eC8A5c2fAF3bf7763",
+        "fee": 10000,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0x77dab1aa40ac87a3c46fb1ec7ab728c88bc801d30c27b05d2fd33885e40df63d",
+        "tickSpacing": 8
+      },
+      "via": "MU"
+    },
+    "ORBIO": {
+      "address": "0x1989598A72114C2B13FcDBf3723dcC6D51C99A1B",
+      "leg1": {
+        "currency0": "0x1989598A72114C2B13FcDBf3723dcC6D51C99A1B",
+        "currency1": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+        "fee": 8000,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0xbe13375bc79cca0405eadce84d0c45e8086b4999b7f9dad93d6ca64182d6552b",
+        "tickSpacing": 80
+      },
+      "leg2": "none",
+      "via": "USDG"
+    },
+    "PENGU": {
+      "address": "0x5E73fE55007db8223Ab5954b41899a013B94B73D",
+      "leg1": {
+        "currency0": "0x0000000000000000000000000000000000000000",
+        "currency1": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+        "fee": 500,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0x276edebde816aed95ab73d9ce715fdee6fa75e69e9f2ef1fd325f20c3e35063c",
+        "tickSpacing": 10
+      },
+      "leg2": {
+        "currency0": "0x0000000000000000000000000000000000000000",
+        "currency1": "0x5E73fE55007db8223Ab5954b41899a013B94B73D",
+        "fee": 10000,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0xb65b9b908d6e5678f220d28af648959247b0179dc4319e0911e57059e71a8348",
+        "tickSpacing": 100
+      },
+      "via": "ETH"
+    },
+    "PONS": {
+      "address": "0xF2824658E380C3c772Ced713EfafA08754c25ac7",
+      "leg1": {
+        "currency0": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+        "currency1": "0xF2824658E380C3c772Ced713EfafA08754c25ac7",
+        "fee": 3000,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0x0a4d45d5b7732c7f4f76a686051d5445cf6f9ddb2bc3978780f67f42b58a2f5c",
+        "tickSpacing": 60
+      },
+      "leg2": "none",
+      "via": "USDG"
+    },
+    "PRIORS": {
+      "address": "0x7097BcbeD36d4De0F72e3BD93D943e2EbD4914f1",
+      "leg1": {
+        "currency0": "0x7097BcbeD36d4De0F72e3BD93D943e2EbD4914f1",
+        "currency1": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+        "fee": 0,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0x96d5f6fb70621168137d6bbed9561a88a5e280a28f2dabca82d650739c711199",
+        "tickSpacing": 200
+      },
+      "leg2": "none",
+      "via": "USDG"
+    },
+    "SCHIFFY": {
+      "address": "0xa6f590e1E933eD1CB069e6189d26bE894468FD1F",
+      "leg1": {
+        "currency0": "0x5BFDd54d52276C3bf5C32d627548337437c338b1",
+        "currency1": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+        "fee": 3000,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0x3265eb6b7cee8cf93df7e1dcb06f1a48572c028c4c983482fde42a1693c4e533",
+        "tickSpacing": 10
+      },
+      "leg2": {
+        "currency0": "0x5BFDd54d52276C3bf5C32d627548337437c338b1",
+        "currency1": "0xa6f590e1E933eD1CB069e6189d26bE894468FD1F",
+        "fee": 10000,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0x25a08cf39bcdba1a583e8ff2ff0b78bd07711deb25599b8d1ae6b4efc5999c51",
+        "tickSpacing": 8
+      },
+      "via": "GLD"
+    }
+  },
+  "ethSeeded": 33060890405573981,
+  "liquidityHelper": "0xdD261CD08DD14A64C0f7C242F15F750816ce540A",
+  "mids": {
+    "AMC": "0x59Aed5093638D22dBAb46A2B5C6be5a31584E0F1",
+    "GLD": "0x5BFDd54d52276C3bf5C32d627548337437c338b1",
+    "HIMS": "0xc455FCdD981A7EfcAB1140f7028007f85AA8D1d2",
+    "MU": "0x38A7D507e967700376f7DeAE63E847e3B069542E",
+    "NVDA": "0xc1DC444E842511fc77D35C2803CfbFbBbD4478FF"
+  },
+  "usdgEth": {
+    "currency0": "0x0000000000000000000000000000000000000000",
+    "currency1": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+    "fee": 500,
+    "hooks": "0x0000000000000000000000000000000000000000",
+    "poolId": "0x276edebde816aed95ab73d9ce715fdee6fa75e69e9f2ef1fd325f20c3e35063c",
+    "tickSpacing": 10
+  }
+}

@@ -1007,8 +1007,11 @@
     "0x06f31a8877c8e025cc55faffb20cba8486cca527"
   ],
   "launchWhitelistRoutes": {
-    "status": "not wired",
-    "reason": "routes.json keys use mainnet USDG 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168 and mainnet pools; none of the 12 quote tokens or pools exist on 46630, so setPriceRoute/setUsdgRoute revert BadPool (checked by eth_call from the owner, no tx sent)"
+    "status": "wired on testnet with stand-in coins (Nov 16, 2026)",
+    "details": "deployments/testnet-launch-coins.json",
+    "e2e": "deployments/testnet-launch-e2e.json",
+    "txs": "deployments/testnet-launch-coins-txs.json",
+    "curveDeployerUsedForE2E": "0x9e5eB206BcAc0E54F00F46E70C7f2C3e97dAe3A6"
   },
   "firstBoostMaxBps": {
     "TRENCH": 777,
