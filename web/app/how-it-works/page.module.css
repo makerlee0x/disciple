@@ -28,7 +28,7 @@
 .tag { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); padding: 5px 10px; border-radius: 6px; background: rgba(10, 12, 18, .7);
   font: 500 11px / 1 var(--dsc-font-mono, monospace); letter-spacing: .08em; text-transform: uppercase; color: #9095A0; }
 .hud { position: absolute; z-index: 1; border-radius: 12px; background: rgba(10, 12, 18, .78); border: 1px solid rgba(232, 234, 238, .12); backdrop-filter: blur(6px); }
-.alt { left: 20px; top: 20px; width: 230px; padding: 14px 16px; display: flex; flex-direction: column; }
+.alt { left: 20px; top: 20px; width: 270px; padding: 14px 16px; display: flex; flex-direction: column; }
 .bag { right: 20px; top: 20px; width: 210px; padding: 14px 16px; display: flex; flex-direction: column; }
 .hk { font: 500 11px / 1 var(--dsc-font-mono, monospace); letter-spacing: .06em; text-transform: uppercase; color: #9095A0; }
 .hv { margin-top: 6px; font: 800 40px / 1 var(--dsc-font-game); color: #FFFFFF; }
@@ -44,25 +44,24 @@
   font: 800 16px / 1 var(--dsc-font-game); text-transform: uppercase; }
 .fBoost { left: calc(50% + 90px); top: 150px; border: 1px solid rgba(95, 240, 160, .45); color: var(--up); }
 .fBomb { left: calc(50% - 250px); top: 250px; border: 1px solid rgba(255, 91, 91, .5); color: var(--down); }
-.bar { left: 20px; right: 20px; bottom: 20px; padding: 14px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.bar { left: 20px; bottom: 20px; max-width: calc(100% - 40px); box-sizing: border-box; padding: 14px 16px; display: grid; grid-template-columns: auto auto auto; gap: 10px 12px; align-items: center; }
 .side { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .amt { display: inline-flex; gap: 6px; align-items: center; padding: 7px 10px; border-radius: 8px; border: 1px solid #2E323A; background: rgba(22, 24, 28, .9);
   font: 700 14px / 1 var(--dsc-font-ui); color: #BCC0CA; }
 .amt kbd, .fire kbd { font: 500 10px / 1 var(--dsc-font-mono, monospace); text-transform: uppercase; color: #9095A0; }
 .amtBuy { border-color: var(--up); color: #FFFFFF; }
 .amtSell { border-color: var(--down); color: #FFFFFF; }
-.fire { margin-left: 6px; display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 10px; font: 800 22px / 1 var(--dsc-font-game); text-transform: uppercase; }
+.fire { display: inline-flex; justify-content: center; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 10px; font: 800 22px / 1 var(--dsc-font-game); text-transform: uppercase; }
 .fire kbd { color: inherit; opacity: .7; }
 .fireBoost { background: #1F6F4A; color: #C8FFE4; }
 .fireDump { background: #7A2626; color: #FFD6D6; }
 .co { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--gold); color: var(--ink); display: grid; place-items: center;
   font: 800 17px / 1 var(--dsc-font-game); box-shadow: 0 0 0 4px rgba(242, 193, 78, .25), 0 0 18px rgba(242, 193, 78, .6); }
 .screen .co { position: absolute; z-index: 2; }
-.c1 { right: -14px; top: -14px; }
-.c2 { left: -14px; top: -14px; }
-.c3 { position: static !important; }
-.c4 { left: -12px; top: 50%; margin-top: -15px; }
-.c5 { right: -12px; top: 50%; margin-top: -15px; }
+/* every callout sits inline, first thing in the element it names: no floating markers */
+.screen .cIn { position: static; width: 24px; height: 24px; font-size: 14px; box-shadow: 0 0 0 3px rgba(242, 193, 78, .25), 0 0 12px rgba(242, 193, 78, .5); }
+.alt .hk, .bag .hk { display: flex; align-items: center; gap: 8px; }
+.fBomb { padding-left: 6px; }
 .legend { flex: 1 1 340px; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; justify-content: center; gap: 26px; }
 .legend li { display: flex; gap: 14px; align-items: flex-start; }
 .legend b { display: block; font: 800 22px / 1.1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
@@ -158,15 +157,12 @@
   .plume { top: 340px; }
   .fBoost { left: auto; right: 16px; top: 170px; }
   .fBomb { left: 16px; top: 250px; }
-  .bar { left: 12px; right: 12px; bottom: 12px; padding: 10px; gap: 8px; }
-  .side { width: 100%; }
-  .fire { margin-left: auto; padding: 10px 14px; font-size: 18px; }
+  .bar { left: 12px; right: 12px; bottom: 12px; max-width: none; padding: 10px; gap: 8px 10px; grid-template-columns: auto 1fr; }
+  .fire { grid-column: 2; padding: 10px 14px; font-size: 18px; }
   .amt { padding: 6px 7px; font-size: 12px; }
-  .c1 { right: -10px; left: auto; }   /* top-right of the altitude card, clear of its label (was over "ALTITUDE ·") */
-  .c2 { left: auto; right: -10px; }
+  .screen .cIn { width: 22px; height: 22px; font-size: 13px; }
+  .alt .hk { align-items: flex-start; }
   .tag { display: none; }
-  .c4 { top: -12px; margin-top: 0; }
-  .c5 { top: auto; bottom: -12px; margin-top: 0; }
   .sec, .final { margin-top: 56px; }
   .rc h3 { font-size: 28px; }
   .tog button { padding: 9px 18px; }

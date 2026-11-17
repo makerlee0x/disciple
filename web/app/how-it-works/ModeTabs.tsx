@@ -27,9 +27,9 @@ export default function ModeTabs({ pilot, pro, final, finalStyle }: { pilot: Pan
     <>
       <header className={s.head}>
         <div className={s.headC}>
-          <span className={s.eb}>{P.eyebrow}</span>
+          {P.eyebrow && <span className={s.eb}>{P.eyebrow}</span>}
           <h1 className={s.h1}>{P.h1}</h1>
-          <p className={s.sub}>{P.sub}</p>
+          {P.sub && <p className={s.sub}>{P.sub}</p>}
         </div>
         {PRO_HUD_ENABLED && <div className={s.tog} role="tablist" aria-label={HIW_TABS.label}>
           {(["pilot", "pro"] as const).map((t) => (

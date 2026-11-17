@@ -402,7 +402,7 @@ export default function GameRadio() {
             data-testid="radio-repeat"
             aria-pressed={st.repeat === "one"}
             aria-label={st.repeat === "one" ? "This track will play again." : "This station keeps playing all its tracks."}
-            title={st.repeat === "one" ? "This track will play again." : "This station keeps playing all its tracks."}
+            title={st.repeat === "one" ? "Repeat track" : "Repeat station"}
             onClick={toggleRepeat}
             style={{ ...BTN, opacity: st.repeat === "one" ? 1 : 0.55, position: "relative", marginLeft: "auto" }}
           >
@@ -430,7 +430,7 @@ export default function GameRadio() {
             data-testid="radio-shuffle"
             aria-pressed={st.shuffle}
             aria-label={st.shuffle ? "Shuffle is on" : "Shuffle"}
-            title={st.shuffle ? "Shuffle is on. Tracks in this station play in a random order, then start over." : "Shuffle. Play this station's tracks in a random order."}
+            title={st.shuffle ? "Shuffle on" : "Shuffle"}
             onClick={toggleShuffle}
             style={{ ...BTN, opacity: st.shuffle ? 1 : 0.55 }}
           >

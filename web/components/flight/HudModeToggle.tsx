@@ -115,12 +115,11 @@ export default function HudModeToggle({ sim, onSim }: { sim?: Sim | null; onSim?
               <span>My tramps and walls</span><span style={{ ...tag, color: HUD.champagne, background: "rgba(255,255,255,.08)" }}>{tw.active}</span></button>
           </>}
           {sim && sim.available && <button type="button" role="menuitemcheckbox" aria-checked={sim.on} data-testid="flight-menu-sim" onClick={() => onSim?.()} style={row}
-            title="Random buys and sells keep the rocket moving when the pool is quiet. Visual only: never touches balances or PnL.">
+            title="Fake trades when it's quiet. Never touches your balance.">
             <span>Simulated market</span><span style={{ ...tag, color: sim.on ? HUD.ink : HUD.dim, background: sim.on ? "#5FF0A0" : "rgba(255,255,255,.08)" }}>{sim.on ? (sim.mode === "auto" ? "AUTO" : "ON") : "OFF"}</span></button>}
           <div style={{ height: 1, background: HUD.border, margin: "6px 8px" }} />
-          <button type="button" role="menuitem" data-testid="flight-menu-trade" onClick={go(() => dispatchEvent(new CustomEvent("disciple:swapsettings", { detail: { open: true } })))} style={row}
-            title="Boost amounts, price protection and the rocket position tag">
-            <span>Trade settings</span><span style={{ color: HUD.dim, fontSize: 12 }}>amounts, price protection</span></button>
+          <button type="button" role="menuitem" data-testid="flight-menu-trade" onClick={go(() => dispatchEvent(new CustomEvent("disciple:swapsettings", { detail: { open: true } })))} style={row}>
+            <span>Trade settings</span></button>
           <button type="button" role="menuitem" data-testid="flight-menu-settings" onClick={go(() => dispatchEvent(new Event(SETTINGS_OPEN_EVENT)))} style={row}>
             <span>Settings</span><span style={{ ...tag, color: HUD.dim, background: "rgba(255,255,255,.08)" }}>ESC</span></button>
           <Link role="menuitem" href="/" data-testid="flight-menu-lobby" style={row}>Back to the lobby</Link>

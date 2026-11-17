@@ -914,7 +914,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
     title={`select ${x.label} (${keyLabel(gs.keys.sell[i] || x.key)}), then DUMP / Shift`}
     onClick={() => { setSellCustom(""); selSell.current(i); }}
     style={chip(!sellCustomN && sellSel === i, "sell")}>{x.frac >= 1 ? "ALL" : x.frac === 0.5 ? "HALF" : x.label}{keyTag(keyLabel(gs.keys.sell[i] || x.key))}</button>);
-  const customBuyInput = <input aria-label="custom amount" {...hoverSide("buy")} inputMode="decimal" placeholder="$ custom" value={custom} title="custom $: when filled it overrides the selected BUY preset for BOOST / Space (clear it to use the preset)"
+  const customBuyInput = <input aria-label="custom amount" {...hoverSide("buy")} inputMode="decimal" placeholder="$ custom" value={custom} title="Custom $. Overrides the preset while filled."
     onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ""))}
     onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.repeat) { e.preventDefault(); }   // held Enter / SPACE never auto-fires
       else if ((e.key === "Enter" || e.key === " ") && customUsd) { e.preventDefault(); shoot("buy"); }   // SPACE here = BOOST the custom $ (as in game)
@@ -923,7 +923,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
     style={field(!!customUsd, "buy")} />;
   const customSellInput = <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
     <input aria-label="custom sell amount" data-testid="custom-sell" {...hoverSide("sell")} inputMode="decimal" placeholder={sellUnit === "%" ? "% custom" : "$ value"} value={sellCustom}
-      title={`custom sell: ${sellUnit === "%" ? "% of holdings" : "$ value, capped at your position value"}. When filled it overrides the selected SELL preset for DUMP / Shift (clear it to use the preset)`}
+      title={`Custom ${sellUnit === "%" ? "% of your bag" : "$, up to your bag"}. Overrides the preset while filled.`}
       onChange={(e) => setSellCustom(e.target.value.replace(/[^\d.]/g, ""))}
       onKeyDown={(e) => { if (e.key === "Enter" && e.repeat) e.preventDefault();   // held Enter never auto-fires DUMPs
       else if (e.key === "Enter" && sellCustomN) { e.preventDefault(); dumpRef.current?.(); } e.stopPropagation(); }}
@@ -989,7 +989,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
             <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} {...hoverSide("sell")} title={dumpTitle} aria-disabled={!has || full} disabled={!has} data-inflight={full ? "1" : "0"} onClick={() => dumpRef.current?.()}
               style={{ all: "unset", flex: 1, minHeight: 56, boxSizing: "border-box", borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, whiteSpace: "nowrap", border: `1.5px solid ${HUD.down}`, background: "rgba(240,48,127,.12)", color: HUD.downSoft,
                 font: `800 25px/1 ${HUD.game}`, opacity: has && !full ? 1 : 0.45, cursor: has && !full ? "pointer" : "not-allowed" }}>
-              {full && has ? COPY.inFlight : <>{t("tb.dump")} {dumpLabel}{dumpBack > 0 && <span data-testid="dump-back" title="about what this dump pays back after the 1% fee" style={{ font: `600 15px ${HUD.game}`, opacity: 0.85 }}>≈ {fmtShot(dumpBack)}</span>}{cap("SHIFT")}</>}</button>
+              {full && has ? COPY.inFlight : <>{t("tb.dump")} {dumpLabel}{dumpBack > 0 && <span data-testid="dump-back" title="≈ payout after the 1% fee" style={{ font: `600 15px ${HUD.game}`, opacity: 0.85 }}>≈ {fmtShot(dumpBack)}</span>}{cap("SHIFT")}</>}</button>
           </div>
           </>}
         </div>

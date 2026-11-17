@@ -15,21 +15,21 @@ export const HIW_ROUTES = {
 
 export const HIW_META = {
   title: "How to play · DISCIPLE",
-  description: "Boost a rocket with your crew, dodge the bombs and cash out higher than you got in.",
+  description: "Boost a rocket with your crew and cash out higher.",
 };
 
 export const HIW_TABS = { label: "Mode", pilot: "Pilot", pro: "Pro" } as const;
 
 export const HIW_PILOT = {
-  eyebrow: "How to play",
+  eyebrow: "",
   h1: "Your first flight",
-  sub: "Seats cost real cash. Cash out for more than you paid in, and you win.",
+  sub: "Seats cost real cash.",
   /** The annotated flight screen: an illustration of the HUD, not live data. */
   screen: {
     tag: "Example",
     altitude: { k: "Altitude · Stratosphere", v: "$18.4K", orbit: "Orbit in $14.9K", fill: 0.45 },
     bag: { k: "Your bag", v: "$62.40", put: "Put in $50.00", gain: "+$12.40" },
-    boost: "▲ +$25 · Nova",
+    boost: "▲ +$25 · ACE",
     bomb: "● Bunker buster −3%",
     buys: [["1", "$10"], ["2", "$25"], ["3", "$50"], ["4", "$100"]] as [string, string][],
     sells: [["Z", "10%"], ["X", "25%"], ["C", "Half"], ["V", "All"]] as [string, string][],
@@ -38,34 +38,34 @@ export const HIW_PILOT = {
     alt: "The flight screen: altitude top left, your bag top right, a bomb marker, and the boost and dump bar along the bottom.",
   },
   legend: [
-    { title: "Altitude", body: "What the rocket is worth right now, and how far it is from orbit." },
-    { title: "Your bag", body: "What your seat would pay out if you dumped now, next to what you put in." },
-    { title: "Bombs", body: "Someone dumped. The bigger the drop, the bigger the blast." },
-    { title: "Boost", body: "Pick an amount with 1 to 4, then hit Space. Your cash buys a seat and lifts the rocket." },
-    { title: "Dump", body: "Pick how much with Z, X, C or V, then hit Shift. You get cash back and drop a bomb." },
+    { title: "Altitude", body: "Market cap, and how far to orbit." },
+    { title: "Your bag", body: "What you'd get out now vs. what you put in." },
+    { title: "Bombs", body: "Someone dumped. Bigger dump, bigger blast." },
+    { title: "Boost", body: "1–4 sets the size. Space buys in." },
+    { title: "Dump", body: "Z X C V sets how much. Shift cashes out." },
   ],
-  phone: "On a phone, slide the throttle up to boost and down to dump.",
+  phone: "Phone: throttle up to boost, down to dump.",
   rules: {
-    eyebrow: "The rules",
+    eyebrow: "",
     h2: "How you win",
     cards: [
-      { id: "win", k: "Win", title: "Cash out higher", body: "Dump when your bag is worth more than you put in. The gain is yours, in cash." },
-      { id: "lose", k: "Lose", title: "Ride it down", body: "If the rocket falls below where you boarded, your bag is worth less than you paid. Only fly with cash you’re fine losing." },
-      { id: "goal", k: "Crew goal", title: "Reach orbit", body: "At $33,333 the rocket breaks into orbit and the sky opens up. Everyone aboard gets the moment." },
+      { id: "win", k: "Win", title: "Cash out higher", body: "Dump above your entry. Profit lands as cash." },
+      { id: "lose", k: "Lose", title: "Ride it down", body: "Below your entry, you're down. Only fly what you can lose." },
+      { id: "goal", k: "Crew goal", title: "Reach orbit", body: "$33,333 market cap. Everyone aboard sees it." },
     ],
   },
   modes: [
-    { id: "easy", badge: "Easy", title: "Co-op", body: "Nobody can hog the rocket" },
-    { id: "hard", badge: "Hard", title: "Free for all", body: "Bigger seats, bigger swings" },
-    { id: "expert", badge: "Expert", title: "The trenches", body: "No limits, anything goes" },
+    { id: "easy", badge: "Easy", title: "Co-op", body: "Tight caps" },
+    { id: "hard", badge: "Hard", title: "Free for all", body: "Loose caps" },
+    { id: "expert", badge: "Expert", title: "The trenches", body: "No caps" },
   ],
-  host: { text: "Want to host? Launch your own rocket and you earn a cut of every boost and dump on it.", link: "Start a launch" },
+  host: { text: "Hosts earn a cut of every trade.", link: "Launch one" },
 };
 
 export const HIW_PRO = {
-  eyebrow: "How to play",
+  eyebrow: "",
   h1: "Spec sheet",
-  sub: "Every number a trader checks before sizing in, straight from the contracts.",
+  sub: "",
   market: {
     title: "Market",
     rows: [
@@ -122,12 +122,12 @@ export const HIW_PRO = {
       { k: "Custom boost", keys: [], v: "Type any $ amount" },
     ] as { k: string; keys: string[]; v: string }[],
   },
-  verify: { title: "Verify it yourself", body: "The contracts, the curve formula and the full rules are in the docs.", contracts: "Contracts", docs: "Read the docs" },
+  verify: { title: "Verify it yourself", body: "Contracts, curve math and full rules.", contracts: "Contracts", docs: "Read the docs" },
 };
 
 export const HIW_FINAL = {
   h2: "Ready up",
-  sub: "Warm up in Free play with practice cash, or jump into a live flight.",
+  sub: "Free play uses practice cash.",
   /** the Pilot / Pro switch again, so a reader at the bottom can flip modes without scrolling back up */
   tog: "Read it as",
   sim: "Try Free play",

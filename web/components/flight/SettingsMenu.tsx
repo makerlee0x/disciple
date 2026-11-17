@@ -177,7 +177,7 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
                     {[0, 1, 2, 3].map((i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                       <span style={{ width: 52, fontSize: 10, opacity: 0.85 }}>SELL {i + 1}</span>
                       {keyBtn({ kind: "sell", i }, gs.keys.sell[i])}
-                      <input aria-label={`sell size ${i + 1} percent`} data-testid={`hk-sell-amt-${i}`} inputMode="decimal" value={`${sellDraft[i] ?? DEFAULT_SELLS[i]}%`} readOnly aria-readonly title="fixed % of your bag (use the custom sell field for other sizes)" style={{ ...field, opacity: 0.7 }} />
+                      <input aria-label={`sell size ${i + 1} percent`} data-testid={`hk-sell-amt-${i}`} inputMode="decimal" value={`${sellDraft[i] ?? DEFAULT_SELLS[i]}%`} readOnly aria-readonly title="% of your bag" style={{ ...field, opacity: 0.7 }} />
                     </div>)}
                   </div>
                 </div>
