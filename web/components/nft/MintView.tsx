@@ -5,17 +5,19 @@
  * Web only: the iPhone app can't sell NFTs outside Apple's in-app purchase.
  * Copy rule (CLAUDE.md): money facts only (price + network fee); no explainer lines.
  */
+import { withBase } from "@/lib/base-path";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { WalletAccount } from "@wallet-standard/base";
 import type { Umi } from "@metaplex-foundation/umi";
 import { fetchMintStatus, short, type MintStatus } from "@/lib/nft/client";
-import { DISCIPLE_SUPPLY, IMAGE_BASE, MINT_LIMIT, MINT_PRICE_SOL } from "@/lib/nft/config";
+import { DISCIPLE_SUPPLY, MINT_LIMIT, MINT_PRICE_SOL } from "@/lib/nft/config";
 import { solConnect, type SolWallet, type EvmWallet } from "@/lib/nft/wallets";
 import { isNativeApp } from "@/lib/native";
 import WalletChooser from "./WalletChooser";
 
-const ART = [0, 181, 412, 600, 776, 333].map((i) => `${IMAGE_BASE}${i}`);
+/** maker's four picks (2026-11-17); the drop's own files are still unrevealed */
+const ART = ["moses", "angel", "king", "knight"].map((n) => withBase(`/nft/disciple-${n}-lg.webp`));
 type Done = { mint: string; sig: string };
 
 function errLine(e: unknown): string {

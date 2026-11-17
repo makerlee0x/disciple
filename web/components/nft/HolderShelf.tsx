@@ -6,11 +6,12 @@
  */
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { withBase } from "@/lib/base-path";
 import { fetchMintStatus, type MintStatus } from "@/lib/nft/client";
-import { DISCIPLE_SUPPLY, FOUNDER_COUNT, FOUNDER_IMAGE, FOUNDER_URL, IMAGE_BASE } from "@/lib/nft/config";
+import { DISCIPLE_SUPPLY, FOUNDER_COUNT, FOUNDER_IMAGE, FOUNDER_URL } from "@/lib/nft/config";
 
-/** a few revealed disciples for the tile mosaic */
-const MOSAIC = [0, 181, 412, 776].map((i) => `${IMAGE_BASE}${i}`);
+/** four disciples maker picked for the tile (2026-11-17) */
+const MOSAIC = ["moses", "angel", "king", "knight"].map((n) => withBase(`/nft/disciple-${n}.webp`));
 
 export default function HolderShelf() {
   const [mint, setMint] = useState<MintStatus | null>(null);
