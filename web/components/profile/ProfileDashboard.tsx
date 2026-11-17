@@ -210,7 +210,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const { col } = useCollection(isPrivate ? wallet || null : null);
 
   // Still signing in from a saved session: show nothing yet instead of flashing the signed-out hangar (maker 2026-11-17).
-  if (isPrivate && !wallet && restoring) return <div className="profile-page hg" aria-busy="true" data-testid="hangar-restoring" />;
+  if (isPrivate && !wallet && restoring) return <div className="profile-page hg hg-restoring" aria-busy="true" data-testid="hangar-restoring"><span className="hg-spin" role="status" aria-label="Signing in" /></div>;
   // /profile signed out: no sample pilot pretending to be you (existing copy only).
   if (isPrivate && !wallet) {
     return (
