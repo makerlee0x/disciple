@@ -26,7 +26,6 @@ export const LEAVE_COPY = {
   moved: (v: string) => `${v} is back in your cash`,
   failed: "Couldn't move it right now. Your fuel is still in Turbo.",
   setting: "Turbo fuel when you leave",
-  settingHelp: "Keep it in Turbo, or move it back to cash",
   choice: { ask: "Ask", keep: "Keep", move: "Move" } as Record<LeavePref, string>,
 } as const;
 

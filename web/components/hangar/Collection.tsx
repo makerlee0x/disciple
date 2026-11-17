@@ -90,7 +90,7 @@ function CopyList({ col, item, onEquip, onScrap, busy, sell }: { col: Col | null
   const owned = new Set(col?.owned ?? []);
   return (
     <div className="dsc3-panel hg-panel hgu-copies" style={{ ["--sw" as string]: SW[item.rar] }} data-testid="copy-list">
-      <header className="hg-panelh"><div><h2>{title(item)}</h2><span>{list.length ? `You have ${list.length} ${list.length === 1 ? "copy" : "copies"}${sup ? ` · ${fmt(sup)} made` : ""}. Every copy is rolled on its own.` : item.prestige || item.hull === PRESTIGE_HULL ? "Prestige items aren't copies. They come with your Prestige and never trade." : "You don't have one yet."}</span></div></header>
+      <header className="hg-panelh"><div><h2>{title(item)}</h2><span>{list.length ? `You have ${list.length} ${list.length === 1 ? "copy" : "copies"}${sup ? ` · ${fmt(sup)} made` : ""}` : item.prestige || item.hull === PRESTIGE_HULL ? "Prestige items aren't copies. They come with your Prestige and never trade." : "You don't have one yet."}</span></div></header>
       {!list.length && owned.has(item.id) && <button type="button" className="dsc3-btn dsc3-btn-primary hgu-buy sm" disabled={busy} onClick={() => onEquip(item.id)}>Equip</button>}
       {!!list.length && (
         <ul className="hgu-copy-rows">
@@ -190,7 +190,7 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
 
   return (
     <section className="hg-sec hgu-sec" aria-labelledby="hg-looks" data-testid="rocket-collection">
-      <header className="hg-sech"><div><h2 id="hg-looks" className="dsc3-h2">Your rocket</h2><span>Every skin is made for one hull. Every copy you find is rolled on its own: a serial, a burn and a pattern.</span></div></header>
+      <header className="hg-sech"><div><h2 id="hg-looks" className="dsc3-h2">Your rocket</h2></div></header>
       <div className="hgu-equip" style={{ ["--sw" as string]: SW[eqItem.rar] }}>
         <span className="hgu-equip-art"><SkinArt i={eqItem} h={210} copy={copyById(eqc.skin)} /><Plume id={eq.trail} h={120} /></span>
         <div className="hgu-equip-tx">
@@ -199,7 +199,6 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
           {(() => { const c = copyById(eqc.skin); return c ? <span>{c.serial ? `#${fmt(c.serial)}` : "Starter"} · {burnGrade(c.burn).name}{c.trak != null ? ` · FlightTrak ${c.trak}` : ""}{c.fe ? " · First edition" : ""}</span> : null; })()}
           <span>{itemById(eq.trail)?.name ?? "Gold"} trail{eq.flourish ? ` · ${itemById(eq.flourish)?.name} flourish` : ""} · flies in Trading Duels</span>
           <Tag id={eq.tag} name={handle} w={220} />
-          <p>Your name tag floats over your rocket in every race.</p>
         </div>
       </div>
       <div className="hgu-series">
@@ -223,7 +222,7 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
       </ul>
       {panel(skins)}
       <div className="hg-looks-row">
-        <div className="hg-looks-h"><h3>Trail</h3><span>Gold core, so you stay easy to spot</span></div>
+        <div className="hg-looks-h"><h3>Trail</h3></div>
         <ul className="hg-looks">
           {trails.map((t) => {
             const own = owned.has(t.id), on = t.id === eq.trail;
@@ -234,7 +233,7 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
         {panel(trails)}
       </div>
       <div className="hg-looks-row">
-        <div className="hg-looks-h"><h3>Name tag</h3><span>Prestige plates come with each Prestige</span></div>
+        <div className="hg-looks-h"><h3>Name tag</h3></div>
         <ul className="hg-looks">
           {tags.map((t) => {
             const own = owned.has(t.id), on = t.id === eq.tag;
@@ -245,7 +244,7 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
         {panel(tags)}
       </div>
       <div className="hg-looks-row">
-        <div className="hg-looks-h"><h3>Win flourish</h3><span>Plays over your rocket when you win a duel</span></div>
+        <div className="hg-looks-h"><h3>Win flourish</h3></div>
         <ul className="hg-looks">
           {flourishes.map((f) => {
             const own = owned.has(f.id), on = f.id === eq.flourish;
@@ -270,7 +269,7 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
               </li>
             ))}
           </ul>
-        ) : <p className="hg-sub">No spare copies yet. Spares are the extra copies you find of things you already have.</p>}
+        ) : <p className="hg-sub">No spares yet</p>}
       </div>
     </section>
   );
@@ -306,7 +305,7 @@ export function Crates({ col, wallet }: { col: Col | null; wallet: string | null
 
   return (
     <section className="hg-sec hgu-sec" aria-labelledby="hg-crates" data-testid="rocket-crates">
-      <header className="hg-sech"><div><h2 id="hg-crates" className="dsc3-h2">Crates</h2><span>Ranked duel wins and weekly missions drop crates.</span></div></header>
+      <header className="hg-sech"><div><h2 id="hg-crates" className="dsc3-h2">Crates</h2></div></header>
       {live && (
         <div className="hgu-banner" style={{ backgroundImage: `url(${withBase(seriesArt(live.n))})` }} data-testid="series-banner">
           <span className="hg-look-r">Series {live.n} · dropping now</span>

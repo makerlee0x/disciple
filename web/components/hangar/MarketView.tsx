@@ -29,7 +29,7 @@ export default function MarketView() {
           // eslint-disable-next-line @next/next/no-img-element
           <img key={c.id} src={withBase(crateArt(c.tier))} alt="" style={{ ["--sw" as string]: SW[c.tier] } as CSSProperties} />
         ))}</span>
-        <span className="mk-crates-tx"><b>{crates.length} {crates.length === 1 ? "crate" : "crates"} ready</b><small>Open, then list what you pull</small></span>
+        <span className="mk-crates-tx"><b>{crates.length} {crates.length === 1 ? "crate" : "crates"} ready</b></span>
         <span className="dsc3-btn dsc3-btn-primary">{openCrates ? "Close" : "Open"}</span>
       </button>
       {openCrates && <Crates col={col} wallet={wallet} />}

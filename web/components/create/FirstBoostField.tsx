@@ -188,6 +188,11 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
   const isCustom = customOpen || (value !== "" && Number.isFinite(amount) && !isAmt(0) && !isAmt(5) && !isAmt(20) && !isMaxSel);
 
   if (variant === "seat") {
+    const seatNote = [
+      limits?.capBy === "mode" && pct ? COPY.modeCap(modeName(limits.mode), pct) : null,
+      pve && raw != null && raw > BigInt(0) ? SEAT_EASY_LOCK : null,
+      pve && raw != null && raw > BigInt(0) && (!me || pveVerified === false) ? SEAT_EASY_SIGN_IN : null,
+    ].filter(Boolean).join(" ");
     const c = (on: boolean, tx = false) => `${L.chip}${tx ? ` ${L.chipTx}` : ""}${on ? ` ${L.on}` : ""}`;
     return (
       <div className={L.sec} data-testid="first-boost-chips" style={{ padding: 0, borderTop: 0 }}>
@@ -212,15 +217,9 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
           )}
         </div>
         {/* one short line under the chips (the launch builder fits on one screen): the error, else the cap + Easy rules */}
-        {error ? <span role="alert" className={`${L.help} ${L.bad}`}>{error}</span> : (
-          <span className={L.note} data-testid="seat-note">
-            {[
-              limits?.capBy === "mode" && pct ? COPY.modeCap(modeName(limits.mode), pct) : QUICK_LAUNCH_COPY.seatHelp,
-              pve && raw != null && raw > BigInt(0) ? SEAT_EASY_LOCK : null,
-              pve && raw != null && raw > BigInt(0) && (!me || pveVerified === false) ? SEAT_EASY_SIGN_IN : null,
-            ].filter(Boolean).join(" ")}
-          </span>
-        )}
+        {error ? <span role="alert" className={`${L.help} ${L.bad}`}>{error}</span> : seatNote ? (
+          <span className={L.note} data-testid="seat-note">{seatNote}</span>
+        ) : null}
       </div>
     );
   }

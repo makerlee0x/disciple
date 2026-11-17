@@ -24,13 +24,11 @@ export const walletId = (): WalletId | null =>
 /** Sign-in words (step 5 board): the Privy window's title + line, the setting-up button, the failure note, the first-landing toast. */
 export const SIGN_IN_COPY = {
   header: "Sign in to DISCIPLE",
-  line: "One sign-in, then every boost is one tap. No wallet needed.",
   signIn: "Sign in",
   settingUp: "Setting up…",
   failed: "Sign-in didn't finish. Nothing was charged.",
   retry: "Try again",
   welcomeTitle: "You're in, pilot",
-  welcomeBody: "Add cash to take your first seat. Your Hangar is ready.",
   addCash: "Add cash",
   later: "Later",
 } as const;

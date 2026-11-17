@@ -456,7 +456,7 @@ export default function LaunchRocketPage() {
       <div className={L.moBody}>
         <div className={L.moCol}>
           <div className={L.sec}>
-            <div className={L.sh}><span className={L.moIco}><Icon name="base-pair" size={15} /></span><span className={L.st}>{C.pairCoin}</span><span className={L.sub}>{C.pairHelp}</span></div>
+            <div className={L.sh}><span className={L.moIco}><Icon name="base-pair" size={15} /></span><span className={L.st}>{C.pairCoin}</span></div>
             <div className={L.pairs} role="listbox" aria-label={C.pairCoin}>
               {launchPairsForChain(ACTIVE_CHAIN.id).map((coin) => {
                 const addr = addressOn(coin, ACTIVE_CHAIN.id, deployment().defaultQuote);
@@ -473,7 +473,7 @@ export default function LaunchRocketPage() {
             </div>
           </div>
           <div className={L.sec}>
-            <div className={L.sh}><span className={L.moIco}><Icon name="external-link" size={15} /></span><span className={L.st}>{C.links}</span><span className={L.sub}>Shown on your rocket</span></div>
+            <div className={L.sh}><span className={L.moIco}><Icon name="external-link" size={15} /></span><span className={L.st}>{C.links}</span></div>
             <div className={L.links}>
               <label className={L.linkRow}>{linkGlyph.twitter}<input value={twitter} placeholder={C.linkX} aria-label={C.linkX}
                 onChange={(e) => setTwitter(e.target.value)} onBlur={() => setTwitter((v) => normalizeTwitter(v) ?? "")} /></label>
@@ -484,7 +484,7 @@ export default function LaunchRocketPage() {
             </div>
           </div>
           <div className={L.sec}>
-            <div className={L.sh}><span className={L.moIco}><Icon name="chart" size={15} /></span><span className={L.st}>{C.creatorTax}</span><span className={L.sub}>Extra cut on every trade</span></div>
+            <div className={L.sh}><span className={L.moIco}><Icon name="chart" size={15} /></span><span className={L.st}>{C.creatorTax}</span></div>
             <div className={L.tax}>
               <button type="button" className={L.taxStep} aria-label="Lower creator tax" disabled={tax <= 0} onClick={() => setTaxStepped(tax - 0.5)}>−</button>
               <span className={L.taxVal} data-testid="creator-tax-value">{tax}%</span>
@@ -517,7 +517,7 @@ export default function LaunchRocketPage() {
           </div>
           {!privateLaunch && feeDestination === CREATOR_FEE_DESTINATION.creator && (
             <div className={L.sec} data-testid="fee-payout">
-              <div className={L.sh}><span className={L.moIco}><Icon name="wallet" size={15} /></span><span className={L.st}>Fee payout</span><span className={L.sub}>Optional</span></div>
+              <div className={L.sh}><span className={L.moIco}><Icon name="wallet" size={15} /></span><span className={L.st}>Fee payout</span></div>
               <label className={L.linkRow}><Icon name="wallet" size={15} />
                 <input value={feeReceiver} onChange={(e) => setFeeReceiver(e.target.value.trim())} placeholder="Send fees to another 0x account (default: you)" aria-label={C.rewards} /></label>
               <span className={L.note}>{C.rewardsHelp}</span>
@@ -545,7 +545,7 @@ export default function LaunchRocketPage() {
           </div>
 
           <div className={`${L.sec} ${L.aName}`}>
-            <div className={L.sh}><span className={L.num}>1</span><span className={L.st}>Name it</span><span className={L.sub}>Shuffle for ideas</span></div>
+            <div className={L.sh}><span className={L.num}>1</span><span className={L.st}>Name it</span></div>
             <div className={L.field}>
               <label className={`${L.inp} ${L.inpBig}`}>
                 <input value={name} onChange={(e) => setName(e.target.value)} maxLength={32} aria-label={C.name} placeholder="Rocket name" />
@@ -565,7 +565,7 @@ export default function LaunchRocketPage() {
           </div>
 
           <div className={`${L.sec} ${L.aBadge}`}>
-            <div className={L.sh}><span className={L.num}>2</span><span className={L.st}>{C.icon}</span><span className={L.sub}>Made from your name</span></div>
+            <div className={L.sh}><span className={L.num}>2</span><span className={L.st}>{C.icon}</span></div>
             <div className={L.badgeRow}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <span className={L.badgeBig}>{previewIcon && <img src={previewIcon} alt="" width={96} height={96} />}</span>
@@ -594,11 +594,11 @@ export default function LaunchRocketPage() {
               : blocked ? <span role="alert" className={`${L.help} ${L.bad}`}>{mod.note || C.imageReverted}</span>
               : contrast ? <span className={`${L.help} ${L.bad}`}><Icon name="warning" size={12} /> {contrast}</span>
               : mod.state === "allow" && usingUpload ? <span className={`${L.help} ${L.ok}`}><Icon name="check" size={12} /> Image saved</span>
-              : <span className={L.note}>Or upload your own: PNG, JPG, WEBP or GIF, up to 2 MB.</span>}
+              : null}
           </div>
 
           <div className={`${L.sec} ${L.aDiff}`} data-testid="mode-cards">
-            <div className={L.sh}><span className={L.num}>3</span><span className={L.st}>Difficulty</span><span className={L.sub}>Locked at launch. {QUICK_LAUNCH_MODE_CARD.footer}</span></div>
+            <div className={L.sh}><span className={L.num}>3</span><span className={L.st}>Difficulty</span><span className={L.sub} title={QUICK_LAUNCH_MODE_CARD.footer}><Icon name="lock" size={12} /> Locked at launch</span></div>
             <div className={L.diffs} role="radiogroup" aria-label="Difficulty">
               {MODE_ORDER.map((id) => {
                 const label = MODE_LABEL[id];
@@ -620,7 +620,7 @@ export default function LaunchRocketPage() {
           </div>
 
           <div className={`${L.sec} ${L.aSeat}`}>
-            <div className={L.sh}><span className={L.num}>4</span><span className={L.st}>Your seat</span><span className={L.sub}>First boost, at launch</span></div>
+            <div className={L.sh}><span className={L.num}>4</span><span className={L.st}>Your seat</span></div>
             <FirstBoostField
               variant="seat"
               pair={quote.address} pairLabel={quote.label} creatorTaxBps={Math.round(tax * 100)}
@@ -630,15 +630,15 @@ export default function LaunchRocketPage() {
           </div>
 
           <div className={`${L.sec} ${L.aMore}`}>
-            <div className={L.sh}><span className={L.st}>Extras</span><span className={L.sub}>Optional</span></div>
+            <div className={L.sh}><span className={L.st}>Extras</span></div>
             <button type="button" className={L.hide} role="switch" aria-checked={privateLaunch} data-testid="private-launch" onClick={() => setPrivateLaunch((v) => !v)}>
               <span className={L.tog} aria-hidden />
               <span className={L.hideTx}>
                 <b>Hide my name</b>
-                <span>{privateLaunch ? privateLaunchHelp(boost, gameMode) : "You won't show as the host."}</span>
+                {privateLaunch && <span>{privateLaunchHelp(boost, gameMode)}</span>}
               </span>
             </button>
-            {hiddenExpertOnly && <span className={L.note} data-testid="private-launch-help">Hidden launches fly on Expert.</span>}
+            {hiddenExpertOnly && <span className={L.note} data-testid="private-launch-help">Hidden launches fly on Expert for now.</span>}
             <button type="button" className={L.adv} data-testid="advanced-open" onClick={() => setAdvanced(true)}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M4 6h16M4 12h10M4 18h6" /></svg>
             <b>{C.advanced}</b>

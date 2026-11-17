@@ -182,11 +182,8 @@ function HowItPlays() {
         </div>
       </div>
       <div className={s.howCopy}>
-        <span className={s.eb}>How it plays</span>
         <h2 id="so-how-title" className={s.howTitle}>Boost it up.<br />Cash out higher.</h2>
-        <p className={s.step}><span className={s.coin}>1</span><span><b>Boost</b> buys a seat and lifts the rocket for everyone.</span></p>
-        <p className={s.step}><span className={s.coin}>2</span><span><b>Dump</b> cashes you out and drops a bomb on the way.</span></p>
-        <p className={s.step}><span className={s.coin}>3</span><span><b>Win</b> by cashing out for more than you put in. Seats cost real cash.</span></p>
+        <p className={s.step}><span className={s.coin} aria-hidden>$</span><span>Seats cost real cash.</span></p>
         <Link href="/how-it-works" className={s.link}>Full tutorial in How to play</Link>
       </div>
     </section>
@@ -204,7 +201,7 @@ function TopPilotsBoard({ data }: { data: HomeData }) {
   return (
     <section className={s.pilots} aria-labelledby="so-pilots-title" data-testid="so-pilots">
       <header className={s.pilotsHd}>
-        <div><h2 id="so-pilots-title" className={s.h2}>Top pilots</h2><span className={s.sub}>Biggest cash-outs, in real money</span></div>
+        <div><h2 id="so-pilots-title" className={s.h2}>Top pilots</h2></div>
         <div className={s.tabs} role="tablist" aria-label="Time window">
           {PILOT_WINDOWS.map((w) => (
             <button key={w.k} type="button" role="tab" aria-selected={win === w.k} className={`${s.tab}${win === w.k ? " " + s.tabOn : ""}`} onClick={() => setWin(w.k)}>{w.label}</button>
@@ -230,7 +227,7 @@ function TopPilotsBoard({ data }: { data: HomeData }) {
           })}
         </ol>
       ) : (
-        <p className={s.empty}>No cash-outs {win === "day" ? "yet today" : `this ${label.toLowerCase()} yet`}. The first pilot to cash out higher takes the top spot.</p>
+        <p className={s.empty}>No cash-outs yet</p>
       )}
       {call && (
         <div className={s.call} data-testid="so-bestcall">
@@ -258,9 +255,7 @@ function LaunchYourOwn() {
       <div className={s.hostScrim} aria-hidden />
       <span className={`${s.bar} ${s.barTopH}`} aria-hidden />
       <div className={s.hostCopy}>
-        <span className={s.eb} style={{ color: "var(--dsc3-light-champagne)" }}>Host a match</span>
         <h2 id="so-host-title" className={s.hostTitle}>Launch<br />your own</h2>
-        <p>Pick the difficulty and light the engines. You earn a cut of every boost and dump.</p>
         <Link href="/create" className={`${s.btn} ${s.gold} ${s.btnMd}`}>Start a launch</Link>
       </div>
     </section>
@@ -286,7 +281,7 @@ export default function LobbySignedOut({ initial }: { initial: HomeData }) {
       {flying.length > 0 && (
         <section className={s.flying} aria-labelledby="so-flying-title">
           <header className={s.flyingHd}>
-            <div className={s.flyingT}><h2 id="so-flying-title" className={s.h2}>Flying now</h2><span className={s.sub}>Pick one and jump in</span></div>
+            <div className={s.flyingT}><h2 id="so-flying-title" className={s.h2}>Flying now</h2></div>
             <a href="#all-rockets" className={s.link}>See all flights</a>
           </header>
           <div className={s.cards}>

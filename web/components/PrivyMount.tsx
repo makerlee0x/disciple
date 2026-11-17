@@ -199,7 +199,7 @@ export default function PrivyMount() {
         appearance: {
           theme: "#14151B", accentColor: "#F2C14E", showWalletLoginFirst: false,
           logo: withBase("/brand/disciple-mark-light.svg"),
-          landingHeader: SIGN_IN_COPY.header, loginMessage: SIGN_IN_COPY.line,
+          landingHeader: SIGN_IN_COPY.header,
         },
         embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" }, showWalletUIs: false },
         defaultChain: ACTIVE_CHAIN,

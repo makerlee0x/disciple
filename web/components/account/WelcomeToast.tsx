@@ -45,7 +45,6 @@ export default function WelcomeToast({ wallet }: { wallet: string | null }) {
       <span className="am-tring" aria-hidden>{L.level}</span>
       <div className="am-tbody">
         <b>{SIGN_IN_COPY.welcomeTitle}</b>
-        <span>{SIGN_IN_COPY.welcomeBody}</span>
         <div className="am-tacts">
           <button type="button" className="r2-gold" onClick={() => { setShow(false); openCash("add"); }}>{SIGN_IN_COPY.addCash}</button>
           <button type="button" className="r2-btn" onClick={() => setShow(false)}>{SIGN_IN_COPY.later}</button>

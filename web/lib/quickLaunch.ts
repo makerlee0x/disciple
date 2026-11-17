@@ -16,9 +16,9 @@ export const QUICK_LAUNCH_MODE_COPY = {
 
 /** The launch builder's difficulty cards (canvas board "Launch: build your rocket"). Same caps as above, in game words. */
 export const QUICK_LAUNCH_MODE_CARD = {
-  Easy: { label: "Easy", nick: "", blurb: "Small bags only. No one can hold more than 1% at first, so the whole crew climbs together.", color: "#5FF0A0", meter: 1 },
-  Hard: { label: "Hard", nick: "", blurb: "Bigger bags, up to 3.33% each at first. More room for whales, bigger bombs.", color: "#FF7A3D", meter: 2 },
-  Trench: { label: "Expert", nick: "aka the Trench", blurb: "No caps at all. Anyone can grab as much as they want. Wild climbs, wilder dumps.", color: "#F0307F", meter: 3 },
+  Easy: { label: "Easy", nick: "", blurb: "Max bag 1%, rises to 3.33%", color: "#5FF0A0", meter: 1 },
+  Hard: { label: "Hard", nick: "", blurb: "Max bag 3.33%, rises to 7.77%", color: "#FF7A3D", meter: 2 },
+  Trench: { label: "Expert", nick: "aka the Trench", blurb: "No bag cap", color: "#F0307F", meter: 3 },
   footer: "The caps switch off once the rocket reaches orbit.",
 } as const;
 
@@ -41,7 +41,6 @@ export const QUICK_LAUNCH_COPY = {
   useGenerated: "Use the badge we made",
   firstBoost: "First BOOST",
   firstBoostTip: "This is your first buy, at launch. You get first dibs on your own rocket.",
-  seatHelp: "You get first dibs on your own rocket. Skip it with $0.",
   custom: "Custom",
   chip0: "$0",
   chip5: "$5",
@@ -51,7 +50,6 @@ export const QUICK_LAUNCH_COPY = {
   modeLabel: (label: string) => `Mode: ${label}`,
   advanced: "More options",
   pairCoin: "Pair coin",
-  pairHelp: "Your rocket is bought and sold in this coin.",
   links: "Links",
   linkX: "X / social",
   linkXShort: "X",
@@ -71,7 +69,7 @@ export const QUICK_LAUNCH_COPY = {
   ],
   ready: (name: string) => `${name || "Your rocket"} · READY FOR LAUNCH`,
   liftoff: "3 · 2 · 1 · LIFTOFF",
-  signInLine: "Sign in with email, Google, X or wallet",
+  signInLine: "Sign in with email, Google or X",
   anon: "Anon",
   pseudo: "Pseudo",
   beta: "beta",
@@ -174,9 +172,9 @@ export const CREATOR_FEE_COPY: Record<CreatorFeeDestination, { sentence: string;
 
 /** Creator tax helper, verbatim from the r7 boards. Changes with the selected fee card. */
 export const CREATOR_TAX_HELP: Record<CreatorFeeDestination, string> = {
-  0: "You already get 33% of every trading fee. Creator tax is an extra cut on top of that. Higher tax can scare off players.",
-  1: "The 33% of every trading fee goes into the locked pool. Creator tax is an extra cut on top of that, and it goes there too. Higher tax can scare off players.",
-  2: "The 33% of every trading fee is used to buy and burn the pair coin. Creator tax is an extra cut on top of that, and it is used the same way. Higher tax can scare off players.",
+  0: "Added on every trade, and you can't change it later.",
+  1: "Added on every trade and goes into the locked pool. You can't change it later.",
+  2: "Added on every trade and buys and burns the pair coin. You can't change it later.",
 };
 
 /** Public launches can send 1 and 2 (through CreatorFeeHarvest) on any chain whose deployment has a harvest address. */

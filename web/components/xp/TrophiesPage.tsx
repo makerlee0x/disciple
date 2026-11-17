@@ -124,7 +124,6 @@ export default function TrophiesPage() {
       <div className={s.head}>
         <div>
           <h1 className={s.h1}>Trophies</h1>
-          <p className={s.lede}>Missions pay XP. Level up to unlock new paint for your rocket.</p>
         </div>
         {xp && <div className={s.total}>Total XP <b>{fmt(xp.totalXp)}</b></div>}
       </div>
@@ -178,7 +177,6 @@ export default function TrophiesPage() {
               <Ring level={1} progress={0} />
               <div className={s.pilotTx}>
                 <div className={s.pilotName}>Start at level 1</div>
-                <div className={s.meta}>Sign in and boost a rocket. Your XP and level show up here.</div>
                 <Link href="/play" prefetch={false} className={s.prestige}>Play now</Link>
               </div>
             </div>

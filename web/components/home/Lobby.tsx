@@ -53,12 +53,12 @@ function Rocket({ c, className }: { c: HomeCoin; className?: string }) {
   );
 }
 
-function ShelfHead({ id, title, sub, children }: { id: string; title: string; sub: string; children?: ReactNode }) {
+function ShelfHead({ id, title, sub, children }: { id: string; title: string; sub?: string; children?: ReactNode }) {
   return (
     <header className={s.shelfHd}>
       <div className={s.shelfT}>
         <h2 id={id} className="dsc3-h2">{title}</h2>
-        <p>{sub}</p>
+        {sub && <p>{sub}</p>}
       </div>
       {children}
     </header>
@@ -102,7 +102,7 @@ export default function Lobby({ initial: init, hero }: { initial: HomeData; hero
 
       {climbing.length > 0 && (
         <section className={s.shelf} aria-labelledby="shelf-climbing">
-          <ShelfHead id="shelf-climbing" title="Climbing now" sub="Biggest climbs today">
+          <ShelfHead id="shelf-climbing" title="Climbing now">
             <a href="#all-rockets" className={s.seeAll}>See all</a>
           </ShelfHead>
           <div className={s.tiles}>
@@ -113,7 +113,7 @@ export default function Lobby({ initial: init, hero }: { initial: HomeData; hero
 
       {orbit.length > 0 && (
         <section className={s.shelf} aria-labelledby="shelf-orbit">
-          <ShelfHead id="shelf-orbit" title="About to reach orbit" sub="Boost now and you're aboard when it graduates" />
+          <ShelfHead id="shelf-orbit" title="About to reach orbit" />
           <div className={s.orbitGrid}>
             {orbit.map((c) => {
               const p = orbitPct(c);
@@ -134,7 +134,7 @@ export default function Lobby({ initial: init, hero }: { initial: HomeData; hero
 
       {fresh.length > 0 && (
         <section className={s.shelf} aria-labelledby="shelf-fresh">
-          <ShelfHead id="shelf-fresh" title="Fresh off the pad" sub="The newest launches" />
+          <ShelfHead id="shelf-fresh" title="Fresh off the pad" />
           <div className={s.freshRow}>
             {fresh.map((c) => (
               <Link key={c.token} href={flightHref(c)} prefetch={false} className={s.fresh} style={lit(c)} data-testid="shelf-fresh-row">
@@ -162,27 +162,11 @@ export default function Lobby({ initial: init, hero }: { initial: HomeData; hero
   );
 }
 
-const STEPS = [
-  { n: "01", t: "Launch", d: "Build a rocket and open the hatch." },
-  { n: "02", t: "Join", d: "Drop into any live flight." },
-  { n: "03", t: "Climb", d: "Boost lifts the whole crew. Dump drops a bomb." },
-  { n: "04", t: "Reach orbit", d: "Climb past the Kármán Line and the rocket graduates." },
-];
-
-/** The four beats of a match, at the foot of the lobby. Plain text (maker 2026-11-15: four cells that all opened the same page
- * read as four different buttons); one link to the full guide on How to play. */
+/** Foot of the lobby: one link to How to play. The four step cells (Launch / Join / Climb / Reach orbit) were cut in the
+ * subcopy pass (maker 2026-11-17); see docs/copy/subcopy-removed-2026-11-17.md to restore them. */
 export function LobbySteps() {
   return (
     <section className={s.stepsWrap} aria-label="How to play">
-      <ol className={s.steps}>
-        {STEPS.map((x) => (
-          <li key={x.n} className={s.stepCell}>
-            <span className={s.stepN}>{x.n}</span>
-            <b>{x.t}</b>
-            <span>{x.d}</span>
-          </li>
-        ))}
-      </ol>
       <Link href="/how-it-works" className={s.stepsMore} data-testid="lobby-steps-how">How to play <Icon name="chevron-right" size={14} /></Link>
     </section>
   );

@@ -20,12 +20,11 @@ export default async function FlightsPage() {
     <div className={s.page}>
       <header className={st.hd}>
         <h1 className={st.h1}>Live flights</h1>
-        <p className={st.sub}>{live > 0 ? `${live} ${live === 1 ? "rocket" : "rockets"} flying now. Pick one and climb aboard.` : "Nothing flying right now. Host a launch and be the first."}</p>
+        <p className={st.sub}>{live > 0 ? <><span className={st.dot} aria-hidden />{live} flying</> : "Nothing flying"}</p>
       </header>
       <main className={f.feed} aria-label="Rockets">
         {data.coins.length > 0 ? <RocketGrid initial={data.coins} /> : (
           <div className={st.empty}>
-            <p>No rockets on the pad yet.</p>
             <Link href="/create" className="dsc3-btn dsc3-btn-primary">Host a launch</Link>
           </div>
         )}
