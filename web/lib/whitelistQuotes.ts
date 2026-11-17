@@ -4,6 +4,7 @@
  * (see contracts/script/whitelist/README.md) and is never sent from the web app.
  *
  * Nov 16, 2026 (maker): SPACEHOOD removed and PENGU added. HMM was added, then swapped back out for MOO.
+ * Nov 17, 2026: the testnet pair list also offers a DELTA stand-in (main replaced HMM with DELTA). MOO stays on this list.
  * Images live at /whitelist/<SYMBOL>.png (256×256 PNGs).
  * Testnet uses stand-ins for these coins (TESTNET_PAIR_QUOTES below).
  *
@@ -145,15 +146,23 @@ export const TESTNET_STAND_INS: Readonly<Record<string, `0x${string}`>> = {
   CASHCAT: "0x965d5141e1a07dD219450b311728a51822dCFce1",
   PRIORS: "0x7097BcbeD36d4De0F72e3BD93D943e2EbD4914f1",
   PENGU: "0x5E73fE55007db8223Ab5954b41899a013B94B73D",
+  DELTA: "0x4853E82e0606D91C7915889C0eCB7C3DB733592b",
 };
 
-/** Testnet pair coins after STRATEGY: the mainnet list in the same order, with testnet addresses. */
+/** Testnet pair coins after STRATEGY: the mainnet list in the same order, with testnet addresses, plus DELTA (test). */
 export const TESTNET_PAIR_QUOTES: readonly WhitelistQuote[] = [
   ...WHITELIST_QUOTES.filter((q) => q.symbol !== "STRATEGY").map((q) => ({
     ...q,
     name: `${q.name} (test)`,
     address: TESTNET_STAND_INS[q.symbol],
   })),
+  {
+    symbol: "DELTA",
+    name: "Delta (test)",
+    address: TESTNET_STAND_INS.DELTA,
+    decimals: 18,
+    imagePath: "/whitelist/DELTA.png",
+  },
 ];
 
 export const whitelistQuoteByAddress = (address: string): WhitelistQuote | undefined => {

@@ -10,8 +10,9 @@
  * the list only when NEXT_PUBLIC_PAIR_USDG=1 / NEXT_PUBLIC_PAIR_ETH=1 is set at
  * build time (and their routes are wired).
  * On testnet (46630), `launchPairsForChain()` offers STRATEGY plus the testnet
- * stand-ins for the other 11 coins (TESTNET_PAIR_QUOTES). STRATEGY uses the
- * chain's defaultQuote through `addressOn()`. Other test chains offer STRATEGY only.
+ * stand-ins (TESTNET_PAIR_QUOTES), including DELTA (test) added Nov 17 2026.
+ * MOO stays on this testnet list. STRATEGY uses the chain's defaultQuote through
+ * `addressOn()`. Other test chains offer STRATEGY only.
  * The mainnet list is unchanged.
  */
 import type { Address } from "./protocol";
@@ -59,7 +60,7 @@ export const defaultLaunchPair = (): LaunchWhitelistCoin => {
   return found;
 };
 
-/** Testnet pair list: STRATEGY (sent as the deployment's defaultQuote), then the 11 testnet stand-ins. */
+/** Testnet pair list: STRATEGY (sent as the deployment's defaultQuote), then the testnet stand-ins. */
 export const TESTNET_LAUNCH_WHITELIST: readonly LaunchWhitelistCoin[] = [
   defaultLaunchPair(),
   ...TESTNET_PAIR_QUOTES.map(toCoin),
