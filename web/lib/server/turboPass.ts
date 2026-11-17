@@ -39,7 +39,11 @@ export const hasTurboInvite = (cookie: string | undefined, now = Date.now()) => 
 };
 
 /** One check for pages and APIs: the password cookie, the app, or a live invite. */
+/** The password is off by default since launch prep (maker, 2026-11-16: "lets remove the password"). Set TURBO_GATE=1 in the
+ *  environment to put it back for a private preview; everything below still works the same when it's on. */
+export const turboGateOn = () => process.env.TURBO_GATE === "1";
 export function turboOpen(o: { ua?: string | null; pass?: string; invite?: string }): boolean {
+  if (!turboGateOn()) return true;
   return isAppUa(o.ua) || hasTurboPass(o.pass) || hasTurboInvite(o.invite);
 }
 /** turboOpen from a raw Request (API routes). */

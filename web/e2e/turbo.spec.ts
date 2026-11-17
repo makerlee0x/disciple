@@ -1,5 +1,5 @@
 /**
- * Turbo (on for everyone since 2026-11-16, still behind the early-access password): the gate, the archived solo /turbo link landing on
+ * Turbo (on for everyone since 2026-11-16, no password since launch prep; TURBO_GATE=1 brings it back): the open door, the archived solo /turbo link landing on
  * Trading Duel, and the duel lobby. The solo run was archived 2026-11-16 (only Duels and Royale remain).
  */
 import { test, expect } from "./support/fixtures";
@@ -18,17 +18,10 @@ async function pass(page: Page, path = "/turbo/duel?turbo=1") {
   }
 }
 
-test("the early-access gate turns away a wrong password and lets the right one in", async ({ page }) => {
+test("Turbo opens with no password (the early-access gate is off unless TURBO_GATE=1)", async ({ page }) => {
   await fakeVenue(page);
   await page.goto("/turbo/duel?turbo=1");
-  await expect(page.getByTestId("turbo-gate")).toBeVisible();
-  await page.getByTestId("turbo-gate-input").fill("not-it");
-  await page.getByTestId("turbo-gate-go").click();
-  await expect(page.getByTestId("turbo-gate")).toBeVisible();
-  await expect(page.getByTestId("turbo-gate").getByRole("alert").or(page.getByTestId("turbo-gate").locator("[class*=err]"))).toBeVisible();
-  await page.getByTestId("turbo-gate-input").fill(PASSWORD);
-  await page.getByTestId("turbo-gate-go").click();
-  await expect(page.getByTestId("turbo-gate")).toBeHidden();
+  await expect(page.getByTestId("turbo-gate")).toHaveCount(0);
 });
 
 test("the old solo /turbo link lands on Trading Duel", async ({ page, pilot }) => {
