@@ -22,13 +22,13 @@ test("a new pilot's Rewards: nothing ready, Claim off, all three tabs open", asy
   await expect(pop.getByTestId("claim-all-rewards")).toBeDisabled();
   const tabs = pop.getByRole("tab");
   const n = await tabs.count();
-  expect(n).toBe(3);
+  expect(n).toBe(2); // Rockets + History; the Friends tab is hidden (maker 2026-11-16)
   for (let i = 0; i < n; i++) {
     await tabs.nth(i).click();
     await expect(tabs.nth(i)).toHaveAttribute("aria-selected", "true");
   }
-  await pop.getByTestId("rewards-tab-referral").click();
-  await expect(pop.getByTestId("rewards-empty")).toBeVisible();
+  await expect(pop.getByTestId("rewards-tab-referral")).toHaveCount(0);
+  await expect(pop.getByTestId("rewards-tile-referral")).toHaveCount(0);
 });
 
 test("the referral link is yours and Copy copies it", async ({ page, pilot, context }) => {
@@ -36,7 +36,6 @@ test("the referral link is yours and Copy copies it", async ({ page, pilot, cont
   await pilot.signIn();
   await page.goto("/");
   const pop = await openRewards(page);
-  await pop.getByTestId("rewards-tab-referral").click();
   const ref = pop.getByTestId("referral-link");
   await expect(ref).toBeVisible();
   const copy = ref.getByTestId("copy-ref");

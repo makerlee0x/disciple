@@ -3,7 +3,7 @@
  * Rewards popup (profile r3, lee's list): opened by the chest or "Claim now" on your own profile. Rewards take no space
  * on the page itself.
  *  - top: Rewards · Share · close, Total earned, "+$x this week", gold Claim $x (only when something is ready), invite link + Copy
- *  - tabs: Referral rewards (Earned from friends · Friends invited) · Rocket rewards (Creator / Crew, then each rocket) · History
+ *  - tabs: Rocket rewards (Creator / Crew, then each rocket) · History (the Friends tab is hidden: FRIENDS_EARNINGS_SHOWN)
  * Claim logic, the confirm sheet and the referral deposit card are the old on-page Rewards section's, unchanged
  * (lib/claims/rewardsData.claimEverything, lib/claims/referralGate). Share lives only here.
  * Referral tab shows totals only: fee events (FeeRouter.TradeFeeRouted) do not name the trading friend, so earnings
@@ -33,6 +33,9 @@ import { CLAIM_COPY, ClaimBody, type ClaimRow } from "./ClaimSheet";
 const ZERO_TX = `0x${"0".repeat(64)}` as Hex;
 import type { Rewards } from "./useRewards";
 
+/** Friends (referral) earnings tab + tile: hidden for launch (maker 2026-11-16, no rewards for invites). */
+const FRIENDS_EARNINGS_SHOWN = false;
+
 const T = {
   title: "Rewards",
   share: "Share",
@@ -48,7 +51,7 @@ const T = {
   invitedN: (n: number) => `${n} invited`,
   rocketsN: (n: number) => `${n} ${n === 1 ? "rocket" : "rockets"}`,
   inviteLink: "Your invite link",
-  inviteHint: "You earn a cut of every trade your friends make",
+  inviteHint: "Bring your crew",
   fromFriends: "Earned from friends",
   invited: "Friends invited",
   creator: "Host", creatorSub: "rockets you launched",
@@ -133,6 +136,10 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
 
   const s = data?.summary;
   const kinds = REWARD_KINDS.filter((k) => (k === "referral" ? caps.referrerFees : k === "crew" ? caps.crew : caps.creatorFees || caps.creatorTokenFees || caps.anonClaims));
+  // Friends earnings hidden (maker 2026-11-16): no rewards for invites. The referral share goes to the treasury
+  // (FeeRouter.setReferralSink) and the team pays referrers by hand. Anything already accrued still shows in the claim.
+  const shownKinds = FRIENDS_EARNINGS_SHOWN ? kinds : kinds.filter((k) => k !== "referral");
+  const tabKeys = (Object.keys(T.tabs) as Tab[]).filter((k) => FRIENDS_EARNINGS_SHOWN || k !== "referral");
   const claimUsd = s?.claimableUsd ?? 0;
   const link = me ? referralUrl(username || null, me) : null;
   const flash = (k: string) => { setCopied(k); window.setTimeout(() => setCopied(""), 1500); };
@@ -180,7 +187,7 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
   const claimAllCash = !!data && data.claim.crew.length === 0 && data.claim.creator.every((x) => isCashAsset(x.quote) && !(x.tokenSide && x.tokenSide.claimable > BigInt(0)));
   const creatorUsd = s?.byKind.creator.earnedUsd ?? 0, crewUsd = s?.byKind.crew.earnedUsd ?? 0, refUsd = s?.byKind.referral.earnedUsd ?? 0;
   const nRockets = (k: "creator" | "crew") => (data?.rockets ?? []).filter((x) => x.kind === k).length;
-  const tiles = kinds.map((k) => k === "referral" ? { k, label: T.friends, usd: refUsd, sub: T.invitedN(data?.friendsInvited ?? 0) }
+  const tiles = shownKinds.map((k) => k === "referral" ? { k, label: T.friends, usd: refUsd, sub: T.invitedN(data?.friendsInvited ?? 0) }
     : k === "creator" ? { k, label: T.hosting, usd: creatorUsd, sub: T.rocketsN(nRockets("creator")) }
     : { k, label: T.crew, usd: crewUsd, sub: T.rocketsN(nRockets("crew")) });
 
@@ -205,7 +212,7 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
         <button type="button" className="p5-rw-go" disabled={!canClaim} data-testid="claim-all-rewards"
           onClick={() => { setErr(null); setDone(null); setFeeNote(null); setClaimOpen(true); }}>{T.claim}</button>
       </div>
-      {data?.referralPaused && <p className="p5-fine" data-testid="referral-sink-note">{T.paused}</p>}
+      {FRIENDS_EARNINGS_SHOWN && data?.referralPaused && <p className="p5-fine" data-testid="referral-sink-note">{T.paused}</p>}
 
       {tiles.length > 0 && <div className="p5-rw-tiles" style={{ gridTemplateColumns: `repeat(${Math.max(1, tiles.length)}, minmax(0, 1fr))` }}>
         {tiles.map((x) => (
@@ -214,14 +221,14 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
       </div>}
 
       <div className="p5-tabs3" role="tablist" aria-label="Rewards">
-        {(Object.keys(T.tabs) as Tab[]).map((k) => (
+        {tabKeys.map((k) => (
           <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)} data-testid={`rewards-tab-${k}`}>
             <span className="p5-desk">{T.tabs[k][0]}</span><span className="p5-phone">{T.tabs[k][1]}</span>
           </button>
         ))}
       </div>
 
-      {tab === "referral" && (
+      {FRIENDS_EARNINGS_SHOWN && tab === "referral" && (
         <div className="p5-tabbody" data-testid="rewards-referral">
           <div className="p5-mini">
             <div><span className="p5-l">{T.fromFriends}</span><span className="p5-v" data-testid="referral-earned">{s ? usd2(refUsd) : "—"}</span></div>
