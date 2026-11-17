@@ -17,6 +17,7 @@ import { EMPTY_PILOTS, PILOT_WINDOWS, type PilotWindow, type TickerItem } from "
 import { tierAt } from "@/lib/flight/tiers";
 import { afterPaint } from "./idle";
 import LiveCard from "./LiveCard";
+import AnimClip from "@/components/ui/AnimClip";
 import { altShort, flightHref, lightOf, orbitPct, pct } from "./rocketBits";
 import s from "./lobbySignedOut.module.css";
 
@@ -259,6 +260,8 @@ function LaunchYourOwn() {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img className={s.hostArt} src={withBase(HOST_PLATE)} alt="" loading="lazy" decoding="async" />
       </picture>
+      {/* the same plate, alive (Grok clip A2): plays only while the section is on screen */}
+      <AnimClip id="A2-lobby" loop whenVisible className={s.hostArt} />
       <div className={s.hostVignette} aria-hidden />
       <div className={s.hostScrim} aria-hidden />
       <span className={`${s.bar} ${s.barTopH}`} aria-hidden />

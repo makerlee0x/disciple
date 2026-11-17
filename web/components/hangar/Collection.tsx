@@ -5,6 +5,7 @@
  * odds shown). Rules in lib/collection.ts, server in lib/server/collection.ts.
  */
 import Link from "next/link";
+import AnimClip, { reducedMotion } from "@/components/ui/AnimClip";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Icon from "@/components/icons/Icon";
 import { MILESTONE_COPY } from "@/lib/xp";
@@ -287,6 +288,8 @@ export function Crates({ col, wallet }: { col: Col | null; wallet: string | null
   const [burst, setBurst] = useState(0);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [cine, setCine] = useState<Opened | null>(null);
+  const reveal = () => { if (!cine) return; setOpened(cine); setCine(null); };
   useEffect(() => { if (!sel || !crates.some((c) => c.id === sel)) setSel(crates[0]?.id ?? null); }, [crates, sel]);
   useEffect(() => { if (!opened && col?.recent?.[0]) setOpened(col.recent[0]); }, [col, opened]);
   const cur: Crate | undefined = crates.find((c) => c.id === sel);
@@ -299,7 +302,13 @@ export function Crates({ col, wallet }: { col: Col | null; wallet: string | null
     setBusy(true); setNote(""); playSfx("crate_shake", { gapMs: 200 });
     const r = await collectionAction(wallet, { op: "open", crate: cur.id });
     setBusy(false);
-    if (r.ok && r.opened) { setOpened(r.opened); setBurst((n) => n + 1); playSfx("crate_open", { gapMs: 200 }); }
+    if (r.ok && r.opened) {
+      const got = r.opened;
+      if (CRATE_CLIP.has(got.crate.tier) && !reducedMotion()) {   // the Grok clip plays first (lid blows at ~1.5 s), then the reveal
+        setCine(got); setTimeout(() => playSfx("crate_open", { gapMs: 200 }), 1450); return;
+      }
+      setOpened(got); setBurst((n) => n + 1); playSfx("crate_open", { gapMs: 200 });
+    }
     else setNote(r.reason || "Couldn't open it. Try again.");
   };
 
@@ -348,6 +357,12 @@ export function Crates({ col, wallet }: { col: Col | null; wallet: string | null
           </div>
         </div>
       )}
+      {cine && (
+        // crate opening (Grok clip D1): shake, lid off, the rarity's light. Tap to skip.
+        <div className="hgu-cine" role="presentation" onClick={reveal} data-testid="crate-cine">
+          <AnimClip id={`D1-crate-${cine.crate.tier}`} ratio="none" overlay onEnd={reveal} className="hgu-cine-clip" maxMs={5000} />
+        </div>
+      )}
       {opened && (
         <div className="hgu-reveal" style={{ ["--sw" as string]: SW[opened.item?.rar ?? opened.crate.tier] }} data-testid="crate-reveal">
           <span className="hgu-reveal-crate">
@@ -373,6 +388,8 @@ function untilDays(ms: number) {
   const m = Math.max(1, Math.round(ms / 60_000)), d = Math.round(m / 1440), h = Math.round(m / 60);
   return m >= 1440 * 1.5 ? `${d} days` : m >= 1440 ? "1 day" : h >= 2 ? `${h} hours` : `${m} minutes`;
 }
+/** crate tiers with a Grok opening clip in public/anim (all six; a new tier without one keeps the burst sheet) */
+const CRATE_CLIP = new Set<Rarity>(["common", "uncommon", "rare", "epic", "legendary", "mythic"]);
 const RARITY_RANK = (r: Rarity) => ["common", "uncommon", "rare", "epic", "legendary", "mythic"].indexOf(r);
 
 

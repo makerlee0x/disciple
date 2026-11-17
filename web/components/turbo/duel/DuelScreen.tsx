@@ -51,7 +51,7 @@ const KIND: Record<string, string> = { skin: "Skin", trail: "Trail", tag: "Name 
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
 /** extra plates for the random sky each duel (engine SKY_THEMES) */
 const EXTRA_SKIES = { skyEth: "/turbo/sky-eth.webp", skyBtc: "/turbo/sky-btc.webp", skyPad: "/home/pad/sky-1280.webp" };
-const ENGINE_SRC = "/turbo/duel/engine.js?v=41";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=42";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
