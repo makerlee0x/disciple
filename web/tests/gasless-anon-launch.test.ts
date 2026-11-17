@@ -78,6 +78,22 @@ describe("anon launch witness and rules", () => {
     expect(() => checkGaslessAnonLaunchRequest(q, { ...base, nowSec: NOW + 300 })).toThrow(/deadline out of range/);
     expect(() => checkGaslessAnonLaunchRequest({ ...q, launch: { ...q.launch, refundTo: launcher } }, { ...base, launcher })).toThrow();
   });
+
+  it("difficulty: Expert only until the modes contracts are live; the modes witness binds the mode", async () => {
+    const base = { usdg, launcher, nowSec: NOW, launchFee: 500_000n };
+    const q = await signed();
+    expect(() => checkGaslessAnonLaunchRequest({ ...q, launch: { ...q.launch, mode: 1 } }, base)).toThrow(/Expert only/);
+    expect(() => parseGaslessAnonLaunchRequest({ ...JSON.parse(JSON.stringify(q, (_k, v) => typeof v === "bigint" ? v.toString() : v)), launch: { ...q.launch, mode: 3, usdgIn: "1", maxFee: "1", creatorTaxBps: "0", creatorBuyMinTokensOut: "1", deadline: "1", minQuoteIn: "1" } })).toThrow(/bad mode/);
+    // modes struct: a relayer changing Easy to Hard recovers a different signer
+    const l = launch({ mode: 1 });
+    const permit = { permitted: { token: usdg, amount: permitAmount(l) }, nonce: 1n, deadline: BigInt(NOW + 240) };
+    const sig = await user.signTypedData(jsonSafe(anonLaunchTypedData(46630, permit, l, MULTICALL3, true)));
+    const ok = await recoverTypedDataAddress({ ...anonLaunchTypedData(46630, permit, l, MULTICALL3, true), signature: sig });
+    const bad = await recoverTypedDataAddress({ ...anonLaunchTypedData(46630, permit, { ...l, mode: 2 }, MULTICALL3, true), signature: sig });
+    expect(ok).toBe(user.address);
+    expect(bad).not.toBe(user.address);
+    expect(anonLaunchWitnessHash(l, true)).not.toBe(anonLaunchWitnessHash({ ...l, mode: 2 }, true));
+  });
 });
 
 describe("anon launch Multicall3 batch", () => {

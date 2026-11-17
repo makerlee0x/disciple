@@ -3,7 +3,7 @@
  * Gasless trades: the owner signs a Permit2 witness; the relayer pays ETH (lib/wallet.execGasless).
  * The 4337 smart-account / paymaster / one-tap session-key trade path has been removed.
  */
-import { createWalletClient, custom, keccak256, type Address, type Hex, type LocalAccount } from "viem";
+import { type Address, type Hex, type LocalAccount } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN } from "../chains";
 import { AAError, type GasMode } from "./core";
@@ -67,7 +67,6 @@ export function onGasMode(f: (m: GasMode, r?: string) => void) { gasListeners.ad
 const changed = () => { _publishSession(state && ownerAcct ? { kind: state.kind, owner: state.owner, expiresAt: state.expiresAt } : null); };
 
 function save() { try { if (state) localStorage.setItem(LS, JSON.stringify(state)); else localStorage.removeItem(LS); } catch {} }
-function load(): Stored | null { try { const s = JSON.parse(localStorage.getItem(LS) || "null"); return s && s.expiresAt > Date.now() ? s : null; } catch { return null; } }
 
 /** Privy / EOA / local owner login. Returns the owner address (the account that holds funds). */
 async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
@@ -106,16 +105,8 @@ export async function setPrivyOwner(owner: LocalAccount): Promise<Address> {
 }
 
 
-export const SESSION_MESSAGE = (owner: Address) =>
-  `DISCIPLE sign-in\n\nSign once to unlock your DISCIPLE wallet on ${ACTIVE_CHAIN.name}.\n\nOwner: ${owner}\nVersion: 2`;
-
-export async function eoaLogin(eth: Parameters<typeof custom>[0]): Promise<Address> {
-  const w = createWalletClient({ chain: ACTIVE_CHAIN, transport: custom(eth) });
-  const [owner] = await w.requestAddresses();
-  const sig = await w.signMessage({ account: owner, message: SESSION_MESSAGE(owner) });
-  const key = keccak256(sig);
-  return startSession("eoa", privateKeyToAccount(key), key);
-}
+// The external-wallet sign-in (eoaLogin: a key derived from a signed fixed message) was removed before mainnet: Privy only
+// (maker 2026-11-16). A fixed message can be phished on any site, and whoever has that signature has the account.
 
 export function localKey(): Hex | null { try { const k = localStorage.getItem(LOCAL_KEY); return k && /^0x[0-9a-fA-F]{64}$/.test(k) ? (k as Hex) : null; } catch { return null; } }
 export async function localStart(): Promise<Address> {
@@ -134,8 +125,7 @@ export async function localReset() { try { localStorage.removeItem(LOCAL_KEY); }
 
 export async function restore(): Promise<Address | null> {
   if (SIGNER_MODE === "local") { const k = localKey(); if (!k) return null; return startSession("local", privateKeyToAccount(k)); }
-  const s = load();
-  if (s?.kind === "eoa" && s.key) { try { return await startSession("eoa", privateKeyToAccount(s.key), s.key); } catch { return null; } }
+  // Privy restores itself (PrivyProviders → setPrivyOwner); a stored external-wallet ("eoa") session is no longer resumed.
   return null;
 }
 

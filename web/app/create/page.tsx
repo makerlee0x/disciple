@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { newStealthOwner } from "@/lib/privateLaunch";
+import { ANON_ANY_MODE_LIVE } from "@/lib/anonModes";
 import { CURVE, MODERATION, type ModerationVerdict } from "@/lib/config";
 import { contrastWarning } from "@/lib/decal";
 import { houseBadgeDataUri } from "@/lib/decalDefault";
@@ -94,6 +95,8 @@ export default function LaunchRocketPage() {
   const [badgeThumbs, setBadgeThumbs] = useState<string[]>([]);
   const [tax, setTax] = useState(0);
   const [privateLaunch, setPrivateLaunch] = useState(false);
+  // Hidden launches fly on every difficulty once the modes contracts are live (lib/anonModes); until then Expert only.
+  const hiddenExpertOnly = privateLaunch && !ANON_ANY_MODE_LIVE;
   const [boost, setBoost] = useState("");
   const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), usdgIn: null, maxUsdg: null, maxQuoteIn: null, error: null, ready: true, overCap: false });
   const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
@@ -366,7 +369,7 @@ export default function LaunchRocketPage() {
     }
     if (boostState.error) { setMsg(boostState.error); return; }
     if (!boostState.ready) { setMsg("Still reading the First BOOST cap. Try again in a moment."); return; }
-    const launchMode = privateLaunch ? LaunchMode.TRENCH_WARFARE : gameMode;
+    const launchMode = hiddenExpertOnly ? LaunchMode.TRENCH_WARFARE : gameMode;
     try {
       setPhase("signing");
       const client = isDeployed() ? createViemProtocol() : protocolStub;
@@ -380,7 +383,7 @@ export default function LaunchRocketPage() {
         creatorBuyUsdgIn: boostState.usdgIn != null && boostState.usdgIn > BigInt(0) ? boostState.usdgIn : undefined,
         creatorBuyQuoteIn: boostState.usdgIn == null && boostState.raw > BigInt(0) ? boostState.raw : undefined,
         socials: buildLaunchSocials({ twitter, telegram, website: web }),
-        mode: priv ? LaunchMode.TRENCH_WARFARE : LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
+        mode: priv && !ANON_ANY_MODE_LIVE ? LaunchMode.TRENCH_WARFARE : LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
         private: priv,
         creatorFeeDestination: sendFeeDest,
       });
@@ -427,7 +430,7 @@ export default function LaunchRocketPage() {
   // hidden launches keep their pick but carry no serial (a serial would point straight at its host)
   const look: CoinLook = lookFromCopy(lookChoice.skin, lookChoice.trail, privateLaunch ? null : lookOpts.skins.find((o) => o.id === lookChoice.skin)?.copy);
 
-  const modeLabel = MODE_LABEL[privateLaunch ? LaunchMode.TRENCH_WARFARE : gameMode] ?? "Easy";
+  const modeLabel = MODE_LABEL[hiddenExpertOnly ? LaunchMode.TRENCH_WARFARE : gameMode] ?? "Easy";
   const card = modeCard(modeLabel);
   const pairSet = quote.label !== defaultPairLabel;
   const linksSet = !!(twitter.trim() || website.trim() || telegram.trim());
@@ -600,11 +603,11 @@ export default function LaunchRocketPage() {
               {MODE_ORDER.map((id) => {
                 const label = MODE_LABEL[id];
                 const c = modeCard(label);
-                const on = privateLaunch ? id === LaunchMode.TRENCH_WARFARE : gameMode === id;
+                const on = hiddenExpertOnly ? id === LaunchMode.TRENCH_WARFARE : gameMode === id;
                 return (
                   <button key={id} type="button" role="radio" aria-checked={on} aria-label={c.label} data-testid={`mode-card-${label.toLowerCase()}`}
                     className={`${L.diff}${on ? ` ${L.diffOn}` : ""}`} style={{ ["--mc" as string]: c.color }}
-                    onClick={() => { setGameMode(id); if (privateLaunch && id !== MODE_ORDER[MODE_ORDER.length - 1]) setPrivateLaunch(false); }}>
+                    onClick={() => { setGameMode(id); if (hiddenExpertOnly && id !== MODE_ORDER[MODE_ORDER.length - 1]) setPrivateLaunch(false); }}>
                     <span className={L.band} />
                     {on && <span className={L.tick}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#121327" strokeWidth="3.5" aria-hidden><path d="M5 12l5 5 9-10" /></svg></span>}
                     <span className={L.dHead}><span className={L.lbl}>{c.label}</span>{c.nick && <span className={L.nick}>{c.nick}</span>}</span>
@@ -622,7 +625,7 @@ export default function LaunchRocketPage() {
               variant="seat"
               pair={quote.address} pairLabel={quote.label} creatorTaxBps={Math.round(tax * 100)}
               ticker={callSign.trim().toUpperCase()} value={boost} onChange={setBoost} onState={setBoostState}
-              mode={LAUNCH_ABI_SHAPE === "modes" && !privateLaunch ? gameMode : LaunchMode.TRENCH_WARFARE} privateLaunch={privateLaunch}
+              mode={LAUNCH_ABI_SHAPE === "modes" && !hiddenExpertOnly ? gameMode : LaunchMode.TRENCH_WARFARE} privateLaunch={privateLaunch}
             />
           </div>
 
@@ -635,7 +638,7 @@ export default function LaunchRocketPage() {
                 <span>{privateLaunch ? privateLaunchHelp(boost, gameMode) : "You won't show as the host."}</span>
               </span>
             </button>
-            {privateLaunch && <span className={L.note} data-testid="private-launch-help">Hidden launches fly on Expert.</span>}
+            {hiddenExpertOnly && <span className={L.note} data-testid="private-launch-help">Hidden launches fly on Expert.</span>}
             <button type="button" className={L.adv} data-testid="advanced-open" onClick={() => setAdvanced(true)}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M4 6h16M4 12h10M4 18h6" /></svg>
             <b>{C.advanced}</b>

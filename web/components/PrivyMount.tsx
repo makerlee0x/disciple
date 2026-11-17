@@ -2,8 +2,8 @@
 /**
  * Privy = auth + embedded EOA custody only. The embedded Ethereum wallet becomes the OWNER of the user's Alchemy
  * Modular Account v2 (lib/aa/session.ts). No Privy smart wallets, no Privy gas sponsorship, no Solana.
- * Sign-in: email, Google, X/Twitter, or an external wallet (MetaMask, Coinbase, WalletConnect…). An external wallet
- * is only the login: every player still gets ONE embedded wallet, and that one owns the smart account, so one-tap
+ * Sign-in: email, Google, X/Twitter (Apple in the app). No external-wallet sign-in since 2026-11-16 (Privy only); older
+ * wallet-only logins still get one embedded wallet: every player has ONE embedded wallet, and that one owns the smart account, so one-tap
  * trading signs silently the same way for every login method. One wallet per user (lee, Oct 30): createOnLogin
  * "users-without-wallets" (was "all-users", #197) and the bridge creates an embedded wallet ONLY for a user who has none
  * (an external-wallet-only login); the owner is always the user's ORIGINAL embedded wallet (lib/privyOwner).
@@ -175,10 +175,12 @@ const NATIVE = isNativeApp();
 export const NATIVE_OAUTH_REDIRECT = "disciple://oauth";
 // tell the app's NativeAuthPlugin that sign-in comes back on its scheme, so it may take provider pages into the system sheet
 if (NATIVE) void (nativePlugin("NativeAuth") as { enable?: (o: { redirect: string }) => Promise<unknown> } | null)?.enable?.({ redirect: NATIVE_OAUTH_REDIRECT })?.catch?.(() => {});
-type LoginMethod = "email" | "google" | "twitter" | "wallet" | "apple";
+// Privy only, no external-wallet sign-in (maker 2026-11-16): every player signs in with email or a social login and gets
+// the embedded wallet. A wallet-only login was never login-verified for gasless sessions anyway (lib/server/gaslessSession).
+type LoginMethod = "email" | "google" | "twitter" | "apple";
 export function loginMethodsFor(o: { inApp: boolean; native: boolean }): LoginMethod[] {
-  if (o.native) return ["email", "google", "apple", "twitter", "wallet"];
-  return o.inApp ? ["email", "twitter", "wallet"] : ["email", "google", "twitter", "wallet"];
+  if (o.native) return ["email", "google", "apple", "twitter"];
+  return o.inApp ? ["email", "twitter"] : ["email", "google", "twitter"];
 }
 
 /** Loaded lazily by PrivyProviders (own chunk). Holds no app children: the app talks to Privy via lib/aa/session. */

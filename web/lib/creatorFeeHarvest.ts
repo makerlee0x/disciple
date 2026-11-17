@@ -37,6 +37,9 @@ export const creatorFeeHarvestAbi = parseAbi([
   "function launchWithUsdg((string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline) params, uint8 mode, uint256 usdgIn, uint256 minQuoteIn, uint8 creatorFeeDestination) returns ((address token,address curve,uint256 creatorTokensBought), uint256 usdgRefund)",
   "function launchAnon((string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline) params, address stealthOwner, address buyRecipient, bytes ephemeralPubKey, bytes1 viewTag, uint256 maxFee, uint8 creatorFeeDestination) returns ((address token,address curve,uint256 creatorTokensBought))",
   "function launchAnonWithUsdg((string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline) params, address stealthOwner, address buyRecipient, bytes ephemeralPubKey, bytes1 viewTag, uint256 maxFee, uint256 usdgIn, uint256 minQuoteIn, address refundTo, uint8 creatorFeeDestination) returns ((address token,address curve,uint256 creatorTokensBought), uint256 usdgRefund)",
+  // Any difficulty (lib/anonModes ANON_ANY_MODE_LIVE): same as the two above with `uint8 mode` after params.
+  "function launchAnonWithMode((string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline) params, uint8 mode, address stealthOwner, address buyRecipient, bytes ephemeralPubKey, bytes1 viewTag, uint256 maxFee, uint8 creatorFeeDestination) returns ((address token,address curve,uint256 creatorTokensBought))",
+  "function launchAnonWithUsdgMode((string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline) params, uint8 mode, address stealthOwner, address buyRecipient, bytes ephemeralPubKey, bytes1 viewTag, uint256 maxFee, uint256 usdgIn, uint256 minQuoteIn, address refundTo, uint8 creatorFeeDestination) returns ((address token,address curve,uint256 creatorTokensBought), uint256 usdgRefund)",
   "function route(address token) returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)",
   // Audit PR #371: routes fees that accrued to a past creator (after transferCreator). Not on the v6 testnet harvest.
   "function routeWith(address token, address pastCreator) returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)",
@@ -47,7 +50,7 @@ export const creatorFeeHarvestAbi = parseAbi([
 ]);
 
 /** Launch functions on the harvest (gas policy / relayer launch targets). */
-export const HARVEST_LAUNCH_FUNCTIONS = ["launch", "launchWithMode", "launchWithUsdg", "launchAnon", "launchAnonWithUsdg"] as const;
+export const HARVEST_LAUNCH_FUNCTIONS = ["launch", "launchWithMode", "launchWithUsdg", "launchAnon", "launchAnonWithUsdg", "launchAnonWithMode", "launchAnonWithUsdgMode"] as const;
 
 /** 1 or 2: the launch must go through the harvest. 0 (keep) uses the usual Launchpad / router / AnonLauncher path. */
 export const routesThroughHarvest = (dest: number | undefined): dest is 1 | 2 => dest === 1 || dest === 2;

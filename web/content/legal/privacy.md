@@ -18,7 +18,7 @@ If you use X, we can tell that the login was an X account. That is enough for th
 
 ## A wallet you already have
 
-If you sign in with a wallet you already have, we see its public address and the messages you sign to log in and to approve actions. We never ask for its private keys or its seed phrase. The wallet app you use has its own privacy policy. That wallet is only the login. The next section describes the wallet the app then uses for trading.
+You sign in with email, Google, X, or Apple in the app. You can't sign in with a wallet you already have. If you send money to or from your own wallet, we see its public address. We never ask for its private keys or its seed phrase. The next section describes the wallet the app then uses for trading.
 
 ## The wallet inside the app
 

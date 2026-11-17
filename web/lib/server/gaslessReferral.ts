@@ -11,7 +11,7 @@ import "server-only";
  */
 import { createPublicClient, createWalletClient, encodeFunctionData, http, parseAbi, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { DEPLOYMENTS, robinhoodTestnet } from "../chains";
+import { ACTIVE_CHAIN, deployment } from "../chains";
 import { waitUntilFn } from "./defer";
 import { kv } from "./kv";
 
@@ -56,9 +56,9 @@ const alreadySettled = (e: { selector?: string; message?: string; ok?: boolean }
 
 async function defaultSend(to: Address, data: Hex, key: Hex): Promise<{ ok: boolean; message?: string }> {
   const account = privateKeyToAccount(key);
-  const wc = createWalletClient({ account, chain: robinhoodTestnet, transport: http(undefined, { timeout: 20_000, retryCount: 1 }) });
-  const hash = await wc.sendTransaction({ to, data, gas: 80_000n, chain: robinhoodTestnet });
-  const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { timeout: 20_000, retryCount: 1 }) });
+  const wc = createWalletClient({ account, chain: ACTIVE_CHAIN, transport: http(undefined, { timeout: 20_000, retryCount: 1 }) });
+  const hash = await wc.sendTransaction({ to, data, gas: 80_000n, chain: ACTIVE_CHAIN });
+  const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http(undefined, { timeout: 20_000, retryCount: 1 }) });
   const rc = await pc.waitForTransactionReceipt({ hash });
   return { ok: rc.status === "success" };
 }
@@ -79,7 +79,7 @@ export async function attachReferral(o: AttachOpts): Promise<AttachResult> {
     const trader = asAddr(o.trader), ref = asAddr(o.referrer);
     if (!trader || !ref) return "skipped";
     if (trader.toLowerCase() === ref.toLowerCase()) return "skipped";
-    const registry = DEPLOYMENTS[46630].referralRegistry;
+    const registry = deployment().referralRegistry;
     if (!registry || isZero(registry)) return "skipped";
     const data = encodeFunctionData({ abi: registryAbi, functionName: "tryAttribute", args: [trader, ref] });
     const send = o.send ?? defaultSend;

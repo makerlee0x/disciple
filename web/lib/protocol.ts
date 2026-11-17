@@ -37,7 +37,7 @@ export interface LaunchCoinParams {
    * CreatorFeeHarvest (lib/creatorFeeHarvest), which records the choice for good. Unset = the creator keeps them.
    */
   creatorFeeDestination?: 1 | 2;
-  /** Private launch (AnonLauncher v2, TRENCH only): stealth creator from lib/privateLaunch.newStealthOwner. */
+  /** Private launch (AnonLauncher; any difficulty once lib/anonModes ANON_ANY_MODE_LIVE, else TRENCH only): stealth creator from lib/privateLaunch.newStealthOwner. */
   private?: { stealthOwner: Address; ephemeralPubKey: `0x${string}`; viewTag: `0x${string}` };
   // quotePriceUsd was REMOVED in PR #4: Launchpad prices the quote on-chain via QuotePricer.
 }

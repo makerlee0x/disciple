@@ -46,6 +46,7 @@ import { ZERO_ADDRESS } from "./protocol";
 import { activeAddress, connectedAddress, execCalls, execGasless, gaslessSigner, isSmartMode, type ExecResult } from "./wallet";
 import { clientGaslessMode } from "./aa/sponsorshipMode";
 import { sendPrivateLaunchRelayer } from "./trade/gaslessAnonLaunchClient";
+import { ANON_ANY_MODE_LIVE, anonLauncherModesAbi } from "./anonModes";
 import { GaslessError } from "./trade/gaslessClient";
 import { pnlKey, seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
@@ -1236,10 +1237,11 @@ export function createViemProtocol(): ProtocolClient {
       const usdg = (usdgIn > B(0) || lp.private) ? await launchUsdg(pc) : null;
       if (usdgIn > B(0) && !usdg) throw new ProtocolError("NoRouter", "Paying the First BOOST in dollars isn't available on this network yet.");
       const creatorBuy = usdg ? B(0) : lp.creatorBuyQuoteIn ?? B(0);
-      // Private launches go through AnonLauncher v2 (Launchpad.launch ⇒ TRENCH mode; it pulls the fee + First BOOST).
+      // Private launches go through AnonLauncher (it pulls the fee + First BOOST). Any difficulty once the modes contracts
+      // are live (lib/anonModes): AnonLauncher.launchAnonWithMode / launchAnonWithUsdgMode; before that Expert (TRENCH) only.
       const anonL = lp.private ? ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher : undefined;
       if (lp.private && !anonL) throw new ProtocolError("NotDeployed", "Private launches aren't available on this chain.");
-      const mode = lp.private ? LaunchMode.TRENCH_WARFARE : lp.mode ?? DEFAULT_LAUNCH_MODE;
+      const mode = lp.private && !ANON_ANY_MODE_LIVE ? LaunchMode.TRENCH_WARFARE : lp.mode ?? DEFAULT_LAUNCH_MODE;
       // Pool / burn: every launch path goes through CreatorFeeHarvest, which records the choice in this transaction.
       const feeDest = routesThroughHarvest(lp.creatorFeeDestination) ? lp.creatorFeeDestination : undefined;
       const harvest = feeDest ? deployment().creatorFeeHarvest : undefined;
@@ -1333,10 +1335,14 @@ export function createViemProtocol(): ProtocolClient {
               privateRelay = { fee, minQuoteIn };
             } else if (harvest && feeDest) {
               calls.push({ to: usdg, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [harvest, need] }) });
-              launchCall = { to: harvest, data: encodeFunctionData({ abi: creatorFeeHarvestAbi, functionName: "launchAnonWithUsdg", args: [params, stealthOwner, stealthOwner, ephemeralPubKey, viewTag, fee, usdgIn, minQuoteIn, me, feeDest] }) };
+              launchCall = { to: harvest, data: ANON_ANY_MODE_LIVE
+                ? encodeFunctionData({ abi: creatorFeeHarvestAbi, functionName: "launchAnonWithUsdgMode", args: [params, mode, stealthOwner, stealthOwner, ephemeralPubKey, viewTag, fee, usdgIn, minQuoteIn, me, feeDest] })
+                : encodeFunctionData({ abi: creatorFeeHarvestAbi, functionName: "launchAnonWithUsdg", args: [params, stealthOwner, stealthOwner, ephemeralPubKey, viewTag, fee, usdgIn, minQuoteIn, me, feeDest] }) };
             } else {
               calls.push({ to: usdg, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [anonL, need] }) });
-              launchCall = { to: anonL, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "launchAnonWithUsdg", args: [params, stealthOwner, stealthOwner, ephemeralPubKey, viewTag, fee, usdgIn, minQuoteIn, me] }) };
+              launchCall = { to: anonL, data: ANON_ANY_MODE_LIVE
+                ? encodeFunctionData({ abi: anonLauncherModesAbi, functionName: "launchAnonWithUsdgMode", args: [params, mode, stealthOwner, stealthOwner, ephemeralPubKey, viewTag, fee, usdgIn, minQuoteIn, me] })
+                : encodeFunctionData({ abi: anonLauncherAbi, functionName: "launchAnonWithUsdg", args: [params, stealthOwner, stealthOwner, ephemeralPubKey, viewTag, fee, usdgIn, minQuoteIn, me] }) };
             }
           } else {
             if (have < usdgIn) throw new ProtocolError("InsufficientBalance", FIRST_BOOST_CASH_MSG(usdgRawToUsd(usdgIn), usdgRawToUsd(have)));
@@ -1375,8 +1381,12 @@ export function createViemProtocol(): ProtocolClient {
           }
           const { stealthOwner, ephemeralPubKey, viewTag } = lp.private;
           calls.push(harvest && feeDest
-            ? { to: harvest, data: encodeFunctionData({ abi: creatorFeeHarvestAbi, functionName: "launchAnon", args: [params, stealthOwner, me, ephemeralPubKey, viewTag, fee, feeDest] }) }
-            : { to: anonL, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "launchAnon", args: [params, stealthOwner, me, ephemeralPubKey, viewTag, fee] }) });
+            ? { to: harvest, data: ANON_ANY_MODE_LIVE
+              ? encodeFunctionData({ abi: creatorFeeHarvestAbi, functionName: "launchAnonWithMode", args: [params, mode, stealthOwner, me, ephemeralPubKey, viewTag, fee, feeDest] })
+              : encodeFunctionData({ abi: creatorFeeHarvestAbi, functionName: "launchAnon", args: [params, stealthOwner, me, ephemeralPubKey, viewTag, fee, feeDest] }) }
+            : { to: anonL, data: ANON_ANY_MODE_LIVE
+              ? encodeFunctionData({ abi: anonLauncherModesAbi, functionName: "launchAnonWithMode", args: [params, mode, stealthOwner, me, ephemeralPubKey, viewTag, fee] })
+              : encodeFunctionData({ abi: anonLauncherAbi, functionName: "launchAnon", args: [params, stealthOwner, me, ephemeralPubKey, viewTag, fee] }) });
         } else {
           // launchCoin on the pre-modes ABI; launchWithMode(params, mode) for every launch on the modes (v4) ABI (lib/launchAbi.ts).
           // Pool / burn: CreatorFeeHarvest.launchWithMode (Launchpad.launchFor with this account as creator).
@@ -1410,6 +1420,7 @@ export function createViemProtocol(): ProtocolClient {
               refundTo: me,
               launcher: harvest && feeDest ? harvest : anonL,
               creatorFeeDestination: feeDest ?? 0,
+              mode,
             });
           } catch (e) {
             if (e instanceof GaslessError) throw new ProtocolError("LaunchFailed", e.message);

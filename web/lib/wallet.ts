@@ -70,7 +70,7 @@ export async function getSigner(): Promise<Signer> {
 import type { Call } from "./aa/core";
 import type { SendOpts } from "./aa/fastPath";
 import type { GasOpKind } from "./aa/gasReserve";
-import { aaAddress, aaAvailable, aaGasReservePerOp, aaLogout, aaOwnerAccount, aaPeekGasReservePerOp, aaSession, eoaLogin, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
+import { aaAddress, aaAvailable, aaGasReservePerOp, aaLogout, aaOwnerAccount, aaPeekGasReservePerOp, aaSession, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
 import { clientGaslessMode } from "./aa/sponsorshipMode";
 import type { Hex, LocalAccount } from "viem";
 
@@ -80,12 +80,6 @@ export type ExecResult = { txHash: Hex; logs: { address: Address; data: Hex; top
 export const isSmartMode = () => !!aaSession();
 export { aaAvailable };
 
-/** Sign in once with an existing wallet (EOA owner). */
-export async function connectSmartWithWallet(): Promise<Address> {
-  const eth = provider || ((globalThis as { ethereum?: unknown }).ethereum as Eip1193 | undefined);
-  if (!eth) throw Object.assign(new Error("No browser wallet found."), { code: "NoWallet" });
-  const a = await eoaLogin(eth); emit(a); return a;
-}
 /** Open the Privy login modal (email / Google). The address is emitted once the embedded wallet is ready. */
 export function connectPrivy() { privyLogin(); }
 /** Called by PrivyProviders with toViemAccount(embeddedWallet). */

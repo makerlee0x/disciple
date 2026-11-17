@@ -15,6 +15,7 @@
  */
 import { decodeFunctionData, encodeFunctionData, parseAbi, toFunctionSelector, type AbiFunction, type AbiItem, type Hex } from "viem";
 import { anonLauncherAbi } from "../abi/AnonLauncher";
+import { anonLauncherModesAbi } from "../anonModes";
 import { bondingCurveAbi } from "../abi/BondingCurve";
 import { discipleRouterAbi } from "../abi/DiscipleRouter";
 import { launchpadAbi } from "../abi/Launchpad";
@@ -70,9 +71,9 @@ export const GRAD_GAS_CAPS = {
 export type GasCaps = { [K in keyof typeof GAS_CAPS]: bigint };
 
 /** User-callable launch entry points (Launchpad.launchFor is router-only, not listed). Exported for tests. */
-export const LAUNCH_FUNCTIONS = ["launch", "launchCoin", "launchWithMode", "launchAnon", "launchAnonWithUsdg", "launchWithUsdg"] as const;
+export const LAUNCH_FUNCTIONS = ["launch", "launchCoin", "launchWithMode", "launchAnon", "launchAnonWithUsdg", "launchWithUsdg", "launchAnonWithMode", "launchAnonWithUsdgMode"] as const;
 export const LAUNCH_SELECTORS: ReadonlySet<string> = new Set(
-  ([...launchpadAbi, ...anonLauncherAbi, ...discipleRouterAbi, ...creatorFeeHarvestAbi] as readonly AbiItem[])
+  ([...launchpadAbi, ...anonLauncherAbi, ...anonLauncherModesAbi, ...discipleRouterAbi, ...creatorFeeHarvestAbi] as readonly AbiItem[])
     .filter((f): f is AbiFunction => f.type === "function" && (LAUNCH_FUNCTIONS as readonly string[]).includes(f.name))
     .map((f) => toFunctionSelector(f).toLowerCase()),
 );

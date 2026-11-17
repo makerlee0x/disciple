@@ -14,7 +14,7 @@ By signing in, or by using DISCIPLE, you agree to these terms. If you do not agr
 
 Sign in with email, Google, X or wallet. Sign-in is handled by Privy.
 
-If you sign in with email, Google, or X, Privy creates a wallet inside the app for you. If you sign in with a wallet you already have, that wallet is only how you log in, and Privy still creates one wallet inside the app for you. That in-app wallet controls an account built with Alchemy's tools. The account pays the network fee in USDG, the token DISCIPLE uses for trades, so a normal trade does not ask you for ETH. ETH is the coin many other apps charge for the network fee.
+You sign in with email, Google, X, or Apple in the app, and Privy creates a wallet inside the app for you. You can't sign in with a wallet you already have. That in-app wallet controls an account built with Alchemy's tools. The account pays the network fee in USDG, the token DISCIPLE uses for trades, so a normal trade does not ask you for ETH. ETH is the coin many other apps charge for the network fee.
 
 One-tap trading keeps an expiring permission in your browser, so a later BOOST or DUMP can be sent without asking you to approve every tap.
 

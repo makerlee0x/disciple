@@ -60,16 +60,18 @@ interface IHarvestRouter {
 interface IHarvestAnon {
     function launchFee() external view returns (uint256);
     function feeToken() external view returns (address);
-    function launchAnon(
+    function launchAnonWithMode(
         ILaunchpad.LaunchParams calldata p,
+        uint8 mode,
         address stealthOwner,
         address buyRecipient,
         bytes calldata ephemeralPubKey,
         bytes1 viewTag,
         uint256 maxFee
     ) external returns (ILaunchpad.LaunchResult memory);
-    function launchAnonWithUsdg(
+    function launchAnonWithUsdgMode(
         ILaunchpad.LaunchParams calldata p,
+        uint8 mode,
         address stealthOwner,
         address buyRecipient,
         bytes calldata ephemeralPubKey,
@@ -280,7 +282,8 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         _record(result.token, creatorFeeDestination);
     }
 
-    /// @notice Private launch. AnonLauncher stays `creatorOf`. `creatorFeeDestination` is recorded here.
+    /// @notice Private launch. AnonLauncher stays `creatorOf`. `creatorFeeDestination` is recorded here. Trench;
+    ///         `launchAnonWithMode` picks the difficulty.
     function launchAnon(
         ILaunchpad.LaunchParams calldata params,
         address stealthOwner,
@@ -290,6 +293,38 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         uint256 maxFee,
         uint8 creatorFeeDestination
     ) external nonReentrant returns (ILaunchpad.LaunchResult memory result) {
+        result = _launchAnon(
+            params, 0, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee, creatorFeeDestination
+        );
+    }
+
+    /// @notice Private launch on any difficulty (`mode` 0 Trench, 1 Easy, 2 Hard). An Easy First BOOST is held on
+    ///         AnonLauncher until orbit (AnonLauncher.releaseBoost).
+    function launchAnonWithMode(
+        ILaunchpad.LaunchParams calldata params,
+        uint8 mode,
+        address stealthOwner,
+        address buyRecipient,
+        bytes calldata ephemeralPubKey,
+        bytes1 viewTag,
+        uint256 maxFee,
+        uint8 creatorFeeDestination
+    ) external nonReentrant returns (ILaunchpad.LaunchResult memory result) {
+        result = _launchAnon(
+            params, mode, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee, creatorFeeDestination
+        );
+    }
+
+    function _launchAnon(
+        ILaunchpad.LaunchParams calldata params,
+        uint8 mode,
+        address stealthOwner,
+        address buyRecipient,
+        bytes calldata ephemeralPubKey,
+        bytes1 viewTag,
+        uint256 maxFee,
+        uint8 creatorFeeDestination
+    ) internal returns (ILaunchpad.LaunchResult memory result) {
         if (creatorFeeDestination > 2) revert BadDestination();
         IHarvestAnon a = anon;
         if (address(a) == address(0)) revert ZeroAddress();
@@ -307,7 +342,7 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
             uint256 allow = feeToken == q ? fee + params.creatorBuyQuoteIn : params.creatorBuyQuoteIn;
             IERC20(q).forceApprove(address(a), allow);
         }
-        result = a.launchAnon(params, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee);
+        result = a.launchAnonWithMode(params, mode, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee);
         uint256 left = IERC20(q).balanceOf(address(this)) - bal0;
         if (left != 0) IERC20(q).safeTransfer(msg.sender, left);
         _record(result.token, creatorFeeDestination);
@@ -329,6 +364,63 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         address refundTo,
         uint8 creatorFeeDestination
     ) external nonReentrant returns (ILaunchpad.LaunchResult memory result, uint256 usdgRefund) {
+        (result, usdgRefund) = _launchAnonWithUsdg(
+            params,
+            0,
+            stealthOwner,
+            buyRecipient,
+            ephemeralPubKey,
+            viewTag,
+            maxFee,
+            usdgIn,
+            minQuoteIn,
+            refundTo,
+            creatorFeeDestination
+        );
+    }
+
+    /// @notice `launchAnonWithUsdg` on any difficulty (`mode` 0 Trench, 1 Easy, 2 Hard).
+    function launchAnonWithUsdgMode(
+        ILaunchpad.LaunchParams calldata params,
+        uint8 mode,
+        address stealthOwner,
+        address buyRecipient,
+        bytes calldata ephemeralPubKey,
+        bytes1 viewTag,
+        uint256 maxFee,
+        uint256 usdgIn,
+        uint256 minQuoteIn,
+        address refundTo,
+        uint8 creatorFeeDestination
+    ) external nonReentrant returns (ILaunchpad.LaunchResult memory result, uint256 usdgRefund) {
+        (result, usdgRefund) = _launchAnonWithUsdg(
+            params,
+            mode,
+            stealthOwner,
+            buyRecipient,
+            ephemeralPubKey,
+            viewTag,
+            maxFee,
+            usdgIn,
+            minQuoteIn,
+            refundTo,
+            creatorFeeDestination
+        );
+    }
+
+    function _launchAnonWithUsdg(
+        ILaunchpad.LaunchParams calldata params,
+        uint8 mode,
+        address stealthOwner,
+        address buyRecipient,
+        bytes calldata ephemeralPubKey,
+        bytes1 viewTag,
+        uint256 maxFee,
+        uint256 usdgIn,
+        uint256 minQuoteIn,
+        address refundTo,
+        uint8 creatorFeeDestination
+    ) internal returns (ILaunchpad.LaunchResult memory result, uint256 usdgRefund) {
         if (creatorFeeDestination > 2) revert BadDestination();
         address refund = refundTo == address(0) ? msg.sender : refundTo;
         if (refund == address(this)) revert BadRefundTo();
@@ -342,8 +434,8 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
             IERC20(feeToken).forceApprove(address(a), pull);
         }
         // Leftover USDG goes straight to `refund`. AnonLauncher would otherwise refund this contract.
-        (result, usdgRefund) = a.launchAnonWithUsdg(
-            params, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee, usdgIn, minQuoteIn, refund
+        (result, usdgRefund) = a.launchAnonWithUsdgMode(
+            params, mode, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee, usdgIn, minQuoteIn, refund
         );
         _record(result.token, creatorFeeDestination);
     }

@@ -31,7 +31,7 @@ import "server-only";
  * unless every admission check passed.
  */
 import { createPublicClient, parseAbi, toFunctionSelector, recoverTypedDataAddress, type Address, type Hex } from "viem";
-import { deployment, robinhoodTestnet } from "../chains";
+import { deployment, ACTIVE_CHAIN } from "../chains";
 import { gaslessMode } from "../aa/sponsorshipMode";
 import type { RelayReceipt } from "../aa/relayTypes";
 import { checkGaslessRequest, encodeGaslessCall, GASLESS_GAS_LIMIT, GASLESS_GRAD_GAS_LIMIT, gaslessTxGasLimit, GaslessReject, parseGaslessRequest, tradeTypedData, type GaslessRequest } from "../trade/gaslessPermit2";
@@ -102,7 +102,7 @@ const peekMarketStatus = (coin: string): string | undefined => {
 };
 const remember = (coin: string, status: string, ttlMs = 3_600_000) => { marketMemo.set(coin.toLowerCase(), { until: Date.now() + ttlMs, status }); };
 const persistMarket = (coin: string, value: string) => { void kv().set(marketStatusKey(coin), value).catch(() => undefined); };
-const marketPc = createPublicClient({ chain: robinhoodTestnet, transport: relayReadTransport(5000, 0) });
+const marketPc = createPublicClient({ chain: ACTIVE_CHAIN, transport: relayReadTransport(5000, 0) });
 const marketAbi = parseAbi(["function curveOf(address) view returns (address)"]);
 const isZeroAddr = (a: unknown) => typeof a === "string" && /^0x0{40}$/i.test(a);
 
@@ -235,7 +235,7 @@ export async function relayGaslessTrade(raw: unknown, d: GaslessDeps = {}): Prom
     q = parseGaslessRequest(raw);
     checkGaslessRequest(q, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec: d.nowSec ?? Math.floor(Date.now() / 1000) });
     // Local, RPC-free: the witness signature must be the signer's (the router re-checks via Permit2).
-    const who = await recoverTypedDataAddress({ ...tradeTypedData(robinhoodTestnet.id, router, q.permit, q.trade), signature: q.signature });
+    const who = await recoverTypedDataAddress({ ...tradeTypedData(ACTIVE_CHAIN.id, router, q.permit, q.trade), signature: q.signature });
     if (who.toLowerCase() !== q.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
   } catch (e) { throw notSent(e); }
   const data = encodeGaslessCall(q);

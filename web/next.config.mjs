@@ -7,6 +7,18 @@ const engineMin = (() => {
   try { return statSync(new URL("./public/flight/engine.min.js", import.meta.url)).mtimeMs >= statSync(new URL("./public/flight/engine.js", import.meta.url)).mtimeMs; } catch { return false; }
 })();
 
+/* Mainnet production must sign in through Privy only (maker 2026-11-16). Without a Privy app id the site falls back to the
+   local signer (a private key in browser storage, lib/aa/env.ts), and DEV_WALLETS shows the plain-wallet dev buttons.
+   Fail the build instead of shipping either on chain 4663. */
+if (process.env.VERCEL_ENV === "production" && process.env.NEXT_PUBLIC_CHAIN_ID === "4663") {
+  const bad = [
+    !process.env.NEXT_PUBLIC_PRIVY_APP_ID && "NEXT_PUBLIC_PRIVY_APP_ID is not set",
+    process.env.NEXT_PUBLIC_AA_SIGNER === "local" && "NEXT_PUBLIC_AA_SIGNER=local",
+    process.env.NEXT_PUBLIC_DEV_WALLETS === "1" && "NEXT_PUBLIC_DEV_WALLETS=1",
+  ].filter(Boolean);
+  if (bad.length) throw new Error(`Mainnet production build refused (Privy-only sign-in): ${bad.join(", ")}`);
+}
+
 /** @type {import('next').NextConfig} */
 const isStatic = process.env.STATIC_PREVIEW === "1";
 const basePath = isStatic

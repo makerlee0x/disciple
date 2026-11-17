@@ -11,7 +11,7 @@ import { decimalsOf, publicClient, readCurveState, usdgRouteFor } from "@/lib/pr
 import { cashLine, type BalancePart } from "@/lib/balanceLine";
 import { payUsdg, routerUsdg } from "@/lib/trade/usdgRouter";
 import {
-  aaAvailable, connectLocal, connectPrivy, connectSmartWithWallet, connectWallet, disconnect,
+  aaAvailable, connectLocal, connectPrivy, connectWallet, disconnect,
   hasWallet, isSmartMode, onWallet, restoreSmart,
 } from "@/lib/wallet";
 import {
@@ -56,7 +56,7 @@ function metaOf(coin: Address) {
 }
 
 /**
- * Sign in once (Privy: email / Google / X / external wallet) → Privy embedded EOA owns an Alchemy MAv2 smart account (self-pay gas,
+ * Sign in once (Privy: email / Google / X / Apple; no external-wallet sign-in) → Privy embedded EOA owns an Alchemy MAv2 smart account (self-pay gas,
  * user-funded native ETH) → "Enable one-tap" installs an on-chain session key → trades are one tap.
  * Dev options: an existing wallet as owner (one signature).
  * Legacy "plain wallet" path kept as fallback (one tx per action).
@@ -340,7 +340,6 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
                 <span style={{ fontSize: 10, opacity: 0.8 }}>Sign in once — then every trade is one tap, no popups.</span>
                 <button type="button" disabled={!!busy} onClick={() => run("opening login", async () => connectPrivy())} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }}>Email or Google</button>
                 {DEV_WALLETS && <>
-                <button type="button" disabled={!!busy || !hasWallet()} onClick={() => run("sign once in wallet", connectSmartWithWallet)} style={{ ...pill, background: "#2E323A", color: "#C9CED6", textAlign: "center" }}>Use my wallet as owner</button>
                 <button type="button" disabled={!!busy || !hasWallet()} onClick={() => run("connecting", connectWallet)} style={{ ...pill, fontSize: 10, opacity: 0.7, textAlign: "center" }}>Plain wallet (sign every tx)</button>
                 </>}
               </>
