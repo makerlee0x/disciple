@@ -11,7 +11,7 @@ import "server-only";
  * player. A failed simulation or a reverted launch never moves the player's dollars.
  */
 import { createPublicClient, parseAbi, recoverTypedDataAddress, type Address, type Hex } from "viem";
-import { DEPLOYMENTS, robinhoodTestnet } from "../chains";
+import { ACTIVE_CHAIN, deployment } from "../chains";
 import { encodeForwarderLaunch, relaySpender, type RelaySpender } from "../trade/permitForwarder";
 import { ANON_ADDONS } from "../anon";
 import { GaslessReject } from "../trade/gaslessPermit2";
@@ -32,10 +32,10 @@ import { relayReadTransport } from "./relayReadTransport";
 const timed = <T>(m: RelayMetrics | undefined, stage: string, task: () => Promise<T>) => m ? m.span(stage, task) : task();
 const notSent = (e: unknown) => Object.assign(e as Error, { notSent: true });
 const launcherAbi = parseAbi(["function launchFee() view returns (uint256)", "function feeToken() view returns (address)"]);
-const pc = createPublicClient({ chain: robinhoodTestnet, transport: relayReadTransport(5000, 0) });
+const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: relayReadTransport(5000, 0) });
 
 function deployedLauncher(): Address {
-  const a = ANON_ADDONS[46630]?.anonLauncher;
+  const a = ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher;
   if (!a) throw new GaslessReject("private launches aren't available on this chain");
   return a;
 }
@@ -86,13 +86,13 @@ export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps = {}):
   const t0 = Date.now();
   let q: GaslessAnonLaunchRequest;
   let spender: RelaySpender;
-  const dep = DEPLOYMENTS[46630];
+  const dep = deployment();
   const launcher = deployedLauncher();
   try {
     requireGaslessMode();
     relayBreaker.assertClosed();
     q = parseGaslessAnonLaunchRequest(raw);
-    spender = relaySpender(robinhoodTestnet.id, { legacy: false });
+    spender = relaySpender(ACTIVE_CHAIN.id, { legacy: false });
     const [launchFee, feeToken] = await Promise.all([
       pc.readContract({ address: launcher, abi: launcherAbi, functionName: "launchFee" }),
       pc.readContract({ address: launcher, abi: launcherAbi, functionName: "feeToken" }),
@@ -101,7 +101,7 @@ export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps = {}):
     // Pool / burn routing goes through CreatorFeeHarvest. Only allowed once the harvest with refundTo is live.
     const harvest = creatorFeeRoutingAvailable({ private: true, harvest: dep.creatorFeeHarvest }) ? dep.creatorFeeHarvest : null;
     checkGaslessAnonLaunchRequest(q, { usdg: dep.usdg, launcher, harvest, nowSec: d.nowSec ?? Math.floor(Date.now() / 1000), launchFee });
-    const who = await recoverTypedDataAddress({ ...anonLaunchTypedData(robinhoodTestnet.id, q.permit, q.launch, spender.address), signature: q.signature });
+    const who = await recoverTypedDataAddress({ ...anonLaunchTypedData(ACTIVE_CHAIN.id, q.permit, q.launch, spender.address), signature: q.signature });
     if (who.toLowerCase() !== q.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
   } catch (e) { throw notSent(e); }
   const data = encodeForwarderLaunch({ permit: q.permit, l: q.launch, owner: q.signer, signature: q.signature, approval: q.approval });

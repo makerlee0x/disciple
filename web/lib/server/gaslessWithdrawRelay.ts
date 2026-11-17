@@ -10,7 +10,7 @@ import "server-only";
  */
 import { createPublicClient, parseAbi, recoverTypedDataAddress, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { DEPLOYMENTS, robinhoodTestnet } from "../chains";
+import { ACTIVE_CHAIN, deployment } from "../chains";
 import { GaslessReject } from "../trade/gaslessPermit2";
 import {
   checkForwarderWithdrawRequest, checkGaslessWithdrawRequest, encodeForwarderWithdrawCall, encodeWithdrawCall, isForwarderWithdraw,
@@ -34,10 +34,10 @@ const timed = <T>(m: RelayMetrics | undefined, stage: string, task: () => Promis
 const notSent = (e: unknown) => Object.assign(e as Error, { notSent: true });
 const erc20 = parseAbi(["function allowance(address owner, address spender) view returns (uint256)"]);
 const ENOUGH = BigInt(2) ** BigInt(255);
-const pc = createPublicClient({ chain: robinhoodTestnet, transport: relayReadTransport(5000, 0) });
+const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: relayReadTransport(5000, 0) });
 
 /** Same USDG-per-ETH source as the old paymaster (1.0x, no markup). */
-export function withdrawUsdgPerEth(env: NodeJS.ProcessEnv = process.env, usdgDecimals = DEPLOYMENTS[46630].usdgDecimals): bigint {
+export function withdrawUsdgPerEth(env: NodeJS.ProcessEnv = process.env, usdgDecimals = deployment().usdgDecimals): bigint {
   return unmarkedRate(rateFromEnv({ PAYMASTER_RATE: env.PAYMASTER_RATE, PAYMASTER_USD_PER_ETH: env.PAYMASTER_USD_PER_ETH }, usdgDecimals));
 }
 
@@ -64,8 +64,8 @@ export type QuoteOpts = {
 export async function quoteGaslessWithdraw(raw: unknown = {}, opts: QuoteOpts = {}): Promise<WithdrawQuoteResult> {
   requireGaslessMode();
   // the spender the player will sign for: the forwarder when deployed; Multicall3 only on testnet (throws elsewhere)
-  const spender = relaySpender(robinhoodTestnet.id).address;
-  const dep = DEPLOYMENTS[46630];
+  const spender = relaySpender(ACTIVE_CHAIN.id).address;
+  const dep = deployment();
   const decimals = opts.usdgDecimals ?? dep.usdgDecimals;
   const o = (raw ?? {}) as { amount?: unknown; signer?: unknown };
   let needsPermit = opts.needsPermit;
@@ -135,11 +135,11 @@ export async function relayGaslessWithdraw(raw: unknown, d: GaslessDeps = {}): P
   const t0 = Date.now();
   let q: AnyWithdrawRequest;
   let target: Address;
-  const dep = DEPLOYMENTS[46630];
+  const dep = deployment();
   try {
     requireGaslessMode();
     relayBreaker.assertClosed();
-    const spender = relaySpender(robinhoodTestnet.id);
+    const spender = relaySpender(ACTIVE_CHAIN.id);
     target = spender.address;
     q = parseAnyWithdrawRequest(raw);
     if (isForwarderWithdraw(q) !== (spender.kind === "forwarder"))
@@ -155,13 +155,13 @@ export async function relayGaslessWithdraw(raw: unknown, d: GaslessDeps = {}): P
     if (isForwarderWithdraw(q)) {
       checkForwarderWithdrawRequest(q, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec, feeTo, minFee: current });
       const who = await recoverTypedDataAddress({
-        ...withdrawTypedData(robinhoodTestnet.id, target, q.permit, { to: q.destination, fee: q.fee, feeTo: q.feeTo }), signature: q.signature,
+        ...withdrawTypedData(ACTIVE_CHAIN.id, target, q.permit, { to: q.destination, fee: q.fee, feeTo: q.feeTo }), signature: q.signature,
       });
       if (who.toLowerCase() !== q.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
     } else {
       checkGaslessWithdrawRequest(q, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec, feeTo, minFee: current });
-      const netWho = await recoverTypedDataAddress({ ...transferTypedData(robinhoodTestnet.id, q.netPermit), signature: q.netSignature });
-      const feeWho = await recoverTypedDataAddress({ ...transferTypedData(robinhoodTestnet.id, q.feePermit), signature: q.feeSignature });
+      const netWho = await recoverTypedDataAddress({ ...transferTypedData(ACTIVE_CHAIN.id, q.netPermit), signature: q.netSignature });
+      const feeWho = await recoverTypedDataAddress({ ...transferTypedData(ACTIVE_CHAIN.id, q.feePermit), signature: q.feeSignature });
       if (netWho.toLowerCase() !== q.signer.toLowerCase() || feeWho.toLowerCase() !== q.signer.toLowerCase())
         throw new GaslessReject("signature is not the signer's");
     }

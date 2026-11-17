@@ -21,7 +21,7 @@ import type { RelayConfirmed, RelayReceipt } from "../aa/relayTypes";
 import { jsonRpc, plainSend, syncSend, waitReceipt, type PendingReason, type RpcErr } from "./syncSend";
 import { RelayerNonceCursor, SharedNonceCursor, sendWithCursor, classifySendError, type NonceCursor, type NonceStore } from "./relayerNonce";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
-import { robinhoodTestnet } from "../chains";
+import { ACTIVE_CHAIN } from "../chains";
 import { relayerIsFaucet, relayerKey } from "./relayer";
 import { RelayerKeyPool, poolKey, poolNames, uniquePoolNames } from "./relayerPool";
 import { kv } from "./kv";
@@ -29,7 +29,7 @@ import { SenderTrust } from "./relayTrust";
 import { kvTrustStore } from "./relayTrustStore";
 import { strikeSource } from "./relayLockdown";
 
-const pc = createPublicClient({ chain: robinhoodTestnet, transport: relayReadTransport(3000, 1)   /* job 9: bounded pre-send (viem default 10 s × 3 retries) */ });
+const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: relayReadTransport(3000, 1)   /* job 9: bounded pre-send (viem default 10 s × 3 retries) */ });
 
 /** One relayer EOA + its nonce cursor (one per key per process). */
 type RelayerState = { account: PrivateKeyAccount; nonces: NonceCursor; /** pool lease still held (checked before every signature) */ canSign?: () => boolean };
@@ -45,7 +45,7 @@ function stateOf(account: PrivateKeyAccount): RelayerState {
 }
 /** kv.nonceAlloc / nonceRelease under relayer:nonce:<chain>:<addr> (+ :holes); TTL refreshed on every alloc. */
 const NONCE_TTL_SEC = 3600;
-export function kvNonceStore(address: string, chainId = robinhoodTestnet.id): NonceStore {
+export function kvNonceStore(address: string, chainId = ACTIVE_CHAIN.id): NonceStore {
   const k = `relayer:nonce:${chainId}:${address.toLowerCase()}`, h = `${k}:holes`;
   return {
     alloc: (floor) => kv().nonceAlloc(k, h, floor, NONCE_TTL_SEC),
@@ -120,7 +120,7 @@ strikeSource.local = (sender) => TRUST.get(sender)?.strikeUntil ?? 0;
 /** Await the trust ledger's pending KV writes (the gasless route calls this before responding). */
 export const flushRelayTrust = () => TRUST.flush();
 
-const RPC_URL = robinhoodTestnet.rpcUrls.default.http[0];
+const RPC_URL = ACTIVE_CHAIN.rpcUrls.default.http[0];
 const SEQ_URL = /^https?:\/\//.test(process.env.RHT_SEQUENCER_URL || "") ? process.env.RHT_SEQUENCER_URL! : undefined;
 const SEND = SEQ_URL ? { name: "sequencer" as const, rpc: jsonRpc(SEQ_URL) } : { name: "rpc" as const, rpc: jsonRpc(RPC_URL) };
 const FAST_READ = /^https?:\/\//.test(process.env.RHT_RECEIPT_RPC_URL || "") ? jsonRpc(process.env.RHT_RECEIPT_RPC_URL!, 3_000) : undefined;
@@ -202,7 +202,7 @@ export async function sendDirect(r: DirectRelayer, to: Hex, data: Hex, gas: bigi
     } : st.nonces, async (nonce) => {
       const s = Date.now();
       let raw: Hex;
-      try { raw = await st.account.signTransaction({ chainId: robinhoodTestnet.id, type: "eip1559", to, data, gas, nonce, ...fees }); }
+      try { raw = await st.account.signTransaction({ chainId: ACTIVE_CHAIN.id, type: "eip1559", to, data, gas, nonce, ...fees }); }
       catch (e) { throw Object.assign(e as Error, { definitive: true }); }
       signed = true; metrics?.add("signTx", Date.now() - s);
       const h = (txHash = keccak256(raw)), n = (relayNonce = nonce);
