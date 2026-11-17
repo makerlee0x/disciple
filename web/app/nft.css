@@ -75,9 +75,6 @@
 .nft-disc-tx b { font: 800 30px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
 .nft-count-lg { font: 700 16px / 1 var(--dsc-font-mono); color: #F3DFA8; }
 .nft-disc .dsc3-btn { min-height: 48px; }
-  background: radial-gradient(240px 140px at 20% 50%, rgba(243, 223, 168, .22), rgba(0, 0, 0, 0)), var(--dsc3-panel); border-color: var(--dsc3-panel-border-gold); }
-@media (max-width: 900px) {
-}
 @media (max-width: 560px) {
   .nft-twelve { padding: 12px; }
   .nft-twelve h2 { font-size: 26px; }
