@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import IosZoomLock from "@/components/app/IosZoomLock";
 import "./brand-tokens.css";
 import "./brand-tokens-v2.css";
 import "./brand-tokens-v3.css";
@@ -73,6 +74,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: APP_JS }} />
         <script id={SPONSORSHIP_CONFIG_ID} type="application/json" dangerouslySetInnerHTML={{ __html: JSON.stringify(sponsorshipConfig()) }} />
         <IconSprite />
+        <IosZoomLock />
         <AppSounds />
         <PrivyProviders>
           <AppShell>{children}</AppShell>
