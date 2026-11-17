@@ -11,10 +11,15 @@ export const runtime = "nodejs";
  *   keccak(message) raw (pass `owner`). Verified with lib/server/chat/identity.verifyWalletSignature.
  *   One rename per 24h (lib/usernameCooldown): too soon → 429 { ok: false, reason, nextAllowedAt }. The timestamp
  *   (lastUsernameChangeAt) lives in KV with the wallet's profile meta (lib/server/profileMeta).
+ *   Reserved names (lib/server/reservedNames, e.g. @maker): also need `Authorization: Bearer <Privy access token>` for
+ *   the owner's email, with this wallet linked to that Privy user; they move onto this wallet, with no cooldown.
+ *   Anyone else gets 403 "That name is reserved."
  */
 import { NextResponse } from "next/server";
 import { USERNAME_STORED_RE, validateUsername } from "@/lib/profile";
-import { claim, usernameOf, walletOf } from "@/lib/server/usernames";
+import { bindReserved, claim, usernameOf, walletOf } from "@/lib/server/usernames";
+import { isReserved, ownsReserved } from "@/lib/server/reservedNames";
+import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
 import { kv } from "@/lib/server/kv";
 import { consumeNonce, issueNonce, nonceValid } from "@/lib/server/nonces";
 import { verifyWalletSignature } from "@/lib/server/chat/identity";
@@ -26,6 +31,7 @@ import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
 import { INVITE_REQUIRED_MESSAGE, requireInviteWallet } from "@/lib/server/inviteGate";
 
 const NONCE_TTL = 600;
+const RESERVED_REASON = "That name is reserved.";
 const NONCE_PREFIX = "user:nonce";
 
 export const dynamic = "force-dynamic";
@@ -64,6 +70,8 @@ export async function GET(req: Request) {
   const holder = await walletOf(u);
   // ?u=name&address=0x…: the asking wallet already holds it (not "taken")
   if (holder && address && isAddr(address) && holder.toLowerCase() === address.toLowerCase()) return NextResponse.json({ available: true, mine: true });
+  // reserved for one person: it follows them on sign-in (/api/profile/username/reserved), nobody else can take it
+  if (isReserved(u)) return NextResponse.json({ available: false, reason: RESERVED_REASON });
   const taken = !!holder;
   return NextResponse.json({ available: !taken, reason: taken ? PROFILE_COPY["edit.username.taken"] : undefined });
 }
@@ -85,6 +93,16 @@ export async function POST(req: Request) {
   if (who !== addr) return NextResponse.json({ ok: false, reason: "Signature didn't match this wallet." }, { status: 401 });
   // invite-only beta (lib/server/invites), checked after the signature so it can't be probed; off by default ⇒ no-op
   if (!(await requireInviteWallet(addr, "username")).ok) return NextResponse.json({ ok: false, reason: INVITE_REQUIRED_MESSAGE, error: "invite_required" }, { status: 403 });
+  // Reserved name: only its owner (Privy-verified email), onto a wallet of theirs; moves from any other holder.
+  if (isReserved(u)) {
+    const a = await authenticate(bearer(req.headers), privyEnv());
+    const signer = String(body.owner || addr).toLowerCase();
+    const linked = a.ok && a.user.wallets.some((w) => w === addr || w === signer);
+    if (!a.ok || !ownsReserved(u, a.user.emails) || !linked) return NextResponse.json({ ok: false, reason: RESERVED_REASON }, { status: 403 });
+    await bindReserved(u, addr);
+    await consumeNonce(kv(), NONCE_PREFIX, nonce, addr);
+    return NextResponse.json({ ok: true });
+  }
   // 24h rename cooldown, checked after the signature (so a stranger can't probe it) and before the claim.
   const now = Date.now();
   const change = usernameChange({ prev: await usernameOf(addr), next: u, lastChangeAt: await lastUsernameChangeAt(addr), now });
