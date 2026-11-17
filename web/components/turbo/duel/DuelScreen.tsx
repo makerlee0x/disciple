@@ -13,6 +13,7 @@ import { DUEL_LEN_MS, parseCode, type LengthMs, type TierId, type TradeAction } 
 import { trackFunnel } from "@/lib/funnelClient";
 import { isFunnelStep } from "@/lib/funnel";
 import { climbingNow, type HomeData } from "@/lib/home/trending";
+import { LEAGUES } from "@/lib/duel/season";
 import { flightHref, pct } from "@/components/home/rocketBits";
 import type { DuelEvent, DuelRoom } from "@/lib/duel/types";
 import { getGameRadio } from "@/lib/game/radio";
@@ -39,7 +40,7 @@ declare global { interface Window { DuelEngine?: { mount(root: HTMLElement, host
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
 /** extra plates for the random sky each duel (engine SKY_THEMES) */
 const EXTRA_SKIES = { skyEth: "/turbo/sky-eth.webp", skyBtc: "/turbo/sky-btc.webp", skyPad: "/home/pad/sky-1280.webp" };
-const ENGINE_SRC = "/turbo/duel/engine.js?v=37";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=38";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
@@ -163,6 +164,7 @@ export default function DuelScreen({ guest = false }: { guest?: boolean } = {}) 
 
     const host = {
       climbing: () => climb,
+      league: (id: string) => LEAGUES.find((l) => l.id === id) ?? null,
       assets: { ...Object.fromEntries(["rocket", ...SKIES].map((k) => [k, `/turbo/duel/${k}.webp`])), ...EXTRA_SKIES, art: "/art/modes/duel.webp" },
       history: () => hist.filter((h) => h.ts > Date.now() - 60_000),
       guest,

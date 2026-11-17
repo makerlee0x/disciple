@@ -7,6 +7,7 @@
  * BOARD_RULES. Opens on the shortest window that has anyone in it, like the lobby shelf. Real numbers only
  * (GET /api/leaderboard: the same indexed fills as the lobby); nobody yet ⇒ "The top spot is open".
  */
+import { LEAGUES, leagueProgress } from "@/lib/duel/season";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -193,7 +194,7 @@ export const DUEL_BOARD_COPY = {
   emptyTitle: "No ranked duels yet",
   emptyBody: "Win a ranked duel and your name goes up here.",
   play: "Find a duel",
-  rules: { title: "How duel rating works", items: ["Everyone starts at 1,200.", "Beat a higher-rated pilot and you gain more. Lose to a lower one and you drop more.", "Your first 10 duels move your rating faster, so you find your level quickly.", "Only ranked duels count. Friendly duels and bot matches don't."] },
+  rules: { title: "How duel rating works", items: ["Each calendar month is a season. Ranked wins earn season points (+30, plus up to +25 for a win streak), losses cost 15, and points climb you from Rookie to Champion.", "Everyone starts at 1,200.", "Beat a higher-rated pilot and you gain more. Lose to a lower one and you drop more.", "Your first 10 duels move your rating faster, so you find your level quickly.", "Only ranked duels count. Friendly duels and bot matches don't."] },
 } as const;
 const recTxt = (r: DuelRow) => `${r.w}-${r.l}`;
 function DuelTable({ d, meLc }: { d: DuelBoardRes; meLc?: string }) {
@@ -220,6 +221,39 @@ function DuelTable({ d, meLc }: { d: DuelBoardRes; meLc?: string }) {
   );
 }
 
+/** This month's season ladder (lib/duel/season), above the all-time duel table. Your league, your SP and the top 10. */
+interface SeasonRes { ok: boolean; season: { id: string; n: number; endsAt: number }; rows: { rank: number; wallet: string; name: string; pts: number; league: string }[]; total: number; me: { rank: number; pts: number; league: string } | null }
+function SeasonLadder({ d }: { d: SeasonRes }) {
+  const days = Math.max(0, Math.ceil((d.season.endsAt - Date.now()) / 86_400_000));
+  const mine = d.me ? leagueProgress(d.me.pts) : null;
+  const L = (id: string) => LEAGUES.find((l) => l.id === id) ?? LEAGUES[0];
+  return (
+    <section className="tp-card" aria-label={`Season ${d.season.n} ladder`} data-testid="lb-season" style={{ padding: 16, marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+        <b className="r2-g" style={{ fontSize: 22 }}>Season {d.season.n}</b>
+        <span className="tp-p">{days} {days === 1 ? "day" : "days"} left · everyone resets to Rookie next month</span>
+      </div>
+      {mine && d.me ? (
+        <div style={{ marginTop: 10 }}>
+          <span style={{ color: mine.league.color, fontWeight: 700 }}>{mine.league.name}</span> · {d.me.pts.toLocaleString("en-US")} SP · #{d.me.rank}
+          {mine.next && <div aria-hidden style={{ marginTop: 6, height: 6, borderRadius: 3, background: "rgba(255,255,255,.1)" }}><i style={{ display: "block", height: 6, borderRadius: 3, width: `${Math.round(mine.pct * 100)}%`, background: mine.next.color }} /></div>}
+          {mine.next && <span className="tp-p">{(mine.next.min - d.me.pts).toLocaleString("en-US")} SP to {mine.next.name}</span>}
+        </div>
+      ) : <span className="tp-p" style={{ display: "block", marginTop: 8 }}>Win ranked duels to earn season points. Win streaks earn extra.</span>}
+      {d.rows.length > 0 && (
+        <ol style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "grid", gap: 6 }}>
+          {d.rows.slice(0, 10).map((r) => (
+            <li key={r.wallet} style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <span className="tp-rk">{r.rank}</span><b style={{ flex: 1 }}>{r.name}</b>
+              <span style={{ color: L(r.league).color }}>{L(r.league).name}</span><span className="tp-num">{r.pts.toLocaleString("en-US")}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
 function Rules({ duel }: { duel?: boolean }) {
   const r = duel ? { ...DUEL_BOARD_COPY.rules, note: "" } : LEADERBOARD_COPY.rules;
   return (
@@ -242,6 +276,7 @@ export default function LeaderboardView() {
   const [mine, setMine] = useState<(BoardPilot & { rank: number }) | null>(null);
   const [shown, setShown] = useState(10);
   const [duel, setDuel] = useState<DuelBoardRes | null>(null);
+  const [season, setSeason] = useState<SeasonRes | null>(null);
   const picked = useRef(false);
   useEffect(() => onWallet((a) => setMe(a ?? null)), []);
   const duelOpen = sort === "duel";
@@ -250,6 +285,7 @@ export default function LeaderboardView() {
     let alive = true;
     const q = me ? `?me=${me}` : "";
     fetch(withBase(`/api/duel/board${q}`)).then((r) => (r.ok ? r.json() : null)).then((d: DuelBoardRes | null) => { if (alive && d?.ok) setDuel(d); }).catch(() => {});
+    if (duelOpen) fetch(withBase(`/api/duel/board?board=season${me ? `&me=${me}` : ""}`)).then((r) => (r.ok ? r.json() : null)).then((d: SeasonRes | null) => { if (alive && d?.ok) setSeason(d); }).catch(() => {});
     return () => { alive = false; };
   }, [me, duelOpen]);
 
@@ -321,7 +357,7 @@ export default function LeaderboardView() {
           {loading ? (
             <div className="tp-loading" aria-busy="true" />
           ) : isDuel ? (
-            duel && duel.rows.length ? <DuelTable d={duel} meLc={me?.toLowerCase()} /> : (
+            duel && duel.rows.length ? <>{season && <SeasonLadder d={season} />}<DuelTable d={duel} meLc={me?.toLowerCase()} /></> : (
               <section className="tp-card tp-empty" data-testid="lb-empty">
                 <div className="tp-emptybloom" aria-hidden />
                 <span className="r2-eb">All time</span>

@@ -8,6 +8,8 @@ import "server-only";
  * request and on the stream's 1 s tick, so a pilot who closes their tab still gets settled.
  * Not yet: Nova orders. Until Nova's SDK lands, duel fuel is a duel-only book (lib/duel/rules) at live prices.
  */
+import { applySp, leagueOf, seasonAt, spDelta, type Season } from "@/lib/duel/season";
+import type { SeasonLine } from "@/lib/duel/types";
 import { kv, type Kv } from "@/lib/server/kv";
 import { ulid } from "@/lib/chat/ulid";
 import {
@@ -40,6 +42,9 @@ const K = {
   reports: () => `duel:reports`,
   reported: (id: string, pid: string) => `duel:rep:${id}:${pid}`,
   repCount: (pid: string) => `duel:repn:${pid}`,
+  /** season points per pilot, and the season ladder (sorted set, score = SP), lib/duel/season */
+  sp: (season: string, pid: string) => `duel:sp:${season}:${pid}`,
+  sboard: (season: string) => `duel:sboard:${season}`,
 };
 /** a live duel nobody ticked for longer than this is judged from the candle tape, not today's price */
 const GAP_MS = 3000;
@@ -307,6 +312,24 @@ async function onBoard(p: { pid: string; name: string }, r: number, s: Kv) {
   await s.zadd(K.board(), [{ score: r, member: p.pid }]);
   await s.set(K.pname(p.pid), p.name);
 }
+/** This season's ladder (lib/duel/season): pilots by season points, highest first. */
+export interface SeasonRow { rank: number; wallet: string; name: string; pts: number; league: string }
+export async function seasonBoard(limit = 50, me: string | null = null, now = Date.now(), s: Kv = kv()): Promise<{ season: Season; rows: SeasonRow[]; total: number; me: SeasonRow | null }> {
+  const season = seasonAt(now), key = K.sboard(season.id);
+  const rowsOf = async (pids: string[]) => {
+    if (!pids.length) return [];
+    const [ps, ns] = await Promise.all([s.mget(pids.map((p) => K.sp(season.id, p))), s.mget(pids.map(K.pname))]);
+    return pids.map((pid, i) => { const pts = Number(ps[i]) || 0; return { rank: 0, wallet: pid, name: ns[i] || `@pilot-${pid.slice(2, 6)}`, pts, league: leagueOf(pts).id }; });
+  };
+  const rows = await rowsOf(await s.zrange(key, Math.max(1, Math.min(100, limit)), true));
+  rows.forEach((r, i) => { r.rank = i > 0 && rows[i - 1].pts === r.pts ? rows[i - 1].rank : i + 1; });
+  let mine: SeasonRow | null = rows.find((r) => r.wallet === me) ?? null;
+  if (!mine && me) {
+    const [m] = await rowsOf([me]);
+    if (m && (await s.get(K.sp(season.id, me))) != null) { m.rank = (await s.zcountAbove(key, m.pts)) + 1; mine = m; }
+  }
+  return { season, rows, total: await s.zcard(key), me: mine };
+}
 export interface DuelBoardRow { rank: number; wallet: string; name: string; rating: number; w: number; l: number; games: number; streak: number; peak: number }
 /** Top ranked duelists by rating (ranked duels only; friendly duels never touch it). `me` adds that pilot's own row. */
 export async function duelBoard(limit = 50, me: string | null = null, s: Kv = kv()): Promise<{ rows: DuelBoardRow[]; total: number; me: DuelBoardRow | null }> {
@@ -350,7 +373,17 @@ async function rateDuel(r: DuelRoom, scoreA: 0 | 0.5 | 1, s: Kv) {
     const out = rate(ra, rb, scoreA);
     await s.set(K.rating(a.pid), JSON.stringify(out.a)); await s.set(K.rating(b.pid), JSON.stringify(out.b));
     await onBoard(a, out.a.r, s); await onBoard(b, out.b.r, s);
-    return out;
+    // season ladder: never let it break settling
+    const season = seasonAt(Date.now()).id, sp: Record<string, SeasonLine> = {};
+    try {
+      for (const [p, before, score] of [[a, ra, scoreA], [b, rb, (1 - scoreA) as 0 | 0.5 | 1]] as const) {
+        const had = Number(await s.get(K.sp(season, p.pid))) || 0, d = spDelta(score, before.streak), pts = applySp(had, d);
+        await s.set(K.sp(season, p.pid), String(pts));
+        await s.zrem(K.sboard(season), p.pid); await s.zadd(K.sboard(season), [{ score: pts, member: p.pid }]);
+        sp[p.pid] = { pts, delta: pts - had, league: leagueOf(pts).id };
+      }
+    } catch (e) { console.error("[duel] season", e); }
+    return { ...out, sp };
   }));
 }
 async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> {
@@ -361,13 +394,16 @@ async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> 
   const d = profit[a.pid] - profit[b.pid], tie = Math.abs(d) < 0.005;
   const winner = tie ? null : d > 0 ? a.pid : b.pid;
   const delta: Record<string, number> = { [a.pid]: 0, [b.pid]: 0 }, rating: Record<string, number> = { [a.pid]: a.rating, [b.pid]: b.rating };
+  let season: Record<string, SeasonLine> | undefined, streak: Record<string, number> | undefined;
   if (r.mode === "ranked" && (await s.setNX(K.rated(r.id), "1", 7 * 86400))) {
     let out: Awaited<ReturnType<typeof rateDuel>>;
     try { out = await rateDuel(r, tie ? 0.5 : d > 0 ? 1 : 0, s); } catch (e) { await s.del(K.rated(r.id)); throw e; } // retry next tick
     delta[a.pid] = out.da; delta[b.pid] = out.db; rating[a.pid] = out.a.r; rating[b.pid] = out.b.r;
+    season = Object.keys(out.sp).length ? out.sp : undefined;
+    streak = { [a.pid]: out.a.streak, [b.pid]: out.b.streak };
   }
   r.books = books; r.status = "done";
-  r.result = { winner, profit, delta, rating, books, price };
+  r.result = { winner, profit, delta, rating, books, price, ...(season ? { season } : {}), ...(streak ? { streak } : {}) };
   // collection crates (lib/server/collection): a ranked win drops a crate; never let it break settling
   if (r.mode === "ranked") await onDuelSettled(r.id, winner, winner ? (winner === a.pid ? b.pid : a.pid) : null, Date.now(), s).catch((e) => console.error("[duel] crate", e));
   for (const p of r.players) await s.delIfEq(K.active(p.pid), r.id);
