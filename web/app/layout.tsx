@@ -11,6 +11,7 @@ import "./profile-r5.css";
 import "./hangar-v3.css";
 import "./hangar-profile.css";
 import "./market.css";
+import "./nft.css";
 import "./refresh-r2.css";
 import { barlowCondensed, geist, instrumentSerif } from "./fonts";
 import AppShell from "@/components/AppShell";

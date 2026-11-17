@@ -12,6 +12,11 @@ import IdentitySigil from "./IdentitySigil";
 import { NO_IDENTITY } from "@/lib/identity";
 import { PencilGlyph, XGlyph } from "./Glyphs";
 import { UsernameField, useUsernameDraft } from "./UsernameRow";
+import HolderWallets from "@/components/nft/HolderWallets";
+import NftPicker from "@/components/nft/NftPicker";
+import { EMPTY_HOLDER, fetchHolder } from "@/lib/nft/client";
+import type { HolderStatus } from "@/lib/nft/config";
+import { isNativeApp } from "@/lib/native";
 
 /** Edit profile copy (profile r3 README copy list). */
 export const EDIT_COPY = {
@@ -53,9 +58,21 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
   const bannerFile = useRef<HTMLInputElement>(null);
   const bioRef = useRef<HTMLTextAreaElement>(null);
 
+  // Disciple NFTs (maker 2026-11-17): holder wallets + Connect NFT. Web only: the iPhone app has no Solana wallet to sign with.
+  const [holder, setHolder] = useState<HolderStatus>(EMPTY_HOLDER);
+  const [picking, setPicking] = useState(false);
+  const [web, setWeb] = useState(false);
+  useEffect(() => setWeb(!isNativeApp()), []);
+  useEffect(() => {
+    if (!open || !wallet) return;
+    let alive = true;
+    void fetchHolder(wallet).then((h) => { if (alive) setHolder(h); });
+    return () => { alive = false; };
+  }, [open, wallet]);
+
   useEffect(() => {
     if (!open) return;
-    setDraft({ ...EMPTY_META, ...meta }); setErr("");
+    setDraft({ ...EMPTY_META, ...meta }); setErr(""); setPicking(false);
     if (focus === "bio") requestAnimationFrame(() => bioRef.current?.focus());
   }, [open, meta, focus]);
 
@@ -131,11 +148,16 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
           <div className="nm">
             <b>{uname.name ? uname.name : (handle || "").replace(/^@/, "")}</b>
             {level && <span>{level}</span>}
+            {web && wallet && <button type="button" className="nft-connect" disabled={!!busy} aria-pressed={picking} onClick={() => setPicking((v) => !v)} data-testid="connect-nft">Connect NFT</button>}
           </div>
         </div>
       </header>
       <input ref={pfpFile} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => void pick("pfp", e.target.files?.[0])} data-testid="pfp-file" />
 
+        {picking && wallet ? (
+          <NftPicker wallet={wallet} status={holder} onStatus={setHolder} onClose={() => setPicking(false)}
+            onPicked={(id) => { setDraft((d) => ({ ...d, pfp: id })); setPicking(false); }} />
+        ) : (
         <form className="p5-edit-body" onSubmit={(e) => { e.preventDefault(); if (dirty && valid && !busy) void save(); }}>
           <UsernameField u={uname} disabled={!!busy} />
 
@@ -158,9 +180,12 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
             </div>
           )} />
 
+          {web && <HolderWallets wallet={wallet} status={holder} onChange={setHolder} />}
+
           {err && <p className="p5-err" role="alert">{err}</p>}
           <button type="submit" className="p5-btn primary wide p5-gold" disabled={!dirty || !valid || !!busy}>{busy === "save" ? C["edit.saving"] : EDIT_COPY.save}</button>
         </form>
+        )}
     </Sheet>
   );
 }

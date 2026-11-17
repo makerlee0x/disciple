@@ -20,7 +20,7 @@ export async function fetchProfileMeta(address: string | null | undefined): Prom
   if (!isAddr(address)) return { ...EMPTY_META };
   try {
     const j = (await (await fetch(`/api/profile/meta?address=${address.toLowerCase()}`, { cache: "no-store" })).json()) as Partial<ProfileMeta>;
-    return { pfp: j.pfp || "", bio: j.bio || "", flag: j.flag || "", title: j.title || "", banner: j.banner || "" };
+    return { pfp: j.pfp || "", bio: j.bio || "", flag: j.flag || "", title: j.title || "", banner: j.banner || "", nft: j.nft ?? null };
   } catch { return { ...EMPTY_META }; }
 }
 
