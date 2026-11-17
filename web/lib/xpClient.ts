@@ -8,6 +8,8 @@ import { dayPeriod, levelInfo, looksMessage, missionsFor, prestigeMessage, shopB
 
 const isAddr = (a: string | null | undefined): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.test(a);
 export const XP_CHANGED_EVENT = "disciple:xp-changed";
+/** fired once when a level lands while the app is open (components/xp/LevelUpFlash plays the burst) */
+export const LEVEL_UP_EVENT = "disciple:level-up";
 const POLL_MS = 60_000;
 
 export async function fetchXp(wallet: string | null | undefined): Promise<XpSummary | null> {
@@ -34,7 +36,7 @@ export function useXp(wallet: string | null) {
     fetchXp(wallet).then((x) => {
       // a level gained while the app is open plays the level-up sting (the same key from two cards plays once)
       const lv = x?.level?.level;
-      if (wallet && typeof lv === "number") { const was = lastLevel.get(wallet); if (was && lv > was) playSfx("level_up", { gapMs: 3000 }); lastLevel.set(wallet, lv); }
+      if (wallet && typeof lv === "number") { const was = lastLevel.get(wallet); if (was && lv > was) { playSfx("level_up", { gapMs: 3000 }); window.dispatchEvent(new Event(LEVEL_UP_EVENT)); } lastLevel.set(wallet, lv); }
       const done = x ? [...x.daily.missions, ...x.weekly.missions].filter((m) => m.done).length : 0;
       if (wallet && x) { const was = lastDone.get(wallet); if (was !== undefined && done > was) playSfx("mission_done", { gapMs: 3000 }); lastDone.set(wallet, done); }
       setXp(x); setReady(true);

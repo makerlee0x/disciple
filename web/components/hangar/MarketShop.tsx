@@ -21,6 +21,7 @@ import { usd, type Listing, type Sale } from "@/lib/market";
 import { buyListing, buyQuote, useMarket } from "@/lib/marketClient";
 import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
 import { itemArt } from "./Collection";
+import AnimClip from "@/components/ui/AnimClip";
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 const short = (w: string) => `${w.slice(0, 6)}…${w.slice(-4)}`;
@@ -163,8 +164,14 @@ function Hero({ rows, sales, live, onOpen, wallet }: { rows: Listing[] | null; s
   const l = feat[i], it = l ? itemById(l.item) : null;
   // nothing listed yet: show off the series' top drops instead of an empty banner
   const top = useMemo(() => ITEMS.filter((x) => x.kind === "skin" && x.series === live.n && (x.rar === "mythic" || x.rar === "legendary")).sort((a, b) => rank(b.rar) - rank(a.rar)).filter((x, n, all) => all.findIndex((y) => y.paint === x.paint) === n).slice(0, 3), [live.n]);
+  // Grok loop A4 (2026-11-17): a showroom spotlight behind the featured item. The wide cut while the banner is wide, the
+  // 4:5 cut once it stacks (its still with reduced motion). Picked from the banner's shape after mount.
+  const hero = useRef<HTMLElement>(null);
+  const [cut, setCut] = useState<"3x1" | "4x5" | null>(null);
+  useEffect(() => { const el = hero.current; if (el) setCut(el.offsetWidth / Math.max(1, el.offsetHeight) > 1.4 ? "3x1" : "4x5"); }, []);
   return (
-    <section className="mk-hero" style={{ backgroundImage: `url(${withBase(seriesArt(live.n))})` }} onMouseEnter={() => { paused.current = true; }} onMouseLeave={() => { paused.current = false; }} data-testid="market-hero">
+    <section ref={hero} className="mk-hero" style={{ backgroundImage: `url(${withBase(seriesArt(live.n))})` }} onMouseEnter={() => { paused.current = true; }} onMouseLeave={() => { paused.current = false; }} data-testid="market-hero">
+      {cut && <AnimClip key={cut} id={`A4-featured-${cut}`} ratio="none" loop poster className="mk-hero-vid" />}
       <div className="mk-hero-l">
         <h1 className="mk-title">Market</h1>
         <span className="mk-series">Series {live.n} · {live.name}</span>

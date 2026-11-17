@@ -21,6 +21,7 @@ import { BOARD_WINDOWS, type BestCall, type BoardPilot, type BoardSort, type Boa
 import type { BoardResponse, CrewBoardResponse } from "@/lib/server/leaderboard";
 import { BOT_DUEL_HREF, CREW_ENABLED, LOGBOOK_ENABLED } from "@/lib/features";
 import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
+import AnimClip from "@/components/ui/AnimClip";
 
 type Sort = BoardSort | "crews" | "duel";
 const SORTS: { k: Sort; label: string; col: string }[] = [
@@ -372,6 +373,7 @@ export default function LeaderboardView() {
           ) : isDuel ? (
             duel && duel.rows.length ? <>{season && <SeasonLadder d={season} />}<DuelTable d={duel} meLc={me?.toLowerCase()} /></> : (
               <section className="tp-card tp-empty" data-testid="lb-empty">
+                <AnimClip id="A5-podium-empty" ratio="none" loop poster whenVisible className="tp-emptyvid" />
                 <div className="tp-emptybloom" aria-hidden />
                 <span className="r2-eb">All time</span>
                 <b className="r2-g">{DUEL_BOARD_COPY.emptyTitle}</b>
@@ -389,6 +391,7 @@ export default function LeaderboardView() {
             )
           ) : rows.length === 0 ? (
             <section className="tp-card tp-empty" data-testid="lb-empty">
+              <AnimClip id="A5-podium-empty" ratio="none" loop poster whenVisible className="tp-emptyvid" />
               <span className="r2-eb">{BOARD_WINDOWS.find((w) => w.k === win)!.label}</span>
               <b className="r2-g">{LEADERBOARD_COPY.emptyTitle}</b>
               <div className="tp-acts">

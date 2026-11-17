@@ -20,6 +20,8 @@ import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
 import HudModeToggle from "@/components/flight/HudModeToggle";
 import FlightSfx from "@/components/flight/FlightSfx";
+import OrbitFlash from "@/components/flight/OrbitFlash";
+import BombFlash from "@/components/flight/BombFlash";
 import FlightObjectives from "@/components/flight/FlightObjectives";
 import FlightLog from "@/components/flight/FlightLog";
 import DraftXp from "@/components/flight/DraftXp";
@@ -347,6 +349,8 @@ export default function FlightCanvas({ search }: Props) {
       {/* desktop top bar (approved mockup): PILOT / PRO (lib/game/hudMode) + menu (sign in, settings, tramp / wall, simulated market) + leave */}
       <HudModeToggle sim={!isSimulator ? sim : null} onSim={toggleSim} />
       <FlightSfx />
+      <OrbitFlash />
+      <BombFlash />
       <DraftXp coin={(() => { const c = new URLSearchParams(search).get("coin") || ""; return /^0x[0-9a-fA-F]{40}$/.test(c) ? c : null; })()} />
       {!isSimulator && <FlightObjectives replay={isReplay} practice={false} />}
       {!isReplay && <FlightLog coin={/^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") ? (q0.get("coin") as string) : null} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} practice={isSimulator} />}

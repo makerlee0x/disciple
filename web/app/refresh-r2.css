@@ -298,7 +298,10 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
 .tp-empty { position: relative; overflow: hidden; padding: 40px 32px; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; min-height: 300px;
   /* empty podium plate (Grok art T1, PR #380); a scrim keeps the left-side copy readable */
   background: linear-gradient(90deg, rgba(11, 12, 14, .94) 0%, rgba(11, 12, 14, .7) 40%, rgba(11, 12, 14, .15) 75%), url(/art/system/podium-empty.webp) 60% 50% / cover no-repeat #0B0C0E; }
-.tp-empty > span, .tp-empty > b, .tp-empty > a { position: relative; }
+.tp-empty > span, .tp-empty > b, .tp-empty > a, .tp-empty > div { position: relative; z-index: 2; }
+/* Grok loop A5 podium-empty (2026-11-17) over the same plate, under a copy of the scrim */
+.tp-empty .tp-emptyvid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 60% 50%; z-index: 0; }
+.tp-empty:has(.tp-emptyvid)::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(90deg, rgba(11, 12, 14, .94) 0%, rgba(11, 12, 14, .7) 40%, rgba(11, 12, 14, .15) 75%); }
 .tp-empty > b { font-size: 44px; line-height: .95; color: #FFFFFF; max-width: 380px; }
 .tp-emptybody { font-size: 15px; line-height: 1.5; color: #BCC0CA; max-width: 380px; }
 .tp-play { width: auto; padding: 0 24px; }
@@ -349,6 +352,8 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
   .tp-empty { padding: 28px 20px; min-height: 360px; justify-content: flex-end;
     background: linear-gradient(180deg, rgba(11, 12, 14, .1) 0%, rgba(11, 12, 14, .8) 50%, rgba(11, 12, 14, .96) 100%), url(/art/system/podium-empty.webp) 50% 0 / auto 55% no-repeat #0B0C0E; }
   .tp-empty > b { font-size: 36px; }
+  .tp-empty .tp-emptyvid { bottom: auto; height: 55%; object-position: 50% 50%; }
+  .tp-empty:has(.tp-emptyvid)::before { background: linear-gradient(180deg, rgba(11, 12, 14, .1) 0%, rgba(11, 12, 14, .8) 50%, rgba(11, 12, 14, .96) 100%); }
 }
 
 /* ── Top pilots: guardrails, record, Best call, You this week (main mode hook loop, maker 2026-11-13) ── */
@@ -612,6 +617,7 @@ textarea.he-ta { min-height: 76px; padding: 12px 14px; resize: none; display: bl
 .ls-page { position: relative; isolation: isolate; min-height: calc(100dvh - var(--ap-topbar-offset, 72px)); display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; padding: 48px 16px 64px; box-sizing: border-box; overflow: hidden; background: #0B0C0E; }
 .ls-sky { position: absolute; inset: 0; z-index: -1; }
 .ls-sky img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%; display: block; }
+.ls-sky .ls-vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%; }
 .ls-sky::after { content: ""; position: absolute; inset: 0; background: radial-gradient(70% 70% at 50% 50%, rgba(11,12,14,0.55), rgba(11,12,14,0.2) 70%, rgba(11,12,14,0.6)); }
 .ls-card { box-sizing: border-box; width: min(520px, 100%); display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 28px; border-radius: 20px;
   border: 1px solid rgba(243,223,168,0.22); background: linear-gradient(180deg, rgba(26,28,36,0.96), rgba(18,19,24,0.96)); box-shadow: 0 30px 80px rgba(0,0,0,0.5); color: #E8EAEE; }
@@ -628,6 +634,14 @@ textarea.he-ta { min-height: 76px; padding: 12px 14px; resize: none; display: bl
   .ls-card h1 { font-size: 36px; }
   .ls-acts { flex-direction: column; width: 100%; }
   .ls-gold, .ls-btn { width: 100%; }
+}
+/* Phone cut (9:16): the card sits at the top, so slide each clip down until its ship clears the card, fade the top edge
+   into the page, and hide the wide still behind it. */
+@media (max-width: 720px) and (orientation: portrait) {
+  .ls-sky:has(.ls-vid) > img:not(.ls-vid) { visibility: hidden; }
+  .ls-sky .ls-vid { -webkit-mask-image: linear-gradient(180deg, transparent, #000 14%); mask-image: linear-gradient(180deg, transparent, #000 14%); }
+  .ls-sky .ls-vid.A5-lost { transform: translateY(30%); }
+  .ls-sky .ls-vid.A5-engine-trouble { transform: translateY(17%); }
 }
 
 /* ---- Step 7: /invite ---- */

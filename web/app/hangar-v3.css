@@ -184,6 +184,11 @@ body:has(.profile-page.hg) { background: var(--dsc3-page-bg); }
 .hgu-reveal-crate { position: relative; display: grid; place-items: center; }
 .hgu-burst { position: absolute; left: 50%; top: 45%; width: 300px; height: 300px; translate: -50% -50%; pointer-events: none; mix-blend-mode: screen;
   background: no-repeat 0 0 / 800% 100%; animation: hgu-burst .7s steps(7) forwards; }
+.hgu-cine { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; background: rgba(4, 5, 10, .86); cursor: pointer; animation: hgu-cine-in .2s ease-out both; }
+.hgu-cine-clip { width: min(88vmin, 640px); height: min(88vmin, 640px);
+  /* the bright tiers fill their square with rays: feather the edge so the frame never shows */
+  -webkit-mask-image: radial-gradient(closest-side, #000 62%, transparent); mask-image: radial-gradient(closest-side, #000 62%, transparent); }
+@keyframes hgu-cine-in { from { opacity: 0; } }
 @keyframes hgu-burst { to { background-position: 100% 0; } }
 .hgu-banner { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 6px; min-height: 150px; padding: 18px 24px; border-radius: 20px; overflow: hidden;
   border: 1px solid var(--dsc3-panel-border); background: #0B0C0E no-repeat right center / cover; }
