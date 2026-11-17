@@ -276,8 +276,8 @@ export default function PhoneHud() {
           <Link href="/achievements" data-testid="phone-missions" aria-label="Missions and trophies" style={sq}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z" /></svg></Link>
         </nav>
-        {!(cta && !sim) && <PhoneBag value={bagUsd} cost={basis} pnl={pnl?.uPnl ?? 0} pct={pnl?.pnlPct ?? 0} room={stats.room} banked={banked} holding={bagUsd > 0} />}
-        {steerHint && <div data-testid="steer-hint" aria-hidden className="ph-steer">⟵ DRAG THE SKY TO STEER ⟶</div>}
+        {!(cta && !sim) && <PhoneBag value={bagUsd} cost={basis} pnl={pnl?.uPnl ?? 0} pct={pnl?.pnlPct ?? 0} room={stats.room} banked={banked} holding={bagUsd > 0} sim={sim} />}
+        {steerHint && <div data-testid="steer-hint" aria-hidden className="ph-steer">{typeof location !== "undefined" && location.pathname.includes("/flight/sim") ? "DRAG THE SKY TO FLY ANYWHERE" : "⟵ DRAG THE SKY TO STEER ⟶"}</div>}
         {floats.map((f) => <span key={f.id} aria-hidden className={`ph-float ${f.k}`}>{f.t}</span>)}
       </>}
       {sheet && <>
@@ -396,7 +396,7 @@ export default function PhoneHud() {
 
 /** YOUR BAG card (throttle prototype v3-v5, maker: the bag and PnL are "the whole point"): the bag's value big, a PnL chip that
  *  turns green / pink, what you put in and the Room left, and a BANKED row once you've sold some. */
-function PhoneBag({ value, cost, pnl, pct, room, banked, holding }: { value: number; cost: number; pnl: number; pct: number; room: number | null; banked: number; holding: boolean }) {
+function PhoneBag({ value, cost, pnl, pct, room, banked, holding, sim }: { value: number; cost: number; pnl: number; pct: number; room: number | null; banked: number; holding: boolean; sim?: boolean }) {
   const up = holding && pnl >= 0, dn = holding && pnl < 0;
   const vref = useRef<HTMLSpanElement>(null), bref = useRef<HTMLElement>(null);
   const bump = (el: HTMLElement | null) => { if (!el) return; el.classList.remove("ph-bump"); void el.offsetWidth; el.classList.add("ph-bump"); };
@@ -405,6 +405,15 @@ function PhoneBag({ value, cost, pnl, pct, room, banked, holding }: { value: num
   const lastV = useRef(vTxt), lastB = useRef(bTxt);
   useEffect(() => { if (lastV.current !== vTxt && Math.abs(value - parseFloat(lastV.current.replace(/[$,]/g, ""))) > Math.max(0.5, value * 0.03)) bump(vref.current); lastV.current = vTxt; }, [vTxt, value]);
   useEffect(() => { if (lastB.current !== bTxt) bump(bref.current); lastB.current = bTxt; }, [bTxt]);
+  // Free play, bag sold: the cash-out IS the score (maker 2026-11-16: the $300 "sits so little and tiny"), so BANKED takes the big spot
+  if (sim && !holding && Math.abs(banked) >= 0.01) return (
+    <div data-testid="phone-bag" data-cashed="1" className={`ph-bag ${banked >= 0 ? "up" : "dn"}`} aria-live="polite">
+      <small>CASHED OUT</small>
+      <div className="ph-pnl" data-testid="phone-bag-chip"><b>BANKED</b><small>run PnL</small></div>
+      <div style={{ minWidth: 0, overflow: "hidden" }}><span ref={vref} className="ph-bagv" data-testid="phone-bag-value" style={{ color: banked >= 0 ? "#5FF0A0" : "#FF8FBD" }}>{bTxt}</span></div>
+      <div className="ph-bagsub">Slide up to ape back in</div>
+    </div>
+  );
   return (
     <div data-testid="phone-bag" className={`ph-bag${up ? " up" : dn ? " dn" : ""}`} aria-live="polite">
       <small>YOUR BAG</small>

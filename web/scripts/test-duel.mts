@@ -89,7 +89,7 @@ test("server: fills at the server price, buzzer settles once, ratings move, rema
 
 test("server: ranked buzzer within the overtime gap adds 30 s once, then rates", async () => {
   const a = { pid: "0x" + "c".repeat(40), name: "@c" }, b = { pid: "0x" + "d".repeat(40), name: "@d" };
-  await S.pollQueue(a, "shark", 180_000); const m = await S.pollQueue(b, "shark", 180_000) as { room: { id: string } };
+  await S.pollQueue(a, "shark", 60_000); const m = await S.pollQueue(b, "shark", 60_000) as { room: { id: string } };
   await S.setReady(m.room.id, a.pid); await S.setReady(m.room.id, b.pid);
   const { kv } = await import("../lib/server/kv");
   const r = JSON.parse(JSON.stringify(await S.getRoom(m.room.id))); r.startAt = Date.now() - 200_000; r.endAt = Date.now() - 5; r.mark = { p: 68000, at: Date.now() - 50 }; await kv().set(S._keys.room(m.room.id), JSON.stringify(r));
@@ -128,7 +128,7 @@ test("server: one duel at a time (no second ranked room, invite or join while se
   await S.pollQueue(a, "rookie", 60_000); const m = await S.pollQueue(b, "rookie", 60_000) as { room: { id: string } };
   assert.ok(m.room);
   // a is seated: queueing again (any tier) hands back the same room, never a new one
-  const again = await S.pollQueue(a, "pro", 180_000) as { room?: { id: string } };
+  const again = await S.pollQueue(a, "pro", 60_000) as { room?: { id: string } };
   assert.equal(again.room?.id, m.room.id);
   await assert.rejects(S.createInvite(a, "pro", 60_000), /already in a duel/);
   const inv = await S.createInvite(c, "pro", 60_000);
@@ -283,4 +283,19 @@ test("custom budgets: a $5 duel trades in whole dollars ($1 / $2 / $3 / $4)", as
   await S.trade(room.id, a.pid, "boost", 4, PRICE);
   await S.trade(room.id, b.pid, "dump", 1, PRICE);
   await assert.rejects(S.trade(room.id, b.pid, "dump", 2.5, PRICE), /trade size/);
+});
+
+test("guest pilots (/duel demo page): signed cookie, forged or wrong ids refused", async () => {
+  const G = await import("../lib/server/duelGuest");
+  const id = G.newGuestId(); assert.ok(G.isGuestPid(id)); assert.ok(!G.isGuestPid("0x" + "a".repeat(40)));
+  const tok = await G.guestToken(id);
+  assert.equal(await G.guestOf(tok), id);
+  assert.equal(await G.guestOf(tok.slice(0, -1) + (tok.endsWith("0") ? "1" : "0")), null);   // forged signature
+  assert.equal(await G.guestOf(`${G.newGuestId()}.${tok.split(".")[1]}`), null);           // someone else's signature
+  assert.equal(await G.guestOf(undefined), null);
+  const req = new Request("http://x/", { headers: { cookie: `a=1; ${G.DUEL_GUEST_COOKIE}=${encodeURIComponent(tok)}` } });
+  assert.equal(await G.guestFromReq(req), id); assert.ok(G.guestName(id).startsWith("@guest-"));
+  // a guest can sit in a friend duel against a signed-in pilot
+  const room = await S.createInvite({ pid: id, name: G.guestName(id) }, "rookie", 60_000);
+  const j = await S.joinInvite({ pid: G.newGuestId(), name: "@friend" }, room.code!); assert.equal(j.players.length, 2);
 });

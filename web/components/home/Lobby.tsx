@@ -23,6 +23,8 @@ import { CrewAboardProvider } from "@/components/crew/CrewAboard";
 import AwayCard from "@/components/push/AwayCard";
 import { CREW_ENABLED, LOGBOOK_ENABLED } from "@/lib/features";
 import { flightHref, lit, Mark, orbitPct, pct } from "./rocketBits";
+import CoinRocket from "./CoinRocket";
+import { isClassic } from "@/lib/coinLook";
 import s from "./lobby.module.css";
 
 /** The coin's mark in the lobby's style (rocketBits Mark + .mark). */
@@ -30,8 +32,17 @@ function LMark({ c, className }: { c: HomeCoin; className?: string }) {
   return <Mark c={c} className={`${s.mark}${className ? " " + className : ""}`} />;
 }
 
-/** The chrome rocket on its own light, with the coin's mark on the hull. */
+/** The coin's rocket on its own light, with the coin's mark on the hull: the chrome rocket, or the skin its host picked (lib/coinLook). */
 function Rocket({ c, className }: { c: HomeCoin; className?: string }) {
+  if (c.look && !isClassic(c.look)) return (
+    <span className={`${s.rocket} ${s.skinned}${className ? " " + className : ""}`} aria-hidden>
+      <span className={s.bloom} />
+      {/* keeps the chrome rocket's box so shelves line up */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img className={s.rocketImg} src={withBase(ROCKET_SRC)} alt="" loading="lazy" decoding="async" style={{ visibility: "hidden" }} />
+      <CoinRocket look={c.look} icon={c.icon} />
+    </span>
+  );
   return (
     <span className={`${s.rocket}${className ? " " + className : ""}`} aria-hidden>
       <span className={s.bloom} />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { newStealthOwner } from "@/lib/privateLaunch";
 import { CURVE, MODERATION, type ModerationVerdict } from "@/lib/config";
 import { contrastWarning } from "@/lib/decal";
@@ -9,6 +9,11 @@ import { BADGE_TAKES, badgeDataUri, badgeSpecs } from "@/lib/badgeForge";
 import { precheckWithin, preloadModeration } from "@/lib/moderation-client";
 import { cropSquare } from "@/components/create/SquareCrop";
 import LaunchPad from "@/components/create/LaunchPad";
+import LookPicker, { LookChip, lookOptions, type LookChoice } from "@/components/create/LookPicker";
+import { useCollection } from "@/lib/collectionClient";
+import { CLASSIC, lookFromCopy, shuffleLook, type CoinLook } from "@/lib/coinLook";
+import { STARTER_SKIN } from "@/lib/collection";
+import { saveCoinLook } from "@/lib/coinLookClient";
 import { LIFTOFF_MS, LaunchIgnition, type LaunchPhase } from "@/components/create/LaunchLive";
 import { saveLaunchHandoff } from "@/lib/launchHandoff";
 import FirstBoostField, { type FirstBoostState } from "@/components/create/FirstBoostField";
@@ -132,7 +137,17 @@ export default function LaunchRocketPage() {
   }, [name, callSign]);
 
   const [signedIn, setSignedIn] = useState(false);
-  useEffect(() => onWallet(() => setSignedIn(canTransact())), []);
+  const [me, setMe] = useState<string | null>(null);
+  useEffect(() => onWallet(() => { const ok = canTransact(); setSignedIn(ok); if (ok) activeAddress().then((a) => setMe(a.toLowerCase())).catch(() => setMe(null)); else setMe(null); }), []);
+  // the rocket's look (lib/coinLook): a skin + trail from the host's Hangar, starting on what they fly in Turbo
+  const { col } = useCollection(me);
+  const [lookPick, setLookPick] = useState<LookChoice | null>(null);
+  const [lookOpen, setLookOpen] = useState(false);
+  const lookOpts = useMemo(() => lookOptions(col), [col]);
+    // (the starter Bullet everyone owns doesn't count: until you've found a skin, a coin starts on the chrome rocket)
+  const lookChoice: LookChoice = lookPick ?? {
+    skin: col && col.equipped.skin !== STARTER_SKIN && lookOpts.skins.some((o) => o.id === col.equipped.skin) ? col.equipped.skin : CLASSIC,
+    trail: col && lookOpts.trails.some((o) => o.id === col.equipped.trail) ? col.equipped.trail : "trail-gold" };
   const needsSignIn = launchNeedsSignIn({ deployed: isDeployed(), staticPreview: IS_STATIC_PREVIEW, signedIn });
   const signIn = () => {
     setMsg(null);
@@ -373,11 +388,14 @@ export default function LaunchRocketPage() {
       setLaunchDone(true);
       trackFunnel("first_launch"); // funnel counter: once per browser, fails silently
       setPhase("fuelling");
+      // stamp the look on the coin while we're still its creator (before any fee receiver takes the creator seat)
+      const lookSaved = look.skin !== CLASSIC || look.trail !== "trail-gold" ? saveCoinLook(res.token, look, priv?.ephemeralPubKey) : Promise.resolve(true);
       let note: string | null = null;
       if (fr && isDeployed() && !priv) {
         const me = await activeAddress();
         if (fr.toLowerCase() !== me.toLowerCase()) {
           setLaunched("Launched. Assigning the fee receiver (one more confirmation)…");
+          await lookSaved;
           try {
             if (clientGaslessMode()) throw new Error(blockedActionMessage("Launchpad.transferCreator(address,address)"));
             await execCalls([{ to: deployment().launchpad, data: encodeFunctionData({ abi: launchpadAbi, functionName: "transferCreator", args: [res.token, fr as Address] }) }]);
@@ -406,6 +424,8 @@ export default function LaunchRocketPage() {
   }
 
   const defaultPairLabel = defaultPair.symbol;
+  // hidden launches keep their pick but carry no serial (a serial would point straight at its host)
+  const look: CoinLook = lookFromCopy(lookChoice.skin, lookChoice.trail, privateLaunch ? null : lookOpts.skins.find((o) => o.id === lookChoice.skin)?.copy);
 
   const modeLabel = MODE_LABEL[privateLaunch ? LaunchMode.TRENCH_WARFARE : gameMode] ?? "Easy";
   const card = modeCard(modeLabel);
@@ -511,7 +531,9 @@ export default function LaunchRocketPage() {
   return (
     <div className={`${L.page} launch-v3`}>
       <form className={L.grid} onSubmit={onSubmit}>
-        <LaunchPad name={name} ticker={callSign} icon={previewIcon} mode={card.label} modeColor={card.color} seat={seatLabel(boost)} />
+        <LaunchPad name={name} ticker={callSign} icon={previewIcon} mode={card.label} modeColor={card.color} seat={seatLabel(boost)} look={look}
+          chip={<LookChip look={look} onOpen={() => setLookOpen(true)} onShuffle={() => setLookPick(shuffleLook(lookOpts, lookChoice))} disabled={launching} />}
+          tray={lookOpen ? <LookPicker opts={lookOpts} signedIn={signedIn} value={lookChoice} hidden={privateLaunch} onPick={setLookPick} onClose={() => setLookOpen(false)} /> : null} />
 
         <section className={L.panel} aria-labelledby="lc-title">
           <div className={L.panelHead}>

@@ -4,6 +4,7 @@
  * launch block) + the indexed trade fills (lib/server/trades → KV `trades:<coin>`, same data as /api/trades).
  * Nothing here is sampled or mocked: a stat that can't be derived is null and the UI hides it.
  */
+import type { CoinLook } from "@/lib/coinLook";
 import { BOMB_TIERS, TIERS } from "@/lib/config";
 import { bombTierIndex } from "@/lib/flight/bombTier";
 import { playerUsd, type Fill } from "@/lib/trades";
@@ -55,6 +56,8 @@ export type HomeCoin = {
   /** launch difficulty: curve.mode() (0 Trench = Expert, 1 Easy, 2 Hard); null/absent = unknown */
   mode?: number | null;
   stats: CoinStats | null;
+  /** the rocket look its host picked at launch (lib/coinLook); absent = the chrome rocket */
+  look?: CoinLook;
 };
 
 export type HomeData = {

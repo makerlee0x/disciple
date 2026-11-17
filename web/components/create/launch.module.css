@@ -27,6 +27,47 @@
 .seatCard { flex: none; padding: 10px 12px; border-radius: 12px; background: rgba(10, 12, 18, .8); border: 1px solid rgba(232, 234, 238, .12); text-align: right; }
 .seatCard span { display: block; font: 500 10px / 1 var(--dsc-font-mono, 'JetBrains Mono', ui-monospace, monospace); color: #9095A0; text-transform: uppercase; }
 .seatCard b { display: block; margin-top: 4px; font: 800 26px / 1 var(--dsc-font-game); color: #FFFFFF; }
+/* rocket look (LookPicker): the chip under the difficulty tag, and the tray over the lower stage */
+.lookDock { position: absolute; z-index: 5; right: 24px; bottom: 112px; }
+.lookChipRow { display: flex; align-items: stretch; gap: 6px; }
+.lookShuffle { flex: none; width: 40px; display: grid; place-items: center; border-radius: 12px; cursor: pointer; color: #E8EAEE; background: rgba(10, 12, 18, .8); border: 1px solid rgba(232, 234, 238, .14); }
+.lookShuffle:hover { border-color: rgba(243, 223, 168, .5); color: #F2C14E; }
+.lookHeadR { display: flex; gap: 6px; align-items: stretch; }
+.lookHeadR .lookShuffle { width: 36px; border-radius: 9px; }
+.lookMine { margin-left: 4px; font-style: normal; color: #F2C14E; }
+.lookChip { display: flex; align-items: center; gap: 10px; padding: 7px 10px 7px 7px; border-radius: 12px; cursor: pointer; text-align: left; color: #FFFFFF;
+  background: rgba(10, 12, 18, .8); border: 1px solid rgba(232, 234, 238, .14); transition: border-color .15s, background .15s; max-width: 300px; }
+.lookChip:hover { border-color: rgba(243, 223, 168, .5); background: rgba(16, 18, 26, .9); }
+.lookChip:focus-visible { outline: 2px solid #F2C14E; outline-offset: 2px; }
+.lookChipArt { flex: none; width: 38px; height: 50px; border-radius: 8px; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, rgba(255, 255, 255, .08), rgba(0, 0, 0, 0) 70%), #14161D; box-shadow: inset 0 -2px 0 var(--rc); }
+.lookChipArt img { height: 44px; width: auto; max-width: 34px; object-fit: contain; }
+.lookChipTx { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.lookChipTx span, .lookChipTx i { font: 500 10px / 1 var(--dsc-font-mono, 'JetBrains Mono', ui-monospace, monospace); color: #9095A0; text-transform: uppercase; font-style: normal; white-space: nowrap; }
+.lookChipTx b { font: 800 17px / 1 var(--dsc-font-game); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lookChipGo { flex: none; margin-left: 4px; padding: 5px 8px; border-radius: 7px; background: #F2C14E; color: #121327; font: 800 13px / 1 var(--dsc-font-game); text-transform: uppercase; }
+.lookTray { position: absolute; z-index: 6; left: 12px; right: 12px; bottom: 12px; max-height: calc(100% - 140px); display: flex; flex-direction: column; gap: 10px;
+  padding: 14px; border-radius: 18px; background: linear-gradient(180deg, rgba(26, 28, 34, .97), rgba(18, 20, 25, .98)); border: 1px solid rgba(243, 223, 168, .35);
+  box-shadow: 0 -20px 60px rgba(0, 0, 0, .55); animation: moUp .2s ease-out; }
+.lookHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.lookTabs { display: flex; gap: 6px; }
+.lookTabs button { padding: 8px 12px; border-radius: 9px; border: 1px solid rgba(232, 234, 238, .14); background: transparent; color: #BCC0CA; cursor: pointer; font: 800 16px / 1 var(--dsc-font-game); text-transform: uppercase; }
+.lookTabs button span { margin-left: 4px; font: 500 11px / 1 var(--dsc-font-mono, 'JetBrains Mono', ui-monospace, monospace); color: #9095A0; }
+.lookTabs .lookTabOn { background: #E8EAEE; color: #121327; border-color: #E8EAEE; }
+.lookTabs .lookTabOn span { color: #4A4F5C; }
+.lookDone { padding: 8px 14px; border-radius: 9px; border: 0; background: #F2C14E; color: #121327; cursor: pointer; font: 800 16px / 1 var(--dsc-font-game); text-transform: uppercase; }
+.lookGrid { list-style: none; margin: 0; padding: 2px; display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; overflow-y: auto; min-height: 0; }
+.lookTile { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 6px 9px; border-radius: 12px; cursor: pointer; color: #FFFFFF;
+  background: #14161D; border: 1px solid rgba(232, 234, 238, .1); box-shadow: inset 0 -3px 0 var(--rc); transition: border-color .15s, transform .15s; }
+.lookTile:hover:not(:disabled) { border-color: rgba(243, 223, 168, .45); transform: translateY(-1px); }
+.lookTile:disabled { opacity: .35; cursor: not-allowed; }
+.lookTileOn { border-color: #F2C14E; box-shadow: inset 0 -3px 0 var(--rc), 0 0 0 1px #F2C14E; background: #1C1D22; }
+.lookTile b { font: 800 14px / 1.05 var(--dsc-font-game); text-transform: uppercase; text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lookTile > span:last-child { font: 500 10px / 1 var(--dsc-font-mono, 'JetBrains Mono', ui-monospace, monospace); color: #9095A0; text-transform: uppercase; white-space: nowrap; }
+.lookArt { height: 84px; width: 100%; display: grid; place-items: center; }
+.lookArt img { height: 80px; width: auto; max-width: 100%; object-fit: contain; }
+.lookPlume i { display: block; height: 84px; width: 28px; background-size: 600% 100%; background-repeat: no-repeat; mix-blend-mode: screen; animation: lookPlume .42s steps(6) infinite; }
+@keyframes lookPlume { to { background-position: 120% 0; } }
+.lookNote { margin: 0; font: 500 12px / 1.35 var(--dsc-font-body, inherit); color: #9095A0; }
 
 /* ---------------------------------------------------------------- launch control: two columns, every step on screen */
 .panel { position: relative; height: 100%; min-height: 0; box-sizing: border-box; padding: 14px 20px 14px; border-radius: 24px; background: rgba(22, 24, 28, .78); border: 1px solid #2E323A; min-width: 0;
@@ -219,6 +260,16 @@
   .plate { left: 16px; right: 16px; bottom: 16px; }
   .plateName b { font-size: 28px; }
   .seatCard b { font-size: 22px; }
+  .lookDock { right: 16px; bottom: 96px; }
+  /* phone: two small square buttons (shuffle, and the rocket that opens the tray) clear of the rocket */
+  .lookChip { padding: 5px; gap: 0; }
+  .lookChipArt { width: 40px; height: 50px; } .lookChipArt img { height: 44px; }
+  .lookChipTx { display: none; }
+  .lookShuffle { width: 40px; }
+  .lookChipGo { display: none; }
+  .lookTray { left: 8px; right: 8px; bottom: 8px; max-height: calc(100% - 96px); padding: 12px; }
+  .lookGrid { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); }
+  .lookArt { height: 68px; } .lookArt img { height: 64px; }
   .panel { padding: 18px 16px 20px; border-radius: 20px; grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "name" "badge" "diff" "seat" "more" "cta"; }
   .panelHead h2 { font-size: 26px; }
   .panelHead span { display: none; }

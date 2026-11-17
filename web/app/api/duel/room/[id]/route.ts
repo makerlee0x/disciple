@@ -18,7 +18,7 @@ import { chat, eventsAfter, getRoom, leave, referee, refereeRunning, rematch, re
 import { body, fail, out, pilotOf, requirePass } from "@/lib/server/duel/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-/** the referee (after()) ticks a whole duel: 3:00 + overtime + countdown fits */
+/** the referee (after()) ticks a whole duel: 1:00 + overtime + countdown fits */
 export const maxDuration = 300;
 /** keep a referee on every live duel (cheap check; the KV lease makes it one per room) */
 async function ensureReferee(id: string) { if (!(await refereeRunning(id))) after(() => referee(id, duelPrice)); }
@@ -35,7 +35,7 @@ export async function GET(req: Request, { params }: P) {
     if (room.status === "live") { const t = await tick(id, await duelPrice()); if (t) room = t.room; if (room.status === "live") await ensureReferee(id); }
     const since = Number(new URL(req.url).searchParams.get("after")) || 0;
     return out(200, { ok: true, room, events: await eventsAfter(id, since), now: Date.now() });
-  } catch (e) { return fail(e); }
+  } catch (e) { return fail(e, req); }
 }
 
 export async function POST(req: Request, { params }: P) {
@@ -81,5 +81,5 @@ export async function POST(req: Request, { params }: P) {
     if (res.room.status === "live") await ensureReferee(id);
     const since = Number(b.after) || 0;
     return out(200, { ok: true, room: res.room, events: await eventsAfter(id, since), now: Date.now() });
-  } catch (e) { return fail(e); }
+  } catch (e) { return fail(e, req); }
 }

@@ -190,7 +190,6 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .budget .bud i{font:800 17px/1 var(--f-game);color:var(--muted);font-style:normal}
 .duel-root .budget .bud input{width:100%;min-width:0;background:transparent;border:0;color:var(--text);font:800 17px/1 var(--f-game);outline:none;padding:0 0 0 3px}
 .duel-root .budget .bud input::placeholder{color:var(--muted)}
-.duel-root .alab em{display:block;margin-top:4px;font:800 11px/1 var(--f-game);letter-spacing:1px;color:var(--gold);font-style:normal}
 .duel-root .opts span{font:700 12px/1 var(--f-game);letter-spacing:.6px;color:var(--muted);width:56px}
 .duel-root .opt{flex:1;height:40px;border-radius:12px;background:#23262F;border:2px solid #2E323A;font:800 17px/1 var(--f-game)}
 .duel-root .opt{height:48px!important;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
@@ -235,7 +234,7 @@ html,body{margin:0;height:100%;background:#07080c}
 @media (min-width:900px) and (min-height:600px){.duel-root .app{width:100%;height:100%;border-radius:0;box-shadow:none;--ch:clamp(96px,calc(100vh - 560px),230px)}
 .duel-root .app.big{--ch:clamp(150px,calc(100vh - 500px),360px)}
 .duel-root .sb{left:50%;right:auto;width:720px;transform:translateX(-50%)}
-.duel-root .chart{left:24px;right:24px}
+.duel-root .chart{left:max(24px,calc(50% - 520px));right:max(24px,calc(50% - 520px))}
 .duel-root .feed{left:24px}
 .duel-root .mute{right:24px}
 .duel-root .bottom{left:50%;right:auto;width:560px;transform:translateX(-50%)}
@@ -248,8 +247,6 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .practice{display:block;width:100%;margin-top:8px;background:transparent;border:0;color:var(--muted);font:600 13px/1 var(--f-ui);text-decoration:underline;text-underline-offset:3px}
 .duel-root .pre{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;gap:14px;padding:calc(14px + env(safe-area-inset-top,0px)) 16px calc(18px + env(safe-area-inset-bottom,0px));overflow-y:auto;overflow-x:hidden;background:#07080c;transition:opacity .35s ease}
 .duel-root .pre.out{opacity:0;pointer-events:none}
-.duel-root .pre-bg{position:absolute;inset:0;z-index:0;background-size:cover;background-position:50% 32%;opacity:.42;filter:saturate(1.05)}
-.duel-root .pre-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,8,12,.55) 0%,rgba(7,8,12,.25) 30%,rgba(7,8,12,.88) 62%,#07080c 100%)}
 .duel-root .pre>*:not(.pre-bg){position:relative;z-index:1}
 .duel-root .pre-top{width:100%;max-width:980px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px}
 .duel-root .pre-back{justify-self:start;display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 12px 0 8px;border-radius:12px;background:rgba(18,19,39,.7);border:1px solid var(--line);color:var(--text);text-decoration:none;font:800 15px/1 var(--f-game);letter-spacing:.6px}
@@ -260,23 +257,6 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .steps li{flex:1;text-align:center;font:700 11px/1 var(--f-game);letter-spacing:.8px;color:rgba(215,217,228,.5);padding-top:8px;border-top:3px solid rgba(255,255,255,.14);white-space:nowrap}
 .duel-root .steps li.done{color:var(--muted);border-top-color:rgba(242,193,78,.5)}
 .duel-root .steps li.on{color:var(--gold);border-top-color:var(--gold)}
-.duel-root .arena{width:100%;max-width:560px;display:grid;grid-template-columns:1fr 92px 1fr;align-items:center;gap:8px;margin-top:auto}
-.duel-root .slot{border-radius:20px;padding:16px 10px 14px;background:rgba(18,19,39,.72);border:2px solid #2E323A;display:flex;flex-direction:column;align-items:center;gap:6px;min-height:196px;justify-content:center;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);transition:border-color .3s,background .3s}
-.duel-root .slot.me{border-color:var(--gold);background:rgba(40,34,18,.72)}
-.duel-root .slot .av{width:72px;height:72px;border-radius:50%;display:grid;place-items:center;font:800 22px/1 var(--f-game);background:var(--gold);color:#121327;box-shadow:0 0 0 4px rgba(242,193,78,.18),0 0 30px rgba(242,193,78,.35)}
-.duel-root .slot b{font:800 22px/1 var(--f-game);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.duel-root .slot small{font:600 12px/1.3 var(--f-ui);color:var(--muted);text-align:center}
-.duel-root .slot.rival .av{background:#23262F;color:var(--muted);box-shadow:none;border:2px dashed rgba(255,255,255,.25)}
-.duel-root .slot.rival b{color:var(--muted)}
-.duel-root .arena[data-stage=vs] .slot.rival,.duel-root .arena[data-stage=launch] .slot.rival{border-color:var(--pink);background:rgba(44,14,30,.72)}
-.duel-root .arena[data-stage=vs] .slot.rival .av,.duel-root .arena[data-stage=launch] .slot.rival .av{background:var(--pink);color:#fff;border:0;box-shadow:0 0 0 4px rgba(240,48,127,.18),0 0 30px rgba(240,48,127,.4);animation:pop .45s cubic-bezier(.3,1.6,.5,1)}
-.duel-root .arena[data-stage=vs] .slot.rival b,.duel-root .arena[data-stage=launch] .slot.rival b{color:var(--text)}
-.duel-root .slot .radar{width:96px;height:96px;margin:-12px 0 -12px;background:none}
-.duel-root .slot .radar i{display:none}
-.duel-root .arena[data-stage=search] .slot .radar i,.duel-root .arena[data-stage=invite] .slot .radar i{display:block;border-color:var(--pink)}
-.duel-root .amid{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center}
-.duel-root .amid .vsx{font:800 40px/1 var(--f-game);color:var(--muted);letter-spacing:1px}
-.duel-root .acount{font:800 76px/1 var(--f-game);color:var(--gold);text-shadow:0 0 30px rgba(242,193,78,.5);font-variant-numeric:tabular-nums;animation:pop .4s cubic-bezier(.3,1.6,.5,1)}
 .duel-root .alab{font:700 11px/1.2 var(--f-game);letter-spacing:.8px;color:var(--muted)}
 .duel-root .panel{width:100%;max-width:560px;border-radius:22px;background:rgba(21,22,27,.92);border:1px solid #2E323A;padding:16px;margin-bottom:auto}
 .duel-root .pane{display:flex;flex-direction:column;gap:12px}
@@ -291,19 +271,81 @@ html,body{margin:0;height:100%;background:#07080c}
 @media (max-height:700px){.duel-root .slot{min-height:150px}.duel-root .pre{gap:10px}}
 @media (min-width:900px) and (min-height:600px){
 .duel-root .pre{gap:22px;padding-top:24px}
-.duel-root .pre-bg{background-size:auto 128%;background-repeat:no-repeat;background-position:50% 34%;opacity:.55;-webkit-mask-image:linear-gradient(90deg,transparent 18%,#000 34%,#000 66%,transparent 82%);mask-image:linear-gradient(90deg,transparent 18%,#000 34%,#000 66%,transparent 82%)}
 .duel-root .pre-title{font-size:34px}
 .duel-root .steps{max-width:640px}
 .duel-root .steps li{font-size:13px}
-.duel-root .arena{max-width:900px;grid-template-columns:1fr 160px 1fr;gap:16px}
-.duel-root .slot{min-height:280px;gap:10px}
-.duel-root .slot .av{width:110px;height:110px;font-size:30px}
-.duel-root .slot .radar{width:150px;height:150px;margin:-20px 0}
-.duel-root .slot b{font-size:30px}
-.duel-root .slot small{font-size:14px}
-.duel-root .amid .vsx{font-size:64px}
-.duel-root .acount{font-size:120px}
 .duel-root .panel{max-width:560px;padding:20px}}
+/* pre-match lobby (maker 2026-11-16): the duel art is the hero, shown whole. Gold ship = you, pink ship = your rival.
+   The rival only gets a tag once there is one (searching, invite, match found); at set-up the pink ship stands alone. */
+.duel-root .pre-body{width:100%;max-width:980px;display:flex;flex-direction:column;align-items:center;gap:12px;margin:auto 0}
+.duel-root .pre-side{width:100%;max-width:560px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.duel-root .arena{position:relative;width:100%;max-width:560px;aspect-ratio:1.4;border-radius:22px;overflow:hidden;background:#07080c;border:1px solid #2E323A;flex:none}
+.duel-root .art{position:absolute;left:0;right:0;top:-17%;aspect-ratio:2/3;background-size:100% 100%;background-repeat:no-repeat}
+.duel-root .art::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,8,12,0) 46%,rgba(7,8,12,.5) 58%,rgba(7,8,12,.15) 70%,rgba(7,8,12,0) 100%);pointer-events:none}
+.duel-root .arena::after{content:"";position:absolute;z-index:2;left:0;right:0;bottom:0;height:40%;background:linear-gradient(180deg,rgba(7,8,12,0),rgba(7,8,12,.92));pointer-events:none}
+.duel-root .art>*,.duel-root .arena>.tag,.duel-root .arena>.acnt{position:absolute;z-index:3}
+.duel-root .art .vsx{left:51.5%;top:21%;transform:translate(-50%,-50%) skewX(-8deg);font:800 34px/1 var(--f-game);letter-spacing:1px;color:rgba(242,243,247,.82);text-shadow:0 2px 18px rgba(0,0,0,.6)}
+.duel-root .tag{display:flex;align-items:center;gap:8px;padding:7px 11px;border-radius:12px;background:rgba(11,10,22,.78);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1.5px solid var(--gold);white-space:nowrap;transform:translate(-50%,0)}
+.duel-root .tag b{font:800 20px/1 var(--f-game);letter-spacing:.4px}
+.duel-root .tag small{font:600 12px/1.2 var(--f-ui);color:var(--muted)}
+.duel-root .tag.me{left:30.5%;bottom:12px}
+.duel-root .tag.me b{color:var(--gold)}
+.duel-root .tag.rival{left:73.5%;bottom:12px;border-color:var(--pink);max-width:52%}
+.duel-root .tag .tx{display:flex;flex-direction:column;gap:2px;min-width:0}
+.duel-root .tag.rival b{font-size:18px;overflow:hidden;text-overflow:ellipsis}
+.duel-root .tag .av{width:26px;height:26px;border-radius:50%;display:none;place-items:center;flex:none;font:800 12px/1 var(--f-game);background:var(--pink);color:#fff}
+.duel-root .tag .rdy{padding:3px 6px;font-size:11px}
+@media (max-width:899px),(max-height:599px){.duel-root .tag{transform:none;max-width:calc(50% - 16px)}.duel-root .tag.me{left:10px}.duel-root .tag.rival{left:auto;right:10px}.duel-root .tag .rdy{position:absolute;top:-10px;right:8px;padding:3px 5px;font-size:10px}.duel-root .tag b{overflow:hidden;text-overflow:ellipsis}}
+.duel-root .arena[data-stage=intro] .tag.rival{display:none}
+.duel-root .arena[data-stage=vs] .tag .av,.duel-root .arena[data-stage=launch] .tag .av{display:grid;animation:pop .45s cubic-bezier(.3,1.6,.5,1)}
+.duel-root .arena[data-stage=search] .tag.rival,.duel-root .arena[data-stage=invite] .tag.rival{border-style:dashed;border-color:rgba(255,143,189,.7)}
+.duel-root .art .radar{left:73.5%;top:31%;width:46%;height:auto;aspect-ratio:1;margin:0;transform:translate(-50%,-50%);background:none;display:none}
+.duel-root .art .radar i{border-color:var(--pinkl)}
+.duel-root .arena[data-stage=search] .radar,.duel-root .arena[data-stage=invite] .radar{display:block}
+.duel-root .acnt{left:50%;top:58%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}
+.duel-root .acount{font:800 84px/1 var(--f-game);color:var(--gold);text-shadow:0 0 30px rgba(242,193,78,.55);font-variant-numeric:tabular-nums;animation:pop .4s cubic-bezier(.3,1.6,.5,1)}
+.duel-root .alab{font:700 12px/1.2 var(--f-game);letter-spacing:.8px;color:var(--text);text-shadow:0 1px 8px rgba(0,0,0,.8)}
+.duel-root .alab em{display:block;font-style:normal;color:var(--muted);margin-top:2px}
+.duel-root .arena .cap{position:absolute;z-index:2;left:0;right:0;bottom:14px;margin:0;display:none;text-align:center;font:700 13px/1.2 var(--f-game);letter-spacing:.8px;color:var(--muted);text-transform:uppercase}
+.duel-root .arena[data-stage=launch] .cap{display:none}
+.duel-root .pre-side .panel{margin-bottom:0}
+@media (max-width:420px){.duel-root .pre-title{font-size:22px}.duel-root .steps li{font-size:10px;letter-spacing:.3px}.duel-root .tag{padding:6px 8px;gap:6px}.duel-root .tag b{font-size:17px}.duel-root .tag.rival b{font-size:15px}.duel-root .tag small{font-size:11px}.duel-root .art .vsx{font-size:28px}.duel-root .acount{font-size:64px}}
+@media (max-height:700px){.duel-root .arena{aspect-ratio:1.6}.duel-root .art{top:-22%}.duel-root .pre{gap:10px}}
+@media (min-width:900px) and (min-height:600px){
+.duel-root .pre{gap:16px;padding-top:24px}
+.duel-root .pre-bg{background-size:cover;background-position:50% 30%;opacity:.4;filter:blur(26px) saturate(1.1);transform:scale(1.08)}
+.duel-root .pre-body{flex-direction:row;align-items:center;justify-content:center;gap:36px;max-width:1140px}
+.duel-root .arena{width:auto;max-width:none;height:min(calc(100vh - 140px),820px);aspect-ratio:2/3;border-radius:26px;box-shadow:0 30px 80px rgba(0,0,0,.55)}
+.duel-root .art{top:0;bottom:0;height:100%}
+.duel-root .art::after{display:none}
+.duel-root .arena::after{height:22%}
+.duel-root .tag.me,.duel-root .tag.rival{top:60%;bottom:auto}
+.duel-root .arena .cap{display:block}
+.duel-root .art .radar{top:31%}
+.duel-root .tag b{font-size:22px}
+.duel-root .art .vsx{font-size:44px}
+.duel-root .acount{font-size:120px}
+.duel-root .acnt{top:70%}
+.duel-root .pre-side{width:560px;flex:none;gap:18px}
+.duel-root .pre-side .steps{max-width:none}
+.duel-root .panel{max-width:560px;padding:20px}}
+@media (min-width:900px) and (max-height:760px){.duel-root .tag b{font-size:18px}.duel-root .tag{padding:6px 9px}}
+/* Play Online / Play a Bot (maker 2026-11-16, like chess sites: two clear choices instead of a text link) */
+.duel-root .choices{display:flex;flex-direction:column;gap:10px}
+.duel-root .choice{display:flex;align-items:center;gap:14px;width:100%;min-height:72px;padding:12px 16px;border-radius:16px;border:1.5px solid #2E323A;background:#1b1d26;color:var(--text);text-align:left;transition:transform .12s ease,border-color .2s,background .2s}
+.duel-root .choice:hover{border-color:rgba(255,255,255,.3)}
+.duel-root .choice:active{transform:scale(.985)}
+.duel-root .choice:focus-visible{outline:3px solid #fff;outline-offset:2px}
+.duel-root .choice .ci{flex:none;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:#262936;color:var(--muted);font-style:normal}
+.duel-root .choice .ct{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.duel-root .choice b{font:800 24px/1 var(--f-game);letter-spacing:.5px}
+.duel-root .choice small{font:600 13px/1.25 var(--f-ui);color:var(--muted)}
+.duel-root .choice .cgo{flex:none;opacity:.6}
+.duel-root .choice.main{background:var(--gold);border-color:var(--gold);color:#121327}
+.duel-root .choice.main .ci{background:rgba(18,19,39,.12);color:#121327}
+.duel-root .choice.main small{color:rgba(18,19,39,.72)}
+.duel-root .choice.main:hover{background:#f5cb63}
+@media (max-width:420px){.duel-root .choice{min-height:64px;padding:10px 12px;gap:12px}.duel-root .choice .ci{width:38px;height:38px}.duel-root .choice b{font-size:21px}.duel-root .choice small{font-size:12px}}
 
 /* royale additions, same tokens as the duel */
 /* lobby: intro + fill (maker 2026-11-15: "no context of what's happening") */
@@ -331,10 +373,6 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root #drop .mkc .nm{position:absolute;left:11px;bottom:27px;font:800 28px/1 var(--f-game);letter-spacing:.5px}
 .duel-root #drop .mkc .ft{position:absolute;left:11px;right:10px;bottom:10px;font:700 11.5px/1 var(--f-game);letter-spacing:.6px;color:var(--champ);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .duel-root #drop .mkc .you{position:absolute;right:10px;bottom:9px;font:800 10px/1 var(--f-game);letter-spacing:1px;color:#121327;background:var(--gold);padding:4px 6px;border-radius:6px}
-.duel-root .vhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
-.duel-root .vhead span{font:800 12px/1 var(--f-game);letter-spacing:1.2px;color:var(--muted)}
-.duel-root #drop .vopt{height:52px}
-.duel-root #drop .vopt .vn{font-size:15px;bottom:8px}.duel-root #drop .vopt .vc{font-size:18px;bottom:7px}
 @media (max-width:430px){.duel-root .ihead b{font-size:28px}.duel-root #drop .mkc{height:104px}.duel-root #drop .mkc .nm{font-size:24px}.duel-root #drop .vopt{height:46px}}
 .duel-root .mkb{position:relative}.duel-root .mkb .lim{padding-right:36px}.duel-root .mkb .emb{position:absolute;right:8px;bottom:8px;width:34px;height:34px;opacity:.95;pointer-events:none}
 .duel-root .gi{display:block;height:20px;max-width:100%;object-fit:contain;pointer-events:none}
@@ -366,15 +404,6 @@ html,body{margin:0;height:100%;background:#07080c}
 @media (max-width:430px){.duel-root #drop .mkb b{font-size:22px}.duel-root #drop .mkb small{font-size:11.5px}}
 .duel-root #drop .pane{gap:12px}
 /* map vote (maker 2026-11-15): two skies, every pilot votes, a tie goes to a random sky */
-.duel-root .vote{display:flex;flex-direction:column;gap:6px}
-.duel-root .vrow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.duel-root .vopt{position:relative;height:78px;border-radius:14px;border:2px solid #2E323A;background:#23262F 50% 60%/cover no-repeat;overflow:hidden;color:var(--text);text-align:left;padding:0;cursor:pointer}
-.duel-root .vopt::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,8,12,.15),rgba(7,8,12,.78))}
-.duel-root .vopt.on{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold) inset}
-.duel-root .vopt .vn{position:absolute;left:10px;bottom:9px;font:800 18px/1 var(--f-game);letter-spacing:.4px}
-.duel-root .vopt .vc{position:absolute;right:10px;bottom:8px;font:800 22px/1 var(--f-game);color:var(--gold);font-variant-numeric:tabular-nums}
-.duel-root .vopt .vy{position:absolute;left:10px;top:8px;font:800 10px/1 var(--f-game);letter-spacing:1px;color:var(--gold)}
-.duel-root .vopt .vbar{position:absolute;left:0;bottom:0;height:3px;background:var(--gold);transition:width .3s}
 .duel-root .vst{font:500 11.5px/1.3 var(--f-ui);color:var(--muted)}
 @media (max-width:430px){.duel-root .vopt{height:66px}.duel-root .vopt .vn{font-size:16px}}
 @media (hover:none),(pointer:coarse){.duel-root .kbd{display:none}}
@@ -449,6 +478,179 @@ html,body{margin:0;height:100%;background:#07080c}
 @keyframes lq{to{transform:scale(1.08)}}
 @media (prefers-reduced-motion:reduce){.duel-root .pill em.liq{animation:none}}
 .duel-root .toast{top:auto!important;bottom:calc(176px + env(safe-area-inset-bottom,0px))}
+/* end-of-match podium (maker 2026-11-16): the top 3 side by side, each with their loadout and stats. Breaks out of the
+   phone frame on desktop; a swipe row on phones. Same tokens as the duel. */
+.duel-root .podium{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;background:#07080c;overflow:hidden;--p1:#F2C14E;--p2:#D7D9E4;--p3:#E39A5C}
+.duel-root .podium[hidden]{display:none}
+.duel-root .pod-bg{position:absolute;inset:-40px;background:#0B0C1E center/cover no-repeat;filter:blur(16px) brightness(.5) saturate(1.1)}
+.duel-root .pod-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,8,12,.35) 0%,rgba(7,8,12,.55) 55%,rgba(7,8,12,.92) 100%)}
+.duel-root .pod-head{position:relative;text-align:center;padding:calc(16px + env(safe-area-inset-top,0px)) 16px 6px}
+.duel-root .pod-head small{display:block;font:800 12px/1 var(--f-game);letter-spacing:1.4px;color:var(--champ)}
+.duel-root .pod-head b{display:block;margin-top:6px;font:italic 800 38px/1 var(--f-game);letter-spacing:.6px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.duel-root .pod-head b em{font-style:inherit;color:var(--gold)}
+.duel-root .pod-row{position:relative;flex:1 1 auto;min-height:0;display:flex;gap:16px;align-items:flex-end;justify-content:center;padding:10px 16px 6px}
+.duel-root .pk{position:relative;flex:0 0 300px;max-height:100%;display:flex;flex-direction:column;border-radius:20px;background:#15161B;border:2px solid #2E323A;overflow:hidden;--pc:var(--p2);animation:pcIn .5s cubic-bezier(.3,1.4,.5,1) both}
+.duel-root .pk.p1{--pc:var(--p1);flex-basis:330px;order:2;border-color:var(--pc);box-shadow:0 0 0 1px var(--pc) inset,0 0 44px rgba(242,193,78,.22);animation-delay:.25s}
+.duel-root .pk.p2{order:1;margin-bottom:22px;animation-delay:.1s}
+.duel-root .pk.p3{--pc:var(--p3);order:3;margin-bottom:40px}
+.duel-root .pk.me{border-color:var(--gold)}
+@keyframes pcIn{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.duel-root .pk{animation:none}}
+.duel-root .pk-top{position:relative;display:flex;align-items:stretch;min-height:76px;background:#0B0C0E;overflow:hidden}
+.duel-root .pk-id{position:relative;z-index:1;flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:4px;padding:8px 0 9px 12px}
+.duel-root .pk-plate{position:relative;display:flex;align-items:center;justify-content:center;width:100%;max-width:230px;aspect-ratio:600/140;margin-left:-6px}
+.duel-root .pk-plate img{position:absolute;inset:0;width:100%;height:100%}
+.duel-root .pk-plate b{position:relative;max-width:72%;font:800 22px/1 var(--f-game);letter-spacing:.4px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+.duel-root .pk-plate.pr b{max-width:60%}
+.duel-root .pk-plate.bare{justify-content:flex-start;aspect-ratio:auto;margin-left:0;min-height:30px}
+.duel-root .pk-plate.bare b{max-width:100%;font-size:28px}
+.duel-root .pk-tag small{font:600 11.5px/1.2 var(--f-ui);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.duel-root .pk-tag{display:flex;align-items:center;gap:6px;min-width:0}
+.duel-root .pk-tag i{flex:none;font:800 10.5px/1 var(--f-game);font-style:normal;letter-spacing:1px;padding:4px 6px;border-radius:6px;background:var(--gold);color:#121327}
+.duel-root .pk-tag i.r{background:rgba(240,48,127,.18);color:var(--pinkl);box-shadow:inset 0 0 0 1px rgba(255,143,189,.45)}
+.duel-root .pk-n{position:relative;flex:0 0 92px;display:flex;align-items:center;justify-content:center}
+.duel-root .pk-n::before{content:"";position:absolute;inset:0 -18px 0 0;background:var(--pc);transform:skewX(-14deg);transform-origin:bottom left}
+.duel-root .pk-n span{position:relative;font:italic 800 70px/1 var(--f-game);color:#121327;margin-left:4px}
+.duel-root .pk-ship{position:relative;flex:0 0 168px;background:#1d1f2e center 40%/cover no-repeat;overflow:hidden}
+.duel-root .pk.p1 .pk-ship{flex-basis:196px}
+.duel-root .pk-ship canvas{position:absolute;inset:0;width:100%;height:100%}
+.duel-root .pk-ship .fl{position:absolute;left:50%;top:50%;width:150%;transform:translate(-50%,-56%);opacity:.9;pointer-events:none}
+.duel-root .pk-look{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:10px 12px 0}
+.duel-root .pk-look div{min-width:0;padding:6px 8px 5px;border-radius:10px;background:#1d1f27;border:1px solid #2E323A;border-bottom:3px solid var(--lc,#2E323A)}
+.duel-root .pk-look small{display:block;font:700 10px/1 var(--f-game);letter-spacing:1px;color:var(--muted)}
+.duel-root .pk-look b{display:block;margin-top:3px;font:800 14px/1.05 var(--f-game);letter-spacing:.3px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.duel-root .pk-guns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:6px 12px 0}
+.duel-root .pk-guns div{min-width:0;height:48px;border-radius:10px;background:#23262F;border:1px solid #2E323A;border-bottom:3px solid var(--wc,#2E323A);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:0 4px}
+.duel-root .pk-guns div.empty{opacity:.4}
+.duel-root .pk-guns .gi{height:18px}
+.duel-root .pk-guns b{font:800 11.5px/1 var(--f-game);letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.duel-root .pk-st{display:flex;flex-direction:column;gap:4px;padding:10px 12px 12px;min-height:0;overflow:auto}
+.duel-root .pk-st div{display:flex;align-items:stretch;justify-content:space-between;height:32px;border-radius:9px;background:#1d1f27;overflow:hidden}
+.duel-root .pk-st span{display:flex;align-items:center;padding:0 18px 0 10px;background:#0B0C0E;clip-path:polygon(0 0,100% 0,calc(100% - 10px) 100%,0 100%);font:700 12px/1 var(--f-game);letter-spacing:1px;color:var(--muted);white-space:nowrap}
+.duel-root .pk-st b{display:flex;align-items:center;padding-right:11px;font:800 21px/1 var(--f-game);font-variant-numeric:tabular-nums;color:var(--text)}
+.duel-root .pk-st div.big{height:42px}.duel-root .pk-st div.big b{font-size:30px}
+.duel-root .pk-st div.big span{color:var(--pc)}
+.duel-root .pod-dots{display:none;justify-content:center;gap:6px;padding:2px 0 4px;position:relative}
+.duel-root .pod-dots button{width:30px;height:22px;border-radius:7px;border:1px solid #2E323A;background:#15161B;color:var(--muted);font:800 12px/1 var(--f-game);padding:0}
+.duel-root .pod-dots button.on{background:var(--gold);border-color:var(--gold);color:#121327}
+.duel-root .pod-foot{position:relative;width:100%;max-width:560px;margin:0 auto;padding:6px 16px calc(14px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px}
+.duel-root .pod-me{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border-radius:14px;background:rgba(21,22,27,.92);border:1px solid var(--gold)}
+.duel-root .pod-me span{font:700 13px/1.2 var(--f-ui);color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.duel-root .pod-me span b{font:800 17px/1 var(--f-game);letter-spacing:.4px;color:var(--gold);margin-right:6px}
+.duel-root .pod-me>b{font:800 22px/1 var(--f-game);font-variant-numeric:tabular-nums;white-space:nowrap}
+.duel-root .pod-foot .rrow .sec{margin-top:0}
+/* phones and narrow windows: one card at a time, swipe between them (winner first) */
+@media (max-width:760px){
+  .duel-root .pod-head b{font-size:30px}
+  .duel-root .pod-row{justify-content:flex-start;align-items:stretch;overflow-x:auto;scroll-snap-type:x mandatory;gap:12px;padding:8px 8vw 4px;scrollbar-width:none}
+  .duel-root .pod-row::-webkit-scrollbar{display:none}
+  .duel-root .pk,.duel-root .pk.p1{flex:0 0 84vw;max-width:360px;margin:0;scroll-snap-align:center}
+  .duel-root .pk.p1{order:1}.duel-root .pk.p2{order:2}.duel-root .pk.p3{order:3}
+  .duel-root .pk-ship,.duel-root .pk.p1 .pk-ship{flex-basis:150px}
+  .duel-root .pod-dots{display:flex}
+}
+@media (max-width:760px) and (max-height:720px){.duel-root .pk-ship,.duel-root .pk.p1 .pk-ship{flex-basis:112px}.duel-root .pk-st div{height:28px}.duel-root .pk-st div.big{height:36px}.duel-root .pk-st div.big b{font-size:26px}}
+/* landing zone (maker, 2026-11-16): no sky vote (the sky is random), lobby chat while the doors count down */
+.duel-root .dbar{height:4px;border-radius:4px;background:#23262F;overflow:hidden;margin-top:-4px}
+.duel-root .dbar i{display:block;height:100%;width:100%;background:var(--gold);transition:width 1s linear,background .3s}
+.duel-root #pDrop.hot .dbar i{background:var(--pink)}
+.duel-root #pDrop.hot .dtime b{color:var(--pinkl);animation:dpulse 1s ease-out infinite}
+.duel-root #pDrop.hot .dtime span{color:var(--pinkl)}
+@keyframes dpulse{0%{transform:scale(1.45)}60%{transform:scale(1)}}
+.duel-root .dtime b{display:inline-block;transform-origin:right center}
+.duel-root .dwrap{display:flex;flex-direction:column;gap:10px;min-height:0}
+.duel-root #drop .mkc{height:104px}
+.duel-root #drop .mkc .fin{position:absolute;left:10px;top:10px;font:800 11px/1 var(--f-game);letter-spacing:.8px;padding:4px 7px;border-radius:999px;background:var(--gold);color:#121327}
+.duel-root #drop .mkc.final{border-color:rgba(242,193,78,.55)}
+.duel-root #drop .mkc.final.on{border-color:var(--gold)}
+.duel-root #drop .mkc .rar.r2{left:auto;right:58px}
+@media (max-width:600px){ .duel-root #drop .mkc .rar.r2{display:none} }
+.duel-root #drop .mkc .pips{display:inline-flex;gap:3px;margin-left:8px;vertical-align:middle;position:relative;top:-3px}
+.duel-root #drop .mkc .pips i{width:8px;height:8px;border-radius:50%;background:var(--pinkl);box-shadow:0 0 6px rgba(255,143,189,.6);animation:fpop .28s ease-out}
+.duel-root #drop .mkc .pips i.me{background:var(--gold);box-shadow:0 0 6px rgba(242,193,78,.7)}
+.duel-root .lchat{display:flex;flex-direction:column;gap:7px;padding:10px;border-radius:16px;background:rgba(12,13,28,.7);border:1px solid #2E323A;min-height:0}
+.duel-root .lhead{display:flex;justify-content:space-between;align-items:baseline}
+.duel-root .lhead span{font:800 12px/1 var(--f-game);letter-spacing:1.2px;color:var(--muted)}
+.duel-root .lhead small{font:600 11px/1 var(--f-ui);color:var(--muted)}
+.duel-root .lmsgs{height:84px;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;gap:4px;-webkit-mask-image:linear-gradient(180deg,transparent,#000 30%);mask-image:linear-gradient(180deg,transparent,#000 30%)}
+.duel-root .lmsgs div{flex:none;font:500 13px/1.25 var(--f-ui);color:var(--text);animation:fpop .2s ease-out;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.duel-root .lmsgs b{font-weight:700;color:var(--pinkl);margin-right:5px}
+.duel-root .lmsgs .me b{color:var(--gold)}
+.duel-root .lmsgs .sys{color:var(--champ);font:800 12px/1.3 var(--f-game);letter-spacing:.8px}
+.duel-root .lchat .quick{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -2px;padding:0 2px}.duel-root .lchat .quick::-webkit-scrollbar{display:none}
+.duel-root .lchat .quick button{flex:none;height:30px;font-size:14px;padding:0 9px}
+.duel-root #drop .mkc.on .ft{right:50px}
+.duel-root .lchat .say input{height:36px;font-size:16px}
+.duel-root .lchat .say button{height:36px;font-size:15px}
+@media (min-width:900px){
+  .duel-root #drop .panel:has(#pDrop:not([hidden])){max-width:920px}
+  .duel-root .dwrap{flex-direction:row;align-items:stretch}
+  .duel-root .dwrap .mk{flex:1.25;min-width:0;grid-auto-rows:1fr}
+  .duel-root #drop .dwrap .mkc{height:auto;min-height:104px}
+  .duel-root .dwrap .lchat{flex:1;min-width:0}
+  .duel-root .lmsgs{height:auto;flex:1}
+}
+@media (max-height:760px){ .duel-root #drop .mkc{height:88px} .duel-root #drop .mkc .nm{font-size:24px} .duel-root .lmsgs{height:60px} }
+@media (prefers-reduced-motion:reduce){ .duel-root #pDrop.hot .dtime b{animation:none} }
+/* star map (maker 2026-11-16: "make it the token logos ... as points in space. like constellations"): always on, top right beside a
+ * narrower chart. Coins sit where the storm path takes them (the final coin in the middle), lines join them in close order.
+ * Mute, chat and the weapons toggle are docked on its ring. */
+.duel-root .smap{position:absolute;right:12px;top:calc(76px + env(safe-area-inset-top,0px));width:132px;height:132px;z-index:6}
+.duel-root .smap[hidden]{display:none}
+.duel-root .sm-c{position:absolute;inset:0;border-radius:50%;overflow:hidden;border:2px solid rgba(242,193,78,.7);box-shadow:0 0 0 3px rgba(12,13,28,.85),0 8px 24px rgba(0,0,0,.5);
+  background:radial-gradient(circle at 50% 55%,rgba(64,52,120,.55),rgba(10,11,24,.96) 70%),#0a0b18}
+.duel-root .sm-c::before{content:"";position:absolute;inset:0;background-image:radial-gradient(1px 1px at 18% 22%,#fff,transparent),radial-gradient(1px 1px at 72% 14%,#fff,transparent),radial-gradient(1px 1px at 84% 62%,#cfd6ff,transparent),radial-gradient(1px 1px at 30% 80%,#fff,transparent),radial-gradient(1.5px 1.5px at 55% 38%,#ffe9b0,transparent),radial-gradient(1px 1px at 10% 55%,#cfd6ff,transparent),radial-gradient(1px 1px at 62% 88%,#fff,transparent),radial-gradient(1px 1px at 40% 10%,#fff,transparent);opacity:.75}
+.duel-root .smap.warn .sm-c{border-color:var(--pink);animation:smw .8s ease-in-out infinite alternate}
+@keyframes smw{to{box-shadow:0 0 0 3px rgba(12,13,28,.85),0 0 26px rgba(240,48,127,.65)}}
+.duel-root .sm-l{position:absolute;inset:0;width:100%;height:100%}
+.duel-root .sm-l line{stroke:rgba(207,214,255,.35);stroke-width:.8;stroke-dasharray:2 2;vector-effect:non-scaling-stroke}
+.duel-root .sm-l line.done{stroke:rgba(207,214,255,.12)}
+.duel-root .sm-n{position:absolute;inset:0}
+.duel-root .sm-s{position:absolute;transform:translate(-50%,-50%);width:34px;height:34px;padding:0;border:0;background:none;border-radius:50%;display:block;cursor:pointer}
+.duel-root .sm-s img{width:100%;height:100%;border-radius:50%;display:block;filter:drop-shadow(0 0 6px rgba(207,214,255,.45))}
+.duel-root .sm-s::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:1.5px solid transparent}
+.duel-root .sm-s.fin::after{border:1.5px dashed rgba(242,193,78,.85);animation:smr 9s linear infinite}
+@keyframes smr{to{transform:rotate(360deg)}}
+.duel-root .sm-s.here::after{border:2px solid var(--gold);box-shadow:0 0 12px rgba(242,193,78,.7);animation:none}
+.duel-root .sm-s.soon img{filter:drop-shadow(0 0 7px rgba(240,48,127,.9))}
+.duel-root .sm-s.off{cursor:default}.duel-root .sm-s.off img{filter:grayscale(1) brightness(.4)}
+.duel-root .sm-s .sm-k{position:absolute;left:50%;top:100%;transform:translateX(-50%);margin-top:3px;font:800 9.5px/1 var(--f-game);letter-spacing:.4px;color:var(--text);white-space:nowrap;text-shadow:0 1px 2px #000}
+.duel-root .sm-s.soon .sm-k{color:var(--pinkl)}.duel-root .sm-s.here .sm-k{color:var(--gold)}.duel-root .sm-s.off .sm-k{color:var(--muted)}
+.duel-root .sm-s .sm-p{position:absolute;z-index:2;left:-13px;top:50%;transform:translateY(-50%);min-width:15px;height:15px;border-radius:8px;padding:0 3px;background:#23262F;border:1px solid rgba(255,255,255,.25);font:800 9.5px/13px var(--f-game);color:var(--text);text-align:center}
+.duel-root .sm-s.off .sm-p{display:none}
+.duel-root .sm-t{position:absolute;left:50%;top:-9px;transform:translateX(-50%);z-index:2;white-space:nowrap;font:800 9.5px/1 var(--f-game);letter-spacing:.7px;padding:4px 7px;border-radius:999px;background:#121327;border:1.5px solid rgba(242,193,78,.7);color:var(--champ)}
+.duel-root .smap.warn .sm-t{border-color:var(--pink);color:#fff;background:var(--pink)}
+.duel-root .sm-b{position:absolute;width:34px;height:34px;border-radius:50%;padding:0;background:#121327;border:2px solid rgba(242,193,78,.6);display:grid;place-items:center;z-index:2;box-shadow:0 4px 10px rgba(0,0,0,.45)}
+.duel-root .sm-b svg{width:17px;height:17px}
+.duel-root .sm-mute{left:-12px;bottom:-4px}
+.duel-root .sm-gun{left:50%;bottom:-17px;transform:translateX(-50%);width:44px;height:30px;border-radius:15px}
+.duel-root .sm-gun .gi{width:30px;height:18px;object-fit:contain}
+.duel-root .sm-gun kbd{position:absolute;right:-6px;top:-7px;font:800 9px/1 var(--f-game);padding:2px 4px;border-radius:5px;background:var(--gold);color:#121327}
+.duel-root .sm-gun[aria-pressed="false"]{border-color:var(--gold);background:rgba(242,193,78,.18)}
+.duel-root .sm-chat{right:-12px;bottom:-4px}
+.duel-root .sm-chat .dot{position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:var(--pink)}
+.duel-root .sm-chat .dot[hidden]{display:none}
+.duel-root .fchat{position:absolute;right:12px;top:calc(76px + 132px + 28px + env(safe-area-inset-top,0px));width:min(300px,calc(100% - 24px));padding:9px;border-radius:14px;background:rgba(12,13,28,.92);border:1px solid #2E323A;display:flex;flex-direction:column;gap:6px;z-index:7}
+.duel-root .fchat[hidden]{display:none}
+.duel-root .fchat .lmsgs{height:96px}
+.duel-root .fchat .quick{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.duel-root .fchat .quick::-webkit-scrollbar{display:none}
+.duel-root .fchat .quick button{flex:none;height:28px;font-size:13px;padding:0 8px}
+.duel-root .fchat .say input{height:34px;font-size:16px}.duel-root .fchat .say button{height:34px;font-size:14px}
+/* weapons bar collapsed into the star map's gun button */
+.duel-root.wcol .bottom .size{display:none}
+/* narrower chart beside the star map (maker: "i still think the chart can be not as wide") */
+.duel-root .chart{right:calc(12px + 132px + 14px)!important}
+.duel-root .feed{max-width:calc(100% - 24px)}
+@media (min-width:900px){
+  .duel-root .smap{right:24px;width:176px;height:176px}
+  .duel-root .sm-s{width:42px;height:42px}
+  .duel-root .sm-s .sm-k{font-size:11px}
+  .duel-root .sm-t{font-size:10.5px}
+  .duel-root .sm-b{width:38px;height:38px}
+  .duel-root .fchat{right:24px;top:calc(76px + 176px + 30px)}
+  .duel-root .chart{left:max(24px,calc(50% - 320px))!important;right:max(236px,calc(50% - 320px))!important}
+}
+@media (prefers-reduced-motion:reduce){ .duel-root .sm-s.fin::after,.duel-root .smap.warn .sm-c{animation:none} }
 </style>
 </head>
 <body>
@@ -466,10 +668,19 @@ html,body{margin:0;height:100%;background:#07080c}
 <div class="chart" id="chart"><canvas id="cc"></canvas><span class="lab" id="chLab">HYPE · TICKS · LAST 60S</span></div>
 <div class="banner" id="banner" hidden><span id="bannerT"></span></div>
 <div class="feed" id="feed"></div>
-<button class="mute" id="mapB" type="button" aria-label="Markets map: jump to another market">MAP</button>
-<button class="mute" id="mute" type="button" aria-label="Mute sound"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path id="mWave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/><path id="mX" d="M16 9l5 6M21 9l-5 6" hidden/></svg></button>
 
-<div class="jump" id="jump" hidden><small id="jT">JUMP</small><button class="jx" id="jX" type="button" aria-label="Close map">✕</button><div class="jb" id="jB"></div></div>
+<div class="smap" id="smap" hidden>
+  <small class="sm-t" id="smT">TAP A STAR TO JUMP</small>
+  <div class="sm-c" id="smC" role="group" aria-label="Star map: tap a coin to jump there, your PnL comes with you"><svg class="sm-l" id="smL" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg><div class="sm-n" id="smN"></div></div>
+  <button class="sm-b sm-mute" id="mute" type="button" aria-label="Mute sound"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path id="mWave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/><path id="mX" d="M16 9l5 6M21 9l-5 6" hidden/></svg></button>
+  <button class="sm-b sm-gun" id="gunB" type="button" aria-label="Show or hide the weapons bar" aria-pressed="true"><span id="gunI"></span><kbd>R</kbd></button>
+  <button class="sm-b sm-chat" id="chatB" type="button" aria-label="Chat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg><i class="dot" id="chatDot" hidden></i></button>
+</div>
+<div class="fchat" id="fChat" hidden>
+  <div class="lmsgs" id="fMsgs" aria-live="polite"></div>
+  <div class="quick" id="fQuick"></div>
+  <form class="say" id="fSay" autocomplete="off"><input id="fIn" maxlength="60" placeholder="Say something" aria-label="Chat message" enterkeyhint="send"><button type="submit">SEND</button></form>
+</div>
 
 <div class="bottom">
   <div class="size" role="group" aria-label="Weapons">
@@ -506,21 +717,21 @@ html,body{margin:0;height:100%;background:#07080c}
   <ol class="steps" aria-label="Match steps"><li id="stLobby" class="on">LOBBY</li><li id="stDrop">PICK DROP</li><li>LOOT UP</li><li>LAST PILOT</li></ol>
   <div class="panel">
     <div class="pane" id="pIntro">
-      <div class="ihead"><small>12 PILOTS · 12 MIN · ONE SURVIVES</small><b>LAST PILOT STANDING</b></div>
+      <div class="ihead"><small>12 PILOTS · 3 MIN · ONE SURVIVES</small><b>LAST PILOT STANDING</b></div>
       <ol class="ihow">
         <li><i>1</i><b>DROP</b><span>Pick a coin to land on</span></li>
         <li><i>2</i><b>LOOT</b><span>Fly into crates for guns</span></li>
         <li><i>3</i><b>SURVIVE</b><span>The storm cuts the lowest PnL</span></li>
         <li><i>4</i><b>WIN</b><span>Be the last rocket flying</span></li>
       </ol>
-      <button class="go" type="button" id="iGo" data-sfx="primary">FIND A LOBBY</button>
-      <button class="practice" type="button" id="iBots">or play with bots now</button>
+      <div class="choices"><button class="choice main" type="button" id="iGo" data-sfx="primary"><i class="ci"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></i><span class="ct"><b>PLAY ONLINE</b><small id="iGoSub">Find a lobby of 12 pilots.</small></span><svg class="cgo" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button><button class="choice " type="button" id="iBots"><i class="ci"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4M9 12h.01M15 12h.01M9 16h6M2 12v3M22 12v3"/></svg></i><span class="ct"><b>PLAY BOTS</b><small id="iBotSub">Drop in now with 11 bots.</small></span><svg class="cgo" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button></div>
       <details class="how"><summary>HOW IT WORKS</summary>
       <ul class="rules">
         <li><b>START WITH A PISTOL</b> ($10 spot, 1×). Crates drop leverage guns: each is a trade size × leverage with limited shots<span class="kbd"> (switch with 1–3)</span>.</li>
         <li><b>HOTBAR FULL?</b> A pop-up asks which gun to swap out, or leave it. Same gun again = more ammo.</li>
         <li><b>FLY ANYWHERE.</b> Drag to fly up, down and sideways<span class="kbd"> (WASD or arrows)</span>. Your tag shows your real PnL.</li>
-        <li><b>MAPS CLOSE</b> one by one and the storm cuts the lowest PnL. Tap MAP to jump; your PnL comes with you.</li>
+        <li><b>TAUNT.</b> Swipe up to spin, double-tap to flip<span class="kbd"> (Q and E)</span>.</li>
+        <li><b>MAPS CLOSE</b> one by one and the storm cuts the lowest PnL. The final circle is a different coin every game. Tap a coin on the star map to jump; your PnL comes with you.</li>
         <li><b>DOGFIGHT</b> within $1 of a pilot. Win it and take their best gun. A <b>NUKE</b> blows up the gun that fired it.</li>
       </ul></details>
       <p class="fine">Practice · fake money · you + 11 bots</p>
@@ -531,9 +742,17 @@ html,body{margin:0;height:100%;background:#07080c}
       <button class="sec" type="button" id="fCancel" data-sfx="back">CANCEL</button>
     </div>
     <div class="pane" id="pDrop" hidden>
-      <div class="dtime"><span>PICK YOUR DROP</span><b id="dT">0:15</b></div>
-      <div class="mk" id="mkPick"></div>
-      <div class="vote" role="group" aria-label="Sky vote"><div class="vhead"><span>SKY VOTE</span><small class="vst" id="vSt"></small></div><div class="vrow" id="vRow"></div></div>
+      <div class="dtime"><span>PICK YOUR LANDING ZONE</span><b id="dT">0:15</b></div>
+      <div class="dbar" aria-hidden="true"><i id="dBar"></i></div>
+      <div class="dwrap">
+        <div class="mk" id="mkPick"></div>
+        <div class="lchat" id="lChat">
+          <div class="lhead"><span>LOBBY CHAT</span><small id="lN">12 pilots</small></div>
+          <div class="lmsgs" id="lMsgs" aria-live="polite"></div>
+          <div class="quick" id="lQuick"></div>
+          <form class="say" id="lSay" autocomplete="off"><input id="lIn" maxlength="60" placeholder="Say something to the lobby" aria-label="Lobby chat message" enterkeyhint="send"><button type="submit">SEND</button></form>
+        </div>
+      </div>
       <button class="go" type="button" id="dGo" data-sfx="primary">DROP INTO HYPE</button>
     </div>
   </div>
@@ -550,6 +769,16 @@ html,body{margin:0;height:100%;background:#07080c}
   </div>
 </div>
 </div></div>
+<div class="podium" id="podium" hidden role="dialog" aria-label="Turbo Royale podium">
+  <div class="pod-bg" id="podBg" aria-hidden="true"></div>
+  <header class="pod-head"><small id="podK">TURBO ROYALE · PODIUM</small><b id="podH">WINNER</b></header>
+  <div class="pod-row" id="podRow"></div>
+  <div class="pod-dots" id="podDots" aria-label="Podium places"></div>
+  <div class="pod-foot">
+    <div class="pod-me" id="podMe" hidden><span id="podMeT"></span><b id="podMeV"></b></div>
+    <div class="rrow"><button class="sec" type="button" id="podShare">SHARE</button><button class="go" type="button" id="podAgain" data-sfx="primary">PLAY AGAIN</button></div>
+  </div>
+</div>
 </div>
 <script>
 (function(){
@@ -586,7 +815,7 @@ const MKD={
   HYPE:{p:31.42,vol:.0007,dr:.30,dec:2,loot:[1,3,4,2],drop:.6,best:"LEGENDARY",tag:"AGGRESSIVE",pro:"Best loot · most crates",con:"Closes first · wildest chart",sky:A.skyHype?"skyHype":"sky3"},
   SOL:{p:182.40,vol:.00046,dr:.32,dec:2,loot:[3,4,2,.6],drop:.8,best:"EPIC",tag:"FAST",pro:"Busiest map · most dogfights",con:"Closes second",sky:A.skySol?"skySol":"sky2"},
   ETH:{p:3412.5,vol:.0003,dr:.48,dec:1,loot:[4,3,1.2,.2],drop:1,best:"RARE",tag:"STEADY",pro:"Trends hold longer",con:"Mostly common loot",sky:"skyEth"},
-  BTC:{p:97214,vol:.0002,dr:.36,dec:0,loot:[6,2,.4,0],drop:1.4,best:"UNCOMMON",tag:"DEFENSIVE",pro:"Never closes · calm chart",con:"Weak loot · cuts take the lowest PnL",sky:"skyBtc"}};
+  BTC:{p:97214,vol:.0002,dr:.36,dec:0,loot:[6,2,.4,0],drop:1.4,best:"UNCOMMON",tag:"DEFENSIVE",pro:"Calm chart",con:"Weak loot · cuts take the lowest PnL",sky:"skyBtc"}};
 /* weapons = trade size × leverage. You start with the spot pistol; everything else is loot. */
 const WPN={
   "PISTOL":{usd:10,lev:1,ammo:Infinity,r:0},
@@ -602,7 +831,7 @@ const wLine=w=>`$${W(w).usd} × ${W(w).lev}×`;
 function rollLoot(k){ const wt=MKD[k].loot, tot=wt.reduce((a,b)=>a+b,0); let x=Math.random()*tot, r=1; for(let i=0;i<wt.length;i++){ x-=wt[i]; if(x<=0){ r=i+1; break; } }
   const opts=Object.keys(WPN).filter(n=>WPN[n].r===r); const n=pick(opts); return {k:n,ammo:WPN[n].ammo}; }
 // three slots: pistol + two loot slots. A new pick-up fills an empty slot, else replaces the slot you have selected (or your weakest)
-function give(pl,item){ const same=pl.inv.find(w=>w.k===item.k); if(same){ if(same.ammo!==Infinity) same.ammo+=item.ammo; return null; } const loot=pl.inv.filter(w=>w.k!=="PISTOL");
+function give(pl,item){ pl.looted=(pl.looted||0)+1; const same=pl.inv.find(w=>w.k===item.k); if(same){ if(same.ammo!==Infinity) same.ammo+=item.ammo; return null; } const loot=pl.inv.filter(w=>w.k!=="PISTOL");
   if(pl.inv.length<3){ pl.inv.push(item); if(pl.me) pl.sel=pl.inv.length-1; else pl.sel=bestSlot(pl); return null; }
   let i=pl.inv.indexOf(loot.slice().sort((a,b)=>W(a).r-W(b).r)[0]);
   if(!pl.me&&W(pl.inv[i]).r>W(item).r) return item;
@@ -614,14 +843,20 @@ function dropWeapon(pl,w){ const i=pl.inv.indexOf(w); if(i<0||w.k==="PISTOL") re
 const START={HYPE:2,SOL:4,ETH:3,BTC:2};
 const NAMES=["@moonmath","@solwhale","@lev_larry","@chartmonk","@0xrekt","@pumpqueen","@degenpilot","@wickhunter","@fadeking","@gmgn_andy","@bagholdr"];
 let dropMk="HYPE";
-// one length: about 12 minutes (maps close at 3:00, 5:30 and 8:00, then about 3 min of final circle and a 1 min duel)
-function plan(){ return {close:{HYPE:180,SOL:330,ETH:480},warn:20,target:{HYPE:9,SOL:6,ETH:4},shrink:40,df:15,duel:60,w0:6}; }
+// one length: 3 minutes at most (maker, 2026-11-16: "3 mins max for royale"). Maps close at 0:45, 1:20 and 1:55, the final circle
+// shrinks every 15 s (4 → 3 → 2 by 2:25), then a 30 s duel ends it by about 2:55.
+// the final circle is a random coin each game (maker, 2026-11-16: "its not always in bitcoin"); the other three close in a random order
+let ROLL=null;
+function rollMaps(){ const o=ORDER.slice().sort(()=>Math.random()-.5); ROLL={final:o[3],order:o.slice(0,3)}; return ROLL; }
+const finalMk=()=>(ROLL||rollMaps()).final;
+function plan(){ const r=ROLL||rollMaps(), close={}, target={}; r.order.forEach((k,i)=>{ close[k]=[45,80,115][i]; target[k]=[9,6,4][i]; });
+  return {close,warn:10,target,shrink:15,df:10,duel:30,w0:6,dfCool:12,jumpCool:5}; }
 const liqPct=pl=>pl.pos?Math.max(0,-pnlOf(pl.pos,price(pl))/(LIQ*pl.pos.coll)):0;
 
 /* ---------- state ---------- */
 let G=null;
-function newPilot(name,me,mk,used){ return {hull:me?null:hullFor(used),name,me,mk,fuel:FUEL0,pos:null,shields:0,inv:[{k:"PISTOL",ammo:Infinity}],sel:0,alive:true,lane:.5,jit:me?0:rnd(-34,34),arrive:me?0:rnd(1,18),xo:0,xt:0,wander:0,
-  dfW:0,dfL:0,best:0,grab:0,cool:rnd(10,22),df:null,y:null,vy:0,flame:0,sq:0,kick:0,rot:0,steer:0,jumpAt:null,place:0,
+function newPilot(name,me,mk,used){ return {hull:me?null:hullFor(used),name,me,mk,fuel:FUEL0,pos:null,shields:0,inv:[{k:"PISTOL",ammo:Infinity}],sel:0,alive:true,lane:.5,jit:me?0:rnd(-34,34),arrive:me?0:rnd(1,8),xo:0,xt:0,wander:0,
+  dfW:0,dfL:0,best:0,grab:0,cool:rnd(5,10),df:null,y:null,vy:0,flame:0,sq:0,kick:0,rot:0,steer:0,jumpAt:null,place:0,
   bot:me?null:{skill:rnd(.25,.9),react:[rnd(.4,.8),rnd(.9,1.8)],next:0,thr:rnd(2.2,3.6),tp:rnd(.25,.6),sl:-rnd(.25,.75),hold:rnd(6,16)}}; }
 function newGame(){
   const P=plan(), M={};
@@ -629,7 +864,7 @@ function newGame(){
   // 60 s of history so the chart is full at GO
   for(const k of ORDER){ const m=M[k]; for(let i=-300;i<=0;i++){ stepFeed(m,i*TICK); } }
   const pilots=[], names=NAMES.slice().sort(()=>Math.random()-.5); let n=0;
-  const used=new Set(); for(const k of ORDER) for(let i=0;i<START[k];i++) pilots.push(newPilot(names[n++],false,k,used));
+  const used=new Set(); for(const k of ORDER) for(let i=0;i<START[k];i++){ const lz=LZ&&LZ.bots.filter(b=>b.mk===k)[i]; pilots.push(newPilot(lz?lz.name:names[n++],false,k,used)); }
   const me=newPilot("you",true,dropMk); me.lane=.5; pilots.push(me);
   G={t:0,P,M,pilots,me,started:false,over:false,phase:"early",final:null,duel:null,dfs:[],nextCrate:rnd(3,5),crate:null,acc:0,
      marks:[],moments:[],cutLog:[],band:null,watch:false,mapOpen:false,jumpCool:0};
@@ -657,7 +892,7 @@ function open(pl,side){
   const w=wOf(pl), ww=W(w);
   if(pl.pos&&pl.pos.side!==side) close(pl,"flip");
   let st=Math.min(ww.usd,Math.floor(pl.fuel*100)/100); if(st<.5){ if(pl.me) toast("Out of fuel. Cash out first."); return; }
-  const p=price(pl), size=st*ww.lev, fee=size*FEE; pl.fuel-=st+fee; w.ammo--;
+  const p=price(pl), size=st*ww.lev, fee=size*FEE; pl.fuel-=st+fee; w.ammo--; pl.trades=(pl.trades||0)+1;
   if(w.ammo<=0&&w.k!=="PISTOL"){ dropWeapon(pl,w); if(pl.me){ feed("m","∅",`Your <b>${w.k}</b> is out of ammo`); paintHot(); setTimeout(()=>sfx("empty"),180); } }
   else if(pl.me) paintHot();
   if(pl.pos){ const tot=pl.pos.size+size; pl.pos.entry=tot/(pl.pos.size/pl.pos.entry+size/p); pl.pos.size=tot; pl.pos.coll+=st; }
@@ -676,7 +911,7 @@ function close(pl,why){
 }
 function liqCheck(pl){
   if(!pl.pos) return; const loss=-pnlOf(pl.pos,price(pl)); if(loss<LIQ*pl.pos.coll) return;
-  const lost=pl.pos.coll; pl._lastW=pl.pos.w; pl.pos=null; if(pl.me){ G.marks.push({t:G.t,p:price(pl),k:"x",mk:pl.mk}); G.moments.push({t:G.t,txt:"NUKE in "+pl.mk,v:-lost}); }
+  const lost=pl.pos.coll; pl._lastW=pl.pos.w; pl.pos=null; pl.nukes=(pl.nukes||0)+1; if(pl.me){ G.marks.push({t:G.t,p:price(pl),k:"x",mk:pl.mk}); G.moments.push({t:G.t,txt:"NUKE in "+pl.mk,v:-lost}); }
   if(pl.me||visible(pl)) fxBomb(pl);
   // a NUKE costs the stake and blows up the weapon that fired it; you fly on with what's left
   const gun=pl.pos===null&&arguments.length?null:null; const w=pl._lastW;
@@ -690,7 +925,7 @@ function saved(pl,what){ pl.shields--;
   else if(pl.mk===G.me.mk||what!=="NUKE") feed("s","◆",`<b>${pl.name}</b>'s shield took the ${what}`); }
 function stormCut(why){ if(G&&G.me.alive) sfx("storm"); for(const pl of alive().sort((a,b)=>profit(a)-profit(b))){ if(pl.shields>0){ saved(pl,"storm cut"); continue; } knockOut(pl,why(pl)); return; } }
 function knockOut(pl,why){
-  if(!pl.alive) return; pl.alive=false; pl.place=alive().length+1; pl.why=why; if(pl.pos) close(pl,"storm");
+  if(!pl.alive) return; pl.alive=false; pl.place=alive().length+1; pl.why=why; if(pl.pos) close(pl,"storm"); pl.fin=profit(pl);
   if(pl.df) endDf(pl.df,true);
   if(pl.me){ feed("p","☢",`You were ${why}`); sfx("out"); endMe(); }
   else if(pl.y!=null) rivalSfx("lose",.65,(xOf(pl)/SW)*2-1);
@@ -710,7 +945,7 @@ tap($("bBoost"),()=>act("b")); tap($("bDump"),()=>act("d")); tap($("bOut"),()=>a
 document.querySelectorAll(".size button").forEach(b=>tap(b,()=>selSlot(+b.dataset.i)));
 function selSlot(i){ if(!G||!G.me.inv[i]) return; if(G.offer){ takeOffer(i); return; } G.me.sel=i; paintHot(); }
 const paintSizes=()=>paintHot();
-function paintHot(){ const inv=G?G.me.inv:[{k:"PISTOL",ammo:Infinity}], sel=G?G.me.sel:0;
+function paintHot(){ const inv=G?G.me.inv:[{k:"PISTOL",ammo:Infinity}], sel=G?G.me.sel:0; paintGun(inv[sel]||inv[0]);
   document.querySelectorAll(".size button").forEach(b=>{ const i=+b.dataset.i, w=inv[i];
     if(!w){ b.className="empty"; b.innerHTML="<b>EMPTY</b><small>fly into loot</small>"; return; }
     b.style.setProperty("--rc",rarOf(w).c);
@@ -720,10 +955,13 @@ function paintHot(){ const inv=G?G.me.inv:[{k:"PISTOL",ammo:Infinity}], sel=G?G.
   const w=inv[sel]||inv[0]; $("bBoostA").textContent=$("bDumpA").textContent=wLine(w); }
 const keys={};
 addEventListener("keydown",e=>{
+  if(e.target&&e.target.tagName==="INPUT") return;
   if(e.repeat&&(e.code==="Space"||e.key==="Shift"||e.key==="Enter")) return;
   if(e.code==="Space"){e.preventDefault(); act("b");} else if(e.key==="Shift"){act("d");} else if(e.key==="Enter"){ if(!$("drop").hidden) $("dGo").click(); else act("x"); }
   else if(e.key==="1"||e.key==="2"||e.key==="3"){ selSlot(+e.key-1); }
+  else if(e.key==="r"||e.key==="R"){ if(G&&G.me.inv.length>1) selSlot((G.me.sel+1)%G.me.inv.length); }
   else if((e.key==="Escape"||e.key==="q"||e.key==="Q")&&G&&G.offer){ leaveOffer(); }
+  else if(!e.repeat&&(e.key==="q"||e.key==="Q")){ trick(G&&G.me,"spin"); } else if(!e.repeat&&(e.key==="e"||e.key==="E")){ trick(G&&G.me,"flip"); }
   else if(e.key==="m"||e.key==="M"){ toggleMap(); }
   else if(e.key==="a"||e.key==="ArrowLeft") keys.l=1; else if(e.key==="d"||e.key==="ArrowRight") keys.r=1;
   else if(e.key==="w"||e.key==="ArrowUp"){ e.preventDefault(); keys.u=1; } else if(e.key==="s"||e.key==="ArrowDown"){ e.preventDefault(); keys.dn=1; }
@@ -732,12 +970,26 @@ addEventListener("keyup",e=>{ if(e.key==="a"||e.key==="ArrowLeft") keys.l=0; if(
 let drag=null;
 const sky=$("sky"), sx=sky.getContext("2d");
 sky.style.touchAction="none";
-sky.addEventListener("pointerdown",e=>{ if(!G||!G.started||drag) return; drag={id:e.pointerId,x:e.clientX,y:e.clientY,off:G.me.xt,offY:G.me.yt||0}; try{sky.setPointerCapture(e.pointerId);}catch(_){} });
+sky.addEventListener("pointerdown",e=>{ if(!G||!G.started||drag) return; drag={id:e.pointerId,x:e.clientX,y:e.clientY,t:performance.now(),off:G.me.xt,offY:G.me.yt||0}; try{sky.setPointerCapture(e.pointerId);}catch(_){} });
 sky.addEventListener("pointermove",e=>{ if(!drag||e.pointerId!==drag.id) return; steer(drag.off+(e.clientX-drag.x)*1.15); lift(drag.offY+(e.clientY-drag.y)*1.1); });
-const endDrag=e=>{ if(drag&&e.pointerId===drag.id) drag=null; };
+let lastTap=0;
+const endDrag=e=>{ if(!drag||e.pointerId!==drag.id) return; const dx=e.clientX-drag.x, dy=e.clientY-drag.y, dt=performance.now()-(drag.t||0), now=performance.now();
+  if(e.type==="pointerup"&&G&&G.started){ if(dy<-55&&Math.abs(dy)>Math.abs(dx)*1.3&&dt<450) trick(G.me,"spin");
+    else if(Math.abs(dx)<10&&Math.abs(dy)<10&&dt<250){ if(now-lastTap<320){ trick(G.me,"flip"); lastTap=0; } else lastTap=now; } }
+  drag=null; };
+/* tricks (the duel's taunts): a spin or a flip, with a pop and a ring; bots throw one back now and then */
+const TRICKS={spin:{dur:.7,txt:"SPIN!",c:"#8FE3FF"},flip:{dur:.85,txt:"FLIP!",c:"#F2C14E"}};
+function trick(pl,kind){ if(!G||!G.started||G.over||!pl||pl.y==null||(pl.me&&!pl.alive)) return; if(pl.trick&&performance.now()-pl.trick.t0<pl.trick.dur*1000) return;
+  pl.trick={kind,t0:performance.now(),dur:TRICKS[kind].dur}; FX.pops.push({txt:TRICKS[kind].txt,c:TRICKS[kind].c,x:xOf(pl),y:pl.y-LAY.rh*.75,age:0,max:1.1,size:pl.me?28:22});
+  FX.rings.push({x:xOf(pl),y:pl.y,r:20,vr:420,life:.5,max:.5,w:5,col:kind==="spin"?"143,227,255":"242,193,78"});
+  for(let i=0;i<24;i++){ const a=rnd(0,Math.PI*2), sp=rnd(120,320); part({x:xOf(pl),y:pl.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:rnd(.4,.8),size:rnd(2,3.5),col:kind==="spin"?"143,227,255":"255,214,120"}); }
+  if(pl.me){ sfx("trick"); buzz(12);
+    const near=(G._shown||[]).filter(o=>!o.me&&o.alive&&o.y!=null).sort((u,v)=>Math.abs(u.y-pl.y)-Math.abs(v.y-pl.y))[0];
+    if(near&&Math.random()<.35) setTimeout(()=>trick(near,Math.random()<.5?"spin":"flip"),rnd(500,1200)); }
+  else feed("t","\u2605",`${pl.name} did a <b>${kind}</b> on you`); }
 sky.addEventListener("pointerup",endDrag); sky.addEventListener("pointercancel",endDrag);
 // up/down is free flying around your PnL line: your altitude still reads your PnL, you can just sit above or below it
-const yRange=()=>LAY.rh*.9+(LAY.barTop-LAY.under)*.9;
+const yRange=()=>(LAY.barTop-LAY.under)*8;   // uncapped feel (maker 2026-11-16: "like im capped it doesnt feel like im flying"): about eight screens either way
 function lift(off){ G.me.yt=Math.max(-yRange(),Math.min(yRange(),off)); }
 function steer(off){ const b=G.me.lane*SW; G.me.xt=Math.max(30-b,Math.min(SW-30-b,off)); }
 
@@ -762,7 +1014,7 @@ function jump(pl,k){
   if(pl.pos) close(pl,"jump");
   const from=pl.mk; pl.mk=k; pl.jumpAt=null; pl.y=null; pl.x=null; pl.arrive=Math.min(pl.arrive,G.t); pl.lane=laneFor(pl);
   if(pl.df) endDf(pl.df,true);
-  if(pl.me){ G.me.lane=.5; G.me.xo=G.me.xt=0; G.me.yo=G.me.yt=0; G.jumpCool=G.t+8; G.mapOpen=false; feed("g","↑",`Jumped to <b>${k}</b> · ${MKD[k].best.toLowerCase()} loot · your PnL came with you`); sfx("jump"); G.crate=null; buildJump(); paintSizes(); }
+  if(pl.me){ G.me.lane=.5; G.me.xo=G.me.xt=0; G.me.yo=G.me.yt=0; G.jumpCool=G.t+G.P.jumpCool; G.mapOpen=false; feed("g","↑",`Jumped to <b>${k}</b> · ${MKD[k].best.toLowerCase()} loot · your PnL came with you`); sfx("jump"); G.crate=null; buildJump(); paintSizes(); }
   else if(from===G.me.mk||k===G.me.mk) feed("m","→",`<b>${pl.name}</b> jumped ${from} → ${k}`);
 }
 function bestJump(exclude){ const o=openMks().filter(k=>k!==exclude); if(!o.length) return null;
@@ -780,7 +1032,7 @@ function closeMarket(k){
 }
 
 /* ---------- dogfights ---------- */
-function visible(pl){ if(!G||!G.me.alive&&!G.watch) return false; return pl.alive&&pl.mk===G.me.mk&&Math.abs(profit(pl)-profit(G.me))<=radarR(); }
+function visible(pl){ if(!G||G.ff||!G.me.alive&&!G.watch) return false; return pl.alive&&pl.mk===G.me.mk&&Math.abs(profit(pl)-profit(G.me))<=radarR(); }
 function radarR(){ if(G.duel){ const o=G.duel.a===G.me?G.duel.b:G.duel.a; return Math.max(3,Math.abs(alt(o)-alt(G.me))+1.2); }
   if(G.final){ let m=0; for(const p of alive()) m=Math.max(m,Math.abs(profit(p)-profit(G.me))); return Math.max(5,m+1.2,G.band?2*G.band.w+1:0); }
   return 5; }
@@ -797,7 +1049,7 @@ function startDf(a,b){
 }
 const dfGain=(d,pl)=>profit(pl)-(pl===d.a?d.base.a:d.base.b);
 function endDf(d,abort){
-  const i=G.dfs.indexOf(d); if(i<0) return; G.dfs.splice(i,1); d.a.df=d.b.df=null; d.a.cool=d.b.cool=G.t+25;
+  const i=G.dfs.indexOf(d); if(i<0) return; G.dfs.splice(i,1); d.a.df=d.b.df=null; d.a.cool=d.b.cool=G.t+G.P.dfCool;
   if(abort) return;
   const ga=dfGain(d,d.a), gb=dfGain(d,d.b); if(Math.abs(ga-gb)<0.005) { if(d.a.me||d.b.me) feed("m","=","Dogfight tied, nobody drops a weapon"); return; }
   const w=ga>gb?d.a:d.b, l=w===d.a?d.b:d.a; w.dfW++; l.dfL++;
@@ -811,12 +1063,12 @@ function endDf(d,abort){
 
 /* ---------- final circle + duel ---------- */
 function startFinal(){
-  for(const pl of alive()) if(pl.mk!=="BTC") jump(pl,"BTC");
+  { const fk=finalMk(); for(const pl of alive()) if(pl.mk!==fk) jump(pl,fk); }
   for(const d of G.dfs.slice()) endDf(d,true);
   { const L=[.14,.86,.3,.7,.1,.9]; let i=0; for(const pl of alive()){ if(pl.me){ pl.lane=.5; } else pl.lane=L[i++%L.length]; pl.xt=pl.xo=0; } }
   G.mapOpen=false;
   G.final={next:G.t+G.P.shrink}; G.band={top:topP(),w:G.P.w0};
-  feed("m","◎",`<b>FINAL CIRCLE</b> on BTC · ${alive().length} left`); sfx("ot"); bed("amb_tension"); 
+  feed("m","◎",`<b>FINAL CIRCLE</b> on ${finalMk()} · ${alive().length} left`); sfx("ot"); bed("amb_tension"); 
   if(alive().length<=2) startDuel();
 }
 const topP=()=>Math.max(...alive().map(profit))+.6;
@@ -834,12 +1086,13 @@ function startDuel(){
   if(a.me||b.me){ const o=a.me?b:a; G.me.lane=.3; G.me.xt=G.me.xo=0; o.lane=.72; o.xt=o.xo=0; sfx("lock"); buzz([30,40,30]); }
 }
 const duelGain=pl=>profit(pl)-(pl===G.duel.a?G.duel.base.a:G.duel.base.b);
-function endDuel(){ const {a,b}=G.duel, ga=duelGain(a), gb=duelGain(b); const w=ga>=gb?a:b, l=w===a?b:a; l.alive=false; l.place=2; l.why="lost the final duel"; winner(w); }
-function winner(w){ w.place=1; G.champ=w; if(G.me===w) sfx("champ"); if(G.me===w||!G.resShown) endMe(); else { feed("w","W",`<b>${w.name}</b> wins the royale`); toast(w.name+" wins the royale"); G.watch=false; G.over=true; } }
+function endDuel(){ const {a,b}=G.duel, ga=duelGain(a), gb=duelGain(b); const w=ga>=gb?a:b, l=w===a?b:a; l.alive=false; l.place=2; l.why="lost the final duel"; l.fin=profit(l); w.duelG=duelGain(w); l.duelG=duelGain(l); winner(w); }
+function winner(w){ w.place=1; w.fin=profit(w); w.why=G.duel?"won the final duel":"last one flying"; G.champ=w; if(G.me===w) sfx("champ"); if(G.me===w||!G.resShown) endMe(); else { feed("w","W",`<b>${w.name}</b> wins the royale`); toast(w.name+" wins the royale"); G.watch=false; G.over=true; if(!G.ff) setTimeout(showPodium,1400); } }
 
 /* ---------- sim loop ---------- */
 function simTick(){
   G.t+=TICK;
+  for(const pl of G.pilots) if(pl.alive&&pl.pos) pl.held=(pl.held||0)+TICK;
   for(const k of ORDER) stepFeed(G.M[k],G.t);
   for(const pl of G.pilots){ if(!pl.alive) continue; liqCheck(pl); if(G.over&&!G.watch) return; }
   for(const pl of G.pilots) if(pl.alive&&!pl.me) botThink(pl);
@@ -855,12 +1108,12 @@ function simTick(){
   if(G.duel&&G.t>=G.duel.end) endDuel();
   // supply drops near you
   if(!G.final&&!G.duel&&G.me.alive&&!G.crate&&G.t>=G.nextCrate&&!G.me.df){ const side=G.me.lane*SW+G.me.xo<SW/2?1:-1;
-    const item=rollLoot(G.me.mk); G.crate={x:Math.max(40,Math.min(SW-40,G.me.lane*SW+G.me.xo+side*rnd(110,170))),y:-1,until:G.t+10,item}; G.nextCrate=G.t+rnd(16,24)*MKD[G.me.mk].drop; sfx("pod");
+    const item=rollLoot(G.me.mk); G.crate={x:Math.max(40,Math.min(SW-40,G.me.lane*SW+G.me.xo+side*rnd(110,170))),y:-1,until:G.t+60,item}; G.nextCrate=G.t+rnd(8,12)*MKD[G.me.mk].drop; sfx("pod");
     feed("g","◆",`LOOT · <b style="color:${rarOf(item).c}">${item.k}</b> ${wLine(item)} · steer into it`); }
   if(G.crate&&G.t>G.crate.until) G.crate=null;
   if(G.offer){ if(G.t>G.offer.until||!G.me.alive) leaveOffer(); else { const t=$("swT"); if(t) t.style.transform=`scaleX(${Math.max(0,(G.offer.until-G.t)/G.offer.len)})`; } }
   // other bots find loot sometimes
-  for(const pl of G.pilots) if(pl.alive&&!pl.me&&!G.final&&!G.duel&&Math.random()<TICK/(14*MKD[pl.mk].drop)){ const it=rollLoot(pl.mk); give(pl,it);
+  for(const pl of G.pilots) if(pl.alive&&!pl.me&&!G.final&&!G.duel&&Math.random()<TICK/(6*MKD[pl.mk].drop)){ const it=rollLoot(pl.mk); give(pl,it);
     if(pl.mk===G.me.mk&&visible(pl)&&W(it).r>=3) feed("s","◆",`<b>${pl.name}</b> picked up a <b style="color:${rarOf(it).c}">${it.k}</b>`); }
   // arrivals: pilots drop into your map one at a time
   for(const pl of G.pilots) if(!pl.me&&pl.alive&&!pl.arrived&&G.t>=pl.arrive){ pl.arrived=true; if(pl.mk===G.me.mk&&G.me.alive) feed("m","↓",`<b>${pl.name}</b> dropped into ${pl.mk}`); }
@@ -870,51 +1123,60 @@ function simTick(){
 
 /* ---------- start / end ---------- */
 let raf=0,last=0;
+function lzOrder(){ const r=ROLL||rollMaps(); return r.order.concat([r.final]); }
+function lzAt(k){ if(!LZ) return START[k]; let n=0; for(const b of LZ.bots){ const mk=b.first&&LZ.el>=b.at*.4&&LZ.el<b.at?b.first:LZ.el>=b.at?b.mk:null; if(mk===k) n++; } return n; }
 function buildDrop(){
-  const box=$("mkPick"); box.innerHTML="";
-  for(const k of ORDER){ const n=START[k]+(k===dropMk?1:0), cl=plan().close[k], d=MKD[k], rc=RAR.find(x=>x.n===d.best).c, em=A["map-"+k.toLowerCase()];
-    const b=document.createElement("button"); b.type="button"; b.className="mkc"+(k===dropMk?" on":""); b.setAttribute("aria-pressed",k===dropMk);
-    b.style.backgroundImage=`url("${A[d.sky]}")`; b.setAttribute("aria-label",`${k}: loot up to ${d.best.toLowerCase()}, ${n} pilots, ${cl!=null?"closes at "+mmss(cl):"the final circle"}`);
-    b.innerHTML=`<span class="rar" style="color:${rc}">${d.best}</span>${em?`<img class="emb" src="${em}" alt="">`:""}<b class="nm">${k}</b><span class="ft">${n} PILOTS · ${cl!=null?"CLOSES "+mmss(cl):"FINAL CIRCLE"}</span>${k===dropMk?'<span class="you">YOU</span>':""}`;
-    b.addEventListener("click",()=>{ dropMk=k; sfx("tick"); buildDrop(); }); box.appendChild(b); }
-  $("dGo").textContent="DROP INTO "+dropMk; paintSizes();
+  const box=$("mkPick"); box.innerHTML=""; const fk=finalMk();
+  for(const k of lzOrder()){ const cl=plan().close[k], d=MKD[k], rc=RAR.find(x=>x.n===d.best).c, em=A["map-"+k.toLowerCase()], fin=k===fk;
+    const b=document.createElement("button"); b.type="button"; b.dataset.k=k; b.className="mkc"+(k===dropMk?" on":"")+(fin?" final":""); b.setAttribute("aria-pressed",k===dropMk);
+    b.style.backgroundImage=`url("${A[d.sky]}")`; b.setAttribute("aria-label",`${k}: loot up to ${d.best.toLowerCase()}, ${fin?"the final circle":"closes at "+mmss(cl)}`);
+    b.innerHTML=`${fin?'<span class="fin">FINAL CIRCLE</span>':""}<span class="rar${fin?" r2":""}" style="color:${rc}">${d.best}</span>${em?`<img class="emb" src="${em}" alt="">`:""}<b class="nm">${k}<span class="pips"></span></b><span class="ft"></span>${k===dropMk?'<span class="you">YOU</span>':""}`;
+    b.addEventListener("click",()=>{ if(dropMk===k) return; dropMk=k; sfx("tick"); buzz(10); buildDrop(); }); box.appendChild(b); }
+  $("dGo").textContent="DROP INTO "+dropMk; paintLZ(); paintSizes();
 }
-/* ---------- map vote (maker 2026-11-15: "give them two options and then people vote. a 6-6 tiebreaker would go for a random sky") ----------
- * Two skies from the pool, never last match's. All 12 pilots vote during the drop timer (the 11 bots trickle in);
- * you can change your vote until the drop. Most votes wins; a tie goes to a random sky from the whole pool. */
+// the dots on each card are the pilots dropping there; bots make up their minds (and sometimes switch) while the doors count down
+function paintLZ(){ const fk=finalMk(); document.querySelectorAll("#mkPick .mkc").forEach(b=>{ const k=b.dataset.k, n=lzAt(k), me=k===dropMk, pp=b.querySelector(".pips"), want=n+(me?1:0);
+    if(pp.children.length!==want){ pp.innerHTML=(me?'<i class="me"></i>':"")+"<i></i>".repeat(n); }
+    b.querySelector(".ft").textContent=k===fk?"LAST MAP":"CLOSES "+mmss(plan().close[k]); pp.setAttribute("aria-label",`${want} pilot${want===1?"":"s"} dropping here`); }); }
+/* ---------- the sky is random each game (maker 2026-11-16: "remove the sky screen voting, and just make it random"), never last game's ---------- */
 const MAPS=[{n:"MOONRISE",k:"sky0"},{n:"THE PAD",k:"skyPad"},{n:"CLOUD DECK",k:"sky2"},{n:"BLUE MOON",k:"skyEth"},
   {n:"ORANGE ORBIT",k:"skyBtc"},{n:"DEEP SPACE",k:"sky4"},{n:"AURORA",k:"skyHype"},{n:"TEAL ORBIT",k:"skySol"},{n:"PINK DUSK",k:"sky1",g:"240,48,127,.38"}].filter(m=>A[m.k]);
-let VOTE=null, MAP=MAPS[0];
-function newVote(){
-  let last=null; try{ last=localStorage.getItem("royale.map"); }catch(e){}
-  const pool=MAPS.filter(m=>m.n!==last).sort(()=>Math.random()-.5);
-  VOTE={opts:[pool[0],pool[1]||pool[0]],mine:-1,bots:NAMES.map(()=>({at:rnd(1.5,12),pick:Math.random()<.5?0:1,done:false})),res:null};
-  $("vRow").innerHTML=""; VOTE.opts.forEach((m,i)=>{ const b=document.createElement("button"); b.type="button"; b.className="vopt"; b.dataset.i=i;
-    b.style.backgroundImage=`url("${A[m.k]}")`; b.setAttribute("aria-label","Vote for "+m.n);
-    b.innerHTML=`<span class="vy" hidden>YOUR VOTE</span><span class="vn">${m.n}</span><b class="vc">0</b><i class="vbar"></i>`;
-    b.addEventListener("click",()=>{ if(!VOTE||VOTE.res) return; VOTE.mine=i; sfx("tick"); buzz(10); paintVote(); }); $("vRow").appendChild(b); });
-  paintVote();
+let MAP=MAPS[0];
+function rollSky(){ let last=null; try{ last=localStorage.getItem("royale.map"); }catch(e){}
+  const pool=MAPS.filter(m=>m.n!==last); MAP=pick(pool.length?pool:MAPS); try{ localStorage.setItem("royale.map",MAP.n); }catch(e){} return MAP; }
+/* ---------- landing zone lobby chat (maker 2026-11-16: "global chat starting on the landing zone selector ... make that countdown fun") ----------
+ * Practice lobby: the 11 bots pick coins, trash talk and answer you while the doors count down. Nothing leaves your device. */
+let LZ=null;
+const LQUICK=["gl hf","🚀","send it","see you in the storm","lol","👀"];
+function lzSetup(){
+  const names=NAMES.slice().sort(()=>Math.random()-.5), slots=[]; for(const k of ORDER) for(let i=0;i<START[k];i++) slots.push(k);
+  const bots=names.slice(0,slots.length).map((n,i)=>({name:n,mk:slots[i],at:rnd(.8,11.5),first:Math.random()<.3?pick(ORDER.filter(k=>k!==slots[i])):null,done:false,said:false}));
+  const fk=finalMk(), o=ROLL.order, lines=[`final circle on ${fk}?? ok`,`${o[0]} closes first, don't land there`,"gl all","first one out buys the next round",`${fk} gang`,"I'm taking the railgun","HYPE loot is insane","don't follow me","who's camping the final","🚀🚀🚀","nuke incoming","ez","new pilot? stay close to the leader lol","5x ape mode"];
+  const talk=lines.sort(()=>Math.random()-.5).slice(0,6).map(t=>({t,at:rnd(.6,12.5),who:pick(bots).name,done:false}));
+  LZ={bots,talk,el:0,hot:false,reply:0};
+  $("lMsgs").innerHTML=""; lzSys(`12 pilots in · the storm ends on ${fk}`);
 }
-function tally(){ const n=[0,0]; for(const b of VOTE.bots) if(b.done) n[b.pick]++; if(VOTE.mine>=0) n[VOTE.mine]++; return n; }
-function paintVote(){ if(!VOTE) return; const n=tally(), tot=n[0]+n[1];
-  $("vRow").querySelectorAll(".vopt").forEach(b=>{ const i=+b.dataset.i; b.classList.toggle("on",VOTE.mine===i); b.querySelector(".vy").hidden=VOTE.mine!==i;
-    b.querySelector(".vc").textContent=n[i]; b.querySelector(".vbar").style.width=(tot?n[i]/12*100:0)+"%"; });
-  $("vSt").textContent=VOTE.mine<0?`${tot}/12 voted · tap one`:`${tot}/12 voted`; }
-function voteTick(el){ if(!VOTE||VOTE.res) return; let ch=false; for(const b of VOTE.bots) if(!b.done&&el>=b.at){ b.done=true; ch=true; } if(ch) paintVote(); }
-function finishVote(){
-  if(!VOTE) newVote(); if(VOTE.res) return VOTE.res;
-  for(const b of VOTE.bots) b.done=true;
-  const n=tally(); let tie=n[0]===n[1];
-  MAP=tie?MAPS[Math.floor(Math.random()*MAPS.length)]:VOTE.opts[n[0]>n[1]?0:1];
-  try{ localStorage.setItem("royale.map",MAP.n); }catch(e){}
-  paintVote(); VOTE.res={tie,n,map:MAP}; return VOTE.res;
-}
+function lzLine(html,cls){ for(const id of ["lMsgs","fMsgs"]){ const m=$(id), d=document.createElement("div"); if(cls) d.className=cls; d.innerHTML=html; m.appendChild(d); while(m.children.length>12) m.firstChild.remove(); }
+  if(G&&G.started&&$("fChat").hidden&&cls!=="me") $("chatDot").hidden=false; }
+function lzSys(t){ lzLine(esc(t),"sys"); }
+function lzSay(who,t,me){ lzLine(`<b>${me?"you":esc(who)}</b>${esc(t)}`,me?"me":""); if(!me) sfx("tick",.35); }
+function lzTick(){ if(!LZ) return; LZ.el+=.25; const el=LZ.el;
+  for(const b of LZ.bots) if(!b.done&&el>=b.at){ b.done=true; if(!b.said&&Math.random()<.3){ b.said=true; lzSay(b.name,b.first?`nvm switching to ${b.mk}`:`dropping ${b.mk} 🔥`); } }
+  for(const c of LZ.talk) if(!c.done&&el>=c.at){ c.done=true; lzSay(c.who,c.t); }
+  if(LZ.reply&&el>=LZ.reply.at){ lzSay(LZ.reply.who,LZ.reply.t); LZ.reply=0; }
+  paintLZ(); }
+function lzMe(t){ t=(t||"").trim().slice(0,60); if(!t||!LZ) return; lzSay("you",t,true); sfx("tick",.5);
+  if(!LZ.reply&&Math.random()<.6){ const dl=rnd(.8,2.2); LZ.reply={at:LZ.el+dl,ms:performance.now()+dl*1000,who:pick(LZ.bots).name,t:pick(["lol","bet","see you there","gl","👀","say less","you're going down","😂","respect"])}; } }
+$("lQuick").innerHTML=LQUICK.map(q=>`<button type="button">${q}</button>`).join("");
+$("lQuick").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b) lzMe(b.textContent); });
+$("lSay").addEventListener("submit",e=>{ e.preventDefault(); lzMe($("lIn").value); $("lIn").value=""; });
+const esc=t=>String(t).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let dropT=0, dropIv=0;
-function prePane(id){ for(const k of ["pIntro","pFill","pDrop"]) $(k).hidden=k!==id; $("stLobby").classList.toggle("on",id!=="pDrop"); $("stDrop").classList.toggle("on",id==="pDrop"); }
+function prePane(id){ $("podium").hidden=true; podStop(); victoryMusic(false); for(const k of ["pIntro","pFill","pDrop"]) $(k).hidden=k!==id; $("stLobby").classList.toggle("on",id!=="pDrop"); $("stDrop").classList.toggle("on",id==="pDrop"); }
 let fillIv=0;
-function showIntro(){ toParent({type:"disciple:music",on:false}); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pIntro"); $("dIn").textContent="12"; bed("amb_mission_control"); }
+function showIntro(){ $("smap").hidden=true; $("fChat").hidden=true; toParent({type:"disciple:music",on:false}); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pIntro"); $("dIn").textContent="12"; bed("amb_mission_control"); }
 // a lobby that fills up: you first, then the 11 bots drop in over ~3 s, then the map pick and its 15 s timer
-function fillLobby(){ toParent({type:"disciple:music",on:false}); ensureAudio(); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pFill"); bed("amb_mission_control");
+function fillLobby(){ $("smap").hidden=true; $("fChat").hidden=true; toParent({type:"disciple:music",on:false}); ensureAudio(); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pFill"); bed("amb_mission_control");
   const g=$("fGrid"); g.innerHTML=""; const slots=[]; for(let i=0;i<12;i++){ const d=document.createElement("div"); d.textContent="···"; g.appendChild(d); slots.push(d); }
   slots[0].className="me"; slots[0].textContent="YOU"; let n=1; $("fN").textContent=n; $("dIn").textContent=n+" / 12"; $("fSub").textContent="FINDING PILOTS";
   const order=NAMES.slice().sort(()=>Math.random()-.5);
@@ -922,18 +1184,21 @@ function fillLobby(){ toParent({type:"disciple:music",on:false}); ensureAudio();
     $("fN").textContent=n; $("dIn").textContent=n+" / 12"; sfx("tick",.5);
     if(n>=12){ clearInterval(fillIv); $("fSub").textContent="LOBBY FULL"; sfx("lock"); buzz([20,40,20]); setTimeout(showDrop,900); } },300);
 }
-function showDrop(){ toParent({type:"disciple:music",on:false}); $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; buildDrop(); newVote(); dropT=15; $("dT").textContent=mmss(dropT);
-  clearInterval(dropIv); dropIv=setInterval(()=>{ dropT--; $("dT").textContent=mmss(dropT); voteTick(15-dropT); if(dropT<=0){ clearInterval(dropIv); go(); } },1000); }
+function showDrop(){ $("smap").hidden=true; $("fChat").hidden=true; toParent({type:"disciple:music",on:false}); $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; rollMaps(); lzSetup(); buildDrop(); dropT=15; $("dT").textContent=mmss(dropT); $("dBar").style.width="100%"; $("pDrop").classList.remove("hot");
+  clearInterval(dropIv); let q=0; dropIv=setInterval(()=>{ lzTick(); if(++q%4) return; dropT--; $("dT").textContent=mmss(dropT); $("dBar").style.width=(dropT/15*100)+"%";
+    // the last five seconds: the clock goes pink and pulses, a tick every second
+    if(dropT<=5&&dropT>0){ $("pDrop").classList.add("hot"); sfx("count",.7); buzz(12); if(dropT===5) lzSys("DOORS OPEN IN 5"); }
+    if(dropT<=0){ clearInterval(dropIv); go(); } },250); }
 $("dGo").addEventListener("click",()=>{ ensureAudio(); clearInterval(dropIv); go(); });
 function go(){
-  const vr=finishVote(), mapLine=vr.tie?`VOTE TIED ${vr.n[0]}-${vr.n[1]} · RANDOM SKY: ${MAP.n}`:`MAP · ${MAP.n} (${Math.max(...vr.n)}-${Math.min(...vr.n)})`;
+  rollSky(); const mapLine=`SKY · ${MAP.n} · FINAL CIRCLE ON ${finalMk()}`;
   $("drop").hidden=true; newGame(); G.me.y=null; FX.parts.length=FX.pops.length=FX.rings.length=0;
   $("feed").innerHTML=""; buildJump(); const c=$("count"); c.hidden=false; let n=3;
   const show=()=>{ c.innerHTML=`<div><small>DROPPING INTO ${G.me.mk}</small><small class="cmap">${mapLine}</small>${n}</div>`; };
   show(); sfx("count"); bed("amb_wind_high"); oneShotAmb("amb_mothership_pass",.7);
   const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("count"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); sfx("drop",.8); buzz(30); G.started=true; toParent({type:"disciple:music",on:true}); setTimeout(()=>c.hidden=true,450);
     feed("m","☁",`${inMk(G.me.mk).length} pilots in ${G.me.mk} · 12 in the game`);
-    feed("m","🗳",vr.tie?`Map vote tied ${vr.n[0]}-${vr.n[1]}. Random sky: <b>${MAP.n}</b>`:`Map vote ${Math.max(...vr.n)}-${Math.min(...vr.n)}: <b>${MAP.n}</b>`); },800);
+    feed("m","☁",`Sky: <b>${MAP.n}</b> · the storm ends on <b>${finalMk()}</b>`); },800);
 }
 function endMe(){
   if(G.resShown) return; G.resShown=true;
@@ -941,6 +1206,8 @@ function endMe(){
   if(win&&!me.place) me.place=1;
   setTimeout(()=>{
     G.over=true;
+    if(G.champ){ showPodium(); return; }   // the match is decided (you won, or lost the final duel): straight to the podium
+    $("rAgain").textContent="SEE PODIUM";
     $("resCard").classList.toggle("win",win);
     $("rH").textContent=win?"#1 PILOT":"#"+place;
     $("rML").textContent=win?"LAST ONE FLYING · YOUR PNL":"OF 12 PILOTS · YOUR PNL";
@@ -956,7 +1223,86 @@ function endMe(){
     sfx(win?"champ":"outSting"); if(!win) bed(null);
   },win?300:900);
 }
-$("rAgain").addEventListener("click",()=>fillLobby());
+$("rAgain").addEventListener("click",()=>{ if(G&&!G.champ){ ffToEnd(); showPodium(); } else fillLobby(); });
+/* ---------- podium (maker 2026-11-16: "see the podium so people can see each other's loadout, and stats") ---------- */
+// out before the end: play the rest of the match out silently in one go, so the podium has its real top 3
+function ffToEnd(){ if(!G||G.champ) return; G.ff=true; G.watch=true; G.over=false; let n=0;
+  try{ while(!G.champ&&n++<8000) simTick(); } finally { G.ff=false; }
+  if(!G.champ){ const a=alive().sort((x,y)=>profit(y)-profit(x)); a.forEach((p,i)=>{ p.place=i+1; p.alive=i===0; p.fin=profit(p); }); G.champ=a[0]; }
+  G.watch=false; G.over=true; }
+const PODC={1:"242,193,78",2:"215,217,228",3:"227,154,92"};
+const RAR2={common:"#A7AFBE",uncommon:"#5FF0A0",rare:"#4F8BFF",epic:"#A066FF",legendary:"#FF9A3C",mythic:"#F3DFA8"};
+const TAGBASE="../tags/", FLOURISH="../flourish/win-flourish.webp";
+const cap=s=>String(s||"").replace(/-/g," ").toUpperCase();
+// what each pilot flew: hull + paint (the rival art in flight; you fly the chrome rocket), the flame, a name tag.
+// Bots get a name tag from the Hangar tag tiers (PR 421 art); you get yours once Royale reads your Hangar look.
+function lookOf(pl){ if(pl.look) return pl.look;
+  let hull="CHROME ROCKET", paint="STOCK", hr="common";
+  if(pl.hull){ const [h,pt]=pl.hull.k.replace(/^hull-/,"").split("--"); hull=cap(h); paint=cap(pt); hr="rare"; }
+  let tag=null; if(!pl.me){ const r=Math.random(); tag=r<.08?"tag-prestige-"+(1+Math.floor(Math.random()*9)):r<.2?"tag-mythic":r<.38?"tag-legendary":r<.6?"tag-epic":r<.8?"tag-rare":"tag-uncommon"; }
+  const tr=tag?(/prestige/.test(tag)?"mythic":tag.slice(4)):null;
+  return pl.look={hull,paint,hr,trail:pl.me?"GOLD FLAME":"PINK FLAME",tc:pl.me?"#F2C14E":"#FF8FBD",tag,tagN:tag?(/prestige/.test(tag)?"PRESTIGE "+tag.slice(-1):cap(tr)):"STANDARD",tagC:tr?RAR2[tr]:"#2E323A"}; }
+function podTop(){ const ps=G.pilots.slice().sort((a,b)=>(a.place||99)-(b.place||99)||(b.fin??profit(b))-(a.fin??profit(a)));
+  return ps.slice(0,3).map((p,i)=>{ if(!p.place) p.place=i+1; return p; }); }
+const pnlFin=p=>p.fin!=null?p.fin:profit(p);
+// the final duel is scored on PnL made during the duel, so its score goes on the line (the winner can have less total PnL)
+function whyLine(p){ const dg=p.duelG!=null?` ${usd(p.duelG,true)} in it`:"";
+  if(p.place===1) return p.why==="won the final duel"?"Won the final duel"+dg:"Last one flying";
+  const w=p.why||"knocked out"; return w.charAt(0).toUpperCase()+w.slice(1)+(p.place===2?dg:""); }
+function podCard(p){ const L=lookOf(p), pr=pnlFin(p), col=v=>v>0.004?"var(--green)":v<-0.004?"var(--pinkl)":"var(--text)";
+  const slots=[0,1,2].map(i=>p.inv[i]||null);
+  const guns=slots.map(w=>{ if(!w) return `<div class="empty"><b>EMPTY</b></div>`; const r=rarOf(w), img=imgs["weapon-"+w.k.toLowerCase().replace(/ /g,"-")];
+    return `<div style="--wc:${r.c}">${img?`<img class="gi" src="${img.src}" alt="">`:""}<b>${w.k}</b></div>`; }).join("");
+  // the name sits on its name-tag plate (PR 421 art, like the in-flight tag); a plain name if the plate art isn't there
+  const plate=L.tag?`<span class="pk-plate${/prestige/.test(L.tag)?" pr":""}"><img src="${TAGBASE+L.tag}.webp" alt="" onerror="this.parentNode.classList.add('bare');this.remove()"><b>${p.me?"YOU":p.name}</b></span>`:`<span class="pk-plate bare"><b>${p.me?"YOU":p.name}</b></span>`;
+  const st=[["TOTAL PNL",usd(pr,true),col(pr),1],["HOLD TIME",mmss(Math.round(p.held||0))],["TRADES",String(p.trades||0)],["DOGFIGHTS",`${p.dfW}-${p.dfL}`],["BEST TRADE",usd0(p.best),col(p.best)],["NUKES",String(p.nukes||0),(p.nukes?"var(--pinkl)":"")]];
+  return `<article class="pk p${p.place}${p.me?" me":""}" data-pl="${p.place}">
+    <div class="pk-top"><div class="pk-id">${plate}<div class="pk-tag">${p.me?"<i>YOU</i>":"<i class=r>RIVAL</i>"}<small>${whyLine(p)}</small></div></div><div class="pk-n"><span>${p.place}</span></div></div>
+    <div class="pk-ship"><canvas></canvas></div>
+    <div class="pk-look"><div style="--lc:${RAR2[L.hr]}"><small>HULL</small><b>${L.hull}</b></div><div style="--lc:${RAR2[L.hr]}"><small>PAINT</small><b>${L.paint}</b></div><div style="--lc:${L.tc}"><small>TRAIL</small><b>${L.trail}</b></div><div style="--lc:${L.tagC}"><small>NAME TAG</small><b>${L.tagN}</b></div></div>
+    <div class="pk-guns">${guns}</div>
+    <div class="pk-st">${st.map(([k,v,c,big])=>`<div${big?' class="big"':""}><span>${k}</span><b${c?` style="color:${c}"`:""}>${v}</b></div>`).join("")}</div>
+  </article>`; }
+let podRaf=0, podPs=[], podT0=0, flImg=new Image(); flImg.src=FLOURISH;
+function podStop(){ cancelAnimationFrame(podRaf); podRaf=0; }
+function podDraw(now){ podRaf=requestAnimationFrame(podDraw);
+  document.querySelectorAll("#podRow .pk").forEach((el,i)=>{ const p=podPs[i], cv=el.querySelector("canvas"); if(!p||!cv) return;
+    const dpr=Math.min(2,devicePixelRatio||1), w=cv.clientWidth, h=cv.clientHeight; if(!w||!h) return;
+    if(cv.width!==Math.round(w*dpr)){ cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr); }
+    const c=cv.getContext("2d"); c.setTransform(dpr,0,0,dpr,0,0); c.clearRect(0,0,w,h);
+    const rh=h*.66, bob=reduce?0:Math.sin(now/600+i*1.7)*3, cy=h*.42+bob, pc=PODC[p.place]||PODC[2];
+    // the match's sky, drawn in the canvas (so the additive flourish has something to light up), fading into the card
+    const sk=imgs[MAP.k]; if(sk&&sk.complete&&sk.naturalWidth){ const k=Math.max(w/sk.naturalWidth,h/sk.naturalHeight); c.drawImage(sk,(w-sk.naturalWidth*k)/2,(h-sk.naturalHeight*k)*.4,sk.naturalWidth*k,sk.naturalHeight*k); }
+    else { c.fillStyle="#1d1f2e"; c.fillRect(0,0,w,h); }
+    const fade=c.createLinearGradient(0,0,0,h); fade.addColorStop(0,"rgba(7,8,12,.1)"); fade.addColorStop(.6,"rgba(7,8,12,.25)"); fade.addColorStop(1,"rgba(21,22,27,.95)"); c.fillStyle=fade; c.fillRect(0,0,w,h);
+    // pedestal glow in the place colour
+    const g=c.createRadialGradient(w/2,h*.93,4,w/2,h*.93,w*.42); g.addColorStop(0,`rgba(${pc},.55)`); g.addColorStop(1,`rgba(${pc},0)`); c.fillStyle=g; c.beginPath(); c.ellipse(w/2,h*.93,w*.42,h*.12,0,0,7); c.fill();
+    c.save(); c.translate(w/2,cy); drawShip(c,p.hull,imgs.rocket,rh,1.05+(reduce?0:Math.sin(now/45+i)*.08),p.me?"255,200,80":"255,95,170",0); c.restore();
+    // the winner's flourish (PR 421 art: 8-frame starburst, black = clear), played on open and then every few seconds
+    if(p.place===1&&!reduce&&flImg.complete&&flImg.naturalWidth){ const ft=((now-podT0)%3200)/75; if(ft<8){ const fw=flImg.naturalWidth/8, s2=rh*1.7; c.globalCompositeOperation="lighter"; c.drawImage(flImg,Math.floor(ft)*fw,0,fw,flImg.naturalHeight,w/2-s2/2,cy-s2/2,s2,s2); c.globalCompositeOperation="source-over"; } } }); }
+function showPodium(){ if(!G||!$("podium").hidden) return;
+  const ps=podTop(); podPs=ps; const champ=ps[0], me=G.me;
+  $("result").hidden=true;
+  const sm=imgs[MAP.k]; $("podBg").style.backgroundImage=sm?`url("${sm.src}")`:"";
+  $("podK").textContent=`TURBO ROYALE · ${MAP.n||"PODIUM"} · ${mmss(G.t)} MATCH`.toUpperCase();
+  $("podH").innerHTML=champ.me?"<em>YOU</em> WIN THE ROYALE":`<em>${champ.name.toUpperCase()}</em> WINS`;
+  const row=$("podRow"); row.innerHTML=ps.map(podCard).join("");
+  $("podDots").innerHTML=ps.map(p=>`<button type="button" data-pl="${p.place}" class="${p.place===1?"on":""}" aria-label="Place ${p.place}">#${p.place}</button>`).join("");
+  const mine=me.place||12, inTop=ps.includes(me); $("podMe").hidden=inTop;
+  if(!inTop){ const pr=pnlFin(me); $("podMeT").innerHTML=`<b>YOU #${mine}</b>${whyLine(me)}`; $("podMeV").textContent=usd(pr,true); $("podMeV").style.color=pr>=0?"var(--green)":"var(--pinkl)"; }
+  LASTR={place:mine,win:mine===1,pr:pnlFin(me),mk:me.mk,df:me.dfW,champ:champ.name};
+  $("podium").hidden=false; row.scrollLeft=0; podStop(); podT0=performance.now()+400; podRaf=requestAnimationFrame(podDraw);
+  toParent({type:"disciple:music",on:false}); bed(null);
+  if(!champ.me) sfx("champ",.55);
+  victoryMusic(true,2600);   // after the 3-4 s champion sting has hit
+}
+$("podRow").addEventListener("scroll",()=>{ const r=$("podRow"), cs=[...r.children]; if(!cs.length) return; const mid=r.scrollLeft+r.clientWidth/2;
+  let best=cs[0]; for(const c of cs) if(Math.abs(c.offsetLeft+c.offsetWidth/2-mid)<Math.abs(best.offsetLeft+best.offsetWidth/2-mid)) best=c;
+  $("podDots").querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.pl===best.dataset.pl)); },{passive:true});
+$("podDots").addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b) return; const c=$("podRow").querySelector(`.pk[data-pl="${b.dataset.pl}"]`); if(c) c.scrollIntoView({behavior:reduce?"auto":"smooth",inline:"center",block:"nearest"}); });
+$("podAgain").addEventListener("click",()=>{ $("podium").hidden=true; podStop(); fillLobby(); });
+$("podShare").addEventListener("click",()=>$("rShare").click());
+
 $("iGo").addEventListener("click",()=>fillLobby());
 $("iBots").addEventListener("click",()=>{ ensureAudio(); clearInterval(fillIv); showDrop(); });   // skip the lobby: straight to the drop pick with 11 bots
 $("fCancel").addEventListener("click",()=>showIntro());
@@ -995,20 +1341,27 @@ $("rShare").addEventListener("click",async()=>{
     try{ await navigator.clipboard.writeText(text+" "+url); toast("Copied. Paste it anywhere."); }catch(e){ toast(url); }
   } finally { btn.disabled=false; btn.textContent=was; }
 });
-$("rWatch").addEventListener("click",()=>{ $("result").hidden=true; G.watch=true; G.over=false; G.watchFrom=G.pilots.find(p=>p.alive&&p.mk===G.me.mk)||alive()[0]; toast("Spectating"); });
+$("rWatch").addEventListener("click",()=>{ $("result").hidden=true; G.watch=true; G.over=false; G.watchFrom=null; watchTarget(); });
+// spectating follows the leader (maker 2026-11-16): the top PnL alive, then the duel's leader once it's the last 2.
+// A new leader takes the camera only when they're clearly ahead ($0.50) or the one you watch is out, so it doesn't flicker.
+function watchTarget(){ const cur=G.watchFrom, pool=G.duel?[G.duel.a,G.duel.b].filter(p=>p.alive):alive(); if(!pool.length) return cur;
+  const score=p=>G.duel?duelGain(p):profit(p), lead=pool.slice().sort((a,b)=>score(b)-score(a))[0];
+  if(!cur||!cur.alive||!pool.includes(cur)||score(lead)-score(cur)>.5){ if(lead!==cur){ G.watchFrom=lead; toast(`Watching ${lead.name} · ${G.duel?"leads the final duel":"#1 on PnL"}`); } }
+  return G.watchFrom; }
 
 /* ---------- HUD ---------- */
 function rankOf(pl){ return alive().sort((a,b)=>profit(b)-profit(a)).indexOf(pl)+1; }
 let hudT=0;
-function hud(){
+function hud(){ fchatTick();
   const me=G.me, pr=profit(me), al=alive().length; const lw=$("leadW"), mid=$("mid");
   const d=me.df||null;
   if(G.duel&&(G.duel.a===me||G.duel.b===me)){ const o=G.duel.a===me?G.duel.b:G.duel.a, gm=duelGain(me), go=duelGain(o);
     sbSet("YOU",usd(gm,true),gm,o.name.toUpperCase(),usd(go,true),go); clock(G.duel.end-G.t,"LAST 2 · DUEL",false); lead(gm-go); }
   else if(d){ const o=d.a===me?d.b:d.a, gm=dfGain(d,me), go=dfGain(d,o);
     sbSet("YOU",usd(gm,true),gm,o.name.toUpperCase(),usd(go,true),go); clock(d.end-G.t,"DOGFIGHT",false); lead(gm-go); }
-  else { sbSet(me.alive?`YOU · #${rankOf(me)} OF ${al}`:"OUT",usd(pr,true),pr,"ALIVE",String(al),null); lw.hidden=true;
-    if(G.final) clock(G.final.next-G.t,"FINAL CIRCLE · BTC",G.final.next-G.t<6);
+  else { const wf=G.watch&&!me.alive&&G.watchFrom; if(wf) sbSet(`${wf.name.toUpperCase()} · #${rankOf(wf)}`,usd(profit(wf),true),profit(wf),"ALIVE",String(al),null);
+    else sbSet(me.alive?`YOU · #${rankOf(me)} OF ${al}`:"OUT",usd(pr,true),pr,"ALIVE",String(al),null); lw.hidden=true;
+    if(G.final) clock(G.final.next-G.t,"FINAL CIRCLE · "+finalMk(),G.final.next-G.t<6);
     else if(G.duel) clock(G.duel.end-G.t,"FINAL DUEL",false);
     else { const m=G.M[me.mk]; if(m.closeAt!=null) clock(m.closeAt-G.t,me.mk+(m.closeAt-G.t<=G.P.warn?" CLOSING":" CLOSES"),m.closeAt-G.t<=G.P.warn);
       else { const nx=openMks().map(k=>G.M[k]).filter(x=>x.closeAt!=null).sort((a,b)=>a.closeAt-b.closeAt)[0]; if(nx) clock(nx.closeAt-G.t,nx.k+" CLOSES",false); else clock(0,"",false); } } }
@@ -1030,28 +1383,52 @@ function hud(){
   // jump row
   const m=G.M[me.mk], warn=me.alive&&!G.final&&!G.duel&&m.closeAt!=null&&G.t>=m.closeAt-G.P.warn, mapv=me.alive&&!G.final&&!G.duel&&G.mapOpen, jv=warn||mapv;
   if(warn&&!G.warned){ G.warned=me.mk; sfx("stormWarn"); bed("amb_storm_wall"); buzz([40,60,40]); } if(!warn){ if(G.warned&&!G.final) bed("amb_wind_high"); G.warned=null; }
-  if($("jump").hidden===jv){ $("jump").hidden=!jv; if(jv) buildJump(); }
-  $("jump").classList.toggle("map",!warn); $("jX").hidden=warn; $("mapB").classList.toggle("on",jv); $("mapB").hidden=!!(G.final||G.duel||!me.alive);
-  if(jv){ $("jT").textContent=warn?`THE STORM TAKES ${me.mk} IN ${mmss(m.closeAt-G.t)} · JUMP, YOUR PNL COMES WITH YOU`:(G.t<G.jumpCool?`ENGINES COOLING · ${Math.ceil(G.jumpCool-G.t)} S`:"JUMP TO · YOUR PNL COMES WITH YOU · AN OPEN TRADE CASHES OUT"); paintJump(); }
+  if($("smap").hidden){ $("smap").hidden=false; buildJump(); }
+  $("smap").classList.toggle("warn",!!warn);
+  $("smT").textContent=G.final||G.duel?"FINAL CIRCLE":!me.alive?"SPECTATING":warn?`STORM ${mmss(m.closeAt-G.t)} · JUMP`:G.t<G.jumpCool?`COOLING ${Math.ceil(G.jumpCool-G.t)} S`:"TAP A STAR TO JUMP";
+  paintJump();
   $("storm").style.opacity=warn?String(Math.min(1,.35+.65*(1-(m.closeAt-G.t)/G.P.warn))):"0";
-  $("chLab").textContent=`${me.mk} · TICKS · LAST 60S`;
+  $("chLab").textContent=`${(G.watch&&!me.alive&&G.watchFrom||me).mk} · TICKS · LAST 60S`;
 }
 function sbSet(l,lv,lvn,r,rv,rvn){ $("sbL").textContent=l; const L=$("sbLV"); L.textContent=lv; L.style.color=lvn>0.004?"var(--green)":lvn<-0.004?"var(--pinkl)":"var(--text)";
   $("sbR").textContent=r; const R=$("sbRV"); R.textContent=rv; R.style.color=rvn==null?"var(--text)":rvn>0.004?"var(--green)":rvn<-0.004?"var(--pinkl)":"var(--text)"; }
 function clock(s,t,hot){ $("clock").textContent=mmss(s); $("clockT").textContent=t; $("clock").style.color=hot?"var(--pinkl)":""; $("clockT").style.color=hot?"var(--pinkl)":""; }
 function lead(d){ const w=$("leadW"), i=$("leadI"); w.hidden=false; const f=Math.max(-1,Math.min(1,d/3))*50; i.style.left=(f>=0?50:50+f)+"%"; i.style.width=Math.abs(f)+"%"; i.style.background=d>=0?"var(--green)":"var(--pink)"; }
-function buildJump(){ const box=$("jB"); box.innerHTML=""; if(!G) return;
-  const opts=openMks().filter(k=>k!==G.me.mk), best=bestJump(G.me.mk);
-  for(const k of opts){ const b=document.createElement("button"); b.type="button"; b.dataset.k=k; b.className=k===best?"best":"";
-    b.className+=" jm"; b.innerHTML=`<b>${k}</b><em>${MKD[k].tag} · ${MKD[k].best}</em><small></small>`; b.addEventListener("click",()=>jump(G.me,k)); box.appendChild(b); }
+// star positions (in % of the map): the three coins that close sit around the edge in close order, the final coin in the middle
+const STARS=[[28,27],[72,25],[70,61],[30,66]];
+function buildJump(){ const box=$("smN"); box.innerHTML=""; if(!G) return; const o=lzOrder();
+  $("smL").innerHTML=o.slice(1).map((k,i)=>{ const a=STARS[i], b=STARS[i+1]; return `<line data-k="${o[i]}" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`; }).join("");
+  o.forEach((k,i)=>{ const b=document.createElement("button"); b.type="button"; b.className="sm-s"; b.dataset.k=k; b.style.left=STARS[i][0]+"%"; b.style.top=STARS[i][1]+"%";
+    const em=A["map-"+k.toLowerCase()]; b.innerHTML=`${em?`<img src="${em}" alt="">`:""}<span class="sm-p"></span><span class="sm-k"></span>`;
+    b.addEventListener("click",()=>{ const m=G&&G.M[k]; if(!m||k===G.me.mk||m.closed||!G.me.alive||G.final||G.duel) return; jump(G.me,k); }); box.appendChild(b); });
   paintJump(); }
-function paintJump(){ document.querySelectorAll("#jB button").forEach(b=>{ const k=b.dataset.k, m=G.M[k], n=inMk(k).length;
-  b.querySelector("small").textContent=`${n} pilot${n===1?"":"s"}`+(m.closeAt!=null?" · closes "+mmss(m.closeAt-G.t):" · final"); }); }
+function paintJump(){ if(!G) return;
+  document.querySelectorAll("#smN .sm-s").forEach(b=>{ const k=b.dataset.k, m=G.M[k], n=inMk(k).length, here=k===G.me.mk, left=m.closeAt!=null?m.closeAt-G.t:null;
+    b.className="sm-s"+(here?" here":"")+(m.closed?" off":"")+(m.closeAt==null?" fin":"")+(left!=null&&left<=G.P.warn+5&&!m.closed?" soon":"");
+    b.querySelector(".sm-p").textContent=n;
+    b.querySelector(".sm-k").textContent=m.closed?k:`${here?"YOU ":""}${left!=null?mmss(left):"FINAL"}`;
+    b.setAttribute("aria-label",`${k}: ${here?"you are here, ":""}${n} pilots`+(m.closed?", closed":left!=null?`, closes in ${mmss(left)}`:", the final circle")); });
+  $("smL").querySelectorAll("line").forEach(l=>l.classList.toggle("done",G.M[l.dataset.k].closed)); }
+// the weapons bar folds into the gun button on the star map; 1-3 pick a slot and R cycles either way
+let gunsHidden=false; try{ gunsHidden=localStorage.getItem("royale.guns")==="0"; }catch(e){}
+function applyGuns(){ $("root").classList.toggle("wcol",gunsHidden); $("gunB").setAttribute("aria-pressed",String(!gunsHidden)); try{ localStorage.setItem("royale.guns",gunsHidden?"0":"1"); }catch(e){} resize(); }
+function toggleGuns(){ gunsHidden=!gunsHidden; sfx("tick"); applyGuns(); }
+function paintGun(w){ const el=$("gunI"); if(el&&w) el.innerHTML=gunImg(w.k)||`<b style="font:800 10px/1 var(--f-game)">${w.k.slice(0,4)}</b>`; }
+$("gunB").addEventListener("click",toggleGuns);
+// in-flight chat: same lines as the lobby chat, bots keep talking now and then
+const FLINES=["storm's coming","who has the railgun","nice nuke lol","I'm out of fuel","catch me if you can","🚀","gg soon","stay close to the leader","that dump was clean","👀"];
+let fchatT=0;
+function fchatTick(){ if(!G||!G.started||G.over) return; if(G.t>=fchatT){ fchatT=G.t+rnd(14,26); const al=G.pilots.filter(p=>p.alive&&!p.me); if(al.length) lzSay(pick(al).name,pick(FLINES)); }
+  if(LZ&&LZ.reply&&performance.now()>=LZ.reply.ms){ lzSay(LZ.reply.who,LZ.reply.t); LZ.reply=0; } }
+$("fQuick").innerHTML=LQUICK.map(q=>`<button type="button">${q}</button>`).join("");
+$("fQuick").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b) lzMe(b.textContent); });
+$("fSay").addEventListener("submit",e=>{ e.preventDefault(); lzMe($("fIn").value); $("fIn").value=""; });
+$("chatB").addEventListener("click",()=>{ const c=$("fChat"); c.hidden=!c.hidden; $("chatDot").hidden=true; sfx("tick"); });
 const FEEDI={p:"#F0307F",w:"#F2C14E",g:"#5FF0A0",m:"#2E323A",s:"#8FB8FF"};
-function feed(k,ic,html){ const f=$("feed"); const e=document.createElement("div"); e.className="ev";
+function feed(k,ic,html){ if(G&&G.ff) return; const f=$("feed"); const e=document.createElement("div"); e.className="ev";
   e.innerHTML=`<i style="background:${FEEDI[k]||"#2E323A"};color:${k==="p"||k==="m"?"#fff":"#121327"}">${ic}</i><span>${html}</span>`;
   f.prepend(e); while(f.children.length>2) f.lastChild.remove(); setTimeout(()=>{ e.style.transition="opacity .4s"; e.style.opacity="0"; setTimeout(()=>e.remove(),420); },6500); }
-let toastT=0; function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1900);}
+let toastT=0; function toast(m){ if(G&&G.ff) return; const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1900);}
 
 /* ---------- chart ---------- */
 const cc=$("cc"), cx=cc.getContext("2d");
@@ -1060,11 +1437,12 @@ function drawChart(){
   const w=cc.clientWidth,h=cc.clientHeight; if(!w) return; const d=Math.min(2,devicePixelRatio||1);
   if(cc.width!==Math.round(w*d)||cc.height!==Math.round(h*d)){cc.width=Math.round(w*d);cc.height=Math.round(h*d);}
   cx.setTransform(d,0,0,d,0,0); cx.clearRect(0,0,w,h);
-  const m=G.M[G.me.mk], dec=MKD[m.k].dec, now=G.t, from=now-60, pts=m.ticks.filter(k=>k.t>=from-TICK);
+  const wf=G.watch&&!G.me.alive&&G.watchFrom, m=G.M[wf?wf.mk:G.me.mk], dec=MKD[m.k].dec, now=G.t, from=now-60, pts=m.ticks.filter(k=>k.t>=from-TICK);
   let lo=Infinity,hi=-Infinity; pts.forEach(k=>{lo=Math.min(lo,k.p);hi=Math.max(hi,k.p);});
   const pos=G.me.pos; if(pos){lo=Math.min(lo,pos.entry);hi=Math.max(hi,pos.entry);}
-  const pad=Math.max(m.p*.0004,(hi-lo)*.15); lo-=pad; hi+=pad;
-  const L=8,Rr=72,T=24,B=8, X=t=>L+Math.max(0,t-from)/60*(w-L-Rr), Y=p=>T+(1-(p-lo)/(hi-lo))*(h-T-B);
+  // the live price sits in the middle of the card, across and up/down (maker 2026-11-16), like the duel chart
+  const pad=Math.max(m.p*.0004,(hi-lo)*.15), half=Math.max(m.p-lo,hi-m.p)+pad; lo=m.p-half; hi=m.p+half;
+  const L=8,Rr=72,T=24,B=8, XM=Math.round(w*.5), X=t=>L+Math.max(0,t-from)/60*(XM-L), Y=p=>T+(1-(p-lo)/(hi-lo))*(h-T-B);
   const first=pts[0].p, lastp=m.p, up=lastp>=first, col=up?"95,240,160":"240,48,127";
   cx.font="500 10px "+GU+",sans-serif"; cx.fillStyle="rgba(215,217,228,.6)"; cx.textAlign="left"; cx.textBaseline="middle";
   const step=niceStep((hi-lo)/3);
@@ -1079,14 +1457,42 @@ function drawChart(){
     cx.font="700 11px "+GF+",sans-serif"; cx.fillStyle="rgba(242,193,78,.95)"; cx.textAlign="left"; cx.textBaseline="bottom"; cx.fillText(`YOU ${pos.side>0?"BOOSTED":"DUMPED"}`,L+2,y-2); }
   G.marks.forEach(k=>{ if(k.t<from||k.mk!==m.k) return; const x=X(k.t),y=Y(k.p); cx.beginPath(); cx.arc(x,y,5.5,0,Math.PI*2);
     cx.fillStyle=k.k==="x"?"#FFFFFF":k.k==="b"?"#F2C14E":"#F0307F"; cx.fill(); cx.lineWidth=2; cx.strokeStyle="#121327"; cx.stroke(); });
-  cx.fillStyle=`rgb(${col})`; cx.beginPath(); cx.arc(lx,ly,4.5,0,Math.PI*2); cx.fill();
-  const tag=lastp.toLocaleString("en-US",{minimumFractionDigits:dec,maximumFractionDigits:dec}); cx.font="800 15px "+GF+",sans-serif";
-  const tw=Rr-6, ty=Math.max(T-4,Math.min(h-B-20,ly-10)); cx.fillStyle=`rgb(${col})`; cx.beginPath(); cx.roundRect?cx.roundRect(w-Rr+3,ty,tw,20,6):cx.rect(w-Rr+3,ty,tw,20); cx.fill();
-  cx.fillStyle=up?"#0d2a1b":"#fff"; cx.textAlign="center"; cx.textBaseline="middle"; cx.fillText(tag,w-Rr+3+tw/2,ty+10.5);
+  cx.setLineDash([2,5]); cx.strokeStyle=`rgba(${col},.45)`; cx.lineWidth=1; cx.beginPath(); cx.moveTo(lx,ly); cx.lineTo(w-Rr,ly); cx.stroke(); cx.setLineDash([]);
+  if(!reduce){ const pr=(performance.now()%1400)/1400; cx.strokeStyle=`rgba(${col},${(1-pr)*.7})`; cx.lineWidth=2; cx.beginPath(); cx.arc(lx,ly,4.5+pr*10,0,Math.PI*2); cx.stroke(); }
+  cx.fillStyle=`rgb(${col})`; cx.beginPath(); cx.arc(lx,ly,5,0,Math.PI*2); cx.fill();
+  const tag=lastp.toLocaleString("en-US",{minimumFractionDigits:dec,maximumFractionDigits:dec}); cx.font="800 16px "+GF+",sans-serif";
+  const tw=cx.measureText(tag).width+14, ty=Math.max(T-4,Math.min(h-B-22,ly-11)); cx.fillStyle=`rgb(${col})`; cx.beginPath(); cx.roundRect?cx.roundRect(lx+12,ty,tw,22,7):cx.rect(lx+12,ty,tw,22); cx.fill();
+  cx.fillStyle=up?"#0d2a1b":"#fff"; cx.textAlign="center"; cx.textBaseline="middle"; cx.fillText(tag,lx+12+tw/2,ty+11.5);
 }
 
 /* ---------- sky ---------- */
-let SW=0,SH=0,DPR=1, stars=[];
+/*FLYSKY{*/
+// Flying feel (maker 2026-11-16: "this mode should feel like flying still, with the clouds"): soft clouds in three depths
+// that stream past as you climb and slide with the camera when you fly up or down, thick low in the sky, thin in space.
+function flySky(rnd,reduce){
+  const SPR=[]; function sprite(seed){ const c=document.createElement("canvas"); c.width=320; c.height=150; const x=c.getContext("2d");
+    let r=seed*7919+13; const q=()=>((r=(r*16807)%2147483647)/2147483647);
+    for(let i=0;i<16;i++){ const cx=40+q()*240, cy=60+q()*40-(Math.abs(cx-160)<80?14:0), rr=24+q()*42;
+      const g=x.createRadialGradient(cx,cy,0,cx,cy,rr); g.addColorStop(0,"rgba(236,238,250,.55)"); g.addColorStop(.55,"rgba(226,230,246,.28)"); g.addColorStop(1,"rgba(220,224,244,0)");
+      x.fillStyle=g; x.beginPath(); x.arc(cx,cy,rr,0,7); x.fill(); }
+    return c; }
+  for(let i=0;i<5;i++) SPR.push(sprite(i+1));
+  const L=[{z:.35,n:7,a:.5,s:.7},{z:.65,n:5,a:.66,s:1.05},{z:1.35,n:3,a:.32,s:1.8}];   // far, near, in front of the rockets
+  let C=null, W=0, H=0;
+  function seed(w,h){ W=w; H=h; C=L.map(l=>Array.from({length:l.n},()=>({x:rnd(-.1,1.1)*w,y:rnd(-.2,1.2)*h,k:Math.floor(rnd(0,SPR.length))%SPR.length,s:l.s*rnd(.8,1.25)*(w<600?.75:1),f:rnd(0,1)<.5}))); }
+  // dy: px the world moved down this frame (camera climbing = +), dens 0..1, layer 0/1 = behind, 2 = in front
+  function step(ctx,w,h,dt,dy,dens,layers,speed){ if(!C||w!==W||h!==H) seed(w,h);
+    for(const li of layers){ const l=L[li]; for(const c of C[li]){ const sw=320*c.s, sh=150*c.s;
+      c.y+=((reduce?0:speed)*dt+dy)*l.z; c.x+=(reduce?0:4)*l.z*dt;
+      if(c.y>h+sh*.6){ c.y-=h+sh*1.4; c.x=rnd(-.1,1.1)*w; } else if(c.y<-sh*.8){ c.y+=h+sh*1.4; c.x=rnd(-.1,1.1)*w; }
+      if(c.x>w+sw*.5) c.x=-sw*.5;
+      const a=l.a*dens; if(a<.02) continue; ctx.globalAlpha=a;
+      if(c.f){ ctx.save(); ctx.translate(c.x,c.y); ctx.scale(-1,1); ctx.drawImage(SPR[c.k],-sw/2,-sh/2,sw,sh); ctx.restore(); } else ctx.drawImage(SPR[c.k],c.x-sw/2,c.y-sh/2,sw,sh); } }
+    ctx.globalAlpha=1; }
+  return {step};
+}
+/*}FLYSKY*/
+let SW=0,SH=0,DPR=1, stars=[]; const FLY=flySky(rnd,reduce); let bgOff=0, lastCamV=0;
 const FX={parts:[],pops:[],rings:[],sheets:[],shake:0,flash:0,flashC:"255,255,255"};
 const SHEET={nuke:10,"weapon-break":6,"pod-open":6,"boom-small":6,cashout:6};
 function sheet(k,x,y,size,dur){ const img=imgs["fx-"+k]; if(!img) return false; FX.sheets.push({img,n:SHEET[k],x,y,size,age:0,dur:dur||.8}); return true; }
@@ -1095,8 +1501,8 @@ function resize(){ DPR=Math.min(2,devicePixelRatio||1); SW=sky.clientWidth; SH=s
 addEventListener("resize",resize);
 let LAY={under:300,barTop:600,mid:450,rh:110};
 function layout(){
-  const c=sky.getBoundingClientRect(), fb=$("mute").getBoundingClientRect(), bt=document.querySelector(".bottom").getBoundingClientRect(), jp=$("jump");
-  const under=fb.bottom-c.top+6; let barTop=(jp.hidden?bt.top:jp.getBoundingClientRect().top)-c.top-18;
+  const c=sky.getBoundingClientRect(), ch=$("chart").getBoundingClientRect(), sm=$("smap").getBoundingClientRect(), bt=document.querySelector(".bottom").getBoundingClientRect();
+  const under=Math.max(ch.bottom+104,sm.bottom+12)-c.top; let barTop=bt.top-c.top-18;
   const rh=Math.round(Math.max(60,Math.min(SW>=900?140:112,(barTop-under)*.36)));
   LAY={under,barTop,mid:(under+barTop)/2,rh};
 }
@@ -1122,11 +1528,11 @@ function rr(x,y,w,h,r){sx.beginPath(); sx.roundRect?sx.roundRect(x,y,w,h,r):sx.r
 const xOf=pl=>pl.x!=null?pl.x:pl.lane*SW+pl.xo;
 
 let skyMix={k:"sky0",prev:null,t:1};
-// every map has its own sky; the final circle and last duel happen in BTC's
+// every game has its own voted sky
 function skyName(){ if(!G||!G.started) return "sky0"; return MAP.k; }
 function drawBackdrop(dt){
   const want=skyName(); if(want!==skyMix.k){ skyMix={k:want,prev:skyMix.k,t:0}; } skyMix.t=Math.min(1,skyMix.t+dt*1.5);
-  const draw=(k,a)=>{const im=imgs[k]; if(!im||!im.complete||a<=0) return; const s=Math.max(SW/im.width,SH/im.height)*1.12; sx.globalAlpha=a; sx.drawImage(im,(SW-im.width*s)/2,(SH-im.height*s)/2,im.width*s,im.height*s); sx.globalAlpha=1;};
+  const draw=(k,a)=>{const im=imgs[k]; if(!im||!im.complete||a<=0) return; const s=Math.max(SW/im.width,SH/im.height)*1.3, sl=(im.height*s-SH)/2; bgOff=Math.max(-sl,Math.min(sl,bgOff+lastCamV*.04*(1-Math.min(1,dt*.2)))); sx.globalAlpha=a; sx.drawImage(im,(SW-im.width*s)/2,(SH-im.height*s)/2+bgOff,im.width*s,im.height*s); sx.globalAlpha=1;};
   sx.fillStyle="#121327"; sx.fillRect(0,0,SW,SH);
   if(skyMix.prev) draw(skyMix.prev,1); draw(skyMix.k,skyMix.t);
   if(G&&G.started&&MAP.g){ sx.globalCompositeOperation="overlay"; sx.fillStyle=`rgba(${MAP.g})`; sx.fillRect(0,0,SW,SH); sx.globalCompositeOperation="source-over"; }
@@ -1154,7 +1560,9 @@ function drawRocket(pl,now){
   const x=xOf(pl), y=pl.y, img=imgs.rocket, h=pl.me?LAY.rh:LAY.rh*.8, w=pl.hull?h*pl.hull.a:h*221/609, fight=G.me.df&&(G.me.df.a===pl||G.me.df.b===pl)||G.duel&&(G.duel.a===pl||G.duel.b===pl);
   const thrust=Math.max(.3,Math.min(1.7,.6+pl.flame*.5-pl.vy*.0015)), fl=thrust+Math.sin(now/40+(pl.me?0:pl.lane*9))*.08;
   const c=pl.me?"255,200,80":"255,95,170";
-  sx.save(); sx.globalAlpha=pl.me||fight?1:.92; sx.translate(x,y); sx.rotate(Math.max(-.35,Math.min(.35,pl.rot+pl.steer)));
+  const tk=pl.trick?(performance.now()-pl.trick.t0)/1000/pl.trick.dur:1, tr=tk<1?pl.trick:null, tp=tr?tk:0, ease=tp<.5?2*tp*tp:1-Math.pow(-2*tp+2,2)/2;
+  sx.save(); sx.globalAlpha=pl.me||fight?1:.92; sx.translate(x,y); sx.rotate(Math.max(-.35,Math.min(.35,pl.rot+pl.steer))+(tr&&tr.kind==="flip"?ease*Math.PI*2:0));
+  if(tr&&tr.kind==="spin"){ const k=Math.cos(ease*Math.PI*4); sx.scale(Math.abs(k)<.08?.08*Math.sign(k||1):k,1); }
   drawShip(sx,pl.hull,img,h,fl,c,pl.sq);
   sx.restore();
   // tags beside the rocket, on the side with more room; drawn after every rocket so no sprite covers a tag
@@ -1218,11 +1626,14 @@ function drawPings(list){
 function drawCrate(dt,now){
   if(G.offer){ G.crate=null; return; }
   const c=G.crate; if(!c||G.me.y==null) return;
-  if(c.ty==null) c.ty=LAY.mid+rnd(-1.15,1.15)*LAY.rh; if(c.y<0) c.y=LAY.under+40; c.y=Math.min(c.ty,c.y+40*dt);
+  if(c.y<0){ c.y=LAY.under+30; c.vy=rnd(46,60); } c.vy=Math.min(90,(c.vy||50)+4*dt); c.y+=c.vy*dt; c.sw=(c.sw||rnd(0,6))+dt;
+  c.x+=Math.sin(c.sw*1.3)*14*dt;                                     // a slow sway under the chute
+  if(c.y>LAY.barTop+LAY.rh*.4){ G.crate=null; return; }               // fell past you: gone
+  if(c.y<LAY.under-LAY.rh*1.5){ G.crate=null; return; }               // you flew far below it
   const me=G.me, mx=xOf(me), my=me.y;
   const rc=rarOf(c.item), touch=Math.abs(mx-c.x)<40&&Math.abs(my-c.y)<LAY.rh*.6;
   if(touch){ G.crate=null; me.grab++; FX.rings.push({x:c.x,y:c.y,r:10,vr:420,life:.5,max:.5,w:6,col:rc.rgb}); loot(c.item,"crate"); return; }
-  const r=16+Math.sin(now/200)*1.5, left=c.until-G.t, a=left<2?(Math.sin(now/80)>0?1:.4):1;
+  const r=16+Math.sin(now/200)*1.5, low=c.y>LAY.barTop-LAY.rh*.6, a=low?(Math.sin(now/80)>0?1:.4):1;
   const pod=imgs["airdrop-"+slugW(c.item.k)], glow=imgs["airdrop-"+slugW(c.item.k)+"-glow"];
   if(pod&&pod.complete){ const S=LAY.rh*1.25; sx.save(); sx.globalAlpha=a*(.55+.45*Math.sin(now/260)**2); sx.drawImage(glow,c.x-S/2,c.y-S*.72,S,S); sx.globalAlpha=a; sx.drawImage(pod,c.x-S/2,c.y-S*.72,S,S);
     sx.font="800 13px "+GF+",sans-serif"; sx.textAlign="center"; sx.textBaseline="top"; const l1=c.item.k, l2=wLine(c.item)+" · "+c.item.ammo+" shots";
@@ -1272,12 +1683,14 @@ function drawSky(dt,now){
   drawBackdrop(dt);
   let camV=0;
   if(G&&G.started){
-    const me=G.watch&&!G.me.alive?(G.watchFrom&&G.watchFrom.alive?G.watchFrom:(G.watchFrom=alive().find(p=>p.mk===G.me.mk)||alive()[0])):G.me;
+    const me=G.watch&&!G.me.alive?watchTarget():G.me;
     if(me){
     const R=radarR(), avail=(LAY.barTop-LAY.under)/2-LAY.rh*.45; const want=Math.max(4,avail/R); pxPer+=(want-pxPer)*Math.min(1,dt*3);
     // past the screen edge, flying further up or down pans the view: see pilots and loot above or below your PnL
     const yo=me===G.me?(G.me.yo||0):0, scrOff=Math.max(-LAY.rh*.9,Math.min(LAY.rh*.9,yo)), pan=yo-scrOff;
-    const tgt=alt(me)-pan/pxPer, prev=pCam; pCam+=(tgt-pCam)*Math.min(1,dt*5); camV=(pCam-prev)*pxPer;
+    const tgt=alt(me)-pan/pxPer, prev=pCam; pCam+=(tgt-pCam)*Math.min(1,dt*5); camV=(pCam-prev)*pxPer; lastCamV=camV;
+    if(G.crate&&G.crate.y>0) G.crate.y+=camV;   // loot is in the world: it slides with the camera too
+    FLY.step(sx,SW,SH,dt,camV,G.final?.45:1,[0,1],G.over?12:34);
     drawRuler(); drawBand();
     const shown=[], pings=[];
     for(const pl of G.pilots){ if(!pl.alive&&pl!==G.me) continue; if(pl!==G.me&&pl.mk!==me.mk) continue; if(!pl.me&&G.t<pl.arrive){ pl.y=null; continue; } if(pl===G.me&&!pl.alive) continue;
@@ -1288,7 +1701,7 @@ function drawSky(dt,now){
       pl.vy+=((ty-pl.y)*16-pl.vy*6)*dt+pl.kick*dt*6; pl.kick*=Math.max(0,1-dt*6); pl.y+=pl.vy*dt;
       const lim=[LAY.under+LAY.rh*.5,LAY.barTop-LAY.rh*.35]; pl.y=Math.max(lim[0],Math.min(lim[1],pl.y));
       // drift sideways
-      if(pl.me){ if(keys.l) steer(pl.xt-460*dt); if(keys.r) steer(pl.xt+460*dt); if(keys.u) lift((pl.yt||0)-380*dt); if(keys.dn) lift((pl.yt||0)+380*dt); }
+      if(pl.me){ if(keys.l) steer(pl.xt-460*dt); if(keys.r) steer(pl.xt+460*dt); const vs=520+Math.min(900,Math.abs(pl.yt||0)*.6); if(keys.u) lift((pl.yt||0)-vs*dt); if(keys.dn) lift((pl.yt||0)+vs*dt); }
       else { if(now>pl.wander){ pl.wander=now+rnd(1500,3500); pl.xt=rnd(-40,40); }
         const gap=xOf(pl)-xOf(G.me); if(G.me.alive&&Math.abs(gap)<70&&Math.abs(pl.y-G.me.y)<LAY.rh) pl.xt+=(gap>=0?1:-1)*240*dt;
         pl.xt=Math.max(30-pl.lane*SW,Math.min(SW-30-pl.lane*SW,pl.xt)); }
@@ -1303,6 +1716,7 @@ function drawSky(dt,now){
     if(G.me.alive&&G.me.y!=null) G._tags.push(tagBox(G.me));
     for(const pl of shown.filter(p=>!p.me)) drawRocket(pl,now);
     if(G.me.alive&&G.me.y!=null) drawRocket(G.me,now);
+    FLY.step(sx,SW,SH,dt,camV,G.final?.35:.8,[2],G.over?12:34);
     { const q=G._tagQ||[]; G._tagQ=[]; for(const f of q) f(); }
     drawCrate(dt,now);
     drawFog();
@@ -1335,10 +1749,12 @@ function drawSky(dt,now){
 
 /* ---------- sound ---------- */
 let ac=null, muted=false; try{muted=localStorage.getItem("royale.mute")==="1";}catch(e){}
-function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx(); loadLoop("engine_loop");}catch(e){} } bedSync(); if(ac&&ac.state==="suspended") ac.resume(); }
+// the engine hum plays in the iPhone app only (maker, 2026-11-16); its web view adds "DiscipleApp/" to the user agent
+const APP_FEEL=/DiscipleApp\//.test(navigator.userAgent)||!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx(); if(APP_FEEL) loadLoop("engine_loop");}catch(e){} } bedSync(); if(ac&&ac.state==="suspended") ac.resume(); }
 // recorded CC0 sounds (PR 404, web/public/audio/sfx). Each event picks one take at random; no synth beeps.
 const SFX_BASE=A.sfxBase||"../../audio/sfx/", AMB_BASE=A.ambBase||"../../audio/amb/", BUF={};
-const SND={boost:["boost_small_01","boost_small_02","boost_small_03"],boostBig:["boost_big_01","boost_big_02"],dump:["bomb_fall_01","bomb_fall_02"],
+const SND={trick:["trick_whoosh"],boost:["boost_small_01","boost_small_02","boost_small_03"],boostBig:["boost_big_01","boost_big_02"],dump:["bomb_fall_01","bomb_fall_02"],
   cash:["cash_out"],lose:["explosion_small_01","explosion_small_02","explosion_small_03"],tick:["lever_notch_01","lever_notch_02","lever_notch_03"],go:["race_go"],
   lock:["lock_on"],win:["hit_marker_01","hit_marker_02"],warn:["nuke_warning_01"],ot:["lock_on"],jump:["map_jump"],grab:["weapon_pickup_common"],grabRare:["weapon_pickup_rare"],grabLeg:["weapon_pickup_legendary"],
   ammo:["lever_notch_02"],pod:["pod_land_01","pod_land_02","pod_land_03"],nuke:["nuke"],brk:["weapon_break_01","weapon_break_02"],nukeWarn:["nuke_warning_02"],
@@ -1359,7 +1775,7 @@ readLvl(); const onStore=e=>{ if(e.key===SETK) readLvl(); }, onLvl=e=>{ if(e.det
 addEventListener("storage",onStore); addEventListener("disciple:audio",onLvl);
 function outBus(){ if(!bus&&ac){ bus=ac.createGain(); bus.gain.value=sfxLvl*1.3; bus.connect(ac.destination); } return bus; }
 // vol: 1 for you; a rival's boosts and blasts play quieter and panned to their side (pan -1 left … 1 right)
-function sfx(k,vol,pan){ if(!ac||muted||sfxLvl<=0) return; const list=SND[k]; if(!list) return; const n=list[Math.floor(Math.random()*list.length)], b=BUF[n]; if(!b){ loadS(n); return; }
+function sfx(k,vol,pan){ if(!ac||muted||sfxLvl<=0||G&&G.ff) return; const list=SND[k]; if(!list) return; const n=list[Math.floor(Math.random()*list.length)], b=BUF[n]; if(!b){ loadS(n); return; }
   try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; g.gain.value=(VOL[k]||1)*(vol==null?1:vol); src.connect(g);
     if(pan&&ac.createStereoPanner){ const pn=ac.createStereoPanner(); pn.pan.value=Math.max(-1,Math.min(1,pan)); g.connect(pn); pn.connect(outBus()); } else g.connect(outBus()); src.start(); }catch(e){} }
 // rivals: at most one sound every 0.2 s, so a busy sky doesn't drown out your own
@@ -1367,7 +1783,7 @@ function rivalSfx(k,vol,pan){ const t=performance.now(); if(t-lastRival<200) ret
 // ambience beds (public/audio/amb): mission control at the drop, wind in the sky, the storm wall while a market is closing,
 // tension in the final circle and the last dogfight. One at a time, crossfaded, looped on its exact length.
 const BEDS={amb_mission_control:57,amb_wind_high:58,amb_storm_wall:72,amb_tension:57}; let bedWant=null, bedOn=null;
-function bed(n){ if(bedWant===n) return; bedWant=n; bedSync(); }
+function bed(n){ if(G&&G.ff||bedWant===n) return; bedWant=n; bedSync(); }
 function bedSync(){ if(!ac||(bedOn&&bedOn.n)===bedWant) return; const old=bedOn; bedOn=null;
   if(old){ try{ old.g.gain.setTargetAtTime(0,ac.currentTime,.6); setTimeout(()=>{ try{old.s.stop();}catch(e){} },3000); }catch(e){} }
   const n=bedWant; if(!n||muted) return; const key="bed:"+n;
@@ -1378,19 +1794,29 @@ function oneShotAmb(n,vol){ if(!ac||muted||sfxLvl<=0) return; fetch(AMB_BASE+n+"
 // engine hum: a gapless loop under everything while you fly, louder and higher while the flame is lit
 let hum=null, humV=-1, humR=-1;
 function loadLoop(n){ const key="loop:"+n; if(!ac||key in BUF) return; BUF[key]=null; fetch(SFX_BASE+"loops-wav/"+n+".wav").then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{BUF[key]=b;}).catch(()=>{BUF[key]=false;}); }
-function humTick(on,boost){ if(!ac) return;
+function humTick(on,boost){ if(!ac) return; if(!APP_FEEL) on=false;
   if(!on||muted||sfxLvl<=0){ if(hum){ const h=hum; hum=null; try{ h.g.gain.setTargetAtTime(0,ac.currentTime,.12); setTimeout(()=>{ try{h.s.stop();}catch(e){} },700); }catch(e){} } return; }
   const b=BUF["loop:engine_loop"]; if(!b){ loadLoop("engine_loop"); return; }
   if(!hum){ try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; src.loop=true; g.gain.value=0; src.connect(g); g.connect(outBus()); src.start(); hum={s:src,g}; humV=humR=-1; }catch(e){ return; } }
   const v=Math.round((.16+.2*boost)*50)/50, r=Math.round((.92+.3*boost)*50)/50;
   if(v!==humV){ humV=v; hum.g.gain.setTargetAtTime(v,ac.currentTime,.15); } if(r!==humR){ humR=r; hum.s.playbackRate.setTargetAtTime(r,ac.currentTime,.2); } }
 function buzz(p){ try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
+// victory music under the podium (maker 2026-11-16): a CC0 loop (public/audio/music) after the champion sting, on the Music
+// channel of the game settings (Music switch + slider), fading in over 1.5 s and out when you leave the podium
+const MUSIC_BASE=A.musicBase||"../../audio/music/"; let vic=null, vicTimer=0;
+function musicLvl(){ try{ const o=JSON.parse(localStorage.getItem(SETK)||"null"); if(o&&o.music) return o.music.on===false?0:(typeof o.music.vol==="number"?o.music.vol:.5); }catch(e){} return .5; }
+function victoryMusic(on,delay){ clearTimeout(vicTimer);
+  if(!on){ if(vic){ const v=vic; vic=null; try{ v.g.gain.setTargetAtTime(0,ac.currentTime,.35); setTimeout(()=>{ try{v.s.stop();}catch(e){} },1600); }catch(e){} } return; }
+  vicTimer=setTimeout(()=>{ if(!ac||muted||vic||$("podium").hidden) return; const lv=musicLvl(); if(lv<=0) return; const key="music:victory_loop";
+    const go=b=>{ if(vic||$("podium").hidden||muted) return; try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; src.loop=true; g.gain.value=0; src.connect(g); g.connect(ac.destination); src.start(); g.gain.setTargetAtTime(lv*.9,ac.currentTime,.5); vic={s:src,g}; }catch(e){} };
+    if(BUF[key]) return go(BUF[key]); if(key in BUF) return; BUF[key]=null;
+    fetch(MUSIC_BASE+"victory_loop.wav").then(r=>{ if(!r.ok) throw 0; return r.arrayBuffer(); }).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{ BUF[key]=b; go(b); }).catch(()=>{ BUF[key]=false; }); },delay||0); }
 function toParent(d){ try{ if(parent!==window) parent.postMessage(d,location.origin); }catch(e){} }
 let unlockSent=false; addEventListener("pointerdown",()=>{ ensureAudio(); if(!unlockSent){ unlockSent=true; toParent({type:"disciple:unlock"}); } },true);
-function setMute(m){ muted=m; if(m){ const o=bedOn; bedOn=null; if(o) try{o.s.stop();}catch(e){} } else bedSync(); toParent({type:"disciple:mute",m}); $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); try{localStorage.setItem("royale.mute",m?"1":"0");}catch(e){} }
+function setMute(m){ muted=m; if(m){ const o=bedOn; bedOn=null; if(o) try{o.s.stop();}catch(e){} victoryMusic(false); } else bedSync(); toParent({type:"disciple:mute",m}); $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); try{localStorage.setItem("royale.mute",m?"1":"0");}catch(e){} }
 $("mute").addEventListener("click",()=>{ensureAudio(); setMute(!muted);}); setMute(muted);
-function toggleMap(){ if(!G||!G.started||!G.me.alive||G.final||G.duel) return; G.mapOpen=!G.mapOpen; hud(); }
-$("mapB").addEventListener("click",toggleMap); $("jX").addEventListener("click",()=>{ if(G){ G.mapOpen=false; hud(); } });
+// M hides the weapons bar too (same as the gun button on the star map)
+function toggleMap(){ toggleGuns(); }
 document.addEventListener("click",e=>{ const b=e.target&&e.target.closest&&e.target.closest("button"); if(b&&e.detail>0) b.blur(); });
 
 /* ---------- main loop ---------- */
@@ -1401,7 +1827,7 @@ function frame(now){
   drawSky(dt,now);
   if(G&&G.started){ drawChart(); hudT-=dt; if(hudT<=0){ hudT=.1; hud(); } }
 }
-paintSizes(); resize(); buildDrop(); showIntro(); raf=requestAnimationFrame(frame);
+paintSizes(); resize(); applyGuns(); buildDrop(); showIntro(); raf=requestAnimationFrame(frame);
 window.__royale={get G(){return G;},act,jump:k=>jump(G.me,k),simTick};
 })();
 </script>

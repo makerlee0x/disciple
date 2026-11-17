@@ -18,6 +18,7 @@
  */
 import { withBase } from "@/lib/base-path";
 import { ROCKET_SRC } from "@/lib/home/trending";
+import { lookArt, lookFilter, type CoinLook } from "@/lib/coinLook";
 import s from "./heroPad.module.css";
 
 const P = "/home/pad/";
@@ -49,8 +50,17 @@ export const LIFTOFF_MS = 1300;
 const srcset = (list: string) => list.split(", ").map((e) => { const [u, w] = e.split(" "); return `${withBase(u)} ${w}`; }).join(", ");
 const n = (k: number, c?: string) => Array.from({ length: k }, (_, i) => <i key={i} className={c} />);
 
-export default function HeroPad({ go, launching, icon, layout = "hero", moon = true }: { go: boolean; launching: boolean; icon?: string | null; layout?: "hero" | "create" | "card" | "turbo" | "launch"; moon?: boolean }) {
-  const rocket = withBase(ROCKET_SRC);
+/**
+ * `look` (lib/coinLook): the coin's own rocket (a Hangar skin, picked at launch) in place of the chrome one. Its hull keeps
+ * the chrome rocket's height (a wide hull is a little shorter, so it doesn't swamp the ring) and the badge moves to that
+ * hull's badge spot. Left out or classic = the chrome rocket.
+ */
+export default function HeroPad({ go, launching, icon, layout = "hero", moon = true, look }: { go: boolean; launching: boolean; icon?: string | null; layout?: "hero" | "create" | "card" | "turbo" | "launch"; moon?: boolean; look?: CoinLook | null }) {
+  const art = lookArt(look);
+  const rocket = withBase(art.src ?? ROCKET_SRC);
+  const k = art.src ? 0.86 * Math.min(1, Math.sqrt(0.45 / art.aspect)) : 1;   // skins are fuller than the chrome sprite: a touch smaller keeps the nose clear of the title
+  const liftStyle = art.src ? ({ ["--rk-h" as string]: `calc(362 * var(--u) * ${k.toFixed(3)})`, ["--rk-w" as string]: `calc(362 * var(--u) * ${(k * art.aspect).toFixed(3)})` } as React.CSSProperties) : undefined;
+  const badgeStyle = art.src ? ({ left: `${art.badge[0] * 100}%`, top: `${art.badge[1] * 100}%`, width: `${art.badge[2] * 200}%` } as React.CSSProperties) : undefined;
   const rocketMask = { WebkitMaskImage: `url(${rocket})`, maskImage: `url(${rocket})` };
   const lazy = go
     ? ({
@@ -102,18 +112,18 @@ export default function HeroPad({ go, launching, icon, layout = "hero", moon = t
           <div className={s.deckGlow} />
           <div className={s.pool} />
           {/* z5: rocket, fin-tip line on the seat */}
-          <div className={s.lift}>
+          <div className={s.lift} style={liftStyle} data-look={look?.skin || undefined}>
             <div className={s.flame}><i /><i /></div>
             <div className={s.body}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img className={s.rocketImg} src={rocket} alt="" width={221} height={609} fetchPriority="high" decoding="async" draggable={false} />
+              <img className={s.rocketImg} src={rocket} alt="" width={221} height={609} fetchPriority="high" decoding="async" draggable={false} style={art.src ? { filter: lookFilter(look) } : undefined} />
               <div className={s.tint} style={rocketMask} />
               <div className={s.rim} style={rocketMask} />
               <div className={s.burn} style={rocketMask} />
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              {icon ? <img className={s.decal} src={icon} alt="" width={64} height={64} draggable={false} /> : null}
+              {icon ? <img className={s.decal} src={icon} alt="" width={64} height={64} draggable={false} style={badgeStyle} /> : null}
               {/* the badge is lit like the hull: night tint, cylinder shading, the amber bounce from the deck */}
-              {icon ? <span className={s.decalShade} /> : null}
+              {icon ? <span className={s.decalShade} style={badgeStyle} /> : null}
             </div>
           </div>
           {/* z6: idle exhaust glow; z7: front lip of the ring; z8: glow spill over the lip */}

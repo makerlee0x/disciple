@@ -55,8 +55,8 @@ export default function RocketLooks({ progress, hull, flare, coin, setHull, setF
   progress: Progress | null; hull: string; flare: string; coin: string; setHull: (id: string) => void; setFlare: (id: string) => void; note?: string;
 }) {
   return (
-    <section className="hg-sec" aria-labelledby="hg-looks" data-testid="rocket-looks">
-      <header className="hg-sech"><div><h2 id="hg-looks" className="dsc3-h2">Your rocket</h2><span>Earn new looks by flying. Your hull flies the rockets you launch, and your flare fires on every boost you make.</span></div></header>
+    <section className="hg-sec" aria-labelledby="hg-coinlooks" data-testid="rocket-looks">
+      <header className="hg-sech"><div><h2 id="hg-coinlooks" className="dsc3-h2">Real-coin flights</h2><span>Your hull flies the coins you launch, and your flare fires on every boost you make. Earn new ones by levelling up.</span></div></header>
       <Row title="Hull" sub="Your rocket when you launch" looks={HULLS} on={hull} progress={progress} coin={coin} pick={setHull} kind="hull" />
       {note && <p className="hg-sub" role="status">{note}</p>}
       <Row title="Engine flare" sub="Everyone sees it on your boosts" looks={FLARES} on={flare} progress={progress} coin={coin} pick={setFlare} kind="flare" />
