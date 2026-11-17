@@ -183,13 +183,33 @@ export default function GameRadio() {
   const playing = st.running && !st.paused && musicOn && gs.music.vol > 0;
   const stations = stationList();
   const station = stations.find((s) => s.id === st.stationId) ?? stations[0];
-  const min = card.min || (phone && (!!layout.radio?.min || !phoneOpen));
-  const closed = card.closed || (phone && !!layout.radio?.closed);
+  /* desktop Pilot (maker 2026-11-17): a fixed pill flush left of the ☰ menu, ♫ HOUSE + a sound on / off circle that mutes music AND
+     effects. Click ♫ / the station to grow it sideways into a one-row bar (station, repeat, prev, play, next, shuffle, volume). Not a
+     layout card here: no drag, no minimize, no old ▸ RADIO pill (CardChrome skips it). */
+  const desk = !phone && hud !== "pro";
+  const min = !desk && (card.min || (phone && (!!layout.radio?.min || !phoneOpen)));
+  const closed = !desk && (card.closed || (phone && !!layout.radio?.closed));
   const hidePanel = min || closed;
   const phoneBottom: React.CSSProperties = phone
     ? { right: 12, top: "var(--ph-radio-top, 314px)", bottom: "auto" }   /* phone v2 board: folded under the chat button */
     : hud === "pro" ? { ...DESK, right: "auto", left: "calc(var(--ap-rail-w, 64px) + 20px)", bottom: 20, width: 326 }
-    : { ...DESK, right: "calc(20px + var(--ap-topbar-w, 250px) + 8px)", top: 18, bottom: "auto", width: expanded ? 300 : "auto", borderRadius: expanded ? 14 : 999, zIndex: 61 };   // board C: a pill in the top bar
+    : { ...DESK, right: "calc(20px + var(--ap-topbar-w, 96px) + 8px)", top: 18, bottom: "auto", width: "auto", height: 44, borderRadius: 999, zIndex: 61, display: "flex", alignItems: "center" };
+
+  useEffect(() => {
+    if (!desk || !expanded) return;
+    const down = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) { setExpanded(false); setPicker(false); } };
+    const key = (e: KeyboardEvent) => { if (e.code === "Escape") { setExpanded(false); setPicker(false); } };
+    addEventListener("pointerdown", down, true); addEventListener("keydown", key);
+    return () => { removeEventListener("pointerdown", down, true); removeEventListener("keydown", key); };
+  }, [desk, expanded]);
+
+  const soundOn = gs.music.on || gs.sfx.on;
+  const toggleSound = () => {
+    void resumeAudio();
+    setGameSettings((g) => soundOn
+      ? { ...g, music: { ...g.music, on: false }, sfx: { ...g.sfx, on: false } }
+      : { ...g, music: { on: true, vol: g.music.vol > 0 ? g.music.vol : DEFAULT_GAME_SETTINGS.music.vol }, sfx: { on: true, vol: g.sfx.vol > 0 ? g.sfx.vol : DEFAULT_GAME_SETTINGS.sfx.vol } });
+  };
 
   const play = () => {
     const radio = getGameRadio();
@@ -230,6 +250,60 @@ export default function GameRadio() {
         [data-testid="radio-volume"]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #F3DFA8; border: 0; }
       `}</style>
 
+      {desk ? (
+        <div ref={ref} data-card="radio" data-testid="radio-mini" data-expanded={expanded ? "1" : "0"} style={{ ...PANEL, ...phoneBottom, padding: "0 7px 0 4px", gap: 2 }}>
+          <button type="button" data-testid="radio-line" aria-expanded={expanded} aria-label="Radio controls" title="Radio controls (R plays / pauses)"
+            onClick={() => { setPicker(false); setExpanded((x) => !x); }} style={{ ...BTN, width: 36, height: 36, borderRadius: 18, opacity: playing ? 1 : 0.7 }}>
+            <Ico d={ICONS.note} size={15} />
+          </button>
+          <div style={{ position: "relative", flex: "0 0 auto" }}>
+            <button type="button" data-testid="radio-station" aria-haspopup="listbox" aria-expanded={picker} aria-label="Station"
+              onClick={() => (expanded ? setPicker((p) => !p) : setExpanded(true))}
+              style={{ ...BTN, width: "auto", height: 36, gap: 6, padding: "0 8px 0 2px", font: `700 15px/1 ${HUD.game}`, letterSpacing: ".08em", textTransform: "uppercase", opacity: playing ? 1 : 0.7 }}>
+              {station?.label ?? "House"}
+              <span style={{ display: "inline-flex", width: expanded ? 11 : 0, overflow: "hidden", transition: "width .2s ease" }}><Ico d={ICONS.chevron} size={11} /></span>
+            </button>
+            {picker && expanded && (
+              <div data-testid="radio-station-list" role="listbox" aria-label="Station"
+                style={{ position: "absolute", left: 0, top: "100%", zIndex: 2, minWidth: 150, marginTop: 10, padding: 4, borderRadius: 12, background: "#151726", border: `1px solid ${HUD.border}`, boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
+                {stations.map((s) => (
+                  <button key={s.id} type="button" role="option" aria-selected={s.id === st.stationId} data-testid={`radio-station-${s.id}`} onClick={() => pickStation(s.id)}
+                    style={{ ...BTN, display: "flex", width: "100%", justifyContent: "flex-start", height: 36, padding: "0 10px", borderRadius: 8,
+                      color: s.id === st.stationId ? "#121327" : HUD.text, background: s.id === st.stationId ? HUD.champagne : "transparent",
+                      font: `700 15px/1 ${HUD.game}`, letterSpacing: ".06em", textTransform: "uppercase" }}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div data-testid="radio-controls" aria-hidden={!expanded}
+            style={{ display: "flex", alignItems: "center", gap: 2, overflow: "hidden", maxWidth: expanded ? 340 : 0, opacity: expanded ? 1 : 0,
+              visibility: expanded ? "visible" : "hidden", transition: "max-width .22s ease, opacity .18s ease, visibility .22s" }}>
+            <button type="button" data-testid="radio-repeat" aria-pressed={st.repeat === "one"} aria-label={st.repeat === "one" ? "Repeat this track" : "Repeat station"}
+              title={st.repeat === "one" ? "Repeat this track" : "Repeat station"} onClick={toggleRepeat} style={{ ...BTN, opacity: st.repeat === "one" ? 1 : 0.55, position: "relative", flex: "0 0 auto" }}>
+              <Ico d={ICONS.repeat} size={16} />
+              {st.repeat === "one" && <span style={{ position: "absolute", right: 4, bottom: 4, fontSize: 9, fontWeight: 800, color: HUD.champagne }}>1</span>}
+            </button>
+            <button type="button" data-testid="radio-prev" aria-label="Previous track" title="Previous track" onClick={() => skip(-1)} style={{ ...BTN, flex: "0 0 auto" }}><Ico d={ICONS.prev} size={15} fill /></button>
+            <button type="button" data-testid="radio-play" aria-label={playing ? "Pause" : "Play"} title={playing ? "Pause (R)" : "Play (R)"} onClick={playing ? pause : play}
+              style={{ ...BTN, flex: "0 0 auto", width: 32, height: 32, borderRadius: 16, color: "#121327", background: HUD.champagne }}>
+              <Ico d={playing ? ICONS.pause : ICONS.play} size={14} fill />
+            </button>
+            <button type="button" data-testid="radio-next" aria-label="Next track" title="Next track" onClick={() => skip(1)} style={{ ...BTN, flex: "0 0 auto" }}><Ico d={ICONS.next} size={15} fill /></button>
+            <button type="button" data-testid="radio-shuffle" aria-pressed={st.shuffle} aria-label={st.shuffle ? "Shuffle on" : "Shuffle"} title={st.shuffle ? "Shuffle on" : "Shuffle"}
+              onClick={toggleShuffle} style={{ ...BTN, flex: "0 0 auto", opacity: st.shuffle ? 1 : 0.55 }}><Ico d={ICONS.shuffle} size={16} /></button>
+            <input type="range" min={0} max={100} data-testid="radio-volume" aria-label="Music volume" title="Music volume"
+              value={Math.round(gs.music.vol * 100)} onChange={(e) => setVol(+e.target.value / 100)}
+              style={{ flex: "0 0 96px", width: 96, margin: "0 8px 0 6px", height: 20, opacity: musicOn ? 1 : 0.4, ["--radio-vol" as string]: `${Math.round(gs.music.vol * 100)}%` }} />
+          </div>
+          <button type="button" data-testid="radio-sound" aria-pressed={!soundOn} aria-label={soundOn ? "Mute all sound" : "Unmute"} title={soundOn ? "Mute music + effects" : "Unmute"}
+            onClick={toggleSound}
+            style={{ ...BTN, flex: "0 0 auto", width: 30, height: 30, borderRadius: 15, border: `1.5px solid ${HUD.champagne}`, opacity: soundOn ? 1 : 0.6 }}>
+            <Ico d={soundOn ? ICONS.speaker : ICONS.speakerOff} size={14} fill={soundOn} sw={1.8} />
+          </button>
+        </div>
+      ) : (
       <div
         ref={ref}
         data-card="radio"
@@ -241,12 +315,7 @@ export default function GameRadio() {
           display: hidePanel ? "none" : undefined,
         }}
       >
-        {!phone && hud !== "pro" ? <button type="button" data-testid="radio-line" aria-expanded={expanded} onClick={() => setExpanded((x) => !x)} title="Radio controls (R plays / pauses)"
-          style={{ all: "unset", cursor: "pointer", boxSizing: "border-box", width: "100%", height: 42, display: "flex", alignItems: "center", gap: 9, padding: "0 6px 0 14px", color: HUD.champagne, whiteSpace: "nowrap" }}>
-          <Ico d={ICONS.note} size={15} />
-          <span style={{ flex: 1, font: `700 15px/1 ${HUD.game}`, letterSpacing: ".08em", textTransform: "uppercase", opacity: playing ? 1 : 0.7 }}>{station?.label ?? "House"}</span>
-          <span aria-hidden="true" style={{ width: 28, height: 28, borderRadius: "50%", border: `1.5px solid ${HUD.champagne}`, display: "grid", placeItems: "center", boxSizing: "border-box", font: `800 10px/1 ${HUD.game}` }}>{playing ? "II" : "▶"}</span>
-        </button> : !phone && <button type="button" data-testid="radio-line" aria-expanded={expanded} onClick={() => setExpanded((x) => !x)} title="Radio controls (R plays / pauses)"
+        {!phone && <button type="button" data-testid="radio-line" aria-expanded={expanded} onClick={() => setExpanded((x) => !x)} title="Radio controls (R plays / pauses)"
           style={{ all: "unset", cursor: "pointer", boxSizing: "border-box", width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", fontSize: 14, color: HUD.text }}>
           <Ico d={ICONS.note} size={15} />
           <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: playing ? 1 : 0.7 }}>{station?.label ?? "House"} radio{playing ? "" : " · paused"}</span>
@@ -389,6 +458,7 @@ export default function GameRadio() {
         </div>
         </div>
       </div>
+      )}
       {phone && hidePanel && (
         <button
           type="button"
