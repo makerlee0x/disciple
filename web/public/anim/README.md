@@ -29,4 +29,4 @@ z-indexed overlay layer is its own stacking context, so the screen blend goes on
 | C4-royale-drop | Turbo Royale, over the 3-2-1 before GO (royale template + `play.html`) |
 | D2-tradeup-burn | Hangar trade-up, while the trade-up runs (tap to skip) |
 
-A5 lost and engine trouble only exist as 16:9 for now; phones get the same centre crop as the old still.
+A5 lost and engine trouble come in both cuts: `-16x9` on wide screens, `-9x16` on phones.

@@ -632,6 +632,14 @@ textarea.he-ta { min-height: 76px; padding: 12px 14px; resize: none; display: bl
   .ls-acts { flex-direction: column; width: 100%; }
   .ls-gold, .ls-btn { width: 100%; }
 }
+/* Phone cut (9:16): the card sits at the top, so slide each clip down until its ship clears the card, fade the top edge
+   into the page, and hide the wide still behind it. */
+@media (max-width: 720px) and (orientation: portrait) {
+  .ls-sky:has(.ls-vid) > img:not(.ls-vid) { visibility: hidden; }
+  .ls-sky .ls-vid { -webkit-mask-image: linear-gradient(180deg, transparent, #000 14%); mask-image: linear-gradient(180deg, transparent, #000 14%); }
+  .ls-sky .ls-vid.A5-lost { transform: translateY(30%); }
+  .ls-sky .ls-vid.A5-engine-trouble { transform: translateY(17%); }
+}
 
 /* ---- Step 7: /invite ---- */
 .iv-card { box-sizing: border-box; width: min(440px, 100%); display: flex; flex-direction: column; gap: 14px; padding: 28px; border-radius: 20px; color: #E8EAEE;
