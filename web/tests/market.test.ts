@@ -230,7 +230,7 @@ describe("market server (local KV)", () => {
     await earn(A, 3);
     const { XPK } = await import("@/lib/server/xp");
     const all = (await col.collectionOf(A)).copies.filter((c) => !c.bound && c.origin === "crate");
-    const mine = [];
+    const mine: typeof all = [];
     for (const c of all) if (!(await col.isListed(c.uid)) && !(await col.frozenReason(c.uid))) mine.push(c);
     // buy first: the listing is pending while the payment is in flight, and unlist refuses
     const l1 = await mkt.listCopy(A, mine[0].uid, 700);
