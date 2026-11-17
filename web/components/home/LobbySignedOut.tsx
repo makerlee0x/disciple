@@ -117,7 +117,7 @@ function Hero({ data, hero }: { data: HomeData; hero: HomeCoin }) {
         </Link>
       )}
       <div className={s.heroCopy}>
-        <span className={s.eyebrow}><span className={s.liveTag}>{data.heroMode === "trending" ? "Climbing now" : "Live"}</span>{pilots > 0 ? `${pilots.toLocaleString("en-US")} ${pilots === 1 ? "pilot" : "pilots"} flying right now` : "Fresh off the pad"}</span>
+        <span className={s.eyebrow}><span className={s.liveTag}>Live</span>{pilots > 0 ? `${pilots.toLocaleString("en-US")} ${pilots === 1 ? "pilot" : "pilots"} flying right now` : "Fresh off the pad"}</span>
         <h1 id="so-hero-title" className={s.heroTitle}>${sym}<br />is climbing</h1>
         <p className={s.lede} data-testid="so-hero-facts">{facts}. Boost to grab a seat, dump to cash out.</p>
         <div className={s.actions}>

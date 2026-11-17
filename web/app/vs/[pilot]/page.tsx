@@ -27,7 +27,8 @@ export async function generateMetadata(p: P): Promise<Metadata> {
   return {
     title, description,
     openGraph: { title, description, images: [{ url: img, width: 1200, height: 630 }] },
-    twitter: { card: "player", title, description, images: [img], players: [{ playerUrl: player, streamUrl: player, width: 480, height: 800 }] },
+    twitter: { card: "player", title, description, images: [img], // no streamUrl: that's for a raw video file, and this player is a page
+      players: [{ playerUrl: player, width: 480, height: 800 } as unknown as { playerUrl: string; streamUrl: string; width: number; height: number }] },
   };
 }
 
