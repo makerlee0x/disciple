@@ -212,7 +212,7 @@ contract GraduationFloorTest is IntegrationBase {
         Grad memory g = _grad(false, 0);
         _refReady(g.tok);
         vm.prank(owner);
-        lockedLP.setCompoundParams(1, 0, 5000);
+        lockedLP.setCompoundParams(1, 0);
         LockedLP.FloorBand[] memory b0 = lockedLP.floorBands(address(g.tok));
         (,,,,,, uint128 l0) = lockedLP.positions(address(g.tok));
         bytes32 COMPOUNDED = keccak256("LiquidityCompounded(address,uint128,uint256,uint256,uint256,uint256)");
@@ -221,6 +221,7 @@ contract GraduationFloorTest is IntegrationBase {
             vm.roll(vm.getBlockNumber() + 1);
             vm.warp(vm.getBlockTimestamp() + 61);
             _swapExactInQuoteForToken(g.tok, trader1, 20 ether);
+            lockedLP.flush(address(g.tok)); // slim hook: swaps only bucket; anyone flushes
         }
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 n;

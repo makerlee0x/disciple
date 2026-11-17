@@ -39,7 +39,6 @@ contract AuditFixes202611Test is IntegrationBase {
         harvest.wire(
             address(launchpad), address(feeRouter), address(lockedLP), address(router), address(manager)
         );
-        harvest.setKeeper(address(this));
         launchpad.setTrustedRouter(address(harvest), true);
         launchpad.setTrustedRouter(address(router), true);
         feeRouter.setClaimRouter(address(harvest), true);
@@ -142,22 +141,15 @@ contract AuditFixes202611Test is IntegrationBase {
         vm.stopPrank();
     }
 
-    /// CH-01: the burn sell is chunked to <= MAX_SELL_IMPACT_BPS; the rest stays parked for later routes.
-    function test_CH01_burnSell_isChunked() public {
+    /// CH-01 (superseded 2026-11-17): burn mode no longer sells. Any lump of rocket-token fees goes straight to the
+    /// dead address in one route, and the pool price does not move.
+    function test_CH01_burnRockets_noSell_anySize() public {
         (BondingCurve curve, Token tok) = _launchDest(2, 0);
         _warpPastSnipe();
         _buy(curve, creator, 200 ether, 0);
         _graduate(curve);
-        _refReady(tok);
 
         uint256 amt = tok.balanceOf(creator);
-        (, uint256 imp,) = router.quoteExactIn(address(tok), false, amt);
-        while (imp > 4500 && amt > 1) {
-            amt /= 2;
-            (, imp,) = router.quoteExactIn(address(tok), false, amt);
-        }
-        assertGt(imp, 3 * harvest.MAX_DEV_BPS(), "lump is far larger than one allowed chunk");
-
         vm.startPrank(creator);
         tok.approve(address(harvest), amt);
         harvest.depositRocketTokens(address(tok), amt);
@@ -166,16 +158,14 @@ contract AuditFixes202611Test is IntegrationBase {
         vm.roll(block.number + 1);
         PoolId id = _poolKey(tok).toId();
         (uint160 sp0,,,) = manager.getSlot0(id);
-        (, uint256 sold, uint256 bought) = _routeAtSpot(address(tok));
+        uint256 dead0 = tok.balanceOf(0x000000000000000000000000000000000000dEaD);
+        (, uint256 burned, uint256 bought) = harvest.route(address(tok));
         (uint160 sp1,,,) = manager.getSlot0(id);
-        assertGt(sold, 0, "a chunk sold");
-        assertGt(bought, 0);
-        assertLt(sold, amt, "not the whole lump");
-        assertGt(harvest.rocketDeposited(address(tok)), 0, "the rest stays parked");
-        uint256 hi = sp0 > sp1 ? sp0 : sp1;
-        uint256 lo = sp0 > sp1 ? sp1 : sp0;
-        uint256 devBps = (hi * 10_000 / lo) * hi / lo - 10_000;
-        assertLe(devBps, 2 * harvest.MAX_SELL_IMPACT_BPS(), "one route moves the price by about one chunk only");
+        assertEq(burned, amt, "the whole lump burned");
+        assertEq(bought, 0);
+        assertEq(tok.balanceOf(0x000000000000000000000000000000000000dEaD) - dead0, amt);
+        assertEq(harvest.rocketDeposited(address(tok)), 0);
+        assertEq(sp1, sp0, "price unchanged");
     }
 
     // ───────────────────────── LockedLP ─────────────────────────

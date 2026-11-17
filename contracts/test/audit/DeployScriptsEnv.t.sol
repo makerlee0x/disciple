@@ -62,8 +62,6 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         assertEq(address(UsdgDepositNotifier(o.depositNotifier).registry()), o.referrals);
         assertEq(address(UsdgDepositNotifier(o.depositNotifier).usdg()), o.usdg);
 
-        // Slim hook: keeper wired on LockedLP + harvest (no hookData attribution anymore)
-        assertTrue(LockedLP(o.lockedLP).keeper() != address(0));
 
         // #1 migrate gated by Launchpad registry; #12 hook wired to Migration
         assertEq(Migration(o.migration).launchpad(), o.launchpad);

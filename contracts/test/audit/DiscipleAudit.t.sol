@@ -76,10 +76,10 @@ contract DiscipleAuditTest is IntegrationBase {
         // token-side fees + leftover quote → both buckets. The swap runs under the default min (no compound yet):
         // the steep curve leaves ~$1.2K leftover quote, so a tiny-min compound here would drain the token bucket.
         vm.prank(owner);
-        lockedLP.setCompoundParams(1_000, 5_000, 300); // defaults (a looped test may have changed them)
+        lockedLP.setCompoundParams(1_000, 5_000); // defaults (a looped test may have changed them)
         _swapExactInQuoteForToken(tok, trader1, 50 ether);
         vm.prank(owner);
-        lockedLP.setCompoundParams(1, 0, 300); // tiny min, uncapped, 3% guard
+        lockedLP.setCompoundParams(1, 0); // tiny min, uncapped, 3% guard
         (uint256 bt, uint256 bq) = lockedLP.compoundBucket(address(tok));
         require(bt >= 2 && bq >= 2, "buckets");
         vm.roll(vm.getBlockNumber() + 1);
@@ -110,23 +110,14 @@ contract DiscipleAuditTest is IntegrationBase {
         assertEq(_liq(tok), l0);
     }
 
-    function test_flush_onlyKeeper() public {
+    /// maker 2026-11-17: flush is permissionless (no sandwiching on Robinhood's FCFS sequencer).
+    function test_flush_permissionless() public {
         Token tok = _gradReady();
-        uint160 sp = _spot(tok);
-        vm.prank(trader1);
-        vm.expectRevert(LockedLP.OnlyKeeper.selector);
-        lockedLP.flush(address(tok), sp);
-        vm.expectRevert(LockedLP.BadParams.selector);
-        lockedLP.flush(address(tok), 0);
-        vm.prank(owner);
-        lockedLP.setKeeper(trader1);
-        vm.expectRevert(LockedLP.OnlyKeeper.selector);
-        lockedLP.flush(address(tok), sp);
-        vm.prank(trader1);
-        assertGt(lockedLP.flush(address(tok), sp), 0, "new keeper flushes");
+        vm.prank(makeAddr("anyone"));
+        assertGt(lockedLP.flush(address(tok)), 0);
     }
 
-    function test_flush_compoundsAtReference() public {
+    function test_flush_compoundsAtSpot() public {
         Token tok = _gradReady();
         uint128 l0 = _liq(tok);
         vm.recordLogs();
@@ -136,34 +127,38 @@ contract DiscipleAuditTest is IntegrationBase {
         assertEq(_liq(tok), l0 + added);
     }
 
-    /// High-1 (keeper form): a pump before the keeper's flush moves spot away from the keeper's reference, so the
-    /// flush adds nothing, and the attacker ends no better than with compounding off.
-    function _pumpFlushDump(Token tok, uint256 pump, uint160 ref) internal returns (uint256 endQuote, uint256 n) {
+    /// High-1 (self-sandwich): pump → flush (adds at the pumped price) → dump in one block. The add is capped at
+    /// maxCompoundPpm of liquidity and the attacker pays the 1% fee both ways, so it ends no better than with
+    /// compounding off.
+    function _pumpFlushDump(Token tok, uint256 pump) internal returns (uint256 endQuote, uint256 n) {
         address att = makeAddr("xatk");
         uint256 b0 = quote.balanceOf(att);
         vm.recordLogs();
         _swapExactInQuoteForToken(tok, att, pump);
-        vm.roll(vm.getBlockNumber() + 1);
-        lockedLP.flush(address(tok), ref);
+        lockedLP.flush(address(tok));
         _swapExactInTokenForQuote(tok, att, tok.balanceOf(att));
         n = _count(COMPOUNDED);
         endQuote = quote.balanceOf(att) - b0;
     }
 
-    function test_high1_pumpBeforeFlush_skipped() public {
+    function test_high1_selfSandwichFlush_unprofitable() public {
         uint256[3] memory pumps = [uint256(5_000 ether), 20_000 ether, 60_000 ether];
         for (uint256 i; i < pumps.length; ++i) {
             uint256 snap0 = vm.snapshotState();
             Token tok = _gradReady();
-            uint160 ref = _spot(tok); // keeper's honest reference
+            vm.prank(owner);
+            lockedLP.setCompoundParams(1, 5_000); // defaults' 0.5% cap, tiny min
             uint256 snap = vm.snapshotState();
-            (uint256 atk, uint256 n) = _pumpFlushDump(tok, pumps[i], ref);
+            (uint256 atk,) = _pumpFlushDump(tok, pumps[i]);
             vm.revertToState(snap);
             vm.prank(owner);
-            lockedLP.setCompoundParams(1_000_000, 0, 300); // control: compounding off
-            (uint256 ctl,) = _pumpFlushDump(tok, pumps[i], ref);
-            assertEq(n, 0, "flush skipped: spot outside 3% of the keeper reference");
-            assertLe(atk, ctl, "attacker <= control");
+            lockedLP.setCompoundParams(1_000_000, 0); // control: compounding off
+            (uint256 ctl,) = _pumpFlushDump(tok, pumps[i]);
+            console2.log("pump / attacker / control", pumps[i] / 1e18, atk, ctl);
+            // Open flush (maker 2026-11-17): a self-sandwich can make the add land at a pumped price, but the round trip
+            // still loses money (2% of fees each way dwarfs it), and what the flush shifts is capped by the budget.
+            assertLt(atk, pumps[i], "the pump-flush-dump round trip loses money");
+            assertLe(atk, ctl + ctl / 200, "a flush shifts < 0.5% of the round trip");
             vm.revertToState(snap0);
         }
     }
@@ -172,7 +167,7 @@ contract DiscipleAuditTest is IntegrationBase {
     function test_flush_budget() public {
         Token tok = _gradReady();
         vm.prank(owner);
-        lockedLP.setCompoundParams(1, 5_000, 300);
+        lockedLP.setCompoundParams(1, 5_000);
         address v = makeAddr("volume");
         for (uint256 i; i < 6; i++) {
             _swapExactInQuoteForToken(tok, v, 5_000 ether);

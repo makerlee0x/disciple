@@ -73,7 +73,7 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       reference DEFAULT_QUOTE/USDG v4 pool for the QuotePricer
 ///                       (RH STRATEGY/USDG deepest pool: 36900 / 369 / 0x0 → id 0x816b…245b)
 ///   MIN_LIQUIDITY       QuotePricer minimum in-range liquidity (default 0)
-///   KEEPER              LockedLP.flush + CreatorFeeHarvest.routeAtRef caller (default deployer; relayer on mainnet)
+///   RENOUNCE_HARVEST    renounce CreatorFeeHarvest ownership at the end of deploy (default: true on mainnet 4663)
 ///   REWARDS_VAULT_OWNER community RewardsVault owner (default deployer): TEMP wallet on testnet, multisig (Safe) on
 ///                       mainnet (lee 2026-11-10). Receives the sniper tax + curve LP fees of coins not graduated
 ///                       within snipeEscrowTimeout (releaseSnipeEscrow, or a late graduation). Nominated only
@@ -164,10 +164,8 @@ contract Deploy is NetworkConfig {
 
         DiscipleRouter router = new DiscipleRouter(manager, lockedLP, address(hook));
         o.trampWall = address(new TrampWallManager(manager, lockedLP, address(hook)));
-        // Slim hook (2026-11-17): no LP gate, no trader credit, no in-swap compounding. LP compounding and burn-coin
-        // token sells are keeper-run (KEEPER, default deployer; the relayer / cron wallet on mainnet).
-        address keeper = vm.envOr("KEEPER", deployer);
-        lockedLP.setKeeper(keeper);
+        // Slim hook (2026-11-17): no LP gate, no trader credit, no in-swap compounding. LockedLP.flush and the harvest's
+        // route are permissionless; the site's cron calls them on a schedule.
 
         // Redeploy pack item 8: the legacy AntiSnipe is no longer deployed. Launchpad.antiSnipe is a never-read
         // immutable (v2 curves compute the sniper tax inline via FeeMath.snipeBps), so it is address(0).
@@ -236,7 +234,6 @@ contract Deploy is NetworkConfig {
         harvest.wire(
             address(launchpad), address(feeRouter), address(lockedLP), address(router), address(manager)
         );
-        harvest.setKeeper(keeper);
         launchpad.setTrustedRouter(address(harvest), true);
         // curveRouter is the first trusted router (DiscipleRouter, above); later trusts no longer move it (review N-2).
         require(launchpad.curveRouter() == address(router), "curveRouter");
@@ -280,6 +277,8 @@ contract Deploy is NetworkConfig {
         harvest.setAnonLauncher(o.anonLauncher);
         // Curve-phase creator fees settle here. route() pulls them. Trades do not call the harvest.
         harvest.setFeeVault(address(feeVault));
+        // maker 2026-11-17: the fee contract is renounced once set up, so none of its pointers can change.
+        if (vm.envOr("RENOUNCE_HARVEST", block.chainid == 4663)) harvest.renounceOwnership();
         // referralSink: address(0) = today's routing (default). Non-zero takes the whole referral 1% incl. launch KOL.
         {
             address sink = vm.envOr("REFERRAL_SINK", address(0));

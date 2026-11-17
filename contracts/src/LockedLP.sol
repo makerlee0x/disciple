@@ -26,7 +26,7 @@ import {FloorBands} from "./libraries/FloorBands.sol";
 /// @notice Owns the full-range v4 position forever. removeLiquidity always reverts.
 /// @dev Pool LP fee is 0; trade fees taken by DiscipleHook. collectFees is a no-op residual for #16.
 ///      LP auto-compound: after graduation the 33% LP share of the 1% hook fee lands in two per-coin buckets
-///      (token side from buys, quote side from sells). The keeper calls flush(token, refSqrtP) outside swaps; once
+///      (token side from buys, quote side from sells). Anyone (the keeper cron in practice) calls flush(token) outside swaps; once
 ///      the matched liquidity passes minCompoundPpm of the position it is added to the SAME locked full-range
 ///      position (same ticks + salt), each currency settled immediately (sync → transfer → settle), and the
 ///      unmatched remainder carries forward. The hook never calls this contract. No rebalancing swaps are made.
@@ -102,17 +102,12 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         uint256 tokenAmount; // tokens it has bought (USDG converts to tokens as price falls through it)
     }
 
-    /// @notice Only caller of flush (the relayer / cron wallet). Owner can rotate it; it can only add the coin's own
-    ///         fee buckets to the locked position, inside the price guard, so a bad keeper cannot take anything.
-    address public keeper;
     /// @notice Minimum liquidity per add, in ppm of the position's current liquidity (gas saver). Default 0.1%
     ///         (audit G-5: was 0.005%, which compounded ~every other buy at ~44k gas; fees still bucket every trade).
     uint32 public minCompoundPpm = 1_000;
     /// @notice Per-add cap, in ppm of the position's current liquidity (0 = uncapped). Default 0.5% (audit High-1:
     ///         bounds the value any residual reference manipulation could extract per add).
     uint32 public maxCompoundPpm = 5_000;
-    /// @notice Skip if spot is more than this away from the keeper's reference price. Default 3%.
-    uint16 public maxCompoundDeviationBps = 300;
 
     uint160 internal immutable SQRT_LOWER;
     uint160 internal immutable SQRT_UPPER;
@@ -130,7 +125,6 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     error AlreadyWired();
     error NotGraduated();
     error ZeroLiquidity();
-    error OnlyKeeper();
     error BadParams();
     error CompoundOverspend();
     error QuoteMismatch();
@@ -163,8 +157,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         uint256 tokenCarry,
         uint256 quoteCarry
     );
-    event CompoundParamsSet(uint32 minPpm, uint32 maxPpm, uint16 maxDeviationBps);
-    event KeeperSet(address indexed keeper);
+    event CompoundParamsSet(uint32 minPpm, uint32 maxPpm);
 
     /// @param creatorFeeHarvest_ Later-send contract allowed to call `addLockedLiquidity`. address(0) allows nobody extra.
     ///        No new external function, so the trade-path dispatcher stays as it was.
@@ -177,24 +170,14 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
 
     /// @dev The four wiring setters below are write-once (pre-mainnet review 2026-11-17): set at deploy, then fixed, so no
     ///      owner can later point LockedLP at a fake PoolManager / migration / router and pull the tokens it holds.
-    function setKeeper(address k) external {
-        if (msg.sender != owner) revert OnlyOwner();
-        keeper = k;
-        emit KeeperSet(k);
-    }
-
     /// @param minPpm  minimum add as ppm of position liquidity (<= 1e6)
     /// @param maxPpm  per-add cap as ppm of position liquidity (0 = uncapped; else >= minPpm)
-    /// @param maxDevBps max |post/pre - 1| price move (1..5000)
-    function setCompoundParams(uint32 minPpm, uint32 maxPpm, uint16 maxDevBps) external {
+    function setCompoundParams(uint32 minPpm, uint32 maxPpm) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (minPpm > 1e6 || (maxPpm != 0 && maxPpm < minPpm) || maxDevBps == 0 || maxDevBps > 5000) {
-            revert BadParams();
-        }
+        if (minPpm > 1e6 || (maxPpm != 0 && maxPpm < minPpm)) revert BadParams();
         minCompoundPpm = minPpm;
         maxCompoundPpm = maxPpm;
-        maxCompoundDeviationBps = maxDevBps;
-        emit CompoundParamsSet(minPpm, maxPpm, maxDevBps);
+        emit CompoundParamsSet(minPpm, maxPpm);
     }
 
     function setTreasury(address t) external {
@@ -404,14 +387,13 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
 
     // ── LP auto-compound ─────────────────────────────────────────────────────
 
-    /// @notice Keeper-only top-up outside swaps (uses unlock). Skips (returns 0) unless spot is within
-    ///         maxCompoundDeviationBps of `refSqrtP`, the keeper's reference price (a recent off-chain average of the
-    ///         pool's Swap events). Same min / per-window cap guards as before. Returns liquidity added (0 = skipped).
-    function flush(address token, uint160 refSqrtP) external returns (uint128 liquidity) {
-        if (msg.sender != keeper) revert OnlyKeeper();
+    /// @notice Permissionless top-up outside swaps (uses unlock): adds the coin's matched fee buckets to its locked
+    ///         position at the current price. Robinhood Chain has a first-come sequencer (no third-party sandwich); a
+    ///         self-sandwich around this call is bounded by one add per block and maxCompoundPpm (0.5%) of liquidity
+    ///         per 60 s window, and costs the 1% fee each way. Returns liquidity added (0 = skipped).
+    function flush(address token) external returns (uint128 liquidity) {
         if (!_positions[token].graduated) revert NotGraduated();
-        if (refSqrtP == 0) revert BadParams();
-        bytes memory r = poolManager.unlock(abi.encode(CB_FLUSH, abi.encode(token, refSqrtP)));
+        bytes memory r = poolManager.unlock(abi.encode(CB_FLUSH, abi.encode(token)));
         liquidity = abi.decode(r, (uint128));
     }
 
@@ -433,8 +415,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     }
 
     /// @dev Must run while the PoolManager is unlocked. Returns 0 (no state change) when skipped.
-    ///      Spot must be within maxCompoundDeviationBps of the reference `ref`.
-    function _compound(address token, uint160 ref) internal returns (uint128 liq) {
+    function _compound(address token) internal returns (uint128 liq) {
         Bucket memory b = _buckets[token];
         // Cheapest exit first: one-sided accumulation (the common case) costs one SLOAD.
         if (b.token < 2 || b.quote < 2) return 0;
@@ -450,8 +431,6 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         uint256 maxPpm = maxCompoundPpm;
         if (maxPpm != 0 && used >= maxPpm) return 0;
         (uint160 sqrtP,,,) = poolManager.getSlot0(p.poolId);
-        uint256 maxDev = maxCompoundDeviationBps;
-        if (_deviationBps(ref, sqrtP) > maxDev) return 0;
 
         bool tokenIsC0 = p.tokenIsC0;
         // 1 wei margin per side: amounts owed for L round up by at most 1, so owed <= bucket always.
@@ -514,21 +493,12 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         else get = uint256(int256(d));
     }
 
-    /// @dev |(hi/lo)^2 - 1| in bps from two sqrt prices (direction-agnostic, slightly conservative).
-    function _deviationBps(uint160 a, uint160 b) internal pure returns (uint256) {
-        if (a == b) return 0;
-        if (a == 0 || b == 0) return type(uint256).max;
-        (uint256 hi, uint256 lo) = a > b ? (uint256(a), uint256(b)) : (uint256(b), uint256(a));
-        return Math.mulDiv(Math.mulDiv(hi, 10_000, lo), hi, lo) - 10_000;
-    }
-
     /// @inheritdoc IUnlockCallback
     function unlockCallback(bytes calldata rawData) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
         (uint8 kind, bytes memory inner) = abi.decode(rawData, (uint8, bytes));
         if (kind == CB_FLUSH) {
-            (address tk, uint160 ref) = abi.decode(inner, (address, uint160));
-            return abi.encode(_compound(tk, ref));
+            return abi.encode(_compound(abi.decode(inner, (address))));
         }
         SeedParams memory sp = abi.decode(inner, (SeedParams));
         Position storage p = _positions[sp.token];

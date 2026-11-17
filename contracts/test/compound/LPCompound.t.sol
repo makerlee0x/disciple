@@ -15,7 +15,7 @@ import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Vm} from "forge-std/Vm.sol";
 
-/// @dev Atomic sandwich: swap, try flush, swap back — all in one tx (flush is keeper-only, so it reverts).
+/// @dev Atomic sandwich: swap, flush, swap back — all in one tx.
 contract Sandwicher {
     function run(PoolSwapTest r, PoolKey memory key, LockedLP lp, address token, IERC20 quote, IERC20 tok, bool zfoBuy)
         external
@@ -24,7 +24,7 @@ contract Sandwicher {
         quote.approve(address(r), type(uint256).max);
         tok.approve(address(r), type(uint256).max);
         _swap(r, key, zfoBuy, quote.balanceOf(address(this)));
-        try lp.flush(token, 1) {} catch {
+        try lp.flush(token) {} catch {
             flushReverted = true;
         }
         _swap(r, key, !zfoBuy, tok.balanceOf(address(this)));
@@ -59,9 +59,9 @@ contract LPCompoundTest is IntegrationBase {
         t = t_;
     }
 
-    function _params(uint32 minPpm, uint32 maxPpm, uint16 dev) internal {
+    function _params(uint32 minPpm, uint32 maxPpm, uint16) internal {
         vm.prank(owner);
-        lockedLP.setCompoundParams(minPpm, maxPpm, dev);
+        lockedLP.setCompoundParams(minPpm, maxPpm);
     }
 
     function _bucket(Token t) internal view returns (uint256 b0, uint256 b1) {
@@ -115,10 +115,8 @@ contract LPCompoundTest is IntegrationBase {
     }
 
     function test_defaults_and_wiring() public view {
-        assertEq(lockedLP.keeper(), address(this));
         assertEq(lockedLP.minCompoundPpm(), 1_000);
         assertEq(lockedLP.maxCompoundPpm(), 5_000);
-        assertEq(lockedLP.maxCompoundDeviationBps(), 300);
         _assertInvariant(_one(tok));
     }
 
@@ -235,60 +233,42 @@ contract LPCompoundTest is IntegrationBase {
         _assertInvariant(_one(tok));
     }
 
-    function test_deviation_skip_and_sandwich() public {
-        _buy(tok, 200 ether); // token bucket
-        _params(1, 0, 100); // 1% max deviation
-        (uint160 ref,,,) = manager.getSlot0(_poolKey(tok).toId());
-        _sellFrac(tok, 1); // big sell moves the price > 1%
+    /// An atomic sandwich around flush adds at most the per-window cap (0.5% of liquidity).
+    function test_sandwiched_flush_is_capped() public {
+        _buy(tok, 2_000 ether);
+        _sellFrac(tok, 2);
+        _params(1, 5_000, 0);
         uint128 l0 = _liq(tok);
-        assertEq(lockedLP.flush(address(tok), ref), 0, "spot moved > maxDeviation from the reference: skipped");
-        assertEq(_liq(tok), l0);
-        // at a reference matching spot it does compound → the skip was the deviation guard
-        vm.recordLogs();
-        _flush(address(tok));
-        assertEq(_count(COMPOUNDED), 1);
-        l0 = _liq(tok);
-        _buy(tok, 200 ether);
-
-        // atomic sandwich around flush: a non-keeper cannot flush at all
-        _params(1, 0, 5000);
         Sandwicher sw = new Sandwicher();
         quote.mint(address(sw), 5_000 ether);
         bool tokenIsC0 = uint160(address(tok)) < uint160(address(quote));
+        vm.roll(vm.getBlockNumber() + 1);
         bool reverted =
             sw.run(swapRouter, _poolKey(tok), lockedLP, address(tok), quote, IERC20(address(tok)), !tokenIsC0);
-        assertTrue(reverted, "flush reverted (OnlyKeeper)");
-        assertEq(_liq(tok), l0);
+        assertFalse(reverted);
+        assertLe(uint256(_liq(tok) - l0) * 1e6, uint256(l0) * 5_000 + l0, "<= 0.5% of L");
         _assertInvariant(_one(tok));
     }
 
-    function test_flush_keeper_only() public {
+    function test_flush_permissionless() public {
         _buy(tok, 200 ether);
         _sellFrac(tok, 2);
-        (uint160 sp,,,) = manager.getSlot0(_poolKey(tok).toId());
-        vm.prank(trader2);
-        vm.expectRevert(LockedLP.OnlyKeeper.selector);
-        lockedLP.flush(address(tok), sp);
-        vm.expectRevert(Owned2Step.OnlyOwner.selector);
-        lockedLP.setKeeper(trader2);
-        vm.prank(owner);
-        lockedLP.setKeeper(trader2);
-        _params(1, 0, 5000);
+        _params(1, 0, 0);
         uint128 l0 = _liq(tok);
         vm.prank(trader2);
-        uint128 added = lockedLP.flush(address(tok), sp);
+        uint128 added = lockedLP.flush(address(tok));
         assertGt(added, 0);
         assertEq(_liq(tok), l0 + added);
         _assertInvariant(_one(tok));
         vm.roll(vm.getBlockNumber() + 1);
         vm.prank(trader2);
-        assertEq(lockedLP.flush(address(tok), sp), 0, "nothing left to pair");
+        assertEq(lockedLP.flush(address(tok)), 0, "nothing left to pair");
     }
 
     function test_flush_requires_graduated() public {
         (, Token t2) = _launch(0, 0);
         vm.expectRevert(LockedLP.NotGraduated.selector);
-        lockedLP.flush(address(t2), 1);
+        lockedLP.flush(address(t2));
     }
 
     function test_multi_coin_isolation() public {
@@ -313,12 +293,12 @@ contract LPCompoundTest is IntegrationBase {
 
     function test_params_guarded() public {
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
-        lockedLP.setCompoundParams(1, 0, 100);
+        lockedLP.setCompoundParams(1, 0);
         vm.startPrank(owner);
         vm.expectRevert(LockedLP.BadParams.selector);
-        lockedLP.setCompoundParams(10, 5, 100);
+        lockedLP.setCompoundParams(10, 5);
         vm.expectRevert(LockedLP.BadParams.selector);
-        lockedLP.setCompoundParams(1, 0, 0);
+        lockedLP.setCompoundParams(1e6 + 1, 0);
         vm.stopPrank();
     }
 

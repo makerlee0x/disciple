@@ -16,10 +16,8 @@ import { ACTIVE_CHAIN, deployment, ZERO } from "@/lib/chains";
 import { creatorFeeHarvestAbi } from "@/lib/creatorFeeHarvest";
 import { kv } from "@/lib/server/kv";
 import { relayerKey, isRelayerNotConfigured, withRelayer } from "@/lib/server/relayer";
-import { feeRouterAbi, launchpadAbi, lockedLPAbi } from "@/lib/abi";
+import { feeRouterAbi, launchpadAbi } from "@/lib/abi";
 import { addressOn, launchPairsForChain } from "@/lib/launchWhitelist";
-import { disciplePoolId } from "@/lib/v4Swap";
-import { refSqrt } from "@/lib/server/poolRefRead";
 import { KEEPER_LIMITS, codeHasSelector, gasLimitFor, isQuietRouteError, pastCreatorKeys, planJobs, routedTokensFromLogs, splitPastKey } from "@/lib/feeRouteKeeper";
 
 export const runtime = "nodejs";
@@ -84,11 +82,6 @@ export async function GET(req: Request) {
     const t0 = Date.now();
     const code = await pc.getCode({ address: harvest }).catch(() => undefined);
     const withPast = codeHasSelector(code, toFunctionSelector("routeWith(address,address)"));
-    // Slim hook: a graduated coin is routed with routeAtRef at its pool's 30-minute average price (keeper = relayer), so a
-    // burn coin's rocket-token fees can be sold. Older harvests (no routeAtRef) keep route / routeWith.
-    const withRef = codeHasSelector(code, toFunctionSelector("routeAtRef(address,address,uint160)"))
-      && String(await pc.readContract({ address: harvest, abi: creatorFeeHarvestAbi, functionName: "keeper" }).catch(() => ZERO)).toLowerCase() === relayer.address.toLowerCase();
-    const graduated = new Map<string, boolean>();
     const turn = Number((await store.get(turnKey)) ?? "0") || 0;
     const plan = planJobs(Array.from(known), past, { withPast, start: turn });
     await store.set(turnKey, String(plan.next));
@@ -109,17 +102,9 @@ export async function GET(req: Request) {
           quoteOf.set(j.token, String(q).toLowerCase());
         }
         if (!allowedQuotes.has(quoteOf.get(j.token)!)) { results[j.label] = "skipped: pair coin is not on the launch list"; continue; }
-        let fn: "route" | "routeWith" | "routeAtRef" = j.fn;
-        let args = (j.fn === "route" ? [j.token] : [j.token, j.pastCreator]) as never;
-        if (withRef) {
-          if (!graduated.has(j.token)) graduated.set(j.token, Boolean(await pc.readContract({ address: d.lockedLP, abi: lockedLPAbi, functionName: "isGraduated", args: [j.token as Address] }).catch(() => false)));
-          if (graduated.get(j.token)) {
-            const { ref } = await refSqrt(pc as never, d.poolManager, disciplePoolId(j.token, quoteOf.get(j.token)!, d.hook));
-            if (ref > BigInt(0)) { fn = "routeAtRef"; args = [j.token, j.pastCreator ?? ZERO, ref] as never; }
-          }
-        }
-        const { request } = await pc.simulateContract({ account: relayer, address: harvest, abi: creatorFeeHarvestAbi, functionName: fn, args });
-        const est = await pc.estimateContractGas({ account: relayer, address: harvest, abi: creatorFeeHarvestAbi, functionName: fn, args });
+        const args = (j.fn === "route" ? [j.token] : [j.token, j.pastCreator]) as never;
+        const { request } = await pc.simulateContract({ account: relayer, address: harvest, abi: creatorFeeHarvestAbi, functionName: j.fn, args });
+        const est = await pc.estimateContractGas({ account: relayer, address: harvest, abi: creatorFeeHarvestAbi, functionName: j.fn, args });
         const gas = gasLimitFor(est);
         if (gas == null) { results[j.label] = `skipped: needs ${est} gas, over the ${KEEPER_LIMITS.GAS_PER_TX} cap`; continue; }
         if (gasUsed + gas > KEEPER_LIMITS.GAS_PER_RUN) { results[j.label] = "skipped: gas budget used this run"; continue; }
@@ -135,7 +120,7 @@ export async function GET(req: Request) {
     }
     const bal = await pc.getBalance({ address: relayer.address }).catch(() => BigInt(0));
     return NextResponse.json({
-      ok: true, coins: known.size, jobs: plan.total, withPast, withRef, newCoins: fresh, results, gasUsed: gasUsed.toString(),
+      ok: true, coins: known.size, jobs: plan.total, withPast, newCoins: fresh, results, gasUsed: gasUsed.toString(),
       relayer: relayer.address, relayerBalanceEth: formatEther(bal),
     });
   } finally {

@@ -6,9 +6,9 @@ import { parseAbi } from "viem";
  * The launcher calls one of these functions in the create transaction and passes
  * `creatorFeeDestination`. 0 means the creator keeps the creator fees. 1 deposits
  * them into that rocket's locked liquidity pool, and that liquidity is renounced.
- * 2 uses them to buy and burn the quote token. On the bonding curve the fee is
- * already the quote token, so it is burned. After orbit, the quote half is burned
- * and the rocket-token half is sold for more of the quote token, which is burned.
+ * 2 burns them. On the bonding curve the fee is the quote token, so it is burned.
+ * After orbit the quote half is burned and the rocket-token half is sent straight
+ * to the dead address (no sell; maker 2026-11-17). `quoteBought` is then always 0.
  *
  * A later transaction calls `route`. Anyone may call it. The caller is not paid.
  * `route` pulls both the quote half and the rocket-token half. The creator does not
@@ -20,7 +20,7 @@ export const CREATOR_FEE_DESTINATION = {
   keep: 0,
   /** Creator fees are deposited into the rocket's locked liquidity pool, and that liquidity is renounced. */
   lockedPool: 1,
-  /** Creator fees buy and burn the quote token. */
+  /** Creator fees are burned (quote, and rocket tokens after orbit). */
   burnQuote: 2,
 } as const;
 
@@ -43,10 +43,6 @@ export const creatorFeeHarvestAbi = parseAbi([
   "function route(address token) returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)",
   // Audit PR #371: routes fees that accrued to a past creator (after transferCreator). Not on the v6 testnet harvest.
   "function routeWith(address token, address pastCreator) returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)",
-  // Slim hook (2026-11-17): keeper-only route that may also sell rocket-token fees of a burn coin, at the pool's 30-minute
-  // Swap-price average (lib/poolRef). Plain route/routeWith still lock or burn the quote half; rocket tokens then wait.
-  "function keeper() view returns (address)",
-  "function routeAtRef(address token, address pastCreator, uint160 refSqrtP) returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)",
   "function depositRocketTokens(address token, uint256 amount)",
   "function creatorFeeDestinationOf(address token) view returns (uint8)",
   "event CreatorFeeDestinationSet(address indexed token, address indexed launcher, uint8 destination)",

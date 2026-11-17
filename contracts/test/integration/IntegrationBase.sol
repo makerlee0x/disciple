@@ -155,7 +155,6 @@ abstract contract IntegrationBase is Test {
         lockedLP.setMigration(address(migration));
         lockedLP.setFeeRouter(address(feeRouter));
         lockedLP.setPoolManager(address(manager));
-        lockedLP.setKeeper(address(this)); // the test contract plays the keeper (LockedLP.flush is keeper-only)
         depositHook = new DepositHookMock(referrals);
         referrals.setDepositHook(address(depositHook));
         vm.stopPrank();
@@ -368,15 +367,13 @@ abstract contract IntegrationBase is Test {
         );
     }
 
-    /// @dev Keeper flush at the current spot as the reference (the off-chain keeper passes a recent average).
+    /// @dev LockedLP.flush (permissionless; the site's cron calls it on a schedule).
     function _flush(address t) internal returns (uint128) {
-        (uint160 sp,,,) = manager.getSlot0(lockedLP.getPoolKey(t).toId());
-        return lockedLP.flush(t, sp);
+        return lockedLP.flush(t);
     }
 
-    /// @dev Keeper route (CreatorFeeHarvest.routeAtRef) at the current spot as the reference. Needs harvest.setKeeper(this).
     function _routeAtSpot(address t) internal returns (uint256, uint256, uint256) {
-        return harvest.routeAtRef(t, address(0), _spotOf(t));
+        return harvest.route(t);
     }
 
     function _spotOf(address t) internal view returns (uint160 sp) {

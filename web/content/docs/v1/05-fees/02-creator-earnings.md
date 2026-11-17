@@ -31,7 +31,7 @@ Under **More options** on the launch form, you can name another account to recei
 You can also give your creator fees away to the rocket itself. There are two choices:
 
 - **Fees go into the locked pool.** Your share, and your creator tax, are added to the rocket's locked liquidity. Nobody can withdraw it.
-- **Fees buy and burn the pair coin.** Your share, and your creator tax, are used to buy the pair coin and send it to a burn address, where nobody can move it. After orbit, the part of your share paid in your rocket's own coin is sold for the pair coin first, then burned.
+- **Fees are burned.** Your share, and your creator tax, are sent to a burn address, where nobody can move them. On the curve that's the pair coin. After orbit, the pair-coin part is burned and the part paid in your rocket's own coin is burned as is, with no sell.
 
 You pick this when you launch, and it can't be changed later, even if you hand off the rocket. Trades still build up your share as usual. Every so often DISCIPLE sends what has built up to the pool or the burn, and anyone can trigger that send on-chain too. Rewards shows these rockets with nothing to claim, and says where the fees go.
 

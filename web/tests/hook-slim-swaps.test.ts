@@ -1,10 +1,9 @@
 /**
  * Slim DiscipleHook (2026-11-17): the hook emits nothing, so post-grad trades are rebuilt from the PoolManager Swap
- * event (lib/v4Swap) and the keeper reference price is a TWAP of those swaps (lib/poolRef).
+ * event (lib/v4Swap).
  */
 import { describe, expect, it } from "vitest";
 import { disciplePoolId, hookTradeFromSwap, impactBpsFromSqrt, priceX18FromSqrt, traderIndex } from "../lib/v4Swap";
-import { deviationBps, twapSqrt } from "../lib/poolRef";
 
 const Q96 = BigInt(2) ** BigInt(96);
 const TOKEN = "0x1000000000000000000000000000000000000001"; // sorts below QUOTE ⇒ token is currency0
@@ -66,24 +65,5 @@ describe("pool id + trader", () => {
     expect(who("0xaa", TOKEN, true)).toBe("0xbuyer");
     expect(who("0xAA", TOKEN, false)).toBe("0xseller");
     expect(who("0xbb", TOKEN, true)).toBeUndefined();
-  });
-});
-
-describe("keeper reference (TWAP)", () => {
-  const p = (x: number) => BigInt(Math.round(x * 2 ** 96));
-  it("flat price ⇒ that price; no points ⇒ start", () => {
-    expect(twapSqrt(p(1), [], 10_000)).toBe(p(1));
-    expect(deviationBps(twapSqrt(p(1), [{ ts: 9_000, sqrtP: p(1) }], 10_000), p(1))).toBeLessThanOrEqual(1);
-  });
-  it("a pump in the last minute barely moves a 30-minute average", () => {
-    const now = 100_000;
-    const ref = twapSqrt(p(1), [{ ts: now - 60, sqrtP: p(1.2) }], now);
-    expect(deviationBps(ref, p(1))).toBeLessThan(300);   // ref stays near the pre-pump price…
-    expect(deviationBps(ref, p(1.2))).toBeGreaterThan(300); // …so spot (pumped) is outside the 3% guard ⇒ keeper skips
-  });
-  it("a price held for the whole window becomes the reference", () => {
-    const now = 100_000;
-    const ref = twapSqrt(p(1), [{ ts: now - 1800, sqrtP: p(1.1) }], now);
-    expect(deviationBps(ref, p(1.1))).toBeLessThanOrEqual(1);
   });
 });
