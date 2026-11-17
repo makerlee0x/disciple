@@ -1040,8 +1040,9 @@ function mount(root,host){
     for(const id of ["bBoost","bOut","bDump"]){ const b=$(id); b.classList.remove("coached"); b.querySelectorAll(".coachf,.coachb").forEach(n=>n.remove()); }
     try{ if(step) localStorage.setItem(COACH_KEY,step); }catch(e){}
     if(!step||step==="done") return;
-    const [id,t,sub]=step==="out"?["bOut","TAP TO CASH OUT","locks in your profit"]:["bBoost","TAP BOOST","you win if the price goes up"];
-    const b=$(id); b.classList.add("coached"); b.insertAdjacentHTML("beforeend",`<span class="coachb" aria-hidden="true"><b>${t}</b><small>${sub}</small></span>${HAND}`);
+    // the cash-out pill already reads TAP TO CASH OUT, so that step is the finger alone (maker 2026-11-17: "tap to cash out twice")
+    const b=$(step==="out"?"bOut":"bBoost"); b.classList.add("coached");
+    b.insertAdjacentHTML("beforeend",(step==="out"?"":'<span class="coachb" aria-hidden="true"><b>TAP BOOST</b><small>you win if the price goes up</small></span>')+HAND);
   }
   function coachAfter(kind){ if(!G||!G.started||G.over) return; const st=coachStep(); if(st==="done") return; if(kind==="x") coach("done"); else if(kind==="b"||kind==="d") coach("out"); }
 
