@@ -32,7 +32,7 @@ contract DeployAnonModesTestnet is NetworkConfig {
         returns (AnonLauncher anon, CurveFeeVault vault, CurveDeployer deployer, DisciplePermitForwarder fwd)
     {
         require(!_checkNetwork() && block.chainid == 46630, "testnet only");
-        AnonLauncher v6 = AnonLauncher(vm.envOr("ANON_V6", address(0x526784706E5EF369412aBe65213ED65256182C6B)));
+        AnonLauncher v6 = AnonLauncher(vm.envOr("ANON_V6", address(0x526784706e5Ef369412ABe65213ED65256182C6b)));
         ILaunchpadOwnerView lp = ILaunchpadOwnerView(address(v6.launchpad()));
         address feeRouter_ = address(v6.feeRouter());
         uint256 fee = vm.envOr("ANON_LAUNCH_FEE", uint256(0));
