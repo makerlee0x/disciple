@@ -5,10 +5,10 @@ import { buildLaunchWhitelist, LAUNCH_WHITELIST, whitelistIncludesUsdg } from ".
 describe("whitelist quotes", () => {
   it("lists the 12 launch coins (Nov 16 2026)", () => {
     expect(WHITELIST_QUOTES.map((q) => q.symbol)).toEqual([
-      "STRATEGY", "AI", "SCHIFFY", "BONER", "MEME", "PONS", "ORBIO", "HOOKR", "CASHCAT", "PRIORS", "PENGU", "HMM",
+      "STRATEGY", "AI", "SCHIFFY", "BONER", "MEME", "PONS", "ORBIO", "HOOKR", "CASHCAT", "PRIORS", "PENGU", "DELTA",
     ]);
     expect(whitelistQuoteBySymbol("PENGU")?.address).toBe("0x74BE72AFFAFbC8de30F0C11247814036314D625f");
-    expect(whitelistQuoteByAddress("0x7fe995a80075df3dc8ae11a9b82c7fe4202cd87f")?.symbol).toBe("HMM");
+    expect(whitelistQuoteByAddress("0xe8ffd7e24187f72afb08d75b1bb13088a989a791")?.symbol).toBe("DELTA");
   });
 
   it("gives each coin a 256 image path, 18 decimals, and a 0x address", () => {

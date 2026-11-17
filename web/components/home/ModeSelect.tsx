@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { withBase } from "@/lib/base-path";
 import { DUEL_HREF, FLIGHTS_HREF } from "@/lib/features";
+import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
 import { isTurboEnabled } from "@/lib/turbo/flag";
 import s from "./modeSelect.module.css";
 import { appFeel, playSfx } from "@/lib/game/sfx";
@@ -34,7 +35,7 @@ function modes(flying: number, duel: boolean): Mode[] {
   const all: Mode[] = [
     { id: "launch", title: ["Host a", "launch"], tag: "Real coins", tone: "#F3DFA8", href: "/create", art: "/art/modes/launch.webp", pos: "50% 30%" },
     { id: "live", title: ["Live", "flights"], tag: flying > 0 ? `${flying} flying` : "Live", tone: "#5FF0A0", href: FLIGHTS_HREF, art: "/art/modes/live.webp", pos: "50% 30%" },
-    { id: "duel", title: ["Trading", "duel"], tag: "Ranked", tone: "#FF9CC4", href: DUEL_HREF, art: "/art/modes/duel.webp", pos: "50% 30%" },
+    { id: "duel", title: ["Trading", "duel"], tag: DUEL_RANKED_LIVE ? "Ranked" : "1v1", tone: "#FF9CC4", href: DUEL_HREF, art: "/art/modes/duel.webp", pos: "50% 30%" },
     { id: "royale", title: ["Turbo", "royale"], tag: "Practice", tone: "#F2C14E", href: "/turbo/royale", art: "/art/modes/last-pilot.webp", pos: "50% 30%" },
     { id: "free", title: ["Free", "play"], tag: "Free", tone: "#8FE3FF", href: "/flight/sim", art: "/art/modes/free.webp", pos: "50% 30%" },
   ];

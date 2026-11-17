@@ -1,11 +1,13 @@
 "use client";
 /**
  * Daily flight result (the approved ResultPhone board): the multiple, practice cash, today's rank, the three goals, the
- * flight chart (boarded, your best exit, the peak, the dump after it) and Challenge a friend / Fly it again.
+ * flight chart (boarded, your best exit, the peak, the dump after it), Challenge a friend, Lobby / Share and the countdown to
+ * tomorrow's flight. One scored daily a day, so there is no replay here (maker 2026-11-17).
  * Numbers are the server's verdict; the chart is drawn from a local replay of the same input log (lib/sim/daily dailyRecap).
  * The XP card: a signed-in pilot's daily is saved to their level at once (POST /api/freeplay/xp); a signed-out pilot sees
  * the XP waiting and SAVE XP signs them in, then saves it.
  */
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import LevelRing from "@/components/xp/LevelRing";
 import AnimClip from "@/components/ui/AnimClip";
@@ -13,7 +15,7 @@ import { freePlayXp, FREE_PLAY_XP } from "@/lib/xp";
 import { nextLevelUnlock } from "@/lib/unlocks";
 import { fetchXp, usePilotWallet, XP_CHANGED_EVENT } from "@/lib/xpClient";
 import { privyLogin, privyReady } from "@/lib/aa/sessionState";
-import { dailyRecap, fmtMultiple as mult, type DailyScore } from "@/lib/sim/daily";
+import { dailyEndsAt, dailyRecap, fmtMultiple as mult, DAILY, type DailyScore } from "@/lib/sim/daily";
 import { claimFreePlayXp, deviceId, refreshRank, type DailyVerdict, type FreePlayXpResult } from "@/lib/sim/dailyClient";
 import { fmt, type PlayerInput } from "@/lib/sim/run";
 import { fetchDailyBoard, type Board } from "./FreePlay";
@@ -21,7 +23,14 @@ import { fetchDailyBoard, type Board } from "./FreePlay";
 const game: React.CSSProperties = { fontFamily: "var(--dsc-font-game)" };
 const GOLD = "#F2C14E";
 const money = (v: number) => (v < 0 ? "−$" : "+$") + Math.abs(Math.round(v)).toLocaleString("en-US");
-const secs = (n: number) => `${n} second${n === 1 ? "" : "s"}`;
+const left = (ms: number) => { const m = Math.max(0, Math.ceil(ms / 60_000)), h = Math.floor(m / 60); return h ? `${h}h ${m % 60}m` : `${m}m`; };
+
+/** time to the next daily, ticking each 30 s */
+function useUntil(at: number) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(t); }, []);
+  return at - now;
+}
 
 function Goal({ on, label }: { on: boolean; label: string }) {
   return (
@@ -36,19 +45,20 @@ function Goal({ on, label }: { on: boolean; label: string }) {
 
 /** the line under the chart: when the peak came against your exit, and who dumped after */
 function storyLine(s: DailyScore, dumper: string | null) {
-  if (s.invested <= 0) return "You never boarded. Tap BOOST to get on.";
+  if (s.invested <= 0) return "Never boarded.";
   let a: string;
-  if (s.outAtS == null) a = "You held to the end.";
-  else { const d = Math.round(s.peakAtS - s.outAtS); a = d > 0 ? `The peak came ${secs(d)} after you left.` : d === 0 ? "You sold the top." : `You got out ${secs(-d)} after the peak.`; }
-  return dumper ? `${a} Then ${dumper} dumped.` : a;
+  if (s.outAtS == null) a = "Held to the end.";
+  else { const d = Math.round((s.peakAtS - s.outAtS) / DAILY.speed); a = d > 0 ? `Peak came ${d}s after you left.` : d === 0 ? "Sold the top." : `Out ${-d}s after the peak.`; }
+  return dumper ? `${a} ${dumper} dumped.` : a;
 }
 
 export interface DailyGhost { name: string; multiple: number; outAtS: number | null }
 
-export default function DailyResult({ id, seed, inputs, verdict, error, ghost, onClose, onAgain, onRetry }: {
+export default function DailyResult({ id, seed, inputs, verdict, error, ghost, onClose, onRetry }: {
   id: number; seed: number; inputs: PlayerInput[]; verdict: DailyVerdict | null; error?: string | null; ghost?: DailyGhost | null;
-  onClose: () => void; onAgain: () => void; onRetry?: () => void;
+  onClose: () => void; onRetry?: () => void;
 }) {
+  const until = useUntil(dailyEndsAt(id));
   const rc = useMemo(() => dailyRecap(seed, inputs), [seed, inputs]);
   const s = verdict?.score ?? rc.score;
   const [rank, setRank] = useState(verdict ? { rank: verdict.rank, count: verdict.count, topPct: verdict.topPct, boarded: !!verdict.boarded } : null);
@@ -72,12 +82,12 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
   useEffect(() => { if (!pilot) { setMine(null); return; } fetchXp(pilot).then((x) => { if (x) setMine({ total: x.totalXp, prestige: x.level.prestige }); }); }, [pilot]);
   const saved = xp && xp.ok ? xp : null;
   const unlock = saved ? nextLevelUnlock(saved.totalXp, saved.level.prestige) : nextLevelUnlock(mine?.total ?? 0, mine?.prestige ?? 0, waiting);
-  const unlockLine = unlock ? ` ${unlock.more.toLocaleString("en-US")} more unlocks the ${unlock.name} ${unlock.part}.` : "";
+  const unlockLine = unlock ? `${unlock.more.toLocaleString("en-US")} XP to ${unlock.name} ${unlock.part}` : "";
   // signed-in board (maker 2026-11-13): a score goes on the board when its pilot signs in and saves it
   const posted = !!saved || !!rank?.boarded, showCard = waiting > 0 || !posted;
   const xpHead = saved ? (waiting > 0 ? `+${saved.xp} XP` : "ON THE BOARD") : waiting > 0 ? (pilot ? `+${waiting} XP` : `+${waiting} XP waiting`) : "POST YOUR SCORE";
-  const xpSub = saved ? (waiting <= 0 ? "Your score is posted." : saved.already ? "On the board and saved to your level." : saved.xp < waiting ? `On the board. Free play XP stops at ${FREE_PLAY_XP.perDay} a day.` : "On the board and saved to your level.") + unlockLine
-    : xp && !xp.ok ? xp.reason : pilot ? (verdict ? "Posting your score…" : "Posts once your score is in.") : waiting > 0 ? `Sign in to post your score and keep it.${unlockLine}` : "Sign in to put your score on the board.";
+  const xpSub = saved ? (waiting > 0 && !saved.already && saved.xp < waiting ? `Daily cap ${FREE_PLAY_XP.perDay} XP` : unlockLine)
+    : xp && !xp.ok ? xp.reason : pilot ? "" : "Sign in to keep it";
 
   // chart: 330×98, log scale, markers at boarded / your best exit / the peak, a tick where the dump hit
   const W = 330, H = 98, P = rc.path, lo = Math.min(...P), hi = Math.max(...P), span = Math.max(1e-6, Math.log(hi / lo));
@@ -87,13 +97,18 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
   const head = s.invested <= 0 ? "NEVER BOARDED" : s.outAtS == null ? "HELD TO THE END" : "CASHED OUT";
   const peakX = s.boardedMcap ? s.peakMcap / s.boardedMcap : null;
 
-  const login = () => { try { if (privyReady()) privyLogin(); else setNote("Sign-in is still loading, try again in a second."); } catch (e) { setNote((e as Error).message); } };
-  const challenge = async () => {
-    if (!verdict) return;
-    const url = `${location.origin}/d/${id}?c=${verdict.runId}`, text = `I cashed out at ${mult(s.multiple)} on Daily flight #${id}. Beat it.`;
+  const login = () => { try { if (privyReady()) privyLogin(); else setNote("Sign-in loading. Try again."); } catch (e) { setNote((e as Error).message); } };
+  // both links carry the sharer as ?ref= (maker 2026-11-17: shares carry the sharer's ref link)
+  const ref = pilot ? `ref=${pilot.toLowerCase()}` : "";
+  const send = async (url: string, text: string) => {
     try { if (navigator.share) { await navigator.share({ title: "DISCIPLE Daily flight", text, url }); return; } } catch { return; }
-    try { await navigator.clipboard.writeText(`${text} ${url}`); setNote("Challenge link copied."); } catch { setNote(url); }
+    try { await navigator.clipboard.writeText(`${text} ${url}`); setNote("Link copied"); } catch { setNote(url); }
   };
+  const challenge = () => { if (verdict) send(`${location.origin}/d/${id}?c=${verdict.runId}${ref && `&${ref}`}`, `I cashed out at ${mult(s.multiple)} on Daily flight #${id}. Beat it.`); };
+  const share = () => send(`${location.origin}/d/${id}${verdict ? `?c=${verdict.runId}${ref && `&${ref}`}` : ref && `?${ref}`}`,
+    s.invested <= 0 ? `Daily flight #${id} on DISCIPLE` : `${mult(s.multiple)} on Daily flight #${id}${rank?.boarded ? `, #${rank.rank} today` : ""}.`);
+  const rankText = (r: NonNullable<typeof rank>) => r.count <= 1 ? `#${r.rank} today` : `#${r.rank.toLocaleString("en-US")} of ${r.count.toLocaleString("en-US")} today${r.count >= 10 ? ` · top ${r.topPct}%` : ""}`;
+  const meOnBoard = !!(board && verdict && board.top.some((r) => r.runId === verdict.runId));
 
   return (
     <div data-testid="daily-result" className="dr" style={{ position: "fixed", inset: 0, zIndex: 40, overflow: "auto", color: "#F2F3F7", fontFamily: "var(--dsc-font-ui)", background: "#07080c" }}>
@@ -113,6 +128,13 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
           .dr-side .dr-board { margin-top: 58px; }
         }
         @media (max-width: 899px) { .dr-main, .dr-side { display: contents; } }
+        .dr-btn { height: 52px; box-sizing: border-box; border-radius: 14px; background: rgba(18,19,39,.78); border: 1px solid #2E323A; color: #F2F3F7; cursor: pointer; text-decoration: none;
+          display: flex; align-items: center; justify-content: center; gap: 8px; font: 800 20px var(--dsc-font-game); letter-spacing: .5px; }
+        .dr-pulse { display: inline-block; width: 64px; height: 10px; border-radius: 5px; background: rgba(215,217,228,.25); animation: dr-pulse 1.1s ease-in-out infinite; vertical-align: middle; }
+        @keyframes dr-pulse { 50% { opacity: .35; } }
+        @media (prefers-reduced-motion: reduce) { .dr-pulse { animation: none; } }
+        /* full-screen result: the shell's menu button and cash / total / account pills sat on the 1.8× (maker 2026-11-17) */
+        body:has(.dr) #apReopen, body:has(.dr) #apSide, body:has(.dr) .ap-scrim, body:has(.dr) .wb-root { display: none !important; }
       `}</style>
       {/* Grok loop B6 (2026-11-17): a dawn launch behind the result, under the same scrim; the share plate stays for reduced motion */}
       <div className="dr-bg" aria-hidden><AnimClip id="B6-daily" loop className="dr-vid" /></div>
@@ -130,8 +152,8 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
           {rank && !rank.boarded ? <span data-testid="daily-rank-pending" style={{ marginTop: 6, padding: "5px 12px", borderRadius: 999, border: "1px dashed rgba(95,240,160,0.5)", fontSize: 13, color: "#BFF8D8" }}>
             Would place #{rank.rank.toLocaleString("en-US")} of {rank.count.toLocaleString("en-US")} today</span>
             : rank ? <span data-testid="daily-rank" style={{ marginTop: 6, padding: "5px 12px", borderRadius: 999, background: "rgba(95,240,160,0.12)", border: "1px solid rgba(95,240,160,0.5)", fontSize: 13, color: "#BFF8D8" }}>
-            Top {rank.topPct}% today · #{rank.rank.toLocaleString("en-US")} of {rank.count.toLocaleString("en-US")}</span>
-            : <span data-testid="daily-rank-error" style={{ marginTop: 6, padding: "5px 12px", borderRadius: 999, border: "1px solid #2E323A", fontSize: 13, color: "#D7D9E4" }}>{error || "Saving your score…"}{error && onRetry && <button type="button" data-testid="daily-retry" onClick={onRetry} style={{ marginLeft: 8, padding: "2px 10px", borderRadius: 999, border: `1px solid ${GOLD}`, background: "transparent", color: GOLD, cursor: "pointer", font: "800 13px var(--dsc-font-game)", letterSpacing: 0.5 }}>RETRY</button>}</span>}
+            {rankText(rank)}</span>
+            : <span data-testid="daily-rank-error" style={{ marginTop: 6, padding: "5px 12px", borderRadius: 999, border: "1px solid #2E323A", fontSize: 13, color: "#D7D9E4" }}>{error || <span className="dr-pulse" aria-label="Saving" />}{error && onRetry && <button type="button" data-testid="daily-retry" onClick={onRetry} style={{ marginLeft: 8, padding: "2px 10px", borderRadius: 999, border: `1px solid ${GOLD}`, background: "transparent", color: GOLD, cursor: "pointer", font: "800 13px var(--dsc-font-game)", letterSpacing: 0.5 }}>RETRY</button>}</span>}
         </div>
 
         <div style={{ marginTop: 20, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
@@ -153,7 +175,7 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
             <span style={{ color: "#FF9CC4" }}>○ Peak {peakX ? mult(peakX) : fmt(s.peakMcap)}</span>
           </div>
           <div data-testid="daily-story" style={{ marginTop: 4, fontSize: 12, color: "#D7D9E4" }}>{storyLine(s, rc.dumper)}</div>
-          {ghost && <div data-testid="daily-ghost-line" style={{ marginTop: 4, fontSize: 12, color: "#F3DFA8" }}>{ghost.name} {ghost.outAtS != null ? `cashed out at ${mult(ghost.multiple)}, ${Math.round(ghost.outAtS)} s in` : `finished at ${mult(ghost.multiple)}`}. {s.multiple > ghost.multiple ? "You beat them." : s.multiple === ghost.multiple ? "Dead even." : "They beat you."}</div>}
+          {ghost && <div data-testid="daily-ghost-line" style={{ marginTop: 4, fontSize: 12, color: "#F3DFA8" }}>{ghost.name}: {mult(ghost.multiple)}{ghost.outAtS != null ? ` at ${Math.round(ghost.outAtS)}s` : ""}. {s.multiple > ghost.multiple ? "You win." : s.multiple === ghost.multiple ? "Tie." : "They win."}</div>}
         </div>
 
         </div>
@@ -167,8 +189,8 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
             <div key={r.runId} className={`dr-row${verdict && r.runId === verdict.runId ? " me" : ""}`} data-testid={verdict && r.runId === verdict.runId ? "daily-board-me" : "daily-board-row"}>
               <span><b style={{ ...game, display: "inline-block", width: 26, fontWeight: 700, fontSize: 15, color: i === 0 ? GOLD : "#D7D9E4" }}>{i + 1}</b>{verdict && r.runId === verdict.runId ? "You" : r.name}</span>
               <span style={{ ...game, fontWeight: 700, fontSize: 18, color: "#5FF0A0" }}>{mult(r.multiple)}</span>
-            </div>)) : <div style={{ fontSize: 14, color: "#D7D9E4" }}>{board ? "Nobody on it yet. Sign in and take #1." : "Loading the board…"}</div>}
-          {rank && board && !board.top.some((r) => verdict && r.runId === verdict.runId) && (
+            </div>)) : !board ? <span className="dr-pulse" aria-label="Loading" style={{ margin: "8px 0" }} /> : !rank ? <div style={{ fontSize: 14, color: "#D7D9E4" }}>No plays yet</div> : null}
+          {rank && board && !meOnBoard && (
             <div className="dr-row me" data-testid="daily-board-me" style={{ marginTop: 4 }}>
               <span><b style={{ ...game, display: "inline-block", minWidth: 26, fontWeight: 700, fontSize: 15, color: GOLD }}>{rank.rank.toLocaleString("en-US")}</b>You{rank.boarded ? "" : " (not posted)"}</span>
               <span style={{ ...game, fontWeight: 700, fontSize: 18, color: "#5FF0A0" }}>{mult(s.multiple)}</span>
@@ -177,7 +199,7 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
         {showCard && <div data-testid="daily-xp" style={{ marginTop: 14, minHeight: 72, boxSizing: "border-box", padding: "10px 14px", borderRadius: 16, background: "rgba(243,223,168,0.08)", border: "1px solid rgba(243,223,168,0.4)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
           <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <span data-testid="daily-xp-head" style={{ ...game, fontWeight: 800, fontSize: 22, color: "#F3DFA8" }}>{xpHead}</span>
-            <span data-testid="daily-xp-sub" style={{ fontSize: 12, color: "#D7D9E4" }}>{xpSub}</span>
+            {xpSub && <span data-testid="daily-xp-sub" style={{ fontSize: 12, color: "#D7D9E4" }}>{xpSub}</span>}
           </span>
           {saved ? <LevelRing info={saved.level} size={44} />
             : !pilot ? <button type="button" data-testid="daily-xp-save" onClick={login} style={{ ...game, height: 44, boxSizing: "border-box", padding: "0 14px", borderRadius: 12, border: `1px solid ${GOLD}`, background: "transparent", color: GOLD, cursor: "pointer", fontWeight: 800, fontSize: 17, whiteSpace: "nowrap" }}>{waiting > 0 ? "SAVE XP" : "SIGN IN"}</button>
@@ -188,8 +210,15 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
           <button type="button" data-testid="daily-challenge-friend" onClick={challenge} disabled={!verdict} style={{ ...game, height: 60, borderRadius: 16, background: GOLD, color: "#121327", border: 0, cursor: verdict ? "pointer" : "default", opacity: verdict ? 1 : 0.55, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontWeight: 800, fontSize: 24, letterSpacing: 1 }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#121327" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 12v7h16v-7M12 3v12M7 8l5-5 5 5" /></svg>CHALLENGE A FRIEND</button>
           {note && <span data-testid="daily-note" style={{ textAlign: "center", fontSize: 12, color: "#BFF8D8", wordBreak: "break-all" }}>{note}</span>}
-          <button type="button" data-testid="daily-again" onClick={onAgain} style={{ ...game, height: 52, borderRadius: 14, background: "rgba(18,19,39,0.78)", border: "1px solid #2E323A", color: "#F2F3F7", cursor: "pointer", fontWeight: 800, fontSize: 20, letterSpacing: 0.5 }}>FLY IT AGAIN</button>
-          <span style={{ textAlign: "center", fontSize: 12, color: "#D7D9E4" }}>Replays don’t count. Your daily score is locked in.</span>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <Link href="/" data-testid="daily-lobby" className="dr-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 5l-7 7 7 7" /></svg>LOBBY</Link>
+            <button type="button" data-testid="daily-share" onClick={share} className="dr-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="18" cy="5" r="2.5" /><circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="19" r="2.5" /><path d="M8.2 10.9l7.6-4.3M8.2 13.1l7.6 4.3" /></svg>SHARE</button>
+          </div>
+          <div data-testid="daily-next" style={{ marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 13, color: "#D7D9E4" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+            {until > 0 ? <>Next flight in <b style={{ color: "#F2F3F7", fontWeight: 700 }}>{left(until)}</b></> : "Next flight is up"}</div>
         </div>
         </div>
       </div>

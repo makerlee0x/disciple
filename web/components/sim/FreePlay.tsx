@@ -8,7 +8,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { DifficultyId } from "@/lib/sim/config";
 import { dailyEndsAt, fmtMultiple, type DailyScore } from "@/lib/sim/daily";
-import { savedDaily } from "@/lib/sim/dailyClient";
+import { refreshRank, savedDaily } from "@/lib/sim/dailyClient";
+import { usePilotWallet } from "@/lib/xpClient";
 import s from "./freePlay.module.css";
 
 export const FP_DIFFS: { id: DifficultyId; label: string; c: string; c2?: string; n: number; desk: string; phone: string }[] = [
@@ -46,11 +47,15 @@ export function FreePlayHub({ dailyId, msg, onDaily, tune }: {
 }) {
   const [board, setBoard] = useState<Board>(null);
   const [streak, setStreak] = useState(0);
-  const [mine, setMine] = useState<{ multiple: number; rank: number } | null>(null);
+  const [mine, setMine] = useState<{ multiple: number; rank: number; boarded: boolean } | null>(null);
+  const wallet = usePilotWallet();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     setStreak(dailyStreak(dailyId));
-    const v = savedDaily(dailyId)?.verdict; if (v) setMine({ multiple: v.score.multiple, rank: v.rank });
+    const v = savedDaily(dailyId)?.verdict;
+    if (v) { setMine({ multiple: v.score.multiple, rank: v.rank, boarded: !!v.boarded });
+      // the rank moves as more pilots finish, and a run is boarded once its pilot saves it: read both fresh
+      void refreshRank(dailyId, v.runId).then((r) => { if (r) setMine({ multiple: v.score.multiple, rank: r.rank, boarded: r.boarded }); }); }
     const load = () => fetchDailyBoard(dailyId).then(setBoard);
     load();
     let n = 0; const iv = setInterval(() => { setNow(Date.now()); if (++n % 4 === 0 && !document.hidden) load(); }, 30_000); return () => clearInterval(iv);   // board every 2 min, only while visible (KV request budget)
@@ -96,7 +101,7 @@ export function FreePlayHub({ dailyId, msg, onDaily, tune }: {
             )) : <div className={s.empty}>{board ? "Empty. Go take #1." : "Loading the board…"}</div>}
             <div className={s.rule} />
             <div className={s.row} style={{ color: "#D7D9E4" }}><span>{mine ? `You · #${mine.rank}` : "You · not flown yet"}</span><span className={s.mult} style={{ color: mine ? "#5FF0A0" : "#D7D9E4" }}>{mine ? fmtMultiple(mine.multiple) : "–"}</span></div>
-            <span className={s.boardNote}>Sign in to make the board. Resets midnight UTC.</span>
+            <span className={s.boardNote}>{wallet || mine?.boarded ? "Resets midnight UTC." : "Sign in to make the board. Resets midnight UTC."}</span>
           </aside>
         </div>
 

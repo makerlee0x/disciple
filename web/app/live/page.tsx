@@ -4,6 +4,7 @@
  * sort chips Newest / Climbing / Busiest / …), on its own page. Play now (/play) still drops you straight into the hottest one.
  */
 import Link from "next/link";
+import { BOT_DUEL_HREF } from "@/lib/features";
 import RocketGrid from "@/components/home/RocketGrid";
 import { getHomeData } from "@/lib/server/home";
 import s from "@/components/home/lobby.module.css";
@@ -26,6 +27,7 @@ export default async function FlightsPage() {
         {data.coins.length > 0 ? <RocketGrid initial={data.coins} /> : (
           <div className={st.empty}>
             <Link href="/create" className="dsc3-btn dsc3-btn-primary">Host a launch</Link>
+            <Link href={BOT_DUEL_HREF} className={`dsc3-btn ${st.duel}`} data-testid="live-empty-duel">Play a duel</Link>
           </div>
         )}
       </main>

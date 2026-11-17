@@ -1,4 +1,4 @@
-// Sign-in methods: email, Google, X/Twitter (Apple in the app). No external-wallet sign-in (maker 2026-11-16, Privy only).
+// Sign-in methods: email, Google, Apple, X/Twitter (no Google in in-app browsers). No external-wallet sign-in (maker 2026-11-16, Privy only).
 // Every player gets an embedded wallet, which owns the smart account (one-tap signs the same for everyone).
 //   pnpm test:login-methods   (pure: reads the Privy config source, no Privy SDK)
 import { test } from "node:test";
@@ -12,7 +12,7 @@ test("Privy config: email and social logins only, no external-wallet sign-in (ma
   assert.match(mount, /loginMethods:\s*loginMethodsFor\(/, "loginMethods comes from loginMethodsFor");
   const fn = mount.slice(mount.indexOf("export function loginMethodsFor"), mount.indexOf("/** Loaded lazily"));
   const lists = [...fn.matchAll(/\[([^\]]*)\]/g)].map((m) => m[1].split(",").map((x) => x.trim().replace(/["']/g, "")).filter(Boolean).sort()).filter((l) => l.length);
-  assert.deepEqual(lists, [["apple", "email", "google", "twitter"], ["email", "twitter"], ["email", "google", "twitter"]]);
+  assert.deepEqual(lists, [["apple", "email", "google", "twitter"], ["apple", "email", "twitter"], ["apple", "email", "google", "twitter"]]);
   assert.ok(!/"wallet"/.test(fn), "no wallet login method");
 });
 
@@ -38,12 +38,12 @@ test("owner pick: the ORIGINAL embedded wallet (HD index 0, then earliest), neve
   assert.equal(ownerWalletAddress([]), null);
 });
 
-test("gasless session login-verified: X counts like email / Google; a wallet-only login does not", () => {
+test("gasless session login-verified: Apple and X count like email / Google; a wallet-only login does not", () => {
   // lib/server/gaslessSession is server-only: read its SESSION_LOGIN_TYPES literal (pure, no Privy SDK).
   const src = readFileSync(new URL("../lib/server/gaslessSession.ts", import.meta.url), "utf8");
   const m = src.match(/SESSION_LOGIN_TYPES = new Set\(\[([^\]]*)\]\)/);
   assert.ok(m, "SESSION_LOGIN_TYPES present");
   const types = m![1].split(",").map((x) => x.trim().replace(/["']/g, "")).filter(Boolean);
-  assert.deepEqual(types.sort(), ["email", "google_oauth", "twitter_oauth"]);
+  assert.deepEqual(types.sort(), ["apple_oauth", "email", "google_oauth", "twitter_oauth"]);
   assert.ok(!types.includes("wallet"));
 });

@@ -22,7 +22,7 @@
     "test:chat": "node scripts/test-chat.mjs",
     "test:native": "tsx --conditions=react-server --test scripts/test-native.mts",
     "test:app-home": "tsx --test scripts/test-app-home.mts",
-    "test:duel": "tsx --conditions=react-server --test scripts/test-duel.mts",
+    "test:duel": "tsx --conditions=react-server --test scripts/test-duel.mts && NEXT_PUBLIC_DUEL_RANKED=1 tsx --conditions=react-server --test scripts/test-duel.mts",
     "test:chat-no-trades": "tsx --conditions=react-server --test scripts/test-chat-no-trades.mts",
     "test:sim": "node scripts/test-sim.mjs",
     "test:daily": "node scripts/test-daily.mjs",
@@ -162,7 +162,8 @@
     "test:xp": "tsx --conditions=react-server --test scripts/test-xp.mts",
     "test:turbo-pass": "tsx --test scripts/test-turbo-pass.mts",
     "test:coin-look": "tsx --test scripts/test-coin-look.mts",
-    "test:reserved-names": "tsx --conditions=react-server --test scripts/test-reserved-names.mts"
+    "test:reserved-names": "tsx --conditions=react-server --test scripts/test-reserved-names.mts",
+    "test:xp-account": "tsx --conditions=react-server --test scripts/test-xp-account.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",

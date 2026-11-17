@@ -9,6 +9,7 @@
  */
 import ModeSelect from "@/components/home/ModeSelect";
 import Link from "next/link";
+import { BOT_DUEL_HREF } from "@/lib/features";
 import { useEffect, useMemo, useState } from "react";
 import { withBase } from "@/lib/base-path";
 import { displayName } from "@/lib/defaultUsername";
@@ -236,7 +237,7 @@ function TopPilotsBoard({ data }: { data: HomeData }) {
           })}
         </ol>
       ) : (
-        <p className={s.empty}>No cash-outs yet</p>
+        <p className={s.empty}>No cash-outs yet <Link href={BOT_DUEL_HREF} className={s.emptyGo} data-testid="so-pilots-duel">Play a duel</Link></p>
       )}
       {call && (
         <div className={s.call} data-testid="so-bestcall">

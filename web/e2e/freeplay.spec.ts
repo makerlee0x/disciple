@@ -101,6 +101,9 @@ test("Daily flight: fly it, get scored by the server, and see the same result ne
   await expect(page.getByTestId("fp-countdown")).toBeVisible();
   await pastIntro(page);
   await expectRun(page, /DAILY #\d+/);
+  // the daily's buys are % of cash (cash grows with PnL), not the player's $ presets
+  await expect(page.locator('[data-testid="boost-chip-0"], [data-testid="thr-buy-0"]').first()).toHaveText(/^10%/);
+  await expect(page.locator('[data-testid="boost-chip-3"], [data-testid="thr-buy-3"]').first()).toHaveText(/^ALL/);
   await page.waitForFunction(() => (window as unknown as { __flight?: { assetsReady?: () => boolean } }).__flight?.assetsReady?.() === true, null, { timeout: 20_000 });
   await page.waitForTimeout(3_000);
   await boost(page);
@@ -112,9 +115,9 @@ test("Daily flight: fly it, get scored by the server, and see the same result ne
   if (isPhone(page)) await expect(page.getByTestId("phone-bag")).toHaveAttribute("data-cashed", "1");
   else await expect(page.getByTestId("pnl-banked")).toContainText(/[+-]\$\d/);
 
-  // the daily is two minutes at 1×; the server won't score a faster one
+  // the daily is 80 s (its 2-minute market at 1.5×); the server won't score a faster one
   const res = page.getByTestId("daily-result");
-  await expect(res).toBeVisible({ timeout: 150_000 });
+  await expect(res).toBeVisible({ timeout: 110_000 });
   // signed out the score is checked but not boarded: "Would place #N of M today"
   const rank = res.getByTestId("daily-rank-pending");
   await expect(rank).toBeVisible({ timeout: 20_000 });

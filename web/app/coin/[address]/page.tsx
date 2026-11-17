@@ -73,8 +73,8 @@ function FlightInner({ address }: { address: string }) {
       {TRAMP_WALLS_ENABLED && <TrampWallPanel token={address} />}
       <TradeBridge token={address} />
       <SnipeCountdown token={address} />
-      {/* fresh launch from /create: arrival fade + "you're live" share toast (no share screen before trading) */}
-      <LaunchedToast token={address} />
+      {/* fresh launch from /create (or the first-boosts push, ?share=1): "your rocket is live" share card, never a screen before trading */}
+      <LaunchedToast token={address} share={sp.get("share") === "1"} ticker={sp.get("cs") || sp.get("ticker")} />
       <CoinIdentity address={address} sp={new URLSearchParams(sp.toString())} />
       <CoinClaims token={address} />
       {/* cross-link to Trading Duel (maker 2026-11-16), desktop only */}

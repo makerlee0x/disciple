@@ -13,7 +13,7 @@ import { DUEL_LEN_MS, parseCode, type LengthMs, type TierId, type TradeAction } 
 import { trackFunnel } from "@/lib/funnelClient";
 import { isFunnelStep } from "@/lib/funnel";
 import { climbingNow, type HomeData } from "@/lib/home/trending";
-import { LEAGUES } from "@/lib/duel/season";
+import { DUEL_RANKED_LIVE, LEAGUES } from "@/lib/duel/season";
 import { flightHref, pct } from "@/components/home/rocketBits";
 import type { DuelEvent, DuelRoom } from "@/lib/duel/types";
 import { getGameRadio } from "@/lib/game/radio";
@@ -51,7 +51,7 @@ const KIND: Record<string, string> = { skin: "Skin", trail: "Trail", tag: "Name 
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
 /** extra plates for the random sky each duel (engine SKY_THEMES) */
 const EXTRA_SKIES = { skyEth: "/turbo/sky-eth.webp", skyBtc: "/turbo/sky-btc.webp", skyPad: "/home/pad/sky-1280.webp" };
-const ENGINE_SRC = "/turbo/duel/engine.js?v=42";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=43";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
@@ -61,12 +61,16 @@ function loadEngine(): Promise<void> {
   });
 }
 
+/** REMATCH with no answer for this long: the rival gets a duel request push instead (they probably left). */
+const REMATCH_PUSH_MS = 20_000;
+
 /** `guest`: the duel-only demo page (/duel). No sign-in: a guest pilot from /api/duel/guest, bots and friend links only. */
 export default function DuelScreen({ guest = false, embed = false }: { guest?: boolean; embed?: boolean } = {}) {
   const ref = useRef<HTMLDivElement>(null);
   useTurboMusic();
   useEffect(() => {
     let dead = false, api: EngineApi | null = null, me: string | null = null, roomId: string | null = null;
+    let rematchT: ReturnType<typeof setTimeout> | null = null;
     let fol: Follow | null = null, qTimer: ReturnType<typeof setTimeout> | null = null, queued: { tier: TierId; len: LengthMs } | null = null;
     let pendingCode = parseCode(new URLSearchParams(location.search).get("c"));
     // /turbo/duel?request=<pilot> (from /vs/<pilot> when they're not waiting): open a friend room and ping them to join it
@@ -107,7 +111,7 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
     };
     let rival: string | null = null;
     const lookOf = (pid: string | null, other: string | null) => (pid ? ships.get(pid) ?? (pid.startsWith("g_") ? guestLook(pid, other) : null) : null);
-    const unfollow = () => { fol?.stop(); fol = null; roomId = null; };
+    const unfollow = () => { if (rematchT) { clearTimeout(rematchT); rematchT = null; } fol?.stop(); fol = null; roomId = null; };
     const follow = (id: string) => {
       if (roomId === id) return; unfollow(); roomId = id;
       fol = followRoom(id, (e) => api?.event(e), (room, now) => {
@@ -220,13 +224,30 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
         follow(r.room.id); return location.origin + (r.share || r.path);
       },
       // first launch of the app: WelcomeIntro sends a new pilot to /turbo/duel?first=1 and the engine starts a bot duel
+      rankedLive: DUEL_RANKED_LIVE,
       first: (() => { const u = new URL(location.href); const on = u.searchParams.get("first") === "1"; if (on) { u.searchParams.delete("first"); history.replaceState(history.state, "", u.toString()); } return on; })(),
       join: async (code: string) => { if (!(await ensureGuest())) return; if (guest && !me) await refreshMe(); const r = await duelApi.join(code); if (r.ok) { trackFunnel("duel_join"); follow(r.room.id); } else api?.error(r.reason); },
       // Turbo funnel moments from the engine (lib/funnel TURBO_STEPS); anything else is ignored
       track: (k: string) => { if (isFunnelStep(k)) trackFunnel(k); },
       ready: async () => { const r = await op({ op: "ready" }); if (r.error) api?.error(r.error); },
       leave: async () => { const id = roomId; unfollow(); if (id) await duelApi.op(id, { op: "leave" }); },
-      rematch: async () => { const r = await op({ op: "rematch" }); if (r.error) api?.error(r.error); },
+      rematch: async () => {
+        const r = await op({ op: "rematch" }); if (r.error) { api?.error(r.error); return; }
+        // rematch push (launch funnel item 11): if the rival hasn't tapped REMATCH in 20 s they've likely left, so open a
+        // friend room and send them a duel request push (the same /api/duel/request as /vs/<pilot>), which opens that room
+        const from = roomId, them = rival;
+        if (guest || !from || !them || !/^0x[0-9a-f]{40}$/i.test(them)) return;
+        if (rematchT) clearTimeout(rematchT);
+        rematchT = setTimeout(async () => {
+          rematchT = null;
+          if (dead || roomId !== from) return;   // the rematch started (follow moved on) or the pilot left the result card
+          const inv = await duelApi.invite("pro", DUEL_LEN_MS);
+          if (!inv.ok || dead) return;
+          api?.invite(inv.code, location.origin + inv.path, inv.share ? location.origin + inv.share : undefined); follow(inv.room.id);
+          const sent = await duelApi.request(them, inv.code);
+          if (sent.ok) trackFunnel("duel_request");
+        }, REMATCH_PUSH_MS);
+      },
       toLobby: () => { unfollow(); void refreshMe(); },
       trade: (action: TradeAction, usd: number) => op({ op: "trade", action, usd }),
       chat: (text: string) => op({ op: "chat", text }),

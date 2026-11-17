@@ -85,6 +85,10 @@ export const PRO_HUD_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_PRO === 
  *  Turbo flag is on (lib/turbo/flag.ts) and opens the duel lobby, which sits behind the Turbo password. */
 export const DUEL_HREF = "/turbo/duel";
 
+/** Straight into a bot duel (no lobby): empty states point here on launch day, since a bot duel always has action
+ *  (launch funnel item 7, maker 2026-11-17). Same entry as the first-run WelcomeIntro. */
+export const BOT_DUEL_HREF = "/turbo/duel?first=1";
+
 /**
  * Market tab in the top bar and the phone tab bar (nav rework, maker 2026-11-16: "we need the marketplace now in the nav
  * bar"). /market shipped with PR #444 and holds your crates too (PR #446), so the tab is on (maker 2026-11-17: "turn it on").

@@ -14,10 +14,11 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { withBase } from "@/lib/base-path";
-import { DUEL_HREF } from "@/lib/features";
+import { BOT_DUEL_HREF, DUEL_HREF } from "@/lib/features";
 import type { HomeData } from "@/lib/home/trending";
 import { flyingNow } from "@/lib/home/appHome";
 import { dailyEndsAt, dailyToday } from "@/lib/sim/daily";
+import { refreshRank, savedDaily } from "@/lib/sim/dailyClient";
 import { untilLabel, usePilotWallet, useXp } from "@/lib/xpClient";
 import Icon from "@/components/icons/Icon";
 import LiveCard from "@/components/home/LiveCard";
@@ -46,6 +47,8 @@ function useLiveHome(init: HomeData) {
   }, []);
   return data;
 }
+
+const signedUsd = (v: number) => `${v < 0 ? "-" : "+"}$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 type Sheet = null | "quick" | "rockets";
 
@@ -77,6 +80,13 @@ export default function AppHome({ initial }: { initial: HomeData }) {
   const done = missions ? missions.filter((m) => m.done).length : 0;
   const left = missions ? missions.filter((m) => !m.done).reduce((t, m) => t + m.xp, 0) : 0;
   const ends = now ? untilLabel(dailyEndsAt(dailyToday()), now) : "";
+  // flown today: what you made and your place (maker 2026-11-17), the rank read fresh since it moves as pilots finish
+  const [flown, setFlown] = useState<{ pnl: number; rank: number; count: number } | null>(null);
+  useEffect(() => {
+    const id = dailyToday(), v = savedDaily(id)?.verdict; if (!v) return;
+    setFlown({ pnl: v.score.pnl, rank: v.rank, count: v.count });
+    void refreshRank(id, v.runId).then((r) => { if (r) setFlown({ pnl: v.score.pnl, rank: r.rank, count: r.count }); });
+  }, []);
 
   return (
     <div className={s.home} data-testid="app-home">
@@ -97,8 +107,9 @@ export default function AppHome({ initial }: { initial: HomeData }) {
         <span className={s.featBody}>
           <span>
             <b>The daily flight</b>
+            {flown && <span data-testid="app-featured-score"><i style={{ fontStyle: "normal", fontWeight: 700, color: flown.pnl >= 0 ? "#5FF0A0" : "#FF7FB2" }}>{signedUsd(flown.pnl)}</i> · #{flown.rank} of {flown.count.toLocaleString("en-US")}</span>}
           </span>
-          <em>Fly</em>
+          <em>{flown ? "Result" : "Fly"}</em>
         </span>
       </Link>
 
@@ -129,9 +140,10 @@ export default function AppHome({ initial }: { initial: HomeData }) {
             </button>
           </div>
         ) : (
-          <button type="button" className={s.none} onClick={() => setSheet("rockets")}>
+          <Link href={BOT_DUEL_HREF} className={s.none} data-testid="app-empty-duel">
             <b>Nothing flying yet</b>
-          </button>
+            <em className={s.noneGo}>Play a duel <Icon name="chevron-right" size={14} /></em>
+          </Link>
         )}
         <Link href="/create" className={s.host} data-testid="app-host">
           <span><b>Host a launch</b></span>

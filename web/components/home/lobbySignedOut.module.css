@@ -236,8 +236,8 @@
   .pn b { font-size: 18px; }
   .flights { display: none; }
   .pnl { font-size: 22px; min-width: 0; }
-  .host { flex-basis: 100%; min-height: 600px; }
-  .hostArt { object-position: 50% 30%; }
+  .host { flex-basis: 100%; min-height: 440px; /* was 600: the plate's empty sky filled the top half on phones (launch funnel item 12) */ }
+  .hostArt { object-position: 50% 62%; }
   .hostScrim { background: linear-gradient(180deg, rgba(5, 6, 10, 0) 30%, rgba(5, 6, 10, .85) 70%); }
   .hostCopy { left: 20px; right: 20px; bottom: 24px; }
   .hostCopy p { max-width: 320px; }
@@ -252,3 +252,4 @@
 
 /* Pick a mode (components/home/ModeSelect), under the ticker */
 .modes { margin-top: 48px; }
+.emptyGo { margin-left: 10px; color: var(--dsc3-light-gold); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
