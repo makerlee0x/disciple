@@ -9,11 +9,24 @@ import { createPublicClient, http, parseAbi } from "viem";
 import { mainnet } from "viem/chains";
 import { DISCIPLE_COLLECTION, FOUNDER_CONTRACT, itemIndex, type OwnedNft } from "@/lib/nft/config";
 
+const clean = (v?: string) => (v ?? "").trim().replace(/^["']|["']$/g, "").trim();
+/** Accepts the bare key, or a whole Helius RPC URL pasted into either variable. */
 export const heliusUrl = () => {
-  const k = process.env.HELIUS_API_KEY?.trim();
-  return process.env.HELIUS_RPC_URL?.trim() || (k ? `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(k)}` : "");
+  const u = clean(process.env.HELIUS_RPC_URL), k = clean(process.env.HELIUS_API_KEY);
+  if (u) return u;
+  if (/^https?:\/\//.test(k)) return k;
+  const key = k.match(/api-key=([^&\s]+)/)?.[1] ?? k;
+  return key ? `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(key)}` : "";
 };
 export const solanaConfigured = () => !!heliusUrl();
+/** Shape of the configured key, never the key: "uuid" (Helius keys are 36-char UUIDs), "url", or "other, N chars". */
+export const heliusKeyShape = () => {
+  const u = heliusUrl(); if (!u) return "none";
+  const k = u.match(/api-key=([^&]+)/)?.[1];
+  if (!k) return "url";
+  const d = decodeURIComponent(k);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(d) ? "uuid" : `other, ${d.length} chars`;
+};
 
 export async function solRpc<T>(method: string, params: unknown, timeoutMs = 8000): Promise<T> {
   const url = heliusUrl();
