@@ -53,6 +53,12 @@ export const COLK = {
   dc: (week: number, w: string) => `${ns()}:dc:${week}:${w}`,
   looks: (w: string) => `looks:${ACTIVE_CHAIN.id}:${w}`,
   copy: (uid: string) => `${ns()}:copy:${uid}`,
+  /** the open market listing a copy is on (lib/server/market.ts); while set, the copy can't be scrapped, traded up or equipped */
+  listed: (uid: string) => `${ns()}:listed:${uid}`,
+  /** a frozen copy (reported stolen or farmed): can't be listed, bought or traded */
+  frozen: (uid: string) => `${ns()}:frozen:${uid}`,
+  /** a ranked pair already paid a crate today (same opponent counts once a day) */
+  pair: (day: number, a: string, b: string) => `${ns()}:pair:${day}:${[a, b].sort().join(":")}`,
 };
 const parse = <T,>(s: string | null): T | null => { if (!s) return null; try { return JSON.parse(s) as T; } catch { return null; } };
 const lc = (w: string) => w.toLowerCase();
@@ -97,16 +103,18 @@ async function firstEdition(item: Item, now: number, s: Kv): Promise<boolean> {
   await s.setNX(COLK.sfirst(n), String(now));
   return now - Number(await s.get(COLK.sfirst(n))) < FIRST_EDITION_MS;
 }
-/** One event in a copy's life. made: where it came from; burned: scrapped or traded up (into = the new copy). Later: moved (trades), minted. */
+/** One event in a copy's life. made: where it came from; burned: scrapped or traded up (into = the new copy); moved: a trade
+ *  offer or a market sale (price in cents). Later: minted. */
 export type CopyEvent =
   | { ev: "made"; at: number; owner: string; origin: Copy["origin"]; crate?: string; proofDay?: number; from?: string[] }
-  | { ev: "burned"; at: number; owner: string; why: "scrap" | "tradeup"; into?: string };
+  | { ev: "burned"; at: number; owner: string; why: "scrap" | "tradeup"; into?: string }
+  | { ev: "moved"; at: number; from: string; to: string; via: "trade" | "market"; offer?: string; listing?: string; price?: number; tx?: string };
 /** A copy's permanent record: the copy as made, who holds it now, and its history. Kept after it's burned. */
 export interface CopyRecord { copy: Copy; owner: string; burned: boolean; history: CopyEvent[] }
 export async function copyRecord(uid: string, s: Kv = kv()): Promise<CopyRecord | null> { return /^[a-f0-9]{16}$/.test(uid) ? parse<CopyRecord>(await s.get(COLK.copy(uid))) : null; }
 async function addEvent(uid: string, e: CopyEvent, s: Kv) {
   const r = await copyRecord(uid, s); if (!r) return;
-  r.history.push(e); if (e.ev === "burned") r.burned = true;
+  r.history.push(e); if (e.ev === "burned") r.burned = true; if (e.ev === "moved") r.owner = e.to;
   await s.set(COLK.copy(uid), JSON.stringify(r));
 }
 /** A new copy: a fresh uid (claimed with SET NX, so never reused), the next serial for its item, and its record. */
@@ -148,6 +156,12 @@ export async function ownedItems(w: string, s: Kv = kv(), prestige = 0, inv?: Co
   return set;
 }
 
+/** Is the copy on the market (or mid-sale)? Listed copies can't be scrapped, traded up or equipped. */
+export async function isListed(uid: string, s: Kv = kv()): Promise<boolean> { return !!(await s.get(COLK.listed(uid))); }
+export async function frozenReason(uid: string, s: Kv = kv()): Promise<string | null> { return s.get(COLK.frozen(uid)); }
+/** For lib/server/market.ts: the inventory read/write and the copy record, used only under the wallet lock. */
+export const copyStore = { invOf, readInv, writeInv, addEvent, lc };
+
 /* ------------------------------------------------------------- granting ------------------------------------------------------------- */
 
 /** Give one crate, once ever per (src, wallet). true if it was given now. */
@@ -169,9 +183,12 @@ export async function onDuelSettled(roomId: string, winner: string | null, loser
   if (!winner) return;
   const w = lc(winner);
   if (!(await s.setNX(COLK.once(`duelset:${roomId}`, w), "1"))) return;   // a room settles once
+  // the same two pilots only pay a crate once a day (stops two accounts farming each other); the streak still counts
+  const samePair = !!loser && !(await s.setNX(COLK.pair(dayIndex(now), w, lc(loser)), "1", 2 * 86400));
   const streak = (Number(await s.get(COLK.streak(w))) || 0) + 1;
   await s.set(COLK.streak(w), String(streak));
   await countFlightTrak(w, now, s).catch(() => {});
+  if (samePair) return;
   const week = await s.incrEx(COLK.dc(weekIndex(now), w), 9 * 86400);
   if (week > EARN.duelPerWeek) return;
   const tier = duelCrateTier(streak);
@@ -225,7 +242,7 @@ const SLOTS: Slot[] = ["skin", "trail", "tag", "flourish"];
  * to a copy of that item here (and saved, when write is set): what a pilot flies always has a copy behind it, and that
  * copy can't be scrapped or traded up while it's worn.
  */
-async function wornCopies(w: string, inv: Copy[], s: Kv, write = false): Promise<Partial<Record<Slot, string>>> {
+export async function wornCopies(w: string, inv: Copy[], s: Kv, write = false): Promise<Partial<Record<Slot, string>>> {
   const eq = await equippedOf(w, s), out: Partial<Record<Slot, string>> = {};
   let linked = false;
   for (const slot of SLOTS) {
@@ -300,6 +317,8 @@ export async function scrapCopy(walletIn: string, uid: string, now = Date.now(),
     const c = inv[k], it = itemById(c.item);
     if (!it || c.origin === "starter") return { ok: false, reason: "Starter items can't be scrapped." };
     if (Object.values(await wornCopies(w, inv, s)).includes(uid)) return { ok: false, reason: "Take it off before you scrap it." };
+    if (await isListed(uid, s)) return { ok: false, reason: "Take it off the market before you scrap it." };
+    if (await frozenReason(uid, s)) return { ok: false, reason: "That copy is frozen while we look into it." };
     inv.splice(k, 1); await writeInv(w, inv, s);
     await addEvent(uid, { ev: "burned", at: now, owner: w, why: "scrap" }, s);
     const xp = DUPE_XP[it.rar];
@@ -330,6 +349,9 @@ export async function tradeUp(walletIn: string, uids: string[], now = Date.now()
     if (!tradeUpTarget(rar)) return { ok: false, reason: `${RARITY_NAME[rar]} can't be traded up. Mythic only comes from crates.` };
     const eq = Object.values(await wornCopies(w, inv, s));
     if (copies.some((c) => eq.includes(c.uid))) return { ok: false, reason: "Take off what you're flying first." };
+    for (const c of copies) if (await isListed(c.uid, s)) return { ok: false, reason: "One of those is on the market. Take it off first." };
+    // a frozen copy (reported stolen or farmed) can't be laundered into a fresh, unfrozen one
+    for (const c of copies) if (await frozenReason(c.uid, s)) return { ok: false, reason: "One of those is frozen while we look into it." };
     const pool = tradeUpPool(series, rar, now);
     if (!pool.length) return { ok: false, reason: "Nothing to trade up into for that series yet." };
     const out = pool[randomInt(0, pool.length)];
@@ -357,7 +379,9 @@ export async function equip(walletIn: string, skin: string, trail: string, tag =
   const inv = (await readInv(w, s)) ?? STARTERS.map((id) => starterCopy(id, now));
   const owned = await ownedItems(w, s, prestige, inv);
   const prev = parse<LooksRec>(await s.get(COLK.looks(w))) ?? {};
-  const best = (id: string) => inv.filter((c) => c.item === id).sort((a, b) => a.burn - b.burn)[0];
+  // copies on the market can't be flown: they're skipped when an item id picks your best copy, and refused by uid
+  const onMarket = new Set(inv.length ? (await s.mget(inv.map((c) => COLK.listed(c.uid)))).flatMap((v, k) => (v ? [inv[k].uid] : [])) : []);
+  const best = (id: string) => inv.filter((c) => c.item === id && !onMarket.has(c.uid)).sort((a, b) => a.burn - b.burn)[0];
   // resolve a slot to { item, copy? } or a reason
   const pick = (v: string, kind: Slot): { item: Item; copy?: Copy } | string => {
     const c = inv.find((x) => x.uid === v);
@@ -373,6 +397,7 @@ export async function equip(walletIn: string, skin: string, trail: string, tag =
     const b = best(it.id);
     return b ? { item: it, copy: b } : it.kind === "skin" ? "You haven't found that skin yet." : it.kind === "trail" ? "You haven't found that trail yet." : "You haven't found that yet.";
   };
+  if ([skin, trail, tag, flourish].some((v) => v && onMarket.has(v))) return { ok: false, reason: "That copy is on the market. Take it off the market to fly it." };
   const sk = pick(skin, "skin"), tr = pick(trail, "trail");
   if (typeof sk === "string") return { ok: false, reason: sk };
   if (typeof tr === "string") return { ok: false, reason: tr };

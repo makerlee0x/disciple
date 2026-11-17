@@ -298,3 +298,72 @@ body:has(.profile-page.hg) { background: var(--dsc3-page-bg); }
   .hgu-tu-rows li { grid-template-columns: 1fr auto; }
   .hgu-tu-rows .hgu-meter { grid-column: 1 / -1; order: 3; }
 }
+
+/* ---------- market + trades (components/hangar/Market.tsx; lib/market.ts) ---------- */
+.hg .hg-sech:has(.hg-ghost) { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.mkt-sell { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.mkt-sell small { flex-basis: 100%; text-align: right; font: 500 12px / 1.3 var(--dsc-font-mono); color: var(--dsc-muted); }
+.mkt-sell .hgu-owned { margin-top: 0; }
+.mkt-price { width: 104px; height: 36px; box-sizing: border-box; }
+.mkt-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.mkt-row .hg-sub { margin: 0; }
+.mkt-find { display: flex; gap: 8px; max-width: 460px; }
+.mkt-find .ds-input { flex: 1; height: 40px; box-sizing: border-box; }
+.mkt-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 16px; }
+.mkt-sides h3, .mkt-hist h3 { margin: 0 0 10px; font: 800 16px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.mkt-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.mkt-chip { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 10px; padding: 6px 12px 6px 6px; border-radius: 12px;
+  border: 1px solid var(--dsc3-panel-border); background: rgba(22, 24, 28, .6); max-width: 100%; }
+button.mkt-chip { cursor: pointer; }
+button.mkt-chip:hover { border-color: color-mix(in srgb, var(--sw) 45%, #262A33); }
+.mkt-chip.on { border-color: var(--sw); box-shadow: inset 0 0 0 1px var(--sw); background: color-mix(in srgb, var(--sw) 10%, rgba(22, 24, 28, .8)); }
+.mkt-chip:focus-visible { box-shadow: var(--dsc-glow-focus-ring); }
+.mkt-chip-art { width: 44px; height: 40px; display: grid; place-items: center; overflow: hidden; }
+.mkt-chip-art .hgu-plate { width: 44px !important; height: auto !important; aspect-ratio: 600 / 140; font-size: 0 !important; }
+.mkt-chip-art .hgu-burst-still { width: 40px; height: 40px; }
+.mkt-chip > span:last-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.mkt-chip b { font: 700 13px / 1.1 var(--dsc-font-ui); color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mkt-chip small { font: 500 11px / 1.2 var(--dsc-font-mono); color: #BCC0CA; }
+.mkt-send { display: flex; align-items: center; gap: 16px; margin-top: 18px; }
+.mkt-send .hg-sub { margin: 0; }
+.mkt-offers { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.mkt-offer { display: grid; gap: 10px; padding: 14px 16px; border-radius: 16px; border: 1px solid var(--dsc3-panel-border); background: var(--dsc3-panel-glass, rgba(22, 24, 28, .6)); }
+.mkt-offer-h { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.mkt-offer-h b { font: 800 18px / 1 var(--dsc-font-game); text-transform: uppercase; }
+.mkt-offer-h .hgu-owned { margin-top: 0; }
+.mkt-offer-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.mkt-offer-sides small { display: block; margin-bottom: 6px; font: 600 11px / 1 var(--dsc-font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--dsc-muted); }
+.mkt-offer .hgu-copy-act { justify-content: flex-end; }
+.mkt-past summary { cursor: pointer; color: #BCC0CA; font-size: 14px; margin-bottom: 10px; }
+.mkt-filters { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mkt-filter-r { display: flex; gap: 8px; flex-wrap: wrap; }
+.mkt-filter-r select { height: 38px; box-sizing: border-box; padding: 0 10px; }
+.mkt-toggle { all: unset; cursor: pointer; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--dsc3-panel-border); color: #BCC0CA; font-size: 14px; }
+.mkt-toggle.on { background: var(--dsc3-light-gold, #F2C14E); color: #121327; border-color: transparent; }
+.mkt-toggle:focus-visible { box-shadow: var(--dsc-glow-focus-ring); }
+.mkt-detail-body { display: grid; grid-template-columns: minmax(200px, 300px) minmax(0, 1fr); gap: 28px; align-items: start; }
+.mkt-detail-art { display: grid; place-items: center; min-height: 220px; border-radius: 16px;
+  background: radial-gradient(60% 60% at 50% 55%, color-mix(in srgb, var(--sw) 22%, transparent), transparent 70%); }
+.mkt-detail-tx { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.mkt-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 0; }
+.mkt-stats div { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--dsc3-panel-border); }
+.mkt-stats dt { font: 600 11px / 1 var(--dsc-font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--dsc-muted); }
+.mkt-stats dd { margin: 6px 0 0; font: 700 15px / 1.1 var(--dsc-font-ui); color: #FFFFFF; }
+.mkt-price-big { font: 800 44px / 1 var(--dsc-font-game); color: #FFFFFF; }
+.mkt-confirm p { margin: 0 0 10px; color: #E8EAEE; font-size: 14px; line-height: 1.45; }
+.mkt-hist ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.mkt-hist li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--hg-hair); }
+.mkt-hist li span { font: 500 13px / 1.2 var(--dsc-font-mono); color: #BCC0CA; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mkt-hist li b { font: 700 14px / 1 var(--dsc-font-ui); }
+.mkt-hist li small { font: 500 12px / 1 var(--dsc-font-mono); color: var(--dsc-muted); }
+.mkt-recent li { grid-template-columns: minmax(0, 1fr) auto; }
+.mkt-foot { margin-top: 4px; }
+.mkt .hg-look .hg-look-s .mkt-card-price { display: block; margin: 2px 0 4px; font: 800 20px / 1 var(--dsc-font-game); color: #FFFFFF; text-transform: none; }
+.mkt-chip-art img { max-width: none !important; }
+.mkt-detail-tx .hgu-buy { align-self: flex-start; min-width: 200px; }
+@media (min-width: 721px) { .hg .hg-sech:has(.hg-ghost) { flex-wrap: nowrap; } .hg .hg-sech:has(.hg-ghost) > div { flex: 1 1 auto; min-width: 0; } .hg .hg-sech:has(.hg-ghost) > .hg-ghost { flex: none; } }
+@media (max-width: 720px) {
+  .mkt-sides, .mkt-offer-sides, .mkt-detail-body { grid-template-columns: 1fr; }
+  .mkt-sell { justify-content: flex-start; } .mkt-sell small { text-align: left; }
+  .mkt-filters { align-items: stretch; } .mkt-filter-r select { flex: 1; }
+}
