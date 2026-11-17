@@ -2,7 +2,8 @@
 /**
  * First run on phones (maker, 2026-11-14; lib/firstRun). One host, mounted by AppShell:
  *  - Lobby: a "Swipe to pick a mode, tap to play" coach line (matches Pick a mode) above the tab bar until the first flight opens.
- *  - First flight: the throttle intro card (BOOST = BUY, DUMP = SELL, STEER), closed with FLY.
+ *  - First flight: teach by playing (Grok playbook pick, maker 2026-11-16): no How to fly card. A finger slides up the throttle
+ *    lever with one line ("SLIDE UP TO BOOST · let go to fire") until the pilot pulls the lever for the first time.
  *  - Signed in with $0 on a flight: an "Add cash to board" card (card checkout or Free play), once per flight.
  *  - The first live boost that fills: a big "FIRST BOOST" moment.
  * The Add to Home Screen prompt is InstallPrompt's job.
@@ -19,18 +20,22 @@ import { haptic } from "@/lib/game/haptics";
 const phoneNow = () => typeof window !== "undefined" && matchMedia("(max-width: 760px)").matches;
 
 export const INTRO_COPY = {
-  title: "HOW TO FLY",
-  boost: ["BOOST", "= BUY", "slide up"],
-  dump: ["DUMP", "= SELL", "slide down"],
-  steer: ["STEER", "", "drag the sky"],
-  line: "Every boost and dump is a real trade.",
-  /** Free play's practice cash (e2e sweep 2026-11-14: the first Free play flight on a phone said "a real trade") */
-  lineSim: "Practice cash here, real market rules.",
-  line2: "Let go of the lever to fire.",
-  /** @tricks: cosmetic spin / flip, never a trade */
-  tricks: "Swipe up to spin. Double-tap to flip.",
-  go: "FLY",
+  boost: "SLIDE UP TO BOOST",
+  fire: "let go to fire",
 } as const;
+
+/** where the throttle handle is (PhoneThrottle data-testid="thr-handle"); null while it isn't on screen (signed out, sheet open) */
+function useHandleRect(on: boolean) {
+  const [r, setR] = useState<DOMRect | null>(null);
+  useEffect(() => {
+    if (!on) { setR(null); return; }
+    let raf = 0;
+    const f = () => { const el = document.querySelector<HTMLElement>('[data-testid="thr-handle"]'); const b = el?.getBoundingClientRect();
+      setR((old) => (!b || !b.width ? null : old && Math.abs(old.x - b.x) < 1 && Math.abs(old.y - b.y) < 1 ? old : b)); raf = window.setTimeout(f, 250) as unknown as number; };
+    f(); return () => clearTimeout(raf);
+  }, [on]);
+  return r;
+}
 
 export default function FirstRunHost() {
   const path = usePathname() ?? "/";
@@ -86,6 +91,18 @@ export default function FirstRunHost() {
     addEventListener("disciple:fillreceipt", f); return () => removeEventListener("disciple:fillreceipt", f);
   }, []);
 
+  // first flight coach: gone for good once the pilot grabs the lever and lets go
+  const coachOn = hud && showFlightIntro(run);
+  const handle = useHandleRect(coachOn);
+  useEffect(() => {
+    if (!coachOn) return;
+    let grabbed = false;
+    const down = (e: PointerEvent) => { if ((e.target as HTMLElement | null)?.closest?.('[data-testid="thr-handle"]')) grabbed = true; };
+    const up = () => { if (grabbed) { saveRun({ intro: true }); haptic("tap", true); } };
+    addEventListener("pointerdown", down, true); addEventListener("pointerup", up, true);
+    return () => { removeEventListener("pointerdown", down, true); removeEventListener("pointerup", up, true); };
+  }, [coachOn]);
+
   if (!phone && !phoneNow()) return null;
 
   if (!game) return showPickCoach(run, true) && (path === "/" || path === "") && coachRoom ? (
@@ -94,18 +111,14 @@ export default function FirstRunHost() {
 
   return (
     <>
-      {hud && showFlightIntro(run) && (
-        <div className="fr-intro" role="dialog" aria-modal="true" aria-labelledby="fr-intro-t" data-testid="fr-intro">
-          <div className="fr-card">
-            <h2 id="fr-intro-t">{INTRO_COPY.title}</h2>
-            <div className="fr-how">
-              {([["b", "↑", INTRO_COPY.boost], ["d", "↓", INTRO_COPY.dump], ["s", "↔", INTRO_COPY.steer]] as const).map(([k, ic, [t, eq, sub]]) => (
-                <div key={k} className={`fr-hw ${k}`}><i aria-hidden>{ic}</i><b>{t}</b><em>{eq || " "}</em><small>{sub}</small></div>
-              ))}
-            </div>
-            <p className="fr-one">{sim ? INTRO_COPY.lineSim : INTRO_COPY.line}<br />{INTRO_COPY.line2}<br />{INTRO_COPY.tricks}</p>
-            <button type="button" className="r2-gold fr-go" data-testid="fr-go" onClick={() => { saveRun({ intro: true }); haptic("tap", true); }}>{INTRO_COPY.go}</button>
-          </div>
+      {coachOn && handle && (
+        <div className="fr-lev" role="status" data-testid="fr-coach-lever" aria-label={`${INTRO_COPY.boost}, ${INTRO_COPY.fire}`}
+          style={{ left: handle.left + handle.width / 2, top: handle.top + handle.height / 2 }}>
+          <span className="fr-lev-tip" aria-hidden><b>{INTRO_COPY.boost}</b><small>{INTRO_COPY.fire}</small></span>
+          <span className="fr-lev-trail" aria-hidden />
+          <svg className="fr-lev-hand" width="44" height="52" viewBox="0 0 44 52" aria-hidden>
+            <path d="M16 6a4 4 0 0 1 8 0v16l2-1a4 4 0 0 1 5 2l1 1a4 4 0 0 1 5 2l.5.8A4 4 0 0 1 42 30v8c0 8-6 13-14 13h-3c-5 0-8-2-11-6L6 34a4 4 0 0 1 6-5l4 4V6z" fill="#FFF6DC" stroke="#121327" strokeWidth="2" strokeLinejoin="round" />
+          </svg>
         </div>
       )}
       {cashCard && (
