@@ -35,7 +35,37 @@ function mount(root,host){
   let dead=false; const offs=[];
   const track=k=>{ try{ host.track&&host.track(k); }catch(e){} };   // funnel counter (lib/funnel TURBO_STEPS), once per browser
   const on=(t,ev,f,o)=>{ t.addEventListener(ev,f,o); offs.push(()=>t.removeEventListener(ev,f,o)); };
-  let st=document.getElementById("duel-css"); if(!st){ st=document.createElement("style"); st.id="duel-css"; st.textContent=CSS; document.head.appendChild(st); }
+  // result card fits one screen (maker 2026-11-17: "cropped weird"): tighter blocks, the card scrolls inside the overlay
+  // instead of centring off the top, and short screens drop the promo and keep 2 log rows. Kept apart from CSS so the big line stays untouched.
+  const RES_CSS=".duel-root #result{overflow-y:auto;overscroll-behavior:contain;padding-top:calc(12px + env(safe-area-inset-top,0px))}"
+    +".duel-root #result .res{margin:auto 0 0;gap:10px;padding:16px}"
+    +"@media (min-width:900px) and (min-height:600px){.duel-root #result{padding:16px}.duel-root #result .res{margin:auto}}"
+    +".duel-root .res h1{font-size:48px;line-height:.9}.duel-root .res .margin{margin:-4px 0 0}.duel-root .res .margin b{font-size:52px}"
+    +".duel-root .res .margin .otc{display:inline-block;margin-left:6px;padding:2px 5px;border-radius:5px;background:var(--pinkl);color:#121327;font-size:10px;letter-spacing:.8px;vertical-align:1px}"
+    +".duel-root .res .sub{display:none}"
+    +".duel-root .res .fcrate{margin:0;padding:6px 12px;gap:12px}.duel-root .res .fc-box{width:56px;height:56px}.duel-root .res .fc-t b{font-size:20px}"
+    +".duel-root .res .sc{padding:9px 12px}.duel-root .res .sc b{font-size:30px}"
+    +".duel-root .res .moments{max-height:none;overflow:visible;gap:5px;padding:8px 12px}"
+    +".duel-root .res .stats div{display:flex;align-items:baseline;justify-content:space-between;gap:6px;padding:7px 10px}.duel-root .res .stats small{font-size:12px}.duel-root .res .stats b{font-size:18px}"
+    +".duel-root .res .sline{margin-top:0;padding:8px 12px}"
+    +".duel-root .res .rrow .sec,.duel-root .res .rrow .go{height:52px}.duel-root .res .rrow .go{font-size:24px}"
+    +".duel-root .res .save{margin-top:0;height:44px;font-size:17px}.duel-root .res .xlink{margin-top:0;padding:9px 12px}"
+    // out-of-fuel callout (fuelOut): sits on the trade bar, tail points at the CASH OUT pill
+    +".duel-root .fuelout{position:absolute;left:50%;bottom:calc(100% + 12px);z-index:31;display:flex;align-items:stretch;border-radius:12px;background:#15161B;border:2px solid var(--pinkl);box-shadow:0 0 0 4px rgba(255,143,189,.16),0 12px 30px rgba(0,0,0,.55);font:800 19px/1 var(--f-game);letter-spacing:.8px;white-space:nowrap;opacity:0;transform:translate(-50%,8px) scale(.96);transition:opacity .15s,transform .2s;pointer-events:none}"
+    +".duel-root .fuelout.show{opacity:1;transform:translate(-50%,0);animation:fuelShake .36s ease-out}"
+    +".duel-root .fuelout b{display:flex;align-items:center;gap:8px;padding:9px 12px;color:var(--pinkl)}"
+    +".duel-root .fuelout i{position:relative;width:24px;height:12px;border:2px solid var(--pinkl);border-radius:3px}"
+    +".duel-root .fuelout i::before{content:'';position:absolute;left:2px;top:2px;bottom:2px;width:3px;border-radius:1px;background:#FF4D6D;animation:fuelBlink .5s steps(2) infinite}"
+    +".duel-root .fuelout i::after{content:'';position:absolute;right:-5px;top:2px;width:3px;height:4px;border-radius:0 1px 1px 0;background:var(--pinkl)}"
+    +".duel-root .fuelout span{display:flex;align-items:center;padding:9px 12px;background:var(--gold);color:#121327;border-radius:0 9px 9px 0}"
+    +".duel-root .fuelout::after{content:'';position:absolute;left:50%;top:100%;margin-left:-8px;border:8px solid transparent;border-top-color:var(--pinkl)}"
+    +".duel-root #bOut.nudge{animation:fuelNudge .55s ease-in-out 3}"
+    +"@keyframes fuelShake{0%{transform:translate(-50%,8px)}35%{transform:translate(calc(-50% - 6px),0)}55%{transform:translate(calc(-50% + 5px),0)}75%{transform:translate(calc(-50% - 3px),0)}100%{transform:translate(-50%,0)}}"
+    +"@keyframes fuelBlink{50%{opacity:0}}"
+    +"@keyframes fuelNudge{50%{box-shadow:0 0 0 4px var(--gold),0 0 26px rgba(242,193,78,.6);transform:scale(1.04)}}"
+    +"@media (prefers-reduced-motion:reduce){.duel-root .fuelout,.duel-root .fuelout i::before,.duel-root #bOut.nudge{animation:none}}"
+    +"@media (max-height:720px){.duel-root .res .xlink{display:none}.duel-root .res .moments div:nth-child(n+3){display:none}.duel-root .res h1{font-size:40px}.duel-root .res .margin b{font-size:44px}.duel-root .res .sc b{font-size:26px}}";
+  let st=document.getElementById("duel-css"); if(!st){ st=document.createElement("style"); st.id="duel-css"; st.textContent=CSS+RES_CSS; document.head.appendChild(st); }
   root.classList.add("duel-root"); root.innerHTML=HTML;
   if(!RL){ const t=root.querySelector("#tabRanked"); if(t) t.textContent="ONLINE"; }
   const cssv=n=>getComputedStyle(document.body).getPropertyValue(n).trim();
@@ -162,7 +192,7 @@ function mount(root,host){
   function open(pl,side,stake,why){
     if(!(G&&G.price>0)){ if(pl.me) toast("Waiting for the live BTC price\u2026"); return false; }
     stake=Math.min(stake,pl.fuel/(1+LEV*FEE));
-    if(stake<1){ if(pl.me) toast("Out of duel fuel. Cash out to free some."); return false; }
+    if(stake<1){ if(pl.me) fuelOut(); return false; }
     const size=stake*LEV, fee=size*FEE;
     pl.fuel-=stake+fee; pl.fees+=fee; pl.trades++;
     if(pl.pos&&pl.pos.side===side){
@@ -352,7 +382,15 @@ function mount(root,host){
     const t=txt.toLowerCase(), lead=profitOf(G.me)-profitOf(G.bot);
     if(Math.random()<.65) botSay(/gg|wp/.test(t)?pick(["gg","gg wp"]):/rekt|lol|\ud83d\ude02/.test(t)?(lead>0?pick(["it's not over","watch this"]):pick(["you're the one down","check the board"])):/catch|\ud83d\ude80/.test(t)?pick(["on my way","see you up there","\ud83d\ude80\ud83d\ude80"]):pick(["\ud83d\udc40","focus up","less talking more trading","ok"]));
   }
-  let toastT=0; function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1800);}
+  // out of fuel (maker 2026-11-17: the plain toast was "bad"): a game callout over the trade bar pointing at CASH OUT, and the pill pulses.
+  // Server errors with the same words land here too (toast below).
+  let fuelT=0; function fuelOut(){
+    let n=$("fuelOut"); const bar=document.querySelector(".duel-root .bottom");
+    if(!n&&bar){ n=document.createElement("div"); n.id="fuelOut"; n.className="fuelout"; n.setAttribute("role","status"); n.innerHTML='<b><i aria-hidden="true"></i>OUT OF FUEL</b><span>CASH OUT \u25bc</span>'; bar.prepend(n); }
+    const o=$("bOut"); for(const el of [n,o]) if(el){ el.classList.remove("show","nudge"); void el.offsetWidth; }
+    if(n) n.classList.add("show"); if(o) o.classList.add("nudge"); $("toast").classList.remove("show"); buzz([30,40,30]);
+    clearTimeout(fuelT); fuelT=setTimeout(()=>{ if(n) n.classList.remove("show"); if(o) o.classList.remove("nudge"); },2200); }
+  let toastT=0; function toast(m){ if(/^out of duel fuel/i.test(m)){ fuelOut(); return; } const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1800);}
 
   /* ---------- chart ---------- */
   const cc=$("cc"), cx=cc.getContext("2d");
@@ -822,10 +860,8 @@ function mount(root,host){
     $("rH").textContent=tie?"DRAW":win?"YOU WIN":"YOU LOSE"; $("rH").style.color=tie?"var(--text)":win?"var(--gold)":"var(--pinkl)";
     const marg=Math.abs(pm-pb), card=document.querySelector(".res");
     card.classList.toggle("win",win&&!tie); $("result").classList.toggle("winbg",win&&!tie); $("rMarg").hidden=tie;
-    $("rMargL").textContent=win?"WON BY":"LOST BY"; $("rMargV").textContent="$"+marg.toFixed(2); $("rMargV").style.color=win?"":"var(--pinkl)";
-    $("rSub").textContent=tie?"Dead even.":win
-      ? (G.me.up+G.me.dn===0 ? `You sat it out. ${esc(G.bot.name)} made ${G.bot.up+G.bot.dn} trades and paid $${G.bot.fees.toFixed(2)} in fees.` : pm>=0 ? `You out-traded ${esc(G.bot.name)}. Clean win.` : pb<0 ? `Rough tape for both. You read it better and took the W.` : `You out-traded ${esc(G.bot.name)} when it counted.`)
-      : `${esc(G.bot.name)} edged it. Run it back.`;
+    $("rMargL").innerHTML=(win?"WON BY":"LOST BY")+(G.ot?'<span class="otc">OT</span>':""); $("rMargV").textContent="$"+marg.toFixed(2); $("rMargV").style.color=win?"":"var(--pinkl)";
+    $("rSub").textContent="";   // flavour line cut (CLAUDE.md no-subtitle rule); WON BY carries it
     // the winner's card wears the crown; your red number goes quiet when you won anyway
     $("rMe").textContent=usd(pm,true); $("rMe").style.color=win&&pm<0?"var(--text)":pm>=0?"var(--green)":"var(--pinkl)";
     document.querySelector(".sc.me").classList.toggle("won",win&&!tie);
@@ -833,8 +869,8 @@ function mount(root,host){
     $("rBot").textContent=usd(pb,true); $("rBot").style.color=pb>=0?"var(--green)":"var(--pinkl)"; $("rBotN").textContent=G.bot.name+(M&&!M.net?" \u00b7 bot":"");
     $("rMeS").textContent=`${G.me.up+G.me.dn} trades \u00b7 ${G.me.green} green \u00b7 $${G.me.fees.toFixed(2)} fees`;
     $("rBotS").textContent=`${G.bot.up+G.bot.dn} trades \u00b7 ${G.bot.green} green \u00b7 $${G.bot.fees.toFixed(2)} fees`;
-    const all=[...G.me.moments,...G.bot.moments].sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)).slice(0,5).sort((a,b)=>a.t-b.t);
-    $("rMom").innerHTML=all.length?all.map(m=>`<div><span><span class="t">${mmss(m.t)}</span>${m.txt}</span><b style="color:${m.v>=0?"var(--green)":"var(--pinkl)"}">${usd(m.v,true)}</b></div>`).join(""):`<div><span>No trades this time.</span></div>`;
+    const all=[...G.me.moments,...G.bot.moments].sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)).slice(0,3).sort((a,b)=>a.t-b.t);
+    $("rMom").innerHTML=all.length?all.map(m=>`<div><span><span class="t">${m.t>LEN?"OT "+mmss(m.t-LEN):mmss(m.t)}</span>${m.txt}</span><b style="color:${m.v>=0?"var(--green)":"var(--pinkl)"}">${usd(m.v,true)}</b></div>`).join(""):`<div><span>No trades this time.</span></div>`;
     $("rRec").textContent=`${rec.w}-${rec.l}`; $("rRat").parentElement.hidden=!RL; $("rRat").parentElement.querySelector("small").textContent=net&&M.ranked?"Rating":"Rating (unranked)"; $("rRat").innerHTML=`${rec.rating.toLocaleString("en-US")} <span style="font-size:14px;color:${dr>=0?"var(--green)":"var(--pinkl)"}">${dr>=0?"+":"\u2212"}${Math.abs(dr)}</span>`; $("rStr").textContent=rec.streak;
     $("rAgain").textContent="REMATCH";
     // first win: the welcome crate drops in on this card (the host claims it, or asks for sign-in first; Grok playbook pick, maker 2026-11-16)
