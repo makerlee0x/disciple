@@ -118,10 +118,10 @@ export async function bindReservedName(account: string): Promise<void> {
 
 /**
  * Signed in, before the wallet is used: join this login's wallet to the player's XP account (lib/server/xpAccount), so XP,
- * level and trophies read the same everywhere. `duplicate`: this email already belongs to an earlier login (one wallet per
- * person), so the caller signs out and shows `reason`. Best effort: any other failure lets sign-in go on.
+ * level and trophies read the same everywhere. `duplicate`: this email already belongs to an earlier login, so the caller
+ * signs out and joins this method onto that account (lib/joinLogins). Best effort: any other failure lets sign-in go on.
  */
-export async function linkXpAccount(account: string): Promise<{ duplicate?: string; reason?: string }> {
+export async function linkXpAccount(account: string): Promise<{ duplicate?: { method: string; join: string; email: string } }> {
   if (IS_STATIC_PREVIEW || !/^0x[0-9a-fA-F]{40}$/.test(account)) return {};
   try {
     const h = await privyHeaders();
@@ -130,8 +130,8 @@ export async function linkXpAccount(account: string): Promise<{ duplicate?: stri
       method: "POST", cache: "no-store", headers: { "content-type": "application/json", ...h },
       body: JSON.stringify({ address: account.toLowerCase() }),
     });
-    const j = (await r.json().catch(() => null)) as { ok?: boolean; joined?: number; duplicate?: string; reason?: string } | null;
-    if (j?.duplicate) return { duplicate: j.duplicate, reason: j.reason };
+    const j = (await r.json().catch(() => null)) as { ok?: boolean; joined?: number; duplicate?: { method: string; join: string; email: string } } | null;
+    if (j?.duplicate && typeof j.duplicate === "object") return { duplicate: j.duplicate };
     if (j?.ok && (j.joined ?? 0) > 0) window.dispatchEvent(new Event("disciple:xp-changed"));   // lib/xpClient XP_CHANGED_EVENT
   } catch { /* XP still reads this wallet's own ledger */ }
   return {};

@@ -80,7 +80,7 @@ test("unrelated players never merge", async () => {
   assert.deepEqual(await accountWallets(b, s), [b]);
 });
 
-test("one wallet per person: a later login with the same email is sent back to the first method", async () => {
+test("one account per person: a later login with the same email is joined onto the first", async () => {
   const { kv } = await import("../lib/server/kv");
   const { duplicateLogin } = await import("../lib/server/xpAccount");
   const { userFromLinkedAccounts } = await import("../lib/server/privyAuth");
@@ -90,11 +90,21 @@ test("one wallet per person: a later login with the same email is sent back to t
   const google = userFromLinkedAccounts(did(), [{ type: "google_oauth", email: email.toUpperCase(), first_verified_at: 1_763_100_000 }])!;
   assert.equal(await duplicateLogin(first, owns, s), null);
   assert.equal(await duplicateLogin(first, owns, s), null, "the first login keeps working");
-  assert.equal(await duplicateLogin(google, owns, s), "email");
+  assert.deepEqual(await duplicateLogin(google, owns, s), { method: "email", join: "google_oauth", email });
   // the first account was deleted / its email moved (Privy login method transfer): the other login takes over
   assert.equal(await duplicateLogin(google, async () => false, s), null);
   assert.equal(await duplicateLogin(first, owns, s), null, "older login wins back");
-  assert.equal(await duplicateLogin(google, owns, s), "email");
+  assert.equal((await duplicateLogin(google, owns, s))?.method, "email");
   // no email (X-only login): never blocked
   assert.equal(await duplicateLogin(userFromLinkedAccounts(did(), [{ type: "twitter_oauth", subject: "1", username: "x" }])!, owns, s), null);
+});
+
+test("joining a second login: Privy login options and the blocker line", async () => {
+  const { isPendingJoin, joinLoginOptions, joinLine } = await import("../lib/joinLogins");
+  assert.ok(isPendingJoin({ method: "email", join: "google", email: "a@b.co" }));
+  assert.ok(!isPendingJoin({ method: "email", join: "email", email: "a@b.co" }), "same method is not a join");
+  assert.ok(!isPendingJoin({ method: "x", join: "google", email: "a@b.co" }));
+  assert.deepEqual(joinLoginOptions({ method: "email", email: "a@b.co" }), { loginMethods: ["email"], prefill: { type: "email", value: "a@b.co" }, disableSignup: true });
+  assert.deepEqual(joinLoginOptions({ method: "apple", email: "a@b.co" }), { loginMethods: ["apple"], disableSignup: true });
+  assert.equal(joinLine({ method: "email", join: "google" }), "This email already has a DISCIPLE account. Sign in with Email to add Google to it.");
 });

@@ -93,20 +93,23 @@ export async function linkAccount(user: PrivyUser, s: Kv = kv()): Promise<LinkRe
 /**
  * maker 2026-11-17: one wallet per person. Privy still makes a new user (and wallet) when someone signs in with a second
  * login method that carries the same email (say Google after email). The FIRST login for an email is that person's
- * login; a later Privy user with the same verified email is a duplicate and is sent back to the first method.
+ * login; a later Privy user with the same verified email is a duplicate. The client then signs it out, signs in with the
+ * first method and links the duplicate's method onto that account: Privy's "Login method transfer" moves it over and
+ * deletes the empty duplicate (components/PrivyMount JoinLogins). After that every method lands on the same account.
  *   acct:p:<sha256(email)>  JSON { did, at, method }   the email's first login (at = Privy first_verified_at, ms)
- * Moving a second login onto the first user is Privy's "Login method transfer" (dashboard setting), done by linking.
  */
 export type LoginMethod = "email" | "google_oauth" | "apple_oauth";
 export const LOGIN_LABEL: Record<LoginMethod, string> = { email: "Email", google_oauth: "Google", apple_oauth: "Apple" };
 type Primary = { did: string; at: number; method: LoginMethod };
 const primaryKey = (e: string) => `acct:p:${emailKey(e)}`;
 
+export type Duplicate = { method: LoginMethod; join: LoginMethod; email: string };
 /**
- * null: this Privy user is the email's first login (recorded now if new). Otherwise the method to sign in with instead.
+ * null: this Privy user is the email's first login (recorded now if new). Otherwise the duplicate: `method` = the first
+ * login (sign in with it), `join` = the method this duplicate used (link it onto the first account), `email`.
  * `stillOwns(did, email)`: does that other Privy user still exist and hold this email (a transfer or delete frees it)?
  */
-export async function duplicateLogin(user: PrivyUser, stillOwns: (did: string, email: string) => Promise<boolean>, s: Kv = kv()): Promise<LoginMethod | null> {
+export async function duplicateLogin(user: PrivyUser, stillOwns: (did: string, email: string) => Promise<boolean>, s: Kv = kv()): Promise<Duplicate | null> {
   for (const l of user.emailLogins ?? []) {
     const mine: Primary = { did: user.id, at: l.at, method: l.method };
     const k = primaryKey(l.email);
@@ -118,7 +121,7 @@ export async function duplicateLogin(user: PrivyUser, stillOwns: (did: string, e
     // this login is older than the recorded one (both known), or the recorded one is gone: this one is the person's login
     const older = l.at > 0 && (!(p.at > 0) || l.at < p.at);
     if (older || !(await stillOwns(p.did, l.email))) { await s.set(k, JSON.stringify(mine)); continue; }
-    return p.method in LOGIN_LABEL ? p.method : "email";
+    return { method: p.method in LOGIN_LABEL ? p.method : "email", join: l.method, email: l.email };
   }
   return null;
 }

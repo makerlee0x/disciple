@@ -24,6 +24,7 @@ import { PRIVY_APP_ID, aaSession, registerPrivy, type PrivyAccountInfo, type Pri
 import { connectPrivyOwner, disconnect } from "@/lib/wallet";
 import { withPrivyTxType } from "@/lib/aa/privyTx";
 import { linkXpAccount, syncLocalIdentity } from "@/lib/profile";
+import { clearPendingJoin, isPendingJoin, joinLine, joinLoginOptions, pendingJoin, savePendingJoin } from "@/lib/joinLogins";
 import { failPendingXLink, finishPendingXLink } from "@/lib/xLinkClient";
 import { withBase } from "@/lib/base-path";
 import { SIGN_IN_COPY, SIGN_IN_FAILED_EVENT } from "@/lib/walletCta";
@@ -43,11 +44,27 @@ function accountInfo(user: { linkedAccounts?: unknown[] } | null | undefined): P
   return { method: last?.type ? METHOD[last.type] ?? null : null, email, xUsername: x?.username ?? null };
 }
 
+/** Verified emails on this Privy user (email, Google, Apple logins), lowercased. */
+function accountEmails(linked: ReadonlyArray<unknown> | null): string[] {
+  return ((linked ?? []) as AccountLike[]).map((a) => (a.type === "email" ? a.address : a.type === "google_oauth" || a.type === "apple_oauth" ? a.email : undefined))
+    .filter((e): e is string => typeof e === "string").map((e) => e.trim().toLowerCase());
+}
+
 function PrivyBridge() {
   const { ready, authenticated, login, logout, getAccessToken, user } = usePrivy();
   // Connect X (web and app): Privy links X to this login, then lib/xLinkClient stores it on the wallet. A refused link
   // (e.g. that X account is already its own Privy login) must say so instead of silently doing nothing.
-  const { linkTwitter } = useLinkAccount({ onError: (err) => failPendingXLink(String(err)) });
+  // The same hook links the second login of a person onto their first account (lib/joinLogins): `joining` routes its result.
+  const joining = useRef(false);
+  const { linkTwitter, linkEmail, linkGoogle, linkApple } = useLinkAccount({
+    onSuccess: () => { if (joining.current) { joining.current = false; clearPendingJoin(); } },
+    onError: (err) => {
+      if (joining.current) { joining.current = false; console.warn("[privy] join login failed", String(err)); return; }   // the next sign-in with that method starts it again
+      failPendingXLink(String(err));
+    },
+  });
+  // Sign in: while a join is pending, open Privy on the first account's method only (email prefilled, no new account)
+  const signIn = useMemo(() => () => { const p = pendingJoin(); if (p) login(joinLoginOptions(p)); else login(); }, [login]);
   const { wallets, ready: walletsReady } = useWallets();
   const { createWallet } = useCreateWallet();
   const linked = useRef<string | null>(null);
@@ -70,7 +87,7 @@ function PrivyBridge() {
   }, [user, linkedAccounts, exportWallet, showMfaEnrollmentModal, unenrollWithTotp, unenrollWithPasskey]);
 
   // getAccessToken: Privy session for our API routes (verification requests / admin review), no wallet signature
-  useEffect(() => { registerPrivy({ ready, login, logout, getAccessToken, getIdentityToken, authenticated: ready && authenticated, account: accountInfo(user), security, linkX: linkTwitter }); return () => registerPrivy(null); }, [login, logout, getAccessToken, ready, authenticated, user, security, linkTwitter]);
+  useEffect(() => { registerPrivy({ ready, login: signIn, logout, getAccessToken, getIdentityToken, authenticated: ready && authenticated, account: accountInfo(user), security, linkX: linkTwitter }); return () => registerPrivy(null); }, [signIn, logout, getAccessToken, ready, authenticated, user, security, linkTwitter]);
 
   // iPhone app, Connect X: back from X's sign-in sheet with X now linked to this Privy user → finish the profile link
   const xUser = accountInfo(user)?.xUsername ?? null;
@@ -94,22 +111,34 @@ function PrivyBridge() {
     if (embedded.length > 1) console.warn("[disciple] several embedded wallets on this login; using the original", { owner: want });
     if (!w || linked.current === w.address.toLowerCase()) return;
     linked.current = w.address.toLowerCase();
-    // one wallet per person (lib/server/xpAccount): an email that already signed in another way goes back to that way
+    // one account per person (lib/joinLogins): a second login with the same email signs out before its wallet is used,
+    // then signs in to the first account and links this method onto it
     linkXpAccount(w.address)
       .then((d) => {
-        if (!d.duplicate) return;
+        const dup = d.duplicate;
+        if (!dup) return;
         linked.current = null;
-        void logout().catch(() => undefined);
-        dispatchEvent(new CustomEvent(SIGN_IN_FAILED_EVENT, { detail: { message: d.reason || `This email already has a DISCIPLE wallet. Sign in with ${d.duplicate}.` } }));
+        const p = isPendingJoin(dup) ? dup : null;
+        if (p) savePendingJoin(p);
+        void logout().catch(() => undefined).then(() => { if (p?.method === "email") login(joinLoginOptions(p)); });   // email: straight into the code screen
+        dispatchEvent(new CustomEvent(SIGN_IN_FAILED_EVENT, { detail: { message: p ? joinLine(p) : "This email already has a DISCIPLE account. Sign in the way you did first." } }));
         throw Object.assign(new Error("duplicate login"), { duplicate: true });
       })
       .then(() => toViemAccount({ wallet: w }))
       // Privy's wallet RPC needs the numeric tx type (2), not viem's "eip1559" (lib/aa/privyTx)
       .then((owner) => connectPrivyOwner(withPrivyTxType(owner)))
       // the cached @name belongs to the account that claimed it: a different sign-in must not keep showing it
-      .then((acct) => { void syncLocalIdentity(acct).catch(() => undefined); })
+      .then((acct) => {
+        void syncLocalIdentity(acct).catch(() => undefined);
+        // signed in to the first account with a join pending: add the other method (Privy moves it over, deletes the duplicate)
+        const p = pendingJoin();
+        if (p && !joining.current && accountEmails(linkedAccounts).includes(p.email)) {
+          joining.current = true; clearPendingJoin();
+          ({ email: linkEmail, google: linkGoogle, apple: linkApple })[p.join]();
+        }
+      })
       .catch((e) => { if ((e as { duplicate?: boolean }).duplicate) return; linked.current = null; console.warn("[privy] owner setup failed", (e as Error).message); dispatchEvent(new Event(SIGN_IN_FAILED_EVENT)); });
-  }, [ready, walletsReady, authenticated, wallets, user, linkedAccounts, createWallet, logout]);
+  }, [ready, walletsReady, authenticated, wallets, user, linkedAccounts, createWallet, logout, login, linkEmail, linkGoogle, linkApple]);
   return null;
 }
 
