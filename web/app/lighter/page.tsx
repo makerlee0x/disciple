@@ -5,7 +5,8 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { withBase } from "@/lib/base-path";
-import { aaSession, onSessionChange, privyAccessToken } from "@/lib/aa/sessionState";
+import { aaSession, onPrivy, onSessionChange, privyAccessToken, privyLogin } from "@/lib/aa/sessionState";
+import { onWallet } from "@/lib/walletState";
 import { aaSignMessage } from "@/lib/aa/session";
 import { lighterClose, lighterOpen, lighterSetUp, lighterStatus, type LighterStep } from "@/lib/lighter/client";
 
@@ -21,7 +22,13 @@ export default function LighterTest() {
   const [log, setLog] = useState<string[]>([]);
   const say = (s: string) => setLog((l) => [`${new Date().toLocaleTimeString()}  ${s}`, ...l].slice(0, 40));
 
-  useEffect(() => { const u = () => setWallet(aaSession()?.owner ?? null); u(); return onSessionChange(u); }, []);
+  useEffect(() => {
+    let w: string | null = null;
+    const u = () => setWallet((aaSession()?.owner ?? w)?.toLowerCase() ?? null);
+    const offs = [onSessionChange(u), onPrivy(u), onWallet((a) => { w = a; u(); })];
+    u();
+    return () => offs.forEach((o) => o());
+  }, []);
 
   const f = useCallback(async (input: string, init?: RequestInit) => {
     const t = await privyAccessToken();
@@ -56,6 +63,7 @@ export default function LighterTest() {
       </div>
       {step === "deposit" && <p className="mb-4 text-amber-300">No Lighter {st?.network} account for this wallet yet. Deposit to Lighter from it first.</p>}
       <div className="mb-4 flex flex-wrap gap-2">
+        {!wallet && <button className={btn} onClick={() => privyLogin()}>Sign in</button>}
         <button className={btn} disabled={busy || !wallet} onClick={() => void refresh()}>Refresh</button>
         <button className={btn} disabled={busy || !step || step === "deposit" || step === "ready"} onClick={() => void run("set-up", async () => ({ step: await lighterSetUp(f, sign) }))}>Set up</button>
       </div>
