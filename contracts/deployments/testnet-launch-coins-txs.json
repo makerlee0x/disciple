@@ -854,5 +854,23 @@
     "route(address)"
    ]
   }
+ },
+ "hmmUnlist": "0x3c0646a60705d89090ea2b9b9a9c36207b127342785396883e6fc68b5437582d",
+ "ethPoolsDeepened": {
+  "USDG/ETH": "0xcf4c133edeb3c0a98848a3c2a06907356472dec866580880cd996a187a5e2f1b",
+  "ETH/HOOKR": "0x8b5f461d9cc4877f0b1bc1b9239bbdc2f100bbe902b2f5b6af79380cc2d857a1",
+  "ETH/PENGU": "0xce363a5639409faa7359a35234cc4d2d61910fb7bbe2b5162c5cd3d43c738f8a"
+ },
+ "trade100": {
+  "HOOKR": {
+   "buyWithUsdg": "0x44f6684d243b8c71a20519cc637387710169a763a6c26b1346c22b0414d369cc",
+   "approve": "0x03e2c19954c0946043695c9128c46bbbae43db67a3ddfc1ceb2db78021e619d8",
+   "sellToUsdg": "0xcc0d2f79d2c4a204cd93cbb86778c0bcc1b5779534bf83911da985a82069f32f"
+  },
+  "PENGU": {
+   "buyWithUsdg": "0xd3779b7ca4e6b217fcf9d8b3d2113357b1c3170e8935a3614775c1e5bf2eddc5",
+   "approve": "0x25a08142e4c90bf261971b468e68b5e0a9324de6e1a47a8a55f4a49dc8989c05",
+   "sellToUsdg": "0x6eb03311a170a0e96a2ebf2ad076cbbe17b98789e2bc0ff2af208a58c3098e3b"
+  }
  }
 }

@@ -35,7 +35,11 @@ Testnet has no Uniswap hooks for these pools, so every testnet pool has no hook 
 
 The pools with ERC-20 tokens on both sides are full range, with about $250,000 per side.
 
-The native-ETH pools are kept small, because the deployer has very little testnet ETH. Each one is a single position that sits 20 ticks below the top of its range, worth about $20,000 per side virtually. So each pool holds only about $20 of real ETH. Buys and sells of a few dollars work. A HOOKR or PENGU trade much larger than about $20 in one direction will hit the edge of the ETH pool until trades in the other direction add ETH back.
+The native-ETH pools started small, because the deployer had very little testnet ETH. Each began as a single position 20 ticks below the top of its range, worth about $20,000 per side virtually, with about $20 of real ETH.
+
+`DeepenTestnetEthPools.s.sol` then added ETH-only positions 400 ticks wide just above the price: 0.17 ETH to USDG/ETH, and 0.1 ETH each to ETH/HOOKR and ETH/PENGU. USDG buys of HOOKR and PENGU share the USDG/ETH ETH, about $300 in total. Sells of each coin draw on its own pool, about $180 each. A $100 buy and sell on each coin went through on Nov 16, 2026.
+
+HMM was taken off the pricer's allowed list after the first run (`setAllowedQuote(HMM, false)`). Its pools and routes are still in place.
 
 Anyone can remove liquidity held by the `PoolModifyLiquidityTest` helper. That is fine on testnet, and it is the same as the existing testnet STRATEGY pool.
 

@@ -222,5 +222,38 @@
     "hooks": "0x0000000000000000000000000000000000000000",
     "poolId": "0x276edebde816aed95ab73d9ce715fdee6fa75e69e9f2ef1fd325f20c3e35063c",
     "tickSpacing": 10
+  },
+  "ethPoolsDeepened": {
+    "date": "2026-11-16",
+    "script": "script/testnet/DeepenTestnetEthPools.s.sol",
+    "note": "ETH-only positions from one tick spacing above the price, 400 ticks wide, through the same liquidityHelper.",
+    "USDG/ETH": {
+      "ethWei": "169999999999991800",
+      "tickLower": -201280,
+      "tickUpper": -200880,
+      "liquidity": "365809505423730",
+      "tx": "0xcf4c133edeb3c0a98848a3c2a06907356472dec866580880cd996a187a5e2f1b"
+    },
+    "ETH/HOOKR": {
+      "ethWei": "100000000000000000",
+      "tickLower": 121975,
+      "tickUpper": 122375,
+      "liquidity": "2248268915669416787639",
+      "tx": "0x8b5f461d9cc4877f0b1bc1b9239bbdc2f100bbe902b2f5b6af79380cc2d857a1"
+    },
+    "ETH/PENGU": {
+      "ethWei": "100000000000000000",
+      "tickLower": 128200,
+      "tickUpper": 128600,
+      "liquidity": "3069132621060990243390",
+      "tx": "0xce363a5639409faa7359a35234cc4d2d61910fb7bbe2b5162c5cd3d43c738f8a"
+    }
+  },
+  "hmmUnlisted": {
+    "date": "2026-11-16",
+    "call": "QuotePricer.setAllowedQuote(HMM, false)",
+    "tx": "0x3c0646a60705d89090ea2b9b9a9c36207b127342785396883e6fc68b5437582d",
+    "isAllowedQuote": false,
+    "note": "Pool, price route and router route are left in place. HMM still has a price pool from setPriceRoute, so a new HMM-paired launch still prices through that pool."
   }
 }
