@@ -516,7 +516,7 @@ const mmss=s=>{s=Math.max(0,Math.ceil(s));return Math.floor(s/60)+":"+String(s%6
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 
 /* ---------- rules ---------- */
-const FEE=0.00006 /* 1.2 bp round trip: Lighter Plus test */, LIQ=0.8, FUEL0=50, TICK=0.2;
+const FEE=0.000055 /* 1.1 bp round trip: Lighter Plus test */, LIQ=0.8, FUEL0=50, TICK=0.2;
 const ORDER=["HYPE","SOL","ETH","BTC"];
 /* each market is a different map: aggressive at the top, defensive at the bottom */
 const MKD={
