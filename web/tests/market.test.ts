@@ -187,4 +187,96 @@ describe("market server (local KV)", () => {
     expect((await mkt.listCopy(A, a[0].uid, 900)).ok).toBe(true);
     void kvMod;
   });
+  it("a frozen copy can't be traded up or scrapped, so it can't be laundered into a fresh copy", async () => {
+    const { ITEMS, STARTER_SKIN, TRADE_UP_N } = await import("@/lib/collection");
+    const s = kvMod.kv(), T = "0x" + "d4".repeat(20);
+    const commons = ITEMS.filter((i) => i.series === 1 && i.rar === "common" && i.kind === "skin" && i.id !== STARTER_SKIN).slice(0, 1);
+    await s.sadd(col.COLK.own(T), commons[0].id);
+    const base = (await col.collectionOf(T)).copies.find((c) => c.origin === "migrated")!;
+    const raw = JSON.parse((await s.get(col.COLK.inv(T)))!);
+    for (let k = 1; k < TRADE_UP_N; k++) raw.push({ ...base, uid: `fz${String(k).padStart(14, "0")}`, serial: 800 + k });
+    await s.set(col.COLK.inv(T), JSON.stringify(raw));
+    const ten = (await col.collectionOf(T)).copies.filter((c) => c.origin === "migrated").map((c) => c.uid);
+    expect(ten).toHaveLength(TRADE_UP_N);
+    const real = base.uid;   // the one copy with a permanent record
+    expect((await mkt.freezeCopy(real, "reported farmed")).ok).toBe(true);
+    const tu = await col.tradeUp(T, ten);
+    expect(tu.ok).toBe(false); if (!tu.ok) expect(tu.reason).toMatch(/frozen/);
+    expect((await col.scrapCopy(T, real)).ok).toBe(false);
+    expect((await col.collectionOf(T)).copies.filter((c) => c.origin === "migrated")).toHaveLength(TRADE_UP_N);   // nothing burned
+    await mkt.unfreezeCopy(real);
+    expect((await col.tradeUp(T, ten)).ok).toBe(true);
+  });
+
+  it("two offers at once from an unmigrated legacy collection migrate it once, without duplicate copies", async () => {
+    const { ITEMS, STARTER_SKIN } = await import("@/lib/collection");
+    const s = kvMod.kv(), L = "0x" + "e7".repeat(20);
+    const legacy = ITEMS.filter((i) => i.series === 1 && i.kind === "skin" && !i.prestige && i.id !== STARTER_SKIN).slice(0, 3);
+    for (const i of legacy) await s.sadd(col.COLK.own(L), i.id);
+    await col.collectionOf(B); await col.collectionOf(C);
+    const before = new Map<string, number>();
+    for (const i of legacy) before.set(i.id, Number((await s.get(col.COLK.supply(i.id))) ?? 0));
+    // each offer reads (and would migrate) L's legacy collection; a copy uid nobody has keeps the offers themselves from opening
+    const none = "0000000000000000";
+    await Promise.all([mkt.makeOffer(L, B, [none], []), mkt.makeOffer(L, C, [none], []), mkt.makeOffer(B, L, [], [none]), mkt.makeOffer(C, L, [], [none])]);
+    const inv = (await col.collectionOf(L)).copies.filter((c) => c.origin === "migrated");
+    expect(inv).toHaveLength(legacy.length);
+    // one copy minted per legacy item, not one per request (extra mints would be first-generation copies nobody tracks)
+    for (const i of legacy) expect(Number(await s.get(col.COLK.supply(i.id)))).toBe(before.get(i.id)! + 1);
+    expect(new Set(inv.map((c) => c.item)).size).toBe(legacy.length);
+  });
+
+  it("unlist and a buy can't both win: a pending sale can't be pulled, and a pulled listing can't be paid for", async () => {
+    await earn(A, 3);
+    const { XPK } = await import("@/lib/server/xp");
+    const all = (await col.collectionOf(A)).copies.filter((c) => !c.bound && c.origin === "crate");
+    const mine = [];
+    for (const c of all) if (!(await col.isListed(c.uid)) && !(await col.frozenReason(c.uid))) mine.push(c);
+    // buy first: the listing is pending while the payment is in flight, and unlist refuses
+    const l1 = await mkt.listCopy(A, mine[0].uid, 700);
+    if (!l1.ok) throw new Error(l1.reason);
+    const t1 = await mkt.buyTerms(l1.listing.id);
+    if ("ok" in t1) throw new Error(t1.reason);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const paying = mkt.buyListing(B, l1.listing.id, buy(B, A, t1, BigInt(20_000)), deps(async () => { await gate; return { success: true, txHash: "0x1" }; }));
+    for (let k = 0; k < 50 && (await mkt.listingById(l1.listing.id))?.state !== "pending"; k++) await new Promise((r) => setTimeout(r, 5));
+    expect((await mkt.unlist(A, l1.listing.id)).ok).toBe(false);
+    release();
+    expect((await paying).ok).toBe(true);
+    expect((await col.collectionOf(B)).copies.some((c) => c.uid === mine[0].uid)).toBe(true);
+    // the seller holds the lock (unlisting): a buy that arrives now is refused and nothing is sent
+    const l2 = await mkt.listCopy(A, mine[1].uid, 700);
+    if (!l2.ok) throw new Error(l2.reason);
+    const t2 = await mkt.buyTerms(l2.listing.id);
+    if ("ok" in t2) throw new Error(t2.reason);
+    await kvMod.kv().setNX(XPK.lock(A), "held", 10);
+    let sent = 0;
+    const r2 = await mkt.buyListing(C, l2.listing.id, buy(C, A, t2, BigInt(20_000)), deps(async () => { sent++; return { success: true }; }));
+    expect(r2.ok).toBe(false); expect(sent).toBe(0);
+    expect((await mkt.listingById(l2.listing.id))?.state).toBe("open");
+    await kvMod.kv().del(XPK.lock(A));
+    // the scanner's race: unlist has read the listing as open and is about to close it when a buy is admitted
+    const s = kvMod.kv();
+    let relayed = false, buying: Promise<unknown> | undefined;
+    const sneaky = new Proxy(s, { get(target, k) {
+      if (k !== "set") return (target as never)[k];
+      return async (key: string, v: string, ...rest: unknown[]) => {
+        if (!buying && key.endsWith(`:l:${l2.listing.id}`) && JSON.parse(v).state === "closed") {
+          buying = mkt.buyListing(C, l2.listing.id, buy(C, A, t2, BigInt(20_000)), deps(async () => { relayed = true; return { success: true, txHash: "0x2" }; }));
+          await buying;
+        }
+        return (target.set as (...a: unknown[]) => Promise<unknown>)(key, v, ...rest);
+      };
+    } });
+    const un = await mkt.unlist(A, l2.listing.id, sneaky as typeof s);
+    expect(buying).toBeDefined();
+    const bought = (await buying) as { ok: boolean };
+    // never both: if the buyer paid, the copy is theirs and the listing is sold, not closed under them
+    expect(un.ok && bought.ok).toBe(false);
+    expect(relayed).toBe(!un.ok);
+    const after = await mkt.listingById(l2.listing.id);
+    if (relayed) { expect(after?.state).toBe("sold"); expect((await col.collectionOf(C)).copies.some((c) => c.uid === mine[1].uid)).toBe(true); }
+    else { expect(after?.state).toBe("closed"); expect((await col.collectionOf(A)).copies.some((c) => c.uid === mine[1].uid)).toBe(true); }
+  });
 });

@@ -317,6 +317,7 @@ export async function scrapCopy(walletIn: string, uid: string, now = Date.now(),
     if (!it || c.origin === "starter") return { ok: false, reason: "Starter items can't be scrapped." };
     if (Object.values(await wornCopies(w, inv, s)).includes(uid)) return { ok: false, reason: "Take it off before you scrap it." };
     if (await isListed(uid, s)) return { ok: false, reason: "Take it off the market before you scrap it." };
+    if (await frozenReason(uid, s)) return { ok: false, reason: "That copy is frozen while we look into it." };
     inv.splice(k, 1); await writeInv(w, inv, s);
     await addEvent(uid, { ev: "burned", at: now, owner: w, why: "scrap" }, s);
     const xp = DUPE_XP[it.rar];
@@ -348,6 +349,8 @@ export async function tradeUp(walletIn: string, uids: string[], now = Date.now()
     const eq = Object.values(await wornCopies(w, inv, s));
     if (copies.some((c) => eq.includes(c.uid))) return { ok: false, reason: "Take off what you're flying first." };
     for (const c of copies) if (await isListed(c.uid, s)) return { ok: false, reason: "One of those is on the market. Take it off first." };
+    // a frozen copy (reported stolen or farmed) can't be laundered into a fresh, unfrozen one
+    for (const c of copies) if (await frozenReason(c.uid, s)) return { ok: false, reason: "One of those is frozen while we look into it." };
     const pool = tradeUpPool(series, rar, now);
     if (!pool.length) return { ok: false, reason: "Nothing to trade up into for that series yet." };
     const out = pool[randomInt(0, pool.length)];

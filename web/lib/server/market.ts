@@ -116,12 +116,18 @@ async function closeListing(l: Listing, state: "sold" | "closed", s: Kv, extra: 
 
 /** Take your own listing off the market (not while a buyer's payment is in flight). */
 export async function unlist(walletIn: string, id: string, s: Kv = kv()): Promise<{ ok: true } | Fail> {
-  const w = lc(walletIn), l = await readListing(id, s);
-  if (!l || l.seller !== w) return fail("That isn't your listing.");
-  if (l.state !== "open") return fail(l.state === "pending" ? "Someone is buying it right now." : "That listing is already closed.");
-  if (await s.get(MKT.hold(id))) return fail("Someone is buying it right now.");
-  await closeListing(l, "closed", s);
-  return { ok: true };
+  const w = lc(walletIn);
+  // under the seller's lock, like buy admission: either the buyer marks it pending first and this refuses, or this closes it
+  // first and the buyer's re-read sees it gone, so a paid-for copy is never released
+  const r = await withLock(w, s, async (): Promise<{ ok: true } | Fail> => {
+    const l = await readListing(id, s);
+    if (!l || l.seller !== w) return fail("That isn't your listing.");
+    if (l.state !== "open") return fail(l.state === "pending" ? "Someone is buying it right now." : "That listing is already closed.");
+    if (await s.get(MKT.hold(id))) return fail("Someone is buying it right now.");
+    await closeListing(l, "closed", s);
+    return { ok: true };
+  });
+  return r;
 }
 
 /** Open listings, with each copy as it is now and the seller's name. Frozen copies and stale listings are left out. */
@@ -301,14 +307,19 @@ export async function makeOffer(fromIn: string, toIn: string, give: string[], wa
   give = [...new Set(give)]; want = [...new Set(want)];
   if (!give.length && !want.length) return fail("Pick at least one copy.");
   if (give.length > OFFER_MAX || want.length > OFFER_MAX) return fail(`Up to ${OFFER_MAX} copies a side.`);
-  const mine = await copyStore.invOf(from, now, s), theirs = await copyStore.invOf(to, now, s);
-  const a = await checkMovable(from, mine, give, s); if (a) return fail(a);
-  for (const u of want) { const c = theirs.find((x) => x.uid === u); const why = cantMove(c, { frozen: !!(await s.get(COLK.frozen(u))) }); if (why) return fail(why === "That copy isn't there any more." ? "They don't have one of those copies." : why); }
-  const o: Offer = { id: newId(), from, to, give, want, at: now, state: "open" };
-  await s.set(MKT.o(o.id), JSON.stringify(o));
-  await s.zadd(MKT.offers(from), [{ score: now, member: o.id }]);
-  await s.zadd(MKT.offers(to), [{ score: now, member: o.id }]);
-  return { ok: true, offer: o };
+  // both inventories are read (and, for a legacy collection, migrated) under both wallet locks, so two offers at once
+  // can't each mint a set of copies from the same legacy items
+  const r = await withBoth(from, to, s, async (): Promise<OfferResult> => {
+    const mine = await copyStore.invOf(from, now, s), theirs = await copyStore.invOf(to, now, s);
+    const a = await checkMovable(from, mine, give, s); if (a) return fail(a);
+    for (const u of want) { const c = theirs.find((x) => x.uid === u); const why = cantMove(c, { frozen: !!(await s.get(COLK.frozen(u))) }); if (why) return fail(why === "That copy isn't there any more." ? "They don't have one of those copies." : why); }
+    const o: Offer = { id: newId(), from, to, give, want, at: now, state: "open" };
+    await s.set(MKT.o(o.id), JSON.stringify(o));
+    await s.zadd(MKT.offers(from), [{ score: now, member: o.id }]);
+    await s.zadd(MKT.offers(to), [{ score: now, member: o.id }]);
+    return { ok: true, offer: o };
+  });
+  return r;
 }
 
 async function readOffer(id: string, s: Kv) { return /^[a-f0-9]{12}$/.test(id) ? parse<Offer>(await s.get(MKT.o(id))) : null; }
