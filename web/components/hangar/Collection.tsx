@@ -7,6 +7,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Icon from "@/components/icons/Icon";
+import { MILESTONE_COPY } from "@/lib/xp";
 import { withBase } from "@/lib/base-path";
 import { playSfx } from "@/lib/game/sfx";
 import {
@@ -16,7 +17,6 @@ import {
   type Collection as Col, type CollectionAction, type Copy, type Crate, type Item, type Opened, type Rarity, type Slot,
 } from "@/lib/collection";
 import { collectionAction } from "@/lib/collectionClient";
-import { MILESTONE_COPY } from "@/lib/xp";
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 /** "Level 10 reward" / "Final Push trophy reward" for items you earn by playing, else null */

@@ -43,6 +43,7 @@ import { award, withLock, xpSummary } from "./xp";
 const ns = () => `col:${ACTIVE_CHAIN.id}`;
 export const COLK = {
   inv: (w: string) => `${ns()}:inv:${w}`,
+  rw: (w: string) => `${ns()}:rw:${w}`,
   own: (w: string) => `${ns()}:own:${w}`,
   supply: (item: string) => `${ns()}:supply:${item}`,
   sfirst: (n: number | string) => `${ns()}:sfirst:${n}`,
@@ -55,7 +56,6 @@ export const COLK = {
   dc: (week: number, w: string) => `${ns()}:dc:${week}:${w}`,
   looks: (w: string) => `looks:${ACTIVE_CHAIN.id}:${w}`,
   copy: (uid: string) => `${ns()}:copy:${uid}`,
-  rw: (w: string) => `${ns()}:rw:${w}`,
 };
 const parse = <T,>(s: string | null): T | null => { if (!s) return null; try { return JSON.parse(s) as T; } catch { return null; } };
 const lc = (w: string) => w.toLowerCase();
