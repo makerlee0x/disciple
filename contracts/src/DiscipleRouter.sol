@@ -115,8 +115,9 @@ contract DiscipleRouter is IUnlockCallback {
 
     /// @notice Hard cap on the price move of a single router swap, in bps of the pre-swap price
     ///         (same |Δprice|/price metric as Trade.impactBps / quoteExactIn). Owner-settable within
-    ///         [MIN_MAX_IMPACT_BPS, MAX_MAX_IMPACT_BPS]. Router-only: direct PoolManager swaps are unaffected.
-    uint256 public maxImpactBps = 5000;
+    ///         [MIN_MAX_IMPACT_BPS, MAX_MAX_IMPACT_BPS]. Default is the max (10x). Router-only: direct
+    ///         PoolManager swaps are unaffected.
+    uint256 public maxImpactBps = 100_000;
     uint256 public constant MIN_MAX_IMPACT_BPS = 100; // 1%
     uint256 public constant MAX_MAX_IMPACT_BPS = 100_000; // 10x price move (buys measure Δp/p, can exceed 100%)
     address public owner;

@@ -6,7 +6,7 @@ import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {DiscipleRouter} from "../../src/DiscipleRouter.sol";
 
-/// @notice DiscipleRouter slippage guards: minOut != 0 and a hard per-swap price-impact cap (default 50%).
+/// @notice DiscipleRouter slippage guards: minOut != 0 and a hard per-swap price-impact cap (default 10x).
 contract RouterGuardsTest is IntegrationBase {
     BondingCurve curve;
     Token tok;
@@ -25,7 +25,7 @@ contract RouterGuardsTest is IntegrationBase {
     }
 
     function test_defaults() public view {
-        assertEq(router.maxImpactBps(), 5000);
+        assertEq(router.maxImpactBps(), 100_000);
         assertTrue(router.owner() != address(0));
     }
 
@@ -46,6 +46,9 @@ contract RouterGuardsTest is IntegrationBase {
     }
 
     function test_hugeBuyRevertsOnImpact() public {
+        // The default cap is now 10x, so this size would pass. Pin 50% to prove the revert still works.
+        vm.prank(router.owner());
+        router.setMaxImpactBps(5000);
         (, uint256 impact,) = router.quoteExactIn(address(tok), true, 20_000 ether);
         assertGt(impact, 5000);
         vm.prank(whale);

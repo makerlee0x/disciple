@@ -165,6 +165,9 @@ contract Deploy is NetworkConfig {
         lockedLP.setPoolManager(o.manager);
 
         DiscipleRouter router = new DiscipleRouter(manager, lockedLP, address(hook));
+        // New routers start at MAX_MAX_IMPACT_BPS (10x). Kept as an explicit owner call so a future
+        // storage default change cannot silently redeploy a tighter cap.
+        router.setMaxImpactBps(router.MAX_MAX_IMPACT_BPS());
         o.trampWall = address(new TrampWallManager(manager, lockedLP, address(hook)));
         // SEC-02: only LockedLP + TrampWallManager may add liquidity to DISCIPLE pools.
         hook.setLiquidityManager(address(lockedLP), true);
