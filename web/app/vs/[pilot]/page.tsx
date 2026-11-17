@@ -21,14 +21,18 @@ export async function generateMetadata(p: P): Promise<Metadata> {
   const title = c ? `${c.name} challenged you to a trading duel` : "Trading Duel · DISCIPLE";
   const description = "1v1 on live BTC. One minute, most profit wins. Free to play, no sign-up.";
   const img = `${SITE_ORIGIN}/api/og/invite${c ? `?from=${encodeURIComponent(c.name.replace(/^@/, ""))}` : ""}`;
-  // X player card: the post plays a bot duel right in the timeline (/duel?embed=1), with a link out to the full game
+  // X player card (maker 2026-11-16): X reads these tags from the server HTML, shows the square thumbnail with a play
+  // button, and on play frames /duel?embed=1 (a "Tap to play" screen, then a bot duel). 480 x 480 is the size X shows most
+  // reliably; CARD_V busts X's card cache when the player changes.
+  const CARD_V = 1;
   const slug = c ? c.slug : "", ref = c && /^0x[0-9a-f]{40}$/.test(c.pid) ? `&ref=${c.pid}` : "";
-  const player = `${SITE_ORIGIN}/duel?embed=1&first=1${slug ? `&vs=${encodeURIComponent(slug)}` : ""}${ref}`;
+  const player = `${SITE_ORIGIN}/duel?embed=1&v=${CARD_V}${slug ? `&vs=${encodeURIComponent(slug)}` : ""}${ref}`;
+  const square = `${SITE_ORIGIN}/og/duel-square.jpg?v=${CARD_V}`;
   return {
     title, description,
     openGraph: { title, description, images: [{ url: img, width: 1200, height: 630 }] },
-    twitter: { card: "player", title, description, images: [img], // no streamUrl: that's for a raw video file, and this player is a page
-      players: [{ playerUrl: player, width: 480, height: 800 } as unknown as { playerUrl: string; streamUrl: string; width: number; height: number }] },
+    twitter: { card: "player", site: "@disciplevip", title, description, images: [square], // no streamUrl: that's for a raw video file, and this player is a page
+      players: [{ playerUrl: player, width: 480, height: 480 } as unknown as { playerUrl: string; streamUrl: string; width: number; height: number }] },
   };
 }
 
