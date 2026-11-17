@@ -17,6 +17,7 @@ import {
   type Collection as Col, type CollectionAction, type Copy, type Crate, type Item, type Opened, type Rarity, type Slot,
 } from "@/lib/collection";
 import { collectionAction } from "@/lib/collectionClient";
+import { SellControl, type SellHooks } from "./Market";
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 /** "Level 10 reward" / "Final Push trophy reward" for items you earn by playing, else null */
@@ -49,12 +50,12 @@ function SkinArt({ i, h, dim, copy }: { i: Item; h: number; dim?: boolean; copy?
 function Tag({ id, name, w }: { id: string; name: string; w: number }) {
   return <span className={`hgu-plate${id.includes("prestige") ? " pr" : ""}`} style={{ width: w, height: (w * 140) / 600, backgroundImage: `url(${withBase(tagArt(id))})`, fontSize: Math.max(11, w / 13) }}><b>{name}</b></span>;
 }
-const itemArt = (i: Item, h: number, dim?: boolean, handle = "YOU", copy?: Copy) => (i.kind === "skin" ? <SkinArt i={i} h={h} dim={dim} copy={copy} /> : i.kind === "trail" ? <Plume id={i.id} h={h} />
+export const itemArt = (i: Item, h: number, dim?: boolean, handle = "YOU", copy?: Copy) => (i.kind === "skin" ? <SkinArt i={i} h={h} dim={dim} copy={copy} /> : i.kind === "trail" ? <Plume id={i.id} h={h} />
   : i.kind === "flourish" ? <Burst src={FLOURISHES.find((f) => f.id === i.id)?.art ?? ""} /> : <Tag id={i.id} name={handle} w={Math.min(230, h * 2.2)} />);
-const title = (i: Item) => (i.kind === "skin" ? <>{HULL_NAMES[i.hull!]} <em>|</em> {i.name}</> : <>{i.name}</>);
+export const title = (i: Item) => (i.kind === "skin" ? <>{HULL_NAMES[i.hull!]} <em>|</em> {i.name}</> : <>{i.name}</>);
 const kindLabel = (i: Item) => (i.kind === "skin" ? HULL_NAMES[i.hull!] : i.kind === "trail" ? "trail" : i.kind === "tag" ? "name tag" : "flourish");
 
-function Card({ rar, on, locked, name, label, sub, a, onClick, testid, wide }: { rar: Rarity; on?: boolean; locked?: boolean; wide?: boolean; name: ReactNode; label: string; sub: ReactNode; a: ReactNode; onClick?: () => void; testid?: string }) {
+export function Card({ rar, on, locked, name, label, sub, a, onClick, testid, wide }: { rar: Rarity; on?: boolean; locked?: boolean; wide?: boolean; name: ReactNode; label: string; sub: ReactNode; a: ReactNode; onClick?: () => void; testid?: string }) {
   const inner = (
     <>
       <span className="hg-look-art">{a}</span>
@@ -83,7 +84,7 @@ function spares(col: Col | null): Copy[] {
 }
 
 /** One item's copies: serial, burn, pattern, FlightTrak, first edition, whether it trades; equip one or scrap one. */
-function CopyList({ col, item, onEquip, onScrap, busy }: { col: Col | null; item: Item; onEquip: (v: string) => void; onScrap: (uid: string) => void; busy: boolean }) {
+function CopyList({ col, item, onEquip, onScrap, busy, sell }: { col: Col | null; item: Item; onEquip: (v: string) => void; onScrap: (uid: string) => void; busy: boolean; sell?: SellHooks }) {
   const [sure, setSure] = useState<string | null>(null);
   const list = copiesOf(col, item.id), worn = new Set(Object.values(col?.equippedCopy ?? {})), sup = col?.supply?.[item.id] ?? 0;
   const owned = new Set(col?.owned ?? []);
@@ -94,7 +95,7 @@ function CopyList({ col, item, onEquip, onScrap, busy }: { col: Col | null; item
       {!!list.length && (
         <ul className="hgu-copy-rows">
           {list.map((c) => {
-            const g = burnGrade(c.burn), on = worn.has(c.uid);
+            const g = burnGrade(c.burn), on = worn.has(c.uid), listing = sell?.listed(c.uid);
             return (
               <li key={c.uid} className={on ? "on" : ""}>
                 <span className="hgu-copy-art">{itemArt(item, 56, false, "YOU", c)}</span>
@@ -104,8 +105,9 @@ function CopyList({ col, item, onEquip, onScrap, busy }: { col: Col | null; item
                   <span className="hgu-copy-tags">{c.fe && <i className="fe">First edition</i>}{c.trak != null && <i className="trak">FlightTrak</i>}<i>{c.bound ? "Never trades" : "Tradable"}</i></span>
                 </span>
                 <span className="hgu-copy-act">
-                  {on ? <span className="hgu-owned">Flying</span> : <button type="button" className="dsc3-btn dsc3-btn-primary hgu-buy sm" disabled={busy} onClick={() => onEquip(c.uid)} data-testid={`equip-${c.uid}`}>Equip</button>}
-                  {!on && !isStarter(c) && <button type="button" className="dsc3-btn hgu-scrap" disabled={busy} onClick={() => { if (sure !== c.uid) { setSure(c.uid); return; } setSure(null); onScrap(c.uid); }}>{sure === c.uid ? `Scrap for ${DUPE_XP[item.rar]} XP?` : "Scrap"}</button>}
+                  {on ? <span className="hgu-owned">Flying</span> : listing ? null : <button type="button" className="dsc3-btn dsc3-btn-primary hgu-buy sm" disabled={busy} onClick={() => onEquip(c.uid)} data-testid={`equip-${c.uid}`}>Equip</button>}
+                  {sell && !on && !c.bound && !isStarter(c) && <SellControl copy={c} listing={listing} hooks={sell} />}
+                  {!on && !listing && !isStarter(c) && <button type="button" className="dsc3-btn hgu-scrap" disabled={busy} onClick={() => { if (sure !== c.uid) { setSure(c.uid); return; } setSure(null); onScrap(c.uid); }}>{sure === c.uid ? `Scrap for ${DUPE_XP[item.rar]} XP?` : "Scrap"}</button>}
                 </span>
               </li>
             );
@@ -116,7 +118,7 @@ function CopyList({ col, item, onEquip, onScrap, busy }: { col: Col | null; item
   );
 }
 
-export function YourRocket({ col, wallet, handle }: { col: Col | null; wallet: string | null; handle: string }) {
+export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wallet: string | null; handle: string; sell?: SellHooks }) {
   const now = Date.now();
   const owned = useMemo(() => new Set(col?.owned ?? []), [col]);
   const eq = col?.equipped ?? { skin: skinId("bullet", "white-gloss"), trail: trailId("gold"), tag: STARTER_TAG, flourish: "" };
@@ -161,7 +163,7 @@ export function YourRocket({ col, wallet, handle }: { col: Col | null; wallet: s
   const scrap = (uid: string) => { const c = copyById(uid), it = c && itemById(c.item); void act({ op: "scrap", copy: uid }, it ? `Scrapped for ${DUPE_XP[it.rar]} XP.` : ""); };
   const inspect = (id: string) => setInsp((v) => (v === id ? null : id));
   const sub = (i: Item, on: boolean) => { const n = copiesOf(col, i.id).length; return on ? `Flying${n > 1 ? ` · ×${n}` : ""}` : n > 1 ? `×${n} copies` : "Tap to see it"; };
-  const panel = (list: Item[]) => { const it = list.find((i) => i.id === insp); return it ? <CopyList col={col} item={it} busy={busy} onEquip={(v) => wear(it.kind as Slot, v)} onScrap={scrap} /> : null; };
+  const panel = (list: Item[]) => { const it = list.find((i) => i.id === insp); return it ? <CopyList col={col} item={it} busy={busy} sell={sell} onEquip={(v) => wear(it.kind as Slot, v)} onScrap={scrap} /> : null; };
   // trails from the series that are out (later ones stay a surprise), the prestige trail; tags: the 6 plates, the prestige plates you have and the next one
   const trails = ITEMS.filter((i) => i.kind === "trail" && (!!i.prestige || itemOut(i, now)));
   const tags = ITEMS.filter((i) => i.kind === "tag" && (!i.prestige || i.prestige <= prestige + 1));
@@ -172,9 +174,9 @@ export function YourRocket({ col, wallet, handle }: { col: Col | null; wallet: s
   // trade-ups: spare copies grouped by series and rarity
   const groups = useMemo(() => {
     const m = new Map<string, { series: number; rar: Rarity; list: Copy[] }>();
-    for (const c of spares(col)) { const it = itemById(c.item); if (!it || !tradeUpTarget(it.rar)) continue; const k = `${it.series}:${it.rar}`; const g = m.get(k) ?? { series: it.series, rar: it.rar, list: [] }; g.list.push(c); m.set(k, g); }
+    for (const c of spares(col).filter((x) => !sell?.listed(x.uid))) { const it = itemById(c.item); if (!it || !tradeUpTarget(it.rar)) continue; const k = `${it.series}:${it.rar}`; const g = m.get(k) ?? { series: it.series, rar: it.rar, list: [] }; g.list.push(c); m.set(k, g); }
     return [...m.values()].sort((a, b) => a.series - b.series || RARITY_RANK(a.rar) - RARITY_RANK(b.rar));
-  }, [col]);
+  }, [col, sell]);
   const tradeUpGo = async (g: { series: number; rar: Rarity; list: Copy[] }) => {
     if (!wallet || busy) return;
     const ten = [...g.list].sort((a, b) => b.burn - a.burn).slice(0, TRADE_UP_N).map((c) => c.uid);
@@ -443,7 +445,7 @@ export function RocketCard({ col, handle }: { col: Col | null; handle: string })
   const crates = col?.crates?.length ?? 0;
   return (
     <section className="dsc3-panel hg-panel hgu-card" style={{ ["--sw" as string]: SW[eqItem.rar] }} aria-labelledby="hg-looks" data-testid="rocket-card">
-      <header className="hg-panelh"><h2 id="hg-looks">Your rocket</h2><Link href="/rocket">Skins &amp; crates</Link></header>
+      <header className="hg-panelh"><h2 id="hg-looks">Your rocket</h2><Link href="/rocket">All skins</Link></header>
       <div className="hgu-card-body">
         <span className="hgu-card-art"><SkinArt i={eqItem} h={170} copy={copy} /><Plume id={eq.trail} h={90} /></span>
         <div className="hgu-card-tx">
@@ -451,7 +453,7 @@ export function RocketCard({ col, handle }: { col: Col | null; handle: string })
           <b>{title(eqItem)}</b>
           <span>{itemById(eq.trail)?.name ?? "Gold"} trail{copy ? ` · ${copy.serial ? `#${fmt(copy.serial)}` : "Starter"}` : ""}</span>
           <Tag id={eq.tag} name={handle} w={180} />
-          <Link className="dsc3-btn dsc3-btn-primary hgu-buy sm" href={crates ? "/rocket#crates" : "/rocket"} data-testid="rocket-card-open">{crates ? `Open ${crates} ${crates === 1 ? "crate" : "crates"}` : "Change your look"}</Link>
+          <Link className="dsc3-btn dsc3-btn-primary hgu-buy sm" href={crates ? "/market#crates" : "/rocket"} data-testid="rocket-card-open">{crates ? `Open ${crates} ${crates === 1 ? "crate" : "crates"}` : "Change your look"}</Link>
         </div>
       </div>
     </section>

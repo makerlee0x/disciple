@@ -1,8 +1,8 @@
 "use client";
 /**
  * /rocket: your whole collection, off the profile (maker 2026-11-17: "the profile is so freakin busy"). Your rocket (skins,
- * trails, name tags, flourishes, trade up) and your crates. Everything here flies in every mode: duels, Royale and real-coin
- * flights. The profile keeps a small Your rocket card that links here.
+ * trails, name tags, flourishes, trade up, selling a copy) and your trades. Everything here flies in every mode: duels,
+ * Royale and real-coin flights. Crates live on /market. The profile keeps a small Your rocket card that links here.
  */
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -11,7 +11,8 @@ import { defaultUsername } from "@/lib/defaultUsername";
 import { onWallet } from "@/lib/walletState";
 import { useCollection } from "@/lib/collectionClient";
 import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
-import { Crates, YourRocket } from "./Collection";
+import { YourRocket } from "./Collection";
+import { HangarTrades, useSellHooks } from "./Market";
 
 export default function RocketPage() {
   const [wallet, setWallet] = useState<string | null | undefined>(undefined);
@@ -31,8 +32,9 @@ export default function RocketPage() {
     return () => { alive = false; };
   }, [wallet]);
   const { col } = useCollection(wallet || null);
-  // the profile card's "Open crates" button lands on #crates
-  useEffect(() => { if (col && window.location.hash === "#crates") document.getElementById("hg-crates")?.closest("section")?.scrollIntoView({ block: "start" }); }, [col]);
+  const { hooks: sell, mine } = useSellHooks(wallet || null);
+  // the market's "Your trades" link lands on #hg-trades
+  useEffect(() => { if (col && window.location.hash === "#hg-trades") document.getElementById("hg-trades")?.closest("section")?.scrollIntoView({ block: "start" }); }, [col]);
   const handle = me ? `@${me}` : defaultUsername(wallet ?? null);
 
   return (
@@ -48,10 +50,11 @@ export default function RocketPage() {
         <>
           <nav className="hgr-tabs" aria-label="Your rocket">
             <a href="#hg-looks" onClick={(e) => { e.preventDefault(); document.getElementById("hg-looks")?.closest("section")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>Collection</a>
-            <a href="#crates" onClick={(e) => { e.preventDefault(); document.getElementById("hg-crates")?.closest("section")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>Crates{col?.crates?.length ? <i>{col.crates.length}</i> : null}</a>
+            <a href="#hg-trades" onClick={(e) => { e.preventDefault(); document.getElementById("hg-trades")?.closest("section")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>Trades</a>
+            <Link href="/market#crates">Crates{col?.crates?.length ? <i>{col.crates.length}</i> : null}</Link>
           </nav>
-          <YourRocket col={col} wallet={wallet || null} handle={handle} />
-          <Crates col={col} wallet={wallet || null} />
+          <YourRocket col={col} wallet={wallet || null} handle={handle} sell={sell} />
+          <HangarTrades col={col} wallet={wallet || null} mine={mine} />
         </>
       )}
     </div>
