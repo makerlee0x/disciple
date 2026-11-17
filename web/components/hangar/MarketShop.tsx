@@ -352,7 +352,6 @@ export function MarketShop({ wallet, crates }: { wallet: string | null; crates?:
           ))}
         </div>
       </div>
-      <p className="mk-foot">Cosmetics only. Prices set by pilots. Crates can&apos;t be bought.</p>
       {open && <Sheet l={open} rows={rows ?? []} me={wallet} onPick={setSel} onClose={close} />}
     </div>
   );

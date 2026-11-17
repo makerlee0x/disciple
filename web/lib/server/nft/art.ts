@@ -14,7 +14,7 @@ import sharp from "sharp";
 import { list, put } from "@vercel/blob";
 import { kv } from "../kv";
 import { solRpc, solanaConfigured } from "./chain";
-import { DISCIPLE_COLLECTION, DISCIPLE_ROYALTY_BPS, DISCIPLE_SUPPLY, DISCIPLE_SYMBOL, DISCIPLE_TREASURY, NAME_PREFIX, REVEALED_BASE } from "@/lib/nft/config";
+import { DISCIPLE_COLLECTION, DISCIPLE_PAYOUT, DISCIPLE_ROYALTY_BPS, DISCIPLE_SUPPLY, DISCIPLE_SYMBOL, NAME_PREFIX, REVEALED_BASE } from "@/lib/nft/config";
 import drive from "@/lib/nft/driveArt.json";
 import traits from "@/lib/nft/discipleTraits.json";
 
@@ -64,7 +64,7 @@ export function metadataOf(n: number, map: Record<string, string>) {
   return {
     name, symbol: DISCIPLE_SYMBOL, description: `${name} - ${DESC}`, seller_fee_basis_points: DISCIPLE_ROYALTY_BPS,
     image, external_url: "", attributes: attributesOf(n, map).attributes,
-    properties: { files: [{ uri: image, type: "image/webp" }], category: "image", creators: [{ address: DISCIPLE_TREASURY, share: 100 }] },
+    properties: { files: [{ uri: image, type: "image/webp" }], category: "image", creators: [{ address: DISCIPLE_PAYOUT, share: 100 }] },
   };
 }
 

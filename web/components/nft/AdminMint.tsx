@@ -1,7 +1,7 @@
 "use client";
 /**
  * /admin/mint (ADMIN_EMAILS): set up our Candy Machine for the rest of the Disciples drop. maker signs every on-chain step
- * from the collection wallet (DISCIPLE_TREASURY) in his own Solana wallet; nothing here holds a key.
+ * from the wallet that holds the collection's update authority (DfKf… today, maker's EAqv… after the hand-over); nothing here holds a key.
  *  0. Copy maker's original art (Google Drive) into Vercel Blob as WebP, 8 at a time (/api/admin/nft/art).
  *  1. Read which disciples are already minted (Helius, server, by on-chain name); the rest become the machine's items.
  *  2. Create the machine + guards (0.777 SOL to the treasury, 7 per wallet), then its lookup table (a pNFT mint with guards
@@ -14,7 +14,7 @@ import type { Umi } from "@metaplex-foundation/umi";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import { withBase } from "@/lib/base-path";
 import { short } from "@/lib/nft/client";
-import { DISCIPLE_SUPPLY, DISCIPLE_TREASURY, MINT_LIMIT, MINT_PRICE_SOL } from "@/lib/nft/config";
+import { DISCIPLE_PAYOUT, DISCIPLE_SUPPLY, DISCIPLE_TREASURY, MINT_LIMIT, MINT_PRICE_SOL, isDiscipleAuthority } from "@/lib/nft/config";
 import { solConnect, type EvmWallet, type SolWallet } from "@/lib/nft/wallets";
 import type { Line, MachineState } from "@/lib/nft/candy";
 import WalletChooser from "./WalletChooser";
@@ -100,7 +100,7 @@ export default function AdminMint({ configured }: { configured: boolean }) {
       const { makeUmi } = await import("@/lib/nft/umi");
       const u = makeUmi(sw, acc);
       setW({ sw, acc }); setUmi(u);
-      if (acc.address !== DISCIPLE_TREASURY) note(`Connected ${short(acc.address)}. Setup needs ${short(DISCIPLE_TREASURY)}.`);
+      if (!isDiscipleAuthority(acc.address)) note(`Connected ${short(acc.address)}. Setup needs ${short(DISCIPLE_TREASURY)} or ${short(DISCIPLE_PAYOUT)}.`);
       if (lines) { const { machineRentSol } = await import("@/lib/nft/candy"); setRent(await machineRentSol(u, lines.length)); }
     });
   }
@@ -141,7 +141,7 @@ export default function AdminMint({ configured }: { configured: boolean }) {
   });
 
   if (!configured) return <div className="nft-admin"><h1>Mint setup</h1><p className="p5-err">ADMIN_EMAILS isn&apos;t set.</p></div>;
-  const isTreasury = w?.acc.address === DISCIPLE_TREASURY;
+  const isTreasury = isDiscipleAuthority(w?.acc.address);
   const full = !!state && state.itemsLoaded >= state.itemsAvailable;
   const live = !!plan?.candyMachine && plan.candyMachine === cm;
 
@@ -170,7 +170,7 @@ export default function AdminMint({ configured }: { configured: boolean }) {
         </li>
 
         <li className={isTreasury ? "ok" : ""}>
-          <b>2. Connect {short(DISCIPLE_TREASURY)}</b>
+          <b>2. Connect {short(DISCIPLE_TREASURY)} or {short(DISCIPLE_PAYOUT)}</b>
           {w ? <span className="nft-kv">{short(w.acc.address)}{isTreasury ? "" : " (wrong wallet)"}</span> : <WalletChooser chain="sol" busy={!!busy} onPick={(x) => void connect(x)} />}
         </li>
 

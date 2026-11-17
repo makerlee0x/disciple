@@ -1,7 +1,7 @@
 "use client";
 /**
  * Candy Machine v3 calls for the rest of the Disciple drop (maker 2026-11-17: our own machine, same verified collection).
- *  - mintOne: the player's mint on /mint (0.777 SOL to DISCIPLE_TREASURY, 7 per wallet). No bot tax: a guard that fails
+ *  - mintOne: the player's mint on /mint (0.777 SOL to DISCIPLE_PAYOUT, maker's wallet; 7 per wallet). No bot tax: a guard that fails
  *    (limit reached, sold out) fails the whole transaction in the wallet's preview, so nobody pays for a mint they didn't get.
  *  - createMachine / addLines: /admin/mint, signed by maker's wallet (the collection update authority). The machine
  *    holds config lines: name suffix (the disciple's number) + uri suffix ("181.json") under NAME_PREFIX / REVEALED_BASE.
@@ -12,7 +12,7 @@ import { fetchAddressLookupTable, setComputeUnitLimit, setComputeUnitPrice } fro
 import { generateSigner, percentAmount, publicKey, sol, some, transactionBuilder, type Umi } from "@metaplex-foundation/umi";
 import { sendAllAndWait, sendAndWait } from "./umi";
 import {
-  DISCIPLE_COLLECTION, DISCIPLE_ROYALTY_BPS, DISCIPLE_RULE_SET, DISCIPLE_SYMBOL, DISCIPLE_TREASURY,
+  DISCIPLE_COLLECTION, DISCIPLE_PAYOUT, DISCIPLE_ROYALTY_BPS, DISCIPLE_RULE_SET, DISCIPLE_SYMBOL, isDiscipleAuthority,
   MINT_LIMIT, MINT_LIMIT_ID, MINT_PRICE_SOL, NAME_PREFIX, REVEALED_BASE,
 } from "./config";
 
@@ -52,15 +52,15 @@ export async function mintOne(umi: Umi, cm: string, lut: string | null): Promise
       collectionMint: m.collectionMint, collectionUpdateAuthority: m.authority,
       tokenStandard: TokenStandard.ProgrammableNonFungible,
       ...(m.ruleSet.__option === "Some" ? { authorizationRules: m.ruleSet.value } : {}),
-      mintArgs: { solPayment: some({ destination: publicKey(DISCIPLE_TREASURY) }), mintLimit: some({ id: MINT_LIMIT_ID }) },
+      mintArgs: { solPayment: some({ destination: publicKey(DISCIPLE_PAYOUT) }), mintLimit: some({ id: MINT_LIMIT_ID }) },
     }));
   const sig = await sendAndWait(umi, b);
   return { mint: nftMint.publicKey.toString(), sig };
 }
 
-/** Create the machine + guards for `count` items. The connected wallet must be DISCIPLE_TREASURY. */
+/** Create the machine + guards for `count` items. The connected wallet must hold the collection's update authority. */
 export async function createMachine(umi: Umi, count: number): Promise<string> {
-  if (umi.identity.publicKey.toString() !== DISCIPLE_TREASURY) throw new Error(`Connect ${DISCIPLE_TREASURY.slice(0, 4)}…${DISCIPLE_TREASURY.slice(-4)}, the collection's wallet.`);
+  if (!isDiscipleAuthority(umi.identity.publicKey.toString())) throw new Error("Connect the wallet that holds the collection's update authority.");
   const candyMachine = generateSigner(umi);
   const b = await create(umi, {
     candyMachine,
@@ -72,11 +72,11 @@ export async function createMachine(umi: Umi, count: number): Promise<string> {
     symbol: DISCIPLE_SYMBOL,
     maxEditionSupply: 0,
     isMutable: true,
-    creators: [{ address: publicKey(DISCIPLE_TREASURY), verified: true, percentageShare: 100 }],
+    creators: [{ address: publicKey(DISCIPLE_PAYOUT), verified: false, percentageShare: 100 }],
     itemsAvailable: count,
     configLineSettings: some({ prefixName: NAME_PREFIX, nameLength: NAME_LEN, prefixUri: REVEALED_BASE, uriLength: URI_LEN, isSequential: false }),
     guards: {
-      solPayment: some({ lamports: sol(MINT_PRICE_SOL), destination: publicKey(DISCIPLE_TREASURY) }),
+      solPayment: some({ lamports: sol(MINT_PRICE_SOL), destination: publicKey(DISCIPLE_PAYOUT) }),
       mintLimit: some({ id: MINT_LIMIT_ID, limit: MINT_LIMIT }),
     },
   });
@@ -87,7 +87,7 @@ export async function createMachine(umi: Umi, count: number): Promise<string> {
 /** Lookup table with the machine's fixed accounts, so a pNFT mint fits in one transaction. Resolves its address. */
 export async function createLut(umi: Umi, cm: string): Promise<string> {
   const slot = await umi.rpc.getSlot({ commitment: "finalized" });
-  const [b, lut] = await createLutForCandyMachine(umi, slot, publicKey(cm), publicKey(DISCIPLE_TREASURY));
+  const [b, lut] = await createLutForCandyMachine(umi, slot, publicKey(cm), umi.identity.publicKey);
   await sendAndWait(umi, b);
   return lut.publicKey.toString();
 }

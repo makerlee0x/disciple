@@ -151,7 +151,6 @@
 
 .mk-empty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 56px 20px; border-radius: 18px; border: 1px dashed #2E323A; }
 .mk-empty b { font: 800 30px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
-.mk-foot { margin: 0; font-size: 12px; color: var(--dsc-muted); text-align: center; }
 .mk-app { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 60px 20px; text-align: center; }
 .mk-app b { font: italic 900 40px / 1 var(--dsc-font-game); text-transform: uppercase; }
 .mk-app p { margin: 0; font: 500 14px var(--dsc-font-mono); color: var(--dsc3-light-champagne); }

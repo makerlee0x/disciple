@@ -3,7 +3,8 @@
  *
  * Solana: "disciples of $JESUS", 777 Legacy pNFTs (Token Metadata), first 175 minted on LaunchMyNFT
  * (launchmynft.io/sol/10942, their own program, not Metaplex). The rest mint from our own Metaplex Candy Machine v3
- * into the SAME verified collection: maker's wallet DISCIPLE_TREASURY is the collection's update authority.
+ * into the SAME verified collection. The collection's update authority is DISCIPLE_TREASURY (a dev holds it, 2026-11-17);
+ * the plan is for it to move to maker's wallet DISCIPLE_PAYOUT, so setup accepts either (DISCIPLE_AUTHORITIES).
  * LaunchMyNFT's unrevealed mints point at METADATA_BASE + `${i}.json` (placeholder art, each file names its disciple).
  * Our machine mints revealed: REVEALED_BASE + `${n}.json` = disciple #n (n = 0..776), copied from maker's originals
  * into Vercel Blob by /admin/mint (lib/server/nft/art) and served on our domain by app/nft/d/[file].
@@ -11,8 +12,13 @@
  * Ethereum: "The Twelve" founder passes (ERC-721 FOUNDER_CONTRACT), traded on OpenSea (collection slug FOUNDER_SLUG).
  */
 export const DISCIPLE_COLLECTION = "CVziNj1WpFYQAJeD5ufvyzDzTQP6eHv8bcLcMC8iAsTw";
-/** maker's wallet: collection update authority, creator (100%), and where mint SOL goes. */
+/** The drop's deployer wallet: collection update authority today (held by a dev, not maker). */
 export const DISCIPLE_TREASURY = "DfKfLZiTBzScaJRHJ4ZjjkhWAeVA8TV6eX9UuYqZakq1";
+/** maker's wallet (2026-11-17): where mint SOL goes, and the 100% royalty creator (same as on the LaunchMyNFT disciples). */
+export const DISCIPLE_PAYOUT = "EAqvjRcS72ApaPf8JBnS5og5Pwwae2EwEHVKyvBFgyiw";
+/** Wallets that may sign /admin/mint setup: whichever holds the collection's update authority. */
+export const DISCIPLE_AUTHORITIES = [DISCIPLE_TREASURY, DISCIPLE_PAYOUT] as const;
+export const isDiscipleAuthority = (a: string | null | undefined) => !!a && (DISCIPLE_AUTHORITIES as readonly string[]).includes(a);
 /** Metaplex default pNFT rule set, the one the first 175 use. */
 export const DISCIPLE_RULE_SET = "eBJLFYPxJmMGKuFwpDWkzxZeUrad92kZRC5BJLpzyT9";
 export const DISCIPLE_SUPPLY = 777;
