@@ -535,6 +535,14 @@ textarea.he-ta { min-height: 76px; padding: 12px 14px; resize: none; display: bl
 .wb-retry:focus-visible { box-shadow: var(--dsc-glow-focus-ring); border-radius: 4px; }
 .wb-chev { color: #9095A0; flex: none; margin-left: -2px; }
 .wb-pilot[aria-expanded="true"] .wb-chev { transform: rotate(180deg); }
+/* pilot pill (maker 2026-11-17): plain picture, level progress around the pill border, level number as a chip */
+.wb-pilot { position: relative; }
+.wb-pfp { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none; display: block; }
+.wb-prog { position: absolute; inset: -1px; pointer-events: none; overflow: visible; }
+.wb-prog path { transition: stroke-dasharray 600ms var(--dsc3-ease); }
+.wb-lv { flex: none; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; display: grid; place-items: center;
+  font: 800 13px / 1 var(--dsc-font-game); color: #0B0C0E; background: var(--dsc3-light-gold); }
+.wb-pilot .wb-chev { order: 1; }
 .wb-pilot > span:nth-child(2) { font: 600 14px / 1 var(--dsc-font-ui); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .am-scrim { display: none; }
