@@ -37,13 +37,19 @@ export async function startDaily(id: number): Promise<{ ok: true; seed: number; 
     return { ok: true, seed: j.seed, ticket: String(j.ticket || ""), already: !!j.already };
   } catch { return { ok: false, error: "Couldn't reach the board." }; }
 }
+/** a dropped connection or a server hiccup (5xx, no JSON) is tried again twice before the result screen shows RETRY */
 export async function submitDaily(id: number, inputs: PlayerInput[], ticket: string): Promise<{ ok: true; verdict: DailyVerdict } | { ok: false; error: string }> {
-  try {
-    const res = await fetch("/api/daily", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, device: deviceId(), inputs, ticket }) });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok) return { ok: false, error: typeof j.error === "string" ? j.error : "Couldn't reach the board." };
-    return { ok: true, verdict: j as DailyVerdict };
-  } catch { return { ok: false, error: "Couldn't reach the board." }; }
+  const body = JSON.stringify({ id, device: deviceId(), inputs, ticket });
+  for (let a = 0; ; a++) {
+    try {
+      const res = await fetch("/api/daily", { method: "POST", headers: { "content-type": "application/json" }, body });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok) return { ok: true, verdict: j as DailyVerdict };
+      if (typeof j.error === "string") return { ok: false, error: j.error };
+      if (res.status < 500 || a >= 2) return { ok: false, error: "Couldn't post your score." };
+    } catch { if (a >= 2) return { ok: false, error: "Couldn't post your score." }; }
+    await new Promise((r) => setTimeout(r, 1200 * (a + 1)));
+  }
 }
 /** the board's latest rank for a run this device flew (the rank moves as more pilots finish) */
 export async function refreshRank(id: number, runId: string): Promise<{ rank: number; count: number; topPct: number; boarded: boolean } | null> {

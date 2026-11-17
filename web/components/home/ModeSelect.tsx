@@ -2,7 +2,7 @@
 /**
  * "Pick a mode" (lobby canvas board "Game modes", option A, maker picked 2026-11-14): the poster row at the top of the
  * lobby. Tall poster cards (Grok art plates, PR #380, web/public/art/modes; no sprite outside flight): Host a launch, Live
- * flights, Trading duel and Turbo royale (only while the Turbo flag is on, see lib/turbo/flag.ts) and Free play.
+ * flights, Trading duel and Turbo royale (Turbo is on for everyone since 2026-11-16, see lib/turbo/flag.ts) and Free play.
  * Carousel (maker 2026-11-15): one sideways-scrolling, snapping row on every screen size, and a click or tap anywhere on a
  * card opens that mode straight away (no focus step first). Desktop gets ‹ › buttons when the row overflows; phones get
  * dots. On phones the row opens centred on the last mode played (this browser), else Live flights signed in and Free play signed out.
@@ -10,17 +10,16 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { withBase } from "@/lib/base-path";
-import { DUEL_HREF } from "@/lib/features";
+import { DUEL_HREF, FLIGHTS_HREF } from "@/lib/features";
 import { isTurboEnabled } from "@/lib/turbo/flag";
 import s from "./modeSelect.module.css";
-import { playSfx } from "@/lib/game/sfx";
+import { appFeel, playSfx } from "@/lib/game/sfx";
 
 type ModeId = "launch" | "live" | "duel" | "royale" | "free";
 type Mode = { id: ModeId; title: [string, string]; sub: string; tag: string; tone: string; href: string; art: string; pos: string };
 
 export const MODE_COPY = {
   title: "Pick a mode",
-  hint: "Scroll for more · click a card to play",
   play: "Play",
 } as const;
 
@@ -29,7 +28,7 @@ const LAST = "disciple.lobby.mode";
 function modes(flying: number, duel: boolean): Mode[] {
   const all: Mode[] = [
     { id: "launch", title: ["Host a", "launch"], sub: "Build a rocket. The crew flies it up.", tag: "Real coins", tone: "#F3DFA8", href: "/create", art: "/art/modes/launch.webp", pos: "50% 30%" },
-    { id: "live", title: ["Live", "flights"], sub: "Jump on a rocket that's already climbing.", tag: flying > 0 ? `${flying} flying` : "Live", tone: "#5FF0A0", href: "/play", art: "/art/modes/live.webp", pos: "50% 30%" },
+    { id: "live", title: ["Live", "flights"], sub: "Jump on a rocket that's already climbing.", tag: flying > 0 ? `${flying} flying` : "Live", tone: "#5FF0A0", href: FLIGHTS_HREF, art: "/art/modes/live.webp", pos: "50% 30%" },
     { id: "duel", title: ["Trading", "duel"], sub: "1v1. One minute. Most profit wins.", tag: "Ranked", tone: "#FF9CC4", href: DUEL_HREF, art: "/art/modes/duel.webp", pos: "50% 30%" },
     { id: "royale", title: ["Turbo", "royale"], sub: "12 pilots. Loot leverage. Last one flying wins.", tag: "Practice", tone: "#F2C14E", href: "/turbo/royale", art: "/art/modes/last-pilot.webp", pos: "50% 30%" },
     { id: "free", title: ["Free", "play"], sub: "No cash. Today's daily flight.", tag: "Free", tone: "#8FE3FF", href: "/flight/sim", art: "/art/modes/free.webp", pos: "50% 30%" },
@@ -86,7 +85,10 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
   };
   useEffect(() => {
     window.addEventListener("resize", onScroll);
-    return () => { window.removeEventListener("resize", onScroll); cancelAnimationFrame(raf.current); };
+    // the lobby can mount hidden (HomeGate) and show later: measure again whenever the row gets its real size
+    const t = track.current, ro = t && typeof ResizeObserver !== "undefined" ? new ResizeObserver(onScroll) : null;
+    if (t && ro) ro.observe(t);
+    return () => { window.removeEventListener("resize", onScroll); ro?.disconnect(); cancelAnimationFrame(raf.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -111,11 +113,6 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
     <section className={s.wrap} aria-labelledby="modes-title" aria-roledescription="carousel" data-testid="mode-select">
       <header className={s.head}>
         <h2 id="modes-title" className={s.title}>{MODE_COPY.title}</h2>
-        <span className={s.hint}>{MODE_COPY.hint}</span>
-        <span className={s.arrows}>
-          <button type="button" className={s.arrow} onClick={() => { moved.current = true; step(-1); }} disabled={!edge.prev} aria-label="Previous modes" data-testid="modes-prev">‹</button>
-          <button type="button" className={s.arrow} onClick={() => { moved.current = true; step(1); }} disabled={!edge.next} aria-label="More modes" data-testid="modes-next">›</button>
-        </span>
       </header>
       <div className={s.rail} data-prev={edge.prev ? "1" : undefined} data-next={edge.next ? "1" : undefined}>
         <div className={s.row} ref={track} onKeyDown={onKey} onScroll={onScroll} onPointerDown={() => { moved.current = true; }} onWheel={() => { moved.current = true; }}>
@@ -129,7 +126,7 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
               aria-label={`${m.title.join(" ")}. ${m.sub}`}
               data-testid={`mode-${m.id}`}
               data-sfx="none"
-              onClick={() => { playSfx("mode_select"); go(m); }}
+              onClick={() => { if (appFeel()) playSfx("mode_select"); go(m); }}
             >
               {/* every card can be on the first screen, so none is lazy; the starting card's art is fetched first */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -145,6 +142,13 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
           ))}
         </div>
       </div>
+      {/* ‹ › centred under the row (maker 2026-11-16: no "scroll for more" hint, people know a carousel); only when it overflows */}
+      {(edge.prev || edge.next) && (
+        <div className={s.arrows}>
+          <button type="button" className={s.arrow} onClick={() => { moved.current = true; step(-1); }} disabled={!edge.prev} aria-label="Previous modes" data-testid="modes-prev">‹</button>
+          <button type="button" className={s.arrow} onClick={() => { moved.current = true; step(1); }} disabled={!edge.next} aria-label="More modes" data-testid="modes-next">›</button>
+        </div>
+      )}
       <div className={s.dots} aria-hidden>{list.map((m) => <i key={m.id} className={m.id === seen ? s.dotOn : undefined} />)}</div>
     </section>
   );

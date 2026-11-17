@@ -1090,6 +1090,16 @@ function wingStep(dt){ if(!S.wing.size) return;
   for(const [k,t] of S.wingRecent) if(S.t-t>WING_TTL) S.wingRecent.delete(k); }
 function wingExtra(){ let n=0; for(const k of S.wingRecent.keys()) if(!S.wing.has(k)) n++; return n; }
 const WING_SEG=3;
+/* @bot-hulls (maker 2026-11-16: "all the rockets look the same, but they're bots"): in Free play every bot flies its own
+   hull + rival skin from public/turbo/hulls (8 hulls x 10 skins, the Duel / Royale bot art), picked from its name so a bot
+   keeps the same ship all flight. Real coins keep the chrome rocket (their looks come from the Hangar). */
+const BOT_HULLS=['bullet','hauler','needle','pulp','ring-tail','shuttle','twin-booster','wedge'];
+const BOT_SKINS=['candy-pink','carbon','chrome-pink-stripe','gunmetal-pink','matte-black','navy-chevron','oilslick','pearl-mint','scorched','titanium-ice'];
+const BOT_IMG={};
+function botHullImg(k){ if(!(source&&source.isSim)) return null; let h=0; for(let i=0;i<k.length;i++) h=(h*131+k.charCodeAt(i))>>>0;
+  const id=BOT_HULLS[h%BOT_HULLS.length]+'--'+BOT_SKINS[Math.floor(h/BOT_HULLS.length)%BOT_SKINS.length];
+  let im=BOT_IMG[id]; if(!im){ im=new Image(); im.decoding='async'; im.onerror=()=>{ im.bad=true; }; im.src=(window.__DISCIPLE_BASE_PATH__||'')+'/turbo/hulls/hull-'+id+'.webp'; BOT_IMG[id]=im; }
+  return im.complete&&!im.bad&&im.naturalWidth?im:null; }
 function drawWingmen(){ if(PH_THR()) return;   /* phone throttle layout (maker 2026-11-14, "yes, all of it"): no other ships in the phone sky */
   if(!S.wing.size&&!wingExtra()) return; const im=IMG.rocket, ok=im&&im.complete&&!im.bad&&im.naturalWidth;
   ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round';
@@ -1104,7 +1114,7 @@ function drawWingmen(){ if(PH_THR()) return;   /* phone throttle layout (maker 2
     ctx.globalCompositeOperation='lighter'; const g=ctx.createLinearGradient(0,0,0,fl); g.addColorStop(0,'rgba(255,255,255,.95)'); g.addColorStop(0.35,`rgba(${c},.9)`); g.addColorStop(1,`rgba(${c},0)`);
     ctx.fillStyle=g; ctx.beginPath(); ctx.moveTo(-fw,0); ctx.quadraticCurveTo(-fw*0.7,fl*0.5,0,fl); ctx.quadraticCurveTo(fw*0.7,fl*0.5,fw,0); ctx.closePath(); ctx.fill();
     ctx.globalCompositeOperation='source-over';
-    if(ok){ const iw=h*im.naturalWidth/im.naturalHeight; ctx.globalAlpha=0.92; ctx.drawImage(im,-iw/2,-h*0.96,iw,h); ctx.globalAlpha=1; }
+    { const bi=botHullImg(w.k), hh=bi?h*1.15:h; if(bi||ok){ const pic=bi||im, iw=hh*pic.naturalWidth/pic.naturalHeight; ctx.globalAlpha=bi?1:0.92; ctx.drawImage(pic,-iw/2,-hh*0.96,iw,hh); ctx.globalAlpha=1; } }
     ctx.restore();
     const thrL=window.__phoneHud&&window.__phoneHud.thr, tag0=S.t-w.tagT<1.6?w.tag:'';   /* phone throttle layout (maker: "the mockup looks way cleaner"): a wingman is named only while it trades */
     if(!CLEAN&&(!thrL||tag0||w.peel!=null)){ const tag=tag0, lab=w.peel!=null?nameOf(w.trader)+' · DUMPING':nameOf(w.trader)+(tag?' · '+tag:'');
@@ -1879,7 +1889,7 @@ function drawLevels(){
 
 function drawRocket(dt){
   S.calmK+=((S.calm?1:0)-S.calmK)*Math.min(1,(dt||0.016)*2.5);   // @calm: ease the zoom in and out
-  const im=IMG.rocket, h=150*(1+(CALM_ZOOM-1)*S.calmK), w=im.naturalWidth? h*im.naturalWidth/im.naturalHeight : 55;
+  const hl=hullOn(), im=hl?HULL.img:IMG.rocket, h=150*(1+(CALM_ZOOM-1)*S.calmK)*(hl?HULL.k:1), w=im.naturalWidth? h*im.naturalWidth/im.naturalHeight : 55;
   // (x,y) = nozzle / aft pivot — trail tip + rotation origin. Nose leads ahead of this point.
   const [x,y]=nozzleXY();
   const NOZZLE_FROM_TOP = 0.96; // fraction of sprite height: engine sits just above the bottom edge
@@ -1954,10 +1964,11 @@ function rimSprite(RB,ow,oh,sky){ const R=rimSprite, key=ow+'x'+oh+'|'+RB.key+'|
 /* Rocket base (sprite + token decal + alpha threshold) and its glow are rebuilt only when the size or
    decal changes (and during the 300 ms decal cross-fade) — previously getImageData ran every frame. */
 function rocketSprite(im,ow,oh){ const R=rocketSprite, dec=window.__rocketDecal, has=!!(dec&&dec.canvas);
-  const fa=has?clamp((performance.now()-dec.t0)/300,0,1):0, key=ow+'x'+oh+'|'+(has?dec.t0+':'+fa.toFixed(2):'-')+'|'+(LOADOUT?LOADOUT.key:'');
+  const hl=hullOn()&&im===HULL.img, fa=has?clamp((performance.now()-dec.t0)/300,0,1):0, key=ow+'x'+oh+'|'+(has?dec.t0+':'+fa.toFixed(2):'-')+'|'+(hl?'hull:'+HULL.key:(LOADOUT?LOADOUT.key:''));
   if(R.key===key) return R;
   const base=R.base||(R.base=document.createElement('canvas')); base.width=ow; base.height=oh; const o=base.getContext('2d');
-  o.drawImage(im,0,0,ow,oh); if(has){ o.globalAlpha=fa; o.drawImage(dec.canvas,0,0,ow,oh); o.globalAlpha=1; } if(LOADOUT) loadoutPaint(o,im,ow,oh,has?dec.canvas:null);
+  if(hl) hullPaint(o,ow,oh,has&&!dec.fallback?dec.canvas:null,fa);
+  else { o.drawImage(im,0,0,ow,oh); if(has){ o.globalAlpha=fa; o.drawImage(dec.canvas,0,0,ow,oh); o.globalAlpha=1; } if(LOADOUT) loadoutPaint(o,im,ow,oh,has?dec.canvas:null); }
   try{ const d=o.getImageData(0,0,ow,oh), px=d.data; for(let i=3;i<px.length;i+=4) if(px[i]<64) px[i]=0; o.putImageData(d,0,0); }catch(_){}
   const P=R.pad=24, gl=R.glow||(R.glow=document.createElement('canvas')); gl.width=ow+2*P; gl.height=oh+2*P; const g=gl.getContext('2d');
   g.shadowColor='rgba(200,220,255,.8)'; g.shadowBlur=24*W/Math.max(1,cv.width)*1.4; g.drawImage(base,P,P);
@@ -3423,6 +3434,22 @@ function drawChartMap(){
   const st=CHART_STYLE; if(C.at<0||S.t-C.at>=1/st.hz||S.t<C.at){ const dt=C.at<0||S.t<C.at?0:S.t-C.at; C.at=S.t; redrawChart(dt); }   // cached: redrawn at st.hz (sim time), blitted every frame
   const r=chartRect(); if(r.off) return; ctx.save(); ctx.globalAlpha=st.alpha; ctx.drawImage(C.cv,r.x,r.y); ctx.restore();
 }
+/* ---- coin look (lib/coinLook; cosmetic only): the Hangar skin + trail the coin's host picked at launch. The page calls
+   __flight.setHull({src, aspect, badge:[x,y,r], rgb, filter, key}) once the coin's look loads; null = the chrome rocket.
+   src null with rgb = chrome rocket, trail colour only. The token badge is cut from the decal canvas (chrome roundel at
+   lib/decal MID .5/.47/.2) and painted on the hull's badge spot with a gold rim. */
+var HULL=null;
+function hullOn(){ return !!(HULL&&HULL.img&&HULL.img.complete&&HULL.img.naturalWidth&&!HULL.bad); }
+function setHull(h){ if(!h||typeof h!=='object'){ HULL=null; return null; }
+  const ok=u=>typeof u==='string'&&/^(https:\/\/|\/)[\w\-./%:]+\.(webp|png)$/i.test(u), rgb=typeof h.rgb==='string'&&/^\d{1,3},\d{1,3},\d{1,3}$/.test(h.rgb)?h.rgb:null;
+  const b=Array.isArray(h.badge)&&h.badge.length===3&&h.badge.every(isFinite)?h.badge.map(Number):[0.5,0.4,0.14], a=clamp(+h.aspect||0.45,0.2,1.5);
+  HULL={key:String(h.key||h.src||'')+'|'+(h.filter||''), badge:b, rgb, k:Math.min(1,Math.sqrt(0.45/a)), filter:typeof h.filter==='string'&&/^[\w\s().,-]{0,80}$/.test(h.filter)?h.filter:'', img:null, bad:false};
+  if(ok(h.src)){ const i=new Image(); i.onerror=()=>{ if(HULL&&HULL.img===i) HULL.bad=true; }; i.src=h.src; HULL.img=i; }
+  return {key:HULL.key}; }
+function hullPaint(o,ow,oh,dec,fa){ const H=HULL; if(H.filter) o.filter=H.filter; o.drawImage(H.img,0,0,ow,oh); o.filter='none';
+  if(!dec) return; const [bx,by,br]=H.badge, cx=ow*bx, cy=oh*by, r=ow*br, dw=dec.width, dh=dec.height, sr=dw*0.2*1.05;
+  o.save(); o.globalAlpha=fa; o.beginPath(); o.arc(cx,cy,r,0,Math.PI*2); o.clip(); o.drawImage(dec,dw*0.5-sr,dh*0.47-sr,2*sr,2*sr,cx-r,cy-r,2*r,2*r); o.restore();
+  o.save(); o.globalAlpha=0.9*fa; o.strokeStyle='#F2C14E'; o.lineWidth=Math.max(1,r*0.12); o.beginPath(); o.arc(cx,cy,r,0,Math.PI*2); o.stroke(); o.restore(); }
 /* ---- rocket loadout (cosmetic only): skin tint, thruster flame colour/shape, nose coin. Ids = SITE's rocket upgrades
    (lib/rocketSkin.ts SKINS / THRUSTERS / COINS, embedded via the generated FLIGHT_COSMETICS block). Unknown ids → defaults. */
 var LOADOUT=null;
@@ -3460,8 +3487,12 @@ function drawAccessory(w,h,pivotY){ const im=ACC.im; if(!im||ACC.state!=='ready'
     const aw=w*0.6, ah=aw*ih/iw, ny=-pivotY+h*ACC_NOSE; ctx.drawImage(im,-aw/2,ny-ah,aw,ah); }catch(_){} }
 function accessoryStatus(){ return {id:ACC.id,state:ACC.state}; }
 const hexRgb=h=>{ const n=parseInt(String(h).slice(1),16); return [(n>>16)&255,(n>>8)&255,n&255].join(','); };
-function thrusterSprites(forId){ const id=forId||(LOADOUT?LOADOUT.thruster:'stock'), R=thrusterSprites, c=R.c||(R.c={});
+function thrusterSprites(forId){ const id=forId||(HULL&&HULL.rgb?'trail:'+HULL.rgb:(LOADOUT?LOADOUT.thruster:'stock')), R=thrusterSprites, c=R.c||(R.c={});
   if(c[id]) return c[id];
+  if(id.startsWith('trail:')){ const fl=id.slice(6), co='255,246,228';   /* a coin look's trail: gold-white core, the trail's colour outside */
+    return (c[id]={hot:softDot(co), cold:softDot(fl), l:1.05, w:1,
+      fire:radialSprite('fire-'+id,[[0,`rgba(${co},1)`],[0.25,`rgba(${co},1)`],[0.55,`rgba(${fl},.8)`],[0.8,`rgba(${fl},.45)`],[1,`rgba(${fl},0)`]],128),
+      core:radialSprite('core-'+id,[[0,`rgba(${co},1)`],[1,`rgba(${fl},0)`]],128)}); }
   if(id==='stock') return (c[id]={hot:softDot('255,240,200'),cold:softDot('140,190,255'),fire:SPR.get('fire'),core:SPR.get('core'),l:1,w:1});
   const t=FLIGHT_COSMETICS.thrusters.find(x=>x.id===id), co=hexRgb(t.core), fl=hexRgb(t.flame), sh=THR_SHAPE[id]||[1,1];
   return (c[id]={hot:softDot(co), cold:softDot(fl), l:sh[0], w:sh[1],
@@ -3557,7 +3588,7 @@ function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){
   else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
   S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
 window.__flightOrbit=()=>startOrbitFx();   // preview / test hook for the graduation set piece
-window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,setFlares,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>{ if(!ALL_PLATES){ ALL_PLATES=true; pumpAssets(); } return loaded>=names.length&&ACC.state!=='loading'; },accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,setFlares,setHull,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>{ if(!ALL_PLATES){ ALL_PLATES=true; pumpAssets(); } return loaded>=names.length&&ACC.state!=='loading'; },accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 /* @boot-ammo — announce the presets + mode once this run's listeners are live. TradeBridge's mount-time ammo-query
    usually fires BEFORE this script loads (FlightCanvas fetches /replay.json first) and AMMO_TIERS is null (no tier

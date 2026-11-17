@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { withBase } from "@/lib/base-path";
 import s from "./gate.module.css";
 
-export default function TurboGate() {
+export default function TurboGate({ duelOnly = false }: { duelOnly?: boolean } = {}) {
   const [pw, setPw] = useState("");
   const [state, setState] = useState<"idle" | "busy" | "wrong" | "slow">("idle");
   // A friend's duel link (/turbo/duel?c=CODE) skips the password: /api/turbo/invite checks the code and lets them in
@@ -16,6 +16,8 @@ export default function TurboGate() {
     if (q.get("closed") === "1") { setClosed(true); return; }
     const c = q.get("c");
     if (c && /\/turbo\/duel\/?$/.test(location.pathname)) location.replace(withBase(`/api/turbo/invite?c=${encodeURIComponent(c)}`));
+    // the duel-only demo page (/duel): same friend-link pass, back to /duel
+    else if (c && /\/duel\/?$/.test(location.pathname)) location.replace(withBase(`/api/turbo/invite?c=${encodeURIComponent(c)}&to=duel`));
   }, []);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +37,7 @@ export default function TurboGate() {
   return (
     <main className={s.page} data-testid="turbo-gate">
       <form className={s.card} onSubmit={submit}>
-        <span className={s.word}>TURBO</span>
+        <span className={s.word}>{duelOnly ? "TRADING DUEL" : "TURBO"}</span>
         <p className={s.lead}>{closed ? "That duel link has closed. Ask your friend for a fresh one, or enter the password." : "Early access. Enter the password to play."}</p>
         <input className={s.input} type="password" autoFocus autoComplete="current-password" aria-label="Password" placeholder="Password"
           value={pw} onChange={(e) => { setPw(e.target.value); if (state !== "busy") setState("idle"); }} data-testid="turbo-gate-input" />

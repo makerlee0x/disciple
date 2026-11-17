@@ -8,9 +8,18 @@
  * Every sound runs on one bus at the Sound effects level from Settings (lib/game/settings, `sfx`), so turning it off there
  * silences all of it. Nothing loads until the first sound, and the shared AudioContext (lib/game/audio) resumes on a tap.
  * The Duel and Royale engines (public/turbo/…) carry their own copy of this player because they run outside React.
+ *
+ * Website vs iPhone app (maker, 2026-11-16): the engine hum and the button/tab/sheet clicks are for the app only. On the
+ * website they stay quiet (appFeel() is false): startLoop("engine_loop") is a silent handle and AppSounds skips the taps.
  */
 import { getAudioContext, resumeAudio } from "./audio";
 import { audioLevel } from "./settings";
+import { isNativeApp } from "../native";
+
+/** True inside the iPhone app, where the engine hum and the UI clicks play. The website skips them. */
+export const appFeel = () => isNativeApp();
+/** Loops that only play in the app. */
+const APP_ONLY_LOOPS = new Set(["engine_loop"]);
 
 const SFX = "/audio/sfx/", AMB = "/audio/amb/";
 /** Keys with more than one take: the file names are <key>_01, <key>_02, … */
@@ -92,6 +101,7 @@ export type LoopHandle = { set(vol: number, rate?: number): void; stop(): void }
 
 /** A held loop from sfx/loops-wav (gapless). Starts silent; set() fades it to a level. */
 export function startLoop(name: keyof typeof LOOPS | string): LoopHandle {
+  if (APP_ONLY_LOOPS.has(name) && !appFeel()) return { set() {}, stop() {} };
   const ac = ctx();
   let src: AudioBufferSourceNode | null = null, g: GainNode | null = null, dead = false, want = 0, rate = 1;
   if (ac && bus) {

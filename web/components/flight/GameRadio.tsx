@@ -27,21 +27,19 @@ import { HUD } from "@/lib/game/hudStyle";
    Pilot (board C, 2026-11-14): a CINEMATIC / HOUSE pill in the top bar, left of the ☰ menu (PILOT / PRO too when lib/features PRO_HUD_ENABLED); click it for the full controls. Pro: bottom left. R plays / pauses (not while typing, not when bound to a trade). */
 const DESK: React.CSSProperties = { width: 300, padding: 0, borderRadius: 12, background: HUD.glass, border: `1px solid ${HUD.border}`, color: HUD.text, fontFamily: HUD.ui };
 
-const GOLD = "#ffe7a3";
-const INK = "#e8ecff";
-const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 const PANEL: React.CSSProperties = {
   position: "fixed",
   right: 16,
   bottom: 16,
   zIndex: 36,
-  width: 180,
-  padding: "3px 5px 4px",
-  borderRadius: 7,
-  background: "rgba(8,10,28,.92)",
-  border: "1px solid rgba(255,231,163,.35)",
-  color: INK,
-  fontFamily: MONO,
+  width: 232,
+  padding: "10px 12px 12px",
+  borderRadius: 16,
+  background: HUD.glass,
+  backdropFilter: "blur(6px)",
+  border: `1px solid ${HUD.border}`,
+  color: HUD.text,
+  fontFamily: HUD.ui,
   boxSizing: "border-box",
   pointerEvents: "auto",
 };
@@ -51,8 +49,12 @@ const BTN: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  color: GOLD,
+  color: HUD.champagne,
   lineHeight: 0,
+  width: 34,
+  height: 34,
+  borderRadius: 10,
+  boxSizing: "border-box",
 };
 const PILL: React.CSSProperties = {
   all: "unset",
@@ -61,19 +63,19 @@ const PILL: React.CSSProperties = {
   right: 16,
   bottom: 16,
   zIndex: 36,
-  padding: "2px 6px",
-  minHeight: 32,   // phones: the RADIO pill is a thumb target (mobile plan)
+  padding: "0 12px",
+  minHeight: 36,   // phones: the RADIO pill is a thumb target (mobile plan)
   display: "inline-flex",
   alignItems: "center",
   boxSizing: "border-box",
-  borderRadius: 6,
-  background: "rgba(8,10,28,.86)",
-  border: "1px solid rgba(255,231,163,.45)",
-  color: GOLD,
-  fontFamily: MONO,
-  fontSize: 10,
+  borderRadius: 999,
+  background: HUD.glass,
+  border: `1px solid ${HUD.border}`,
+  color: HUD.champagne,
+  fontFamily: HUD.game,
+  fontSize: 14,
   fontWeight: 700,
-  letterSpacing: ".06em",
+  letterSpacing: ".08em",
   pointerEvents: "auto",
 };
 
@@ -222,10 +224,10 @@ export default function GameRadio() {
     <>
       <style>{`
         [data-testid="radio-volume"] { -webkit-appearance: none; appearance: none; background: transparent; }
-        [data-testid="radio-volume"]::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: linear-gradient(to right, #ffe7a3 0%, #ffe7a3 var(--radio-vol, 0%), rgba(255,231,163,.28) var(--radio-vol, 0%), rgba(255,231,163,.28) 100%); }
-        [data-testid="radio-volume"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 9px; height: 9px; margin-top: -3px; border-radius: 50%; background: #ffe7a3; border: 0; }
-        [data-testid="radio-volume"]::-moz-range-track { height: 3px; border-radius: 2px; background: linear-gradient(to right, #ffe7a3 0%, #ffe7a3 var(--radio-vol, 0%), rgba(255,231,163,.28) var(--radio-vol, 0%), rgba(255,231,163,.28) 100%); }
-        [data-testid="radio-volume"]::-moz-range-thumb { width: 9px; height: 9px; border-radius: 50%; background: #ffe7a3; border: 0; }
+        [data-testid="radio-volume"]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, #F3DFA8 0%, #F3DFA8 var(--radio-vol, 0%), rgba(255,255,255,.14) var(--radio-vol, 0%), rgba(255,255,255,.14) 100%); }
+        [data-testid="radio-volume"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -5px; border-radius: 50%; background: #F3DFA8; border: 0; }
+        [data-testid="radio-volume"]::-moz-range-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, #F3DFA8 0%, #F3DFA8 var(--radio-vol, 0%), rgba(255,255,255,.14) var(--radio-vol, 0%), rgba(255,255,255,.14) 100%); }
+        [data-testid="radio-volume"]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #F3DFA8; border: 0; }
       `}</style>
 
       <div
@@ -251,7 +253,7 @@ export default function GameRadio() {
           <span aria-hidden="true" style={{ font: `700 12px ${HUD.game}`, color: HUD.dim }}>R</span>
         </button>}
         <div style={{ display: phone || expanded ? "block" : "none", padding: phone ? 0 : "0 12px 10px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2, minHeight: 22 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 8, minHeight: 34 }}>
           <div style={{ position: "relative", flex: "0 0 auto" }}>
             <button
               type="button"
@@ -263,17 +265,19 @@ export default function GameRadio() {
               onClick={() => setPicker((p) => !p)}
               style={{
                 ...BTN,
-                gap: 1,
-                color: GOLD,
-                fontSize: 8,
-                fontWeight: 800,
-                letterSpacing: ".06em",
+                width: "auto",
+                gap: 6,
+                padding: "0 10px",
+                background: "rgba(255,255,255,.06)",
+                border: `1px solid ${HUD.border}`,
+                color: HUD.champagne,
+                font: `700 14px/1 ${HUD.game}`,
+                letterSpacing: ".08em",
                 textTransform: "uppercase",
-                lineHeight: "12px",
               }}
             >
               {station?.label ?? "House"}
-              <Ico d={ICONS.chevron} size={8} />
+              <Ico d={ICONS.chevron} size={11} />
             </button>
             {picker && (
               <div
@@ -285,12 +289,12 @@ export default function GameRadio() {
                   left: 0,
                   top: "100%",
                   zIndex: 2,
-                  minWidth: 100,
-                  marginTop: 2,
-                  padding: 2,
-                  borderRadius: 5,
-                  background: "rgba(10,12,30,.96)",
-                  border: "1px solid rgba(255,231,163,.35)",
+                  minWidth: 150,
+                  marginTop: 6,
+                  padding: 4,
+                  borderRadius: 12,
+                  background: "#151726",
+                  border: `1px solid ${HUD.border}`,
                   boxShadow: "0 8px 24px rgba(0,0,0,.5)",
                 }}
               >
@@ -308,14 +312,14 @@ export default function GameRadio() {
                       width: "100%",
                       justifyContent: "flex-start",
                       boxSizing: "border-box",
-                      padding: "3px 6px",
-                      borderRadius: 4,
-                      color: s.id === st.stationId ? "#151830" : INK,
-                      background: s.id === st.stationId ? GOLD : "transparent",
-                      fontSize: 9,
-                      fontWeight: 700,
-                      letterSpacing: ".04em",
-                      lineHeight: "12px",
+                      height: 36,
+                      padding: "0 10px",
+                      borderRadius: 8,
+                      color: s.id === st.stationId ? "#121327" : HUD.text,
+                      background: s.id === st.stationId ? HUD.champagne : "transparent",
+                      font: `700 15px/1 ${HUD.game}`,
+                      letterSpacing: ".06em",
+                      textTransform: "uppercase",
                     }}
                   >
                     {s.label}
@@ -333,11 +337,11 @@ export default function GameRadio() {
             onClick={toggleRepeat}
             style={{ ...BTN, opacity: st.repeat === "one" ? 1 : 0.55, position: "relative", marginLeft: "auto" }}
           >
-            <Ico d={ICONS.repeat} size={11} />
-            {st.repeat === "one" && <span style={{ position: "absolute", right: -3, bottom: -3, fontSize: 7, fontWeight: 800, color: GOLD }}>1</span>}
+            <Ico d={ICONS.repeat} size={16} />
+            {st.repeat === "one" && <span style={{ position: "absolute", right: 4, bottom: 4, fontSize: 9, fontWeight: 800, color: HUD.champagne }}>1</span>}
           </button>
           <button type="button" data-testid="radio-prev" aria-label="Previous track" title="Previous track" onClick={() => skip(-1)} style={BTN}>
-            <Ico d={ICONS.prev} size={12} fill />
+            <Ico d={ICONS.prev} size={16} fill />
           </button>
           <button
             type="button"
@@ -345,12 +349,12 @@ export default function GameRadio() {
             aria-label={playing ? "Pause" : "Play"}
             title={playing ? "Pause" : "Play"}
             onClick={playing ? pause : play}
-            style={{ ...BTN, width: 22, height: 22, borderRadius: 11, border: `1px solid ${GOLD}`, background: playing ? "rgba(255,231,163,.14)" : "rgba(255,231,163,.08)" }}
+            style={{ ...BTN, width: 42, height: 42, borderRadius: 21, color: "#121327", background: HUD.champagne }}
           >
-            <Ico d={playing ? ICONS.pause : ICONS.play} size={11} fill />
+            <Ico d={playing ? ICONS.pause : ICONS.play} size={16} fill />
           </button>
           <button type="button" data-testid="radio-next" aria-label="Next track" title="Next track" onClick={() => skip(1)} style={BTN}>
-            <Ico d={ICONS.next} size={12} fill />
+            <Ico d={ICONS.next} size={16} fill />
           </button>
           <button
             type="button"
@@ -361,15 +365,15 @@ export default function GameRadio() {
             onClick={toggleShuffle}
             style={{ ...BTN, opacity: st.shuffle ? 1 : 0.55 }}
           >
-            <Ico d={ICONS.shuffle} size={11} />
+            <Ico d={ICONS.shuffle} size={16} />
           </button>
           {phone && (
-            <button type="button" data-testid="radio-min" title="Minimize" aria-label="Minimize" onClick={() => { setPhoneOpen(false); updateLayout((l) => setCard(l, "radio", { min: true })); }} style={{ ...BTN, fontSize: 11, padding: "0 1px", lineHeight: "12px", flex: "0 0 auto" }}>–</button>
+            <button type="button" data-testid="radio-min" title="Minimize" aria-label="Minimize" onClick={() => { setPhoneOpen(false); updateLayout((l) => setCard(l, "radio", { min: true })); }} style={{ ...BTN, width: 28, font: `700 18px/1 ${HUD.ui}`, flex: "0 0 auto" }}>–</button>
           )}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button type="button" data-testid="radio-mute" aria-label={musicOn ? "Mute Music" : "Turn Music on"} title={musicOn ? "Mute Music" : "Turn Music on"} onClick={toggleMute} style={{ ...BTN, opacity: musicOn ? 1 : 0.5 }}>
-            <Ico d={musicOn ? ICONS.speaker : ICONS.speakerOff} size={11} fill />
+            <Ico d={musicOn ? ICONS.speaker : ICONS.speakerOff} size={16} fill />
           </button>
           <input
             type="range"
@@ -380,7 +384,7 @@ export default function GameRadio() {
             title="Music volume"
             value={Math.round(gs.music.vol * 100)}
             onChange={(e) => setVol(+e.target.value / 100)}
-            style={{ flex: 1, accentColor: GOLD, opacity: musicOn ? 1 : 0.4, minWidth: 0, height: 10, margin: 0, ["--radio-vol" as string]: `${Math.round(gs.music.vol * 100)}%` }}
+            style={{ flex: 1, accentColor: HUD.champagne, opacity: musicOn ? 1 : 0.4, minWidth: 0, height: 20, margin: 0, ["--radio-vol" as string]: `${Math.round(gs.music.vol * 100)}%` }}
           />
         </div>
         </div>
@@ -394,7 +398,7 @@ export default function GameRadio() {
           onClick={() => { setPhoneOpen(true); updateLayout((l) => restoreCard(l, "radio")); }}
           style={{ ...PILL, ...phoneBottom }}
         >
-          ▸ RADIO
+          ♫ RADIO
         </button>
       )}
     </>

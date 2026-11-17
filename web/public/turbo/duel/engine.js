@@ -705,7 +705,9 @@ function mount(root,host){
   /* ---------- sound + haptics ---------- */
   let ac=null, muted=false;
   try{muted=localStorage.getItem("duel.mute")==="1";}catch(e){}
-  function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx(); loadLoop("engine_loop");}catch(e){} } bedSync(); if(ac&&ac.state==="suspended") ac.resume(); }
+  // the engine hum plays in the iPhone app only (maker, 2026-11-16); its web view adds "DiscipleApp/" to the user agent
+  const APP_FEEL=/DiscipleApp\//.test(navigator.userAgent)||!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+  function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx(); if(APP_FEEL) loadLoop("engine_loop");}catch(e){} } bedSync(); if(ac&&ac.state==="suspended") ac.resume(); }
   // recorded CC0 sounds (web/public/audio/sfx, see its README/SOURCES.csv). Each event picks one take at random.
   const SFX_BASE=A.sfxBase||"/audio/sfx/", BUF={};
   const SND={boost:["boost_small_01","boost_small_02","boost_small_03"],boostBig:["boost_big_01","boost_big_02"],dump:["bomb_fall_01","bomb_fall_02"],
@@ -739,7 +741,7 @@ function mount(root,host){
   // engine hum: a gapless loop under everything while you fly, louder and higher while the flame is lit
   let hum=null, humV=-1, humR=-1;
   function loadLoop(n){ const key="loop:"+n; if(!ac||key in BUF) return; BUF[key]=null; fetch(SFX_BASE+"loops-wav/"+n+".wav").then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{BUF[key]=b;}).catch(()=>{BUF[key]=false;}); }
-  function humTick(on,boost){ if(!ac) return;
+  function humTick(on,boost){ if(!ac) return; if(!APP_FEEL) on=false;
     if(!on||muted||sfxLvl<=0){ if(hum){ const h=hum; hum=null; try{ h.g.gain.setTargetAtTime(0,ac.currentTime,.12); setTimeout(()=>{ try{h.s.stop();}catch(e){} },700); }catch(e){} } return; }
     const b=BUF["loop:engine_loop"]; if(!b){ loadLoop("engine_loop"); return; }
     if(!hum){ try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; src.loop=true; g.gain.value=0; src.connect(g); g.connect(outBus()); src.start(); hum={s:src,g}; humV=humR=-1; }catch(e){ return; } }
@@ -787,7 +789,7 @@ function mount(root,host){
     const dr=net?net.delta:0;
     if(net&&net.rating) { rec.rating=net.rating; if(M.ranked&&!tie){ if(win){rec.w++;rec.streak++;} else {rec.l++;rec.streak=0;} } REC=rec; }
     LAST={pm,pb,win:win&&!tie,tie,opp:G.bot.name,bot:!!(M&&!M.net),sat:G.me.up+G.me.dn===0,len:lenTxt()};
-    $("rSave").hidden=SIGNED; $("rSave").textContent=win&&!tie?"SAVE YOUR WIN \u00b7 SIGN IN":"SIGN IN TO GET RANKED";
+    $("rSave").hidden=SIGNED||!!host.guest; $("rSave").textContent=win&&!tie?"SAVE YOUR WIN \u00b7 SIGN IN":"SIGN IN TO GET RANKED";
     $("rH").textContent=tie?"DRAW":win?"YOU WIN":"YOU LOSE"; $("rH").style.color=tie?"var(--text)":win?"var(--gold)":"var(--pinkl)";
     const marg=Math.abs(pm-pb), card=document.querySelector(".res");
     card.classList.toggle("win",win&&!tie); $("result").classList.toggle("winbg",win&&!tie); $("rMarg").hidden=tie;
@@ -815,7 +817,7 @@ function mount(root,host){
   /* ---- lobby + matchmaking: every step goes through the host (server calls); the screens are the prototype's ---- */
   let REC={w:0,l:0,rating:1200,streak:0}, SIGNED=false, mode="ranked", vIv=0, waitT=0;
   function paintLobby(){ $("lRat").textContent=REC.rating.toLocaleString("en-US"); $("lRec").textContent=`${REC.w}-${REC.l} \u00b7 ${botKey.toUpperCase()}`; $("vMe").textContent=`${REC.rating.toLocaleString("en-US")} \u00b7 ${REC.w}-${REC.l}`;
-    $("goSub").textContent=SIGNED?"A pilot near your rating. Wins move your rating.":"Sign in to duel a pilot near your rating."; $("mkLink").textContent=SIGNED?"CREATE DUEL LINK":"SIGN IN TO DUEL"; }
+    $("goSub").textContent=(SIGNED||host.guest)?"A pilot near your rating. Wins move your rating.":"Sign in to duel a pilot near your rating."; $("mkLink").textContent=(SIGNED||host.guest)?"CREATE DUEL LINK":"SIGN IN TO DUEL"; }
   /* the pre-match lobby is its own full screen (the board stays hidden and the chart doesn't draw until GO) */
   const PANES=["intro","search","invite","vs","launch"], STEP={intro:1,search:2,invite:2,vs:3,launch:4};
   // music only plays in a match (lib/game/turboMusic): on at GO, off back in the lobby
@@ -839,11 +841,14 @@ function mount(root,host){
   $("sCancel").addEventListener("click",()=>{ host.cancelSearch(); show("intro"); });
   $("sBot").addEventListener("click",()=>{ host.cancelSearch(); practice(); });
   $("lPractice").addEventListener("click",()=>{ ensureAudio(); practice(); });
-  $("mkLink").addEventListener("click",()=>{ ensureAudio(); if(!SIGNED){ host.signIn(); return; } mode="friend"; lerr(""); host.createLink(botKey,LEN,CFUEL); });
+  // the duel-only demo page (/duel, host.guest): guests play a bot or a friend's link; no ranked queue, no sign-in
+  if(host.guest){ $("go").hidden=true; const bk=root.querySelector(".pre-back"); if(bk) bk.style.visibility="hidden"; const mc=root.querySelector(".me-chip"); if(mc) mc.style.visibility="hidden"; const tb=document.querySelectorAll(".duel-root .tab"); if(tb[0]) tb[0].textContent="VS BOT"; if(tb[1]) tb[1].textContent="VS FRIEND";
+    $("botSub").textContent="A bot at this tier. Play money, no sign-in."; }
+  $("mkLink").addEventListener("click",()=>{ ensureAudio(); if(!SIGNED&&!host.guest){ host.signIn(); return; } mode="friend"; lerr(""); host.createLink(botKey,LEN,CFUEL); });
   $("iCopy").addEventListener("click",()=>{ const t=$("iLink").dataset.url||""; try{navigator.clipboard.writeText(t); toast("Link copied");}catch(e){ toast(t); } });
   $("iX").addEventListener("click",()=>{ const t=encodeURIComponent(`1v1 me in a trading duel on DISCIPLE \u2694\ufe0f ${$("iCode").textContent}`), u=encodeURIComponent($("iLink").dataset.url||""); window.open(`https://x.com/intent/post?text=${t}&url=${u}`,"_blank","noopener"); });
   $("iCancel").addEventListener("click",()=>{ host.leave(); show("intro"); });
-  $("joinF").addEventListener("submit",e=>{ e.preventDefault(); if(!SIGNED){ host.signIn(); return; } const v=$("joinI").value.trim(); if(!v) return; ensureAudio(); mode="friend"; lerr(""); host.join(v); });
+  $("joinF").addEventListener("submit",e=>{ e.preventDefault(); if(!SIGNED&&!host.guest){ host.signIn(); return; } const v=$("joinI").value.trim(); if(!v) return; ensureAudio(); mode="friend"; lerr(""); host.join(v); });
   function practice(){ M={net:false,ranked:false}; OFF=0; opp={name:BOTS[botKey].name,bot:true}; openVs("BOT MATCH",{name:BOTS[botKey].name,bot:true},"bot match \u00b7 no rating"); meReady(); }   // a bot is always ready: go straight to the countdown, which has a Cancel
   let opp=null;
   function openVs(tag,o,kind){ show("vs"); sfx("found"); opp=o; $("vTag").textContent=tag; $("vName").textContent=o.name; $("vAv").textContent=o.name.replace("@","").slice(0,2).toUpperCase();
@@ -954,8 +959,8 @@ function mount(root,host){
     const btn=$("rShare"); btn.disabled=true; const was=btn.textContent; btn.textContent="…";
     try{
       // signed in: a fresh friend link, so whoever taps it lands in a duel against you (30 min); otherwise the site
-      let url=location.origin+"/";
-      if(SIGNED&&host.challengeLink){ try{ const u=await host.challengeLink(botKey,LEN,M&&M.fuel||undefined); if(u) url=u; }catch(e){} }
+      let url=location.origin+(host.guest?"/duel":"/");
+      if((SIGNED||host.guest)&&host.challengeLink){ try{ const u=await host.challengeLink(botKey,LEN,M&&M.fuel||undefined); if(u) url=u; }catch(e){} }
       const text=shareLine(LAST)+(url.includes("?c=")?" 1v1 me:":"");
       let file=null; try{ const blob=await new Promise(res=>shareCard(LAST).toBlob(res,"image/png")); if(blob) file=new File([blob],"disciple-duel.png",{type:"image/png"}); }catch(e){}
       if(navigator.share){

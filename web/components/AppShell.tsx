@@ -52,6 +52,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     mo.observe(html, { attributes: true, attributeFilter: ["class"] });
     return () => mo.disconnect();
   }, []);
+  // /duel: the duel-only demo page (maker 2026-11-16, for the Nova team). Nothing but the duel: no nav, wallet, banners or
+  // first-run sheets.
+  if (/^\/duel(\/|$)/.test(pathname ?? "")) return <>{children}</>;
   return (
     <>
       {hideWallet && <style>{".wb-root{display:none!important}"}</style>}

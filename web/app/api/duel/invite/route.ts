@@ -14,6 +14,6 @@ export async function POST(req: Request) {
     if (!isTier(b.tier) || !len) throw new DuelError(400, "Pick a tier and a length.");
     if (b.fuel != null && !isCustomFuel(b.fuel)) throw new DuelError(400, `Pick a budget from $${CUSTOM_FUEL_MIN} to $${CUSTOM_FUEL_MAX.toLocaleString("en-US")}.`);
     const room = await createInvite(me, b.tier, len, undefined, b.fuel ?? undefined);
-    return out(200, { ok: true, room, code: room.code, path: `/turbo/duel?c=${room.code}` });
-  } catch (e) { return fail(e); }
+    return out(200, { ok: true, room, code: room.code, path: `${req.headers.get("x-duel-guest") === "1" ? "/duel" : "/turbo/duel"}?c=${room.code}` });
+  } catch (e) { return fail(e, req); }
 }

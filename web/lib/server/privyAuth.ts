@@ -6,7 +6,7 @@
  *    caller-supplied URL ⇒ no SSRF). Neither available ⇒ every request is rejected (fail closed).
  *  - claims: alg ES256, iss "privy.io", aud = our app id, exp in the future (60 s skew), sub = did:privy:…
  *  - user (non-gasless routes): GET https://api.privy.io/v1/users/{did} (Basic appId:PRIVY_APP_SECRET), cached 60 s.
- *    Emails are taken from `email` and `google_oauth` linked accounts only; wallets from linked ethereum wallets.
+ *    Emails are taken from `email`, `google_oauth` and `apple_oauth` linked accounts only; wallets from linked ethereum wallets.
  *  - identity token (gasless relay): ES256 JWT with a stringified `linked_accounts` claim, verified locally with the
  *    same app verification key. Privy guidance: "Lookups by user ID are subject to rate limits. When accessing an
  *    authenticated user, use identity tokens"
@@ -89,6 +89,8 @@ export function userFromLinkedAccounts(did: string, accounts: unknown): PrivyUse
     if (typeof a.type === "string") logins.add(a.type);
     if (a.type === "email" && typeof a.address === "string") emails.add(a.address.trim().toLowerCase());
     if (a.type === "google_oauth" && typeof a.email === "string") emails.add(a.email.trim().toLowerCase());
+    // Apple: the email Apple verified (a private-relay address unless the player shared their real one)
+    if (a.type === "apple_oauth" && typeof a.email === "string") emails.add(a.email.trim().toLowerCase());
     if (a.type === "twitter_oauth" && typeof a.subject === "string" && typeof a.username === "string") x = { id: a.subject, username: a.username.replace(/^@/, "") };
     if (a.type === "wallet" && (a.chain_type === "ethereum" || a.chainType === "ethereum") && typeof a.address === "string" && /^0x[0-9a-fA-F]{40}$/.test(a.address))
       wallets.add(a.address.toLowerCase());

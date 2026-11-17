@@ -8,5 +8,5 @@ export async function GET(req: Request) {
   try {
     const me = await pilotOf(req);
     return out(200, { ok: true, pid: me.pid, name: me.name, rating: await ratingOf(me.pid), active: await activeRoomOf(me.pid) });
-  } catch (e) { return fail(e); }
+  } catch (e) { return fail(e, req); }
 }

@@ -197,6 +197,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const [showCfg, setShowCfg] = useState(false);
   useEffect(() => { setCfg(loadSettings(scope)); }, [scope]);
   const SELLS = toSells(cfg.sells);
+  const freePlay = token === "SIMULATOR";
   // push overrides + tag state to the engine (again whenever it (re)announces ammo, i.e. after boot)
   const pushCfg = useRef(() => {});
   pushCfg.current = () => { dispatchEvent(new CustomEvent("disciple:ammo-override", { detail: { usd: cfgRef.current.buy } })); dispatchEvent(new CustomEvent("disciple:pnltag", { detail: { on: cfgRef.current.tag } }));
@@ -715,6 +716,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     if (p && p.usd > 0) shoot("sell", { usd: +Math.max(0.01, p.usd).toFixed(2), frac: p.frac, ...(p.frac >= 1 ? { all: true } : {}) });
     else setHint(COPY.loadingPosition); };   // never a silent no-op: the position's value isn't known yet
   const sell = (s: Sell) => sellFrac(s.frac);
+  // Free play lever (maker 2026-11-16: "selling as shift and percents didnt seem the most intuitive"): two notches, HALF and ALL
+  const PH_SELLS: Sell[] = freePlay ? [{ id: "half", label: "HALF", frac: 0.5, key: "" }, { id: "all", label: "ALL", frac: 1, key: "" }] : SELLS;
   const selSellPreset = SELLS[sellSel] || SELLS[DEFAULT_SELL_SEL];
   // custom sell: % of holdings (≤ 100) or a $ value capped at the position value; overrides the selected preset (same rule as custom buy $)
   const sellCustomN = +sellCustom > 0 ? +sellCustom : 0;
@@ -755,12 +758,23 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   useEffect(() => { dispatchEvent(new CustomEvent("disciple:buywarn", { detail: { tags: warns.buy.map((w) => chipTag("buy", w)), texts: warns.buy.map((w) => w.text), over: warns.buy.map((w) => w.level === "over") } })); }, [buyWarnSig]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { let n = 0; const h = () => { if (n++ < 3) dispatchEvent(new CustomEvent("disciple:buywarn", { detail: { tags: warns.buy.map((w) => chipTag("buy", w)), texts: warns.buy.map((w) => w.text), over: warns.buy.map((w) => w.level === "over") } })); };
     addEventListener("disciple:ammo", h); return () => removeEventListener("disciple:ammo", h); }, [buyWarnSig]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // Free play (maker 2026-11-16: "selling as shift and percents didn't seem the most intuitive", vs the Trading Duel):
+  // no % picker. Two plain sells, like the Duel's DUMP / CASH OUT: SELL HALF (Shift) and CASH OUT everything (Enter).
   dumpRef.current = () => {
+    if (freePlay) return sellFrac(0.5);
     if (customSellPct) return sellFrac(customSellPct / 100);
     if (customSellUsd) { if (!has) { setHint("NO TOKENS IN WALLET"); return; } if (!(pos.valueUsd > 0)) { setHint("position value unknown: use %"); return; }
       return shoot("sell", { usd: +customSellUsd.toFixed(2), frac: Math.min(1, customSellUsd / pos.valueUsd) }); }
     sell(selSellPreset);
   };
+  const cashOutRef = useRef<() => void>(() => {}); cashOutRef.current = () => sellFrac(1);
+  useEffect(() => {
+    if (!freePlay) return;
+    const k = (e: KeyboardEvent) => { if ((e.code !== "Enter" && e.code !== "NumpadEnter") || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = document.activeElement; if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement | null)?.isContentEditable) return;
+      e.preventDefault(); cashOutRef.current(); };
+    addEventListener("keydown", k); return () => removeEventListener("keydown", k);
+  }, [freePlay]);
   const fmtShot = fmtMoney;   // shared shorthand: $3.00 · $129.12 · $129.12K · $1.50M
   // Space is a game hotkey (engine: Space = BOOST). A focused BOOST/DUMP button would ALSO fire its click on the
   // same key (native button activation, not prevented from the engine worker) ⇒ two trades per press. Keyboard → engine only.
@@ -839,7 +853,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     <>
     <AmmoTierNotice />
     {alertStrip}
-    <PhoneThrottle buyLabel={chipUsd(shotUsd)} sellLabel={phoneDumpAll ? "ALL" : customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
+    <PhoneThrottle buyLabel={chipUsd(shotUsd)} sellLabel={freePlay ? "HALF" : phoneDumpAll ? "ALL" : customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
       onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()}
       dumpAll={phoneDumpAll} dumpSub={has ? (phoneDumpUsd > 0 ? `≈ ${chipUsd(+phoneDumpUsd.toFixed(2))}` : "") : "no bag yet"}
       boostDisabled={short} dumpDisabled={!has} inFlightFull={full} boostTitle={boostTitle} dumpTitle={dumpTitle}
@@ -847,10 +861,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       buyOver={[0, 1, 2, 3].map((i) => room != null && (ammo.usd[i] ?? MODES[i].usd) > room + 0.005)}
       onSide={setPhoneSide}
       onPickBuy={(i) => { setCustom(""); setMode(i); window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: i } })); }}
-      sellOpts={SELLS.map((x) => x.label)} sellFracs={SELLS.map((x) => x.frac)} sellSel={sellCustomN ? -1 : sellSel}
-      onPickSell={(i) => { setSellCustom(""); selSell.current(i); }}
+      sellOpts={PH_SELLS.map((x) => x.label)} sellFracs={PH_SELLS.map((x) => x.frac)} sellSel={freePlay ? 0 : sellCustomN ? -1 : sellSel}
+      onPickSell={(i) => { if (freePlay) return; setSellCustom(""); selSell.current(i); }}
       onBoostAt={(i) => shoot("buy", { usd: ammo.usd[i] ?? MODES[i].usd })}
-      onDumpAt={(i) => { const x = SELLS[i]; if (x) sell(x); }}
+      onDumpAt={(i) => { const x = PH_SELLS[i]; if (x) sell(x); }}
       buyWarn={warns.buy.map((w) => chipTag("buy", w))} sellWarn={warns.sell.map((w) => chipTag("sell", w))}
       warn={warnText} warnOver={warnOver}
       hint={phoneHint} keyGuard={noKeyActivate} noSignIn={token === "SIMULATOR"} />
@@ -938,6 +952,17 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         </div>
         <div aria-hidden="true" style={{ width: 1, background: HUD.border }} />
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+          {freePlay && !pro ? <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}><span style={hudLabel}>Sell</span><span style={{ fontSize: 12, color: HUD.dim }}>{has ? `Bag ${fmtShot(Math.max(0, pos.valueUsd))}` : "no bag yet"}</span></div>
+            <div style={{ display: "flex", gap: 8, flex: 1 }}>
+              <button type="button" aria-label="sell half" data-testid="sell-btn" {...noKeyActivate} {...hoverSide("sell")} title="Sell half your bag (Shift)" aria-disabled={!has || full} disabled={!has} onClick={() => sellFrac(0.5)}
+                style={{ all: "unset", flex: 1, minHeight: 88, boxSizing: "border-box", borderRadius: 14, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, border: `1.5px solid ${HUD.down}`, background: "rgba(240,48,127,.12)", color: HUD.downSoft,
+                  font: `800 24px/1 ${HUD.game}`, opacity: has && !full ? 1 : 0.45, cursor: has && !full ? "pointer" : "not-allowed" }}>SELL HALF{cap("SHIFT")}</button>
+              <button type="button" aria-label="cash out" data-testid="cashout-btn" {...noKeyActivate} {...hoverSide("sell")} title="Sell your whole bag (Enter)" aria-disabled={!has || full} disabled={!has} onClick={() => sellFrac(1)}
+                style={{ all: "unset", flex: 1, minHeight: 88, boxSizing: "border-box", borderRadius: 14, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, background: has ? "#F3DFA8" : "rgba(243,223,168,.25)", color: HUD.ink,
+                  font: `800 24px/1 ${HUD.game}`, opacity: has && !full ? 1 : 0.45, cursor: has && !full ? "pointer" : "not-allowed" }}>CASH OUT{cap("ENTER", true)}</button>
+            </div>
+          </> : <>
           {!pro && <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}><span style={hudLabel}>Dump amount</span><span style={{ fontSize: 12, color: HUD.dim }}>{has ? "of your bag" : "no bag yet"}</span></div>}
           {!pro && <div role="radiogroup" aria-label="dump amount" style={{ display: "flex", gap: 5 }}>{dumpChips}</div>}
           <div style={{ display: "flex", gap: 8 }}>
@@ -946,6 +971,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
                 font: `800 25px/1 ${HUD.game}`, opacity: has && !full ? 1 : 0.45, cursor: has && !full ? "pointer" : "not-allowed" }}>
               {full && has ? COPY.inFlight : <>{t("tb.dump")} {dumpLabel}{dumpBack > 0 && <span data-testid="dump-back" title="about what this dump pays back after the 1% fee" style={{ font: `600 15px ${HUD.game}`, opacity: 0.85 }}>≈ {fmtShot(dumpBack)}</span>}{cap("SHIFT")}</>}</button>
           </div>
+          </>}
         </div>
       </div>
       {statusLine}

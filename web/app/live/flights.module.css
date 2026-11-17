@@ -1,0 +1,7 @@
+/* /live (app/live/page.tsx): the Live flights page head, then the All rockets grid (RocketGrid) */
+.hd { max-width: 1360px; margin: 0 auto; padding: 40px 40px 20px; box-sizing: border-box; position: relative; z-index: 5; }
+.h1 { font: var(--dsc3-type-h1); text-transform: uppercase; color: #FFFFFF; margin: 0; }
+.sub { margin: 10px 0 0; font: 500 16px / 1.4 var(--dsc-font-ui); color: var(--dsc-muted); }
+.empty { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding: 28px; border-radius: var(--dsc-radius-xl); background: var(--dsc-surface); border: 1px solid var(--dsc3-panel-border); }
+.empty p { margin: 0; font: 500 16px / 1.4 var(--dsc-font-ui); color: var(--dsc-muted); }
+@media (max-width: 760px) { .hd { padding: 24px 16px 12px; } }

@@ -64,3 +64,20 @@ Single-swap coins use one Uniswap v4 USDG pool:
 
 The long.xyz hook on every stock second hop (and SPACEHOOD) is
 `0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544`.
+
+## Nov 16, 2026 list change (maker): routes still to wire
+
+The web list now drops MOO and SPACEHOOD and adds PENGU and HMM. Their old rows
+stay in `routes.json` until the owner removes them. These routes are NOT yet in
+`routes.json`, because the PoolKeys must be read from the Initialize event before
+they are added:
+
+| Quote | Pool maker gave | Route needed |
+| --- | --- | --- |
+| HOOKR | v4 `0x590dcb6a…` (HOOKR / native ETH) | USDG → ETH → HOOKR (replaces the single USDG pool `0x0b362d89…`) |
+| PENGU `0x74BE72AF…625f` | v4 `0x38cbd4b1…` (PENGU / native ETH) | USDG → ETH → PENGU |
+| HMM `0x7FE995a8…D87f` | `0x2b0D0183…0E9e` is Uniswap **v3** HMM / WETH; the router is v4 only | v4 HMM / USDG `0xbe59bf5d…` (~$19k) unless v3 support is added |
+
+Leg 1 for the ETH routes is the deepest v4 USDG / native ETH pool (still to pick).
+USDG and ETH (WETH) are optional pairs, off at launch (`NEXT_PUBLIC_PAIR_USDG`,
+`NEXT_PUBLIC_PAIR_ETH`).

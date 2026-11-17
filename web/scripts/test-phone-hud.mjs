@@ -149,7 +149,7 @@ ok(/#c \{\n\s+display: block;\n\s+image-rendering: auto;\n\s+touch-action: none;
 // 7) trade bar: layout only, TradeBridge's own state and calls; chips set the amount, never trade
 ok(/if \(phone\) return \(/.test(tb) && /onBoost=\{\(\) => shoot\("buy"\)\} onDump=\{\(\) => dumpRef\.current\?\.\(\)\}/.test(tb), "phone bar: BOOST / DUMP = TradeBridge shoot / dumpRef");
 ok(/onPickBuy=\{\(i\) => \{ setCustom\(""\); setMode\(i\); window\.dispatchEvent\(new CustomEvent\("disciple:shoot", \{ detail: \{ mode: i \} \}\)\); \}\}/.test(tb), "BOOST chip = select only (no side)");
-ok(/onPickSell=\{\(i\) => \{ setSellCustom\(""\); selSell\.current\(i\); \}\}/.test(tb), "DUMP chip = existing sell state");
+ok(/onPickSell=\{\(i\) => \{ if \(freePlay\) return; setSellCustom\(""\); selSell\.current\(i\); \}\}/.test(tb), "DUMP chip = existing sell state (Free play: fixed HALF / ALL)");
 ok(/buyOver=\{\[0, 1, 2, 3\]\.map\(\(i\) => room != null && \(ammo\.usd\[i\] \?\? MODES\[i\]\.usd\) > room \+ 0\.005\)\}/.test(tb) && /\.ph-chip\.over \{ border: 1px dashed/.test(bar), "chips over the wallet cap's room are dashed");
 ok(/data-testid="custom-sell"/.test(tb) && /data-testid="sell-unit"/.test(tb) && /aria-label="custom amount"/.test(tb), "desktop bar markup kept");
 const chipJsx = bar.slice(bar.indexOf("const chip = "), bar.indexOf("const bw = "));
