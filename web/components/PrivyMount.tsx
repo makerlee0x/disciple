@@ -2,7 +2,7 @@
 /**
  * Privy = auth + embedded EOA custody only. The embedded Ethereum wallet becomes the OWNER of the user's Alchemy
  * Modular Account v2 (lib/aa/session.ts). No Privy smart wallets, no Privy gas sponsorship, no Solana.
- * Sign-in: email, Google, X/Twitter (Apple in the app). No external-wallet sign-in since 2026-11-16 (Privy only); older
+ * Sign-in: email, Google, Apple, X/Twitter (no Google inside in-app browsers). No external-wallet sign-in since 2026-11-16 (Privy only); older
  * wallet-only logins still get one embedded wallet: every player has ONE embedded wallet, and that one owns the smart account, so one-tap
  * trading signs silently the same way for every login method. One wallet per user (lee, Oct 30): createOnLogin
  * "users-without-wallets" (was "all-users", #197) and the bridge creates an embedded wallet ONLY for a user who has none
@@ -191,8 +191,10 @@ if (NATIVE) void (nativePlugin("NativeAuth") as { enable?: (o: { redirect: strin
 // the embedded wallet. A wallet-only login was never login-verified for gasless sessions anyway (lib/server/gaslessSession).
 type LoginMethod = "email" | "google" | "twitter" | "apple";
 export function loginMethodsFor(o: { inApp: boolean; native: boolean }): LoginMethod[] {
+  // Apple everywhere (maker 2026-11-17): one wallet per person sends a player back to their first login method, so a
+  // player who started with Apple in the app must be able to pick Apple on desktop and in X's browser too
   if (o.native) return ["email", "google", "apple", "twitter"];
-  return o.inApp ? ["email", "twitter"] : ["email", "google", "twitter"];
+  return o.inApp ? ["email", "apple", "twitter"] : ["email", "google", "apple", "twitter"];
 }
 
 /** Loaded lazily by PrivyProviders (own chunk). Holds no app children: the app talks to Privy via lib/aa/session. */
