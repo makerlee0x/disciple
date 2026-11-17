@@ -1,20 +1,19 @@
 "use client";
 /**
  * Trophies (/achievements), built to the lobby canvas board "Trophies": the pilot card (level ring, XP bar, stats, next
- * unlock), today's and this week's missions side by side, the level rewards track (lib/unlocks rules), and the trophy
+ * unlock), today's and this week's missions side by side, the level rewards track (lib/collection REWARDS + prestige items), and the trophy
  * case of every milestone. Missions and XP come from /api/xp, milestones from /api/achievements (both scored by the cron).
  * Signed out, the missions still show (they're the same for everyone), with no progress.
  */
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import HullSprite from "./HullSprite";
 import { V1_RULES, achievementIconPath, rarityStyle } from "@/lib/achievements";
-import { IS_STATIC_PREVIEW } from "@/lib/base-path";
+import { IS_STATIC_PREVIEW, withBase } from "@/lib/base-path";
 import { rarityRank } from "@/lib/config";
 import { displayName } from "@/lib/defaultUsername";
 import { fetchUsernameStatus } from "@/lib/profile";
-import { thrusterById } from "@/lib/rocketSkin";
-import { FLARES, HULLS, isUnlocked, type Look, type Progress } from "@/lib/unlocks";
+import { HULL_NAMES, PRESTIGE_HULL, REWARDS as COLLECTION_REWARDS, STARTER_SKIN, itemById, skinArt, skinId, trailArt, trailId } from "@/lib/collection";
+import type { Progress } from "@/lib/unlocks";
 import { MAX_LEVEL, MAX_PRESTIGE, PRESTIGE_NAMES, milestoneXp, missionById, MILESTONE_COPY, type MissionStatus } from "@/lib/xp";
 import { blankXp, prestigeWithXp, untilLabel, usePilotWallet, useXp } from "@/lib/xpClient";
 import s from "./trophies.module.css";
@@ -23,34 +22,39 @@ type Unlock = { id: string; unlockedAt?: number };
 type Filter = "all" | "earned" | "locked";
 const fmt = (n: number) => n.toLocaleString("en-US");
 
-/** The rewards track: every look a level or a prestige unlocks, in order. Trophy-earned flares are named in the head. */
-type Reward = { look: Look; kind: "hull" | "flare"; name: string; blurb: string };
+/** The rewards track (maker 2026-11-17, one collection for every mode): the collection items a level or a Prestige gives,
+ *  in order. They land in Your rocket as copies that never trade. Trophy rewards are named in the head. */
+type Rule = { kind: "free" } | { kind: "level"; level: number } | { kind: "prestige"; prestige: number };
+type Reward = { id: string; kind: "skin" | "trail"; name: string; blurb: string; rule: Rule };
 const BLURB: Record<string, string> = {
-  "hull:chrome": "The rocket you start with.",
-  "flare:ion": "A boost signature everyone sees when you boost.",
-  "hull:matte": "Blacked-out paint. Flies low-key.",
-  "hull:violet": "Deep violet with a chrome trim.",
-  "hull:gold": "Full gold. Everyone sees you coming.",
+  [STARTER_SKIN]: "The rocket you start with.",
+  [trailId("ice")]: "A cold blue wake everyone sees when you boost.",
+  [skinId("needle", "walnut-brass")]: "Polished wood and brass on the Needle hull.",
+  [skinId("bullet", "neon-circuit")]: "Glowing circuit lines on the Bullet.",
+  [skinId(PRESTIGE_HULL, "white-gloss")]: "The Ring-tail hull, in every paint you've found.",
+  [trailId("halo")]: "A gold ring wake for Prestige 2 pilots.",
 };
-const order = (l: Look) => (l.rule.kind === "free" ? 0 : l.rule.kind === "level" ? l.rule.level : l.rule.kind === "prestige" ? 1000 + l.rule.prestige : 1e9);
+const reward = (id: string, rule: Rule): Reward => {
+  const it = itemById(id)!;
+  const name = it.kind === "skin" ? (it.hull === PRESTIGE_HULL ? "Ring-tail hull" : `${HULL_NAMES[it.hull!]} | ${it.name}`) : `${it.name} trail`;
+  return { id, kind: it.kind === "skin" ? "skin" : "trail", name, blurb: BLURB[id] ?? "", rule };
+};
 const REWARDS: Reward[] = [
-  ...HULLS.map((look) => ({ look, kind: "hull" as const, name: `${look.name} hull`, blurb: BLURB[`hull:${look.id}`] ?? "" })),
-  ...FLARES.filter((l) => l.rule.kind === "level" || l.rule.kind === "prestige").map((look) => ({ look, kind: "flare" as const, name: `${look.name} flare`, blurb: BLURB[`flare:${look.id}`] ?? "" })),
-].sort((a, b) => order(a.look) - order(b.look));
-const TROPHY_FLARES = FLARES.filter((l) => l.rule.kind === "trophy").map((l) => l.name);
+  reward(STARTER_SKIN, { kind: "free" }),
+  ...COLLECTION_REWARDS.filter((r) => r.rule.kind === "level").map((r) => reward(r.item, r.rule as Rule)),
+  reward(skinId(PRESTIGE_HULL, "white-gloss"), { kind: "prestige", prestige: 1 }),
+  reward(trailId("halo"), { kind: "prestige", prestige: 2 }),
+];
+const TROPHY_REWARDS = COLLECTION_REWARDS.filter((r) => r.rule.kind === "trophy").map((r) => itemById(r.item)?.name).filter(Boolean);
+const isOpen = (r: Rule, p: Progress) => (r.kind === "free" ? true : r.kind === "level" ? p.prestige > 0 || p.level >= r.level : p.prestige >= r.prestige);
 
-const whenLabel = (l: Look) => (l.rule.kind === "prestige" ? `Prestige ${l.rule.prestige}` : `LV ${l.rule.kind === "level" ? l.rule.level : 1}`);
-const lockLabel = (l: Look) => (l.rule.kind === "prestige" ? `Prestige ${l.rule.prestige}` : l.rule.kind === "level" ? `Level ${l.rule.level}` : "");
+const whenLabel = (l: Reward) => (l.rule.kind === "prestige" ? `Prestige ${l.rule.prestige}` : `LV ${l.rule.kind === "level" ? l.rule.level : 1}`);
+const lockLabel = (l: Reward) => (l.rule.kind === "prestige" ? `Prestige ${l.rule.prestige}` : l.rule.kind === "level" ? `Level ${l.rule.level}` : "");
 
 function RewardArt({ r, height }: { r: Reward; height: number }) {
-  if (r.kind === "hull") return <HullSprite hull={r.look.id} height={height} />;
-  const t = thrusterById(r.look.id);
-  return (
-    <span className={s.flareArt}>
-      <HullSprite hull="chrome" height={height} />
-      <span className={s.flare} style={{ ["--flare" as string]: t.flame, ["--core" as string]: t.core, top: Math.round(height * 0.79) }} aria-hidden />
-    </span>
-  );
+  // eslint-disable-next-line @next/next/no-img-element
+  if (r.kind === "skin") return <img src={withBase(skinArt(r.id))} alt="" style={{ height, width: "auto", objectFit: "contain" }} />;
+  return <span className="hgu-plume" aria-hidden style={{ height, width: height / 3, backgroundImage: `url(${withBase(trailArt(r.id.replace(/^trail-/, "")))})` }} />;
 }
 
 function Mission({ m }: { m: MissionStatus }) {
@@ -97,22 +101,22 @@ export default function TrophiesPage() {
   const shown = xp ?? blankXp();
   const L = shown.level;
   const progress = useMemo<Progress | null>(() => (xp ? { level: xp.level.level, prestige: xp.level.prestige, trophies: new Set(unlocks.keys()) } : null), [xp, unlocks]);
-  const open = (l: Look) => (progress ? isUnlocked(l.rule, progress) : l.rule.kind === "free");
-  const next = REWARDS.find((r) => !open(r.look)) ?? null;
-  const unlockedCount = REWARDS.filter((r) => open(r.look)).length;
+  const open = (l: Reward) => (progress ? isOpen(l.rule, progress) : l.rule.kind === "free");
+  const next = REWARDS.find((r) => !open(r)) ?? null;
+  const unlockedCount = REWARDS.filter((r) => open(r)).length;
 
   const milestones = useMemo(() => [...V1_RULES].sort((a, b) => Number(unlocks.has(b.id)) - Number(unlocks.has(a.id)) || rarityRank(a.rarity) - rarityRank(b.rarity)), [unlocks]);
   const earned = milestones.filter((m) => unlocks.has(m.id)).length;
   const caseShown = milestones.filter((m) => filter === "all" || (filter === "earned") === unlocks.has(m.id));
 
   const nextLabel = (r: Reward) => {
-    if (r.look.rule.kind === "level") return `${r.name} at level ${r.look.rule.level}`;
-    if (r.look.rule.kind === "prestige") return `${r.name} at Prestige ${r.look.rule.prestige}`;
+    if (r.rule.kind === "level") return `${r.name} at level ${r.rule.level}`;
+    if (r.rule.kind === "prestige") return `${r.name} at Prestige ${r.rule.prestige}`;
     return r.name;
   };
   const nextBadge = (r: Reward) => {
-    if (r.look.rule.kind === "level" && L.prestige === 0) { const n = r.look.rule.level - L.level; return `Next · ${n} level${n === 1 ? "" : "s"}`; }
-    return `Next · ${lockLabel(r.look)}`;
+    if (r.rule.kind === "level" && L.prestige === 0) { const n = r.rule.level - L.level; return `Next · ${n} level${n === 1 ? "" : "s"}`; }
+    return `Next · ${lockLabel(r)}`;
   };
 
   return (
@@ -197,19 +201,19 @@ export default function TrophiesPage() {
       <section aria-label="Level rewards" className={s.sec} data-testid="level-rewards">
         <div className={s.secHead}>
           <h2 className={s.h2}>Level rewards</h2>
-          <span className={s.meta}>{TROPHY_FLARES.join(" and ")} flares come from trophies. Everything lands in your Hangar.</span>
+          <span className={s.meta}>{TROPHY_REWARDS.join(" and ")} trails come from trophies. Everything lands in Your rocket and flies in every mode.</span>
         </div>
         <div className={`${s.card} ${s.track}`}>
           {REWARDS.map((r) => {
-            const got = open(r.look);
+            const got = open(r);
             const st = got ? s.got : r === next ? s.isNext : s.lock;
             return (
-              <div key={`${r.kind}-${r.look.id}`} className={`${s.rw} ${st}`} data-testid={`reward-${r.kind}-${r.look.id}`}>
-                <div className={s.rwLv}>{whenLabel(r.look)}</div>
+              <div key={r.id} className={`${s.rw} ${st}`} data-testid={`reward-${r.id}`}>
+                <div className={s.rwLv}>{whenLabel(r)}</div>
                 <div className={s.rwArt}><RewardArt r={r} height={150} /></div>
                 <div className={s.rwName}>{r.name}</div>
                 <p className={s.rwBlurb}>{r.blurb}</p>
-                <span className={`${s.tb} ${got ? s.tbGot : r === next ? s.tbNext : ""}`}>{got ? "Unlocked" : r === next ? nextBadge(r) : lockLabel(r.look)}</span>
+                <span className={`${s.tb} ${got ? s.tbGot : r === next ? s.tbNext : ""}`}>{got ? "Unlocked" : r === next ? nextBadge(r) : lockLabel(r)}</span>
               </div>
             );
           })}

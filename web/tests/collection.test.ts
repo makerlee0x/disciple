@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   BURN_GRADES, CRATE, ITEMS, TRADE_UP_N, burnGrade, rollsFromDigest, tradeUpPool, tradeUpTarget, PAINTS, RARITIES, SERIES, STARTER_SKIN, STARTER_TAG, TRAILS, crateBurstArt, crateOdds, dropPool, duelCrateTier, glintArt, itemById, rollCrate,
-  seriesArt, skinArt, tagArt, trailArt, DAY_MS, applyCatalog, nextDrop,
+  seriesArt, skinArt, tagArt, trailArt, DAY_MS, applyCatalog, nextDrop, REWARDS,
 } from "@/lib/collection";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -40,6 +40,7 @@ describe("collection catalogue", () => {
     const pool = dropPool(Date.UTC(2026, 10, 20));
     const skins = pool.filter((i) => i.kind === "skin");
     expect(skins.length).toBe(18);
+    for (const r of REWARDS) expect(itemById(r.item)).toBeTruthy();   // every level / trophy reward is a real item
     expect(pool.filter((i) => i.kind === "trail").map((i) => i.id).sort()).toEqual(["gold", "ice", "mint", "smoke", "solar", "violet"].map((t) => `trail-${t}`).sort());
     expect(new Set(skins.map((s) => s.hull))).toEqual(new Set(["bullet", "needle"]));
     expect(pool.some((i) => i.hull === "pulp")).toBe(false);
@@ -258,6 +259,24 @@ describe("collection server (local KV)", () => {
     const e = await col.equip(W, STARTER_SKIN, "trail-gold", STARTER_TAG);
     expect(e.ok && e.equipped.tag).toBe(STARTER_TAG);
     expect(e.ok && e.equipped.copy.skin).toBe(`st-${STARTER_SKIN}`);
+  });
+
+  it("level rewards land as bound copies in the collection, once each", async () => {
+    const P = "0x" + "e1".repeat(20);
+    expect((await col.collectionOf(P)).copies.some((c) => c.origin === "reward")).toBe(false);
+    await xp.award(P, { src: "test:reward", kind: "mission", xp: 20000, label: "test", ts: Date.now() });
+    const lvl = (await xp.xpSummary(P)).level.level;
+    const due = REWARDS.filter((r) => r.rule.kind === "level" && lvl >= r.rule.level).map((r) => r.item);
+    expect(due.length).toBeGreaterThan(0);
+    const c = await col.collectionOf(P);
+    const got = c.copies.filter((x) => x.origin === "reward");
+    expect(got.map((x) => x.item).sort()).toEqual([...due].sort());
+    expect(got.every((x) => x.bound && x.serial >= 1)).toBe(true);
+    for (const id of due) expect(c.owned).toContain(id);
+    expect((await col.collectionOf(P)).copies.filter((x) => x.origin === "reward")).toHaveLength(due.length);
+    // a reward skin can be flown
+    const skin = due.find((id) => id.includes("--"));
+    if (skin) expect((await col.equip(P, skin, "trail-gold")).ok).toBe(true);
   });
 
   it("a catalogue save can't change or pull back an item that has copies, and new items need art", async () => {

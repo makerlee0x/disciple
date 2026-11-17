@@ -1,0 +1,73 @@
+/* Hangar, simplified (maker 2026-11-17): Altitude | Your rocket card, then Trophy case | Your fleet, on /profile and /u/[name];
+   the full collection and crates on /rocket (components/hangar/RocketPage); the Trade up picture (Collection TradeUpGraphic). */
+
+/* two equal columns; stacks on narrow screens */
+.hg-duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: stretch; }
+.hg-duo.solo { grid-template-columns: minmax(0, 1fr); }
+.hg-duo > .hg-sec { margin-top: 0; padding: 24px; gap: 12px; background: var(--dsc3-panel); border: 1px solid var(--dsc3-panel-border); border-radius: var(--dsc3-panel-radius); min-width: 0; }
+.hg-duo > .hg-sec .hg-sech h2 { font: 800 30px / 1 var(--dsc-font-game); text-transform: uppercase; }
+.hg-duo > .hg-sec .hg-sech span { font-size: 13px; }
+.hg-duo .hg-fleet { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.hg-duo .hg-empty { padding: 20px; }
+@media (max-width: 980px) { .hg-duo { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
+
+/* the profile's Your rocket card */
+.hgu-card { justify-content: flex-start; background: radial-gradient(120% 90% at 18% 40%, color-mix(in srgb, var(--sw) 14%, transparent), transparent 60%), var(--dsc3-panel); }
+.hgu-card-body { flex: 1; display: flex; align-items: center; gap: 22px; min-width: 0; }
+.hgu-card-art { flex: none; width: 110px; display: flex; flex-direction: column; align-items: center; }
+.hgu-card-art .hgu-plume { margin-top: -6px; }
+.hgu-card-tx { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.hgu-card-tx b { font: 800 30px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.hgu-card-tx b em { font-style: normal; color: var(--dsc-muted); font-weight: 600; padding: 0 2px; }
+.hgu-card-tx > span:not(.hg-look-r):not(.hgu-plate) { font-size: 14px; color: #BCC0CA; }
+.hgu-card-tx .hgu-buy { margin-top: 8px; text-decoration: none; display: inline-flex; align-items: center; }
+@media (max-width: 720px) { .hgu-card-art { width: 84px; } .hgu-card-art img { height: 130px !important; } .hgu-card-tx b { font-size: 24px; } }
+
+/* /rocket */
+.hgr-crumb { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--dsc-muted); }
+.hgr-crumb a { color: var(--dsc3-light-champagne); text-decoration: none; font-weight: 600; }
+.hgr-crumb b { color: #FFFFFF; font-weight: 600; }
+.hgr-tabs { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; padding: 8px 0; background: var(--dsc3-page-bg); }
+.hgr-tabs a { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--dsc3-panel-border); color: #E8EAEE; text-decoration: none; font: 600 14px / 1 var(--dsc-font-ui); }
+.hgr-tabs a:hover { border-color: rgba(169, 196, 255, .6); }
+.hgr-tabs i { font-style: normal; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: inline-grid; place-items: center; background: var(--dsc3-light-gold, #F2C14E); color: #121327; font: 800 12px / 1 var(--dsc-font-ui); }
+.hgr .hgu-sec:first-of-type { margin-top: 8px; }
+
+/* Trade up, as a picture: 10 spares → 1 of the next rarity, the ladder, the rules */
+.hgu-tug { display: flex; flex-direction: column; gap: 20px; }
+.hgu-tug-eq { display: grid; grid-template-columns: minmax(0, 1.4fr) auto minmax(0, 1fr); align-items: center; gap: 12px 20px; padding: 22px 20px; border-radius: 16px;
+  background: rgba(10, 12, 18, .55); border: 1px solid #262A33; }
+.hgu-tug-in, .hgu-tug-out { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; text-align: center; }
+.hgu-tug-in b, .hgu-tug-out b { font: 800 34px / 1 var(--dsc-font-game); color: #FFFFFF; }
+.hgu-tug-stack { position: relative; display: flex; justify-content: center; height: 132px; width: 100%; max-width: 360px; }
+.hgu-tug-stack i { position: absolute; bottom: 0; left: calc(50% - 22px + (var(--k) - 4.5) * 26px); width: 44px; height: 112px; display: grid; place-items: end center; padding-bottom: 6px;
+  border-radius: 10px; border: 1px solid color-mix(in srgb, var(--sw) 55%, #262A33); background: linear-gradient(180deg, color-mix(in srgb, var(--sw) 18%, #15171D), #101217);
+  transform: rotate(calc((var(--k) - 4.5) * 2.4deg)); transform-origin: 50% 120%; box-shadow: 0 6px 14px rgba(0, 0, 0, .45); }
+.hgu-tug-stack i img { height: 92px !important; }
+.hgu-tug-arrow { display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--dsc3-light-champagne, #F3DFA8); }
+.hgu-tug-arrow span { font: 700 11px / 1 var(--dsc-font-mono); letter-spacing: .08em; text-transform: uppercase; color: #BCC0CA; white-space: nowrap; }
+.hgu-tug-arrow svg { width: 120px; height: 24px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.hgu-tug-one { display: grid; place-items: center; width: 110px; height: 150px; border-radius: 16px; border: 2px solid var(--sw);
+  background: radial-gradient(80% 70% at 50% 45%, color-mix(in srgb, var(--sw) 35%, transparent), transparent 70%), #101217;
+  box-shadow: 0 0 34px color-mix(in srgb, var(--sw) 45%, transparent); }
+.hgu-tug-ladder { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.hgu-tug-ladder li { display: flex; align-items: center; }
+.hgu-tug-ladder li + li::before { content: ""; width: 14px; height: 2px; margin-right: 8px; background: #3A3D46; }
+.hgu-tug-ladder button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid #2A2D36; color: #BCC0CA; font: 600 13px / 1 var(--dsc-font-ui); }
+.hgu-tug-ladder button i { width: 10px; height: 10px; border-radius: 50%; background: var(--sw); }
+.hgu-tug-ladder button.on { color: #FFFFFF; border-color: var(--sw); background: color-mix(in srgb, var(--sw) 14%, transparent); }
+.hgu-tug-ladder button:disabled { cursor: default; }
+.hgu-tug-ladder button:focus-visible { box-shadow: var(--dsc-glow-focus-ring); }
+.hgu-tug-mythic { gap: 8px; padding: 2px 12px 2px 6px; border-radius: 999px; border: 1px dashed color-mix(in srgb, var(--sw) 60%, #2A2D36); font-size: 13px; color: #BCC0CA; }
+.hgu-tug-mythic b { color: var(--sw); }
+.hgu-tug-rules { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.hgu-tug-rules li { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #BCC0CA; }
+.hgu-tug-rules svg { color: var(--dsc3-light-champagne, #F3DFA8); }
+@media (max-width: 720px) {
+  .hgu-tug-eq { grid-template-columns: 1fr; padding: 16px 12px; }
+  .hgu-tug-arrow svg { transform: rotate(90deg); width: 60px; }
+  .hgu-tug-stack { height: 110px; }
+  .hgu-tug-stack i { width: 34px; height: 92px; left: calc(50% - 17px + (var(--k) - 4.5) * 20px); }
+  .hgu-tug-stack i img { height: 74px !important; }
+}

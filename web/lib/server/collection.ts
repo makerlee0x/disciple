@@ -17,6 +17,7 @@ import "server-only";
  *   col:<chain>:copy:<uid>           JSON  CopyRecord                       one copy's permanent record (never deleted or reused)
  *   col:<chain>:log:<wallet>         zset  score=at, member=Opened JSON     recent openings
  *   col:<chain>:streak:<wallet>      ranked duel win streak
+ *   col:<chain>:rw:<wallet>          JSON  item ids                       level / trophy rewards already granted (REWARDS)
  *   col:<chain>:dc:<week>:<wallet>   duel crates this week (counter)
  * Crate XP and scrap XP are ledger rows (kind "crate").
  *
@@ -28,12 +29,13 @@ import "server-only";
 import { createHash, createHmac, randomBytes, randomInt, randomUUID } from "node:crypto";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import {
-  CRATE, DUPE_XP, EARN, FIRST_EDITION_MS, FLIGHTTRAK_PCT, ITEMS, PRESTIGE_HULL, RARITY_NAME,
+  CRATE, DUPE_XP, EARN, REWARDS, rewardEarned, FIRST_EDITION_MS, FLIGHTTRAK_PCT, ITEMS, PRESTIGE_HULL, RARITY_NAME,
   STARTER_SKIN, STARTER_TAG, STARTER_TRAIL, TRADE_UP_N, TRAILS, dayIndex, dropPool, duelCrateTier, itemById, itemTitle, prestigeUnlocked, rollCrate,
   rollsFromDigest, tradeUpPool, tradeUpTarget, trailId,
   type Collection, type Copy, type Crate, type Item, type Opened, type Rarity, type Slot,
 } from "@/lib/collection";
 import { ensureCatalog } from "./catalog";
+import { unlocksOf } from "./achievements";
 import { lookAllowed } from "@/lib/coinLook";
 import { kv, type Kv } from "./kv";
 import { award, withLock, xpSummary } from "./xp";
@@ -53,6 +55,7 @@ export const COLK = {
   dc: (week: number, w: string) => `${ns()}:dc:${week}:${w}`,
   looks: (w: string) => `looks:${ACTIVE_CHAIN.id}:${w}`,
   copy: (uid: string) => `${ns()}:copy:${uid}`,
+  rw: (w: string) => `${ns()}:rw:${w}`,
 };
 const parse = <T,>(s: string | null): T | null => { if (!s) return null; try { return JSON.parse(s) as T; } catch { return null; } };
 const lc = (w: string) => w.toLowerCase();
@@ -200,7 +203,30 @@ async function syncEarned(w: string, now: number, s: Kv) {
   const xp = await xpSummary(w, now, s);
   if (await s.setNX(COLK.base(w), JSON.stringify({ p: xp.level.prestige, l: xp.level.level }))) await grantCrate(w, EARN.welcome, "welcome", "Welcome to the Hangar", now, s);
   if (xp.weekly.missions.length && xp.weekly.missions.every((m) => m.done)) await grantCrate(w, EARN.weekly, `week:${xp.weekly.period}`, "Weekly missions", now, s);
+  await grantRewards(w, xp.level, now, s).catch(() => {});
   return xp;
+}
+
+/** Level and trophy rewards (lib/collection REWARDS): one bound copy each, once ever. One KV read when there's nothing new. */
+async function grantRewards(w: string, level: { level: number; prestige: number }, now: number, s: Kv) {
+  const done = new Set(parse<string[]>(await s.get(COLK.rw(w))) ?? []);
+  const left = REWARDS.filter((r) => !done.has(r.item));
+  if (!left.length) return;
+  const trophies = left.some((r) => r.rule.kind === "trophy") ? new Set((await unlocksOf(w, s)).map((u) => u.id)) : new Set<string>();
+  const due = left.filter((r) => rewardEarned(r.rule, { ...level, trophies }));
+  if (!due.length) return;
+  await withLock(w, s, async () => {
+    const fresh = new Set(parse<string[]>(await s.get(COLK.rw(w))) ?? []);   // re-read under the lock, so a race grants once
+    const inv = await invOf(w, now, s);
+    for (const r of due.filter((x) => !fresh.has(x.item))) {
+      const it = itemById(r.item); if (!it) continue;
+      inv.push(await makeCopy(it, "reward", true, freshRolls(), now, s, w));
+      fresh.add(r.item);
+    }
+    await writeInv(w, inv, s);
+    await s.set(COLK.rw(w), JSON.stringify([...fresh]));
+    return { ok: true as const };
+  });
 }
 
 /* --------------------------------------------------------------- reading --------------------------------------------------------------- */

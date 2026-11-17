@@ -1,6 +1,8 @@
-import { redirect } from "next/navigation";
+import RocketPage from "@/components/hangar/RocketPage";
 
-/** The Rocket Factory item shop waits for v2. Hulls and flares are earned and equipped in the Hangar (Your rocket). */
+export const metadata = { title: "Your rocket · DISCIPLE" };
+
+/** Your rocket: skins, trails, name tags, trade up and crates (moved off the profile, maker 2026-11-17). */
 export default function Page() {
-  redirect("/profile");
+  return <RocketPage />;
 }
