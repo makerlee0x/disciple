@@ -14,7 +14,7 @@ import { freePlayXp, FREE_PLAY_XP } from "@/lib/xp";
 import { nextLevelUnlock } from "@/lib/unlocks";
 import { fetchXp, usePilotWallet, XP_CHANGED_EVENT } from "@/lib/xpClient";
 import { privyLogin, privyReady } from "@/lib/aa/sessionState";
-import { dailyEndsAt, dailyRecap, fmtMultiple as mult, type DailyScore } from "@/lib/sim/daily";
+import { dailyEndsAt, dailyRecap, fmtMultiple as mult, DAILY, type DailyScore } from "@/lib/sim/daily";
 import { claimFreePlayXp, deviceId, refreshRank, type DailyVerdict, type FreePlayXpResult } from "@/lib/sim/dailyClient";
 import { fmt, type PlayerInput } from "@/lib/sim/run";
 import { fetchDailyBoard, type Board } from "./FreePlay";
@@ -47,7 +47,7 @@ function storyLine(s: DailyScore, dumper: string | null) {
   if (s.invested <= 0) return "Never boarded.";
   let a: string;
   if (s.outAtS == null) a = "Held to the end.";
-  else { const d = Math.round(s.peakAtS - s.outAtS); a = d > 0 ? `Peak came ${d}s after you left.` : d === 0 ? "Sold the top." : `Out ${-d}s after the peak.`; }
+  else { const d = Math.round((s.peakAtS - s.outAtS) / DAILY.speed); a = d > 0 ? `Peak came ${d}s after you left.` : d === 0 ? "Sold the top." : `Out ${-d}s after the peak.`; }
   return dumper ? `${a} ${dumper} dumped.` : a;
 }
 

@@ -125,7 +125,9 @@ export async function readRun(id: number, runId: string, s: Kv = kv()): Promise<
 export async function dailyBoard(id: number, opts: { me?: string | null; run?: string | null } = {}, s: Kv = kv()): Promise<DailyBoard> {
   const ids = await s.zrange(zkey(id), 10, true);
   const runs = ids.length ? await s.mget(ids.map((r) => rkey(id, r))) : [];
-  const top = runs.flatMap((v) => { if (!v) return []; const r = JSON.parse(v) as DailyRun; return [{ runId: r.runId, name: r.name, multiple: r.score.multiple, pnl: r.score.pnl }]; });
+  // a saved run shows its pilot's username (pilotOf), not the device call sign (maker 2026-11-17: "my name isnt on the leaderboard")
+  const top = await Promise.all(runs.flatMap((v) => { if (!v) return []; const r = JSON.parse(v) as DailyRun;
+    return [pilotOf(id, r, s).then((p) => p.name, () => r.name).then((name) => ({ runId: r.runId, name, multiple: r.score.multiple, pnl: r.score.pnl }))]; }));
   const count = await s.zcard(zkey(id));
   let me: DailyBoard["me"] = null, run: DailyBoard["run"] = null;
   if (opts.me) { const r = await readRun(id, opts.me, s); if (r) { const k = await placeOf(id, r, s); me = { runId: r.runId, rank: k.rank, count: k.count, boarded: k.boarded, multiple: r.score.multiple, pnl: r.score.pnl, topPct: topPct(k.rank, k.count) }; } }

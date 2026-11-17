@@ -16,7 +16,7 @@ import { SIM_POS_EVENT, SimDriver } from "@/lib/sim/driver";
 import { createSimTrampWallAdapter, SIM_ME } from "@/lib/sim/twAdapter";
 import { seedOf } from "@/lib/sim/run";
 import type { PlayerInput, SimEvent } from "@/lib/sim/run";
-import { dailyToday, fmtMultiple, DAILY } from "@/lib/sim/daily";
+import { dailyToday, fmtMultiple, DAILY, DAILY_BUY_PCTS } from "@/lib/sim/daily";
 import { claimFreePlayXp, saveDaily, savedDaily, startDaily, submitDaily, type DailyVerdict, type FreePlayXpResult } from "@/lib/sim/dailyClient";
 import { usePilotWallet, XP_CHANGED_EVENT } from "@/lib/xpClient";
 import DailyResult from "@/components/sim/DailyResult";
@@ -99,7 +99,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
     if (o.difficulty || o.daily) setDifficulty(diff);
     if (o.minutes || o.daily) setMinutes(mins);
     setDailyRun(!!o.daily);
-    const d = new SimDriver(c, diff, seed, mins); d.speed = o.daily ? 1 : speed; d.start(); drv.current = d;
+    const d = new SimDriver(c, diff, seed, mins); d.speed = o.daily ? DAILY.speed : speed; d.start(); drv.current = d;
     ghostEvent({ op: "clear" }); ghostOn.current = null; ghostFor.current = null;
     setPracticeXp(null);
     setAlert(null);
@@ -212,13 +212,13 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
           <FlightCanvas key={runN} search={search} />
           <PnlHud coin={`run-${runN}`} storagePrefix={SIM_STORAGE.pnlPrefix} modeLabel="FREE PLAY" syncEvent={SIM_POS_EVENT} />
           {TRAMP_WALLS_ENABLED && !dailyRun && <TrampWallPanel key={runN} token="SIMULATOR" adapter={twAdapter} owner={SIM_ME} supply={run?.m.S} simulator />}
-          <TradeBridge token="SIMULATOR" storagePrefix={SIM_STORAGE.swapPrefix} />
+          <TradeBridge token="SIMULATOR" storagePrefix={SIM_STORAGE.swapPrefix} buyPcts={dailyRun ? DAILY_BUY_PCTS : undefined} />
           <SnipeChip state={snipe} />
           {phase === "run" && <RocketClear />}
         </>
       )}
       {phase === "run" && run && (
-        <FreePlayStrip mode={dailyRun ? `DAILY #${dailyId}` : "PRACTICE"} left={clock(Math.max(0, minutes * 60 - run.t))} difficulty={difficulty} goals={scoreRun(run).goals} alert={alert} phone={phone}
+        <FreePlayStrip mode={dailyRun ? `DAILY #${dailyId}` : "PRACTICE"} left={clock(Math.max(0, minutes * 60 - run.t) / (dailyRun ? DAILY.speed : 1))} difficulty={difficulty} goals={scoreRun(run).goals} alert={alert} phone={phone}
           tune={tuneOpen && !dailyRun ? <>
             {SPEEDS.map((s) => <button key={s} type="button" data-testid={`sim-speed-${s}`} aria-pressed={speed === s} onClick={() => setSpeed(s)}>{s}×</button>)}
             <button type="button" aria-pressed={paused} onClick={() => setPaused((p) => !p)}>{paused ? "▶" : "⏸"}</button>

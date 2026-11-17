@@ -9,7 +9,7 @@ import "server-only";
  */
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { kv, type Kv } from "./kv";
-import { dailySeed, dailySeconds } from "../sim/daily";
+import { dailySeed, dailyRealSeconds } from "../sim/daily";
 
 let secretP: Promise<string> | null = null;
 async function secret(s: Kv): Promise<string> {
@@ -29,7 +29,7 @@ export async function serverDailySeed(id: number, s: Kv = kv()): Promise<number>
 }
 
 /** a run takes the whole flight in real time (1×): a submit sooner than this after its ticket is not a real flight */
-export const MIN_FLIGHT_MS = (dailySeconds() - 5) * 1000;
+export const MIN_FLIGHT_MS = (dailyRealSeconds() - 5) * 1000;
 /** a ticket older than this has gone stale (a paused tab, a run left open) */
 export const TICKET_TTL_MS = 45 * 60_000;
 
