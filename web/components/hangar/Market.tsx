@@ -4,20 +4,19 @@
  * 7% fee; no trade lock). Rules in lib/market.ts, server in lib/server/market.ts.
  *   - SellControl: "Sell" on a tradable copy in Your rocket (website only).
  *   - HangarTrades: your listings and trade offers, plus a new offer (works in the app too; listings show web-only).
- *   - MarketPage: /market, every open listing with burn, pattern, serial and price history; buying pays from Cash.
+ *   The /market storefront itself is ./MarketShop.
  */
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { formatUnits } from "viem";
 import { withBase } from "@/lib/base-path";
 import {
-  HULL_NAMES, RARITY_COLOR as SW, RARITY_NAME as RL, burnGrade, itemById,
-  type Collection as Col, type Copy, type Rarity,
+  HULL_NAMES, RARITY_COLOR as SW, burnGrade, itemById,
+  type Collection as Col, type Copy,
 } from "@/lib/collection";
 import { isNativeApp } from "@/lib/native";
-import { MARKET_FEE_BPS, parsePrice, sellerCents, usd, type Listing, type MarketFilter, type MarketSort, type Offer, type Sale } from "@/lib/market";
-import { buyListing, buyQuote, findPilot, listingDetail, marketAction, useMarket, useMine } from "@/lib/marketClient";
-import { Card, itemArt, title } from "./Collection";
+import { MARKET_FEE_BPS, parsePrice, sellerCents, usd, type Listing, type Offer } from "@/lib/market";
+import { findPilot, marketAction, useMine } from "@/lib/marketClient";
+import { itemArt, title } from "./Collection";
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 const FEE = `${MARKET_FEE_BPS / 100}%`;
@@ -211,110 +210,3 @@ export function HangarTrades({ col, wallet, mine }: { col: Col | null; wallet: s
     </section>
   );
 }
-
-/* --------------------------------------------------------------- /market --------------------------------------------------------------- */
-
-const KINDS: [MarketFilter["kind"] | "", string][] = [["", "All"], ["skin", "Skins"], ["trail", "Trails"], ["tag", "Name tags"], ["flourish", "Flourishes"]];
-const SORTS: [MarketSort, string][] = [["new", "Newest"], ["price-asc", "Lowest price"], ["price-desc", "Highest price"], ["burn-asc", "Least burn"]];
-const RARS: Rarity[] = ["common", "uncommon", "rare", "epic", "legendary", "mythic"];
-
-function Detail({ id, me, onClose }: { id: string; me: string | null; onClose: () => void }) {
-  const [d, setD] = useState<{ listing: Listing; sales: Sale[] } | null>(null);
-  const [step, setStep] = useState<"idle" | "confirm" | "busy" | "done">("idle");
-  const [net, setNet] = useState<string>("");
-  const [note, setNote] = useState("");
-  useEffect(() => { setD(null); setStep("idle"); setNote(""); void listingDetail(id).then(setD); }, [id]);
-  if (!d) return <div className="dsc3-panel hg-panel mkt-detail"><p className="hg-sub">Loading…</p></div>;
-  const l = d.listing, it = itemById(l.item), c = l.copy;
-  if (!it) return null;
-  const mineL = !!me && l.seller === me.toLowerCase();
-  const ask = async () => {
-    setNote("");
-    const q = await buyQuote(l.id);
-    if ("error" in q) return setNote(q.error);
-    setNet(`$${Number(formatUnits(q.networkRaw, q.decimals)).toFixed(2)}`); setStep("confirm");
-  };
-  const buy = async () => {
-    setStep("busy"); setNote("");
-    const r = await buyListing(l.id);
-    if (r.ok) { setStep("done"); setNote("It's yours. Find it in your Hangar."); }
-    else { setStep("idle"); setNote(r.reason ?? "Couldn't buy it."); }
-  };
-  return (
-    <div className="dsc3-panel hg-panel mkt-detail" style={{ ["--sw" as string]: SW[it.rar] }} data-testid="market-detail">
-      <header className="hg-panelh"><div><span className="hg-look-r" style={{ color: SW[it.rar] }}>{RL[it.rar]}{it.series ? ` · Series ${it.series}` : ""}</span><h2>{title(it)}</h2><span>Sold by {pilot(l.sellerName, l.seller)}</span></div>
-        <button type="button" className="dsc3-btn hgu-scrap" onClick={onClose}>Close</button></header>
-      <div className="mkt-detail-body">
-        <span className="mkt-detail-art">{itemArt(it, 190, false, l.sellerName ?? "PILOT", c)}</span>
-        <div className="mkt-detail-tx">
-          {c && <>
-            <dl className="mkt-stats">
-              <div><dt>Serial</dt><dd>#{fmt(c.serial)}</dd></div>
-              <div><dt>Burn</dt><dd>{burnGrade(c.burn).name} · {c.burn.toFixed(4)}</dd></div>
-              <div><dt>Pattern</dt><dd>{c.seed}</dd></div>
-              {c.trak != null && <div><dt>FlightTrak</dt><dd>{fmt(c.trak)} wins</dd></div>}
-            </dl>
-            <span className="hgu-copy-tags">{c.fe && <i className="fe">First edition</i>}{c.trak != null && <i className="trak">FlightTrak</i>}</span>
-          </>}
-          <b className="mkt-price-big">{usd(l.price)}</b>
-          {l.state === "sold" ? <p className="hg-sub">Sold.</p> : mineL ? <p className="hg-sub">Your listing. You get {usd(sellerCents(l.price))} when it sells.</p> : !me ? <p className="hg-sub">Sign in to buy. You pay from your Cash.</p> : step === "done" ? null : step === "confirm" ? (
-            <div className="mkt-confirm">
-              <p>Pay {usd(l.price)} plus a {net} network fee from your Cash? {FEE} of the price is Disciple&apos;s fee; the seller gets {usd(sellerCents(l.price))}.</p>
-              <div className="hgu-copy-act"><button type="button" className="dsc3-btn dsc3-btn-primary hgu-buy" onClick={buy} data-testid="buy-confirm">Pay {usd(l.price)}</button><button type="button" className="dsc3-btn hgu-scrap" onClick={() => setStep("idle")}>Cancel</button></div>
-            </div>
-          ) : <button type="button" className="dsc3-btn dsc3-btn-primary hgu-buy" disabled={step === "busy" || l.state !== "open"} onClick={ask} data-testid="buy">{step === "busy" ? "Paying…" : l.state === "pending" ? "Being bought" : "Buy"}</button>}
-          {note && <p className="hg-sub" role="status">{note}</p>}
-          <div className="mkt-hist">
-            <h3>Recent sales of this item</h3>
-            {d.sales.length ? <ol>{d.sales.slice(0, 8).map((s) => <li key={s.listing}><span>#{fmt(s.serial)} · {burnGrade(s.burn).short}</span><b>{usd(s.price)}</b><small>{new Date(s.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</small></li>)}</ol> : <p className="hg-sub">No sales yet.</p>}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export function MarketPage({ wallet }: { wallet: string | null }) {
-  const web = useWeb();
-  const [kind, setKind] = useState<MarketFilter["kind"] | "">("");
-  const [rar, setRar] = useState<Rarity | "">("");
-  const [sort, setSort] = useState<MarketSort>("new");
-  const [trak, setTrak] = useState(false);
-  const [sel, setSel] = useState<string | null>(null);
-  const { rows, sales } = useMarket({ kind: kind || undefined, rar: rar || undefined, sort, trak });
-  const [ready, setReady] = useState(false);
-  useEffect(() => setReady(true), []);
-  if (ready && !web) {
-    return <section className="hg-sec"><div className="hg-empty"><b>Market</b><p>The market is on the website. Open disciple.vip in your browser to buy and sell. Trade offers work here in your Hangar.</p></div></section>;
-  }
-  return (
-    <section className="hg-sec hgu-sec mkt" aria-labelledby="mkt-h" data-testid="market">
-      <header className="hg-sech"><div><h2 id="mkt-h" className="dsc3-h2">Market</h2><span>Buy and sell copies with other pilots. Every copy is one of a kind: its own serial, burn and pattern. You pay from your Cash; {FEE} of each sale goes to Disciple.</span></div>
-        {wallet && <Link href="/rocket#hg-trades" className="hg-ghost">Your trades</Link>}</header>
-      <div className="mkt-filters">
-        <div className="hg-ranges" role="tablist" aria-label="Kind">{KINDS.map(([k, label]) => <button key={label} type="button" role="tab" aria-selected={kind === k} className={kind === k ? "on" : ""} onClick={() => setKind(k)}>{label}</button>)}</div>
-        <div className="mkt-filter-r">
-          <select className="ds-input" value={rar} onChange={(e) => setRar(e.target.value as Rarity | "")} aria-label="Rarity"><option value="">Any rarity</option>{RARS.map((r) => <option key={r} value={r}>{RL[r]}</option>)}</select>
-          <select className="ds-input" value={sort} onChange={(e) => setSort(e.target.value as MarketSort)} aria-label="Sort">{SORTS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}</select>
-          <button type="button" className={`mkt-toggle${trak ? " on" : ""}`} aria-pressed={trak} onClick={() => setTrak((v) => !v)}>FlightTrak only</button>
-        </div>
-      </div>
-      {sel && <Detail id={sel} me={wallet} onClose={() => setSel(null)} />}
-      {rows == null ? <p className="hg-sub">Loading…</p> : rows.length ? (
-        <ul className="hg-looks mkt-grid">
-          {rows.map((l) => { const it = itemById(l.item); if (!it) return null; return (
-            <Card key={l.id} rar={it.rar} on={sel === l.id} name={it.kind === "skin" ? <>{HULL_NAMES[it.hull!]} <em>|</em> {it.name}</> : it.kind === "trail" ? it.name : `${it.name} ${it.kind === "tag" ? "tag" : "flourish"}`} label={RL[it.rar]}
-              sub={<><b className="mkt-card-price">{usd(l.price)}</b>{copyLine(l.copy)}</>} a={itemArt(it, 98, false, l.sellerName ?? "PILOT", l.copy)} onClick={() => setSel(l.id)} testid={`listing-${l.id}`} />
-          ); })}
-        </ul>
-      ) : <div className="hg-empty"><b>Nothing listed yet</b><p>{kind || rar || trak ? "Nothing matches those filters." : "Be the first: open a copy in Your rocket and tap Sell."}</p></div>}
-      {sales.length > 0 && (
-        <div className="mkt-hist mkt-recent"><h3>Just sold</h3>
-          <ol>{sales.slice(0, 10).map((s) => { const it = itemById(s.item); return <li key={s.listing}><span>{it ? (it.kind === "skin" ? `${HULL_NAMES[it.hull!]} | ${it.name}` : it.name) : s.item} #{fmt(s.serial)}</span><b>{usd(s.price)}</b></li>; })}</ol>
-        </div>
-      )}
-      <p className="hg-sub mkt-foot">Prices are set by pilots. Items are game cosmetics, not investments. Crates can&apos;t be bought; they drop from ranked duel wins and weekly missions.</p>
-    </section>
-  );
-}
-
