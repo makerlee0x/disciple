@@ -33,6 +33,7 @@ test("trading keys round-trip through AES-GCM and fail on a wrong secret", () =>
 });
 test("WASM signer: market order with Disciple's partner fee, key registration and approval messages", async () => {
   const dir = path.join(process.cwd(), "lib/server/lighter/signer");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const g = globalThis as any;
   if (!g.Go) vm.runInThisContext(fs.readFileSync(path.join(dir, "wasm_exec.js"), "utf8"));
   const go = new g.Go();
