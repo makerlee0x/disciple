@@ -21,7 +21,14 @@ export async function generateMetadata(p: P): Promise<Metadata> {
   const title = c ? `${c.name} challenged you to a trading duel` : "Trading Duel · DISCIPLE";
   const description = "1v1 on live BTC. One minute, most profit wins. Free to play, no sign-up.";
   const img = `${SITE_ORIGIN}/api/og/invite${c ? `?from=${encodeURIComponent(c.name.replace(/^@/, ""))}` : ""}`;
-  return { title, description, openGraph: { title, description, images: [{ url: img, width: 1200, height: 630 }] }, twitter: { card: "summary_large_image", title, description, images: [img] } };
+  // X player card: the post plays a bot duel right in the timeline (/duel?embed=1), with a link out to the full game
+  const slug = c ? c.slug : "", ref = c && /^0x[0-9a-f]{40}$/.test(c.pid) ? `&ref=${c.pid}` : "";
+  const player = `${SITE_ORIGIN}/duel?embed=1&first=1${slug ? `&vs=${encodeURIComponent(slug)}` : ""}${ref}`;
+  return {
+    title, description,
+    openGraph: { title, description, images: [{ url: img, width: 1200, height: 630 }] },
+    twitter: { card: "player", title, description, images: [img], players: [{ playerUrl: player, streamUrl: player, width: 480, height: 800 }] },
+  };
 }
 
 const game: React.CSSProperties = { fontFamily: "var(--dsc-font-game)" };
