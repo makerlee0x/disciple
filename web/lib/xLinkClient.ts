@@ -1,7 +1,6 @@
 /** Client side of /api/x (lib/xLink.ts has the flow). */
 import { IS_STATIC_PREVIEW } from "./base-path";
 import { signWalletMessage } from "./profile";
-import { isNativeApp } from "./native";
 import { privyAccessToken, privyAccount, privyHooksNow } from "./aa/sessionState";
 import { X_RESULT_COPY, xConnectMessage, xDisconnectMessage, type XLinkStatus } from "./xLink";
 
@@ -51,6 +50,18 @@ async function linkFromPrivy(address: string): Promise<{ ok: boolean; reason?: s
   return { ok: true };
 }
 
+/** Privy refused the X link (Connect X started it): drop the pending link and say why next to the X row. */
+export function failPendingXLink(code: string): void {
+  let pending = false;
+  try { pending = !!sessionStorage.getItem(PENDING_KEY); sessionStorage.removeItem(PENDING_KEY); } catch { /* ignore */ }
+  if (!pending) return;
+  const taken = /linked_to_another_user|already/i.test(code);
+  const cancelled = /exited|cancel|closed/i.test(code);
+  window.dispatchEvent(new CustomEvent<string>(X_NOTE_EVENT, {
+    detail: taken ? "That X account already has its own DISCIPLE sign-in, so it can't be added to this one." : cancelled ? X_RESULT_COPY.denied : X_RESULT_COPY.error,
+  }));
+}
+
 let finishing = false;
 /** Called by the Privy bridge once the signed-in user has X linked: finishes a Connect X the app started. No-op otherwise. */
 export async function finishPendingXLink(): Promise<void> {
@@ -68,10 +79,13 @@ export async function finishPendingXLink(): Promise<void> {
 
 /** Signs, then sends the browser to X. Resolves only on failure (on success the page navigates away). */
 export async function startXLink(address: string, returnTo = location.pathname): Promise<{ ok: false; reason: string }> {
-  // iPhone app: X's page inside the app can't use your X login and often refuses; link X through Privy instead, which
-  // opens iOS's sign-in sheet (shares Safari's X login). Already linked to the Privy account: just store it.
+  // Link X through Privy (web and iPhone app): X is attached to the player's login (Google / email / Apple), Privy
+  // verifies it with X, and /api/x/privy stores it on this wallet. In the app this opens iOS's sign-in sheet (shares
+  // Safari's X login). Our own X developer app (/api/x/connect below) is the fallback only when Privy isn't there, or
+  // when NEXT_PUBLIC_X_LINK_OWN_OAUTH=1 (maker 2026-11-16: the own-app link came back "Couldn't link your X account").
+  // Already linked to the Privy account: just store it.
   const hooks = privyHooksNow();
-  if (isNativeApp() && hooks?.authenticated && hooks.linkX) {
+  if (process.env.NEXT_PUBLIC_X_LINK_OWN_OAUTH !== "1" && hooks?.authenticated && hooks.linkX) {
     if (privyAccount()?.xUsername) {
       const r = await linkFromPrivy(address);
       return { ok: false, reason: r.ok ? X_RESULT_COPY.linked : r.reason || X_RESULT_COPY.error };

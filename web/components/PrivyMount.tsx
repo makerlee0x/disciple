@@ -10,7 +10,7 @@
  * Robinhood Chain testnet (46630) is a custom viem defineChain (lib/chains.ts) passed as default/supported chain.
  */
 import { useEffect, useMemo, useRef } from "react";
-import { PrivyProvider, getIdentityToken, toViemAccount, useCreateWallet, useExportWallet, useFundWallet, useMfaEnrollment, usePrivy, useWallets } from "@privy-io/react-auth";
+import { PrivyProvider, getIdentityToken, toViemAccount, useCreateWallet, useExportWallet, useFundWallet, useLinkAccount, useMfaEnrollment, usePrivy, useWallets } from "@privy-io/react-auth";
 import { deployment, isDeployed } from "@/lib/chains";
 import { useDepositAddress } from "@privy-io/react-auth/hooks";
 import { DEPOSIT_ACK_EVENT, DEPOSIT_CALL_EVENT, DEPOSIT_REPLY_EVENT, type DepositAddress, type DepositCall, type DepositOutcome, type DepositReply } from "@/lib/deposit";
@@ -24,7 +24,7 @@ import { PRIVY_APP_ID, aaSession, registerPrivy, type PrivyAccountInfo, type Pri
 import { connectPrivyOwner, disconnect } from "@/lib/wallet";
 import { withPrivyTxType } from "@/lib/aa/privyTx";
 import { syncLocalIdentity } from "@/lib/profile";
-import { finishPendingXLink } from "@/lib/xLinkClient";
+import { failPendingXLink, finishPendingXLink } from "@/lib/xLinkClient";
 import { withBase } from "@/lib/base-path";
 import { SIGN_IN_COPY, SIGN_IN_FAILED_EVENT } from "@/lib/walletCta";
 
@@ -44,7 +44,10 @@ function accountInfo(user: { linkedAccounts?: unknown[] } | null | undefined): P
 }
 
 function PrivyBridge() {
-  const { ready, authenticated, login, logout, getAccessToken, user, linkTwitter } = usePrivy();
+  const { ready, authenticated, login, logout, getAccessToken, user } = usePrivy();
+  // Connect X (web and app): Privy links X to this login, then lib/xLinkClient stores it on the wallet. A refused link
+  // (e.g. that X account is already its own Privy login) must say so instead of silently doing nothing.
+  const { linkTwitter } = useLinkAccount({ onError: (err) => failPendingXLink(String(err)) });
   const { wallets, ready: walletsReady } = useWallets();
   const { createWallet } = useCreateWallet();
   const linked = useRef<string | null>(null);

@@ -100,6 +100,17 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
     onClose(skipName || true);
   }
 
+  // Connect X leaves the page (X / Privy sign-in), so unsaved picture / banner / bio edits are saved first (maker
+  // 2026-11-16: picked a picture, hit Connect X, came back and the picture was gone).
+  async function saveBeforeX(): Promise<boolean> {
+    if (!metaDirty || bioLen > BIO_MAX) return true;
+    setBusy("save"); setErr("");
+    const r = await saveProfileMeta({ ...draft, bio: sanitizeBio(draft.bio), title: "" }, wallet);
+    setBusy("");
+    if (!r.ok) { setErr(r.reason || C["edit.error.save"]); return false; }
+    return true;
+  }
+
   const img = pfpUrl(draft.pfp);
   return (
     <Sheet open={open} onClose={tryClose} label={EDIT_COPY.title} className="p5-modal p5-edit" testId="edit-profile">
@@ -135,7 +146,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
             {bioLen > BIO_MAX && <span className="p5-err" role="alert">{C["edit.bio.error.length"]}</span>}
           </label>
 
-          <XLinkControl wallet={wallet} btnClass="p5-btn sm" render={({ handle, action, note }) => (
+          <XLinkControl wallet={wallet} btnClass="p5-btn sm" beforeConnect={saveBeforeX} render={({ handle, action, note }) => (
             <div className="p5-fld" role="group" aria-label={EDIT_COPY.x}>
               <span className="lab">{EDIT_COPY.x}</span>
               <div className="p5-xrow" data-testid="edit-x">

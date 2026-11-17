@@ -9,8 +9,10 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchXLink, startXLink, unlinkX, X_CHANGED_EVENT, X_NOTE_EVENT } from "@/lib/xLinkClient";
 import { isXResult, X_RESULT_COPY, X_RESULT_PARAM, type XLinkStatus } from "@/lib/xLink";
 
-export default function XLinkControl({ wallet, btnClass = "ds-btn", render }: {
+export default function XLinkControl({ wallet, btnClass = "ds-btn", render, beforeConnect }: {
   wallet: string | null;
+  /** Runs before the page goes to X (Edit profile saves unsaved edits so a new picture / bio isn't lost). false = stop. */
+  beforeConnect?: () => Promise<boolean>;
   btnClass?: string;
   /** Layout hook: the caller places the handle / button / note. */
   render: (p: { handle: string | null; action: React.ReactNode; note: string }) => React.ReactNode;
@@ -48,7 +50,11 @@ export default function XLinkControl({ wallet, btnClass = "ds-btn", render }: {
     </button>
   ) : (
     <button type="button" className={btnClass} disabled={busy} data-testid="connect-x"
-      onClick={async () => { setBusy(true); setNote(""); const r = await startXLink(wallet); setBusy(false); setNote(r.reason); }}>
+      onClick={async () => {
+        setBusy(true); setNote("");
+        if (beforeConnect && !(await beforeConnect())) { setBusy(false); return; }
+        const r = await startXLink(wallet); setBusy(false); setNote(r.reason);
+      }}>
       {busy ? "Opening X…" : "Connect X"}
     </button>
   );
