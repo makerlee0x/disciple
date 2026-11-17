@@ -28,7 +28,7 @@ import {LockedLP} from "./LockedLP.sol";
 ///      order is filled and anyone may `pull` it: the owner gets the proceeds minus a small keeper tip
 ///      (`keeperTipBps`, default 10 = 0.1%, owner-settable up to MAX_KEEPER_TIP_BPS = 1%) paid to the caller,
 ///      so bots auto-close filled orders.
-///      The hook only accepts LP adds from LockedLP and this contract (SEC-02 LP gate).
+///      The slim hook has no LP gate: anyone can add raw v4 liquidity, but the pool LP fee is 0, so it earns nothing.
 contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
