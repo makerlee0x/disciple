@@ -26,3 +26,19 @@ export async function claim(username: string, wallet: string): Promise<{ ok: tru
   await s.set(addrKey(a), username);
   return { ok: true };
 }
+
+/**
+ * Bind a RESERVED name (lib/server/reservedNames) to its owner's current wallet: the name moves here even if another
+ * wallet holds it (that wallet's name is cleared), and this wallet's previous name is released. Callers must have
+ * checked ownership (Privy-verified email). Returns moved: false when this wallet already held it.
+ */
+export async function bindReserved(username: string, wallet: string): Promise<{ moved: boolean; from: string | null }> {
+  const a = wallet.toLowerCase(), s = kv();
+  const [holder, mine] = await Promise.all([s.get(nameKey(username)), s.get(addrKey(a))]);
+  if (holder === a && mine === username) return { moved: false, from: null };
+  if (holder && holder !== a && (await s.get(addrKey(holder))) === username) await s.del(addrKey(holder));
+  if (mine && mine !== username && (await s.get(nameKey(mine))) === a) await s.del(nameKey(mine));
+  await s.set(nameKey(username), a);
+  await s.set(addrKey(a), username);
+  return { moved: true, from: holder && holder !== a ? holder : null };
+}

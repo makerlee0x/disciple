@@ -89,8 +89,31 @@ export async function fetchUsernameStatus(address: string | null | undefined): P
 export async function syncLocalIdentity(account: string | null | undefined): Promise<void> {
   clearLocalIdentity(account);
   if (!account) return;
+  await bindReservedName(account);
   const { username } = await fetchUsernameStatus(account);
   if (username && get(K.username) !== username) { set(K.username, username); set(K.usernameFor, account.toLowerCase()); notifyProfileChanged(); }
+}
+
+/** Privy session headers for username routes (reserved names prove the owner's email this way). Empty when signed out. */
+async function privyHeaders(): Promise<Record<string, string>> {
+  try {
+    const st = await import("./aa/sessionState");
+    const [at, idt] = await Promise.all([st.privyAccessToken(), st.privyIdentityToken()]);
+    return { ...(at ? { authorization: `Bearer ${at}` } : {}), ...(idt ? { "privy-id-token": idt } : {}) };
+  } catch { return {}; }
+}
+
+/** Signed in: if this person owns a reserved name (e.g. @maker), the server moves it onto this wallet. Best effort. */
+export async function bindReservedName(account: string): Promise<void> {
+  if (IS_STATIC_PREVIEW || !/^0x[0-9a-fA-F]{40}$/.test(account)) return;
+  try {
+    const h = await privyHeaders();
+    if (!h.authorization && !h["privy-id-token"]) return;
+    await fetch("/api/profile/username/reserved", {
+      method: "POST", cache: "no-store", headers: { "content-type": "application/json", ...h },
+      body: JSON.stringify({ address: account.toLowerCase() }),
+    });
+  } catch { /* the normal status read below still runs */ }
 }
 
 export async function claimUsername(u: string, address: string | null): Promise<{ ok: boolean; reason?: string; nextAllowedAt?: number }> {
@@ -107,7 +130,7 @@ export async function claimUsername(u: string, address: string | null): Promise<
       const signed = await signClaim(n, a, nonce);
       if (!signed) return { ok: false, reason: "Signature declined. Your wallet has to sign to claim a name." };
       const r = await fetch("/api/profile/username", {
-        method: "POST", headers: { "content-type": "application/json" },
+        method: "POST", headers: { "content-type": "application/json", ...(await privyHeaders()) },
         body: JSON.stringify({ username: n, address: a, nonce, ...signed }),
       });
       const j = await r.json();

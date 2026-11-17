@@ -49,14 +49,13 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
   const [draft, setDraft] = useState<ProfileMeta>(EMPTY_META);
   const [busy, setBusy] = useState<"" | "pfp" | "banner" | "save">("");
   const [err, setErr] = useState("");
-  const [confirm, setConfirm] = useState(false);
   const pfpFile = useRef<HTMLInputElement>(null);
   const bannerFile = useRef<HTMLInputElement>(null);
   const bioRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!open) return;
-    setDraft({ ...EMPTY_META, ...meta }); setErr(""); setConfirm(false);
+    setDraft({ ...EMPTY_META, ...meta }); setErr("");
     if (focus === "bio") requestAnimationFrame(() => bioRef.current?.focus());
   }, [open, meta, focus]);
 
@@ -68,7 +67,9 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
   // save" while the call sign said taken). Save then writes the rest and leaves the call sign as it was.
   const nameOk = !uname.changed || !!uname.status?.ok;
   const valid = bioLen <= BIO_MAX && (nameOk || metaDirty);
-  const tryClose = () => { if (dirty && !busy) setConfirm(true); else onClose(); };
+  // no "Discard changes?" step (maker 2026-11-16: "everyone knows if you don't click save it doesn't save"): X / Back /
+  // Escape / tapping outside just close, and unsaved edits are dropped
+  const tryClose = () => onClose();
 
   async function pick(kind: "pfp" | "banner", f: File | undefined) {
     if (!f) return;
@@ -83,17 +84,20 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
 
   async function save() {
     setBusy("save"); setErr("");
-    const skipName = uname.changed && !uname.status?.ok;
+    let skipName: string | false = uname.changed && !uname.status?.ok ? C["edit.username.skipped"] : false;
     if (uname.changed && !skipName) {
       const u = await uname.claim();
-      if (!u.ok) { setBusy(""); setErr(u.reason || C["edit.error.save"]); return; }
-      if (!metaDirty) { setBusy(""); onClose(true); return; }
+      // a refused claim (taken a moment ago, 24h cooldown, reserved) must not drop the new picture / bio either
+      // (maker 2026-11-16: "uploading a pfp didn't work"): save those, then say why the call sign stayed
+      if (!u.ok && !metaDirty) { setBusy(""); setErr(u.reason || C["edit.error.save"]); return; }
+      if (!u.ok) skipName = u.reason || C["edit.username.skipped"];
+      if (u.ok && !metaDirty) { setBusy(""); onClose(true); return; }
     }
     // titles are out of v1: a save never sets one; the flag (off in V1) is passed through untouched
     const r = await saveProfileMeta({ ...draft, bio: sanitizeBio(draft.bio), title: "" }, wallet);
     setBusy("");
     if (!r.ok) { setErr(r.reason || C["edit.error.save"]); return; }
-    onClose(skipName ? C["edit.username.skipped"] : true);
+    onClose(skipName || true);
   }
 
   const img = pfpUrl(draft.pfp);
@@ -107,7 +111,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
         <button type="button" className="p5-icon p5-phone" aria-label="Back" onClick={tryClose}><Icon name="chevron-left" size={20} /></button>
         <h2 className="k">{EDIT_COPY.title}</h2>
         <button type="button" className="p5-icon p5-desk" aria-label="Close" onClick={tryClose}><Icon name="close" size={18} /></button>
-        {!confirm && <div className="who">
+        <div className="who">
           <button type="button" className="p5-epfp hg-epfp" aria-label={EDIT_COPY.changePicture} disabled={!!busy} onClick={() => pfpFile.current?.click()} data-testid="edit-pfp">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {img ? <img src={withBase(img)} alt="" width={84} height={84} /> : <IdentitySigil id={NO_IDENTITY.primary.id} size={44} tip={false} />}
@@ -117,19 +121,10 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
             <b>{uname.name ? uname.name : (handle || "").replace(/^@/, "")}</b>
             {level && <span>{level}</span>}
           </div>
-        </div>}
+        </div>
       </header>
       <input ref={pfpFile} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => void pick("pfp", e.target.files?.[0])} data-testid="pfp-file" />
 
-      {confirm ? (
-        <div className="p5-confirm" role="alertdialog" aria-label={C["edit.discard.title"]}>
-          <p>{C["edit.discard.title"]}</p>
-          <div className="p5-actions">
-            <button type="button" className="p5-btn" data-autofocus onClick={() => setConfirm(false)}>{C["edit.discard.keep"]}</button>
-            <button type="button" className="p5-btn primary" onClick={() => onClose()}>{C["edit.discard.confirm"]}</button>
-          </div>
-        </div>
-      ) : (
         <form className="p5-edit-body" onSubmit={(e) => { e.preventDefault(); if (dirty && valid && !busy) void save(); }}>
           <UsernameField u={uname} disabled={!!busy} />
 
@@ -155,7 +150,6 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
           {err && <p className="p5-err" role="alert">{err}</p>}
           <button type="submit" className="p5-btn primary wide p5-gold" disabled={!dirty || !valid || !!busy}>{busy === "save" ? C["edit.saving"] : EDIT_COPY.save}</button>
         </form>
-      )}
     </Sheet>
   );
 }
