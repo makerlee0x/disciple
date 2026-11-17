@@ -64,10 +64,8 @@ function metaOf(coin: Address) {
  * Dev options: an existing wallet as owner (one signature).
  * Legacy "plain wallet" path kept as fallback (one tx per action).
  */
-/** The pilot's level ring for the lobby chip (level 1 until the first XP lands). */
-function PilotRing({ wallet }: { wallet: string }) {
-  const { xp } = useXp(wallet);
-  // the pilot's picture inside the ring, level on a badge (re-read after Edit profile saves)
+/** The pilot pill's picture: the saved profile picture, else the level ring (level 1 until the first XP lands). */
+function usePilotPfp(wallet: string | null) {
   const [img, setImg] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
@@ -76,11 +74,45 @@ function PilotRing({ wallet }: { wallet: string }) {
     window.addEventListener(PROFILE_CHANGED_EVENT, read);
     return () => { alive = false; window.removeEventListener(PROFILE_CHANGED_EVENT, read); };
   }, [wallet]);
-  return <LevelRing info={xp?.level ?? levelInfo(0)} size={36} img={img} />;
+  return img;
+}
+/** maker 2026-11-17: the picture sits plain in the pill; the level progress runs around the pill's own border and the
+ *  level number is a chip in the pill. */
+function usePilotParts(wallet: string | null) {
+  const { xp } = useXp(wallet);
+  const img = usePilotPfp(wallet);
+  const info = xp?.level ?? levelInfo(0);
+  return { info, avatar: img
+    // eslint-disable-next-line @next/next/no-img-element
+    ? <img className="wb-pfp" src={img} alt="" width={36} height={36} />
+    : <LevelRing info={{ ...info, progress: 0 }} size={36} />, hasPfp: !!img };
+}
+/** Gold progress stroke around the pill's border, starting top-centre, clockwise. Sized to the pill (ResizeObserver). */
+function PillProgress({ progress }: { progress: number }) {
+  const ref = useRef<SVGSVGElement>(null);
+  const [box, setBox] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    const el = ref.current?.parentElement; if (!el) return;
+    const ro = new ResizeObserver(() => setBox({ w: el.offsetWidth, h: el.offsetHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const p = Math.max(0, Math.min(1, progress));
+  const sw = 2.5, s = sw / 2;
+  const d = box ? (() => {
+    const { w, h } = box, r = h / 2 - s;
+    return `M ${w / 2} ${s} H ${w - h / 2} A ${r} ${r} 0 0 1 ${w - h / 2} ${h - s} H ${h / 2} A ${r} ${r} 0 0 1 ${h / 2} ${s} Z`;
+  })() : "";
+  return (
+    <svg ref={ref} className="wb-prog" width={box?.w ?? 0} height={box?.h ?? 0} aria-hidden>
+      {d && <path d={d} pathLength={100} fill="none" stroke="var(--dsc3-light-gold)" strokeWidth={sw} strokeLinecap="round" strokeDasharray={`${p * 100} 100`} />}
+    </svg>
+  );
 }
 
 export default function WalletButton({ compact = false, hideCash = false }: { compact?: boolean; /** profile pages: no cash / total cards */ hideCash?: boolean } = {}) {
   const [addr, setAddr] = useState<Address | null>(null);
+  const pilot = usePilotParts(addr);
   const [busy, setBusy] = useState("");
   const [, setEth] = useState<bigint | null>(null);
   const [cashText, setCashText] = useState("");
@@ -305,8 +337,10 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
                   )}
                   <button type="button" className="wb-pilot" aria-label="Your pilot menu" aria-haspopup={smart ? "menu" : undefined} aria-expanded={smart ? acct : undefined}
                     onClick={() => { if (smart) { if (!acct) dispatchEvent(new Event(TOPBAR_POPOVER_EVENT)); setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
-                    <PilotRing wallet={addr} />
+                    {pilot.avatar}
                     <span>{copied ? "Copied" : chipLabel(uname, addr)}</span>
+                    {pilot.hasPfp && <b className="wb-lv" aria-label={`Level ${pilot.info.level}`}>{pilot.info.level}</b>}
+                    <PillProgress progress={pilot.info.progress} />
                     {smart && <svg className="wb-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M6 9l6 6 6-6" /></svg>}
                   </button>
                 </>
