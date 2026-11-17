@@ -35,7 +35,23 @@ function mount(root,host){
   let dead=false; const offs=[];
   const track=k=>{ try{ host.track&&host.track(k); }catch(e){} };   // funnel counter (lib/funnel TURBO_STEPS), once per browser
   const on=(t,ev,f,o)=>{ t.addEventListener(ev,f,o); offs.push(()=>t.removeEventListener(ev,f,o)); };
-  let st=document.getElementById("duel-css"); if(!st){ st=document.createElement("style"); st.id="duel-css"; st.textContent=CSS; document.head.appendChild(st); }
+  // result card fits one screen (maker 2026-11-17: "cropped weird"): tighter blocks, the card scrolls inside the overlay
+  // instead of centring off the top, and short screens drop the promo and keep 2 log rows. Kept apart from CSS so the big line stays untouched.
+  const RES_CSS=".duel-root #result{overflow-y:auto;overscroll-behavior:contain;padding-top:calc(12px + env(safe-area-inset-top,0px))}"
+    +".duel-root #result .res{margin:auto 0 0;gap:10px;padding:16px}"
+    +"@media (min-width:900px) and (min-height:600px){.duel-root #result{padding:16px}.duel-root #result .res{margin:auto}}"
+    +".duel-root .res h1{font-size:48px;line-height:.9}.duel-root .res .margin{margin:-4px 0 0}.duel-root .res .margin b{font-size:52px}"
+    +".duel-root .res .margin .otc{display:inline-block;margin-left:6px;padding:2px 5px;border-radius:5px;background:var(--pinkl);color:#121327;font-size:10px;letter-spacing:.8px;vertical-align:1px}"
+    +".duel-root .res .sub{display:none}"
+    +".duel-root .res .fcrate{margin:0;padding:6px 12px;gap:12px}.duel-root .res .fc-box{width:56px;height:56px}.duel-root .res .fc-t b{font-size:20px}"
+    +".duel-root .res .sc{padding:9px 12px}.duel-root .res .sc b{font-size:30px}"
+    +".duel-root .res .moments{max-height:none;overflow:visible;gap:5px;padding:8px 12px}"
+    +".duel-root .res .stats div{display:flex;align-items:baseline;justify-content:space-between;gap:6px;padding:7px 10px}.duel-root .res .stats small{font-size:12px}.duel-root .res .stats b{font-size:18px}"
+    +".duel-root .res .sline{margin-top:0;padding:8px 12px}"
+    +".duel-root .res .rrow .sec,.duel-root .res .rrow .go{height:52px}.duel-root .res .rrow .go{font-size:24px}"
+    +".duel-root .res .save{margin-top:0;height:44px;font-size:17px}.duel-root .res .xlink{margin-top:0;padding:9px 12px}"
+    +"@media (max-height:720px){.duel-root .res .xlink{display:none}.duel-root .res .moments div:nth-child(n+3){display:none}.duel-root .res h1{font-size:40px}.duel-root .res .margin b{font-size:44px}.duel-root .res .sc b{font-size:26px}}";
+  let st=document.getElementById("duel-css"); if(!st){ st=document.createElement("style"); st.id="duel-css"; st.textContent=CSS+RES_CSS; document.head.appendChild(st); }
   root.classList.add("duel-root"); root.innerHTML=HTML;
   if(!RL){ const t=root.querySelector("#tabRanked"); if(t) t.textContent="ONLINE"; }
   const cssv=n=>getComputedStyle(document.body).getPropertyValue(n).trim();
@@ -822,10 +838,8 @@ function mount(root,host){
     $("rH").textContent=tie?"DRAW":win?"YOU WIN":"YOU LOSE"; $("rH").style.color=tie?"var(--text)":win?"var(--gold)":"var(--pinkl)";
     const marg=Math.abs(pm-pb), card=document.querySelector(".res");
     card.classList.toggle("win",win&&!tie); $("result").classList.toggle("winbg",win&&!tie); $("rMarg").hidden=tie;
-    $("rMargL").textContent=win?"WON BY":"LOST BY"; $("rMargV").textContent="$"+marg.toFixed(2); $("rMargV").style.color=win?"":"var(--pinkl)";
-    $("rSub").textContent=tie?"Dead even.":win
-      ? (G.me.up+G.me.dn===0 ? `You sat it out. ${esc(G.bot.name)} made ${G.bot.up+G.bot.dn} trades and paid $${G.bot.fees.toFixed(2)} in fees.` : pm>=0 ? `You out-traded ${esc(G.bot.name)}. Clean win.` : pb<0 ? `Rough tape for both. You read it better and took the W.` : `You out-traded ${esc(G.bot.name)} when it counted.`)
-      : `${esc(G.bot.name)} edged it. Run it back.`;
+    $("rMargL").innerHTML=(win?"WON BY":"LOST BY")+(G.ot?'<span class="otc">OT</span>':""); $("rMargV").textContent="$"+marg.toFixed(2); $("rMargV").style.color=win?"":"var(--pinkl)";
+    $("rSub").textContent="";   // flavour line cut (CLAUDE.md no-subtitle rule); WON BY carries it
     // the winner's card wears the crown; your red number goes quiet when you won anyway
     $("rMe").textContent=usd(pm,true); $("rMe").style.color=win&&pm<0?"var(--text)":pm>=0?"var(--green)":"var(--pinkl)";
     document.querySelector(".sc.me").classList.toggle("won",win&&!tie);
@@ -833,8 +847,8 @@ function mount(root,host){
     $("rBot").textContent=usd(pb,true); $("rBot").style.color=pb>=0?"var(--green)":"var(--pinkl)"; $("rBotN").textContent=G.bot.name+(M&&!M.net?" \u00b7 bot":"");
     $("rMeS").textContent=`${G.me.up+G.me.dn} trades \u00b7 ${G.me.green} green \u00b7 $${G.me.fees.toFixed(2)} fees`;
     $("rBotS").textContent=`${G.bot.up+G.bot.dn} trades \u00b7 ${G.bot.green} green \u00b7 $${G.bot.fees.toFixed(2)} fees`;
-    const all=[...G.me.moments,...G.bot.moments].sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)).slice(0,5).sort((a,b)=>a.t-b.t);
-    $("rMom").innerHTML=all.length?all.map(m=>`<div><span><span class="t">${mmss(m.t)}</span>${m.txt}</span><b style="color:${m.v>=0?"var(--green)":"var(--pinkl)"}">${usd(m.v,true)}</b></div>`).join(""):`<div><span>No trades this time.</span></div>`;
+    const all=[...G.me.moments,...G.bot.moments].sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)).slice(0,3).sort((a,b)=>a.t-b.t);
+    $("rMom").innerHTML=all.length?all.map(m=>`<div><span><span class="t">${m.t>LEN?"OT "+mmss(m.t-LEN):mmss(m.t)}</span>${m.txt}</span><b style="color:${m.v>=0?"var(--green)":"var(--pinkl)"}">${usd(m.v,true)}</b></div>`).join(""):`<div><span>No trades this time.</span></div>`;
     $("rRec").textContent=`${rec.w}-${rec.l}`; $("rRat").parentElement.hidden=!RL; $("rRat").parentElement.querySelector("small").textContent=net&&M.ranked?"Rating":"Rating (unranked)"; $("rRat").innerHTML=`${rec.rating.toLocaleString("en-US")} <span style="font-size:14px;color:${dr>=0?"var(--green)":"var(--pinkl)"}">${dr>=0?"+":"\u2212"}${Math.abs(dr)}</span>`; $("rStr").textContent=rec.streak;
     $("rAgain").textContent="REMATCH";
     // first win: the welcome crate drops in on this card (the host claims it, or asks for sign-in first; Grok playbook pick, maker 2026-11-16)
