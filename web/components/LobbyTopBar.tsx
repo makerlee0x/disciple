@@ -46,12 +46,12 @@ export const TURBO_MODES = [
   { href: "/turbo/royale", label: "Turbo royale", sub: "Practice" },
 ] as const;
 
-// The iPhone app's own tab bar (app home concept C, maker 2026-11-16): Hangar, Play (the app home, big in the middle) and
-// Top pilots. Shown only with html.app (root layout APP_JS); the website's bars are hidden there. Launch lives on the Play tab.
+// The iPhone app's own tab bar (app home concept C, maker 2026-11-16): Top pilots, Play (the app home, big in the middle) and
+// Hangar on the right (maker 2026-11-17). Shown only with html.app (root layout APP_JS); the website's bars are hidden there. Launch lives on the Play tab.
 const APP_TABS: readonly Tab[] = [
-  { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot" },
-  { href: "/", key: "play", label: "Play", icon: "rocket" },
   { href: "/leaderboard", key: "leader", label: "Top pilots", icon: "leaderboard" },
+  { href: "/", key: "play", label: "Play", icon: "rocket" },
+  { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot" },
 ];
 
 export default function LobbyTopBar() {
