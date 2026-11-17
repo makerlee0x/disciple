@@ -64,7 +64,7 @@
   transition: transform var(--dsc-duration-fast, 120ms) var(--dsc3-ease), border-color var(--dsc-duration-fast, 120ms); }
 .nft-pass:hover { transform: var(--dsc3-lift); border-color: var(--dsc3-light-gold); }
 .nft-pass:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
-.nft-pass img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nft-pass img, .nft-pass video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .nft-pair { display: grid; grid-template-columns: 1fr; gap: 16px; }
 .nft-disc { display: flex; align-items: center; gap: 18px; padding: 14px 18px 14px 14px; text-decoration: none; color: inherit; }
 .nft-disc:hover { border-color: var(--dsc3-panel-border-gold); }

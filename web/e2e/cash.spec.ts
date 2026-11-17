@@ -3,8 +3,8 @@ import { test, expect, isPhone } from "./support/fixtures";
 import type { Page } from "@playwright/test";
 
 async function openCash(page: Page) {
-  await page.getByRole("button", { name: "Your pilot menu" }).filter({ visible: true }).first().click();
-  await page.getByTestId("account-menu").getByRole("menuitem", { name: /^cash/i }).click();
+  // Cash left the account menu (maker 2026-11-17): the cash pill beside it opens Cash
+  await page.getByTestId("cash-card").filter({ visible: true }).first().click();
   const pop = page.getByTestId("cash-popup");
   await expect(pop).toBeVisible();
   return pop;
