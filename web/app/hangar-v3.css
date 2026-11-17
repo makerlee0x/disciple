@@ -372,3 +372,10 @@ button.mkt-chip:hover { border-color: color-mix(in srgb, var(--sw) 45%, #262A33)
   .mkt-sell { justify-content: flex-start; } .mkt-sell small { text-align: left; }
   .mkt-filters { align-items: stretch; } .mkt-filter-r select { flex: 1; }
 }
+
+/* /profile while a saved session restores (maker 2026-11-17: show it's loading, not broken) */
+.hg-restoring { min-height: 60vh; display: grid; place-items: center; }
+.hg-spin { width: 44px; height: 44px; border-radius: 50%; border: 3px solid rgba(243, 223, 168, .18); border-top-color: var(--dsc3-light-gold, #F3DFA8);
+  animation: hg-spin .8s linear infinite; }
+@keyframes hg-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .hg-spin { animation-duration: 2.4s; } }
