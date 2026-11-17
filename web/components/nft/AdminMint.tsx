@@ -18,7 +18,7 @@ import { solConnect, type EvmWallet, type SolWallet } from "@/lib/nft/wallets";
 import type { Line, MachineState } from "@/lib/nft/candy";
 import WalletChooser from "./WalletChooser";
 
-type Plan = { minted: number; used: number[]; unknown: number; candyMachine: string | null; lut: string | null };
+type Plan = { minted: number; used: number[]; unknown: number; /** "#N" of minted NFTs revealed to their own file */ takenNumbers: number[]; candyMachine: string | null; lut: string | null };
 const LS = "disciple:admin:cm", LS_LUT = "disciple:admin:lut";
 const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k: string, v: string | null) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch { /* private mode */ } };
@@ -81,14 +81,16 @@ export default function AdminMint({ configured }: { configured: boolean }) {
   const readPlan = () => run("plan", async () => {
     const p = await adminCall<Plan>();
     setPlan(p); if (p.candyMachine) { setCm((c) => c ?? p.candyMachine); setLut((l) => l ?? p.lut); }
-    note(`Minted ${p.minted}. ${p.unknown ? `${p.unknown} minted NFTs don't point at the drop folder. ` : ""}Left ${DISCIPLE_SUPPLY - p.used.length}.`);
+    note(`Minted ${p.minted}: ${p.used.length} unrevealed, ${p.unknown} revealed (${p.takenNumbers.length} matched by name).`);
   });
   const readNames = () => run("names", async () => {
     setNamed(0);
-    const l = await loadLines(remaining, setNamed);
+    const taken = new Set(plan?.takenNumbers ?? []);
+    const l = (await loadLines(remaining, setNamed)).filter((x) => !taken.has(Number(x.number)));
     const nums = new Set(l.map((x) => x.number));
     if (nums.size !== l.length) throw new Error("Two remaining items share a number. Stop and check the drop folder.");
-    setLines(l); note(`Loaded ${l.length} names.`);
+    setLines(l); note(`Loaded ${l.length} names (${remaining.length - l.length} already minted and revealed).`);
+    if (plan && plan.minted + l.length !== DISCIPLE_SUPPLY) note(`Check: ${plan.minted} minted + ${l.length} left ≠ ${DISCIPLE_SUPPLY}.`);
   });
   async function connect(sw: SolWallet | EvmWallet) {
     if (sw.kind !== "sol") return;

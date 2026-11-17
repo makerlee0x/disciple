@@ -74,7 +74,7 @@ export async function discipleById(mint: string): Promise<(OwnedNft & { owner: s
 }
 
 /** Every minted disciple's drop item index (0..776), from its metadata uri. Also the minted count. */
-export async function mintedItems(): Promise<{ count: number; items: number[]; unknown: number; authorities: Record<string, number> } | null> {
+export async function mintedItems(): Promise<{ count: number; items: number[]; unknown: number; unknownNumbers: number[]; authorities: Record<string, number> } | null> {
   if (!solanaConfigured()) return null;
   try {
     const all: DasAsset[] = [];
@@ -84,13 +84,14 @@ export async function mintedItems(): Promise<{ count: number; items: number[]; u
       if (p.items.length < 1000) break;
     }
     // burnt ones still used their item: count them as minted (their metadata uri is gone from the drop)
-    const items = new Set<number>(); let unknown = 0; const authorities: Record<string, number> = {};
+    const items = new Set<number>(); let unknown = 0; const unknownNumbers: number[] = []; const authorities: Record<string, number> = {};
     for (const a of all) {
       const ua = a.authorities?.[0]?.address || "?"; authorities[ua] = (authorities[ua] ?? 0) + 1;
       const i = itemIndex(a.content?.json_uri || "");
-      if (i === null) unknown++; else items.add(i);
+      // revealed ones point at their own file: match them to a drop item by name ("disciple #505")
+      if (i === null) { unknown++; const n = Number(a.content?.metadata?.name?.match(/#(\d+)\s*$/)?.[1]); if (Number.isInteger(n)) unknownNumbers.push(n); } else items.add(i);
     }
-    return { count: all.length, items: [...items].sort((x, y) => x - y), unknown, authorities };
+    return { count: all.length, items: [...items].sort((x, y) => x - y), unknown, unknownNumbers: [...new Set(unknownNumbers)].sort((x, y) => x - y), authorities };
   } catch (e) { lastReadError = String(e).replace(/api-key=[^&\s]+/g, "api-key=…").slice(0, 200); console.warn("[disciple] nft: mintedItems failed", lastReadError); return null; }
 }
 /** Last Solana read error (key redacted), for /api/nft/mint's `reads` field. */

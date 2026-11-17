@@ -19,7 +19,7 @@ export async function GET(req: Request) {
   const m = await mintedItems();
   if (!m) return out(503, { error: "Solana reads are off: set HELIUS_API_KEY in Vercel." });
   const live = await liveMachine();
-  return out(200, { minted: m.count, used: m.items, unknown: m.unknown, candyMachine: live?.candyMachine ?? null, lut: live?.lut ?? null });
+  return out(200, { minted: m.count, used: m.items, unknown: m.unknown, takenNumbers: m.unknownNumbers, candyMachine: live?.candyMachine ?? null, lut: live?.lut ?? null });
 }
 export async function POST(req: Request) {
   const a = await authenticateAdmin(bearer(req.headers), privyEnv(), process.env.ADMIN_EMAILS);
