@@ -9,7 +9,7 @@ import type { RelayMetrics } from "./relayMetrics";
  *  - gas = the op's own limits + overhead ⇒ no estimateGas; EVERY exact signed op is simulated before signing
  *    (audit F-02). Sender history / balance primes and FAST_RELAY_SIM can never bypass authentication.
  *  - eth_sendRawTransactionSync (EIP-7966) returns the FULL receipt with the send (lib/server/syncSend: sequencer
- *    endpoint when RHT_SEQUENCER_URL is set, public RPC otherwise / as fallback). Timeout or error after signing ⇒
+ *    endpoint when the chain's sequencer URL is set (RHT_/RH_SEQUENCER_URL), public RPC otherwise / as fallback). Timeout or error after signing ⇒
  *    onPending({ txHash }) and the server waits for the receipt (the client never polls; see lib/aa/relayTypes).
  * Ops from different users/keys run concurrently: only nonce assignment is serialized (synchronous).
  * Relayer nonce rules (feat/rapid-tap): lib/server/relayerNonce — definitive non-nonce rejection ⇒ roll back / resync,
@@ -22,6 +22,7 @@ import { jsonRpc, plainSend, syncSend, waitReceipt, type PendingReason, type Rpc
 import { RelayerNonceCursor, SharedNonceCursor, sendWithCursor, classifySendError, type NonceCursor, type NonceStore } from "./relayerNonce";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { ACTIVE_CHAIN } from "../chains";
+import { receiptRpcUrl, sequencerUrl } from "./chainRpcEnv";
 import { relayerIsFaucet, relayerKey } from "./relayer";
 import { RelayerKeyPool, poolKey, poolNames, uniquePoolNames } from "./relayerPool";
 import { kv } from "./kv";
@@ -121,9 +122,10 @@ strikeSource.local = (sender) => TRUST.get(sender)?.strikeUntil ?? 0;
 export const flushRelayTrust = () => TRUST.flush();
 
 const RPC_URL = ACTIVE_CHAIN.rpcUrls.default.http[0];
-const SEQ_URL = /^https?:\/\//.test(process.env.RHT_SEQUENCER_URL || "") ? process.env.RHT_SEQUENCER_URL! : undefined;
+const SEQ_URL = sequencerUrl();
 const SEND = SEQ_URL ? { name: "sequencer" as const, rpc: jsonRpc(SEQ_URL) } : { name: "rpc" as const, rpc: jsonRpc(RPC_URL) };
-const FAST_READ = /^https?:\/\//.test(process.env.RHT_RECEIPT_RPC_URL || "") ? jsonRpc(process.env.RHT_RECEIPT_RPC_URL!, 3_000) : undefined;
+const RECEIPT_URL = receiptRpcUrl();
+const FAST_READ = RECEIPT_URL ? jsonRpc(RECEIPT_URL, 3_000) : undefined;
 let seqWarmAt = 0;
 /** Keep the TLS connection to the sequencer warm (cold TLS = +260–660 ms). Any request works; the answer is ignored. */
 export function warmSequencer() {

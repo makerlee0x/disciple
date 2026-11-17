@@ -52,14 +52,15 @@ describe("market server (local KV)", () => {
 
   it("the same two pilots only pay a crate once a day", async () => {
     const P = "0x" + "e5".repeat(20), Q = "0x" + "f6".repeat(20);
-    await col.collectionOf(P);
-    const before = (await col.collectionOf(P)).crates.length;
+    // duel crates only (the first win also pays the welcome crate, once)
+    const duelCrates = async () => (await col.collectionOf(P)).crates.filter((c) => c.src.startsWith("duel:")).length;
+    const before = await duelCrates();
     await col.onDuelSettled("pair-1", P, Q);
     await col.onDuelSettled("pair-2", P, Q);
     await col.onDuelSettled("pair-3", Q, P);   // the other way round is the same pair
-    expect((await col.collectionOf(P)).crates.length).toBe(before + 1);
+    expect(await duelCrates()).toBe(before + 1);
     await col.onDuelSettled("pair-4", P, C);
-    expect((await col.collectionOf(P)).crates.length).toBe(before + 2);
+    expect(await duelCrates()).toBe(before + 2);
   });
 
   it("lists a tradable copy; bound, starter and worn copies can't be listed; a listed copy can't be scrapped or flown", async () => {

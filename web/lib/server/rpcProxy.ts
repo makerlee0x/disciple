@@ -10,6 +10,7 @@
  * alternating to the optional fallback upstream when one is configured.
  */
 import { READ_METHODS, readParamsOk } from "@/lib/rpc/readMethods";
+import { receiptRpcUrl } from "./chainRpcEnv";
 
 export const RPC_PROXY_LIMITS = {
   /** reads per IP per window (a trade is ~3–8 reads; only reads whose direct path failed come here) */
@@ -104,8 +105,8 @@ export async function handleRpcProxy(r: ProxyReq, d: ProxyDeps): Promise<ProxyRe
 }
 const hostOf = (u: string) => { try { return new URL(u).host; } catch { return "upstream"; } };
 
-/** Upstreams: the chain's RPC, then RHT_RECEIPT_RPC_URL when set (optional read node, already used by fastRelay). */
-export function proxyUpstreams(primary: string, env: Record<string, string | undefined> = process.env): string[] {
-  const fb = env.RHT_RECEIPT_RPC_URL;
-  return /^https?:\/\//.test(fb || "") && fb !== primary ? [primary, fb!] : [primary];
+/** Upstreams: the chain's RPC, then the chain's receipt node when set (RHT_/RH_RECEIPT_RPC_URL, also used by fastRelay). */
+export function proxyUpstreams(primary: string, env: Record<string, string | undefined> = process.env, chainId?: number): string[] {
+  const fb = receiptRpcUrl(env, chainId);
+  return fb && fb !== primary ? [primary, fb] : [primary];
 }

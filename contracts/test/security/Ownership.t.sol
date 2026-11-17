@@ -114,6 +114,7 @@ contract OwnershipTest is Test {
         vm.prank(owner);
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
         Migration(address(c[3])).setLaunchpad(t2);
+        vm.etch(t2, hex"00"); // setLaunchpad only takes a contract (F-L11)
         vm.prank(next);
         Migration(address(c[3])).setLaunchpad(t2);
 

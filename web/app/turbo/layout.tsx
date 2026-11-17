@@ -3,8 +3,7 @@ import { cookies, headers } from "next/headers";
 import { TURBO_INVITE_COOKIE, TURBO_PASS_COOKIE, turboOpen } from "@/lib/server/turboPass";
 import TurboGate from "@/components/turbo/TurboGate";
 
-/** Hidden route: not in the public nav, footer or homepage, and not indexed. Behind a password (lib/server/turboPass.ts; the iPhone app and friend invite links skip it)
- *  until launch; the static preview build has no server, so it skips the gate. */
+/** Hidden route: not in the public nav, footer or homepage, and not indexed. Open to everyone (the password is off unless TURBO_GATE=1, lib/server/turboPass.ts); the static preview build has no server, so it skips the gate. */
 export const metadata: Metadata = { title: "DISCIPLE", robots: { index: false, follow: false } };
 
 export default async function TurboLayout({ children }: { children: React.ReactNode }) {

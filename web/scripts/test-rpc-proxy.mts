@@ -138,7 +138,11 @@ test("total budget bounds the retries", async () => {
 test("optional fallback upstream (RHT_RECEIPT_RPC_URL): attempts alternate", async () => {
   assert.deepEqual(proxyUpstreams(UP, {}), [UP]);
   assert.deepEqual(proxyUpstreams(UP, { RHT_RECEIPT_RPC_URL: "nope" }), [UP]);
-  const ups = proxyUpstreams(UP, { RHT_RECEIPT_RPC_URL: "https://fast.example" });
+  // per chain: the testnet node never reaches a mainnet build, and mainnet reads RH_RECEIPT_RPC_URL
+  assert.deepEqual(proxyUpstreams(UP, { RHT_RECEIPT_RPC_URL: "https://fast.example" }, 4663), [UP]);
+  assert.deepEqual(proxyUpstreams(UP, { RH_RECEIPT_RPC_URL: "https://main.example" }, 4663), [UP, "https://main.example"]);
+  assert.deepEqual(proxyUpstreams(UP, { RH_RECEIPT_RPC_URL: "https://main.example" }, 46630), [UP]);
+  const ups = proxyUpstreams(UP, { RHT_RECEIPT_RPC_URL: "https://fast.example" }, 46630);
   assert.deepEqual(ups, [UP, "https://fast.example"]);
   const s = stubFetch([json({}, 502), echo]);
   const r = await handleRpcProxy(req({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [] }), deps(s.f, { upstreams: ups }));

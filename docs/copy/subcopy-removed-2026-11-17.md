@@ -183,7 +183,7 @@ Every subtitle, helper line, caption and empty-state blurb that the subcopy pass
 | engine.js:844 | Rival slot hints `send them the link` / `pick a tier, then find a match` | Empty (`near {rating}` while searching stays) |
 | engine.js:307 | Cash-out button sub with no position `pick a side` | Empty |
 | engine.js first-match controls overlay, out of fuel | KEEP, unchanged (the overlay already only shows on the first match) |
-| web/components/mobile/WelcomeIntro.tsx:20 | iPhone first launch `Live BTC, 500x. Out-trade a rival and the W is yours. Practice money, no sign-up.` | `Practice money, no sign-up.` |
+| web/components/mobile/WelcomeIntro.tsx:20 | iPhone first launch `Live BTC, 500x. Out-trade a rival and the W is yours. Practice money, no sign-up.` | Not changed by this pass: #453 already replaced it with maker's own copy (`1v1` / `Trading Duel` / `Best PnL in 60 seconds wins.`) |
 
 ## Market
 | File:line (main 3845569) | Original | Now |

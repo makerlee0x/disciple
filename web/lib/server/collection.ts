@@ -13,7 +13,7 @@ import "server-only";
  *   col:<chain>:seed:<day>           hex   that UTC day's roll seed         sha256 published a day ahead, seed revealed after
  *   col:<chain>:crates:<wallet>      zset  score=at, member=Crate JSON      unopened crates
  *   col:<chain>:once:<src>:<wallet>  SET NX                                a crate source pays once ever
- *   col:<chain>:base:<wallet>        JSON  { p, l }                         first visit marker (the welcome crate pays once)
+ *   col:<chain>:base:<wallet>        JSON  { p, l }                         first visit marker (level baseline)
  *   col:<chain>:copy:<uid>           JSON  CopyRecord                       one copy's permanent record (never deleted or reused)
  *   col:<chain>:log:<wallet>         zset  score=at, member=Opened JSON     recent openings
  *   col:<chain>:streak:<wallet>      ranked duel win streak
@@ -190,6 +190,7 @@ export async function onDuelSettled(roomId: string, winner: string | null, loser
   const samePair = !!loser && !(await s.setNX(COLK.pair(dayIndex(now), w, lc(loser)), "1", 2 * 86400));
   const streak = (Number(await s.get(COLK.streak(w))) || 0) + 1;
   await s.set(COLK.streak(w), String(streak));
+  await grantCrate(w, EARN.welcome, "welcome", WELCOME_LABEL, now, s);   // a first win of any kind pays the welcome crate, once
   await countFlightTrak(w, now, s).catch(() => {});
   if (samePair) return;
   const week = await s.incrEx(COLK.dc(weekIndex(now), w), 9 * 86400);
@@ -214,11 +215,29 @@ async function countFlightTrak(w: string, now: number, s: Kv) {
   }
 }
 
-/** Weekly-mission and welcome crates, worked out from the XP summary. Idempotent; run on every read. Levels don't drop
+const WELCOME_LABEL = "First win";
+/**
+ * The welcome crate pays on the pilot's first win, not their first visit (maker 2026-11-16, Grok playbook pick: "a reward the
+ * moment you win"). A ranked duel win grants it on the server (onDuelSettled). A practice bot duel has no server result, so
+ * the duel screen asks for it after a win (now, or right after "Save your win" sign-in): it is one bound crate, once ever
+ * per wallet, so taking the client's word costs nothing. The crate opens on the spot so the result screen can show the item.
+ * Returns the opening, or null when the welcome crate was already opened.
+ */
+export async function firstWinCrate(walletIn: string, now = Date.now(), s: Kv = kv()): Promise<Opened | null> {
+  await ensureCatalog(s);
+  const w = lc(walletIn);
+  await grantCrate(w, EARN.welcome, "welcome", WELCOME_LABEL, now, s);
+  const crate = (await s.zrange(COLK.crates(w), 200)).map((m) => parse<Crate>(m)).find((c) => c?.src === "welcome");
+  if (!crate) return null;
+  const r = await openCrate(w, crate.id, now, s);
+  return r.ok ? r.opened : null;
+}
+
+/** Weekly-mission crates (and the level baseline), worked out from the XP summary. Idempotent; run on every read. Levels don't drop
  *  crates (maker cut them 2026-11-16, with the XP shop): wins are how you find things. */
 async function syncEarned(w: string, now: number, s: Kv) {
   const xp = await xpSummary(w, now, s);
-  if (await s.setNX(COLK.base(w), JSON.stringify({ p: xp.level.prestige, l: xp.level.level }))) await grantCrate(w, EARN.welcome, "welcome", "Welcome to the Hangar", now, s);
+  await s.setNX(COLK.base(w), JSON.stringify({ p: xp.level.prestige, l: xp.level.level }));   // the welcome crate moved to the first win (firstWinCrate)
   if (xp.weekly.missions.length && xp.weekly.missions.every((m) => m.done)) await grantCrate(w, EARN.weekly, `week:${xp.weekly.period}`, "Weekly missions", now, s);
   await grantRewards(w, xp.level, now, s).catch(() => {});
   return xp;
