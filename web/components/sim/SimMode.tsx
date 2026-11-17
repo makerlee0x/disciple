@@ -257,7 +257,6 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
           ghost={ghost && ghost.day === dailyId ? { name: ghost.name, multiple: ghost.multiple, outAtS: ghost.outAtS } : null}
           onClose={() => { drv.current?.stop(); setDailyRun(false); setPhase("select"); }}
           onRetry={retryRef.current ? retryDaily : undefined}
-          onAgain={() => { setPhase("select"); countThen(() => start(dailyRes.seed, { difficulty: DAILY.difficulty, minutes: PLAYER.dailyMinutes })); }}
           />
       )}
       {phase === "summary" && summary && d && (() => { const sc = scoreRun(d.run); return (
