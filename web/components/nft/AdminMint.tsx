@@ -2,7 +2,8 @@
 /**
  * /admin/mint (ADMIN_EMAILS): set up our Candy Machine for the rest of the Disciples drop. maker signs every on-chain step
  * from the collection wallet (DISCIPLE_TREASURY) in his own Solana wallet; nothing here holds a key.
- *  1. Read which drop items are already minted (Helius, server) and the names of the rest (IPFS, this browser).
+ *  0. Copy maker's original art (Google Drive) into Vercel Blob as WebP, 8 at a time (/api/admin/nft/art).
+ *  1. Read which disciples are already minted (Helius, server, by on-chain name); the rest become the machine's items.
  *  2. Create the machine + guards (0.777 SOL to the treasury, 7 per wallet), then its lookup table (a pNFT mint with guards
  *     is near the transaction size cap).  3. Load the items (one approval).  4. Go live: /mint starts minting from it.
  * The machine id is also kept in this browser, so a closed tab can pick up where it stopped.
@@ -13,51 +14,31 @@ import type { Umi } from "@metaplex-foundation/umi";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import { withBase } from "@/lib/base-path";
 import { short } from "@/lib/nft/client";
-import { DISCIPLE_SUPPLY, DISCIPLE_TREASURY, METADATA_BASE, MINT_LIMIT, MINT_PRICE_SOL, NAME_PREFIX } from "@/lib/nft/config";
+import { DISCIPLE_SUPPLY, DISCIPLE_TREASURY, MINT_LIMIT, MINT_PRICE_SOL } from "@/lib/nft/config";
 import { solConnect, type EvmWallet, type SolWallet } from "@/lib/nft/wallets";
 import type { Line, MachineState } from "@/lib/nft/candy";
 import WalletChooser from "./WalletChooser";
 
-type Plan = { minted: number; used: number[]; unknown: number; /** "#N" of minted NFTs revealed to their own file */ takenNumbers: number[]; candyMachine: string | null; lut: string | null };
+type Plan = { minted: number; /** every minted disciple's number (on-chain name) */ takenNumbers: number[]; /** minted ones with no "#N" name */ unnamed: number; candyMachine: string | null; lut: string | null };
+type Art = { blob: boolean; imported: number[]; base: string | null; unmapped: string[] };
 const LS = "disciple:admin:cm", LS_LUT = "disciple:admin:lut";
 const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k: string, v: string | null) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch { /* private mode */ } };
 
-async function adminCall<T>(init?: RequestInit): Promise<T> {
+async function adminCall<T>(init?: RequestInit, path = "/api/admin/nft"): Promise<T> {
   const t = await privyAccessToken();
   if (!t) throw new Error("Sign in with your admin account first.");
-  const r = await fetch(withBase("/api/admin/nft"), { ...init, headers: { authorization: `Bearer ${t}`, "content-type": "application/json" }, cache: "no-store" });
+  const r = await fetch(withBase(path), { ...init, headers: { authorization: `Bearer ${t}`, "content-type": "application/json" }, cache: "no-store" });
   const j = (await r.json().catch(() => ({}))) as T & { error?: string };
   if (!r.ok) throw new Error(j.error || `Request failed (${r.status}).`);
   return j;
 }
 
-/** Names of the remaining drop files, 12 at a time. */
-async function loadLines(items: number[], onProgress: (n: number) => void): Promise<Line[]> {
-  const out: Line[] = new Array(items.length);
-  let next = 0, done = 0;
-  async function worker() {
-    while (next < items.length) {
-      const k = next++, item = items[k];
-      let name = "";
-      for (let tries = 0; tries < 3 && !name; tries++) {
-        try { name = ((await (await fetch(`${METADATA_BASE}${item}.json`)).json()) as { name?: string }).name || ""; } catch { /* retry */ }
-      }
-      if (!name.startsWith(NAME_PREFIX)) throw new Error(`Item ${item}: unexpected name "${name}".`);
-      const number = name.slice(NAME_PREFIX.length);
-      if (!/^\d{1,3}$/.test(number)) throw new Error(`Item ${item}: unexpected number "${number}".`);
-      out[k] = { item, number };
-      onProgress(++done);
-    }
-  }
-  await Promise.all(Array.from({ length: 12 }, worker));
-  return out;
-}
-
 export default function AdminMint({ configured }: { configured: boolean }) {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [lines, setLines] = useState<Line[] | null>(null);
-  const [named, setNamed] = useState(0);
+  const [art, setArt] = useState<Art | null>(null);
+  const [copied, setCopied] = useState(0);
   const [w, setW] = useState<{ sw: SolWallet; acc: WalletAccount } | null>(null);
   const [umi, setUmi] = useState<Umi | null>(null);
   const [cm, setCm] = useState<string | null>(null);
@@ -71,26 +52,46 @@ export default function AdminMint({ configured }: { configured: boolean }) {
   const note = (s: string) => setLog((l) => [`${new Date().toLocaleTimeString()}  ${s}`, ...l]);
 
   useEffect(() => { setCm(lsGet(LS)); setLut(lsGet(LS_LUT)); }, []);
-  const remaining = plan ? Array.from({ length: DISCIPLE_SUPPLY }, (_, i) => i).filter((i) => !plan.used.includes(i)) : [];
+  const remaining = plan ? Array.from({ length: DISCIPLE_SUPPLY }, (_, i) => i).filter((i) => !plan.takenNumbers.includes(i)) : [];
+  const missingArt = art ? remaining.filter((n) => !art.imported.includes(n)) : remaining;
 
   async function run(label: string, f: () => Promise<void>) {
     setBusy(label); setErr("");
     try { await f(); } catch (e) { console.warn("[disciple] admin mint", e); setErr(e instanceof Error ? e.message : String(e)); }
     setBusy("");
   }
+  const readArt = (traits = false) => run("art", async () => {
+    const a = await adminCall<Art>(undefined, `/api/admin/nft/art${traits ? "?traits=1" : ""}`);
+    setArt(a); note(a.blob ? `Art in Blob: ${a.imported.length} / ${DISCIPLE_SUPPLY}.` : "Vercel Blob isn't connected.");
+    if (a.unmapped.length) note(`Traits spelled by rule (no minted NFT shows them yet): ${a.unmapped.join(", ")}`);
+  });
+  /** Copy every disciple not in Blob yet (all 777, so minted ones get a backup too), 8 per call, 2 calls at a time. */
+  const copyArt = () => run("copy", async () => {
+    const have = new Set(art?.imported ?? []);
+    const todo = Array.from({ length: DISCIPLE_SUPPLY }, (_, i) => i).filter((n) => !have.has(n));
+    const batches: number[][] = []; for (let i = 0; i < todo.length; i += 8) batches.push(todo.slice(i, i + 8));
+    let next = 0, done = 0; const failed: string[] = [];
+    setCopied(0);
+    async function worker() {
+      while (next < batches.length) {
+        const nums = batches[next++];
+        const r = await adminCall<{ done: number[]; failed: { n: number; error: string }[] }>({ method: "POST", body: JSON.stringify({ numbers: nums }) }, "/api/admin/nft/art");
+        r.failed.forEach((f) => failed.push(`#${f.n} ${f.error}`));
+        done += r.done.length; setCopied(done);
+      }
+    }
+    await Promise.all([worker(), worker()]);
+    note(`Copied ${done} of ${todo.length}.${failed.length ? ` Failed: ${failed.slice(0, 5).join("; ")}${failed.length > 5 ? "…" : ""}` : ""}`);
+    const a = await adminCall<Art>(undefined, "/api/admin/nft/art"); setArt(a);
+  });
   const readPlan = () => run("plan", async () => {
     const p = await adminCall<Plan>();
     setPlan(p); if (p.candyMachine) { setCm((c) => c ?? p.candyMachine); setLut((l) => l ?? p.lut); }
-    note(`Minted ${p.minted}: ${p.used.length} unrevealed, ${p.unknown} revealed (${p.takenNumbers.length} matched by name).`);
-  });
-  const readNames = () => run("names", async () => {
-    setNamed(0);
-    const taken = new Set(plan?.takenNumbers ?? []);
-    const l = (await loadLines(remaining, setNamed)).filter((x) => !taken.has(Number(x.number)));
-    const nums = new Set(l.map((x) => x.number));
-    if (nums.size !== l.length) throw new Error("Two remaining items share a number. Stop and check the drop folder.");
-    setLines(l); note(`Loaded ${l.length} names (${remaining.length - l.length} already minted and revealed).`);
-    if (plan && plan.minted + l.length !== DISCIPLE_SUPPLY) note(`Check: ${plan.minted} minted + ${l.length} left ≠ ${DISCIPLE_SUPPLY}.`);
+    const left = DISCIPLE_SUPPLY - p.takenNumbers.length;
+    if (p.unnamed) note(`Check: ${p.unnamed} minted disciples have no "#N" name. Stop and look before creating a machine.`);
+    if (p.minted !== p.takenNumbers.length) note(`Check: ${p.minted} minted but ${p.takenNumbers.length} different numbers.`);
+    note(`Minted ${p.minted}. ${left} disciples left for our machine.`);
+    setLines(p.unnamed || p.minted !== p.takenNumbers.length ? null : Array.from({ length: DISCIPLE_SUPPLY }, (_, i) => i).filter((n) => !p.takenNumbers.includes(n)).map((number) => ({ number })));
   });
   async function connect(sw: SolWallet | EvmWallet) {
     if (sw.kind !== "sol") return;
@@ -151,13 +152,21 @@ export default function AdminMint({ configured }: { configured: boolean }) {
       <p className="nft-warn">Pause the LaunchMyNFT mint before step 2, or the same disciples can sell twice.</p>
 
       <ol className="nft-steps">
-        <li className={plan ? "ok" : ""}>
+        <li className={art && art.imported.length >= DISCIPLE_SUPPLY ? "ok" : ""}>
+          <b>0. Art</b>
+          <div>
+            <button type="button" className="p5-btn sm" disabled={!!busy} onClick={() => readArt()}>{busy === "art" ? "Checking…" : art ? "Check again" : "Check Blob"}</button>
+            {art?.blob && art.imported.length < DISCIPLE_SUPPLY && <button type="button" className="p5-btn sm p5-gold" disabled={!!busy} onClick={copyArt}>{busy === "copy" ? `Copying ${copied}…` : `Copy ${DISCIPLE_SUPPLY - art.imported.length} from Drive`}</button>}
+          </div>
+          {art && <span className="nft-kv">{art.blob ? `${art.imported.length} / ${DISCIPLE_SUPPLY} in Blob` : "Blob not connected"}</span>}
+        </li>
+
+        <li className={lines ? "ok" : ""}>
           <b>1. Read the drop</b>
           <div>
             <button type="button" className="p5-btn sm" disabled={!!busy} onClick={readPlan}>{busy === "plan" ? "Reading…" : plan ? "Read again" : "Read minted"}</button>
-            {plan && <button type="button" className="p5-btn sm" disabled={!!busy || !remaining.length} onClick={readNames}>{busy === "names" ? `Names ${named} / ${remaining.length}` : lines ? "Reload names" : `Load ${remaining.length} names`}</button>}
           </div>
-          {plan && <span className="nft-kv">Minted {plan.minted} · Left {remaining.length}{lines ? ` · Names ${lines.length}` : ""}</span>}
+          {plan && <span className="nft-kv">Minted {plan.minted} · Left {remaining.length}{art && missingArt.length ? ` · ${missingArt.length} still need art` : ""}</span>}
         </li>
 
         <li className={isTreasury ? "ok" : ""}>
@@ -167,10 +176,10 @@ export default function AdminMint({ configured }: { configured: boolean }) {
 
         <li className={cm ? "ok" : ""}>
           <b>3. Create machine</b>
-          <span className="nft-kv">{lines ? `${lines.length} items · ${MINT_PRICE_SOL} SOL · ${MINT_LIMIT} per wallet · pNFT · 7% royalty` : "Load names first"}</span>
+          <span className="nft-kv">{lines ? `${lines.length} items · ${MINT_PRICE_SOL} SOL · ${MINT_LIMIT} per wallet · pNFT · 7% royalty` : "Read the drop first"}</span>
           {rent !== null && <span className="nft-kv">Rent locked: {rent.toFixed(4)} SOL + network fees</span>}
           {cm ? <span className="nft-kv mono">{cm}</span>
-            : <button type="button" className="p5-btn sm p5-gold" disabled={!!busy || !lines || !isTreasury} onClick={createIt}>{busy === "create" ? "Creating…" : "Create"}</button>}
+            : <button type="button" className="p5-btn sm p5-gold" disabled={!!busy || !lines || !isTreasury || !art || missingArt.length > 0} onClick={createIt}>{busy === "create" ? "Creating…" : "Create"}</button>}
           {cm && <button type="button" className="p5-btn sm" disabled={!!busy} onClick={() => { lsSet(LS, null); lsSet(LS_LUT, null); setCm(null); setLut(null); setState(null); }}>Forget this machine</button>}
         </li>
 

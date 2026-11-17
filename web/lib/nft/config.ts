@@ -4,7 +4,9 @@
  * Solana: "disciples of $JESUS", 777 Legacy pNFTs (Token Metadata), first 175 minted on LaunchMyNFT
  * (launchmynft.io/sol/10942, their own program, not Metaplex). The rest mint from our own Metaplex Candy Machine v3
  * into the SAME verified collection: maker's wallet DISCIPLE_TREASURY is the collection's update authority.
- * Item i of the drop is METADATA_BASE + `${i}.json` (i = 0..776); each file names its disciple ("disciple #700").
+ * LaunchMyNFT's unrevealed mints point at METADATA_BASE + `${i}.json` (placeholder art, each file names its disciple).
+ * Our machine mints revealed: REVEALED_BASE + `${n}.json` = disciple #n (n = 0..776), copied from maker's originals
+ * into Vercel Blob by /admin/mint (lib/server/nft/art) and served on our domain by app/nft/d/[file].
  *
  * Ethereum: "The Twelve" founder passes (ERC-721 FOUNDER_CONTRACT), traded on OpenSea (collection slug FOUNDER_SLUG).
  */
@@ -19,6 +21,8 @@ export const DISCIPLE_ROYALTY_BPS = 700;
 export const METADATA_BASE = "https://gateway.pinit.io/ipfs/QmRhv7orAQhRuuyGp9BKRUoGbzU9Hc9LQqJG5hmbyrLPAZ/";
 export const IMAGE_BASE = "https://gateway.pinit.io/ipfs/QmPPfPVLRSpwGuPEBsQhfeFSJpSx8AT6LtJSSk3Aow9fNH/";
 export const NAME_PREFIX = "disciple #";
+/** Metadata prefix our Candy Machine writes on-chain (fixed once the machine exists). */
+export const REVEALED_BASE = "https://www.disciple.vip/nft/d/";
 
 /** Mint (maker 2026-11-17): 0.777 SOL, 7 per wallet. */
 export const MINT_PRICE_SOL = 0.777;
@@ -44,6 +48,14 @@ export function itemIndex(uri: string): number | null {
   if (!m) return null;
   const i = Number(m[1]);
   return i >= 0 && i < DISCIPLE_SUPPLY ? i : null;
+}
+
+/** Disciple number from one of our revealed uris ("…/nft/d/505.json" → 505), else null. */
+export function revealedNumber(uri: string): number | null {
+  if (!uri.startsWith(REVEALED_BASE)) return null;
+  const m = uri.slice(REVEALED_BASE.length).match(/^(\d{1,3})\.json$/);
+  const n = m ? Number(m[1]) : -1;
+  return n >= 0 && n < DISCIPLE_SUPPLY ? n : null;
 }
 
 export type HolderChain = "sol" | "eth";

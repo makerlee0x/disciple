@@ -4,7 +4,7 @@
  *  - mintOne: the player's mint on /mint (0.777 SOL to DISCIPLE_TREASURY, 7 per wallet). No bot tax: a guard that fails
  *    (limit reached, sold out) fails the whole transaction in the wallet's preview, so nobody pays for a mint they didn't get.
  *  - createMachine / addLines: /admin/mint, signed by maker's wallet (the collection update authority). The machine
- *    holds config lines: name suffix (the disciple's number) + uri suffix ("181.json") under shared prefixes.
+ *    holds config lines: name suffix (the disciple's number) + uri suffix ("181.json") under NAME_PREFIX / REVEALED_BASE.
  */
 import { addConfigLines, create, createLutForCandyMachine, fetchCandyMachine, getCandyMachineSize, mintV2, safeFetchCandyGuard, safeFetchMintCounterFromSeeds } from "@metaplex-foundation/mpl-candy-machine";
 import { TokenStandard } from "@metaplex-foundation/mpl-token-metadata";
@@ -13,7 +13,7 @@ import { generateSigner, percentAmount, publicKey, sol, some, transactionBuilder
 import { sendAllAndWait, sendAndWait } from "./umi";
 import {
   DISCIPLE_COLLECTION, DISCIPLE_ROYALTY_BPS, DISCIPLE_RULE_SET, DISCIPLE_SYMBOL, DISCIPLE_TREASURY,
-  METADATA_BASE, MINT_LIMIT, MINT_LIMIT_ID, MINT_PRICE_SOL, NAME_PREFIX,
+  MINT_LIMIT, MINT_LIMIT_ID, MINT_PRICE_SOL, NAME_PREFIX, REVEALED_BASE,
 } from "./config";
 
 const PRIORITY_MICRO_LAMPORTS = 50_000;
@@ -74,7 +74,7 @@ export async function createMachine(umi: Umi, count: number): Promise<string> {
     isMutable: true,
     creators: [{ address: publicKey(DISCIPLE_TREASURY), verified: true, percentageShare: 100 }],
     itemsAvailable: count,
-    configLineSettings: some({ prefixName: NAME_PREFIX, nameLength: NAME_LEN, prefixUri: METADATA_BASE, uriLength: URI_LEN, isSequential: false }),
+    configLineSettings: some({ prefixName: NAME_PREFIX, nameLength: NAME_LEN, prefixUri: REVEALED_BASE, uriLength: URI_LEN, isSequential: false }),
     guards: {
       solPayment: some({ lamports: sol(MINT_PRICE_SOL), destination: publicKey(DISCIPLE_TREASURY) }),
       mintLimit: some({ id: MINT_LIMIT_ID, limit: MINT_LIMIT }),
@@ -98,7 +98,8 @@ export async function machineRentSol(umi: Umi, count: number): Promise<number> {
   return Number((await umi.rpc.getRent(size)).basisPoints) / 1e9;
 }
 
-export type Line = { item: number; number: string };
+/** one disciple left to mint: its number, which is also its file (REVEALED_BASE + "<n>.json") */
+export type Line = { number: number };
 /** Load every line from machine index `from` on: all batches in one wallet approval, sent in order. */
 export async function addLines(umi: Umi, cm: string, from: number, lines: Line[], onBatch?: (loaded: number) => void): Promise<void> {
   const bs = [];
@@ -106,7 +107,7 @@ export async function addLines(umi: Umi, cm: string, from: number, lines: Line[]
     const part = lines.slice(i, i + LINES_PER_TX);
     bs.push(transactionBuilder()
       .add(setComputeUnitPrice(umi, { microLamports: PRIORITY_MICRO_LAMPORTS }))
-      .add(addConfigLines(umi, { candyMachine: publicKey(cm), index: from + i, configLines: part.map((l) => ({ name: l.number, uri: `${l.item}.json` })) })));
+      .add(addConfigLines(umi, { candyMachine: publicKey(cm), index: from + i, configLines: part.map((l) => ({ name: String(l.number), uri: `${l.number}.json` })) })));
   }
   await sendAllAndWait(umi, bs, (k) => onBatch?.(Math.min(lines.length, (k + 1) * LINES_PER_TX)));
 }
