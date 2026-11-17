@@ -66,7 +66,7 @@ export const MODE_COPY: Record<number, string> = {
 export const MODE_SELECTED_COPY: Record<number, string> = {
   [MODE.EASY]: "Easy needs a signed-in account to BOOST (a verified email, Google or X login). DUMPs are always open.",
   [MODE.HARD]: "No login check on BOOSTs.",
-  [MODE.TRENCH]: "No caps, no login check, no training wheels.",
+  [MODE.TRENCH]: "No holding cap, no login check. Launch buy max 7.77%.",
 };
 /** Chip on the default card. */
 export const MODE_DEFAULT_CHIP = "RECOMMENDED";
