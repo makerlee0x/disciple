@@ -74,13 +74,14 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       (RH STRATEGY/USDG deepest pool: 36900 / 369 / 0x0 → id 0x816b…245b)
 ///   MIN_LIQUIDITY       QuotePricer minimum in-range liquidity (default 0)
 ///   RENOUNCE_HARVEST    renounce CreatorFeeHarvest ownership at the end of deploy (default: true on mainnet 4663)
+///   RENOUNCE_HOOK_ADMIN drop the DiscipleHook admin once wired (default: true on 4663)
 ///   RENOUNCE_LOCKED_LP  renounce LockedLP ownership (treasury + compound caps fixed) at the end (default: true on 4663)
 ///   REWARDS_VAULT_OWNER community RewardsVault owner (default deployer): TEMP wallet on testnet, multisig (Safe) on
 ///                       mainnet (lee 2026-11-10). Receives the sniper tax + curve LP fees of coins not graduated
 ///                       within snipeEscrowTimeout (releaseSnipeEscrow, or a late graduation). Nominated only
 ///                       (Owned2Step): it must acceptOwnership(). Existing stack: script/rewards/DeployRewardsVault.s.sol;
 ///                       steps in docs/rewards-vault-runbook.md.
-///   ANON_LAUNCH_FEE     AnonLauncher USDG launch fee in USDG raw units (default 0.25 USDG at USDG's decimals;
+///   ANON_LAUNCH_FEE     AnonLauncher USDG launch fee in USDG raw units (default 0: anon launches are free;
 ///                       contract cap MAX_LAUNCH_FEE = 5e18 raw)
 ///   ERC5564_ANNOUNCER   ERC-5564 announcer (default 0x55649E01B5Df198D18D95b5cc5051630cfD45564)
 ///   DEPLOY_TEST_STRATEGY true → (DEFAULT_QUOTE unset) deploy a test STRATEGY and seed a STRATEGY/USDG pool at
@@ -354,6 +355,8 @@ contract Deploy is NetworkConfig {
         if (vOwner != deployer) vault.transferOwnership(vOwner);
         // mcapNow / Trade-event mcap fix: live QuotePricer on the hook (curves read Launchpad.pricer()).
         hook.setPricer(address(pricer));
+        // maker 2026-11-17: the hook keeps no admin once wired (setMigration above, setPricer here).
+        if (vm.envOr("RENOUNCE_HOOK_ADMIN", block.chainid == 4663)) hook.renounceAdmin();
         AnonLauncher anon = new AnonLauncher(
             deployer,
             address(launchpad),
@@ -361,7 +364,7 @@ contract Deploy is NetworkConfig {
             usdg,
             treasury,
             vm.envOr("ERC5564_ANNOUNCER", address(0x55649E01B5Df198D18D95b5cc5051630cfD45564)),
-            vm.envOr("ANON_LAUNCH_FEE", 25 * 10 ** uint256(usdgDec) / 100)
+            vm.envOr("ANON_LAUNCH_FEE", uint256(0)) // maker 2026-11-16: anon launches are free
         );
         MarketLens lens = new MarketLens(address(launchpad), address(migration));
         console2.log("RewardsVault", address(vault));

@@ -89,6 +89,14 @@ contract DiscipleHook is IHooks {
         pricer = IQuotePricer(p);
     }
 
+    /// @notice maker 2026-11-17: once wired, the admin is dropped for good, so the hook has no privileged role at all.
+    function renounceAdmin() external {
+        if (msg.sender != admin) revert OnlyAdmin();
+        require(migration != address(0), "DiscipleHook: mig");
+        admin = address(0);
+        emit AdminTransferred(address(0));
+    }
+
     function transferAdmin(address a) external {
         if (msg.sender != admin) revert OnlyAdmin();
         require(a != address(0), "DiscipleHook: admin"); // F-I4

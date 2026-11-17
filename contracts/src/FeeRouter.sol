@@ -37,6 +37,9 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     mapping(address => mapping(address => uint256)) public override referrerAccrued;
 
     mapping(address => bool) public authorizedCallers; // curves / migration
+    /// @notice maker 2026-11-17: the owner authorizes exactly one caller (the hook) at deploy, then never again.
+    ///         Curves are authorized by the Launchpad as they launch.
+    bool public ownerAuthorizationUsed;
 
     /// @notice Treasury share (33% + unrouted 1% [+ 30% of a legacy routeSnipeFee call; v2 curves never make one]) accrued per asset; anyone may push it to
     ///         `treasury` with claimTreasury(asset). Replaces the per-trade treasury transfer (gas).
@@ -61,6 +64,7 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     error LaunchpadAlreadySet();
     error QuoteAlreadySet();
     error NotAContract();
+    error AlreadyWired();
     /// @notice Destination 1 or 2. The later-send contract pulls these fees. The launcher cannot claim them.
     error CreatorFeesRouted();
 
@@ -125,8 +129,11 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         launchpad = launchpad_;
     }
 
+    /// @notice Write-once (maker 2026-11-17): the 33% LP share can never be pointed elsewhere.
     function setLockedLP(address lockedLP_) external {
         if (msg.sender != owner) revert OnlyOwner();
+        if (address(lockedLP) != address(0)) revert AlreadyWired();
+        if (lockedLP_.code.length == 0) revert NotAContract();
         lockedLP = ILockedLP(lockedLP_);
     }
 
@@ -168,7 +175,12 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     }
 
     function setAuthorized(address caller, bool ok) external {
-        if (msg.sender != owner && msg.sender != launchpad) revert OnlyOwner();
+        if (msg.sender != launchpad) {
+            if (msg.sender != owner) revert OnlyOwner();
+            // maker 2026-11-17: one owner grant (the hook), so no key can later add a caller that books fee credit.
+            if (ownerAuthorizationUsed || !ok || caller.code.length == 0) revert AlreadyWired();
+            ownerAuthorizationUsed = true;
+        }
         authorizedCallers[caller] = ok;
     }
 
@@ -443,13 +455,15 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         emit CreatorTokenFeesClaimed(token, creator, amount);
     }
 
-    /// @notice Owner sets the later-send contract self-claims read. Address 0 restores today's claim.
+    /// @notice Owner sets the later-send contract self-claims read, once (maker 2026-11-17: write-once, so the creator
+    ///         fees of lock/burn coins can never be redirected).
     ///         The `_51` suffix keeps this selector after every function that already existed, so a trade does not
     ///         walk an extra dispatcher comparison.
     function setCreatorFeeHarvest_51(address harvest) external {
         if (msg.sender != owner) revert OnlyOwner();
         // Audit FR-02: self-claims call into this address; an EOA would brick every creator self-claim.
-        if (harvest != address(0) && harvest.code.length == 0) revert NotAContract();
+        if (creatorFeeHarvest != address(0)) revert AlreadyWired();
+        if (harvest.code.length == 0) revert NotAContract();
         creatorFeeHarvest = harvest;
     }
 

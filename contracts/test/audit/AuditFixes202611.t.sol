@@ -259,14 +259,42 @@ contract AuditFixes202611Test is IntegrationBase {
         assertEq(feeRouter.tokenQuote(address(tok)), address(quote));
     }
 
-    /// FR-02: the creator-fee harvest pointer must be a contract (or 0).
-    function test_FR02_setCreatorFeeHarvest_rejectsEoa() public {
+    /// FR-02: the creator-fee harvest pointer must be a contract; maker 2026-11-17: and it is write-once.
+    function test_FR02_setCreatorFeeHarvest_rejectsEoa_andIsWriteOnce() public {
+        FeeRouter fresh = new FeeRouter(owner, treasury, address(referrals));
         vm.startPrank(owner);
         vm.expectRevert(FeeRouter.NotAContract.selector);
-        feeRouter.setCreatorFeeHarvest_51(makeAddr("eoa"));
-        feeRouter.setCreatorFeeHarvest_51(address(0));
+        fresh.setCreatorFeeHarvest_51(makeAddr("eoa"));
+        vm.expectRevert(FeeRouter.NotAContract.selector);
+        fresh.setCreatorFeeHarvest_51(address(0));
+        fresh.setCreatorFeeHarvest_51(address(harvest));
+        vm.expectRevert(FeeRouter.AlreadyWired.selector);
+        fresh.setCreatorFeeHarvest_51(address(lockedLP));
+        vm.expectRevert(FeeRouter.AlreadyWired.selector);
         feeRouter.setCreatorFeeHarvest_51(address(harvest));
         vm.stopPrank();
+    }
+
+    /// maker 2026-11-17: the LP-share pointer is write-once, and the owner gets exactly one caller grant (the hook).
+    function test_feeRouter_lpPointer_andAuthorization_locked() public {
+        vm.startPrank(owner);
+        vm.expectRevert(FeeRouter.AlreadyWired.selector);
+        feeRouter.setLockedLP(address(harvest));
+        vm.expectRevert(FeeRouter.AlreadyWired.selector);
+        feeRouter.setAuthorized(address(harvest), true);
+        vm.expectRevert(FeeRouter.AlreadyWired.selector);
+        feeRouter.setAuthorized(address(hook), false);
+        vm.stopPrank();
+        assertTrue(feeRouter.authorizedCallers(address(hook)));
+    }
+
+    /// maker 2026-11-17: the hook admin can be dropped for good once Migration is wired.
+    function test_hook_renounceAdmin() public {
+        vm.prank(hook.admin());
+        hook.renounceAdmin();
+        assertEq(hook.admin(), address(0));
+        vm.expectRevert();
+        hook.setPricer(address(1));
     }
 
     // ───────────────────────── DiscipleRouter ─────────────────────────
