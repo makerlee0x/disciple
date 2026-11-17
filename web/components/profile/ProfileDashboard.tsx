@@ -10,7 +10,8 @@ import { fetchProfileMeta } from "@/lib/profileMetaClient";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
 import { NO_IDENTITY } from "@/lib/identity";
 import { withBase } from "@/lib/base-path";
-import { onWallet } from "@/lib/walletState";
+import { connectedAddress, lastWallet, onWallet } from "@/lib/walletState";
+import { hasSavedSession, onPrivy, privyAuthenticated, privyLoaded } from "@/lib/aa/sessionState";
 import { DEPOSIT_HREF, LEGACY_CASH_HASH, OPEN_SETTINGS_EVENT, SETTINGS_HASHES } from "@/lib/cashLink";
 import SettingsModal from "./SettingsModal";
 import EditProfileSheet from "./EditProfileSheet";
@@ -93,6 +94,16 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   }, [isPrivate]);
 
   const [wallet, setWallet] = useState<string | null>(null);
+  // /profile: a saved session is still being restored (Privy loading). Gives up after 8 s so a dead session shows signed out.
+  const [restoring, setRestoring] = useState(isPrivate);
+  useEffect(() => {
+    if (!isPrivate) return;
+    const sync = () => setRestoring(!connectedAddress() && (privyAuthenticated() || (!privyLoaded() && hasSavedSession())));
+    sync();
+    const offP = onPrivy(sync), offW = onWallet(sync);
+    const t = window.setTimeout(() => setRestoring(false), 8000);
+    return () => { offP(); offW(); window.clearTimeout(t); };
+  }, [isPrivate]);
   // Public /u/<0x…> (leaderboard rows without a username link here): the slug IS the wallet; its claimed username,
   // if any, is looked up below, else the page shows the wallet's space-themed default call sign.
   const slugAddr = !isPrivate && isAddressLike(username) ? username!.toLowerCase() : null;
@@ -100,7 +111,16 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   // public: the username lookup finished (a name with no wallet then shows empty, not loading)
   const [resolved, setResolved] = useState(false);
   useEffect(() => {
-    if (isPrivate) return onWallet((a) => setWallet(a ? a.toLowerCase() : null));
+    if (isPrivate) {
+      // Paint the last signed-in wallet's profile at once while the saved session restores (Privy takes a second or two);
+      // the real wallet then confirms it, or replaces it, or the page falls back to signed out.
+      const restoringNow = () => !connectedAddress() && (privyAuthenticated() || (!privyLoaded() && hasSavedSession()));
+      const guess = restoringNow() ? lastWallet() : null;
+      const apply = () => { const a = connectedAddress(); setWallet(a ? a.toLowerCase() : restoringNow() && guess ? guess.toLowerCase() : null); };
+      const offW = onWallet(apply), offP = onPrivy(apply);
+      const t = window.setTimeout(() => { if (!connectedAddress()) setWallet(null); }, 8000);
+      return () => { offW(); offP(); window.clearTimeout(t); };
+    }
     if (!username) return;
     let alive = true;
     setResolved(false);
@@ -189,6 +209,8 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const rewards = useRewards(isPrivate && !!wallet);
   const { col } = useCollection(isPrivate ? wallet || null : null);
 
+  // Still signing in from a saved session: show nothing yet instead of flashing the signed-out hangar (maker 2026-11-17).
+  if (isPrivate && !wallet && restoring) return <div className="profile-page hg" aria-busy="true" data-testid="hangar-restoring" />;
   // /profile signed out: no sample pilot pretending to be you (existing copy only).
   if (isPrivate && !wallet) {
     return (
@@ -209,8 +231,8 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const launched = home && (wallet || slugAddr) ? [...home.values()].filter((c) => c.creatorAddr === (wallet || slugAddr)).sort((x, y) => y.block - x.block) : null;
   const avatar = img
     // eslint-disable-next-line @next/next/no-img-element
-    ? <img src={withBase(img)} alt="" width={36} height={36} fetchPriority="high" />
-    : <IdentitySigil id={NO_IDENTITY.primary.id} size={22} tip={false} />;
+    ? <img src={withBase(img)} alt="" width={72} height={72} fetchPriority="high" />
+    : <IdentitySigil id={NO_IDENTITY.primary.id} size={34} tip={false} />;
   const bio = meta.bio ? <p className="hg-bio" data-testid="profile-bio"><BioText text={meta.bio} /></p>
     : isPrivate ? <button type="button" className="hg-addbio" onClick={() => setEdit({ focus: "bio" })}><Icon name="plus" size={14} /> {C["profile.bio.empty.own"]}</button> : null;
   const actions = isPrivate ? <>

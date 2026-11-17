@@ -43,7 +43,7 @@ export default function HangarBay({ handle, bio, avatar, xp, actions, spend, eye
             <span>{L ? `Pilot · Level ${L.level} · ${L.prestige ? `Prestige ${L.prestige} · ` : ""}${L.prestigeName}` : "Pilot"}</span></>}
           </div>
           <h1 className={s.name}>
-            {words.length > 1 ? words.map((w, i) => <span key={i}>{w}</span>) : <span>{handle}</span>}
+            {words.length > 1 ? words.map((w, i) => <span key={i}>{w}</span>) : <span>{handle.replace(/^@/, "")}</span>}
           </h1>
           {tags && <div className={s.tags}>{tags}</div>}
           {bio && <div className={s.bio}>{bio}</div>}
