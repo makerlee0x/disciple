@@ -25,6 +25,7 @@ import { V1_RULES, V1_RULES_VERSION, type AchEvent, type AchEventRef, type Achie
 import { evaluateWallet, ruleTarget, type EvalResult } from "@/lib/achievementsEval";
 import { serverPc } from "./chat/identity";
 import { kv, type Kv } from "./kv";
+import { accountWallets } from "./xpAccount";
 import { ACH } from "./achKeys";
 import { coinsOf, tradesOf, TRADES_MAX_LIMIT } from "./trades";
 import { COIN_FILLS_LIMIT, dueTimers, scoreXp, XPK, type TransferOut } from "./xp";
@@ -100,9 +101,14 @@ export function apiItems(rules: readonly AchievementRule[], unlocks: Achievement
 
 const parse = <T>(s: string | null): T | null => { if (!s) return null; try { return JSON.parse(s) as T; } catch { return null; } };
 
+/** Trophies across the pilot's account (lib/server/xpAccount): each trophy once, from the wallet that earned it first. */
 export async function unlocksOf(wallet: string, s: Kv = kv()): Promise<AchievementUnlockRecord[]> {
+  const ws = await accountWallets(wallet, s);
+  const all = (await Promise.all(ws.map((w) => s.zrange(ACH.unlocks(w), 1000)))).flat()
+    .map((m) => parse<AchievementUnlockRecord>(m)).filter((u): u is AchievementUnlockRecord => !!u && typeof u.id === "string");
+  if (ws.length > 1) all.sort((a, b) => a.ts - b.ts);
   const seen = new Set<string>();
-  return (await s.zrange(ACH.unlocks(wallet), 1000)).map((m) => parse<AchievementUnlockRecord>(m)).filter((u): u is AchievementUnlockRecord => !!u && !seen.has(u.id) && (seen.add(u.id), true));
+  return all.filter((u) => !seen.has(u.id) && (seen.add(u.id), true));
 }
 
 /** GET /api/achievements body. Reads KV only (no RPC, no scoring). */

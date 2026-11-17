@@ -25,6 +25,7 @@ import {
 } from "@/lib/xp";
 import { kv, type Kv } from "./kv";
 import { ACH } from "./achKeys";
+import { accountIdOf, accountWallets } from "./xpAccount";
 
 const ns = () => `xp:${ACTIVE_CHAIN.id}`;
 export const XPK = {
@@ -60,13 +61,36 @@ const parse = <T>(s: string | null): T | null => { if (!s) return null; try { re
 /** Write one row, once ever per (src, wallet). true if it was written now. */
 export async function award(w: string, row: LedgerRow, s: Kv = kv()): Promise<boolean> {
   if (!(await s.setNX(XPK.once(row.src, w), String(row.ts)))) return false;
+  // one pilot, several wallets (lib/server/xpAccount): XP a source already paid on another wallet of the account is not
+  // paid again. The guard above stays set, so this wallet never re-checks it.
+  if (row.xp > 0) {
+    const others = (await accountWallets(w, s)).slice(1);
+    if (others.length && (await s.mget(others.map((o) => XPK.once(row.src, o)))).some(Boolean)) return false;
+  }
   await s.zadd(XPK.ledger(w), [{ score: row.ts, member: JSON.stringify(row) }]);
   return true;
 }
 
+/** Pure (tests): several wallets' ledger rows → one account ledger, oldest first. A source that pays XP counts once
+ *  across the account; spends (negative rows) count on every wallet that made them. */
+export function mergeLedgers(lists: readonly (readonly string[])[]): LedgerRow[] {
+  const seen = new Set<string>(), out: LedgerRow[] = [];
+  lists.forEach((members, i) => {
+    for (const m of members) {
+      const r = parse<LedgerRow>(m);
+      if (!r || typeof r.xp !== "number" || typeof r.src !== "string") continue;
+      const key = r.xp < 0 ? `${i}|${r.src}` : r.src;
+      if (seen.has(key)) continue;
+      seen.add(key); out.push(r);
+    }
+  });
+  return lists.length > 1 ? out.sort((a, b) => a.ts - b.ts) : out;
+}
+
+/** The account's ledger: every wallet on the pilot's account (lib/server/xpAccount), this wallet's rows first on ties. */
 export async function ledgerOf(w: string, s: Kv = kv()): Promise<LedgerRow[]> {
-  const seen = new Set<string>();
-  return (await s.zrange(XPK.ledger(w), LEDGER_MAX)).map((m) => parse<LedgerRow>(m)).filter((r): r is LedgerRow => !!r && typeof r.xp === "number" && !seen.has(r.src) && (seen.add(r.src), true));
+  const ws = await accountWallets(w, s);
+  return mergeLedgers(await Promise.all(ws.map((x) => s.zrange(XPK.ledger(x), LEDGER_MAX))));
 }
 
 /** Pure (tests): the two numbers + prestige from ledger rows. */
@@ -181,7 +205,11 @@ export async function dueTimers(now = Date.now(), s: Kv = kv()): Promise<string[
 
 /* ------------------------------------------------------- reads -------------------------------------------------------- */
 
-export async function ownedOf(w: string, s: Kv = kv()): Promise<string[]> { return s.smembers(XPK.owned(w)); }
+/** Parts owned anywhere on the pilot's account. */
+export async function ownedOf(w: string, s: Kv = kv()): Promise<string[]> {
+  const ws = await accountWallets(w, s);
+  return Array.from(new Set((await Promise.all(ws.map((x) => s.smembers(XPK.owned(x))))).flat()));
+}
 
 /** GET /api/xp body. KV only. */
 export async function xpSummary(walletIn: string, now = Date.now(), s: Kv = kv()): Promise<XpSummary> {
@@ -223,8 +251,8 @@ export async function buyPart(walletIn: string, partId: string, now = Date.now()
   const part = partById(partId);
   if (!part) return { ok: false, reason: "That part doesn't exist." };
   if (part.cost <= 0) return { ok: false, reason: "That part is free." };
-  return withLock(w, s, async (): Promise<BuyResult> => {
-    if (await s.get(XPK.once(`buy:${part.id}`, w))) return { ok: false, reason: "You already own that part." };
+  return withLock(await accountIdOf(w, s), s, async (): Promise<BuyResult> => {
+    if ((await s.get(XPK.once(`buy:${part.id}`, w))) || (await ownedOf(w, s)).includes(part.id)) return { ok: false, reason: "You already own that part." };
     const t = totals(await ledgerOf(w, s));
     if ((part.minPrestige ?? 0) > t.prestige) return { ok: false, reason: `Unlocks at prestige ${part.minPrestige}.` };
     if (t.spendable < part.cost) return { ok: false, reason: `You need ${(part.cost - t.spendable).toLocaleString("en-US")} more XP.` };
@@ -238,7 +266,7 @@ export type PrestigeResult = { ok: true; prestige: number } | { ok: false; reaso
 
 export async function prestigeUp(walletIn: string, now = Date.now(), s: Kv = kv()): Promise<PrestigeResult> {
   const w = walletIn.toLowerCase();
-  return withLock(w, s, async (): Promise<PrestigeResult> => {
+  return withLock(await accountIdOf(w, s), s, async (): Promise<PrestigeResult> => {
     const t = totals(await ledgerOf(w, s));
     if (!levelInfo(t.total, t.prestige).canPrestige) return { ok: false, reason: "Reach level 50 to prestige." };
     const next = t.prestige + 1;
@@ -290,7 +318,7 @@ export type FreePlayAward = { ok: true; xp: number; already: boolean; paidToday:
  */
 export async function awardFreePlay(walletIn: string, src: string, xp: number, label: string, now = Date.now(), s: Kv = kv()): Promise<FreePlayAward> {
   const w = walletIn.toLowerCase(), day = dayPeriod(now);
-  const r = await withLock(w, s, async (): Promise<FreePlayAward> => {
+  const r = await withLock(await accountIdOf(w, s), s, async (): Promise<FreePlayAward> => {
     const rows = await ledgerOf(w, s);
     const today = rows.filter((x) => x.kind === "freeplay" && x.ts >= day.start && x.ts < day.end), paidToday = today.reduce((a, x) => a + x.xp, 0);
     const done = (already: boolean, paid: number, all: LedgerRow[]) => { const t = totals(all);

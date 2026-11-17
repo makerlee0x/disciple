@@ -89,6 +89,7 @@ export async function fetchUsernameStatus(address: string | null | undefined): P
 export async function syncLocalIdentity(account: string | null | undefined): Promise<void> {
   clearLocalIdentity(account);
   if (!account) return;
+  void linkXpAccount(account);
   await bindReservedName(account);
   const { username } = await fetchUsernameStatus(account);
   if (username && get(K.username) !== username) { set(K.username, username); set(K.usernameFor, account.toLowerCase()); notifyProfileChanged(); }
@@ -114,6 +115,22 @@ export async function bindReservedName(account: string): Promise<void> {
       body: JSON.stringify({ address: account.toLowerCase() }),
     });
   } catch { /* the normal status read below still runs */ }
+}
+
+/** Signed in: join this login's wallet to the player's XP account (lib/server/xpAccount), so XP, level and trophies read
+ *  the same on every device and login method. Best effort; reloads the XP cards when another wallet joined. */
+export async function linkXpAccount(account: string): Promise<void> {
+  if (IS_STATIC_PREVIEW || !/^0x[0-9a-fA-F]{40}$/.test(account)) return;
+  try {
+    const h = await privyHeaders();
+    if (!h.authorization && !h["privy-id-token"]) return;
+    const r = await fetch("/api/xp/account", {
+      method: "POST", cache: "no-store", headers: { "content-type": "application/json", ...h },
+      body: JSON.stringify({ address: account.toLowerCase() }),
+    });
+    const j = (await r.json().catch(() => null)) as { ok?: boolean; joined?: number } | null;
+    if (j?.ok && (j.joined ?? 0) > 0) window.dispatchEvent(new Event("disciple:xp-changed"));   // lib/xpClient XP_CHANGED_EVENT
+  } catch { /* XP still reads this wallet's own ledger */ }
 }
 
 export async function claimUsername(u: string, address: string | null): Promise<{ ok: boolean; reason?: string; nextAllowedAt?: number }> {
