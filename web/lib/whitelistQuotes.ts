@@ -5,6 +5,7 @@
  *
  * Nov 16, 2026 (maker): SPACEHOOD removed and PENGU added. HMM was added, then swapped back out for MOO.
  * Images live at /whitelist/<SYMBOL>.png (256×256 PNGs).
+ * Testnet uses stand-ins for these coins, plus HMM (TESTNET_PAIR_QUOTES below).
  *
  * USDG and ETH are built as optional pairs (OPTIONAL_QUOTES) that are OFF at launch.
  * Switch them on with NEXT_PUBLIC_PAIR_USDG=1 / NEXT_PUBLIC_PAIR_ETH=1 (lib/launchWhitelist.ts).
@@ -125,6 +126,43 @@ export const OPTIONAL_QUOTES: readonly WhitelistQuote[] = [
     imagePath: "/whitelist/ETH.png",
   },
 ] as const;
+
+/**
+ * Robinhood testnet (46630) stand-ins for the pair coins, plus HMM, so every pair can be tested there.
+ * Deployed Nov 16, 2026 by contracts/script/testnet/SeedTestnetLaunchCoins.s.sol and routed on the testnet
+ * pricer and router (contracts/deployments/testnet-launch-coins.json). Each is a mintable test token
+ * with 18 decimals. STRATEGY on testnet is the deployment's defaultQuote (see addressOn in lib/launchWhitelist.ts).
+ */
+export const TESTNET_STAND_INS: Readonly<Record<string, `0x${string}`>> = {
+  AI: "0x242bb0b81336bb8A81fB8bBD05f075170bB6F982",
+  SCHIFFY: "0xa6f590e1E933eD1CB069e6189d26bE894468FD1F",
+  BONER: "0x9605EEE2Ee3acBED13b0e543258bcD45855B4eC4",
+  MEME: "0x8a1D4BEA07DB5660cFC296037C70F57658f431A1",
+  MOO: "0x79C4ba81AAd571819d9Ee96eC8A5c2fAF3bf7763",
+  PONS: "0xF2824658E380C3c772Ced713EfafA08754c25ac7",
+  ORBIO: "0x1989598A72114C2B13FcDBf3723dcC6D51C99A1B",
+  HOOKR: "0x000ceC153598d1bbF5Bb485a9B4F9A976826B5fc",
+  CASHCAT: "0x965d5141e1a07dD219450b311728a51822dCFce1",
+  PRIORS: "0x7097BcbeD36d4De0F72e3BD93D943e2EbD4914f1",
+  PENGU: "0x5E73fE55007db8223Ab5954b41899a013B94B73D",
+  HMM: "0x8Bd5206Cd809cc3DcC195445ccD24804511Ff8cA",
+};
+
+/** Testnet pair coins after STRATEGY: the mainnet list in the same order with testnet addresses, then HMM. */
+export const TESTNET_PAIR_QUOTES: readonly WhitelistQuote[] = [
+  ...WHITELIST_QUOTES.filter((q) => q.symbol !== "STRATEGY").map((q) => ({
+    ...q,
+    name: `${q.name} (test)`,
+    address: TESTNET_STAND_INS[q.symbol],
+  })),
+  {
+    symbol: "HMM",
+    name: "Thinking Cat (test)",
+    address: TESTNET_STAND_INS.HMM,
+    decimals: 18,
+    imagePath: "/whitelist/HMM.png",
+  },
+];
 
 export const whitelistQuoteByAddress = (address: string): WhitelistQuote | undefined => {
   const needle = address.toLowerCase();

@@ -9,12 +9,14 @@
  * STRATEGY is the default. USDG and ETH are built but OFF at launch: they join
  * the list only when NEXT_PUBLIC_PAIR_USDG=1 / NEXT_PUBLIC_PAIR_ETH=1 is set at
  * build time (and their routes are wired).
- * On testnet, only STRATEGY works: `addressOn()` uses the chain's defaultQuote,
- * and `launchPairsForChain()` offers only STRATEGY. There are no mock testnet coins.
+ * On testnet (46630), `launchPairsForChain()` offers STRATEGY plus the testnet
+ * stand-ins for the other 11 coins and HMM (TESTNET_PAIR_QUOTES). STRATEGY uses the
+ * chain's defaultQuote through `addressOn()`. Other test chains offer STRATEGY only.
+ * The mainnet list is unchanged.
  */
 import type { Address } from "./protocol";
-import { MAINNET_CHAIN_ID } from "./networkConfig";
-import { OPTIONAL_QUOTES, WHITELIST_QUOTES, type WhitelistQuote } from "./whitelistQuotes";
+import { MAINNET_CHAIN_ID, TESTNET_CHAIN_ID } from "./networkConfig";
+import { OPTIONAL_QUOTES, TESTNET_PAIR_QUOTES, WHITELIST_QUOTES, type WhitelistQuote } from "./whitelistQuotes";
 
 export type LaunchWhitelistCoin = {
   symbol: string;
@@ -57,9 +59,16 @@ export const defaultLaunchPair = (): LaunchWhitelistCoin => {
   return found;
 };
 
-/** Pairs the picker should offer on this chain. Testnet: STRATEGY only. */
+/** Testnet pair list: STRATEGY (sent as the deployment's defaultQuote), then the testnet stand-ins and HMM. */
+export const TESTNET_LAUNCH_WHITELIST: readonly LaunchWhitelistCoin[] = [
+  defaultLaunchPair(),
+  ...TESTNET_PAIR_QUOTES.map(toCoin),
+];
+
+/** Pairs the picker should offer on this chain. Testnet: STRATEGY plus the stand-ins. Other test chains: STRATEGY only. */
 export function launchPairsForChain(chainId: number): readonly LaunchWhitelistCoin[] {
   if (chainId === MAINNET_CHAIN_ID) return LAUNCH_WHITELIST;
+  if (chainId === TESTNET_CHAIN_ID) return TESTNET_LAUNCH_WHITELIST;
   return LAUNCH_WHITELIST.filter((c) => c.symbol === DEFAULT_LAUNCH_PAIR_SYMBOL);
 }
 
@@ -90,5 +99,5 @@ export function coinByAddress(
 ): LaunchWhitelistCoin | undefined {
   if (!address) return undefined;
   const needle = address.toLowerCase();
-  return LAUNCH_WHITELIST.find((c) => addressOn(c, chainId, defaultQuote).toLowerCase() === needle);
+  return launchPairsForChain(chainId).find((c) => addressOn(c, chainId, defaultQuote).toLowerCase() === needle);
 }
