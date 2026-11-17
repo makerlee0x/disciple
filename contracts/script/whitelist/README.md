@@ -5,10 +5,8 @@ setters (`setAllowedQuote`, `setPriceRoute`, `setUsdgRoute`) are a documented
 manual owner step. Nothing in this folder is a broadcast script, and nothing
 here is sent on mainnet from CI or the web app.
 
-Lee removed BUN on Nov 10, 2026 and replaced it the same day with SPACEHOOD
-(stock-pool route via SPCX). Native-ETH settlement was not built; the router
-still accepts a mid token of `address(0)` in `setUsdgRoute` so a native-ETH
-route can be added later without a redeploy.
+The router accepts a native-ETH middle hop (`address(0)`) in `setUsdgRoute`; it nets out inside one PoolManager unlock and is
+covered by the native tests in `test/integration/UsdgRoute.t.sol`. PENGU, HMM and HOOKR use it (see the last section).
 
 ## What the owner does (testnet or a later mainnet deploy, only when lee says)
 
@@ -49,8 +47,6 @@ regardless of speed. Leg 1 is the deepest Uniswap v4 USDG / stock-token pool.
 | SCHIFFY | USDG → GLD → SCHIFFY | id `0xfe281bbf…`, fee `0x800000`, tickSpacing 10, hook `0xB608a787…` (not DISCIPLE) | id `0xc749412e…`, fee `0x800000`, tickSpacing 8, long.xyz hook `0x4e346895…` | leg 1 ~$12,808,598; leg 2 ~$194,597 |
 | BONER | USDG → HIMS → BONER | id `0x68d4f28f…`, fee 9000 (0.9%), tickSpacing 90, no hook | id `0x9c89b043…`, fee `0x800000`, tickSpacing 8, long.xyz hook `0x4e346895…` | leg 1 ~$1,137,707; leg 2 ~$280,788 |
 | MEME | USDG → AMC → MEME | id `0x7499938c…`, fee 1000 (0.1%), tickSpacing 10, no hook | id `0x27ccf0a6…`, fee `0x800000`, tickSpacing 8, long.xyz hook `0x4e346895…` | leg 1 ~$1,107,808; leg 2 ~$415,097 |
-| MOO | USDG → MU → MOO | id `0x6fa3ee00…`, fee 10000 (1%), tickSpacing 200, no hook | id `0xc3cc877a…`, fee `0x800000`, tickSpacing 8, long.xyz hook `0x4e346895…` | leg 1 ~$1,148,112; leg 2 ~$110,039 |
-| SPACEHOOD | USDG → SPCX → SPACEHOOD | id `0x1f5bf0b4…`, fee `0x800000`, tickSpacing 60, SessionFeeHook `0xC15b155a…` | id `0x225cc98f…`, fee `0x800000`, tickSpacing 8, long.xyz hook `0x4e346895…` | leg 1 ~$533,978; leg 2 ~$86,736 |
 
 Single-swap coins use one Uniswap v4 USDG pool:
 
@@ -58,26 +54,27 @@ Single-swap coins use one Uniswap v4 USDG pool:
 | --- | --- | --- | --- |
 | PONS | id `0x486435a1…` (deepest USDG v4, dynamic fee) | fee `0x800000`, tickSpacing 60, hook `0x08E52564…` (not DISCIPLE) | ~$1,158,627. An unhooked 0.3% USDG pool (`0x4be9657e…`, ~$316,928 / side) is the documented fallback if this hooked pool fails a fork, floor, or probe. |
 | ORBIO | id `0xea9f200e…` | fee 8000 (0.8%), tickSpacing 80, no hook | ~$703,912 |
-| HOOKR | id `0x0b362d89…` (the 1% USDG pool) | fee 10000, tickSpacing 100, no hook | ~$102,666. The 5.5% pool (`0x9d30491d…`, ~$43,278 / side) is also above the floor but thinner on official virtual depth. The 3.04% pool (`0xe9e93bd1…`) is not used. |
 | CASHCAT | id `0xa92a3df2…` | fee 2690 (0.269%), tickSpacing 54, no hook | ~$323,007 |
 | PRIORS | id `0xff7b3bd2…` | fee 0, tickSpacing 200, hook `0xE5e70264…` (not DISCIPLE) | ~$124,816. This is a Uniswap v4 pool on the official PoolManager (Initialize confirmed). Some indexers label it as a PONS v2 pool. |
 
 The long.xyz hook on every stock second hop (and SPACEHOOD) is
 `0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544`.
 
-## Nov 16, 2026 list change (maker): routes still to wire
+## Routes through native ETH (Nov 16, 2026 list: PENGU, HMM, HOOKR)
 
-The web list now drops MOO and SPACEHOOD and adds PENGU and HMM. Their old rows
-stay in `routes.json` until the owner removes them. These routes are NOT yet in
-`routes.json`, because the PoolKeys must be read from the Initialize event before
-they are added:
+maker's 12-coin list drops MOO and SPACEHOOD (moved to `removed` in `routes.json`) and adds PENGU and HMM. These three coins
+route USDG → ETH → coin. Leg 1 is the deepest UNHOOKED v4 native ETH / USDG pool. PoolKeys were read from the Initialize
+events on mainnet (block ~116.26M, free RPC `rpc.mainnet.chain.robinhood.com`) and every key hash matched its pool id.
+The router already settles a native-ETH middle hop (`test/integration/UsdgRoute.t.sol` native tests); run
+`test/fork/WhitelistRoutes.t.sol` before wiring.
 
-| Quote | Pool maker gave | Route needed |
-| --- | --- | --- |
-| HOOKR | v4 `0x590dcb6a…` (HOOKR / native ETH) | USDG → ETH → HOOKR (replaces the single USDG pool `0x0b362d89…`) |
-| PENGU `0x74BE72AF…625f` | v4 `0x38cbd4b1…` (PENGU / native ETH) | USDG → ETH → PENGU |
-| HMM `0x7FE995a8…D87f` | `0x2b0D0183…0E9e` is Uniswap **v3** HMM / WETH; the router is v4 only | v4 HMM / USDG `0xbe59bf5d…` (~$19k) unless v3 support is added |
+| Quote | Leg 1 (ETH / USDG) | Leg 2 | Per-side depth |
+| --- | --- | --- | --- |
+| PENGU `0x74BE72AF…625f` | id `0x387bf619…`, fee 500 (0.05%), tickSpacing 10, no hook | id `0x38cbd4b1…`, ETH / PENGU, fee 10000 (1%), tickSpacing 100, no hook | leg 1 ~$5.09M; leg 2 ~$187k. The USDG / PENGU pools are empty. |
+| HMM `0x7FE995a8…D87f` | same | id `0xd5c1dd19…`, ETH / HMM, fee 10142 (1.01%), tickSpacing 202, no hook | leg 2 ~$25k. Same depth as the 3.43% USDG / HMM pool `0xbe59bf5d…` (~$26.9k) at a third of the fee. |
+| HOOKR `0x18E67423…ff5c` | same | id `0x590dcb6a…`, ETH / HOOKR, fee 2500 (0.25%), tickSpacing 25, no hook | leg 2 ~$366k, ~10x the old 1% USDG pool `0x0b362d89…` (~$37k), kept as the alternative. |
 
-Leg 1 for the ETH routes is the deepest v4 USDG / native ETH pool (still to pick).
-USDG and ETH (WETH) are optional pairs, off at launch (`NEXT_PUBLIC_PAIR_USDG`,
-`NEXT_PUBLIC_PAIR_ETH`).
+Two deeper ETH / USDG pools are hooked (`0xbac3aa3b…` hook `0x06a88987…` ~$73.7M, `0xa791e516…` hook `0x987E330F…` ~$27.2M).
+They are not used until those hooks are reviewed.
+
+USDG and ETH (WETH) are optional pairs, off at launch (`NEXT_PUBLIC_PAIR_USDG`, `NEXT_PUBLIC_PAIR_ETH`).

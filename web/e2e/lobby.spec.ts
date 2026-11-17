@@ -104,3 +104,26 @@ test.describe("first visit", () => {
     await expect(out(page).getByTestId("so-ticker")).toHaveCount(0);
   });
 });
+
+test.describe("brand-new visitor", () => {
+  test.use({ firstVisit: true });
+
+  test("the first visit opens the welcome screen, Play starts a free bot duel, and later visits go to the lobby", async ({ page }) => {
+    await page.goto("/");
+    const wi = page.getByTestId("welcome-intro");
+    await expect(wi).toBeVisible();
+    await hydrated(page.getByTestId("welcome-play"));
+    await page.getByTestId("welcome-play").click();
+    await expect(page).toHaveURL(/\/turbo\/duel/);
+    await expect(page.getByTestId("turbo-gate")).toHaveCount(0);
+    await page.goto("/");
+    await expect(out(page)).toBeVisible();
+    await expect(page.getByTestId("welcome-intro")).toHaveCount(0);
+  });
+
+  test("a shared link on a first visit goes where it points, with no welcome screen", async ({ page }) => {
+    await page.goto("/how-it-works");
+    await page.waitForLoadState("load");
+    await expect(page.getByTestId("welcome-intro")).toHaveCount(0);
+  });
+});

@@ -29,12 +29,16 @@ export async function setCash(address: string, usd: number) {
 
 export type Pilot = { key: `0x${string}`; address: string; signIn(o?: { cash?: number }): Promise<void> };
 
-type Fixtures = { pageErrors: string[]; pilot: Pilot; ip: string };
+type Fixtures = { pageErrors: string[]; pilot: Pilot; ip: string; firstVisit: boolean };
 
 export const test = base.extend<Fixtures>({
   ip: async ({}, use) => { await use(freshIp()); },
-  context: async ({ context, ip }, use) => {
+  /** false (the default): the first-visit welcome screen (components/mobile/WelcomeIntro) counts as seen, so it doesn't
+   *  cover the lobby. test.use({ firstVisit: true }) for the specs about that screen. */
+  firstVisit: [false, { option: true }],
+  context: async ({ context, ip, firstVisit }, use) => {
     await context.setExtraHTTPHeaders({ "x-real-ip": ip });
+    if (!firstVisit) await context.addInitScript(() => { try { localStorage.setItem("disciple.welcome.v1", "e2e"); } catch { /* blocked */ } });
     await context.route((url) => url.hostname !== "127.0.0.1" && url.hostname !== "localhost" && url.protocol.startsWith("http"), (route) => route.abort("blockedbyclient"));
     await use(context);
   },

@@ -219,7 +219,7 @@ export const EARN = {
   duelPerWeek: 15,
   /** all of the week's missions done */
   weekly: "epic" as Rarity,
-  /** first visit after collections launch */
+  /** the pilot's first win (a bot duel counts; bound, once ever). Was the first visit until 2026-11-16 */
   welcome: "rare" as Rarity,
 };
 /**
@@ -316,7 +316,7 @@ export interface Collection {
 }
 /** POST /api/collection actions. equip slots take a copy uid, or an item id (prestige items; or your best copy of it). */
 export type CollectionAction =
-  | { op: "open"; crate: string }
+  | { op: "open"; crate: string } | { op: "firstwin" }
   | { op: "equip"; skin: string; trail: string; tag?: string; flourish?: string }
   | { op: "scrap"; copy: string } | { op: "tradeup"; copies: string[] };
 

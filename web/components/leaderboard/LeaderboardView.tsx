@@ -30,11 +30,9 @@ const SORTS: { k: Sort; label: string; col: string }[] = [
 ];
 const WIN_SHORT: Record<BoardWindow, string> = { day: "Today", week: "Week", month: "Month", all: "All" };
 const TOP_EYEBROW: Record<BoardWindow, string> = { day: "Today's top pilot", week: "This week's top pilot", month: "This month's top pilot", all: "Top pilot of all time" };
-const EMPTY_WHEN: Record<BoardWindow, string> = { day: "yet today", week: "yet this week", month: "yet this month", all: "yet" };
 
 export const LEADERBOARD_COPY = {
   title: "Top pilots",
-  sub: "Banked profit in real money, losses included. Same board as the lobby shelf, all the way down.",
   cols: { rank: "#", pilot: "Pilot", flights: "Flights", record: "Record", banked: "Banked", crew: "Crew", green: "Green rockets", pilots: "Pilots" },
   rules: {
     title: "How you rank",
@@ -46,7 +44,6 @@ export const LEADERBOARD_COPY = {
   more: "Show 10 more",
   you: "You",
   emptyTitle: "The top spot is open",
-  emptyBody: (w: BoardWindow) => `Nobody has cashed out higher ${EMPTY_WHEN[w]}. Be the first and your name goes up here.`,
   play: "Play now",
 } as const;
 
@@ -189,10 +186,8 @@ interface DuelRow { rank: number; wallet: string; name: string; rating: number; 
 interface DuelBoardRes { ok: boolean; rows: DuelRow[]; total: number; me: DuelRow | null }
 export const DUEL_BOARD_COPY = {
   tab: "Duels",
-  sub: "Trading Duel rating from ranked duels. Win to climb, lose and you drop. Friendly duels don't count.",
   cols: { rank: "#", pilot: "Pilot", rating: "Rating", record: "Record", peak: "Best" },
   emptyTitle: "No ranked duels yet",
-  emptyBody: "Win a ranked duel and your name goes up here.",
   play: "Find a duel",
   rules: { title: "How duel rating works", items: ["Each calendar month is a season. Ranked wins earn season points (+30, plus up to +25 for a win streak), losses cost 15, and points climb you from Rookie to Champion.", "Everyone starts at 1,200.", "Beat a higher-rated pilot and you gain more. Lose to a lower one and you drop more.", "Your first 10 duels move your rating faster, so you find your level quickly.", "Only ranked duels count. Friendly duels and bot matches don't."] },
 } as const;
@@ -231,7 +226,7 @@ function SeasonLadder({ d }: { d: SeasonRes }) {
     <section className="tp-card" aria-label={`Season ${d.season.n} ladder`} data-testid="lb-season" style={{ padding: 16, marginBottom: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
         <b className="r2-g" style={{ fontSize: 22 }}>Season {d.season.n}</b>
-        <span className="tp-p">{days} {days === 1 ? "day" : "days"} left · everyone resets to Rookie next month</span>
+        <span className="tp-p">{days} {days === 1 ? "day" : "days"} left</span>
       </div>
       {mine && d.me ? (
         <div style={{ marginTop: 10 }}>
@@ -239,7 +234,7 @@ function SeasonLadder({ d }: { d: SeasonRes }) {
           {mine.next && <div aria-hidden style={{ marginTop: 6, height: 6, borderRadius: 3, background: "rgba(255,255,255,.1)" }}><i style={{ display: "block", height: 6, borderRadius: 3, width: `${Math.round(mine.pct * 100)}%`, background: mine.next.color }} /></div>}
           {mine.next && <span className="tp-p">{(mine.next.min - d.me.pts).toLocaleString("en-US")} SP to {mine.next.name}</span>}
         </div>
-      ) : <span className="tp-p" style={{ display: "block", marginTop: 8 }}>Win ranked duels to earn season points. Win streaks earn extra.</span>}
+      ) : <span className="tp-p" style={{ display: "block", marginTop: 8 }}>Unranked this season</span>}
       {d.rows.length > 0 && (
         <ol style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "grid", gap: 6 }}>
           {d.rows.slice(0, 10).map((r) => (
@@ -254,16 +249,31 @@ function SeasonLadder({ d }: { d: SeasonRes }) {
   );
 }
 
+/** Scoring rules behind a small ⓘ next to the title (subcopy pass, maker 2026-11-17: no permanent rules panel or page sub). */
 function Rules({ duel }: { duel?: boolean }) {
   const r = duel ? { ...DUEL_BOARD_COPY.rules, note: "" } : LEADERBOARD_COPY.rules;
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const off = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", off); document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("pointerdown", off); document.removeEventListener("keydown", esc); };
+  }, [open]);
   return (
-    <>
-      <section className="tp-rules" aria-label={r.title}>
-        <span className="tp-eb">{r.title}</span>
-        <ul>{r.items.map((x) => <li key={x}>{x}</li>)}</ul>
-      </section>
-      {r.note && <p className="tp-note">{r.note}</p>}
-    </>
+    <span className="tp-info" ref={box}>
+      <button type="button" className="tp-ibtn" aria-label={r.title} aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="lb-rules-info">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5.25" /><circle cx="12" cy="7.85" r="1" fill="currentColor" stroke="none" /></svg>
+      </button>
+      {open && (
+        <section className="tp-rules tp-pop" role="dialog" aria-label={r.title}>
+          <span className="tp-eb">{r.title}</span>
+          <ul>{r.items.map((x) => <li key={x}>{x}</li>)}</ul>
+          {r.note && <p className="tp-note">{r.note}</p>}
+        </section>
+      )}
+    </span>
   );
 }
 
@@ -334,8 +344,7 @@ export default function LeaderboardView() {
     <div className="tp-page" data-testid="leaderboard">
       <div className="tp-head">
         <div>
-          <h1 className="r2-g">{LEADERBOARD_COPY.title}</h1>
-          <p>{isDuel ? DUEL_BOARD_COPY.sub : LEADERBOARD_COPY.sub}</p>
+          <div className="tp-title"><h1 className="r2-g">{LEADERBOARD_COPY.title}</h1><Rules duel={isDuel} /></div>
         </div>
         {!isDuel && <div className="tp-seg" role="tablist" aria-label="Time window">
           {BOARD_WINDOWS.map((w) => (
@@ -362,7 +371,6 @@ export default function LeaderboardView() {
                 <div className="tp-emptybloom" aria-hidden />
                 <span className="r2-eb">All time</span>
                 <b className="r2-g">{DUEL_BOARD_COPY.emptyTitle}</b>
-                <span className="tp-emptybody">{DUEL_BOARD_COPY.emptyBody}</span>
                 <Link href="/turbo/duel" prefetch={false} className="r2-gold tp-play">{DUEL_BOARD_COPY.play}</Link>
               </section>
             )
@@ -379,7 +387,6 @@ export default function LeaderboardView() {
             <section className="tp-card tp-empty" data-testid="lb-empty">
               <span className="r2-eb">{BOARD_WINDOWS.find((w) => w.k === win)!.label}</span>
               <b className="r2-g">{LEADERBOARD_COPY.emptyTitle}</b>
-              <span className="tp-emptybody">{LEADERBOARD_COPY.emptyBody(win)}</span>
               <Link href="/play" prefetch={false} className="r2-gold tp-play">{LEADERBOARD_COPY.play}</Link>
             </section>
           ) : (
@@ -410,7 +417,6 @@ export default function LeaderboardView() {
               )}
             </>
           )}
-          <Rules duel={isDuel} />
         </div>
         <aside className="tp-side">
           {!isDuel && call && <BestCallCard c={call} win={win} />}

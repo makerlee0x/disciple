@@ -84,7 +84,6 @@ export default async function DuelChallenge(p: P) {
         <div style={{ marginTop: 28, display: "flex", flexDirection: "column", gap: 10 }}>
           <Link data-testid="duel-challenge-go" href={go} style={btn(true)}>{live ? "Join the duel" : "Play a free duel"}</Link>
           {c && !live && <Link data-testid="duel-challenge-request" href={`/turbo/duel?request=${encodeURIComponent(c.slug)}${ref}`} style={btn(false)}>Send {name} a duel request</Link>}
-          <span style={{ textAlign: "center", fontSize: 13, color: "#D7D9E4" }}>No wallet needed to play. Tap BOOST if BTC goes up, DUMP if it goes down.</span>
         </div>
       </div>
     </div>

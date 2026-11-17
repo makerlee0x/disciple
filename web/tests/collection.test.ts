@@ -139,26 +139,35 @@ describe("collection server (local KV)", () => {
   });
   const W = "0x" + "c0".repeat(20);
 
-  it("a new pilot gets the starter look and a welcome crate, and can open it", async () => {
+  it("a new pilot gets the starter look; the welcome crate waits for their first win and opens on the spot, once", async () => {
     const c = await col.collectionOf(W);
     expect(c.owned).toContain(STARTER_SKIN);
-    expect(c.crates.map((x) => x.src)).toContain("welcome");
-    const again = await col.collectionOf(W);
-    expect(again.crates.filter((x) => x.src === "welcome")).toHaveLength(1);
-    const r = await col.openCrate(W, c.crates[0].id);
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.opened.xp).toBe(CRATE.rare.xp); expect(r.opened.item).toBeTruthy();
-      const cp = r.opened.copy!;
+    expect(c.crates).toHaveLength(0);   // no longer on the first visit
+    const opened = await col.firstWinCrate(W);
+    expect(opened).toBeTruthy();
+    if (opened) {
+      expect(opened.crate.src).toBe("welcome"); expect(opened.crate.tier).toBe("rare");
+      expect(opened.xp).toBe(CRATE.rare.xp); expect(opened.item).toBeTruthy();
+      const cp = opened.copy!;
       expect(cp.serial).toBeGreaterThanOrEqual(1); expect(cp.bound).toBe(true);   // welcome crate items never trade
       expect(cp.burn).toBeGreaterThanOrEqual(0); expect(cp.burn).toBeLessThan(1); expect(cp.fe).toBe(true);
-      expect(r.opened.proof?.input).toBe(c.crates[0].id);
+      expect(opened.proof?.input).toBe(opened.crate.id);
       const rec = await col.copyRecord(cp.uid);
       expect(rec?.copy).toEqual(cp); expect(rec?.owner).toBe(W.toLowerCase());
-      expect(rec?.history[0]).toMatchObject({ ev: "made", origin: "crate", crate: c.crates[0].id, proofDay: r.opened.proof?.day });
+      expect(rec?.history[0]).toMatchObject({ ev: "made", origin: "crate", crate: opened.crate.id, proofDay: opened.proof?.day });
     }
-    expect((await col.openCrate(W, c.crates[0].id)).ok).toBe(false);
+    expect(await col.firstWinCrate(W)).toBeNull();
     expect((await col.collectionOf(W)).crates).toHaveLength(0);
+  });
+
+  it("a first ranked win pays the welcome crate too (once), next to the duel crate", async () => {
+    const W2 = "0x" + "c2".repeat(20);
+    await col.onDuelSettled("room-w2", W2, null);
+    const srcs = (await col.collectionOf(W2)).crates.map((c) => c.src).sort();
+    expect(srcs).toEqual(["duel:room-w2", "welcome"]);
+    const opened = await col.firstWinCrate(W2);   // the duel screen asking afterwards opens the one waiting
+    expect(opened?.crate.src).toBe("welcome");
+    expect(await col.firstWinCrate(W2)).toBeNull();
   });
 
   it("ranked duel wins drop crates, streaks upgrade them, a room pays once", async () => {

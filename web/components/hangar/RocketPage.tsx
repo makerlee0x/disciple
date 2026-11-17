@@ -43,7 +43,6 @@ export default function RocketPage() {
       {wallet === null ? (
         <div className="hg-empty">
           <b>Sign in to see your rocket</b>
-          <p>Your skins, trails and crates live here, and they fly in every mode.</p>
           <button type="button" className="dsc3-btn dsc3-btn-primary" onClick={() => window.dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT))}>Sign in</button>
         </div>
       ) : (

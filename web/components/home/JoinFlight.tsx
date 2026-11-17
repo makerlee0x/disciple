@@ -86,7 +86,7 @@ function Chart({ pts }: { pts: Pt[] }) {
     const end = { x: x(pts[pts.length - 1].t), y: y(pts[pts.length - 1].v) };
     return { line: d, area: `${d} V${H} H0 Z`, end };
   }, [pts]);
-  if (!path) return <div className={s.chartEmpty}>Waiting for the first trades of the day…</div>;
+  if (!path) return <div className={s.chartEmpty} role="status" aria-label="Waiting for trades"><i className={s.pulse} aria-hidden /></div>;
   return (
     <svg className={s.chart} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden>
       <defs>
@@ -114,7 +114,6 @@ export default function JoinFlight({ coins }: { coins: HomeCoin[] }) {
       <div className={s.top}><span className={s.live}><i aria-hidden className={s.off} />Nothing flying yet</span></div>
       <div className={s.foot}>
         <h2 id="lobby-join-title" className={s.title}>Join a flight</h2>
-        <p className={s.emptyTx}>No rockets are in the air right now. Host the first launch and your crew flies it up, or warm up in Free play.</p>
         <div className={s.actions}>
           <Link href="/create" className={s.drop} data-testid="lobby-host">Host a launch</Link>
           <Link href="/flight/sim" className={s.ghost}>Free play</Link>
@@ -148,7 +147,7 @@ export default function JoinFlight({ coins }: { coins: HomeCoin[] }) {
       </div>
 
       <div className={s.chartBox}>
-        {pts ? <Chart pts={pts} /> : <div className={s.chartEmpty}>Reading the market…</div>}
+        {pts ? <Chart pts={pts} /> : <div className={s.chartEmpty} role="status" aria-label="Loading chart"><i className={s.pulse} aria-hidden /></div>}
       </div>
 
       <div className={s.foot}>

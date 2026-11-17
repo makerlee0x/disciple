@@ -62,7 +62,7 @@ export function Fleet({ rows, home, launched, isPrivate, owner }: {
   return (
     <section className="hg-sec" aria-labelledby="hg-fleet">
       <header className="hg-sech">
-        <div><h2 id="hg-fleet" className="dsc3-h2">{isPrivate ? "Your fleet" : "Fleet"}</h2><span>{tab === "aboard" ? (isPrivate ? "Rockets you're aboard" : `Rockets ${owner} is aboard`) : (isPrivate ? "Rockets you launched" : `Rockets ${owner} launched`)}</span></div>
+        <div><h2 id="hg-fleet" className="dsc3-h2">{isPrivate ? "Your fleet" : "Fleet"}</h2></div>
         <div className="hg-chips" role="group" aria-label="Fleet">
           <button type="button" className="dsc3-chip" aria-pressed={tab === "aboard"} onClick={() => setTab("aboard")}>Aboard</button>
           <button type="button" className="dsc3-chip" aria-pressed={tab === "launched"} onClick={() => setTab("launched")}>Launched</button>
@@ -71,8 +71,8 @@ export function Fleet({ rows, home, launched, isPrivate, owner }: {
       {list == null ? <div className="hg-fleet" aria-busy="true" data-testid="tab-rockets" /> : !list.length ? (
         <div className="hg-empty" data-testid="tab-rockets">
           {tab === "aboard"
-            ? isPrivate ? <><b>No seats yet</b><p>Drop into a live flight from the lobby and boost it. It shows up here.</p><Link href="/" className="dsc3-btn dsc3-btn-white">Find a flight</Link></> : <p>{owner} isn&apos;t aboard any rockets right now.</p>
-            : isPrivate ? <><b>Nothing launched yet</b><p>Host a match: build a rocket and open the hatch.</p><Link href="/create" className="dsc3-btn dsc3-btn-white">Start a launch</Link></> : <p>{owner} hasn&apos;t launched a rocket yet.</p>}
+            ? isPrivate ? <><b>No seats yet</b><Link href="/" className="dsc3-btn dsc3-btn-white">Find a flight</Link></> : <p>{owner} isn&apos;t aboard any rockets right now.</p>
+            : isPrivate ? <><b>Nothing launched yet</b><Link href="/create" className="dsc3-btn dsc3-btn-white">Start a launch</Link></> : <p>{owner} hasn&apos;t launched a rocket yet.</p>}
         </div>
       ) : (
         <div className="hg-fleet" data-testid="tab-rockets">

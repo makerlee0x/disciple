@@ -26,13 +26,13 @@ import { FUND_CARD_FEE_EST, FUND_COPY, FUND_DEFAULT_USD, FUND_PICKS, startFundin
 import { DEPOSIT_COPY } from "@/lib/deposit";
 import { onCashFuel, type CashFuel } from "@/lib/turbo/cashFuel";
 import SendCrypto from "./SendCrypto";
+import SignInMarks from "@/components/SignInMarks";
 
 const erc20 = parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]);
 
 export const CASH_COPY = {
   title: "Cash",
   yourCash: "Your cash",
-  balSub: "Spend it on any coin, or load it into Turbo.",
   ready: "Ready to spend",
   inTurbo: "In Turbo fuel",
   moveBack: "Move to cash",
@@ -65,7 +65,6 @@ export const CASH_COPY = {
   tooMuch: (v: string) => `That's more than you have. You can cash out up to ${v}.`,
   tooLittle: (v: string) => `That's below the smallest cash out. Try more than ${v}.`,
   signInTitle: "Sign in to add cash",
-  signInBody: "Email, Google, X or a wallet. Your cash lives in your own account.",
   signIn: "Sign in",
 } as const;
 
@@ -107,7 +106,7 @@ function CardFund({ addr, empty, onPaid, onClose, onSend }: { addr: string; empt
       </button>
       <span className="cx-help cx-center">{FUND_COPY.sub}</span>
       {note && <div className={`r2-note ${note.ok ? "ok" : "warn"}`} role="status"><span>{note.text}</span></div>}
-      {empty && <a className="cx-freeplay" href={withBase("/flight/sim")} onClick={() => onClose()} data-testid="cash-freeplay">No cash yet? <b>Fly in Free play</b> while it lands.</a>}
+      {empty && <a className="cx-freeplay" href={withBase("/flight/sim")} onClick={() => onClose()} data-testid="cash-freeplay"><b>Free play</b></a>}
       <div className="cx-or" aria-hidden><span>{FUND_COPY.or}</span></div>
       <button type="button" className="cx-sendrow" onClick={onSend} data-testid="cash-send-crypto-btn">
         <span className="t"><b>{FUND_COPY.sendTitle}</b><span>{FUND_COPY.sendSub}</span></span>
@@ -223,7 +222,7 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
         <div className="r2-body" data-testid="cash-signed-out">
           <div className="cx-sky" style={{ backgroundImage: `url(${withBase("/home/sky/t6.webp")})` }} aria-hidden />
           <b className="r2-g cx-h">{CASH_COPY.signInTitle}</b>
-          <span className="cx-p14">{CASH_COPY.signInBody}</span>
+          <SignInMarks size={16} />
           <button type="button" className="r2-gold" onClick={() => { onClose(); window.dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT)); }}>{CASH_COPY.signIn}</button>
         </div>
       </>
@@ -255,7 +254,6 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
           <div className="cx-bal" data-testid="cash-balance">
             <span className="r2-lbl up">{CASH_COPY.yourCash}</span>
             <Amount v={balUsd + (fuel?.usd ?? 0)} big />
-            <span className="cx-balsub">{CASH_COPY.balSub}</span>
           </div>
         )}
         {tab === "add" && !sendView && fuel && (
@@ -313,7 +311,7 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
             <button type="button" className="r2-gold" disabled={busy || amtNum <= 0} onClick={cashOut} data-testid="cash-out-btn">
               {busy ? CASH_COPY.sending : amtNum > 0 ? CASH_COPY.cashOut(usd2(amtNum)) : CASH_COPY.tabs.out}
             </button>
-            <span className="cx-fine cx-d">{CASH_COPY.fine}</span>
+            <span className="cx-fine">{CASH_COPY.fine}</span>
           </>
         )}
       </div>

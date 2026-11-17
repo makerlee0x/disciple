@@ -1,5 +1,5 @@
 /** Host a launch: the builder (launch flow board, signed off 2026-11-13) and what happens when you light the engines. */
-import { test, expect, hydrated, isPhone } from "./support/fixtures";
+import { test, expect, hydrated } from "./support/fixtures";
 
 test("the pad preview follows what you type and pick", async ({ page, pilot }) => {
   await pilot.signIn({ cash: 25 });
@@ -12,7 +12,7 @@ test("the pad preview follows what you type and pick", async ({ page, pilot }) =
   await expect(page.getByTestId("pad-mode")).toContainText(/hard/i);
   // a hidden launch always flies on Expert
   await page.getByTestId("private-launch").click();
-  await expect(page.getByTestId("private-launch-help")).toHaveText("Hidden launches fly on Expert.");
+  await expect(page.getByTestId("private-launch-help")).toHaveText("Hidden launches fly on Expert for now.");
   await expect(page.getByTestId("pad-mode")).toContainText(/expert/i);
 });
 
@@ -73,7 +73,7 @@ test("right after a launch the flight opens with the trade bar and a small share
   await expect(toast).toBeVisible();
   await expect(toast).toContainText(/\$COMET is flying/i);
   await expect(page.getByTestId("trade-bar").filter({ visible: true }).first()).toBeVisible();
-  if (isPhone(page)) { const go = page.getByTestId("fr-go"); await go.waitFor({ state: "visible", timeout: 8_000 }).then(() => go.tap()).catch(() => {}); }
+  // (phones: the first flight's How to fly card is gone; a finger on the lever teaches instead and blocks nothing)
   await toast.getByRole("button", { name: "Close" }).click();
   await expect(toast).toHaveCount(0);
 });

@@ -9,13 +9,15 @@ export const runtime = "nodejs";
  * POST { op: "coinlook", token, skin, trail, sig? } stamps a coin's launch look (its host only, once; items out or owned).
  *   sig = a hidden host's stealth-owner signature over lib/coinLook coinLookMessage, in place of the session.
  * POST { op: "open", crate } | { op: "equip", skin, trail, tag?, flourish? } | { op: "scrap", copy } | { op: "tradeup", copies }  with the Privy session (Bearer), like
- *   the duel API, so opening a crate needs no wallet signature. Optional x-wallet picks one of the account's wallets.
+ *   the duel API, so opening a crate needs no wallet signature.
+ * POST { op: "firstwin" } → { ok, opened }  the welcome crate after the pilot's first win, opened on the spot (once ever;
+ *   { ok: false, reason: "claimed" } after that). Optional x-wallet picks one of the account's wallets.
  */
 import { NextResponse } from "next/server";
 import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
-import { collectionOf, copyRecord, equip, openCrate, rollProof, scrapCopy, tradeUp } from "@/lib/server/collection";
+import { collectionOf, copyRecord, equip, firstWinCrate, openCrate, rollProof, scrapCopy, tradeUp } from "@/lib/server/collection";
 import { ensureCatalog } from "@/lib/server/catalog";
 import { coinLooksOf, setCoinLook } from "@/lib/server/coinLooks";
 
@@ -64,6 +66,7 @@ export async function POST(req: Request) {
       const r = await setCoinLook(typeof b.token === "string" ? b.token : "", { wallets }, skin, id(b.trail));
       return r.ok ? out(200, r) : out(r.status, { ok: false, reason: r.reason });
     }
+    if (b.op === "firstwin") { const opened = await firstWinCrate(wallet); return out(opened ? 200 : 409, opened ? { ok: true, opened } : { ok: false, reason: "claimed" }); }
     if (b.op === "open") { const r = await openCrate(wallet, id(b.crate)); return out(r.ok ? 200 : 409, r); }
     if (b.op === "equip") { const r = await equip(wallet, id(b.skin), id(b.trail), id(b.tag), id(b.flourish)); return out(r.ok ? 200 : 409, r); }
     if (b.op === "scrap") { const r = await scrapCopy(wallet, id(b.copy)); return out(r.ok ? 200 : 409, r); }

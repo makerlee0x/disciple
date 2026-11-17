@@ -41,8 +41,8 @@ const TABS: readonly Tab[] = [
 
 /** The Turbo tab's two modes. */
 export const TURBO_MODES = [
-  { href: DUEL_HREF, label: "Trading duel", sub: "1v1. One minute. Most profit wins." },
-  { href: "/turbo/royale", label: "Turbo royale", sub: "12 pilots. Last one flying wins." },
+  { href: DUEL_HREF, label: "Trading duel", sub: "Ranked" },
+  { href: "/turbo/royale", label: "Turbo royale", sub: "Practice" },
 ] as const;
 
 // The iPhone app's own tab bar (app home concept C, maker 2026-11-16): Hangar, Play (the app home, big in the middle) and

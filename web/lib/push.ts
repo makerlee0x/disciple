@@ -6,12 +6,12 @@
  */
 export type PushKind = "orbit" | "host" | "crew" | "duel";
 export const PUSH_DAILY_CAP = 3;
-export const PUSH_KINDS: readonly { k: PushKind; label: string; help: string; on: boolean }[] = [
-  { k: "orbit", label: "Orbit with you aboard", help: "A rocket you're aboard reaches orbit.", on: true },
-  { k: "host", label: "Your launch milestones", help: "Passenger milestones on rockets you launched.", on: false },
-  { k: "crew", label: "Crew zones", help: "Your crew's rocket climbs past the Kármán Line.", on: false },
+export const PUSH_KINDS: readonly { k: PushKind; label: string; on: boolean }[] = [
+  { k: "orbit", label: "Orbit with you aboard", on: true },
+  { k: "host", label: "Your launch milestones", on: false },
+  { k: "crew", label: "Crew zones", on: false },
   // a person asked you for a duel (maker 2026-11-16, rematch requests): on by default, like orbit, because a person is waiting
-  { k: "duel", label: "Duel requests", help: "A pilot wants a 1v1 trading duel with you.", on: true },
+  { k: "duel", label: "Duel requests", on: true },
 ];
 export type PushPrefs = Record<PushKind, boolean>;
 export const DEFAULT_PUSH_PREFS: PushPrefs = Object.fromEntries(PUSH_KINDS.map((x) => [x.k, x.on])) as PushPrefs;
@@ -31,5 +31,5 @@ export const pushCopy = {
   duel: (from: string) => ({ title: `${from} wants a duel`, body: "1v1, one minute, live BTC. Their room is open for 30 minutes." }),
   crew: (tag: string, zone: string, nthThisWeek: number) => ({ title: `[${tag}] flew to ${title(zone)}`, body: `Your crew's ${nth(nthThisWeek)} rocket past the Kármán Line this week.` }),
   never: ["Price alerts that say buy or sell now", "\"Your crew is buying\" or entry prices", "\"Win it back\" after a red flight", "Streak warnings that push a trade"],
-  rule: "At most 3 pushes a day, all off by default except orbit and duel requests. Settings has one switch per kind.",
+  rule: "At most 3 a day.",
 } as const;

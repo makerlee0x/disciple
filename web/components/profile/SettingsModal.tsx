@@ -20,14 +20,12 @@ export const SETTINGS_COPY = {
   trading: "Flying",
   signedIn: (m: string) => `Signed in with ${m}`,
   wallet: "Wallet",
-  walletHelp: "Deposit and withdraw on the Wallet page.",
   oneTap: "One-tap boosts",
-  bombs: "Dump bombs", bombsHelp: "Show dumps as bombs · B",
-  haptics: "Vibration", hapticsHelp: "Buzz on taps and big moments",
+  bombs: "Dump bombs",
+  haptics: "Vibration",
   sound: "Sound",
-  music: "Music", musicHelp: "Plays while you fly and duel",
-  sfx: "Sound effects", sfxHelp: "Engines, boosts and blasts",
-  oneTapHelp: "BOOST and DUMP fire with no pop-up",
+  music: "Music",
+  sfx: "Sound effects",
   on: "ON",
   maxMove: "Price protection",
   maxMoveHelp: "Max price move per trade. Bigger moves cancel it",
@@ -41,11 +39,9 @@ export const SETTINGS_COPY = {
   twoFaOff: "Off",
   totp: "Authenticator app",
   passkey: "Passkey",
-  passkeyHelp: "Sign in with your device's biometrics",
-  privyOnly: "Available when you sign in with email, Google, X or a wallet.",
+  privyOnly: "Available when you sign in with email, Google or X.",
   logout: "Sign out",
   deleteAcct: "Delete account",
-  deleteHelp: "Remove your profile and sign-in",
   deleteTitle: "Delete your account?",
   deleteLead: "This removes your username, profile, X link and alerts, and closes your sign-in. It can't be undone.",
   deleteWallet: "Your wallet lives on the blockchain, so anything in it stays there. Withdraw your cash or export your key first, or you lose access to it.",
@@ -171,7 +167,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
             <button type="button" className="p5-icon p5-desk" aria-label="Close settings" onClick={onClose}><Icon name="close" size={18} /></button>
           </header>
           <div className="p5-sbox" data-testid="twofa-view">
-            {([["totp", SETTINGS_COPY.totp, null], ["passkey", SETTINGS_COPY.passkey, SETTINGS_COPY.passkeyHelp]] as const).map(([m, label, help]) => (
+            {([["totp", SETTINGS_COPY.totp, null], ["passkey", SETTINGS_COPY.passkey, null]] as const).map(([m, label, help]) => (
               <div className="p5-srow" key={m}>
                 <div className="tx"><b>{label}</b>{help && <span>{help}</span>}</div>
                 <button type="button" role="switch" aria-checked={has(m)} aria-label={label} className={`p5-switch${has(m) ? " on" : ""}`}
@@ -214,7 +210,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                 <div className="p5-sbox">
                   <div className="p5-srow">
                     <span className="p5-sic"><Icon name="bolt" size={18} /></span>
-                    <div className="tx"><b>{SETTINGS_COPY.oneTap}</b><span>{SETTINGS_COPY.oneTapHelp}</span></div>
+                    <div className="tx"><b>{SETTINGS_COPY.oneTap}</b></div>
                     <span className="p5-on">{SETTINGS_COPY.on}</span>
                   </div>
                   <div className="p5-srow wrap">
@@ -229,23 +225,23 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                     </div>
                     {err && <span className="p5-err" role="alert">{err}</span>}
                   </div>
-                  {([["bombs", SETTINGS_COPY.bombs, SETTINGS_COPY.bombsHelp, "setBombs"]] as const).map(([k, label, help, fn]) => (
+                  {([["bombs", SETTINGS_COPY.bombs, "setBombs"]] as const).map(([k, label, fn]) => (
                     <div className="p5-srow" key={k}>
                       <span className="p5-sic"><Icon name="bomb" size={18} /></span>
-                      <div className="tx"><b>{label}</b><span>{help}</span></div>
+                      <div className="tx"><b>{label}</b></div>
                       <button type="button" role="switch" aria-checked={fx[k]} aria-label={label} className={`p5-switch${fx[k] ? " on" : ""}`} data-testid={`settings-${k}`}
                         onClick={() => setFx((v) => { const next = !v[k]; writeFx(SETTINGS_KEYS[k], next); (window as unknown as { __flight?: Record<string, (v: boolean) => void> }).__flight?.[fn]?.(next); return { ...v, [k]: next }; })}><span /></button>
                     </div>
                   ))}
                   <div className="p5-srow" data-testid="settings-game">
                     <span className="p5-sic"><Icon name="bell" size={18} /></span>
-                    <div className="tx"><b>{SETTINGS_COPY.haptics}</b><span>{SETTINGS_COPY.hapticsHelp}</span></div>
+                    <div className="tx"><b>{SETTINGS_COPY.haptics}</b></div>
                     <button type="button" role="switch" aria-checked={gs.haptics} aria-label={SETTINGS_COPY.haptics} className={`p5-switch${gs.haptics ? " on" : ""}`} data-testid="settings-haptics"
                       onClick={() => { const v = !gs.haptics; setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); }}><span /></button>
                   </div>
                   <div className="p5-srow wrap" data-testid="settings-turbo-leave">
                     <span className="p5-sic"><Icon name="bolt" size={18} /></span>
-                    <div className="tx"><b>{LEAVE_COPY.setting}</b><span>{LEAVE_COPY.settingHelp}</span></div>
+                    <div className="tx"><b>{LEAVE_COPY.setting}</b></div>
                     <div className="p5-seg" role="radiogroup" aria-label={LEAVE_COPY.setting}>
                       {LEAVE_PREFS.map((p) => (
                         <button key={p} type="button" role="radio" aria-checked={leavePref === p} className={leavePref === p ? "on" : ""} onClick={() => saveLeavePref(p)} data-testid={`turbo-leave-${p}`}>
@@ -259,13 +255,13 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
               <section className="p5-sgrp" aria-label={SETTINGS_COPY.sound} data-testid="settings-sound">
                 <span className="gh">{SETTINGS_COPY.sound}</span>
                 <div className="p5-sbox">
-                  {([["music", "play", SETTINGS_COPY.music, SETTINGS_COPY.musicHelp], ["sfx", "boost", SETTINGS_COPY.sfx, SETTINGS_COPY.sfxHelp]] as const).map(([ch, ic, label, help]) => {
+                  {([["music", "play", SETTINGS_COPY.music], ["sfx", "boost", SETTINGS_COPY.sfx]] as const).map(([ch, ic, label]) => {
                     const c: AudioChannel = gs[ch];
                     const set = (n: Partial<AudioChannel>) => setGameSettings((g) => ({ ...g, [ch]: { ...g[ch], ...n } }));
                     return (
                       <div className="p5-srow wrap snd" key={ch}>
                         <span className="p5-sic"><Icon name={ic} size={18} /></span>
-                        <div className="tx"><b>{label}</b><span>{help}</span></div>
+                        <div className="tx"><b>{label}</b></div>
                         <button type="button" role="switch" aria-checked={c.on} aria-label={label} className={`p5-switch${c.on ? " on" : ""}`} data-testid={`settings-${ch}`}
                           onClick={() => set({ on: !c.on })}><span /></button>
                         <input type="range" className="p5-vol" min={0} max={100} step={5} value={Math.round(c.vol * 100)} disabled={!c.on}
@@ -294,7 +290,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                   </button>
                   <button type="button" className="p5-srow p5-srow-link" onClick={() => { setView("delete"); setSecErr(""); }} data-testid="settings-delete">
                     <span className="p5-sic"><Icon name="close" size={18} /></span>
-                    <div className="tx"><b>{SETTINGS_COPY.deleteAcct}</b><span>{SETTINGS_COPY.deleteHelp}</span></div>
+                    <div className="tx"><b>{SETTINGS_COPY.deleteAcct}</b></div>
                     <Icon name="chevron-right" size={18} />
                   </button>
                 </div>
@@ -303,7 +299,6 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
             </div>
           </div>
           <footer className="p5-sfoot">
-            <span>{SETTINGS_COPY.walletHelp}</span>
             <button type="button" className="p5-logout" data-testid="settings-signout" onClick={() => { onClose(); void disconnect(); }}>
               <Icon name="log-out" size={18} /> {SETTINGS_COPY.logout}
             </button>

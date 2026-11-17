@@ -1,5 +1,5 @@
 /**
- * Turbo (on for everyone since 2026-11-16, no password since launch prep; TURBO_GATE=1 brings it back): the open door, the archived solo /turbo link landing on
+ * Turbo (on for everyone since 2026-11-16, no password since the Grok playbook picks): no gate, the archived solo /turbo link landing on
  * Trading Duel, and the duel lobby. The solo run was archived 2026-11-16 (only Duels and Royale remain).
  */
 import { test, expect } from "./support/fixtures";
@@ -18,10 +18,13 @@ async function pass(page: Page, path = "/turbo/duel?turbo=1") {
   }
 }
 
-test("Turbo opens with no password (the early-access gate is off unless TURBO_GATE=1)", async ({ page }) => {
+test("Turbo opens with no password (the early-access gate is off)", async ({ page }) => {
   await fakeVenue(page);
   await page.goto("/turbo/duel?turbo=1");
   await expect(page.getByTestId("turbo-gate")).toHaveCount(0);
+  const r = await page.request.get("/duel");
+  expect(r.status()).toBe(200);
+  expect(await r.text()).not.toContain("turbo-gate");
 });
 
 test("the old solo /turbo link lands on Trading Duel", async ({ page, pilot }) => {

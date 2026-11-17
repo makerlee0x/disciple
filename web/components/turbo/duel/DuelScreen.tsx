@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef } from "react";
 import { getTurboAdapter } from "@/lib/turbo";
-import { onPrivy, privyAuthenticated, privyLogin } from "@/lib/aa/sessionState";
+import { onPrivy, privyAccessToken, privyAuthenticated, privyLogin } from "@/lib/aa/sessionState";
 import { duelApi, followRoom, setDuelGuest, type Follow, type RoomRes, type Res } from "@/lib/duel/client";
 import { DUEL_LEN_MS, parseCode, type LengthMs, type TierId, type TradeAction } from "@/lib/duel/rules";
 import { trackFunnel } from "@/lib/funnelClient";
@@ -17,7 +17,9 @@ import { LEAGUES } from "@/lib/duel/season";
 import { flightHref, pct } from "@/components/home/rocketBits";
 import type { DuelEvent, DuelRoom } from "@/lib/duel/types";
 import { getGameRadio } from "@/lib/game/radio";
-import { TRAILS, trailId } from "@/lib/collection";
+import { EARN, RARITY_COLOR, RARITY_NAME, TRAILS, crateArt, frozenOf, itemById, trailId, type Opened } from "@/lib/collection";
+import { COLLECTION_CHANGED_EVENT } from "@/lib/collectionClient";
+import { withBase } from "@/lib/base-path";
 
 const trailRgb = (id?: string) => TRAILS.find((t) => trailId(t.id) === id)?.rgb;
 import { useTurboMusic } from "@/lib/game/turboMusic";
@@ -33,14 +35,23 @@ interface EngineApi {
   event(e: DuelEvent): void;
   error(t: string): void;
   toLobby(): void;
+  firstCrate(d: FirstCrate | null): void;
   destroy(): void;
 }
 declare global { interface Window { DuelEngine?: { mount(root: HTMLElement, host: unknown): EngineApi } } }
 
+/** the first-win crate on the result card (engine firstCrate) */
+type FirstCrate = { state: "locked" | "opened"; crate: string; open?: string; item?: string; name?: string; rar?: string; kind?: string; color?: string };
+/** "1" = a first win is waiting for its crate (signed out when it happened); "done" = the welcome crate is open */
+const FIRST_WIN_KEY = "disciple.firstwin.v1";
+const fwGet = () => { try { return localStorage.getItem(FIRST_WIN_KEY); } catch { return "done"; } };
+const fwSet = (v: string) => { try { localStorage.setItem(FIRST_WIN_KEY, v); } catch { /* private mode */ } };
+const KIND: Record<string, string> = { skin: "Skin", trail: "Trail", tag: "Name tag", flourish: "Win flourish" };
+
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
 /** extra plates for the random sky each duel (engine SKY_THEMES) */
 const EXTRA_SKIES = { skyEth: "/turbo/sky-eth.webp", skyBtc: "/turbo/sky-btc.webp", skyPad: "/home/pad/sky-1280.webp" };
-const ENGINE_SRC = "/turbo/duel/engine.js?v=40";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=41";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
@@ -131,7 +142,7 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
       const r = await duelApi.me();
       if (dead) return;
       if (!r.ok) { me = null; api?.setMe(null, false); return; }
-      me = r.pid; void loadShips([r.pid]); api?.setMe({ w: r.rating.w, l: r.rating.l, rating: r.rating.r, streak: r.rating.streak }, true);
+      me = r.pid; void loadShips([r.pid]); if (fwGet() === "1") void claimFirstWin(); api?.setMe({ w: r.rating.w, l: r.rating.l, rating: r.rating.r, streak: r.rating.streak }, true);
       if (r.active) follow(r.active.id);
       else if (pendingCode) { const c = pendingCode; pendingCode = null; const j = await duelApi.join(c); if (j.ok) { trackFunnel("duel_join"); follow(j.room.id); } else api?.error(j.reason); }
       else if (pendingRequest) {
@@ -143,6 +154,26 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
         trackFunnel("duel_request");
         if (!sent.ok) api?.error(sent.reason);
       }
+    };
+    // the welcome crate pays on the pilot's first win (lib/server/collection firstWinCrate) and opens on the result card
+    let claiming = false;
+    const claimFirstWin = async () => {
+      if (claiming || guest || fwGet() === "done" || !privyAuthenticated()) return;
+      claiming = true;
+      try {
+        const t = await privyAccessToken();
+        if (!t) return;
+        const r = await fetch(withBase("/api/collection"), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${t}` }, body: JSON.stringify({ op: "firstwin" }) });
+        const j = (await r.json().catch(() => null)) as { ok?: boolean; reason?: string; opened?: Opened } | null;
+        if (j?.ok && j.opened) {
+          fwSet("done"); dispatchEvent(new Event(COLLECTION_CHANGED_EVENT));
+          const o = j.opened, it = o.item ? itemById(o.item.id) ?? o.item : null;
+          const art = it ? frozenOf(it).art.split(" ")[0] : "";
+          api?.firstCrate({ state: "opened", crate: withBase(crateArt(o.crate.tier)), open: withBase(crateArt(o.crate.tier, true)),
+            item: art && it?.kind !== "flourish" ? withBase(art) : undefined, name: it?.name ?? "Nothing this time",
+            rar: it ? RARITY_NAME[it.rar] : RARITY_NAME[o.crate.tier], kind: it ? KIND[it.kind] : undefined, color: it ? RARITY_COLOR[it.rar] : undefined });
+        } else if (j?.reason === "claimed") { fwSet("done"); api?.firstCrate(null); }
+      } catch { /* the crate waits for the next win */ } finally { claiming = false; }
     };
     /** a press: send it, show the server's echo at once (the stream would bring it ~250 ms later) */
     const op = async (body: Parameters<typeof duelApi.op>[1]): Promise<{ error?: string }> => {
@@ -202,6 +233,13 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
       report: async () => { if (!roomId) return { error: "Not in a duel." }; const r = await duelApi.op(roomId, { op: "report" }); return r.ok ? {} : { error: r.reason }; },
       trick: (kind: "spin" | "flip") => { void op({ op: "trick", kind }); },
       // the duel mute button also silences the game radio if it carried over from another screen
+      // engine showResult on a win (bot or ranked): the first one drops the welcome crate on the result card
+      won: () => {
+        if (guest || fwGet() === "done") return;
+        fwSet("1");
+        if (privyAuthenticated() && me) void claimFirstWin();
+        else api?.firstCrate({ state: "locked", crate: withBase(crateArt(EARN.welcome)) });
+      },
       myShip: () => lookOf(me, rival),
       shipOf: (pid: string) => lookOf(pid, me),
       mute: (m: boolean) => { try { const r = getGameRadio(); if (m) r.pause(); else r.clearPause(); } catch { /* no radio */ } },

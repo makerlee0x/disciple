@@ -267,4 +267,74 @@ contract UsdgRouteTest is IntegrationBase {
         assertEq(out, qBuy);
         console2.log("gas buyWithUsdg curve 1-hop usdg-quote", gasBuy);
     }
+
+    // ───────── native-ETH middle hop (PENGU: USDG → ETH → PENGU on Robinhood mainnet) ─────────
+
+    function _initNativePool(address tokenB, uint160 sqrtP) internal returns (PoolKey memory key) {
+        key = PoolKey({
+            currency0: Currency.wrap(address(0)), // native ETH always sorts first
+            currency1: Currency.wrap(tokenB),
+            fee: 3000,
+            tickSpacing: 60,
+            hooks: IHooks(address(0))
+        });
+        manager.initialize(key, sqrtP);
+        PoolModifyLiquidityTest lp = new PoolModifyLiquidityTest(manager);
+        MockUSDG(tokenB).mint(address(this), 1e30);
+        IERC20(tokenB).approve(address(lp), type(uint256).max);
+        vm.deal(address(this), 1_000_000 ether);
+        lp.modifyLiquidity{value: 200_000 ether}(
+            key,
+            IPoolManager.ModifyLiquidityParams({
+                tickLower: -887220, tickUpper: 887220, liquidityDelta: 100_000 ether, salt: 0
+            }),
+            ""
+        );
+        _ethInPools = address(manager).balance;
+    }
+
+    function _wireNativeMidRoute() internal {
+        _priceAndRoute(_initNativePool(address(quote), uint160(1) << 96), _initNativePool(address(stock), uint160(1) << 96));
+        _launchStockCoin();
+    }
+
+    function _nativeRoundTrip(string memory label) internal {
+        uint256 eth0 = address(router).balance;
+        (uint256 qBuy,) = router.quoteBuyWithUsdg(address(sTok), 100 ether);
+        assertGt(qBuy, 0, "quote through ETH");
+        uint256 u0 = quote.balanceOf(alice);
+        uint256 t0 = sTok.balanceOf(alice);
+        vm.prank(alice);
+        uint256 out = router.buyWithUsdg(address(sTok), 100 ether, qBuy, _dl());
+        assertEq(out, qBuy);
+        assertEq(u0 - quote.balanceOf(alice), 100 ether);
+        assertEq(sTok.balanceOf(alice) - t0, out);
+        _noDust();
+        assertEq(address(router).balance, eth0, "router ETH dust after buy");
+
+        uint256 bal = sTok.balanceOf(alice) / 2;
+        (uint256 qSell,) = router.quoteSellToUsdg(address(sTok), bal);
+        vm.prank(alice);
+        uint256 usdgOut = router.sellToUsdg(address(sTok), bal, qSell, _dl());
+        assertEq(usdgOut, qSell);
+        assertGt(usdgOut, 0);
+        _noDust();
+        assertEq(address(router).balance, eth0, "router ETH dust after sell");
+        assertEq(address(manager).balance, _ethInPools, label);
+    }
+
+    uint256 internal _ethInPools;
+
+    receive() external payable {} // PoolModifyLiquidityTest refunds unused ETH
+
+    function test_curve_two_hop_native_eth_mid_buy_sell() public {
+        _wireNativeMidRoute();
+        _nativeRoundTrip("pool manager ETH unchanged (mid hop nets out)");
+    }
+
+    function test_grad_two_hop_native_eth_mid_buy_sell() public {
+        _wireNativeMidRoute();
+        _graduateWith(sCurve, stock);
+        _nativeRoundTrip("pool manager ETH unchanged after grad (mid hop nets out)");
+    }
 }

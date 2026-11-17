@@ -70,12 +70,11 @@ export default function LiveRockets({ coins, open, onClose }: { coins: HomeCoin[
         }) : (
           <div className={s.empty} data-testid="app-rockets-empty">
             <b>{q ? `No rocket called “${q}”` : "Nothing flying yet"}</b>
-            <span>Host one yourself and the crew flies it up.</span>
           </div>
         )}
       </div>
       <Link href="/create" className={s.host} data-testid="app-rockets-host">
-        <span><b>Host a launch</b><span>Build a rocket. The crew flies it up.</span></span>
+        <span><b>Host a launch</b></span>
         <Icon name="chevron-right" size={20} />
       </Link>
     </div>

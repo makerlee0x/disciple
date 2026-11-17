@@ -16,7 +16,7 @@ import s from "./modeSelect.module.css";
 import { appFeel, playSfx } from "@/lib/game/sfx";
 
 type ModeId = "launch" | "live" | "duel" | "royale" | "free";
-type Mode = { id: ModeId; title: [string, string]; sub: string; tag: string; tone: string; href: string; art: string; pos: string };
+type Mode = { id: ModeId; title: [string, string]; tag: string; tone: string; href: string; art: string; pos: string };
 
 export const MODE_COPY = {
   title: "Pick a mode",
@@ -27,11 +27,11 @@ const LAST = "disciple.lobby.mode";
 
 function modes(flying: number, duel: boolean): Mode[] {
   const all: Mode[] = [
-    { id: "launch", title: ["Host a", "launch"], sub: "Build a rocket. The crew flies it up.", tag: "Real coins", tone: "#F3DFA8", href: "/create", art: "/art/modes/launch.webp", pos: "50% 30%" },
-    { id: "live", title: ["Live", "flights"], sub: "Jump on a rocket that's already climbing.", tag: flying > 0 ? `${flying} flying` : "Live", tone: "#5FF0A0", href: FLIGHTS_HREF, art: "/art/modes/live.webp", pos: "50% 30%" },
-    { id: "duel", title: ["Trading", "duel"], sub: "1v1. One minute. Most profit wins.", tag: "Ranked", tone: "#FF9CC4", href: DUEL_HREF, art: "/art/modes/duel.webp", pos: "50% 30%" },
-    { id: "royale", title: ["Turbo", "royale"], sub: "12 pilots. Loot leverage. Last one flying wins.", tag: "Practice", tone: "#F2C14E", href: "/turbo/royale", art: "/art/modes/last-pilot.webp", pos: "50% 30%" },
-    { id: "free", title: ["Free", "play"], sub: "No cash. Today's daily flight.", tag: "Free", tone: "#8FE3FF", href: "/flight/sim", art: "/art/modes/free.webp", pos: "50% 30%" },
+    { id: "launch", title: ["Host a", "launch"], tag: "Real coins", tone: "#F3DFA8", href: "/create", art: "/art/modes/launch.webp", pos: "50% 30%" },
+    { id: "live", title: ["Live", "flights"], tag: flying > 0 ? `${flying} flying` : "Live", tone: "#5FF0A0", href: FLIGHTS_HREF, art: "/art/modes/live.webp", pos: "50% 30%" },
+    { id: "duel", title: ["Trading", "duel"], tag: "Ranked", tone: "#FF9CC4", href: DUEL_HREF, art: "/art/modes/duel.webp", pos: "50% 30%" },
+    { id: "royale", title: ["Turbo", "royale"], tag: "Practice", tone: "#F2C14E", href: "/turbo/royale", art: "/art/modes/last-pilot.webp", pos: "50% 30%" },
+    { id: "free", title: ["Free", "play"], tag: "Free", tone: "#8FE3FF", href: "/flight/sim", art: "/art/modes/free.webp", pos: "50% 30%" },
   ];
   return all.filter((m) => (m.id !== "duel" && m.id !== "royale") || duel);
 }
@@ -123,7 +123,7 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
               prefetch={false}
               data-mode={m.id}
               className={s.card}
-              aria-label={`${m.title.join(" ")}. ${m.sub}`}
+              aria-label={`${m.title.join(" ")}. ${m.tag}`}
               data-testid={`mode-${m.id}`}
               data-sfx="none"
               onClick={() => { if (appFeel()) playSfx("mode_select"); go(m); }}
@@ -135,7 +135,6 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
               <span className={s.tag} style={{ color: m.tone }}>{m.tag}</span>
               <span className={s.body}>
                 <b className={s.name}>{m.title[0]}<br />{m.title[1]}</b>
-                <span className={s.sub}>{m.sub}</span>
                 <span className={s.play} aria-hidden>{MODE_COPY.play}</span>
               </span>
             </Link>

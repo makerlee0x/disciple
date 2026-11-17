@@ -134,6 +134,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     error Unauthorized();
     error OnlyPoolManager();
     error RemoveLiquidityDisabled();
+    error AlreadyWired();
     error NotGraduated();
     error ZeroLiquidity();
     error OnlyHook();
@@ -182,8 +183,11 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         SQRT_UPPER = TickMath.getSqrtPriceAtTick(TickMath.maxUsableTick(TICK_SPACING));
     }
 
+    /// @dev The four wiring setters below are write-once (pre-mainnet review 2026-11-17): set at deploy, then fixed, so no
+    ///      owner can later point LockedLP at a fake PoolManager / migration / router and pull the tokens it holds.
     function setHook(address h) external {
         if (msg.sender != owner) revert OnlyOwner();
+        if (hook != address(0) || h == address(0)) revert AlreadyWired();
         hook = h;
         emit HookSet(h);
     }
@@ -209,16 +213,19 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
 
     function setFeeRouter(address r) external {
         if (msg.sender != owner) revert OnlyOwner();
+        if (feeRouter != address(0) || r == address(0)) revert AlreadyWired();
         feeRouter = r;
     }
 
     function setMigration(address m) external {
         if (msg.sender != owner) revert OnlyOwner();
+        if (migration != address(0) || m == address(0)) revert AlreadyWired();
         migration = m;
     }
 
     function setPoolManager(address pm) external {
         if (msg.sender != owner) revert OnlyOwner();
+        if (address(poolManager) != address(0) || pm == address(0)) revert AlreadyWired();
         poolManager = IPoolManager(pm);
     }
 

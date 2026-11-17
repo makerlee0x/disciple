@@ -35,7 +35,6 @@ export default function DuelOnlyPage() {
       style={{ position: "fixed", inset: 0, width: "100%", border: 0, padding: 24, background: "#0B0C0E url(/og/duel-square.jpg) center / cover", color: "#F2F3F7", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 10 }}>
       <span style={{ font: "800 34px/1 var(--dsc-font-game, sans-serif)", textTransform: "uppercase", textShadow: "0 4px 20px rgba(0,0,0,.8)" }}>1v1 trading duel</span>
       <span style={{ padding: "14px 34px", borderRadius: 14, background: "#F2C14E", color: "#121327", font: "800 24px/1 var(--dsc-font-game, sans-serif)", letterSpacing: 1, textTransform: "uppercase" }}>Tap to play</span>
-      <span style={{ fontSize: 13, color: "#D7D9E4", textShadow: "0 2px 8px rgba(0,0,0,.9)" }}>One minute on live BTC. Free, no sign-up.</span>
     </button>
   );
   if (!go) return null;
