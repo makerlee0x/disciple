@@ -41,12 +41,13 @@ describe("whitelist quotes", () => {
     expect(launchPairsForChain(MAINNET_CHAIN_ID).some((c) => c.symbol === "HMM")).toBe(false);
   });
 
-  it("offers STRATEGY, the 11 stand-ins and HMM on testnet, each with a testnet address and an image", () => {
+  it("offers STRATEGY and the 11 stand-ins on testnet (no HMM), each with a testnet address and an image", () => {
     const testQuote = "0xF5eB226F7f0890c36A06Cbd0Ff843292b7b1a88C" as const;
     const list = launchPairsForChain(TESTNET_CHAIN_ID);
     expect(list.map((c) => c.symbol)).toEqual([
-      "STRATEGY", "AI", "SCHIFFY", "BONER", "MEME", "MOO", "PONS", "ORBIO", "HOOKR", "CASHCAT", "PRIORS", "PENGU", "HMM",
+      "STRATEGY", "AI", "SCHIFFY", "BONER", "MEME", "MOO", "PONS", "ORBIO", "HOOKR", "CASHCAT", "PRIORS", "PENGU",
     ]);
+    expect(list.some((c) => c.symbol === "HMM")).toBe(false);
     expect(addressOn(list[0], TESTNET_CHAIN_ID, testQuote)).toBe(testQuote);
     const mainnet = new Set(WHITELIST_QUOTES.map((q) => q.address.toLowerCase()));
     for (const c of list.slice(1)) {
@@ -58,7 +59,7 @@ describe("whitelist quotes", () => {
       expect(c.image).toBe(`/whitelist/${c.symbol}.png`);
       expect(existsSync(join(__dirname, "..", "public", c.image))).toBe(true);
     }
-    expect(TESTNET_PAIR_QUOTES).toHaveLength(12);
+    expect(TESTNET_PAIR_QUOTES).toHaveLength(11);
     expect(coinByAddress(TESTNET_STAND_INS.PENGU.toLowerCase(), TESTNET_CHAIN_ID, testQuote)?.symbol).toBe("PENGU");
     expect(coinByAddress(TESTNET_STAND_INS.PENGU, MAINNET_CHAIN_ID, testQuote)).toBeUndefined();
   });

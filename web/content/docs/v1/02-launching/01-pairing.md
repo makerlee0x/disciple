@@ -23,7 +23,7 @@ The launch form offers 12 pair coins: STRATEGY, AI, SCHIFFY, BONER, MEME, MOO, P
 
 Every pair coin needs a registered dollar price, which the team sets up before a coin joins the list.
 
-On the Robinhood Chain testnet, the form offers test versions of the same 12 coins, plus HMM, so every pair can be tried before mainnet.
+On the Robinhood Chain testnet, the form offers test versions of the same 12 coins, so every pair can be tried before mainnet.
 
 ## How the dollar price is set
 

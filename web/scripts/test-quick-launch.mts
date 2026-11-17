@@ -53,7 +53,7 @@ test("STRATEGY uses the chain defaultQuote on testnet, listed address on mainnet
   assert.equal(LAUNCH_WHITELIST.length, WHITELIST_QUOTES.length);
   assert.deepEqual(launchPairsForChain(MAINNET_CHAIN_ID).map((c) => c.symbol), LAUNCH_WHITELIST.map((c) => c.symbol));
   assert.deepEqual(launchPairsForChain(TESTNET_CHAIN_ID).map((c) => c.symbol), [
-    "STRATEGY", "AI", "SCHIFFY", "BONER", "MEME", "MOO", "PONS", "ORBIO", "HOOKR", "CASHCAT", "PRIORS", "PENGU", "HMM",
+    "STRATEGY", "AI", "SCHIFFY", "BONER", "MEME", "MOO", "PONS", "ORBIO", "HOOKR", "CASHCAT", "PRIORS", "PENGU",
   ]);
   assert.deepEqual(launchPairsForChain(31337).map((c) => c.symbol), ["STRATEGY"]);
 });
