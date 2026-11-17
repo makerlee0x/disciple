@@ -182,14 +182,15 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     /// @notice CurveFeeVault that holds this chain's curve-phase creator fees. `route` pulls it.
     function setFeeVault(address vault_) external {
         _checkOwner();
-        if (vault_ == address(0)) revert ZeroAddress();
+        // Audit L-12 / L-02: write-once, contracts only.
+        if (address(feeVault) != address(0) || vault_.code.length == 0) revert ZeroAddress();
         feeVault = IVaultPull(vault_);
     }
 
     /// @notice Private launches. The stealth owner is not paid when the destination is 1 or 2.
     function setAnonLauncher(address anon_) external {
         _checkOwner();
-        if (anon_ == address(0)) revert ZeroAddress();
+        if (address(anon) != address(0) || anon_.code.length == 0) revert ZeroAddress();
         anon = IHarvestAnon(anon_);
     }
 

@@ -18,8 +18,6 @@ contract LpAccrueFollowupGasTest is IntegrationBase {
     function setUp() public override {
         super.setUp();
         LoginGate g = new LoginGate(owner, makeAddr("attester"));
-        vm.prank(owner);
-        launchpad.setLoginGate(address(g));
     }
 
     function _launch(uint8 mode) internal returns (BondingCurve c, Token t) {
@@ -203,6 +201,7 @@ contract LpAccrueFollowupGasTest is IntegrationBase {
         router.setUsdgRouting(address(quote), address(launchpad)); // V4Deploy: router owner = this test
         address v1 = address(new CurveDeployerV1());
         vm.prank(owner);
+        vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(v1);
         (BondingCurve c, Token t) = _launch(Constants.MODE_TRENCH);
         _warpPastSnipe();

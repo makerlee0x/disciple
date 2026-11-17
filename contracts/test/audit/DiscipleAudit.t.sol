@@ -173,6 +173,8 @@ contract DiscipleAuditTest is IntegrationBase {
             _swapExactInQuoteForToken(tok, v, 5_000 ether);
             _swapExactInTokenForQuote(tok, v, tok.balanceOf(v));
         }
+        // the volume's fees moved the price; let the flush reference tick catch up (REF_TICKS_PER_MIN)
+        vm.warp(vm.getBlockTimestamp() + 600);
         vm.roll(vm.getBlockNumber() + 1);
         uint128 l0 = _liq(tok);
         assertGt(_flush(address(tok)), 0);

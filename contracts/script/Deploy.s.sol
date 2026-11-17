@@ -11,7 +11,6 @@ import {ReferralRegistry} from "../src/ReferralRegistry.sol";
 import {LockedLP} from "../src/LockedLP.sol";
 import {FeeRouter} from "../src/FeeRouter.sol";
 import {Migration} from "../src/Migration.sol";
-import {LoginGate} from "../src/LoginGate.sol";
 import {Launchpad} from "../src/Launchpad.sol";
 import {CurveDeployer} from "../src/CurveDeployer.sol";
 import {CurveFeeVault} from "../src/CurveFeeVault.sol";
@@ -35,6 +34,10 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
 import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
+
+interface IOwnable {
+    function transferOwnership(address newOwner) external;
+}
 
 /// @dev Local-only mintable quote (anvil). Has EIP-2612 permit like real STRATEGY/USDG.
 contract DevToken is ERC20, ERC20Permit {
@@ -73,9 +76,14 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       reference DEFAULT_QUOTE/USDG v4 pool for the QuotePricer
 ///                       (RH STRATEGY/USDG deepest pool: 36900 / 369 / 0x0 → id 0x816b…245b)
 ///   MIN_LIQUIDITY       QuotePricer minimum in-range liquidity (default 0)
-///   RENOUNCE_HARVEST    renounce CreatorFeeHarvest ownership at the end of deploy (default: true on mainnet 4663)
-///   RENOUNCE_HOOK_ADMIN drop the DiscipleHook admin once wired (default: true on 4663)
-///   RENOUNCE_LOCKED_LP  renounce LockedLP ownership (treasury + compound caps fixed) at the end (default: true on 4663)
+///   RENOUNCE_HARVEST    renounce CreatorFeeHarvest ownership at the end of deploy (always on mainnet 4663)
+///   RENOUNCE_HOOK_ADMIN drop the DiscipleHook admin once wired (always on 4663)
+///   RENOUNCE_LOCKED_LP  renounce LockedLP ownership (treasury + compound caps fixed) at the end (always on 4663)
+///   LOCK_FEE_SETTINGS   FeeRouter.lockSettings(): KOL share, referral sink and claim routers fixed (always on 4663)
+///   SAFE                protocol Safe (required on 4663). Every contract that keeps an owner is NOMINATED to it
+///                       (two-step): the Safe must call acceptOwnership() on each (one batched Safe tx). Also the
+///                       default TREASURY and REWARDS_VAULT_OWNER. Audit 2026-11-17 R461-05 / (g).
+///   PRICER_POKER        QuotePricer keeper (required on 4663): launches revert StalePrice without fresh pokes
 ///   REWARDS_VAULT_OWNER community RewardsVault owner (default deployer): TEMP wallet on testnet, multisig (Safe) on
 ///                       mainnet (lee 2026-11-10). Receives the sniper tax + curve LP fees of coins not graduated
 ///                       within snipeEscrowTimeout (releaseSnipeEscrow, or a late graduation). Nominated only
@@ -113,7 +121,7 @@ contract Deploy is NetworkConfig {
         address rewardsVault;
         address anonLauncher;
         address marketLens;
-        address loginGate;
+        address loginGate; // always 0: Easy login is app-only (maker 2026-11-14), no LoginGate is deployed
         address creatorFeeHarvest;
     }
 
@@ -128,7 +136,10 @@ contract Deploy is NetworkConfig {
         vm.startBroadcast();
         // The broadcasting account (== msg.sender under `forge script`; also correct when run() is called from a test).
         (, address deployer,) = vm.readCallers();
-        if (treasury == address(0)) treasury = deployer;
+        bool mainnet = block.chainid == 4663;
+        address safe = vm.envOr("SAFE", address(0));
+        require(!mainnet || safe.code.length != 0, "Deploy: SAFE required on mainnet");
+        if (treasury == address(0)) treasury = safe != address(0) ? safe : deployer;
 
         if (o.manager == address(0)) {
             o.manager = address(new PoolManager(deployer));
@@ -243,13 +254,6 @@ contract Deploy is NetworkConfig {
         // Self-claims read this pointer. Trades do not. Destination 1 or 2 then cannot be claimed by the launcher.
         feeRouter.setCreatorFeeHarvest_51(address(harvest));
         o.creatorFeeHarvest = address(harvest);
-        // PVE login gate: attester = backend key that signs Privy-login attestations (public address only).
-        {
-            address attester = vm.envOr("PVE_ATTESTER", address(0));
-            LoginGate gate = new LoginGate(deployer, attester);
-            launchpad.setLoginGate(address(gate));
-            o.loginGate = address(gate);
-        }
         if (hasRef) router.setUsdgPool(o.defaultQuote, refKey);
         // Sanity: oracle must price the default quote now, else launches would revert.
         require(pricer.quotePriceUsd(o.defaultQuote) > 0, "Deploy: default quote unpriced");
@@ -280,14 +284,31 @@ contract Deploy is NetworkConfig {
         // Curve-phase creator fees settle here. route() pulls them. Trades do not call the harvest.
         harvest.setFeeVault(address(feeVault));
         // maker 2026-11-17: the fee contract is renounced once set up, so none of its pointers can change.
-        if (vm.envOr("RENOUNCE_HARVEST", block.chainid == 4663)) harvest.renounceOwnership();
+        // Audit 2026-11-17 L-32 / R461-05: on mainnet the renounces and locks cannot be turned off by env.
+        if (mainnet || vm.envOr("RENOUNCE_HARVEST", false)) harvest.renounceOwnership();
         // maker 2026-11-17: LockedLP too (treasury + compound caps fixed for good). Its wiring setters are write-once.
-        if (vm.envOr("RENOUNCE_LOCKED_LP", block.chainid == 4663)) lockedLP.renounceOwnership();
+        if (mainnet || vm.envOr("RENOUNCE_LOCKED_LP", false)) lockedLP.renounceOwnership();
         // referralSink: address(0) = today's routing (default). Non-zero takes the whole referral 1% incl. launch KOL.
         {
             address sink = vm.envOr("REFERRAL_SINK", address(0));
             if (sink != address(0)) feeRouter.setReferralSink(sink);
         }
+        if (mainnet || vm.envOr("LOCK_FEE_SETTINGS", false)) feeRouter.lockSettings();
+        if (safe != address(0)) {
+            _nominate(address(launchpad), safe);
+            _nominate(address(feeRouter), safe);
+            _nominate(address(pricer), safe);
+            _nominate(address(probe), safe);
+            _nominate(address(migration), safe);
+            _nominate(address(router), safe);
+            _nominate(o.trampWall, safe);
+            _nominate(address(referrals), safe);
+            _nominate(o.depositNotifier, safe);
+            _nominate(o.anonLauncher, safe);
+            if (lockedLP.owner() != address(0)) _nominate(address(lockedLP), safe);
+            if (harvest.owner() != address(0)) _nominate(address(harvest), safe);
+        }
+        _verify(mainnet, feeRouter, hook, lockedLP, harvest, launchpad, router, AnonLauncher(o.anonLauncher));
 
         vm.stopBroadcast();
 
@@ -318,7 +339,6 @@ contract Deploy is NetworkConfig {
         console2.log("USDG", o.usdg);
         console2.log("DefaultQuote", o.defaultQuote);
         console2.log("DefaultQuoteUsdWad", pricer.quotePriceUsd(o.defaultQuote));
-        console2.log("LoginGate", o.loginGate);
         console2.log("CreatorFeeHarvest", o.creatorFeeHarvest);
         // Config echo (checked by the runbook pre-flight / smoke): steep curve #1, floor, sniper tax, referral sink.
         console2.log("cfg USDG decimals", usdgDec);
@@ -329,6 +349,37 @@ contract Deploy is NetworkConfig {
         console2.log("cfg ANTI_SNIPE_DURATION", Constants.ANTI_SNIPE_DURATION);
         console2.log("cfg MAX_FLOOR_BANDS", Constants.MAX_FLOOR_BANDS);
         console2.log("cfg referralSink", feeRouter.referralSink());
+    }
+
+    /// @dev Two-step: only nominates. The Safe then calls acceptOwnership() on each contract.
+    function _nominate(address c, address safe) internal {
+        IOwnable(c).transferOwnership(safe);
+    }
+
+    /// @dev Post-deploy read-back (audit 2026-11-17 L-3 / L-7 / L-32 / Q13). The read-back, not the script, is the
+    ///      evidence; the runbook repeats these checks on-chain before the first launch.
+    function _verify(
+        bool mainnet,
+        FeeRouter feeRouter,
+        DiscipleHook hook,
+        LockedLP lockedLP,
+        CreatorFeeHarvest harvest,
+        Launchpad launchpad,
+        DiscipleRouter router,
+        AnonLauncher anon
+    ) internal view {
+        require(feeRouter.authorizedCallers(address(hook)) && feeRouter.ownerAuthorizationUsed(), "verify: hook auth");
+        require(feeRouter.creatorFeeHarvest_16() == address(harvest), "verify: harvest pointer");
+        require(anon.creatorFeeHarvest() == address(harvest), "verify: anon harvest");
+        require(address(harvest.anon()) == address(anon) && address(harvest.feeVault()) != address(0), "verify: harvest");
+        require(launchpad.curveRouter() == address(router), "verify: curveRouter");
+        require(address(launchpad.curveDeployer()) != address(0), "verify: curve deployer");
+        if (mainnet) {
+            require(harvest.owner() == address(0), "verify: harvest renounced");
+            require(lockedLP.owner() == address(0), "verify: lockedLP renounced");
+            require(hook.admin() == address(0), "verify: hook admin");
+            require(feeRouter.settingsLocked(), "verify: fee settings locked");
+        }
     }
 
     /// @dev $0.00245 per STRATEGY (18 dec) as USDG raw per STRATEGY raw, WAD, for a USDG with `usdgDec` decimals.
@@ -350,13 +401,13 @@ contract Deploy is NetworkConfig {
         RewardsVault vault = new RewardsVault(deployer);
         vault.setFeeRouter(address(feeRouter));
         feeRouter.setRewardsVault(address(vault));
-        address vOwner = vm.envOr("REWARDS_VAULT_OWNER", deployer);
+        address vOwner = vm.envOr("REWARDS_VAULT_OWNER", vm.envOr("SAFE", deployer));
         // Owned2Step: this only nominates; REWARDS_VAULT_OWNER must call vault.acceptOwnership() afterwards.
         if (vOwner != deployer) vault.transferOwnership(vOwner);
         // mcapNow / Trade-event mcap fix: live QuotePricer on the hook (curves read Launchpad.pricer()).
         hook.setPricer(address(pricer));
         // maker 2026-11-17: the hook keeps no admin once wired (setMigration above, setPricer here).
-        if (vm.envOr("RENOUNCE_HOOK_ADMIN", block.chainid == 4663)) hook.renounceAdmin();
+        if (block.chainid == 4663 || vm.envOr("RENOUNCE_HOOK_ADMIN", false)) hook.renounceAdmin();
         AnonLauncher anon = new AnonLauncher(
             deployer,
             address(launchpad),

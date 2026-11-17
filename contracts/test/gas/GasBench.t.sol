@@ -219,8 +219,6 @@ contract GasBenchModes is IntegrationBase {
         super.setUp();
         router.setUsdgRouting(address(quote), address(launchpad));
         gate = new LoginGate(owner, vm.addr(PK));
-        vm.prank(owner);
-        launchpad.setLoginGate(address(gate));
     }
 
     function _coin(uint8 m) internal returns (BondingCurve c, Token t) {

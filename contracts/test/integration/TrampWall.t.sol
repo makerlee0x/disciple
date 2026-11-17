@@ -358,6 +358,7 @@ contract TrampWallReentrancyTest is IntegrationBase {
         pricer.setPricePool(address(rq), k);
         pricer.setAllowedQuote(address(rq), true); // only listed quotes launch
         vm.stopPrank();
+        _warmQuote(address(rq)); // pair-coin launches need a warm, fresh TWAP
         (BondingCurve c, Token t) = _launchWithQuote(address(rq), 0, 0);
         _graduateWith(c, MockUSDG(address(rq)));
         TrampWallManager twm = new TrampWallManager(manager, lockedLP, address(hook));

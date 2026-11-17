@@ -58,6 +58,7 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
     mapping(address => uint256[]) internal _idsOf;
 
     address public owner;
+    address public pendingOwner;
     /// @notice Keeper tip on `pull`, bps of everything paid out . Default 0.1%.
     uint16 public keeperTipBps = 10;
     uint16 public constant MAX_KEEPER_TIP_BPS = 100;
@@ -153,11 +154,17 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
         emit KeeperTipSet(bps);
     }
 
+    /// @notice Two-step (audit 2026-11-17 L-27): nominates `o`, who must call acceptOwnership.
     function transferOwnership(address o) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (o == address(0)) revert BadParam(); // Audit HK-11: never strand the protocol owner role
-        owner = o;
-        emit OwnerTransferred(o);
+        pendingOwner = o;
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner || msg.sender == address(0)) revert OnlyOwner();
+        owner = msg.sender;
+        delete pendingOwner;
+        emit OwnerTransferred(msg.sender);
     }
 
     // ───────────────────────────── views ─────────────────────────────

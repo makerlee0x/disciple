@@ -25,7 +25,7 @@ contract RewardsVaultOwnershipTest is Test {
     }
 
     function test_ctor_rejectsZeroOwner() public {
-        vm.expectRevert(RewardsVault.ZeroAddress.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector); // Owned2Step rejects a zero owner first (audit L-26)
         new RewardsVault(address(0));
     }
 

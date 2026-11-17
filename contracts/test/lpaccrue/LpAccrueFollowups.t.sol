@@ -33,7 +33,7 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         feeVault = new CurveFeeVault(address(feeRouter), address(anon));
         address d = address(new CurveDeployer(address(feeVault)));
         vm.startPrank(owner);
-        launchpad.setLoginGate(address(g));
+        vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(d);
         vm.stopPrank();
         stealth = vm.addr(stealthPk);
@@ -482,8 +482,8 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         _b(c, _w(), 10 ether);
         _warpPastSnipe();
         _b(c, _w(), 150 ether);
-        vm.prank(owner);
-        feeRouter.setRewardsVault(address(0));
+        // test-only: setRewardsVault refuses 0 now (audit L-10); model a never-set vault
+        vm.store(address(feeRouter), bytes32(uint256(12)), bytes32(0));
         vm.warp(c.launchTime() + c.snipeEscrowTimeout() + 1 days);
         uint256 sn = c.sniperTaxEscrow();
         vm.recordLogs();

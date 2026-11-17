@@ -370,8 +370,6 @@ contract UsdgRouterTest is IntegrationBase {
     function test_sessionPveBuyQuotedForAccount() public {
         uint256 pk = 0xA77E57;
         LoginGate gate = new LoginGate(owner, vm.addr(pk));
-        vm.prank(owner);
-        launchpad.setLoginGate(address(gate));
         vm.prank(creator);
         ILaunchpad.LaunchResult memory r = launchpad.launchWithMode(
             ILaunchpad.LaunchParams({

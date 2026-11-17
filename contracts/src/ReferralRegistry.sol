@@ -17,6 +17,7 @@ contract ReferralRegistry is IReferralRegistry {
     /// @notice $10 gate in USDG raw units: REFERRAL_GATE_USD * 10**usdg.decimals() (set at construction).
     uint256 public immutable usdgGate;
     address public owner;
+    address public pendingOwner;
     /// @notice Owner-set contracts allowed to attribute on behalf of a wallet (e.g. a router that verified the
     ///         wallet's intent). Audit #3: everyone else may only attribute msg.sender itself.
     mapping(address => bool) public isAttestor;
@@ -55,11 +56,17 @@ contract ReferralRegistry is IReferralRegistry {
         emit AttestorSet(attestor, allowed);
     }
 
+    /// @notice Two-step (audit 2026-11-17 L-27): nominates `newOwner`, who must call acceptOwnership.
     function transferOwnership(address newOwner) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (newOwner == address(0)) revert ZeroAddress(); // Audit FR-04
-        owner = newOwner;
-        emit OwnerTransferred(newOwner);
+        pendingOwner = newOwner;
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner || msg.sender == address(0)) revert OnlyOwner();
+        owner = msg.sender;
+        delete pendingOwner;
+        emit OwnerTransferred(msg.sender);
     }
 
     /// @inheritdoc IReferralRegistry

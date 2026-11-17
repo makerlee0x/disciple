@@ -120,6 +120,7 @@ contract DiscipleRouter is IUnlockCallback {
     uint256 public constant MIN_MAX_IMPACT_BPS = 100; // 1%
     uint256 public constant MAX_MAX_IMPACT_BPS = 100_000; // 10x price move (buys measure Δp/p, can exceed 100%)
     address public owner;
+    address public pendingOwner;
 
     error OnlyPoolManager();
     error Expired();
@@ -280,11 +281,17 @@ contract DiscipleRouter is IUnlockCallback {
         return _usdgRoute[quote];
     }
 
+    /// @notice Two-step (audit 2026-11-17 L-27): nominates `o`, who must call acceptOwnership.
     function transferOwnership(address o) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (o == address(0)) revert ZeroRecipient();
-        owner = o;
-        emit OwnerTransferred(o);
+        pendingOwner = o;
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner || msg.sender == address(0)) revert OnlyOwner();
+        owner = msg.sender;
+        delete pendingOwner;
+        emit OwnerTransferred(msg.sender);
     }
 
     /// @notice The graduated v4 pool key for `token` (reverts if not graduated).
@@ -1056,7 +1063,6 @@ contract DiscipleRouter is IUnlockCallback {
         uint256 amt = d.amountIn;
         uint256 maxImp;
         uint256 cap = maxImpactBps;
-        uint256 firstPaid;
         uint256 n = d.hops.length;
         for (uint256 i; i < n; ++i) {
             Hop memory h = d.hops[i];
@@ -1072,9 +1078,9 @@ contract DiscipleRouter is IUnlockCallback {
             );
             int128 dIn = h.zeroForOne ? delta.amount0() : delta.amount1();
             int128 dOut = h.zeroForOne ? delta.amount1() : delta.amount0();
-            uint256 paid = uint256(uint128(-dIn));
-            if (i == 0) firstPaid = paid;
-            else if (paid != amt) revert BadPool(); // partial fill of an intermediate hop: never strand deltas
+            // Audit 2026-11-17 M-01 / L-24: every hop, the first included, must consume exactly its input. A partial
+            // fill would strand router-held input; an input-side hook fee would take more than the payer authorized.
+            if (dIn >= 0 || uint256(uint128(-dIn)) != amt) revert BadPool();
             amt = uint256(uint128(dOut));
             if (amt == 0) revert ZeroMinOut();
             uint256 imp = _hopImpact(h, sb);
@@ -1093,7 +1099,7 @@ contract DiscipleRouter is IUnlockCallback {
         Hop memory last = d.hops[n - 1];
         Currency cin = first.zeroForOne ? first.key.currency0 : first.key.currency1;
         Currency cout = last.zeroForOne ? last.key.currency1 : last.key.currency0;
-        cin.settle(poolManager, d.payer, firstPaid, false);
+        cin.settle(poolManager, d.payer, d.amountIn, false);
         cout.take(poolManager, d.recipient, amt, false);
         return abi.encode(amt);
     }

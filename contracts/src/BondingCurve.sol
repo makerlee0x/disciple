@@ -148,6 +148,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @notice Settled but unclaimed holder rewards (quote raw).
     mapping(address => uint256) public rewardsAccrued;
     uint256 internal constant ACC_SCALE = 1e36;
+    address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
     /// @notice Profit-tax reward per NET curve token, scaled 1e36 (ACC_SCALE).
     uint256 public accRewardPerToken;
     /// @notice Sum of all NET curve positions (PVE only) — the accumulator denominator.
@@ -881,25 +882,31 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         uint256 fb = balanceOnCurve[from];
         uint256 moved = amount < fb ? amount : fb;
         if (moved == 0) return; // tokens beyond the NET position carry no NET / basis
-        uint256 tb = balanceOnCurve[to];
+        // Audit 2026-11-17 A-5: a transfer to 0x…dEaD is a burn, not a wallet. The NET leaves circulation (no cap,
+        // no rewards or cost basis parked on dEaD), so a burn-mode route can never hit the wallet cap.
+        bool burn = to == DEAD;
+        uint256 tb = burn ? 0 : balanceOnCurve[to];
         uint256 newFrom = fb - moved;
         uint256 newTo = tb + moved;
-        if (newTo > netCapNow()) revert WalletCap();
+        if (!burn && newTo > netCapNow()) revert WalletCap();
         uint256 acc = accRewardPerToken;
         if (acc != 0) {
             rewardsAccrued[from] += Math.mulDiv(fb, acc, ACC_SCALE) - rewardDebt[from];
-            if (tb != 0) rewardsAccrued[to] += Math.mulDiv(tb, acc, ACC_SCALE) - rewardDebt[to];
             rewardDebt[from] = Math.mulDiv(newFrom, acc, ACC_SCALE);
-            rewardDebt[to] = Math.mulDiv(newTo, acc, ACC_SCALE);
+            if (!burn) {
+                if (tb != 0) rewardsAccrued[to] += Math.mulDiv(tb, acc, ACC_SCALE) - rewardDebt[to];
+                rewardDebt[to] = Math.mulDiv(newTo, acc, ACC_SCALE);
+            }
         }
         uint128 cf = _acct[from].cost;
         uint128 cm = moved == fb ? cf : uint128(Math.mulDiv(cf, moved, fb));
         if (cm != 0) {
             _acct[from].cost = cf - cm;
-            _acct[to].cost += cm;
+            if (!burn) _acct[to].cost += cm;
         }
         balanceOnCurve[from] = newFrom;
-        balanceOnCurve[to] = newTo;
+        if (burn) totalNet -= moved;
+        else balanceOnCurve[to] = newTo;
     }
 
     // ── PVE holder rewards ──

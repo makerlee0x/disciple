@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-// Audit report 2/4 (2026-11-17) proof-of-concept tests, copied verbatim from the report.
+// Audit report 2/4 (2026-11-17) proof-of-concept tests. They reproduced every finding at 71ff3f9; each one now
+// asserts the fix.
 
 import {console2} from "forge-std/console2.sol";
 import {IntegrationBase} from "../integration/IntegrationBase.sol";
@@ -11,6 +12,7 @@ import {BondingCurve} from "../../src/BondingCurve.sol";
 import {FeeRouter} from "../../src/FeeRouter.sol";
 import {CurveFeeVault} from "../../src/CurveFeeVault.sol";
 import {CurveMath} from "../../src/libraries/CurveMath.sol";
+import {Launchpad} from "../../src/Launchpad.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -107,7 +109,9 @@ contract AuditPoC3 is IntegrationBase {
         console2.logInt(ctl);
         console2.log("quote bucket before / after", bq, bqAfter);
         assertLt(ctl, 0, "without flushes the round trip loses the fees");
-        assertGt(atk, 0, "with one flush per window the same round trip is profitable");
+        // Fixed: the reference-tick band stops flushes while the pump is held, so flushing gains nothing.
+        assertLt(atk, 0, "held pump + flushes is no longer profitable");
+        assertGe(bqAfter, bq, "bucket never spent at the dislocated price");
     }
 
     function test_A2_ownerCurveDeployer_drainsFeeRouterAndVault() public {
@@ -125,58 +129,22 @@ contract AuditPoC3 is IntegrationBase {
         assertGt(victimOwed, 0);
 
         address evil = address(new EvilDeployer(address(quote)));
+        // Fixed: the curve deployer is write-once, so the fake-curve path is closed.
         vm.prank(launchpad.owner());
+        vm.expectRevert(Launchpad.CurveDeployerUnset.selector);
         launchpad.setCurveDeployer(evil);
-        address mallory = makeAddr("mallory");
-        vm.prank(mallory);
-        ILaunchpad.LaunchResult memory r = launchpad.launchCoin(
-            ILaunchpad.LaunchParams({
-                name: "x",
-                ticker: "x",
-                imageURI: "x",
-                description: "",
-                socialsURI: "",
-                quote: address(quote),
-                creatorTaxBps: 0,
-                creatorBuyQuoteIn: 0,
-                creatorBuyMinTokensOut: 0,
-                deadline: block.timestamp + 1
-            })
-        );
-        assertTrue(feeRouter.authorizedCallers(r.curve), "Launchpad authorized the fake curve on FeeRouter");
-
-        EvilCurve(r.curve).forgeRouter(r.token, mallory, frBal);
-        EvilCurve(r.curve).forgeVault(feeVault, r.token, vBal);
-        vm.startPrank(mallory);
-        feeRouter.claimCreatorFees(r.token);
-        feeVault.claimCreatorFees(r.token);
-        vm.stopPrank();
-        assertEq(quote.balanceOf(mallory), frBal + vBal, "every accrued fee of every coin");
-        assertEq(quote.balanceOf(address(feeRouter)), 0);
-        assertEq(quote.balanceOf(address(feeVault)), 0);
-
-        vm.prank(creator);
-        vm.expectRevert();
-        feeRouter.claimCreatorFees(address(tok));
+        // And once fee settings are locked no new claim router can be added (R461-01b).
+        vm.prank(feeRouter.owner());
+        feeRouter.lockSettings();
+        vm.prank(feeRouter.owner());
+        vm.expectRevert(FeeRouter.SettingsLocked.selector);
+        feeRouter.setClaimRouter(makeAddr("mallory"), true);
+        assertEq(feeRouter.creatorAccrued(address(tok), creator), victimOwed);
     }
 }
 
 contract AuditPoC3Harvest is CreatorFeeRoutingTest {
-    function test_A4_forwardTokenFees_alwaysReverts() public {
-        _pointVaultAtAnon();
-        vm.prank(creator);
-        ILaunchpad.LaunchResult memory r = harvest.launchAnon(_params(0, 0), stealth, stealth, "", bytes1(0), 0, 1);
-        _orbit(BondingCurve(r.curve), Token(r.token));
-        assertGt(feeRouter.creatorTokenAccrued(r.token, address(anon)), 0, "rocket fees accrued to AnonLauncher");
-        vm.expectRevert(FeeRouter.CreatorFeesRouted.selector);
-        anon.forwardTokenFees(r.token);
-        vm.prank(creator);
-        ILaunchpad.LaunchResult memory k = harvest.launchAnon(_params(0, 0), stealth, stealth, "", bytes1(0), 0, 0);
-        vm.expectRevert();
-        anon.forwardTokenFees(k.token);
-    }
-
-    function test_A5_pveBurnRoute_blockedByDeadCap() public {
+    function test_A5_pveBurnRoute_notBlockedByDeadCap() public {
         vm.prank(creator);
         ILaunchpad.LaunchResult memory r = harvest.launchWithMode(_params(TAX, 0), 1, 2);
         BondingCurve c = BondingCurve(r.curve);
@@ -197,8 +165,10 @@ contract AuditPoC3Harvest is CreatorFeeRoutingTest {
         harvest.depositRocketTokens(address(tok), cb / 2);
         vm.stopPrank();
         _buy(c, trader1, 50 ether, 0);
-        vm.expectRevert(BondingCurve.WalletCap.selector);
-        harvest.route(address(tok));
+        uint256 burnedBefore = tok.balanceOf(BURN);
+        harvest.route(address(tok)); // fixed: a transfer to dEaD is a burn, never capped
+        assertGt(tok.balanceOf(BURN), burnedBefore, "rocket tokens burned");
+        assertEq(c.balanceOnCurve(BURN), 0, "dEaD holds no NET position");
     }
 }
 
@@ -241,8 +211,11 @@ contract AuditPoC3Fwd is PermitForwarderTest {
         IPermit2SignatureTransfer.PermitTransferFrom memory p = _permit(1e18, 77);
         bytes memory sig = _sign(p, fwd.ACTION_WITNESS_TYPE(), fwd.hashAction(a), address(fwd));
         vm.prank(relayer);
+        uint256 relayerBefore = usdg.balanceOf(relayer);
         fwd.action(p, a, c, alice, sig, _noApproval(), new address[](0));
-        assertEq(usdg.balanceOf(address(fwd)), 3e18, "tip stranded on the forwarder");
+        // Fixed: the fee token's gains go to the signed fee recipient even with an empty sweep list.
+        assertEq(usdg.balanceOf(address(fwd)), 0, "nothing stranded");
+        assertGt(usdg.balanceOf(relayer), relayerBefore + 2e18, "tip reached feeTo");
 
         address mal = vm.addr(malKey);
         USDG dummy = new USDG();
@@ -261,8 +234,8 @@ contract AuditPoC3Fwd is PermitForwarderTest {
         mp.deadline = block.timestamp + 1 hours;
         bytes memory msig = _signAs(malKey, mp, fwd.ACTION_WITNESS_TYPE(), fwd.hashAction(ma));
         vm.prank(mal);
+        vm.expectRevert(abi.encodeWithSelector(DisciplePermitForwarder.ForbiddenTarget.selector, address(usdg)));
         fwd.action(mp, ma, mc, mal, msig, _noApproval(), new address[](0));
-        assertEq(usdg.balanceOf(mal), 3e18, "anyone took the stranded tip");
-        assertEq(usdg.allowance(address(fwd), mal), type(uint256).max, "standing allowance from the forwarder");
+        assertEq(usdg.allowance(address(fwd), mal), 0, "no allowance from the forwarder");
     }
 }

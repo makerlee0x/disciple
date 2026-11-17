@@ -33,7 +33,7 @@ contract RuntimeMarket is IntegrationBase {
     function strategyAddress() external view returns (address) { return address(strategy); }
     function prepareLaunches(address announcer) external returns (address anon, address gate) {
         gate = address(new LoginGate(owner, vm.addr(0xA77E57)));
-        vm.prank(owner); launchpad.setLoginGate(gate);
+        
         anon = address(new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, announcer, 0.5 ether));
     }
     function usdgAddress() external view returns (address) { return address(quote); }

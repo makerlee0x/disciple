@@ -222,6 +222,7 @@ contract FrontendApiTest is FrontendApiBase {
         quoteProbe.setAlwaysPass(address(strat), true);
         pricer.setAllowedQuote(address(strat), true); // only listed quotes launch (maker 2026-11-14)
         vm.stopPrank();
+        _warmQuote(address(strat)); // fresh TWAP, so the floor is what refuses it
         // Listed quotes must clear the $10k/side depth floor; this thin test pool doesn't, so the launch is refused.
         vm.expectRevert(abi.encodeWithSelector(QuotePricer.NoRouteAboveFloor.selector, address(strat)));
         _launchWithQuote(address(strat), 0, 0);

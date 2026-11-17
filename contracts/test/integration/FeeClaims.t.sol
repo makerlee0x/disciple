@@ -61,26 +61,16 @@ contract FeeClaimsTest is IntegrationBase {
         assertEq(tok.balanceOf(treasury) - tt0, ta);
     }
 
-    /// @dev 6-dec fix: the hook Trade event's `fee` for a token-side fee is valued in quote from sqrtPriceX96,
-    ///      not via the floored WAD price (a single-digit integer at 6-dec USDG ⇒ up to ~25% off). Cherry-pick of
-    ///      #115 80b06f22 (18-dec harness here; the 6-dec case is exercised by the #131 fork smoke).
-    function test_postGradBuyEventFeeIsOnePercentInQuote() public {
+    /// @dev Slim hook (2026-11-17) emits no events: a buy's 1% fee is taken in TOKEN (the unspecified side) and lands
+    ///      in FeeRouter, so the trader receives 99% of the swap output.
+    function test_postGradBuyFeeIsOnePercentInToken() public {
         (BondingCurve c, Token tok) = _launch(0, 0);
         _graduate(c);
-        vm.recordLogs();
-        _swapExactInQuoteForToken(tok, trader1, 100 * U); // buy: 1% hook fee charged in TOKEN
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        bool seen;
-        for (uint256 i; i < logs.length; i++) {
-            if (logs[i].emitter != address(hook) || logs[i].topics[0] != IHookTradeEvents.Trade.selector) continue;
-            (, uint256 quoteAmt,, uint256 fee,,,,,) = abi.decode(
-                logs[i].data, (bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256)
-            );
-            assertEq(quoteAmt, 100 * U);
-            assertApproxEqRel(fee, quoteAmt / 100, 0.02e18, "token-side fee valued at spot ~= 1% of quote in");
-            seen = true;
-        }
-        assertTrue(seen, "hook Trade");
+        uint256 fr0 = tok.balanceOf(address(feeRouter)) + tok.balanceOf(address(lockedLP));
+        _swapExactInQuoteForToken(tok, trader1, 100 * U);
+        uint256 got = tok.balanceOf(trader1);
+        uint256 fee = tok.balanceOf(address(feeRouter)) + tok.balanceOf(address(lockedLP)) - fr0;
+        assertApproxEqRel(fee, (got + fee) / 100, 0.001e18, "fee = 1% of the token output");
     }
 
     function test_feeRouterSolventAfterClaims() public {

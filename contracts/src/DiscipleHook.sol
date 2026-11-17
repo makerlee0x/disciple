@@ -50,6 +50,7 @@ contract DiscipleHook is IHooks {
     mapping(PoolId => PoolMeta) public metaOf;
 
     address public admin;
+    address public pendingAdmin;
     address public migration;
     /// @notice Live quote/USD oracle, read only by the view `quoteUsdOf`. Never called during a swap.
     IQuotePricer public pricer;
@@ -94,14 +95,21 @@ contract DiscipleHook is IHooks {
         if (msg.sender != admin) revert OnlyAdmin();
         require(migration != address(0), "DiscipleHook: mig");
         admin = address(0);
+        delete pendingAdmin;
         emit AdminTransferred(address(0));
     }
 
+    /// @notice Two-step (audit 2026-11-17 L-27): nominates `a`, who must call acceptAdmin.
     function transferAdmin(address a) external {
         if (msg.sender != admin) revert OnlyAdmin();
-        require(a != address(0), "DiscipleHook: admin"); // F-I4
-        admin = a;
-        emit AdminTransferred(a);
+        pendingAdmin = a;
+    }
+
+    function acceptAdmin() external {
+        if (msg.sender != pendingAdmin || msg.sender == address(0) || admin == address(0)) revert OnlyAdmin();
+        admin = msg.sender;
+        delete pendingAdmin;
+        emit AdminTransferred(msg.sender);
     }
 
     function getHookPermissions() public pure returns (Hooks.Permissions memory) {

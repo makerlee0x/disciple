@@ -107,6 +107,7 @@ contract LpAccrueGaslessTest is IntegrationBase {
     function _measure(bool legacy) internal returns (uint256 gb, uint256 gs) {
         address d = legacy ? address(new CurveDeployerV1()) : address(new CurveDeployer(address(feeVault)));
         vm.prank(owner);
+        vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(d);
         (BondingCurve c, Token t) = _launchWithQuote(address(quote), 0, 0);
         c;

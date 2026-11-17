@@ -244,16 +244,31 @@ contract DisciplePermitForwarder is ReentrancyGuard {
         for (uint256 j; j < sweep.length; ++j) {
             held[j] = IERC20(sweep[j]).balanceOf(address(this));
         }
+        uint256 heldFee = IERC20(token).balanceOf(address(this));
         for (uint256 i; i < calls.length; ++i) {
             address t = calls[i].target;
             if (t == PERMIT2 || t == address(this) || t == token || t.code.length == 0) revert ForbiddenTarget(t);
-            (bool ok, bytes memory ret) = t.call(calls[i].data);
+            // Audit 2026-11-17 A-6: this contract is one shared identity, so a relayed call may never move or approve
+            // its own balances (ERC-20 transfer/transferFrom/approve/increaseAllowance/permit, ERC-721/1155 approvals).
+            bytes calldata data = calls[i].data;
+            if (data.length >= 4) {
+                bytes4 sel = bytes4(data[:4]);
+                if (
+                    sel == IERC20.transfer.selector || sel == IERC20.transferFrom.selector
+                        || sel == IERC20.approve.selector || sel == 0x39509351 || sel == IERC20Permit.permit.selector
+                        || sel == 0xa22cb465
+                ) revert ForbiddenTarget(t);
+            }
+            (bool ok, bytes memory ret) = t.call(data);
             if (!ok) revert CallFailed(i, ret);
         }
         for (uint256 j; j < sweep.length; ++j) {
             uint256 got = IERC20(sweep[j]).balanceOf(address(this)) - held[j];
             if (got > 0) IERC20(sweep[j]).safeTransfer(a.feeTo, got);
         }
+        // The fee token's gains always go to the signed fee recipient, even with an empty sweep list (audit L-11).
+        uint256 gotFee = IERC20(token).balanceOf(address(this)) - heldFee;
+        if (gotFee > 0) IERC20(token).safeTransfer(a.feeTo, gotFee);
         emit ActionRelayed(owner, token, a.feeTo, permit.permitted.amount, a.callsHash);
     }
 

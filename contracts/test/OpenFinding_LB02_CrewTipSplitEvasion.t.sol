@@ -22,8 +22,6 @@ contract LB02_CrewTipSplitEvasion is IntegrationBase {
     function setUp() public override {
         super.setUp();
         LoginGate gate = new LoginGate(owner, vm.addr(0xA77E57));
-        vm.prank(owner);
-        launchpad.setLoginGate(address(gate)); // required to launch PVE; lp-accrue curves never read it
         quote.mint(alice, 10_000_000 ether);
         quote.mint(bob, 10_000_000 ether);
     }

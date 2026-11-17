@@ -50,6 +50,7 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
 
     function setUp() public override {
         super.setUp();
+        _warmQuote(address(strategy)); // pair-coin launches need a warm, fresh TWAP
         anon =
             new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), FEE);
         // lp-accrue: the CurveFeeVault is built with this AnonLauncher (as DeployLpAccrue / Deploy do), so private
@@ -57,6 +58,7 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
         feeVault = new CurveFeeVault(address(feeRouter), address(anon));
         address d = address(new CurveDeployer(address(feeVault)));
         vm.prank(owner);
+        vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(d);
         (stealthA, skA) = makeAddrAndKey("stealthA");
         (stealthB, skB) = makeAddrAndKey("stealthB");

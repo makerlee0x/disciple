@@ -38,10 +38,9 @@ contract MockFutureCurveDeployer {
     }
 }
 
-/// @notice Redeploy pack (lee 11:17 CT): owner-settable Launchpad.maxMode (default Hard, bounds [Hard, 15]).
+/// @notice Launch modes are fixed to TRENCH / PVE / PVP (the setMaxMode knob was dead config, audit I-17), and the
+///         curve deployer is write-once (audit 2026-11-17 R461-01).
 contract MaxModeTest is IntegrationBase {
-    event MaxModeSet(uint8 mode);
-
     function _params() internal view returns (ILaunchpad.LaunchParams memory) {
         return ILaunchpad.LaunchParams({
             name: "Mode3",
@@ -57,85 +56,34 @@ contract MaxModeTest is IntegrationBase {
         });
     }
 
-    function test_default_isHard() public view {
-        assertEq(launchpad.maxMode(), Constants.MODE_PVP);
-    }
-
-    function test_mode3_rejectedByDefault() public {
+    function test_mode3_rejected() public {
         ILaunchpad.LaunchParams memory p = _params();
         vm.prank(creator);
         vm.expectRevert(Launchpad.BadMode.selector);
         launchpad.launchWithMode(p, 3);
     }
 
-    function test_hardStillLaunchesByDefault() public {
+    function test_hardStillLaunches() public {
         ILaunchpad.LaunchParams memory p = _params();
         vm.prank(creator);
         ILaunchpad.LaunchResult memory r = launchpad.launchWithMode(p, Constants.MODE_PVP);
         assertEq(launchpad.modeOf(r.token), Constants.MODE_PVP);
     }
 
-    function test_setMaxMode3_currentCurveStillRevertsSafely() public {
+    function test_curveDeployer_writeOnce() public {
+        address d = address(new MockFutureCurveDeployer());
         vm.prank(owner);
-        launchpad.setMaxMode(3);
-        uint256 before = launchpad.launchCount();
-        ILaunchpad.LaunchParams memory p = _params();
-        vm.prank(creator);
-        vm.expectRevert(BondingCurve.BadParams.selector); // BondingCurve ctor: mode_ > MODE_PVP
-        launchpad.launchWithMode(p, 3);
-        assertEq(launchpad.launchCount(), before);
-        vm.prank(creator);
-        vm.expectRevert(Launchpad.BadMode.selector); // still bounded by maxMode
-        launchpad.launchWithMode(p, 4);
-    }
-
-    function test_mode3_launchesWithFutureDeployer() public {
-        vm.startPrank(owner);
-        launchpad.setMaxMode(3);
-        launchpad.setCurveDeployer(address(new MockFutureCurveDeployer()));
-        vm.stopPrank();
-        ILaunchpad.LaunchParams memory p = _params();
-        vm.prank(creator);
-        ILaunchpad.LaunchResult memory r = launchpad.launchWithMode(p, 3);
-        assertEq(launchpad.modeOf(r.token), 3);
-        assertEq(FutureCurve(r.curve).mode(), 3);
-        assertEq(launchpad.curveOf(r.token), r.curve);
-    }
-
-    function test_trenchLaunchUnaffected() public {
-        vm.prank(owner);
-        launchpad.setMaxMode(15);
-        (, address tok) = _launchTrench();
-        assertEq(launchpad.modeOf(tok), Constants.MODE_TRENCH);
-    }
-
-    function _launchTrench() internal returns (address curve, address tok) {
-        ILaunchpad.LaunchParams memory p = _params();
-        vm.prank(creator);
-        ILaunchpad.LaunchResult memory r = launchpad.launchCoin(p);
-        return (r.curve, r.token);
-    }
-
-    function test_setMaxMode_onlyOwner() public {
+        vm.expectRevert(Launchpad.CurveDeployerUnset.selector);
+        launchpad.setCurveDeployer(d);
         vm.prank(creator);
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
-        launchpad.setMaxMode(3);
+        launchpad.setCurveDeployer(d);
     }
 
-    function test_setMaxMode_bounds() public {
-        vm.startPrank(owner);
-        vm.expectRevert(Launchpad.MaxModeOutOfBounds.selector);
-        launchpad.setMaxMode(1);
-        vm.expectRevert(Launchpad.MaxModeOutOfBounds.selector);
-        launchpad.setMaxMode(0);
-        vm.expectRevert(Launchpad.MaxModeOutOfBounds.selector);
-        launchpad.setMaxMode(16);
-        vm.expectEmit(address(launchpad));
-        emit MaxModeSet(15);
-        launchpad.setMaxMode(15);
-        assertEq(launchpad.maxMode(), 15);
-        launchpad.setMaxMode(2); // back to Hard
-        assertEq(launchpad.maxMode(), 2);
-        vm.stopPrank();
+    function test_curveDeployer_rejectsEoa() public {
+        vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: pretend unset
+        vm.prank(owner);
+        vm.expectRevert(Launchpad.CurveDeployerUnset.selector);
+        launchpad.setCurveDeployer(makeAddr("eoa"));
     }
 }

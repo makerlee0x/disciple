@@ -60,8 +60,8 @@ contract SnipeSplitTest is IntegrationBase {
     function test_unset_vault_release_reverts() public {
         (BondingCurve curve,) = _launch(0, 0);
         _buy(curve, sniper, 50 ether, 0);
-        vm.prank(owner);
-        feeRouter.setRewardsVault(address(0));
+        // test-only: setRewardsVault refuses 0 now (audit L-10); model a never-set vault
+        vm.store(address(feeRouter), bytes32(uint256(12)), bytes32(0));
         vm.warp(curve.launchTime() + Constants.SNIPE_ESCROW_TIMEOUT);
         vm.expectRevert(BondingCurve.ZeroRecipient.selector);
         curve.releaseSnipeEscrow();

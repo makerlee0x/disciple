@@ -118,6 +118,7 @@ contract UsdgRouteTest is IntegrationBase {
     }
 
     function _launchStockCoin() internal {
+        _warmQuote(address(stock)); // pair-coin launches need a warm, fresh TWAP
         (sCurve, sTok) = _launchWithQuote(address(stock), 0, 0);
         _warpPastSnipe();
         vm.startPrank(alice);

@@ -55,6 +55,7 @@ contract AnonLauncherTest is IntegrationBase {
     function _useLegacyCurves() internal {
         address d = address(new CurveDeployerV1());
         vm.prank(owner);
+        vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(d);
     }
 

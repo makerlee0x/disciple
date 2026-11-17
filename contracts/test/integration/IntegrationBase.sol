@@ -234,6 +234,53 @@ abstract contract IntegrationBase is Test {
         }
     }
 
+    /// @dev Launch prices fail closed until the pair's TWAP covers a full window with fresh keeper pokes (audit
+    ///      2026-11-17 M-02). If `q` can't price a launch yet, play the keeper: poke every 60 s for one window.
+    function _warmQuote(address q) internal {
+        if (q == address(quote)) return;
+        try pricer.launchPriceUsd(q) returns (uint256) {
+            return;
+        } catch {}
+        uint256 t = vm.getBlockTimestamp();
+        uint256 end = t + pricer.twapWindow() + 60;
+        uint256 bn = vm.getBlockNumber();
+        while (t < end) {
+            t += 60;
+            vm.warp(t);
+            vm.roll(++bn);
+            pricer.poke(q);
+        }
+    }
+
+    uint256 internal strategyWarmAt;
+
+    /// @dev Test-only: move LockedLP's flush reference tick (audit 2026-11-17 A-1 guard) to the pool's current tick,
+    ///      as if the price had sat there for a while. Unit tests that trade then flush at once use it.
+    function _syncFlushRef(address token) internal {
+        (int24 rt, uint64 at) = lockedLP.flushRef(token);
+        bytes32 packed = bytes32((uint256(at) << 24) | uint256(uint24(rt)));
+        PoolKey memory key = lockedLP.getPoolKey(token);
+        (, int24 cur,,) = manager.getSlot0(key.toId());
+        bytes32 next = bytes32((uint256(uint64(vm.getBlockTimestamp())) << 24) | uint256(uint24(cur)));
+        for (uint256 i; i < 80; ++i) {
+            bytes32 slot = keccak256(abi.encode(token, i));
+            if (vm.load(address(lockedLP), slot) == packed) {
+                vm.store(address(lockedLP), slot, next);
+                return;
+            }
+        }
+        revert("flush ref slot not found");
+    }
+
+    /// @dev Keeps the STRATEGY TWAP launch-ready without an external call when it already is (so a pending
+    ///      vm.expectRevert still targets the launch). Re-warms after 50 minutes (freshness bound is 2 windows).
+    function _warmStrategy() internal {
+        uint256 t = vm.getBlockTimestamp();
+        if (strategyWarmAt != 0 && t < strategyWarmAt + 3000) return;
+        _warmQuote(address(strategy));
+        strategyWarmAt = vm.getBlockTimestamp();
+    }
+
     function _launch(uint256 taxBps, uint256 creatorBuyQuote) internal returns (BondingCurve curve, Token tok) {
         return _launchWithQuote(address(quote), taxBps, creatorBuyQuote);
     }
@@ -242,8 +289,9 @@ abstract contract IntegrationBase is Test {
         internal
         returns (BondingCurve curve, Token tok)
     {
-        uint256 ts = vm.getBlockTimestamp();
         address pay = quoteToken == address(0) ? address(strategy) : quoteToken;
+        if (pay == address(strategy)) _warmStrategy();
+        uint256 ts = vm.getBlockTimestamp();
         vm.startPrank(creator);
         if (creatorBuyQuote > 0) {
             IERC20(pay).approve(address(launchpad), creatorBuyQuote);
@@ -369,6 +417,12 @@ abstract contract IntegrationBase is Test {
 
     /// @dev LockedLP.flush (permissionless; the site's cron calls it on a schedule).
     function _flush(address t) internal returns (uint128) {
+        return lockedLP.flush(t);
+    }
+
+    /// @dev Flush as if the current price had held long enough for the reference tick to follow it.
+    function _flushSynced(address t) internal returns (uint128) {
+        _syncFlushRef(t);
         return lockedLP.flush(t);
     }
 

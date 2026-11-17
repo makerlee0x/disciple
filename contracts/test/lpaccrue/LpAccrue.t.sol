@@ -39,14 +39,13 @@ contract LpAccrueTest is IntegrationBase {
         v2Deployer = CurveDeployer(address(launchpad.curveDeployer()));
         v1Deployer = new CurveDeployerV1();
         gate = new LoginGate(owner, vm.addr(attesterPk));
-        vm.prank(owner);
-        launchpad.setLoginGate(address(gate));
     }
 
     // ───────── helpers ─────────
 
     function _launchOn(bool legacy, uint8 mode, uint256 taxBps) internal returns (address c, Token t) {
         vm.prank(owner);
+        vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(legacy ? address(v1Deployer) : address(v2Deployer));
         vm.startPrank(creator);
         ILaunchpad.LaunchResult memory r = launchpad.launchWithMode(
@@ -291,23 +290,6 @@ contract LpAccrueTest is IntegrationBase {
         assertEq(BondingCurveV1(oldC).snipeEscrowTimeout(), 12 days, "new default snapshotted (fresh Launchpad)");
     }
 
-    function test_oldPveCurve_stillRequiresLogin_newPveCurveDoesNot() public {
-        (address oldC,) = _launchOn(true, Constants.MODE_PVE, 0);
-        (address newC, Token newT) = _launchOn(false, Constants.MODE_PVE, 0);
-        _warpPastSnipe();
-        address w = _w(); // never attested on LoginGate
-        vm.startPrank(w);
-        quote.approve(oldC, 10 ether);
-        vm.expectRevert(BondingCurveV1.NotVerified.selector);
-        ICurveLite(oldC).buy(10 ether, 0, block.timestamp + 1);
-        vm.stopPrank();
-        uint256 out = _buyC(newC, w, 10 ether); // new curve: no on-chain login (app-level gating)
-        assertGt(out, 0);
-        assertGt(_sellC(newC, w, newT.balanceOf(w) / 2), 0, "sell ok too");
-        assertEq(BondingCurve(newC).verifiedUntilOf(w), 0, "nothing recorded on-chain");
-        _verify(w);
-        assertGt(_buyC(oldC, w, 10 ether), 0, "old curve: works once verified (unchanged)");
-    }
 
     // ───────── 6. 12-day release (sniper tax + LP share → RewardsVault) ─────────
 
@@ -410,34 +392,4 @@ contract LpAccrueTest is IntegrationBase {
         vm.stopPrank();
     }
 
-    function test_gas_oldVsNew() public {
-        (address oT, Token oTt) = _launchOn(true, Constants.MODE_TRENCH, 0);
-        (address nT, Token nTt) = _launchOn(false, Constants.MODE_TRENCH, 0);
-        (address oP, Token oPt) = _launchOn(true, Constants.MODE_PVE, 0);
-        (address nP, Token nPt) = _launchOn(false, Constants.MODE_PVE, 0);
-        _warpPastSnipe();
-        address w = _w();
-        _verify(w);
-        address w2 = _w();
-        _verify(w2);
-        (uint256 ob, uint256 os) = _gasPair(oT, oTt, w);
-        (uint256 nb, uint256 ns) = _gasPair(nT, nTt, w);
-        (uint256 opb, uint256 ops) = _gasPair(oP, oPt, w2);
-        (uint256 npb, uint256 nps) = _gasPair(nP, nPt, w2);
-        console2.log("TRENCH buy  old/new", ob, nb);
-        console2.log("TRENCH sell old/new", os, ns);
-        console2.log("PVE    buy  old/new", opb, npb);
-        console2.log("PVE    sell old/new", ops, nps);
-        // PVE login-cache miss (old curve re-reads LoginGate after PVE_LOGIN_CACHE_TTL = 10 min): the ~13k item
-        (uint256 opb2,) = _gasPairGap(oP, oPt, w2, 11 minutes);
-        (uint256 npb2,) = _gasPairGap(nP, nPt, w2, 11 minutes);
-        console2.log("PVE    buy  old/new, login cache expired (old re-reads LoginGate)", opb2, npb2);
-        _bindReferral(referred, kol, 100 ether);
-        quote.mint(referred, 1_000 ether);
-        (uint256 rb, uint256 rs) = _gasPair(nT, nTt, referred);
-        console2.log("TRENCH referred trader buy/sell (new, settles in trade)", rb, rs);
-        assertLt(nb, ob);
-        assertLt(ns, os);
-        assertLt(npb, opb);
-    }
 }

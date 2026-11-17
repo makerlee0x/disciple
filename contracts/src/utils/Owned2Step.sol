@@ -16,6 +16,7 @@ abstract contract Owned2Step {
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     constructor(address owner_) {
+        if (owner_ == address(0)) revert OnlyOwner(); // audit L-26: a zero owner can never be recovered
         owner = owner_;
         emit OwnershipTransferred(address(0), owner_);
     }

@@ -84,6 +84,7 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     error BadParam();
     error NoRouteAboveFloor(address quote);
     error QuoteNotListed(address quote);
+    error StalePrice(address quote);
 
     event PricePoolSet(address indexed quote, bytes32 indexed poolId, uint24 fee, int24 tickSpacing, address hooks);
     event PricePoolCleared(address indexed quote);
@@ -154,7 +155,8 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         for (uint256 i; i < keys.length; ++i) {
             _routeOf[quote].push(keys[i]);
             (, int24 tick,,) = poolManager.getSlot0(keys[i].toId());
-            TwapOracle.initialize(_routeOracle[keys[i].toId()], tick); // LB-01: route TWAP starts at owner-time spot
+            // LB-01: route TWAP starts at owner-time spot. Audit L-19: never wipe a populated (possibly shared) oracle.
+            if (!TwapOracle.isInitialized(_routeOracle[keys[i].toId()])) TwapOracle.initialize(_routeOracle[keys[i].toId()], tick);
         }
         emit PriceRouteSet(quote, keys);
         if (keys.length == 1) {
@@ -189,7 +191,7 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         // (Re)start the oracles at the owner-registration spot (the route oracle prices it once listed, LB-01).
         TwapOracle.initialize(_oracle[quote], _usdTick(quote, key));
         (, int24 rawTick,,) = poolManager.getSlot0(key.toId());
-        TwapOracle.initialize(_routeOracle[key.toId()], rawTick);
+        if (!TwapOracle.isInitialized(_routeOracle[key.toId()])) TwapOracle.initialize(_routeOracle[key.toId()], rawTick);
         emit PricePoolSet(quote, PoolId.unwrap(key.toId()), key.fee, key.tickSpacing, address(key.hooks));
     }
 
@@ -320,9 +322,28 @@ contract QuotePricer is IQuotePricer, Owned2Step {
 
     /// @notice Launch-time price: like `quotePriceUsd`, but only USDG and listed quotes (`isAllowedQuote`, ignoring
     ///         `allowAnyQuote`) can be launch quotes (maker 2026-11-14, external review F-M1).
+    ///         Fail-closed freshness (audit 2026-11-17 M-02 / R461-03 / L-19 / L-20): every route pool's TWAP must
+    ///         cover a full `twapWindow` (no launches off a just-registered route), its newest keeper observation
+    ///         must be under 2 × twapWindow old (a stopped keeper stops launches instead of baking a stale price).
+    ///         No spot check: USDG launches buy the pair coin in the same tx, which moves spot on purpose.
     function launchPriceUsd(address quote) external view returns (uint256) {
-        if (quote != usdg && !isAllowedQuote[quote]) revert QuoteNotListed(quote);
+        if (quote != usdg) {
+            if (!isAllowedQuote[quote]) revert QuoteNotListed(quote);
+            uint256 n = _routeOf[quote].length;
+            for (uint256 i; i < n; ++i) {
+                _checkFresh(_routeOracle[_routeOf[quote][i].toId()], quote);
+            }
+            if (n == 0 && hasPricePool[quote]) _checkFresh(_oracle[quote], quote);
+        }
         return this.quotePriceUsd(quote);
+    }
+
+    function _checkFresh(TwapOracle.State storage o, address quote) internal view {
+        if (!TwapOracle.isInitialized(o)) revert NoPricePool(quote);
+        uint32 w = twapWindow;
+        TwapOracle.Observation memory l = TwapOracle.last(o);
+        (, uint32 covered) = TwapOracle.consult(o, w, l.tick);
+        if (covered < w || block.timestamp - l.ts > 2 * uint256(w)) revert StalePrice(quote);
     }
 
     /// @notice Spot price (display only; flash-manipulable — never use for safety checks).

@@ -39,7 +39,8 @@ abstract contract NetworkConfig is Script {
         _requiredContract("V4_QUOTER");
         address usdg = _requiredContract("USDG");
         address quote = _requiredContract("DEFAULT_QUOTE");
-        _requiredAddress("PVE_ATTESTER");
+        _requiredContract("SAFE"); // every remaining owner role is nominated to it (audit 2026-11-17 R461-05)
+        _requiredAddress("PRICER_POKER"); // launches fail closed (StalePrice) without keeper pokes
         require(!vm.envOr("DEPLOY_TEST_STRATEGY", false), "Network: no mock assets on mainnet");
         // Required, not defaults. Their actual values are OWNER DECISION; constructor checks still apply.
         vm.envUint("EXPECT_USDG_DECIMALS");

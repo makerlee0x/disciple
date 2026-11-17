@@ -47,9 +47,8 @@ contract ModeRulesV2Test is IntegrationBase {
 
     function setUp() public override {
         super.setUp();
+        _warmQuote(address(strategy)); // pair-coin launches need a warm, fresh TWAP
         gate = new LoginGate(owner, vm.addr(attesterPk));
-        vm.prank(owner);
-        launchpad.setLoginGate(address(gate));
         router.setUsdgRouting(address(quote), address(launchpad));
         router.setUsdgPool(address(strategy), strategyUsdgKey);
         lens = new MarketLens(address(launchpad), address(migration));

@@ -90,6 +90,12 @@ contract RouterGuardsTest is IntegrationBase {
         address o = router.owner();
         vm.prank(o);
         router.transferOwnership(whale);
+        assertEq(router.owner(), o, "two-step: nominee must accept");
+        vm.prank(o);
+        vm.expectRevert(DiscipleRouter.OnlyOwner.selector);
+        router.acceptOwnership();
+        vm.prank(whale);
+        router.acceptOwnership();
         assertEq(router.owner(), whale);
         vm.prank(o);
         vm.expectRevert(DiscipleRouter.OnlyOwner.selector);

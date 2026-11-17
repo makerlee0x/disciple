@@ -51,7 +51,8 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         vm.setEnv("V4_QUOTER", zero);
         vm.setEnv("DEFAULT_QUOTE", zero);
         vm.setEnv("TREASURY", zero);
-        vm.setEnv("PVE_ATTESTER", zero);
+        vm.setEnv("SAFE", zero);
+        vm.setEnv("PRICER_POKER", zero);
         vm.setEnv("REFERRAL_SINK", zero);
         vm.setEnv("DEPLOY_TEST_STRATEGY", "false");
         Deploy d = new Deploy();
@@ -134,7 +135,8 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         guardKeys.push("V4_QUOTER");
         guardKeys.push("USDG");
         guardKeys.push("DEFAULT_QUOTE");
-        guardKeys.push("PVE_ATTESTER");
+        guardKeys.push("SAFE");
+        guardKeys.push("PRICER_POKER");
         guardKeys.push("EXPECT_USDG_DECIMALS");
         guardKeys.push("MIN_LIQUIDITY");
         guardKeys.push("PROBE_USDG");
@@ -217,7 +219,8 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         vm.setEnv("V4_QUOTER", a);
         vm.setEnv("USDG", a);
         vm.setEnv("DEFAULT_QUOTE", a);
-        vm.setEnv("PVE_ATTESTER", a);
+        vm.setEnv("SAFE", a);
+        vm.setEnv("PRICER_POKER", a);
         vm.setEnv("EXPECT_USDG_DECIMALS", "6");
         vm.setEnv("MIN_LIQUIDITY", "1");
         vm.setEnv("PROBE_USDG", "1");

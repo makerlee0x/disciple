@@ -74,12 +74,14 @@ contract BaseDiscoveryTest is BaseTestBase {
         vm.expectRevert(abi.encodeWithSelector(QuotePricer.TwapWarmingUp.selector, readyAt));
         pricer.quotePriceUsd(address(b));
 
-        // a launch before warm-up reverts too (and rolls back nothing permanent: the pool stays registered)
-        vm.expectRevert(abi.encodeWithSelector(QuotePricer.TwapWarmingUp.selector, readyAt));
+        // launches are listed-quotes only (maker 2026-11-14), so an unlisted base can't launch even once priced
+        vm.expectRevert(abi.encodeWithSelector(QuotePricer.QuoteNotListed.selector, address(b)));
         _launchBase(address(b));
 
         _warm(address(b));
         assertApproxEqRel(pricer.quotePriceUsd(address(b)), 1e18, 0.001e18);
+        vm.prank(pricer.owner());
+        pricer.setAllowedQuote(address(b), true);
         ILaunchpad.LaunchResult memory r = _launchBase(address(b));
         assertApproxEqRel(BondingCurve(r.curve).quotePriceUsd(), 1e18, 0.001e18);
     }

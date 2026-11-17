@@ -115,6 +115,23 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     /// @notice Compound budget window (seconds): <= maxCompoundPpm of liquidity per window, <= 1 add per block.
     uint256 public constant COMPOUND_WINDOW = 60;
 
+    /// @notice Flush price guard (audit 2026-11-17 A-1: a pump HELD across windows with one flush per window was
+    ///         profitable). A flush adds only while the pool tick is within REF_BAND_TICKS (~2%) of a per-coin
+    ///         reference tick. The reference starts at the graduation price and follows the pool by at most
+    ///         REF_TICKS_PER_MIN per minute (credit capped at REF_MAX_CATCHUP per call), so after a big move the
+    ///         buckets simply wait (a 2x move: about an hour) and are never spent at a held, dislocated price.
+    ///         Fixed rules: no keeper, no caller input, no owner setting.
+    int256 public constant REF_BAND_TICKS = 200;
+    uint256 public constant REF_TICKS_PER_MIN = 100;
+    uint256 public constant REF_MAX_CATCHUP = 600;
+
+    struct Ref {
+        int24 tick;
+        uint64 at;
+    }
+
+    mapping(address => Ref) internal _refs;
+
     uint8 internal constant CB_SEED = 0;
     uint8 internal constant CB_FLUSH = 1;
 
@@ -201,19 +218,19 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
 
     function setFeeRouter(address r) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (feeRouter != address(0) || r == address(0)) revert AlreadyWired();
+        if (feeRouter != address(0) || r.code.length == 0) revert AlreadyWired(); // audit L-31: contracts only
         feeRouter = r;
     }
 
     function setMigration(address m) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (migration != address(0) || m == address(0)) revert AlreadyWired();
+        if (migration != address(0) || m.code.length == 0) revert AlreadyWired();
         migration = m;
     }
 
     function setPoolManager(address pm) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (address(poolManager) != address(0) || pm == address(0)) revert AlreadyWired();
+        if (address(poolManager) != address(0) || pm.code.length == 0) revert AlreadyWired();
         poolManager = IPoolManager(pm);
     }
 
@@ -353,7 +370,8 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
 
         // Initialize pool at curve-end price (no jump). Audit #2: no try/catch — DiscipleHook.beforeInitialize
         // only lets this contract initialize, so a pre-initialized (mispriced) pool cannot exist.
-        poolManager.initialize(key, sqrtPriceX96);
+        int24 tick0 = poolManager.initialize(key, sqrtPriceX96);
+        _refs[token] = Ref({tick: tick0, at: uint64(block.timestamp)});
 
         SeedParams memory sp = SeedParams({
             token: token,
@@ -404,7 +422,8 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     /// @notice Permissionless top-up outside swaps (uses unlock): adds the coin's matched fee buckets to its locked
     ///         position at the current price. Robinhood Chain has a first-come sequencer (no third-party sandwich); a
     ///         self-sandwich around this call is bounded by one add per block and maxCompoundPpm (0.5%) of liquidity
-    ///         per 60 s window, and costs the 1% fee each way. Returns liquidity added (0 = skipped).
+    ///         per 60 s window, and costs the 1% fee each way. A held pump is stopped by the reference-tick band
+    ///         (REF_BAND_TICKS). Returns liquidity added (0 = skipped).
     function flush(address token) external returns (uint128 liquidity) {
         if (!_positions[token].graduated) revert NotGraduated();
         bytes memory r = poolManager.unlock(abi.encode(CB_FLUSH, abi.encode(token)));
@@ -444,7 +463,8 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         else if (p.cBlock == uint16(block.number)) return 0;
         uint256 maxPpm = maxCompoundPpm;
         if (maxPpm != 0 && used >= maxPpm) return 0;
-        (uint160 sqrtP,,,) = poolManager.getSlot0(p.poolId);
+        (uint160 sqrtP, int24 tick,,) = poolManager.getSlot0(p.poolId);
+        if (!_nearRef(token, tick)) return 0;
 
         bool tokenIsC0 = p.tokenIsC0;
         // 1 wei margin per side: amounts owed for L round up by at most 1, so owed <= bucket always.
@@ -499,6 +519,26 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         p.tokenAmount += tokenUsed;
         p.quoteAmount += quoteUsed;
         emit LiquidityCompounded(token, liq, tokenUsed, quoteUsed, tCarry, qCarry);
+    }
+
+    /// @dev Moves the coin's reference tick toward `tick` by the time-based allowance, stores it, and reports whether
+    ///      `tick` is inside the band around the moved reference.
+    function _nearRef(address token, int24 tick) internal returns (bool) {
+        Ref memory r = _refs[token];
+        uint256 dt = block.timestamp - r.at;
+        if (dt > REF_MAX_CATCHUP) dt = REF_MAX_CATCHUP;
+        int256 step = int256(dt * REF_TICKS_PER_MIN / 60);
+        int256 d = int256(tick) - r.tick;
+        int256 ref = r.tick + (d > step ? step : (d < -step ? -step : d));
+        _refs[token] = Ref({tick: int24(ref), at: uint64(block.timestamp)});
+        d = int256(tick) - ref;
+        return d <= REF_BAND_TICKS && d >= -REF_BAND_TICKS;
+    }
+
+    /// @notice Flush reference tick and its last update time (see REF_BAND_TICKS).
+    function flushRef(address token) external view returns (int24 tick, uint64 at) {
+        Ref memory r = _refs[token];
+        return (r.tick, r.at);
     }
 
     /// @dev Splits a caller delta into (owed to the pool, credited to us).

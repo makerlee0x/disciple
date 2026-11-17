@@ -30,6 +30,7 @@ contract UsdgDepositNotifier {
     /// @notice Minimum deposit ($10) in USDG raw units: REFERRAL_GATE_USD * 10**usdg.decimals() (set at construction).
     uint256 public immutable minDeposit;
     address public owner;
+    address public pendingOwner;
     mapping(address => bool) public isAttestor;
 
     struct Escrow {
@@ -123,10 +124,16 @@ contract UsdgDepositNotifier {
         emit AttestorSet(a, allowed);
     }
 
+    /// @notice Two-step (audit 2026-11-17 L-27): nominates `o`, who must call acceptOwnership.
     function transferOwnership(address o) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (o == address(0)) revert ZeroAddress();
-        owner = o;
-        emit OwnerTransferred(o);
+        pendingOwner = o;
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner || msg.sender == address(0)) revert OnlyOwner();
+        owner = msg.sender;
+        delete pendingOwner;
+        emit OwnerTransferred(msg.sender);
     }
 }

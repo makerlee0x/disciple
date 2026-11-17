@@ -111,10 +111,22 @@ contract CreatorFeeRoutingTest is IntegrationBase {
     }
 
     /// @dev Private coins claim curve fees from a vault that knows the AnonLauncher. Point new launches at one.
+    function _clearSlotHolding(address c, address value) internal {
+        for (uint256 i; i < 64; ++i) {
+            if (vm.load(c, bytes32(i)) == bytes32(uint256(uint160(value)))) {
+                vm.store(c, bytes32(i), bytes32(0));
+                return;
+            }
+        }
+        revert("slot not found");
+    }
+
     function _pointVaultAtAnon() internal {
         CurveFeeVault v = new CurveFeeVault(address(feeRouter), address(anon));
         vm.startPrank(owner);
+        vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(address(new CurveDeployer(address(v))));
+        _clearSlotHolding(address(harvest), address(feeVault)); // test-only: the vault pointer is write-once
         harvest.setFeeVault(address(v));
         vm.stopPrank();
         feeVault = v;
@@ -562,7 +574,6 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         uint256 attesterPk = 0xA11CE;
         LoginGate gate = new LoginGate(owner, vm.addr(attesterPk));
         vm.startPrank(owner);
-        launchpad.setLoginGate(address(gate));
         launchpad.setCrewTipThresholdBps(Constants.CREW_TIP_THRESHOLD_BPS_MIN);
         vm.stopPrank();
 

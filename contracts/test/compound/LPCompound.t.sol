@@ -144,7 +144,7 @@ contract LPCompoundTest is IntegrationBase {
             vm.warp(vm.getBlockTimestamp() + 60);
             _buy(tok, 25 ether);
             vm.recordLogs();
-            _flush(address(tok));
+            _flushSynced(address(tok));
             adds += _count(COMPOUNDED);
             _assertInvariant(_one(tok));
         }
@@ -177,7 +177,7 @@ contract LPCompoundTest is IntegrationBase {
         _params(1, 0, 5000);
         uint128 l0 = _liq(tok);
         vm.recordLogs();
-        _flush(address(tok));
+        _flushSynced(address(tok));
         assertEq(_count(COMPOUNDED), 1, "paired: add");
         assertGt(_liq(tok), l0);
         _assertInvariant(_one(tok));
@@ -186,19 +186,19 @@ contract LPCompoundTest is IntegrationBase {
     function test_one_sided_accumulation_then_pairing() public {
         _params(1, 0, 5000);
         _buy(tok, 50 ether);
-        _flush(address(tok)); // pairs against the leftover → token side exhausted (dust < 1 liquidity unit)
+        _flushSynced(address(tok)); // pairs against the leftover → token side exhausted (dust < 1 liquidity unit)
         (uint256 bt,) = _bucket(tok);
         assertLt(bt, 1e6);
         for (uint256 i; i < 4; i++) _sellFrac(tok, 10); // quote-only fees
         vm.roll(vm.getBlockNumber() + 1);
         vm.recordLogs();
-        _flush(address(tok));
+        _flushSynced(address(tok));
         assertEq(_count(COMPOUNDED), 0, "one-sided: nothing to pair");
         (, uint256 bq) = _bucket(tok);
         uint128 l0 = _liq(tok);
         _buy(tok, 50 ether);
         vm.recordLogs();
-        _flush(address(tok));
+        _flushSynced(address(tok));
         assertEq(_count(COMPOUNDED), 1);
         (uint256 bt2, uint256 bq2) = _bucket(tok);
         assertLt(bt2, 1e6);
@@ -212,7 +212,7 @@ contract LPCompoundTest is IntegrationBase {
         uint128 l0 = _liq(tok);
         _buy(tok, 200 ether);
         _sellFrac(tok, 2);
-        assertEq(_flush(address(tok)), 0);
+        assertEq(_flushSynced(address(tok)), 0);
         assertEq(_liq(tok), l0);
         (uint256 bt, uint256 bq) = _bucket(tok);
         assertGt(bt, 0);
@@ -225,7 +225,7 @@ contract LPCompoundTest is IntegrationBase {
         _sellFrac(tok, 2);
         _params(1, 2, 5000); // cap = 2 ppm of position liquidity
         uint128 l0 = _liq(tok);
-        uint128 added = _flush(address(tok));
+        uint128 added = _flushSynced(address(tok));
         assertEq(added, uint128(uint256(l0) * 2 / 1e6), "added == cap");
         (uint256 bt, uint256 bq) = _bucket(tok);
         assertGt(bt, 1);
@@ -255,6 +255,7 @@ contract LPCompoundTest is IntegrationBase {
         _sellFrac(tok, 2);
         _params(1, 0, 0);
         uint128 l0 = _liq(tok);
+        _syncFlushRef(address(tok));
         vm.prank(trader2);
         uint128 added = lockedLP.flush(address(tok));
         assertGt(added, 0);
@@ -283,7 +284,7 @@ contract LPCompoundTest is IntegrationBase {
         both[1] = tokB;
         _assertInvariant(both);
         _params(1, 0, 5000);
-        _flush(address(tok));
+        _flushSynced(address(tok));
         (uint256 bBt2, uint256 bBq2) = _bucket(tokB);
         assertEq(bBt2, bBt);
         assertEq(bBq2, bBq);
@@ -310,7 +311,7 @@ contract LPCompoundTest is IntegrationBase {
             else _sellFrac(tok, 2 + seed % 10);
             if (seed % 3 == 0) {
                 vm.roll(vm.getBlockNumber() + 1);
-                _flush(address(tok));
+                _flushSynced(address(tok));
             }
             _assertInvariant(_one(tok));
         }

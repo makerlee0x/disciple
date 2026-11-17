@@ -150,6 +150,7 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     event Claimed(address indexed token, address indexed stealthOwner, address to, address asset, uint256 amount);
     event LaunchFeeUpdated(uint256 fee);
     event TreasuryUpdated(address treasury);
+    event CreatorFeeHarvestSet(address harvest);
     event BoostHeld(address indexed token, address indexed recipient, uint256 amount);
     event BoostReleased(address indexed token, address indexed recipient, uint256 tokens, uint256 rewards);
 
@@ -194,11 +195,13 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         emit TreasuryUpdated(t);
     }
 
-    /// @notice Owner points claims at the later-send contract. Unset keeps today's claim behavior.
+    /// @notice Owner points claims at the later-send contract. Write-once and contracts only (audit L-14), matching
+    ///         FeeRouter's harvest pointer. Unset keeps today's claim behavior.
     function setCreatorFeeHarvest(address harvest) external {
         _checkOwner();
-        if (harvest == address(0)) revert ZeroAddress();
+        if (creatorFeeHarvest != address(0) || harvest.code.length == 0) revert ZeroAddress();
         creatorFeeHarvest = harvest;
+        emit CreatorFeeHarvestSet(harvest);
     }
 
     // ───────────────────────────── launch ─────────────────────────────
@@ -438,6 +441,9 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         if (stealthOwnerOf[token] != msg.sender) revert NotStealthOwner();
         if (newOwner == address(0)) revert ZeroAddress();
         stealthOwnerOf[token] = newOwner;
+        unchecked {
+            ++nonces[msg.sender]; // audit L-01: a direct transfer also voids the old owner's pending signatures
+        }
         emit StealthOwnerTransferred(token, msg.sender, newOwner);
     }
 
@@ -524,18 +530,6 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
             if (tAmt > 0) _pay(token, so, token, tAmt, to, relayerFeeBps);
             if (qAmt == 0 && tAmt == 0) revert NothingToClaim();
         }
-    }
-
-    /// @notice Self-claim this coin's rocket-token creator fees and hand them to the later-send contract.
-    ///         Anyone may call it. The stealth owner is not paid. Quote fees stay accrued for `route` to pull.
-    function forwardTokenFees(address token) external nonReentrant {
-        if (!_feesRouted(token)) revert CreatorFeesRouted();
-        IFeeRouterClaims fr = feeRouter;
-        if (fr.creatorTokenAccrued(token, address(this)) == 0) revert NothingToClaim();
-        uint256 amt = fr.claimCreatorTokenFees(token);
-        address harvest = creatorFeeHarvest;
-        IERC20(token).forceApprove(harvest, amt);
-        ICreatorFeeHarvest(harvest).depositRocketTokens(token, amt);
     }
 
     /// @dev Destination 1 or 2 on the later-send contract. Unset harvest means every coin is still claimable here.
