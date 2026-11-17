@@ -1,6 +1,6 @@
 export const runtime = "nodejs";
 /**
- * /admin/mint backend (ADMIN_EMAILS). GET → { minted, used: item indexes already minted, unknown, candyMachine }.
+ * /admin/mint backend (ADMIN_EMAILS). GET → { minted, takenNumbers: every minted disciple's #, unnamed, candyMachine }.
  * POST { candyMachine: "<address>" | null, lut? } → saves / clears the live machine (+ lookup table) that /mint mints from.
  */
 import { NextResponse } from "next/server";
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
   const m = await mintedItems();
   if (!m) return out(503, { error: "Solana reads are off: set HELIUS_API_KEY in Vercel." });
   const live = await liveMachine();
-  return out(200, { minted: m.count, used: m.items, unknown: m.unknown, takenNumbers: m.unknownNumbers, candyMachine: live?.candyMachine ?? null, lut: live?.lut ?? null });
+  return out(200, { minted: m.count, used: m.items, unknown: m.unknown, takenNumbers: m.numbers, unnamed: m.unnamed, candyMachine: live?.candyMachine ?? null, lut: live?.lut ?? null });
 }
 export async function POST(req: Request) {
   const a = await authenticateAdmin(bearer(req.headers), privyEnv(), process.env.ADMIN_EMAILS);

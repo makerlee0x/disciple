@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateKeyPairSync, sign } from "crypto";
 import { b58decode, b58encode } from "@/lib/nft/base58";
 import { verifySolSignature } from "@/lib/server/nft/solSig";
-import { DISCIPLE_COLLECTION, DISCIPLE_TREASURY, METADATA_BASE, holderLinkMessage, isSolAddress, itemIndex } from "@/lib/nft/config";
+import { DISCIPLE_COLLECTION, DISCIPLE_TREASURY, METADATA_BASE, REVEALED_BASE, holderLinkMessage, isSolAddress, itemIndex, revealedNumber } from "@/lib/nft/config";
 
 describe("base58", () => {
   it("round-trips Solana addresses", () => {
@@ -39,6 +39,9 @@ describe("drop items", () => {
     expect(itemIndex(`${METADATA_BASE}0.json`)).toBe(0);
     expect(itemIndex(`${METADATA_BASE}777.json`)).toBeNull();
     expect(itemIndex("https://example.com/181.json")).toBeNull();
+    expect(revealedNumber(`${REVEALED_BASE}505.json`)).toBe(505);
+    expect(revealedNumber(`${REVEALED_BASE}777.json`)).toBeNull();
+    expect(revealedNumber(`${METADATA_BASE}505.json`)).toBeNull();
   });
   it("checks Solana addresses", () => {
     expect(isSolAddress(DISCIPLE_COLLECTION)).toBe(true);
