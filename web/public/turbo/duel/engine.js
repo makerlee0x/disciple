@@ -86,7 +86,7 @@ function mount(root,host){
   const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
   const rnd=(a,b)=>a+Math.random()*(b-a);
   const gauss=()=>{let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);};
-  const usd=(v,s)=>(s&&v>0?"+":"")+(v<0?"\u2212":"")+"$"+Math.abs(v).toFixed(2);
+  const usd=(v,s)=>!isFinite(v)?"$0.00":(s&&v>0?"+":"")+(v<0?"\u2212":"")+"$"+Math.abs(v).toFixed(2);
   const px=p=>p.toLocaleString("en-US",{minimumFractionDigits:1,maximumFractionDigits:1});
   const mmss=ms=>{const s=Math.max(0,Math.ceil(ms/1000));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");};
 
@@ -156,6 +156,7 @@ function mount(root,host){
     if(pl.me){sfx("bomb");buzz([60,40,90]);} else sfx("bomb",.5,(lane(pl)/SW)*2-1);
   }
   function open(pl,side,stake,why){
+    if(!(G&&G.price>0)){ if(pl.me) toast("Waiting for the live BTC price\u2026"); return false; }
     stake=Math.min(stake,pl.fuel/(1+LEV*FEE));
     if(stake<1){ if(pl.me) toast("Out of duel fuel. Cash out to free some."); return false; }
     const size=stake*LEV, fee=size*FEE;
@@ -193,6 +194,7 @@ function mount(root,host){
   function paintSizes(){ document.querySelectorAll(".size button").forEach(b=>{const v=SIZES[+b.dataset.i]; b.textContent=v===0?"ALL":money(v); b.classList.toggle("on",v===stake);}); }
   function act(kind){
     if(!G||!G.started||G.over) return;
+    if(!(G.price>0)){ toast("Waiting for the live BTC price\u2026"); return; }
     const me=G.me;
     if(M&&M.net){
       if(kind==="x"&&!me.pos){toast("Nothing open.");return;}
@@ -777,6 +779,7 @@ function mount(root,host){
     $("lSub").textContent=bot?`${G.bot.name} \u00b7 ${botKey.toUpperCase()} \u00b7 ${money(curFuel())} fuel \u00b7 no rating. The chart starts at GO.`:"The chart starts at GO. Same live BTC price for both of you.";
     clearInterval(launchIv); const iv=launchIv=setInterval(()=>{ if(dead){clearInterval(iv);return;} const left=G.startAt-now_(); const n=Math.ceil(left/1000);
       if(left>0){ if(n!==shown){ shown=n; pc.textContent=n; pc.style.animation="none"; void pc.offsetWidth; pc.style.animation=""; if(n<=3) sfx("count"); } return; }
+      if(!priceReady()){ if(shown!=="wait"){ shown="wait"; pc.textContent="\u2026"; $("lSub").textContent="Waiting for the live BTC price. GO as soon as it lands."; } return; }
       clearInterval(iv); const pre=$("pre"); pre.classList.add("out"); setTimeout(()=>{ if(pre.classList.contains("out")) pre.hidden=true; },380);
       c.hidden=false; c.textContent="GO"; sfx("go"); buzz(30); G.started=true; music(true); setTimeout(()=>c.hidden=true,450);
       if(!(M&&M.net)&&Math.random()<.6) botSay(pick(["glhf","let's go","you're going down","\ud83e\udee1"]),1500);
@@ -869,9 +872,17 @@ function mount(root,host){
     $("vReady").disabled=false; $("vReady").textContent="READY"; $("vAuto").hidden=!!o.bot;
     let n=10; $("vT").textContent=n; clearInterval(vIv); if(!o.bot) vIv=setInterval(()=>{ n--; $("vT").textContent=Math.max(0,n); if(n<=0){ clearInterval(vIv); meReady(); } },1000); }
   function meReady(){ clearInterval(vIv); $("vMeR").classList.add("on"); $("vMeR").textContent="READY"; $("vReady").disabled=true; $("vReady").textContent="WAITING\u2026"; sfx("ready");
-    if(M&&!M.net){ M.startAt=Date.now()+3500; M.endAt=M.startAt+LEN; start(); return; }
+    if(M&&!M.net){ waitForPrice(()=>{ if(!M||M.net) return; M.startAt=Date.now()+3500; M.endAt=M.startAt+LEN; start(); }); return; }
     host.ready(); }
   $("vReady").addEventListener("click",meReady);
+  // live price gate: a tick in the last 10 s. Bot matches hold READY until one arrives, and give up after 15 s.
+  const PRICE_FRESH_MS=10000, PRICE_WAIT_MS=15000; let pwIv=null;
+  function priceReady(){ const h=host.history(); const k=h.length?h[h.length-1]:null; return !!k&&k.p>0&&Date.now()-k.ts<PRICE_FRESH_MS; }
+  function waitForPrice(go){ clearInterval(pwIv); if(priceReady()){ go(); return; }
+    const t0=Date.now(); $("vReady").textContent="WAITING FOR PRICE\u2026";
+    pwIv=setInterval(()=>{ if(dead||!M){ clearInterval(pwIv); return; }
+      if(priceReady()){ clearInterval(pwIv); go(); return; }
+      if(Date.now()-t0>PRICE_WAIT_MS){ clearInterval(pwIv); M=null; show("intro"); lerr("Can't reach the live BTC price right now. Try again in a moment."); } },250); }
   $("lCancel").addEventListener("click",()=>{ clearInterval(launchIv); if(!M||M.net) return; M=null; $("preCount").hidden=true; show("intro"); });
   $("vLeave").addEventListener("click",()=>{ clearInterval(vIv); if(M&&M.net) host.leave(); M=null; show("intro"); });
   $("rAgain").addEventListener("click",()=>{ if(M&&!M.net){ practice(); return; } $("rAgain").disabled=true; $("rAgain").textContent="WAITING\u2026"; host.rematch(); });
