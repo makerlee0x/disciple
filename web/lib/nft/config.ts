@@ -6,7 +6,7 @@
  * into the SAME verified collection: maker's wallet DISCIPLE_TREASURY is the collection's update authority.
  * Item i of the drop is METADATA_BASE + `${i}.json` (i = 0..776); each file names its disciple ("disciple #700").
  *
- * Ethereum: "The Twelve" founder passes, 12 on OpenSea (collection slug FOUNDER_SLUG).
+ * Ethereum: "The Twelve" founder passes (ERC-721 FOUNDER_CONTRACT), traded on OpenSea (collection slug FOUNDER_SLUG).
  */
 export const DISCIPLE_COLLECTION = "CVziNj1WpFYQAJeD5ufvyzDzTQP6eHv8bcLcMC8iAsTw";
 /** maker's wallet: collection update authority, creator (100%), and where mint SOL goes. */
@@ -29,6 +29,10 @@ export const MINT_LIMIT_ID = 1;
 export const FOUNDER_SLUG = "the-twelve-by-jesus";
 export const FOUNDER_URL = `https://opensea.io/collection/${FOUNDER_SLUG}`;
 export const FOUNDER_COUNT = 12;
+/** "The Twelve by $Jesus", ERC-721 on Ethereum (maker 2026-11-17). Every pass is the same art. */
+export const FOUNDER_CONTRACT = "0xae702cfedea4b92c4d8a4f4d268b12efbf9b562c" as const;
+/** The pass art, from token #1's own metadata (ipfs://QmRdSr…/1.jpg). */
+export const FOUNDER_IMAGE = "https://gateway.pinit.io/ipfs/QmRdSrHiuyjV6EE3VgaPQK6ouqDisdcuukdhXLUSAqLvmY/1.jpg";
 
 export const isSolAddress = (s: unknown): s is string => typeof s === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s);
 export const isEvmAddress = (s: unknown): s is string => typeof s === "string" && /^0x[0-9a-fA-F]{40}$/.test(s);

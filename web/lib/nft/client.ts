@@ -60,10 +60,6 @@ export async function pickNftPfp(profile: string, id: string): Promise<{ imageId
   } catch { return { reason: "Couldn't reach the server." }; }
 }
 
-export type FounderPass = { id: string; contract: string; name: string; image: string; url: string };
-export async function fetchFounders(): Promise<{ passes: FounderPass[] | null; url: string } | null> {
-  try { return await (await fetch(api("/api/nft/founders"))).json(); } catch { return null; }
-}
 export type MintStatus = { supply: number; minted: number | null; price: number; limit: number; candyMachine: string | null; lut: string | null };
 export async function fetchMintStatus(): Promise<MintStatus | null> {
   try { return await (await fetch(api("/api/nft/mint"), { cache: "no-store" })).json(); } catch { return null; }

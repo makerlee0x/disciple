@@ -2,17 +2,18 @@ import "server-only";
 /**
  * Reads for Disciple NFTs.
  *  - Solana: Helius (HELIUS_API_KEY) RPC + DAS. Without the key every read answers "unknown" (null), never "doesn't own".
- *  - Ethereum founder passes: OpenSea API v2 (OPENSEA_API_KEY), by collection slug, so it works for ERC-721 or ERC-1155.
+ *  - Ethereum founder passes (The Twelve, ERC-721): balanceOf on mainnet (ETH_RPC_URL or a public RPC). No API key.
  * Short in-memory caches; callers cache longer in KV where it matters.
  */
-import { DISCIPLE_COLLECTION, FOUNDER_SLUG, FOUNDER_URL, itemIndex, type OwnedNft } from "@/lib/nft/config";
+import { createPublicClient, http, parseAbi } from "viem";
+import { mainnet } from "viem/chains";
+import { DISCIPLE_COLLECTION, FOUNDER_CONTRACT, itemIndex, type OwnedNft } from "@/lib/nft/config";
 
 export const heliusUrl = () => {
   const k = process.env.HELIUS_API_KEY?.trim();
   return process.env.HELIUS_RPC_URL?.trim() || (k ? `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(k)}` : "");
 };
 export const solanaConfigured = () => !!heliusUrl();
-export const foundersConfigured = () => !!process.env.OPENSEA_API_KEY?.trim();
 
 export async function solRpc<T>(method: string, params: unknown, timeoutMs = 8000): Promise<T> {
   const url = heliusUrl();
@@ -80,33 +81,15 @@ export async function mintedItems(): Promise<{ count: number; items: number[]; u
 /** Last Solana read error (key redacted), for /api/nft/mint's `reads` field. */
 export let lastReadError = "";
 
-/* ------------------------------------------------ Ethereum founder passes (OpenSea) ------------------------------------------------ */
+/* ------------------------------------------------ Ethereum founder passes (The Twelve) ------------------------------------------------ */
 
-type OsNft = { identifier: string; contract: string; name?: string | null; image_url?: string | null; display_image_url?: string | null; opensea_url?: string | null };
-async function opensea<T>(path: string): Promise<T> {
-  const key = process.env.OPENSEA_API_KEY?.trim();
-  if (!key) throw new Error("opensea not configured");
-  const r = await fetch(`https://api.opensea.io/api/v2${path}`, { headers: { "x-api-key": key, accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(8000) });
-  if (!r.ok) throw new Error(`opensea ${path}: ${r.status}`);
-  return (await r.json()) as T;
-}
-export type FounderPass = { id: string; contract: string; name: string; image: string; url: string };
-const toPass = (n: OsNft): FounderPass => ({
-  id: n.identifier, contract: n.contract, name: n.name || `Founder #${n.identifier}`,
-  image: n.display_image_url || n.image_url || "", url: n.opensea_url || FOUNDER_URL,
-});
+const erc721 = parseAbi(["function balanceOf(address owner) view returns (uint256)"]);
+let eth: ReturnType<typeof createPublicClient> | null = null;
+/** Ethereum mainnet reads: ETH_RPC_URL, else a public endpoint (one balanceOf per linked wallet, cached 30 min upstream). */
+const ethClient = () => (eth ??= createPublicClient({ chain: mainnet, transport: http(process.env.ETH_RPC_URL?.trim() || "https://ethereum-rpc.publicnode.com", { timeout: 8000 }) }));
 
-/** All passes in the collection. null = couldn't check. */
-export async function founderPasses(): Promise<FounderPass[] | null> {
-  if (!foundersConfigured()) return null;
-  try { return (await opensea<{ nfts: OsNft[] }>(`/collection/${FOUNDER_SLUG}/nfts?limit=50`)).nfts.map(toPass); }
-  catch (e) { console.warn("[disciple] nft: founderPasses failed", String(e)); return null; }
-}
-/** Passes an Ethereum wallet holds. null = couldn't check. */
-export async function foundersOf(owner: string): Promise<OwnedNft[] | null> {
-  if (!foundersConfigured()) return null;
-  try {
-    const j = await opensea<{ nfts: OsNft[] }>(`/chain/ethereum/account/${owner.toLowerCase()}/nfts?collection=${FOUNDER_SLUG}&limit=50`);
-    return j.nfts.map((n) => ({ chain: "eth" as const, id: `${n.contract.toLowerCase()}:${n.identifier}`, name: n.name || `Founder #${n.identifier}`, image: n.display_image_url || n.image_url || "" }));
-  } catch (e) { console.warn("[disciple] nft: foundersOf failed", String(e)); return null; }
+/** How many founder passes an Ethereum wallet holds (ERC-721 balanceOf). null = couldn't check. */
+export async function foundersOf(owner: string): Promise<number | null> {
+  try { return Number(await ethClient().readContract({ address: FOUNDER_CONTRACT, abi: erc721, functionName: "balanceOf", args: [owner as `0x${string}`] })); }
+  catch (e) { console.warn("[disciple] nft: foundersOf failed", String(e)); return null; }
 }

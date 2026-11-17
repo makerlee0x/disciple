@@ -58,8 +58,8 @@ export async function holderStatus(profile: string, fresh = false): Promise<Hold
   if (!l.sol && !l.eth) return { ...base, disciples: 0, founders: 0 };
   const c = parse<{ disciples: number; founders: number; at: number }>(await kv().get(`nft:hold:${p}`));
   if (c && !fresh && Date.now() - c.at < HOLD_TTL_MS) return { ...base, disciples: c.disciples, founders: c.founders };
-  const [d, f] = await Promise.all([l.sol ? disciplesOf(l.sol) : Promise.resolve([]), l.eth ? foundersOf(l.eth) : Promise.resolve([])]);
-  const out = { disciples: d?.length ?? c?.disciples ?? 0, founders: f?.length ?? c?.founders ?? 0 };
+  const [d, f] = await Promise.all([l.sol ? disciplesOf(l.sol) : Promise.resolve([]), l.eth ? foundersOf(l.eth) : Promise.resolve(0)]);
+  const out = { disciples: d?.length ?? c?.disciples ?? 0, founders: f ?? c?.founders ?? 0 };
   if (d !== null && f !== null) await kv().set(`nft:hold:${p}`, JSON.stringify({ ...out, at: Date.now() }));
   return { ...base, ...out };
 }

@@ -54,18 +54,17 @@
 
 /* ---------- /market holder shelf ---------- */
 .nft-shelf { display: flex; flex-direction: column; gap: 16px; margin: 18px 0; }
-.nft-twelve { padding: 18px 20px 20px; }
-.nft-twelve header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.nft-twelve { padding: 16px; display: flex; align-items: center; gap: 20px; }
+.nft-twelve-tx { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 1; min-width: 0; }
+.nft-twelve-chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .nft-twelve h2 { margin: 0 6px 0 0; font: 800 34px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
 .nft-os { margin-left: auto; min-height: 40px; padding: 0 16px; }
-.nft-twelve-row { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 10px; }
-.nft-pass { position: relative; aspect-ratio: 1; border-radius: 12px; overflow: hidden; display: grid; place-items: center; text-decoration: none;
-  border: 1px solid var(--dsc3-panel-border-gold); background: radial-gradient(closest-side, rgba(243, 223, 168, .2), rgba(18, 19, 39, 0)), #121327;
+.nft-pass { flex: none; width: 132px; aspect-ratio: 1; border-radius: 14px; overflow: hidden; display: block; text-decoration: none;
+  border: 1px solid var(--dsc3-panel-border-gold); background: #121327;
   transition: transform var(--dsc-duration-fast, 120ms) var(--dsc3-ease), border-color var(--dsc-duration-fast, 120ms); }
 .nft-pass:hover { transform: var(--dsc3-lift); border-color: var(--dsc3-light-gold); }
 .nft-pass:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
 .nft-pass img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.nft-pass i { font: italic 900 22px / 1 var(--dsc-font-game); color: #F3DFA8; font-style: normal; }
 .nft-pair { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; }
 .nft-disc { display: flex; align-items: center; gap: 18px; padding: 14px 18px 14px 14px; text-decoration: none; color: inherit; }
 .nft-disc:hover { border-color: var(--dsc3-panel-border-gold); }
@@ -85,14 +84,13 @@
 .nft-sealed-marks { position: absolute; right: 14px; top: 10px; display: flex; gap: 6px; }
 .nft-sealed-marks i { font: 700 13px / 22px var(--dsc-font-ui); font-style: normal; width: 22px; text-align: center; border-radius: 50%; background: rgba(11, 12, 14, .6); color: #F3DFA8; }
 @media (max-width: 900px) {
-  .nft-twelve-row { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .nft-pair { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
-  .nft-twelve { padding: 14px; }
+  .nft-twelve { padding: 12px; }
   .nft-twelve h2 { font-size: 26px; }
   .nft-os { margin-left: 0; }
-  .nft-twelve-row { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .nft-twelve { gap: 14px; } .nft-pass { width: 96px; }
   .nft-disc-tx b, .nft-sealed-tx b { font-size: 24px; }
   .nft-mosaic { grid-template-columns: repeat(2, 38px); } .nft-mosaic img { width: 38px; height: 38px; }
 }
