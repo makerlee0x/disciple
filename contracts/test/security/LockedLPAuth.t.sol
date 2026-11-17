@@ -34,4 +34,19 @@ contract LockedLPAuthTest is IntegrationBase {
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
         lockedLP.setFeeRouter(address(1));
     }
+
+    /// @dev Wiring is write-once: the owner cannot re-point LockedLP after deploy (it would let a fake PoolManager pull
+    ///      the escrow and compound buckets through unlockCallback's settle).
+    function test_wiring_is_write_once() public {
+        vm.startPrank(owner);
+        vm.expectRevert(LockedLP.AlreadyWired.selector);
+        lockedLP.setPoolManager(address(1));
+        vm.expectRevert(LockedLP.AlreadyWired.selector);
+        lockedLP.setMigration(address(1));
+        vm.expectRevert(LockedLP.AlreadyWired.selector);
+        lockedLP.setFeeRouter(address(1));
+        vm.expectRevert(LockedLP.AlreadyWired.selector);
+        lockedLP.setHook(address(1));
+        vm.stopPrank();
+    }
 }
