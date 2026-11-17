@@ -54,6 +54,9 @@ const nextConfig = {
       return [{ source: "/duel", headers: [{ key: "Content-Security-Policy", value: "frame-ancestors 'self' https://x.com https://*.x.com https://twitter.com https://*.twitter.com" }] }];
     },
   }),
+  // PR 470 (Solana mint libs) pushed the Vercel build near its RAM cap: one preview build was OOM-killed during the type
+  // check. Next's webpack memory optimizations trade a little build time for a lower peak.
+  experimental: { webpackMemoryOptimizations: true },
   serverExternalPackages: ["sharp", "nsfwjs", "@tensorflow/tfjs", "@napi-rs/canvas", "undici"],
   outputFileTracingIncludes: {
     // the art plates (public/art) are read from disk by these routes, so they must ship with the functions
