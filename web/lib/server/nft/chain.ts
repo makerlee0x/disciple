@@ -75,8 +75,10 @@ export async function mintedItems(): Promise<{ count: number; items: number[]; u
       if (i === null) unknown++; else items.add(i);
     }
     return { count: all.length, items: [...items].sort((x, y) => x - y), unknown };
-  } catch (e) { console.warn("[disciple] nft: mintedItems failed", String(e)); return null; }
+  } catch (e) { lastReadError = String(e).replace(/api-key=[^&\s]+/g, "api-key=…").slice(0, 200); console.warn("[disciple] nft: mintedItems failed", lastReadError); return null; }
 }
+/** Last Solana read error (key redacted), for /api/nft/mint's `reads` field. */
+export let lastReadError = "";
 
 /* ------------------------------------------------ Ethereum founder passes (OpenSea) ------------------------------------------------ */
 
