@@ -38,7 +38,7 @@ export default function HolderShelf() {
           <h2 id="nft-twelve-h">The Twelve</h2>
           <span className="nft-twelve-chips">
             <span className="nft-chip">Ethereum</span>
-            <span className="nft-chip">{FOUNDER_COUNT} Moonwalkers</span>
+            <span className="nft-chip">{FOUNDER_COUNT} Access Keys</span>
           </span>
           <a className="dsc3-btn dsc3-btn-ghost nft-os" href={FOUNDER_URL} target="_blank" rel="noopener noreferrer">OpenSea ↗</a>
         </div>
