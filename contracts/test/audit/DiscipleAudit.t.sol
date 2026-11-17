@@ -6,7 +6,6 @@ import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {LockedLP} from "../../src/LockedLP.sol";
 import {ReferralRegistry} from "../../src/ReferralRegistry.sol";
-import {UsdgDepositNotifier} from "../../src/UsdgDepositNotifier.sol";
 import {IReferralRegistry} from "../../src/interfaces/IReferralRegistry.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -239,107 +238,6 @@ contract DiscipleAuditTest is IntegrationBase {
             }
         }
         assertTrue(seen);
-    }
-
-    // ── #7 MEDIUM (follow-up): referral gate needs USDG escrowed + locked 7 days in the notifier ──
-    function _notifier() internal returns (ReferralRegistry reg, UsdgDepositNotifier n) {
-        reg = new ReferralRegistry(owner, address(quote));
-        n = new UsdgDepositNotifier(owner, IReferralRegistry(address(reg)), IERC20(address(quote)));
-        vm.prank(owner);
-        reg.setDepositHook(address(n));
-    }
-
-    function _ids1(uint256 id) internal pure returns (uint256[] memory ids) {
-        ids = new uint256[](1);
-        ids[0] = id;
-    }
-
-    function test_audit7_honestEscrowPathAndWithdrawAfterLock() public {
-        (ReferralRegistry reg, UsdgDepositNotifier n) = _notifier();
-        address w = makeAddr("w7");
-        uint256 gate = n.minDeposit();
-        quote.mint(w, gate);
-        vm.startPrank(w);
-        reg.tryAttribute(w, kol);
-        quote.approve(address(n), gate); // exact approve to the notifier
-        uint256 id = n.deposit(w, gate); // self-funding is fine: the USDG is locked here
-        vm.stopPrank();
-        assertEq(reg.referrerOf(w), kol, "gate satisfied");
-        assertEq(quote.balanceOf(address(n)), gate, "escrowed in the notifier");
-        (uint256 amt, uint256 unlockAt) = n.escrowOf(w, id);
-        assertEq(amt, gate);
-        assertEq(unlockAt, vm.getBlockTimestamp() + 7 days);
-        assertEq(n.escrowedOf(w), gate);
-        vm.prank(w);
-        vm.expectRevert(abi.encodeWithSelector(UsdgDepositNotifier.Locked.selector, id, unlockAt));
-        n.withdraw(_ids1(id));
-        vm.warp(unlockAt);
-        vm.prank(w);
-        n.withdraw(_ids1(id));
-        assertEq(quote.balanceOf(w), gate, "withdrawn after lock");
-        assertEq(n.escrowedOf(w), 0);
-        assertEq(reg.referrerOf(w), kol, "referral stays");
-        vm.prank(w);
-        vm.expectRevert(UsdgDepositNotifier.NothingEscrowed.selector);
-        n.withdraw(_ids1(id));
-    }
-
-    /// L5: a third-party gift is its own entry — it never re-locks the beneficiary's existing escrow.
-    function test_audit7_giftDoesNotRelockExisting() public {
-        (, UsdgDepositNotifier n) = _notifier();
-        address w = makeAddr("w7b");
-        address g = makeAddr("gifter");
-        uint256 gate = n.minDeposit();
-        quote.mint(w, gate);
-        quote.mint(g, gate);
-        vm.startPrank(w);
-        quote.approve(address(n), gate);
-        uint256 id0 = n.deposit(w, gate);
-        vm.stopPrank();
-        vm.warp(vm.getBlockTimestamp() + 6 days);
-        vm.startPrank(g);
-        quote.approve(address(n), gate);
-        uint256 id1 = n.deposit(w, gate); // gift on day 6
-        vm.stopPrank();
-        vm.warp(vm.getBlockTimestamp() + 1 days); // day 7: own deposit unlocked, gift still locked
-        vm.prank(w);
-        n.withdraw(_ids1(id0));
-        assertEq(quote.balanceOf(w), gate, "own escrow withdrawable on schedule");
-        vm.prank(w);
-        vm.expectRevert();
-        n.withdraw(_ids1(id1));
-        assertEq(n.escrowedOf(w), gate);
-    }
-
-    function test_audit7_cyclingSameUsdgFails() public {
-        (ReferralRegistry reg, UsdgDepositNotifier n) = _notifier();
-        uint256 gate = n.minDeposit();
-        address a = makeAddr("cycA");
-        address b = makeAddr("cycB");
-        address c = makeAddr("cycC");
-        quote.mint(a, gate); // only $10 in total
-        vm.prank(b);
-        reg.tryAttribute(b, kol);
-        vm.prank(c);
-        reg.tryAttribute(c, kol);
-        vm.startPrank(a);
-        quote.approve(address(n), type(uint256).max);
-        n.deposit(b, gate);
-        vm.expectRevert(); // a has nothing left: the $10 is locked for b
-        n.deposit(c, gate);
-        vm.stopPrank();
-        // b can't pull it back out to recycle it
-        vm.prank(b);
-        vm.expectRevert();
-        n.withdraw(_ids1(0));
-        assertEq(reg.referrerOf(b), kol);
-        assertEq(reg.referrerOf(c), address(0), "same USDG can't satisfy the gate twice at once");
-        assertEq(reg.usdgDeposited(c), 0);
-        // below the $10 minimum (lock-extension griefing costs $10/week)
-        quote.mint(a, 1 ether);
-        vm.prank(a);
-        vm.expectRevert(abi.encodeWithSelector(UsdgDepositNotifier.BelowMinimum.selector, gate));
-        n.deposit(c, 1 ether);
     }
 
     /// #8 LOW: the graduating buy charges (to 1e-12) the minimum quote that buys the remaining supply.

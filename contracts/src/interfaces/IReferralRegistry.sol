@@ -7,10 +7,7 @@ pragma solidity ^0.8.26;
 interface IReferralRegistry {
     function referrerOf(address wallet) external view returns (address);
 
-    /// @notice Hook: backend / deposit contract notifies after USDG deposit ≥ gate.
+    /// @notice Records `referrer` for `wallet` on first touch (no deposit gate). Called by the wallet or an attestor.
     /// @dev Only sets referrer if unset and referrer != wallet (no self-referral).
     function tryAttribute(address wallet, address referrer) external returns (bool attributed);
-
-    /// @notice Called when USDG deposit confirms the gate (≥ usdgGate = $10 in USDG raw units).
-    function onUsdgDeposit(address wallet, uint256 amount) external;
 }

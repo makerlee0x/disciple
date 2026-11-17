@@ -15,7 +15,7 @@ interface IOwnable2Step {
 ///         Safe exists, from the DEPLOYER key:
 ///
 ///           SAFE=0x… LAUNCHPAD=0x… FEE_ROUTER=0x… QUOTE_PRICER=0x… QUOTE_PROBE=0x… MIGRATION=0x… DISCIPLE_ROUTER=0x…
-///           TRAMP_WALL=0x… REFERRALS=0x… DEPOSIT_NOTIFIER=0x… ANON_LAUNCHER=0x… REWARDS_VAULT=0x… \
+///           TRAMP_WALL=0x… REFERRALS=0x… ANON_LAUNCHER=0x… REWARDS_VAULT=0x… \
 ///           forge script script/HandoverToSafe.s.sol --rpc-url $RPC --broadcast
 ///
 ///         Addresses are the ones Deploy.s.sol printed. An unset or zero entry is skipped. Each contract is only
@@ -24,7 +24,7 @@ interface IOwnable2Step {
 /// @dev FeeRouter's treasury is tunable: set SET_TREASURY=true to also point FeeRouter.setTreasury at the Safe.
 ///      LockedLP and CreatorFeeHarvest are renounced at deploy on mainnet, so they have no owner to hand over.
 contract HandoverToSafe is Script {
-    string[11] internal NAMES = [
+    string[10] internal NAMES = [
         "LAUNCHPAD",
         "FEE_ROUTER",
         "QUOTE_PRICER",
@@ -33,7 +33,6 @@ contract HandoverToSafe is Script {
         "DISCIPLE_ROUTER",
         "TRAMP_WALL",
         "REFERRALS",
-        "DEPOSIT_NOTIFIER",
         "ANON_LAUNCHER",
         "REWARDS_VAULT"
     ];

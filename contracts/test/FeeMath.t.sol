@@ -94,8 +94,4 @@ contract FeeMathTest is Test {
         assertEq(Constants.CREATOR_BUY_MAX_BPS_CEILING, 777);
         assertEq(FeeMath.creatorBuyMax(), (Constants.TOTAL_SUPPLY * 777) / 10_000);
     }
-
-    function test_referralGate_10USDG() public pure {
-        assertEq(Constants.REFERRAL_GATE_USD, 10);
-    }
 }

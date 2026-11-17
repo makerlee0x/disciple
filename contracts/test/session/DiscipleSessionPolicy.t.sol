@@ -271,7 +271,7 @@ contract DiscipleSessionPolicyTest is Test {
         U = 10 ** uint256(_usdgDecimals());
         CAP = uint128(100 * U);
         usdg = new TKNDec("USDG", _usdgDecimals());
-        registry = new ReferralRegistry(address(this), address(usdg));
+        registry = new ReferralRegistry(address(this));
         policy = new P(address(registry), address(0));
         rocket = new TKNDec("RKT", _usdgDecimals());
         rocket2 = new TKNDec("RKT2", _usdgDecimals());

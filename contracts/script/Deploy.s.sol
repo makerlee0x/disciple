@@ -20,7 +20,6 @@ import {QuotePricer} from "../src/QuotePricer.sol";
 import {DiscipleRouter} from "../src/DiscipleRouter.sol";
 import {DiscipleHook} from "../src/DiscipleHook.sol";
 import {RewardsVault} from "../src/RewardsVault.sol";
-import {UsdgDepositNotifier} from "../src/UsdgDepositNotifier.sol";
 import {AnonLauncher} from "../src/addons/AnonLauncher.sol";
 import {CreatorFeeHarvest} from "../src/addons/CreatorFeeHarvest.sol";
 import {MarketLens} from "../src/addons/MarketLens.sol";
@@ -68,9 +67,10 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       (+ a mock STRATEGY w/ STRATEGY/USDG pool at $0.00245 when DEFAULT_QUOTE is unset too)
 ///   USDG_DECIMALS       decimals of the mock USDG deployed when USDG is unset (default 6)
 ///   EXPECT_USDG_DECIMALS  revert unless USDG.decimals() equals this (default 6; set 18 only for a legacy mUSDG)
-///   REFERRAL_SINK       FeeRouter.referralSink (default address(0) = today's routing: referrer / launch KOL get the
-///                       1%). Non-zero redirects the WHOLE referral 1% incl. the launch-KOL 1% (lee, 2026-10-24).
-///                       Owner can change it any time later with FeeRouter.setReferralSink(addr).
+///   REFERRAL_SINK       FeeRouter.referralSink. Default: TREASURY on 4663 (maker 2026-11-16: the referral 1% goes
+///                       to treasury, referrers are paid by hand), address(0) elsewhere (referrer / launch KOL get
+///                       the 1%). Non-zero redirects the WHOLE referral 1% incl. the launch-KOL 1% (lee, 2026-10-24).
+///                       Fixed for good on 4663 by lockSettings().
 ///   DEFAULT_QUOTE       default launch quote (RH: STRATEGY 0x168661C52E5922288dFb2b3f323b6Cf90eb21e18)
 ///   DEFAULT_QUOTE_POOL_FEE / DEFAULT_QUOTE_POOL_TICK_SPACING / DEFAULT_QUOTE_POOL_HOOKS
 ///                       reference DEFAULT_QUOTE/USDG v4 pool for the QuotePricer
@@ -117,7 +117,6 @@ contract Deploy is NetworkConfig {
         address pricer;
         address usdg;
         address defaultQuote;
-        address depositNotifier;
         address rewardsVault;
         address anonLauncher;
         address marketLens;
@@ -155,7 +154,7 @@ contract Deploy is NetworkConfig {
         }
         uint8 usdgDec = ERC20(o.usdg).decimals();
         require(usdgDec == vm.envOr("EXPECT_USDG_DECIMALS", uint256(6)), "Deploy: unexpected USDG decimals");
-        ReferralRegistry referrals = new ReferralRegistry(deployer, o.usdg);
+        ReferralRegistry referrals = new ReferralRegistry(deployer);
         CreatorFeeHarvest harvest = new CreatorFeeHarvest(deployer);
         LockedLP lockedLP = new LockedLP(deployer, treasury, address(harvest));
         FeeRouter feeRouter = new FeeRouter(deployer, treasury, address(referrals));
@@ -214,9 +213,6 @@ contract Deploy is NetworkConfig {
         }
         if (o.defaultQuote == address(0)) o.defaultQuote = o.usdg;
 
-        // Audit #5: the referral USDG gate needs a deposit notifier, else onUsdgDeposit always reverts.
-        o.depositNotifier = address(new UsdgDepositNotifier(deployer, referrals, IERC20(o.usdg)));
-        referrals.setDepositHook(o.depositNotifier);
 
         QuotePricer pricer = new QuotePricer(deployer, manager, o.usdg);
         // Default floor is set by the constructor (1e4 * 10^((18 + usdgDecimals) / 2)); MIN_LIQUIDITY overrides it.
@@ -291,7 +287,9 @@ contract Deploy is NetworkConfig {
         if (mainnet || vm.envOr("RENOUNCE_LOCKED_LP", false)) lockedLP.renounceOwnership();
         // referralSink: address(0) = today's routing (default). Non-zero takes the whole referral 1% incl. launch KOL.
         {
-            address sink = vm.envOr("REFERRAL_SINK", address(0));
+            // maker 2026-11-16: the referral 1% goes to treasury on mainnet (team pays referrers by hand). It must be
+            // set before lockSettings() below, so mainnet defaults the sink to the treasury.
+            address sink = vm.envOr("REFERRAL_SINK", mainnet ? treasury : address(0));
             if (sink != address(0)) feeRouter.setReferralSink(sink);
         }
         if (mainnet || vm.envOr("LOCK_FEE_SETTINGS", false)) feeRouter.lockSettings();
@@ -304,7 +302,6 @@ contract Deploy is NetworkConfig {
             _nominate(address(router), safe);
             _nominate(o.trampWall, safe);
             _nominate(address(referrals), safe);
-            _nominate(o.depositNotifier, safe);
             _nominate(o.anonLauncher, safe);
             if (lockedLP.owner() != address(0)) _nominate(address(lockedLP), safe);
             if (harvest.owner() != address(0)) _nominate(address(harvest), safe);
@@ -336,7 +333,6 @@ contract Deploy is NetworkConfig {
         console2.log("Launchpad", o.launchpad);
         console2.log("QuoteProbe", o.probe);
         console2.log("QuotePricer", o.pricer);
-        console2.log("UsdgDepositNotifier", o.depositNotifier);
         console2.log("USDG", o.usdg);
         console2.log("DefaultQuote", o.defaultQuote);
         console2.log("DefaultQuoteUsdWad", pricer.quotePriceUsd(o.defaultQuote));

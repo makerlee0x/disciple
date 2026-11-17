@@ -6,7 +6,6 @@ import {Deploy} from "../../script/Deploy.s.sol";
 import {DeployPaymaster} from "../../script/DeployPaymaster.s.sol";
 import {DisciplePaymaster} from "../../src/paymaster/DisciplePaymaster.sol";
 import {ReferralRegistry} from "../../src/ReferralRegistry.sol";
-import {UsdgDepositNotifier} from "../../src/UsdgDepositNotifier.sol";
 import {DiscipleHook} from "../../src/DiscipleHook.sol";
 import {LockedLP} from "../../src/LockedLP.sol";
 import {Migration} from "../../src/Migration.sol";
@@ -58,10 +57,8 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         Deploy d = new Deploy();
         Deploy.Out memory o = d.run();
 
-        // #5 deposit notifier wired → onUsdgDeposit reachable
-        assertEq(ReferralRegistry(o.referrals).depositHook(), o.depositNotifier);
-        assertEq(address(UsdgDepositNotifier(o.depositNotifier).registry()), o.referrals);
-        assertEq(address(UsdgDepositNotifier(o.depositNotifier).usdg()), o.usdg);
+        // referrals count on first touch (no deposit gate since 2026-11-17)
+        assertTrue(ReferralRegistry(o.referrals).owner() != address(0));
 
 
         // #1 migrate gated by Launchpad registry; #12 hook wired to Migration

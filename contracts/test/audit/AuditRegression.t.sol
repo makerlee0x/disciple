@@ -5,7 +5,6 @@ import "../integration/IntegrationBase.sol";
 import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {TrampWallManager} from "../../src/TrampWallManager.sol";
-import {UsdgDepositNotifier} from "../../src/UsdgDepositNotifier.sol";
 
 contract FixedPricer {
     uint256 public p;
@@ -98,7 +97,6 @@ contract AuditRegression is IntegrationBase {
 
     // ── #3 referral hijack ──
     function test_audit3_tryAttributeOnlyWalletOrAttestor() public {
-        depositHook.notifyDeposit(trader1, 10 ether);
         vm.prank(attacker);
         vm.expectRevert(ReferralRegistry.NotWalletOrAttestor.selector);
         referrals.tryAttribute(trader1, attacker);
@@ -108,16 +106,16 @@ contract AuditRegression is IntegrationBase {
         referrals.tryAttribute(trader1, kol);
         assertEq(referrals.referrerOf(trader1), kol);
 
-        // attestor path + first-touch: a later different referrer never overwrites the pending one
+        // attestor path + first-touch: a later different referrer never overwrites the first one
         address att = makeAddr("attestor");
         vm.prank(owner);
         referrals.setAttestor(att, true);
         vm.prank(att);
         referrals.tryAttribute(trader2, kol);
+        assertEq(referrals.referrerOf(trader2), kol, "counts right away, no deposit gate");
         vm.prank(trader2);
-        assertFalse(referrals.tryAttribute(trader2, attacker));
-        assertEq(referrals.pendingReferrer(trader2), kol);
-        depositHook.notifyDeposit(trader2, 10 ether);
+        vm.expectRevert(ReferralRegistry.AlreadyAttributed.selector);
+        referrals.tryAttribute(trader2, attacker);
         assertEq(referrals.referrerOf(trader2), kol);
     }
 
@@ -149,22 +147,6 @@ contract AuditRegression is IntegrationBase {
             }
         }
         assertTrue(seen, "GraduationLeftover emitted");
-    }
-
-    // ── #5 deposit notifier (real contract; deploy wiring covered by DeployConfig.t.sol) ──
-    function test_audit5_usdgDepositNotifierFinalizesReferral() public {
-        UsdgDepositNotifier n = new UsdgDepositNotifier(owner, referrals, quote);
-        vm.prank(owner);
-        referrals.setDepositHook(address(n));
-        vm.prank(trader1);
-        referrals.tryAttribute(trader1, kol);
-        vm.startPrank(trader2); // third-party payer (self-deposits are rejected: DISCIPLE audit #7)
-        quote.approve(address(n), 10 ether);
-        n.deposit(trader1, 10 ether);
-        vm.stopPrank();
-        assertEq(referrals.referrerOf(trader1), kol);
-        vm.expectRevert(UsdgDepositNotifier.OnlyAttestor.selector);
-        n.attest(trader2, 10 ether);
     }
 
     // ── #6 one-tick-spacing bands ──

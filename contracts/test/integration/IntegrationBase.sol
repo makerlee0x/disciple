@@ -57,19 +57,6 @@ contract MockUSDGDec is MockUSDG {
     }
 }
 
-/// @dev Minimal deposit notifier for ReferralRegistry USDG gate.
-contract DepositHookMock {
-    ReferralRegistry public immutable registry;
-
-    constructor(ReferralRegistry r) {
-        registry = r;
-    }
-
-    function notifyDeposit(address wallet, uint256 amount) external {
-        registry.onUsdgDeposit(wallet, amount);
-    }
-}
-
 /// @notice Shared actors + v4 stack for end-to-end integration tests.
 abstract contract IntegrationBase is Test {
     using PoolIdLibrary for PoolKey;
@@ -87,7 +74,6 @@ abstract contract IntegrationBase is Test {
     MockUSDG internal quote;
     RewardsVault internal rewardsVault;
     ReferralRegistry internal referrals;
-    DepositHookMock internal depositHook;
     LockedLP internal lockedLP;
     FeeRouter internal feeRouter;
     Migration internal migration;
@@ -137,7 +123,7 @@ abstract contract IntegrationBase is Test {
     function setUp() public virtual {
         quote = new MockUSDGDec(_usdgDecimals());
         U = 10 ** uint256(_usdgDecimals());
-        referrals = new ReferralRegistry(owner, address(quote));
+        referrals = new ReferralRegistry(owner);
         // The harvest address is known before it is deployed so this create does not shift the nonce of
         // LockedLP or anything after it. The gas bench compares those addresses with main.
         bytes32 harvestSalt = keccak256("disciple.creator-fee-harvest");
@@ -155,8 +141,6 @@ abstract contract IntegrationBase is Test {
         lockedLP.setMigration(address(migration));
         lockedLP.setFeeRouter(address(feeRouter));
         lockedLP.setPoolManager(address(manager));
-        depositHook = new DepositHookMock(referrals);
-        referrals.setDepositHook(address(depositHook));
         vm.stopPrank();
 
         // redeploy pack item 8: no legacy AntiSnipe (v2 curves compute the sniper tax inline), as in Deploy.s.sol
@@ -228,10 +212,8 @@ abstract contract IntegrationBase is Test {
 
     function _bindReferral(address wallet, address referrer, uint256 usdgDeposit) internal {
         vm.prank(wallet); // audit #3: only the wallet (or an attestor) may attribute itself
-        referrals.tryAttribute(wallet, referrer);
-        if (usdgDeposit > 0) {
-            depositHook.notifyDeposit(wallet, usdgDeposit);
-        }
+        referrals.tryAttribute(wallet, referrer); // first touch counts right away (no deposit gate since 2026-11-17)
+        usdgDeposit; // kept so existing callers compile
     }
 
     /// @dev Launch prices fail closed until the pair's TWAP covers a full window with fresh keeper pokes (audit

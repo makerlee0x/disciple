@@ -137,11 +137,6 @@ library Constants {
     uint256 internal constant KOL_CREATOR_FEE_SHARE_BPS = 200; // DEFAULT 2% of creator's 33% share (FeeRouter.kolCreatorShareBps, owner-settable 0–500)
     uint256 internal constant KOL_OF_CREATOR_FEES_BPS = 300; // 3% of creator fees (composed)
 
-    // ── Referral gate (§4 / LOCKED #18) ───────────────────────────────────────
-    /// @dev Whole USD; contracts scale it by the USDG token's decimals at construction (immutable), so the
-    ///      18-dec testnet mock and 6-dec mainnet USDG both gate at $10. See ReferralRegistry.usdgGate /
-    ///      UsdgDepositNotifier.minDeposit.
-    uint256 internal constant REFERRAL_GATE_USD = 10; // $10 USDG deposit
 
     // ── Creator buy at launch (§5 / LOCKED #27) ───────────────────────────────
     /// @dev Default protocol-owner-settable creator-buy cap (Launchpad.creatorBuyMaxBps, TRENCH First BOOST max) —

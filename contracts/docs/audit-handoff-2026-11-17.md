@@ -51,7 +51,7 @@ Assume the attacker is any EOA or contract, including one that calls the v4 Pool
    - `route` / `routeWith` can be called by anyone, and the caller receives nothing.
 6. **Other parts:**
    - **TrampWallManager:** user one-sided limit bands in graduated pools.
-   - **ReferralRegistry + UsdgDepositNotifier:** first-touch referral, gated by a $10 USDG deposit.
+   - **ReferralRegistry:** first-touch referral, final right away (no deposit gate; UsdgDepositNotifier deleted 2026-11-17). On mainnet the referral 1% goes to the treasury via the referral sink, set before `lockSettings()`.
    - **DisciplePermitForwarder:** Permit2 spender for gasless withdrawals and relayed actions. No owner, holds no funds between calls.
 
 ## Contracts in scope
@@ -70,7 +70,7 @@ Assume the attacker is any EOA or contract, including one that calls the v4 Pool
 | QuotePricer | pair-coin USD price (TWAP of USDG pools) | owner + pokers |
 | QuoteProbe | listing-time buy/transfer simulation (always reverts) | owner |
 | TrampWallManager | limit bands | owner: keeper tip ≤ 1% |
-| ReferralRegistry, UsdgDepositNotifier | referrals | owner + attester key |
+| ReferralRegistry | referrals | owner + attester key |
 | RewardsVault | sniper-escrow pool | owner pays out |
 | AnonLauncher | hidden launches (stealth owner, EIP-712) | owner: harvest pointer only (no launch fee: hidden launches are free, `launchFee` is the constant 0) |
 | CreatorFeeHarvest | lock/burn creator fees | owner renounced at deploy |
@@ -107,7 +107,7 @@ These are **locked at deploy**, in this commit:
 - **QuoteProbe:** probe size, `setAlwaysPass`.
 - **AnonLauncher:** fee, treasury, harvest pointer.
 - **RewardsVault:** `distribute`.
-- **Attester keys:** ReferralRegistry, UsdgDepositNotifier. A stolen key can attribute an unattributed wallet to an attacker referrer (redirecting that wallet's future referral share), but can't move funds.
+- **Attester keys:** ReferralRegistry. A stolen key can attribute an unattributed wallet to an attacker referrer (redirecting that wallet's future referral share), but can't move funds.
 
 No contract is upgradeable or behind a proxy.
 
@@ -153,7 +153,7 @@ No contract is upgradeable or behind a proxy.
 - **The hook emits no events.** Indexers read the PoolManager `Swap` event plus the router's `PoolTrade(trader, …)`. The hook takes no `hookData` and gives no per-trader referral credit on pool trades; the referral 1% goes to FeeRouter's referral sink.
 - **Pool LP fee is 0.** All pool fees come from the hook delta. Raw v4 `modifyLiquidity` by third parties is allowed but earns nothing.
 - **Fixed constants:** 1% trade fee, 33/33/33/1 split, 1M supply, $3,333 → $33,333 curve. Pool depth at graduation is about $5.3k per side (deliberate).
-- **Single attester keys** (referral, deposit) are hot relayer keys. The Safe can rotate them.
+- **Single attester keys** (referral) are hot relayer keys. The Safe can rotate them.
 - **Accepted (2026-11-17 round):** the virtual-reserve depth floor is pro-cyclical (the TWAP read path and the freshness check cover the manipulation side); the hook fee rounds down below 100 wei; quote tokens are only the 12 vetted pairs (no rebasing, pausable or fee-on-transfer token may be listed, since a paused quote freezes its coins with no rescue); exact-out swaps over ~99% of a side revert.
 - **Test tooling.** `vm.lastCallGas` gas-bench tests fail on the forge build we use. This is a tooling issue, not a contract bug.
 - **Prior internal audit (2026-11-14)** fixed these: HK-01 (donation bricking compounding), CH-01..07 (harvest), FR-01/02, PM-1/2, SK-1 (session key, now out of scope), HK-02 (TWAP poke made keeper-only), and LB-01 (listed quotes priced from route TWAPs).
@@ -193,7 +193,7 @@ Fork tests read Robinhood Chain mainnet through its public RPC.
 | Forwarder is a shared identity: stranded tips, approvals (A-6, L-11) | relayed calls can't call transfer / transferFrom / approve / increaseAllowance / permit / setApprovalForAll; fee-token gains always go to `feeTo` |
 | `forwardTokenFees` always reverts (A-4, R461-06) | removed |
 | Anon direct transfer keeps nonce (L-01); resettable pointers (L-02, L-12, L-14, L-31) | nonce bump; harvest + AnonLauncher pointers write-once with code checks; LockedLP wiring setters require code |
-| Single-step ownership (L-27), zero owner (L-26) | DiscipleRouter, TrampWallManager, ReferralRegistry, UsdgDepositNotifier and the hook admin are two-step; `Owned2Step` rejects a zero owner |
+| Single-step ownership (L-27), zero owner (L-26) | DiscipleRouter, TrampWallManager, ReferralRegistry and the hook admin are two-step; `Owned2Step` rejects a zero owner |
 | Renounces env-overridable, no Safe handover (R461-05, L-32, g) | mainnet renounces + lock are unconditional; Safe nominated at deploy or later by `HandoverToSafe.s.sol`; read-back checks in Deploy |
 | Dead LoginGate / maxMode (M-2, I-17) | removed from Launchpad and Deploy; LoginGate.sol and the curve's `loginGate` field deleted |
 | `setRewardsVault(0)` (L-10) | contracts only |
