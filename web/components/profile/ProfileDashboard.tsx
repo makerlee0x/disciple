@@ -10,7 +10,7 @@ import { fetchProfileMeta } from "@/lib/profileMetaClient";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
 import { NO_IDENTITY } from "@/lib/identity";
 import { withBase } from "@/lib/base-path";
-import { connectedAddress, onWallet } from "@/lib/walletState";
+import { connectedAddress, lastWallet, onWallet } from "@/lib/walletState";
 import { hasSavedSession, onPrivy, privyAuthenticated, privyLoaded } from "@/lib/aa/sessionState";
 import { DEPOSIT_HREF, LEGACY_CASH_HASH, OPEN_SETTINGS_EVENT, SETTINGS_HASHES } from "@/lib/cashLink";
 import SettingsModal from "./SettingsModal";
@@ -111,7 +111,16 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   // public: the username lookup finished (a name with no wallet then shows empty, not loading)
   const [resolved, setResolved] = useState(false);
   useEffect(() => {
-    if (isPrivate) return onWallet((a) => setWallet(a ? a.toLowerCase() : null));
+    if (isPrivate) {
+      // Paint the last signed-in wallet's profile at once while the saved session restores (Privy takes a second or two);
+      // the real wallet then confirms it, or replaces it, or the page falls back to signed out.
+      const restoringNow = () => !connectedAddress() && (privyAuthenticated() || (!privyLoaded() && hasSavedSession()));
+      const guess = restoringNow() ? lastWallet() : null;
+      const apply = () => { const a = connectedAddress(); setWallet(a ? a.toLowerCase() : restoringNow() && guess ? guess.toLowerCase() : null); };
+      const offW = onWallet(apply), offP = onPrivy(apply);
+      const t = window.setTimeout(() => { if (!connectedAddress()) setWallet(null); }, 8000);
+      return () => { offW(); offP(); window.clearTimeout(t); };
+    }
     if (!username) return;
     let alive = true;
     setResolved(false);
