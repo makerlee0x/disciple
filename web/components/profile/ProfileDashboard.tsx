@@ -14,6 +14,7 @@ import { onWallet } from "@/lib/walletState";
 import { DEPOSIT_HREF, LEGACY_CASH_HASH, OPEN_SETTINGS_EVENT, SETTINGS_HASHES } from "@/lib/cashLink";
 import SettingsModal from "./SettingsModal";
 import EditProfileSheet from "./EditProfileSheet";
+import HolderTags from "@/components/nft/HolderTags";
 import IdentitySigil from "./IdentitySigil";
 import BioText from "./BioText";
 import Pager, { pageCount, pageSlice } from "./Pager";
@@ -235,7 +236,8 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       {isPrivate && <RewardsPopup open={rewardsOpen} onClose={closeRewards} r={rewards} />}
       {toast && <div className="pf-toast" role="status">{toast}</div>}
 
-      <HangarBay handle={handle} bio={bio} avatar={avatar} xp={xp} actions={actions} spend={false} stats={dash} />
+      <HangarBay handle={handle} bio={bio} avatar={avatar} xp={xp} actions={actions} spend={false} stats={dash}
+        nftAvatar={!!img && !!meta.nft} tags={wallet ? <HolderTags wallet={wallet} /> : null} />
 
       {/* iPhone app only (html.app): the desktop Hangar is one long page on a phone, so a sticky row jumps to each part */}
       {isPrivate && (

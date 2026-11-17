@@ -37,6 +37,21 @@ importers:
       '@disciple/session-keys':
         specifier: workspace:*
         version: link:../sdk/session-keys
+      '@metaplex-foundation/mpl-candy-machine':
+        specifier: ^6.1.0
+        version: 6.1.0(@metaplex-foundation/umi@1.6.0)
+      '@metaplex-foundation/mpl-token-metadata':
+        specifier: ^3.4.0
+        version: 3.4.0(@metaplex-foundation/umi@1.6.0)
+      '@metaplex-foundation/mpl-toolbox':
+        specifier: ^0.10.0
+        version: 0.10.0(@metaplex-foundation/umi@1.6.0)
+      '@metaplex-foundation/umi':
+        specifier: ^1.6.0
+        version: 1.6.0
+      '@metaplex-foundation/umi-bundle-defaults':
+        specifier: ^1.6.0
+        version: 1.6.0(@metaplex-foundation/umi@1.6.0)(@solana/web3.js@1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))
       '@napi-rs/canvas':
         specifier: ^1.0.11
         version: 1.0.11
@@ -52,6 +67,12 @@ importers:
       '@vercel/blob':
         specifier: ^2.9.0
         version: 2.9.0
+      '@wallet-standard/app':
+        specifier: ^1.1.1
+        version: 1.1.1
+      '@wallet-standard/base':
+        specifier: ^1.1.1
+        version: 1.1.1
       lightweight-charts:
         specifier: ^5.2.1
         version: 5.2.1
@@ -112,7 +133,7 @@ importers:
         version: 8.5.30
       tailwindcss:
         specifier: ^3.4.1
-        version: 3.4.19(tsx@4.23.15)
+        version: 3.4.19(tsx@4.23.15)(yaml@2.9.1)
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -121,7 +142,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.43)(happy-dom@21.0.4(bufferutil@4.1.0)(utf-8-validate@6.0.6))(jiti@1.21.7)(tsx@4.23.15)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.43)(happy-dom@21.0.4(bufferutil@4.1.0)(utf-8-validate@6.0.6))(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.1)
 
 packages:
 
@@ -857,6 +878,107 @@ packages:
   '@metamask/utils@9.3.0':
     resolution: {integrity: sha512-w8CVbdkDrVXFJbfBSlDfafDR6BAkpDmv1bC1UJVCoVny5tW2RKAdn9i68Xf7asYT4TnUhl/hN4zfUiKQq9II4g==}
     engines: {node: '>=16.0.0'}
+
+  '@metaplex-foundation/mpl-candy-machine@6.1.0':
+    resolution: {integrity: sha512-Y58wVkK9kU3ur22xnmYG/IOzJfo450dlUMl8FSuSRThV82IJte11ggtw5fEWIQQO/jhLWsjlkRHn4vd5RGmeGg==}
+    peerDependencies:
+      '@metaplex-foundation/umi': '>= 0.8.2 <= 1'
+
+  '@metaplex-foundation/mpl-token-metadata@3.0.0-alpha.27':
+    resolution: {integrity: sha512-MSERz5HB2XZ/K+FOMh0tPeqcZZEpGVzdy7e+Cy3MHg7x52JtbGBDtWIoxBJn1OBZayCBfX9gytEoqrXe2YRGqQ==}
+    peerDependencies:
+      '@metaplex-foundation/umi': ^0.8.2
+
+  '@metaplex-foundation/mpl-token-metadata@3.4.0':
+    resolution: {integrity: sha512-AxBAYCK73JWxY3g9//z/C9krkR0t1orXZDknUPS4+GjwGH2vgPfsk04yfZ31Htka2AdS9YE/3wH7sMUBHKn9Rg==}
+    peerDependencies:
+      '@metaplex-foundation/umi': '>= 0.8.2 <= 1'
+
+  '@metaplex-foundation/mpl-toolbox@0.10.0':
+    resolution: {integrity: sha512-84KD1L5cFyw5xnntHwL4uPwfcrkKSiwuDeypiVr92qCUFuF3ZENa2zlFVPu+pQcjTlod2LmEX3MhBmNjRMpdKg==}
+    peerDependencies:
+      '@metaplex-foundation/umi': '>= 0.8.2 <= 1'
+
+  '@metaplex-foundation/mpl-toolbox@0.9.4':
+    resolution: {integrity: sha512-fd6JxfoLbj/MM8FG2x91KYVy1U6AjBQw4qjt7+Da3trzQaWnSaYHDcYRG/53xqfvZ9qofY1T2t53GXPlD87lnQ==}
+    peerDependencies:
+      '@metaplex-foundation/umi': '>= 0.8.2 < 1'
+
+  '@metaplex-foundation/umi-bundle-defaults@1.6.0':
+    resolution: {integrity: sha512-XiqlvHWW/vI9ycGfIqy2dPMxqjD7MIuJHcg/4bOLQr7yMGSdSUenXvF+hbFd2HiYYGxGt7U3Q4Uq48is+IhiRQ==}
+    peerDependencies:
+      '@metaplex-foundation/umi': ^1.6.0
+      '@solana/web3.js': ^1.99.0
+
+  '@metaplex-foundation/umi-downloader-http@1.6.0':
+    resolution: {integrity: sha512-Kk27iWw0zY2UYR1kRYZWhsoksuYVmqaaNjr5r2nt8tdusOY7pEcpULyo9qgdPtrv7dOwBbCmKZccPfeNRRVPUg==}
+    peerDependencies:
+      '@metaplex-foundation/umi': ^1.6.0
+
+  '@metaplex-foundation/umi-eddsa-web3js@1.6.0':
+    resolution: {integrity: sha512-B8/RlJpiqmjlblohVN/34Saik0lQ1tsrJ3njUSwss6ZNDVyRzfYf89+G/jin9GgaE4V845dZ/vK9cftulKLSSw==}
+    peerDependencies:
+      '@metaplex-foundation/umi': ^1.6.0
+      '@solana/web3.js': ^1.99.0
+
+  '@metaplex-foundation/umi-http-fetch@1.6.0':
+    resolution: {integrity: sha512-ZOQ4XCoyxPg+yQ4qlAnh+08LfIR4622SQGrvyn/ReVCtA8pj96QzH0MzIQjk7DxFAbPKHyWWlBcPsI9KRZhzNw==}
+    peerDependencies:
+      '@metaplex-foundation/umi': ^1.6.0
+
+  '@metaplex-foundation/umi-options@1.6.0':
+    resolution: {integrity: sha512-kFamaTg/MDXKLP9XsSvIw66hQ0fVOR4a63iaZtXJCoFuCoxTRQZAHu7S6tVDbeIIGaqB0gO6qYX0RSjxluXhQQ==}
+
+  '@metaplex-foundation/umi-program-repository@1.6.0':
+    resolution: {integrity: sha512-4u9+gIR31o9WfSRWYgkpAugDjMiV0HkAHPhT+eT3hiYbHIW6w9ygAhrS6yHshU5dApOGFV+5mfdEdLl1mBJycg==}
+    peerDependencies:
+      '@metaplex-foundation/umi': ^1.6.0
+
+  '@metaplex-foundation/umi-public-keys@1.6.0':
+    resolution: {integrity: sha512-RzTi8WkjTOB40LPL/4162bSb6p6vknlJj56JLaiMXsfzkshhxRb+LpuWjI6zm/IGXlpGaFLQrkIos0BT6FzBAA==}
+
+  '@metaplex-foundation/umi-rpc-chunk-get-accounts@1.6.0':
+    resolution: {integrity: sha512-j05YNi1VeQwXIrYv5nF1yYz9JTqrR87HXDTp5JmJlhw9DebuKl1j1BQBA9NAEY6hfEfmeDgR5aFa8grmuu3muQ==}
+    peerDependencies:
+      '@metaplex-foundation/umi': ^1.6.0
+
+  '@metaplex-foundation/umi-rpc-web3js@1.6.0':
+    resolution: {integrity: sha512-Dl+yP9EbNNeZ/1J5Nd+0HfoxV+N6B5pOfC8KO2G+rP7g441X+MvRnBIW3d2dmmmaBnQJSOyegcetKsWeNr6l7g==}
+    peerDependencies:
+      '@metaplex-foundation/umi': ^1.6.0
+      '@solana/web3.js': ^1.99.0
+
+  '@metaplex-foundation/umi-serializer-data-view@1.6.0':
+    resolution: {integrity: sha512-ejRTWfyYCzkRg58e96wiZVjP1uooDuxliyQyR7cpXF1VWsoiwincys9J9VMSr+P9DtU6B3LyyiS72kqcqNyJ8w==}
+    peerDependencies:
+      '@metaplex-foundation/umi': ^1.6.0
+
+  '@metaplex-foundation/umi-serializers-core@1.6.0':
+    resolution: {integrity: sha512-5AJvEK4j9oAjRtrjBcNdDYzY7opYVKVlblFwcMp0GHM+xB3/OMW6UpeuZPk6sHDbhQArFpFycpBqRT9heE6w4Q==}
+
+  '@metaplex-foundation/umi-serializers-encodings@1.6.0':
+    resolution: {integrity: sha512-ZZSnbsVJOABJcopQzTTU6Ek99O9tJItkoq+nb/EtDOkzQGhtfQjxpgnoKbgoGnguwbQNuvgM41sPRHHmL0XMig==}
+
+  '@metaplex-foundation/umi-serializers-numbers@1.6.0':
+    resolution: {integrity: sha512-pr48YJoCv6sow/j24jelUfq0zkxK5FQeQEG9FFycRdL/SXVBV6A+dOCVwt7lr7FPTHoftjoJcFCgBufI6mbbbw==}
+
+  '@metaplex-foundation/umi-serializers@1.6.0':
+    resolution: {integrity: sha512-O0lPPjJGdOx5uxlE/BASErtLonD7BoMi5a0QIazRGAJzaApq/0Nup4QT9oGOPuhE1zncxhhK/rTAfNAqYoA2ng==}
+
+  '@metaplex-foundation/umi-transaction-factory-web3js@1.6.0':
+    resolution: {integrity: sha512-ybV7up3/bOfhtDoNlnzbmioqZ5/oyLA23LmUS+u9+VhWIqEw8gvbDcJr3nvN5pfV5kT/aPGyQe8UhjWqSEKTuQ==}
+    peerDependencies:
+      '@metaplex-foundation/umi': ^1.6.0
+      '@solana/web3.js': ^1.99.0
+
+  '@metaplex-foundation/umi-web3js-adapters@1.6.0':
+    resolution: {integrity: sha512-9gqyxi1LORSvDTD8CDAD5Q+O+ehby/OIgRY0/845OM0w3f5SpzAp5BTegzRkJUjsd/H9XsIn/8UZt7meNfEfnQ==}
+    peerDependencies:
+      '@metaplex-foundation/umi': ^1.6.0
+      '@solana/web3.js': ^1.99.0
+
+  '@metaplex-foundation/umi@1.6.0':
+    resolution: {integrity: sha512-zN6/mzMXB9zujqJTP4XMpBPKbZZcDw6rA3oPF42mvvb6BZxUOpL9hCylqozbiaF+b1Wz9R3tjnTAQ4wMtfFBEA==}
 
   '@msgpack/msgpack@3.1.2':
     resolution: {integrity: sha512-JEW4DEtBzfe8HvUYecLU9e6+XJnKDlUAIve8FvPzF3Kzs6Xo/KuZkZJsDH0wJXl/qEZbeeE7edxDNY3kMs39hQ==}
@@ -2556,12 +2678,18 @@ packages:
   big.js@6.2.2:
     resolution: {integrity: sha512-y/ie+Faknx7sZA5MfGA2xKlu0GDv8RWrXGsmlteyJQ2lvoKv9GBK/fpRMc2qlSoBAgNxrixICFCBefIq8WCQpQ==}
 
+  bignumber.js@9.3.1:
+    resolution: {integrity: sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ==}
+
   binary-extensions@2.3.0:
     resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}
     engines: {node: '>=8'}
 
   blakejs@1.2.1:
     resolution: {integrity: sha512-QXUSXI3QVc/gJME0dBpXrag1kbzOqCjCX8/b54ntNyW6sjtoqxqRk3LTmXzaJoh71zMsDCjM+47jS7XiwN/+fQ==}
+
+  bn.js@4.11.6:
+    resolution: {integrity: sha512-XWwnNNFCuuSQ0m3r3C4LE3EiORltHd9M05pq6FOlVeiophzRbMo50Sbz1ehl8K3Z+jw9+vmgnXefY1hz8X+2wA==}
 
   bn.js@4.12.5:
     resolution: {integrity: sha512-3aRg6/JxfffFD+OlOjOFR3Vo79l39ooBTFucxx+MT3dhCtzn3EmiUPQo+6/OZuI2jbXi3YKgmiTFBgChQMwIRQ==}
@@ -2598,6 +2726,9 @@ packages:
   buffer-image-size@0.6.4:
     resolution: {integrity: sha512-nEh+kZOPY1w+gcCMobZ6ETUp9WfibndnosbpwB1iJk/8Gt5ZF2bhS6+B6bPYz424KtwsR6Rflc3tCz1/ghX2dQ==}
     engines: {node: '>=4.0'}
+
+  buffer-reverse@1.0.1:
+    resolution: {integrity: sha512-M87YIUBsZ6N924W57vDwT/aOu8hw7ZgdByz6ijksLjmHJELBASmYTTlNHRgjE+pTsT9oJXGaDSgqqwfdHotDUg==}
 
   buffer@6.0.3:
     resolution: {integrity: sha512-FTiCpNxtwiZZHEZbcbTIcZjERVICn9yq/pDFkTl95/AxzD1naBctN7YO68riM/gLSDY7sdrMby8hofADYuuqOA==}
@@ -2742,6 +2873,10 @@ packages:
 
   crypt@0.0.2:
     resolution: {integrity: sha512-mCxBlsHFYh9C+HVpiEacem8FEBnMXgU9gy4zmNC+SXAZNB/1idgp/aulFJ4FgCi7GPEVbfyng092GqL2k2rmow==}
+
+  crypto-js@4.2.0:
+    resolution: {integrity: sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==}
+    deprecated: Active development of CryptoJS has been discontinued. This library is no longer maintained.
 
   cssesc@3.0.0:
     resolution: {integrity: sha512-/Tb/JcjK111nNScGob5MNtsntNM1aCNUDipB/TkwZFhyDrrE47SOx/18wF2bbjgc3ZzCSKW1T5nt5EbFoAz/Vg==}
@@ -3129,8 +3264,15 @@ packages:
   eth-rpc-errors@4.0.3:
     resolution: {integrity: sha512-Z3ymjopaoft7JDoxZcEb3pwdGh7yiYMhOwm2doUt6ASXlMavpNlK6Cre0+IMl2VSGyEU9rkiperQhp5iRxn5Pg==}
 
+  ethereum-bloom-filters@1.2.0:
+    resolution: {integrity: sha512-28hyiE7HVsWubqhpVLVmZXFd4ITeHi+BUu05o9isf0GUpMtzBUi+8/gFrGaGYzvGAJQmJ3JKj77Mk9G98T84rA==}
+
   ethereum-cryptography@2.2.1:
     resolution: {integrity: sha512-r/W8lkHSiTLxUxW8Rf3u4HGB0xQweG2RyETjywylKZSzLWoWAijRz8WCuOtJ6wah+avllXBqZuk29HCCvhEIRg==}
+
+  ethjs-unit@0.1.6:
+    resolution: {integrity: sha512-/Sn9Y0oKl0uqQuvgFk/zQgR7aw1g36qX/jzSQ5lSwlO0GigPymk4eGQfeNTD03w1dPOqfz8V77Cy43jH56pagw==}
+    engines: {node: '>=6.5.0', npm: '>=3'}
 
   event-emitter@0.3.5:
     resolution: {integrity: sha512-D9rRn9y7kLPnJ+hMq7S/nhvoKwwvVJahBi2BPmx3bvbsEdK3W9ii8cBSGjP+72/LnM4n6fo3+dkCX5FeTQruXA==}
@@ -3506,6 +3648,10 @@ packages:
     resolution: {integrity: sha512-xelSayHH36ZgE7ZWhli7pW34hNbNl8Ojv5KVmkJD4hBdD3th8Tfk9vYasLM+mXWOZhFkgZfxhLSnrwRr4elSSg==}
     engines: {node: '>=0.10.0'}
 
+  is-hex-prefixed@1.0.0:
+    resolution: {integrity: sha512-WvtOiug1VFrE9v1Cydwm+FnXd3+w9GaeVUss5W4v/SLy3UW00vP+6iNF2SdnfiBoLy4bTqVdkftNGTUeOFVsbA==}
+    engines: {node: '>=6.5.0', npm: '>=3'}
+
   is-map@2.0.3:
     resolution: {integrity: sha512-1Qed0/Hr2m+YqxnM09CjA2d/i6YZNfF6R2oRAOj36eUdS6qIV/huPJNSEpKbupewFs+ZsJlxsjjPbc0/afW6Lw==}
     engines: {node: '>= 0.4'}
@@ -3771,6 +3917,10 @@ packages:
     resolution: {integrity: sha512-8q7VEgMJW4J8tcfVPy8g09NcQwZdbwFEqhe/WZkoIzjn/3TGDwtOCYtXGxA3O8tPzpczCCDgv+P2P5y00ZJOOg==}
     engines: {node: '>= 8'}
 
+  merkletreejs@0.3.11:
+    resolution: {integrity: sha512-LJKTl4iVNTndhL+3Uz/tfkjD0klIWsHlUzgtuNnNrsf7bAlXR30m+xYB7lHr5Z/l6e/yAIsr26Dabx6Buo4VGQ==}
+    engines: {node: '>= 7.6.0'}
+
   micro-ftch@0.3.1:
     resolution: {integrity: sha512-/0LLxhzP0tfiR5hcQebtudP56gUurs2CLkGarnCiB/OqEyUFQ6U3paQi/tgLv0hBJYt2rnr9MNpxz4fiiugstg==}
 
@@ -3922,6 +4072,10 @@ packages:
     peerDependencies:
       '@tensorflow/tfjs': ^4.0.0
       buffer: ^6.0.3
+
+  number-to-bn@1.7.0:
+    resolution: {integrity: sha512-wsJ9gfSz1/s4ZsJN01lyonwuxA1tml6X1yBDnfpMglypcBRFZZkus26EdPSlqS5GJfYddVZa22p3VNb3z5m5Ig==}
+    engines: {node: '>=6.5.0', npm: '>=3'}
 
   obj-case@0.2.1:
     resolution: {integrity: sha512-PquYBBTy+Y6Ob/O2574XHhDtHJlV1cJHMCgW+rDRc9J5hhmRelJB3k5dTK/3cVmFVtzvAKuENeuLpoyTzMzkOg==}
@@ -4320,6 +4474,9 @@ packages:
   radix3@1.1.2:
     resolution: {integrity: sha512-b484I/7b8rDEdSDKckSSBA8knMpcdsXudlE/LNL639wFoHKwLbEkQFZHWEYwDC0wa0FKUcCY+GAF73Z7wxNVFA==}
 
+  randombytes@2.1.0:
+    resolution: {integrity: sha512-vYl3iOX+4CKUWuxGi9Ukhie6fsqXqS9FE2Zaic4tNFD2N2QQaXOMFbuKK4QmDHC0JO6B1Zp41J0LpT0oR68amQ==}
+
   react-aria@3.53.1:
     resolution: {integrity: sha512-dikisyOjJd3D2fFrIDWmVWzqiLz5B86GzZv1zxs7xI4dVc0JIz/1Wa52I20gYvVL2WXeFXlygYsle/QcOMhtcg==}
     peerDependencies:
@@ -4663,6 +4820,10 @@ packages:
     resolution: {integrity: sha512-BrpvfNAE3dcvq7ll3xVumzjKjZQ5tI1sEUIKr3Uoks0XUl45St3FlatVqef9prk4jRDzhW6WZg+3bk93y6pLjA==}
     engines: {node: '>=6'}
 
+  strip-hex-prefix@1.0.0:
+    resolution: {integrity: sha512-q8d4ue7JGEiVcypji1bALTos+0pWtyGlivAWyPuTkHzuTCJqrK9sWxYQZUq6Nq3cuyv3bm734IhHvHtGGURU6A==}
+    engines: {node: '>=6.5.0', npm: '>=3'}
+
   strip-json-comments@3.1.1:
     resolution: {integrity: sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==}
     engines: {node: '>=8'}
@@ -4795,6 +4956,10 @@ packages:
 
   tr46@0.0.3:
     resolution: {integrity: sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==}
+
+  treeify@1.1.0:
+    resolution: {integrity: sha512-1m4RA7xVAJrSGrrXGs0L3YTwyvBs2S8PbRHaLZAkFw7JR8oIFwYtysxlBZhYIa7xSyiYJKZ3iGrrk55cGA3i9A==}
+    engines: {node: '>=0.6'}
 
   ts-api-utils@2.5.0:
     resolution: {integrity: sha512-OJ/ibxhPlqrMM0UiNHJ/0CKQkoKF243/AEmplt3qpRgkW8VG7IfOS41h7V8TjITqdByHzrjcS/2si+y4lIh8NA==}
@@ -4981,6 +5146,9 @@ packages:
     resolution: {integrity: sha512-q3l3P9UtEEiAHcsgsqTgf9PPjctrDWoIXW3NpOHFdRDbLvu4DLIcxHangJ4RLrWkBcKjmcs/6NkerI8T/rE4LA==}
     engines: {node: '>=6.14.2'}
 
+  utf8@3.0.0:
+    resolution: {integrity: sha512-E8VjFIQ/TyQgp+TZfS6l8yp/xWppSAHzidGiRrqe4bK4XP9pTRyKFgGJpO3SN7zdX4DeomTrwaseCHovfpFcqQ==}
+
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
@@ -5137,6 +5305,10 @@ packages:
       typescript:
         optional: true
 
+  web3-utils@1.10.4:
+    resolution: {integrity: sha512-tsu8FiKJLk2PzhDl9fXbGUWTkkVXYhtTA+SmEFkKft+9BgwLxfCRpU96sWv7ICC8zixBNd3JURVoiR3dUXgP8A==}
+    engines: {node: '>=8.0.0'}
+
   webauthn-p256@0.0.10:
     resolution: {integrity: sha512-EeYD+gmIT80YkSIDb2iWq0lq2zbHo1CxHlQTeJ+KkCILWpVy3zASH3ByD4bopzfk0uCwXxLqKGLqp2W4O28VFA==}
 
@@ -5279,6 +5451,11 @@ packages:
     resolution: {integrity: sha512-MvQa//+KcZCUkBTIC9blM+CU9J2GzuTytsOUwf2lidtvkx/6gnEp1QvJv34t9vdjhFmha/mUiNDbN0D0mJWdug==}
     engines: {node: '>=0.10.32'}
     deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+
+  yaml@2.9.1:
+    resolution: {integrity: sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==}
+    engines: {node: '>= 14.6'}
+    hasBin: true
 
   yargs-parser@18.1.3:
     resolution: {integrity: sha512-o50j0JeToy/4K6OZcaQmW6lyXXKhq7csREXcDwk2omFPJEwUNOVtJKvmDr9EI1fAJZUyZcRF7kxGBWmRXudrCQ==}
@@ -6467,6 +6644,126 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@metaplex-foundation/mpl-candy-machine@6.1.0(@metaplex-foundation/umi@1.6.0)':
+    dependencies:
+      '@metaplex-foundation/mpl-token-metadata': 3.0.0-alpha.27(@metaplex-foundation/umi@1.6.0)
+      '@metaplex-foundation/mpl-toolbox': 0.10.0(@metaplex-foundation/umi@1.6.0)
+      '@metaplex-foundation/umi': 1.6.0
+      '@noble/hashes': 1.8.0
+      merkletreejs: 0.3.11
+
+  '@metaplex-foundation/mpl-token-metadata@3.0.0-alpha.27(@metaplex-foundation/umi@1.6.0)':
+    dependencies:
+      '@metaplex-foundation/mpl-toolbox': 0.9.4(@metaplex-foundation/umi@1.6.0)
+      '@metaplex-foundation/umi': 1.6.0
+
+  '@metaplex-foundation/mpl-token-metadata@3.4.0(@metaplex-foundation/umi@1.6.0)':
+    dependencies:
+      '@metaplex-foundation/mpl-toolbox': 0.10.0(@metaplex-foundation/umi@1.6.0)
+      '@metaplex-foundation/umi': 1.6.0
+
+  '@metaplex-foundation/mpl-toolbox@0.10.0(@metaplex-foundation/umi@1.6.0)':
+    dependencies:
+      '@metaplex-foundation/umi': 1.6.0
+
+  '@metaplex-foundation/mpl-toolbox@0.9.4(@metaplex-foundation/umi@1.6.0)':
+    dependencies:
+      '@metaplex-foundation/umi': 1.6.0
+
+  '@metaplex-foundation/umi-bundle-defaults@1.6.0(@metaplex-foundation/umi@1.6.0)(@solana/web3.js@1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))':
+    dependencies:
+      '@metaplex-foundation/umi': 1.6.0
+      '@metaplex-foundation/umi-downloader-http': 1.6.0(@metaplex-foundation/umi@1.6.0)
+      '@metaplex-foundation/umi-eddsa-web3js': 1.6.0(@metaplex-foundation/umi@1.6.0)(@solana/web3.js@1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))
+      '@metaplex-foundation/umi-http-fetch': 1.6.0(@metaplex-foundation/umi@1.6.0)
+      '@metaplex-foundation/umi-program-repository': 1.6.0(@metaplex-foundation/umi@1.6.0)
+      '@metaplex-foundation/umi-rpc-chunk-get-accounts': 1.6.0(@metaplex-foundation/umi@1.6.0)
+      '@metaplex-foundation/umi-rpc-web3js': 1.6.0(@metaplex-foundation/umi@1.6.0)(@solana/web3.js@1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))
+      '@metaplex-foundation/umi-serializer-data-view': 1.6.0(@metaplex-foundation/umi@1.6.0)
+      '@metaplex-foundation/umi-transaction-factory-web3js': 1.6.0(@metaplex-foundation/umi@1.6.0)(@solana/web3.js@1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))
+      '@solana/web3.js': 1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
+    transitivePeerDependencies:
+      - encoding
+
+  '@metaplex-foundation/umi-downloader-http@1.6.0(@metaplex-foundation/umi@1.6.0)':
+    dependencies:
+      '@metaplex-foundation/umi': 1.6.0
+
+  '@metaplex-foundation/umi-eddsa-web3js@1.6.0(@metaplex-foundation/umi@1.6.0)(@solana/web3.js@1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))':
+    dependencies:
+      '@metaplex-foundation/umi': 1.6.0
+      '@metaplex-foundation/umi-web3js-adapters': 1.6.0(@metaplex-foundation/umi@1.6.0)(@solana/web3.js@1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))
+      '@noble/curves': 1.9.7
+      '@solana/web3.js': 1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
+      yaml: 2.9.1
+
+  '@metaplex-foundation/umi-http-fetch@1.6.0(@metaplex-foundation/umi@1.6.0)':
+    dependencies:
+      '@metaplex-foundation/umi': 1.6.0
+      node-fetch: 2.7.0
+    transitivePeerDependencies:
+      - encoding
+
+  '@metaplex-foundation/umi-options@1.6.0': {}
+
+  '@metaplex-foundation/umi-program-repository@1.6.0(@metaplex-foundation/umi@1.6.0)':
+    dependencies:
+      '@metaplex-foundation/umi': 1.6.0
+
+  '@metaplex-foundation/umi-public-keys@1.6.0':
+    dependencies:
+      '@metaplex-foundation/umi-serializers-encodings': 1.6.0
+
+  '@metaplex-foundation/umi-rpc-chunk-get-accounts@1.6.0(@metaplex-foundation/umi@1.6.0)':
+    dependencies:
+      '@metaplex-foundation/umi': 1.6.0
+
+  '@metaplex-foundation/umi-rpc-web3js@1.6.0(@metaplex-foundation/umi@1.6.0)(@solana/web3.js@1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))':
+    dependencies:
+      '@metaplex-foundation/umi': 1.6.0
+      '@metaplex-foundation/umi-web3js-adapters': 1.6.0(@metaplex-foundation/umi@1.6.0)(@solana/web3.js@1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))
+      '@solana/web3.js': 1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
+
+  '@metaplex-foundation/umi-serializer-data-view@1.6.0(@metaplex-foundation/umi@1.6.0)':
+    dependencies:
+      '@metaplex-foundation/umi': 1.6.0
+
+  '@metaplex-foundation/umi-serializers-core@1.6.0': {}
+
+  '@metaplex-foundation/umi-serializers-encodings@1.6.0':
+    dependencies:
+      '@metaplex-foundation/umi-serializers-core': 1.6.0
+
+  '@metaplex-foundation/umi-serializers-numbers@1.6.0':
+    dependencies:
+      '@metaplex-foundation/umi-serializers-core': 1.6.0
+
+  '@metaplex-foundation/umi-serializers@1.6.0':
+    dependencies:
+      '@metaplex-foundation/umi-options': 1.6.0
+      '@metaplex-foundation/umi-public-keys': 1.6.0
+      '@metaplex-foundation/umi-serializers-core': 1.6.0
+      '@metaplex-foundation/umi-serializers-encodings': 1.6.0
+      '@metaplex-foundation/umi-serializers-numbers': 1.6.0
+
+  '@metaplex-foundation/umi-transaction-factory-web3js@1.6.0(@metaplex-foundation/umi@1.6.0)(@solana/web3.js@1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))':
+    dependencies:
+      '@metaplex-foundation/umi': 1.6.0
+      '@metaplex-foundation/umi-web3js-adapters': 1.6.0(@metaplex-foundation/umi@1.6.0)(@solana/web3.js@1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))
+      '@solana/web3.js': 1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
+
+  '@metaplex-foundation/umi-web3js-adapters@1.6.0(@metaplex-foundation/umi@1.6.0)(@solana/web3.js@1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))':
+    dependencies:
+      '@metaplex-foundation/umi': 1.6.0
+      '@solana/web3.js': 1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
+      buffer: 6.0.3
+
+  '@metaplex-foundation/umi@1.6.0':
+    dependencies:
+      '@metaplex-foundation/umi-options': 1.6.0
+      '@metaplex-foundation/umi-public-keys': 1.6.0
+      '@metaplex-foundation/umi-serializers': 1.6.0
+
   '@msgpack/msgpack@3.1.2': {}
 
   '@napi-rs/canvas-android-arm64@1.0.11':
@@ -7474,7 +7771,7 @@ snapshots:
       '@segment/facade': 3.4.10
       dset: 3.1.4
       js-cookie: 3.0.1
-      node-fetch: 2.6.13
+      node-fetch: 2.7.0
       tslib: 2.8.1
       unfetch: 4.2.0
     transitivePeerDependencies:
@@ -7552,7 +7849,6 @@ snapshots:
   '@solana/buffer-layout@4.0.1':
     dependencies:
       buffer: 6.0.3
-    optional: true
 
   '@solana/codecs-core@5.5.1(typescript@5.9.3)':
     dependencies:
@@ -7998,7 +8294,6 @@ snapshots:
       - encoding
       - typescript
       - utf-8-validate
-    optional: true
 
   '@stripe/crypto@1.1.3(@stripe/stripe-js@1.54.2)':
     dependencies:
@@ -8110,7 +8405,6 @@ snapshots:
   '@types/connect@3.4.38':
     dependencies:
       '@types/node': 20.19.43
-    optional: true
 
   '@types/debug@4.1.13':
     dependencies:
@@ -8135,8 +8429,7 @@ snapshots:
       '@types/node': 20.19.43
       form-data: 4.0.6
 
-  '@types/node@12.20.55':
-    optional: true
+  '@types/node@12.20.55': {}
 
   '@types/node@20.19.43':
     dependencies:
@@ -8167,8 +8460,7 @@ snapshots:
 
   '@types/trusted-types@2.0.7': {}
 
-  '@types/uuid@10.0.0':
-    optional: true
+  '@types/uuid@10.0.0': {}
 
   '@types/whatwg-mimetype@3.0.2': {}
 
@@ -8177,7 +8469,6 @@ snapshots:
   '@types/ws@7.4.7':
     dependencies:
       '@types/node': 20.19.43
-    optional: true
 
   '@types/ws@8.18.2':
     dependencies:
@@ -8378,13 +8669,13 @@ snapshots:
       chai: 5.3.3
       tinyrainbow: 2.0.0
 
-  '@vitest/mocker@3.2.4(vite@7.3.7(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15))':
+  '@vitest/mocker@3.2.4(vite@7.3.7(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.1))':
     dependencies:
       '@vitest/spy': 3.2.4
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 7.3.7(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15)
+      vite: 7.3.7(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.1)
 
   '@vitest/pretty-format@3.2.4':
     dependencies:
@@ -9536,7 +9827,6 @@ snapshots:
   agentkeepalive@4.6.0:
     dependencies:
       humanize-ms: 1.2.1
-    optional: true
 
   ajv@6.15.0:
     dependencies:
@@ -9739,7 +10029,6 @@ snapshots:
   base-x@3.0.11:
     dependencies:
       safe-buffer: 5.2.1
-    optional: true
 
   base-x@5.0.1: {}
 
@@ -9750,9 +10039,13 @@ snapshots:
 
   big.js@6.2.2: {}
 
+  bignumber.js@9.3.1: {}
+
   binary-extensions@2.3.0: {}
 
   blakejs@1.2.1: {}
+
+  bn.js@4.11.6: {}
 
   bn.js@4.12.5:
     optional: true
@@ -9764,7 +10057,6 @@ snapshots:
       bn.js: 5.2.5
       bs58: 4.0.1
       text-encoding-utf-8: 1.0.2
-    optional: true
 
   bowser@2.14.1: {}
 
@@ -9787,7 +10079,6 @@ snapshots:
   bs58@4.0.1:
     dependencies:
       base-x: 3.0.11
-    optional: true
 
   bs58@6.0.0:
     dependencies:
@@ -9796,6 +10087,8 @@ snapshots:
   buffer-image-size@0.6.4:
     dependencies:
       '@types/node': 22.20.5
+
+  buffer-reverse@1.0.1: {}
 
   buffer@6.0.3:
     dependencies:
@@ -9902,8 +10195,7 @@ snapshots:
 
   commander@14.0.2: {}
 
-  commander@2.20.3:
-    optional: true
+  commander@2.20.3: {}
 
   commander@4.1.1: {}
 
@@ -9940,6 +10232,8 @@ snapshots:
       uncrypto: 0.1.3
 
   crypt@0.0.2: {}
+
+  crypto-js@4.2.0: {}
 
   cssesc@3.0.0: {}
 
@@ -10018,8 +10312,7 @@ snapshots:
 
   defu@6.1.7: {}
 
-  delay@5.0.0:
-    optional: true
+  delay@5.0.0: {}
 
   delayed-stream@1.0.0: {}
 
@@ -10238,13 +10531,11 @@ snapshots:
       es6-symbol: 3.1.4
     optional: true
 
-  es6-promise@4.2.8:
-    optional: true
+  es6-promise@4.2.8: {}
 
   es6-promisify@5.0.0:
     dependencies:
       es6-promise: 4.2.8
-    optional: true
 
   es6-symbol@3.1.4:
     dependencies:
@@ -10293,8 +10584,8 @@ snapshots:
       '@typescript-eslint/parser': 8.71.2(eslint@8.57.1)(typescript@5.9.3)
       eslint: 8.57.1
       eslint-import-resolver-node: 0.3.10
-      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0)(eslint@8.57.1)
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@8.57.1)
+      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint@8.57.1))(eslint@8.57.1)
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint@8.57.1))(eslint@8.57.1))(eslint@8.57.1)
       eslint-plugin-jsx-a11y: 6.10.2(eslint@8.57.1)
       eslint-plugin-react: 7.37.5(eslint@8.57.1)
       eslint-plugin-react-hooks: 5.2.0(eslint@8.57.1)
@@ -10313,7 +10604,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0)(eslint@8.57.1):
+  eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint@8.57.1))(eslint@8.57.1):
     dependencies:
       '@nolyfill/is-core-module': 1.0.39
       debug: 4.4.3
@@ -10324,22 +10615,22 @@ snapshots:
       tinyglobby: 0.2.17
       unrs-resolver: 1.12.2
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@8.57.1)
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint@8.57.1))(eslint@8.57.1))(eslint@8.57.1)
     transitivePeerDependencies:
       - supports-color
 
-  eslint-module-utils@2.14.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1)(eslint@8.57.1):
+  eslint-module-utils@2.14.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint@8.57.1))(eslint@8.57.1))(eslint@8.57.1):
     dependencies:
       debug: 3.2.7
     optionalDependencies:
       '@typescript-eslint/parser': 8.71.2(eslint@8.57.1)(typescript@5.9.3)
       eslint: 8.57.1
       eslint-import-resolver-node: 0.3.10
-      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0)(eslint@8.57.1)
+      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint@8.57.1))(eslint@8.57.1)
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@8.57.1):
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint@8.57.1))(eslint@8.57.1))(eslint@8.57.1):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.2.0
@@ -10350,7 +10641,7 @@ snapshots:
       doctrine: 2.1.0
       eslint: 8.57.1
       eslint-import-resolver-node: 0.3.10
-      eslint-module-utils: 2.14.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1)(eslint@8.57.1)
+      eslint-module-utils: 2.14.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.2(eslint@8.57.1)(typescript@5.9.3))(eslint@8.57.1))(eslint@8.57.1))(eslint@8.57.1)
       hasown: 2.0.4
       is-core-module: 2.17.0
       is-glob: 4.0.3
@@ -10522,12 +10813,21 @@ snapshots:
     dependencies:
       fast-safe-stringify: 2.1.1
 
+  ethereum-bloom-filters@1.2.0:
+    dependencies:
+      '@noble/hashes': 1.8.0
+
   ethereum-cryptography@2.2.1:
     dependencies:
       '@noble/curves': 1.4.2
       '@noble/hashes': 1.4.0
       '@scure/bip32': 1.4.0
       '@scure/bip39': 1.3.0
+
+  ethjs-unit@0.1.6:
+    dependencies:
+      bn.js: 4.11.6
+      number-to-bn: 1.7.0
 
   event-emitter@0.3.5:
     dependencies:
@@ -10567,8 +10867,7 @@ snapshots:
       readable-stream: 4.8.0
       webextension-polyfill: 0.10.0
 
-  eyes@0.1.8:
-    optional: true
+  eyes@0.1.8: {}
 
   fancy-canvas@2.1.0: {}
 
@@ -10602,8 +10901,7 @@ snapshots:
 
   fast-safe-stringify@2.1.1: {}
 
-  fast-stable-stringify@1.0.0:
-    optional: true
+  fast-stable-stringify@1.0.0: {}
 
   fastq@1.20.3:
     dependencies:
@@ -10818,7 +11116,6 @@ snapshots:
   humanize-ms@1.2.1:
     dependencies:
       ms: 2.1.3
-    optional: true
 
   idb-keyval@6.2.1: {}
 
@@ -10933,6 +11230,8 @@ snapshots:
     dependencies:
       is-extglob: 2.1.1
 
+  is-hex-prefixed@1.0.0: {}
+
   is-map@2.0.3: {}
 
   is-negative-zero@2.0.3: {}
@@ -11008,7 +11307,6 @@ snapshots:
   isomorphic-ws@4.0.1(ws@7.5.13(bufferutil@4.1.0)(utf-8-validate@6.0.6)):
     dependencies:
       ws: 7.5.13(bufferutil@4.1.0)(utf-8-validate@6.0.6)
-    optional: true
 
   isows@1.0.6(ws@8.18.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)):
     dependencies:
@@ -11071,7 +11369,6 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
-    optional: true
 
   jiti@1.21.7: {}
 
@@ -11111,8 +11408,7 @@ snapshots:
 
   json-stable-stringify-without-jsonify@1.0.1: {}
 
-  json-stringify-safe@5.0.1:
-    optional: true
+  json-stringify-safe@5.0.1: {}
 
   json5@1.0.2:
     dependencies:
@@ -11217,6 +11513,14 @@ snapshots:
   merge-stream@2.0.0: {}
 
   merge2@1.4.1: {}
+
+  merkletreejs@0.3.11:
+    dependencies:
+      bignumber.js: 9.3.1
+      buffer-reverse: 1.0.1
+      crypto-js: 4.2.0
+      treeify: 1.1.0
+      web3-utils: 1.10.4
 
   micro-ftch@0.3.1: {}
 
@@ -11344,6 +11648,11 @@ snapshots:
     dependencies:
       '@tensorflow/tfjs': 4.22.0(seedrandom@3.0.5)
       buffer: 6.0.3
+
+  number-to-bn@1.7.0:
+    dependencies:
+      bn.js: 4.11.6
+      strip-hex-prefix: 1.0.0
 
   obj-case@0.2.1: {}
 
@@ -11710,13 +12019,14 @@ snapshots:
       camelcase-css: 2.0.1
       postcss: 8.5.30
 
-  postcss-load-config@6.0.1(jiti@1.21.7)(postcss@8.5.30)(tsx@4.23.15):
+  postcss-load-config@6.0.1(jiti@1.21.7)(postcss@8.5.30)(tsx@4.23.15)(yaml@2.9.1):
     dependencies:
       lilconfig: 3.1.3
     optionalDependencies:
       jiti: 1.21.7
       postcss: 8.5.30
       tsx: 4.23.15
+      yaml: 2.9.1
 
   postcss-nested@6.2.0(postcss@8.5.30):
     dependencies:
@@ -11800,6 +12110,10 @@ snapshots:
   quick-format-unescaped@4.0.4: {}
 
   radix3@1.1.2: {}
+
+  randombytes@2.1.0:
+    dependencies:
+      safe-buffer: 5.2.1
 
   react-aria@3.53.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -11979,7 +12293,6 @@ snapshots:
     optionalDependencies:
       bufferutil: 4.1.0
       utf-8-validate: 6.0.6
-    optional: true
 
   run-parallel@1.2.0:
     dependencies:
@@ -12185,13 +12498,11 @@ snapshots:
       es-errors: 1.3.0
       internal-slot: 1.1.0
 
-  stream-chain@2.2.5:
-    optional: true
+  stream-chain@2.2.5: {}
 
   stream-json@1.9.1:
     dependencies:
       stream-chain: 2.2.5
-    optional: true
 
   stream-shift@1.0.3: {}
 
@@ -12270,6 +12581,10 @@ snapshots:
 
   strip-final-newline@2.0.0: {}
 
+  strip-hex-prefix@1.0.0:
+    dependencies:
+      is-hex-prefixed: 1.0.0
+
   strip-json-comments@3.1.1: {}
 
   strip-literal@3.1.0:
@@ -12310,8 +12625,7 @@ snapshots:
 
   superstruct@1.0.4: {}
 
-  superstruct@2.0.2:
-    optional: true
+  superstruct@2.0.2: {}
 
   supports-color@7.2.0:
     dependencies:
@@ -12321,7 +12635,7 @@ snapshots:
 
   tabbable@6.5.0: {}
 
-  tailwindcss@3.4.19(tsx@4.23.15):
+  tailwindcss@3.4.19(tsx@4.23.15)(yaml@2.9.1):
     dependencies:
       '@alloc/quick-lru': 5.3.0
       arg: 5.0.2
@@ -12340,7 +12654,7 @@ snapshots:
       postcss: 8.5.30
       postcss-import: 15.1.0(postcss@8.5.30)
       postcss-js: 4.1.0(postcss@8.5.30)
-      postcss-load-config: 6.0.1(jiti@1.21.7)(postcss@8.5.30)(tsx@4.23.15)
+      postcss-load-config: 6.0.1(jiti@1.21.7)(postcss@8.5.30)(tsx@4.23.15)(yaml@2.9.1)
       postcss-nested: 6.2.0(postcss@8.5.30)
       postcss-selector-parser: 6.1.4
       resolve: 1.22.13
@@ -12349,8 +12663,7 @@ snapshots:
       - tsx
       - yaml
 
-  text-encoding-utf-8@1.0.2:
-    optional: true
+  text-encoding-utf-8@1.0.2: {}
 
   text-table@0.2.0: {}
 
@@ -12400,6 +12713,8 @@ snapshots:
       is-number: 7.0.0
 
   tr46@0.0.3: {}
+
+  treeify@1.1.0: {}
 
   ts-api-utils@2.5.0(typescript@5.9.3):
     dependencies:
@@ -12569,6 +12884,8 @@ snapshots:
       node-gyp-build: 4.8.4
     optional: true
 
+  utf8@3.0.0: {}
+
   util-deprecate@1.0.2: {}
 
   util@0.12.5:
@@ -12581,8 +12898,7 @@ snapshots:
 
   uuid@11.1.1: {}
 
-  uuid@14.0.3:
-    optional: true
+  uuid@14.0.3: {}
 
   uuid@8.3.2: {}
 
@@ -12706,13 +13022,13 @@ snapshots:
       - utf-8-validate
       - zod
 
-  vite-node@3.2.4(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15):
+  vite-node@3.2.4(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.1):
     dependencies:
       cac: 6.7.14
       debug: 4.4.3
       es-module-lexer: 1.7.0
       pathe: 2.0.3
-      vite: 7.3.7(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15)
+      vite: 7.3.7(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.1)
     transitivePeerDependencies:
       - '@types/node'
       - jiti
@@ -12727,7 +13043,7 @@ snapshots:
       - tsx
       - yaml
 
-  vite@7.3.7(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15):
+  vite@7.3.7(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.1):
     dependencies:
       esbuild: 0.28.2
       fdir: 6.5.0(picomatch@4.0.7)
@@ -12740,12 +13056,13 @@ snapshots:
       fsevents: 2.3.3
       jiti: 1.21.7
       tsx: 4.23.15
+      yaml: 2.9.1
 
-  vitest@3.2.4(@types/debug@4.1.13)(@types/node@20.19.43)(happy-dom@21.0.4(bufferutil@4.1.0)(utf-8-validate@6.0.6))(jiti@1.21.7)(tsx@4.23.15):
+  vitest@3.2.4(@types/debug@4.1.13)(@types/node@20.19.43)(happy-dom@21.0.4(bufferutil@4.1.0)(utf-8-validate@6.0.6))(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.1):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.4
-      '@vitest/mocker': 3.2.4(vite@7.3.7(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15))
+      '@vitest/mocker': 3.2.4(vite@7.3.7(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.1))
       '@vitest/pretty-format': 3.2.7
       '@vitest/runner': 3.2.4
       '@vitest/snapshot': 3.2.4
@@ -12763,8 +13080,8 @@ snapshots:
       tinyglobby: 0.2.17
       tinypool: 1.1.1
       tinyrainbow: 2.0.0
-      vite: 7.3.7(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15)
-      vite-node: 3.2.4(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15)
+      vite: 7.3.7(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.1)
+      vite-node: 3.2.4(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.1)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/debug': 4.1.13
@@ -12833,6 +13150,17 @@ snapshots:
       - uploadthing
       - utf-8-validate
       - zod
+
+  web3-utils@1.10.4:
+    dependencies:
+      '@ethereumjs/util': 8.1.0
+      bn.js: 5.2.5
+      ethereum-bloom-filters: 1.2.0
+      ethereum-cryptography: 2.2.1
+      ethjs-unit: 0.1.6
+      number-to-bn: 1.7.0
+      randombytes: 2.1.0
+      utf8: 3.0.0
 
   webauthn-p256@0.0.10:
     dependencies:
@@ -13044,6 +13372,8 @@ snapshots:
 
   yaeti@0.0.6:
     optional: true
+
+  yaml@2.9.1: {}
 
   yargs-parser@18.1.3:
     dependencies:
