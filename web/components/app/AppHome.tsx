@@ -14,7 +14,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { withBase } from "@/lib/base-path";
-import { DUEL_HREF } from "@/lib/features";
+import { BOT_DUEL_HREF, DUEL_HREF } from "@/lib/features";
 import type { HomeData } from "@/lib/home/trending";
 import { flyingNow } from "@/lib/home/appHome";
 import { dailyEndsAt, dailyToday } from "@/lib/sim/daily";
@@ -126,9 +126,10 @@ export default function AppHome({ initial }: { initial: HomeData }) {
             </button>
           </div>
         ) : (
-          <button type="button" className={s.none} onClick={() => setSheet("rockets")}>
+          <Link href={BOT_DUEL_HREF} className={s.none} data-testid="app-empty-duel">
             <b>Nothing flying yet</b>
-          </button>
+            <em className={s.noneGo}>Play a duel <Icon name="chevron-right" size={14} /></em>
+          </Link>
         )}
         <Link href="/create" className={s.host} data-testid="app-host">
           <span><b>Host a launch</b></span>

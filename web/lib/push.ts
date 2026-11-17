@@ -1,6 +1,6 @@
 /**
  * Push alerts (main mode hook loop, maker 2026-11-13, mockup board "Notifications"). Pure, shared by client and server.
- * At most 3 a day, all off by default except orbit and duel requests, one switch per kind in Settings. Each push names something that
+ * At most 3 a day, all off by default except orbit, launch milestones and duel requests, one switch per kind in Settings. Each push names something that
  * already happened (people and zones). What we never send: price alerts that say buy or sell now, "your crew is buying"
  * or entry prices, "win it back" after a red flight, streak warnings that push a trade.
  */
@@ -8,7 +8,8 @@ export type PushKind = "orbit" | "host" | "crew" | "duel";
 export const PUSH_DAILY_CAP = 3;
 export const PUSH_KINDS: readonly { k: PushKind; label: string; on: boolean }[] = [
   { k: "orbit", label: "Orbit with you aboard", on: true },
-  { k: "host", label: "Your launch milestones", on: false },
+  // on by default since launch funnel item 8 (2026-11-17): a host hears when their rocket gets its first pilots
+  { k: "host", label: "Your launch milestones", on: true },
   { k: "crew", label: "Crew zones", on: false },
   // a person asked you for a duel (maker 2026-11-16, rematch requests): on by default, like orbit, because a person is waiting
   { k: "duel", label: "Duel requests", on: true },
@@ -28,6 +29,7 @@ const nth = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th",
 export const pushCopy = {
   orbit: (ticker: string, boardedZone: string) => ({ title: `$${ticker} reached orbit`, body: `You boarded at the ${title(boardedZone)} and were aboard for it. See its flight.` }),
   host: (ticker: string, n: number) => ({ title: `Your launch $${ticker} has ${n} passengers`, body: "A milestone card is ready to share." }),
+  firstBoosts: (ticker: string, n: number) => ({ title: `$${ticker} has its first ${n} pilots aboard`, body: "Your share card is ready." }),
   duel: (from: string) => ({ title: `${from} wants a duel`, body: "1v1, one minute, live BTC. Their room is open for 30 minutes." }),
   crew: (tag: string, zone: string, nthThisWeek: number) => ({ title: `[${tag}] flew to ${title(zone)}`, body: `Your crew's ${nth(nthThisWeek)} rocket past the Kármán Line this week.` }),
   never: ["Price alerts that say buy or sell now", "\"Your crew is buying\" or entry prices", "\"Win it back\" after a red flight", "Streak warnings that push a trade"],

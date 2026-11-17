@@ -107,3 +107,5 @@
 .optTh { width: 56px; height: 56px; flex: none; border-radius: 12px; object-fit: cover; }
 
 @media (prefers-reduced-motion: reduce) { .sheet, .quick, .quickWrap { animation: none; } }
+.noneGo { display: inline-flex; align-items: center; gap: 4px; font: italic 800 16px/1 var(--dsc-font-game); text-transform: uppercase; color: var(--dsc3-light-gold); }
+.emptyGo { margin-top: 10px; padding: 12px 22px; border-radius: 12px; background: var(--dsc3-light-gold); color: var(--dsc-sky-ink) !important; font: italic 800 18px/1 var(--dsc-font-game); text-transform: uppercase; }

@@ -10,6 +10,7 @@ delete process.env.UPSTASH_REDIS_REST_URL; delete process.env.KV_REST_API_URL;
 process.env.KV_LOCAL_FILE = join(tmpdir(), `duel-test-${process.pid}.json`);
 const R = await import("../lib/duel/rules");
 const S = await import("../lib/server/duel/store");
+const SEASON = await import("../lib/duel/season");
 const { setDuelPriceSource, setDuelCandleSource } = await import("../lib/server/duel/price");
 type Candle = { t: number; T: number; o: number; c: number; h: number; l: number };
 let TAPE: Candle[] | null = null;
@@ -101,6 +102,15 @@ test("server: ranked buzzer within the overtime gap adds 30 s once, then rates",
 
 test("server: ranked results land on the duel board (rating order, names, my row)", async () => {
   const c = "0x" + "c".repeat(40), d = "0x" + "d".repeat(40);
+  if (!SEASON.DUEL_RANKED_LIVE) {
+    // ranked = real money only (maker 2026-11-17): a play-money queue duel keeps the record + streak but no rating or board row
+    const rc = await S.ratingOf(c), rd = await S.ratingOf(d);
+    assert.equal(rc.games, 1); assert.equal(rd.games, 1);
+    assert.equal(rc.r, 1200); assert.equal(rd.r, 1200);
+    assert.equal(rc.w + rc.l + rd.w + rd.l <= 2, true);
+    assert.equal((await S.duelBoard(50, c)).total, 0);
+    return;
+  }
   const b = await S.duelBoard(50, c);
   assert.ok(b.rows.some((r) => r.wallet === c && r.name === "@c" && r.games === 1));
   assert.ok(b.rows.some((r) => r.wallet === d));

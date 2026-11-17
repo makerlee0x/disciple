@@ -8,7 +8,7 @@ import "server-only";
  * request and on the stream's 1 s tick, so a pilot who closes their tab still gets settled.
  * Not yet: Nova orders. Until Nova's SDK lands, duel fuel is a duel-only book (lib/duel/rules) at live prices.
  */
-import { applySp, leagueOf, seasonAt, spDelta, type Season } from "@/lib/duel/season";
+import { DUEL_RANKED_LIVE, applySp, leagueOf, seasonAt, spDelta, type Season } from "@/lib/duel/season";
 import type { SeasonLine } from "@/lib/duel/types";
 import { kv, type Kv } from "@/lib/server/kv";
 import { ulid } from "@/lib/chat/ulid";
@@ -386,6 +386,19 @@ async function rateDuel(r: DuelRoom, scoreA: 0 | 0.5 | 1, s: Kv) {
     return { ...out, sp };
   }));
 }
+/** Unranked online duel (DUEL_RANKED_LIVE off): record + win streak only. Rating, peak, the Duels board and season points stay put. */
+async function recordDuel(r: DuelRoom, scoreA: 0 | 0.5 | 1, s: Kv) {
+  const [a, b] = r.players;
+  const [k1, k2] = [a.pid, b.pid].sort().map(K.rlock);
+  return withLockKey(s, k1, () => withLockKey(s, k2, async () => {
+    const ra = await ratingOf(a.pid, s), rb = await ratingOf(b.pid, s);
+    const out = rate(ra, rb, scoreA);
+    const keep = (was: Rating, now: Rating): Rating => ({ ...was, w: now.w, l: now.l, games: now.games, streak: now.streak });
+    const na = keep(ra, out.a), nb = keep(rb, out.b);
+    await s.set(K.rating(a.pid), JSON.stringify(na)); await s.set(K.rating(b.pid), JSON.stringify(nb));
+    return { a: na, b: nb, da: 0, db: 0, sp: {} as Record<string, SeasonLine> };
+  }));
+}
 async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> {
   const fuel0 = fuelOf(r);
   const books: DuelResult["books"] = {}, profit: DuelResult["profit"] = {};
@@ -397,7 +410,7 @@ async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> 
   let season: Record<string, SeasonLine> | undefined, streak: Record<string, number> | undefined;
   if (r.mode === "ranked" && (await s.setNX(K.rated(r.id), "1", 7 * 86400))) {
     let out: Awaited<ReturnType<typeof rateDuel>>;
-    try { out = await rateDuel(r, tie ? 0.5 : d > 0 ? 1 : 0, s); } catch (e) { await s.del(K.rated(r.id)); throw e; } // retry next tick
+    try { out = DUEL_RANKED_LIVE ? await rateDuel(r, tie ? 0.5 : d > 0 ? 1 : 0, s) : await recordDuel(r, tie ? 0.5 : d > 0 ? 1 : 0, s); } catch (e) { await s.del(K.rated(r.id)); throw e; } // retry next tick
     delta[a.pid] = out.da; delta[b.pid] = out.db; rating[a.pid] = out.a.r; rating[b.pid] = out.b.r;
     season = Object.keys(out.sp).length ? out.sp : undefined;
     streak = { [a.pid]: out.a.streak, [b.pid]: out.b.streak };

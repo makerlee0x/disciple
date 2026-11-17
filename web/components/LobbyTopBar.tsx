@@ -17,6 +17,7 @@ import Icon, { type IconName } from "@/components/icons/Icon";
 import HelpButton from "@/components/HelpButton";
 import { QUICK_PLAY_EVENT } from "@/components/app/events";
 import { DUEL_HREF, FLIGHTS_HREF, MARKET_ENABLED } from "@/lib/features";
+import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
 import { isTurboEnabled } from "@/lib/turbo/flag";
 
 // Nav rework (maker 2026-11-16): the DISCIPLE mark is the way to the lobby, so there is no Lobby tab. Desktop doors:
@@ -41,7 +42,7 @@ const TABS: readonly Tab[] = [
 
 /** The Turbo tab's two modes. */
 export const TURBO_MODES = [
-  { href: DUEL_HREF, label: "Trading duel", sub: "Ranked" },
+  { href: DUEL_HREF, label: "Trading duel", sub: DUEL_RANKED_LIVE ? "Ranked" : "1v1" },
   { href: "/turbo/royale", label: "Turbo royale", sub: "Practice" },
 ] as const;
 

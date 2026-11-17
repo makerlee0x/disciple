@@ -302,6 +302,9 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
 .tp-empty > b { font-size: 44px; line-height: .95; color: #FFFFFF; max-width: 380px; }
 .tp-emptybody { font-size: 15px; line-height: 1.5; color: #BCC0CA; max-width: 380px; }
 .tp-play { width: auto; padding: 0 24px; }
+.tp-acts { position: relative; display: flex; flex-wrap: wrap; gap: 10px; }
+.tp-play2 { background: rgba(11,12,14,.6); border: 1px solid rgba(243,223,168,.45); color: #F3DFA8; }
+.tp-play2:hover { color: #FFFFFF; }
 @media (max-width: 760px) {
   .tp-d { display: none !important; }
   .tp-p { display: inline; }

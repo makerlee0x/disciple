@@ -19,7 +19,8 @@ import { lightOf } from "@/components/home/rocketBits";
 import { tierAt } from "@/lib/flight/tiers";
 import { BOARD_WINDOWS, type BestCall, type BoardPilot, type BoardSort, type BoardWindow } from "@/lib/home/topPilots";
 import type { BoardResponse, CrewBoardResponse } from "@/lib/server/leaderboard";
-import { CREW_ENABLED, LOGBOOK_ENABLED } from "@/lib/features";
+import { BOT_DUEL_HREF, CREW_ENABLED, LOGBOOK_ENABLED } from "@/lib/features";
+import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
 
 type Sort = BoardSort | "crews" | "duel";
 const SORTS: { k: Sort; label: string; col: string }[] = [
@@ -45,6 +46,7 @@ export const LEADERBOARD_COPY = {
   you: "You",
   emptyTitle: "The top spot is open",
   play: "Play now",
+  duel: "Play a duel",
 } as const;
 
 const money = (v: number) => (Math.abs(v) >= 10 ? `$${Math.round(Math.abs(v)).toLocaleString("en-US")}` : `$${Math.abs(v).toFixed(2)}`);
@@ -292,6 +294,8 @@ export default function LeaderboardView() {
   const duelOpen = sort === "duel";
   // Duels tab: only when the duel board answers (Turbo pass), refreshed when it opens
   useEffect(() => {
+    // ranked = real money only (lib/duel/season DUEL_RANKED_LIVE): no Duels board while duels are play money
+    if (!DUEL_RANKED_LIVE) return;
     let alive = true;
     const q = me ? `?me=${me}` : "";
     fetch(withBase(`/api/duel/board${q}`)).then((r) => (r.ok ? r.json() : null)).then((d: DuelBoardRes | null) => { if (alive && d?.ok) setDuel(d); }).catch(() => {});
@@ -387,7 +391,10 @@ export default function LeaderboardView() {
             <section className="tp-card tp-empty" data-testid="lb-empty">
               <span className="r2-eb">{BOARD_WINDOWS.find((w) => w.k === win)!.label}</span>
               <b className="r2-g">{LEADERBOARD_COPY.emptyTitle}</b>
-              <Link href="/play" prefetch={false} className="r2-gold tp-play">{LEADERBOARD_COPY.play}</Link>
+              <div className="tp-acts">
+                <Link href="/play" prefetch={false} className="r2-gold tp-play">{LEADERBOARD_COPY.play}</Link>
+                <Link href={BOT_DUEL_HREF} prefetch={false} className="r2-gold tp-play tp-play2" data-testid="lb-empty-duel">{LEADERBOARD_COPY.duel}</Link>
+              </div>
             </section>
           ) : (
             <>
