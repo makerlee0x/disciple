@@ -20,8 +20,8 @@ const PLAYED_KEYS = ["disciple.firstrun.v1", "disciple.welcomed.v1", "disciple.g
 /** First launch (maker, 2026-11-15, app audit: "straight into a bot duel"): one screen, then a 1-minute practice duel
  *  against the rookie bot (/turbo/duel?first=1). Sign-in waits until after the result ("Save your win"). */
 export const WELCOME_COPY = {
-  h: ["1v1.", "One minute."],
-  s: "You vs one rival on live BTC. Best PnL in 60s wins. Free, no wallet.",
+  h: ["1v1", "Trading Duel"],
+  s: "Best PnL in 60 seconds wins.",
   play: "Play",
   signIn: "I have an account \u00b7 Sign in",
 } as const;
