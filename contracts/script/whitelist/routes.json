@@ -1,5 +1,5 @@
 {
-  "note": "Owner wiring only. Do not broadcast. BUN was removed Nov 10 2026 and replaced with SPACEHOOD (USDG -> SPCX -> SPACEHOOD). Every PoolKey below was confirmed from the Uniswap v4 PoolManager 0x8366a39CC670B4001A1121B8F6A443A643e40951 Initialize event (topic0 0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438) and by ABI-hashing the key to the pool id. Fee flag 0x800000 means dynamic fee; hooks other than the DISCIPLE hook are passed through as-is. Per-side virtual depths are from StateView liquidity and sqrtPrice (same formula as PoolDepth / QuotePricer), measured on mainnet around block 111298000 on Nov 10, 2026. Alternative unhooked 1% USDG/SPCX (tickSpacing 200, id 0xcb6ffbcc...) remains documented only if the deepest hooked SPACEHOOD leg 1 fails a fork test. Nov 16 2026 (maker's 12-coin list): MOO and SPACEHOOD moved to `removed`; PENGU, HMM added and HOOKR moved to USDG -> ETH routes. ETH-route PoolKeys were read from Initialize events on mainnet (block ~116.26M) and each key hash matched its pool id; depths are virtual per-side at ETH $1,812.",
+  "note": "Owner wiring only. Do not broadcast. BUN was removed Nov 10 2026 and replaced with SPACEHOOD (USDG -> SPCX -> SPACEHOOD). Every PoolKey below was confirmed from the Uniswap v4 PoolManager 0x8366a39CC670B4001A1121B8F6A443A643e40951 Initialize event (topic0 0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438) and by ABI-hashing the key to the pool id. Fee flag 0x800000 means dynamic fee; hooks other than the DISCIPLE hook are passed through as-is. Per-side virtual depths are from StateView liquidity and sqrtPrice (same formula as PoolDepth / QuotePricer), measured on mainnet around block 111298000 on Nov 10, 2026. Alternative unhooked 1% USDG/SPCX (tickSpacing 200, id 0xcb6ffbcc...) remains documented only if the deepest hooked SPACEHOOD leg 1 fails a fork test. Nov 16 2026 (maker's 12-coin list): MOO and SPACEHOOD moved to `removed`; PENGU, HMM added and HOOKR moved to USDG -> ETH routes. ETH-route PoolKeys were read from Initialize events on mainnet (block ~116.26M) and each key hash matched its pool id; depths are virtual per-side at ETH $1,812. Nov 17 2026: HMM moved to `removed`, DELTA added (single hop USDG/DELTA, 1.99%, no hook).",
   "usdg": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
   "poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
   "quotes": [
@@ -330,46 +330,25 @@
       ]
     },
     {
-      "symbol": "HMM",
-      "address": "0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f",
+      "symbol": "DELTA",
+      "address": "0xe8ffd7e24187F72afB08d75B1bb13088A989a791",
       "decimals": 18,
-      "hops": 2,
-      "via": "ETH",
-      "viaAddress": "0x0000000000000000000000000000000000000000",
-      "note": "USDG -> ETH -> HMM (1.01% + 0.05%). Same depth as the single 3.43% USDG/HMM pool, at about a third of the fee; that pool stays as alternative_usdg.",
+      "hops": 1,
+      "via": null,
       "keys": [
         {
           "leg": 1,
-          "poolId": "0x387bf619da4d3fb62bb276482693dba1b9b3520f573cabdfe033384a24125982",
-          "currency0": "0x0000000000000000000000000000000000000000",
-          "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
-          "fee": 500,
-          "tickSpacing": 10,
+          "poolId": "0xebd2fbb46948c5b21ca32dcd0be5ae851fed99362cfcf198d060a63a8689cd66",
+          "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "currency1": "0xe8ffd7e24187F72afB08d75B1bb13088A989a791",
+          "fee": 19900,
+          "tickSpacing": 199,
           "hooks": "0x0000000000000000000000000000000000000000",
           "hookName": "none",
-          "note": "deepest UNHOOKED v4 native ETH/USDG (0.05%); virtual depth ~$5.09M per side. Deeper hooked pools (0xbac3aa3b\u2026, 0xa791e516\u2026) are not vetted, so not used."
-        },
-        {
-          "leg": 2,
-          "poolId": "0xd5c1dd19513b6327159661532e10dab56c3127ac283c473ea5e6f5e4707fb982",
-          "currency0": "0x0000000000000000000000000000000000000000",
-          "currency1": "0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f",
-          "fee": 10142,
-          "tickSpacing": 202,
-          "hooks": "0x0000000000000000000000000000000000000000",
-          "hookName": "none",
-          "note": "native ETH/HMM; virtual depth ~$25,000 per side"
+          "note": "USDG/DELTA 1.99%; ~$19.5K per side (TVL $39.0K)"
         }
       ],
-      "alternative_usdg": {
-        "poolId": "0xbe59bf5d48335718349b76aaba718fd677ce10a7c2ecec2f2b96bc8b6ed81e53",
-        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
-        "currency1": "0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f",
-        "fee": 34267,
-        "tickSpacing": 666,
-        "hooks": "0x0000000000000000000000000000000000000000",
-        "note": "3.43% USDG/HMM, ~$26.9k per side"
-      }
+      "note": "USDG -> DELTA, single unhooked 1.99% v4 pool (maker 2026-11-17, replaces HMM). PoolKey from the Initialize event (block 53049314, tx 0x7c1f6ef0\u2026), key hash matches the pool id. TVL ~$39K on Nov 17 (thin: ~27.5K USDG / 3.5M DELTA)."
     }
   ],
   "removed": [
@@ -443,6 +422,49 @@
         "hooks": "0x0000000000000000000000000000000000000000",
         "note": "unhooked 1% ~$648k; only if deepest hooked leg 1 fails the fork test"
       }
+    },
+    {
+      "symbol": "HMM",
+      "address": "0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f",
+      "decimals": 18,
+      "hops": 2,
+      "via": "ETH",
+      "viaAddress": "0x0000000000000000000000000000000000000000",
+      "note": "USDG -> ETH -> HMM (1.01% + 0.05%). Same depth as the single 3.43% USDG/HMM pool, at about a third of the fee; that pool stays as alternative_usdg.",
+      "keys": [
+        {
+          "leg": 1,
+          "poolId": "0x387bf619da4d3fb62bb276482693dba1b9b3520f573cabdfe033384a24125982",
+          "currency0": "0x0000000000000000000000000000000000000000",
+          "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "fee": 500,
+          "tickSpacing": 10,
+          "hooks": "0x0000000000000000000000000000000000000000",
+          "hookName": "none",
+          "note": "deepest UNHOOKED v4 native ETH/USDG (0.05%); virtual depth ~$5.09M per side. Deeper hooked pools (0xbac3aa3b\u2026, 0xa791e516\u2026) are not vetted, so not used."
+        },
+        {
+          "leg": 2,
+          "poolId": "0xd5c1dd19513b6327159661532e10dab56c3127ac283c473ea5e6f5e4707fb982",
+          "currency0": "0x0000000000000000000000000000000000000000",
+          "currency1": "0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f",
+          "fee": 10142,
+          "tickSpacing": 202,
+          "hooks": "0x0000000000000000000000000000000000000000",
+          "hookName": "none",
+          "note": "native ETH/HMM; virtual depth ~$25,000 per side"
+        }
+      ],
+      "alternative_usdg": {
+        "poolId": "0xbe59bf5d48335718349b76aaba718fd677ce10a7c2ecec2f2b96bc8b6ed81e53",
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f",
+        "fee": 34267,
+        "tickSpacing": 666,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "note": "3.43% USDG/HMM, ~$26.9k per side"
+      },
+      "removedNote": "Nov 17 2026: replaced by DELTA (maker)"
     }
   ]
 }
