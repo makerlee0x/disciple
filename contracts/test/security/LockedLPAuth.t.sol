@@ -47,4 +47,25 @@ contract LockedLPAuthTest is IntegrationBase {
         lockedLP.setFeeRouter(address(1));
         vm.stopPrank();
     }
+
+    /// maker 2026-11-17: after renounce nobody can change the treasury or the compound caps; flush still works.
+    function test_renounce_locksTreasuryAndCaps() public {
+        LockedLP fresh = new LockedLP(owner, address(0), address(0));
+        vm.prank(owner);
+        vm.expectRevert(LockedLP.NotWired.selector);
+        fresh.renounceOwnership();
+
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
+        lockedLP.renounceOwnership();
+        vm.startPrank(owner);
+        lockedLP.renounceOwnership();
+        assertEq(lockedLP.owner(), address(0));
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
+        lockedLP.setTreasury(address(1));
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
+        lockedLP.setCompoundParams(1, 0);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
+        lockedLP.transferOwnership(owner);
+        vm.stopPrank();
+    }
 }

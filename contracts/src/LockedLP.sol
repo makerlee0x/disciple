@@ -123,6 +123,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     error OnlyPoolManager();
     error RemoveLiquidityDisabled();
     error AlreadyWired();
+    error NotWired();
     error NotGraduated();
     error ZeroLiquidity();
     error BadParams();
@@ -158,6 +159,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         uint256 quoteCarry
     );
     event CompoundParamsSet(uint32 minPpm, uint32 maxPpm);
+    event OwnershipRenounced();
 
     /// @param creatorFeeHarvest_ Later-send contract allowed to call `addLockedLiquidity`. address(0) allows nobody extra.
     ///        No new external function, so the trade-path dispatcher stays as it was.
@@ -183,6 +185,18 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     function setTreasury(address t) external {
         if (msg.sender != owner) revert OnlyOwner();
         treasury = t;
+    }
+
+    /// @notice maker 2026-11-17: once wired, the owner gives up LockedLP for good, so the treasury and the compound
+    ///         caps can never change. Refuses until every pointer is set, so nothing is left unwired.
+    function renounceOwnership() external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (feeRouter == address(0) || migration == address(0) || address(poolManager) == address(0) || treasury == address(0)) {
+            revert NotWired();
+        }
+        owner = address(0);
+        pendingOwner = address(0);
+        emit OwnershipRenounced();
     }
 
     function setFeeRouter(address r) external {

@@ -74,6 +74,7 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       (RH STRATEGY/USDG deepest pool: 36900 / 369 / 0x0 → id 0x816b…245b)
 ///   MIN_LIQUIDITY       QuotePricer minimum in-range liquidity (default 0)
 ///   RENOUNCE_HARVEST    renounce CreatorFeeHarvest ownership at the end of deploy (default: true on mainnet 4663)
+///   RENOUNCE_LOCKED_LP  renounce LockedLP ownership (treasury + compound caps fixed) at the end (default: true on 4663)
 ///   REWARDS_VAULT_OWNER community RewardsVault owner (default deployer): TEMP wallet on testnet, multisig (Safe) on
 ///                       mainnet (lee 2026-11-10). Receives the sniper tax + curve LP fees of coins not graduated
 ///                       within snipeEscrowTimeout (releaseSnipeEscrow, or a late graduation). Nominated only
@@ -279,6 +280,8 @@ contract Deploy is NetworkConfig {
         harvest.setFeeVault(address(feeVault));
         // maker 2026-11-17: the fee contract is renounced once set up, so none of its pointers can change.
         if (vm.envOr("RENOUNCE_HARVEST", block.chainid == 4663)) harvest.renounceOwnership();
+        // maker 2026-11-17: LockedLP too (treasury + compound caps fixed for good). Its wiring setters are write-once.
+        if (vm.envOr("RENOUNCE_LOCKED_LP", block.chainid == 4663)) lockedLP.renounceOwnership();
         // referralSink: address(0) = today's routing (default). Non-zero takes the whole referral 1% incl. launch KOL.
         {
             address sink = vm.envOr("REFERRAL_SINK", address(0));
