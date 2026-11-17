@@ -30,7 +30,7 @@ test("whitelist has 12 coins, STRATEGY first and default, no USDG", () => {
   assert.equal(defaultLaunchPair().symbol, "STRATEGY");
   assert.equal(defaultLaunchPair().address, "0x168661C52E5922288dFb2b3f323b6Cf90eb21e18");
   assert.deepEqual(LAUNCH_WHITELIST.map((c) => c.symbol), [
-    "STRATEGY", "AI", "SCHIFFY", "BONER", "MEME", "MOO", "PONS", "ORBIO", "HOOKR", "CASHCAT", "PRIORS", "SPACEHOOD",
+    "STRATEGY", "AI", "SCHIFFY", "BONER", "MEME", "PONS", "ORBIO", "HOOKR", "CASHCAT", "PRIORS", "PENGU", "HMM",
   ]);
   assert.equal(whitelistIncludesUsdg(), false);
   assert.equal(LAUNCH_WHITELIST.some((c) => isUsdgSymbol(c.symbol)), false);
