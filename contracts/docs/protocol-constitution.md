@@ -48,7 +48,7 @@ This document is the source of truth for locked product and protocol decisions. 
 | 32 | Probe | Hard reject honeypot / FoT only; thin depth soft warn; **WETH / USDG always pass** | LOCKED |
 | 33 | LP seeding | Curve seeds LP (not maker/creator quote deposit); thin-depth pairs get curve mods for efficient seeding | LOCKED |
 | 34 | Treasury | Multisig; team/foundation can change address | LOCKED |
-| 35 | Contracts | **Non-upgradeable** (no proxies); changes ship only by **redeploy** (new contracts + migration plan). Owner/admin wiring setters go to a **2-of-3 Safe behind a TimelockController** (maker 2026-11-17; script/HandoverToSafe.s.sol) (security-review.md SEC-04) | LOCKED (rev. 2026-10-17) |
+| 35 | Contracts | **Non-upgradeable** (no proxies); changes ship only by **redeploy** (new contracts + migration plan). Owner/admin wiring setters go to a **2-of-3 Safe**, no timelock at launch, can be added later (maker 2026-11-17; script/HandoverToSafe.s.sol) (security-review.md SEC-04) | LOCKED (rev. 2026-10-17) |
 | 36 | Account | Full Privy — X + wallet (embedded + external); USDG cash balance | LOCKED |
 | 37 | Deposit | **USDG only** in v0; other EVM assets deferred | LOCKED |
 | 38 | Withdraw | USDG on **Robinhood Chain only** | LOCKED |
@@ -248,7 +248,7 @@ Style target: Flaunch-like required set (image + name + ticker).
 - Team / foundation **may change** the treasury address.
 
 ### Contracts
-- **Non-upgradeable** (no proxies). Owner setters: a **2-of-3 Safe behind a timelock** (48 h default) on mainnet (maker 2026-11-17).
+- **Non-upgradeable** (no proxies). Owner setters: a **2-of-3 Safe**, no timelock at launch (maker 2026-11-17: "safe only, no timelock"); a timelock can be added later.
 - RewardsVault owner is the Safe directly (pays community rewards).
 
 ### Account (Privy)

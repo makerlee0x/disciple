@@ -15,8 +15,8 @@ interface ISafe {
     function getOwners() external view returns (address[] memory);
 }
 
-/// @title HandoverToSafe: hand every contract Deploy.s.sol left with the deployer to a 2-of-3 Safe behind a timelock
-/// @notice maker 2026-11-17: "2/3 safe with a time lock for mainnet". The Safe address comes after the mainnet
+/// @title HandoverToSafe: hand every contract Deploy.s.sol left with the deployer to the 2-of-3 protocol Safe
+/// @notice maker 2026-11-17: 2-of-3 Safe, "safe only, no timelock" for launch (a timelock stays opt-in). The Safe address comes after the mainnet
 ///         deploy. Deploy.s.sol (run without SAFE) still does every renounce and lock on 4663; only the owner roles
 ///         that remain stay with the deployer. Run this once the Safe exists, from the DEPLOYER key:
 ///
@@ -25,13 +25,14 @@ interface ISafe {
 ///           forge script script/HandoverToSafe.s.sol --rpc-url $RPC --broadcast
 ///
 ///         1. Checks SAFE is a 2-of-3 Safe (override with SAFE_THRESHOLD / SAFE_OWNERS).
-///         2. Deploys a TimelockController (or reuses TIMELOCK=0x…): delay TIMELOCK_DELAY seconds (default 48 h),
-///            the Safe is the only proposer, executor and canceller, no admin (nobody can change the delay or the
-///            roles except through the timelock itself).
-///         3. NOMINATES the timelock as owner of every protocol contract (two-step ownership). The Safe then
-///            schedules acceptOwnership() on each through the timelock and executes it after the delay. Until then
-///            the deployer is still the owner, so a wrong address can be re-nominated.
-///         RewardsVault goes to the Safe directly (no delay): its owner pays out community rewards.
+///         2. NOMINATES the Safe as owner of every protocol contract (two-step ownership). The Safe then calls
+///            acceptOwnership() on each (one batched Safe tx). Until then the deployer is still the owner, so a wrong
+///            address can be re-nominated.
+///         Optional, off for launch: USE_TIMELOCK=true deploys a TimelockController (delay TIMELOCK_DELAY seconds,
+///         default 48 h; the Safe is the only proposer, executor and canceller; no admin), or TIMELOCK=0x… reuses one,
+///         and nominates it instead of the Safe. Turning a timelock on later needs no script: the Safe calls
+///         transferOwnership(timelock) on each contract and the timelock accepts.
+///         RewardsVault always goes to the Safe directly: its owner pays out community rewards.
 ///         An unset or zero contract entry is skipped.
 /// @dev SET_TREASURY=true also points FeeRouter.setTreasury at the Safe (money in, no delay needed).
 ///      LockedLP and CreatorFeeHarvest are renounced at deploy on mainnet, so they have no owner to hand over.
@@ -54,22 +55,28 @@ contract HandoverToSafe is Script {
         vm.startBroadcast();
         (, address deployer,) = vm.readCallers();
 
+        // maker 2026-11-17: "safe only, no timelock" for launch. USE_TIMELOCK=true (or TIMELOCK=0x…) puts the protocol
+        // contracts behind a TimelockController instead; the Safe can also move them to one later (transferOwnership).
+        address owner_ = safe;
         address timelock = vm.envOr("TIMELOCK", address(0));
-        if (timelock == address(0)) {
-            address[] memory roles = new address[](1);
-            roles[0] = safe;
-            timelock = address(new TimelockController(delay, roles, roles, address(0)));
-            console2.log("TimelockController", timelock);
+        if (timelock != address(0) || vm.envOr("USE_TIMELOCK", false)) {
+            if (timelock == address(0)) {
+                address[] memory roles = new address[](1);
+                roles[0] = safe;
+                timelock = address(new TimelockController(delay, roles, roles, address(0)));
+                console2.log("TimelockController", timelock);
+            }
+            require(timelock.code.length != 0, "Handover: TIMELOCK has no code");
+            require(TimelockController(payable(timelock)).getMinDelay() >= 1 hours, "Handover: timelock delay too short");
+            require(
+                TimelockController(payable(timelock)).hasRole(keccak256("PROPOSER_ROLE"), safe),
+                "Handover: Safe is not a timelock proposer"
+            );
+            owner_ = timelock;
         }
-        require(timelock.code.length != 0, "Handover: TIMELOCK has no code");
-        require(TimelockController(payable(timelock)).getMinDelay() >= 1 hours, "Handover: timelock delay too short");
-        require(
-            TimelockController(payable(timelock)).hasRole(keccak256("PROPOSER_ROLE"), safe),
-            "Handover: Safe is not a timelock proposer"
-        );
 
         for (uint256 i; i < TIMELOCKED.length; ++i) {
-            _handOver(TIMELOCKED[i], timelock, deployer);
+            _handOver(TIMELOCKED[i], owner_, deployer);
         }
         _handOver("REWARDS_VAULT", safe, deployer);
 
@@ -79,8 +86,8 @@ contract HandoverToSafe is Script {
             require(ok, "Handover: FeeRouter.setTreasury failed");
         }
         vm.stopBroadcast();
-        console2.log("Next: the Safe schedules acceptOwnership() on each contract through the timelock,");
-        console2.log("executes after the delay, and calls acceptOwnership() on RewardsVault directly.");
+        if (owner_ == safe) console2.log("Next: the Safe calls acceptOwnership() on each nominated contract (one batch).");
+        else console2.log("Next: the Safe schedules acceptOwnership() via the timelock, executes after the delay, and accepts RewardsVault directly.");
     }
 
     function _handOver(string memory name, address to, address deployer) internal {

@@ -64,9 +64,21 @@ contract HandoverToSafeTest is Test {
         vm.setEnv("REWARDS_VAULT", vm.toString(address(rv)));
     }
 
+    function test_handover_safeOnlyByDefault() public {
+        MockSafe safe = new MockSafe(2, 3);
+        (MockOwned2Step[8] memory cs, MockOwned2Step rv) = _setUp(safe);
+        vm.setEnv("USE_TIMELOCK", "false");
+        new HandoverToSafe().run();
+        for (uint256 i; i < 8; ++i) assertEq(cs[i].pendingOwner(), address(safe));
+        assertEq(rv.pendingOwner(), address(safe));
+        safe.exec(address(cs[0]), abi.encodeWithSignature("acceptOwnership()"));
+        assertEq(cs[0].owner(), address(safe));
+    }
+
     function test_handover_timelockedThenAccepted() public {
         MockSafe safe = new MockSafe(2, 3);
         (MockOwned2Step[8] memory cs, MockOwned2Step rv) = _setUp(safe);
+        vm.setEnv("USE_TIMELOCK", "true");
         HandoverToSafe s = new HandoverToSafe();
         vm.recordLogs();
         s.run();

@@ -83,8 +83,8 @@ contract DevToken is ERC20, ERC20Permit {
 ///   SAFE                protocol Safe (optional). Set: every contract that keeps an owner is NOMINATED to it
 ///                       (two-step) and the Safe calls acceptOwnership() on each (one batched Safe tx); it is also the
 ///                       default TREASURY and REWARDS_VAULT_OWNER. Unset (maker 2026-11-17: the Safe comes after
-///                       mainnet): the deployer keeps those roles; run script/HandoverToSafe.s.sol later (mainnet: 2-of-3 Safe behind a
-///                       timelock, maker 2026-11-17). The renounces
+///                       mainnet): the deployer keeps those roles; run script/HandoverToSafe.s.sol later (mainnet: 2-of-3 Safe, no timelock
+///                       at launch, maker 2026-11-17). The renounces
 ///                       and the FeeRouter lock still happen at deploy on 4663. Audit 2026-11-17 R461-05 / (g).
 ///   PRICER_POKER        QuotePricer keeper (required on 4663): launches revert StalePrice without fresh pokes
 ///   REWARDS_VAULT_OWNER community RewardsVault owner (default deployer): TEMP wallet on testnet, multisig (Safe) on
