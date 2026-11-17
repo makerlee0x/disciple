@@ -201,6 +201,21 @@ Every subtitle, helper line, caption and empty-state blurb that the subcopy pass
 | LeaderboardView.tsx:32,48,346 | Empty body `Nobody has cashed out higher {yet today/…}. Be the first and your name goes up here.` (+ `EMPTY_WHEN` map) | Removed (`The top spot is open` + Play now stay) |
 | LeaderboardView.tsx:194,329 | Duels empty body `Win a ranked duel and your name goes up here.` | Removed (`No ranked duels yet` + Find a duel stay) |
 
+## iPhone app home (added after #454, on main 798bd3b3; line numbers are from that commit)
+| File:line (main 798bd3b3) | Original | Now |
+|---|---|---|
+| web/components/app/AppHome.tsx:98 | Daily flight card `Same sky for everyone. No cash needed.` | Removed (`Today` tag + `Ends in` timer stay) |
+| web/components/app/AppHome.tsx:111 | Duel card `One minute. Most profit wins.` | Removed (`1v1 duel` + Fight stay) |
+| web/components/app/AppHome.tsx:133 | Flying now empty `Host the first launch and your crew flies it up.` | Removed (`Nothing flying yet` stays) |
+| web/components/app/AppHome.tsx:137 | Host a launch row `Build a rocket. The crew flies it up.` | Removed |
+| web/components/app/AppHome.tsx:149 | Turbo royale tile `12 pilots. Last one flying.` | Removed (`Practice` tag stays) |
+| web/components/app/AppHome.tsx:155 | Free play tile `No cash. Today's flight.` | Removed (`Free` tag stays) |
+| web/components/app/AppHome.tsx:171 | Quick play, Real coins `{n} flying · search and join` / `Host or join a launch` | `{n} flying` / `Nothing flying` |
+| AppHome.tsx:168-170 | Quick play subs `1v1 · 1 minute`, `12 pilots · practice money`, `Today's flight · no cash` | KEEP, unchanged (short facts, two are money lines) |
+| web/components/app/LiveRockets.tsx:73 | All rockets sheet empty `Host one yourself and the crew flies it up.` | Removed (Host a launch row sits right below) |
+| web/components/app/LiveRockets.tsx:78 | Host a launch row `Build a rocket. The crew flies it up.` | Removed |
+| WelcomeIntro.tsx, FirstRunHost.tsx (`SLIDE UP TO BOOST / let go to fire`, `Swipe to pick a mode, tap to play`) | First-run copy | KEEP, unchanged (maker's welcome copy from #453; first-run coach lines show once) |
+
 ## Not changed (follow-ups)
 
 ### Only on open PR #450 (not merged when this pass ran)
@@ -218,7 +233,6 @@ Apply these once #450 merges, or fold them into #450:
 
 ### Outside the audit's page list (same pattern, not touched)
 
-- iPhone app home: `components/app/AppHome.tsx:137` and `components/app/LiveRockets.tsx:78` still say `Build a rocket. The crew flies it up.`; `AppHome.tsx` also has the Turbo royale `12 pilots. Last one flying wins.` line.
 - Launch builder: panel head `4 steps · about a minute` and More options sub `All optional. Locked in when you launch.`
 - `lib/protocol-viem.ts:283` error `Easy rocket: sign in with X, email or wallet to BOOST.` still says wallet.
 - Invite, Crew, Logbook, Streaks, Creator dashboard, Rewards popup, Royale in-match HUD, duel result flavor.

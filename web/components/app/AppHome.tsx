@@ -95,7 +95,6 @@ export default function AppHome({ initial }: { initial: HomeData }) {
         <span className={s.featBody}>
           <span>
             <b>The daily flight</b>
-            <span>Same sky for everyone. No cash needed.</span>
           </span>
           <em>Fly</em>
         </span>
@@ -108,7 +107,6 @@ export default function AppHome({ initial }: { initial: HomeData }) {
           <img src={withBase("/art/modes/duel.webp")} alt="" loading="lazy" decoding="async" />
           <span className={s.duelTx}>
             <b>1v1 duel</b>
-            <span>One minute. Most profit wins.</span>
           </span>
           <em>Fight</em>
         </Link>
@@ -130,11 +128,10 @@ export default function AppHome({ initial }: { initial: HomeData }) {
         ) : (
           <button type="button" className={s.none} onClick={() => setSheet("rockets")}>
             <b>Nothing flying yet</b>
-            <span>Host the first launch and your crew flies it up.</span>
           </button>
         )}
         <Link href="/create" className={s.host} data-testid="app-host">
-          <span><b>Host a launch</b><span>Build a rocket. The crew flies it up.</span></span>
+          <span><b>Host a launch</b></span>
           <Icon name="chevron-right" size={20} />
         </Link>
       </section>
@@ -146,13 +143,13 @@ export default function AppHome({ initial }: { initial: HomeData }) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={withBase("/art/modes/last-pilot.webp")} alt="" loading="lazy" decoding="async" />
             <span className={s.tileTag} style={{ color: "#F2C14E" }}>Practice</span>
-            <span className={s.tileTx}><b>Turbo royale</b><span>12 pilots. Last one flying.</span></span>
+            <span className={s.tileTx}><b>Turbo royale</b></span>
           </Link>
           <Link href={FREE_HREF} className={s.tile} data-testid="app-free">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={withBase("/art/modes/free.webp")} alt="" loading="lazy" decoding="async" />
             <span className={s.tileTag} style={{ color: "#8FE3FF" }}>Free</span>
-            <span className={s.tileTx}><b>Free play</b><span>No cash. Today&apos;s flight.</span></span>
+            <span className={s.tileTx}><b>Free play</b></span>
           </Link>
         </div>
       </section>
@@ -168,7 +165,7 @@ export default function AppHome({ initial }: { initial: HomeData }) {
               <Link href={DUEL_HREF} className={`${s.opt} ${s.optHot}`} onClick={close} data-testid="quick-duel"><Thumb src="/art/modes/duel.webp" /><span><b>Trading duel</b><span>1v1 · 1 minute</span></span><Icon name="chevron-right" size={20} /></Link>
               <Link href={ROYALE_HREF} className={s.opt} onClick={close} data-testid="quick-royale"><Thumb src="/art/modes/last-pilot.webp" /><span><b>Turbo royale</b><span>12 pilots · practice money</span></span><Icon name="chevron-right" size={20} /></Link>
               <Link href={FREE_HREF} className={s.opt} onClick={close} data-testid="quick-free"><Thumb src="/art/modes/free.webp" /><span><b>Free play</b><span>Today&apos;s flight · no cash</span></span><Icon name="chevron-right" size={20} /></Link>
-              <button type="button" className={s.opt} onClick={() => setSheet("rockets")} data-testid="quick-coins"><Thumb src="/art/modes/live.webp" /><span><b>Real coins</b><span>{flying ? `${flying} flying · search and join` : "Host or join a launch"}</span></span><Icon name="chevron-right" size={20} /></button>
+              <button type="button" className={s.opt} onClick={() => setSheet("rockets")} data-testid="quick-coins"><Thumb src="/art/modes/live.webp" /><span><b>Real coins</b><span>{flying ? `${flying} flying` : "Nothing flying"}</span></span><Icon name="chevron-right" size={20} /></button>
             </div>
           </div>
         </div>
