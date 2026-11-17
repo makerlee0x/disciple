@@ -95,7 +95,7 @@ function mount(root,host){
   const mmss=ms=>{const s=Math.max(0,Math.ceil(ms/1000));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");};
 
   /* ---------- rules ---------- */
-  const LEV=500, FEE=0.00005 /* 0.5 bp a side: placeholder until Nova confirms duel fees (1 bp trial felt too harsh) */, LIQ=0.8 /* NUKE at 80% of the fuel in it lost */;
+  const LEV=50 /* Lighter BTC max, feel test */, FEE=0.000055 /* 0.55 bp a side = 1.1 bp round trip: Lighter Plus + 0.1 bp ours (feel test, lib/duel/rules) */, FILL_MS=300 /* Lighter taker speed bump */, LIQ=0.8 /* NUKE at 80% of the fuel in it lost */;
   let FUEL0=20;
   const TIERS={rookie:{fuel:20,sizes:[1,2,5,10,0]},pro:{fuel:50,sizes:[2,5,10,25,0]},shark:{fuel:150,sizes:[5,10,25,50,0]}};
   const BOTS={
@@ -212,17 +212,21 @@ function mount(root,host){
       host.trade(action,stake===0?0:stakeUsd()).then(r=>{ if(r&&r.error) toast(r.error); });
       return;
     }
+    if(filling) return;   // one order in flight at a time
     if(kind==="b"||kind==="d"){
       const side=kind==="b"?1:-1;
       // no flips (maker 2026-11-17, Nova fills are slow): the other side waits for a cash out
       if(me.pos&&me.pos.side!==side){ toast("Cash out first."); return; }
-      open(me,side,stake===0?me.fuel:stakeUsd());
+      const amt=stake===0?me.fuel:stakeUsd();
+      fillLater(()=>{ if(!(me.pos&&me.pos.side!==side)) open(me,side,stake===0?me.fuel:amt); });
     } else if(kind==="x"){
       if(!me.pos){toast("Nothing open.");return;}
-      close(me);
+      fillLater(()=>close(me));
     }
-    ui();
   }
+  // practice fills land FILL_MS after the tap, at the price then (like a Lighter taker order)
+  let filling=false;
+  function fillLater(fn){ filling=true; setTimeout(()=>{ filling=false; if(!G||!G.started||G.over) return; fn(); ui(); },FILL_MS); }
 
   /* ---------- live duel: server events ---------- */
   function setBook(pl,b){ pl.fuel=b.fuel; pl.pos=b.pos?Object.assign({},b.pos):null; pl.fees=b.fees; pl.trades=b.trades; pl.green=b.green; pl.best=b.best; }
@@ -987,10 +991,10 @@ function mount(root,host){
   let LAST=null;
   function shareLine(r){
     const m="$"+Math.abs(r.pm-r.pb).toFixed(2), who=r.bot?`the ${r.opp} bot`:r.opp;
-    if(r.tie) return `dead even with ${who} after ${r.len.toLowerCase()} of 500x BTC. tiebreaker?`;
+    if(r.tie) return `dead even with ${who} after ${r.len.toLowerCase()} of 50x BTC. tiebreaker?`;
     if(r.win&&r.sat) return `sat out the whole ${r.len.toLowerCase()} duel and still beat ${who} by ${m}. patience is a strategy`;
     if(r.win) return `cooked ${who} by ${m} in a ${r.len.toLowerCase()} BTC duel. run it back?`;
-    return `${who} got me by ${m} in a ${r.len.toLowerCase()} BTC duel. 500x humbles everyone. who's next?`;
+    return `${who} got me by ${m} in a ${r.len.toLowerCase()} BTC duel. 50x humbles everyone. who's next?`;
   }
   /** 1080x1350 card: sky, both rockets (higher = winning), the margin, the line, the link */
   function shareCard(r){
@@ -1005,7 +1009,7 @@ function mount(root,host){
     rocket(360,700-lead*90,"242,193,78"); rocket(720,700+lead*90,"240,48,127");
     x.textAlign="center"; x.textBaseline="alphabetic";
     x.font=`italic 800 64px ${GF},sans-serif`; x.fillStyle="#F2F3F7"; x.fillText("DISCIPLE",W/2,110);
-    x.font=`800 30px ${GF},sans-serif`; x.fillStyle="rgba(215,217,228,.85)"; x.fillText(`TRADING DUEL · BTC · ${r.len} · 500×`,W/2,160);
+    x.font=`800 30px ${GF},sans-serif`; x.fillStyle="rgba(215,217,228,.85)"; x.fillText(`TRADING DUEL · BTC · ${r.len} · ${LEV}×`,W/2,160);
     x.font=`800 150px ${GF},sans-serif`; x.fillStyle=r.tie?"#F2F3F7":r.win?"#F2C14E":"#FF8FBD"; x.fillText(r.tie?"DRAW":r.win?"YOU WIN":"YOU LOSE",W/2,330);
     if(!r.tie){ x.font=`800 54px ${GF},sans-serif`; x.fillStyle="#F2F3F7"; x.fillText(`${r.win?"WON":"LOST"} BY $${Math.abs(r.pm-r.pb).toFixed(2)}`,W/2,400); }
     x.font=`800 40px ${GF},sans-serif`; x.fillStyle="#F2C14E"; x.fillText("YOU",360,1020); x.fillStyle="#FF8FBD"; x.fillText(r.opp.toUpperCase()+(r.bot?" · BOT":""),720,1020);

@@ -12,6 +12,7 @@ import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { filterText } from "@/lib/chat/filter";
 import { DUEL_CHAT_MAX } from "@/lib/duel/types";
+import { FILL_MS } from "@/lib/duel/rules";
 import { duelPrice } from "@/lib/server/duel/price";
 import { after } from "next/server";
 import { chat, eventsAfter, getRoom, leave, referee, refereeRunning, rematch, reportDuel, setReady, tick, trade, trick, DuelError } from "@/lib/server/duel/store";
@@ -53,6 +54,7 @@ export async function POST(req: Request, { params }: P) {
         if (action !== "boost" && action !== "dump" && action !== "close") throw new DuelError(400, "Bad trade.");
         const rl = await hitLimit(kv(), `duel:trade:${me.pid}`, 40, 10);
         if (!rl.ok) throw new DuelError(429, "Too many trades at once.");
+        await new Promise((ok) => setTimeout(ok, FILL_MS)); // Lighter taker speed bump: the fill uses the price 300 ms after the tap
         res = await trade(id, me.pid, action, Number.isFinite(usd) ? usd : 0, await duelPrice());
         break;
       }
