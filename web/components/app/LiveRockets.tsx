@@ -5,6 +5,7 @@
  * flight. Nothing flying (or nothing matching) points to Host a launch. Only real launches from HomeData, never samples.
  */
 import Link from "next/link";
+import { BOT_DUEL_HREF } from "@/lib/features";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtUsd } from "@/lib/config";
 import { difficultyOf } from "@/lib/difficulty";
@@ -70,6 +71,7 @@ export default function LiveRockets({ coins, open, onClose }: { coins: HomeCoin[
         }) : (
           <div className={s.empty} data-testid="app-rockets-empty">
             <b>{q ? `No rocket called “${q}”` : "Nothing flying yet"}</b>
+            {!q && <Link href={BOT_DUEL_HREF} className={s.emptyGo} onClick={onClose} data-testid="app-rockets-empty-duel">Play a duel</Link>}
           </div>
         )}
       </div>

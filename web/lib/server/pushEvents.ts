@@ -2,7 +2,8 @@ import "server-only";
 /**
  * Finds the push events (lib/push.ts) from the indexed trades, every few minutes (GET /api/cron/push):
  *  - orbit: a rocket graduated; everyone aboard at the orbit fill (host excluded) gets "reached orbit"
- *  - host:  a launch passed 25 / 50 / 100 … passengers; its host gets the milestone
+ *  - host:  a launch passed 25 / 50 / 100 … passengers; its host gets the milestone. Also its first 3 pilots aboard
+ *           (first day only), with a link that opens the "your rocket is live" share card
  *  - crew:  a rocket climbed into a zone at or past the Kármán Line with 2+ of a crew aboard; that crew hears about it
  * The first run only records where everything stands, so nothing old is announced.
  */
@@ -24,7 +25,10 @@ const FILLS = 5000;
 const MAX_PER_EVENT = 500;
 const CREW_ZONE_FROM = TIERS.findIndex((t) => t.name === "KÁRMÁN LINE");
 const DUST = 1e-9;
-const S = { seeded: "push:seeded", orbited: "push:orbited", mark: (c: string) => `push:hostmark:${c}`, zone: (c: string) => `push:zone:${c}`, crewWeek: (id: string, wk: string) => `push:crewweek:${id}:${wk}` };
+/** First-boosts nudge: this many pilots (not the host) aboard, within the launch's first day. */
+const FIRST_BOOSTS = 3;
+const FIRST_BOOST_WINDOW_MS = 24 * 3_600_000;
+const S = { seeded: "push:seeded", orbited: "push:orbited", mark: (c: string) => `push:hostmark:${c}`, firstBoost: (c: string) => `push:firstboost:${c}`, zone: (c: string) => `push:zone:${c}`, crewWeek: (id: string, wk: string) => `push:crewweek:${id}:${wk}` };
 
 export type PushRun = { seeded: boolean; checked: number; sent: Record<PushKind, number> };
 
@@ -72,6 +76,16 @@ export async function runPushEvents(budgetMs = 45_000, now = Date.now()): Promis
       else if (mark > Number(prev)) {
         await s.set(S.mark(coin), String(mark));
         count("host")(await notify(creator, "host", `host:${coin}:${mark}`, { ...pushCopy.host(c.ticker, mark), url: `/host?coin=${coin}` }, now).catch(() => "error"));
+      }
+    }
+
+    // first boosts (launch funnel item 8): the 3rd pilot to board a launch from its first day nudges the host to share it
+    if (seeded && creator && c.launchedAt && now - c.launchedAt < FIRST_BOOST_WINDOW_MS && !(await s.get(S.firstBoost(coin)))) {
+      const pilots = new Set<string>();
+      for (const f of fills) { const t = f.trader.toLowerCase(); if (f.side === "buy" && t !== creator) pilots.add(t); if (pilots.size >= FIRST_BOOSTS) break; }
+      if (pilots.size >= FIRST_BOOSTS) {
+        await s.set(S.firstBoost(coin), "1");
+        count("host")(await notify(creator, "host", `host:${coin}:firstboosts`, { ...pushCopy.firstBoosts(c.ticker, FIRST_BOOSTS), url: `/coin/${coin}?cs=${encodeURIComponent(c.ticker)}&share=1` }, now).catch(() => "error"));
       }
     }
 

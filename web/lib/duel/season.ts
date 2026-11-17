@@ -6,6 +6,11 @@
  * never below 0. SP climb you through leagues; everyone starts the next month at 0. Friendly and bot duels earn no SP.
  * The numbers are a starting point for maker to tune.
  */
+/** Ranked play is real money only (maker 2026-11-17). Until real-money duels are live (Nova), the online queue is unranked:
+ *  no rating change, no season points, no Duels board. Win/loss record and win streak still count. A build with
+ *  NEXT_PUBLIC_DUEL_RANKED=1 turns ranking on. */
+export const DUEL_RANKED_LIVE: boolean = process.env.NEXT_PUBLIC_DUEL_RANKED === "1" || process.env.NEXT_PUBLIC_DUEL_RANKED === "true";
+
 export const SEASON_ONE = { y: 2026, m: 11 } as const; // month is 1-based
 
 export const SP = { win: 30, streakStep: 5, streakMax: 25, draw: 10, loss: -15 } as const;

@@ -6,6 +6,7 @@
  * plate, pointing at Host a launch and Free play. No sprite here (sprite only in flight).
  */
 import Link from "next/link";
+import { BOT_DUEL_HREF } from "@/lib/features";
 import { useEffect, useMemo, useState } from "react";
 import { withBase } from "@/lib/base-path";
 import { rankTrending, tierProgress, type HomeCoin } from "@/lib/home/trending";
@@ -116,7 +117,7 @@ export default function JoinFlight({ coins }: { coins: HomeCoin[] }) {
         <h2 id="lobby-join-title" className={s.title}>Join a flight</h2>
         <div className={s.actions}>
           <Link href="/create" className={s.drop} data-testid="lobby-host">Host a launch</Link>
-          <Link href="/flight/sim" className={s.ghost}>Free play</Link>
+          <Link href={BOT_DUEL_HREF} className={s.ghost} data-testid="lobby-empty-duel">Play a duel</Link>
         </div>
       </div>
     </section>
