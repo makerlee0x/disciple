@@ -790,3 +790,14 @@ textarea.he-ta { min-height: 76px; padding: 12px 14px; resize: none; display: bl
 .cx-depcopy { align-self: flex-start; }
 .cx-depnote { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #BCC0CA; }
 .cx-depnote .cx-help { margin-top: 0; }
+
+/* First flight coach (components/mobile/FirstRunHost): a finger slides up the throttle lever until the pilot pulls it once. */
+.fr-lev { position: fixed; z-index: 120; width: 0; height: 0; pointer-events: none; }
+.fr-lev-hand { position: absolute; left: -14px; top: -6px; filter: drop-shadow(0 4px 10px rgba(0,0,0,.55)); animation: frLevUp 1.8s cubic-bezier(.45,0,.3,1) infinite; }
+.fr-lev-trail { position: absolute; left: -3px; bottom: 0; width: 6px; height: 0; border-radius: 3px; background: linear-gradient(to top, rgba(95,240,160,0), rgba(95,240,160,.9)); animation: frLevTrail 1.8s cubic-bezier(.45,0,.3,1) infinite; }
+.fr-lev-tip { position: absolute; right: 34px; top: -150px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; white-space: nowrap; padding: 9px 12px; border-radius: 12px; background: rgba(18,19,39,.92); border: 1px solid rgba(95,240,160,.55); box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+.fr-lev-tip b { font: 800 20px/1 var(--dsc-font-game); color: #5FF0A0; letter-spacing: .02em; }
+.fr-lev-tip small { font: 500 13px/1 var(--dsc-font-ui); color: #D7D9E4; }
+@keyframes frLevUp { 0%, 12% { transform: translateY(0); opacity: 0; } 20% { opacity: 1; } 70% { transform: translateY(-120px); opacity: 1; } 85%, 100% { transform: translateY(-120px); opacity: 0; } }
+@keyframes frLevTrail { 0%, 20% { height: 0; opacity: 0; } 70% { height: 120px; opacity: 1; } 85%, 100% { height: 120px; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .fr-lev-hand { animation: none; transform: translateY(-60px); } .fr-lev-trail { animation: none; height: 60px; opacity: .8; } }

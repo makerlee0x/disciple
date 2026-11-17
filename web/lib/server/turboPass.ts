@@ -1,5 +1,5 @@
 /**
- * Password gate for /turbo while Turbo is pre-launch (maker, Nov 13 2026: a password link for the Nova team instead of
+ * OFF by default since 2026-11-16 (turboGated). Password gate for /turbo while Turbo was pre-launch (maker, Nov 13 2026: a password link for the Nova team instead of
  * a Vercel login). The password is TURBO_PASSWORD when set in the environment, otherwise "nova". Entering it sets an
  * httpOnly cookie holding a hash of the password, so changing the password signs everyone out.
  * This is a soft gate for sharing a preview, not account security.
@@ -38,8 +38,13 @@ export const hasTurboInvite = (cookie: string | undefined, now = Date.now()) => 
   return Number.isFinite(exp) && exp > now && !!sig && same(sig, inviteSig(exp));
 };
 
-/** One check for pages and APIs: the password cookie, the app, or a live invite. */
+/** The password is off (maker, 2026-11-16: "remove the password"): Turbo is open to everyone on the web. TURBO_GATE=1 in
+ *  the environment turns the old early-access gate back on (password, app or a live invite) without a deploy of new code. */
+export const turboGated = () => process.env.TURBO_GATE === "1";
+
+/** One check for pages and APIs: open unless the gate is switched on; then the password cookie, the app, or a live invite. */
 export function turboOpen(o: { ua?: string | null; pass?: string; invite?: string }): boolean {
+  if (!turboGated()) return true;
   return isAppUa(o.ua) || hasTurboPass(o.pass) || hasTurboInvite(o.invite);
 }
 /** turboOpen from a raw Request (API routes). */

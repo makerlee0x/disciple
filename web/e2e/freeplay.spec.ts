@@ -9,11 +9,10 @@ import type { Page } from "@playwright/test";
 const boost = (page: Page) => page.keyboard.press("Space");
 /** Free play: ENTER cashes the whole bag out (SHIFT sells half) */
 const dump = (page: Page) => page.keyboard.press("Enter");
-/** phones: the first flight opens with the How to fly card; FLY closes it */
+/** phones: the first flight used to open with a How to fly card; it's a finger on the lever now (nothing to close) */
 async function pastIntro(page: Page) {
   if (!isPhone(page)) return;
-  const go = page.getByTestId("fr-go");
-  await go.waitFor({ state: "visible", timeout: 8_000 }).then(() => go.tap()).catch(() => {});
+  await expect(page.getByTestId("fr-go")).toHaveCount(0);
 }
 /** the run strip on desktop, the folded run chip on phones */
 async function expectRun(page: Page, mode: RegExp) {

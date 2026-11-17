@@ -1,17 +1,21 @@
 "use client";
 /**
- * First launch of the iPhone app. Was three swipeable cards (2026-11-14); since the app audit (maker, 2026-11-15) it is one
- * screen that drops a new pilot straight into a 1-minute bot duel, with sign-in after the result. Shown once per install,
- * only inside the app, only when signed out. SKIP goes to the lobby.
+ * First launch: one screen that drops a new pilot straight into a free 1-minute bot duel, with sign-in after the result
+ * (app audit, maker 2026-11-15). Since the Grok playbook picks (maker 2026-11-16) the website gets the same front door:
+ * shown once, only on a first visit (never seen it, nothing of ours in storage yet), only signed out, and on the website
+ * only on the lobby (a shared coin or duel link goes where it points). Every later visit opens the lobby as usual.
+ * SKIP goes to the lobby.
  */
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { isNativeApp } from "@/lib/native";
 import { hasSavedSession } from "@/lib/aa/session";
 import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
 import { withBase } from "@/lib/base-path";
 
 export const WELCOME_KEY = "disciple.welcome.v1";
+/** set by earlier visits (first-run steps, game settings, lobby mode pick, Free play runs, the old welcome cards) */
+const PLAYED_KEYS = ["disciple.firstrun.v1", "disciple.welcomed.v1", "disciple.game.settings.v1", "disciple.lobby.mode", "disciple.sim.runs", "disciple.sim.best", "disciple.turbo.runs.v1", "disciple.username"];
 
 /** First launch (maker, 2026-11-15, app audit: "straight into a bot duel"): one screen, then a 1-minute practice duel
  *  against the rookie bot (/turbo/duel?first=1). Sign-in waits until after the result ("Save your win"). */
@@ -24,13 +28,20 @@ export const WELCOME_COPY = {
 
 export default function WelcomeIntro() {
   const router = useRouter();
+  const path = usePathname() ?? "/";
   const [show, setShow] = useState(false);
 
   useEffect(() => {
-    if (!isNativeApp() || hasSavedSession()) return;
-    try { if (localStorage.getItem(WELCOME_KEY)) return; } catch { return; }
+    if (hasSavedSession()) return;
+    const app = isNativeApp();
+    if (!app && path !== "/") return;
+    try {
+      if (localStorage.getItem(WELCOME_KEY)) return;
+      // a returning web visitor from before this screen existed: signs they've been here and played mean it isn't a first visit
+      if (!app && PLAYED_KEYS.some((k) => localStorage.getItem(k) != null)) { localStorage.setItem(WELCOME_KEY, "returning"); return; }
+    } catch { return; }
     setShow(true);
-  }, []);
+  }, [path]);
   if (!show) return null;
 
   const done = () => { try { localStorage.setItem(WELCOME_KEY, String(Date.now())); } catch { /* private mode */ } setShow(false); };
@@ -54,6 +65,7 @@ export default function WelcomeIntro() {
         .wi-s { margin: 12px 0 0; font-size: 17px; line-height: 1.4; color: #D7D9E4; max-width: 30ch; }
         .wi-btns { display: flex; flex-direction: column; gap: 10px; padding: 0 20px; }
         .wi-go { height: 56px; border-radius: 14px; border: 0; background: linear-gradient(180deg, #F3DFA8, #F2C14E); color: #121327; font: 800 22px/1 var(--dsc-font-game, sans-serif); letter-spacing: .6px; text-transform: uppercase; }
+        @media (min-width: 761px) { .wi-top, .wi-card, .wi-btns { width: 100%; max-width: 460px; margin-left: auto; margin-right: auto; box-sizing: border-box; } .wi-art img { max-height: 46vh; } }
         .wi-link { height: 48px; border: 0; background: none; color: rgba(215,217,228,.85); font: 600 16px/1 var(--dsc-font-ui, system-ui, sans-serif); }
       `}</style>
       <div className="wi-top">
