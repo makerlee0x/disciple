@@ -13,7 +13,8 @@
 import { encodeFunctionData, encodeAbiParameters, hashStruct, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { DEPLOYMENTS } from "../chains";
 import { GaslessReject, PERMIT2, type Erc2612, type Permit } from "./gaslessPermit2";
-import type { AnonLaunch } from "./gaslessAnonLaunch";
+import { signedLaunch, type AnonLaunch } from "./gaslessAnonLaunch";
+import { ANON_ANY_MODE_LIVE } from "../anonModes";
 
 export const MULTICALL3_ADDR = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 const ZERO = "0x0000000000000000000000000000000000000000";
@@ -125,7 +126,21 @@ export function encodeForwarderAction(o: { permit: Permit; a: ForwarderAction; c
   return encodeFunctionData({ abi: forwarderAbi, functionName: "action", args: [permitArg(o.permit), o.a, o.calls, o.owner, o.signature, approvalOf(o.approval), o.sweep ?? []] });
 }
 
+/** The modes forwarder's launchAnon: AnonLaunch ends with `uint8 mode` (lib/anonModes ANON_ANY_MODE_LIVE). */
+export const forwarderLaunchModesAbi = parseAbi([
+  "struct TokenPermissions { address token; uint256 amount; }",
+  "struct PermitTransferFrom { TokenPermissions permitted; uint256 nonce; uint256 deadline; }",
+  "struct Approval { uint256 value; uint256 deadline; uint8 v; bytes32 r; bytes32 s; }",
+  "struct AnonLaunch { string name; string ticker; string imageURI; string description; string socialsURI; address quote; uint256 creatorTaxBps; uint256 creatorBuyQuoteIn; uint256 creatorBuyMinTokensOut; uint256 deadline; address stealthOwner; address buyRecipient; bytes ephemeralPubKey; bytes1 viewTag; uint256 maxFee; uint256 usdgIn; uint256 minQuoteIn; address refundTo; address launcher; uint8 creatorFeeDestination; uint8 mode; }",
+  "struct LaunchResult { address token; address curve; uint256 creatorTokensBought; }",
+  "function launchAnon(PermitTransferFrom permit, AnonLaunch l, address owner, bytes signature, Approval approval) returns (LaunchResult r)",
+]);
+
 export function encodeForwarderLaunch(o: { permit: Permit; l: AnonLaunch; owner: Address; signature: Hex; approval?: Erc2612 }): Hex {
-  const l = o.l;
+  if (ANON_ANY_MODE_LIVE) {
+    const l = { ...signedLaunch(o.l), mode: o.l.mode ?? 0 };
+    return encodeFunctionData({ abi: forwarderLaunchModesAbi, functionName: "launchAnon", args: [permitArg(o.permit), l, o.owner, o.signature, approvalOf(o.approval)] });
+  }
+  const l = signedLaunch(o.l);
   return encodeFunctionData({ abi: forwarderAbi, functionName: "launchAnon", args: [permitArg(o.permit), { ...l, creatorFeeDestination: l.creatorFeeDestination }, o.owner, o.signature, approvalOf(o.approval)] });
 }

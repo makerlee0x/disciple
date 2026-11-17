@@ -35,10 +35,11 @@ interface IPermit2SignatureTransfer {
     ) external;
 }
 
-/// @dev AnonLauncher.launchAnonWithUsdg (creatorFeeDestination 0).
+/// @dev AnonLauncher.launchAnonWithUsdgMode (creatorFeeDestination 0).
 interface IAnonLaunchUsdg {
-    function launchAnonWithUsdg(
+    function launchAnonWithUsdgMode(
         ILaunchpad.LaunchParams calldata p,
+        uint8 mode,
         address stealthOwner,
         address buyRecipient,
         bytes calldata ephemeralPubKey,
@@ -50,10 +51,11 @@ interface IAnonLaunchUsdg {
     ) external returns (ILaunchpad.LaunchResult memory r, uint256 usdgRefund);
 }
 
-/// @dev CreatorFeeHarvest.launchAnonWithUsdg (creatorFeeDestination 1 locked pool / 2 buy-and-burn).
+/// @dev CreatorFeeHarvest.launchAnonWithUsdgMode (creatorFeeDestination 1 locked pool / 2 buy-and-burn).
 interface IHarvestLaunchUsdg {
-    function launchAnonWithUsdg(
+    function launchAnonWithUsdgMode(
         ILaunchpad.LaunchParams calldata p,
+        uint8 mode,
         address stealthOwner,
         address buyRecipient,
         bytes calldata ephemeralPubKey,
@@ -137,13 +139,14 @@ contract DisciplePermitForwarder is ReentrancyGuard {
         address refundTo;
         address launcher;
         uint8 creatorFeeDestination;
+        uint8 mode; // 0 Trench (Expert), 1 Easy, 2 Hard
     }
 
     string public constant ANON_LAUNCH_TYPE =
-        "AnonLaunch(string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline,address stealthOwner,address buyRecipient,bytes ephemeralPubKey,bytes1 viewTag,uint256 maxFee,uint256 usdgIn,uint256 minQuoteIn,address refundTo,address launcher,uint8 creatorFeeDestination)";
+        "AnonLaunch(string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline,address stealthOwner,address buyRecipient,bytes ephemeralPubKey,bytes1 viewTag,uint256 maxFee,uint256 usdgIn,uint256 minQuoteIn,address refundTo,address launcher,uint8 creatorFeeDestination,uint8 mode)";
     bytes32 public constant ANON_LAUNCH_TYPEHASH = keccak256(bytes(ANON_LAUNCH_TYPE));
     string public constant ANON_LAUNCH_WITNESS_TYPE =
-        "AnonLaunch witness)AnonLaunch(string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline,address stealthOwner,address buyRecipient,bytes ephemeralPubKey,bytes1 viewTag,uint256 maxFee,uint256 usdgIn,uint256 minQuoteIn,address refundTo,address launcher,uint8 creatorFeeDestination)TokenPermissions(address token,uint256 amount)";
+        "AnonLaunch witness)AnonLaunch(string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline,address stealthOwner,address buyRecipient,bytes ephemeralPubKey,bytes1 viewTag,uint256 maxFee,uint256 usdgIn,uint256 minQuoteIn,address refundTo,address launcher,uint8 creatorFeeDestination,uint8 mode)TokenPermissions(address token,uint256 amount)";
 
     /// @notice One-time EIP-2612 approval of Permit2 by the player (value 0 = none). Submitted with try/catch: if someone
     ///         used it first the allowance is already there, and if it is missing the Permit2 transfer reverts instead.
@@ -163,9 +166,15 @@ contract DisciplePermitForwarder is ReentrancyGuard {
     error AmountMismatch();
     error BadDestination();
 
-    event Withdrawn(address indexed owner, address indexed token, address indexed to, uint256 net, uint256 fee, address feeTo);
-    event ActionRelayed(address indexed owner, address indexed token, address indexed feeTo, uint256 fee, bytes32 callsHash);
-    event AnonLaunchRelayed(address indexed owner, address indexed token, address curve, address launcher, uint256 refunded);
+    event Withdrawn(
+        address indexed owner, address indexed token, address indexed to, uint256 net, uint256 fee, address feeTo
+    );
+    event ActionRelayed(
+        address indexed owner, address indexed token, address indexed feeTo, uint256 fee, bytes32 callsHash
+    );
+    event AnonLaunchRelayed(
+        address indexed owner, address indexed token, address curve, address launcher, uint256 refunded
+    );
 
     // ───────── withdraw ─────────
 
@@ -184,14 +193,15 @@ contract DisciplePermitForwarder is ReentrancyGuard {
         IERC20 token = IERC20(permit.permitted.token);
         _approvePermit2(address(token), owner, approval);
 
-        IPermit2SignatureTransfer(PERMIT2).permitWitnessTransferFrom(
-            permit,
-            IPermit2SignatureTransfer.SignatureTransferDetails({to: address(this), requestedAmount: amount}),
-            owner,
-            hashWithdraw(w),
-            WITHDRAW_WITNESS_TYPE,
-            signature
-        );
+        IPermit2SignatureTransfer(PERMIT2)
+            .permitWitnessTransferFrom(
+                permit,
+                IPermit2SignatureTransfer.SignatureTransferDetails({to: address(this), requestedAmount: amount}),
+                owner,
+                hashWithdraw(w),
+                WITHDRAW_WITNESS_TYPE,
+                signature
+            );
         uint256 net = amount - w.fee;
         if (net > 0) token.safeTransfer(w.to, net);
         if (w.fee > 0) token.safeTransfer(w.feeTo, w.fee);
@@ -219,16 +229,21 @@ contract DisciplePermitForwarder is ReentrancyGuard {
         address token = permit.permitted.token;
         _approvePermit2(token, owner, approval);
 
-        IPermit2SignatureTransfer(PERMIT2).permitWitnessTransferFrom(
-            permit,
-            IPermit2SignatureTransfer.SignatureTransferDetails({to: a.feeTo, requestedAmount: permit.permitted.amount}),
-            owner,
-            hashAction(a),
-            ACTION_WITNESS_TYPE,
-            signature
-        );
+        IPermit2SignatureTransfer(PERMIT2)
+            .permitWitnessTransferFrom(
+                permit,
+                IPermit2SignatureTransfer.SignatureTransferDetails({
+                    to: a.feeTo, requestedAmount: permit.permitted.amount
+                }),
+                owner,
+                hashAction(a),
+                ACTION_WITNESS_TYPE,
+                signature
+            );
         uint256[] memory held = new uint256[](sweep.length);
-        for (uint256 j; j < sweep.length; ++j) held[j] = IERC20(sweep[j]).balanceOf(address(this));
+        for (uint256 j; j < sweep.length; ++j) {
+            held[j] = IERC20(sweep[j]).balanceOf(address(this));
+        }
         for (uint256 i; i < calls.length; ++i) {
             address t = calls[i].target;
             if (t == PERMIT2 || t == address(this) || t == token || t.code.length == 0) revert ForbiddenTarget(t);
@@ -261,14 +276,15 @@ contract DisciplePermitForwarder is ReentrancyGuard {
         _approvePermit2(address(token), owner, approval);
 
         uint256 before = token.balanceOf(address(this));
-        IPermit2SignatureTransfer(PERMIT2).permitWitnessTransferFrom(
-            permit,
-            IPermit2SignatureTransfer.SignatureTransferDetails({to: address(this), requestedAmount: amount}),
-            owner,
-            hashAnonLaunch(l),
-            ANON_LAUNCH_WITNESS_TYPE,
-            signature
-        );
+        IPermit2SignatureTransfer(PERMIT2)
+            .permitWitnessTransferFrom(
+                permit,
+                IPermit2SignatureTransfer.SignatureTransferDetails({to: address(this), requestedAmount: amount}),
+                owner,
+                hashAnonLaunch(l),
+                ANON_LAUNCH_WITNESS_TYPE,
+                signature
+            );
         address refund = l.refundTo == address(0) ? owner : l.refundTo;
         token.forceApprove(l.launcher, amount);
         r = _launch(l, refund);
@@ -293,22 +309,34 @@ contract DisciplePermitForwarder is ReentrancyGuard {
             deadline: l.deadline
         });
         if (l.creatorFeeDestination == 0) {
-            (r,) = IAnonLaunchUsdg(l.launcher).launchAnonWithUsdg(
-                p, l.stealthOwner, l.buyRecipient, l.ephemeralPubKey, l.viewTag, l.maxFee, l.usdgIn, l.minQuoteIn, refund
-            );
+            (r,) = IAnonLaunchUsdg(l.launcher)
+                .launchAnonWithUsdgMode(
+                    p,
+                    l.mode,
+                    l.stealthOwner,
+                    l.buyRecipient,
+                    l.ephemeralPubKey,
+                    l.viewTag,
+                    l.maxFee,
+                    l.usdgIn,
+                    l.minQuoteIn,
+                    refund
+                );
         } else {
-            (r,) = IHarvestLaunchUsdg(l.launcher).launchAnonWithUsdg(
-                p,
-                l.stealthOwner,
-                l.buyRecipient,
-                l.ephemeralPubKey,
-                l.viewTag,
-                l.maxFee,
-                l.usdgIn,
-                l.minQuoteIn,
-                refund,
-                l.creatorFeeDestination
-            );
+            (r,) = IHarvestLaunchUsdg(l.launcher)
+                .launchAnonWithUsdgMode(
+                    p,
+                    l.mode,
+                    l.stealthOwner,
+                    l.buyRecipient,
+                    l.ephemeralPubKey,
+                    l.viewTag,
+                    l.maxFee,
+                    l.usdgIn,
+                    l.minQuoteIn,
+                    refund,
+                    l.creatorFeeDestination
+                );
         }
     }
 
@@ -346,7 +374,8 @@ contract DisciplePermitForwarder is ReentrancyGuard {
             l.minQuoteIn,
             l.refundTo,
             l.launcher,
-            l.creatorFeeDestination
+            l.creatorFeeDestination,
+            l.mode
         );
         return keccak256(bytes.concat(head, tail));
     }

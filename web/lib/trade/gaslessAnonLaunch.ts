@@ -25,9 +25,10 @@
  *
  * Does not change the trade relay, GASLESS_GAS_LIMIT, or any cap.
  */
-import { encodeAbiParameters, encodeFunctionData, keccak256, parseAbi, toBytes, type Address, type Hex } from "viem";
+import { concat, encodeAbiParameters, encodeFunctionData, keccak256, parseAbi, toBytes, type Address, type Hex } from "viem";
 import { GaslessReject, GASLESS_MAX_DEADLINE_SEC, PERMIT2, type Erc2612, type Permit } from "./gaslessPermit2";
 import { MULTICALL3, erc2612PermitAbi, multicall3Abi } from "./gaslessWithdraw";
+import { ANON_ANY_MODE_LIVE } from "../anonModes";
 
 export { MULTICALL3 };
 
@@ -39,8 +40,13 @@ export { MULTICALL3 };
  */
 export const ANON_LAUNCH_TX_GAS_LIMIT = BigInt(8_500_000);
 
-export const ANON_LAUNCH_TYPE =
+/** The deployed (pre-modes) forwarder's struct: hidden launches on Expert only. */
+export const ANON_LAUNCH_TYPE_V1 =
   "AnonLaunch(string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline,address stealthOwner,address buyRecipient,bytes ephemeralPubKey,bytes1 viewTag,uint256 maxFee,uint256 usdgIn,uint256 minQuoteIn,address refundTo,address launcher,uint8 creatorFeeDestination)";
+/** Forwarder with `uint8 mode` (0 Expert, 1 Easy, 2 Hard) signed last (lib/anonModes ANON_ANY_MODE_LIVE). */
+export const ANON_LAUNCH_TYPE_MODES =
+  "AnonLaunch(string name,string ticker,string imageURI,string description,string socialsURI,address quote,uint256 creatorTaxBps,uint256 creatorBuyQuoteIn,uint256 creatorBuyMinTokensOut,uint256 deadline,address stealthOwner,address buyRecipient,bytes ephemeralPubKey,bytes1 viewTag,uint256 maxFee,uint256 usdgIn,uint256 minQuoteIn,address refundTo,address launcher,uint8 creatorFeeDestination,uint8 mode)";
+export const ANON_LAUNCH_TYPE = ANON_ANY_MODE_LIVE ? ANON_LAUNCH_TYPE_MODES : ANON_LAUNCH_TYPE_V1;
 /**
  * EIP-712 lists referenced structs alphabetically after the primary type, so AnonLaunch comes BEFORE TokenPermissions (the
  * opposite of Trade, where "TokenPermissions" < "Trade"). The earlier string had them the other way round, so Permit2 hashed a
@@ -76,6 +82,8 @@ export type AnonLaunch = LaunchParams & {
   launcher: Address;
   /** 0 keep (launcher = AnonLauncher), 1 locked pool or 2 buy-and-burn (launcher = CreatorFeeHarvest). */
   creatorFeeDestination: number;
+  /** Difficulty: 0 Expert (Trench), 1 Easy, 2 Hard. Signed only when ANON_ANY_MODE_LIVE; must be 0 before that. */
+  mode?: number;
 };
 
 export type GaslessAnonLaunchRequest = {
@@ -134,22 +142,36 @@ export const anonLaunchTypes = {
   ],
 } as const;
 
+/** The modes forwarder's struct: the same fields plus `uint8 mode` last. */
+export const anonLaunchModesTypes = {
+  ...anonLaunchTypes,
+  AnonLaunch: [...anonLaunchTypes.AnonLaunch, { name: "mode", type: "uint8" }],
+} as const;
+
 /** EIP-712 typed data the player signs. spender = the Permit2 caller: DisciplePermitForwarder when deployed (lib/trade/permitForwarder relaySpender), else Multicall3 (testnet only). */
-export function anonLaunchTypedData(chainId: number, permit: Permit, launch: AnonLaunch, spender: Address = MULTICALL3) {
+/** `withMode` (default lib/anonModes ANON_ANY_MODE_LIVE) signs the modes struct; viem hashes only the listed fields. */
+export function anonLaunchTypedData(chainId: number, permit: Permit, launch: AnonLaunch, spender: Address = MULTICALL3, withMode = ANON_ANY_MODE_LIVE) {
   return {
     domain: { name: "Permit2", chainId, verifyingContract: PERMIT2 },
-    types: anonLaunchTypes,
+    // typed as the v1 struct for TS; at runtime the modes struct adds `mode` (always set by signedLaunch)
+    types: (withMode ? anonLaunchModesTypes : anonLaunchTypes) as typeof anonLaunchTypes,
     primaryType: "PermitWitnessTransferFrom" as const,
-    message: { permitted: permit.permitted, spender, nonce: permit.nonce, deadline: permit.deadline, witness: launch },
+    message: { permitted: permit.permitted, spender, nonce: permit.nonce, deadline: permit.deadline, witness: signedLaunch(launch, withMode) },
   };
+}
+
+/** The witness exactly as signed: `mode` is a field only on the modes forwarder. */
+export function signedLaunch(l: AnonLaunch, withMode = ANON_ANY_MODE_LIVE): AnonLaunch & { mode?: number } {
+  const { mode, ...rest } = l;
+  return withMode ? { ...rest, mode: mode ?? 0 } : rest;
 }
 
 const hashStr = (s: string): Hex => keccak256(toBytes(s));
 const hashBytes = (b: Hex): Hex => keccak256(b);
 
 /** keccak256(abi.encode(ANON_LAUNCH_TYPEHASH, …)) — the Permit2 witness bytes32. */
-export function anonLaunchWitnessHash(l: AnonLaunch): Hex {
-  return keccak256(encodeAbiParameters(
+export function anonLaunchWitnessHash(l: AnonLaunch, withMode = ANON_ANY_MODE_LIVE): Hex {
+  const v1 = encodeAbiParameters(
     [
       { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" },
       { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" },
@@ -157,12 +179,14 @@ export function anonLaunchWitnessHash(l: AnonLaunch): Hex {
       { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "address" }, { type: "address" }, { type: "uint8" },
     ],
     [
-      ANON_LAUNCH_TYPEHASH, hashStr(l.name), hashStr(l.ticker), hashStr(l.imageURI), hashStr(l.description), hashStr(l.socialsURI),
+      withMode ? keccak256(toBytes(ANON_LAUNCH_TYPE_MODES)) : keccak256(toBytes(ANON_LAUNCH_TYPE_V1)), hashStr(l.name), hashStr(l.ticker), hashStr(l.imageURI), hashStr(l.description), hashStr(l.socialsURI),
       l.quote, l.creatorTaxBps, l.creatorBuyQuoteIn, l.creatorBuyMinTokensOut, l.deadline,
       l.stealthOwner, l.buyRecipient, hashBytes(l.ephemeralPubKey), l.viewTag,
       l.maxFee, l.usdgIn, l.minQuoteIn, l.refundTo, l.launcher, l.creatorFeeDestination,
     ],
-  ));
+  );
+  // abi.encode of a trailing uint8 is one more 32-byte word
+  return keccak256(withMode ? concat([v1, encodeAbiParameters([{ type: "uint8" }], [l.mode ?? 0])]) : v1);
 }
 
 export function permitAmount(l: AnonLaunch): bigint {
@@ -178,6 +202,7 @@ const call = (target: Address, callData: Hex) => ({ target, allowFailure: false,
  * @deprecated
  */
 export function encodeAnonLaunchCall(q: GaslessAnonLaunchRequest, usdg: Address): Hex {
+  if (q.launch.mode) throw new GaslessReject("the old relay path is Expert only");
   const amount = permitAmount(q.launch);
   const calls: { target: Address; allowFailure: boolean; callData: Hex }[] = [];
   if (q.approval && q.approval.value > BigInt(0)) {
@@ -239,6 +264,11 @@ const dest = (v: unknown): number => {
   if (v === "0" || v === "1" || v === "2") return Number(v);
   throw new GaslessReject("bad creatorFeeDestination");
 };
+const launchMode = (v: unknown): number => {
+  if (v === 0 || v === 1 || v === 2) return v;
+  if (v === "0" || v === "1" || v === "2") return Number(v);
+  throw new GaslessReject("bad mode");
+};
 const str = (v: unknown, what: string): string => {
   if (typeof v !== "string") throw new GaslessReject(`bad ${what}`);
   return v;
@@ -280,6 +310,7 @@ export function parseGaslessAnonLaunchRequest(x: unknown): GaslessAnonLaunchRequ
       refundTo: addr(l.refundTo, "refundTo"),
       launcher: addr(l.launcher, "launcher"),
       creatorFeeDestination: dest(l.creatorFeeDestination ?? 0),
+      mode: launchMode(l.mode ?? 0),
     },
     signature: sig as Hex,
   };
@@ -322,6 +353,7 @@ export function checkGaslessAnonLaunchRequest(q: GaslessAnonLaunchRequest, o: {
   const tooLong = anonLaunchTooLong(l);
   if (tooLong) throw new GaslessReject(tooLong);
   if ((l.ephemeralPubKey.length - 2) / 2 > ANON_LAUNCH_LIMITS.ephemeralPubKey) throw new GaslessReject("bad ephemeralPubKey");
+  if (!ANON_ANY_MODE_LIVE && l.mode) throw new GaslessReject("hidden launches are Expert only for now");
   if (l.creatorFeeDestination === 0) {
     if (!eq(l.launcher, o.launcher)) throw new GaslessReject("launcher mismatch");
   } else {

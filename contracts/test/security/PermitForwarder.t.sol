@@ -44,6 +44,7 @@ contract MockLauncher {
     address public lastRefundTo;
     string public lastName;
     uint8 public lastDest;
+    uint8 public lastMode;
 
     constructor(IERC20 t, uint256 f) {
         tok = t;
@@ -67,8 +68,9 @@ contract MockLauncher {
         refunded = refundPart;
     }
 
-    function launchAnonWithUsdg(
+    function launchAnonWithUsdgMode(
         ILaunchpad.LaunchParams calldata p,
+        uint8 mode,
         address,
         address,
         bytes calldata,
@@ -79,11 +81,13 @@ contract MockLauncher {
         address refundTo
     ) external returns (ILaunchpad.LaunchResult memory r, uint256 usdgRefund) {
         lastDest = 0;
+        lastMode = mode;
         return _run(p, maxFee, usdgIn, refundTo);
     }
 
-    function launchAnonWithUsdg(
+    function launchAnonWithUsdgMode(
         ILaunchpad.LaunchParams calldata p,
+        uint8 mode,
         address,
         address,
         bytes calldata,
@@ -95,6 +99,7 @@ contract MockLauncher {
         uint8 dest
     ) external returns (ILaunchpad.LaunchResult memory r, uint256 usdgRefund) {
         lastDest = dest;
+        lastMode = mode;
         return _run(p, maxFee, usdgIn, refundTo);
     }
 }
@@ -143,19 +148,27 @@ contract PermitForwarderTest is Test {
         );
     }
 
-    function _permit(uint256 amount, uint256 nonce) internal view returns (IPermit2SignatureTransfer.PermitTransferFrom memory p) {
+    function _permit(uint256 amount, uint256 nonce)
+        internal
+        view
+        returns (IPermit2SignatureTransfer.PermitTransferFrom memory p)
+    {
         p.permitted = IPermit2SignatureTransfer.TokenPermissions({token: address(usdg), amount: amount});
         p.nonce = nonce;
         p.deadline = block.timestamp + 10 minutes;
     }
 
-    function _sign(IPermit2SignatureTransfer.PermitTransferFrom memory p, string memory witnessType, bytes32 witness, address spender)
-        internal
-        view
-        returns (bytes memory)
-    {
+    function _sign(
+        IPermit2SignatureTransfer.PermitTransferFrom memory p,
+        string memory witnessType,
+        bytes32 witness,
+        address spender
+    ) internal view returns (bytes memory) {
         bytes32 typeHash = keccak256(
-            abi.encodePacked("PermitWitnessTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline,", witnessType)
+            abi.encodePacked(
+                "PermitWitnessTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline,",
+                witnessType
+            )
         );
         bytes32 sh = keccak256(
             abi.encode(
@@ -177,11 +190,10 @@ contract PermitForwarderTest is Test {
         w = DisciplePermitForwarder.Withdraw({to: to, fee: fee, feeTo: address(0xFEE)});
     }
 
-    function _signWithdraw(IPermit2SignatureTransfer.PermitTransferFrom memory p, DisciplePermitForwarder.Withdraw memory w)
-        internal
-        view
-        returns (bytes memory)
-    {
+    function _signWithdraw(
+        IPermit2SignatureTransfer.PermitTransferFrom memory p,
+        DisciplePermitForwarder.Withdraw memory w
+    ) internal view returns (bytes memory) {
         return _sign(p, fwd.WITHDRAW_WITNESS_TYPE(), fwd.hashWithdraw(w), address(fwd));
     }
 
@@ -231,7 +243,8 @@ contract PermitForwarderTest is Test {
         vm.startPrank(mallory);
         vm.expectRevert(); // destination changed
         fwd.withdraw(p, _withdraw(mallory, 1e18), alice, sig, _noApproval());
-        DisciplePermitForwarder.Withdraw memory feeSwap = DisciplePermitForwarder.Withdraw({to: bob, fee: 1e18, feeTo: mallory});
+        DisciplePermitForwarder.Withdraw memory feeSwap =
+            DisciplePermitForwarder.Withdraw({to: bob, fee: 1e18, feeTo: mallory});
         vm.expectRevert(); // fee recipient changed
         fwd.withdraw(p, feeSwap, alice, sig, _noApproval());
         vm.expectRevert(); // fee raised
@@ -243,20 +256,41 @@ contract PermitForwarderTest is Test {
         bytes32 wh = fwd.hashWithdraw(w);
         string memory wt = fwd.WITHDRAW_WITNESS_TYPE();
         vm.expectRevert();
-        IPermit2SignatureTransfer(PERMIT2).permitWitnessTransferFrom(
-            p, IPermit2SignatureTransfer.SignatureTransferDetails({to: mallory, requestedAmount: 50e18}), alice, wh, wt, sig
-        );
+        IPermit2SignatureTransfer(PERMIT2)
+            .permitWitnessTransferFrom(
+                p,
+                IPermit2SignatureTransfer.SignatureTransferDetails({to: mallory, requestedAmount: 50e18}),
+                alice,
+                wh,
+                wt,
+                sig
+            );
         // through the forwarder's action path (a relayed call to Permit2 is refused, and the witness type differs anyway)
         DisciplePermitForwarder.Call[] memory steal = new DisciplePermitForwarder.Call[](1);
         steal[0] = DisciplePermitForwarder.Call({
             target: PERMIT2,
             data: abi.encodeCall(
                 IPermit2SignatureTransfer.permitWitnessTransferFrom,
-                (p, IPermit2SignatureTransfer.SignatureTransferDetails({to: mallory, requestedAmount: 50e18}), alice, wh, wt, sig)
+                (
+                    p,
+                    IPermit2SignatureTransfer.SignatureTransferDetails({to: mallory, requestedAmount: 50e18}),
+                    alice,
+                    wh,
+                    wt,
+                    sig
+                )
             )
         });
         vm.expectRevert();
-        fwd.action(_permit(0, 99), DisciplePermitForwarder.Action({feeTo: mallory, callsHash: keccak256(abi.encode(steal))}), steal, mallory, "", _noApproval(), new address[](0));
+        fwd.action(
+            _permit(0, 99),
+            DisciplePermitForwarder.Action({feeTo: mallory, callsHash: keccak256(abi.encode(steal))}),
+            steal,
+            mallory,
+            "",
+            _noApproval(),
+            new address[](0)
+        );
         vm.stopPrank();
 
         assertEq(usdg.balanceOf(mallory), 0);
@@ -307,10 +341,20 @@ contract PermitForwarderTest is Test {
         IPermit2SignatureTransfer.PermitTransferFrom memory p = _permit(20e18, 1);
         DisciplePermitForwarder.Withdraw memory w = _withdraw(bob, 1e18);
         bytes32 typeHash = keccak256(
-            abi.encodePacked("PermitWitnessTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline,", fwd.WITHDRAW_WITNESS_TYPE())
+            abi.encodePacked(
+                "PermitWitnessTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline,",
+                fwd.WITHDRAW_WITNESS_TYPE()
+            )
         );
         bytes32 psh = keccak256(
-            abi.encode(typeHash, keccak256(abi.encode(TOKEN_PERMISSIONS_TYPEHASH, address(usdg), uint256(20e18))), address(fwd), uint256(1), p.deadline, fwd.hashWithdraw(w))
+            abi.encode(
+                typeHash,
+                keccak256(abi.encode(TOKEN_PERMISSIONS_TYPEHASH, address(usdg), uint256(20e18))),
+                address(fwd),
+                uint256(1),
+                p.deadline,
+                fwd.hashWithdraw(w)
+            )
         );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(k, keccak256(abi.encodePacked("\x19\x01", _domain(), psh)));
         // someone front-runs the EIP-2612 permit: the forwarder's try/catch still lets the withdrawal through
@@ -323,7 +367,8 @@ contract PermitForwarderTest is Test {
 
     function test_action_paysFeeRunsCallsSweepsTips() public {
         DisciplePermitForwarder.Call[] memory c = _calls(3e18);
-        DisciplePermitForwarder.Action memory a = DisciplePermitForwarder.Action({feeTo: relayer, callsHash: keccak256(abi.encode(c))});
+        DisciplePermitForwarder.Action memory a =
+            DisciplePermitForwarder.Action({feeTo: relayer, callsHash: keccak256(abi.encode(c))});
         IPermit2SignatureTransfer.PermitTransferFrom memory p = _permit(1e18, 10);
         bytes memory sig = _sign(p, fwd.ACTION_WITNESS_TYPE(), fwd.hashAction(a), address(fwd));
         address[] memory sweep = new address[](1);
@@ -337,14 +382,16 @@ contract PermitForwarderTest is Test {
 
     function test_action_callsAndFeeAreBound() public {
         DisciplePermitForwarder.Call[] memory c = _calls(0);
-        DisciplePermitForwarder.Action memory a = DisciplePermitForwarder.Action({feeTo: relayer, callsHash: keccak256(abi.encode(c))});
+        DisciplePermitForwarder.Action memory a =
+            DisciplePermitForwarder.Action({feeTo: relayer, callsHash: keccak256(abi.encode(c))});
         IPermit2SignatureTransfer.PermitTransferFrom memory p = _permit(1e18, 11);
         bytes memory sig = _sign(p, fwd.ACTION_WITNESS_TYPE(), fwd.hashAction(a), address(fwd));
 
         vm.startPrank(mallory);
         vm.expectRevert(DisciplePermitForwarder.CallsMismatch.selector); // different calls than signed
         fwd.action(p, a, _calls(5e18), alice, sig, _noApproval(), new address[](0));
-        DisciplePermitForwarder.Action memory swapped = DisciplePermitForwarder.Action({feeTo: mallory, callsHash: a.callsHash});
+        DisciplePermitForwarder.Action memory swapped =
+            DisciplePermitForwarder.Action({feeTo: mallory, callsHash: a.callsHash});
         vm.expectRevert(); // fee redirected
         fwd.action(p, swapped, c, alice, sig, _noApproval(), new address[](0));
         vm.stopPrank();
@@ -352,7 +399,8 @@ contract PermitForwarderTest is Test {
         // a failing call reverts everything: the fee is not taken
         DisciplePermitForwarder.Call[] memory bad = new DisciplePermitForwarder.Call[](1);
         bad[0] = DisciplePermitForwarder.Call({target: address(target), data: abi.encodeCall(TipTarget.boom, ())});
-        DisciplePermitForwarder.Action memory ab = DisciplePermitForwarder.Action({feeTo: relayer, callsHash: keccak256(abi.encode(bad))});
+        DisciplePermitForwarder.Action memory ab =
+            DisciplePermitForwarder.Action({feeTo: relayer, callsHash: keccak256(abi.encode(bad))});
         IPermit2SignatureTransfer.PermitTransferFrom memory pb = _permit(1e18, 12);
         bytes memory sb = _sign(pb, fwd.ACTION_WITNESS_TYPE(), fwd.hashAction(ab), address(fwd));
         uint256 before = usdg.balanceOf(alice);
@@ -366,7 +414,8 @@ contract PermitForwarderTest is Test {
         for (uint256 i; i < forbidden.length; ++i) {
             DisciplePermitForwarder.Call[] memory c = new DisciplePermitForwarder.Call[](1);
             c[0] = DisciplePermitForwarder.Call({target: forbidden[i], data: hex"00"});
-            DisciplePermitForwarder.Action memory a = DisciplePermitForwarder.Action({feeTo: relayer, callsHash: keccak256(abi.encode(c))});
+            DisciplePermitForwarder.Action memory a =
+                DisciplePermitForwarder.Action({feeTo: relayer, callsHash: keccak256(abi.encode(c))});
             IPermit2SignatureTransfer.PermitTransferFrom memory p = _permit(0, 20 + i);
             bytes memory sig = _sign(p, fwd.ACTION_WITNESS_TYPE(), fwd.hashAction(a), address(fwd));
             vm.expectRevert(abi.encodeWithSelector(DisciplePermitForwarder.ForbiddenTarget.selector, forbidden[i]));
@@ -426,16 +475,32 @@ contract PermitForwarderTest is Test {
         bytes memory sig = _sign(p, fwd.ANON_LAUNCH_WITNESS_TYPE(), fwd.hashAnonLaunch(l), address(fwd));
         fwd.launchAnon(p, l, alice, sig, _noApproval());
         assertEq(launcher.lastDest(), 2);
+        assertEq(launcher.lastMode(), 0);
         l.creatorFeeDestination = 3;
         vm.expectRevert(DisciplePermitForwarder.BadDestination.selector);
         fwd.launchAnon(p, l, alice, sig, _noApproval());
     }
 
+    function test_launch_signedModeReachesLauncher_andIsBound() public {
+        DisciplePermitForwarder.AnonLaunch memory l = _launch();
+        l.mode = 1; // Easy
+        IPermit2SignatureTransfer.PermitTransferFrom memory p = _permit(13e18, 33);
+        bytes memory sig = _sign(p, fwd.ANON_LAUNCH_WITNESS_TYPE(), fwd.hashAnonLaunch(l), address(fwd));
+        DisciplePermitForwarder.AnonLaunch memory m = _launch();
+        m.mode = 2; // a relayer cannot change the signed difficulty
+        vm.expectRevert();
+        fwd.launchAnon(p, m, alice, sig, _noApproval());
+        fwd.launchAnon(p, l, alice, sig, _noApproval());
+        assertEq(launcher.lastMode(), 1);
+    }
+
     // ───────── cross-check with the site's hashing (web/tests/gasless-forwarder.test.ts pins the same vectors, computed with viem's EIP-712 hashStruct) ─────────
 
     function test_vectors() public view {
-        DisciplePermitForwarder.Withdraw memory w = DisciplePermitForwarder.Withdraw({to: address(0xB0B), fee: 1234, feeTo: address(0xFEE)});
-        DisciplePermitForwarder.Action memory a = DisciplePermitForwarder.Action({feeTo: address(0xFEE), callsHash: keccak256("calls")});
+        DisciplePermitForwarder.Withdraw memory w =
+            DisciplePermitForwarder.Withdraw({to: address(0xB0B), fee: 1234, feeTo: address(0xFEE)});
+        DisciplePermitForwarder.Action memory a =
+            DisciplePermitForwarder.Action({feeTo: address(0xFEE), callsHash: keccak256("calls")});
         DisciplePermitForwarder.AnonLaunch memory l;
         l.name = "Halo Runner";
         l.ticker = "HALO";
@@ -452,8 +517,15 @@ contract PermitForwarderTest is Test {
         l.refundTo = address(0xA11CE);
         l.launcher = address(0x1A);
         l.creatorFeeDestination = 1;
-        assertEq(fwd.hashWithdraw(w), 0x829688fa6c53b8799d518d5fa5a010a449c5d40c270731786c9476b5c2db51b9, "withdraw vector");
+        l.mode = 1;
+        assertEq(
+            fwd.hashWithdraw(w), 0x829688fa6c53b8799d518d5fa5a010a449c5d40c270731786c9476b5c2db51b9, "withdraw vector"
+        );
         assertEq(fwd.hashAction(a), 0x42fa0f62b3b00c3cd402c82344fbc9743ba26d6af606d9e6903eb14e61b42af7, "action vector");
-        assertEq(fwd.hashAnonLaunch(l), 0x25405878d7714c648e45726cd0ce0c377ef27708c8fa3609d5cb3ac37028ce23, "launch vector");
+        assertEq(
+            fwd.hashAnonLaunch(l),
+            0xc0d223b21e6726536f1f19479bb7acc0f732b1834a01a1762ff456486a9b9cd2,
+            "launch vector (mode = 1)"
+        );
     }
 }

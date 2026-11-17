@@ -404,6 +404,33 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         assertGt(Token(r.token).balanceOf(stealth), 0, "First BOOST coins went to the stealth owner");
     }
 
+    /// @dev Private launches on every difficulty go through the harvest too (pool / burn choice kept).
+    function test_anonWithMode_hardAndEasy_recordChoice() public {
+        _pointVaultAtAnon();
+        vm.prank(creator);
+        ILaunchpad.LaunchResult memory h =
+            harvest.launchAnonWithMode(_params(0, 0), Constants.MODE_PVP, stealth, stealth, "", bytes1(0), 0, 1);
+        assertEq(launchpad.modeOf(h.token), Constants.MODE_PVP);
+        assertEq(harvest.creatorFeeDestinationOf(h.token), 1);
+        assertEq(launchpad.creatorOf(h.token), address(anon));
+
+        router.setUsdgRouting(address(quote), address(launchpad));
+        uint256 usdgIn = 10 * 10 ** quote.decimals();
+        quote.mint(creator, usdgIn);
+        vm.startPrank(creator);
+        quote.approve(address(harvest), usdgIn);
+        (ILaunchpad.LaunchResult memory e,) = harvest.launchAnonWithUsdgMode(
+            _params(0, 0), Constants.MODE_PVE, stealth, stealth, "", bytes1(0), 0, usdgIn, usdgIn, address(0), 2
+        );
+        vm.stopPrank();
+        assertEq(launchpad.modeOf(e.token), Constants.MODE_PVE);
+        assertEq(harvest.creatorFeeDestinationOf(e.token), 2);
+        (address to, uint96 amt,) = anon.heldBoost(e.token);
+        assertEq(to, stealth, "Easy boost held on AnonLauncher for the stealth owner");
+        assertEq(amt, e.creatorTokensBought);
+        assertGt(amt, 0);
+    }
+
     function test_anonWithUsdg_refundToHarvest_reverts() public {
         vm.prank(creator);
         vm.expectRevert(CreatorFeeHarvest.BadRefundTo.selector);

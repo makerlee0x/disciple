@@ -6,6 +6,7 @@
     { "path": "/api/cron/achievements", "schedule": "*/2 * * * *" },
     { "path": "/api/cron/push", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/live-activity", "schedule": "* * * * *" },
-    { "path": "/api/cron/route-creator-fees", "schedule": "17 * * * *" }
+    { "path": "/api/cron/route-creator-fees", "schedule": "17 * * * *" },
+    { "path": "/api/cron/release-boosts", "schedule": "37 * * * *" }
   ]
 }

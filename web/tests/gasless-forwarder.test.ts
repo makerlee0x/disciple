@@ -11,7 +11,7 @@ import {
   ACTION_WITNESS_TYPE, MULTICALL3_ADDR, WITHDRAW_WITNESS_TYPE, actionTypedData, callsHash, encodeForwarderLaunch, forwarderAbi,
   hashAction, hashWithdraw, relaySpender, withdrawTypedData,
 } from "../lib/trade/permitForwarder";
-import { ANON_LAUNCH_LIMITS, ANON_LAUNCH_WITNESS_TYPE, anonLaunchTooLong, anonLaunchTypedData, anonLaunchTypes, anonLaunchWitnessHash, type AnonLaunch } from "../lib/trade/gaslessAnonLaunch";
+import { ANON_LAUNCH_LIMITS, ANON_LAUNCH_TYPE_MODES, ANON_LAUNCH_WITNESS_TYPE, anonLaunchModesTypes, anonLaunchTooLong, anonLaunchTypedData, anonLaunchTypes, anonLaunchWitnessHash, type AnonLaunch } from "../lib/trade/gaslessAnonLaunch";
 import { actionWitness } from "../lib/trade/gaslessAction";
 import { PERMIT2, type Permit } from "../lib/trade/gaslessPermit2";
 
@@ -42,7 +42,13 @@ describe("witness hashes = the contract's (pinned in PermitForwarder.t.sol test_
     expect(hashWithdraw({ to: a(0xb0b), fee: 1234n, feeTo: a(0xfee) })).toBe("0x829688fa6c53b8799d518d5fa5a010a449c5d40c270731786c9476b5c2db51b9");
     expect(hashAction({ feeTo: a(0xfee), callsHash: keccak256(toBytes("calls")) })).toBe("0x42fa0f62b3b00c3cd402c82344fbc9743ba26d6af606d9e6903eb14e61b42af7");
     expect(hashStruct({ data: launch, types: anonLaunchTypes, primaryType: "AnonLaunch" })).toBe("0x25405878d7714c648e45726cd0ce0c377ef27708c8fa3609d5cb3ac37028ce23");
-    expect(anonLaunchWitnessHash(launch)).toBe("0x25405878d7714c648e45726cd0ce0c377ef27708c8fa3609d5cb3ac37028ce23");
+    expect(anonLaunchWitnessHash(launch, false)).toBe("0x25405878d7714c648e45726cd0ce0c377ef27708c8fa3609d5cb3ac37028ce23");
+  });
+  it("launch vector with the difficulty (modes forwarder, mode = 1 Easy)", () => {
+    const l = { ...launch, mode: 1 };
+    expect(hashStruct({ data: l, types: anonLaunchModesTypes, primaryType: "AnonLaunch" })).toBe("0xc0d223b21e6726536f1f19479bb7acc0f732b1834a01a1762ff456486a9b9cd2");
+    expect(anonLaunchWitnessHash(l, true)).toBe("0xc0d223b21e6726536f1f19479bb7acc0f732b1834a01a1762ff456486a9b9cd2");
+    expect(ANON_LAUNCH_TYPE_MODES.endsWith("uint8 creatorFeeDestination,uint8 mode)")).toBe(true);
   });
 });
 

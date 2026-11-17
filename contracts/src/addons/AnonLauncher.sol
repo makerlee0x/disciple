@@ -40,6 +40,24 @@ interface IRouterLaunchWithUsdg {
 }
 
 /// @notice ERC-5564 singleton announcer (deployed at 0x55649E01B5Df198D18D95b5cc5051630cfD45564).
+/// @dev Launchpad.launchWithMode (0 Trench, 1 Easy, 2 Hard) and the Easy creator lock read on the new token.
+interface ILaunchpadModes {
+    function launchWithMode(ILaunchpad.LaunchParams calldata p, uint8 mode)
+        external
+        returns (ILaunchpad.LaunchResult memory);
+}
+
+interface ICreatorLockView {
+    function creatorLockActive() external view returns (bool);
+}
+
+/// @dev Easy curves pay holder rewards (crew tips) on the NET position; the held First BOOST earns them here.
+interface IPveRewards {
+    function pendingRewards(address holder) external view returns (uint256);
+    function claim() external returns (uint256);
+    function quote() external view returns (address);
+}
+
 interface IERC5564Announcer {
     function announce(uint256 schemeId, address stealthAddress, bytes memory ephemeralPubKey, bytes memory metadata)
         external;
@@ -93,6 +111,16 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     mapping(address => address) public stealthOwnerOf; // token => stealth owner
     mapping(address => uint256) public nonces;
 
+    /// @notice Easy (mode 1) First BOOST held here while the Token creator lock is on (this contract is the
+    ///         on-chain creator, so the lock binds here). `releaseBoost` sends it to `recipient` after orbit.
+    struct HeldBoost {
+        address recipient;
+        uint96 amount;
+        address curve;
+    }
+
+    mapping(address => HeldBoost) public heldBoost; // token => held First BOOST
+
     struct ClaimReq {
         address owner;
         address[] tokens;
@@ -112,6 +140,7 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     error NothingToClaim();
     /// @notice This coin's creator fees are sent later to the locked pool or the burn, not to the stealth owner.
     error CreatorFeesRouted();
+    error NothingHeld();
 
     event AnonLaunched(
         address indexed token, address indexed curve, address indexed stealthOwner, uint256 tokensBought
@@ -121,6 +150,8 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     event Claimed(address indexed token, address indexed stealthOwner, address to, address asset, uint256 amount);
     event LaunchFeeUpdated(uint256 fee);
     event TreasuryUpdated(address treasury);
+    event BoostHeld(address indexed token, address indexed recipient, uint256 amount);
+    event BoostReleased(address indexed token, address indexed recipient, uint256 tokens, uint256 rewards);
 
     constructor(
         address owner_,
@@ -186,6 +217,33 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         bytes1 viewTag,
         uint256 maxFee
     ) external nonReentrant returns (ILaunchpad.LaunchResult memory r) {
+        r = _launchAnon(p, 0, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee);
+    }
+
+    /// @notice `launchAnon` on any difficulty: `mode` 0 Trench (Expert), 1 Easy, 2 Hard. On Easy the First BOOST
+    ///         is locked on the creator (this contract) until orbit, so it is held here and `releaseBoost` sends it
+    ///         to `buyRecipient` after graduation.
+    function launchAnonWithMode(
+        ILaunchpad.LaunchParams calldata p,
+        uint8 mode,
+        address stealthOwner,
+        address buyRecipient,
+        bytes calldata ephemeralPubKey,
+        bytes1 viewTag,
+        uint256 maxFee
+    ) external nonReentrant returns (ILaunchpad.LaunchResult memory r) {
+        r = _launchAnon(p, mode, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee);
+    }
+
+    function _launchAnon(
+        ILaunchpad.LaunchParams calldata p,
+        uint8 mode,
+        address stealthOwner,
+        address buyRecipient,
+        bytes calldata ephemeralPubKey,
+        bytes1 viewTag,
+        uint256 maxFee
+    ) internal returns (ILaunchpad.LaunchResult memory r) {
         if (stealthOwner == address(0)) revert ZeroAddress();
         if (buyRecipient == address(0)) buyRecipient = stealthOwner;
 
@@ -202,14 +260,14 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
             IERC20(q).forceApprove(address(launchpad), p.creatorBuyQuoteIn);
         }
 
-        r = launchpad.launch(p);
+        r = ILaunchpadModes(address(launchpad)).launchWithMode(p, mode);
         // mode rules v2: a First BOOST above the max partially fills; the Launchpad refunds the unused quote here
         if (q != address(0)) {
             uint256 left = IERC20(q).balanceOf(address(this)) - b0;
             if (left != 0) IERC20(q).safeTransfer(msg.sender, left);
         }
         stealthOwnerOf[r.token] = stealthOwner;
-        if (r.creatorTokensBought > 0) IERC20(r.token).safeTransfer(buyRecipient, r.creatorTokensBought);
+        _sendBoost(r, buyRecipient);
 
         if (ephemeralPubKey.length > 0 && address(announcer) != address(0)) {
             announcer.announce(SCHEME_ID, stealthOwner, ephemeralPubKey, abi.encodePacked(viewTag, r.token));
@@ -220,8 +278,8 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
 
     /// @notice Same as `launchAnon`, but the optional First BOOST is paid in USDG (`feeToken`) through
     ///         DiscipleRouter.launchWithUsdg: USDG is swapped to the pair token when needed, the curve buy
-    ///         runs in the same transaction, and any leftover is refunded in USDG to `refundTo`. Always Trench
-    ///         mode, like `launchAnon`. `p.creatorBuyQuoteIn` is ignored (the router overwrites it). Tokens
+    ///         runs in the same transaction, and any leftover is refunded in USDG to `refundTo`. Trench mode, like
+    ///         `launchAnon`; `launchAnonWithUsdgMode` picks the difficulty. `p.creatorBuyQuoteIn` is ignored (the router overwrites it). Tokens
     ///         bought go to `buyRecipient` (the stealth owner when that is empty).
     /// @param refundTo recipient of leftover USDG (the unused First BOOST after a partial fill, including
     ///        pair-token leftovers the router already swapped back to USDG). address(0) means msg.sender.
@@ -237,6 +295,42 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         uint256 minQuoteIn,
         address refundTo
     ) external nonReentrant returns (ILaunchpad.LaunchResult memory r, uint256 usdgRefund) {
+        (r, usdgRefund) = _launchAnonWithUsdg(
+            p, 0, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee, usdgIn, minQuoteIn, refundTo
+        );
+    }
+
+    /// @notice `launchAnonWithUsdg` on any difficulty (`mode` 0 Trench, 1 Easy, 2 Hard). Easy holds the First
+    ///         BOOST here until orbit, like `launchAnonWithMode`.
+    function launchAnonWithUsdgMode(
+        ILaunchpad.LaunchParams calldata p,
+        uint8 mode,
+        address stealthOwner,
+        address buyRecipient,
+        bytes calldata ephemeralPubKey,
+        bytes1 viewTag,
+        uint256 maxFee,
+        uint256 usdgIn,
+        uint256 minQuoteIn,
+        address refundTo
+    ) external nonReentrant returns (ILaunchpad.LaunchResult memory r, uint256 usdgRefund) {
+        (r, usdgRefund) = _launchAnonWithUsdg(
+            p, mode, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee, usdgIn, minQuoteIn, refundTo
+        );
+    }
+
+    function _launchAnonWithUsdg(
+        ILaunchpad.LaunchParams calldata p,
+        uint8 mode,
+        address stealthOwner,
+        address buyRecipient,
+        bytes calldata ephemeralPubKey,
+        bytes1 viewTag,
+        uint256 maxFee,
+        uint256 usdgIn,
+        uint256 minQuoteIn,
+        address refundTo
+    ) internal returns (ILaunchpad.LaunchResult memory r, uint256 usdgRefund) {
         if (stealthOwner == address(0)) revert ZeroAddress();
         if (buyRecipient == address(0)) buyRecipient = stealthOwner;
         address refund = refundTo == address(0) ? msg.sender : refundTo;
@@ -255,20 +349,53 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
             feeToken.forceApprove(router, usdgIn);
         }
 
-        // mode 0 = TRENCH, the same mode `launchAnon` gets by calling Launchpad.launch.
-        (r, usdgRefund) = IRouterLaunchWithUsdg(router).launchWithUsdg(p, 0, usdgIn, minQuoteIn);
+        (r, usdgRefund) = IRouterLaunchWithUsdg(router).launchWithUsdg(p, mode, usdgIn, minQuoteIn);
 
         uint256 left = feeToken.balanceOf(address(this)) - u0;
         if (left != 0) feeToken.safeTransfer(refund, left);
 
         stealthOwnerOf[r.token] = stealthOwner;
-        if (r.creatorTokensBought > 0) IERC20(r.token).safeTransfer(buyRecipient, r.creatorTokensBought);
+        _sendBoost(r, buyRecipient);
 
         if (ephemeralPubKey.length > 0 && address(announcer) != address(0)) {
             announcer.announce(SCHEME_ID, stealthOwner, ephemeralPubKey, abi.encodePacked(viewTag, r.token));
         }
         emit LaunchFeePaid(r.token, fee);
         emit AnonLaunched(r.token, r.curve, stealthOwner, r.creatorTokensBought);
+    }
+
+    /// @dev Trench / Hard: forward the First BOOST now. Easy: the Token creator lock keeps it on this contract until
+    ///      orbit, so record it for `releaseBoost`.
+    function _sendBoost(ILaunchpad.LaunchResult memory r, address to) internal {
+        uint256 amt = r.creatorTokensBought;
+        if (amt == 0) return;
+        if (ICreatorLockView(r.token).creatorLockActive()) {
+            heldBoost[r.token] = HeldBoost({recipient: to, amount: uint96(amt), curve: r.curve});
+            emit BoostHeld(r.token, to, amt);
+        } else {
+            IERC20(r.token).safeTransfer(to, amt);
+        }
+    }
+
+    /// @notice Anyone: send an Easy coin's held First BOOST to its recipient once the creator lock is off (orbit),
+    ///         plus the Easy holder rewards it earned on the curve. Before orbit it only pays out the rewards so far.
+    function releaseBoost(address token) external nonReentrant {
+        HeldBoost memory h = heldBoost[token];
+        if (h.recipient == address(0)) revert NothingHeld();
+        uint256 rewards;
+        IPveRewards c = IPveRewards(h.curve);
+        if (c.pendingRewards(address(this)) != 0) {
+            rewards = c.claim();
+            IERC20(c.quote()).safeTransfer(h.recipient, rewards);
+        }
+        uint256 tokens;
+        if (!ICreatorLockView(token).creatorLockActive()) {
+            tokens = h.amount;
+            delete heldBoost[token];
+            IERC20(token).safeTransfer(h.recipient, tokens);
+        }
+        if (tokens == 0 && rewards == 0) revert NothingToClaim();
+        emit BoostReleased(token, h.recipient, tokens, rewards);
     }
 
     // ───────────────────────────── creator pack ─────────────────────────────
@@ -317,12 +444,14 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     // ───────────────────────────── claims ─────────────────────────────
 
     /// @notice Claimable for `token`: quote accrued in FeeRouter, plus the launch-token side = post-graduation
-    ///         creator share accrued in FeeRouter (creatorTokenAccrued) + any `token` balance held here.
+    ///         creator share accrued in FeeRouter (creatorTokenAccrued) + any `token` balance held here,
+    ///         minus a held Easy First BOOST (`heldBoost`).
     function pending(address token) public view returns (address quote, uint256 quoteAmt, uint256 tokenAmt) {
         quote = feeRouter.tokenQuote(token);
         quoteAmt = feeRouter.creatorAccrued(token, address(this));
         if (stealthOwnerOf[token] != address(0)) {
-            tokenAmt = feeRouter.creatorTokenAccrued(token, address(this)) + IERC20(token).balanceOf(address(this));
+            tokenAmt = feeRouter.creatorTokenAccrued(token, address(this)) + IERC20(token).balanceOf(address(this))
+                - heldBoost[token].amount;
         }
     }
 
@@ -391,7 +520,7 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
                 _pay(token, so, fr.tokenQuote(token), qAmt, to, relayerFeeBps);
             }
             if (fr.creatorTokenAccrued(token, address(this)) > 0) fr.claimCreatorTokenFees(token);
-            uint256 tAmt = IERC20(token).balanceOf(address(this));
+            uint256 tAmt = IERC20(token).balanceOf(address(this)) - heldBoost[token].amount;
             if (tAmt > 0) _pay(token, so, token, tAmt, to, relayerFeeBps);
             if (qAmt == 0 && tAmt == 0) revert NothingToClaim();
         }
