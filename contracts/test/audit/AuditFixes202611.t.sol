@@ -45,7 +45,7 @@ contract AuditFixes202611Test is IntegrationBase {
         feeRouter.setCreatorFeeHarvest_51(address(harvest));
         harvest.setFeeVault(address(feeVault));
         vm.stopPrank();
-        anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), 0);
+        anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), address(0));
         vm.startPrank(owner);
         harvest.setAnonLauncher(address(anon));
         anon.setCreatorFeeHarvest(address(harvest));
@@ -90,12 +90,10 @@ contract AuditFixes202611Test is IntegrationBase {
         assertEq(quote.balanceOf(address(harvest)), 0, "nothing left on the harvest");
     }
 
-    /// CH-03: launch fee and First BOOST in the same token need one combined approval.
+    /// CH-03: the First BOOST goes through the harvest with one approval (hidden launches have no fee since 2026-11-17).
     function test_CH03_launchAnon_feeAndBoostSameToken_works() public {
-        uint256 fee = 1 ether;
+        uint256 fee = 0;
         uint256 boost = 10 ether;
-        vm.prank(owner);
-        anon.setLaunchFee(fee);
         vm.startPrank(creator);
         quote.approve(address(harvest), fee + boost);
         ILaunchpad.LaunchResult memory r =

@@ -7,7 +7,7 @@ import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {CurveFeeVault} from "../../src/CurveFeeVault.sol";
 import {CurveDeployer} from "../../src/CurveDeployer.sol";
-import {LoginGate} from "../../src/LoginGate.sol";
+import {LegacyLoginGate} from "./legacy/LegacyLoginGate.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 import {FeeMath} from "../../src/libraries/FeeMath.sol";
@@ -30,7 +30,7 @@ interface ICurveLite {
 contract LpAccrueTest is IntegrationBase {
     CurveDeployerV1 internal v1Deployer;
     CurveDeployer internal v2Deployer;
-    LoginGate internal gate;
+    LegacyLoginGate internal gate;
     uint256 internal attesterPk = 0xA77E57;
     uint256 internal nonce_;
 
@@ -38,7 +38,7 @@ contract LpAccrueTest is IntegrationBase {
         super.setUp();
         v2Deployer = CurveDeployer(address(launchpad.curveDeployer()));
         v1Deployer = new CurveDeployerV1();
-        gate = new LoginGate(owner, vm.addr(attesterPk));
+        gate = new LegacyLoginGate();
     }
 
     // ───────── helpers ─────────
@@ -93,8 +93,7 @@ contract LpAccrueTest is IntegrationBase {
 
     function _verify(address w) internal {
         uint64 exp = uint64(vm.getBlockTimestamp() + 24 hours);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(w, exp));
-        gate.attest(w, exp, abi.encodePacked(r, s, v));
+        gate.verify(w, uint64(exp));
     }
 
     // ───────── 1. per-trade accrual ─────────
@@ -370,7 +369,7 @@ contract LpAccrueTest is IntegrationBase {
         return _gasPairGap(c, t, w, 0);
     }
 
-    /// @dev `gap` > PVE_LOGIN_CACHE_TTL makes the old PVE curve re-read LoginGate on the measured buy (cache miss).
+    /// @dev `gap` > the old 10-minute login cache makes the old PVE curve re-read LoginGate on the measured buy (cache miss).
     function _gasPairGap(address c, Token t, address w, uint256 gap) internal returns (uint256 gb, uint256 gs) {
         _buyC(c, w, 50 ether); // warm-up trade so slots are non-zero (steady state, like a live coin)
         if (gap != 0) {

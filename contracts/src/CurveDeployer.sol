@@ -61,7 +61,6 @@ contract CurveDeployer {
         CurveMath.Params calldata params,
         uint256 walletCapBps,
         uint8 mode,
-        address loginGate,
         address trustedRouter,
         uint256 crewTipThresholdBps,
         uint256 snipeEscrowTimeout
@@ -77,7 +76,6 @@ contract CurveDeployer {
             params,
             walletCapBps,
             mode,
-            loginGate,
             trustedRouter,
             crewTipThresholdBps,
             snipeEscrowTimeout,

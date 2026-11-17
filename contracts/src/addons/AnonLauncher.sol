@@ -2,7 +2,6 @@
 pragma solidity ^0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
@@ -71,8 +70,8 @@ interface IERC5564Announcer {
 /// @dev Fees are unchanged (1% protocol, 33/33/33/1 split in FeeRouter). The creator buy goes through
 ///      Launchpad -> curve.buyFor (anti-snipe exempt, capped by Launchpad.creatorBuyMaxBps snapshotted per coin)
 ///      and the tokens are forwarded to `buyRecipient`.
-///      Gas sponsorship happens off-chain (ERC-4337 paymaster); `launchFee` (USDG) recoups it to treasury.
-///      Pseudonymous, not anonymous: the payer of the launch fee / creator buy is visible on-chain.
+///      Gas sponsorship happens off-chain. Hidden launches are free: `launchFee` is the constant 0 (maker 2026-11-17).
+///      Pseudonymous, not anonymous: the payer of the creator buy is visible on-chain.
 ///      v2: claims pay BOTH creator fee sides — quote (FeeRouter.creatorAccrued) and the post-graduation launch-token
 ///      share (FeeRouter.creatorTokenAccrued), which v1 could not reach. Ownership is two-step (Owned2Step).
 ///      The EIP-712 Claim struct and domain ("DISCIPLE AnonLauncher", "1") are unchanged; the domain binds
@@ -80,12 +79,8 @@ interface IERC5564Announcer {
 contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     using SafeERC20 for IERC20;
 
-    /// @notice Launch-fee ceiling in whole USD ($5).
-    uint256 public constant MAX_LAUNCH_FEE_USD = 5;
-    /// @notice Launch-fee ceiling in `feeToken` raw units: MAX_LAUNCH_FEE_USD * 10**feeToken.decimals() (5e6 for
-    ///         6-dec USDG, 5e18 for the 18-dec mock). Was a hard-coded `5 ether`, i.e. $5 trillion with 6-dec USDG.
-    ///         Same getter name/ABI as the old constant.
-    uint256 public immutable MAX_LAUNCH_FEE;
+    /// @notice Hidden launches are free forever (maker 2026-11-17). Kept as a view so existing callers still read 0.
+    uint256 public constant launchFee = 0;
     uint256 public constant MAX_RELAYER_FEE_BPS = 500; // 5%
     uint256 public constant SCHEME_ID = 1; // ERC-5564 secp256k1
 
@@ -103,8 +98,6 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     IERC20 public immutable feeToken; // USDG
     IERC5564Announcer public immutable announcer; // may be address(0)
 
-    address public treasury;
-    uint256 public launchFee;
     /// @notice Later-send contract. When set, coins it marks as destination 1 or 2 cannot be claimed here.
     address public creatorFeeHarvest;
 
@@ -145,11 +138,8 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     event AnonLaunched(
         address indexed token, address indexed curve, address indexed stealthOwner, uint256 tokensBought
     );
-    event LaunchFeePaid(address indexed token, uint256 amount);
     event StealthOwnerTransferred(address indexed token, address indexed from, address indexed to);
     event Claimed(address indexed token, address indexed stealthOwner, address to, address asset, uint256 amount);
-    event LaunchFeeUpdated(uint256 fee);
-    event TreasuryUpdated(address treasury);
     event CreatorFeeHarvestSet(address harvest);
     event BoostHeld(address indexed token, address indexed recipient, uint256 amount);
     event BoostReleased(address indexed token, address indexed recipient, uint256 tokens, uint256 rewards);
@@ -159,41 +149,18 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         address launchpad_,
         address feeRouter_,
         address feeToken_,
-        address treasury_,
-        address announcer_,
-        uint256 launchFee_
+        address announcer_
     ) EIP712("DISCIPLE AnonLauncher", "1") Owned2Step(owner_) {
-        if (owner_ == address(0) || launchpad_ == address(0) || feeRouter_ == address(0) || treasury_ == address(0)) {
+        if (owner_ == address(0) || launchpad_ == address(0) || feeRouter_ == address(0)) {
             revert ZeroAddress();
         }
-        // feeToken may be unset only for a fee-less deployment (cap 0 ⇒ launchFee must stay 0).
-        uint256 maxFee =
-            feeToken_ == address(0) ? 0 : MAX_LAUNCH_FEE_USD * 10 ** uint256(IERC20Metadata(feeToken_).decimals());
-        MAX_LAUNCH_FEE = maxFee;
-        if (launchFee_ > maxFee) revert FeeTooHigh();
         launchpad = ILaunchpad(launchpad_);
         feeRouter = IFeeRouterClaims(feeRouter_);
         feeToken = IERC20(feeToken_);
-        treasury = treasury_;
         announcer = IERC5564Announcer(announcer_);
-        launchFee = launchFee_;
     }
 
     // ───────────────────────────── admin ─────────────────────────────
-
-    function setLaunchFee(uint256 fee) external {
-        _checkOwner();
-        if (fee > MAX_LAUNCH_FEE) revert FeeTooHigh();
-        launchFee = fee;
-        emit LaunchFeeUpdated(fee);
-    }
-
-    function setTreasury(address t) external {
-        _checkOwner();
-        if (t == address(0)) revert ZeroAddress();
-        treasury = t;
-        emit TreasuryUpdated(t);
-    }
 
     /// @notice Owner points claims at the later-send contract. Write-once and contracts only (audit L-14), matching
     ///         FeeRouter's harvest pointer. Unset keeps today's claim behavior.
@@ -206,21 +173,20 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
 
     // ───────────────────────────── launch ─────────────────────────────
 
-    /// @notice Launch with a stealth creator. Payer (msg.sender, e.g. a sponsored smart account) pays the
-    ///         USDG `launchFee` and the optional creator buy; tokens bought go to `buyRecipient`.
+    /// @notice Launch with a stealth creator. Payer (msg.sender, e.g. a sponsored smart account) pays
+    ///         the optional creator buy (there is no launch fee); tokens bought go to `buyRecipient`.
     /// @param ephemeralPubKey ERC-5564 ephemeral pubkey (empty = no announcement).
     /// @param viewTag ERC-5564 view tag (first metadata byte).
-    /// @param maxFee Payer's ceiling on `launchFee` in `feeToken` raw units (decimals-aware; the owner cap is
-    ///        MAX_LAUNCH_FEE = $5). Reverts FeeTooHigh if the owner raised the fee above it after the payer signed.
+    ///      The last argument (maxFee) is unused: kept so existing callers keep the same ABI. The fee is always 0.
     function launchAnon(
         ILaunchpad.LaunchParams calldata p,
         address stealthOwner,
         address buyRecipient,
         bytes calldata ephemeralPubKey,
         bytes1 viewTag,
-        uint256 maxFee
+        uint256 /* maxFee */
     ) external nonReentrant returns (ILaunchpad.LaunchResult memory r) {
-        r = _launchAnon(p, 0, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee);
+        r = _launchAnon(p, 0, stealthOwner, buyRecipient, ephemeralPubKey, viewTag);
     }
 
     /// @notice `launchAnon` on any difficulty: `mode` 0 Trench (Expert), 1 Easy, 2 Hard. On Easy the First BOOST
@@ -233,9 +199,9 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         address buyRecipient,
         bytes calldata ephemeralPubKey,
         bytes1 viewTag,
-        uint256 maxFee
+        uint256 /* maxFee */
     ) external nonReentrant returns (ILaunchpad.LaunchResult memory r) {
-        r = _launchAnon(p, mode, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee);
+        r = _launchAnon(p, mode, stealthOwner, buyRecipient, ephemeralPubKey, viewTag);
     }
 
     function _launchAnon(
@@ -244,15 +210,11 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         address stealthOwner,
         address buyRecipient,
         bytes calldata ephemeralPubKey,
-        bytes1 viewTag,
-        uint256 maxFee
+        bytes1 viewTag
     ) internal returns (ILaunchpad.LaunchResult memory r) {
         if (stealthOwner == address(0)) revert ZeroAddress();
         if (buyRecipient == address(0)) buyRecipient = stealthOwner;
 
-        uint256 fee = launchFee;
-        if (fee > maxFee) revert FeeTooHigh();
-        if (fee > 0) feeToken.safeTransferFrom(msg.sender, treasury, fee);
 
         address q;
         uint256 b0;
@@ -275,7 +237,6 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         if (ephemeralPubKey.length > 0 && address(announcer) != address(0)) {
             announcer.announce(SCHEME_ID, stealthOwner, ephemeralPubKey, abi.encodePacked(viewTag, r.token));
         }
-        emit LaunchFeePaid(r.token, fee);
         emit AnonLaunched(r.token, r.curve, stealthOwner, r.creatorTokensBought);
     }
 
@@ -286,20 +247,20 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     ///         bought go to `buyRecipient` (the stealth owner when that is empty).
     /// @param refundTo recipient of leftover USDG (the unused First BOOST after a partial fill, including
     ///        pair-token leftovers the router already swapped back to USDG). address(0) means msg.sender.
-    ///        Cannot be this launcher. The launch fee and First BOOST USDG are still pulled from msg.sender.
+    ///        Cannot be this launcher. The First BOOST USDG is still pulled from msg.sender.
     function launchAnonWithUsdg(
         ILaunchpad.LaunchParams calldata p,
         address stealthOwner,
         address buyRecipient,
         bytes calldata ephemeralPubKey,
         bytes1 viewTag,
-        uint256 maxFee,
+        uint256 /* maxFee */,
         uint256 usdgIn,
         uint256 minQuoteIn,
         address refundTo
     ) external nonReentrant returns (ILaunchpad.LaunchResult memory r, uint256 usdgRefund) {
         (r, usdgRefund) = _launchAnonWithUsdg(
-            p, 0, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee, usdgIn, minQuoteIn, refundTo
+            p, 0, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, usdgIn, minQuoteIn, refundTo
         );
     }
 
@@ -312,13 +273,13 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         address buyRecipient,
         bytes calldata ephemeralPubKey,
         bytes1 viewTag,
-        uint256 maxFee,
+        uint256 /* maxFee */,
         uint256 usdgIn,
         uint256 minQuoteIn,
         address refundTo
     ) external nonReentrant returns (ILaunchpad.LaunchResult memory r, uint256 usdgRefund) {
         (r, usdgRefund) = _launchAnonWithUsdg(
-            p, mode, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee, usdgIn, minQuoteIn, refundTo
+            p, mode, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, usdgIn, minQuoteIn, refundTo
         );
     }
 
@@ -329,7 +290,6 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         address buyRecipient,
         bytes calldata ephemeralPubKey,
         bytes1 viewTag,
-        uint256 maxFee,
         uint256 usdgIn,
         uint256 minQuoteIn,
         address refundTo
@@ -339,9 +299,6 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         address refund = refundTo == address(0) ? msg.sender : refundTo;
         if (refund == address(this)) revert BadRefundTo();
 
-        uint256 fee = launchFee;
-        if (fee > maxFee) revert FeeTooHigh();
-        if (fee > 0) feeToken.safeTransferFrom(msg.sender, treasury, fee);
 
         address router = ILaunchpadAdmin(address(launchpad)).curveRouter();
         if (router == address(0)) revert RouterUnset();
@@ -363,7 +320,6 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         if (ephemeralPubKey.length > 0 && address(announcer) != address(0)) {
             announcer.announce(SCHEME_ID, stealthOwner, ephemeralPubKey, abi.encodePacked(viewTag, r.token));
         }
-        emit LaunchFeePaid(r.token, fee);
         emit AnonLaunched(r.token, r.curve, stealthOwner, r.creatorTokensBought);
     }
 

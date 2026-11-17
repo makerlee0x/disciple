@@ -86,7 +86,7 @@ contract CreatorBuyCapTest is IntegrationBase {
 
     function test_anonLauncher_respects_owner_cap() public {
         AnonLauncher anon =
-            new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), 0);
+            new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), address(0));
         address payer = makeAddr("payer");
         quote.mint(payer, 10_000 * U);
         ILaunchpad.LaunchParams memory p = ILaunchpad.LaunchParams({

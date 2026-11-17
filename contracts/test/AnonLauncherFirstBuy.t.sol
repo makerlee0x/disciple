@@ -46,13 +46,13 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
     address internal stealthA;
     uint256 internal skB;
     address internal stealthB;
-    uint256 constant FEE = 0.5 ether;
+    uint256 constant FEE = 0; // hidden launches are free (maker 2026-11-17)
 
     function setUp() public override {
         super.setUp();
         _warmQuote(address(strategy)); // pair-coin launches need a warm, fresh TWAP
         anon =
-            new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), FEE);
+            new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), address(0));
         // lp-accrue: the CurveFeeVault is built with this AnonLauncher (as DeployLpAccrue / Deploy do), so private
         // coins' curve-phase creator fees are claimable by the coin's owner there
         feeVault = new CurveFeeVault(address(feeRouter), address(anon));
@@ -210,7 +210,7 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
     function test_reentrancy_guard() public {
         ReenteringFeeToken fee = new ReenteringFeeToken();
         AnonLauncher victim =
-            new AnonLauncher(owner, address(launchpad), address(feeRouter), address(fee), treasury, address(0), FEE);
+            new AnonLauncher(owner, address(launchpad), address(feeRouter), address(fee), address(0));
         fee.mint(payer, 100 ether);
         vm.prank(payer);
         fee.approve(address(victim), type(uint256).max);
@@ -218,8 +218,8 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
         vm.prank(payer);
         vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
         victim.launchAnonWithUsdg(
-            _paramsQ(address(quote), 0, block.timestamp + 1 hours), stealthA, stealthA, "", 0x00, FEE, 0, 0, address(0)
-        );
+            _paramsQ(address(quote), 0, block.timestamp + 1 hours), stealthA, stealthA, "", 0x00, FEE, 1 ether, 0, address(0)
+        ); // no launch fee any more: the First BOOST pull is the token call that re-enters
     }
 
     function test_stealth_owner_claims_first_buy_tokens_and_fees() public {

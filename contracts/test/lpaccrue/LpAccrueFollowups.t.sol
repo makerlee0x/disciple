@@ -9,7 +9,7 @@ import {BondingCurve} from "../../src/BondingCurve.sol";
 import {CurveFeeVault} from "../../src/CurveFeeVault.sol";
 import {CurveDeployer} from "../../src/CurveDeployer.sol";
 import {FeeRouter} from "../../src/FeeRouter.sol";
-import {LoginGate} from "../../src/LoginGate.sol";
+import {LegacyLoginGate} from "./legacy/LegacyLoginGate.sol";
 import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
@@ -27,8 +27,8 @@ contract LpAccrueFollowupsTest is IntegrationBase {
 
     function setUp() public override {
         super.setUp();
-        LoginGate g = new LoginGate(owner, makeAddr("attester"));
-        anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), 0);
+        LegacyLoginGate g = new LegacyLoginGate();
+        anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), address(0));
         // the vault is built with the AnonLauncher (H1); swap it in exactly as DeployLpAccrue does
         feeVault = new CurveFeeVault(address(feeRouter), address(anon));
         address d = address(new CurveDeployer(address(feeVault)));

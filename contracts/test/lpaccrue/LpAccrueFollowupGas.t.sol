@@ -5,7 +5,7 @@ import {IntegrationBase} from "../integration/IntegrationBase.sol";
 import {console2} from "forge-std/console2.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
-import {LoginGate} from "../../src/LoginGate.sol";
+import {LegacyLoginGate} from "./legacy/LegacyLoginGate.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 import {CurveDeployerV1} from "./legacy/CurveDeployerV1.sol";
@@ -17,7 +17,7 @@ contract LpAccrueFollowupGasTest is IntegrationBase {
 
     function setUp() public override {
         super.setUp();
-        LoginGate g = new LoginGate(owner, makeAddr("attester"));
+        LegacyLoginGate g = new LegacyLoginGate();
     }
 
     function _launch(uint8 mode) internal returns (BondingCurve c, Token t) {

@@ -207,18 +207,18 @@ contract GasBench is IntegrationBase {
     }
 }
 
-import {LoginGate} from "../../src/LoginGate.sol";
+import {LegacyLoginGate} from "../lpaccrue/legacy/LegacyLoginGate.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 
 /// @notice Mode overhead (AFTER only): same trades on TRENCH / PVP / PVE USDG-quoted coins. `--isolate`.
 contract GasBenchModes is IntegrationBase {
     uint256 constant PK = 0xA77E57;
-    LoginGate gate;
+    LegacyLoginGate gate;
 
     function setUp() public override {
         super.setUp();
         router.setUsdgRouting(address(quote), address(launchpad));
-        gate = new LoginGate(owner, vm.addr(PK));
+        gate = new LegacyLoginGate();
     }
 
     function _coin(uint8 m) internal returns (BondingCurve c, Token t) {
@@ -246,8 +246,7 @@ contract GasBenchModes is IntegrationBase {
         w = makeAddr(n);
         quote.mint(w, 100_000 ether);
         uint64 exp = uint64(block.timestamp + 12 hours);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(PK, gate.digest(w, exp));
-        gate.attest(w, exp, abi.encodePacked(r, s, v));
+        gate.verify(w, uint64(exp));
         vm.startPrank(w);
         quote.approve(address(c), type(uint256).max);
         quote.approve(address(router), type(uint256).max);
@@ -334,8 +333,7 @@ contract GasBenchModes is IntegrationBase {
     /// @dev Launch with a 5-USDG First BOOST (creator buy) per mode. Same API before/after mode rules v2.
     function _benchLaunch(uint8 m, string memory tag) internal {
         uint64 exp = uint64(block.timestamp + 12 hours);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(PK, gate.digest(creator, exp));
-        gate.attest(creator, exp, abi.encodePacked(r, s, v));
+        gate.verify(creator, uint64(exp));
         vm.prank(creator);
         quote.approve(address(launchpad), type(uint256).max);
         ILaunchpad.LaunchParams memory p = ILaunchpad.LaunchParams({

@@ -8,7 +8,7 @@ import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
-import {LoginGate} from "../../src/LoginGate.sol";
+import {LegacyLoginGate} from "../lpaccrue/legacy/LegacyLoginGate.sol";
 import {FeeRouter} from "../../src/FeeRouter.sol";
 import {DiscipleRouter} from "../../src/DiscipleRouter.sol";
 import {MarketLens} from "../../src/addons/MarketLens.sol";
@@ -25,7 +25,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///         after graduation, TRENCH unchanged except the sniper tax; plus DiscipleRouter.launchWithUsdg and
 ///         claimCreatorFeesToUsdg.
 contract ModeRulesV2Test is IntegrationBase {
-    LoginGate gate;
+    LegacyLoginGate gate;
     MarketLens lens;
     uint256 attesterPk = 0xA77E57;
     address alice = makeAddr("alice");
@@ -48,7 +48,7 @@ contract ModeRulesV2Test is IntegrationBase {
     function setUp() public override {
         super.setUp();
         _warmQuote(address(strategy)); // pair-coin launches need a warm, fresh TWAP
-        gate = new LoginGate(owner, vm.addr(attesterPk));
+        gate = new LegacyLoginGate();
         router.setUsdgRouting(address(quote), address(launchpad));
         router.setUsdgPool(address(strategy), strategyUsdgKey);
         lens = new MarketLens(address(launchpad), address(migration));
@@ -95,8 +95,7 @@ contract ModeRulesV2Test is IntegrationBase {
 
     function _verify(address w) internal {
         uint64 exp = uint64(vm.getBlockTimestamp() + 24 hours);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(w, exp));
-        gate.attest(w, exp, abi.encodePacked(r, s, v));
+        gate.verify(w, uint64(exp));
     }
 
     function _fresh() internal returns (address w) {
@@ -185,7 +184,6 @@ contract ModeRulesV2Test is IntegrationBase {
             p,
             c.walletCapBps(),
             c.mode(),
-            c.loginGate(),
             c.trustedRouter(),
             c.crewTipThresholdBps(),
             c.snipeEscrowTimeout(),

@@ -32,7 +32,7 @@ Assume the attacker is any EOA or contract, including one that calls the v4 Pool
    - Every trade pays a 1% fee, plus an optional creator tax of 0–7% fixed at launch.
    - Anti-snipe: a 99% fee at launch that falls to 0 over 7 seconds. The snipe fee is escrowed, and released through FeeRouter / RewardsVault if the coin doesn't graduate within 12 days.
    - Wallet caps depend on mode:
-     - Easy (PVE): 1% rising to 3.33%. Login is checked in the app only (maker 2026-11-14); there is no on-chain login check and no LoginGate is deployed.
+     - Easy (PVE): 1% rising to 3.33%. Login is checked in the app only (maker 2026-11-14); there is no on-chain login check (LoginGate was deleted from the repo).
      - Hard (PVP): 3.33% rising to 7.77%.
      - Trench: no mode cap.
    - The creator's first buy is capped at 7.77%.
@@ -72,12 +72,12 @@ Assume the attacker is any EOA or contract, including one that calls the v4 Pool
 | TrampWallManager | limit bands | owner: keeper tip ≤ 1% |
 | ReferralRegistry, UsdgDepositNotifier | referrals | owner + attester key |
 | RewardsVault | sniper-escrow pool | owner pays out |
-| AnonLauncher | hidden launches (stealth owner, EIP-712) | owner: fee ≤ $5 (set to 0), treasury, harvest pointer |
+| AnonLauncher | hidden launches (stealth owner, EIP-712) | owner: harvest pointer only (no launch fee: hidden launches are free, `launchFee` is the constant 0) |
 | CreatorFeeHarvest | lock/burn creator fees | owner renounced at deploy |
 | DisciplePermitForwarder | Permit2 gasless flows (not deployed by Deploy.s.sol; deployed separately) | none |
 | Owned2Step, libraries/* | two-step ownership, curve/fee/mcap/floor/TWAP math | n/a |
 
-**Out of scope (not deployed):** LoginGate (no longer deployed), DisciplePaymaster, DisciplePaymasterV5, DiscipleSessionPolicy (all versions), AntiSnipe.sol (legacy), MarketLens (read-only), scripts and tests. `script/Deploy.s.sol` is useful context for the wiring order and the deploy-time renounces.
+**Out of scope (not deployed):** DisciplePaymaster, DisciplePaymasterV5, DiscipleSessionPolicy (all versions), AntiSnipe.sol (legacy), MarketLens (read-only), scripts and tests. `script/Deploy.s.sol` is useful context for the wiring order and the deploy-time renounces.
 
 ## Locked vs tunable
 
@@ -92,7 +92,7 @@ These are **locked at deploy**, in this commit:
 - **Launchpad:** `setCurveDeployer` is write-once (contracts only). Launch modes are fixed to Trench / Easy / Hard.
 - **FeeRouter settings:** `lockSettings()` runs at the mainnet deploy, after which the KOL share, referral sink and claim-router list can never change.
 - **AnonLauncher:** the harvest pointer is write-once.
-- **Deploy on 4663:** the renounces and the fee-settings lock can't be turned off by env. `SAFE` and `PRICER_POKER` are required. Every contract that keeps an owner is nominated to the Safe (two-step), and the script reads the wiring back before it finishes.
+- **Deploy on 4663:** the renounces and the fee-settings lock can't be turned off by env. `PRICER_POKER` is required. `SAFE` is optional: set, every contract that keeps an owner is nominated to it (two-step); unset, the deployer keeps those roles until `script/HandoverToSafe.s.sol` nominates the Safe. The script reads the wiring back before it finishes.
 - **Per coin:** mode, pair, creator tax, fee destination and caps are fixed at launch.
 
 **Still tunable** by the owner, which the deploy nominates to the protocol Safe. A timelock is operational (the Safe's own setup), not enforced in these contracts. Unless noted, these only affect new coins, routes or price reads:
@@ -117,7 +117,7 @@ No contract is upgradeable or behind a proxy.
 2. Only LockedLP, via Migration at graduation, can initialize a pool with DiscipleHook. A pool with this hook can't be created any other way.
 3. Every swap on a DISCIPLE pool, routed or direct, exact-in or exact-out, pays exactly 1% of the unspecified amount to FeeRouter. The hook never takes from the wrong currency or over-takes.
 4. **FeeRouter solvency.** The sum of claimable balances (creator, treasury, referral, LP bucket, per asset) never exceeds the tokens FeeRouter holds. Only authorized callers can book fee credit.
-5. Creator fees of a lock/burn coin can't be claimed by the creator or anyone else. They can only go to LockedLP or `0x…dEaD`. Exception by design (maker 2026-11-17): when the coin has a launch KOL, the KOL's cut of the creator share (KOL share bps of the 33%, about 0.66% of volume at 2%) is paid to the KOL in cash.
+5. Creator fees of a lock/burn coin can't be claimed by the creator or anyone else. They can only go to LockedLP or `0x…dEaD`. Exception by design (maker 2026-11-17): when the coin has a launch KOL, the KOL's cut of the creator share (KOL share bps of the creator's 33% of the 1% fee: at the default 2% that is 0.66% of the fee, about 0.0066% of volume) is paid to the KOL in cash.
 6. `flush` can't move value out of LockedLP or overspend its bucket. A permissionless or sandwiched flush can't extract more than the per-window cap.
 7. **Curve.**
    - Graduation happens exactly once, at the configured target.
@@ -194,7 +194,7 @@ Fork tests read Robinhood Chain mainnet through its public RPC.
 | `forwardTokenFees` always reverts (A-4, R461-06) | removed |
 | Anon direct transfer keeps nonce (L-01); resettable pointers (L-02, L-12, L-14, L-31) | nonce bump; harvest + AnonLauncher pointers write-once with code checks; LockedLP wiring setters require code |
 | Single-step ownership (L-27), zero owner (L-26) | DiscipleRouter, TrampWallManager, ReferralRegistry, UsdgDepositNotifier and the hook admin are two-step; `Owned2Step` rejects a zero owner |
-| Renounces env-overridable, no Safe handover (R461-05, L-32, g) | mainnet renounces + lock are unconditional; `SAFE` required; read-back checks in Deploy |
-| Dead LoginGate / maxMode (M-2, I-17) | removed from Launchpad and Deploy |
+| Renounces env-overridable, no Safe handover (R461-05, L-32, g) | mainnet renounces + lock are unconditional; Safe nominated at deploy or later by `HandoverToSafe.s.sol`; read-back checks in Deploy |
+| Dead LoginGate / maxMode (M-2, I-17) | removed from Launchpad and Deploy; LoginGate.sol and the curve's `loginGate` field deleted |
 | `setRewardsVault(0)` (L-10) | contracts only |
 | Stale tests (R461-08) | BaseDiscovery and FeeClaims updated |

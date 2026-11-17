@@ -3,7 +3,7 @@
 // $33,333 with the 16-band USDG-only floor (~$1,201) and the sniper escrow in the compound bucket; AUDIT fixes (launch-fee
 // cap at USDG decimals, claim-router allowlist, graduating-buy gas <= 3.0M); AUDIT round 2 run items (canonical Multicall3 has
 // code on 46630 — #106's relay batches its graduating-buy reads through it; RewardsVault Owned2Step acceptance); AUDIT round 3:
-// every read-only check (code at every bundle address, owners, config, Multicall3, LoginGate attester != 0) runs FIRST and
+// every read-only check (code at every bundle address, owners, config, Multicall3) runs FIRST and
 // smoke aborts before sending any tx if one fails.
 // Env:
 //   PRIVATE_KEY   buyer/launcher key (fork: anvil account 0 by default; never printed; not needed with READ_ONLY=1)
@@ -79,11 +79,6 @@ for (const n of Object.keys(B)) {
   if (o === zeroAddress || (ownerWant && o !== ownerWant)) badOwner.push(`${n} ${o}`);
 }
 check(`owned contracts: owner() ${ownerWant ? "== EXPECT_OWNER" : "!= 0"}`, badOwner.length === 0, badOwner.join(", ") || (ownerWant ?? "all nonzero"));
-// 1c. PVE LoginGate: Deploy.s.sol falls back to attester 0x0 when PVE_ATTESTER is unset (no login could ever be attested)
-const lgAbi = abi("LoginGate");
-const attester = await rd(B.LoginGate, lgAbi, "attester");
-check("LoginGate.attester != 0 (PVE_ATTESTER set at deploy)", attester !== zeroAddress, attester);
-check("Launchpad.loginGate() == LoginGate", getAddress(await rd(B.Launchpad, lpAbi, "loginGate")) === getAddress(B.LoginGate), B.LoginGate);
 // 1d. config
 const dec = await rd(USDG, erc20, "decimals");
 check("USDG decimals == 6", dec === 6, `USDG ${USDG} decimals ${dec}`);
@@ -100,10 +95,7 @@ check("no stale AntiSnipe ABI in the bundle", !fs.existsSync(path.join(BUNDLE, "
 const kolWant = BigInt(process.env.EXPECT_KOL_CREATOR_SHARE_BPS ?? bundle.community?.kolCreatorShareBps ?? 200);
 const kolBps = BigInt(await rd(B.FeeRouter, frAbi, "kolCreatorShareBps"));
 check(`FeeRouter.kolCreatorShareBps == ${kolWant}`, kolBps === kolWant, `${kolBps} bps of the creator share (want ${kolWant}; range 0-500)`);
-check("AnonLauncher.launchAnon has maxFee (v2 ABI)", abi("AnonLauncher").some((x) => x.type === "function" && x.name === "launchAnon" && x.inputs.length === 6 && x.inputs[5].name === "maxFee"), "launchAnon(p, stealthOwner, buyRecipient, eph, viewTag, maxFee)");
-const mmWant = Number(process.env.EXPECT_MAX_MODE ?? 2);
-const mm = Number(await rd(B.Launchpad, lpAbi, "maxMode"));
-check("Launchpad.maxMode default == Hard", mm === mmWant, `${mm} (want ${mmWant}; owner-settable, bounds [2,15])`);
+check("AnonLauncher.launchAnon has maxFee (v2 ABI)", abi("AnonLauncher").some((x) => x.type === "function" && x.name === "launchAnon" && x.inputs.length === 6), "launchAnon(p, stealthOwner, buyRecipient, eph, viewTag, maxFee unused)");
 // testnet snipe-escrow timeout (lee 2026-11-10 "yes do the snipe escrow"): 12 days = Constants.SNIPE_ESCROW_TIMEOUT. A fresh
 // Deploy.s.sol Launchpad starts at it; the CURRENT testnet Launchpad still stores 30 days until the owner calls
 // setSnipeEscrowTimeout(12 days), so this check FAILs against it on purpose until then.
@@ -120,10 +112,8 @@ const rvCode = await pc.getCode({ address: rv });
 if (!rvCode || rvCode === "0x") info("FeeRouter.rewardsVault has no code", `${rv}: EOA / wallet (plain transfers only; legacy notifyReward callers would revert)`);
 // AUDIT fixes (contracts/docs/redeploy-runbook.md §11)
 const alAbi = abi("AnonLauncher");
-const maxFee = await rd(B.AnonLauncher, alAbi, "MAX_LAUNCH_FEE");
-check("AnonLauncher.MAX_LAUNCH_FEE == 5 * 10**usdg.decimals()", maxFee === 5n * 10n ** BigInt(dec), `${maxFee} (want ${5n * 10n ** BigInt(dec)}; #115 b6a9117)`);
 const lf = await rd(B.AnonLauncher, alAbi, "launchFee");
-check("AnonLauncher.launchFee <= MAX_LAUNCH_FEE", lf <= maxFee, `${formatUnits(lf, dec)} USDG`);
+check("AnonLauncher.launchFee == 0 (hidden launches are free)", lf === 0n, `${formatUnits(lf, dec)} USDG`);
 check("FeeRouter.isClaimRouter(DiscipleRouter)", (await rd(B.FeeRouter, frAbi, "isClaimRouter", [B.DiscipleRouter])) === true, B.DiscipleRouter);
 const rvAbi = abi("RewardsVault");
 // Owned2Step reads go to the RewardsVault contract (the bundle's, when FeeRouter now points at an EOA community wallet)

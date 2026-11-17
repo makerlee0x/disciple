@@ -637,7 +637,7 @@ contract BondingCurveV1 is IBondingCurve, ITradeEvents, IAltitudeEvents {
             uint64 u = _gateUntil(trader);
             if (u <= block.timestamp) revert NotVerified();
             // audit L1: cache at most PVE_LOGIN_CACHE_TTL so a LoginGate revoke bites within 10 minutes
-            uint256 capT = block.timestamp + Constants.PVE_LOGIN_CACHE_TTL;
+            uint256 capT = block.timestamp + 10 minutes;
             a.verifiedUntil = u > capT ? uint64(capT) : u;
         }
         uint256 acc = accRewardPerToken;

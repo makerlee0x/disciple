@@ -6,7 +6,7 @@ import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
-import {LoginGate} from "../../src/LoginGate.sol";
+import {LegacyLoginGate} from "../lpaccrue/legacy/LegacyLoginGate.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 import {FeeMath} from "../../src/libraries/FeeMath.sol";
@@ -17,7 +17,7 @@ import {CurveDeployerV1} from "../lpaccrue/legacy/CurveDeployerV1.sol";
 /// @notice Bonding-curve game modes (contracts/docs/bonding-modes.md): PVE / PVP / TRENCH WARFARE.
 contract BondingModesTest is IntegrationBase {
     using stdStorage for StdStorage;
-    LoginGate gate;
+    LegacyLoginGate gate;
     uint256 attesterPk = 0xA77E57;
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
@@ -42,7 +42,7 @@ contract BondingModesTest is IntegrationBase {
 
     function setUp() public override {
         super.setUp();
-        gate = new LoginGate(owner, vm.addr(attesterPk));
+        gate = new LegacyLoginGate();
         // mode rules v2: the reward-accumulator tests below use the MIN crew-tip threshold (0.1% of mcap) so a
         // 2x pump makes their sells tip; the default 0.5% threshold edges are covered in ModeRulesV2.t.sol
         vm.prank(owner);
@@ -77,8 +77,7 @@ contract BondingModesTest is IntegrationBase {
 
     function _verify(address w) internal {
         uint64 exp = uint64(block.timestamp + 12 hours);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(w, exp));
-        gate.attest(w, exp, abi.encodePacked(r, s, v));
+        gate.verify(w, uint64(exp));
     }
 
     function _open(uint256 dt) internal {
@@ -474,7 +473,6 @@ contract BondingModesTest is IntegrationBase {
         _open(10 minutes);
         _buyQ(c, alice, 1 ether);
         assertGt(c.balanceOnCurve(alice), 0);
-        assertEq(c.verifiedUntilOf(alice), 0, "never written");
     }
 
     function test_pve_transferReceiverNetCap() public {
@@ -501,18 +499,6 @@ contract BondingModesTest is IntegrationBase {
         t.endPveHooks();
         vm.expectRevert(BondingCurve.OnlyToken.selector);
         c.onTokenTransfer(alice, bob, 1);
-    }
-
-    // ── audit L1 / L2: login cache TTL + max attestation TTL ──
-
-    function test_loginGate_maxTtl() public {
-        uint64 exp = uint64(vm.getBlockTimestamp() + 24 hours + 1);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(alice, exp));
-        vm.expectRevert(LoginGate.TtlTooLong.selector);
-        gate.attest(alice, exp, abi.encodePacked(r, s, v));
-        exp = uint64(vm.getBlockTimestamp() + 24 hours);
-        (v, r, s) = vm.sign(attesterPk, gate.digest(alice, exp));
-        gate.attest(alice, exp, abi.encodePacked(r, s, v));
     }
 
     // ── audit L3: router prepaid amounts are balance-checked ──

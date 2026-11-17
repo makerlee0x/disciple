@@ -187,6 +187,4 @@ library Constants {
     uint256 internal constant CREW_TIP_THRESHOLD_BPS_DEFAULT = 50;
     uint256 internal constant CREW_TIP_THRESHOLD_BPS_MIN = 10; // 0.1%
     uint256 internal constant CREW_TIP_THRESHOLD_BPS_MAX = 500; // 5%
-    /// @dev Max age of a curve's cached LoginGate expiry (audit L1): a revoke takes effect within this window.
-    uint256 internal constant PVE_LOGIN_CACHE_TTL = 10 minutes;
 }

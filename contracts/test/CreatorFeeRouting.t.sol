@@ -11,7 +11,7 @@ import {Token} from "../src/Token.sol";
 import {BondingCurve} from "../src/BondingCurve.sol";
 import {ILaunchpad} from "../src/interfaces/ILaunchpad.sol";
 import {LockedLP} from "../src/LockedLP.sol";
-import {LoginGate} from "../src/LoginGate.sol";
+import {LegacyLoginGate} from "./lpaccrue/legacy/LegacyLoginGate.sol";
 import {Constants} from "../src/libraries/Constants.sol";
 import {CurveFeeVault} from "../src/CurveFeeVault.sol";
 import {CurveDeployer} from "../src/CurveDeployer.sol";
@@ -47,7 +47,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         feeRouter.setCreatorFeeHarvest_51(address(harvest));
         harvest.setFeeVault(address(feeVault));
         vm.stopPrank();
-        anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), 0);
+        anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), address(0));
         vm.prank(owner);
         harvest.setAnonLauncher(address(anon));
         vm.prank(owner);
@@ -572,7 +572,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
 
     function test_crewTip_stillGoesToHolders() public {
         uint256 attesterPk = 0xA11CE;
-        LoginGate gate = new LoginGate(owner, vm.addr(attesterPk));
+        LegacyLoginGate gate = new LegacyLoginGate();
         vm.startPrank(owner);
         launchpad.setCrewTipThresholdBps(Constants.CREW_TIP_THRESHOLD_BPS_MIN);
         vm.stopPrank();
@@ -618,10 +618,9 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         _swapExactInTokenForQuote(tok, trader1, held / 2);
     }
 
-    function _attest(LoginGate gate, uint256 pk, address w) internal {
+    function _attest(LegacyLoginGate gate, uint256 pk, address w) internal {
         uint64 exp = uint64(block.timestamp + 12 hours);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, gate.digest(w, exp));
-        gate.attest(w, exp, abi.encodePacked(r, s, v));
+        gate.verify(w, uint64(exp));
     }
 
     function _quoteFor(BondingCurve c, uint256 tokens) internal view returns (uint256 q) {

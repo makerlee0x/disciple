@@ -130,7 +130,7 @@ contract AnonSigFuzzTest is IntegrationBase {
 
     function setUp() public override {
         super.setUp();
-        anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), 0);
+        anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), address(0));
     }
 
     function testFuzz_wrong_key_never_claims(uint256 pk, uint256 ownerPk) public {

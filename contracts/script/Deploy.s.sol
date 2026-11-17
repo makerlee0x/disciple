@@ -80,17 +80,17 @@ contract DevToken is ERC20, ERC20Permit {
 ///   RENOUNCE_HOOK_ADMIN drop the DiscipleHook admin once wired (always on 4663)
 ///   RENOUNCE_LOCKED_LP  renounce LockedLP ownership (treasury + compound caps fixed) at the end (always on 4663)
 ///   LOCK_FEE_SETTINGS   FeeRouter.lockSettings(): KOL share, referral sink and claim routers fixed (always on 4663)
-///   SAFE                protocol Safe (required on 4663). Every contract that keeps an owner is NOMINATED to it
-///                       (two-step): the Safe must call acceptOwnership() on each (one batched Safe tx). Also the
-///                       default TREASURY and REWARDS_VAULT_OWNER. Audit 2026-11-17 R461-05 / (g).
+///   SAFE                protocol Safe (optional). Set: every contract that keeps an owner is NOMINATED to it
+///                       (two-step) and the Safe calls acceptOwnership() on each (one batched Safe tx); it is also the
+///                       default TREASURY and REWARDS_VAULT_OWNER. Unset (maker 2026-11-17: the Safe comes after
+///                       mainnet): the deployer keeps those roles; run script/HandoverToSafe.s.sol later. The renounces
+///                       and the FeeRouter lock still happen at deploy on 4663. Audit 2026-11-17 R461-05 / (g).
 ///   PRICER_POKER        QuotePricer keeper (required on 4663): launches revert StalePrice without fresh pokes
 ///   REWARDS_VAULT_OWNER community RewardsVault owner (default deployer): TEMP wallet on testnet, multisig (Safe) on
 ///                       mainnet (lee 2026-11-10). Receives the sniper tax + curve LP fees of coins not graduated
 ///                       within snipeEscrowTimeout (releaseSnipeEscrow, or a late graduation). Nominated only
 ///                       (Owned2Step): it must acceptOwnership(). Existing stack: script/rewards/DeployRewardsVault.s.sol;
 ///                       steps in docs/rewards-vault-runbook.md.
-///   ANON_LAUNCH_FEE     AnonLauncher USDG launch fee in USDG raw units (default 0: anon launches are free;
-///                       contract cap MAX_LAUNCH_FEE = 5e18 raw)
 ///   ERC5564_ANNOUNCER   ERC-5564 announcer (default 0x55649E01B5Df198D18D95b5cc5051630cfD45564)
 ///   DEPLOY_TEST_STRATEGY true → (DEFAULT_QUOTE unset) deploy a test STRATEGY and seed a STRATEGY/USDG pool at
 ///                       TEST_STRATEGY_PRICE_WAD (USDG raw per STRATEGY raw, WAD; default $0.00245 scaled to USDG's
@@ -121,7 +121,6 @@ contract Deploy is NetworkConfig {
         address rewardsVault;
         address anonLauncher;
         address marketLens;
-        address loginGate; // always 0: Easy login is app-only (maker 2026-11-14), no LoginGate is deployed
         address creatorFeeHarvest;
     }
 
@@ -138,7 +137,9 @@ contract Deploy is NetworkConfig {
         (, address deployer,) = vm.readCallers();
         bool mainnet = block.chainid == 4663;
         address safe = vm.envOr("SAFE", address(0));
-        require(!mainnet || safe.code.length != 0, "Deploy: SAFE required on mainnet");
+        // SAFE may come after deploy (maker 2026-11-17): unset → the deployer keeps the remaining owner roles until
+        // script/HandoverToSafe.s.sol nominates the Safe. Set → it must be a contract and is nominated below.
+        require(safe == address(0) || safe.code.length != 0, "Deploy: SAFE has no code");
         if (treasury == address(0)) treasury = safe != address(0) ? safe : deployer;
 
         if (o.manager == address(0)) {
@@ -413,10 +414,8 @@ contract Deploy is NetworkConfig {
             address(launchpad),
             address(feeRouter),
             usdg,
-            treasury,
-            vm.envOr("ERC5564_ANNOUNCER", address(0x55649E01B5Df198D18D95b5cc5051630cfD45564)),
-            vm.envOr("ANON_LAUNCH_FEE", uint256(0)) // maker 2026-11-16: anon launches are free
-        );
+            vm.envOr("ERC5564_ANNOUNCER", address(0x55649E01B5Df198D18D95b5cc5051630cfD45564))
+        ); // hidden launches are free forever (maker 2026-11-17): no fee setting exists
         MarketLens lens = new MarketLens(address(launchpad), address(migration));
         console2.log("RewardsVault", address(vault));
         console2.log("AnonLauncher", address(anon));

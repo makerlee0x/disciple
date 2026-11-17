@@ -414,7 +414,7 @@ contract DiscipleRouter is IUnlockCallback {
             tokensOut = _route(msg.sender, msg.sender, hops, usdgIn);
         } else {
             // Pre-grad: deliver quote STRAIGHT to the curve (v4 take → curve, or USDG transferFrom user → curve) and
-            // let the curve trade for the real trader (caps, login, cost basis, attribution). No router custody,
+            // let the curve trade for the real trader (caps, cost basis, attribution). No router custody,
             // no approvals; the curve enforces the router impact cap on its exact quote; refunds go to the trader.
             uint256 quoteAmt = usdgIn;
             if (q != u) {
@@ -471,7 +471,7 @@ contract DiscipleRouter is IUnlockCallback {
     /// @notice Launch a coin AS msg.sender, paying the First BOOST in USDG: pulls `usdgIn` USDG, swaps it to the
     ///         coin's pair coin on the registered USDG reference pool (skipped for USDG-paired coins; same leg as
     ///         buyWithUsdg), and calls Launchpad.launchFor(msg.sender, …) with that as `creatorBuyQuoteIn`. The
-    ///         CALLER is the creator (Token.creator, fees, Easy login + creator lock, sniper exemption); this router
+    ///         CALLER is the creator (Token.creator, fees, Easy creator lock, sniper exemption); this router
     ///         only pays. Any First BOOST partial-fill refund (above the mode's max) is swapped back and returned in
     ///         USDG. `p.creatorBuyQuoteIn` is ignored; `p.creatorBuyMinTokensOut` / `p.deadline` apply.
     ///         Session keys: DiscipleSessionPolicy 1.4.x may sign this (dollar First BOOST), capped like buyWithUsdg.
@@ -620,7 +620,7 @@ contract DiscipleRouter is IUnlockCallback {
         return quoteUsdgRouteFor(msg.sender, token, isBuy, amountIn);
     }
 
-    /// @notice quoteUsdgRoute for an explicit `trader` (DISCIPLE audit Medium-2): curve mode rules, PVE login and
+    /// @notice quoteUsdgRoute for an explicit `trader` (DISCIPLE audit Medium-2): curve mode rules and
     ///         the PVE profit tax are evaluated for `trader` (e.g. the smart account, when a session policy asks).
     function quoteUsdgRouteFor(address trader, address token, bool isBuy, uint256 amountIn)
         public
@@ -633,7 +633,7 @@ contract DiscipleRouter is IUnlockCallback {
             Hop[] memory hops = isBuy ? _buyHops(u, q, token, dkey) : _sellHops(u, q, token, dkey);
             return _simulate(trader, hops, amountIn, address(0));
         }
-        // Curve quotes are for `trader`: mode caps, PVE login and the PVE profit tax apply.
+        // Curve quotes are for `trader`: mode caps and the PVE profit tax apply.
         if (isBuy) {
             if (q == u) return _curveBuyQuote(curve, trader, amountIn);
             Hop[] memory h = _quoteHops(u, q, true);

@@ -24,7 +24,7 @@ Scope: the combined stack from PRs #14 (anon launch), #16 (snipe split + creator
 | creatorBuyMaxBps | Launchpad | 77 (cap 700) | 77 |
 | Anti-snipe window/tax | Hook/Launchpad consts | as coded | confirm |
 | Sniper escrow timeout (+ bundled LP share on lp-accrue curves) | Launchpad.setSnipeEscrowTimeout | 12 days (lee 2026-11-09; constant default, deployed testnet Launchpad still stores 30 days until the owner call) | decided: 12 days |
-| ANON_LAUNCH_FEE (USDG) | AnonLauncher | 0.25 USDG | decide |
+| Anon launch fee | AnonLauncher | none | removed: hidden launches are free forever (maker 2026-11-17) |
 | Trusted routers | Hook.setTrustedRouter | DiscipleRouter + UR | same (SEC-05: UR attribution is spoofable; document) |
 | LockedLP.feeRouter / migration | LockedLP | wired by script | verify (SEC-01 fix) |
 | Treasury / owner addresses | all | deployer | Safes |

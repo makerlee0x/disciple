@@ -255,7 +255,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
 
     /// @notice Launch on behalf of `creator` — trusted routers only (DiscipleRouter.launchWithUsdg, which passes its
     ///         own msg.sender). `creator` is the coin's creator everywhere (Token.creator, fees, metadata, First
-    ///         BOOST recipient + Easy creator lock + sniper exemption + Easy login); the ROUTER pays the First BOOST
+    ///         BOOST recipient + Easy creator lock + sniper exemption); the ROUTER pays the First BOOST
     ///         (pulled from it) and receives any partial-fill refund.
     function launchFor(address creator, LaunchParams calldata params, uint8 mode)
         external
@@ -315,7 +315,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
                 CurveMath.makeParams(quotePriceUsd),
                 wcap,
                 mode,
-                address(0), // Easy login is app-only (maker 2026-11-14): curves never read a LoginGate
                 curveRouter,
                 crewTipThresholdBps,
                 snipeEscrowTimeout

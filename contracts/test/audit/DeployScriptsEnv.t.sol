@@ -140,7 +140,6 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         guardKeys.push("EXPECT_USDG_DECIMALS");
         guardKeys.push("MIN_LIQUIDITY");
         guardKeys.push("PROBE_USDG");
-        guardKeys.push("ANON_LAUNCH_FEE");
         guardKeys.push("ERC5564_ANNOUNCER");
         guardKeys.push("DEPLOY_TEST_STRATEGY");
         for (uint256 i; i < guardKeys.length; ++i) {
@@ -224,7 +223,6 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         vm.setEnv("EXPECT_USDG_DECIMALS", "6");
         vm.setEnv("MIN_LIQUIDITY", "1");
         vm.setEnv("PROBE_USDG", "1");
-        vm.setEnv("ANON_LAUNCH_FEE", "0");
         vm.setEnv("ERC5564_ANNOUNCER", vm.toString(address(0)));
         vm.setEnv("DEPLOY_TEST_STRATEGY", "false");
     }

@@ -14,7 +14,7 @@ interface ILaunchpadOwnerView {
 
 /// @notice TESTNET ONLY (46630): turns on hidden launches on every difficulty on the live v6 stack (maker 2026-11-16 "turn it on").
 ///         Deploys, from the current v6 AnonLauncher's config:
-///           1. AnonLauncher with launchAnonWithMode / launchAnonWithUsdgMode + Easy boost hold (PR #445), launch fee ANON_LAUNCH_FEE
+///           1. AnonLauncher with launchAnonWithMode / launchAnonWithUsdgMode + Easy boost hold (PR #445)
 ///              (default 0, maker 2026-11-16).
 ///           2. CurveFeeVault(feeRouter, newAnon) + CurveDeployer(vault), then Launchpad.setCurveDeployer. The vault's anonLauncher
 ///              is immutable, so new coins need it for stealth owners to claim curve-phase creator fees. Existing coins keep
@@ -35,11 +35,10 @@ contract DeployAnonModesTestnet is NetworkConfig {
         AnonLauncher v6 = AnonLauncher(vm.envOr("ANON_V6", address(0x526784706e5Ef369412ABe65213ED65256182C6b)));
         ILaunchpadOwnerView lp = ILaunchpadOwnerView(address(v6.launchpad()));
         address feeRouter_ = address(v6.feeRouter());
-        uint256 fee = vm.envOr("ANON_LAUNCH_FEE", uint256(0));
 
         vm.startBroadcast();
         anon = new AnonLauncher(
-            v6.owner(), address(lp), feeRouter_, address(v6.feeToken()), v6.treasury(), address(v6.announcer()), fee
+            v6.owner(), address(lp), feeRouter_, address(v6.feeToken()), address(v6.announcer())
         );
         vault = new CurveFeeVault(feeRouter_, address(anon));
         deployer = new CurveDeployer(address(vault));
