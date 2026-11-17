@@ -59,6 +59,8 @@ const nextConfig = {
   experimental: { webpackMemoryOptimizations: true },
   serverExternalPackages: ["sharp", "nsfwjs", "@tensorflow/tfjs", "@napi-rs/canvas", "undici"],
   outputFileTracingIncludes: {
+    // Lighter's WASM signer is read from disk at run time (lib/server/lighter/signer.ts)
+    "/api/lighter": ["./lib/server/lighter/signer/**"],
     // the art plates (public/art) are read from disk by these routes, so they must ship with the functions
     "/api/share/card": ["./public/fonts/share/**", "./public/assets/**", "./public/brand/**", "./public/art/pnl/**"],
     "/api/daily/card": ["./public/fonts/share/**", "./public/free-play/**", "./public/brand/**", "./public/art/share/**"],
