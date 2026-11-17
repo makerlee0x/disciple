@@ -21,7 +21,7 @@ const PLAYED_KEYS = ["disciple.firstrun.v1", "disciple.welcomed.v1", "disciple.g
  *  against the rookie bot (/turbo/duel?first=1). Sign-in waits until after the result ("Save your win"). */
 export const WELCOME_COPY = {
   h: ["1v1.", "One minute."],
-  s: "Live BTC, 500x. Out-trade a rival and the W is yours. Practice money, no sign-up.",
+  s: "You vs one rival on live BTC. Best PnL in 60s wins. Free, no wallet.",
   play: "Play",
   signIn: "I have an account \u00b7 Sign in",
 } as const;
