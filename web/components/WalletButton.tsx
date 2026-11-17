@@ -315,7 +315,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
                   <HelpButton />
                   {/* always shown when signed in: $0.00 until (or unless) the cash read lands */}
                   {!hideCash && (
-                    <a href={DEPOSIT_HREF} onClick={onDepositClick} className="wb-cash" data-testid="cash-card" aria-label="Your cash: open Cash" title="Your cash: what BOOST spends and DUMP pays out in. Tap to add more.">
+                    <a href={DEPOSIT_HREF} onClick={onDepositClick} className="wb-cash" data-testid="cash-card" aria-label="Your cash: open Cash" title="Cash. Boosts spend it, dumps pay it. Tap to add.">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg>
                       <b>{usd2(pf?.cashUsd ?? 0)}</b>
                       <svg className="wb-cash-plus" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
@@ -334,13 +334,13 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
               <>
               {pf && smart && !hideCash && (
                   <div aria-label="cash and portfolio" className="wb-cards" style={{ display: "flex", gap: 6, alignItems: "stretch", minWidth: 0 }}>
-                    <div data-testid="cash-card" style={cardStyle} title="Your cash: what BOOST spends and DUMP pays out in.">
+                    <div data-testid="cash-card" style={cardStyle} title="Cash. Boosts spend it, dumps pay it.">
                       <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.cashUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>cash</span></span>
                       <a href={DEPOSIT_HREF} onClick={onDepositClick} style={{ fontSize: 10, fontWeight: 700, color: "#C9CED6", textDecoration: "none" }}>Deposit more</a>
                     </div>
                     {/* total holdings bubble next to cash (back on lee's request, Oct 30 coin-screen cleanup) */}
                     <a href="/profile" data-testid="portfolio-card" style={{ ...cardStyle, textDecoration: "none", color: "inherit" }}
-                      title={`Total = cash ${usd2(pf.cashUsd)} + coins ${usd2(pf.holdingsUsd)} at current prices.\n24h: current holdings priced now vs 24h ago (no stored portfolio history; coins younger than 24h use their launch price).`}>
+                      title={`Cash ${usd2(pf.cashUsd)} + coins ${usd2(pf.holdingsUsd)}.\n24h: your coins now vs. a day ago.`}>
                       <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.totalUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>total</span></span>
                       <span style={{ fontSize: 10, fontWeight: 700, color: pf.change24hUsd > 0.005 ? GREEN : pf.change24hUsd < -0.005 ? RED : "#C9CED6" }}>{signedUsd(pf.change24hUsd)} <span style={{ opacity: 0.6, color: "#C9CED6" }}>24h</span></span>
                     </a>
@@ -395,7 +395,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
         )}
       </div>
       {/* top right stays minimal (lee, Oct 30): one cash figure + the account chip; no token / STRATEGY balance line */}
-      {addr && !pf && cashText && !compact && <span title="Your cash: what BOOST spends and DUMP pays out in." style={{ fontSize: 10, opacity: 0.8 }}>{cashText}</span>}
+      {addr && !pf && cashText && !compact && <span title="Cash. Boosts spend it, dumps pay it." style={{ fontSize: 10, opacity: 0.8 }}>{cashText}</span>}
       {addr && legacy && (
         <span role="status" aria-label="sweep old account" style={{ fontSize: 10, color: "#C9CED6", maxWidth: 320, textAlign: "right" }}>
           Your old account {legacy.account.slice(0, 8)}… still holds {[legacy.eth > BigInt(0) ? `${Number(formatUnits(legacy.eth, 18)).toFixed(5)} ETH` : "", ...legacy.tokens.map((t) => t.symbol)].filter(Boolean).join(", ")}.{" "}

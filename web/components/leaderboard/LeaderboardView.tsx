@@ -25,9 +25,9 @@ import AnimClip from "@/components/ui/AnimClip";
 
 type Sort = BoardSort | "crews" | "duel";
 const SORTS: { k: Sort; label: string; col: string }[] = [
-  { k: "pnl", label: "Banked $", col: "Banked" },
-  { k: "pctGain", label: "Best % ($20+ in)", col: "Best %" },
-  { k: "orbits", label: "Orbits aboard", col: "Orbits" },
+  { k: "pnl", label: "Banked", col: "Banked" },
+  { k: "pctGain", label: "Best %", col: "Best %" },
+  { k: "orbits", label: "Orbits", col: "Orbits" },
   ...(CREW_ENABLED ? [{ k: "crews" as Sort, label: "Crews", col: "Orbits" }] : []),
 ];
 const WIN_SHORT: Record<BoardWindow, string> = { day: "Today", week: "Week", month: "Month", all: "All" };
@@ -38,8 +38,8 @@ export const LEADERBOARD_COPY = {
   cols: { rank: "#", pilot: "Pilot", flights: "Flights", record: "Record", banked: "Banked", crew: "Crew", green: "Green rockets", pilots: "Pilots" },
   rules: {
     title: "How you rank",
-    items: ["Only cashed-out profit counts, after fees. Red flights count against you.", "Rockets you launched don't count.", "Best % only counts flights with $20 or more in."],
-    note: LOGBOOK_ENABLED ? "Tap a pilot to open their logbook. Open bags stay private." : "Tap a pilot to see their Hangar. Open bags stay private.",
+    items: ["Banked: cashed-out profit after fees. Losses count.", "Best %: flights with $20+ in.", "Your own launches don't count."],
+    note: LOGBOOK_ENABLED ? "Tap a pilot for their logbook. Open bags stay hidden." : "Tap a pilot for their Hangar. Open bags stay hidden.",
   },
   bestCall: { eyebrow: { day: "Best call today", week: "Best call of the week", month: "Best call of the month", all: "Best call of the month" } as Record<BoardWindow, string>, boarded: "Boarded", cashed: "Cashed out", put: (v: string) => `on ${v} put in`, aboard: "aboard", open: (n: string) => (LOGBOOK_ENABLED ? `See ${n}'s logbook` : `See ${n}'s profile`) },
   youWeek: { title: { day: "You today", week: "You this week", month: "You this month", all: "You, all time" } as Record<BoardWindow, string>, banked: "banked $", red: (n: number, v: string) => `${n} red ${n === 1 ? "flight" : "flights"}, -${v}`, none: "No cash-outs yet in this window." },
@@ -192,7 +192,7 @@ export const DUEL_BOARD_COPY = {
   cols: { rank: "#", pilot: "Pilot", rating: "Rating", record: "Record", peak: "Best" },
   emptyTitle: "No ranked duels yet",
   play: "Find a duel",
-  rules: { title: "How duel rating works", items: ["Each calendar month is a season. Ranked wins earn season points (+30, plus up to +25 for a win streak), losses cost 15, and points climb you from Rookie to Champion.", "Everyone starts at 1,200.", "Beat a higher-rated pilot and you gain more. Lose to a lower one and you drop more.", "Your first 10 duels move your rating faster, so you find your level quickly.", "Only ranked duels count. Friendly duels and bot matches don't."] },
+  rules: { title: "How duel rating works", items: ["Seasons run monthly. Win +30 (+25 max streak bonus), lose −15. Rookie to Champion.", "Rating starts at 1,200. Upsets swing more.", "First 10 duels move faster.", "Ranked only. Friendlies and bots don't count."] },
 } as const;
 const recTxt = (r: DuelRow) => `${r.w}-${r.l}`;
 function DuelTable({ d, meLc }: { d: DuelBoardRes; meLc?: string }) {
@@ -384,8 +384,7 @@ export default function LeaderboardView() {
             crews && crews.crews.length ? <CrewTable d={crews} /> : (
               <section className="tp-card tp-empty" data-testid="lb-empty">
                 <span className="r2-eb">{BOARD_WINDOWS.find((w) => w.k === win)!.label}</span>
-                <b className="r2-g">No crews on the board yet</b>
-                <span className="tp-emptybody">Join a crew and fly together. Crews rank by orbits aboard, then green rockets.</span>
+                <b className="r2-g">No crews yet</b>
                 <Link href="/crew" prefetch={false} className="r2-gold tp-play">Find a crew</Link>
               </section>
             )

@@ -375,7 +375,7 @@ export default function FlightCanvas({ search }: Props) {
         {!isSimulator && sim.available === true && <button
           type="button"
           data-testid="sim-toggle"
-          title="Simulated market: random buys/sells keep the rocket moving when the pool is quiet. Visual only — never touches balances or PnL."
+          title="Sim market: fake trades when it's quiet. Never touches your balance."
           onClick={toggleSim}
           className="ap-pill"
           style={{ color: sim.on ? "#d9ccff" : "rgba(220,228,255,.6)", borderColor: sim.on ? "rgba(201,184,255,.7)" : "rgba(255,255,255,.2)" }}

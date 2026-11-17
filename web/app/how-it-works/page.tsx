@@ -33,34 +33,33 @@ function Pilot() {
         <figure className={s.screen} style={sky(4)} aria-label={S.alt}>
           <span className={s.tag}>{S.tag}</span>
           <div className={`${s.hud} ${s.alt}`}>
-            <span className={s.hk}>{S.altitude.k}</span>
+            <span className={s.hk}><Co n={1} className={s.cIn} />{S.altitude.k}</span>
             <b className={s.hv}>{S.altitude.v}</b>
             <span className={s.obar}><i style={{ width: `${S.altitude.fill * 100}%` }} /></span>
             <span className={s.orbit}>{S.altitude.orbit}</span>
-            <Co n={1} className={s.c1} />
           </div>
           <div className={`${s.hud} ${s.bag}`}>
-            <span className={s.hk}>{S.bag.k}</span>
+            <span className={s.hk}><Co n={2} className={s.cIn} />{S.bag.k}</span>
             <b className={s.hv}>{S.bag.v}</b>
             <span className={s.put}>{S.bag.put} · <em>{S.bag.gain}</em></span>
-            <Co n={2} className={s.c2} />
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={withBase(ROCKET)} alt="" className={s.rocket} width={110} height={300} />
           <span className={s.plume} aria-hidden />
           <span className={`${s.float} ${s.fBoost}`}>{S.boost}</span>
-          <span className={`${s.float} ${s.fBomb}`}><Co n={3} className={s.c3} />{S.bomb}</span>
+          <span className={`${s.float} ${s.fBomb}`}><Co n={3} className={s.cIn} />{S.bomb}</span>
+          {/* one grid so both fire buttons line up; each row starts with its own callout */}
           <div className={`${s.hud} ${s.bar}`}>
+            <Co n={4} className={s.cIn} />
             <div className={s.side}>
               {S.buys.map(([k, v], i) => <span key={k} className={`${s.amt} ${i === 1 ? s.amtBuy : ""}`}><kbd>{k}</kbd>{v}</span>)}
-              <span className={`${s.fire} ${s.fireBoost}`}>{S.boostBtn} <kbd>Space</kbd></span>
             </div>
+            <span className={`${s.fire} ${s.fireBoost}`}>{S.boostBtn} <kbd>Space</kbd></span>
+            <Co n={5} className={s.cIn} />
             <div className={s.side}>
               {S.sells.map(([k, v], i) => <span key={k} className={`${s.amt} ${i === 1 ? s.amtSell : ""}`}><kbd>{k}</kbd>{v}</span>)}
-              <span className={`${s.fire} ${s.fireDump}`}>{S.dumpBtn} <kbd>Shift</kbd></span>
             </div>
-            <Co n={4} className={s.c4} />
-            <Co n={5} className={s.c5} />
+            <span className={`${s.fire} ${s.fireDump}`}>{S.dumpBtn} <kbd>Shift</kbd></span>
           </div>
         </figure>
         <ol className={s.legend}>
@@ -72,7 +71,7 @@ function Pilot() {
       </section>
 
       <section className={s.sec} aria-labelledby="hiw-rules">
-        <span className={s.eb}>{P.rules.eyebrow}</span>
+        {P.rules.eyebrow && <span className={s.eb}>{P.rules.eyebrow}</span>}
         <h2 className={s.h2} id="hiw-rules">{P.rules.h2}</h2>
         <div className={s.res}>
           {P.rules.cards.map((c) => (

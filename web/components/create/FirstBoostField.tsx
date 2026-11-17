@@ -279,7 +279,7 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
           value={value} onChange={(e) => onChange(e.target.value.replace(/,/g, "."))}
         />
         <button type="button" className="first-boost-max" disabled={!limits || limits.maxQuoteIn <= BigInt(0) || (!!usdg && !maxUsdg)}
-          title="Fills the First BOOST cap, and never more than that"
+          title="Fills the First BOOST cap"
           onClick={() => limits && onChange(usdg ? (maxUsdg ? toInputString(maxUsdg, usdgDecimals(), 2) : "")
             : toInputString(quoteRawToUsdWad((limits.maxQuoteIn * BigInt(995)) / BigInt(1000), limits.quotePriceUsd), 18, 2))}>MAX</button>
       </div>
