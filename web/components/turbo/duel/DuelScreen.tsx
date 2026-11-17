@@ -12,6 +12,8 @@ import { duelApi, followRoom, setDuelGuest, type Follow, type RoomRes, type Res 
 import { DUEL_LEN_MS, parseCode, type LengthMs, type TierId, type TradeAction } from "@/lib/duel/rules";
 import { trackFunnel } from "@/lib/funnelClient";
 import { isFunnelStep } from "@/lib/funnel";
+import { climbingNow, type HomeData } from "@/lib/home/trending";
+import { flightHref, pct } from "@/components/home/rocketBits";
 import type { DuelEvent, DuelRoom } from "@/lib/duel/types";
 import { getGameRadio } from "@/lib/game/radio";
 import { TRAILS, trailId } from "@/lib/collection";
@@ -37,7 +39,7 @@ declare global { interface Window { DuelEngine?: { mount(root: HTMLElement, host
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
 /** extra plates for the random sky each duel (engine SKY_THEMES) */
 const EXTRA_SKIES = { skyEth: "/turbo/sky-eth.webp", skyBtc: "/turbo/sky-btc.webp", skyPad: "/home/pad/sky-1280.webp" };
-const ENGINE_SRC = "/turbo/duel/engine.js?v=36";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=37";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
@@ -149,7 +151,18 @@ export default function DuelScreen({ guest = false }: { guest?: boolean } = {}) 
       f.ingest(r.events); return {};
     };
 
+    // cross-link (maker 2026-11-16, "we need cross links"): the result card points at a real rocket climbing right now.
+    // One /api/home read per visit; the /duel demo page (guests) stays duel-only.
+    let climb: { sym: string; line: string; href: string } | null = null;
+    if (!guest) void fetch("/api/home").then((r) => (r.ok ? r.json() : null)).then((d: HomeData | null) => {
+      const c = d ? climbingNow(d.coins, 1)[0] ?? d.coins.find((x) => x.token === d.hero && !x.graduated) : null;
+      if (!c) return;
+      const chg = c.stats?.chg24, k = c.mcapUsd >= 1e6 ? `$${(c.mcapUsd / 1e6).toFixed(1)}M` : `$${Math.round(c.mcapUsd / 1e3)}K`;
+      climb = { sym: (c.ticker || c.name).toUpperCase(), line: chg != null && chg > 0 ? `+${pct(chg)} today · ${k}` : `climbing · ${k}`, href: flightHref(c) };
+    }).catch(() => {});
+
     const host = {
+      climbing: () => climb,
       assets: { ...Object.fromEntries(["rocket", ...SKIES].map((k) => [k, `/turbo/duel/${k}.webp`])), ...EXTRA_SKIES, art: "/art/modes/duel.webp" },
       history: () => hist.filter((h) => h.ts > Date.now() - 60_000),
       guest,
