@@ -198,11 +198,11 @@ export async function relayMarketBuy(raw: unknown, d: GaslessDeps = {}): Promise
   const t0 = Date.now();
   let q: MarketBuyRequest;
   let data: Hex;
-  const dep = DEPLOYMENTS[46630];
+  const dep = deployment();
   try {
     requireGaslessMode();
     relayBreaker.assertClosed();
-    const spender = relaySpender(robinhoodTestnet.id);
+    const spender = relaySpender(ACTIVE_CHAIN.id);
     if (spender.kind !== "forwarder") throw new GaslessReject("buying isn't available on this network yet");
     const treasury = marketTreasury();
     if (!treasury) throw new GaslessReject("buying is switched off right now");
@@ -221,7 +221,7 @@ export async function relayMarketBuy(raw: unknown, d: GaslessDeps = {}): Promise
     checkForwarderWithdrawRequest(q.cut, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec, feeTo: q.cut.feeTo, minFee: BigInt(0) });
     for (const r of [q.pay, q.cut]) {
       const who = await recoverTypedDataAddress({
-        ...withdrawTypedData(robinhoodTestnet.id, spender.address, r.permit, { to: r.destination, fee: r.fee, feeTo: r.feeTo }), signature: r.signature,
+        ...withdrawTypedData(ACTIVE_CHAIN.id, spender.address, r.permit, { to: r.destination, fee: r.fee, feeTo: r.feeTo }), signature: r.signature,
       });
       if (who.toLowerCase() !== r.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
     }
