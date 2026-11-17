@@ -81,7 +81,8 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
 
     /// @notice Hidden launches are free forever (maker 2026-11-17). Kept as a view so existing callers still read 0.
     uint256 public constant launchFee = 0;
-    uint256 public constant MAX_RELAYER_FEE_BPS = 500; // 5%
+    /// @dev maker 2026-11-17: "the cut is 0". The signed relayerFeeBps field stays for the ABI; any non-zero value reverts.
+    uint256 public constant MAX_RELAYER_FEE_BPS = 0;
     uint256 public constant SCHEME_ID = 1; // ERC-5564 secp256k1
 
     bytes32 public constant CLAIM_TYPEHASH = keccak256(

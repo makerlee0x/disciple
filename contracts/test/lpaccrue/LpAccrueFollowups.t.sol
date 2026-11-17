@@ -228,14 +228,14 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         address to = makeAddr("smartAccount");
         address relayer = makeAddr("relayer");
         uint256 dl = block.timestamp + 30 minutes;
-        bytes memory sig = _sig(toks, to, 100, dl);
-        CurveFeeVault.ClaimReq memory req = CurveFeeVault.ClaimReq(stealth, toks, to, 100, dl, sig);
-        uint256 rf1 = (e1 * 100) / 10_000;
-        uint256 rf2 = (e2 * 100) / 10_000;
+        bytes memory sig = _sig(toks, to, 0, dl);
+        CurveFeeVault.ClaimReq memory req = CurveFeeVault.ClaimReq(stealth, toks, to, 0, dl, sig);
+        uint256 rf1 = (e1 * 0) / 10_000;
+        uint256 rf2 = (e2 * 0) / 10_000;
         vm.prank(relayer);
         feeVault.claimManyAsStealthBySig(req);
         assertEq(quote.balanceOf(to), e1 - rf1 + e2 - rf2, "paid to `to` net of the relayer fee");
-        assertEq(quote.balanceOf(relayer), rf1 + rf2, "relayer fee <= 5% to msg.sender");
+        assertEq(quote.balanceOf(relayer), rf1 + rf2, "no relayer cut");
         assertEq(feeVault.sigNonces(stealth), 1);
         // replay: nonce moved, signature no longer valid
         vm.expectRevert(CurveFeeVault.BadSignature.selector);
@@ -248,10 +248,10 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         _b(c, _w(), 100 ether);
         address[] memory toks = _one(address(t));
         uint256 dl = block.timestamp + 1;
-        // relayer fee above AnonLauncher's 5% cap
-        bytes memory hi = _sig(toks, stealth, 501, dl);
+        // any relayer cut is refused (cap 0, maker 2026-11-17)
+        bytes memory hi = _sig(toks, stealth, 1, dl);
         vm.expectRevert(CurveFeeVault.FeeTooHigh.selector);
-        feeVault.claimManyAsStealthBySig(CurveFeeVault.ClaimReq(stealth, toks, stealth, 501, dl, hi));
+        feeVault.claimManyAsStealthBySig(CurveFeeVault.ClaimReq(stealth, toks, stealth, 1, dl, hi));
         // expired
         bytes memory sig = _sig(toks, stealth, 0, dl);
         vm.warp(dl + 1);

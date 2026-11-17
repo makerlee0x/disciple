@@ -471,12 +471,12 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
         address[] memory toks = new address[](1);
         toks[0] = r.token;
         uint256 dl = block.timestamp + 30 minutes;
-        bytes memory sig = _vaultSig(skA, stealthA, toks, player, 100, dl);
+        bytes memory sig = _vaultSig(skA, stealthA, toks, player, 0, dl);
         address relayer = makeAddr("relayer");
         uint256 p0 = quote.balanceOf(player);
         vm.prank(relayer);
-        feeVault.claimManyAsStealthBySig(CurveFeeVault.ClaimReq(stealthA, toks, player, 100, dl, sig));
-        uint256 rf = (owed * 100) / 10_000;
+        feeVault.claimManyAsStealthBySig(CurveFeeVault.ClaimReq(stealthA, toks, player, 0, dl, sig));
+        uint256 rf = (owed * 0) / 10_000;
         assertEq(quote.balanceOf(player) - p0, owed - rf);
         assertEq(quote.balanceOf(relayer), rf);
         // a signature by the wrong key (stealthB) is refused

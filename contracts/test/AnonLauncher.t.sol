@@ -171,11 +171,11 @@ contract AnonLauncherTest is IntegrationBase {
         toks[0] = address(t1);
         toks[1] = address(t2);
         address dest = makeAddr("anyDest");
-        AnonLauncher.ClaimReq memory r = _req(skA, stealthA, toks, dest, 100);
+        AnonLauncher.ClaimReq memory r = _req(skA, stealthA, toks, dest, 0);
         vm.prank(relayer);
         anon.claimManyBySig(r);
         uint256 tot = p1 + p2;
-        uint256 rf = (p1 * 100) / 10_000 + (p2 * 100) / 10_000;
+        uint256 rf = (p1 * 0) / 10_000 + (p2 * 0) / 10_000;
         assertEq(quote.balanceOf(dest), tot - rf);
         assertEq(quote.balanceOf(relayer), rf);
         assertEq(feeRouter.creatorAccrued(address(t1), address(anon)), 0);
@@ -360,7 +360,7 @@ contract AnonLauncherTest is IntegrationBase {
         toks[0] = address(t1);
         toks[1] = address(t2);
         address dest = makeAddr("dest");
-        uint256 rf = 250; // 2.5%
+        uint256 rf = 0; // no relayer cut (maker 2026-11-17)
         uint256 relQ0 = quote.balanceOf(relayer);
         AnonLauncher.ClaimReq memory r = _req(skA, stealthA, toks, dest, rf);
         vm.prank(relayer);
@@ -370,12 +370,22 @@ contract AnonLauncherTest is IntegrationBase {
         assertEq(quote.balanceOf(dest), q1 + q2 - fq);
         assertEq(t1.balanceOf(relayer), (a1 * rf) / 10_000, "relayer fee on token side (t1)");
         assertEq(t2.balanceOf(relayer), (a2 * rf) / 10_000, "relayer fee on token side (t2)");
-        assertGt(t1.balanceOf(relayer), 0);
+        assertEq(t1.balanceOf(relayer), 0);
         assertEq(t1.balanceOf(dest), a1 - (a1 * rf) / 10_000);
         assertEq(t2.balanceOf(dest), a2 - (a2 * rf) / 10_000);
         assertEq(feeRouter.creatorTokenAccrued(address(t1), address(anon)), 0);
         assertEq(feeRouter.creatorTokenAccrued(address(t2), address(anon)), 0);
         assertEq(anon.nonces(stealthA), 1);
+    }
+
+    function test_claimBySig_anyRelayerCut_reverts() public {
+        address[] memory toks = new address[](0);
+        AnonLauncher.ClaimReq memory r = _req(skA, stealthA, toks, makeAddr("d"), 1);
+        AnonLauncher.ClaimReq[] memory rs = new AnonLauncher.ClaimReq[](1);
+        rs[0] = r;
+        vm.prank(relayer);
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        anon.claimManyBySigBatch(rs);
     }
 
     function test_v2_claimManyBySigBatch_pays_token_side() public {
@@ -388,14 +398,14 @@ contract AnonLauncherTest is IntegrationBase {
         address[] memory b = new address[](1);
         b[0] = address(t2);
         AnonLauncher.ClaimReq[] memory rs = new AnonLauncher.ClaimReq[](2);
-        rs[0] = _req(skA, stealthA, a, makeAddr("dA"), 100);
-        rs[1] = _req(skB, stealthB, b, makeAddr("dB"), 100);
+        rs[0] = _req(skA, stealthA, a, makeAddr("dA"), 0);
+        rs[1] = _req(skB, stealthB, b, makeAddr("dB"), 0);
         vm.prank(relayer);
         anon.claimManyBySigBatch(rs);
-        assertEq(t1.balanceOf(makeAddr("dA")), a1 - (a1 * 100) / 10_000);
-        assertEq(t2.balanceOf(makeAddr("dB")), a2 - (a2 * 100) / 10_000);
-        assertEq(t1.balanceOf(relayer), (a1 * 100) / 10_000);
-        assertEq(t2.balanceOf(relayer), (a2 * 100) / 10_000);
+        assertEq(t1.balanceOf(makeAddr("dA")), a1 - (a1 * 0) / 10_000);
+        assertEq(t2.balanceOf(makeAddr("dB")), a2 - (a2 * 0) / 10_000);
+        assertEq(t1.balanceOf(relayer), (a1 * 0) / 10_000);
+        assertEq(t2.balanceOf(relayer), (a2 * 0) / 10_000);
     }
 
     function test_v2_skips_zero_side_without_revert() public {
