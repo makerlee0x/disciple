@@ -84,6 +84,7 @@ export async function GET(req: Request) {
       item: q.get("item") ?? undefined, kind: (["skin", "trail", "tag", "flourish"] as const).find((x) => x === q.get("kind")),
       rar: (["common", "uncommon", "rare", "epic", "legendary", "mythic"] as const).find((x) => x === q.get("rar")),
       series: q.get("series") ? Number(q.get("series")) : undefined, trak: q.get("trak") === "1", sort,
+      limit: q.get("limit") ? Math.max(1, Math.min(200, Number(q.get("limit")) || 120)) : undefined,
     };
     const [rows, sales] = await Promise.all([listings(f), salesOf(f.item, 20)]);
     return out(200, { ok: true, listings: rows, sales });

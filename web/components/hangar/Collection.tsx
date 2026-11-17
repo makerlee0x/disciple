@@ -306,7 +306,7 @@ export function Crates({ col, wallet }: { col: Col | null; wallet: string | null
 
   return (
     <section className="hg-sec hgu-sec" aria-labelledby="hg-crates" data-testid="rocket-crates">
-      <header className="hg-sech"><div><h2 id="hg-crates" className="dsc3-h2">Crates</h2><span>Win a ranked duel and a crate drops. Finishing your weekly missions drops one too.</span></div></header>
+      <header className="hg-sech"><div><h2 id="hg-crates" className="dsc3-h2">Crates</h2><span>Ranked duel wins and weekly missions drop crates.</span></div></header>
       {live && (
         <div className="hgu-banner" style={{ backgroundImage: `url(${withBase(seriesArt(live.n))})` }} data-testid="series-banner">
           <span className="hg-look-r">Series {live.n} · dropping now</span>
@@ -342,8 +342,7 @@ export function Crates({ col, wallet }: { col: Col | null; wallet: string | null
               })}
             </ol>
             <div className="hgu-odds-note">
-              <p>Odds are shown on every crate. Crates hold skins, trails and flourishes from the series that&apos;s live now, plus name tags. Copies from your welcome crate never trade.</p>
-              {proof && <p className="hgu-proof" data-testid="roll-proof">Every roll is provable. Today&apos;s seed hash is <code>{proof.slice(0, 10)}…{proof.slice(-6)}</code>, and the seed is revealed tomorrow so you can check any crate you open today.</p>}
+              {proof && <p className="hgu-proof" data-testid="roll-proof">Provably fair. Seed hash <code>{proof.slice(0, 10)}…{proof.slice(-6)}</code>, revealed tomorrow.</p>}
               <button type="button" className="dsc3-btn dsc3-btn-primary hgu-buy" onClick={open} disabled={busy || !wallet} data-testid="crate-open">{busy ? "Opening…" : "Open crate"}</button>
               {note && <p className="hg-sub" role="status" style={{ marginTop: 10 }}>{note}</p>}
             </div>
@@ -361,7 +360,8 @@ export function Crates({ col, wallet }: { col: Col | null; wallet: string | null
             <b>{opened.item ? title(opened.item) : "XP"}</b>
             {opened.copy && <span className="hgu-reveal-copy">#{fmt(opened.copy.serial)} · {burnGrade(opened.copy.burn).name} {opened.copy.burn.toFixed(4)} · Pattern {opened.copy.seed}</span>}
             {opened.copy && (opened.copy.fe || opened.copy.trak != null || opened.copy.bound) && <span className="hgu-copy-tags">{opened.copy.fe && <i className="fe">First edition</i>}{opened.copy.trak != null && <i className="trak">FlightTrak</i>}{opened.copy.bound && <i>Never trades</i>}</span>}
-            <span>+{fmt(opened.xp)} XP{opened.item ? (opened.dupe ? ". Keep it, trade it up, or scrap it for XP." : ". Equip it in Your rocket.") : ""}</span>
+            <span>+{fmt(opened.xp)} XP</span>
+            {opened.item && opened.copy && !opened.copy.bound && <Link href="/rocket" className="hg-ghost" style={{ minHeight: 40, marginTop: 6 }}>Equip or sell</Link>}
           </div>
           {opened.item && itemArt(opened.item, 150, false, "YOU", opened.copy)}
         </div>
