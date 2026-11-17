@@ -1,13 +1,11 @@
 "use client";
 /**
- * /market holder shelf (maker 2026-11-17): The Twelve (Ethereum founder passes, all the same art, traded on OpenSea), the Disciples tile
- * (→ /mint) and a sealed holders crate. The crate is a tease only: no words about what's inside or when, ever.
+ * /market holder shelf (maker 2026-11-17): The Twelve (Ethereum founder passes, all the same art, traded on OpenSea), and the Disciples tile
+ * (→ /mint). maker cut the sealed holders crate (2026-11-17).
  * Web only (the market already is).
  */
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { withBase } from "@/lib/base-path";
-import { crateArt } from "@/lib/collection";
 import { fetchMintStatus, type MintStatus } from "@/lib/nft/client";
 import { DISCIPLE_SUPPLY, FOUNDER_COUNT, FOUNDER_IMAGE, FOUNDER_URL, IMAGE_BASE } from "@/lib/nft/config";
 
@@ -52,12 +50,6 @@ export default function HolderShelf() {
           </span>
           <span className="dsc3-btn dsc3-btn-primary">Mint</span>
         </Link>
-        <div className="nft-sealed dsc3-panel" data-testid="shelf-sealed">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={withBase(crateArt("mythic"))} alt="" />
-          <span className="nft-sealed-tx"><b>Holders</b><span aria-label="watching">👀</span></span>
-          <span className="nft-sealed-marks" aria-hidden><i>◎</i><i>Ξ</i></span>
-        </div>
       </div>
     </div>
   );
