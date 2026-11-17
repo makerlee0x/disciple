@@ -38,6 +38,13 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .chart{position:absolute;left:12px;right:12px;top:calc(76px + env(safe-area-inset-top,0px));height:var(--ch);border-radius:16px;background:rgba(12,13,28,.80);border:2px solid rgba(255,255,255,.16);overflow:hidden;transition:height .25s ease;padding:0}
 .duel-root .chart canvas{position:absolute;inset:0;width:100%;height:100%}
 .duel-root .chart .lab{position:absolute;left:10px;top:7px;font:700 12px/1 var(--f-game);letter-spacing:.8px;color:var(--muted);pointer-events:none}
+/* the coin, plain on the card (maker 2026-11-17: "is that btc?") */
+.duel-root .chart .lab{display:flex;align-items:center;gap:6px;top:6px;white-space:nowrap}
+.duel-root .chart .lab .coin{flex:none;width:18px;height:18px;border-radius:50%;background:#F7931A;color:#fff;font:800 12px/18px var(--f-ui);text-align:center;font-style:normal;box-shadow:0 0 0 1.5px rgba(0,0,0,.35)}
+.duel-root .chart .lab b{font:800 15px/1 var(--f-game);letter-spacing:.6px;color:var(--text)}
+.duel-root .chart .lab em{font-style:normal}
+.duel-root .chart .lab em.up{color:var(--green)}
+.duel-root .chart .lab em.dn{color:var(--pinkl)}
 .duel-root .chatb{top:calc(var(--ch) + 138px + env(safe-area-inset-top,0px))!important}
 .duel-root .chatb .dot{position:absolute;top:6px;right:6px;width:9px;height:9px;border-radius:50%;background:var(--pink);border:2px solid #121327}
 .duel-root .chat{position:absolute;right:12px;top:calc(var(--ch) + 190px + env(safe-area-inset-top,0px));width:min(340px,calc(100% - 24px));padding:10px;border-radius:16px;background:rgba(12,13,28,.94);border:2px solid rgba(255,255,255,.18);box-shadow:0 12px 30px rgba(0,0,0,.5);display:flex;flex-direction:column;gap:8px;z-index:6}
@@ -491,8 +498,8 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .pod-row{position:relative;flex:1 1 auto;min-height:0;display:flex;gap:16px;align-items:flex-end;justify-content:center;padding:10px 16px 6px}
 .duel-root .pk{position:relative;flex:0 0 300px;max-height:100%;display:flex;flex-direction:column;border-radius:20px;background:#15161B;border:2px solid #2E323A;overflow:hidden;--pc:var(--p2);animation:pcIn .5s cubic-bezier(.3,1.4,.5,1) both}
 .duel-root .pk.p1{--pc:var(--p1);flex-basis:330px;order:2;border-color:var(--pc);box-shadow:0 0 0 1px var(--pc) inset,0 0 44px rgba(242,193,78,.22);animation-delay:.25s}
-.duel-root .pk.p2{order:1;margin-bottom:22px;animation-delay:.1s}
-.duel-root .pk.p3{--pc:var(--p3);order:3;margin-bottom:40px}
+.duel-root .pk.p2{order:1;margin-bottom:22px;max-height:calc(100% - 22px);animation-delay:.1s}
+.duel-root .pk.p3{--pc:var(--p3);order:3;margin-bottom:40px;max-height:calc(100% - 40px)}
 .duel-root .pk.me{border-color:var(--gold)}
 @keyframes pcIn{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
 @media (prefers-reduced-motion:reduce){.duel-root .pk{animation:none}}
@@ -511,8 +518,8 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .pk-n{position:relative;flex:0 0 92px;display:flex;align-items:center;justify-content:center}
 .duel-root .pk-n::before{content:"";position:absolute;inset:0 -18px 0 0;background:var(--pc);transform:skewX(-14deg);transform-origin:bottom left}
 .duel-root .pk-n span{position:relative;font:italic 800 70px/1 var(--f-game);color:#121327;margin-left:4px}
-.duel-root .pk-ship{position:relative;flex:0 0 168px;background:#1d1f2e center 40%/cover no-repeat;overflow:hidden}
-.duel-root .pk.p1 .pk-ship{flex-basis:196px}
+.duel-root .pk-ship{position:relative;flex:1 1 220px;min-height:150px;background:#1d1f2e center 40%/cover no-repeat;overflow:hidden}
+.duel-root .pk.p1 .pk-ship{flex-basis:236px}
 .duel-root .pk-ship canvas{position:absolute;inset:0;width:100%;height:100%}
 .duel-root .pk-ship .fl{position:absolute;left:50%;top:50%;width:150%;transform:translate(-50%,-56%);opacity:.9;pointer-events:none}
 .duel-root .pk-look{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:10px 12px 0}
@@ -524,7 +531,8 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .pk-guns div.empty{opacity:.4}
 .duel-root .pk-guns .gi{height:18px}
 .duel-root .pk-guns b{font:800 11.5px/1 var(--f-game);letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.duel-root .pk-st{display:flex;flex-direction:column;gap:4px;padding:10px 12px 12px;min-height:0;overflow:auto}
+.duel-root .pk-st{flex:0 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:4px;padding:10px 12px 12px}
+.duel-root .pk-st>div{flex:none}
 .duel-root .pk-st div{display:flex;align-items:stretch;justify-content:space-between;height:32px;border-radius:9px;background:#1d1f27;overflow:hidden}
 .duel-root .pk-st span{display:flex;align-items:center;padding:0 18px 0 10px;background:#0B0C0E;clip-path:polygon(0 0,100% 0,calc(100% - 10px) 100%,0 100%);font:700 12px/1 var(--f-game);letter-spacing:1px;color:var(--muted);white-space:nowrap}
 .duel-root .pk-st b{display:flex;align-items:center;padding-right:11px;font:800 21px/1 var(--f-game);font-variant-numeric:tabular-nums;color:var(--text)}
@@ -539,17 +547,45 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .pod-me span b{font:800 17px/1 var(--f-game);letter-spacing:.4px;color:var(--gold);margin-right:6px}
 .duel-root .pod-me>b{font:800 22px/1 var(--f-game);font-variant-numeric:tabular-nums;white-space:nowrap}
 .duel-root .pod-foot .rrow .sec{margin-top:0}
+/* after the podium (maker 2026-11-16): a countdown back into the same lobby (STOP holds it, LEAVE goes back to the intro);
+   some pilots leave and new ones join while it runs */
+.duel-root .pod-next{position:relative;display:flex;align-items:center;gap:10px;padding:10px 10px 12px 14px;border-radius:14px;background:rgba(21,22,27,.94);border:1px solid #2E323A;overflow:hidden}
+.duel-root .pod-next .pn-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.duel-root .pod-next b{font:800 19px/1 var(--f-game);letter-spacing:.5px;color:var(--text);white-space:nowrap}
+.duel-root .pod-next b em{font-style:normal;color:var(--gold);font-variant-numeric:tabular-nums}
+.duel-root .pod-next small{font:600 12.5px/1.2 var(--f-ui);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.duel-root .pod-next small b{font:inherit;color:var(--pinkl)}
+.duel-root .pod-next small i{font-style:normal;color:var(--green)}
+.duel-root .pod-next .sec{flex:none;height:40px;margin:0;padding:0 18px;border-radius:11px;font-size:17px}
+.duel-root .pod-next .pn-bar{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.06)}
+.duel-root .pod-next .pn-bar i{display:block;height:100%;width:100%;background:var(--gold);transition:width .25s linear}
+.duel-root .pod-next.off{border-style:dashed}
+.duel-root .pod-next.off .pn-bar{display:none}
+.duel-root .fgrid div.back{animation:none;border-color:rgba(242,193,78,.5)}
+/* wide screens: the countdown and the buttons share one row under the cards, so the rockets keep their room */
+@media (min-width:761px){
+  .duel-root .pod-foot{max-width:1000px;display:grid;grid-template-columns:minmax(0,1fr) 470px;align-items:stretch}
+  .duel-root .pod-foot .pod-me{grid-column:1/-1}
+  .duel-root .pod-foot .rrow .sec,.duel-root .pod-foot .rrow .go{height:auto;min-height:58px}
+}
+@media (min-width:761px) and (max-height:960px){
+  .duel-root .pk-st div{height:28px}.duel-root .pk-st div.big{height:36px}.duel-root .pk-st div.big b{font-size:26px}.duel-root .pk-st b{font-size:19px}
+  .duel-root .pk.p3{margin-bottom:28px;max-height:calc(100% - 28px)}.duel-root .pk.p2{margin-bottom:14px;max-height:calc(100% - 14px)}
+}
 /* phones and narrow windows: one card at a time, swipe between them (winner first) */
 @media (max-width:760px){
   .duel-root .pod-head b{font-size:30px}
   .duel-root .pod-row{justify-content:flex-start;align-items:stretch;overflow-x:auto;scroll-snap-type:x mandatory;gap:12px;padding:8px 8vw 4px;scrollbar-width:none}
   .duel-root .pod-row::-webkit-scrollbar{display:none}
-  .duel-root .pk,.duel-root .pk.p1{flex:0 0 84vw;max-width:360px;margin:0;scroll-snap-align:center}
+  .duel-root .pk,.duel-root .pk.p1,.duel-root .pk.p2,.duel-root .pk.p3{flex:0 0 84vw;max-width:360px;max-height:100%;margin:0;scroll-snap-align:center}
   .duel-root .pk.p1{order:1}.duel-root .pk.p2{order:2}.duel-root .pk.p3{order:3}
-  .duel-root .pk-ship,.duel-root .pk.p1 .pk-ship{flex-basis:150px}
+  .duel-root .pk-ship,.duel-root .pk.p1 .pk-ship{flex-basis:190px}
   .duel-root .pod-dots{display:flex}
+  .duel-root .pod-foot .rrow .sec{font-size:17px}
+  .duel-root .pod-foot .rrow .go{flex:1.6;font-size:21px}
+  .duel-root .pod-next b{font-size:17px}
 }
-@media (max-width:760px) and (max-height:720px){.duel-root .pk-ship,.duel-root .pk.p1 .pk-ship{flex-basis:112px}.duel-root .pk-st div{height:28px}.duel-root .pk-st div.big{height:36px}.duel-root .pk-st div.big b{font-size:26px}}
+@media (max-width:760px) and (max-height:720px){.duel-root .pk-ship,.duel-root .pk.p1 .pk-ship{flex-basis:132px}.duel-root .pk-st div{height:28px}.duel-root .pk-st div.big{height:36px}.duel-root .pk-st div.big b{font-size:26px}}
 /* landing zone (maker, 2026-11-16): no sky vote (the sky is random), lobby chat while the doors count down */
 .duel-root .dbar{height:4px;border-radius:4px;background:#23262F;overflow:hidden;margin-top:-4px}
 .duel-root .dbar i{display:block;height:100%;width:100%;background:var(--gold);transition:width 1s linear,background .3s}
@@ -776,7 +812,8 @@ html,body{margin:0;height:100%;background:#07080c}
   <div class="pod-dots" id="podDots" aria-label="Podium places"></div>
   <div class="pod-foot">
     <div class="pod-me" id="podMe" hidden><span id="podMeT"></span><b id="podMeV"></b></div>
-    <div class="rrow"><button class="sec" type="button" id="podShare">SHARE</button><button class="go" type="button" id="podAgain" data-sfx="primary">PLAY AGAIN</button></div>
+    <div class="pod-next" id="podNext" aria-live="polite"><div class="pn-t"><b id="podNT">NEXT ROYALE IN <em id="podNN">15</em></b><small id="podNS">Same lobby. Pilots can leave and new ones join.</small></div><button class="sec" type="button" id="podStop" data-sfx="back">STOP</button><i class="pn-bar" aria-hidden="true"><i id="podNB"></i></i></div>
+    <div class="rrow"><button class="sec" type="button" id="podLeave" data-sfx="back">LEAVE</button><button class="sec" type="button" id="podShare">SHARE</button><button class="go" type="button" id="podAgain" data-sfx="primary">PLAY NOW</button></div>
   </div>
 </div>
 </div>
@@ -785,10 +822,18 @@ html,body{margin:0;height:100%;background:#07080c}
 const A={"rocket":"../duel/rocket.webp","sky0":"../duel/sky0.webp","sky1":"../duel/sky1.webp","sky2":"../duel/sky2.webp","sky3":"../duel/sky3.webp","sky4":"../duel/sky4.webp","skyEth":"../sky-eth.webp","skyBtc":"../sky-btc.webp","skyPad":"../../home/pad/sky-1280.webp","art":"../../art/modes/last-pilot.webp","airdrop-machine-gun-glow":"art/airdrop-machine-gun-glow.webp","airdrop-machine-gun":"art/airdrop-machine-gun.webp","airdrop-minigun-glow":"art/airdrop-minigun-glow.webp","airdrop-minigun":"art/airdrop-minigun.webp","airdrop-pistol-glow":"art/airdrop-pistol-glow.webp","airdrop-pistol":"art/airdrop-pistol.webp","airdrop-railgun-glow":"art/airdrop-railgun-glow.webp","airdrop-railgun":"art/airdrop-railgun.webp","airdrop-rocket-launcher-glow":"art/airdrop-rocket-launcher-glow.webp","airdrop-rocket-launcher":"art/airdrop-rocket-launcher.webp","airdrop-shotgun-glow":"art/airdrop-shotgun-glow.webp","airdrop-shotgun":"art/airdrop-shotgun.webp","airdrop-sniper-glow":"art/airdrop-sniper-glow.webp","airdrop-sniper":"art/airdrop-sniper.webp","fx-boom-small":"art/fx-boom-small.webp","fx-cashout":"art/fx-cashout.webp","fx-nuke":"art/fx-nuke.webp","fx-pod-open":"art/fx-pod-open.webp","fx-weapon-break":"art/fx-weapon-break.webp","map-btc":"art/map-btc.webp","map-eth":"art/map-eth.webp","map-hype":"art/map-hype.webp","map-sol":"art/map-sol.webp","skyHype":"art/skyHype.webp","skySol":"art/skySol.webp","weapon-machine-gun":"art/weapon-machine-gun.webp","weapon-minigun":"art/weapon-minigun.webp","weapon-pistol":"art/weapon-pistol.webp","weapon-railgun":"art/weapon-railgun.webp","weapon-rocket-launcher":"art/weapon-rocket-launcher.webp","weapon-shotgun":"art/weapon-shotgun.webp","weapon-sniper":"art/weapon-sniper.webp"};
 document.addEventListener("DOMContentLoaded",()=>{ const b=document.getElementById("preBg"); if(b) b.style.backgroundImage=`url("${A.art}")`; });
 
-// bot rockets: 8 hull shapes x 10 rival skins (PR 399/402 art, web/public/turbo/hulls). [aspect w/h, nozzles [x, y, size] as 0..1 of the image]
-const HULLS={"bullet":[0.454,[[0.498,0.988,1.0],[0.103,0.982,0.7],[0.892,0.982,0.7]]],"needle":[0.368,[[0.481,0.989,1.0]]],"pulp":[0.557,[[0.472,0.99,1.0]]],"twin-booster":[0.436,[[0.498,0.984,0.8],[0.193,0.99,1.0],[0.798,0.99,1.0]]],"shuttle":[0.575,[[0.5,0.984,1.0],[0.427,0.965,0.7],[0.573,0.965,0.7]]],"hauler":[0.432,[[0.498,0.99,1.0],[0.27,0.989,0.85],[0.734,0.989,0.85]]],"ring-tail":[0.432,[[0.502,0.99,1.0]]],"wedge":[0.732,[[0.501,0.959,1.0]]]}, HSKINS=["chrome-pink-stripe","matte-black","pearl-mint","titanium-ice","candy-pink","gunmetal-pink","oilslick","carbon","scorched","navy-chevron"], HULL_BASE="../hulls/", hullImgs={};
-function hullFor(used){ const ks=Object.keys(HULLS); let h,s,n=0; do{ h=ks[Math.floor(Math.random()*ks.length)]; s=HSKINS[Math.floor(Math.random()*HSKINS.length)]; } while(used&&used.has(h+s)&&++n<20); if(used) used.add(h+s);
-  const k="hull-"+h+"--"+s; if(!hullImgs[k]){ const i=new Image(); i.src=HULL_BASE+k+".webp"; hullImgs[k]=i; } return {k,img:hullImgs[k],a:HULLS[h][0],nz:HULLS[h][1]}; }
+// bot rockets fly real Hangar skins (public/turbo/skins/<hull>--<paint>.webp: the launch pad / Free play art, maker
+// 2026-11-16 "those aren't the right rockets"). [aspect w/h, nozzles [x, y, size] as 0..1 of the image], same as the duel.
+const HULLS={"bullet":[0.454,[[0.498,0.988,1.0],[0.103,0.982,0.7],[0.892,0.982,0.7]]],"needle":[0.400,[[0.480,0.989,1.0]]],"pulp":[0.557,[[0.472,0.99,1.0]]],"twin-booster":[0.436,[[0.498,0.984,0.8],[0.193,0.99,1.0],[0.798,0.99,1.0]]],"shuttle":[0.575,[[0.5,0.984,1.0],[0.427,0.965,0.7],[0.573,0.965,0.7]]],"hauler":[0.432,[[0.498,0.99,1.0],[0.27,0.989,0.85],[0.734,0.989,0.85]]],"ring-tail":[0.432,[[0.502,0.99,1.0]]],"wedge":[0.732,[[0.501,0.959,1.0]]]}, SKIN_BASE="../skins/", hullImgs={};
+// [hull, paint, hull name, paint name, rarity] for every skin with art (built from lib/collection.ts by build.mjs)
+const SKINS=[["bullet","amethyst","Bullet","Amethyst","epic"],["bullet","arctic-camo","Bullet","Arctic Camo","uncommon"],["bullet","aurora","Bullet","Aurora","legendary"],["bullet","carbon-gold","Bullet","Carbon & Gold","uncommon"],["bullet","checkered","Bullet","Checkered","uncommon"],["bullet","copper-verdigris","Bullet","Old Copper","rare"],["bullet","damascus","Bullet","Damascus","rare"],["bullet","delft-porcelain","Bullet","Delft","rare"],["bullet","hazard","Bullet","Hazard","uncommon"],["bullet","holo-foil","Bullet","Holo Foil","legendary"],["bullet","koi","Bullet","Koi","rare"],["bullet","marble-gilt","Bullet","Marble & Gold Leaf","mythic"],["bullet","molten","Bullet","Molten","epic"],["bullet","nebula","Bullet","Nebula","legendary"],["bullet","neon-circuit","Bullet","Neon Circuit","epic"],["bullet","olive-drab","Bullet","Olive Drab","common"],["bullet","racing-green","Bullet","Racing Green","common"],["bullet","red-classic","Bullet","Red Classic","common"],["bullet","safety-orange","Bullet","Safety Orange","common"],["bullet","seraph-wing","Bullet","Seraph Wing","legendary"],["bullet","sky-blue","Bullet","Sky Blue","common"],["bullet","stained-glass","Bullet","Stained Glass","epic"],["bullet","teal-racer","Bullet","Teal Racer","uncommon"],["bullet","walnut-brass","Bullet","Walnut & Brass","rare"],["bullet","white-gloss","Bullet","White Gloss","common"],["hauler","amethyst","Hauler","Amethyst","epic"],["hauler","arctic-camo","Hauler","Arctic Camo","uncommon"],["hauler","aurora","Hauler","Aurora","legendary"],["hauler","carbon-gold","Hauler","Carbon & Gold","uncommon"],["hauler","checkered","Hauler","Checkered","uncommon"],["hauler","copper-verdigris","Hauler","Old Copper","rare"],["hauler","damascus","Hauler","Damascus","rare"],["hauler","delft-porcelain","Hauler","Delft","rare"],["hauler","hazard","Hauler","Hazard","uncommon"],["hauler","holo-foil","Hauler","Holo Foil","legendary"],["hauler","koi","Hauler","Koi","rare"],["hauler","marble-gilt","Hauler","Marble & Gold Leaf","mythic"],["hauler","molten","Hauler","Molten","epic"],["hauler","nebula","Hauler","Nebula","legendary"],["hauler","neon-circuit","Hauler","Neon Circuit","epic"],["hauler","olive-drab","Hauler","Olive Drab","common"],["hauler","racing-green","Hauler","Racing Green","common"],["hauler","red-classic","Hauler","Red Classic","common"],["hauler","safety-orange","Hauler","Safety Orange","common"],["hauler","seraph-wing","Hauler","Seraph Wing","legendary"],["hauler","sky-blue","Hauler","Sky Blue","common"],["hauler","stained-glass","Hauler","Stained Glass","epic"],["hauler","teal-racer","Hauler","Teal Racer","uncommon"],["hauler","walnut-brass","Hauler","Walnut & Brass","rare"],["hauler","white-gloss","Hauler","White Gloss","common"],["needle","amethyst","Needle","Amethyst","epic"],["needle","arctic-camo","Needle","Arctic Camo","uncommon"],["needle","aurora","Needle","Aurora","legendary"],["needle","carbon-gold","Needle","Carbon & Gold","uncommon"],["needle","checkered","Needle","Checkered","uncommon"],["needle","copper-verdigris","Needle","Old Copper","rare"],["needle","damascus","Needle","Damascus","rare"],["needle","delft-porcelain","Needle","Delft","rare"],["needle","hazard","Needle","Hazard","uncommon"],["needle","holo-foil","Needle","Holo Foil","legendary"],["needle","koi","Needle","Koi","rare"],["needle","marble-gilt","Needle","Marble & Gold Leaf","mythic"],["needle","molten","Needle","Molten","epic"],["needle","nebula","Needle","Nebula","legendary"],["needle","neon-circuit","Needle","Neon Circuit","epic"],["needle","olive-drab","Needle","Olive Drab","common"],["needle","racing-green","Needle","Racing Green","common"],["needle","red-classic","Needle","Red Classic","common"],["needle","safety-orange","Needle","Safety Orange","common"],["needle","seraph-wing","Needle","Seraph Wing","legendary"],["needle","sky-blue","Needle","Sky Blue","common"],["needle","stained-glass","Needle","Stained Glass","epic"],["needle","teal-racer","Needle","Teal Racer","uncommon"],["needle","walnut-brass","Needle","Walnut & Brass","rare"],["needle","white-gloss","Needle","White Gloss","common"],["pulp","amethyst","Pulp","Amethyst","epic"],["pulp","arctic-camo","Pulp","Arctic Camo","uncommon"],["pulp","aurora","Pulp","Aurora","legendary"],["pulp","carbon-gold","Pulp","Carbon & Gold","uncommon"],["pulp","checkered","Pulp","Checkered","uncommon"],["pulp","copper-verdigris","Pulp","Old Copper","rare"],["pulp","damascus","Pulp","Damascus","rare"],["pulp","delft-porcelain","Pulp","Delft","rare"],["pulp","hazard","Pulp","Hazard","uncommon"],["pulp","holo-foil","Pulp","Holo Foil","legendary"],["pulp","koi","Pulp","Koi","rare"],["pulp","marble-gilt","Pulp","Marble & Gold Leaf","mythic"],["pulp","molten","Pulp","Molten","epic"],["pulp","nebula","Pulp","Nebula","legendary"],["pulp","neon-circuit","Pulp","Neon Circuit","epic"],["pulp","olive-drab","Pulp","Olive Drab","common"],["pulp","racing-green","Pulp","Racing Green","common"],["pulp","red-classic","Pulp","Red Classic","common"],["pulp","safety-orange","Pulp","Safety Orange","common"],["pulp","seraph-wing","Pulp","Seraph Wing","legendary"],["pulp","sky-blue","Pulp","Sky Blue","common"],["pulp","stained-glass","Pulp","Stained Glass","epic"],["pulp","teal-racer","Pulp","Teal Racer","uncommon"],["pulp","walnut-brass","Pulp","Walnut & Brass","rare"],["pulp","white-gloss","Pulp","White Gloss","common"],["shuttle","amethyst","Shuttle","Amethyst","epic"],["shuttle","arctic-camo","Shuttle","Arctic Camo","uncommon"],["shuttle","aurora","Shuttle","Aurora","legendary"],["shuttle","carbon-gold","Shuttle","Carbon & Gold","uncommon"],["shuttle","checkered","Shuttle","Checkered","uncommon"],["shuttle","copper-verdigris","Shuttle","Old Copper","rare"],["shuttle","damascus","Shuttle","Damascus","rare"],["shuttle","delft-porcelain","Shuttle","Delft","rare"],["shuttle","hazard","Shuttle","Hazard","uncommon"],["shuttle","holo-foil","Shuttle","Holo Foil","legendary"],["shuttle","koi","Shuttle","Koi","rare"],["shuttle","marble-gilt","Shuttle","Marble & Gold Leaf","mythic"],["shuttle","molten","Shuttle","Molten","epic"],["shuttle","nebula","Shuttle","Nebula","legendary"],["shuttle","neon-circuit","Shuttle","Neon Circuit","epic"],["shuttle","olive-drab","Shuttle","Olive Drab","common"],["shuttle","racing-green","Shuttle","Racing Green","common"],["shuttle","red-classic","Shuttle","Red Classic","common"],["shuttle","safety-orange","Shuttle","Safety Orange","common"],["shuttle","seraph-wing","Shuttle","Seraph Wing","legendary"],["shuttle","sky-blue","Shuttle","Sky Blue","common"],["shuttle","stained-glass","Shuttle","Stained Glass","epic"],["shuttle","teal-racer","Shuttle","Teal Racer","uncommon"],["shuttle","walnut-brass","Shuttle","Walnut & Brass","rare"],["shuttle","white-gloss","Shuttle","White Gloss","common"],["twin-booster","amethyst","Twin Booster","Amethyst","epic"],["twin-booster","arctic-camo","Twin Booster","Arctic Camo","uncommon"],["twin-booster","aurora","Twin Booster","Aurora","legendary"],["twin-booster","carbon-gold","Twin Booster","Carbon & Gold","uncommon"],["twin-booster","checkered","Twin Booster","Checkered","uncommon"],["twin-booster","copper-verdigris","Twin Booster","Old Copper","rare"],["twin-booster","damascus","Twin Booster","Damascus","rare"],["twin-booster","delft-porcelain","Twin Booster","Delft","rare"],["twin-booster","hazard","Twin Booster","Hazard","uncommon"],["twin-booster","holo-foil","Twin Booster","Holo Foil","legendary"],["twin-booster","koi","Twin Booster","Koi","rare"],["twin-booster","marble-gilt","Twin Booster","Marble & Gold Leaf","mythic"],["twin-booster","molten","Twin Booster","Molten","epic"],["twin-booster","nebula","Twin Booster","Nebula","legendary"],["twin-booster","neon-circuit","Twin Booster","Neon Circuit","epic"],["twin-booster","olive-drab","Twin Booster","Olive Drab","common"],["twin-booster","racing-green","Twin Booster","Racing Green","common"],["twin-booster","red-classic","Twin Booster","Red Classic","common"],["twin-booster","safety-orange","Twin Booster","Safety Orange","common"],["twin-booster","seraph-wing","Twin Booster","Seraph Wing","legendary"],["twin-booster","sky-blue","Twin Booster","Sky Blue","common"],["twin-booster","stained-glass","Twin Booster","Stained Glass","epic"],["twin-booster","teal-racer","Twin Booster","Teal Racer","uncommon"],["twin-booster","walnut-brass","Twin Booster","Walnut & Brass","rare"],["twin-booster","white-gloss","Twin Booster","White Gloss","common"],["wedge","amethyst","Wedge","Amethyst","epic"],["wedge","arctic-camo","Wedge","Arctic Camo","uncommon"],["wedge","aurora","Wedge","Aurora","legendary"],["wedge","carbon-gold","Wedge","Carbon & Gold","uncommon"],["wedge","checkered","Wedge","Checkered","uncommon"],["wedge","copper-verdigris","Wedge","Old Copper","rare"],["wedge","damascus","Wedge","Damascus","rare"],["wedge","delft-porcelain","Wedge","Delft","rare"],["wedge","hazard","Wedge","Hazard","uncommon"],["wedge","holo-foil","Wedge","Holo Foil","legendary"],["wedge","koi","Wedge","Koi","rare"],["wedge","marble-gilt","Wedge","Marble & Gold Leaf","mythic"],["wedge","molten","Wedge","Molten","epic"],["wedge","nebula","Wedge","Nebula","legendary"],["wedge","neon-circuit","Wedge","Neon Circuit","epic"],["wedge","olive-drab","Wedge","Olive Drab","common"],["wedge","racing-green","Wedge","Racing Green","common"],["wedge","red-classic","Wedge","Red Classic","common"],["wedge","safety-orange","Wedge","Safety Orange","common"],["wedge","seraph-wing","Wedge","Seraph Wing","legendary"],["wedge","sky-blue","Wedge","Sky Blue","common"],["wedge","stained-glass","Wedge","Stained Glass","epic"],["wedge","teal-racer","Wedge","Teal Racer","uncommon"],["wedge","walnut-brass","Wedge","Walnut & Brass","rare"],["wedge","white-gloss","Wedge","White Gloss","common"]].filter(k=>HULLS[k[0]]);
+// commons turn up most, mythics rarely, like a real lobby; each bot keeps one look per name (so a pilot who stays in
+// your lobby flies the same rocket next game)
+const RARW={common:30,uncommon:24,rare:20,epic:13,legendary:8,mythic:4}, SKINW=SKINS.map(k=>RARW[k[4]]||10), SKINT=SKINW.reduce((a,b)=>a+b,0);
+function hullFor(name){ let h=2166136261; const t=String(name||Math.random()); for(let i=0;i<t.length;i++) h=Math.imul(h^t.charCodeAt(i),16777619)>>>0;
+  let r=(h%100000)/100000*SKINT, j=0; while(j<SKINS.length-1&&(r-=SKINW[j])>=0) j++;
+  const [hu,pa,hn,pn,rar]=SKINS[j], k=hu+"--"+pa; if(!hullImgs[k]){ const i=new Image(); i.decoding="async"; i.src=SKIN_BASE+k+".webp"; hullImgs[k]=i; }
+  return {k,img:hullImgs[k],a:HULLS[hu][0],nz:HULLS[hu][1],hn,pn,rar}; }
 // flames at each nozzle of a hull (or the chrome rocket's one), then the sprite; ctx is already at the rocket's centre
 function drawShip(c2,hull,img,h,fl,col,sq){ const w=hull?h*hull.a:h*221/609, fk=Math.min(1,h/120), nz=hull?hull.nz:[[.5,.97,1]];
   c2.globalCompositeOperation="lighter";
@@ -841,7 +886,11 @@ function dropWeapon(pl,w){ const i=pl.inv.indexOf(w); if(i<0||w.k==="PISTOL") re
   if(!pl.inv.length) pl.inv.push({k:"PISTOL",ammo:Infinity});
   if(pl.sel===i) pl.sel=pl.me?0:bestSlot(pl); else if(pl.sel>i) pl.sel--; if(pl.sel>=pl.inv.length) pl.sel=0; }
 const START={HYPE:2,SOL:4,ETH:3,BTC:2};
-const NAMES=["@moonmath","@solwhale","@lev_larry","@chartmonk","@0xrekt","@pumpqueen","@degenpilot","@wickhunter","@fadeking","@gmgn_andy","@bagholdr"];
+const NAMES=["@moonmath","@solwhale","@lev_larry","@chartmonk","@0xrekt","@pumpqueen","@degenpilot","@wickhunter","@fadeking","@gmgn_andy","@bagholdr",
+  "@hypehound","@liqhunter","@ser_pump","@candlewitch","@basedtrader","@ngmi_nate","@wagmi_wen","@shortsqueez","@fomo_frank","@bidwall","@apezilla","@gigabrain","@exitliq"];
+// the 11 bots in your lobby. fillLobby() sets it; after a podium the ones who stay carry over and new pilots fill the gaps
+let ROSTER=null;
+const roster=()=>{ if(!ROSTER||ROSTER.length!==11) ROSTER=NAMES.slice().sort(()=>Math.random()-.5).slice(0,11); return ROSTER; };
 let dropMk="HYPE";
 // one length: 3 minutes at most (maker, 2026-11-16: "3 mins max for royale"). Maps close at 0:45, 1:20 and 1:55, the final circle
 // shrinks every 15 s (4 → 3 → 2 by 2:25), then a 30 s duel ends it by about 2:55.
@@ -855,7 +904,7 @@ const liqPct=pl=>pl.pos?Math.max(0,-pnlOf(pl.pos,price(pl))/(LIQ*pl.pos.coll)):0
 
 /* ---------- state ---------- */
 let G=null;
-function newPilot(name,me,mk,used){ return {hull:me?null:hullFor(used),name,me,mk,fuel:FUEL0,pos:null,shields:0,inv:[{k:"PISTOL",ammo:Infinity}],sel:0,alive:true,lane:.5,jit:me?0:rnd(-34,34),arrive:me?0:rnd(1,8),xo:0,xt:0,wander:0,
+function newPilot(name,me,mk){ return {hull:me?null:hullFor(name),name,me,mk,fuel:FUEL0,pos:null,shields:0,inv:[{k:"PISTOL",ammo:Infinity}],sel:0,alive:true,lane:.5,jit:me?0:rnd(-34,34),arrive:me?0:rnd(1,8),xo:0,xt:0,wander:0,
   dfW:0,dfL:0,best:0,grab:0,cool:rnd(5,10),df:null,y:null,vy:0,flame:0,sq:0,kick:0,rot:0,steer:0,jumpAt:null,place:0,
   bot:me?null:{skill:rnd(.25,.9),react:[rnd(.4,.8),rnd(.9,1.8)],next:0,thr:rnd(2.2,3.6),tp:rnd(.25,.6),sl:-rnd(.25,.75),hold:rnd(6,16)}}; }
 function newGame(){
@@ -863,7 +912,7 @@ function newGame(){
   for(const k of ORDER){ M[k]={k,p:MKD[k].p,vol:MKD[k].vol,dr:MKD[k].dr,drift:0,nextReg:0,ticks:[],closed:false,closeAt:P.close[k]==null?null:P.close[k]}; }
   // 60 s of history so the chart is full at GO
   for(const k of ORDER){ const m=M[k]; for(let i=-300;i<=0;i++){ stepFeed(m,i*TICK); } }
-  const pilots=[], names=NAMES.slice().sort(()=>Math.random()-.5); let n=0;
+  const pilots=[], names=roster().slice().sort(()=>Math.random()-.5); let n=0;
   const used=new Set(); for(const k of ORDER) for(let i=0;i<START[k];i++){ const lz=LZ&&LZ.bots.filter(b=>b.mk===k)[i]; pilots.push(newPilot(lz?lz.name:names[n++],false,k,used)); }
   const me=newPilot("you",true,dropMk); me.lane=.5; pilots.push(me);
   G={t:0,P,M,pilots,me,started:false,over:false,phase:"early",final:null,duel:null,dfs:[],nextCrate:rnd(3,5),crate:null,acc:0,
@@ -1149,7 +1198,7 @@ function rollSky(){ let last=null; try{ last=localStorage.getItem("royale.map");
 let LZ=null;
 const LQUICK=["gl hf","🚀","send it","see you in the storm","lol","👀"];
 function lzSetup(){
-  const names=NAMES.slice().sort(()=>Math.random()-.5), slots=[]; for(const k of ORDER) for(let i=0;i<START[k];i++) slots.push(k);
+  const names=roster().slice().sort(()=>Math.random()-.5), slots=[]; for(const k of ORDER) for(let i=0;i<START[k];i++) slots.push(k);
   const bots=names.slice(0,slots.length).map((n,i)=>({name:n,mk:slots[i],at:rnd(.8,11.5),first:Math.random()<.3?pick(ORDER.filter(k=>k!==slots[i])):null,done:false,said:false}));
   const fk=finalMk(), o=ROLL.order, lines=[`final circle on ${fk}?? ok`,`${o[0]} closes first, don't land there`,"gl all","first one out buys the next round",`${fk} gang`,"I'm taking the railgun","HYPE loot is insane","don't follow me","who's camping the final","🚀🚀🚀","nuke incoming","ez","new pilot? stay close to the leader lol","5x ape mode"];
   const talk=lines.sort(()=>Math.random()-.5).slice(0,6).map(t=>({t,at:rnd(.6,12.5),who:pick(bots).name,done:false}));
@@ -1172,15 +1221,20 @@ $("lQuick").addEventListener("click",e=>{ const b=e.target.closest("button"); if
 $("lSay").addEventListener("submit",e=>{ e.preventDefault(); lzMe($("lIn").value); $("lIn").value=""; });
 const esc=t=>String(t).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let dropT=0, dropIv=0;
-function prePane(id){ $("podium").hidden=true; podStop(); victoryMusic(false); for(const k of ["pIntro","pFill","pDrop"]) $(k).hidden=k!==id; $("stLobby").classList.toggle("on",id!=="pDrop"); $("stDrop").classList.toggle("on",id==="pDrop"); }
+function prePane(id){ $("podium").hidden=true; podStop(); if(NX&&NX.on) nextClear(); victoryMusic(false); for(const k of ["pIntro","pFill","pDrop"]) $(k).hidden=k!==id; $("stLobby").classList.toggle("on",id!=="pDrop"); $("stDrop").classList.toggle("on",id==="pDrop"); }
 let fillIv=0;
 function showIntro(){ $("smap").hidden=true; $("fChat").hidden=true; toParent({type:"disciple:music",on:false}); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pIntro"); $("dIn").textContent="12"; bed("amb_mission_control"); }
-// a lobby that fills up: you first, then the 11 bots drop in over ~3 s, then the map pick and its 15 s timer
-function fillLobby(){ $("smap").hidden=true; $("fChat").hidden=true; toParent({type:"disciple:music",on:false}); ensureAudio(); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pFill"); bed("amb_mission_control");
+// a lobby that fills up: you first, then the 11 bots drop in over ~3 s, then the map pick and its 15 s timer.
+// After a podium (NEXT), the pilots who stayed are already in, the ones who left are named, and new pilots fill the gaps.
+function fillLobby(next){ $("smap").hidden=true; $("fChat").hidden=true; toParent({type:"disciple:music",on:false}); ensureAudio(); clearInterval(dropIv); clearInterval(fillIv); $("result").hidden=true; $("drop").hidden=false; G=null; prePane("pFill"); bed("amb_mission_control");
   const g=$("fGrid"); g.innerHTML=""; const slots=[]; for(let i=0;i<12;i++){ const d=document.createElement("div"); d.textContent="···"; g.appendChild(d); slots.push(d); }
-  slots[0].className="me"; slots[0].textContent="YOU"; let n=1; $("fN").textContent=n; $("dIn").textContent=n+" / 12"; $("fSub").textContent="FINDING PILOTS";
-  const order=NAMES.slice().sort(()=>Math.random()-.5);
-  fillIv=setInterval(()=>{ const add=Math.random()<.35&&n<11?2:1; for(let j=0;j<add&&n<12;j++){ slots[n].className="in"; slots[n].textContent=order[n-1]; n++; }
+  slots[0].className="me"; slots[0].textContent="YOU"; let n=1;
+  const stay=next&&next.stay?next.stay.slice(0,11):[];
+  for(const nm of stay){ slots[n].className="in back"; slots[n].textContent=nm; n++; }
+  const fresh=NAMES.filter(x=>!stay.includes(x)&&!(next&&next.left&&next.left.includes(x))).sort(()=>Math.random()-.5).slice(0,11-stay.length);
+  ROSTER=stay.concat(fresh);
+  $("fN").textContent=n; $("dIn").textContent=n+" / 12"; $("fSub").textContent=next?(stay.length>=11?"EVERYONE STAYED":stay.length?`${stay.length} STAYED · FINDING ${11-stay.length} MORE`:"FINDING PILOTS"):"FINDING PILOTS";
+  let q=0; fillIv=setInterval(()=>{ if(++q<(next?3:1)) return; const add=Math.random()<.35&&n<11?2:1; for(let j=0;j<add&&n<12;j++){ slots[n].className="in"; slots[n].textContent=ROSTER[n-1]; n++; }
     $("fN").textContent=n; $("dIn").textContent=n+" / 12"; sfx("tick",.5);
     if(n>=12){ clearInterval(fillIv); $("fSub").textContent="LOBBY FULL"; sfx("lock"); buzz([20,40,20]); setTimeout(showDrop,900); } },300);
 }
@@ -1234,11 +1288,11 @@ const PODC={1:"242,193,78",2:"215,217,228",3:"227,154,92"};
 const RAR2={common:"#A7AFBE",uncommon:"#5FF0A0",rare:"#4F8BFF",epic:"#A066FF",legendary:"#FF9A3C",mythic:"#F3DFA8"};
 const TAGBASE="../tags/", FLOURISH="../flourish/win-flourish.webp";
 const cap=s=>String(s||"").replace(/-/g," ").toUpperCase();
-// what each pilot flew: hull + paint (the rival art in flight; you fly the chrome rocket), the flame, a name tag.
+// what each pilot flew: hull + paint (a Hangar skin in flight; you fly the chrome rocket), the flame, a name tag.
 // Bots get a name tag from the Hangar tag tiers (PR 421 art); you get yours once Royale reads your Hangar look.
 function lookOf(pl){ if(pl.look) return pl.look;
   let hull="CHROME ROCKET", paint="STOCK", hr="common";
-  if(pl.hull){ const [h,pt]=pl.hull.k.replace(/^hull-/,"").split("--"); hull=cap(h); paint=cap(pt); hr="rare"; }
+  if(pl.hull){ hull=pl.hull.hn.toUpperCase(); paint=pl.hull.pn.toUpperCase(); hr=pl.hull.rar; }
   let tag=null; if(!pl.me){ const r=Math.random(); tag=r<.08?"tag-prestige-"+(1+Math.floor(Math.random()*9)):r<.2?"tag-mythic":r<.38?"tag-legendary":r<.6?"tag-epic":r<.8?"tag-rare":"tag-uncommon"; }
   const tr=tag?(/prestige/.test(tag)?"mythic":tag.slice(4)):null;
   return pl.look={hull,paint,hr,trail:pl.me?"GOLD FLAME":"PINK FLAME",tc:pl.me?"#F2C14E":"#FF8FBD",tag,tagN:tag?(/prestige/.test(tag)?"PRESTIGE "+tag.slice(-1):cap(tr)):"STANDARD",tagC:tr?RAR2[tr]:"#2E323A"}; }
@@ -1270,16 +1324,28 @@ function podDraw(now){ podRaf=requestAnimationFrame(podDraw);
     const dpr=Math.min(2,devicePixelRatio||1), w=cv.clientWidth, h=cv.clientHeight; if(!w||!h) return;
     if(cv.width!==Math.round(w*dpr)){ cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr); }
     const c=cv.getContext("2d"); c.setTransform(dpr,0,0,dpr,0,0); c.clearRect(0,0,w,h);
-    const rh=h*.66, bob=reduce?0:Math.sin(now/600+i*1.7)*3, cy=h*.42+bob, pc=PODC[p.place]||PODC[2];
-    // the match's sky, drawn in the canvas (so the additive flourish has something to light up), fading into the card
+    const rh=h*.8, bob=reduce?0:Math.sin(now/600+i*1.7)*3, cy=h*.46+bob, pc=PODC[p.place]||PODC[2], rc=p.hull?RAR2[p.hull.rar]:"#E8EAEE";
+    // the match's sky, drawn in the canvas (so the additive flourish has something to light up), darkened so the hull pops
     const sk=imgs[MAP.k]; if(sk&&sk.complete&&sk.naturalWidth){ const k=Math.max(w/sk.naturalWidth,h/sk.naturalHeight); c.drawImage(sk,(w-sk.naturalWidth*k)/2,(h-sk.naturalHeight*k)*.4,sk.naturalWidth*k,sk.naturalHeight*k); }
     else { c.fillStyle="#1d1f2e"; c.fillRect(0,0,w,h); }
-    const fade=c.createLinearGradient(0,0,0,h); fade.addColorStop(0,"rgba(7,8,12,.1)"); fade.addColorStop(.6,"rgba(7,8,12,.25)"); fade.addColorStop(1,"rgba(21,22,27,.95)"); c.fillStyle=fade; c.fillRect(0,0,w,h);
-    // pedestal glow in the place colour
-    const g=c.createRadialGradient(w/2,h*.93,4,w/2,h*.93,w*.42); g.addColorStop(0,`rgba(${pc},.55)`); g.addColorStop(1,`rgba(${pc},0)`); c.fillStyle=g; c.beginPath(); c.ellipse(w/2,h*.93,w*.42,h*.12,0,0,7); c.fill();
-    c.save(); c.translate(w/2,cy); drawShip(c,p.hull,imgs.rocket,rh,1.05+(reduce?0:Math.sin(now/45+i)*.08),p.me?"255,200,80":"255,95,170",0); c.restore();
+    const fade=c.createLinearGradient(0,0,0,h); fade.addColorStop(0,"rgba(7,8,12,.35)"); fade.addColorStop(.55,"rgba(7,8,12,.45)"); fade.addColorStop(1,"rgba(21,22,27,.97)"); c.fillStyle=fade; c.fillRect(0,0,w,h);
+    // a soft spotlight from above in the place colour, and the pedestal it lands on
+    const sp=c.createRadialGradient(w/2,cy,rh*.1,w/2,cy,rh*.75); sp.addColorStop(0,`rgba(${pc},.22)`); sp.addColorStop(1,`rgba(${pc},0)`); c.fillStyle=sp; c.fillRect(0,0,w,h);
+    const py=cy+rh*.5+6, g=c.createRadialGradient(w/2,py,4,w/2,py,w*.4); g.addColorStop(0,`rgba(${pc},.5)`); g.addColorStop(1,`rgba(${pc},0)`); c.fillStyle=g; c.beginPath(); c.ellipse(w/2,py,w*.4,h*.09,0,0,7); c.fill();
+    c.strokeStyle=`rgba(${pc},.55)`; c.lineWidth=1.5; c.beginPath(); c.ellipse(w/2,py,w*.22,h*.035,0,0,7); c.stroke();
+    c.save(); c.translate(w/2,cy); podShip(c,p,rh,1+(reduce?0:Math.sin(now/45+i)*.06),rc); c.restore();
     // the winner's flourish (PR 421 art: 8-frame starburst, black = clear), played on open and then every few seconds
     if(p.place===1&&!reduce&&flImg.complete&&flImg.naturalWidth){ const ft=((now-podT0)%3200)/75; if(ft<8){ const fw=flImg.naturalWidth/8, s2=rh*1.7; c.globalCompositeOperation="lighter"; c.drawImage(flImg,Math.floor(ft)*fw,0,fw,flImg.naturalHeight,w/2-s2/2,cy-s2/2,s2,s2); c.globalCompositeOperation="source-over"; } } }); }
+// the podium rocket: full colour (no additive wash over the paint), a short flame tucked under the nozzles, a rim of
+// the skin's rarity colour so the hull reads against the sky
+function podShip(c,p,h,fl,rc){ const hull=p.hull, im=hull&&hull.img.complete&&hull.img.naturalWidth?hull.img:imgs.rocket;
+  const w=im===imgs.rocket?h*221/609:h*hull.a, nz=im===imgs.rocket?[[.5,.97,1]]:hull.nz, col=p.me?"255,200,80":"255,95,170";
+  c.globalCompositeOperation="lighter";
+  for(const [nx,ny,ns] of nz){ const x0=(nx-.5)*w, fy=(ny-.5)*h, k=ns*h/240; const g=c.createRadialGradient(x0,fy,1,x0,fy+22*fl*k,46*fl*k);
+    g.addColorStop(0,"rgba(255,250,235,.95)"); g.addColorStop(.3,`rgba(${col},.7)`); g.addColorStop(1,`rgba(${col},0)`); c.fillStyle=g; c.beginPath(); c.ellipse(x0,fy+24*fl*k,(9*fl+3)*k,(34*fl+6)*k,0,0,7); c.fill(); }
+  c.globalCompositeOperation="source-over";
+  if(im&&im.complete&&im.naturalWidth){ c.save(); c.shadowColor=rc; c.shadowBlur=h*.07; c.globalAlpha=.55; c.drawImage(im,-w/2,-h/2,w,h); c.restore();
+    c.save(); c.shadowColor="rgba(0,0,0,.6)"; c.shadowBlur=h*.05; c.shadowOffsetY=h*.02; c.drawImage(im,-w/2,-h/2,w,h); c.restore(); } }
 function showPodium(){ if(!G||!$("podium").hidden) return;
   const ps=podTop(); podPs=ps; const champ=ps[0], me=G.me;
   $("result").hidden=true;
@@ -1295,13 +1361,34 @@ function showPodium(){ if(!G||!$("podium").hidden) return;
   toParent({type:"disciple:music",on:false}); bed(null);
   if(!champ.me) sfx("champ",.55);
   victoryMusic(true,2600);   // after the 3-4 s champion sting has hit
+  nextStart();
 }
+/* ---------- next game: a countdown from the podium back into the same lobby ---------- */
+const NEXT_S=15; let NX=null;
+function nextClear(){ if(NX) clearInterval(NX.iv); NX=null; }
+function nextArg(){ return NX?{stay:NX.bots.filter(b=>!b.gone).map(b=>b.name),left:NX.bots.filter(b=>b.gone).map(b=>b.name)}:{stay:roster().slice(),left:[]}; }
+function nextLine(){ if(!NX) return; const st=NX.bots.filter(b=>!b.gone).length, last=NX.ev[NX.ev.length-1];
+  $("podNS").innerHTML=(last?(last.in?`<i>${esc(last.name)} joined</i> · `:`<b>${esc(last.name)} left</b> · `):"")+`${st} of 11 pilots staying`; }
+function nextStart(){ nextClear(); const bots=G.pilots.filter(p=>!p.me).map(p=>({name:p.name,gone:false,at:Math.random()<.28?rnd(2,NEXT_S-2):null}));
+  NX={t:NEXT_S,bots,ev:[],on:true,acc:0}; ROSTER=bots.map(b=>b.name);
+  $("podNext").classList.remove("off"); $("podStop").hidden=false; $("podNN").textContent=NEXT_S; $("podNB").style.width="100%"; $("podAgain").textContent="PLAY NOW";
+  $("podNT").innerHTML=`NEXT ROYALE IN <em id="podNN">${NEXT_S}</em>`; $("podNS").textContent="Same lobby. Pilots can leave and new ones join.";
+  NX.iv=setInterval(()=>{ if(!NX||!NX.on||document.hidden) return; NX.t-=.25; const el=NEXT_S-NX.t;
+    for(const b of NX.bots) if(!b.gone&&b.at!=null&&el>=b.at){ b.gone=true; NX.ev.push({name:b.name}); sfx("tick",.35); nextLine(); }
+    $("podNB").style.width=Math.max(0,NX.t/NEXT_S*100)+"%"; const n=$("podNN"); if(n) n.textContent=Math.max(0,Math.ceil(NX.t));
+    if(NX.t<=3&&NX.t>2.75) sfx("tick",.6);
+    if(NX.t<=0){ const a=nextArg(); nextClear(); $("podium").hidden=true; podStop(); fillLobby(a); } },250); }
+function nextStop(){ if(!NX) return; NX.on=false; clearInterval(NX.iv); $("podNext").classList.add("off"); $("podStop").hidden=true;
+  $("podNT").textContent="NEXT ROYALE ON HOLD"; $("podAgain").textContent="PLAY AGAIN";
+  const st=NX.bots.filter(b=>!b.gone).length; $("podNS").textContent=`${st} of 11 pilots still in your lobby. Play again when you're ready.`; }
+$("podStop").addEventListener("click",nextStop);
+$("podLeave").addEventListener("click",()=>{ nextClear(); ROSTER=null; showIntro(); });
 $("podRow").addEventListener("scroll",()=>{ const r=$("podRow"), cs=[...r.children]; if(!cs.length) return; const mid=r.scrollLeft+r.clientWidth/2;
   let best=cs[0]; for(const c of cs) if(Math.abs(c.offsetLeft+c.offsetWidth/2-mid)<Math.abs(best.offsetLeft+best.offsetWidth/2-mid)) best=c;
   $("podDots").querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.pl===best.dataset.pl)); },{passive:true});
 $("podDots").addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b) return; const c=$("podRow").querySelector(`.pk[data-pl="${b.dataset.pl}"]`); if(c) c.scrollIntoView({behavior:reduce?"auto":"smooth",inline:"center",block:"nearest"}); });
-$("podAgain").addEventListener("click",()=>{ $("podium").hidden=true; podStop(); fillLobby(); });
-$("podShare").addEventListener("click",()=>$("rShare").click());
+$("podAgain").addEventListener("click",()=>{ const a=nextArg(); nextClear(); $("podium").hidden=true; podStop(); fillLobby(a); });
+$("podShare").addEventListener("click",()=>{ nextStop(); $("rShare").click(); });
 
 $("iGo").addEventListener("click",()=>fillLobby());
 $("iBots").addEventListener("click",()=>{ ensureAudio(); clearInterval(fillIv); showDrop(); });   // skip the lobby: straight to the drop pick with 11 bots
@@ -1749,9 +1836,7 @@ function drawSky(dt,now){
 
 /* ---------- sound ---------- */
 let ac=null, muted=false; try{muted=localStorage.getItem("royale.mute")==="1";}catch(e){}
-// the engine hum plays in the iPhone app only (maker, 2026-11-16); its web view adds "DiscipleApp/" to the user agent
-const APP_FEEL=/DiscipleApp\//.test(navigator.userAgent)||!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
-function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx(); if(APP_FEEL) loadLoop("engine_loop");}catch(e){} } bedSync(); if(ac&&ac.state==="suspended") ac.resume(); }
+function ensureAudio(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)(); preloadSfx(); loadLoop("engine_loop");}catch(e){} } bedSync(); if(ac&&ac.state==="suspended") ac.resume(); }
 // recorded CC0 sounds (PR 404, web/public/audio/sfx). Each event picks one take at random; no synth beeps.
 const SFX_BASE=A.sfxBase||"../../audio/sfx/", AMB_BASE=A.ambBase||"../../audio/amb/", BUF={};
 const SND={trick:["trick_whoosh"],boost:["boost_small_01","boost_small_02","boost_small_03"],boostBig:["boost_big_01","boost_big_02"],dump:["bomb_fall_01","bomb_fall_02"],
@@ -1794,7 +1879,7 @@ function oneShotAmb(n,vol){ if(!ac||muted||sfxLvl<=0) return; fetch(AMB_BASE+n+"
 // engine hum: a gapless loop under everything while you fly, louder and higher while the flame is lit
 let hum=null, humV=-1, humR=-1;
 function loadLoop(n){ const key="loop:"+n; if(!ac||key in BUF) return; BUF[key]=null; fetch(SFX_BASE+"loops-wav/"+n+".wav").then(r=>r.arrayBuffer()).then(a=>new Promise((ok,no)=>ac.decodeAudioData(a,ok,no))).then(b=>{BUF[key]=b;}).catch(()=>{BUF[key]=false;}); }
-function humTick(on,boost){ if(!ac) return; if(!APP_FEEL) on=false;
+function humTick(on,boost){ if(!ac) return;
   if(!on||muted||sfxLvl<=0){ if(hum){ const h=hum; hum=null; try{ h.g.gain.setTargetAtTime(0,ac.currentTime,.12); setTimeout(()=>{ try{h.s.stop();}catch(e){} },700); }catch(e){} } return; }
   const b=BUF["loop:engine_loop"]; if(!b){ loadLoop("engine_loop"); return; }
   if(!hum){ try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; src.loop=true; g.gain.value=0; src.connect(g); g.connect(outBus()); src.start(); hum={s:src,g}; humV=humR=-1; }catch(e){ return; } }

@@ -10,6 +10,7 @@
 
 /* ---------------------------------------------------------------- the pad stage (the lobby pad scene, HeroPad layout="launch") */
 .stage { position: relative; height: 100%; min-height: 0; border-radius: 24px; overflow: hidden; border: 1px solid rgba(243, 223, 168, .28); background: #04050A; isolation: isolate;
+  container: lpstage / inline-size;
   --hero-h: var(--lp-h); --pad-k: 1.25; --seat-y-k: .8; }
 .padScene { position: absolute; inset: 0; container-type: inline-size; overflow: hidden; }
 .grain { position: absolute; inset: 0; z-index: 3; pointer-events: none; background-size: 256px 256px; opacity: .2; mix-blend-mode: overlay; }
@@ -222,6 +223,16 @@
 .moDone { width: auto; min-width: 200px; min-height: 50px; padding: 0 28px; font-size: 22px; }
 @keyframes moIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes moUp { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* a narrow stage (the left column on most laptops, tablets, phones): the full chip with its name would sit over the
+   rocket, so it folds to the two small square buttons (shuffle, and the rocket that opens the tray) clear of the hull */
+@container lpstage (max-width: 980px) {
+  .lookChip { padding: 5px; gap: 0; }
+  .lookChipArt { width: 40px; height: 50px; } .lookChipArt img { height: 44px; }
+  .lookChipTx { display: none; }
+  .lookShuffle { width: 40px; }
+  .lookChipGo { display: none; }
+}
 
 /* short laptop screens: tighten the rhythm so Light the engines stays on screen */
 @media (min-width: 1101px) and (max-height: 780px) {
