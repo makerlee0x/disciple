@@ -368,7 +368,7 @@ function mount(root,host){
     // the window starts where the price data does (after any long gap in the feed), so a short history fills the card
     // instead of hugging the right edge; it grows to the last 60 s once there's that much
     // phones see the last 30 s so each tick and the live price are easier to read; wider screens keep 60 s
-    const WIN=w<600?30000:60000;
+    const WIN=w<600?20000:30000;   // tighter tape so each move reads big (maker 2026-11-17: "feel like moves are happening")
     const now=G.t; let T0=G.ticks.findIndex(k=>k.t>=now-WIN); if(T0<0) T0=G.ticks.length-1; T0=Math.max(0,T0);
     for(let i=G.ticks.length-1;i>T0;i--) if(G.ticks[i].t-G.ticks[i-1].t>10000){ T0=i; break; }
     const from=Math.max(now-WIN,Math.min(G.ticks[T0].t,now-Math.min(20000,WIN))), span=now-from;
@@ -380,10 +380,10 @@ function mount(root,host){
     // the scale fits the last 20 s (12 s on phones), not the whole tape, so a $5 move fills the card (maker 2026-11-17:
     // "the price was barely moving ... just going sideways"); it eases in and out instead of jumping, never tighter than
     // ~0.008% of the price (about $5 on BTC), and older ticks or far entry lines run off the card's edge
-    const RW=w<600?12000:20000; let rlo=G.price,rhi=G.price;
+    const RW=w<600?6000:10000; let rlo=G.price,rhi=G.price;
     for(let i=G.ticks.length-1;i>=0&&G.ticks[i].t>=now-RW;i--){ const p=G.ticks[i].p; if(p<rlo) rlo=p; if(p>rhi) rhi=p; }
-    const tgt=Math.max((Math.max(G.price-rlo,rhi-G.price))*1.3,G.price*.00003,.5);   // floor ~$3 on BTC (was ~$8: felt flat, maker 2026-11-17)
-    G.yh=!G.yh?tgt:G.yh+(tgt-G.yh)*(tgt>G.yh?.5:.06); lo=G.price-G.yh; hi=G.price+G.yh;
+    const tgt=Math.max((Math.max(G.price-rlo,rhi-G.price))*1.3,G.price*.00002,.5);   // floor ~$3 on BTC (was ~$8: felt flat, maker 2026-11-17)
+    G.yh=!G.yh?tgt:G.yh+(tgt-G.yh)*(tgt>G.yh?.5:.15); lo=G.price-G.yh; hi=G.price+G.yh;
     const L=8,Rr=w<600?62:66,T=24,B=8, XM=Math.round(w*.5), X=t=>L+Math.max(0,(t-from))/span*(XM-L), Y=p=>T+(1-(p-lo)/(hi-lo))*(h-T-B);
     const x0=Math.max(L,Math.min(w-Rr,X(0))), pre=G.started&&x0>L+1;   // the match tape starts at GO; anything before it is grey
     const first=G.started?priceAt(0):pts[0].p, lastp=G.price, up=lastp>=first, col=up?"95,240,160":"240,48,127";
