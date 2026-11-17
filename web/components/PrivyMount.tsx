@@ -23,7 +23,7 @@ import { ACTIVE_CHAIN } from "@/lib/chains";
 import { PRIVY_APP_ID, aaSession, registerPrivy, type PrivyAccountInfo, type PrivySecurity } from "@/lib/aa/session";
 import { connectPrivyOwner, disconnect } from "@/lib/wallet";
 import { withPrivyTxType } from "@/lib/aa/privyTx";
-import { syncLocalIdentity } from "@/lib/profile";
+import { linkXpAccount, syncLocalIdentity } from "@/lib/profile";
 import { failPendingXLink, finishPendingXLink } from "@/lib/xLinkClient";
 import { withBase } from "@/lib/base-path";
 import { SIGN_IN_COPY, SIGN_IN_FAILED_EVENT } from "@/lib/walletCta";
@@ -94,13 +94,22 @@ function PrivyBridge() {
     if (embedded.length > 1) console.warn("[disciple] several embedded wallets on this login; using the original", { owner: want });
     if (!w || linked.current === w.address.toLowerCase()) return;
     linked.current = w.address.toLowerCase();
-    toViemAccount({ wallet: w })
+    // one wallet per person (lib/server/xpAccount): an email that already signed in another way goes back to that way
+    linkXpAccount(w.address)
+      .then((d) => {
+        if (!d.duplicate) return;
+        linked.current = null;
+        void logout().catch(() => undefined);
+        dispatchEvent(new CustomEvent(SIGN_IN_FAILED_EVENT, { detail: { message: d.reason || `This email already has a DISCIPLE wallet. Sign in with ${d.duplicate}.` } }));
+        throw Object.assign(new Error("duplicate login"), { duplicate: true });
+      })
+      .then(() => toViemAccount({ wallet: w }))
       // Privy's wallet RPC needs the numeric tx type (2), not viem's "eip1559" (lib/aa/privyTx)
       .then((owner) => connectPrivyOwner(withPrivyTxType(owner)))
       // the cached @name belongs to the account that claimed it: a different sign-in must not keep showing it
       .then((acct) => { void syncLocalIdentity(acct).catch(() => undefined); })
-      .catch((e) => { linked.current = null; console.warn("[privy] owner setup failed", (e as Error).message); dispatchEvent(new Event(SIGN_IN_FAILED_EVENT)); });
-  }, [ready, walletsReady, authenticated, wallets, user, linkedAccounts, createWallet]);
+      .catch((e) => { if ((e as { duplicate?: boolean }).duplicate) return; linked.current = null; console.warn("[privy] owner setup failed", (e as Error).message); dispatchEvent(new Event(SIGN_IN_FAILED_EVENT)); });
+  }, [ready, walletsReady, authenticated, wallets, user, linkedAccounts, createWallet, logout]);
   return null;
 }
 

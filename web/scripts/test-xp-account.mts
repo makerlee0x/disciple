@@ -79,3 +79,22 @@ test("unrelated players never merge", async () => {
   assert.deepEqual(await accountWallets(a, s), [a]);
   assert.deepEqual(await accountWallets(b, s), [b]);
 });
+
+test("one wallet per person: a later login with the same email is sent back to the first method", async () => {
+  const { kv } = await import("../lib/server/kv");
+  const { duplicateLogin } = await import("../lib/server/xpAccount");
+  const { userFromLinkedAccounts } = await import("../lib/server/privyAuth");
+  const s = kv(), email = `one${Date.now()}@gmail.com`, owns = async () => true;
+  const first = userFromLinkedAccounts(did(), [{ type: "email", address: email, first_verified_at: 1_763_000_000 }, { type: "wallet", chain_type: "ethereum", address: rnd() }])!;
+  assert.deepEqual(first.emailLogins, [{ email, method: "email", at: 1_763_000_000_000 }]);
+  const google = userFromLinkedAccounts(did(), [{ type: "google_oauth", email: email.toUpperCase(), first_verified_at: 1_763_100_000 }])!;
+  assert.equal(await duplicateLogin(first, owns, s), null);
+  assert.equal(await duplicateLogin(first, owns, s), null, "the first login keeps working");
+  assert.equal(await duplicateLogin(google, owns, s), "email");
+  // the first account was deleted / its email moved (Privy login method transfer): the other login takes over
+  assert.equal(await duplicateLogin(google, async () => false, s), null);
+  assert.equal(await duplicateLogin(first, owns, s), null, "older login wins back");
+  assert.equal(await duplicateLogin(google, owns, s), "email");
+  // no email (X-only login): never blocked
+  assert.equal(await duplicateLogin(userFromLinkedAccounts(did(), [{ type: "twitter_oauth", subject: "1", username: "x" }])!, owns, s), null);
+});

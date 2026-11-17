@@ -192,8 +192,9 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
   const [authed, setAuthed] = useState(false);
   useEffect(() => { const f = () => setAuthed(privyAuthenticated()); f(); return onPrivy(f); }, []);
   const settingUp = authed && !addr && SIGNER_MODE !== "local";
-  const [signFail, setSignFail] = useState(false);
-  useEffect(() => { const f = () => setSignFail(true); addEventListener(SIGN_IN_FAILED_EVENT, f); return () => removeEventListener(SIGN_IN_FAILED_EVENT, f); }, []);
+  const [signFail, setSignFail] = useState<false | string>(false);
+  // detail.message: a specific blocker (an email that already signed in another way); else the generic retry line
+  useEffect(() => { const f = (e: Event) => setSignFail((e as CustomEvent<{ message?: string } | null>).detail?.message || SIGN_IN_COPY.failed); addEventListener(SIGN_IN_FAILED_EVENT, f); return () => removeEventListener(SIGN_IN_FAILED_EVENT, f); }, []);
   useEffect(() => { if (addr) setSignFail(false); }, [addr]);
   /** Sign in goes straight to the Privy window (the old "Email or Google" box only stays for dev wallet options). */
   const signIn = () => {
@@ -357,7 +358,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
         {!addr && signFail && (
           <div className="r2-note err wb-fail" role="alert" data-testid="signin-failed">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.5" /></svg>
-            <span>{SIGN_IN_COPY.failed} <button type="button" className="wb-retry" onClick={signIn}>{SIGN_IN_COPY.retry}</button></span>
+            <span>{signFail} <button type="button" className="wb-retry" onClick={signIn}>{SIGN_IN_COPY.retry}</button></span>
           </div>
         )}
       </div>

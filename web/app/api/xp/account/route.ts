@@ -3,14 +3,16 @@ export const runtime = "nodejs";
  * Join the signed-in player's wallets into one XP account (lib/server/xpAccount): XP, level, trophies and parts then read
  * the same on every device, whichever login method (email, Google, Apple) each one used.
  * POST { address } with `Authorization: Bearer <Privy access token>` (or a `privy-id-token` header, verified locally)
- * → { ok: true, wallets: number, joined: number } | { ok: false, reason }
+ * → { ok: true, wallets: number, joined: number } | { ok: false, reason, duplicate?: "Email" | "Google" | "Apple" }
+ * duplicate: this email already belongs to an earlier login (lib/server/xpAccount duplicateLogin): one wallet per person,
+ * so the client signs out and asks for that method instead. Nothing is linked.
  * The address must be one of the Privy user's wallets. Called once per sign-in by lib/xpClient linkXpAccount.
  */
 import { NextResponse } from "next/server";
 import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
-import { authenticate, bearer, privyEnv, verificationKeys, verifyIdentityToken, type PrivyUser } from "@/lib/server/privyAuth";
-import { linkAccount } from "@/lib/server/xpAccount";
+import { authenticate, bearer, fetchPrivyUser, privyEnv, verificationKeys, verifyIdentityToken, type PrivyUser } from "@/lib/server/privyAuth";
+import { duplicateLogin, linkAccount, LOGIN_LABEL } from "@/lib/server/xpAccount";
 
 export const dynamic = "force-dynamic";
 const isAddr = (a: string) => /^0x[0-9a-f]{40}$/.test(a);
@@ -37,6 +39,10 @@ export async function POST(req: Request) {
   const user = await signedInUser(req);
   if (!user) return out(401, { ok: false, reason: "Sign in first." });
   if (!user.wallets.includes(addr)) return out(403, { ok: false, reason: "Sign in with the account that owns this wallet." });
+  const pe = privyEnv();
+  // fail open: a Privy lookup that fails counts as "gone" so nobody is locked out by an outage
+  const dup = await duplicateLogin(user, async (did, email) => !!(await fetchPrivyUser(did, pe, undefined, undefined, true))?.emails.includes(email)).catch(() => null);
+  if (dup) return out(409, { ok: false, duplicate: LOGIN_LABEL[dup], reason: `This email already has a DISCIPLE wallet. Sign in with ${LOGIN_LABEL[dup]}.` });
   const r = await linkAccount(user);
   if (!r.ok) return out(409, r);
   if (r.joined.length) console.info("[xp account] linked", { account: r.account, joined: r.joined.length, wallets: r.wallets.length });
