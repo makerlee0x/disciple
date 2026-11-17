@@ -38,21 +38,22 @@ contract WhitelistRoutesForkTest is Test {
     address internal constant SCHIFFY = 0x42aFA2124ca5a2B83898E46B2dA9a190995b1E18;
     address internal constant BONER = 0x98096d17e191B3dA1d5f99a6D7b3584351b11E18;
     address internal constant MEME = 0x385F4f8ae47651ce5F58F5265395a669f8281e18;
-    address internal constant MOO = 0xD9dB30BB0D2b8d2eae3826A1372117E058791e18;
     address internal constant PONS = 0x39dBED3a2bd333467115dE45665cC57F813C4571;
     address internal constant ORBIO = 0xAa07A0e9209e16aC99708C3EC70159c6eF3128A3;
     address internal constant HOOKR = 0x18E674231A58c239Dc7DaeDcffE15Ec3A24cff5c;
     address internal constant CASHCAT = 0x020bfC650A365f8BB26819deAAbF3E21291018b4;
     address internal constant PRIORS = 0xeDBf91223639800BCd5756815CAf908Df3b890bE;
-    address internal constant SPACEHOOD = 0xFe7E19CbCe2f896C6C528BC355bAF5a768291E18;
+    address internal constant PENGU = 0x74BE72AFFAFbC8de30F0C11247814036314D625f;
+    address internal constant HMM = 0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f;
+    /// @dev Native ETH (v4 currency 0) and the deepest UNHOOKED ETH/USDG pool (0.05%, id 0x387bf619…, ~$5.1M per side,
+    ///      read 2026-11-16 at block ~116.26M). Deeper ETH/USDG pools exist but are hooked and not vetted.
+    address internal constant ETH = address(0);
 
     address internal constant MSTR = 0xec262a75e413fAfD0dF80480274532C79D42da09;
     address internal constant NVDA = 0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC;
     address internal constant GLD = 0xC9a981FEE1F9DEc688bb123ccDeCc63D0deBFC4e;
     address internal constant HIMS = 0xCceE82fE024c36fA15E1005edE3E9e4787e23D09;
     address internal constant AMC = 0x05a3d1Cd21d0C88145E82600E62e7E496e0F222B;
-    address internal constant MU = 0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD;
-    address internal constant SPCX = 0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa;
 
     uint256 internal constant USDG_IN = 100 * 1e6;
     uint256 internal constant FLOOR = 10_000e18;
@@ -100,6 +101,8 @@ contract WhitelistRoutesForkTest is Test {
         keys[1] = b;
     }
 
+    bytes32 internal constant ETH_USDG_ID = 0x387bf619da4d3fb62bb276482693dba1b9b3520f573cabdfe033384a24125982;
+
     function _routeOf(address quote) internal pure returns (PoolKey[] memory keys, address mid, bytes32 id0, bytes32 id1) {
         uint24 dyn = LPFeeLibrary.DYNAMIC_FEE_FLAG;
         if (quote == STRATEGY) {
@@ -127,16 +130,15 @@ contract WhitelistRoutesForkTest is Test {
             mid = AMC;
             id0 = 0x7499938c352d5b5b8f0c648722aca5ee964ef9b85c3a3041f1ec379726291d9d;
             id1 = 0x27ccf0a6d1ee74840220715bcca7d3b01e0d33aa30d0259b47ae1585b3f4c071;
-        } else if (quote == MOO) {
-            keys = _two(_pk(USDG, MU, 10_000, 200, address(0)), _pk(MOO, MU, dyn, 8, LONG_HOOK));
-            mid = MU;
-            id0 = 0x6fa3ee0048e78bf0a513eb0ab56f482944a767c21db990fcf555605e69f05659;
-            id1 = 0xc3cc877a8a7d28efdb5dbec9ae71724652431e6411aa1a9fc8928028da554aa1;
-        } else if (quote == SPACEHOOD) {
-            keys = _two(_pk(SPCX, USDG, dyn, 60, SESSION_FEE_HOOK), _pk(SPCX, SPACEHOOD, dyn, 8, LONG_HOOK));
-            mid = SPCX;
-            id0 = 0x1f5bf0b4df6d26da68a30535727acaf41634443b6421bcecd8ac1d455b2f91d6;
-            id1 = 0x225cc98f7d66b29fef96377becc7bf89582e2ab7b923a09aee9719fd80eb94ca;
+        } else if (quote == PENGU) {
+            keys = _two(_pk(ETH, USDG, 500, 10, address(0)), _pk(ETH, PENGU, 10_000, 100, address(0)));
+            id0 = ETH_USDG_ID;
+            id1 = 0x38cbd4b134c801b6d534600ccf5c59ff06e5e5058f108ddef85aa66c15ffb086;
+        } else if (quote == HMM) {
+            // ETH leg (1.01%) ~= depth of the 3.43% single USDG/HMM pool 0xbe59bf5d… at a third of the fee
+            keys = _two(_pk(ETH, USDG, 500, 10, address(0)), _pk(ETH, HMM, 10_142, 202, address(0)));
+            id0 = ETH_USDG_ID;
+            id1 = 0xd5c1dd19513b6327159661532e10dab56c3127ac283c473ea5e6f5e4707fb982;
         } else if (quote == PONS) {
             keys = _one(_pk(PONS, USDG, dyn, 60, PONS_USDG_HOOK));
             id0 = 0x486435a1f76cd58193f854c6e6213cd05fd58d637865d02065ff558b387fa6ea;
@@ -144,8 +146,10 @@ contract WhitelistRoutesForkTest is Test {
             keys = _one(_pk(USDG, ORBIO, 8000, 80, address(0)));
             id0 = 0xea9f200e13055b82f175f44f592c4c13dd8c9d9320a66487d3c5cd90d68550ef;
         } else if (quote == HOOKR) {
-            keys = _one(_pk(HOOKR, USDG, 10_000, 100, address(0)));
-            id0 = 0x0b362d89fcae933d150e735d28c70e13469a4e14d3b3a36ac05eb5a1a77f2474;
+            // HOOKR/ETH 0.25% (~$366k per side) is ~10x the old 1% USDG pool 0x0b362d89…
+            keys = _two(_pk(ETH, USDG, 500, 10, address(0)), _pk(ETH, HOOKR, 2500, 25, address(0)));
+            id0 = ETH_USDG_ID;
+            id1 = 0x590dcb6a87828bf688b48089a62239b693378f1fb64d2286e6a399ed8c005fdf;
         } else if (quote == CASHCAT) {
             keys = _one(_pk(CASHCAT, USDG, 2690, 54, address(0)));
             id0 = 0xa92a3df27a00a276183ff7265fd8affa11df1fe8bb23ddfaf13f6c879a3f818b;
@@ -269,6 +273,10 @@ contract WhitelistRoutesForkTest is Test {
                 _fail(sym, "router dust after buy");
                 return;
             }
+            if (address(router).balance != 0) {
+                _fail(sym, "ETH dust after buy");
+                return;
+            }
             if (mid != address(0) && IERC20(mid).balanceOf(address(router)) != 0) {
                 _fail(sym, "mid dust after buy");
                 return;
@@ -298,13 +306,13 @@ contract WhitelistRoutesForkTest is Test {
         _checkCoin("SCHIFFY", SCHIFFY);
         _checkCoin("BONER", BONER);
         _checkCoin("MEME", MEME);
-        _checkCoin("MOO", MOO);
         _checkCoin("PONS", PONS);
         _checkCoin("ORBIO", ORBIO);
         _checkCoin("HOOKR", HOOKR);
         _checkCoin("CASHCAT", CASHCAT);
         _checkCoin("PRIORS", PRIORS);
-        _checkCoin("SPACEHOOD", SPACEHOOD);
+        _checkCoin("PENGU", PENGU);
+        _checkCoin("HMM", HMM);
         console2.log("failure count", failures);
         assertEq(failures, 0, "one or more whitelist routes failed the floor, probe, or $100 buy; see logs, routes were not silently changed");
     }
