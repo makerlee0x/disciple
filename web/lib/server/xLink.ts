@@ -96,11 +96,11 @@ export async function finishLink(state: string, code: string, origin: string, f:
       body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirectUri(origin), code_verifier: st.verifier }).toString(),
       cache: "no-store",
     });
-    if (!tok.ok) return { ok: false, reason: "error", returnTo };
+    if (!tok.ok) { console.warn("[x] token exchange failed", tok.status, (await tok.text().catch(() => "")).slice(0, 300)); return { ok: false, reason: "error", returnTo }; }
     const { access_token } = (await tok.json()) as { access_token?: string };
     if (!access_token) return { ok: false, reason: "error", returnTo };
     const me = await f(ME_URL, { headers: { authorization: `Bearer ${access_token}` }, cache: "no-store" });
-    if (!me.ok) return { ok: false, reason: "error", returnTo };
+    if (!me.ok) { console.warn("[x] users/me failed", me.status, (await me.text().catch(() => "")).slice(0, 300)); return { ok: false, reason: "error", returnTo }; }
     const { data } = (await me.json()) as { data?: { id?: string; username?: string } };
     if (!data?.id || !/^\d{1,25}$/.test(data.id) || !isXUsername(data.username)) return { ok: false, reason: "error", returnTo };
 
