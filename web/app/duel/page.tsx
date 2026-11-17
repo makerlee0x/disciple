@@ -41,10 +41,10 @@ export default function DuelOnlyPage() {
   if (!go) return null;
   return (
     <>
-      <DuelScreen guest />
+      <DuelScreen guest embed={embed} />
       {out && (
         <a href={out} target="_blank" rel="noopener" data-testid="duel-embed-out"
-          style={{ position: "fixed", top: 8, right: 8, zIndex: 80, padding: "6px 10px", borderRadius: 10, background: "rgba(18,19,39,.85)", border: "1px solid rgba(243,223,168,.5)", color: "#F3DFA8", font: "700 13px/1 var(--dsc-font-game, sans-serif)", letterSpacing: ".5px", textTransform: "uppercase", textDecoration: "none" }}>
+          style={{ position: "fixed", top: 150, left: 12, zIndex: 80, padding: "6px 10px", borderRadius: 10, background: "rgba(18,19,39,.85)", border: "1px solid rgba(243,223,168,.5)", color: "#F3DFA8", font: "700 13px/1 var(--dsc-font-game, sans-serif)", letterSpacing: ".5px", textTransform: "uppercase", textDecoration: "none" }}>
           Play ranked ↗
         </a>
       )}

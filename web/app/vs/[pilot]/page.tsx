@@ -24,7 +24,7 @@ export async function generateMetadata(p: P): Promise<Metadata> {
   // X player card (maker 2026-11-16): X reads these tags from the server HTML, shows the square thumbnail with a play
   // button, and on play frames /duel?embed=1 (a "Tap to play" screen, then a bot duel). 480 x 480 is the size X shows most
   // reliably; CARD_V busts X's card cache when the player changes.
-  const CARD_V = 1;
+  const CARD_V = 2;
   const slug = c ? c.slug : "", ref = c && /^0x[0-9a-f]{40}$/.test(c.pid) ? `&ref=${c.pid}` : "";
   const player = `${SITE_ORIGIN}/duel?embed=1&v=${CARD_V}${slug ? `&vs=${encodeURIComponent(slug)}` : ""}${ref}`;
   const square = `${SITE_ORIGIN}/og/duel-square.jpg?v=${CARD_V}`;

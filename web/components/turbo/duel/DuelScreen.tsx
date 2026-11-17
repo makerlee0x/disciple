@@ -40,7 +40,7 @@ declare global { interface Window { DuelEngine?: { mount(root: HTMLElement, host
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
 /** extra plates for the random sky each duel (engine SKY_THEMES) */
 const EXTRA_SKIES = { skyEth: "/turbo/sky-eth.webp", skyBtc: "/turbo/sky-btc.webp", skyPad: "/home/pad/sky-1280.webp" };
-const ENGINE_SRC = "/turbo/duel/engine.js?v=39";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=40";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
@@ -51,7 +51,7 @@ function loadEngine(): Promise<void> {
 }
 
 /** `guest`: the duel-only demo page (/duel). No sign-in: a guest pilot from /api/duel/guest, bots and friend links only. */
-export default function DuelScreen({ guest = false }: { guest?: boolean } = {}) {
+export default function DuelScreen({ guest = false, embed = false }: { guest?: boolean; embed?: boolean } = {}) {
   const ref = useRef<HTMLDivElement>(null);
   useTurboMusic();
   useEffect(() => {
@@ -168,6 +168,7 @@ export default function DuelScreen({ guest = false }: { guest?: boolean } = {}) 
       assets: { ...Object.fromEntries(["rocket", ...SKIES].map((k) => [k, `/turbo/duel/${k}.webp`])), ...EXTRA_SKIES, art: "/art/modes/duel.webp" },
       history: () => hist.filter((h) => h.ts > Date.now() - 60_000),
       guest,
+      embed,
       signIn: () => { if (guest) { guestReady = false; void refreshMe(); return; } try { privyLogin(); } catch (e) { api?.error((e as Error).message); } },
       quickMatch: (tier: TierId, len: LengthMs) => { stopQueue(); queued = { tier, len }; void pollQueue(); },
       cancelSearch: () => { const q = stopQueue(); if (q) void duelApi.cancel(q.tier, q.len); },
