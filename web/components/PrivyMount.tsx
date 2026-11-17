@@ -2,7 +2,7 @@
 /**
  * Privy = auth + embedded EOA custody only. The embedded Ethereum wallet becomes the OWNER of the user's Alchemy
  * Modular Account v2 (lib/aa/session.ts). No Privy smart wallets, no Privy gas sponsorship, no Solana.
- * Sign-in: email, Google, X/Twitter (Apple in the app). No external-wallet sign-in since 2026-11-16 (Privy only); older
+ * Sign-in: email, Google, Apple, X/Twitter (no Google inside in-app browsers). No external-wallet sign-in since 2026-11-16 (Privy only); older
  * wallet-only logins still get one embedded wallet: every player has ONE embedded wallet, and that one owns the smart account, so one-tap
  * trading signs silently the same way for every login method. One wallet per user (lee, Oct 30): createOnLogin
  * "users-without-wallets" (was "all-users", #197) and the bridge creates an embedded wallet ONLY for a user who has none
@@ -23,7 +23,7 @@ import { ACTIVE_CHAIN } from "@/lib/chains";
 import { PRIVY_APP_ID, aaSession, registerPrivy, type PrivyAccountInfo, type PrivySecurity } from "@/lib/aa/session";
 import { connectPrivyOwner, disconnect } from "@/lib/wallet";
 import { withPrivyTxType } from "@/lib/aa/privyTx";
-import { syncLocalIdentity } from "@/lib/profile";
+import { linkXpAccount, syncLocalIdentity } from "@/lib/profile";
 import { failPendingXLink, finishPendingXLink } from "@/lib/xLinkClient";
 import { withBase } from "@/lib/base-path";
 import { SIGN_IN_COPY, SIGN_IN_FAILED_EVENT } from "@/lib/walletCta";
@@ -94,13 +94,22 @@ function PrivyBridge() {
     if (embedded.length > 1) console.warn("[disciple] several embedded wallets on this login; using the original", { owner: want });
     if (!w || linked.current === w.address.toLowerCase()) return;
     linked.current = w.address.toLowerCase();
-    toViemAccount({ wallet: w })
+    // one wallet per person (lib/server/xpAccount): an email that already signed in another way goes back to that way
+    linkXpAccount(w.address)
+      .then((d) => {
+        if (!d.duplicate) return;
+        linked.current = null;
+        void logout().catch(() => undefined);
+        dispatchEvent(new CustomEvent(SIGN_IN_FAILED_EVENT, { detail: { message: d.reason || `This email already has a DISCIPLE wallet. Sign in with ${d.duplicate}.` } }));
+        throw Object.assign(new Error("duplicate login"), { duplicate: true });
+      })
+      .then(() => toViemAccount({ wallet: w }))
       // Privy's wallet RPC needs the numeric tx type (2), not viem's "eip1559" (lib/aa/privyTx)
       .then((owner) => connectPrivyOwner(withPrivyTxType(owner)))
       // the cached @name belongs to the account that claimed it: a different sign-in must not keep showing it
       .then((acct) => { void syncLocalIdentity(acct).catch(() => undefined); })
-      .catch((e) => { linked.current = null; console.warn("[privy] owner setup failed", (e as Error).message); dispatchEvent(new Event(SIGN_IN_FAILED_EVENT)); });
-  }, [ready, walletsReady, authenticated, wallets, user, linkedAccounts, createWallet]);
+      .catch((e) => { if ((e as { duplicate?: boolean }).duplicate) return; linked.current = null; console.warn("[privy] owner setup failed", (e as Error).message); dispatchEvent(new Event(SIGN_IN_FAILED_EVENT)); });
+  }, [ready, walletsReady, authenticated, wallets, user, linkedAccounts, createWallet, logout]);
   return null;
 }
 
@@ -182,8 +191,10 @@ if (NATIVE) void (nativePlugin("NativeAuth") as { enable?: (o: { redirect: strin
 // the embedded wallet. A wallet-only login was never login-verified for gasless sessions anyway (lib/server/gaslessSession).
 type LoginMethod = "email" | "google" | "twitter" | "apple";
 export function loginMethodsFor(o: { inApp: boolean; native: boolean }): LoginMethod[] {
+  // Apple everywhere (maker 2026-11-17): one wallet per person sends a player back to their first login method, so a
+  // player who started with Apple in the app must be able to pick Apple on desktop and in X's browser too
   if (o.native) return ["email", "google", "apple", "twitter"];
-  return o.inApp ? ["email", "twitter"] : ["email", "google", "twitter"];
+  return o.inApp ? ["email", "apple", "twitter"] : ["email", "google", "apple", "twitter"];
 }
 
 /** Loaded lazily by PrivyProviders (own chunk). Holds no app children: the app talks to Privy via lib/aa/session. */

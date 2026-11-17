@@ -19,7 +19,7 @@ import "server-only";
  *     stringified `linked_accounts` claim. Local crypto only (keys cached 10 min) ⇒ ~1 ms. Missing / bad / expired ⇒
  *     rejected. No users-API fallback: a missing or invalid identity token is a clean refusal.
  *  2. The Permit2 signer must be one of the token's linked ethereum wallets (exact address match); the user must
- *     have a verified login (email / google_oauth / twitter_oauth — SESSION_LOGIN_TYPES);
+ *     have a verified login (email / google_oauth / apple_oauth / twitter_oauth — SESSION_LOGIN_TYPES);
  *     invite gate (requireInviteUser).
  * Revoke/ban/strike (wallet + did), per-IP / per-sender / global caps, loss breaker and the exact eth_call stay in
  * gaslessRelay. Fail closed: no Privy config ⇒ every gasless trade is refused.
@@ -28,7 +28,8 @@ import { privyEnv, verificationKeys, verifyIdentityToken, type FetchLike, type P
 import { requireInviteUser } from "./inviteGate";
 
 /** Privy login types that count as a verified login for gasless trades (app-level gating, pump.fun / FOMO style). */
-export const SESSION_LOGIN_TYPES = new Set(["email", "google_oauth", "twitter_oauth"]);
+// apple_oauth: Apple is a sign-in option (app and site); without it an Apple-only player's trades were refused (403)
+export const SESSION_LOGIN_TYPES = new Set(["email", "google_oauth", "apple_oauth", "twitter_oauth"]);
 
 export type SessionDeps = { env: () => PrivyEnv; fetch?: FetchLike; invite: (did: string) => Promise<{ ok: boolean }>; nowMs?: () => number };
 /** Injectable for tests (production: process env + global fetch + the invite gate). */
@@ -58,7 +59,7 @@ export async function verifySessionToken(token: string | null | undefined, d: Se
 export async function requireSessionWallet(session: IdentitySession, signer: string, d: SessionDeps = gaslessSessionDeps): Promise<PrivyUser> {
   const u = session.user;
   if (!u.wallets.includes(signer.toLowerCase())) throw new SessionReject("signer is not this Privy session's wallet", 403);
-  if (!(u.logins ?? []).some((t) => SESSION_LOGIN_TYPES.has(t))) throw new SessionReject("login not verified (email, Google or X)", 403);
+  if (!(u.logins ?? []).some((t) => SESSION_LOGIN_TYPES.has(t))) throw new SessionReject("login not verified (email, Google, Apple or X)", 403);
   const inv = await d.invite(session.did);
   if (!inv.ok) throw new SessionReject("invite required", 403);
   return u;

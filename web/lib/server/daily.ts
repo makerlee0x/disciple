@@ -22,6 +22,14 @@ import { kv, type Kv } from "./kv";
 import { defaultUsername } from "../defaultUsername";
 import { usernameOf } from "./usernames";
 import { levelOfWallet } from "./xp";
+import { accountWallets } from "./xpAccount";
+
+/** The pilot's @name: this wallet's, else one from another wallet on the same account (lib/server/xpAccount; a reserved
+ *  name like @maker sits on whichever wallet signed in last). */
+async function accountUsernameOf(w: string, s: Kv): Promise<string | null> {
+  for (const x of await accountWallets(w, s)) { const u = await usernameOf(x); if (u) return u; }
+  return null;
+}
 import { dailyToday, dailyEndsAt, verifyDailyFull, validInputs, DAILY, type DailyScore } from "../sim/daily";
 import { checkTicket, issueTicket, serverDailySeed } from "./dailySeed";
 import type { PlayerInput } from "../sim/run";
@@ -138,6 +146,6 @@ export async function bindOwner(id: number, runId: string, wallet: string, s: Kv
 /** how a run's pilot is shown: a signed-in pilot by their username and level, otherwise the run's call sign */
 export async function pilotOf(id: number, r: DailyRun, s: Kv = kv()): Promise<{ name: string; level: number | null; prestige: number; progress: number }> {
   const w = await ownerOf(id, r.runId, s).catch(() => null); if (!w) return { name: r.name, level: null, prestige: 0, progress: 0 };
-  const [u, lv] = await Promise.all([usernameOf(w).catch(() => null), levelOfWallet(w, s).catch(() => null)]);
+  const [u, lv] = await Promise.all([accountUsernameOf(w, s).catch(() => null), levelOfWallet(w, s).catch(() => null)]);
   return { name: u || r.name, level: lv?.level ?? null, prestige: lv?.prestige ?? 0, progress: lv?.progress ?? 0 };
 }

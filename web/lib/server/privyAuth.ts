@@ -20,7 +20,9 @@ import { createPublicKey, verify as cryptoVerify, type KeyObject } from "crypto"
 
 export type PrivyClaims = { sub: string; sid?: string; exp: number; iat?: number };
 export type PrivyUser = { id: string; emails: string[]; wallets: string[]; /** linked account types (email, google_oauth, twitter_oauth, wallet, …) */ logins?: string[];
-  /** the X account linked to this Privy user (twitter_oauth: subject = X user id), verified by Privy through X's OAuth */ x?: { id: string; username: string } | null };
+  /** the X account linked to this Privy user (twitter_oauth: subject = X user id), verified by Privy through X's OAuth */ x?: { id: string; username: string } | null;
+  /** each verified email with the login that carries it and when that login was first verified (ms; 0 = unknown) */
+  emailLogins?: { email: string; method: "email" | "google_oauth" | "apple_oauth"; at: number }[] };
 export type PrivyEnv = { appId: string; appSecret?: string; verificationKey?: string };
 export type FetchLike = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
@@ -83,9 +85,12 @@ export function userFromLinkedAccounts(did: string, accounts: unknown): PrivyUse
   if (!Array.isArray(accounts)) return null;
   const emails = new Set<string>(), wallets = new Set<string>(), logins = new Set<string>();
   let x: { id: string; username: string } | null = null;
+  const emailLogins: NonNullable<PrivyUser["emailLogins"]> = [];
   for (const raw of accounts) {
     if (!raw || typeof raw !== "object") continue;
     const a = raw as Record<string, unknown>;
+    const mail = a.type === "email" ? a.address : a.type === "google_oauth" || a.type === "apple_oauth" ? a.email : undefined;
+    if (typeof mail === "string" && mail.trim()) emailLogins.push({ email: mail.trim().toLowerCase(), method: a.type as "email", at: firstVerifiedMs(a) });
     if (typeof a.type === "string") logins.add(a.type);
     if (a.type === "email" && typeof a.address === "string") emails.add(a.address.trim().toLowerCase());
     if (a.type === "google_oauth" && typeof a.email === "string") emails.add(a.email.trim().toLowerCase());
@@ -95,7 +100,15 @@ export function userFromLinkedAccounts(did: string, accounts: unknown): PrivyUse
     if (a.type === "wallet" && (a.chain_type === "ethereum" || a.chainType === "ethereum") && typeof a.address === "string" && /^0x[0-9a-fA-F]{40}$/.test(a.address))
       wallets.add(a.address.toLowerCase());
   }
-  return { id: did, emails: Array.from(emails), wallets: Array.from(wallets), logins: Array.from(logins), x };
+  return { id: did, emails: Array.from(emails), wallets: Array.from(wallets), logins: Array.from(logins), x, emailLogins };
+}
+
+/** When a linked account was first verified, in ms (Privy sends unix seconds; ISO strings and ms are accepted). 0 = unknown. */
+function firstVerifiedMs(a: Record<string, unknown>): number {
+  const v = a.first_verified_at ?? a.firstVerifiedAt ?? a.verified_at ?? a.verifiedAt;
+  const n = typeof v === "number" ? v : typeof v === "string" ? (/^\d+$/.test(v) ? Number(v) : Date.parse(v)) : NaN;
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n < 1e12 ? n * 1000 : n;
 }
 
 /**
