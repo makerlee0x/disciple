@@ -29,9 +29,7 @@ import Icon from "@/components/icons/Icon";
 import type { ActivityItem } from "@/lib/stats";
 import HangarBay from "@/components/hangar/HangarBay";
 import HangarSignedOut from "@/components/hangar/HangarSignedOut";
-import RocketLooks from "@/components/hangar/RocketLooks";
-import { Crates, YourRocket } from "@/components/hangar/Collection";
-import { HangarTrades, useSellHooks } from "@/components/hangar/Market";
+import { RocketCard } from "@/components/hangar/Collection";
 import { useCollection } from "@/lib/collectionClient";
 import type { Progress } from "@/lib/unlocks";
 import { Fleet, ServiceRecord, TrophyCase } from "@/components/hangar/HangarSections";
@@ -39,7 +37,7 @@ import { useHomeCoins, useLoadout, useTrophies } from "@/components/hangar/hanga
 
 const PAGE = { activity: 12 } as const;
 /** The app's Hangar jump row: section heading id → label. */
-const HANGAR_JUMPS = [["hg-looks", "Your rocket"], ["hg-crates", "Crates"], ["hg-trades", "Trades"], ["hg-fleet", "Fleet"], ["hg-trophies", "Trophies"], ["hg-log", "Flight log"]] as const;
+const HANGAR_JUMPS = [["hg-looks", "Your rocket"], ["hg-trophies", "Trophies"], ["hg-fleet", "Fleet"], ["hg-log", "Flight log"]] as const;
 
 /** Activity (real trades only): ↑ BOOST / ↓ DUMP · rocket · dollars · when. */
 function Activity({ rows, isPrivate, owner }: { rows: ActivityItem[] | null; isPrivate: boolean; owner: string }) {
@@ -76,10 +74,11 @@ function Activity({ rows, isPrivate, owner }: { rows: ActivityItem[] | null; isP
 
 /**
  * /profile (own) and /u/[username] (public): the Hangar (canvas boards "Hangar (pilot profile)" and "The bay", take A).
- *   bay: call sign as a title card, bio, level bar, Rewards / Edit profile (own), the pilot's rocket on its pad; under it, Your rocket (earned hulls and flares, own only)
+ *   bay: call sign as a title card, bio, level bar, Rewards / Edit profile / Settings (own)
  *   service record: hangar value + today, cash (+ Add cash), flights aboard, rockets launched
- *   Your fleet: rockets aboard (or launched) as the lobby's Live window cards, each with its seat's worth
- *   Your altitude (the portfolio chart) + Flight log | Trophy case + invites (own)
+ *   Your altitude (the portfolio chart) | Your rocket (a half-width card, own only; the full collection and crates are /rocket)
+ *   Trophy case | Your fleet (rockets aboard or launched, as the lobby's Live window cards)
+ *   Flight log, then invites (own)
  * Settings opens from the pilot chip (/profile#settings). Everything shown is live; nothing is sample data.
  */
 export default function ProfileDashboard({ mode = "private", username }: { mode?: "private" | "public"; username?: string }) {
@@ -189,7 +188,6 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const activity = useRealActivity(wallet);
   const rewards = useRewards(isPrivate && !!wallet);
   const { col } = useCollection(isPrivate ? wallet || null : null);
-  const { hooks: sell, mine } = useSellHooks(isPrivate ? wallet || null : null);
 
   // /profile signed out: no sample pilot pretending to be you (existing copy only).
   if (isPrivate && !wallet) {
@@ -251,27 +249,21 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
 
       <ServiceRecord pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} aboard={holdings ? holdings.length : null} launched={launched} isPrivate={isPrivate} />
 
-      {isPrivate && <YourRocket col={col} wallet={wallet || null} handle={handle} sell={sell} />}
-      {isPrivate && <Crates col={col} wallet={wallet || null} />}
-      {isPrivate && <HangarTrades col={col} wallet={wallet || null} mine={mine} />}
-
-      {isPrivate && <RocketLooks progress={progress} hull={looks.hull} flare={looks.flare} coin={loadout.coin} setHull={looks.setHull} setFlare={looks.setFlare} note={looks.note} />}
-
-      <Fleet rows={holdings} home={home} launched={launched} isPrivate={isPrivate} owner={ownerName} />
-
-      <div className="hg-cols">
-        <div className="hg-colm">
-          <PortfolioBlock pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} isPrivate={isPrivate} title={isPrivate ? "Your altitude" : "Altitude"} />
-          <section className="dsc3-panel hg-panel" aria-labelledby="hg-log">
-            <header className="hg-panelh"><h2 id="hg-log">Flight log</h2><span>{isPrivate ? "Your boosts and dumps" : "Boosts and dumps"}</span></header>
-            <Activity rows={noWallet ? [] : activity} isPrivate={isPrivate} owner={ownerName} />
-          </section>
-        </div>
-        <aside className="hg-cola">
-          <TrophyCase got={trophies} />
-          {isPrivate && <InvitesCard />}
-        </aside>
+      {/* maker 2026-11-17: Altitude top left beside a half-width Your rocket card; Trophy case and Your fleet side by side under
+          them. Skins, trails, trade up and crates live on /rocket. */}
+      <div className={`hg-duo${isPrivate ? "" : " solo"}`}>
+        <PortfolioBlock pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} isPrivate={isPrivate} title={isPrivate ? "Your altitude" : "Altitude"} />
+        {isPrivate && <RocketCard col={col} handle={handle} />}
       </div>
+      <div className="hg-duo">
+        <TrophyCase got={trophies} />
+        <Fleet rows={holdings} home={home} launched={launched} isPrivate={isPrivate} owner={ownerName} />
+      </div>
+      <section className="dsc3-panel hg-panel" aria-labelledby="hg-log">
+        <header className="hg-panelh"><h2 id="hg-log">Flight log</h2><span>{isPrivate ? "Your boosts and dumps" : "Boosts and dumps"}</span></header>
+        <Activity rows={noWallet ? [] : activity} isPrivate={isPrivate} owner={ownerName} />
+      </section>
+      {isPrivate && <InvitesCard />}
     </div>
   );
 }

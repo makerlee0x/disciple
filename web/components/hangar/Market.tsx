@@ -290,7 +290,7 @@ export function MarketPage({ wallet }: { wallet: string | null }) {
   return (
     <section className="hg-sec hgu-sec mkt" aria-labelledby="mkt-h" data-testid="market">
       <header className="hg-sech"><div><h2 id="mkt-h" className="dsc3-h2">Market</h2><span>Buy and sell copies with other pilots. Every copy is one of a kind: its own serial, burn and pattern. You pay from your Cash; {FEE} of each sale goes to Disciple.</span></div>
-        {wallet && <Link href="/profile#hg-trades" className="hg-ghost">Your trades</Link>}</header>
+        {wallet && <Link href="/rocket#hg-trades" className="hg-ghost">Your trades</Link>}</header>
       <div className="mkt-filters">
         <div className="hg-ranges" role="tablist" aria-label="Kind">{KINDS.map(([k, label]) => <button key={label} type="button" role="tab" aria-selected={kind === k} className={kind === k ? "on" : ""} onClick={() => setKind(k)}>{label}</button>)}</div>
         <div className="mkt-filter-r">
@@ -307,7 +307,7 @@ export function MarketPage({ wallet }: { wallet: string | null }) {
               sub={<><b className="mkt-card-price">{usd(l.price)}</b>{copyLine(l.copy)}</>} a={itemArt(it, 98, false, l.sellerName ?? "PILOT", l.copy)} onClick={() => setSel(l.id)} testid={`listing-${l.id}`} />
           ); })}
         </ul>
-      ) : <div className="hg-empty"><b>Nothing listed yet</b><p>{kind || rar || trak ? "Nothing matches those filters." : "Be the first: open a copy in your Hangar and tap Sell."}</p></div>}
+      ) : <div className="hg-empty"><b>Nothing listed yet</b><p>{kind || rar || trak ? "Nothing matches those filters." : "Be the first: open a copy in Your rocket and tap Sell."}</p></div>}
       {sales.length > 0 && (
         <div className="mkt-hist mkt-recent"><h3>Just sold</h3>
           <ol>{sales.slice(0, 10).map((s) => { const it = itemById(s.item); return <li key={s.listing}><span>{it ? (it.kind === "skin" ? `${HULL_NAMES[it.hull!]} | ${it.name}` : it.name) : s.item} #{fmt(s.serial)}</span><b>{usd(s.price)}</b></li>; })}</ol>

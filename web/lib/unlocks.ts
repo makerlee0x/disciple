@@ -4,6 +4,7 @@
  * playing, never by paying. Rules read only what the Hangar already has: level, prestige and trophies. Cosmetic only.
  */
 import { MILESTONE_COPY, XP_PER_PRESTIGE, levelInfo, xpForLevel } from "./xp";
+import { HULL_NAMES, REWARDS, itemById } from "./collection";
 
 export type Rarity = "common" | "rare" | "epic" | "legendary";
 export type Rule = { kind: "free" } | { kind: "level"; level: number } | { kind: "prestige"; prestige: number } | { kind: "trophy"; trophy: string };
@@ -45,14 +46,15 @@ export function ruleLabel(r: Rule): string {
   }
 }
 
-/** the next look a level unlocks for a pilot with `totalXp` (+ `extra` not yet saved): "80 more unlocks the Plasma flare" */
-export function nextLevelUnlock(totalXp: number, prestige = 0, extra = 0): { name: string; part: "hull" | "flare"; level: number; more: number } | null {
-  if (prestige > 0) return null;   // level unlocks stay unlocked after a prestige
+/** the next collection reward a level gives a pilot with `totalXp` (+ `extra` not yet saved): "80 more unlocks the Ice Wake trail" */
+export function nextLevelUnlock(totalXp: number, prestige = 0, extra = 0): { name: string; part: "skin" | "trail"; level: number; more: number } | null {
+  if (prestige > 0) return null;   // level rewards stay earned after a prestige
   const now = levelInfo(totalXp + extra, prestige).level;
-  const next = [...HULLS.map((l) => ({ l, part: "hull" as const })), ...FLARES.map((l) => ({ l, part: "flare" as const }))]
-    .filter((x) => x.l.rule.kind === "level" && x.l.rule.level > now)
-    .sort((a, b) => (a.l.rule as { level: number }).level - (b.l.rule as { level: number }).level)[0];
+  const next = REWARDS.map((r) => ({ r, it: itemById(r.item) }))
+    .filter((x): x is { r: (typeof REWARDS)[number]; it: NonNullable<typeof x.it> } => !!x.it && x.r.rule.kind === "level" && x.r.rule.level > now)
+    .sort((a, b) => (a.r.rule as { level: number }).level - (b.r.rule as { level: number }).level)[0];
   if (!next) return null;
-  const level = (next.l.rule as { level: number }).level;
-  return { name: next.l.name, part: next.part, level, more: Math.max(1, xpForLevel(level) - (totalXp + extra - prestige * XP_PER_PRESTIGE)) };
+  const level = (next.r.rule as { level: number }).level;
+  const name = next.it.kind === "skin" ? `${HULL_NAMES[next.it.hull!]} ${next.it.name}` : next.it.name;
+  return { name, part: next.it.kind === "skin" ? "skin" : "trail", level, more: Math.max(1, xpForLevel(level) - (totalXp + extra - prestige * XP_PER_PRESTIGE)) };
 }

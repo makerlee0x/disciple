@@ -222,6 +222,24 @@ export const EARN = {
   /** first visit after collections launch */
   welcome: "rare" as Rarity,
 };
+/**
+ * Level and trophy rewards (maker 2026-11-17, "one collection, every mode"): the old hull and flare picker is gone, and what
+ * it gave for levels and trophies is now a real copy in the collection, granted once when you earn it. Reward copies never
+ * trade. A level reward stays earned after a Prestige resets the level.
+ */
+export type RewardRule = { kind: "level"; level: number } | { kind: "trophy"; trophy: string };
+export const REWARDS: readonly { item: string; rule: RewardRule }[] = [
+  { item: trailId("ice"), rule: { kind: "level", level: 5 } },
+  { item: skinId("needle", "walnut-brass"), rule: { kind: "level", level: 10 } },
+  { item: skinId("bullet", "neon-circuit"), rule: { kind: "level", level: 25 } },
+  { item: trailId("violet"), rule: { kind: "trophy", trophy: "through_pearly_gates" } },
+  { item: trailId("solar"), rule: { kind: "trophy", trophy: "final_boost" } },
+];
+export const rewardEarned = (r: RewardRule, p: { level: number; prestige: number; trophies: ReadonlySet<string> }) =>
+  r.kind === "level" ? p.prestige > 0 || p.level >= r.level : p.trophies.has(r.trophy);
+export const rewardFor = (item: string) => REWARDS.find((r) => r.item === item);
+export const rewardLabel = (r: RewardRule, trophyName?: string) => (r.kind === "level" ? `Level ${r.level} reward` : `${trophyName ?? "Trophy"} trophy reward`);
+
 export function duelCrateTier(streak: number): Rarity { return streak >= 5 ? EARN.streak5 : streak >= 3 ? EARN.streak3 : EARN.duelWin; }
 
 /* ---------------------------------------------------------------- copies ---------------------------------------------------------------- */
@@ -237,7 +255,7 @@ export interface Copy {
   /** 0..999, shifts the paint (PATTERN_PAINTS) or the trail's particle mix */ seed: number;
   /** FlightTrak: ranked duel wins flown with it; null = not a FlightTrak copy */ trak: number | null;
   /** dropped in its series' first 7 days */ fe: boolean;
-  origin: "crate" | "shop" | "tradeup" | "starter" | "migrated"; at: number; bound: boolean;
+  origin: "crate" | "shop" | "tradeup" | "starter" | "migrated" | "reward"; at: number; bound: boolean;
 }
 export const BURN_GRADES: readonly { name: string; short: string; max: number }[] = [
   { name: "Factory Fresh", short: "FF", max: 0.07 }, { name: "Test Flown", short: "TF", max: 0.15 }, { name: "Flight Worn", short: "FW", max: 0.38 },

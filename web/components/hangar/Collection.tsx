@@ -4,19 +4,24 @@
  * /mnt/project-files/hangar/unlocks): "Your rocket" (skins found per hull, trail, what you fly), "Crates" (open with
  * odds shown). Rules in lib/collection.ts, server in lib/server/collection.ts.
  */
+import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import Icon from "@/components/icons/Icon";
+import { MILESTONE_COPY } from "@/lib/xp";
 import { withBase } from "@/lib/base-path";
 import { playSfx } from "@/lib/game/sfx";
 import {
   CRATE, DUPE_XP, FLOURISHES, HULL_NAMES, ITEMS, PAINTS, PRESTIGE_HULL, RARITY_COLOR as SW, RARITY_NAME as RL, SERIES, STARTER_TAG,
   TRADE_UP_N, burnGrade, releasedSeries, copyLook, crateArt, crateBurstArt, crateOdds, glintArt, itemById, itemTitle, liveSeries, pctLabel, seriesArt, skinArt, skinId,
-  tagArt, tradeUpTarget, trailArt, trailId, itemOut, nextDrop,
+  tagArt, tradeUpTarget, trailArt, trailId, itemOut, nextDrop, rewardFor, rewardLabel,
   type Collection as Col, type CollectionAction, type Copy, type Crate, type Item, type Opened, type Rarity, type Slot,
 } from "@/lib/collection";
 import { collectionAction } from "@/lib/collectionClient";
 import { SellControl, type SellHooks } from "./Market";
 
 const fmt = (n: number) => n.toLocaleString("en-US");
+/** "Level 10 reward" / "Final Push trophy reward" for items you earn by playing, else null */
+const earnHow = (id: string) => { const r = rewardFor(id); return r ? rewardLabel(r.rule, r.rule.kind === "trophy" ? MILESTONE_COPY[r.rule.trophy]?.name : undefined) : null; };
 // eslint-disable-next-line @next/next/no-img-element
 const Img = ({ src, h, dim }: { src: string; h: number; dim?: boolean }) => <img src={withBase(src)} alt="" loading="lazy" style={{ height: h, width: "auto", maxWidth: "100%", objectFit: "contain", filter: dim ? "brightness(0) opacity(.55)" : undefined }} />;
 
@@ -212,7 +217,7 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
         {skins.map((s) => {
           const own = has(s), on = s.id === eq.skin;
           return <Card key={s.id} rar={s.rar} on={on || insp === s.id} locked={!own} name={own ? s.name : "???"} label={RL[s.rar]} testid={`skin-${s.id}`}
-            sub={own ? sub(s, on) : hull === PRESTIGE_HULL ? (prestige < 1 ? "Prestige 1" : "Find this paint first") : "Not found yet"}
+            sub={own ? sub(s, on) : hull === PRESTIGE_HULL ? (prestige < 1 ? "Prestige 1" : "Find this paint first") : earnHow(s.id) ?? "Not found yet"}
             a={<SkinArt i={s} h={98} dim={!own} copy={own ? best(s) : undefined} />} onClick={own ? () => inspect(s.id) : undefined} />;
         })}
       </ul>
@@ -223,7 +228,7 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
           {trails.map((t) => {
             const own = owned.has(t.id), on = t.id === eq.trail;
             return <Card key={t.id} rar={t.rar} on={on || insp === t.id} locked={!own} name={t.name} label={t.prestige ? `Prestige ${t.prestige}` : RL[t.rar]} a={<Plume id={t.id} h={98} />} testid={t.id}
-              sub={own ? sub(t, on) : t.prestige ? `Reach Prestige ${t.prestige}` : `Series ${t.series} crates`} onClick={own ? () => inspect(t.id) : undefined} />;
+              sub={own ? sub(t, on) : t.prestige ? `Reach Prestige ${t.prestige}` : earnHow(t.id) ?? `Series ${t.series} crates`} onClick={own ? () => inspect(t.id) : undefined} />;
           })}
         </ul>
         {panel(trails)}
@@ -252,7 +257,8 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
         {panel(flourishes)}
       </div>
       <div className="dsc3-panel hg-panel hgu-tradeup" data-testid="trade-up">
-        <header className="hg-panelh"><div><h2>Trade up</h2><span>{TRADE_UP_N} spare copies of one rarity from one series become 1 copy of the next rarity from that series, with their burn averaged. It only uses spares, never your best copy of anything or what you fly. Mythic only comes from crates.</span></div></header>
+        <header className="hg-panelh"><h2>Trade up</h2></header>
+        <TradeUpGraphic />
         {groups.length ? (
           <ul className="hgu-tu-rows">
             {groups.map((g) => (
@@ -370,3 +376,86 @@ function untilDays(ms: number) {
 }
 const RARITY_RANK = (r: Rarity) => ["common", "uncommon", "rare", "epic", "legendary", "mythic"].indexOf(r);
 
+
+/* ------------------------------------------------------------ Trade up, as a picture ------------------------------------------------------------ */
+
+const LADDER: Rarity[] = ["common", "uncommon", "rare", "epic", "legendary"];
+/** a real skin of this rarity from the live series, for the picture (falls back to any series) */
+const sampleSkin = (r: Rarity) => {
+  const live = liveSeries(Date.now())?.n;
+  const skins = ITEMS.filter((i) => i.kind === "skin" && i.rar === r && i.hull !== PRESTIGE_HULL);
+  return skins.find((i) => i.series === live) ?? skins[0];
+};
+
+/** 10 spares → 1 of the next rarity, burn averaged; the rarity ladder; Mythic only from crates. */
+function TradeUpGraphic() {
+  const [from, setFrom] = useState<Rarity>("common");
+  const to = tradeUpTarget(from) ?? "uncommon";
+  const a = sampleSkin(from), b = sampleSkin(to);
+  return (
+    <div className="hgu-tug" data-testid="trade-up-graphic">
+      <div className="hgu-tug-eq">
+        <div className="hgu-tug-in" style={{ ["--sw" as string]: SW[from] }}>
+          <span className="hgu-tug-stack" aria-hidden>
+            {Array.from({ length: TRADE_UP_N }, (_, k) => <i key={k} style={{ ["--k" as string]: k }}>{a ? <SkinArt i={a} h={54} /> : <Img src={crateArt(from)} h={40} />}</i>)}
+          </span>
+          <b>{TRADE_UP_N} ×</b>
+          <span className="hg-look-r" style={{ color: SW[from] }}>{RL[from]} spares</span>
+        </div>
+        <div className="hgu-tug-arrow" aria-hidden>
+          <span>Burn averaged</span>
+          <svg viewBox="0 0 120 24"><path d="M2 12h104" /><path d="M98 3l12 9-12 9" /></svg>
+          <span>Same series</span>
+        </div>
+        <div className="hgu-tug-out" style={{ ["--sw" as string]: SW[to] }}>
+          <span className="hgu-tug-one">{b ? <SkinArt i={b} h={120} /> : <Img src={crateArt(to)} h={90} />}</span>
+          <b>1 ×</b>
+          <span className="hg-look-r" style={{ color: SW[to] }}>{RL[to]}</span>
+        </div>
+      </div>
+      <ol className="hgu-tug-ladder" aria-label="Rarity ladder">
+        {LADDER.map((r, k) => (
+          <li key={r} style={{ ["--sw" as string]: SW[r] }}>
+            <button type="button" className={r === from || r === to ? "on" : ""} disabled={k === LADDER.length - 1} onClick={() => setFrom(r)}>
+              <i /><span>{RL[r]}</span>
+            </button>
+          </li>
+        ))}
+        <li className="hgu-tug-mythic" style={{ ["--sw" as string]: SW.mythic }}>
+          <Img src={crateArt("mythic")} h={34} />
+          <span><b>{RL.mythic}</b> crates only</span>
+        </li>
+      </ol>
+      <ul className="hgu-tug-rules">
+        <li><Icon name="copy" size={16} />Only your spare copies</li>
+        <li><Icon name="rocket" size={16} />Never what you fly</li>
+        <li><Icon name="star" size={16} />Never your best copy</li>
+      </ul>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ Your rocket, profile card ------------------------------------------------------------ */
+
+/** The profile's compact Your rocket card: what you fly, its trail and tag, and a way into skins and crates (/rocket). */
+export function RocketCard({ col, handle }: { col: Col | null; handle: string }) {
+  const eq = col?.equipped ?? { skin: skinId("bullet", "white-gloss"), trail: trailId("gold"), tag: STARTER_TAG, flourish: "" };
+  const eqItem = itemById(eq.skin)!;
+  const copy = col?.copies?.find((c) => c.uid === col?.equippedCopy?.skin);
+  const crates = col?.crates?.length ?? 0;
+  return (
+    <section className="dsc3-panel hg-panel hgu-card" style={{ ["--sw" as string]: SW[eqItem.rar] }} aria-labelledby="hg-looks" data-testid="rocket-card">
+      <header className="hg-panelh"><h2 id="hg-looks">Your rocket</h2><Link href="/rocket">All skins</Link></header>
+      <div className="hgu-card-body">
+        <span className="hgu-card-art"><SkinArt i={eqItem} h={170} copy={copy} /><Plume id={eq.trail} h={90} /></span>
+        <div className="hgu-card-tx">
+          <span className="hg-look-r" style={{ color: SW[eqItem.rar] }}>{RL[eqItem.rar]}{eqItem.series ? ` · Series ${eqItem.series}` : " · Prestige"}</span>
+          <b>{title(eqItem)}</b>
+          <span>{itemById(eq.trail)?.name ?? "Gold"} trail{copy ? ` · ${copy.serial ? `#${fmt(copy.serial)}` : "Starter"}` : ""}</span>
+          <Tag id={eq.tag} name={handle} w={180} />
+          <Link className="dsc3-btn dsc3-btn-primary hgu-buy sm" href={crates ? "/market#crates" : "/rocket"} data-testid="rocket-card-open">{crates ? `Open ${crates} ${crates === 1 ? "crate" : "crates"}` : "Change your look"}</Link>
+        </div>
+      </div>
+    </section>
+  );
+}
