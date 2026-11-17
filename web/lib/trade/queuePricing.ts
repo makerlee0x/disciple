@@ -35,13 +35,16 @@ export function noRefuseMinOut(quote: bigint, slippageBps: number | null | undef
  *    priced for the likelier order (earlier shot first ⇒ lo).
  */
 export function tradeMinOut(r: { lo: bigint; hi: bigint }, slippageBps: number | null | undefined, sessionMaxBps: number | null | undefined, defaultBps = 100): bigint {
-  const own = applySlippage(r.lo, slippageBps ?? defaultBps);
-  if (sessionMaxBps == null || !(sessionMaxBps > 0) || r.lo <= B(0)) return own;
+  const slip = Math.min(10_000, Math.max(0, Math.round(slippageBps ?? defaultBps)));
+  const own = applySlippage(r.lo, slip);
+  const floor = (v: bigint) => (v > B(0) ? v : B(1)); // router + gasless relay reject minOut == 0
+  if (sessionMaxBps == null || !(sessionMaxBps > 0) || r.lo <= B(0)) return floor(own);
   // range wider than the window (no minOut clears both landing orders): price for the likelier one — the earlier
-  // shot lands first (sent first) ⇒ lo
-  const wide = r.lo * B(10_000) < r.hi * B(10_000 - Math.min(5000, Math.round(sessionMaxBps)));
+  // shot lands first (sent first) ⇒ lo. Cap the width check at 100% (0 remaining) so a 75–100% setting is not stuck at 50%.
+  const cap = Math.min(10_000, Math.max(0, Math.round(sessionMaxBps)));
+  const wide = cap >= 10_000 || r.lo * B(10_000) < r.hi * B(10_000 - cap);
   const w = wide ? sessionWindowMinOut(r.lo, r.lo, sessionMaxBps) : sessionWindowMinOut(r.lo, r.hi, sessionMaxBps);
-  return own > w ? own : w;
+  return floor(own > w ? own : w);
 }
 
 /** Release an in-flight amount once the RPC's head is ≥ the block the trade landed in (≤ maxMs; unknown block ⇒ lagMs). */

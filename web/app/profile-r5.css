@@ -234,6 +234,15 @@
 .p5-settings .p5-seg { gap: 4px; padding: 3px; border-radius: 10px; background: rgba(8,9,14,.7); border: 1px solid #2A2E38; flex-wrap: nowrap; }
 .p5-settings .p5-seg button { height: 30px; padding: 0 10px; border: 0; border-radius: 7px; font: 700 15px/1 var(--dsc-font-game); color: #BCC0CA; }
 .p5-settings .p5-seg button.on { background: #F2F3F7; color: #121327; }
+/* Price protection: 5 pills + a compact custom % box. Wrap so 100% and Other still fit on a phone. */
+.p5-settings .p5-seg.p5-slip-seg { flex-wrap: wrap; }
+.p5-slip-custom { display: inline-flex; align-items: center; height: 30px; padding: 0 8px 0 6px; border-radius: 7px; gap: 2px; }
+.p5-slip-custom input { all: unset; width: 3.2em; font: 700 15px/1 var(--dsc-font-game); color: #BCC0CA; text-align: right; }
+.p5-slip-custom span { font: 700 13px/1 var(--dsc-font-game); color: #9095A0; }
+.p5-slip-custom.on { background: #F2F3F7; }
+.p5-slip-custom.on input, .p5-slip-custom.on span { color: #121327; }
+.p5-slip-custom input:focus { color: #121327; }
+.p5-slip-custom input:disabled { cursor: wait; }
 .p5-settings .p5-btn.sm { height: 36px; border-radius: 10px; }
 .p5-sfoot { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 13px; color: #9095A0; }
 .p5-settings .p5-sfoot .p5-logout { width: auto; height: 36px; padding: 0 14px; border-radius: 10px; font-size: 13px; font-weight: 600; color: #FF9FB8; border-color: rgba(240,48,127,.4); background: rgba(22,24,28,.9); }

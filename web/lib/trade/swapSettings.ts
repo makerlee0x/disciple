@@ -26,6 +26,8 @@ export const validBoost = (v: number) => Number.isFinite(v) && v >= MIN_BOOST_US
  *  save described the old FEATHER…GLORY ladder, so it resets to the new defaults; every old `sells` save → the fixed sizes. */
 export const SETTINGS_VERSION = 4;
 export const AUTO_SLIPPAGE_PCT = 1;   // = protocol-viem DEFAULT_SLIPPAGE_BPS (100)
+/** Highest custom slippage a player can set, in percent. Was 50; lee Nov 16 2026 asked for 100. */
+export const MAX_SLIPPAGE_PCT = 100;
 export const DEFAULT_SETTINGS: SwapSettings = { buy: null, sells: DEFAULT_SELLS, slippage: { mode: "auto", pct: AUTO_SLIPPAGE_PCT }, tag: true, v: SETTINGS_VERSION };
 export const SWAP_PREFIX = "disciple.swap.";
 
@@ -34,13 +36,13 @@ export function buyAmounts(s: Pick<SwapSettings, "buy">): number[] { return s.bu
 export function sellLabel(s: SellSlot) { return `${+s.toFixed(2)}%`; }
 /** live slippage in bps for TradeParams.slippageBps; undefined = protocol default (auto) */
 export function slippageBps(s: SwapSettings): number | undefined {
-  return s.slippage.mode === "custom" && s.slippage.pct > 0 ? Math.round(Math.min(50, s.slippage.pct) * 100) : undefined;
+  return s.slippage.mode === "custom" && s.slippage.pct > 0 ? Math.round(Math.min(MAX_SLIPPAGE_PCT, s.slippage.pct) * 100) : undefined;
 }
 export function sanitize(x: unknown): SwapSettings {
   const o = (x && typeof x === "object" ? x : {}) as Partial<SwapSettings>;
   const buy = Array.isArray(o.buy) && o.buy.length === DEFAULT_BUY.length && o.buy.every((v) => validBoost(+v)) ? o.buy.map(Number) : null;
   const sells = DEFAULT_SELLS.slice();   // fixed: 10 / 25 / 50 / 100% of the bag
-  const sl = o.slippage && (o.slippage.mode === "custom" || o.slippage.mode === "auto") ? { mode: o.slippage.mode, pct: +o.slippage.pct > 0 ? Math.min(50, +o.slippage.pct) : AUTO_SLIPPAGE_PCT } : DEFAULT_SETTINGS.slippage;
+  const sl = o.slippage && (o.slippage.mode === "custom" || o.slippage.mode === "auto") ? { mode: o.slippage.mode, pct: +o.slippage.pct > 0 ? Math.min(MAX_SLIPPAGE_PCT, +o.slippage.pct) : AUTO_SLIPPAGE_PCT } : DEFAULT_SETTINGS.slippage;
   return { buy, sells, slippage: sl, tag: o.tag !== false, v: SETTINGS_VERSION };
 }
 export function loadSettings(key: string): SwapSettings {

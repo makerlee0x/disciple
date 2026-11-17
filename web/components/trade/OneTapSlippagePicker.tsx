@@ -1,16 +1,16 @@
 "use client";
 /**
- * One-tap "Max price move per trade" (lee, Oct 30 11:03 CDT): 5 / 15 / 30 % or the contract's ceiling (50 %; the session
- * policy has no unlimited setting). Default 15 %. Saving replaces a live session at a different limit (lib/aa/session).
- * COPY PENDING LEE APPROVAL (the strings below).
+ * "Max price move per trade" (lee, Oct 30 11:03 CDT; ceiling raised Nov 16 2026): 5 / 15 / 30 / 50 / 100 %, or any
+ * custom amount up to 100 %. Default 15 %. Saving stores the picker value (lib/aa/session).
  */
 import { useEffect, useState } from "react";
 import { ONE_TAP_SLIPPAGE_CHOICES_BPS, oneTapSlippageBps, onSessionChange, setOneTapSlippageBps } from "@/lib/aa/session";
 import { playerError } from "@/lib/playerError";
+import MaxPriceMoveInput from "@/components/trade/MaxPriceMoveInput";
 
 export const ONE_TAP_SLIP_COPY = {
   label: "Max price move per trade",
-  choice: (bps: number) => (bps >= 5000 ? "50% (most allowed)" : `${bps / 100}%`),
+  choice: (bps: number) => `${bps / 100}%`,
   hint: "One-tap trades fill as long as the price moves less than this between your tap and the fill.",
   saving: "Updating…",
 };
@@ -36,6 +36,7 @@ export default function OneTapSlippagePicker({ compact = false }: { compact?: bo
             {ONE_TAP_SLIP_COPY.choice(b)}
           </button>
         ))}
+        <MaxPriceMoveInput bps={sel} busy={busy} onPick={(b) => void pick(b)} testId="onetap-slip-custom" />
       </div>
       {err && <span role="alert" style={{ color: "#ffb0c8" }}>{err}</span>}
     </div>

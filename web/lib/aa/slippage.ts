@@ -66,6 +66,9 @@ export function isqrt(n: bigint): bigint {
  * 30 %: −16.33 % / +19.52 %; 50 %: −29.29 % / +41.42 %).
  */
 export function sessionWindowMinOut(lo: bigint, hi: bigint, maxSlippageBps: number): bigint {
-  const m = Math.min(SESSION_SLIPPAGE_LIMIT_BPS, Math.max(0, Math.round(maxSlippageBps)));
+  // Cap at 100% (not the session policy's 50%). A live on-chain session still cannot be
+  // installed above SESSION_SLIPPAGE_LIMIT_BPS; this only lets the player setting go to 100%.
+  const m = Math.min(10_000, Math.max(0, Math.round(maxSlippageBps)));
+  if (m >= 10_000) return BigInt(0);
   return isqrt((lo * hi * BigInt(10_000 - m)) / BigInt(10_000));
 }

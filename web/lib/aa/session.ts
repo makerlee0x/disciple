@@ -38,12 +38,19 @@ export function setOneTapSpendLimitUsd(usd: number | null) {
 }
 
 const ONE_TAP_SLIP_LS = "disciple.oneTap.maxSlippageBps";
-export const ONE_TAP_SLIPPAGE_CHOICES_BPS = [500, 1500, 3000, 5000] as const;
+export const ONE_TAP_SLIPPAGE_CHOICES_BPS = [500, 1500, 3000, 5000, 10_000] as const;
 export const ONE_TAP_SLIPPAGE_DEFAULT_BPS = 1500;
 export const SLIPPAGE_DEFAULT_BPS = 500;
 export const SLIPPAGE_MIN_BPS = 10;
-export const SLIPPAGE_MAX_BPS = 5000;
+/** Highest player-set max price move, in bps. Was 5000 (50%); lee Nov 16 2026 asked for 100%. */
+export const SLIPPAGE_MAX_BPS = 10_000;
 export const clampSlippageBps = (b: number) => Math.min(SLIPPAGE_MAX_BPS, Math.max(SLIPPAGE_MIN_BPS, Math.round(b) || SLIPPAGE_DEFAULT_BPS));
+/** Parse a typed percent ("75", "100%", "12.5") into bps, clamped to [SLIPPAGE_MIN_BPS, SLIPPAGE_MAX_BPS]. */
+export function parseSlippagePctInput(raw: string): number | null {
+  const n = Number(String(raw).trim().replace(/%/g, ""));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return clampSlippageBps(Math.round(n * 100));
+}
 export function oneTapSlippageBps(): number {
   try { const v = Number(localStorage.getItem(ONE_TAP_SLIP_LS)); if (v > 0) return clampSlippageBps(v); } catch { /* SSR / private mode */ }
   return ONE_TAP_SLIPPAGE_DEFAULT_BPS;

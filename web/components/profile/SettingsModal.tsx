@@ -9,6 +9,7 @@ import { ONE_TAP_SLIPPAGE_CHOICES_BPS, onPrivy, onSessionChange, oneTapSlippageB
 import { playerError } from "@/lib/playerError";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import Icon from "@/components/icons/Icon";
+import MaxPriceMoveInput from "@/components/trade/MaxPriceMoveInput";
 import { SETTINGS_KEYS } from "@/lib/config";
 import { setGameSettings, useGameSettings, type AudioChannel } from "@/lib/game/settings";
 import { previewBlip } from "@/lib/game/audio";
@@ -30,7 +31,7 @@ export const SETTINGS_COPY = {
   oneTapHelp: "BOOST and DUMP fire with no pop-up",
   on: "ON",
   maxMove: "Price protection",
-  maxMoveHelp: "Max price move per trade. Bigger moves cancel it",
+  maxMoveHelp: "Max price move per trade, up to 100%. Bigger moves cancel it.",
   choice: (bps: number) => `${bps / 100}%`,
   security: "Security",
   exportKey: "Export key",
@@ -220,12 +221,13 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                   <div className="p5-srow wrap">
                     <span className="p5-sic"><Icon name="chart" size={18} /></span>
                     <div className="tx"><b>{SETTINGS_COPY.maxMove}</b><span>{SETTINGS_COPY.maxMoveHelp}</span></div>
-                    <div className="p5-seg" role="radiogroup" aria-label={SETTINGS_COPY.maxMove} data-testid="onetap-slippage">
+                    <div className="p5-seg p5-slip-seg" role="radiogroup" aria-label={SETTINGS_COPY.maxMove} data-testid="onetap-slippage">
                       {ONE_TAP_SLIPPAGE_CHOICES_BPS.map((b) => (
                         <button key={b} type="button" role="radio" aria-checked={bps === b} className={bps === b ? "on" : ""} disabled={busy} onClick={() => void pick(b)} data-testid={`onetap-slip-${b}`}>
                           {SETTINGS_COPY.choice(b)}
                         </button>
                       ))}
+                      <MaxPriceMoveInput bps={bps} busy={busy} onPick={(b) => void pick(b)} testId="onetap-slip-custom" />
                     </div>
                     {err && <span className="p5-err" role="alert">{err}</span>}
                   </div>

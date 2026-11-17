@@ -371,7 +371,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
       )}
       {slipCap && sess?.oneTap && (
         <span role="status" aria-label="slippage cap" style={{ fontSize: 10, color: "#C9CED6", maxWidth: 320, textAlign: "right" }}>
-          Slippage capped at {pct(slipCap.maxBps)} by your session. Start a new session with a higher max (up to 50%)?{" "}
+          Slippage capped at {pct(slipCap.maxBps)} by your session. Start a new session with a higher max (up to 100%)?{" "}
           <button type="button" disabled={!!busy} onClick={() => run("restarting session", async () => { await restartOneTap(slipCap.suggestBps); setSlipCap(null); })} style={{ ...pill, padding: "1px 6px", fontSize: 9, background: "#C9CED6", color: "#0B0C0E" }}>New session at {pct(slipCap.suggestBps)}</button>{" "}
           <button type="button" onClick={() => setSlipCap(null)} style={{ ...pill, padding: "1px 6px", fontSize: 9, background: "rgba(255,255,255,.08)" }}>Keep {pct(slipCap.maxBps)}</button>
         </span>

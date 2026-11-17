@@ -6,6 +6,7 @@ import { DEFAULT_SELLS, MIN_BOOST_USD, validBoost, type SellSlot, type SwapSetti
 import { ONE_TAP_SLIPPAGE_CHOICES_BPS, oneTapSlippageBps, onSessionChange, setOneTapSlippageBps } from "@/lib/aa/session";
 import { playerError } from "@/lib/playerError";
 import Icon from "@/components/icons/Icon";
+import MaxPriceMoveInput from "@/components/trade/MaxPriceMoveInput";
 
 /** Desktop Trade settings (menu → Trade settings): 4 editable boost amounts (default $10/$25/$50/$100), the fixed dump sizes
  *  (10/25/50/100%, read-only), price protection and the rocket tag. Restyled 2026-11-14 on the Hangar popups v2 shell (the
@@ -91,10 +92,11 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
           <div className="p5-sbox">
             <div className="p5-srow wrap">
               <span className="p5-sic"><Icon name="chart" size={18} /></span>
-              <div className="tx"><b>Max price move</b><span>{live ? "Bigger moves cancel the trade" : "Applies to real flights only"}</span></div>
-              {live && <div className="p5-seg" role="radiogroup" aria-label="Max price move" data-testid="swap-slip">
+              <div className="tx"><b>Max price move</b><span>{live ? "Bigger moves cancel the trade. You can set any amount up to 100%." : "Applies to real flights only"}</span></div>
+              {live && <div className="p5-seg p5-slip-seg" role="radiogroup" aria-label="Max price move" data-testid="swap-slip">
                 {ONE_TAP_SLIPPAGE_CHOICES_BPS.map((b) => <button key={b} type="button" role="radio" aria-checked={bps === b} className={bps === b ? "on" : ""} disabled={busy}
                   onClick={() => void pick(b)} data-testid={`swap-slip-${b}`}>{b / 100}%</button>)}
+                <MaxPriceMoveInput bps={bps} busy={busy} onPick={(b) => void pick(b)} testId="swap-slip-custom" />
               </div>}
               {slipErr && <span className="p5-err" role="alert">{slipErr}</span>}
             </div>

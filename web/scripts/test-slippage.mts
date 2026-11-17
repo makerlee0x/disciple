@@ -30,3 +30,10 @@ test("suggestion never exceeds the 50% policy limit; bad input = auto", () => {
   assert.equal(clampSlippage(NaN, 500).requestedBps, AUTO_SLIPPAGE_BPS);
   assert.equal(clampSlippage(-5, 500).bps, undefined);
 });
+
+test("no session: 75% and 100% pass through; a session still cannot be suggested above 50%", () => {
+  assert.equal(clampSlippage(7500, null).bps, 7500);
+  assert.equal(clampSlippage(10_000, null).bps, 10_000);
+  assert.equal(clampSlippage(10_000, null).capped, false);
+  assert.equal(suggestedSessionMax(clampSlippage(10_000, 500)), 5000);
+});
