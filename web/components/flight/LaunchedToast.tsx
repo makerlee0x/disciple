@@ -57,7 +57,7 @@ export default function LaunchedToast({ token }: { token: string }) {
           <span className={s.live}>Live</span>
           <div className={s.txt}>
             <b>${h.ticker} is flying</b>
-            <span>{h.note ?? "You're the host. Every trade pays you a cut."}</span>
+            {h.note && <span>{h.note}</span>}
           </div>
           <button type="button" className={s.x} onClick={(e) => { done(e); share(); }} data-testid="share-x" tabIndex={-1}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M17.5 3h3.2l-7 8 8.3 10h-6.5l-5-6.2L4.8 21H1.6l7.5-8.6L1.2 3h6.6l4.6 5.7L17.5 3z" /></svg>

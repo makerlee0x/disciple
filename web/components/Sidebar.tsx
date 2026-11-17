@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from "react";
 import { SETTINGS_KEYS } from "@/lib/config";
 import { aaSession, onPrivy, onSessionChange, privyAuthenticated } from "@/lib/aa/sessionState";
 import Icon, { type IconName } from "@/components/icons/Icon";
+import SignInMarks from "@/components/SignInMarks";
 import { GuildTagFor } from "@/components/guilds/GuildChip";
 import { GUILDS_ENABLED } from "@/lib/features";
 import { withBase } from "@/lib/base-path";
@@ -44,8 +45,7 @@ const NAV_YOU: readonly NavItem[] = [
 
 // Copy pending lee approval: "You" (group label)
 const YOU_LABEL = "You";
-// Copy pending lee approval: signed-out card line (lee's approved sign-in line; no title)
-const JOIN_LINE = "Sign in with email, Google, X or wallet";
+// signed-out card: the sign-in methods as marks (was the line "Sign in with email, Google, X or wallet"; subcopy pass 2026-11-17)
 // Copy pending lee approval: signed-out card button. Local-signer (guest) builds keep the pill's own "Play" label,
 // because there the button creates a guest account instead of opening sign-in.
 const JOIN_BTN = "Sign in";
@@ -286,7 +286,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
           </div>
         ) : !you ? (
           <div className="ap-join" data-testid="side-join">
-            <p className="ap-join-p">{JOIN_LINE}</p>
+            <SignInMarks className="ap-join-p" />
             {/* the wallet pill's own action ("Play" = guest account, else its sign-in menu); #149 phone Play */}
             <button
               type="button"

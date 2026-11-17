@@ -235,7 +235,7 @@
 .p5-settings .p5-seg button { height: 30px; padding: 0 10px; border: 0; border-radius: 7px; font: 700 15px/1 var(--dsc-font-game); color: #BCC0CA; }
 .p5-settings .p5-seg button.on { background: #F2F3F7; color: #121327; }
 .p5-settings .p5-btn.sm { height: 36px; border-radius: 10px; }
-.p5-sfoot { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 13px; color: #9095A0; }
+.p5-sfoot { display: flex; align-items: center; justify-content: flex-end; gap: 16px; font-size: 13px; color: #9095A0; }
 .p5-settings .p5-sfoot .p5-logout { width: auto; height: 36px; padding: 0 14px; border-radius: 10px; font-size: 13px; font-weight: 600; color: #FF9FB8; border-color: rgba(240,48,127,.4); background: rgba(22,24,28,.9); }
 @media (max-width: 720px) {
   .p5-settings.p5-modal { border: 0; padding: calc(14px + var(--ap-safe-top, 0px)) 18px calc(24px + env(safe-area-inset-bottom)); }

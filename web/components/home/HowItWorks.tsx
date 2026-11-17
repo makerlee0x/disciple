@@ -16,12 +16,12 @@ export const QUICK_HELP_COPY = {
   title: "Your first flight",
   lede: "Seats cost real cash. Cash out for more than you paid in, and you win.",
   steps: [
-    { tone: "up", tag: "Climb", title: "Boost", body: "Pick an amount, then hit Space. Your cash buys a seat and lifts the rocket.", keys: ["1", "2", "3", "4"], key: "Space",
-      phone: "Tap an amount, then BOOST. You buy a seat and lift the rocket." },
-    { tone: "down", tag: "Cash out", title: "Dump", body: "Pick how much, then hit Shift. You get cash back and drop a bomb.", keys: ["Z", "X", "C", "V"], key: "Shift",
-      phone: "Tap how much, then DUMP. Hold DUMP ALL to sell everything." },
-    { tone: "gold", tag: "Crew goal", title: "Reach orbit", body: "At $33,333 the rocket breaks into orbit and the sky opens up. Everyone aboard gets the moment.", keys: [], key: "$3,333 → $33,333",
-      phone: "At $33,333 the rocket breaks into orbit. That's the crew goal.", phoneTag: "Orbit" },
+    { tone: "up", tag: "Climb", title: "Boost", keys: ["1", "2", "3", "4"], key: "Space",
+      phone: "Tap an amount → BOOST" },
+    { tone: "down", tag: "Cash out", title: "Dump", keys: ["Z", "X", "C", "V"], key: "Shift",
+      phone: "Tap how much → DUMP · hold DUMP ALL to sell all" },
+    { tone: "gold", tag: "Crew goal", title: "Reach orbit", keys: [], key: "$3,333 → $33,333",
+      phone: "$33,333", phoneTag: "Orbit" },
   ],
   warn: "If the rocket falls below where you boarded, your bag is worth less than you paid. Only fly with cash you're fine losing.",
   warnPhone: "Only fly with cash you're fine losing.",
@@ -54,7 +54,6 @@ export default function HowItWorks({ onClose }: { onClose: () => void }) {
             <div key={s.title} className={`qh-step ${s.tone}`}>
               <span className="qh-tag"><span className="qh-dot" /><span className="r2-eb">{s.tag}</span></span>
               <h3>{s.title}</h3>
-              <p>{s.body}</p>
               <div className="qh-keys">
                 {s.keys.map((k) => <span key={k} className="qh-k">{k}</span>)}
                 <span className={`qh-k ${s.keys.length ? `wide ${s.tone}` : "txt"}`}>{s.key}</span>

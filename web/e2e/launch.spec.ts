@@ -12,7 +12,7 @@ test("the pad preview follows what you type and pick", async ({ page, pilot }) =
   await expect(page.getByTestId("pad-mode")).toContainText(/hard/i);
   // a hidden launch always flies on Expert
   await page.getByTestId("private-launch").click();
-  await expect(page.getByTestId("private-launch-help")).toHaveText("Hidden launches fly on Expert.");
+  await expect(page.getByTestId("private-launch-help")).toHaveText("Hidden launches fly on Expert for now.");
   await expect(page.getByTestId("pad-mode")).toContainText(/expert/i);
 });
 

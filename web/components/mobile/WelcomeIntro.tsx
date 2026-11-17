@@ -17,7 +17,7 @@ export const WELCOME_KEY = "disciple.welcome.v1";
  *  against the rookie bot (/turbo/duel?first=1). Sign-in waits until after the result ("Save your win"). */
 export const WELCOME_COPY = {
   h: ["1v1.", "One minute."],
-  s: "Live BTC, 500x. Out-trade a rival and the W is yours. Practice money, no sign-up.",
+  s: "Practice money, no sign-up.",
   play: "Play",
   signIn: "I have an account \u00b7 Sign in",
 } as const;

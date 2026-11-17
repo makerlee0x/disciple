@@ -28,6 +28,9 @@ a.card:hover .drop { background: linear-gradient(180deg, #F3DFA8, #F2C14E); colo
 .ping { fill: var(--c, #5FF0A0); opacity: .35; transform-box: fill-box; transform-origin: center; animation: ping 1.6s ease-out infinite; }
 @keyframes ping { 0% { transform: scale(.5); opacity: .55; } 100% { transform: scale(2.2); opacity: 0; } }
 .chartEmpty { margin: auto; font-size: 14px; color: #B9BCC8; }
+.pulse { display: block; width: 10px; height: 10px; border-radius: 50%; background: rgba(185, 188, 200, .7); animation: beatGrey 1.4s ease-out infinite; }
+@keyframes beatGrey { 0% { box-shadow: 0 0 0 0 rgba(185, 188, 200, .5); } 100% { box-shadow: 0 0 0 10px rgba(185, 188, 200, 0); } }
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
 .stats { display: flex; align-items: center; gap: 10px; }
 .alt { font: italic 800 34px / 1 var(--dsc-font-game); text-shadow: 0 4px 24px rgba(0, 0, 0, .7); }
 .foot { display: flex; flex-direction: column; gap: 8px; }

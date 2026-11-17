@@ -159,7 +159,6 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
 
               {tab === "hotkeys" && <div onChange={() => { editing.current = true; }}>
                 {h("sec.hotkeys")}
-                <div style={{ ...label, marginBottom: 10, lineHeight: 1.5, letterSpacing: ".02em", fontSize: 11 }}>{t("hk.note")}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                   <div>
                     <div style={{ ...label, marginBottom: 6, color: "#9ff3c8" }}>{t("hk.buy").toUpperCase()} · $</div>
@@ -202,10 +201,9 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
                   <span style={{ width: 36, textAlign: "right", opacity: 0.8 }}>{Math.round(gs[ch].vol * 100)}%</span>
                 </div>)}
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ width: 130 }}><div>{t("audio.vibe")}</div><div style={label}>{t("audio.vibeHint")}</div></div>
+                  <div style={{ width: 130 }}>{t("audio.vibe")}</div>
                   {toggle(gs.haptics, (v) => { setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); }, "audio-haptics-toggle")}
                 </div>
-                <div style={{ ...label, letterSpacing: ".02em", fontSize: 11 }}>{t("audio.note")}</div>
               </div>}
 
               {tab === "lang" && <div>
@@ -221,7 +219,7 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
                 {h("sec.display")}
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <Icon name="grass" size={16} style={{ color: "#c8ffd8" }} />
-                  <div style={{ flex: 1 }}><div>{t("disp.grass")}</div><div style={label}>{t("disp.grassHint")}</div></div>
+                  <div style={{ flex: 1 }}>{t("disp.grass")}</div>
                   {toggle(grass, (v) => { if (v !== grass) { dispatchEvent(new Event("disciple:grass-toggle")); if (v) close(); } }, "grass-toggle")}
                 </div>
               </div>}

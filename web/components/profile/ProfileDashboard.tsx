@@ -47,7 +47,6 @@ function Activity({ rows, isPrivate, owner }: { rows: ActivityItem[] | null; isP
     return isPrivate ? (
       <div className="p5-empty" data-testid="tab-activity">
         <strong>{C["activity.empty.own.title"]}</strong>
-        <p>{C["activity.empty.own.body"]}</p>
       </div>
     ) : <div className="p5-empty" data-testid="tab-activity"><p>{C["activity.empty.other"](owner)}</p></div>;
   }

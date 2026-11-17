@@ -6,10 +6,10 @@
  */
 export type PushKind = "orbit" | "host" | "crew";
 export const PUSH_DAILY_CAP = 3;
-export const PUSH_KINDS: readonly { k: PushKind; label: string; help: string; on: boolean }[] = [
-  { k: "orbit", label: "Orbit with you aboard", help: "A rocket you're aboard reaches orbit.", on: true },
-  { k: "host", label: "Your launch milestones", help: "Passenger milestones on rockets you launched.", on: false },
-  { k: "crew", label: "Crew zones", help: "Your crew's rocket climbs past the Kármán Line.", on: false },
+export const PUSH_KINDS: readonly { k: PushKind; label: string; on: boolean }[] = [
+  { k: "orbit", label: "Orbit with you aboard", on: true },
+  { k: "host", label: "Your launch milestones", on: false },
+  { k: "crew", label: "Crew zones", on: false },
 ];
 export type PushPrefs = Record<PushKind, boolean>;
 export const DEFAULT_PUSH_PREFS: PushPrefs = Object.fromEntries(PUSH_KINDS.map((x) => [x.k, x.on])) as PushPrefs;
@@ -28,5 +28,5 @@ export const pushCopy = {
   host: (ticker: string, n: number) => ({ title: `Your launch $${ticker} has ${n} passengers`, body: "A milestone card is ready to share." }),
   crew: (tag: string, zone: string, nthThisWeek: number) => ({ title: `[${tag}] flew to ${title(zone)}`, body: `Your crew's ${nth(nthThisWeek)} rocket past the Kármán Line this week.` }),
   never: ["Price alerts that say buy or sell now", "\"Your crew is buying\" or entry prices", "\"Win it back\" after a red flight", "Streak warnings that push a trade"],
-  rule: "At most 3 pushes a day, all off by default except orbit. Settings has one switch per kind.",
+  rule: "At most 3 a day.",
 } as const;

@@ -28,7 +28,6 @@ export default function LaunchPad({ name, ticker, icon, mode, modeColor, seat, l
       <div className={s.stageScrim} aria-hidden />
       <div className={s.stageTop}>
         <div className={s.stageTitle}>
-          <span className={s.eb}>Host a match</span>
           <h1>Launch<br />a rocket</h1>
         </div>
         <span className={s.modeTag} data-testid="pad-mode">● {mode}</span>

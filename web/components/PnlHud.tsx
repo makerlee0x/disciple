@@ -356,9 +356,6 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
               <div style={{ width: `${Math.max(3, share * 100)}%`, height: "100%", borderRadius: 3, transition: "width .5s ease-out",
                 background: "linear-gradient(90deg,#ffd98a,#9ff3c8)", boxShadow: v.uPnl > 0 ? "0 0 8px rgba(255,217,138,.6)" : "none" }} />
             </div>
-            <div style={{ fontSize: 10, marginTop: 3, color: v.uPnl > 0 ? "#ffe7a3" : "rgba(220,228,255,.5)" }}>
-              {v.uPnl > 0 ? t("pnl.hintUp") : t("pnl.hintFlat")}
-            </div>
           </div>}
         </div>
       )}

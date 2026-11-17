@@ -95,7 +95,7 @@ test("Anon vs Pseudo follows mode and First BOOST amount", () => {
   assert.equal(privateLaunchHelp("5", MODE.EASY), QUICK_LAUNCH_COPY.anonHelp);
   assert.equal(privateLaunchHelp("5", MODE.HARD), QUICK_LAUNCH_COPY.pseudoHelp);
   assert.equal(privateLaunchHelp("5", MODE.TRENCH), QUICK_LAUNCH_COPY.pseudoHelp);
-  assert.equal(QUICK_LAUNCH_COPY.signInLine, "Sign in with email, Google, X or wallet");
+  assert.equal(QUICK_LAUNCH_COPY.signInLine, "Sign in with email, Google or X");
 });
 
 test("launch button and Max chip labels match r4", () => {
@@ -261,9 +261,9 @@ test("creator fee copy matches the r7 card labels and tax helpers, with no jargo
   assert.equal(CREATOR_FEE_COPY[1].chip, "Fees stay in the pool");
   assert.equal(CREATOR_FEE_COPY[2].sentence, "Fees buy and burn the pair coin.");
   assert.equal(CREATOR_FEE_COPY[2].chip, "Fees buy and burn the pair coin");
-  assert.equal(CREATOR_TAX_HELP[0], "You already get 33% of every trading fee. Creator tax is an extra cut on top of that. Higher tax can scare off players.");
-  assert.equal(CREATOR_TAX_HELP[1], "The 33% of every trading fee goes into the locked pool. Creator tax is an extra cut on top of that, and it goes there too. Higher tax can scare off players.");
-  assert.equal(CREATOR_TAX_HELP[2], "The 33% of every trading fee is used to buy and burn the pair coin. Creator tax is an extra cut on top of that, and it is used the same way. Higher tax can scare off players.");
+  assert.equal(CREATOR_TAX_HELP[0], "Added on every trade, and you can't change it later.");
+  assert.equal(CREATOR_TAX_HELP[1], "Added on every trade and goes into the locked pool. You can't change it later.");
+  assert.equal(CREATOR_TAX_HELP[2], "Added on every trade and buys and burns the pair coin. You can't change it later.");
   const here = dirname(fileURLToPath(import.meta.url));
   const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
   const css = readFileSync(join(here, "../components/create/quickLaunch.module.css"), "utf8");
@@ -301,9 +301,9 @@ test("the creator fee split is on the closed Quick Launch page and in Advanced, 
   assert.match(cardBlock, /CREATOR_FEE_COPY\[id\]\.sentence/);
   assert.doesNotMatch(cardBlock, /creatorFeeSplit/);
   assert.equal(QUICK_LAUNCH_COPY.creatorFeesPerm, "You pick this when you launch, and you can't change it later.");
-  assert.equal(CREATOR_TAX_HELP[0], "You already get 33% of every trading fee. Creator tax is an extra cut on top of that. Higher tax can scare off players.");
-  assert.equal(CREATOR_TAX_HELP[1], "The 33% of every trading fee goes into the locked pool. Creator tax is an extra cut on top of that, and it goes there too. Higher tax can scare off players.");
-  assert.equal(CREATOR_TAX_HELP[2], "The 33% of every trading fee is used to buy and burn the pair coin. Creator tax is an extra cut on top of that, and it is used the same way. Higher tax can scare off players.");
+  assert.equal(CREATOR_TAX_HELP[0], "Added on every trade, and you can't change it later.");
+  assert.equal(CREATOR_TAX_HELP[1], "Added on every trade and goes into the locked pool. You can't change it later.");
+  assert.equal(CREATOR_TAX_HELP[2], "Added on every trade and buys and burns the pair coin. You can't change it later.");
   assert.equal(CREATOR_FEE_DESTINATION_LIVE, true);
 });
 
@@ -329,7 +329,7 @@ test("Difficulty is three cards with the caps written on them (canvas board \"La
   assert.match(page, /data-testid="mode-cards"/);
   assert.match(QUICK_LAUNCH_MODE_CARD.Easy.blurb, /1%/);
   assert.match(QUICK_LAUNCH_MODE_CARD.Hard.blurb, /3\.33%/);
-  assert.match(QUICK_LAUNCH_MODE_CARD.Trench.blurb, /No caps/);
+  assert.match(QUICK_LAUNCH_MODE_CARD.Trench.blurb, /No bag cap/);
   assert.equal(QUICK_LAUNCH_MODE_CARD.Trench.label, "Expert");
   assert.doesNotMatch(page, /modesFoot|mode-modal|modeBtn|modeOpen/);
 });
