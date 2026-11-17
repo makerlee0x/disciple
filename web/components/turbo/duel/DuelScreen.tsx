@@ -9,7 +9,9 @@ import { useEffect, useRef } from "react";
 import { getTurboAdapter } from "@/lib/turbo";
 import { onPrivy, privyAuthenticated, privyLogin } from "@/lib/aa/sessionState";
 import { duelApi, followRoom, setDuelGuest, type Follow, type RoomRes, type Res } from "@/lib/duel/client";
-import { parseCode, type LengthMs, type TierId, type TradeAction } from "@/lib/duel/rules";
+import { DUEL_LEN_MS, parseCode, type LengthMs, type TierId, type TradeAction } from "@/lib/duel/rules";
+import { trackFunnel } from "@/lib/funnelClient";
+import { isFunnelStep } from "@/lib/funnel";
 import type { DuelEvent, DuelRoom } from "@/lib/duel/types";
 import { getGameRadio } from "@/lib/game/radio";
 import { TRAILS, trailId } from "@/lib/collection";
@@ -23,7 +25,7 @@ interface EngineApi {
   setMe(rec: { w: number; l: number; rating: number; streak: number } | null, signed: boolean): void;
   setClock(serverNow: number): void;
   searching(waitedMs: number, window: number, botOffer: boolean): void;
-  invite(code: string, url: string): void;
+  invite(code: string, url: string, share?: string): void;
   room(r: DuelRoom, me: string): void;
   event(e: DuelEvent): void;
   error(t: string): void;
@@ -35,7 +37,7 @@ declare global { interface Window { DuelEngine?: { mount(root: HTMLElement, host
 const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
 /** extra plates for the random sky each duel (engine SKY_THEMES) */
 const EXTRA_SKIES = { skyEth: "/turbo/sky-eth.webp", skyBtc: "/turbo/sky-btc.webp", skyPad: "/home/pad/sky-1280.webp" };
-const ENGINE_SRC = "/turbo/duel/engine.js?v=34";
+const ENGINE_SRC = "/turbo/duel/engine.js?v=36";
 
 function loadEngine(): Promise<void> {
   if (window.DuelEngine) return Promise.resolve();
@@ -53,6 +55,8 @@ export default function DuelScreen({ guest = false }: { guest?: boolean } = {}) 
     let dead = false, api: EngineApi | null = null, me: string | null = null, roomId: string | null = null;
     let fol: Follow | null = null, qTimer: ReturnType<typeof setTimeout> | null = null, queued: { tier: TierId; len: LengthMs } | null = null;
     let pendingCode = parseCode(new URLSearchParams(location.search).get("c"));
+    // /turbo/duel?request=<pilot> (from /vs/<pilot> when they're not waiting): open a friend room and ping them to join it
+    let pendingRequest = (() => { const v = new URLSearchParams(location.search).get("request"); return v && /^[a-z0-9_]{1,42}$/i.test(v) ? v.toLowerCase() : null; })();
     const hist: Tick[] = [];
 
     // live BTC, kept 90 s back so the chart is full when a duel starts
@@ -120,13 +124,22 @@ export default function DuelScreen({ guest = false }: { guest?: boolean } = {}) 
     };
     const refreshMe = async () => {
       if (guest && !(await ensureGuest())) { if (!dead) { me = null; api?.setMe(null, false); } return; }
-      if (!guest && !privyAuthenticated()) { me = null; api?.setMe(null, false); return; }
+      if (!guest && !privyAuthenticated()) { me = null; api?.setMe(null, false); if (pendingRequest) api?.error(`Sign in to send @${pendingRequest} a duel request.`); return; }
       const r = await duelApi.me();
       if (dead) return;
       if (!r.ok) { me = null; api?.setMe(null, false); return; }
       me = r.pid; void loadShips([r.pid]); api?.setMe({ w: r.rating.w, l: r.rating.l, rating: r.rating.r, streak: r.rating.streak }, true);
       if (r.active) follow(r.active.id);
-      else if (pendingCode) { const c = pendingCode; pendingCode = null; const j = await duelApi.join(c); if (j.ok) follow(j.room.id); else api?.error(j.reason); }
+      else if (pendingCode) { const c = pendingCode; pendingCode = null; const j = await duelApi.join(c); if (j.ok) { trackFunnel("duel_join"); follow(j.room.id); } else api?.error(j.reason); }
+      else if (pendingRequest) {
+        const to = pendingRequest; pendingRequest = null;
+        const inv = await duelApi.invite("pro", DUEL_LEN_MS);
+        if (!inv.ok) { api?.error(inv.reason); return; }
+        api?.invite(inv.code, location.origin + inv.path, inv.share ? location.origin + inv.share : undefined); follow(inv.room.id);
+        const sent = await duelApi.request(to, inv.code);
+        trackFunnel("duel_request");
+        if (!sent.ok) api?.error(sent.reason);
+      }
     };
     /** a press: send it, show the server's echo at once (the stream would bring it ~250 ms later) */
     const op = async (body: Parameters<typeof duelApi.op>[1]): Promise<{ error?: string }> => {
@@ -148,7 +161,7 @@ export default function DuelScreen({ guest = false }: { guest?: boolean } = {}) 
         if (guest && !me) await refreshMe();
         const r = await duelApi.invite(tier, len, fuel);
         if (!r.ok) { api?.error(r.reason); return; }
-        api?.invite(r.code, location.origin + r.path); follow(r.room.id);
+        api?.invite(r.code, location.origin + r.path, r.share ? location.origin + r.share : undefined); follow(r.room.id);
       },
       // the result card's SHARE (engine shareResult): a fresh friend link the shared post points at; the room is followed so a
       // friend who taps it pulls this pilot into the match
@@ -156,11 +169,14 @@ export default function DuelScreen({ guest = false }: { guest?: boolean } = {}) 
         if (!(await ensureGuest())) return null;
         const r = await duelApi.invite(tier, len, fuel);
         if (!r.ok) return null;
-        follow(r.room.id); return location.origin + r.path;
+        // posts get the permanent /vs/<pilot> link (never expires, carries ?ref=); guests keep the room link
+        follow(r.room.id); return location.origin + (r.share || r.path);
       },
       // first launch of the app: WelcomeIntro sends a new pilot to /turbo/duel?first=1 and the engine starts a bot duel
       first: (() => { const u = new URL(location.href); const on = u.searchParams.get("first") === "1"; if (on) { u.searchParams.delete("first"); history.replaceState(history.state, "", u.toString()); } return on; })(),
-      join: async (code: string) => { if (!(await ensureGuest())) return; if (guest && !me) await refreshMe(); const r = await duelApi.join(code); if (r.ok) follow(r.room.id); else api?.error(r.reason); },
+      join: async (code: string) => { if (!(await ensureGuest())) return; if (guest && !me) await refreshMe(); const r = await duelApi.join(code); if (r.ok) { trackFunnel("duel_join"); follow(r.room.id); } else api?.error(r.reason); },
+      // Turbo funnel moments from the engine (lib/funnel TURBO_STEPS); anything else is ignored
+      track: (k: string) => { if (isFunnelStep(k)) trackFunnel(k); },
       ready: async () => { const r = await op({ op: "ready" }); if (r.error) api?.error(r.error); },
       leave: async () => { const id = roomId; unfollow(); if (id) await duelApi.op(id, { op: "leave" }); },
       rematch: async () => { const r = await op({ op: "rematch" }); if (r.error) api?.error(r.error); },

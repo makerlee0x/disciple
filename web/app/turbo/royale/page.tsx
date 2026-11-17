@@ -8,11 +8,17 @@ import { useEffect, useState } from "react";
 import { withBase } from "@/lib/base-path";
 import { isTurboEnabled } from "@/lib/turbo/flag";
 import { useTurboMusic } from "@/lib/game/turboMusic";
+import { trackFunnel } from "@/lib/funnelClient";
 
 export default function RoyalePage() {
   const [on, setOn] = useState<boolean | null>(null);
   useTurboMusic();
   useEffect(() => { setOn(isTurboEnabled()); }, []);
+  // funnel: the first round a browser plays (the game turns its music on when a round starts), lib/funnel TURBO_STEPS
+  useEffect(() => {
+    const f = (e: MessageEvent) => { if (e.origin === location.origin && e.data?.type === "disciple:music" && e.data.on === true) trackFunnel("royale_join"); };
+    window.addEventListener("message", f); return () => window.removeEventListener("message", f);
+  }, []);
   if (!on) return null;
   return (
     <iframe

@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { FUNNEL_STEPS, dayKey, funnelNet, isFunnelStep, lastDays, nextUtcDay, totalKey, utcDay } from "../lib/funnel.ts";
 
 test("six steps, in funnel order", () => {
-  assert.deepEqual([...FUNNEL_STEPS], ["land", "signin", "fund", "first_trade", "first_launch", "return_d1"]);
+  assert.deepEqual([...FUNNEL_STEPS], ["land", "signin", "fund", "first_trade", "first_launch", "return_d1", "duel_start", "duel_finish", "duel_share", "duel_join", "duel_rematch", "duel_request", "royale_join"]);
   for (const s of FUNNEL_STEPS) assert.ok(isFunnelStep(s));
   for (const s of ["", "LAND", "land ", "visit", null, 1, {}]) assert.equal(isFunnelStep(s), false);
 });

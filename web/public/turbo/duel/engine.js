@@ -31,6 +31,7 @@ function flySky(rnd,reduce){
 /*}FLYSKY*/
 function mount(root,host){
   let dead=false; const offs=[];
+  const track=k=>{ try{ host.track&&host.track(k); }catch(e){} };   // funnel counter (lib/funnel TURBO_STEPS), once per browser
   const on=(t,ev,f,o)=>{ t.addEventListener(ev,f,o); offs.push(()=>t.removeEventListener(ev,f,o)); };
   let st=document.getElementById("duel-css"); if(!st){ st=document.createElement("style"); st.id="duel-css"; st.textContent=CSS; document.head.appendChild(st); }
   root.classList.add("duel-root"); root.innerHTML=HTML;
@@ -781,7 +782,7 @@ function mount(root,host){
       if(left>0){ if(n!==shown){ shown=n; pc.textContent=n; pc.style.animation="none"; void pc.offsetWidth; pc.style.animation=""; if(n<=3) sfx("count"); } return; }
       if(!priceReady()){ if(shown!=="wait"){ shown="wait"; pc.textContent="\u2026"; $("lSub").textContent="Waiting for the live BTC price. GO as soon as it lands."; } return; }
       clearInterval(iv); const pre=$("pre"); pre.classList.add("out"); setTimeout(()=>{ if(pre.classList.contains("out")) pre.hidden=true; },380);
-      c.hidden=false; c.textContent="GO"; sfx("go"); buzz(30); G.started=true; music(true); setTimeout(()=>c.hidden=true,450);
+      c.hidden=false; c.textContent="GO"; sfx("go"); buzz(30); G.started=true; track("duel_start"); music(true); setTimeout(()=>c.hidden=true,450);
       if(!(M&&M.net)&&Math.random()<.6) botSay(pick(["glhf","let's go","you're going down","\ud83e\udee1"]),1500);
       toast(SW>=900?"WASD to fly \u00b7 Space boost \u00b7 Shift dump \u00b7 Enter cash out \u00b7 T chat \u00b7 Q spin \u00b7 E flip":"Drag the sky to steer \u00b7 swipe up to spin \u00b7 double-tap to flip"); },100);
   }
@@ -796,7 +797,7 @@ function mount(root,host){
     for(const [pl,b] of [[G.me,me],[G.bot,them]]){ if(pl.pos&&b&&!b.pos){ vClose(pl,pl.pos.side,(b.fuel-pl.fuel)-pl.pos.coll,res.price); } if(b) setBook(pl,b); }
     ui(); showResult(res.profit[M.me],res.profit[M.opp.pid],{delta:res.delta[M.me]||0,rating:res.rating[M.me],winner:res.winner});
   }
-  function showResult(pm,pb,net){
+  function showResult(pm,pb,net){ track("duel_finish");
     const win=pm>pb, tie=Math.abs(pm-pb)<0.005;
     const rec=Object.assign({w:0,l:0,rating:1200,streak:0},REC);
     const dr=net?net.delta:0;
@@ -858,8 +859,8 @@ function mount(root,host){
   if(host.guest){ $("go").hidden=true; const bk=root.querySelector(".pre-back"); if(bk) bk.style.visibility="hidden"; const mc=root.querySelector(".me-chip"); if(mc) mc.style.visibility="hidden"; const tb=document.querySelectorAll(".duel-root .tab"); if(tb[0]) tb[0].textContent="VS BOT"; if(tb[1]) tb[1].textContent="VS FRIEND";
     $("botSub").textContent="A bot at this tier. Play money, no sign-in."; }
   $("mkLink").addEventListener("click",()=>{ ensureAudio(); if(!SIGNED&&!host.guest){ host.signIn(); return; } mode="friend"; lerr(""); host.createLink(botKey,LEN,CFUEL); });
-  $("iCopy").addEventListener("click",()=>{ const t=$("iLink").dataset.url||""; try{navigator.clipboard.writeText(t); toast("Link copied");}catch(e){ toast(t); } });
-  $("iX").addEventListener("click",()=>{ const t=encodeURIComponent(`1v1 me in a trading duel on DISCIPLE \u2694\ufe0f ${$("iCode").textContent}`), u=encodeURIComponent($("iLink").dataset.url||""); window.open(`https://x.com/intent/post?text=${t}&url=${u}`,"_blank","noopener"); });
+  $("iCopy").addEventListener("click",()=>{ track("duel_share"); const t=$("iLink").dataset.url||""; try{navigator.clipboard.writeText(t); toast("Link copied");}catch(e){ toast(t); } });
+  $("iX").addEventListener("click",()=>{ track("duel_share"); const t=encodeURIComponent(`1v1 me in a trading duel on DISCIPLE \u2694\ufe0f ${$("iCode").textContent}`), u=encodeURIComponent($("iLink").dataset.share||$("iLink").dataset.url||""); window.open(`https://x.com/intent/post?text=${t}&url=${u}`,"_blank","noopener"); });
   $("iCancel").addEventListener("click",()=>{ host.leave(); show("intro"); });
   $("joinF").addEventListener("submit",e=>{ e.preventDefault(); if(!SIGNED&&!host.guest){ host.signIn(); return; } const v=$("joinI").value.trim(); if(!v) return; ensureAudio(); mode="friend"; lerr(""); host.join(v); });
   function practice(){ M={net:false,ranked:false}; OFF=0; opp={name:BOTS[botKey].name,bot:true}; openVs("BOT MATCH",{name:BOTS[botKey].name,bot:true},"bot match \u00b7 no rating"); meReady(); }   // a bot is always ready: go straight to the countdown, which has a Cancel
@@ -885,7 +886,7 @@ function mount(root,host){
       if(Date.now()-t0>PRICE_WAIT_MS){ clearInterval(pwIv); M=null; show("intro"); lerr("Can't reach the live BTC price right now. Try again in a moment."); } },250); }
   $("lCancel").addEventListener("click",()=>{ clearInterval(launchIv); if(!M||M.net) return; M=null; $("preCount").hidden=true; show("intro"); });
   $("vLeave").addEventListener("click",()=>{ clearInterval(vIv); if(M&&M.net) host.leave(); M=null; show("intro"); });
-  $("rAgain").addEventListener("click",()=>{ if(M&&!M.net){ practice(); return; } $("rAgain").disabled=true; $("rAgain").textContent="WAITING\u2026"; host.rematch(); });
+  $("rAgain").addEventListener("click",()=>{ track("duel_rematch"); if(M&&!M.net){ practice(); return; } $("rAgain").disabled=true; $("rAgain").textContent="WAITING\u2026"; host.rematch(); });
   $("rBack").addEventListener("click",()=>{ if(M&&M.net) host.toLobby(); M=null; show("intro"); });
   $("rShare").addEventListener("click",()=>{ void shareResult(); });
   $("rSave").addEventListener("click",()=>{ host.signIn(); });
@@ -975,14 +976,14 @@ function mount(root,host){
     x.font=`800 38px ${GF},sans-serif`; x.fillStyle="#F2C14E"; x.fillText("1V1 ME · DISCIPLE.VIP",W/2,H-60);
     return c;
   }
-  async function shareResult(){ sfx("shutter");
+  async function shareResult(){ sfx("shutter"); track("duel_share");
     if(!LAST) return;
     const btn=$("rShare"); btn.disabled=true; const was=btn.textContent; btn.textContent="…";
     try{
       // signed in: a fresh friend link, so whoever taps it lands in a duel against you (30 min); otherwise the site
       let url=location.origin+(host.guest?"/duel":"/");
       if((SIGNED||host.guest)&&host.challengeLink){ try{ const u=await host.challengeLink(botKey,LEN,M&&M.fuel||undefined); if(u) url=u; }catch(e){} }
-      const text=shareLine(LAST)+(url.includes("?c=")?" 1v1 me:":"");
+      const text=shareLine(LAST)+((url.includes("?c=")||url.includes("/vs/"))?" 1v1 me:":"");
       let file=null; try{ const blob=await new Promise(res=>shareCard(LAST).toBlob(res,"image/png")); if(blob) file=new File([blob],"disciple-duel.png",{type:"image/png"}); }catch(e){}
       if(navigator.share){
         const d=file&&navigator.canShare&&navigator.canShare({files:[file]})?{files:[file],text:text+" "+url}:{text,url};
@@ -1000,7 +1001,7 @@ function mount(root,host){
     setMe:(rec,signed)=>{ REC=Object.assign({w:0,l:0,rating:1200,streak:0},rec||{}); SIGNED=!!signed; paintLobby(); },
     setClock:(serverNow)=>{ OFF=serverNow-Date.now(); },
     searching:(waitedMs,window_,botOffer)=>{ $("sT").textContent=mmss(waitedMs+999); $("sSub").textContent=`${botKey.toUpperCase()} \u00b7 ${lenTxt()} \u00b7 ${REC.rating-window_}\u2013${REC.rating+window_}`; if(botOffer&&$("sBot").hidden){ $("sBot").hidden=false; $("sH").textContent="STILL LOOKING"; } },
-    invite:(code,url)=>{ $("iCode").textContent="DUEL-"+code; $("iLink").textContent=url.replace(/^https?:\/\//,""); $("iLink").dataset.url=url; $("iSub").textContent=`FRIEND \u00b7 ${money(CFUEL)} fuel each \u00b7 ${lenTxt()}`; $("iWait").textContent="Waiting for your friend to open the link\u2026"; show("invite"); },
+    invite:(code,url,share)=>{ $("iCode").textContent="DUEL-"+code; $("iLink").textContent=url.replace(/^https?:\/\//,""); $("iLink").dataset.url=url; $("iLink").dataset.share=share||""; $("iSub").textContent=`FRIEND \u00b7 ${money(CFUEL)} fuel each \u00b7 ${lenTxt()}`; $("iWait").textContent="Waiting for your friend to open the link\u2026"; show("invite"); },
     room:(r,meId)=>{ // lobby state of a server room
       if(r.tier&&TIERS[r.tier]) botKey=r.tier; if(r.lenMs) LEN=Math.min(r.lenMs,60000);
       const o=r.players.find(p=>p.pid!==meId), me=r.players.find(p=>p.pid===meId);
