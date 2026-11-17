@@ -2,7 +2,7 @@
 /**
  * /admin/mint (ADMIN_EMAILS): set up our Candy Machine for the rest of the Disciples drop. maker signs every on-chain step
  * from the collection wallet (DISCIPLE_TREASURY) in his own Solana wallet; nothing here holds a key.
- *  0. Copy maker's original art + metadata (Google Drive) into Vercel Blob, 8 at a time (/api/admin/nft/art).
+ *  0. Copy maker's original art (Google Drive) into Vercel Blob as WebP, 8 at a time (/api/admin/nft/art).
  *  1. Read which disciples are already minted (Helius, server, by on-chain name); the rest become the machine's items.
  *  2. Create the machine + guards (0.777 SOL to the treasury, 7 per wallet), then its lookup table (a pNFT mint with guards
  *     is near the transaction size cap).  3. Load the items (one approval).  4. Go live: /mint starts minting from it.
@@ -20,7 +20,7 @@ import type { Line, MachineState } from "@/lib/nft/candy";
 import WalletChooser from "./WalletChooser";
 
 type Plan = { minted: number; /** every minted disciple's number (on-chain name) */ takenNumbers: number[]; /** minted ones with no "#N" name */ unnamed: number; candyMachine: string | null; lut: string | null };
-type Art = { blob: boolean; imported: number[]; base: string | null };
+type Art = { blob: boolean; imported: number[]; base: string | null; unmapped: string[] };
 const LS = "disciple:admin:cm", LS_LUT = "disciple:admin:lut";
 const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k: string, v: string | null) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch { /* private mode */ } };
@@ -63,25 +63,25 @@ export default function AdminMint({ configured }: { configured: boolean }) {
   const readArt = (traits = false) => run("art", async () => {
     const a = await adminCall<Art>(undefined, `/api/admin/nft/art${traits ? "?traits=1" : ""}`);
     setArt(a); note(a.blob ? `Art in Blob: ${a.imported.length} / ${DISCIPLE_SUPPLY}.` : "Vercel Blob isn't connected.");
+    if (a.unmapped.length) note(`Traits spelled by rule (no minted NFT shows them yet): ${a.unmapped.join(", ")}`);
   });
   /** Copy every disciple not in Blob yet (all 777, so minted ones get a backup too), 8 per call, 2 calls at a time. */
   const copyArt = () => run("copy", async () => {
     const have = new Set(art?.imported ?? []);
     const todo = Array.from({ length: DISCIPLE_SUPPLY }, (_, i) => i).filter((n) => !have.has(n));
     const batches: number[][] = []; for (let i = 0; i < todo.length; i += 8) batches.push(todo.slice(i, i + 8));
-    let next = 0, done = 0; const unmapped = new Set<string>(), failed: string[] = [];
+    let next = 0, done = 0; const failed: string[] = [];
     setCopied(0);
     async function worker() {
       while (next < batches.length) {
         const nums = batches[next++];
-        const r = await adminCall<{ done: number[]; failed: { n: number; error: string }[]; unmapped: string[] }>({ method: "POST", body: JSON.stringify({ numbers: nums }) }, "/api/admin/nft/art");
-        r.unmapped.forEach((u) => unmapped.add(u)); r.failed.forEach((f) => failed.push(`#${f.n} ${f.error}`));
+        const r = await adminCall<{ done: number[]; failed: { n: number; error: string }[] }>({ method: "POST", body: JSON.stringify({ numbers: nums }) }, "/api/admin/nft/art");
+        r.failed.forEach((f) => failed.push(`#${f.n} ${f.error}`));
         done += r.done.length; setCopied(done);
       }
     }
     await Promise.all([worker(), worker()]);
     note(`Copied ${done} of ${todo.length}.${failed.length ? ` Failed: ${failed.slice(0, 5).join("; ")}${failed.length > 5 ? "…" : ""}` : ""}`);
-    if (unmapped.size) note(`Traits spelled by rule (no minted NFT shows them yet): ${[...unmapped].join(", ")}`);
     const a = await adminCall<Art>(undefined, "/api/admin/nft/art"); setArt(a);
   });
   const readPlan = () => run("plan", async () => {
