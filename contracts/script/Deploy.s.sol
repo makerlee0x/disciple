@@ -83,7 +83,8 @@ contract DevToken is ERC20, ERC20Permit {
 ///   SAFE                protocol Safe (optional). Set: every contract that keeps an owner is NOMINATED to it
 ///                       (two-step) and the Safe calls acceptOwnership() on each (one batched Safe tx); it is also the
 ///                       default TREASURY and REWARDS_VAULT_OWNER. Unset (maker 2026-11-17: the Safe comes after
-///                       mainnet): the deployer keeps those roles; run script/HandoverToSafe.s.sol later. The renounces
+///                       mainnet): the deployer keeps those roles; run script/HandoverToSafe.s.sol later (mainnet: 2-of-3 Safe behind a
+///                       timelock, maker 2026-11-17). The renounces
 ///                       and the FeeRouter lock still happen at deploy on 4663. Audit 2026-11-17 R461-05 / (g).
 ///   PRICER_POKER        QuotePricer keeper (required on 4663): launches revert StalePrice without fresh pokes
 ///   REWARDS_VAULT_OWNER community RewardsVault owner (default deployer): TEMP wallet on testnet, multisig (Safe) on
@@ -91,6 +92,7 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       within snipeEscrowTimeout (releaseSnipeEscrow, or a late graduation). Nominated only
 ///                       (Owned2Step): it must acceptOwnership(). Existing stack: script/rewards/DeployRewardsVault.s.sol;
 ///                       steps in docs/rewards-vault-runbook.md.
+///   DEPLOY_TRAMP_WALL   true → also deploy TrampWallManager (testnet/local only; off for launch, maker 2026-11-17)
 ///   ERC5564_ANNOUNCER   ERC-5564 announcer (default 0x55649E01B5Df198D18D95b5cc5051630cfD45564)
 ///   DEPLOY_TEST_STRATEGY true → (DEFAULT_QUOTE unset) deploy a test STRATEGY and seed a STRATEGY/USDG pool at
 ///                       TEST_STRATEGY_PRICE_WAD (USDG raw per STRATEGY raw, WAD; default $0.00245 scaled to USDG's
@@ -176,7 +178,11 @@ contract Deploy is NetworkConfig {
         lockedLP.setPoolManager(o.manager);
 
         DiscipleRouter router = new DiscipleRouter(manager, lockedLP, address(hook));
-        o.trampWall = address(new TrampWallManager(manager, lockedLP, address(hook)));
+        // Tramps & walls are off for launch (maker 2026-11-17: "just remove the tramps and walls for now").
+        // DEPLOY_TRAMP_WALL=true still deploys the manager off mainnet for testing.
+        if (block.chainid != 4663 && vm.envOr("DEPLOY_TRAMP_WALL", false)) {
+            o.trampWall = address(new TrampWallManager(manager, lockedLP, address(hook)));
+        }
         // Slim hook (2026-11-17): no LP gate, no trader credit, no in-swap compounding. LockedLP.flush and the harvest's
         // route are permissionless; the site's cron calls them on a schedule.
 
@@ -300,7 +306,7 @@ contract Deploy is NetworkConfig {
             _nominate(address(probe), safe);
             _nominate(address(migration), safe);
             _nominate(address(router), safe);
-            _nominate(o.trampWall, safe);
+            if (o.trampWall != address(0)) _nominate(o.trampWall, safe);
             _nominate(address(referrals), safe);
             _nominate(o.anonLauncher, safe);
             if (lockedLP.owner() != address(0)) _nominate(address(lockedLP), safe);
