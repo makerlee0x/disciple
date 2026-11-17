@@ -95,7 +95,7 @@ function mount(root,host){
   const mmss=ms=>{const s=Math.max(0,Math.ceil(ms/1000));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");};
 
   /* ---------- rules ---------- */
-  const LEV=50 /* Lighter BTC max, feel test */, FEE=0.000055 /* 0.55 bp a side = 1.1 bp round trip: Lighter Plus + 0.1 bp ours (feel test, lib/duel/rules) */, FILL_MS=300 /* Lighter taker speed bump */, LIQ=0.8 /* NUKE at 80% of the fuel in it lost */;
+  const LEV=50 /* Lighter BTC max, feel test */, FEE=0.00006 /* 0.6 bp a side = 1.2 bp round trip: Lighter Plus + 0.2 bp ours (feel test, lib/duel/rules) */, FILL_MS=300 /* Lighter taker speed bump */, LIQ=0.8 /* NUKE at 80% of the fuel in it lost */;
   let FUEL0=20;
   const TIERS={rookie:{fuel:20,sizes:[1,2,5,10,0]},pro:{fuel:50,sizes:[2,5,10,25,0]},shark:{fuel:150,sizes:[5,10,25,50,0]}};
   const BOTS={

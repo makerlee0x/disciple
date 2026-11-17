@@ -11,8 +11,8 @@
 
 /** Lighter's BTC max (50×) for the Lighter Plus feel test; was 500× for Nova. */
 export const LEV = 50;
-/** 0.55 bp a side on notional = 1.1 bp round trip: the Lighter Plus test (1 bp to Lighter + 0.1 bp Disciple partner fee, maker 2026-11-17). */
-export const FEE = 0.000055;
+/** 0.6 bp a side on notional = 1.2 bp round trip: the Lighter Plus test (1 bp to Lighter + 0.2 bp Disciple partner fee; maker 2026-11-17: 1.1 "wasn't bad", try 1.2). */
+export const FEE = 0.00006;
 /** Every duel fill waits this long after the tap, like a Lighter Standard/Plus taker order (300 ms speed bump). */
 export const FILL_MS = 300;
 /** NUKE when the open position has lost 80% of the fuel in it. */
