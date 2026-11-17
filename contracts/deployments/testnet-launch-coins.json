@@ -204,6 +204,19 @@
         "tickSpacing": 8
       },
       "via": "GLD"
+    },
+    "DELTA": {
+      "address": "0x4853E82e0606D91C7915889C0eCB7C3DB733592b",
+      "leg1": {
+        "currency0": "0x4853E82e0606D91C7915889C0eCB7C3DB733592b",
+        "currency1": "0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D",
+        "fee": 19900,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "poolId": "0xf87d80bbfc9898bec13e5fd969b2179856e1d222fac5d8096bbc7f3f99a6f6b6",
+        "tickSpacing": 199
+      },
+      "leg2": "none",
+      "via": "USDG"
     }
   },
   "ethSeeded": 33060890405573981,
@@ -255,5 +268,24 @@
     "tx": "0x3c0646a60705d89090ea2b9b9a9c36207b127342785396883e6fc68b5437582d",
     "isAllowedQuote": false,
     "note": "Pool, price route and router route are left in place. HMM still has a price pool from setPriceRoute, so a new HMM-paired launch still prices through that pool."
+  },
+  "deltaSeeded": {
+    "date": "2026-11-17",
+    "script": "script/testnet/SeedTestnetDelta.s.sol",
+    "note": "DELTA stand-in added to match main after #462 (one hop USDG/DELTA, fee 19900, tickSpacing 199, no hook). Price about $0.007857, from the mainnet pool's ~27.5K USDG / ~3.5M DELTA. Full-range depth $250,000 per side, same as the other ERC-20 testnet pools, through the existing liquidity helper.",
+    "usdPriceWad": "7857000000000000",
+    "sqrtPriceX96": "7022762158505238084214",
+    "tick": -324790,
+    "liquidity": "2820406014260052898",
+    "txs": {
+      "deployToken": "0x6aace90b9e3d2099f3cbd331071c7915ed7e95a53033d7e00f59d88d9c809ac1",
+      "approveUsdg": "0x9fc98b73eb7f64fd9eebc2f4bed1a3075fa77f3ebacd7604fad2a577187f5dc2",
+      "approveDelta": "0x8c85b4226bd2cba013ec4e3499fe4e1afcbd6775316b2f2ad2b394de891c16c4",
+      "initialize": "0x90086ff672cb7ca6175d5e7caf363801ab005ef043622b0d79396ca3981ce694",
+      "modifyLiquidity": "0x5bb08dcb1a36c2075384c287d794376483ef6ea558e4077cea2316d885abd770",
+      "setAllowedQuote": "0xed1e8459ccda919db9580f7d35457d55752bf082d642d6e579a6a8346d17466d",
+      "setPriceRoute": "0x0daa7be7cfe3a984ba6fc0e276d6263962dabdd8f29ac6c3e5afda121c698371",
+      "setUsdgRoute": "0x8f38f49d8f0365e51b4ec7ba691bd40696824998a46754001757c52827cbc350"
+    }
   }
 }

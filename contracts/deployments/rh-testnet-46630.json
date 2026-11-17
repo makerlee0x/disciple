@@ -1007,11 +1007,12 @@
     "0x06f31a8877c8e025cc55faffb20cba8486cca527"
   ],
   "launchWhitelistRoutes": {
-    "status": "wired on testnet with stand-in coins (Nov 16, 2026)",
+    "status": "wired on testnet with stand-in coins (Nov 16, 2026); DELTA stand-in added Nov 17, 2026",
     "details": "deployments/testnet-launch-coins.json",
     "e2e": "deployments/testnet-launch-e2e.json",
     "txs": "deployments/testnet-launch-coins-txs.json",
-    "curveDeployerUsedForE2E": "0x9e5eB206BcAc0E54F00F46E70C7f2C3e97dAe3A6"
+    "curveDeployerUsedForE2E": "0x9e5eB206BcAc0E54F00F46E70C7f2C3e97dAe3A6",
+    "delta": "deployments/testnet-launch-coins.json coins.DELTA"
   },
   "firstBoostMaxBps": {
     "TRENCH": 777,

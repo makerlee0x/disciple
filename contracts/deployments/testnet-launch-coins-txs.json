@@ -872,5 +872,35 @@
    "approve": "0x25a08142e4c90bf261971b468e68b5e0a9324de6e1a47a8a55f4a49dc8989c05",
    "sellToUsdg": "0x6eb03311a170a0e96a2ebf2ad076cbbe17b98789e2bc0ff2af208a58c3098e3b"
   }
+ },
+
+ "seedDelta": {
+  "deployToken": "0x6aace90b9e3d2099f3cbd331071c7915ed7e95a53033d7e00f59d88d9c809ac1",
+  "approveUsdg": "0x9fc98b73eb7f64fd9eebc2f4bed1a3075fa77f3ebacd7604fad2a577187f5dc2",
+  "approveDelta": "0x8c85b4226bd2cba013ec4e3499fe4e1afcbd6775316b2f2ad2b394de891c16c4",
+  "initialize": "0x90086ff672cb7ca6175d5e7caf363801ab005ef043622b0d79396ca3981ce694",
+  "modifyLiquidity": "0x5bb08dcb1a36c2075384c287d794376483ef6ea558e4077cea2316d885abd770",
+  "setAllowedQuote": "0xed1e8459ccda919db9580f7d35457d55752bf082d642d6e579a6a8346d17466d",
+  "setPriceRoute": "0x0daa7be7cfe3a984ba6fc0e276d6263962dabdd8f29ac6c3e5afda121c698371",
+  "setUsdgRoute": "0x8f38f49d8f0365e51b4ec7ba691bd40696824998a46754001757c52827cbc350"
+ },
+ "deltaE2e": {
+  "token": "0x8c0CFdFa8Db25B5fBf79eDB53B58F01d6A6BECdb",
+  "curve": "0x51016ae7736A65cD602D3f4Ba306e05aF4F26C5E",
+  "launch": "0xdb63c13e3e2e88efe60e6365bab6b9fb1cb7fc1ad268af758d5f5ea833282826",
+  "approveUsdg": "0x8ffd518709fbaf5d7e881423c1e88ebea7c1f75f08420de02deb8930c9e0dedc",
+  "buyWithUsdg": "0xbbf5cef39ed010ef8f55ebb6a29716f88f41fabb5a3f1ee47df1093a89eea310",
+  "approveToken": "0xa89fe162a89723db465209c4f7fd307d9523106b05784907a644932fef69bea5",
+  "sellToUsdg": "0xd0a21c54ea3f8bbf4cb6320d5c230e18e1e7b7e00ce03ba5ad19913b23e904f8",
+  "claimCreatorFees": "0xe52a37a4e8b01212cfb19fa6a732f7655477469acdef3fadd5d57c7b9931342f",
+  "buyUsdgIn": "100000000",
+  "buyTokensOut": "27159834895750163739155",
+  "buyImpactBps": 349,
+  "sellTokensIn": "13579917447875081869577",
+  "sellUsdgOut": "42813340",
+  "sellImpactBps": 171,
+  "creatorTaxOwedQuoteWei": "919014911194577211719",
+  "claimedCreatorFeesQuoteWei": "979669895333419307692",
+  "note": "Launch paired with the DELTA stand-in, then a $100 USDG buy and a sell of half the tokens, after the snipe window. Creator fees accrued in DELTA and were claimed."
  }
 }
