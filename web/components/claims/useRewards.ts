@@ -12,10 +12,15 @@ import { myStealthCoins, myStealthKeys } from "@/lib/privateLaunch";
 import { fetchUsernameStatus, localUsername } from "@/lib/profile";
 import { pc, useCaps, useWalletAddr } from "./ui";
 
+// One load per wallet, shared by every useRewards (account menu warms it, the Hangar popup reads it at once).
+// A remount shows the last result straight away and refreshes behind it; calls in flight are shared, not repeated.
+const cache = new Map<string, RewardsData>();
+const inflight = new Map<string, Promise<RewardsData | null>>();
+
 export function useRewards(enabled = true) {
   const me = useWalletAddr();
   const { caps, ready, demo } = useCaps();
-  const [data, setData] = useState<RewardsData | null>(null);
+  const [data, setData] = useState<RewardsData | null>(() => (me ? cache.get(me.toLowerCase()) ?? null : null));
   const [gate, setGate] = useState<GateState | null>(null);
   const [username, setUsername] = useState("");
 
@@ -23,12 +28,21 @@ export function useRewards(enabled = true) {
     if (!enabled) return;
     if (demo) { setData(demoRewards(Math.floor(Date.now() / 1000))); if (caps.referralGate) setGate(demoGate(Math.floor(Date.now() / 1000))); return; }
     if (!me || !ready) return;
+    const key = me.toLowerCase();
+    const hit = cache.get(key); if (hit) setData(hit);
     const c = pc();
     if (caps.referralGate) void gateState(c, me).then(setGate).catch(() => setGate(null));
-    // private launches announced to this account's stealth keys (same silent signature the creator dashboard uses)
-    const stealth = caps.anonClaims ? await myStealthKeys().then((k) => myStealthCoins(c, k)).catch(() => []) : [];
-    try { setData(await loadRewards(c, me, caps, stealth)); }
-    catch (e) { console.warn("[disciple] rewards: load failed", (e as Error)?.message ?? e); setData(null); }
+    let p = inflight.get(key);
+    if (!p) {
+      p = (async () => {
+        // private launches announced to this account's stealth keys (same silent signature the creator dashboard uses)
+        const stealth = caps.anonClaims ? await myStealthKeys().then((k) => myStealthCoins(c, k)).catch(() => []) : [];
+        try { const d = await loadRewards(c, me, caps, stealth); cache.set(key, d); return d; }
+        catch (e) { console.warn("[disciple] rewards: load failed", (e as Error)?.message ?? e); return cache.get(key) ?? null; }
+      })().finally(() => inflight.delete(key));
+      inflight.set(key, p);
+    }
+    setData(await p);
   }, [enabled, me, ready, demo, caps]);
   useEffect(() => { void load(); }, [load]);
 

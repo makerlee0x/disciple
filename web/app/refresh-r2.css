@@ -537,7 +537,14 @@ textarea.he-ta { min-height: 76px; padding: 12px 14px; resize: none; display: bl
 .wb-pilot[aria-expanded="true"] .wb-chev { transform: rotate(180deg); }
 /* pilot pill (maker 2026-11-17): plain picture, level progress around the pill border, level number as a chip */
 .wb-pilot { position: relative; }
-.wb-pfp { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none; display: block; }
+.wb-pfp { width: 36px; height: 36px; border-radius: 50%; overflow: hidden; flex: none; display: block; }
+.wb-pfp img, .am-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Disciple NFT picture: gold hex frame, same as the profile hero (hangarBay.module.css .av.hex) */
+.pfp-hex { border: 0 !important; border-radius: 0 !important; padding: 2px; box-sizing: border-box;
+  background: linear-gradient(160deg, #FFF6DC, #F2C14E 45%, #9A6B12) !important;
+  clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%); }
+.pfp-hex img { clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%); }
+.am-av.has-img { overflow: hidden; padding: 0; }
 .wb-prog { position: absolute; inset: -1px; pointer-events: none; overflow: visible; }
 .wb-prog path { transition: stroke-dasharray 600ms var(--dsc3-ease); }
 .wb-lv { flex: none; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; display: grid; place-items: center;
@@ -767,6 +774,7 @@ textarea.he-ta { min-height: 76px; padding: 12px 14px; resize: none; display: bl
 /* top bar "?" (components/HelpButton, nav option A, maker 2026-11-14): How to play moved out of the tabs into this help card */
 .lb-help { position: relative; flex: none; display: inline-flex; }
 .lb-help-out { margin-left: auto; margin-right: -28px; }  /* the bar's 40px gap → 12px before Play now */
+@media (max-width: 1440px) { .lb-help-out { margin-right: -16px; } }  /* bar gap drops to 28px here; keep the 12px */
 .lb-help-out + .lb-playnow { margin-left: 0; }
 .lb-help-btn {
   all: unset; box-sizing: border-box; cursor: pointer; width: 44px; height: 44px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;

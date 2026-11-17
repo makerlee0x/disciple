@@ -29,9 +29,7 @@ import { pct } from "@/lib/aa/slippage";
 import type { Address } from "@/lib/protocol";
 import Icon from "@/components/icons/Icon";
 import LevelRing from "@/components/xp/LevelRing";
-import { fetchProfileMeta } from "@/lib/profileMetaClient";
-import { withBase } from "@/lib/base-path";
-import { pfpUrl } from "@/lib/profileMeta";
+import { usePilotPfp } from "@/lib/pilotPfp";
 import { levelInfo } from "@/lib/xp";
 import { useXp } from "@/lib/xpClient";
 import { playerError } from "@/lib/playerError";
@@ -64,27 +62,15 @@ function metaOf(coin: Address) {
  * Dev options: an existing wallet as owner (one signature).
  * Legacy "plain wallet" path kept as fallback (one tx per action).
  */
-/** The pilot pill's picture: the saved profile picture, else the level ring (level 1 until the first XP lands). */
-function usePilotPfp(wallet: string | null) {
-  const [img, setImg] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    const read = () => { void fetchProfileMeta(wallet).then((m) => { if (alive) setImg(pfpUrl(m.pfp) ? withBase(pfpUrl(m.pfp)) : null); }); };
-    read();
-    window.addEventListener(PROFILE_CHANGED_EVENT, read);
-    return () => { alive = false; window.removeEventListener(PROFILE_CHANGED_EVENT, read); };
-  }, [wallet]);
-  return img;
-}
 /** maker 2026-11-17: the picture sits plain in the pill; the level progress runs around the pill's own border and the
  *  level number is a chip in the pill. */
 function usePilotParts(wallet: string | null) {
   const { xp } = useXp(wallet);
-  const img = usePilotPfp(wallet);
+  const { img, nft } = usePilotPfp(wallet);
   const info = xp?.level ?? levelInfo(0);
   return { info, avatar: img
     // eslint-disable-next-line @next/next/no-img-element
-    ? <img className="wb-pfp" src={img} alt="" width={36} height={36} />
+    ? <span className={nft ? "wb-pfp pfp-hex" : "wb-pfp"}><img src={img} alt="" width={36} height={36} /></span>
     : <LevelRing info={{ ...info, progress: 0 }} size={36} />, hasPfp: !!img };
 }
 /** Gold progress stroke around the pill's border, starting top-centre, clockwise. Sized to the pill (ResizeObserver). */
