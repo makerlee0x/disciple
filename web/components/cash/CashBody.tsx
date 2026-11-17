@@ -311,7 +311,7 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
             <button type="button" className="r2-gold" disabled={busy || amtNum <= 0} onClick={cashOut} data-testid="cash-out-btn">
               {busy ? CASH_COPY.sending : amtNum > 0 ? CASH_COPY.cashOut(usd2(amtNum)) : CASH_COPY.tabs.out}
             </button>
-            <span className="cx-fine cx-d">{CASH_COPY.fine}</span>
+            <span className="cx-fine">{CASH_COPY.fine}</span>
           </>
         )}
       </div>

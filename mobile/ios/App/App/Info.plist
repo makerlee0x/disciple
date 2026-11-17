@@ -67,8 +67,6 @@
 		<dict>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>flame.fill</string>
-			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>Board the top rocket</string>
 			<key>UIApplicationShortcutItemTitle</key>
 			<string>Play now</string>
 			<key>UIApplicationShortcutItemType</key>
@@ -82,8 +80,6 @@
 		<dict>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>gamecontroller.fill</string>
-			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>Today's daily challenge</string>
 			<key>UIApplicationShortcutItemTitle</key>
 			<string>Free play</string>
 			<key>UIApplicationShortcutItemType</key>
@@ -97,8 +93,6 @@
 		<dict>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>paperplane.fill</string>
-			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>Build your rocket</string>
 			<key>UIApplicationShortcutItemTitle</key>
 			<string>Launch a coin</string>
 			<key>UIApplicationShortcutItemType</key>
@@ -113,7 +107,7 @@
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>bolt.fill</string>
 			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>Practice duel</string>
+			<string>Practice</string>
 			<key>UIApplicationShortcutItemTitle</key>
 			<string>Trading Duel</string>
 			<key>UIApplicationShortcutItemType</key>
