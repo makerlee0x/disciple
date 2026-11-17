@@ -4,6 +4,7 @@
  * (see contracts/script/whitelist/README.md) and is never sent from the web app.
  *
  * Nov 16, 2026 (maker): MOO and SPACEHOOD removed, PENGU and HMM added.
+ * Nov 17, 2026 (maker): HMM replaced by DELTA (single hop, unhooked 1.99% USDG/DELTA v4 pool).
  * Images live at /whitelist/<SYMBOL>.png (256×256 PNGs).
  *
  * USDG and ETH are built as optional pairs (OPTIONAL_QUOTES) that are OFF at launch.
@@ -96,11 +97,11 @@ export const WHITELIST_QUOTES: readonly WhitelistQuote[] = [
     imagePath: "/whitelist/PENGU.png",
   },
   {
-    symbol: "HMM",
-    name: "Thinking Cat",
-    address: "0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f",
+    symbol: "DELTA",
+    name: "Delta",
+    address: "0xe8ffd7e24187F72afB08d75B1bb13088A989a791",
     decimals: 18,
-    imagePath: "/whitelist/HMM.png",
+    imagePath: "/whitelist/DELTA.png",
   },
 ] as const;
 

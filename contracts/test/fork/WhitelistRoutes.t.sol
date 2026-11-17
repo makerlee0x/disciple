@@ -44,7 +44,7 @@ contract WhitelistRoutesForkTest is Test {
     address internal constant CASHCAT = 0x020bfC650A365f8BB26819deAAbF3E21291018b4;
     address internal constant PRIORS = 0xeDBf91223639800BCd5756815CAf908Df3b890bE;
     address internal constant PENGU = 0x74BE72AFFAFbC8de30F0C11247814036314D625f;
-    address internal constant HMM = 0x7FE995a80075dF3Dc8Ae11A9b82c7FE4202CD87f;
+    address internal constant DELTA = 0xe8ffd7e24187F72afB08d75B1bb13088A989a791;
     /// @dev Native ETH (v4 currency 0) and the deepest UNHOOKED ETH/USDG pool (0.05%, id 0x387bf619…, ~$5.1M per side,
     ///      read 2026-11-16 at block ~116.26M). Deeper ETH/USDG pools exist but are hooked and not vetted.
     address internal constant ETH = address(0);
@@ -134,11 +134,10 @@ contract WhitelistRoutesForkTest is Test {
             keys = _two(_pk(ETH, USDG, 500, 10, address(0)), _pk(ETH, PENGU, 10_000, 100, address(0)));
             id0 = ETH_USDG_ID;
             id1 = 0x38cbd4b134c801b6d534600ccf5c59ff06e5e5058f108ddef85aa66c15ffb086;
-        } else if (quote == HMM) {
-            // ETH leg (1.01%) ~= depth of the 3.43% single USDG/HMM pool 0xbe59bf5d… at a third of the fee
-            keys = _two(_pk(ETH, USDG, 500, 10, address(0)), _pk(ETH, HMM, 10_142, 202, address(0)));
-            id0 = ETH_USDG_ID;
-            id1 = 0xd5c1dd19513b6327159661532e10dab56c3127ac283c473ea5e6f5e4707fb982;
+        } else if (quote == DELTA) {
+            // single unhooked USDG/DELTA 1.99% (replaced HMM, maker 2026-11-17); thin: ~$39K TVL on Nov 17
+            keys = _one(_pk(USDG, DELTA, 19_900, 199, address(0)));
+            id0 = 0xebd2fbb46948c5b21ca32dcd0be5ae851fed99362cfcf198d060a63a8689cd66;
         } else if (quote == PONS) {
             keys = _one(_pk(PONS, USDG, dyn, 60, PONS_USDG_HOOK));
             id0 = 0x486435a1f76cd58193f854c6e6213cd05fd58d637865d02065ff558b387fa6ea;
@@ -312,7 +311,7 @@ contract WhitelistRoutesForkTest is Test {
         _checkCoin("CASHCAT", CASHCAT);
         _checkCoin("PRIORS", PRIORS);
         _checkCoin("PENGU", PENGU);
-        _checkCoin("HMM", HMM);
+        _checkCoin("DELTA", DELTA);
         console2.log("failure count", failures);
         assertEq(failures, 0, "one or more whitelist routes failed the floor, probe, or $100 buy; see logs, routes were not silently changed");
     }
