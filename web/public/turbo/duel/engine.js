@@ -50,6 +50,20 @@ function mount(root,host){
     +".duel-root .res .sline{margin-top:0;padding:8px 12px}"
     +".duel-root .res .rrow .sec,.duel-root .res .rrow .go{height:52px}.duel-root .res .rrow .go{font-size:24px}"
     +".duel-root .res .save{margin-top:0;height:44px;font-size:17px}.duel-root .res .xlink{margin-top:0;padding:9px 12px}"
+    // out-of-fuel callout (fuelOut): sits on the trade bar, tail points at the CASH OUT pill
+    +".duel-root .fuelout{position:absolute;left:50%;bottom:calc(100% + 12px);z-index:31;display:flex;align-items:stretch;border-radius:12px;background:#15161B;border:2px solid var(--pinkl);box-shadow:0 0 0 4px rgba(255,143,189,.16),0 12px 30px rgba(0,0,0,.55);font:800 19px/1 var(--f-game);letter-spacing:.8px;white-space:nowrap;opacity:0;transform:translate(-50%,8px) scale(.96);transition:opacity .15s,transform .2s;pointer-events:none}"
+    +".duel-root .fuelout.show{opacity:1;transform:translate(-50%,0);animation:fuelShake .36s ease-out}"
+    +".duel-root .fuelout b{display:flex;align-items:center;gap:8px;padding:9px 12px;color:var(--pinkl)}"
+    +".duel-root .fuelout i{position:relative;width:24px;height:12px;border:2px solid var(--pinkl);border-radius:3px}"
+    +".duel-root .fuelout i::before{content:'';position:absolute;left:2px;top:2px;bottom:2px;width:3px;border-radius:1px;background:#FF4D6D;animation:fuelBlink .5s steps(2) infinite}"
+    +".duel-root .fuelout i::after{content:'';position:absolute;right:-5px;top:2px;width:3px;height:4px;border-radius:0 1px 1px 0;background:var(--pinkl)}"
+    +".duel-root .fuelout span{display:flex;align-items:center;padding:9px 12px;background:var(--gold);color:#121327;border-radius:0 9px 9px 0}"
+    +".duel-root .fuelout::after{content:'';position:absolute;left:50%;top:100%;margin-left:-8px;border:8px solid transparent;border-top-color:var(--pinkl)}"
+    +".duel-root #bOut.nudge{animation:fuelNudge .55s ease-in-out 3}"
+    +"@keyframes fuelShake{0%{transform:translate(-50%,8px)}35%{transform:translate(calc(-50% - 6px),0)}55%{transform:translate(calc(-50% + 5px),0)}75%{transform:translate(calc(-50% - 3px),0)}100%{transform:translate(-50%,0)}}"
+    +"@keyframes fuelBlink{50%{opacity:0}}"
+    +"@keyframes fuelNudge{50%{box-shadow:0 0 0 4px var(--gold),0 0 26px rgba(242,193,78,.6);transform:scale(1.04)}}"
+    +"@media (prefers-reduced-motion:reduce){.duel-root .fuelout,.duel-root .fuelout i::before,.duel-root #bOut.nudge{animation:none}}"
     +"@media (max-height:720px){.duel-root .res .xlink{display:none}.duel-root .res .moments div:nth-child(n+3){display:none}.duel-root .res h1{font-size:40px}.duel-root .res .margin b{font-size:44px}.duel-root .res .sc b{font-size:26px}}";
   let st=document.getElementById("duel-css"); if(!st){ st=document.createElement("style"); st.id="duel-css"; st.textContent=CSS+RES_CSS; document.head.appendChild(st); }
   root.classList.add("duel-root"); root.innerHTML=HTML;
@@ -178,7 +192,7 @@ function mount(root,host){
   function open(pl,side,stake,why){
     if(!(G&&G.price>0)){ if(pl.me) toast("Waiting for the live BTC price\u2026"); return false; }
     stake=Math.min(stake,pl.fuel/(1+LEV*FEE));
-    if(stake<1){ if(pl.me) toast("Out of duel fuel. Cash out to free some."); return false; }
+    if(stake<1){ if(pl.me) fuelOut(); return false; }
     const size=stake*LEV, fee=size*FEE;
     pl.fuel-=stake+fee; pl.fees+=fee; pl.trades++;
     if(pl.pos&&pl.pos.side===side){
@@ -368,7 +382,15 @@ function mount(root,host){
     const t=txt.toLowerCase(), lead=profitOf(G.me)-profitOf(G.bot);
     if(Math.random()<.65) botSay(/gg|wp/.test(t)?pick(["gg","gg wp"]):/rekt|lol|\ud83d\ude02/.test(t)?(lead>0?pick(["it's not over","watch this"]):pick(["you're the one down","check the board"])):/catch|\ud83d\ude80/.test(t)?pick(["on my way","see you up there","\ud83d\ude80\ud83d\ude80"]):pick(["\ud83d\udc40","focus up","less talking more trading","ok"]));
   }
-  let toastT=0; function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1800);}
+  // out of fuel (maker 2026-11-17: the plain toast was "bad"): a game callout over the trade bar pointing at CASH OUT, and the pill pulses.
+  // Server errors with the same words land here too (toast below).
+  let fuelT=0; function fuelOut(){
+    let n=$("fuelOut"); const bar=document.querySelector(".duel-root .bottom");
+    if(!n&&bar){ n=document.createElement("div"); n.id="fuelOut"; n.className="fuelout"; n.setAttribute("role","status"); n.innerHTML='<b><i aria-hidden="true"></i>OUT OF FUEL</b><span>CASH OUT \u25bc</span>'; bar.prepend(n); }
+    const o=$("bOut"); for(const el of [n,o]) if(el){ el.classList.remove("show","nudge"); void el.offsetWidth; }
+    if(n) n.classList.add("show"); if(o) o.classList.add("nudge"); $("toast").classList.remove("show"); buzz([30,40,30]);
+    clearTimeout(fuelT); fuelT=setTimeout(()=>{ if(n) n.classList.remove("show"); if(o) o.classList.remove("nudge"); },2200); }
+  let toastT=0; function toast(m){ if(/^out of duel fuel/i.test(m)){ fuelOut(); return; } const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1800);}
 
   /* ---------- chart ---------- */
   const cc=$("cc"), cx=cc.getContext("2d");
