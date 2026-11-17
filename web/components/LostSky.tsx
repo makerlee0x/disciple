@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { withBase } from "@/lib/base-path";
+import AnimClip from "@/components/ui/AnimClip";
 
 /**
  * Lost-page shell for the 404 and the page error boundary (step 7 board "Link previews, 404 and invites", maker
@@ -8,6 +9,8 @@ import { withBase } from "@/lib/base-path";
  */
 export const LOST_PLATE = "/art/system/lost.webp";
 export const TROUBLE_PLATE = "/art/system/engine-trouble.webp";
+/** Grok loops A5 (2026-11-17), image-to-video on the same plates: they play over the still, which stays for reduced motion. */
+const PLATE_CLIP: Record<string, string> = { [LOST_PLATE]: "A5-lost", [TROUBLE_PLATE]: "A5-engine-trouble" };
 
 export default function LostSky({
   art,
@@ -34,6 +37,7 @@ export default function LostSky({
         {/* withBase prefixes the static preview; next/image would rewrite that path. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={withBase(plate)} alt="" />
+        {PLATE_CLIP[plate] && <AnimClip id={PLATE_CLIP[plate]} ratio="none" loop className="ls-vid" />}
       </div>
       <div className="ls-card">
         {art}

@@ -132,6 +132,8 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
   const [hull, setHull] = useState<string>(eqItem.hull ?? hullTabs[0]);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  // Grok clip D2 (2026-11-17): the ten copies spiral in and burn down to one point while the trade-up runs. Tap to skip.
+  const [burn, setBurn] = useState(0);
   const [picked, setPicked] = useState(false);
   const [insp, setInsp] = useState<string | null>(null);
   // open on the hull you fly, once the collection has loaded
@@ -181,7 +183,7 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
   const tradeUpGo = async (g: { series: number; rar: Rarity; list: Copy[] }) => {
     if (!wallet || busy) return;
     const ten = [...g.list].sort((a, b) => b.burn - a.burn).slice(0, TRADE_UP_N).map((c) => c.uid);
-    setBusy(true); setNote("");
+    setBusy(true); setNote(""); if (!reducedMotion()) setBurn((n) => n + 1);
     const r = await collectionAction(wallet, { op: "tradeup", copies: ten });
     setBusy(false);
     const it = r.item;
@@ -256,6 +258,11 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
         </ul>
         {panel(flourishes)}
       </div>
+      {burn > 0 && (
+        <div className="hgu-cine" role="presentation" onClick={() => setBurn(0)} data-testid="tradeup-burn">
+          <AnimClip key={burn} id="D2-tradeup-burn" ratio="none" overlay onEnd={() => setBurn(0)} className="hgu-cine-clip" maxMs={4000} />
+        </div>
+      )}
       <div className="dsc3-panel hg-panel hgu-tradeup" data-testid="trade-up">
         <header className="hg-panelh"><h2>Trade up</h2></header>
         <TradeUpGraphic />

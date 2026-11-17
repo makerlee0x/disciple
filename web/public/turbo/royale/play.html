@@ -494,6 +494,9 @@ html,body{margin:0;height:100%;background:#07080c}
 /* Grok clip C5 (2026-11-17): a slow sunrise over the horizon behind the podium; portrait or wide cut by screen shape, a still with reduced motion */
 .duel-root .pod-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .8s ease;pointer-events:none}
 .duel-root .pod-vid.on{opacity:.7}
+/* Grok clip C4 (2026-11-17): the carrier drops the pods and the camera falls into the clouds, over the 3-2-1 before GO */
+.duel-root .dvid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;opacity:0;transition:opacity .35s ease}
+.duel-root .dvid.on{opacity:1}
 .duel-root .pod-head{position:relative;text-align:center;padding:calc(16px + env(safe-area-inset-top,0px)) 16px 6px}
 .duel-root .pod-head small{display:block;font:800 12px/1 var(--f-game);letter-spacing:1.4px;color:var(--champ)}
 .duel-root .pod-head b{display:block;margin-top:6px;font:italic 800 38px/1 var(--f-game);letter-spacing:.6px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -744,6 +747,7 @@ html,body{margin:0;height:100%;background:#07080c}
   <small class="sw-q">SWAP IT FOR</small><div class="sw-row" id="swR"></div>
   <button type="button" class="sw-x" id="swX">LEAVE IT</button><i class="sw-t"><i id="swT"></i></i>
 </div></div>
+<video class="dvid" id="dVid" muted playsinline preload="none" aria-hidden="true" disablepictureinpicture></video>
 <div class="count" id="count" hidden></div>
 
 <div class="pre" id="drop">
@@ -1242,7 +1246,12 @@ function fillLobby(next){ $("smap").hidden=true; $("fChat").hidden=true; toParen
     $("fN").textContent=n; $("dIn").textContent=n+" / 12"; sfx("tick",.5);
     if(n>=12){ clearInterval(fillIv); $("fSub").textContent="LOBBY FULL"; sfx("lock"); buzz([20,40,20]); setTimeout(showDrop,900); } },300);
 }
-function showDrop(){ $("smap").hidden=true; $("fChat").hidden=true; toParent({type:"disciple:music",on:false}); $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; rollMaps(); lzSetup(); buildDrop(); dropT=15; $("dT").textContent=mmss(dropT); $("dBar").style.width="100%"; $("pDrop").classList.remove("hot");
+/* C4 drop clip: picked by the arena's shape and preloaded while the drop lobby counts down; skipped with reduced motion */
+function dropClip(k){ const v=$("dVid"); if(!v||reduce) return; const box=v.parentElement.getBoundingClientRect();
+  if(k==="load"){ const c=box.height>box.width?"9x16":"16x9"; if(v.dataset.c!==c){ v.dataset.c=c; v.src=`../../anim/C4-royale-drop-${c}.mp4`; } v.preload="auto"; try{ v.load(); }catch(e){} return; }
+  if(k==="play"){ try{ v.currentTime=0; }catch(e){} v.classList.add("on"); v.play().catch(()=>v.classList.remove("on")); return; }
+  v.classList.remove("on"); setTimeout(()=>{ if(!v.classList.contains("on")) v.pause(); },400); }
+function showDrop(){ $("smap").hidden=true; $("fChat").hidden=true; toParent({type:"disciple:music",on:false}); $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; rollMaps(); lzSetup(); buildDrop(); dropT=15; $("dT").textContent=mmss(dropT); $("dBar").style.width="100%"; $("pDrop").classList.remove("hot"); dropClip("load");
   clearInterval(dropIv); let q=0; dropIv=setInterval(()=>{ lzTick(); if(++q%4) return; dropT--; $("dT").textContent=mmss(dropT); $("dBar").style.width=(dropT/15*100)+"%";
     // the last five seconds: the clock goes pink and pulses, a tick every second
     if(dropT<=5&&dropT>0){ $("pDrop").classList.add("hot"); sfx("count",.7); buzz(12); if(dropT===5) lzSys("DOORS OPEN IN 5"); }
@@ -1253,8 +1262,8 @@ function go(){
   $("drop").hidden=true; newGame(); G.me.y=null; FX.parts.length=FX.pops.length=FX.rings.length=0;
   $("feed").innerHTML=""; buildJump(); const c=$("count"); c.hidden=false; let n=3;
   const show=()=>{ c.innerHTML=`<div><small>DROPPING INTO ${G.me.mk}</small><small class="cmap">${mapLine}</small>${n}</div>`; };
-  show(); sfx("count"); bed("amb_wind_high"); oneShotAmb("amb_mothership_pass",.7);
-  const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("count"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); sfx("drop",.8); buzz(30); G.started=true; toParent({type:"disciple:music",on:true}); setTimeout(()=>c.hidden=true,450);
+  show(); dropClip("play"); sfx("count"); bed("amb_wind_high"); oneShotAmb("amb_mothership_pass",.7);
+  const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("count"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); sfx("drop",.8); buzz(30); G.started=true; toParent({type:"disciple:music",on:true}); setTimeout(()=>{ c.hidden=true; dropClip("off"); },450);
     feed("m","☁",`${inMk(G.me.mk).length} pilots in ${G.me.mk} · 12 in the game`);
     feed("m","☁",`Sky: <b>${MAP.n}</b> · the storm ends on <b>${finalMk()}</b>`); },800);
 }

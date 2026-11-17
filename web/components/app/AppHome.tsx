@@ -91,6 +91,7 @@ export default function AppHome({ initial }: { initial: HomeData }) {
       <Link href={FREE_HREF} className={s.feat} data-testid="app-featured">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={withBase("/art/modes/free.webp")} alt="" loading="lazy" decoding="async" />
+        <AnimClip id="B6-daily-16x9" ratio="none" loop poster whenVisible className={s.clip} />
         <span className={s.featTag}>Today</span>
         {ends && <span className={s.featTime} suppressHydrationWarning>Ends in {ends}</span>}
         <span className={s.featBody}>

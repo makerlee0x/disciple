@@ -8,6 +8,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import LevelRing from "@/components/xp/LevelRing";
+import AnimClip from "@/components/ui/AnimClip";
 import { freePlayXp, FREE_PLAY_XP } from "@/lib/xp";
 import { nextLevelUnlock } from "@/lib/unlocks";
 import { fetchXp, usePilotWallet, XP_CHANGED_EVENT } from "@/lib/xpClient";
@@ -98,6 +99,7 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
     <div data-testid="daily-result" className="dr" style={{ position: "fixed", inset: 0, zIndex: 40, overflow: "auto", color: "#F2F3F7", fontFamily: "var(--dsc-font-ui)", background: "#07080c" }}>
       <style>{`
         .dr-bg { position: fixed; inset: 0; background: url(/art/share/daily.webp) 62% 30% / cover no-repeat; opacity: .55; pointer-events: none; }
+        .dr-bg .dr-vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
         .dr-bg::after { content: ""; position: absolute; inset: 0; background: radial-gradient(520px 380px at 50% 12%, rgba(242,193,78,.22), rgba(7,8,12,0) 70%), linear-gradient(180deg, rgba(7,8,12,.45) 0%, rgba(7,8,12,.55) 35%, rgba(7,8,12,.92) 70%, #07080c 100%); }
         .dr-wrap { position: relative; max-width: 390px; min-height: 100%; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 52px) 16px calc(env(safe-area-inset-bottom, 0px) + 28px); box-sizing: border-box; display: flex; flex-direction: column; }
         .dr-board { margin-top: 14px; padding: 14px 16px; border-radius: 16px; background: rgba(18,19,39,.82); border: 1px solid rgba(255,255,255,.14); display: flex; flex-direction: column; gap: 6px; }
@@ -112,7 +114,8 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
         }
         @media (max-width: 899px) { .dr-main, .dr-side { display: contents; } }
       `}</style>
-      <div className="dr-bg" aria-hidden />
+      {/* Grok loop B6 (2026-11-17): a dawn launch behind the result, under the same scrim; the share plate stays for reduced motion */}
+      <div className="dr-bg" aria-hidden><AnimClip id="B6-daily" loop className="dr-vid" /></div>
       <div className="dr-wrap"><div className="dr-main">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span style={{ ...game, fontWeight: 700, fontSize: 15, letterSpacing: 1.5, color: "#F3DFA8" }}>DAILY FLIGHT #{id}</span>
