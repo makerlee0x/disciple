@@ -41,7 +41,7 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
   const [duel, setDuel] = useState(false);
   useEffect(() => { setDuel(isTurboEnabled()); }, []);
   const list = useMemo(() => modes(flying, duel), [flying, duel]);
-  const [start, setStart] = useState<ModeId>(signedIn ? "live" : "free");
+  const [start, setStart] = useState<ModeId>(signedIn ? "live" : "launch");
   const [seen, setSeen] = useState<ModeId>(start);
   // no sound while swiping the row (maker found it odd); a card plays mode_select only when it is actually opened (click, not
   // the pointerdown that starts a swipe)
@@ -55,7 +55,7 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
     try { const v = localStorage.getItem(LAST) as ModeId | null; if (v && list.some((m) => m.id === v)) setStart(v); } catch { /* storage blocked */ }
   }, [signedIn, list]);
 
-  // phones: centre the starting card; desktop reads left to right from Host a launch, with the next cards peeking.
+  // phones: centre the starting card (signed out starts on the first card, so the row opens flush left, not part-scrolled); desktop reads left to right from Host a launch, with the next cards peeking.
   // Again once the duel card appears (it shifts the cards).
   useEffect(() => {
     const t = track.current; const el = t?.querySelector<HTMLElement>(`[data-mode="${start}"]`);
