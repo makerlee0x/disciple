@@ -13,7 +13,7 @@ import type { SeasonLine } from "@/lib/duel/types";
 import { kv, type Kv } from "@/lib/server/kv";
 import { ulid } from "@/lib/chat/ulid";
 import {
-  COUNTDOWN_MS, OT_MS, applyTrade, bombAt, makeCode, matchWindow, needsOvertime, newBook, newRating, profitOf, rate, settleBook, fuelOf, sizesOf, isCustomFuel,
+  COUNTDOWN_MS, OT_MS, applyTrade, bombAt, makeCode, matchWindow, needsOvertime, newBook, newRating, profitOf, rate, settleBook, fuelOf, okStake, isCustomFuel,
   type LengthMs, type Rating, type TierId, type TradeAction,
   DUEL_LEN_MS,
 } from "@/lib/duel/rules";
@@ -449,10 +449,11 @@ export async function trade(id: string, pid: string, action: TradeAction, usd: n
     if (typeof p === "number") { evs.push(await settle(r, p, s)); return evs; }
     if (r.gap && now < (r.endAt ?? Infinity)) { held = true; return evs; } // keep the gap (and any bombs), refuse the trade
     if (p === "wait" || now >= (r.endAt ?? Infinity)) throw new DuelError(409, "Time's up.");
-    const sizes = sizesOf(r);
-    if (action !== "close" && !sizes.includes(usd)) throw new DuelError(400, "Pick a trade size.");
-    const out = applyTrade(r.books[pid], action, usd, price, now - (r.startAt ?? now));
-    if (!out) throw new DuelError(409, action === "close" ? "Nothing open." : "Out of duel fuel. Cash out to free some.");
+    if (action !== "close" && !okStake(usd)) throw new DuelError(400, "Pick a trade size.");
+    const before = r.books[pid];
+    const out = applyTrade(before, action, usd, price, now - (r.startAt ?? now));
+    const other = action !== "close" && !!before.pos && before.pos.side !== (action === "boost" ? 1 : -1);
+    if (!out) throw new DuelError(409, action === "close" ? "Nothing open." : other ? "Cash out first." : "Out of duel fuel. Cash out to free some.");
     r.books[pid] = out.book;
     (r.lastTradeAt ??= {})[pid] = now;
     evs.push({ type: "trade", pid, action, price, steps: out.steps, book: out.book });

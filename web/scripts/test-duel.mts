@@ -22,17 +22,25 @@ setDuelPriceSource(async () => PRICE);
 const A = { pid: "0x" + "a".repeat(40), name: "@alice" }, B = { pid: "0x" + "b".repeat(40), name: "@bob" };
 const near = (a: number, b: number, e = 1e-6) => assert.ok(Math.abs(a - b) < e, `${a} ≈ ${b}`);
 
-test("rules: boost, add averages the entry, flip keeps the fuel, close books fees", () => {
+test("rules: boost, add averages the entry, no flips (cash out first), close books fees", () => {
   let b = R.newBook(20);
   let o = R.applyTrade(b, "boost", 5, 68000, 0)!; b = o.book;
   near(b.fuel, 20 - 5 - 5 * R.LEV * R.FEE); assert.equal(b.pos!.side, 1); assert.equal(b.pos!.coll, 5);
   o = R.applyTrade(b, "boost", 5, 68010, 1)!; b = o.book;
   assert.equal(b.pos!.coll, 10); assert.ok(b.pos!.entry > 68000 && b.pos!.entry < 68010);
-  o = R.applyTrade(b, "dump", 2, 68020, 2)!; b = o.book;            // flip: same $10, other side
-  assert.deepEqual(o.steps.map((s) => s.kind), ["close", "open"]); assert.equal(b.pos!.side, -1); assert.equal(b.pos!.coll, 10);
+  assert.equal(R.applyTrade(b, "dump", 2, 68020, 2), null);          // no flips: the other side waits for a cash out
   o = R.applyTrade(b, "close", 0, 68020, 3)!; b = o.book;
-  assert.equal(b.pos, null); assert.equal(b.trades, 5);
+  assert.equal(b.pos, null); assert.equal(b.trades, 3);
+  o = R.applyTrade(b, "dump", 2.5, 68020, 4)!; b = o.book;          // then the other side, any whole-cent size
+  assert.equal(b.pos!.side, -1); assert.equal(b.pos!.coll, 2.5);
+  o = R.applyTrade(b, "close", 0, 68020, 5)!; b = o.book;
   assert.equal(R.applyTrade(b, "close", 0, 68020, 4), null);         // nothing open
+});
+test("rules: % trade sizes and the stakes the server takes", () => {
+  assert.deepEqual([...R.PCTS], [10, 25, 50, 0]);
+  assert.equal(R.pctUsd(25, 50), 12.5); assert.equal(R.pctUsd(10, 18.17), 1.81); assert.equal(R.pctUsd(0, 7.3), 7.3);
+  for (const ok of [0, 1, 2.5, 12.34, 500]) assert.ok(R.okStake(ok), `${ok}`);
+  for (const bad of [0.5, -1, 1.234, NaN, Infinity, 20000]) assert.ok(!R.okStake(bad), `${bad}`);
 });
 test("rules: ALL uses everything, NUKE at 80% of the fuel in it", () => {
   let b = R.applyTrade(R.newBook(20), "boost", 0, 68000, 0)!.book;
@@ -75,7 +83,7 @@ test("server: fills at the server price, buzzer settles once, ratings move, rema
   const t1 = await S.trade(room.id, A.pid, "boost", 5, PRICE);
   const ev = t1.events.find((e) => e.type === "trade")!; assert.equal((ev as { price: number }).price, 68000);
   await S.trade(room.id, B.pid, "dump", 5, PRICE);
-  await assert.rejects(S.trade(room.id, A.pid, "boost", 3, PRICE), /trade size/);
+  await assert.rejects(S.trade(room.id, A.pid, "boost", 0.5, PRICE), /trade size/);
   PRICE = 68040; // A up, B down
   const ch = await S.chat(room.id, B.pid, "gg"); assert.equal(ch.events[0].type, "chat");
   await S.tick(room.id, PRICE); // the stream's tick marks 68040 just before the buzzer
@@ -276,7 +284,7 @@ test("custom budgets: sizes scale on 1-2-5 steps; friend room books start at the
   await patch(room.id, (r) => { r.startAt = Date.now() - 1000; r.endAt = Date.now() + 60_000; });
   PRICE = 68000;
   await S.trade(room.id, a.pid, "boost", 200, PRICE);
-  await assert.rejects(S.trade(room.id, b.pid, "boost", 25, PRICE), /trade size/);   // a tier size, not this budget's
+  await assert.rejects(S.trade(room.id, b.pid, "boost", 1.234, PRICE), /trade size/);   // whole cents only
   // a bad budget never sticks: the room falls back to the tier
   await S.leave(room.id, a.pid); await S.leave(room.id, b.pid);
   const c = pilot("5"); const odd = await S.createInvite(c, "rookie", 60_000, undefined, 4);
@@ -292,7 +300,8 @@ test("custom budgets: a $5 duel trades in whole dollars ($1 / $2 / $3 / $4)", as
   PRICE = 68000;
   await S.trade(room.id, a.pid, "boost", 4, PRICE);
   await S.trade(room.id, b.pid, "dump", 1, PRICE);
-  await assert.rejects(S.trade(room.id, b.pid, "dump", 2.5, PRICE), /trade size/);
+  await assert.rejects(S.trade(room.id, b.pid, "dump", 0.5, PRICE), /trade size/);
+  await assert.rejects(S.trade(room.id, b.pid, "boost", 1, PRICE), /Cash out first/);   // no flips
 });
 
 test("guest pilots (/duel demo page): signed cookie, forged or wrong ids refused", async () => {
