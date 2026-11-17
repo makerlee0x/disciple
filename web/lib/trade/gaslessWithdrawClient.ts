@@ -6,7 +6,7 @@ import { type Address, type Hex, type LocalAccount, type PublicClient } from "vi
 import { ACTIVE_CHAIN } from "../chains";
 import { bigintToDecimal, GASLESS_MAX_DEADLINE_SEC, jsonSafe, PERMIT2, type Permit } from "./gaslessPermit2";
 import { permitFor, permit2NonceBook, GaslessError, type GaslessSendResult } from "./gaslessClient";
-import { transferTypedData, type AnyWithdrawRequest } from "./gaslessWithdraw";
+import { transferTypedData, type AnyWithdrawRequest, type ForwarderWithdrawRequest } from "./gaslessWithdraw";
 import { MULTICALL3_ADDR, withdrawTypedData } from "./permitForwarder";
 
 export type WithdrawQuote = {
@@ -39,6 +39,27 @@ export async function quoteGaslessWithdraw(input: { amount?: bigint; signer?: Ad
   const j = await r.json().catch(() => ({})) as { result?: unknown; error?: { message?: string; data?: GaslessError["data"] } };
   if (!j.result) throw new GaslessError(j.error?.message ?? `withdraw quote HTTP ${r.status}`, j.error?.data ?? {}, r.status);
   return parseWithdrawQuote(j.result);
+}
+
+/**
+ * Sign a market buy: two forwarder withdraws from one nonce book, relayed together in one tx (lib/server/gaslessWithdrawRelay
+ * relayMarketBuy). pay = seller's share + the network fee (to the relayer); cut = the market fee straight to the treasury.
+ */
+export async function signMarketBuy(pc: PublicClient, owner: LocalAccount, a: { seller: Address; sellerRaw: bigint; treasury: Address; feeRaw: bigint; quote: WithdrawQuote; nowSec?: number }): Promise<{ pay: ForwarderWithdrawRequest; cut: ForwarderWithdrawRequest }> {
+  if (!a.quote.spender || a.quote.spender.toLowerCase() === MULTICALL3_ADDR.toLowerCase()) throw new Error("Buying isn't available on this network yet.");
+  const now = BigInt(a.nowSec ?? Math.floor(Date.now() / 1000));
+  const deadline = now + BigInt(GASLESS_MAX_DEADLINE_SEC - 30);
+  const book = permit2NonceBook(pc);
+  const [n1, approval] = await Promise.all([book.next(owner.address), permitFor(pc, owner, a.quote.usdg, deadline)]);
+  const n2 = await book.next(owner.address);
+  const one = async (nonce: bigint, to: Address, amount: bigint, fee: bigint): Promise<ForwarderWithdrawRequest> => {
+    const permit: Permit = { permitted: { token: a.quote.usdg, amount }, nonce, deadline };
+    const signature = await owner.signTypedData(jsonSafe(withdrawTypedData(ACTIVE_CHAIN.id, a.quote.spender, permit, { to, fee, feeTo: a.quote.feeTo })));
+    return { signer: owner.address, destination: to, amount, fee, feeTo: a.quote.feeTo, permit, signature };
+  };
+  const pay = await one(n1, a.seller, a.sellerRaw + a.quote.fee, a.quote.fee);
+  const cut = await one(n2, a.treasury, a.feeRaw, BigInt(0));
+  return { pay: approval ? { ...pay, approval } : pay, cut };
 }
 
 /**

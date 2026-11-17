@@ -8,14 +8,14 @@ import "server-only";
  * unmarkedRate from usdgEthRate, 1.0x; same helpers formerly in paymasterCore). Quoted fee is kept. feeTo is the configured relayer EOA (stable across the pool: a pool key
  * may broadcast, the fee still lands on the relayer address the player was shown).
  */
-import { createPublicClient, parseAbi, recoverTypedDataAddress, type Address, type Hex } from "viem";
+import { createPublicClient, encodeFunctionData, parseAbi, recoverTypedDataAddress, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { DEPLOYMENTS, robinhoodTestnet } from "../chains";
 import { GaslessReject } from "../trade/gaslessPermit2";
 import {
   checkForwarderWithdrawRequest, checkGaslessWithdrawRequest, encodeForwarderWithdrawCall, encodeWithdrawCall, isForwarderWithdraw,
-  minWithdrawAmount, parseAnyWithdrawRequest, transferTypedData, withdrawFeeRaw, withdrawGas, WITHDRAW_TX_GAS_LIMIT,
-  type AnyWithdrawRequest,
+  minWithdrawAmount, MULTICALL3, multicall3Abi, parseAnyWithdrawRequest, transferTypedData, withdrawFeeRaw, withdrawGas, WITHDRAW_TX_GAS_LIMIT,
+  type AnyWithdrawRequest, type ForwarderWithdrawRequest,
 } from "../trade/gaslessWithdraw";
 import { relaySpender, withdrawTypedData } from "../trade/permitForwarder";
 import { PERMIT2 } from "../trade/gaslessPermit2";
@@ -58,6 +58,8 @@ export type QuoteOpts = {
   feeTo?: Address;
   needsPermit?: boolean;
   usdgDecimals?: number;
+  /** more forwarder withdraws batched into the same tx (a market buy pays the seller and the treasury: 1) */
+  extraWithdraws?: number;
 };
 
 /** disciple_gaslessWithdrawQuote: no signature, no Privy session. */
@@ -76,7 +78,7 @@ export async function quoteGaslessWithdraw(raw: unknown = {}, opts: QuoteOpts = 
     } catch { needsPermit = true; }
   }
   if (needsPermit === undefined) needsPermit = true; // conservative when we can't see the allowance
-  const gas = withdrawGas(needsPermit);
+  const gas = withdrawGas(needsPermit) + BigInt(opts.extraWithdraws ?? 0) * withdrawGas(false);
   const feeTo = opts.feeTo ?? withdrawFeeTo();
   const baseFee = opts.baseFee ?? (await directRelayer()).fee;
   const rate = opts.rate ?? withdrawUsdgPerEth();
@@ -88,13 +90,13 @@ export async function quoteGaslessWithdraw(raw: unknown = {}, opts: QuoteOpts = 
   };
 }
 
-async function admitWithdraw(signer: Address, to: Address, data: Hex, d: GaslessDeps): Promise<{ relayer: DirectRelayer; did: string }> {
+async function admitWithdraw(signer: Address, to: Address, data: Hex, d: GaslessDeps, gasLimit = WITHDRAW_TX_GAS_LIMIT): Promise<{ relayer: DirectRelayer; did: string }> {
   const m = d.metrics;
   const relayer = directRelayer(m);
   const session = timed(m, "authSession", () => verifySessionToken(d.idToken));
   const owner = session.then(x => timed(m, "authSessionWallet", () => requireSessionWallet(x, signer)));
   const gate = session.then(x => timed(m, "revokeStrikeGate", () => requireNotRevokedOrStruck(signer, Date.now(), x.did)));
-  const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data, WITHDRAW_TX_GAS_LIMIT)));
+  const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", () => simulateDirect(r.address, to, data, gasLimit)));
   const all = [session, owner, gate, d.ipGate ?? Promise.resolve(), sim, relayer];
   const res = await timed(m, "admissionSimulationWall", () => Promise.allSettled(all));
   for (const x of res) if (x.status === "rejected") throw notSent(x.reason);
@@ -169,6 +171,68 @@ export async function relayGaslessWithdraw(raw: unknown, d: GaslessDeps = {}): P
   const data = isForwarderWithdraw(q) ? encodeForwarderWithdrawCall(q) : encodeWithdrawCall(q, dep.usdg);
   const { relayer, did } = await admitWithdraw(q.signer, target, data, d);
   return commitWithdraw(q.signer, target, data, WITHDRAW_TX_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
+}
+
+/** Where the market's 7% goes (MARKET_TREASURY_ADDRESS). Unset ⇒ null, and buying stays off (fail closed). */
+export function marketTreasury(env: NodeJS.ProcessEnv = process.env): Address | null {
+  const a = env.MARKET_TREASURY_ADDRESS?.trim();
+  return a && /^0x[0-9a-fA-F]{40}$/.test(a) ? (a as Address) : null;
+}
+
+export type MarketBuyRequest = { pay: ForwarderWithdrawRequest; cut: ForwarderWithdrawRequest };
+
+/** JSON → the two signed forwarder withdraws of a market buy (pay: seller + network fee to the relayer; cut: 7% to the treasury). */
+export function parseMarketBuyRequest(raw: unknown): MarketBuyRequest {
+  const o = (raw ?? {}) as { pay?: unknown; cut?: unknown };
+  const pay = parseAnyWithdrawRequest(o.pay), cut = parseAnyWithdrawRequest(o.cut);
+  if (!isForwarderWithdraw(pay) || !isForwarderWithdraw(cut)) throw new GaslessReject("please update the app and try again");
+  return { pay, cut };
+}
+
+/**
+ * A market buy: two forwarder withdraws signed by the buyer, sent in one Multicall3 tx so both land or neither does.
+ * pay sends the seller their share and the network fee to the relayer; cut sends the 7% straight to the treasury (no fee).
+ * The market (lib/server/market.ts) has already checked the amounts against the listing.
+ */
+export async function relayMarketBuy(raw: unknown, d: GaslessDeps = {}): Promise<GaslessConfirmed> {
+  const t0 = Date.now();
+  let q: MarketBuyRequest;
+  let data: Hex;
+  const dep = DEPLOYMENTS[46630];
+  try {
+    requireGaslessMode();
+    relayBreaker.assertClosed();
+    const spender = relaySpender(robinhoodTestnet.id);
+    if (spender.kind !== "forwarder") throw new GaslessReject("buying isn't available on this network yet");
+    const treasury = marketTreasury();
+    if (!treasury) throw new GaslessReject("buying is switched off right now");
+    q = parseMarketBuyRequest(raw);
+    if (q.pay.signer.toLowerCase() !== q.cut.signer.toLowerCase()) throw new GaslessReject("both payments must come from one wallet");
+    if (q.cut.destination.toLowerCase() !== treasury.toLowerCase() || q.cut.fee !== BigInt(0)) throw new GaslessReject("market fee is not to the treasury");
+    if (q.pay.permit.nonce === q.cut.permit.nonce) throw new GaslessReject("payments share a nonce");
+    if (q.cut.approval && q.cut.approval.value > BigInt(0)) throw new GaslessReject("approval belongs on the first payment");
+    const feeTo = withdrawFeeTo();
+    const needsPermit = !!(q.pay.approval && q.pay.approval.value > BigInt(0));
+    const gas = withdrawGas(needsPermit) + withdrawGas(false);
+    const current = withdrawFeeRaw(gas, (await directRelayer()).fee, withdrawUsdgPerEth(), dep.usdgDecimals);
+    if (q.pay.fee < current) throw new GaslessReject("fee changed, please retry");
+    const nowSec = d.nowSec ?? Math.floor(Date.now() / 1000);
+    checkForwarderWithdrawRequest(q.pay, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec, feeTo, minFee: current });
+    checkForwarderWithdrawRequest(q.cut, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec, feeTo: q.cut.feeTo, minFee: BigInt(0) });
+    for (const r of [q.pay, q.cut]) {
+      const who = await recoverTypedDataAddress({
+        ...withdrawTypedData(robinhoodTestnet.id, spender.address, r.permit, { to: r.destination, fee: r.fee, feeTo: r.feeTo }), signature: r.signature,
+      });
+      if (who.toLowerCase() !== r.signer.toLowerCase()) throw new GaslessReject("signature is not the signer's");
+    }
+    data = encodeFunctionData({ abi: multicall3Abi, functionName: "aggregate3", args: [[
+      { target: spender.address, allowFailure: false, callData: encodeForwarderWithdrawCall(q.pay) },
+      { target: spender.address, allowFailure: false, callData: encodeForwarderWithdrawCall(q.cut) },
+    ]] });
+  } catch (e) { throw notSent(e); }
+  const limit = WITHDRAW_TX_GAS_LIMIT * BigInt(2);
+  const { relayer, did } = await admitWithdraw(q.pay.signer, MULTICALL3, data, d, limit);
+  return commitWithdraw(q.pay.signer, MULTICALL3, data, limit, relayer, d, t0, Date.now() - t0, did);
 }
 
 export type { OnPending };

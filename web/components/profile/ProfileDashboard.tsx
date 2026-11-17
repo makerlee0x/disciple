@@ -31,6 +31,7 @@ import HangarBay from "@/components/hangar/HangarBay";
 import HangarSignedOut from "@/components/hangar/HangarSignedOut";
 import RocketLooks from "@/components/hangar/RocketLooks";
 import { Crates, YourRocket } from "@/components/hangar/Collection";
+import { HangarTrades, useSellHooks } from "@/components/hangar/Market";
 import { useCollection } from "@/lib/collectionClient";
 import type { Progress } from "@/lib/unlocks";
 import { Fleet, ServiceRecord, TrophyCase } from "@/components/hangar/HangarSections";
@@ -38,7 +39,7 @@ import { useHomeCoins, useLoadout, useTrophies } from "@/components/hangar/hanga
 
 const PAGE = { activity: 12 } as const;
 /** The app's Hangar jump row: section heading id → label. */
-const HANGAR_JUMPS = [["hg-looks", "Your rocket"], ["hg-crates", "Crates"], ["hg-fleet", "Fleet"], ["hg-trophies", "Trophies"], ["hg-log", "Flight log"]] as const;
+const HANGAR_JUMPS = [["hg-looks", "Your rocket"], ["hg-crates", "Crates"], ["hg-trades", "Trades"], ["hg-fleet", "Fleet"], ["hg-trophies", "Trophies"], ["hg-log", "Flight log"]] as const;
 
 /** Activity (real trades only): ↑ BOOST / ↓ DUMP · rocket · dollars · when. */
 function Activity({ rows, isPrivate, owner }: { rows: ActivityItem[] | null; isPrivate: boolean; owner: string }) {
@@ -188,6 +189,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const activity = useRealActivity(wallet);
   const rewards = useRewards(isPrivate && !!wallet);
   const { col } = useCollection(isPrivate ? wallet || null : null);
+  const { hooks: sell, mine } = useSellHooks(isPrivate ? wallet || null : null);
 
   // /profile signed out: no sample pilot pretending to be you (existing copy only).
   if (isPrivate && !wallet) {
@@ -249,8 +251,9 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
 
       <ServiceRecord pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} aboard={holdings ? holdings.length : null} launched={launched} isPrivate={isPrivate} />
 
-      {isPrivate && <YourRocket col={col} wallet={wallet || null} handle={handle} />}
+      {isPrivate && <YourRocket col={col} wallet={wallet || null} handle={handle} sell={sell} />}
       {isPrivate && <Crates col={col} wallet={wallet || null} />}
+      {isPrivate && <HangarTrades col={col} wallet={wallet || null} mine={mine} />}
 
       {isPrivate && <RocketLooks progress={progress} hull={looks.hull} flare={looks.flare} coin={loadout.coin} setHull={looks.setHull} setFlare={looks.setFlare} note={looks.note} />}
 
