@@ -29,6 +29,9 @@ import { pct } from "@/lib/aa/slippage";
 import type { Address } from "@/lib/protocol";
 import Icon from "@/components/icons/Icon";
 import LevelRing from "@/components/xp/LevelRing";
+import { fetchProfileMeta } from "@/lib/profileMetaClient";
+import { withBase } from "@/lib/base-path";
+import { pfpUrl } from "@/lib/profileMeta";
 import { levelInfo } from "@/lib/xp";
 import { useXp } from "@/lib/xpClient";
 import { playerError } from "@/lib/playerError";
@@ -64,7 +67,16 @@ function metaOf(coin: Address) {
 /** The pilot's level ring for the lobby chip (level 1 until the first XP lands). */
 function PilotRing({ wallet }: { wallet: string }) {
   const { xp } = useXp(wallet);
-  return <LevelRing info={xp?.level ?? levelInfo(0)} size={36} />;
+  // the pilot's picture inside the ring, level on a badge (re-read after Edit profile saves)
+  const [img, setImg] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const read = () => { void fetchProfileMeta(wallet).then((m) => { if (alive) setImg(pfpUrl(m.pfp) ? withBase(pfpUrl(m.pfp)) : null); }); };
+    read();
+    window.addEventListener(PROFILE_CHANGED_EVENT, read);
+    return () => { alive = false; window.removeEventListener(PROFILE_CHANGED_EVENT, read); };
+  }, [wallet]);
+  return <LevelRing info={xp?.level ?? levelInfo(0)} size={36} img={img} />;
 }
 
 export default function WalletButton({ compact = false, hideCash = false }: { compact?: boolean; /** profile pages: no cash / total cards */ hideCash?: boolean } = {}) {

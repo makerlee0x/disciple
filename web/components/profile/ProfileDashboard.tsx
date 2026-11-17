@@ -10,7 +10,8 @@ import { fetchProfileMeta } from "@/lib/profileMetaClient";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
 import { NO_IDENTITY } from "@/lib/identity";
 import { withBase } from "@/lib/base-path";
-import { onWallet } from "@/lib/walletState";
+import { connectedAddress, onWallet } from "@/lib/walletState";
+import { hasSavedSession, onPrivy, privyAuthenticated, privyLoaded } from "@/lib/aa/sessionState";
 import { DEPOSIT_HREF, LEGACY_CASH_HASH, OPEN_SETTINGS_EVENT, SETTINGS_HASHES } from "@/lib/cashLink";
 import SettingsModal from "./SettingsModal";
 import EditProfileSheet from "./EditProfileSheet";
@@ -93,6 +94,16 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   }, [isPrivate]);
 
   const [wallet, setWallet] = useState<string | null>(null);
+  // /profile: a saved session is still being restored (Privy loading). Gives up after 8 s so a dead session shows signed out.
+  const [restoring, setRestoring] = useState(isPrivate);
+  useEffect(() => {
+    if (!isPrivate) return;
+    const sync = () => setRestoring(!connectedAddress() && (privyAuthenticated() || (!privyLoaded() && hasSavedSession())));
+    sync();
+    const offP = onPrivy(sync), offW = onWallet(sync);
+    const t = window.setTimeout(() => setRestoring(false), 8000);
+    return () => { offP(); offW(); window.clearTimeout(t); };
+  }, [isPrivate]);
   // Public /u/<0x…> (leaderboard rows without a username link here): the slug IS the wallet; its claimed username,
   // if any, is looked up below, else the page shows the wallet's space-themed default call sign.
   const slugAddr = !isPrivate && isAddressLike(username) ? username!.toLowerCase() : null;
@@ -189,6 +200,8 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const rewards = useRewards(isPrivate && !!wallet);
   const { col } = useCollection(isPrivate ? wallet || null : null);
 
+  // Still signing in from a saved session: show nothing yet instead of flashing the signed-out hangar (maker 2026-11-17).
+  if (isPrivate && !wallet && restoring) return <div className="profile-page hg" aria-busy="true" data-testid="hangar-restoring" />;
   // /profile signed out: no sample pilot pretending to be you (existing copy only).
   if (isPrivate && !wallet) {
     return (
