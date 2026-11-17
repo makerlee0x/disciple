@@ -1,6 +1,6 @@
 # DISCIPLE smart contract audit handoff
 
-**Code:** commit `7adcab4` (fixes for the 2026-11-17 audit round; previous round was `9ca52f1`), private repo makerlee0x/disciple, PR #461 (`contracts/`). The source is attached as one text file: `disciple-contracts-7adcab4.sol.txt` (45 files, about 9,300 lines). A smaller core-only file is `disciple-core-7adcab4.sol.txt`.
+**Code:** commit `b52f0b0` (audit-round fixes, then free hidden launches, LoginGate deleted, Safe handover after deploy; earlier rounds `9ca52f1`, `7adcab4`), private repo makerlee0x/disciple, PR #461 (`contracts/`). The source is attached as one text file: `disciple-contracts-b52f0b0.sol.txt` (45 files). A smaller core-only file is `disciple-core-b52f0b0.sol.txt`.
 **Stack:**
 - Solidity 0.8.26, via-IR, optimizer 200 runs, EVM cancun.
 - Uniswap v4-core v4.0.0, v4-periphery 9969eec, OpenZeppelin v5.7.0.
