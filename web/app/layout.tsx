@@ -15,6 +15,7 @@ import { barlowCondensed, geist, instrumentSerif } from "./fonts";
 import AppShell from "@/components/AppShell";
 import ChatBridge from "@/components/chat/ChatBridge";
 import AppSounds from "@/components/AppSounds";
+import LevelUpFlash from "@/components/xp/LevelUpFlash";
 import PrivyProviders from "@/components/PrivyProviders";
 import IconSprite from "@/components/icons/IconSprite";
 import { sponsorshipConfig } from "@/lib/server/sponsorshipConfig";
@@ -76,6 +77,7 @@ export default function RootLayout({
         <PrivyProviders>
           <AppShell>{children}</AppShell>
           <ChatBridge />
+          <LevelUpFlash />
         </PrivyProviders>
       </body>
     </html>

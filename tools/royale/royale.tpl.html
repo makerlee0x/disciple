@@ -146,6 +146,9 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .podium[hidden]{display:none}
 .duel-root .pod-bg{position:absolute;inset:-40px;background:#0B0C1E center/cover no-repeat;filter:blur(16px) brightness(.5) saturate(1.1)}
 .duel-root .pod-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,8,12,.35) 0%,rgba(7,8,12,.55) 55%,rgba(7,8,12,.92) 100%)}
+/* Grok clip C5 (2026-11-17): a slow sunrise over the horizon behind the podium; portrait or wide cut by screen shape, a still with reduced motion */
+.duel-root .pod-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .8s ease;pointer-events:none}
+.duel-root .pod-vid.on{opacity:.7}
 .duel-root .pod-head{position:relative;text-align:center;padding:calc(16px + env(safe-area-inset-top,0px)) 16px 6px}
 .duel-root .pod-head small{display:block;font:800 12px/1 var(--f-game);letter-spacing:1.4px;color:var(--champ)}
 .duel-root .pod-head b{display:block;margin-top:6px;font:italic 800 38px/1 var(--f-game);letter-spacing:.6px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -462,6 +465,7 @@ html,body{margin:0;height:100%;background:#07080c}
 </div></div>
 <div class="podium" id="podium" hidden role="dialog" aria-label="Turbo Royale podium">
   <div class="pod-bg" id="podBg" aria-hidden="true"></div>
+  <video class="pod-vid" id="podVid" muted playsinline loop preload="none" aria-hidden="true" disablepictureinpicture></video>
   <header class="pod-head"><small id="podK">TURBO ROYALE · PODIUM</small><b id="podH">WINNER</b></header>
   <div class="pod-row" id="podRow"></div>
   <div class="pod-dots" id="podDots" aria-label="Podium places"></div>
@@ -973,7 +977,11 @@ function podCard(p){ const L=lookOf(p), pr=pnlFin(p), col=v=>v>0.004?"var(--gree
     <div class="pk-st">${st.map(([k,v,c,big])=>`<div${big?' class="big"':""}><span>${k}</span><b${c?` style="color:${c}"`:""}>${v}</b></div>`).join("")}</div>
   </article>`; }
 let podRaf=0, podPs=[], podT0=0, flImg=new Image(); flImg.src=FLOURISH;
-function podStop(){ cancelAnimationFrame(podRaf); podRaf=0; }
+function podStop(){ cancelAnimationFrame(podRaf); podRaf=0; const v=$("podVid"); if(v){ v.pause(); v.classList.remove("on"); } }
+/* C5 podium sunrise loop (../../anim/C5-podium-<9x16|16x9>.mp4 + -poster.webp); reduced motion shows the poster only */
+function podVid(){ const v=$("podVid"); if(!v) return; const c=innerHeight>innerWidth?"9x16":"16x9", b=`../../anim/C5-podium-${c}`;
+  if(v.dataset.c!==c){ v.dataset.c=c; v.poster=b+"-poster.webp"; if(!reduce){ v.src=b+".mp4"; v.preload="auto"; } }
+  v.classList.add("on"); if(!reduce) v.play().catch(()=>{}); }
 function podDraw(now){ podRaf=requestAnimationFrame(podDraw);
   document.querySelectorAll("#podRow .pk").forEach((el,i)=>{ const p=podPs[i], cv=el.querySelector("canvas"); if(!p||!cv) return;
     const dpr=Math.min(2,devicePixelRatio||1), w=cv.clientWidth, h=cv.clientHeight; if(!w||!h) return;
@@ -1012,7 +1020,7 @@ function showPodium(){ if(!G||!$("podium").hidden) return;
   const mine=me.place||12, inTop=ps.includes(me); $("podMe").hidden=inTop;
   if(!inTop){ const pr=pnlFin(me); $("podMeT").innerHTML=`<b>YOU #${mine}</b>${whyLine(me)}`; $("podMeV").textContent=usd(pr,true); $("podMeV").style.color=pr>=0?"var(--green)":"var(--pinkl)"; }
   LASTR={place:mine,win:mine===1,pr:pnlFin(me),mk:me.mk,df:me.dfW,champ:champ.name};
-  $("podium").hidden=false; row.scrollLeft=0; podStop(); podT0=performance.now()+400; podRaf=requestAnimationFrame(podDraw);
+  $("podium").hidden=false; row.scrollLeft=0; podStop(); podT0=performance.now()+400; podRaf=requestAnimationFrame(podDraw); podVid();
   toParent({type:"disciple:music",on:false}); bed(null);
   if(!champ.me) sfx("champ",.55);
   victoryMusic(true,2600);   // after the 3-4 s champion sting has hit

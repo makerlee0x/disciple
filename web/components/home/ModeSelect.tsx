@@ -14,6 +14,11 @@ import { DUEL_HREF, FLIGHTS_HREF } from "@/lib/features";
 import { isTurboEnabled } from "@/lib/turbo/flag";
 import s from "./modeSelect.module.css";
 import { appFeel, playSfx } from "@/lib/game/sfx";
+import AnimClip from "@/components/ui/AnimClip";
+
+/* Grok loops over the poster art (A3, 2026-11-17: image-to-video on the same plates, so the still and the clip line up).
+   Royale has none yet. Each plays only while its card is on screen. */
+const CLIP: Partial<Record<ModeId, string>> = { launch: "A3-mode-launch", live: "A3-mode-live", duel: "A3-mode-duel", free: "A3-mode-free" };
 
 type ModeId = "launch" | "live" | "duel" | "royale" | "free";
 type Mode = { id: ModeId; title: [string, string]; tag: string; tone: string; href: string; art: string; pos: string };
@@ -131,6 +136,7 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
               {/* every card can be on the first screen, so none is lazy; the starting card's art is fetched first */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img className={s.art} src={withBase(m.art)} alt="" style={{ objectPosition: m.pos }} loading="eager" fetchPriority={m.id === start ? "high" : "auto"} decoding="async" />
+              {CLIP[m.id] && <AnimClip id={CLIP[m.id]!} ratio="none" loop poster whenVisible className={s.art} style={{ objectPosition: m.pos }} />}
               <span className={s.scrim} aria-hidden />
               <span className={s.tag} style={{ color: m.tone }}>{m.tag}</span>
               <span className={s.body}>

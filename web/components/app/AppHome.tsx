@@ -24,6 +24,7 @@ import LiveCard from "@/components/home/LiveCard";
 import LiveRockets from "./LiveRockets";
 import { QUICK_PLAY_EVENT } from "./events";
 import s from "./appHome.module.css";
+import AnimClip from "@/components/ui/AnimClip";
 
 const POLL_MS = 30_000;
 const FREE_HREF = "/flight/sim";
@@ -105,6 +106,7 @@ export default function AppHome({ initial }: { initial: HomeData }) {
         <Link href={DUEL_HREF} className={s.duel} data-testid="app-duel">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={withBase("/art/modes/duel.webp")} alt="" loading="lazy" decoding="async" />
+          <AnimClip id="A3-mode-duel" ratio="none" loop poster whenVisible className={s.clip} />
           <span className={s.duelTx}>
             <b>1v1 duel</b>
           </span>

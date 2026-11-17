@@ -31,7 +31,8 @@ type Props = {
   loop?: boolean;
   /** loops: show public/anim/<id>[-ratio]-poster.webp until the video plays, and instead of it with reduced motion */
   poster?: boolean;
-  /** overlay on black: blend with `screen` so only the light shows */
+  /** overlay on black: blend with `screen` so only the light shows. Inside a fixed or z-indexed layer (its own stacking
+   *  context) the blend has nothing under it: put mix-blend-mode: screen on that layer instead (see BombFlash). */
   overlay?: boolean;
   /** hold without unmounting: a loop pauses, a one-shot waits (preloaded) and starts when this turns false */
   paused?: boolean;
